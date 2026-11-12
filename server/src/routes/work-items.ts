@@ -38,7 +38,7 @@ import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import { identity, IDENTITY_UNAVAILABLE, sourceDown } from '../identity.ts';
-import { COCKPIT_ID_MAX, isCreator, STATES, type WorkItemService, type WorkItemState } from '../services/work-item.ts';
+import { COCKPIT_ID_MAX, dueAtOf, isCreator, overdueOf, STATES, type WorkItemService, type WorkItemState } from '../services/work-item.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import type { TeamService } from '../services/team.ts';
 import { answerItemAsk, CREATOR_ANSWERS, decideItemAnswer } from '../attention-answers.ts';
@@ -46,8 +46,9 @@ import { markSeatMessagesRead, replySeatMessage, seatAsksOf, seatMessagesOf, sea
 import { principalsAdmin } from './principals.ts';
 import { canOf, canSee, creatorOf, decidesNow, itemDecisionVerdict, itemRoles, releaseBy, turnOf, VIEW_ALL_ACTION, VIEW_ALL_KIND, VIEWS, viewScopes, workItemViewer, writerVerdict, type ItemRole, type ViewName } from '../work-item-access.ts';
 import { arrangeTask } from '../task-center.ts';
-import { assignableTeams, kickWorkbenchEvents, releaseCore } from '../workbench-events.ts';
+import { assignableTeams, kickWorkbenchEvents, logEventFact, releaseCore } from '../workbench-events.ts';
 import { eventOfItem } from '../seat-messages.ts';
+import { attachmentsOfEvent } from '../services/work-item-attachments.ts';
 
 export type WorkItemRouteDeps = {
   markOdooAdmin: (req: express.Request) => Promise<void>;
@@ -131,11 +132,12 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       const shown = page.items.filter((w) => itemRoles(w, viewer).includes(roleOf[view]));
       // 等谁放行：这一页有 held 的才取一次全部团队视图（负责人名字按看的人裁）
       const teamViews = shown.some((w) => w.state === 'held') ? svc<TeamService>('teams').allViews() : [];
+      const nowMs = Date.now();
       res.json({
         view, views,
         items: shown.map((w) => ({
           id: w.id, title: w.title, state: w.state, object: w.object, phase: w.phase, seat: w.seat, cockpit_id: w.cockpit_id,
-          last_progress: w.last_log, updated_at: w.updated_at, release_by: releaseBy(w, viewer, teamViews),
+          last_progress: w.last_log, updated_at: w.updated_at, due: w.due_at ? w.due_at.slice(0, 10) : null, overdue: overdueOf(w, nowMs), release_by: releaseBy(w, viewer, teamViews),
         })),
         counts: page.counts, total: page.total,
         next_cursor: page.next ? Buffer.from(JSON.stringify({ u: page.next.updated_at, i: page.next.id }), 'utf8').toString('base64url') : null,
@@ -197,7 +199,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       const item = items.get(id);
       if (!item || !canSee(item, viewer)) return void res.status(404).json({ error: 'work_item_not_found' });
       // 只增：这个人能做什么（can）、是不是轮到他（turn）、建立人是谁（creator）。判断都在 work-item-access.ts，和各动作接口同一处
-      res.json({ item, log: items.log(id), ...seatMessagesOf(item), progress: seatProgressOf(item), subitems: seatSubitemsOf(item), asks: seatAsksOf(item), can: canOf(item, viewer), turn: turnOf(item, viewer), creator: creatorOf(item), release_by: releaseBy(item, viewer) });
+      res.json({ item, due: item.due_at ? item.due_at.slice(0, 10) : null, overdue: overdueOf(item), attachments: attachmentsOfEvent(item.source_ref).map((a) => ({ name: a.name, size: a.size, url: `/api/work-items/${id}/attachments/${a.id}`, id: a.id, mime: a.mime, sha256: a.sha256 })), log: items.log(id), ...seatMessagesOf(item), progress: seatProgressOf(item), subitems: seatSubitemsOf(item), asks: seatAsksOf(item), can: canOf(item, viewer), turn: turnOf(item, viewer), creator: creatorOf(item), release_by: releaseBy(item, viewer) });
     })().catch(next);
   });
 
@@ -321,6 +323,35 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
   });
 
   // 动作类别是「决定」：建立人替自己的事项拍板
+  // 改截止日期（安排时填的，建立人可以改）：只有建立人本人（writerVerdict 为 ok），管理员也不行——截止是建立人对这件事的要求。
+  // 请求体只读 due：'YYYY-MM-DD' 或 null（清掉）；事项结束了不能改（409）。事件日志记一行 due-changed（从几号改成几号、谁改的）
+  app.post('/api/work-items/:id/due', { action: 'work-items.due-set', kind: 'write', statusNotVerdict: CREATOR_DECIDES }, (req, res, next) => {
+    res.set('Cache-Control', 'private, no-store');
+    if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
+    const id = String(req.params.id ?? '');
+    if (!ITEM_ID.test(id)) return void res.status(400).json({ error: 'work_item_id_invalid' });
+    const b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body as Record<string, unknown> : {};
+    if (!('due' in b)) return void res.status(400).json({ error: 'due_required' });
+    const dueAt = b.due === null ? '' : dueAtOf(b.due);
+    if (b.due !== null && dueAt === '') return void res.status(400).json({ error: 'due_invalid' });
+    (async () => {
+      const viewer = await workItemViewer(req, deps);
+      if (!viewer.principal) return void res.status(401).json({ error: 'work_items_auth_required' });
+      const verdict = writerVerdict(viewer, id, false); // 只认建立人本人：管理员不代改
+      if (verdict === 'not_found') return void res.status(404).json({ error: 'work_item_not_found' });
+      if (verdict === 'inactive') return void res.status(403).json({ error: 'work_items_principal_not_active' });
+      if (verdict !== 'ok' && verdict !== 'not_eligible') return void res.status(404).json({ error: 'work_item_not_found' });
+      const items = svc<WorkItemService>('workItems');
+      const item = items.get(id);
+      if (!item) return void res.status(404).json({ error: 'work_item_not_found' });
+      const at = new Date().toISOString();
+      if (!items.setDue(id, dueAt, at.replace('T', ' ').slice(0, 19))) return void res.status(409).json({ error: 'work_item_ended', state: item.state });
+      if (item.source_ref.startsWith('wbe-')) logEventFact(item.source_ref, viewer.principal, 'due-changed', { from: item.due_at, to: dueAt });
+      const after = items.get(id)!;
+      res.json({ item_id: id, due: after.due_at ? after.due_at.slice(0, 10) : null, overdue: overdueOf(after) });
+    })().catch(next);
+  });
+
   app.post('/api/work-items/:id/decision', { action: 'work-items.accept', kind: 'decide', statusNotVerdict: CREATOR_DECIDES }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });

@@ -90,8 +90,8 @@ try {
 
   // ---------- 每行的字段 ----------
   const row = a.body.items.find((x) => x.title === 'alpha 在办 0');
-  check(row && show(Object.keys(row).sort()) === show(['cockpit_id', 'id', 'last_progress', 'object', 'phase', 'release_by', 'seat', 'state', 'title', 'updated_at']) && row.cockpit_id === null && row.release_by === null && row.state === 'progress' && row.seat === 'seat:checker' && row.object === 'po:1' && row.phase === 'p2',
-    '每行：id、title、state、object、phase、seat、cockpit_id（不经驾驶舱的是 null）、last_progress、updated_at、release_by（不在等过目是 null）', show(row));
+  check(row && show(Object.keys(row).sort()) === show(['cockpit_id', 'due', 'id', 'last_progress', 'object', 'overdue', 'phase', 'release_by', 'seat', 'state', 'title', 'updated_at']) && row.due === null && row.overdue === false && row.cockpit_id === null && row.release_by === null && row.state === 'progress' && row.seat === 'seat:checker' && row.object === 'po:1' && row.phase === 'p2',
+    '每行：id、title、state、object、phase、seat、cockpit_id（不经驾驶舱的是 null）、last_progress、updated_at、due（没填是 null）、overdue、release_by（不在等过目是 null）', show(row));
   check(row?.last_progress?.text === '对账做到第三步' && row.last_progress.fact === 'report' && typeof row.last_progress.at === 'string' && row.last_progress.at !== '', '最后一条进展取事项日志的最后一行：谁、做了什么、那句话、什么时候', show(row?.last_progress));
   const draft = a.body.items.find((x) => x.title === 'alpha 草稿 0');
   check(draft?.seat === '' && draft.last_progress?.fact === 'create', '没有接手席位的 seat 是空串；刚建的事项最后一条是「建立」', show(draft));

@@ -13,6 +13,7 @@ import { directedSeatsDeclared } from './a2a.ts';
 import { peerRootOf, type A2aPeerService } from './services/a2a-peers.ts';
 import { rosterHostOfRoot, rosterSeatById } from './services/a2a-roster.ts';
 import { relationOf } from './team-relation.ts';
+import { ATTACHMENTS_PER_ITEM, bindAttachments, ownUnbound } from './services/work-item-attachments.ts';
 
 export const taskCenterSteps = [
   { key: 'title', title: '任务标题' }, { key: 'intent', title: '任务意图' },
@@ -190,7 +191,11 @@ export function arrangeTask(raw: unknown, requester: string, now: Date = new Dat
   }
   const seatId = str('seat_id');
   if (seatId === null || (seatId !== '' && !SEAT_ID.test(seatId))) return bad('seat_id_invalid');
-  const payload = JSON.stringify({ title: v.title, intent: v.intent, deliverable: v.deliverable, team, object: v.object, phase: v.phase, due, review, ...(cockpitId ? { cockpit_id: cockpitId } : {}), ...(seatId ? { seat_id: seatId } : {}) });
+  // 附件：本人先上传（PUT /api/work-items/attachments/:name）拿到的 id；每件最多 ATTACHMENTS_PER_ITEM 个，不能重复
+  const rawAtt = b.attachments === undefined || b.attachments === null ? [] : b.attachments;
+  if (!Array.isArray(rawAtt) || rawAtt.length > ATTACHMENTS_PER_ITEM || !rawAtt.every((x) => Number.isSafeInteger(x) && (x as number) > 0) || new Set(rawAtt).size !== rawAtt.length) return bad('attachments_invalid', { max: ATTACHMENTS_PER_ITEM });
+  const attIds = (rawAtt as number[]).slice().sort((x, y) => x - y);
+  const payload = JSON.stringify({ title: v.title, intent: v.intent, deliverable: v.deliverable, team, object: v.object, phase: v.phase, due, review, ...(cockpitId ? { cockpit_id: cockpitId } : {}), ...(seatId ? { seat_id: seatId } : {}), ...(attIds.length ? { attachments: attIds } : {}) });
   const sha = createHash('sha256').update(payload, 'utf8').digest('hex');
   const tasks = svc<TaskCenterService>('taskCenter');
   const items = svc<WorkItemService>('workItems');
@@ -211,6 +216,9 @@ export function arrangeTask(raw: unknown, requester: string, now: Date = new Dat
     if (tasks.arrangeCountSince(requester, sqlTime(new Date(now.getTime() - 86_400_000))) >= limits.perDay) { tasks.arrangeRollback(); return { status: 429, body: { error: 'rate_limited', window: 'day', limit: limits.perDay } }; }
     const target = assignableTeams().find((t) => t.agent_node === team);
     if (!target) { tasks.arrangeRollback(); return bad('team_not_assignable'); }
+    // 附件只能是本人上传、还没挂到别的事上的；别人的、不存在的、挂过的一律同答（不说是哪一种）
+    const attRows = attIds.length ? ownUnbound(attIds, requester) : [];
+    if (attRows === null) { tasks.arrangeRollback(); return bad('attachments_invalid', { max: ATTACHMENTS_PER_ITEM }); }
     const directed = seatId ? directedSeat(team, target.notify_url, seatId, requester) : null;
     if (directed && 'status' in directed) { tasks.arrangeRollback(); return directed; }
     // 真指名（对端声明了 directedSeats）：指名自己的席位缺省不过目（review:true 才由本人过目）；负责人指名不过目。
@@ -227,9 +235,11 @@ export function arrangeTask(raw: unknown, requester: string, now: Date = new Dat
       id: taskId, data: fields, stepValue: (k) => fields[k], publishedBy: requester, requesterPrincipal: requester, publisherPrincipal: requester,
       templateVersion: null, materialSha256: sha, agentDispatch: direct, centerOn,
       arranged: { team, submitter: requester, ...(v.object ? { object: v.object } : {}), ...(v.phase ? { phase: v.phase } : {}), ...(cockpitId ? { cockpitId } : {}),
+        ...(attRows.length ? { attachments: attRows.map((a) => ({ id: a.id, name: a.name, mime: a.mime, size: a.size, sha256: a.sha256 })) } : {}),
         ...(pinned ? { handoff: pinned.handoff, reviewBy: pinned.handoff === 'own-seat' && reviewNow ? 'requester' as const : '' as const, directedSeatId: seatId } : {}),
         ...(directed?.fallback ? { directedFallback: { seat_id: seatId, reason: 'peer_not_declared' } } : {}) },
     });
+    if (attIds.length && bindAttachments(attIds, requester, eventId, now.toISOString()) !== attIds.length) throw new Error('附件挂到事件上没有全部成功');
     tasks.insertArrangeRequest({ requester, key, sha256: sha, taskId, eventId, at });
     tasks.arrangeCommit();
     return { status: 201, body: view(taskId, eventId, false, { ...(!reviewNow && !direct ? { reason: 'review_required_by_policy' } : {}), ...(directed ? { handoff: pinned ? pinned.handoff : 'team', directed: pinned ? 'seat' : 'fallback_team' } : {}) }) };

@@ -30,7 +30,7 @@ export const MAX_ATTEMPTS = 5;
 const EVENT_ID = /^wbe-[0-9a-f]{16}$/;
 /** 对端判为不可重试的线码：-32001 载荷超限、-32002 同 task_id 不同载荷、-32003 同 task_id 重放（每次尝试的 task_id 都唯一，出现即异常） */
 export const TERMINAL_CODES = new Set([-32001, -32002, -32003]);
-const REPLY_TTL_DAYS = 7; // reply token 自送达起 7 天有效（ask 之后也不例外）
+export const REPLY_TTL_DAYS = 7; // reply token 自送达起 7 天有效（ask 之后也不例外）
 const WORKER_CONCURRENCY = 8;
 
 export function initWorkbenchEvents(): void {
@@ -94,6 +94,10 @@ export function sqliteUtcIn(ms: number): string {
 /** 阶段七 R3：入站回执经它写事件日志（同一个 log()，事项服务照常听到）。调用方负责事务。 */
 export function logDeliveryFact(eventId: string, deliveryId: number, actor: string, action: string, detail: Record<string, unknown> = {}): void {
   log(eventId, deliveryId, actor, action, detail);
+}
+/** 事件层面（不属于哪一次投递）的一行留痕，比如建立人改了截止日期。调用方负责事务 */
+export function logEventFact(eventId: string, actor: string, action: string, detail: Record<string, unknown> = {}): void {
+  log(eventId, null, actor, action, detail);
 }
 function log(eventId: string, deliveryId: number | null, actor: string, action: string, detail: Record<string, unknown> = {}): void {
   const info = db.prepare('INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, ?, ?, ?)').run(eventId, deliveryId, actor, action, JSON.stringify(detail));
@@ -159,6 +163,8 @@ interface EventCore {
   cockpitId?: number;
   /** 指名退回整队派发的留痕（对端宿主名片没声明 directedSeats）：想指名哪个席位、为什么没指名。只记在 recorded 那一行 */
   directedFallback?: { seat_id: string; reason: string };
+  /** 截止日期 YYYY-MM-DD（只记在 recorded 那一行，事项建出来时取；信封里的 task.due 原样带给接收方） */
+  due?: string;
 }
 
 /**
@@ -179,7 +185,7 @@ function recordEvent(core: EventCore, targets: Target[], routed: 'target' | 'def
   db.prepare('INSERT INTO workbench_events (event_id, source, workbench, item, context_id, submitter_kind, submitter, form_version, data_sha256, dispatch, routed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(eventId, core.source, core.workbench, core.item, core.contextId, core.submitterKind, core.submitter, core.formVersion, core.dataSha256, core.dispatch ? 1 : 0, routed);
   log(eventId, null, 'market', 'recorded', { source: core.source, routed, submitter_kind: core.submitterKind, targets: targets.length, ...(core.requester ? { requester: core.requester } : {}), ...(core.via ? { via: core.via } : {}), ...(core.publisher ? { publisher: core.publisher } : {}), ...(core.object ? { object: core.object } : {}), ...(core.phase ? { phase: core.phase } : {}),
-    ...(core.handoff ? { handoff: core.handoff, review_by: core.reviewBy ?? (held ? 'lead' : '') } : {}), ...(core.directedSeatId ? { directed_seat_id: core.directedSeatId } : {}), ...(core.cockpitId ? { cockpit_id: core.cockpitId } : {}), ...(core.directedFallback ? { directed_fallback: core.directedFallback } : {}) });
+    ...(core.handoff ? { handoff: core.handoff, review_by: core.reviewBy ?? (held ? 'lead' : '') } : {}), ...(core.directedSeatId ? { directed_seat_id: core.directedSeatId } : {}), ...(core.cockpitId ? { cockpit_id: core.cockpitId } : {}), ...(core.directedFallback ? { directed_fallback: core.directedFallback } : {}), ...(core.due ? { due: core.due } : {}) });
   const envelope = envelopeOf(eventId, createdAt);
   for (const t of targets) {
     let token = '';
@@ -205,7 +211,9 @@ export function recordTaskCenterEvent(task: { id: number; data: Record<string, u
     /** 规范 14：交给方式、等谁过目、指名的席位（seatId）。阶段七的指名派工经这里写；不给就是交给团队、按 held 推等谁过目 */
     handoff?: 'team' | 'own-seat' | 'lead-directed'; reviewBy?: '' | 'lead' | 'requester'; directedSeatId?: string; directedFallback?: { seat_id: string; reason: string };
     /** 从哪个驾驶舱安排的（调用方已经核过驾驶舱存在） */
-    cockpitId?: number } }): string {
+    cockpitId?: number;
+    /** 附件（只带引用）：信封里列名字、类型、大小、sha256 和取件地址，内容不进正文 */
+    attachments?: { id: number; name: string; mime: string; size: number; sha256: string }[] } }): string {
   let targetSop = '';
   let targets: Target[];
   let routed: 'target' | 'default' | 'unrouted' = 'target';
@@ -231,10 +239,16 @@ export function recordTaskCenterEvent(task: { id: number; data: Record<string, u
   };
   const fields: Record<string, unknown> = { id: task.id };
   for (const key of ['title', 'intent', 'references', 'deliverable', 'target', 'due']) fields[key] = task.stepValue(key) ?? '';
+  if (typeof fields.due === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fields.due)) core.due = fields.due;
   return recordEvent(core, targets, routed, !(task.agentDispatch && task.centerOn), `${MARKET_TEAM}/${sopNode8('task-center')}`, (eventId, createdAt) => ({
     type: 'workbench-event', v: WORKBENCH_EVENT_VERSION, event_id: eventId, source: core.source, workbench: core.workbench, item: core.item,
     context_id: contextId, submitter_kind: core.submitterKind, submitter: core.submitter, form_version: core.formVersion,
     data_sha256: core.dataSha256, created_at: createdAt, dispatch: true, task: fields,
+    // 附件：只给引用。取件：GET <url>，请求头 X-Reply-Token 带下面 reply.token（和回写决定同一个令牌、同样的有效期）
+    ...(task.arranged?.attachments?.length ? {
+      attachments: task.arranged.attachments.map((a) => ({ name: a.name, mime: a.mime, size: a.size, sha256: a.sha256, url: `${marketPublicUrl()}/api/workbench-events/${eventId}/attachments/${a.id}` })),
+      attachments_fetch: 'GET 每个附件的 url，请求头 X-Reply-Token 带这条消息 reply.token 的值；令牌和回写决定同一个，送达后 7 天内有效',
+    } : {}),
   }));
 }
 

@@ -10,7 +10,7 @@ const express=require('express');
 const { createStartupSecurityProbe, isStartupProbeRequest }=await import('../server/src/startup-security-self-probe.ts');
 let checks=0;const check=(name,condition)=>{assert.ok(condition,name);checks++;console.log('PASS '+name);};
 const noAuth='DO_NOT_LOG_SYNTHETIC_CREDENTIAL';
-async function fixture({mcpBroken=false,writeBroken=false,principalsBroken=false,callbackBroken=false,eventBroken=false,exportBroken=false,creatorBroken=false,listBroken=false,arrangeBroken=false,seatReplyBroken=false,seatAskBroken=false,leadReleaseBroken=false,grantsBroken=false,grantApproveBroken=false,knowledgeBroken=false,teamReassignBroken=false,attentionBroken=false,appDataBroken=false,varsMissingBroken=false,runWriteBroken=false,hang=false,off=false,control=false,hold=false,noChallenge=false,successWrite=false,nodeEnv='test',cockpitBroken=false}={}){
+async function fixture({mcpBroken=false,writeBroken=false,principalsBroken=false,callbackBroken=false,eventBroken=false,exportBroken=false,creatorBroken=false,listBroken=false,arrangeBroken=false,uploadBroken=false,dueBroken=false,seatReplyBroken=false,seatAskBroken=false,leadReleaseBroken=false,grantsBroken=false,grantApproveBroken=false,knowledgeBroken=false,teamReassignBroken=false,attentionBroken=false,appDataBroken=false,varsMissingBroken=false,runWriteBroken=false,hang=false,off=false,control=false,hold=false,noChallenge=false,successWrite=false,nodeEnv='test',cockpitBroken=false}={}){
  const app=express(),logs=[],db=new DatabaseSync(':memory:');db.exec('CREATE TABLE workbenches(id INTEGER PRIMARY KEY,name TEXT)');let ordinaryHits=0;const requests=[];
  const probe=createStartupSecurityProbe({timeoutMs:hang?50:500,log:row=>logs.push(row)});app.use(probe.middleware);app.use(express.json());let release;const barrier=hold?new Promise(r=>release=r):Promise.resolve();
  const server=createServer(app);await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;
@@ -22,6 +22,8 @@ async function fixture({mcpBroken=false,writeBroken=false,principalsBroken=false
  app.get('/api/work-items',(_req,res)=>listBroken?res.json({items:[],counts:{},total:0,next_cursor:null}):res.status(401).json({error:'work_items_auth_required'}));
  app.post('/api/work-items',(_req,res)=>arrangeBroken?res.status(201).json({item_id:'wi_x'}):res.status(401).json({error:'work_items_auth_required'}));
  app.put('/api/cockpits/:id',(_req,res)=>cockpitBroken?res.status(404).json({error:'cockpit not found'}):res.status(401).json({error:'cockpit_auth_required'}));
+ app.put('/api/work-items/attachments/:name',(_req,res)=>uploadBroken?res.status(201).json({id:1}):res.status(401).json({error:'work_items_auth_required'}));
+ app.post('/api/work-items/:id/due',(_req,res)=>dueBroken?res.status(200).json({ok:true}):res.status(401).json({error:'work_items_auth_required'}));
  app.post('/api/work-items/:id/decision',(_req,res)=>creatorBroken?res.status(200).json({ok:true}):res.status(401).json({error:'work_items_auth_required'}));
  app.post('/api/work-items/:id/release',(_req,res)=>leadReleaseBroken?res.status(200).json({ok:true}):res.status(401).json({error:'work_items_auth_required'}));
  app.post('/api/work-items/:id/messages/:mid/reply',(_req,res)=>seatReplyBroken?res.status(200).json({ok:true}):res.status(401).json({error:'work_items_auth_required'}));
@@ -64,6 +66,8 @@ async function fixture({mcpBroken=false,writeBroken=false,principalsBroken=false
  const f5=await fixture({arrangeBroken:true});try{const r=await f5.start();check('arrange entry that lets a remote anonymous browser create work fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.work-items.arrange-anonymous');}finally{await f5.close();}
  const f6=await fixture({seatAskBroken:true});try{const r=await f6.start();check('seat ask answer entry that lets a remote anonymous browser answer fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.work-items.seat-ask-answer-anonymous');}finally{await f6.close();}
  const f5c=await fixture({cockpitBroken:true});try{const r=await f5c.start();check('cockpit write that lets a remote anonymous browser through (404 instead of 401) fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.cockpits.anonymous-write');}finally{await f5c.close();}
+ const fu=await fixture({uploadBroken:true});try{const r=await fu.start();check('attachment upload that lets a remote anonymous browser store a file fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.work-items.attachment-upload-anonymous');}finally{await fu.close();}
+ const fd=await fixture({dueBroken:true});try{const r=await fd.start();check('due date change that lets a remote anonymous browser edit work fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.work-items.due-set-anonymous');}finally{await fd.close();}
  const g=await fixture({grantsBroken:true});try{const r=await g.start();check('grant list readable by a remote anonymous browser fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.grants.admin-read');}finally{await g.close();}
  const ga=await fixture({grantApproveBroken:true});try{const r=await ga.start();check('grant approve entry that answers a remote anonymous browser past the sign-in check fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.grants.approve-anonymous');}finally{await ga.close();}
  const kn=await fixture({knowledgeBroken:true});try{const r=await kn.start();check('knowledge list that answers a remote anonymous browser past the sign-in check fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.knowledge.anonymous-read');}finally{await kn.close();}
@@ -131,6 +135,8 @@ for(const nodeEnv of ['development','test']){
  app.get('/api/work-items',(_req,res)=>res.status(401).end());
  app.post('/api/work-items',(_req,res)=>res.status(401).end());
  app.put('/api/cockpits/:id',(_req,res)=>res.status(401).end());
+ app.put('/api/work-items/attachments/:name',(_req,res)=>res.status(401).end());
+ app.post('/api/work-items/:id/due',(_req,res)=>res.status(401).end());
  app.post('/api/work-items/:id/decision',(_req,res)=>res.status(401).end());
  app.post('/api/work-items/:id/messages/:mid/reply',(_req,res)=>res.status(401).end());
  app.post('/api/work-items/:id/release',(_req,res)=>res.status(401).end());

@@ -48,6 +48,7 @@ import { actorResolver, compareConfig, mountJudgmentCompare } from './judgment-c
 import { checkEnforce, enforceConfig, enforceGate, type EnforceConfig } from './judgment-enforce.ts';
 import { registerAttentionRoutes } from './routes/attention.ts';
 import { registerWorkItemRoutes } from './routes/work-items.ts';
+import { registerWorkItemAttachmentRoutes } from './routes/work-item-attachments.ts';
 import { registerRosterRoutes } from './routes/a2a-roster.ts';
 import { registerSettingsRoutes } from './routes/settings.ts';
 import { settingsViewsLeak } from './settings-view.ts';
@@ -490,6 +491,9 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/messages\/(read|[1-9]\d{0,15}\/reply)$/,
   // 「安排一件事」：登录的人直接建事项（路由内经身份服务认人，只认启用的人；只此一条路径，不带子路径）
   /^\/api\/work-items$/,
+  // 「安排一件事」的附件上传、建立人改截止日期：路由内经身份服务认人（上传的是启用的人本人；改截止只认建立人本人）；只此两条
+  /^\/api\/work-items\/attachments\/[^/]{1,255}$/,
+  /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/due$/,
   // 团队：成员的分配、收回、改派由团队的负责人做（路由内认人、核同源、判是不是负责人或管理员；只此三条）
   /^\/api\/teams\/(assign|unassign|reassign)$/,
   // 授予的放行（L19）：管理层、属主多半不是管理员。路由内认人、核同源，三档规则判能不能放行；只此一条子路径
@@ -2006,6 +2010,7 @@ registerRelationRoutes(http, { markOdooAdmin, adminHeaderOk, adminActor, crossOr
 registerAccessRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 角色预设 ②：以某人的身份看、红线清单、首次安装向导
 registerAttentionRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
 registerWorkItemRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8d：事项页的时间线
+registerWorkItemAttachmentRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 「安排一件事」的附件：上传、人读（跟事项走）、接单节点凭回执令牌取
 registerRosterRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段七：团队名册的读（登录即可读，只有席位信息）
 
 // ---------- 扩展（WM_EXTENSIONS_DIR）：挂在身份/写门之后、SPA 回落之前；加载失败拒绝启动 ----------
