@@ -6,6 +6,7 @@
  *   二、谁进不了：没登录 401；管理口令 403（读和写都是，带着管理层的登录一起来也是）；没有授予的人 403；
  *       系统管理员角色的授予 403；授予的范围不是「全部」的 403；主体停用 403；本机命令行 403；带跨站标记 403
  *   三、谁进得了：只有管理层（范围「全部」）的人，读写都行。普通员工（范围「全部」）读写都是 403；
+ *       带业务写的授予系统管理员一个人给不出去：停在待放行时被授的人全 403，属主放行后才通；
  *       写行的请求体最后才收：没登录、没权限、台没登记、op 不对的，请求体没发完就回了
  *   四、台要先登记：没登记的标识 404，而且数据目录里不会多出库文件；没权限的人看不出台存不存在（都是 403）
  *   五、整条流程：登记台、建数据集、四种写入（请求体原样递给工作线程，5 MB 也收）、查询、快照与退回、
@@ -156,6 +157,23 @@ try {
   const memberGot = [];
   for (const [m, path] of ALL_ROUTES) memberGot.push((await srv.call(m, `/api/bench-views${path}`, { ...nobody, ...(m === 'GET' ? {} : path.includes('/rows') ? { raw: '[]' } : { body: {} }) })).status);
   check(g3.ok && ALL_ROUTES.length === 17 && memberGot.every((x) => x === 403), '只有普通员工授予（范围「全部」）的人：17 条路由读写全是 403', memberGot.join());
+
+  console.log('三之一、带业务写的授予：系统管理员一个人给不出去');
+  // 管理口令（只有系统管理员身份）起草一条「部门成员、范围全部」给 strasse 并提交，自己放行不了；停在待放行时 strasse 哪条路由都进不来
+  await srv.call('GET', '/api/auth/viewer', { session: SESSIONS.strasse });
+  const pendingOne = who(SESSIONS.strasse);
+  const draft = await srv.call('POST', '/api/grants', { ...token, body: { principal: 'user:strasse', role: 'dept-member', scope: '*', reason: '合成：系统管理员起草' } });
+  const gid = draft.json?.grant?.id;
+  const submitted = await srv.call('POST', `/api/grants/${gid}/submit`, token);
+  const selfApprove = await srv.call('POST', `/api/grants/${gid}/approve`, token);
+  const stateOf = () => db.prepare('SELECT status FROM grants WHERE id = ?').get(gid)?.status;
+  const tryAll = async () => { const got = []; for (const [m, path] of ALL_ROUTES) got.push((await srv.call(m, `/api/bench-views${path}`, { ...pendingOne, ...(m === 'GET' ? {} : path.includes('/rows') ? { raw: '[]' } : { body: {} }) })).status); return got; };
+  const before = await tryAll();
+  check(gid !== undefined && submitted.status < 300 && selfApprove.status >= 400 && stateOf() !== 'active' && before.every((x) => x === 403),
+    '管理口令起草、提交了，自己放行不了；停在待放行时被授的人 17 条路由全是 403', { draft: draft.status, submit: submitted.status, approve: selfApprove.status, state: stateOf(), got: before.join() });
+  const released = await srv.call('POST', `/api/grants/${gid}/approve`);
+  const after = await tryAll();
+  check(released.status < 300 && stateOf() === 'active' && after.every((x) => x !== 403 && x !== 401), '属主（本机命令行）放行之后：这个人进得来了（不再是 403）', { approve: released.status, state: stateOf(), got: after.join() });
 
   console.log('三之二、写行的请求体：没过门的不读');
   // 只发请求头和 1 MB 的开头，后面的不发、也不结束请求：服务端要是先收请求体再判，就会一直等下去
