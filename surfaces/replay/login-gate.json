@@ -75,8 +75,8 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "108", "etag": "W/\"6c-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
-            "body": { "gate": "off", "authenticated": true, "via": "cli", "login": null, "principal": null, "display_name": null, "roles": [] }
+            "headers": { "cache-control": "private, no-store", "content-length": "138", "etag": "W/\"8a-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "gate": "off", "authenticated": true, "via": "cli", "login": null, "principal": null, "display_name": null, "roles": [], "can": { "create_cockpit": true } }
           }
         },
         {
@@ -88,8 +88,8 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "108", "etag": "W/\"6c-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
-            "body": { "gate": "off", "authenticated": false, "via": null, "login": null, "principal": null, "display_name": null, "roles": [] }
+            "headers": { "cache-control": "private, no-store", "content-length": "139", "etag": "W/\"8b-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "gate": "off", "authenticated": false, "via": null, "login": null, "principal": null, "display_name": null, "roles": [], "can": { "create_cockpit": false } }
           }
         },
         {
@@ -101,8 +101,8 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "108", "etag": "W/\"6c-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
-            "body": { "gate": "off", "authenticated": false, "via": null, "login": null, "principal": null, "display_name": null, "roles": [] }
+            "headers": { "cache-control": "private, no-store", "content-length": "139", "etag": "W/\"8b-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "gate": "off", "authenticated": false, "via": null, "login": null, "principal": null, "display_name": null, "roles": [], "can": { "create_cockpit": false } }
           }
         },
         {
@@ -243,8 +243,8 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "110", "etag": "W/\"6e-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
-            "body": { "gate": "off", "authenticated": true, "via": "token", "login": null, "principal": null, "display_name": null, "roles": [] }
+            "headers": { "cache-control": "private, no-store", "content-length": "140", "etag": "W/\"8c-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "gate": "off", "authenticated": true, "via": "token", "login": null, "principal": null, "display_name": null, "roles": [], "can": { "create_cockpit": true } }
           }
         },
         {
@@ -256,8 +256,8 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "108", "etag": "W/\"6c-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
-            "body": { "gate": "off", "authenticated": false, "via": null, "login": null, "principal": null, "display_name": null, "roles": [] }
+            "headers": { "cache-control": "private, no-store", "content-length": "139", "etag": "W/\"8b-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "gate": "off", "authenticated": false, "via": null, "login": null, "principal": null, "display_name": null, "roles": [], "can": { "create_cockpit": false } }
           }
         }
       ]
@@ -544,8 +544,8 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "133", "etag": "W/\"85-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
-            "body": { "gate": "off", "authenticated": true, "via": "odoo", "login": "alpha", "principal": "user:alpha", "display_name": "Synthetic alpha", "roles": [] }
+            "headers": { "cache-control": "private, no-store", "content-length": "164", "etag": "W/\"a4-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "gate": "off", "authenticated": true, "via": "odoo", "login": "alpha", "principal": "user:alpha", "display_name": "Synthetic alpha", "roles": [], "can": { "create_cockpit": false } }
           }
         },
         {
@@ -579,7 +579,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "252", "etag": "W/\"fc-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "283", "etag": "W/\"11b-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
             "body": {
               "gate": "off",
               "authenticated": true,
@@ -587,7 +587,8 @@
               "login": "alpha",
               "principal": "user:alpha",
               "display_name": "Synthetic alpha",
-              "roles": [{ "id": "member", "name": "普通员工", "scope": "*", "preset": true, "expires_at": null, "source": "manual", "approved_by": "cli" }]
+              "roles": [{ "id": "member", "name": "普通员工", "scope": "*", "preset": true, "expires_at": null, "source": "manual", "approved_by": "cli" }],
+              "can": { "create_cockpit": false }
             }
           }
         },
@@ -600,8 +601,8 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "108", "etag": "W/\"6c-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
-            "body": { "gate": "off", "authenticated": false, "via": null, "login": null, "principal": null, "display_name": null, "roles": [] }
+            "headers": { "cache-control": "private, no-store", "content-length": "139", "etag": "W/\"8b-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "gate": "off", "authenticated": false, "via": null, "login": null, "principal": null, "display_name": null, "roles": [], "can": { "create_cockpit": false } }
           }
         },
         {
@@ -613,8 +614,8 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "108", "etag": "W/\"6c-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
-            "body": { "gate": "off", "authenticated": false, "via": null, "login": null, "principal": null, "display_name": null, "roles": [] }
+            "headers": { "cache-control": "private, no-store", "content-length": "139", "etag": "W/\"8b-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "gate": "off", "authenticated": false, "via": null, "login": null, "principal": null, "display_name": null, "roles": [], "can": { "create_cockpit": false } }
           }
         },
         {
@@ -742,8 +743,8 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "133", "etag": "W/\"85-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
-            "body": { "gate": "off", "authenticated": true, "via": "odoo", "login": "alpha", "principal": "user:alpha", "display_name": "Synthetic alpha", "roles": [] }
+            "headers": { "cache-control": "private, no-store", "content-length": "164", "etag": "W/\"a4-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "gate": "off", "authenticated": true, "via": "odoo", "login": "alpha", "principal": "user:alpha", "display_name": "Synthetic alpha", "roles": [], "can": { "create_cockpit": false } }
           }
         }
       ]
@@ -775,8 +776,8 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "112", "etag": "W/\"70-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
-            "body": { "gate": "enforce", "authenticated": false, "via": null, "login": null, "principal": null, "display_name": null, "roles": [] }
+            "headers": { "cache-control": "private, no-store", "content-length": "143", "etag": "W/\"8f-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "gate": "enforce", "authenticated": false, "via": null, "login": null, "principal": null, "display_name": null, "roles": [], "can": { "create_cockpit": false } }
           }
         },
         {

@@ -325,6 +325,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   app-data-contract.ts（自产台数据契约：必填/枚举/格式/条件规则（含条件格式）/数组对象逐元素，POST 数据时服务端权威校验）
   app-html.ts（出自产台页面 HTML：注入按台令牌，认得出的人在当前上架版本上再注入提交人票据；出票抛错页面照常不带票据，别的出错回到原样页面并计数）
   seat-messages.ts（事项对话里的席位消息：跟进不进「关注」，在事项页列出、带未读数；看过标已读、回复作为同一 context 的新任务发回）
+  cockpit-access.ts（谁能建、改、删驾驶舱：本机命令行和管理员照旧；登录的人交给判定，管理层的预设点名了 cockpit.create / update / delete；写路由、读应答的 can.edit、/api/auth/me 的 can.create_cockpit 都问这一处）
   attention-answers.ts（「关注」各来源的答法：转给原路由的换算表——路径固定、id 核形状后编码、请求体只取这种答法要的字段；席位提问的答复、事项的验收和退回直接实现）
   attention-forward.ts（进程内把答复转给原路由：全局中间件和原路由的守卫照走，身份头原样、来源地址照抄，应答原样交回）
   attention-names.ts（「关注」条目的显示名 waiting_for_name、creator_name：在汇总那一层统一补，只给看的人本来就看得到的人的名字——管理员、本人、管理层、同部门的；别的给 null，席位、对端这些非人键给 null，MCP 会话给类型加名字）
@@ -442,7 +443,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   auth-viewer.ts（登录探测 /api/auth/viewer）
   bindings.ts（A2A 人工绑定 /api/bindings 和退役的旧面）
   change-requests.ts（人审变更请求 /api/change-requests：列表、批准、拒绝；批准、拒绝的判断和执行收在 changeRequestReview 一处，「关注」的审核卡片当场批也调它，审核人取认出来的管理员、不通过要写理由）
-  cockpits.ts（驾驶舱 /api/cockpits）
+  cockpits.ts（驾驶舱 /api/cockpits：写不经写请求总门，处理之前问 cockpit-access.ts；读应答带 can.edit，不带建立人）
   content-observation.ts（门户观测状态 /api/content/observation）
   cookies.ts（Cookie 池 /api/cookies）
   departments.ts（部门 /api/departments：登录的人读列表、单个部门的成员、某人属于哪些部门；管理员建改删部门和成员）

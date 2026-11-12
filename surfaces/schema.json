@@ -249,7 +249,8 @@
       "description TEXT DEFAULT ''",
       "layout_config TEXT NOT NULL DEFAULT '[]'",
       "created_at TEXT NOT NULL DEFAULT datetime('now')",
-      "updated_at TEXT NOT NULL DEFAULT datetime('now')"
+      "updated_at TEXT NOT NULL DEFAULT datetime('now')",
+      "created_by TEXT"
     ],
     "cookie_sets": [
       "id INTEGER PK",

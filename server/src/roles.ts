@@ -203,7 +203,8 @@ export const PLATFORM_ROLES: readonly RoleDecl[] = [
   // 系统管理员：系统域的读写管；各处的「管理」类动作（台的切版本、删数据这类）也给；业务数据的读写没有；不拍业务的板
   { id: 'admin', name: '系统管理员', permissions: [{ kinds: ['read', 'write', 'admin'], domains: [...SYSTEM_DOMAINS] }, { kinds: ['admin'] }] },
   // 管理层：全公司的读、写、决定；不管系统
-  { id: 'management', name: '管理层', permissions: [{ kinds: ['read', 'write', 'decide'] }] },
+  // 驾驶舱的建、改、删是「管理」类（别的读写角色不会顺带拿到），只在这里点名给管理层（统筹 2026-11-12；cockpit-access.ts）
+  { id: 'management', name: '管理层', permissions: [{ kinds: ['read', 'write', 'decide'] }, { actions: ['cockpit.create', 'cockpit.update', 'cockpit.delete'] }] },
   // 部门负责人：读、写、决定，部门是哪个由授予的范围（dept:<部门标识>）给，标识是部门表里的
   { id: 'dept-lead', name: '部门负责人', permissions: [{ kinds: ['read', 'write', 'decide'] }] },
   // 普通员工：看；写只给提需求、补充说明那几个；决定只给自己的事（验收、答复自己提的）

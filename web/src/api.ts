@@ -318,3 +318,14 @@ export async function getBenchView(ref: { bench: string; view: string }, params:
     return { status: r.status, body: r.ok ? body : null, error: typeof body?.error === 'string' ? body.error : undefined };
   } catch { return { status: 0, body: null }; }
 }
+
+/** 这个人能不能新建驾驶舱（/api/auth/me 的 can.create_cockpit，服务端和建驾驶舱的路由同一处判断）。
+ *  带着管理口令问（口令持有人也能建）；不缓存：口令输入、清掉之后页面会再问一次。拿不到当不能 */
+export async function canCreateCockpit(): Promise<boolean> {
+  try {
+    const token = getAdminToken();
+    const r = await fetch('/api/auth/me', { cache: 'no-store', credentials: 'same-origin', headers: token ? { 'X-Admin-Token': token } : {} });
+    const b = r.ok ? await r.json() as { can?: { create_cockpit?: unknown } } : null;
+    return b?.can?.create_cockpit === true;
+  } catch { return false; }
+}
