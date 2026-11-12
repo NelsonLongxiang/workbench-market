@@ -218,3 +218,15 @@ export async function postWorkItem(body: Record<string, unknown>): Promise<{ sta
     return { status: r.status, body: await r.json().catch(() => null) as Record<string, unknown> | null };
   } catch { return { status: 0, body: null }; }
 }
+
+/** 数据视图的取数入口（驾驶舱按引用取一份视图）：带登录的 cookie，不带管理口令（入口不认口令）。
+ *  返回状态码和 error 代号，让块自己给说法；断网当状态码 0 */
+export async function getBenchView(ref: { bench: string; view: string }, params: Record<string, string> = {}): Promise<{ status: number; body: unknown; error?: string }> {
+  try {
+    const q = new URLSearchParams({ view: ref.view });
+    for (const [k, v] of Object.entries(params)) if (typeof v === 'string' && v !== '') q.set(`p.${k}`, v);
+    const r = await fetch(`/api/bench-views/${encodeURIComponent(ref.bench)}/render?${q}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    const body = await r.json().catch(() => null) as { error?: string } | null;
+    return { status: r.status, body: r.ok ? body : null, error: typeof body?.error === 'string' ? body.error : undefined };
+  } catch { return { status: 0, body: null }; }
+}

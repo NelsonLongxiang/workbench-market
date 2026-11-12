@@ -16,6 +16,8 @@ import { adminActive, subscribeAdminToken } from '../admin-token';
 import WmPage from '../components/WmPage';
 import CockpitFrame from '../components/cockpit/CockpitFrame';
 import { AttentionPane, ItemsPane } from '../components/cockpit/SidePanes';
+import BenchViewPanel from '../components/cockpit/BenchViewPanel';
+import { benchViewRefs, isBenchViewPanel, mainTabKeys, refsOfTab } from '../cockpit-frame-view';
 
 /** 驾驶舱写（/api/cockpits）是管理写：不是管理员（口令或 Odoo 管理员）时只读，隐藏新建/删除/改名/加移面板，网格不可拖拽 */
 const READ_ONLY_HINT = '编辑驾驶舱需要管理员：在顶栏输入管理员口令，或用 Odoo 管理员账号登录。';
@@ -92,7 +94,8 @@ export default function Cockpit() {
     const cur = active?.id ?? null;
     if (loadedId.current !== cur) {
       loadedId.current = cur;
-      setPanels(active ? active.panels : null);
+      // 数据视图的引用不进面板栅格（它们画在「看板」「明细」页签里）
+      setPanels(active ? active.panels.filter((p) => !isBenchViewPanel(p)) : null);
     }
   }, [active]);
 
@@ -108,7 +111,8 @@ export default function Cockpit() {
     const doSave = async () => {
       setSaving(true);
       try {
-        await api.updateCockpit(active.id, { panels: next });
+        // 存布局时把数据视图的引用原样带回去，不能因为拖了一下面板就把它们丢掉
+        await api.updateCockpit(active.id, { panels: [...next, ...active.panels.filter((p) => isBenchViewPanel(p))] });
       } catch (e) {
         message.error(`布局保存失败：${(e as Error).message}`);
       } finally {
@@ -299,6 +303,7 @@ export default function Cockpit() {
       <Button icon={<EditOutlined />} data-testid="ck-edit">编辑</Button>
     </Popover>
   );
+  const refs = benchViewRefs(active.panels);
   const board = (
     <Flex vertical gap={12} className="wm-w-full wm-ck-pad" align="start">
       {READ_ONLY && <Alert type="info" showIcon className="wm-cockpit-readonly wm-w-full" message="驾驶舱在这里只能查看" description={READ_ONLY_HINT} />}
@@ -380,7 +385,9 @@ export default function Cockpit() {
     <WmPage detail={active.name} wide>
       <CockpitFrame storageKey={String(active.id)} extra={extra}
         left={{ id: 'attention', tabs: [{ key: 'attention', label: '等你拍板', count: attentionCount, content: <AttentionPane onCount={setAttentionCount} /> }] }}
-        main={{ id: 'board', tabs: [{ key: 'benches', label: '工作台', content: board }] }}
+        main={{ id: 'board', tabs: mainTabKeys(refs, panels.length).map((k) => (k === 'benches'
+          ? { key: 'benches', label: '工作台', content: board }
+          : { key: k, label: k === 'board' ? '看板' : '明细', content: <>{refsOfTab(refs, k).map((x) => <BenchViewPanel key={x.i} refItem={x} />)}</> })) }}
         right={{ id: 'items', tabs: [{ key: 'items', label: '事项', content: <ItemsPane /> }] }} />
     </WmPage>
   );

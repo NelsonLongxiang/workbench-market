@@ -43,3 +43,57 @@ export function ctxChips(fields: { name: string; label: string }[], value: Recor
 
 /** 页签：当前选的不在列表里（页签变了）就落到第一个 */
 export const activeTab = (tabs: { key: string }[], cur: string | null | undefined): string => (tabs.some((t) => t.key === cur) ? String(cur) : tabs[0]?.key ?? '');
+
+/** 驾驶舱里对数据视图的引用（协调裁定）：驾驶舱不存查询和画法，只存「哪个台的哪一份视图、放在哪个页签、次序」。
+ *  取数走台的视图入口，拿回来是排好的块。bench 是视图台自己的标识（slug），不是工作台的数字 id。 */
+export type BenchViewRef = { i: string; kind: 'bench-view'; bench: string; view: string; tab: 'board' | 'detail'; order: number };
+const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+/** 从驾驶舱的 panels 里挑出数据视图的引用：只认写法对的（bench 是 slug、view 非空、tab 是 board / detail），别的丢掉 */
+export function benchViewRefs(panels: unknown): BenchViewRef[] {
+  if (!Array.isArray(panels)) return [];
+  const out: BenchViewRef[] = [];
+  for (const p of panels) {
+    const o = p as Record<string, unknown> | null;
+    if (!o || o.kind !== 'bench-view' || typeof o.bench !== 'string' || !SLUG.test(o.bench) || typeof o.view !== 'string' || !o.view.trim()) continue;
+    if (o.tab !== 'board' && o.tab !== 'detail') continue;
+    out.push({ i: typeof o.i === 'string' && o.i ? o.i : `bv-${o.bench}-${o.view}`, kind: 'bench-view', bench: o.bench, view: o.view.trim(), tab: o.tab, order: typeof o.order === 'number' && Number.isFinite(o.order) ? o.order : 0 });
+  }
+  return out;
+}
+/** 是不是数据视图的引用（面板栅格里不画它；存布局时要原样带回去） */
+export const isBenchViewPanel = (p: unknown): boolean => !!p && typeof p === 'object' && (p as { kind?: unknown }).kind === 'bench-view';
+
+/** 一个页签上的引用，按次序排；次序相同保持原来的先后 */
+export function refsOfTab(refs: BenchViewRef[], tab: 'board' | 'detail'): BenchViewRef[] {
+  return refs.map((r, i) => ({ r, i })).filter((x) => x.r.tab === tab).sort((a, b) => a.r.order - b.r.order || a.i - b.i).map((x) => x.r);
+}
+
+/** 中间一栏有哪些页签、按什么顺序：配了数据视图才有「看板」「明细」，排在前面（缺省落在第一个）；
+ *  「工作台」（内嵌的面板）有面板、或者别的页签一个都没有时出现 */
+export function mainTabKeys(refs: BenchViewRef[], benchPanels: number): ('board' | 'detail' | 'benches')[] {
+  const keys: ('board' | 'detail' | 'benches')[] = [];
+  if (refs.some((r) => r.tab === 'board')) keys.push('board');
+  if (refs.some((r) => r.tab === 'detail')) keys.push('detail');
+  if (benchPanels > 0 || keys.length === 0) keys.push('benches');
+  return keys;
+}
+
+/** 取数的地址：GET /api/bench-views/<台>/render?view=<视图>&p.<筛选项>=<值>；空的筛选值不带 */
+export function benchViewUrl(ref: Pick<BenchViewRef, 'bench' | 'view'>, params: Record<string, string> = {}): string {
+  const q = new URLSearchParams({ view: ref.view });
+  for (const [k, v] of Object.entries(params)) if (typeof v === 'string' && v !== '') q.set(`p.${k}`, v);
+  return `/api/bench-views/${encodeURIComponent(ref.bench)}/render?${q}`;
+}
+
+/** 整份视图没取到时的一句话（单个块的问题由块自己说）。403 一律说看不到：没权限的人打不存在的台也是 403 */
+export function benchViewError(status: number, code?: string): string {
+  if (status === 401) return '请先登录';
+  if (status === 403) return '你看不到这个台的数据';
+  if (status === 404 && code === 'bench_views_off') return '数据视图还没开放';
+  if (status === 404) return '这份视图不在了';
+  if (status === 504) return '取数太慢，这次没取到，稍后再试';
+  if (status === 503) return '现在取数的人太多，稍后再试';
+  if (status === 0) return '连不上服务器';
+  return '读不到这份视图，稍后再试';
+}
