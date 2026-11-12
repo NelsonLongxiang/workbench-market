@@ -10,6 +10,7 @@ import { db } from './db.ts';
 import { a2aKeyPath, a2aSendOutbound, MARKET_TEAM, marketPublicUrl, sopNode8 } from './a2a.ts';
 import { MAX_ROUTE_BODY_BYTES } from '@nelsonlongxiang/dsh-open-a2a-net/transport-caps';
 import { root } from './root-context.ts';
+import type { HttpService } from './http.ts';
 import { recordSentTask } from './services/a2a-receipts.ts';
 import { peerCard, peerRoot } from './a2a/peer-card.ts';
 import { replyTick } from './a2a/reply-outbound.ts';
@@ -340,17 +341,17 @@ function eventView(e: any) {
   return { ...e, dispatch: e.dispatch === 1, deliveries };
 }
 
-export function registerWorkbenchEventRoutes(app: express.Express, guards: { admin: (req: express.Request, res: express.Response) => boolean; sameOrigin: (req: express.Request) => boolean;
+export function registerWorkbenchEventRoutes(app: HttpService, guards: { admin: (req: express.Request, res: express.Response) => boolean; sameOrigin: (req: express.Request) => boolean;
   /** 放行的人（留痕里的写法）：本机命令行 cli，口令 admin-token，会话登录的管理员 odoo:<登录名>。以前写死成 human:admin */
   actor: (req: express.Request) => string }): void {
   // 列表 / 详情：管理员读（含目标团队与地址；reply token 永不出现在读面）
-  app.get('/api/workbench-events', (req, res) => {
+  app.get('/api/workbench-events', { action: 'workbench-event.list', kind: 'admin' }, (req, res) => {
     if (!guards.admin(req, res)) return;
     const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
     const rows = db.prepare('SELECT * FROM workbench_events ORDER BY id DESC LIMIT ?').all(limit);
     res.set('Cache-Control', 'no-store').json(rows.map(eventView));
   });
-  app.get('/api/workbench-events/:eventId', (req, res) => {
+  app.get('/api/workbench-events/:eventId', { action: 'workbench-event.read', kind: 'admin' }, (req, res) => {
     if (!guards.admin(req, res)) return;
     const e = db.prepare('SELECT * FROM workbench_events WHERE event_id = ?').get(req.params.eventId);
     if (!e) return res.status(404).json({ error: 'event not found' });
@@ -358,7 +359,7 @@ export function registerWorkbenchEventRoutes(app: express.Express, guards: { adm
     res.set('Cache-Control', 'no-store').json({ ...eventView(e), log: logRows });
   });
   // release：观察期的人工确认——把这个事件的 held 投递转为 pending
-  app.post('/api/workbench-events/:eventId/release', (req, res) => {
+  app.post('/api/workbench-events/:eventId/release', { action: 'workbench-event.release', kind: 'decide' }, (req, res) => {
     if (!guards.sameOrigin(req)) return res.status(403).json({ error: '跨源拒绝' });
     if (!guards.admin(req, res)) return;
     const eventId = req.params.eventId;
@@ -380,7 +381,7 @@ export function registerWorkbenchEventRoutes(app: express.Express, guards: { adm
     res.json({ ok: true, event_id: eventId, released: released.length });
   });
   // 决定：接单节点凭投递里的 reply token 回写。ask 可再改；accept/decline 是终态。
-  app.post('/api/workbench-events/:eventId/decision', (req, res) => {
+  app.post('/api/workbench-events/:eventId/decision', { action: 'workbench-event.decision', kind: 'write', statusNotVerdict: '接单节点凭投递里的 reply token 回写，不是登录身份的结论' }, (req, res) => {
     const eventId = req.params.eventId;
     const b = req.body ?? {};
     if (!EVENT_ID.test(eventId)) return res.status(404).json({ error: 'event not found' });

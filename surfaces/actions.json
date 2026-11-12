@@ -151,10 +151,10 @@
       "POST /login/:flow/events  -> login.event  write  （状态码不代表授权：验签：签名、来源不对回 401，由登录方式插件判，不看身份）",
       "GET /.well-known/agent-card.json  -> agent-card.read  read",
       "POST /api/task-center/tasks  -> task-center.publish  admin",
-      "GET /api/workbench-events  -> （未登记）",
-      "GET /api/workbench-events/:eventId  -> （未登记）",
-      "POST /api/workbench-events/:eventId/release  -> （未登记）",
-      "POST /api/workbench-events/:eventId/decision  -> （未登记）",
+      "GET /api/workbench-events  -> workbench-event.list  admin",
+      "GET /api/workbench-events/:eventId  -> workbench-event.read  admin",
+      "POST /api/workbench-events/:eventId/release  -> workbench-event.release  decide",
+      "POST /api/workbench-events/:eventId/decision  -> workbench-event.decision  write  （状态码不代表授权：接单节点凭投递里的 reply token 回写，不是登录身份的结论）",
       "GET /api/task-center/tasks  -> task-center.list  read",
       "GET /api/task-center/tasks/:id  -> task-center.read  read",
       "PUT /api/sop/runs/:id(\\d+)/read-grants  -> sop-run.read-grant  admin",
@@ -267,7 +267,8 @@
           "change-request.approve",
           "change-request.reject",
           "mcp.access-approve",
-          "mcp.access-reject"
+          "mcp.access-reject",
+          "workbench-event.release"
         ]
       },
       {
@@ -532,7 +533,8 @@
       "task-center",
       "tasks",
       "work-item",
-      "work-items"
+      "work-items",
+      "workbench-event"
     ]
   },
   "presets": [
