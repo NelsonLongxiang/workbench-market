@@ -1830,7 +1830,7 @@ registerRosterRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req)
 // ---------- 扩展（WM_EXTENSIONS_DIR）：挂在身份/写门之后、SPA 回落之前；加载失败拒绝启动 ----------
 try {
   const loaded = await loadExtensions(process.env.WM_EXTENSIONS_DIR, {
-    app, wrap,
+    app, wrap, http, routesMode: extensionRoutesMode(process.env.WM_EXTENSION_ROUTES),
     adminGuard: async (req, res) => { await markOdooAdmin(req); return adminGuard(req, res); },
     odoo: { url: () => loginRelay().sourceUrl(), sessionOf: (cookie) => loginRelay().sessionOf(cookie), resolveViewer: (cookie) => identity().resolveViewer(cookie), loginUrl: odooLoginUrl, addReturnPath: (path) => loginRelay().addReturnPath(path) },
     remoteWrite: { allowExact: allowExtensionRemoteWrite },
@@ -2525,7 +2525,7 @@ import { renderSopRunner as renderSopRunnerRaw } from './sop-runner.ts';
 import { loadTokensCss } from './design-tokens-css.ts';
 import { sqliteSsoTicketStore } from './sso-ticket-store.ts';
 import { closeYglUpstreams, yglHomeProblem, yglUpstreamRpc } from './mcp-stdio-upstream.ts';
-import { loadExtensions } from './extensions.ts';
+import { loadExtensions, extensionRoutesMode, assertExtensionNamespaces } from './extensions.ts';
 import { authorizeRunRead, issueRunReadCap, runReadGrantCreate, runReadGrantRevoke, runReadCapRevokeAll } from './sop-read-auth.ts';
 import { endpointStatsMiddleware } from './endpoint-stats.ts';
 import { fetchMainFiles, normalizeSource, SourceError, SOURCE_BRANCH } from './github-source.ts';
@@ -3473,6 +3473,8 @@ try { loadRoleDeclarations(http); } catch (e) {
   console.error(`[grants] 拒绝启动：${String((e as Error)?.message ?? e)}`);
   process.exit(1);
 }
+// 扩展名（动作前缀、路径首段）不能和核心动作的域、核心路径的首段重名：核心路由有的在扩展之后才注册，全部注册完再核一次
+try { assertExtensionNamespaces(http.actions(), http.stackLayers()); } catch (e) { console.error(`[extensions] 拒绝启动：${(e as Error).message}`); process.exit(1); }
 const goServer = registerSurface(app, 'market', PORT, () => {
   // #258 breaking：旧开关不再放行任何公网登记，只做兼容检测告警
   if (process.env.ALLOW_PUBLIC_NET === '1') console.warn('[R3] ALLOW_PUBLIC_NET=1: legacy flag no longer grants public registration; use WM_REGISTER_URL_ALLOWLIST exact entries.');

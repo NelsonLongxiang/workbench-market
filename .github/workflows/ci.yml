@@ -460,6 +460,8 @@ jobs:
         run: node scripts/security-env-face-test.mjs
       - name: 扩展挂载点冒烟（WM_EXTENSIONS_DIR：不设不加载·目录/模块/register 出错拒绝启动·路由/待办来源/业务写面）
         run: node scripts/extensions-smoke.mjs
+      - name: 扩展的路由报动作（ctx.routes.add：动作名、路径命名空间、方法与类别、谁能调；直接挂的点名计数，enforce 拒绝启动；快照 --extensions 单列、不写 surfaces/）
+        run: node scripts/extension-routes-smoke.mjs
       - name: Odoo 弹窗登录链接单测（return 换成当前页·只回 path）
         run: node scripts/odoo-login-href-unit.mjs
       - name: Odoo 浏览器登录地址策略（WM_ODOO_BROWSER_URL）
