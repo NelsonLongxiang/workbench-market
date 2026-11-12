@@ -13,10 +13,14 @@
  * 不是属主的人不能确认自己提的。
  *
  * 没人处理的提议会失效（不是驳回，没有人否决它）：每小时一轮（随服务停，不往外发），
- *   · 目标不在了：部门删了、被提名的人停用或不再是人、团队不在节点名册里、团队已退回待认领（负责人提议）、团队已经挂到了部门（认领提议）；
+ *   · 目标不在了：部门删了、被提名的人停用或不再是人、团队已退回待认领（负责人提议）、团队已经挂到了部门（认领提议）；
+ *     团队不在节点名册里要「持续」才算：节点照常在报名册（没超过名册停推阈值），而这个团队连续不在超过 WM_PROPOSAL_ROSTER_GONE_HOURS
+ *     （缺省 24 小时，按名册变化记录里最后一次「团队消失」算）。短暂掉出又回来的不收；节点整个停推的，不按「团队不在」收（那是节点的事，
+ *     另有「名册停推」进等你拍板），只走总期限；
  *   · 超过 WM_PROPOSAL_TTL_DAYS（缺省 14 天）没人处理。
  * 库里记成 rejected、处理人 system:expire、reason 写原因（不改表）；接口上给 outcome: 'expired' 和 outcome_reason，页面不靠处理人去猜。
  * 失效的在提议人的「你提的」里留 7 天（EXPIRED_SHOW_MS）。确认时照旧重新核对目标。
+ * 人手确认（核对、改状态、落关系）和失效那一轮各包在一个 BEGIN IMMEDIATE 事务里，互斥。
  */
 import { Service } from '@deepseek-ai/cordis';
 import { svc } from '../context.ts';
@@ -25,6 +29,7 @@ import type { GrantService } from './grant.ts';
 import type { DepartmentService } from './department.ts';
 import type { TeamService } from './team.ts';
 import type { PrincipalService } from './principal.ts';
+import { isoTime } from './team.ts';
 
 export type ProposalKind = 'dept-lead' | 'team-lead' | 'team-claim';
 export type ProposalRow = {
@@ -48,6 +53,15 @@ export const EXPIRED_SHOW_MS = 7 * 24 * 3600_000;
 const EXPIRE_EVERY_MS = 3600_000;
 /** 一条提议的结局：待确认、已确认、被驳回、提的人撤回、失效 */
 export type ProposalOutcome = 'pending' | 'approved' | 'rejected' | 'withdrawn' | 'expired';
+
+/** 团队连续不在名册多久才算「不在了」（小时）：WM_PROPOSAL_ROSTER_GONE_HOURS，缺省 24，1～720 的整数；别的值返回 null（启动时拒绝） */
+export function rosterGoneHoursFromEnv(env: NodeJS.ProcessEnv = process.env): number | null {
+  const raw = String(env.WM_PROPOSAL_ROSTER_GONE_HOURS ?? '');
+  if (raw === '') return 24;
+  if (!/^[1-9][0-9]{0,2}$/.test(raw)) return null;
+  const n = Number(raw);
+  return n <= 720 ? n : null;
+}
 
 /** 提议多久没人处理就失效（天）：WM_PROPOSAL_TTL_DAYS，缺省 14，1～365 的整数；别的值返回 null（启动时拒绝） */
 export function proposalTtlDaysFromEnv(env: NodeJS.ProcessEnv = process.env): number | null {
@@ -73,6 +87,19 @@ export const CONFIRM_TEXT: Readonly<Record<string, string>> = {
 
 export class RelationProposalService extends Service {
   private ttlMs = 14 * 24 * 3600_000;
+  private rosterGoneMs = 24 * 3600_000;
+  /** 启动时由 index.ts 按 WM_PROPOSAL_ROSTER_GONE_HOURS 设一次 */
+  setRosterGoneHours(hours: number): void { this.rosterGoneMs = hours * 3600_000; }
+
+  /** 团队连续不在名册多久了（毫秒）：节点照常在报、名册变化里最后一条是这个团队「消失」才算；节点停推、没有记录、又回来了都是 null */
+  private absentFor(host: string, team: string, now: number): number | null {
+    if (teams().staleRosters(now).some((r) => r.host === host)) return null; // 节点整个停推：不按「团队不在」算
+    if (!db.prepare('SELECT 1 FROM a2a_rosters WHERE host = ?').get(host)) return null;
+    const last = db.prepare('SELECT kind, at FROM a2a_roster_changes WHERE host = ? AND team = ? AND kind IN (\'team-added\', \'team-removed\') ORDER BY id DESC LIMIT 1').get(host, team) as { kind: string; at: string } | undefined;
+    if (last?.kind !== 'team-removed') return null;
+    const at = Date.parse(isoTime(last.at));
+    return Number.isFinite(at) ? now - at : null;
+  }
 
   constructor(ctx: any) {
     super(ctx, 'relationProposals');
@@ -100,7 +127,10 @@ export class RelationProposalService extends Service {
     } else {
       const k = { host: p.host, team: p.team };
       const inRoster = [...teams().rosterTeams().values()].some((t) => t.host === p.host && t.team === p.team);
-      if (!inRoster) return '团队已经不在节点名册里了';
+      if (!inRoster) {
+        const gone = this.absentFor(p.host, p.team, now);
+        if (gone !== null && gone > this.rosterGoneMs) return `团队已经不在节点名册里超过 ${Math.round(this.rosterGoneMs / 3600_000)} 小时`;
+      }
       const reg = teams().registration(k);
       if (p.kind === 'team-lead') {
         if (!reg?.claimed) return '团队已退回待认领';
@@ -116,14 +146,27 @@ export class RelationProposalService extends Service {
 
   /** 收掉失效的提议：标成 rejected、处理人 system:expire、reason 写原因。返回收了几条 */
   expireStale(now: number): number {
-    let n = 0;
-    for (const p of db.prepare("SELECT * FROM relation_proposals WHERE status = 'pending' ORDER BY id").all() as ProposalRow[]) {
-      const why = this.staleReason(p, now);
-      if (!why) continue;
-      n += Number(db.prepare("UPDATE relation_proposals SET status = 'rejected', decided_by = ?, decided_by_principal = NULL, decided_at = ?, reason = ? WHERE id = ? AND status = 'pending'")
-        .run(EXPIRED_BY, now, why, p.id).changes);
-    }
-    return n;
+    // 一轮包在一个事务里：和人手确认互斥（确认那边也是 BEGIN IMMEDIATE）
+    return this.exclusive(() => {
+      let n = 0;
+      for (const p of db.prepare("SELECT * FROM relation_proposals WHERE status = 'pending' ORDER BY id").all() as ProposalRow[]) {
+        const why = this.staleReason(p, now);
+        if (!why) continue;
+        n += Number(db.prepare("UPDATE relation_proposals SET status = 'rejected', decided_by = ?, decided_by_principal = NULL, decided_at = ?, reason = ? WHERE id = ? AND status = 'pending'")
+          .run(EXPIRED_BY, now, why, p.id).changes);
+      }
+      return n;
+    });
+  }
+
+  /** BEGIN IMMEDIATE 包一段：出错回滚；拒绝（返回 ok:false）也回滚，不留半截 */
+  private exclusive<T>(fn: () => T): T {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const r = fn();
+      if (r && typeof r === 'object' && (r as { ok?: unknown }).ok === false) db.exec('ROLLBACK'); else db.exec('COMMIT');
+      return r;
+    } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务已经不在了 */ } throw e; }
   }
 
   /** 结局：失效和人手驳回分开，提的人自己驳回的算撤回 */
@@ -176,15 +219,18 @@ export class RelationProposalService extends Service {
 
   /** 确认：先把关系写进去（经各自的服务，规则一条不少），成功了才把提议标成 approved */
   approve(id: number, actor: ProposalActor, now: number): { ok: true; proposal: ProposalRow } | ProposalRefusal {
-    const p = this.get(id);
-    if (!p) return refuse(404, 'proposal_missing', `提议 ${id} 不存在`);
-    const no = this.confirmRefusal(p, actor, now);
-    if (no) return no;
-    const applied = this.apply(p, actor, now);
-    if (applied) return applied;
-    if (db.prepare("UPDATE relation_proposals SET status = 'approved', decided_by = ?, decided_by_principal = ?, decided_at = ? WHERE id = ? AND status = 'pending'")
-      .run(actor.by.slice(0, 256), actor.principal, now, id).changes !== 1) return refuse(409, 'state', `提议 ${id} 的状态变了`);
-    return { ok: true, proposal: this.get(id)! };
+    // 核对（在事务里重读）、落关系、改状态一起：和失效那一轮互斥，不会确认到一半被收掉，也不会落了关系没改状态
+    return this.exclusive((): { ok: true; proposal: ProposalRow } | ProposalRefusal => {
+      const p = this.get(id);
+      if (!p) return refuse(404, 'proposal_missing', `提议 ${id} 不存在`);
+      const no = this.confirmRefusal(p, actor, now);
+      if (no) return no;
+      const applied = this.apply(p, actor, now);
+      if (applied) return applied;
+      if (db.prepare("UPDATE relation_proposals SET status = 'approved', decided_by = ?, decided_by_principal = ?, decided_at = ? WHERE id = ? AND status = 'pending'")
+        .run(actor.by.slice(0, 256), actor.principal, now, id).changes !== 1) return refuse(409, 'state', `提议 ${id} 的状态变了`);
+      return { ok: true, proposal: this.get(id)! };
+    });
   }
 
   /**

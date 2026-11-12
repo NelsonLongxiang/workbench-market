@@ -487,7 +487,35 @@ try {
     const later = (await srv.call('GET', '/api/relations/proposals', { headers: token })).json?.proposals ?? [];
     check(!later.some((x) => x.id === pGone) && later.some((x) => x.id === pOld),
       '失效的在提议人那里留 7 天：8 天前失效的不再列，刚失效的还在', show(later.map((x) => [x.id, x.outcome])));
-    await srv.call('POST', `/api/relations/proposals/${pLive}/reject`, { headers: token, body: { reason: '合成：收尾' } });
+    // 团队不在名册要「持续」才算：节点照常在报、这个团队连续不在超过 24 小时；短暂掉出又回来的不收；节点整个停推的只走总期限
+    const sqlAt = (ms) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+    const change = db.prepare('INSERT INTO a2a_roster_changes (host, kind, team, seat, detail, at) VALUES (?, ?, ?, \'\', \'{}\', ?)');
+    const otherSeat = db.prepare('SELECT * FROM a2a_roster_seats WHERE host = ? AND team = ?').all(HOST, OTHER);
+    const dropOther = () => db.prepare('DELETE FROM a2a_roster_seats WHERE host = ? AND team = ?').run(HOST, OTHER);
+    const restoreOther = () => { for (const r of otherSeat) db.prepare(`INSERT OR REPLACE INTO a2a_roster_seats (${Object.keys(r).join(', ')}) VALUES (${Object.keys(r).map(() => '?').join(', ')})`).run(...Object.values(r)); };
+    const stateOf = (id) => db.prepare('SELECT status, reason FROM relation_proposals WHERE id = ?').get(id);
+    const expire = () => inproc('return svc("relationProposals").expireStale(Date.now());');
+    const t = Date.now();
+    db.prepare('UPDATE a2a_rosters SET received_at = ? WHERE host = ?').run(sqlAt(t), HOST); // 节点照常在报
+    dropOther(); change.run(HOST, 'team-removed', OTHER, sqlAt(t - 3600_000));
+    expire(); const shortGone = stateOf(pLive).status;
+    change.run(HOST, 'team-removed', OTHER, sqlAt(t - 30 * 3600_000)); change.run(HOST, 'team-added', OTHER, sqlAt(t - 3600_000)); restoreOther();
+    expire(); const cameBack = stateOf(pLive).status;
+    dropOther(); change.run(HOST, 'team-removed', OTHER, sqlAt(t - 25 * 3600_000));
+    expire(); const longGone = stateOf(pLive);
+    restoreOther(); change.run(HOST, 'team-added', OTHER, sqlAt(t));
+    // 节点整个停推：另一个节点，名册很久没报，它名下的团队 48 小时前就不在了
+    db.prepare("INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES ('b1b2b3b4', 'https://node-b.synthetic.invalid', 'zone2', '2000-01-01 00:00:00', '2000-01-01 00:00:00')").run();
+    change.run('b1b2b3b4', 'team-removed', 'zone2/canvas/Gone', sqlAt(t - 48 * 3600_000));
+    const pNode = Number(db.prepare("INSERT INTO relation_proposals (kind, host, team, department_id, proposed_by, proposed_at) VALUES ('team-claim', 'b1b2b3b4', 'zone2/canvas/Gone', 'ops', 'admin-token', ?)").run(t).lastInsertRowid);
+    expire(); const nodeStale = stateOf(pNode).status;
+    db.prepare('UPDATE relation_proposals SET proposed_at = ? WHERE id = ?').run(t - 20 * 86_400_000, pNode);
+    expire(); const nodeStaleOld = stateOf(pNode);
+    db.prepare("DELETE FROM a2a_rosters WHERE host = 'b1b2b3b4'").run();
+    check(shortGone === 'pending' && cameBack === 'pending' && longGone.status === 'rejected' && longGone.reason === '团队已经不在节点名册里超过 24 小时'
+      && nodeStale === 'pending' && nodeStaleOld.status === 'rejected' && nodeStaleOld.reason === '超过 14 天没人处理',
+      '团队不在名册要持续才算：掉出一小时提议还在；掉出过 30 小时又回来提议还在；连续不在 25 小时失效；节点整个停推的，团队不在 48 小时也不收，只走 14 天的总期限',
+      show({ shortGone, cameBack, longGone, nodeStale, nodeStaleOld }));
   }
 
   // ---------- 七、退回待认领；有团队挂着的部门不能删 ----------
