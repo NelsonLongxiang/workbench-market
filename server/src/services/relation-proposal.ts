@@ -104,14 +104,26 @@ export class RelationProposalService extends Service {
     return { ok: true, proposal: this.get(id)! };
   }
 
-  /** 驳回或撤回：能确认的人、提的人、管理员（收紧方向，调用方核过是管理员时 admin 为真）都行 */
-  reject(id: number, actor: ProposalActor, admin: boolean, reason: string, now: number): { ok: true; proposal: ProposalRow } | ProposalRefusal {
+  /**
+   * 驳回或撤回：驳回只归能确认它的人，提的人只能撤回自己提的。系统管理员（管理口令、身份来源的管理员登录，没有相应业务授予的）
+   * 对别人提的既不能确认也不能驳回——替业务否决和替业务放行是同一类事（规范 14「关系由谁说了算」）。
+   */
+  rejectRefusal(p: ProposalRow, actor: ProposalActor, now = Date.now()): ProposalRefusal | null {
+    if (p.status !== 'pending') return refuse(409, 'state', `提议 ${p.id} 现在是 ${p.status}，不能驳回`);
+    if (this.isMine(p, actor) || this.confirmRefusal(p, actor, now) === null) return null;
+    return refuse(403, 'reject_not_allowed', '只有能确认的人能驳回；提议的人只能撤回自己提的');
+  }
+
+  /** 这条是不是这个人提的 */
+  isMine(p: ProposalRow, actor: ProposalActor): boolean {
+    return p.proposed_by === actor.by || (!!actor.principal && p.proposed_by_principal === actor.principal);
+  }
+
+  reject(id: number, actor: ProposalActor, reason: string, now: number): { ok: true; proposal: ProposalRow } | ProposalRefusal {
     const p = this.get(id);
     if (!p) return refuse(404, 'proposal_missing', `提议 ${id} 不存在`);
-    if (p.status !== 'pending') return refuse(409, 'state', `提议 ${id} 现在是 ${p.status}，不能驳回`);
-    const mine = p.proposed_by === actor.by || (!!actor.principal && p.proposed_by_principal === actor.principal);
-    const confirmer = this.confirmRefusal(p, actor, now) === null || (p.kind === 'team-claim' && this.direct('team-claim', actor, p.department_id, now));
-    if (!admin && !mine && !confirmer) return refuse(403, 'reject_not_allowed', '只有能确认的人、提议的人或管理员能驳回');
+    const no = this.rejectRefusal(p, actor, now);
+    if (no) return no;
     db.prepare("UPDATE relation_proposals SET status = 'rejected', decided_by = ?, decided_by_principal = ?, decided_at = ?, reason = ? WHERE id = ? AND status = 'pending'")
       .run(actor.by.slice(0, 256), actor.principal, now, reason.slice(0, 500), id);
     return { ok: true, proposal: this.get(id)! };
