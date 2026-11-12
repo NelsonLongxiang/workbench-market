@@ -423,6 +423,18 @@ try {
     const it = (await api('GET', `/api/work-items/wi_${SP.ev}`)).body ?? {};
     ok('拆单整件 failed（总工汇总、正文部分完成）→ 事项没办成；总工不回填成承接', r.status === 200 && it.item?.state === 'failed' && it.item?.seat === '', JSON.stringify({ st: it.item?.state, seat: it.item?.seat }));
     ok('……终态后 progress 为空，subitems 以结果回执里的子项为准（各子项结局，坏的丢掉）', it.progress === null && JSON.stringify((it.subitems ?? []).map((x) => [x.id, x.title, x.seat, x.state, x.outcome])) === JSON.stringify([['s1', '子项一', 'lab/a1a1a1a1', 'ended', 'completed'], ['s2', '子项二', 'lab/b2b2b2b2', 'ended', 'abandoned']]), JSON.stringify(it.subitems));
+    // 进展里带过子项（排队中），之后同一任务的结果回执没带子项、事项回到等验收：进展和子项都不再给旧状态（试联第九件）
+    {
+      const Z = seedEvent();
+      await receipt(Z.task, '接下', { idempotencyKey: Z.task, disposition: 'acknowledged' }, Z.ctx, { inbound: `ack-${Z.task}` });
+      await receipt(Z.task, '排队', { idempotencyKey: Z.task, disposition: 'progress', progress: { n: 1, state: 'queued', at: '2026-11-11T08:00:00.000Z', ahead: 1 },
+        tickets: [{ id: 'z1', title: '重做那一件', seat: 'lab/98b94be9', state: 'queued' }] }, Z.ctx, { inbound: `progress-${Z.task}-1` });
+      const mid = (await api('GET', `/api/work-items/wi_${Z.ev}`)).body ?? {};
+      ok('（对照）任务还没结束：进展和子项照常给', mid.progress?.state === 'queued' && (mid.subitems ?? []).length === 1, JSON.stringify({ p: mid.progress, s: mid.subitems }));
+      r = await receipt(Z.task, '做完了', { outcome: 'completed', idempotencyKey: Z.task, disposition: 'result' }, Z.ctx);
+      const zi = (await api('GET', `/api/work-items/wi_${Z.ev}`)).body ?? {};
+      ok('同一任务的结果回执没带子项、事项回到等验收 → 进展为空，子项不再列出「排队中」的旧状态', state(Z.ev)?.state === 'ready' && zi.progress === null && (zi.subitems ?? []).length === 0, JSON.stringify({ s: state(Z.ev), p: zi.progress, sub: zi.subitems }));
+    }
   }
 
   console.log('二之三之三、回执的产物并进事项的 outputs');

@@ -84,14 +84,34 @@ export function sentTaskForFollowup(contextId: string, zone: string): SentTask |
 
 /** 一个事件上最近一步被采信的进展（事件日志里的 receipt:progress），给事项页的「正在处理」提示和子项 */
 /** 一个事件上最近一条带子项（tickets）的采信回执：进展或结果都算（结果回执里是各子项的结局） */
+/**
+ * 这一步进展之后，同一任务有没有到过采信的结果回执：到过，这一步（连同它带的子项状态）就过时了——
+ * 任务已经结束，「排队中」「在做」不再是真的；结果回执没带 tickets 时，不能拿进展里的旧状态顶上。
+ */
+function progressEnded(eventId: string, rowId: number, task: unknown): boolean {
+  if (typeof task !== 'string' || task === '') return false;
+  return db.prepare("SELECT 1 FROM workbench_event_log WHERE event_id = ? AND id > ? AND action LIKE 'receipt:%' AND action NOT IN ('receipt:untrusted','receipt:unaccepted','receipt:progress') AND json_extract(detail, '$.disposition') = 'result' AND json_extract(detail, '$.task') = ? LIMIT 1")
+    .get(eventId, rowId, task) !== undefined;
+}
+
 export function latestTicketsOfEvent(eventId: string): unknown[] | null {
-  const row = db.prepare("SELECT detail FROM workbench_event_log WHERE event_id = ? AND action LIKE 'receipt:%' AND action NOT IN ('receipt:untrusted','receipt:unaccepted') AND json_type(detail, '$.tickets') = 'array' ORDER BY id DESC LIMIT 1").get(eventId) as { detail: string } | undefined;
+  const row = db.prepare("SELECT id, action, detail FROM workbench_event_log WHERE event_id = ? AND action LIKE 'receipt:%' AND action NOT IN ('receipt:untrusted','receipt:unaccepted') AND json_type(detail, '$.tickets') = 'array' ORDER BY id DESC LIMIT 1").get(eventId) as { id: number; action: string; detail: string } | undefined;
   if (!row) return null;
-  try { const d = JSON.parse(row.detail) as { tickets?: unknown }; return Array.isArray(d.tickets) ? d.tickets : null; } catch { return null; }
+  try {
+    const d = JSON.parse(row.detail) as { tickets?: unknown; task?: unknown };
+    // 子项来自一步进展、而那个任务之后已经结束（结果回执没带子项）：旧的子项状态不再给
+    if (row.action === 'receipt:progress' && progressEnded(eventId, row.id, d.task)) return null;
+    return Array.isArray(d.tickets) ? d.tickets : null;
+  } catch { return null; }
 }
 
 export function latestProgressOfEvent(eventId: string): { at: string; detail: Record<string, unknown> } | null {
-  const row = db.prepare("SELECT at, detail FROM workbench_event_log WHERE event_id = ? AND action = 'receipt:progress' ORDER BY id DESC LIMIT 1").get(eventId) as { at: string; detail: string } | undefined;
+  const row = db.prepare("SELECT id, at, detail FROM workbench_event_log WHERE event_id = ? AND action = 'receipt:progress' ORDER BY id DESC LIMIT 1").get(eventId) as { id: number; at: string; detail: string } | undefined;
   if (!row) return null;
-  try { return { at: row.at, detail: JSON.parse(row.detail) as Record<string, unknown> }; } catch { return null; }
+  try {
+    const detail = JSON.parse(row.detail) as Record<string, unknown>;
+    // 这一步所属的任务之后已经有结果回执：任务结束了，「正在处理」不再给（比如打回后重做完、回到等验收）
+    if (progressEnded(eventId, row.id, detail.task)) return null;
+    return { at: row.at, detail };
+  } catch { return null; }
 }
