@@ -58,7 +58,8 @@ export function relationOf(subject: Subject, target: Target): RelationResult {
     display.department = teams().department(departmentId);
   }
   if (seat) {
-    const owner = teams().ownerAt(seat, Date.now());
+    // 席位在名册里这个团队下才算有主人（seat_id 按节点认，团队另外核）
+    const owner = teams().rosterSeat(seat) ? teams().ownerAt(seat, Date.now()) : null;
     if (owner) display.owner = { principal: owner, display_name: teams().nameOf(owner) };
   }
 

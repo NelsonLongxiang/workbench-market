@@ -218,6 +218,10 @@ export class TeamService extends Service {
     const seat = this.rosterSeat(k);
     const key: SeatKey = seat ? { host: k.host, team: k.team, seat: seat.seat, seat_id: seat.seat_id } : k;
     const cur = this.activeAssignment(key);
+    // 生效的分配要属于这个团队：seat_id 按节点认，团队另外核
+    if (cur && (cur.host !== k.host || cur.team !== k.team)) return refuse(404, 'seat_not_in_team', '这个团队下没有这个席位的分配');
+    // 名册里这个团队下没有这个席位、也没有它的分配：不当成「已经收回了」
+    if (!cur && !seat) return refuse(404, 'seat_not_in_team', '这个团队下没有这个席位');
     if (!cur) return { ok: true, removed: false };
     return this.tx(() => {
       db.prepare('UPDATE seat_assignments SET ended_at = ?, ended_by = ? WHERE id = ?').run(now, actor.by.slice(0, 256), cur.id);

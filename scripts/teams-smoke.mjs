@@ -12,6 +12,7 @@
  *   六、「我的 AI 员工」；读接口只给团队、人和计数，不带事项内容
  *   七、退回待认领：另外指定的负责人和生效的分配一起结束；有团队挂着的部门不能删
  *   八、关系函数（人和席位都答）：dept-member、dept-lead、team-lead、seat-owner、team-seat、router，另带显示用的名字
+ *   八之二、别队的负责人冒用本队席位的 seat_id 或句柄，动不了本队的分配
  *   九、每一步留痕
  *
  *   node scripts/teams-smoke.mjs
@@ -230,6 +231,7 @@ try {
         seatDept: relationOf({ seat: { ...t, seat: '${MEMBER.seat}', seat_id: '${MEMBER.seat_id}' } }, { department: 'sales' }).relations,
         seatOtherDept: relationOf({ seat: { ...t, seat: '${MEMBER.seat}', seat_id: '${MEMBER.seat_id}' } }, { department: 'ops' }).relations,
         stranger: relationOf({ principal: 'user:no-flag' }, { team: t }).relations,
+        forgedSeat: relationOf({ principal: 'user:alpha' }, { seat: { host: '${HOST}', team: ${JSON.stringify(OTHER)}, seat: 'zone1/000000ee', seat_id: '${MEMBER.seat_id}' } }),
       };
       const { svc } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/context.ts')).href)});
       const seatK = { ...t, seat: '${MEMBER.seat}', seat_id: '${MEMBER.seat_id}' };
@@ -253,9 +255,28 @@ try {
       && JSON.stringify(o.attention) === JSON.stringify([[OTHER, 'unclaimed']]) && JSON.stringify(o.batch) === JSON.stringify(['user:beta', 'user:alpha', null, 'user:alpha', null])
       && JSON.stringify(o.histBeta) === JSON.stringify([[MEMBER.seat, false]]) && JSON.stringify(o.histAlpha) === JSON.stringify([[LEGACY.seat, true], [MEMBER.seat, true]].sort()) && o.histBetaLater === 0
       && o.ownerMid === 'user:beta' && o.ownerNow === 'user:alpha' && o.ownerBefore === null
-      && has(o.routerTeam, 'team-seat', 'router') && has(o.seatDept, 'team-seat') && o.seatOtherDept.length === 0 && o.stranger.length === 0,
-      '关系函数：人（部门成员、部门负责人、团队负责人、成员的主人）和席位（团队的席位、总工、挂在部门下的团队的席位）都答；不相干的是空；带团队名、部门名、负责人和主人的显示名；服务的「那时归谁」（ownerAt）按时间点答对；「等你拍板」用的 needingAttention 只列不正常的团队（这时只有待认领的别队）；批量的 ownersAt 和逐条的答案一样（旧席位按句柄认），某人各段分配 assignmentHistory 带起止、按时间段筛',
+      && has(o.routerTeam, 'team-seat', 'router') && has(o.seatDept, 'team-seat') && o.seatOtherDept.length === 0 && o.stranger.length === 0
+      && !o.forgedSeat.relations.includes('seat-owner') && o.forgedSeat.display.owner === null,
+      '关系函数：人（部门成员、部门负责人、团队负责人、成员的主人）和席位（团队的席位、总工、挂在部门下的团队的席位）都答；不相干的是空；报别队的队名、带本队席位的 seat_id 冒不出主人；带团队名、部门名、负责人和主人的显示名；服务的「那时归谁」（ownerAt）按时间点答对；「等你拍板」用的 needingAttention 只列不正常的团队（这时只有待认领的别队）；批量的 ownersAt 和逐条的答案一样（旧席位按句柄认），某人各段分配 assignmentHistory 带起止、按时间段筛',
       o ? show(o) : (r.stderr ?? '').slice(-600));
+  }
+
+  // ---------- 八之二、别队的负责人动不了本队的分配 ----------
+  {
+    // 别队 OTHER 认领到 ops，负责人 no-flag；成员甲（在 TEAM 下、现在分给 alpha）的 seat_id 拿去冒充
+    await srv.call('POST', '/api/teams/claim', { headers: token, body: { host: HOST, team: OTHER, department: 'ops' } });
+    await srv.call('POST', '/api/teams/leads', { headers: token, body: { host: HOST, team: OTHER, principal: 'user:no-flag' } });
+    const before = Number(db.prepare('SELECT COUNT(*) AS n FROM seat_assignments WHERE ended_at IS NULL AND seat_id = ?').get(MEMBER.seat_id).n);
+    const evBefore = Number(db.prepare('SELECT COUNT(*) AS n FROM team_events').get().n);
+    const forged = await srv.call('POST', '/api/teams/unassign', { ...as(SESSIONS.noAdminFlag), body: { host: HOST, team: OTHER, seat: 'zone1/000000ee', seat_id: MEMBER.seat_id } });
+    const forgedHandle = await srv.call('POST', '/api/teams/unassign', { ...as(SESSIONS.noAdminFlag), body: { host: HOST, team: OTHER, seat: LEGACY.seat, seat_id: '' } });
+    const after = Number(db.prepare('SELECT COUNT(*) AS n FROM seat_assignments WHERE ended_at IS NULL AND seat_id = ?').get(MEMBER.seat_id).n);
+    const legacyActive = Number(db.prepare("SELECT COUNT(*) AS n FROM seat_assignments WHERE ended_at IS NULL AND seat = ? AND seat_id = ''").get(LEGACY.seat).n);
+    const evAfter = Number(db.prepare('SELECT COUNT(*) AS n FROM team_events').get().n);
+    check(before === 1 && forged.status === 404 && forgedHandle.status === 404 && after === 1 && legacyActive === 1 && evAfter === evBefore,
+      '别队的负责人冒用本队席位的 seat_id（或句柄）、报自己的队名去收回：404，本队的分配原样不动，也不记留痕',
+      show({ forged: [forged.status, forged.json], forgedHandle: [forgedHandle.status, forgedHandle.json], before, after, legacyActive }));
+    await srv.call('POST', '/api/teams/release', { headers: token, body: { host: HOST, team: OTHER } });
   }
 
   // ---------- 七、退回待认领；有团队挂着的部门不能删 ----------
