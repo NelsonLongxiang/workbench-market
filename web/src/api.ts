@@ -315,3 +315,14 @@ export async function getBenchView(ref: { bench: string; view: string }, params:
     return { status: r.status, body: r.ok ? body : null, error: typeof body?.error === 'string' ? body.error : undefined };
   } catch { return { status: 0, body: null }; }
 }
+
+/** 数据视图的两个只读入口（往驾驶舱里挂视图时选台、选视图用）：带登录的 cookie，不带管理口令。
+ *  返回状态码和应答体（出错时应答体里有 error 代号），让页面给说法；断网当状态码 0 */
+async function benchViewsGet(path: string): Promise<{ status: number; body: unknown }> {
+  try {
+    const r = await fetch(path, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  } catch { return { status: 0, body: null }; }
+}
+export const listBenchViews = () => benchViewsGet('/api/bench-views');
+export const getBenchViewDoc = (bench: string) => benchViewsGet(`/api/bench-views/${encodeURIComponent(bench)}/view`);

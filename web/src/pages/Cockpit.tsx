@@ -13,7 +13,8 @@ import WmPage from '../components/WmPage';
 import CockpitFrame from '../components/cockpit/CockpitFrame';
 import { AttentionPane, ItemsPane, ProcessPane } from '../components/cockpit/SidePanes';
 import ArrangeDrawer from '../components/ArrangeDrawer';
-import BenchViewPanel from '../components/cockpit/BenchViewPanel';
+import BenchViewTab from '../components/cockpit/BenchViewTab';
+import BenchViewManage from '../components/cockpit/BenchViewManage';
 import { benchViewRefs, isBenchViewPanel, itemsTabLabel, mainTabKeys, refsOfTab } from '../cockpit-frame-view';
 
 /** 驾驶舱写（/api/cockpits）是管理写：不是管理员（口令或 Odoo 管理员）时只读，隐藏新建/删除/改名/加移面板，网格不可拖拽 */
@@ -58,6 +59,7 @@ export default function Cockpit() {
   const [picked, setPicked] = useState<string | null>(null);
   const [rightTab, setRightTab] = useState<string | null>(null);
   const [arrange, setArrange] = useState(false);
+  const [viewsOpen, setViewsOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const submitRename = async () => {
@@ -277,6 +279,7 @@ export default function Cockpit() {
         >
           加待办卡
         </Button>}
+        {!READ_ONLY && <Button onClick={() => setViewsOpen(true)} data-testid="ck-bv-manage">数据视图</Button>}
     </Flex>
   );
   // 顶上右边：「就这个安排一件事」（原型）；管理员另有「编辑」（改名、加面板），不常驻
@@ -352,12 +355,13 @@ export default function Cockpit() {
         left={{ id: 'attention', tabs: [{ key: 'attention', label: '等你拍板', count: attentionCount, content: <AttentionPane onCount={setAttentionCount} picked={picked} onPick={(id) => { setPicked(id); setRightTab('process'); }} /> }] }}
         main={{ id: 'board', tabs: mainTabKeys(refs, panels.length).map((k) => (k === 'benches'
           ? { key: 'benches', label: '工作台', content: board }
-          : { key: k, label: k === 'board' ? '看板' : '明细', content: <>{refsOfTab(refs, k).map((x) => <BenchViewPanel key={x.i} refItem={x} />)}</> })) }}
+          : { key: k, label: k === 'board' ? '看板' : '明细', content: <BenchViewTab key={k} scope={String(active.id)} refs={refsOfTab(refs, k)} /> })) }}
         right={{ id: 'items', active: rightTab, onTab: setRightTab, tabs: [
           { key: 'process', label: '办理过程', content: <ProcessPane itemId={picked} /> },
           { key: 'items', label: itemsTabLabel(itemsView, !READ_ONLY), content: <ItemsPane onView={setItemsView} /> },
         ] }} />
       <ArrangeDrawer open={arrange} onClose={() => setArrange(false)} />
+      {!READ_ONLY && <BenchViewManage cockpit={active} open={viewsOpen} onClose={() => setViewsOpen(false)} onSaved={listReq.refresh} />}
     </WmPage>
   );
 }
