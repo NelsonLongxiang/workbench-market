@@ -12,6 +12,7 @@
  *
  * 只在测试环境里可用（NODE_ENV=test）：scripts/ 会随镜像一起发出去，不能让它在别的环境里把提供方换掉。
  */
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -43,6 +44,8 @@ export const SESSIONS = {
   refusal302: 'fake-refusal-says-302-01', // 说认不出，状态码是 302
   refusalNoText: 'fake-refusal-no-reason-1', // 说认不出，却没有说法
   hangs: 'fake-provider-never-answers', // 永远不回答
+  flaky: 'fake-flaky-source-000001', // 数据目录里有 fake-identity-down 时不回答，没有时认成 alpha：看来源恢复后不用重启就好
+  lateLogin: 'fake-logs-in-later-00001', // 数据目录里有 fake-identity-logged-in 之前说认不出（401），之后认成 alpha：看刚登录的同一个凭据下一次就认得出
   okThrows: 'fake-answer-ok-getter-throws', // 回答对象的 ok 一读就抛错
   viewerThrows: 'fake-answer-viewer-throws-1', // 回答对象的 viewer 一读就抛错
   flipLogin: 'fake-login-flips-on-reread', // 登录名头两次读是 alpha，再读就成了 root-admin
@@ -86,6 +89,8 @@ const ANSWERS = {
   [SESSIONS.refusal302]: () => ({ ok: false, http: 302, error: '合成：说认不出，状态码是 302' }),
   [SESSIONS.refusalNoText]: () => ({ ok: false, http: 401 }),
   [SESSIONS.hangs]: () => new Promise(() => {}),
+  [SESSIONS.lateLogin]: () => (existsSync(join(process.env.DATA_DIR ?? '', 'fake-identity-logged-in')) ? viewer('alpha', 11, { admin: false }) : { ok: false, http: 401, error: '会话还没登录（合成）' }),
+  [SESSIONS.flaky]: () => (existsSync(join(process.env.DATA_DIR ?? '', 'fake-identity-down')) ? new Promise(() => {}) : viewer('alpha', 11, { admin: false })),
   [SESSIONS.okThrows]: () => ({ get ok() { throw new Error('synthetic accessor failure'); } }),
   [SESSIONS.viewerThrows]: () => ({ ok: true, get viewer() { throw new Error('synthetic accessor failure'); } }),
   [SESSIONS.squatter]: () => viewer('squatted', 31, { admin: true }),
