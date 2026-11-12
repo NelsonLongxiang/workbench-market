@@ -121,7 +121,7 @@ function ClaimCard({ t, depts, people, can, onDone, onNotice }: { t: TeamT; dept
         <div className="wm-team-claim-form">
           <Select size="small" placeholder="挂到哪个部门" value={dept} onChange={setDept} options={depts.map((d) => ({ value: d.id, label: d.lead ? `${d.name}（负责人 ${personName(d.lead)}）` : d.name }))} data-testid="team-claim-dept" className="wm-team-select" />
           {canLead && <Select size="small" allowClear placeholder={can && !can.add_lead ? '另外提议负责人（可不选）' : '另外指定负责人（可不选）'} value={lead} onChange={setLead} options={people.map((p) => ({ value: p.id, label: p.name }))} showSearch optionFilterProp="label" data-testid="team-claim-lead" className="wm-team-select" />}
-          <Button size="small" type="primary" disabled={!dept} loading={busy} onClick={submit} data-testid="team-claim">{claimText}</Button>
+          <Button size="small" type="primary" disabled={!dept} loading={busy} onClick={submit} data-testid="team-claim" autoInsertSpace={false}>{claimText}</Button>
         </div>
       )}
       {err && <Alert className="wm-team-err" type="warning" showIcon message={err} />}
@@ -193,13 +193,13 @@ function ProposalCard({ p, names, onDone }: { p: Proposal; names: KnownNames; on
           <Input.TextArea size="small" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} autoSize={{ minRows: 1, maxRows: 3 }} placeholder={p.mine === true ? '为什么撤回（可不写）' : '为什么不同意（可不写，会留痕）'} data-testid="team-proposal-reason" />
           <div className="wm-team-prop-ops">
             <Button size="small" danger loading={busy} onClick={() => act(() => rejectRelationProposal(p.id, reason.trim()))} data-testid="team-proposal-reject-confirm">确认{rl}</Button>
-            <Button size="small" type="text" disabled={busy} onClick={() => { setRejecting(false); setReason(''); }}>算了</Button>
+            <Button size="small" autoInsertSpace={false} type="text" disabled={busy} onClick={() => { setRejecting(false); setReason(''); }}>算了</Button>
           </div>
         </div>
       ) : (p.can_approve && p.mine !== true) || rl ? (
         <div className="wm-team-prop-ops">
-          {p.can_approve && p.mine !== true && <Button size="small" type="primary" loading={busy} onClick={() => act(() => approveRelationProposal(p.id))} data-testid="team-proposal-approve">确认</Button>}
-          {rl && <Button size="small" disabled={busy} onClick={() => setRejecting(true)} data-testid="team-proposal-reject">{rl}</Button>}
+          {p.can_approve && p.mine !== true && <Button size="small" type="primary" loading={busy} onClick={() => act(() => approveRelationProposal(p.id))} data-testid="team-proposal-approve" autoInsertSpace={false}>确认</Button>}
+          {rl && <Button size="small" disabled={busy} onClick={() => setRejecting(true)} data-testid="team-proposal-reject" autoInsertSpace={false}>{rl}</Button>}
         </div>
       ) : null}
       {err && <Alert className="wm-team-err" type="warning" showIcon message={err} />}

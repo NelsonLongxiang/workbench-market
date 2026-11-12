@@ -165,6 +165,8 @@ with sync_playwright() as p:
           and mi.locator('[data-testid=team-proposal-reject]').inner_text().replace(' ', '') == '撤回' and '让 乙主管 做「合成运营」的负责人' in mi.inner_text(), mi.inner_text())
     check('别的：写服务端给的不能确认的说法，没有「确认」；管理员能驳回', '只有属主能放行' in ot.inner_text() and ot.locator('[data-testid=team-proposal-approve]').count() == 0
           and ot.locator('[data-testid=team-proposal-reject]').count() == 1 and '管理员 提的' in ot.inner_text(), ot.inner_text())
+    check('两字按钮不自动插空格：「确认」「驳回」「撤回」', fm.locator('[data-testid=team-proposal-approve]').inner_text() == '确认' and fm.locator('[data-testid=team-proposal-reject]').inner_text() == '驳回' and mi.locator('[data-testid=team-proposal-reject]').inner_text() == '撤回',
+          [fm.locator('[data-testid=team-proposal-approve]').inner_text(), mi.locator('[data-testid=team-proposal-reject]').inner_text()])
     check('提议卡上不露标识（团队句柄、节点标识、主体标识）', not any(x in pg.locator('.wm-team-props').first.inner_text() for x in [HOST, 'ops/', 'user:', 'admin-token']))
     n0 = len(posted)
     fm.locator('[data-testid=team-proposal-approve]').click(); pg.wait_for_function("document.querySelectorAll('[data-testid=team-proposals-for-me]').length === 0")
