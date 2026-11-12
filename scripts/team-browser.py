@@ -3,7 +3,9 @@
 认领、指定负责人两个写请求也截下，核对发了什么。
   · 没登录：说请先登录，不弹口令框；
   · 管理员、还没有部门：说「还没有部门，先建部门」，给建部门的入口；建部门的校验（标识写错不能建），建好之后部门真的有了；
-  · 待认领的团队：只有管理员的视图里有；挂到部门、顺带指定负责人，发对了请求；
+  · 待认领的团队：只有管理员的视图里有；挂到部门，发对了请求；
+  · 关系确认制（#638）：口令管理员（系统管理员，不是管理层）认领只记成提议（202）——页面说「已提出，等〈谁〉确认」、那张卡标「待确认」，
+    不出现部门分块（关系没生效）；管理层确认之后（截下的应答换成认领了的）才按部门分块；
   · 认领之后：按部门分块，团队头卡写状态、负责人（部门负责人标出来）、总工、成员数和在办；成员卡写在办几件、分配给谁或团队公用；
   · 不是管理员的视图（应答里没有待认领这一栏）：没有建部门、没有待认领；也没有分配、收回（接口还没给能不能做）。"""
 import json, sys, urllib.request
@@ -43,7 +45,10 @@ def claimed(dept_name):
     return {**UNCLAIMED, 'status': 'active', 'node_name': '合成节点', 'roster_received_at': '2020-01-01 00:00:00', 'department': {'id': 'synthetic-ops', 'name': dept_name},
             'leads': [{'principal': 'user:jia', 'display_name': '甲经理', 'source': 'department'}, {'principal': 'user:yi', 'display_name': '乙主管', 'source': 'explicit'}],
             'members': [seat('ops/00000001', '小算', active=3, to={'principal': 'user:bing', 'display_name': '丙'}), seat('ops/00000002', '小审', online=False)]}
-state = {'teams': {'departments': [], 'unclaimed': [UNCLAIMED]}}
+# 口令管理员是系统管理员、不是管理层：认领、指定负责人只能提议（服务端的 can）
+CAN_ADMIN = {'claim': False, 'propose_claim': True, 'release': True, 'add_lead': False, 'propose_lead': True, 'manage_leads': True, 'manage_departments': True}
+CONFIRM_BY = '管理层或接收部门的负责人'
+state = {'teams': {'can': CAN_ADMIN, 'departments': [], 'unclaimed': [UNCLAIMED]}}
 posted = []
 def fake(route, body, status=200): route.fulfill(status=status, content_type='application/json', body=json.dumps(body))
 def on_teams(r): fake(r, state['teams'])
@@ -85,9 +90,25 @@ with sync_playwright() as p:
     # 认领：挂到部门、顺带指定负责人
     pick(pg, 'team-claim-dept', '合成运营部')
     check('选了部门才能认领', pg.locator('[data-testid=team-claim]').is_enabled())
-    state['teams'] = {'departments': [{'id': 'synthetic-ops', 'name': '合成运营部', 'lead': {'principal': 'user:jia', 'display_name': '甲经理'}, 'teams': [claimed('合成运营部')]}], 'unclaimed': []}
-    pg.locator('[data-testid=team-claim]').click(); pg.wait_for_selector('[data-testid=team-dept]')
+    def on_claim(r):
+        posted.append(('claim', json.loads(r.request.post_data or '{}')))
+        pend = {'id': 1, 'principal': None, 'department': 'synthetic-ops', 'confirm_by_text': CONFIRM_BY}
+        state['teams'] = {'can': CAN_ADMIN, 'departments': [], 'unclaimed': [{**UNCLAIMED, 'pending_claim': pend}]}
+        fake(r, {'ok': True, 'proposed': True, 'proposal': {'id': 1, 'status': 'pending', 'confirm_by_text': CONFIRM_BY}}, 202)
+    pg.unroute('**/api/teams/claim', on_write); pg.route('**/api/teams/claim', on_claim)
+    pg.locator('[data-testid=team-claim]').click(); pg.wait_for_selector('[data-testid=team-notice]')
     check('认领发对了请求：团队的节点和名字、部门', posted and posted[0] == ('claim', {'host': HOST, 'team': 'ops/canvas/合成运营', 'department': 'synthetic-ops'}), posted)
+    notice = pg.locator('[data-testid=team-notice]').inner_text()
+    pg.wait_for_selector('[data-testid=team-claim-pending]')
+    check('系统管理员认领只是提议：说「已提出，等管理层或接收部门的负责人确认」，不说认领成功', f'已提出，等{CONFIRM_BY}确认' in notice and '成功' not in notice, notice)
+    check('提议期间：卡上标「待确认」、写挂到哪个部门等谁确认，没有认领按钮；没有部门分块（关系没生效）',
+          pg.locator('[data-testid=team-claim-state]').inner_text().strip() == '待确认' and '合成运营部' in pg.locator('[data-testid=team-claim-pending]').inner_text()
+          and pg.locator('[data-testid=team-claim]').count() == 0 and pg.locator('[data-testid=team-dept]').count() == 0, pg.locator('[data-testid=team-unclaimed]').inner_text())
+    check('认领只是提议时不接着指定负责人（团队还没挂上）', all(x[0] == 'claim' for x in posted), posted)
+
+    # 管理层确认之后：关系生效，按部门分块（截下的应答换成认领了的）
+    state['teams'] = {'can': CAN_ADMIN, 'departments': [{'id': 'synthetic-ops', 'name': '合成运营部', 'lead': {'principal': 'user:jia', 'display_name': '甲经理'}, 'teams': [claimed('合成运营部')]}], 'unclaimed': []}
+    pg.reload(); pg.wait_for_selector('[data-testid=team-dept]')
 
     # 认领之后的样子
     dept = pg.locator('[data-testid=team-dept]')
