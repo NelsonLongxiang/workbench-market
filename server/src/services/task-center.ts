@@ -60,4 +60,29 @@ export class TaskCenterService extends Service {
       return out;
     } catch (e) { db.exec('ROLLBACK'); throw e; }
   }
+
+  // ---------- 「安排一件事」：登录的人直接建一件任务（调用方负责事务） ----------
+  /** 「安排一件事」的事务：查幂等、限流、建任务、记事件和请求在同一个事务里 */
+  arrangeBegin() { db.exec('BEGIN IMMEDIATE'); }
+  arrangeCommit() { db.exec('COMMIT'); }
+  arrangeRollback() { db.exec('ROLLBACK'); }
+  /** 这个人这个幂等键的上一次请求（没有就 undefined） */
+  arrangeRequest(requester: string, key: string): { body_sha256: string; task_id: number; event_id: string } | undefined {
+    return db.prepare('SELECT body_sha256, task_id, event_id FROM work_item_requests WHERE requester = ? AND idem_key = ?').get(requester, key) as never;
+  }
+  /** 这个人在某个时刻之后安排了几件（限流用） */
+  arrangeCountSince(requester: string, since: string): number {
+    return Number((db.prepare('SELECT COUNT(*) AS n FROM work_item_requests WHERE requester = ? AND created_at > ?').get(requester, since) as { n: number }).n);
+  }
+  /** 建一行已发布的任务（没有录入 run，kind 记「安排」）和它的「已发布」事件。时间由调用方给 */
+  insertArranged(t: { title: string; payload: string; sha256: string; requester: string; dispatch: boolean; at: string }): number {
+    const id = Number(db.prepare("INSERT INTO tasks (title, kind, payload_json, status, material_sha256, published_at, published_by, created_by, created_at, agent_dispatch_enabled) VALUES (?, '安排', ?, 'published', ?, ?, ?, ?, ?, ?)")
+      .run(t.title, t.payload, t.sha256, t.at, t.requester, t.requester, t.at, t.dispatch ? 1 : 0).lastInsertRowid);
+    db.prepare("INSERT INTO task_events (task_id, type, actor, actor_kind, at, payload_json) VALUES (?, 'published', ?, 'human', ?, ?)").run(id, t.requester, t.at, JSON.stringify({ arranged: true, material_sha256: t.sha256 }));
+    return id;
+  }
+  /** 记下这一次请求（同一事务里，和建任务、记事件一起） */
+  insertArrangeRequest(r: { requester: string; key: string; sha256: string; taskId: number; eventId: string; at: string }): void {
+    db.prepare('INSERT INTO work_item_requests (requester, idem_key, body_sha256, task_id, event_id, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(r.requester, r.key, r.sha256, r.taskId, r.eventId, r.at);
+  }
 }

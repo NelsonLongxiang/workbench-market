@@ -261,6 +261,7 @@ CREATE TABLE IF NOT EXISTS a2a_sent_tasks (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_a2a_sent_tasks_delivery ON a2a_sent_tasks (delivery_id);
+CREATE INDEX IF NOT EXISTS idx_a2a_sent_tasks_peer_root ON a2a_sent_tasks (peer_root);
 -- 收到并采信的回执：同一任务号的接单回执（acknowledged）一条、终局回执（attention / result）一条，按 idempotencyKey 去重
 -- 阶段七 R2：席位发来的跟进（同 context 的普通 A2A 任务，任务号 a2a-…）。签名方是我们投递到的那台宿主、context 是我们发出的，才收下。
 -- 落成事项对话里的席位消息（open=未读、acknowledged=看过、replied=已回复），不进「关注」；超过每次投递的上限的照存、不算未读（status=over-cap）；超过对端限频的不存正文（status=rate-limited），两种都照常回执。时间由代码生成后写入。
@@ -816,6 +817,32 @@ CREATE TRIGGER IF NOT EXISTS grants_activate_unexpired BEFORE UPDATE OF status O
 CREATE TRIGGER IF NOT EXISTS grants_expire_when_due BEFORE UPDATE OF status ON grants
   WHEN NEW.status = 'expired' AND (OLD.expires_at IS NULL OR OLD.expires_at > CAST(unixepoch('subsec') * 1000 AS INTEGER))
   BEGIN SELECT RAISE(ABORT, '没到期限的授予不能标成过期'); END;
+-- 自定义角色（角色预设之后）：从内置预设复制出来、界面上改的角色是数据。校验和声明文件同一套（roles.ts）；
+--   status：active 能授予；pending 新建时带管理类或决定类权限、要属主放行，放行前不能授予。
+--   proposed：待属主放行的改动（JSON：{name, permissions}），没有为 NULL。时间是毫秒，由代码给
+CREATE TABLE IF NOT EXISTS custom_roles (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  based_on TEXT NOT NULL,
+  permissions TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending','active')),
+  proposed TEXT,
+  proposed_by TEXT,
+  created_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+-- 自定义角色的每次建、改、放行、删都留一行（seq 由代码在事务里取下一个）
+CREATE TABLE IF NOT EXISTS custom_role_events (
+  seq INTEGER NOT NULL PRIMARY KEY,
+  role_id TEXT NOT NULL,
+  event TEXT NOT NULL CHECK (event IN ('create','propose','update','approve','delete')),
+  actor TEXT NOT NULL,
+  actor_principal TEXT,
+  before TEXT,
+  after TEXT,
+  at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS grant_events (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
   grant_id INTEGER NOT NULL,
@@ -1074,6 +1101,20 @@ CREATE TABLE IF NOT EXISTS a2a_peers (
 CREATE INDEX IF NOT EXISTS idx_a2a_peers_status ON a2a_peers (status);
 CREATE INDEX IF NOT EXISTS idx_a2a_peers_registered_by ON a2a_peers (registered_by);
 `);
+// 「安排一件事」（POST /api/work-items）的请求记账：一个人（requester）的一个幂等键一行。同一个人同一个键再发，回第一次的结果；
+//   键相同、请求体不同（body_sha256 对不上）拒。限流也按这张表数（每人最近一分钟、一天各几行）。时间、id 都由代码生成后传进来。
+db.exec(`
+CREATE TABLE IF NOT EXISTS work_item_requests (
+  requester TEXT NOT NULL CHECK (requester <> ''),
+  idem_key TEXT NOT NULL CHECK (idem_key <> ''),
+  body_sha256 TEXT NOT NULL,
+  task_id INTEGER NOT NULL,
+  event_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (requester, idem_key)
+);
+CREATE INDEX IF NOT EXISTS idx_work_item_requests_time ON work_item_requests(requester, created_at);
+`);
 // 阶段八 8d：「关注」的答复记账。每个（来源、来源里的 id）一行：第一次答成功就记下应答，同一条再答返回这一份；
 //   pending 表示正有人在答（并发的第二个人被告知正在处理）；答失败就删掉这一行，可以再答。原件的状态和留痕在来源自己那里。
 db.exec(`
@@ -1095,6 +1136,12 @@ CREATE TABLE IF NOT EXISTS attention_answers (
 if (!(db.prepare('PRAGMA table_info(principal_pending)').all() as { name: string }[]).some((c) => c.name === 'appearance')) {
   db.exec('ALTER TABLE principal_pending ADD COLUMN appearance INTEGER NOT NULL DEFAULT 0');
 }
+// 待对接清单的原因：unbound（认出来了，等价写法撞上已有的、对不到主体）；bound-to-non-person（这条外部身份绑在席位、节点这类非人主体上，
+// 不能拿来登录，要先解绑那条外部身份）。加列用两边都认的 ALTER，已经有这一列时数据库报重复，照常往下走
+try { db.exec("ALTER TABLE principal_pending ADD COLUMN reason TEXT NOT NULL DEFAULT 'unbound'"); } catch (e) {
+  if (!/duplicate column|already exists/i.test(String((e as Error)?.message ?? e))) throw e;
+}
+
 db.exec(`
 CREATE TABLE IF NOT EXISTS principal_pending_seq (id INTEGER PRIMARY KEY AUTOINCREMENT);
 CREATE TRIGGER IF NOT EXISTS principal_pending_appearance AFTER INSERT ON principal_pending
@@ -1251,4 +1298,91 @@ export function rowToWorkbench(r: WorkbenchRow) {
   try { const a = JSON.parse(r.auth_config || 'null'); if (a && (a.type === 'bearer' || a.type === 'basic') && typeof a.value === 'string') auth = a; } catch { auth = null; }
   const { auth_config: _ac, ...rest } = r;
   return { ...rest, enabled: !!r.enabled, tags, auth };
+}
+// ---------- 台库（数据视图，docs/data-views.md）----------
+// 每个视图台一份自己的库，和上面的主库分开。表结构照约定登记在这里；语句由 services/bench-store.ts 在台自己的库上执行，不在主库上跑。
+// 只用两种库都认的写法；随库不同的只有类型名和自增主键，收在下面两个小函数里。时间一律由调用方给（毫秒整数），不在语句里取。
+export const BENCH_STORE_SCHEMA_VERSION = 1;
+export type BenchDialect = 'sqlite' | 'postgres';
+export type BenchColumnType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'boolean';
+
+const benchAutoId = (d: BenchDialect) => (d === 'sqlite' ? 'INTEGER PRIMARY KEY AUTOINCREMENT' : 'BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY');
+/** 数据集的列在库里用什么类型存：日期和时间存成规范化的文本（可排序、两种库一样），布尔存 0/1 */
+function benchSqlType(d: BenchDialect, t: BenchColumnType): string {
+  if (t === 'integer') return d === 'sqlite' ? 'INTEGER' : 'BIGINT';
+  if (t === 'decimal') return d === 'sqlite' ? 'REAL' : 'DOUBLE PRECISION';
+  if (t === 'boolean') return d === 'sqlite' ? 'INTEGER' : 'SMALLINT';
+  return 'TEXT';
+}
+
+/** 台库里固定的几张表（第 1 版）。数据集自己的表按列定义另建，模板见 benchSqlKit */
+function benchStoreSchema(d: BenchDialect): string[] {
+  const big = d === 'sqlite' ? 'INTEGER' : 'BIGINT';
+  return [
+    `CREATE TABLE IF NOT EXISTS bs_meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS bs_datasets (
+      name TEXT PRIMARY KEY, title TEXT NOT NULL, version INTEGER NOT NULL, columns TEXT NOT NULL, key_cols TEXT NOT NULL,
+      row_count INTEGER NOT NULL, created_at ${big} NOT NULL, updated_at ${big} NOT NULL, updated_by TEXT NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS bs_dataset_versions (
+      dataset TEXT NOT NULL, version INTEGER NOT NULL, title TEXT NOT NULL, columns TEXT NOT NULL, key_cols TEXT NOT NULL,
+      author TEXT NOT NULL, note TEXT NOT NULL, at ${big} NOT NULL, PRIMARY KEY (dataset, version))`,
+    `CREATE TABLE IF NOT EXISTS bs_view_versions (
+      version INTEGER PRIMARY KEY, content TEXT NOT NULL, sha256 TEXT NOT NULL, author TEXT NOT NULL, note TEXT NOT NULL, at ${big} NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS bs_snapshots (
+      id ${benchAutoId(d)}, dataset TEXT NOT NULL, dataset_version INTEGER NOT NULL, reason TEXT NOT NULL,
+      row_count INTEGER NOT NULL, content TEXT NOT NULL, content_sha256 TEXT NOT NULL, author TEXT NOT NULL, at ${big} NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS bs_writes (
+      id ${benchAutoId(d)}, dataset TEXT NOT NULL, op TEXT NOT NULL, idem_key TEXT UNIQUE, body_sha256 TEXT NOT NULL,
+      row_count INTEGER NOT NULL, actor TEXT NOT NULL, at ${big} NOT NULL, result TEXT NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS bs_changes (
+      id ${benchAutoId(d)}, kind TEXT NOT NULL, target TEXT NOT NULL, from_version INTEGER NOT NULL, to_version INTEGER NOT NULL,
+      actor TEXT NOT NULL, note TEXT NOT NULL, at ${big} NOT NULL)`,
+    `CREATE INDEX IF NOT EXISTS idx_bs_snapshots_dataset ON bs_snapshots (dataset, id)`,
+  ];
+}
+
+/**
+ * 台库用到的、属于表结构或随库不同的写法，打成一份纯数据。
+ *
+ * 台库的读写在工作线程里跑（services/bench-store-worker.ts）。线程不能引用这个文件：一引用就会在线程里再开一次主库。
+ * 所以这些写法由市场进程从这里取出来，在起线程的时候递给它；表结构因此仍然只登记在这一处。
+ * 模板里的 {名字} 由台库的数据访问服务填；填进去的表名、列名都先过白名单并加了固定前缀，值一律走参数。
+ */
+export type BenchSqlKit = {
+  dialect: BenchDialect;
+  schemaVersion: number;
+  /** 固定的几张表 */
+  schema: string[];
+  /** 数据集的列类型在库里的写法 */
+  types: [BenchColumnType, string][];
+  /** 数据集的表：一个自增行号加各列。{columns} 是若干个「, 列名 类型」 */
+  createTable: string;
+  addColumn: string;
+  dropColumn: string;
+  keyIndex: string;
+  dropIndex: string;
+  /** 「这一列的文本里包含某段文本」（区分大小写）：两种库的函数名不同 */
+  contains: string;
+  /**
+   * 扫描守卫：把一条查询的筛选条件 {cond} 包起来，让库每扫过约 256 行回到服务里看一眼时限（bench_tick 由连接登记）。
+   * 直接写「条件 AND bench_tick()」不行：条件先不成立时后一半不会算，一条全表扫但没有命中的查询就一次也回不来。
+   * 没有这一项（null）的库靠自己的语句时限。
+   */
+  scanGuard: string | null;
+};
+export function benchSqlKit(d: BenchDialect): BenchSqlKit {
+  const types: BenchColumnType[] = ['text', 'integer', 'decimal', 'date', 'datetime', 'boolean'];
+  return {
+    dialect: d,
+    schemaVersion: BENCH_STORE_SCHEMA_VERSION,
+    schema: benchStoreSchema(d),
+    types: types.map((t) => [t, benchSqlType(d, t)]),
+    createTable: `CREATE TABLE {table} (rid ${benchAutoId(d)}{columns})`,
+    addColumn: 'ALTER TABLE {table} ADD COLUMN {col} {type}',
+    dropColumn: 'ALTER TABLE {table} DROP COLUMN {col}',
+    keyIndex: 'CREATE UNIQUE INDEX {index} ON {table} ({cols})',
+    dropIndex: 'DROP INDEX IF EXISTS {index}',
+    contains: d === 'sqlite' ? 'instr({col}, ?) > 0' : 'strpos({col}, ?) > 0',
+    scanGuard: d === 'sqlite' ? 'CASE WHEN (rid & 255) <> 0 OR bench_tick() THEN ({cond}) ELSE 0 END' : null,
+  };
 }

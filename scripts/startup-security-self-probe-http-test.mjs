@@ -22,11 +22,11 @@ const preload=String.raw`import net from'node:net';import{registerHooks}from'nod
 const listen=net.Server.prototype.listen;
 net.Server.prototype.listen=function(...a){if(typeof a[0]==='number'){if(typeof a[1]==='string')a[1]='127.0.0.1';else a.splice(1,0,'127.0.0.1')}return listen.apply(this,a)};
 const mutation=process.env.WM_SYNTHETIC_PROBE_MUTATION;
-registerHooks({load(url,ctx,next){const loaded=next(url,ctx);if(!mutation||!url.endsWith(mutation==='handler-error'?'/server/src/routes/workbenches.ts':mutation==='export-reveal'?'/server/src/routes/export-import.ts':mutation==='mcp-timeout'||mutation==='hold-probe'?'/server/src/routes/mcp-protocol.ts':'/server/src/index.ts'))return loaded;let s=String(loaded.source);
+registerHooks({load(url,ctx,next){const loaded=next(url,ctx);if(!mutation||!url.endsWith(mutation==='handler-error'?'/server/src/routes/workbenches.ts':mutation==='export-reveal'?'/server/src/routes/export-import.ts':mutation==='mcp-timeout'||mutation==='hold-probe'?'/server/src/routes/mcp-protocol.ts':mutation==='a2a-direct-unsigned'?'/server/src/routes/a2a-direct.ts':'/server/src/index.ts'))return loaded;let s=String(loaded.source);
 const replace=(from,to)=>{if(!s.includes(from))throw Error('mutation anchor missing: '+mutation);s=s.replace(from,to);};
 if(mutation==='login-gate')replace('app.use(loginGate.middleware);','app.use((_q,_s,n)=>n());');
 if(mutation==='login-gate-apps')replace('app.use(loginGate.middleware);',"app.use((q,s,n)=>q.path.startsWith('/apps/')?n():loginGate.middleware(q,s,n));");
-if(mutation==='a2a-direct-unsigned')replace("  if (A2A_DIRECT_SIG !== 'off') {","  if (false) {");
+if(mutation==='a2a-direct-unsigned')replace("    if (A2A_DIRECT_SIG !== 'off') {","    if (false) {");
 if(mutation==='mcp-auth')replace('  if (!MCP_GATEWAY_ON) return null;','  if (true || !MCP_GATEWAY_ON) return null;');
 if(mutation==='browser-write')replace("  if (p.startsWith('/api/')) {","  if (false && p.startsWith('/api/')) {");
 if(mutation==='export-reveal')replace("      if (!adminGuard(req, res)) return;\n      res.set('Cache-Control', 'no-store');","      res.set('Cache-Control', 'no-store');");

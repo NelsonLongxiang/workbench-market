@@ -478,7 +478,7 @@ async function gatePrincipalChecks(srv, tag, relay) {
     try { rows = db.prepare("SELECT provider, external_id, appearance FROM principal_pending WHERE external_id IN ('Alpha', 'beta')").all(); } finally { db.close(); }
     const att = await srv.call('GET', '/api/attention', null, undefined, TOKEN);
     const attItems = JSON.stringify(att.json ?? {});
-    check(list.status === 200 && mine.length === 1 && keys === 'display_name,email,external_id,last_seen,provider' && !mine[0].email && rows.length === 1 && rows[0].external_id === 'Alpha' && rows[0].appearance > 0
+    check(list.status === 200 && mine.length === 1 && keys === 'display_name,email,external_id,last_seen,provider,reason' && mine[0].reason === 'unbound' && !mine[0].email && rows.length === 1 && rows[0].external_id === 'Alpha' && rows[0].appearance > 0
       && !items.some((p) => p.external_id === 'beta') && /principal-pending/.test(attItems) && attItems.includes('Alpha'),
       `${tag}待对接·经现有登录（不是飞书）对不上主体的进清单：反复来只有一条、出现序号定下了、只有标识/显示名/邮箱（空）/最近一次；停用的不进；「关注」的待对接来源看得到`, show({ list: list.status, mine: mine.length, keys, rows, beta: items.some((p) => p.external_id === 'beta') }));
   }
@@ -506,6 +506,21 @@ async function gatePrincipalChecks(srv, tag, relay) {
       check(during === 401 && after === 200, `${tag}主体·停用期间的拒绝不进缓存：恢复之后立即进得来`, show({ during, after }));
     }
   }
+}
+
+/** /api/auth/me 的「我是谁」：认出了人才有主体、显示名和当前生效授予的角色；口令没有主体 */
+async function meChecks(srv, tag) {
+  const me0 = await srv.call('GET', '/api/auth/me', SESSIONS.beta);
+  const d = await srv.call('POST', '/api/grants', null, { principal: 'user:beta', role: 'member', scope: '*', reason: '合成' }, {}, false);
+  await srv.call('POST', `/api/grants/${d.json?.grant?.id}/submit`, null, {}, {}, false);
+  await srv.call('POST', `/api/grants/${d.json?.grant?.id}/approve`, null, {}, {}, false);
+  const me1 = await srv.call('GET', '/api/auth/me', SESSIONS.beta);
+  const tok = await srv.call('GET', '/api/auth/me', null, undefined, TOKEN);
+  const role = me1.json?.roles?.find((r) => r.id === 'member');
+  check(me0.json?.principal === 'user:beta' && me0.json?.display_name === 'Synthetic beta' && Array.isArray(me0.json?.roles) && me0.json.login === 'beta'
+    && role?.name === '普通员工' && role?.preset === true && role?.scope === '*' && role?.expires_at === null && role?.source === 'manual' && role?.approved_by === 'cli'
+    && tok.json?.authenticated === true && tok.json?.principal === null && tok.json?.display_name === null && Array.isArray(tok.json?.roles) && tok.json.roles.length === 0,
+    `${tag}/api/auth/me：认出了人带主体、显示名和当前生效的角色（键、中文名、范围、是不是预设、来源、放行人）；口令没有主体、角色为空；原来的字段不变`, show({ me0: me0.json, role, tok: tok.json }));
 }
 
 /** 开着内容面的实例：内容面启动页现查认人，停用的主体拿不到票据 */
@@ -575,6 +590,7 @@ try {
   await contentChecks('内容面·');
   await gateChecks(gated, '登录门·');
   await gatePrincipalChecks(gated, '登录门·', false);
+  await meChecks(gated, '登录门·');
   // 同域登录中继开着：管理员认定和登录门各走另一支（不缓存，每次现查），同样的例子再过一遍
   await openChecks(relay, '中继·');
   await principalChecks(relay, '中继·', true);

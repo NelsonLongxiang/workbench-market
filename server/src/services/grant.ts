@@ -17,7 +17,7 @@
  */
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
-import { scopeOk, scopeWithin, type RoleView } from '../roles.ts';
+import { EXPIRY_REQUIRED_ROLES, NON_PERSON_ONLY_ROLES, scopeOk, scopeWithin, type RoleView } from '../roles.ts';
 
 export type GrantStatus = 'draft' | 'pending' | 'active' | 'revoked' | 'expired';
 export type GrantRow = {
@@ -73,14 +73,18 @@ export class GrantService extends Service {
   }
 
   /** 每一步都要过的核对：角色在、范围合规、主体在且启用、不是人的有在职责任人、决定类不给不是人的、不给自己 */
-  private check(g: { principal_id: string; role: string; scope: string }, actor: Actor): Refusal | null {
+  private check(g: { principal_id: string; role: string; scope: string; expires_at?: number | null }, actor: Actor): Refusal | null {
     const role = this.roleViews.get(g.role);
     if (!role) return refuse(422, 'role_unknown', `角色 ${g.role} 没有声明`);
+    // 访客必须有期限
+    if (EXPIRY_REQUIRED_ROLES.includes(g.role) && (g.expires_at === null || g.expires_at === undefined)) return refuse(422, 'expiry_required', `角色 ${g.role}（访客）的授予必须有期限`);
     if (!scopeOk(g.scope)) return refuse(400, 'scope_invalid', '范围写法不对：*、domain:、bench:、sop:、tool:、self、object:');
     for (const p of role.closure) if (!scopeWithin(p.scope, g.scope)) return refuse(422, 'scope_wider', `角色 ${g.role} 里有范围 ${p.scope} 的权限，不在授予的范围 ${g.scope} 之内`);
     const p = db.prepare('SELECT id, kind, status, owner FROM principals WHERE id = ?').get(g.principal_id) as { id: string; kind: string; status: string; owner: string } | undefined;
     if (!p) return refuse(404, 'principal_missing', `主体 ${g.principal_id} 不存在`);
     if (p.status !== 'active') return refuse(422, 'principal_disabled', `主体 ${g.principal_id} 已停用`);
+    // AI 员工只授予非人主体（席位）；人不拿这个预设
+    if (NON_PERSON_ONLY_ROLES.includes(g.role) && p.kind === 'person') return refuse(422, 'non_person_only', `角色 ${g.role}（AI 员工）只授予席位这类非人主体，不授予人`);
     if (p.kind !== 'person') {
       const o = p.owner ? db.prepare('SELECT kind, status FROM principals WHERE id = ?').get(p.owner) as { kind: string; status: string } | undefined : undefined;
       if (!o || o.kind !== 'person' || o.status !== 'active') return refuse(422, 'no_responsible', `${g.principal_id} 不是人，要有在职的责任人才能被授予`);
@@ -115,7 +119,7 @@ export class GrantService extends Service {
   draft(input: { principal: string; role: string; scope: string; expiresAt: number | null; reason: string }, actor: Actor, now = Date.now()): Result<{ grant: GrantRow }> {
     if (input.expiresAt !== null && (!Number.isSafeInteger(input.expiresAt) || input.expiresAt <= now)) return refuse(400, 'expires_invalid', 'expires_at 要是将来的时刻（毫秒），或者不写');
     if (!input.reason.trim()) return refuse(400, 'reason_required', '要写理由');
-    const bad = this.check({ principal_id: input.principal, role: input.role, scope: input.scope }, actor);
+    const bad = this.check({ principal_id: input.principal, role: input.role, scope: input.scope, expires_at: input.expiresAt }, actor);
     if (bad) return bad;
     db.exec('BEGIN IMMEDIATE');
     let id: number;

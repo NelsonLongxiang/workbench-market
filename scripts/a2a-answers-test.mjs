@@ -32,9 +32,10 @@ mkdirSync(DATA, { recursive: true });
 async function peer(zone, reuseKey) {
   const key = reuseKey ?? generateKeyPairSync('ed25519').privateKey;
   const p = await port();
-  const peerObj = { zone, key, url: `http://127.0.0.1:${p}`, got: [], fail: false };
+  const peerObj = { zone, key, url: `http://127.0.0.1:${p}`, got: [], fail: false, cardHits: 0 };
   peerObj.server = createServer((req, res) => {
     if (req.url === '/.well-known/agent-card.json') {
+      peerObj.cardHits++;
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify(signCard({ capabilities: {}, expiresAt: Date.now() + 3600_000, name: zone, session: zone, team: zone }, key)));
     }
@@ -94,6 +95,7 @@ function seedEvent({ dispatch = 1, zone = 'lab', root = lab.url } = {}) {
   } finally { d.close(); }
 }
 const state = (ev) => q('SELECT state, open_asks FROM work_items WHERE id = ?', `wi_${ev}`)[0] ?? null;
+const noRecProbe = (inbound) => { const d = new DatabaseSync(join(DATA, 'workbench-market.db')); try { d.exec('PRAGMA busy_timeout = 5000'); return d.prepare('SELECT COUNT(*) AS c FROM workbench_event_followups WHERE inbound_task = ?').get(inbound).c === 0; } finally { d.close(); } };
 const seatAsks = async () => ((await api('GET', '/api/attention')).body?.items ?? []).filter((x) => x.source === 'seat-asks');
 const answer = async (deliveryId, text) => { const r = await api('POST', '/api/attention/answer', { source: 'seat-asks', source_id: String(deliveryId), answer: 'answer', input: { text } }); return { status: r.status, body: r.body?.result ?? r.body }; };
 async function waitFor(fn, ms = 8000) { const end = Date.now() + ms; while (Date.now() < end) { if (await fn()) return true; await sleep(150); } return false; }
@@ -188,6 +190,51 @@ try {
     ok('答复发回：qid = 问题 id（不是任务号）', r.status === 200 && r.body?.sent === true && qe.answer?.qid === 'q1', JSON.stringify(qe));
     r = await receipt(Q.task, '发 apps 仓库了', { outcome: 'completed', idempotencyKey: Q.task, disposition: 'result' }, Q.ctx);
     ok('之后的结果仍走 receipt-<task>，采信 → 等验收（问题没占掉终局槽）', r.status === 200 && r.text.includes('"receipt":"recorded"') && state(Q.ev)?.state === 'ready', `${r.text} ${JSON.stringify(state(Q.ev))}`);
+    // 办完之后晚到的接单回执、新提问：不再把旧提问再补关一遍（之前每条晚到的各留一行 rejected=terminal）
+    {
+      const closes = () => q("SELECT COUNT(*) AS c FROM work_item_log WHERE item_id = ? AND fact = 'answer' AND fact_id LIKE '%:closes-ask:%'", `wi_${Q.ev}`)[0].c;
+      const v = await api('POST', '/api/attention/answer', { source: 'work-items', source_id: `wi_${Q.ev}`, answer: 'verify', input: {} });
+      const before = closes();
+      await receipt(Q.task, '晚到的接单', { idempotencyKey: Q.task, disposition: 'acknowledged' }, Q.ctx, { inbound: `ack-${Q.task}` });
+      await receipt(Q.task, '晚到的提问', { idempotencyKey: Q.task, disposition: 'attention', question: { id: 'q3', text: '晚到的提问' } }, Q.ctx, { inbound: `attention-${Q.task}-q3` });
+      ok('办完（done）之后晚到的接单回执、新提问：不再补关旧提问，事项日志不多出 rejected 的合上行', v.status === 200 && state(Q.ev)?.state === 'done' && closes() === before, `${before} → ${closes()} ${JSON.stringify(state(Q.ev))}`);
+    }
+    const closesOf = (ev) => q("SELECT COUNT(*) AS c FROM work_item_log WHERE item_id = ? AND fact = 'answer' AND fact_id LIKE '%:closes-ask:%'", `wi_${ev}`)[0].c;
+    // B1：提问还开着时事项结束（另一次投递的结果把事项推到办完），之后这次投递晚到一条接单回执 → 不尝试补关（只靠「事项已结束」这一道挡）
+    {
+      const B = seedEvent();
+      const d2 = (() => { const d = db(); try {
+        const id2 = Number(d.prepare("INSERT INTO workbench_event_deliveries (event_id, target_team, target_url, caller_session, status, sent_at) VALUES (?, 'other-team/c1c2c3c4c5c6c7c8', ?, 'market/12345678', 'sent', datetime('now'))").run(B.ev, lab.url).lastInsertRowid);
+        for (const action of ['queued', 'sent']) d.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, 'market', ?, '{}')").run(B.ev, id2, action);
+        const t = `${B.ev}.d${id2}.a1`;
+        d.prepare('INSERT INTO a2a_sent_tasks (task_id, kind, event_id, delivery_id, peer_root, peer_zone) VALUES (?, ?, ?, ?, ?, ?)').run(t, 'delivery', B.ev, id2, lab.url, 'lab');
+        return t;
+      } finally { d.close(); } })();
+      await receipt(B.task, '问', { idempotencyKey: B.task, disposition: 'attention', question: { id: 'b1', text: '问' } }, B.ctx, { inbound: `attention-${B.task}-b1` });
+      await receipt(d2, '做完了', { outcome: 'completed', idempotencyKey: d2, disposition: 'result' }, B.ctx, { inbound: `receipt-${d2}` });
+      await api('POST', '/api/attention/answer', { source: 'work-items', source_id: `wi_${B.ev}`, answer: 'verify', input: {} });
+      const before = closesOf(B.ev);
+      await receipt(B.task, '晚到的接单', { idempotencyKey: B.task, disposition: 'acknowledged' }, B.ctx, { inbound: `ack-${B.task}` });
+      ok('B1：提问还开着时事项办完，之后同一投递晚到接单回执 → 不尝试补关（不多合上行、也不多被拒的行）', state(B.ev)?.state === 'done' && closesOf(B.ev) === before, `${before} → ${closesOf(B.ev)} ${JSON.stringify(state(B.ev))}`);
+    }
+    // B2：提问没被事项收下（只通知的事件，事项停在草稿），同一投递接连来两条合上类回执 → 只尝试一次（只靠「已有过答复」这一道挡）
+    {
+      const N = seedEvent({ dispatch: 0 });
+      await receipt(N.task, '问', { idempotencyKey: N.task, disposition: 'attention', question: { id: 'b2', text: '问' } }, N.ctx, { inbound: `attention-${N.task}-b2` });
+      await receipt(N.task, '接下', { idempotencyKey: N.task, disposition: 'acknowledged' }, N.ctx, { inbound: `ack-${N.task}` });
+      const once = closesOf(N.ev);
+      await receipt(N.task, '做完了', { outcome: 'completed', idempotencyKey: N.task, disposition: 'result' }, N.ctx);
+      ok('B2：同一条提问已经被尝试合上过（被拒也算），之后再来合上类回执 → 不再尝试', once >= 1 && closesOf(N.ev) === once, `${once} → ${closesOf(N.ev)}`);
+    }
+    // B2·人先答了：事项未结束，人答了提问，之后同一投递来接单回执 → 不给它补合上的答复
+    {
+      const H = seedEvent();
+      await receipt(H.task, '问', { idempotencyKey: H.task, disposition: 'attention', question: { id: 'b3', text: '问' } }, H.ctx, { inbound: `attention-${H.task}-b3` });
+      await answer(H.delivery, '人答了');
+      const before = closesOf(H.ev);
+      await receipt(H.task, '接下', { idempotencyKey: H.task, disposition: 'acknowledged' }, H.ctx, { inbound: `ack-${H.task}` });
+      ok('B2：人先答了提问，之后同一投递来接单回执 → 不再补合上的答复', closesOf(H.ev) === before && state(H.ev)?.state !== 'blocked', `${before} → ${closesOf(H.ev)} ${JSON.stringify(state(H.ev))}`);
+    }
     ok('……原工单（投递任务）的结果回执不落成席位消息（只有人发出的消息的回话才是）', q('SELECT COUNT(*) AS c FROM workbench_event_followups WHERE event_id = ?', Q.ev)[0].c === 0);
     // 对抗：形状不对的一律只记录、不采信、不占槽
     const Q2 = seedEvent();
@@ -276,6 +323,71 @@ try {
     r = await receipt(C.task, '步', { idempotencyKey: C.task, disposition: 'progress', progress: { n: 201, state: 'working', at: '2026-11-11T08:00:00.000Z' } }, C.ctx, { inbound: `progress-${C.task}-201` });
     ok('同一任务第 201 步 → 照常应答、不记，公开计数 progress:over-cap +1', r.status === 200 && r.text.includes('"receipt":"over-cap"') && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE delivery_id = ? AND action = 'receipt:progress'", C.delivery)[0].c === 200
       && ((await (await fetch(BASE + '/api/health')).json()).a2a?.refused?.counts?.['progress:over-cap'] ?? 0) === capBefore + 1, r.text.slice(0, 160));
+  }
+
+  console.log('二之四、来信分流先验格式再查库');
+  {
+    const T = seedEvent();
+    const raw = JSON.stringify({ team: 'market/12345678', message: '分流探测', caller_session: 'lab/canvas/ops', context_id: T.ctx, wait: false, task_id: 'a2a-probe0001' });
+    const good = signed(lab, raw);
+    const shapes = [
+      ['只有 zone、没有签名', { 'X-A2A-Caller': 'lab' }],
+      ['Sig3 不成形', { ...good, 'X-A2A-Caller-Sig3': 'x' }],
+      ['时间戳过期', { ...good, 'X-A2A-Caller-Ts': String(Date.now() - 10 * 60_000) }],
+      ['受众不是我们', { ...good, 'X-A2A-Caller-Aud': 'http://elsewhere.example' }],
+      ['正文摘要对不上', { ...good, 'X-A2A-Body-Sha256': 'AAAA' }],
+      ['来源地址不成形', { ...good, 'X-A2A-Caller-Url': 'not a url' }],
+      ['成形但来源不是投递的对端根地址', { ...signed({ ...evil, zone: 'lab' }, raw) }],
+    ];
+    for (const [label, h] of shapes) {
+      lab.cardHits = 0; evil.cardHits = 0;
+      const rr = await post(raw, h);
+      ok(`分流·${label} → 不收、不回执、不去取任何名片`, !rr.text.includes('"followup":"recorded"') && lab.cardHits === 0 && evil.cardHits === 0 && noRecProbe('a2a-probe0001'), `${rr.status} lab=${lab.cardHits} evil=${evil.cardHits}`);
+    }
+    // 知道对端根地址、声称就是它、签名是坏的：查得到投递和查不到，出网取卡的次数要一样（两个冷缓存的对端各测一种）
+    {
+      const pa = await peer('pa'), pb = await peer('pb');
+      seedEvent({ zone: 'pa', root: pa.url });              // pa 是投递过的对端，但下面用一个它没收过的 context
+      const B = seedEvent({ zone: 'pb', root: pb.url });     // pb 收过 B 的投递
+      const rawA = JSON.stringify({ team: 'market/12345678', message: '探', caller_session: 'pa/canvas/ops', context_id: 'wb:task-center:888888', wait: false, task_id: 'a2a-probe-a' });
+      const rawB = JSON.stringify({ team: 'market/12345678', message: '探', caller_session: 'pb/canvas/ops', context_id: B.ctx, wait: false, task_id: 'a2a-probe-b' });
+      const ra = await post(rawA, signed({ ...evil, zone: 'pa', url: pa.url }, rawA));
+      const rb = await post(rawB, signed({ ...evil, zone: 'pb', url: pb.url }, rawB));
+      ok('知道根地址的探测：查不到投递与查到投递，取卡次数相同（时序只取决于请求自己声称的来源）', !ra.text.includes('"followup":"recorded"') && !rb.text.includes('"followup":"recorded"') && pa.cardHits === pb.cardHits && pa.cardHits >= 1, `查不到=${pa.cardHits} 查到=${pb.cardHits}`);
+      const rawC = JSON.stringify({ team: 'market/12345678', message: '探', caller_session: 'x/canvas/ops', context_id: 'wb:task-center:777777', wait: false, task_id: 'a2a-probe-c' });
+      const stranger = await peer('stranger');
+      await post(rawC, signed({ ...evil, zone: 'stranger', url: stranger.url }, rawC));
+      ok('……声称的来源不是投递过的对端 → 不去取它的名片（不做开放的取卡代理）', stranger.cardHits === 0, String(stranger.cardHits));
+      // G3：声称的来源是投递过的对端、但签名不成形 → 连预取都不做
+      const pe = await peer('pe');
+      seedEvent({ zone: 'pe', root: pe.url });
+      const rawE = JSON.stringify({ team: 'market/12345678', message: '探', caller_session: 'pe/canvas/ops', context_id: 'wb:task-center:666666', wait: false, task_id: 'a2a-probe-e' });
+      await post(rawE, { ...signed({ ...evil, zone: 'pe', url: pe.url }, rawE), 'X-A2A-Caller-Sig3': 'x' });
+      ok('G3：声称的来源投递过、签名不成形 → 不取卡（格式关在取卡之前）', pe.cardHits === 0, String(pe.cardHits));
+      // G4：名片已在缓存、冷却已过，再比「查不到投递」与「查到投递」——两边都要照验签的样子强制重取一次
+      const pc = await peer('pc'), pd = await peer('pd');
+      seedEvent({ zone: 'pc', root: pc.url });
+      const D = seedEvent({ zone: 'pd', root: pd.url });
+      const rawC0 = JSON.stringify({ team: 'market/12345678', message: '暖', caller_session: 'pc/canvas/ops', context_id: 'wb:task-center:555555', wait: false, task_id: 'a2a-warm-c' });
+      const rawD0 = JSON.stringify({ team: 'market/12345678', message: '暖', caller_session: 'pd/canvas/ops', context_id: 'wb:task-center:555556', wait: false, task_id: 'a2a-warm-d' });
+      await post(rawC0, signed({ ...evil, zone: 'pc', url: pc.url }, rawC0));
+      await post(rawD0, signed({ ...evil, zone: 'pd', url: pd.url }, rawD0));
+      ok('G4 准备：两张名片都进了缓存', pc.cardHits === 1 && pd.cardHits === 1, `${pc.cardHits} ${pd.cardHits}`);
+      await sleep(31_000); // 过取卡冷却（peer-card.ts 30 秒）
+      pc.cardHits = 0; pd.cardHits = 0;
+      const rawG4c = JSON.stringify({ team: 'market/12345678', message: '探', caller_session: 'pc/canvas/ops', context_id: 'wb:task-center:444444', wait: false, task_id: 'a2a-probe-g4c' });
+      const rawG4d = JSON.stringify({ team: 'market/12345678', message: '探', caller_session: 'pd/canvas/ops', context_id: D.ctx, wait: false, task_id: 'a2a-probe-g4d' });
+      await post(rawG4c, signed({ ...evil, zone: 'pc', url: pc.url }, rawG4c));
+      await post(rawG4d, signed({ ...evil, zone: 'pd', url: pd.url }, rawG4d));
+      ok('G4：名片在缓存、冷却已过，签名坏——查不到投递与查到投递都强制重取一次（取卡次数相同）', pc.cardHits === pd.cardHits && pc.cardHits === 1, `查不到=${pc.cardHits} 查到=${pd.cardHits}`);
+      for (const x of [pa, pb, stranger, pe, pc, pd]) x.server.close();
+    }
+    // 时序（只打印、不断言）：查不到投递 vs 查到了但签名不成形 vs 查到了、成形、来源不对
+    const med = (xs) => { const a = [...xs].sort((x, y) => x - y); return a[Math.floor(a.length / 2)]; };
+    const time = async (rawX, h) => { const xs = []; for (let k = 0; k < 60; k++) { const t0 = performance.now(); await post(rawX, typeof h === 'function' ? h() : h); xs.push(performance.now() - t0); } return med(xs).toFixed(2); };
+    const rawMiss = raw.replace(T.ctx, 'wb:task-center:999999');
+    console.log(`    时序中位数（ms）：查不到投递·无签名 ${await time(rawMiss, { 'X-A2A-Caller': 'lab' })}；查到投递·无签名 ${await time(raw, { 'X-A2A-Caller': 'lab' })}；`
+      + `查不到投递·成形签名 ${await time(rawMiss, () => signed({ ...evil, zone: 'lab' }, rawMiss))}；查到投递·成形签名·来源不对 ${await time(raw, () => signed({ ...evil, zone: 'lab' }, raw))}`);
   }
 
   console.log('二之五、团队名册（[A2A roster]）');
@@ -448,9 +560,10 @@ try {
   r = await msgRead(L.ev);
   it = await itemOf(L.ev);
   const notice = it.messages.find((x) => x.text.includes('已开工'));
-  ok('看过 → 标成已读、未读数 0，不发任何东西，事项日志记一行 note followup-read', r.status === 200 && r.body?.marked === 1 && notice?.status === 'read' && it.unread === 0
+  ok('看过 → 标成已读、未读数 0，不发任何东西；「看过」只记在事件日志里，不进事项时间线', r.status === 200 && r.body?.marked === 1 && notice?.status === 'read' && it.unread === 0
+    && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE event_id = ? AND action = 'followup-read'", L.ev)[0].c === 1
     && q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE kind = 'followup-reply' AND ref = ?", notice?.id)[0].c === 0
-    && q("SELECT COUNT(*) AS c FROM work_item_log WHERE item_id = ? AND fact = 'note' AND json_extract(detail, '$.note') = 'followup-read'", `wi_${L.ev}`)[0].c === 1, JSON.stringify(r.body));
+    && q("SELECT COUNT(*) AS c FROM work_item_log WHERE item_id = ? AND fact = 'note' AND json_extract(detail, '$.note') = 'followup-read'", `wi_${L.ev}`)[0].c === 0, JSON.stringify(r.body));
   r = await msgRead(L.ev);
   ok('……再看一次 → 标了 0 条，不重复记', r.status === 200 && r.body?.marked === 0 && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE event_id = ? AND action = 'followup-read'", L.ev)[0].c === 1, JSON.stringify(r.body));
   r = await msgReply(L.ev, notice?.id, '看过的也能回');
@@ -536,6 +649,24 @@ try {
   // 验签不过的仍然不收不回执（那不是我们欠的）——限频不改变这一条
   { const rr = fu(rate.ctx, '伪造', 'a2a-rate-forged'); await post(rr, signed(evil, rr)); ok('限频之下，验签不过的仍不收、不回执', noRec('a2a-rate-forged')); }
   ok('跟进回执的积压在健康块里有数', typeof (await (await fetch(BASE + '/api/health')).json()).a2a?.outbox?.followup_receipts?.pending === 'number');
+  // 名片不声明 teamRoster（WM_A2A_TEAM_ROSTER=off）：入站名册一律不收（照普通来信走），已有的名册不动
+  {
+    child.kill(); await new Promise((r) => { if (child.exitCode !== null) r(); else child.once('exit', r); });
+    const off = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], { cwd: 'server', stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, DATA_DIR: DATA, PORT: String(PM), WM_CONTROL_PORT: '0', NODE_ENV: 'test', MCP_GATEWAY: 'off', ADMIN_TOKEN: 'ans-admin', MARKET_PUBLIC_URL: BASE, WM_A2A_DIRECT_SIG: '', WM_LOGIN_GATE: '', WM_A2A_TEAM_ROSTER: 'off' } });
+    try {
+      ok('（准备）WM_A2A_TEAM_ROSTER=off 的实例起来了', await ready());
+      const card = await (await fetch(BASE + '/.well-known/agent-card.json')).json();
+      ok('off：名片不声明 teamRoster', card?.capabilities && !('teamRoster' in card.capabilities), JSON.stringify(card?.capabilities));
+      const fp = createHash('sha256').update(createPublicKey(lab.key).export({ type: 'spki', format: 'der' })).digest('hex').slice(0, 8);
+      const before = JSON.stringify(q('SELECT host, reported_at FROM a2a_rosters ORDER BY host'));
+      const at = new Date().toISOString();
+      const raw = JSON.stringify({ team: 'market/12345678', message: `[A2A roster] ${fp} ${at}\n${JSON.stringify({ host: fp, at, seats: [{ seat: 'lab/f1f1f1f1', name: '没声明时推来的', team: 'lab/canvas/team', role: 'member', online: true }] })}`, caller_session: 'dsh-host-1a2b', context_id: '', wait: false, task_id: 'roster-off-1' });
+      const rr = await post(raw, signed(lab, raw));
+      ok('off：投递过的宿主、Sig3 签的名册也不收（应答里没有 roster），名册表不变', !rr.text.includes('"roster":') && JSON.stringify(q('SELECT host, reported_at FROM a2a_rosters ORDER BY host')) === before
+        && q("SELECT COUNT(*) AS c FROM a2a_roster_seats WHERE seat = 'lab/f1f1f1f1'")[0].c === 0, rr.text.slice(0, 160));
+    } finally { off.kill(); await new Promise((r) => { if (off.exitCode !== null) r(); else off.once('exit', r); }); }
+  }
 } catch (e) {
   ok('运行', false, String(e?.stack ?? e));
 } finally {

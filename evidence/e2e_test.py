@@ -194,9 +194,9 @@ with sync_playwright() as p:
     except Exception as _e:
         print('[E2E] MCP 会话引导失败:', _e)
 
-    # ---------- 1. 仪表盘 ----------
+    # ---------- 1. 仪表盘（新外壳 #571：/ 是全景，原来的总览在 /overview） ----------
     try:
-        page.goto(BASE + '/')
+        page.goto(BASE + '/overview')
         page.wait_for_load_state('networkidle')
         body = page.inner_text('body')
         assert '工作台总数' in body and '平均延迟' in body, '统计卡缺失'
@@ -551,8 +551,14 @@ with sync_playwright() as p:
             st, _ = market_write('/api/settings', 'PUT', {'health_interval_seconds': '31'}, token='')
             assert st == 403, f'业务面页面不带口令改设置应 403: {st}'
             assert page.get_by_role('link', name='管理控制面').count() == 0, '页头不应再有控制面链接'
-            assert page.get_by_role('button', name=_re_m1.compile(r'口\s*令')).count() >= 1, '页头应有口令入口'
-            record('管理身份（未开控制面：业务面带口令写 201 / 不带口令 403 / 页头口令入口）', True)
+            # 新外壳（#571）：口令入口在侧栏底部用户卡的弹出层里。开没开看 aria-expanded，不看「此刻可见」（动画起点尺寸为 0）
+            _me = page.locator('[data-testid=wm-me]')
+            if _me.get_attribute('aria-expanded') != 'true': _me.click()
+            page.locator('[data-testid=wm-me][aria-expanded=true]').wait_for()
+            page.locator('.wm-me-pop').get_by_role('button', name=_re_m1.compile(r'口\s*令')).first.wait_for()
+            assert page.locator('.wm-me-pop').get_by_role('button', name=_re_m1.compile(r'口\s*令')).count() >= 1, '用户卡里应有口令入口'
+            _me.click(); page.locator('[data-testid=wm-me][aria-expanded=false]').wait_for()  # 收起，免得挡后面的步骤
+            record('管理身份（未开控制面：业务面带口令写 201 / 不带口令 403 / 用户卡口令入口）', True)
         else:
             st, j = market_write()
             assert st == 403 and j.get('control_surface_required') is True, f'业务面浏览器带对口令管理写也应 403: {st} {j}'
@@ -683,8 +689,8 @@ with sync_playwright() as p:
         ('/ 使用页·标题', f'/use/{_use_wid}', '.wm-use-bar .wm-use-title', 4.5),
         ('/ 使用页·地址文字', f'/use/{_use_wid}', '.wm-use-bar .wm-mono', 4.5),
         ('/ 使用页·顶栏按钮', f'/use/{_use_wid}', '.wm-use-bar .ant-btn', 4.5),
-        ('/ 总览·统计标签', '/', '.wm-stat-card .wm-stat-label', 4.5),
-        ('/ 总览·侧栏菜单项', '/', '.ant-pro-sider .ant-menu-item', 4.5),
+        ('/overview 总览·统计标签', '/overview', '.wm-stat-card .wm-stat-label', 4.5),
+        ('/ 全景·侧栏主入口', '/', '[data-testid=wm-side] .wm-nav-item:not(.on)', 4.5),
         ('/market 表格·状态文字', '/market', '.ant-table-tbody .ant-badge-status-text', 4.5),
         ('/sops 表格·SOP 状态 Tag', '/sops', '.ant-table-tbody .ant-tag', 4.5),
         ('/sops 表格·标题文字', '/sops', '.ant-table-tbody .ant-typography', 4.5),
@@ -1100,11 +1106,14 @@ with sync_playwright() as p:
             page.goto(BASE + '/mcp-gateways')
             page.wait_for_load_state('networkidle')
             if not page.evaluate("() => !!sessionStorage.getItem('wm-admin-token')"):
-                # 没预注入口令的形态：走顶栏钥匙（全局入口），不用页内口令框
+                # 没预注入口令的形态：走用户卡里的钥匙（全局入口），不用页内口令框
                 _re7 = __import__('re')
-                page.get_by_role('button', name=_re7.compile(r'口\s*令')).first.click()
-                page.locator('.ant-popover .ant-input-password input').fill(_at7)
-                page.locator('.ant-popover').get_by_role('button', name=_re7.compile(r'保\s*存')).click()
+                _me7 = page.locator('[data-testid=wm-me]')  # 新外壳（#571）：全局口令入口在用户卡弹出层里
+                if _me7.get_attribute('aria-expanded') != 'true': _me7.click()
+                page.locator('[data-testid=wm-me][aria-expanded=true]').wait_for()
+                page.locator('.wm-me-pop').get_by_role('button', name=_re7.compile(r'口\s*令')).first.click()
+                page.locator('.ant-popover .ant-input-password input').last.fill(_at7)
+                page.locator('.ant-popover').get_by_role('button', name=_re7.compile(r'保\s*存')).last.click()
             _row7 = page.locator('.ant-table-row').filter(has_text=_s7['name'])
             _row7.wait_for(state='visible', timeout=8000)
             assert page.get_by_placeholder(__import__('re').compile('Odoo 管理员账号登录后免输')).count() == 0, '持全局口令时页内口令框不应出现（#375）'

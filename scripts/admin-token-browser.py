@@ -15,8 +15,27 @@ def ok(name, cond, extra=''):
 def go_frames(page):
     return page.locator(f'iframe[src="/go/{wid}/"]').count()
 
+def slow(page):
+    """本机模拟慢 runner：WM_BROWSER_CPU_THROTTLE=6 把页面 CPU 放慢 6 倍，动画和取数的先后就和 CI 上接近。缺省不放慢。"""
+    import os
+    rate = float(os.environ.get('WM_BROWSER_CPU_THROTTLE', '0') or 0)
+    if rate > 1: page.context.new_cdp_session(page).send('Emulation.setCPUThrottlingRate', {'rate': rate})
+
+def open_me(page):
+    # 新外壳（#571）：口令、登录身份都在侧栏底部用户卡的弹出层里。
+    # 开没开看用户卡自己的 aria-expanded，不看弹出层「可见」：弹出层刚开始放大动画时尺寸是 0，
+    # 会被当成没开而再点一次、反而关上（CI 上慢，撞上过）。
+    me = page.locator('[data-testid=wm-me]')
+    if me.get_attribute('aria-expanded') != 'true':
+        me.click()
+    page.locator('[data-testid=wm-me][aria-expanded=true]').wait_for()
+    # 等放大动画走完再往下（动画起点那一帧尺寸是 0）
+    page.wait_for_function("""() => { const e = document.querySelector('.wm-me-pop'); if (!e) return false; const r = e.getBoundingClientRect(); const h = e.closest('.ant-popover');
+      return !!h && r.width > 0 && r.height > 0 && ![...h.classList].some(c => /-(appear|enter|leave)(-|$)/.test(c)) && !h.classList.contains('ant-popover-hidden'); }""")
+
 def set_token(page):
-    page.get_by_role('button', name='口令').click()
+    open_me(page)
+    page.locator('.wm-me-pop').get_by_role('button', name='口令').click()
     page.get_by_placeholder('ADMIN_TOKEN').fill(tok)
     page.get_by_role('button', name=re.compile(r'^保\s*存$')).click()  # antd 两字按钮会插空格
     page.get_by_role('button', name='口令已设').wait_for()
@@ -31,12 +50,14 @@ with sync_playwright() as p:
         print('业务面管理（属主 2026-11-02：口令即可，不再限控制面）')
         c = b.new_context()
         page = c.new_page()
+        slow(page)
         page.goto(base + f'/use/{wid}'); page.wait_for_timeout(1200)
         ok('未设口令：使用页照常内嵌 /go/', go_frames(page) == 1)
         page.goto(base + f'/cockpit/{cfg["cockpit"]}'); page.wait_for_timeout(1200)
         ok('未设口令：驾驶舱照常内嵌 /go/、只读（没有新建/加面板）', go_frames(page) == 1 and page.get_by_text('驾驶舱在这里只能查看').count() >= 1)
         page.goto(base + '/market'); page.wait_for_timeout(800)
-        ok('业务面顶栏有口令输入，没有「管理控制面」链接', page.get_by_role('button', name=re.compile(r'口\s*令$')).count() == 1 and page.get_by_role('link', name=re.compile('管理控制面')).count() == 0)
+        open_me(page)
+        ok('业务面用户卡里有口令输入，没有「管理控制面」链接', page.get_by_role('button', name=re.compile(r'口\s*令$')).count() == 1 and page.get_by_role('link', name=re.compile('管理控制面')).count() == 0)
         set_token(page)
         r = page.evaluate(WRITE, [tok])
         ok('业务面页面带对口令发管理写 → 201', r['status'] == 201, str(r))
@@ -45,7 +66,7 @@ with sync_playwright() as p:
         for v in ('/API/workbenches', '/Api/Workbenches'):
             rv = page.evaluate(WRITE.replace('"/api/workbenches"', json.dumps(v)), [''])
             ok(f'业务面页面 fetch 大写变体 {v}（不带口令）→ 403', rv['status'] == 403, str(rv))
-        ok('设口令后管理菜单组出现', page.get_by_text('管理', exact=True).count() >= 1)
+        ok('设口令后侧栏出现「设置 / 管理」', page.locator('[data-testid=nav-admin]').count() == 1)
         page.evaluate(f'history.pushState(null, "", "/cockpit/{cfg["cockpit"]}"); dispatchEvent(new PopStateEvent("popstate"))'); page.wait_for_timeout(1200)
         ok('持口令：驾驶舱可编辑（不再显示只读提示）', page.get_by_text('驾驶舱在这里只能查看').count() == 0, page.url)
         ok('持口令：驾驶舱不内嵌 /go/（#292 M4 止血保留）', go_frames(page) == 0)
@@ -66,7 +87,7 @@ with sync_playwright() as p:
 
         print('业务面登录弹窗（M4 残余）')
         for label, path, scope, btn, auto in (
-            ('顶栏 chip', '/market', None, re.compile(r'^登\s*录$'), False),
+            ('用户卡里的登录 chip', '/market', None, re.compile(r'^登\s*录$'), False),
             ('统一待办', '/tasks', None, '在弹窗登录 Odoo', False),
         ):
             c = b.new_context(); opened = []
@@ -81,6 +102,7 @@ with sync_playwright() as p:
                     route.fulfill(status=200, content_type='application/json', body=json.dumps({'tasks': [], 'sources': {'market': {'ok': False, 'count': 0, 'latency_ms': 0, 'error': 'source_not_authorized'}, 'ygl-trees': {'ok': False, 'count': 0, 'latency_ms': 0, 'error': 'source_not_authorized'}}, 'generated_at': '2026-01-01T00:00:00Z'}))
             q.route('**/api/tasks', tasks_route)
             q.goto(base + path)
+            if path == '/market': open_me(q)  # 新外壳：登录 chip 在用户卡弹出层里
             loc = (q.locator(scope) if scope else q).get_by_role('button', name=btn)
             loc.first.wait_for(timeout=8000); q.wait_for_timeout(1500)
             pre = len(opened) - 1
@@ -98,11 +120,11 @@ with sync_playwright() as p:
 
         c = b.new_context(); q = c.new_page(); who = {'s': 'anon'}
         q.route('**/api/auth/viewer', lambda r: r.fulfill(status=401, content_type='application/json', body=ANON) if who['s'] == 'anon' else r.fulfill(status=200, content_type='application/json', body=json.dumps(VIEWER)))
-        q.goto(base + '/market'); q.get_by_text('未登录 Odoo').wait_for()
+        q.goto(base + '/market'); open_me(q); q.get_by_text('未登录 Odoo').wait_for()
         with c.expect_page() as pp:
             q.get_by_role('button', name=re.compile(r'^登\s*录$')).click()
         pp.value.close(); q.wait_for_timeout(500); who['s'] = 'ok'  # 模拟 COOP 断开 / 先关弹窗，随后才登录成功
-        q.get_by_text('测试 PM-A（pm-a）· 人').wait_for(timeout=8000)
+        open_me(q); q.get_by_text('测试 PM-A（pm-a）· 人').wait_for(timeout=8000)
         ok('弹窗先关、随后才登录成功：轮询补查照常收尾', True)
         c.close()
     finally:

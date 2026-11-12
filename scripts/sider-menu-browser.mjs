@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** #316 侧栏五组菜单 + #317 页面骨架 + #319 列表规则浏览器回归（Python Playwright/Chromium，CI browser-security job）。
+/** 新外壳（#571：侧栏主入口、角标、我的驾驶舱、设置 / 管理、用户卡）+ 页面骨架（顶栏）+ #319 列表规则 + #320 原来的总览浏览器回归（Python Playwright/Chromium，CI browser-security job）。
  *  #320（dashboard-browser.py）：总览 12 列栅格与四类卡片、过期提示、驾驶舱旧布局读时吸附不丢卡不回写。
  *  #319（list-rules-browser.py）：统一待办 ProTable 全部可读且 ID 不重复、状态最左/操作最右、直接操作 ≤2、相对时间、数字右对齐。
  *  #317（page-skeleton-browser.py）：10 个页面都有 PageContainer、标题 = 菜单名、面包屑 = 分组 / 页面、右上至多 1 个 primary；驾驶舱详情带详情名。

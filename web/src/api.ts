@@ -116,6 +116,24 @@ export async function postCreatorDecision(id: string, answer: string, reason: st
   return { status: res.status, body: await res.json().catch(() => ({})) };
 }
 
+/** 等你拍板的条数（侧栏「全景」的角标）：取「关注」的总数；没登录、读不到返回 null，不弹口令 */
+export async function getAttentionCount(): Promise<number | null> {
+  try {
+    const token = getAdminToken();
+    const r = await fetch('/api/attention', { headers: token ? { 'X-Admin-Token': token } : {} });
+    if (!r.ok) return null;
+    const j = await r.json() as { counts?: { total?: number } };
+    return typeof j.counts?.total === 'number' ? j.counts.total : null;
+  } catch { return null; }
+}
+
+/** 当前登录身份（登录门的 /api/auth/me）：外壳的用户卡、全景的问候语用。拿不到就是 null，不弹口令。
+ *  叫 getAuthMe 不叫 getMe：事项详情那条线（#565）在这里也加了一个 getMe，两边先后合进 main 时不撞名；都合了以后收成一份。 */
+export type AuthMe = { authenticated?: boolean; login?: string | null; via?: string | null; display_name?: string | null };
+export async function getAuthMe(): Promise<AuthMe | null> {
+  try { const r = await fetch('/api/auth/me', { cache: 'no-store', credentials: 'same-origin' }); return r.ok ? await r.json() as AuthMe : null; } catch { return null; }
+}
+
 /** 答席位提问（阶段七：建立人能答自己事项上的提问）：带选项的给 answer（必须是选项之一），否则给 text。
  *  管理员带口令；建立人本人凭登录。不走 apiFetch：没登录、看不到由页面自己说，不弹管理员口令。 */
 export async function postAskAnswer(id: string, qid: string, input: { answer?: string; text?: string }): Promise<{ status: number; body: { duplicate?: boolean; result?: { ok?: boolean; sent?: boolean; reason?: string; message?: string; error?: string }; error?: string; options?: string[] } }> {

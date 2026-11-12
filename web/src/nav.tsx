@@ -3,36 +3,43 @@ import type { ReactNode } from 'react';
 import { WEB_EXTENSIONS } from './extensions';
 import {
   AppstoreOutlined,
-  CarryOutOutlined,
-  BellOutlined,
+  BookOutlined,
   ClusterOutlined,
   DashboardOutlined,
-  ExperimentOutlined,
   InboxOutlined,
   LayoutOutlined,
   LockOutlined,
-  OrderedListOutlined,
+  ProfileOutlined,
+  SafetyOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
 
 export interface NavPage { path: string; name: string; icon: ReactNode }
 /** key 只当菜单键用，不对应路由 */
-export interface NavGroup { key: string; name: string; admin?: boolean; pages: NavPage[] }
+export interface NavGroup { key: string; name: string; admin?: boolean; /** 不进侧栏，只给页面名、面包屑用（弃用中的旧入口） */ hidden?: boolean; pages: NavPage[] }
 
+/** 入口按原型排（产品化 3fbfd0b）：主入口一列，顺序是 全景、事项、驾驶舱、团队、谁能做什么、工作台市场、经验库。
+ *  属主 2026-11-11：原来的 UI 弃用，按原型重新长；旧版页面直接弃用，不再给任何入口。下面的隐藏组只留页面名给还没删的旧路由用，
+ *  旧页面代码的删除单独成 PR。 */
 const BASE_GROUPS: NavGroup[] = [
-  { key: '/g/work', name: '工作', pages: [
-    { path: '/', name: '总览', icon: <DashboardOutlined /> },
-    { path: '/attention', name: '关注', icon: <BellOutlined /> },
-    { path: '/tasks', name: '统一待办', icon: <CarryOutOutlined /> },
+  { key: '/g/main', name: '工作', pages: [
+    { path: '/', name: '全景', icon: <DashboardOutlined /> },
+    { path: '/work-items', name: '事项', icon: <ProfileOutlined /> },
     { path: '/cockpit', name: '驾驶舱', icon: <LayoutOutlined /> },
-  ] },
-  { key: '/g/deliver', name: '交付', pages: [
-    { path: '/sops', name: 'SOP 交付空间', icon: <OrderedListOutlined /> },
-  ] },
-  { key: '/g/resource', name: '资源', pages: [
+    { path: '/team', name: '团队', icon: <TeamOutlined /> },
+    { path: '/access', name: '谁能做什么', icon: <SafetyOutlined /> },
     { path: '/market', name: '工作台市场', icon: <AppstoreOutlined /> },
-    { path: '/skills', name: '技能市场', icon: <ExperimentOutlined /> },
+    { path: '/knowledge', name: '经验库', icon: <BookOutlined /> },
+  ] },
+  { key: '/g/legacy', name: '旧入口', hidden: true, pages: [
+    { path: '/attention', name: '关注', icon: null },
+    { path: '/tasks', name: '统一待办', icon: null },
+    { path: '/sops', name: 'SOP 交付空间', icon: null },
+    { path: '/skills', name: '技能市场', icon: null },
+    { path: '/overview', name: '原来的总览', icon: null },
+    { path: '/reviews', name: '审核', icon: null },
   ] },
   { key: '/g/admin', name: '管理', admin: true, pages: [
     { path: '/owner-pending', name: '待属主看板', icon: <InboxOutlined /> },
@@ -48,7 +55,7 @@ function withExtensions(base: NavGroup[]): NavGroup[] {
   const groups = base.map((g) => ({ ...g, pages: [...g.pages] }));
   for (const { group, page } of WEB_EXTENSIONS.flatMap((e) => e.nav ?? [])) {
     let g = groups.find((x) => x.key === group.key);
-    if (!g) { g = { key: group.key, name: group.name ?? group.key, pages: [] }; groups.splice(groups.findIndex((x) => x.admin), 0, g); }
+    if (!g) { g = { key: group.key, name: group.name ?? group.key, pages: [] }; groups.splice(groups.findIndex((x) => x.hidden || x.admin), 0, g); }
     g.pages.push(page);
   }
   return groups;

@@ -12,8 +12,8 @@ export type BuiltinIdentity = {
   name: BuiltinName;
   /** 给人看的名字 */
   label: string;
-  /** 照哪个角色的权限算（只有管理口令照管理员算） */
-  role?: string;
+  /** 照哪几个角色的权限算（只有管理口令：系统管理员加管理层，就是今天口令能做的——系统和业务的读写管；决定类另见 actsForOwner） */
+  roles?: readonly string[];
   /** 另外逐条列出的动作 */
   actions: readonly string[];
   /** 「口令持有人代属主行事」：这些决定类动作照旧放行，留痕里标明经口令或经本机（存量差异清单 D） */
@@ -70,8 +70,8 @@ export const ANONYMOUS_ACTIONS: readonly string[] = [
 
 export const BUILTINS: readonly BuiltinIdentity[] = [
   {
-    // 管理口令照管理员角色算（读、写、管理类）；决定类里今天能做的五个登记为「代属主行事」（存量差异清单 D）
-    name: 'admin-token', label: '管理口令（应急管理员）', role: 'admin',
+    // 管理口令照系统管理员加管理层算（系统和业务的读、写、管理类，就是今天口令能做的）；决定类里今天能做的六个登记为「代属主行事」（存量差异清单 D）
+    name: 'admin-token', label: '管理口令（应急管理员）', roles: ['admin', 'management'],
     actions: [],
     actsForOwner: [
       'attention.answer',
@@ -79,6 +79,8 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       'change-request.reject',
       'mcp.access-approve',
       'mcp.access-reject',
+      // 放行一次被扣住的投递：协调方定为决定类，管理口令今天能做，照搬登记成代属主行事（L11 #31，并入 L4）
+      'workbench-event.release',
     ],
   },
   {
@@ -130,7 +132,13 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       'principal.reconcile',
       'principal.restore',
       'principal.unbind',
+      'role.approve',
+      'role.copy',
+      'role.delete',
+      'role.export',
       'role.list',
+      'role.matrix',
+      'role.update',
       'setting.read',
       'setting.update',
       'skill.download',
@@ -194,12 +202,15 @@ export const builtin = (name: BuiltinName): BuiltinIdentity => BUILTINS.find((b)
 
 /**
  * 比角色和清单更严的动作：只有列出的这几种身份能做，别的哪怕有覆盖它的授予（比如迁移出来的 admin）、照管理员角色算，也拒绝。
- * owner 是有范围 * 的属主授予的主体；其余是内置身份的名字。进快照（surfaces/actions.json 的 builtins.narrowed）
+ * owner 是有范围 * 的属主授予的主体；person 是任何启用的人（主体的 kind 是 person；停用的在第一步就拒了）；其余是内置身份的名字。
+ * 进快照（surfaces/actions.json 的 builtins.narrowed）
  */
-export type NarrowedAction = { action: string; only: readonly ('owner' | BuiltinName)[]; why: string };
+export type NarrowedAction = { action: string; only: readonly ('owner' | 'person' | BuiltinName)[]; why: string };
 export const NARROWED: readonly NarrowedAction[] = [
   { action: 'content.observation', only: ['admin-token'], why: '门户观测状态今天只认管理口令，身份来源的管理员、本机命令行都不认（存量差异清单 E）' },
   { action: 'grant.revoke-migration', only: ['owner', 'local-cli'], why: '整批撤销迁移出来的授予只有属主能做（本机命令行在授予管理面上算属主），比管理员严' },
+  { action: 'role.approve', only: ['owner', 'local-cli'], why: '带管理类或决定类权限的自定义角色只有属主能放行（本机命令行在授予管理面上算属主），比管理员严' },
+  { action: 'work-items.create', only: ['person'], why: '「安排一件事」只认人：建立人就是提需求的本人。任何启用的人都能安排（不靠角色给写权限）；管理口令、本机命令行、席位都不是人，一律不能' },
 ];
 export const narrowed = (action: string): NarrowedAction | undefined => NARROWED.find((n) => n.action === action);
 

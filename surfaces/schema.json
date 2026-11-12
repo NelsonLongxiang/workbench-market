@@ -220,6 +220,28 @@
       "cookies_json TEXT NOT NULL DEFAULT '[]'",
       "created_at TEXT NOT NULL DEFAULT datetime('now')"
     ],
+    "custom_role_events": [
+      "seq INTEGER NOT NULL PK",
+      "role_id TEXT NOT NULL",
+      "event TEXT NOT NULL",
+      "actor TEXT NOT NULL",
+      "actor_principal TEXT",
+      "before TEXT",
+      "after TEXT",
+      "at INTEGER NOT NULL"
+    ],
+    "custom_roles": [
+      "id TEXT PK",
+      "name TEXT NOT NULL",
+      "based_on TEXT NOT NULL",
+      "permissions TEXT NOT NULL",
+      "status TEXT NOT NULL",
+      "proposed TEXT",
+      "proposed_by TEXT",
+      "created_by TEXT NOT NULL",
+      "created_at INTEGER NOT NULL",
+      "updated_at INTEGER NOT NULL"
+    ],
     "endpoint_stats": [
       "endpoint TEXT NOT NULL PK",
       "day TEXT NOT NULL PK",
@@ -341,7 +363,8 @@
       "display_name TEXT NOT NULL DEFAULT ''",
       "email TEXT NOT NULL DEFAULT ''",
       "last_seen TEXT NOT NULL DEFAULT datetime('now')",
-      "appearance INTEGER NOT NULL DEFAULT 0"
+      "appearance INTEGER NOT NULL DEFAULT 0",
+      "reason TEXT NOT NULL DEFAULT 'unbound'"
     ],
     "principal_pending_seq": [
       "id INTEGER PK"
@@ -614,6 +637,14 @@
       "at TEXT NOT NULL DEFAULT datetime('now')",
       "rejected TEXT NOT NULL DEFAULT ''"
     ],
+    "work_item_requests": [
+      "requester TEXT NOT NULL PK",
+      "idem_key TEXT NOT NULL PK",
+      "body_sha256 TEXT NOT NULL",
+      "task_id INTEGER NOT NULL",
+      "event_id TEXT NOT NULL",
+      "created_at TEXT NOT NULL"
+    ],
     "work_items": [
       "id TEXT PK",
       "title TEXT NOT NULL DEFAULT ''",
@@ -777,6 +808,7 @@
     "idx_a2a_roster_changes_at ON a2a_roster_changes: CREATE INDEX idx_a2a_roster_changes_at ON a2a_roster_changes (id)",
     "idx_a2a_run_ctx ON a2a_run_ctx: CREATE INDEX idx_a2a_run_ctx ON a2a_run_ctx (context_id)",
     "idx_a2a_sent_tasks_delivery ON a2a_sent_tasks: CREATE INDEX idx_a2a_sent_tasks_delivery ON a2a_sent_tasks (delivery_id)",
+    "idx_a2a_sent_tasks_peer_root ON a2a_sent_tasks: CREATE INDEX idx_a2a_sent_tasks_peer_root ON a2a_sent_tasks (peer_root)",
     "idx_a2a_sig_seen_exp ON a2a_sig_seen: CREATE INDEX idx_a2a_sig_seen_exp ON a2a_sig_seen (expires_at)",
     "idx_app_bindings_slug ON app_bindings: CREATE INDEX idx_app_bindings_slug ON app_bindings (app_slug, revoked_at)",
     "idx_app_data_idem ON app_data: CREATE UNIQUE INDEX idx_app_data_idem ON app_data (app_slug, idempotency_key) WHERE idempotency_key <> ''",
@@ -816,6 +848,7 @@
     "idx_wbe_followups_zone ON workbench_event_followups: CREATE INDEX idx_wbe_followups_zone ON workbench_event_followups (peer_zone, created_at)",
     "idx_wbe_replies_due ON workbench_event_replies: CREATE INDEX idx_wbe_replies_due ON workbench_event_replies (status, next_at)",
     "idx_work_item_log_item ON work_item_log: CREATE INDEX idx_work_item_log_item ON work_item_log (item_id, seq)",
+    "idx_work_item_requests_time ON work_item_requests: CREATE INDEX idx_work_item_requests_time ON work_item_requests(requester, created_at)",
     "idx_work_items_object ON work_items: CREATE INDEX idx_work_items_object ON work_items (object, phase)",
     "idx_work_items_source ON work_items: CREATE INDEX idx_work_items_source ON work_items (source_kind, source_ref)",
     "idx_work_items_state ON work_items: CREATE INDEX idx_work_items_state ON work_items (state, updated_at)",
