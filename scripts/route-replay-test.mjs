@@ -22,7 +22,8 @@
  *   · 每条路由都有未授权（unauthorized）、参数非法（invalid）、正常（normal）三类请求，请求确实打在那条路由上；
  *   · 类别按录下来的应答核对，不是标了就算：未授权是 401 或 403，参数非法是其余的 4xx，正常是 2xx 或 3xx；
  *   · 确实没有某一类的路由（比如不读任何参数，就没有会被拒的输入），在 exempt 里写明理由，并指给一条打在这条路由上、照常应答的请求。
- * 请求只打全局中间件或本域路由会应答的路径。落空的路径由最后的兜底应答，兜底随有没有 web/dist 而不同，不放进来。
+ * 请求只打全局中间件或本域路由会应答的路径。落空的路径由最后的兜底应答，兜底随有没有 web/dist 而不同，不放进来；
+ * 要录兜底这一层（页面兜底、静态托管、404）的场景装 web-dist-stub 夹具：前端目录换成每次都一样的占位，本机有没有真的构建都一样。
  *
  * 场景可以带 seed：实例起好之后、第一条请求之前往库里写几行（经 HTTP 建不出来的前提，比如一个已有的主体）。
  * 每一项是 { table, row }：表名、列名只收小写字母、数字和下划线（不以数字开头）；不收任意 SQL。
@@ -59,6 +60,8 @@ const FIXTURES = {
   'layerfs-fake': { preload: join(HERE, 'layerfs-fake-preload.mjs'), env: {} },
   // 统一待办的三个假来源：ygl-trees（截下命令行调用）、A2A 状态端点、两个扩展来源（scripts/tasks-fake-preload.mjs）
   'tasks-fake': { preload: join(HERE, 'tasks-fake-preload.mjs'), env: {} },
+  // 前端构建目录（web/dist）换成占位，内容每次都一样，不看本机有没有真的构建（scripts/web-dist-stub-preload.mjs）
+  'web-dist-stub': { preload: join(HERE, 'web-dist-stub-preload.mjs'), env: { WM_REPLAY_ROOT: ROOT } },
 };
 /** seed_files 的路径：数据目录下的相对路径，每一段小写字母、数字、点、下划线、连字符，不以点开头（所以没有 .. 也没有隐藏文件） */
 const SEED_FILE_PATH = /^[a-z0-9_-][a-z0-9._-]*(?:\/[a-z0-9_-][a-z0-9._-]*)*$/;
@@ -1025,6 +1028,21 @@ process.exit(0);`;
   const tasksRun = spawnSync(process.execPath, ['--import', pathToFileURL(FIXTURES['tasks-fake'].preload).href, '--input-type=module', '-e', tasksProbe], { env: { PATH: process.env.PATH, NODE_ENV: 'test' }, encoding: 'utf8' });
   const tasksRefused = spawnSync(process.execPath, ['--import', pathToFileURL(FIXTURES['tasks-fake'].preload).href, '-e', 'console.log(1)'], { env: { PATH: process.env.PATH, NODE_ENV: 'production' }, encoding: 'utf8' });
   check(tasksRun.status === 0 && tasksRun.stdout.trim() === '[true,["alpha","beta","gamma"],1,1,401,true,true,true]' && tasksRefused.status === 1 && tasksRefused.stdout === '', `夹具：统一待办的假来源在测试环境里起得来（ygl 调用被截下、A2A 键不对 401、三个扩展就位），别的环境直接退出 ${tasksRun.stdout.trim() || tasksRun.stderr.trim().split('\n').at(-1)}`);
+  // 前端占位：web/dist 下的路径改读占位（ESM 具名导入和 CJS 的 fs 都换了），别的路径原样，真的目录不碰；别的环境直接退出
+  const stubData = join(ROOT, 'tmp', `route-replay-selftest-stub-${process.pid}`, 'data');
+  mkdirSync(stubData, { recursive: true });
+  const stubProbe = `import { existsSync, readFileSync, statSync } from 'node:fs';
+import { createRequire } from 'node:module';
+const dist = process.env.WM_REPLAY_ROOT + '/web/dist';
+const cjs = createRequire(import.meta.url)('fs');
+const viaStream = await new Promise((ok) => { let t = ''; cjs.createReadStream(dist + '/assets/app.js').on('data', (d) => { t += d; }).on('end', () => ok(t)).on('error', () => ok(null)); });
+console.log(JSON.stringify([existsSync(dist), readFileSync(dist + '/index.html', 'utf8').includes('<head>'), statSync(dist + '/robots.txt').isFile(), cjs.existsSync(dist + '/nope.js'), viaStream, existsSync(process.env.WM_REPLAY_ROOT + '/package.json')]));
+process.exit(0);`;
+  const stubEnv = { PATH: process.env.PATH, WM_REPLAY_ROOT: ROOT, DATA_DIR: stubData };
+  const stubRun = spawnSync(process.execPath, ['--import', pathToFileURL(FIXTURES['web-dist-stub'].preload).href, '--input-type=module', '-e', stubProbe], { env: { ...stubEnv, NODE_ENV: 'test' }, encoding: 'utf8' });
+  const stubRefused = spawnSync(process.execPath, ['--import', pathToFileURL(FIXTURES['web-dist-stub'].preload).href, '-e', 'console.log(1)'], { env: { ...stubEnv, NODE_ENV: 'production' }, encoding: 'utf8' });
+  rmSync(join(stubData, '..'), { recursive: true, force: true });
+  check(stubRun.status === 0 && stubRun.stdout.trim() === '[true,true,true,false,"console.log(\\"stub\\");\\n",true]' && stubRefused.status === 1 && stubRefused.stdout === '', `夹具：前端占位在测试环境里换得上（ESM 具名导入、CJS 的 fs 和读流都读占位，别的路径原样），别的环境直接退出 ${stubRun.stdout.trim() || stubRun.stderr.trim().split('\n').at(-1)}`);
   console.log(failed ? `===== 录制回放自检：${failed} 项失败 =====` : '===== 录制回放自检：全过 =====');
   return failed ? 1 : 0;
 }
