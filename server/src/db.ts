@@ -873,6 +873,7 @@ CREATE TRIGGER IF NOT EXISTS grants_source_fixed BEFORE UPDATE OF source ON gran
 //   只记路由模式、动作、身份类别、两边结论、命中的规则，不记请求体、查询串、凭据，也不记路径里的 id。
 //   judgment_tally：每条路由每种结果的计数（一致、不一致、不确定、404 不判、没报动作、状态码不代表授权、被完整性门拦下、出错、溢出）。
 //   judgment_mismatches：不一致按「路由模式、身份类别、两边结论、命中规则」合并计数，留一个主体标识和一条授予做样例；最多 1000 种。
+//   judgment_enforced：切换开关（WM_JUDGMENT_ENFORCE）打开的域里，新判定在路由处理之前拒掉的请求，按「路由模式、身份类别、结论、规则」计数（旧守卫没跑，不比）。
 let compareDb: DatabaseSync | null = null;
 export function judgmentCompareDb(): DatabaseSync {
   if (compareDb) return compareDb;
@@ -901,6 +902,15 @@ CREATE TABLE IF NOT EXISTS judgment_mismatches (
   count INTEGER NOT NULL DEFAULT 0,
   first_at INTEGER NOT NULL,
   last_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS judgment_enforced (
+  route TEXT NOT NULL,
+  action TEXT NOT NULL,
+  actor_kind TEXT NOT NULL,
+  verdict TEXT NOT NULL CHECK (verdict IN ('deny','ask')),
+  rule TEXT NOT NULL,
+  count INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (route, actor_kind, verdict, rule)
 );
 `);
   compareDb = handle;
@@ -1228,6 +1238,26 @@ CREATE TABLE IF NOT EXISTS team_events (
   at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_team_events_team ON team_events (host, team, seq);
+`);
+
+// 首次安装向导（角色预设 ②）：一次运行按形态生成一批草稿授予。授予本身照常在 grants 里（来源列只认 manual、migration，老库改不了），
+//   「这条是向导建的」记在这两张表里，读的时候推出来源 wizard。属主一次放行这一批。时间由代码给（毫秒）。
+db.exec(`
+CREATE TABLE IF NOT EXISTS setup_wizard_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  shape TEXT NOT NULL CHECK (shape IN ('small', 'standard')),
+  created_by TEXT NOT NULL,
+  created_by_principal TEXT,
+  created_at INTEGER NOT NULL,
+  approved_by TEXT,
+  approved_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS setup_wizard_grants (
+  run_id INTEGER NOT NULL,
+  grant_id INTEGER NOT NULL,
+  PRIMARY KEY (run_id, grant_id)
+);
+CREATE INDEX IF NOT EXISTS idx_setup_wizard_grants_grant ON setup_wizard_grants (grant_id);
 `);
 // 阶段八 8d：待对接清单的「出现序号」。同一条外部身份绑定后又出现在清单里，是新的一轮待决；「关注」的记账按它分轮，
 //   不靠时间（只到秒，同一秒里又出现就分不开）。每次新插入一行（主体服务是 upsert，只在真的新进清单时插入）取一个全局只增的号：

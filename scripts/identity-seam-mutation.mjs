@@ -27,7 +27,7 @@ const JOBS = Math.min(2, Math.max(1, Number(jobsArg >= 0 ? process.argv[jobsArg 
 const CONTRACT = 'identity-contract-test.mjs', SMOKE = 'identity-seam-smoke.mjs', SERVICE = 'principal-service-test.mjs', FOLD = 'principal-fold-test.mjs', FEISHU = 'feishu-login-smoke.mjs', OFFBOARD = 'feishu-offboard-smoke.mjs', GRANTS = 'grants-smoke.mjs', JUDGE = 'judgment-compare-smoke.mjs', ZERO = 'judgment-compare-zero-test.mjs', SWEEP = 'judgment-compare-sweep-test.mjs', PRESETS = 'role-presets-test.mjs', CUSTOM = 'custom-roles-smoke.mjs';
 const IDENTITY = 'server/src/identity.ts';
 const SESSIONS_SVC = 'server/src/services/login-session.ts', FLOWS = 'server/src/routes/login-flows.ts', EVENTS = 'server/src/routes/login-events.ts', GRANT_SVC = 'server/src/services/grant.ts', GRANT_ROUTES = 'server/src/routes/grants.ts', ROLES = 'server/src/roles.ts', COMPARE = 'server/src/judgment-compare.ts', BUILTINS_FILE = 'server/src/judgment-builtins.ts', JUDGE_FILE = 'server/src/judgment.ts', GRANT_SVC2 = 'server/src/services/grant.ts', FEISHU_PLUGIN = 'server/src/login-providers/feishu/index.ts';
-const PRINCIPAL = 'server/src/services/principal.ts', ROUTES = 'server/src/routes/principals.ts', DB = 'server/src/db.ts', GATE = 'server/src/login-gate.ts';
+const PRINCIPAL = 'server/src/services/principal.ts', ROUTES = 'server/src/routes/principals.ts', DB = 'server/src/db.ts', GATE = 'server/src/login-gate.ts', GATE_ROUTES = 'server/src/routes/login-gate.ts'; // 登录门的四条路由搬进了 routes/（阶段三）
 
 const INDEX = 'server/src/index.ts';
 const PRELOAD = 'scripts/identity-fake-preload.mjs', FAKE = 'scripts/identity-fake-provider.mjs';
@@ -228,8 +228,8 @@ const MUTANTS = [
     find: " AND p.status = 'active' AND p.kind = 'person'`", replace: "`" },
   { id: 'session-ignores-expiry', what: '会话不看期限', file: SESSIONS_SVC, suites: [FEISHU],
     find: 'WHERE s.token_sha256 = ? AND s.revoked_at IS NULL AND s.expires_at > ? AND', replace: 'WHERE s.token_sha256 = ? AND s.revoked_at IS NULL AND ? > 0 AND' },
-  { id: 'logout-keeps-session', what: '注销不注销市场会话', file: GATE, suites: [FEISHU],
-    find: '      const marketSession = identityService().endSession(cookie);', replace: '      const marketSession = false;' },
+  { id: 'logout-keeps-session', what: '注销不注销市场会话', file: GATE_ROUTES, suites: [FEISHU],
+    find: '    const marketSession = identityService().endSession(cookie);', replace: '    const marketSession = false;' },
   { id: 'disable-keeps-sessions', what: '停用不注销这个人的会话（恢复之后旧会话复活）', file: ROUTES, suites: [FEISHU],
     find: "    if (status === 'disabled') svc<LoginSessionService>('loginSessions').revokeAllFor(id);", replace: '' },
   { id: 'secret-to-userinfo', what: '应用密钥也发给取用户信息那一步', file: FEISHU_PLUGIN, suites: [FEISHU],
@@ -368,7 +368,7 @@ const MUTANTS = [
   { id: 'token-sysadmin-only', what: '管理口令只照系统管理员算（今天口令能看的业务数据，新判定拒绝）', file: BUILTINS_FILE, suites: [PRESETS, SWEEP],
     find: "roles: ['admin', 'management'],", replace: "roles: ['admin']," },
   { id: 'migration-sysadmin-only', what: '现有管理员只迁成系统管理员（今天看得到的业务数据，新判定拒绝）', file: COMPARE, suites: [JUDGE],
-    find: "        grants().migrate(actor.id, 'management', ", replace: "        void (actor.id, 'management', " },
+    find: "      grants().migrate(actor.id, 'management', ", replace: "      void (actor.id, 'management', " },
   { id: 'guest-without-expiry', what: '访客的授予可以没有期限', file: GRANT_SVC, suites: [PRESETS],
     find: "    if (EXPIRY_REQUIRED_ROLES.includes(g.role) && (g.expires_at === null || g.expires_at === undefined)) return refuse(", replace: "    if (false) return refuse(" },
   { id: 'ai-staff-to-person', what: 'AI 员工也能授予人', file: GRANT_SVC, suites: [PRESETS],
@@ -378,7 +378,7 @@ const MUTANTS = [
   { id: 'custom-approve-by-admin', what: '自定义角色的放行不核属主（口令管理员也能放行）', file: GRANT_ROUTES, suites: [CUSTOM],
     find: "    if (!actor.owner) return res.status(403).json({ error: 'owner_required', message: '带管理类或决定类权限的自定义角色只有属主能放行' });\n", replace: '' },
   { id: 'custom-pending-skipped', what: '口令管理员建带决定类的自定义角色直接生效（不等属主放行）', file: GRANT_ROUTES, suites: [CUSTOM],
-    find: "    const pending = (shape.adminLevel || shape.decides) && !actor.owner;", replace: "    const pending = false;" },
+    find: "    const pending = (shape.adminLevel || shape.decides || shape.business) && !actor.owner;", replace: "    const pending = false;" },
   { id: 'custom-ai-decide', what: '从 AI 员工复制出来的能加决定类', file: GRANT_ROUTES, suites: [CUSTOM],
     find: "    if (customRoles().descendsFrom(id, 'ai-staff') && shape.decides) return res", replace: "    if (false) return res" },
   { id: 'custom-ai-decide-one-level', what: '从 AI 员工复制的只看一层来源（复制两层就能加决定类）', file: GRANT_ROUTES, suites: [CUSTOM],
@@ -386,7 +386,7 @@ const MUTANTS = [
   { id: 'custom-delete-in-use', what: '有授予在用的自定义角色也能删', file: GRANT_ROUTES, suites: [CUSTOM],
     find: "    if (using.length) return res.status(409)", replace: "    if (false) return res.status(409)" },
   { id: 'builtin-cli-extra', what: '本机命令行清单多列了一个今天要口令的管理面', file: BUILTINS_FILE, suites: [ZERO],
-    find: "      'attention.read',\n      'cockpit.create',\n", replace: "      'attention.read',\n      'binding.list',\n      'cockpit.create',\n" },
+    find: "      'auth.me',\n      'cockpit.create',\n", replace: "      'auth.me',\n      'binding.list',\n      'cockpit.create',\n" },
   { id: 'acts-for-owner-dropped', what: '去掉「口令代属主行事」的登记', file: BUILTINS_FILE, suites: [ZERO],
     find: "      'attention.answer',\n      'change-request.approve',\n      'change-request.reject',\n      'mcp.access-approve',\n      'mcp.access-reject',\n", replace: '' },
   { id: 'integrity-not-separate', what: '被完整性门拦下的不单列，拿去和判定比', file: COMPARE, suites: [ZERO, JUDGE],

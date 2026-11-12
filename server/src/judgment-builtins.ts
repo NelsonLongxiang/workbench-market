@@ -35,12 +35,14 @@ export const ANONYMOUS_ACTIONS: readonly string[] = [
   'app.page',
   'app.read',
   'attention.read',
+  'auth.me', // 回答「你是谁」：没认出也是 200（登录门四条，阶段三搬进 routes/login-gate.ts）
   'cockpit.list',
   'cockpit.read',
   'cookie.list',
   'design-token.read',
   'health.read',
   'health.ready',
+  'login.page', // 登录页本来就是给还没登录的人看的
   'market.export',
   'setting.read',
   'skill.list',
@@ -81,6 +83,8 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       'mcp.access-reject',
       // 放行一次被扣住的投递：协调方定为决定类，管理口令今天能做，照搬登记成代属主行事（L11 #31，并入 L4）
       'workbench-event.release',
+      // 事项的「全部」视角、看任何一件的详情：管理层的拍板类动作；管理口令今天看得到全部，照搬登记成代属主行事
+      'work-items.view-all',
     ],
   },
   {
@@ -103,6 +107,7 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       'app.rollback',
       'app.sync',
       'attention.read',
+      'auth.me',
       'cockpit.create',
       'cockpit.delete',
       'cockpit.list',
@@ -118,6 +123,11 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       'department.membership',
       'department.read',
       'department.upsert',
+      'access.red-lines',
+      'principal.access',
+      'setup.wizard-approve',
+      'setup.wizard-read',
+      'setup.wizard-run',
       'team.assign',
       'team.claim',
       'team.lead-add',
@@ -138,6 +148,7 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       'health.ready',
       'judgment.report',
       'login.begin',
+      'login.page',
       'market.export',
       'principal.bind',
       'principal.bind-batch',
@@ -224,6 +235,7 @@ export type NarrowedAction = { action: string; only: readonly ('owner' | 'person
 export const NARROWED: readonly NarrowedAction[] = [
   { action: 'content.observation', only: ['admin-token'], why: '门户观测状态今天只认管理口令，身份来源的管理员、本机命令行都不认（存量差异清单 E）' },
   { action: 'grant.revoke-migration', only: ['owner', 'local-cli'], why: '整批撤销迁移出来的授予只有属主能做（本机命令行在授予管理面上算属主），比管理员严' },
+  { action: 'setup.wizard-approve', only: ['owner', 'local-cli'], why: '首次安装向导这一批只有属主能放行（本机命令行在授予管理面上算属主），比管理员严' },
   { action: 'role.approve', only: ['owner', 'local-cli'], why: '带管理类或决定类权限的自定义角色只有属主能放行（本机命令行在授予管理面上算属主），比管理员严' },
   { action: 'work-items.create', only: ['person'], why: '「安排一件事」只认人：建立人就是提需求的本人。任何启用的人都能安排（不靠角色给写权限）；管理口令、本机命令行、席位都不是人，一律不能' },
 ];
@@ -236,3 +248,20 @@ export function unknownBuiltinActions(known: (action: string) => boolean): strin
   for (const n of NARROWED) if (!known(n.action)) out.push(`narrowed: ${n.action}`);
   return out;
 }
+
+/**
+ * 「暂不切」（阶段六 6d）：判定切换的开关里写了这个域，这几个动作仍然按旧守卫。每条写原因；
+ * 进快照（surfaces/actions.json 的 builtins.notSwitched），改它要过评审。现在一条都没有。
+ */
+export const NOT_SWITCHED: readonly { action: string; why: string }[] = [];
+
+/**
+ * 有副作用的读（阶段六 6d）：GET、HEAD 上类别是读或管理的动作，处理函数却会写东西或外呼。判定切换时按写的口径在处理之前拒，不走「让旧处理函数照跑」的读路径。
+ * 进快照（surfaces/actions.json 的 builtins.readWithSideEffects），新增的读接口有副作用的要登记在这里。
+ */
+export const READ_WITH_SIDE_EFFECTS: readonly { action: string; why: string }[] = [
+  { action: 'app.page', why: '冷版本经 LayerFS 服务回读文件（外呼）' },
+  { action: 'grant.list', why: '列之前先把到期的授予标成过期（写）' },
+  { action: 'judgment.report', why: '读报告之前先把攒着的比对记录写进比对库' },
+  { action: 'sop-run.files', why: '列文件时给还没算过的文件懒补 sha256 并写回' },
+];

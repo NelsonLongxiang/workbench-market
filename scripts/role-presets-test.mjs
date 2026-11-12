@@ -71,7 +71,7 @@ try {
     check(picks.adminBenchRead === 'none' && picks.adminSystemRead === 'all' && picks.adminBenchAdmin === 'all' && picks.adminWorkDecide === 'none'
       && picks.mgmtAccessAdmin === 'none' && picks.mgmtWorkDecide === 'all' && picks.empWorkWrite === 'some' && picks.empWorkDecide === 'self' && picks.empSystemWrite === 'none'
       && picks.leadWorkRead === 'scoped' && picks.aiDecideAny === false && picks.ownerAll === true && picks.overviewDecide === 'na',
-      '矩阵（服务端从定义算）：系统管理员看不到工作台数据、系统全部、各处能管、不拍业务的板；管理层不管权限；普通员工事项只能做部分、拍板只限自己的；部门负责人范围内；AI 员工哪里都不能拍板；属主全部；这一块没有这一类动作的格子是 na（全景没有可拍板的）', show(picks));
+      '矩阵（服务端从定义算）：系统管理员看不到工作台数据、系统全部、各处能管、不拍业务的板；管理层不管权限；普通员工事项只能做部分、拍板只限自己的；部门负责人范围内；AI 员工哪里都不能拍板；属主全部；这一块没有这一类动作的格子是 na（全景没有可拍板的） [red-line:system-admin-no-business]', show(picks));
     const sum = roles.matrixSummary(admin);
     check(/工作台数据/.test(sum.cannot) === false && /能看：/.test(sum.see) && !/工作台数据/.test(sum.see), '卡片的四句白话从格子生成：系统管理员的「能看」里没有工作台数据', show(sum));
   }
@@ -119,9 +119,9 @@ try {
   const aiToPerson = grants.draft({ principal: 'user:emp', role: 'ai-staff', scope: '*', expiresAt: null, reason: '合成' }, cli);
   const aiToSeat = grants.draft({ principal: 'seat:bot', role: 'ai-staff', scope: '*', expiresAt: null, reason: '合成' }, cli);
   const mgmtToSeat = grants.draft({ principal: 'seat:bot', role: 'management', scope: '*', expiresAt: null, reason: '合成' }, cli);
-  check(guestNoExpiry.ok === false && guestNoExpiry.code === 'expiry_required' && guestExpiry.ok === true, '访客的授予必须有期限：没期限 422，有期限能起草', show({ no: guestNoExpiry.code, yes: guestExpiry.ok }));
+  check(guestNoExpiry.ok === false && guestNoExpiry.code === 'expiry_required' && guestExpiry.ok === true, '访客的授予必须有期限：没期限 422，有期限能起草 [red-line:guest-needs-expiry]', show({ no: guestNoExpiry.code, yes: guestExpiry.ok }));
   check(aiToPerson.ok === false && aiToPerson.code === 'non_person_only' && aiToSeat.ok === true && mgmtToSeat.ok === false && mgmtToSeat.code === 'decide_non_person',
-    'AI 员工只授予非人主体：给人 422；给席位可以；带决定类的预设（管理层）给席位照 6b 的规则 422', show({ aiToPerson: aiToPerson.code, aiToSeat: aiToSeat.ok, mgmtToSeat: mgmtToSeat.code }));
+    'AI 员工只授予非人主体：给人 422；给席位可以；带决定类的预设（管理层）给席位照 6b 的规则 422 [red-line:ai-staff-non-person-only]', show({ aiToPerson: aiToPerson.code, aiToSeat: aiToSeat.ok, mgmtToSeat: mgmtToSeat.code }));
 
   // ---------- 四、声明文件和内置预设同名：报错说清怎么改 ----------
   let msg = '';

@@ -63,6 +63,8 @@ export type Fact = {
   others_engaged?: boolean;
   none_sent?: boolean;
   action?: string;
+  /** 阶段七：回执信封里的 by（谁在做）——「名字 · 句柄」或句柄；带了就更新事项的 seat（承接席位），只用于显示 */
+  seat?: string;
 };
 
 type Row = { from: readonly WorkItemState[]; fact: Fact['kind']; when: (f: Fact) => boolean; to: WorkItemState; note: string };
@@ -145,7 +147,7 @@ export const RECORDS: readonly { from: readonly WorkItemState[]; fact: Fact['kin
 ];
 
 export type ApplyResult =
-  | { ok: true; state: WorkItemState; from: WorkItemState; duplicate: boolean; recorded?: boolean; late?: boolean }
+  | { ok: true; state: WorkItemState; from: WorkItemState; duplicate: boolean; recorded?: boolean; late?: boolean; seatFilled?: boolean }
   | { ok: false; reason: 'bad_fact' | 'unknown_item' | 'terminal' | 'not_allowed'; state?: WorkItemState; duplicate?: boolean };
 
 export type NewWorkItem = {
@@ -240,6 +242,11 @@ function handoffOf(rec: { handoff?: unknown; review_by?: unknown; directed_seat_
   return { handoff, review_by, directed_seat_id };
 }
 
+/** 列表的视角圈出来的范围（scopeWhere）。我的 AI 员工手上的、我团队的两个视角随关系确认制接上 */
+export type ViewScope =
+  | { kind: 'all' }
+  | { kind: 'mine'; principal: string };
+
 export type EventLogRow = { id: number; delivery_id: number | null; actor: string; action: string; detail: string };
 
 /** 事件的来源坐标（「task-center · task-center · task:1」）：没有更好的标题时的退路，也用来认出「标题还是自动起的」 */
@@ -312,11 +319,37 @@ const ALIVE: readonly DeliveryStatus[] = ['held', 'pending', 'sent'];
  *   · decision:accept → eval accept；decision:decline → eval stop（理由为空记「未写理由」）；decision:ask → ask
  *   · 提交方未验证的事件：本来是事实的，都只记「收到但未采信」
  */
+/**
+ * 承接席位：事项上只显示实际干活的成员，不显示总工。上游宿主取 by 的规则是「工单有成员就填成员，否则填总工」，
+ * 所以确认、还没派给成员的进展里的 by 可能是总工。按上游的口径（A2A团队构建优化 2026-11-11）：
+ *   · by.role（上游只增字段，dsh-open-a2a-net#611）是 member 或 observer 的，任何一类在做的回执都取；是 router 的一律不取；
+ *   · 没有 role 时（过渡期）：只取提问（attention）和做完（completed）结果的 by，确认和进展的 by 不取；
+ *   · 进展里 tickets 中在做（working / waiting / blocked）那一项的 seat 是成员，可以取；
+ *   · 说不干了的结果（failed / rejected / abandoned）不改承接——可能是别的团队，也不再是「在做」。
+ * 只存句柄（<zone>/<id8>）：名字是对端自报的会话标题，只当显示用，留在日志的 detail.by.name 里。取不到返回 ''。
+ */
+export function seatOfReceipt(action: string, detail: Record<string, unknown>): string {
+  const by = detail.by && typeof detail.by === 'object' ? detail.by as { seat?: unknown; name?: unknown; role?: unknown } : null;
+  const show = (seat: unknown, _name?: unknown) => typeof seat === 'string' && seat !== '' ? seat.slice(0, 200) : '';
+  const working = action === 'receipt:acknowledged' || action === 'receipt:attention' || action === 'receipt:progress' || action === 'receipt:completed';
+  if (!working || !by && action !== 'receipt:progress') return '';
+  if (by?.role === 'router') return action === 'receipt:progress' ? ticketSeat(detail) : '';
+  if (by?.role === 'member' || by?.role === 'observer') return show(by.seat, by.name);
+  if (action === 'receipt:attention' || action === 'receipt:completed') return show(by?.seat, by?.name);
+  return action === 'receipt:progress' ? ticketSeat(detail) : '';
+}
+function ticketSeat(detail: Record<string, unknown>): string {
+  // 只取在做的子项（working / waiting / blocked）：queued 时还没派给成员，seat 可能是总工；ended 的已经不在做
+  const t = Array.isArray(detail.tickets) ? (detail.tickets as { seat?: unknown; state?: unknown }[]).find((x) => x && ['working', 'waiting', 'blocked'].includes(String(x.state)) && typeof x.seat === 'string' && x.seat !== '') : undefined;
+  return typeof t?.seat === 'string' ? t.seat.slice(0, 200) : '';
+}
+
 export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], i: number): Fact | null {
   const row = rows[i];
   const detail = (() => { try { return JSON.parse(row.detail || '{}') as Record<string, unknown>; } catch { return {}; } })();
   const base = { source: EVENT_FACT_SOURCE, id: String(row.id), actor: row.actor, action: row.action };
   let fact: Fact | null = null;
+  const seat = seatOfReceipt(row.action, detail);
   // 8f-2：dispatch:false 的事件（只通知、不派发）没有回写通道，排上的投递不映射成「已转交」：停在草稿，日志记一行「未派发」。
   // 事实 id 和原来那条 submit 相同：存量里已经应用过的照旧按（来源、id）跳过，回填重跑结果不变
   if ((row.action === 'held' || row.action === 'queued') && Number(event.dispatch) === 0) return { ...base, kind: 'note', note: 'undispatched' };
@@ -346,6 +379,7 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
     }
   }
   if (fact && event.submitter_kind === 'unverified') return { ...base, kind: 'note', note: 'untrusted' };
+  if (fact && seat !== '') fact = { ...fact, seat };
   return fact;
 }
 
@@ -354,7 +388,7 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
  * 版本没变时每次启动只做增量：从上次记下的事件日志水位往后核（没装事项服务的进程——比如回滚到旧版本期间——
  * 写进来的事件和事实，靠它补回来）。监听器漏过事实（dirty）也从头全量核。
  */
-export const BACKFILL_VERSION = 3; // 2：阶段七 R2 加了跟进、回复、看过的映射（#546）；3：进展回执的映射（PR-A）
+export const BACKFILL_VERSION = 6; // 2：阶段七 R2 加了跟进、回复、看过的映射（#546）；3：进展回执的映射（PR-A）；4：回执的 by 记成承接席位；5：承接只取成员、重复事实补写承接（4 已被试联实例用过），终态事项承接空着的也补；6：承接只存句柄、进展只取在做的子项、回填按顺序最后一条为准
 /** 后台回填每一片最多占用事件循环的时长（毫秒），之后让出，好让请求得到应答 */
 const BACKFILL_SLICE_MS = 25;
 /** 每次取的行数（一片里可以取好几次） */
@@ -684,33 +718,50 @@ export class WorkItemService extends Service {
   }
 
   /**
-   * 列表一页（给事项列表的读接口）：按 updated_at、id 倒序，游标翻页；同时给可见范围里按状态的计数。
-   *   viewer = null 是管理员（看全部）；否则是查看者的主体标识，只看自己是建立人的——和详情、「关注」同一个判断（isCreator）。
-   *   看不到的不出现，也不计数。每行带最后一条事项日志（谁、做了什么、什么时候），前端不再拉全量日志。
-   * SQL 只用两种库都认的写法：游标比较、IN 列表、GROUP BY。
+   * 一个视角圈出来的事项范围（规范 14 第九节第 4 条，只有这一处拼条件）：
+   *   all   全部（管理层）
+   *   mine  我是建立人（isCreator 同一个口径：按建立人主体）
+   * SQL 只用两种库都认的写法。
    */
-  page(opts: { viewer: string | null; state?: WorkItemState; object?: string; phase?: string; limit: number; after?: { updated_at: string; id: string } }): {
+  private scopeWhere(scope: ViewScope): { where: string; args: (string | number)[] } {
+    if (scope.kind === 'all') return { where: '1 = 1', args: [] };
+    return PERSON_PRINCIPAL.test(scope.principal) ? { where: 'creator_principal = ?', args: [scope.principal] } : { where: '1 = 0', args: [] };
+  }
+
+  /** 一个视角里有几件（不按状态、对象筛）：列表应答的 views 用 */
+  countIn(scope: ViewScope): number {
+    const w = this.scopeWhere(scope);
+    return Number((db.prepare(`SELECT COUNT(*) AS n FROM work_items WHERE ${w.where}`).get(...w.args) as { n: number }).n);
+  }
+
+  /**
+   * 列表一页（给事项列表的读接口）：按 updated_at、id 倒序，游标翻页；同时给这个视角里按状态的计数。
+   * 范围由 scope 定（scopeWhere）；看不到的不出现，也不计数。每行带最后一条事项日志（谁、做了什么、什么时候）。
+   */
+  page(opts: { scope: ViewScope; state?: WorkItemState; object?: string; phase?: string; seat?: string; limit: number; after?: { updated_at: string; id: string } }): {
     items: (WorkItemRow & { last_log: { actor: string; fact: string; text: string; at: string } | null })[];
     counts: Record<WorkItemState, number>; total: number; next: { updated_at: string; id: string } | null;
   } {
     const counts = Object.fromEntries(STATES.map((st) => [st, 0])) as Record<WorkItemState, number>;
-    if (opts.viewer !== null && !PERSON_PRINCIPAL.test(opts.viewer)) return { items: [], counts, total: 0, next: null };
-    const scope: string[] = [], scopeArgs: string[] = [];
-    if (opts.viewer !== null) { scope.push('creator_principal = ?'); scopeArgs.push(opts.viewer); }
-    const filt: string[] = [...scope], filtArgs: string[] = [...scopeArgs];
-    for (const k of ['state', 'object', 'phase'] as const) if (typeof opts[k] === 'string') { filt.push(`${k} = ?`); filtArgs.push(opts[k]!); }
-    // 计数：可见范围里、按 object、phase 筛过（不按 state 筛）之后按状态分组
-    const countWhere = filt.filter((w) => !w.startsWith('state ')), countArgs = filtArgs.filter((_, i) => !filt[i].startsWith('state '));
-    for (const r of db.prepare(`SELECT state, COUNT(*) AS n FROM work_items ${countWhere.length ? 'WHERE ' + countWhere.join(' AND ') : ''} GROUP BY state`).all(...countArgs) as { state: WorkItemState; n: number }[]) {
+    const sc = this.scopeWhere(opts.scope);
+    const filt: string[] = [sc.where], filtArgs: (string | number)[] = [...sc.args];
+    const extra: string[] = [], extraArgs: string[] = [];
+    for (const k of ['object', 'phase'] as const) if (typeof opts[k] === 'string') { extra.push(`${k} = ?`); extraArgs.push(opts[k]!); }
+    // 按席位筛：给的是 seatId 就按 seat_id，否则按句柄（seat_id 为空的旧席位）
+    if (typeof opts.seat === 'string') { extra.push("(seat_id = ? OR (seat_id = '' AND seat = ?))"); extraArgs.push(opts.seat, opts.seat); }
+    // 计数：这个视角里、按 object、phase 筛过（不按 state 筛）之后按状态分组
+    for (const r of db.prepare(`SELECT state, COUNT(*) AS n FROM work_items WHERE ${[...filt, ...extra].join(' AND ')} GROUP BY state`).all(...filtArgs, ...extraArgs) as { state: WorkItemState; n: number }[]) {
       if (r.state in counts) counts[r.state] = Number(r.n);
     }
-    const page = [...filt], pageArgs: (string | number)[] = [...filtArgs];
+    const page = [...filt, ...extra], pageArgs: (string | number)[] = [...filtArgs, ...extraArgs];
+    if (typeof opts.state === 'string') { page.push('state = ?'); pageArgs.push(opts.state); }
     if (opts.after) { page.push('(updated_at < ? OR (updated_at = ? AND id < ?))'); pageArgs.push(opts.after.updated_at, opts.after.updated_at, opts.after.id); }
-    const rows = db.prepare(`SELECT * FROM work_items ${page.length ? 'WHERE ' + page.join(' AND ') : ''} ORDER BY updated_at DESC, id DESC LIMIT ?`)
+    const rows = db.prepare(`SELECT * FROM work_items WHERE ${page.join(' AND ')} ORDER BY updated_at DESC, id DESC LIMIT ?`)
       .all(...pageArgs, opts.limit + 1) as WorkItemRow[];
     const more = rows.length > opts.limit;
-    // 再按同一个判断函数过一遍（SQL 那一道之外的纵深）
-    const visible = rows.slice(0, opts.limit).filter((w) => opts.viewer === null || isCreator(w, opts.viewer));
+    // 「我安排的」再按同一个判断函数过一遍（SQL 那一道之外的纵深）
+    const scope = opts.scope;
+    const visible = rows.slice(0, opts.limit).filter((w) => scope.kind !== 'mine' || isCreator(w, scope.principal));
     const last = new Map<string, WorkItemLogRow>();
     if (visible.length) {
       const ids = visible.map((w) => w.id);
@@ -740,7 +791,7 @@ export class WorkItemService extends Service {
   apply(itemId: string, fact: Fact): ApplyResult {
     if (factProblem(fact)) return { ok: false, reason: 'bad_fact' };
     // 被拒的（not_allowed、terminal）也写了一行留痕，要提交；形式不对的、重复的什么都没写
-    return inTx(() => this.applyLocked(itemId, normalize(fact)), (out) => !out.duplicate && (out.ok || out.reason === 'not_allowed' || out.reason === 'terminal'));
+    return inTx(() => this.applyLocked(itemId, normalize(fact)), (out) => (!out.duplicate && (out.ok || out.reason === 'not_allowed' || out.reason === 'terminal')) || (out.ok && out.seatFilled === true));
   }
 
   private applyLocked(itemId: string, fact: Fact): ApplyResult {
@@ -750,7 +801,15 @@ export class WorkItemService extends Service {
       .get(itemId, fact.source, fact.id) as { from_state: WorkItemState; to_state: WorkItemState; rejected: '' | 'not_allowed' | 'terminal' } | undefined;
     // 同一条事实再来：照第一次的结果答（第一次被拒的，还是被拒），不再写
     if (seen?.rejected) return { ok: false, reason: seen.rejected, state: item.state, duplicate: true };
-    if (seen) return { ok: true, state: item.state, from: seen.from_state, duplicate: true };
+    if (seen) {
+      // 回填按版本号从头再核时，存量里已经应用过的事实照第一次的结果答；承接席位是后来才从事实里取的，这里补上
+      // （只是显示用的一列）。走到这里的是已经应用过的历史事实——回填按事件日志顺序重放——所以不分终态，最后一条取得到席位的为准，
+      // 不先写先占；终态之后才到的新回执走的是只记录那条路，那里照旧不改承接——所以第一次应用时事项已经是终态的（from_state 是终态），
+      // 重放时也不改承接，和实时一致
+      const seatFilled = typeof fact.seat === 'string' && fact.seat !== '' && !TERMINAL.includes(seen.from_state)
+        && Number(db.prepare('UPDATE work_items SET seat = ? WHERE id = ? AND seat <> ?').run(fact.seat, itemId, fact.seat).changes) === 1;
+      return { ok: true, state: item.state, from: seen.from_state, duplicate: true, ...(seatFilled ? { seatFilled: true } : {}) };
+    }
 
     // 只记录的事实：查第二张表。终态之后只有回执能走到这里。
     const record = RECORDS.find((r) => r.fact === fact.kind && r.from.includes(item.state) && r.when(fact));
@@ -763,6 +822,7 @@ export class WorkItemService extends Service {
     this.writeLog(itemId, fact, item.state, to, detail);
     const set: string[] = ['state = ?', "updated_at = datetime('now')"], args: (string | number | null)[] = [to];
     if (kind === 'eval') { set.push('eval = ?', 'eval_reason = ?'); args.push(fact.verdict ?? '', fact.reason ?? ''); }
+    if (typeof fact.seat === 'string' && fact.seat !== '') { set.push('seat = ?'); args.push(fact.seat); }
     if (kind === 'report' && typeof fact.summary === 'string') { set.push('progress_summary = ?', "progress_at = datetime('now')"); args.push(fact.summary); }
     if (kind === 'ask') { const asks = JSON.parse(item.open_asks || '[]'); asks.push({ id, source, question: fact.question ?? '' }); set.push('open_asks = ?'); args.push(JSON.stringify(asks)); }
     const receipt = kind === 'receipt' ? fact.outcome : fact.receipt?.outcome;
@@ -809,6 +869,8 @@ export class WorkItemService extends Service {
     this.writeLog(itemId, fact, item.state, item.state, late ? { ...detail, late: true } : detail);
     // 摘要只在原来没有回执时填：晚到的回执不覆盖终态时记下的那一份（全量在日志里）
     db.prepare("UPDATE work_items SET receipt_outcome = ?, receipt_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND receipt_outcome = ''").run(fact.outcome ?? '', itemId);
+    // 承接席位：进展、只记录的回执带了 by 也更新（成员换人时）；终态之后晚到的不改
+    if (!late && typeof fact.seat === 'string' && fact.seat !== '') db.prepare('UPDATE work_items SET seat = ? WHERE id = ?').run(fact.seat, itemId);
     return { ok: true, state: item.state, from: item.state, duplicate: false, recorded: true, late };
   }
 }

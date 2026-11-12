@@ -90,12 +90,17 @@
       "POST /api/teams/leads/remove  -> team.lead-remove  admin",
       "POST /api/teams/assign  -> team.assign  write  （状态码不代表授权：按团队的负责人判：负责人是按对象的范围，统一判定还不认（L13），由团队这个域自己判）",
       "POST /api/teams/unassign  -> team.unassign  write  （状态码不代表授权：按团队的负责人判：负责人是按对象的范围，统一判定还不认（L13），由团队这个域自己判）",
+      "GET /api/principals/:id/access  -> principal.access  admin  （状态码不代表授权：按对象判：管理员看任何人，登录的人只看自己（本人是对象范围，统一判定还不认，L13））",
+      "GET /api/access/red-lines  -> access.red-lines  read",
+      "GET /api/setup/wizard  -> setup.wizard-read  admin",
+      "POST /api/setup/wizard  -> setup.wizard-run  admin",
+      "POST /api/setup/wizard/approve  -> setup.wizard-approve  admin",
       "GET /api/attention  -> attention.read  read",
       "POST /api/attention/answer  -> attention.answer  decide",
-      "GET /api/work-items  -> work-items.list  read",
+      "GET /api/work-items  -> work-items.list  read  （没认出人回 401）；细分：work-items.view-all  decide（「全部」视角只给管理层（按动作认，不按角色名；类别见 VIEW_ALL_KIND））",
       "GET /api/work-items/teams  -> work-items.teams  read",
-      "POST /api/work-items  -> work-items.create  write",
-      "GET /api/work-items/:id  -> work-item.read  read",
+      "POST /api/work-items  -> work-items.create  write  （没认出人回 401）",
+      "GET /api/work-items/:id  -> work-item.read  read  （没认出人回 401）",
       "POST /api/work-items/:id/messages/read  -> work-items.messages-read  write  （状态码不代表授权：按事项的建立人判：建立人本人或管理员，是事项上的规则不是角色授权）",
       "POST /api/work-items/:id/messages/:mid/reply  -> work-items.messages-reply  write  （状态码不代表授权：按事项的建立人判：建立人本人或管理员，是事项上的规则不是角色授权）",
       "POST /api/work-items/:id/decision  -> work-items.accept  decide  （状态码不代表授权：按事项的建立人判：只有建立人本人能验收、退回自己的事项，是事项上的规则不是角色授权）",
@@ -106,7 +111,7 @@
       "GET /api/skills/role-packs  -> skill.role-packs  read",
       "GET /api/skills  -> skill.list  read",
       "POST /api/skills/:slug/versions  -> skill.publish  admin",
-      "GET /api/skills/dl/:ticket  -> skill.download  read",
+      "GET /api/skills/dl/:ticket  -> skill.download  read  （状态码不代表授权：按下载票判：票就是凭据，404 不透露票号是否签发过）",
       "POST /api/skills/:slug/activate  -> skill.rollback  admin",
       "DELETE /api/skills/:slug  -> skill.delete  admin",
       "POST /api/skills/:slug/migrate-layerfs  -> skill.migrate  admin",
@@ -159,10 +164,10 @@
       "DELETE /api/workbenches/:id/vars/:key  -> （未登记）",
       "GET /api/health  -> health.read  read",
       "GET /api/health/ready  -> health.ready  read",
-      "GET /login  -> （未登记）",
-      "POST /api/auth/login  -> （未登记）",
-      "POST /api/auth/logout  -> （未登记）",
-      "GET /api/auth/me  -> （未登记）",
+      "GET /login  -> login.page  read",
+      "POST /api/auth/login  -> auth.login  write  （状态码不代表授权：口令登录：口令不对 401、跨源 403、太频繁 429，是认口令和同源、限频的结果，不是授权的结论）",
+      "POST /api/auth/logout  -> auth.logout  write  （状态码不代表授权：登出：跨源 403、中继模式下不是显式的同源 JSON 登出 403，是同源检查的结果，不是授权的结论）",
+      "GET /api/auth/me  -> auth.me  read",
       "GET /login/:flow  -> login.begin  write",
       "GET /login/:flow/callback  -> login.callback  write  （状态码不代表授权：登录回调：外人、别的租户回 403，是登录方式的结论不是授权）",
       "POST /login/:flow/events  -> login.event  write  （状态码不代表授权：验签：签名、来源不对回 401，由登录方式插件判，不看身份）",
@@ -192,10 +197,10 @@
       "GET /api/bindings  -> binding.list  admin",
       "POST /api/bindings  -> binding.create  admin",
       "DELETE /api/bindings/:id  -> binding.delete  admin",
-      "ALL /api/sops/:slug/bindings  -> binding.legacy  admin",
-      "ALL /api/sops/:slug/bindings/:id  -> binding.legacy  admin",
-      "ALL /api/apps/:slug/bindings  -> binding.legacy  admin",
-      "ALL /api/apps/:slug/bindings/:id  -> binding.legacy  admin",
+      "ALL /api/sops/:slug/bindings  -> binding.legacy  admin  （状态码不代表授权：退役的旧面：谁来都是 410 加新面的地址，不是授权）",
+      "ALL /api/sops/:slug/bindings/:id  -> binding.legacy  admin  （状态码不代表授权：退役的旧面：谁来都是 410 加新面的地址，不是授权）",
+      "ALL /api/apps/:slug/bindings  -> binding.legacy  admin  （状态码不代表授权：退役的旧面：谁来都是 410 加新面的地址，不是授权）",
+      "ALL /api/apps/:slug/bindings/:id  -> binding.legacy  admin  （状态码不代表授权：退役的旧面：谁来都是 410 加新面的地址，不是授权）",
       "GET /api/a2a/peers  -> a2a-peer.list  admin",
       "POST /api/a2a/peers  -> a2a-peer.register  admin",
       "POST /api/a2a/peers/:id/refresh  -> a2a-peer.refresh  admin",
@@ -218,8 +223,8 @@
       "POST /api/mcp/access-requests/:id/approve  -> mcp.access-approve  decide",
       "POST /api/mcp/access-requests/:id/reject  -> mcp.access-reject  decide",
       "POST /mcp  -> mcp.rpc  write  （状态码不代表授权：MCP 会话令牌与工具授权由网关判，不是登录身份的结论）",
-      "GET /mcp  -> mcp.stream  read",
-      "DELETE /mcp  -> mcp.session-end  write",
+      "GET /mcp  -> mcp.stream  read  （状态码不代表授权：固定应答：无会话流，谁来都是 405）",
+      "DELETE /mcp  -> mcp.session-end  write  （状态码不代表授权：固定应答：无会话可终止，谁来都是 405）",
       "GET /openapi.json  -> mcp-rest.openapi  read  （状态码不代表授权：MCP 会话令牌与工具授权由网关判，不是登录身份的结论）",
       "GET /api/mcp-rest/openapi.json  -> mcp-rest.openapi  read  （状态码不代表授权：MCP 会话令牌与工具授权由网关判，不是登录身份的结论）",
       "POST /api/mcp-rest/tools/:name  -> mcp-rest.tool-call  write  （状态码不代表授权：MCP 会话令牌与工具授权由网关判，不是登录身份的结论）",
@@ -285,7 +290,8 @@
           "change-request.reject",
           "mcp.access-approve",
           "mcp.access-reject",
-          "workbench-event.release"
+          "workbench-event.release",
+          "work-items.view-all"
         ]
       },
       {
@@ -308,6 +314,7 @@
           "app.rollback",
           "app.sync",
           "attention.read",
+          "auth.me",
           "cockpit.create",
           "cockpit.delete",
           "cockpit.list",
@@ -323,6 +330,11 @@
           "department.membership",
           "department.read",
           "department.upsert",
+          "access.red-lines",
+          "principal.access",
+          "setup.wizard-approve",
+          "setup.wizard-read",
+          "setup.wizard-run",
           "team.assign",
           "team.claim",
           "team.lead-add",
@@ -343,6 +355,7 @@
           "health.ready",
           "judgment.report",
           "login.begin",
+          "login.page",
           "market.export",
           "principal.bind",
           "principal.bind-batch",
@@ -417,12 +430,14 @@
           "app.page",
           "app.read",
           "attention.read",
+          "auth.me",
           "cockpit.list",
           "cockpit.read",
           "cookie.list",
           "design-token.read",
           "health.read",
           "health.ready",
+          "login.page",
           "market.export",
           "setting.read",
           "skill.list",
@@ -463,12 +478,14 @@
           "app.page",
           "app.read",
           "attention.read",
+          "auth.me",
           "cockpit.list",
           "cockpit.read",
           "cookie.list",
           "design-token.read",
           "health.read",
           "health.ready",
+          "login.page",
           "market.export",
           "setting.read",
           "skill.list",
@@ -514,6 +531,14 @@
         "why": "整批撤销迁移出来的授予只有属主能做（本机命令行在授予管理面上算属主），比管理员严"
       },
       {
+        "action": "setup.wizard-approve",
+        "only": [
+          "owner",
+          "local-cli"
+        ],
+        "why": "首次安装向导这一批只有属主能放行（本机命令行在授予管理面上算属主），比管理员严"
+      },
+      {
         "action": "role.approve",
         "only": [
           "owner",
@@ -528,12 +553,32 @@
         ],
         "why": "「安排一件事」只认人：建立人就是提需求的本人。任何启用的人都能安排（不靠角色给写权限）；管理口令、本机命令行、席位都不是人，一律不能"
       }
+    ],
+    "notSwitched": [],
+    "readWithSideEffects": [
+      {
+        "action": "app.page",
+        "why": "冷版本经 LayerFS 服务回读文件（外呼）"
+      },
+      {
+        "action": "grant.list",
+        "why": "列之前先把到期的授予标成过期（写）"
+      },
+      {
+        "action": "judgment.report",
+        "why": "读报告之前先把攒着的比对记录写进比对库"
+      },
+      {
+        "action": "sop-run.files",
+        "why": "列文件时给还没算过的文件懒补 sha256 并写回"
+      }
     ]
   },
   "domains": {
     "system": [
       "a2a",
       "a2a-peer",
+      "access",
       "admin",
       "admin-token",
       "agent-card",
@@ -554,6 +599,7 @@
       "remote-allow",
       "role",
       "setting",
+      "setup",
       "skill",
       "sso",
       "stats",
@@ -606,6 +652,7 @@
           "domains": [
             "a2a",
             "a2a-peer",
+            "access",
             "admin",
             "admin-token",
             "agent-card",
@@ -626,6 +673,7 @@
             "remote-allow",
             "role",
             "setting",
+            "setup",
             "skill",
             "sso",
             "stats",

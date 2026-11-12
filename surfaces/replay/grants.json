@@ -54,11 +54,23 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1814", "etag": "W/\"716-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "2500", "etag": "W/\"9c4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "source": "initial",
               "roles": [
-                { "id": "owner", "name": "属主", "includes": [], "permissions": [{ "kinds": ["read", "write", "decide", "admin"] }], "platform": true, "custom": false, "admin_level": true, "decides": true },
+                {
+                  "id": "owner",
+                  "name": "属主",
+                  "includes": [],
+                  "permissions": [{ "kinds": ["read", "write", "decide", "admin"] }],
+                  "platform": true,
+                  "custom": false,
+                  "admin_level": true,
+                  "decides": true,
+                  "business_write": true,
+                  "approval": "owner",
+                  "approval_text": "只有属主能放行"
+                },
                 {
                   "id": "admin",
                   "name": "系统管理员",
@@ -69,6 +81,7 @@
                       "domains": [
                         "a2a",
                         "a2a-peer",
+                        "access",
                         "admin",
                         "admin-token",
                         "agent-card",
@@ -89,6 +102,7 @@
                         "remote-allow",
                         "role",
                         "setting",
+                        "setup",
                         "skill",
                         "sso",
                         "stats",
@@ -102,10 +116,37 @@
                   "platform": true,
                   "custom": false,
                   "admin_level": true,
-                  "decides": false
+                  "decides": false,
+                  "business_write": false,
+                  "approval": "owner",
+                  "approval_text": "只有属主能放行"
                 },
-                { "id": "management", "name": "管理层", "includes": [], "permissions": [{ "kinds": ["read", "write", "decide"] }], "platform": true, "custom": false, "admin_level": false, "decides": true },
-                { "id": "dept-lead", "name": "部门负责人", "includes": [], "permissions": [{ "kinds": ["read", "write", "decide"] }], "platform": true, "custom": false, "admin_level": false, "decides": true },
+                {
+                  "id": "management",
+                  "name": "管理层",
+                  "includes": [],
+                  "permissions": [{ "kinds": ["read", "write", "decide"] }],
+                  "platform": true,
+                  "custom": false,
+                  "admin_level": false,
+                  "decides": true,
+                  "business_write": true,
+                  "approval": "owner",
+                  "approval_text": "只有属主能放行"
+                },
+                {
+                  "id": "dept-lead",
+                  "name": "部门负责人",
+                  "includes": [],
+                  "permissions": [{ "kinds": ["read", "write", "decide"] }],
+                  "platform": true,
+                  "custom": false,
+                  "admin_level": false,
+                  "decides": true,
+                  "business_write": true,
+                  "approval": "owner",
+                  "approval_text": "只有属主能放行"
+                },
                 {
                   "id": "member",
                   "name": "普通员工",
@@ -114,11 +155,38 @@
                   "platform": true,
                   "custom": false,
                   "admin_level": false,
-                  "decides": true
+                  "decides": true,
+                  "business_write": false,
+                  "approval": "admin",
+                  "approval_text": "管理员即可放行"
                 },
-                { "id": "guest", "name": "访客", "includes": [], "permissions": [], "platform": true, "custom": false, "admin_level": false, "decides": false },
-                { "id": "ai-staff", "name": "AI 员工", "includes": [], "permissions": [{ "kinds": ["read", "write"] }], "platform": true, "custom": false, "admin_level": false, "decides": false },
-                { "id": "dept-member", "name": "部门成员", "includes": [], "permissions": [{ "kinds": ["read", "write"] }], "platform": false, "custom": false, "admin_level": false, "decides": false }
+                { "id": "guest", "name": "访客", "includes": [], "permissions": [], "platform": true, "custom": false, "admin_level": false, "decides": false, "business_write": false, "approval": "admin", "approval_text": "管理员即可放行" },
+                {
+                  "id": "ai-staff",
+                  "name": "AI 员工",
+                  "includes": [],
+                  "permissions": [{ "kinds": ["read", "write"] }],
+                  "platform": true,
+                  "custom": false,
+                  "admin_level": false,
+                  "decides": false,
+                  "business_write": true,
+                  "approval": "business",
+                  "approval_text": "要管理层或属主放行"
+                },
+                {
+                  "id": "dept-member",
+                  "name": "部门成员",
+                  "includes": [],
+                  "permissions": [{ "kinds": ["read", "write"] }],
+                  "platform": false,
+                  "custom": false,
+                  "admin_level": false,
+                  "decides": false,
+                  "business_write": true,
+                  "approval": "business",
+                  "approval_text": "要管理层或属主放行"
+                }
               ],
               "custom": []
             }
@@ -461,7 +529,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "481", "etag": "W/\"1e1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "563", "etag": "W/\"233-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "grant": {
                 "id": 1,
@@ -478,7 +546,10 @@
                 "created_at": 1893456000000,
                 "updated_at": 1893456000000,
                 "source": "manual",
-                "events": [{ "seq": 1, "grant_id": 1, "event": "draft", "from_status": null, "to_status": "draft", "actor": "cli", "actor_principal": null, "reason": "合成：回放", "at": 1893456000000 }]
+                "events": [{ "seq": 1, "grant_id": 1, "event": "draft", "from_status": null, "to_status": "draft", "actor": "cli", "actor_principal": null, "reason": "合成：回放", "at": 1893456000000 }],
+                "can_approve": false,
+                "approve_denied": "state",
+                "approve_denied_text": "不在待核"
               }
             }
           }
@@ -653,10 +724,10 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "315", "etag": "W/\"13b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "397", "etag": "W/\"18d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "grants": [
-                { "id": 1, "principal_id": "user:synthetic-a", "role": "member", "scope": "*", "expires_at": null, "reason": "合成：回放", "status": "revoked", "created_by": "cli", "created_by_principal": null, "approved_by": "cli", "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+                { "id": 1, "principal_id": "user:synthetic-a", "role": "member", "scope": "*", "expires_at": null, "reason": "合成：回放", "status": "revoked", "created_by": "cli", "created_by_principal": null, "approved_by": "cli", "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待核" }
               ]
             }
           }

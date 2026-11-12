@@ -15,6 +15,8 @@ export default defineConfig({
         // Keep the dependency graph in one cacheable chunk: hand-picked package buckets
         // produced cross-vendor cycles and TDZ failures in an actual Windows build.
         manualChunks(id) {
+          // 图表库（echarts 和它的画布库 zrender）不进 vendor：只有带图表的块用到，按需加载成单独的块
+          if (/node_modules\/(echarts|zrender)\//.test(id)) return undefined;
           return id.includes('node_modules') ? 'vendor' : undefined;
         },
       },

@@ -1,7 +1,11 @@
 /** 「关注」页和事项页共用的纯函数（阶段八 8d）：不碰 React，scripts/attention-ui-unit.mjs 直接测。 */
 
 export type Category = 'ask' | 'review' | 'accept' | 'glance' | 'grant';
-export type AttentionItem = { source: string; source_id: string; category: Category; title: string; waiting_for: string; since: string; answers: string[]; object: string; phase: string; link: string };
+export type AttentionItem = { source: string; source_id: string; category: Category; title: string; waiting_for: string; since: string; answers: string[]; object: string; phase: string; link: string;
+  /** 只增的字段（#580）：变更申请带 detail（要动什么、影响多大）；统一待办带 kind（任务、SOP 执行……，它们不是审核） */
+  detail?: unknown; kind?: string;
+  /** #587：是不是轮到你（验收、提问对代办的人是 false）；事项和提问的条目带建立人 */
+  mine?: boolean; creator?: { principal?: string; display_name?: string | null } | null };
 export type LogRow = { seq: number; fact: string; fact_source: string; fact_id: string; from_state: string; to_state: string; actor: string; detail: string; at: string; rejected: '' | 'not_allowed' | 'terminal' };
 
 /** since 是 SQLite UTC「YYYY-MM-DD HH:MM:SS」或 ISO；认不出返回 NaN */
@@ -67,8 +71,18 @@ export function answerRoute(admin: boolean, item: Pick<AttentionItem, 'source' |
 
 /** 「等你拍板」的排法：能当场办的在前（在问、等验收、等过目、核准、其他），要跳到别处处理的（没有答法的，如「等你审核」）收在后面一组；
  *  组里按等得久的在前 */
+/** 是不是轮到你：只看条目的 mine（#587）；没带这个字段的旧应答当作轮到你 */
+export const isMine = (x: { mine?: unknown }): boolean => x.mine !== false;
+
+/** 「等你拍板」的件数——侧栏角标、总结句、卡片区的数都用它：轮到你、而且能当场办的 */
+export function decideCount(items: AttentionItem[], choicesOf: (x: AttentionItem) => string[]): number {
+  return items.filter((x) => isMine(x) && choicesOf(x).length > 0).length;
+}
+
 const ORDER: Record<string, number> = { ask: 0, accept: 1, glance: 2, grant: 3, review: 4 };
-export function groupCards(items: AttentionItem[], choicesOf: (x: AttentionItem) => string[]): { now: AttentionItem[]; elsewhere: AttentionItem[] } {
+export function groupCards(items: AttentionItem[], choicesOf: (x: AttentionItem) => string[]): { now: AttentionItem[]; proxy: AttentionItem[]; elsewhere: AttentionItem[] } {
   const sorted = byWaited(items).map((x, i) => ({ x, i })).sort((a, b) => (ORDER[a.x.category] ?? 9) - (ORDER[b.x.category] ?? 9) || a.i - b.i).map((e) => e.x);
-  return { now: sorted.filter((x) => choicesOf(x).length > 0), elsewhere: sorted.filter((x) => choicesOf(x).length === 0) };
+  // 三组：轮到你、能当场办的（这才是「等你拍板」）；别人的事、你能代办的（条目的 mine 为假）；要到别处处理的（没有当场的答法）
+  const can = sorted.filter((x) => choicesOf(x).length > 0);
+  return { now: can.filter(isMine), proxy: can.filter((x) => !isMine(x)), elsewhere: sorted.filter((x) => choicesOf(x).length === 0) };
 }

@@ -25,6 +25,7 @@ import { deliveryTarget, queueReply } from '../services/a2a-replies.ts';
 import { kickWorkbenchEvents, logDeliveryFact } from '../workbench-events.ts';
 import { noteA2aError } from './errors.ts';
 import { deliveredPeerZone, recordRoster, type RosterSeat } from '../services/a2a-roster.ts';
+import { noteRoster } from './roster-stats.ts';
 import { peerCard } from './peer-card.ts';
 
 export const ORIGIN_CLAIM_BODY_TAG = 'a2a-origin-claim/3';
@@ -172,13 +173,14 @@ function progressOf(envelope: Record<string, unknown>, n: number): { summary: st
 }
 
 /** 信封里的 by（谁做的）和 artifacts（产物编号）：只记录、只显示，不授予任何东西。坏的值逐个丢 */
-function attributionOf(envelope: Record<string, unknown>): { by?: { seat: string; name?: string; team?: string }; artifacts?: { kind: string; id: string }[] } {
+function attributionOf(envelope: Record<string, unknown>): { by?: { seat: string; name?: string; team?: string; role?: 'router' | 'member' | 'observer' }; artifacts?: { kind: string; id: string }[] } {
   const str = (x: unknown) => (typeof x === 'string' ? cleanSummary(x).slice(0, 200) : '');
-  const out: { by?: { seat: string; name?: string; team?: string }; artifacts?: { kind: string; id: string }[] } = {};
+  const out: { by?: { seat: string; name?: string; team?: string; role?: 'router' | 'member' | 'observer' }; artifacts?: { kind: string; id: string }[] } = {};
   const b = envelope.by;
   if (b && typeof b === 'object' && !Array.isArray(b) && str((b as Record<string, unknown>).seat) !== '') {
     const r = b as Record<string, unknown>;
-    out.by = { seat: str(r.seat), ...(str(r.name) ? { name: str(r.name) } : {}), ...(str(r.team) ? { team: str(r.team) } : {}) };
+    // role（上游只增：router 总工 / member 成员 / observer 观察者），别的值丢掉
+    out.by = { seat: str(r.seat), ...(str(r.name) ? { name: str(r.name) } : {}), ...(str(r.team) ? { team: str(r.team) } : {}), ...(r.role === 'router' || r.role === 'member' || r.role === 'observer' ? { role: r.role } : {}) };
   }
   if (Array.isArray(envelope.artifacts)) {
     const list = envelope.artifacts.filter((a): a is Record<string, unknown> => !!a && typeof a === 'object' && !Array.isArray(a))
@@ -224,7 +226,10 @@ export async function handleInboundReceipt(req: Req, deps: { audiences: () => st
   const message = typeof body.message === 'string' ? body.message : '';
   if (message === '') return null;
   // 名片没声明 teamRoster 就不收名册（照普通来信走）：不声明就不该有人推
-  if (message.startsWith('[A2A roster] ') && teamRosterDeclared()) return handleRoster(req, message, deps);
+  if (message.startsWith('[A2A roster] ')) {
+    if (teamRosterDeclared()) return handleRoster(req, message, deps);
+    noteRoster('not_declared');
+  }
   const parsed = parseA2aReceipt(message);
   if (!parsed) return handleFollowup(req, body, message, deps);
   const origin = receiptOrigin(parsed.taskId, typeof body.task_id === 'string' ? body.task_id : '');
@@ -398,16 +403,16 @@ const ROSTER_TEXT_MAX = 64 * 1024;
  * 名册只当信息（团队页、把句柄显示成名字、在岗数），不授予任何东西；同一台宿主以新替旧（按它报的时间），旧的、重复的回 stale。
  */
 async function handleRoster(req: Req, message: string, deps: { audiences: () => string[]; now?: () => number }): Promise<{ status: number; body: Record<string, unknown> } | null> {
-  if (message.length > ROSTER_TEXT_MAX) return null;
+  if (message.length > ROSTER_TEXT_MAX) { noteRoster('too_large'); return null; }
   const nl = message.indexOf('\n');
   const head = /^\[A2A roster\] ([0-9a-f]{8}) (\S{10,40})$/.exec(nl < 0 ? message : message.slice(0, nl));
-  if (!head) return null;
+  if (!head) { noteRoster('malformed'); return null; }
   const root = originOf(header(req, 'x-a2a-caller-url'));
   const zone = deliveredPeerZone(root);
-  if (!zone) return null;
+  if (!zone) { noteRoster('not_delivered_peer'); return null; }
   const now = deps.now?.() ?? Date.now();
   const verdict = await verifyReceiptSigner(req, req.rawBody ?? Buffer.alloc(0), { task_id: '', kind: 'delivery', event_id: '', delivery_id: 0, peer_root: root, peer_zone: zone }, deps.audiences(), now);
-  if (!verdict.ok) return null;
+  if (!verdict.ok) { noteRoster('unverified', now); return null; }
   let doc: Record<string, unknown> = {};
   try { const o = JSON.parse(message.slice(nl + 1).split('\n', 1)[0] ?? ''); if (o && typeof o === 'object' && !Array.isArray(o)) doc = o as Record<string, unknown>; } catch { /* 坏的当空 */ }
   // 节点键取自验过签的那把公钥：上游的 host 就是节点公钥的 canvasOwnerFingerprint（sha256 前 8 位十六进制）。
@@ -419,7 +424,7 @@ async function handleRoster(req: Req, message: string, deps: { audiences: () => 
   const teamKey = (t: string) => { const m = /^([a-z0-9-]+)\/canvas\/([^/]+)$/i.exec(t); return m ? `${m[1].toLowerCase()}/canvas/${m[2]}` : t; };
   const at = typeof doc.at === 'string' && !Number.isNaN(Date.parse(doc.at)) ? new Date(Date.parse(doc.at)).toISOString() : '';
   // 报的时间不能晚于收到时间加签名时间窗：写一个远在将来的时间，会让这台宿主之后正常报的名册全判成过期
-  if (host !== signerFp || head[1] !== signerFp || at === '' || Date.parse(at) > now + SIG_SKEW_MS) return { status: 200, body: { routed: true, delivered: true, task_status: 'TASK_STATE_DELIVERED', roster: 'not-accepted' } };
+  if (host !== signerFp || head[1] !== signerFp || at === '' || Date.parse(at) > now + SIG_SKEW_MS) { noteRoster('not_accepted', now); return { status: 200, body: { routed: true, delivered: true, task_status: 'TASK_STATE_DELIVERED', roster: 'not-accepted' } }; }
   const str = (x: unknown, n = 200) => (typeof x === 'string' ? x.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, n) : '');
   const int = (x: unknown) => (typeof x === 'number' && Number.isSafeInteger(x) && x >= 0 ? x : 0);
   const seats: RosterSeat[] = (Array.isArray(doc.seats) ? doc.seats : []).filter((x): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x))
@@ -428,5 +433,6 @@ async function handleRoster(req: Req, message: string, deps: { audiences: () => 
     .filter((x) => /^[a-z0-9-]+\/[0-9a-f]{8}$/.test(x.seat) && x.seat.split('/')[0] === lzone && (x.team === '' || (x.team.split('/')[0] === lzone && /^[a-z0-9-]+\/canvas\/[^/]+$/.test(x.team))))
     .slice(0, ROSTER_SEATS_MAX);
   const outcome = recordRoster({ host, peerRoot: root, peerZone: lzone, reportedAt: at, seats, now });
+  noteRoster(outcome === 'host-conflict' ? 'host_conflict' : outcome, now);
   return { status: 200, body: { routed: true, delivered: true, task_status: 'TASK_STATE_DELIVERED', roster: outcome, seats: seats.length } };
 }

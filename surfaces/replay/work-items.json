@@ -607,8 +607,10 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1384", "etag": "W/\"568-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1554", "etag": "W/\"612-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
+              "view": "all",
+              "views": { "mine": { "available": false, "count": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": true, "count": 5 } },
               "items": [
                 {
                   "id": "wi_list_nobody",
@@ -676,8 +678,10 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "712", "etag": "W/\"2c8-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "882", "etag": "W/\"372-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
+              "view": "all",
+              "views": { "mine": { "available": false, "count": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": true, "count": 5 } },
               "items": [
                 {
                   "id": "wi_list_nobody",
@@ -715,8 +719,10 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "688", "etag": "W/\"2b0-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "858", "etag": "W/\"35a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
+              "view": "all",
+              "views": { "mine": { "available": false, "count": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": true, "count": 5 } },
               "items": [
                 {
                   "id": "wi_list_alpha_2",
@@ -754,8 +760,10 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "924", "etag": "W/\"39c-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1095", "etag": "W/\"447-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
+              "view": "mine",
+              "views": { "mine": { "available": true, "count": 3 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } },
               "items": [
                 {
                   "id": "wi_list_alpha_3",
@@ -803,8 +811,15 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "191", "etag": "W/\"bf-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
-            "body": { "items": [], "counts": { "draft": 3, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 }, "total": 3, "next_cursor": null }
+            "headers": { "cache-control": "private, no-store", "content-length": "362", "etag": "W/\"16a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "view": "mine",
+              "views": { "mine": { "available": true, "count": 3 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } },
+              "items": [],
+              "counts": { "draft": 3, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
+              "total": 3,
+              "next_cursor": null
+            }
           }
         },
         {
@@ -816,8 +831,10 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "414", "etag": "W/\"19e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "585", "etag": "W/\"249-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
+              "view": "mine",
+              "views": { "mine": { "available": true, "count": 1 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } },
               "items": [
                 {
                   "id": "wi_list_beta_1",
@@ -951,6 +968,170 @@
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": { "error": "work_items_cursor_invalid" }
+          }
+        },
+        {
+          "id": "list-alpha-view-mine",
+          "route": "GET /api/work-items",
+          "class": "normal",
+          "what": "alpha 显式要「我安排的」：和缺省一样",
+          "request": { "method": "GET", "path": "/api/work-items?view=mine", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "1095", "etag": "W/\"447-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "view": "mine",
+              "views": { "mine": { "available": true, "count": 3 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } },
+              "items": [
+                {
+                  "id": "wi_list_alpha_3",
+                  "title": "alpha 的另一件",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                },
+                {
+                  "id": "wi_list_alpha_2",
+                  "title": "alpha 在办",
+                  "state": "draft",
+                  "object": "po:2",
+                  "phase": "p1",
+                  "seat": "seat:checker",
+                  "last_progress": { "actor": "seat:checker", "fact": "report", "text": "对账做到第三步", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                },
+                {
+                  "id": "wi_list_alpha_1",
+                  "title": "alpha 的草稿",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                }
+              ],
+              "counts": { "draft": 3, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
+              "total": 3,
+              "next_cursor": null
+            }
+          }
+        },
+        {
+          "id": "list-admin-view-all",
+          "route": "GET /api/work-items",
+          "class": "normal",
+          "what": "管理层显式要「全部」",
+          "request": { "method": "GET", "path": "/api/work-items?view=all", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "1554", "etag": "W/\"612-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "view": "all",
+              "views": { "mine": { "available": false, "count": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": true, "count": 5 } },
+              "items": [
+                {
+                  "id": "wi_list_nobody",
+                  "title": "没有建立人",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "last_progress": { "actor": "human:somebody", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                },
+                {
+                  "id": "wi_list_beta_1",
+                  "title": "beta 的",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "last_progress": { "actor": "user:beta", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                },
+                {
+                  "id": "wi_list_alpha_3",
+                  "title": "alpha 的另一件",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                },
+                {
+                  "id": "wi_list_alpha_2",
+                  "title": "alpha 在办",
+                  "state": "draft",
+                  "object": "po:2",
+                  "phase": "p1",
+                  "seat": "seat:checker",
+                  "last_progress": { "actor": "seat:checker", "fact": "report", "text": "对账做到第三步", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                },
+                {
+                  "id": "wi_list_alpha_1",
+                  "title": "alpha 的草稿",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                }
+              ],
+              "counts": { "draft": 5, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
+              "total": 5,
+              "next_cursor": null
+            }
+          }
+        },
+        {
+          "id": "list-alpha-view-all",
+          "route": "GET /api/work-items",
+          "class": "unauthorized",
+          "what": "alpha 要「全部」：这个视角对他不可用，403",
+          "request": { "method": "GET", "path": "/api/work-items?view=all", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "196", "etag": "W/\"c4-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "error": "work_items_view_unavailable",
+              "views": { "mine": { "available": true, "count": 3 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } }
+            }
+          }
+        },
+        {
+          "id": "list-bad-view",
+          "route": "GET /api/work-items",
+          "class": "invalid",
+          "what": "不认的视角：400",
+          "request": { "method": "GET", "path": "/api/work-items?view=bogus", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_view_invalid" }
+          }
+        },
+        {
+          "id": "list-empty-seat",
+          "route": "GET /api/work-items",
+          "class": "invalid",
+          "what": "按席位筛给空串：400",
+          "request": { "method": "GET", "path": "/api/work-items?seat=", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_seat_invalid" }
           }
         }
       ]

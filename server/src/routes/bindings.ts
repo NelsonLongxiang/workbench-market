@@ -78,18 +78,18 @@ export function registerBindingRoutes(app: HttpService, deps: BindingDeps): void
   });
 
   // 旧面 410 过渡（评审注 B：一版 Location 指新面，下一版 404）——UI/脚本切换缓冲
-  app.all('/api/sops/:slug/bindings', { action: 'binding.legacy', kind: 'admin' }, (req, res) => {
+  app.all('/api/sops/:slug/bindings', { action: 'binding.legacy', kind: 'admin', statusNotVerdict: '退役的旧面：谁来都是 410 加新面的地址，不是授权' }, (req, res) => {
     const loc = `/api/bindings?type=sop&slug=${encodeURIComponent(String(req.params.slug ?? ''))}`;
     res.set('Location', loc).status(410).json({ error: '绑定面已统一：GET/POST /api/bindings（direction 显式必填）', location: loc });
   });
-  app.all('/api/sops/:slug/bindings/:id', { action: 'binding.legacy', kind: 'admin' }, (req, res) => {
+  app.all('/api/sops/:slug/bindings/:id', { action: 'binding.legacy', kind: 'admin', statusNotVerdict: '退役的旧面：谁来都是 410 加新面的地址，不是授权' }, (req, res) => {
     res.set('Location', '/api/bindings').status(410).json({ error: '绑定面已统一：DELETE /api/bindings/:id', location: '/api/bindings' });
   });
-  app.all('/api/apps/:slug/bindings', { action: 'binding.legacy', kind: 'admin' }, (req, res) => {
+  app.all('/api/apps/:slug/bindings', { action: 'binding.legacy', kind: 'admin', statusNotVerdict: '退役的旧面：谁来都是 410 加新面的地址，不是授权' }, (req, res) => {
     const loc = `/api/bindings?type=app&slug=${encodeURIComponent(String(req.params.slug ?? ''))}`;
     res.set('Location', loc).status(410).json({ error: '绑定面已统一：GET/POST /api/bindings（direction 显式必填）', location: loc });
   });
-  app.all('/api/apps/:slug/bindings/:id', { action: 'binding.legacy', kind: 'admin' }, (req, res) => {
+  app.all('/api/apps/:slug/bindings/:id', { action: 'binding.legacy', kind: 'admin', statusNotVerdict: '退役的旧面：谁来都是 410 加新面的地址，不是授权' }, (req, res) => {
     res.set('Location', '/api/bindings').status(410).json({ error: '绑定面已统一：DELETE /api/bindings/:id', location: '/api/bindings' });
   });
 }

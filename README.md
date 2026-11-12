@@ -18,6 +18,7 @@ node scripts/tech-route-check.mjs    # 路线体检：结构数字对照 tech-ro
 node scripts/surface-snapshot.mjs     # 对外面的快照：改了路由、MCP 工具或表结构后，加 --write 重新生成
 node scripts/route-replay-test.mjs    # 路由录制回放：对同一组请求重放，状态码、响应头和响应体要和录下来的一样（有意改了行为加 --record 重录）
 node scripts/upgrade-smoke.mjs        # 升级冒烟：线上发布分支的库换成本检出的代码启动、再退回去，全程合成数据（--base 换基线）
+A2A_UPSTREAM_DIR=<上游检出> node scripts/contract-upstream-test.mjs  # 契约联调：上游 a2a-net 的 superagent 宿主当对端（夹具 scripts/contract/market-superagent.spec.ts，拷进上游 tests/mesh/ 跑；只听回环、临时目录、合成数据；NODE_ENV=production 或设了 DATA_DIR 拒绝运行；CI 的 upstream-contract job）
 ```
 
 浏览器回归（`scripts/*-browser.mjs` 等）要用 Python Playwright，版本与 CI 一致。一般交给 CI 或共用测试环境跑。解释器由 `scripts/python-bin.mjs` 统一选取，顺序是：`PYTHON` 环境变量 → 仓库根的 `.venv` → 系统 `python3`，不用在命令前手写解释器路径。想在自己机器上跑的话（可选），建一次 `.venv` 即可：
@@ -69,8 +70,9 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_APP_DATA_READ`（台数据与附件的读守卫·缺省 `enforce`：`GET /api/apps/<台>/data`、`/files`、`/files/<id>` 要本台的台令牌、管理员（同源）或本机命令行，下载另认本台页面的查看凭证，都不满足 403；`warn`＝上线过渡用，照旧放行，只按路由和调用方类别计数留痕（日志 `source: app-data-read`），过渡完设回 `enforce`；其它值拒绝启动）
 - `WM_SOP_RUN_WRITE`（SOP run 的写守卫·缺省 `enforce`：保存一步 `PUT /api/sop/runs/<id>`、完成 `POST …/finish` 要这个 run 的上传令牌 `X-Run-Upload-Token`（run 还在执行）、管理员（同源）或本机命令行，都不满足 403，不分登录门开没开；`warn`＝上线过渡用，照旧放行，只按路由和调用方类别计数留痕（日志 `source: sop-run-write`），过渡完设回 `enforce`；其它值拒绝启动）
 - `WM_ROLES_FILE`（组织角色的外部声明文件·绝对路径·JSON `{"roles":[…]}`·设了就以它为准，不设用仓库里的通用初始集合·平台内置角色不能被覆盖，同名、循环包含、引用不存在的动作、范围写法不对都拒绝启动）
-- `WM_JUDGMENT_COMPARE`（判定的并行比对·`on` 打开·缺省 `off`·别的值拒绝启动·打开时每个请求应答结束之后算新判定、和旧守卫的结论比，不改应答，并给第一次见到的人迁移 `member`、身份来源说是管理员的迁移 `admin`（来源记 migration）·只在 CI 和出报告用的实例里开，不在生产上开）
+- `WM_JUDGMENT_COMPARE`（判定的并行比对·`on` 打开·缺省 `off`·别的值拒绝启动·打开时每个请求应答结束之后算新判定、和旧守卫的结论比，不改应答，并给第一次见到的人迁移 `member`、身份来源说是管理员的迁移 `admin` 和 `management`（来源记 migration）·CI 和出报告用的实例里开；判定切换（6d）的第 0 步起生产也打开观察，见 [docs/judgment-legacy-differences.md](docs/judgment-legacy-differences.md)）
 - `WM_JUDGMENT_COMPARE_OUT`（比对打开时每比一次追加一行 JSON 的文件·绝对路径·可选·给出报告的脚本汇总）
+- `WM_JUDGMENT_ENFORCE`（判定切换的开关·缺省空＝一个域都不切、行为不变·写域名列表（逗号分隔）或 `all`·要和 `WM_JUDGMENT_COMPARE=on` 一起开·写法不对、域没有登记的动作都拒绝启动·切了的域在路由处理之前由新判定说放不放行，拒绝回 403 `judgment_denied`（转提议是 `judgment_ask`），记进比对库的 `judgment_enforced`；放行的照旧交给原来的处理函数，旧守卫再判一遍做反向比对·声明了状态码不代表授权的路由、没报动作的存量路由、「暂不切」清单里的动作不受影响·回退：去掉这个域、重启）
 - `WM_FEISHU_LOGIN`（`on`=打开飞书登录·缺省关）
 - `WM_FEISHU_AUTHORIZE_URL` / `WM_FEISHU_TOKEN_URL` / `WM_FEISHU_USERINFO_URL`（飞书授权页、换令牌、取用户信息的地址·缺省取飞书开放平台文档里的·只收 https）
 - `WM_FEISHU_TENANT_TOKEN_URL` / `WM_FEISHU_CONTACT_USER_URL`（对账用：取 tenant_access_token、按 union_id 查人的地址·缺省同上）
@@ -315,6 +317,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   a2a/peer-card.ts（对端名片：按投递的根地址取名片、上游 verifyCard 验签；投递时记下对端是谁、回执到达时用同一张名片验签名·不跟随重定向、5 秒、64 KiB）
   a2a/receipt-inbound.ts（席位的 A2A 回执入站：`/a2a/direct` 在签名校验和准入之前的窄分流——正文是回执、任务号是我们发出的、签名方是当初投递到的那台宿主，三条都成立才采信并写事件日志，事项照常推进；否则照原路，应答不变）
   a2a/reply-outbound.ts（市场回给团队的消息：人的答复与对席位消息的回复作为同一 context 的新任务发回；收下跟进后在 receipt-<跟进任务号> 上回结清回执（只用跟进的任务号，发不出去一直重试）；复用事件投递的发送函数、退避与签名）
+  a2a/roster-stats.ts（团队名册入站的结果计数：收下、过期、不认、撞键、来源不是投递过的宿主、验签不过、名片没声明、超长、首行格式不对，各自的次数和最近一次的时间；给 health 的 `a2a.roster`，只出计数和时间、不出对端标识，进程内、重启清零）
   app-data-contract.ts（自产台数据契约：必填/枚举/格式/条件规则（含条件格式）/数组对象逐元素，POST 数据时服务端权威校验）
   app-html.ts（出自产台页面 HTML：注入按台令牌，认得出的人在当前上架版本上再注入提交人票据；出票抛错页面照常不带票据，别的出错回到原样页面并计数）
   seat-messages.ts（事项对话里的席位消息：跟进不进「关注」，在事项页列出、带未读数；看过标已读、回复作为同一 context 的新任务发回）
@@ -343,6 +346,9 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   judgment-builtins.ts（内置身份：管理口令、本机命令行、本机页面、匿名，权限按动作逐条列出，进快照）
   judgment-compare.ts（判定的并行比对：WM_JUDGMENT_COMPARE 打开时比新旧结论、记不一致）
   team-relation.ts（「这个人或席位，对这个部门、团队、席位是什么关系」：dept-member、dept-lead、team-lead、seat-owner、team-seat、router，另带显示用的名字；过目、安排、事项详情、数据视图「谁能改这个台」共用）
+  judgment-enforce.ts（判定切换的开关 WM_JUDGMENT_ENFORCE：读开关、核域、在切了的域里路由处理之前先判；「暂不切」清单在 judgment-builtins.ts）
+  judgment-read-deny.ts（判定切换的读路：新判定拒也让旧处理函数照跑，在应答头发出去那一刻看状态码，旧的要放行才换成拒绝；不依赖服务，单独测）
+  red-lines.ts（红线清单：越不过去的规则，每条写明在哪儿管着、哪个对抗组盯着；scripts/red-lines-test.mjs 核对每条都有带 [red-line:<id>] 的对抗例）
   judgment.ts（判定：Cordis 事件 `judgment/judge`，内置监听器照六步判）
   layerfs-shadow.ts（LayerFS 影子发布结果持久化：只回写 commit_id 为空的版本行，失败标记后可重试）
   login-gate.ts（全站登录门 WM_LOGIN_GATE：enforce 时页面 302 登录、API 401）
@@ -381,7 +387,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   url-admission.ts（#258 R3 业务 URL 登记准入单核·WM_REGISTER_URL_ALLOWLIST）
   vault-api.ts（凭据库 REST 面）
   vault/（dsh-vault 存储层引入件·见其 README）
-  work-item-access.ts（事项上这个人能做什么、是不是轮到他：canOf、turnOf、creatorOf，事项详情和「关注」共用；每一项和对应动作接口同一处判断（放行 releaseBlock、对话写入和验收 writerVerdict、回复 replyableMessages、提问 pendingAsksOfEvent））
+  work-item-access.ts（事项上的几种人 itemRoles（现在是建立人和管理层，管理层按 work-items.view-all 这个拍板类动作认；成员的主人、负责人随关系确认制接上）和看得到的范围 canSee、列表的视角 viewScopes（现在是 mine、all；seats、team 列出但不可用）；事项上这个人能做什么、是不是轮到他：canOf、turnOf、creatorOf，事项详情和「关注」共用；每一项和对应动作接口同一处判断（放行 releaseBlock、对话写入和验收 writerVerdict、回复 replyableMessages、提问 pendingAsksOfEvent））
   workbench-events.ts（工作台事件层 v1：人提交→事件→团队接单→决定回写）
   workbench-vars.ts（#336 工作台变量与常量：按台隔离、revision 乐观锁、常量保护）
 server/src/login-providers/  登录提供方插件（身份的具体实现只放这里，核心不引用）：index.ts（清单：这个部署装哪些提供方） feishu/index.ts（飞书登录方式：授权码流程，向 `identity` 登记一个登录方式，凭证从凭据库取） odoo/index.ts（Odoo 提供方的插件入口：向 `identity` 登记、提供 `loginRelay`） odoo/odoo-viewer.ts（Odoo 查看人现查） odoo/odoo-session.ts（门户 Odoo 会话可信源判定与剥除、登录回调票据） odoo/odoo-login-proxy.ts（可选同源 Odoo 登录中继 WM_ODOO_LOGIN_PROXY：只放行登录面，不代理 Odoo 应用） odoo/odoo-browser-origin.ts（只给浏览器用的 Odoo 登录地址 WM_ODOO_BROWSER_URL：登录一跳送到可信内网地址，身份与代理目标不变）
@@ -404,6 +410,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   custom-role.ts（自定义角色：Cordis 服务 `customRoles`·从内置预设复制、改、删、属主放行、导出·每步留痕·带来管理类或决定类权限的要属主放行）
   department.ts（部门：Cordis 服务 `departments`·部门清单、负责人、成员归属、职能代号·部门标识即授予范围 dept:<标识>·还有没结束的部门授予时不能删）
   team.ts（团队与分配：Cordis 服务 `teams`·团队登记（认领、挂部门）、负责人（另外指定的加所挂部门的负责人）、成员分配（起止时间、同一席位只有一条生效、按时间点查那时归谁）·键和节点名册一致·状态读的时候推·每步留痕 team_events）
+  setup-wizard.ts（首次安装向导：Cordis 服务 `setupWizard`·按形态（small / standard）生成一批草稿授予、可重复跑、属主一次放行·「向导建的」记在 setup_wizard_runs / setup_wizard_grants，读的时候推出来源 wizard）
   grant.ts（授予：Cordis 服务 `grants`·草稿→待核→生效→撤销或过期只能往前走·不能给自己授予·管理员级只有属主能放行·决定类只给人·到期自动失效·每步留痕）
   judgment-compare.ts（判定比对的记账：Cordis 服务 `judgmentCompare`·按路由计数·不一致合并计数、有上限）
   login-session.ts（市场会话与登录 state：Cordis 服务 `loginSessions`·绝对期限·注销与停用即失效·state 一次性并绑浏览器）
@@ -430,12 +437,14 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   cookies.ts（Cookie 池 /api/cookies）
   departments.ts（部门 /api/departments：登录的人读列表、单个部门的成员、某人属于哪些部门；管理员建改删部门和成员）
   teams.ts（团队与分配 /api/teams：团队页（部门 → 团队 → 成员，按看的人的可见范围在服务端裁好）、「我的 AI 员工」；管理员认领、退回、指定和移除负责人；负责人分配、收回成员（状态码不代表授权））
+  access.ts（角色预设 ②：以某人的身份看 /api/principals/:id/access（管理员看任何人、登录的人看自己，带 action 给判定结论）、红线清单 /api/access/red-lines、首次安装向导 /api/setup/wizard（管理员跑，属主放行））
   design-tokens.ts（设计 token 固定路径 /design/tokens@<版本>.css）
   export-import.ts（导出与导入 /api/export、/api/import）
   grants.ts（角色与授予的管理接口 /api/roles、/api/grants：起草、提交、放行、撤销）
   health.ts（健康与就绪 /api/health、/api/health/ready：只回缓存的 LayerFS 结果、配了 LayerFS 才探；带 A2A 的开关、计数和时长；公开）
   login-events.ts（离职即时失效：/login/<方式>/events 失效通知、每日对账）
   login-flows.ts（登录方式 /login/<方式> 与回调：state、next、对到主体、发市场会话）
+  login-gate.ts（登录门的四条路由：登录页 /login、口令登录、登出、我是谁 /api/auth/me；登录 cookie、限频、同源判断、认人留在 server/src/login-gate.ts，经参数传进来）
   mcp-protocol.ts（MCP 协议入口 /mcp（无状态 StreamableHTTP）：POST 收 JSON-RPC（initialize、ping、tools/list、tools/call），GET、DELETE 回 405；认证是 MCP 会话令牌）
   mcp-rest.ts（MCP 内嵌的 REST /api/mcp-rest、/openapi.json：OpenAPI 文档、工具调用、台文件上传（原始字节、multipart）列表下载（Range、ETag）、台数据、SOP run 与附件；认证是 MCP 会话令牌，授权映射到工具 grants）
   mcp.ts（MCP 网关控制面 /api/mcp：上游、会话、授权、工具目录、调用记录、权限申请的批准与驳回）
