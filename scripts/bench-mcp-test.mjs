@@ -197,6 +197,11 @@ try {
   r = await tool(srv, A.token, 'dataset_list', { bench: ['demo'] });
   const r4 = await tool(srv, A.token, 'dataset_list', {});
   check(r.rpcError === -32601 && r4.rpcError === -32601, 'bench 不是字符串、没写 bench：不行', { array: r.rpcError, none: r4.rpcError });
+  // 授予还在、台却没登记（登记被撤了，或者库里留着旧的授予）：不行，也不会建出库文件
+  db.prepare('INSERT INTO bench_mcp_grants (session_id, bench, tool, granted_by, granted_at) VALUES (?, ?, ?, ?, ?)').run(A.id, 'never-registered', 'dataset_list', 'user:alpha', 1);
+  r = await tool(srv, A.token, 'dataset_list', { bench: 'never-registered' });
+  check(r.rpcError === -32601 && !existsSync(join(srv.data, 'bench-stores', 'never-registered.sqlite')), '有授予但台没登记：不行，数据目录里没有多出库文件', r.rpcError);
+  db.prepare("DELETE FROM bench_mcp_grants WHERE bench = 'never-registered'").run();
   names = await listed(srv, A.token);
   check(BENCH_TOOLS.filter((n) => names.includes(n)).join() === 'dataset_list,dataset_query', '目录里现在只多了批了的那两个', names.filter((n) => BENCH_TOOLS.includes(n)));
   r = await tool(srv, A.token, 'access_info', {});
@@ -251,13 +256,15 @@ try {
   console.log('八、入口关着、网关关着');
   const off = await boot('entry-off');
   const C = await (async () => { const x = await off.call('POST', '/api/mcp/sessions', { headers: { ...REMOTE, 'x-admin-token': ADMIN_TOKEN }, body: { name: 'seat-c' } }); return { id: x.json?.id, token: x.json?.token }; })();
+  // 入口以前开过：台登记着、授予也在。关了之后照样不行
+  off.db().prepare('INSERT INTO bench_views (slug, title, created_by, created_at) VALUES (?, ?, ?, ?)').run('demo', 'demo', 'user:alpha', 1);
   off.db().prepare('INSERT INTO bench_mcp_grants (session_id, bench, tool, granted_by, granted_at) VALUES (?, ?, ?, ?, ?)').run(C.id, 'demo', 'dataset_list', 'user:alpha', 1);
   names = await listed(off, C.token);
   r = await tool(off, C.token, 'dataset_list', { bench: 'demo' });
   const info = await tool(off, C.token, 'access_info', {});
   const ask = await tool(off, C.token, 'access_request', { tools: ['dataset_list@bench:demo'], reason: 'x' });
   check(!names.some((x) => BENCH_TOOLS.includes(x)) && r.rpcError === -32601 && !info.json?.catalog?.some((t) => BENCH_TOOLS.includes(t.name)) && info.json?.bench_requests === undefined && ask.isError && !existsSync(join(off.data, 'bench-stores')),
-    '入口关着：目录里没有、调不了（库里有授予也不行）、申请不了、不建台库', { call: r.rpcError, ask: ask.text.slice(0, 80) });
+    '入口关着：目录里没有、调不了（台登记着、库里有授予也不行）、申请不了、不建台库', { call: r.rpcError, ask: ask.text.slice(0, 80) });
   await off.stop();
   const gw = await boot('gateway-off', { WM_BENCH_VIEWS: 'on', MCP_GATEWAY: 'off' });
   gw.db().prepare('INSERT INTO bench_views (slug, title, created_by, created_at) VALUES (?, ?, ?, ?)').run('demo', 'demo', 'user:alpha', 1);
