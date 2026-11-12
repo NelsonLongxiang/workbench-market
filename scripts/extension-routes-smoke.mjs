@@ -145,17 +145,21 @@ try {
     check(clash.failed === true && /扩展名 grant 和核心动作的域重名/.test(clash.log), '扩展名和核心动作的域重名（扩展叫 grant）：拒绝启动');
     // 扩展名和核心路径的首段重名：api、核心的路径（design、go）、前端页面（tasks）、只在核心路由栈里的首段（a2a：直接挂在 Express 上、没报动作，自动收集）
     const pathClash = [];
-    for (const n of ['api', 'design', 'go', 'tasks', 'a2a']) {
+    for (const n of ['api', 'design', 'go', 'tasks', 'overview', 'a2a']) {
       const r = await boot(`path-clash-${n}`, writeExtensions(`path-clash-${n}`, { [n]: `ctx.routes.add('get', '/${n}/x', { action: '${n}.x', kind: 'read', who: 'member' }, (_q, s) => s.json({ ext: true }));` }));
       pathClash.push({ n, ok: r.failed === true && new RegExp(`扩展名 ${n} 和核心的路径首段重名`).test(r.log) });
       if (!r.failed) await r.stop();
     }
-    check(pathClash.every((x) => x.ok), '扩展名和核心路径的首段重名（api、design、go、前端页面 tasks、只在核心路由栈里的 a2a，自动收集）：拒绝启动，不让扩展抢走核心的路由', show(pathClash.filter((x) => !x.ok)));
+    check(pathClash.every((x) => x.ok), '扩展名和核心路径的首段重名（api、design、go、前端页面 tasks、退役的页面 overview、只在核心路由栈里的 a2a，自动收集）：拒绝启动，不让扩展抢走核心的路由', show(pathClash.filter((x) => !x.ok)));
     // 前端页面的首段清单和 web/src/App.tsx 对得上
     const app = readFileSync(join(ROOT, 'web', 'src', 'App.tsx'), 'utf8');
     const pages = [...new Set([...app.matchAll(/<Route path="\/([a-z0-9-]+)/g)].map((m) => m[1]))].sort();
-    const listed = JSON.parse(/SPA_PAGE_SEGMENTS: readonly string\[\] = (\[[^\]]*\])/.exec(readFileSync(join(ROOT, 'server', 'src', 'extensions.ts'), 'utf8'))?.[1].replace(/'/g, '"') ?? '[]').sort();
+    const extSrc = readFileSync(join(ROOT, 'server', 'src', 'extensions.ts'), 'utf8');
+    const listOf = (name) => JSON.parse(new RegExp(`${name}: readonly string\\[\\] = (\\[[^\\]]*\\])`).exec(extSrc)?.[1].replace(/\/\/[^\n]*/g, '').replace(/,\s*\]/, ']').replace(/'/g, '"') ?? '[]').sort();
+    const listed = listOf('SPA_PAGE_SEGMENTS');
+    const retired = listOf('RETIRED_PAGE_SEGMENTS');
     check(JSON.stringify(pages) === JSON.stringify(listed), '扩展名的保留名单里的前端页面首段和 web/src/App.tsx 一致（页面加了、名单没跟上就红）', show({ pages, listed }));
+    check(retired.every((s) => !pages.includes(s)) && !retired.some((s) => listed.includes(s)), '退役的页面首段（页面删了、路径照样保留）不在现有页面里、也不和现有页面那份重复：保留 = 页面 ∪ 退役', show({ pages, retired }));
   }
   // ---------- 四、快照 --extensions：单独一节，不写 surfaces/ ----------
   {
