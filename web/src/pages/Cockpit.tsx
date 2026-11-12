@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useRequest } from 'ahooks';
-import { Space, Input, App, Alert, Badge, Button, Card, Col, Empty, Flex, Popconfirm, Popover, Select, Spin, Tooltip, Typography } from 'antd';
+import { Space, Input, App, Badge, Button, Card, Col, Empty, Flex, Popconfirm, Popover, Select, Spin, Tooltip, Typography } from 'antd';
 import { EditOutlined, ExportOutlined, PlusOutlined, ReloadOutlined, CloseOutlined } from '@ant-design/icons';
 import 'react-resizable/css/styles.css';
 import { api } from '../api';
@@ -17,7 +17,9 @@ import BenchViewPanel from '../components/cockpit/BenchViewPanel';
 import { benchViewRefs, isBenchViewPanel, itemsTabLabel, mainTabKeys, refsOfTab } from '../cockpit-frame-view';
 
 /** 驾驶舱写（/api/cockpits）是管理写：不是管理员（口令或 Odoo 管理员）时只读，隐藏新建/删除/改名/加移面板，网格不可拖拽 */
-const READ_ONLY_HINT = '编辑驾驶舱需要管理员：在顶栏输入管理员口令，或用 Odoo 管理员账号登录。';
+/** 不是管理员时的一行说明：只说只能看、谁来调，不教人去拿口令（新外壳也没有顶栏口令入口） */
+const READ_ONLY_LIST = '驾驶舱你只能看，新建和调整由管理员来。';
+const READ_ONLY_HINT = '这个驾驶舱你只能看，布局由管理员调整。';
 
 
 function PanelHeadActions(props: { wid: number; url?: string; onRefresh: () => void; onRemove?: () => void }) {
@@ -160,7 +162,7 @@ export default function Cockpit() {
           </Button>}
       >
       <Flex vertical gap={16} className="wm-w-full" align="start">
-        {READ_ONLY && <Alert type="info" showIcon className="wm-cockpit-readonly" message="驾驶舱在这里只能查看" description={READ_ONLY_HINT} />}
+        {READ_ONLY && <Typography.Text type="secondary" className="wm-cockpit-readonly wm-caption">{READ_ONLY_LIST}</Typography.Text>}
         {listReq.data?.length ? (
           <Flex gap={16} wrap="wrap" className="wm-w-full" style={{ rowGap: 16 }}>
             {listReq.data.map((c) => (
@@ -289,7 +291,7 @@ export default function Cockpit() {
   const refs = benchViewRefs(active.panels);
   const board = (
     <Flex vertical gap={12} className="wm-w-full wm-ck-pad" align="start">
-      {READ_ONLY && <Alert type="info" showIcon className="wm-cockpit-readonly wm-w-full" message="驾驶舱在这里只能查看" description={READ_ONLY_HINT} />}
+      {READ_ONLY && <Typography.Text type="secondary" className="wm-cockpit-readonly wm-caption">{READ_ONLY_HINT}</Typography.Text>}
 
       {panels.length === 0 ? (
         <Empty description={READ_ONLY ? '这个驾驶舱里还没有要看的东西' : '这个驾驶舱里还没有要看的东西——点右上角「编辑」，加一个工作台进来'} style={{ marginTop: 48 }} />

@@ -717,3 +717,5 @@ body { background: var(--wm-color-page); }
 .wm-ck-staff-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .wm-ck-staff-main b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wm-ck-staff-busy { flex: none; }
+/* 「AI 员工」的成员列表：每张卡之间都没有分隔线，组与组之间靠小标题分（原来一组一条、一组没有，看着像两种列表） */
+[data-testid=ck-staff-pane] .wm-ck-list li { border-bottom: 0; padding-top: var(--wm-space-1); padding-bottom: var(--wm-space-1); }
