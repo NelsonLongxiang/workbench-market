@@ -645,7 +645,8 @@ with sync_playwright() as p:
         page.wait_for_timeout(600)
         assert page.locator('.wm-panel').count() == 0, '面板移除失败'
         assert page.get_by_text('还没有要看的东西', exact=False).first.is_visible(), '空驾驶舱提示未出现'
-        page.get_by_role('button', name='返回驾驶舱列表').click()
+        # 回列表走顶上的面包屑「驾驶舱」（单页顶上只留「编辑」，不再有单独的返回按钮）
+        page.locator('[data-testid=wm-top] .wm-top-crumb a').first.click()
         page.wait_for_load_state('networkidle')
         assert page.get_by_text('E2E 驾驶舱', exact=True).first.is_visible(), '列表中未见 E2E 驾驶舱'
         if CTRL is not None:
