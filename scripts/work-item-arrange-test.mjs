@@ -308,6 +308,11 @@ try {
     check(lp?.due === '2026-01-01' && lp.overdue === true, '事项列表也带 due 和 overdue', show(lp));
     const d = dbr(); let pm = ''; try { pm = d.prepare('SELECT message FROM workbench_event_deliveries WHERE event_id = ?').get(past.body?.event_id)?.message ?? ''; } finally { d.close(); }
     check(JSON.parse(pm).task?.due === '2026-01-01', '派给节点的正文里带截止日期（task.due）', pm.slice(0, 160));
+    // 详情的 can.due 和改截止接口同一处（dueWriterOk）：建立人真、管理口令假（接口 401）、别人看不到详情
+    const canAlpha = (await call('GET', `/api/work-items/${past.body?.item_id}`, ALPHA)).body?.can?.due;
+    const canAdmin = (await call('GET', `/api/work-items/${past.body?.item_id}`, ADMIN)).body?.can?.due;
+    const betaSees = (await call('GET', `/api/work-items/${past.body?.item_id}`, BETA)).status;
+    check(canAlpha === true && canAdmin === false && betaSees === 404, '详情 can.due：建立人真；管理口令假（改不了）；别人读不到这件', show({ canAlpha, canAdmin, betaSees }));
     // 建立人改：改成新的、清掉；别人（看不到这件）404；只带管理口令 401；坏格式 400
     const ch = await call('POST', `/api/work-items/${past.body?.item_id}/due`, ALPHA, { due: '2099-01-02' });
     const clr = await call('POST', `/api/work-items/${future.body?.item_id}/due`, ALPHA, { due: null });

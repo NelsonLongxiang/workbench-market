@@ -44,7 +44,7 @@ import type { TeamService } from '../services/team.ts';
 import { answerItemAsk, CREATOR_ANSWERS, decideItemAnswer } from '../attention-answers.ts';
 import { markSeatMessagesRead, replySeatMessage, seatAsksOf, seatMessagesOf, seatProgressOf, seatSubitemsOf, SEAT_REPLY_MAX } from '../seat-messages.ts';
 import { principalsAdmin } from './principals.ts';
-import { canOf, canSee, creatorOf, decidesNow, itemDecisionVerdict, itemRoles, releaseBy, turnOf, VIEW_ALL_ACTION, VIEW_ALL_KIND, VIEWS, viewScopes, workItemViewer, writerVerdict, type ItemRole, type ViewName } from '../work-item-access.ts';
+import { canOf, canSee, creatorOf, dueWriterOk, decidesNow, itemDecisionVerdict, itemRoles, releaseBy, turnOf, VIEW_ALL_ACTION, VIEW_ALL_KIND, VIEWS, viewScopes, workItemViewer, writerVerdict, type ItemRole, type ViewName } from '../work-item-access.ts';
 import { arrangeTask } from '../task-center.ts';
 import { assignableTeams, kickWorkbenchEvents, logEventFact, releaseCore } from '../workbench-events.ts';
 import { eventOfItem } from '../seat-messages.ts';
@@ -344,7 +344,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       const verdict = writerVerdict(viewer, id, false); // 只认建立人本人：管理员不代改
       if (verdict === 'not_found') return void res.status(404).json({ error: 'work_item_not_found' });
       if (verdict === 'inactive') return void res.status(403).json({ error: 'work_items_principal_not_active' });
-      if (verdict !== 'ok' && verdict !== 'not_eligible') return void res.status(404).json({ error: 'work_item_not_found' });
+      if (!dueWriterOk(verdict)) return void res.status(404).json({ error: 'work_item_not_found' });
       const items = svc<WorkItemService>('workItems');
       const item = items.get(id);
       if (!item) return void res.status(404).json({ error: 'work_item_not_found' });
