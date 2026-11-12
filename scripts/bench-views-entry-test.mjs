@@ -5,7 +5,8 @@
  *   一、开关：缺省关着时这组路由每条都回 404（不认人、不建库）；值不合法拒绝启动
  *   二、谁进不了：没登录 401；管理口令 403（读和写都是，带着管理层的登录一起来也是）；没有授予的人 403；
  *       系统管理员角色的授予 403；授予的范围不是「全部」的 403；主体停用 403；本机命令行 403；带跨站标记 403
- *   三、谁进得了：管理层（范围「全部」）的人，读写都行；普通员工（范围「全部」）只读
+ *   三、谁进得了：只有管理层（范围「全部」）的人，读写都行。普通员工（范围「全部」）读写都是 403；
+ *       写行的请求体最后才收：没登录、没权限、台没登记、op 不对的，请求体没发完就回了
  *   四、台要先登记：没登记的标识 404，而且数据目录里不会多出库文件；没权限的人看不出台存不存在（都是 403）
  *   五、整条流程：登记台、建数据集、四种写入（请求体原样递给工作线程，5 MB 也收）、查询、快照与退回、
  *       视图保存与版本与回退、取数、表单、留痕；幂等键走请求头
@@ -15,6 +16,7 @@
  *   node scripts/bench-views-entry-test.mjs --root DIR   测另一棵目录树（变异测试用）
  */
 import { createServer } from 'node:net';
+import { request as httpRequest } from 'node:http';
 import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -146,10 +148,33 @@ try {
   check(r.status === 409 && r.json?.error === 'conflict', '同一个标识再登记：冲突', r.text.slice(0, 120));
   r = await srv.call('POST', '/api/bench-views', { ...mgr, body: { slug: '../x', title: 't' } });
   check(r.status === 400, '标识写法不对：拒', r.status);
+  // 普通员工、范围「全部」：每个登录过的员工迁移之后都有这样一条。读写都进不来——不然入口一开全公司都读得到所有台
   const g3 = await activate({ principal: 'user:beta', role: 'member' });
-  r = await srv.call('GET', '/api/bench-views/demo/datasets', nobody);
-  const w = await srv.call('PUT', '/api/bench-views/demo/datasets/x', { ...nobody, body: { columns: [{ name: 'a', type: 'text' }] } });
-  check(g3.ok && r.status === 200 && w.status === 403, '普通员工（范围「全部」）：读得到，写不了', { read: r.status, write: w.status });
+  const ALL_ROUTES = [['GET', ''], ['POST', ''], ['GET', '/demo/datasets'], ['PUT', '/demo/datasets/x'], ['POST', '/demo/datasets/x/rows?op=append'], ['POST', '/demo/query'],
+    ['GET', '/demo/datasets/x/snapshots'], ['POST', '/demo/datasets/x/snapshots'], ['POST', '/demo/restore'], ['GET', '/demo/view'], ['PUT', '/demo/view'], ['GET', '/demo/view/versions'],
+    ['GET', '/demo/view/diff?a=1&b=2'], ['POST', '/demo/view/rollback'], ['GET', '/demo/render'], ['POST', '/demo/form'], ['GET', '/demo/log']];
+  const memberGot = [];
+  for (const [m, path] of ALL_ROUTES) memberGot.push((await srv.call(m, `/api/bench-views${path}`, { ...nobody, ...(m === 'GET' ? {} : path.includes('/rows') ? { raw: '[]' } : { body: {} }) })).status);
+  check(g3.ok && ALL_ROUTES.length === 17 && memberGot.every((x) => x === 403), '只有普通员工授予（范围「全部」）的人：17 条路由读写全是 403', memberGot.join());
+
+  console.log('三之二、写行的请求体：没过门的不读');
+  // 只发请求头和 1 MB 的开头，后面的不发、也不结束请求：服务端要是先收请求体再判，就会一直等下去
+  const early = (path, headers) => new Promise((done) => {
+    const u = new URL(srv.base + path);
+    const req = httpRequest({ host: u.hostname, port: u.port, path: u.pathname + u.search, method: 'POST', headers: { 'content-type': 'application/json', 'content-length': String(30 * 1024 * 1024), ...headers } });
+    const timer = setTimeout(() => { req.destroy(); done({ status: 0, waited: true }); }, 4000);
+    req.on('response', (res) => { clearTimeout(timer); res.resume(); req.destroy(); done({ status: res.statusCode, waited: false }); });
+    req.on('error', () => {});
+    req.write(Buffer.alloc(1024 * 1024, 0x20));
+  });
+  let e1 = await early('/api/bench-views/demo/datasets/x/rows?op=append', REMOTE);
+  check(e1.status === 401 && !e1.waited, '远程匿名发 30 MB 的写入：请求体没发完就回了 401（服务端没去读它）', e1);
+  e1 = await early('/api/bench-views/ghost/datasets/x/rows?op=append', { ...mgr.headers, cookie: `session_id=${SESSIONS.alpha}` });
+  check(e1.status === 404 && !e1.waited, '有权限但台没登记：请求体没发完就回了 404', e1);
+  e1 = await early('/api/bench-views/demo/datasets/x/rows?op=append', { ...nobody.headers, cookie: `session_id=${SESSIONS.beta}` });
+  check(e1.status === 403 && !e1.waited, '登录了但没权限：请求体没发完就回了 403', e1);
+  e1 = await early('/api/bench-views/demo/datasets/x/rows?op=nope', { ...mgr.headers, cookie: `session_id=${SESSIONS.alpha}` });
+  check(e1.status === 400 && !e1.waited, 'op 不认识：请求体没发完就回了 400', e1);
 
   console.log('四、台要先登记');
   r = await srv.call('GET', '/api/bench-views/ghost/datasets', mgr);

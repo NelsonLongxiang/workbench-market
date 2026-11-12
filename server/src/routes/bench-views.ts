@@ -84,14 +84,20 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
   }
 
   /** 放不放行。放行返回做这件事的人的标识；不放行已经回了应答，返回 null */
-  async function allow(req: express.Request, res: express.Response, action: string, kind: 'read' | 'write'): Promise<string | null> {
+  /**
+   * 这一步读和写是同一道门：都按「能不能写」问判定。
+   * 原因：普通员工的预设带着全部业务域的「看」，而每个登录过的员工都会迁出一条范围是「全部」的普通员工授予——
+   * 按「看」放行的话，入口一开全公司都读得到所有台的数据。按部门、按团队判读权限的那一半做完之前，读也只给能写的人（管理层）。
+   * 路由登记的类别（read / write）照实写，只用于动作清单；放不放行不看它。
+   */
+  async function allow(req: express.Request, res: express.Response, action: string): Promise<string | null> {
     res.set('Cache-Control', 'private, no-store');
     res.vary('Cookie'); res.vary('X-Admin-Token');
     if (req.headers['sec-fetch-site'] === 'cross-site' || (req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req))) { res.status(403).json({ error: 'bench_views_cross_origin_denied' }); return null; }
     const actor = await actorOf(req);
     if (actor.type === 'builtin' && actor.name === 'admin-token') { res.status(403).json({ error: 'bench_views_admin_token_denied', message: '台里是业务数据，管理口令看不了、也改不了；用有管理层授予的账号登录' }); return null; }
     if (actor.type === 'builtin' && actor.name === 'anonymous') { res.status(401).json({ error: 'login_required' }); return null; }
-    const verdict = judge({ actor, action, kind, declared: true });
+    const verdict = judge({ actor, action, kind: 'write', declared: true });
     if (verdict.verdict !== 'allow') { res.status(403).json({ error: 'bench_views_forbidden' }); return null; }
     return actor.type === 'principal' ? actor.id : `builtin:${actor.name}`;
   }
@@ -116,9 +122,10 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
   };
   const ctxOf = (req: express.Request, actor: string, note?: unknown) => ({ actor, at: Date.now(), idemKey: str(req.headers['idempotency-key']), note: str(note) });
 
+  const rawRows = express.raw({ type: () => true, limit: BENCH_LIMITS.datasetBytes + 1_000_000 });
   /** 一条「在某个台上做一件事」的路由：先判权限，再核台登记过，然后把台库交给 fn */
-  const on = (action: string, kind: 'read' | 'write', fn: (req: express.Request, res: express.Response, s: BenchStore, actor: string) => Promise<unknown>) => wrap(async (req, res) => {
-    const actor = await allow(req, res, action, kind);
+  const on = (action: string, fn: (req: express.Request, res: express.Response, s: BenchStore, actor: string) => Promise<unknown>) => wrap(async (req, res) => {
+    const actor = await allow(req, res, action);
     if (!actor) return;
     if (!getBench(req.params.bench)) return res.status(404).json({ error: 'bench_not_found' });
     try { res.json(await fn(req, res, await benchStore(req.params.bench), actor)); } catch (e) { fail(res, e); }
@@ -126,57 +133,57 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
 
   // —— 台的登记 ——
   app.get('/api/bench-views', { action: 'bench-store.bench-list', kind: 'read', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
-    if (!await allow(req, res, 'bench-store.bench-list', 'read')) return;
+    if (!await allow(req, res, 'bench-store.bench-list')) return;
     res.json({ benches: listBenches() });
   }));
   app.post('/api/bench-views', { action: 'bench-store.bench-create', kind: 'write', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
-    const actor = await allow(req, res, 'bench-store.bench-create', 'write');
+    const actor = await allow(req, res, 'bench-store.bench-create');
     if (!actor) return;
     try { res.status(201).json({ bench: createBench(req.body, actor, Date.now()) }); } catch (e) { fail(res, e); }
   }));
 
   // —— 数据集 ——
-  app.get('/api/bench-views/:bench/datasets', { action: 'bench-store.dataset-list', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.dataset-list', 'read', async (_req, _res, s) => ({ datasets: await s.datasets() })));
-  app.put('/api/bench-views/:bench/datasets/:name', { action: 'bench-store.dataset-define', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.dataset-define', 'write',
+  app.get('/api/bench-views/:bench/datasets', { action: 'bench-store.dataset-list', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.dataset-list', async (_req, _res, s) => ({ datasets: await s.datasets() })));
+  app.put('/api/bench-views/:bench/datasets/:name', { action: 'bench-store.dataset-define', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.dataset-define',
     (req, _res, s, actor) => s.defineDataset({ ...(req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}), name: req.params.name }, ctxOf(req, actor, req.query.note))));
   // 行的写入：请求体是行的数组（JSON 文本），原样递给工作线程解析。op=replace / upsert / append / delete（delete 时给的是主键的数组）
   app.post('/api/bench-views/:bench/datasets/:name/rows', { action: 'bench-store.rows-write', kind: 'write', statusNotVerdict: NOT_VERDICT },
-    // 开关关着不读请求体，直接往下走（下面的处理函数回 404）
-    (req, res, next) => (deps.on ? express.raw({ type: () => true, limit: BENCH_LIMITS.datasetBytes + 1_000_000 })(req, res, next) : next()),
-    on('bench-store.rows-write', 'write', async (req, _res, s, actor) => {
+    // 请求体最后才收：开关、认人、判定、台的登记、op 都过了才读。没过的请求一个字节都不进内存
+    on('bench-store.rows-write', async (req, res, s, actor) => {
       const op = OPS.get(String(req.query.op ?? ''));
       if (!op) throw new BenchError('invalid', 'op 须为 replace、upsert、append、delete 之一');
+      await new Promise<void>((ok, no) => rawRows(req, res, (e?: unknown) => (e ? no(e) : ok())));
       const body = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
       return s[op](req.params.name, body, ctxOf(req, actor, req.query.note));
     }));
-  app.post('/api/bench-views/:bench/query', { action: 'bench-store.query', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.query', 'read', (req, _res, s) => {
+  app.post('/api/bench-views/:bench/query', { action: 'bench-store.query', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.query', (req, _res, s) => {
     const b = (req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}) as { query?: unknown; params?: unknown };
     return s.query(b.query, b.params && typeof b.params === 'object' && !Array.isArray(b.params) ? b.params as Record<string, unknown> : {});
   }));
 
   // —— 快照 ——
-  app.get('/api/bench-views/:bench/datasets/:name/snapshots', { action: 'bench-store.snapshot-list', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.snapshot-list', 'read', async (req, _res, s) => ({ snapshots: await s.snapshots(req.params.name) })));
-  app.post('/api/bench-views/:bench/datasets/:name/snapshots', { action: 'bench-store.snapshot-take', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.snapshot-take', 'write', (req, _res, s, actor) => s.snapshot(req.params.name, ctxOf(req, actor, req.body?.note))));
-  app.post('/api/bench-views/:bench/restore', { action: 'bench-store.snapshot-restore', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.snapshot-restore', 'write', (req, _res, s, actor) => {
+  app.get('/api/bench-views/:bench/datasets/:name/snapshots', { action: 'bench-store.snapshot-list', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.snapshot-list', async (req, _res, s) => ({ snapshots: await s.snapshots(req.params.name) })));
+  app.post('/api/bench-views/:bench/datasets/:name/snapshots', { action: 'bench-store.snapshot-take', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.snapshot-take', (req, _res, s, actor) => s.snapshot(req.params.name, ctxOf(req, actor, req.body?.note))));
+  app.post('/api/bench-views/:bench/restore', { action: 'bench-store.snapshot-restore', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.snapshot-restore', (req, _res, s, actor) => {
     const id = int(req.body?.snapshot_id);
     if (id === undefined) throw new BenchError('invalid', '要给 snapshot_id（快照编号）');
     return s.restore(id, ctxOf(req, actor, req.body?.note));
   }));
 
   // —— 视图描述 ——
-  app.get('/api/bench-views/:bench/view', { action: 'bench-store.view-get', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.view-get', 'read', async (req, _res, s) => ({ view: await s.getView(qint(req.query.version, 'version')) })));
-  app.put('/api/bench-views/:bench/view', { action: 'bench-store.view-put', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.view-put', 'write', (req, _res, s, actor) => {
+  app.get('/api/bench-views/:bench/view', { action: 'bench-store.view-get', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.view-get', async (req, _res, s) => ({ view: await s.getView(qint(req.query.version, 'version')) })));
+  app.put('/api/bench-views/:bench/view', { action: 'bench-store.view-put', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.view-put', (req, _res, s, actor) => {
     const base = int(req.body?.base);
     if (base === undefined) throw new BenchError('invalid', '要给 base（你是基于第几版改的；还没有版本时给 0）');
     return s.putView(req.body?.doc, { ...ctxOf(req, actor, req.body?.note), base });
   }));
-  app.get('/api/bench-views/:bench/view/versions', { action: 'bench-store.view-versions', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.view-versions', 'read', async (_req, _res, s) => ({ versions: await s.viewVersions() })));
-  app.get('/api/bench-views/:bench/view/diff', { action: 'bench-store.view-diff', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.view-diff', 'read', async (req, _res, s) => {
+  app.get('/api/bench-views/:bench/view/versions', { action: 'bench-store.view-versions', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.view-versions', async (_req, _res, s) => ({ versions: await s.viewVersions() })));
+  app.get('/api/bench-views/:bench/view/diff', { action: 'bench-store.view-diff', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.view-diff', async (req, _res, s) => {
     const a = qint(req.query.a, 'a'), b = qint(req.query.b, 'b');
     if (a === undefined || b === undefined) throw new BenchError('invalid', '要给 a 和 b 两个版本号');
     return { diff: await s.diffViews(a, b) };
   }));
-  app.post('/api/bench-views/:bench/view/rollback', { action: 'bench-store.view-rollback', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.view-rollback', 'write', (req, _res, s, actor) => {
+  app.post('/api/bench-views/:bench/view/rollback', { action: 'bench-store.view-rollback', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.view-rollback', (req, _res, s, actor) => {
     const to = int(req.body?.to), base = int(req.body?.base);
     if (to === undefined || base === undefined) throw new BenchError('invalid', '要给 to（让第几版重新生效）和 base（你看到的生效版本）');
     return s.rollbackView(to, { ...ctxOf(req, actor, req.body?.note), base });
@@ -184,12 +191,12 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
 
   // —— 取数和表单 ——
   // 筛选栏的值经查询串给：p.<字段名>=值（只收文本；没声明的字段在服务里会被忽略）
-  app.get('/api/bench-views/:bench/render', { action: 'bench-store.render', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.render', 'read', (req, _res, s) => {
+  app.get('/api/bench-views/:bench/render', { action: 'bench-store.render', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.render', (req, _res, s) => {
     const params: Record<string, string> = {};
     for (const [k, v] of Object.entries(req.query)) if (k.startsWith('p.') && typeof v === 'string') params[k.slice(2)] = v;
     return s.renderView({ view: str(req.query.view), params, version: qint(req.query.version, 'version') });
   }));
-  app.post('/api/bench-views/:bench/form', { action: 'bench-store.form-submit', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.form-submit', 'write', (req, _res, s, actor) => {
+  app.post('/api/bench-views/:bench/form', { action: 'bench-store.form-submit', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.form-submit', (req, _res, s, actor) => {
     const b = (req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}) as Record<string, unknown>;
     const view = str(b.view), block = int(b.block), version = int(b.version);
     if (view === undefined || block === undefined || version === undefined) throw new BenchError('invalid', '要给 view（哪份视图）、block（第几块，从 0 数）、version（页面是第几版的）');
@@ -197,5 +204,5 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
   }));
 
   // —— 留痕 ——
-  app.get('/api/bench-views/:bench/log', { action: 'bench-store.log-list', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.log-list', 'read', async (_req, _res, s) => ({ changes: await s.changes(100), writes: await s.writes(100) })));
+  app.get('/api/bench-views/:bench/log', { action: 'bench-store.log-list', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.log-list', async (_req, _res, s) => ({ changes: await s.changes(100), writes: await s.writes(100) })));
 }
