@@ -177,6 +177,37 @@
       "answered_by TEXT NOT NULL DEFAULT ''",
       "at TEXT NOT NULL DEFAULT datetime('now')"
     ],
+    "bench_mcp_audit": [
+      "id INTEGER PK",
+      "bench TEXT NOT NULL",
+      "session_id INTEGER NOT NULL",
+      "action TEXT NOT NULL",
+      "tools TEXT NOT NULL DEFAULT '[]'",
+      "actor TEXT NOT NULL",
+      "request_id INTEGER",
+      "note TEXT NOT NULL DEFAULT ''",
+      "at INTEGER NOT NULL"
+    ],
+    "bench_mcp_grants": [
+      "session_id INTEGER NOT NULL PK",
+      "bench TEXT NOT NULL PK",
+      "tool TEXT NOT NULL PK",
+      "granted_by TEXT NOT NULL",
+      "granted_at INTEGER NOT NULL",
+      "request_id INTEGER"
+    ],
+    "bench_mcp_requests": [
+      "id INTEGER PK",
+      "session_id INTEGER NOT NULL",
+      "bench TEXT NOT NULL",
+      "tools TEXT NOT NULL",
+      "reason TEXT NOT NULL",
+      "status TEXT NOT NULL DEFAULT 'pending'",
+      "decided_by TEXT NOT NULL DEFAULT ''",
+      "decided_at INTEGER",
+      "note TEXT NOT NULL DEFAULT ''",
+      "created_at INTEGER NOT NULL"
+    ],
     "bench_views": [
       "slug TEXT PK",
       "title TEXT NOT NULL",
@@ -915,6 +946,10 @@
     "idx_app_data_idem ON app_data: CREATE UNIQUE INDEX idx_app_data_idem ON app_data (app_slug, idempotency_key) WHERE idempotency_key <> ''",
     "idx_app_data_slug ON app_data: CREATE INDEX idx_app_data_slug ON app_data(app_slug, created_at)",
     "idx_app_files_slug ON app_files: CREATE INDEX idx_app_files_slug ON app_files(app_slug, created_at)",
+    "idx_bench_mcp_audit_bench ON bench_mcp_audit: CREATE INDEX idx_bench_mcp_audit_bench ON bench_mcp_audit (bench, id)",
+    "idx_bench_mcp_grants_bench ON bench_mcp_grants: CREATE INDEX idx_bench_mcp_grants_bench ON bench_mcp_grants (bench, session_id)",
+    "idx_bench_mcp_requests_bench ON bench_mcp_requests: CREATE INDEX idx_bench_mcp_requests_bench ON bench_mcp_requests (bench, id)",
+    "idx_bench_mcp_requests_session ON bench_mcp_requests: CREATE INDEX idx_bench_mcp_requests_session ON bench_mcp_requests (session_id, created_at)",
     "idx_bindings_node ON bindings: CREATE INDEX idx_bindings_node ON bindings (agent_node, revoked_at)",
     "idx_bindings_target ON bindings: CREATE INDEX idx_bindings_target ON bindings (target_type, target_slug, revoked_at)",
     "idx_change_requests_status ON change_requests: CREATE INDEX idx_change_requests_status ON change_requests (status, created_at)",
