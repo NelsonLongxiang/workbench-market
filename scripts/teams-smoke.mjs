@@ -237,6 +237,11 @@ try {
       out.ownerNow = svc('teams').ownerAt(seatK, Date.now());
       out.ownerBefore = svc('teams').ownerAt(seatK, ${t0 - 1000});
       out.attention = svc('teams').needingAttention().map((x) => [x.team, x.status]);
+      const legacyK = { ...t, seat: '${LEGACY.seat}', seat_id: '' };
+      out.batch = svc('teams').ownersAt([{ key: seatK, at: ${tMid} }, { key: seatK, at: Date.now() }, { key: seatK, at: ${t0 - 1000} }, { key: legacyK, at: Date.now() }, { key: { ...t, seat: 'zone1/000000ff', seat_id: '' }, at: Date.now() }]);
+      out.histBeta = svc('teams').assignmentHistory('user:beta').map((h) => [h.seat, h.to === null]);
+      out.histAlpha = svc('teams').assignmentHistory('user:alpha').map((h) => [h.seat, h.to === null]).sort();
+      out.histBetaLater = svc('teams').assignmentHistory('user:beta', { from: Date.now() }).length;
       console.log('REL ' + JSON.stringify(out));
       process.exit(0);`;
     const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', script], { cwd: join(ROOT, 'server'), env: { ...process.env, DATA_DIR: data, NODE_ENV: 'test', REDIS_URL: '' }, encoding: 'utf8', timeout: 60000 });
@@ -245,9 +250,11 @@ try {
     const has = (arr, ...want) => want.every((w) => arr?.includes(w));
     check(!!o && has(o.alphaDept, 'dept-member') && has(o.betaTeam, 'dept-lead', 'team-lead') && has(o.alphaSeat.relations, 'seat-owner', 'team-lead', 'dept-member')
       && o.alphaSeat.display.team?.name === 'Sales Team' && o.alphaSeat.display.department?.name === '合成销售部' && o.alphaSeat.display.owner?.principal === 'user:alpha' && o.alphaSeat.display.leads.length === 2
-      && JSON.stringify(o.attention) === JSON.stringify([[OTHER, 'unclaimed']]) && o.ownerMid === 'user:beta' && o.ownerNow === 'user:alpha' && o.ownerBefore === null
+      && JSON.stringify(o.attention) === JSON.stringify([[OTHER, 'unclaimed']]) && JSON.stringify(o.batch) === JSON.stringify(['user:beta', 'user:alpha', null, 'user:alpha', null])
+      && JSON.stringify(o.histBeta) === JSON.stringify([[MEMBER.seat, false]]) && JSON.stringify(o.histAlpha) === JSON.stringify([[LEGACY.seat, true], [MEMBER.seat, true]].sort()) && o.histBetaLater === 0
+      && o.ownerMid === 'user:beta' && o.ownerNow === 'user:alpha' && o.ownerBefore === null
       && has(o.routerTeam, 'team-seat', 'router') && has(o.seatDept, 'team-seat') && o.seatOtherDept.length === 0 && o.stranger.length === 0,
-      '关系函数：人（部门成员、部门负责人、团队负责人、成员的主人）和席位（团队的席位、总工、挂在部门下的团队的席位）都答；不相干的是空；带团队名、部门名、负责人和主人的显示名；服务的「那时归谁」（ownerAt）按时间点答对；「等你拍板」用的 needingAttention 只列不正常的团队（这时只有待认领的别队）',
+      '关系函数：人（部门成员、部门负责人、团队负责人、成员的主人）和席位（团队的席位、总工、挂在部门下的团队的席位）都答；不相干的是空；带团队名、部门名、负责人和主人的显示名；服务的「那时归谁」（ownerAt）按时间点答对；「等你拍板」用的 needingAttention 只列不正常的团队（这时只有待认领的别队）；批量的 ownersAt 和逐条的答案一样（旧席位按句柄认），某人各段分配 assignmentHistory 带起止、按时间段筛',
       o ? show(o) : (r.stderr ?? '').slice(-600));
   }
 

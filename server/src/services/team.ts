@@ -234,6 +234,33 @@ export class TeamService extends Service {
     return r?.principal_id ?? null;
   }
 
+  /**
+   * 一批「席位、时间点」各自那时归谁（阶段八「我的 AI 员工手上的」视角用，逐条调 ownerAt 太慢）。
+   * 一次把涉及的节点上的分配全取出来，在内存里逐点匹配；口径和 ownerAt 一样：含起点、不含终点，seat_id 优先。
+   * 返回和输入一一对应，没分配为 null。
+   */
+  ownersAt(points: readonly { key: SeatKey; at: number }[]): (string | null)[] {
+    if (!points.length) return [];
+    const hosts = [...new Set(points.map((p) => p.key.host))];
+    const rows: AssignRow[] = [];
+    const q = db.prepare('SELECT * FROM seat_assignments WHERE host = ? ORDER BY assigned_at DESC');
+    for (const h of hosts) rows.push(...(q.all(h) as AssignRow[]));
+    return points.map(({ key, at }) => {
+      const hit = rows.find((r) => sameSeat(r, key) && r.assigned_at <= at && (r.ended_at === null || r.ended_at > at));
+      return hit?.principal_id ?? null;
+    });
+  }
+
+  /**
+   * 这个人各段分配：(席位, 起, 止)；止为 null 表示还在。带 range 时只给和 [from, to) 有交集的段。按起点排序。
+   */
+  assignmentHistory(principal: string, range: { from?: number; to?: number } = {}): { host: string; team: string; seat: string; seat_id: string; from: number; to: number | null }[] {
+    const rows = db.prepare('SELECT host, team, seat, seat_id, assigned_at, ended_at FROM seat_assignments WHERE principal_id = ? ORDER BY assigned_at, id').all(principal) as AssignRow[];
+    return rows
+      .filter((r) => (range.to === undefined || r.assigned_at < range.to) && (range.from === undefined || r.ended_at === null || r.ended_at > range.from))
+      .map((r) => ({ host: r.host, team: r.team, seat: r.seat, seat_id: r.seat_id, from: r.assigned_at, to: r.ended_at }));
+  }
+
   /** 这个人现在被分到的成员 */
   assignedTo(principal: string): AssignRow[] {
     return db.prepare('SELECT * FROM seat_assignments WHERE principal_id = ? AND ended_at IS NULL ORDER BY assigned_at').all(principal) as AssignRow[];
