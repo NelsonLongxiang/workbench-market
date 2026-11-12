@@ -37,6 +37,8 @@ const g = (id, principal_id, status, more = {}) => ({ id, principal_id, role: 'm
 const grants = grantsOf({ grants: [g(1, 'user:beta', 'active'), g(2, 'user:alpha', 'revoked'), g(3, 'user:alpha', 'active', { role: 'admin' }), g(4, 'seat:robot', 'pending', { updated_at: 50 }), g(5, 'user:alpha', 'pending', { updated_at: 10 }), { id: 'x' }] });
 ok('授予：形状不对的跳过；应答不是对象按空', grants.length === 5 && grantsOf({ error: 'x' }).length === 0 && grantsOf(null).length === 0);
 ok('待核准：只要 pending，先提交的在前', J(pendingGrants(grants).map((x) => x.id)) === '[5,4]');
+const every = grantsOf({ grants: ['draft', 'pending', 'active', 'revoked', 'expired', 'toString', ''].map((st, i) => g(i + 1, 'user:alpha', st)) });
+ok('待核准的卡片只收待核准：草稿、生效中、已收回、已过期、认不出的状态都不进', J(pendingGrants(every).map((x) => x.status)) === '["pending"]');
 const rowsIds = grantRows(grants, principals).map((x) => x.id);
 const whoSeq = grantRows(grants, principals).map((x) => x.principal_id);
 ok('表：同一个人的行挨在一起（按名字排）', whoSeq.every((w, i) => i === 0 || w === whoSeq[i - 1] || !whoSeq.slice(0, i).includes(w)), J(whoSeq));

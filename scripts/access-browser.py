@@ -42,6 +42,9 @@ GRANTS = {'grants': [
     grant(2, 'seat:xiaosuan', 'ai-staff', 'bench:3', 'active', appr='odoo:jia'),
     grant(3, 'user:bing', 'member', '*', 'pending', reason='新入职，先给只读'),
     grant(4, 'user:bing', 'management', '*', 'pending', reason='临时代管'),
+    grant(5, 'user:bing', 'guest', '*', 'draft', reason='还在起草'),
+    grant(6, 'user:jia', 'member', '*', 'revoked', appr='odoo:jia'),
+    grant(7, 'user:bing', 'ai-staff', '*', 'expired', exp=NOW - 1),
 ]}
 posted = []
 def fake(route, body, status=200):
@@ -83,7 +86,8 @@ with sync_playwright() as p:
     set_token(pg)  # 口令只存在本页：设在加载之后（整页刷新会清掉），设了页面会重新取数
     pg.wait_for_selector('[data-testid=acc-pending]')
     cards = pg.locator('[data-testid=acc-pending]')
-    check('待核准：两张卡，先提交的在前', cards.count() == 2 and cards.nth(0).get_attribute('data-id') == '4', [cards.nth(i).get_attribute('data-id') for i in range(cards.count())])
+    ids = [cards.nth(i).get_attribute('data-id') for i in range(cards.count())]
+    check('待核准：只有两条待核准的进卡片（草稿 5、生效中、已收回 6、已过期 7 都不进），先提交的在前', ids == ['4', '3'], ids)
     check('卡片标题：管理员登录对到人，用名字（甲经理 想给 丙 加一项权限）', '甲经理 想给 丙 加一项权限' in cards.nth(1).inner_text())
     heads = [t.strip() for t in pg.locator('.wm-acc-table thead th').all_inner_texts() if t.strip()]
     check('表：状态最左、谁第二', heads[:2] == ['状态', '谁'], heads)
