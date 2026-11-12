@@ -82,7 +82,7 @@ const MUTANTS = [
   { id: 'held-sent-to-login', what: '登录门：登录成功、卡在主体那一步的人照旧跳回登录页', file: GATE, suites: [SMOKE],
     find: "      if (held.has(req) && wantsPage(req) && !p.startsWith('/api/')) return holdPage(res);\n", replace: '' },
   { id: 'held-gets-identity', what: '登录门：卡住的人被当成有身份放进去', file: GATE, suites: [SMOKE],
-    find: "      if (who && 'held' in who) held.add(req);\n      else if (who)", replace: "      if (who && 'held' in who) id = { via: 'odoo', login: 'held', admin: false };\n      else if (who)" },
+    find: "      if (who && 'held' in who) held.add(req);\n      else if (who && 'down' in who)", replace: "      if (who && 'held' in who) id = { via: 'odoo', login: 'held', admin: false };\n      else if (who && 'down' in who)" },
   { id: 'held-page-tells-disabled', what: '等待页按停用和没对到分开说（透露这个人被停用了）', file: IDENTITY, suites: [SMOKE],
     find: "          if (reason === 'disabled') return { ok: false, http: 403, error: DISABLED, held: true };", replace: "          if (reason === 'disabled') return { ok: false, http: 403, error: DISABLED };" },
   { id: 'held-unauthenticated', what: '没通过提供方认证的（门户账号）也给等待页', file: IDENTITY, suites: [SMOKE],
