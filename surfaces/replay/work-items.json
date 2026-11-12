@@ -1,21 +1,11 @@
 {
   "domain": "work-items",
-  "what": "「安排一件事」的可派团队 /api/work-items/teams 和建事项 POST /api/work-items；事项列表 /api/work-items 的读；事项：/api/work-items/:id 的读（8d）和 /api/work-items/:id/decision 建立人验收、退回（8e）两条路由；阶段七 R2 的事项对话里席位消息的看过（messages/read）、回复（messages/:mid/reply）两条；建立人回答自己事项上的席位提问（asks/:qid/answer）一条。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
-  "routes": [
-    "GET /api/work-items/teams",
-    "POST /api/work-items",
-    "GET /api/work-items",
-    "GET /api/work-items/:id",
-    "POST /api/work-items/:id/decision",
-    "POST /api/work-items/:id/messages/read",
-    "POST /api/work-items/:id/messages/:mid/reply",
-    "POST /api/work-items/:id/asks/:qid/answer"
-  ],
+  "what": "「安排一件事」的可派团队 /api/work-items/teams 和建事项 POST /api/work-items；事项列表 /api/work-items 的读；事项：/api/work-items/:id 的读（8d）和 /api/work-items/:id/decision 建立人验收、退回（8e）两条路由；阶段七 R2 的事项对话里席位消息的看过（messages/read）、回复（messages/:mid/reply）两条。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /api/work-items/teams", "POST /api/work-items", "GET /api/work-items", "GET /api/work-items/:id", "POST /api/work-items/:id/decision", "POST /api/work-items/:id/messages/read", "POST /api/work-items/:id/messages/:mid/reply"],
   "exempt": [
     { "route": "POST /api/work-items/:id/decision", "class": "normal", "why": "正常应答要一件「等验收」的事项：今天没有 HTTP 入口能把事项推到等验收，seed 只能插草稿。正常的验收、退回由 scripts/work-item-creator-test.mjs 起实例、经事项服务造 ready 来测", "shown_by": "creator/decide-not-ready" },
     { "route": "POST /api/work-items/:id/messages/:mid/reply", "class": "normal", "why": "正常回复要一件从工作台事件来的事项和一条签过名的席位跟进：seed 造不出验过签名的跟进。正常回复、发回、看过之后再回复由 scripts/a2a-answers-test.mjs 起实例、经入站造跟进来测", "shown_by": "creator/reply-no-message" },
-    { "route": "GET /api/work-items/teams", "class": "invalid", "why": "这个接口不收任何参数，没有参数非法的情形", "shown_by": "arrange/teams-alpha" },
-    { "route": "POST /api/work-items/:id/asks/:qid/answer", "class": "normal", "why": "正常回答要一件从工作台事件来、席位在问、建立人是登录者的事项：seed 造不出签名回执带来的提问。正常回答、两人同时答、改绑后答不了由 scripts/work-item-creator-test.mjs 起实例、经事项服务回填造事项来测", "shown_by": "creator/ask-no-ask" }
+    { "route": "GET /api/work-items/teams", "class": "invalid", "why": "这个接口不收任何参数，没有参数非法的情形", "shown_by": "arrange/teams-alpha" }
   ],
   "scenarios": [
     {
@@ -282,16 +272,15 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1030", "etag": "W/\"406-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1038", "etag": "W/\"40e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
-              "item": { "id": "wi_replay_alpha", "title": "回放用事项", "created_at": "YYYY-MM-DD hh:mm:ss", "created_by": "user:alpha", "source_kind": "agent", "source_ref": "", "context": "{}", "event_id": null, "task_ids": "[]", "target_team": "", "seat": "", "eval": "", "eval_reason": "", "state": "draft", "progress_summary": "", "progress_at": "", "open_asks": "[]", "receipt_outcome": "", "receipt_at": "", "outputs": "{}", "evidence": "[]", "object": "", "phase": "", "updated_at": "YYYY-MM-DD hh:mm:ss", "creator_principal": "user:alpha", "handoff": "team", "review_by": "", "directed_seat_id": "", "seat_id": "", "seat_at": "" },
+              "item": { "id": "wi_replay_alpha", "title": "回放用事项", "created_at": "YYYY-MM-DD hh:mm:ss", "created_by": "user:alpha", "source_kind": "agent", "source_ref": "", "context": "{}", "event_id": null, "task_ids": "[]", "target_team": "", "seat": "", "eval": "", "eval_reason": "", "state": "draft", "progress_summary": "", "progress_at": "", "open_asks": "[]", "receipt_outcome": "", "receipt_at": "", "outputs": "{}", "evidence": "[]", "object": "", "phase": "", "updated_at": "YYYY-MM-DD hh:mm:ss", "creator_principal": "user:alpha", "handoff": "team", "review_by": "", "directed_seat_id": "", "seat_id": "", "seat_at": "", "cockpit_id": null },
               "log": [
                 { "seq": 1, "item_id": "wi_replay_alpha", "fact": "create", "fact_source": "market", "fact_id": "wi_replay_alpha", "from_state": "draft", "to_state": "draft", "actor": "user:alpha", "detail": "{}", "at": "YYYY-MM-DD hh:mm:ss", "rejected": "" }
               ],
               "messages": [],
               "unread": 0,
               "progress": null,
-              "asks": [],
               "can": { "release": false, "answer": false, "verify": false, "reply": false },
               "turn": { "release": false, "answer": false, "verify": false },
               "creator": { "principal": "user:alpha", "display_name": null }
@@ -371,16 +360,15 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1043", "etag": "W/\"413-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1051", "etag": "W/\"41b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
-              "item": { "id": "wi_replay_alpha", "title": "回放用事项", "created_at": "YYYY-MM-DD hh:mm:ss", "created_by": "user:alpha", "source_kind": "agent", "source_ref": "", "context": "{}", "event_id": null, "task_ids": "[]", "target_team": "", "seat": "", "eval": "", "eval_reason": "", "state": "draft", "progress_summary": "", "progress_at": "", "open_asks": "[]", "receipt_outcome": "", "receipt_at": "", "outputs": "{}", "evidence": "[]", "object": "", "phase": "", "updated_at": "YYYY-MM-DD hh:mm:ss", "creator_principal": "user:alpha", "handoff": "team", "review_by": "", "directed_seat_id": "", "seat_id": "", "seat_at": "" },
+              "item": { "id": "wi_replay_alpha", "title": "回放用事项", "created_at": "YYYY-MM-DD hh:mm:ss", "created_by": "user:alpha", "source_kind": "agent", "source_ref": "", "context": "{}", "event_id": null, "task_ids": "[]", "target_team": "", "seat": "", "eval": "", "eval_reason": "", "state": "draft", "progress_summary": "", "progress_at": "", "open_asks": "[]", "receipt_outcome": "", "receipt_at": "", "outputs": "{}", "evidence": "[]", "object": "", "phase": "", "updated_at": "YYYY-MM-DD hh:mm:ss", "creator_principal": "user:alpha", "handoff": "team", "review_by": "", "directed_seat_id": "", "seat_id": "", "seat_at": "", "cockpit_id": null },
               "log": [
                 { "seq": 1, "item_id": "wi_replay_alpha", "fact": "create", "fact_source": "market", "fact_id": "wi_replay_alpha", "from_state": "draft", "to_state": "draft", "actor": "user:alpha", "detail": "{}", "at": "YYYY-MM-DD hh:mm:ss", "rejected": "" }
               ],
               "messages": [],
               "unread": 0,
               "progress": null,
-              "asks": [],
               "can": { "release": false, "answer": false, "verify": false, "reply": false },
               "turn": { "release": false, "answer": false, "verify": false },
               "creator": { "principal": "user:alpha", "display_name": "Synthetic alpha" }
@@ -555,58 +543,6 @@
             "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "error": "work_items_auth_required" }
           }
-        },
-        {
-          "id": "ask-no-ask",
-          "route": "POST /api/work-items/:id/asks/:qid/answer",
-          "class": "invalid",
-          "what": "建立人 alpha 答一件不是从工作台事件来的事项上的提问：404",
-          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/asks/1/answer", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "text": "中文" } },
-          "response": {
-            "status": 404,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "87", "etag": "W/\"57-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "item_id": "wi_replay_alpha", "duplicate": false, "result": { "error": "seat_ask_not_found" } }
-          }
-        },
-        {
-          "id": "ask-empty",
-          "route": "POST /api/work-items/:id/asks/:qid/answer",
-          "class": "invalid",
-          "what": "正文为空：返回 400",
-          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/asks/1/answer", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "text": "  " } },
-          "response": {
-            "status": 404,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "87", "etag": "W/\"57-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "item_id": "wi_replay_alpha", "duplicate": false, "result": { "error": "seat_ask_not_found" } }
-          }
-        },
-        {
-          "id": "ask-other",
-          "route": "POST /api/work-items/:id/asks/:qid/answer",
-          "class": "invalid",
-          "what": "别人 beta：404",
-          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/asks/1/answer", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" }, "json": { "text": "中文" } },
-          "response": {
-            "status": 404,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "work_item_not_found" }
-          }
-        },
-        {
-          "id": "ask-anonymous",
-          "route": "POST /api/work-items/:id/asks/:qid/answer",
-          "class": "unauthorized",
-          "what": "远程匿名：401",
-          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/asks/1/answer", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "text": "中文" } },
-          "response": {
-            "status": 401,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "work_items_auth_required" }
-          }
         }
       ]
     },
@@ -671,7 +607,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1554", "etag": "W/\"612-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1644", "etag": "W/\"66c-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": "all",
               "views": { "mine": { "available": false, "count": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": true, "count": 5 } },
@@ -683,6 +619,7 @@
                   "object": "po:1",
                   "phase": "p1",
                   "seat": "",
+                  "cockpit_id": null,
                   "last_progress": { "actor": "human:somebody", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
                   "updated_at": "YYYY-MM-DD hh:mm:ss"
                 },
@@ -693,6 +630,7 @@
                   "object": "po:1",
                   "phase": "p1",
                   "seat": "",
+                  "cockpit_id": null,
                   "last_progress": { "actor": "user:beta", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
                   "updated_at": "YYYY-MM-DD hh:mm:ss"
                 },
@@ -703,6 +641,7 @@
                   "object": "po:1",
                   "phase": "p1",
                   "seat": "",
+                  "cockpit_id": null,
                   "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
                   "updated_at": "YYYY-MM-DD hh:mm:ss"
                 },
@@ -713,6 +652,7 @@
                   "object": "po:2",
                   "phase": "p1",
                   "seat": "seat:checker",
+                  "cockpit_id": null,
                   "last_progress": { "actor": "seat:checker", "fact": "report", "text": "对账做到第三步", "at": "YYYY-MM-DD hh:mm:ss" },
                   "updated_at": "YYYY-MM-DD hh:mm:ss"
                 },
@@ -723,6 +663,7 @@
                   "object": "po:1",
                   "phase": "p1",
                   "seat": "",
+                  "cockpit_id": null,
                   "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
                   "updated_at": "YYYY-MM-DD hh:mm:ss"
                 }
@@ -742,7 +683,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "882", "etag": "W/\"372-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "918", "etag": "W/\"396-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": "all",
               "views": { "mine": { "available": false, "count": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": true, "count": 5 } },
@@ -754,6 +695,7 @@
                   "object": "po:1",
                   "phase": "p1",
                   "seat": "",
+                  "cockpit_id": null,
                   "last_progress": { "actor": "human:somebody", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
                   "updated_at": "YYYY-MM-DD hh:mm:ss"
                 },
@@ -764,6 +706,7 @@
                   "object": "po:1",
                   "phase": "p1",
                   "seat": "",
+                  "cockpit_id": null,
                   "last_progress": { "actor": "user:beta", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
                   "updated_at": "YYYY-MM-DD hh:mm:ss"
                 }
@@ -783,7 +726,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "858", "etag": "W/\"35a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "894", "etag": "W/\"37e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": "all",
               "views": { "mine": { "available": false, "count": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": true, "count": 5 } },
@@ -795,6 +738,7 @@
                   "object": "po:2",
                   "phase": "p1",
                   "seat": "seat:checker",
+                  "cockpit_id": null,
                   "last_progress": { "actor": "seat:checker", "fact": "report", "text": "对账做到第三步", "at": "YYYY-MM-DD hh:mm:ss" },
                   "updated_at": "YYYY-MM-DD hh:mm:ss"
                 },
@@ -805,6 +749,7 @@
                   "object": "po:1",
                   "phase": "p1",
                   "seat": "",
+                  "cockpit_id": null,
                   "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
                   "updated_at": "YYYY-MM-DD hh:mm:ss"
                 }
@@ -824,7 +769,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1095", "etag": "W/\"447-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1149", "etag": "W/\"47d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": "mine",
               "views": { "mine": { "available": true, "count": 3 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } },
@@ -836,6 +781,7 @@
                   "object": "po:1",
                   "phase": "p1",
                   "seat": "",
+                  "cockpit_id": null,
                   "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
                   "updated_at": "YYYY-MM-DD hh:mm:ss"
                 },
@@ -846,6 +792,7 @@
                   "object": "po:2",
                   "phase": "p1",
                   "seat": "seat:checker",
+                  "cockpit_id": null,
                   "last_progress": { "actor": "seat:checker", "fact": "report", "text": "对账做到第三步", "at": "YYYY-MM-DD hh:mm:ss" },
                   "updated_at": "YYYY-MM-DD hh:mm:ss"
                 },
@@ -856,6 +803,7 @@
                   "object": "po:1",
                   "phase": "p1",
                   "seat": "",
+                  "cockpit_id": null,
                   "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
                   "updated_at": "YYYY-MM-DD hh:mm:ss"
                 }
@@ -895,7 +843,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "585", "etag": "W/\"249-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "603", "etag": "W/\"25b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": "mine",
               "views": { "mine": { "available": true, "count": 1 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } },
@@ -907,6 +855,7 @@
                   "object": "po:1",
                   "phase": "p1",
                   "seat": "",
+                  "cockpit_id": null,
                   "last_progress": { "actor": "user:beta", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
                   "updated_at": "YYYY-MM-DD hh:mm:ss"
                 }
@@ -1043,7 +992,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1095", "etag": "W/\"447-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1149", "etag": "W/\"47d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": "mine",
               "views": { "mine": { "available": true, "count": 3 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } },
@@ -1055,6 +1004,7 @@
                   "object": "po:1",
                   "phase": "p1",
                   "seat": "",
+                  "cockpit_id": null,
                   "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
                   "updated_at": "YYYY-MM-DD hh:mm:ss"
                 },
@@ -1065,6 +1015,7 @@
                   "object": "po:2",
                   "phase": "p1",
                   "seat": "seat:checker",
+                  "cockpit_id": null,
                   "last_progress": { "actor": "seat:checker", "fact": "report", "text": "对账做到第三步", "at": "YYYY-MM-DD hh:mm:ss" },
                   "updated_at": "YYYY-MM-DD hh:mm:ss"
                 },
@@ -1075,6 +1026,7 @@
                   "object": "po:1",
                   "phase": "p1",
                   "seat": "",
+                  "cockpit_id": null,
                   "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
                   "updated_at": "YYYY-MM-DD hh:mm:ss"
                 }
@@ -1094,7 +1046,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1554", "etag": "W/\"612-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1644", "etag": "W/\"66c-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": "all",
               "views": { "mine": { "available": false, "count": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": true, "count": 5 } },
@@ -1106,6 +1058,7 @@
                   "object": "po:1",
                   "phase": "p1",
                   "seat": "",
+                  "cockpit_id": null,
                   "last_progress": { "actor": "human:somebody", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
                   "updated_at": "YYYY-MM-DD hh:mm:ss"
                 },
@@ -1116,6 +1069,7 @@
                   "object": "po:1",
                   "phase": "p1",
                   "seat": "",
+                  "cockpit_id": null,
                   "last_progress": { "actor": "user:beta", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
                   "updated_at": "YYYY-MM-DD hh:mm:ss"
                 },
@@ -1126,6 +1080,7 @@
                   "object": "po:1",
                   "phase": "p1",
                   "seat": "",
+                  "cockpit_id": null,
                   "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
                   "updated_at": "YYYY-MM-DD hh:mm:ss"
                 },
@@ -1136,6 +1091,7 @@
                   "object": "po:2",
                   "phase": "p1",
                   "seat": "seat:checker",
+                  "cockpit_id": null,
                   "last_progress": { "actor": "seat:checker", "fact": "report", "text": "对账做到第三步", "at": "YYYY-MM-DD hh:mm:ss" },
                   "updated_at": "YYYY-MM-DD hh:mm:ss"
                 },
@@ -1146,6 +1102,7 @@
                   "object": "po:1",
                   "phase": "p1",
                   "seat": "",
+                  "cockpit_id": null,
                   "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
                   "updated_at": "YYYY-MM-DD hh:mm:ss"
                 }

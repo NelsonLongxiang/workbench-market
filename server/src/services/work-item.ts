@@ -160,12 +160,14 @@ export type NewWorkItem = {
   context?: Record<string, unknown>; event_id?: number | null; target_team?: string; seat?: string; object?: string; phase?: string;
   /** 规范 14 第 2 步：交给方式、等谁过目、指名的席位（seatId） */
   handoff?: Handoff; review_by?: ReviewBy; directed_seat_id?: string;
+  /** 从哪个驾驶舱安排的：只在建的时候记，之后不改 */
+  cockpit_id?: number | null;
 };
 
 export type WorkItemRow = {
   id: string; title: string; created_at: string; created_by: string; creator_principal: string | null; source_kind: SourceKind; source_ref: string; context: string;
   event_id: number | null; task_ids: string; target_team: string; seat: string; eval: string; eval_reason: string; state: WorkItemState;
-  handoff: Handoff; review_by: ReviewBy; directed_seat_id: string; seat_id: string; seat_at: string;
+  handoff: Handoff; review_by: ReviewBy; directed_seat_id: string; seat_id: string; seat_at: string; cockpit_id: number | null;
   progress_summary: string; progress_at: string; open_asks: string; receipt_outcome: string; receipt_at: string;
   outputs: string; evidence: string; object: string; phase: string; updated_at: string;
 };
@@ -238,6 +240,12 @@ export const REVIEW_BY = ['', 'lead', 'requester'] as const;
 export type ReviewBy = (typeof REVIEW_BY)[number];
 const SEAT_ID = /^seat-[0-9a-f]{8}$/;
 /** 从 recorded 那一行的 detail 里取交给方式（只在新建时取）；取值不认得的一律当没写：交给团队、不过目、没有指名 */
+/** 驾驶舱的 id：正整数才认，别的（坏的 detail、没有）当没有 */
+export const COCKPIT_ID_MAX = 2_147_483_647;
+function cockpitOf(v: unknown): number | null {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= COCKPIT_ID_MAX ? v : null;
+}
+
 function handoffOf(rec: { handoff?: unknown; review_by?: unknown; directed_seat_id?: unknown }): { handoff: Handoff; review_by: ReviewBy; directed_seat_id: string } {
   const handoff = (HANDOFFS as readonly unknown[]).includes(rec.handoff) ? rec.handoff as Handoff : 'team';
   const review_by = (REVIEW_BY as readonly unknown[]).includes(rec.review_by) ? rec.review_by as ReviewBy : '';
@@ -672,12 +680,12 @@ export class WorkItemService extends Service {
       const createdBy = creator ?? (event.submitter_kind !== 'unverified' && /^[^:\s]+:\S/.test(who) ? who : `${event.submitter_kind}:${who || 'unknown'}`);
       const derived = derivedOf(event);
       // 「安排一件事」：挂在哪条线、哪一步，记在 recorded 那一行里（只在新建时取，存量没有这两项）
-      let rec: { object?: unknown; phase?: unknown; handoff?: unknown; review_by?: unknown; directed_seat_id?: unknown } = {};
+      let rec: { object?: unknown; phase?: unknown; handoff?: unknown; review_by?: unknown; directed_seat_id?: unknown; cockpit_id?: unknown } = {};
       try { rec = JSON.parse(recorded.detail || '{}'); } catch { /* 坏的 detail 当没有 */ }
       const tag = (v: unknown) => (typeof v === 'string' ? v.trim().slice(0, 200) : '');
       this.insertItem(itemId, {
         title: derived.title, target_team: derived.target_team, created_by: createdBy, creator_principal: creator, object: tag(rec.object), phase: tag(rec.phase),
-        ...handoffOf(rec),
+        ...handoffOf(rec), cockpit_id: cockpitOf(rec.cockpit_id),
         source_kind: event.source as SourceKind, source_ref: event.event_id, event_id: event.id,
         context: { workbench: event.workbench, item: event.item, context_id: event.context_id, submitter_kind: event.submitter_kind, ...(creator && event.submitter_kind === 'unverified' ? { submitter_via: 'ticket' } : {}) },
       }, { source: EVENT_FACT_SOURCE, id: String(recorded.id) }, event.created_at);
@@ -716,11 +724,11 @@ export class WorkItemService extends Service {
   }
 
   private insertItem(id: string, input: NewWorkItem, by: { source: string; id: string }, createdAt?: string): void {
-    db.prepare(`INSERT INTO work_items (id, title, created_by, creator_principal, source_kind, source_ref, context, event_id, target_team, seat, object, phase, handoff, review_by, directed_seat_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))`).run(
+    db.prepare(`INSERT INTO work_items (id, title, created_by, creator_principal, source_kind, source_ref, context, event_id, target_team, seat, object, phase, handoff, review_by, directed_seat_id, cockpit_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))`).run(
       id, input.title, input.created_by, input.creator_principal ?? null, input.source_kind, input.source_ref ?? '', JSON.stringify(input.context ?? {}),
       input.event_id ?? null, input.target_team ?? '', input.seat ?? '', input.object ?? '', input.phase ?? '',
-      input.handoff ?? 'team', input.review_by ?? '', input.directed_seat_id ?? '', createdAt ?? null, createdAt ?? null);
+      input.handoff ?? 'team', input.review_by ?? '', input.directed_seat_id ?? '', input.cockpit_id ?? null, createdAt ?? null, createdAt ?? null);
     db.prepare(`INSERT INTO work_item_log (item_id, fact, fact_source, fact_id, from_state, to_state, actor, detail)
       VALUES (?, 'create', ?, ?, 'draft', 'draft', ?, '{}')`).run(id, by.source, by.id, input.created_by);
   }
@@ -812,17 +820,19 @@ export class WorkItemService extends Service {
    * 列表一页（给事项列表的读接口）：按 updated_at、id 倒序，游标翻页；同时给这个视角里按状态的计数。
    * 范围由 scope 定（scopeWhere）；看不到的不出现，也不计数。每行带最后一条事项日志（谁、做了什么、什么时候）。
    */
-  page(opts: { scope: ViewScope; state?: WorkItemState; object?: string; phase?: string; seat?: string; limit: number; after?: { updated_at: string; id: string } }): {
+  page(opts: { scope: ViewScope; state?: WorkItemState; object?: string; phase?: string; seat?: string; cockpit?: number; limit: number; after?: { updated_at: string; id: string } }): {
     items: (WorkItemRow & { last_log: { actor: string; fact: string; text: string; at: string } | null })[];
     counts: Record<WorkItemState, number>; total: number; next: { updated_at: string; id: string } | null;
   } {
     const counts = Object.fromEntries(STATES.map((st) => [st, 0])) as Record<WorkItemState, number>;
     const sc = this.scopeWhere(opts.scope);
     const filt: string[] = [sc.where], filtArgs: (string | number)[] = [...sc.args];
-    const extra: string[] = [], extraArgs: string[] = [];
+    const extra: string[] = [], extraArgs: (string | number)[] = [];
     for (const k of ['object', 'phase'] as const) if (typeof opts[k] === 'string') { extra.push(`${k} = ?`); extraArgs.push(opts[k]!); }
     // 按席位筛：给的是 seatId 就按 seat_id，否则按句柄（seat_id 为空的旧席位）
     if (typeof opts.seat === 'string') { extra.push("(seat_id = ? OR (seat_id = '' AND seat = ?))"); extraArgs.push(opts.seat, opts.seat); }
+    // 按驾驶舱筛：只在视角里面收窄；驾驶舱不存在就是没有命中，不报错
+    if (typeof opts.cockpit === 'number') { extra.push('cockpit_id = ?'); extraArgs.push(opts.cockpit); }
     // 计数：这个视角里、按 object、phase 筛过（不按 state 筛）之后按状态分组
     for (const r of db.prepare(`SELECT state, COUNT(*) AS n FROM work_items WHERE ${[...filt, ...extra].join(' AND ')} GROUP BY state`).all(...filtArgs, ...extraArgs) as { state: WorkItemState; n: number }[]) {
       if (r.state in counts) counts[r.state] = Number(r.n);
