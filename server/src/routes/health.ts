@@ -20,15 +20,17 @@ export interface HealthDeps {
   layerfsReadiness: () => Promise<ProbeStatus>;
   A2A_DIRECT_SIG: Parameters<typeof a2aHealth>[0]['directSig'];
   A2A_DIRECT_SIG_BODY: Parameters<typeof a2aHealth>[0]['directSigBody'] | null;
+  /** 带有效管理口令（和健康基础字段里给细节的口径一样）：管理员才看得到的部分用它判 */
+  adminRead: (req: express.Request) => boolean;
 }
 
 export function registerHealthRoutes(app: HttpService, deps: HealthDeps): void {
-  const { healthBase, layerfsProbeCached, layerfsReadiness, A2A_DIRECT_SIG, A2A_DIRECT_SIG_BODY } = deps;
+  const { healthBase, layerfsProbeCached, layerfsReadiness, A2A_DIRECT_SIG, A2A_DIRECT_SIG_BODY, adminRead } = deps;
   app.get('/api/health', { action: 'health.read', kind: 'read' }, (req, res) => {
     const result = healthBase(req);
     const probed = layerfsProbeCached();
     if (process.env.LAYERFS_SERVICE_URL && probed) result.layerfs = probed.status; // 只回缓存的上次结果，不触发探测
-    result.a2a = a2aHealth({ directSig: A2A_DIRECT_SIG, directSigBody: A2A_DIRECT_SIG_BODY! }); // 阶段七第 5 步：只出开关、计数和时长
+    result.a2a = a2aHealth({ directSig: A2A_DIRECT_SIG, directSigBody: A2A_DIRECT_SIG_BODY!, admin: adminRead(req) }); // 阶段七第 5 步：只出开关、计数和时长；名册一块只给管理员
     // 身份来源慢或不通看得出来：问了几次、到点没回答几次、失败几次、合并和认不出缓存挡下几次、最近一次耗时。只有计数，不带凭据和人
     result.identity_source = identity().sourceStats();
     res.json(result);

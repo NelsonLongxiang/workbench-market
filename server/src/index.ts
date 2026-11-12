@@ -2462,7 +2462,7 @@ function healthBase(req?: express.Request): Record<string, unknown> {
   const outbound = outboundStatus(Boolean(req && adminTokenCheck(req.headers['x-admin-token'] as string | undefined)));
   return { ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, ...(outbound ? { outbound } : {}), self_probe: startupSecurity.snapshot(), work_items_backfill: backfill };
 }
-registerHealthRoutes(http, { healthBase, layerfsProbeCached, layerfsReadiness, A2A_DIRECT_SIG, A2A_DIRECT_SIG_BODY });
+registerHealthRoutes(http, { healthBase, layerfsProbeCached, layerfsReadiness, A2A_DIRECT_SIG, A2A_DIRECT_SIG_BODY, adminRead: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined) });
 registerLoginGateRoutes(http, loginGate.routeDeps); // /login、/api/auth/login|logout|me（解析器之后、SPA 回落之前）
 registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionTtlMs: SESSION_TTL_MIN * 60_000 });
 registerLoginEventRoutes(http); // /login/<方式>/events：离职、停用的失效通知；每天一次对账 // /login/<方式>、/login/<方式>/callback：飞书等发市场会话的登录
