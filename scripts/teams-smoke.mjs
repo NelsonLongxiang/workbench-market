@@ -110,7 +110,7 @@ try {
     const cli = await srv.call('GET', '/api/teams');
     const staff = await srv.call('GET', '/api/teams', as(SESSIONS.alpha));
     check(cli.status === 200 && cli.json?.unclaimed?.length === 2 && cli.json.unclaimed.every((t) => t.status === 'unclaimed') && cli.json.departments.length === 0
-      && staff.status === 200 && show(staff.json) === '{"departments":[]}',
+      && staff.status === 200 && show(staff.json) === '{"can":{"claim":false,"release":false,"manage_leads":false,"manage_departments":false},"departments":[]}',
       '待认领的团队只有管理员看得到（本机命令行看到两个），员工什么都看不到、连待认领那一栏都没有', show({ cli: cli.json?.unclaimed?.map((t) => t.team), staff: staff.json }));
     const denied = {
       staff: await srv.call('POST', '/api/teams/claim', { ...as(SESSIONS.alpha), body: { ...team, department: 'sales' } }),
@@ -198,7 +198,7 @@ try {
     const alpha = await viewOf(as(SESSIONS.alpha));
     const beta = await viewOf(as(SESSIONS.beta));
     const stranger = await srv.call('GET', '/api/teams', as(SESSIONS.noAdminFlag));
-    check(alpha?.status === 'active' && beta?.status === 'active' && show(stranger.json) === '{"departments":[]}',
+    check(alpha?.status === 'active' && beta?.status === 'active' && show(stranger.json) === '{"can":{"claim":false,"release":false,"manage_leads":false,"manage_departments":false},"departments":[]}',
       '可见范围：部门成员兼负责人 alpha、部门负责人 beta 看得到；不相干的人看不到', show({ stranger: stranger.json }));
     // 管理层授予：给 no-flag 一条 management，就看得到全部认领了的
     const d = await srv.call('POST', '/api/grants', { body: { principal: 'user:no-flag', role: 'management', scope: '*', reason: '合成：管理层' } });
@@ -206,6 +206,26 @@ try {
     await srv.call('POST', `/api/grants/${d.json?.grant?.id}/approve`);
     const mgmt = await srv.call('GET', '/api/teams', as(SESSIONS.noAdminFlag));
     check(mgmt.json?.departments?.[0]?.teams?.length === 1 && !('unclaimed' in (mgmt.json ?? {})), '管理层授予：看得到全部认领了的团队，看不到待认领那一栏', show(mgmt.json?.departments?.map((x) => x.id)));
+  }
+
+  // ---------- 五之二、页面用的 can：和接口出自同一处判断 ----------
+  {
+    const teamOf = (r) => r.json?.departments?.flatMap((d) => d.teams)?.find((t) => t.team === team.team);
+    const asAlpha = await srv.call('GET', '/api/teams', as(SESSIONS.alpha));
+    const asMgmt = await srv.call('GET', '/api/teams', as(SESSIONS.noAdminFlag)); // 管理层授予，看得到、但不是负责人
+    const asAdmin = await srv.call('GET', '/api/teams', { headers: token });
+    const lead = teamOf(asAlpha), mgmtView = teamOf(asMgmt), adminView = teamOf(asAdmin);
+    const seat = { ...team, seat: ROUTER.seat, seat_id: ROUTER.seat_id }; // 总工从不分配：收回只回「没有可收的」，不改状态
+    const byLead = await srv.call('POST', '/api/teams/unassign', { ...as(SESSIONS.alpha), body: seat });
+    const byMgmt = await srv.call('POST', '/api/teams/unassign', { ...as(SESSIONS.noAdminFlag), body: seat });
+    const byAdmin = await srv.call('POST', '/api/teams/unassign', { headers: token, body: seat });
+    const agree = [[lead, byLead], [mgmtView, byMgmt], [adminView, byAdmin]].every(([t, r]) => t && t.can_assign === (r.status === 200) && (t.can_assign || r.json?.message === t.assign_denied_text));
+    check(agree && lead.can_assign === true && mgmtView.can_assign === false && mgmtView.assign_denied_text?.includes('负责人') && !('assignable' in mgmtView)
+      && Array.isArray(lead.assignable) && lead.assignable.some((p) => p.principal === 'user:alpha') && lead.assignable.every((p) => p.principal && 'display_name' in p)
+      && show(asAlpha.json?.can) === show({ claim: false, release: false, manage_leads: false, manage_departments: false })
+      && show(asAdmin.json?.can) === show({ claim: true, release: true, manage_leads: true, manage_departments: true }),
+      '页面用的 can：负责人 can_assign 为真且带可以分给谁，收回 200；看得到但不是负责人的 can_assign 为假、说法和接口被拒时一致，收回 403；管理员为真；顶层 can 管理员全真、员工全假',
+      show({ lead: lead && [lead.can_assign, lead.assignable], mgmt: mgmtView && [mgmtView.can_assign, mgmtView.assign_denied_text], byLead: byLead.status, byMgmt: [byMgmt.status, byMgmt.json?.message], byAdmin: byAdmin.status, can: [asAlpha.json?.can, asAdmin.json?.can] }));
   }
 
   // ---------- 六、「我的 AI 员工」；不带事项内容 ----------
@@ -289,7 +309,7 @@ try {
     const cli = await srv.call('GET', '/api/teams');
     const del2 = await srv.call('DELETE', '/api/departments/sales', { headers: token });
     check(del.status === 409 && del.json?.error === 'department_has_teams' && rel.status === 200 && rel.json?.leads_ended === 1 && rel.json?.assignments_ended === 2
-      && leadsLeft === 0 && asgLeft === 0 && show(staff.json) === '{"departments":[]}' && cli.json?.unclaimed?.length === 2 && del2.status === 200,
+      && leadsLeft === 0 && asgLeft === 0 && show(staff.json?.departments) === '[]' && cli.json?.unclaimed?.length === 2 && del2.status === 200,
       '有团队挂着的部门不能删 409；退回待认领：另外指定的负责人、生效的分配一起结束，员工看不到了，又回到待认领；之后部门能删', show({ del: del.status, rel: rel.json, del2: del2.status }));
   }
 
