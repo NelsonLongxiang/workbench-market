@@ -120,6 +120,22 @@ try {
       && narrow.status === 200 && narrow.json?.affected_grants?.some((x) => x.id === g.json?.grant?.id) && del.status === 409 && del.json?.grants?.length === 1,
       'AI 员工复制出来的加决定类 422；改动的应答列出会影响的授予；有授予在用（草稿也算）的删不掉 409，并列出是哪几条', show({ withDecide: withDecide.status, affected: narrow.json?.affected_grants?.length, del: del.status }));
   }
+  // ---------- 二之二、碰业务的自定义角色要属主放行 ----------
+  {
+    const biz = await srv.call('POST', '/api/roles/guest/copy', TOKEN, { id: 'biz-writer', name: '业务写手' });
+    const widen = await srv.call('PUT', '/api/roles/biz-writer', TOKEN, { permissions: [{ kinds: ['write'], domains: ['app-data'] }] });
+    const live = (await srv.call('GET', '/api/roles', TOKEN)).json?.roles?.find((r) => r.id === 'biz-writer');
+    const memberCopy = await srv.call('POST', '/api/roles/member/copy', TOKEN, { id: 'member-copy', name: '员工副本' });
+    const sysOnly = await srv.call('POST', '/api/roles/guest/copy', TOKEN, { id: 'sys-reader', name: '只看设置' });
+    const sysWiden = await srv.call('PUT', '/api/roles/sys-reader', TOKEN, { permissions: [{ kinds: ['read'], domains: ['setting'] }] });
+    const ownerOk = await srv.call('POST', '/api/roles/biz-writer/approve');
+    const liveAfter = (await srv.call('GET', '/api/roles', TOKEN)).json?.roles?.find((r) => r.id === 'biz-writer');
+    check(biz.status === 201 && biz.json?.pending === false && widen.status === 200 && widen.json?.pending === true && !!widen.json?.role?.proposed && JSON.stringify(live?.permissions) === '[]'
+      && memberCopy.status === 201 && memberCopy.json?.pending === true && sysWiden.status === 200 && sysWiden.json?.pending === false
+      && ownerOk.status === 200 && JSON.stringify(liveAfter?.permissions) === JSON.stringify([{ kinds: ['write'], domains: ['app-data'] }]),
+      '碰业务的自定义角色要属主放行：口令管理员把访客的副本改成带业务域的写，只记成提议、生效的定义还是空的；复制普通员工（带业务读）先待属主放行；只碰系统域的照常生效；属主放行之后才生效 [red-line:business-roles-owner-approval]',
+      JSON.stringify({ widen: widen.json, live: live?.permissions, memberCopy: memberCopy.json?.pending, sysWiden: sysWiden.json, liveAfter: liveAfter?.permissions }));
+  }
   // ---------- 三之二、复制几层都算 AI 员工的副本；删掉中间一层，来源链也不断 ----------
   {
     const x1 = await srv.call('POST', '/api/roles/ai-staff/copy', {}, { id: 'ai-x1', name: 'AI 一层' });

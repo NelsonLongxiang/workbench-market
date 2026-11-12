@@ -55,6 +55,17 @@ export const BUSINESS_DOMAINS: readonly string[] = [
 /** 动作的域：点号前面那段；MCP 工具名（没有点）都算 mcp-tool */
 export const domainOf = (action: string): string => (action.includes('.') ? action.slice(0, action.indexOf('.')) : 'mcp-tool');
 /** 已登记的动作里，域两边都不算的（导出快照时用；空数组就是都分好了） */
+/**
+ * 这组权限碰不碰业务：按动作写的看动作的域（不在系统域清单里的都算业务，扩展和清单外新长出来的域也算）；
+ * 按类别给的，没圈域就是全部域（当然含业务），圈了域的看其中有没有不在系统域清单里的。
+ * 自定义角色碰了业务，建、改都要属主放行：系统管理员缺省看不到业务数据，也不能自己造一个角色把它转给别人。
+ */
+export function touchesBusiness(perms: readonly Permission[]): boolean {
+  const system = new Set(SYSTEM_DOMAINS);
+  return perms.some((p) => (p.actions ?? []).some((a) => !system.has(domainOf(a)))
+    || ((p.kinds?.length ?? 0) > 0 && (p.domains === undefined || p.domains.some((d) => !system.has(d)))));
+}
+
 export function unclassifiedDomains(actions: Iterable<string>): string[] {
   const known = new Set([...SYSTEM_DOMAINS, ...BUSINESS_DOMAINS]);
   return [...new Set([...actions].map(domainOf))].filter((d) => !known.has(d)).sort();

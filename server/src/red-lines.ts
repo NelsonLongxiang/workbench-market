@@ -61,6 +61,11 @@ export const RED_LINES: readonly RedLine[] = [
     enforced_in: 'server/src/routes/grants.ts', test: 'scripts/custom-roles-smoke.mjs',
   },
   {
+    id: 'business-roles-owner-approval', title: '碰业务的自定义角色要属主放行',
+    detail: '系统管理员缺省看不到业务数据，也不能自己复制、改出一个带业务权限的角色转给别人：建的先待核、改的先记成提议，属主放行之前不生效。',
+    enforced_in: 'server/src/routes/grants.ts、server/src/roles.ts', test: 'scripts/custom-roles-smoke.mjs',
+  },
+  {
     id: 'system-admin-no-business', title: '系统管理员缺省看不到业务数据',
     detail: '系统管理员只有系统域的读写管，业务域（事项、工作台数据、关注……）要另外授予。',
     enforced_in: 'server/src/roles.ts', test: 'scripts/role-presets-test.mjs',

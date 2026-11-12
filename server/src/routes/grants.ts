@@ -19,7 +19,7 @@ import { browserMarked, rawLoopback } from '../surfaces.ts';
 import { HttpError } from '../errors.ts';
 import { MCP_TOOLS } from '../mcp-tools.ts';
 import { identity } from '../identity.ts';
-import { BLOCKS, buildRoles, checkShape, MATRIX_KINDS, matrixSummary, orgRolesFromConfig, PLATFORM_ROLES, roleMatrix, type ActionCatalog, type Kind, type Permission, type RoleDecl } from '../roles.ts';
+import { touchesBusiness, BLOCKS, buildRoles, checkShape, MATRIX_KINDS, matrixSummary, orgRolesFromConfig, PLATFORM_ROLES, roleMatrix, type ActionCatalog, type Kind, type Permission, type RoleDecl } from '../roles.ts';
 import type { CustomRoleService } from '../services/custom-role.ts';
 import { unknownBuiltinActions } from '../judgment-builtins.ts';
 import type { PrincipalService } from '../services/principal.ts';
@@ -77,7 +77,7 @@ function rebuildRoles(): void {
 }
 
 /** 校验一个自定义角色（和声明文件同一套）：不合格抛 422。返回它展开之后的样子（管理员级、带不带决定） */
-function checkCustom(candidate: RoleDecl, except?: string): { adminLevel: boolean; decides: boolean } {
+function checkCustom(candidate: RoleDecl, except?: string): { adminLevel: boolean; decides: boolean; business: boolean } {
   const { ids, names } = takenNames(except);
   if (ids.has(candidate.id)) throw new HttpError(409, `角色 id ${candidate.id} 已经有了（内置预设、声明文件或别的自定义角色）`);
   if (names.has(candidate.name)) throw new HttpError(409, `角色名字「${candidate.name}」已经有了（内置预设、声明文件或别的自定义角色）`);
@@ -86,7 +86,7 @@ function checkCustom(candidate: RoleDecl, except?: string): { adminLevel: boolea
     const others = customRoles().activeDecls().filter((r) => r.id !== except && r.id !== candidate.id);
     const views = buildRoles([...declared, ...others, shaped], catalogAtLoad);
     const v = views.get(shaped.id)!;
-    return { adminLevel: v.adminLevel, decides: v.decides };
+    return { adminLevel: v.adminLevel, decides: v.decides, business: touchesBusiness(v.closure) };
   } catch (e) {
     if (e instanceof HttpError) throw e;
     throw new HttpError(422, String((e as Error).message));
@@ -184,7 +184,8 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
     const candidate: RoleDecl = { id: str(b.id, 'id', 48), name: str(b.name, 'name', 64), permissions: from.closure.map((p) => ({ ...p })) };
     const shape = checkCustom(candidate);
     // 会带来管理类或决定类权限的：不是属主建的，先待属主放行
-    const pending = (shape.adminLevel || shape.decides) && !actor.owner;
+    // 带来管理类、决定类，或者碰业务的：不是属主建的，先待属主放行
+    const pending = (shape.adminLevel || shape.decides || shape.business) && !actor.owner;
     const role = customRoles().create({ id: candidate.id, name: candidate.name, basedOn: from.id, permissions: candidate.permissions, pending }, actor);
     if (!pending) rebuildRoles();
     logRole('role-copy', role.id, actor, { from: from.id, status: role.status });
@@ -204,7 +205,7 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
     const shape = checkCustom({ id, name: next.name, permissions: next.permissions }, id);
     // 从 AI 员工复制出来的不许带决定类：决定只认人。复制几层都算（沿来源链往上找）
     if (customRoles().descendsFrom(id, 'ai-staff') && shape.decides) return res.status(422).json({ error: 'decide_non_person', message: '从 AI 员工复制出来的角色不能带决定类权限（决定只认人）' });
-    const propose = (shape.adminLevel || shape.decides) && !actor.owner;
+    const propose = (shape.adminLevel || shape.decides || shape.business) && !actor.owner;
     const role = customRoles().update(id, { name: next.name, permissions: checkShape({ id, ...next }, `自定义角色 ${id}`).permissions }, propose, actor);
     if (!propose) rebuildRoles();
     logRole(propose ? 'role-propose' : 'role-update', id, actor);
