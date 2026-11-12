@@ -29,7 +29,7 @@ try {
   const { svc } = await import(at('server/src/context.ts'));
   const { db } = await import(at('server/src/db.ts'));
   const roles = await import(at('server/src/roles.ts'));
-  const { judgeBuiltin } = await import(at('server/src/judgment.ts'));
+  const { judgeBuiltin, scopedVerdict } = await import(at('server/src/judgment.ts'));
   const { MCP_TOOLS } = await import(at('server/src/mcp-tools.ts'));
 
   // 动作清单：快照里每条路由报的动作（含细分的）和 MCP 工具
@@ -122,6 +122,48 @@ try {
   check(guestNoExpiry.ok === false && guestNoExpiry.code === 'expiry_required' && guestExpiry.ok === true, '访客的授予必须有期限：没期限 422，有期限能起草 [red-line:guest-needs-expiry]', show({ no: guestNoExpiry.code, yes: guestExpiry.ok }));
   check(aiToPerson.ok === false && aiToPerson.code === 'non_person_only' && aiToSeat.ok === true && mgmtToSeat.ok === false && mgmtToSeat.code === 'decide_non_person',
     'AI 员工只授予非人主体：给人 422；给席位可以；带决定类的预设（管理层）给席位照 6b 的规则 422 [red-line:ai-staff-non-person-only]', show({ aiToPerson: aiToPerson.code, aiToSeat: aiToSeat.ok, mgmtToSeat: mgmtToSeat.code }));
+
+  // ---------- 三之二、部门范围的判定只认已放行的授予，关系（部门成员表、部门负责人）不带来权限 ----------
+  {
+    grants.setRoles(roles.buildRoles(roles.INITIAL_ORG_ROLES, catalog)); // 带上初始的组织角色「部门成员」
+    const deps = svc('departments');
+    for (const id of ['sales', 'ops']) deps.upsert({ id, name: `合成 ${id}`, functionCode: null, lead: null }, 'cli', now);
+    for (const id of ['user:dm', 'user:dl', 'user:pend', 'user:rel', 'user:gone', 'user:mg', 'user:sa', 'user:own']) insert(id);
+    insert('seat:dept-bot', 'seat', 'user:own');
+    const on = (principal, role, scope, expiresAt = null) => {
+      const d = grants.draft({ principal, role, scope, expiresAt, reason: '合成' }, cli);
+      if (!d.ok) throw new Error(`起草 ${principal} ${role} ${scope}：${d.code}`);
+      grants.submit(d.grant.id, cli, now); return grants.approve(d.grant.id, cli, now).grant ?? d.grant;
+    };
+    on('user:dm', 'dept-member', 'dept:sales');
+    on('user:dl', 'dept-lead', 'dept:sales');
+    on('user:mg', 'management', '*');
+    on('user:sa', 'admin', '*');
+    on('user:gone', 'dept-member', 'dept:sales');
+    db.prepare("UPDATE principals SET status = 'disabled' WHERE id = 'user:gone'").run();
+    const pend = grants.draft({ principal: 'user:pend', role: 'dept-member', scope: 'dept:sales', expiresAt: null, reason: '合成' }, cli);
+    grants.submit(pend.grant.id, cli, now); // 待放行
+    const brief = on('user:own', 'dept-member', 'dept:sales', now + 1000); // 一会儿就过期
+    on('seat:dept-bot', 'ai-staff', 'dept:sales');
+    // 只有关系、没有授予：加进部门成员表，并指成部门负责人
+    deps.addMember('sales', 'user:rel', 'cli', now);
+    deps.upsert({ id: 'sales', name: '合成 sales', functionCode: null, lead: 'user:rel' }, 'cli', now);
+    const v = (principal, action, kind, scope = 'dept:sales', at = now) => scopedVerdict({ principal, action, kind, scope, now: at }).verdict;
+    const W = ['sop-run.assign', 'write'], R = ['sop-run.read', 'read'], D = ['change-request.approve', 'decide'];
+    const got = {
+      memberWrite: v('user:dm', ...W), memberRead: v('user:dm', ...R), memberDecide: v('user:dm', ...D), memberOtherDept: v('user:dm', ...W, 'dept:ops'),
+      leadDecide: v('user:dl', ...D), mgmtAnyDept: v('user:mg', ...W, 'dept:ops'), sysAdminWrite: v('user:sa', ...W), sysAdminRead: v('user:sa', ...R),
+      pending: v('user:pend', ...W), relationOnly: [v('user:rel', ...R), v('user:rel', ...W), v('user:rel', ...D)], disabled: v('user:gone', ...W),
+      expired: v('user:own', ...W, 'dept:sales', now + 5000), seatWrite: v('seat:dept-bot', ...W), seatDecide: v('seat:dept-bot', ...D),
+      seatOwnerLapsed: v('seat:dept-bot', ...W, 'dept:sales', now + 5000), badScope: v('user:dm', ...W, 'domain:x'), noPrincipal: v('user:nobody', ...R),
+    };
+    check(show(got) === show({
+      memberWrite: 'allow', memberRead: 'allow', memberDecide: 'deny', memberOtherDept: 'deny', leadDecide: 'allow', mgmtAnyDept: 'allow', sysAdminWrite: 'deny', sysAdminRead: 'deny',
+      pending: 'deny', relationOnly: ['deny', 'deny', 'deny'], disabled: 'deny', expired: 'deny', seatWrite: 'allow', seatDecide: 'deny', seatOwnerLapsed: 'deny', badScope: 'deny', noPrincipal: 'deny',
+    }) && brief.id > 0,
+      '部门范围的判定：dept:<部门> 的部门成员能读写本部门、不能拍板、别的部门不行；部门负责人能拍板；管理层哪个部门都行；系统管理员没有业务读写；待放行、停用、过期都不行；只在部门成员表里、只被指成部门负责人（没有授予）一样都不行；席位要责任人也有同一项权限、不能拍板；范围写法不对、主体不存在都拒',
+      show(got));
+  }
 
   // ---------- 四、声明文件和内置预设同名：报错说清怎么改 ----------
   let msg = '';
