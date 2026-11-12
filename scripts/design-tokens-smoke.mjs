@@ -38,7 +38,10 @@ const main = readFileSync('web/src/main.tsx', 'utf8');
 const theme = main.slice(main.indexOf('theme={{'), main.indexOf('<AntApp>'));
 ok('main.tsx 主题不写死色值、取自 DESIGN_TOKENS', !/['"]#[0-9a-f]{3,8}['"]/i.test(theme) && theme.includes('T.colors.primary') && main.includes("import './tokens.css'"));
 const app = readFileSync('web/src/App.tsx', 'utf8');
-ok('App.tsx 不写死色值（侧栏改用 nav-* token）', !/'#[0-9a-f]{3,8}'/i.test(app) && app.includes("T.colors['nav-bg']"));
+// 外壳（产品化原型起）：侧栏在 components/Shell.tsx，颜色只走 index.css 里的 nav-* 变量
+const shell = readFileSync('web/src/components/Shell.tsx', 'utf8');
+const indexCss = readFileSync('web/src/index.css', 'utf8');
+ok('App.tsx、Shell.tsx 不写死色值；侧栏用 nav-* token', !/'#[0-9a-f]{3,8}'/i.test(app) && !/'#[0-9a-f]{3,8}'/i.test(shell) && /\.wm-side\s*\{[^}]*var\(--wm-color-nav-bg\)/.test(indexCss) && /\.wm-nav-item\.on\s*\{[^}]*var\(--wm-color-nav-text-active\)/.test(indexCss));
 
 console.log(`design-tokens-smoke: ${pass} passed / ${fail} failed`);
 process.exit(fail ? 1 : 0);

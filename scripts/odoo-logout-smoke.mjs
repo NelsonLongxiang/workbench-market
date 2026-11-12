@@ -52,7 +52,7 @@ async function browserLogout(browserBase=base, browserSid=SID, label='enforce'){
     await send('Page.enable');await send('Runtime.enable');await send('Network.enable');
     await send('Network.setCookie',{name:'session_id',value:browserSid,url:browserBase,httpOnly:true,sameSite:'Lax'});
     await send('Page.navigate',{url:browserBase+'/tasks'});
-    let found=false;for(let i=0;i<100;i++){try{found=!!(await evaluate("!!document.querySelector('[title*=fixture]')"));}catch{}if(found)break;await new Promise(r=>setTimeout(r,100));}
+    let found=false;for(let i=0;i<100;i++){try{found=!!(await evaluate("(()=>{if(document.querySelector('[title*=fixture]'))return true;const me=document.querySelector('[data-testid=wm-me]');if(me&&!document.querySelector('.wm-me-pop'))me.click();return false})()"));}catch{}if(found)break;await new Promise(r=>setTimeout(r,100));}
     check(label+' browser shows authenticated Odoo identity',found);
     if(found){
       await evaluate("document.querySelector('[title*=fixture]').click();true",true);

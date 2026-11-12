@@ -17,7 +17,7 @@ with sync_playwright() as p:
     b = p.chromium.launch(); pg = b.new_page(viewport={'width': 1280, 'height': 800})
     # 市场前端
     pg.goto(M + '/sops'); pg.wait_for_selector('.ant-btn-primary')
-    mk = {'primary': css(pg, '.ant-btn-primary', 'backgroundColor'), 'secondary': css(pg, '.ant-page-header-heading-sub-title', 'color'),
+    mk = {'primary': css(pg, '.ant-btn-primary', 'backgroundColor'), 'secondary': css(pg, '.wm-top-sub', 'color'),
           'size': css(pg, '.ant-table-cell', 'fontSize'), 'font': css(pg, 'body', 'fontFamily').split(',')[0].strip(' "\'')}
     # 执行页
     pg.goto(M + '/sop/tokens-sop/'); pg.wait_for_selector('.step')
