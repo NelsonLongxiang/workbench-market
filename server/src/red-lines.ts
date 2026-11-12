@@ -67,7 +67,12 @@ export const RED_LINES: readonly RedLine[] = [
   },
   {
     id: 'business-grants-business-approval', title: '带业务写的授予要管理层或属主放行',
-    detail: '角色带业务域的写（普通员工那几个提需求的写除外），授给人或席位要业务侧放行：只有系统管理员身份的、管理口令放行不了。普通员工、访客照旧由系统管理员一步完成。',
+    detail: '角色带业务域的写、不带业务拍板（部门成员、AI 员工这类），授给人或席位要管理层或属主放行；管理口令、只有系统管理员身份的放行不了，起草的人也不能自己放行。普通员工、访客照旧由系统管理员一步完成。',
+    enforced_in: 'server/src/services/grant.ts、server/src/roles.ts', test: 'scripts/grants-smoke.mjs',
+  },
+  {
+    id: 'business-decide-grants-owner-approval', title: '带业务拍板的授予只有属主能放行',
+    detail: '管理层、部门负责人这类带业务拍板的角色，不论范围，授予只有属主能放行：管理层不能自己再造管理层，管理口令也不行。',
     enforced_in: 'server/src/services/grant.ts、server/src/roles.ts', test: 'scripts/grants-smoke.mjs',
   },
   {

@@ -6,9 +6,11 @@
  *
  * 规则在这里和库里，不靠页面：
  *   · 不能给自己授予：起草、提交、放行的人都不能是被授予的主体（库里有约束）；
- *   · 管理员级的授予（属主、管理员，或者权限里带管理类的角色）只有属主能放行：本机命令行，或持有生效的 owner 授予的主体；
- *   · 带业务域写的授予（roles.ts 的 writesBusiness）要业务侧放行：属主，或持有范围 * 的、全公司写和决定都有的授予的主体（管理层）；
- *     只有系统管理员身份的、管理口令放行不了。普通员工、访客不受影响；
+ *   · 放行分三档（roles.ts 的 approvalOf）：管理员级的、带业务拍板的（管理层、部门负责人）只有属主能放行；
+ *     带业务写的（部门成员、AI 员工）要业务侧：属主，或持有范围 * 的、全公司写和决定都有的授予的主体（管理层）；
+ *     其余（普通员工、访客、只碰系统域的）管理员即可。
+ *     属主 = 本机命令行（L1：授予面上本机命令行算属主），或持有生效的 owner 授予的主体。管理口令对不到人，第二、三档放行不了；
+ *   · 第二、三档：起草的人不能自己放行（属主除外），一律等另一位放行；
  *   · 不是人的主体要有在职的责任人（责任人是启用的人）才能被授予；
  *   · 决定类权限只给人：角色展开 includes 之后带决定类（按类别或按动作）的，不授予给不是人的主体；
  *   · 角色权限里写了范围的，要在授予的范围之内；部门范围（dept:<标识>）的部门要在部门表里；
@@ -19,7 +21,7 @@
  */
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
-import { APPROVAL_TEXT, EXPIRY_REQUIRED_ROLES, NON_PERSON_ONLY_ROLES, isBusinessSide, scopeOk, scopeWithin, type RoleView } from '../roles.ts';
+import { APPROVAL_TEXT, EXPIRY_REQUIRED_ROLES, NON_PERSON_ONLY_ROLES, approvalOf, isBusinessSide, scopeOk, scopeWithin, type RoleView } from '../roles.ts';
 
 export type GrantStatus = 'draft' | 'pending' | 'active' | 'revoked' | 'expired';
 export type GrantRow = {
@@ -154,14 +156,19 @@ export class GrantService extends Service {
     return this.move(id, ['draft'], 'pending', 'submit', actor, '', now);
   }
 
-  /** 放行：管理员级的只有属主能放行；带业务写的要业务侧；过了期限的不能生效 */
+  /** 放行：按三档认放行人（见文件头）；第二、三档起草的人不能自己放行；过了期限的不能生效 */
   approve(id: number, actor: Actor, now = Date.now()): Result<{ grant: GrantRow }> {
     const g = db.prepare('SELECT * FROM grants WHERE id = ?').get(id) as GrantRow | undefined;
     if (!g) return refuse(404, 'grant_missing', `授予 ${id} 不存在`);
     const bad = this.check(g, actor);
     if (bad) return bad;
-    if (this.roleViews.get(g.role)?.adminLevel && !actor.owner) return refuse(403, 'owner_required', `角色 ${g.role} 是管理员级的，只有属主能放行`);
-    if (this.roleViews.get(g.role)?.businessWrite && !actor.owner && !this.isBusinessSide(actor.principal, now)) return refuse(403, 'business_approval_required', `角色 ${g.role} 带业务的写，${APPROVAL_TEXT.business}`);
+    const view = this.roleViews.get(g.role);
+    const tier = view ? approvalOf(view) : 'owner';
+    if (tier === 'owner' && !actor.owner) return refuse(403, 'owner_required', `角色 ${g.role} ${view?.adminLevel ? '是管理员级的' : '带业务的拍板'}，${APPROVAL_TEXT.owner}`);
+    if (tier === 'business' && !actor.owner && !this.isBusinessSide(actor.principal, now)) return refuse(403, 'business_approval_required', `角色 ${g.role} 带业务的写，${APPROVAL_TEXT.business}`);
+    if (tier !== 'admin' && !actor.owner && (g.created_by === actor.by || (!!actor.principal && g.created_by_principal === actor.principal))) {
+      return refuse(403, 'drafter_cannot_approve', `授予 ${id} 是你起草的，角色 ${g.role} 这一档要另一位放行：${APPROVAL_TEXT[tier]}`);
+    }
     if (g.expires_at !== null && g.expires_at <= now) return refuse(409, 'expired', `授予 ${id} 已经过了期限，不能生效`);
     return this.move(id, ['pending'], 'active', 'approve', actor, '', now, true);
   }

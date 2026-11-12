@@ -270,41 +270,60 @@ try {
       '本机浏览器（带 Origin 或 Sec-Fetch-Site）不带口令：列授予、看角色、看一条都 403；对照：本机命令行 200', show({ list: list.status, roles: roles.status, one: one.status, cli: cli.status }));
   }
 
-  // ---------- 三之四、带业务写的授予要业务侧放行：只有系统管理员身份的、管理口令放行不了；管理层、属主能 ----------
+  // ---------- 三之四、放行分三档：带业务写的要管理层或属主，带业务拍板的要属主；管理口令、只有系统管理员身份的放行不了 ----------
   {
-    const BIZ = 'sop-run.assign'; // 业务域的写动作，不在普通员工那几个里
-    const can = async (p) => (await srv.call('GET', `/api/principals/${p}/access?action=${BIZ}`, { headers: token })).json?.decision?.verdict;
-    const dm = await draft({ principal: 'user:beta', role: 'dept-member' }, asRoot); // 整类读写、范围全部，不带决定类
-    await step(dm.json?.grant?.id, 'submit', asRoot);
-    const dmByAdmin = await step(dm.json?.grant?.id, 'approve', asRoot);
-    const dmByToken = await step(dm.json?.grant?.id, 'approve', { headers: token });
-    const dmState = (await srv.call('GET', `/api/grants/${dm.json?.grant?.id}`, { headers: token })).json?.grant?.status;
-    const beforeVerdict = await can('user:beta');
-    const ai = await draft({ principal: 'seat:bot', role: 'ai-staff' }, { headers: token }); // 内置预设，带业务写、不带决定类，给席位
-    await step(ai.json?.grant?.id, 'submit', { headers: token });
-    const aiByToken = await step(ai.json?.grant?.id, 'approve', { headers: token });
-    // 对照：普通员工（只带读和提需求那几个写）照旧由系统管理员一步放行
-    const mem = await draft({ principal: 'user:beta', role: 'member' }, asRoot);
-    await step(mem.json?.grant?.id, 'submit', asRoot);
-    const memByAdmin = await step(mem.json?.grant?.id, 'approve', asRoot);
-    check(dmByAdmin.status === 403 && dmByAdmin.json?.error === 'business_approval_required' && dmByAdmin.json?.message?.includes('要管理层或属主放行')
-      && dmByToken.status === 403 && dmByToken.json?.error === 'business_approval_required' && dmState === 'pending' && beforeVerdict !== 'allow'
-      && aiByToken.status === 403 && aiByToken.json?.error === 'business_approval_required' && memByAdmin.status === 200,
-      '带业务写的授予：只有系统管理员身份的登录、管理口令放行都 403（说法是「要管理层或属主放行」），授予停在待核，被授的人这时做不了业务写；给席位的 AI 员工同样；对照：普通员工照旧由系统管理员放行 200 [red-line:business-grants-business-approval]',
-      show({ dmByAdmin: [dmByAdmin.status, dmByAdmin.json?.error], dmByToken: dmByToken.status, dmState, beforeVerdict, aiByToken: aiByToken.status, memByAdmin: memByAdmin.status }));
-    // 业务侧：给 root-admin 一个管理层授予（本机命令行放行），它就能放行；被授的人这时才有业务写
+    db.exec("INSERT INTO principals (id, id_key, kind, display_name) VALUES ('user:gamma', 'user:gamma', 'person', '合成：被授的人')");
+    const verdicts = async () => {
+      const out = {};
+      for (const a of ['work-item.read', 'sop-run.assign']) out[a] = (await srv.call('GET', `/api/principals/user:gamma/access?action=${a}`, { headers: token })).json?.decision?.verdict;
+      return out;
+    };
+    const pending = async (role, principal = 'user:gamma', who = { headers: token }) => {
+      const d = await draft({ principal, role }, who);
+      await step(d.json?.grant?.id, 'submit', who);
+      return d.json?.grant?.id;
+    };
+    const state = async (id) => (await srv.call('GET', `/api/grants/${id}`, { headers: token })).json?.grant?.status;
+    const tried = (r) => `${r.status}:${r.json?.error ?? r.json?.grant?.status}`;
+    // 验收实测的三条：管理口令起草、提交、放行，范围全部
+    const dm = await pending('dept-member'), dl = await pending('dept-lead'), mg = await pending('management');
+    const byToken = { dm: tried(await step(dm, 'approve', { headers: token })), dl: tried(await step(dl, 'approve', { headers: token })), mg: tried(await step(mg, 'approve', { headers: token })) };
+    const byAdmin = { dm: tried(await step(dm, 'approve', asRoot)), dl: tried(await step(dl, 'approve', asRoot)), mg: tried(await step(mg, 'approve', asRoot)) };
+    const states = [await state(dm), await state(dl), await state(mg)];
+    const before = await verdicts();
+    const ai = await pending('ai-staff', 'seat:bot');
+    const aiByToken = tried(await step(ai, 'approve', { headers: token }));
+    // 对照：普通员工照旧由系统管理员一步放行
+    const mem = await pending('member', 'user:gamma', asRoot);
+    const memByAdmin = tried(await step(mem, 'approve', asRoot));
+    const msgs = { business: (await step(dm, 'approve', asRoot)).json?.message, owner: (await step(mg, 'approve', asRoot)).json?.message };
+    check(show(byToken) === show({ dm: '403:business_approval_required', dl: '403:owner_required', mg: '403:owner_required' })
+      && show(byAdmin) === show(byToken) && show(states) === show(['pending', 'pending', 'pending'])
+      && before['work-item.read'] !== 'allow' && before['sop-run.assign'] !== 'allow'
+      && aiByToken === '403:business_approval_required' && memByAdmin === '200:active'
+      && msgs.business?.includes('要管理层或属主放行') && msgs.owner?.includes('要属主放行'),
+      '三档放行：部门成员（带业务写）、部门负责人和管理层（带业务拍板）以范围全部授给人，管理口令、只有系统管理员身份的登录放行都 403，全部停在待核，被授的人这时事项的读写都拿不到；给席位的 AI 员工同样；对照：普通员工由系统管理员放行 200 [red-line:business-grants-business-approval]',
+      show({ byToken, byAdmin, states, before, aiByToken, memByAdmin, msgs }));
+    // 业务侧：给 root-admin 一个管理层授予（本机命令行放行）。能放行第二档，第三档仍不行；自己起草的第二档也不行
     const mgmt = await activate({ principal: 'user:root-admin', role: 'management' });
-    const dmByMgmt = await step(dm.json?.grant?.id, 'approve', asRoot);
-    const aiByMgmt = await step(ai.json?.grant?.id, 'approve', asRoot);
-    const afterVerdict = await can('user:beta');
+    const byMgmt = { dm: tried(await step(dm, 'approve', asRoot)), dl: tried(await step(dl, 'approve', asRoot)), mg: tried(await step(mg, 'approve', asRoot)) };
+    const own = await pending('ai-staff', 'seat:bot', asRoot);
+    const ownByMgmt = tried(await step(own, 'approve', asRoot));
+    const aiByMgmt = tried(await step(ai, 'approve', asRoot));
+    check(show(byMgmt) === show({ dm: '200:active', dl: '403:owner_required', mg: '403:owner_required' })
+      && ownByMgmt === '403:drafter_cannot_approve' && aiByMgmt === '200:active' && mgmt.a.status === 200,
+      '业务侧放行：持管理层授予的人放行带业务写的 200，放行带业务拍板的（部门负责人、管理层）403——管理层不能再造管理层；自己起草的第二档放行不了（403），别人起草的能',
+      show({ mgmt: mgmt.a.status, byMgmt, ownByMgmt, aiByMgmt }));
+    // 属主（本机命令行）放行第三档；之后被授的人才有业务读写
+    const byOwner = { dl: tried(await step(dl, 'approve')), mg: tried(await step(mg, 'approve')) };
+    const after = await verdicts();
     const roles = (await srv.call('GET', '/api/roles', { headers: token })).json?.roles ?? [];
-    const ap = Object.fromEntries(roles.filter((r) => ['dept-member', 'ai-staff', 'member', 'guest', 'admin', 'management'].includes(r.id)).map((r) => [r.id, `${r.approval}:${r.approval_text}`]).sort(([x], [y]) => (x < y ? -1 : 1)));
-    check(mgmt.a.status === 200 && dmByMgmt.status === 200 && aiByMgmt.status === 200 && afterVerdict === 'allow'
-      && show(ap) === show({ admin: 'owner:只有属主能放行', 'ai-staff': 'business:要管理层或属主放行', 'dept-member': 'business:要管理层或属主放行', guest: 'admin:管理员即可放行', management: 'business:要管理层或属主放行', member: 'admin:管理员即可放行' }),
-      '业务侧放行：持管理层授予的管理员放行 200，被授的人之后能做业务写；角色清单给出每个角色谁能放行和说法（页面照着显示）',
-      show({ mgmt: mgmt.a.status, dmByMgmt: dmByMgmt.status, aiByMgmt: aiByMgmt.status, afterVerdict, ap }));
-    await step(mgmt.id, 'revoke', {}, { reason: '合成：收回' });
-    for (const g of [dm, ai, mem]) await step(g.json?.grant?.id, 'revoke', {}, { reason: '合成：收回' });
+    const ap = Object.fromEntries(roles.filter((r) => ['dept-member', 'dept-lead', 'ai-staff', 'member', 'guest', 'admin', 'management'].includes(r.id)).map((r) => [r.id, `${r.approval}:${r.approval_text}`]).sort(([x], [y]) => (x < y ? -1 : 1)));
+    check(show(byOwner) === show({ dl: '200:active', mg: '200:active' }) && after['work-item.read'] === 'allow' && after['sop-run.assign'] === 'allow'
+      && show(ap) === show({ admin: 'owner:要属主放行', 'ai-staff': 'business:要管理层或属主放行', 'dept-lead': 'owner:要属主放行', 'dept-member': 'business:要管理层或属主放行', guest: 'admin:管理员即可放行', management: 'owner:要属主放行', member: 'admin:管理员即可放行' }),
+      '属主放行带业务拍板的 200，之后被授的人才有事项的读写；角色清单给出每个角色是哪一档和说法（页面照着显示） [red-line:business-decide-grants-owner-approval]',
+      show({ byOwner, after, ap }));
+    for (const id of [mgmt.id, dm, dl, mg, ai, mem, own]) await step(id, 'revoke', {}, { reason: '合成：收回' });
   }
 
   // ---------- 四、没有在职责任人的非人主体 ----------

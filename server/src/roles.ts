@@ -35,6 +35,8 @@ export type RoleView = RoleDecl & {
   platform: boolean; custom: boolean; closure: Permission[]; adminLevel: boolean; decides: boolean;
   /** 带业务域的写（整类给的写碰业务域，或按动作给了普通员工那几个之外的业务写）：授予要业务侧放行，见 approvalOf */
   businessWrite: boolean;
+  /** 带业务域的拍板（只对自己的事拍板的不算）：授予要属主放行，见 approvalOf */
+  businessDecide: boolean;
 };
 
 const ROLE_ID_RE = /^[a-z][a-z0-9-]{0,47}$/;
@@ -81,6 +83,16 @@ export function writesBusiness(perms: readonly Permission[], catalog: ActionCata
 }
 
 /**
+ * 这组权限带不带业务域的拍板：整类给的决定，没圈域或圈的域里有业务域；或者按动作给了业务域的决定动作。
+ * 范围是 self 的（普通员工对自己提的事验收、答复）不算。
+ */
+export function decidesBusiness(perms: readonly Permission[], catalog: ActionCatalog): boolean {
+  const system = new Set(SYSTEM_DOMAINS);
+  return perms.some((p) => p.scope !== 'self' && (((p.kinds ?? []).includes('decide') && (p.domains === undefined || p.domains.some((d) => !system.has(d))))
+    || (p.actions ?? []).some((a) => catalog.get(a) === 'decide' && !system.has(domainOf(a)))));
+}
+
+/**
  * 业务侧：全公司范围的写和决定都有（权限没圈域、没圈范围）——管理层、属主是；只有系统管理员的不是。按权限认，不按角色名。
  * 调用方只拿范围是 * 的生效授予的角色来问。
  */
@@ -89,12 +101,19 @@ export function isBusinessSide(perms: readonly Permission[]): boolean {
   return open.some((p) => (p.kinds ?? []).includes('write')) && open.some((p) => (p.kinds ?? []).includes('decide'));
 }
 
-/** 一条授予谁能放行：管理员级的只有属主；带业务写的要业务侧（管理层或属主）；其余管理员即可。说法给页面原样显示 */
+/**
+ * 一条授予谁能放行，三档（说法给页面原样显示）：
+ *   · owner：管理员级的（属主、系统管理员、带管理类的），或带业务拍板的（管理层、部门负责人，范围不论）——要属主；
+ *   · business：带业务写、不带业务拍板的（部门成员、AI 员工这类）——要业务侧（管理层或属主）；
+ *   · admin：只带业务读、或不碰业务的（普通员工、访客、只碰系统域的）——管理员即可，日常开人一步完成。
+ * 第二、三档的放行人要是认出来的人（或本机命令行，见 services/grant.ts）；管理口令不算数。
+ */
 export type Approval = 'owner' | 'business' | 'admin';
 export const APPROVAL_TEXT: Readonly<Record<Approval, string>> = {
-  owner: '只有属主能放行', business: '要管理层或属主放行', admin: '管理员即可放行',
+  owner: '要属主放行', business: '要管理层或属主放行', admin: '管理员即可放行',
 };
-export const approvalOf = (v: Pick<RoleView, 'adminLevel' | 'businessWrite'>): Approval => (v.adminLevel ? 'owner' : v.businessWrite ? 'business' : 'admin');
+export const approvalOf = (v: Pick<RoleView, 'adminLevel' | 'businessWrite' | 'businessDecide'>): Approval =>
+  (v.adminLevel || v.businessDecide ? 'owner' : v.businessWrite ? 'business' : 'admin');
 
 export function unclassifiedDomains(actions: Iterable<string>): string[] {
   const known = new Set([...SYSTEM_DOMAINS, ...BUSINESS_DOMAINS]);
@@ -293,7 +312,7 @@ export function buildRoles(orgRaw: readonly unknown[], catalog: ActionCatalog, c
     const closure = expand(r.id, []);
     const kindsIn = new Set<Kind>();
     for (const p of closure) { for (const k of p.kinds ?? []) kindsIn.add(k); for (const a of p.actions ?? []) { const k = catalog.get(a); if (k) kindsIn.add(k); } }
-    views.set(r.id, { ...r, platform: platformIds.has(r.id), custom: customIds.has(r.id), closure, adminLevel: r.id === 'owner' || r.id === 'admin' || kindsIn.has('admin'), decides: kindsIn.has('decide'), businessWrite: writesBusiness(closure, catalog) });
+    views.set(r.id, { ...r, platform: platformIds.has(r.id), custom: customIds.has(r.id), closure, adminLevel: r.id === 'owner' || r.id === 'admin' || kindsIn.has('admin'), decides: kindsIn.has('decide'), businessWrite: writesBusiness(closure, catalog), businessDecide: decidesBusiness(closure, catalog) });
   }
   return views;
 }

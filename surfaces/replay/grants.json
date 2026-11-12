@@ -54,7 +54,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "2518", "etag": "W/\"9d6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "2476", "etag": "W/\"9ac-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "source": "initial",
               "roles": [
@@ -69,7 +69,7 @@
                   "decides": true,
                   "business_write": true,
                   "approval": "owner",
-                  "approval_text": "只有属主能放行"
+                  "approval_text": "要属主放行"
                 },
                 {
                   "id": "admin",
@@ -119,7 +119,7 @@
                   "decides": false,
                   "business_write": false,
                   "approval": "owner",
-                  "approval_text": "只有属主能放行"
+                  "approval_text": "要属主放行"
                 },
                 {
                   "id": "management",
@@ -131,8 +131,8 @@
                   "admin_level": false,
                   "decides": true,
                   "business_write": true,
-                  "approval": "business",
-                  "approval_text": "要管理层或属主放行"
+                  "approval": "owner",
+                  "approval_text": "要属主放行"
                 },
                 {
                   "id": "dept-lead",
@@ -144,8 +144,8 @@
                   "admin_level": false,
                   "decides": true,
                   "business_write": true,
-                  "approval": "business",
-                  "approval_text": "要管理层或属主放行"
+                  "approval": "owner",
+                  "approval_text": "要属主放行"
                 },
                 {
                   "id": "member",
