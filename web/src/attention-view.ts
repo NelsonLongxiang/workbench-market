@@ -5,7 +5,9 @@ export type AttentionItem = { source: string; source_id: string; category: Categ
   /** 只增的字段（#580）：变更申请带 detail（要动什么、影响多大）；统一待办带 kind（任务、SOP 执行……，它们不是审核） */
   detail?: unknown; kind?: string;
   /** #587：是不是轮到你（验收、提问对代办的人是 false）；事项和提问的条目带建立人 */
-  mine?: boolean; creator?: { principal?: string; display_name?: string | null } | null };
+  mine?: boolean; creator?: { principal?: string; display_name?: string | null } | null;
+  /** 条目自带的答复入口（见文件末尾的 answer_via 约定）；没带的照旧发 /api/attention/answer */
+  answer_via?: unknown };
 export type LogRow = { seq: number; fact: string; fact_source: string; fact_id: string; from_state: string; to_state: string; actor: string; detail: string; at: string; rejected: '' | 'not_allowed' | 'terminal' };
 
 /** since 是 SQLite UTC「YYYY-MM-DD HH:MM:SS」或 ISO；认不出返回 NaN */
@@ -55,7 +57,10 @@ export const CREATOR_ANSWERS = ['verify', 'return'];
  *   · 不是管理员：只有「等验收」的事项可以答验收、退回（列表里给不是管理员的事项都是他自己建的），走建立人入口；
  *     别的不给答法和提交按钮，只留「在原页面处理」（免得点下去被告知「需要管理员」）。
  */
-export function answerChoices(admin: boolean, item: Pick<AttentionItem, 'source' | 'category' | 'answers'>): string[] {
+export function answerChoices(admin: boolean, item: Pick<AttentionItem, 'source' | 'category' | 'answers'> & { answer_via?: unknown; source_id?: string }): string[] {
+  // 条目自带答复入口：能不能办由那个入口自己判，服务端只把它列给办得了的人——不看是不是管理员
+  const via = answerViaOf(item);
+  if (via) return viaChoices(via, item.answers);
   if (admin) return item.answers;
   // 阶段七 #567：席位的提问只给建立人本人列出来，建立人在事项的提问入口答（POST /api/work-items/:id/asks/:qid/answer）
   if (item.source === 'seat-asks') return item.answers.filter((a) => a === 'answer');
@@ -63,8 +68,9 @@ export function answerChoices(admin: boolean, item: Pick<AttentionItem, 'source'
   return [];
 }
 
-/** 这一条用哪个入口答：不是管理员时，验收、打回走建立人入口，席位提问走事项的提问入口；其余（管理员）走答复入口 */
-export function answerRoute(admin: boolean, item: Pick<AttentionItem, 'source' | 'category'>): 'creator' | 'ask' | 'attention' {
+/** 这一条用哪个入口答：条目自带答复入口的照它发（via）；不是管理员时，验收、打回走建立人入口，席位提问走事项的提问入口；其余（管理员）走答复入口 */
+export function answerRoute(admin: boolean, item: Pick<AttentionItem, 'source' | 'category'> & { answer_via?: unknown; source_id?: string }): 'creator' | 'ask' | 'attention' | 'via' {
+  if (answerViaOf(item)) return 'via';
   if (!admin && item.source === 'seat-asks') return 'ask';
   return !admin && item.source === 'work-items' && item.category === 'accept' ? 'creator' : 'attention';
 }
@@ -85,4 +91,104 @@ export function groupCards(items: AttentionItem[], choicesOf: (x: AttentionItem)
   // 三组：轮到你、能当场办的（这才是「等你拍板」）；别人的事、你能代办的（条目的 mine 为假）；要到别处处理的（没有当场的答法）
   const can = sorted.filter((x) => choicesOf(x).length > 0);
   return { now: can.filter(isMine), proxy: can.filter((x) => !isMine(x)), elsewhere: sorted.filter((x) => choicesOf(x).length === 0) };
+}
+
+/** 「等你拍板」条目自带的答复入口（answer_via 约定）：条目说清用什么方法、发到哪个地址、每个答法的请求体和要填的东西，
+ *  卡片照着发，不按来源逐个写死地址。单测在 scripts/answer-via-unit.mjs。
+ *
+ *    answer_via: { method: 'POST' | 'PUT', path: '/api/…',
+ *      answers: { <答法>: { path?: '/api/…', body: {…}, input?: { <填写项>: { to: '<请求体的键>', required?: true, max?: N, options?: [...] } } } } }
+ *
+ *  · 请求体 = { ...body, [to]: 填的值 }；没填的选填项不带。
+ *  · 答法自己带 path 的另调那个地址（放行和撤回是两条路由），没带用顶层的；方法只有顶层一个。
+ *  · 填写项带 options 的是从里面选一个，没带是自由文本。
+ *  · 没带 answer_via 的条目照旧发 /api/attention/answer。
+ *  · 应答是那个地址自己的：2xx 算办成；4xx 是 { error, message? }，有 message 原样给人看。
+ *  · 地址只认同源、以 /api/ 开头的相对路径；别的一律当没带，并在控制台留一条告警（答法自己的地址不能用，就不给这个答法——不退回顶层地址，免得发错路由）。
+ *  · 卡片上只有一个输入框：一个答法最多认一个填写项；多出来的选填项不填，必填项超过一个的答法不在卡片上给。 */
+
+export type ViaInput = { name: string; to: string; required: boolean; max: number; options: string[] };
+export type ViaAnswer = { path: string; body: Record<string, unknown>; input: ViaInput | null };
+export type AnswerVia = { method: 'POST' | 'PUT'; path: string; answers: Record<string, ViaAnswer> };
+
+const DEFAULT_MAX = 4000;
+const obj = (v: unknown): Record<string, unknown> | null => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null);
+
+/** 地址能不能用：同源、以 /api/ 开头的相对路径（「//主机」、带协议的、绕出 /api/ 的、带反斜杠或控制字符的都不认） */
+export function safeApiPath(path: unknown): path is string {
+  if (typeof path !== 'string' || !path.startsWith('/api/') || /[\\\u0000-\u001f\u007f]/.test(path)) return false;
+  try {
+    const u = new URL(path, 'http://same.invalid');
+    return u.origin === 'http://same.invalid' && u.pathname.startsWith('/api/');
+  } catch { return false; }
+}
+
+function inputsOf(v: unknown): ViaInput[] {
+  const o = obj(v);
+  if (!o) return [];
+  return Object.entries(o).flatMap(([name, raw]) => {
+    const i = obj(raw);
+    if (!i || typeof i.to !== 'string' || !i.to) return [];
+    const max = typeof i.max === 'number' && Number.isFinite(i.max) && i.max > 0 ? Math.floor(i.max) : DEFAULT_MAX;
+    const options = Array.isArray(i.options) ? [...new Set(i.options.filter((o): o is string => typeof o === 'string' && o !== ''))] : [];
+    return [{ name, to: i.to, required: i.required === true, max, options }];
+  });
+}
+
+/** 读条目上的 answer_via；没带、形状不对或地址不能用都返回 null（后两种留一条告警） */
+const warned = new Set<string>();
+const warnOnce = (m: string): void => { if (!warned.has(m)) { warned.add(m); console.warn(m); } };
+export function answerViaOf(item: { answer_via?: unknown; source?: string; source_id?: string }, warn: (msg: string) => void = warnOnce): AnswerVia | null {
+  if (item.answer_via === undefined || item.answer_via === null) return null;
+  const tag = `${item.source ?? ''}/${item.source_id ?? ''}`;
+  const v = obj(item.answer_via);
+  const answers = v ? obj(v.answers) : null;
+  if (!v || !answers || (v.method !== 'POST' && v.method !== 'PUT')) { warn(`[answer_via] ${tag}：形状不对，当没带处理`); return null; }
+  if (!safeApiPath(v.path)) { warn(`[answer_via] ${tag}：地址不是同源的 /api/ 路径，当没带处理`); return null; }
+  const out: Record<string, ViaAnswer> = {};
+  for (const [name, raw] of Object.entries(answers)) {
+    const a = obj(raw);
+    if (!a) continue;
+    if (a.path !== undefined && a.path !== null && !safeApiPath(a.path)) { warn(`[answer_via] ${tag}：答法 ${name} 的地址不是同源的 /api/ 路径，不给这个答法`); continue; }
+    const inputs = inputsOf(a.input);
+    const required = inputs.filter((i) => i.required);
+    if (required.length > 1) { warn(`[answer_via] ${tag}：答法 ${name} 有多个必填项，卡片上办不了`); continue; }
+    out[name] = { path: typeof a.path === 'string' ? a.path : v.path, body: obj(a.body) ?? {}, input: required[0] ?? inputs[0] ?? null };
+  }
+  return { method: v.method, path: v.path, answers: out };
+}
+
+/** 卡片上给哪些答法：条目列的、answer_via 里也说了怎么发的，按条目的顺序 */
+export function viaChoices(via: AnswerVia, answers: string[]): string[] {
+  return answers.filter((a) => Object.prototype.hasOwnProperty.call(via.answers, a));
+}
+
+/** 这个答法要不要先填一句；不用填返回 null */
+export function viaInput(via: AnswerVia, answer: string): ViaInput | null {
+  return via.answers[answer]?.input ?? null;
+}
+
+/** 这个答法发到哪个地址：答法自己带的，没带用顶层的 */
+export function viaPath(via: AnswerVia, answer: string): string {
+  return via.answers[answer]?.path ?? via.path;
+}
+
+/** 请求体：答法自带的 body，加上填的那一项（选填又没填的不带；有选项的只认选项里的值） */
+export function viaBody(via: AnswerVia, answer: string, value = ''): Record<string, unknown> {
+  const a = via.answers[answer];
+  if (!a) return {};
+  const text = value.trim();
+  if (!a.input || !text) return { ...a.body };
+  if (a.input.options.length) return a.input.options.includes(text) ? { ...a.body, [a.input.to]: text } : { ...a.body };
+  return { ...a.body, [a.input.to]: text.slice(0, a.input.max) };
+}
+
+/** 没办成时给人看的话：有 message 原样给，没有就按状态说 */
+export function viaError(status: number, body: unknown): string {
+  const b = obj(body);
+  if (b && typeof b.message === 'string' && b.message.trim()) return b.message;
+  if (status === 401) return '请先登录';
+  if (status === 403) return '你没有权限办这一条';
+  if (status === 409) return '这一条已经有人办过了，刷新看看';
+  return '没办成';
 }

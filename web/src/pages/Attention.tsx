@@ -58,7 +58,8 @@ export default function Attention() {
   useEffect(() => { setAnswer(''); setInput({}); }, [cur?.source, cur?.source_id]);
 
   // 建立人答席位提问走事项的提问入口（全景卡片、事项页）；这一页只给「在原页面处理」
-  const choices = cur && answerRoute(admin, cur) !== 'ask' ? answerChoices(admin, cur) : [];
+  // 条目自带答复入口的（answer_via）在全景的卡片上办，这一页不给按钮
+  const choices = cur && !['ask', 'via'].includes(answerRoute(admin, cur)) ? answerChoices(admin, cur) : [];
   const fields = cur && answer ? FIELDS[cur.source]?.[answer] ?? [] : [];
   const missing = fields.some((f) => f.required && !String(input[f.key] ?? '').trim());
   const submit = async () => {
