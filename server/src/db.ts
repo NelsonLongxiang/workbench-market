@@ -1409,8 +1409,10 @@ export interface CockpitRow {
 export interface PanelConfig {
   i: string;
   workbenchId: number;
-  /** 面板种类：默认工作台面板；'tasks' = 统一待办卡（omni-inbox，workbenchId=0 占位） */
-  kind?: 'tasks';
+  /** 面板种类：默认工作台面板；'tasks' = 统一待办卡（omni-inbox，workbenchId=0 占位）；'bench-view' = 视图面板 */
+  kind?: 'tasks' | 'bench-view';
+  /** 视图面板（kind='bench-view'，workbenchId=0 占位）：引用哪个视图台的哪份视图、放在哪一页、排第几 */
+  bench?: string; view?: string; tab?: 'board' | 'detail'; order?: number;
   x: number; y: number; w: number; h: number;
 }
 
