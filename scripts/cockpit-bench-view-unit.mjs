@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** 驾驶舱里「数据视图」这一部分的纯函数单测（web/src/cockpit-bench-view.ts）：共用的筛选怎么合、按名字传值、
  *  把视图挂进驾驶舱时面板清单怎么变（别的面板原样留着）、选台选视图取不到时的几种说法、小标题。 */
-import { nextChosen, shownParams, MAX_VIEW_PANELS, addRef, benchListState, filtersOf, mergeFilters, moveRef, orderedRefs, panelHeading, paramsFor, pruneParams, removeRef, retabRef, viewChoices } from '../web/src/cockpit-bench-view.ts';
+import { ANON_VIEW, NO_BENCH, rowName, nextChosen, shownParams, MAX_VIEW_PANELS, addRef, benchListState, filtersOf, mergeFilters, moveRef, orderedRefs, panelHeading, paramsFor, pruneParams, removeRef, retabRef, viewChoices } from '../web/src/cockpit-bench-view.ts';
 import { benchViewRefs as P } from '../web/src/cockpit-frame-view.ts';
 
 let pass = 0, fail = 0;
@@ -79,8 +79,10 @@ ok('一个台的视图：有标题用标题，没有用键；没键的不要', e
 ok('还没有视图描述、看不到、不在了、取不到：空清单加一句话', viewChoices(200, { view: null }).text === '这个台还没有视图。' && /看不到/.test(viewChoices(403, null).text) && /不在了/.test(viewChoices(404, null).text) && /连不上/.test(viewChoices(0, null).text) && viewChoices(500, null).views.length === 0);
 
 // —— 小标题 ——
-ok('小标题：视图名 · 台名；两样一样只写一个；还没取到就写标识', panelHeading({ bench: 'sales', view: 'main' }, { title: '销售台', view: { key: 'main', title: '总览' } }) === '总览 · 销售台'
-  && panelHeading({ bench: 'sales', view: 'main' }, { title: '总览', view: { title: '总览' } }) === '总览' && panelHeading({ bench: 'sales', view: 'main' }, null) === 'main · sales');
+ok('小标题：视图名 · 台名；两样一样只写一个', panelHeading({ title: '销售台', view: { key: 'main', title: '总览' } }) === '总览 · 销售台' && panelHeading({ title: '总览', view: { title: '总览' } }) === '总览');
+ok('没取到（没权限、出错）：只写「一份数据视图」，不拿台标识、视图键顶替', panelHeading(null) === ANON_VIEW && panelHeading({ error: 'bench_views_forbidden' }) === ANON_VIEW && !/[a-z]/.test(ANON_VIEW));
+ok('配置对话框里一行的名字：哪样没取到就不写哪样，都没有写「一份数据视图」', rowName('总览', '销售台') === '总览 · 销售台' && rowName(undefined, '销售台') === '销售台' && rowName('总览', undefined) === '总览' && rowName(undefined, undefined) === ANON_VIEW);
+ok('一个台都看不到：说清挂视图要先有台的读权限', /读权限/.test(NO_BENCH) && texts.none.text === NO_BENCH);
 
 console.log(`cockpit-bench-view-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

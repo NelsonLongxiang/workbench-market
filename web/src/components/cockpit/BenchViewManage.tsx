@@ -7,7 +7,7 @@ import { ArrowDownOutlined, ArrowUpOutlined } from '@ant-design/icons';
 import { Button, Empty, Modal, Segmented, Select, Typography, message } from 'antd';
 import { api, getBenchViewDoc, listBenchViews } from '../../api';
 import { benchViewRefs, type BenchViewRef } from '../../cockpit-frame-view';
-import { TAB_LABEL, addRef, benchListState, moveRef, orderedRefs, removeRef, retabRef, viewChoices, type BenchListState, type Tab, type ViewChoice } from '../../cockpit-bench-view';
+import { NO_BENCH, TAB_LABEL, addRef, benchListState, moveRef, orderedRefs, removeRef, retabRef, rowName, viewChoices, type BenchListState, type Tab, type ViewChoice } from '../../cockpit-bench-view';
 import type { PanelConfig } from '../../types';
 import './bench-view.css';
 
@@ -39,7 +39,7 @@ export default function BenchViewManage({ cockpit, open, onClose, onSaved }: { c
 
   const refs = orderedRefs(benchViewRefs, panels);
   const benchTitle = useMemo(() => new Map(list?.kind === 'ok' ? list.benches.map((b) => [b.slug, b.title]) : []), [list]);
-  const name = (x: BenchViewRef) => `${docs[x.bench]?.views.find((v) => v.key === x.view)?.title ?? x.view} · ${benchTitle.get(x.bench) ?? x.bench}`;
+  const name = (x: BenchViewRef) => rowName(docs[x.bench]?.views.find((v) => v.key === x.view)?.title, benchTitle.get(x.bench));
 
   const save = async (next: unknown[]) => {
     setSaving(true);
@@ -69,7 +69,7 @@ export default function BenchViewManage({ cockpit, open, onClose, onSaved }: { c
             <Typography.Text strong>{TAB_LABEL[t]}</Typography.Text>
             {mine.length === 0 ? <div className="wm-ck-bv-none">还没有视图。</div> : <div className="wm-ck-bv-list">
               {mine.map((x, n) => <div key={x.i} className="wm-ck-bv-row" data-testid="ck-bv-row" data-ref={x.i}>
-                <span className="wm-ck-bv-row-name" title={`${x.bench} / ${x.view}`}>{name(x)}</span>
+                <span className="wm-ck-bv-row-name">{name(x)}</span>
                 <Segmented size="small" options={TABS} value={x.tab} disabled={saving} onChange={(v) => void save(retabRef(benchViewRefs, panels, x.i, v as Tab))} />
                 <Button size="small" type="text" icon={<ArrowUpOutlined />} aria-label="往前挪" disabled={saving || n === 0} onClick={() => void save(moveRef(benchViewRefs, panels, x.i, -1))} />
                 <Button size="small" type="text" icon={<ArrowDownOutlined />} aria-label="往后挪" disabled={saving || n === mine.length - 1} onClick={() => void save(moveRef(benchViewRefs, panels, x.i, 1))} />
@@ -82,7 +82,7 @@ export default function BenchViewManage({ cockpit, open, onClose, onSaved }: { c
         <div className="wm-ck-bv-addwrap">
           {list === null ? <Typography.Text type="secondary">正在取台的清单…</Typography.Text>
             : list.kind !== 'ok' ? <Typography.Text type="secondary" data-testid="ck-bv-list-state" data-kind={list.kind}>{list.text}</Typography.Text>
-            : list.benches.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="你现在没有可以看的台，所以没有能挂的视图。" />
+            : list.benches.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={NO_BENCH} />
             : <div className="wm-ck-bv-add">
               <Select placeholder="选一个台" showSearch {...{ optionFilterProp: 'label' }} value={bench} data-testid="ck-bv-bench"
                 options={list.benches.map((b) => ({ value: b.slug, label: b.title }))}

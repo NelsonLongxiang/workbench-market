@@ -125,6 +125,8 @@ export function retabRef(parse: ParseRefs, panels: unknown, i: string, tab: Tab)
 }
 
 // —— 选台、选视图 ——
+/** 一个台都看不到时的说法（清单是空的、或者入口回 403）：管理驾驶舱的权限和看台里数据的权限是两回事 */
+export const NO_BENCH = '你现在没有可以看的台，所以没有能挂的视图。挂视图要先有这个台的读权限。';
 export type BenchChoice = { slug: string; title: string };
 /** 台的清单（GET /api/bench-views）取回来是什么情况。取不到的几种各有各的说法，都不是报错的口气 */
 export type BenchListState = { kind: 'ok'; benches: BenchChoice[] } | { kind: 'off' | 'forbidden' | 'login' | 'error'; text: string };
@@ -138,7 +140,7 @@ export function benchListState(status: number, body: unknown): BenchListState {
   if (status === 404 && code === 'bench_views_off') return { kind: 'off', text: '数据视图还没有开启，现在挂不了。开启之后再来。' };
   if (status === 401) return { kind: 'login', text: '要先登录，才看得到你能用的台。' };
   if (status === 403 && code === 'bench_views_admin_token_denied') return { kind: 'forbidden', text: '台里是业务数据，凭管理口令看不到。请用有这个台权限的账号登录。' };
-  if (status === 403) return { kind: 'forbidden', text: '你现在没有可以看的台，所以没有能挂的视图。' };
+  if (status === 403) return { kind: 'forbidden', text: NO_BENCH };
   return { kind: 'error', text: status === 0 ? '连不上服务器，稍后再试。' : '台的清单没取到，稍后再试。' };
 }
 
@@ -155,10 +157,18 @@ export function viewChoices(status: number, body: unknown): { views: ViewChoice[
   return { views: [], text: status === 0 ? '连不上服务器，稍后再试。' : '这个台的视图没取到，稍后再试。' };
 }
 
-/** 一份视图上面那行小标题：视图名 · 台名（两样一样就只写一个；都没有就写标识） */
-export function panelHeading(ref: Pick<BenchViewRef, 'bench' | 'view'>, result: unknown): string {
+/** 一份视图上面那行小标题：视图名 · 台名（两样一样就只写一个）。没取到（没权限、没开启、出错）时只写「一份数据视图」：
+ *  台标识和视图键是代号，不往页面上露——没权限的人尤其不该从这里看到 */
+export const ANON_VIEW = '一份数据视图';
+export function panelHeading(result: unknown): string {
   const r = result as { title?: unknown; view?: { title?: unknown } } | null;
-  const view = typeof r?.view?.title === 'string' && r.view.title ? r.view.title : ref.view;
-  const bench = typeof r?.title === 'string' && r.title ? r.title : ref.bench;
-  return view === bench ? view : `${view} · ${bench}`;
+  const view = typeof r?.view?.title === 'string' && r.view.title ? r.view.title : '';
+  const bench = typeof r?.title === 'string' && r.title ? r.title : '';
+  if (!view && !bench) return ANON_VIEW;
+  return !view || !bench || view === bench ? view || bench : `${view} · ${bench}`;
+}
+
+/** 配置对话框里一行的名字：视图名 · 台名；哪样没取到就不写哪样，都没取到写「一份数据视图」（不拿标识顶替） */
+export function rowName(viewTitle: string | undefined, benchTitle: string | undefined): string {
+  return panelHeading({ title: benchTitle, view: { title: viewTitle } });
 }

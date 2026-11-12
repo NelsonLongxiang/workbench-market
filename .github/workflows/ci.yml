@@ -166,6 +166,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/home-count-browser.mjs
+      - name: 驾驶舱里的数据视图（能改的人才有入口·选台只列有权限的台·挂上后出现小标题·共用筛选改一次两份都重取·看不到的不露代号；数据视图接口截成合成的）
+        env:
+          PYTHON: python
+        run: node scripts/cockpit-bench-view-browser.mjs
       - name: 身份服务连不上（#639 的 502 identity_unavailable——整页提示·角标和等你拍板写暂时取不到·不跳登录页·自动重试后提示消失·别的 502 和 401 不算）
         env:
           PYTHON: python

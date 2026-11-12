@@ -16,7 +16,7 @@ export default function BenchViewPanel({ refItem, params, shared, heading, onLoa
   refItem: BenchViewRef; params?: Record<string, string>;
   /** 筛选由外面管：不画视图自己的筛选栏 */
   shared?: boolean;
-  /** 上面加一行小标题（视图名 · 台名） */
+  /** 上面加一行小标题（视图名 · 台名；没取到时只写「一份数据视图」，不露标识） */
   heading?: boolean;
   /** 每次取完告诉外面：取到了给结果，没取到给 null */
   onLoaded?: (i: string, result: ViewResult | null) => void;
@@ -37,7 +37,7 @@ export default function BenchViewPanel({ refItem, params, shared, heading, onLoa
   }, [refItem.bench, refItem.view, refItem.i, key, onLoaded]);
   useEffect(() => { setS((cur) => (cur.phase === 'ok' ? cur : { phase: 'loading' })); void load(); }, [load]);
 
-  const head = heading ? <div className="wm-ck-bv-head" data-testid="ck-bv-head">{panelHeading(refItem, s.phase === 'ok' ? s.result : null)}</div> : null;
+  const head = heading ? <div className="wm-ck-bv-head" data-testid="ck-bv-head">{panelHeading(s.phase === 'ok' ? s.result : null)}</div> : null;
   if (s.phase === 'loading') return <>{head}<div className="wm-ck-pad" data-testid="ck-bench-view-loading"><Skeleton active paragraph={{ rows: 3 }} /></div></>;
   // 开关关着不是出错：不用警示色，说一句「数据视图未开启」，面板位照样留着
   if (s.phase === 'off') return <>{head}<div className="wm-ck-pad" data-testid="ck-bench-view-off"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={BENCH_VIEWS_OFF} /></div></>;
