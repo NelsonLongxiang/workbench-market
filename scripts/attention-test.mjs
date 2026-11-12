@@ -179,6 +179,10 @@ try {
   check(bySource(admin, 'change-requests').length === 2 && bySource(admin, 'mcp-access').length === 1, '对照：已批、已拒的不出现', show(admin.counts.by_source));
   check(admin.items.every((x) => ['source', 'source_id', 'category', 'title', 'waiting_for', 'since', 'answers', 'object', 'phase', 'link'].every((k) => k in x)), '每条的形状统一（来源、id、类别、标题、谁在等、从何时等、答法、对象、阶段、链接）');
   check(bySource(admin, 'seat-asks')[0]?.link.startsWith('/work-items/wi_wbe-'), '席位的提问带着对应事项的链接', show(bySource(admin, 'seat-asks')));
+  // 链接只放站内页面路径：要么 null（没有对应页面，在卡片上当场办），要么是 / 开头、不是 /api/ 的路径
+  const badLinks = Object.entries(views).flatMap(([who, v]) => (v.items ?? []).filter((x) => !(x.link === null || (typeof x.link === 'string' && x.link.startsWith('/') && !x.link.startsWith('/api/')))).map((x) => [who, x.source, x.link]));
+  check(badLinks.length === 0 && bySource(admin, 'principal-pending').every((x) => x.link === null),
+    '各来源给的链接要么是 null，要么是站内页面路径（不以 /api/ 开头）；待对接的主体没有对应页面，给 null', show(badLinks));
 
   // 事项：验收 = ready（建立人 + 管理员），过目 = held（管理员）
   const accept = (who) => bySource(views[who], 'work-items', 'accept').length;

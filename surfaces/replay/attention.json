@@ -22,7 +22,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1816", "etag": "W/\"718-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1795", "etag": "W/\"703-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -50,7 +50,7 @@
                   "title": "Synthetic Pending（replay）等对接到主体",
                   "waiting_for": "replay:synthetic-pending",
                   "since": "YYYY-MM-DD hh:mm:ss",
-                  "link": "/api/principals/pending"
+                  "link": null
                 }
               ],
               "counts": { "total": 2, "by_category": { "ask": 0, "review": 1, "accept": 0, "glance": 0, "grant": 1 }, "by_source": { "change-requests": 1, "principal-pending": 1 } },
@@ -80,7 +80,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1816", "etag": "W/\"718-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1795", "etag": "W/\"703-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -108,7 +108,7 @@
                   "title": "Synthetic Pending（replay）等对接到主体",
                   "waiting_for": "replay:synthetic-pending",
                   "since": "YYYY-MM-DD hh:mm:ss",
-                  "link": "/api/principals/pending"
+                  "link": null
                 }
               ],
               "counts": { "total": 2, "by_category": { "ask": 0, "review": 1, "accept": 0, "glance": 0, "grant": 1 }, "by_source": { "change-requests": 1, "principal-pending": 1 } },
@@ -138,7 +138,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1285", "etag": "W/\"505-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1264", "etag": "W/\"4f0-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -152,7 +152,7 @@
                   "title": "Synthetic Pending（replay）等对接到主体",
                   "waiting_for": "replay:synthetic-pending",
                   "since": "YYYY-MM-DD hh:mm:ss",
-                  "link": "/api/principals/pending"
+                  "link": null
                 }
               ],
               "counts": { "total": 1, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 1 }, "by_source": { "principal-pending": 1 } },

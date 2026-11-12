@@ -215,7 +215,7 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
             ? `${p.display_name || p.external_id}（${p.provider}）这个账号绑在非人主体（席位、节点）上，不能拿来登录；要让本人登录，先解绑那条外部身份`
             : `${p.display_name || p.external_id}（${p.provider}）等对接到主体`,
           waiting_for: `${p.provider}:${p.external_id}`,
-          since: p.last_seen, answers: p.reason === 'bound-to-non-person' ? [] : ['bind'], link: '/api/principals/pending',
+          since: p.last_seen, answers: p.reason === 'bound-to-non-person' ? [] : ['bind'], link: null, // 没有对应的页面：这类条目在卡片上当场办（link 只放站内页面路径，不放接口地址）
         }));
       },
     }),
@@ -264,13 +264,13 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           return item({
             source: 'team-health', source_id: `team:${x.host}:${x.team}`, category: 'glance',
             title: `团队 ${teamName(x.team) || '（没有名字）'}${node.node_name ? `（来自 ${node.node_name}）` : ''}${what[x.status]}`,
-            waiting_for: node.node_name ?? '', since: node.roster_received_at ?? '', link: '/teams', object: x.team, phase: x.status,
+            waiting_for: node.node_name ?? '', since: node.roster_received_at ?? '', link: '/team', object: x.team, phase: x.status,
           });
         });
         const stale = t.staleRosters().map((r) => item({
           source: 'team-health', source_id: `roster:${r.host}`, category: 'glance',
           title: `${r.node_name ? `节点 ${r.node_name}` : '一个节点'}的团队名册超过 ${t.rosterStaleMinutes()} 分钟没更新（最近一次收到：${r.roster_received_at}）`,
-          waiting_for: r.node_name ?? '', since: r.roster_received_at, link: '/teams', phase: 'roster-stale',
+          waiting_for: r.node_name ?? '', since: r.roster_received_at, link: '/team', phase: 'roster-stale',
         }));
         return [...stale, ...teamsOut];
       },
@@ -290,7 +290,7 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
         return ps.list().filter((p) => p.status === 'pending' && ps.confirmRefusal(p, actor) === null).map((p) => item({
           source: 'relation-proposals', source_id: String(p.id), category: 'grant',
           title: `${what[p.kind]}：${p.kind === 'team-claim' ? `团队 ${teamName(p.team) || '（没有名字）'} → 部门 ${p.department_id}` : `${p.principal_id}${p.kind === 'dept-lead' ? ` 做部门 ${p.department_id} 的负责人` : ` 做团队 ${teamName(p.team) || '（没有名字）'} 的负责人`}`}（${p.proposed_by} 提议）`,
-          waiting_for: p.proposed_by, since: new Date(p.proposed_at).toISOString(), link: '/teams', phase: p.kind,
+          waiting_for: p.proposed_by, since: new Date(p.proposed_at).toISOString(), link: '/team', phase: p.kind,
         }));
       },
     }),
