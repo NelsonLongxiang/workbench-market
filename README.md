@@ -26,7 +26,7 @@ node scripts/upgrade-smoke.mjs        # 升级冒烟：线上发布分支的库�
 python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 ```
 
-环境变量（13 面）：
+环境变量（14 面）：
 - `PORT`（默认 9800）
 - `WM_LOGIN_GATE`（全站登录门·`enforce`=没有身份什么都访问不到：页面 302 `/login`、API 401；缺省/`off`=行为不变；其它值拒绝启动；见 [ADMIN-TOKEN-SETUP.md](ADMIN-TOKEN-SETUP.md)「全站登录门」）
 - `WM_CONTROL_PORT`（可选的独立管理端口·缺省不开·见「信任模型」）
@@ -37,6 +37,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `MARKET_TEAM`（A2A team 默认 `market`；名片的 team、会话句柄 `<MARKET_TEAM>/<node8>` 和工作台事件出站的 caller_session 都用它）
 - `MARKET_PUBLIC_URL`（对外基址·A2A 卡片与 MCP `skill_download` 下载链接用；生产建议设成 https 地址——没设时下载链接取请求主机，主机名不规范就不签发）
 - `A2A_API_KEY`/`A2A_STATE_URL`（A2A 外部面）
+- `WM_OUTBOUND`（对外断开·预发用·缺省 `on`；`off`=这个进程一个字节都不往外发：TCP、TLS、DNS、UDP 在发出前被拦下并计数，不许起子进程和 Worker，工作台事件投递和回执 outbox 整轮跳过（在途的保持 pending、不加 attempts、不判死），启动时的豁免面变更通知不发，库里的巡检间隔、MCP 上游、沙箱桥一律按关处理，check-all 拒绝探活；只放行本进程自己在听的回环端口。启动自检多一行「对外已断开」，`/api/health` 和 `/api/health/ready` 带 `outbound`，页面顶上有横幅。只能经环境变量打开；其它值拒绝启动。拿生产数据的副本做预发时用，见下方「预发：对外断开」）
 - `WM_A2A_DIRECT_SIG`（`POST /a2a/direct` 入站签名·缺省 `accept`=签名可选：带了 OriginClaim Sig2 就验，取卡或验签这一步验不过（没登记取卡地址、取不到卡、卡上身份不对、签名对不上卡）按未签名走绑定准入——不比不带签名更宽也不更严，格式、时间戳、受众、身份不符、重放照旧 401；`require`=没签名或验不过一律 401；`off`=不验；`WM_LOGIN_GATE=enforce` 时强制 `require`；其它值拒绝启动。公钥只从调用方绑定上登记的 `notify_url` 取卡，不跟随重定向）
 - `WM_A2A_DIRECT_SIG_BODY`（缺省 `accept`；`require`=只认同时签了 body 摘要的 `X-WM-Body-Sha256`/`X-WM-Body-Sig`，现有 DSH 节点只发 Sig2，打开前对端要先升级；其它值拒绝启动）
 - `WM_A2A_CARD_COOLDOWN_S`（`/a2a/direct` 入站验签取卡的冷却秒数·缺省 30·只收 1～3600 的整数，否则拒绝启动；验签失败触发的重取卡按登记地址在冷却期内只发一次，对方换钥匙冷却过后生效）
@@ -97,7 +98,10 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - 一行管台数据的读：远程匿名不带台令牌 GET `/api/apps/<台>/data` 必须被拒（登录门关着 403，开着由登录门先拦 401；`WM_APP_DATA_READ=warn` 时这一行不跑）；
 - 一行管写 run：远程匿名不带 run 的写凭据 PUT `/api/sop/runs/<编出来的号>` 必须被拒（登录门关着 403，开着由登录门先拦 401；`WM_SOP_RUN_WRITE=warn` 时这一行不跑）；
 - 另有一行进程内的自检管设置的出口（`settings.no-secret-values`，不发请求）：启动时拿真实的设置跑一遍两级出口，凭据类的值漏进任何一级就拒绝启动（只记键名）；
+- `WM_OUTBOUND=off` 时另加一行「对外已断开」：真的去连一个不可路由的地址（192.0.2.1），确认在连之前就被闸拦下；闸没装上就拒绝启动；
 - 一行管导出真值：远程匿名带 `reveal=1` 导出必须被拒（登录门关着 403，开着由登录门先拦 401）。`WM_LOGIN_GATE=enforce` 时另加四行：远程匿名 GET `/`、`/apps/<台>/` 必须 302 到登录页、`/api/apps` 必须 401（浏览器写那一行改为期望登录门的 401），外加远程无签名 `POST /a2a/direct` 必须 401。强制行通过后才开放业务并启动后台巡检，health 可回读逐行结果。任一强制行失败或超时只关闭本进程监听并非零退出，不杀宿主或父进程；
+
+测试环境（`NODE_ENV=test`）里自检等得久一点：单条请求 8 秒（生产 1.5 秒）、等监听 60 秒（生产 10 秒）。判定一条不变，应答不对照样拒绝启动；这只是为了 CI 机器忙时不因「超时」「面没在听」误拒。测试起隔离实例时，用 `scripts/lib/self-probe-env.mjs` 分清环境问题和真失败：环境问题有限次重试，用完了在报错里写明「环境问题」；真失败立刻报。
 
 只有 `NODE_ENV=development/test` 的显式 `MCP_GATEWAY=off` 才把两条 MCP 行变成 warning，生产/未设/空/未知模式配 off 两行均 fail 并拒绝启动；控制面关闭则对应行 skip，不能视为完整认证验证。
 
@@ -117,6 +121,17 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - 退出码：0 全过；1 有检查不过；2 准备阶段出错（取不到基线、装不上依赖、灌不进数据）。
 
 它不覆盖：真实数据的量和形状（大库的回填耗时要另外量）、部署方的扩展目录、登录提供方（Odoo、飞书）和生产环境变量。
+
+## 预发：对外断开
+
+拿生产数据的副本起一个预发实例时，副本里的台地址、通知绑定、投递目标、对端都是生产的真实地址。不断开，它会拿着生产的数据去给真实的对端发消息。设 `WM_OUTBOUND=off` 启动：
+
+- 闸在最底下（`server/src/outbound-gate.ts`，入口文件第一个引入）：TCP / TLS 在 `net.Socket.connect` 这一层拦（fetch、http、http2、反代、Redis 客户端都经过它），DNS 拦 `dns.lookup` 和各种 resolve，UDP 拦 `dgram` 的 send / connect，子进程和 Worker 一律不许起。只放行本进程自己在听的回环端口（启动自检要连自己）。
+- 拦不到的：本进程以外的东西（宿主机上别的进程）、原生扩展自己开的套接字、直接调内部绑定（本仓都没有）。所以部署侧仍建议把预发容器放在没有出口路由的内部网络里，作为第二道。
+- 会定时往外发的 worker（工作台事件投递、回执 outbox）在关着时整轮跳过：不发、不加 attempts、不判死，在途的保持 pending，开关打开以后原样接着投。启动时的豁免面变更通知不发。库里随副本带来的巡检间隔、MCP 上游、沙箱桥一律按关处理；check-all 返回 503。
+- 看得见：启动自检多一行「对外已断开」；`/api/health`、`/api/health/ready` 带 `outbound: { mode: 'off' }`（带管理口令时再给各类被拦的次数和最近 20 个目标）；页面每一页顶上有红色横幅。
+- 验证：`node scripts/outbound-off-test.mjs`（CI 里跑）。一个只记账的假网络，库里和环境里所有对外地址都指向它，各触发点走一遍，断言它收到 0 个连接；对照组不开开关重跑，必须收到连接。
+- 副本里带着生产的签名密钥（`a2a-key.pem`、`.wm-submitter-ticket.key`）和有效会话：预发实例的地址不要对外开放，预发结束后连数据目录一起删掉。
 
 ## 功能
 
@@ -325,6 +340,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   login-gate.ts（全站登录门 WM_LOGIN_GATE：enforce 时页面 302 登录、API 401）
   mcp-tools.ts（MCP 工具注册表）
   owner-pending.ts（待属主看板的判断，服务端那一份：和 web/src/owner-pending.ts 跑同一份用例表 scripts/owner-pending-cases.json）
+  outbound-gate.ts（对外断开 WM_OUTBOUND=off 的闸：在 net.Socket.connect、DNS、UDP、子进程这几层拦下一切出站并计数；index.ts 第一个引入它）
   path-inside.ts（路径落点判断，只此一处：规范化后等于根、或以「根加分隔符」开头才算在根里；/apps/ 静态托管、/go/ 转自产台、/sop/ 附件都用它）
   portal-observation.ts（无敏感原文的被动计数）
   portal.ts（/go/ 反代·白屏五层+登录态）
@@ -356,6 +372,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   url-admission.ts（#258 R3 业务 URL 登记准入单核·WM_REGISTER_URL_ALLOWLIST）
   vault-api.ts（凭据库 REST 面）
   vault/（dsh-vault 存储层引入件·见其 README）
+  work-item-access.ts（事项上这个人能做什么、是不是轮到他：canOf、turnOf、creatorOf，事项详情和「关注」共用；每一项和对应动作接口同一处判断（放行 releaseBlock、对话写入和验收 writerVerdict、回复 replyableMessages、提问 pendingAsksOfEvent））
   workbench-events.ts（工作台事件层 v1：人提交→事件→团队接单→决定回写）
   workbench-vars.ts（#336 工作台变量与常量：按台隔离、revision 乐观锁、常量保护）
 server/src/login-providers/  登录提供方插件（身份的具体实现只放这里，核心不引用）：index.ts（清单：这个部署装哪些提供方） feishu/index.ts（飞书登录方式：授权码流程，向 `identity` 登记一个登录方式，凭证从凭据库取） odoo/index.ts（Odoo 提供方的插件入口：向 `identity` 登记、提供 `loginRelay`） odoo/odoo-viewer.ts（Odoo 查看人现查） odoo/odoo-session.ts（门户 Odoo 会话可信源判定与剥除、登录回调票据） odoo/odoo-login-proxy.ts（可选同源 Odoo 登录中继 WM_ODOO_LOGIN_PROXY：只放行登录面，不代理 Odoo 应用） odoo/odoo-browser-origin.ts（只给浏览器用的 Odoo 登录地址 WM_ODOO_BROWSER_URL：登录一跳送到可信内网地址，身份与代理目标不变）
@@ -365,6 +382,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   a2a-idempotency.ts（`/a2a/direct` 幂等登记：task_id → 指纹 sha256，30 分钟窗口，落库，重启后同一 task_id 仍判 replay / conflict；只存摘要不存原文）
   a2a-peers.ts（对端登记表：Cordis 服务 `a2aPeers`·一个节点一行·登记时取名片验签钉住公钥·公钥变了改成 key_changed 等管理员确认、不自动接受·停用是粘住的、只有管理员重新启用能解·canDeliver 供投递查（调用方阶段七接上，接上前对投递、入站没有效果）·按对端算健康·升级回填从现有绑定和投递建对端行）
   a2a-receipts.ts（回执入站的登记：我们发出的任务号 → 事件、投递、对端；采信过的回执按任务号去重；签名只认一次）
+  a2a-roster.ts（团队名册：每台宿主一行、席位按「节点 + 团队 + 句柄」一行，以新替旧；入库时算出变化（新团队、新成员、成员消失、团队消失、换总工）记进 a2a_roster_changes；在办件数从事项现算；只当信息）
   a2a-replies.ts（市场回给团队的消息的发送状态：答复、来信回复、跟进回执；时间由代码生成后写入）
   a2a-stats.ts（A2A 出站积压的聚合读数：两张出站表按状态计数、最老待发、最近回执时长）
   attention-sources.ts（「关注」要用、来源里还没有现成函数的只读查询：席位未答的提问）
@@ -378,8 +396,9 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   remote-allow.ts（远程写豁免面的快照）
   submission-counts.ts（「人提需求」的提交计数：只记通道、有没有登录凭据、认没认出人，按天累计次数，不存内容；提交人票据验得过、验不过的次数）
   task-center.ts（任务中心：任务、事件、总开关、状态迁移）
-  work-item.ts（事项与事项日志：Cordis 服务 `workItems`·按迁移表推进状态的唯一入口 `apply`·日志只增不改；听 workbench-events 每写一行事件日志发的 `workbench-event/logged`，在来源的事务里用保存点推进事项，出错不影响来源、按事实种类计数；`backfill()` 从事件表和事件日志补建存量事项，可重跑；建事项时标题取任务中心的任务标题（取不到退到来源坐标）、派给取投递的目标团队，存量里还是自动缺省值的启动时补上；建立人主体 `creator_principal` 只取发布时经身份服务认出、来源已验证的人，认不出就空着，「是不是他的」只认它（`isCreator`），`created_by` 只用于显示）
+  work-item.ts（事项与事项日志：Cordis 服务 `workItems`·按迁移表推进状态的唯一入口 `apply`·日志只增不改；听 workbench-events 每写一行事件日志发的 `workbench-event/logged`，在来源的事务里用保存点推进事项，出错不影响来源、按事实种类计数；`backfill()` 从事件表和事件日志补建存量事项，可重跑；建事项时标题取任务中心的任务标题（取不到退到来源坐标）、派给取投递的目标团队，存量里还是自动缺省值的启动时补上；建立人主体 `creator_principal` 只取发布时经身份服务认出、来源已验证的人，认不出就空着，「是不是他的」只认它（`isCreator`），`created_by` 只用于显示（认出提需求人时就是他的主体，认不出才用事件上自填的名字；不拿发布人顶替））
 server/src/routes/    按域分的路由模块，各带一个注册函数（一个文件一行，按文件名排序）：
+  a2a-direct.ts（A2A 入站 /a2a/direct：POST 收对端投递（回执分流、入站签名、绑定准入），GET 一律 404）
   a2a-peers.ts（对端登记表 /api/a2a/peers：列出和健康、登记、刷新名片、确认新公钥、停用、重新启用，只有管理员能用）
   admin-token.ts（管理口令 /api/admin/whoami、/api/admin-token）
   agent-card.ts（A2A 签名卡片 /.well-known/agent-card.json）
@@ -417,12 +436,14 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   stats.ts（端点命中统计 /api/stats）
   summary.ts（首页总览 /api/summary）
   task-center.ts（任务中心 /api/task-center：录入发布、任务、总开关、模板、任务锁、撤回、派发开关；录入发布：事项的建立人是提需求的人——建录入时经身份服务认出、记在录入上的那个，没有就空着；发布的人认得出就只留痕）
+  tasks.ts（统一待办 /api/tasks 与 ygl 项目读授权的授予、撤销）
   types.ts（类型管理 /api/types）
+  a2a-roster.ts（团队名册的读 GET /api/a2a/teams：登录即可读，只有席位信息（团队、席位名、角色、在岗、在办件数从事项现算），不含事项内容；名册只当信息，判定一律不看它）
   work-items.ts（事项列表 /api/work-items：按 state、object、phase 筛，按更新时间倒序游标翻页，带可见范围里按状态的计数和每件的最后一条进展；可见范围和详情同一个判断，看不到的不出现也不计数。事项的读 /api/work-items/:id：事项和它的日志，事项页的时间线照着渲染；管理员看全部、登录的人只看自己建立的。建立人验收、退回 POST /api/work-items/:id/decision：不经管理门（写请求总门只对这一条子路径放行），经身份服务认人、主体须是启用的人、同源，事项服务判是不是建立人和能不能由建立人答，只收验收、退回，只对等验收的事项；建立人只认事项上的建立人主体，空着的只有管理员能看、能处理）
   workbenches.ts（工作台 /api/workbenches、/api/check-all）
 web/src/        pages/（Dashboard/Market/Sops/Types/Settings/UseWorkbench/Cockpit/McpGateways/Tasks/Skills/SopSpace/SopRunDetail/Vault/Reviews/OwnerPending/Attention/WorkItem/NotYet） work-item-view.ts（事项详情页的提示、进展、结果解析，纯函数） NotYet.tsx（还没有数据来源的入口：说清要显示什么、在等哪项接口） components/（Shell.tsx 外壳：侧栏与主区卡片；WmPage.tsx 页面骨架：顶栏与内容区） admin-token.ts（统一口令注入）
 deploy/         Dockerfile.market（多阶段·非 root·HEALTHCHECK） docker-compose.yml（回环默认·profiles 隔离） layerfs-svc.mjs
-docs/           layerfs-service-contract-v0/v1.md（LayerFS 服务契约）
+docs/           layerfs-service-contract-v0/v1.md（LayerFS 服务契约） data-views.md（数据视图设计稿：模块化渲染组件、每台一份数据、经 MCP 更新；未开工）
 data/           SQLite 数据文件（git 忽略）
 ```
 
@@ -442,7 +463,7 @@ data/           SQLite 数据文件（git 忽略）
 
 每次都不一样的东西不比：`Date`、`Connection`、`Keep-Alive` 三个头不录；时间里的数字换成占位，写法留着（所以时间的写法变了看得出来）；按内容算出来的 ETag 只留长度。值每次都变的响应头只遮那几个字节，在请求上用 `vary` 点名：`$location: ['port', 'query:state']` 把跳转地址（`Location` 头和写进正文的地址）里回环地址后面的端口换成占位（分「市场端口」和「别的端口」，回调地址写死成别的端口看得出来）、点名的查询参数的值换成只留长度的占位，主机、路径、别的参数照比；`$cookies: { 名字: ['value', 'max-age'] }` 把这个 cookie 的值换成只留长度的占位、`Max-Age` 按分钟四舍五入（差一秒不报，期限改了照样报），cookie 的名字和 `Path`、`HttpOnly`、`SameSite`、`Secure` 等属性照比。不许为了会变的内容整段不比（`compare: 'status'` 只给借别的域布置现场的请求用）。
 
-应答里由「现在」算出来的数（还有几天过期、今天是哪一天）每次也不一样。这样的场景在请求集里写一个 `clock`（ISO 时刻），实例的时钟就从那一刻开始走（`scripts/replay-clock-preload.mjs`，只在测试环境可用），这些数才能录下来比。数据库自己取的时间不受影响。应答体里每个实例随机生成的值（密钥、签名），在那条请求上写 `vary`：点名的字段换成占位，只留类型和长度；由「现在」算出来、带毫秒的数也可以点名，往下取整再比。`vary` 之后签名只比长度，所以签名卡片的请求另写 `verify: "a2a-card"`：换占位之前先用卡片里的公钥验签名，验的结果录下来比。要认人的路由，场景写 `fixtures: ["identity-fake"]`，登录提供方换成假的（`scripts/identity-fake-provider.mjs`，只在测试环境可用），不访问外部系统。要从 GitHub 同步或要碰 LayerFS 的路由，场景写 `fixtures: ["github-fake"]`、`["layerfs-fake"]`：进程里起一个只听回环地址的假服务，同步和影子发布指过去（`scripts/github-fake-preload.mjs` 预先放好几个仓库，`scripts/layerfs-fake-preload.mjs` 的 commit 号按内容算），都只在测试环境可用。经 HTTP 建不出来的磁盘前提（比如台已经物化好的版本目录），场景写 `seed_files`：`{ path, content }`，路径是数据目录下的相对路径，不许 `..`、绝对路径和隐藏段。
+应答里由「现在」算出来的数（还有几天过期、今天是哪一天）每次也不一样。这样的场景在请求集里写一个 `clock`（ISO 时刻），实例的时钟就从那一刻开始走（`scripts/replay-clock-preload.mjs`，只在测试环境可用），这些数才能录下来比。数据库自己取的时间不受影响。应答体里每个实例随机生成的值（密钥、签名），在那条请求上写 `vary`：点名的字段换成占位，只留类型和长度；由「现在」算出来、带毫秒的数也可以点名，往下取整再比。`vary` 之后签名只比长度，所以签名卡片的请求另写 `verify: "a2a-card"`：换占位之前先用卡片里的公钥验签名，验的结果录下来比。要认人的路由，场景写 `fixtures: ["identity-fake"]`，登录提供方换成假的（`scripts/identity-fake-provider.mjs`，只在测试环境可用），不访问外部系统。要从 GitHub 同步或要碰 LayerFS 的路由，场景写 `fixtures: ["github-fake"]`、`["layerfs-fake"]`：进程里起一个只听回环地址的假服务，同步和影子发布指过去（`scripts/github-fake-preload.mjs` 预先放好几个仓库，`scripts/layerfs-fake-preload.mjs` 的 commit 号按内容算），都只在测试环境可用。统一待办的路由写 `fixtures: ["tasks-fake"]`：ygl-trees 的工作区和命令行调用、A2A 状态端点、三个扩展来源都换成假的（`scripts/tasks-fake-preload.mjs`，命令行调用在进程里截下，不起子进程），只在测试环境可用。经 HTTP 建不出来的磁盘前提（比如台已经物化好的版本目录），场景写 `seed_files`：`{ path, content }`，路径是数据目录下的相对路径，不许 `..`、绝对路径和隐藏段。
 
 每条路由都要有未授权、参数非法、正常三类请求。类别按录下来的应答核对：未授权是 401 或 403，参数非法是其余的 4xx，正常是 2xx 或 3xx；请求上标的类别和应答对不上，脚本就失败。确实没有某一类的路由（比如不读任何参数，就没有会被拒的输入），在请求集的 `exempt` 里写明理由，并指给一条打在这条路由上、照常应答的请求。
 

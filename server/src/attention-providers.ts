@@ -41,6 +41,7 @@ import type { PrincipalService } from './services/principal.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import { isCreator, type WorkItemService } from './services/work-item.ts';
 import type { A2aPeerService } from './services/a2a-peers.ts';
+import { creatorOf, turnOf, type WorkItemViewer } from './work-item-access.ts';
 
 export type AttentionDeps = {
   /** index.ts 的管理门（变更申请、MCP 权限申请、工作台事件用的就是它） */
@@ -59,8 +60,16 @@ function silentRes(): express.Response {
 }
 const passes = (guard: (req: express.Request, res: express.Response) => boolean, req: express.Request) => guard(req, silentRes());
 
-const item = (x: Omit<AttentionItem, 'object' | 'phase' | 'answers'> & Partial<Pick<AttentionItem, 'object' | 'phase' | 'answers'>>): AttentionItem =>
-  ({ answers: [], object: '', phase: '', ...x });
+const item = (x: Omit<AttentionItem, 'object' | 'phase' | 'answers' | 'mine'> & Partial<Pick<AttentionItem, 'object' | 'phase' | 'answers' | 'mine'>>): AttentionItem =>
+  ({ answers: [], object: '', phase: '', mine: true, ...x });
+
+/** 「关注」里看的人：管理员（各来源列表用的同一个管理门判过）和登录认出来的主体。给 turnOf 算 mine */
+async function attentionViewer(req: express.Request, admin: boolean): Promise<WorkItemViewer> {
+  let principal: string | null = null;
+  const cookie = String(req.headers.cookie ?? '');
+  if (cookie) { const who = await identity().resolveViewer(cookie); if (who.ok) principal = who.viewer.sub; }
+  return { admin, principal, person: principal !== null, actor: principal ?? 'admin' };
+}
 
 /** 统一待办条目是哪一类（只增的 kind 字段，前端据此不把它们放进「等你审核」）：它们不是审核，没有当场的答法 */
 export const TASK_KINDS = ['task', 'sop-run', 'ygl', 'a2a', 'other'] as const;
@@ -107,14 +116,22 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
     provide({
       source: 'seat-asks', label: '席位的提问',
       // 旧接口 /api/workbench-events 在 ADMIN_IDENTITY_PATHS 里，会话登录的管理员在那里也算管理员
-      list: (req) => passes(deps.adminGuard, req)
-        ? openSeatAsks().map((a) => item({
-          source: 'seat-asks', source_id: String(a.delivery_id), category: 'ask',
-          title: `${a.target_team} 问：${a.question || '（没写问题）'}${optionsHint(a.options)}`,
-          waiting_for: a.ask_kind === 'receipt' ? (a.asked_by || a.target_team) : a.asked_by ? `receiver:${a.asked_by}` : a.target_team, since: a.asked_at, answers: ['answer'],
-          link: `/work-items/wi_${a.event_id}`,
-        }))
-        : null,
+      list: async (req) => {
+        if (!passes(deps.adminGuard, req)) return null;
+        const viewer = await attentionViewer(req, true);
+        const items = svc<WorkItemService>('workItems');
+        return openSeatAsks().map((a) => {
+          const w = items.get(`wi_${a.event_id}`);
+          return item({
+            source: 'seat-asks', source_id: String(a.delivery_id), category: 'ask',
+            title: `${a.target_team} 问：${a.question || '（没写问题）'}${optionsHint(a.options)}`,
+            waiting_for: a.ask_kind === 'receipt' ? (a.asked_by || a.target_team) : a.asked_by ? `receiver:${a.asked_by}` : a.target_team, since: a.asked_at, answers: ['answer'],
+            link: `/work-items/wi_${a.event_id}`,
+            // 提问轮到的是建立人：管理员在这里是代办（除非他就是建立人）
+            mine: !!w && turnOf(w, viewer).answer, creator: w ? creatorOf(w) : null,
+          });
+        });
+      },
     }),
     provide({
       source: 'tasks', label: '任务中心收件（统一待办）',
@@ -122,8 +139,13 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
         const access = await tasksReadAccess(deps.adminHeaderOk(req), String(req.headers.cookie ?? ''));
         if (!access.ok) return null;
         const payload = await collectTasks(sop() as never, access.scope);
+        // 同一件事在「等你拍板」里只出现一次，以事项为准：任务中心的任务已经有对应事项的（安排的、旧录入路径发布的都算），
+        // 统一待办那一条不再列。只在「关注」聚合这里剔，/api/tasks 本身不变
+        const taskIdOf = (id: string) => { const m = /^market:task-([1-9]\d{0,15})$/.exec(id); return m ? Number(m[1]) : null; };
+        const withItems = svc<WorkItemService>('workItems').taskIdsWithItems(payload.tasks.map((t) => taskIdOf(t.id)).filter((n): n is number => n !== null));
         return payload.tasks
           .filter((t) => t.status !== 'done' && !TASKS_DEDUPED_PREFIXES.some((p) => t.id.startsWith(p)))
+          .filter((t) => { const n = taskIdOf(t.id); return n === null || !withItems.has(n); })
           .map((t) => item({
             source: 'tasks', source_id: t.id, category: 'review', title: t.title, waiting_for: t.source,
             since: '', answers: [], link: t.link ?? '/tasks', object: t.project ?? '', // 统一待办的信封没有「什么时候开始」
@@ -165,22 +187,22 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
       list: async (req) => {
         const items = svc<WorkItemService>('workItems');
         const admin = passes(deps.adminGuard, req);
+        const viewer = await attentionViewer(req, admin);
         let mine: (w: { creator_principal: string | null }) => boolean = () => false;
         if (!admin) {
-          const cookie = String(req.headers.cookie ?? '');
-          if (!cookie) return null;
-          const who = await identity().resolveViewer(cookie);
-          if (!who.ok) return null;
-          const sub = who.viewer.sub;
+          if (!viewer.principal) return null;
+          const sub = viewer.principal;
           mine = (w) => isCreator(w, sub);
         }
         const out: AttentionItem[] = [];
         for (const w of items.list({ state: 'ready' })) {
           if (!admin && !mine(w)) continue;
-          out.push(item({ source: 'work-items', source_id: w.id, category: 'accept', title: w.title, waiting_for: w.target_team || w.seat || w.created_by, since: w.updated_at, answers: ['verify', 'return'], link: `/work-items/${w.id}`, object: w.object, phase: w.phase }));
+          out.push(item({ source: 'work-items', source_id: w.id, category: 'accept', title: w.title, waiting_for: w.target_team || w.seat || w.created_by, since: w.updated_at, answers: ['verify', 'return'], link: `/work-items/${w.id}`, object: w.object, phase: w.phase,
+            mine: turnOf(w, viewer).verify, creator: creatorOf(w) }));
         }
         if (admin) for (const w of items.list({ state: 'held' })) {
-          out.push(item({ source: 'work-items', source_id: w.id, category: 'glance', title: w.title, waiting_for: w.created_by, since: w.created_at, answers: ['release', 'withdraw'], link: `/work-items/${w.id}`, object: w.object, phase: w.phase }));
+          out.push(item({ source: 'work-items', source_id: w.id, category: 'glance', title: w.title, waiting_for: w.created_by, since: w.created_at, answers: ['release', 'withdraw'], link: `/work-items/${w.id}`, object: w.object, phase: w.phase,
+            mine: turnOf(w, viewer).release, creator: creatorOf(w) }));
         }
         return out;
       },

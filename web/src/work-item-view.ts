@@ -37,7 +37,7 @@ export function stateLabel(state: string, viewer: Viewer = VIEWER_NONE): string 
 }
 
 /** 一句话说清事项现在卡在哪、该谁动：页面顶上的提示条。终态和正常进行中不出提示 */
-export function stateHint(state: string, seat: string, askAnswered = false, viewer: Viewer = VIEWER_NONE): { type: 'info' | 'warning' | 'success'; text: string } | null {
+export function stateHint(state: string, seat: string, askAnswered = false, viewer: Viewer = VIEWER_NONE, canAnswerHere = true): { type: 'info' | 'warning' | 'success'; text: string } | null {
   const name = viewer.creator || '建立人';
   switch (state) {
     case 'draft': return { type: 'info', text: '这件事项还没提交，没有派给任何团队。' };
@@ -48,7 +48,8 @@ export function stateHint(state: string, seat: string, askAnswered = false, view
     case 'accepted': return seat ? null : { type: 'info', text: '团队已经接手，还没说是哪个席位在做。' };
     case 'blocked':
       if (askAnswered) return { type: 'info', text: '提问已经答复，在等席位接着做。' };
-      if (viewer.mine) return { type: 'warning', text: '席位在问你：你答复之后它才能接着做。' };
+      // 建立人在这一页答不了的时候（服务端还没开建立人答复的入口），不说「你答复之后」——他没地方答
+      if (viewer.mine) return { type: 'warning', text: canAnswerHere ? '席位在问你：你答复之后它才能接着做。' : '席位在问你。这里还不能直接答复，先请管理员代答。' };
       return { type: 'warning', text: viewer.can.answer ? `席位在问 ${name}；你可以代答。` : `席位在问 ${name}，等 ${name} 答复。` };
     case 'ready':
       if (viewer.mine) return { type: 'success', text: '做完了，等你验收：通过就办结，打回就接着改。' };
@@ -280,4 +281,20 @@ export function rowActor(row: { actor?: string; fact_source?: string; detail?: s
   }
   if (typeof by === 'string' && by.trim()) return actorLabel(by, '');
   return actorLabel(row.actor || row.fact_source || '', '');
+}
+
+/** 「承接」这一栏怎么写。有席位写席位；拆单在做写几个成员在做。没有席位时不一律说「没人接」，照事项走到哪一步说：
+ *  还没派出去 / 已转交还没接手 / 团队接了还没说是哪个席位；已经结束的写谁做过（拆单写几个成员做过），一个都不知道就留空。
+ *  team：团队怎么显示由页面给（people.ts 的 teamLabel；这个文件由 Node 直接加载做单测，只能引类型） */
+export function seatLine(item: { seat?: unknown; state: string; target_team?: string | null }, subitems: Ticket[], team: (t: string) => string = (t) => t): string {
+  const s = seatSummary(item.seat, subitems);
+  if (s) return s;
+  if (TERMINAL.includes(item.state)) {
+    const did = [...new Set(subitems.map((t) => seatLabel(who(t.seat))).filter(Boolean))];
+    return did.length > 1 ? `${did.length} 个成员做过：${did.join('、')}` : did[0] ? `${did[0]} 做过` : '';
+  }
+  if (item.state === 'draft' || item.state === 'held') return '还没派出去';
+  const t = item.target_team ? team(item.target_team) : '';
+  if (item.state === 'delivered') return t ? `已转交给 ${t}，还没接手` : '已转交，还没接手';
+  return t ? `${t} 接了，还没说是哪个席位` : '团队接了，还没说是哪个席位';
 }

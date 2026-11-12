@@ -52,6 +52,34 @@
       "card_fetched_at TEXT NOT NULL DEFAULT ''",
       "card_error TEXT NOT NULL DEFAULT ''"
     ],
+    "a2a_roster_changes": [
+      "id INTEGER PK",
+      "host TEXT NOT NULL",
+      "kind TEXT NOT NULL",
+      "team TEXT NOT NULL",
+      "seat TEXT NOT NULL DEFAULT ''",
+      "detail TEXT NOT NULL DEFAULT '{}'",
+      "at TEXT NOT NULL"
+    ],
+    "a2a_roster_seats": [
+      "host TEXT NOT NULL PK",
+      "team TEXT NOT NULL PK",
+      "seat TEXT NOT NULL PK",
+      "seat_id TEXT NOT NULL DEFAULT ''",
+      "name TEXT NOT NULL DEFAULT ''",
+      "role TEXT NOT NULL DEFAULT ''",
+      "online INTEGER NOT NULL DEFAULT 0",
+      "queued INTEGER NOT NULL DEFAULT 0",
+      "last_active_at TEXT NOT NULL DEFAULT ''",
+      "first_seen_at TEXT NOT NULL"
+    ],
+    "a2a_rosters": [
+      "host TEXT PK",
+      "peer_root TEXT NOT NULL",
+      "peer_zone TEXT NOT NULL",
+      "reported_at TEXT NOT NULL",
+      "received_at TEXT NOT NULL"
+    ],
     "a2a_run_ctx": [
       "id INTEGER PK",
       "context_id TEXT NOT NULL",
@@ -746,6 +774,7 @@
     "idx_a2a_outbox_run ON a2a_outbox: CREATE UNIQUE INDEX idx_a2a_outbox_run ON a2a_outbox(run_id)",
     "idx_a2a_peers_registered_by ON a2a_peers: CREATE INDEX idx_a2a_peers_registered_by ON a2a_peers (registered_by)",
     "idx_a2a_peers_status ON a2a_peers: CREATE INDEX idx_a2a_peers_status ON a2a_peers (status)",
+    "idx_a2a_roster_changes_at ON a2a_roster_changes: CREATE INDEX idx_a2a_roster_changes_at ON a2a_roster_changes (id)",
     "idx_a2a_run_ctx ON a2a_run_ctx: CREATE INDEX idx_a2a_run_ctx ON a2a_run_ctx (context_id)",
     "idx_a2a_sent_tasks_delivery ON a2a_sent_tasks: CREATE INDEX idx_a2a_sent_tasks_delivery ON a2a_sent_tasks (delivery_id)",
     "idx_a2a_sig_seen_exp ON a2a_sig_seen: CREATE INDEX idx_a2a_sig_seen_exp ON a2a_sig_seen (expires_at)",

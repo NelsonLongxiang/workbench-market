@@ -567,7 +567,9 @@ export class WorkItemService extends Service {
     if (existing) this.fillDerived(existing, event);
     if (!existing) {
       const who = String(event.submitter ?? '').replace(/\s+/g, '_').slice(0, 200);
-      const createdBy = event.submitter_kind !== 'unverified' && /^[^:\s]+:\S/.test(who) ? who : `${event.submitter_kind}:${who || 'unknown'}`;
+      // 显示用的建立人：认出来的提需求人优先（和建立人主体同一个人），认不出才用事件上自填的名字。
+      // 不拿发布的人顶替（8f：发布的人只留痕，不当建立人，显示也不当）。以前任务中心来的都是 human:<自填的 published_by>。只影响新建的事项
+      const createdBy = creator ?? (event.submitter_kind !== 'unverified' && /^[^:\s]+:\S/.test(who) ? who : `${event.submitter_kind}:${who || 'unknown'}`);
       const derived = derivedOf(event);
       this.insertItem(itemId, {
         title: derived.title, target_team: derived.target_team, created_by: createdBy, creator_principal: creator,
@@ -695,6 +697,17 @@ export class WorkItemService extends Service {
     });
     const tail = rows[opts.limit - 1];
     return { items, counts, total: Object.values(counts).reduce((a, b) => a + b, 0), next: more && tail ? { updated_at: tail.updated_at, id: tail.id } : null };
+  }
+
+  /**
+   * 这些任务中心任务里，哪些已经有对应的事项（任务发布时记的事件建出了事项）。「关注」聚合统一待办时剔掉它们：
+   * 同一件事在「等你拍板」里只出现一次，以事项为准（事项的过目、验收是它的入口）。
+   */
+  taskIdsWithItems(taskIds: number[]): Set<number> {
+    if (!taskIds.length) return new Set();
+    const rows = db.prepare(`SELECT e.item AS item FROM workbench_events e JOIN work_items w ON w.event_id = e.id
+      WHERE e.source = 'task-center' AND e.item IN (${taskIds.map(() => '?').join(', ')})`).all(...taskIds.map((n) => `task:${n}`)) as { item: string }[];
+    return new Set(rows.map((r) => Number(r.item.slice(5))));
   }
 
   /** 唯一的改状态入口。 */

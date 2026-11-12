@@ -6,6 +6,7 @@
  * app 是 HTTP 服务，不是 Express 应用本身：注册的写法和 Express 一样，路由挂在调用那一刻的位置，注册可以撤销。
  * index.ts 里别的路由也在用、还没挪成模块的东西，经第二个参数传进来；处理函数照旧用原来的名字。
  */
+import { outboundOff, noteBlocked } from '../outbound-gate.ts';
 import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
@@ -78,6 +79,8 @@ export function registerWorkbenchRoutes(app: HttpService, deps: WorkbenchDeps): 
   }));
 
   app.post('/api/check-all', { action: 'workbench.check-all', kind: 'write' }, wrap(async (_req, res) => {
+    // 对外断开（预发）：不探——探不到会把副本里每个台都记成离线
+    if (outboundOff()) { noteBlocked('health-check'); return void res.status(503).json({ error: '对外已断开（WM_OUTBOUND=off），不做探活' }); }
     const settings = getSettings();
     const limit = Math.max(1, Number(settings.health_concurrency) || 8);
     const rows = svc<WorkbenchService>('workbench').enabled() as unknown as WorkbenchRow[];

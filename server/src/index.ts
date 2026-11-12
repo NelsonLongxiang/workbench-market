@@ -1,5 +1,7 @@
+// 对外断开（WM_OUTBOUND=off）的闸必须最先装上：之后引入的模块一开套接字就要经过它
+import { outboundOff, noteBlocked, outboundStatus, verifyOutboundGate } from './outbound-gate.ts';
 import express from 'express';
-import { createStartupSecurityProbe, isStartupProbeRequest } from './startup-security-self-probe.ts';
+import { createStartupSecurityProbe, isStartupProbeRequest, TEST_ENV_WAITS } from './startup-security-self-probe.ts';
 import { createLoginGate, loginGateMode, trustedProxies } from './login-gate.ts';
 import { identity, loginRelay } from './identity.ts';
 import { requestPerson, hasLoginCredential } from './request-person.ts';
@@ -41,16 +43,19 @@ import { installBuiltinJudge } from './judgment.ts';
 import { compareConfig, mountJudgmentCompare } from './judgment-compare.ts';
 import { registerAttentionRoutes } from './routes/attention.ts';
 import { registerWorkItemRoutes } from './routes/work-items.ts';
+import { registerRosterRoutes } from './routes/a2a-roster.ts';
 import { registerSettingsRoutes } from './routes/settings.ts';
 import { settingsViewsLeak } from './settings-view.ts';
 import { registerAdminTokenRoutes } from './routes/admin-token.ts';
 import { registerBindingRoutes } from './routes/bindings.ts';
 import { registerA2aPeerRoutes } from './routes/a2a-peers.ts';
+import { registerA2aDirectRoutes } from './routes/a2a-direct.ts';
 import { registerExportImportRoutes } from './routes/export-import.ts';
 import { registerLoginFlowRoutes } from './routes/login-flows.ts';
 import { registerWorkbenchRoutes } from './routes/workbenches.ts';
 import { registerSopPageRoutes } from './routes/sop-page.ts';
 import { registerLoginEventRoutes } from './routes/login-events.ts';
+import { registerTaskRoutes } from './routes/tasks.ts';
 import { registerChangeRequestRoutes } from './routes/change-requests.ts';
 import { registerSopStateRoutes, registerSopSpaceRoutes } from './routes/sops.ts';
 import { registerTaskIntakeRoutes, registerTaskReadRoutes, registerTaskControlRoutes } from './routes/task-center.ts';
@@ -93,18 +98,18 @@ import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, redisConfigured, runStateRestore, runStateRead, runStateRetire, type RunStateRead } from './redis.ts';
 import { createRunCheckpoints } from './sop-state-checkpoints.ts';
 import { duplicateNode8s } from './services/a2a-handles.ts';
-import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, memberProvenanceMode, setMemberProvenance, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
+import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, memberProvenanceMode, setMemberProvenance, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
 import type { IncomingMessage } from 'node:http';
-import { noteA2aError, type A2aErrorKey } from './a2a/errors.ts';
 import { a2aHealth } from './a2a/health.ts';
-import { followupRateLimit, handleInboundReceipt } from './a2a/receipt-inbound.ts';
-import { cardCooldownMs, createDirectSigVerifier, directSigBodyMode, directSigMode, shownRefusal, type DirectSigMode, type SigRefusal } from './a2a-direct-sig.ts';
+import { followupRateLimit } from './a2a/receipt-inbound.ts';
+import { cardCooldownMs, createDirectSigVerifier, directSigBodyMode, directSigMode, type DirectSigMode } from './a2a-direct-sig.ts';
 import { isInsideRoot } from './path-inside.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const http = svc<HttpService>('http'); // HTTP 服务持有 Express 应用；域模块经它注册路由（注册可撤销）
 const app = http.expressApp(); // 全局中间件、监听和还没搬走的路由，照旧直接用应用本身
-const startupSecurity = createStartupSecurityProbe();
+// 测试环境（NODE_ENV=test）等得久一点：只拉长等待，判定不变；生产照旧 1.5 秒一条、等监听 10 秒
+const startupSecurity = createStartupSecurityProbe(process.env.NODE_ENV === 'test' ? { ...TEST_ENV_WAITS } : {});
 app.use(startupSecurity.middleware); // #326: before parsers, content dispatch and every business route
 // 阶段六 6c：判定事件的内置监听器（六步）；并行比对（WM_JUDGMENT_COMPARE，缺省关）在应答结束之后算新结论、和旧结论比，不改应答
 installBuiltinJudge();
@@ -400,6 +405,7 @@ function announceAllowDiff(): void {
   console.warn(`[S3 豁免面变更] added=${JSON.stringify(lastAllowDiff.added)} removed=${JSON.stringify(lastAllowDiff.removed)}`);
   // S3 联动（direct-6a39fc57 ③）：变更通知绑定台面——延迟投（等所有 svc 就绪·尽力而为）
   setTimeout(() => {
+    if (outboundOff()) { noteBlocked('allow-notify'); console.warn('[S3-notify] 对外已断开：豁免面变更通知不发'); return; }
     try {
       const nts = db.prepare("SELECT target_slug, agent_node, notify_url FROM bindings WHERE direction IN ('notify','both') AND revoked_at = '' AND notify_url != ''").all() as { target_slug: string; agent_node: string; notify_url: string }[];
       for (const nt of nts) {
@@ -1675,6 +1681,7 @@ async function postReceipt(targetUrl: string, row: { run_id: number; task_id: st
 }
 /** 立即试投一次（finish 触发）；失败留给 worker */
 async function deliverOutboxOnce(runId: number): Promise<void> {
+  if (outboundOff()) { noteBlocked('receipt-outbox'); return; } // 对外断开：不试投、不记失败，留给开关打开以后
   try {
     const row = svc<SopService>('sop').outboxByRun(runId) as { id: number; run_id: number; task_id: string; context_id: string; target_url: string; payload: string; attempts: number; status: string } | undefined;
     if (!row || row.status !== 'pending') return;
@@ -1688,6 +1695,7 @@ async function deliverOutboxOnce(runId: number): Promise<void> {
   }
 }
 async function outboxWorkerTick(): Promise<void> {
+  if (outboundOff()) { noteBlocked('receipt-outbox'); return; } // 对外断开：整轮跳过，在途的保持 pending、attempts 不变
   try {
     const due = svc<SopService>('sop').outboxDue(20) as { id: number; run_id: number; task_id: string; context_id: string; target_url: string; payload: string; attempts: number }[];
     for (const row of due) {
@@ -1785,33 +1793,8 @@ function odooLoginUrl(req: express.Request, returnPath: string): string | null {
   return pick ? `/go/${pick.id}/?return=${encodeURIComponent(returnPath)}` : null;
 }
 
-// ---------- 统一待办（omni-inbox · 总工程师设计 9c5557c1c0）：只读聚合 ----------
-app.get('/api/tasks', wrap(async (req, res) => {
-  res.set('Cache-Control', 'private, no-store');
-  res.vary('Cookie'); res.vary('X-Admin-Token');
-  if (req.headers['sec-fetch-site'] === 'cross-site' || (req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req))) return res.status(403).json({ error: 'tasks_cross_origin_denied' });
-  const access = await tasksReadAccess(adminHeaderOk(req), String(req.headers.cookie ?? ''));
-  if (!access.ok) return res.status(access.http).json({ error: access.error, ...(access.http === 401 ? { login_url: odooLoginUrl(req, '/tasks') } : {}) });
-  const payload = await collectTasks(svc<SopService>('sop') as never, access.scope);
-  if (!extensionTaskSourceKeys().length) return res.json(payload);
-  // 扩展来源自己按查看人判权（ctx.odoo.resolveViewer）；宿主不拿管理员身份替查看人取数
-  const ext = await collectExtensionTasks(req);
-  for (const [k, m] of Object.entries(ext.sources)) {
-    ext.sources[k] = { ...m, ...(m.ok === false && m.error ? { error: `${k}_source_unavailable` } : {}), ...(m.auth_required ? { login_url: odooLoginUrl(req, '/tasks') } : {}) };
-  }
-  res.json({ ...payload, tasks: [...payload.tasks, ...ext.tasks], sources: { ...payload.sources, ...ext.sources } });
-}));
-app.put('/api/tasks/read-grants', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  if (!createTaskSourceGrant(req.body)) return res.status(400).json({ error: 'invalid_task_source_grant' });
-  res.status(201).json({ ok: true });
-});
-app.post('/api/tasks/read-grants/revoke', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const n = revokeTaskSourceGrant(req.body);
-  if (n === null) return res.status(400).json({ error: 'invalid_task_source_grant' });
-  res.json({ ok: true, revoked: n });
-});
+// ---------- 统一待办（omni-inbox · 总工程师设计 9c5557c1c0）：只读聚合；路由在域模块里 ----------
+registerTaskRoutes(http, { wrap, adminGuard, adminHeaderOk, devOriginOk, odooLoginUrl });
 
 // #275 登录探测：弹窗送 Odoo 登录后，前端轮询这里拿 200 即回原页面（Odoo 19 无法跨源回跳，回程在市场源完成）；顶栏用户 chip 同源
 registerAuthViewerRoutes(http, { wrap, odooLoginUrl });
@@ -1821,6 +1804,7 @@ registerPrincipalRoutes(http, { markOdooAdmin, adminGuard, adminActor });
 registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor }); // 阶段六 6b：角色声明与授予（只建结构，不接判定）
 registerAttentionRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
 registerWorkItemRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8d：事项页的时间线
+registerRosterRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段七：团队名册的读（登录即可读，只有席位信息）
 
 // ---------- 扩展（WM_EXTENSIONS_DIR）：挂在身份/写门之后、SPA 回落之前；加载失败拒绝启动 ----------
 try {
@@ -2355,7 +2339,9 @@ function healthBase(req?: express.Request): Record<string, unknown> {
     const b = svc<WorkItemService>('workItems').backfillStatus();
     backfill = req && adminTokenCheck(req.headers['x-admin-token'] as string | undefined) ? b : { state: b.state };
   } catch { /* 事项服务没装上 */ }
-  return { ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, self_probe: startupSecurity.snapshot(), work_items_backfill: backfill };
+  // 对外断开时健康检查和就绪检查都带上 outbound（匿名只给开关，管理员再给计数）：免得把预发实例当成正常实例
+  const outbound = outboundStatus(Boolean(req && adminTokenCheck(req.headers['x-admin-token'] as string | undefined)));
+  return { ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, ...(outbound ? { outbound } : {}), self_probe: startupSecurity.snapshot(), work_items_backfill: backfill };
 }
 registerHealthRoutes(http, { healthBase, layerfsProbeCached, layerfsReadiness, A2A_DIRECT_SIG, A2A_DIRECT_SIG_BODY });
 loginGate.mount(app); // /login、/api/auth/login|logout|me（解析器之后、SPA 回落之前）
@@ -2459,7 +2445,7 @@ function sameOriginGuard(req: express.Request, res: express.Response): boolean {
 
 // ---- 任务中心 8 端点（读开放·写删人审·C13 元台只能人工面） ----
 registerTaskIntakeRoutes(http, { sameOriginGuard, adminGuard });
-registerWorkbenchEventRoutes(app, { admin: adminGuard, sameOrigin: (req) => sameOriginGuard(req, undefined as never) });
+registerWorkbenchEventRoutes(app, { admin: adminGuard, sameOrigin: (req) => sameOriginGuard(req, undefined as never), actor: (req) => (!browserMarked(req) && rawLoopback(req) ? 'cli' : adminActor(req)) });
 registerTaskReadRoutes(http, { wrap, adminHeaderOk, runReadCapHeader });
 registerSopRunAccessRoutes(http, { adminGuard, sopRunRow, bad });
 registerTaskControlRoutes(http, { readActiveManifest, sameOriginGuard, adminGuard });
@@ -2488,86 +2474,7 @@ registerA2aPeerRoutes(http, { adminGuard, adminActor }); // 对端登记表：�
 // /a2a/direct（P2）：准入开放——有效绑定 + 同 context 续 run + 上游幂等族 + 512KiB + DELIVERED 形状。
 // 查无 SOP 仍 404 不泄露；无绑定/draft/mode 不足 → 200 TASK_STATE_FAILED -32000（对齐上游 admission 形状）。
 // ADMIN_TOKEN 未设置时绑定面休眠（主人裁定：内网信任模型）——direct 对无绑定的 SOP 自然全拒。
-app.post('/a2a/direct', express.json({ limit: '600kb' }), async (req, res) => {
-  const rawBytes = Number(req.headers['content-length'] ?? 0) || JSON.stringify(req.body ?? {}).length;
-  // 阶段七 R3：A2A 回执的窄分流——正文是回执、任务号是我们发出的、签名方是当初投递到的那台宿主，三条都成立才走这里；否则照原路，应答不变
-  const inboundReceipt = await handleInboundReceipt(req, { audiences: () => [marketPublicUrl()], followupRate: A2A_FOLLOWUP_RATE });
-  if (inboundReceipt) { res.status(inboundReceipt.status).json(inboundReceipt.body); return; }
-  // 入站签名（WM_A2A_DIRECT_SIG）：签名身份对上 caller_session 才进下面的绑定准入
-  if (A2A_DIRECT_SIG !== 'off') {
-    const caller = typeof req.body?.caller_session === 'string' ? req.body.caller_session : '';
-    const presence = directSig.presence(req);
-    let reason = '';
-    if (presence === 'signed') {
-      const v = await directSig.verify(req, (req as unknown as { rawBody?: Buffer }).rawBody ?? Buffer.alloc(0), caller);
-      // accept：取卡或验签这一步失败（没登记、取不到卡、卡上身份不对、签名对不上卡）一律按未签名的老路走——
-      // 不比不带签名的请求更宽、也不更严。内部日志照旧记原因
-      if (!v.ok && A2A_DIRECT_SIG === 'accept' && FETCH_STEP_REFUSALS.has(v.reason)) console.warn(JSON.stringify({ source: 'a2a-direct-sig', unverified: v.reason, fallback: 'unsigned' }));
-      else if (!v.ok) reason = v.reason;
-    } else if (A2A_DIRECT_SIG === 'require') reason = presence === 'unbound' ? 'unbound-only' : 'absent';
-    if (reason !== '') {
-      console.warn(JSON.stringify({ source: 'a2a-direct-sig', refused: reason }));
-      noteA2aError(`sig:${reason}` as A2aErrorKey);
-      // 对外把取卡这一步的几种失败（没登记、取不到卡、卡上身份不对、签名对不上卡）并成一种，不泄露绑定是否存在；内部日志照旧分开
-      const shown = shownRefusal(reason as SigRefusal);
-      res.status(401).json({ error: `untrusted-origin: signature verification failed (${shown}) — sign with OriginClaim Sig2 (X-A2A-Caller/-Url/-Ts/-Aud/-Sig2) using the card key published at the address registered on your binding`, code: -32000, task_status: 'TASK_STATE_FAILED' });
-      return;
-    }
-  }
-  // run 操作桥（P2 note 写入走 sop_runs 的哑数据面：step_key=note-<ts> 追加不覆盖）
-  const runOps = {
-    start: (slug: string, startedBy: string): { id: number; read_capability: string } => { const r = sopRunStartCore(slug, startedBy); return { id: r.id, read_capability: r.read_capability }; },
-    uploadToken: (id: number): string => String((db.prepare('SELECT upload_token FROM sop_runs WHERE id = ?').get(id) as { upload_token?: string } | undefined)?.upload_token ?? ''), // P0：派单回执带令牌（创建者即得）
-    saveNote: (runId: number, text: string): Promise<void> => runCheckpoints.serial(runId, async () => {
-      const row = sopRunRow(runId);
-      if (row.status !== 'running') throw new HttpError(409, 'run ' + runId + ' 已 ' + row.status + '，不可再写');
-      const data = row.sop_slug === 'task-center' ? storedRunData(row) : (await runLiveData(row, false, true)).data; // #448: a note is a write too
-      const notes = Array.isArray(data['a2a-notes']) ? data['a2a-notes'] as unknown[] : [];
-      notes.push({ at: new Date().toISOString(), text });
-      data['a2a-notes'] = notes;
-      if (row.sop_slug === 'task-center') {
-        svc<SopService>('sop').runUpdateData(runId, JSON.stringify(data));
-        runCheckpoints.forget(runId); // pure SQLite path must never retain a stale note snapshot
-      } else {
-        runCheckpoints.remember(runId, data, true); // delivered note requires SQLite success before cache publication
-        await runStateRestore(runId, { slug: row.sop_slug, version: row.sop_version, status: row.status, started_by: row.started_by, updated_at: Date.now() }, data, runCacheCheckpoint(sopRunRow(runId)));
-      }
-    }),
-    statusOf: (runId: number): { status: string; steps: number } | null => {
-      const row = svc<SopService>('sop').runStatusData(runId) as { status: string; data: string } | undefined;
-      if (!row) return null;
-      let n = 0;
-      try { n = Object.keys(JSON.parse(row.data || '{}')).length; } catch { n = 0; }
-      return { status: row.status, steps: n };
-    },
-    ctxBind: (contextId: string): number | null => {
-      const hit = svc<SopService>('sop').ctxRunId(contextId) as { run_id: number } | undefined;
-      return hit ? hit.run_id : null;
-    },
-    ctxRegister: (contextId: string, runId: number): void => {
-      svc<SopService>('sop').ctxRegister(contextId, runId);
-    },
-    ctxRegisterSource: (r: { contextId: string; runId: number; taskId: string; caller: string; team: string; receiptStatus: string }): void => {
-      svc<SopService>('sop').ctxRegisterSource(r);
-    },
-    bindingCallback: (slug: string, caller: string): string => {
-      const b = svc<SopService>('sop').bindingByNodeFull(slug, caller) as { callback_url?: string } | undefined;
-      return b?.callback_url ?? '';
-    },
-    ctxAttachCallback: (runId: number, callbackUrl: string): void => {
-      svc<SopService>('sop').ctxSetCallback(runId, callbackUrl);
-    },
-  };
-  try {
-    const out = await a2aDirectHandle(req.body, rawBytes, runOps);
-    res.status(out.httpStatus).json(out.body);
-  } catch (e: any) {
-    res.status(200).json({ error: `direct handler failed: ${String(e?.message ?? e)}`, code: -32000, task_status: 'TASK_STATE_FAILED' });
-  }
-});
-app.get('/a2a/direct', (_req, res) => {
-  res.status(404).json({ error: 'not found' });
-});
+registerA2aDirectRoutes(http, { A2A_DIRECT_SIG, A2A_FOLLOWUP_RATE, FETCH_STEP_REFUSALS, directSig, sopRunStartCore, runCheckpoints, sopRunRow, storedRunData, runLiveData, runStateRestore, runCacheCheckpoint });
 
 // ---------- 统一门户：/go/:id/* 反向代理到对应工作台 ----------
 // 所有注册工作台挂到 9800 同域路径下：一个端口号 + 同源（CORS 消失）+
@@ -2583,10 +2490,8 @@ import { evalCandidates } from './eval.ts'; // #178 评估模型客户端
 import { renderSopRunner as renderSopRunnerRaw } from './sop-runner.ts';
 import { loadTokensCss } from './design-tokens-css.ts';
 import { sqliteSsoTicketStore } from './sso-ticket-store.ts';
-import { collectTasks } from './tasks.ts';
 import { closeYglUpstreams, yglHomeProblem, yglUpstreamRpc } from './mcp-stdio-upstream.ts';
-import { tasksReadAccess, createTaskSourceGrant, revokeTaskSourceGrant } from './tasks-read-access.ts';
-import { collectExtensionTasks, extensionTaskSourceKeys, loadExtensions } from './extensions.ts';
+import { loadExtensions } from './extensions.ts';
 import { authorizeRunRead, issueRunReadCap, runReadGrantCreate, runReadGrantRevoke, runReadCapRevokeAll } from './sop-read-auth.ts';
 import { endpointStatsMiddleware } from './endpoint-stats.ts';
 import { fetchMainFiles, normalizeSource, SourceError, SOURCE_BRANCH } from './github-source.ts';
@@ -2907,6 +2812,7 @@ function mcpUpstreams(): McpUpstream[] {
     if (!raw) return [];
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return [];
+    if (outboundOff()) return []; // 对外断开：库里随副本带来的上游一律按关处理
     return arr.filter((u: any) => u && typeof u.prefix === 'string' && MCP_UPSTREAM_PREFIX_RE.test(u.prefix) && u.enabled !== false
       && (u.kind === 'ygl-trees' ? typeof u.ygl_home === 'string' : (u.kind === undefined && typeof u.url === 'string' && /^https?:\/\//.test(u.url))));
   } catch {
@@ -3511,6 +3417,7 @@ async function patrol(): Promise<void> {
 }
 function armPatrol(): void {
   if (timer) clearTimeout(timer);
+  if (outboundOff()) { noteBlocked('health-patrol'); return; } // 对外断开：库里随副本带来的巡检间隔一律按关处理
   const s = Number(getSettings().health_interval_seconds) || 0;
   if (s < 10) return; // 0 或过小视为关闭
   timer = setTimeout(() => { patrol().finally(armPatrol); }, s * 1000);
@@ -3579,7 +3486,7 @@ const goServer = registerSurface(app, 'market', PORT, () => {
 const controlServer = SURFACE_PORTS.control ? registerSurface(app, 'control', SURFACE_PORTS.control) : undefined;
 if (contentCfg && contentRuntime) listenContentSurface(app, contentCfg, contentRuntime, () => startupSecurity.snapshot().passed);
 
-void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE }).then((result) => {
+void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, outbound: outboundOff() ? verifyOutboundGate : undefined }).then((result) => {
   if (!result.passed) return refuseUnsafeStartup();
   startRedis();
   armPatrol();

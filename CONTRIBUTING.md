@@ -24,9 +24,11 @@
 | 表、列 | `server/src/db.ts`（幂等迁移） | 在别的文件里建表、改表 |
 | 环境变量 | 启动时读一次并校验，同时写进 README | 在用到的地方直接读 `process.env` |
 | 周期任务 | 能随所属模块一起停掉的定时器 | 裸的 `setInterval` |
+| 会往外发的周期任务或发送 | 发之前先问 `outboundOff()`（`server/src/outbound-gate.ts`），关着就整轮跳过、不记失败，并在 `scripts/outbound-off-test.mjs` 里加一个触发点 | 只靠底层的闸：发送会被当成失败，按退避重试、最后判死 |
 | 认人 | 经身份服务：`server/src/identity.ts` 的 `identity()`、`loginRelay()` | 引用 `server/src/login-providers/` 里面的文件 |
 | 缓存认人的结果 | 用 `identity().cachedResolver()`：缓存的只有登录提供方的回答，主体停没停用每次现查 | 自己把 `resolveViewer()` 的结果存起来（停用和恢复就不是立即生效了） |
 | 测试脚本 | 接进 CI；确实进不了的，在 `tech-route.json` 的 `tests` 里写明理由 | 写了不跑 |
+| 测试里起隔离实例 | `NODE_ENV=test`，起不来时用 `scripts/lib/self-probe-env.mjs` 的 `instanceStartError` 打标、`startWithEnvironmentRetry` 有限次重试环境问题；并行起实例要限并发 | 把自检超时当成被测行为失败；开满核数并行起实例 |
 | 运行时依赖 | 先登记进 `tech-route.json` 的 `deps` | 顺手加 |
 
 存量里有不少不符合上表的地方。那是欠账，只减不增：改到哪个域，顺手把那个域收一点。

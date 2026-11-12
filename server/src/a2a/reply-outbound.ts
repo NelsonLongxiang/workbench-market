@@ -7,6 +7,7 @@
  *     会占它的出站排队槽，所以发不出去一直重试（退避封顶 1 小时，不判 dead），并在事件日志与健康块里计数。
  */
 import { a2aKeyPath, a2aSendOutbound } from '../a2a.ts';
+import { noteBlocked, outboundOff } from '../outbound-gate.ts';
 import { dueReplies, inReplyTx, markReply, retryReply, type ReplyRow } from '../services/a2a-replies.ts';
 import { recordSentTask } from '../services/a2a-receipts.ts';
 import { BACKOFF_MS, MAX_ATTEMPTS, TERMINAL_CODES, backoffScale, logDeliveryFact } from '../workbench-events.ts';
@@ -64,6 +65,8 @@ async function sendOne(row: ReplyRow, now: () => number): Promise<void> {
 
 /** 发到期的（事件投递 worker 每轮调一次） */
 export async function replyTick(now: () => number = Date.now): Promise<void> {
+  // 对外断开（WM_OUTBOUND=off）：不发、不加 attempts、不判死（事件投递 worker 关着时本来就不调这里；这里再挡一道，免得以后别处直接调）
+  if (outboundOff()) { noteBlocked('reply-outbound'); return; }
   for (const row of dueReplies(20, now())) {
     try { await sendOne(row, now); } catch (e) { console.error(`[a2a-replies] ${row.kind} ${row.id} 发送出错：${String(e).slice(0, 120)}`); }
   }
