@@ -70,7 +70,7 @@ import { registerLoginEventRoutes } from './routes/login-events.ts';
 import { registerTaskRoutes } from './routes/tasks.ts';
 import { benchViewsConfig, registerBenchViewRoutes, BENCH_ROWS_PATH } from './routes/bench-views.ts';
 import { BENCH_TOOL_NAMES, BENCH_GRANT_RE } from './bench-mcp-tools.ts';
-import { benchGrantsOf, benchRequestOfSession, benchRequestsOf, benchToolTarget, requestBenchTools, runBenchTool } from './services/bench-mcp.ts';
+import { benchGrantsOf, benchRequestOfSession, benchRequestTtlConfig, benchRequestsOf, benchToolTarget, requestBenchTools, runBenchTool, setBenchRequestTtlHours } from './services/bench-mcp.ts';
 import { BenchError } from './bench-query.ts';
 import { registerChangeRequestRoutes } from './routes/change-requests.ts';
 import { registerSopStateRoutes, registerSopSpaceRoutes } from './routes/sops.ts';
@@ -84,6 +84,7 @@ import { registerSopRunFileRoutes } from './routes/sop-run-files.ts';
 import { registerSopRunLifecycleRoutes, sopRunWriteMode, type SopRunWriteMode } from './routes/sop-run-lifecycle.ts';
 import { registerMcpRestRoutes } from './routes/mcp-rest.ts';
 import { registerAppsStaticRoutes } from './routes/apps-static.ts';
+import { managementGrantHolders } from './work-item-access.ts';
 import { registerHealthRoutes } from './routes/health.ts';
 import { registerMcpProtocolRoutes } from './routes/mcp-protocol.ts';
 import { registerSopRunControlRoutes } from './routes/sop-run-control.ts';
@@ -151,6 +152,8 @@ let judgmentEnforce: EnforceConfig = { domains: null };
 }
 // 数据视图的入口（WM_BENCH_VIEWS=on|off，缺省 off）：关着的时候每条路由都直接回 404。值不合法拒绝启动
 const BENCH_VIEWS = (() => { try { return benchViewsConfig(); } catch (e) { console.error(`[bench-views] 拒绝启动：${(e as Error).message}`); process.exit(1); } })();
+// 台的权限申请没人处理的总期限（WM_BENCH_REQUEST_TTL_HOURS，缺省 72，1～720 小时）：启动时读一次，不合法拒绝启动
+setBenchRequestTtlHours((() => { try { return benchRequestTtlConfig(); } catch (e) { console.error(`[bench-views] 拒绝启动：${(e as Error).message}`); process.exit(1); } })());
 // 全站登录门（WM_LOGIN_GATE=enforce|off，缺省 off）：紧跟启动自检门，早于内容分发、解析器、静态资源、SPA 回落和各路由。
 // 依赖都是函数声明或请求期才取的值（提升/闭包），这里只建不调。值不合法拒绝启动（同 MCP_GATEWAY #284）
 const LOGIN_GATE_MODE = loginGateMode();
@@ -452,14 +455,20 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/workbench-events\/wbe-[0-9a-f]{16}\/decision$/,
   // 阶段八 8e：建立人本人验收、退回自己的事项（路由内经身份服务认人、事项服务判是不是建立人；只此一条子路径）
   /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/decision$/,
+  // 规范 14：负责人放行（路由内认人、判是不是负责人或代办的管理层；只此一条子路径）
+  /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/release$/,
   // 阶段七 R2：事项对话里的席位消息——看过、回复（路由内认人：管理员或建立人本人；只此两条子路径）
   /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/messages\/(read|[1-9]\d{0,15}\/reply)$/,
   // 「安排一件事」：登录的人直接建事项（路由内经身份服务认人，只认启用的人；只此一条路径，不带子路径）
   /^\/api\/work-items$/,
   // 团队：成员的分配、收回由团队的负责人做（路由内认人、核同源、判是不是负责人或管理员；只此两条）
   /^\/api\/teams\/(assign|unassign)$/,
+  // 授予的放行（L19）：管理层、属主多半不是管理员。路由内认人、核同源，三档规则判能不能放行；只此一条子路径
+  /^\/api\/grants\/[1-9]\d{0,15}\/approve$/,
   // 关系的提议：确认、驳回由属主、管理层、接收部门的负责人做，他们大多不是管理员（路由内认人、核同源，服务判能不能确认；只此两条）
   /^\/api\/relations\/proposals\/[1-9]\d{0,15}\/(approve|reject)$/,
+  // 阶段七：建立人本人回答自己事项上的席位提问（路由内认人：管理员或建立人本人；只此一条子路径）
+  /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/asks\/[1-9]\d{0,15}\/answer$/,
   // MCP 工具 REST 开放：与 /mcp 同口径，凭会话令牌在路由内鉴权，不认管理口令
   /^\/api\/mcp-rest\/(tools\/[^/]+|apps\/[a-z0-9-]{1,64}\/files(\/[^/]+)?)$/,
   // 数据视图的入口（开关关着时每条都回 404）：路由内自己判——先拒管理口令，再经身份服务认人、问判定，只有管理层和范围是「全部」的授予放行。
@@ -1937,7 +1946,7 @@ registerAuthViewerRoutes(http, { wrap, odooLoginUrl });
 
 // ---------- 主体管理（列出、停用、恢复）：路由在域模块里 ----------
 registerPrincipalRoutes(http, { markOdooAdmin, adminGuard, adminActor });
-registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor }); // 阶段六 6b：角色声明与授予（只建结构，不接判定）
+registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor, adminHeaderOk, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段六 6b：角色声明与授予（只建结构，不接判定）
 registerDepartmentRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 部门：登录的人读、管理员写
 registerTeamRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 团队与分配（规范 14 第 1 步）：登录的人按可见范围读；认领、负责人是管理员，分配是负责人
 registerRelationRoutes(http, { markOdooAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 关系的提议（规范 14「关系由谁说了算」）：负责人、团队认领要属主或业务侧确认
@@ -2517,11 +2526,20 @@ function healthBase(req?: express.Request): Record<string, unknown> {
     const b = svc<WorkItemService>('workItems').backfillStatus();
     backfill = req && adminTokenCheck(req.headers['x-admin-token'] as string | undefined) ? b : { state: b.state };
   } catch { /* 事项服务没装上 */ }
+  // 持有管理层授予的主体个数（只给管理口令，只给个数）：0 时团队没有负责人的事项没人能代办放行（存量差异清单 L21）
+  let workItems: Record<string, unknown> | null = null;
+  if (req && adminTokenCheck(req.headers['x-admin-token'] as string | undefined)) {
+    try { workItems = { management_grant_holders: managementGrantHolders() }; } catch { /* 授予服务没装上 */ }
+  }
   // 对外断开时健康检查和就绪检查都带上 outbound（匿名只给开关，管理员再给计数）：免得把预发实例当成正常实例
   const outbound = outboundStatus(Boolean(req && adminTokenCheck(req.headers['x-admin-token'] as string | undefined)));
-  return { ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, ...(outbound ? { outbound } : {}), self_probe: startupSecurity.snapshot(), work_items_backfill: backfill };
+  return { ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, ...(workItems ? { work_items: workItems } : {}), ...(outbound ? { outbound } : {}), self_probe: startupSecurity.snapshot(), work_items_backfill: backfill };
 }
 registerHealthRoutes(http, { healthBase, layerfsProbeCached, layerfsReadiness, A2A_DIRECT_SIG, A2A_DIRECT_SIG_BODY, adminRead: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined) });
+// 没有任何主体持有管理层授予：团队没有负责人时，等过目的事项没人能代办放行。只告警、不拒绝启动（存量差异清单 L21）
+try {
+  if (managementGrantHolders() === 0) console.warn('[work-items] 注意：当前没有任何主体持有管理层授予；团队没有负责人时，等过目的事项没人能代办放行。上线前确认至少一人有管理层授予');
+} catch { /* 授予服务没装上 */ }
 registerLoginGateRoutes(http, loginGate.routeDeps); // /login、/api/auth/login|logout|me（解析器之后、SPA 回落之前）
 registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionTtlMs: SESSION_TTL_MIN * 60_000 });
 registerLoginEventRoutes(http); // /login/<方式>/events：离职、停用的失效通知；每天一次对账 // /login/<方式>、/login/<方式>/callback：飞书等发市场会话的登录
@@ -3280,7 +3298,7 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
     try { made = requestBenchTools(s.id, benches[0], benchAsk.map((m) => m![1]), args?.reason, Date.now()); } catch (e) { throw benchToolError(e); }
     const request = benchRequestForSession(made.request);
     // 台存不存在照旧不核（没有授予的会话看不出台存不存在，docs/data-views.md 第十节 3b）：写清写错了会怎样、拿什么去核对
-    return { ...made, request, note: `台的管理层批准之后生效。台的标识只核写法、不核存不存在：写错了不会有人批——拿不准时把申请编号 ${request.ref} 和标识「${benches[0]}」交给给你任务的人核对。`, next: accessNext(request.ref) };
+    return { ...made, request, note: `${made.note}——拿不准时把申请编号 ${request.ref} 和标识「${benches[0]}」交给给你任务的人核对。`, next: accessNext(request.ref) };
   }
   // 工具@台 的「台」也可以写自产台、SOP 台的标识（工具@<slug>）：服务端换成台号再记；换不到和数字台号不存在同一句
   const asked: string[] = [];

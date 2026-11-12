@@ -1,7 +1,7 @@
 ---
 name: wm-quickstart
-version: 1.2.5
-description: 工作台市场·快速开始构建——builder/agent 视角 15 分钟从零建台：登记外部工作台、发布自产台（全量+patch 增量）、文件/数据双通道、交付空间模式、发布纪律（served+1/60s 锁）、三闸。当需要「在市场上建一个台」「发布页面/交付物」「app_publish 怎么用」时加载。
+version: 1.3.0
+description: 工作台市场·快速开始构建——builder/agent 视角 15 分钟从零建台：登记外部工作台、发布自产台（台的仓库 main + app_sync）、文件/数据双通道、交付空间模式、发布纪律（仓库 PR → main → app_sync）、三闸。当需要「在市场上建一个台」「发布页面/交付物」「自产台怎么上线」时加载。
 ---
 
 # 工作台市场·快速开始构建（builder 15 分钟）
@@ -9,16 +9,11 @@ description: 工作台市场·快速开始构建——builder/agent 视角 15 �
 ## 路线一：登记现成服务（1 分钟）
 MCP `workbench_register({name, url, type:'web'})` → 自动探活入册 → /use/<id> 即用
 
-## 路线二：发布自产台（核心·app_publish）
-```
-MCP app_publish({
-  slug: 'my-app', title: '我的台',
-  files: [{path:'index.html', content:'<h1>hello</h1>'}]
-})
-```
-- 单文件静态托管 /apps/<slug>/ ·同 slug 重发=新版本快照
-- **patch 增量**（省力·30KB 台别全量重发）：`base_version: N, patch: {set:[{path,content}], delete:[path]}` → 响应带 diff{added,modified,removed}
-- SOP 台：kind:'sop'+sop.yaml+changelog
+## 路线二：发布自产台（台的仓库 main + `app_sync`）
+自产台、SOP 台的内容只从 GitHub 仓库的 main 来（属主 2026-11-02 定），市场不再收直接上传的页面文件，也没有「直接发布」的工具：
+1. 在这个台登记的仓库里改，提 PR，合进 main（SOP 台的步骤在仓库里的 `sop.yaml`，带 changelog）。
+2. 由管理员调 MCP `app_sync`（管理类工具）：市场拉 main 的头生成新版本，记下 commit。同 slug 每同步一次是一个新版本快照。
+3. 页面在 `/apps/<slug>/`。
 
 ## 路线三：数据视图（不写 HTML）
 要做的是看数、对数、报表、看板、明细表、简单提报——先别写页面，用数据视图：把数据放进台自己的数据集，写一份视图描述（一份 JSON，说页面上放哪些组件、各自读什么），页面由市场的组件画出来（统计卡、表格、柱线饼、进度、筛选栏、表单），还能挂进驾驶舱。不写 HTML、不写 SQL。
@@ -29,7 +24,9 @@ MCP app_publish({
 **严禁把可视化数据写死在台页面里**：不写数据字面量，不内嵌 JSON 快照，不读台目录里的静态 `.json`。看板值、小型索引放工作台变量，定稿的值放工作台常量，明细记录放本台数据面，文件放本台文件面，页面在运行时读取。读不到要明说「没读到」，不显示成 0。细则与迁移步骤见 references/data-layer.md。
 
 ## 台的读写约定（先读再动）
-每个台在工作台空间里放一个常量 `AGENTS.md`，写清本台的数据放在哪、谁写什么、怎么写。读写一个台的变量、数据面、文件面之前先读它（`workbench_vars_get { key: "AGENTS.md" }`），返回 404 时先问属主。内容节与修订流程见 references/workbench-agents.md。
+每个台在工作台空间里放一个常量 `AGENTS.md`，写清本台的数据放在哪、谁写什么、怎么写。读写一个台的变量、数据面、文件面之前先读它：`workbench_vars_get { id: <台号>, key: "AGENTS.md" }`，返回 404 时先问属主。内容节与修订流程见 references/workbench-agents.md。
+- `id` 是市场登记的**数字台号**；只接了 MCP 的席位，申请写 `workbench_vars_get@<台号>`。席位自己查不到台号（`workbench_list` 一般不批给席位）：**台号向派任务的人要**，和台的标识一起要。
+- 数据视图的台（路线三）不用 `AGENTS.md`：数据集、列的取值说明（业务口径）、视图都能用数据视图自己的工具读到，见 `wm-data-views` 的「接手一个已有的台」。
 
 ## 交付空间模式（数据+文件双通道·实战验证）
 1. 页面表单 → /api/apps/<slug>/data（哑存储任意 JSON）
@@ -37,14 +34,10 @@ MCP app_publish({
 3. agent 找已有的数据和文件 → MCP app_data_list / app_files_list（验证刚上传的文件用不着它们：上传时带 sha256，应答自带核对结果，不必列文件或下载回读）
 4. 页面引用资源用相对路径或 /go/<id>/ 前缀（iframe 代理坑）
 
-## 发布纪律（血泪五条）
-1. 发布前 GET served 基线 diff → 版本号 served+1
-2. 60s 同 slug 异会话锁（409·hint 指引）
-3. 发布门禁：空 content/体积骤降>50%/div 不配对=拒
-4. 删除/回滚走 change_requests 人审（MCP 只能提）
-5. 变更写 changelog
-
-## 草稿流（大改走三分支）
+## 发布纪律
+1. 改动走台的仓库：PR → 合进 main → 管理员 `app_sync`。不要想办法绕开仓库直接改线上页面。
+2. 删除、回滚走 `change_request_create` 提人审（MCP 只能提，人批了才执行）。
+3. 变更写 changelog（SOP 台必须）。
 
 ## 快查
 - 工具全景/鉴权/坑：`wm-market-guide`（深度参考）

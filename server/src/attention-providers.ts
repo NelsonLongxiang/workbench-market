@@ -15,7 +15,7 @@
  *   tasks             GET /api/tasks（统一待办）                tasksReadAccess(adminHeaderOk) 审核
  *   owner-pending     GET /api/workbenches/:id/vars（看板台）  vars 接口的读门                提问
  *   principal-pending GET /api/principals/pending              主体路由的管理门               授权
- *   work-items        没有旧接口：验收 = ready（看得到这件事项的人）；过目 = held（管理员）  验收 / 过目
+ *   work-items        没有旧接口：验收 = ready（看得到这件事项的人）；过目 = held（负责人；团队没有负责人时管理层代办）  验收 / 过目
  *   bench-mcp         GET /api/bench-views/<台>/mcp-grants（台上的 MCP 授予申请）  那组路由自己的门（benchMcpDecider：先拒管理口令，再按「拍板」问判定）  授权
  *   a2a-peers         GET /api/a2a/peers（对端名片的公钥变了、等确认的）adminGuard           授权
  *   team-health       GET /api/teams（待认领、不在名册里、没有负责人的团队；名册超过阈值没更新的节点） adminGuard  过目
@@ -53,7 +53,7 @@ import type { GrantService } from './services/grant.ts';
 import type { RelationProposalService } from './services/relation-proposal.ts';
 import { browserMarked, rawLoopback } from './surfaces.ts';
 import { teamName } from './team-relation.ts';
-import { canSee, creatorOf, isManagement, turnOf, type WorkItemViewer } from './work-item-access.ts';
+import { canRelease, canSee, creatorOf, itemDecisionVerdict, requestViewer, turnOf } from './work-item-access.ts';
 
 export type AttentionDeps = {
   /** index.ts 的管理门（变更申请、MCP 权限申请、工作台事件用的就是它） */
@@ -75,13 +75,6 @@ const passes = (guard: (req: express.Request, res: express.Response) => boolean,
 const item = (x: Omit<AttentionItem, 'object' | 'phase' | 'answers' | 'mine'> & Partial<Pick<AttentionItem, 'object' | 'phase' | 'answers' | 'mine'>>): AttentionItem =>
   ({ answers: [], object: '', phase: '', mine: true, ...x });
 
-/** 「关注」里看的人：管理员（各来源列表用的同一个管理门判过）和登录认出来的主体。给 turnOf 算 mine */
-async function attentionViewer(req: express.Request, admin: boolean): Promise<WorkItemViewer> {
-  let principal: string | null = null;
-  const cookie = String(req.headers.cookie ?? '');
-  if (cookie) { const who = await identity().resolveViewer(cookie); if (who.ok) principal = who.viewer.sub; }
-  return { admin, principal, person: principal !== null, actor: principal ?? 'admin', management: isManagement(principal, admin) };
-}
 
 /** 统一待办条目是哪一类（只增的 kind 字段，前端据此不把它们放进「等你审核」）：它们不是审核，没有当场的答法 */
 export const TASK_KINDS = ['task', 'sop-run', 'ygl', 'a2a', 'other'] as const;
@@ -158,21 +151,25 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
     ] : []),
     provide({
       source: 'seat-asks', label: '席位的提问',
-      // 旧接口 /api/workbench-events 在 ADMIN_IDENTITY_PATHS 里，会话登录的管理员在那里也算管理员
+      // 看得到这件事项的人看得到它的提问（canSee）；答法只给 itemDecisionVerdict 认的人（建立人本人、持有管理层授予的人代办），
+      // 和答复入口、详情的 can.answer 同一处。过了管理门而没有管理层授予的，看得到、答不了
       list: async (req) => {
-        if (!passes(deps.adminGuard, req)) return null;
-        const viewer = await attentionViewer(req, true);
+        const admin = passes(deps.adminGuard, req);
+        const viewer = await requestViewer(req, admin);
+        if (!admin && !viewer.principal) return null;
         const items = svc<WorkItemService>('workItems');
-        return openSeatAsks().map((a) => {
+        return openSeatAsks().flatMap((a) => {
           const w = items.get(`wi_${a.event_id}`);
-          return item({
+          if (!w || !canSee(w, viewer)) return [];
+          return [item({
             source: 'seat-asks', source_id: String(a.delivery_id), category: 'ask',
             title: `${a.target_team} 问：${a.question || '（没写问题）'}${optionsHint(a.options)}`,
-            waiting_for: a.ask_kind === 'receipt' ? (a.asked_by || a.target_team) : a.asked_by ? `receiver:${a.asked_by}` : a.target_team, since: a.asked_at, answers: ['answer'],
+            waiting_for: a.ask_kind === 'receipt' ? (a.asked_by || a.target_team) : a.asked_by ? `receiver:${a.asked_by}` : a.target_team, since: a.asked_at,
+            answers: itemDecisionVerdict(w, viewer, 'answer').ok ? ['answer'] : [],
             link: `/work-items/wi_${a.event_id}`,
-            // 提问轮到的是建立人：管理员在这里是代办（除非他就是建立人）
-            mine: !!w && turnOf(w, viewer).answer, creator: w ? creatorOf(w) : null, cockpit_id: w?.cockpit_id ?? null,
-          });
+            // 提问轮到的是建立人：代办的人（管理层）在这里 mine 为假
+            mine: turnOf(w, viewer).answer, creator: creatorOf(w), cockpit_id: w.cockpit_id ?? null,
+          })];
         });
       },
     }),
@@ -258,20 +255,29 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
       list: async (req) => {
         const items = svc<WorkItemService>('workItems');
         const admin = passes(deps.adminGuard, req);
-        const viewer = await attentionViewer(req, admin);
+        const viewer = await requestViewer(req, admin);
         if (!admin && !viewer.principal) return null;
         const out: AttentionItem[] = [];
         // 验收：看得到这件事项的人（itemRoles：建立人、成员的主人、负责人、管理层）都看得到这一条，mine 只对轮到的人（建立人）为真；
         // 负责人在「别人的事，你可以代办」里看到本团队的。今天的管理员迁移后是管理层，看到的和原来一样（全部）
         for (const w of items.list({ state: 'ready' })) {
           if (!canSee(w, viewer)) continue;
-          // 答法只给答得了的人：管理员，和轮到的建立人。看得到但答不了的（管理层看别人建的）只列不给答法，免得点下去被拒
-          out.push(item({ source: 'work-items', source_id: w.id, category: 'accept', title: w.title, waiting_for: w.target_team || w.seat || w.created_by, since: w.updated_at, answers: admin || turnOf(w, viewer).verify ? ['verify', 'return'] : [], link: `/work-items/${w.id}`, object: w.object, phase: w.phase,
+          // 答法只给答得了的人（itemDecisionVerdict，和答复入口、详情的 can 同一处）：建立人本人和持有管理层授予的人两种都有；
+          // 负责人只有退回；看得到但答不了的（只过了管理门的）只列不给答法，免得点下去被拒
+          const answers = itemDecisionVerdict(w, viewer, 'verify').ok ? ['verify', 'return'] : itemDecisionVerdict(w, viewer, 'return').ok ? ['return'] : [];
+          out.push(item({ source: 'work-items', source_id: w.id, category: 'accept', title: w.title, waiting_for: w.target_team || w.seat || w.created_by, since: w.updated_at, answers, link: `/work-items/${w.id}`, object: w.object, phase: w.phase,
             mine: turnOf(w, viewer).verify, creator: creatorOf(w), cockpit_id: w.cockpit_id }));
         }
-        if (admin) for (const w of items.list({ state: 'held' })) {
-          out.push(item({ source: 'work-items', source_id: w.id, category: 'glance', title: w.title, waiting_for: w.created_by, since: w.created_at, answers: ['release', 'withdraw'], link: `/work-items/${w.id}`, object: w.object, phase: w.phase,
-            mine: turnOf(w, viewer).release, creator: creatorOf(w), cockpit_id: w.cockpit_id }));
+        // 过目（规范 14 第九节）：只给能放行的人——负责人、团队没有负责人时代办的管理层、勾了先过目的建立人（canRelease，和详情的 can.release 同一处）。
+        // 放行带 answer_via 直接调 POST /api/work-items/:id/release：负责人多半不是管理员，过不了「关注」答复入口前面的写请求总门。
+        // 撤回还是任务中心的管理员接口，只给过了管理门的人
+        // 过了管理门、又放不了的（管理口令、没有管理层授予的管理员）：照旧列出来，只给撤回，不给放行
+        for (const w of items.list({ state: 'held' })) {
+          const release = canRelease(w, viewer);
+          if (!release && !admin) continue;
+          const answers = [...(release ? ['release'] : []), ...(admin ? ['withdraw'] : [])];
+          out.push(item({ source: 'work-items', source_id: w.id, category: 'glance', title: w.title, waiting_for: w.created_by, since: w.created_at, answers, link: `/work-items/${w.id}`, object: w.object, phase: w.phase,
+            mine: turnOf(w, viewer).release, creator: creatorOf(w), cockpit_id: w.cockpit_id, ...(release ? { answer_via: answerVia('POST', `/api/work-items/${w.id}/release`, { release: { body: {} } }) } : {}) }));
         }
         return out;
       },
