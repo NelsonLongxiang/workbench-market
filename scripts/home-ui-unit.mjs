@@ -30,17 +30,17 @@ ok('天数：null 显示未知', daysLabel(null) === '天数未知' && daysLabel
 ok('总结：只数进行中的线，件数按「关注」给你的条数，有红格时指一句', summaryLine(rows, 3) === '公司现在有 2 条线在走，有 3 件等你拍板——红色标出来的格子就是。', summaryLine(rows, 3));
 ok('总结：有待办但对不上格子时不提红格', summaryLine(buildRows(pd, [obj('a', 'st_1')], []), 5) === '公司现在有 1 条线在走，有 5 件等你拍板。');
 ok('总结：没有待办换一句', summaryLine(buildRows(pd, [obj('a', 'st_1')], []), 0) === '公司现在有 1 条线在走，眼下没有要你拍板的。');
-ok('卡片的谁：去前缀、系统来源说人话', cleanWho('receiver:dsh') === 'dsh' && cleanWho('human:root-admin') === 'root-admin' && cleanWho('market') === '市场' && cleanWho('mcp:s1') === 's1');
+ok('卡片的谁：去前缀、系统来源说人话', cleanWho('receiver:zone') === 'zone' && cleanWho('human:root-admin') === 'root-admin' && cleanWho('market') === '市场' && cleanWho('mcp:s1') === 's1');
 ok('卡片说法：非管理员看到的是自己的；管理员替建立人代办', cardWording('accept', false).label === '等你验收' && !cardWording('accept', false).proxy && cardWording('accept', true).label === '等建立人验收' && cardWording('accept', true).proxy && cardWording('ask', true).label === '在问建立人' && cardWording('glance', true).label === '等你过目' && !cardWording('glance', true).proxy);
 ok('问候按时段，有名字带名字', greeting(9, 'alpha') === '早上好，alpha。' && greeting(15, null) === '下午好。' && greeting(21, 'b') === '晚上好，b。');
 const f1 = toggleFocus(null, { object: 'a', stage: 'st_2' });
 ok('点格筛选：点一格只看这一格，再点同一格回到全部', f1?.object === 'a' && toggleFocus(f1, { object: 'a', stage: 'st_2' }) === null && toggleFocus(f1, { object: 'b', stage: 'st_1' })?.object === 'b');
 ok('筛选：按 object + phase', filterAttention([att('a', 'st_2'), att('b', 'st_1')], f1).length === 1 && filterAttention([att('a', 'st_2')], null).length === 1);
 
-ok('团队名：画布团队显示名字，进程团队没名字显示句柄', teamLabel('dsh/canvas/market-trial') === 'market-trial' && teamLabel('dsh/98b94be9') === 'dsh/98b94be9');
-ok('卡片的谁：receiver:<区> 有承接时显示承接席位「名字（句柄）」', cleanWho('receiver:dsh', '小采 · dsh/98b94be9') === '小采（dsh/98b94be9）' && cleanWho('dsh/canvas/market-trial') === 'market-trial' && seatLabel('dsh/98b94be9') === 'dsh/98b94be9');
+ok('团队名：画布团队显示名字，进程团队没名字显示句柄', teamLabel('zone/canvas/team-a') === 'team-a' && teamLabel('zone/0a1b2c3d') === 'zone/0a1b2c3d');
+ok('卡片的谁：receiver:<区> 有承接时显示承接席位「名字（句柄）」', cleanWho('receiver:zone', '小采 · zone/0a1b2c3d') === '小采（zone/0a1b2c3d）' && cleanWho('zone/canvas/team-a') === 'team-a' && seatLabel('zone/0a1b2c3d') === 'zone/0a1b2c3d');
 {
-  const s = splitAskTitle('dsh/canvas/market-trial 问：用什么语气（可选：正式 / 口语 / 俏皮）');
+  const s = splitAskTitle('zone/canvas/team-a 问：用什么语气（可选：正式 / 口语 / 俏皮）');
   ok('提问标题：去掉「<团队> 问：」，拆出选项', s.question === '用什么语气' && s.options.join('|') === '正式|口语|俏皮', JSON.stringify(s));
   const n = splitAskTitle('普通标题');
   ok('提问标题：没有前缀和选项的原样', n.question === '普通标题' && n.options.length === 0);
