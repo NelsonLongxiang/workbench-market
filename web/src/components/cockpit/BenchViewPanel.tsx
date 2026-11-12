@@ -25,7 +25,6 @@ export default function BenchViewPanel({ refItem, params }: { refItem: BenchView
   if (s.phase === 'loading') return <div className="wm-ck-pad" data-testid="ck-bench-view-loading"><Skeleton active paragraph={{ rows: 3 }} /></div>;
   if (s.phase === 'error') return <div className="wm-ck-pad" data-testid="ck-bench-view-error"><Typography.Text type="secondary">{s.text}</Typography.Text></div>;
   return <div className="wm-ck-pad" data-testid="ck-bench-view">
-    {/* 「不带外框、表格紧凑」的画法（frame="none" dense）在 #617，那条合并后在这里加上 */}
-    <BenchView result={s.result} onParams={setOwn} onSubmit={() => Promise.reject(new Error('驾驶舱里不能提交'))} formDisabledReason="要填这张表，请到这个台自己的页面" />
+    <BenchView result={s.result} frame="none" dense onParams={setOwn} onSubmit={() => Promise.reject(new Error('驾驶舱里不能提交'))} formDisabledReason="要填这张表，请到这个台自己的页面" />
   </div>;
 }
