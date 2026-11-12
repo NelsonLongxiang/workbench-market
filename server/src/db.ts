@@ -2,12 +2,14 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DB_BUSY_TIMEOUT_MS } from './db-busy.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const dataDir = process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : join(here, '..', 'data');
 mkdirSync(dataDir, { recursive: true });
 
-export const db = new DatabaseSync(join(dataDir, 'workbench-market.db'));
+// 别的连接锁着写时最多等 DB_BUSY_TIMEOUT_MS（见 db-busy.ts）：短暂重叠不直接失败，超过上限照样报错
+export const db = new DatabaseSync(join(dataDir, 'workbench-market.db'), { timeout: DB_BUSY_TIMEOUT_MS });
 
 db.exec(`
 PRAGMA journal_mode = WAL;
@@ -877,7 +879,7 @@ CREATE TRIGGER IF NOT EXISTS grants_source_fixed BEFORE UPDATE OF source ON gran
 let compareDb: DatabaseSync | null = null;
 export function judgmentCompareDb(): DatabaseSync {
   if (compareDb) return compareDb;
-  const handle = new DatabaseSync(join(dataDir, 'judgment-compare.db'));
+  const handle = new DatabaseSync(join(dataDir, 'judgment-compare.db'), { timeout: DB_BUSY_TIMEOUT_MS });
   handle.exec(`
 PRAGMA journal_mode = WAL;
 CREATE TABLE IF NOT EXISTS judgment_tally (
