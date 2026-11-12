@@ -50,6 +50,7 @@ import { registerAdminTokenRoutes } from './routes/admin-token.ts';
 import { registerBindingRoutes } from './routes/bindings.ts';
 import { registerA2aPeerRoutes } from './routes/a2a-peers.ts';
 import { registerA2aDirectRoutes } from './routes/a2a-direct.ts';
+import { registerA2aOutboundRoutes } from './routes/a2a-outbound.ts';
 import { registerExportImportRoutes } from './routes/export-import.ts';
 import { registerLoginFlowRoutes } from './routes/login-flows.ts';
 import { registerWorkbenchRoutes } from './routes/workbenches.ts';
@@ -468,7 +469,7 @@ async function markOdooAdmin(req: express.Request): Promise<void> {
   if (login) odooAdminReqs.set(req, login);
 }
 // 管理读面（GET 也走 adminGuard/vaultGuard 的）与口令/身份端点：进路由前先认定
-const ADMIN_IDENTITY_PATHS = /^\/api\/(admin\/whoami|admin-token(\/|$)|mcp\/(sessions|upstreams|tools|calls|access-requests)(\/|$)|change-requests(\/|$)|bindings(\/|$)|a2a\/peers(\/|$)|remote-allow\/diff|vault\/|tasks(\/|$)|workbench-events(\/|$))/; // a2a/peers：对端登记表的管理接口，会话登录的管理员也算管理员（和绑定同口径）；tasks：统一待办读面同样认 Odoo 管理员（与口令管理员同为全量）；workbench-events：工作台事件的列表、详情也认（「关注」的席位提问同口径）
+const ADMIN_IDENTITY_PATHS = /^\/api\/(admin\/whoami|admin-token(\/|$)|mcp\/(sessions|upstreams|tools|calls|access-requests)(\/|$)|change-requests(\/|$)|bindings(\/|$)|a2a\/(peers|state)(\/|$)|remote-allow\/diff|vault\/|tasks(\/|$)|workbench-events(\/|$))/; // a2a/peers：对端登记表的管理接口，会话登录的管理员也算管理员（和绑定同口径）；tasks：统一待办读面同样认 Odoo 管理员（与口令管理员同为全量）；workbench-events：工作台事件的列表、详情也认（「关注」的席位提问同口径）
 app.use(async (req, _res, next) => {
   if (ADMIN_IDENTITY_PATHS.test(req.path.toLowerCase())) await markOdooAdmin(req);
   next();
@@ -2486,6 +2487,19 @@ registerSopSpaceRoutes(http, { getApp, adminHeaderOk, bad, appsRoot, parseSopMan
 
 registerBindingRoutes(http, { adminGuard, getApp });
 registerA2aPeerRoutes(http, { adminGuard, adminActor }); // 对端登记表：只给管理员
+registerA2aOutboundRoutes(http, {
+  adminGuard,
+  state: () => {
+    const card = buildAgentCard(a2aKeyPath());
+    return {
+      team: MARKET_TEAM,
+      key: existsSync(a2aKeyPath()) ? 'present' : 'missing',
+      card: { name: card.name, session: card.session, team: card.team, expiresAt: card.expiresAt, sessionTeams: (card as any).sessionTeams ?? [] },
+      binding: svc<SopService>('sop').activeBindingCount(),
+    };
+  },
+  send: (target, message, contextId) => a2aSendOutbound(a2aKeyPath(), target, message, contextId),
+}); // A2A 出站：只给管理员，send 只发给已登记的正常对端
 
 // （旧双面绑定 CRUD 已删——统一面 /api/bindings 承接，410 过渡件在上）
 
@@ -3444,33 +3458,7 @@ function armPatrol(): void {
 // #326: background patrol is armed only after the startup safety gate passes.
 
 const PORT = Number(process.env.PORT) || 9800;
-// ---------- A2A 出站（#17 P4 最小面）：市场作为客户端向对端派单/发消息 ----------
-// 官方 A2aClient（fetchCardDetail 带 OriginClaim 信封 + routeDirect 投递），单进程单端口（9800）。
-// 三件自实现按官方示例：身份密钥（DATA_DIR/a2a-key.pem）、OriginClaim 签名、fetch/schedule 适配。
-app.get('/api/a2a/state', (_req, res) => {
-  const card = buildAgentCard(a2aKeyPath());
-  res.json({
-    team: MARKET_TEAM,
-    key: existsSync(a2aKeyPath()) ? 'present' : 'missing',
-    card: { name: card.name, session: card.session, team: card.team, expiresAt: card.expiresAt, sessionTeams: (card as any).sessionTeams ?? [] },
-    binding: svc<SopService>('sop').activeBindingCount(),
-  });
-});
-
-app.post('/api/a2a/send', wrap(async (req, res) => {
-  const target = String(req.body?.target_url ?? '').trim();
-  const team = String(req.body?.team ?? '').trim();
-  const message = String(req.body?.message ?? '');
-  if (!/^https?:\/\/[^\s]+$/.test(target)) bad('target_url 必须是 http(s):// 对端节点地址');
-  if (!/^[a-z][a-z0-9-]*\/[0-9a-f]{8}$/i.test(team)) bad('team 形如 market/<8hex>（对端卡片里的 sessionTeams）');
-  if (!message) bad('message 必填');
-  try {
-    const out = await a2aSendOutbound(a2aKeyPath(), { baseUrl: target.replace(/\/+$/, ''), team }, message, typeof req.body?.context_id === 'string' ? req.body.context_id : undefined);
-    res.json({ ok: true, target, team, result: out });
-  } catch (e: any) {
-    throw new HttpError(502, `出站失败：${String(e?.message ?? e)}`);
-  }
-}));
+// A2A 出站的 /api/a2a/state、/api/a2a/send 在 routes/a2a-outbound.ts（只给管理员；send 只发给已登记的正常对端）
 
 if (getApp('task-center').status === 'published') syncWorkbenchRegistration(getApp('task-center'));
 const SURFACE_PORTS = surfacePorts();

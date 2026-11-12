@@ -187,6 +187,8 @@
       "POST /api/a2a/peers/:id/confirm-key  -> a2a-peer.confirm-key  admin",
       "POST /api/a2a/peers/:id/disable  -> a2a-peer.disable  admin",
       "POST /api/a2a/peers/:id/enable  -> a2a-peer.enable  admin",
+      "GET /api/a2a/state  -> a2a.state  admin",
+      "POST /api/a2a/send  -> a2a.send  admin",
       "POST /a2a/direct  -> a2a.direct-inbound  write  （状态码不代表授权：入站签名与绑定准入判，不是登录身份的结论）",
       "GET /a2a/direct  -> a2a.direct-probe  read",
       "GET /api/mcp/upstreams  -> mcp.upstreams  admin",
@@ -214,9 +216,7 @@
       "GET /api/mcp-rest/sop/runs/:id  -> mcp-rest.sop-run  read  （状态码不代表授权：MCP 会话令牌与工具授权由网关判，不是登录身份的结论）",
       "GET /api/mcp-rest/sop/runs/:id/files  -> mcp-rest.sop-run-files  read  （状态码不代表授权：MCP 会话令牌与工具授权由网关判，不是登录身份的结论）",
       "GET /api/mcp-rest/sop/runs/:id/files/:fileId  -> mcp-rest.sop-run-file-download  read  （状态码不代表授权：MCP 会话令牌与工具授权由网关判，不是登录身份的结论）",
-      "GET /^(?!\\/api\\/|\\/assets\\/|\\/health).*/  -> （未登记）",
-      "GET /api/a2a/state  -> （未登记）",
-      "POST /api/a2a/send  -> （未登记）"
+      "GET /^(?!\\/api\\/|\\/assets\\/|\\/health).*/  -> （未登记）"
     ]
   ],
   "tools": [
