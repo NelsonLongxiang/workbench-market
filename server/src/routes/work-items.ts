@@ -171,7 +171,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       const items = svc<WorkItemService>('workItems');
       const viewer = await workItemViewer(req, deps);
       if (!viewer.admin && !viewer.principal) return void res.status(401).json({ error: 'work_items_auth_required' });
-      // 看得到的：建立人、管理层（itemRoles，规范 14 第九节第 1 条；成员的主人、负责人随关系确认制接上）。别的一律 404，不说有没有这件
+      // 看得到的：建立人、成员的主人、负责人、管理层（itemRoles，规范 14 第九节第 1 条）。别的一律 404，不说有没有这件
       const item = items.get(id);
       if (!item || !canSee(item, viewer)) return void res.status(404).json({ error: 'work_item_not_found' });
       // 只增：这个人能做什么（can）、是不是轮到他（turn）、建立人是谁（creator）。判断都在 work-item-access.ts，和各动作接口同一处
