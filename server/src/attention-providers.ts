@@ -136,7 +136,7 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
         // 管理层看得到全部；别的人只看得到自己有拍板授予的部门的台上的申请。一条都轮不到、又不是管理层的，整个来源不可见
         const all = await benchMcpDecider(req, silentRes(), null) !== null;
         const seen = new Map<string, boolean>();
-        const rows = [];
+        const rows: ReturnType<typeof pendingBenchRequests> = [];
         for (const r of pendingBenchRequests()) {
           if (!all && !seen.has(r.bench)) seen.set(r.bench, await benchMcpDecider(req, silentRes(), r.bench) !== null);
           if (all || seen.get(r.bench)) rows.push(r);
