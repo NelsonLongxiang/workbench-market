@@ -91,5 +91,6 @@ ok('时间线的谁：by 是字符串、没有 by 时只去前缀', rowActor({ a
   ok('在问你：建立人在这一页答不了时，不说「你答复之后」', stateHint('blocked', 's', false, mine, false).text === '席位在问你。这里还不能直接答复，先请管理员代答。' && stateHint('blocked', 's', false, mine, true).text.includes('你答复之后') && stateHint('blocked', 's', false, mine).text.includes('你答复之后'));
 }
 
+ok('mine 只跟 turn 走：能代办（can 真、turn 全假）不算「你」；轮到答复或验收才算', viewerOf({ can: { release: true, answer: true, verify: true }, turn: {} }).mine === false && viewerOf({ can: { verify: true }, turn: { verify: true } }).mine === true && viewerOf({ can: {}, turn: { answer: true } }).mine === true && viewerOf({ can: { release: true }, turn: { release: true } }).mine === false);
 console.log(`\nwork-item-detail-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);
