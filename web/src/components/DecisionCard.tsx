@@ -4,16 +4,17 @@
  *  变更申请（回滚 / 删除工作台或技能，#580）当场办：卡片上写清要动什么、影响多大、申请理由；不通过要写理由，通过删除要再确认一次。
  *  统一待办的条目不是审核：标签按它是哪一类写，只给「去处理」。
  *  答法和要填的东西同「关注」页（各来源自己定）：要填理由的点了才展开输入框；撤回这类不可逆的再确认一次。
+ *  条目自带答复入口的（answer_via：方法、地址、每个答法的请求体和要填的一项）照它发，不按来源写死地址；AI 会话申请用工作台的工具就是这样办的。
  *  走哪个入口同「关注」：不是管理员时，自己的「等验收」走建立人入口，其余走答复入口。 */
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { App, Button, Input, Popconfirm, Radio, Space, Tag, Typography } from 'antd';
 import { apiFetch } from '../admin-token';
 import { attentionChanged, postCreatorDecision } from '../api';
-import { answerChoices, answerRoute, waited, type AttentionItem } from '../attention-view';
+import { answerChoices, answerRoute, answerViaOf, viaBody, viaError, viaInput, waited, type AttentionItem } from '../attention-view';
 import { cardWording, splitAskTitle } from '../home-view';
 import { cleanWho, seatLabel, teamLabel } from '../people';
-import { REVIEW_NEEDS, changeCard, changeDetailOf, confirmText, reviewAnswerLabel, runCard, runDetailOf, taskKindLabel } from '../review-view';
+import { REVIEW_NEEDS, changeCard, changeDetailOf, confirmText, grantCard, grantDetailOf, reviewAnswerLabel, runCard, runDetailOf, taskKindLabel } from '../review-view';
 
 
 const COLOR: Record<string, string> = { ask: 'gold', accept: 'green', glance: 'default', review: 'blue', grant: 'purple' };
@@ -62,6 +63,14 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
   const taskKind = taskKindLabel(item);
   const run = runDetailOf(item);
   const rc = run ? runCard(run, teamLabel) : null;
+  const grant = grantDetailOf(item);
+  const gc = grant ? grantCard(grant) : null;
+  const via = answerViaOf(item);
+  /** 这个答法要先填的一项：条目自带答复入口的照它说的（可以是选填），其余按来源的表 */
+  const needOf = (a: string): { key: string; label: string; max?: number; optional?: boolean } | null => {
+    if (via) { const i = viaInput(via, a); return i ? { key: i.to, label: i.required ? '写一句理由（必填）' : '留一句（可不填）', max: i.max, optional: !i.required } : null; }
+    return NEEDS[item.source]?.[a] ?? null;
+  };
   const isAsk = item.source === 'seat-asks';
   const parsed = isAsk ? splitAskTitle(item.title) : { question: item.title, options: [] };
   // 选项以事项详情里的为准；详情还没带提问列表时用标题里服务端写的「（可选：…）」
@@ -70,6 +79,8 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
   const whoLine = change
     ? `${cleanWho(change.requested_by) || '有人'} 申请`
     : run
+    ? ''
+    : grant
     ? ''
     : isAsk
     ? `${cleanWho(item.waiting_for, seat)} 问`
@@ -83,7 +94,10 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
     setBusy(true);
     try {
       const route = answerRoute(admin, item);
-      if (route === 'ask') {
+      if (route === 'via' && via) {
+        const r = await apiFetch(via.path, { method: via.method, body: JSON.stringify(viaBody(via, answer, Object.values(input)[0] ?? '')) });
+        if (!r.ok) throw Error(viaError(r.status, await r.json().catch(() => null)));
+      } else if (route === 'ask') {
         // 建立人答自己事项上的席位提问：选了选项发 answer，否则发自由文本
         if (!wid || !detail?.askId) throw Error('这条提问已经合上了，刷新看看');
         const r = await apiFetch(`/api/work-items/${encodeURIComponent(wid)}/asks/${encodeURIComponent(detail.askId)}/answer`, { method: 'POST', body: JSON.stringify(choice && input.text === choice ? { answer: choice } : { text: input.text ?? '' }) });
@@ -106,8 +120,7 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
     finally { setBusy(false); }
   };
   const click = (a: string) => {
-    const need = NEEDS[item.source]?.[a];
-    if (need) { setOpen(open === a ? null : a); return; }
+    if (needOf(a)) { setOpen(open === a ? null : a); setText(''); return; }
     void send(a, {});
   };
   return <div className="wm-decision" data-testid="decision-card">
@@ -115,10 +128,14 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
       <Tag color={taskKind ? 'default' : COLOR[item.category] ?? 'default'}>{taskKind ?? wording.label}</Tag>
       <Typography.Text type="secondary" className="wm-caption">{[whoLine, item.since && `等了 ${waited(item.since)}`].filter(Boolean).join(' · ')}</Typography.Text>
     </div>
-    <Typography.Text strong className="wm-decision-title">{cc ? cc.title : rc ? rc.title : parsed.question}</Typography.Text>
+    <Typography.Text strong className="wm-decision-title">{cc ? cc.title : rc ? rc.title : gc ? gc.title : parsed.question}</Typography.Text>
     {rc && <div className="wm-decision-lines" data-testid="decision-run">
       {rc.lines.map((l, i) => <Typography.Text key={i} type="secondary">{l}</Typography.Text>)}
       {rc.problems.map((l, i) => <Typography.Text key={`p${i}`} type="warning">{l}</Typography.Text>)}
+    </div>}
+    {gc && <div className="wm-decision-lines" data-testid="decision-grant">
+      {gc.lines.map((l, i) => <Typography.Text key={i} type="secondary">{l}</Typography.Text>)}
+      {gc.warn && <Typography.Text type="warning">{gc.warn}</Typography.Text>}
     </div>}
     {cc && <div className="wm-decision-lines" data-testid="decision-change">
       {cc.lines.map((l, i) => <Typography.Text key={i} type="secondary">{l}</Typography.Text>)}
@@ -132,16 +149,17 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
         {item.link && !item.link.startsWith('/api/') && <Link to={item.link} className="wm-decision-more">自己写一句 →</Link>}
       </Space>
     </>}
-    {open && <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} maxLength={NEEDS[item.source]?.[open]?.max ?? 4000} showCount={!!NEEDS[item.source]?.[open]?.max} placeholder={NEEDS[item.source]?.[open]?.label} value={text} onChange={(e) => setText(e.target.value)} />}
+    {open && <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} maxLength={needOf(open)?.max ?? 4000} showCount={!!needOf(open)?.max} placeholder={needOf(open)?.label} value={text} onChange={(e) => setText(e.target.value)} />}
     {!(isAsk && options.length > 0 && choices.includes('answer')) && <Space wrap size={8} className="wm-decision-actions">
       {choices.map((a, i) => {
-        const need = NEEDS[item.source]?.[a];
-        if (open === a && need) return <Button key={a} type="primary" loading={busy} disabled={!text.trim()} onClick={() => void send(a, { [need.key]: text.trim() })}>确定{label(a)}</Button>;
-        const confirm = confirmText(item, a);
+        const need = needOf(a);
+        if (open === a && need) return <Button key={a} type="primary" loading={busy} disabled={!need.optional && !text.trim()} onClick={() => void send(a, { [need.key]: text.trim() })}>确定{label(a)}</Button>;
+        // 要先填一句的答法不再另外确认一次：填的那一步就是确认
+        const confirm = need ? null : confirmText(item, a);
         const btn = <Button key={a} type={i === 0 ? 'primary' : 'default'} danger={!!confirm && !!change} loading={busy && !open} disabled={!!run && !run.ready} onClick={confirm ? undefined : () => click(a)}>{label(a)}</Button>;
         return confirm ? <Popconfirm key={a} title={`确定${label(a)}？`} description={confirm} okText={label(a)} cancelText="再想想" onConfirm={() => click(a)}>{btn}</Popconfirm> : btn;
       })}
-      {item.link && !item.link.startsWith('/api/') && !((cc || rc) && choices.length) && <Link to={item.link} className="wm-decision-more">{choices.length ? '看详情' : '去处理'} →</Link>}
+      {item.link && !item.link.startsWith('/api/') && !((cc || rc || gc) && choices.length) && <Link to={item.link} className="wm-decision-more">{choices.length ? '看详情' : '去处理'} →</Link>}
     </Space>}
   </div>;
 }

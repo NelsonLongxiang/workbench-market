@@ -117,3 +117,23 @@ export function runCard(d: RunDetail, team: (t: string) => string = (t) => t): {
   const problems = d.ready ? [] : d.problems.length ? d.problems : ['还有必填的没填，现在验不了'];
   return { title: `${d.sop_title || '流程'}${d.run_id ? ` #${d.run_id}` : ''}`, lines, problems };
 }
+
+/** AI 会话申请用某个工作台的工具（「关注」来源 bench-mcp，#621 / #623）：卡片写清哪个会话、哪个台、要哪些工具（读 / 写分开）、申请理由。
+ *  怎么答由条目的 answer_via 说（批准可以留一句，不批必须写理由），这里只管怎么显示 */
+export type GrantDetail = { session: string; bench: string; bench_title: string; read: string[]; write: string[]; reason: string };
+export function grantDetailOf(item: Pick<AttentionItem, 'source'> & { detail?: unknown }): GrantDetail | null {
+  if (item.source !== 'bench-mcp' || !item.detail || typeof item.detail !== 'object') return null;
+  const d = item.detail as Record<string, unknown>;
+  const tools = (Array.isArray(d.tools) ? d.tools : []).filter((x): x is Record<string, unknown> => !!x && typeof x === 'object' && typeof (x as Record<string, unknown>).tool === 'string');
+  // 没写明是读的一律按写算：宁可多提醒一句
+  return { session: str(d.session), bench: str(d.bench), bench_title: str(d.bench_title), read: tools.filter((t) => t.category === 'read').map((t) => str(t.tool)), write: tools.filter((t) => t.category !== 'read').map((t) => str(t.tool)), reason: str(d.reason).trim() };
+}
+const few = (names: string[]): string => `${names.slice(0, 4).join('、')}${names.length > 4 ? ` 等 ${names.length} 个` : ''}`;
+export function grantCard(d: GrantDetail): { title: string; lines: string[]; warn: string } {
+  const n = d.read.length + d.write.length;
+  return {
+    title: `AI 会话「${d.session || '没写名字'}」想用工作台「${d.bench_title || d.bench || '没写是哪个'}」的${n ? ` ${n} 个` : ''}工具`,
+    lines: [d.read.length ? `只读：${few(d.read)}` : '', d.reason ? `申请理由：${d.reason}` : '没写申请理由'].filter(Boolean),
+    warn: d.write.length ? `会改数据：${few(d.write)}` : '',
+  };
+}
