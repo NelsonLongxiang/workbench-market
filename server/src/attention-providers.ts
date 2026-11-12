@@ -276,6 +276,8 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
     provide({
       // 停太久的事项（规范 14 第九节「卡住的冒给负责人，没有负责人冒给管理层」）：没有当场的答法，到事项页去催；不算进角标，汇总里单独数。
       // 一次最多给 STUCK_LIMIT 条（按停得最久的排），total 是这个人一共有几条；候选从 (state, updated_at) 索引里按停得最久取，最多 STUCK_SCAN 条
+      // 已知的限度：停太久的候选全库超过 STUCK_SCAN 条时，只在停得最久的这些里数，total（和 stuck_count）会偏少。冒给谁要逐件判（负责人、管理层授予），
+      // 一条计数 SQL 表达不了；到那个量级时另做按团队的计数
       source: 'work-items-stuck', label: '停太久的事项', stuck: true,
       list: async (req) => {
         const admin = passes(deps.adminGuard, req);

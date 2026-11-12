@@ -4,7 +4,8 @@
  *
  *   算停太久：已转交、已接单、在做、在等、卡住这几步里，最后一次变动早于 WM_WORK_ITEM_STUCK_HOURS（缺省 24）小时
  *     差一分钟到阈值的不算；等过目（held）、等验收（ready）、有在等答复的提问的不算（它们另有条目）
- *   冒给谁：事项交给的团队的负责人（mine 为真）；团队没有负责人时管理层；建立人、无关的人、只授系统管理员的人都没有
+ *   冒给谁：事项交给的团队的负责人（mine 为真）；团队没有负责人时持有管理层授予的人（不认管理门）；
+ *     建立人、无关的人、只授系统管理员的人、只过了管理门没有授予的系统管理员、只有管理口令的都没有（stuck_count 0）
  *   不算进角标：没有当场的答法（answers 空、没有 answer_via）；/api/attention 的 counts.stuck_count 单独数，含超出上限的
  *   上限：一次最多 50 条，按停得最久的排；来源的件数和 stuck_count 是总数
  *   WM_WORK_ITEM_STUCK_HOURS 坏值拒绝启动
@@ -109,8 +110,19 @@ try {
     return { status: r.status, body };
   };
   const SAME = { 'sec-fetch-site': 'same-origin' };
-  const WHO = { 负责人: { ...SAME, cookie: `session_id=${SESSIONS.beta}` }, 管理层: { ...SAME, cookie: `session_id=${SESSIONS.admin}` }, 建立人: { ...SAME, cookie: `session_id=${SESSIONS.alpha}` }, 无关的人: { ...SAME, cookie: `session_id=${SESSIONS.noAdminFlag}` } };
+  // 管理层：一个普通员工（no-flag，身份来源不说他是管理员）拿一份管理层授予；只过管理门的系统管理员（root-admin，没有任何授予）、只有管理口令的都不算
+  const WHO = { 负责人: { ...SAME, cookie: `session_id=${SESSIONS.beta}` }, 管理层: { ...SAME, cookie: `session_id=${SESSIONS.noAdminFlag}` }, 建立人: { ...SAME, cookie: `session_id=${SESSIONS.alpha}` },
+    无关的人: { ...SAME, cookie: `session_id=${SESSIONS.strasse}` }, 只过管理门: { ...SAME, cookie: `session_id=${SESSIONS.admin}` }, 只有管理口令: { ...SAME, 'x-admin-token': ADMIN_TOKEN } };
   for (const h of Object.values(WHO)) await call('GET', '/api/auth/me', h);
+  const grantRole = async (principal, role) => {
+    const d = await call('POST', '/api/grants', {}, { principal, role, scope: '*', reason: `合成：${role}` });
+    await call('POST', `/api/grants/${d.body?.grant?.id}/submit`, {}, {});
+    return call('POST', `/api/grants/${d.body?.grant?.id}/approve`, {}, {});
+  };
+  {
+    const g = await grantRole('user:no-flag', 'management');
+    if (g.status !== 200) throw new Error(`管理层授予没放成：${show(g)}`);
+  }
   {
     const db = new DatabaseSync(join(data, 'workbench-market.db'));
     const now = Date.now();
@@ -154,7 +166,17 @@ try {
   // ---------- 管理层 ----------
   {
     const r = await attention(WHO.管理层), ids = stuckOf(r).map((x) => x.source_id);
-    check(show(ids) === show([I.vac.id]) && r.body.counts.stuck_count === 1, '管理层：只有没有负责人的团队的那件（有负责人的冒给负责人，不冒给管理层）', show({ ids, n: r.body?.counts?.stuck_count }));
+    check(show(ids) === show([I.vac.id]) && r.body.counts.stuck_count === 1, '持有管理层授予的人：只有没有负责人的团队的那件（有负责人的冒给负责人，不冒给管理层）', show({ ids, n: r.body?.counts?.stuck_count }));
+  }
+  // ---------- 过了管理门、没有管理层授予（#634 的过渡不往这里扩） ----------
+  {
+    const grants = await call('GET', '/api/grants', {});
+    const rootGrants = (grants.body?.grants ?? grants.body ?? []).filter?.((g) => g.principal_id === 'user:root-admin' && g.status === 'active') ?? [];
+    const g = await attention(WHO.只过管理门), t = await attention(WHO.只有管理口令);
+    check(g.status === 200 && rootGrants.length === 0 && stuckOf(g).length === 0 && g.body.counts.stuck_count === 0,
+      '只过了管理门的系统管理员（身份来源说是管理员、没有任何授予）：一条没有，stuck_count 是 0（条目带事项标题，不冒给他）', show({ s: g.status, grants: rootGrants.length, n: g.body?.counts?.stuck_count, ids: stuckOf(g).map((x) => x.title) }));
+    check(t.status === 200 && stuckOf(t).length === 0 && t.body.counts.stuck_count === 0,
+      '只有管理口令：一条没有，stuck_count 是 0', show({ s: t.status, n: t.body?.counts?.stuck_count, ids: stuckOf(t).map((x) => x.title) }));
   }
   // ---------- 别人 ----------
   {
@@ -162,9 +184,7 @@ try {
     check(stuckOf(c).length === 0 && c.body.counts.stuck_count === 0 && stuckOf(o).length === 0 && o.body.counts.stuck_count === 0,
       '建立人（停太久那件就是他建的）、无关的人：一条没有，stuck_count 是 0', show({ c: c.body?.counts?.stuck_count, o: o.body?.counts?.stuck_count }));
     // 只授系统管理员（不是身份来源管理员）：授予由本机命令行（属主）走完
-    const d = await call('POST', '/api/grants', {}, { principal: 'user:no-flag', role: 'admin', scope: '*', reason: '合成：对抗例' });
-    await call('POST', `/api/grants/${d.body?.grant?.id}/submit`, {}, {});
-    const a = await call('POST', `/api/grants/${d.body?.grant?.id}/approve`, {}, {});
+    const a = await grantRole('user:strasse', 'admin');
     const s = await attention(WHO.无关的人);
     check(a.status === 200 && stuckOf(s).length === 0 && s.body.counts.stuck_count === 0, '只授系统管理员角色：一条没有（不看事项内容，没有负责人的团队也不冒给他）', show({ g: a.status, n: s.body?.counts?.stuck_count }));
   }
