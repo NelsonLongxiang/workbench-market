@@ -16,7 +16,8 @@ import { actorLabel } from '../people';
 /** 列表行里「谁」只写名字（句柄在详情里才带）：席位查名册；来源标记 receiver:<区> 用承接席位顶上，别的去前缀 */
 const whoFor = (roster: Record<string, string>): Who => ({
   seat: (x) => seatNameOnly(x, roster),
-  actor: (x, seat) => (/^receiver:/.test(x) && seat ? seatNameOnly(seat, roster) : seatNameOnly(actorLabel(x, ''), roster)),
+  // receiver:<区> 是「对端」这个来源标记：有承接席位就是它，没有就不写是谁（区名不是人）
+  actor: (x, seat) => (/^receiver:/.test(x) ? (seat ? seatNameOnly(seat, roster) : '') : seatNameOnly(actorLabel(x, ''), roster)),
 });
 
 type Mode = 'state' | 'object';

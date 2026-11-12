@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 事项列表页的纯函数单测（web/src/work-items-view.ts）：状态归组、组的计数、按对象分组、行的说明、翻页去重。 */
-import { STATE_GROUPS, appendPage, byObject, byState, groupCount, groupOf, rowLine, rowTime, seatOrWaiting, viewsFor, avatarChar, rosterNames, seatNameOnly, lifecycleNames, progressSummary, objectName, phaseName } from '../web/src/work-items-view.ts';
+import { STATE_GROUPS, appendPage, byObject, byState, groupCount, groupOf, rowLine, rowTime, seatOrWaiting, viewsFor, avatarChar, rosterNames, seatNameOnly, lifecycleNames, progressSummary, lastSaid, objectName, phaseName } from '../web/src/work-items-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -50,5 +50,6 @@ ok('视角：只给接口现在给得出的那一个——管理员「全部」�
   ok('进展摘要：清不出正文只写结局；没有代号的原文照取头一句；空的为空', progressSummary('failed：工单「x」已结束（failed）') === '没办成' && progressSummary('completed') === '做完了' && progressSummary('已核对 12 / 30 箱') === '已核对 12 / 30 箱' && progressSummary('') === '' && progressSummary('failed: 供应商没回复；明天再催') === '没办成 · 供应商没回复');
   ok('进展摘要：太长截断', progressSummary('x'.repeat(60)).endsWith('…') && [...progressSummary('x'.repeat(60))].length === 41);
 }
+ok('最后一条是验收、撤回、打回这类事时说出来；正文只是内部代号时不显示', lastSaid({ fact: 'withdraw', text: '' }) === '撤回了' && lastSaid({ fact: 'verify', text: '' }) === '验收通过' && lastSaid({ fact: 'return', text: '请换一句更短的，不超过十个字。' }) === '打回重做：请换一句更短的，不超过十个字' && lastSaid({ fact: 'note', text: 'followup-read' }) === '' && lastSaid({ fact: 'receipt', text: 'completed' }) === '做完了' && lastSaid({ fact: 'ask', text: '问候语用哪种风格？ 后面还有' }) === '在问：问候语用哪种风格' && lastSaid({ fact: 'submit', text: '' }) === '');
 console.log(`\nwork-items-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

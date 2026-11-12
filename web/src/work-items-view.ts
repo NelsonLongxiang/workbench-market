@@ -112,7 +112,7 @@ export function rowLine(r: WorkItemListRow, mode: 'state' | 'object', who: Who =
   const actor = lp?.actor ? who.actor(lp.actor, r.seat ?? '') : '';
   const raw = r.seat ?? '';
   const sameAsSeat = !!actor && [seat, raw, ...raw.split(' · ')].includes(actor);
-  const said = lp ? progressSummary(lp.text) : '';
+  const said = lp ? lastSaid(lp) : '';
   const last = said ? `${actor && !sameAsSeat ? `${actor}：` : ''}${said}` : '';
   return [place, seat, last].filter(Boolean).join(' · ');
 }
@@ -162,4 +162,15 @@ export function avatarChar(name: string): string {
   // 只有句柄（<区>/<编号>）时没有有意义的字：返回空串，页面放一个中性的席位图标
   if (!s || s.includes('/')) return '';
   return [...s][0].toUpperCase();
+}
+
+/** 最后一条进展是哪一种事（验收、打回、撤回……）也要说出来：这些事常常没有正文。
+ *  正文只是一个内部代号（followup-read 这类）时不显示正文 */
+const FACT_WORD: Record<string, string> = { withdraw: '撤回了', verify: '验收通过', return: '打回重做', release: '放行了', ask: '在问', answer: '答复了' };
+export function lastSaid(lp: { fact?: string; text?: string }): string {
+  const raw = (lp.text || '').trim();
+  const body = /^[a-z][a-z0-9_-]*$/.test(raw) && !RESULT[raw] ? '' : progressSummary(raw);
+  const word = FACT_WORD[lp.fact || ''];
+  if (!word) return body;
+  return body ? `${word}：${body}` : word;
 }
