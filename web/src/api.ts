@@ -219,3 +219,20 @@ export const getAccessRoles = () => accessCall('/api/roles');
 export const getAccessMatrix = () => accessCall('/api/roles/matrix');
 export const approveAccessGrant = (id: number) => accessCall(`/api/grants/${id}/approve`, { method: 'POST', body: {} });
 export const declineAccessGrant = (id: number, reason: string) => accessCall(`/api/grants/${id}/revoke`, { method: 'POST', body: { reason } });
+
+/** 「安排一件事」（#577）：可派的团队。404 = 服务端还没有这个接口，页面给「还没上线」 */
+export async function getAssignableTeams(): Promise<{ status: number; teams: { team: string; name: string }[] }> {
+  try {
+    const r = await fetch('/api/work-items/teams', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    const j = r.ok ? await r.json() as { teams?: { team: string; name: string }[] } : null;
+    return { status: r.status, teams: Array.isArray(j?.teams) ? j.teams : [] };
+  } catch { return { status: 0, teams: [] }; }
+}
+
+/** 建一件事：建立人是登录的本人；带幂等键，重试同一个键不会建两件 */
+export async function postWorkItem(body: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> | null }> {
+  try {
+    const r = await fetch('/api/work-items', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body) });
+    return { status: r.status, body: await r.json().catch(() => null) as Record<string, unknown> | null };
+  } catch { return { status: 0, body: null }; }
+}

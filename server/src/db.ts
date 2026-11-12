@@ -1377,6 +1377,8 @@ function benchStoreSchema(d: BenchDialect): string[] {
       id ${benchAutoId(d)}, kind TEXT NOT NULL, target TEXT NOT NULL, from_version INTEGER NOT NULL, to_version INTEGER NOT NULL,
       actor TEXT NOT NULL, note TEXT NOT NULL, at ${big} NOT NULL)`,
     `CREATE INDEX IF NOT EXISTS idx_bs_snapshots_dataset ON bs_snapshots (dataset, id)`,
+    // 快照的行：一行数据一条，row 是按留快照时的列次序排的 JSON 数组。bs_snapshots.content 只放列定义和主键
+    `CREATE TABLE IF NOT EXISTS bs_snapshot_rows (snapshot_id ${big} NOT NULL, seq ${big} NOT NULL, row TEXT NOT NULL, PRIMARY KEY (snapshot_id, seq))`,
   ];
 }
 
@@ -1404,6 +1406,8 @@ export type BenchSqlKit = {
   dropIndex: string;
   /** 「这一列的文本里包含某段文本」（区分大小写）：两种库的函数名不同 */
   contains: string;
+  /** 把一行的各列拼成一个 JSON 数组的文本（留快照时在库里直接从数据集的表复制到快照的表，不经过服务的内存） */
+  snapshotRow: string;
   /**
    * 扫描守卫：把一条查询的筛选条件 {cond} 包起来，让库每扫过约 256 行回到服务里看一眼时限（bench_tick 由连接登记）。
    * 直接写「条件 AND bench_tick()」不行：条件先不成立时后一半不会算，一条全表扫但没有命中的查询就一次也回不来。
@@ -1424,6 +1428,7 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
       'SELECT id, dataset, dataset_version, reason, row_count, content, content_sha256, author, at FROM bs_snapshots WHERE 1 = 0',
       'SELECT id, dataset, op, idem_key, body_sha256, row_count, actor, at, result FROM bs_writes WHERE 1 = 0',
       'SELECT id, kind, target, from_version, to_version, actor, note, at FROM bs_changes WHERE 1 = 0',
+      'SELECT snapshot_id, seq, row FROM bs_snapshot_rows WHERE 1 = 0',
     ],
     types: types.map((t) => [t, benchSqlType(d, t)]),
     createTable: `CREATE TABLE {table} (rid ${benchAutoId(d)}{columns})`,
@@ -1432,6 +1437,7 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
     keyIndex: 'CREATE UNIQUE INDEX {index} ON {table} ({cols})',
     dropIndex: 'DROP INDEX IF EXISTS {index}',
     contains: d === 'sqlite' ? 'instr({col}, ?) > 0' : 'strpos({col}, ?) > 0',
+    snapshotRow: d === 'sqlite' ? 'json_array({cols})' : 'json_build_array({cols})::text',
     scanGuard: d === 'sqlite' ? 'CASE WHEN (rid & 255) <> 0 OR bench_tick() THEN ({cond}) ELSE 0 END' : null,
   };
 }
