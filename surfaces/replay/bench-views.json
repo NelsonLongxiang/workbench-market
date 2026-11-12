@@ -3111,8 +3111,13 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "162", "etag": "W/\"a2-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
-            "body": { "bench": { "slug": "demo", "title": "示例台", "created_by": "user:alpha", "created_at": 1893456000000, "department_id": "sales", "team_host": "", "team": "" }, "changed": true }
+            "headers": { "cache-control": "private, no-store", "content-length": "211", "etag": "W/\"d3-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "bench": { "slug": "demo", "title": "示例台", "created_by": "user:alpha", "created_at": 1893456000000, "department_id": "sales", "team_host": "", "team": "" },
+              "changed": true,
+              "revoked_mcp_grants": 0,
+              "rejected_mcp_requests": 0
+            }
           }
         },
         {
@@ -3125,8 +3130,13 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "163", "etag": "W/\"a3-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
-            "body": { "bench": { "slug": "demo", "title": "示例台", "created_by": "user:alpha", "created_at": 1893456000000, "department_id": "sales", "team_host": "", "team": "" }, "changed": false }
+            "headers": { "cache-control": "private, no-store", "content-length": "212", "etag": "W/\"d4-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "bench": { "slug": "demo", "title": "示例台", "created_by": "user:alpha", "created_at": 1893456000000, "department_id": "sales", "team_host": "", "team": "" },
+              "changed": false,
+              "revoked_mcp_grants": 0,
+              "rejected_mcp_requests": 0
+            }
           }
         },
         {
@@ -3190,8 +3200,8 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "157", "etag": "W/\"9d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
-            "body": { "bench": { "slug": "demo", "title": "示例台", "created_by": "user:alpha", "created_at": 1893456000000, "department_id": "", "team_host": "", "team": "" }, "changed": true }
+            "headers": { "cache-control": "private, no-store", "content-length": "206", "etag": "W/\"ce-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "bench": { "slug": "demo", "title": "示例台", "created_by": "user:alpha", "created_at": 1893456000000, "department_id": "", "team_host": "", "team": "" }, "changed": true, "revoked_mcp_grants": 0, "rejected_mcp_requests": 0 }
           }
         }
       ]

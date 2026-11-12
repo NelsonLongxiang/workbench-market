@@ -29,7 +29,7 @@
 |---|---|---|
 | 列出台 | `GET /api/bench-views` | — |
 | 登记一个台 | `POST /api/bench-views`，`{ slug, title, department?, team_host?, team? }`（管理层可以不绑；别的人只能登记到自己有拍板授予的部门） | — |
-| 改绑、解绑 | `PUT /api/bench-views/<台>/binding`，`{ department, team_host?, team?, note? }`（`department` 给空串是解绑；只有管理层） | — |
+| 改绑、解绑 | `PUT /api/bench-views/<台>/binding`，`{ department, team_host?, team?, note? }`（`department` 给空串是解绑；只有管理层。部门变了，这个台上批给 MCP 会话的授予会全部收回、没定的申请驳回，应答里给出各有几条） | — |
 | 列出数据集 | `GET /api/bench-views/<台>/datasets` | `dataset_list` |
 | 建、改数据集 | `PUT /api/bench-views/<台>/datasets/<集>`，请求体是定义（不用再写 `name`） | `dataset_define` |
 | 写行 | `POST /api/bench-views/<台>/datasets/<集>/rows?op=replace`（或 `upsert`、`append`、`delete`），**请求体就是行的数组**（`delete` 时是主键的数组） | `dataset_replace` 等四个 |
