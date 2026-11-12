@@ -37,11 +37,12 @@ export interface Viewer { login: string; uid: number; sub: string; name: string 
 export type ViewerResult = { ok: true; viewer: Viewer; via?: 'session' } | { ok: false; http: number; error: string; held?: true };
 
 /**
- * 身份来源不可达（到点没回答、抛错、回答的形状不对，都是 502）：和「没登录、会话失效」（401）分开说，页面按代号给一句人话。
+ * 身份来源不可达（到点没回答、抛错、来源自己说不可达）：和「没登录、会话失效」（401）分开说，页面按代号给一句人话。
  * 路由认不出人时用它分：sourceDown 为真回 502 和这个代号，否则照旧 401。失败关闭，两种都不放行。
  */
 export const IDENTITY_UNAVAILABLE = 'identity_unavailable';
-export const sourceDown = (r: ViewerResult): boolean => !r.ok && r.http === 502;
+// 回答形状不对（unrecognized，也是 502）是校验没过，不算来源不可达：照旧按认不出（401）
+export const sourceDown = (r: ViewerResult): boolean => !r.ok && r.http === 502 && r.error !== '身份来源的回答无法识别，按认不出处理';
 
 /** whoami 的应答（GET /api/auth/viewer 原样用它） */
 export type Whoami = { http: number; body: Record<string, unknown> };
@@ -90,8 +91,9 @@ const UNRECOGNIZED = '身份来源的回答无法识别，按认不出处理';
 /** 提供方没有自报期限时的底线。比自带提供方自己的 5 秒超时长，不会抢在它前面 */
 const DEFAULT_DEADLINE_MS = 10_000;
 /**
- * 认不出的回答留多久（毫秒）：同一个凭据短时间里反复认不出，不每次都去问身份来源——一个坏 cookie 不该把来源问爆，
- * 来源慢或不通时，一个请求里几处认人（登录门、管理员认定、路由自己）也只等一次。认得出的回答不在这里留（主体那一步每次现查）。
+ * 「来源不可达」（502：到点没回答、抛错、回答形状不对）留多久（毫秒）：来源慢或不通时，一个请求里几处认人（登录门、管理员认定、
+ * 路由自己）只等一次，同一个凭据短时间里也不反复去等。来源回答了「认不出」（401、403）的不留——刚登录的同一个凭据下一次就要认得出；
+ * 认得出的也不在这里留（主体那一步每次现查）。
  */
 const NEGATIVE_TTL_MS = 3_000;
 const NEGATIVE_MAX = 1000;
@@ -233,7 +235,7 @@ export class IdentityService extends Service {
   private deadlineMs = DEFAULT_DEADLINE_MS;
   /** 正在问的：同一个凭据同时来几次，只问一次，大家等同一个回答 */
   private inFlight = new Map<string, Promise<{ provider: LoginProvider; result: ViewerResult }>>();
-  /** 认不出的回答：按凭据（和指定的来源）分，留 NEGATIVE_TTL_MS */
+  /** 来源不可达的回答：按凭据（和指定的来源）分，留 NEGATIVE_TTL_MS */
   private negative = new Map<string, { at: number; provider: LoginProvider; result: ViewerResult }>();
   private stats: SourceStats = { asked: 0, timeouts: 0, failed: 0, shared: 0, negative_hits: 0, last_ms: null, last_failed_at: null };
 
@@ -429,7 +431,7 @@ export class IdentityService extends Service {
   private async recognize(cookieHeader: string, source?: string): Promise<{ provider: LoginProvider | null; result: ViewerResult }> {
     const provider = this.provider;
     if (!provider) return { provider: null, result: { ok: false, http: 503, error: NO_PROVIDER } };
-    // 按凭据合并：同时来的只问一次；刚认不出的，NEGATIVE_TTL_MS 之内不再问（换了提供方作废）
+    // 按凭据合并：同时来的只问一次；刚不可达的，NEGATIVE_TTL_MS 之内不再问（换了提供方作废）
     let credential: string | null = null;
     try { credential = provider.credentialOf(cookieHeader); } catch { credential = null; }
     if (!credential) return { provider, result: await this.ask(provider, cookieHeader, source) };
@@ -440,7 +442,7 @@ export class IdentityService extends Service {
     if (pending) { this.stats.shared++; const r = await pending; return { provider: r.provider, result: { ...r.result } }; }
     const run = (async () => {
       const result = await this.ask(provider, cookieHeader, source);
-      if (!result.ok) {
+      if (sourceDown(result)) {
         if (this.negative.size >= NEGATIVE_MAX) this.negative.clear();
         this.negative.set(key, { at: Date.now(), provider, result });
       }

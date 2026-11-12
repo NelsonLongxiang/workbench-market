@@ -7,6 +7,9 @@
  *   二、同一个 cookie 短时间里反复认不出：只问来源一次（同时来的合并，刚认不出的留几秒）
  *   三、来源恢复：不用重启，过了留存时间就认得出
  *   四、health 里看得出：问了几次、到点没回答几次、最近一次耗时
+ *   五、来源回答了「认不出」的不留：同一个凭据随即登录成功，下一次就认得出
+ *   六、「关注」：来源不可达回 502 identity_unavailable（不给空列表）；来源说认不出的照旧给（空）列表
+ *   七、登录门开着（WM_LOGIN_GATE=enforce）：来源不可达，接口回 502 identity_unavailable，不说「请先登录」；认不出的照旧 401
  *
  *   node scripts/identity-source-timeout-test.mjs
  */
@@ -39,20 +42,22 @@ async function freePort() {
   return port;
 }
 
-let child = null;
+const children = [];
 const data = join(OUT, 'data');
 const DOWN = join(data, 'fake-identity-down');
-async function boot() {
+async function boot(extraEnv = {}, name = 'main') {
   const port = await freePort();
-  const home = join(OUT, 'home'), ext = join(OUT, 'ext');
+  const base0 = name === 'main' ? OUT : join(OUT, name);
+  const data = join(base0, 'data'), home = join(base0, 'home'), ext = join(base0, 'ext');
   for (const d of [data, home, ext]) mkdirSync(d, { recursive: true });
   const env = {};
   for (const k of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP']) if (process.env[k]) env[k] = process.env[k];
-  Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN, REDIS_URL: '', IDENTITY_SEAM_ROOT: ROOT, WM_EXTENSIONS_DIR: ext });
-  child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
+  Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN, REDIS_URL: '', IDENTITY_SEAM_ROOT: ROOT, WM_EXTENSIONS_DIR: ext, ...extraEnv });
+  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
   child.stdout.on('data', (d) => { log += String(d); });
   child.stderr.on('data', (d) => { log += String(d); });
+  children.push(child);
   const base = `http://127.0.0.1:${port}`;
   let ready = false;
   for (const deadline = Date.now() + 40000; !ready && Date.now() < deadline && child.exitCode === null;) {
@@ -71,7 +76,7 @@ async function boot() {
     let json = null; try { json = JSON.parse(text); } catch { /* 不是 JSON */ }
     return { status: res.status, ms: Date.now() - t0, text, json };
   };
-  return { call };
+  return { call, data };
 }
 
 try {
@@ -128,11 +133,43 @@ try {
     check(show(keys) === show(['asked', 'failed', 'last_failed_at', 'last_ms', 'negative_hits', 'shared', 'timeouts']) && !show(s).includes('fake-') && !show(s).includes('alpha'),
       'health 里的身份来源：只有计数、最近一次耗时和最近一次失败的时刻，不带凭据和人', show(s));
   }
+
+  // ---------- 五、认不出的不留：随即登录成功，下一次就认得出 ----------
+  {
+    const before = await srv.call('GET', '/api/work-items', { session: SESSIONS.lateLogin });
+    writeFileSync(join(data, 'fake-identity-logged-in'), 'yes');
+    const after = await srv.call('GET', '/api/work-items', { session: SESSIONS.lateLogin });
+    check(before.status === 401 && before.json?.error === 'work_items_auth_required' && after.status === 200,
+      '同一个凭据：先认不出（401），随即登录成功，下一次请求就认得出（来源说认不出的回答不留）', show({ before: [before.status, before.json?.error], after: after.status }));
+  }
+
+  // ---------- 六、「关注」：来源不可达不给空列表 ----------
+  {
+    const down = await srv.call('GET', '/api/attention', { session: SESSIONS.hangs });
+    const forged = await srv.call('GET', '/api/attention', { session: SESSIONS.forged });
+    const admin = await srv.call('GET', '/api/attention', { session: SESSIONS.hangs, headers: { 'x-admin-token': ADMIN_TOKEN } });
+    check(down.status === 502 && down.json?.error === 'identity_unavailable' && down.ms < BOUND_MS && forged.status === 200 && Array.isArray(forged.json?.items) && admin.status === 200,
+      '「关注」：带 cookie、来源不可达回 502 identity_unavailable（不给看着像「没有要拍板的」空列表）；来源说认不出的照旧给列表；管理口令照常',
+      show({ down: [down.status, down.json?.error, down.ms], forged: forged.status, admin: admin.status }));
+  }
+
+  // ---------- 七、登录门开着：来源不可达不说「请先登录」 ----------
+  {
+    const gated = await boot({ WM_LOGIN_GATE: 'enforce' }, 'gated');
+    const down = await gated.call('GET', '/api/attention', { session: SESSIONS.hangs });
+    const items = await gated.call('GET', '/api/work-items', { session: SESSIONS.hangs });
+    const forged = await gated.call('GET', '/api/attention', { session: SESSIONS.forged });
+    const anon = await gated.call('GET', '/api/attention');
+    check(down.status === 502 && down.json?.error === 'identity_unavailable' && items.status === 502 && items.json?.error === 'identity_unavailable'
+      && forged.status === 401 && forged.json?.error === 'login_required' && anon.status === 401 && down.ms < BOUND_MS,
+      '登录门开着：带 cookie、来源不可达，接口回 502 identity_unavailable（关注、事项都是）；来源说认不出、没带 cookie 的照旧 401 login_required',
+      show({ down: [down.status, down.json?.error, down.ms], items: [items.status, items.json?.error], forged: [forged.status, forged.json?.error], anon: anon.status }));
+  }
 } catch (e) {
   fail++;
   console.log(`  ✗ 对抗组没跑完：${e?.stack ?? e}`);
 } finally {
-  if (child && child.exitCode === null) child.kill('SIGKILL');
+  for (const c of children) if (c.exitCode === null) c.kill('SIGKILL');
   rmSync(OUT, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }
 console.log(`identity-source-timeout-test: ${pass} passed / ${fail} failed`);
