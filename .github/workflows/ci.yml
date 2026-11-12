@@ -294,7 +294,7 @@ jobs:
           node scripts/tech-route-check.mjs --strict
           node scripts/privacy-gate.mjs --selftest
       - name: 台库冒烟（数据视图：数据集与改列·四种写入的校验、幂等、上限·快照与退回·查询描述与注入形态·视图描述的核对、版本、并发保存、回退·排队、隔离、标识不逃出目录）
-        run: node scripts/bench-store-smoke.mjs
+        run: node scripts/bench-store-smoke.mjs && node --disable-warning=ExperimentalWarning scripts/skill-data-views-examples-test.mjs
       - name: 事项服务单测（阶段八 8a：第三节状态表含补定的原地行逐行正例、表外迁移逐个反例·只记录的答复与回执·终态之后只收晚到回执·同一条事实只记一次·事项日志改写删除在库这一层被拒；8b：事件日志→事项的映射·正放打乱重复终态相同·监听器漏一次回填补上·未验证来源不推进·回填两遍逐行相同·来源回滚事项也没有）
         run: node scripts/work-item-service-test.mjs && node scripts/work-item-facts-test.mjs && node scripts/work-item-migration-test.mjs
       - name: 事项回填不挡启动（后台分批、每片让出事件循环；启动到能应答不随事件数增长·中途被杀重启接着跑、终态同一次跑完·重跑逐行相同、版本没变跳过·回填期间进来的事实不丢不重复）
