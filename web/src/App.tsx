@@ -3,7 +3,6 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import Shell from './components/Shell';
 import { KeyOutlined } from '@ant-design/icons';
 import { api } from './api';
-import Dashboard from './pages/Dashboard';
 import Market from './pages/Market';
 import MarketHome from './pages/market/Market';
 import Access from './pages/access/Access';
@@ -127,7 +126,6 @@ export default function App() {
       <OutboundBanner />
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/overview" element={<Dashboard />} />
         <Route path="/team" element={<Team />} />
         <Route path="/access" element={<Access />} />
         <Route path="/knowledge" element={<NotYet spec={NOT_YET.knowledge} />} />

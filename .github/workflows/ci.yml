@@ -317,6 +317,10 @@ jobs:
         run: node scripts/work-item-handoff-test.mjs
       - name: 事项上看得到的人和列表的视角（放宽访问的对抗：建立人、管理层看得到，别人 404·管理层按拍板类动作认：只授普通员工或系统管理员的看不到别人的、只授管理层的看得到·列表里每一条详情都是 200·视角可用性和件数·不可用的视角 403·「关注」的验收条目和详情同一处判断）
         run: node scripts/work-item-views-test.mjs
+      - name: 成员的主人、负责人和 seats / team 视角（放宽访问的对抗：席位按完整的键，别的节点上 seat_id 相同、名字只多一个字的团队里句柄相同的都不算·换主人那一秒左闭右开、列表和详情同一个口径·负责人看得到本团队的、别的团队的 404·列表里每一条详情都是 200·「关注」负责人看得到本团队的待验收）
+        run: node scripts/work-item-views-team-test.mjs
+      - name: 只认已确认的关系（管理口令指的负责人只是提议、分配成员系统管理员不能代办、认领只是提议：都看不到事项·对照：确认之后看得到）
+        run: node scripts/work-item-relations-trust-test.mjs
       - name: 对端登记表（升级回填建对端行、取不到名片的待登记不挡投递、重跑不变·登记取名片验签钉公钥·公钥变了不自动接受、进「关注」、指纹对得上才换·停用和重新启用·canDeliver 原因分得开·健康从现有表算·对外只给指纹）
         run: node scripts/a2a-peers-test.mjs
       - name: 「安排一件事」（放宽访问的对抗：只认会话登录的启用的人·建立人是本人、自报的不认·只能派给绑在任务中心上的团队·缺省先过目、员工直派要两个开关都开·幂等按人·限流管理员可调·匿名、口令、跨站、停用拒·启动自检一行）
@@ -484,6 +488,8 @@ jobs:
         run: node scripts/identity-status-unit.mjs
       - name: 事项列表单测（纯函数——分组、行文、视角、名字；单列一步）
         run: node scripts/work-items-ui-unit.mjs
+      - name: 驾驶舱骨架单测（纯函数——三栏尺寸、放大还原、数据视图引用、页签；单列一步）
+        run: node scripts/cockpit-frame-unit.mjs
       - name: 凭据库（融合 dsh-vault：读写要口令·业务面 403·摘要无明文·坏 JSON 不进日志·写锁/重开/闲置上锁/限流）
         run: node scripts/vault-concurrency-test.mjs && node scripts/vault-smoke.mjs
       - name: 条目自带答复入口单测（纯函数——answer_via 的地址、请求体、填写项；核准卡片的写法；单列一步）
@@ -501,7 +507,9 @@ jobs:
       - name: 来源 IP 单测（WM_TRUSTED_PROXIES：可信反代才认 X-Real-IP/XFF·伪造不生效·非法项拒绝启动）
         run: node scripts/client-ip-unit.mjs
       - name: 日志不泄露上游会话 + 登录中继安全头（Set-Cookie 只记名·查询串不进日志·XFO/nosniff/frame-ancestors）
-        run: node scripts/log-secret-relay-headers-smoke.mjs
+        # 这一步只核响应头和日志。Chromium 嵌框那几条在 browser-security 里用钉住版本的 Chromium 跑（PLAYWRIGHT_VERSION）；
+        # 这里清掉 runner 镜像自带的 CHROME_BIN（系统 Google Chrome，版本随镜像漂：镜像 20261111 升到 157，被拦的子框不再出现在主框架树里）
+        run: CHROME_BIN= node scripts/log-secret-relay-headers-smoke.mjs
       - name: 管理员口令止血单测（#292 M4：pagehide 抹口令·变更广播）
         run: node scripts/admin-token-guard-unit.mjs
       - name: 门户剥 Service-Worker-Allowed 冒烟（#292 M5）

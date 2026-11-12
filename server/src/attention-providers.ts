@@ -227,8 +227,8 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
         const viewer = await attentionViewer(req, admin);
         if (!admin && !viewer.principal) return null;
         const out: AttentionItem[] = [];
-        // 验收：看得到这件事项的人（itemRoles，和详情同一处）都看得到这一条，mine 只对轮到的人（建立人）为真；
-        // 今天的管理员迁移后是管理层，看到的和原来一样（全部）。负责人、成员的主人随关系确认制接上之后，也走这里
+        // 验收：看得到这件事项的人（itemRoles：建立人、成员的主人、负责人、管理层）都看得到这一条，mine 只对轮到的人（建立人）为真；
+        // 负责人在「别人的事，你可以代办」里看到本团队的。今天的管理员迁移后是管理层，看到的和原来一样（全部）
         for (const w of items.list({ state: 'ready' })) {
           if (!canSee(w, viewer)) continue;
           out.push(item({ source: 'work-items', source_id: w.id, category: 'accept', title: w.title, waiting_for: w.target_team || w.seat || w.created_by, since: w.updated_at, answers: ['verify', 'return'], link: `/work-items/${w.id}`, object: w.object, phase: w.phase,

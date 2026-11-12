@@ -76,6 +76,11 @@ export function rosterSourceStats(now = Date.now(), staleMs = 15 * 60_000): { so
   return { sources: Number(row.n), stalest_received_at: row.oldest ?? null, stale_15m: Number(row.stale ?? 0) };
 }
 
+/** 名册里的节点标识和根地址（host ↔ peer_root 一对一）。认事项属于哪个团队时，用投递地址的根地址换 host */
+export function rosterHosts(): { host: string; peer_root: string }[] {
+  return db.prepare('SELECT host, peer_root FROM a2a_rosters').all() as { host: string; peer_root: string }[];
+}
+
 export function rosters(): RosterRow[] {
   const hosts = db.prepare('SELECT host, peer_root, peer_zone, reported_at, received_at FROM a2a_rosters ORDER BY peer_zone, host').all() as Omit<RosterRow, 'seats'>[];
   const seats = db.prepare('SELECT host, team, seat, seat_id, name, role, online, queued, last_active_at FROM a2a_roster_seats ORDER BY host, team, seat').all() as { host: string; team: string; seat: string; seat_id: string; name: string; role: RosterSeat['role']; online: number; queued: number; last_active_at: string }[];
