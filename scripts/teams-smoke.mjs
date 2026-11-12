@@ -240,6 +240,20 @@ try {
       show({ self: self.json, lead: lead.status, strangerBeta, strangerNobody, strangerSelf: strangerSelf.json, adminAlpha: adminAlpha.json?.assignments?.length, ranged: ranged.json, badRange: badRange.status, badFrom: badFrom.status, anonA: anonA.status }));
 
     // 「谁能做什么」页：带上团队这层关系（只增），不带事项内容；管理员看得到别人的关系
+    // 负责人只看自己团队里的那几段：别队（ops，alpha 不是负责人）也给 beta 分一个成员，alpha 看 beta 只看到本队那段；beta 自己、管理员看到两段
+    const otherK = { host: HOST, team: OTHER }, otherSeat = { ...otherK, seat: 'zone1/0000000e', seat_id: 'seat-0000000e' };
+    await srv.call('POST', '/api/teams/claim', { body: { ...otherK, department: 'ops' } });
+    const assignedOther = await srv.call('POST', '/api/teams/assign', { body: { ...otherSeat, principal: 'user:beta' } });
+    const leadSees = (await srv.call('GET', asq('user:beta'), as(SESSIONS.alpha))).json?.assignments ?? [];
+    const selfSees = (await srv.call('GET', asq('user:beta'), as(SESSIONS.beta))).json?.assignments ?? [];
+    const otherEv = await srv.call('GET', evq(otherK), as(SESSIONS.alpha));
+    // 收尾：恢复原状（后面几节按别队从没认领过、beta 只有本队那一段来测）
+    db.prepare('DELETE FROM seat_assignments WHERE host = ? AND seat_id = ?').run(HOST, 'seat-0000000e');
+    db.prepare('DELETE FROM team_events WHERE host = ? AND team = ?').run(HOST, OTHER);
+    db.prepare('DELETE FROM teams WHERE host = ? AND team = ?').run(HOST, OTHER);
+    check(assignedOther.status === 201 && leadSees.length === 1 && leadSees[0].team === TEAM && selfSees.length === 2 && selfSees.some((x) => x.team === OTHER) && otherEv.status === 404,
+      '负责人看别人的分配只看自己负责的团队里的那几段（别队的那段不给）；本人看到全部；负责人看别队的变更记录 404',
+      show({ assignedOther: assignedOther.status, leadSees, selfSees: selfSees.map((x) => x.team), otherEv: otherEv.status }));
     const accA = await srv.call('GET', '/api/principals/user:alpha/access', as(SESSIONS.alpha));
     const accB = await srv.call('GET', '/api/principals/user:beta/access', { headers: token });
     const ra = accA.json?.relations, rb = accB.json?.relations;
