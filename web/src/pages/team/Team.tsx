@@ -8,19 +8,25 @@
  *   · 管理员（应答里有「待认领的团队」这一栏）：把待认领的团队挂到部门、顺带指定一位负责人；没有部门时先建部门。
  *     关系确认制（#638）：不是属主、管理层的人认领、指定负责人，服务端只记成提议（202）——页面说「已提出，等〈谁〉确认」，
  *     那一项标「待确认」，不当成已生效；按钮照服务端的 can（claim / propose_claim、add_lead / propose_lead）出现。确认、撤回不在这一版。
- *   · 负责人在成员卡上「分配给…」「收回」：接口还没给「当前的人能不能分配」，这一版只读，等服务端给了再接。
+ *   · 成员分配（规范 14 第二节）：团队上 can_assign 为真的人（负责人、管理层；服务端判），在成员卡上
+ *     对团队公用的成员「分配给…」，对已分配的「改派」「收回」。分给谁只从服务端给的 assignable 里选；总工不分配。
+ *     选人、收回的确认都在弹窗里；收回先照实说后果（分给他期间接手的事他照样看得到）。办成了用几秒自动消失的轻提示。
+ *     改派是先收回再分配（服务端没有一步改派的接口）；分配回 202 时照提议说「已提出，等〈谁〉确认」。办完重读，成员卡和头卡当场更新。
+ *     系统管理员（can_assign 为假的管理员视图）头卡上写一句分配归谁。
  * 不做：工作方式开关、本周办结和通过率、技能、招 AI 员工（没有数据，不放占位）。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Empty, Input, Select, Skeleton, Tag } from 'antd';
+import { Alert, App, Button, Empty, Input, Modal, Select, Skeleton, Tag } from 'antd';
+import type { ButtonProps } from 'antd';
 import WmPage from '../../components/WmPage';
-import { addTeamLead, claimTeam, getTeamDepartments, getTeamPeople, getTeams, putDepartment } from '../../api';
+import { addTeamLead, approveRelationProposal, assignTeamSeat, attentionChanged, claimTeam, getRelationProposals, getTeamDepartments, getTeamPeople, getTeams, putDepartment, rejectRelationProposal, unassignTeamSeat } from '../../api';
+import RelTime from '../../components/RelTime';
 import { subscribeAdminToken } from '../../admin-token';
 import {
-  actionProblem, pendingText, proposedText, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterStaleText, sourceProblem,
+  actionProblem, ASSIGN_BY_TEXT, assignDoneText, assigneeOptions, assignOps, reassignHalfDoneText, reassignStoppedText, unassignConfirmText, pendingText, proposedText, claimButtonText, LEAD_SKIPPED_TEXT, proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, outcomeLabel, outcomeReasonText, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterStaleText, sourceProblem,
   teamCounts, teamStatusLabel, teamTitle, teamsOf,
 } from '../../team-view';
-import type { Department, Member, SourceResult, Team as TeamT, TeamsCan, Tone } from '../../team-view';
+import type { Department, KnownNames, Member, Proposal, SourceResult, Team as TeamT, TeamsCan, Tone } from '../../team-view';
 
 const TAG: Record<Tone, string> = { success: 'success', warning: 'warning', danger: 'error', default: 'default' };
 const ok = (r: SourceResult | null) => !!r && r.status >= 200 && r.status < 300;
@@ -35,27 +41,100 @@ function peopleOf(body: unknown): Person[] {
   }).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
 }
 
-function MemberCard({ m, chief }: { m: Member; chief?: boolean }) {
+type AssignMode = 'assign' | 'reassign' | 'unassign';
+const NO_OPS = { assign: false, reassign: false, unassign: false };
+const NO_SPACE = { autoInsertSpace: false } as const;
+
+/** 成员卡：名字、在不在线、在办几件、归谁用；看的人能分配时，带「分配给…」或「改派」「收回」，选人和确认在弹窗里 */
+function MemberCard({ m, chief, t, onDone }: { m: Member; chief?: boolean; t?: TeamT; onDone?: () => void }) {
+  const { message } = App.useApp();
+  const ops = t ? assignOps(t, m, chief) : NO_OPS;
+  const [mode, setMode] = useState<AssignMode | null>(null);
+  const [to, setTo] = useState<string | undefined>();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const name = memberLabel(m);
+  const holder = m.assigned_to ? personName(m.assigned_to) : '';
+  const options = t && (mode === 'assign' || mode === 'reassign') ? assigneeOptions(t, m) : [];
+  const toName = options.find((o) => o.value === to)?.label ?? '';
+  const close = () => { setMode(null); setTo(undefined); setErr(null); };
+  const finish = (kind: 'success' | 'info' | 'warning', text: string) => { close(); void message.open({ type: kind, content: text, duration: kind === 'warning' ? 8 : 3 }); onDone?.(); };
+  const submit = async () => {
+    if (!t || !mode) return;
+    setBusy(true); setErr(null);
+    if (mode === 'unassign') {
+      const r = await unassignTeamSeat(t.host, t.team, m.seat, m.seat_id);
+      const p = actionProblem(r);
+      setBusy(false);
+      if (p) setErr(p); else { const d = assignDoneText('unassign', name, '', r); finish(d.kind, d.text); }
+      return;
+    }
+    if (!to) { setBusy(false); return; }
+    if (mode === 'reassign') {
+      const u = await unassignTeamSeat(t.host, t.team, m.seat, m.seat_id);
+      const pu = actionProblem(u);
+      if (pu) { setBusy(false); setErr(pu); return; }
+      const held = proposedText(u); // 收回只记成了提议：没真的收回，不接着分配
+      if (held) { setBusy(false); finish('info', reassignStoppedText(name, held)); return; }
+    }
+    const r = await assignTeamSeat(t.host, t.team, m.seat, m.seat_id, to);
+    const p = actionProblem(r);
+    setBusy(false);
+    if (!p) { const d = assignDoneText(mode, name, toName, r); finish(d.kind, d.text); }
+    else if (mode === 'reassign') finish('warning', reassignHalfDoneText(name, toName, p)); // 已经收回了：重读，让卡片照实显示团队公用
+    else setErr(p);
+  };
+  const picking = mode === 'assign' || mode === 'reassign';
   return (
     <div className="wm-team-member" data-testid={chief ? 'team-router' : 'team-member'}>
       <div className="wm-team-member-head">
         <span className={m.online ? 'wm-team-dot on' : 'wm-team-dot'} title={m.online ? '在线' : '不在线'} />
-        <b className="wm-team-member-name">{memberLabel(m)}</b>
+        <b className="wm-team-member-name">{name}</b>
         {chief && <span className="wm-team-kind">总工</span>}
       </div>
       <div className="wm-team-member-meta">
         <span>{m.active_items > 0 ? `在办 ${m.active_items} 件` : '手上没有在办的'}</span>
         <span className={m.assigned_to ? 'wm-team-assigned' : 'wm-team-shared'} data-testid="team-assigned">{chief ? '只对负责人' : assignedText(m)}</span>
       </div>
+      {(ops.assign || ops.reassign || ops.unassign) && (
+        <div className="wm-team-member-ops">
+          {ops.assign && <Button size="small" onClick={() => setMode('assign')} data-testid="team-assign-open" {...NO_SPACE}>分配给…</Button>}
+          {ops.reassign && <Button size="small" onClick={() => setMode('reassign')} data-testid="team-reassign-open" {...NO_SPACE}>改派</Button>}
+          {ops.unassign && <Button size="small" danger onClick={() => setMode('unassign')} data-testid="team-unassign-open" {...NO_SPACE}>收回</Button>}
+        </div>
+      )}
+      <Modal
+        open={picking} title={mode === 'reassign' ? `把「${name}」改派给谁` : `把「${name}」分配给谁`} onCancel={busy ? undefined : close} onOk={submit} destroyOnClose
+        okText={mode === 'reassign' ? '改派' : '分配'} cancelText="算了" confirmLoading={busy}
+        okButtonProps={{ disabled: !to, 'data-testid': 'team-assign-confirm', ...NO_SPACE } as ButtonProps} cancelButtonProps={{ disabled: busy, ...NO_SPACE } as ButtonProps}
+      >
+        <div className="wm-team-assign-body" data-testid="team-assign-form">
+          {mode === 'reassign' && <p className="wm-team-hint">现在分给 {holder}。改派是先收回、再分给新的人。</p>}
+          {options.length > 0
+            ? <Select placeholder={mode === 'reassign' ? '改派给谁' : '分给谁'} value={to} onChange={setTo} options={options} showSearch optionFilterProp="label" data-testid="team-assign-to" className="wm-team-assign-select" />
+            : <span className="wm-team-hint" data-testid="team-assign-nobody">{mode === 'reassign' ? '部门里没有别的人可以改派。' : '部门里还没有可以分的人，先把人加进部门。'}</span>}
+          {err && <Alert className="wm-team-err" type="warning" showIcon message={err} data-testid="team-assign-err" />}
+        </div>
+      </Modal>
+      <Modal
+        open={mode === 'unassign'} title={`收回「${name}」？`} onCancel={busy ? undefined : close} onOk={submit} destroyOnClose
+        okText="确认收回" cancelText="算了" confirmLoading={busy}
+        okButtonProps={{ danger: true, 'data-testid': 'team-unassign-confirm', ...NO_SPACE } as ButtonProps} cancelButtonProps={{ disabled: busy, ...NO_SPACE } as ButtonProps}
+      >
+        <div data-testid="team-unassign-form">
+          <p>{unassignConfirmText(name, holder)}</p>
+          {err && <Alert className="wm-team-err" type="warning" showIcon message={err} data-testid="team-assign-err" />}
+        </div>
+      </Modal>
     </div>
   );
 }
 
-function TeamBlock({ t, nameOf }: { t: TeamT; nameOf: (id: string) => string }) {
-  const s = teamStatusLabel(t.status);
+function TeamBlock({ t, nameOf, onDone, admin, staleMin }: { t: TeamT; nameOf: (id: string) => string; onDone: () => void; admin: boolean; staleMin?: number }) {
   const leads = leadsOf(t);
   const n = teamCounts(t);
-  const stale = rosterStaleText(t, Date.now());
+  const stale = rosterStaleText(t, Date.now(), staleMin);
+  const s = teamStatusLabel(t.status, stale !== null);
   return (
     <div className="wm-team-team" data-testid="team-team">
       <div className="wm-team-head">
@@ -64,6 +143,7 @@ function TeamBlock({ t, nameOf }: { t: TeamT; nameOf: (id: string) => string }) 
           <span>负责人：{leads.length ? leads.map((l) => l.name + (l.viaDepartment ? '（部门负责人）' : '')).join('、') : '没有在职的负责人'}</span>
           <span>总工：{t.router ? memberLabel(t.router) : '名册里没有总工'}</span>
           <span>{n.members} 个成员 · 在办 {n.active} 件</span>
+          {admin && !t.can_assign && <span data-testid="team-assign-by">{ASSIGN_BY_TEXT}</span>}
         </div>
         {stale && <div className="wm-team-stale" data-testid="team-roster-stale">{stale}</div>}
         {(t.pending_leads ?? []).map((p) => (
@@ -71,7 +151,7 @@ function TeamBlock({ t, nameOf }: { t: TeamT; nameOf: (id: string) => string }) 
         ))}
       </div>
       {t.router && <MemberCard m={t.router} chief />}
-      {t.members.map((m) => <MemberCard key={`${m.seat}-${m.seat_id}`} m={m} />)}
+      {t.members.map((m) => <MemberCard key={`${m.seat}-${m.seat_id}`} m={m} t={t} onDone={onDone} />)}
       {t.members.length === 0 && <div className="wm-team-none">{memberlessText(t)}</div>}
     </div>
   );
@@ -91,7 +171,7 @@ function ClaimCard({ t, depts, people, can, onDone, onNotice }: { t: TeamT; dept
     let p = actionProblem(r);
     const claimProposed = p ? null : proposedText(r);
     // 认领只是提议时，团队还没挂上，负责人这一步做不了（等认领确认之后再指定）
-    if (claimProposed) onNotice(`认领「${teamTitle(t)}」${claimProposed}。`);
+    if (claimProposed) onNotice(`认领「${teamTitle(t)}」${claimProposed}。${lead ? LEAD_SKIPPED_TEXT : ''}`);
     else if (!p && lead) {
       const lr = await addTeamLead(t.host, t.team, lead);
       p = actionProblem(lr);
@@ -102,7 +182,10 @@ function ClaimCard({ t, depts, people, can, onDone, onNotice }: { t: TeamT; dept
     if (p) setErr(p); else onDone();
   };
   const pending = t.pending_claim;
-  const canClaim = !can || can.claim || can.propose_claim;
+  const claimText = claimButtonText(can);
+  const canClaim = claimText !== null;
+  // 认领是直接生效还是只记成提议，服务端按接收部门定（接收部门的负责人能直接认领），页面事先不知道：
+  // 负责人照旧可选；结果是提议时，负责人这一步跳过，提示里说清楚（LEAD_SKIPPED_TEXT）
   const canLead = !can || can.add_lead || can.propose_lead;
   return (
     <div className="wm-team-claim" data-testid="team-unclaimed">
@@ -116,8 +199,8 @@ function ClaimCard({ t, depts, people, can, onDone, onNotice }: { t: TeamT; dept
       ) : !canClaim ? null : depts.length === 0 ? <div className="wm-team-none">先建部门，才能把团队挂上去。</div> : (
         <div className="wm-team-claim-form">
           <Select size="small" placeholder="挂到哪个部门" value={dept} onChange={setDept} options={depts.map((d) => ({ value: d.id, label: d.lead ? `${d.name}（负责人 ${personName(d.lead)}）` : d.name }))} data-testid="team-claim-dept" className="wm-team-select" />
-          {canLead && <Select size="small" allowClear placeholder="另外指定负责人（可不选）" value={lead} onChange={setLead} options={people.map((p) => ({ value: p.id, label: p.name }))} showSearch optionFilterProp="label" data-testid="team-claim-lead" className="wm-team-select" />}
-          <Button size="small" type="primary" disabled={!dept} loading={busy} onClick={submit} data-testid="team-claim">认领</Button>
+          {canLead && <Select size="small" allowClear placeholder={can && !can.add_lead ? '另外提议负责人（可不选）' : '另外指定负责人（可不选）'} value={lead} onChange={setLead} options={people.map((p) => ({ value: p.id, label: p.name }))} showSearch optionFilterProp="label" data-testid="team-claim-lead" className="wm-team-select" />}
+          <Button size="small" type="primary" disabled={!dept} loading={busy} onClick={submit} data-testid="team-claim" autoInsertSpace={false}>{claimText}</Button>
         </div>
       )}
       {err && <Alert className="wm-team-err" type="warning" showIcon message={err} />}
@@ -161,8 +244,72 @@ function NewDepartment({ depts, people, onDone, onCancel, onNotice }: { depts: D
   );
 }
 
+/** 一条待确认的关系提议：照服务端给的 can_approve、can_reject 出「确认」「驳回 / 撤回」；不能确认的写服务端的说法 */
+function ProposalCard({ p, names, onDone }: { p: Proposal; names: KnownNames; onDone: () => void }) {
+  const [rejecting, setRejecting] = useState(false);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const rl = rejectLabel(p);
+  const pend = p.outcome === 'pending';
+  const ol = outcomeLabel(p), why = outcomeReasonText(p);
+  const canConfirm = pend && p.can_approve && p.mine !== true;
+  const act = async (fn: () => Promise<SourceResult>) => {
+    setBusy(true); setErr(null);
+    const e = actionProblem(await fn());
+    setBusy(false);
+    if (e) { setErr(e); return; }
+    attentionChanged(); // 「等你拍板」里同一条提议跟着消失，侧栏角标重读
+    onDone();
+  };
+  return (
+    <div className="wm-team-prop" data-testid="team-proposal" data-kind={p.kind}>
+      <div className="wm-team-head-top"><b>{proposalTitle(p, names)}</b><Tag color={TAG[ol.tone]} className="wm-team-st" data-testid="team-proposal-outcome">{ol.text}</Tag></div>
+      <div className="wm-team-head-meta">
+        <span>{p.mine === true ? '你提的' : `${proposerText(p, names)} 提的`}{p.proposed_at > 0 && <> · <RelTime value={new Date(p.proposed_at).toISOString()} /></>}</span>
+        {pend && <span>等{p.confirm_by_text}确认</span>}
+        {why && <span data-testid="team-proposal-reason-text">{why}</span>}
+        {pend && !p.can_approve && p.mine !== true && p.approve_denied_text && <span data-testid="team-proposal-denied">{p.approve_denied_text}</span>}
+      </div>
+      {rejecting ? (
+        <div className="wm-team-prop-reject">
+          <Input.TextArea size="small" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} autoSize={{ minRows: 1, maxRows: 3 }} placeholder={p.mine === true ? '为什么撤回（可不写）' : '为什么不同意（可不写，会留痕）'} data-testid="team-proposal-reason" />
+          <div className="wm-team-prop-ops">
+            <Button size="small" danger loading={busy} onClick={() => act(() => rejectRelationProposal(p.id, reason.trim()))} data-testid="team-proposal-reject-confirm">确认{rl}</Button>
+            <Button size="small" autoInsertSpace={false} type="text" disabled={busy} onClick={() => { setRejecting(false); setReason(''); }}>算了</Button>
+          </div>
+        </div>
+      ) : canConfirm || rl ? (
+        <div className="wm-team-prop-ops">
+          {canConfirm && <Button size="small" type="primary" loading={busy} onClick={() => act(() => approveRelationProposal(p.id))} data-testid="team-proposal-approve" autoInsertSpace={false}>确认</Button>}
+          {rl && <Button size="small" disabled={busy} onClick={() => setRejecting(true)} data-testid="team-proposal-reject" autoInsertSpace={false}>{rl}</Button>}
+        </div>
+      ) : null}
+      {err && <Alert className="wm-team-err" type="warning" showIcon message={err} />}
+    </div>
+  );
+}
+
+/** 待确认的关系：等你确认的、你提的、别的（管理员看得到的）三组；每组没有就不出 */
+function ProposalsSection({ list, names, onDone }: { list: Proposal[]; names: KnownNames; onDone: () => void }) {
+  const g = proposalGroups(list);
+  const group = (key: string, title: string, cap: string, items: Proposal[]) => items.length === 0 ? null : (
+    <section className="wm-team-props" data-testid={`team-proposals-${key}`}>
+      <div className="wm-team-sec"><h3>{title}</h3><span className="wm-team-n">{items.length}</span><span className="wm-team-cap">{cap}</span></div>
+      <div className="wm-team-claims">{items.map((p) => <ProposalCard key={p.id} p={p} names={names} onDone={onDone} />)}</div>
+    </section>
+  );
+  return (
+    <>
+      {group('for-me', '等你确认', '认领、指定负责人会带来权限，要能确认的人点头才生效；「等你拍板」里的同一条，这里办了那边就没了。', g.forMe)}
+      {group('mine', '你提的', '还没确认之前关系不生效，不带来权限；不需要了可以撤回。处理过的留几天，看得到结局和原因。', g.mine)}
+      {group('others', '还在等别人确认', '你看得到，但不归你确认。', g.others)}
+    </>
+  );
+}
+
 export default function Team() {
-  const [src, setSrc] = useState<{ teams: SourceResult | null; depts: SourceResult | null; people: SourceResult | null }>({ teams: null, depts: null, people: null });
+  const [src, setSrc] = useState<{ teams: SourceResult | null; depts: SourceResult | null; people: SourceResult | null; proposals: SourceResult | null }>({ teams: null, depts: null, people: null, proposals: null });
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0);
   const [creating, setCreating] = useState(false);
@@ -171,13 +318,13 @@ export default function Team() {
   useEffect(() => subscribeAdminToken(reload), [reload]);
   useEffect(() => {
     let live = true;
-    setLoading(true);
-    void Promise.all([getTeams(), getTeamDepartments()]).then(async ([teams, depts]) => {
+    if (tick === 0) setLoading(true); // 办完事重读时不闪骨架、不丢滚动位置：卡片原地更新
+    void Promise.all([getTeams(), getTeamDepartments(), getRelationProposals()]).then(async ([teams, depts, proposals]) => {
       // 人的列表只有管理员读得到，也只在管理员的操作里用：是管理员的视图才去读
       const admin = ok(teams) && isAdminView(teamsOf(teams.body));
       const people = admin ? await getTeamPeople() : null;
       if (!live) return;
-      setSrc({ teams, depts, people });
+      setSrc({ teams, depts, people, proposals });
       setLoading(false);
     });
     return () => { live = false; };
@@ -186,7 +333,9 @@ export default function Team() {
   const t = useMemo(() => teamsOf(ok(src.teams) ? src.teams!.body : null), [src]);
   const depts = useMemo(() => (ok(src.depts) ? departmentsOf(src.depts!.body) : null), [src]);
   const people = useMemo(() => (ok(src.people) ? peopleOf(src.people!.body) : []), [src]);
-  const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? id;
+  const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? '一位同事';
+  const proposals = useMemo(() => (ok(src.proposals) ? proposalsOf(src.proposals!.body) : []), [src]);
+  const names = useMemo(() => knownNames(t, depts, people), [t, depts, people]);
   const admin = isAdminView(t);
   const done = () => { setCreating(false); reload(); };
 
@@ -198,7 +347,8 @@ export default function Team() {
     <WmPage wide loading={loading} extra={canCreateDept && depts!.length > 0 && !creating ? <Button onClick={() => setCreating(true)} data-testid="team-newdept-open">建部门</Button> : undefined}>
       <p className="wm-team-intro">每个部门有负责的人，部门下面挂着 AI 团队。团队的负责人直接对接它的总工；成员可以分配给某位员工直接用，没分配的是团队公用，由总工分派。</p>
       {problem && <Alert className="wm-team-alert" type={problem.type} showIcon message={problem.text} />}
-      {notice && <Alert className="wm-team-alert" type="info" showIcon closable onClose={() => setNotice(null)} message={notice} data-testid="team-notice" />}
+      {notice && <Alert className="wm-team-alert wm-team-note" type="info" showIcon closable onClose={() => setNotice(null)} message={notice} data-testid="team-notice" />}
+      {!loading && proposals.length > 0 && <ProposalsSection list={proposals} names={names} onDone={reload} />}
       {creating && depts && <NewDepartment depts={depts} people={people} onDone={done} onCancel={() => setCreating(false)} onNotice={setNotice} />}
       {empty && (
         <Empty className="wm-team-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description={<span data-testid="team-empty">{empty}</span>}>
@@ -211,7 +361,7 @@ export default function Team() {
             <div className="wm-team-dept-head"><h3>{d.name}</h3><span className="wm-team-cap">{d.lead ? `负责人 ${personName(d.lead)}` : '部门还没有负责人'}</span>
               {d.pending_lead && <span className="wm-team-pending" data-testid="team-dept-lead-pending">负责人待确认：{d.pending_lead.principal ? nameOf(d.pending_lead.principal) : '（没写是谁）'}，{pendingText(d.pending_lead)}</span>}</div>
             <div className="wm-team-cap wm-team-dept-n">{d.teams.length} 个团队</div>
-            {d.teams.map((x) => <TeamBlock key={`${x.host}-${x.team}`} t={x} nameOf={nameOf} />)}
+            {d.teams.map((x) => <TeamBlock key={`${x.host}-${x.team}`} t={x} nameOf={nameOf} onDone={reload} admin={admin} staleMin={t.roster_stale_minutes} />)}
           </section>
         ))}</div>
       )}

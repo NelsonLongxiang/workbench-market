@@ -11,7 +11,7 @@ import { Link } from 'react-router-dom';
 import { App, Button, Checkbox, Input, Popconfirm, Radio, Space, Tag, Typography } from 'antd';
 import { apiFetch } from '../admin-token';
 import { attentionChanged, postCreatorDecision } from '../api';
-import { answerChoices, answerRoute, answerViaOf, viaBody, viaError, viaInput, viaPath, waited, type AttentionItem } from '../attention-view';
+import { answerChoices, answerRoute, answerViaOf, workItemIdOf, viaBody, viaError, viaInput, viaPath, waited, type AttentionItem } from '../attention-view';
 import { cardWording, splitAskTitle } from '../home-view';
 import { seatLabel, teamLabel, waitingLabel } from '../people';
 import { fallbackPlace, pageLink } from '../page-paths';
@@ -36,12 +36,6 @@ const NEEDS: Record<string, Record<string, { key: string; label: string; max?: n
 /** 要额外勾一项的答法：对接外部账号时，主体还没有就新建（服务端要的是 create: true） */
 const BIND_CREATE = (source: string, answer: string | null) => source === 'principal-pending' && answer === 'bind';
 
-/** 卡片挂的事项：席位提问的 link 是 /work-items/<id>，事项来源的 source_id 就是事项 id */
-function workItemIdOf(item: AttentionItem): string | null {
-  if (item.source === 'work-items') return item.source_id;
-  const m = /^\/work-items\/([^/?#]+)/.exec(item.link || '');
-  return m ? decodeURIComponent(m[1]) : null;
-}
 type Ask = { status?: string; options?: unknown; default?: unknown; id?: unknown };
 type Detail = { seat: string; team: string; options: string[]; suggested: string; askId: string };
 async function loadDetail(id: string): Promise<Detail | null> {

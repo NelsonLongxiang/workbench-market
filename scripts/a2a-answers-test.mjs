@@ -438,7 +438,9 @@ try {
 
   console.log('二之五、团队名册（[A2A roster]）');
   {
-    const rosterHealth = async () => ((await (await fetch(BASE + '/api/health')).json()).a2a?.roster ?? {});
+    // 名册一块只给管理员（带管理口令）；匿名、口令不对的连键都看不到
+    const adminHealth = async () => (await (await fetch(BASE + '/api/health', { headers: { 'x-admin-token': 'ans-admin' } })).json());
+    const rosterHealth = async () => ((await adminHealth()).a2a?.roster ?? {});
     const cnt = (h, k) => h.outcomes?.[k]?.count ?? 0;
     const rh0 = await rosterHealth();
     const R0 = seedEvent();   // lab 是投递过的宿主（区 lab）
@@ -569,7 +571,13 @@ try {
         const r2 = await post(bad, signed(lab, bad)); ok('（准备）首行格式不对的名册不认作名册', !r2.text.includes('"roster":'), r2.text.slice(0, 120)); }
       await new Promise((r) => setTimeout(r, 5100)); // 来源汇总缓存 5 秒
       const rawHealth = await (await fetch(BASE + '/api/health')).text();
-      const rh = JSON.parse(rawHealth).a2a?.roster ?? {};
+      const rh = (await adminHealth()).a2a?.roster ?? {};
+      const badTok = await (await fetch(BASE + '/api/health', { headers: { 'x-admin-token': 'not-the-token' } })).json();
+      // 应答因人而异：带口令和匿名的都不进共享缓存、按管理口令区分
+      { const hdr = async (h) => { const r = await fetch(BASE + '/api/health', { headers: h }); await r.text(); return { cc: r.headers.get('cache-control') ?? '', vary: (r.headers.get('vary') ?? '').toLowerCase() }; };
+        const ha = await hdr({}), hk = await hdr({ 'x-admin-token': 'ans-admin' });
+        ok('health 应答带 Cache-Control: private, no-store 和 Vary: X-Admin-Token（匿名、带口令都带）', [ha, hk].every((h) => h.cc === 'private, no-store' && h.vary.split(/\s*,\s*/).includes('x-admin-token')), JSON.stringify({ ha, hk })); }
+      ok('名册一块只给管理员：匿名、管理口令不对的 health 里连 roster 键都没有（管理员照旧有）', JSON.parse(rawHealth).a2a && !('roster' in JSON.parse(rawHealth).a2a) && badTok.a2a && !('roster' in badTok.a2a) && rh.outcomes !== undefined, JSON.stringify(Object.keys(JSON.parse(rawHealth).a2a ?? {})));
       const d = (k) => cnt(rh, k) - cnt(rh0, k);
       ok('health a2a.roster：收下、过期、不认、撞键、来源不是投递过的宿主、验签不过、超长、首行格式不对都有计数，带最近一次的时间',
         d('recorded') >= 3 && d('stale') >= 1 && d('not_accepted') >= 4 && d('host_conflict') >= 1 && d('not_delivered_peer') >= 1 && d('unverified') >= 1 && d('too_large') === 1 && d('malformed') === 1
@@ -578,7 +586,7 @@ try {
       ok('health a2a.roster.sources：来源个数、最久没收下的时间、超过 15 分钟没收下的个数（没有标识）',
         rh.sources?.sources >= 1 && typeof rh.sources?.stalest_received_at === 'string' && rh.sources?.stale_15m === 0 && Object.keys(rh.sources ?? {}).sort().join() === 'sources,stale_15m,stalest_received_at', JSON.stringify(rh.sources));
       const fpLab = createHash('sha256').update(createPublicKey(lab.key).export({ type: 'spki', format: 'der' })).digest('hex').slice(0, 8);
-      ok('匿名 health 里没有对端的节点键、地址、区、团队名、席位', ![fpLab, lab.url, 'lab/canvas', 'lab/', 'evil', 'twin'].some((x) => rawHealth.includes(x)), rawHealth.slice(0, 200));
+      ok('匿名 health 里没有对端的节点键、地址、区、团队名、席位，也没有名册来源的个数', ![fpLab, lab.url, 'lab/canvas', 'lab/', 'evil', 'twin', 'stale_15m', 'stalest_received_at', '"sources"'].some((x) => rawHealth.includes(x)), rawHealth.slice(0, 200));
     }
     const anon = await fetch(BASE + '/api/a2a/teams');
     ok('读接口：没登录 401', anon.status === 401);
@@ -737,7 +745,7 @@ try {
       const rr = await post(raw, signed(lab, raw));
       ok('off：投递过的宿主、Sig3 签的名册也不收（应答里没有 roster），名册表不变', !rr.text.includes('"roster":') && JSON.stringify(q('SELECT host, reported_at FROM a2a_rosters ORDER BY host')) === before
         && q("SELECT COUNT(*) AS c FROM a2a_roster_seats WHERE seat = 'lab/f1f1f1f1'")[0].c === 0, rr.text.slice(0, 160));
-      const offRoster = (await (await fetch(BASE + '/api/health')).json()).a2a?.roster ?? {};
+      const offRoster = (await (await fetch(BASE + '/api/health', { headers: { 'x-admin-token': 'ans-admin' } })).json()).a2a?.roster ?? {};
       ok('off：health 记一次 not_declared（名片没声明，推来的名册照普通来信走）', offRoster.outcomes?.not_declared?.count === 1, JSON.stringify(offRoster.outcomes));
     } finally { off.kill(); await new Promise((r) => { if (off.exitCode !== null) r(); else off.once('exit', r); }); }
   }

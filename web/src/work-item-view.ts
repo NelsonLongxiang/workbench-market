@@ -1,5 +1,8 @@
 /** 事项详情页的纯函数：不碰 React，scripts/work-item-detail-ui-unit.mjs 直接测。 */
 import type { AttentionItem } from './attention-view';
+// 「谁」的写法只在 people.ts 一处（全站共用）；这里转出去，事项详情页照旧从这里引
+import { actorLabel, membersText, personLabel, seatLabel, who, UNNAMED_SEAT } from './people.ts';
+export { actorLabel, seatLabel, who };
 
 /** 看的人对这件事项能做什么、是不是轮到他：直接取事项详情应答里的 can、turn（#587，和动作接口同一处判断），
  *  页面不再比对登录名、不看是不是管理员、也不绕道「关注」去猜。
@@ -16,7 +19,7 @@ const flags = (v: unknown): Can => {
 export function viewerOf(d: { can?: unknown; turn?: unknown; creator?: unknown } | null | undefined, fallbackCreator = ''): Viewer & { turn: Turn; reply: boolean | null } {
   const can = flags(d?.can), turn = flags(d?.turn);
   const c = d?.creator && typeof d.creator === 'object' ? d.creator as Record<string, unknown> : null;
-  const name = (c && typeof c.display_name === 'string' && c.display_name.trim()) || (c && typeof c.principal === 'string' ? c.principal.replace(/^(user|human):/, '') : '') || fallbackCreator;
+  const name = personLabel(c) || fallbackCreator;
   const rc = d?.can && typeof d.can === 'object' ? (d.can as Record<string, unknown>).reply : undefined;
   return { mine: turn.answer || turn.verify, can, turn, creator: name, reply: typeof rc === 'boolean' ? rc : null };
 }
@@ -80,22 +83,7 @@ export function stateHint(state: string, seat: string, askAnswered = false, view
   }
 }
 
-/** 席位：服务端给「名字 · 句柄」或只有句柄；显示成「名字（句柄）」 */
-export function seatLabel(seat: string): string {
-  const s = (seat || '').trim();
-  const k = s.lastIndexOf(' · ');
-  return k > 0 ? `${s.slice(0, k)}（${s.slice(k + 3)}）` : s;
-}
 
-/** 日志行的「谁」：去掉 receiver:/human:/user:/seat: 这类前缀；receiver:<区> 是对端席位，有承接就用承接的名字；系统来源换成人话 */
-const SOURCE: Record<string, string> = { market: '市场', attention: '关注', 'admin-token': '管理员', admin: '管理员', seed: '系统' };
-export function actorLabel(raw: unknown, seat: string): string {
-  const s = who(raw);
-  if (!s) return '';
-  if (/^receiver:/.test(s)) return seat ? seatLabel(seat) : s.replace(/^receiver:/, '');
-  if (SOURCE[s]) return SOURCE[s];
-  return s.replace(/^(human|user|seat):/, '');
-}
 
 /** 最近一个提问答过没有：日志里最后一条「答复」在最后一条「提问」之后（日志按 seq 递增） */
 export function lastAskAnswered(log: { fact: string; rejected?: string }[]): boolean {
@@ -127,16 +115,6 @@ export function askIdOf(r: { fact: string; fact_id?: string; detail: string }): 
   try { const a = (JSON.parse(r.detail || '{}') as { ask_id?: unknown }).ask_id; return typeof a === 'string' || typeof a === 'number' ? String(a) : null; } catch { return null; }
 }
 
-/** 对端给的「谁」：可能是字符串，也可能是 { seat, name, team, role } 这样的对象。取名字，没有名字取席位，都没有给空串；永远返回字符串，不把对象交给页面 */
-export function who(v: unknown): string {
-  if (typeof v === 'string') return v;
-  if (typeof v === 'number') return String(v);
-  if (v && typeof v === 'object') {
-    const o = v as Record<string, unknown>;
-    for (const k of ['name', 'seat', 'team', 'id']) if (typeof o[k] === 'string' && (o[k] as string).trim()) return o[k] as string;
-  }
-  return '';
-}
 /** 提问人：服务端给的 asked_by 常是来源标记（receiver:<区>），人看不懂；是这种时换成事项的承接席位，没有承接就去掉前缀 */
 export function askerLabel(askedBy: unknown, seat: string): string {
   return actorLabel(askedBy, seat);
@@ -279,8 +257,10 @@ export function subitemsOf(subitems: unknown, progress: SeatProgress | null | un
 export function seatSummary(seat: unknown, subitems: Ticket[]): string {
   const s = seatLabel(who(seat));
   if (s && s !== '-') return s;
-  const doing = [...new Set(subitems.filter((t) => ['working', 'waiting', 'blocked'].includes(t.state)).map((t) => seatLabel(who(t.seat))).filter(Boolean))];
-  return doing.length > 1 ? `${doing.length} 个成员在做：${doing.join('、')}` : doing[0] ?? '';
+  // 按不同的席位数人（两个查不到名字的成员是两个人），名字只写名字、查不到写「一位 AI 员工」
+  const m = membersText(subitems.filter((t) => ['working', 'waiting', 'blocked'].includes(t.state)).map((t) => who(t.seat)), (x) => seatLabel(x));
+  if (m.n > 1) return m.text ? `${m.n} 个成员在做：${m.text}` : `${m.n} 个成员在做`;
+  return m.n === 1 ? (m.text || UNNAMED_SEAT) : '';
 }
 
 /** 「正在处理」只在事项还在做时给：结束了、等验收（ready）时上一次进展已经过时，不显示 */
@@ -293,8 +273,9 @@ export function rowActor(row: { actor?: string; fact_source?: string; detail?: s
   if (by && typeof by === 'object') {
     const o = by as Record<string, unknown>;
     const name = typeof o.name === 'string' ? o.name.trim() : '', seat = typeof o.seat === 'string' ? o.seat.trim() : '';
-    if (name && seat) return `${name}（${seat}）`;
-    if (name || seat) return name || seat;
+    // 只写名字，不带句柄（协调 2026-11-12）；只有句柄时按席位的说法（一位 AI 员工）
+    if (name) return name;
+    if (seat) return actorLabel(seat, '');
   }
   if (typeof by === 'string' && by.trim()) return actorLabel(by, '');
   const raw = row.actor || row.fact_source || '';
@@ -310,8 +291,9 @@ export function seatLine(item: { seat?: unknown; state: string; target_team?: st
   const s = seatSummary(item.seat, subitems);
   if (s) return s;
   if (TERMINAL.includes(item.state)) {
-    const did = [...new Set(subitems.map((t) => seatLabel(who(t.seat))).filter(Boolean))];
-    return did.length > 1 ? `${did.length} 个成员做过：${did.join('、')}` : did[0] ? `${did[0]} 做过` : '';
+    const m = membersText(subitems.map((t) => who(t.seat)), (x) => seatLabel(x));
+    if (m.n > 1) return m.text ? `${m.n} 个成员做过：${m.text}` : `${m.n} 个成员做过`;
+    return m.n === 1 ? `${m.text || UNNAMED_SEAT} 做过` : '';
   }
   if (item.state === 'draft' || item.state === 'held') return '还没派出去';
   const t = item.target_team ? team(item.target_team) : '';

@@ -66,6 +66,9 @@ import { registerSopPageRoutes } from './routes/sop-page.ts';
 import { registerLoginEventRoutes } from './routes/login-events.ts';
 import { registerTaskRoutes } from './routes/tasks.ts';
 import { benchViewsConfig, registerBenchViewRoutes, BENCH_ROWS_PATH } from './routes/bench-views.ts';
+import { BENCH_TOOL_NAMES, BENCH_GRANT_RE } from './bench-mcp-tools.ts';
+import { benchGrantsOf, benchRequestsOf, benchToolTarget, requestBenchTools, runBenchTool } from './services/bench-mcp.ts';
+import { BenchError } from './bench-query.ts';
 import { registerChangeRequestRoutes } from './routes/change-requests.ts';
 import { registerSopStateRoutes, registerSopSpaceRoutes } from './routes/sops.ts';
 import { registerTaskIntakeRoutes, registerTaskReadRoutes, registerTaskControlRoutes } from './routes/task-center.ts';
@@ -428,7 +431,8 @@ app.use((req, res, next) => {
 // 其余 /api/* 写操作要 X-Admin-Token（本机 REST 面维持内网信任模型不变；此中间件只拦远程写）。
 // 主人裁定 A（2026-10-23）：自产台数据/文件面对远程浏览器开放——应用层写，与发布面同口径；
 // 控制面（/api/mcp/*、/api/sops/*/bindings 等）照旧收口。没有这条，远程节点浏览器提交表单会 403。
-const REMOTE_ALLOW_EXACT = new Set(['/mcp', '/.well-known/agent-card.json', '/a2a/direct', '/api/auth/login', '/api/auth/logout']); // 登录/登出自带同源门与限频
+// 「关注」的答复入口（L20）：管理层、负责人看得到卡片也要能答。路由内核同源，能不能答由条目的来源判（转给原路由的照样再过这道门）
+const REMOTE_ALLOW_EXACT = new Set(['/mcp', '/.well-known/agent-card.json', '/a2a/direct', '/api/auth/login', '/api/auth/logout', '/api/attention/answer']); // 登录/登出自带同源门与限频
 // ---------- 端点命中计数（总工程师 B 类单：采纳监测 instrumentation）----------
 // 必须挂在所有业务路由之前（Express 按注册序匹配，路由先响应则后续 use 不再执行）
 app.use(endpointStatsMiddleware());
@@ -2461,7 +2465,7 @@ function healthBase(req?: express.Request): Record<string, unknown> {
   const outbound = outboundStatus(Boolean(req && adminTokenCheck(req.headers['x-admin-token'] as string | undefined)));
   return { ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, ...(outbound ? { outbound } : {}), self_probe: startupSecurity.snapshot(), work_items_backfill: backfill };
 }
-registerHealthRoutes(http, { healthBase, layerfsProbeCached, layerfsReadiness, A2A_DIRECT_SIG, A2A_DIRECT_SIG_BODY });
+registerHealthRoutes(http, { healthBase, layerfsProbeCached, layerfsReadiness, A2A_DIRECT_SIG, A2A_DIRECT_SIG_BODY, adminRead: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined) });
 registerLoginGateRoutes(http, loginGate.routeDeps); // /login、/api/auth/login|logout|me（解析器之后、SPA 回落之前）
 registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionTtlMs: SESSION_TTL_MIN * 60_000 });
 registerLoginEventRoutes(http); // /login/<方式>/events：离职、停用的失效通知；每天一次对账 // /login/<方式>、/login/<方式>/callback：飞书等发市场会话的登录
@@ -2978,7 +2982,8 @@ async function upstreamRpc(u: McpUpstream, method: string, params: unknown, id =
 /** 聚合工具面：本地 + 各上游（<prefix>__<name>）；上游失败时跳过其工具，并记入 upstreamHealth。
  *  上游工具的类别按其 annotations.readOnlyHint：明说只读才算 read，其余一律按 write（保守）。 */
 async function mcpAggregatedTools(): Promise<McpToolDef[]> {
-  const out: McpToolDef[] = [...MCP_TOOLS];
+  // 数据视图的工具：入口关着时不在目录里
+  const out: McpToolDef[] = MCP_TOOLS.filter((t) => BENCH_VIEWS.on || !t.benchScoped);
   const ups = mcpUpstreams();
   for (const u of ups) {
     const cached = upstreamToolCache.get(u.prefix);
@@ -3058,6 +3063,8 @@ function resolveGrants(raw: unknown[], held: string[], registered: Set<string>):
   for (const g of raw) {
     if (typeof g !== 'string') bad(`工具名必须是字符串: ${JSON.stringify(g)}`);
     const name = g as string;
+    // 数据视图的工具不经这里授予：台里是业务数据，由台的管理层在台上批（/api/bench-views/<台>/mcp-grants）
+    if (BENCH_GRANT_RE.test(name) || BENCH_TOOL_NAMES.has(parseGrant(name).tool)) bad(`${parseGrant(name).tool.split('@')[0]} 是数据视图的工具，必须限定到台，由台的管理层在台上授予，不经 MCP 网关页`);
     const scoped = parseGrant(name);
     if (scoped.wid !== null) { // #452 工具@台：工具须支持按台授权、台须存在；已持有但台已删除的剔除
       if (!registered.has(scoped.tool)) bad(`未知工具名: ${JSON.stringify(scoped.tool)}（合法面见 GET /api/mcp/tools）`);
@@ -3135,13 +3142,15 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
   const catalog = await mcpAggregatedTools();
   if (name === 'access_info') {
     const granted = (t: McpToolDef) => mcpToolGranted(sess, t.name); // 网关关时全部可调
+    const benchGrants = sess && BENCH_VIEWS.on ? benchGrantsOf(sess.id) : new Map<string, string[]>();
     const scopeOf = (t: McpToolDef) => { const sc = mcpToolScope(sess, t.name); return sc && sc !== 'all' ? [...sc].sort((a, b) => a - b) : null; };
     return {
       gateway: MCP_GATEWAY_ON ? 'on' : 'off',
       session: sess?.name ?? null,
       granted_tools: catalog.filter(granted).map((t) => t.name),
-      catalog: catalog.map((t) => ({ name: t.name, description: t.description, category: t.category, granted: granted(t), ...(scopeOf(t) ? { granted_workbenches: scopeOf(t) } : {}), ...(MCP_SCOPED_TOOLS.has(t.name) ? { scopable: true } : {}), ...(t.exempt ? { always_allowed: true } : {}) })),
+      catalog: catalog.map((t) => ({ name: t.name, description: t.description, category: t.category, granted: granted(t), ...(t.benchScoped ? { bench_scoped: true, scope: '必须限定到台', granted_benches: benchGrants.get(t.name) ?? [] } : {}), ...(scopeOf(t) ? { granted_workbenches: scopeOf(t) } : {}), ...(MCP_SCOPED_TOOLS.has(t.name) ? { scopable: true } : {}), ...(t.exempt ? { always_allowed: true } : {}) })),
       requests: sess ? (svc<McpService>('mcp').accessRequestsBySession(sess.id) as AccessRequestRow[]).map(accessRequestForSession) : [],
+      ...(BENCH_VIEWS.on ? { bench_requests: sess ? benchRequestsOf(sess.id) : [], how_to_request_bench: 'access_request {tools: [工具名@bench:台的标识], reason: 用途}：数据视图的工具必须限定到台，读也一样；一次只申请一个台；由台的管理层批准，不经 MCP 网关页' } : {}),
       how_to_request: `access_request {tools: [工具名], reason: 用途}；只要一张台时写 工具@台id（目前 ${[...MCP_SCOPED_TOOLS].join(' / ')} 支持）；管理员在「MCP 网关」页「权限申请」批准后立即生效（并入现有授权）`,
       ...mcpRestInfo(origin),
     };
@@ -3153,6 +3162,16 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
   if (!Array.isArray(raw) || raw.length === 0) bad('tools 必须是非空的工具名数组');
   if (raw.length > 100) bad('tools 一次最多 100 个');
   const known = new Set(catalog.map((t) => t.name));
+  // 数据视图的工具：必须写成 工具@bench:台，一次一个台，不和别的工具混着申请；交给台的管理层批
+  const benchAsk = (raw as unknown[]).map((t) => (typeof t === 'string' ? BENCH_GRANT_RE.exec(t) : null));
+  const bare = (raw as unknown[]).find((t): t is string => typeof t === 'string' && BENCH_TOOL_NAMES.has(parseGrant(t).tool.split('@')[0]) && !BENCH_GRANT_RE.test(t));
+  if (BENCH_VIEWS.on && bare !== undefined) bad(`${bare.split('@')[0]} 是数据视图的工具，必须限定到台：写成 ${bare.split('@')[0]}@bench:<台的标识>（读也一样）`);
+  if (BENCH_VIEWS.on && benchAsk.some((m) => m && BENCH_TOOL_NAMES.has(m[1]))) {
+    if (!benchAsk.every((m) => m && BENCH_TOOL_NAMES.has(m[1]))) bad('数据视图的工具单独申请，不和别的工具写在同一条里');
+    const benches = [...new Set(benchAsk.map((m) => m![2]))];
+    if (benches.length !== 1) bad('一条申请只能是一个台的；几个台分开申请');
+    try { return requestBenchTools(s.id, benches[0], benchAsk.map((m) => m![1]), args?.reason, Date.now()); } catch (e) { throw benchToolError(e); }
+  }
   for (const t of raw) {
     const p = typeof t === 'string' ? parseGrant(t) : null;
     if (!p || !known.has(p.tool)) bad(`不在工具目录里: ${JSON.stringify(t)}（先调 access_info 查目录）`);
@@ -3224,6 +3243,8 @@ function mcpAudit(sess: McpSess | null, channel: McpChannel, method: string, too
 }
 /** 会话对某工具的授权范围（#452）：'all'＝免授权/全局授权/网关关；台 id 集合＝只授权了 工具@台；null＝无权 */
 function mcpToolScope(sess: McpSess | null, toolName: string): 'all' | Set<number> | null {
+  // 数据视图的工具不看会话的 grants，也不因为网关关了就放开：只认 services/bench-mcp.ts 里按台记的授予（mcpInvokeTool 里另核）
+  if (BENCH_TOOL_NAMES.has(toolName)) return null;
   if (!sess || MCP_EXEMPT_TOOLS.has(toolName) || (!toolName.includes('@') && sess.grants.includes(toolName))) return 'all'; // 全局授权只认不带 @ 的工具名
   if (!MCP_SCOPED_TOOLS.has(toolName)) return null;
   const ids = new Set<number>();
@@ -3232,7 +3253,15 @@ function mcpToolScope(sess: McpSess | null, toolName: string): 'all' | Set<numbe
 }
 /** 会话可调用（列目录用）：免授权工具 + grants（含只限定到某些台的）；网关关时全部可调 */
 function mcpToolGranted(sess: McpSess | null, toolName: string): boolean {
+  // 数据视图的工具：在任何一个台上有授予就算（列目录用；具体哪个台在调用时核）
+  if (BENCH_TOOL_NAMES.has(toolName)) return BENCH_VIEWS.on && !!sess && benchGrantsOf(sess.id).has(toolName);
   return mcpToolScope(sess, toolName) !== null;
+}
+/** 台库的错对外的样子：代号、说明、细目；内部错误只有固定的一句，原始的错进日志 */
+function benchToolError(e: unknown): Error {
+  if (!(e instanceof BenchError)) return e instanceof Error ? e : new Error(String(e));
+  if (e.code === 'internal') console.error(`[bench-mcp] 内部错误：${String((e.cause as Error | undefined)?.message ?? e.cause ?? '')}`);
+  return new HttpError(e.http, e.message, { error: e.code, ...(e.details.length ? { details: e.details } : {}) });
 }
 type McpInvokeResult =
   | { kind: 'not_granted' }
@@ -3240,6 +3269,20 @@ type McpInvokeResult =
   | { kind: 'error'; error: any; upstream: boolean };
 /** tools/call 唯一执行链：授权检查 → 免授权工具 / 上游转发 / 本地工具 → 审计。两个渠道各自把结果映射成自己的应答形状。 */
 async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, channel: McpChannel, origin: string, t0 = Date.now()): Promise<McpInvokeResult> {
+  if (BENCH_TOOL_NAMES.has(toolName)) {
+    // 数据视图的工具：授予按「会话 × 台 × 工具」核。入口关着、没有会话、没有授予、台没登记，都按未授权处理
+    try {
+      const store = await benchToolTarget(BENCH_VIEWS.on, sess ? sess.id : null, toolName, args);
+      if (!store) { mcpAudit(sess, channel, 'tools/call', toolName, false, 'not granted: bench scope', Date.now() - t0, args); return { kind: 'not_granted' }; }
+      const out = await runBenchTool(store, toolName, args, `mcp:${sess!.name}`, Date.now());
+      mcpAudit(sess, channel, 'tools/call', toolName, true, '', Date.now() - t0, args);
+      return { kind: 'ok', out, upstream: false };
+    } catch (e: any) {
+      const err = benchToolError(e);
+      mcpAudit(sess, channel, 'tools/call', toolName, false, String(err.message).slice(0, 200), Date.now() - t0, args);
+      return { kind: 'error', error: err, upstream: false };
+    }
+  }
   const scope = mcpToolScope(sess, toolName);
   // 限定到台的授权在分发前核对：按 id 参数（与工具自身同样 Number(args.id) 解析），读台数据和附件的按 slug 找卡片；台外按未授权处理并记审计
   const target = scope !== null && scope !== 'all' ? mcpScopeTarget(toolName, args) : null;

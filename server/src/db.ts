@@ -2,12 +2,14 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DB_BUSY_TIMEOUT_MS } from './db-busy.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const dataDir = process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : join(here, '..', 'data');
 mkdirSync(dataDir, { recursive: true });
 
-export const db = new DatabaseSync(join(dataDir, 'workbench-market.db'));
+// 别的连接锁着写时最多等 DB_BUSY_TIMEOUT_MS（见 db-busy.ts）：短暂重叠不直接失败，超过上限照样报错
+export const db = new DatabaseSync(join(dataDir, 'workbench-market.db'), { timeout: DB_BUSY_TIMEOUT_MS });
 
 db.exec(`
 PRAGMA journal_mode = WAL;
@@ -877,7 +879,7 @@ CREATE TRIGGER IF NOT EXISTS grants_source_fixed BEFORE UPDATE OF source ON gran
 let compareDb: DatabaseSync | null = null;
 export function judgmentCompareDb(): DatabaseSync {
   if (compareDb) return compareDb;
-  const handle = new DatabaseSync(join(dataDir, 'judgment-compare.db'));
+  const handle = new DatabaseSync(join(dataDir, 'judgment-compare.db'), { timeout: DB_BUSY_TIMEOUT_MS });
   handle.exec(`
 PRAGMA journal_mode = WAL;
 CREATE TABLE IF NOT EXISTS judgment_tally (
@@ -1282,6 +1284,14 @@ CREATE TABLE IF NOT EXISTS relation_proposals (
   reason TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_relation_proposals_status ON relation_proposals (status, id);
+-- 随部门负责人发的那条授予（规范 14「关系由谁说了算」）：属主确认部门负责人时，同一事务里落负责人字段、发这个部门范围的 dept-lead 授予，
+--   记在这里；换人、移除负责人时只收这一条，这个人另外持有的授予不碰。一个部门同时最多一条（换人时先删后记）
+CREATE TABLE IF NOT EXISTS dept_lead_grants (
+  department_id TEXT PRIMARY KEY,
+  grant_id INTEGER NOT NULL,
+  principal_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
 `);
 // 阶段八 8d：待对接清单的「出现序号」。同一条外部身份绑定后又出现在清单里，是新的一轮待决；「关注」的记账按它分轮，
 //   不靠时间（只到秒，同一秒里又出现就分不开）。每次新插入一行（主体服务是 upsert，只在真的新进清单时插入）取一个全局只增的号：
@@ -1463,6 +1473,62 @@ db.exec(`CREATE TABLE IF NOT EXISTS bench_views (
   created_by TEXT NOT NULL,
   created_at INTEGER NOT NULL
 )`);
+// 台绑到哪个部门（必要时细到这个部门下的一个团队）。空串是没绑：只有管理层进得来。
+// 谁能读写一个绑了部门的台，看的是「已放行的、范围是这个部门的授予」（judgment.ts 的 scopedVerdict），不看部门成员表。
+try {
+  const bvCols = db.prepare('PRAGMA table_info(bench_views)').all() as { name: string }[];
+  for (const c of ['department_id', 'team_host', 'team']) if (!bvCols.some((x) => x.name === c)) db.exec(`ALTER TABLE bench_views ADD COLUMN ${c} TEXT NOT NULL DEFAULT ''`);
+} catch (e) { console.error(`[db] bench_views 加绑定列失败：${(e as Error).message}`); throw e; }
+db.exec(`CREATE TABLE IF NOT EXISTS bench_bind_audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  slug TEXT NOT NULL,
+  action TEXT NOT NULL,
+  before TEXT NOT NULL DEFAULT '',
+  after TEXT NOT NULL DEFAULT '',
+  actor TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_bench_bind_audit_slug ON bench_bind_audit (slug, id);`);
+// 数据视图的 MCP 工具授予（docs/data-views.md 第十节 3b）：按「会话 × 台 × 工具」记，不放进会话的 grants——
+// 那一份由系统管理员改写，而台里是业务数据。申请由会话提、台的管理层批；留痕记谁批的、哪个台。
+db.exec(`CREATE TABLE IF NOT EXISTS bench_mcp_grants (
+  session_id INTEGER NOT NULL,
+  bench TEXT NOT NULL,
+  tool TEXT NOT NULL,
+  granted_by TEXT NOT NULL,
+  granted_at INTEGER NOT NULL,
+  request_id INTEGER,
+  PRIMARY KEY (session_id, bench, tool)
+);
+CREATE INDEX IF NOT EXISTS idx_bench_mcp_grants_bench ON bench_mcp_grants (bench, session_id);
+CREATE TABLE IF NOT EXISTS bench_mcp_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER NOT NULL,
+  bench TEXT NOT NULL,
+  tools TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  decided_by TEXT NOT NULL DEFAULT '',
+  decided_at INTEGER,
+  note TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_bench_mcp_requests_bench ON bench_mcp_requests (bench, id);
+CREATE INDEX IF NOT EXISTS idx_bench_mcp_requests_session ON bench_mcp_requests (session_id, created_at);
+CREATE TABLE IF NOT EXISTS bench_mcp_audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  bench TEXT NOT NULL,
+  session_id INTEGER NOT NULL,
+  action TEXT NOT NULL,
+  tools TEXT NOT NULL DEFAULT '[]',
+  actor TEXT NOT NULL,
+  request_id INTEGER,
+  note TEXT NOT NULL DEFAULT '',
+  at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_bench_mcp_audit_bench ON bench_mcp_audit (bench, id);`);
+
 
 // ---------- 台库（数据视图，docs/data-views.md）----------
 // 每个视图台一份自己的库，和上面的主库分开。表结构照约定登记在这里；语句由 services/bench-store.ts 在台自己的库上执行，不在主库上跑。

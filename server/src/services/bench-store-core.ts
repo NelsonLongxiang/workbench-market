@@ -34,6 +34,7 @@ import {
   type ColumnDef, type DatasetDef, type OutColumn,
 } from '../bench-query.ts';
 import { diffJson, validateViewDoc, type JsonDiff } from '../bench-views.ts';
+import { DB_BUSY_TIMEOUT_MS } from '../db-busy.ts';
 
 export const BENCH_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const IDEM_RE = /^[\x21-\x7e]{8,128}$/;
@@ -76,7 +77,7 @@ class SqliteConn implements Conn {
   private deadline = Infinity;
   private budget = 0;
   constructor(file: string) {
-    this.db = new DatabaseSync(file);
+    this.db = new DatabaseSync(file, { timeout: DB_BUSY_TIMEOUT_MS });
     try {
       this.db.exec('PRAGMA journal_mode = WAL');
       // 扫描守卫（db.ts 的 scanGuard 模板引用它）：库每扫过若干行回到这里看一眼时限，过了就抛错，语句当场停下
@@ -86,7 +87,13 @@ class SqliteConn implements Conn {
       throw e;
     }
   }
-  setDeadline(at: number, budget: number) { this.deadline = at; this.budget = budget; }
+  setDeadline(at: number, budget: number) {
+    this.deadline = at; this.budget = budget;
+    // 等写锁最多等多久：DB_BUSY_TIMEOUT_MS 和这一次的时限取小的（等锁的时候扫描守卫看不到时限，等过了会被看门狗强行中止）
+    const wait = budget > 0 ? Math.max(1, Math.min(DB_BUSY_TIMEOUT_MS, Math.floor(budget))) : DB_BUSY_TIMEOUT_MS;
+    if (wait !== this.busyWait) { this.db.exec(`PRAGMA busy_timeout = ${wait}`); this.busyWait = wait; }
+  }
+  private busyWait = DB_BUSY_TIMEOUT_MS;
   check(where: string) {
     if (performance.now() > this.deadline) throw new BenchError('timeout', `台库操作超过时限（${this.budget} 毫秒），已中止；这一次没有生效`, [`停在：${where}`]);
   }
@@ -413,11 +420,16 @@ export class BenchStoreCore {
   }
 
   // —— 写入 ——
-  /** 幂等和写入记录：同键同内容返回原结果，同键不同内容拒绝；记录只存摘要 */
+  /**
+   * 幂等和写入记录：同一个人、同键同内容返回原结果，同键不同内容拒绝；记录只存摘要。
+   * 键按写的人隔开：别人用过的键，对这个人等于没用过——不会拿到别人那次写入的结果，也不会从「键已用在另一份内容上」看出别人写过什么。
+   * 存进 idem_key 列的是「写的人 + 换行 + 键」（键只收可见 ASCII，不含换行，拼出来不会和别人的撞）。
+   */
   private async logged(ds: DatasetDef, op: string, payload: unknown, ctx: WriteCtx, fn: (c: { actor: string; at: number; note: string }) => Promise<WriteResult>): Promise<WriteResult> {
     const c = checkCtx(ctx), body = sha256(canonical([ds.name, op, payload]));
-    if (ctx.idemKey) {
-      const prev = await this.conn.all('SELECT dataset, op, body_sha256, result FROM bs_writes WHERE idem_key = ?', [ctx.idemKey]);
+    const scopedKey = ctx.idemKey ? `${c.actor}\n${ctx.idemKey}` : null;
+    if (scopedKey) {
+      const prev = await this.conn.all('SELECT dataset, op, body_sha256, result FROM bs_writes WHERE idem_key = ?', [scopedKey]);
       if (prev.length) {
         if (prev[0].body_sha256 !== body) throw new BenchError('conflict', '这个幂等键已经用在另一份内容上');
         return { ...(JSON.parse(String(prev[0].result)) as WriteResult), duplicate: true };
@@ -430,7 +442,7 @@ export class BenchStoreCore {
     res.data_bytes = await this.account(ds);
     await this.conn.run('UPDATE bs_datasets SET row_count = ?, data_bytes = ?, updated_at = ?, updated_by = ? WHERE name = ?', [res.row_count, res.data_bytes, c.at, c.actor, ds.name]);
     await this.conn.run('INSERT INTO bs_writes (dataset, op, idem_key, body_sha256, row_count, actor, at, result) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [ds.name, op, ctx.idemKey ?? null, body, res.rows, c.actor, c.at, JSON.stringify(res)]);
+      [ds.name, op, scopedKey, body, res.rows, c.actor, c.at, JSON.stringify(res)]);
     const max = await this.conn.all('SELECT MAX(id) AS m FROM bs_writes');
     await this.conn.run('DELETE FROM bs_writes WHERE id <= ?', [Number(max[0].m ?? 0) - BENCH_LIMITS.writeLog]);
     this.pending.push({ kind: `data.${op}`, bench: this.slug, target: ds.name, from: ds.version, to: ds.version, actor: c.actor, at: c.at });

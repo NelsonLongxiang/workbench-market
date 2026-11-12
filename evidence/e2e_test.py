@@ -484,7 +484,7 @@ with sync_playwright() as p:
             page.reload(); page.wait_for_load_state('networkidle'); page.wait_for_timeout(800)
             trow = page.locator('.ant-table-row').filter(has_text='e2e-custom')
             trow.get_by_role('button', name='删除').click()
-            page.get_by_role('button', name='确 定').click()
+            page.get_by_role('button', name='确定').click()  # 全站两个字的按钮不插空格（ConfigProvider button.autoInsertSpace=false）
             page.wait_for_timeout(1000)
             expect(page.locator('.ant-table-row').filter(has_text='e2e-custom')).to_have_count(0)
             record('解除引用后删除类型', True)
@@ -635,8 +635,9 @@ with sync_playwright() as p:
         page.wait_for_load_state('networkidle')
         page.wait_for_timeout(600)
         assert page.locator('.wm-panel').count() == 0, '面板移除失败'
-        assert page.get_by_text('空驾驶舱', exact=False).first.is_visible(), '空驾驶舱提示未出现'
-        page.get_by_role('button', name='返回驾驶舱列表').click()
+        assert page.get_by_text('还没有要看的东西', exact=False).first.is_visible(), '空驾驶舱提示未出现'
+        # 回列表走顶上的面包屑「驾驶舱」（单页顶上只留「编辑」，不再有单独的返回按钮）
+        page.locator('[data-testid=wm-top] .wm-top-crumb a').first.click()
         page.wait_for_load_state('networkidle')
         assert page.get_by_text('E2E 驾驶舱', exact=True).first.is_visible(), '列表中未见 E2E 驾驶舱'
         if CTRL is not None:

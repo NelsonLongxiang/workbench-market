@@ -1,12 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useRequest } from 'ahooks';
-import { Space, Input, App, Alert, Badge, Button, Card, Col, Empty, Flex, Popconfirm, Select, Spin, Tooltip, Typography } from 'antd';
-import { EditOutlined, ArrowLeftOutlined, ExportOutlined, PlusOutlined, ReloadOutlined, CloseOutlined } from '@ant-design/icons';
-import GridLayout from 'react-grid-layout';
-import { WidthProvider } from 'react-grid-layout';
-import type { Layout } from 'react-grid-layout';
-import 'react-grid-layout/css/styles.css';
+import { Space, Input, App, Alert, Badge, Button, Card, Col, Empty, Flex, Popconfirm, Popover, Select, Spin, Tooltip, Typography } from 'antd';
+import { EditOutlined, ExportOutlined, PlusOutlined, ReloadOutlined, CloseOutlined } from '@ant-design/icons';
 import 'react-resizable/css/styles.css';
 import { api } from '../api';
 import GoFrame from '../components/GoFrame';
@@ -14,13 +10,15 @@ import type { Cockpit as CockpitT, PanelConfig, Workbench } from '../types';
 import { useSyncExternalStore } from 'react';
 import { adminActive, subscribeAdminToken } from '../admin-token';
 import WmPage from '../components/WmPage';
+import CockpitFrame from '../components/cockpit/CockpitFrame';
+import { AttentionPane, ItemsPane, ProcessPane } from '../components/cockpit/SidePanes';
+import ArrangeDrawer from '../components/ArrangeDrawer';
+import BenchViewPanel from '../components/cockpit/BenchViewPanel';
+import { benchViewRefs, isBenchViewPanel, itemsTabLabel, mainTabKeys, refsOfTab } from '../cockpit-frame-view';
 
 /** 驾驶舱写（/api/cockpits）是管理写：不是管理员（口令或 Odoo 管理员）时只读，隐藏新建/删除/改名/加移面板，网格不可拖拽 */
 const READ_ONLY_HINT = '编辑驾驶舱需要管理员：在顶栏输入管理员口令，或用 Odoo 管理员账号登录。';
 
-const Grid = WidthProvider(GridLayout);
-const COLS = 12;
-const ROW_H = 36;
 
 function PanelHeadActions(props: { wid: number; url?: string; onRefresh: () => void; onRemove?: () => void }) {
   return (
@@ -45,7 +43,6 @@ function PanelHeadActions(props: { wid: number; url?: string; onRefresh: () => v
 }
 
 import { TasksView } from './Tasks';
-import { snapPanels, snapW } from '../cockpit-layout';
 
 export default function Cockpit() {
   const READ_ONLY = !useSyncExternalStore(subscribeAdminToken, adminActive);
@@ -55,6 +52,12 @@ export default function Cockpit() {
 
   const [panels, setPanels] = useState<PanelConfig[] | null>(null);
   // 驾驶舱改名（监督席 direct-3b98f8c2 用户报障：后端 PUT name 一直在，前端无入口）
+  const [attentionCount, setAttentionCount] = useState<number | null>(null);
+  const [itemsView, setItemsView] = useState<unknown>(undefined);
+  /** 左栏点了「看办理过程」的那件事项；右栏跟着切到「办理过程」 */
+  const [picked, setPicked] = useState<string | null>(null);
+  const [rightTab, setRightTab] = useState<string | null>(null);
+  const [arrange, setArrange] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const submitRename = async () => {
@@ -89,13 +92,13 @@ export default function Cockpit() {
     const cur = active?.id ?? null;
     if (loadedId.current !== cur) {
       loadedId.current = cur;
-      setPanels(active ? active.panels : null);
+      // 数据视图的引用不进面板栅格（它们画在「看板」「明细」页签里）
+      setPanels(active ? active.panels.filter((p) => !isBenchViewPanel(p)) : null);
     }
   }, [active]);
 
   const wbById = useMemo(() => new Map(workbenches.map((w) => [w.id, w])), [workbenches]);
   // #320 读时迁移：渲染用吸附到 3/4/6/12 的布局，不回写；管理员真改动时才存吸附后的值
-  const view = useMemo(() => (panels ? snapPanels(panels) : null), [panels]);
 
   const persist = (next: PanelConfig[], immediate = false) => {
     if (READ_ONLY) return; // 业务面只读：网格对重叠布局的自动归一也不能触发保存（否则不点也会 PUT 403 + 报错）
@@ -105,7 +108,8 @@ export default function Cockpit() {
     const doSave = async () => {
       setSaving(true);
       try {
-        await api.updateCockpit(active.id, { panels: next });
+        // 存布局时把数据视图的引用原样带回去，不能因为拖了一下面板就把它们丢掉
+        await api.updateCockpit(active.id, { panels: [...next, ...active.panels.filter((p) => isBenchViewPanel(p))] });
       } catch (e) {
         message.error(`布局保存失败：${(e as Error).message}`);
       } finally {
@@ -114,22 +118,6 @@ export default function Cockpit() {
     };
     if (immediate) void doSave();
     else saveTimer.current = setTimeout(doSave, 600);
-  };
-
-  const onLayoutChange = (layout: Layout[]) => {
-    if (!panels || !view) return;
-    const next = snapPanels(layout
-      .map((l) => {
-        const p = panels.find((p2) => p2.i === l.i);
-        return p ? { ...p, x: l.x, y: l.y, w: snapW(l.w), h: l.h } : null;
-      })
-      .filter((p): p is PanelConfig => !!p));
-    // GridLayout 初次挂载也触发 onLayoutChange——与吸附后的视图比较，仅几何真实变化时保存（打开页面不触发迁移写）
-    const changed = next.some((p) => {
-      const o = view.find((p2) => p2.i === p.i);
-      return o && (o.x !== p.x || o.y !== p.y || o.w !== p.w || o.h !== p.h);
-    });
-    if (changed) persist(next);
   };
 
   const addPanels = (wbIds: number[]) => {
@@ -154,7 +142,7 @@ export default function Cockpit() {
   if (!id) {
     return (
       <WmPage
-        subTitle="把常用的 2-4 个工作台拼成一屏分屏视图，按场景切换"
+        subTitle="一屏看住一条线或一个工作台：中间是它的看板和明细，左边是等你拍板的，右边是办理过程"
         extra={!READ_ONLY && <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -209,7 +197,7 @@ export default function Cockpit() {
             ))}
           </Flex>
         ) : (
-          <Empty description={READ_ONLY ? '还没有驾驶舱' : '还没有驾驶舱——新建一个，把工作台拼成一屏'} style={{ marginTop: 48 }}>
+          <Empty description={READ_ONLY ? '还没有驾驶舱' : '还没有驾驶舱。建一个，就能一屏看住一条线或一个工作台的看板、等你拍板的事和办理过程'} style={{ marginTop: 48 }}>
             {!READ_ONLY && <Button
               type="primary"
               onClick={() => api.createCockpit({ name: '我的驾驶舱' }).then((c) => nav(`/cockpit/${c.id}`))}
@@ -234,18 +222,13 @@ export default function Cockpit() {
     );
   }
 
-  return (
-    <WmPage detail={active.name}>
-    <Flex vertical gap={12} className="wm-w-full" align="start">
-      <Flex justify="space-between" align="center" gap={12} className="wm-w-full" style={{ flexWrap: 'wrap', rowGap: 8 }}>
-        <Flex align="center" gap={8}>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => nav('/cockpit')} aria-label="返回驾驶舱列表" />
-          <Select
-            value={active.id}
-            style={{ minWidth: 200 }}
-            onChange={(v) => nav(`/cockpit/${v}`)}
-            options={(listReq.data ?? []).map((c) => ({ value: c.id, label: c.name }))}
-          />
+  // 骨架照原型的驾驶舱：左「等你拍板」；中间的页签——「看板」「明细」留给数据视图的块（这个驾驶舱配了才出现），
+  // 内嵌的工作台单独放「工作台」页签，按栏宽单列排、一个台占满栏宽（要并排看的用放大）；右「事项」
+  // 顶上一排照原型：左边留给「看的是 …」（现在没有筛选来源，不放）；右边是操作。
+  // 改名、加面板、加待办卡不常驻，收进「编辑」；切换驾驶舱在侧栏「我的驾驶舱」里，顶上不再放下拉。
+  const editPanel = (
+    <Flex vertical gap={8} className="wm-ck-edit" data-testid="ck-edit-panel">
+      <Flex align="center" gap={8}>
           {READ_ONLY ? null : renaming ? (
             <Input
               size="small"
@@ -265,7 +248,7 @@ export default function Cockpit() {
             <Button size="small" icon={<EditOutlined />} onClick={() => { setRenameValue(active.name); setRenaming(true); }}>改名</Button>
           )}
           {!READ_ONLY && <Typography.Text type="secondary">{saving ? '保存中…' : '布局已自动保存'}</Typography.Text>}
-        </Flex>
+      </Flex>
         {!READ_ONLY && <Select
           mode="multiple"
           placeholder="添加工作台面板"
@@ -294,31 +277,30 @@ export default function Cockpit() {
         >
           加待办卡
         </Button>}
-      </Flex>
+    </Flex>
+  );
+  // 顶上右边：「就这个安排一件事」（原型）；管理员另有「编辑」（改名、加面板），不常驻
+  const extra = <>
+    {!READ_ONLY && <Popover trigger="click" placement="bottomRight" content={editPanel}>
+      <Button icon={<EditOutlined />} data-testid="ck-edit">编辑</Button>
+    </Popover>}
+    <Button type="primary" icon={<PlusOutlined />} onClick={() => setArrange(true)} data-testid="ck-arrange">就这个安排一件事</Button>
+  </>;
+  const refs = benchViewRefs(active.panels);
+  const board = (
+    <Flex vertical gap={12} className="wm-w-full wm-ck-pad" align="start">
       {READ_ONLY && <Alert type="info" showIcon className="wm-cockpit-readonly wm-w-full" message="驾驶舱在这里只能查看" description={READ_ONLY_HINT} />}
 
       {panels.length === 0 ? (
-        <Empty description={READ_ONLY ? '空驾驶舱' : '空驾驶舱——从右上角选择工作台加入分屏'} style={{ marginTop: 48 }} />
+        <Empty description={READ_ONLY ? '这个驾驶舱里还没有要看的东西' : '这个驾驶舱里还没有要看的东西——点右上角「编辑」，加一个工作台进来'} style={{ marginTop: 48 }} />
       ) : (
-        <Grid
-          className="wm-cockpit-grid"
-          layout={(view ?? []).map((p) => ({ i: p.i, x: p.x, y: p.y, w: p.w, h: p.h, minW: 3, minH: 6 }))}
-          cols={COLS}
-          rowHeight={ROW_H}
-          width={1200}
-          draggableHandle=".wm-panel-head"
-          draggableCancel=".wm-panel-actions, .wm-panel-actions *"
-          isDraggable={!READ_ONLY}
-          isResizable={!READ_ONLY}
-          onLayoutChange={READ_ONLY ? undefined : onLayoutChange}
-        >
-          {panels.map((p) => {
+        <div className="wm-ck-benches" data-testid="ck-benches">
+          {[...panels].sort((a, b) => a.y - b.y || a.x - b.x).map((p) => {
             if (p.kind === 'tasks') {
               return (
                 <div key={p.i} className="wm-panel">
                   <div className="wm-panel-head">
-                    <span className="wm-panel-grip" aria-hidden>⠿</span>
-                    <Badge status="processing" text={<Typography.Text strong className="wm-text-body">统一待办</Typography.Text>} />
+                      <Badge status="processing" text={<Typography.Text strong className="wm-text-body">统一待办</Typography.Text>} />
                     <span className="wm-panel-actions">
                       <Link to="/tasks" className="wm-caption" style={{ marginRight: 8 }}>全部</Link>
                       {!READ_ONLY && <Button size="small" type="text" onClick={() => persist(panels.filter((q) => q.i !== 'tasks'), true)}>移除</Button>}
@@ -335,7 +317,6 @@ export default function Cockpit() {
             return (
               <div key={p.i} className="wm-panel">
                 <div className="wm-panel-head">
-                  <span className="wm-panel-grip" aria-hidden>⠿</span>
                   <Badge
                     status={w?.last_status === 'up' ? 'success' : w?.last_status === 'down' ? 'error' : 'default'}
                     text={
@@ -361,14 +342,22 @@ export default function Cockpit() {
               </div>
             );
           })}
-        </Grid>
+        </div>
       )}
-
-      <Typography.Text type="secondary" className="wm-caption">
-        {READ_ONLY ? '' : '拖动面板标题栏移动，右下角拉伸调整大小，布局自动保存 · '}部分工作台通过 X-Frame-Options 禁止内嵌，空白时用「新窗口」打开 ·{' '}
-        <Link to="/market">去工作台市场</Link>
-      </Typography.Text>
     </Flex>
+  );
+  return (
+    <WmPage detail={active.name} wide>
+      <CockpitFrame storageKey={String(active.id)} extra={extra}
+        left={{ id: 'attention', tabs: [{ key: 'attention', label: '等你拍板', count: attentionCount, content: <AttentionPane onCount={setAttentionCount} picked={picked} onPick={(id) => { setPicked(id); setRightTab('process'); }} /> }] }}
+        main={{ id: 'board', tabs: mainTabKeys(refs, panels.length).map((k) => (k === 'benches'
+          ? { key: 'benches', label: '工作台', content: board }
+          : { key: k, label: k === 'board' ? '看板' : '明细', content: <>{refsOfTab(refs, k).map((x) => <BenchViewPanel key={x.i} refItem={x} />)}</> })) }}
+        right={{ id: 'items', active: rightTab, onTab: setRightTab, tabs: [
+          { key: 'process', label: '办理过程', content: <ProcessPane itemId={picked} /> },
+          { key: 'items', label: itemsTabLabel(itemsView, !READ_ONLY), content: <ItemsPane onView={setItemsView} /> },
+        ] }} />
+      <ArrangeDrawer open={arrange} onClose={() => setArrange(false)} />
     </WmPage>
   );
 }

@@ -14,14 +14,16 @@
  */
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
+import { leadGrantActive } from './dept-lead-grant.ts';
 
 export type DepartmentSource = 'manual' | 'odoo';
-export type DepartmentLead = { principal: string; display_name: string } | null;
+/** 负责人：grant 是他有没有这个部门的拍板授予（missing 是只有字段，待属主放行，不带任何权力） */
+export type DepartmentLead = { principal: string; display_name: string; grant: 'active' | 'missing' } | null;
 export type DepartmentView = {
   id: string; name: string; function_code: string | null; lead: DepartmentLead; member_count: number; source: DepartmentSource;
 };
-export type DepartmentMember = { principal: string; display_name: string; kind: string; status: string; is_lead: boolean };
-export type Membership = { id: string; name: string; function_code: string | null; is_lead: boolean; is_member: boolean };
+export type DepartmentMember = { principal: string; display_name: string; kind: string; status: string; is_lead: boolean; lead_pending: boolean };
+export type Membership = { id: string; name: string; function_code: string | null; is_lead: boolean; is_member: boolean; lead_pending: boolean };
 export type DepartmentRefusal = { ok: false; http: 400 | 404 | 409 | 422; code: string; message: string };
 
 export const DEPARTMENT_ID_RE = /^[a-z][a-z0-9-]{0,47}$/;
@@ -33,7 +35,7 @@ const refuse = (http: DepartmentRefusal['http'], code: string, message: string):
 type Row = { id: string; name: string; function_code: string; lead_principal: string; lead_name: string | null; member_count: number; source: DepartmentSource };
 const view = (r: Row): DepartmentView => ({
   id: r.id, name: r.name, function_code: r.function_code || null,
-  lead: r.lead_principal ? { principal: r.lead_principal, display_name: r.lead_name ?? '' } : null,
+  lead: r.lead_principal ? { principal: r.lead_principal, display_name: r.lead_name ?? '', grant: leadGrantActive(r.lead_principal, r.id) ? 'active' : 'missing' } : null,
   member_count: Number(r.member_count), source: r.source,
 });
 const SELECT = `SELECT d.id, d.name, d.function_code, d.lead_principal, p.display_name AS lead_name, d.source,
@@ -57,17 +59,26 @@ export class DepartmentService extends Service {
   members(id: string): DepartmentMember[] {
     const lead = (db.prepare('SELECT lead_principal FROM departments WHERE id = ?').get(id) as { lead_principal: string } | undefined)?.lead_principal ?? '';
     return (db.prepare(`SELECT m.principal_id AS principal, COALESCE(p.display_name, '') AS display_name, COALESCE(p.kind, '') AS kind, COALESCE(p.status, '') AS status
-      FROM department_members m LEFT JOIN principals p ON p.id = m.principal_id WHERE m.department_id = ? ORDER BY m.principal_id`).all(id) as Omit<DepartmentMember, 'is_lead'>[])
-      .map((m) => ({ ...m, is_lead: m.principal === lead }));
+      FROM department_members m LEFT JOIN principals p ON p.id = m.principal_id WHERE m.department_id = ? ORDER BY m.principal_id`).all(id) as Omit<DepartmentMember, 'is_lead' | 'lead_pending'>[])
+      // 负责人要字段写着他、并且持有这个部门的拍板授予；只有字段的报 lead_pending（待属主放行），不算负责人
+      .map((m) => { const field = m.principal === lead; const granted = field && leadGrantActive(m.principal, id); return { ...m, is_lead: granted, lead_pending: field && !granted }; });
   }
 
-  /** 这个主体属于哪些部门（是成员的，和是负责人的；负责人不一定是成员） */
+  /**
+   * 这个主体属于哪些部门（是成员的，和是负责人的；负责人不一定是成员）。团队的可见范围、「同部门看得到名字」都用它。
+   * 负责人要字段写着他、并且持有这个部门的拍板授予；只有字段的（待属主放行）不算负责人：不是成员的那个部门不列出来，
+   * 是成员的照列，标 lead_pending。字段单独不带来任何权力，读也一样
+   */
   of(principal: string): Membership[] {
     const rows = db.prepare(`SELECT d.id, d.name, d.function_code, d.lead_principal,
       (SELECT COUNT(*) FROM department_members m WHERE m.department_id = d.id AND m.principal_id = ?) AS member
       FROM departments d WHERE d.lead_principal = ? OR EXISTS (SELECT 1 FROM department_members m WHERE m.department_id = d.id AND m.principal_id = ?) ORDER BY d.id`)
       .all(principal, principal, principal) as { id: string; name: string; function_code: string; lead_principal: string; member: number }[];
-    return rows.map((r) => ({ id: r.id, name: r.name, function_code: r.function_code || null, is_lead: r.lead_principal === principal, is_member: Number(r.member) > 0 }));
+    return rows.flatMap((r) => {
+      const member = Number(r.member) > 0, field = r.lead_principal === principal, lead = field && leadGrantActive(principal, r.id);
+      if (!member && !lead) return [];
+      return [{ id: r.id, name: r.name, function_code: r.function_code || null, is_lead: lead, is_member: member, lead_pending: field && !lead }];
+    });
   }
 
   /** 建或改一个部门（标识建好不改）。lead 为 null 表示没有负责人；functionCode 为 null 表示不配职能代号 */
@@ -105,14 +116,16 @@ export class DepartmentService extends Service {
     if (Number(open.n) > 0) return refuse(409, 'department_in_use', `还有 ${open.n} 条没结束的授予范围是这个部门，先撤销再删`);
     const teamsOn = db.prepare('SELECT COUNT(*) AS n FROM teams WHERE department_id = ? AND claimed = 1').get(id) as { n: number };
     if (Number(teamsOn.n) > 0) return refuse(409, 'department_has_teams', `还有 ${teamsOn.n} 个团队挂在这个部门上，先换部门或退回待认领再删`);
-    db.exec('BEGIN');
+    // 外面已经开着事务（删部门时一并收回随负责人发的授予，services/dept-lead-grant.ts）就跟着它，不另开
+    const own = !db.isTransaction;
+    if (own) db.exec('BEGIN');
     try {
       const members = db.prepare('DELETE FROM department_members WHERE department_id = ?').run(id).changes;
       db.prepare('DELETE FROM departments WHERE id = ?').run(id);
-      db.exec('COMMIT');
+      if (own) db.exec('COMMIT');
       return { ok: true, members: Number(members) };
     } catch (e) {
-      try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ }
+      if (own) { try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ } }
       throw e;
     }
   }
