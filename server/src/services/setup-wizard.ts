@@ -7,12 +7,15 @@
  * 草稿照常经授予服务起草（自授、范围、部门存在、期限这些规则一条不少）；起草被拒的记进 skipped 并写明原因，不中断整批。
  * 可重复跑：同一主体、角色、范围已经有草稿、待核或生效的授予就跳过（already）。
  * 放行：属主（本机命令行，或持生效 owner 授予的人）一次把这一批里还在草稿、待核的提交并放行。
+ *   这一批里放行了的部门负责人授予（dept-lead，dept:<部门>），部门还没有负责人的，顺带把负责人设上：属主本人的动作，
+ *   就是对这个关系的确认（规范 14「关系由谁说了算」：部门负责人只有属主能定）。部门已经有负责人的不动。
  * 「这条是向导建的」记在 setup_wizard_grants 里（grants 的来源列只认 manual、migration），读授予时推出来源 wizard。
  */
 import { Service } from '@deepseek-ai/cordis';
 import { svc } from '../context.ts';
 import { db } from '../db.ts';
 import type { Actor, GrantService } from './grant.ts';
+import type { DepartmentService } from './department.ts';
 
 export type WizardShape = 'small' | 'standard';
 export type WizardAssignments = { management?: string[]; dept_leads?: { principal: string; department: string }[] };
@@ -79,6 +82,11 @@ export class SetupWizardService extends Service {
       const a = grants().approve(g.id, actor, now);
       if (!a.ok) { failed.push({ grant: g.id, reason: a.code }); continue; }
       approved.push(g.id);
+      const row = grants().get(g.id);
+      if (row?.role === 'dept-lead' && row.scope.startsWith('dept:')) {
+        const d = svc<DepartmentService>('departments').get(row.scope.slice(5));
+        if (d && !d.lead) svc<DepartmentService>('departments').upsert({ id: d.id, name: d.name, functionCode: d.function_code, lead: row.principal_id }, actor.by, now);
+      }
     }
     db.prepare('UPDATE setup_wizard_runs SET approved_by = ?, approved_at = ? WHERE id = ?').run(actor.by.slice(0, 256), now, runId);
     return { ok: true, approved, failed };

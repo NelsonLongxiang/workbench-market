@@ -12,6 +12,11 @@
  *   · router：这个席位是这个团队的总工；
  *   · same-seat：主体和对象是同一个席位。
  * 都不是就是空数组。另带显示用的：团队名（画布名）、部门名、负责人的显示名、成员主人的显示名。
+ *
+ * 约定（规范 14「关系由谁说了算」）：关系不带来权限，只能用来收窄。
+ *   · dept-member 来自部门成员表，管理员可写，只是组织信息：任何调用方都不许凭它放行。要按部门放行，问 judgment.ts 的 scopedVerdict（只认已放行的授予）。
+ *   · team-lead、dept-lead、team-seat 对部门、seat-owner 反映的是已确认的关系：部门负责人、团队负责人只有属主能定，团队认领到部门要管理层或
+ *     接收部门的负责人确认（services/relation-proposal.ts），成员分配只有团队负责人或管理层做。提议期间这些关系不存在，这里查不到。
  */
 import { svc } from './context.ts';
 import { sameSeat, type SeatKey, type TeamKey, type TeamService } from './services/team.ts';

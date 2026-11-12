@@ -111,9 +111,12 @@ try {
     const byRoot = await srv.call('PUT', '/api/departments/ops', { ...asRoot, body: { name: '合成运营部' } });
     const byCli = await srv.call('PUT', '/api/departments/rnd', { body: { name: '合成研发部', function_code: 'dp_product' } });
     const at = Number(db.prepare("SELECT updated_at FROM departments WHERE id = 'sales'").get()?.updated_at);
-    check(byToken.status === 201 && byToken.json?.department?.name === '合成销售部' && byRoot.status === 201 && byCli.status === 201
+    // 口令管理员指定的负责人只记成提议（规范 14「关系由谁说了算」）：部门建了、负责人空着；属主（本机命令行）再设才生效
+    const proposedLead = byToken.json?.department?.lead === null && byToken.json?.lead_proposal?.status === 'pending';
+    await srv.call('PUT', '/api/departments/sales', { body: { name: '合成销售部', lead: 'user:alpha' } });
+    check(byToken.status === 201 && byToken.json?.department?.name === '合成销售部' && proposedLead && byRoot.status === 201 && byCli.status === 201
       && db.prepare("SELECT updated_by FROM departments WHERE id = 'ops'").get()?.updated_by === 'odoo:root-admin' && at >= t0 && at <= Date.now(),
-      '对照：口令管理员、管理员登录同源、本机命令行能建部门；名称去掉首尾空白；改动的人和时间（代码给的毫秒）记下',
+      '对照：口令管理员、管理员登录同源、本机命令行能建部门；名称去掉首尾空白；改动的人和时间（代码给的毫秒）记下；口令管理员指定的负责人只记成提议',
       show({ token: byToken.status, root: byRoot.status, cli: byCli.status, at, t0 }));
   }
 
@@ -162,7 +165,7 @@ try {
     check(one.status === 200 && show(one.json.members.map((m) => [m.principal, m.kind, m.is_lead])) === show([['seat:bot', 'seat', false], ['user:alpha', 'person', true], ['user:beta', 'person', false]]),
       '单个部门：成员列表带主体、类型、是不是负责人', show(one.json?.members));
     // 负责人不一定是成员：beta 当 rnd 的负责人，但不进 rnd
-    await srv.call('PUT', '/api/departments/rnd', { headers: token, body: { name: '合成研发部', lead: 'user:beta' } });
+    await srv.call('PUT', '/api/departments/rnd', { body: { name: '合成研发部', lead: 'user:beta' } }); // 属主（本机命令行）指定
     const ofBeta = await srv.call('GET', '/api/departments/of/user:beta', asAlpha);
     const ofNobody = await srv.call('GET', '/api/departments/of/user:nobody', asAlpha);
     check(ofBeta.status === 200 && show(ofBeta.json.departments.map((d) => [d.id, d.is_member, d.is_lead])) === show([['rnd', false, true], ['sales', true, false]])

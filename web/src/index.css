@@ -608,6 +608,8 @@ body { background: var(--wm-color-page); }
 .wm-team-dot.on { background: var(--wm-color-success-text); }
 .wm-team-kind { flex: none; margin-left: auto; padding: 0 var(--wm-space-1); font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); background: var(--wm-color-page); border-radius: var(--wm-radius-sm); }
 .wm-team-stale { font-size: var(--wm-font-size-caption); color: var(--wm-color-warning-text); }
+/* 待确认的提议（关系确认制）：认领、负责人还没生效 */
+.wm-team-pending { font-size: var(--wm-font-size-caption); color: var(--wm-color-warning-text); }
 .wm-team-none { font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); margin-left: var(--wm-space-3); }
 .wm-team-unclaimed { margin-top: var(--wm-space-6); }
 .wm-team-sec { display: flex; align-items: baseline; gap: var(--wm-space-2); margin-bottom: var(--wm-space-3); }
