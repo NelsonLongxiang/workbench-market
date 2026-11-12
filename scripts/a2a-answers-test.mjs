@@ -536,6 +536,24 @@ try {
   // 验签不过的仍然不收不回执（那不是我们欠的）——限频不改变这一条
   { const rr = fu(rate.ctx, '伪造', 'a2a-rate-forged'); await post(rr, signed(evil, rr)); ok('限频之下，验签不过的仍不收、不回执', noRec('a2a-rate-forged')); }
   ok('跟进回执的积压在健康块里有数', typeof (await (await fetch(BASE + '/api/health')).json()).a2a?.outbox?.followup_receipts?.pending === 'number');
+  // 名片不声明 teamRoster（WM_A2A_TEAM_ROSTER=off）：入站名册一律不收（照普通来信走），已有的名册不动
+  {
+    child.kill(); await new Promise((r) => { if (child.exitCode !== null) r(); else child.once('exit', r); });
+    const off = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], { cwd: 'server', stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, DATA_DIR: DATA, PORT: String(PM), WM_CONTROL_PORT: '0', NODE_ENV: 'test', MCP_GATEWAY: 'off', ADMIN_TOKEN: 'ans-admin', MARKET_PUBLIC_URL: BASE, WM_A2A_DIRECT_SIG: '', WM_LOGIN_GATE: '', WM_A2A_TEAM_ROSTER: 'off' } });
+    try {
+      ok('（准备）WM_A2A_TEAM_ROSTER=off 的实例起来了', await ready());
+      const card = await (await fetch(BASE + '/.well-known/agent-card.json')).json();
+      ok('off：名片不声明 teamRoster', card?.capabilities && !('teamRoster' in card.capabilities), JSON.stringify(card?.capabilities));
+      const fp = createHash('sha256').update(createPublicKey(lab.key).export({ type: 'spki', format: 'der' })).digest('hex').slice(0, 8);
+      const before = JSON.stringify(q('SELECT host, reported_at FROM a2a_rosters ORDER BY host'));
+      const at = new Date().toISOString();
+      const raw = JSON.stringify({ team: 'market/12345678', message: `[A2A roster] ${fp} ${at}\n${JSON.stringify({ host: fp, at, seats: [{ seat: 'lab/f1f1f1f1', name: '没声明时推来的', team: 'lab/canvas/team', role: 'member', online: true }] })}`, caller_session: 'dsh-host-1a2b', context_id: '', wait: false, task_id: 'roster-off-1' });
+      const rr = await post(raw, signed(lab, raw));
+      ok('off：投递过的宿主、Sig3 签的名册也不收（应答里没有 roster），名册表不变', !rr.text.includes('"roster":') && JSON.stringify(q('SELECT host, reported_at FROM a2a_rosters ORDER BY host')) === before
+        && q("SELECT COUNT(*) AS c FROM a2a_roster_seats WHERE seat = 'lab/f1f1f1f1'")[0].c === 0, rr.text.slice(0, 160));
+    } finally { off.kill(); await new Promise((r) => { if (off.exitCode !== null) r(); else off.once('exit', r); }); }
+  }
 } catch (e) {
   ok('运行', false, String(e?.stack ?? e));
 } finally {

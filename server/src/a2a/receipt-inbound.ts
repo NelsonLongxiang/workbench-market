@@ -17,7 +17,7 @@
  */
 import { createHash, createPublicKey, verify as edVerify } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
-import { parseA2aReceipt } from '../a2a.ts';
+import { parseA2aReceipt, teamRosterDeclared } from '../a2a.ts';
 import { audiencesOf, bodyDigest, originOf, SIG_SKEW_MS } from '../a2a-direct-sig.ts';
 import { claimQuestion, claimReceipt, claimSignatureOnce, inReceiptTx, progressSteps, questionRecorded, receiptRecorded, sentTask, sentTaskForFollowup, untrustedReceiptCount, type SentTask } from '../services/a2a-receipts.ts';
 import { followupOf, followupsOfDelivery, followupsOfPeerSince, recordFollowup } from '../services/a2a-followups.ts';
@@ -201,7 +201,8 @@ export async function handleInboundReceipt(req: Req, deps: { audiences: () => st
   const body = (req.body ?? {}) as Record<string, unknown>;
   const message = typeof body.message === 'string' ? body.message : '';
   if (message === '') return null;
-  if (message.startsWith('[A2A roster] ')) return handleRoster(req, message, deps);
+  // 名片没声明 teamRoster 就不收名册（照普通来信走）：不声明就不该有人推
+  if (message.startsWith('[A2A roster] ') && teamRosterDeclared()) return handleRoster(req, message, deps);
   const parsed = parseA2aReceipt(message);
   if (!parsed) return handleFollowup(req, body, message, deps);
   const origin = receiptOrigin(parsed.taskId, typeof body.task_id === 'string' ? body.task_id : '');
