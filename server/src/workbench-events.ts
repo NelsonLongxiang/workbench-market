@@ -150,6 +150,11 @@ interface EventCore {
   /** 「安排一件事」：挂在哪条线、哪一步。只记在 recorded 那一行，事项建出来时取（不进发给接收方的信封） */
   object?: string;
   phase?: string;
+  /** 规范 14 第 2 步：交给方式、等谁过目、指名的席位（seatId）。任务中心的事件都记交给方式（缺省 team）；
+   *  等谁过目没给时按投递 held 没有推：held → lead（等负责人过目），否则空。只记在 recorded 那一行 */
+  handoff?: 'team' | 'own-seat' | 'lead-directed';
+  reviewBy?: '' | 'lead' | 'requester';
+  directedSeatId?: string;
 }
 
 /** 写事件行 + 每个目标一行投递。调用方负责事务。返回 event_id。 */
@@ -158,7 +163,8 @@ function recordEvent(core: EventCore, targets: Target[], routed: 'target' | 'def
   const createdAt = new Date().toISOString();
   db.prepare('INSERT INTO workbench_events (event_id, source, workbench, item, context_id, submitter_kind, submitter, form_version, data_sha256, dispatch, routed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(eventId, core.source, core.workbench, core.item, core.contextId, core.submitterKind, core.submitter, core.formVersion, core.dataSha256, core.dispatch ? 1 : 0, routed);
-  log(eventId, null, 'market', 'recorded', { source: core.source, routed, submitter_kind: core.submitterKind, targets: targets.length, ...(core.requester ? { requester: core.requester } : {}), ...(core.via ? { via: core.via } : {}), ...(core.publisher ? { publisher: core.publisher } : {}), ...(core.object ? { object: core.object } : {}), ...(core.phase ? { phase: core.phase } : {}) });
+  log(eventId, null, 'market', 'recorded', { source: core.source, routed, submitter_kind: core.submitterKind, targets: targets.length, ...(core.requester ? { requester: core.requester } : {}), ...(core.via ? { via: core.via } : {}), ...(core.publisher ? { publisher: core.publisher } : {}), ...(core.object ? { object: core.object } : {}), ...(core.phase ? { phase: core.phase } : {}),
+    ...(core.handoff ? { handoff: core.handoff, review_by: core.reviewBy ?? (held ? 'lead' : '') } : {}), ...(core.directedSeatId ? { directed_seat_id: core.directedSeatId } : {}) });
   const envelope = envelopeOf(eventId, createdAt);
   for (const t of targets) {
     let token = '';
@@ -180,7 +186,9 @@ function recordEvent(core: EventCore, targets: Target[], routed: 'target' | 'def
  */
 export function recordTaskCenterEvent(task: { id: number; data: Record<string, unknown>; stepValue: (key: string) => unknown; publishedBy: string; requesterPrincipal?: string | null; publisherPrincipal?: string | null; templateVersion: number | null; materialSha256: string; agentDispatch: boolean; centerOn: boolean;
   /** 「安排一件事」：直接指定派给的团队（必须是 assignableTeams 之一），不按「目标 SOP 台」解析；submitter 用本人主体；object、phase 记进 recorded */
-  arranged?: { team: string; submitter: string; object?: string; phase?: string } }): string {
+  arranged?: { team: string; submitter: string; object?: string; phase?: string;
+    /** 规范 14：交给方式、等谁过目、指名的席位（seatId）。阶段七的指名派工经这里写；不给就是交给团队、按 held 推等谁过目 */
+    handoff?: 'team' | 'own-seat' | 'lead-directed'; reviewBy?: '' | 'lead' | 'requester'; directedSeatId?: string } }): string {
   let targetSop = '';
   let targets: Target[];
   let routed: 'target' | 'default' | 'unrouted' = 'target';
@@ -199,6 +207,8 @@ export function recordTaskCenterEvent(task: { id: number; data: Record<string, u
     submitterKind: 'human', submitter: task.arranged ? task.arranged.submitter : `human:${task.publishedBy}`, formVersion: task.templateVersion, dataSha256: task.materialSha256, dispatch: true,
     requester: task.requesterPrincipal ?? null, publisher: task.publisherPrincipal ?? null,
     ...(task.arranged?.object ? { object: task.arranged.object } : {}), ...(task.arranged?.phase ? { phase: task.arranged.phase } : {}),
+    handoff: task.arranged?.handoff ?? 'team', ...(task.arranged?.reviewBy !== undefined ? { reviewBy: task.arranged.reviewBy } : {}),
+    ...(task.arranged?.directedSeatId ? { directedSeatId: task.arranged.directedSeatId } : {}),
   };
   const fields: Record<string, unknown> = { id: task.id };
   for (const key of ['title', 'intent', 'references', 'deliverable', 'target', 'due']) fields[key] = task.stepValue(key) ?? '';

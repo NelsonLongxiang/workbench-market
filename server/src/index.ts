@@ -52,6 +52,7 @@ import { registerA2aPeerRoutes } from './routes/a2a-peers.ts';
 import { registerA2aDirectRoutes } from './routes/a2a-direct.ts';
 import { registerA2aOutboundRoutes } from './routes/a2a-outbound.ts';
 import { registerExportImportRoutes } from './routes/export-import.ts';
+import { registerDepartmentRoutes } from './routes/departments.ts';
 import { registerLoginFlowRoutes } from './routes/login-flows.ts';
 import { registerWorkbenchRoutes } from './routes/workbenches.ts';
 import { registerSopPageRoutes } from './routes/sop-page.ts';
@@ -94,6 +95,7 @@ import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
 import { HttpError } from './errors.ts';
 import { designStandard } from './design-standard.ts';
 import { mountVault } from './vault-api.ts';
+import { uploadIntegrity } from './upload-integrity.ts';
 import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet } from './workbench-vars.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
@@ -1640,22 +1642,50 @@ async function checkFileListsAgainstStore(rules: FieldRule[], data: Record<strin
 async function sopRunFinishCore(id: number): Promise<{ ok: boolean; id: number; status: string; steps: number }> {
   return runCheckpoints.serial(id, () => sopRunFinishLockedCore(id));
 }
+/** 这个 run 用的那一版 SOP 清单（版本目录里的 sop.yaml，没有就取当前版本）；任务中心的录入 run 没有字段规则 */
+function sopRunManifest(row: { sop_slug: string; sop_version: number }): SopManifest | null {
+  if (row.sop_slug === 'task-center') return null;
+  const yamlPath = join(appsRoot, row.sop_slug, `v${row.sop_version}`, 'sop.yaml');
+  return (existsSync(yamlPath) ? parseSopManifest(readFileSync(yamlPath, 'utf8')) : readActiveManifest(row.sop_slug)?.manifest) ?? null;
+}
+/** 完成前的字段校验（只有这一处）：完成接口用它拦，「等你拍板」的验收卡片用它预先告诉人「现在能不能验收通过」 */
+async function sopRunViolations(row: { id: number; sop_slug: string; sop_version: number }, data: string): Promise<string[]> {
+  const manifest = sopRunManifest(row);
+  if (!manifest) return [];
+  let parsedData: Record<string, unknown> = {};
+  try { parsedData = JSON.parse(data); } catch { parsedData = {}; }
+  const rules = extractFieldRules(manifest);
+  return [...checkRunData(rules, parsedData), ...(await checkFileListsAgainstStore(rules, parsedData, row.id))];
+}
+/**
+ * 「等你拍板」里待验收的派单 run 的卡片内容：哪条流程、哪次执行、谁派来的、各步骤填了没有（只给步骤名和填没填，不给内容）、
+ * 附件数和文件名（不给内容）、现在验收能不能通过（校验和完成接口同一处）。
+ */
+async function sopRunAcceptDetail(id: number): Promise<Record<string, unknown>> {
+  const row = sopRunRow(id);
+  const live = row.sop_slug === 'task-center' ? storedRunData(row) : (await runLiveData(row, false)).data;
+  const manifest = sopRunManifest(row);
+  const filled = (v: unknown) => v !== undefined && v !== null && !(typeof v === 'string' && v.trim() === '') && !(Array.isArray(v) && v.length === 0);
+  const ctx = svc<SopService>('sop').ctxSourceByRun(id) as { team?: string; caller?: string; task_id?: string } | undefined;
+  const files = (svc<SopService>('sop').runFiles(id) as { original_name: string }[]).map((f) => String(f.original_name ?? '').slice(0, 200));
+  const problems = row.status === 'running' ? await sopRunViolations(row, JSON.stringify(live)) : [];
+  return {
+    sop: row.sop_slug, sop_title: manifest?.title ?? readActiveManifest(row.sop_slug)?.app.title ?? '', run_id: row.id, version: row.sop_version,
+    started_at: row.started_at, updated_at: row.updated_at,
+    dispatcher: { team: ctx?.team ?? '', caller: ctx?.caller ?? '', task_id: ctx?.task_id ?? '' },
+    steps: (manifest?.steps ?? []).map((st) => ({ key: st.key, title: st.title, filled: filled((live as Record<string, unknown>)[st.key]) })),
+    attachments: { count: files.length, names: files.slice(0, 20) },
+    ready: problems.length === 0, problems: problems.slice(0, 5),
+  };
+}
+
 async function sopRunFinishLockedCore(id: number): Promise<{ ok: boolean; id: number; status: string; steps: number }> {
   const row = sopRunRow(id);
   if (row.status !== 'running') throw new HttpError(409, `run ${id} 已 ${row.status}`);
   const data = JSON.stringify(row.sop_slug === 'task-center' ? storedRunData(row) : (await runLiveData(row, true)).data);
   // 完成前按该 run 所用 SOP 版本里的字段规则（required/pattern/长度/类型）校验；不符则不完成、run 保持进行中
-  if (row.sop_slug !== 'task-center') {
-    const yamlPath = join(appsRoot, row.sop_slug, `v${row.sop_version}`, 'sop.yaml');
-    const manifest = existsSync(yamlPath) ? parseSopManifest(readFileSync(yamlPath, 'utf8')) : readActiveManifest(row.sop_slug)?.manifest;
-    if (manifest) {
-      let parsedData: Record<string, unknown> = {};
-      try { parsedData = JSON.parse(data); } catch { parsedData = {}; }
-      const rules = extractFieldRules(manifest);
-      const violations = [...checkRunData(rules, parsedData), ...(await checkFileListsAgainstStore(rules, parsedData, id))];
-      if (violations.length) throw new HttpError(400, `有 ${violations.length} 个字段未通过校验，未完成：${violations.slice(0, 5).join('；')}${violations.length > 5 ? ' 等' : ''}`, { violations });
-    }
-  }
+  const violations = await sopRunViolations(row, data);
+  if (violations.length) throw new HttpError(400, `有 ${violations.length} 个字段未通过校验，未完成：${violations.slice(0, 5).join('；')}${violations.length > 5 ? ' 等' : ''}`, { violations });
   svc<SopService>('sop').runFinish(id, data);
   runCheckpoints.forget(id); // only clear after the durable finish succeeds
   await runStateRetire(id); // best-effort cache retirement; SQLite status remains authoritative
@@ -1831,6 +1861,7 @@ registerAuthViewerRoutes(http, { wrap, odooLoginUrl });
 // ---------- 主体管理（列出、停用、恢复）：路由在域模块里 ----------
 registerPrincipalRoutes(http, { markOdooAdmin, adminGuard, adminActor });
 registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor }); // 阶段六 6b：角色声明与授予（只建结构，不接判定）
+registerDepartmentRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 部门：登录的人读、管理员写
 registerAttentionRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
 registerWorkItemRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8d：事项页的时间线
 registerRosterRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段七：团队名册的读（登录即可读，只有席位信息）
@@ -2198,7 +2229,7 @@ async function sopRunUpgradePlan(id: number) {
     },
   };
 }
-registerSopRunLifecycleRoutes(http, { wrap, adminHeaderOk, runReadCapHeader, sopRunGetCore, sopRunGetMeta, sopRunStepSaveCore, sopRunFinishCore, markOdooAdmin, sopRunUpgradePlan, bad, runCheckpoints, adminActor, writeMode: SOP_RUN_WRITE });
+registerSopRunLifecycleRoutes(http, { wrap, adminHeaderOk, runReadCapHeader, sopRunGetCore, sopRunGetMeta, sopRunStepSaveCore, sopRunFinishCore, sopRunAcceptDetail, markOdooAdmin, sopRunUpgradePlan, bad, runCheckpoints, adminActor, writeMode: SOP_RUN_WRITE });
 
 // ---------- 自产台静态托管：GET /apps/:slug/* → DATA_DIR/apps/<slug>/v<active>/* ----------
 function serveApp(req: express.Request, res: express.Response) {
@@ -2831,7 +2862,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       const sha256 = createHash('sha256').update(buf).digest('hex');
       const r = svc<AppDataService>('appData').fileInsert(a.slug, name, kind.mime, buf.length, rel, createdBy, note, sha256) as unknown as { lastInsertRowid: number | bigint };
       const id = Number(r.lastInsertRowid);
-      return { ok: true, id, slug: a.slug, name, mime: kind.mime, size: buf.length, sha256, note, url: `/api/apps/${a.slug}/files/${id}` };
+      return { ok: true, id, slug: a.slug, name, mime: kind.mime, size: buf.length, sha256, note, url: `/api/apps/${a.slug}/files/${id}`, ...uploadIntegrity(wantSha, wantSize) };
     }
     default:
       throw new HttpError(400, `未知工具: ${name}`);
@@ -3250,7 +3281,9 @@ function mcpRestResourceOps(): { path: string; method: 'get' | 'put' | 'post'; t
   const json = (description: string) => ({ description, content: { 'application/json': { schema: { type: 'object' } } } });
   const uploaded = { description: '已入库', content: { 'application/json': { schema: { type: 'object', required: ['id', 'sha256', 'mime', 'size', 'url'], properties: {
     id: { type: 'integer' }, slug: { type: 'string' }, name: { type: 'string' }, mime: { type: 'string' }, size: { type: 'integer' }, sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
-    note: { type: 'string' }, url: { type: 'string', description: 'REST 下载地址' }, download_url: { type: 'string', description: '台页面用的下载地址' } } } } } };
+    note: { type: 'string' }, url: { type: 'string', description: 'REST 下载地址' }, download_url: { type: 'string', description: '台页面用的下载地址' },
+    integrity: { type: 'string', enum: ['sha256-verified', 'unverified'], description: 'sha256-verified：服务端已按请求里的期望 sha256 核对过；unverified：请求没带，比对应答的 sha256 与本地即可' },
+    next: { type: 'string', description: '给 agent 的下一步提示：不需要下载回读' } } } } } };
   const binary = (description: string) => ({
     description,
     headers: { ETag: { description: '强 ETag = 文件 sha256', schema: { type: 'string' } }, 'X-Content-SHA256': { schema: { type: 'string' } }, 'Accept-Ranges': { schema: { type: 'string' } }, 'Content-Range': { schema: { type: 'string' } } },
@@ -3261,14 +3294,14 @@ function mcpRestResourceOps(): { path: string; method: 'get' | 'put' | 'post'; t
   const base = MCP_REST_BASE;
   return [
     { path: `${base}/apps/{slug}/files/{name}`, method: 'put', tool: 'app_files_upload', operationId: 'rest_file_upload', summary: '上传文件（原始字节，流式落盘）',
-      description: '请求体即文件内容（≤100MB），边收边落盘，不经 base64。与浏览器上传同一套核心：按内容识别类型（扩展名与内容不符 415）、台文件数配额。返回 id / sha256 / mime / url。',
-      parameters: [slug, P('name', '文件名（含扩展名，URL 编码）'), Q('note', '备注（≤500 字）', { type: 'string' }), Q('created_by', '提交人（缺省 mcp:<会话名>）', { type: 'string' })],
+      description: '请求体即文件内容（≤100MB），边收边落盘，不经 base64。与浏览器上传同一套核心：按内容识别类型（扩展名与内容不符 415）、台文件数配额。推荐带请求头 X-Content-SHA256：服务端核对，不符 400、不保存。返回 id / sha256 / mime / url / integrity / next；应答的 sha256 是对已保存字节算的，与本地一致即完整，不必下载回读。',
+      parameters: [slug, P('name', '文件名（含扩展名，URL 编码）'), Q('note', '备注（≤500 字）', { type: 'string' }), Q('created_by', '提交人（缺省 mcp:<会话名>）', { type: 'string' }), H('X-Content-SHA256', '期望的文件 sha256（64 位十六进制，推荐带：不符 400、不保存）')],
       requestBody: { required: true, content: { 'application/octet-stream': { schema: { type: 'string', format: 'binary' } }, '*/*': { schema: { type: 'string', format: 'binary' } } } },
       responses: { '201': uploaded }, errors: ['400', '401', '403', '404', '413', '415'] },
     { path: `${base}/apps/{slug}/files`, method: 'post', tool: 'app_files_upload', operationId: 'rest_file_upload_multipart', summary: '上传文件（multipart）',
-      description: 'multipart/form-data：字段 file（单文件 ≤100MB）+ 可选 note / created_by。其余同原始字节上传。',
-      parameters: [slug],
-      requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary' }, note: { type: 'string' }, created_by: { type: 'string' } } } } } },
+      description: 'multipart/form-data：字段 file（单文件 ≤100MB）+ 可选 note / created_by / sha256（期望的 sha256，也可放请求头 X-Content-SHA256，两处都带须一致）。其余同原始字节上传。',
+      parameters: [slug, H('X-Content-SHA256', '期望的文件 sha256（64 位十六进制，推荐带：不符 400、不保存）')],
+      requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary' }, note: { type: 'string' }, created_by: { type: 'string' }, sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' } } } } } },
       responses: { '201': uploaded }, errors: ['400', '401', '403', '404', '413', '415'] },
     { path: `${base}/apps/{slug}/files`, method: 'get', tool: 'app_files_list', operationId: 'rest_files_list', summary: '列文件（倒序分页 + 配额）',
       description: '与 app_files_list 同一结果；items[].url 为 REST 下载地址，quota 为剩余文件数与单文件上限。', parameters: [slug, ...page],

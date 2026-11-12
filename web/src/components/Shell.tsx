@@ -6,7 +6,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { Dropdown, Popover } from 'antd';
 import { PlusOutlined, SettingOutlined } from '@ant-design/icons';
 import { NAV_GROUPS, findNav } from '../nav';
-import { api, getAttentionCount, getAuthMe } from '../api';
+import { ATTENTION_CHANGED, getAttentionCount, getAuthMe, listCockpitsShared } from '../api';
 import type { Cockpit } from '../types';
 
 function NavItem({ to, icon, name, on, count }: { to: string; icon: ReactNode; name: string; on: boolean; count?: number | null }) {
@@ -26,8 +26,14 @@ export default function Shell({ admin, footer, children }: { admin: boolean; foo
   const [meOpen, setMeOpen] = useState(false);
   // 角标随换页、换身份刷新；驾驶舱和登录身份只在进来时读一次
   useEffect(() => { void getAttentionCount().then(setPending); }, [pathname, admin]);
+  // 页面上办完一件（全景的卡片会广播 wm-attention-changed），角标当场刷新
+  useEffect(() => {
+    const on = () => { void getAttentionCount().then(setPending); };
+    window.addEventListener(ATTENTION_CHANGED, on);
+    return () => window.removeEventListener(ATTENTION_CHANGED, on);
+  }, []);
   // 接口给的不是数组（出错、被拦、形状不对）就不显示这一块，别让侧栏把整页带崩
-  useEffect(() => { api.listCockpits().then((x) => setCockpits(Array.isArray(x) ? x : null), () => setCockpits(null)); }, [admin]);
+  useEffect(() => { listCockpitsShared().then((x) => setCockpits(Array.isArray(x) ? x : null), () => setCockpits(null)); }, [admin]);
   useEffect(() => { void getAuthMe().then((m) => setLogin(m?.authenticated ? m.login ?? null : null)); }, []);
 
   const groups = NAV_GROUPS.filter((g) => !g.admin && !g.hidden);

@@ -232,9 +232,9 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: 身份接缝与主体（契约单测·主体服务单测·主体标识规范化（NFKC_Casefold）全部码位对照 Unicode 属性、成批过主体服务·飞书登录与市场会话对抗组（本机假飞书：state 伪造与重放、next 外跳、换令牌失败、用户标识缺失或被篡改、停用注销过期即失效）·离职即时失效对抗组（通讯录事件验签与重放、对账补漏）·假提供方对抗组：缺省/登录门/登录中继/中继加登录门四个实例上的拒绝例与合法对照，停用一个主体各入口立即不认、恢复立即照常·夹具只在测试环境可用·变异测试逐个改坏必须变红；不访问任何外部系统）
+      - name: 身份接缝与主体（契约单测·主体服务单测·主体标识规范化（NFKC_Casefold）全部码位对照 Unicode 属性、成批过主体服务·飞书登录与市场会话对抗组（本机假飞书：state 伪造与重放、next 外跳、换令牌失败、用户标识缺失或被篡改、停用注销过期即失效）·离职即时失效对抗组（通讯录事件验签与重放、对账补漏）·假提供方对抗组：缺省/登录门/登录中继/中继加登录门四个实例上的拒绝例与合法对照，停用一个主体各入口立即不认、恢复立即照常·部门读写（登录的人读、管理员写、dept:<部门标识> 只认部门表里有的）·夹具只在测试环境可用·变异测试逐个改坏必须变红；不访问任何外部系统）
         run: |
-          ( node scripts/identity-contract-test.mjs && node scripts/principal-service-test.mjs && node scripts/principal-fold-test.mjs && node scripts/identity-seam-smoke.mjs && node scripts/feishu-login-smoke.mjs && node scripts/feishu-offboard-smoke.mjs && node scripts/export-reveal-smoke.mjs && node scripts/grants-smoke.mjs && node scripts/judgment-compare-smoke.mjs && node scripts/judgment-compare-zero-test.mjs && node scripts/judgment-compare-sweep-test.mjs && node scripts/role-presets-test.mjs && node scripts/custom-roles-smoke.mjs ) > identity-suites.log 2>&1 &
+          ( node scripts/identity-contract-test.mjs && node scripts/principal-service-test.mjs && node scripts/principal-fold-test.mjs && node scripts/identity-seam-smoke.mjs && node scripts/feishu-login-smoke.mjs && node scripts/feishu-offboard-smoke.mjs && node scripts/export-reveal-smoke.mjs && node scripts/grants-smoke.mjs && node scripts/departments-smoke.mjs && node scripts/judgment-compare-smoke.mjs && node scripts/judgment-compare-zero-test.mjs && node scripts/judgment-compare-sweep-test.mjs && node scripts/role-presets-test.mjs && node scripts/custom-roles-smoke.mjs ) > identity-suites.log 2>&1 &
           suites=$!
           set +e
           node scripts/identity-seam-mutation.mjs --jobs 2
@@ -301,6 +301,8 @@ jobs:
         run: node scripts/work-item-backfill-test.mjs
       - name: 建事项时的标题和派给（任务中心的取任务标题、取不到退到来源坐标·派给取投递的目标团队·存量只补自动的缺省值、改过的不动、重复跑不改、启动就补不随回填版本走·不写事项日志）
         run: node scripts/work-item-title-team-test.mjs
+      - name: 事项的交给方式（建的时候记下交给方式、等谁过目、指名的 seatId·不认得的取值兜底成交给团队·旧库补列、存量是缺省值）
+        run: node scripts/work-item-handoff-test.mjs
       - name: 对端登记表（升级回填建对端行、取不到名片的待登记不挡投递、重跑不变·登记取名片验签钉公钥·公钥变了不自动接受、进「关注」、指纹对得上才换·停用和重新启用·canDeliver 原因分得开·健康从现有表算·对外只给指纹）
         run: node scripts/a2a-peers-test.mjs
       - name: 「安排一件事」（放宽访问的对抗：只认会话登录的启用的人·建立人是本人、自报的不认·只能派给绑在任务中心上的团队·缺省先过目、员工直派要两个开关都开·幂等按人·限流管理员可调·匿名、口令、跨站、停用拒·启动自检一行）
@@ -313,6 +315,8 @@ jobs:
         run: node scripts/attention-answer-test.mjs
       - name: 审核进「关注」（变更申请当场批：和旧入口同一处判断·审核人取认出来的管理员·不通过要理由·detail 只给看内容所需的最少字段、删除标不可恢复、不出文件内容·员工看不到也答不了·统一待办条目带 kind）
         run: node scripts/attention-review-test.mjs
+      - name: 待验收的派单 run 进「等你拍板」（当场验收和完成接口同一处判断、同一个执行·detail 不给步骤内容和文件内容·员工看不到也答不了·统一待办同一条去重）
+        run: node scripts/attention-sop-run-test.mjs
       - name: 建立人验收自己的事项（阶段八 8e，放宽访问的对抗组：别人的事项、冒用显示名、夹带建立人、停用的建立人、跨站、未登录、不在等验收、送别的事实、来源未验证都拒·退回后再进等验收能再答·管理员照旧·启动自检一行）
         run: node scripts/work-item-creator-test.mjs
       - name: 事项的 can、turn、creator 和「关注」的 mine（三种身份逐项对着动作接口验：can 说能接口就放行、说不能就拒·状态上不允许的一律 false·turn 只轮到建立人或有放行权限的人·放行留痕记真实的管理员）
@@ -453,7 +457,7 @@ jobs:
       - name: 驾驶舱布局吸附单测（#320：宽度只取 3/4/6/12·x 越界收回·不丢面板·读时迁移不回写）
         run: node scripts/cockpit-layout-unit.mjs
       - name: 待属主看板（作者核验：config.owner 只认属主本人·事项只认登记身份·答复只认属主·冒名点名不采信·只授三个工具）
-        run: node scripts/owner-pending-unit.mjs && node scripts/owner-pending-board-smoke.mjs && node scripts/attention-ui-unit.mjs && node scripts/work-item-detail-ui-unit.mjs && node scripts/market-ui-unit.mjs && node scripts/access-ui-unit.mjs
+        run: node scripts/owner-pending-unit.mjs && node scripts/owner-pending-board-smoke.mjs && node scripts/attention-ui-unit.mjs && node scripts/work-item-detail-ui-unit.mjs && node scripts/market-ui-unit.mjs && node scripts/home-ui-unit.mjs && node scripts/access-ui-unit.mjs
       - name: 凭据库（融合 dsh-vault：读写要口令·业务面 403·摘要无明文·坏 JSON 不进日志·写锁/重开/闲置上锁/限流）
         run: node scripts/vault-concurrency-test.mjs && node scripts/vault-smoke.mjs
       - name: F5 env-face 判定回归（不启动 Docker）

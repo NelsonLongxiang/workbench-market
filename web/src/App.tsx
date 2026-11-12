@@ -26,6 +26,7 @@ import Reviews from './pages/Reviews';
 import Attention from './pages/Attention';
 import WorkItem from './pages/WorkItem';
 import NotYet, { NOT_YET } from './pages/NotYet';
+import Home from './pages/Home';
 import SkillsPage from './pages/Skills';
 import ViewerChip from './components/ViewerChip';
 import LoginChip from './components/LoginChip';
@@ -120,7 +121,7 @@ export default function App() {
     <Shell admin={admin} footer={<><LoginChip />{surface !== 'control' && <ViewerChip />}<AdminTokenBadge /></>}>
       <OutboundBanner />
       <Routes>
-        <Route path="/" element={<NotYet spec={NOT_YET.home} />} />
+        <Route path="/" element={<Home />} />
         <Route path="/overview" element={<Dashboard />} />
         <Route path="/work-items" element={<NotYet spec={NOT_YET.items} />} />
         <Route path="/team" element={<NotYet spec={NOT_YET.team} />} />

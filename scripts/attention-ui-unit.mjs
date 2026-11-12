@@ -25,5 +25,6 @@ ok('不是管理员：别的来源不给答法和提交按钮（答复入口先�
 ok('不是管理员：自己「等验收」的事项能答验收、退回，走建立人入口（8e）', JSON.stringify(answerChoices(false, acc)) === '["verify","return"]' && answerRoute(false, acc) === 'creator');
 ok('管理员：答法照条目给的列出，都走答复入口', JSON.stringify(answerChoices(true, cr)) === '["approve","reject"]' && answerRoute(true, acc) === 'attention' && answerRoute(true, cr) === 'attention');
 
+ok('建立人（非管理员）能答自己事项上的席位提问，走事项的提问入口', answerChoices(false, { source: 'seat-asks', category: 'ask', answers: ['answer'] }).join() === 'answer' && answerRoute(false, { source: 'seat-asks', category: 'ask' }) === 'ask' && answerRoute(true, { source: 'seat-asks', category: 'ask' }) === 'attention');
 console.log(`\nattention-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

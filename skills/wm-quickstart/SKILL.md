@@ -29,7 +29,7 @@ MCP app_publish({
 ## 交付空间模式（数据+文件双通道·实战验证）
 1. 页面表单 → /api/apps/<slug>/data（哑存储任意 JSON）
 2. 文件上传 → /api/apps/<slug>/files（≤100MB/个+note 可改）
-3. agent 读回 → MCP app_data_list / app_files_list
+3. agent 找已有的数据和文件 → MCP app_data_list / app_files_list（验证刚上传的文件用不着它们：上传时带 sha256，应答自带核对结果，不必列文件或下载回读）
 4. 页面引用资源用相对路径或 /go/<id>/ 前缀（iframe 代理坑）
 
 ## 发布纪律（血泪五条）
