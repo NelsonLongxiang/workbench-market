@@ -2,7 +2,7 @@
 /** 「等你拍板」三处同数的浏览器回归（Python Playwright/Chromium）：侧栏角标、全景总结句、卡片区的件数必须是同一个数，
  *  而且只数「轮到看的人、能当场办」的；要到别处处理的不算。
  *  造数据只走现有接口，不写库：管理员给任务中心绑一个通知团队 → 合成员工 alpha 用「安排一件事」建一件先过目的事项（停在等放行）。
- *  管理员看：这一件轮到他、能当场放行 → 三处都是 1；另建 SOP 执行若干，作为「要到别处处理的」，不该进这三处。
+ *  管理员看：这两件轮到他、能当场放行 → 三处都是 2；当场放行一件 → 三处都变 1（不刷新页面）；另建 SOP 执行若干，作为「要到别处处理的」，不该进这三处。
  *  「别人的事、你可以代办」那一组要事项走到等验收或在问，得有节点回执，现有接口造不出来——那一组由单测（home-ui-unit）和试联实测覆盖。
  *  需先 pnpm --filter web build。全新 DATA_DIR + 随机回环端口；合成身份、合成口令。 */
 import { pythonBin } from './python-bin.mjs';
@@ -40,14 +40,17 @@ try {
   // 可派的团队：任务中心上绑一个通知团队（合成名字）
   await call('POST', '/api/bindings', ADMIN, { target_type: 'sop', target_slug: 'task-center', agent_node: 'zone/canvas/team-a', direction: 'notify', notify_url: 'http://127.0.0.1:1' });
   await call('GET', '/api/work-items/teams', ALPHA); // 先登录一次，主体建出来
-  const made = await call('POST', '/api/work-items', ALPHA, { title: '合成：比一比三家报价', intent: '把三家的报价比一比', deliverable: '一张比价表', team: 'zone/canvas/team-a', review: true, idempotency_key: 'home-count-browser-0001' });
+  // 两件：办完一件之后角标要从 2 变成 1（只造一件的话，角标算坏成 0 也会被当成「办完了」）
+  const mk = (title, key) => call('POST', '/api/work-items', ALPHA, { title, intent: '把三家的报价比一比', deliverable: '一张比价表', team: 'zone/canvas/team-a', review: true, idempotency_key: key });
+  const made = await mk('合成：比一比三家报价', 'home-count-browser-0001');
+  const made2 = await mk('合成：核对到货数量', 'home-count-browser-0002');
   // 要到别处处理的：三条进行中的 SOP 执行（统一待办里的条目，没有当场的答法）
   const pub = await ghPublish(base, gh, { slug: 'count-sop', kind: 'sop', title: '计数合成 SOP', changelog: 'x', files: [{ path: 'sop.yaml', content: 'title: 计数合成 SOP\nsteps:\n  - key: a\n    title: A\n' }] }, ADMIN);
   if (!pub.ok) throw new Error(`sync count-sop → ${pub.status} ${await pub.text()}`);
   await call('POST', '/api/sops/count-sop/publish', ADMIN, {});
   for (let i = 0; i < 3; i++) await call('POST', '/api/sop/runs', ADMIN, { slug: 'count-sop', started_by: `合成-${i}` });
   const cfg = join(TMP, 'browser.json');
-  writeFileSync(cfg, JSON.stringify({ base, admin_session: SESSIONS.admin, alpha_session: SESSIONS.alpha, item: made.item_id, title: '合成：比一比三家报价' }));
+  writeFileSync(cfg, JSON.stringify({ base, admin_session: SESSIONS.admin, alpha_session: SESSIONS.alpha, items: [made.item_id, made2.item_id], titles: ['合成：比一比三家报价', '合成：核对到货数量'] }));
   const py = spawn(pythonBin(), ['scripts/home-count-browser.py', cfg], { stdio: 'inherit' });
   code = await new Promise((x, j) => { py.on('error', j); py.on('exit', x); });
 } catch (e) {

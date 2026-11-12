@@ -27,14 +27,15 @@ export default function Shell({ admin, footer, children }: { admin: boolean; foo
   const [meOpen, setMeOpen] = useState(false);
   // 角标随换页、换身份刷新；驾驶舱和登录身份只在进来时读一次
   // 角标 = 轮到你、能当场办的件数，和全景的总结句、「等你拍板」的数是同一个函数算的
-  const readPending = () => getAttention().then((a) => (a.status >= 200 && a.status < 300 ? decideCount(a.items as unknown as AttentionItem[], (x) => answerChoices(admin, x)) : null));
-  useEffect(() => { void readPending().then(setPending); }, [pathname, admin]);
-  // 页面上办完一件（全景的卡片会广播 wm-attention-changed），角标当场刷新
+  // 一个 effect 管两件事：换页、换身份时读一次；页面上办完一件（卡片会广播 wm-attention-changed）再读一次。
+  // 监听写在同一个 effect 里、依赖带上 admin：分开写、依赖留空时，监听拿到的是第一次渲染的 admin，办完一件角标会被算成 0
   useEffect(() => {
-    const on = () => { void readPending().then(setPending); };
-    window.addEventListener(ATTENTION_CHANGED, on);
-    return () => window.removeEventListener(ATTENTION_CHANGED, on);
-  }, []);
+    let live = true;
+    const read = () => { void getAttention().then((a) => { if (live) setPending(a.status >= 200 && a.status < 300 ? decideCount(a.items as unknown as AttentionItem[], (x) => answerChoices(admin, x)) : null); }); };
+    read();
+    window.addEventListener(ATTENTION_CHANGED, read);
+    return () => { live = false; window.removeEventListener(ATTENTION_CHANGED, read); };
+  }, [pathname, admin]);
   // 接口给的不是数组（出错、被拦、形状不对）就不显示这一块，别让侧栏把整页带崩
   useEffect(() => { listCockpitsShared().then((x) => setCockpits(Array.isArray(x) ? x : null), () => setCockpits(null)); }, [admin]);
   useEffect(() => { void getAuthMe().then((m) => setLogin(m?.authenticated ? m.login ?? null : null)); }, []);

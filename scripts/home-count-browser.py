@@ -1,6 +1,6 @@
 """「等你拍板」三处同数的浏览器回归；由 scripts/home-count-browser.mjs 起合成实例、造好数据后调用，参数为配置 JSON 路径。
-管理员：有一件轮到他、能当场放行的事项 → 侧栏角标、总结句、卡片区件数都是 1；要到别处处理的不进这三处，单列一组。
-放行之后三处一起变：角标消失、总结句不再说有等你拍板的、卡片区为 0。
+管理员：有两件轮到他、能当场放行的事项 → 侧栏角标、总结句、卡片区件数都是 2；要到别处处理的不进这三处，单列一组。
+不刷新页面，当场放行一件 → 三处一起变成 1；再放行一件 → 角标消失、总结句不再说有等你拍板的、卡片区为 0。
 建立人 alpha：这件事等的是别人放行，不轮到他 → 没有角标，卡片区为 0。"""
 import json, re, sys, urllib.request
 from playwright.sync_api import sync_playwright
@@ -34,21 +34,28 @@ with sync_playwright() as p:
     items = attention(cfg['admin_session'])
     mine_now = [x for x in items if x.get('answers') and x.get('mine') is not False]
     elsewhere = [x for x in items if not x.get('answers')]
-    check(f'造出来的数据：管理员有 1 件轮到他能当场办的、{len(elsewhere)} 件要到别处处理的', len(mine_now) == 1 and mine_now[0].get('source_id') == cfg['item'] and len(elsewhere) >= 3, (len(mine_now), len(elsewhere)))
+    check(f'造出来的数据：管理员有 2 件轮到他能当场办的、{len(elsewhere)} 件要到别处处理的', sorted(x.get('source_id') for x in mine_now) == sorted(cfg['items']) and len(elsewhere) >= 3, (len(mine_now), len(elsewhere)))
     ctx, pg = open_home(b, cfg['admin_session'])
     badge, in_sum, head, summary = three(pg)
-    check(f'管理员：角标、总结句、卡片区件数三处同数，都是 1（{badge} / {in_sum} / {head}）', badge == 1 and in_sum == 1 and head == 1, summary)
+    check(f'管理员：角标、总结句、卡片区件数三处同数，都是 2（{badge} / {in_sum} / {head}）', badge == 2 and in_sum == 2 and head == 2, summary)
     now = pg.locator('[data-testid=decisions-now] [data-testid=decision-card]')
-    check('「等你拍板」里就是那一件，带「派出去」', now.count() == 1 and cfg['title'] in now.first.inner_text() and '派出去' in now.first.inner_text(), now.first.inner_text() if now.count() else '')
+    texts = ' '.join(now.all_inner_texts())
+    check('「等你拍板」里就是那两件，都带「派出去」', now.count() == 2 and all(t in texts for t in cfg['titles']) and texts.count('派出去') == 2, texts)
     other = pg.locator('[data-testid=decisions-elsewhere] [data-testid=decision-card]')
     check(f'要到别处处理的单列一组（{other.count()} 张），总结句另说一句、不算进等你拍板', other.count() == len(elsewhere) and f'{len(elsewhere)} 件要到别处处理' in summary, summary)
     check('没有「可以代办」的条目时不出现那一组', pg.locator('[data-testid=decisions-proxy]').count() == 0)
-    # 当场放行：三处一起变
+    # 当场放行一件（不刷新页面）：三处一起从 2 变成 1。角标不能直接没了
     now.first.get_by_role('button', name=re.compile('派出去')).click()
+    pg.wait_for_function("document.querySelectorAll('[data-testid=decisions-now] [data-testid=decision-card]').length === 1", timeout=10000)
+    pg.wait_for_timeout(1500)
+    badge, in_sum, head, summary = three(pg)
+    check(f'办完一件，三处一起从 2 变成 1（{badge} / {in_sum} / {head}）', badge == 1 and in_sum == 1 and head == 1, summary)
+    # 再放行一件：三处都是 0
+    pg.locator('[data-testid=decisions-now] [data-testid=decision-card]').first.get_by_role('button', name=re.compile('派出去')).click()
     pg.wait_for_function("!document.querySelector('[data-testid=nav-pending]')", timeout=10000)
     pg.wait_for_timeout(600)
     badge, in_sum, head, summary = three(pg)
-    check(f'放行之后三处一起变成 0（{badge} / {in_sum} / {head}），总结句不再说有等你拍板的', badge == 0 and in_sum == 0 and head == 0 and '眼下没有要你当场拍板的' in summary, summary)
+    check(f'都放行之后三处一起变成 0（{badge} / {in_sum} / {head}），总结句不再说有等你拍板的', badge == 0 and in_sum == 0 and head == 0 and '眼下没有要你当场拍板的' in summary, summary)
     ctx.close()
     # 建立人：这件事（已派出去）不轮到他
     ctx, pg = open_home(b, cfg['alpha_session'])
