@@ -16,6 +16,32 @@ import { getBench } from './bench-registry.ts';
 import { BENCH_TOOL_DEFS, BENCH_TOOL_NAMES } from '../bench-mcp-tools.ts';
 
 export const BENCH_REQUEST_HOURLY_MAX = 10;
+/**
+ * 台的权限申请没人处理的总期限（WM_BENCH_REQUEST_TTL_HOURS，缺省 72 小时，1～720）。启动时读一次（benchRequestTtlConfig），不合法拒绝启动。
+ * 到期还没定的申请标成「失效：没有人处理」：申请的会话查状态时看得到这个结局（status = expired），「关注」里那条也一起消失。
+ * 库里存成驳回（status = rejected、decided_by = system、note 是这句话）：表上的取值约束不用改；对外由 forSession 换成 expired。
+ * 标识写错的台和有台但没人管的，结局完全一样——不因此透露一个台存不存在。
+ */
+export const BENCH_REQUEST_TTL_DEFAULT_HOURS = 72;
+let ttlMs = BENCH_REQUEST_TTL_DEFAULT_HOURS * 3_600_000;
+export function benchRequestTtlConfig(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = String(env.WM_BENCH_REQUEST_TTL_HOURS ?? '').trim();
+  if (raw === '') return BENCH_REQUEST_TTL_DEFAULT_HOURS;
+  const n = Number(raw);
+  if (!/^\d+$/.test(raw) || !Number.isSafeInteger(n) || n < 1 || n > 720) throw new Error(`WM_BENCH_REQUEST_TTL_HOURS 要是 1～720 的整数（小时），现在是 ${JSON.stringify(raw)}`);
+  return n;
+}
+export function setBenchRequestTtlHours(hours: number): void { ttlMs = hours * 3_600_000; }
+export const EXPIRED_NOTE = '失效：没有人处理';
+/** 把到期还没定的申请标成失效，各留一行痕（谁做的记 system）。读申请、提申请、批申请之前都先做一遍 */
+export function expireBenchRequests(at: number): number {
+  const due = db.prepare("SELECT id, bench, session_id, tools FROM bench_mcp_requests WHERE status = 'pending' AND created_at <= ? ORDER BY id").all(at - ttlMs) as Row[];
+  for (const q of due) {
+    db.prepare("UPDATE bench_mcp_requests SET status = 'rejected', decided_by = 'system', decided_at = ?, note = ? WHERE id = ? AND status = 'pending'").run(at, EXPIRED_NOTE, Number(q.id));
+    db.prepare('INSERT INTO bench_mcp_audit (bench, session_id, action, tools, actor, request_id, note, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(String(q.bench), Number(q.session_id), 'expire', String(q.tools), 'system', Number(q.id), EXPIRED_NOTE, at);
+  }
+  return due.length;
+}
 const REASON_MAX = 500;
 const SESSION_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 const CATEGORY = new Map(BENCH_TOOL_DEFS.map((t) => [t.name, t.category]));
@@ -49,8 +75,10 @@ export function benchGrantsOf(sessionId: number): Map<string, string[]> {
 
 // —— 申请（会话提，台的管理层批） ——
 export type BenchRequest = { id: number; bench: string; tools: string[]; reason: string; status: string; note: string; created_at: number; decided_at: number | null };
-const forSession = (r: Row): BenchRequest => ({ id: Number(r.id), bench: String(r.bench), tools: parseTools(r.tools), reason: String(r.reason), status: String(r.status), note: String(r.note), created_at: Number(r.created_at), decided_at: r.decided_at === null ? null : Number(r.decided_at) });
-export function benchRequestsOf(sessionId: number): BenchRequest[] {
+const statusOf = (r: Row): string => (String(r.status) === 'rejected' && String(r.decided_by) === 'system' && String(r.note) === EXPIRED_NOTE ? 'expired' : String(r.status));
+const forSession = (r: Row): BenchRequest => ({ id: Number(r.id), bench: String(r.bench), tools: parseTools(r.tools), reason: String(r.reason), status: statusOf(r), note: String(r.note), created_at: Number(r.created_at), decided_at: r.decided_at === null ? null : Number(r.decided_at) });
+export function benchRequestsOf(sessionId: number, at = Date.now()): BenchRequest[] {
+  expireBenchRequests(at);
   return (db.prepare('SELECT * FROM bench_mcp_requests WHERE session_id = ? ORDER BY id DESC LIMIT 50').all(sessionId) as Row[]).map(forSession);
 }
 /**
@@ -65,9 +93,10 @@ export function requestBenchTools(sessionId: number, bench: string, tools: unkno
   if (!why) throw new BenchError('invalid', 'reason 必填：写清要用这些工具做什么');
   if ([...why].length > REASON_MAX) throw new BenchError('invalid', `reason 超过 ${REASON_MAX} 字`);
   const json = JSON.stringify(want);
-  const note = '台的管理层批准之后生效；台的标识要是写错了，这条申请不会有人看到';
+  const note = `台的管理层批准之后生效。${Math.round(ttlMs / 3_600_000)} 小时内没人处理，申请会标成「${EXPIRED_NOTE}」；台的标识要是写错了，也是这个结局，请交给派任务的人核对标识`;
   db.exec('BEGIN IMMEDIATE');
   try {
+    expireBenchRequests(at);
     const dup = db.prepare("SELECT * FROM bench_mcp_requests WHERE session_id = ? AND bench = ? AND tools = ? AND status = 'pending'").get(sessionId, bench, json) as Row | undefined;
     let out;
     if (dup) out = { ok: true as const, duplicate: true, request: forSession(dup), note };
@@ -87,7 +116,8 @@ const audit = (bench: string, sessionId: number, action: string, tools: string[]
   db.prepare('INSERT INTO bench_mcp_audit (bench, session_id, action, tools, actor, request_id, note, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(bench, sessionId, action, JSON.stringify(tools), actor, requestId, note.slice(0, 500), at);
 };
 /** 一个台上：哪些会话有哪些工具、有哪些申请、最近的留痕 */
-export function listBenchMcp(bench: string) {
+export function listBenchMcp(bench: string, at = Date.now()) {
+  expireBenchRequests(at);
   const grants = new Map<number, { session_id: number; session: string; revoked: boolean; tools: { tool: string; category: string; granted_by: string; granted_at: number }[] }>();
   for (const r of db.prepare(`SELECT g.session_id, g.tool, g.granted_by, g.granted_at, s.name, s.revoked_at FROM bench_mcp_grants g LEFT JOIN mcp_sessions s ON s.id = g.session_id WHERE g.bench = ? ORDER BY g.session_id, g.tool`).all(bench) as Row[]) {
     const id = Number(r.session_id);
@@ -102,7 +132,8 @@ export function listBenchMcp(bench: string) {
   return { grants: [...grants.values()], requests, log };
 }
 /** 所有登记过的台上还没定的申请（「关注」里的待批清单用）。台没登记的、会话已吊销或删除的不在里面：批不了，列出来只能让人去点一个必然失败的「同意」 */
-export function pendingBenchRequests(limit = 200) {
+export function pendingBenchRequests(limit = 200, at = Date.now()) {
+  expireBenchRequests(at);
   return (db.prepare(`SELECT q.id, q.bench, q.tools, q.reason, q.created_at, s.name AS session, b.title AS bench_title
     FROM bench_mcp_requests q JOIN bench_views b ON b.slug = q.bench JOIN mcp_sessions s ON s.id = q.session_id AND s.revoked_at = ''
     WHERE q.status = 'pending' ORDER BY q.id LIMIT ?`).all(limit) as Row[]).map((r) => ({
@@ -116,9 +147,10 @@ export function decideBenchRequest(bench: string, id: number, approve: unknown, 
   const why = typeof note === 'string' ? note.trim().slice(0, 500) : '';
   db.exec('BEGIN IMMEDIATE');
   try {
+    expireBenchRequests(at);
     const q = db.prepare('SELECT * FROM bench_mcp_requests WHERE id = ? AND bench = ?').get(id, bench) as Row | undefined;
     if (!q) throw new BenchError('not_found', `这个台上没有申请 #${id}`);
-    if (String(q.status) !== 'pending') throw new BenchError('conflict', `申请 #${id} 已经${String(q.status) === 'approved' ? '批准' : '驳回'}过了`);
+    if (String(q.status) !== 'pending') throw new BenchError('conflict', statusOf(q) === 'expired' ? `申请 #${id} 已经失效（没有人处理，过了期限）` : `申请 #${id} 已经${String(q.status) === 'approved' ? '批准' : '驳回'}过了`);
     // 不批要写理由：申请的会话看得到这句话。在路由这一层就要求，卡片不经答复入口直接调过来时也一样
     if (!approve && !why) throw new BenchError('invalid', '不批要写理由（note）');
     const sessionId = Number(q.session_id), tools = parseTools(q.tools).filter((t) => BENCH_TOOL_NAMES.has(t));

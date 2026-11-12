@@ -86,6 +86,8 @@ try {
   ok('W4 同幂等键同内容：返回原结果，不重复写', r.row_count === 4 && again.duplicate === true && again.row_count === 4 && (await s.query({ dataset: 'runs' })).rows.length === 4);
   e = await refused(() => s.append('runs', [row(5, 'c', 2)], ctx({ idemKey: 'idem-key-0001' })));
   ok('W4 同幂等键不同内容被拒', e?.code === 'conflict');
+  ok('W4b 重放的应答：duplicate 为 true 时 inserted 是 0（不会一边说插了一行一边说重复）', again.inserted === 0 && r.inserted === 1, { first: r.inserted, again: again.inserted });
+
   // 键按写的人隔开：另一个人用同一个键，等于没人用过——既不拿到前一个人的结果，也不报「键已用在另一份内容上」
   const byOther = await s.upsert('runs', [row(4, 'c', 2)], ctx({ actor: 'someone-else', idemKey: 'idem-key-0001' }));
   const byOtherAgain = await s.upsert('runs', [row(4, 'c', 2)], ctx({ actor: 'someone-else', idemKey: 'idem-key-0001' }));
@@ -106,6 +108,37 @@ try {
   ok('W8 没有这个数据集', e?.code === 'not_found');
   const wl = await s.writes();
   ok('W9 写入记录只有摘要，没有内容', wl.length === 5 && wl.map((w) => w.op).join() === 'delete,upsert,upsert,append,replace' && wl.map((w) => w.actor).join() === 'tester,tester,someone-else,tester,tester' && wl.every((w) => /^[0-9a-f]{64}$/.test(w.body_sha256) && !('rows_json' in w) && !('result' in w)));
+  // —— 冷读的改进：取值说明、服务端分配主键、查询描述的报错列出能用的键 ——
+  console.log('冷读的改进');
+  r = await s.defineDataset({ name: 'checks', title: '巡检', key: ['id'], columns: [{ name: 'id', type: 'integer', auto: true }, { name: 'result', type: 'text', values: { ok: '正常', bad: '异常' } }, { name: 'area', type: 'text' }] }, ctx());
+  const chk = (await s.datasets()).find((d) => d.name === 'checks');
+  ok('C1 列可以带取值说明 values；数据集清单原样给出；没写的列不多出这个键', r.created && JSON.stringify(chk.columns[1].values) === JSON.stringify({ ok: '正常', bad: '异常' }) && !('values' in chk.columns[2]) && chk.columns[0].auto === true, chk.columns);
+  const badDefs = {
+    valuesNotObject: await refused(() => s.defineDataset({ name: 'v1', columns: [{ name: 'a', type: 'text', values: ['ok'] }] }, ctx())),
+    valuesEmptyMeaning: await refused(() => s.defineDataset({ name: 'v2', columns: [{ name: 'a', type: 'text', values: { ok: '' } }] }, ctx())),
+    autoNotKey: await refused(() => s.defineDataset({ name: 'v3', columns: [{ name: 'a', type: 'integer', auto: true }] }, ctx())),
+    autoText: await refused(() => s.defineDataset({ name: 'v4', key: ['a'], columns: [{ name: 'a', type: 'text', auto: true }] }, ctx())),
+    autoTwoKeys: await refused(() => s.defineDataset({ name: 'v5', key: ['a', 'b'], columns: [{ name: 'a', type: 'integer', auto: true }, { name: 'b', type: 'integer' }] }, ctx())),
+  };
+  ok('C1 取值说明写成数组、意思是空的被拒；auto 只用于唯一的整数主键列', Object.values(badDefs).every((x) => x?.code === 'invalid'), Object.fromEntries(Object.entries(badDefs).map(([k, v]) => [k, v?.code ?? 'not-refused'])));
+  r = await s.append('checks', [{ result: 'ok', area: '东' }, { result: 'bad', area: '东' }], ctx());
+  const r2 = await s.append('checks', [{ result: 'bad', area: '西' }, { id: 10, result: 'ok', area: '西' }, { result: 'ok', area: '南' }], ctx());
+  ok('C2 主键由服务端分配：没给主键的行按现有最大值往上数，应答的 ids 是分配到的号；给了的照用', JSON.stringify(r.ids) === '[1,2]' && JSON.stringify(r2.ids) === '[3,4]' && (await s.query({ dataset: 'checks', select: ['id'], sort: [{ col: 'id' }] })).rows.map((x) => x.id).join() === '1,2,3,4,10', { r: r.ids, r2: r2.ids });
+  const [p1, p2] = await Promise.all([s.append('checks', [{ result: 'ok', area: '北' }], ctx({ actor: 'seat-1' })), s.append('checks', [{ result: 'ok', area: '北' }], ctx({ actor: 'seat-2' }))]);
+  ok('C2 两个席位同时追加：各拿各的号，不撞', p1.ids.length === 1 && p2.ids.length === 1 && p1.ids[0] !== p2.ids[0] && Math.min(p1.ids[0], p2.ids[0]) === 11, { p1: p1.ids, p2: p2.ids });
+  const k1 = await s.append('checks', [{ result: 'bad', area: '南' }], ctx({ idemKey: 'auto-key-0001' }));
+  const k2 = await s.append('checks', [{ result: 'bad', area: '南' }], ctx({ idemKey: 'auto-key-0001' }));
+  ok('C2 带幂等键重放：不再分配新号，带回第一次分配的号，inserted 为 0', k2.duplicate === true && k2.inserted === 0 && JSON.stringify(k2.ids) === JSON.stringify(k1.ids) && (await s.query({ dataset: 'checks', filter: [{ col: 'area', op: '=', value: '南' }] })).rows.length === 2, { k1, k2 });
+  e = await refused(() => s.query({ dataset: 'checks', group_by: ['area'] }));
+  const e2 = await refused(() => s.query({ dataset: 'checks', filter: [{ column: 'area', op: '=', value: '东' }] }));
+  ok('C3 查询描述里不认识的键：报错同时列出能用的键', e?.code === 'invalid' && /group_by/.test(e.message) && /能用的键：dataset、select、filter、group、measures、sort、limit、offset/.test(e.message) && /能用的键：col、op、value、values/.test(e2?.message ?? ''), { e: e?.message, e2: e2?.message });
+  await s.append('checks', [{ result: 'ok', area: '东' }, { result: 'ok', area: '东' }, { result: 'ok', area: '西' }], ctx()); // 让各区的次数各不相同：东 4、西 3、北 2、南 2
+  const asc = await s.query({ dataset: 'checks', group: ['area'], measures: [{ fn: 'count', as: 'n' }], sort: [{ col: 'n', dir: 'asc' }, { col: 'area' }] });
+  const desc = await s.query({ dataset: 'checks', group: ['area'], measures: [{ fn: 'count', as: 'n' }], sort: [{ col: 'n', dir: 'desc' }, { col: 'area' }] });
+  ok('C4 sort 的 dir 生效：按次数升序、降序排出来的次数正好相反', asc.rows.map((x) => x.n).join() === '2,2,3,4' && desc.rows.map((x) => x.n).join() === '4,3,2,2' && desc.rows[0].area === '东', { asc: asc.rows, desc: desc.rows });
+  const cnt = await s.query({ dataset: 'checks', measures: [{ fn: 'count', as: 'n' }] });
+  const cntCol = await s.query({ dataset: 'checks', measures: [{ fn: 'count', col: 'result', as: 'n' }] });
+  ok('C4 count 不写 col 就是数行数（和行数一致）', cnt.rows[0].n === (await s.datasets()).find((d) => d.name === 'checks').row_count && cntCol.rows[0].n === cnt.rows[0].n, { cnt: cnt.rows, rows: (await s.datasets()).find((d) => d.name === 'checks').row_count });
 
   // —— 快照与退回 ——
   console.log('快照与退回');

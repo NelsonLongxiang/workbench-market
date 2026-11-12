@@ -30,7 +30,8 @@ access_request { "tools": ["dataset_list@bench:sales", "dataset_query@bench:sale
 ```
 
 3. 由**管理层，或者这个台所绑部门上有拍板授予的人**批（不是系统管理员，MCP 网关页上看不到这类申请）。批了立即生效；`access_info` 的 `bench_requests` 里看得到进度。
-4. 没被批的台、没被批的工具，调用的结果和「没有这个工具」一样——不是出错了，是没有权限。台的标识写错了，申请不会有人看到，先和台的负责人确认标识。
+4. 没被批的台、没被批的工具，调用的结果和「没有这个工具」一样——不是出错了，是没有权限。
+5. 申请 72 小时（部署方可以改）没人处理就标成「失效：没有人处理」，`bench_requests` 里看得到。台的标识写错了也是这个结局：申请之前先和派任务的人确认标识，失效了先核标识再重新申请。
 
 要建一个新台：台由管理层在市场里登记，登记之后你再申请它上面的工具。
 
@@ -44,12 +45,12 @@ access_request { "tools": ["dataset_list@bench:sales", "dataset_query@bench:sale
     { "name": "id", "type": "integer", "label": "单号" },
     { "name": "day", "type": "date", "label": "日期" },
     { "name": "region", "type": "text", "label": "区" },
-    { "name": "status", "type": "text", "label": "状态" },
+    { "name": "status", "type": "text", "label": "状态", "values": { "done": "已完成", "late": "已超期" } },
     { "name": "amount", "type": "decimal", "label": "金额" }
   ] }
 ```
 
-列上再写 `"required": true` 就是必填（主键列自动必填，不用写）。
+列上再写 `"required": true` 就是必填（主键列自动必填，不用写）。`values` 是取值说明：每个取值是什么业务意思（「超期」对应 `late`），接手的人靠它知道口径，有这类列就写上。主键想让服务端分配就写 `"auto": true`（见 references/datasets.md）。
 
 **② 写数据**：四种写法，按数据的性质选一种（见下表）。下面这批用整份替换写进去。
 
@@ -87,7 +88,7 @@ access_request { "tools": ["dataset_list@bench:sales", "dataset_query@bench:sale
 |---|---|---|
 | `dataset_replace` | 每次都算好一整份（日报、快照式的数） | 给**全部**行，原子切换；替换前的那一份自动留作上一代，能退回 |
 | `dataset_upsert` | 增量：有的改、没有的加 | 每行给主键列和必填列，其余给了哪列改哪列；数据集必须有主键 |
-| `dataset_append` | 流水：只加不改 | 主键和已有的行撞了，整批拒收 |
+| `dataset_append` | 流水：只加不改 | 主键和已有的行撞了，整批拒收。主键设了 `auto` 的数据集不用给主键，服务端分配，应答的 `ids` 是分配到的号（不要自己查最大值再加一） |
 | `dataset_delete_rows` | 按主键删 | 只给主键；一行也没对上就什么都不做 |
 
 每种要给的东西（`bench` 是台的标识）：

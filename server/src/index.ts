@@ -67,7 +67,7 @@ import { registerLoginEventRoutes } from './routes/login-events.ts';
 import { registerTaskRoutes } from './routes/tasks.ts';
 import { benchViewsConfig, registerBenchViewRoutes, BENCH_ROWS_PATH } from './routes/bench-views.ts';
 import { BENCH_TOOL_NAMES, BENCH_GRANT_RE } from './bench-mcp-tools.ts';
-import { benchGrantsOf, benchRequestsOf, benchToolTarget, requestBenchTools, runBenchTool } from './services/bench-mcp.ts';
+import { benchGrantsOf, benchRequestTtlConfig, benchRequestsOf, benchToolTarget, requestBenchTools, runBenchTool, setBenchRequestTtlHours } from './services/bench-mcp.ts';
 import { BenchError } from './bench-query.ts';
 import { registerChangeRequestRoutes } from './routes/change-requests.ts';
 import { registerSopStateRoutes, registerSopSpaceRoutes } from './routes/sops.ts';
@@ -146,6 +146,8 @@ let judgmentEnforce: EnforceConfig = { domains: null };
 }
 // 数据视图的入口（WM_BENCH_VIEWS=on|off，缺省 off）：关着的时候每条路由都直接回 404。值不合法拒绝启动
 const BENCH_VIEWS = (() => { try { return benchViewsConfig(); } catch (e) { console.error(`[bench-views] 拒绝启动：${(e as Error).message}`); process.exit(1); } })();
+// 台的权限申请没人处理的总期限（WM_BENCH_REQUEST_TTL_HOURS，缺省 72，1～720 小时）：启动时读一次，不合法拒绝启动
+setBenchRequestTtlHours((() => { try { return benchRequestTtlConfig(); } catch (e) { console.error(`[bench-views] 拒绝启动：${(e as Error).message}`); process.exit(1); } })());
 // 全站登录门（WM_LOGIN_GATE=enforce|off，缺省 off）：紧跟启动自检门，早于内容分发、解析器、静态资源、SPA 回落和各路由。
 // 依赖都是函数声明或请求期才取的值（提升/闭包），这里只建不调。值不合法拒绝启动（同 MCP_GATEWAY #284）
 const LOGIN_GATE_MODE = loginGateMode();

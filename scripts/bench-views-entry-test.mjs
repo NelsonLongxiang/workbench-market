@@ -99,6 +99,8 @@ try {
   await off.stop();
   const bad = await boot('bad', { WM_BENCH_VIEWS: 'yes' }, { expectFail: true });
   check(bad.failed && bad.refused && /WM_BENCH_VIEWS/.test(bad.log), '开关的值不合法：拒绝启动，说清是哪个变量', bad.log.slice(-200));
+  const badTtl = await boot('bad-ttl', { WM_BENCH_VIEWS: 'on', WM_BENCH_REQUEST_TTL_HOURS: '0' }, { expectFail: true });
+  check(badTtl.failed && badTtl.refused && /WM_BENCH_REQUEST_TTL_HOURS/.test(badTtl.log), '台的申请期限不合法（0 小时）：拒绝启动，说清是哪个变量', badTtl.log.slice(-200));
 
   const srv = await boot('on', { WM_BENCH_VIEWS: 'on' });
   const db = srv.db();
