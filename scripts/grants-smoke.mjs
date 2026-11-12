@@ -345,6 +345,12 @@ try {
     for (const id of [mgmt.id, dm, dl, mg, ai, mem, own, selfG]) await step(id, 'revoke', {}, { reason: '合成：收回' });
   }
 
+  // ---------- 三之四·二、管理面上只认属主的事：管理员登录（不是属主）做不了 ----------
+  {
+    const byRoot = await srv.call('POST', '/api/grants/revoke-migration', { ...asRoot, body: { reason: '合成：管理员登录试整批撤销' } });
+    check(byRoot.status === 403 && byRoot.json?.error === 'owner_required', '迁移出来的授予整批撤销只认属主：管理员登录（不是属主）403 owner_required', show({ status: byRoot.status, body: byRoot.json }));
+  }
+
   // ---------- 三之五、放行入口对登录的人放开（L19）：只有管理层、没有管理员身份的人能放行第二档，第一档、第三档照旧放行不了 ----------
   {
     const MG = { headers: { ...REMOTE, ...same }, session: SESSIONS.noAdminFlag }; // 只持管理层授予，不是管理员

@@ -301,9 +301,15 @@ const MUTANTS = [
     find: " && !actor.owner) return refuse(403, 'owner_required',", replace: " && false) return refuse(403, 'owner_required'," },
   { id: 'grant-admin-level-by-id-only', what: '管理员级只认 owner、admin 两个 id（带管理类权限的组织角色漏掉）', file: ROLES, suites: [GRANTS],
     find: "adminLevel: r.id === 'owner' || r.id === 'admin' || kindsIn.has('admin')", replace: "adminLevel: r.id === 'owner' || r.id === 'admin'" },
-  { id: 'grant-owner-any-admin', what: '管理员登录一律当属主', file: GRANT_ROUTES, suites: [GRANTS],
+  // 授予的放行入口（L19 起走 approverOf）
+  { id: 'grant-owner-any-admin', what: '放行时管理员登录一律当属主', file: GRANT_ROUTES, suites: [GRANTS],
+    find: 'return { by, principal, owner: grants().isOwner(principal), admin: true };', replace: 'return { by, principal, owner: !!principal, admin: true };' },
+  { id: 'grant-cli-not-owner', what: '放行时本机命令行不当属主（管理员级的授予没人能放行）', file: GRANT_ROUTES, suites: [GRANTS],
+    find: "return { by: 'cli', principal: null, owner: true, admin: true };", replace: "return { by: 'cli', principal: null, owner: false, admin: true };" },
+  // 管理面（actorOf）：自定义角色的放行、迁移授予的整批撤销只认属主
+  { id: 'grant-admin-owner-any-admin', what: '管理面上管理员登录一律当属主（自定义角色放行、整批撤销）', file: GRANT_ROUTES, suites: [GRANTS],
     find: 'return { by, principal, owner: grants().isOwner(principal) };', replace: 'return { by, principal, owner: !!principal };' },
-  { id: 'grant-cli-not-owner', what: '本机命令行不当属主（管理员级的授予没人能放行）', file: GRANT_ROUTES, suites: [GRANTS],
+  { id: 'grant-admin-cli-not-owner', what: '管理面上本机命令行不当属主（自定义角色、整批撤销没人能做）', file: GRANT_ROUTES, suites: [CUSTOM, JUDGE],
     find: "return { by: 'cli', principal: null, owner: true };", replace: "return { by: 'cli', principal: null, owner: false };" },
   { id: 'grant-owner-ignores-revoke', what: '属主身份不看授予状态（撤销了的 owner 还算）', file: GRANT_SVC, suites: [GRANTS],
     find: "return !!principal && this.activeFor(principal, now).some((g) => g.role === 'owner');", replace: "return !!principal && !!db.prepare(\"SELECT 1 FROM grants WHERE principal_id = ? AND role = 'owner' AND approved_by IS NOT NULL\").get(principal);" },
