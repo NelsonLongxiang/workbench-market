@@ -209,7 +209,7 @@ with sync_playwright() as p:
         # ---------- 2. 市场页：新增（含校验失败分支） ----------
         # goto 入 try + 失败 dump HTML：主区空（chunk 加载中断）时现场可诊断（E2E 劣化调查增强）
         try:
-            page.goto(ADMIN_UI + '/market', wait_until='domcontentloaded', timeout=30000)
+            page.goto(ADMIN_UI + '/market/manage', wait_until='domcontentloaded', timeout=30000)  # 工作台表格：新市场页（#584）之后在 /market/manage
             page.wait_for_load_state('networkidle', timeout=15000)
             page.wait_for_timeout(800)
         except Exception as e:
@@ -362,7 +362,7 @@ with sync_playwright() as p:
         except Exception as e:
             record('市场管理（控制面关闭·本机 CLI）', False, str(e))
         try:
-            page.goto(BASE + '/market', wait_until='domcontentloaded', timeout=30000)
+            page.goto(BASE + '/market/manage', wait_until='domcontentloaded', timeout=30000)
             page.wait_for_load_state('networkidle', timeout=15000)
             page.wait_for_timeout(800)
             page.get_by_placeholder('搜索名称 / 地址 / 描述').fill('E2E 改名后')
@@ -691,7 +691,7 @@ with sync_playwright() as p:
         ('/ 使用页·顶栏按钮', f'/use/{_use_wid}', '.wm-use-bar .ant-btn', 4.5),
         ('/overview 总览·统计标签', '/overview', '.wm-stat-card .wm-stat-label', 4.5),
         ('/ 全景·侧栏主入口', '/', '[data-testid=wm-side] .wm-nav-item:not(.on)', 4.5),
-        ('/market 表格·状态文字', '/market', '.ant-table-tbody .ant-badge-status-text', 4.5),
+        ('/market/manage 表格·状态文字', '/market/manage', '.ant-table-tbody .ant-badge-status-text', 4.5),
         ('/sops 表格·SOP 状态 Tag', '/sops', '.ant-table-tbody .ant-tag', 4.5),
         ('/sops 表格·标题文字', '/sops', '.ant-table-tbody .ant-typography', 4.5),
     ]
@@ -735,7 +735,7 @@ with sync_playwright() as p:
         resp = page.request.fetch(BASE + '/apps/e2e-app/')
         assert resp.status == 200 and 'E2E-APP-V1' in resp.text(), '自产台静态服务失败'
         # 发布即入册：市场页出现行 + 类型 Tag
-        page.goto(BASE + '/market')
+        page.goto(BASE + '/market/manage')
         page.wait_for_load_state('networkidle')
         page.wait_for_timeout(600)
         row = page.locator('.ant-table-row').filter(has_text='E2E 自产台')
@@ -827,7 +827,7 @@ with sync_playwright() as p:
         assert '101' in first.split('\r\n')[0], f'WS 握手未达 101: {first.split(chr(13))[0]}'
         # ⑧ 市场详情抽屉展示凭据状态（脱敏 Tag）
         api(page, 'PUT', f'/api/workbenches/{ewid}', {'auth': {'type': 'bearer', 'value': 'e2e-bear-tok'}})
-        page.goto(BASE + '/market')
+        page.goto(BASE + '/market/manage')
         page.wait_for_load_state('networkidle')
         # 详情抽屉由点击工作台名称打开
         page.locator('.ant-table-row').filter(has_text='E2E EchoAuth').first.locator('td a').first.click()
