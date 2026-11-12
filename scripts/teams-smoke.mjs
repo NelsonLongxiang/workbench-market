@@ -453,6 +453,43 @@ try {
       show({ fresh: !!item(fresh), stale: item(stale)?.title, staff: !!item(staff) }));
   }
 
+  // ---------- 八之五、没人处理的提议失效（不是驳回）：目标不在了、超过期限；接口给 outcome 和原因；失效的留 7 天 ----------
+  {
+    const inproc = (body) => {
+      const script = `
+        const { svc } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/context.ts')).href)});
+        const out = (() => { ${body} })();
+        console.log('OUT ' + JSON.stringify(out)); process.exit(0);`;
+      const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', script], { cwd: join(ROOT, 'server'), env: { ...process.env, DATA_DIR: data, NODE_ENV: 'test', REDIS_URL: '' }, encoding: 'utf8' });
+      const m = /OUT (.*)/.exec(r.stdout ?? '');
+      return m ? JSON.parse(m[1]) : { error: (r.stderr ?? '').slice(-400) };
+    };
+    await srv.call('PUT', '/api/departments/tmp', { body: { name: '合成临时部' } });
+    const pGone = (await srv.call('PUT', '/api/departments/tmp', { headers: token, body: { name: '合成临时部', lead: 'user:beta' } })).json?.lead_proposal?.id;
+    await srv.call('DELETE', '/api/departments/tmp'); // 部门删了：提议的目标不在了
+    const pOld = (await srv.call('POST', '/api/teams/leads', { headers: token, body: { host: HOST, team: TEAM, principal: 'user:no-flag' } })).json?.proposal?.id;
+    db.prepare('UPDATE relation_proposals SET proposed_at = ? WHERE id = ?').run(Date.now() - 20 * 86_400_000, pOld); // 20 天前提的
+    const pLive = (await srv.call('POST', '/api/teams/claim', { headers: token, body: { host: HOST, team: OTHER, department: 'ops' } })).json?.proposal?.id;
+    const pBack = (await srv.call('PUT', '/api/departments/sales', { headers: token, body: { name: '合成销售部', lead: 'user:no-flag' } })).json?.lead_proposal?.id;
+    await srv.call('POST', `/api/relations/proposals/${pBack}/reject`, { headers: token, body: { reason: '合成：提错了' } }); // 提的人撤回
+    const n = inproc('return svc("relationProposals").expireStale(Date.now());');
+    const list = (await srv.call('GET', '/api/relations/proposals', { headers: token })).json?.proposals ?? [];
+    const of = (id) => { const p = list.find((x) => x.id === id); return p && `${p.outcome}:${p.outcome_reason ?? ''}:${p.status}`; };
+    const gone = list.find((x) => x.id === pGone);
+    const got = { gone: of(pGone), old: of(pOld), live: of(pLive), back: of(pBack) };
+    // 第一节口令提的认领（后来属主直接认领了同一个部门）也在这一轮失效：团队已经挂到这个部门了
+    const satisfied = list.find((x) => x.outcome === 'expired' && x.outcome_reason === '团队已经挂到这个部门了' && x.team === TEAM);
+    check(n === 3 && !!satisfied && show(got) === show({ gone: 'expired:部门已经不在了:rejected', old: 'expired:超过 14 天没人处理:rejected', live: 'pending::pending', back: 'withdrawn:合成：提错了:rejected' })
+      && gone?.decided_by_name === '系统' && gone.can_reject === false && gone.can_approve === false,
+      '没人处理的提议失效：部门删了、超过 14 天的、团队已经挂到要挂的部门的都失效（outcome expired，写原因，处理人说「系统」，没有按钮），还有效的照旧待确认；提的人撤回的是 withdrawn，和失效、驳回分开',
+      show({ n, got, gone: gone && [gone.decided_by_name, gone.can_reject, gone.can_approve] }));
+    db.prepare('UPDATE relation_proposals SET decided_at = ? WHERE id = ?').run(Date.now() - 8 * 86_400_000, pGone); // 失效 8 天了
+    const later = (await srv.call('GET', '/api/relations/proposals', { headers: token })).json?.proposals ?? [];
+    check(!later.some((x) => x.id === pGone) && later.some((x) => x.id === pOld),
+      '失效的在提议人那里留 7 天：8 天前失效的不再列，刚失效的还在', show(later.map((x) => [x.id, x.outcome])));
+    await srv.call('POST', `/api/relations/proposals/${pLive}/reject`, { headers: token, body: { reason: '合成：收尾' } });
+  }
+
   // ---------- 七、退回待认领；有团队挂着的部门不能删 ----------
   {
     const del = await srv.call('DELETE', '/api/departments/sales', { headers: token });

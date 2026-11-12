@@ -57,6 +57,7 @@ import { registerDepartmentRoutes } from './routes/departments.ts';
 import { registerTeamRoutes } from './routes/teams.ts';
 import { registerRelationRoutes } from './routes/relations.ts';
 import { rosterStaleMinutesFromEnv, type TeamService } from './services/team.ts';
+import { proposalTtlDaysFromEnv, type RelationProposalService } from './services/relation-proposal.ts';
 import { registerAccessRoutes } from './routes/access.ts';
 import { registerLoginFlowRoutes } from './routes/login-flows.ts';
 import { registerLoginGateRoutes } from './routes/login-gate.ts';
@@ -244,6 +245,13 @@ if (ROSTER_STALE_MINUTES === null) {
   process.exit(1);
 }
 svc<TeamService>('teams').setRosterStaleMs(ROSTER_STALE_MINUTES * 60_000);
+// 关系的提议多久没人处理就失效（WM_PROPOSAL_TTL_DAYS，缺省 14 天）；值不合法拒绝启动
+const PROPOSAL_TTL_DAYS = proposalTtlDaysFromEnv();
+if (PROPOSAL_TTL_DAYS === null) {
+  console.error('[relations] 拒绝启动：WM_PROPOSAL_TTL_DAYS 要是 1～365 的整数（天），或者不设（缺省 14）');
+  process.exit(1);
+}
+svc<RelationProposalService>('relationProposals').setTtlDays(PROPOSAL_TTL_DAYS);
 const A2A_DIRECT_SIG_BODY = directSigBodyMode();
 if (!A2A_DIRECT_SIG_RAW || !A2A_DIRECT_SIG_BODY) {
   console.error('[a2a-direct-sig] 拒绝启动：WM_A2A_DIRECT_SIG 只接受 require / accept / off / 不设，WM_A2A_DIRECT_SIG_BODY 只接受 require / accept / 不设');

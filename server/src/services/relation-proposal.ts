@@ -11,6 +11,12 @@
  * 「能不能确认」只有一处（confirmRefusal）：确认接口和页面的 can_approve 都用它。
  * 属主 = 本机命令行（L1：授予面上算属主），或持有生效 owner 授予的主体。管理口令对不到人，确认不了。
  * 不是属主的人不能确认自己提的。
+ *
+ * 没人处理的提议会失效（不是驳回，没有人否决它）：每小时一轮（随服务停，不往外发），
+ *   · 目标不在了：部门删了、被提名的人停用或不再是人、团队不在节点名册里、团队已退回待认领（负责人提议）、团队已经挂到了部门（认领提议）；
+ *   · 超过 WM_PROPOSAL_TTL_DAYS（缺省 14 天）没人处理。
+ * 库里记成 rejected、处理人 system:expire、reason 写原因（不改表）；接口上给 outcome: 'expired' 和 outcome_reason，页面不靠处理人去猜。
+ * 失效的在提议人的「你提的」里留 7 天（EXPIRED_SHOW_MS）。确认时照旧重新核对目标。
  */
 import { Service } from '@deepseek-ai/cordis';
 import { svc } from '../context.ts';
@@ -18,6 +24,7 @@ import { db } from '../db.ts';
 import type { GrantService } from './grant.ts';
 import type { DepartmentService } from './department.ts';
 import type { TeamService } from './team.ts';
+import type { PrincipalService } from './principal.ts';
 
 export type ProposalKind = 'dept-lead' | 'team-lead' | 'team-claim';
 export type ProposalRow = {
@@ -33,6 +40,23 @@ const refuse = (http: ProposalRefusal['http'], code: string, message: string): P
 const grants = () => svc<GrantService>('grants');
 const departments = () => svc<DepartmentService>('departments');
 const teams = () => svc<TeamService>('teams');
+const principals = () => svc<PrincipalService>('principals');
+
+/** 失效的处理人写法（库里沿用 rejected，靠它和人手驳回分开）；失效的在提议人那里留多久 */
+export const EXPIRED_BY = 'system:expire';
+export const EXPIRED_SHOW_MS = 7 * 24 * 3600_000;
+const EXPIRE_EVERY_MS = 3600_000;
+/** 一条提议的结局：待确认、已确认、被驳回、提的人撤回、失效 */
+export type ProposalOutcome = 'pending' | 'approved' | 'rejected' | 'withdrawn' | 'expired';
+
+/** 提议多久没人处理就失效（天）：WM_PROPOSAL_TTL_DAYS，缺省 14，1～365 的整数；别的值返回 null（启动时拒绝） */
+export function proposalTtlDaysFromEnv(env: NodeJS.ProcessEnv = process.env): number | null {
+  const raw = String(env.WM_PROPOSAL_TTL_DAYS ?? '');
+  if (raw === '') return 14;
+  if (!/^[1-9][0-9]{0,2}$/.test(raw)) return null;
+  const n = Number(raw);
+  return n <= 365 ? n : null;
+}
 
 /** 这种提议等谁确认（给页面原样显示：「已提出，等〈谁〉确认」）。和 confirmRefusal 的规则对应 */
 export const CONFIRM_BY: Readonly<Record<ProposalKind, string>> = {
@@ -48,8 +72,67 @@ export const CONFIRM_TEXT: Readonly<Record<string, string>> = {
 };
 
 export class RelationProposalService extends Service {
+  private ttlMs = 14 * 24 * 3600_000;
+
   constructor(ctx: any) {
     super(ctx, 'relationProposals');
+    // 每小时一轮收掉失效的提议：只改本库，不往外发；随插件卸载停下，不拦进程退出
+    ctx.effect(() => {
+      const timer = setInterval(() => {
+        try { const n = this.expireStale(Date.now()); if (n) console.log(JSON.stringify({ source: 'relations', event: 'expire', count: n, at: new Date().toISOString() })); } catch (e) {
+          console.error(`[relations] 收失效的提议出错（下一轮再试）：${String((e as Error)?.message ?? e).slice(0, 200)}`);
+        }
+      }, EXPIRE_EVERY_MS);
+      timer.unref?.();
+      return () => clearInterval(timer);
+    }, 'relationProposals.expire');
+  }
+
+  /** 启动时由 index.ts 按 WM_PROPOSAL_TTL_DAYS 设一次 */
+  setTtlDays(days: number): void { this.ttlMs = days * 24 * 3600_000; }
+
+  /** 这条提议的目标还在不在、过没过期限：失效的原因，还有效返回 null */
+  staleReason(p: ProposalRow, now: number): string | null {
+    const personGone = (id: string) => { const x = principals().get(id) as { kind?: string; status?: string } | null; return !x || x.kind !== 'person' || x.status !== 'active'; };
+    if (p.kind === 'dept-lead') {
+      if (!departments().get(p.department_id)) return '部门已经不在了';
+      if (personGone(p.principal_id)) return '被提名的人已停用或不在了';
+    } else {
+      const k = { host: p.host, team: p.team };
+      const inRoster = [...teams().rosterTeams().values()].some((t) => t.host === p.host && t.team === p.team);
+      if (!inRoster) return '团队已经不在节点名册里了';
+      const reg = teams().registration(k);
+      if (p.kind === 'team-lead') {
+        if (!reg?.claimed) return '团队已退回待认领';
+        if (personGone(p.principal_id)) return '被提名的人已停用或不在了';
+      } else {
+        if (!departments().get(p.department_id)) return '要挂的部门已经不在了';
+        if (reg?.claimed) return reg.department_id === p.department_id ? '团队已经挂到这个部门了' : '团队已经挂到了别的部门';
+      }
+    }
+    if (now - p.proposed_at > this.ttlMs) return `超过 ${Math.round(this.ttlMs / 86_400_000)} 天没人处理`;
+    return null;
+  }
+
+  /** 收掉失效的提议：标成 rejected、处理人 system:expire、reason 写原因。返回收了几条 */
+  expireStale(now: number): number {
+    let n = 0;
+    for (const p of db.prepare("SELECT * FROM relation_proposals WHERE status = 'pending' ORDER BY id").all() as ProposalRow[]) {
+      const why = this.staleReason(p, now);
+      if (!why) continue;
+      n += Number(db.prepare("UPDATE relation_proposals SET status = 'rejected', decided_by = ?, decided_by_principal = NULL, decided_at = ?, reason = ? WHERE id = ? AND status = 'pending'")
+        .run(EXPIRED_BY, now, why, p.id).changes);
+    }
+    return n;
+  }
+
+  /** 结局：失效和人手驳回分开，提的人自己驳回的算撤回 */
+  outcomeOf(p: ProposalRow): ProposalOutcome {
+    if (p.status === 'pending') return 'pending';
+    if (p.status === 'approved') return 'approved';
+    if (p.decided_by === EXPIRED_BY) return 'expired';
+    if (p.decided_by === p.proposed_by || (!!p.decided_by_principal && p.decided_by_principal === p.proposed_by_principal)) return 'withdrawn';
+    return 'rejected';
   }
 
   get(id: number): ProposalRow | null {
