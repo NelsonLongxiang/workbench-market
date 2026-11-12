@@ -93,7 +93,7 @@ export default function UseWorkbench() {
           </a>
         </Space>
       </div>
-      <GoFrame wid={w.id} name={w.name} frameKey={frameKey} className="wm-use-frame" />
+      <GoFrame wid={w.id} name={w.name} frameKey={frameKey} className="wm-use-frame" url={w.url} selfText="这个台的地址指向市场本身，在这里打不开；请管理员改一下登记的地址" />
       <Typography.Paragraph
         type="secondary"
         className="wm-caption" style={{ textAlign: 'center', margin: 'var(--wm-space-2) 0', flex: 'none' }}

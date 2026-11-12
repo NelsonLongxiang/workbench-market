@@ -315,7 +315,7 @@ export default function Cockpit() {
                 </div>
                 <div className="wm-panel-body">
                   {w ? (
-                    <GoFrame wid={w.id} name={w.name} frameKey={fk} />
+                    <GoFrame wid={w.id} name={w.name} frameKey={fk} url={w.url} />
                   ) : (
                     <Empty description={`工作台 #${p.workbenchId} 已不存在`} style={{ marginTop: 32 }} />
                   )}
