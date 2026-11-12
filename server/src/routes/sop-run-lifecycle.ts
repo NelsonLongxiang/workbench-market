@@ -51,6 +51,8 @@ export interface SopRunLifecycleDeps {
   sopRunGetMeta: (id: number) => object;
   sopRunStepSaveCore: (id: number, stepKeyRaw: string, value: unknown) => Promise<object>;
   sopRunFinishCore: (id: number) => Promise<object>;
+  /** 「等你拍板」里待验收派单 run 的卡片内容（index.ts 的 sopRunAcceptDetail） */
+  sopRunAcceptDetail: (id: number) => Promise<Record<string, unknown>>;
   markOdooAdmin: (req: express.Request) => Promise<void>;
   sopRunUpgradePlan: (id: number) => Promise<UpgradePlan>;
   bad: (msg: string) => never;
@@ -60,8 +62,21 @@ export interface SopRunLifecycleDeps {
   adminActor: (req: express.Request) => string;
 }
 
+/**
+ * 「等你拍板」里待验收的派单 run（注册之后可取用）：验收通过就是完成这个 run，和 POST /api/sop/runs/:id/finish 同一处判断、同一个执行。
+ *   allowed：能不能写 run 而不靠这个 run 的上传令牌（管理员、本机命令行）——「关注」里的人不带令牌，和完成接口里令牌之外的那两条同一处
+ *   finish：完成接口的执行（字段校验、完成、给派单方发回执），判不过抛 HttpError
+ *   detail：卡片内容
+ */
+export type SopRunAcceptance = {
+  allowed: (req: express.Request) => Promise<boolean>;
+  finish: (id: number) => Promise<object>;
+  detail: (id: number) => Promise<Record<string, unknown>>;
+};
+export let sopRunAcceptance: SopRunAcceptance | null = null;
+
 export function registerSopRunLifecycleRoutes(app: HttpService, deps: SopRunLifecycleDeps): void {
-  const { wrap, adminHeaderOk, runReadCapHeader, sopRunGetCore, sopRunGetMeta, sopRunStepSaveCore, sopRunFinishCore, markOdooAdmin, sopRunUpgradePlan, bad, runCheckpoints, adminActor, writeMode } = deps;
+  const { wrap, adminHeaderOk, runReadCapHeader, sopRunGetCore, sopRunGetMeta, sopRunStepSaveCore, sopRunFinishCore, sopRunAcceptDetail, markOdooAdmin, sopRunUpgradePlan, bad, runCheckpoints, adminActor, writeMode } = deps;
   app.get('/api/sop/runs', { action: 'sop-run.list', kind: 'read' }, (req, res) => {
     // P4（F7）：待验收列表 = running 且有派单来源（a2a_run_ctx 有 callback/task_id），不含人自己开的
     if (req.query.dispatched === '1') {
@@ -88,6 +103,14 @@ export function registerSopRunLifecycleRoutes(app: HttpService, deps: SopRunLife
    * 写 run（保存一步、完成）：要这个 run 的上传令牌（开建或被派单的一方，run 还在执行）、管理员（同源）或本机命令行。
    * 不按 started_by 推权，读授权也不推出写权。都不满足 403，先于查 run 的存在：run 在不在、令牌对不对，走同样的路径、给同样的应答
    */
+  /** 不靠上传令牌能写 run 的（只有这一处）：本机命令行；管理员（口令或会话登录的管理员，同源由写请求总门判） */
+  async function withoutToken(req: express.Request): Promise<boolean> {
+    if (!browserMarked(req) && rawLoopback(req)) return true; // 本机命令行
+    await markOdooAdmin(req);
+    return adminHeaderOk(req);
+  }
+  sopRunAcceptance = { allowed: withoutToken, finish: (id) => sopRunFinishCore(id), detail: (id) => sopRunAcceptDetail(id) };
+
   async function writeAllowed(req: express.Request, res: express.Response, route: string): Promise<boolean> {
     const id = Number(req.params.id);
     const presented = req.headers['x-run-upload-token'];
@@ -96,9 +119,7 @@ export function registerSopRunLifecycleRoutes(app: HttpService, deps: SopRunLife
     const want = cred && cred.status === 'running' && cred.upload_token ? digest(cred.upload_token) : NO_RUN;
     const tokenOk = timingSafeEqual(digest(token), want) && want !== NO_RUN && token.length > 0;
     if (tokenOk) return true;
-    if (!browserMarked(req) && rawLoopback(req)) return true; // 本机命令行
-    await markOdooAdmin(req);
-    if (adminHeaderOk(req)) return true;
+    if (await withoutToken(req)) return true;
     const caller = token ? 'other-token' : req.headers['x-admin-token'] !== undefined ? 'admin-token-rejected' : hasLoginCredential(req) ? 'login-not-admin' : 'anonymous';
     if (writeMode === 'warn') {
       const key = `${route}|${caller}`;
