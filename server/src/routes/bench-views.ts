@@ -37,8 +37,9 @@ export function benchViewsConfig(env: NodeJS.ProcessEnv = process.env): BenchVie
   return { on: raw === 'on' };
 }
 
-/** 行的写入走原始字节的那条路由：请求体不在市场进程里解析，原样递给台库的工作线程（index.ts 的全局 JSON 解析要跳过它） */
-export const BENCH_ROWS_PATH = /^\/api\/bench-views\/[^/]+\/datasets\/[^/]+\/rows$/i;
+/** 带不带尾斜杠都算（路由本身两种都认；不算的话全局解析会先把请求体读掉，路由再报「不是合法的 JSON」，提示误导人）。
+ *  行的写入走原始字节的那条路由：请求体不在市场进程里解析，原样递给台库的工作线程（index.ts 的全局 JSON 解析要跳过它） */
+export const BENCH_ROWS_PATH = /^\/api\/bench-views\/[^/]+\/datasets\/[^/]+\/rows\/?$/i;
 
 type Handler = (req: express.Request, res: express.Response, next: express.NextFunction) => unknown;
 export interface BenchViewRouteDeps {
