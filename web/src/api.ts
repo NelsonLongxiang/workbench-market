@@ -218,3 +218,21 @@ export async function postWorkItem(body: Record<string, unknown>): Promise<{ sta
     return { status: r.status, body: await r.json().catch(() => null) as Record<string, unknown> | null };
   } catch { return { status: 0, body: null }; }
 }
+
+/** 「团队」页（规范 14）：团队、部门、人各读各的，返回状态码让页面给说法；认领、指定负责人、建部门也一样。
+ *  不走 apiFetch（被拒时不弹管理员口令，页面自己说）。带上口令头：管理员用口令时能看到待认领的团队。断网当状态码 0 */
+async function teamCall(url: string, init?: { method: string; body: unknown }): Promise<{ status: number; body: unknown }> {
+  try {
+    const token = getAdminToken();
+    const headers: Record<string, string> = { Accept: 'application/json', ...(token ? { 'X-Admin-Token': token } : {}), ...(init ? { 'Content-Type': 'application/json' } : {}) };
+    const r = await fetch(url, init ? { method: init.method, credentials: 'same-origin', headers, body: JSON.stringify(init.body ?? {}) } : { credentials: 'same-origin', headers });
+    if (loginRequired(r)) { redirectToLogin(); return { status: 401, body: null }; }
+    return { status: r.status, body: await r.json().catch(() => null) };
+  } catch { return { status: 0, body: null }; }
+}
+export const getTeams = () => teamCall('/api/teams');
+export const getTeamDepartments = () => teamCall('/api/departments');
+export const getTeamPeople = () => teamCall('/api/principals');
+export const claimTeam = (host: string, team: string, department: string) => teamCall('/api/teams/claim', { method: 'POST', body: { host, team, department } });
+export const addTeamLead = (host: string, team: string, principal: string) => teamCall('/api/teams/leads', { method: 'POST', body: { host, team, principal } });
+export const putDepartment = (id: string, name: string, lead: string | null) => teamCall(`/api/departments/${encodeURIComponent(id)}`, { method: 'PUT', body: { name, ...(lead ? { lead } : {}) } });

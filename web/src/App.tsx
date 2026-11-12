@@ -25,6 +25,7 @@ import Reviews from './pages/Reviews';
 import Attention from './pages/Attention';
 import WorkItem from './pages/WorkItem';
 import NotYet, { NOT_YET } from './pages/NotYet';
+import Team from './pages/team/Team';
 import Home from './pages/Home';
 import SkillsPage from './pages/Skills';
 import ViewerChip from './components/ViewerChip';
@@ -123,7 +124,7 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/overview" element={<Dashboard />} />
         <Route path="/work-items" element={<NotYet spec={NOT_YET.items} />} />
-        <Route path="/team" element={<NotYet spec={NOT_YET.team} />} />
+        <Route path="/team" element={<Team />} />
         <Route path="/access" element={<NotYet spec={NOT_YET.access} />} />
         <Route path="/knowledge" element={<NotYet spec={NOT_YET.knowledge} />} />
         <Route path="/cockpit" element={<Cockpit />} />
