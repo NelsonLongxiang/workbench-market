@@ -184,12 +184,28 @@ describe('契约联调：市场 × superagent 宿主', () => {
       rec('清单§5 成员已钉：市场一项带 @<8 位指纹>', new RegExp(`${marketSession.replace('/', '\\/')}@[0-9a-f]{8}`).test(members), members.slice(0, 300))
       // 2.4 准入：用团队的 CLI 身份
       const teamCli = await until(() => findFile(home, 'cli.json'), 20_000)
-      let admission: any = null
-      if (teamCli) {
-        const out = await new Promise<string>(resolve => { const c = spawn(process.execPath, [join(process.cwd(), 'cli/a2a.mjs'), 'admission', marketSession, '--json', '--home', H], { env: cliEnv(join(teamCli, '..')) }); let s = ''; c.stdout.on('data', d => { s += d }); c.stderr.on('data', d => { s += d }); c.on('close', () => resolve(s)) })
-        try { admission = JSON.parse(out) } catch { admission = out }
+      // cli.json 这个文件出现，不等于宿主已经收下这个 CLI 身份的登记：查得太快时宿主还不认这次查询，CLI 报的是一句话、不是 JSON
+      // （偶发，约四十轮一次）。所以有上限地等：宿主没认这次查询（CLI 报 did not answer）就隔一会儿再问，最多 20 秒。
+      // 宿主一旦给出 JSON 应答——准入还是不准入——就以它为准，不再问：真不准入、规则不对，照样判不过。
+      const askAdmission = async (caller: string): Promise<{ answer: any; asks: number }> => {
+        if (!teamCli) return { answer: null, asks: 0 }
+        const ask = () => new Promise<string>(resolve => { const c = spawn(process.execPath, [join(process.cwd(), 'cli/a2a.mjs'), 'admission', caller, '--json', '--home', H], { env: cliEnv(join(teamCli, '..')) }); let s = ''; c.stdout.on('data', d => { s += d }); c.stderr.on('data', d => { s += d }); c.on('close', () => resolve(s)) })
+        let last = '', asks = 0
+        const answered = await until(async () => {
+          asks += 1
+          last = await ask()
+          try { const v = JSON.parse(last); if (v !== null && typeof v === 'object') return { v } } catch { /* 不是 JSON，往下看是哪一种 */ }
+          // 只有宿主明说「没应答这次查询」才再问；别的输出（CLI 崩了、参数不对）当场算数，不白等
+          return /did not answer/.test(last) ? undefined : { v: last }
+        }, 20_000)
+        return { answer: answered ? answered.v : last, asks }
       }
-      rec('清单§2.4 准入：admitted=true，规则 remote-ref-*', admission?.admitted === true && /^remote-ref-/.test(String(admission?.rule)), JSON.stringify(admission).slice(0, 300))
+      const { answer: admission, asks: admissionAsks } = await askAdmission(marketSession)
+      rec('清单§2.4 准入：admitted=true，规则 remote-ref-*', admission?.admitted === true && /^remote-ref-/.test(String(admission?.rule)), `${JSON.stringify(admission).slice(0, 300)}（问了 ${admissionAsks} 次）`)
+      // 反例：没加进画布的来源。宿主这时已经认得这个 CLI 身份，给的是「不准入」的 JSON 应答——以它为准，只问一次
+      // （要是把「不准入」也当成没答好去重问，这里会问上 20 秒、次数不是 1）
+      const stranger = await askAdmission('market/deadbeef')
+      rec('清单§2.4 反例：没加进画布的来源不准入，宿主答了就不再问', stranger.answer?.admitted === false && stranger.asks === 1, `${JSON.stringify(stranger.answer).slice(0, 300)}（问了 ${stranger.asks} 次）`)
 
       // ---------- 派工：市场发布一件任务 ----------
       let runSeq = 0

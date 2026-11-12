@@ -301,6 +301,11 @@ export async function getLifecycleNameSources(): Promise<{ types: unknown[]; obj
   return { types, objects };
 }
 
+/** 关系的提议（规范 14「关系由谁说了算」）：服务端按看的人裁好；确认、驳回或撤回。返回状态码让页面给说法 */
+export const getRelationProposals = () => teamCall('/api/relations/proposals');
+export const approveRelationProposal = (id: number) => teamCall(`/api/relations/proposals/${id}/approve`, { method: 'POST', body: {} });
+export const rejectRelationProposal = (id: number, reason: string) => teamCall(`/api/relations/proposals/${id}/reject`, { method: 'POST', body: { reason } });
+
 /** 数据视图的取数入口（驾驶舱按引用取一份视图）：带登录的 cookie，不带管理口令（入口不认口令）。
  *  返回状态码和 error 代号，让块自己给说法；断网当状态码 0 */
 export async function getBenchView(ref: { bench: string; view: string }, params: Record<string, string> = {}): Promise<{ status: number; body: unknown; error?: string }> {

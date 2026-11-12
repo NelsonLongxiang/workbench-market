@@ -607,6 +607,10 @@ body { background: var(--wm-color-page); }
 .wm-team-dot { flex: none; width: 8px; height: 8px; border-radius: var(--wm-radius-full); background: var(--wm-color-border); }
 .wm-team-dot.on { background: var(--wm-color-success-text); }
 .wm-team-kind { flex: none; margin-left: auto; padding: 0 var(--wm-space-1); font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); background: var(--wm-color-page); border-radius: var(--wm-radius-sm); }
+.wm-team-props { margin-bottom: var(--wm-space-6); }
+.wm-team-prop { padding: var(--wm-space-3) var(--wm-space-4); background: var(--wm-color-surface); border: 1px solid var(--wm-color-border); border-radius: var(--wm-radius-lg); display: flex; flex-direction: column; gap: var(--wm-space-1); }
+.wm-team-prop-ops { display: flex; gap: var(--wm-space-2); margin-top: var(--wm-space-2); }
+.wm-team-prop-reject { display: flex; flex-direction: column; gap: var(--wm-space-2); margin-top: var(--wm-space-2); }
 .wm-team-stale { font-size: var(--wm-font-size-caption); color: var(--wm-color-warning-text); }
 /* 待确认的提议（关系确认制）：认领、负责人还没生效 */
 .wm-team-pending { font-size: var(--wm-font-size-caption); color: var(--wm-color-warning-text); }

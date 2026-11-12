@@ -334,6 +334,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   content-static.ts（无令牌静态资产读取）
   content-surface.ts（内容面终结分发与到期引导）
   context.ts（服务容器）
+  db-busy.ts（库被别的连接锁着写时最多等多久：DB_BUSY_TIMEOUT_MS = 5000。市场主库、判定比对库用它，台库每次读写取它和那一次时限中较小的；部署切换时新旧进程短暂重叠写不直接报 database is locked，超过上限照样报错。多个进程同时写同一个库仍不支持）
   db.ts（schema+迁移）
   design-standard.ts（MCP design_standard 工具的 design token 标准只读读取）
   design-tokens-css.ts（DESIGN.md 生成的 tokens.css 服务端出口）
