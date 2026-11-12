@@ -35,10 +35,8 @@ const BASE_GROUPS: NavGroup[] = [
   ] },
   { key: '/g/legacy', name: '旧入口', hidden: true, pages: [
     { path: '/attention', name: '关注', icon: null },
-    { path: '/tasks', name: '统一待办', icon: null },
     { path: '/sops', name: 'SOP 交付空间', icon: null },
     { path: '/skills', name: '技能市场', icon: null },
-    { path: '/reviews', name: '审核', icon: null },
   ] },
   { key: '/g/admin', name: '管理', admin: true, pages: [
     { path: '/owner-pending', name: '待属主看板', icon: <InboxOutlined /> },

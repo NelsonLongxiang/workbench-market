@@ -20,8 +20,6 @@ import { adminActive, adminTokenPresent, checkAdminToken, getAdminToken, odooAdm
 import { marketOnly, marketUrl, onSurface, surface } from './surface';
 import { WEB_EXTENSIONS } from './extensions';
 import { Alert, Button as AButton, Input as AInput, Popover, Result, Tag } from 'antd';
-import Tasks from './pages/Tasks';
-import Reviews from './pages/Reviews';
 import Attention from './pages/Attention';
 import WorkItem from './pages/WorkItem';
 import NotYet, { NOT_YET } from './pages/NotYet';
@@ -136,11 +134,9 @@ export default function App() {
         <Route path="/sops" element={<Sops />} />
         <Route path="/sops/:slug" element={<SopSpace />} />
         <Route path="/sops/:slug/runs/:id" element={<SopRunDetail />} />
-        <Route path="/tasks" element={<Tasks />} />
         <Route path="/attention" element={<Attention />} />
         <Route path="/work-items" element={<WorkItems />} />
         <Route path="/work-items/:id" element={<WorkItem />} />
-        <Route path="/reviews" element={<Reviews />} />
         {WEB_EXTENSIONS.flatMap((e) => (e.routes ?? []).map((r) => <Route key={`${e.name}:${r.path}`} path={r.path} element={r.element} />))}
         <Route path="/owner-pending" element={<OwnerPending />} />
         <Route path="/mcp-gateways" element={<McpGateways />} />

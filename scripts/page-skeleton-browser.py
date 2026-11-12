@@ -11,7 +11,7 @@ def check(n, c, x=''):
     if c: ok += 1; print('  ✓', n)
     else: fail += 1; print('  ✗', n, x)
 PAGES = [('/', '全景'), ('/work-items', '事项'), ('/cockpit', '驾驶舱'), ('/team', '团队'), ('/access', '谁能做什么'), ('/market', '工作台市场'), ('/knowledge', '经验库'),
-         ('/attention', '关注'), ('/tasks', '统一待办'), ('/sops', 'SOP 交付空间'), ('/skills', '技能市场'),
+         ('/attention', '关注'), ('/sops', 'SOP 交付空间'), ('/skills', '技能市场'),
          ('/owner-pending', '待属主看板'), ('/mcp-gateways', 'MCP 网关'), ('/vault', '凭据库'), ('/types', '类型管理'), ('/settings', '设置')]
 with sync_playwright() as p:
     b = p.chromium.launch(); pg = b.new_page(viewport={'width': 1440, 'height': 900})
