@@ -127,8 +127,17 @@ try {
   const read = await st(member, 'GET', '/sales-b/datasets'), write = await st(member, 'PUT', '/sales-b/datasets/mine', COLS);
   const rows = await srv.call('POST', '/api/bench-views/sales-b/datasets/mine/rows?op=replace', { ...member, raw: JSON.stringify([{ a: 'x' }]) });
   check(read === 200 && write === 200 && rows.status === 200, '自己部门的台：读、建数据集、写行都行', { read, write, rows: rows.status });
+  // 幂等键按写的人隔开：同一个部门里另一个人用同一个键，拿不到前一个人的结果，也不报「键已用在另一份内容上」
+  const keyed = (opts, k) => ({ ...opts, headers: { ...opts.headers, 'idempotency-key': k } });
+  const put = (opts, rowsJson) => srv.call('POST', '/api/bench-views/sales-b/datasets/mine/rows?op=replace', { ...keyed(opts, 'shared-key-0001'), raw: rowsJson });
+  const k1 = await put(member, JSON.stringify([{ a: 'member-wrote-this' }]));
+  const k2 = await put(lead, JSON.stringify([{ a: 'lead-wrote-this' }]));
+  const k3 = await put(lead, JSON.stringify([{ a: 'lead-wrote-this' }])), k4 = await put(member, JSON.stringify([{ a: 'member-wrote-this' }]));
+  const k5 = await put(lead, JSON.stringify([{ a: 'member-wrote-this' }]));
+  check(k1.status === 200 && k1.json?.duplicate === undefined && k2.status === 200 && k2.json?.duplicate === undefined && k3.json?.duplicate === true && k4.json?.duplicate === true && k5.status === 409,
+    '同部门另一个人用同一个幂等键：照常写入（不是 409、不算重复）；各人重试各自认得；自己的键换内容才是冲突', { k1: k1.status, k2: `${k2.status}/${k2.json?.duplicate}`, k3: k3.json?.duplicate, k4: k4.json?.duplicate, k5: k5.status });
   r = await srv.call('GET', '/api/bench-views/sales-b/log', member);
-  check(r.status === 200 && r.json?.writes?.[0]?.actor === 'user:beta', '留痕记的是这个人');
+  check(r.status === 200 && r.json?.writes?.some((w) => w.actor === 'user:beta') && r.json.writes.some((w) => w.actor === 'user:strasse'), '留痕记的是各自写的人');
   const denied = {};
   for (const [name, path] of [['别的部门的台', '/ops-b/datasets'], ['没绑的台', '/free/datasets'], ['没登记的台', '/ghost/datasets']]) denied[name] = `${await st(member, 'GET', path)}/${await st(member, 'PUT', `${path}/x`, COLS)}`;
   check(Object.values(denied).every((x) => x === '403/403'), '别的部门的台、没绑的台、没登记的台：读写都是 403（看不出台存不存在）', denied);
@@ -186,6 +195,10 @@ try {
   r = await srv.call('PUT', '/api/bench-views/sales-b/binding', { ...boss, body: { department: 'ops', note: '划给运营' } });
   const a1 = await st(member, 'GET', '/sales-b/datasets'), a2 = await st(other, 'GET', '/sales-b/datasets'), a3 = await st(lead, 'PUT', '/sales-b/mcp-grants', grantBody);
   check(r.status === 200 && r.json?.changed === true && a1 === 403 && a2 === 200 && a3 === 403, '管理层把台改绑到别的部门：原部门的人（含负责人）立即进不来，新部门的人进得来', { put: r.status, old: a1, now: a2, oldLead: a3 });
+  // 改绑之后，新部门的人用旧部门的人用过的键、发同样的内容：等于没人用过，拿不到那个人那次写入的结果
+  const moved1 = await srv.call('POST', '/api/bench-views/sales-b/datasets/mine/rows?op=replace', { ...other, headers: { ...other.headers, 'idempotency-key': 'shared-key-0001' }, raw: JSON.stringify([{ a: 'member-wrote-this' }]) });
+  const moved2 = await srv.call('POST', '/api/bench-views/sales-b/datasets/mine/rows?op=replace', { ...other, headers: { ...other.headers, 'idempotency-key': 'shared-key-0001' }, raw: JSON.stringify([{ a: 'something-else' }]) });
+  check(moved1.status === 200 && moved1.json?.duplicate === undefined && moved2.status === 409, '改绑之后新部门的人用旧部门的人用过的幂等键：同样的内容也不算重复（拿不到旧结果）；冲突只和他自己的那次比', { same: `${moved1.status}/${moved1.json?.duplicate}`, own: moved2.status });
   const afterMove = await toolD();
   const moved = { grants: db.prepare("SELECT COUNT(*) AS n FROM bench_mcp_grants WHERE bench = 'sales-b'").get().n, pending: db.prepare("SELECT COUNT(*) AS n FROM bench_mcp_requests WHERE bench = 'sales-b' AND status = 'pending'").get().n,
     note: db.prepare("SELECT note, decided_by FROM bench_mcp_requests WHERE bench = 'sales-b' AND status = 'rejected' ORDER BY id DESC").get(), audit: db.prepare("SELECT actor, tools, note FROM bench_mcp_audit WHERE bench = 'sales-b' AND action = 'revoke' ORDER BY id DESC").get() };
