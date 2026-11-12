@@ -234,7 +234,7 @@ const TEXT_FACTS = [
   ["scripts/skill-install-smoke.mjs", "篡改后校验红"],
   ["server/src/services/sandbox.ts", "dispatch"],
 ];
-const snapDb = new DatabaseSync(snap);
+const snapDb = new DatabaseSync(snap, { timeout: 5000 });
 snapDb.exec(`CREATE TABLE verifier_text_facts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   path TEXT NOT NULL,

@@ -1,3 +1,4 @@
+import { sessionGeneration, subscribeSession } from './session-watch';
 import React from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import Shell from './components/Shell';
@@ -103,24 +104,26 @@ function OutboundBanner() {
 export default function App() {
   const location = useLocation();
   const admin = React.useSyncExternalStore(subscribeAdminToken, adminActive);
-  React.useEffect(() => { void refreshAdminIdentity(); }, []);
+  // 身份世代：没登录了、换了人就加一。下面整棵按它做 key，各页的状态一起丢掉、按现在的人重读（session-watch.ts）
+  const gen = React.useSyncExternalStore(subscribeSession, sessionGeneration);
+  React.useEffect(() => { void refreshAdminIdentity(); }, [gen]);
 
   if (surface === 'control' && marketOnly(location.pathname)) return <MarketOnlyRedirect />;
 
   // 嵌入使用页占满整屏，脱离侧边栏壳
   if (location.pathname.startsWith('/use/')) {
     return (
-      <>
+      <React.Fragment key={gen}>
         <OutboundBanner />
         <Routes>
           <Route path="/use/:id" element={<UseWorkbench />} />
         </Routes>
-      </>
+      </React.Fragment>
     );
   }
 
   return (
-    <Shell admin={admin} footer={<><LoginChip />{surface !== 'control' && <ViewerChip />}<AdminTokenBadge /></>}>
+    <Shell key={gen} admin={admin} footer={<><LoginChip />{surface !== 'control' && <ViewerChip />}<AdminTokenBadge /></>}>
       <OutboundBanner />
       <Routes>
         <Route path="/" element={<Home />} />

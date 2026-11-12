@@ -81,7 +81,7 @@ async function boot(name, extraEnv = {}, dataDir = null) {
 
 /** 种两个台（ra、rb），各一张市场卡片、一条数据、一个附件 */
 async function seed(srv, as = REMOTE) {
-  const db = new DatabaseSync(join(srv.data, 'workbench-market.db'));
+  const db = new DatabaseSync(join(srv.data, 'workbench-market.db'), { timeout: 5000 });
   try {
     db.exec('PRAGMA busy_timeout=5000');
     for (const s of ['ra', 'rb']) {
@@ -90,7 +90,7 @@ async function seed(srv, as = REMOTE) {
     }
   } finally { db.close(); }
   const wid = {};
-  { const db2 = new DatabaseSync(join(srv.data, 'workbench-market.db')); try { for (const s of ['ra', 'rb']) wid[s] = db2.prepare('SELECT id FROM workbenches WHERE url = ?').get(`/apps/${s}/`).id; } finally { db2.close(); } }
+  { const db2 = new DatabaseSync(join(srv.data, 'workbench-market.db'), { timeout: 5000 }); try { for (const s of ['ra', 'rb']) wid[s] = db2.prepare('SELECT id FROM workbenches WHERE url = ?').get(`/apps/${s}/`).id; } finally { db2.close(); } }
   const files = {};
   for (const [s, secret, fileText] of [['ra', SECRET_A, 'file-a-canary-55'], ['rb', SECRET_B, FILE_B]]) {
     await srv.call('POST', `/api/apps/${s}/data`, as, { data: { po: secret } });

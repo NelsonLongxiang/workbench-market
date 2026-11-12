@@ -17,6 +17,7 @@
 import { mkdtempSync } from '../temp-dirs.ts'
 import { describe, it, vi } from 'vitest'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { tmpdir } from 'node:os'
 import { Context, Service } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -117,7 +118,10 @@ describe('契约联调：市场 × superagent 宿主', () => {
       const [PM, PX] = [await freePort(), await freePort()]
       const M = `http://127.0.0.1:${PM}`, X = `http://127.0.0.1:${PX}`
       const mdata = mkdtempSync(join(tmpdir(), 'contract-market-'))
-      const market = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
+      // 答席位提问是替建立人做业务决定（L21）：只认建立人本人或持有管理层授予的人，管理口令不行。
+      // 市场起的时候换上假的登录提供方（市场仓库的测试夹具，只在 NODE_ENV=test 下干活），下面由一个持有管理层授予的人代办答复
+      const PRELOAD = pathToFileURL(join(MARKET_TREE, 'scripts/identity-fake-preload.mjs')).href
+      const market = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], {
         cwd: join(MARKET_TREE, 'server'),
         env: { PATH: process.env.PATH, HOME: mkdtempSync(join(tmpdir(), 'contract-home-')), DATA_DIR: mdata, PORT: String(PM), NODE_ENV: 'test', MCP_GATEWAY: 'off', ADMIN_TOKEN: ADMIN, MARKET_PUBLIC_URL: X, A2A_OUTBOX_BACKOFF_SCALE: '0.01', ...JSON.parse(process.env.CONTRACT_MARKET_ENV ?? '{}') },
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -184,12 +188,28 @@ describe('契约联调：市场 × superagent 宿主', () => {
       rec('清单§5 成员已钉：市场一项带 @<8 位指纹>', new RegExp(`${marketSession.replace('/', '\\/')}@[0-9a-f]{8}`).test(members), members.slice(0, 300))
       // 2.4 准入：用团队的 CLI 身份
       const teamCli = await until(() => findFile(home, 'cli.json'), 20_000)
-      let admission: any = null
-      if (teamCli) {
-        const out = await new Promise<string>(resolve => { const c = spawn(process.execPath, [join(process.cwd(), 'cli/a2a.mjs'), 'admission', marketSession, '--json', '--home', H], { env: cliEnv(join(teamCli, '..')) }); let s = ''; c.stdout.on('data', d => { s += d }); c.stderr.on('data', d => { s += d }); c.on('close', () => resolve(s)) })
-        try { admission = JSON.parse(out) } catch { admission = out }
+      // cli.json 这个文件出现，不等于宿主已经收下这个 CLI 身份的登记：查得太快时宿主还不认这次查询，CLI 报的是一句话、不是 JSON
+      // （偶发，约四十轮一次）。所以有上限地等：宿主没认这次查询（CLI 报 did not answer）就隔一会儿再问，最多 20 秒。
+      // 宿主一旦给出 JSON 应答——准入还是不准入——就以它为准，不再问：真不准入、规则不对，照样判不过。
+      const askAdmission = async (caller: string): Promise<{ answer: any; asks: number }> => {
+        if (!teamCli) return { answer: null, asks: 0 }
+        const ask = () => new Promise<string>(resolve => { const c = spawn(process.execPath, [join(process.cwd(), 'cli/a2a.mjs'), 'admission', caller, '--json', '--home', H], { env: cliEnv(join(teamCli, '..')) }); let s = ''; c.stdout.on('data', d => { s += d }); c.stderr.on('data', d => { s += d }); c.on('close', () => resolve(s)) })
+        let last = '', asks = 0
+        const answered = await until(async () => {
+          asks += 1
+          last = await ask()
+          try { const v = JSON.parse(last); if (v !== null && typeof v === 'object') return { v } } catch { /* 不是 JSON，往下看是哪一种 */ }
+          // 只有宿主明说「没应答这次查询」才再问；别的输出（CLI 崩了、参数不对）当场算数，不白等
+          return /did not answer/.test(last) ? undefined : { v: last }
+        }, 20_000)
+        return { answer: answered ? answered.v : last, asks }
       }
-      rec('清单§2.4 准入：admitted=true，规则 remote-ref-*', admission?.admitted === true && /^remote-ref-/.test(String(admission?.rule)), JSON.stringify(admission).slice(0, 300))
+      const { answer: admission, asks: admissionAsks } = await askAdmission(marketSession)
+      rec('清单§2.4 准入：admitted=true，规则 remote-ref-*', admission?.admitted === true && /^remote-ref-/.test(String(admission?.rule)), `${JSON.stringify(admission).slice(0, 300)}（问了 ${admissionAsks} 次）`)
+      // 反例：没加进画布的来源。宿主这时已经认得这个 CLI 身份，给的是「不准入」的 JSON 应答——以它为准，只问一次
+      // （要是把「不准入」也当成没答好去重问，这里会问上 20 秒、次数不是 1）
+      const stranger = await askAdmission('market/deadbeef')
+      rec('清单§2.4 反例：没加进画布的来源不准入，宿主答了就不再问', stranger.answer?.admitted === false && stranger.asks === 1, `${JSON.stringify(stranger.answer).slice(0, 300)}（问了 ${stranger.asks} 次）`)
 
       // ---------- 派工：市场发布一件任务 ----------
       let runSeq = 0
@@ -275,7 +295,18 @@ describe('契约联调：市场 × superagent 宿主', () => {
       const listed = await call('GET', '/api/attention')
       const seatAsk = (listed.body?.items ?? []).find((x: any) => x.source === 'seat-asks')
       rec('提问出现在市场「关注」里（seat-asks）', seatAsk !== undefined, JSON.stringify((listed.body?.items ?? []).map((x: any) => [x.source, x.source_id, x.answers])).slice(0, 300))
-      const ans = await call('POST', '/api/attention/answer', { source: 'seat-asks', source_id: String(seatAsk?.source_id ?? deliveryId), answer: 'answer', input: { text: '测试环境' } })
+      // 代办答复的人：会话登录、持有管理层授予（本机命令行放行这条授予——管理层只有属主放得了，命令行代属主）
+      const { SESSIONS } = await import(pathToFileURL(join(MARKET_TREE, 'scripts/identity-fake-provider.mjs')).href)
+      const MGMT = { Cookie: `session_id=${SESSIONS.noAdminFlag}`, 'Sec-Fetch-Site': 'same-origin' }
+      const plain = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<{ status: number; body: any }> => {
+        const r = await fetch(M + path, { method, headers: { 'Content-Type': 'application/json', ...headers }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) })
+        let j: any = null; try { j = await r.json() } catch { /* 不是 JSON */ }
+        return { status: r.status, body: j }
+      }
+      await plain('GET', '/api/auth/viewer', undefined, MGMT)
+      const grant = await plain('POST', '/api/grants', { principal: 'user:no-flag', role: 'management', scope: '*', reason: '合成：管理层（代办答席位提问）' })
+      await plain('POST', `/api/grants/${grant.body?.grant?.id}/submit`); await plain('POST', `/api/grants/${grant.body?.grant?.id}/approve`)
+      const ans = await plain('POST', '/api/attention/answer', { source: 'seat-asks', source_id: String(seatAsk?.source_id ?? deliveryId), answer: 'answer', input: { text: '测试环境' } }, MGMT)
       if (ans.status === 404 || ans.status === 400 && /not_offered|unknown/.test(JSON.stringify(ans.body))) rec('答复：市场把人的答复作为同 context 新任务发回', false, `这一版市场没有答复席位提问的入口：${ans.status} ${JSON.stringify(ans.body).slice(0, 160)}`)
       else {
         rec('答复：市场记下答复并排发', ans.status < 300 && ans.body?.sent !== false, `${ans.status} ${JSON.stringify(ans.body).slice(0, 240)}`)

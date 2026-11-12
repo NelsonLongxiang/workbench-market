@@ -6,7 +6,7 @@
  *             别人的、建立人主体空着的都不出现，也不计数
  *   筛选：state、object、phase；计数在可见范围里按状态分组（不受 state 筛选影响）
  *   翻页：按 updated_at、id 倒序；游标一页页翻到底，不重不漏、顺序稳定；limit 缺省 100、上限 200
- *   每行：id、title、state、object、phase、seat、最后一条进展（谁、做了什么、那句话、什么时候）、updated_at
+ *   每行：id、title、state、object、phase、seat、cockpit_id（从哪个驾驶舱安排的，没有是 null）、最后一条进展（谁、做了什么、那句话、什么时候）、updated_at、等谁放行（release_by）
  *   拒绝：没登录、提供方不认的会话 401；跨站 403；坏的 state、limit、cursor 400
  *   启动自检：远程匿名打列表必须 401
  *
@@ -90,8 +90,8 @@ try {
 
   // ---------- 每行的字段 ----------
   const row = a.body.items.find((x) => x.title === 'alpha 在办 0');
-  check(row && show(Object.keys(row).sort()) === show(['id', 'last_progress', 'object', 'phase', 'seat', 'state', 'title', 'updated_at']) && row.state === 'progress' && row.seat === 'seat:checker' && row.object === 'po:1' && row.phase === 'p2',
-    '每行：id、title、state、object、phase、seat、last_progress、updated_at', show(row));
+  check(row && show(Object.keys(row).sort()) === show(['cockpit_id', 'id', 'last_progress', 'object', 'phase', 'release_by', 'seat', 'state', 'title', 'updated_at']) && row.cockpit_id === null && row.release_by === null && row.state === 'progress' && row.seat === 'seat:checker' && row.object === 'po:1' && row.phase === 'p2',
+    '每行：id、title、state、object、phase、seat、cockpit_id（不经驾驶舱的是 null）、last_progress、updated_at、release_by（不在等过目是 null）', show(row));
   check(row?.last_progress?.text === '对账做到第三步' && row.last_progress.fact === 'report' && typeof row.last_progress.at === 'string' && row.last_progress.at !== '', '最后一条进展取事项日志的最后一行：谁、做了什么、那句话、什么时候', show(row?.last_progress));
   const draft = a.body.items.find((x) => x.title === 'alpha 草稿 0');
   check(draft?.seat === '' && draft.last_progress?.fact === 'create', '没有接手席位的 seat 是空串；刚建的事项最后一条是「建立」', show(draft));

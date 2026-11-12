@@ -1,6 +1,6 @@
 /**
  * A2A 入站幂等登记（阶段七第 2 步）：task_id → 指纹，落 SQLite，取代 a2a.ts 里的进程内 Map。
- * 重启后同一个 task_id 仍判 replay / conflict。（多进程同时写同一个库还不行：库没设 busy_timeout，并发登记会抛 database is locked——全库存量，留给 outbox 那一步统一处理。）
+ * 重启后同一个 task_id 仍判 replay / conflict。（多进程同时写同一个库还不行：库只设了有上限的 busy_timeout（db-busy.ts），短暂重叠能等过去，长时间并发写照样会抛 database is locked。）
  *
  * 语义照旧（上游 idempotencyStore 同语义）：
  *   · 窗口 30 分钟：登记时刻起，now - created_at 超过窗口的行在下次登记时清掉，同一 task_id 重新算 fresh。

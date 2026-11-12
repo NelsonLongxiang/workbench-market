@@ -54,7 +54,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "2511", "etag": "W/\"9cf-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "2519", "etag": "W/\"9d7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "source": "initial",
               "roles": [
@@ -109,6 +109,7 @@
                         "stats",
                         "team",
                         "type",
+                        "vault",
                         "workbench"
                       ]
                     },
@@ -215,7 +216,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "8948", "etag": "W/\"22f4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "9096", "etag": "W/\"2388-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "blocks": [
                 { "key": "overview", "name": "全景" },
@@ -237,12 +238,12 @@
                     "overview": { "read": "all", "write": "na", "decide": "na", "admin": "all" },
                     "work": { "read": "all", "write": "all", "decide": "all", "admin": "all" },
                     "attention": { "read": "all", "write": "na", "decide": "all", "admin": "na" },
-                    "bench-data": { "read": "all", "write": "all", "decide": "na", "admin": "all" },
+                    "bench-data": { "read": "all", "write": "all", "decide": "all", "admin": "all" },
                     "team": { "read": "all", "write": "all", "decide": "all", "admin": "all" },
                     "access": { "read": "all", "write": "na", "decide": "na", "admin": "all" },
                     "system": { "read": "all", "write": "all", "decide": "all", "admin": "all" }
                   },
-                  "summary": { "see": "能看：全景（全部）、事项与对话（全部）、关注（全部）、工作台数据（全部）、团队与 AI 员工（全部）、权限与角色（全部）、系统与节点（全部）", "do": "能做：事项与对话（全部）、工作台数据（全部）、团队与 AI 员工（全部）、系统与节点（全部）；能管：全景（全部）、事项与对话（全部）、工作台数据（全部）、团队与 AI 员工（全部）、权限与角色（全部）、系统与节点（全部）", "decide": "能拍板：事项与对话（全部）、关注（全部）、团队与 AI 员工（全部）、系统与节点（全部）", "cannot": "没有整块碰不到的" }
+                  "summary": { "see": "能看：全景（全部）、事项与对话（全部）、关注（全部）、工作台数据（全部）、团队与 AI 员工（全部）、权限与角色（全部）、系统与节点（全部）", "do": "能做：事项与对话（全部）、工作台数据（全部）、团队与 AI 员工（全部）、系统与节点（全部）；能管：全景（全部）、事项与对话（全部）、工作台数据（全部）、团队与 AI 员工（全部）、权限与角色（全部）、系统与节点（全部）", "decide": "能拍板：事项与对话（全部）、关注（全部）、工作台数据（全部）、团队与 AI 员工（全部）、系统与节点（全部）", "cannot": "没有整块碰不到的" }
                 },
                 {
                   "id": "admin",
@@ -253,7 +254,7 @@
                     "overview": { "read": "none", "write": "na", "decide": "na", "admin": "all" },
                     "work": { "read": "none", "write": "none", "decide": "none", "admin": "all" },
                     "attention": { "read": "none", "write": "na", "decide": "none", "admin": "na" },
-                    "bench-data": { "read": "none", "write": "none", "decide": "na", "admin": "all" },
+                    "bench-data": { "read": "none", "write": "none", "decide": "none", "admin": "all" },
                     "team": { "read": "all", "write": "all", "decide": "none", "admin": "all" },
                     "access": { "read": "all", "write": "na", "decide": "na", "admin": "all" },
                     "system": { "read": "all", "write": "all", "decide": "none", "admin": "all" }
@@ -269,12 +270,12 @@
                     "overview": { "read": "all", "write": "na", "decide": "na", "admin": "none" },
                     "work": { "read": "all", "write": "all", "decide": "all", "admin": "none" },
                     "attention": { "read": "all", "write": "na", "decide": "all", "admin": "na" },
-                    "bench-data": { "read": "all", "write": "all", "decide": "na", "admin": "none" },
+                    "bench-data": { "read": "all", "write": "all", "decide": "all", "admin": "none" },
                     "team": { "read": "all", "write": "all", "decide": "all", "admin": "none" },
                     "access": { "read": "all", "write": "na", "decide": "na", "admin": "none" },
                     "system": { "read": "all", "write": "all", "decide": "all", "admin": "none" }
                   },
-                  "summary": { "see": "能看：全景（全部）、事项与对话（全部）、关注（全部）、工作台数据（全部）、团队与 AI 员工（全部）、权限与角色（全部）、系统与节点（全部）", "do": "能做：事项与对话（全部）、工作台数据（全部）、团队与 AI 员工（全部）、系统与节点（全部）；能管：无", "decide": "能拍板：事项与对话（全部）、关注（全部）、团队与 AI 员工（全部）、系统与节点（全部）", "cannot": "一律不能管理" }
+                  "summary": { "see": "能看：全景（全部）、事项与对话（全部）、关注（全部）、工作台数据（全部）、团队与 AI 员工（全部）、权限与角色（全部）、系统与节点（全部）", "do": "能做：事项与对话（全部）、工作台数据（全部）、团队与 AI 员工（全部）、系统与节点（全部）；能管：无", "decide": "能拍板：事项与对话（全部）、关注（全部）、工作台数据（全部）、团队与 AI 员工（全部）、系统与节点（全部）", "cannot": "一律不能管理" }
                 },
                 {
                   "id": "dept-lead",
@@ -285,12 +286,12 @@
                     "overview": { "read": "scoped", "write": "na", "decide": "na", "admin": "none" },
                     "work": { "read": "scoped", "write": "scoped", "decide": "scoped", "admin": "none" },
                     "attention": { "read": "scoped", "write": "na", "decide": "scoped", "admin": "na" },
-                    "bench-data": { "read": "scoped", "write": "scoped", "decide": "na", "admin": "none" },
+                    "bench-data": { "read": "scoped", "write": "scoped", "decide": "scoped", "admin": "none" },
                     "team": { "read": "scoped", "write": "scoped", "decide": "scoped", "admin": "none" },
                     "access": { "read": "scoped", "write": "na", "decide": "na", "admin": "none" },
                     "system": { "read": "scoped", "write": "scoped", "decide": "scoped", "admin": "none" }
                   },
-                  "summary": { "see": "能看：全景（范围内）、事项与对话（范围内）、关注（范围内）、工作台数据（范围内）、团队与 AI 员工（范围内）、权限与角色（范围内）、系统与节点（范围内）", "do": "能做：事项与对话（范围内）、工作台数据（范围内）、团队与 AI 员工（范围内）、系统与节点（范围内）；能管：无", "decide": "能拍板：事项与对话（范围内）、关注（范围内）、团队与 AI 员工（范围内）、系统与节点（范围内）", "cannot": "一律不能管理" }
+                  "summary": { "see": "能看：全景（范围内）、事项与对话（范围内）、关注（范围内）、工作台数据（范围内）、团队与 AI 员工（范围内）、权限与角色（范围内）、系统与节点（范围内）", "do": "能做：事项与对话（范围内）、工作台数据（范围内）、团队与 AI 员工（范围内）、系统与节点（范围内）；能管：无", "decide": "能拍板：事项与对话（范围内）、关注（范围内）、工作台数据（范围内）、团队与 AI 员工（范围内）、系统与节点（范围内）", "cannot": "一律不能管理" }
                 },
                 {
                   "id": "member",
@@ -301,12 +302,12 @@
                     "overview": { "read": "all", "write": "na", "decide": "na", "admin": "none" },
                     "work": { "read": "all", "write": "some", "decide": "self", "admin": "none" },
                     "attention": { "read": "all", "write": "na", "decide": "self", "admin": "na" },
-                    "bench-data": { "read": "all", "write": "some", "decide": "na", "admin": "none" },
+                    "bench-data": { "read": "all", "write": "some", "decide": "self", "admin": "none" },
                     "team": { "read": "all", "write": "none", "decide": "self", "admin": "none" },
                     "access": { "read": "all", "write": "na", "decide": "na", "admin": "none" },
                     "system": { "read": "all", "write": "none", "decide": "self", "admin": "none" }
                   },
-                  "summary": { "see": "能看：全景（全部）、事项与对话（全部）、关注（全部）、工作台数据（全部）、团队与 AI 员工（全部）、权限与角色（全部）、系统与节点（全部）", "do": "能做：事项与对话（部分）、工作台数据（部分）；能管：无", "decide": "能拍板：事项与对话（只限自己的）、关注（只限自己的）、团队与 AI 员工（只限自己的）、系统与节点（只限自己的）", "cannot": "一律不能管理" }
+                  "summary": { "see": "能看：全景（全部）、事项与对话（全部）、关注（全部）、工作台数据（全部）、团队与 AI 员工（全部）、权限与角色（全部）、系统与节点（全部）", "do": "能做：事项与对话（部分）、工作台数据（部分）；能管：无", "decide": "能拍板：事项与对话（只限自己的）、关注（只限自己的）、工作台数据（只限自己的）、团队与 AI 员工（只限自己的）、系统与节点（只限自己的）", "cannot": "一律不能管理" }
                 },
                 {
                   "id": "guest",
@@ -317,7 +318,7 @@
                     "overview": { "read": "none", "write": "na", "decide": "na", "admin": "none" },
                     "work": { "read": "none", "write": "none", "decide": "none", "admin": "none" },
                     "attention": { "read": "none", "write": "na", "decide": "none", "admin": "na" },
-                    "bench-data": { "read": "none", "write": "none", "decide": "na", "admin": "none" },
+                    "bench-data": { "read": "none", "write": "none", "decide": "none", "admin": "none" },
                     "team": { "read": "none", "write": "none", "decide": "none", "admin": "none" },
                     "access": { "read": "none", "write": "na", "decide": "na", "admin": "none" },
                     "system": { "read": "none", "write": "none", "decide": "none", "admin": "none" }
@@ -333,7 +334,7 @@
                     "overview": { "read": "scoped", "write": "na", "decide": "na", "admin": "none" },
                     "work": { "read": "scoped", "write": "scoped", "decide": "none", "admin": "none" },
                     "attention": { "read": "scoped", "write": "na", "decide": "none", "admin": "na" },
-                    "bench-data": { "read": "scoped", "write": "scoped", "decide": "na", "admin": "none" },
+                    "bench-data": { "read": "scoped", "write": "scoped", "decide": "none", "admin": "none" },
                     "team": { "read": "scoped", "write": "scoped", "decide": "none", "admin": "none" },
                     "access": { "read": "scoped", "write": "na", "decide": "na", "admin": "none" },
                     "system": { "read": "scoped", "write": "scoped", "decide": "none", "admin": "none" }
@@ -349,7 +350,7 @@
                     "overview": { "read": "all", "write": "na", "decide": "na", "admin": "none" },
                     "work": { "read": "all", "write": "all", "decide": "none", "admin": "none" },
                     "attention": { "read": "all", "write": "na", "decide": "none", "admin": "na" },
-                    "bench-data": { "read": "all", "write": "all", "decide": "na", "admin": "none" },
+                    "bench-data": { "read": "all", "write": "all", "decide": "none", "admin": "none" },
                     "team": { "read": "all", "write": "all", "decide": "none", "admin": "none" },
                     "access": { "read": "all", "write": "na", "decide": "na", "admin": "none" },
                     "system": { "read": "all", "write": "all", "decide": "none", "admin": "none" }
@@ -366,12 +367,7 @@
           "class": "unauthorized",
           "what": "远程、没有口令：列不出授予",
           "request": { "method": "GET", "path": "/api/grants", "headers": { "x-forwarded-for": "192.0.2.10" } },
-          "response": {
-            "status": 403,
-            "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
-          }
+          "response": { "status": 401, "type": "application/json; charset=utf-8", "headers": { "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "grants_auth_required" } }
         },
         {
           "id": "list-bad-status",
@@ -497,12 +493,7 @@
           "class": "unauthorized",
           "what": "远程、没有口令：看不了",
           "request": { "method": "GET", "path": "/api/grants/1", "headers": { "x-forwarded-for": "192.0.2.10" } },
-          "response": {
-            "status": 403,
-            "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
-          }
+          "response": { "status": 401, "type": "application/json; charset=utf-8", "headers": { "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "grants_auth_required" } }
         },
         {
           "id": "get-bad-id",
@@ -629,12 +620,7 @@
           "class": "unauthorized",
           "what": "远程、没有口令：放行不了",
           "request": { "method": "POST", "path": "/api/grants/1/approve", "headers": { "x-forwarded-for": "192.0.2.10" } },
-          "response": {
-            "status": 403,
-            "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
-          }
+          "response": { "status": 401, "type": "application/json; charset=utf-8", "headers": { "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "grants_auth_required" } }
         },
         {
           "id": "approve-missing",
