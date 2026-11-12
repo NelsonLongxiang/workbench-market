@@ -462,6 +462,8 @@ jobs:
         run: node scripts/skill-rollback-smoke.mjs
       - name: 驾驶舱布局吸附单测（#320：宽度只取 3/4/6/12·x 越界收回·不丢面板·读时迁移不回写）
         run: node scripts/cockpit-layout-unit.mjs
+      - name: 名字的显示规则单测（纯函数——名册、线和步的名字；单列一步）
+        run: node scripts/names-ui-unit.mjs
       - name: 待属主看板（作者核验：config.owner 只认属主本人·事项只认登记身份·答复只认属主·冒名点名不采信·只授三个工具）
         run: node scripts/owner-pending-unit.mjs && node scripts/owner-pending-board-smoke.mjs && node scripts/attention-ui-unit.mjs && node scripts/work-item-detail-ui-unit.mjs && node scripts/market-ui-unit.mjs && node scripts/home-ui-unit.mjs && node scripts/arrange-ui-unit.mjs && node scripts/review-ui-unit.mjs
       - name: 数据视图组件单测（纯函数——格式、取值说法、按值着色、图表配置；单列一步，不和上面那行挤在一起）
