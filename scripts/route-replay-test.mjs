@@ -676,7 +676,7 @@ async function bootOnce(tag, env, clock, fixtures) {
 /** 场景的 seed：往实例的库里写几行。checkCassette 已经核过形状，这里表名、列名都只会是小写字母和下划线 */
 function seedInstance(dataDir, seed) {
   if (!seed?.length) return;
-  const db = new DatabaseSync(join(dataDir, 'workbench-market.db'));
+  const db = new DatabaseSync(join(dataDir, 'workbench-market.db'), { timeout: 5000 });
   try {
     db.exec('PRAGMA busy_timeout=5000');
     for (const { table, row } of seed) {

@@ -81,6 +81,11 @@ export const RED_LINES: readonly RedLine[] = [
     enforced_in: 'server/src/services/relation-proposal.ts、server/src/routes/teams.ts、server/src/routes/departments.ts', test: 'scripts/teams-smoke.mjs',
   },
   {
+    id: 'dept-lead-field-no-power', title: '部门负责人字段单独不带来权力',
+    detail: '部门负责人的权力只来自这个部门范围的拍板授予。属主确认（或直接指定）部门负责人时，同一事务里落字段、发授予；字段从别的来源写进来（存量、导入、同步、直接写库）只是「待属主放行」：不算团队负责人、分不了成员、放不了行、确认不了认领，启动时补记一条负责人提议给属主。撤掉授予权力当场就没；换人、移除时收回随负责人发的那条。',
+    enforced_in: 'server/src/services/dept-lead-grant.ts、server/src/services/team.ts、server/src/team-relation.ts', test: 'scripts/teams-smoke.mjs',
+  },
+  {
     id: 'system-admin-no-business', title: '系统管理员缺省看不到业务数据',
     detail: '系统管理员只有系统域的读写管，业务域（事项、工作台数据、关注……）要另外授予。',
     enforced_in: 'server/src/roles.ts', test: 'scripts/role-presets-test.mjs',

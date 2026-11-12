@@ -66,7 +66,7 @@ async function boot(name, extraEnv = {}) {
   };
   if (!ready) { await stop(); return { failed: true, code: child.exitCode, log }; }
   // 种一个 SOP 台和四个 run：1、2、4 在执行，3 已结束；各有自己的上传令牌
-  const db = new DatabaseSync(join(data, 'workbench-market.db'));
+  const db = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 });
   try {
     db.exec('PRAGMA busy_timeout=5000');
     const app = db.prepare("INSERT INTO apps (slug, title, kind, status, active_version) VALUES ('rw-sop', '写守卫 SOP', 'sop', 'published', 1)").run();
@@ -116,7 +116,7 @@ try {
       '拒绝：匿名、别的 run 的上传令牌、错的令牌、登录的非管理员、带有效口令的跨站、非 ASCII 令牌——保存和完成都 403', show(denied.map((r) => r.status)));
     const finished = [await save(srv, 3, { ...REMOTE, 'x-run-upload-token': TOK[3] }), await finish(srv, 3, { ...REMOTE, 'x-run-upload-token': TOK[3] })];
     check(finished.every((r) => r.status === 403), '令牌对、但 run 已结束：403（结束了的 run 不再凭上传令牌写）', show(finished.map((r) => r.status)));
-    const data1 = (() => { const db = new DatabaseSync(join(srv.data, 'workbench-market.db')); try { return db.prepare('SELECT data FROM sop_runs WHERE id = 1').get().data; } finally { db.close(); } })();
+    const data1 = (() => { const db = new DatabaseSync(join(srv.data, 'workbench-market.db'), { timeout: 5000 }); try { return db.prepare('SELECT data FROM sop_runs WHERE id = 1').get().data; } finally { db.close(); } })();
     check(data1 === '{}', '被拒的写一条都没落进 run', data1);
   }
   // ---------- 存在与否：应答逐字节相同，耗时没有稳定差别 ----------

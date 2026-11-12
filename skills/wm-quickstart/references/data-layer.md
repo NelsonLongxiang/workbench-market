@@ -35,6 +35,7 @@
 - 页面凭本台令牌可以读写本台的变量和常量，也可以读写本台的数据面和文件面。
 - agent 用 MCP：`workbench_vars_get`、`workbench_vars_set`（MCP 不能修订常量）、`app_data_submit`、`app_files_upload`。
 - 改已存在的变量要带期望的 `revision`（`If-Match` 或 `revision` 参数），不符返回 409。拿到 409 后重读再写，不要硬覆盖。
+- 往数据面提交（`POST /api/apps/<slug>/data` 或 `app_data_submit`）带幂等键时，**每次新提交生成一个随机的键**（比如 `crypto.randomUUID()`），只在重试同一次提交时复用它。不要用业务字段、日期或内容拼键：键只在同一个提交方之间算重复：台页面的提交（不管是谁）是一方，每个 MCP 会话各是一方。页面上两次不同的提交撞了键，后一次会被当成重复或拒绝（409）。
 
 ## 读不到时
 

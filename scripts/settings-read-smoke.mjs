@@ -79,7 +79,7 @@ try {
 
   // 埋金丝雀：凭据类的值、内网地址、上游的 headers
   {
-    const db = new DatabaseSync(join(data, 'workbench-market.db'));
+    const db = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 });
     try {
       db.exec('PRAGMA busy_timeout=5000');
       const put = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');

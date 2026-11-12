@@ -122,7 +122,7 @@ async function boot(name, extraEnv = {}, dataOf = null) {
 
 /** 给实例种一个带私有值的已结束 run，只授权给 user:alpha */
 function seedRun(srv) {
-  const db = new DatabaseSync(join(srv.data, 'workbench-market.db'));
+  const db = new DatabaseSync(join(srv.data, 'workbench-market.db'), { timeout: 5000 });
   try {
     db.exec('PRAGMA busy_timeout=5000');
     db.prepare("INSERT INTO sop_runs(id,sop_slug,sop_version,status,started_by,data,finished_at) VALUES(?,?,1,'finished','synthetic',?,datetime('now'))").run(RUN_ID, 'synthetic-private', JSON.stringify({ step: { value: PRIVATE } }));
@@ -315,7 +315,7 @@ async function principalChecks(srv, tag, relay) {
   }
   // ⑧ 标识被一个已有的主体占着：新来的登录不自动认领它
   {
-    const db = new DatabaseSync(join(srv.data, 'workbench-market.db'));
+    const db = new DatabaseSync(join(srv.data, 'workbench-market.db'), { timeout: 5000 });
     try { db.exec('PRAGMA busy_timeout=5000'); db.prepare("INSERT INTO principals (id, id_key, kind, display_name) VALUES ('user:squatted', 'user:squatted', 'person', 'Synthetic owner')").run(); } finally { db.close(); }
     const o = await observe(srv, SESSIONS.squatter);
     const row = (await principalsOf(srv) ?? []).find((p) => p.id === 'user:squatted');
@@ -414,7 +414,7 @@ async function principalChecks(srv, tag, relay) {
   }
   // ⑪ 授权跟着主体走，不跟着登录名走：把 beta 这个外部身份改绑到 alpha 的主体上，它就是 user:alpha，读得到授权给 user:alpha 的 run 私有值
   {
-    const rebind = (to) => { const db = new DatabaseSync(join(srv.data, 'workbench-market.db')); try { db.exec('PRAGMA busy_timeout=5000'); db.prepare("UPDATE principal_identities SET principal_id = ? WHERE provider = 'fake' AND external_id = 'beta'").run(to); } finally { db.close(); } };
+    const rebind = (to) => { const db = new DatabaseSync(join(srv.data, 'workbench-market.db'), { timeout: 5000 }); try { db.exec('PRAGMA busy_timeout=5000'); db.prepare("UPDATE principal_identities SET principal_id = ? WHERE provider = 'fake' AND external_id = 'beta'").run(to); } finally { db.close(); } };
     rebind('user:alpha');
     const who = await srv.call('GET', '/api/auth/viewer', SESSIONS.beta), as = await observe(srv, SESSIONS.beta), ext = await srv.call('GET', '/api/seam-probe/who', SESSIONS.beta);
     rebind('user:beta');
@@ -477,7 +477,7 @@ async function gatePrincipalChecks(srv, tag, relay) {
     const items = Array.isArray(list.json) ? list.json : (list.json?.pending ?? list.json?.items ?? []);
     const mine = items.filter((p) => p.external_id === 'Alpha');
     const keys = mine[0] ? Object.keys(mine[0]).sort().join(',') : '';
-    const db = new DatabaseSync(join(srv.data, 'workbench-market.db'));
+    const db = new DatabaseSync(join(srv.data, 'workbench-market.db'), { timeout: 5000 });
     let rows = [];
     try { rows = db.prepare("SELECT provider, external_id, appearance FROM principal_pending WHERE external_id IN ('Alpha', 'beta')").all(); } finally { db.close(); }
     const att = await srv.call('GET', '/api/attention', null, undefined, TOKEN);

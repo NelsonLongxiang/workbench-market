@@ -21,6 +21,11 @@ function gatewayUrl(): string {
   return String(process.env.EVAL_GATEWAY_URL ?? '').trim() || DEFAULT_GATEWAY;
 }
 
+/** 实例上配没配评估模型（有没有 AI_GATEWAY_API_KEY）：没配时 skill_search 退回关键词匹配；配了但调不通照旧报错不降级 */
+export function evalConfigured(): boolean {
+  try { apiKey(); return true; } catch { return false; }
+}
+
 function apiKey(): string {
   const k = String(process.env.AI_GATEWAY_API_KEY ?? '').trim();
   if (!k) throw new EvalUnavailableError('AI_GATEWAY_API_KEY 未配置——skill_search 不可用（不降级）');
