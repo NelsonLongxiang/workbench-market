@@ -101,6 +101,15 @@ export function listBenchMcp(bench: string) {
     .map((r) => ({ id: Number(r.id), session_id: Number(r.session_id), action: String(r.action), tools: parseTools(r.tools), actor: String(r.actor), request_id: r.request_id === null ? null : Number(r.request_id), note: String(r.note), at: Number(r.at) }));
   return { grants: [...grants.values()], requests, log };
 }
+/** 所有登记过的台上还没定的申请（「关注」里的待批清单用）。台没登记的申请不在里面：没有人能批它 */
+export function pendingBenchRequests(limit = 200) {
+  return (db.prepare(`SELECT q.id, q.bench, q.tools, q.reason, q.created_at, s.name AS session, b.title AS bench_title
+    FROM bench_mcp_requests q JOIN bench_views b ON b.slug = q.bench LEFT JOIN mcp_sessions s ON s.id = q.session_id
+    WHERE q.status = 'pending' ORDER BY q.id LIMIT ?`).all(limit) as Row[]).map((r) => ({
+    id: Number(r.id), bench: String(r.bench), bench_title: String(r.bench_title), session: r.session === null ? '' : String(r.session), reason: String(r.reason), created_at: Number(r.created_at),
+    tools: parseTools(r.tools).map((t) => ({ tool: t, category: CATEGORY.get(t) ?? 'write' })),
+  }));
+}
 /** 批准或驳回一条申请。申请得是这个台的、还没定过的 */
 export function decideBenchRequest(bench: string, id: number, approve: unknown, actor: string, note: unknown, at: number) {
   if (typeof approve !== 'boolean') throw new BenchError('invalid', '要给 approve（true 批准 / false 驳回）');

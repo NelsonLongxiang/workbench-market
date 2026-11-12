@@ -16,6 +16,7 @@
  *   owner-pending     GET /api/workbenches/:id/vars（看板台）  vars 接口的读门                提问
  *   principal-pending GET /api/principals/pending              主体路由的管理门               授权
  *   work-items        没有旧接口：验收 = ready（看得到这件事项的人）；过目 = held（管理员）  验收 / 过目
+ *   bench-mcp         GET /api/bench-views/<台>/mcp-grants（台上的 MCP 授予申请）  那组路由自己的门（benchMcpDecider：先拒管理口令，再按「拍板」问判定）  授权
  *   a2a-peers         GET /api/a2a/peers（对端名片的公钥变了、等确认的）adminGuard           授权
  *   team-health       GET /api/teams（待认领、不在名册里、没有负责人的团队；名册超过阈值没更新的节点） adminGuard  过目
  *   relation-proposals GET /api/relations/proposals（这个人能确认的关系提议，和确认接口同一处 confirmRefusal） 登录的人   授权
@@ -31,6 +32,8 @@ import { principalsAdmin } from './routes/principals.ts';
 import { sopRunAcceptance } from './routes/sop-run-lifecycle.ts';
 import { buildBoard, findBoardWorkbench, parseConfig, BOARD_PATH, type BoardVar } from './owner-pending.ts';
 import { openSeatAsks } from './services/attention-sources.ts';
+import { benchMcpDecider, benchViewsConfig } from './routes/bench-views.ts';
+import { pendingBenchRequests } from './services/bench-mcp.ts';
 
 /** 提问回执带的选项，接在问题后面给人看（答复仍是自由文本） */
 function optionsHint(json: string): string {
@@ -122,6 +125,25 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
         }));
       },
     }),
+    // 入口（WM_BENCH_VIEWS）关着时不登记这个来源：「关注」的应答里不出现它
+    ...(benchViewsConfig().on ? [
+    provide({
+      // 数据视图：会话申请在某个台上用 MCP 工具。谁看得到、谁能批，和 /api/bench-views/<台>/mcp-requests/<编号> 是同一处判断：
+      // 有「拍板」的人（现在是管理层）；系统管理员和管理口令看不到——台里是业务数据
+      source: 'bench-mcp', label: '台的 MCP 授予申请',
+      list: async (req) => {
+        if (!benchMcpDecider || !(await benchMcpDecider(req, silentRes()))) return null;
+        return pendingBenchRequests().map((r) => item({
+          source: 'bench-mcp', source_id: `${r.bench}:${r.id}`, category: 'grant', kind: 'bench-mcp',
+          title: `MCP 会话 ${r.session || '（已删）'} 申请在「${r.bench_title}」上用 ${r.tools.length} 个工具${r.tools.some((t) => t.category === 'write') ? '（含写）' : '（只读）'}`,
+          waiting_for: r.session ? `mcp:${r.session}` : '', since: new Date(r.created_at).toISOString(), answers: ['approve', 'reject'], link: '',
+          // answer_via：答复入口（/api/attention/answer）在写请求总门后面，远程的非管理员过不了门；这类人直接调台上的这条路由，判断是同一处。
+          // 请求体 { approve: true | false, note }，不批时 note 写理由
+          detail: { session: r.session, bench: r.bench, bench_title: r.bench_title, tools: r.tools, reason: r.reason, answer_via: { method: 'POST', path: `/api/bench-views/${r.bench}/mcp-requests/${r.id}` } },
+        }));
+      },
+    }),
+    ] : []),
     provide({
       source: 'seat-asks', label: '席位的提问',
       // 旧接口 /api/workbench-events 在 ADMIN_IDENTITY_PATHS 里，会话登录的管理员在那里也算管理员
