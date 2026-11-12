@@ -57,6 +57,9 @@ ok('对照里有的：给说法和颜色；只写文字的没有颜色', JSON.st
 ok('对照里没有的取值、没有对照的列：不给说法（表格显示灰色原文）', v.valueLabel(L, 'status', 'late') === null && v.valueLabel(L, 'other', 'done') === null && v.valueLabel(null, 'status', 'done') === null && v.valueLabel('x', 'status', 'done') === null);
 ok('不认识的颜色当成缺省；没有文字的不算', v.valueLabel(L, 'status', 'odd').tone === 'default' && v.valueLabel(L, 'status', 'bad') === null && v.valueLabel(L, 'status', 'empty') === null);
 ok('取值和列名撞上对象原型上的名字：不当成有对照', v.valueLabel(L, 'status', 'constructor') === null && v.valueLabel(L, 'toString', 'done') === null && v.valueLabel(L, '__proto__', 'x') === null);
+// 只认自己带的键：继承来的、原型上的一律当作没有（这三条在把 Object.hasOwn 换成普通下标取值时会红）
+ok('列是继承来的：当作没有对照', v.valueLabel(Object.create({ status: { done: '继承来的' } }), 'status', 'done') === null && v.valueLabel({}, 'constructor', 'name') === null && v.valueLabel({}, 'toString', 'name') === null && v.valueLabel({}, '__proto__', 'constructor') === null);
+ok('取值是继承来的：当作没有说法', v.valueLabel({ status: Object.create({ done: '继承来的', late: { text: '也是继承来的' } }) }, 'status', 'done') === null && v.valueLabel({ status: Object.create({ late: { text: '也是继承来的' } }) }, 'status', 'late') === null && v.valueLabel({ status: {} }, 'status', 'constructor') === null && v.valueLabel({ status: {} }, 'status', '__proto__') === null && v.valueLabel({ status: {} }, 'status', 'toString') === null);
 ok('数字、布尔的取值按文本对', v.valueLabel({ n: { 1: '一', true: '是' } }, 'n', 1).text === '一' && v.valueLabel({ n: { 1: '一', true: '是' } }, 'n', true).text === '是');
 const wl = v.withLabelColumns({ columns: [col('status', 'text'), col('n', 'integer'), { ...col('who', 'text'), display: 'person' }], rows: [] }, { status: {}, who: {} });
 ok('有对照的列按状态画；已经指定了画法的不改；别的列不动', wl.columns[0].display === 'status' && wl.columns[1].display === undefined && wl.columns[2].display === 'person' && v.withLabelColumns(null, L) === null);
@@ -65,6 +68,7 @@ console.log('按值着色');
 const R = v.toneRules([{ col: 'm', op: '<', value: 20, tone: 'danger' }, { col: 'm', op: '<', value: 25, tone: 'warning' }, { col: 'm', op: '>=', value: 30, tone: 'success' }]);
 ok('最多两条规则；写错的当作没有', R.length === 2 && v.toneRules('x').length === 0 && v.toneRules([{ col: 'm', op: 'like', value: 1, tone: 'danger' }, { col: 'm', op: '<', value: '20', tone: 'danger' }, { col: 'm', op: '<', value: 1, tone: '#ff0000' }, { col: 'm', op: 'constructor', value: 1, tone: 'danger' }, null]).length === 0);
 ok('按先后，第一条满足的算；都不满足没有；那一列不是数字没有', v.toneOf({ m: 12 }, R) === 'danger' && v.toneOf({ m: 22 }, R) === 'warning' && v.toneOf({ m: 40 }, R) === null && v.toneOf({ m: '12' }, R) === null && v.toneOf({}, R) === null && v.toneOf(undefined, R) === null);
+ok('行里那一列是继承来的、或者列名是原型上的名字：当作没有这个值', v.toneOf(Object.create({ m: 5 }), R) === null && v.toneOf({}, v.toneRules([{ col: 'constructor', op: '!=', value: 0, tone: 'danger' }, { col: '__proto__', op: '!=', value: 0, tone: 'danger' }])) === null && v.toneOf(Object.create({ toString: 1 }), v.toneRules([{ col: 'toString', op: '>', value: 0, tone: 'danger' }])) === null);
 ok('六种比较符', ['<', '<=', '>', '>=', '=', '!='].map((op) => v.toneOf({ m: 20 }, v.toneRules([{ col: 'm', op, value: 20, tone: 'danger' }])) ? 1 : 0).join('') === '010110');
 ok('说明那一行：红 = 列的显示名 低于 值（带单位）', v.toneNote(R, { columns: [col('m', 'decimal', '毛利率')], rows: [] }, '%') === '红 = 毛利率低于 20%；黄 = 毛利率低于 25%', v.toneNote(R, { columns: [col('m', 'decimal', '毛利率')], rows: [] }, '%'));
 
