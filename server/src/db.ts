@@ -1252,3 +1252,56 @@ export function rowToWorkbench(r: WorkbenchRow) {
   const { auth_config: _ac, ...rest } = r;
   return { ...rest, enabled: !!r.enabled, tags, auth };
 }
+// ---------- 台库（数据视图，docs/data-views.md）----------
+// 每个视图台一份自己的库，和上面的主库分开。表结构照约定登记在这里；语句由 services/bench-store.ts 在台自己的库上执行，不在主库上跑。
+// 只用两种库都认的写法；随库不同的只有类型名和自增主键，收在下面两个小函数里。时间一律由调用方给（毫秒整数），不在语句里取。
+export const BENCH_STORE_SCHEMA_VERSION = 1;
+export type BenchDialect = 'sqlite' | 'postgres';
+export type BenchColumnType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'boolean';
+
+const benchAutoId = (d: BenchDialect) => (d === 'sqlite' ? 'INTEGER PRIMARY KEY AUTOINCREMENT' : 'BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY');
+/** 数据集的列在库里用什么类型存：日期和时间存成规范化的文本（可排序、两种库一样），布尔存 0/1 */
+export function benchSqlType(d: BenchDialect, t: BenchColumnType): string {
+  if (t === 'integer') return d === 'sqlite' ? 'INTEGER' : 'BIGINT';
+  if (t === 'decimal') return d === 'sqlite' ? 'REAL' : 'DOUBLE PRECISION';
+  if (t === 'boolean') return d === 'sqlite' ? 'INTEGER' : 'SMALLINT';
+  return 'TEXT';
+}
+
+/** 「这一列的文本里包含某段文本」（区分大小写）：两种库的函数名不同。列名由调用方先核对，值走参数 */
+export const benchContainsExpr = (d: BenchDialect, col: string) => (d === 'sqlite' ? `instr(${col}, ?) > 0` : `strpos(${col}, ?) > 0`);
+
+/** 台库里固定的几张表（第 1 版）。数据集自己的表按列定义另建，见 benchDatasetCreate */
+export function benchStoreSchema(d: BenchDialect): string[] {
+  const big = d === 'sqlite' ? 'INTEGER' : 'BIGINT';
+  return [
+    `CREATE TABLE IF NOT EXISTS bs_meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS bs_datasets (
+      name TEXT PRIMARY KEY, title TEXT NOT NULL, version INTEGER NOT NULL, columns TEXT NOT NULL, key_cols TEXT NOT NULL,
+      row_count INTEGER NOT NULL, created_at ${big} NOT NULL, updated_at ${big} NOT NULL, updated_by TEXT NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS bs_dataset_versions (
+      dataset TEXT NOT NULL, version INTEGER NOT NULL, title TEXT NOT NULL, columns TEXT NOT NULL, key_cols TEXT NOT NULL,
+      author TEXT NOT NULL, note TEXT NOT NULL, at ${big} NOT NULL, PRIMARY KEY (dataset, version))`,
+    `CREATE TABLE IF NOT EXISTS bs_view_versions (
+      version INTEGER PRIMARY KEY, content TEXT NOT NULL, sha256 TEXT NOT NULL, author TEXT NOT NULL, note TEXT NOT NULL, at ${big} NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS bs_snapshots (
+      id ${benchAutoId(d)}, dataset TEXT NOT NULL, dataset_version INTEGER NOT NULL, reason TEXT NOT NULL,
+      row_count INTEGER NOT NULL, content TEXT NOT NULL, content_sha256 TEXT NOT NULL, author TEXT NOT NULL, at ${big} NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS bs_writes (
+      id ${benchAutoId(d)}, dataset TEXT NOT NULL, op TEXT NOT NULL, idem_key TEXT UNIQUE, body_sha256 TEXT NOT NULL,
+      row_count INTEGER NOT NULL, actor TEXT NOT NULL, at ${big} NOT NULL, result TEXT NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS bs_changes (
+      id ${benchAutoId(d)}, kind TEXT NOT NULL, target TEXT NOT NULL, from_version INTEGER NOT NULL, to_version INTEGER NOT NULL,
+      actor TEXT NOT NULL, note TEXT NOT NULL, at ${big} NOT NULL)`,
+    `CREATE INDEX IF NOT EXISTS idx_bs_snapshots_dataset ON bs_snapshots (dataset, id)`,
+  ];
+}
+
+/** 数据集的表：一个自增行号加各列。表名、列名由调用方先按白名单校验并加前缀，这里只拼 */
+export function benchDatasetCreate(d: BenchDialect, table: string, cols: { col: string; type: BenchColumnType }[]): string {
+  return `CREATE TABLE ${table} (rid ${benchAutoId(d)}${cols.map((c) => `, ${c.col} ${benchSqlType(d, c.type)}`).join('')})`;
+}
+export const benchDatasetAddColumn = (d: BenchDialect, table: string, col: string, type: BenchColumnType) => `ALTER TABLE ${table} ADD COLUMN ${col} ${benchSqlType(d, type)}`;
+export const benchDatasetDropColumn = (table: string, col: string) => `ALTER TABLE ${table} DROP COLUMN ${col}`;
+export const benchDatasetKeyIndex = (table: string, index: string, cols: string[]) => `CREATE UNIQUE INDEX ${index} ON ${table} (${cols.join(', ')})`;
+export const benchDatasetDropIndex = (index: string) => `DROP INDEX IF EXISTS ${index}`;
