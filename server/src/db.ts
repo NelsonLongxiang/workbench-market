@@ -1008,6 +1008,20 @@ CREATE TRIGGER work_item_log_no_update BEFORE UPDATE ON work_item_log
 if (!(db.prepare('PRAGMA table_info(work_items)').all() as { name: string }[]).some((c) => c.name === 'creator_principal')) {
   db.exec("ALTER TABLE work_items ADD COLUMN creator_principal TEXT CHECK (creator_principal IS NULL OR creator_principal GLOB 'user:?*')");
 }
+// 规范 14 第 2 步：事项是怎么交出去的（建的时候记下，之后分配变了也不改）。
+//   handoff：team = 交给团队（总工分派；存量一律算这个），own-seat = 交给自己的 AI 员工，lead-directed = 负责人指名
+//   review_by：等谁过目——lead = 目标团队的负责人，requester = 建立人自己（交给自己的 AI 员工时勾了「先过目再派出去」），空 = 不过目
+//   directed_seat_id：指名的席位（seatId，形如 seat-<8hex>；句柄跟会话走会变，不存句柄）。第 3 步才按它派
+//   seat_id、seat_at：承接席位的 seatId 和第一次有承接的时间（「我的 AI 员工手上的」按这个时间点查分配）；由记承接的那一路写
+for (const [column, ddl] of [
+  ['handoff', "handoff TEXT NOT NULL DEFAULT 'team' CHECK (handoff IN ('team', 'own-seat', 'lead-directed'))"],
+  ['review_by', "review_by TEXT NOT NULL DEFAULT '' CHECK (review_by IN ('', 'lead', 'requester'))"],
+  ['directed_seat_id', "directed_seat_id TEXT NOT NULL DEFAULT ''"],
+  ['seat_id', "seat_id TEXT NOT NULL DEFAULT ''"],
+  ['seat_at', "seat_at TEXT NOT NULL DEFAULT ''"],
+] as const) {
+  if (!(db.prepare('PRAGMA table_info(work_items)').all() as { name: string }[]).some((c) => c.name === column)) db.exec(`ALTER TABLE work_items ADD COLUMN ${ddl}`);
+}
 db.exec(`
 CREATE TRIGGER IF NOT EXISTS work_items_creator_principal_once BEFORE UPDATE OF creator_principal ON work_items
   WHEN OLD.creator_principal IS NOT NULL AND NEW.creator_principal IS NOT OLD.creator_principal

@@ -670,7 +670,12 @@
       "object TEXT NOT NULL DEFAULT ''",
       "phase TEXT NOT NULL DEFAULT ''",
       "updated_at TEXT NOT NULL DEFAULT datetime('now')",
-      "creator_principal TEXT"
+      "creator_principal TEXT",
+      "handoff TEXT NOT NULL DEFAULT 'team'",
+      "review_by TEXT NOT NULL DEFAULT ''",
+      "directed_seat_id TEXT NOT NULL DEFAULT ''",
+      "seat_id TEXT NOT NULL DEFAULT ''",
+      "seat_at TEXT NOT NULL DEFAULT ''"
     ],
     "workbench_event_deliveries": [
       "id INTEGER PK",

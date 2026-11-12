@@ -405,7 +405,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   remote-allow.ts（远程写豁免面的快照）
   submission-counts.ts（「人提需求」的提交计数：只记通道、有没有登录凭据、认没认出人，按天累计次数，不存内容；提交人票据验得过、验不过的次数）
   task-center.ts（任务中心：任务、事件、总开关、状态迁移）
-  work-item.ts（事项与事项日志：Cordis 服务 `workItems`·按迁移表推进状态的唯一入口 `apply`·日志只增不改；听 workbench-events 每写一行事件日志发的 `workbench-event/logged`，在来源的事务里用保存点推进事项，出错不影响来源、按事实种类计数；`backfill()` 从事件表和事件日志补建存量事项，可重跑；建事项时标题取任务中心的任务标题（取不到退到来源坐标）、派给取投递的目标团队，存量里还是自动缺省值的启动时补上；建立人主体 `creator_principal` 只取发布时经身份服务认出、来源已验证的人，认不出就空着，「是不是他的」只认它（`isCreator`），`created_by` 只用于显示（认出提需求人时就是他的主体，认不出才用事件上自填的名字；不拿发布人顶替））
+  work-item.ts（事项与事项日志：Cordis 服务 `workItems`·按迁移表推进状态的唯一入口 `apply`·日志只增不改；听 workbench-events 每写一行事件日志发的 `workbench-event/logged`，在来源的事务里用保存点推进事项，出错不影响来源、按事实种类计数；`backfill()` 从事件表和事件日志补建存量事项，可重跑；建事项时记下交给方式（handoff：team / own-seat / lead-directed，存量是 team）、等谁过目（review_by）和指名的席位（directed_seat_id，只认 seatId），都从事件层 recorded 那一行取；建事项时标题取任务中心的任务标题（取不到退到来源坐标）、派给取投递的目标团队，存量里还是自动缺省值的启动时补上；建立人主体 `creator_principal` 只取发布时经身份服务认出、来源已验证的人，认不出就空着，「是不是他的」只认它（`isCreator`），`created_by` 只用于显示（认出提需求人时就是他的主体，认不出才用事件上自填的名字；不拿发布人顶替））
 server/src/routes/    按域分的路由模块，各带一个注册函数（一个文件一行，按文件名排序）：
   a2a-direct.ts（A2A 入站 /a2a/direct：POST 收对端投递（回执分流、入站签名、绑定准入），GET 一律 404）
   a2a-outbound.ts（A2A 出站的两条管理面：/api/a2a/state 本节点 A2A 身份概况、/api/a2a/send 以市场身份发一条消息；都只给管理员，send 只发给对端登记表里 active 的对端，发往登记的根地址）
