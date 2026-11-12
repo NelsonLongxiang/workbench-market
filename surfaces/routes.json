@@ -142,6 +142,7 @@
       "POST /api/work-items/:id/asks/:qid/answer  <- <anonymous>",
       "POST /api/work-items/:id/messages/read  <- <anonymous>",
       "POST /api/work-items/:id/messages/:mid/reply  <- <anonymous>",
+      "POST /api/work-items/:id/release  <- <anonymous>",
       "POST /api/work-items/:id/decision  <- <anonymous>",
       "GET /api/a2a/teams  <- <anonymous>",
       "POST /api/skills/:slug/install  <- <anonymous>",
