@@ -158,6 +158,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/sider-menu-browser.mjs
+      - name: 「等你拍板」三处同数（侧栏角标 · 总结句 · 卡片区件数；只数轮到你且能当场办的；数据走接口造）
+        env:
+          PYTHON: python
+        run: node scripts/home-count-browser.mjs
       - name: SOP 交付空间浏览器回归（#318：执行记录元数据·单次记录读授权由服务端判·定义不带正文·刷新不丢·附件带口令下载）
         env:
           PYTHON: python
