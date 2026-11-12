@@ -386,7 +386,7 @@ const MUTANTS = [
   { id: 'custom-delete-in-use', what: '有授予在用的自定义角色也能删', file: GRANT_ROUTES, suites: [CUSTOM],
     find: "    if (using.length) return res.status(409)", replace: "    if (false) return res.status(409)" },
   { id: 'builtin-cli-extra', what: '本机命令行清单多列了一个今天要口令的管理面', file: BUILTINS_FILE, suites: [ZERO],
-    find: "      'attention.read',\n      'cockpit.create',\n", replace: "      'attention.read',\n      'binding.list',\n      'cockpit.create',\n" },
+    find: "      'auth.me',\n      'cockpit.create',\n", replace: "      'auth.me',\n      'binding.list',\n      'cockpit.create',\n" },
   { id: 'acts-for-owner-dropped', what: '去掉「口令代属主行事」的登记', file: BUILTINS_FILE, suites: [ZERO],
     find: "      'attention.answer',\n      'change-request.approve',\n      'change-request.reject',\n      'mcp.access-approve',\n      'mcp.access-reject',\n", replace: '' },
   { id: 'integrity-not-separate', what: '被完整性门拦下的不单列，拿去和判定比', file: COMPARE, suites: [ZERO, JUDGE],
