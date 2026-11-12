@@ -1,0 +1,223 @@
+/**
+ * 团队与分配的接口（规范 14 第 1 步）。不改任何现有行为：过目还归管理员，安排还是只交给团队。
+ *
+ *   GET  /api/teams                  团队页：部门 → 团队（状态、负责人、总工）→ 成员（分配给谁、在办几件）；待认领的单列（只给管理员）。
+ *                                    按看的人的可见范围在服务端裁好，页面只渲染。名册部分取自节点名册（services/a2a-roster.ts）。
+ *   GET  /api/teams/mine             「我的 AI 员工」：分配给我的成员；我是负责人的，加上我的团队和它的总工。
+ *   POST /api/teams/claim            认领团队并挂部门（已认领的就是换部门）。管理员。
+ *   POST /api/teams/release          退回待认领。管理员。
+ *   POST /api/teams/leads            另外指定一个负责人。管理员。
+ *   POST /api/teams/leads/remove     移除负责人（最后一个不能直接移除，409）。管理员。
+ *   POST /api/teams/assign           把成员分配给员工。这个团队的负责人，或者管理员（过渡期代办）。
+ *   POST /api/teams/unassign         收回。同上。
+ *
+ * 谁能看到哪些团队（读）：
+ *   · 管理员（口令或管理员登录，同源）、本机命令行：全部，包括待认领的；
+ *   · 持有管理层（或属主）授予的人：全部认领了的；
+ *   · 别的登录的人：自己所在部门（成员或负责人）的团队、自己是负责人的团队、有成员分给自己的团队。
+ * 读接口只给团队、人和计数，不带事项内容。
+ *
+ * 分配、收回由「这个人是不是这个团队的负责人」判，是按对象的范围（统一判定还不认，L13），路由声明「状态码不代表授权」；
+ * 写请求总门对这两条放行（index.ts 的 REMOTE_ALLOW_PREFIX），认人、同源、负责人在这里判。认领、负责人的增减是管理面，照写请求总门和管理员门。
+ * 每一步在 team_events 里留痕，并写一行日志（谁、做了什么、哪个团队）。
+ */
+import type express from 'express';
+import type { HttpService } from '../http.ts';
+import { svc } from '../context.ts';
+import { browserMarked, rawLoopback } from '../surfaces.ts';
+import { HttpError } from '../errors.ts';
+import { identity } from '../identity.ts';
+import type { PrincipalService } from '../services/principal.ts';
+import type { GrantService } from '../services/grant.ts';
+import type { DepartmentService } from '../services/department.ts';
+import { HOST_RE, SEAT_ID_RE, SEAT_RE, TEAM_RE, type Actor, type SeatKey, type TeamKey, type TeamRefusal, type TeamService, type TeamView } from '../services/team.ts';
+import { teamName } from '../team-relation.ts';
+
+export type TeamRouteDeps = {
+  markOdooAdmin: (req: express.Request) => Promise<void>;
+  adminGuard: (req: express.Request, res: express.Response) => boolean;
+  adminHeaderOk: (req: express.Request) => boolean;
+  adminActor: (req: express.Request) => string;
+  crossOriginDenied: (req: express.Request) => boolean;
+};
+
+const teams = () => svc<TeamService>('teams');
+const principals = () => svc<PrincipalService>('principals');
+const grants = () => svc<GrantService>('grants');
+const departments = () => svc<DepartmentService>('departments');
+const PRINCIPAL_RE = /^[a-z]+:[\x21-\x7e]{1,150}$/;
+const LEAD_DECIDES = '按团队的负责人判：负责人是按对象的范围，统一判定还不认（L13），由团队这个域自己判';
+
+type Viewer = { kind: 'admin'; by: string; principal: string | null } | { kind: 'person'; principal: string; management: boolean };
+
+function str(v: unknown, name: string, re: RegExp, max = 200): string {
+  if (typeof v !== 'string' || v.length > max || !re.test(v)) throw new HttpError(400, `${name} 写法不对`, { code: `${name}_invalid` });
+  return v;
+}
+function teamKeyOf(b: Record<string, unknown>): TeamKey {
+  return { host: str(b.host, 'host', HOST_RE), team: str(b.team ?? '', 'team', TEAM_RE) };
+}
+function seatKeyOf(b: Record<string, unknown>): SeatKey {
+  return { ...teamKeyOf(b), seat: str(b.seat, 'seat', SEAT_RE), seat_id: str(b.seat_id ?? '', 'seat_id', SEAT_ID_RE, 64) };
+}
+const bodyOf = (req: express.Request): Record<string, unknown> =>
+  req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body as Record<string, unknown> : {};
+
+export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void {
+  const route = (fn: (req: express.Request, res: express.Response) => Promise<unknown>): express.RequestHandler =>
+    (req, res, next) => { fn(req, res).catch(next); };
+  const refused = (res: express.Response, r: TeamRefusal) => res.status(r.http).json({ error: r.code, message: r.message });
+  const logged = (event: string, k: TeamKey, fields: Record<string, unknown>, by: string) =>
+    console.log(JSON.stringify({ source: 'teams', event, host: k.host, team: k.team, ...fields, by, at: new Date().toISOString() }));
+
+  /** 认人：管理员（同源）或本机命令行 → admin；登录的人（主体启用）→ person。不过就已经写好应答，返回 null */
+  async function viewer(req: express.Request, res: express.Response): Promise<Viewer | null> {
+    res.set('Cache-Control', 'private, no-store');
+    if (!browserMarked(req) && rawLoopback(req)) return { kind: 'admin', by: 'cli', principal: null };
+    if (deps.crossOriginDenied(req)) { res.status(403).json({ error: 'teams_cross_origin_denied' }); return null; }
+    await deps.markOdooAdmin(req);
+    const admin = deps.adminHeaderOk(req);
+    const cookie = String(req.headers.cookie ?? '');
+    const who = cookie ? await identity().resolveViewer(cookie) : null;
+    const bound = who && who.ok ? (principals().principalOf(identity().providerName() ?? '', who.viewer.login) ?? who.viewer.sub) : null;
+    if (admin) return { kind: 'admin', by: deps.adminActor(req), principal: bound };
+    if (!bound) { res.status(401).json({ error: 'teams_auth_required' }); return null; }
+    const p = principals().get(bound);
+    if (!p || p.status !== 'active' || p.kind !== 'person') { res.status(403).json({ error: 'teams_principal_not_active' }); return null; }
+    const management = grants().activeFor(bound).some((g) => (g.role === 'management' || g.role === 'owner') && g.scope === '*');
+    return { kind: 'person', principal: bound, management };
+  }
+
+  /** 这个人看得到这个团队吗（读） */
+  function visible(v: Viewer, t: TeamView): boolean {
+    if (v.kind === 'admin') return true;
+    if (t.status === 'unclaimed') return false;
+    if (v.management) return true;
+    if (t.leads.some((l) => l.principal === v.principal)) return true;
+    if (t.members.some((m) => m.assigned_to?.principal === v.principal)) return true;
+    if (t.department) {
+      const d = t.department.id;
+      if (departments().of(v.principal).some((x) => x.id === d)) return true;
+    }
+    return false;
+  }
+
+  /** 管理员（同源）或本机命令行；不是就回 403，返回 null */
+  async function admin(req: express.Request, res: express.Response): Promise<Actor | null> {
+    if (!browserMarked(req) && rawLoopback(req)) return { by: 'cli', principal: null };
+    await deps.markOdooAdmin(req);
+    if (!deps.adminGuard(req, res)) return null;
+    const by = deps.adminActor(req);
+    return { by, principal: by.startsWith('odoo:') ? principals().principalOf(identity().providerName() ?? '', by.slice(5)) : null };
+  }
+
+  app.get('/api/teams', { action: 'team.list', kind: 'read' }, route(async (req, res) => {
+    const v = await viewer(req, res);
+    if (!v) return;
+    const all = teams().allViews();
+    const seen = all.filter((t) => visible(v, t));
+    const depts = new Map<string, { id: string; name: string; lead: { principal: string; display_name: string } | null; teams: TeamView[] }>();
+    const deptRows = departments().list();
+    for (const t of seen) {
+      if (t.status === 'unclaimed' || !t.department) continue;
+      const d = deptRows.find((x) => x.id === t.department!.id);
+      const e = depts.get(t.department.id) ?? { id: t.department.id, name: d?.name ?? t.department.name, lead: d?.lead ?? null, teams: [] };
+      e.teams.push(t);
+      depts.set(t.department.id, e);
+    }
+    const shape = (t: TeamView) => ({ ...t, name: teamName(t.team) });
+    res.json({
+      departments: [...depts.values()].sort((a, b) => a.id.localeCompare(b.id)).map((d) => ({ ...d, teams: d.teams.map(shape) })),
+      ...(v.kind === 'admin' ? { unclaimed: seen.filter((t) => t.status === 'unclaimed').map(shape) } : {}),
+    });
+  }));
+
+  app.get('/api/teams/mine', { action: 'team.mine', kind: 'read' }, route(async (req, res) => {
+    const v = await viewer(req, res);
+    if (!v) return;
+    const me = v.principal;
+    if (!me) return void res.json({ principal: null, members: [], teams: [] });
+    const all = teams().allViews();
+    const members = all.flatMap((t) => t.members.filter((m) => m.assigned_to?.principal === me).map((m) => ({ host: t.host, team: t.team, team_name: teamName(t.team), status: t.status, ...m })));
+    const led = all.filter((t) => t.leads.some((l) => l.principal === me)).map((t) => ({ host: t.host, team: t.team, name: teamName(t.team), status: t.status, router: t.router }));
+    res.json({ principal: me, members, teams: led });
+  }));
+
+  app.post('/api/teams/claim', { action: 'team.claim', kind: 'admin' }, route(async (req, res) => {
+    const actor = await admin(req, res);
+    if (!actor) return;
+    const b = bodyOf(req);
+    const k = teamKeyOf(b);
+    const dept = str(b.department, 'department', /^[a-z][a-z0-9-]{0,47}$/, 48);
+    const r = teams().claim(k, dept, actor, Date.now());
+    if (!r.ok) return void refused(res, r);
+    if (r.changed) logged('claim', k, { department: dept }, actor.by);
+    res.json({ ok: true, changed: r.changed });
+  }));
+
+  app.post('/api/teams/release', { action: 'team.release', kind: 'admin' }, route(async (req, res) => {
+    const actor = await admin(req, res);
+    if (!actor) return;
+    const k = teamKeyOf(bodyOf(req));
+    const r = teams().release(k, actor, Date.now());
+    if (!r.ok) return void refused(res, r);
+    logged('release', k, { leads_ended: r.leads_ended, assignments_ended: r.assignments_ended }, actor.by);
+    res.json(r);
+  }));
+
+  app.post('/api/teams/leads', { action: 'team.lead-add', kind: 'admin' }, route(async (req, res) => {
+    const actor = await admin(req, res);
+    if (!actor) return;
+    const b = bodyOf(req);
+    const k = teamKeyOf(b);
+    const principal = str(b.principal, 'principal', PRINCIPAL_RE, 160);
+    const r = teams().addLead(k, principal, actor, Date.now());
+    if (!r.ok) return void refused(res, r);
+    if (r.added) logged('lead-add', k, { principal }, actor.by);
+    res.status(r.added ? 201 : 200).json(r);
+  }));
+
+  app.post('/api/teams/leads/remove', { action: 'team.lead-remove', kind: 'admin' }, route(async (req, res) => {
+    const actor = await admin(req, res);
+    if (!actor) return;
+    const b = bodyOf(req);
+    const k = teamKeyOf(b);
+    const principal = str(b.principal, 'principal', PRINCIPAL_RE, 160);
+    const r = teams().removeLead(k, principal, actor, Date.now());
+    if (!r.ok) return void refused(res, r);
+    if (r.removed) logged('lead-remove', k, { principal }, actor.by);
+    res.json(r);
+  }));
+
+  /** 分配、收回：这个团队的负责人，或者管理员（过渡期代办）。不是就写好应答，返回 null */
+  async function leadOrAdmin(req: express.Request, res: express.Response, k: TeamKey): Promise<Actor | null> {
+    const v = await viewer(req, res);
+    if (!v) return null;
+    if (v.kind === 'admin') return { by: v.by, principal: v.principal };
+    if (teams().leads(k).some((l) => l.principal === v.principal)) return { by: v.principal, principal: v.principal };
+    res.status(403).json({ error: 'not_team_lead', message: '只有这个团队的负责人（或管理员）能分配、收回成员' });
+    return null;
+  }
+
+  app.post('/api/teams/assign', { action: 'team.assign', kind: 'write', statusNotVerdict: LEAD_DECIDES }, route(async (req, res) => {
+    const b = bodyOf(req);
+    const k = seatKeyOf(b);
+    const principal = str(b.principal, 'principal', PRINCIPAL_RE, 160);
+    const actor = await leadOrAdmin(req, res, k);
+    if (!actor) return;
+    const r = teams().assign(k, principal, actor, Date.now());
+    if (!r.ok) return void refused(res, r);
+    logged('assign', k, { seat: k.seat, seat_id: k.seat_id, principal }, actor.by);
+    res.status(201).json({ ok: true, id: r.id });
+  }));
+
+  app.post('/api/teams/unassign', { action: 'team.unassign', kind: 'write', statusNotVerdict: LEAD_DECIDES }, route(async (req, res) => {
+    const k = seatKeyOf(bodyOf(req));
+    const actor = await leadOrAdmin(req, res, k);
+    if (!actor) return;
+    const r = teams().unassign(k, actor, Date.now());
+    if (!r.ok) return void refused(res, r);
+    if (r.removed) logged('unassign', k, { seat: k.seat, seat_id: k.seat_id }, actor.by);
+    res.json(r);
+  }));
+}

@@ -178,7 +178,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "401", "etag": "W/\"191-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "518", "etag": "W/\"206-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 4,
@@ -188,26 +188,59 @@
               "size": 2,
               "sha256": "73cb3858a687a8494ca3323053016282f3dad39d42cf62ca4e79dda2aac7d9ac",
               "url": "/api/sop/runs/4/files/4",
-              "quota": { "upload_count": 1, "upload_bytes": 2, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 19, "upload_left_bytes": 209715198, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 1, "upload_bytes": 2, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 19, "upload_left_bytes": 209715198, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
+        },
+        {
+          "id": "upload-sha-wrong",
+          "route": "POST /api/sop/runs/:id/files",
+          "class": "invalid",
+          "what": "表单字段 sha256 和文件内容不符：400，不保存（之后 upload-a 拿到的 id 不变）",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/{{a}}/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"sha256\"\r\n\r\nffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\r\n--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.txt\"\r\nContent-Type: text/plain\r\n\r\nA 的文件\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "129", "etag": "W/\"81-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "收到内容的 sha256 与声明不符（收到 12 字节）：内容可能在传输中被截断或改动，未保存" }
+          }
+        },
+        {
+          "id": "upload-sha-disagree",
+          "route": "POST /api/sop/runs/:id/files",
+          "class": "invalid",
+          "what": "请求头 X-Content-SHA256 和表单字段 sha256 不一致：400，不保存",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/{{a}}/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW", "x-content-sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"sha256\"\r\n\r\nc3100ed03e2aa693646dc4cff9ef67f7ce9a78bcd08eecce9636e43c1a18a646\r\n--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.txt\"\r\nContent-Type: text/plain\r\n\r\nA 的文件\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "61", "etag": "W/\"3d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "X-Content-SHA256 与表单字段 sha256 不一致" } }
         },
         {
           "id": "upload-a",
           "route": "POST /api/sop/runs/:id/files",
           "class": "normal",
-          "what": "传到 run A：201，回 sha256、url、配额；created_by 两头空白去掉",
+          "what": "传到 run A：201，回 sha256、url、配额；created_by 两头空白去掉；表单字段带对的 sha256（大写也认）：integrity=sha256-verified",
           "request": {
             "method": "POST",
             "path": "/api/sop/runs/{{a}}/files",
             "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW" },
-            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"created_by\"\r\n\r\n  uploader  \r\n--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.txt\"\r\nContent-Type: text/plain\r\n\r\nA 的文件\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"created_by\"\r\n\r\n  uploader  \r\n--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"sha256\"\r\n\r\nC3100ED03E2AA693646DC4CFF9EF67F7CE9A78BCD08EECCE9636E43C1A18A646\r\n--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.txt\"\r\nContent-Type: text/plain\r\n\r\nA 的文件\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
           },
           "save": { "fa": "id" },
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "403", "etag": "W/\"193-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "514", "etag": "W/\"202-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 5,
@@ -217,7 +250,9 @@
               "size": 12,
               "sha256": "c3100ed03e2aa693646dc4cff9ef67f7ce9a78bcd08eecce9636e43c1a18a646",
               "url": "/api/sop/runs/4/files/5",
-              "quota": { "upload_count": 2, "upload_bytes": 14, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 18, "upload_left_bytes": 209715186, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 2, "upload_bytes": 14, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 18, "upload_left_bytes": 209715186, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "sha256-verified",
+              "next": "服务端已按你给的 sha256 核对过并保存，无需下载回读"
             }
           }
         },
@@ -235,7 +270,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "405", "etag": "W/\"195-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "522", "etag": "W/\"20a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 6,
@@ -245,7 +280,9 @@
               "size": 8,
               "sha256": "492d5ea496056f1a6a6592241032fab764c321596317930b4fa0e1e8bc3b7470",
               "url": "/api/sop/runs/4/files/6",
-              "quota": { "upload_count": 3, "upload_bytes": 22, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 17, "upload_left_bytes": 209715178, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 3, "upload_bytes": 22, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 17, "upload_left_bytes": 209715178, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -264,7 +301,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "403", "etag": "W/\"193-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "520", "etag": "W/\"208-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 7,
@@ -274,7 +311,9 @@
               "size": 12,
               "sha256": "f810df0cb56b70f7dde7d11167acecb0136c8a8d8512b63b84aabad626d3ae8e",
               "url": "/api/sop/runs/5/files/7",
-              "quota": { "upload_count": 1, "upload_bytes": 12, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 19, "upload_left_bytes": 209715188, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 1, "upload_bytes": 12, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 19, "upload_left_bytes": 209715188, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -293,7 +332,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "403", "etag": "W/\"193-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "520", "etag": "W/\"208-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 8,
@@ -303,7 +342,9 @@
               "size": 12,
               "sha256": "460dd73668a7238f8ff6ad4a851ae058db13132d4790e84be13423a8fe565c51",
               "url": "/api/sop/runs/6/files/8",
-              "quota": { "upload_count": 1, "upload_bytes": 12, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 19, "upload_left_bytes": 209715188, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 1, "upload_bytes": 12, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 19, "upload_left_bytes": 209715188, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -958,7 +999,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "406", "etag": "W/\"196-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "523", "etag": "W/\"20b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 11,
@@ -968,7 +1009,9 @@
               "size": 10,
               "sha256": "918668ea591012245054a7776336032e6e46a5f85ac4c33b67bec6aa3ce7669d",
               "url": "/api/sop/runs/7/files/11",
-              "quota": { "upload_count": 1, "upload_bytes": 10, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 19, "upload_left_bytes": 209715190, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 1, "upload_bytes": 10, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 19, "upload_left_bytes": 209715190, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -986,7 +1029,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "406", "etag": "W/\"196-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "523", "etag": "W/\"20b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 12,
@@ -996,7 +1039,9 @@
               "size": 10,
               "sha256": "8115741a523966c7c9d6990fddd21335eff9f8b763b81b53a3ab59892ea347db",
               "url": "/api/sop/runs/7/files/12",
-              "quota": { "upload_count": 2, "upload_bytes": 20, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 18, "upload_left_bytes": 209715180, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 2, "upload_bytes": 20, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 18, "upload_left_bytes": 209715180, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -1014,7 +1059,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "406", "etag": "W/\"196-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "523", "etag": "W/\"20b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 13,
@@ -1024,7 +1069,9 @@
               "size": 10,
               "sha256": "c44b59e94bc46f9d37e47d7d78ac6c5abe08237798952a6b23dd047602111fe3",
               "url": "/api/sop/runs/7/files/13",
-              "quota": { "upload_count": 3, "upload_bytes": 30, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 17, "upload_left_bytes": 209715170, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 3, "upload_bytes": 30, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 17, "upload_left_bytes": 209715170, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -1042,7 +1089,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "406", "etag": "W/\"196-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "523", "etag": "W/\"20b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 14,
@@ -1052,7 +1099,9 @@
               "size": 10,
               "sha256": "7fc9e1182e11e1a5c04d49e135b3732662135b93ffd7eafb457caf6571d82fcc",
               "url": "/api/sop/runs/7/files/14",
-              "quota": { "upload_count": 4, "upload_bytes": 40, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 16, "upload_left_bytes": 209715160, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 4, "upload_bytes": 40, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 16, "upload_left_bytes": 209715160, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -1070,7 +1119,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "406", "etag": "W/\"196-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "523", "etag": "W/\"20b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 15,
@@ -1080,7 +1129,9 @@
               "size": 10,
               "sha256": "b07c1beee2d9137af58ef362c74ec89088a1ba66f528a3348ac24442a0489ab1",
               "url": "/api/sop/runs/7/files/15",
-              "quota": { "upload_count": 5, "upload_bytes": 50, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 15, "upload_left_bytes": 209715150, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 5, "upload_bytes": 50, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 15, "upload_left_bytes": 209715150, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -1098,7 +1149,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "406", "etag": "W/\"196-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "523", "etag": "W/\"20b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 16,
@@ -1108,7 +1159,9 @@
               "size": 10,
               "sha256": "b6e7903e3c95de7989f076644daf6d0a5f71e448a5e5e980ccdcc61374a3dd85",
               "url": "/api/sop/runs/7/files/16",
-              "quota": { "upload_count": 6, "upload_bytes": 60, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 14, "upload_left_bytes": 209715140, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 6, "upload_bytes": 60, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 14, "upload_left_bytes": 209715140, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -1126,7 +1179,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "406", "etag": "W/\"196-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "523", "etag": "W/\"20b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 17,
@@ -1136,7 +1189,9 @@
               "size": 10,
               "sha256": "e92ff35527c63a089dd2acd27d9cbdbb97697d3d763df732628a6701970c001a",
               "url": "/api/sop/runs/7/files/17",
-              "quota": { "upload_count": 7, "upload_bytes": 70, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 13, "upload_left_bytes": 209715130, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 7, "upload_bytes": 70, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 13, "upload_left_bytes": 209715130, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -1154,7 +1209,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "406", "etag": "W/\"196-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "523", "etag": "W/\"20b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 18,
@@ -1164,7 +1219,9 @@
               "size": 10,
               "sha256": "97cc5c6b662258a3ab8b77893d9d4e9d6c39a92eb60aa1ef0ffbd6819cc39e99",
               "url": "/api/sop/runs/7/files/18",
-              "quota": { "upload_count": 8, "upload_bytes": 80, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 12, "upload_left_bytes": 209715120, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 8, "upload_bytes": 80, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 12, "upload_left_bytes": 209715120, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -1182,7 +1239,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "406", "etag": "W/\"196-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "523", "etag": "W/\"20b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 19,
@@ -1192,7 +1249,9 @@
               "size": 10,
               "sha256": "13827378df1b5e9e814b117a607a741ca865c1d3395b425d7187090d73e52f5d",
               "url": "/api/sop/runs/7/files/19",
-              "quota": { "upload_count": 9, "upload_bytes": 90, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 11, "upload_left_bytes": 209715110, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 9, "upload_bytes": 90, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 11, "upload_left_bytes": 209715110, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -1210,7 +1269,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "409", "etag": "W/\"199-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "526", "etag": "W/\"20e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 20,
@@ -1220,7 +1279,9 @@
               "size": 11,
               "sha256": "b42c6803826a649f4c6c5a90982812ef61201b86d8edda11c374c091fad77a5c",
               "url": "/api/sop/runs/7/files/20",
-              "quota": { "upload_count": 10, "upload_bytes": 101, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 10, "upload_left_bytes": 209715099, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 10, "upload_bytes": 101, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 10, "upload_left_bytes": 209715099, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -1238,7 +1299,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "408", "etag": "W/\"198-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "525", "etag": "W/\"20d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 21,
@@ -1248,7 +1309,9 @@
               "size": 11,
               "sha256": "3f2173a44054c806c6d81c09430a1b626d91bb6709c929989fad77cb993eb85d",
               "url": "/api/sop/runs/7/files/21",
-              "quota": { "upload_count": 11, "upload_bytes": 112, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 9, "upload_left_bytes": 209715088, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 11, "upload_bytes": 112, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 9, "upload_left_bytes": 209715088, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -1266,7 +1329,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "408", "etag": "W/\"198-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "525", "etag": "W/\"20d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 22,
@@ -1276,7 +1339,9 @@
               "size": 11,
               "sha256": "cd7d6a840b346ff9fc7fc907e9553826fc94a2bfe1905c4720b4eefee82b5b04",
               "url": "/api/sop/runs/7/files/22",
-              "quota": { "upload_count": 12, "upload_bytes": 123, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 8, "upload_left_bytes": 209715077, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 12, "upload_bytes": 123, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 8, "upload_left_bytes": 209715077, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -1294,7 +1359,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "408", "etag": "W/\"198-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "525", "etag": "W/\"20d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 23,
@@ -1304,7 +1369,9 @@
               "size": 11,
               "sha256": "6d0801f17044991f36984a4eab2d5b50e3ef034dcf445373abfbbe981504cfa6",
               "url": "/api/sop/runs/7/files/23",
-              "quota": { "upload_count": 13, "upload_bytes": 134, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 7, "upload_left_bytes": 209715066, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 13, "upload_bytes": 134, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 7, "upload_left_bytes": 209715066, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -1322,7 +1389,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "408", "etag": "W/\"198-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "525", "etag": "W/\"20d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 24,
@@ -1332,7 +1399,9 @@
               "size": 11,
               "sha256": "72cfb190223c46ac0b47431142bb7fdad133f509bca7d48bb7f6093b18574a2c",
               "url": "/api/sop/runs/7/files/24",
-              "quota": { "upload_count": 14, "upload_bytes": 145, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 6, "upload_left_bytes": 209715055, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 14, "upload_bytes": 145, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 6, "upload_left_bytes": 209715055, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -1350,7 +1419,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "408", "etag": "W/\"198-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "525", "etag": "W/\"20d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 25,
@@ -1360,7 +1429,9 @@
               "size": 11,
               "sha256": "e20ea14871a21a830d608fe5b1bd77e7cff4e038f2c5d135f7270fa1412e2ef6",
               "url": "/api/sop/runs/7/files/25",
-              "quota": { "upload_count": 15, "upload_bytes": 156, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 5, "upload_left_bytes": 209715044, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 15, "upload_bytes": 156, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 5, "upload_left_bytes": 209715044, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -1378,7 +1449,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "408", "etag": "W/\"198-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "525", "etag": "W/\"20d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 26,
@@ -1388,7 +1459,9 @@
               "size": 11,
               "sha256": "26f5ead0fbf2e99ce6562d427f00d24cdb050c8e1cb4c129f4f02aea99c0d8cb",
               "url": "/api/sop/runs/7/files/26",
-              "quota": { "upload_count": 16, "upload_bytes": 167, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 4, "upload_left_bytes": 209715033, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 16, "upload_bytes": 167, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 4, "upload_left_bytes": 209715033, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -1406,7 +1479,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "408", "etag": "W/\"198-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "525", "etag": "W/\"20d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 27,
@@ -1416,7 +1489,9 @@
               "size": 11,
               "sha256": "d539cff1f0513cb573c1cfcf31dc986e8534156eac0c4c3a540ceeaeccf75ae9",
               "url": "/api/sop/runs/7/files/27",
-              "quota": { "upload_count": 17, "upload_bytes": 178, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 3, "upload_left_bytes": 209715022, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 17, "upload_bytes": 178, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 3, "upload_left_bytes": 209715022, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -1434,7 +1509,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "408", "etag": "W/\"198-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "525", "etag": "W/\"20d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 28,
@@ -1444,7 +1519,9 @@
               "size": 11,
               "sha256": "36a90ef055f1237de7da8cbe81ecab2e972cac7417de257a2d92052c9a7f744c",
               "url": "/api/sop/runs/7/files/28",
-              "quota": { "upload_count": 18, "upload_bytes": 189, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 2, "upload_left_bytes": 209715011, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 18, "upload_bytes": 189, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 2, "upload_left_bytes": 209715011, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -1462,7 +1539,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "408", "etag": "W/\"198-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "525", "etag": "W/\"20d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 29,
@@ -1472,7 +1549,9 @@
               "size": 11,
               "sha256": "eb2fa3321a9cc95916e18c7c961c73e94d092e2d8f8c57b84353c9977ecac328",
               "url": "/api/sop/runs/7/files/29",
-              "quota": { "upload_count": 19, "upload_bytes": 200, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 1, "upload_left_bytes": 209715000, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 19, "upload_bytes": 200, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 1, "upload_left_bytes": 209715000, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -1490,7 +1569,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "408", "etag": "W/\"198-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "525", "etag": "W/\"20d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 30,
@@ -1500,7 +1579,9 @@
               "size": 11,
               "sha256": "4b9fb222de701b680be5e69ff80fc5d77e65d7e95607383b5dd2427c131f10f1",
               "url": "/api/sop/runs/7/files/30",
-              "quota": { "upload_count": 20, "upload_bytes": 211, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 0, "upload_left_bytes": 209714989, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 20, "upload_bytes": 211, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 0, "upload_left_bytes": 209714989, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -1627,7 +1708,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "403", "etag": "W/\"193-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "520", "etag": "W/\"208-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 4,
@@ -1637,7 +1718,9 @@
               "size": 10,
               "sha256": "207de8e16cb13f3750d1b59e417db0215a469b8047c388d0881c08d9b043d862",
               "url": "/api/sop/runs/4/files/4",
-              "quota": { "upload_count": 1, "upload_bytes": 10, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 19, "upload_left_bytes": 209715190, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 1, "upload_bytes": 10, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 19, "upload_left_bytes": 209715190, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },
@@ -1655,7 +1738,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "403", "etag": "W/\"193-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "520", "etag": "W/\"208-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "id": 5,
@@ -1665,7 +1748,9 @@
               "size": 10,
               "sha256": "fc73ef706b8271f103e14c09ca694cb524c8ce1c29adac321568782ae1052daf",
               "url": "/api/sop/runs/4/files/5",
-              "quota": { "upload_count": 2, "upload_bytes": 20, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 18, "upload_left_bytes": 209715180, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+              "quota": { "upload_count": 2, "upload_bytes": 20, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 18, "upload_left_bytes": 209715180, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 },
+              "integrity": "unverified",
+              "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载"
             }
           }
         },

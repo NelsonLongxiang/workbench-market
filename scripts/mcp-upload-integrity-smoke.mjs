@@ -3,7 +3,7 @@
  *  覆盖：大文件经 /mcp 与 REST 工具完整收下；带 size / sha256 时不符即拒收且不落库；恰好 65536 字符又没带时按疑似截断拒收；
  *  坏 base64（长度不是 4 的倍数、非法字符）拒收；带对的 size / sha256 照常收。
  *  应答的核对结果（integrity / next）：MCP 与 REST 原始字节、multipart 上传，带对的 sha256 → sha256-verified，带错的 → 400 且库里和盘上都没有，
- *  不带 → unverified 且 sha256 与内容一致。自起实例、空数据目录、网关开。 */
+ *  不带 → unverified 且 sha256 与内容一致；skill_file_put 同样（不符不暂存）。自起实例、空数据目录、网关开。 */
 import { spawn } from './owned-script-fixture.mjs';
 import { mkdtempSync, rmSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -26,7 +26,7 @@ try {
   for (let i = 0; i < 120 && !up; i++) { try { up = (await fetch(B + '/api/health')).ok; } catch { /* 未起 */ } if (!up) await new Promise((r) => setTimeout(r, 250)); }
   ok('实例就绪', up);
   const s = await j(await fetch(B + '/api/mcp/sessions', { method: 'POST', headers: AT, body: JSON.stringify({ name: 'upload-integrity' }) }));
-  await fetch(`${B}/api/mcp/sessions/${s.id}/grants`, { method: 'PUT', headers: AT, body: JSON.stringify({ grants: ['app_files_upload', 'app_files_list'] }) });
+  await fetch(`${B}/api/mcp/sessions/${s.id}/grants`, { method: 'PUT', headers: AT, body: JSON.stringify({ grants: ['app_files_upload', 'app_files_list', 'skill_file_put'] }) });
   const apps = await j(await fetch(B + '/api/apps', { headers: AT }));
   const slug = (Array.isArray(apps) ? apps : apps?.items ?? []).map((a) => a.slug)[0];
   ok('有可上传的自产台', !!slug, JSON.stringify(apps).slice(0, 120));
@@ -106,6 +106,28 @@ try {
   ok('I12 multipart 带错的 sha256：400，库里和盘上都没有', pr.status === 400 && (await count()) === rows0 && onDisk() === disk0, `${pr.status} ${JSON.stringify(pb)} ${onDisk()}/${disk0}`);
   pr = await multi('m5.txt', docSha, { 'X-Content-SHA256': wrongSha }); pb = await j(pr);
   ok('I13 multipart 请求头和字段不一致：400，库里和盘上都没有', pr.status === 400 && (await count()) === rows0 && onDisk() === disk0, `${pr.status} ${JSON.stringify(pb)}`);
+
+  // skill_file_put：同样可带期望的 sha256，不符拒收、不暂存；应答带 integrity / next
+  const stage = () => { const d = join(data, 'skill-staging'); return existsSync(d) ? readdirSync(d) : []; };
+  const skillPut = async (args) => {
+    const r = await fetch(B + '/mcp', { method: 'POST', headers: H, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'skill_file_put', arguments: args } }) });
+    const out = await j(r), t = out?.result?.content?.[0]?.text ?? out?.error?.message ?? '';
+    let p = null; try { p = JSON.parse(t); } catch { /* 错误是纯文本 */ }
+    return { isError: !!(out?.result?.isError || out?.error), text: t, payload: p };
+  };
+  const skillText = '# 合成技能\n核对结果\n', skillSha = createHash('sha256').update(skillText).digest('hex');
+  r = await skillPut({ content: skillText, sha256: skillSha });
+  ok('S1 skill_file_put 带对的 sha256：sha256-verified，暂存里有这个文件', !r.isError && r.payload?.integrity === 'sha256-verified' && r.payload?.sha256 === skillSha && /无需下载回读/.test(r.payload?.next ?? '') && stage().includes(skillSha), r.text.slice(0, 200));
+  const other = '另一份内容\n', otherSha = createHash('sha256').update(other).digest('hex');
+  r = await skillPut({ content: other });
+  ok('S2 skill_file_put 不带：unverified，sha256 与内容一致', !r.isError && r.payload?.integrity === 'unverified' && r.payload?.sha256 === otherSha, r.text.slice(0, 200));
+  const s0 = stage().length, third = '第三份\n';
+  r = await skillPut({ content: third, sha256: wrongSha });
+  ok('S3 skill_file_put 带错的 sha256：拒收，暂存里没多出文件', r.isError && /不符/.test(r.text) && stage().length === s0 && !stage().includes(createHash('sha256').update(third).digest('hex')), `${r.text.slice(0, 160)} ${stage().length}/${s0}`);
+  r = await skillPut({ content: third, sha256: 'xyz' });
+  ok('S4 skill_file_put 的 sha256 格式错：拒收，暂存不变', r.isError && /64 位十六进制/.test(r.text) && stage().length === s0, r.text.slice(0, 160));
+  r = await skillPut({ content: Buffer.from(third).toString('base64'), encoding: 'base64', sha256: createHash('sha256').update(third).digest('hex').toUpperCase() });
+  ok('S5 skill_file_put 二进制（base64）带对的 sha256（大写也认）：按解码后的字节核对', !r.isError && r.payload?.integrity === 'sha256-verified', r.text.slice(0, 200));
 } finally {
   child.kill();
   await new Promise((r) => setTimeout(r, 300));

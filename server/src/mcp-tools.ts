@@ -287,10 +287,14 @@ export const MCP_TOOLS: McpToolDef[] = [
   {
     name: 'skill_file_put',
     category: 'admin',
-    description: '技能上传第一步：一次上传一个文件（不收压缩包），暂存在市场上，返回 sha256。文本文件 content 直接给；二进制文件（图片/字体/模板）content 给 base64 并带 encoding:"base64"。单文件上限 10MB。同内容重复上传幂等并续期，暂存 24 小时后清掉。全部文件传完后调 skill_publish 按 sha256 引用成版。',
+    description: '技能上传第一步：一次上传一个文件（不收压缩包），暂存在市场上，返回 sha256/size/integrity/next。文本文件 content 直接给；二进制文件（图片/字体/模板）content 给 base64 并带 encoding:"base64"。带上 sha256（推荐），服务端核对，不符就拒收、不暂存。成功应答的 sha256 是服务端对暂存字节算的，和本地文件一致就是完整的，不要为了验证再取回；integrity 为 sha256-verified 时服务端已替你核对过。单文件上限 10MB。同内容重复上传幂等并续期，暂存 24 小时后清掉。全部文件传完后调 skill_publish 按 sha256 引用成版。',
     inputSchema: {
       type: 'object',
-      properties: { content: { type: 'string' }, encoding: { type: 'string', enum: ['utf8', 'base64'], description: '缺省 utf8' } },
+      properties: {
+        content: { type: 'string' },
+        encoding: { type: 'string', enum: ['utf8', 'base64'], description: '缺省 utf8' },
+        sha256: { type: 'string', description: '原始内容 sha256（64 位十六进制，推荐带：带了就由服务端替你核对，不符即拒收、不暂存）' },
+      },
       required: ['content'],
       additionalProperties: false,
     },

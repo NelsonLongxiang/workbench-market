@@ -158,6 +158,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/sider-menu-browser.mjs
+      - name: 「等你拍板」三处同数（侧栏角标 · 总结句 · 卡片区件数；只数轮到你且能当场办的；数据走接口造）
+        env:
+          PYTHON: python
+        run: node scripts/home-count-browser.mjs
       - name: SOP 交付空间浏览器回归（#318：执行记录元数据·单次记录读授权由服务端判·定义不带正文·刷新不丢·附件带口令下载）
         env:
           PYTHON: python
@@ -234,7 +238,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: 身份接缝与主体（契约单测·主体服务单测·主体标识规范化（NFKC_Casefold）全部码位对照 Unicode 属性、成批过主体服务·飞书登录与市场会话对抗组（本机假飞书：state 伪造与重放、next 外跳、换令牌失败、用户标识缺失或被篡改、停用注销过期即失效）·离职即时失效对抗组（通讯录事件验签与重放、对账补漏）·假提供方对抗组：缺省/登录门/登录中继/中继加登录门四个实例上的拒绝例与合法对照，停用一个主体各入口立即不认、恢复立即照常·部门读写（登录的人读、管理员写、dept:<部门标识> 只认部门表里有的）·夹具只在测试环境可用·变异测试逐个改坏必须变红；不访问任何外部系统）
         run: |
-          ( node scripts/identity-contract-test.mjs && node scripts/principal-service-test.mjs && node scripts/principal-fold-test.mjs && node scripts/identity-seam-smoke.mjs && node scripts/feishu-login-smoke.mjs && node scripts/feishu-offboard-smoke.mjs && node scripts/export-reveal-smoke.mjs && node scripts/grants-smoke.mjs && node scripts/departments-smoke.mjs && node scripts/judgment-compare-smoke.mjs && node scripts/judgment-compare-zero-test.mjs && node scripts/judgment-compare-sweep-test.mjs && node scripts/role-presets-test.mjs && node scripts/custom-roles-smoke.mjs ) > identity-suites.log 2>&1 &
+          ( node scripts/identity-contract-test.mjs && node scripts/principal-service-test.mjs && node scripts/principal-fold-test.mjs && node scripts/identity-seam-smoke.mjs && node scripts/feishu-login-smoke.mjs && node scripts/feishu-offboard-smoke.mjs && node scripts/export-reveal-smoke.mjs && node scripts/grants-smoke.mjs && node scripts/departments-smoke.mjs && node scripts/teams-smoke.mjs && node scripts/judgment-compare-smoke.mjs && node scripts/judgment-compare-zero-test.mjs && node scripts/judgment-compare-sweep-test.mjs && node scripts/role-presets-test.mjs && node scripts/custom-roles-smoke.mjs ) > identity-suites.log 2>&1 &
           suites=$!
           set +e
           node scripts/identity-seam-mutation.mjs --jobs 2
@@ -294,7 +298,7 @@ jobs:
           node scripts/tech-route-check.mjs --strict
           node scripts/privacy-gate.mjs --selftest
       - name: 台库冒烟（数据视图：数据集与改列·四种写入的校验、幂等、上限·快照与退回·查询描述与注入形态·视图描述的核对、版本、并发保存、回退·排队、隔离、标识不逃出目录）
-        run: node scripts/bench-store-smoke.mjs
+        run: node scripts/bench-store-smoke.mjs && node --disable-warning=ExperimentalWarning scripts/skill-data-views-examples-test.mjs
       - name: 事项服务单测（阶段八 8a：第三节状态表含补定的原地行逐行正例、表外迁移逐个反例·只记录的答复与回执·终态之后只收晚到回执·同一条事实只记一次·事项日志改写删除在库这一层被拒；8b：事件日志→事项的映射·正放打乱重复终态相同·监听器漏一次回填补上·未验证来源不推进·回填两遍逐行相同·来源回滚事项也没有）
         run: node scripts/work-item-service-test.mjs && node scripts/work-item-facts-test.mjs && node scripts/work-item-migration-test.mjs
       - name: 事项回填不挡启动（后台分批、每片让出事件循环；启动到能应答不随事件数增长·中途被杀重启接着跑、终态同一次跑完·重跑逐行相同、版本没变跳过·回填期间进来的事实不丢不重复）
@@ -457,7 +461,7 @@ jobs:
       - name: 驾驶舱布局吸附单测（#320：宽度只取 3/4/6/12·x 越界收回·不丢面板·读时迁移不回写）
         run: node scripts/cockpit-layout-unit.mjs
       - name: 待属主看板（作者核验：config.owner 只认属主本人·事项只认登记身份·答复只认属主·冒名点名不采信·只授三个工具）
-        run: node scripts/owner-pending-unit.mjs && node scripts/owner-pending-board-smoke.mjs && node scripts/attention-ui-unit.mjs && node scripts/work-item-detail-ui-unit.mjs && node scripts/market-ui-unit.mjs && node scripts/home-ui-unit.mjs && node scripts/arrange-ui-unit.mjs && node scripts/work-items-ui-unit.mjs
+        run: node scripts/owner-pending-unit.mjs && node scripts/owner-pending-board-smoke.mjs && node scripts/attention-ui-unit.mjs && node scripts/work-item-detail-ui-unit.mjs && node scripts/market-ui-unit.mjs && node scripts/home-ui-unit.mjs && node scripts/arrange-ui-unit.mjs && node scripts/review-ui-unit.mjs && node scripts/work-items-ui-unit.mjs
       - name: 凭据库（融合 dsh-vault：读写要口令·业务面 403·摘要无明文·坏 JSON 不进日志·写锁/重开/闲置上锁/限流）
         run: node scripts/vault-concurrency-test.mjs && node scripts/vault-smoke.mjs
       - name: F5 env-face 判定回归（不启动 Docker）
@@ -545,3 +549,41 @@ jobs:
             sleep 1
           done
           echo "server failed to boot" >&2; exit 1
+  # 契约联调：上游 a2a-net 的 superagent 宿主当对端（宿主自己从 process face 签发确认、进展、提问、结果回执），市场在回环上收。
+  # 改入站（回执、进展、跟进、验签）的 PR 都要过它。上游钉 next/0.8 的 f458294（#610 合并提交：preview.13 之上修掉了对 bots.a2a 里远端成员误发 superagent-member）。
+  upstream-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/checkout@v4
+        with:
+          repository: NelsonLongxiang/dsh-open-a2a-net
+          ref: f458294bd6352be7a90c4d20b1fb84c6e1843dbb
+          path: dsh-open-a2a-net-contract
+      - name: 上游依赖与构建（缓存键带钉住的提交）
+        uses: actions/cache@v4
+        with:
+          path: |
+            dsh-open-a2a-net-contract/node_modules
+            dsh-open-a2a-net-contract/lib
+          key: upstream-contract-f458294bd6352be7a90c4d20b1fb84c6e1843dbb-${{ hashFiles('dsh-open-a2a-net-contract/pnpm-lock.yaml') }}
+      - name: 装上游依赖并构建
+        working-directory: dsh-open-a2a-net-contract
+        run: |
+          [ -d node_modules ] || pnpm install --frozen-lockfile --ignore-scripts
+          [ -d lib ] || pnpm run build
+      - name: 契约联调：市场 × superagent 宿主（确认、进展、提问、答复轻路径、结果、abandoned；只听回环、临时目录、合成数据）
+        env:
+          A2A_UPSTREAM_DIR: ${{ github.workspace }}/dsh-open-a2a-net-contract
+        run: node scripts/contract-upstream-test.mjs

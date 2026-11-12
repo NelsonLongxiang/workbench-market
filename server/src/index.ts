@@ -53,6 +53,7 @@ import { registerA2aDirectRoutes } from './routes/a2a-direct.ts';
 import { registerA2aOutboundRoutes } from './routes/a2a-outbound.ts';
 import { registerExportImportRoutes } from './routes/export-import.ts';
 import { registerDepartmentRoutes } from './routes/departments.ts';
+import { registerTeamRoutes } from './routes/teams.ts';
 import { registerLoginFlowRoutes } from './routes/login-flows.ts';
 import { registerWorkbenchRoutes } from './routes/workbenches.ts';
 import { registerSopPageRoutes } from './routes/sop-page.ts';
@@ -95,7 +96,7 @@ import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
 import { HttpError } from './errors.ts';
 import { designStandard } from './design-standard.ts';
 import { mountVault } from './vault-api.ts';
-import { uploadIntegrity } from './upload-integrity.ts';
+import { expectedSha256, uploadIntegrity, type UploadIntegrity } from './upload-integrity.ts';
 import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet } from './workbench-vars.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
@@ -403,6 +404,8 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/messages\/(read|[1-9]\d{0,15}\/reply)$/,
   // 「安排一件事」：登录的人直接建事项（路由内经身份服务认人，只认启用的人；只此一条路径，不带子路径）
   /^\/api\/work-items$/,
+  // 团队：成员的分配、收回由团队的负责人做（路由内认人、核同源、判是不是负责人或管理员；只此两条）
+  /^\/api\/teams\/(assign|unassign)$/,
   // MCP 工具 REST 开放：与 /mcp 同口径，凭会话令牌在路由内鉴权，不认管理口令
   /^\/api\/mcp-rest\/(tools\/[^/]+|apps\/[a-z0-9-]{1,64}\/files(\/[^/]+)?)$/,
 ];
@@ -1862,6 +1865,7 @@ registerAuthViewerRoutes(http, { wrap, odooLoginUrl });
 registerPrincipalRoutes(http, { markOdooAdmin, adminGuard, adminActor });
 registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor }); // 阶段六 6b：角色声明与授予（只建结构，不接判定）
 registerDepartmentRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 部门：登录的人读、管理员写
+registerTeamRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 团队与分配（规范 14 第 1 步）：登录的人按可见范围读；认领、负责人是管理员，分配是负责人
 registerAttentionRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
 registerWorkItemRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8d：事项页的时间线
 registerRosterRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段七：团队名册的读（登录即可读，只有席位信息）
@@ -1886,13 +1890,16 @@ const SKILL_STAGE_DIR = join(dataDir, 'skill-staging');
 const SKILL_STAGE_TTL_MS = 24 * 3600_000;
 const SKILL_FILE_MAX = 10 * 1024 * 1024; // 单文件上限（MCP 传输面；更大的走 REST 导出/发布）
 /** 暂存一个文件，内容寻址：同内容幂等；顺手清掉超过 24h 的暂存 */
-function skillStagePut(content: unknown, encoding: unknown): { sha256: string; size: number; expires_in_hours: number } {
+function skillStagePut(content: unknown, encoding: unknown, expected?: unknown): { sha256: string; size: number; expires_in_hours: number; integrity: UploadIntegrity; next: string } {
   if (typeof content !== 'string') bad('content 必须是字符串');
+  const wantSha = expectedSha256(expected); // 期望的 sha256（可选）：带了就在暂存前核对，不符拒收、不暂存
+  if (wantSha === 'bad') bad('sha256 须为 64 位十六进制');
   if (encoding !== undefined && encoding !== 'utf8' && encoding !== 'base64') bad('encoding 只收 utf8 或 base64');
   if (encoding === 'base64' && !isStrictBase64(content as string)) bad('content 不是合法 base64');
   const buf = Buffer.from(content as string, encoding === 'base64' ? 'base64' : 'utf8');
   if (buf.length > SKILL_FILE_MAX) bad(`单文件超过 ${SKILL_FILE_MAX} 字节上限`);
   const sha = createHash('sha256').update(buf).digest('hex');
+  if (wantSha !== null && sha !== wantSha) bad(`收到内容的 sha256 与声明不符（收到 ${buf.length} 字节）：内容可能在传输中被截断或改动，未暂存`);
   mkdirSync(SKILL_STAGE_DIR, { recursive: true });
   const now = Date.now();
   for (const e of readdirSync(SKILL_STAGE_DIR)) {
@@ -1901,7 +1908,7 @@ function skillStagePut(content: unknown, encoding: unknown): { sha256: string; s
   const fp = join(SKILL_STAGE_DIR, sha);
   if (existsSync(fp)) utimesSync(fp, new Date(), new Date()); // 重传续期
   else { const tmp = `${fp}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`; writeFileSync(tmp, buf); renameSync(tmp, fp); } // 先写临时再改名：发布不会读到半个文件
-  return { sha256: sha, size: buf.length, expires_in_hours: 24 };
+  return { sha256: sha, size: buf.length, expires_in_hours: 24, ...uploadIntegrity(wantSha as string | null, null) };
 }
 /** 某技能某版本的快照目录（缺省当前版本：回滚指针，未回滚即最新）+ 版本行 */
 function skillVersionDir(slugIn: unknown, versionIn: unknown): { row: any; target: any; dir: string } {
@@ -2603,7 +2610,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
     }
     // 技能传输面：一次只传一个文件，不收也不发压缩包
     case 'skill_file_put':
-      return skillStagePut(args?.content, args?.encoding);
+      return skillStagePut(args?.content, args?.encoding, args?.sha256);
     case 'skill_publish':
       // 审计人恒为调用会话（不收 agent 自报的 reviewed_by）
       return skillPublishCore(args?.slug, args?.files, args?.changelog, subject, { refsOnly: true });

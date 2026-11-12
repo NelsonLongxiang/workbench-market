@@ -9,7 +9,7 @@
  *   · 职能代号可空，非空时唯一（小写字母开头，字母、数字、下划线、连字符，最多 48 个）；
  *   · 负责人可空；非空时要是存在的人（主体 kind=person），不要求是本部门成员；
  *   · 成员是人或席位（AI 员工）；同一个主体可在多个部门；
- *   · 删部门：还有没结束的授予（草稿、待核、生效）范围是这个部门的，不能删（409）；删的时候成员归属一起删。
+ *   · 删部门：还有没结束的授予（草稿、待核、生效）范围是这个部门的、或者还有团队挂在上面的，不能删（409）；删的时候成员归属一起删。
  * 时间由调用方给（毫秒），不在 SQL 里取。
  */
 import { Service } from '@deepseek-ai/cordis';
@@ -98,6 +98,8 @@ export class DepartmentService extends Service {
     if (!db.prepare('SELECT 1 FROM departments WHERE id = ?').get(id)) return refuse(404, 'department_missing', `部门 ${id} 不存在`);
     const open = db.prepare("SELECT COUNT(*) AS n FROM grants WHERE scope = ? AND status IN ('draft', 'pending', 'active')").get(`dept:${id}`) as { n: number };
     if (Number(open.n) > 0) return refuse(409, 'department_in_use', `还有 ${open.n} 条没结束的授予范围是这个部门，先撤销再删`);
+    const teamsOn = db.prepare('SELECT COUNT(*) AS n FROM teams WHERE department_id = ? AND claimed = 1').get(id) as { n: number };
+    if (Number(teamsOn.n) > 0) return refuse(409, 'department_has_teams', `还有 ${teamsOn.n} 个团队挂在这个部门上，先换部门或退回待认领再删`);
     db.exec('BEGIN');
     try {
       const members = db.prepare('DELETE FROM department_members WHERE department_id = ?').run(id).changes;
