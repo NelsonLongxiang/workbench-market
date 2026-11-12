@@ -3576,7 +3576,7 @@ const goServer = registerSurface(app, 'market', PORT, () => {
 const controlServer = SURFACE_PORTS.control ? registerSurface(app, 'control', SURFACE_PORTS.control) : undefined;
 if (contentCfg && contentRuntime) listenContentSurface(app, contentCfg, contentRuntime, () => startupSecurity.snapshot().passed);
 
-void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, outbound: outboundOff() ? verifyOutboundGate : undefined }).then((result) => {
+void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, benchViews: BENCH_VIEWS.on, outbound: outboundOff() ? verifyOutboundGate : undefined }).then((result) => {
   if (!result.passed) return refuseUnsafeStartup();
   startRedis();
   armPatrol();
