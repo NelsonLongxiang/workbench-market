@@ -168,6 +168,14 @@ try {
   r = await srv.call('POST', `/api/bench-views/demo/mcp-requests/${reqId}`, { ...member, body: { approve: true } });
   const mList = await srv.call('GET', '/api/bench-views/demo/mcp-grants', member);
   check(r.status === 403 && mList.status === 403, '普通员工（范围「全部」）看台上的授予、批申请：都是 403', { decide: r.status, list: mList.status });
+  // 能改台里的数据、但没有「拍板」的角色（部门成员，范围「全部」）：数据改得了，替会话开权限不行
+  await srv.call('GET', '/api/auth/viewer', { session: SESSIONS.strasse });
+  const gStaff = await activate({ principal: 'user:strasse', role: 'dept-member' });
+  const staff = who(SESSIONS.strasse);
+  const sw = await srv.call('PUT', '/api/bench-views/other/datasets/t', { ...staff, body: { columns: [{ name: 'a', type: 'text' }] } });
+  const sd = await srv.call('POST', `/api/bench-views/demo/mcp-requests/${reqId}`, { ...staff, body: { approve: true } });
+  const sg = await srv.call('PUT', '/api/bench-views/demo/mcp-grants', { ...staff, body: { session: 'seat-a', tools: ['dataset_list'] } });
+  check(sw.status === 200 && sd.status === 403 && sg.status === 403 && db.prepare('SELECT COUNT(*) AS n FROM bench_mcp_grants').get().n === 0, '有「做」没有「拍板」的角色：改得了数据，批不了申请、也给不了授予', { grant: gStaff, write: sw.status, decide: sd.status, put: sg.status });
   r = await srv.call('GET', '/api/bench-views/demo/mcp-grants', mgr);
   check(r.status === 200 && r.json?.requests?.some((x) => x.id === reqId && x.session === 'seat-a' && x.reason === '读订单做日报') && r.json.grants.length === 0, '管理层看得到这条申请：哪个会话、要什么、为什么', r.text.slice(0, 200));
   r = await srv.call('GET', '/api/bench-views/other/mcp-grants', mgr);

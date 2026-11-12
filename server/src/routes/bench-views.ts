@@ -91,14 +91,14 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
    * 按「看」放行的话，入口一开全公司都读得到所有台的数据。按部门、按团队判读权限的那一半做完之前，读也只给能写的人（管理层）。
    * 路由登记的类别（read / write）照实写，只用于动作清单；放不放行不看它。
    */
-  async function allow(req: express.Request, res: express.Response, action: string): Promise<string | null> {
+  async function allow(req: express.Request, res: express.Response, action: string, gate: 'write' | 'decide' = 'write'): Promise<string | null> {
     res.set('Cache-Control', 'private, no-store');
     res.vary('Cookie'); res.vary('X-Admin-Token');
     if (req.headers['sec-fetch-site'] === 'cross-site' || (req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req))) { res.status(403).json({ error: 'bench_views_cross_origin_denied' }); return null; }
     const actor = await actorOf(req);
     if (actor.type === 'builtin' && actor.name === 'admin-token') { res.status(403).json({ error: 'bench_views_admin_token_denied', message: '台里是业务数据，管理口令看不了、也改不了；用有管理层授予的账号登录' }); return null; }
     if (actor.type === 'builtin' && actor.name === 'anonymous') { res.status(401).json({ error: 'login_required' }); return null; }
-    const verdict = judge({ actor, action, kind: 'write', declared: true });
+    const verdict = judge({ actor, action, kind: gate, declared: true });
     if (verdict.verdict !== 'allow') { res.status(403).json({ error: 'bench_views_forbidden' }); return null; }
     return actor.type === 'principal' ? actor.id : `builtin:${actor.name}`;
   }
@@ -125,8 +125,8 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
 
   const rawRows = express.raw({ type: () => true, limit: BENCH_LIMITS.datasetBytes + 1_000_000 });
   /** 一条「在某个台上做一件事」的路由：先判权限，再核台登记过，然后把台库交给 fn */
-  const on = (action: string, fn: (req: express.Request, res: express.Response, s: BenchStore, actor: string) => Promise<unknown>) => wrap(async (req, res) => {
-    const actor = await allow(req, res, action);
+  const on = (action: string, fn: (req: express.Request, res: express.Response, s: BenchStore, actor: string) => Promise<unknown>, gate: 'write' | 'decide' = 'write') => wrap(async (req, res) => {
+    const actor = await allow(req, res, action, gate);
     if (!actor) return;
     if (!getBench(req.params.bench)) return res.status(404).json({ error: 'bench_not_found' });
     try { res.json(await fn(req, res, await benchStore(req.params.bench), actor)); } catch (e) { fail(res, e); }
@@ -204,14 +204,15 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     return s.submitForm({ view, block, version }, b.values, ctxOf(req, actor));
   }));
 
+  // 把台的数据交给一个 AI 会话是「拍板」（和批授予、批角色同类），不是普通的写：以后有能改数据、但不该替会话开权限的角色时分得开
   // —— MCP 工具的授予（3b）：按「会话 × 台 × 工具」记，由能改这个台的人批；管理口令在上面已经拒了 ——
   app.get('/api/bench-views/:bench/mcp-grants', { action: 'bench-store.mcp-list', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.mcp-list', async (req) => listBenchMcp(req.params.bench)));
-  app.put('/api/bench-views/:bench/mcp-grants', { action: 'bench-store.mcp-grant', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.mcp-grant', async (req, _res, _s, actor) => setBenchGrants(req.params.bench, req.body, actor, Date.now())));
-  app.post('/api/bench-views/:bench/mcp-requests/:id', { action: 'bench-store.mcp-decide', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.mcp-decide', async (req, _res, _s, actor) => {
+  app.put('/api/bench-views/:bench/mcp-grants', { action: 'bench-store.mcp-grant', kind: 'decide', statusNotVerdict: NOT_VERDICT }, on('bench-store.mcp-grant', async (req, _res, _s, actor) => setBenchGrants(req.params.bench, req.body, actor, Date.now()), 'decide'));
+  app.post('/api/bench-views/:bench/mcp-requests/:id', { action: 'bench-store.mcp-decide', kind: 'decide', statusNotVerdict: NOT_VERDICT }, on('bench-store.mcp-decide', async (req, _res, _s, actor) => {
     const id = /^\d{1,9}$/.test(req.params.id) ? Number(req.params.id) : NaN;
     if (!Number.isInteger(id) || id < 1) throw new BenchError('not_found', '没有这条申请');
     return decideBenchRequest(req.params.bench, id, req.body?.approve, actor, req.body?.note, Date.now());
-  }));
+  }, 'decide'));
 
   // —— 留痕 ——
   app.get('/api/bench-views/:bench/log', { action: 'bench-store.log-list', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.log-list', async (_req, _res, s) => ({ changes: await s.changes(100), writes: await s.writes(100) })));
