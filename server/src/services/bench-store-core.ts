@@ -41,9 +41,9 @@ const IDEM_RE = /^[\x21-\x7e]{8,128}$/;
 /** 这一层对外开放的操作，和各自算读还是写（时限不同）。工作线程只认这张表里的名字 */
 export const BENCH_METHODS = new Map<string, 'read' | 'write'>([
   ['datasets', 'read'], ['datasetVersions', 'read'], ['snapshots', 'read'], ['query', 'read'], ['getView', 'read'],
-  ['viewVersions', 'read'], ['diffViews', 'read'], ['changes', 'read'], ['writes', 'read'],
+  ['viewVersions', 'read'], ['diffViews', 'read'], ['changes', 'read'], ['writes', 'read'], ['renderView', 'read'],
   ['defineDataset', 'write'], ['replace', 'write'], ['append', 'write'], ['upsert', 'write'], ['deleteRows', 'write'],
-  ['snapshot', 'write'], ['restore', 'write'], ['putView', 'write'], ['rollbackView', 'write'], ['backupTo', 'write'],
+  ['snapshot', 'write'], ['restore', 'write'], ['putView', 'write'], ['rollbackView', 'write'], ['backupTo', 'write'], ['submitForm', 'write'],
 ]);
 
 export type WriteCtx = { actor: string; at: number; idemKey?: string; note?: string };
@@ -175,6 +175,10 @@ function normalizeDataset(input: DatasetInput): { name: string; title: string; c
 }
 
 type CheckedRow = { cols: string[]; vals: (string | number | null)[] };
+/** 存下来的视图描述（保存时已经由 bench-views.ts 核对过，这里只取用到的形状） */
+type FilterField = { name: string; kind: string; label?: string; default?: string; options?: string[] | { dataset: string; col: string } };
+type ViewBlock = { type: string; [k: string]: unknown };
+type ViewDoc = { title: string; views: { key: string; title: string; blocks: ViewBlock[] }[] };
 /** 三道数据量上限（字节）；默认取 BENCH_LIMITS，测试可以给小的 */
 export type BenchCaps = { datasetBytes: number; storeBytes: number; writeBytes: number };
 const mb = (n: number) => `${(n / 1_000_000).toFixed(n < 10_000_000 ? 2 : 0)} MB`;
@@ -507,12 +511,14 @@ export class BenchStoreCore {
   }
   /** 只追加；有主键时和已有的行撞了就整批拒收 */
   append(name: string, input: unknown, ctx: WriteCtx) {
-    return this.tx(async () => {
-      const ds = await this.need(name), rows = decodeInput(input, this.caps.writeBytes), checked = checkRows(ds, rows, 'full', BENCH_LIMITS.rowsPerWrite, this.caps.writeBytes);
-      return this.logged(ds, 'append', rows, ctx, async () => {
-        await this.insert(ds, checked);
-        return { dataset: ds.name, op: 'append', rows: checked.length, row_count: 0, inserted: checked.length };
-      });
+    return this.tx(() => this.appendIn(name, input, ctx));
+  }
+  /** 追加的本体；要在事务里调（append 和表单提交共用） */
+  private async appendIn(name: string, input: unknown, ctx: WriteCtx): Promise<WriteResult> {
+    const ds = await this.need(name), rows = decodeInput(input, this.caps.writeBytes), checked = checkRows(ds, rows, 'full', BENCH_LIMITS.rowsPerWrite, this.caps.writeBytes);
+    return this.logged(ds, 'append', rows, ctx, async () => {
+      await this.insert(ds, checked);
+      return { dataset: ds.name, op: 'append', rows: checked.length, row_count: 0, inserted: checked.length };
     });
   }
   /** 按主键有则改、无则加；每行给主键列和必填列，其余给了哪些列就改哪些列 */
@@ -614,20 +620,112 @@ export class BenchStoreCore {
   /** 按查询描述读；params 是筛选栏当前的值 */
   query(spec: unknown, params: Record<string, unknown> = {}) {
     return this.serial(async () => {
-      const plan = planQuery(spec, await this.load(), { params, contains: (col) => fill(this.kit.contains, { col }), guard: this.guard });
-      const rows: Record<string, unknown>[] = [];
-      let truncated = false, chars = 0;
-      // 边取边数：取回的内容太大就停，不先整个装进内存再说
-      await this.conn.scan(plan.sql, plan.args, (r) => {
-        if (rows.length >= plan.limit) { truncated = true; return; }
-        rows.push(Object.fromEntries(plan.columns.map((c) => {
-          const v = decodeValue(c.type, r[c.name]);
-          chars += typeof v === 'string' ? v.length : 8;
-          return [c.name, v];
-        })));
-        if (chars > BENCH_LIMITS.resultChars) throw new BenchError('limit', `查询取回的内容超过 ${BENCH_LIMITS.resultChars} 个字符：少取几列，或者把行数上限调小`);
-      });
-      return { dataset: plan.dataset, columns: plan.columns as OutColumn[], truncated, rows };
+      const { chars: _chars, ...out } = await this.runQuery(await this.load(), spec, params, BENCH_LIMITS.resultChars);
+      return out;
+    });
+  }
+  /** 查询的本体；要在排着队的那一格里调。room 是还能取回多少个字符，chars 是这次取了多少 */
+  private async runQuery(defs: Map<string, DatasetDef>, spec: unknown, params: Record<string, unknown>, room: number) {
+    const plan = planQuery(spec, defs, { params, contains: (col) => fill(this.kit.contains, { col }), guard: this.guard });
+    const rows: Record<string, unknown>[] = [];
+    let truncated = false, chars = 0;
+    // 边取边数：取回的内容太大就停，不先整个装进内存再说
+    await this.conn.scan(plan.sql, plan.args, (r) => {
+      if (rows.length >= plan.limit) { truncated = true; return; }
+      rows.push(Object.fromEntries(plan.columns.map((c) => {
+        const v = decodeValue(c.type, r[c.name]);
+        chars += typeof v === 'string' ? v.length : 8;
+        return [c.name, v];
+      })));
+      if (chars > room) throw new BenchError('limit', `取回的内容超过 ${BENCH_LIMITS.resultChars} 个字符：少取几列，或者把行数上限调小`);
+    });
+    return { dataset: plan.dataset, columns: plan.columns as OutColumn[], truncated, rows, chars };
+  }
+
+  // —— 视图取数与表单提交 ——
+  private async viewDoc(version: number | undefined): Promise<{ version: number; active: number; doc: ViewDoc }> {
+    const active = await this.activeVersion(), v = version ?? active;
+    if (!v) throw new BenchError('not_found', '这个台还没有视图');
+    const r = Number.isSafeInteger(v) ? await this.conn.all('SELECT content FROM bs_view_versions WHERE version = ?', [v]) : [];
+    if (!r.length) throw new BenchError('not_found', `没有视图第 ${String(version)} 版`);
+    return { version: v, active, doc: JSON.parse(String(r[0].content)) as ViewDoc };
+  }
+  /**
+   * 把一个视图要的数据一次取齐：页面和 view_get 工具都用它。
+   * opts.view 是哪个视图（不给取第一个）；opts.params 是筛选栏当前的值，只认这个视图的筛选栏里声明过的字段，没给的用字段的默认值；
+   * opts.version 看指定的一版（预览旧版用），不给就是生效的那一版。
+   * 一个组件的查询出了错（参数的写法不对、取回的太多、引用的列后来被删了），只这一个组件带 error，别的照常；超时是整个这一次的，照常抛。
+   * 整个视图取回的内容合计不超过一次查询的上限。全部在同一格里做完：各组件看到的是同一时刻的数据。
+   */
+  renderView(opts: { view?: string; params?: Record<string, unknown>; version?: number } = {}) {
+    return this.serial(async () => {
+      if (!isObj(opts)) throw new BenchError('invalid', '参数须为对象');
+      const { version, active, doc } = await this.viewDoc(opts.version);
+      const view = opts.view === undefined ? doc.views[0] : doc.views.find((x) => x.key === opts.view);
+      if (!view) throw new BenchError('not_found', `没有视图 ${String(opts.view).slice(0, 40)}`);
+      const defs = await this.load(), given = isObj(opts.params) ? opts.params : {};
+      // 筛选栏的值：只认声明过的字段；值只收文本
+      const params: Record<string, string> = {};
+      for (const b of view.blocks) {
+        if (b.type !== 'filter-bar') continue;
+        for (const f of b.fields as FilterField[]) {
+          const v = Object.hasOwn(given, f.name) ? given[f.name] : undefined;
+          if (v !== undefined && v !== null && (typeof v !== 'string' || v.length > 200)) throw new BenchError('invalid', `筛选字段 ${f.name} 的值须为 200 个字符以内的文本`);
+          const val = typeof v === 'string' && v !== '' ? v : (f.default ?? '');
+          if (val !== '') params[f.name] = val;
+        }
+      }
+      let room: number = BENCH_LIMITS.resultChars;
+      const run = async (spec: unknown) => {
+        try {
+          const { chars, dataset: _d, ...data } = await this.runQuery(defs, spec, params, room);
+          room -= chars;
+          return { data, error: undefined };
+        } catch (e) {
+          if (!(e instanceof BenchError) || e.code === 'timeout' || e.code === 'internal') throw e;
+          return { data: undefined, error: { code: e.code as string, message: e.message } };
+        }
+      };
+      const blocks: Record<string, unknown>[] = [];
+      for (const b of view.blocks) {
+        if (b.type === 'filter-bar') {
+          const fields: Record<string, unknown>[] = [];
+          for (const f of b.fields as FilterField[]) {
+            let options: unknown = f.options, error: unknown;
+            if (isObj(f.options)) {
+              const r = await run({ dataset: f.options.dataset, group: [f.options.col], sort: [{ col: f.options.col }], limit: 100 });
+              if (r.data) options = r.data.rows.map((x) => x[String((f.options as { col: string }).col)]).filter((x) => x !== null).map(String);
+              else { options = []; error = r.error; }
+            }
+            fields.push({ ...f, options, value: params[f.name] ?? '', ...(error ? { error } : {}) });
+          }
+          blocks.push({ ...b, fields });
+        } else if (b.type === 'form') {
+          const ds = defs.get(String(b.dataset));
+          const cols = ds ? (b.fields as string[]).map((n) => ds.columns.find((c) => c.name === n)).filter((c): c is ColumnDef => !!c) : [];
+          blocks.push(ds && cols.length === (b.fields as string[]).length ? { ...b, columns: cols } : { ...b, columns: [], error: { code: 'invalid', message: '表单引用的数据集或列现在已经不在了' } });
+        } else { const r = await run(b.query); blocks.push(r.data ? { ...b, data: r.data } : { ...b, error: r.error }); }
+      }
+      return { title: doc.title, version, active_version: active, views: doc.views.map((x) => ({ key: x.key, title: x.title })), view: { key: view.key, title: view.title }, params, blocks };
+    });
+  }
+  /**
+   * 表单提交：往表单绑定的数据集追加一行。只收表单里列出的字段，多给的拒收；校验、幂等键、上限都和 append 一样。
+   * version 是页面取数时拿到的视图版本：这期间视图换了版，表单可能已经不是原来那个，拒绝，由页面刷新后再提交。
+   */
+  submitForm(target: { view: string; block: number; version: number }, values: unknown, ctx: WriteCtx) {
+    return this.tx(async () => {
+      if (!isObj(target) || typeof target.view !== 'string' || !Number.isInteger(target.block) || !Number.isInteger(target.version)) throw new BenchError('invalid', '要写明是哪个视图（view）的第几个组件（block，从 0 数）和页面拿到的视图版本（version）');
+      const { active, doc } = await this.viewDoc(undefined);
+      if (target.version !== active) throw new BenchError('conflict', `页面是第 ${target.version} 版的，现在生效的是第 ${active} 版：刷新之后再提交`, [`active_version=${active}`]);
+      const block = doc.views.find((x) => x.key === target.view)?.blocks[target.block];
+      if (!block || block.type !== 'form') throw new BenchError('not_found', '这个位置不是表单');
+      if (!isObj(values)) throw new BenchError('invalid', '表单的内容须为对象');
+      const fields = block.fields as string[];
+      const extra = Object.keys(values).filter((k) => !fields.includes(k));
+      if (extra.length) throw new BenchError('invalid', `表单里没有这些字段：${extra.map((k) => k.slice(0, 48)).join('、')}`);
+      const res = await this.appendIn(String(block.dataset), [values], ctx);
+      return { ...res, form: { view: target.view, block: target.block } };
     });
   }
 

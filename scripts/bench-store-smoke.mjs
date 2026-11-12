@@ -477,6 +477,72 @@ try {
   await ask({ id: 4, slug: '', method: '@closeAll', args: [], budgetMs: 0 });
   await tw.terminate();
 
+  // —— R：视图取数与表单提交（页面和 view_get 共用的底）——
+  console.log('R 视图取数与表单提交');
+  const pg = await benchStore('page');
+  await pg.defineDataset({ name: 'runs', columns: [{ name: 'id', type: 'integer' }, { name: 'day', type: 'date' }, { name: 'status', type: 'text', label: '状态' }, { name: 'done', type: 'integer' }], key: ['id'] }, ctx());
+  await pg.defineDataset({ name: 'reports', columns: [{ name: 'title', type: 'text', required: true }, { name: 'kind', type: 'text' }, { name: 'secret', type: 'text' }] }, ctx());
+  await pg.replace('runs', [{ id: 1, day: '2026-01-05', status: 'ok', done: 3 }, { id: 2, day: '2026-01-20', status: 'late', done: 1 }, { id: 3, day: '2026-02-02', status: 'ok', done: 5 }, { id: 4, day: '2026-02-09', status: null, done: 2 }], ctx());
+  const pageDoc = { title: '取数台', views: [
+    { key: 'overview', title: '总览', blocks: [
+      { type: 'filter-bar', fields: [{ name: 'month', kind: 'month', default: '2026-01' }, { name: 'st', kind: 'select', options: { dataset: 'runs', col: 'status' } }, { name: 'fixed', kind: 'select', options: ['甲', '乙'] }] },
+      { type: 'stat', title: '完成', query: { dataset: 'runs', filter: [{ col: 'day', op: 'prefix', value: '$month' }], measures: [{ as: 'v', fn: 'sum', col: 'done' }] }, value: 'v' },
+      { type: 'bar', title: '按状态', query: { dataset: 'runs', filter: [{ col: 'status', op: '=', value: '$st' }], group: ['status'], measures: [{ as: 'n', fn: 'count' }] }, x: 'status', y: 'n' },
+      { type: 'table', query: { dataset: 'runs', filter: [{ col: 'day', op: '>=', value: '$month' }], limit: 50 }, columns: ['id', 'status'] },
+    ] },
+    { key: 'report', title: '提报', blocks: [{ type: 'form', dataset: 'reports', fields: ['title', 'kind'], submit_label: '提交' }] },
+  ] };
+  const pv = (await pg.putView(pageDoc, ctx({ base: 0, note: '首版' }))).version;
+  let pgr = await pg.renderView();
+  ok('R1 不给视图取第一个；带标题、版本、视图清单', pgr.title === '取数台' && pgr.version === pv && pgr.active_version === pv && pgr.view.key === 'overview' && pgr.views.map((x) => x.key).join() === 'overview,report', pgr);
+  ok('R1 筛选栏：没给的字段用默认值；选项取自数据集的那一列（去重、不含空）', pgr.params.month === '2026-01' && !('st' in pgr.params) && pgr.blocks[0].fields[1].options.join() === 'late,ok' && pgr.blocks[0].fields[2].options.join() === '甲,乙' && pgr.blocks[0].fields[0].value === '2026-01', pgr.blocks[0]);
+  ok('R1 各组件带着自己的数据：默认月份生效，没给的筛选不生效', pgr.blocks[1].data.rows[0].v === 4 && pgr.blocks[2].data.rows.length === 3 && pgr.blocks[1].value === 'v' && pgr.blocks[2].data.columns.length === 2, pgr.blocks.slice(1, 3));
+  pgr = await pg.renderView({ view: 'overview', params: { month: '2026-02', st: 'ok', nope: 'x', constructor: 'y' } });
+  ok('R2 给了筛选的值：各组件按它取数；没声明的参数不认', pgr.blocks[1].data.rows[0].v === 7 && pgr.blocks[2].data.rows.length === 1 && pgr.blocks[2].data.rows[0].n === 2 && Object.keys(pgr.params).join() === 'month,st', pgr.params);
+  ok('R2 一个组件的查询出错只影响它自己：月份拿去比日期不合格，表格带 error，别的照常', pgr.blocks[3].error?.code === 'invalid' && pgr.blocks[3].data === undefined && pgr.blocks[1].data.rows.length === 1, pgr.blocks[3]);
+  e = await refused(() => pg.renderView({ params: { month: 5 } }));
+  ok('R2 筛选的值不是文本：拒', e?.code === 'invalid', e);
+  e = await refused(() => pg.renderView({ view: 'nope' }));
+  ok('R2 没有这个视图', e?.code === 'not_found', e);
+  e = await refused(() => pg.renderView({ view: '__proto__' }));
+  ok('R2 视图名撞上对象原型上的名字：没有这个视图', e?.code === 'not_found', e);
+  pgr = await pg.renderView({ view: 'report' });
+  ok('R3 表单：带上各字段的列定义（类型、必填、显示名）', pgr.blocks[0].columns.map((c) => `${c.name}:${c.type}:${c.required}`).join() === 'title:text:true,kind:text:false', pgr.blocks[0]);
+
+  r = await pg.submitForm({ view: 'report', block: 0, version: pv }, { title: '第一条', kind: 'a' }, ctx({ idemKey: 'form-submit-0001' }));
+  ok('R4 表单提交：追加一行', r.inserted === 1 && r.form.view === 'report' && (await pg.query({ dataset: 'reports' })).rows[0].title === '第一条', r);
+  r = await pg.submitForm({ view: 'report', block: 0, version: pv }, { title: '第一条', kind: 'a' }, ctx({ idemKey: 'form-submit-0001' }));
+  ok('R4 同一个幂等键再提交：不重复写', r.duplicate === true && (await pg.query({ dataset: 'reports' })).rows.length === 1, r);
+  e = await refused(() => pg.submitForm({ view: 'report', block: 0, version: pv }, { title: 'x', secret: '偷写' }, ctx()));
+  ok('R5 表单里没列出的字段：拒，哪怕数据集有这一列', e?.code === 'invalid' && /secret/.test(e.message) && (await pg.query({ dataset: 'reports' })).rows.length === 1, e);
+  e = await refused(() => pg.submitForm({ view: 'report', block: 0, version: pv }, { kind: 'a' }, ctx()));
+  ok('R5 必填没填：拒', e?.code === 'invalid', e);
+  e = await refused(() => pg.submitForm({ view: 'overview', block: 1, version: pv }, { title: 'x' }, ctx()));
+  ok('R5 这个位置不是表单：拒', e?.code === 'not_found', e);
+  e = await refused(() => pg.submitForm({ view: 'report', block: 9, version: pv }, { title: 'x' }, ctx()));
+  ok('R5 没有这个组件：拒', e?.code === 'not_found', e);
+  e = await refused(() => pg.submitForm({ view: 'report', block: 0, version: pv }, [{ title: 'x' }], ctx()));
+  ok('R5 内容不是对象：拒', e?.code === 'invalid', e);
+  const pv2 = (await pg.putView({ ...pageDoc, title: '取数台二版' }, ctx({ base: pv, note: '改标题' }))).version;
+  e = await refused(() => pg.submitForm({ view: 'report', block: 0, version: pv }, { title: '旧页面' }, ctx()));
+  ok('R6 页面拿的是旧版视图：拒绝提交，让它刷新', e?.code === 'conflict' && e.details[0] === `active_version=${pv2}`, e);
+  pgr = await pg.renderView({ version: pv });
+  ok('R6 可以指定看旧的一版（预览）', pgr.title === '取数台' && pgr.version === pv && pgr.active_version === pv2, pgr.title);
+  // 视图引用的列后来被删了：那个组件带 error，别的照常
+  await pg.defineDataset({ name: 'runs', columns: [{ name: 'id', type: 'integer' }, { name: 'day', type: 'date' }, { name: 'done', type: 'integer' }], key: ['id'] }, ctx());
+  pgr = await pg.renderView({ params: { month: '2026-01' } });
+  ok('R7 引用的列被删了：只那几个组件带 error，取数不整个失败', pgr.blocks[1].data.rows[0].v === 4 && pgr.blocks[2].error?.code === 'invalid' && pgr.blocks[0].fields[1].error?.code === 'invalid' && pgr.blocks[0].fields[1].options.length === 0, pgr.blocks[2]);
+  e = await refused(() => (benchStore('page-empty').then((x) => x.renderView())));
+  ok('R8 还没有视图的台：说清楚', e?.code === 'not_found' && /还没有视图/.test(e.message), e);
+  // 整个视图取回的内容合计有上限：三张各 3 MB 的表，前两张给，第三张带 error
+  await big.putView({ title: '大', views: [{ key: 'm', title: '大', blocks: [1, 2, 3].map(() => ({ type: 'table', query: { dataset: 'wide', select: ['body'], limit: 1600 } })) }] }, ctx({ base: (await big.getView()).version, note: '三张大表' }));
+  pgr = await big.renderView();
+  ok('R9 整个视图取回的内容合计有上限：超出的那个组件带 error', pgr.blocks[0].data.rows.length === 1600 && pgr.blocks[1].data.rows.length === 1600 && pgr.blocks[2].error?.code === 'limit', pgr.blocks.map((b) => b.error ?? b.data.rows.length));
+  configureBenchRuntime({ queryMs: 0.01 });
+  e = await refused(() => big.renderView());
+  configureBenchRuntime(base);
+  ok('R9 取数超时：整个这一次报 timeout，不当成某个组件的错', e?.code === 'timeout', e);
+
   // —— L：数据量上限（设计稿第十一节第 2 条）。用小的上限、不经工作线程，直接验逻辑本体 ——
   console.log('L 数据量上限');
   const capHost = new BenchHost(join(DATA, 'caps'), benchSqlKit('sqlite'), { datasetBytes: 10_000, storeBytes: 16_000, writeBytes: 4_000 });
