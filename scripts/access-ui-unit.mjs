@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 「谁能做什么」页的纯函数单测（web/src/access-view.ts）：状态、范围、期限的说法，待核准卡片，按人排的权限表，矩阵格子，读不到时怎么说。数据都是合成的。 */
-import { ACCESS_TABS, CELL_LEGEND, actionProblem, cellLabel, declineReasonOk, grantActorRaw, grantRows, grantsOf, indexPrincipals, kindLabel, matrixOf, pendingGrants, principalName, responsibleOf, roleName, roleUsage, rolesOf, scopeLabel, scopeNotYetEffective, sourceProblem, statusLabel, tabFromQuery, termLabel } from '../web/src/access-view.ts';
+import { ACCESS_TABS, CELL_LEGEND, actionProblem, cellLabel, declineReasonOk, grantActorRaw, grantRows, grantsOf, indexPrincipals, kindLabel, matrixOf, pendingGrants, principalName, responsibleOf, roleName, roleUsage, rolesOf, scopeLabel, scopeNotYetEffective, sourceProblem, statusLabel, tabFromQuery, termLabel, myRolesOf, summaryDo, OTHERS_ONLY_ADMINS } from '../web/src/access-view.ts';
 import { actorLabel } from '../web/src/people.ts';
 
 let pass = 0, fail = 0;
@@ -14,7 +14,7 @@ ok('页签：地址里认得 roles，其余都当人和权限', tabFromQuery('ro
 ok('状态：待核准、生效中、草稿、已过期、已收回；颜色跟着', J(['pending', 'active', 'draft', 'expired', 'revoked'].map((s) => statusLabel(s).text)) === '["待核准","生效中","草稿","已过期","已收回"]' && statusLabel('active').tone === 'success' && statusLabel('pending').tone === 'warning');
 ok('状态：原型链上的名字不当成状态（toString）', statusLabel('toString').text === 'toString' && statusLabel('toString').tone === 'default');
 
-ok('范围：* 是全部、self 只限自己、工作台和流程说成人话、认不出的原样', scopeLabel('*') === '全部' && scopeLabel('self') === '只限自己' && scopeLabel('bench:12') === '工作台 12' && scopeLabel('sop:purchase') === '流程 purchase' && scopeLabel('domain:work') === '这一块 work' && scopeLabel('domain:work', new Map([['work', '事项与对话']])) === '「事项与对话」这一块' && scopeLabel('weird') === 'weird' && scopeLabel('constructor:x') === 'constructor:x');
+ok('范围：* 是全部、self 只限自己、工作台和流程说成人话、认不出的原样', scopeLabel('*') === '全部' && scopeLabel('self') === '只限自己' && scopeLabel('bench:12') === '工作台 12' && scopeLabel('sop:purchase') === '流程 purchase' && scopeLabel('domain:nope') === '这一块 nope' && scopeLabel('domain:work', new Map([['work', '事项与对话']])) === '「事项与对话」这一块' && scopeLabel('weird') === 'weird' && scopeLabel('constructor:x') === 'constructor:x');
 ok('按范围的授予尚未生效：只标生效中、范围不是全部的', scopeNotYetEffective({ scope: 'bench:1', status: 'active' }) && !scopeNotYetEffective({ scope: '*', status: 'active' }) && !scopeNotYetEffective({ scope: 'bench:1', status: 'pending' }));
 
 ok('期限：没有是长期；以后的写到哪天；过了的写已到期', termLabel(null, NOW) === '长期' && termLabel(Date.parse('2026-12-31T12:00:00Z'), NOW) === '到 2026-12-31' && termLabel(Date.parse('2026-11-01T12:00:00Z'), NOW).startsWith('已到期'));
@@ -49,10 +49,19 @@ ok('角色名：认得的用名字，不认得的原样', roleName('owner', role
 ok('矩阵格子：全部、范围内、部分、只限自己、不能、没有这类动作', J(CELL_LEGEND.map((c) => cellLabel(c).text)) === '["全部","范围内","部分","只限自己","不能","—"]' && cellLabel('toString').text === '—');
 ok('矩阵：形状对才用，不然按读不到', matrixOf({ blocks: [], kinds: [], roles: [] }) !== null && matrixOf({ blocks: [] }) === null && matrixOf(null) === null);
 
-ok('读不到：401 请先登录、403 只给管理员看、404 没上线、其余读不到', sourceProblem('授予', { status: 401 }).text.startsWith('请先登录') && sourceProblem('授予', { status: 403 }).text.includes('只给管理员看') && sourceProblem('授予', { status: 404 }).type === 'info' && sourceProblem('授予', { status: 0 }).text === '读不到授予，稍后再试。' && sourceProblem('授予', { status: 200 }) === null);
+ok('读不到：401 请先登录、403 只有管理层和系统管理员能看、404 没上线、其余读不到', sourceProblem('授予', { status: 401 }).text.startsWith('请先登录') && sourceProblem('授予', { status: 403 }).text.includes('只有管理层和系统管理员能看') && sourceProblem('授予', { status: 404 }).type === 'info' && sourceProblem('授予', { status: 0 }).text === '读不到授予，稍后再试。' && sourceProblem('授予', { status: 200 }) === null);
 ok('核准、不给被拒：服务端给了说法就用它', actionProblem({ status: 403, body: { error: 'owner_required', message: '角色 admin 是管理员级的，只有属主能放行' } }).includes('只有属主') && actionProblem({ status: 200, body: {} }) === null && actionProblem({ status: 500, body: null }) === '没办成，稍后再试。');
 ok('不给的理由：去掉空白后 1～500 字', declineReasonOk('不需要') && !declineReasonOk('   ') && !declineReasonOk('长'.repeat(501)));
 ok('说法里没有开发用语', [sourceProblem('授予', { status: 403 }).text, sourceProblem('角色', { status: 500 }).text].every((t) => !/接口|字段|暂无数据|待实现/.test(t)));
+
+// 你的权限（非管理员）：/api/auth/me 的本人角色
+const me = { authenticated: true, principal: 'user:bing', roles: [{ id: 'member', name: '普通员工', scope: '*', preset: true, expires_at: null }, { id: 'dept-lead', name: '', scope: 'domain:work', expires_at: NOW + 86400000 }, null, { name: '缺 id' }] };
+const mine = myRolesOf(me);
+ok('你的权限：认出了人才有列表；名字空的用角色键；坏项丢掉', J(mine?.map((r) => r.name)) === '["普通员工","dept-lead"]' && mine[1].scope === 'domain:work' && mine[1].expires_at === NOW + 86400000);
+ok('你的权限：没登录、只有口令（principal 为空）、读不到都是 null；认出了人没有角色是空列表', myRolesOf(null) === null && myRolesOf({ authenticated: false, roles: [] }) === null && myRolesOf({ authenticated: true, principal: null, roles: [] }) === null && J(myRolesOf({ authenticated: true, principal: 'user:x', roles: [] })) === '[]');
+ok('读不到矩阵时，块的范围也说名字（「事项与对话」这一块）；矩阵给的名字优先；原型链上的名字不当块名', scopeLabel('domain:work') === '「事项与对话」这一块' && scopeLabel('domain:work', new Map([['work', '事项']])) === '「事项」这一块' && scopeLabel('domain:toString') === '这一块 toString');
+ok('别人的权限谁能看：一句话', OTHERS_ONLY_ADMINS === '别人的权限只有管理层和系统管理员能看。');
+ok('能做一格：去掉「能做：」前缀和「；能管：…」', summaryDo('能做：事项与对话（全部）；能管：全景（全部）、关注（全部）') === '事项与对话（全部）' && summaryDo('能做：无') === '无' && summaryDo(undefined) === '');
 
 console.log(`\naccess-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

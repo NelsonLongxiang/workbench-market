@@ -3,7 +3,8 @@
  *  · 人和权限：上面是「待你核准的授予」卡片（当场核准，或者不给并写理由），下面是给出去的全部权限，按人排。
  *  · 角色预设：每个角色一张卡（几条生效中的授予在用），选一个看它在七大块上能看、能做、能拍板、能管什么；矩阵由服务端算。
  * 第三个页签「以某人的身份看」、红线清单、AI 员工遇到动作怎么办、全部留痕，等身份线的接口，现在不出现（不放占位）。
- * 谁能看：照接口实际返回的来，页面不自己判。现在这几个接口只给管理员，别人看到的是「只给管理员看」的说法。
+ * 谁能看：照接口实际返回的来，页面不自己判。授予、主体、角色、矩阵几个接口只给管理员；别人读不到授予时，「人和权限」改用
+ * /api/auth/me 带的本人角色显示「你的权限」，下面一句别人的权限谁能看。
  * 判断逻辑在 web/src/access-view.ts（有单测）。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -12,19 +13,20 @@ import { Alert, Button, Empty, Input, Skeleton, Table, Tag } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import WmPage from '../../components/WmPage';
 import { actorLabel } from '../../people';
-import { approveAccessGrant, declineAccessGrant, getAccessGrants, getAccessMatrix, getAccessPrincipals, getAccessRoles } from '../../api';
+import { approveAccessGrant, declineAccessGrant, getAccessGrants, getAccessMatrix, getAccessPrincipals, getAccessRoles, getAuthMe } from '../../api';
 import { subscribeAdminToken } from '../../admin-token';
 import {
   ACCESS_TABS, CELL_LEGEND, actionProblem, cellLabel, declineReasonOk, grantActorRaw, grantRows, grantsOf, indexPrincipals, kindLabel, matrixOf,
   pendingGrants, principalName, responsibleOf, roleName, roleUsage, rolesOf, scopeLabel, scopeNotYetEffective, sourceProblem, statusLabel, tabFromQuery, termLabel, SCOPE_PENDING,
+  OTHERS_ONLY_ADMINS, myRolesOf, summaryDo,
 } from '../../access-view';
 import type { AccessTab, Grant, Principal, RoleInfo, SourceResult, Tone } from '../../access-view';
 
 const TAG: Record<Tone, string> = { success: 'success', warning: 'warning', danger: 'error', default: 'default' };
 const ok = (r: SourceResult | null) => !!r && r.status >= 200 && r.status < 300;
 
-type Sources = { grants: SourceResult | null; principals: SourceResult | null; roles: SourceResult | null; matrix: SourceResult | null };
-const NONE: Sources = { grants: null, principals: null, roles: null, matrix: null };
+type Sources = { grants: SourceResult | null; principals: SourceResult | null; roles: SourceResult | null; matrix: SourceResult | null; me: unknown };
+const NONE: Sources = { grants: null, principals: null, roles: null, matrix: null, me: null };
 
 function PendingCard({ g, who, kind, role, by, scope, onDone }: { g: Grant; who: string; kind: string; role: string; by: string; scope: string; onDone: () => void }) {
   const [declining, setDeclining] = useState(false);
@@ -79,9 +81,9 @@ export default function Access() {
   useEffect(() => {
     let live = true;
     setLoading(true);
-    void Promise.all([getAccessGrants(), getAccessPrincipals(), getAccessRoles(), getAccessMatrix()]).then(([grants, principals, roles, matrix]) => {
+    void Promise.all([getAccessGrants(), getAccessPrincipals(), getAccessRoles(), getAccessMatrix(), getAuthMe()]).then(([grants, principals, roles, matrix, me]) => {
       if (!live) return;
-      setSrc({ grants, principals, roles, matrix });
+      setSrc({ grants, principals, roles, matrix, me });
       setLoading(false);
     });
     return () => { live = false; };
@@ -115,6 +117,23 @@ export default function Access() {
 
   const peopleTab = (() => {
     const p = sourceProblem('给出去的权限', src.grants);
+    const mine = src.grants && (src.grants.status === 401 || src.grants.status === 403) ? myRolesOf(src.me) : null;
+    if (mine) return (
+      <div className="wm-acc-mine" data-testid="acc-mine">
+        <div className="wm-acc-sec"><h3>你的权限</h3><span className="wm-acc-n">{mine.length}</span><span className="wm-acc-cap">什么角色 · 在什么范围 · 到什么时候</span></div>
+        {mine.length === 0
+          ? <p className="wm-acc-mine-empty">你现在还没有生效中的角色。需要权限时找你的负责人或管理员，他们起草、核准之后会出现在这里。</p>
+          : <ul className="wm-acc-mine-list">{mine.map((r, i) => (
+            <li key={`${r.id}-${r.scope}-${i}`} data-testid="acc-mine-role">
+              <b>{r.name}</b>
+              <span>{scopeText(r.scope)}</span>
+              <span>{termLabel(r.expires_at, Date.now())}</span>
+              {scopeNotYetEffective({ scope: r.scope, status: 'active' }) && <span className="wm-acc-note" title={SCOPE_PENDING}>尚未生效</span>}
+            </li>
+          ))}</ul>}
+        <p className="wm-acc-mine-cap">{OTHERS_ONLY_ADMINS}</p>
+      </div>
+    );
     if (p) return <Alert className="wm-acc-alert" type={p.type} showIcon message={p.text} />;
     return (
       <>
@@ -155,7 +174,7 @@ export default function Access() {
             <div className="wm-acc-sec"><h3>{selected.name}</h3><span className="wm-acc-cap">{selected.preset ? '内置预设' : '自定义角色'}</span></div>
             <div className="wm-acc-four">
               <div><b>能看</b>{selected.summary.see.replace(/^能看：/, '') || '—'}</div>
-              <div><b>能做</b>{selected.summary.do.replace(/^能做：/, '') || '—'}</div>
+              <div><b>能做</b>{summaryDo(selected.summary.do) || '—'}</div>
               <div><b>能拍板</b>{selected.summary.decide.replace(/^能拍板：/, '') || '—'}</div>
               <div><b>不能</b>{selected.summary.cannot.replace(/^不能：/, '') || '—'}</div>
             </div>
@@ -170,7 +189,7 @@ export default function Access() {
             </table>
             <div className="wm-acc-legend">
               {CELL_LEGEND.map((c) => { const l = cellLabel(c); return <span key={c} className={`wm-acc-cell wm-acc-cell-${l.tone}`}>{l.text}</span>; })}
-              <span className="wm-acc-cap">「范围内」由给权限时选的范围决定。按范围给的权限现在尚未生效：要等对象范围接进判定，先按不能算。</span>
+              <span className="wm-acc-cap">能管什么看「管理」一列。「范围内」由给权限时选的范围决定。按范围给的权限现在尚未生效：要等对象范围接进判定，先按不能算。</span>
             </div>
           </>
         )}

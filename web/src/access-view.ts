@@ -38,6 +38,8 @@ export function statusLabel(status: unknown): { text: string; tone: Tone } {
   return s ? { text: s.text, tone: s.tone } : { text: String(status ?? ''), tone: 'default' };
 }
 
+/** 七大块的名字：矩阵给了就用矩阵的；读不到矩阵（不是管理员）时用这一份，和 server/src/roles.ts 的 BLOCKS 一致 */
+const BLOCK_NAMES: Record<string, string> = { overview: '全景', work: '事项与对话', attention: '关注', 'bench-data': '工作台数据', team: '团队与 AI 员工', access: '权限与角色', system: '系统与节点' };
 const SCOPE_KIND: Record<string, string> = { domain: '这一块', bench: '工作台', sop: '流程', tool: '工具', object: '对象' };
 /** 范围：* 是全部，self 是只限自己，domain:<块> 用七大块的名字（矩阵给的），其余是「工作台 x」「流程 x」这样 */
 export function scopeLabel(scope: unknown, blocks?: Map<string, string>): string {
@@ -45,7 +47,10 @@ export function scopeLabel(scope: unknown, blocks?: Map<string, string>): string
   if (s === '*' || s === '') return '全部';
   if (s === 'self') return '只限自己';
   const k = s.indexOf(':');
-  if (k > 0 && s.slice(0, k) === 'domain' && blocks?.has(s.slice(k + 1))) return `「${blocks.get(s.slice(k + 1))}」这一块`;
+  if (k > 0 && s.slice(0, k) === 'domain') {
+    const key = s.slice(k + 1), name = blocks?.get(key) ?? (Object.hasOwn(BLOCK_NAMES, key) ? BLOCK_NAMES[key] : '');
+    if (name) return `「${name}」这一块`;
+  }
   if (k > 0 && Object.hasOwn(SCOPE_KIND, s.slice(0, k))) return `${SCOPE_KIND[s.slice(0, k)]} ${s.slice(k + 1)}`;
   return s;
 }
@@ -147,11 +152,30 @@ export function matrixOf(body: unknown): Matrix | null {
   return m && Array.isArray(m.blocks) && Array.isArray(m.kinds) && Array.isArray(m.roles) ? m : null;
 }
 
+/** 别人的权限谁能看（授予、主体、角色、矩阵几个接口只给管理员：口令或管理员登录，即系统管理员与管理层） */
+export const OTHERS_ONLY_ADMINS = '别人的权限只有管理层和系统管理员能看。';
+
+/** 「你的权限」：/api/auth/me 带本人生效中的角色（{ id, name, scope, preset, expires_at, ... }）。
+ *  认出了人（有 principal）才返回列表，可以是空的；没登录、只有口令、读不到都返回 null */
+export interface MyRole { id: string; name: string; scope: string; expires_at: number | null }
+export function myRolesOf(me: unknown): MyRole[] | null {
+  if (!me || typeof me !== 'object') return null;
+  const m = me as { authenticated?: unknown; principal?: unknown; roles?: unknown };
+  if (m.authenticated !== true || typeof m.principal !== 'string' || !m.principal || !Array.isArray(m.roles)) return null;
+  return (m.roles as MyRole[]).filter((r) => r && typeof r.id === 'string')
+    .map((r) => ({ id: r.id, name: typeof r.name === 'string' && r.name.trim() ? r.name.trim() : r.id, scope: String(r.scope ?? '*'), expires_at: typeof r.expires_at === 'number' ? r.expires_at : null }));
+}
+
+/** 角色的「能做」一格：服务端的 summary.do 是「能做：…；能管：…」，能管交给矩阵的「管理」一列去说，这一格只留能做 */
+export function summaryDo(s: unknown): string {
+  return String(s ?? '').replace(/^能做：/, '').replace(/；能管：.*$/, '').trim();
+}
+
 /** 读不到时怎么说（what 是这一块叫什么）；读到了返回 null */
 export function sourceProblem(what: string, r: SourceResult | null): { type: 'warning' | 'info'; text: string } | null {
   if (!r) return null;
   if (r.status === 401) return { type: 'warning', text: `请先登录，登录后才能看到${what}。` };
-  if (r.status === 403) return { type: 'warning', text: `你的账号现在不能查看${what}：这一页现在只给管理员看。` };
+  if (r.status === 403) return { type: 'warning', text: `你的账号现在不能查看${what}：${OTHERS_ONLY_ADMINS}` };
   if (r.status === 404) return { type: 'info', text: `${what}的服务还没上线。` };
   if (r.status === 0 || r.status >= 400) return { type: 'warning', text: `读不到${what}，稍后再试。` };
   return null;

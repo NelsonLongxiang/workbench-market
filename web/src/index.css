@@ -480,6 +480,12 @@ body { background: var(--wm-color-page); }
 .wm-acc-st { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 .wm-acc-note { font-size: var(--wm-font-size-caption); color: var(--wm-color-warning-text); white-space: nowrap; }
 .wm-acc-cell-mark { margin-left: 6px; font-size: var(--wm-font-size-caption); color: var(--wm-color-warning-text); white-space: nowrap; }
+.wm-acc-mine { max-width: 720px; }
+.wm-acc-mine-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--wm-color-border); border-radius: var(--wm-radius-md); background: var(--wm-color-surface); }
+.wm-acc-mine-list li { display: grid; grid-template-columns: minmax(8em, 1fr) minmax(10em, 1.4fr) minmax(8em, 1fr) auto; gap: 12px; align-items: center; padding: 12px 16px; }
+.wm-acc-mine-list li + li { border-top: 1px solid var(--wm-color-border); }
+.wm-acc-mine-empty, .wm-acc-mine-cap { color: var(--wm-color-text-secondary); font-size: var(--wm-font-size-caption); }
+.wm-acc-mine-cap { margin-top: 10px; }
 .wm-acc-pending-cap { margin: -4px 0 10px; font-size: var(--wm-font-size-caption); color: var(--wm-color-warning-text); }
 .wm-acc-asks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--wm-space-3); }
 .wm-acc-ask {
