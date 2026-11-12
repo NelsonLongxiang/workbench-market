@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useRequest } from 'ahooks';
-import { Space, Input, App, Alert, Badge, Button, Card, Col, Empty, Flex, Popconfirm, Select, Spin, Tooltip, Typography } from 'antd';
-import { EditOutlined, ArrowLeftOutlined, ExportOutlined, PlusOutlined, ReloadOutlined, CloseOutlined } from '@ant-design/icons';
+import { Space, Input, App, Alert, Badge, Button, Card, Col, Empty, Flex, Popconfirm, Popover, Select, Spin, Tooltip, Typography } from 'antd';
+import { EditOutlined, ExportOutlined, PlusOutlined, ReloadOutlined, CloseOutlined } from '@ant-design/icons';
 import GridLayout from 'react-grid-layout';
 import { WidthProvider } from 'react-grid-layout';
 import type { Layout } from 'react-grid-layout';
@@ -237,17 +237,13 @@ export default function Cockpit() {
     );
   }
 
-  // 骨架照原型的驾驶舱：上面一排（切换、改名、加面板）；左「等你拍板」、中「看板」（现有的工作台面板）、右「事项」
-  const bar = (
-      <Flex justify="space-between" align="center" gap={12} className="wm-w-full" style={{ flexWrap: 'wrap', rowGap: 8 }}>
-        <Flex align="center" gap={8}>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => nav('/cockpit')} aria-label="返回驾驶舱列表" />
-          <Select
-            value={active.id}
-            style={{ minWidth: 200 }}
-            onChange={(v) => nav(`/cockpit/${v}`)}
-            options={(listReq.data ?? []).map((c) => ({ value: c.id, label: c.name }))}
-          />
+  // 骨架照原型的驾驶舱：左「等你拍板」；中间的页签——「看板」「明细」留给数据视图的块（这个驾驶舱配了才出现），
+  // 内嵌的工作台面板单独放「工作台」页签，原样保留（过渡形态）；右「事项」
+  // 顶上一排照原型：左边留给「看的是 …」（现在没有筛选来源，不放）；右边是操作。
+  // 改名、加面板、加待办卡不常驻，收进「编辑」；切换驾驶舱在侧栏「我的驾驶舱」里，顶上不再放下拉。
+  const editPanel = (
+    <Flex vertical gap={8} className="wm-ck-edit" data-testid="ck-edit-panel">
+      <Flex align="center" gap={8}>
           {READ_ONLY ? null : renaming ? (
             <Input
               size="small"
@@ -267,7 +263,7 @@ export default function Cockpit() {
             <Button size="small" icon={<EditOutlined />} onClick={() => { setRenameValue(active.name); setRenaming(true); }}>改名</Button>
           )}
           {!READ_ONLY && <Typography.Text type="secondary">{saving ? '保存中…' : '布局已自动保存'}</Typography.Text>}
-        </Flex>
+      </Flex>
         {!READ_ONLY && <Select
           mode="multiple"
           placeholder="添加工作台面板"
@@ -296,7 +292,12 @@ export default function Cockpit() {
         >
           加待办卡
         </Button>}
-      </Flex>
+    </Flex>
+  );
+  const extra = READ_ONLY ? null : (
+    <Popover trigger="click" placement="bottomRight" content={editPanel}>
+      <Button icon={<EditOutlined />} data-testid="ck-edit">编辑</Button>
+    </Popover>
   );
   const board = (
     <Flex vertical gap={12} className="wm-w-full wm-ck-pad" align="start">
@@ -377,9 +378,9 @@ export default function Cockpit() {
   );
   return (
     <WmPage detail={active.name} wide>
-      <CockpitFrame storageKey={String(active.id)} bar={bar}
+      <CockpitFrame storageKey={String(active.id)} extra={extra}
         left={{ id: 'attention', tabs: [{ key: 'attention', label: '等你拍板', count: attentionCount, content: <AttentionPane onCount={setAttentionCount} /> }] }}
-        main={{ id: 'board', tabs: [{ key: 'board', label: '看板', content: board }] }}
+        main={{ id: 'board', tabs: [{ key: 'benches', label: '工作台', content: board }] }}
         right={{ id: 'items', tabs: [{ key: 'items', label: '事项', content: <ItemsPane /> }] }} />
     </WmPage>
   );

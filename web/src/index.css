@@ -566,3 +566,4 @@ body { background: var(--wm-color-page); }
 .wm-ck-list li:last-child { border-bottom: 0; }
 .wm-ck-pad { padding: var(--wm-space-3); }
 @media (max-width: 960px) { .wm-ck { height: auto; } .wm-ck-grid { display: block; } .wm-ck-mid { display: block; } .wm-ck-pane { margin-bottom: var(--wm-space-2); min-height: 240px; } .wm-ck-split { display: none; } }
+.wm-ck-edit { min-width: 320px; }
