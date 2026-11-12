@@ -209,6 +209,12 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       'workbench.delete',
       'workbench.list',
       'workbench.read',
+      // 工作台变量：本机命令行五条都能做（读写任意台、看留痕，常量的兜底维护也只认它）
+      'workbench.vars-audit',
+      'workbench.vars-delete',
+      'workbench.vars-list',
+      'workbench.vars-read',
+      'workbench.vars-set',
     ],
     actsForOwner: [],
   },
