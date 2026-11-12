@@ -6,8 +6,10 @@
  *   · 别的脚本：一个脚本一个输出文件，报告里写是哪个脚本（只有起实例时把环境变量传下去的脚本才有数）。
  * 只在本机起隔离实例，不访问任何外部系统。不进 CI（要跑一个多小时）。
  *
- *   node scripts/judgment-compare-report.mjs [--out 报告.md] [--replay-only] [--require-zero]
+ *   node scripts/judgment-compare-report.mjs [--out 报告.md] [--replay-only] [--require-zero] [--from 比对输出.jsonl ...]
  *   --require-zero：有不一致就失败（CI 用：只跑回放，守住内置身份清单和细分动作不漂移）
+ *   --from：不起实例、不跑脚本，只汇总给出的比对输出（比如生产上 WM_JUDGMENT_COMPARE_OUT 的文件，6d 第 0 步每天看一次）；可以给多个
+ * 报告里有「按域」一节：每个域各种结果各多少次，切换按域开关，每一波看这张表。
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -21,6 +23,9 @@ const outArg = argv.indexOf('--out');
 const REPORT = outArg >= 0 ? argv[outArg + 1] : join(ROOT, 'tmp', 'judgment-compare-report.md');
 const replayOnly = argv.includes('--replay-only');
 const requireZero = argv.includes('--require-zero');
+const fromFiles = argv.flatMap((a, i) => (argv[i - 1] === '--from' ? [a] : []));
+if (argv.includes('--from') && fromFiles.length === 0) { console.error('--from 后面要给比对输出文件'); process.exit(2); }
+for (const f of fromFiles) if (!existsSync(f)) { console.error(`比对输出 ${f} 不存在`); process.exit(2); }
 const WORK = join(ROOT, 'tmp', `judgment-compare-${process.pid}`);
 mkdirSync(WORK, { recursive: true });
 
@@ -32,8 +37,8 @@ function run(name, cmd, args) {
   return { name, status: r.status };
 }
 
-const runs = [run('route-replay', process.execPath, ['scripts/route-replay-test.mjs'])];
-if (!replayOnly) {
+const runs = fromFiles.length ? [] : [run('route-replay', process.execPath, ['scripts/route-replay-test.mjs'])];
+if (!replayOnly && !fromFiles.length) {
   const ci = readFileSync(join(ROOT, '.github/workflows/ci.yml'), 'utf8');
   const cmds = [...new Set(ci.split(/&&|\n/).map((p) => p.trim().replace(/^(-\s*)?run:\s*/, '').trim()).filter((p) => /^node scripts\/[a-z0-9-]+\.mjs( [-a-z0-9 ]+)?$/.test(p)))]
     .filter((c) => !/route-replay-test|judgment-compare|identity-seam-mutation|browser|e2e-full-run|tech-route-check|surface-snapshot/.test(c));
@@ -42,17 +47,23 @@ if (!replayOnly) {
 
 // ---------- 汇总 ----------
 const lines = [];
-for (const f of readdirSync(WORK).filter((n) => n.endsWith('.jsonl'))) {
-  const source = f.replace(/\.jsonl$/, '');
-  for (const l of readFileSync(join(WORK, f), 'utf8').split('\n')) { if (!l.trim()) continue; try { lines.push({ ...JSON.parse(l), source }); } catch { /* 半行 */ } }
+const inputs = fromFiles.length ? fromFiles.map((f) => ({ path: f, source: f.split(/[\\/]/).pop().replace(/\.jsonl$/, '') }))
+  : readdirSync(WORK).filter((n) => n.endsWith('.jsonl')).map((n) => ({ path: join(WORK, n), source: n.replace(/\.jsonl$/, '') }));
+for (const { path, source } of inputs) {
+  for (const l of readFileSync(path, 'utf8').split('\n')) { if (!l.trim()) continue; try { lines.push({ ...JSON.parse(l), source }); } catch { /* 半行 */ } }
 }
 const domainOf = (l) => (l.action ? l.action.split('.')[0] : (String(l.route).split(' ')[1] ?? '').split('/').filter(Boolean).slice(0, 2).join('/'));
 const count = (pred) => lines.filter(pred).length;
 const OUTCOMES = ['agree', 'mismatch', 'uncertain', 'skip-404', 'unregistered', 'not-verdict', 'integrity-blocked', 'enforced-deny', 'error'];
 const totals = Object.fromEntries(OUTCOMES.map((o) => [o, count((l) => l.outcome === o)]));
-// 按域汇总（6d 每一波看自己那几个域）：域 × 结果
+// 按域：每个域各种结果各多少次（清单外的结果记进「其他」）
 const byDomain = new Map();
-for (const l of lines) { const d = domainOf(l) || '(无)'; const row = byDomain.get(d) ?? Object.fromEntries(OUTCOMES.map((o) => [o, 0])); if (l.outcome in row) row[l.outcome]++; byDomain.set(d, row); }
+for (const l of lines) {
+  const d = domainOf(l) || '（无）';
+  const e = byDomain.get(d) ?? Object.fromEntries([...OUTCOMES, 'other', 'total'].map((o) => [o, 0]));
+  e[OUTCOMES.includes(l.outcome) ? l.outcome : 'other']++; e.total++;
+  byDomain.set(d, e);
+}
 const reasonOf = (l) => (l.old === 'allow' ? `旧允许·新${l.new === 'ask' ? '先问人' : '拒绝'}·${l.rule}` : `旧拒绝·新允许·${l.rule}`);
 const mism = lines.filter((l) => l.outcome === 'mismatch');
 const byReason = new Map();
@@ -72,11 +83,11 @@ const unreg = new Map();
 for (const l of lines.filter((x) => x.outcome === 'unregistered')) unreg.set(domainOf(l), (unreg.get(domainOf(l)) ?? 0) + 1);
 
 const md = [];
-md.push('# 判定并行比对报告', '', `比对的请求：${lines.length} 次（来源：${runs.length} 个脚本，回放的每条请求带了录制里的位置）。`, '');
+md.push('# 判定并行比对报告', '', fromFiles.length ? `比对的请求：${lines.length} 次（来源：${inputs.length} 个比对输出文件）。` : `比对的请求：${lines.length} 次（来源：${runs.length} 个脚本，回放的每条请求带了录制里的位置）。`, '');
 md.push('| 结果 | 次数 |', '|---|---|', ...Object.entries(totals).map(([k, v]) => `| ${k} | ${v} |`), '');
-md.push('## 按域', '', '没报动作的路由按路径前两段算。enforced-deny 是切换开关（WM_JUDGMENT_ENFORCE）在处理之前拒掉的。', '');
-md.push(`| 域 | ${OUTCOMES.join(' | ')} |`, `|---|${OUTCOMES.map(() => '---').join('|')}|`);
-for (const [d, row] of [...byDomain.entries()].sort(([a], [b]) => a.localeCompare(b))) md.push(`| ${d} | ${OUTCOMES.map((o) => row[o] || '').join(' | ')} |`);
+md.push('## 按域', '', '没报动作的路由按路径前两段归。切换按域开关，每一波看这一节：要切的域 mismatch 为 0，其余各列逐条能解释。enforced-deny 是切换开关（WM_JUDGMENT_ENFORCE）在处理之前拒掉的。', '');
+md.push(`| 域 | 合计 | ${OUTCOMES.join(' | ')} | 其他 |`, `|---|---|${OUTCOMES.map(() => '---').join('|')}|---|`);
+for (const [d, e] of [...byDomain.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) md.push(`| ${d} | ${e.total} | ${OUTCOMES.map((o) => e[o] || '').join(' | ')} | ${e.other || ''} |`);
 md.push('');
 md.push('## 不一致：原因 × 域', '');
 if (byReason.size === 0) md.push('没有。');
@@ -94,10 +105,11 @@ const byRoute = (o) => { const m = new Map(); for (const l of lines.filter((x) =
 md.push('', '## 状态码不代表授权（路由声明了，不比）：按路由', '', '| 路由 | 次数 |', '|---|---|', ...byRoute('not-verdict').map(([r, n]) => `| \`${r}\` | ${n} |`));
 md.push('', '## 被完整性门拦下（跨站、别的站来源，旧结论拒绝，不比）：按路由', '', '| 路由 | 次数 |', '|---|---|', ...byRoute('integrity-blocked').map(([r, n]) => `| \`${r}\` | ${n} |`));
 md.push('', '## 没报动作、不比：按域', '', '| 域 | 次数 |', '|---|---|', ...[...unreg.entries()].sort((a, b) => b[1] - a[1]).map(([d, n]) => `| ${d} | ${n} |`));
-md.push('', '## 各脚本', '', ...runs.map((r) => `- ${r.name}：退出 ${r.status}；比对 ${count((l) => l.source === r.name.replace(/[^a-z0-9-]/gi, '_'))} 次`));
+if (fromFiles.length) md.push('', '## 来源', '', ...inputs.map((i) => `- \`${i.source}\`：比对 ${count((l) => l.source === i.source)} 次`));
+else md.push('', '## 各脚本', '', ...runs.map((r) => `- ${r.name}：退出 ${r.status}；比对 ${count((l) => l.source === r.name.replace(/[^a-z0-9-]/gi, '_'))} 次`));
 mkdirSync(dirname(REPORT), { recursive: true });
 writeFileSync(REPORT, md.join('\n') + '\n');
-writeFileSync(REPORT.replace(/\.md$/, '.json'), JSON.stringify({ totals, reasons: [...byReason.values()].map((e) => ({ ...e, domains: Object.fromEntries(e.domains), routes: Object.fromEntries(e.routes) })), uncertain: Object.fromEntries(uncertain), unregistered: Object.fromEntries(unreg) }, null, 2));
+writeFileSync(REPORT.replace(/\.md$/, '.json'), JSON.stringify({ totals, reasons: [...byReason.values()].map((e) => ({ ...e, domains: Object.fromEntries(e.domains), routes: Object.fromEntries(e.routes) })), uncertain: Object.fromEntries(uncertain), unregistered: Object.fromEntries(unreg), by_domain: Object.fromEntries(byDomain) }, null, 2));
 console.log(`\n报告：${REPORT}`);
 if (existsSync(WORK) && !argv.includes('--keep')) rmSync(WORK, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 if (requireZero) {
