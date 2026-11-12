@@ -219,6 +219,8 @@ try {
   r = await srv.call('POST', `${B}/datasets/orders/rows?op=delete`, { ...mgr, raw: JSON.stringify([{ id: 4 }]) });
   const snapId = r.json?.snapshot_id;
   check(r.status === 200 && r.json?.deleted === 1 && Number.isInteger(snapId), '按主键删行：删之前留了快照', r.text.slice(0, 160));
+  r = await srv.call('POST', `${B}/datasets/orders/rows/?op=upsert`, { ...mgr, raw: JSON.stringify([{ id: 3, day: '2026-02-02', region: '东区', amount: 15 }]) });
+  check(r.status === 200 && r.json?.updated === 1, '地址带尾斜杠：照常写入（请求体没被全局解析先读掉）', r.text.slice(0, 120));
   r = await srv.call('POST', `${B}/datasets/orders/rows?op=nope`, { ...mgr, raw: '[]' });
   check(r.status === 400 && r.json?.error === 'invalid', '不认识的 op：拒', r.text.slice(0, 100));
   r = await srv.call('POST', `${B}/datasets/orders/rows?op=append`, { ...mgr, raw: '[{"id": 9, "day": ' });

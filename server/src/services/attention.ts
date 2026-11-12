@@ -121,24 +121,31 @@ export class AttentionService extends Service {
     return best?.key ?? null;
   }
 
-  /** 这一条已经答成过（答完它就不在列表里了，重复答时用它认出来） */
-  answered(source: string, sourceId: string): boolean {
-    return Boolean(db.prepare("SELECT 1 FROM attention_answers WHERE source = ? AND source_id = ? AND state = 'done'").get(source, sourceId));
+  /**
+   * 这个人用这种答法答成过这一条（答完它就不在列表里了，重复答时用它认出来）。键里带答的人和答法：
+   * 别人答的、换了答法的都不算，入口对它们回「没有这一条」，和这一条从没存在过一样
+   */
+  answered(source: string, sourceId: string, by: string, answer: string): boolean {
+    return Boolean(db.prepare("SELECT 1 FROM attention_answers WHERE source = ? AND source_id = ? AND state = 'done' AND answered_by = ? AND answer = ?").get(source, sourceId, by, answer));
   }
 
   /**
    * 记账着答一次：
-   *   · 已经答成过：返回第一次的应答（duplicate），不再生效；
+   *   · 同一个人用同一种答法答成过：返回第一次的应答（duplicate），不再生效；
+   *   · 别人答成过、或换了答法：409，不带上一次的应答（调用方已经判过权，这里只是不把别人的结果给他）；
    *   · 正有人在答：409，告诉他已在处理（并发的两个人，一个生效、另一个被告知）；
    *   · 否则先占住这一条，再 run；成功（2xx）记下应答，失败删掉占位、原样返回失败（不吞），可以再答。
    */
   async once(source: string, sourceId: string, answer: string, by: string, run: () => Promise<AnswerOutcome>): Promise<AnswerOutcome> {
     // 占位有期限：超过 PENDING_TTL_SECONDS 还没收尾的（进程在答的途中卡死、或被杀了），当它不存在
     db.prepare(`DELETE FROM attention_answers WHERE source = ? AND source_id = ? AND state = 'pending' AND at < datetime('now', '-${PENDING_TTL_SECONDS} seconds')`).run(source, sourceId);
-    const prior = () => db.prepare('SELECT state, status, body FROM attention_answers WHERE source = ? AND source_id = ?').get(source, sourceId) as { state: string; status: number; body: string } | undefined;
-    const seen = (row: { state: string; status: number; body: string }): AnswerOutcome => row.state === 'done'
-      ? { status: row.status, body: JSON.parse(row.body || 'null'), duplicate: true }
-      : { status: 409, body: { error: 'attention_answer_in_progress', message: '这一条正在被别人处理' } };
+    type Row = { state: string; status: number; body: string; answer: string; answered_by: string };
+    const prior = () => db.prepare('SELECT state, status, body, answer, answered_by FROM attention_answers WHERE source = ? AND source_id = ?').get(source, sourceId) as Row | undefined;
+    const seen = (row: Row): AnswerOutcome => row.state !== 'done'
+      ? { status: 409, body: { error: 'attention_answer_in_progress', message: '这一条正在被别人处理' } }
+      : row.answered_by === by && row.answer === answer
+        ? { status: row.status, body: JSON.parse(row.body || 'null'), duplicate: true }
+        : { status: 409, body: { error: 'attention_already_answered', message: '这一条已经处理过了' } };
     const before = prior();
     if (before) return seen(before);
     const claimed = db.prepare("INSERT OR IGNORE INTO attention_answers (source, source_id, answer, state, answered_by) VALUES (?, ?, ?, 'pending', ?)").run(source, sourceId, answer, by);
