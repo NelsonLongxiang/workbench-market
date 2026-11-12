@@ -5,19 +5,19 @@
  *  等你处理的（席位提问、等验收、过目放行）取自 GET /api/attention 里链接到这件事项的条目：给不给答法由各来源的守卫决定，
  *  答复走和「关注」页同一套入口；你看不到的这里也没有。
  *  日志只增不改：每条事实一行；被拒的（表里没有、终态之后才到）也留一行「收到，未采信」，带原因。 */
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Alert, App, Badge, Button, Card, Col, Descriptions, Empty, Flex, Input, List, Radio, Row, Segmented, Space, Tag, Timeline, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import WmPage from '../components/WmPage';
 import RelTime from '../components/RelTime';
-import { adminActive, apiFetch, subscribeAdminToken } from '../admin-token';
-import { OUTCOME, VERDICT, answerChoices, answerRoute, describe, type AttentionItem, type LogRow } from '../attention-view';
-import { getMe, getWorkItem, postAskAnswer, postCreatorDecision, postSeatMessageReply, postSeatMessagesRead } from '../api';
+import { apiFetch } from '../admin-token';
+import { OUTCOME, VERDICT, describe, type AttentionItem, type LogRow } from '../attention-view';
+import { getWorkItem, postAskAnswer, postCreatorDecision, postSeatMessageReply, postSeatMessagesRead } from '../api';
 import SectionBoundary from '../components/SectionBoundary';
-import { rowActor, seatLine, showProgress, subitemsOf, ticketStateLabel } from '../work-item-view';
+import { choicesFor, routeFor, viewerOf, type Can, rowActor, seatLine, showProgress, subitemsOf, ticketStateLabel } from '../work-item-view';
 import { teamLabel } from '../people';
-import { VIEWER_NONE, actorLabel, groupTimeline, isCreator, seatLabel, type Viewer, askerLabel, textOf, who, PROGRESS_STATE, TERMINAL, canOf, stateLabel, askIdOf, creatorLabel, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
+import { VIEWER_NONE, actorLabel, groupTimeline, seatLabel, type Viewer, askerLabel, textOf, who, PROGRESS_STATE, TERMINAL, stateLabel, askIdOf, creatorLabel, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
 
 type Item = { id: string; title: string; state: string; created_by: string; creator_principal?: string | null; created_at: string; updated_at: string; source_kind: string; source_ref: string; target_team: string; seat: string; eval: string; eval_reason: string; progress_summary: string; receipt_outcome: string; object: string; phase: string; open_asks: string; outputs: string; evidence: string };
 
@@ -32,7 +32,7 @@ const FACT: Record<string, string> = {
   receipt: '回执', verify: '验收', return: '打回重做', answer: '答复', note: '备注',
 };
 type SeatMessage = { id: number; sender: string; peer: string; text: string; truncated: boolean; at: string; status: 'unread' | 'read' | 'replied' | 'over-cap' };
-type Data = { item: Item; log: LogRow[]; messages?: SeatMessage[]; unread?: number; progress?: SeatProgress | null; asks?: SeatAsk[]; subitems?: unknown };
+type Data = { item: Item; log: LogRow[]; messages?: SeatMessage[]; unread?: number; progress?: SeatProgress | null; asks?: SeatAsk[]; subitems?: unknown; can?: unknown; turn?: unknown; creator?: unknown };
 const MSG_STATUS: Record<SeatMessage['status'], { label: string; color: string }> = {
   unread: { label: '未读', color: 'blue' }, read: { label: '看过', color: 'default' }, replied: { label: '已回复', color: 'green' }, 'over-cap': { label: '超出上限', color: 'default' },
 };
@@ -49,10 +49,10 @@ const FIELDS: Record<string, Record<string, { key: string; label: string; requir
 
 /** 替建立人办的答法：管理员代答、代为验收、代为打回 */
 const PROXY: Record<string, string> = { answer: '代答', verify: '代为验收', return: '代为打回' };
-function PendingAction({ item, admin, proxy, onDone }: { item: AttentionItem; admin: boolean; proxy: boolean; onDone: () => void }) {
+function PendingAction({ item, can, proxy, onDone }: { item: AttentionItem; can: Can; proxy: boolean; onDone: () => void }) {
   const label = (a: string) => (proxy && PROXY[a]) || ANSWER[a] || a;
   const { message } = App.useApp();
-  const choices = answerChoices(admin, item);
+  const choices = choicesFor(item, can);
   const [answer, setAnswer] = useState(choices.length === 1 ? choices[0] : '');
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -60,7 +60,7 @@ function PendingAction({ item, admin, proxy, onDone }: { item: AttentionItem; ad
   const submit = async () => {
     setBusy(true);
     try {
-      if (answerRoute(admin, item) === 'creator') {
+      if (routeFor(item) === 'creator') {
         const { status, body } = await postCreatorDecision(item.source_id, answer, text);
         if (status === 401) throw Error('请先登录');
         if (status < 200 || status >= 300) throw Error(body?.result?.error || body?.error || '处理失败');
@@ -206,11 +206,8 @@ const stateTag = (s: string, viewer: Viewer = VIEWER_NONE) => <Tag color={STATE[
 export default function WorkItem() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
-  const admin = useSyncExternalStore(subscribeAdminToken, adminActive);
   const [data, setData] = useState<Data | null>(null);
   const [pending, setPending] = useState<AttentionItem[]>([]);
-  const [login, setLogin] = useState<string | null>(null);
-  useEffect(() => { void getMe().then((m) => setLogin(m?.authenticated ? m.login ?? null : null)); }, []);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const load = useCallback(async () => {
@@ -243,9 +240,9 @@ export default function WorkItem() {
   // 详情带了 asks（阶段七）就以它为准：在这里答，「关注」里的同一条提问不再重复列
   const shownPending = asks ? pending.filter((p) => p.source !== 'seat-asks') : pending;
   const openAsks = asks ? asks.filter((a) => a.status === 'open').length : 0;
-  const can = canOf(pending, (x) => answerChoices(admin, x));
-  // 「你」指这件事本来该找的人：答复、验收找建立人；放行找有放行权限的人（can.release）
-  const viewer: Viewer = { mine: isCreator(login, item?.creator_principal), can, creator: who(item?.creator_principal || item?.created_by).replace(/^(user|human):/, '') };
+  // 「你」只给轮到的人：can / turn / creator 都取自详情应答（#587），不比对登录名、不看是不是管理员
+  const viewer = viewerOf(data, who(item?.creator_principal || item?.created_by).replace(/^(user|human):/, ''));
+  const can = viewer.can;
   // 建立人能不能在这一页答：详情带了提问列表（建立人答复的入口开了），或者「关注」给了他答法
   const hint = item ? stateHint(item.state, item.seat, asks ? openAsks === 0 && asks.length > 0 : lastAskAnswered(data?.log ?? []), viewer, asks !== undefined || can.answer) : null;
   const progress = data?.progress ?? null;
@@ -279,12 +276,12 @@ export default function WorkItem() {
           </SectionBoundary>
           <SectionBoundary name="席位提问">
           {asks && asks.length > 0 && <Card size="small" title={<Space>席位提问{openAsks > 0 && <Badge count={openAsks} title="在等你答复" />}</Space>} data-testid="seat-asks">
-            <List size="small" dataSource={asks} rowKey={(a) => String(a.id)} renderItem={(a) => <AskRow itemId={id} ask={a} seat={who(item.seat)} proxy={!viewer.mine} onDone={() => void load()} />} />
+            <List size="small" dataSource={asks} rowKey={(a) => String(a.id)} renderItem={(a) => <AskRow itemId={id} ask={a} seat={who(item.seat)} proxy={!viewer.turn.answer} onDone={() => void load()} />} />
           </Card>}
           </SectionBoundary>
           <SectionBoundary name="等你处理">
           {shownPending.length > 0 && <Card size="small" title={<Space>等你处理<Badge count={shownPending.length} /></Space>} data-testid="work-item-pending">
-            <Flex vertical gap="middle">{shownPending.map((p) => <PendingAction key={`${p.source}:${p.source_id}`} item={p} admin={admin} proxy={!viewer.mine && (p.source === 'seat-asks' || p.category === 'accept')} onDone={() => void load()} />)}</Flex>
+            <Flex vertical gap="middle">{shownPending.map((p) => <PendingAction key={`${p.source}:${p.source_id}`} item={p} can={can} proxy={(p as { mine?: unknown }).mine === false && (p.source === 'seat-asks' || p.category === 'accept')} onDone={() => void load()} />)}</Flex>
           </Card>}
           </SectionBoundary>
           <SectionBoundary name="正在处理">
@@ -304,7 +301,7 @@ export default function WorkItem() {
           <SectionBoundary name="对话">
           <Card size="small" data-testid="seat-messages"
             title={<Space>对话{(data?.unread ?? 0) > 0 && <Badge count={data?.unread} title="未读的席位消息" />}</Space>}>
-            <SeatMessages itemId={id} messages={data?.messages ?? []} closed={TERMINAL.includes(item.state)} onChanged={() => void load()} />
+            <SeatMessages itemId={id} messages={data?.messages ?? []} closed={viewer.reply === null ? TERMINAL.includes(item.state) : !viewer.reply} onChanged={() => void load()} />
           </Card>
           </SectionBoundary>
           <SectionBoundary name="时间线">
