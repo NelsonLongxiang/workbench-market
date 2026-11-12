@@ -259,6 +259,8 @@ async function teamCall(url: string, init?: { method: string; body: unknown }): 
   } catch { return { status: 0, body: null }; }
 }
 export const getTeams = () => teamCall('/api/teams');
+/** 分给我的成员、我负责的团队（驾驶舱「AI 员工」用） */
+export const getMyTeams = () => teamCall('/api/teams/mine');
 export const getTeamDepartments = () => teamCall('/api/departments');
 export const getTeamPeople = () => teamCall('/api/principals');
 export const claimTeam = (host: string, team: string, department: string) => teamCall('/api/teams/claim', { method: 'POST', body: { host, team, department } });

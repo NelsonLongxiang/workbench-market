@@ -710,3 +710,10 @@ body { background: var(--wm-color-page); }
 .wm-ck-card.on { outline: 2px solid var(--wm-color-primary); outline-offset: 1px; }
 .wm-ck-card-pick { align-self: flex-end; }
 .wm-ck-process-h { margin-bottom: var(--wm-space-3); }
+/* 驾驶舱「AI 员工」：一行一个成员——首字头像、名字和团队、手上在办几件 */
+.wm-ck-sub { padding: var(--wm-space-2) var(--wm-space-3) var(--wm-space-1); font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); font-weight: var(--wm-font-weight-body-strong); }
+.wm-ck-note { padding-bottom: 0; }
+.wm-ck-staff { display: flex; align-items: center; gap: var(--wm-space-2); color: var(--wm-color-text); min-width: 0; }
+.wm-ck-staff-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.wm-ck-staff-main b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wm-ck-staff-busy { flex: none; }

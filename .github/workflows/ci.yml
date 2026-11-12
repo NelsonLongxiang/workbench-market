@@ -166,6 +166,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/home-count-browser.mjs
+      - name: 驾驶舱「AI 员工」（普通员工和负责人两种身份·卡上写手上在办 N 件·点进去按席位筛·普通员工不读全部团队）
+        env:
+          PYTHON: python
+        run: node scripts/ai-staff-browser.mjs
       - name: 身份服务连不上（#639 的 502 identity_unavailable——整页提示·角标和等你拍板写暂时取不到·不跳登录页·自动重试后提示消失·别的 502 和 401 不算）
         env:
           PYTHON: python
@@ -490,6 +494,8 @@ jobs:
         run: node scripts/work-items-ui-unit.mjs
       - name: 驾驶舱骨架单测（纯函数——三栏尺寸、放大还原、数据视图引用、页签；单列一步）
         run: node scripts/cockpit-frame-unit.mjs
+      - name: 驾驶舱「AI 员工」单测（纯函数——分给我的成员·我负责的团队不重复·忙闲说法·点进去的地址；单列一步）
+        run: node scripts/ai-staff-ui-unit.mjs
       - name: 凭据库（融合 dsh-vault：读写要口令·业务面 403·摘要无明文·坏 JSON 不进日志·写锁/重开/闲置上锁/限流）
         run: node scripts/vault-concurrency-test.mjs && node scripts/vault-smoke.mjs
       - name: 条目自带答复入口单测（纯函数——answer_via 的地址、请求体、填写项；核准卡片的写法；单列一步）

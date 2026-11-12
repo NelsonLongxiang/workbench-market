@@ -11,7 +11,7 @@ import { useSyncExternalStore } from 'react';
 import { adminActive, subscribeAdminToken } from '../admin-token';
 import WmPage from '../components/WmPage';
 import CockpitFrame from '../components/cockpit/CockpitFrame';
-import { AttentionPane, ItemsPane, ProcessPane } from '../components/cockpit/SidePanes';
+import { AttentionPane, ItemsPane, ProcessPane, StaffPane } from '../components/cockpit/SidePanes';
 import ArrangeDrawer from '../components/ArrangeDrawer';
 import BenchViewPanel from '../components/cockpit/BenchViewPanel';
 import { benchViewRefs, isBenchViewPanel, itemsTabLabel, mainTabKeys, refsOfTab } from '../cockpit-frame-view';
@@ -355,6 +355,7 @@ export default function Cockpit() {
           : { key: k, label: k === 'board' ? '看板' : '明细', content: <>{refsOfTab(refs, k).map((x) => <BenchViewPanel key={x.i} refItem={x} />)}</> })) }}
         right={{ id: 'items', active: rightTab, onTab: setRightTab, tabs: [
           { key: 'process', label: '办理过程', content: <ProcessPane itemId={picked} /> },
+          { key: 'staff', label: 'AI 员工', content: <StaffPane /> },
           { key: 'items', label: itemsTabLabel(itemsView, !READ_ONLY), content: <ItemsPane onView={setItemsView} /> },
         ] }} />
       <ArrangeDrawer open={arrange} onClose={() => setArrange(false)} />
