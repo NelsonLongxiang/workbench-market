@@ -57,7 +57,7 @@ type AppFileInput = { path: string; size: number; name: string; reportedMime: st
 /** 从 index.ts 传进来的：台的查找、数据写入核心（MCP app_data_submit 也用）、分页参数、文件容量、上传中间件、文件名修复、文件入库核心（MCP 上传也用）、守卫。 */
 export interface AppDataDeps {
   getApp: (slug: string) => AppRow;
-  submitAppData: (a: AppRow, input: { data: unknown; createdBy?: unknown; idempotencyKey?: unknown; submitterTicket?: unknown; channel: { name: 'app-data.rest' | 'app-data.tool'; hasCredential: boolean } }) => { status: number; body: Record<string, unknown> };
+  submitAppData: (a: AppRow, input: { data: unknown; createdBy?: unknown; idempotencyKey?: unknown; submitterTicket?: unknown; subject?: string; channel: { name: 'app-data.rest' | 'app-data.tool'; hasCredential: boolean } }) => { status: number; body: Record<string, unknown> };
   pageLimit: (v: unknown, def?: number, max?: number) => number;
   pageBeforeId: (v: unknown) => number;
   appFilesQuota: (slug: string) => { files_used: number; files_max: number; files_left: number; max_file_bytes: number; mcp_max_base64_chars: number };

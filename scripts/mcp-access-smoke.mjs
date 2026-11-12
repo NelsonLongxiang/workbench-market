@@ -218,11 +218,12 @@ try {
   ok('同键不同内容 409', r.isError && r.payload?.status === 409);
   r = await tool(part.token, 'app_data_submit', { slug: SLUG, data: good, idempotency_key: 'bad key!' });
   ok('坏幂等键 400', r.isError && r.text.includes('idempotency_key'));
+  // 幂等键按提交方隔开：MCP 会话是一方，匿名的 REST 提交是另一方。同一个键，REST 那边照常写一条新的，不当成会话那条的重复
   const restDup = await call('POST', `/api/apps/${SLUG}/data`, { data: good, idempotency_key: 'job-1' });
-  ok('REST 信封带同键 → 同一条记录（两入口同核）', restDup.status === 200 && restDup.body?.id === firstId && restDup.body?.duplicate === true, JSON.stringify(restDup.body));
+  ok('匿名 REST 信封带会话用过的键 → 另写一条（提交方不同，不算重复）', restDup.status === 201 && Number.isInteger(restDup.body?.id) && restDup.body?.id !== firstId && !restDup.body?.duplicate, JSON.stringify(restDup.body));
   const list = await tool(part.token, 'app_data_list', { slug: SLUG });
   const mine = (list.payload?.items ?? []).filter((x) => x.data?.title === '整理清单');
-  ok('数据面只有一行且 created_by 缺省为 mcp:<会话名>', mine.length === 1 && mine[0].created_by === 'mcp:agent-part', JSON.stringify(mine).slice(0, 160));
+  ok('数据面两行：会话那条 created_by 缺省为 mcp:<会话名>，REST 那条留空', mine.length === 2 && mine.some((x) => x.id === firstId && x.created_by === 'mcp:agent-part') && mine.some((x) => x.id === restDup.body?.id && x.created_by === ''), JSON.stringify(mine).slice(0, 200));
   r = await tool(part.token, 'app_data_submit', { slug: 'no-such-app', data: good });
   ok('不存在的台报错', r.isError);
 } catch (e) {
