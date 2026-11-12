@@ -70,7 +70,7 @@ export const ANONYMOUS_ACTIONS: readonly string[] = [
 
 export const BUILTINS: readonly BuiltinIdentity[] = [
   {
-    // 管理口令照系统管理员加管理层算（系统和业务的读、写、管理类，就是今天口令能做的）；决定类里今天能做的五个登记为「代属主行事」（存量差异清单 D）
+    // 管理口令照系统管理员加管理层算（系统和业务的读、写、管理类，就是今天口令能做的）；决定类里今天能做的六个登记为「代属主行事」（存量差异清单 D）
     name: 'admin-token', label: '管理口令（应急管理员）', roles: ['admin', 'management'],
     actions: [],
     actsForOwner: [
@@ -79,6 +79,8 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       'change-request.reject',
       'mcp.access-approve',
       'mcp.access-reject',
+      // 放行一次被扣住的投递：协调方定为决定类，管理口令今天能做，照搬登记成代属主行事（L11 #31，并入 L4）
+      'workbench-event.release',
     ],
   },
   {

@@ -267,7 +267,8 @@
           "change-request.approve",
           "change-request.reject",
           "mcp.access-approve",
-          "mcp.access-reject"
+          "mcp.access-reject",
+          "workbench-event.release"
         ]
       },
       {
