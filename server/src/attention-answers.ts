@@ -269,7 +269,7 @@ export async function creatorAnswer(id: string, principal: string, answer: strin
  *   · qid 是提问那一行事件日志的 id（事项详情 asks[].id）；它必须属于这件事项、且是那次投递当前在等的提问；
  *   · 请求体 { answer?, text? }：带选项的提问，answer 必须是选项之一；text 是自由文本；两者都给时以 answer 为准；
  *     别的字段一概不看。答复作为同一 context 的新任务发回（v1 接单节点照旧只记不发）；
- *   · 和「关注」里管理员的答复共用一本账（同一个去重键）：两个人同时答，一个生效、另一个拿到已处理（第一次的结果，或正在处理的 409）。
+ *   · 和「关注」里管理员的答复共用一本账（同一个去重键）：两个人同时答，一个生效、另一个 409（已处理，或正在处理）；本人重复答拿回第一次的结果。
  */
 export async function answerItemAsk(itemId: string, askLogId: number, actor: string, body: Record<string, unknown>): Promise<AnswerOutcome & { duplicate?: boolean }> {
   const row = askLogRow(askLogId);
@@ -285,9 +285,9 @@ export async function answerItemAsk(itemId: string, askLogId: number, actor: str
   const key = `${row.delivery_id}:${row.id}`;
   const pending = pendingAskOfDelivery(row.delivery_id);
   if (!pending || pending.ask_log_id !== row.id) {
-    // 不在等了：答过的按同一本账返回第一次的结果；没答过（被后来的提问或接单、结果合上了）就是已合上
-    if (attention.answered('seat-asks', key)) return attention.once('seat-asks', key, 'answer', actor, async () => ({ status: 409, body: { error: 'seat_ask_not_pending' } }));
-    return { status: 409, body: { error: 'seat_ask_not_pending' } };
+    // 不在等了：按同一本账走（#657 的口径）——本人用同一种答法答成过的拿回第一次的结果，别人答过的 409 已处理；
+    // 谁都没答过（被后来的提问或接单、结果合上了）就是已合上（run 返回 409，账上不留占位）
+    return attention.once('seat-asks', key, 'answer', actor, async () => ({ status: 409, body: { error: 'seat_ask_not_pending' } }));
   }
   return attention.once('seat-asks', key, 'answer', actor, async () =>
     DIRECT['seat-asks'].answer(undefined as unknown as Req, String(row.delivery_id), { text: answer }, actor));

@@ -381,7 +381,7 @@ try {
     // A8：管理员先在「关注」里答，建立人再在事项入口答同一条 → 只生效一次、只发一条
     { const a1 = await call('POST', '/api/attention/answer', ADMIN_H, { source: 'seat-asks', source_id: String(seqA.delivery), answer: 'answer', input: { text: '管理员答' } });
       const a2 = await ans(seqA, ALPHA, { answer: '英文' });
-      check(a1.status === 200 && a2.status === 200 && a2.body?.duplicate === true && answered(seqA) === 1 && sentAnswers(seqA) === 1, 'A8：管理员和建立人先后答同一条：第二次拿到第一次的结果（duplicate），只生效一次、只发一条', show({ a1: a1.status, a2: a2.body })); }
+      check(a1.status === 200 && a2.status === 409 && (a2.body?.result?.error ?? a2.body?.error) === 'attention_already_answered' && a2.body?.duplicate !== true && answered(seqA) === 1 && sentAnswers(seqA) === 1, 'A8：管理员和建立人先后答同一条：第二次 409 已处理（#657：别人答过的不给第一次的结果），只生效一次、只发一条', show({ a1: a1.status, a2: a2.status, body: a2.body })); }
     // 同一提问两个人同时答（管理员经「关注」、建立人经事项入口）：一个生效，另一个被告知已处理
     const [x, y] = await Promise.all([
       call('POST', '/api/attention/answer', ADMIN_H, { source: 'seat-asks', source_id: String(raceA.delivery), answer: 'answer', input: { text: '管理员答' } }),
