@@ -172,9 +172,19 @@ try {
   check(rel2.status < 300 && ok1 === 200 && ok2 === 403, '属主放行之后：进得了这个部门的台，别的部门的照样进不了', { approve: rel2.status, sales: ok1, ops: ok2 });
 
   console.log('六、改绑');
+  // 改绑之前：seat-d 在这个台上有部门负责人批的一个工具，另有一条没定的申请
+  const askD = await srv.call('POST', '/mcp', { headers: { authorization: `Bearer ${seat.token}` }, body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'access_request', arguments: { tools: ['dataset_snapshots@bench:sales-b'], reason: '改绑之前提的' } } } });
+  const toolD = async () => { const x = await srv.call('POST', '/mcp', { headers: { authorization: `Bearer ${seat.token}` }, body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'dataset_list', arguments: { bench: 'sales-b' } } } }); return x.json?.error?.code ?? 'ok'; };
+  const beforeMove = await toolD();
   r = await srv.call('PUT', '/api/bench-views/sales-b/binding', { ...boss, body: { department: 'ops', note: '划给运营' } });
   const a1 = await st(member, 'GET', '/sales-b/datasets'), a2 = await st(other, 'GET', '/sales-b/datasets'), a3 = await st(lead, 'PUT', '/sales-b/mcp-grants', grantBody);
   check(r.status === 200 && r.json?.changed === true && a1 === 403 && a2 === 200 && a3 === 403, '管理层把台改绑到别的部门：原部门的人（含负责人）立即进不来，新部门的人进得来', { put: r.status, old: a1, now: a2, oldLead: a3 });
+  const afterMove = await toolD();
+  const moved = { grants: db.prepare("SELECT COUNT(*) AS n FROM bench_mcp_grants WHERE bench = 'sales-b'").get().n, pending: db.prepare("SELECT COUNT(*) AS n FROM bench_mcp_requests WHERE bench = 'sales-b' AND status = 'pending'").get().n,
+    note: db.prepare("SELECT note, decided_by FROM bench_mcp_requests WHERE bench = 'sales-b' AND status = 'rejected' ORDER BY id DESC").get(), audit: db.prepare("SELECT actor, tools, note FROM bench_mcp_audit WHERE bench = 'sales-b' AND action = 'revoke' ORDER BY id DESC").get() };
+  check(askD.status === 200 && beforeMove === 'ok' && afterMove === -32601 && r.json?.revoked_mcp_grants === 1 && r.json?.rejected_mcp_requests === 1 && moved.grants === 0 && moved.pending === 0
+    && moved.note?.decided_by === 'user:alpha' && /改绑/.test(moved.note?.note ?? '') && moved.audit?.actor === 'user:alpha' && moved.audit.tools === '["dataset_list"]' && /改绑/.test(moved.audit.note),
+    '改绑时：原部门批给 MCP 会话的授予全部收回（会话立即调不了）、没定的申请驳回并写明原因，应答里有数，留痕记是谁', { beforeMove, afterMove, resp: r.text.slice(0, 200), moved });
   r = await srv.call('PUT', '/api/bench-views/sales-b/binding', { ...boss, body: { department: '' } });
   const u1 = await st(other, 'GET', '/sales-b/datasets'), u2 = await st(boss, 'GET', '/sales-b/datasets');
   check(r.status === 200 && u1 === 403 && u2 === 200, '解绑之后：只有管理层进得来', { other: u1, boss: u2 });
@@ -182,7 +192,7 @@ try {
   const again = await srv.call('PUT', '/api/bench-views/sales-b/binding', { ...boss, body: { department: 'sales' } });
   const bad = await st(boss, 'PUT', '/sales-b/binding', {}), bad2 = await st(boss, 'PUT', '/ghost/binding', { department: 'sales' }), bad3 = await st(boss, 'PUT', '/sales-b/binding', { department: 'nope' });
   const audit = db.prepare("SELECT action, before, after, actor FROM bench_bind_audit WHERE slug = 'sales-b' ORDER BY id").all();
-  check(again.json?.changed === false && bad === 400 && bad2 === 404 && bad3 === 404 && audit.map((x) => `${x.action}:${x.before}>${x.after}`).join() === 'bind:>sales,bind:sales>ops,unbind:ops>,bind:>sales' && audit.every((x) => x.actor === 'user:alpha'),
+  check(again.json?.changed === false && again.json?.revoked_mcp_grants === 0 && bad === 400 && bad2 === 404 && bad3 === 404 && audit.map((x) => `${x.action}:${x.before}>${x.after}`).join() === 'bind:>sales,bind:sales>ops,unbind:ops>,bind:>sales' && audit.every((x) => x.actor === 'user:alpha'),
     '改绑留痕：谁、从哪到哪；和现在一样的不记；没写 department、台没登记、部门不存在都拒', { audit, bad, bad2, bad3 });
 
   console.log('七、细到团队的台');
@@ -213,6 +223,11 @@ try {
   const g1 = await st(lead, 'PUT', '/team-b/mcp-grants', { session: 'seat-t', tools: ['dataset_list'] });
   const s4 = await call(seatT.token, 'dataset_list', { bench: 'team-b' }), s5 = await call(seatT.token, 'dataset_list', { bench: 'sales-b' });
   check(g1 === 200 && s4 === 'ok' && s5 === -32601, '有部门拍板授予的人按台批给它之后：批了的那个台调得了，同部门别的台照样不行', { grant: g1, granted: s4, other: s5 });
+
+  r = await srv.call('PUT', '/api/bench-views/team-b/binding', { ...boss, body: { department: 'sales' } });
+  const kept = await call(seatT.token, 'dataset_list', { bench: 'team-b' });
+  check(r.status === 200 && r.json?.changed === true && r.json.revoked_mcp_grants === 0 && kept === 'ok', '同一个部门里从细到团队放开：部门没变，已有的 MCP 授予不动', { resp: r.text.slice(0, 160), kept });
+  await srv.call('PUT', '/api/bench-views/team-b/binding', { ...boss, body: { department: 'sales', team_host: 'abcdef01', team: 'z/canvas/tigers' } });
 
   console.log('八、「等你拍板」');
   const ask = async (tools) => (await srv.call('POST', '/mcp', { headers: { authorization: `Bearer ${seat.token}` }, body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'access_request', arguments: { tools, reason: '合成' } } } })).status;

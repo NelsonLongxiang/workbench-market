@@ -72,8 +72,12 @@ export function createBench(input: unknown, actor: string, at: number): BenchEnt
   return { slug: o.slug, title: o.title.trim(), created_by: actor, created_at: at, ...b };
 }
 
-/** 改一个台绑到哪里（整份替换；department 给空串就是解绑）。和现在一样的不留痕 */
-export function bindBench(slug: string, input: unknown, actor: string, at: number): { bench: BenchEntry; changed: boolean } {
+/**
+ * 改一个台绑到哪里（整份替换；department 给空串就是解绑）。和现在一样的不留痕。
+ * 部门变了（含解绑、从没绑到绑上）：这个台上已经批给 MCP 会话的授予全部收回、没定的申请全部驳回——
+ * 那些是原来管这个台的人批的，台换了主人，不该原样带过去；要用的重新申请，由新部门的人批。只是在同一个部门里细到团队或放开，不动。
+ */
+export function bindBench(slug: string, input: unknown, actor: string, at: number): { bench: BenchEntry; changed: boolean; revoked_mcp_grants: number; rejected_mcp_requests: number } {
   const o = (input && typeof input === 'object' && !Array.isArray(input) ? input : {}) as Record<string, unknown>;
   const extra = Object.keys(o).filter((k) => !['department', 'team_host', 'team', 'note'].includes(k));
   if (extra.length) throw new BenchError('invalid', `改绑时有不认识的键：${extra.map((k) => k.slice(0, 40)).join('、')}`);
@@ -89,7 +93,17 @@ export function bindBench(slug: string, input: unknown, actor: string, at: numbe
       db.prepare('UPDATE bench_views SET department_id = ?, team_host = ?, team = ? WHERE slug = ?').run(b.department_id, b.team_host, b.team, slug);
       db.prepare('INSERT INTO bench_bind_audit (slug, action, before, after, actor, note, at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(slug, b.department_id ? 'bind' : 'unbind', bindingText(cur), bindingText(b), actor, note, at);
     }
+    let revoked = 0, rejected = 0;
+    if (cur.department_id !== b.department_id) {
+      const why = `台改绑（${bindingText(cur) || '没绑'} → ${bindingText(b) || '没绑'}），原来的授予收回`;
+      const held = db.prepare('SELECT session_id, tool FROM bench_mcp_grants WHERE bench = ? ORDER BY session_id, tool').all(slug) as { session_id: number; tool: string }[];
+      const bySession = new Map<number, string[]>();
+      for (const g of held) bySession.set(g.session_id, [...(bySession.get(g.session_id) ?? []), g.tool]);
+      for (const [sessionId, tools] of bySession) db.prepare('INSERT INTO bench_mcp_audit (bench, session_id, action, tools, actor, note, at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(slug, sessionId, 'revoke', JSON.stringify(tools), actor, why, at);
+      revoked = Number(db.prepare('DELETE FROM bench_mcp_grants WHERE bench = ?').run(slug).changes);
+      rejected = Number(db.prepare("UPDATE bench_mcp_requests SET status = 'rejected', decided_by = ?, decided_at = ?, note = ? WHERE bench = ? AND status = 'pending'").run(actor, at, '台改绑了，请重新申请', slug).changes);
+    }
     db.exec('COMMIT');
-    return { bench: { ...cur, ...b }, changed };
+    return { bench: { ...cur, ...b }, changed, revoked_mcp_grants: revoked, rejected_mcp_requests: rejected };
   } catch (e) { db.exec('ROLLBACK'); throw e; }
 }
