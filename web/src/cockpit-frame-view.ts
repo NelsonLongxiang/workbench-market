@@ -4,7 +4,8 @@
 
 /** 三栏的尺寸：左栏宽、右栏宽、中间下面那块的高（像素）；中间上面那块吃剩下的 */
 export type Sizes = { left: number; right: number; bottom: number };
-export const DEFAULT_SIZES: Sizes = { left: 300, right: 340, bottom: 260 };
+/** 中间栏是正身：两边按原型的比例给，剩下的都归中间 */
+export const DEFAULT_SIZES: Sizes = { left: 300, right: 320, bottom: 260 };
 const RANGE: Record<keyof Sizes, [number, number]> = { left: [220, 480], right: [260, 520], bottom: [140, 520] };
 
 /** 尺寸夹在各自的范围里；不是数字的退回缺省 */

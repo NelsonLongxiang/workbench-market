@@ -3,10 +3,6 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useRequest } from 'ahooks';
 import { Space, Input, App, Alert, Badge, Button, Card, Col, Empty, Flex, Popconfirm, Popover, Select, Spin, Tooltip, Typography } from 'antd';
 import { EditOutlined, ExportOutlined, PlusOutlined, ReloadOutlined, CloseOutlined } from '@ant-design/icons';
-import GridLayout from 'react-grid-layout';
-import { WidthProvider } from 'react-grid-layout';
-import type { Layout } from 'react-grid-layout';
-import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 import { api } from '../api';
 import GoFrame from '../components/GoFrame';
@@ -22,9 +18,6 @@ import { benchViewRefs, isBenchViewPanel, mainTabKeys, refsOfTab } from '../cock
 /** 驾驶舱写（/api/cockpits）是管理写：不是管理员（口令或 Odoo 管理员）时只读，隐藏新建/删除/改名/加移面板，网格不可拖拽 */
 const READ_ONLY_HINT = '编辑驾驶舱需要管理员：在顶栏输入管理员口令，或用 Odoo 管理员账号登录。';
 
-const Grid = WidthProvider(GridLayout);
-const COLS = 12;
-const ROW_H = 36;
 
 function PanelHeadActions(props: { wid: number; url?: string; onRefresh: () => void; onRemove?: () => void }) {
   return (
@@ -49,7 +42,6 @@ function PanelHeadActions(props: { wid: number; url?: string; onRefresh: () => v
 }
 
 import { TasksView } from './Tasks';
-import { snapPanels, snapW } from '../cockpit-layout';
 
 export default function Cockpit() {
   const READ_ONLY = !useSyncExternalStore(subscribeAdminToken, adminActive);
@@ -101,7 +93,6 @@ export default function Cockpit() {
 
   const wbById = useMemo(() => new Map(workbenches.map((w) => [w.id, w])), [workbenches]);
   // #320 读时迁移：渲染用吸附到 3/4/6/12 的布局，不回写；管理员真改动时才存吸附后的值
-  const view = useMemo(() => (panels ? snapPanels(panels) : null), [panels]);
 
   const persist = (next: PanelConfig[], immediate = false) => {
     if (READ_ONLY) return; // 业务面只读：网格对重叠布局的自动归一也不能触发保存（否则不点也会 PUT 403 + 报错）
@@ -121,22 +112,6 @@ export default function Cockpit() {
     };
     if (immediate) void doSave();
     else saveTimer.current = setTimeout(doSave, 600);
-  };
-
-  const onLayoutChange = (layout: Layout[]) => {
-    if (!panels || !view) return;
-    const next = snapPanels(layout
-      .map((l) => {
-        const p = panels.find((p2) => p2.i === l.i);
-        return p ? { ...p, x: l.x, y: l.y, w: snapW(l.w), h: l.h } : null;
-      })
-      .filter((p): p is PanelConfig => !!p));
-    // GridLayout 初次挂载也触发 onLayoutChange——与吸附后的视图比较，仅几何真实变化时保存（打开页面不触发迁移写）
-    const changed = next.some((p) => {
-      const o = view.find((p2) => p2.i === p.i);
-      return o && (o.x !== p.x || o.y !== p.y || o.w !== p.w || o.h !== p.h);
-    });
-    if (changed) persist(next);
   };
 
   const addPanels = (wbIds: number[]) => {
@@ -242,7 +217,7 @@ export default function Cockpit() {
   }
 
   // 骨架照原型的驾驶舱：左「等你拍板」；中间的页签——「看板」「明细」留给数据视图的块（这个驾驶舱配了才出现），
-  // 内嵌的工作台面板单独放「工作台」页签，原样保留（过渡形态）；右「事项」
+  // 内嵌的工作台单独放「工作台」页签，按栏宽单列排、一个台占满栏宽（要并排看的用放大）；右「事项」
   // 顶上一排照原型：左边留给「看的是 …」（现在没有筛选来源，不放）；右边是操作。
   // 改名、加面板、加待办卡不常驻，收进「编辑」；切换驾驶舱在侧栏「我的驾驶舱」里，顶上不再放下拉。
   const editPanel = (
@@ -311,25 +286,13 @@ export default function Cockpit() {
       {panels.length === 0 ? (
         <Empty description={READ_ONLY ? '这个驾驶舱里还没有要看的东西' : '这个驾驶舱里还没有要看的东西——点右上角「编辑」，加一个工作台进来'} style={{ marginTop: 48 }} />
       ) : (
-        <Grid
-          className="wm-cockpit-grid"
-          layout={(view ?? []).map((p) => ({ i: p.i, x: p.x, y: p.y, w: p.w, h: p.h, minW: 3, minH: 6 }))}
-          cols={COLS}
-          rowHeight={ROW_H}
-          width={1200}
-          draggableHandle=".wm-panel-head"
-          draggableCancel=".wm-panel-actions, .wm-panel-actions *"
-          isDraggable={!READ_ONLY}
-          isResizable={!READ_ONLY}
-          onLayoutChange={READ_ONLY ? undefined : onLayoutChange}
-        >
-          {panels.map((p) => {
+        <div className="wm-ck-benches" data-testid="ck-benches">
+          {[...panels].sort((a, b) => a.y - b.y || a.x - b.x).map((p) => {
             if (p.kind === 'tasks') {
               return (
                 <div key={p.i} className="wm-panel">
                   <div className="wm-panel-head">
-                    <span className="wm-panel-grip" aria-hidden>⠿</span>
-                    <Badge status="processing" text={<Typography.Text strong className="wm-text-body">统一待办</Typography.Text>} />
+                      <Badge status="processing" text={<Typography.Text strong className="wm-text-body">统一待办</Typography.Text>} />
                     <span className="wm-panel-actions">
                       <Link to="/tasks" className="wm-caption" style={{ marginRight: 8 }}>全部</Link>
                       {!READ_ONLY && <Button size="small" type="text" onClick={() => persist(panels.filter((q) => q.i !== 'tasks'), true)}>移除</Button>}
@@ -346,7 +309,6 @@ export default function Cockpit() {
             return (
               <div key={p.i} className="wm-panel">
                 <div className="wm-panel-head">
-                  <span className="wm-panel-grip" aria-hidden>⠿</span>
                   <Badge
                     status={w?.last_status === 'up' ? 'success' : w?.last_status === 'down' ? 'error' : 'default'}
                     text={
@@ -372,13 +334,8 @@ export default function Cockpit() {
               </div>
             );
           })}
-        </Grid>
+        </div>
       )}
-
-      <Typography.Text type="secondary" className="wm-caption">
-        {READ_ONLY ? '' : '拖动面板标题栏移动，右下角拉伸调整大小，布局自动保存 · '}部分工作台通过 X-Frame-Options 禁止内嵌，空白时用「新窗口」打开 ·{' '}
-        <Link to="/market">去工作台市场</Link>
-      </Typography.Text>
     </Flex>
   );
   return (
@@ -388,7 +345,7 @@ export default function Cockpit() {
         main={{ id: 'board', tabs: mainTabKeys(refs, panels.length).map((k) => (k === 'benches'
           ? { key: 'benches', label: '工作台', content: board }
           : { key: k, label: k === 'board' ? '看板' : '明细', content: <>{refsOfTab(refs, k).map((x) => <BenchViewPanel key={x.i} refItem={x} />)}</> })) }}
-        right={{ id: 'items', tabs: [{ key: 'items', label: '事项', content: <ItemsPane /> }] }} />
+        right={{ id: 'items', tabs: [{ key: 'items', label: READ_ONLY ? '我安排的事项' : '事项', content: <ItemsPane /> }] }} />
     </WmPage>
   );
 }

@@ -12,13 +12,15 @@ type Slot = { id: string; tabs: PaneTab[] } | null | undefined;
 export default function CockpitFrame({ storageKey, bar, extra, left, main, bottom, right }: {
   storageKey: string; bar?: ReactNode; extra?: ReactNode; left?: Slot; main: { id: string; tabs: PaneTab[] }; bottom?: Slot; right?: Slot;
 }) {
-  const key = `wm-ck-sizes:${storageKey}`;
+  // 只在拖过之后才记：没拖过的一直跟着缺省走（缺省改了，没拖过的人也跟着变）
+  const key = `wm-ck-sizes2:${storageKey}`;
   const [sizes, setSizes] = useState<Sizes>(() => { try { return parseSizes(localStorage.getItem(key)); } catch { return parseSizes(null); } });
   const [max, setMax] = useState<string | null>(null);
   const onToggleMax = useCallback((id: string) => setMax((cur) => toggleMax(cur, id)), []);
   const drag = useRef<{ which: keyof Sizes; x: number; y: number; start: Sizes } | null>(null);
 
-  useEffect(() => { try { localStorage.setItem(key, JSON.stringify(sizes)); } catch { /* 存不了就只在本页有效 */ } }, [key, sizes]);
+  const latest = useRef(sizes);
+  latest.current = sizes;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = document.activeElement as HTMLElement | null;
@@ -33,7 +35,7 @@ export default function CockpitFrame({ storageKey, bar, extra, left, main, botto
     e.preventDefault();
     drag.current = { which, x: e.clientX, y: e.clientY, start: sizes };
     const move = (ev: PointerEvent) => { const d = drag.current; if (d) setSizes(dragSizes(d.start, d.which, ev.clientX - d.x, ev.clientY - d.y)); };
-    const up = () => { drag.current = null; window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    const up = () => { drag.current = null; try { localStorage.setItem(key, JSON.stringify(latest.current)); } catch { /* 存不了就只在本页有效 */ } window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
   };
   const pane = (s: { id: string; tabs: PaneTab[] }, cls: string) => <Pane id={s.id} tabs={s.tabs} maxed={max === s.id} onToggleMax={onToggleMax} className={cls} />;

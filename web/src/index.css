@@ -567,3 +567,9 @@ body { background: var(--wm-color-page); }
 .wm-ck-pad { padding: var(--wm-space-3); }
 @media (max-width: 960px) { .wm-ck { height: auto; } .wm-ck-grid { display: block; } .wm-ck-mid { display: block; } .wm-ck-pane { margin-bottom: var(--wm-space-2); min-height: 240px; } .wm-ck-split { display: none; } }
 .wm-ck-edit { min-width: 320px; }
+/* 驾驶舱：页面两边少留一点，宽度让给中间栏；内嵌的工作台按栏宽单列排，不能拖、不能拉伸 */
+.wm-page-body:has(.wm-ck) { padding-left: var(--wm-space-4); padding-right: var(--wm-space-4); }
+.wm-ck-benches { display: flex; flex-direction: column; gap: var(--wm-space-3); width: 100%; }
+.wm-ck-benches .wm-panel { height: 520px; }
+.wm-ck-benches .wm-panel-head { cursor: default; }
+.wm-ck-pad.wm-w-full { box-sizing: border-box; }
