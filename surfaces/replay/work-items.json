@@ -1,11 +1,21 @@
 {
   "domain": "work-items",
   "what": "「安排一件事」的可派团队 /api/work-items/teams 和建事项 POST /api/work-items；事项列表 /api/work-items 的读；事项：/api/work-items/:id 的读（8d）和 /api/work-items/:id/decision 建立人验收、退回（8e）两条路由；阶段七 R2 的事项对话里席位消息的看过（messages/read）、回复（messages/:mid/reply）两条。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
-  "routes": ["GET /api/work-items/teams", "POST /api/work-items", "GET /api/work-items", "GET /api/work-items/:id", "POST /api/work-items/:id/decision", "POST /api/work-items/:id/messages/read", "POST /api/work-items/:id/messages/:mid/reply"],
+  "routes": [
+    "GET /api/work-items/teams",
+    "POST /api/work-items",
+    "GET /api/work-items",
+    "GET /api/work-items/:id",
+    "POST /api/work-items/:id/decision",
+    "POST /api/work-items/:id/messages/read",
+    "POST /api/work-items/:id/messages/:mid/reply",
+    "POST /api/work-items/:id/release"
+  ],
   "exempt": [
     { "route": "POST /api/work-items/:id/decision", "class": "normal", "why": "正常应答要一件「等验收」的事项：今天没有 HTTP 入口能把事项推到等验收，seed 只能插草稿。正常的验收、退回由 scripts/work-item-creator-test.mjs 起实例、经事项服务造 ready 来测", "shown_by": "creator/decide-not-ready" },
     { "route": "POST /api/work-items/:id/messages/:mid/reply", "class": "normal", "why": "正常回复要一件从工作台事件来的事项和一条签过名的席位跟进：seed 造不出验过签名的跟进。正常回复、发回、看过之后再回复由 scripts/a2a-answers-test.mjs 起实例、经入站造跟进来测", "shown_by": "creator/reply-no-message" },
-    { "route": "GET /api/work-items/teams", "class": "invalid", "why": "这个接口不收任何参数，没有参数非法的情形", "shown_by": "arrange/teams-alpha" }
+    { "route": "GET /api/work-items/teams", "class": "invalid", "why": "这个接口不收任何参数，没有参数非法的情形", "shown_by": "arrange/teams-alpha" },
+    { "route": "POST /api/work-items/:id/release", "class": "normal", "why": "正常放行要一件从工作台事件来、还在等过目（held）的事项，以及名册、团队、负责人：seed 造不出经事件建的事项。负责人放行、管理层代办、建立人自己过目、幂等由 scripts/work-item-lead-release-test.mjs 起实例来测", "shown_by": "admin/release-not-held" }
   ],
   "scenarios": [
     {
@@ -338,6 +348,32 @@
             "headers": { "cache-control": "private, no-store", "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": { "error": "work_items_cross_origin_denied" }
           }
+        },
+        {
+          "id": "release-bad-id",
+          "route": "POST /api/work-items/:id/release",
+          "class": "invalid",
+          "what": "id 不是事项 id 的样子：400",
+          "request": { "method": "POST", "path": "/api/work-items/wi_bad.id/release", "headers": { "sec-fetch-site": "same-origin", "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_item_id_invalid" }
+          }
+        },
+        {
+          "id": "release-not-held",
+          "route": "POST /api/work-items/:id/release",
+          "class": "invalid",
+          "what": "管理员（管理层）：这件没交给有负责人的团队，能代办；但它是草稿、不在等过目、也没放过，409",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/release", "headers": { "sec-fetch-site": "same-origin", "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "46", "etag": "W/\"2e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_item_not_held", "state": "draft" }
+          }
         }
       ]
     },
@@ -542,6 +578,58 @@
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "release-anonymous",
+          "route": "POST /api/work-items/:id/release",
+          "class": "unauthorized",
+          "what": "远程匿名：没登录，401（写请求总门对这条子路径放行，由路由自己拒）",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/release", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "release-creator-not-yours",
+          "route": "POST /api/work-items/:id/release",
+          "class": "unauthorized",
+          "what": "建立人（没勾先过目）：看得到，但放行归负责人，403",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/release", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_item_release_not_yours" }
+          }
+        },
+        {
+          "id": "release-cross-site",
+          "route": "POST /api/work-items/:id/release",
+          "class": "unauthorized",
+          "what": "跨站来的：403",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/release", "headers": { "sec-fetch-site": "cross-site", "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_items_cross_origin_denied" }
+          }
+        },
+        {
+          "id": "release-beta-hidden",
+          "route": "POST /api/work-items/:id/release",
+          "class": "invalid",
+          "what": "不是建立人、不是负责人、不是管理层：404（不说有没有这件）",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/release", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" }, "json": {} },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_item_not_found" }
           }
         }
       ]

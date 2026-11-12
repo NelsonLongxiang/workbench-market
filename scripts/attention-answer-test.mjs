@@ -192,14 +192,16 @@ try {
   {
     const itemOf = (ev) => `wi_${ev}`;
     const n = await answer('work-items', itemOf(S.release.new), 'release');
-    const o = await call('POST', `/api/workbench-events/${S.release.old}/release`, ADMIN, {});
+    // 「关注」的放行转给事项的放行入口（团队没有负责人，管理层代办）：和直接调那个入口逐字段相同
+    const o = await call('POST', `/api/work-items/${itemOf(S.release.old)}/release`, ADMIN, {});
     // 放行之后投递 worker 会马上去试发（发不出去会记 retry、改 attempts），那是 worker 的事、先后不定：只比两个入口造成的那几种动作
     const dl = (ev) => strip(q('SELECT target_team, status FROM workbench_event_deliveries WHERE event_id = ?', ev)).map((d) => ({ ...d, status: d.status === 'held' ? 'held' : d.status === 'cancelled' ? 'cancelled' : 'released' }));
     const lg = (ev) => strip(q("SELECT actor, action, detail FROM workbench_event_log WHERE event_id = ? AND action IN ('recorded', 'held', 'queued', 'released', 'cancelled') ORDER BY id", ev));
     const st = (ev) => q('SELECT state FROM work_items WHERE id = ?', itemOf(ev))[0]?.state;
     const norm = (b) => JSON.parse(JSON.stringify(b).replace(/wbe-[0-9a-f]{16}/g, 'wbe-X').replace(/"(id|delivery_id)":\d+/g, '"$1":0'));
-    check(n.status === o.status && n.status === 200 && sameApart(norm(n.body.result), norm(o.body)) && same(dl(S.release.new), dl(S.release.old)) && same(lg(S.release.new), lg(S.release.old)) && st(S.release.new) === 'delivered' && st(S.release.old) === 'delivered',
-      '事项·放行（转给工作台事件的放行）：投递、事件日志（谁放行的）、事项状态、应答逐字段相同', show({ n, o, logs: [lg(S.release.new), lg(S.release.old)] }));
+    const acting = lg(S.release.new).filter((r) => r.action === 'released').map((r) => JSON.parse(r.detail).acting_for);
+    check(n.status === o.status && n.status === 200 && sameApart(norm(n.body.result), norm(o.body)) && same(dl(S.release.new), dl(S.release.old)) && same(lg(S.release.new), lg(S.release.old)) && st(S.release.new) === 'delivered' && st(S.release.old) === 'delivered' && acting.length > 0 && acting.every((a) => a === 'team-lead'),
+      '事项·放行（转给事项的放行入口，管理层代办）：投递、事件日志（谁放行的、代谁办）、事项状态、应答逐字段相同', show({ n, o, logs: [lg(S.release.new), lg(S.release.old)] }));
     const nw = await answer('work-items', itemOf(S.withdraw.new), 'withdraw');
     const ow = await call('POST', `/api/task-center/tasks/${S.withdrawTask.old}/withdraw`, ADMIN, {});
     const task = (id) => strip(q('SELECT status FROM tasks WHERE id = ?', id));

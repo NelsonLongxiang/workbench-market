@@ -42,9 +42,10 @@ import type { PrincipalService } from '../services/principal.ts';
 import { creatorAnswer } from '../attention-answers.ts';
 import { markSeatMessagesRead, replySeatMessage, seatMessagesOf, seatProgressOf, SEAT_REPLY_MAX } from '../seat-messages.ts';
 import { principalsAdmin } from './principals.ts';
-import { canOf, canSee, creatorOf, itemRoles, turnOf, VIEW_ALL_ACTION, VIEW_ALL_KIND, VIEWS, viewScopes, workItemViewer, writerVerdict, type ItemRole, type ViewName } from '../work-item-access.ts';
+import { canOf, canSee, creatorOf, itemRoles, releaseRole, turnOf, VIEW_ALL_ACTION, VIEW_ALL_KIND, VIEWS, viewScopes, workItemViewer, writerVerdict, type ItemRole, type ViewName } from '../work-item-access.ts';
 import { arrangeTask } from '../task-center.ts';
-import { assignableTeams, kickWorkbenchEvents } from '../workbench-events.ts';
+import { assignableTeams, kickWorkbenchEvents, releaseCore } from '../workbench-events.ts';
+import { eventOfItem } from '../seat-messages.ts';
 
 export type WorkItemRouteDeps = {
   markOdooAdmin: (req: express.Request) => Promise<void>;
@@ -65,6 +66,8 @@ function silentRes(): express.Response {
 const SEAT_WRITER_DECIDES = '按事项的建立人判：建立人本人或管理员，是事项上的规则不是角色授权';
 /** 建立人验收、退回自己的事项：只有这件事项的建立人本人能答，是事项上的规则；判定这一步还不知道落在哪件事项上 */
 const CREATOR_DECIDES = '按事项的建立人判：只有建立人本人能验收、退回自己的事项，是事项上的规则不是角色授权';
+/** 放行：团队的负责人（缺位时管理层代办），是事项上的规则；判定这一步还不知道落在哪件事项上 */
+const LEAD_RELEASES = '按事项交给的团队判：负责人放行，团队没有负责人时管理层代办，是事项上的规则不是角色授权';
 
 export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps): void {
   // 列表：GET /api/work-items?state=&object=&phase=&limit=&cursor=。可见范围和详情同一个判断（管理员看全部，别人只看自己是建立人的），
@@ -225,6 +228,38 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       if (!w) return;
       const out = replySeatMessage(w.item, Number(mid), text, w.actor);
       res.status(out.status).json(out.body);
+    })().catch(next);
+  });
+
+  /**
+   * 放行（规范 14 第九节）：POST /api/work-items/:id/release，请求体不看。谁能放由 releaseRole 判（和详情的 can.release 同一处）：
+   * 负责人；团队没有负责人时管理层代办（事件日志、事项日志记 acting_for = team-lead）；勾了先过目的由建立人本人放。
+   * 写请求总门对这一条子路径放行，认人在这里。「关注」里过目条目的 answer_via 指向这里，所以自己做幂等：
+   * 已经放行过的再来一次回 200、duplicate=true，不再放、不再记。放行的事只在 workbench-events 的 releaseCore 一处。
+   *   401 没登录；404 看不到（不说有没有这件）；403 看得到但不归他放；409 不在等过目（没放行过）或事件、任务不让放
+   */
+  app.post('/api/work-items/:id/release', { action: 'work-items.release', kind: 'decide', statusNotVerdict: LEAD_RELEASES }, (req, res, next) => {
+    res.set('Cache-Control', 'private, no-store');
+    if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
+    const id = String(req.params.id ?? '');
+    if (!ITEM_ID.test(id)) return void res.status(400).json({ error: 'work_item_id_invalid' });
+    (async () => {
+      const items = svc<WorkItemService>('workItems');
+      const viewer = await workItemViewer(req, deps);
+      if (!viewer.admin && !viewer.principal) return void res.status(401).json({ error: 'work_items_auth_required' });
+      const item = items.get(id);
+      if (!item || !canSee(item, viewer)) return void res.status(404).json({ error: 'work_item_not_found' });
+      const role = releaseRole(item, viewer);
+      if (!role) return void res.status(403).json({ error: 'work_item_release_not_yours' });
+      if (item.state !== 'held') {
+        if (items.log(id).some((l) => l.fact === 'release' && !l.rejected)) return void res.json({ ok: true, item_id: id, duplicate: true, released: 0 });
+        return void res.status(409).json({ error: 'work_item_not_held', state: item.state });
+      }
+      const ev = eventOfItem(item);
+      if (!ev) return void res.status(409).json({ error: 'work_item_not_from_event' });
+      const actor = viewer.principal ?? ((principalsAdmin ? await principalsAdmin(req, silentRes()) : null) || 'admin');
+      const out = releaseCore(ev, actor, role.acting_for);
+      res.status(out.status).json({ item_id: id, duplicate: false, ...out.body });
     })().catch(next);
   });
 

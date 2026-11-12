@@ -99,7 +99,8 @@ const FORWARD: Record<string, Record<string, (id: string, input: Input) => Route
       const it = svc<WorkItemService>('workItems').get(id);
       if (!it) return bad('work_item_not_found', 404);
       if (!/^wbe-[0-9a-f]{16}$/.test(it.source_ref)) return bad('work_item_not_from_event', 409);
-      return { method: 'POST', path: `/api/workbench-events/${encodeURIComponent(it.source_ref)}/release`, body: {} };
+      // 和过目条目的 answer_via 同一个入口：谁能放、代办留痕都在那里判（管理层在团队没有负责人时代办）
+      return { method: 'POST', path: `/api/work-items/${encodeURIComponent(it.id)}/release`, body: {} };
     },
     withdraw: (id) => {
       const it = svc<WorkItemService>('workItems').get(id);

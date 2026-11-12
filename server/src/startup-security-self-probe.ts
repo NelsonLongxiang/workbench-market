@@ -99,6 +99,8 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       // 导出真值：远程匿名带 reveal=1 拿不到真值。登录门关着时由路由的管理员门拒（403，不降级成掩码），开着时登录门先拦（401）
       // 建立人验收入口（8e）：它不经写请求总门，远程匿名来必须 401（登录门开着时登录门先拦，也是 401）
       { id: 'market.work-items.creator-decision-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/work-items/wi_selfprobe/decision', body: '{"answer":"verify"}', origin: true, headers: REMOTE_ANON, status: 401 },
+      // 规范 14：负责人放行的入口同样经写请求总门放行、路由内认人，远程匿名来必须 401
+      { id: 'market.work-items.lead-release-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/work-items/wi_selfprobe/release', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
       // 阶段七 R2：事项对话里回复席位消息的入口同样经写请求总门放行、路由内认人，远程匿名来必须 401
       { id: 'market.work-items.seat-reply-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/work-items/wi_selfprobe/messages/1/reply', body: '{"text":"selfprobe"}', origin: true, headers: REMOTE_ANON, status: 401 },
       // 事项列表（GET /api/work-items）：只给管理员和登录的人，远程匿名必须 401（登录门开着时登录门先拦，也是 401）；不放行本机页面

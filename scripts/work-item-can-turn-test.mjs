@@ -4,15 +4,15 @@
  * 管理员（会话登录）、建立人（alpha）、无关的员工（beta）三种身份各一组，每一项都对着动作接口验：
  *
  *   can 说能 → 动作接口放行；can 说不能 → 动作接口拒
- *     release  POST /api/workbench-events/:id/release（管理员；事项 held）
+ *     release  POST /api/work-items/:id/release（事项 held；这里的团队名册里没有、没有负责人，由管理层代办）
  *     verify   管理员走「关注」答 verify；建立人走 POST /api/work-items/:id/decision（事项 ready）
  *     reply    POST /api/work-items/:id/messages/:mid/reply（管理员或建立人；有没回复过的消息；事项没结束）
  *     answer   管理员走「关注」答席位提问（建立人答提问的入口在阶段七，合并后另补）
  *   状态上不允许的一律 false：撤回（cancelled）之后不能回复，回复接口也拒（409 work_item_ended）
- *   turn：answer、verify 轮到建立人；release 轮到有放行权限的人。管理员看建立人的事 can 真、turn 假（代办）
+ *   turn：answer、verify 轮到建立人；release 轮到负责人。管理员看建立人的事 can 真、turn 假（代办）；团队没负责人时管理层代办放行，也是 can 真、turn 假
  *   creator：{ principal, display_name }，详情和「关注」同一个形状
- *   mine：「关注」里和 turn 同一个函数；验收、提问对管理员是 false（代办），过目放行对管理员是 true
- *   留痕：放行记真实的管理员（不再写死 human:admin）；任务中心来的事项，显示的建立人是认出来的提需求人（不是自填的发布名）
+ *   mine：「关注」里和 turn 同一个函数；验收、提问、过目放行对管理员都是 false（代办）
+ *   留痕：放行记真实的管理员（不再写死 human:admin），代办记 acting_for = team-lead；任务中心来的事项，显示的建立人是认出来的提需求人（不是自填的发布名）
  *
  *   node scripts/work-item-can-turn-test.mjs              测本仓库
  *   node scripts/work-item-can-turn-test.mjs --root DIR   测另一棵目录树
@@ -129,12 +129,14 @@ try {
   // ---------- release（不能的先验，能的最后做） ----------
   {
     const c = { 管理员: await detail(S.held.item, '管理员'), 建立人: await detail(S.held.item, '建立人'), 无关的员工: await detail(S.held.item, '无关的员工') };
-    check(c.管理员.can.release && c.管理员.turn.release && !c.建立人.can.release && !c.建立人.turn.release && !c.无关的员工.can.release, 'release：管理员 can、turn 都真（轮到有放行权限的人）；建立人、无关的员工都不能', show(Object.fromEntries(Object.entries(c).map(([k, v]) => [k, [v.can.release, v.turn.release]]))));
-    pair('release·建立人', c.建立人.can.release, await call('POST', `/api/workbench-events/${S.held.event}/release`, WHO.建立人, {}));
-    pair('release·无关的员工', c.无关的员工.can.release, await call('POST', `/api/workbench-events/${S.held.event}/release`, WHO.无关的员工, {}));
-    pair('release·管理员', c.管理员.can.release, await call('POST', `/api/workbench-events/${S.held.event}/release`, WHO.管理员, {}));
-    const actor = q("SELECT actor FROM workbench_event_log WHERE event_id = ? AND action = 'released'", S.held.event)[0]?.actor;
-    check(actor === 'odoo:root-admin', '放行留痕记真实的管理员（会话登录的 odoo:root-admin），不再写死 human:admin', show(actor));
+    check(c.管理员.can.release && !c.管理员.turn.release && !c.建立人.can.release && !c.建立人.turn.release && !c.无关的员工.can.release, 'release：团队没有负责人，管理员（管理层）能代办、不轮到他；建立人、无关的员工都不能', show(Object.fromEntries(Object.entries(c).map(([k, v]) => [k, [v.can.release, v.turn.release]]))));
+    pair('release·建立人', c.建立人.can.release, await call('POST', `/api/work-items/${S.held.item}/release`, WHO.建立人, {}));
+    pair('release·无关的员工', c.无关的员工.can.release, await call('POST', `/api/work-items/${S.held.item}/release`, WHO.无关的员工, {}));
+    pair('release·管理员', c.管理员.can.release, await call('POST', `/api/work-items/${S.held.item}/release`, WHO.管理员, {}));
+    const row = q("SELECT actor, detail FROM workbench_event_log WHERE event_id = ? AND action = 'released'", S.held.event)[0];
+    const fact = q("SELECT actor, detail FROM work_item_log WHERE item_id = ? AND fact = 'release'", S.held.item)[0];
+    check(row?.actor === 'user:root-admin' && JSON.parse(row.detail).acting_for === 'team-lead' && JSON.parse(fact?.detail ?? '{}').acting_for === 'team-lead',
+      '放行留痕记真实的人（会话登录认出的主体），代办记 acting_for = team-lead（事件日志和事项日志都有）', show({ row, fact }));
     const after = await detail(S.held.item, '管理员');
     check(!after.can.release && !after.turn.release, '放行之后：不再能放行（事项不在 held）', show(after.can));
   }
@@ -168,8 +170,8 @@ try {
     const ask = att.find((x) => x.source === 'seat-asks' && x.source_id === String(S.asked.delivery));
     const glance = att.find((x) => x.source === 'work-items' && x.source_id === S.held2.item);
     const acc = (await call('GET', '/api/attention', WHO.建立人)).body?.items ?? [];
-    check(ask?.mine === false && ask.creator?.principal === 'user:alpha' && glance?.mine === true && glance.creator?.display_name === 'Synthetic alpha',
-      '「关注」：席位提问对管理员是代办（mine:false）、带建立人；过目放行轮到管理员（mine:true）', show({ ask: ask && [ask.mine, ask.creator], glance: glance && [glance.mine, glance.creator] }));
+    check(ask?.mine === false && ask.creator?.principal === 'user:alpha' && glance?.mine === false && glance.creator?.display_name === 'Synthetic alpha',
+      '「关注」：席位提问、过目放行对管理员都是代办（mine:false）、带建立人', show({ ask: ask && [ask.mine, ask.creator], glance: glance && [glance.mine, glance.creator] }));
     check(att.filter((x) => x.source !== 'work-items' && x.source !== 'seat-asks').every((x) => x.mine === true) && acc.every((x) => typeof x.mine === 'boolean'), '「关注」：别的来源一律 mine:true；每条都有 mine');
     pair('answer·管理员（「关注」）', a.can.answer, await call('POST', '/api/attention/answer', WHO.管理员, { source: 'seat-asks', source_id: String(S.asked.delivery), answer: 'answer', input: { text: '东店' } }));
     const answered = await detail(S.asked.item, '管理员'), answeredC = await detail(S.asked.item, '建立人');

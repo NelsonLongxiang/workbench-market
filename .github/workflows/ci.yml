@@ -321,6 +321,8 @@ jobs:
         run: node scripts/work-item-views-team-test.mjs
       - name: 只认已确认的关系（管理口令指的负责人只是提议、分配成员系统管理员不能代办、认领只是提议：都看不到事项·对照：确认之后看得到）
         run: node scripts/work-item-relations-trust-test.mjs
+      - name: 放行归负责人（放宽访问的对抗：负责人放、团队有负责人时管理层和口令管理员 403·没有负责人时管理层代办、留痕记 acting_for·建立人勾了先过目由建立人放·幂等·「关注」的过目只给能放的人、带 answer_via·跨站拒）
+        run: node scripts/work-item-lead-release-test.mjs
       - name: 对端登记表（升级回填建对端行、取不到名片的待登记不挡投递、重跑不变·登记取名片验签钉公钥·公钥变了不自动接受、进「关注」、指纹对得上才换·停用和重新启用·canDeliver 原因分得开·健康从现有表算·对外只给指纹）
         run: node scripts/a2a-peers-test.mjs
       - name: 「安排一件事」（放宽访问的对抗：只认会话登录的启用的人·建立人是本人、自报的不认·只能派给绑在任务中心上的团队·缺省先过目、员工直派要两个开关都开·幂等按人·限流管理员可调·匿名、口令、跨站、停用拒·启动自检一行）

@@ -15,7 +15,7 @@
  *   tasks             GET /api/tasks（统一待办）                tasksReadAccess(adminHeaderOk) 审核
  *   owner-pending     GET /api/workbenches/:id/vars（看板台）  vars 接口的读门                提问
  *   principal-pending GET /api/principals/pending              主体路由的管理门               授权
- *   work-items        没有旧接口：验收 = ready（看得到这件事项的人）；过目 = held（管理员）  验收 / 过目
+ *   work-items        没有旧接口：验收 = ready（看得到这件事项的人）；过目 = held（负责人；团队没有负责人时管理层代办）  验收 / 过目
  *   a2a-peers         GET /api/a2a/peers（对端名片的公钥变了、等确认的）adminGuard           授权
  *   team-health       GET /api/teams（待认领、不在名册里、没有负责人的团队；名册超过阈值没更新的节点） adminGuard  过目
  *   relation-proposals GET /api/relations/proposals（这个人能确认的关系提议，和确认接口同一处 confirmRefusal） 登录的人   授权
@@ -37,7 +37,7 @@ function optionsHint(json: string): string {
   try { const o = JSON.parse(json) as unknown; return Array.isArray(o) && o.length ? `（可选：${o.filter((x) => typeof x === 'string').join(' / ')}）` : ''; } catch { return ''; }
 }
 import { withAnswers } from './attention-answers.ts';
-import type { AttentionItem, AttentionProvider, AttentionService } from './services/attention.ts';
+import { answerVia, type AttentionItem, type AttentionProvider, type AttentionService } from './services/attention.ts';
 import type { ChangeRequestService } from './services/change-request.ts';
 import type { McpService } from './services/mcp.ts';
 import type { SopService } from './services/sop.ts';
@@ -50,7 +50,7 @@ import type { GrantService } from './services/grant.ts';
 import type { RelationProposalService } from './services/relation-proposal.ts';
 import { browserMarked, rawLoopback } from './surfaces.ts';
 import { teamName } from './team-relation.ts';
-import { canSee, creatorOf, isManagement, turnOf, type WorkItemViewer } from './work-item-access.ts';
+import { canRelease, canSee, creatorOf, isManagement, turnOf, type WorkItemViewer } from './work-item-access.ts';
 
 export type AttentionDeps = {
   /** index.ts 的管理门（变更申请、MCP 权限申请、工作台事件用的就是它） */
@@ -234,9 +234,13 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           out.push(item({ source: 'work-items', source_id: w.id, category: 'accept', title: w.title, waiting_for: w.target_team || w.seat || w.created_by, since: w.updated_at, answers: ['verify', 'return'], link: `/work-items/${w.id}`, object: w.object, phase: w.phase,
             mine: turnOf(w, viewer).verify, creator: creatorOf(w) }));
         }
-        if (admin) for (const w of items.list({ state: 'held' })) {
-          out.push(item({ source: 'work-items', source_id: w.id, category: 'glance', title: w.title, waiting_for: w.created_by, since: w.created_at, answers: ['release', 'withdraw'], link: `/work-items/${w.id}`, object: w.object, phase: w.phase,
-            mine: turnOf(w, viewer).release, creator: creatorOf(w) }));
+        // 过目（规范 14 第九节）：只给能放行的人——负责人、团队没有负责人时代办的管理层、勾了先过目的建立人（canRelease，和详情的 can.release 同一处）。
+        // 放行带 answer_via 直接调 POST /api/work-items/:id/release：负责人多半不是管理员，过不了「关注」答复入口前面的写请求总门。
+        // 撤回还是任务中心的管理员接口，只给过了管理门的人
+        for (const w of items.list({ state: 'held' })) {
+          if (!canRelease(w, viewer)) continue;
+          out.push(item({ source: 'work-items', source_id: w.id, category: 'glance', title: w.title, waiting_for: w.created_by, since: w.created_at, answers: admin ? ['release', 'withdraw'] : ['release'], link: `/work-items/${w.id}`, object: w.object, phase: w.phase,
+            mine: turnOf(w, viewer).release, creator: creatorOf(w), answer_via: answerVia('POST', `/api/work-items/${w.id}/release`, { release: { body: {} } }) }));
         }
         return out;
       },

@@ -2,13 +2,14 @@
  * 事项上「这个人能做什么、是不是轮到他」——事项详情（GET /api/work-items/:id 的 can、turn、creator）和「关注」（每条的 mine、creator）用。
  *
  * can 的每一项和对应动作接口用同一处判断，不另写规则：
- *   release  管理员（adminGuard，和 POST /api/workbench-events/:id/release 同一个守卫）、事项在 held、releaseBlock 放行（事件在、任务没撤回）
+ *   release  事项在 held、releaseBlock 放行（事件在、任务没撤回），并且 releaseRole 认这个人（和 POST /api/work-items/:id/release 同一处）：
+ *            负责人；团队没有负责人时管理层代办；建立人勾了「先给我过目」的由建立人本人放行。只过了管理门的系统管理员不放行
  *   verify   事项在 ready，并且：管理员（「关注」里答 verify），或者建立人本人（writerVerdict 是 ok，和 POST /api/work-items/:id/decision 同一处）
  *   reply    事项不在终态，有可回复的席位消息（replyableMessages，和回复接口同一个判断），并且 writerVerdict 是 admin 或 ok（和回复接口的认人同一处）
  *   answer   事项不在终态，有在等答复的提问（pendingAsksOfEvent，和「关注」里答席位提问同一个定义），并且是管理员
  *            （建立人答提问的入口在阶段七 #567，合并后这里改成 writerVerdict，另一个小 PR）
  *
- * turn（是不是轮到这个人）只有两句：answer、verify 轮到的是建立人；release 轮到的是有放行权限的人。
+ * turn（是不是轮到这个人）只有两句：answer、verify 轮到的是建立人；release 轮到的是负责人（或勾了先过目的建立人），管理层代办不算轮到。
  * can 为真而 turn 为假，就是「能代办」。
  */
 import type express from 'express';
@@ -194,23 +195,42 @@ export type Turn = { release: boolean; answer: boolean; verify: boolean };
 const pendingAsks = (item: WorkItemRow): number => { const ev = eventOfItem(item); return ev ? pendingAsksOfEvent(ev).length : 0; };
 const releasable = (item: WorkItemRow): boolean => { const ev = eventOfItem(item); return item.state === 'held' && !!ev && releaseBlock(ev) === null; };
 
+/** 现在能不能放：事项在等过目、事件和任务让放，并且 releaseRole 认这个人（详情的 can.release、「关注」的过目条目都用它） */
+export const canRelease = (item: WorkItemRow, viewer: WorkItemViewer): boolean => releasable(item) && releaseRole(item, viewer) !== null;
+
+/**
+ * 谁能放行这件事项（规范 14 第九节，只有这一处；不看事项现在是不是 held，那是 releasable 的事）：
+ *   建立人勾了「先给我过目」（review_by = requester）：建立人本人（启用的人）放行，别人都不放
+ *   其余：事项交给的团队的负责人（relationOf 里有 team-lead）；
+ *         这些团队都没有在职负责人（包括名册里还换不出团队的）时，管理层代办，acting_for 记 team-lead
+ * 系统管理员（只过了管理门、不是管理层）不放行。返回 null 是不能放；acting_for 为空串是本人的事，不是代办
+ */
+export function releaseRole(item: WorkItemRow, viewer: WorkItemViewer): { acting_for: '' | 'team-lead' } | null {
+  const p = viewer.principal;
+  if (item.review_by === 'requester') return p && viewer.person && isCreator(item, p) ? { acting_for: '' } : null;
+  const teams = itemTeams(item);
+  if (p && viewer.person && teams.some((t) => relationOf({ principal: p }, { team: t }).relations.includes('team-lead'))) return { acting_for: '' };
+  const vacant = teams.every((t) => svc<TeamService>('teams').leads(t).length === 0);
+  return vacant && viewer.management ? { acting_for: 'team-lead' } : null;
+}
+
 export function canOf(item: WorkItemRow, viewer: WorkItemViewer): Can {
   const live = !TERMINAL_STATES.includes(item.state);
   const creatorOk = writerVerdict(viewer, item.id, false) === 'ok';
   return {
-    release: viewer.admin && releasable(item),
+    release: canRelease(item, viewer),
     answer: live && viewer.admin && pendingAsks(item) > 0,
     verify: item.state === 'ready' && (viewer.admin || creatorOk),
     reply: live && (viewer.admin || creatorOk) && replyableMessages(item).length > 0,
   };
 }
 
-/** 是不是轮到这个人：answer、verify 轮到建立人；release 轮到有放行权限的人（管理员）。只在事情确实在等的时候为真 */
+/** 是不是轮到这个人：answer、verify 轮到建立人；release 轮到负责人或勾了先过目的建立人（管理层代办不算）。只在事情确实在等的时候为真 */
 export function turnOf(item: WorkItemRow, viewer: WorkItemViewer): Turn {
   const live = !TERMINAL_STATES.includes(item.state);
   const mine = viewer.principal !== null && isCreator(item, viewer.principal);
   return {
-    release: viewer.admin && releasable(item),
+    release: releasable(item) && releaseRole(item, viewer)?.acting_for === '',
     answer: live && mine && pendingAsks(item) > 0,
     verify: item.state === 'ready' && mine,
   };

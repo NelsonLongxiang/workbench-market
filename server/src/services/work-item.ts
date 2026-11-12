@@ -361,7 +361,8 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
   // 事实 id 和原来那条 submit 相同：存量里已经应用过的照旧按（来源、id）跳过，回填重跑结果不变
   if ((row.action === 'held' || row.action === 'queued') && Number(event.dispatch) === 0) return { ...base, kind: 'note', note: 'undispatched' };
   if (row.action === 'held' || row.action === 'queued') fact = { ...base, kind: 'submit', dispatch_open: row.action === 'queued' };
-  else if (row.action === 'released') fact = { ...base, kind: 'release' };
+  // 代办放行（团队没有负责人时管理层代办）：事件日志那一行的 detail 记着 acting_for，原样带进事项日志，时间线照它写「代某某办」
+  else if (row.action === 'released') fact = { ...base, kind: 'release', ...(typeof detail.acting_for === 'string' && detail.acting_for ? { acting_for: detail.acting_for.slice(0, 64) } : {}) };
   else if (row.action === 'cancelled') fact = { ...base, kind: 'withdraw', none_sent: !rows.slice(0, i + 1).some((r) => r.action === 'sent' || r.action === 'sent-after-withdraw') };
   else if (row.action === 'receipt:untrusted' || row.action === 'receipt:unaccepted') fact = { ...base, kind: 'note', note: 'untrusted' };
   else if (row.action === 'receipt:progress') fact = { ...base, kind: 'note', note: 'progress', text: typeof detail.summary === 'string' ? detail.summary : '' };
