@@ -214,9 +214,13 @@ async function gateChecks(srv, tag) {
   const inside = await gate(SESSIONS.alpha);
   const insideOk = inside.api === 200 && inside.authenticated === true && inside.via === 'odoo' && inside.login === 'alpha';
   check(insideOk, `${tag}对照：内部员工进得来`, show(inside));
+  // 来源本身不可达（来源说不可达、提供方抛错、到点没回答）：接口回 502 identity_unavailable（不说「请先登录」）；别的认不出照旧 401。都进不来
+  const SOURCE_DOWN = new Set([SESSIONS.unreachable, SESSIONS.throws, SESSIONS.hangs]);
   for (const [label, sid] of REFUSALS) {
     const o = await gate(sid);
-    check(o.api === 401 && o.error === 'login_required' && o.authenticated === false && insideOk, `${tag}${label.replace(/：.*$/, '')} → 401，进不来`, show(o));
+    const down = SOURCE_DOWN.has(sid);
+    const refused = down ? o.api === 502 && o.error === 'identity_unavailable' : o.api === 401 && o.error === 'login_required';
+    check(refused && o.authenticated === false && insideOk, `${tag}${label.replace(/：.*$/, '')} → ${down ? '502 identity_unavailable' : '401'}，进不来`, show(o));
   }
 }
 

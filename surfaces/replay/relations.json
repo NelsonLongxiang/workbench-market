@@ -34,11 +34,11 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "828", "etag": "W/\"33c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1269", "etag": "W/\"4f5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "proposals": [
-                { "id": 1, "kind": "team-claim", "department_id": "sales", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal_id": "", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "confirm_by_text": "管理层或接收部门的负责人", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true },
-                { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "confirm_by_text": "属主", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true }
+                { "id": 1, "kind": "team-claim", "department_id": "sales", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal_id": "", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "confirm_by_text": "管理层或接收部门的负责人", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true, "mine": false, "outcome": "pending", "outcome_reason": null, "team_name": "Sales Team", "node_name": null, "department_name": "合成销售部", "principal_name": null, "proposed_by_name": "管理员（口令）", "decided_by_name": null },
+                { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "confirm_by_text": "属主", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true, "mine": false, "outcome": "pending", "outcome_reason": null, "team_name": null, "node_name": null, "department_name": "合成销售部", "principal_name": "合成乙", "proposed_by_name": "管理员（口令）", "decided_by_name": null }
               ]
             }
           }
@@ -52,11 +52,11 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "828", "etag": "W/\"33c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1269", "etag": "W/\"4f5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "proposals": [
-                { "id": 1, "kind": "team-claim", "department_id": "sales", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal_id": "", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "confirm_by_text": "管理层或接收部门的负责人", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true },
-                { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "confirm_by_text": "属主", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true }
+                { "id": 1, "kind": "team-claim", "department_id": "sales", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal_id": "", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "confirm_by_text": "管理层或接收部门的负责人", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true, "mine": false, "outcome": "pending", "outcome_reason": null, "team_name": "Sales Team", "node_name": null, "department_name": "合成销售部", "principal_name": null, "proposed_by_name": "管理员（口令）", "decided_by_name": null },
+                { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "confirm_by_text": "属主", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true, "mine": false, "outcome": "pending", "outcome_reason": null, "team_name": null, "node_name": null, "department_name": "合成销售部", "principal_name": "合成乙", "proposed_by_name": "管理员（口令）", "decided_by_name": null }
               ]
             }
           }
@@ -149,9 +149,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "421", "etag": "W/\"1a5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "655", "etag": "W/\"28f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "proposal": { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "approved", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "", "confirm_by_text": "属主", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false }
+              "proposal": { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "approved", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "", "confirm_by_text": "属主", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false, "mine": false, "outcome": "approved", "outcome_reason": null, "team_name": null, "node_name": null, "department_name": "合成销售部", "principal_name": "合成乙", "proposed_by_name": "管理员（口令）", "decided_by_name": "本机命令行" }
             }
           }
         },
@@ -190,8 +190,8 @@
           "response": {
             "status": 403,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "100", "etag": "W/\"64-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "reject_not_allowed", "message": "只有能确认的人、提议的人或管理员能驳回" }
+            "headers": { "cache-control": "private, no-store", "content-length": "112", "etag": "W/\"70-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "reject_not_allowed", "message": "只有能确认的人能驳回；提议的人只能撤回自己提的" }
           }
         },
         {
@@ -217,9 +217,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "492", "etag": "W/\"1ec-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "743", "etag": "W/\"2e7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "proposal": { "id": 1, "kind": "team-claim", "department_id": "sales", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal_id": "", "status": "rejected", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "合成：不认领", "confirm_by_text": "管理层或接收部门的负责人", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false }
+              "proposal": { "id": 1, "kind": "team-claim", "department_id": "sales", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal_id": "", "status": "rejected", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "合成：不认领", "confirm_by_text": "管理层或接收部门的负责人", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false, "mine": false, "outcome": "rejected", "outcome_reason": "合成：不认领", "team_name": "Sales Team", "node_name": null, "department_name": "合成销售部", "principal_name": null, "proposed_by_name": "管理员（口令）", "decided_by_name": "本机命令行" }
             }
           }
         },
@@ -233,11 +233,11 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "904", "etag": "W/\"388-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1389", "etag": "W/\"56d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "proposals": [
-                { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "approved", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "", "confirm_by_text": "属主", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false },
-                { "id": 1, "kind": "team-claim", "department_id": "sales", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal_id": "", "status": "rejected", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "合成：不认领", "confirm_by_text": "管理层或接收部门的负责人", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false }
+                { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "approved", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "", "confirm_by_text": "属主", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false, "mine": false, "outcome": "approved", "outcome_reason": null, "team_name": null, "node_name": null, "department_name": "合成销售部", "principal_name": "合成乙", "proposed_by_name": "管理员（口令）", "decided_by_name": "本机命令行" },
+                { "id": 1, "kind": "team-claim", "department_id": "sales", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal_id": "", "status": "rejected", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "合成：不认领", "confirm_by_text": "管理层或接收部门的负责人", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false, "mine": false, "outcome": "rejected", "outcome_reason": "合成：不认领", "team_name": "Sales Team", "node_name": null, "department_name": "合成销售部", "principal_name": null, "proposed_by_name": "管理员（口令）", "decided_by_name": "本机命令行" }
               ]
             }
           }
