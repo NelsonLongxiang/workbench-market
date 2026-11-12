@@ -1409,8 +1409,10 @@ export interface CockpitRow {
 export interface PanelConfig {
   i: string;
   workbenchId: number;
-  /** 面板种类：默认工作台面板；'tasks' = 统一待办卡（omni-inbox，workbenchId=0 占位） */
-  kind?: 'tasks';
+  /** 面板种类：默认工作台面板；'tasks' = 统一待办卡（omni-inbox，workbenchId=0 占位）；'bench-view' = 视图面板 */
+  kind?: 'tasks' | 'bench-view';
+  /** 视图面板（kind='bench-view'，workbenchId=0 占位）：引用哪个视图台的哪份视图、放在哪一页、排第几 */
+  bench?: string; view?: string; tab?: 'board' | 'detail'; order?: number;
   x: number; y: number; w: number; h: number;
 }
 
@@ -1428,6 +1430,16 @@ export function rowToWorkbench(r: WorkbenchRow) {
   const { auth_config: _ac, ...rest } = r;
   return { ...rest, enabled: !!r.enabled, tags, auth };
 }
+// ---------- 视图台的登记（数据视图，docs/data-views.md 第二节）----------
+// 主库里只有登记：有这个台、叫什么、谁在什么时候建的。台里的数据都在台自己的库里（见下面「台库」）。
+// 登记过的台才有库：没登记的标识一律 404，不会因为有人问一句就建出一个库文件。
+db.exec(`CREATE TABLE IF NOT EXISTS bench_views (
+  slug TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+)`);
+
 // ---------- 台库（数据视图，docs/data-views.md）----------
 // 每个视图台一份自己的库，和上面的主库分开。表结构照约定登记在这里；语句由 services/bench-store.ts 在台自己的库上执行，不在主库上跑。
 // 只用两种库都认的写法；随库不同的只有类型名和自增主键，收在下面两个小函数里。时间一律由调用方给（毫秒整数），不在语句里取。

@@ -8,7 +8,7 @@ export const isStartupProbeRequest = (req: IncomingMessage): boolean => internal
 type Row = { id: string; surface: 'market' | 'control'; method: string; path: string; verdict: 'pass' | 'fail' | 'warn' | 'skip'; status: number | null; reason: string | null };
 type State = { passed: boolean; failed: string[]; at: string | null; rows: Row[] };
 type Target = { port: number; surface: 'market' | 'control' };
-type Options = { market: Server; control?: Server; gatewayOn: boolean; nodeEnv?: string; loginGate?: 'enforce' | 'off'; appDataRead?: 'enforce' | 'warn'; sopRunWrite?: 'enforce' | 'warn'; outbound?: () => Promise<{ ok: boolean; reason: string | null }> };
+type Options = { market: Server; control?: Server; gatewayOn: boolean; nodeEnv?: string; loginGate?: 'enforce' | 'off'; appDataRead?: 'enforce' | 'warn'; sopRunWrite?: 'enforce' | 'warn'; benchViews?: boolean; outbound?: () => Promise<{ ok: boolean; reason: string | null }> };
 /** Login-gate rows impersonate a remote anonymous browser behind a same-host proxy, so the local-CLI exemption cannot apply. */
 const REMOTE_ANON = { 'x-forwarded-for': '192.0.2.1', accept: 'text/html' };
 
@@ -83,7 +83,7 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
     });
   }
 
-  async function execute({ market, control, gatewayOn, nodeEnv, loginGate = 'off', appDataRead = 'enforce', sopRunWrite = 'enforce', outbound }: Options): Promise<State> {
+  async function execute({ market, control, gatewayOn, nodeEnv, loginGate = 'off', appDataRead = 'enforce', sopRunWrite = 'enforce', benchViews = false, outbound }: Options): Promise<State> {
     const [m, c] = await Promise.all([listener(market), listener(control)]);
     if (c) c.surface = 'control';
     const table = [
@@ -106,6 +106,12 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       // 「安排一件事」（POST /api/work-items）：不经管理门，远程匿名来必须 401（登录门开着时登录门先拦，也是 401）
       { id: 'market.work-items.arrange-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/work-items', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
       { id: 'market.export.reveal-anonymous', target: m, surface: 'market', method: 'GET', path: '/api/export?reveal=1', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 },
+      // 数据视图的入口（WM_BENCH_VIEWS=on 才有这两行；关着时整组路由回 404，由 scripts/bench-views-entry-test.mjs 看）：
+      // 远程匿名读不到台的清单、也登记不了台（登录门开不开都是 401：登录门先拦，或者路由自己认不出人）
+      ...(benchViews ? [
+        { id: 'market.bench-views.anonymous-read', target: m, surface: 'market' as const, method: 'GET', path: '/api/bench-views', headers: REMOTE_ANON, status: 401 },
+        { id: 'market.bench-views.anonymous-write', target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views', body: '{"slug":"wm-self-probe","title":"x"}', headers: REMOTE_ANON, status: 401 },
+      ] : []),
       // 授予管理面：远程匿名列不出授予（GET 不经写请求总门，拒的是路由自己的管理门；登录门开着时登录门先拦 401）
       { id: 'market.grants.admin-read', target: m, surface: 'market', method: 'GET', path: '/api/grants', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 },
       // 台数据：远程匿名不带台令牌读不到任何台的数据（守卫先于查台，台不存在也是 403；登录门开着时登录门先拦 401）。

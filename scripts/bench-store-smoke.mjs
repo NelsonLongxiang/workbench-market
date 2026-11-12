@@ -515,6 +515,7 @@ try {
   ok('R2 给了筛选的值：各组件按它取数；没声明的参数不认', pgr.blocks[1].data.rows[0].v === 7 && pgr.blocks[2].data.rows.length === 1 && pgr.blocks[2].data.rows[0].n === 2 && Object.keys(pgr.params).join() === 'month,st', pgr.params);
   ok('R2 一个组件的查询出错只影响它自己：月份拿去比日期不合格，表格带 error，别的照常', pgr.blocks[3].error?.code === 'invalid' && pgr.blocks[3].data === undefined && pgr.blocks[1].data.rows.length === 1, pgr.blocks[3]);
   e = await refused(() => pg.renderView({ params: { month: 5 } }));
+  ok('R2 取数的结果里单列出这份视图认哪些筛选项（驾驶舱按名字传值用）', pgr.filters.map((f) => `${f.name}:${f.kind}`).join() === 'month:month,st:select,fixed:select' && pgr.filters[0].label === 'month', pgr.filters);
   ok('R2 筛选的值不是文本：拒', e?.code === 'invalid', e);
   e = await refused(() => pg.renderView({ view: 'nope' }));
   ok('R2 没有这个视图', e?.code === 'not_found', e);

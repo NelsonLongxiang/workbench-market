@@ -38,6 +38,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `MARKET_TEAM`（A2A team 默认 `market`；名片的 team、会话句柄 `<MARKET_TEAM>/<node8>` 和工作台事件出站的 caller_session 都用它）
 - `MARKET_PUBLIC_URL`（对外基址·A2A 卡片与 MCP `skill_download` 下载链接用；生产建议设成 https 地址——没设时下载链接取请求主机，主机名不规范就不签发）
 - `A2A_API_KEY`/`A2A_STATE_URL`（A2A 外部面）
+- `WM_BENCH_VIEWS`（数据视图的入口·缺省 `off`：`/api/bench-views` 下的每条路由都直接回 404；`on`=读和写都只开放给有管理层授予（范围「全部」）的登录账号，普通员工读也不行，管理口令看不了台里的数据；其它值拒绝启动；见 [docs/data-views.md](docs/data-views.md)）
 - `WM_OUTBOUND`（对外断开·预发用·缺省 `on`；`off`=这个进程一个字节都不往外发：TCP、TLS、DNS、UDP 在发出前被拦下并计数，不许起子进程和 Worker，工作台事件投递和回执 outbox 整轮跳过（在途的保持 pending、不加 attempts、不判死），启动时的豁免面变更通知不发，库里的巡检间隔、MCP 上游、沙箱桥一律按关处理，check-all 拒绝探活；只放行本进程自己在听的回环端口。启动自检多一行「对外已断开」，`/api/health` 和 `/api/health/ready` 带 `outbound`，页面顶上有横幅。只能经环境变量打开；其它值拒绝启动。拿生产数据的副本做预发时用，见下方「预发：对外断开」）
 - `WM_A2A_DIRECT_SIG`（`POST /a2a/direct` 入站签名·缺省 `accept`=签名可选：带了 OriginClaim Sig2 就验，取卡或验签这一步验不过（没登记取卡地址、取不到卡、卡上身份不对、签名对不上卡）按未签名走绑定准入——不比不带签名更宽也不更严，格式、时间戳、受众、身份不符、重放照旧 401；`require`=没签名或验不过一律 401；`off`=不验；`WM_LOGIN_GATE=enforce` 时强制 `require`；其它值拒绝启动。公钥只从调用方绑定上登记的 `notify_url` 取卡，不跟随重定向）
 - `WM_A2A_DIRECT_SIG_BODY`（缺省 `accept`；`require`=只认同时签了 body 摘要的 `X-WM-Body-Sha256`/`X-WM-Body-Sig`，现有 DSH 节点只发 Sig2，打开前对端要先升级；其它值拒绝启动）
@@ -401,6 +402,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   a2a-replies.ts（市场回给团队的消息的发送状态：答复、来信回复、跟进回执；时间由代码生成后写入）
   a2a-stats.ts（A2A 出站积压的聚合读数：两张出站表按状态计数、最老待发、最近回执时长）
   attention-sources.ts（「关注」要用、来源里还没有现成函数的只读查询：席位未答的提问）
+  bench-registry.ts（视图台的登记：主库里只记有这个台、叫什么、谁建的·登记过的台才有库，没登记的标识一律当作不存在）
   bench-store.ts（台库对市场进程的接口：读写不在市场进程里跑，这里只排队、转发给工作线程、看时限、线程出事时收拾·读 3 秒写 15 秒，时限加宽限过了还不停才强行终止线程并另起·排队有上限·接口全异步·还没有对外入口，不判权限）
   bench-store-core.ts（台库的逻辑本体，在工作线程里跑：每个视图台一份自己的库，在数据目录 `bench-stores/` 下·数据集与列定义的版本·整份替换、追加、按主键更新和删行（逐行校验、幂等键、上限）·快照与退回·视图描述的版本、生效指针、并发保存不覆盖、回退只移指针·变更与写入记录只存摘要·视图取数（一次取齐各组件的数据）和表单提交·三道数据量上限·时间由调用方给、一个台的读写排成一队·到时限自己停下并回滚·运行时不引用 `db.ts`，建表语句由调用方递进来）
   bench-store-worker.ts（台库的工作线程入口：一次做一件事，只认登记过的操作名和消息格式，回话带上这件事提交了的变更）
@@ -464,6 +466,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   summary.ts（首页总览 /api/summary）
   task-center.ts（任务中心 /api/task-center：录入发布、任务、总开关、模板、任务锁、撤回、派发开关；录入发布：事项的建立人是提需求的人——建录入时经身份服务认出、记在录入上的那个，没有就空着；发布的人认得出就只留痕）
   tasks.ts（统一待办 /api/tasks 与 ygl 项目读授权的授予、撤销）
+  bench-views.ts（数据视图的入口 /api/bench-views：台的登记、数据集、四种写入、查询、快照、视图描述与版本、取数、表单·在 `WM_BENCH_VIEWS` 开关后面，缺省关·先拒管理口令再问判定，读写都按「能不能写」问判定，只有管理层（范围「全部」）放行）
   types.ts（类型管理 /api/types）
   a2a-roster.ts（团队名册的读 GET /api/a2a/teams：登录即可读，只有席位信息（团队、席位名、角色、在岗、在办件数从事项现算），不含事项内容；名册只当信息，判定一律不看它）
   work-items.ts（「安排一件事」POST /api/work-items：会话登录的启用的人直接建一件事项，建立人是本人，派给绑在任务中心上的团队（GET /api/work-items/teams 列出），缺省先过目，幂等键按人，限流和员工直派开关在设置里（arrange_rate_per_minute、arrange_rate_per_day、staff_direct_dispatch），规则在 task-center.ts 的 arrangeTask。事项列表 /api/work-items：按 state、object、phase 筛，按更新时间倒序游标翻页，带可见范围里按状态的计数和每件的最后一条进展；可见范围和详情同一个判断，看不到的不出现也不计数。事项的读 /api/work-items/:id：事项和它的日志，事项页的时间线照着渲染；管理员看全部、登录的人只看自己建立的。建立人验收、退回 POST /api/work-items/:id/decision：不经管理门（写请求总门只对这一条子路径放行），经身份服务认人、主体须是启用的人、同源，事项服务判是不是建立人和能不能由建立人答，只收验收、退回，只对等验收的事项；建立人只认事项上的建立人主体，空着的只有管理员能看、能处理）
