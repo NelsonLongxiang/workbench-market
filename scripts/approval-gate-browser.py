@@ -85,5 +85,38 @@ with sync_playwright() as p:
           and x['body'] == {'approve': True} for x in sent), sent)
     check('页面没有报错', not errs, errs)
     check('有资格的人这几下没有走错地址（只发到统一答复入口和条目自己的地址）', all(x['path'] in ('/api/attention/answer', VIA['path']) for x in sent), sent)
-    ctx.close(); b.close()
+    ctx.close()
+    # (c) 有资格的人：开页不自动核准；确认框里取消不写；答复入口拒绝（409 / 500）不显示成办完了
+    for status in (409, 500):
+        sent2 = []
+        ctx = b.new_context(viewport={'width': 1440, 'height': 900})
+        ctx.add_cookies([{'name': 'session_id', 'value': cfg['admin_session'], 'url': M}])
+        items = [change('9201', op='delete'), change('9202')]
+        ctx.route('**/api/attention', lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps({'items': items, 'counts': {'total': len(items), 'by_category': {'review': len(items)}}, 'sources': {}})))
+        def make_refuse(code):
+          def refuse(r, *_):
+            status = code
+            sent2.append({'method': r.request.method, 'path': r.request.url.split(M)[-1], 'body': r.request.post_data_json if r.request.post_data else None})
+            r.fulfill(status=status, content_type='application/json', body=json.dumps({'error': 'conflict', 'message': '合成：这条已经有人定过了'} if status == 409 else {'error': 'internal'}))
+          return refuse
+        ctx.route('**/api/attention/answer', make_refuse(status))
+        pg = ctx.new_page(); pg.set_default_timeout(10000)
+        writes = []
+        pg.on('request', lambda r: writes.append((r.method, r.url.split(M)[-1])) if r.method != 'GET' and '/api/' in r.url else None)
+        for path in ('/', '/attention'): visit(pg, path)
+        if status == 409:
+            check('有资格的管理员打开全景、「等你拍板」：点之前不发任何写请求（开页不自动核准）', not writes, writes)
+        visit(pg, '/')
+        # 删除申请的「通过并删除」要先确认；在确认框里点「再想想」→ 不发请求
+        card('合成台 9201').get_by_role('button', name=re.compile(r'通过并删除')).click(); pg.wait_for_timeout(300)
+        pg.get_by_role('button', name='再想想').click(); pg.wait_for_timeout(500)
+        if status == 409:
+            check('确认框里取消：不发任何请求', not sent2 and not [w for w in writes if '/api/' in w[1]], (sent2, writes))
+        # 答复入口拒绝：卡片还在、按钮还能点、给出错误，不显示成办完了
+        card('合成台 9202').get_by_role('button', name=re.compile(r'通过并回滚')).click(); pg.wait_for_timeout(800)
+        msgs = ' '.join(pg.locator('.ant-message-notice').all_inner_texts())
+        still = card('合成台 9202').count() == 1 and card('合成台 9202').get_by_role('button', name=re.compile(r'通过并回滚')).is_enabled()
+        check(f'答复入口回 {status}：卡片还在、还能再试，给出错误、不说「办好了」', len(sent2) == 1 and still and '办好了' not in msgs and ('合成：这条已经有人定过了' in msgs if status == 409 else len(msgs) > 0), (sent2, msgs))
+        ctx.close()
+    b.close()
 print(f'approval-gate-browser: {ok} passed / {fail} failed'); sys.exit(1 if fail else 0)
