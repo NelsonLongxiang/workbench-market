@@ -5,6 +5,7 @@ import { KeyOutlined } from '@ant-design/icons';
 import { api } from './api';
 import Dashboard from './pages/Dashboard';
 import Market from './pages/Market';
+import MarketHome from './pages/market/Market';
 import Types from './pages/Types';
 import Settings from './pages/Settings';
 import UseWorkbench from './pages/UseWorkbench';
@@ -126,7 +127,8 @@ export default function App() {
         <Route path="/knowledge" element={<NotYet spec={NOT_YET.knowledge} />} />
         <Route path="/cockpit" element={<Cockpit />} />
         <Route path="/cockpit/:id" element={<Cockpit />} />
-        <Route path="/market" element={<Market />} />
+        <Route path="/market" element={<MarketHome />} />
+        <Route path="/market/manage" element={<Market />} />
         <Route path="/sops" element={<Sops />} />
         <Route path="/sops/:slug" element={<SopSpace />} />
         <Route path="/sops/:slug/runs/:id" element={<SopRunDetail />} />

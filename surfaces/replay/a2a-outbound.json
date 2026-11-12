@@ -1,0 +1,177 @@
+{
+  "domain": "a2a-outbound",
+  "what": "A2A 出站的两条管理面：/api/a2a/state 只给管理员读；/api/a2a/send 只给管理员，且只发给对端登记表里 active 的对端。库里预先放三个对端：active、公钥待确认、已停用。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /api/a2a/state", "POST /api/a2a/send"],
+  "exempt": [
+    { "route": "GET /api/a2a/state", "class": "invalid", "why": "不读任何参数，没有会被拒的输入", "shown_by": "open/state" },
+    { "route": "POST /api/a2a/send", "class": "normal", "why": "正常发出要一个真的对端收投递：回放环境里没有。正常发出由 scripts/a2a-peers-test.mjs 起假对端来测（还测了被拒的对端一次都没收到）", "shown_by": "open/send-unregistered" }
+  ],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "登录门关；管理口令由环境给合成值。远程匿名用转发头表示。定了时钟。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "seed": [
+        {
+          "table": "a2a_peers",
+          "row": { "id": "peer_aaaaaaaaaaaa", "root_url": "http://127.0.0.1:9", "zone": "team-a", "name": "a-node", "public_key": "QUFB", "key_fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "card_capabilities": "{\"version\":\"1.0\"}", "card_version": "1.0", "status": "active", "registered_by": "system:migration", "registered_at": "2030-01-01T00:00:00.000Z", "updated_at": "2030-01-01T00:00:00.000Z" }
+        },
+        {
+          "table": "a2a_peers",
+          "row": { "id": "peer_bbbbbbbbbbbb", "root_url": "http://127.0.0.1:10", "zone": "team-b", "name": "b-node", "public_key": "QkJC", "key_fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "pending_public_key": "Q0ND", "pending_fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "status": "key_changed", "registered_by": "admin-token", "registered_at": "2030-01-01T00:00:00.000Z", "updated_at": "2030-01-01T00:00:00.000Z" }
+        },
+        {
+          "table": "a2a_peers",
+          "row": { "id": "peer_cccccccccccc", "root_url": "http://127.0.0.1:11", "zone": "team-c", "name": "c-node", "public_key": "Q0ND", "key_fingerprint": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "status": "disabled", "registered_by": "admin-token", "registered_at": "2030-01-01T00:00:00.000Z", "updated_at": "2030-01-01T00:00:00.000Z", "disabled_by": "admin-token", "disabled_at": "2030-01-01T00:00:00.000Z", "disabled_reason": "合成：停用" }
+        }
+      ],
+      "steps": [
+        {
+          "id": "state-anon",
+          "route": "GET /api/a2a/state",
+          "class": "unauthorized",
+          "what": "远程匿名读：被管理门拒",
+          "request": { "method": "GET", "path": "/api/a2a/state", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "state-local-anon",
+          "route": "GET /api/a2a/state",
+          "class": "unauthorized",
+          "what": "本机不带口令读：也拒（读面只给管理员）",
+          "request": { "method": "GET", "path": "/api/a2a/state" },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "state",
+          "route": "GET /api/a2a/state",
+          "class": "normal",
+          "what": "带口令读：团队、密钥在不在、名片概况、绑定数",
+          "vary": { "card.expiresAt": 60000 },
+          "request": { "method": "GET", "path": "/api/a2a/state", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "165", "etag": "W/\"a5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "team": "market", "key": "present", "card": { "name": "workbench-market", "session": "market", "team": "market", "expiresAt": 1893618000000, "sessionTeams": [] }, "binding": { "n": 0 } }
+          }
+        },
+        {
+          "id": "send-anon",
+          "route": "POST /api/a2a/send",
+          "class": "unauthorized",
+          "what": "远程匿名发：被写总门拒",
+          "request": { "method": "POST", "path": "/api/a2a/send", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "target_url": "http://127.0.0.1:9", "team": "syn/0a0b0c0d", "message": "合成" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "send-local-anon",
+          "route": "POST /api/a2a/send",
+          "class": "unauthorized",
+          "what": "本机不带口令发：路由里的管理门拒（不再像本机 CLI 那样免口令）",
+          "request": { "method": "POST", "path": "/api/a2a/send", "json": { "target_url": "http://127.0.0.1:9", "team": "syn/0a0b0c0d", "message": "合成" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "send-bad-target",
+          "route": "POST /api/a2a/send",
+          "class": "invalid",
+          "what": "不是 http(s) 地址：400",
+          "request": { "method": "POST", "path": "/api/a2a/send", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "target_url": "ftp://x.invalid", "team": "syn/0a0b0c0d", "message": "合成" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "62", "etag": "W/\"3e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "target_url 必须是 http(s):// 对端节点地址" }
+          }
+        },
+        {
+          "id": "send-bad-team",
+          "route": "POST /api/a2a/send",
+          "class": "invalid",
+          "what": "team 形状不对：400",
+          "request": { "method": "POST", "path": "/api/a2a/send", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "target_url": "http://127.0.0.1:9", "team": "nope", "message": "合成" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "74", "etag": "W/\"4a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "team 形如 market/<8hex>（对端卡片里的 sessionTeams）" }
+          }
+        },
+        {
+          "id": "send-no-message",
+          "route": "POST /api/a2a/send",
+          "class": "invalid",
+          "what": "message 空：400",
+          "request": { "method": "POST", "path": "/api/a2a/send", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "target_url": "http://127.0.0.1:9", "team": "syn/0a0b0c0d", "message": "" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "message 必填" }
+          }
+        },
+        {
+          "id": "send-unregistered",
+          "route": "POST /api/a2a/send",
+          "class": "invalid",
+          "what": "目标不在对端登记表：409，不发",
+          "request": { "method": "POST", "path": "/api/a2a/send", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "target_url": "http://127.0.0.1:12", "team": "syn/0a0b0c0d", "message": "合成" } },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "a2a_send_peer_not_registered", "message": "目标不在对端登记表里；先登记（POST /api/a2a/peers）" }
+          }
+        },
+        {
+          "id": "send-key-changed",
+          "route": "POST /api/a2a/send",
+          "class": "invalid",
+          "what": "目标公钥待确认：409，不发",
+          "request": { "method": "POST", "path": "/api/a2a/send", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "target_url": "http://127.0.0.1:10", "team": "syn/0a0b0c0d", "message": "合成" } },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "159", "etag": "W/\"9f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "a2a_send_peer_not_active", "status": "key_changed", "message": "目标对端不是正常状态（待登记、待确认新公钥或已停用），不发" }
+          }
+        },
+        {
+          "id": "send-disabled",
+          "route": "POST /api/a2a/send",
+          "class": "invalid",
+          "what": "目标已停用：409，不发",
+          "request": { "method": "POST", "path": "/api/a2a/send", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "target_url": "http://127.0.0.1:11/a2a/direct", "team": "syn/0a0b0c0d", "message": "合成" } },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "156", "etag": "W/\"9c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "a2a_send_peer_not_active", "status": "disabled", "message": "目标对端不是正常状态（待登记、待确认新公钥或已停用），不发" }
+          }
+        }
+      ]
+    }
+  ]
+}

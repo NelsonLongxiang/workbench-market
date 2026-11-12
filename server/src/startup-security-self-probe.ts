@@ -103,6 +103,8 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       { id: 'market.work-items.seat-reply-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/work-items/wi_selfprobe/messages/1/reply', body: '{"text":"selfprobe"}', origin: true, headers: REMOTE_ANON, status: 401 },
       // 事项列表（GET /api/work-items）：只给管理员和登录的人，远程匿名必须 401（登录门开着时登录门先拦，也是 401）；不放行本机页面
       { id: 'market.work-items.list-anonymous', target: m, surface: 'market', method: 'GET', path: '/api/work-items', headers: REMOTE_ANON, status: 401 },
+      // 「安排一件事」（POST /api/work-items）：不经管理门，远程匿名来必须 401（登录门开着时登录门先拦，也是 401）
+      { id: 'market.work-items.arrange-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/work-items', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
       { id: 'market.export.reveal-anonymous', target: m, surface: 'market', method: 'GET', path: '/api/export?reveal=1', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 },
       // 授予管理面：远程匿名列不出授予（GET 不经写请求总门，拒的是路由自己的管理门；登录门开着时登录门先拦 401）
       { id: 'market.grants.admin-read', target: m, surface: 'market', method: 'GET', path: '/api/grants', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 },

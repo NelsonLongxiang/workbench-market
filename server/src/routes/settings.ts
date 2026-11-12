@@ -32,7 +32,7 @@ export function registerSettingsRoutes(app: HttpService, deps: SettingsDeps): vo
   app.put('/api/settings', { action: 'setting.update', kind: 'admin' }, (req, res) => {
     const b = req.body ?? {};
     if (typeof b !== 'object' || b === null) bad('body 必须是 {key: value} 对象');
-    const allowed = ['health_interval_seconds', 'health_timeout_ms', 'health_concurrency', 'a2a_peers', 'mcp_upstreams', 'dispatch_sorting_enabled', 'run_upload_require_token']; // #19 ②a 分拣开关+#150 上传令牌开关
+    const allowed = ['health_interval_seconds', 'health_timeout_ms', 'health_concurrency', 'a2a_peers', 'mcp_upstreams', 'dispatch_sorting_enabled', 'run_upload_require_token', 'arrange_rate_per_minute', 'arrange_rate_per_day', 'staff_direct_dispatch']; // #19 ②a 分拣开关+#150 上传令牌开关；「安排一件事」的限流和员工直派开关
     const upd = svc<SettingService>('setting').upsertStmt();
     for (const [k, v] of Object.entries(b)) {
       if (!allowed.includes(k)) continue;

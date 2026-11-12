@@ -151,6 +151,21 @@ export async function getMe(): Promise<{ authenticated?: boolean; login?: string
   try { const r = await fetch('/api/auth/me', { cache: 'no-store', credentials: 'same-origin' }); return r.ok ? await r.json() : null; } catch { return null; }
 }
 
+/** 工作台市场（照原型重做的 /market）：工作台、流程、技能、在办的流程四个来源各读各的，返回状态码让页面给说法；
+ *  不走 apiFetch（读不到不弹管理员口令）。带上口令头：管理员用口令时和别处看到的一样。断网当状态码 0 */
+async function marketGet(url: string): Promise<{ status: number; body: unknown }> {
+  try {
+    const token = getAdminToken();
+    const r = await fetch(url, { headers: token ? { 'X-Admin-Token': token } : {} });
+    if (loginRequired(r)) { redirectToLogin(); return { status: 401, body: null }; }
+    return { status: r.status, body: await r.json().catch(() => null) };
+  } catch { return { status: 0, body: null }; }
+}
+export const getMarketWorkbenches = () => marketGet('/api/workbenches');
+export const getMarketSops = () => marketGet('/api/sops');
+export const getMarketSkills = () => marketGet('/api/skills');
+export const getMarketRunningSops = () => marketGet('/api/sop/runs/active');
+
 /** 席位名册（阶段七 #581）：登录的人能读，只当显示用（句柄换名字）。读不到给空，页面照旧显示句柄 */
 export async function getRosterTeams(): Promise<unknown[]> {
   try {

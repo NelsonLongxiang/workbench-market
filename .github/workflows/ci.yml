@@ -303,6 +303,8 @@ jobs:
         run: node scripts/work-item-title-team-test.mjs
       - name: 对端登记表（升级回填建对端行、取不到名片的待登记不挡投递、重跑不变·登记取名片验签钉公钥·公钥变了不自动接受、进「关注」、指纹对得上才换·停用和重新启用·canDeliver 原因分得开·健康从现有表算·对外只给指纹）
         run: node scripts/a2a-peers-test.mjs
+      - name: 「安排一件事」（放宽访问的对抗：只认会话登录的启用的人·建立人是本人、自报的不认·只能派给绑在任务中心上的团队·缺省先过目、员工直派要两个开关都开·幂等按人·限流管理员可调·匿名、口令、跨站、停用拒·启动自检一行）
+        run: node scripts/work-item-arrange-test.mjs
       - name: 「关注」的读（阶段八 8c：提供方随插件卸载撤销·七个来源都出现·每个看的人每个来源的可见性和条数等于旧接口·事项验收只给建立人和管理员、过目只给管理员·事件层未答提问 = 事项 open_asks·跨站拒）
         run: node scripts/attention-test.mjs
       - name: 工作台事件的读面认会话登录的管理员（放宽访问的对抗：管理员认定的路由集合钉成表、只多工作台事件四条·会话管理员能看·非管理员、匿名、不认的会话、错口令照旧 403·停用的主体和早在名单里的读面同一个结果·决定端点只认回复令牌）
@@ -451,7 +453,7 @@ jobs:
       - name: 驾驶舱布局吸附单测（#320：宽度只取 3/4/6/12·x 越界收回·不丢面板·读时迁移不回写）
         run: node scripts/cockpit-layout-unit.mjs
       - name: 待属主看板（作者核验：config.owner 只认属主本人·事项只认登记身份·答复只认属主·冒名点名不采信·只授三个工具）
-        run: node scripts/owner-pending-unit.mjs && node scripts/owner-pending-board-smoke.mjs && node scripts/attention-ui-unit.mjs && node scripts/work-item-detail-ui-unit.mjs && node scripts/work-items-ui-unit.mjs
+        run: node scripts/owner-pending-unit.mjs && node scripts/owner-pending-board-smoke.mjs && node scripts/attention-ui-unit.mjs && node scripts/work-item-detail-ui-unit.mjs && node scripts/market-ui-unit.mjs && node scripts/work-items-ui-unit.mjs
       - name: 凭据库（融合 dsh-vault：读写要口令·业务面 403·摘要无明文·坏 JSON 不进日志·写锁/重开/闲置上锁/限流）
         run: node scripts/vault-concurrency-test.mjs && node scripts/vault-smoke.mjs
       - name: F5 env-face 判定回归（不启动 Docker）
@@ -478,8 +480,12 @@ jobs:
         run: node scripts/api-gate-case-smoke.mjs
       - name: 安全对抗例组（PASS / SKIP / NEEDS-MATERIAL 分列）
         run: node scripts/security-adversarial-smoke.mjs
+      # 上传走的是平台的产物接口：它出故障（比如返回网页而不是 JSON）不代表测试失败。
+      # 作业结论以测试步骤为准；上传失败时证据不丢——原样打进日志、等一会儿补传一次，并在作业摘要里单独标出「证据没传上去」。
       - name: 留存 F5 原始证据与覆盖摘要
+        id: f5_evidence
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: f5-security-evidence
@@ -487,6 +493,44 @@ jobs:
             tmp/security-adversarial-summary.json
             tmp/f5-env-face-*.json
           if-no-files-found: warn
+      - name: 证据没传上去：原样留在日志里，等一分钟后补传
+        if: always() && steps.f5_evidence.outcome == 'failure'
+        run: |
+          echo "::warning title=证据没传上去::F5 原始证据上传失败（平台的产物接口出错，不影响测试结论）。证据原文在本步日志里；下一步补传一次。"
+          {
+            echo "### ⚠ F5 原始证据没传上去"
+            echo "上传失败不影响测试结论（以测试步骤为准）。证据原文在「证据没传上去」这一步的日志里；补传的结果见下一步。"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for f in tmp/security-adversarial-summary.json tmp/f5-env-face-*.json; do
+            [ -f "$f" ] || continue
+            echo "::group::$f（$(wc -c < "$f") 字节，sha256 $(sha256sum "$f" | cut -d' ' -f1)）"
+            cat "$f"; echo
+            echo "::endgroup::"
+          done
+          sleep 60
+      - name: 补传 F5 原始证据
+        id: f5_evidence_retry
+        if: always() && steps.f5_evidence.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: f5-security-evidence
+          overwrite: true # 第一次可能传了一半、名字已被占
+          path: |
+            tmp/security-adversarial-summary.json
+            tmp/f5-env-face-*.json
+          if-no-files-found: warn
+      - name: 补传的结果
+        if: always() && steps.f5_evidence.outcome == 'failure'
+        env:
+          RETRY: ${{ steps.f5_evidence_retry.outcome }}
+        run: |
+          if [ "$RETRY" = "success" ]; then
+            echo "补传成功：产物 f5-security-evidence。" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=证据补传也失败::产物没有传上去；证据原文在「证据没传上去」那一步的日志里，可以从那里取回。"
+            echo "补传也失败：证据原文在「证据没传上去」那一步的日志里（带字节数和 sha256，可以核对）。" >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: server 冷启动探针（防重启即死）
         run: |
           PORT=19999 DATA_DIR=${{ runner.temp }}/ci-data ADMIN_TOKEN=ci timeout 20 node --disable-warning=ExperimentalWarning server/src/index.ts &

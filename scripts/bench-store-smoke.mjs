@@ -6,19 +6,22 @@
  *  库比代码新时拒绝打开；备份副本。 */
 import { mkdirSync, mkdtempSync, rmSync, existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
+import { Worker } from 'node:worker_threads';
 import { DatabaseSync } from 'node:sqlite';
 
 mkdirSync('tmp', { recursive: true });
 const DATA = mkdtempSync(resolve('tmp/bench-store-smoke-'));
 process.env.DATA_DIR = DATA;
-const { benchStore, benchStoreExists, closeBenchStores, removeBenchStore, onBenchChange } = await import('../server/src/services/bench-store.ts');
+const { benchStore, benchStoreExists, closeBenchStores, removeBenchStore, onBenchChange, configureBenchRuntime, benchRuntimeStats, stopBenchWorkerAbruptly } = await import('../server/src/services/bench-store.ts');
 const { BENCH_LIMITS, planQuery } = await import('../server/src/bench-query.ts');
+const { BenchHost } = await import('../server/src/services/bench-store-core.ts');
+const { benchSqlKit } = await import('../server/src/db.ts');
 const { validateViewDoc, diffJson } = await import('../server/src/bench-views.ts');
 
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${typeof x === 'string' ? x : JSON.stringify(x)}`); } };
 /** 期待被拒：返回错误（code、message、details），没被拒返回 null */
-const refused = async (fn) => { try { await fn(); return null; } catch (e) { return { code: e.code, message: String(e.message), details: e.details ?? [] }; } };
+const refused = async (fn) => { try { await fn(); return null; } catch (e) { return { code: e.code, message: String(e.message), details: e.details ?? [], ...(e.cause ? { cause: String(e.cause.message ?? e.cause) } : {}) }; } };
 let clock = 1_800_000_000_000;
 const ctx = (extra = {}) => ({ actor: 'tester', at: ++clock, ...extra });
 
@@ -128,11 +131,17 @@ try {
   ok('S6 替换前的数据找得回来', (await s.query({ dataset: 'keep', sort: [{ col: 'id' }] })).rows.map((x) => `${x.id}${x.v}`).join() === '1good,2good');
   e = await refused(() => s.deleteRows('keep', [{ v: 'good' }], ctx()));
   ok('S7 删行的键个数对、名字不对也被拒', e?.code === 'invalid', e);
-  // 快照序列化不下来（数据集大到一定程度会这样）：说清是超限，后面的破坏性操作不执行
+  // 快照序列化不下来（数据集大到一定程度会这样）：说清是超限，后面的破坏性操作不执行。
+  // 要在同一个线程里把 JSON.stringify 换掉才造得出来，所以这一项不经工作线程，直接用逻辑本体
+  const inproc = new BenchHost(join(DATA, 'inproc'), benchSqlKit('sqlite'));
+  const core = await inproc.store('keep');
+  await core.defineDataset({ name: 'keep', columns: [{ name: 'id', type: 'integer' }, { name: 'v', type: 'text' }], key: ['id'] }, ctx());
+  await core.replace('keep', [{ id: 1, v: 'good' }, { id: 2, v: 'good' }], ctx());
   const realStringify = JSON.stringify;
   JSON.stringify = (v, ...a) => { if (v && typeof v === 'object' && Array.isArray(v.rows) && Array.isArray(v.columns)) throw new RangeError('Invalid string length'); return realStringify(v, ...a); };
-  try { e = await refused(() => s.replace('keep', [{ id: 5, v: 'x' }], ctx())); } finally { JSON.stringify = realStringify; }
-  ok('S8 快照留不下来：报超限，替换没有执行', e?.code === 'limit' && (await s.query({ dataset: 'keep' })).rows.length === 2, e);
+  try { e = await refused(() => core.replace('keep', [{ id: 5, v: 'x' }], ctx())); } finally { JSON.stringify = realStringify; }
+  ok('S8 快照留不下来：报超限，替换没有执行', e?.code === 'limit' && (await core.query({ dataset: 'keep' })).rows.length === 2, e);
+  await inproc.closeAll();
 
   // —— 改列定义 ——
   console.log('改列定义');
@@ -336,6 +345,251 @@ try {
   await Promise.all([removeBenchStore('twice'), removeBenchStore('twice')]);
   ok('I12 同一个台同时删两次：都完成，文件没了', !existsSync(join(DATA, 'bench-stores', 'twice.sqlite')));
   ok('I12 之后能重新建，是空的', (await (await benchStore('twice')).datasets()).length === 0);
+
+  // —— T：读写在工作线程里跑，带时限（设计稿第十一节第 1 条）——
+  console.log('T 工作线程与时限');
+  const big = await benchStore('big');
+  await big.defineDataset({ name: 'wide', columns: [{ name: 'id', type: 'integer' }, { name: 'body', type: 'text' }, { name: 'grp', type: 'integer' }], key: ['id'] }, ctx());
+  const mk = (n, off = 0) => Array.from({ length: n }, (_, i) => ({ id: off + i, body: 'x'.repeat(1990) + String(off + i).padStart(10, '0'), grp: (off + i) % 7 }));
+  const N = 15000; // 每行约 2000 字节，合计约 30 MB：在单个数据集的上限（32 MB）以内
+  for (let o = 0; o < N; o += 5000) await big.append('wide', mk(5000, o), ctx());
+  const slow = { dataset: 'wide', measures: [{ as: 'n', fn: 'count_distinct', col: 'body' }] };
+  const count = async () => (await big.query({ dataset: 'wide', measures: [{ as: 'n', fn: 'count' }] })).rows[0].n;
+  // 这段时间里本进程的事件循环还转不转：每毫秒打一次点，数打了几次（turns），记相邻两次的最大间隔（gap，只打印）。
+  // 断言只用 turns，不比用时：机器忙的时候用时会飘，但「一次都没轮到」和「轮到过很多次」分得清
+  const watch = async (fn) => {
+    let gap = 0, turns = 0, last = performance.now();
+    const iv = setInterval(() => { const n = performance.now(); gap = Math.max(gap, n - last); last = n; turns++; }, 1);
+    const t0 = performance.now();
+    try { return { value: await fn(), took: performance.now() - t0, gap, turns }; } finally { clearInterval(iv); }
+  };
+  const base = configureBenchRuntime({});
+  ok('T0 缺省的时限：读 3 秒、写 15 秒、宽限 2 秒（别的用例用的都是临时改小的，这一条钉住缺省值）', base.queryMs === 3000 && base.writeMs === 15000 && base.graceMs === 2000 && BENCH_LIMITS.queryMs === 3000 && BENCH_LIMITS.writeMs === 15000 && BENCH_LIMITS.killGraceMs === 2000, base);
+  let m = await watch(() => big.query(slow));
+  console.log(`    慢查询 ${m.took.toFixed(0)} 毫秒，期间本进程最长停顿 ${m.gap.toFixed(0)} 毫秒`);
+  ok(`T1 慢查询期间市场进程照常转：事件循环轮到了 ${m.turns} 次（要是在本进程里跑，一次也轮不到）`, m.value.rows[0].n === N && m.turns >= 3, { took: m.took, gap: m.gap, turns: m.turns });
+
+  configureBenchRuntime({ queryMs: 20 });
+  let st = benchRuntimeStats();
+  m = await watch(() => refused(() => big.query(slow)));
+  configureBenchRuntime(base);
+  ok('T2 查询超时：报 timeout，写明没有生效', m.value?.code === 'timeout' && /没有生效/.test(m.value.message), m.value);
+  ok('T2 停在扫描的中途，不是跑完才报；没有动用强行终止', /扫描/.test(m.value?.details?.[0] ?? '') && benchRuntimeStats().kills === st.kills, m.value);
+  e = await refused(async () => { q = await big.query(slow); });
+  ok('T2 超时之后这个台照常可用，被打断的那条查询再发一次也正常', await count() === N && e === null && q.rows[0].n === N, e);
+
+  const w0 = (await big.writes(500)).length, s0 = (await big.snapshots('wide')).length;
+  configureBenchRuntime({ writeMs: 30 });
+  e = await refused(() => big.replace('wide', mk(N), ctx({ idemKey: 'timeout-then-retry-1' })));
+  configureBenchRuntime(base);
+  ok('T3 写入超时：报 timeout', e?.code === 'timeout' && /没有生效/.test(e.message), e);
+  ok('T3 整批回滚：行数、快照、写入记录都没变', await count() === N && (await big.snapshots('wide')).length === s0 && (await big.writes(500)).length === w0);
+  m = await watch(() => big.replace('wide', mk(N), ctx({ idemKey: 'timeout-then-retry-1' })));
+  const replaceMs = m.took;
+  console.log(`    整份替换 ${N} 行 ${m.took.toFixed(0)} 毫秒，期间本进程最长停顿 ${m.gap.toFixed(0)} 毫秒`);
+  ok('T3 带同一个幂等键重试：这次真的写了，不算重复', m.value.duplicate !== true && m.value.row_count === N && Number.isInteger(m.value.snapshot_id), m.value);
+
+  // 时限从轮到它开始算，排队的时间不算：前面排两次整份替换，后面跟一条全表计数（本身很快，但中途会看时限）。
+  // 读的时限定在一次替换用时的一半：排队等的时间是它的四倍上下——要是从发起算，这条查询一开始就超时了
+  const readBudget = Math.max(100, Math.ceil(replaceMs / 2));
+  configureBenchRuntime({ queryMs: readBudget });
+  const tq = performance.now();
+  const ahead = [1, 2].map(() => big.replace('wide', mk(N), ctx()).then(() => null, (x) => x?.code ?? String(x)));
+  const quick = refused(() => count());
+  configureBenchRuntime(base);
+  e = await quick;
+  const waited = performance.now() - tq;
+  ok(`T4 排队的时间不算进时限：排了 ${waited.toFixed(0)} 毫秒才轮到（时限 ${readBudget} 毫秒），照常做完`, e === null && waited > readBudget && (await Promise.all(ahead)).every((x) => x === null), { e, waited, readBudget });
+
+  // 停不下来的操作（整库备份是一条语句，中途回不到服务里）：时限加宽限过了，强行终止线程
+  const bk = join(DATA, 'big-backup.sqlite');
+  configureBenchRuntime({ writeMs: 1, graceMs: 1 });
+  st = benchRuntimeStats();
+  const killed = refused(() => big.backupTo(bk));
+  const behind = big.datasets().then((d) => d.length, (x) => x?.code ?? String(x));
+  e = await killed;
+  configureBenchRuntime(base);
+  ok('T5 停不下来的操作被强行终止：报 timeout，写明写入是否生效不确定', e?.code === 'timeout' && /不确定/.test(e.message) && benchRuntimeStats().kills === st.kills + 1, e);
+  ok('T5 排在后面的读写在新起的线程上照常完成', (await behind) === 1 && benchRuntimeStats().spawns === st.spawns + 1, { behind: await behind, ...benchRuntimeStats() });
+  ok('T5 备份的目标文件没有留下半截的', !existsSync(bk));
+  ok('T5 之后这个台照常读写', await count() === N && (await big.upsert('wide', [{ id: 0, body: 'changed', grp: 1 }], ctx())).updated === 1);
+  e = await refused(() => big.backupTo(bk));
+  ok('T5 再备份一次成功，临时文件不留', e === null && existsSync(bk) && !existsSync(`${bk}.partial`), e);
+  // 被强行终止的线程手里握着写锁（留快照要先读完全表，中途停不下来）：等它真的退出才起新线程，排在后面的写入不会撞上锁
+  configureBenchRuntime({ writeMs: 1, graceMs: 1 });
+  st = benchRuntimeStats();
+  const killedInTx = refused(() => big.snapshot('wide', ctx())); // 这一刻已经发给线程，时限按上面的算
+  configureBenchRuntime(base); // 排在后面的那次写入用正常的时限
+  const writeBehind = refused(() => big.upsert('wide', [{ id: 1, body: 'after-kill', grp: 2 }], ctx()));
+  e = await killedInTx;
+  const wb = await writeBehind;
+  ok('T5 事务做到一半被强行终止：排在后面的写入在新线程上成功，没有撞上旧线程的锁', e?.code === 'timeout' && benchRuntimeStats().kills === st.kills + 1 && wb === null, { e, wb });
+  ok('T5 被终止的那次留快照没有生效', (await big.snapshots('wide')).length === s0 + 1 && await count() === N);
+
+  e = await refused(() => big.query({ dataset: 'wide', select: ['body'], limit: 5000 }));
+  ok('T6 一次取回的内容太大：报超限', e?.code === 'limit' && /字符/.test(e.message), e);
+  q = await big.query({ dataset: 'wide', select: ['id', 'grp'], limit: 5000 });
+  ok('T6 少取几列就可以', q.rows.length === 5000 && q.truncated === true);
+  e = await refused(() => big.query({ dataset: 'wide', select: ['body'], limit: 100 }));
+  ok('T6 因为太大被打断的那条查询，行数调小再发正常', e === null, e);
+
+  e = await refused(() => big.append('wide', [{ id: N + 1, body: () => 1, grp: 1 }], ctx()));
+  ok('T7 参数里有过不了线程的值：当场拒绝，后面的照常', e?.code === 'invalid' && await count() === N, e);
+
+  // 线程自己意外退出（这里用测试口子让它退）：手上那件事马上失败，不用等到时限；下一件事另起线程
+  st = benchRuntimeStats();
+  const inflight = watch(() => refused(() => big.query(slow)));
+  await new Promise((r) => setTimeout(r, 10));
+  stopBenchWorkerAbruptly();
+  m = await inflight;
+  ok('T9 线程意外退出：手上那件事报内部错误，写明写入是否生效不确定', m.value?.code === 'internal' && /意外退出/.test(m.value.message) && benchRuntimeStats().crashes === st.crashes + 1, m.value);
+  ok(`T9 线程一退出就知道（${m.took.toFixed(0)} 毫秒），不是等到时限加宽限（5 秒）`, m.took < 4000, { took: m.took });
+  ok('T9 下一次读写另起线程，照常', await count() === N && benchRuntimeStats().spawns === st.spawns + 1);
+
+  // 提交之前看时限：时限短到任何写入都来不及，而这次写入中途没有别的检查点——只有提交前这一道拦得住
+  const bigDoc = { title: '大台', views: [{ key: 'main', title: '总览', blocks: [{ type: 'table', query: { dataset: 'wide', select: ['id', 'grp'], limit: 50 }, columns: ['id', 'grp'] }] }] };
+  configureBenchRuntime({ writeMs: 0.01 });
+  e = await refused(() => big.putView(bigDoc, ctx({ base: 0, note: '应当超时' })));
+  configureBenchRuntime(base);
+  ok('T10 提交之前看时限：过了就不提交，报 timeout', e?.code === 'timeout' && /提交之前/.test(e.details[0] ?? '') && (await big.viewVersions()).length === 0 && (await big.getView()) === null, e);
+  e = await refused(async () => { r = await big.putView(bigDoc, ctx({ base: 0, note: '正常时限' })); });
+  ok('T10 同一份内容，时限正常时保存成功', e === null && r.version === 1 && r.active_version === 1, e ?? r);
+
+  // 写入在行与行之间看时限：超时的大写入一行都还没写就停下，不是把全部行都插完、到提交之前才发现
+  await big.defineDataset({ name: 'fresh', columns: [{ name: 'id', type: 'integer' }, { name: 'body', type: 'text' }, { name: 'grp', type: 'integer' }], key: ['id'] }, ctx());
+  configureBenchRuntime({ writeMs: 0.01 });
+  e = await refused(() => big.replace('fresh', mk(N), ctx()));
+  configureBenchRuntime(base);
+  ok('T11 超时的大写入：报 timeout，一行没写', e?.code === 'timeout' && (await big.query({ dataset: 'fresh', measures: [{ as: 'n', fn: 'count' }] })).rows[0].n === 0, e);
+  ok('T11 停在写第 1 行之前，不是全写完才发现', /写第 1 行之前/.test(e?.details?.[0] ?? ''), e);
+
+  // 线程只认登记过的操作名和消息格式（直接起一个线程发消息，不经市场进程这一侧）
+  const tw = new Worker(new URL('../server/src/services/bench-store-worker.ts', import.meta.url), { workerData: { root: join(DATA, 'direct'), kit: benchSqlKit('sqlite') } });
+  const ask = (msg) => new Promise((res) => { const t = setTimeout(() => res('没有回话'), 1500); tw.once('message', (r) => { clearTimeout(t); res(r); }); tw.postMessage(msg); });
+  let died = false; tw.on('error', () => { died = true; }); tw.on('exit', () => { died = true; });
+  const badOps = [];
+  for (const method of ['constructor', '__proto__', 'init', 'close', 'withBudget', 'toString', '@nope']) badOps.push(await ask({ id: 1, slug: 'direct', method, args: [], budgetMs: 0 }));
+  ok('T12 线程只做登记过的操作：别的名字一律拒', badOps.every((r) => r.ok === false && r.error.code === 'invalid'), badOps);
+  tw.postMessage(null); tw.postMessage('x'); tw.postMessage({ method: 'datasets' });
+  const malformed = await ask({ id: 2, slug: 'direct', method: 'datasets', args: 'not-an-array', budgetMs: 0 });
+  const fine = await ask({ id: 3, slug: 'direct', method: 'datasets', args: [], budgetMs: 0 });
+  ok('T12 格式不对的消息不理或拒绝，线程不垮，后面的照常', malformed.ok === false && malformed.error.code === 'invalid' && fine.ok === true && Array.isArray(fine.value) && !died, { malformed, fine, died });
+  await ask({ id: 4, slug: '', method: '@closeAll', args: [], budgetMs: 0 });
+  await tw.terminate();
+
+  // —— L：数据量上限（设计稿第十一节第 2 条）。用小的上限、不经工作线程，直接验逻辑本体 ——
+  console.log('L 数据量上限');
+  const capHost = new BenchHost(join(DATA, 'caps'), benchSqlKit('sqlite'), { datasetBytes: 10_000, storeBytes: 16_000, writeBytes: 4_000 });
+  const cs = await capHost.store('c');
+  const capCols = [{ name: 'id', type: 'integer' }, { name: 'v', type: 'text' }, { name: 'n', type: 'decimal' }];
+  await cs.defineDataset({ name: 'a', columns: capCols, key: ['id'] }, ctx());
+  await cs.defineDataset({ name: 'b', columns: capCols, key: ['id'] }, ctx());
+  const rowsOfSize = (count, chars, off = 0) => Array.from({ length: count }, (_, i) => ({ id: off + i, v: 'x'.repeat(chars), n: 1.5 }));
+  const bytesOf = async (name) => (await cs.datasets()).find((d) => d.name === name).data_bytes;
+  r = await cs.append('a', [{ id: 1, v: '中文', n: null }], ctx());
+  ok('L1 字节按 UTF-8 算：整数 8、中文两个字 6、空 1', r.data_bytes === 15 && await bytesOf('a') === 15, r);
+  r = await cs.upsert('a', [{ id: 1, v: 'ab' }], ctx());
+  ok('L1 按主键更新之后是重新量的，不是往上累加', r.data_bytes === 11, r);
+  await cs.append('a', [{ id: 2, v: 'abcd', n: 2 }], ctx());
+  r = await cs.deleteRows('a', [{ id: 2 }], ctx());
+  ok('L1 删行之后变小', r.data_bytes === 11 && await bytesOf('a') === 11, r);
+  e = await refused(() => cs.append('a', rowsOfSize(5, 1000, 100), ctx()));
+  ok('L2 一次写入超过单次上限：整批拒收', e?.code === 'limit' && /一次写入的上限/.test(e.message) && await bytesOf('a') === 11, e);
+  e = await refused(() => cs.append('a', [{ id: 50, v: '中'.repeat(1500), n: 1 }], ctx()));
+  ok('L2 单次上限按字节算：1500 个中文字是 4500 字节，超了', e?.code === 'limit' && /一次写入的上限/.test(e.message), e);
+  await cs.append('a', rowsOfSize(3, 1000, 100), ctx());
+  await cs.append('a', rowsOfSize(3, 1000, 200), ctx());
+  await cs.append('a', rowsOfSize(3, 1000, 300), ctx());
+  e = await refused(() => cs.append('a', rowsOfSize(1, 1000, 400), ctx()));
+  ok('L3 数据集超过上限：整批拒收，说清是哪一项', e?.code === 'limit' && /单个数据集的上限/.test(e.message) && (await cs.query({ dataset: 'a', measures: [{ as: 'n', fn: 'count' }] })).rows[0].n === 10, e);
+  await cs.replace('b', rowsOfSize(6, 1000), ctx());
+  e = await refused(() => cs.replace('b', rowsOfSize(8, 1000), ctx()));
+  ok('L4 这个台合计超过上限：整批拒收，原来的数据还在', e?.code === 'limit' && /单台的上限/.test(e.message) && (await cs.query({ dataset: 'b', measures: [{ as: 'n', fn: 'count' }] })).rows[0].n === 6, e);
+  e = await refused(() => cs.replace('b', rowsOfSize(11, 1000), ctx()));
+  ok('L4 整份替换可以到数据集的上限，超了照样拒', e?.code === 'limit', e);
+  // 已经超了的（上限后来调小）：还能删、能换成更小的，不会卡死
+  await cs.replace('b', rowsOfSize(2, 1000), ctx());
+  await capHost.closeAll();
+  const tight = new BenchHost(join(DATA, 'caps'), benchSqlKit('sqlite'), { datasetBytes: 3_000, storeBytes: 5_000, writeBytes: 4_000 });
+  const ts = await tight.store('c');
+  e = await refused(() => ts.deleteRows('a', [{ id: 100 }], ctx()));
+  ok('L5 上限调小之后已经超了的数据集：删行不被拦', e === null, e);
+  e = await refused(() => ts.append('a', [{ id: 999, v: 'y', n: 1 }], ctx()));
+  ok('L5 但再往大里写被拦', e?.code === 'limit', e);
+  e = await refused(() => ts.replace('a', rowsOfSize(2, 1000), ctx()));
+  ok('L5 换成更小的一份不被拦', e === null, e);
+  await tight.closeAll();
+  // 结构对不上的库文件（定稿之前旧代码建的）：明确拒绝，不静默照用
+  mkdirSync(join(DATA, 'oldshape'), { recursive: true });
+  const oldDb = new DatabaseSync(join(DATA, 'oldshape', 'o.sqlite'));
+  oldDb.exec("CREATE TABLE bs_meta (k TEXT PRIMARY KEY, v TEXT NOT NULL); INSERT INTO bs_meta VALUES ('schema_version', '1'); CREATE TABLE bs_datasets (name TEXT PRIMARY KEY, title TEXT NOT NULL, version INTEGER NOT NULL, columns TEXT NOT NULL, key_cols TEXT NOT NULL, row_count INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, updated_by TEXT NOT NULL)");
+  oldDb.close();
+  const oldHost = new BenchHost(join(DATA, 'oldshape'), benchSqlKit('sqlite'));
+  e = await refused(() => oldHost.store('o'));
+  ok('L5 结构对不上的旧库文件：写明结构不符、不打开，不是「内部错误」', e?.code === 'unsupported' && /结构.*不符/.test(e.message), e);
+  await oldHost.closeAll();
+
+  // 原始字节：和给数组是同一回事
+  const rawHost = new BenchHost(join(DATA, 'raw'), benchSqlKit('sqlite'), { writeBytes: 2_000 });
+  const rs = await rawHost.store('r');
+  await rs.defineDataset({ name: 'a', columns: capCols, key: ['id'] }, ctx());
+  const rawRows = [{ id: 1, v: '字节', n: 2.5 }, { id: 2, v: 'b', n: null }];
+  r = await rs.append('a', Buffer.from(JSON.stringify(rawRows)), ctx({ idemKey: 'raw-and-parsed-1' }));
+  ok('L6 写入给原始字节：照常写进去', r.inserted === 2 && (await rs.query({ dataset: 'a', sort: [{ col: 'id' }] })).rows[0].v === '字节', r);
+  r = await rs.append('a', rawRows, ctx({ idemKey: 'raw-and-parsed-1' }));
+  ok('L6 同一份内容给数组、带同一个幂等键：认得是同一次', r.duplicate === true, r);
+  e = await refused(() => rs.append('a', Buffer.from('[{"id": 3, "v": "x"'), ctx()));
+  ok('L6 不是合法的 JSON：拒', e?.code === 'invalid' && /JSON/.test(e.message), e);
+  e = await refused(() => rs.append('a', Buffer.from([0x5b, 0x22, 0xff, 0xfe, 0x22, 0x5d]), ctx()));
+  ok('L6 不是合法的 UTF-8：拒', e?.code === 'invalid' && /UTF-8/.test(e.message), e);
+  e = await refused(() => rs.append('a', Buffer.from(' '.repeat(2_001) + '[]'), ctx()));
+  ok('L6 字节数超过单次上限：没解析就拒', e?.code === 'limit', e);
+  e = await refused(() => rs.deleteRows('a', Buffer.from(JSON.stringify([{ id: 2 }])), ctx()));
+  ok('L6 删行的主键也可以给原始字节', e === null && (await rs.query({ dataset: 'a' })).rows.length === 1, e);
+
+  // 整份替换留下的上一代不被后面的删行挤掉
+  await rs.defineDataset({ name: 'gen', columns: [{ name: 'id', type: 'integer' }, { name: 'v', type: 'text' }], key: ['id'] }, ctx());
+  await rs.replace('gen', [{ id: 1, v: 'good' }, { id: 2, v: 'good' }], ctx());
+  const prevGen = (await rs.replace('gen', Array.from({ length: 12 }, (_, i) => ({ id: i, v: 'bad' })), ctx())).snapshot_id;
+  for (let i = 0; i < BENCH_LIMITS.snapshots + 3; i++) await rs.deleteRows('gen', [{ id: i }], ctx());
+  const gens = await rs.snapshots('gen');
+  ok('L7 替换之后真删了很多次：替换前那一份还在，总数没超', gens.some((x) => x.id === prevGen) && gens.length === BENCH_LIMITS.snapshots, gens.map((x) => `${x.id}:${x.reason}`));
+  await rs.restore(prevGen, ctx());
+  ok('L7 退得回替换前的数据', (await rs.query({ dataset: 'gen', sort: [{ col: 'id' }] })).rows.map((x) => `${x.id}${x.v}`).join() === '1good,2good');
+  await rs.replace('gen', [{ id: 7, v: 'third' }], ctx());
+  ok('L7 再整份替换一次：受保护的换成新的上一代，原来那份回到普通的淘汰里', (await rs.snapshots('gen')).filter((x) => x.reason === 'replace').length >= 1 && (await rs.snapshots('gen')).length <= BENCH_LIMITS.snapshots);
+  // 沿用的快照改记成替换留下的
+  await rs.defineDataset({ name: 'gen2', columns: [{ name: 'id', type: 'integer' }, { name: 'v', type: 'text' }], key: ['id'] }, ctx());
+  await rs.replace('gen2', [{ id: 1, v: 'good' }], ctx());
+  const manual = (await rs.snapshot('gen2', ctx())).id;
+  r = await rs.replace('gen2', Array.from({ length: 12 }, (_, i) => ({ id: i, v: 'bad' })), ctx());
+  for (let i = 0; i < BENCH_LIMITS.snapshots + 3; i++) await rs.deleteRows('gen2', [{ id: i }], ctx());
+  ok('L7 替换时沿用了手工留的那份快照：它同样受保护', r.snapshot_id === manual && (await rs.snapshots('gen2')).some((x) => x.id === manual && x.reason === 'replace'), await rs.snapshots('gen2'));
+
+  // 列定义的历史版本有上限
+  for (let i = 0; i < BENCH_LIMITS.datasetVersions + 5; i++) await rs.defineDataset({ name: 'gen2', title: `第 ${i} 次`, columns: [{ name: 'id', type: 'integer' }, { name: 'v', type: 'text' }], key: ['id'] }, ctx());
+  const defVers = await rs.datasetVersions('gen2');
+  ok('L8 列定义的历史只留最近若干版', defVers.length === BENCH_LIMITS.datasetVersions && defVers[0].title === `第 ${BENCH_LIMITS.datasetVersions + 4} 次`, defVers.length);
+  // 加列、删列之后字节数跟着变
+  await rs.replace('gen', [{ id: 1, v: 'abc' }], ctx());
+  r = await rs.defineDataset({ name: 'gen', columns: [{ name: 'id', type: 'integer' }, { name: 'v', type: 'text' }, { name: 'extra', type: 'text' }], key: ['id'] }, ctx());
+  const withExtra = (await rs.datasets()).find((d) => d.name === 'gen').data_bytes;
+  await rs.defineDataset({ name: 'gen', columns: [{ name: 'id', type: 'integer' }, { name: 'extra', type: 'text' }], key: ['id'] }, ctx());
+  ok('L9 加列、删列之后数据量重量过', withExtra === 12 && (await rs.datasets()).find((d) => d.name === 'gen').data_bytes === 9, withExtra);
+  await rawHost.closeAll();
+
+  // 经工作线程、用默认的上限：原始字节过线程、单次写入的上限
+  e = await refused(() => big.append('fresh', Buffer.from(JSON.stringify([{ id: 1, body: '过线程的字节', grp: 1 }])), ctx()));
+  ok('L10 原始字节经工作线程写入', e === null && (await big.query({ dataset: 'fresh', filter: [{ col: 'id', op: '=', value: 1 }] })).rows[0]?.body === '过线程的字节', e);
+  e = await refused(() => big.append('fresh', mk(5000, 100).map((x) => ({ ...x, body: x.body + x.body })), ctx()));
+  ok('L10 默认上限：一次追加 20 MB 被拒（单次 16 MB）', e?.code === 'limit' && /一次写入的上限/.test(e.message), e);
+  e = await refused(() => big.append('wide', mk(1500, N), ctx()));
+  ok('L10 默认上限：数据集写到 33 MB 被拒（单个数据集 32 MB）', e?.code === 'limit' && /单个数据集的上限/.test(e.message) && await count() === N, e);
+
+  const flood = await Promise.all(Array.from({ length: BENCH_LIMITS.queue + 50 }, () => refused(() => big.viewVersions())));
+  const busy = flood.filter((x) => x?.code === 'busy').length;
+  ok('T8 排队的读写有上限：超出的报 busy，排上的都做完', busy === 49 && flood.filter((x) => x === null).length === BENCH_LIMITS.queue + 1, { busy });
+  ok('T8 之后照常可用', await count() === N && benchRuntimeStats().queued === 0);
 } finally {
   onBenchChange(null);
   await closeBenchStores();

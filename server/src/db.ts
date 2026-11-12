@@ -1101,6 +1101,20 @@ CREATE TABLE IF NOT EXISTS a2a_peers (
 CREATE INDEX IF NOT EXISTS idx_a2a_peers_status ON a2a_peers (status);
 CREATE INDEX IF NOT EXISTS idx_a2a_peers_registered_by ON a2a_peers (registered_by);
 `);
+// 「安排一件事」（POST /api/work-items）的请求记账：一个人（requester）的一个幂等键一行。同一个人同一个键再发，回第一次的结果；
+//   键相同、请求体不同（body_sha256 对不上）拒。限流也按这张表数（每人最近一分钟、一天各几行）。时间、id 都由代码生成后传进来。
+db.exec(`
+CREATE TABLE IF NOT EXISTS work_item_requests (
+  requester TEXT NOT NULL CHECK (requester <> ''),
+  idem_key TEXT NOT NULL CHECK (idem_key <> ''),
+  body_sha256 TEXT NOT NULL,
+  task_id INTEGER NOT NULL,
+  event_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (requester, idem_key)
+);
+CREATE INDEX IF NOT EXISTS idx_work_item_requests_time ON work_item_requests(requester, created_at);
+`);
 // 阶段八 8d：「关注」的答复记账。每个（来源、来源里的 id）一行：第一次答成功就记下应答，同一条再答返回这一份；
 //   pending 表示正有人在答（并发的第二个人被告知正在处理）；答失败就删掉这一行，可以再答。原件的状态和留痕在来源自己那里。
 db.exec(`
@@ -1294,24 +1308,21 @@ export type BenchColumnType = 'text' | 'integer' | 'decimal' | 'date' | 'datetim
 
 const benchAutoId = (d: BenchDialect) => (d === 'sqlite' ? 'INTEGER PRIMARY KEY AUTOINCREMENT' : 'BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY');
 /** 数据集的列在库里用什么类型存：日期和时间存成规范化的文本（可排序、两种库一样），布尔存 0/1 */
-export function benchSqlType(d: BenchDialect, t: BenchColumnType): string {
+function benchSqlType(d: BenchDialect, t: BenchColumnType): string {
   if (t === 'integer') return d === 'sqlite' ? 'INTEGER' : 'BIGINT';
   if (t === 'decimal') return d === 'sqlite' ? 'REAL' : 'DOUBLE PRECISION';
   if (t === 'boolean') return d === 'sqlite' ? 'INTEGER' : 'SMALLINT';
   return 'TEXT';
 }
 
-/** 「这一列的文本里包含某段文本」（区分大小写）：两种库的函数名不同。列名由调用方先核对，值走参数 */
-export const benchContainsExpr = (d: BenchDialect, col: string) => (d === 'sqlite' ? `instr(${col}, ?) > 0` : `strpos(${col}, ?) > 0`);
-
-/** 台库里固定的几张表（第 1 版）。数据集自己的表按列定义另建，见 benchDatasetCreate */
-export function benchStoreSchema(d: BenchDialect): string[] {
+/** 台库里固定的几张表（第 1 版）。数据集自己的表按列定义另建，模板见 benchSqlKit */
+function benchStoreSchema(d: BenchDialect): string[] {
   const big = d === 'sqlite' ? 'INTEGER' : 'BIGINT';
   return [
     `CREATE TABLE IF NOT EXISTS bs_meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS bs_datasets (
       name TEXT PRIMARY KEY, title TEXT NOT NULL, version INTEGER NOT NULL, columns TEXT NOT NULL, key_cols TEXT NOT NULL,
-      row_count INTEGER NOT NULL, created_at ${big} NOT NULL, updated_at ${big} NOT NULL, updated_by TEXT NOT NULL)`,
+      row_count INTEGER NOT NULL, data_bytes ${big} NOT NULL, created_at ${big} NOT NULL, updated_at ${big} NOT NULL, updated_by TEXT NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS bs_dataset_versions (
       dataset TEXT NOT NULL, version INTEGER NOT NULL, title TEXT NOT NULL, columns TEXT NOT NULL, key_cols TEXT NOT NULL,
       author TEXT NOT NULL, note TEXT NOT NULL, at ${big} NOT NULL, PRIMARY KEY (dataset, version))`,
@@ -1330,11 +1341,58 @@ export function benchStoreSchema(d: BenchDialect): string[] {
   ];
 }
 
-/** 数据集的表：一个自增行号加各列。表名、列名由调用方先按白名单校验并加前缀，这里只拼 */
-export function benchDatasetCreate(d: BenchDialect, table: string, cols: { col: string; type: BenchColumnType }[]): string {
-  return `CREATE TABLE ${table} (rid ${benchAutoId(d)}${cols.map((c) => `, ${c.col} ${benchSqlType(d, c.type)}`).join('')})`;
+/**
+ * 台库用到的、属于表结构或随库不同的写法，打成一份纯数据。
+ *
+ * 台库的读写在工作线程里跑（services/bench-store-worker.ts）。线程不能引用这个文件：一引用就会在线程里再开一次主库。
+ * 所以这些写法由市场进程从这里取出来，在起线程的时候递给它；表结构因此仍然只登记在这一处。
+ * 模板里的 {名字} 由台库的数据访问服务填；填进去的表名、列名都先过白名单并加了固定前缀，值一律走参数。
+ */
+export type BenchSqlKit = {
+  dialect: BenchDialect;
+  schemaVersion: number;
+  /** 固定的几张表 */
+  schema: string[];
+  /** 打开库时逐条试一遍：哪条跑不通，就是库文件的结构和这份代码对不上（比如还没定稿时旧代码建的文件），明确拒绝，不静默照用 */
+  probes: string[];
+  /** 数据集的列类型在库里的写法 */
+  types: [BenchColumnType, string][];
+  /** 数据集的表：一个自增行号加各列。{columns} 是若干个「, 列名 类型」 */
+  createTable: string;
+  addColumn: string;
+  dropColumn: string;
+  keyIndex: string;
+  dropIndex: string;
+  /** 「这一列的文本里包含某段文本」（区分大小写）：两种库的函数名不同 */
+  contains: string;
+  /**
+   * 扫描守卫：把一条查询的筛选条件 {cond} 包起来，让库每扫过约 256 行回到服务里看一眼时限（bench_tick 由连接登记）。
+   * 直接写「条件 AND bench_tick()」不行：条件先不成立时后一半不会算，一条全表扫但没有命中的查询就一次也回不来。
+   * 没有这一项（null）的库靠自己的语句时限。
+   */
+  scanGuard: string | null;
+};
+export function benchSqlKit(d: BenchDialect): BenchSqlKit {
+  const types: BenchColumnType[] = ['text', 'integer', 'decimal', 'date', 'datetime', 'boolean'];
+  return {
+    dialect: d,
+    schemaVersion: BENCH_STORE_SCHEMA_VERSION,
+    schema: benchStoreSchema(d),
+    probes: [
+      'SELECT name, title, version, columns, key_cols, row_count, data_bytes, created_at, updated_at, updated_by FROM bs_datasets WHERE 1 = 0',
+      'SELECT dataset, version, title, columns, key_cols, author, note, at FROM bs_dataset_versions WHERE 1 = 0',
+      'SELECT version, content, sha256, author, note, at FROM bs_view_versions WHERE 1 = 0',
+      'SELECT id, dataset, dataset_version, reason, row_count, content, content_sha256, author, at FROM bs_snapshots WHERE 1 = 0',
+      'SELECT id, dataset, op, idem_key, body_sha256, row_count, actor, at, result FROM bs_writes WHERE 1 = 0',
+      'SELECT id, kind, target, from_version, to_version, actor, note, at FROM bs_changes WHERE 1 = 0',
+    ],
+    types: types.map((t) => [t, benchSqlType(d, t)]),
+    createTable: `CREATE TABLE {table} (rid ${benchAutoId(d)}{columns})`,
+    addColumn: 'ALTER TABLE {table} ADD COLUMN {col} {type}',
+    dropColumn: 'ALTER TABLE {table} DROP COLUMN {col}',
+    keyIndex: 'CREATE UNIQUE INDEX {index} ON {table} ({cols})',
+    dropIndex: 'DROP INDEX IF EXISTS {index}',
+    contains: d === 'sqlite' ? 'instr({col}, ?) > 0' : 'strpos({col}, ?) > 0',
+    scanGuard: d === 'sqlite' ? 'CASE WHEN (rid & 255) <> 0 OR bench_tick() THEN ({cond}) ELSE 0 END' : null,
+  };
 }
-export const benchDatasetAddColumn = (d: BenchDialect, table: string, col: string, type: BenchColumnType) => `ALTER TABLE ${table} ADD COLUMN ${col} ${benchSqlType(d, type)}`;
-export const benchDatasetDropColumn = (table: string, col: string) => `ALTER TABLE ${table} DROP COLUMN ${col}`;
-export const benchDatasetKeyIndex = (table: string, index: string, cols: string[]) => `CREATE UNIQUE INDEX ${index} ON ${table} (${cols.join(', ')})`;
-export const benchDatasetDropIndex = (index: string) => `DROP INDEX IF EXISTS ${index}`;
