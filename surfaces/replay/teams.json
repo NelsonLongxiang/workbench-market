@@ -39,7 +39,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "786", "etag": "W/\"312-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "790", "etag": "W/\"316-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "can": { "claim": true, "propose_claim": false, "release": true, "add_lead": true, "propose_lead": false, "manage_leads": true, "manage_departments": true },
               "departments": [],
@@ -55,7 +55,7 @@
                   "members": [{ "seat": "zone1/0000000b", "seat_id": "seat-0000000b", "name": "合成成员", "role": "member", "online": true, "router": false, "assigned_to": null, "active_items": 0 }],
                   "name": "Sales Team",
                   "node_name": null,
-                  "roster_received_at": "YYYY-MM-DDThh:mm:ssZ",
+                  "roster_received_at": "YYYY-MM-DDThh:mm:ss.fffZ",
                   "can_assign": false,
                   "assign_denied_text": "团队还没认领，不能分配成员"
                 }
@@ -72,7 +72,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "786", "etag": "W/\"312-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "790", "etag": "W/\"316-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "can": { "claim": true, "propose_claim": false, "release": true, "add_lead": true, "propose_lead": false, "manage_leads": true, "manage_departments": true },
               "departments": [],
@@ -88,7 +88,7 @@
                   "members": [{ "seat": "zone1/0000000b", "seat_id": "seat-0000000b", "name": "合成成员", "role": "member", "online": true, "router": false, "assigned_to": null, "active_items": 0 }],
                   "name": "Sales Team",
                   "node_name": null,
-                  "roster_received_at": "YYYY-MM-DDThh:mm:ssZ",
+                  "roster_received_at": "YYYY-MM-DDThh:mm:ss.fffZ",
                   "can_assign": false,
                   "assign_denied_text": "团队还没认领，不能分配成员"
                 }
@@ -269,7 +269,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1198", "etag": "W/\"4ae-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1202", "etag": "W/\"4b2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "can": { "claim": false, "propose_claim": false, "release": false, "add_lead": false, "propose_lead": false, "manage_leads": false, "manage_departments": false },
               "departments": [
@@ -289,7 +289,7 @@
                       "members": [{ "seat": "zone1/0000000b", "seat_id": "seat-0000000b", "name": "合成成员", "role": "member", "online": true, "router": false, "assigned_to": { "principal": "user:beta", "display_name": "合成乙" }, "active_items": 0 }],
                       "name": "Sales Team",
                       "node_name": null,
-                      "roster_received_at": "YYYY-MM-DDThh:mm:ssZ",
+                      "roster_received_at": "YYYY-MM-DDThh:mm:ss.fffZ",
                       "can_assign": true,
                       "assign_denied_text": null,
                       "assignable": [{ "principal": "user:alpha", "display_name": "合成甲" }, { "principal": "user:beta", "display_name": "合成乙" }]

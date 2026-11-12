@@ -47,6 +47,12 @@ export function rosterStaleMinutesFromEnv(env: NodeJS.ProcessEnv = process.env):
   return n <= 10080 ? n : null;
 }
 
+/** 库里的时刻（名册收到的时间是 SQLite 的「YYYY-MM-DD HH:MM:SS」，UTC）统一成 ISO 时刻给出去；认不出的原样 */
+export function isoTime(t: string): string {
+  const ms = Date.parse(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(t) ? `${t.replace(' ', 'T')}Z` : t);
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : t;
+}
+
 export type TeamView = {
   host: string; team: string; status: TeamStatus; in_roster: boolean;
   department: { id: string; name: string } | null;
@@ -256,11 +262,11 @@ export class TeamService extends Service {
 
   /**
    * 节点的两样：名字（名册报上来的节点根地址，对到对端登记表里登记的名字；没登记、没名字为 null，页面不显示节点标识），
-   * 和最近一次成功收下这个节点名册的时间（a2a_rosters.received_at，和 GET /api/a2a/teams 同一个来源；没收过为 null）
+   * 和最近一次成功收下这个节点名册的时间（a2a_rosters.received_at，和 GET /api/a2a/teams 同一个来源，统一成 ISO 时刻；没收过为 null）
    */
   nodeInfo(host: string): { node_name: string | null; roster_received_at: string | null } {
     const r = db.prepare("SELECT r.received_at AS received_at, COALESCE(p.name, '') AS name FROM a2a_rosters r LEFT JOIN a2a_peers p ON p.root_url = r.peer_root WHERE r.host = ?").get(host) as { received_at: string; name: string } | undefined;
-    return { node_name: r?.name ? r.name : null, roster_received_at: r?.received_at ?? null };
+    return { node_name: r?.name ? r.name : null, roster_received_at: r?.received_at ? isoTime(r.received_at) : null };
   }
 
   /** 那时这个成员归谁（at 毫秒，含起点、不含终点）；没分配为 null */
@@ -368,10 +374,9 @@ export class TeamService extends Service {
 
   /** 超过阈值没更新名册的节点：节点标识、名字、最近收到的时间（页面不显示节点标识，用名字） */
   staleRosters(now = Date.now()): { host: string; node_name: string | null; roster_received_at: string }[] {
-    const toMs = (t: string) => Date.parse(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(t) ? `${t.replace(' ', 'T')}Z` : t);
     return (db.prepare('SELECT host, received_at FROM a2a_rosters ORDER BY host').all() as { host: string; received_at: string }[])
-      .filter((r) => { const t = toMs(r.received_at); return Number.isFinite(t) && now - t > this.rosterStaleMs; })
-      .map((r) => ({ host: r.host, node_name: this.nodeInfo(r.host).node_name, roster_received_at: r.received_at }));
+      .filter((r) => { const t = Date.parse(isoTime(r.received_at)); return Number.isFinite(t) && now - t > this.rosterStaleMs; })
+      .map((r) => ({ host: r.host, node_name: this.nodeInfo(r.host).node_name, roster_received_at: isoTime(r.received_at) }));
   }
 
   needingAttention(): { host: string; team: string; status: Exclude<TeamStatus, 'active'>; department: { id: string; name: string } | null; leads: Lead[] }[] {

@@ -111,7 +111,7 @@ try {
   {
     const cli = await srv.call('GET', '/api/teams');
     const staff = await srv.call('GET', '/api/teams', as(SESSIONS.alpha));
-    check(cli.status === 200 && cli.json?.unclaimed?.length === 2 && cli.json.unclaimed.every((t) => t.status === 'unclaimed' && t.node_name === '合成节点' && t.roster_received_at === String(now)) && cli.json.departments.length === 0
+    check(cli.status === 200 && cli.json?.unclaimed?.length === 2 && cli.json.unclaimed.every((t) => t.status === 'unclaimed' && t.node_name === '合成节点' && t.roster_received_at === new Date(now).toISOString()) && cli.json.departments.length === 0
       && staff.status === 200 && show(staff.json) === '{"can":{"claim":false,"propose_claim":false,"release":false,"add_lead":false,"propose_lead":false,"manage_leads":false,"manage_departments":false},"departments":[]}',
       '待认领的团队只有管理员看得到（本机命令行看到两个，带节点在对端登记表里的名字和名册最近收到的时间），员工什么都看不到、连待认领那一栏都没有', show({ cli: cli.json?.unclaimed?.map((t) => t.team), staff: staff.json }));
     const denied = {
@@ -393,13 +393,14 @@ try {
   // ---------- 八之四、名册停推进「等你拍板」 ----------
   {
     const fresh = await srv.call('GET', '/api/attention', { headers: token });
-    db.prepare("UPDATE a2a_rosters SET received_at = '2000-01-01 00:00:00' WHERE host = ?").run(HOST);
+    db.prepare("UPDATE a2a_rosters SET received_at = '2000-01-01 00:00:00' WHERE host = ?").run(HOST); // 生产上的写法（SQLite 时刻）
+    const asListed = (await srv.call('GET', '/api/teams')).json?.unclaimed?.[0]?.roster_received_at;
     const stale = await srv.call('GET', '/api/attention', { headers: token });
     const staff = await srv.call('GET', '/api/attention', as(SESSIONS.alpha));
     db.prepare('UPDATE a2a_rosters SET received_at = ? WHERE host = ?').run(now, HOST);
     const item = (r) => (r.json?.items ?? []).find((i) => i.source === 'team-health' && i.phase === 'roster-stale');
-    check(!item(fresh) && item(stale)?.title?.includes('合成节点') && item(stale)?.title?.includes('60 分钟') && !item(stale)?.title?.includes(HOST) && !item(staff),
-      '名册超过阈值（缺省 60 分钟）没更新：进管理员的「等你拍板」，写节点名不写节点标识；新鲜的不列；员工看不到',
+    check(asListed === '2000-01-01T00:00:00.000Z' && !item(fresh) && item(stale)?.title?.includes('合成节点') && item(stale)?.title?.includes('60 分钟') && !item(stale)?.title?.includes(HOST) && !item(staff),
+      '名册超过阈值（缺省 60 分钟）没更新：进管理员的「等你拍板」，写节点名不写节点标识；新鲜的不列；员工看不到；库里的 SQLite 时刻给出去统一成 ISO',
       show({ fresh: !!item(fresh), stale: item(stale)?.title, staff: !!item(staff) }));
   }
 
