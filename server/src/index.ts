@@ -40,7 +40,8 @@ import { registerAuthViewerRoutes } from './routes/auth-viewer.ts';
 import { registerPrincipalRoutes } from './routes/principals.ts';
 import { loadRoleDeclarations, registerGrantRoutes } from './routes/grants.ts';
 import { installBuiltinJudge } from './judgment.ts';
-import { compareConfig, mountJudgmentCompare } from './judgment-compare.ts';
+import { actorResolver, compareConfig, mountJudgmentCompare } from './judgment-compare.ts';
+import { checkEnforce, enforceConfig, enforceGate, type EnforceConfig } from './judgment-enforce.ts';
 import { registerAttentionRoutes } from './routes/attention.ts';
 import { registerWorkItemRoutes } from './routes/work-items.ts';
 import { registerRosterRoutes } from './routes/a2a-roster.ts';
@@ -55,6 +56,7 @@ import { registerExportImportRoutes } from './routes/export-import.ts';
 import { registerDepartmentRoutes } from './routes/departments.ts';
 import { registerTeamRoutes } from './routes/teams.ts';
 import { registerLoginFlowRoutes } from './routes/login-flows.ts';
+import { registerLoginGateRoutes } from './routes/login-gate.ts';
 import { registerWorkbenchRoutes } from './routes/workbenches.ts';
 import { registerSopPageRoutes } from './routes/sop-page.ts';
 import { registerLoginEventRoutes } from './routes/login-events.ts';
@@ -118,10 +120,21 @@ const startupSecurity = createStartupSecurityProbe(process.env.NODE_ENV === 'tes
 app.use(startupSecurity.middleware); // #326: before parsers, content dispatch and every business route
 // 阶段六 6c：判定事件的内置监听器（六步）；并行比对（WM_JUDGMENT_COMPARE，缺省关）在应答结束之后算新结论、和旧结论比，不改应答
 installBuiltinJudge();
+let judgmentEnforce: EnforceConfig = { domains: null };
 {
   let cfg: ReturnType<typeof compareConfig>;
   try { cfg = compareConfig(); } catch (e) { console.error(`[judgment] 拒绝启动：${(e as Error).message}`); process.exit(1); }
-  mountJudgmentCompare(app, cfg, { adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), skip: isStartupProbeRequest, facts: () => ({ adminTokenSet: !!process.env.ADMIN_TOKEN || dbAdminTokenSet() }) });
+  const compareDeps = { adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), skip: isStartupProbeRequest, facts: () => ({ adminTokenSet: !!process.env.ADMIN_TOKEN || dbAdminTokenSet() }) };
+  const actorOf = actorResolver(compareDeps);
+  mountJudgmentCompare(app, cfg, compareDeps, actorOf);
+  // 阶段六 6d：判定切换的开关（WM_JUDGMENT_ENFORCE，缺省空 = 不切）。要在注册任何路由之前装门；写法不对、比对没开：拒绝启动
+  let enforce: EnforceConfig;
+  try { enforce = enforceConfig(cfg.on); } catch (e) { console.error(`[judgment] 拒绝启动：${(e as Error).message}`); process.exit(1); }
+  judgmentEnforce = enforce;
+  if (enforce.domains) {
+    http.setGate(enforceGate(enforce, actorOf, compareDeps.facts));
+    console.log(JSON.stringify({ source: 'judgment', event: 'enforce', domains: enforce.domains === 'all' ? 'all' : [...enforce.domains], at: new Date().toISOString() }));
+  }
 }
 // 全站登录门（WM_LOGIN_GATE=enforce|off，缺省 off）：紧跟启动自检门，早于内容分发、解析器、静态资源、SPA 回落和各路由。
 // 依赖都是函数声明或请求期才取的值（提升/闭包），这里只建不调。值不合法拒绝启动（同 MCP_GATEWAY #284）
@@ -2411,7 +2424,7 @@ function healthBase(req?: express.Request): Record<string, unknown> {
   return { ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, ...(outbound ? { outbound } : {}), self_probe: startupSecurity.snapshot(), work_items_backfill: backfill };
 }
 registerHealthRoutes(http, { healthBase, layerfsProbeCached, layerfsReadiness, A2A_DIRECT_SIG, A2A_DIRECT_SIG_BODY });
-loginGate.mount(app); // /login、/api/auth/login|logout|me（解析器之后、SPA 回落之前）
+registerLoginGateRoutes(http, loginGate.routeDeps); // /login、/api/auth/login|logout|me（解析器之后、SPA 回落之前）
 registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionTtlMs: SESSION_TTL_MIN * 60_000 });
 registerLoginEventRoutes(http); // /login/<方式>/events：离职、停用的失效通知；每天一次对账 // /login/<方式>、/login/<方式>/callback：飞书等发市场会话的登录
 
@@ -3516,6 +3529,11 @@ const PORT = Number(process.env.PORT) || 9800;
 if (getApp('task-center').status === 'published') syncWorkbenchRegistration(getApp('task-center'));
 const SURFACE_PORTS = surfacePorts();
 // 阶段六 6b：所有路由都注册完之后、开始监听之前读角色声明并校验（动作清单要齐）；不合格抛错，拒绝启动
+// 判定切换：开关里写的域都要有登记的动作，「暂不切」里的动作都要存在（全部路由注册完才核得了）
+{
+  const problems = checkEnforce(judgmentEnforce, http.actions());
+  if (problems.length) { console.error(`[judgment] 拒绝启动：${problems.join('；')}`); process.exit(1); }
+}
 try { loadRoleDeclarations(http); } catch (e) {
   // 这里已经在全局 uncaughtException 兜底之后：不显式退出的话进程会以 0 结束，看上去像正常退出
   console.error(`[grants] 拒绝启动：${String((e as Error)?.message ?? e)}`);

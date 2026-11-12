@@ -619,10 +619,11 @@ export function launchPlan(clock, fixtures = []) {
   return { args: ['--disable-warning=ExperimentalWarning', ...imports, 'src/index.ts'], env };
 }
 
+// 判定切换（6d 每一波在拷贝上验）：比对打开时，外面设了 WM_JUDGMENT_ENFORCE 也一起带给每个实例，回放就能看出切了之后哪些应答变了。
 // 判定并行比对的报告（scripts/judgment-compare-report.mjs）：外面设了 WM_JUDGMENT_COMPARE 和输出文件，就带给每个实例，
 // 每条请求另带一个 x-replay-step 头（域/场景/请求），比对的输出里就知道是哪条录制里的哪个请求。没设时什么都不变。
 const JUDGMENT_ENV = process.env.WM_JUDGMENT_COMPARE === 'on' && process.env.WM_JUDGMENT_COMPARE_OUT
-  ? { WM_JUDGMENT_COMPARE: 'on', WM_JUDGMENT_COMPARE_OUT: process.env.WM_JUDGMENT_COMPARE_OUT } : {};
+  ? { WM_JUDGMENT_COMPARE: 'on', WM_JUDGMENT_COMPARE_OUT: process.env.WM_JUDGMENT_COMPARE_OUT, ...(process.env.WM_JUDGMENT_ENFORCE ? { WM_JUDGMENT_ENFORCE: process.env.WM_JUDGMENT_ENFORCE } : {}) } : {};
 async function bootOnce(tag, env, clock, fixtures) {
   const plan = launchPlan(clock, fixtures);
   const port = await freePort();
