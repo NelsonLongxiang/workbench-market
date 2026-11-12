@@ -427,6 +427,7 @@
       "ahooks",
       "antd",
       "dayjs",
+      "echarts",
       "react",
       "react-dom",
       "react-grid-layout",
