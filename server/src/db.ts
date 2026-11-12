@@ -1483,6 +1483,13 @@ try {
   const bvCols = db.prepare('PRAGMA table_info(bench_views)').all() as { name: string }[];
   for (const c of ['department_id', 'team_host', 'team']) if (!bvCols.some((x) => x.name === c)) db.exec(`ALTER TABLE bench_views ADD COLUMN ${c} TEXT NOT NULL DEFAULT ''`);
 } catch (e) { console.error(`[db] bench_views 加绑定列失败：${(e as Error).message}`); throw e; }
+// 台对应市场登记的哪个台（workbenches.id）：一个登记的台最多对应一个视图台，反过来也一样。对应关系只记在这里（真来源只有这一份）；
+// 登记的台删了，读的时候按没有对应处理（不跟着删这一列）
+try {
+  const bvCols2 = db.prepare('PRAGMA table_info(bench_views)').all() as { name: string }[];
+  if (!bvCols2.some((x) => x.name === 'workbench_id')) db.exec('ALTER TABLE bench_views ADD COLUMN workbench_id INTEGER');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_bench_views_workbench ON bench_views (workbench_id) WHERE workbench_id IS NOT NULL');
+} catch (e) { console.error(`[db] bench_views 加对应台号列失败：${(e as Error).message}`); throw e; }
 db.exec(`CREATE TABLE IF NOT EXISTS bench_bind_audit (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   slug TEXT NOT NULL,

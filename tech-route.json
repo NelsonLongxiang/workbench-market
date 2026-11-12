@@ -23,10 +23,9 @@
       "what": "没报动作的路由",
       "target": 0,
       "baseline": {
-        "total": 23,
+        "total": 6,
         "files": {
           "server/src/index.ts": 1,
-          "server/src/vault-api.ts": 17,
           "server/src/workbench-vars.ts": 5
         }
       }

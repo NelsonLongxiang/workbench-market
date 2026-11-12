@@ -333,6 +333,8 @@ jobs:
         run: node scripts/work-item-relations-trust-test.mjs
       - name: 停太久的事项进「等你拍板」（过阈值才算、差一分钟不算·等过目、等验收、有提问的不算·冒给负责人、没有负责人冒给管理层，建立人和只授系统管理员的没有·一次最多 50 条按停得最久排、stuck_count 是总数、不算进角标·坏阈值拒绝启动）
         run: node scripts/work-item-stuck-test.mjs
+      - name: 放行归负责人（放宽访问的对抗：负责人放、团队有负责人时管理层和口令管理员 403·没有负责人时管理层代办、留痕记 acting_for·建立人勾了先过目由建立人放·幂等·「关注」的过目只给能放的人、带 answer_via·跨站拒）
+        run: node scripts/work-item-lead-release-test.mjs
       - name: 事项记从哪个驾驶舱安排的（安排时记下、坏值和不存在的驾驶舱 400、算进幂等哈希且旧哈希不变·列表按驾驶舱筛只收窄、不存在的回空列表·驾驶舱删了照旧返回·「关注」条目带上·旧库补列、存量 null）
         run: node scripts/work-item-cockpit-test.mjs
       - name: 对端登记表（升级回填建对端行、取不到名片的待登记不挡投递、重跑不变·登记取名片验签钉公钥·公钥变了不自动接受、进「关注」、指纹对得上才换·停用和重新启用·canDeliver 原因分得开·健康从现有表算·对外只给指纹）
@@ -353,6 +355,8 @@ jobs:
         run: node scripts/work-item-creator-test.mjs
       - name: 事项的 can、turn、creator 和「关注」的 mine（三种身份逐项对着动作接口验：can 说能接口就放行、说不能就拒·状态上不允许的一律 false·turn 只轮到建立人或有放行权限的人·放行留痕记真实的管理员）
         run: node scripts/work-item-can-turn-test.mjs
+      - name: 事项上替人做决定的五个动作只有一个判法（对抗组：只有管理口令、只有系统管理员角色、持管理层授予的非建立人、建立人本人 × 答提问、回复、验收、退回、放行；can 和真调对得上·「关注」的答法和 mine 照同一个函数·代办留痕记 acting_for）
+        run: node scripts/work-item-decision-verdict-test.mjs
       - name: 事项列表（放宽访问的对抗：管理员看全部、登录的人只看自己是建立人的·别人的和建立人空着的不出现也不计数·筛选与计数·游标翻页不重不漏·匿名、本机页面、不认的会话 401·跨站 403·坏参数 400·启动自检一行）
         run: node scripts/work-items-list-test.mjs
       - name: 提需求的人（阶段八 8f-1：建录入时经身份服务认出的人记在录入上，发布时当事项的建立人·发布的人只留痕、不顶替·请求体自报不认·认不出照样放行·不带内容的提交计数）
@@ -457,7 +461,7 @@ jobs:
       - name: 登录门上线演练（enforce 隔离实例：MCP/健康/A2A/SOP/台与门户/生命周期/运维/回滚逐类真实请求）
         run: node scripts/login-gate-rollout-check.mjs
       - name: MCP 权限可见与自助申请（access_info 全目录·access_request 去重限频·管理员批准并集/驳回不动 grants/吊销不能批·app_data_submit 与 REST 同核契约校验·匿名 401）
-        run: node scripts/mcp-access-smoke.mjs && node scripts/mcp-grant-scope-smoke.mjs
+        run: node scripts/mcp-access-smoke.mjs && node scripts/mcp-grant-scope-smoke.mjs && node scripts/mcp-newcomer-test.mjs
       - name: MCP 内嵌 REST / OpenAPI（文件：99MB 流式上传 sha256 一致·Range/ETag 下载·415·403/401；资源：列文件/读数据/SOP 附件；工具映射与 /mcp 同链·审计 channel=rest·匿名 5MB 413）
         run: node scripts/mcp-rest-smoke.mjs && node scripts/mcp-rest-smoke.mjs --login-gate
       - name: 台数据与附件的读守卫（台令牌、管理员或本机命令行；匿名、跨站、员工、别台令牌、换过的令牌一律 403 且先于查台；查看凭证只认下载；告警模式；MCP 按台授权）
@@ -506,6 +510,8 @@ jobs:
         run: node scripts/cockpit-frame-unit.mjs
       - name: 身份变了以后页面重读单测（纯函数——认人只认 /api/auth/me·不通和 502 不算·合并去抖·世代号；单列一步）
         run: node scripts/session-watch-unit.mjs
+      - name: 技能正文里写到的 MCP 工具名都在工具目录里（对照 surfaces/mcp-tools.json）
+        run: node scripts/skill-tool-names-test.mjs
       - name: 凭据库（融合 dsh-vault：读写要口令·业务面 403·摘要无明文·坏 JSON 不进日志·写锁/重开/闲置上锁/限流）
         run: node scripts/vault-concurrency-test.mjs && node scripts/vault-smoke.mjs
       - name: 条目自带答复入口单测（纯函数——answer_via 的地址、请求体、填写项；核准卡片的写法；单列一步）

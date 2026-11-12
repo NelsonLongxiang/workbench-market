@@ -1,14 +1,14 @@
 /**
  * 事项上「这个人能做什么、是不是轮到他」——事项详情（GET /api/work-items/:id 的 can、turn、creator）和「关注」（每条的 mine、creator）用。
  *
- * can 的每一项和对应动作接口用同一处判断，不另写规则：
- *   release  管理员（adminGuard，和 POST /api/workbench-events/:id/release 同一个守卫）、事项在 held、releaseBlock 放行（事件在、任务没撤回）
- *   verify   事项在 ready，并且：管理员（「关注」里答 verify），或者建立人本人（writerVerdict 是 ok，和 POST /api/work-items/:id/decision 同一处）
- *   reply    事项不在终态，有可回复的席位消息（replyableMessages，和回复接口同一个判断），并且 writerVerdict 是 admin 或 ok（和回复接口的认人同一处）
- *   answer   事项不在终态，有在等答复的提问（pendingAsksOfEvent，和「关注」里答席位提问同一个定义），并且是管理员
- *            （建立人答提问的入口在阶段七 #567，合并后这里改成 writerVerdict，另一个小 PR）
+ * 事项上替人做决定的动作——答席位提问（answer）、回复席位消息（reply）、验收（verify）、退回（return）、放行（release）——
+ * 谁能做只有一处：itemDecisionVerdict。can.* 和真去调接口（事项自己的入口、「关注」的答复入口）都出自它：
+ *   建立人本人；或团队负责人（只限 release 和退回自己团队的）；或持有管理层授予的人（代办，留痕记 acting_for）。
+ *   只过了管理门（管理口令、身份来源管理员登录）而没有管理层授予的，一律不算（存量差异清单 L21）。
+ * can 还要看事情此刻在不在等：release 要事项在 held、事件和任务让放；verify、return 要在 ready；
+ * reply 要不在终态、有可回复的席位消息；answer 要不在终态、有在等答复的提问。
  *
- * turn（是不是轮到这个人）只有两句：answer、verify 轮到的是建立人；release 轮到的是有放行权限的人。
+ * turn（是不是轮到这个人）只有两句：answer、verify 轮到的是建立人；release 轮到的是负责人（或勾了先过目的建立人），管理层代办不算轮到。
  * can 为真而 turn 为假，就是「能代办」。
  */
 import type express from 'express';
@@ -19,10 +19,11 @@ import type { PrincipalService } from './services/principal.ts';
 import { pendingAsksOfEvent } from './services/attention-sources.ts';
 import { eventOfItem, replyableMessages } from './seat-messages.ts';
 import { releaseBlock } from './workbench-events.ts';
-import { judge } from './judgment.ts';
+import { judge, rolesCovering } from './judgment.ts';
 import { rosterHosts } from './services/a2a-roster.ts';
-import { relationOf } from './team-relation.ts';
-import type { TeamKey, TeamService } from './services/team.ts';
+import { orgWideManagement, relationOf, teamName, teamVisibleTo } from './team-relation.ts';
+import type { TeamKey, TeamService, TeamView } from './services/team.ts';
+import type { GrantService } from './services/grant.ts';
 import type { ViewScope } from './services/work-item.ts';
 
 /** 终态：事项不再往下走，不能再回复、答复、验收 */
@@ -50,13 +51,35 @@ export const VIEW_ALL_KIND = 'decide' as const;
  * 管理门今天只认这两种现有管理员；统一判定生效（6d）以后，管理门也按授予判，那时「只授了系统管理员、没授管理层」的人才会出现，看不到事项。
  */
 export function isManagement(principal: string | null, admin: boolean): boolean {
-  if (admin) return true;
-  if (principal) {
-    const p = svc<PrincipalService>('principals').get(principal) as { kind?: string; status?: string; owner?: string } | undefined;
-    if (!p) return false;
-    return judge({ actor: { type: 'principal', id: principal, kind: p.kind ?? '', status: p.status ?? '', owner: p.owner ?? '' }, action: VIEW_ALL_ACTION, kind: VIEW_ALL_KIND, declared: true }).verdict === 'allow';
-  }
-  return false;
+  return admin || holdsManagementGrant(principal);
+}
+
+/**
+ * 现在有几个主体持有管理层授予（health 只给管理口令看，只给个数、不给是谁）。
+ * 是 0 时，团队没有负责人、又没人能代办：那些团队的等过目的事项没人放得了（存量差异清单 L21）。
+ * 先按角色在库里筛（闭包覆盖 work-items.view-all 的角色、生效的授予，不限条数），再逐个照 holdsManagementGrant 判（主体启用、范围对）
+ */
+export function managementGrantHolders(): number {
+  return svc<GrantService>('grants').activeHolders(rolesCovering(VIEW_ALL_ACTION, VIEW_ALL_KIND)).filter(holdsManagementGrant).length;
+}
+
+/**
+ * 持有管理层授予：按统一判定有 work-items.view-all 这个动作，不认管理门。
+ * 读（isManagement）照旧认管理门；替建立人做业务决定（代办）只认它（协调方 2026-11-12 定的口径）：
+ * 管理口令、没有管理层授予的身份来源管理员都不能代办
+ */
+export function holdsManagementGrant(principal: string | null): boolean {
+  if (!principal) return false;
+  const p = svc<PrincipalService>('principals').get(principal) as { kind?: string; status?: string; owner?: string } | undefined;
+  if (!p) return false;
+  return judge({ actor: { type: 'principal', id: principal, kind: p.kind ?? '', status: p.status ?? '', owner: p.owner ?? '' }, action: VIEW_ALL_ACTION, kind: VIEW_ALL_KIND, declared: true }).verdict === 'allow';
+}
+
+/** 主体是不是启用的人（事项上写和做决定的都得是） */
+export function isActivePerson(principal: string | null): boolean {
+  if (!principal) return false;
+  const p = svc<PrincipalService>('principals').get(principal) as { kind?: string; status?: string } | undefined;
+  return !!p && p.kind === 'person' && p.status === 'active';
 }
 
 /** UTC「YYYY-MM-DD hh:mm:ss」和毫秒互换（事项表里的时间是前者，团队服务的时间是后者） */
@@ -118,17 +141,13 @@ export function itemRoles(item: WorkItemRow, viewer: WorkItemViewer): ItemRole[]
   if (viewer.management) roles.push('management');
   return roles;
 }
-/** 事项交给的团队都没有在职负责人（包括名册里换不出团队的）：这时由管理层代办负责人的事 */
-export function leadVacant(item: WorkItemRow): boolean {
-  return itemTeams(item).every((t) => svc<TeamService>('teams').leads(t).length === 0);
-}
 /**
- * 卡住的事冒给谁（规范 14 第九节）：事项交给的团队的负责人；这些团队都没有负责人时，管理层。
- * 建立人、成员的主人不冒（他们在自己的列表里看得到状态）；只过了管理门的系统管理员不冒（不看事项内容）
+ * 卡住的事冒给谁（规范 14 第九节）：和放行同一个负责人判法（teamLeadRole）——事项交给的团队的负责人；
+ * 这些团队都没有负责人时，持有管理层授予的人（不认管理门：管理口令、没有授予的身份来源管理员都不冒，他们只看得到、不归他们管）。
+ * 建立人、成员的主人不冒（他们在自己的列表里看得到状态）
  */
 export function stuckGoesTo(item: WorkItemRow, viewer: WorkItemViewer): boolean {
-  if (itemRoles(item, viewer).includes('lead')) return true;
-  return viewer.management && leadVacant(item);
+  return teamLeadRole(item, viewer) !== null;
 }
 /** 看得到这件事项：建立人、成员的主人、负责人、管理层之一 */
 export const canSee = (item: WorkItemRow, viewer: WorkItemViewer): boolean => itemRoles(item, viewer).length > 0;
@@ -178,8 +197,7 @@ export async function workItemViewer(req: express.Request, deps: { markOdooAdmin
     down = sourceDown(who);
     if (who.ok) {
       principal = who.viewer.sub;
-      const p = svc<PrincipalService>('principals').get(principal) as { kind?: string; status?: string } | undefined;
-      person = !!p && p.kind === 'person' && p.status === 'active';
+      person = isActivePerson(principal);
     }
   }
   return { admin, principal, person, actor: admin ? (deps.adminActor?.(req) ?? 'admin') : principal ?? 'anonymous', management: isManagement(principal, admin), ...(down ? { sourceDown: true } : {}) };
@@ -200,29 +218,145 @@ export function writerVerdict(viewer: WorkItemViewer, itemId: string, allowAdmin
   return verdict;
 }
 
-export type Can = { release: boolean; answer: boolean; verify: boolean; reply: boolean };
+export type Can = { release: boolean; answer: boolean; verify: boolean; return: boolean; reply: boolean };
 export type Turn = { release: boolean; answer: boolean; verify: boolean };
 
 const pendingAsks = (item: WorkItemRow): number => { const ev = eventOfItem(item); return ev ? pendingAsksOfEvent(ev).length : 0; };
 const releasable = (item: WorkItemRow): boolean => { const ev = eventOfItem(item); return item.state === 'held' && !!ev && releaseBlock(ev) === null; };
 
+/** 现在能不能放：事项在等过目、事件和任务让放，并且 releaseRole 认这个人（详情的 can.release、「关注」的过目条目都用它） */
+export const canRelease = (item: WorkItemRow, viewer: WorkItemViewer): boolean => releasable(item) && releaseRole(item, viewer) !== null;
+
+/**
+ * 谁能放行这件事项（规范 14 第九节，只有这一处；不看事项现在是不是 held，那是 releasable 的事）：
+ *   建立人勾了「先给我过目」（review_by = requester）：建立人本人（启用的人）放行，别人都不放
+ *   其余：事项交给的团队的负责人（relationOf 里有 team-lead）；
+ *         这些团队都没有在职负责人（包括名册里还换不出团队的）时，持有管理层授予的人代办（管理口令、没有授予的身份来源管理员不算），acting_for 记 team-lead
+ * 系统管理员（只过了管理门、不是管理层）不放行。返回 null 是不能放；acting_for 为空串是本人的事，不是代办
+ */
+export function releaseRole(item: WorkItemRow, viewer: WorkItemViewer): { acting_for: '' | 'team-lead' } | null {
+  const p = viewer.principal;
+  if (item.review_by === 'requester') return p && viewer.person && isCreator(item, p) ? { acting_for: '' } : null;
+  return teamLeadRole(item, viewer);
+}
+
+/**
+ * 负责人这一层（放行和「停太久冒给谁」共用，只有这一处）：事项交给的团队的负责人本人（acting_for 为空串）；
+ * 这些团队都没有在职负责人（包括名册里还换不出团队的）时，持有管理层授予的人代办（acting_for 记 team-lead）。不认管理门。返回 null 是不归他
+ */
+export function teamLeadRole(item: WorkItemRow, viewer: WorkItemViewer): { acting_for: '' | 'team-lead' } | null {
+  const p = viewer.principal;
+  const teams = itemTeams(item);
+  if (p && viewer.person && teams.some((t) => relationOf({ principal: p }, { team: t }).relations.includes('team-lead'))) return { acting_for: '' };
+  const vacant = teams.every((t) => svc<TeamService>('teams').leads(t).length === 0);
+  // 代办只认持有管理层授予的主体，不认管理门（读的 isManagement 认，写不扩过去）
+  return vacant && holdsManagementGrant(viewer.principal) ? { acting_for: 'team-lead' } : null;
+}
+
+/**
+ * 等谁放行（只在 held 的事项上给，别的状态是 null；和 releaseRole 同一个推导）：
+ *   creator     建立人勾了「先给我过目」：等建立人本人
+ *   team-lead   交给的团队里有在职负责人：列出这些团队和负责人；负责人的名字只给看得到这个团队的人（teamVisibleTo，和团队页同一处），
+ *               看不到的这个团队的 leads 是 null
+ *   management  这些团队都没有在职负责人（或名册里换不出团队）：等管理层（持有管理层授予的人）代办
+ * text 是给页面直接显示的一句话，已经按看的人裁过
+ */
+export type ReleaseBy =
+  | { kind: 'creator'; text: string; creator: { principal: string; display_name: string | null } | null }
+  | { kind: 'team-lead'; text: string; teams: { team: string; name: string; leads: { principal: string; display_name: string }[] | null }[] }
+  | { kind: 'management'; text: string };
+/** views：列表一页里有好几件时先取一次全部团队视图传进来，不每件重取 */
+export function releaseBy(item: WorkItemRow, viewer: WorkItemViewer, views?: TeamView[]): ReleaseBy | null {
+  if (item.state !== 'held') return null;
+  if (item.review_by === 'requester') {
+    const c = creatorOf(item);
+    return { kind: 'creator', text: c?.display_name ? `建立人 ${c.display_name}` : '建立人', creator: c };
+  }
+  const withLeads = itemTeams(item).map((t) => ({ key: t, leads: svc<TeamService>('teams').leads(t) })).filter((t) => t.leads.length > 0);
+  if (withLeads.length === 0) return { kind: 'management', text: '管理层' };
+  const all = views ?? svc<TeamService>('teams').allViews();
+  const who = { admin: viewer.admin, principal: viewer.principal, management: orgWideManagement(viewer.principal) };
+  const teams = withLeads.map(({ key, leads }) => {
+    const v = all.find((x) => x.host === key.host && x.team === key.team);
+    const seen = !!v && teamVisibleTo(who, v);
+    return { team: key.team, name: teamName(key.team), leads: seen ? leads.map((l) => ({ principal: l.principal, display_name: l.display_name })) : null };
+  });
+  const text = teams.map((t) => (t.leads ? `${t.name} 的负责人 ${t.leads.map((l) => l.display_name).join('、')}` : `${t.name} 的负责人`)).join('；');
+  return { kind: 'team-lead', text, teams };
+}
+
+export const ITEM_DECISIONS = ['answer', 'reply', 'verify', 'return', 'release'] as const;
+export type ItemDecision = (typeof ITEM_DECISIONS)[number];
+/** 代谁办：空串是本人的事；creator 是替建立人做（负责人退回、管理层代办）；team-lead 是替负责人放行（团队没有负责人时管理层代办） */
+export type ActingFor = '' | 'creator' | 'team-lead';
+export type DecisionVerdict = { ok: true; acting_for: ActingFor; as: 'creator' | 'lead' | 'management' } | { ok: false; status: 401 | 403 | 404; error: string };
+
+/**
+ * 事项上替人做决定的动作谁能做（只有这一处；不看事情此刻在不在等，那是 canOf 和各入口的事）：
+ *   401：没认出人，也没过管理门
+ *   404：看不到这件事项（canSee），不说有没有
+ *   release：照 releaseRole（建立人勾了先过目的由建立人本人；其余负责人；团队没有负责人时持有管理层授予的人代办，acting_for = team-lead）
+ *   其余：建立人本人（启用的人，事项可由建立人处理）——本人的事；
+ *         return 还认事项交给的团队的负责人——替建立人退回，acting_for = creator；
+ *         持有管理层授予的人——代办，acting_for = creator
+ *   403：看得到但不归他做。只过了管理门（管理口令、没有管理层授予的身份来源管理员）落在这里
+ */
+export function itemDecisionVerdict(item: WorkItemRow | undefined, viewer: WorkItemViewer, action: ItemDecision): DecisionVerdict {
+  if (!viewer.admin && !viewer.principal) return { ok: false, status: 401, error: 'work_items_auth_required' };
+  if (!item || !canSee(item, viewer)) return { ok: false, status: 404, error: 'work_item_not_found' };
+  const no: DecisionVerdict = { ok: false, status: 403, error: 'work_item_decision_not_yours' };
+  if (action === 'release') {
+    const r = releaseRole(item, viewer);
+    if (!r) return no;
+    return { ok: true, acting_for: r.acting_for, as: r.acting_for ? 'management' : item.review_by === 'requester' ? 'creator' : 'lead' };
+  }
+  const p = viewer.principal;
+  const creatorCheck = p && viewer.person && isCreator(item, p) ? svc<WorkItemService>('workItems').creatorCheck(item.id, p) : null;
+  if (creatorCheck === 'ok') return { ok: true, acting_for: '', as: 'creator' };
+  if (action === 'return' && p && viewer.person && itemRoles(item, viewer).includes('lead')) return { ok: true, acting_for: 'creator', as: 'lead' };
+  if (holdsManagementGrant(p)) return { ok: true, acting_for: 'creator', as: 'management' };
+  // 建立人本人、但事项不能由建立人处理（来源未验证、建立人不是人）：照旧说清楚是这个原因
+  if (creatorCheck === 'not_eligible') return { ok: false, status: 403, error: 'work_item_creator_not_eligible' };
+  return no;
+}
+const decides = (item: WorkItemRow, viewer: WorkItemViewer, action: ItemDecision): boolean => itemDecisionVerdict(item, viewer, action).ok;
+
 export function canOf(item: WorkItemRow, viewer: WorkItemViewer): Can {
   const live = !TERMINAL_STATES.includes(item.state);
-  const creatorOk = writerVerdict(viewer, item.id, false) === 'ok';
+  const ready = item.state === 'ready';
   return {
-    release: viewer.admin && releasable(item),
-    answer: live && viewer.admin && pendingAsks(item) > 0,
-    verify: item.state === 'ready' && (viewer.admin || creatorOk),
-    reply: live && (viewer.admin || creatorOk) && replyableMessages(item).length > 0,
+    release: releasable(item) && decides(item, viewer, 'release'),
+    answer: live && pendingAsks(item) > 0 && decides(item, viewer, 'answer'),
+    verify: ready && decides(item, viewer, 'verify'),
+    return: ready && decides(item, viewer, 'return'),
+    reply: live && replyableMessages(item).length > 0 && decides(item, viewer, 'reply'),
   };
 }
 
-/** 是不是轮到这个人：answer、verify 轮到建立人；release 轮到有放行权限的人（管理员）。只在事情确实在等的时候为真 */
+/**
+ * 从请求认出看的人（「关注」的列表和答复入口用；事项自己的入口用 workItemViewer，两者同一个口径）：
+ * admin 是调用方已经判过的管理门；principal 经身份服务认 cookie；person 是主体表里启用的人；management 和 isManagement 同一处
+ */
+export async function requestViewer(req: express.Request, admin: boolean): Promise<WorkItemViewer> {
+  let principal: string | null = null, person = false;
+  const cookie = String(req.headers.cookie ?? '');
+  if (cookie) {
+    const who = await identity().resolveViewer(cookie);
+    if (who.ok) {
+      principal = who.viewer.sub;
+      const p = svc<PrincipalService>('principals').get(principal) as { kind?: string; status?: string } | undefined;
+      person = !!p && p.kind === 'person' && p.status === 'active';
+    }
+  }
+  return { admin, principal, person, actor: principal ?? 'admin', management: isManagement(principal, admin) };
+}
+
+/** 是不是轮到这个人：answer、verify 轮到建立人；release 轮到负责人或勾了先过目的建立人（管理层代办不算）。只在事情确实在等的时候为真 */
 export function turnOf(item: WorkItemRow, viewer: WorkItemViewer): Turn {
   const live = !TERMINAL_STATES.includes(item.state);
   const mine = viewer.principal !== null && isCreator(item, viewer.principal);
   return {
-    release: viewer.admin && releasable(item),
+    release: releasable(item) && releaseRole(item, viewer)?.acting_for === '',
     answer: live && mine && pendingAsks(item) > 0,
     verify: item.state === 'ready' && mine,
   };

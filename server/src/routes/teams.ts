@@ -40,7 +40,7 @@ import type { PrincipalService } from '../services/principal.ts';
 import type { GrantService } from '../services/grant.ts';
 import type { DepartmentService } from '../services/department.ts';
 import { HOST_RE, SEAT_ID_RE, SEAT_RE, TEAM_RE, type Actor, type SeatKey, type TeamKey, type TeamRefusal, type TeamService, type TeamView } from '../services/team.ts';
-import { teamName } from '../team-relation.ts';
+import { orgWideManagement, teamName, teamVisibleTo } from '../team-relation.ts';
 import { CONFIRM_BY, type RelationProposalService } from '../services/relation-proposal.ts';
 
 export type TeamRouteDeps = {
@@ -95,7 +95,7 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
     if (!bound) { res.status(401).json({ error: 'teams_auth_required' }); return null; }
     const p = principals().get(bound);
     if (!p || p.status !== 'active' || p.kind !== 'person') { res.status(403).json({ error: 'teams_principal_not_active' }); return null; }
-    const management = grants().activeFor(bound).some((g) => (g.role === 'management' || g.role === 'owner') && g.scope === '*');
+    const management = orgWideManagement(bound);
     return { kind: 'person', principal: bound, management };
   }
 
@@ -119,16 +119,7 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
 
   /** 这个人看得到这个团队吗（读） */
   function visible(v: Viewer, t: TeamView): boolean {
-    if (v.kind === 'admin') return true;
-    if (t.status === 'unclaimed') return false;
-    if (v.management) return true;
-    if (t.leads.some((l) => l.principal === v.principal)) return true;
-    if (t.members.some((m) => m.assigned_to?.principal === v.principal)) return true;
-    if (t.department) {
-      const d = t.department.id;
-      if (departments().of(v.principal).some((x) => x.id === d)) return true;
-    }
-    return false;
+    return teamVisibleTo({ admin: v.kind === 'admin', principal: v.principal, management: v.kind === 'person' && v.management }, t);
   }
 
   /** 管理员（同源）或本机命令行；不是就回 403，返回 null */
