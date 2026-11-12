@@ -13,7 +13,7 @@
  */
 import type express from 'express';
 import { svc } from './context.ts';
-import { identity } from './identity.ts';
+import { identity, sourceDown } from './identity.ts';
 import { isCreator, type WorkItemRow, type WorkItemService } from './services/work-item.ts';
 import type { PrincipalService } from './services/principal.ts';
 import { pendingAsksOfEvent } from './services/attention-sources.ts';
@@ -30,7 +30,11 @@ export const TERMINAL_STATES: readonly string[] = ['done', 'failed', 'dropped', 
 
 /** 看的人：admin 是过了管理门；management 是管理层（有 work-items.view-all 这个动作，按统一判定认，不按角色名）。
  *  现有管理员迁移后两样都有；以后单独授了系统管理员、没授管理层的人，看不到事项 */
-export type WorkItemViewer = { admin: boolean; principal: string | null; person: boolean; actor: string; management: boolean };
+export type WorkItemViewer = {
+  admin: boolean; principal: string | null; person: boolean; actor: string; management: boolean;
+  /** 带了 cookie，但身份来源不可达（认不出的原因是来源，不是没登录）：路由回 502 identity_unavailable */
+  sourceDown?: boolean;
+};
 
 /**
  * 管理层这个动作：事项列表的「全部」视角报的就是它（路由的 refine），看任何一件事项的详情也按它判。
@@ -155,17 +159,18 @@ function silentRes(): express.Response {
 export async function workItemViewer(req: express.Request, deps: { markOdooAdmin: (req: express.Request) => Promise<void>; adminGuard: (req: express.Request, res: express.Response) => boolean; adminActor?: (req: express.Request) => string }): Promise<WorkItemViewer> {
   await deps.markOdooAdmin(req);
   const admin = deps.adminGuard(req, silentRes());
-  let principal: string | null = null, person = false;
+  let principal: string | null = null, person = false, down = false;
   const cookie = String(req.headers.cookie ?? '');
   if (cookie) {
     const who = await identity().resolveViewer(cookie);
+    down = sourceDown(who);
     if (who.ok) {
       principal = who.viewer.sub;
       const p = svc<PrincipalService>('principals').get(principal) as { kind?: string; status?: string } | undefined;
       person = !!p && p.kind === 'person' && p.status === 'active';
     }
   }
-  return { admin, principal, person, actor: admin ? (deps.adminActor?.(req) ?? 'admin') : principal ?? 'anonymous', management: isManagement(principal, admin) };
+  return { admin, principal, person, actor: admin ? (deps.adminActor?.(req) ?? 'admin') : principal ?? 'anonymous', management: isManagement(principal, admin), ...(down ? { sourceDown: true } : {}) };
 }
 
 /**
