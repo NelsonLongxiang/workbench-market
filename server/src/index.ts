@@ -688,6 +688,8 @@ async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkben
     const selfRow = svc<WorkbenchService>('workbench').byId(w.id) as unknown as WorkbenchRow;
     return rowToWorkbench(selfRow);
   }
+  // 兜底：对外断开时，任何调用方都不去探外部地址，也不改这个台的状态（不然会被记成离线、污染副本）
+  if (outboundOff()) { noteBlocked('health-check', w.url); return rowToWorkbench(w); }
   const t = typeOf(w.type);
   const settings = getSettings();
   // issue #8：坏 health_path / 非法组合不得让单测整体 500——探测目标构造失败时该台记 down
@@ -2610,6 +2612,8 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
     case 'workbench_summary':
       return summaryPayload();
     case 'workbench_check': {
+      // 对外断开（预发）：和 check-all 一样不探
+      if (outboundOff()) { noteBlocked('health-check'); throw new HttpError(503, '对外已断开（WM_OUTBOUND=off），不做探活'); }
       if (args?.all) {
         const settings = getSettings();
         const limit = Math.max(1, Number(settings.health_concurrency) || 8);
@@ -3404,6 +3408,7 @@ process.on('unhandledRejection', (r) => { console.error('[fatal] unhandledReject
 let timer: ReturnType<typeof setTimeout> | null = null;
 let checking = false;
 async function patrol(): Promise<void> {
+  if (outboundOff()) { noteBlocked('health-patrol'); return; } // 对外断开：启动后那一次和定时的都不探——探不到会把副本里每个台都记成离线
   if (checking) return;
   checking = true;
   try {
