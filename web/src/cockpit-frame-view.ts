@@ -48,6 +48,8 @@ export const activeTab = (tabs: { key: string }[], cur: string | null | undefine
  *  取数走台的视图入口，拿回来是排好的块。bench 是视图台自己的标识（slug），不是工作台的数字 id。 */
 export type BenchViewRef = { i: string; kind: 'bench-view'; bench: string; view: string; tab: 'board' | 'detail'; order: number };
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
+/** 视图的 key：和服务端存面板时的校验同一个写法 */
+const VIEW_KEY = /^[a-z][a-z0-9-]{0,31}$/;
 
 /** 从驾驶舱的 panels 里挑出数据视图的引用：只认写法对的（bench 是 slug、view 非空、tab 是 board / detail），别的丢掉 */
 export function benchViewRefs(panels: unknown): BenchViewRef[] {
@@ -55,9 +57,9 @@ export function benchViewRefs(panels: unknown): BenchViewRef[] {
   const out: BenchViewRef[] = [];
   for (const p of panels) {
     const o = p as Record<string, unknown> | null;
-    if (!o || o.kind !== 'bench-view' || typeof o.bench !== 'string' || !SLUG.test(o.bench) || typeof o.view !== 'string' || !o.view.trim()) continue;
+    if (!o || o.kind !== 'bench-view' || typeof o.bench !== 'string' || !SLUG.test(o.bench) || typeof o.view !== 'string' || !VIEW_KEY.test(o.view)) continue;
     if (o.tab !== 'board' && o.tab !== 'detail') continue;
-    out.push({ i: typeof o.i === 'string' && o.i ? o.i : `bv-${o.bench}-${o.view}`, kind: 'bench-view', bench: o.bench, view: o.view.trim(), tab: o.tab, order: typeof o.order === 'number' && Number.isFinite(o.order) ? o.order : 0 });
+    out.push({ i: typeof o.i === 'string' && o.i ? o.i : `bv-${o.bench}-${o.view}`, kind: 'bench-view', bench: o.bench, view: o.view, tab: o.tab, order: typeof o.order === 'number' && Number.isFinite(o.order) ? o.order : 0 });
   }
   return out;
 }

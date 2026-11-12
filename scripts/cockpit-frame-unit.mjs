@@ -26,13 +26,15 @@ const panels = [
   { kind: 'bench-view', bench: 'profit-desk', view: 'rows', tab: 'detail', order: 0 },
   { kind: 'bench-view', bench: 'Bad Slug', view: 'x', tab: 'board', order: 0 },
   { kind: 'bench-view', bench: 'ok', view: '', tab: 'board', order: 0 },
+  { kind: 'bench-view', bench: 'ok', view: 'Bad Key', tab: 'board', order: 0 },
+  { i: 'bv-ok-saved', workbenchId: 0, kind: 'bench-view', bench: 'ok2', view: 'saved', tab: 'detail', order: 5, x: 0, y: 0, w: 6, h: 10 },
   { kind: 'bench-view', bench: 'ok', view: 'x', tab: 'elsewhere', order: 0 },
   null, 'x',
 ];
 const refs = benchViewRefs(panels);
-ok('引用：只认写法对的（台是 slug、视图非空、页签是 board / detail）；没给 i 的补一个', refs.length === 3 && refs[1].i === 'bv-profit-desk-trend' && benchViewRefs(null).length === 0);
+ok('引用：只认写法对的（台是 slug、视图非空、页签是 board / detail）；没给 i 的补一个', refs.length === 4 && refs[1].i === 'bv-profit-desk-trend' && refs[3].i === 'bv-ok-saved' && benchViewRefs(null).length === 0);
 ok('面板栅格不画数据视图的引用；别的面板照旧', isBenchViewPanel(panels[1]) && !isBenchViewPanel(panels[0]) && !isBenchViewPanel(null));
-ok('一个页签上的引用按次序排', refsOfTab(refs, 'board').map((r) => r.view).join() === 'trend,kpi' && refsOfTab(refs, 'detail').map((r) => r.view).join() === 'rows');
+ok('一个页签上的引用按次序排', refsOfTab(refs, 'board').map((r) => r.view).join() === 'trend,kpi' && refsOfTab(refs, 'detail').map((r) => r.view).join() === 'rows,saved');
 ok('中间的页签：配了数据视图才有看板、明细，排在前面；有面板才有工作台', mainTabKeys(refs, 1).join() === 'board,detail,benches' && mainTabKeys(refs, 0).join() === 'board,detail' && mainTabKeys(refs.filter((r) => r.tab === 'detail'), 2).join() === 'detail,benches');
 ok('没配数据视图：只有工作台，看板不出空壳；一个面板都没有也留工作台（放空状态）', mainTabKeys([], 2).join() === 'benches' && mainTabKeys([], 0).join() === 'benches');
 ok('取数地址：台、视图、筛选值（空的不带，名字前加 p.）', benchViewUrl({ bench: 'profit-desk', view: 'kpi' }, { month: '2026-11', shop: '' }) === '/api/bench-views/profit-desk/render?view=kpi&p.month=2026-11');
