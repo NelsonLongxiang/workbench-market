@@ -186,7 +186,11 @@ try {
     await call('GET', '/api/auth/viewer', MGMT);
     const g = await call('POST', '/api/grants', {}, { principal: 'user:no-flag', role: 'management', scope: '*', reason: '合成：管理层' });
     await call('POST', `/api/grants/${g.body?.grant?.id}/submit`, {}); await call('POST', `/api/grants/${g.body?.grant?.id}/approve`, {});
-    const mgmtSees = ((await call('GET', '/api/attention', MGMT)).body?.items ?? []).some((x) => x.source === 'work-items' && x.source_id === S.viaAttnMgmt);
+    const mgmtItem = ((await call('GET', '/api/attention', MGMT)).body?.items ?? []).find((x) => x.source === 'work-items' && x.source_id === S.viaAttnMgmt);
+    const mgmtSees = !!mgmtItem;
+    const ownItem = ((await call('GET', '/api/attention', ALPHA)).body?.items ?? []).find((x) => x.source === 'work-items' && x.source_id === S.viaAttnMgmt);
+    check(mgmtSees && mgmtItem.answers.length === 0 && mgmtItem.mine === false && ownItem && JSON.stringify(ownItem.answers) === JSON.stringify(['verify', 'return']),
+      '「关注」列表的答法只给答得了的人：管理层看得到别人建的待验收，但不带验收、退回；建立人自己的带', JSON.stringify({ mgmtItem, ownItem }));
     const n = logs(S.viaAttnMgmt);
     const byMgmt = await viaAttn(S.viaAttnMgmt, MGMT);
     const mgmtUntouched = untouched(S.viaAttnMgmt, n) && state(S.viaAttnMgmt) === 'ready';
@@ -195,9 +199,9 @@ try {
     const anon = await viaAttn(S.viaAttnMgmt, { ...SAME, 'x-forwarded-for': '198.51.100.7' });
     const adminSource = await viaAttn('1', ALPHA, 'change-requests', 'approve');
     const down = await viaAttn(S.viaAttnMgmt, { ...SAME, cookie: `session_id=${SESSIONS.hangs}` });
-    check(g.status === 201 && mgmtSees && byMgmt.status === 404 && byMgmt.body?.result?.error === 'work_item_not_found' && mgmtUntouched
+    check(g.status === 201 && mgmtSees && byMgmt.status === 400 && byMgmt.body?.error === 'attention_answer_not_offered' && mgmtUntouched
       && own.status === 200 && ownDone && anon.status === 401 && adminSource.status === 403 && down.status === 502 && down.body?.error === 'identity_unavailable' && untouched(S.viaAttnMgmt, n),
-      '「关注」的答复入口对登录的人放开：建立人从这里验收自己的事项 200；管理层看得到别人的事项、从这里验收被拒（不是建立人，事项不动）；远程匿名 401；不是管理员答管理员的来源 403；身份来源不可达 502 identity_unavailable',
+      '「关注」的答复入口对登录的人放开：建立人从这里验收自己的事项 200；管理层看得到别人的事项、但这一条没给他答法，从这里验收被拒（400，事项不动）；远程匿名 401；不是管理员答管理员的来源 403；身份来源不可达 502 identity_unavailable',
       show({ mgmtSees, byMgmt: [byMgmt.status, byMgmt.body?.result?.error ?? byMgmt.body?.error], own: [own.status, ownDone], anon: anon.status, adminSource: adminSource.status, down: [down.status, down.body?.error] }));
   }
 

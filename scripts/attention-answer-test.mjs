@@ -250,6 +250,18 @@ try {
   {
     // 事项来源（无权的人、换答法）的重放在 work-item-creator-test 的 L20 节
     const TOKEN = { ...SAME, 'x-admin-token': ADMIN_TOKEN };
+    // 管理员放行过的待过目事项：普通登录的人（什么都看不到）、员工对它发另一种答法或同一种答法，和对不存在的事项一样，不是 200、不带上一次的结果
+    {
+      const released = `wi_${S.release.new}`, ghostItem = 'wi_no_such_item_replay';
+      const out = [];
+      for (const [who, h] of [['alpha', { ...SAME, cookie: `session_id=${SESSIONS.alpha}` }], ['beta', { ...SAME, cookie: `session_id=${SESSIONS.beta}` }]]) {
+        for (const ans of ['withdraw', 'release']) {
+          const got = await answer('work-items', released, ans, {}, h), ghost = await answer('work-items', ghostItem, ans, {}, h);
+          out.push({ who, ans, same: got.status === ghost.status && same(got.body, ghost.body), got });
+        }
+      }
+      check(out.every((o) => o.same && o.got.status !== 200 && !o.got.body?.result), '管理员放行过的事项：不是当事人的人用任意答法重放，应答和不存在的事项一样，不是 200、不带上一次的事件号和结果', show(out.filter((o) => !o.same || o.got.status === 200)));
+    }
     // 管理员里换一个人（口令）重放会话管理员答过的变更申请：和不存在的一样，不拿别人的结果
     const tReplay = await answer('change-requests', S.cr.dup, 'reject', { reason: '口令重放' }, TOKEN);
     const tGhost = await answer('change-requests', 999998, 'reject', { reason: '口令重放' }, TOKEN);
