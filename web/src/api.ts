@@ -202,6 +202,24 @@ export const getMarketSops = () => marketGet('/api/sops');
 export const getMarketSkills = () => marketGet('/api/skills');
 export const getMarketRunningSops = () => marketGet('/api/sop/runs/active');
 
+/** 「谁能做什么」（照原型重做的 /access）：授予、主体、角色、角色矩阵各读各的，返回状态码让页面给说法；核准、不给（撤销待核的授予）也一样。
+ *  不走 apiFetch（被拒时不弹管理员口令，页面自己说）。带上口令头：管理员用口令时能看全部。断网当状态码 0 */
+async function accessCall(url: string, init?: { method: string; body: unknown }): Promise<{ status: number; body: unknown }> {
+  try {
+    const token = getAdminToken();
+    const headers: Record<string, string> = { ...(token ? { 'X-Admin-Token': token } : {}), ...(init ? { 'Content-Type': 'application/json' } : {}) };
+    const r = await fetch(url, init ? { method: init.method, headers, body: JSON.stringify(init.body ?? {}) } : { headers });
+    if (loginRequired(r)) { redirectToLogin(); return { status: 401, body: null }; }
+    return { status: r.status, body: await r.json().catch(() => null) };
+  } catch { return { status: 0, body: null }; }
+}
+export const getAccessGrants = () => accessCall('/api/grants');
+export const getAccessPrincipals = () => accessCall('/api/principals');
+export const getAccessRoles = () => accessCall('/api/roles');
+export const getAccessMatrix = () => accessCall('/api/roles/matrix');
+export const approveAccessGrant = (id: number) => accessCall(`/api/grants/${id}/approve`, { method: 'POST', body: {} });
+export const declineAccessGrant = (id: number, reason: string) => accessCall(`/api/grants/${id}/revoke`, { method: 'POST', body: { reason } });
+
 /** 「安排一件事」（#577）：可派的团队。404 = 服务端还没有这个接口，页面给「还没上线」 */
 export async function getAssignableTeams(): Promise<{ status: number; teams: { team: string; name: string }[] }> {
   try {
@@ -217,6 +235,39 @@ export async function postWorkItem(body: Record<string, unknown>): Promise<{ sta
     const r = await fetch('/api/work-items', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body) });
     return { status: r.status, body: await r.json().catch(() => null) as Record<string, unknown> | null };
   } catch { return { status: 0, body: null }; }
+}
+
+/** 席位名册（阶段七 #581）：登录的人能读，只当显示用（句柄换名字）。读不到给空，页面照旧显示句柄 */
+export async function getRosterTeams(): Promise<unknown[]> {
+  try {
+    const r = await fetch('/api/a2a/teams', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    const j = r.ok ? await r.json() as { teams?: unknown } : null;
+    return Array.isArray(j?.teams) ? j.teams : [];
+  } catch { return []; }
+}
+
+/** 生命周期里各条线、各阶段的显示名（事项列表把代号换成名字用）：阶段码表一次，对象按类型翻页取（每类最多 5 页）。
+ *  读不到（观测层没挂、没登录）给空表，页面写中性说法，不露代号 */
+export async function getLifecycleNameSources(): Promise<{ types: unknown[]; objects: unknown[] }> {
+  const get = async (path: string): Promise<Record<string, unknown> | null> => {
+    try { const r = await fetch(`/api/lifecycle/${path}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } }); return r.ok ? await r.json() as Record<string, unknown> : null; } catch { return null; }
+  };
+  const st = await get('stages');
+  const types = Array.isArray(st?.types) ? st.types as { type?: unknown }[] : [];
+  const objects: unknown[] = [];
+  for (const t of types) {
+    if (typeof t?.type !== 'string') continue;
+    let cursor: string | null = null;
+    for (let i = 0; i < 5; i++) {
+      const q = new URLSearchParams({ type: t.type, limit: '200', ...(cursor ? { cursor } : {}) });
+      const page = await get(`objects?${q}`);
+      if (!page || !Array.isArray(page.items)) break;
+      objects.push(...page.items);
+      cursor = typeof page.next_cursor === 'string' ? page.next_cursor : null;
+      if (!cursor) break;
+    }
+  }
+  return { types, objects };
 }
 
 /** 数据视图的取数入口（驾驶舱按引用取一份视图）：带登录的 cookie，不带管理口令（入口不认口令）。

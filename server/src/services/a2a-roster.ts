@@ -66,6 +66,16 @@ export function recordRoster(r: { host: string; peerRoot: string; peerZone: stri
   } catch (e) { db.exec('ROLLBACK TO a2a_roster'); db.exec('RELEASE a2a_roster'); throw e; }
 }
 
+/**
+ * 名册来源的汇总（health 的 a2a.roster 用，不带任何标识）：有几个来源、最久没收下的那个上次收下是什么时候、
+ * 超过 staleMs 没收下的有几个。宿主正常每 5 分钟推一次。received_at 只在收下（recorded）时更新。
+ */
+export function rosterSourceStats(now = Date.now(), staleMs = 15 * 60_000): { sources: number; stalest_received_at: string | null; stale_15m: number } {
+  const row = db.prepare('SELECT COUNT(*) AS n, MIN(received_at) AS oldest, SUM(CASE WHEN received_at < ? THEN 1 ELSE 0 END) AS stale FROM a2a_rosters')
+    .get(sqlTime(now - staleMs)) as { n: number; oldest: string | null; stale: number | null };
+  return { sources: Number(row.n), stalest_received_at: row.oldest ?? null, stale_15m: Number(row.stale ?? 0) };
+}
+
 export function rosters(): RosterRow[] {
   const hosts = db.prepare('SELECT host, peer_root, peer_zone, reported_at, received_at FROM a2a_rosters ORDER BY peer_zone, host').all() as Omit<RosterRow, 'seats'>[];
   const seats = db.prepare('SELECT host, team, seat, seat_id, name, role, online, queued, last_active_at FROM a2a_roster_seats ORDER BY host, team, seat').all() as { host: string; team: string; seat: string; seat_id: string; name: string; role: RosterSeat['role']; online: number; queued: number; last_active_at: string }[];

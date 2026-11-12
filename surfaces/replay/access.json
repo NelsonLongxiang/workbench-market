@@ -1,0 +1,378 @@
+{
+  "domain": "access",
+  "what": "角色预设 ②：以某人的身份看、红线清单、首次安装向导的 5 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。人都是合成的。",
+  "routes": ["GET /api/principals/:id/access", "GET /api/access/red-lines", "GET /api/setup/wizard", "POST /api/setup/wizard", "POST /api/setup/wizard/approve"],
+  "exempt": [
+    { "route": "GET /api/access/red-lines", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入", "shown_by": "open/redlines-junk" },
+    { "route": "GET /api/setup/wizard", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入", "shown_by": "open/wizard-read-empty" }
+  ],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "缺省配置：登录门关，没设管理口令。本机命令行算管理员也是属主；假登录提供方认出 alpha、beta（都不是管理员）。定了时钟：向导运行的时间按分钟取整再比。",
+      "env": {},
+      "clock": "2030-01-01T00:00:00Z",
+      "fixtures": ["identity-fake"],
+      "seed": [
+        { "table": "principals", "row": { "id": "user:alpha", "id_key": "user:alpha", "kind": "person", "display_name": "合成甲" } },
+        { "table": "principals", "row": { "id": "user:beta", "id_key": "user:beta", "kind": "person", "display_name": "合成乙" } },
+        { "table": "principal_identities", "row": { "provider": "fake", "external_id": "alpha", "external_key": "alpha", "principal_id": "user:alpha" } },
+        { "table": "principal_identities", "row": { "provider": "fake", "external_id": "beta", "external_key": "beta", "principal_id": "user:beta" } }
+      ],
+      "steps": [
+        {
+          "id": "access-cli",
+          "route": "GET /api/principals/:id/access",
+          "class": "normal",
+          "what": "本机命令行看 alpha：还没有任何授予",
+          "request": { "method": "GET", "path": "/api/principals/user:alpha/access" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "principal": { "id": "user:alpha", "kind": "person", "status": "active", "display_name": "合成甲" }, "active": [], "inactive": [] }
+          }
+        },
+        {
+          "id": "access-remote-anon",
+          "route": "GET /api/principals/:id/access",
+          "class": "unauthorized",
+          "what": "远程、没登录：401",
+          "request": { "method": "GET", "path": "/api/principals/user:alpha/access", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "access_auth_required" }
+          }
+        },
+        {
+          "id": "access-other",
+          "route": "GET /api/principals/:id/access",
+          "class": "unauthorized",
+          "what": "员工 beta 看 alpha：403",
+          "request": { "method": "GET", "path": "/api/principals/user:alpha/access", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "85", "etag": "W/\"55-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "access_not_self", "message": "只能看自己的；看别人的要管理员" }
+          }
+        },
+        {
+          "id": "access-bad-id",
+          "route": "GET /api/principals/:id/access",
+          "class": "invalid",
+          "what": "主体标识写法不对：400",
+          "request": { "method": "GET", "path": "/api/principals/nobody/access" },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "95", "etag": "W/\"5f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "主体标识写法不对（形如 user:<登录名>）", "code": "principal_id_invalid" }
+          }
+        },
+        {
+          "id": "access-missing",
+          "route": "GET /api/principals/:id/access",
+          "class": "invalid",
+          "what": "主体不存在：404",
+          "request": { "method": "GET", "path": "/api/principals/user:nobody/access" },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "70", "etag": "W/\"46-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "principal_missing", "message": "主体 user:nobody 不存在" }
+          }
+        },
+        {
+          "id": "access-bad-action",
+          "route": "GET /api/principals/:id/access",
+          "class": "invalid",
+          "what": "action 写法不对：400",
+          "request": { "method": "GET", "path": "/api/principals/user:alpha/access?action=BAD!" },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "55", "etag": "W/\"37-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "action 写法不对", "code": "action_invalid" }
+          }
+        },
+        {
+          "id": "redlines",
+          "route": "GET /api/access/red-lines",
+          "class": "normal",
+          "what": "本机命令行读红线清单",
+          "request": { "method": "GET", "path": "/api/access/red-lines" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "4393", "etag": "W/\"1129-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "red_lines": [
+                { "id": "no-self-grant", "title": "不能给自己授予", "detail": "起草、提交、放行的人都不能是被授予的主体；库里也有约束。", "enforced_in": "server/src/services/grant.ts、server/src/db.ts", "test": "scripts/grants-smoke.mjs" },
+                { "id": "owner-approves-admin-grants", "title": "管理员级的授予只有属主能放行", "detail": "属主、系统管理员，或者权限里带管理类的角色；口令管理员、不是属主的管理员都放行不了。", "enforced_in": "server/src/services/grant.ts", "test": "scripts/grants-smoke.mjs" },
+                { "id": "decide-person-only", "title": "决定只认人", "detail": "带决定类权限的角色不授予给不是人的主体（席位、AI 员工、系统）；不是人的做决定一律转成先问人。", "enforced_in": "server/src/services/grant.ts、server/src/judgment.ts", "test": "scripts/grants-smoke.mjs" },
+                { "id": "non-person-needs-responsible", "title": "不是人的主体要有在职的责任人", "detail": "席位、AI 员工这类主体，责任人不存在或停用了就不能被授予。", "enforced_in": "server/src/services/grant.ts", "test": "scripts/grants-smoke.mjs" },
+                { "id": "guest-needs-expiry", "title": "访客的授予必须有期限", "detail": "没写期限的访客授予起草不了。", "enforced_in": "server/src/services/grant.ts", "test": "scripts/role-presets-test.mjs" },
+                { "id": "ai-staff-non-person-only", "title": "AI 员工这个角色只授予不是人的主体", "detail": "给人授 AI 员工会被拒；人要的权限用别的预设。", "enforced_in": "server/src/services/grant.ts", "test": "scripts/role-presets-test.mjs" },
+                { "id": "ai-copies-no-decide", "title": "从 AI 员工复制出来的角色不能带决定类权限", "detail": "复制几层都算（沿来源链判），删掉中间一层也不断。", "enforced_in": "server/src/routes/grants.ts、server/src/services/custom-role.ts", "test": "scripts/custom-roles-smoke.mjs" },
+                { "id": "custom-roles-owner-approval", "title": "带来管理类或决定类权限的自定义角色要属主放行", "detail": "建的先待核，改的先记成提议；放行之前不能授予。", "enforced_in": "server/src/routes/grants.ts", "test": "scripts/custom-roles-smoke.mjs" },
+                { "id": "business-roles-owner-approval", "title": "碰业务的自定义角色要属主放行", "detail": "系统管理员缺省看不到业务数据，也不能自己复制、改出一个带业务权限的角色转给别人：建的先待核、改的先记成提议，属主放行之前不生效。", "enforced_in": "server/src/routes/grants.ts、server/src/roles.ts", "test": "scripts/custom-roles-smoke.mjs" },
+                { "id": "business-grants-business-approval", "title": "带业务写的授予要管理层或属主放行", "detail": "角色带业务域的写、不带业务拍板（部门成员、AI 员工这类），授给人或席位要管理层或属主放行；管理口令、只有系统管理员身份的放行不了，起草的人也不能自己放行。普通员工、访客照旧由系统管理员一步完成。", "enforced_in": "server/src/services/grant.ts、server/src/roles.ts", "test": "scripts/grants-smoke.mjs" },
+                { "id": "business-decide-grants-owner-approval", "title": "带业务拍板的授予只有属主能放行", "detail": "管理层、部门负责人这类带业务拍板的角色，不论范围，授予只有属主能放行：管理层不能自己再造管理层，管理口令也不行。", "enforced_in": "server/src/services/grant.ts、server/src/roles.ts", "test": "scripts/grants-smoke.mjs" },
+                { "id": "system-admin-no-business", "title": "系统管理员缺省看不到业务数据", "detail": "系统管理员只有系统域的读写管，业务域（事项、工作台数据、关注……）要另外授予。", "enforced_in": "server/src/roles.ts", "test": "scripts/role-presets-test.mjs" },
+                { "id": "settings-no-secret-values", "title": "设置的出口不带凭据类的值", "detail": "设置读、导出、改设置的应答里，令牌、密码、密钥只说有没有；启动时自检，漏了拒绝启动。", "enforced_in": "server/src/settings-view.ts、server/src/index.ts", "test": "scripts/settings-read-smoke.mjs" },
+                { "id": "export-reveal-admin-only", "title": "导出真值只给管理员", "detail": "带 reveal 的导出要管理口令或管理员登录（浏览器来的要同源）；不满足 403，不降级成掩码。", "enforced_in": "server/src/routes/export-import.ts", "test": "scripts/export-reveal-smoke.mjs" }
+              ]
+            }
+          }
+        },
+        {
+          "id": "redlines-junk",
+          "route": "GET /api/access/red-lines",
+          "class": "normal",
+          "what": "这条路由不读查询串",
+          "request": { "method": "GET", "path": "/api/access/red-lines?x=1" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "4393", "etag": "W/\"1129-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "red_lines": [
+                { "id": "no-self-grant", "title": "不能给自己授予", "detail": "起草、提交、放行的人都不能是被授予的主体；库里也有约束。", "enforced_in": "server/src/services/grant.ts、server/src/db.ts", "test": "scripts/grants-smoke.mjs" },
+                { "id": "owner-approves-admin-grants", "title": "管理员级的授予只有属主能放行", "detail": "属主、系统管理员，或者权限里带管理类的角色；口令管理员、不是属主的管理员都放行不了。", "enforced_in": "server/src/services/grant.ts", "test": "scripts/grants-smoke.mjs" },
+                { "id": "decide-person-only", "title": "决定只认人", "detail": "带决定类权限的角色不授予给不是人的主体（席位、AI 员工、系统）；不是人的做决定一律转成先问人。", "enforced_in": "server/src/services/grant.ts、server/src/judgment.ts", "test": "scripts/grants-smoke.mjs" },
+                { "id": "non-person-needs-responsible", "title": "不是人的主体要有在职的责任人", "detail": "席位、AI 员工这类主体，责任人不存在或停用了就不能被授予。", "enforced_in": "server/src/services/grant.ts", "test": "scripts/grants-smoke.mjs" },
+                { "id": "guest-needs-expiry", "title": "访客的授予必须有期限", "detail": "没写期限的访客授予起草不了。", "enforced_in": "server/src/services/grant.ts", "test": "scripts/role-presets-test.mjs" },
+                { "id": "ai-staff-non-person-only", "title": "AI 员工这个角色只授予不是人的主体", "detail": "给人授 AI 员工会被拒；人要的权限用别的预设。", "enforced_in": "server/src/services/grant.ts", "test": "scripts/role-presets-test.mjs" },
+                { "id": "ai-copies-no-decide", "title": "从 AI 员工复制出来的角色不能带决定类权限", "detail": "复制几层都算（沿来源链判），删掉中间一层也不断。", "enforced_in": "server/src/routes/grants.ts、server/src/services/custom-role.ts", "test": "scripts/custom-roles-smoke.mjs" },
+                { "id": "custom-roles-owner-approval", "title": "带来管理类或决定类权限的自定义角色要属主放行", "detail": "建的先待核，改的先记成提议；放行之前不能授予。", "enforced_in": "server/src/routes/grants.ts", "test": "scripts/custom-roles-smoke.mjs" },
+                { "id": "business-roles-owner-approval", "title": "碰业务的自定义角色要属主放行", "detail": "系统管理员缺省看不到业务数据，也不能自己复制、改出一个带业务权限的角色转给别人：建的先待核、改的先记成提议，属主放行之前不生效。", "enforced_in": "server/src/routes/grants.ts、server/src/roles.ts", "test": "scripts/custom-roles-smoke.mjs" },
+                { "id": "business-grants-business-approval", "title": "带业务写的授予要管理层或属主放行", "detail": "角色带业务域的写、不带业务拍板（部门成员、AI 员工这类），授给人或席位要管理层或属主放行；管理口令、只有系统管理员身份的放行不了，起草的人也不能自己放行。普通员工、访客照旧由系统管理员一步完成。", "enforced_in": "server/src/services/grant.ts、server/src/roles.ts", "test": "scripts/grants-smoke.mjs" },
+                { "id": "business-decide-grants-owner-approval", "title": "带业务拍板的授予只有属主能放行", "detail": "管理层、部门负责人这类带业务拍板的角色，不论范围，授予只有属主能放行：管理层不能自己再造管理层，管理口令也不行。", "enforced_in": "server/src/services/grant.ts、server/src/roles.ts", "test": "scripts/grants-smoke.mjs" },
+                { "id": "system-admin-no-business", "title": "系统管理员缺省看不到业务数据", "detail": "系统管理员只有系统域的读写管，业务域（事项、工作台数据、关注……）要另外授予。", "enforced_in": "server/src/roles.ts", "test": "scripts/role-presets-test.mjs" },
+                { "id": "settings-no-secret-values", "title": "设置的出口不带凭据类的值", "detail": "设置读、导出、改设置的应答里，令牌、密码、密钥只说有没有；启动时自检，漏了拒绝启动。", "enforced_in": "server/src/settings-view.ts、server/src/index.ts", "test": "scripts/settings-read-smoke.mjs" },
+                { "id": "export-reveal-admin-only", "title": "导出真值只给管理员", "detail": "带 reveal 的导出要管理口令或管理员登录（浏览器来的要同源）；不满足 403，不降级成掩码。", "enforced_in": "server/src/routes/export-import.ts", "test": "scripts/export-reveal-smoke.mjs" }
+              ]
+            }
+          }
+        },
+        {
+          "id": "redlines-remote-anon",
+          "route": "GET /api/access/red-lines",
+          "class": "unauthorized",
+          "what": "远程、没登录：401",
+          "request": { "method": "GET", "path": "/api/access/red-lines", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "access_auth_required" }
+          }
+        },
+        {
+          "id": "wizard-read-empty",
+          "route": "GET /api/setup/wizard",
+          "class": "normal",
+          "what": "还没跑过向导",
+          "request": { "method": "GET", "path": "/api/setup/wizard" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "cache-control": "private, no-store", "content-length": "11", "etag": "W/\"b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "runs": [] } }
+        },
+        {
+          "id": "wizard-read-remote-anon",
+          "route": "GET /api/setup/wizard",
+          "class": "unauthorized",
+          "what": "远程、没有口令：403",
+          "request": { "method": "GET", "path": "/api/setup/wizard", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "wizard-run-remote-anon",
+          "route": "POST /api/setup/wizard",
+          "class": "unauthorized",
+          "what": "远程、没有口令：跑不了",
+          "request": { "method": "POST", "path": "/api/setup/wizard", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "shape": "small" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "wizard-run-bad-shape",
+          "route": "POST /api/setup/wizard",
+          "class": "invalid",
+          "what": "形态写法不对：400",
+          "request": { "method": "POST", "path": "/api/setup/wizard", "json": { "shape": "huge" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "95", "etag": "W/\"5f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "shape 只能是 small（只有属主和同事）或 standard", "code": "shape_invalid" }
+          }
+        },
+        {
+          "id": "wizard-run",
+          "route": "POST /api/setup/wizard",
+          "class": "normal",
+          "what": "本机命令行跑小团队：alpha、beta 各起草一条普通员工",
+          "request": { "method": "POST", "path": "/api/setup/wizard", "json": { "shape": "small" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "163", "etag": "W/\"a3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "run": 1, "created": [{ "principal": "user:alpha", "role": "member", "scope": "*", "grant": 1 }, { "principal": "user:beta", "role": "member", "scope": "*", "grant": 2 }], "skipped": [] }
+          }
+        },
+        {
+          "id": "wizard-run-again",
+          "route": "POST /api/setup/wizard",
+          "class": "normal",
+          "what": "再跑一次：都已有，全部跳过",
+          "request": { "method": "POST", "path": "/api/setup/wizard", "json": { "shape": "small" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "181", "etag": "W/\"b5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "run": 2, "created": [], "skipped": [{ "principal": "user:alpha", "role": "member", "scope": "*", "reason": "already" }, { "principal": "user:beta", "role": "member", "scope": "*", "reason": "already" }] }
+          }
+        },
+        {
+          "id": "approve-remote-anon",
+          "route": "POST /api/setup/wizard/approve",
+          "class": "unauthorized",
+          "what": "远程、没有口令：放行不了",
+          "request": { "method": "POST", "path": "/api/setup/wizard/approve", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "run": 1 } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "approve-bad-run",
+          "route": "POST /api/setup/wizard/approve",
+          "class": "invalid",
+          "what": "run 写法不对：400",
+          "request": { "method": "POST", "path": "/api/setup/wizard/approve", "json": { "run": "x" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "64", "etag": "W/\"40-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run 要是向导运行的编号", "code": "run_invalid" } }
+        },
+        {
+          "id": "approve-missing",
+          "route": "POST /api/setup/wizard/approve",
+          "class": "invalid",
+          "what": "运行不存在：404",
+          "request": { "method": "POST", "path": "/api/setup/wizard/approve", "json": { "run": 99 } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "68", "etag": "W/\"44-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "wizard_run_missing", "message": "向导运行 99 不存在" }
+          }
+        },
+        {
+          "id": "approve",
+          "route": "POST /api/setup/wizard/approve",
+          "class": "normal",
+          "what": "本机命令行（属主）放行第一次运行：两条都生效",
+          "request": { "method": "POST", "path": "/api/setup/wizard/approve", "json": { "run": 1 } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "40", "etag": "W/\"28-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "approved": [1, 2], "failed": [] } }
+        },
+        {
+          "id": "access-after",
+          "route": "GET /api/principals/:id/access",
+          "class": "normal",
+          "what": "alpha 现在有一条向导建的普通员工授予（来源 wizard）",
+          "request": { "method": "GET", "path": "/api/principals/user:alpha/access" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "467", "etag": "W/\"1d3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "principal": { "id": "user:alpha", "kind": "person", "status": "active", "display_name": "合成甲" },
+              "active": [
+                {
+                  "id": 1,
+                  "role": "member",
+                  "role_name": "普通员工",
+                  "permissions": [{ "kinds": ["read"] }, { "actions": ["app-data.submit", "app-data.upload", "sop-run.file-refs", "sop-run.file-upload", "sop-run.finish", "sop-run.save", "sop-run.start"] }, { "kinds": ["decide"], "scope": "self" }],
+                  "scope": "*",
+                  "effective": true,
+                  "expires_at": null,
+                  "approved_by": "cli",
+                  "source": "wizard"
+                }
+              ],
+              "inactive": []
+            }
+          }
+        },
+        {
+          "id": "access-self",
+          "route": "GET /api/principals/:id/access",
+          "class": "normal",
+          "what": "alpha 看自己，带 action：能读台列表",
+          "request": { "method": "GET", "path": "/api/principals/user:alpha/access?action=workbench.list", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "563", "etag": "W/\"233-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "principal": { "id": "user:alpha", "kind": "person", "status": "active", "display_name": "合成甲" },
+              "active": [
+                {
+                  "id": 1,
+                  "role": "member",
+                  "role_name": "普通员工",
+                  "permissions": [{ "kinds": ["read"] }, { "actions": ["app-data.submit", "app-data.upload", "sop-run.file-refs", "sop-run.file-upload", "sop-run.finish", "sop-run.save", "sop-run.start"] }, { "kinds": ["decide"], "scope": "self" }],
+                  "scope": "*",
+                  "effective": true,
+                  "expires_at": null,
+                  "approved_by": "cli",
+                  "source": "wizard"
+                }
+              ],
+              "inactive": [],
+              "decision": { "action": "workbench.list", "kind": "read", "verdict": "allow", "rule": "grant", "grant": 1 }
+            }
+          }
+        },
+        {
+          "id": "wizard-read-after",
+          "route": "GET /api/setup/wizard",
+          "class": "normal",
+          "what": "两次运行，第一次已放行",
+          "vary": { "runs.0.created_at": 60000, "runs.1.created_at": 60000, "runs.1.approved_at": 60000 },
+          "request": { "method": "GET", "path": "/api/setup/wizard" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "420", "etag": "W/\"1a4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "runs": [
+                { "id": 2, "shape": "small", "created_by": "cli", "created_at": 1893456000000, "approved_by": null, "approved_at": null, "grants": [] },
+                {
+                  "id": 1,
+                  "shape": "small",
+                  "created_by": "cli",
+                  "created_at": 1893456000000,
+                  "approved_by": "cli",
+                  "approved_at": 1893456000000,
+                  "grants": [{ "id": 1, "principal": "user:alpha", "role": "member", "scope": "*", "status": "active" }, { "id": 2, "principal": "user:beta", "role": "member", "scope": "*", "status": "active" }]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

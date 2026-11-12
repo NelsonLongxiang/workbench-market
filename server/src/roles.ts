@@ -31,7 +31,13 @@ export const KINDS: readonly Kind[] = ['read', 'write', 'decide', 'admin'];
 export type Permission = { actions?: string[]; kinds?: Kind[]; domains?: string[]; scope?: string };
 export type RoleDecl = { id: string; name: string; includes?: string[]; permissions: Permission[] };
 /** 一个角色展开 includes 之后的全部权限 */
-export type RoleView = RoleDecl & { platform: boolean; custom: boolean; closure: Permission[]; adminLevel: boolean; decides: boolean };
+export type RoleView = RoleDecl & {
+  platform: boolean; custom: boolean; closure: Permission[]; adminLevel: boolean; decides: boolean;
+  /** 带业务域的写（整类给的写碰业务域，或按动作给了普通员工那几个之外的业务写）：授予要业务侧放行，见 approvalOf */
+  businessWrite: boolean;
+  /** 带业务域的拍板（只对自己的事拍板的不算）：授予要属主放行，见 approvalOf */
+  businessDecide: boolean;
+};
 
 const ROLE_ID_RE = /^[a-z][a-z0-9-]{0,47}$/;
 const ACTION_RE = /^[a-z][a-z0-9-]{0,31}\.[a-z][a-z0-9-]{0,47}$|^[a-z][a-z0-9_]{0,63}$/; // <域>.<动词>，或 MCP 工具名
@@ -42,9 +48,9 @@ const SCOPE_RE = /^(\*|self|(domain|bench|sop|tool):[\x21-\x7e]{1,128}|dept:[a-z
  * 不在这里的都算业务——新长出来的域默认是业务，系统管理员默认看不到
  */
 export const SYSTEM_DOMAINS: readonly string[] = [
-  'a2a', 'a2a-peer', 'admin', 'admin-token', 'agent-card', 'app', 'auth', 'binding', 'content', 'cookie', 'department', 'design-token',
-  'grant', 'health', 'judgment', 'login', 'market', 'mcp', 'principal', 'remote-allow', 'role', 'setting', 'skill', 'sso', 'stats', 'team',
-  'type', 'workbench',
+  'a2a', 'a2a-peer', 'access', 'admin', 'admin-token', 'agent-card', 'app', 'auth', 'binding', 'content', 'cookie', 'department',
+  'design-token', 'grant', 'health', 'judgment', 'login', 'market', 'mcp', 'principal', 'remote-allow', 'role', 'setting', 'setup',
+  'skill', 'sso', 'stats', 'team', 'type', 'workbench',
 ];
 /** 明确算业务的域。和 SYSTEM_DOMAINS 一起要盖住全部已登记动作的域（扩展的动作另算，都是业务） */
 export const BUSINESS_DOMAINS: readonly string[] = [
@@ -55,6 +61,60 @@ export const BUSINESS_DOMAINS: readonly string[] = [
 /** 动作的域：点号前面那段；MCP 工具名（没有点）都算 mcp-tool */
 export const domainOf = (action: string): string => (action.includes('.') ? action.slice(0, action.indexOf('.')) : 'mcp-tool');
 /** 已登记的动作里，域两边都不算的（导出快照时用；空数组就是都分好了） */
+/**
+ * 这组权限碰不碰业务：按动作写的看动作的域（不在系统域清单里的都算业务，扩展和清单外新长出来的域也算）；
+ * 按类别给的，没圈域就是全部域（当然含业务），圈了域的看其中有没有不在系统域清单里的。
+ * 自定义角色碰了业务，建、改都要属主放行：系统管理员缺省看不到业务数据，也不能自己造一个角色把它转给别人。
+ */
+export function touchesBusiness(perms: readonly Permission[]): boolean {
+  const system = new Set(SYSTEM_DOMAINS);
+  return perms.some((p) => (p.actions ?? []).some((a) => !system.has(domainOf(a)))
+    || ((p.kinds?.length ?? 0) > 0 && (p.domains === undefined || p.domains.some((d) => !system.has(d)))));
+}
+
+/**
+ * 这组权限带不带业务域的写：整类给的写，没圈域（就是全部域）或圈的域里有业务域；或者按动作给了业务域的写动作，
+ * 普通员工那几个（提需求、补充说明）除外——普通员工、访客这类日常开人的授予不因此多一道放行。
+ */
+export function writesBusiness(perms: readonly Permission[], catalog: ActionCatalog): boolean {
+  const system = new Set(SYSTEM_DOMAINS);
+  return perms.some((p) => ((p.kinds ?? []).includes('write') && (p.domains === undefined || p.domains.some((d) => !system.has(d))))
+    || (p.actions ?? []).some((a) => catalog.get(a) === 'write' && !system.has(domainOf(a)) && !MEMBER_WRITE_ACTIONS.includes(a)));
+}
+
+/**
+ * 这组权限带不带业务域的拍板：整类给的决定，没圈域或圈的域里有业务域；或者按动作给了业务域的决定动作。
+ * 范围是 self 的（普通员工对自己提的事验收、答复）不算。
+ */
+export function decidesBusiness(perms: readonly Permission[], catalog: ActionCatalog): boolean {
+  const system = new Set(SYSTEM_DOMAINS);
+  return perms.some((p) => p.scope !== 'self' && (((p.kinds ?? []).includes('decide') && (p.domains === undefined || p.domains.some((d) => !system.has(d))))
+    || (p.actions ?? []).some((a) => catalog.get(a) === 'decide' && !system.has(domainOf(a)))));
+}
+
+/**
+ * 业务侧：全公司范围的写和决定都有（权限没圈域、没圈范围）——管理层、属主是；只有系统管理员的不是。按权限认，不按角色名。
+ * 调用方只拿范围是 * 的生效授予的角色来问。
+ */
+export function isBusinessSide(perms: readonly Permission[]): boolean {
+  const open = perms.filter((p) => p.domains === undefined && (p.scope === undefined || p.scope === '*'));
+  return open.some((p) => (p.kinds ?? []).includes('write')) && open.some((p) => (p.kinds ?? []).includes('decide'));
+}
+
+/**
+ * 一条授予谁能放行，三档（说法给页面原样显示）：
+ *   · owner：管理员级的（属主、系统管理员、带管理类的），或带业务拍板的（管理层、部门负责人，范围不论）——要属主；
+ *   · business：带业务写、不带业务拍板的（部门成员、AI 员工这类）——要业务侧（管理层或属主）；
+ *   · admin：只带业务读、或不碰业务的（普通员工、访客、只碰系统域的）——管理员即可，日常开人一步完成。
+ * 第二、三档的放行人要是认出来的人（或本机命令行，见 services/grant.ts）；管理口令不算数。
+ */
+export type Approval = 'owner' | 'business' | 'admin';
+export const APPROVAL_TEXT: Readonly<Record<Approval, string>> = {
+  owner: '只有属主能放行', business: '要管理层或属主放行', admin: '管理员即可放行',
+};
+export const approvalOf = (v: Pick<RoleView, 'adminLevel' | 'businessWrite' | 'businessDecide'>): Approval =>
+  (v.adminLevel || v.businessDecide ? 'owner' : v.businessWrite ? 'business' : 'admin');
+
 export function unclassifiedDomains(actions: Iterable<string>): string[] {
   const known = new Set([...SYSTEM_DOMAINS, ...BUSINESS_DOMAINS]);
   return [...new Set([...actions].map(domainOf))].filter((d) => !known.has(d)).sort();
@@ -70,7 +130,7 @@ export const BLOCKS: readonly { key: string; name: string; domains: readonly str
   { key: 'attention', name: '关注', domains: ['attention'] },
   { key: 'bench-data', name: '工作台数据', domains: ['app-data', 'mcp-rest', 'mcp-tool'] },
   { key: 'team', name: '团队与 AI 员工', domains: ['binding', 'department', 'principal', 'team'] },
-  { key: 'access', name: '权限与角色', domains: ['admin', 'admin-token', 'grant', 'judgment', 'role'] },
+  { key: 'access', name: '权限与角色', domains: ['access', 'admin', 'admin-token', 'grant', 'judgment', 'role', 'setup'] },
   { key: 'system', name: '系统与节点', domains: ['a2a', 'a2a-peer', 'agent-card', 'app', 'auth', 'content', 'cookie', 'design-token', 'health', 'login', 'market', 'mcp', 'remote-allow', 'setting', 'skill', 'sso', 'stats', 'type', 'workbench'] },
 ];
 export const MATRIX_KINDS: readonly { key: Kind; name: string }[] = [
@@ -252,7 +312,7 @@ export function buildRoles(orgRaw: readonly unknown[], catalog: ActionCatalog, c
     const closure = expand(r.id, []);
     const kindsIn = new Set<Kind>();
     for (const p of closure) { for (const k of p.kinds ?? []) kindsIn.add(k); for (const a of p.actions ?? []) { const k = catalog.get(a); if (k) kindsIn.add(k); } }
-    views.set(r.id, { ...r, platform: platformIds.has(r.id), custom: customIds.has(r.id), closure, adminLevel: r.id === 'owner' || r.id === 'admin' || kindsIn.has('admin'), decides: kindsIn.has('decide') });
+    views.set(r.id, { ...r, platform: platformIds.has(r.id), custom: customIds.has(r.id), closure, adminLevel: r.id === 'owner' || r.id === 'admin' || kindsIn.has('admin'), decides: kindsIn.has('decide'), businessWrite: writesBusiness(closure, catalog), businessDecide: decidesBusiness(closure, catalog) });
   }
   return views;
 }

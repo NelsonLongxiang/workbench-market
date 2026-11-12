@@ -10,9 +10,9 @@
       "what": "index.ts 里的路由数",
       "target": 0,
       "baseline": {
-        "total": 3,
+        "total": 1,
         "files": {
-          "server/src/index.ts": 3
+          "server/src/index.ts": 1
         }
       }
     },
@@ -23,9 +23,9 @@
       "what": "没报动作的路由",
       "target": 0,
       "baseline": {
-        "total": 25,
+        "total": 23,
         "files": {
-          "server/src/index.ts": 3,
+          "server/src/index.ts": 1,
           "server/src/vault-api.ts": 17,
           "server/src/workbench-vars.ts": 5
         }
@@ -242,21 +242,23 @@
       "target": 0,
       "note": "落点还没建好：配置改成插件 Config 之后开预算档",
       "baseline": {
-        "total": 80,
+        "total": 86,
         "files": {
           "server/src/a2a.ts": 5,
           "server/src/db.ts": 2,
           "server/src/eval.ts": 2,
           "server/src/github-source.ts": 2,
-          "server/src/index.ts": 30,
+          "server/src/index.ts": 33,
           "server/src/login-gate.ts": 2,
           "server/src/login-providers/odoo/index.ts": 2,
           "server/src/login-providers/odoo/odoo-browser-origin.ts": 2,
           "server/src/login-providers/odoo/odoo-login-proxy.ts": 2,
           "server/src/login-providers/odoo/odoo-session.ts": 5,
           "server/src/mcp-stdio-upstream.ts": 1,
+          "server/src/outbound-gate.ts": 1,
           "server/src/redis.ts": 2,
           "server/src/routes/admin-token.ts": 4,
+          "server/src/routes/health.ts": 2,
           "server/src/services/sandbox.ts": 2,
           "server/src/sop-read-auth.ts": 1,
           "server/src/tasks.ts": 8,
@@ -366,10 +368,9 @@
       "what": "api.ts 之外直接 fetch",
       "target": 0,
       "baseline": {
-        "total": 33,
+        "total": 31,
         "files": {
           "web/src/admin-token.ts": 4,
-          "web/src/components/AppDataDrawer.tsx": 2,
           "web/src/components/LoginChip.tsx": 1,
           "web/src/components/ViewerChip.tsx": 1,
           "web/src/components/WorkbenchForm.tsx": 1,
@@ -391,7 +392,7 @@
       "what": "内联样式",
       "target": null,
       "baseline": {
-        "total": 131
+        "total": 127
       }
     },
     {

@@ -15,9 +15,9 @@
  *   tasks             GET /api/tasks（统一待办）                tasksReadAccess(adminHeaderOk) 审核
  *   owner-pending     GET /api/workbenches/:id/vars（看板台）  vars 接口的读门                提问
  *   principal-pending GET /api/principals/pending              主体路由的管理门               授权
- *   work-items        没有旧接口：验收 = ready（建立人、管理员）；过目 = held（管理员）  验收 / 过目
+ *   work-items        没有旧接口：验收 = ready（看得到这件事项的人）；过目 = held（管理员）  验收 / 过目
  *   a2a-peers         GET /api/a2a/peers（对端名片的公钥变了、等确认的）adminGuard           授权
- *                     建立人只认事项上的建立人主体（isCreator，和建立人验收入口、事项页同一个函数）；建立人主体空着的只有管理员看得到
+ *                     验收条目给看得到这件事项的人（itemRoles 的 canSee，和事项页同一个函数），mine 只对建立人为真
  */
 import type express from 'express';
 import { svc } from './context.ts';
@@ -41,9 +41,9 @@ import type { McpService } from './services/mcp.ts';
 import type { SopService } from './services/sop.ts';
 import type { PrincipalService } from './services/principal.ts';
 import type { WorkbenchService } from './services/workbench.ts';
-import { isCreator, type WorkItemService } from './services/work-item.ts';
+import type { WorkItemService } from './services/work-item.ts';
 import type { A2aPeerService } from './services/a2a-peers.ts';
-import { creatorOf, turnOf, type WorkItemViewer } from './work-item-access.ts';
+import { canSee, creatorOf, isManagement, turnOf, type WorkItemViewer } from './work-item-access.ts';
 
 export type AttentionDeps = {
   /** index.ts 的管理门（变更申请、MCP 权限申请、工作台事件用的就是它） */
@@ -70,7 +70,7 @@ async function attentionViewer(req: express.Request, admin: boolean): Promise<Wo
   let principal: string | null = null;
   const cookie = String(req.headers.cookie ?? '');
   if (cookie) { const who = await identity().resolveViewer(cookie); if (who.ok) principal = who.viewer.sub; }
-  return { admin, principal, person: principal !== null, actor: principal ?? 'admin' };
+  return { admin, principal, person: principal !== null, actor: principal ?? 'admin', management: isManagement(principal, admin) };
 }
 
 /** 统一待办条目是哪一类（只增的 kind 字段，前端据此不把它们放进「等你审核」）：它们不是审核，没有当场的答法 */
@@ -218,15 +218,12 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
         const items = svc<WorkItemService>('workItems');
         const admin = passes(deps.adminGuard, req);
         const viewer = await attentionViewer(req, admin);
-        let mine: (w: { creator_principal: string | null }) => boolean = () => false;
-        if (!admin) {
-          if (!viewer.principal) return null;
-          const sub = viewer.principal;
-          mine = (w) => isCreator(w, sub);
-        }
+        if (!admin && !viewer.principal) return null;
         const out: AttentionItem[] = [];
+        // 验收：看得到这件事项的人（itemRoles，和详情同一处）都看得到这一条，mine 只对轮到的人（建立人）为真；
+        // 今天的管理员迁移后是管理层，看到的和原来一样（全部）。负责人、成员的主人随关系确认制接上之后，也走这里
         for (const w of items.list({ state: 'ready' })) {
-          if (!admin && !mine(w)) continue;
+          if (!canSee(w, viewer)) continue;
           out.push(item({ source: 'work-items', source_id: w.id, category: 'accept', title: w.title, waiting_for: w.target_team || w.seat || w.created_by, since: w.updated_at, answers: ['verify', 'return'], link: `/work-items/${w.id}`, object: w.object, phase: w.phase,
             mine: turnOf(w, viewer).verify, creator: creatorOf(w) }));
         }

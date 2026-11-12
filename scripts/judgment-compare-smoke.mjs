@@ -155,7 +155,7 @@ try {
     check(a1.status === 200 && show(pairs) === show(['user:alpha:member:active', 'user:root-admin:admin:active', 'user:root-admin:management:active', 'user:root-admin:member:active'])
       && migrated.every((g) => g.source === 'migration' && g.approved_by === 'system:migration')
       && !mismatch(rep, 'GET /api/principals') && tallyOf(rep, 'GET /api/types', 'agree') >= 1,
-      '迁移：第一次见到的人给 member、身份来源说是管理员的给 admin 和 management 两条（等于今天的原样，能分别撤），来源 migration、放行人 system:migration；再见不重复迁；迁完之后管理员读管理面、成员读开放面、成员读管理面（两边都拒）都一致', show({ pairs, tally: rep.tally.filter((t) => t.route === 'GET /api/principals') }));
+      '迁移：第一次见到的人给 member、身份来源说是管理员的给 admin 和 management 两条（等于今天的原样，能分别撤；不经三档放行，L6），来源 migration、放行人 system:migration；再见不重复迁；迁完之后管理员读管理面、成员读开放面、成员读管理面（两边都拒）都一致', show({ pairs, tally: rep.tally.filter((t) => t.route === 'GET /api/principals') }));
   }
 
   // ---------- 四、故意撤一条授予 ----------

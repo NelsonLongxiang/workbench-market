@@ -24,7 +24,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "3115", "etag": "W/\"c2b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "3240", "etag": "W/\"ca8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -61,7 +61,8 @@
                 "card": { "ttl_s": 162000 },
                 "idempotency": { "store": "sqlite", "window_s": 1800 },
                 "outbox": { "receipts": { "counts": {}, "oldest_pending_s": null, "recent_delay_s": { "samples": 0, "median": null, "max": null } }, "events": { "counts": {} }, "followup_receipts": { "pending": 0, "max_attempts": 0 } },
-                "refused": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "counts": {} }
+                "refused": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "counts": {} },
+                "roster": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "outcomes": {}, "sources": { "sources": 0, "stalest_received_at": null, "stale_15m": 0 } }
               }
             }
           }
@@ -120,7 +121,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "3115", "etag": "W/\"c2b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "3240", "etag": "W/\"ca8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -157,7 +158,8 @@
                 "card": { "ttl_s": 162000 },
                 "idempotency": { "store": "sqlite", "window_s": 1800 },
                 "outbox": { "receipts": { "counts": {}, "oldest_pending_s": null, "recent_delay_s": { "samples": 0, "median": null, "max": null } }, "events": { "counts": {} }, "followup_receipts": { "pending": 0, "max_attempts": 0 } },
-                "refused": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "counts": {} }
+                "refused": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "counts": {} },
+                "roster": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "outcomes": {}, "sources": { "sources": 0, "stalest_received_at": null, "stale_15m": 0 } }
               }
             }
           }
@@ -172,7 +174,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "3185", "etag": "W/\"c71-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "3310", "etag": "W/\"cee-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -209,7 +211,8 @@
                 "card": { "ttl_s": 162000 },
                 "idempotency": { "store": "sqlite", "window_s": 1800 },
                 "outbox": { "receipts": { "counts": {}, "oldest_pending_s": null, "recent_delay_s": { "samples": 0, "median": null, "max": null } }, "events": { "counts": {} }, "followup_receipts": { "pending": 0, "max_attempts": 0 } },
-                "refused": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "counts": {} }
+                "refused": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "counts": {} },
+                "roster": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "outcomes": {}, "sources": { "sources": 0, "stalest_received_at": null, "stale_15m": 0 } }
               }
             }
           }
@@ -276,7 +279,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "3115", "etag": "W/\"c2b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "3240", "etag": "W/\"ca8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -313,7 +316,8 @@
                 "card": { "ttl_s": 162000 },
                 "idempotency": { "store": "sqlite", "window_s": 1800 },
                 "outbox": { "receipts": { "counts": {}, "oldest_pending_s": null, "recent_delay_s": { "samples": 0, "median": null, "max": null } }, "events": { "counts": {} }, "followup_receipts": { "pending": 0, "max_attempts": 0 } },
-                "refused": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "counts": {} }
+                "refused": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "counts": {} },
+                "roster": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "outcomes": {}, "sources": { "sources": 0, "stalest_received_at": null, "stale_15m": 0 } }
               }
             }
           }
@@ -371,7 +375,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "3137", "etag": "W/\"c41-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "3262", "etag": "W/\"cbe-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -409,7 +413,8 @@
                 "card": { "ttl_s": 162000 },
                 "idempotency": { "store": "sqlite", "window_s": 1800 },
                 "outbox": { "receipts": { "counts": {}, "oldest_pending_s": null, "recent_delay_s": { "samples": 0, "median": null, "max": null } }, "events": { "counts": {} }, "followup_receipts": { "pending": 0, "max_attempts": 0 } },
-                "refused": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "counts": {} }
+                "refused": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "counts": {} },
+                "roster": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "outcomes": {}, "sources": { "sources": 0, "stalest_received_at": null, "stale_15m": 0 } }
               }
             }
           }
@@ -431,7 +436,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "3616", "etag": "W/\"e20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "3741", "etag": "W/\"e9d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -472,7 +477,8 @@
                 "card": { "ttl_s": 162000 },
                 "idempotency": { "store": "sqlite", "window_s": 1800 },
                 "outbox": { "receipts": { "counts": {}, "oldest_pending_s": null, "recent_delay_s": { "samples": 0, "median": null, "max": null } }, "events": { "counts": {} }, "followup_receipts": { "pending": 0, "max_attempts": 0 } },
-                "refused": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "counts": { "sig:absent": 1 } }
+                "refused": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "counts": { "sig:absent": 1 } },
+                "roster": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "outcomes": {}, "sources": { "sources": 0, "stalest_received_at": null, "stale_15m": 0 } }
               }
             }
           }

@@ -1239,6 +1239,26 @@ CREATE TABLE IF NOT EXISTS team_events (
 );
 CREATE INDEX IF NOT EXISTS idx_team_events_team ON team_events (host, team, seq);
 `);
+
+// 首次安装向导（角色预设 ②）：一次运行按形态生成一批草稿授予。授予本身照常在 grants 里（来源列只认 manual、migration，老库改不了），
+//   「这条是向导建的」记在这两张表里，读的时候推出来源 wizard。属主一次放行这一批。时间由代码给（毫秒）。
+db.exec(`
+CREATE TABLE IF NOT EXISTS setup_wizard_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  shape TEXT NOT NULL CHECK (shape IN ('small', 'standard')),
+  created_by TEXT NOT NULL,
+  created_by_principal TEXT,
+  created_at INTEGER NOT NULL,
+  approved_by TEXT,
+  approved_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS setup_wizard_grants (
+  run_id INTEGER NOT NULL,
+  grant_id INTEGER NOT NULL,
+  PRIMARY KEY (run_id, grant_id)
+);
+CREATE INDEX IF NOT EXISTS idx_setup_wizard_grants_grant ON setup_wizard_grants (grant_id);
+`);
 // 阶段八 8d：待对接清单的「出现序号」。同一条外部身份绑定后又出现在清单里，是新的一轮待决；「关注」的记账按它分轮，
 //   不靠时间（只到秒，同一秒里又出现就分不开）。每次新插入一行（主体服务是 upsert，只在真的新进清单时插入）取一个全局只增的号：
 //   号来自一张 AUTOINCREMENT 表，删掉旧号不会回退。只加这一列和取号，清单本身的写法不变。

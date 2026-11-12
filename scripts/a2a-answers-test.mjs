@@ -438,6 +438,9 @@ try {
 
   console.log('二之五、团队名册（[A2A roster]）');
   {
+    const rosterHealth = async () => ((await (await fetch(BASE + '/api/health')).json()).a2a?.roster ?? {});
+    const cnt = (h, k) => h.outcomes?.[k]?.count ?? 0;
+    const rh0 = await rosterHealth();
     const R0 = seedEvent();   // lab 是投递过的宿主（区 lab）
     // 节点键 = 节点公钥的 canvasOwnerFingerprint（sha256 前 8 位十六进制，上游 roster.ts 的 host）
     const fpOf = (key) => createHash('sha256').update(createPublicKey(key).export({ type: 'spki', format: 'der' })).digest('hex').slice(0, 8);
@@ -553,6 +556,29 @@ try {
       r = await post(rr, signed(twin, rr));
       ok('对抗：指纹相同、根地址不同的宿主来报 → host-conflict，不覆盖', r.text.includes('"roster":"host-conflict"') && labRow()?.peer_root === lab.url && labRow()?.peer_zone === 'lab' && !labSeats().includes('twin/'), `${r.text.slice(0, 120)} ${JSON.stringify(labRow())}`);
       twin.server.close();
+    }
+    // health 的 a2a.roster：各种结果都计数、带最近一次的时间；匿名可读，所以不带任何对端标识
+    {
+      // 验签不过：投递过的宿主的地址和形状都对，Sig3 被改过
+      { const at9 = new Date().toISOString(); const rr = rosterRaw(LABFP, at9, { host: LABFP, at: at9, seats: [] }, 'roster-bad-sig'); const h = signed(lab, rr); h['X-A2A-Caller-Sig3'] = h['X-A2A-Caller-Sig3'].replace(/^./, (c) => (c === 'A' ? 'B' : 'A'));
+        const res = await post(rr, h); ok('（准备）Sig3 被改过的名册不认作名册', !res.text.includes('"roster":'), res.text.slice(0, 120)); }
+      // 超长（团队太大）和首行格式不对：照普通来信走，但都要计数，不能悄悄丢
+      { const atL = new Date().toISOString(); const big = rosterRaw(LABFP, atL, { host: LABFP, at: atL, seats: [], pad: 'x'.repeat(70 * 1024) }, 'roster-too-large');
+        const r1 = await post(big, signed(lab, big)); ok('（准备）超过 64 KiB 的名册不认作名册', !r1.text.includes('"roster":'), r1.text.slice(0, 120));
+        const bad = JSON.stringify({ team: 'market/12345678', message: `[A2A roster] not-a-fp ${atL}\n{}`, caller_session: 'dsh-host-1a2b', context_id: '', wait: false, task_id: 'roster-malformed' });
+        const r2 = await post(bad, signed(lab, bad)); ok('（准备）首行格式不对的名册不认作名册', !r2.text.includes('"roster":'), r2.text.slice(0, 120)); }
+      await new Promise((r) => setTimeout(r, 5100)); // 来源汇总缓存 5 秒
+      const rawHealth = await (await fetch(BASE + '/api/health')).text();
+      const rh = JSON.parse(rawHealth).a2a?.roster ?? {};
+      const d = (k) => cnt(rh, k) - cnt(rh0, k);
+      ok('health a2a.roster：收下、过期、不认、撞键、来源不是投递过的宿主、验签不过、超长、首行格式不对都有计数，带最近一次的时间',
+        d('recorded') >= 3 && d('stale') >= 1 && d('not_accepted') >= 4 && d('host_conflict') >= 1 && d('not_delivered_peer') >= 1 && d('unverified') >= 1 && d('too_large') === 1 && d('malformed') === 1
+        && ['recorded', 'stale', 'not_accepted', 'host_conflict', 'not_delivered_peer', 'unverified', 'too_large', 'malformed'].every((k) => /^\d{4}-\d\d-\d\dT/.test(rh.outcomes?.[k]?.last_at ?? '')),
+        JSON.stringify({ rh0: rh0.outcomes, rh: rh.outcomes }));
+      ok('health a2a.roster.sources：来源个数、最久没收下的时间、超过 15 分钟没收下的个数（没有标识）',
+        rh.sources?.sources >= 1 && typeof rh.sources?.stalest_received_at === 'string' && rh.sources?.stale_15m === 0 && Object.keys(rh.sources ?? {}).sort().join() === 'sources,stale_15m,stalest_received_at', JSON.stringify(rh.sources));
+      const fpLab = createHash('sha256').update(createPublicKey(lab.key).export({ type: 'spki', format: 'der' })).digest('hex').slice(0, 8);
+      ok('匿名 health 里没有对端的节点键、地址、区、团队名、席位', ![fpLab, lab.url, 'lab/canvas', 'lab/', 'evil', 'twin'].some((x) => rawHealth.includes(x)), rawHealth.slice(0, 200));
     }
     const anon = await fetch(BASE + '/api/a2a/teams');
     ok('读接口：没登录 401', anon.status === 401);
@@ -711,6 +737,8 @@ try {
       const rr = await post(raw, signed(lab, raw));
       ok('off：投递过的宿主、Sig3 签的名册也不收（应答里没有 roster），名册表不变', !rr.text.includes('"roster":') && JSON.stringify(q('SELECT host, reported_at FROM a2a_rosters ORDER BY host')) === before
         && q("SELECT COUNT(*) AS c FROM a2a_roster_seats WHERE seat = 'lab/f1f1f1f1'")[0].c === 0, rr.text.slice(0, 160));
+      const offRoster = (await (await fetch(BASE + '/api/health')).json()).a2a?.roster ?? {};
+      ok('off：health 记一次 not_declared（名片没声明，推来的名册照普通来信走）', offRoster.outcomes?.not_declared?.count === 1, JSON.stringify(offRoster.outcomes));
     } finally { off.kill(); await new Promise((r) => { if (off.exitCode !== null) r(); else off.once('exit', r); }); }
   }
 } catch (e) {

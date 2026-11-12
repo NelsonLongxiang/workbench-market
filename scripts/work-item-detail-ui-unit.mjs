@@ -14,8 +14,8 @@ ok('提示条：验收同理', stateHint('ready', '', false, V({ mine: true })).
 ok('看的人：can、turn、creator 直接取详情应答；显示名没有就用登录名', (() => { const v = viewerOf({ can: { release: false, answer: true, verify: true, reply: true }, turn: { release: false, answer: false, verify: true }, creator: { principal: 'user:alpha', display_name: null } }); return v.can.answer && v.can.verify && !v.can.release && v.turn.verify && !v.turn.answer && v.creator === 'alpha' && v.reply === true; })() && viewerOf({ creator: { principal: 'user:alpha', display_name: '阿尔法' } }).creator === '阿尔法');
 ok('看的人：字段缺了或形状不对，一律当不能、没轮到；回复能不能照旧由页面按终态判断', (() => { const v = viewerOf({ can: 'x', turn: null }, 'beta'); return !v.can.release && !v.can.answer && !v.can.verify && !v.turn.release && !v.turn.answer && !v.turn.verify && v.creator === 'beta' && v.reply === null; })() && viewerOf(null).reply === null);
 ok('状态说法只看 turn：轮到的人带「你」，能代办的人不带', stateLabel('ready', viewerOf({ can: { verify: true }, turn: { verify: true }, creator: { principal: 'user:alpha' } })) === '等你验收' && stateLabel('ready', viewerOf({ can: { verify: true }, turn: {}, creator: { principal: 'user:alpha' } })) === '等 alpha 验收' && stateLabel('held', viewerOf({ can: { release: true }, turn: { release: true } })) === '等你过目' && stateLabel('held', viewerOf({ can: { release: true }, turn: {} })) === '等放行' && stateHint('held', '', false, viewerOf({ can: { release: true }, turn: {} })).text.includes('你可以代为放行'));
-ok('席位：名字 · 句柄 显示成 名字（句柄），只有句柄照用', seatLabel('成员一 · dsh/d6f79e90') === '成员一（dsh/d6f79e90）' && seatLabel('dsh/d6f79e90') === 'dsh/d6f79e90' && seatLabel('') === '');
-ok('日志的谁：去前缀、对端席位换承接名字、系统来源说人话', actorLabel('receiver:dsh', '成员一 · dsh/x') === '成员一（dsh/x）' && actorLabel('human:root-admin', '') === 'root-admin' && actorLabel('market', '') === '市场' && actorLabel('admin-token', '') === '管理员' && actorLabel('user:alpha', '') === 'alpha');
+ok('席位：名字 · 句柄 显示成 名字（句柄），只有句柄照用', seatLabel('成员一 · zone/1b2c3d4e') === '成员一（zone/1b2c3d4e）' && seatLabel('zone/1b2c3d4e') === 'zone/1b2c3d4e' && seatLabel('') === '');
+ok('日志的谁：去前缀、对端席位换承接名字、系统来源说人话', actorLabel('receiver:zone', '成员一 · zone/x') === '成员一（zone/x）' && actorLabel('human:root-admin', '') === 'root-admin' && actorLabel('market', '') === '市场' && actorLabel('admin-token', '') === '管理员' && actorLabel('user:alpha', '') === 'alpha');
 const tg = groupTimeline([{ seq: 1, fact: 'ask', detail: '' }, { seq: 2, fact: 'note', detail: '{"note":"progress"}' }, { seq: 3, fact: 'note', detail: '{"note":"progress"}' }, { seq: 4, fact: 'note', detail: '{"note":"progress"}' }, { seq: 5, fact: 'note', detail: '{"note":"progress"}' }, { seq: 6, fact: 'answer', detail: '', rejected: 'terminal' }, { seq: 7, fact: 'answer', detail: '', rejected: 'terminal' }]).map((g) => g.kind === 'row' ? g.row.seq : g.kind + ':' + g.rows.map((r) => r.seq).join('+'));
 ok('时间线收组：连续进展收一组、连续被拒收一组', JSON.stringify(tg) === '[1,"progress:2+3+4+5","rejected:6+7"]', JSON.stringify(tg));
 ok('时间线：进展备注叫「进展」', timelineLabel({ fact: 'note', detail: '{"note":"progress"}' }, { note: '备注' }) === '进展');
@@ -55,10 +55,10 @@ ok('时间线：看过消息的备注不进时间线，别的备注照进', hidd
 const gr = groupTimeline([{ seq: 1, fact: 'x', detail: '' }, { seq: 2, fact: 'x', detail: '', rejected: 'terminal' }, { seq: 3, fact: 'x', detail: '' }, { seq: 4, fact: 'x', detail: '', rejected: 'terminal' }, { seq: 5, fact: 'x', detail: '', rejected: 'terminal' }]).map((g) => g.kind === 'row' ? g.row.seq : g.rows.map((r) => r.seq).join('+'));
 ok('时间线：单独一条被拒行不收组，连续的才收', JSON.stringify(gr) === '[1,2,3,"4+5"]', JSON.stringify(gr));
 
-ok('对端给的「谁」：字符串照用，对象取 name、没有取 seat，别的给空串，永远是字符串', who('seat_a') === 'seat_a' && who({ seat: 'dsh/d6f79e90', name: '成员一' }) === '成员一' && who({ seat: 'dsh/d6f79e90' }) === 'dsh/d6f79e90' && who({ role: 'x' }) === '' && who(null) === '' && who(['a']) === '');
+ok('对端给的「谁」：字符串照用，对象取 name、没有取 seat，别的给空串，永远是字符串', who('seat_a') === 'seat_a' && who({ seat: 'zone/1b2c3d4e', name: '成员一' }) === '成员一' && who({ seat: 'zone/1b2c3d4e' }) === 'zone/1b2c3d4e' && who({ role: 'x' }) === '' && who(null) === '' && who(['a']) === '');
 ok('对端给的文字：字符串和数字照用，对象给空串', textOf('a') === 'a' && textOf(3) === '3' && textOf({ a: 1 }) === '' && textOf(undefined) === '');
 
-ok('提问人：来源标记 receiver:<区> 换成承接席位，没有承接就去前缀；别的照用', askerLabel('receiver:dsh', '成员一 · dsh/d6f79e90') === '成员一（dsh/d6f79e90）' && askerLabel('receiver:dsh', '') === 'dsh' && askerLabel('seat:a', 'x') === 'a' && askerLabel({ name: '成员二' }, 'x') === '成员二');
+ok('提问人：来源标记 receiver:<区> 换成承接席位，没有承接就去前缀；别的照用', askerLabel('receiver:zone', '成员一 · zone/1b2c3d4e') === '成员一（zone/1b2c3d4e）' && askerLabel('receiver:zone', '') === 'zone' && askerLabel('seat:a', 'x') === 'a' && askerLabel({ name: '成员二' }, 'x') === '成员二');
 
 const att = (source, link) => ({ source, source_id: '1', category: 'ask', title: '', waiting_for: '', since: '', answers: [], object: '', phase: '', link });
 const mine = pendingFor([att('seat-asks', '/work-items/wi_a'), att('work-items', '/work-items/wi_b'), att('work-items', '/work-items/wi_a'), att('x', '/other')], 'wi_a');
@@ -73,8 +73,8 @@ ok('子项状态说中文：结束了按结局说', ticketStateLabel('ended', 'c
   ok('子项：详情 subitems 优先，没有用进展的 tickets，坏项丢掉', subitemsOf(subs, null).length === 3 && subitemsOf([], { tickets: [subs[0], null, 7] }).length === 1 && subitemsOf(null, null).length === 0);
 }
 ok('「正在处理」只在还在做时给：结束了、等验收不给', showProgress('progress') && !showProgress('ready') && !showProgress('done') && !showProgress('failed'));
-ok('时间线的谁：用回执的 by（名字（席位）），不用事项当前承接', rowActor({ actor: 'receiver:dsh', detail: JSON.stringify({ by: { seat: 'zone/26b40ae2', name: '总工' } }) }) === '总工（zone/26b40ae2）');
-ok('时间线的谁：by 是字符串、没有 by 时只去前缀', rowActor({ actor: 'receiver:dsh', detail: JSON.stringify({ by: 'zone/26b40ae2' }) }) === 'zone/26b40ae2' && rowActor({ actor: 'receiver:dsh', detail: '{}' }) === 'dsh' && rowActor({ actor: 'market', detail: 'bad' }) === '市场');
+ok('时间线的谁：用回执的 by（名字（席位）），不用事项当前承接', rowActor({ actor: 'receiver:zone', detail: JSON.stringify({ by: { seat: 'zone/3d4e5f60', name: '总工' } }) }) === '总工（zone/3d4e5f60）');
+ok('时间线的谁：by 是字符串、没有 by 时只去前缀', rowActor({ actor: 'receiver:zone', detail: JSON.stringify({ by: 'zone/3d4e5f60' }) }) === 'zone/3d4e5f60' && rowActor({ actor: 'receiver:zone', detail: '{}' }) === '团队那边' && rowActor({ actor: 'market', detail: 'bad' }) === '市场');
 
 // 验收会话留的小修（stage1-accept、stage3-accept）
 {

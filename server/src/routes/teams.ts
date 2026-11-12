@@ -17,6 +17,11 @@
  *   · 别的登录的人：自己所在部门（成员或负责人）的团队、自己是负责人的团队、有成员分给自己的团队。
  * 读接口只给团队、人和计数，不带事项内容。
  *
+ * 页面只渲染、不自己判：GET /api/teams 顶层带 can（认领、退回、增减负责人、管部门，都是管理面），
+ * 每个团队带 can_assign / assign_denied_text（和分配、收回接口用同一处判断 assignRefusal），
+ * can_assign 为真的团队带 assignable：可以分给谁（所挂部门的成员和负责人、这个团队的负责人，启用的人）。
+ * 每个团队（含待认领的）带 node_name：节点在对端登记表里的名字，没有为 null；roster_received_at：最近一次收下这个节点名册的时间。
+ *
  * 分配、收回由「这个人是不是这个团队的负责人」判，是按对象的范围（统一判定还不认，L13），路由声明「状态码不代表授权」；
  * 写请求总门对这两条放行（index.ts 的 REMOTE_ALLOW_PREFIX），认人、同源、负责人在这里判。认领、负责人的增减是管理面，照写请求总门和管理员门。
  * 每一步在 team_events 里留痕，并写一行日志（谁、做了什么、哪个团队）。
@@ -88,6 +93,22 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
     return { kind: 'person', principal: bound, management };
   }
 
+  /** 这个人能不能分配、收回这个团队的成员：分配接口和团队页的 can_assign 共用这一处。能就返回 null，不能返回说法 */
+  function assignRefusal(v: Viewer, t: TeamView | TeamKey): { code: string; message: string } | null {
+    if ('status' in t && t.status === 'unclaimed') return { code: 'team_not_claimed', message: '团队还没认领，不能分配成员' };
+    if (v.kind === 'admin') return null;
+    if (teams().leads(t).some((l) => l.principal === v.principal)) return null;
+    return { code: 'not_team_lead', message: '只有这个团队的负责人（或管理员）能分配、收回成员' };
+  }
+
+  /** 可以分给谁：所挂部门的成员和负责人、这个团队的负责人，只要启用的人 */
+  function assignableOf(t: TeamView): { principal: string; display_name: string }[] {
+    const out = new Map<string, string>();
+    if (t.department) for (const m of departments().members(t.department.id)) if (m.kind === 'person' && m.status === 'active') out.set(m.principal, m.display_name);
+    for (const l of t.leads) out.set(l.principal, l.display_name);
+    return [...out.entries()].map(([principal, display_name]) => ({ principal, display_name })).sort((a, b) => (a.principal < b.principal ? -1 : 1));
+  }
+
   /** 这个人看得到这个团队吗（读） */
   function visible(v: Viewer, t: TeamView): boolean {
     if (v.kind === 'admin') return true;
@@ -125,8 +146,15 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
       e.teams.push(t);
       depts.set(t.department.id, e);
     }
-    const shape = (t: TeamView) => ({ ...t, name: teamName(t.team) });
+    const nodes = new Map<string, ReturnType<TeamService['nodeInfo']>>();
+    const nodeOf = (host: string) => { if (!nodes.has(host)) nodes.set(host, teams().nodeInfo(host)); return nodes.get(host)!; };
+    const shape = (t: TeamView) => {
+      const no = assignRefusal(v, t);
+      return { ...t, name: teamName(t.team), ...nodeOf(t.host), can_assign: !no, assign_denied_text: no?.message ?? null, ...(no ? {} : { assignable: assignableOf(t) }) };
+    };
+    const isAdmin = v.kind === 'admin';
     res.json({
+      can: { claim: isAdmin, release: isAdmin, manage_leads: isAdmin, manage_departments: isAdmin },
       departments: [...depts.values()].sort((a, b) => a.id.localeCompare(b.id)).map((d) => ({ ...d, teams: d.teams.map(shape) })),
       ...(v.kind === 'admin' ? { unclaimed: seen.filter((t) => t.status === 'unclaimed').map(shape) } : {}),
     });
@@ -193,10 +221,9 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
   async function leadOrAdmin(req: express.Request, res: express.Response, k: TeamKey): Promise<Actor | null> {
     const v = await viewer(req, res);
     if (!v) return null;
-    if (v.kind === 'admin') return { by: v.by, principal: v.principal };
-    if (teams().leads(k).some((l) => l.principal === v.principal)) return { by: v.principal, principal: v.principal };
-    res.status(403).json({ error: 'not_team_lead', message: '只有这个团队的负责人（或管理员）能分配、收回成员' });
-    return null;
+    const no = assignRefusal(v, k);
+    if (no) { res.status(403).json({ error: no.code, message: no.message }); return null; }
+    return v.kind === 'admin' ? { by: v.by, principal: v.principal } : { by: v.principal, principal: v.principal };
   }
 
   app.post('/api/teams/assign', { action: 'team.assign', kind: 'write', statusNotVerdict: LEAD_DECIDES }, route(async (req, res) => {
