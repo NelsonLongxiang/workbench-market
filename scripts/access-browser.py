@@ -46,6 +46,8 @@ GRANTS = {'grants': [
     grant(6, 'user:jia', 'member', '*', 'revoked', appr='odoo:jia'),
     grant(7, 'user:bing', 'ai-staff', '*', 'expired', exp=NOW - 1),
 ]}
+# 服务端（身份线 #618）在授予上给出当前的人能不能放行：3 号说不能；4 号不带这个字段（服务端还没给时的样子）
+GRANTS['grants'][2].update({'can_approve': False, 'approve_denied': 'drafter_cannot_approve', 'approve_denied_text': '起草的人不能自己放行，要另一位放行'})
 posted = []
 def fake(route, body, status=200):
     route.fulfill(status=status, content_type='application/json', body=json.dumps(body))
@@ -104,6 +106,12 @@ with sync_playwright() as p:
     check('表：AI 员工按工作台给的权限标「尚未生效」，全部范围的不标；表上方一句说明原因', body.count('尚未生效') == 1 and '工作台 3' in body and '要等对象范围接进判定' in pg.locator('.wm-acc-pending-cap').inner_text(), body)
     check('表：负责人——AI 员工写它挂在谁名下', '甲经理' in pg.locator('.wm-acc-table tbody tr', has_text='小算').inner_text())
 
+    # 核准按钮照服务端的 can_approve：3 号说不能 → 置灰、写短说法；4 号没这个字段 → 照旧可点
+    n_before = len(posted)
+    check('服务端说放行不了（3 号）：核准置灰，旁边写服务端的说法；不给照旧能点', cards.nth(1).locator('[data-testid=acc-approve]').is_disabled() and cards.nth(1).locator('[data-testid=acc-approve-denied]').inner_text().strip() == '起草的人不能自己放行，要另一位放行' and cards.nth(1).locator('[data-testid=acc-decline]').is_enabled(), cards.nth(1).inner_text())
+    cards.nth(1).locator('[data-testid=acc-approve]').click(force=True); pg.wait_for_timeout(300)
+    check('置灰的核准硬点也不发请求', len(posted) == n_before, posted)
+    check('服务端没给 can_approve（4 号）：核准照旧可点、不写说法', cards.nth(0).locator('[data-testid=acc-approve]').is_enabled() and cards.nth(0).locator('[data-testid=acc-approve-denied]').count() == 0)
     # 核准：管理员级的被拒，说服务端的说法
     cards.nth(0).locator('[data-testid=acc-approve]').click(); pg.wait_for_timeout(500)
     check('核准被拒（管理员级只有属主能放行）：卡片上说服务端的说法', '只有属主能放行' in cards.nth(0).inner_text() and posted and posted[-1][0] == 'approve', posted)
