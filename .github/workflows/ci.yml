@@ -480,8 +480,12 @@ jobs:
         run: node scripts/api-gate-case-smoke.mjs
       - name: 安全对抗例组（PASS / SKIP / NEEDS-MATERIAL 分列）
         run: node scripts/security-adversarial-smoke.mjs
+      # 上传走的是平台的产物接口：它出故障（比如返回网页而不是 JSON）不代表测试失败。
+      # 作业结论以测试步骤为准；上传失败时证据不丢——原样打进日志、等一会儿补传一次，并在作业摘要里单独标出「证据没传上去」。
       - name: 留存 F5 原始证据与覆盖摘要
+        id: f5_evidence
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: f5-security-evidence
@@ -489,6 +493,44 @@ jobs:
             tmp/security-adversarial-summary.json
             tmp/f5-env-face-*.json
           if-no-files-found: warn
+      - name: 证据没传上去：原样留在日志里，等一分钟后补传
+        if: always() && steps.f5_evidence.outcome == 'failure'
+        run: |
+          echo "::warning title=证据没传上去::F5 原始证据上传失败（平台的产物接口出错，不影响测试结论）。证据原文在本步日志里；下一步补传一次。"
+          {
+            echo "### ⚠ F5 原始证据没传上去"
+            echo "上传失败不影响测试结论（以测试步骤为准）。证据原文在「证据没传上去」这一步的日志里；补传的结果见下一步。"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for f in tmp/security-adversarial-summary.json tmp/f5-env-face-*.json; do
+            [ -f "$f" ] || continue
+            echo "::group::$f（$(wc -c < "$f") 字节，sha256 $(sha256sum "$f" | cut -d' ' -f1)）"
+            cat "$f"; echo
+            echo "::endgroup::"
+          done
+          sleep 60
+      - name: 补传 F5 原始证据
+        id: f5_evidence_retry
+        if: always() && steps.f5_evidence.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: f5-security-evidence
+          overwrite: true # 第一次可能传了一半、名字已被占
+          path: |
+            tmp/security-adversarial-summary.json
+            tmp/f5-env-face-*.json
+          if-no-files-found: warn
+      - name: 补传的结果
+        if: always() && steps.f5_evidence.outcome == 'failure'
+        env:
+          RETRY: ${{ steps.f5_evidence_retry.outcome }}
+        run: |
+          if [ "$RETRY" = "success" ]; then
+            echo "补传成功：产物 f5-security-evidence。" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=证据补传也失败::产物没有传上去；证据原文在「证据没传上去」那一步的日志里，可以从那里取回。"
+            echo "补传也失败：证据原文在「证据没传上去」那一步的日志里（带字节数和 sha256，可以核对）。" >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: server 冷启动探针（防重启即死）
         run: |
           PORT=19999 DATA_DIR=${{ runner.temp }}/ci-data ADMIN_TOKEN=ci timeout 20 node --disable-warning=ExperimentalWarning server/src/index.ts &
