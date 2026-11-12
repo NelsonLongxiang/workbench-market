@@ -2,7 +2,8 @@
  * 关系的提议（规范 14「关系由谁说了算」，services/relation-proposal.ts）：
  *
  *   GET  /api/relations/proposals              待确认的提议（和最近处理过的），每条带 can_approve / approve_denied_text / can_reject。登录的人、管理员
- *                                               另带 mine（是不是看的人提的）和显示名（团队、节点、部门、被提名的人、提议人、处理人），页面不露代号
+ *                                               另带 mine（是不是看的人提的）、outcome（结局，失效和驳回分开）和 outcome_reason、
+ *                                               显示名（团队、节点、部门、被提名的人、提议人、处理人），页面不露代号；失效的留 7 天
  *   POST /api/relations/proposals/:id/approve  确认：负责人只有属主；团队认领要管理层或接收部门的负责人
  *   POST /api/relations/proposals/:id/reject   驳回或撤回 { reason }：驳回只归能确认的人，提议的人撤回自己提的（系统管理员不替业务驳回）
  *
@@ -17,7 +18,7 @@ import { HttpError } from '../errors.ts';
 import { identity } from '../identity.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import type { GrantService } from '../services/grant.ts';
-import { CONFIRM_BY, CONFIRM_TEXT, type ProposalActor, type ProposalRow, type RelationProposalService } from '../services/relation-proposal.ts';
+import { CONFIRM_BY, CONFIRM_TEXT, EXPIRED_SHOW_MS, type ProposalActor, type ProposalRow, type RelationProposalService } from '../services/relation-proposal.ts';
 import type { DepartmentService } from '../services/department.ts';
 import type { TeamService } from '../services/team.ts';
 import { teamName } from '../team-relation.ts';
@@ -44,6 +45,7 @@ const personNameOf = (id: string | null): string | null => {
 const actorNameOf = (by: string | null, principal: string | null): string | null => {
   if (!by) return null;
   if (by === 'cli') return '本机命令行';
+  if (by.startsWith('system:')) return '系统'; // 失效：没有人处理它
   const named = personNameOf(principal ?? (by.startsWith('user:') ? by : null));
   if (named) return named;
   if (by === 'admin-token') return '管理员（口令）';
@@ -84,6 +86,9 @@ export function registerRelationRoutes(app: HttpService, deps: RelationRouteDeps
       can_reject: proposals().rejectRefusal(p, w.actor) === null, // 和驳回接口同一处：自己提的撤回、能确认的驳回
       // 只增：是不是看的人提的（和 can_reject 用的同一个）；显示名（不是管理员的确认人读不到团队页、人名表，这里给齐）
       mine,
+      // 结局：pending / approved / rejected（能确认的人驳回）/ withdrawn（提的人撤回）/ expired（失效，没有人否决它）；原因只在后三种给
+      outcome: proposals().outcomeOf(p),
+      outcome_reason: p.status === 'rejected' && p.reason ? p.reason : null,
       team_name: p.team ? teamName(p.team) || null : null,
       node_name: p.host ? teams().nodeInfo(p.host).node_name : null,
       department_name: p.department_id ? departments().get(p.department_id)?.name ?? null : null,
@@ -101,7 +106,10 @@ export function registerRelationRoutes(app: HttpService, deps: RelationRouteDeps
     // 按看的人裁剪（管理员也一样，不替业务看别人提的）：待确认的，看自己能确认、能驳回的和自己提的；
     // 处理过的，看自己提的、自己处理的；属主什么都能确认，全看
     const decidedByMe = (p: ProposalRow) => p.decided_by === w.actor.by || (!!w.actor.principal && p.decided_by_principal === w.actor.principal);
-    const rows = proposals().list().filter((p) => w.actor.owner || (p.status === 'pending' ? true : decidedByMe(p) || proposals().isMine(p, w.actor)))
+    // 失效的在提议人那里留 7 天，过了就不再列
+    const now = Date.now();
+    const rows = proposals().list().filter((p) => !(proposals().outcomeOf(p) === 'expired' && (p.decided_at ?? 0) < now - EXPIRED_SHOW_MS))
+      .filter((p) => w.actor.owner || (p.status === 'pending' ? true : decidedByMe(p) || proposals().isMine(p, w.actor)))
       .map((p) => shape(p, w)).filter((p) => w.actor.owner || p.status !== 'pending' || p.can_approve || p.can_reject || p.mine);
     res.json({ proposals: rows });
   }));

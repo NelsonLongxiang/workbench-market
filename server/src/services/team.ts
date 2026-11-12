@@ -143,7 +143,12 @@ export class TeamService extends Service {
     return db.prepare('SELECT seq, kind, seat, seat_id, principal_id, detail, actor, at FROM team_events WHERE host = ? AND team = ? ORDER BY seq').all(k.host, k.team) as never;
   }
 
+  /** 一个事务；外面已经开着事务（比如确认关系提议时把核对、改状态、落关系包在一起）就用保存点嵌进去 */
   private tx<T>(fn: () => T): T {
+    if (db.isTransaction) {
+      db.exec('SAVEPOINT team_tx');
+      try { const r = fn(); db.exec('RELEASE team_tx'); return r; } catch (e) { try { db.exec('ROLLBACK TO team_tx'); db.exec('RELEASE team_tx'); } catch { /* 保存点已经不在了 */ } throw e; }
+    }
     db.exec('BEGIN IMMEDIATE');
     try { const r = fn(); db.exec('COMMIT'); return r; } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务已经不在了 */ } throw e; }
   }
