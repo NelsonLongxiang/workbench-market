@@ -114,7 +114,9 @@ export function runCard(d: RunDetail, team: (t: string) => string = (t) => t): {
     d.steps.length ? `${d.steps.length} 步里填了 ${filled} 步` : '',
     d.attachments.count ? `交了 ${d.attachments.count} 个附件${d.attachments.names.length ? `：${d.attachments.names.slice(0, 3).join('、')}${d.attachments.count > 3 ? ' 等' : ''}` : ''}` : '没有附件',
   ].filter(Boolean);
-  const problems = d.ready ? [] : d.problems.length ? d.problems : ['还有必填的没填，现在验不了'];
+  // 能验但还有没填的步骤（不是必填）：提醒一句，别让人不知情地点通过
+  const left = d.steps.length - filled;
+  const problems = d.ready ? (left > 0 ? [`还有 ${left} 步没填（不是必填），现在验收通过也可以`] : []) : d.problems.length ? d.problems : ['还有必填的没填，现在验不了'];
   return { title: `${d.sop_title || '流程'}${d.run_id ? ` #${d.run_id}` : ''}`, lines, problems };
 }
 
