@@ -102,16 +102,17 @@ function snapshot(dataDir) {
 }
 const mark = (dataDir) => { const c = new DatabaseSync(join(dataDir, 'workbench-market.db'), { readOnly: true }); try { return c.prepare('SELECT version, status, phase, cursor, batches, events, log_mark, dirty FROM work_item_backfill WHERE id = 1').get(); } catch { return null; } finally { c.close(); } };
 
-/** 参照：同一份数据，进程内一次同步跑完（手动入口 backfill()） */
+/** 参照：同一份数据，进程内一次同步跑完（手动入口 backfill()）。返回它的耗时（毫秒）：同一台机器上量后台回填吞吐的尺子 */
 function reference(dataDir) {
   const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', `
     const { root } = await import(${JSON.stringify(at('server/src/root-context.ts'))});
     const { WorkItemService } = await import(${JSON.stringify(at('server/src/services/work-item.ts'))});
     await root.plugin(WorkItemService);
-    const r1 = root.get('workItems').backfill();
-    console.log('REF ' + JSON.stringify(r1));
+    const t = Date.now(); const r1 = root.get('workItems').backfill();
+    console.log('REF ' + JSON.stringify({ ...r1, ms: Date.now() - t }));
     process.exit(0);`], { env: ENV(dataDir), encoding: 'utf8', timeout: 300000 });
   if (!r.stdout.includes('REF')) throw new Error(`参照跑不完：${r.stderr.slice(-600)}`);
+  return JSON.parse(/REF (.*)/.exec(r.stdout)[1]).ms;
 }
 
 rmSync(OUT, { recursive: true, force: true });
@@ -121,7 +122,7 @@ try {
   const small = join(OUT, 'small'), big = join(OUT, 'big');
   seed(small, 1000); seed(big, 10000);
   const bigCopy = join(OUT, 'big-copy'); cpSync(big, bigCopy, { recursive: true }); // 给第二节用
-  const refDir = join(OUT, 'ref'); cpSync(big, refDir, { recursive: true }); reference(refDir);
+  const refDir = join(OUT, 'ref'); cpSync(big, refDir, { recursive: true }); const refMs = reference(refDir);
   const refSnap = snapshot(refDir);
   check(refSnap.items === 10000, '参照：一次同步跑完，10000 个事件建出 10000 件事项', show(refSnap.items));
   const s1 = await start(small); await s1.stop('SIGKILL');
@@ -129,7 +130,13 @@ try {
   console.log(`  · 首个应答：1000 个事件 ${s1.firstMs} ms，10000 个事件 ${s2.firstMs} ms（回填状态 ${s2.firstState}）`);
   check(s2.firstState !== null && s2.firstState !== 'done', '回填不挡启动：10000 个事件时，首个应答里回填还没跑完（应答先于回填）', show({ firstState: s2.firstState }));
   check(s2.firstMs <= 3 * s1.firstMs, '启动到能应答的时间不随事件数增长（10000 个事件的首个应答耗时不超过 1000 个的 3 倍）', show({ small: s1.firstMs, big: s2.firstMs }));
-  const d2 = await waitDone(s2, 60000);
+  // 期限只防卡死，不是吞吐判据（吞吐看下面那条相对断言）。回填等启动自检过了才开始（#652），从首个应答算起要跑完全部事件，
+  // 不再像以前那样启动时先跑一段：所以不用一个跟机器快慢绑在一起的绝对数
+  const d2 = await waitDone(s2, Math.max(120000, 6 * refMs));
+  // 吞吐：回填自己这一段（从第一片到跑完，产品在完成那一行日志里报的用时）和同一份数据、同一台机器上一次同步跑完比，不超过 1.5 倍
+  const bgMs = Number(/后台回填完成[^\n]*用时 (\d+) 毫秒/.exec(s2.log())?.[1] ?? NaN);
+  console.log(`  · 后台回填自己用时 ${bgMs} ms，同一份数据一次同步跑完 ${refMs} ms（${(bgMs / refMs).toFixed(2)} 倍）`);
+  check(Number.isFinite(bgMs) && bgMs <= 1.5 * refMs, '后台分批回填的吞吐：从第一片到跑完的用时不超过同一份数据一次同步跑完的 1.5 倍（同一台机器上比；分片让出、照常应答的代价有上限）', show({ bgMs, refMs }));
   const anon = await s2.health(true);
   await s2.stop();
   check(show(Object.keys(anon.backfill ?? {})) === show(['state']) && anon.backfill.state === 'done', '匿名的健康检查只给回填的 state（不透露批数、游标、事件数）', show(anon.backfill));
