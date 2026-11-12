@@ -64,6 +64,10 @@ const env = { ...process.env, NODE_ENV: 'test', MCP_GATEWAY: 'off', PORT: String
 for (const k of ['WM_EXTENSIONS_DIR', 'LC_ODOO_URL', 'WM_ODOO_ORIGINS']) delete env[k];
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'pipe', 'pipe'], env });
 let logs = ''; server.stdout.on('data', (c) => (logs += c)); server.stderr.on('data', (c) => (logs += c));
+/** 等条件成立，带上限（不是固定睡几毫秒）；返回成没成立 */
+const waitFor = async (cond, ms) => { const end = Date.now() + ms; while (!cond() && Date.now() < end) await sleep(50); return cond(); };
+/** 等服务端日志静下来：连续 quiet 毫秒没有新内容（上限 ms）。「秘密不在日志里」要在日志写完之后判，否则负载下会假通过 */
+const settle = async (quiet = 300, ms = 5000) => { const end = Date.now() + ms; let last = logs.length, t = Date.now(); while (Date.now() < end) { await sleep(50); if (logs.length !== last) { last = logs.length; t = Date.now(); } else if (Date.now() - t >= quiet) return true; } return false; };
 
 /** Chromium 里分别从同源（市场页面里插 iframe）、跨源（别的源的页面）iframe 嵌市场 /web/login；
  *  返回 { same, cross }，各为 blocked（子框落到 chrome-error）或 loaded */
@@ -74,29 +78,52 @@ async function browser() {
   const port = await new Promise((done, no) => { let t = ''; const tm = setTimeout(() => no(new Error('chrome timeout')), 15000); chrome.stderr.on('data', (d) => { t += d; const m = t.match(/127[.]0[.]0[.]1:(\d+)/); if (m) { clearTimeout(tm); done(m[1]); } }); });
   const target = await (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: 'PUT' })).json();
   const ws = new WebSocket(target.webSocketDebuggerUrl); await new Promise((o, n) => { ws.onopen = o; ws.onerror = n; });
-  let id = 0; const pending = new Map();
-  ws.onmessage = (e) => { const j = JSON.parse(e.data); if (j.id && pending.has(j.id)) { pending.get(j.id)(j.result); pending.delete(j.id); } };
+  let id = 0; const pending = new Map(); const waiters = [];
+  ws.onmessage = (e) => {
+    const j = JSON.parse(e.data);
+    if (j.id && pending.has(j.id)) { pending.get(j.id)(j.result); pending.delete(j.id); return; }
+    if (j.method) for (const w of [...waiters]) if (w.method === j.method) { waiters.splice(waiters.indexOf(w), 1); w.done(j.params); }
+  };
   const send = (method, params = {}) => new Promise((o) => { const n = ++id; pending.set(n, o); ws.send(JSON.stringify({ id: n, method, params })); });
+  /** 等一个事件，带上限；超时返回 null（由调用方当成「没等到」处理，不当成通过） */
+  const once = (method, ms) => new Promise((done) => { const w = { method, done }; waiters.push(w); setTimeout(() => { const i = waiters.indexOf(w); if (i >= 0) { waiters.splice(i, 1); done(null); } }, ms); });
   await send('Page.enable'); await send('Runtime.enable');
-  cdp = { ws, send };
+  const v = await send('Browser.getVersion');
+  console.log(`  · Chromium：${v?.product ?? '版本读不到'}`);
+  cdp = { ws, send, once };
   return cdp;
 }
-async function childVerdict(send) {
-  await sleep(2500);
-  const tree = await send('Page.getFrameTree');
-  const child = tree?.frameTree?.childFrames?.[0]?.frame;
+/** 子框的结论：等子框的导航提交了（地址是 http(s): 或 chrome-error:，或带了 unreachableUrl），带上限；不是固定睡几秒就判。
+ *  还没提交时 Chromium 给的是占位（空串、about:blank、甚至一个冒号），这些都不算。
+ *  地址落到 chrome-error（或带 unreachableUrl）是 blocked，否则 loaded；到了上限还没有子框，返回 no-child-frame——调用方照旧判失败，不当成被拦 */
+async function childVerdict(send, ms = 10_000) {
+  const end = Date.now() + ms;
+  let child = null;
+  for (;;) {
+    const tree = await send('Page.getFrameTree');
+    child = tree?.frameTree?.childFrames?.[0]?.frame ?? null;
+    if (child && (child.unreachableUrl || /^(https?|chrome-error):/.test(child.url ?? ''))) break;
+    if (Date.now() > end) break;
+    await sleep(100);
+  }
   if (!child) return 'no-child-frame';
   return /^chrome-error:/.test(child.url) || child.unreachableUrl ? 'blocked' : 'loaded';
 }
+/** 打开一个页面并等它 load（带上限）；没等到就抛错，不往下判 */
+async function open(c, url) {
+  const loaded = c.once('Page.loadEventFired', 15_000);
+  await c.send('Page.navigate', { url });
+  if (!(await loaded)) throw new Error(`Chromium 打开 ${url} 15 秒内没有 load`);
+}
 async function framed() {
-  const { send } = await browser();
+  const c = await browser();
   // 同源：先打开市场自己的一个页面，再往里插 iframe（同一个源）
-  await send('Page.navigate', { url: base + '/api/health' }); await sleep(800);
-  await send('Runtime.evaluate', { expression: `document.body.innerHTML='';const f=document.createElement('iframe');f.src='/web/login';document.body.appendChild(f);true` });
-  const same = await childVerdict(send);
+  await open(c, base + '/api/health');
+  await c.send('Runtime.evaluate', { expression: `document.body.innerHTML='';const f=document.createElement('iframe');f.src='/web/login';document.body.appendChild(f);true` });
+  const same = await childVerdict(c.send);
   // 跨源：别的源的页面里 iframe 市场 /web/login
-  await send('Page.navigate', { url: EVIL + '/' });
-  const cross = await childVerdict(send);
+  await open(c, EVIL + '/');
+  const cross = await childVerdict(c.send);
   return { same, cross };
 }
 
@@ -110,7 +137,7 @@ try {
   const reg = await (await fetch(base + '/api/workbenches', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'synthetic portal target', url: `http://127.0.0.1:${other.address().port}/`, type: 'web' }) })).json();
   ok('合成外部台已登记', Number.isInteger(reg.id), JSON.stringify(reg));
   const go = await fetch(`${base}/go/${reg.id}/?state=${QUERY_SECRET}`, { redirect: 'manual' });
-  await go.text(); await sleep(400);
+  await go.text(); await waitFor(() => /\[proxres-entry\][^\n]*sc: /.test(logs), 5000); await settle();
   ok('门户请求经过代理', go.status === 200, String(go.status));
   ok('proxres-entry 日志只记 cookie 名', /\[proxres-entry\][^\n]*sc: [^\n]*session_id/.test(logs) && /\[proxres-entry\][^\n]*tracker/.test(logs), logs.split('\n').filter((l) => l.includes('proxres-entry')).join(' / ').slice(0, 200));
   ok('上游 Odoo session_id 的值不进日志', !logs.includes(PORTAL_SECRET));
@@ -118,7 +145,7 @@ try {
   for (const [label, path] of [['%3F', `/go/${reg.id}/safe%3F${ENC_SECRET}`], ['%253F', `/go/${reg.id}/safe%253F${DBL_SECRET}`]]) {
     const x = await fetch(base + path, { redirect: 'manual' }); await x.text();
   }
-  await sleep(400);
+  await settle();
   ok('路径里 %3F 编码的查询串不进日志', !logs.includes(ENC_SECRET), logs.split('\n').filter((l) => l.includes(ENC_SECRET)).join(' / ').replaceAll(ENC_SECRET, '<E>').slice(0, 300));
   ok('路径里 %253F 双重编码的查询串不进日志', !logs.includes(DBL_SECRET), logs.split('\n').filter((l) => l.includes(DBL_SECRET)).join(' / ').replaceAll(DBL_SECRET, '<D>').slice(0, 300));
   ok('查询串（SSO state 等）不进日志', !logs.includes(QUERY_SECRET), logs.split('\n').filter((l) => l.includes(QUERY_SECRET)).join(' / ').replaceAll(QUERY_SECRET, '<Q>').slice(0, 300));
@@ -154,7 +181,7 @@ try {
       ok(`${mode}：Chromium 跨源 iframe ${want.cross}`, v.cross === want.cross, v.cross);
     }
   }
-  await sleep(300);
+  await settle();
   ok('中继下发的会话值不进日志', !logs.includes(RELAY_SECRET));
 } catch (e) {
   fail++; console.log('  ✗ 异常', e?.stack ?? e);
