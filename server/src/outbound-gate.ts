@@ -12,7 +12,9 @@
  *   · DNS：dns.lookup、dns.promises.lookup、各种 resolve*、Resolver 实例。只放行 localhost 和本来就是 IP 的名字（不出网）。
  *   · UDP：dgram 的 send、connect 一律拒绝。
  *   · 子进程：child_process 的 spawn、exec、execFile、fork 及其同步版本一律抛错——子进程的网络这个进程管不到。
- *   · worker_threads：新开 Worker 一律抛错——每个 Worker 有自己的一份模块，上面的补丁管不到它。
+ *   · worker_threads：新开 Worker 抛错——每个 Worker 有自己的一份模块，上面的补丁管不到它。
+ *     例外只有下面登记的线程入口（ALLOWED_WORKERS）：这些入口自己第一件事就是装上这个闸（引用本文件），
+ *     起的时候强制带上 WM_OUTBOUND=off，线程里同样一个字节都不往外发。别的文件、eval 的代码、字符串路径照旧拒绝。
  * 拦不到的：本进程之外的东西（数据目录里别的进程、宿主机）；原生扩展自己开的套接字（本仓没有）；直接调内部绑定
  * （process.binding('tcp_wrap')，本仓没有）；入站请求的应答（那是对方连进来的，照常回）。
  * 拦下的按类别计数，最近 20 个目标留给管理员看。会定时往外发的 worker 自己先问 outboundOff()，整轮跳过——
@@ -24,6 +26,10 @@ import dgram from 'node:dgram';
 import childProcess from 'node:child_process';
 import workerThreads from 'node:worker_threads';
 import { syncBuiltinESMExports } from 'node:module';
+
+/** 对外断开时仍然允许起的线程入口：必须是自己会装这个闸的文件。现在只有台库的工作线程 */
+const ALLOWED_WORKERS: ReadonlySet<string> = new Set([new URL('./services/bench-store-worker.ts', import.meta.url).href]);
+const RealWorker = workerThreads.Worker;
 
 const raw = String(process.env.WM_OUTBOUND ?? '').trim();
 if (raw !== '' && raw !== 'on' && raw !== 'off') throw new Error(`[outbound] WM_OUTBOUND 只能是 on 或 off（得：${JSON.stringify(raw)}），拒绝启动`);
@@ -171,13 +177,26 @@ if (OFF) {
       throw new OutboundBlockedError(`起子进程 ${String(file ?? '')}`);
     };
   }
-  // worker_threads：继承一个一构造就抛错的类
-  (workerThreads as unknown as Record<string, unknown>).Worker = class BlockedWorker {
-    constructor(file: unknown) { noteBlocked('worker', String(file ?? '')); throw new OutboundBlockedError('新开 Worker'); }
+  // worker_threads：只放行登记过的入口，别的一构造就抛错
+  (workerThreads as unknown as Record<string, unknown>).Worker = class GatedWorker extends RealWorker {
+    constructor(file: unknown, options?: { workerData?: unknown; resourceLimits?: unknown; eval?: unknown }) {
+      // 只认 URL 对象、逐字相等：字符串路径、带查询串的、eval 的代码都不是登记过的那个入口。
+      // 地址只读一次，然后用核对过的这个地址另建一个对象去起线程，不把调用方给的对象交下去：
+      // 对象自己报的地址可以是假的（子类改写读取器、第一次读和第二次读不一样、伪造一个挂着 URL 原型的对象），
+      // 而起线程实际读的是它的路径。
+      let href = '';
+      try { href = file instanceof URL ? String(file.href) : ''; } catch { href = ''; }
+      if (!ALLOWED_WORKERS.has(href) || options?.eval) {
+        noteBlocked('worker', String(href || typeof file));
+        throw new OutboundBlockedError('新开 Worker');
+      }
+      // 只带数据和内存上限过去；环境变量强制是「对外断开」，调用方给的 env、execArgv、argv 一概不带
+      super(new URL(href), { workerData: options?.workerData, resourceLimits: options?.resourceLimits as never, env: { ...process.env, WM_OUTBOUND: 'off' } });
+    }
   };
   // 让 ESM 的具名引入（import { spawn } from 'node:child_process'）也看到替换后的函数
   syncBuiltinESMExports();
-  console.warn('[outbound] WM_OUTBOUND=off：对外已断开。这是预发实例，所有出站在发出前被拦下并计数；定时投递整轮跳过、在途保持挂起');
+  if (workerThreads.isMainThread) console.warn('[outbound] WM_OUTBOUND=off：对外已断开。这是预发实例，所有出站在发出前被拦下并计数；定时投递整轮跳过、在途保持挂起');
 }
 
 /**

@@ -95,6 +95,7 @@ import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
 import { HttpError } from './errors.ts';
 import { designStandard } from './design-standard.ts';
 import { mountVault } from './vault-api.ts';
+import { uploadIntegrity } from './upload-integrity.ts';
 import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet } from './workbench-vars.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
@@ -2861,7 +2862,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       const sha256 = createHash('sha256').update(buf).digest('hex');
       const r = svc<AppDataService>('appData').fileInsert(a.slug, name, kind.mime, buf.length, rel, createdBy, note, sha256) as unknown as { lastInsertRowid: number | bigint };
       const id = Number(r.lastInsertRowid);
-      return { ok: true, id, slug: a.slug, name, mime: kind.mime, size: buf.length, sha256, note, url: `/api/apps/${a.slug}/files/${id}` };
+      return { ok: true, id, slug: a.slug, name, mime: kind.mime, size: buf.length, sha256, note, url: `/api/apps/${a.slug}/files/${id}`, ...uploadIntegrity(wantSha, wantSize) };
     }
     default:
       throw new HttpError(400, `未知工具: ${name}`);
@@ -3280,7 +3281,9 @@ function mcpRestResourceOps(): { path: string; method: 'get' | 'put' | 'post'; t
   const json = (description: string) => ({ description, content: { 'application/json': { schema: { type: 'object' } } } });
   const uploaded = { description: '已入库', content: { 'application/json': { schema: { type: 'object', required: ['id', 'sha256', 'mime', 'size', 'url'], properties: {
     id: { type: 'integer' }, slug: { type: 'string' }, name: { type: 'string' }, mime: { type: 'string' }, size: { type: 'integer' }, sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
-    note: { type: 'string' }, url: { type: 'string', description: 'REST 下载地址' }, download_url: { type: 'string', description: '台页面用的下载地址' } } } } } };
+    note: { type: 'string' }, url: { type: 'string', description: 'REST 下载地址' }, download_url: { type: 'string', description: '台页面用的下载地址' },
+    integrity: { type: 'string', enum: ['sha256-verified', 'unverified'], description: 'sha256-verified：服务端已按请求里的期望 sha256 核对过；unverified：请求没带，比对应答的 sha256 与本地即可' },
+    next: { type: 'string', description: '给 agent 的下一步提示：不需要下载回读' } } } } } };
   const binary = (description: string) => ({
     description,
     headers: { ETag: { description: '强 ETag = 文件 sha256', schema: { type: 'string' } }, 'X-Content-SHA256': { schema: { type: 'string' } }, 'Accept-Ranges': { schema: { type: 'string' } }, 'Content-Range': { schema: { type: 'string' } } },
@@ -3291,14 +3294,14 @@ function mcpRestResourceOps(): { path: string; method: 'get' | 'put' | 'post'; t
   const base = MCP_REST_BASE;
   return [
     { path: `${base}/apps/{slug}/files/{name}`, method: 'put', tool: 'app_files_upload', operationId: 'rest_file_upload', summary: '上传文件（原始字节，流式落盘）',
-      description: '请求体即文件内容（≤100MB），边收边落盘，不经 base64。与浏览器上传同一套核心：按内容识别类型（扩展名与内容不符 415）、台文件数配额。返回 id / sha256 / mime / url。',
-      parameters: [slug, P('name', '文件名（含扩展名，URL 编码）'), Q('note', '备注（≤500 字）', { type: 'string' }), Q('created_by', '提交人（缺省 mcp:<会话名>）', { type: 'string' })],
+      description: '请求体即文件内容（≤100MB），边收边落盘，不经 base64。与浏览器上传同一套核心：按内容识别类型（扩展名与内容不符 415）、台文件数配额。推荐带请求头 X-Content-SHA256：服务端核对，不符 400、不保存。返回 id / sha256 / mime / url / integrity / next；应答的 sha256 是对已保存字节算的，与本地一致即完整，不必下载回读。',
+      parameters: [slug, P('name', '文件名（含扩展名，URL 编码）'), Q('note', '备注（≤500 字）', { type: 'string' }), Q('created_by', '提交人（缺省 mcp:<会话名>）', { type: 'string' }), H('X-Content-SHA256', '期望的文件 sha256（64 位十六进制，推荐带：不符 400、不保存）')],
       requestBody: { required: true, content: { 'application/octet-stream': { schema: { type: 'string', format: 'binary' } }, '*/*': { schema: { type: 'string', format: 'binary' } } } },
       responses: { '201': uploaded }, errors: ['400', '401', '403', '404', '413', '415'] },
     { path: `${base}/apps/{slug}/files`, method: 'post', tool: 'app_files_upload', operationId: 'rest_file_upload_multipart', summary: '上传文件（multipart）',
-      description: 'multipart/form-data：字段 file（单文件 ≤100MB）+ 可选 note / created_by。其余同原始字节上传。',
-      parameters: [slug],
-      requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary' }, note: { type: 'string' }, created_by: { type: 'string' } } } } } },
+      description: 'multipart/form-data：字段 file（单文件 ≤100MB）+ 可选 note / created_by / sha256（期望的 sha256，也可放请求头 X-Content-SHA256，两处都带须一致）。其余同原始字节上传。',
+      parameters: [slug, H('X-Content-SHA256', '期望的文件 sha256（64 位十六进制，推荐带：不符 400、不保存）')],
+      requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary' }, note: { type: 'string' }, created_by: { type: 'string' }, sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' } } } } } },
       responses: { '201': uploaded }, errors: ['400', '401', '403', '404', '413', '415'] },
     { path: `${base}/apps/{slug}/files`, method: 'get', tool: 'app_files_list', operationId: 'rest_files_list', summary: '列文件（倒序分页 + 配额）',
       description: '与 app_files_list 同一结果；items[].url 为 REST 下载地址，quota 为剩余文件数与单文件上限。', parameters: [slug, ...page],
