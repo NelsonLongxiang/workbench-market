@@ -49,7 +49,7 @@ const SCOPE_RE = /^(\*|self|(domain|bench|sop|tool):[\x21-\x7e]{1,128}|dept:[a-z
  */
 export const SYSTEM_DOMAINS: readonly string[] = [
   'a2a', 'a2a-peer', 'access', 'admin', 'admin-token', 'agent-card', 'app', 'auth', 'binding', 'content', 'cookie', 'department',
-  'design-token', 'grant', 'health', 'judgment', 'login', 'market', 'mcp', 'principal', 'remote-allow', 'role', 'setting', 'setup',
+  'design-token', 'grant', 'health', 'judgment', 'login', 'market', 'mcp', 'principal', 'relation', 'remote-allow', 'role', 'setting', 'setup',
   'skill', 'sso', 'stats', 'team', 'type', 'workbench',
 ];
 /** 明确算业务的域。和 SYSTEM_DOMAINS 一起要盖住全部已登记动作的域（扩展的动作另算，都是业务） */
@@ -131,7 +131,7 @@ export const BLOCKS: readonly { key: string; name: string; domains: readonly str
   { key: 'work', name: '事项与对话', domains: ['change-request', 'sop', 'sop-run', 'task-center', 'tasks', 'work-item', 'work-items', 'workbench-event'] },
   { key: 'attention', name: '关注', domains: ['attention'] },
   { key: 'bench-data', name: '工作台数据', domains: ['app-data', 'bench-store', 'mcp-rest', 'mcp-tool'] },
-  { key: 'team', name: '团队与 AI 员工', domains: ['binding', 'department', 'principal', 'team'] },
+  { key: 'team', name: '团队与 AI 员工', domains: ['binding', 'department', 'principal', 'relation', 'team'] },
   { key: 'access', name: '权限与角色', domains: ['access', 'admin', 'admin-token', 'grant', 'judgment', 'role', 'setup'] },
   { key: 'system', name: '系统与节点', domains: ['a2a', 'a2a-peer', 'agent-card', 'app', 'auth', 'content', 'cookie', 'design-token', 'health', 'login', 'market', 'mcp', 'remote-allow', 'setting', 'skill', 'sso', 'stats', 'type', 'workbench'] },
 ];

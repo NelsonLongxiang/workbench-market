@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 「谁能做什么」页的纯函数单测（web/src/access-view.ts）：状态、范围、期限的说法，待核准卡片，按人排的权限表，矩阵格子，读不到时怎么说。数据都是合成的。 */
-import { ACCESS_TABS, CELL_LEGEND, actionProblem, cellLabel, declineReasonOk, grantActorRaw, grantRows, grantsOf, indexPrincipals, kindLabel, matrixOf, pendingGrants, principalName, responsibleOf, roleName, roleUsage, rolesOf, scopeLabel, scopeNotYetEffective, sourceProblem, statusLabel, tabFromQuery, termLabel, myRolesOf, summaryDo, OTHERS_ONLY_ADMINS, approvalText } from '../web/src/access-view.ts';
+import { ACCESS_TABS, CELL_LEGEND, actionProblem, cellLabel, declineReasonOk, grantActorRaw, grantRows, grantsOf, indexPrincipals, kindLabel, matrixOf, pendingGrants, principalName, responsibleOf, roleName, roleUsage, rolesOf, scopeLabel, scopeNotYetEffective, sourceProblem, statusLabel, tabFromQuery, termLabel, myRolesOf, summaryDo, OTHERS_ONLY_ADMINS, approvalText, approveState } from '../web/src/access-view.ts';
 import { actorLabel } from '../web/src/people.ts';
 
 let pass = 0, fail = 0;
@@ -68,6 +68,13 @@ ok('能做一格：去掉「能做：」前缀和「；能管：…」', summary
 // 要谁放行：服务端给的 approval_text 原样用；没有这个字段（服务端还没加）就不显示
 const rolesWithApproval = rolesOf({ roles: [{ id: 'management', name: '管理层', approval: 'owner', approval_text: '只有属主能放行' }, { id: 'member', name: '普通员工', approval: 'admin', approval_text: '  管理员即可放行 ' }, { id: 'guest', name: '访客' }, { id: 'odd', name: '怪', approval_text: 7 }] });
 ok('要谁放行：照服务端的说法原样显示（去掉两头空白）；没有字段、不是字符串、没有这个角色都不显示', approvalText('management', rolesWithApproval) === '只有属主能放行' && approvalText('member', rolesWithApproval) === '管理员即可放行' && approvalText('guest', rolesWithApproval) === null && approvalText('odd', rolesWithApproval) === null && approvalText('nope', rolesWithApproval) === null);
+
+// 核准按钮：照服务端的 can_approve；没这个字段照旧可点
+ok('核准按钮：服务端说能 → 可点、不写说法；说不能 → 置灰、写服务端的短说法；说不能却没给说法 → 置灰、写通用的一句；没这个字段 → 照旧可点',
+  J(approveState({ can_approve: true, approve_denied_text: null })) === '{"enabled":true,"note":null}'
+  && J(approveState({ can_approve: false, approve_denied_text: ' 只有属主能放行 ' })) === '{"enabled":false,"note":"只有属主能放行"}'
+  && J(approveState({ can_approve: false, approve_denied_text: null })) === '{"enabled":false,"note":"你现在放行不了这一项"}'
+  && J(approveState({})) === '{"enabled":true,"note":null}' && approveState({ can_approve: 'false' }).enabled === true);
 
 console.log(`\naccess-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

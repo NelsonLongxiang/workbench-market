@@ -166,6 +166,10 @@ try {
     const view = await srv.call('GET', '/api/principals/user:beta/access', { headers: token });
     const lead = view.json?.active?.find((g) => g.role === 'dept-lead');
     const listed = await srv.call('GET', '/api/setup/wizard', { headers: token });
+    // 属主一次放行的同时，向导指定的部门负责人顺带设上（部门原来没有负责人）：属主本人的动作，就是对这个关系的确认
+    const salesLead = (await srv.call('GET', '/api/departments/sales', { headers: token })).json?.department?.lead?.principal;
+    const leadBeforeApprove = byToken.status === 403; // 放行前没人能设
+    check(salesLead === 'user:beta' && leadBeforeApprove, '向导：属主放行时，部门负责人授予对应的部门（原来没有负责人）顺带设上负责人', show({ salesLead }));
     check(byToken.status === 403 && byAdmin.status === 403 && missing.status === 404 && byCli.status === 200 && byCli.json?.approved?.length === 2 && byCli.json.failed.length === 0
       && lead?.source === 'wizard' && lead.scope === 'dept:sales' && lead.effective === false
       && listed.json?.runs?.find((r) => r.id === run)?.grants?.every((g) => g.status === 'active'),

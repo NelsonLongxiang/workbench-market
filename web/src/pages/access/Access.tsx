@@ -18,7 +18,7 @@ import { subscribeAdminToken } from '../../admin-token';
 import {
   ACCESS_TABS, CELL_LEGEND, actionProblem, cellLabel, declineReasonOk, grantActorRaw, grantRows, grantsOf, indexPrincipals, kindLabel, matrixOf,
   pendingGrants, principalName, responsibleOf, roleName, roleUsage, rolesOf, scopeLabel, scopeNotYetEffective, sourceProblem, statusLabel, tabFromQuery, termLabel, SCOPE_PENDING,
-  OTHERS_ONLY_ADMINS, myRolesOf, summaryDo, approvalText,
+  OTHERS_ONLY_ADMINS, myRolesOf, summaryDo, approvalText, approveState,
 } from '../../access-view';
 import type { AccessTab, Grant, Principal, RoleInfo, SourceResult, Tone } from '../../access-view';
 
@@ -33,6 +33,7 @@ function PendingCard({ g, who, kind, role, by, scope, approval, onDone }: { g: G
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const can = approveState(g);
   const act = async (fn: () => Promise<SourceResult>) => {
     setBusy(true); setErr(null);
     const r = await fn();
@@ -60,8 +61,9 @@ function PendingCard({ g, who, kind, role, by, scope, approval, onDone }: { g: G
         </div>
       ) : (
         <div className="wm-acc-ask-ops">
-          <Button size="small" type="primary" loading={busy} data-testid="acc-approve" onClick={() => act(() => approveAccessGrant(g.id))}>核准</Button>
+          <Button size="small" type="primary" loading={busy} disabled={!can.enabled} title={can.note ?? undefined} data-testid="acc-approve" onClick={() => act(() => approveAccessGrant(g.id))}>核准</Button>
           <Button size="small" disabled={busy} data-testid="acc-decline" onClick={() => setDeclining(true)}>不给</Button>
+          {can.note && <span className="wm-acc-ask-denied" data-testid="acc-approve-denied">{can.note}</span>}
         </div>
       )}
       {err && <Alert className="wm-acc-ask-err" type="warning" showIcon message={err} />}

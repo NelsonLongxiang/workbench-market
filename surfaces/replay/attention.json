@@ -22,7 +22,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1674", "etag": "W/\"68a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1816", "etag": "W/\"718-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -63,7 +63,9 @@
                 "owner-pending": { "label": "待属主看板", "visible": true, "count": 0 },
                 "principal-pending": { "label": "待对接清单", "visible": true, "count": 1 },
                 "work-items": { "label": "事项的验收和过目", "visible": true, "count": 0 },
-                "a2a-peers": { "label": "对端公钥待确认", "visible": true, "count": 0 }
+                "a2a-peers": { "label": "对端公钥待确认", "visible": true, "count": 0 },
+                "team-health": { "label": "团队与名册", "visible": true, "count": 0 },
+                "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 }
               },
               "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
             }
@@ -78,7 +80,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1674", "etag": "W/\"68a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1816", "etag": "W/\"718-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -119,7 +121,9 @@
                 "owner-pending": { "label": "待属主看板", "visible": true, "count": 0 },
                 "principal-pending": { "label": "待对接清单", "visible": true, "count": 1 },
                 "work-items": { "label": "事项的验收和过目", "visible": true, "count": 0 },
-                "a2a-peers": { "label": "对端公钥待确认", "visible": true, "count": 0 }
+                "a2a-peers": { "label": "对端公钥待确认", "visible": true, "count": 0 },
+                "team-health": { "label": "团队与名册", "visible": true, "count": 0 },
+                "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 }
               },
               "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
             }
@@ -134,7 +138,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1143", "etag": "W/\"477-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1285", "etag": "W/\"505-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -161,7 +165,9 @@
                 "owner-pending": { "label": "待属主看板", "visible": true, "count": 0 },
                 "principal-pending": { "label": "待对接清单", "visible": true, "count": 1 },
                 "work-items": { "label": "事项的验收和过目", "visible": false, "count": 0 },
-                "a2a-peers": { "label": "对端公钥待确认", "visible": false, "count": 0 }
+                "a2a-peers": { "label": "对端公钥待确认", "visible": false, "count": 0 },
+                "team-health": { "label": "团队与名册", "visible": false, "count": 0 },
+                "relation-proposals": { "label": "关系的提议", "visible": true, "count": 0 }
               },
               "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
             }
@@ -176,7 +182,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "821", "etag": "W/\"335-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "964", "etag": "W/\"3c4-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [],
               "counts": { "total": 0, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 0 }, "by_source": {} },
@@ -189,7 +195,9 @@
                 "owner-pending": { "label": "待属主看板", "visible": false, "count": 0 },
                 "principal-pending": { "label": "待对接清单", "visible": false, "count": 0 },
                 "work-items": { "label": "事项的验收和过目", "visible": false, "count": 0 },
-                "a2a-peers": { "label": "对端公钥待确认", "visible": false, "count": 0 }
+                "a2a-peers": { "label": "对端公钥待确认", "visible": false, "count": 0 },
+                "team-health": { "label": "团队与名册", "visible": false, "count": 0 },
+                "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 }
               },
               "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
             }
@@ -204,7 +212,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "821", "etag": "W/\"335-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "964", "etag": "W/\"3c4-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [],
               "counts": { "total": 0, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 0 }, "by_source": {} },
@@ -217,7 +225,9 @@
                 "owner-pending": { "label": "待属主看板", "visible": false, "count": 0 },
                 "principal-pending": { "label": "待对接清单", "visible": false, "count": 0 },
                 "work-items": { "label": "事项的验收和过目", "visible": false, "count": 0 },
-                "a2a-peers": { "label": "对端公钥待确认", "visible": false, "count": 0 }
+                "a2a-peers": { "label": "对端公钥待确认", "visible": false, "count": 0 },
+                "team-health": { "label": "团队与名册", "visible": false, "count": 0 },
+                "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 }
               },
               "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
             }
