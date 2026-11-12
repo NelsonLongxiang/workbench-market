@@ -20,6 +20,9 @@ export type AttentionRouteDeps = AttentionDeps & {
   crossOriginDenied: (req: express.Request) => boolean;
 };
 
+/** 「关注」的答复入口：状态码不代表授权——能不能答由条目的来源判（看列表、转给原路由再过守卫、直接实现的各自核） */
+const ANSWER_BY_SOURCE = '能不能答由条目的来源判：先看这个人的「关注」列表里有没有这一条；转给原路由的再过写请求总门和原路由的守卫；直接实现的各自核';
+
 export function registerAttentionRoutes(app: HttpService, deps: AttentionRouteDeps): void {
   installAttentionProviders(svc<AttentionService>('attention'), deps);
   app.get('/api/attention', { action: 'attention.read', kind: 'read' }, (req, res, next) => {
@@ -45,7 +48,9 @@ export function registerAttentionRoutes(app: HttpService, deps: AttentionRouteDe
    * 写请求先过 index.ts 的写请求总门（和别的 /api 写一样要管理员）。
    */
   // 动作类别是「决定」：替人拍板的入口（批准、拒绝、验收、对接……），不是普通的写
-  app.post('/api/attention/answer', { action: 'attention.answer', kind: 'decide' }, (req, res, next) => {
+  // 写请求总门对这条放行（L20，index.ts 的 REMOTE_ALLOW_EXACT）：能不能答由条目的来源判——先看这个人的「关注」列表里有没有这一条，
+  // 转给原路由的照样再过一遍写请求总门和原路由的守卫；直接实现的各自核（事项的验收、退回只给建立人和管理员）
+  app.post('/api/attention/answer', { action: 'attention.answer', kind: 'decide', statusNotVerdict: ANSWER_BY_SOURCE }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'attention_cross_origin_denied' });
     const b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body as Record<string, unknown> : {};
@@ -54,6 +59,11 @@ export function registerAttentionRoutes(app: HttpService, deps: AttentionRouteDe
     if (!source || !sourceId || sourceId.length > 300 || !answer) return void res.status(400).json({ error: 'attention_answer_invalid', message: '要有 source、source_id、answer' });
     (async () => {
       await deps.markOdooAdmin(req);
+      // 带了 cookie、不是管理员、身份来源不可达：502 和固定代号（和「关注」列表、事项接口同一个口径）
+      const cookie = String(req.headers.cookie ?? '');
+      if (cookie && !deps.adminHeaderOk(req) && sourceDown(await identity().resolveViewer(cookie))) {
+        return void res.status(502).json({ error: IDENTITY_UNAVAILABLE, message: '登录服务暂时联系不上，稍后再试' });
+      }
       const attention = svc<AttentionService>('attention');
       const provider = attention.provider<express.Request>(source);
       if (!provider) return void res.status(404).json({ error: 'attention_source_unknown' });

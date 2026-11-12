@@ -273,7 +273,7 @@
           "response": {
             "status": 403,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
@@ -288,7 +288,12 @@
             "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "cross-site" },
             "json": { "source": "change-requests", "source_id": "1", "answer": "reject", "input": { "reviewed_by": "回放", "reason": "回放：不通过的理由" } }
           },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "attention_cross_origin_denied" }
+          }
         },
         {
           "id": "answer-missing",

@@ -59,6 +59,8 @@ const out = {
   noPrincipal: ready('user:alpha', 14, { creator_principal: null }),
   // 改绑之前是 alpha 建的
   beforeRebind: ready('user:alpha', 15),
+  // L20：「关注」的答复入口对登录的人放开之后，经它验收
+  viaAttn: ready('user:alpha', 16), viaAttnMgmt: ready('user:alpha', 17),
 };
 const notReady = items.create({ title: '还在进行', created_by: 'user:alpha', creator_principal: 'user:alpha', source_kind: 'agent' });
 for (const [k, x] of [['submit', { dispatch_open: true }], ['eval', { verdict: 'accept' }], ['report', { status: 'progress' }]]) items.apply(notReady.id, { kind: k, source: 'seed', id: notReady.id + ':' + k, ...x });
@@ -174,6 +176,29 @@ try {
     const res = await decide('not-an-item', { answer: 'verify' });
     check(res.status === 403, 'id 不是事项 id 的样子：写请求总门照旧拦（只放 wi_ 开头的这一条子路径）', show(res));
   }
+  // ---------- L20：「关注」的答复入口对登录的人放开（写请求总门放行），能不能答仍由条目的来源判 ----------
+  {
+    const viaAttn = (id, headers, source = 'work-items', ans = 'verify') => call('POST', '/api/attention/answer', headers, { source, source_id: id, answer: ans, input: {} });
+    // 管理层：看得到所有事项（itemRoles），但不是建立人
+    const MGMT = { ...SAME, cookie: `session_id=${SESSIONS.noAdminFlag}` };
+    await call('GET', '/api/auth/viewer', MGMT);
+    const g = await call('POST', '/api/grants', {}, { principal: 'user:no-flag', role: 'management', scope: '*', reason: '合成：管理层' });
+    await call('POST', `/api/grants/${g.body?.grant?.id}/submit`, {}); await call('POST', `/api/grants/${g.body?.grant?.id}/approve`, {});
+    const mgmtSees = ((await call('GET', '/api/attention', MGMT)).body?.items ?? []).some((x) => x.source === 'work-items' && x.source_id === S.viaAttnMgmt);
+    const n = logs(S.viaAttnMgmt);
+    const byMgmt = await viaAttn(S.viaAttnMgmt, MGMT);
+    const mgmtUntouched = untouched(S.viaAttnMgmt, n) && state(S.viaAttnMgmt) === 'ready';
+    const own = await viaAttn(S.viaAttn, ALPHA);
+    const ownDone = state(S.viaAttn) === 'done';
+    const anon = await viaAttn(S.viaAttnMgmt, { ...SAME, 'x-forwarded-for': '198.51.100.7' });
+    const adminSource = await viaAttn('1', ALPHA, 'change-requests', 'approve');
+    const down = await viaAttn(S.viaAttnMgmt, { ...SAME, cookie: `session_id=${SESSIONS.hangs}` });
+    check(g.status === 201 && mgmtSees && byMgmt.status === 404 && byMgmt.body?.result?.error === 'work_item_not_found' && mgmtUntouched
+      && own.status === 200 && ownDone && anon.status === 401 && adminSource.status === 403 && down.status === 502 && down.body?.error === 'identity_unavailable' && untouched(S.viaAttnMgmt, n),
+      '「关注」的答复入口对登录的人放开：建立人从这里验收自己的事项 200；管理层看得到别人的事项、从这里验收被拒（不是建立人，事项不动）；远程匿名 401；不是管理员答管理员的来源 403；身份来源不可达 502 identity_unavailable',
+      show({ mgmtSees, byMgmt: [byMgmt.status, byMgmt.body?.result?.error ?? byMgmt.body?.error], own: [own.status, ownDone], anon: anon.status, adminSource: adminSource.status, down: [down.status, down.body?.error] }));
+  }
+
   // ---------- 阶段七 R2：事项对话里的席位消息（看过、回复）——和验收入口同一个口径再加管理员 ----------
   {
     const read = (id, headers) => call('POST', `/api/work-items/${id}/messages/read`, headers, {});
