@@ -9,10 +9,10 @@ const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 ok('尺寸夹在范围里：左 220–480、右 260–520、下 140–520', eq(clampSizes({ left: 10, right: 9999, bottom: 300 }), { left: 220, right: 520, bottom: 300 }));
 ok('不是数字的退回缺省', eq(clampSizes({ left: 'x', right: NaN, bottom: null }), DEFAULT_SIZES) && eq(clampSizes(null), DEFAULT_SIZES));
-ok('拖左栏的分隔条：往右变宽、往左变窄', dragSizes(DEFAULT_SIZES, 'left', 50, 0).left === 350 && dragSizes(DEFAULT_SIZES, 'left', -50, 0).left === 250);
+ok('拖左栏的分隔条：往右变宽、往左变窄', dragSizes(DEFAULT_SIZES, 'left', 50, 0).left === DEFAULT_SIZES.left + 50 && dragSizes(DEFAULT_SIZES, 'left', -50, 0).left === DEFAULT_SIZES.left - 50);
 ok('拖右栏的分隔条：往右变窄、往左变宽（分隔条在它左边）', dragSizes(DEFAULT_SIZES, 'right', 40, 0).right === DEFAULT_SIZES.right - 40 && dragSizes(DEFAULT_SIZES, 'right', -40, 0).right === DEFAULT_SIZES.right + 40);
 ok('缺省宽度：左 280、右 300，剩下的归中间（1440 下中间 554）', DEFAULT_SIZES.left === 280 && DEFAULT_SIZES.right === 300);
-ok('拖下面一块的分隔条：往下变矮、往上变高；只动自己那一项', dragSizes(DEFAULT_SIZES, 'bottom', 0, 60).bottom === 200 && dragSizes(DEFAULT_SIZES, 'bottom', 999, -60).bottom === 320 && dragSizes(DEFAULT_SIZES, 'bottom', 999, -60).left === 300);
+ok('拖下面一块的分隔条：往下变矮、往上变高；只动自己那一项', dragSizes(DEFAULT_SIZES, 'bottom', 0, 60).bottom === 200 && dragSizes(DEFAULT_SIZES, 'bottom', 999, -60).bottom === 320 && dragSizes(DEFAULT_SIZES, 'bottom', 999, -60).left === DEFAULT_SIZES.left);
 ok('拖过头停在范围边上', dragSizes(DEFAULT_SIZES, 'left', 5000, 0).left === 480 && dragSizes(DEFAULT_SIZES, 'right', 5000, 0).right === 260);
 ok('本机存的尺寸：读得出就用（照样夹范围），读坏了、空的退回缺省', eq(parseSizes('{"left":400,"right":300,"bottom":9}'), { left: 400, right: 300, bottom: 140 }) && eq(parseSizes('{bad'), DEFAULT_SIZES) && eq(parseSizes(null), DEFAULT_SIZES) && eq(parseSizes('[]'), DEFAULT_SIZES));
 ok('放大 / 还原：点已放大的还原，点别的换成那一块', toggleMax(null, 'board') === 'board' && toggleMax('board', 'board') === null && toggleMax('board', 'items') === 'items');
