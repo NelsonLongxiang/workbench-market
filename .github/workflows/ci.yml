@@ -504,6 +504,8 @@ jobs:
         run: node scripts/cockpit-frame-unit.mjs
       - name: 身份变了以后页面重读单测（纯函数——认人只认 /api/auth/me·不通和 502 不算·合并去抖·世代号；单列一步）
         run: node scripts/session-watch-unit.mjs
+      - name: 技能正文里写到的 MCP 工具名都在工具目录里（对照 surfaces/mcp-tools.json）
+        run: node scripts/skill-tool-names-test.mjs
       - name: 凭据库（融合 dsh-vault：读写要口令·业务面 403·摘要无明文·坏 JSON 不进日志·写锁/重开/闲置上锁/限流）
         run: node scripts/vault-concurrency-test.mjs && node scripts/vault-smoke.mjs
       - name: 条目自带答复入口单测（纯函数——answer_via 的地址、请求体、填写项；核准卡片的写法；单列一步）
