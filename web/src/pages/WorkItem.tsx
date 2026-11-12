@@ -13,10 +13,11 @@ import WmPage from '../components/WmPage';
 import RelTime from '../components/RelTime';
 import { apiFetch } from '../admin-token';
 import { OUTCOME, VERDICT, describe, type AttentionItem, type LogRow } from '../attention-view';
-import { getWorkItem, postAskAnswer, postCreatorDecision, postSeatMessageReply, postSeatMessagesRead } from '../api';
+import { getLifecycleNameSources, getRosterTeams, getWorkItem, postAskAnswer, postCreatorDecision, postSeatMessageReply, postSeatMessagesRead } from '../api';
 import SectionBoundary from '../components/SectionBoundary';
 import { choicesFor, routeFor, viewerOf, type Can, rowActor, seatLine, showProgress, subitemsOf, ticketStateLabel } from '../work-item-view';
 import { teamLabel } from '../people';
+import { NO_NAMES, cleanSeatName, lifecycleNames, lineName, rosterNames, stageName, withRoster, type Names } from '../names';
 import { VIEWER_NONE, actorLabel, groupTimeline, seatLabel, type Viewer, askerLabel, textOf, who, PROGRESS_STATE, TERMINAL, stateLabel, askIdOf, creatorLabel, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
 
 type Item = { id: string; title: string; state: string; created_by: string; creator_principal?: string | null; created_at: string; updated_at: string; source_kind: string; source_ref: string; target_team: string; seat: string; eval: string; eval_reason: string; progress_summary: string; receipt_outcome: string; object: string; phase: string; open_asks: string; outputs: string; evidence: string };
@@ -161,7 +162,7 @@ function SeatMessages({ itemId, messages, closed, onChanged }: { itemId: string;
   if (!messages.length) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="席位还没发来消息" />;
   return <>{closed && <Typography.Text type="secondary" data-testid="seat-messages-closed">事项已经结束，不能再回复。</Typography.Text>}<List itemLayout="vertical" size="small" dataSource={messages} rowKey="id" renderItem={(m) => <List.Item data-testid="seat-message">
     <Space wrap size={4}>
-      <Typography.Text strong>{who(m.sender) || who(m.peer)}</Typography.Text>
+      <Typography.Text strong>{cleanSeatName(who(m.sender) || who(m.peer))}</Typography.Text>
       <Tag color={MSG_STATUS[m.status].color}>{MSG_STATUS[m.status].label}</Tag>
       <RelTime value={m.at} />
     </Space>
@@ -187,7 +188,7 @@ function Artifacts({ list, empty }: { list: Artifact[]; empty: string }) {
 }
 
 const REJECTED: Record<string, string> = { not_allowed: '这时候不该有这条事实', terminal: '事项已经结束之后才到' };
-function LogLine({ row, askIds, seat }: { row: LogRow; askIds?: Set<string>; seat: string }) {
+function LogLine({ row, askIds, nameOf }: { row: LogRow; askIds?: Set<string>; seat: string; nameOf?: (s: string) => string }) {
   const ask = askIdOf(row);
   const jump = ask && askIds?.has(ask) && !(row.fact_id ?? '').includes(':closes-ask:') ? ask : null;
   return <div data-testid="timeline-row">
@@ -197,7 +198,7 @@ function LogLine({ row, askIds, seat }: { row: LogRow; askIds?: Set<string>; sea
       {row.from_state !== row.to_state ? <>{stateTag(row.from_state)}→{stateTag(row.to_state)}</> : null}
       {row.rejected && <Tag color="default">收到，未采信：{REJECTED[row.rejected] ?? row.rejected}</Tag>}
     </Space>
-    <div><Typography.Text type="secondary">{row.at} · {rowActor(row)}</Typography.Text></div>
+    <div><Typography.Text type="secondary">{row.at} · {nameOf ? nameOf(rowActor(row)) : rowActor(row)}</Typography.Text></div>
     {describe(row) && <div>{describe(row)}</div>}
   </div>;
 }
@@ -235,7 +236,12 @@ export default function WorkItem() {
   }, [id]);
   useEffect(() => { void load(); }, [load]);
 
-  const item = data?.item;
+  // 名字只当显示用：席位句柄查名册，线和阶段的代号查生命周期；读不到就按「查不到名字」处理
+  const [roster, setRoster] = useState<Record<string, string>>({});
+  const [names, setNames] = useState<Names>(NO_NAMES);
+  useEffect(() => { void getRosterTeams().then((t) => setRoster(rosterNames(t))); void getLifecycleNameSources().then((x) => setNames(lifecycleNames(x.types, x.objects))); }, []);
+  const named = (seat: unknown) => withRoster(who(seat), roster);
+  const item = data?.item ? { ...data.item, seat: named(data.item.seat) } : undefined;
   const asks = data?.asks;
   // 详情带了 asks（阶段七）就以它为准：在这里答，「关注」里的同一条提问不再重复列
   const shownPending = asks ? pending.filter((p) => p.source !== 'seat-asks') : pending;
@@ -246,7 +252,7 @@ export default function WorkItem() {
   // 建立人能不能在这一页答：详情带了提问列表（建立人答复的入口开了），或者「关注」给了他答法
   const hint = item ? stateHint(item.state, item.seat, asks ? openAsks === 0 && asks.length > 0 : lastAskAnswered(data?.log ?? []), viewer, asks !== undefined || can.answer) : null;
   const progress = data?.progress ?? null;
-  const tickets = subitemsOf(data?.subitems, progress);
+  const tickets = subitemsOf(data?.subitems, progress).map((t) => ({ ...t, seat: named(t.seat) }));
   // 结果：事项的 outputs 列（现在还没人写）加上日志里回执带来的产物，去重
   const timeline = (data?.log ?? []).filter((r) => !hiddenInTimeline(r));
   // 提问号在 asks 里是数字、在日志的 fact_id / detail.ask_id 里是字符串：统一成字符串再比
@@ -267,7 +273,7 @@ export default function WorkItem() {
                 { key: 'seat', label: '承接', children: seatLine(item, tickets, teamLabel) || '—' },
                 { key: 'team', label: '派给', children: teamLabel(item.target_team) || '—' },
                 { key: 'by', label: '建立人', children: creatorLabel(item.created_by, item.creator_principal) },
-                { key: 'obj', label: '对象 / 阶段', children: [item.object, item.phase].filter(Boolean).join(' / ') || '—' },
+                { key: 'obj', label: '哪条线 / 哪一步', children: [lineName(item.object, names), stageName(item.phase, names)].filter(Boolean).join(' / ') || '—' },
                 { key: 'eval', label: '接单判断', children: item.eval ? `${VERDICT[item.eval] ?? item.eval}${item.eval_reason ? `（${item.eval_reason}）` : ''}` : '—' },
                 { key: 'at', label: '最近变化', children: <RelTime value={item.updated_at} /> },
               ]} />
@@ -287,7 +293,7 @@ export default function WorkItem() {
           <SectionBoundary name="正在处理">
           {progress && showProgress(item.state) && <Card size="small" title="正在处理" data-testid="work-item-progress">
             <Flex vertical gap="small">
-              <Space wrap size={6}><Typography.Text strong>{progressLine(progress)}</Typography.Text>{who(progress.by) && <Typography.Text type="secondary">{who(progress.by)}</Typography.Text>}<RelTime value={progress.at || progress.received_at} /></Space>
+              <Space wrap size={6}><Typography.Text strong>{progressLine(progress)}</Typography.Text>{who(progress.by) && <Typography.Text type="secondary">{seatLabel(named(progress.by))}</Typography.Text>}<RelTime value={progress.at || progress.received_at} /></Space>
               {textOf(progress.summary) && <Typography.Paragraph className="wm-m-0">{textOf(progress.summary)}</Typography.Paragraph>}
             </Flex>
           </Card>}
@@ -307,10 +313,10 @@ export default function WorkItem() {
           <SectionBoundary name="时间线">
           <Card title="时间线" size="small">
             {timeline.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有记录" /> : <Timeline items={groupTimeline(timeline).map((g) => g.kind === 'row'
-              ? { key: g.row.seq, color: g.row.rejected ? 'gray' : g.row.from_state !== g.row.to_state ? 'blue' : 'green', children: <LogLine row={g.row} askIds={askIds} seat={who(item.seat)} /> }
+              ? { key: g.row.seq, color: g.row.rejected ? 'gray' : g.row.from_state !== g.row.to_state ? 'blue' : 'green', children: <LogLine row={g.row} askIds={askIds} seat={who(item.seat)} nameOf={(x) => seatLabel(named(x))} /> }
               : { key: `${g.kind}-${g.rows[0].seq}`, color: g.kind === 'rejected' ? 'gray' : 'green', children: <details data-testid={g.kind === 'rejected' ? 'timeline-rejected' : 'timeline-progress'}><summary><Typography.Text type="secondary">{g.kind === 'rejected'
                 ? `${g.rows.length} 条收到、未采信的记录（${REJECTED[g.rows[0].rejected] ?? g.rows[0].rejected}）`
-                : `席位报了 ${g.rows.length} 次进展（最新一次在「正在处理」里）`}</Typography.Text></summary>{g.rows.map((row) => <LogLine key={row.seq} row={row} askIds={askIds} seat={who(item.seat)} />)}</details> })} />}
+                : `席位报了 ${g.rows.length} 次进展（最新一次在「正在处理」里）`}</Typography.Text></summary>{g.rows.map((row) => <LogLine key={row.seq} row={row} askIds={askIds} seat={who(item.seat)} nameOf={(x) => seatLabel(named(x))} />)}</details> })} />}
           </Card>
           </SectionBoundary>
         </Flex>
