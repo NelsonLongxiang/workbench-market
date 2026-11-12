@@ -124,7 +124,26 @@ export function validateViewDoc(doc: unknown, datasets: Map<string, DatasetDef>)
         out(cols, block.value, 'value');
         if (block.unit !== undefined && !isText(block.unit, 12)) errs.push(`${at}：unit 须为 1～12 个字符`);
       } else if (type === 'table') {
-        keys(block, [...base, 'query', 'columns', 'page_size'], at);
+        keys(block, [...base, 'query', 'columns', 'page_size', 'value_labels'], at);
+        // 「取值 → 说法」对照：列名 → 取值 → 说法（一段文字，或 { text, tone }）。没给对照的取值，页面显示成灰色的原文
+        if (block.value_labels !== undefined) {
+          const vl = block.value_labels;
+          if (!isObj(vl) || Object.keys(vl).length > 12) errs.push(`${at}：value_labels 须为对象（列名 → 取值 → 说法，最多 12 列）`);
+          else for (const [colName, map] of Object.entries(vl)) {
+            out(cols, colName, 'value_labels 的列');
+            if (!isObj(map) || !Object.keys(map).length || Object.keys(map).length > 50) { errs.push(`${at}：value_labels.${colName.slice(0, 48)} 须为 1～50 个「取值 → 说法」`); continue; }
+            for (const [val, label] of Object.entries(map)) {
+              const where = `${at}：value_labels.${colName.slice(0, 48)} 里 ${val.slice(0, 32)} 的说法`;
+              if (val.length > 64) errs.push(`${at}：value_labels.${colName.slice(0, 48)} 的取值最多 64 个字符`);
+              if (typeof label === 'string') { if (!isText(label, 32)) errs.push(`${where}须为 1～32 个字符`); }
+              else if (isObj(label)) {
+                keys(label, ['text', 'tone'], where);
+                if (!isText(label.text, 32)) errs.push(`${where}的 text 须为 1～32 个字符`);
+                if (label.tone !== undefined && !['success', 'warning', 'danger', 'default'].includes(label.tone as string)) errs.push(`${where}的 tone 须为 success / warning / danger / default`);
+              } else errs.push(`${where}须为一段文字，或 { text, tone }`);
+            }
+          }
+        }
         if (block.columns !== undefined) {
           if (!Array.isArray(block.columns) || !block.columns.length) errs.push(`${at}：columns 须为非空数组`);
           else for (const n of block.columns) out(cols, n, 'columns');

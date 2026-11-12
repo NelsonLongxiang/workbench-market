@@ -563,6 +563,13 @@ try {
   configureBenchRuntime(base);
   ok('R9 取数超时：整个这一次报 timeout，不当成某个组件的错', e?.code === 'timeout', e);
 
+  // 表格的「取值 → 说法」对照：保存视图描述时核对
+  const vlDoc = (value_labels) => ({ title: '对照', views: [{ key: 'm', title: '主', blocks: [{ type: 'table', query: { dataset: 'runs', select: ['id', 'day'] }, value_labels }] }] });
+  const vlErrs = (value_labels) => validateViewDoc(vlDoc(value_labels), new Map([['runs', { name: 'runs', columns: [{ name: 'id', type: 'integer', label: '', required: true }, { name: 'day', type: 'date', label: '', required: false }], key: ['id'] }]]));
+  ok('R10 对照合格：说法可以是一段文字，也可以带颜色', vlErrs({ day: { '2026-01-05': '开工', '2026-02-02': { text: '收工', tone: 'success' } } }).length === 0, vlErrs({ day: { '2026-01-05': '开工' } }));
+  const badLabels = [['x', '不是对象'], [{ nope: { a: 'b' } }, '列不在查询的输出里'], [{ day: {} }, '一个取值都没有'], [{ day: { a: '' } }, '说法是空的'], [{ day: { a: 'x'.repeat(33) } }, '说法太长'], [{ day: { a: { text: 'ok', tone: 'purple' } } }, '颜色不认识'], [{ day: { a: { text: 'ok', html: '<b>' } } }, '说法里多出来的键'], [{ day: { a: 5 } }, '说法是数字'], [{ day: { ['k'.repeat(65)]: 'x' } }, '取值太长'], [{ constructor: { a: 'b' } }, '列名撞原型']];
+  for (const [vl, why] of badLabels) ok(`R10 对照不合格被指出：${why}`, vlErrs(vl).length > 0, vlErrs(vl));
+
   // —— L：数据量上限（设计稿第十一节第 2 条）。用小的上限、不经工作线程，直接验逻辑本体 ——
   console.log('L 数据量上限');
   const capHost = new BenchHost(join(DATA, 'caps'), benchSqlKit('sqlite'), { datasetBytes: 10_000, storeBytes: 16_000, writeBytes: 4_000 });
