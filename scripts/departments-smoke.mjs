@@ -72,7 +72,7 @@ async function boot() {
     let json = null; try { json = JSON.parse(text); } catch { /* 不是 JSON */ }
     return { status: res.status, text, json };
   };
-  return { base, host: new URL(base).host, call, log: () => log, db: () => new DatabaseSync(join(data, 'workbench-market.db')) };
+  return { base, host: new URL(base).host, call, log: () => log, db: () => new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 }) };
 }
 
 try {

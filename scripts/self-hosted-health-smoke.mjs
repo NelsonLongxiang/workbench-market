@@ -60,7 +60,7 @@ try {
   ok('SOP 下架后 → down 并写明原因', dep?.status === 'down' && /未上架/.test(dep?.error), JSON.stringify(dep).slice(0, 200));
   // 卡还在、台已经没了（历史遗留的卡）：直接往合成库插一张指向不存在自产台的卡
   const { DatabaseSync } = await import('node:sqlite');
-  const db = new DatabaseSync(join(TMP, 'data', 'workbench-market.db'));
+  const db = new DatabaseSync(join(TMP, 'data', 'workbench-market.db'), { timeout: 5000 });
   const ghostId = Number(db.prepare("INSERT INTO workbenches (name, url, type) VALUES ('幽灵台', '/apps/ghost-app/', 'market-app')").run().lastInsertRowid);
   db.close();
   const g = await check(ghostId);

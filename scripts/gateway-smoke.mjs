@@ -112,7 +112,7 @@ try {
     await call('PUT', '/api/mcp/upstreams', { upstreams: [{ prefix: 'gone', url: 'http://127.0.0.1:9/mcp' }] }, AT);
     const lg = await call('POST', '/api/mcp/sessions', { name: 'agent-legacy' }, AT);
     const { DatabaseSync } = await import('node:sqlite');
-    const db = new DatabaseSync(`${DATA}/workbench-market.db`);
+    const db = new DatabaseSync(`${DATA}/workbench-market.db`, { timeout: 5000 });
     db.prepare('UPDATE mcp_sessions SET grants = ? WHERE id = ?').run(JSON.stringify(['workbench_list', 'app_publish', 'gone__x']), lg.body.id);
     db.close();
     const ups = await call('GET', '/api/mcp/upstreams', null, AT);
