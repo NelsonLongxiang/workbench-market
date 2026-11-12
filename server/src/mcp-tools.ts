@@ -1,8 +1,11 @@
 /** MCP 工具注册表（S3 抽离）：纯数据，供 /mcp 与网关授权面共用。
  *  category：read 只读 / write 写业务数据 / admin 改市场配置或发布——供 access_info 目录与管理员审批参考。
  *  exempt：任何已认证会话都能调、不受 grants 限制（与 initialize、tools/list 同级），tools/list 始终列出。 */
+import { BENCH_TOOL_DEFS } from './bench-mcp-tools.ts';
+
 export type McpToolCategory = 'read' | 'write' | 'admin';
-export interface McpToolDef { name: string; description: string; category: McpToolCategory; exempt?: boolean; inputSchema: Record<string, unknown> }
+/** benchScoped：数据视图的工具，必须限定到台——授予不走会话的 grants，见 services/bench-mcp.ts */
+export interface McpToolDef { name: string; description: string; category: McpToolCategory; exempt?: boolean; benchScoped?: boolean; inputSchema: Record<string, unknown> }
 export const MCP_TOOLS: McpToolDef[] = [
   // ── 权限自助（免 grants）：看清自己能调什么、缺什么，再提申请等管理员批 ──
   {
@@ -364,4 +367,6 @@ export const MCP_TOOLS: McpToolDef[] = [
       additionalProperties: false,
     },
   },
+  // ── 数据视图（必须限定到台；定义在 bench-mcp-tools.ts，入口 WM_BENCH_VIEWS 关着时不出现在目录里） ──
+  ...BENCH_TOOL_DEFS,
 ];
