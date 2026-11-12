@@ -97,5 +97,23 @@ with sync_playwright() as p:
     ctx.route('**/api/attention', unauth)
     pg.reload(); pg.wait_for_selector('[data-testid=home-summary]'); pg.wait_for_timeout(1500)
     check('401 不进这个状态（照旧按没登录处理）', banner.count() == 0 and pg.locator('[data-testid=home-decide-down]').count() == 0)
+    ctx.close()
+    # 真服务端（#639）：合成身份来源在数据目录里有 fake-identity-down 时不回答——服务端自己回 502 identity_unavailable，不是页面里截的
+    import os
+    marker = os.path.join(cfg['data_dir'], 'fake-identity-down')
+    open(marker, 'w').close()
+    ctx = b.new_context(viewport={'width': 1440, 'height': 900})
+    ctx.add_cookies([{'name': 'session_id', 'value': cfg['flaky_session'], 'url': M}])
+    pg = ctx.new_page(); pg.set_default_timeout(20000)
+    real = []
+    pg.on('response', lambda r: real.append(r.status) if '/api/attention' in r.url else None)
+    pg.goto(M + '/')
+    banner = pg.locator('[data-testid=wm-identity-down]')
+    banner.wait_for(state='visible')
+    check(f'真服务端：来源不可达时回 502（{sorted(set(real))}），外壳挂提示，不跳登录页', 502 in real and pg.url.rstrip('/') == M.rstrip('/'), real)
+    check('真服务端：角标是中性的「—」', pg.locator('[data-testid=nav-pending]').get_attribute('data-state') == 'down')
+    os.remove(marker)
+    banner.wait_for(state='hidden', timeout=30000)
+    check('真服务端：来源恢复后，页面自己重试连上、提示消失（不用刷新）', banner.count() == 0)
     ctx.close(); b.close()
 print(f'identity-down-browser: {ok} passed / {fail} failed'); sys.exit(1 if fail else 0)

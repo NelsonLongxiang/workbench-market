@@ -29,7 +29,7 @@ try {
   const end = Date.now() + 40_000;
   for (;;) { try { if ((await fetch(base + '/api/health')).ok) break; } catch {} if (Date.now() > end) throw new Error('server not ready'); await new Promise((x) => setTimeout(x, 250)); }
   const cfg = join(TMP, 'browser.json');
-  writeFileSync(cfg, JSON.stringify({ base, alpha_session: SESSIONS.alpha }));
+  writeFileSync(cfg, JSON.stringify({ base, alpha_session: SESSIONS.alpha, flaky_session: SESSIONS.flaky, data_dir: join(TMP, 'data') }));
   const py = spawn(pythonBin(), ['scripts/identity-down-browser.py', cfg, ...(process.env.WM_SHOT ? [process.env.WM_SHOT, process.env.WM_SHOT.replace(/\.png$/, '-有数据.png')] : [])], { stdio: 'inherit' });
   code = await new Promise((x, j) => { py.on('error', j); py.on('exit', x); });
 } catch (e) {
