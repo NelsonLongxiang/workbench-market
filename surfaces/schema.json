@@ -177,6 +177,16 @@
       "answered_by TEXT NOT NULL DEFAULT ''",
       "at TEXT NOT NULL DEFAULT datetime('now')"
     ],
+    "bench_bind_audit": [
+      "id INTEGER PK",
+      "slug TEXT NOT NULL",
+      "action TEXT NOT NULL",
+      "before TEXT NOT NULL DEFAULT ''",
+      "after TEXT NOT NULL DEFAULT ''",
+      "actor TEXT NOT NULL",
+      "note TEXT NOT NULL DEFAULT ''",
+      "at INTEGER NOT NULL"
+    ],
     "bench_mcp_audit": [
       "id INTEGER PK",
       "bench TEXT NOT NULL",
@@ -212,7 +222,10 @@
       "slug TEXT PK",
       "title TEXT NOT NULL",
       "created_by TEXT NOT NULL",
-      "created_at INTEGER NOT NULL"
+      "created_at INTEGER NOT NULL",
+      "department_id TEXT NOT NULL DEFAULT ''",
+      "team_host TEXT NOT NULL DEFAULT ''",
+      "team TEXT NOT NULL DEFAULT ''"
     ],
     "bindings": [
       "id INTEGER PK",
@@ -946,6 +959,7 @@
     "idx_app_data_idem ON app_data: CREATE UNIQUE INDEX idx_app_data_idem ON app_data (app_slug, idempotency_key) WHERE idempotency_key <> ''",
     "idx_app_data_slug ON app_data: CREATE INDEX idx_app_data_slug ON app_data(app_slug, created_at)",
     "idx_app_files_slug ON app_files: CREATE INDEX idx_app_files_slug ON app_files(app_slug, created_at)",
+    "idx_bench_bind_audit_slug ON bench_bind_audit: CREATE INDEX idx_bench_bind_audit_slug ON bench_bind_audit (slug, id)",
     "idx_bench_mcp_audit_bench ON bench_mcp_audit: CREATE INDEX idx_bench_mcp_audit_bench ON bench_mcp_audit (bench, id)",
     "idx_bench_mcp_grants_bench ON bench_mcp_grants: CREATE INDEX idx_bench_mcp_grants_bench ON bench_mcp_grants (bench, session_id)",
     "idx_bench_mcp_requests_bench ON bench_mcp_requests: CREATE INDEX idx_bench_mcp_requests_bench ON bench_mcp_requests (bench, id)",

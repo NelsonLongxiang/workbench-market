@@ -316,6 +316,6 @@ async function denial(source: string, req: Req, deps: AnswerDeps): Promise<Answe
   if (source === 'principal-pending' && principalsAdmin) { const c = capturing(); await principalsAdmin(req, c.res); return c.out(); }
   if (source === 'owner-pending') { const c = capturing(); await deps.varsAuthorizeRead(req, c.res, { id: 0, cls: 'external', slug: null }); return c.out(); }
   if (source === 'work-items') return { status: 401, body: { error: 'work_items_auth_required' } };
-  if (source === 'bench-mcp') { if (!benchMcpDecider) return { status: 404, body: { error: 'bench_views_off' } }; const c = capturing(); await benchMcpDecider(req, c.res); return c.out(); }
+  if (source === 'bench-mcp') { if (!benchMcpDecider) return { status: 404, body: { error: 'bench_views_off' } }; const c = capturing(); await benchMcpDecider(req, c.res, null); return c.out(); }
   return guardDenial(deps.adminGuard, req);
 }
