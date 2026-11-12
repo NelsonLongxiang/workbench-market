@@ -109,6 +109,16 @@ export class A2aPeerService extends Service {
   }
 
   /** 投递前问：对这个根地址能不能发。active、pending_registration 能；key_changed、disabled、没登记的不能（投递那边应挂起，不判死；调用方由阶段七接上） */
+  /**
+   * 对端名片上（登记表里钉住、验过签的那份）是否声明了某个能力位：capabilities[name] === true。
+   * 没登记、名片还没取到、不是 active、或者没声明，都是 false——调用方按「对端不支持」处理（指名、打回派工行退回旧写法并留痕）。
+   */
+  declares(url: string, name: string): boolean {
+    const p = this.byRoot(url);
+    if (!p || p.status !== 'active') return false;
+    try { const c = JSON.parse(p.card_capabilities || '{}') as Record<string, unknown>; return c?.[name] === true; } catch { return false; }
+  }
+
   canDeliver(url: string): CanDeliver {
     const p = this.byRoot(url);
     if (!p) return { ok: false, reason: 'peer_unknown' };
