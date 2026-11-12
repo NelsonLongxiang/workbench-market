@@ -102,7 +102,6 @@ try {
   // 外部声明文件：几个测试用的组织角色（合法的）
   const goodRoles = rolesFile('good', { roles: [
     { id: 'dept-member', name: '部门成员', permissions: [{ kinds: ['read', 'write'] }] },
-    { id: 'dept-lead', name: '部门负责人', includes: ['dept-member'], permissions: [{ kinds: ['decide'] }] },
     { id: 'mid', name: '中间层', includes: ['dept-lead'], permissions: [] },
     { id: 'deep', name: '最外层', includes: ['mid'], permissions: [{ actions: ['workbench_list'] }] },
     { id: 'scoped', name: '只在甲域', permissions: [{ kinds: ['read'], scope: 'domain:a' }] },
@@ -273,8 +272,8 @@ try {
 
   // ---------- 四、没有在职责任人的非人主体 ----------
   {
-    const orphan = await draft({ principal: 'seat:orphan', role: 'member' });
-    const ok = await draft({ principal: 'seat:bot', role: 'member' });
+    const orphan = await draft({ principal: 'seat:orphan', role: 'ai-staff' });
+    const ok = await draft({ principal: 'seat:bot', role: 'ai-staff' });
     await srv.call('POST', '/api/principals/disable', { body: { id: 'user:alpha', reason: '合成' } });
     const afterOwnerOff = await step(ok.json?.grant?.id, 'submit');
     await srv.call('POST', '/api/principals/restore', { body: { id: 'user:alpha' } });
@@ -367,8 +366,8 @@ try {
     };
     const roles = await srv.call('GET', '/api/roles', { headers: token });
     const ids = roles.json?.roles?.map((r) => r.id);
-    check(Object.values(results).every((s) => s === 403) && show(ids?.slice(0, 4)) === show(['owner', 'admin', 'member', 'guest']) && roles.json?.source === 'file',
-      '接口：匿名、登录的非管理员、口令错、跨站（口令或管理员登录）都 403；对照：管理员能列出角色（平台四个在前，声明来自外部文件）', show({ results, ids }));
+    check(Object.values(results).every((s) => s === 403) && show(ids?.slice(0, 7)) === show(['owner', 'admin', 'management', 'dept-lead', 'member', 'guest', 'ai-staff']) && roles.json?.source === 'file',
+      '接口：匿名、登录的非管理员、口令错、跨站（口令或管理员登录）都 403；对照：管理员能列出角色（平台七个预设在前，声明来自外部文件）', show({ results, ids }));
   }
 
   // ---------- 九、只建结构不接判定 ----------
@@ -386,7 +385,8 @@ try {
   {
     const bad = {
       platformId: { roles: [{ id: 'admin', name: '我的管理员', permissions: [] }] },
-      platformName: { roles: [{ id: 'my-admin', name: '管理员', permissions: [] }] },
+      platformName: { roles: [{ id: 'my-admin', name: '系统管理员', permissions: [] }] },
+      presetId: { roles: [{ id: 'dept-lead', name: '我们的部门负责人', permissions: [] }] },
       cycle: { roles: [{ id: 'a', name: '甲', includes: ['b'], permissions: [] }, { id: 'b', name: '乙', includes: ['a'], permissions: [] }] },
       missingInclude: { roles: [{ id: 'a', name: '甲', includes: ['nope'], permissions: [] }] },
       unknownAction: { roles: [{ id: 'a', name: '甲', permissions: [{ actions: ['nope.do'] }] }] },
@@ -397,10 +397,10 @@ try {
       emptyPermission: { roles: [{ id: 'a', name: '甲', permissions: [{}] }] },
     };
     const refused = {};
-    const codes = {};
+    const codes = {}, logs = {};
     const tryBoot = async (k, file) => {
       const r = await boot(`bad-${k}`, { WM_ROLES_FILE: file }, { expectFail: true });
-      codes[k] = r.code;
+      codes[k] = r.code; logs[k] = r.log;
       refused[k] = r.failed && r.refused === true && r.log.includes('[grants] 拒绝启动');
     };
     for (const [k, doc] of Object.entries(bad)) await tryBoot(k, rolesFile(`bad-${k}`, doc));
@@ -412,6 +412,9 @@ try {
     check(missed.length === 0 && fine === false,
       `角色声明不合格拒绝启动：进程自己以非 0 退出、留一行「拒绝启动」、端口没听过（${Object.keys(refused).length} 种：和平台角色同 id、同名，循环包含，包含不存在的角色，引用不存在的动作，类别、范围写法不对，不认识的键，id 重复，空权限，相对路径，文件不存在，不是 JSON）；对照：不设外部文件用初始集合，照常启动`,
       show({ missed, codes, fine }));
+    // 升级之后声明文件里还有和新预设同名的（dept-lead 原来是组织角色）：报错说清是哪个名字、怎么改
+    check(refused.presetId && /dept-lead/.test(logs.presetId ?? '') && /改法/.test(logs.presetId ?? '') && /改个 id 和名字，或者删掉它/.test(logs.presetId ?? ''),
+      '升级后声明文件里有和内置预设同 id 的角色（dept-lead）：拒绝启动，报错点名这个 id，并说清怎么改（改 id 和名字，或者删掉改用内置预设）', (logs.presetId ?? '').slice(-300));
   }
 } catch (e) {
   fail++;

@@ -12,8 +12,8 @@ export type BuiltinIdentity = {
   name: BuiltinName;
   /** 给人看的名字 */
   label: string;
-  /** 照哪个角色的权限算（只有管理口令照管理员算） */
-  role?: string;
+  /** 照哪几个角色的权限算（只有管理口令：系统管理员加管理层，就是今天口令能做的——系统和业务的读写管；决定类另见 actsForOwner） */
+  roles?: readonly string[];
   /** 另外逐条列出的动作 */
   actions: readonly string[];
   /** 「口令持有人代属主行事」：这些决定类动作照旧放行，留痕里标明经口令或经本机（存量差异清单 D） */
@@ -70,8 +70,8 @@ export const ANONYMOUS_ACTIONS: readonly string[] = [
 
 export const BUILTINS: readonly BuiltinIdentity[] = [
   {
-    // 管理口令照管理员角色算（读、写、管理类）；决定类里今天能做的五个登记为「代属主行事」（存量差异清单 D）
-    name: 'admin-token', label: '管理口令（应急管理员）', role: 'admin',
+    // 管理口令照系统管理员加管理层算（系统和业务的读、写、管理类，就是今天口令能做的）；决定类里今天能做的五个登记为「代属主行事」（存量差异清单 D）
+    name: 'admin-token', label: '管理口令（应急管理员）', roles: ['admin', 'management'],
     actions: [],
     actsForOwner: [
       'attention.answer',
@@ -130,7 +130,13 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       'principal.reconcile',
       'principal.restore',
       'principal.unbind',
+      'role.approve',
+      'role.copy',
+      'role.delete',
+      'role.export',
       'role.list',
+      'role.matrix',
+      'role.update',
       'setting.read',
       'setting.update',
       'skill.download',
@@ -200,6 +206,7 @@ export type NarrowedAction = { action: string; only: readonly ('owner' | Builtin
 export const NARROWED: readonly NarrowedAction[] = [
   { action: 'content.observation', only: ['admin-token'], why: '门户观测状态今天只认管理口令，身份来源的管理员、本机命令行都不认（存量差异清单 E）' },
   { action: 'grant.revoke-migration', only: ['owner', 'local-cli'], why: '整批撤销迁移出来的授予只有属主能做（本机命令行在授予管理面上算属主），比管理员严' },
+  { action: 'role.approve', only: ['owner', 'local-cli'], why: '带管理类或决定类权限的自定义角色只有属主能放行（本机命令行在授予管理面上算属主），比管理员严' },
 ];
 export const narrowed = (action: string): NarrowedAction | undefined => NARROWED.find((n) => n.action === action);
 

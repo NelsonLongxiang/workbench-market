@@ -816,6 +816,32 @@ CREATE TRIGGER IF NOT EXISTS grants_activate_unexpired BEFORE UPDATE OF status O
 CREATE TRIGGER IF NOT EXISTS grants_expire_when_due BEFORE UPDATE OF status ON grants
   WHEN NEW.status = 'expired' AND (OLD.expires_at IS NULL OR OLD.expires_at > CAST(unixepoch('subsec') * 1000 AS INTEGER))
   BEGIN SELECT RAISE(ABORT, '没到期限的授予不能标成过期'); END;
+-- 自定义角色（角色预设之后）：从内置预设复制出来、界面上改的角色是数据。校验和声明文件同一套（roles.ts）；
+--   status：active 能授予；pending 新建时带管理类或决定类权限、要属主放行，放行前不能授予。
+--   proposed：待属主放行的改动（JSON：{name, permissions}），没有为 NULL。时间是毫秒，由代码给
+CREATE TABLE IF NOT EXISTS custom_roles (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  based_on TEXT NOT NULL,
+  permissions TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending','active')),
+  proposed TEXT,
+  proposed_by TEXT,
+  created_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+-- 自定义角色的每次建、改、放行、删都留一行（seq 由代码在事务里取下一个）
+CREATE TABLE IF NOT EXISTS custom_role_events (
+  seq INTEGER NOT NULL PRIMARY KEY,
+  role_id TEXT NOT NULL,
+  event TEXT NOT NULL CHECK (event IN ('create','propose','update','approve','delete')),
+  actor TEXT NOT NULL,
+  actor_principal TEXT,
+  before TEXT,
+  after TEXT,
+  at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS grant_events (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
   grant_id INTEGER NOT NULL,

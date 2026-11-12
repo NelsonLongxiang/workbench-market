@@ -81,6 +81,7 @@ import type { RemoteAllowService } from './services/remote-allow.ts';
 import { SkillService } from './services/skill.ts';
 import type { AppService } from './services/app.ts';
 import type { AppDataService } from './services/app-data.ts';
+import type { GrantService } from './services/grant.ts';
 import type { CookieService } from './services/cookie.ts';
 import type { CockpitService } from './services/cockpit.ts';
 import { ADMIN_TOKEN_KEY, type SettingService } from './services/setting.ts';
@@ -157,6 +158,13 @@ const loginGate = createLoginGate({
     return { login: who.viewer.login, admin: who.viewer.admin, ...(who.via === 'session' ? { via: 'session' as const } : {}) };
   },
   loginFlows: () => identity().flows(),
+  profile: async (req) => {
+    const who = await loginGateViewer(String(req.headers.cookie ?? ''));
+    if (!who.ok) return { principal: null, display_name: null, roles: [] };
+    const views = new Map(svc<GrantService>('grants').roles().map((r) => [r.id, r]));
+    const roles = svc<GrantService>('grants').activeFor(who.viewer.sub).map((g) => ({ id: g.role, name: views.get(g.role)?.name ?? g.role, scope: g.scope, preset: !!views.get(g.role)?.platform, expires_at: g.expires_at, source: g.source, approved_by: g.approved_by }));
+    return { principal: who.viewer.sub, display_name: who.viewer.name ?? null, roles };
+  },
   appToken: (slug) => wmAppToken(slug),
   varsAppTokenOk: (req) => workbenchVars.appTokenWrite(req),
   runCapOk: async (kind, runId, presented) => {

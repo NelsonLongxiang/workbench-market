@@ -27,6 +27,7 @@ import { TaskCenterService } from './services/task-center.ts';
 import { RemoteAllowService } from './services/remote-allow.ts';
 import { LoginSessionService } from './services/login-session.ts';
 import { GrantService } from './services/grant.ts';
+import { CustomRoleService } from './services/custom-role.ts';
 import { JudgmentCompareService } from './services/judgment-compare.ts';
 import { WorkItemService } from './services/work-item.ts';
 import { AttentionService } from './services/attention.ts';
@@ -63,6 +64,7 @@ await Promise.all([
   PrincipalService,
   LoginSessionService,
   GrantService,
+  CustomRoleService,
   JudgmentCompareService,
   BindingService,
   ChangeRequestService,

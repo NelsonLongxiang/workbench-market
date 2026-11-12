@@ -152,10 +152,10 @@ try {
     const rep = await srv.report();
     const migrated = (await srv.call('GET', '/api/grants?source=migration')).json?.grants ?? [];
     const pairs = migrated.map((g) => `${g.principal_id}:${g.role}:${g.status}`).sort();
-    check(a1.status === 200 && show(pairs) === show(['user:alpha:member:active', 'user:root-admin:admin:active', 'user:root-admin:member:active'])
+    check(a1.status === 200 && show(pairs) === show(['user:alpha:member:active', 'user:root-admin:admin:active', 'user:root-admin:management:active', 'user:root-admin:member:active'])
       && migrated.every((g) => g.source === 'migration' && g.approved_by === 'system:migration')
       && !mismatch(rep, 'GET /api/principals') && tallyOf(rep, 'GET /api/types', 'agree') >= 1,
-      '迁移：第一次见到的人给 member、身份来源说是管理员的给 admin，来源 migration、放行人 system:migration；再见不重复迁；迁完之后管理员读管理面、成员读开放面、成员读管理面（两边都拒）都一致', show({ pairs, tally: rep.tally.filter((t) => t.route === 'GET /api/principals') }));
+      '迁移：第一次见到的人给 member、身份来源说是管理员的给 admin 和 management 两条（等于今天的原样，能分别撤），来源 migration、放行人 system:migration；再见不重复迁；迁完之后管理员读管理面、成员读开放面、成员读管理面（两边都拒）都一致', show({ pairs, tally: rep.tally.filter((t) => t.route === 'GET /api/principals') }));
   }
 
   // ---------- 四、故意撤一条授予 ----------
@@ -179,8 +179,8 @@ try {
     const byCli = await srv.call('POST', '/api/grants/revoke-migration', { body: { reason: '合成：整批撤销' } });
     const left = ((await srv.call('GET', '/api/grants?source=migration&status=active')).json?.grants ?? []).length;
     const manual = (await srv.call('GET', '/api/grants?source=manual')).json?.grants ?? [];
-    check(byToken.status === 403 && noReason.status === 400 && byCli.status === 200 && byCli.json?.revoked === 2 && left === 0 && manual.length === 0,
-      '迁移出来的授予整批撤销：口令管理员 403（只有属主能）、不写理由 400；本机命令行撤了剩下的 2 条，之后一条生效的都没有', show({ byToken: byToken.status, noReason: noReason.status, byCli: byCli.json, left }));
+    check(byToken.status === 403 && noReason.status === 400 && byCli.status === 200 && byCli.json?.revoked === 3 && left === 0 && manual.length === 0,
+      '迁移出来的授予整批撤销：口令管理员 403（只有属主能）、不写理由 400；本机命令行撤了剩下的 3 条，之后一条生效的都没有', show({ byToken: byToken.status, noReason: noReason.status, byCli: byCli.json, left }));
   }
 
   // ---------- 六、记录里没有不该有的 ----------
