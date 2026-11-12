@@ -45,7 +45,9 @@ function PanelHeadActions(props: { wid: number; url?: string; onRefresh: () => v
 import { TasksView } from './Tasks';
 
 export default function Cockpit() {
-  const READ_ONLY = !useSyncExternalStore(subscribeAdminToken, adminActive);
+  // 管理身份（口令或 Odoo 管理员）：只用在不属于某一个驾驶舱的地方——新建驾驶舱、右栏事项的标签。
+  // 改某一个驾驶舱（改名、加面板、删除……）照服务端在这个驾驶舱上给的 can.edit
+  const ADMIN = useSyncExternalStore(subscribeAdminToken, adminActive);
   const { id } = useParams();
   const nav = useNavigate();
   const { message } = App.useApp();
@@ -85,6 +87,9 @@ export default function Cockpit() {
     () => listReq.data?.find((c) => String(c.id) === id),
     [listReq.data, id]
   );
+  const READ_ONLY = active?.can?.edit !== true;
+  // 口令输入、清掉、换了 Odoo 管理员之后，服务端算的 can 会变：重读一次
+  useEffect(() => subscribeAdminToken(() => listReq.refresh()), [listReq.refresh]);
 
   // 切换驾驶舱时装载其面板布局
   const loadedId = useRef<number | null>(null);
@@ -143,7 +148,7 @@ export default function Cockpit() {
     return (
       <WmPage
         subTitle="一屏看住一条线或一个工作台：中间是它的看板和明细，左边是等你拍板的，右边是办理过程"
-        extra={!READ_ONLY && <Button
+        extra={ADMIN && <Button
             type="primary"
             icon={<PlusOutlined />}
             onClick={async () => {
@@ -160,7 +165,7 @@ export default function Cockpit() {
           </Button>}
       >
       <Flex vertical gap={16} className="wm-w-full" align="start">
-        {READ_ONLY && <Alert type="info" showIcon className="wm-cockpit-readonly" message="驾驶舱在这里只能查看" description={READ_ONLY_HINT} />}
+        {!ADMIN && <Alert type="info" showIcon className="wm-cockpit-readonly" message="驾驶舱在这里只能查看" description={READ_ONLY_HINT} />}
         {listReq.data?.length ? (
           <Flex gap={16} wrap="wrap" className="wm-w-full" style={{ rowGap: 16 }}>
             {listReq.data.map((c) => (
@@ -173,7 +178,7 @@ export default function Cockpit() {
                         {c.panels.length} 个面板 · {c.updated_at.slice(0, 16).replace('T', ' ')}
                       </Typography.Text>
                     </Flex>
-                    {!READ_ONLY && <Popconfirm
+                    {c.can?.edit === true && <Popconfirm
                       title={`删除「${c.name}」？`}
                       onConfirm={async (e) => {
                         e?.stopPropagation();
@@ -197,8 +202,8 @@ export default function Cockpit() {
             ))}
           </Flex>
         ) : (
-          <Empty description={READ_ONLY ? '还没有驾驶舱' : '还没有驾驶舱。建一个，就能一屏看住一条线或一个工作台的看板、等你拍板的事和办理过程'} style={{ marginTop: 48 }}>
-            {!READ_ONLY && <Button
+          <Empty description={!ADMIN ? '还没有驾驶舱' : '还没有驾驶舱。建一个，就能一屏看住一条线或一个工作台的看板、等你拍板的事和办理过程'} style={{ marginTop: 48 }}>
+            {ADMIN && <Button
               type="primary"
               onClick={() => api.createCockpit({ name: '我的驾驶舱' }).then((c) => nav(`/cockpit/${c.id}`))}
             >
@@ -355,7 +360,7 @@ export default function Cockpit() {
           : { key: k, label: k === 'board' ? '看板' : '明细', content: <>{refsOfTab(refs, k).map((x) => <BenchViewPanel key={x.i} refItem={x} />)}</> })) }}
         right={{ id: 'items', active: rightTab, onTab: setRightTab, tabs: [
           { key: 'process', label: '办理过程', content: <ProcessPane itemId={picked} /> },
-          { key: 'items', label: itemsTabLabel(itemsView, !READ_ONLY), content: <ItemsPane onView={setItemsView} /> },
+          { key: 'items', label: itemsTabLabel(itemsView, ADMIN), content: <ItemsPane onView={setItemsView} /> },
         ] }} />
       <ArrangeDrawer open={arrange} onClose={() => setArrange(false)} />
     </WmPage>

@@ -492,6 +492,8 @@ jobs:
         run: node scripts/work-items-ui-unit.mjs
       - name: 驾驶舱骨架单测（纯函数——三栏尺寸、放大还原、数据视图引用、页签；单列一步）
         run: node scripts/cockpit-frame-unit.mjs
+      - name: 驾驶舱的 can.edit（读应答里带；和写请求总门对同一个请求的判断一致：逐个身份读一次、改一次）
+        run: node scripts/cockpit-can-test.mjs
       - name: 凭据库（融合 dsh-vault：读写要口令·业务面 403·摘要无明文·坏 JSON 不进日志·写锁/重开/闲置上锁/限流）
         run: node scripts/vault-concurrency-test.mjs && node scripts/vault-smoke.mjs
       - name: 条目自带答复入口单测（纯函数——answer_via 的地址、请求体、填写项；核准卡片的写法；单列一步）
