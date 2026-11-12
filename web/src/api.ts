@@ -258,7 +258,8 @@ export const putDepartment = (id: string, name: string, lead: string | null) => 
 /** 席位名册（阶段七 #581）：登录的人能读，只当显示用（句柄换名字）。读不到给空，页面照旧显示句柄 */
 export async function getRosterTeams(): Promise<unknown[]> {
   try {
-    const r = await fetch('/api/a2a/teams', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    // 名册只用来把句柄换成名字：最多等 8 秒，读不到就显示句柄，不让它拖住页面
+    const r = await fetch('/api/a2a/teams', { credentials: 'same-origin', headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(8000) });
     const j = r.ok ? await r.json() as { teams?: unknown } : null;
     return Array.isArray(j?.teams) ? j.teams : [];
   } catch { return []; }

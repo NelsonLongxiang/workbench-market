@@ -62,7 +62,9 @@ type Detail = { item?: { title?: string; seat?: unknown }; log?: LogRow[] };
 export function ProcessPane({ itemId }: { itemId: string | null }) {
   const [s, setS] = useState<{ state: 'idle' } | { state: 'loading' } | { state: 'ok'; d: Detail } | { state: 'error'; status: number }>({ state: 'idle' });
   const [roster, setRoster] = useState<Record<string, string>>({});
-  useEffect(() => { void getRosterTeams().then((t) => setRoster(rosterNames(t))); }, []);
+  // 名册只在选了一件之后才读（没选的时候用不上）
+  const wantRoster = itemId !== null;
+  useEffect(() => { if (wantRoster) void getRosterTeams().then((t) => setRoster(rosterNames(t))); }, [wantRoster]);
   useEffect(() => {
     if (!itemId) { setS({ state: 'idle' }); return; }
     let live = true;
