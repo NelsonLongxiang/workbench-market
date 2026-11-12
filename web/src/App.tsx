@@ -6,6 +6,7 @@ import { api } from './api';
 import Dashboard from './pages/Dashboard';
 import Market from './pages/Market';
 import MarketHome from './pages/market/Market';
+import Access from './pages/access/Access';
 import Types from './pages/Types';
 import Settings from './pages/Settings';
 import UseWorkbench from './pages/UseWorkbench';
@@ -123,7 +124,7 @@ export default function App() {
         <Route path="/overview" element={<Dashboard />} />
         <Route path="/work-items" element={<NotYet spec={NOT_YET.items} />} />
         <Route path="/team" element={<NotYet spec={NOT_YET.team} />} />
-        <Route path="/access" element={<NotYet spec={NOT_YET.access} />} />
+        <Route path="/access" element={<Access />} />
         <Route path="/knowledge" element={<NotYet spec={NOT_YET.knowledge} />} />
         <Route path="/cockpit" element={<Cockpit />} />
         <Route path="/cockpit/:id" element={<Cockpit />} />
