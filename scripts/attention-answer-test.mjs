@@ -102,7 +102,7 @@ try {
     const benchOk = forwardRoute('bench-mcp', 'approve', 'sales-1:12', { note: ' 可以 ', approve: false, session: 'x', tools: ['view_put'] });
     const benchNo = forwardRoute('bench-mcp', 'reject', 'sales-1:12', { reason: ' 不行 ', note: '不取这个' });
     check(benchThrough.length === 0 && benchOk.path === '/api/bench-views/sales-1/mcp-requests/12' && benchOk.method === 'POST' && show(benchOk.body) === show({ approve: true, note: '可以' })
-      && show(benchNo.body) === show({ approve: false, note: '不行' }) && forwardRoute('bench-mcp', 'reject', 'sales-1:12', { note: '写错了字段' }).error?.body?.error === 'reason_required' && forwardRoute('bench-mcp', 'grant', 'sales-1:12', {}) === null,
+      && show(benchNo.body) === show({ approve: false, note: '不行' }) && show(forwardRoute('bench-mcp', 'reject', 'sales-1:12', { note: ' 只写了 note ' }).body) === show({ approve: false, note: '只写了 note' }) && forwardRoute('bench-mcp', 'reject', 'sales-1:12', { note: '  ' }).error?.body?.error === 'reason_required' && forwardRoute('bench-mcp', 'grant', 'sales-1:12', {}) === null,
       '换算表·台的 MCP 授予申请：坏 id 一律拒；路径固定；请求体只有 approve 和 note（夹带的 approve、session、tools 不进去）；不批没有理由拒；表外的答法没有', show({ benchThrough, benchOk, benchNo }));
     const bind = forwardRoute('principal-pending', 'bind', 'synthetic:a/b?c', { principal: 'user:x', create: true, reason: 'r', display_name: 'd', provider: 'evil' });
     check(through.length === 0 && ok.path === '/api/mcp/access-requests/12/reject' && ok.method === 'POST' && show(ok.body) === show({ note: 'n' })

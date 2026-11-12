@@ -139,7 +139,7 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           waiting_for: r.session ? `mcp:${r.session}` : '', since: new Date(r.created_at).toISOString(), answers: ['approve', 'reject'], link: '',
           // answer_via：答复入口（/api/attention/answer）在写请求总门后面，远程的非管理员过不了门；这类人直接调台上的这条路由，判断是同一处。
           // 请求体 { approve: true | false, note }，不批时 note 写理由
-          detail: { session: r.session, bench: r.bench, bench_title: r.bench_title, tools: r.tools, reason: r.reason, answer_via: { method: 'POST', path: `/api/bench-views/${r.bench}/mcp-requests/${r.id}` } },
+          detail: { session: r.session, bench: r.bench, bench_title: r.bench_title, tools: r.tools, reason: r.reason, created_at: r.created_at, answer_via: { method: 'POST', path: `/api/bench-views/${r.bench}/mcp-requests/${r.id}` } },
         }));
       },
     }),

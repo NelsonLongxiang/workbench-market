@@ -82,7 +82,8 @@ const FORWARD: Record<string, Record<string, (id: string, input: Input) => Route
   'bench-mcp': Object.fromEntries((['approve', 'reject'] as const).map((op) => [op, (id: string, input: Input): Route => {
     const m = /^([a-z0-9][a-z0-9-]{0,63}):([1-9]\d{0,8})$/.exec(id);
     if (!m) return bad('attention_id_invalid');
-    const note = text(op === 'approve' ? input.note : input.reason, 500);
+    // 不批的理由：reason 或 note 都认（别的来源两种叫法都有），先取 reason
+    const note = op === 'approve' ? text(input.note, 500) : text(input.reason, 500) || text(input.note, 500);
     if (op === 'reject' && !note) return bad('reason_required');
     return { method: 'POST', path: `/api/bench-views/${m[1]}/mcp-requests/${m[2]}`, body: { approve: op === 'approve', note } };
   }])),
