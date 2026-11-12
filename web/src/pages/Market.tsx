@@ -207,6 +207,8 @@ export default function Market() {
 
   return (
     <WmPage
+      detail="管理工作台"
+      wide
       subTitle="登记与发现各端口的 AI 工作台：类型 · 分类 · 在线状态"
       extra={(
         <Button
