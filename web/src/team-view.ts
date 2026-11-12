@@ -102,14 +102,16 @@ export function teamTitle(t: Pick<Team, 'name' | 'team'>): string {
   return t.team ? '一个没有名字的团队' : '不在画布里的成员';
 }
 
-/** 节点：服务端给了名字就用名字，没有就写「一个节点」；节点的标识不显示 */
+/** 节点：服务端给了名字就用名字；没有名字返回空串，页面不写这一项。节点的标识不显示 */
 export function nodeLabel(t: Pick<Team, 'node_name'>): string {
-  return t.node_name?.trim() || '一个节点';
+  return t.node_name?.trim() || '';
 }
 
-/** 成员、总工的名字：有名字只写名字，不带席位句柄；查不到名字时才用句柄（不然几个没名字的成员分不出来） */
+/** 成员、总工的名字：只写名字，不带席位句柄（和事项列表同一个口径；排障要的句柄以后放成员详情）。
+ *  节点报的名字有时自带「 (0a1b2c3d)」这样的句柄后缀，一并去掉——和 #606 names.ts 的 cleanSeatName 同一条，它合进来后换成引用它。
+ *  只有席位没有名字时才用句柄（不然几个没名字的成员分不出来） */
 export function memberLabel(m: Pick<Member, 'name' | 'seat'>): string {
-  return m.name.trim() || m.seat;
+  return (m.name || '').replace(/\s*[（(][0-9a-f]{6,}[)）]\s*$/i, '').trim() || m.seat;
 }
 
 /** 成员归谁用：分配给某人，或者团队公用（由总工分派） */

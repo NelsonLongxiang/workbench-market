@@ -91,7 +91,7 @@ function ClaimCard({ t, depts, people, onDone }: { t: TeamT; depts: Department[]
       <div className="wm-team-head-top"><b>{teamTitle(t)}</b><Tag color="warning" className="wm-team-st">待认领</Tag></div>
       <div className="wm-team-head-meta">
         <span>总工：{t.router ? memberLabel(t.router) : '名册里没有总工'}</span>
-        <span>{n.members} 个成员 · 来自{nodeLabel(t)}</span>
+        <span>{n.members} 个成员{nodeLabel(t) ? ` · 来自 ${nodeLabel(t)}` : ''}</span>
       </div>
       {depts.length === 0 ? <div className="wm-team-none">先建部门，才能把团队挂上去。</div> : (
         <div className="wm-team-claim-form">

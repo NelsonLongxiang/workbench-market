@@ -67,7 +67,7 @@ with sync_playwright() as p:
     check('管理员、还没有部门：说先建部门，给建部门的入口', '还没有部门' in pg.locator('[data-testid=team-empty]').inner_text() and pg.locator('[data-testid=team-newdept-cta]').count() == 1)
     un = pg.locator('[data-testid=team-unclaimed]')
     check('待认领的团队：管理员看得到；没有部门时说先建部门、没有认领按钮', un.count() == 1 and '先建部门' in un.inner_text() and pg.locator('[data-testid=team-claim]').count() == 0, un.all_inner_texts())
-    check('待认领卡：节点没有名字写「来自一个节点」，节点标识、团队和席位句柄都不出现', '来自一个节点' in un.inner_text() and not any(x in pg.locator('body').inner_text() for x in [HOST, 'ops/', '/canvas/']), un.inner_text())
+    check('待认领卡：节点没有名字就不写「来自」这一项，节点标识、团队和席位句柄都不出现', '来自' not in un.inner_text() and not any(x in pg.locator('body').inner_text() for x in [HOST, 'ops/', '/canvas/']), un.inner_text())
 
     # 建部门：标识写错不能建；写对了真的建进实例
     pg.locator('[data-testid=team-newdept-cta]').click(); pg.wait_for_selector('[data-testid=team-newdept]')
