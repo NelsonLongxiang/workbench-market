@@ -363,9 +363,21 @@ try {
       crossBiz: tried(await step(biz2, 'approve', { headers: { ...REMOTE, origin: 'https://elsewhere.example', 'sec-fetch-site': 'cross-site' }, session: SESSIONS.noAdminFlag })),
       tokenBasic: tried(await step(basic, 'approve', { headers: token })),
     };
+    // 读不到的（不能放行的）对登录的人来说就是不存在：放行被拒的应答和一条根本不存在的授予一模一样（只差 id），不带档位、角色、状态
+    const ghostId = 999999;
+    const norm = (x, id) => ({ status: x.status, body: JSON.parse(JSON.stringify(x.json ?? null).split(String(id)).join('N')) });
+    const ghostMg = norm(await step(ghostId, 'approve', MG), ghostId), ghostPlain = norm(await step(ghostId, 'approve', PLAIN), ghostId);
+    const hidden = {
+      mgBasic: norm(await step(basic, 'approve', MG), basic), mgTop: norm(await step(top, 'approve', MG), top),
+      plainBiz: norm(await step(biz2, 'approve', PLAIN), biz2), mgDone: norm(await step(biz, 'approve', MG), biz),
+    };
+    const leaks = Object.entries(hidden).filter(([k, v]) => show(v) !== show(k.startsWith('plain') ? ghostPlain : ghostMg));
+    check(ghostMg.status === 404 && leaks.length === 0 && !/admin_required|owner_required|business_approval|dept-|member|active|pending/.test(show(hidden)),
+      '登录的人放行读不到的授予（第一档、第三档、普通员工放行第二档、已经生效的）：应答和一条不存在的授予一模一样，不带档位、角色、状态',
+      show({ ghostMg, ghostPlain, leaks }));
     check(mg.a.status === 200 && listed.includes(biz) && !listed.includes(basic) && !listed.includes(top) && readBasic.status === 404
-      && show(r) === show({ mgBiz: '200:active', mgBasic: '403:admin_required', mgTop: '403:owner_required', plainBiz: '403:business_approval_required', anonBiz: '401:grants_auth_required', crossBiz: '403:grants_cross_origin_denied', tokenBasic: '200:active' }),
-      '放行入口对登录的人放开（L19）：只有管理层、没有管理员身份的人列得到、放行得了带业务写的（200）；普通员工这类第一档 403（由管理员放行）、部门负责人这类第三档 403（只有属主）；列表里只有自己能放行的，看别的单条 404；普通员工放行 403；远程匿名 401；跨站 403；对照：口令照旧放行第一档',
+      && show(r) === show({ mgBiz: '200:active', mgBasic: '404:grant_missing', mgTop: '404:grant_missing', plainBiz: '404:grant_missing', anonBiz: '401:grants_auth_required', crossBiz: '403:grants_cross_origin_denied', tokenBasic: '200:active' }),
+      '放行入口对登录的人放开（L19）：只有管理层、没有管理员身份的人列得到、放行得了带业务写的（200）；普通员工这类第一档、部门负责人这类第三档放行不了；列表里只有自己能放行的，看别的单条 404；普通员工放行不了；远程匿名 401；跨站 403；对照：口令照旧放行第一档',
       show({ listed, ids: { biz, basic, top }, readBasic: readBasic.status, r }));
     for (const id of [mg.id, biz, basic, top, biz2]) await step(id, 'revoke', {}, { reason: '合成：收回' });
   }

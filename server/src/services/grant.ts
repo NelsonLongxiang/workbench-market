@@ -196,11 +196,17 @@ export class GrantService extends Service {
     return { can_approve: false, approve_denied: r.code, approve_denied_text: text };
   }
 
-  /** 放行：按三档认放行人（见文件头）；第二、三档起草的人不能自己放行；过了期限的不能生效 */
+  /**
+   * 放行：按三档认放行人（见文件头）；第二、三档起草的人不能自己放行；过了期限的不能生效。
+   * readable：这个人读不读得到这一条（管理员都读得到；登录的人只读得到自己能放行的，和列表、单条同一处）。
+   * 读不到的，任何失败都回和这一条不存在时一样的 404，不带档位、角色、状态
+   */
   approve(id: number, actor: Actor, now = Date.now()): Result<{ grant: GrantRow }> {
+    const missing = () => refuse(404, 'grant_missing', `授予 ${id} 不存在`);
     const g = db.prepare('SELECT * FROM grants WHERE id = ?').get(id) as GrantRow | undefined;
-    if (!g) return refuse(404, 'grant_missing', `授予 ${id} 不存在`);
+    if (!g) return missing();
     const bad = this.approvalRefusal(g, actor, now);
+    if (bad && actor.admin === false) return missing();
     if (bad && bad.code !== 'state') return bad;
     return this.move(id, ['pending'], 'active', 'approve', actor, '', now, true);
   }
