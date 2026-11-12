@@ -273,6 +273,7 @@ try {
     && card.detail?.bench === 'other' && card.detail.session === 'seat-a' && card.detail.reason === '往 other 里追加' && card.detail.tools.map((t) => `${t.tool}:${t.category}`).join() === 'dataset_append:write,dataset_list:read' && /含写/.test(card.title) && card.answer_via?.method === 'POST' && card.answer_via.path === `/api/bench-views/other/mcp-requests/${att1}` && JSON.stringify(card.answer_via.answers) === JSON.stringify({ approve: { body: { approve: true }, input: { note: { to: 'note', max: 500 } } }, reject: { body: { approve: false }, input: { note: { to: 'note', required: true, max: 500 } } } }) && Object.keys(card.answer_via.answers).join() === card.answers.join(),
     '管理层的「关注」里有这两条：哪个会话、哪个台、要哪几个工具（读写分开）、为什么', JSON.stringify(mine(v)).slice(0, 300));
   check(!mine(v).some((x) => x.source_id.startsWith('ghost:') || x.source_id.startsWith('cap-')), '台没登记的申请不在清单里（没有人能批它）');
+  check(db.prepare("SELECT COUNT(*) AS n FROM bench_mcp_requests WHERE id = ? AND status = 'pending'").get(bReq).n === 1 && !mine(v).some((x) => x.source_id === `demo:${bReq}`) && mine(v).length === 2, '吊销了的会话之前提的申请不在清单里（批不了）；台上的管理页里还看得到', mine(v).map((x) => x.source_id));
   const seen = {};
   for (const [name, opts] of [['管理口令', admin], ['普通员工', member], ['有做没有拍板', staff], ['身份来源说的管理员', who(SESSIONS.admin)], ['本机命令行', {}]]) { const x = await attention(opts); seen[name] = `${mine(x).length}/${x?.sources?.['bench-mcp']?.visible}`; }
   check(Object.values(seen).every((x) => x === '0/false'), '管理口令、普通员工、有做没有拍板的角色、没有授予的管理员、本机命令行：清单里都没有这类条目', seen);

@@ -31,20 +31,24 @@ export type Category = typeof CATEGORIES[number];
  * 给「该动手的人不是管理员」的来源用：答复入口在写请求总门后面，远程的写要管理员才过得了门（遗留差异，随写请求总门重做时一起看）。
  *   method、path：调哪里。path 必须是同源的相对路径、以 /api/ 开头、不带查询串——前端只接受这种，不跟外部地址。
  *   answers：每种答法（和条目的 answers 一一对应）怎么拼请求体——
+ *     path  可选：这种答法另调一个地址（一张卡上两种答法是两条路由时用）；不写就用顶层的 path。要求和顶层的一样；
  *     body  固定带的字段；
- *     input 这种答法让人填的字段：键是填写项的名字，to 是它放进请求体的哪个键，required 为真时必填，max 是字数上限。
+ *     input 这种答法让人填的字段：键是填写项的名字，to 是它放进请求体的哪个键，required 为真时必填，max 是字数上限，
+ *           options 给了就是只能从这几个里选一个（下拉或单选），值照样放进 to 指定的键。
  *   请求体 = { ...body, [to]: 填的值 }。应答就是那条路由自己的应答（不包 result）：2xx 成功；4xx 的正文有 error，多半还有 message，原样显示。
  * 地址背后的路由自己认人、自己判权限；这里只是告诉卡片该调哪里，不代表这个人一定答得成。
  */
 export type AnswerVia = {
   method: 'POST' | 'PUT';
   path: string;
-  answers: Record<string, { body: Record<string, unknown>; input?: Record<string, { to: string; required?: boolean; max?: number }> }>;
+  answers: Record<string, { path?: string; body: Record<string, unknown>; input?: Record<string, { to: string; required?: boolean; max?: number; options?: string[] }> }>;
 };
 const ANSWER_VIA_PATH = /^\/api\/[A-Za-z0-9][A-Za-z0-9._~:@/-]{0,300}$/;
 /** 拼一个 answer_via：地址不合规（不是 /api/ 开头的同源相对路径、带 ..、带查询串）直接抛错，不交给前端 */
 export function answerVia(method: AnswerVia['method'], path: string, answers: AnswerVia['answers']): AnswerVia {
-  if (!ANSWER_VIA_PATH.test(path) || /(^|\/)\.\.?(\/|$)/.test(path) || path.includes('//')) throw new Error(`attention：answer_via 的地址不合规：${path.slice(0, 80)}`);
+  for (const p of [path, ...Object.values(answers).map((a) => a.path).filter((x): x is string => x !== undefined)]) {
+    if (typeof p !== 'string' || !ANSWER_VIA_PATH.test(p) || /(^|\/)\.\.?(\/|$)/.test(p) || p.includes('//')) throw new Error(`attention：answer_via 的地址不合规：${String(p).slice(0, 80)}`);
+  }
   return { method, path, answers };
 }
 
