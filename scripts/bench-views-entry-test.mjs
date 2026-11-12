@@ -4,7 +4,7 @@
  *
  *   一、开关：缺省关着时这组路由每条都回 404（不认人、不建库）；值不合法拒绝启动
  *   二、谁进不了：没登录 401；管理口令 403（读和写都是，带着管理层的登录一起来也是）；没有授予的人 403；
- *       授予的范围不是「全部」的 403；主体停用 403；本机命令行 403；带跨站标记 403
+ *       系统管理员角色的授予 403；授予的范围不是「全部」的 403；主体停用 403；本机命令行 403；带跨站标记 403
  *   三、谁进得了：管理层（范围「全部」）的人，读写都行；普通员工（范围「全部」）只读
  *   四、台要先登记：没登记的标识 404，而且数据目录里不会多出库文件；没权限的人看不出台存不存在（都是 403）
  *   五、整条流程：登记台、建数据集、四种写入（请求体原样递给工作线程，5 MB 也收）、查询、快照与退回、
@@ -123,6 +123,12 @@ try {
   check(r.status === 403 && r.json?.error === 'bench_views_forbidden', '登录了但没有授予：403', r.text.slice(0, 100));
   r = await srv.call('GET', '/api/bench-views', root);
   check(r.status === 403, '身份来源说是管理员、但没有管理层授予的登录：403', r.status);
+  // 系统管理员这个角色（范围「全部」）：管得了系统那几块，台里的业务数据看不了、也改不了
+  const gSys = await activate({ principal: 'user:root-admin', role: 'admin' });
+  r = await srv.call('GET', '/api/bench-views', root);
+  const sysWrite = await srv.call('POST', '/api/bench-views', { ...root, body: { slug: 'by-sysadmin', title: 'x' } });
+  check(gSys.ok && r.status === 403 && sysWrite.status === 403 && db.prepare("SELECT COUNT(*) AS n FROM bench_views WHERE slug = 'by-sysadmin'").get().n === 0,
+    '有系统管理员授予（范围「全部」，已放行）的登录：读写都是 403', { grant: gSys.a.status, read: r.status, write: sysWrite.status });
   r = await srv.call('GET', '/api/bench-views');
   check(r.status === 403, '本机命令行（回环直连、没有登录）：403', r.status);
   r = await srv.call('GET', '/api/bench-views', { headers: { ...REMOTE, origin: 'http://evil.example', 'sec-fetch-site': 'cross-site' }, session: SESSIONS.alpha });
