@@ -11,6 +11,8 @@
  *      · 回填：事项数等于事件数，第二次启动「补建 0 个」。
  *   3. 回滚：再用基线的代码指向升级后的数据目录启动——自检全过，读、写（新建工作台、台数据提交、开录入）、凭据库都正常。
  *   4. 再上线：本检出的代码再启动一次，自检全过；回滚期间基线写进来的事件也建出了事项。
+ *   台库（数据视图）穿插在里面：入口缺省关着时升级不建台库；开着入口建一个合成台、写数据之后，
+ *   回滚到基线（它不认识台库）不动库文件，再上线后台库原样读得出来、再打开一次表结构不变。
  *
  * 只在本机回环地址上起实例；HOME、DSH_HOME、YGL_HOME 都指到临时目录；不访问任何外部系统。
  *
@@ -25,7 +27,7 @@
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync, appendFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync, appendFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
@@ -80,10 +82,10 @@ const sandboxEnv = (extra) => ({
   PATH: process.env.PATH, HOME: join(OUT, 'home'), DSH_HOME: join(OUT, 'home', '.dsh'), YGL_HOME: join(OUT, 'home', '.ygl'), TMPDIR: join(OUT, 'tmp'),
   ADMIN_TOKEN: ADMIN, ...extra,
 });
-async function startServer(tree, data, label) {
+async function startServer(tree, data, label, extraEnv = {}) {
   const port = await freePort();
   let log = '';
-  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], { cwd: join(tree, 'server'), env: sandboxEnv({ PORT: String(port), DATA_DIR: data }), stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], { cwd: join(tree, 'server'), env: sandboxEnv({ PORT: String(port), DATA_DIR: data, ...extraEnv }), stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', (d) => { log += String(d); }); child.stderr.on('data', (d) => { log += String(d); });
   const base = `http://127.0.0.1:${port}`;
   const t0 = Date.now();
@@ -204,6 +206,49 @@ for (const [key, kind, value, by] of [['config.owner', 'const', { owner_login: '
 console.log('SEEDED ' + JSON.stringify({ rows: written, events }));
 `;
 
+// ---------- 台库（数据视图）：用本检出自己的服务模块读写，实例停着的时候跑 ----------
+// 入口要登录的人才进得来，冒烟里没有登录提供方；这里看的是库文件经得起回滚和再上线，不是入口的权限（那个由入口的对抗组看）
+const BENCH = (headTree, mode) => `
+const at = (p) => ${JSON.stringify(pathToFileURL(headTree).href)} + '/' + p;
+const { benchStore, closeBenchStores } = await import(at('server/src/services/bench-store.ts'));
+const { createBench, listBenches } = await import(at('server/src/services/bench-registry.ts'));
+const ctx = (note) => ({ actor: 'user:upgrade-smoke', at: 1767225600000, note });
+if (${JSON.stringify(mode)} === 'seed') {
+  createBench({ slug: 'syn-bench', title: '合成台' }, 'user:upgrade-smoke', 1767225600000);
+  const s = await benchStore('syn-bench');
+  await s.defineDataset({ name: 'orders', title: '订单', key: ['id'], columns: [{ name: 'id', type: 'integer' }, { name: 'region', type: 'text' }, { name: 'amount', type: 'decimal' }] }, ctx());
+  await s.replace('orders', [{ id: 1, region: '东区', amount: 12.5 }, { id: 2, region: '南区', amount: 8 }, { id: 3, region: '东区', amount: 1 }], ctx());
+  await s.snapshot('orders', ctx('升级冒烟留的'));
+  await s.putView({ title: '合成台', views: [{ key: 'main', title: '总览', blocks: [{ type: 'table', query: { dataset: 'orders', sort: [{ col: 'id' }] } }] }] }, { ...ctx('首版'), base: 0 });
+}
+const s = await benchStore('syn-bench');
+const out = {
+  benches: listBenches().map((b) => b.slug),
+  datasets: (await s.datasets()).map((d) => [d.name, d.version, d.row_count]),
+  rows: (await s.query({ dataset: 'orders', sort: [{ col: 'id' }] })).rows,
+  snapshots: (await s.snapshots('orders')).map((x) => [x.id, x.reason, x.row_count]),
+  view: (({ version, active_version, content }) => ({ version, active_version, content }))(await s.getView()),
+  render: (await s.renderView({})).blocks.map((b) => b.data?.rows?.length ?? null),
+};
+await closeBenchStores();
+console.log('BENCH ' + JSON.stringify(out));
+process.exit(0);
+`;
+function benchRun(mode) {
+  const file = join(OUT, `bench-${mode}.mjs`); writeFileSync(file, BENCH(HEAD, mode));
+  const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', file], { cwd: HEAD, env: sandboxEnv({ DATA_DIR: DATA }), encoding: 'utf8', timeout: 120_000 });
+  const m = /BENCH (.*)/.exec(r.stdout || '');
+  return m ? { ok: true, json: m[1] } : { ok: false, json: '', err: (r.stderr || r.stdout || '').slice(-600) };
+}
+/** 台库文件的表结构（逐字）：再打开一次不该有任何变化 */
+function benchSchema() {
+  const file = join(DATA, 'bench-stores', 'syn-bench.sqlite');
+  if (!existsSync(file)) return null;
+  const db = new DatabaseSync(file, { readOnly: true });
+  try { return JSON.stringify(db.prepare("SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name").all()); } finally { db.close(); }
+}
+const benchRows = (probe) => (probe?.rows ?? []).filter((r) => String(r.id).startsWith('market.bench-views.'));
+
 function cleanup() { if (!KEEP) rmSync(OUT, { recursive: true, force: true }); }
 
 // ---------- 主流程 ----------
@@ -300,6 +345,17 @@ try {
   const countDiff = Object.keys(after2.counts).filter((t) => after2.counts[t] !== after1.counts[t]);
   check(countDiff.length === 0, '幂等：第二次启动后各表行数相同', countDiff.map((t) => `${t} ${after1.counts[t]} → ${after2.counts[t]}`).join('；'));
   check(after2.counts.work_items === after1.counts.work_items && after2.counts.work_item_log === after1.counts.work_item_log && after1.counts.work_items !== undefined, `幂等：第二次启动没有再补建事项（${after2.counts.work_items}）`);
+  // 台库：入口缺省关着，升级不该凭空建出台库；开着入口之后建的台，要经得起回滚和再上线
+  check(!existsSync(join(DATA, 'bench-stores')) && after2.tables.includes('bench_views') && after2.counts.bench_views === 0 && benchRows(probe2).length === 0,
+    '台库：入口缺省关着——升级后数据目录里没有台库，台的登记表是空的，自检里没有入口的行');
+  const benchSeed = benchRun('seed');
+  check(benchSeed.ok && JSON.parse(benchSeed.json || '{}').rows?.length === 3, '台库：用本检出的服务登记一个合成台，建数据集、写 3 行、留快照、存视图', benchSeed.err ?? '');
+  const benchSchema1 = benchSchema();
+  s = await startServer(HEAD, DATA, 'head-bench', { WM_BENCH_VIEWS: 'on' }); servers.push(s);
+  const probeBench = await selfProbe(s.base);
+  await stopServer(s);
+  check(s.ok && probeBench?.passed === true && benchRows(probeBench).length === 2 && benchRows(probeBench).every((r) => r.verdict === 'pass'),
+    '台库：开着入口启动，自检全过，入口的两行都过', JSON.stringify(benchRows(probeBench)));
   report.head = { new_tables: after1.tables.filter((t) => !before.tables.includes(t)), self_probe_rows: probe1?.rows?.length ?? 0, boot_ms: servers.filter((x) => x.label.startsWith('head')).map((x) => x.ms) };
 
   // 3. 回滚到基线
@@ -315,16 +371,20 @@ try {
     const v = await call(s.base, 'POST', '/api/vault/unlock', { password: VAULT_PASSWORD }); check(v.status === 200 && vaultEntries > 0 && v.body?.count === vaultEntries, '回滚：凭据库照常解得开');
   }
   await stopServer(s);
+  check(benchSchema() === benchSchema1 && benchSchema1 !== null, '回滚：基线不认识台库，库文件的表结构原样没动');
 
   // 4. 再上线
-  s = await startServer(HEAD, DATA, 'reforward'); servers.push(s);
-  check(s.ok && (await selfProbe(s.base))?.passed === true, '再上线：本检出的代码再启动，自检全过');
+  s = await startServer(HEAD, DATA, 'reforward', { WM_BENCH_VIEWS: 'on' }); servers.push(s);
+  check(s.ok && (await selfProbe(s.base))?.passed === true, '再上线：本检出的代码再启动（入口开着），自检全过');
   // 回滚期间基线写进来的事件（它不认识事项），再上线后也要有事项。回填若在后台跑，等它报完成（最多 30 秒）
   await waitBackfill(s.base);
   await stopServer(s);
   const after3 = schemaOf(DB);
   check(after3.counts.workbench_events > before.counts.workbench_events && after3.counts.work_items === after3.counts.workbench_events,
     `再上线：回滚期间新增的事件也建出了事项（事件 ${before.counts.workbench_events} → ${after3.counts.workbench_events}，事项 ${after3.counts.work_items}）`);
+  const benchBack = benchRun('read');
+  check(benchBack.ok && benchBack.json === benchSeed.json && benchSeed.ok, '再上线：台库原样读得出来（登记、数据集、行、快照、视图、取数，和回滚之前逐字相同）', benchBack.err ?? `${benchBack.json.slice(0, 300)} ≠ ${benchSeed.json.slice(0, 300)}`);
+  check(benchSchema() === benchSchema1 && readdirSync(join(DATA, 'bench-stores')).filter((f) => f.endsWith('.sqlite')).join() === 'syn-bench.sqlite', '再上线：台库再打开一次，表结构逐字相同，数据目录里只有这一个台的库');
 } catch (e) {
   fail++;
   console.log(`  ✗ 跑不下去：${e?.stack ?? e}`);
@@ -332,7 +392,7 @@ try {
   for (const s of servers) await stopServer(s);
 }
 // 每条检查都无条件执行；条数对不上，说明有一段没跑到（上面已经记过 ✗ 的「跑不下去」除外）
-const EXPECTED = 22;
+const EXPECTED = 28;
 const ran = pass + fail;
 if (ran !== EXPECTED) { fail++; console.log(`  ✗ 检查条数对不上：记了 ${ran} 条，应为 ${EXPECTED} 条`); }
 const line = `${pass} 通过 / ${fail} 失败`;

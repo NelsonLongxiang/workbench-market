@@ -177,6 +177,12 @@
       "answered_by TEXT NOT NULL DEFAULT ''",
       "at TEXT NOT NULL DEFAULT datetime('now')"
     ],
+    "bench_views": [
+      "slug TEXT PK",
+      "title TEXT NOT NULL",
+      "created_by TEXT NOT NULL",
+      "created_at INTEGER NOT NULL"
+    ],
     "bindings": [
       "id INTEGER PK",
       "target_type TEXT NOT NULL",

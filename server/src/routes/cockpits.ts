@@ -18,10 +18,35 @@ function getCockpit(id: number): CockpitRow {
   return row;
 }
 
+/** 视图面板引用的名字：和台库那边的台标识、视图键同一套字符集（bench-query.ts），这里只用来挡住别的字符 */
+const BENCH_SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const VIEW_KEY = /^[a-z][a-z0-9-]{0,31}$/;
+const MAX_VIEW_PANELS = 24;
+
 function validatePanels(raw: unknown): PanelConfig[] {
   if (!Array.isArray(raw)) bad('layout_config 必须是面板数组');
   const seen = new Set<number>();
+  const seenViews = new Set<string>();
   return raw.map((p: any) => {
+    // 视图面板（数据视图）：kind='bench-view'，引用一个视图台的一份视图，workbenchId=0 占位。
+    // 这里只看形状和字符集：不查这个台、这份视图存不存在，也不查保存的人看不看得到——
+    // 看不看得到在取数那一刻按看的人判（/api/bench-views/<台>/render），存下来的只是一个名字。
+    if (p?.kind === 'bench-view') {
+      const bench = p?.bench, view = p?.view;
+      if (typeof bench !== 'string' || !BENCH_SLUG.test(bench)) bad('视图面板的 bench 不是合法的台标识');
+      if (typeof view !== 'string' || !VIEW_KEY.test(view)) bad('视图面板的 view 不是合法的视图键');
+      const tab = p?.tab === undefined ? 'board' : p.tab;
+      if (tab !== 'board' && tab !== 'detail') bad('视图面板的 tab 只能是 board 或 detail');
+      const order = p?.order === undefined ? 0 : p.order;
+      if (typeof order !== 'number' || !Number.isInteger(order) || order < 0 || order > 9999) bad('视图面板的 order 要是 0 到 9999 的整数');
+      const i = `bv-${bench}-${view}`;
+      if (seenViews.has(i)) bad(`面板重复引用视图 ${i}`);
+      seenViews.add(i);
+      if (seenViews.size > MAX_VIEW_PANELS) bad(`一个驾驶舱最多放 ${MAX_VIEW_PANELS} 个视图面板`);
+      const vw = Math.min(12, Math.max(1, Number(p?.w) || 6));
+      const vh = Math.min(40, Math.max(4, Number(p?.h) || 10));
+      return { i, workbenchId: 0, kind: 'bench-view' as const, bench, view, tab, order, x: Math.min(12 - vw, Math.max(0, Number(p?.x) || 0)), y: Math.max(0, Number(p?.y) || 0), w: vw, h: vh };
+    }
     // 统一待办卡（omni-inbox）：kind='tasks'，workbenchId=0 占位，不引用工作台
     if (p?.kind === 'tasks' && String(p?.i ?? '') === 'tasks') {
       const tw = Math.min(12, Math.max(3, Number(p?.w) || 6));
