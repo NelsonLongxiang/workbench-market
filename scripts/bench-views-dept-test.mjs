@@ -154,11 +154,18 @@ try {
   console.log('四、关系不带来权限');
   const add = await srv.call('PUT', '/api/departments/sales/members/user:root-admin', token);
   const mkLead = await srv.call('PUT', '/api/departments/sales', { ...token, body: { name: 'sales', lead: 'user:root-admin' } });
-  const rel = db.prepare("SELECT (SELECT COUNT(*) FROM department_members WHERE department_id = 'sales' AND principal_id = 'user:root-admin') AS m, (SELECT lead_principal FROM departments WHERE id = 'sales') AS l").get();
-  const got = [];
-  for (const [m, path, body] of [['GET', ''], ['GET', '/sales-b/datasets'], ['PUT', '/sales-b/datasets/x', COLS], ['GET', '/sales-b/render'], ['GET', '/sales-b/log'], ['GET', '/sales-b/mcp-grants'], ['PUT', '/sales-b/mcp-grants', grantBody], ['POST', '', { slug: 'sys-b', title: 'x', department: 'sales' }], ['PUT', '/sales-b/binding', { department: 'ops' }]]) got.push(await st(sys, m, path, body));
-  check(add.status < 300 && mkLead.status < 300 && rel.m === 1 && rel.l === 'user:root-admin' && got.every((x) => x === 403),
-    '系统管理员把一个人加进部门成员表、又设成部门负责人：这个人对这个部门的台仍是 403（清单、读、写、拍板、登记、改绑）', { add: add.status, lead: mkLead.status, rel, got: got.join() });
+  const relNow = () => db.prepare("SELECT (SELECT COUNT(*) FROM department_members WHERE department_id = 'sales' AND principal_id = 'user:root-admin') AS m, (SELECT lead_principal FROM departments WHERE id = 'sales') AS l").get();
+  const proposal = db.prepare("SELECT status FROM relation_proposals WHERE kind = 'dept-lead' AND department_id = 'sales' AND principal_id = 'user:root-admin' ORDER BY id DESC").get();
+  const NINE = [['GET', ''], ['GET', '/sales-b/datasets'], ['PUT', '/sales-b/datasets/x', COLS], ['GET', '/sales-b/render'], ['GET', '/sales-b/log'], ['GET', '/sales-b/mcp-grants'], ['PUT', '/sales-b/mcp-grants', grantBody], ['POST', '', { slug: 'sys-b', title: 'x', department: 'sales' }], ['PUT', '/sales-b/binding', { department: 'ops' }]];
+  const nine = async () => { const got = []; for (const [m, path, body] of NINE) got.push(await st(sys, m, path, body)); return got; };
+  let got = await nine();
+  const rel = relNow();
+  check(add.status < 300 && mkLead.status < 300 && rel.m === 1 && rel.l === '' && proposal?.status === 'pending' && got.every((x) => x === 403),
+    '系统管理员把一个人加进部门成员表、又提议设成部门负责人（提议待确认）：这个人对这个部门的台是 403（清单、读、写、拍板、登记、改绑）', { add: add.status, lead: mkLead.status, rel, proposal, got: got.join() });
+  // 就算负责人这层关系确认了（这里直接写进部门表，等于确认过的结果），没有授予照样进不来：关系不带来权限
+  db.prepare("UPDATE departments SET lead_principal = 'user:root-admin' WHERE id = 'sales'").run();
+  got = await nine();
+  check(relNow().l === 'user:root-admin' && got.every((x) => x === 403), '负责人这层关系就算确认了，没有已放行的授予照样是 403', { rel: relNow(), got: got.join() });
 
   console.log('五、授予要放行');
   const d = await srv.call('POST', '/api/grants', { ...token, body: { principal: 'user:root-admin', role: 'dept-member', scope: 'dept:sales', reason: '合成：系统管理员起草' } });
