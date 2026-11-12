@@ -116,22 +116,62 @@ export async function postCreatorDecision(id: string, answer: string, reason: st
   return { status: res.status, body: await res.json().catch(() => ({})) };
 }
 
+/** 同一份只读请求在短时间内只发一次：外壳和页面同时要（「关注」、当前身份、驾驶舱列表），首屏不重复打。
+ *  键带上管理员口令（口令不同结果不同）；读失败不留缓存。办完一件事用 attentionChanged() 清掉「关注」再广播 */
+const SHARED_TTL = 2000;
+const sharedMemo = new Map<string, { at: number; p: Promise<unknown> }>();
+export function shared<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const k = `${key}|${getAdminToken()}`;
+  const hit = sharedMemo.get(k);
+  if (hit && Date.now() - hit.at < SHARED_TTL) return hit.p as Promise<T>;
+  const p = fn();
+  sharedMemo.set(k, { at: Date.now(), p });
+  p.catch(() => sharedMemo.delete(k));
+  return p;
+}
+function forgetShared(key: string) { for (const k of [...sharedMemo.keys()]) if (k.startsWith(`${key}|`)) sharedMemo.delete(k); }
+
+/** 「关注」：给这个身份的全部条目和总数。status 0 = 连不上 */
+export type AttentionRead = { status: number; items: AttentionItemLite[]; total: number | null };
+type AttentionItemLite = { source: string; source_id: string; category: string; [k: string]: unknown };
+export function getAttention(): Promise<AttentionRead> {
+  return shared('attention', async () => {
+    try {
+      const token = getAdminToken();
+      const r = await fetch('/api/attention', { headers: token ? { 'X-Admin-Token': token } : {} });
+      const j = (r.ok ? await r.json().catch(() => ({})) : {}) as { items?: AttentionItemLite[]; counts?: { total?: number } };
+      return { status: r.status, items: Array.isArray(j.items) ? j.items : [], total: typeof j.counts?.total === 'number' ? j.counts.total : null };
+    } catch { return { status: 0, items: [], total: null }; }
+  });
+}
+/** 办完一件：清掉「关注」的缓存，再广播（侧栏角标、全景都跟着刷新） */
+export const ATTENTION_CHANGED = 'wm-attention-changed';
+export function attentionChanged() { forgetShared('attention'); window.dispatchEvent(new Event(ATTENTION_CHANGED)); }
+
 /** 等你拍板的条数（侧栏「全景」的角标）：取「关注」的总数；没登录、读不到返回 null，不弹口令 */
 export async function getAttentionCount(): Promise<number | null> {
-  try {
-    const token = getAdminToken();
-    const r = await fetch('/api/attention', { headers: token ? { 'X-Admin-Token': token } : {} });
-    if (!r.ok) return null;
-    const j = await r.json() as { counts?: { total?: number } };
-    return typeof j.counts?.total === 'number' ? j.counts.total : null;
-  } catch { return null; }
+  const a = await getAttention();
+  return a.status >= 200 && a.status < 300 ? a.total : null;
 }
+
+/** 驾驶舱列表（侧栏「我的驾驶舱」）：和驾驶舱页共用一次读 */
+export const listCockpitsShared = (): Promise<Cockpit[]> => shared('cockpits', () => api.listCockpits());
 
 /** 当前登录身份（登录门的 /api/auth/me）：外壳的用户卡、全景的问候语用。拿不到就是 null，不弹口令。
  *  叫 getAuthMe 不叫 getMe：事项详情那条线（#565）在这里也加了一个 getMe，两边先后合进 main 时不撞名；都合了以后收成一份。 */
 export type AuthMe = { authenticated?: boolean; login?: string | null; via?: string | null; display_name?: string | null };
-export async function getAuthMe(): Promise<AuthMe | null> {
-  try { const r = await fetch('/api/auth/me', { cache: 'no-store', credentials: 'same-origin' }); return r.ok ? await r.json() as AuthMe : null; } catch { return null; }
+export function getAuthMe(): Promise<AuthMe | null> {
+  return shared('auth-me', async () => {
+    try { const r = await fetch('/api/auth/me', { cache: 'no-store', credentials: 'same-origin' }); return r.ok ? await r.json() as AuthMe : null; } catch { return null; }
+  });
+}
+
+/** 生命周期只读接口（观测层扩展挂在市场里）：带登录 cookie；扩展没挂上（404）或没配置（503）由页面给空状态，不弹口令 */
+export async function getLifecycle<T>(path: string): Promise<{ status: number; body: T | null }> {
+  try {
+    const r = await fetch(`/api/lifecycle/${path}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    return { status: r.status, body: r.ok ? await r.json() as T : null };
+  } catch { return { status: 0, body: null }; }
 }
 
 /** 答席位提问（阶段七：建立人能答自己事项上的提问）：带选项的给 answer（必须是选项之一），否则给 text。

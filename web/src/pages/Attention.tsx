@@ -57,7 +57,8 @@ export default function Attention() {
   const cur = list[at];
   useEffect(() => { setAnswer(''); setInput({}); }, [cur?.source, cur?.source_id]);
 
-  const choices = cur ? answerChoices(admin, cur) : [];
+  // 建立人答席位提问走事项的提问入口（全景卡片、事项页）；这一页只给「在原页面处理」
+  const choices = cur && answerRoute(admin, cur) !== 'ask' ? answerChoices(admin, cur) : [];
   const fields = cur && answer ? FIELDS[cur.source]?.[answer] ?? [] : [];
   const missing = fields.some((f) => f.required && !String(input[f.key] ?? '').trim());
   const submit = async () => {

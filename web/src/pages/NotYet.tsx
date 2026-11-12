@@ -6,10 +6,6 @@ import WmPage from '../components/WmPage';
 export type NotYetSpec = { title: string; what: string; meanwhile?: { to: string; label: string }[] };
 
 export const NOT_YET: Record<string, NotYetSpec> = {
-  home: {
-    title: '全景', what: '公司正在走的每条线、各走到哪一步、哪里等你拍板，以及在这里安排一件事。',
-    meanwhile: [{ to: '/attention', label: '等你拍板的事' }, { to: '/overview', label: '原来的总览' }],
-  },
   items: {
     title: '事项', what: '你建立的、经手的每一件事，按状态或按对象分组。',
     meanwhile: [{ to: '/attention', label: '等你拍板的事' }, { to: '/tasks', label: '统一待办' }],
