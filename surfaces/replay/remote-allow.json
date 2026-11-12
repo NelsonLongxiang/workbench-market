@@ -20,7 +20,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "903", "etag": "W/\"387-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "952", "etag": "W/\"3b8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -38,6 +38,7 @@
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/messages\\/(read|[1-9]\\d{0,15}\\/reply)$/",
                 "/^\\/api\\/work-items$/",
                 "/^\\/api\\/teams\\/(assign|unassign)$/",
+                "/^\\/api\\/grants\\/[1-9]\\d{0,15}\\/approve$/",
                 "/^\\/api\\/relations\\/proposals\\/[1-9]\\d{0,15}\\/(approve|reject)$/",
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/asks\\/[1-9]\\d{0,15}\\/answer$/",
                 "/^\\/api\\/mcp-rest\\/(tools\\/[^/]+|apps\\/[a-z0-9-]{1,64}\\/files(\\/[^/]+)?)$/",
@@ -56,7 +57,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "903", "etag": "W/\"387-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "952", "etag": "W/\"3b8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -74,6 +75,7 @@
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/messages\\/(read|[1-9]\\d{0,15}\\/reply)$/",
                 "/^\\/api\\/work-items$/",
                 "/^\\/api\\/teams\\/(assign|unassign)$/",
+                "/^\\/api\\/grants\\/[1-9]\\d{0,15}\\/approve$/",
                 "/^\\/api\\/relations\\/proposals\\/[1-9]\\d{0,15}\\/(approve|reject)$/",
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/asks\\/[1-9]\\d{0,15}\\/answer$/",
                 "/^\\/api\\/mcp-rest\\/(tools\\/[^/]+|apps\\/[a-z0-9-]{1,64}\\/files(\\/[^/]+)?)$/",
@@ -160,7 +162,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "903", "etag": "W/\"387-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "952", "etag": "W/\"3b8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -178,6 +180,7 @@
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/messages\\/(read|[1-9]\\d{0,15}\\/reply)$/",
                 "/^\\/api\\/work-items$/",
                 "/^\\/api\\/teams\\/(assign|unassign)$/",
+                "/^\\/api\\/grants\\/[1-9]\\d{0,15}\\/approve$/",
                 "/^\\/api\\/relations\\/proposals\\/[1-9]\\d{0,15}\\/(approve|reject)$/",
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/asks\\/[1-9]\\d{0,15}\\/answer$/",
                 "/^\\/api\\/mcp-rest\\/(tools\\/[^/]+|apps\\/[a-z0-9-]{1,64}\\/files(\\/[^/]+)?)$/",
