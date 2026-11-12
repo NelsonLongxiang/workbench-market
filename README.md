@@ -38,7 +38,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `MARKET_TEAM`（A2A team 默认 `market`；名片的 team、会话句柄 `<MARKET_TEAM>/<node8>` 和工作台事件出站的 caller_session 都用它）
 - `MARKET_PUBLIC_URL`（对外基址·A2A 卡片与 MCP `skill_download` 下载链接用；生产建议设成 https 地址——没设时下载链接取请求主机，主机名不规范就不签发）
 - `A2A_API_KEY`/`A2A_STATE_URL`（A2A 外部面）
-- `WM_BENCH_VIEWS`（数据视图的入口·缺省 `off`：`/api/bench-views` 下的路由一条都不注册，访问是 404；`on`=开放给有管理层授予或范围是「全部」的授予的登录账号，管理口令看不了台里的数据；其它值拒绝启动；见 [docs/data-views.md](docs/data-views.md)）
+- `WM_BENCH_VIEWS`（数据视图的入口·缺省 `off`：`/api/bench-views` 下的每条路由都直接回 404；`on`=开放给有管理层授予或范围是「全部」的授予的登录账号，管理口令看不了台里的数据；其它值拒绝启动；见 [docs/data-views.md](docs/data-views.md)）
 - `WM_OUTBOUND`（对外断开·预发用·缺省 `on`；`off`=这个进程一个字节都不往外发：TCP、TLS、DNS、UDP 在发出前被拦下并计数，不许起子进程和 Worker，工作台事件投递和回执 outbox 整轮跳过（在途的保持 pending、不加 attempts、不判死），启动时的豁免面变更通知不发，库里的巡检间隔、MCP 上游、沙箱桥一律按关处理，check-all 拒绝探活；只放行本进程自己在听的回环端口。启动自检多一行「对外已断开」，`/api/health` 和 `/api/health/ready` 带 `outbound`，页面顶上有横幅。只能经环境变量打开；其它值拒绝启动。拿生产数据的副本做预发时用，见下方「预发：对外断开」）
 - `WM_A2A_DIRECT_SIG`（`POST /a2a/direct` 入站签名·缺省 `accept`=签名可选：带了 OriginClaim Sig2 就验，取卡或验签这一步验不过（没登记取卡地址、取不到卡、卡上身份不对、签名对不上卡）按未签名走绑定准入——不比不带签名更宽也不更严，格式、时间戳、受众、身份不符、重放照旧 401；`require`=没签名或验不过一律 401；`off`=不验；`WM_LOGIN_GATE=enforce` 时强制 `require`；其它值拒绝启动。公钥只从调用方绑定上登记的 `notify_url` 取卡，不跟随重定向）
 - `WM_A2A_DIRECT_SIG_BODY`（缺省 `accept`；`require`=只认同时签了 body 摘要的 `X-WM-Body-Sha256`/`X-WM-Body-Sig`，现有 DSH 节点只发 Sig2，打开前对端要先升级；其它值拒绝启动）

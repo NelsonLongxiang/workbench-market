@@ -2,7 +2,8 @@
  * 数据视图的入口（docs/data-views.md 第三、十节，第三步的前一半）：给登录的人用的 REST 接口，都在 /api/bench-views 下面。
  * 台的登记、数据集、四种写入、查询、快照、视图描述和它的版本、取数、表单提交。逻辑都在 services/bench-store.ts，这里只是路由。
  *
- * 整组路由在一个开关后面（WM_BENCH_VIEWS=on），缺省关：关着的时候一条都不注册，访问是 404。
+ * 整组路由在一个开关后面（WM_BENCH_VIEWS=on），缺省关：关着的时候每一条都直接回 404，不认人、不读请求体、不碰台库。
+ * （路由照样注册，是为了让对外面的快照和录制回放看得见它们。）
  *
  * 谁能用（这一步只开放给管理层和范围是「全部」的授予；按部门、团队判的那一半等身份线的部门表和团队登记）：
  *   1. 带跨站标记的请求：拒。
@@ -40,6 +41,8 @@ export const BENCH_ROWS_PATH = /^\/api\/bench-views\/[^/]+\/datasets\/[^/]+\/row
 
 type Handler = (req: express.Request, res: express.Response, next: express.NextFunction) => unknown;
 export interface BenchViewRouteDeps {
+  /** 开关开着没有；关着时每条路由直接回 404 */
+  on: boolean;
   wrap: (fn: (req: express.Request, res: express.Response) => Promise<unknown>) => Handler;
   /** 请求带的管理口令有效 */
   adminTokenOk: (req: express.Request) => boolean;
@@ -50,7 +53,9 @@ const NOT_VERDICT = '放不放行由数据视图域自己判：先拒管理口�
 const OPS = new Map<string, 'replace' | 'upsert' | 'append' | 'deleteRows'>([['replace', 'replace'], ['upsert', 'upsert'], ['append', 'append'], ['delete', 'deleteRows']]);
 
 export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDeps): void {
-  const { wrap, adminTokenOk, devOriginOk } = deps;
+  const { wrap: wrapInner, adminTokenOk, devOriginOk } = deps;
+  // 开关关着：在一切之前回 404
+  const wrap: BenchViewRouteDeps['wrap'] = (fn) => wrapInner(async (req, res) => (deps.on ? fn(req, res) : res.status(404).json({ error: 'bench_views_off' })));
   const principals = () => svc<PrincipalService>('principals');
   const resolve = identity().cachedResolver({ ttlMs: 60_000, max: 1000 });
 
@@ -129,7 +134,8 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     (req, _res, s, actor) => s.defineDataset({ ...(req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}), name: req.params.name }, ctxOf(req, actor, req.query.note))));
   // 行的写入：请求体是行的数组（JSON 文本），原样递给工作线程解析。op=replace / upsert / append / delete（delete 时给的是主键的数组）
   app.post('/api/bench-views/:bench/datasets/:name/rows', { action: 'bench-store.rows-write', kind: 'write', statusNotVerdict: NOT_VERDICT },
-    express.raw({ type: () => true, limit: BENCH_LIMITS.datasetBytes + 1_000_000 }),
+    // 开关关着不读请求体，直接往下走（下面的处理函数回 404）
+    (req, res, next) => (deps.on ? express.raw({ type: () => true, limit: BENCH_LIMITS.datasetBytes + 1_000_000 })(req, res, next) : next()),
     on('bench-store.rows-write', 'write', async (req, _res, s, actor) => {
       const op = OPS.get(String(req.query.op ?? ''));
       if (!op) throw new BenchError('invalid', 'op 须为 replace、upsert、append、delete 之一');

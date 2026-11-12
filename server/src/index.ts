@@ -138,7 +138,7 @@ let judgmentEnforce: EnforceConfig = { domains: null };
     console.log(JSON.stringify({ source: 'judgment', event: 'enforce', domains: enforce.domains === 'all' ? 'all' : [...enforce.domains], at: new Date().toISOString() }));
   }
 }
-// 数据视图的入口（WM_BENCH_VIEWS=on|off，缺省 off）：关着的时候一条路由都不注册。值不合法拒绝启动
+// 数据视图的入口（WM_BENCH_VIEWS=on|off，缺省 off）：关着的时候每条路由都直接回 404。值不合法拒绝启动
 const BENCH_VIEWS = (() => { try { return benchViewsConfig(); } catch (e) { console.error(`[bench-views] 拒绝启动：${(e as Error).message}`); process.exit(1); } })();
 // 全站登录门（WM_LOGIN_GATE=enforce|off，缺省 off）：紧跟启动自检门，早于内容分发、解析器、静态资源、SPA 回落和各路由。
 // 依赖都是函数声明或请求期才取的值（提升/闭包），这里只建不调。值不合法拒绝启动（同 MCP_GATEWAY #284）
@@ -393,7 +393,7 @@ app.use((req, res, next) => {
   if ((req.url ?? '').startsWith('/go/')) return next();
   if (req.method === 'PUT' && MCP_REST_RAW_UPLOAD.test(req.path)) return next();
   // 数据视图的行写入：请求体原样递给台库的工作线程解析，不在这里解析（路由自己限大小）
-  if (BENCH_VIEWS.on && req.method === 'POST' && BENCH_ROWS_PATH.test(req.path)) return next();
+  if (req.method === 'POST' && BENCH_ROWS_PATH.test(req.path)) return next();
   // /a2a/direct 的 body 签名要原始字节（a2a-direct-sig.ts 的 X-WM-Body-Sha256）
   // 登录方式的失效通知（/login/<方式>/events）同样要原始字节：飞书的签名算在原始请求体上
   const keepRaw = req.method === 'POST' && (req.path.toLowerCase() === '/a2a/direct' || /^\/login\/[a-z0-9][a-z0-9-]{0,31}\/events$/i.test(req.path));
@@ -427,9 +427,9 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/teams\/(assign|unassign)$/,
   // MCP 工具 REST 开放：与 /mcp 同口径，凭会话令牌在路由内鉴权，不认管理口令
   /^\/api\/mcp-rest\/(tools\/[^/]+|apps\/[a-z0-9-]{1,64}\/files(\/[^/]+)?)$/,
-  // 数据视图的入口（开关开着才有）：路由内自己判——先拒管理口令，再经身份服务认人、问判定，只有管理层和范围是「全部」的授予放行。
+  // 数据视图的入口（开关关着时每条都回 404）：路由内自己判——先拒管理口令，再经身份服务认人、问判定，只有管理层和范围是「全部」的授予放行。
   // 这道门要的恰恰是管理口令，而这组路由不认管理口令，所以登记在这里
-  ...(BENCH_VIEWS.on ? [/^\/api\/bench-views(\/[a-z0-9][a-z0-9-]{0,63}(\/[a-z0-9_/-]{1,160})?)?$/] : []),
+  /^\/api\/bench-views(\/[a-z0-9][a-z0-9-]{0,63}(\/[a-z0-9_/-]{1,160})?)?$/,
 ];
 
 // S3 豁免面可观测（评审席裁下批·PR#72 真事故锚）：启动时快照+diff——安全清单变更不再无声
@@ -1879,7 +1879,7 @@ function odooLoginUrl(req: express.Request, returnPath: string): string | null {
 
 // ---------- 统一待办（omni-inbox · 总工程师设计 9c5557c1c0）：只读聚合；路由在域模块里 ----------
 registerTaskRoutes(http, { wrap, adminGuard, adminHeaderOk, devOriginOk, odooLoginUrl });
-if (BENCH_VIEWS.on) registerBenchViewRoutes(http, { wrap, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), devOriginOk });
+registerBenchViewRoutes(http, { on: BENCH_VIEWS.on, wrap, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), devOriginOk });
 
 // #275 登录探测：弹窗送 Odoo 登录后，前端轮询这里拿 200 即回原页面（Odoo 19 无法跨源回跳，回程在市场源完成）；顶栏用户 chip 同源
 registerAuthViewerRoutes(http, { wrap, odooLoginUrl });
