@@ -14,12 +14,14 @@ import RelTime from '../components/RelTime';
 import { apiFetch } from '../admin-token';
 import { OUTCOME, VERDICT, type AttentionItem, type LogRow } from '../attention-view';
 import { getLifecycleNameSources, getRosterTeams, getWorkItem, postAskAnswer, postCreatorDecision, postSeatMessageReply, postSeatMessagesRead } from '../api';
+import dayjs from 'dayjs';
 import SectionBoundary from '../components/SectionBoundary';
 import WorkItemTimeline, { STATE, stateTag } from '../components/WorkItemTimeline';
 
 export { STATE };
 import { choicesFor, routeFor, viewerOf, type Can, seatLine, showProgress, subitemsOf, ticketStateLabel } from '../work-item-view';
 import { teamLabel } from '../people';
+import { attachmentsOf, dueLabel, dueOf, sizeLabel } from '../work-item-extras';
 import { NO_NAMES, cleanSeatName, lifecycleNames, lineName, rosterNames, stageName, withRoster, type Names } from '../names';
 import { actorLabel, seatLabel, askerLabel, textOf, who, PROGRESS_STATE, TERMINAL, creatorLabel, hiddenInTimeline, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
 
@@ -253,6 +255,8 @@ export default function WorkItem() {
                 { key: 'obj', label: '哪条线 / 哪一步', children: [lineName(item.object, names), stageName(item.phase, names)].filter(Boolean).join(' / ') || '—' },
                 { key: 'eval', label: '接单判断', children: item.eval ? `${VERDICT[item.eval] ?? item.eval}${item.eval_reason ? `（${item.eval_reason}）` : ''}` : '—' },
                 { key: 'at', label: '最近变化', children: <RelTime value={item.updated_at} /> },
+                // 期限：服务端给了才显示（没给不写「不限」，可能其实有期限）
+                ...(dueOf(item) ? [{ key: 'due', label: '期限', children: <span data-testid="work-item-due">{dueLabel(dueOf(item)!, dayjs().format('YYYY-MM-DD'))}</span> }] : []),
               ]} />
             </Flex>
           </Card>
@@ -303,6 +307,15 @@ export default function WorkItem() {
               <Artifacts list={outputs} empty={item.receipt_outcome ? '没有附产出；回执的内容在对话和时间线里' : '还没有产出'} />
             </Flex>
           </Card>
+          </SectionBoundary>
+          <SectionBoundary name="附件">
+          {attachmentsOf(item).length > 0 && <Card size="small" title={`附件 ${attachmentsOf(item).length}`} data-testid="work-item-attachments">
+            <List size="small" dataSource={attachmentsOf(item)} rowKey={(a) => a.url} renderItem={(a) => (
+              <List.Item extra={<Typography.Text type="secondary" className="wm-num">{sizeLabel(a.size)}</Typography.Text>}>
+                <Typography.Link href={a.url} download={a.name} ellipsis>{a.name}</Typography.Link>
+              </List.Item>
+            )} />
+          </Card>}
           </SectionBoundary>
           <SectionBoundary name="依据">
           {evidence.length > 0 && <Card size="small" title={`依据 ${evidence.length}`}><Artifacts list={evidence} empty="" /></Card>}

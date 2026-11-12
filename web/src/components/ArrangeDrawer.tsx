@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Alert, App, Button, DatePicker, Drawer, Empty, Form, Input, Select, Skeleton, Switch } from 'antd';
+import { PaperClipOutlined } from '@ant-design/icons';
 import { getAssignableTeams, postWorkItem } from '../api';
 import { EMPTY_FORM, LIMITS, buildBody, errorText, keyFor, resultText, teamOption, teamsBlockedText, validate, type ArrangeForm, type Created, type Team } from '../arrange-view';
 
@@ -91,6 +92,10 @@ export default function ArrangeDrawer({ open, onClose, lines = [], stages = [], 
         </div>
         <Form.Item label="期限（可不填）" validateStatus={errors.due ? 'error' : ''} help={errors.due}>
           <DatePicker className="wm-full" placeholder="不限" onChange={(d) => set('due', d ? d.format('YYYY-MM-DD') : '')} />
+        </Form.Item>
+        {/* 附件：位置先画上（文件名、大小，详情里能取回）；服务端还不收附件，按钮不能点，不发任何请求 */}
+        <Form.Item label="附件（可不加）" extra="附件现在还不能加。" data-testid="arrange-attachments">
+          <Button icon={<PaperClipOutlined />} disabled>加附件</Button>
         </Form.Item>
         {/* 规范 14 第十节第 3 条：开关叫「先过目再派出去」，下面一行写谁来过目。现在放行的是管理员；
             过目归团队负责人、「交给谁」分组之后（交给团队锁定为开，交给自己的 AI 员工缺省关），这一行按接口给的换 */}
