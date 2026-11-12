@@ -303,6 +303,8 @@ jobs:
         run: node scripts/work-item-service-test.mjs && node scripts/work-item-facts-test.mjs && node scripts/work-item-migration-test.mjs
       - name: 事项回填不挡启动（后台分批、每片让出事件循环；启动到能应答不随事件数增长·中途被杀重启接着跑、终态同一次跑完·重跑逐行相同、版本没变跳过·回填期间进来的事实不丢不重复）
         run: node scripts/work-item-backfill-test.mjs
+      - name: 事项回填和启动自检的时序（回填每个事件很慢也不挡自检：等自检通过再开始、每处理一个事件看一次表·回填照样跑完·自检没过不开始回填）
+        run: node scripts/work-item-backfill-startup-test.mjs
       - name: 建事项时的标题和派给（任务中心的取任务标题、取不到退到来源坐标·派给取投递的目标团队·存量只补自动的缺省值、改过的不动、重复跑不改、启动就补不随回填版本走·不写事项日志）
         run: node scripts/work-item-title-team-test.mjs
       - name: 事项的交给方式（建的时候记下交给方式、等谁过目、指名的 seatId·不认得的取值兜底成交给团队·旧库补列、存量是缺省值）

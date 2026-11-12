@@ -13,6 +13,7 @@
 import { randomUUID } from 'node:crypto';
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
+import { afterStartup } from '../startup-gate.ts';
 
 export const STATES = ['draft', 'held', 'delivered', 'accepted', 'progress', 'waiting', 'ready', 'blocked', 'done', 'failed', 'dropped', 'cancelled'] as const;
 export type WorkItemState = typeof STATES[number];
@@ -424,11 +425,12 @@ export class WorkItemService extends Service {
     super(ctx, 'workItems');
     // 8b：workbench-events 每写一行事件日志就发一个事件（在它自己的事务里）。随插件卸载自动撤销。
     ctx.on('workbench-event/logged', (row: { event_id: string; action: string }) => this.onLogged(row));
-    // 回填不挡启动：在后台分批跑（每一片让出事件循环），期间事项照常可读、随回填逐步补齐。随插件卸载停下
+    // 回填不挡启动：在后台分批跑（每一片让出事件循环），期间事项照常可读、随回填逐步补齐。随插件卸载停下。
+    // 服务进程里等启动自检通过再开始（startup-gate.ts）：不和自检的请求抢事件循环；自检没过不开始
     ctx.effect(() => {
       let stopped = false;
       // 后台回填出任何错都不能拖垮服务：记下、停在这里，下次启动接着跑
-      const timer = setImmediate(() => {
+      const cancel = afterStartup(() => {
         if (stopped) return;
         // 存量事项补标题和派给：出错只记下，不挡回填
         try { const n = this.fillDerivedAll(); if (n) console.log(`[work-items] 补了 ${n} 件存量事项的标题或派给`); } catch (e) {
@@ -439,7 +441,7 @@ export class WorkItemService extends Service {
           console.error(`[work-items] 后台回填没能开始（不影响服务，下次启动再试，或手动 backfill()）：${(e as Error)?.message ?? e}`);
         }
       });
-      return () => { stopped = true; clearImmediate(timer); };
+      return () => { stopped = true; cancel(); };
     }, 'workItems.backfill');
   }
 
@@ -499,6 +501,8 @@ export class WorkItemService extends Service {
       if (stopped()) return;
       try {
         const t0 = Date.now();
+        // 每处理一个事件看一次表：一片最多超出时间表一个事件的工夫（以前是一批，最多 BACKFILL_FETCH 个事件不让出）
+        const overtime = () => Date.now() - t0 >= BACKFILL_SLICE_MS;
         let finished = false;
         do {
           // 新库上事件表可能还没建（任务中心初始化时才建）：那就没有可回填的
@@ -506,15 +510,19 @@ export class WorkItemService extends Service {
           if (phase === 'full') {
             const ids = db.prepare('SELECT id, event_id FROM workbench_events WHERE id > ? ORDER BY id LIMIT ?').all(cursor, BACKFILL_FETCH) as { id: number; event_id: string }[];
             if (ids.length === 0) { finished = true; break; }
-            for (const { id, event_id } of ids) { this.syncEvent(event_id); cursor = id; events++; }
+            for (const { id, event_id } of ids) { this.syncEvent(event_id); cursor = id; events++; if (overtime()) break; }
           } else {
             const rows = db.prepare('SELECT id, event_id FROM workbench_event_log WHERE id > ? ORDER BY id LIMIT ?').all(cursor, BACKFILL_FETCH) as { id: number; event_id: string }[];
             if (rows.length === 0) { finished = true; break; }
+            // 游标记到处理过的那一行；这一片停在批中间时，下一片从游标往后取（同一事件重核一次是幂等的）
             const seen = new Set<string>();
-            for (const { event_id } of rows) if (!seen.has(event_id)) { seen.add(event_id); this.syncEvent(event_id); events++; }
-            cursor = rows[rows.length - 1].id;
+            for (const { id, event_id } of rows) {
+              if (!seen.has(event_id)) { seen.add(event_id); this.syncEvent(event_id); events++; }
+              cursor = id;
+              if (overtime()) break;
+            }
           }
-        } while (Date.now() - t0 < BACKFILL_SLICE_MS);
+        } while (!overtime());
         batches++;
         if (finished) {
           const dirty = Boolean(this.readBackfillMark()?.dirty);
