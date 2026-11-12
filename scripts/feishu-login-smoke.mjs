@@ -495,8 +495,8 @@ try {
     const gone = !((await ops.req('GET', '/api/principals/pending', { headers: admin })).json?.pending ?? []).some((p) => p.external_id === PEOPLE.carol.union_id);
     const db2 = new DatabaseSync(join(open.data, 'workbench-market.db'), { readOnly: true });
     let rows; try { rows = db2.prepare('SELECT COUNT(*) AS n FROM principal_pending WHERE external_id = ?').get(PEOPLE.carol.union_id).n; } finally { db2.close(); }
-    check(listed && show(Object.keys(listed).sort()) === show(['display_name', 'email', 'external_id', 'last_seen', 'provider']) && gone && rows === 0,
-      '待对接清单只有认人需要的最少信息（提供方、用户标识、显示名、企业邮箱、最近一次来的时间）；超过 30 天没再来的清掉（表里也没有了）', show({ listed, gone, rows }));
+    check(listed && show(Object.keys(listed).sort()) === show(['display_name', 'email', 'external_id', 'last_seen', 'provider', 'reason']) && gone && rows === 0,
+      '待对接清单只有认人需要的最少信息（提供方、用户标识、显示名、企业邮箱、为什么在清单上、最近一次来的时间）；超过 30 天没再来的清掉（表里也没有了）', show({ listed, gone, rows }));
   }
   {
     // 会话期限的配置：不是数字、超出范围都拒绝启动，不悄悄回落

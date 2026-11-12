@@ -363,7 +363,8 @@
       "display_name TEXT NOT NULL DEFAULT ''",
       "email TEXT NOT NULL DEFAULT ''",
       "last_seen TEXT NOT NULL DEFAULT datetime('now')",
-      "appearance INTEGER NOT NULL DEFAULT 0"
+      "appearance INTEGER NOT NULL DEFAULT 0",
+      "reason TEXT NOT NULL DEFAULT 'unbound'"
     ],
     "principal_pending_seq": [
       "id INTEGER PK"

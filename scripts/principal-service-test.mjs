@@ -141,6 +141,19 @@ try {
     db.prepare("INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES ('fake', 'robot', 'robot', 'seat:robot')").run();
     const a = tryAdmit({ provider: 'fake', externalId: 'robot', displayName: null });
     check(a.ok === false && a.reason === 'unbound', '外部身份绑在席位上：不能拿来登录', show(a));
+    const row = principals.pending().find((x) => x.provider === 'fake' && x.external_id === 'robot');
+    check(row?.reason === 'bound-to-non-person', '绑在席位上的账号进待对接清单时单列原因（bound-to-non-person），管理员看得出要先解绑、不是点对接', show(row));
+  }
+  {
+    // 再来时只更新这几样：这一次没带邮箱、显示名，不拿空值盖掉原来的
+    principals.notePending({ provider: 'mail', externalId: 'keep-me', displayName: '原来的名字', email: 'keep@example.invalid' });
+    principals.notePending({ provider: 'mail', externalId: 'keep-me', displayName: null, email: null });
+    const kept = principals.pending().find((x) => x.provider === 'mail' && x.external_id === 'keep-me');
+    principals.notePending({ provider: 'mail', externalId: 'keep-me', displayName: '新名字', email: 'new@example.invalid' });
+    const changed = principals.pending().find((x) => x.provider === 'mail' && x.external_id === 'keep-me');
+    check(kept?.email === 'keep@example.invalid' && kept?.display_name === '原来的名字' && kept?.reason === 'unbound' && changed?.email === 'new@example.invalid' && changed?.display_name === '新名字'
+      && principals.pending().filter((x) => x.external_id === 'keep-me').length === 1,
+      '待对接清单：再来时没带邮箱、显示名就留着原来的（不被空值盖掉）；带了新的就换；同一个人只有一条', show({ kept, changed }));
   }
 
   // ---------- 四之二、登录名的等价写法：比较按规范化之后的值，撞上了不认、不并 ----------
