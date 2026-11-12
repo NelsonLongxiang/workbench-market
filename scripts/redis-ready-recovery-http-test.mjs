@@ -12,7 +12,7 @@ import {startFakeGithub,ghPublish} from './github-fixture.mjs';
 const which='recovery';
 const root=resolve('.'),out=resolve('tmp/sop-state-restart-'+Date.now()+'-'+which),data=join(out,'data'),home=join(out,'home');mkdirSync(data,{recursive:true});mkdirSync(home,{recursive:true});
 // Seed the pre-cache_revision schema to exercise the real idempotent upgrade, not only a new database.
-const legacy=new DatabaseSync(join(data,'workbench-market.db'));
+const legacy=new DatabaseSync(join(data,'workbench-market.db'), { timeout: 5000 });
 legacy.exec(`CREATE TABLE sop_runs(id INTEGER PRIMARY KEY AUTOINCREMENT,sop_slug TEXT NOT NULL,sop_version INTEGER NOT NULL,status TEXT NOT NULL DEFAULT 'running',started_by TEXT NOT NULL DEFAULT '',data TEXT NOT NULL DEFAULT '{}',started_at TEXT NOT NULL DEFAULT (datetime('now')),updated_at TEXT NOT NULL DEFAULT (datetime('now')),finished_at TEXT NOT NULL DEFAULT '');
 INSERT INTO sop_runs(sop_slug,sop_version,status,data) VALUES('synthetic-legacy',1,'finished','{"legacy":"PRESERVED"}');`);legacy.close();
 const reserve=createServer();await new Promise(r=>reserve.listen(0,'127.0.0.1',r));const port=reserve.address().port;await new Promise(r=>reserve.close(r));assert(![3080,9800,9801].includes(port));

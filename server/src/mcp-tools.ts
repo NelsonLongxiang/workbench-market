@@ -1,16 +1,20 @@
 /** MCP 工具注册表（S3 抽离）：纯数据，供 /mcp 与网关授权面共用。
  *  category：read 只读 / write 写业务数据 / admin 改市场配置或发布——供 access_info 目录与管理员审批参考。
- *  exempt：任何已认证会话都能调、不受 grants 限制（与 initialize、tools/list 同级），tools/list 始终列出。 */
+ *  exempt：任何已认证会话都能调、不受 grants 限制（与 initialize、tools/list 同级），tools/list 始终列出。
+ *  免授权的：权限自助两个（看目录、提申请），和读技能的三个（skills_list、skill_search、skill_read）——技能里没有业务数据，新来的席位不用等人批就能自学。 */
+import { BENCH_TOOL_DEFS } from './bench-mcp-tools.ts';
+
 export type McpToolCategory = 'read' | 'write' | 'admin';
-export interface McpToolDef { name: string; description: string; category: McpToolCategory; exempt?: boolean; inputSchema: Record<string, unknown> }
+/** benchScoped：数据视图的工具，必须限定到台——授予不走会话的 grants，见 services/bench-mcp.ts */
+export interface McpToolDef { name: string; description: string; category: McpToolCategory; exempt?: boolean; benchScoped?: boolean; inputSchema: Record<string, unknown> }
 export const MCP_TOOLS: McpToolDef[] = [
   // ── 权限自助（免 grants）：看清自己能调什么、缺什么，再提申请等管理员批 ──
   {
     name: 'access_info',
     category: 'read',
     exempt: true,
-    description: '查本会话的权限：会话名、已授权工具、完整工具目录（本地 + 上游聚合，每项带 category=read/write/admin 与 granted）、本会话提过的权限申请及状态。任何已认证会话都能调，不受授权限制——调用工具被拒或 tools/list 里找不到想要的工具时先调它。',
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    description: '查本会话的权限：会话名、已授权工具、完整工具目录（本地 + 上游聚合，每项带 category=read/write/admin、granted 和参数表 input_schema，没批的工具也看得到参数名）、本会话提过的权限申请及状态（通用申请编号 mcp-N，台的申请 bench-N）。带 ref 时只回这一条申请。任何已认证会话都能调，不受授权限制——调用工具被拒或 tools/list 里找不到想要的工具时先调它。',
+    inputSchema: { type: 'object', properties: { ref: { type: 'string', description: '只查一条申请：access_request 应答里的编号，如 mcp-3、bench-2' } }, additionalProperties: false },
   },
   {
     name: 'access_request',
@@ -275,7 +279,8 @@ export const MCP_TOOLS: McpToolDef[] = [
   {
     name: 'skills_list',
     category: 'read',
-    description: '列出市场技能（可按 layer 1-5 过滤：1业务角色/2开发运维/3工作流/4架构设计/5AI原生运营），返回 slug/name/layer/族/版本数/active_version/current_version——市场技能目录入口。两个版本字段别混：active_version＝市场当前版本（回滚指针，不带版本号的取装/导出/下载/安装计划都取它，未回滚即最新版）；current_version＝本机钉装记录里的版本（未钉装为 null）。',
+    exempt: true,
+    description: '列出市场技能（可按 layer 1-5 过滤：1业务角色/2开发运维/3工作流/4架构设计/5AI原生运营），返回 slug（完整名字，带来源前缀，如 agents:xxx）/short_name（去掉前缀的短名字，技能正文里一般这样写）/name/layer/族/版本数/active_version/current_version——市场技能目录入口。两个版本字段别混：active_version＝市场当前版本（回滚指针，不带版本号的取装/导出/下载/安装计划都取它，未回滚即最新版）；current_version＝本机钉装记录里的版本（未钉装为 null）。',
     inputSchema: { type: 'object', properties: { layer: { type: 'number', description: '分层过滤 1-5（缺省全量）' }, q: { type: 'string', description: '名称/描述关键词' } } },
   },
   {
@@ -323,9 +328,25 @@ export const MCP_TOOLS: McpToolDef[] = [
     },
   },
   {
+    name: 'skill_read',
+    category: 'read',
+    exempt: true,
+    description: '读技能正文（不用下载、解包）：缺省读当前版本的 SKILL.md，path 指定这一版里的别的文件（参考文件等）。返回原文、sha256、这一版的文件列表；二进制文件只给大小和摘要（要整包用 skill_download）。slug 可以写完整名字（agents:xxx），也可以写技能正文里常见的短名字（xxx）：短名字只有一个来源有就用它，几个来源都有时报错并列出完整名字。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slug: { type: 'string', description: '技能名：完整名字（如 agents:xxx）或短名字（xxx）' },
+        path: { type: 'string', description: '这一版里的文件相对路径（缺省 SKILL.md；可写的路径见应答里的 files）' },
+        version: { type: 'integer', description: '缺省市场当前版本 active_version' },
+      },
+      required: ['slug'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'skill_download',
     category: 'read',
-    description: '获取技能（安装/更新）：签发某版本（缺省市场当前版本 active_version：回滚后即回滚到的版本，未回滚即最新）的技能包下载链接，10 分钟有效、至多下载 5 次，过期或用满重新调用。包是 .tar.gz，顶层目录 package_dir（slug 的 : 换成 .），内含技能文件、清单 .wm-skill.json（逐文件 sha256 与整版 tree_digest）和校验脚本 .wm-skill-verify.mjs。安装步骤（经用户同意后执行）：下载到临时目录，先核对整包 sha256 等于应答的 package_sha256（不等就停，不解压）；解压后核对 .wm-skill-verify.mjs 的 sha256 等于应答的 verify_script_sha256（不等就停，不执行它）；再运行 `node <package_dir>/.wm-skill-verify.mjs --install --expect <应答的 tree_digest>`——包里清单的指纹与 --expect 不符、或文件与清单不一致、有符号链接/硬链接/设备文件、清单路径或目录名不合规，就整包拒绝、什么都不动；一致则把 ~/.workbench-market/skills/<package_dir> 的旧版本移进 ~/.workbench-market/skills/.backups/<package_dir>/（每个技能最多留 3 个），再整体换上新版本。返回里的 install_command 是这套步骤的一行 shell 写法。之后随时运行 verify_command 可列出本地被改动的文件。没设 MARKET_PUBLIC_URL 且请求主机不规范时不签发。',
+    description: '获取技能（安装/更新）：签发某版本（缺省市场当前版本 active_version：回滚后即回滚到的版本，未回滚即最新）的技能包下载链接，10 分钟有效、至多下载 5 次，过期或用满重新调用。包是 .tar.gz，顶层目录 package_dir（slug 的 : 换成 .），内含技能文件、清单 .wm-skill.json（逐文件 sha256 与整版 tree_digest）和校验脚本 .wm-skill-verify.mjs。安装步骤（经用户同意后执行）：下载到临时目录，先核对整包 sha256 等于应答的 package_sha256（不等就停，不解压）；解压后核对 .wm-skill-verify.mjs 的 sha256 等于应答的 verify_script_sha256（不等就停，不执行它）；再运行 `node <package_dir>/.wm-skill-verify.mjs --install --expect <应答的 tree_digest>`——包里清单的指纹与 --expect 不符、或文件与清单不一致、有符号链接/硬链接/设备文件、清单路径或目录名不合规，就整包拒绝、什么都不动；一致则把 ~/.workbench-market/skills/<package_dir> 的旧版本移进 ~/.workbench-market/skills/.backups/<package_dir>/（每个技能最多留 3 个），再整体换上新版本。返回里的 install_command 是这套步骤的一行 shell 写法。slug 可以写短名字（去掉来源前缀），规则同 skill_read。之后随时运行 verify_command 可列出本地被改动的文件。没设 MARKET_PUBLIC_URL 且请求主机不规范时不签发。',
     inputSchema: { type: 'object', properties: { slug: { type: 'string' }, version: { type: 'integer', description: '缺省市场当前版本 active_version（回滚指针，未回滚即最新版）' } }, required: ['slug'], additionalProperties: false },
   },
   {
@@ -337,7 +358,8 @@ export const MCP_TOOLS: McpToolDef[] = [
   {
     name: 'skill_search',
     category: 'read',
-    description: '语义搜技能：只描述需求（自然语言），评估模型按 P(true) 打分返回 ≤3 个置信度严格 >0.7 的技能（降序）。只读；不可用时**报错不降级**。',
+    exempt: true,
+    description: '语义搜技能：只描述需求（自然语言），评估模型按 P(true) 打分返回 ≤3 个置信度严格 >0.7 的技能（降序，每项带完整名字 slug 和短名字 short_name）。技能库是空的时直说还没有导入技能；有技能但没有够格的另说一句。只读；评估模型不可用时**报错不降级**。读正文用 skill_read。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -364,4 +386,6 @@ export const MCP_TOOLS: McpToolDef[] = [
       additionalProperties: false,
     },
   },
+  // ── 数据视图（必须限定到台；定义在 bench-mcp-tools.ts，入口 WM_BENCH_VIEWS 关着时不出现在目录里） ──
+  ...BENCH_TOOL_DEFS,
 ];

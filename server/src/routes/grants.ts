@@ -18,7 +18,7 @@ import { root } from '../root-context.ts';
 import { browserMarked, rawLoopback } from '../surfaces.ts';
 import { HttpError } from '../errors.ts';
 import { MCP_TOOLS } from '../mcp-tools.ts';
-import { identity } from '../identity.ts';
+import { identity, IDENTITY_UNAVAILABLE, sourceDown } from '../identity.ts';
 import { APPROVAL_TEXT, approvalOf, touchesBusiness, BLOCKS, buildRoles, checkShape, MATRIX_KINDS, matrixSummary, orgRolesFromConfig, PLATFORM_ROLES, roleMatrix, type ActionCatalog, type Kind, type Permission, type RoleDecl } from '../roles.ts';
 import type { CustomRoleService } from '../services/custom-role.ts';
 import { unknownBuiltinActions } from '../judgment-builtins.ts';
@@ -32,6 +32,10 @@ export type GrantRouteDeps = {
   adminGuard: (req: express.Request, res: express.Response) => boolean;
   /** 管理员登录是 odoo:<登录名>，口令是 admin-token */
   adminActor: (req: express.Request) => string;
+  /** 管理员（口令或管理员登录），浏览器来的要同源；不写应答（L19：放行入口认登录的人时先看是不是管理员） */
+  adminHeaderOk: (req: express.Request) => boolean;
+  /** 浏览器从别的站点发来的 */
+  crossOriginDenied: (req: express.Request) => boolean;
 };
 
 const grants = () => svc<GrantService>('grants');
@@ -119,8 +123,34 @@ function idOf(req: express.Request): number {
   return id;
 }
 
+/** 授予的放行、读：状态码不代表授权——放行人由三档规则判，读的人看到哪些由放行规则裁剪（L19） */
+const THREE_TIERS = '放行人由三档规则判：管理员即可放行的归管理员，带业务写的归管理层或属主，带业务拍板和管理员级的只归属主（grant.ts 的 approvalRefusal）';
+const APPROVER_SEES = '管理员全看；登录的人只看自己能放行的待核授予（和放行接口同一处 approvalRefusal）';
+
 export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): void {
   /** 是管理员就返回「谁」；不是就已经回了 403，返回 null */
+  /**
+   * 放行人（L19）：管理员、本机命令行照旧（admin 为真）；登录的人（启用的人）也进得来，admin 为假——能不能放行哪一条由三档规则判
+   * （grant.ts 的 approvalRefusal：第一档只归管理员，第二档管理层或属主，第三档只有属主）。不过就已经写好应答，返回 null
+   */
+  async function approverOf(req: express.Request, res: express.Response): Promise<Actor | null> {
+    if (!browserMarked(req) && rawLoopback(req)) return { by: 'cli', principal: null, owner: true, admin: true };
+    if (deps.crossOriginDenied(req)) { res.status(403).json({ error: 'grants_cross_origin_denied' }); return null; }
+    await deps.markOdooAdmin(req);
+    if (deps.adminHeaderOk(req)) {
+      const by = deps.adminActor(req);
+      const principal = by.startsWith('odoo:') ? principals().principalOf(identity().providerName() ?? '', by.slice(5)) : null;
+      return { by, principal, owner: grants().isOwner(principal), admin: true };
+    }
+    const cookie = String(req.headers.cookie ?? '');
+    const who = cookie ? await identity().resolveViewer(cookie) : null;
+    if (who && sourceDown(who)) { res.status(502).json({ error: IDENTITY_UNAVAILABLE, message: '登录服务暂时联系不上，稍后再试' }); return null; }
+    if (!who || !who.ok) { res.status(401).json({ error: 'grants_auth_required' }); return null; }
+    const p = principals().get(who.viewer.sub) as { kind?: string; status?: string } | null;
+    if (!p || p.kind !== 'person' || p.status !== 'active') { res.status(403).json({ error: 'grants_principal_not_active' }); return null; }
+    return { by: who.viewer.sub, principal: who.viewer.sub, owner: grants().isOwner(who.viewer.sub), admin: false };
+  }
+
   async function actorOf(req: express.Request, res: express.Response): Promise<Actor | null> {
     if (!browserMarked(req) && rawLoopback(req)) return { by: 'cli', principal: null, owner: true }; // 本机命令行是属主
     await deps.markOdooAdmin(req);
@@ -255,8 +285,9 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
   }));
 
   // 列表和单条都带 can_approve / approve_denied / approve_denied_text：当前看的人能不能放行，和放行接口用同一处判断
-  app.get('/api/grants', { action: 'grant.list', kind: 'admin' }, route(async (req, res) => {
-    const actor = await actorOf(req, res);
+  // 列表、单条：管理员全看；登录的人（L19）只看自己能放行的待核授予，好在「谁能做什么」页上核准
+  app.get('/api/grants', { action: 'grant.list', kind: 'admin', statusNotVerdict: APPROVER_SEES }, route(async (req, res) => {
+    const actor = await approverOf(req, res);
     if (!actor) return;
     const principal = req.query.principal === undefined ? undefined : str(req.query.principal, 'principal', 160);
     const status = req.query.status === undefined ? undefined : str(req.query.status, 'status', 16);
@@ -265,15 +296,19 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
     if (source !== undefined && source !== 'manual' && source !== 'migration') throw new HttpError(400, 'source 只能是 manual、migration');
     grants().expireDue();
     const now = Date.now();
-    res.json({ grants: grants().list({ principal, status: status as GrantStatus | undefined, source: source as 'manual' | 'migration' | undefined }).map((g) => ({ ...g, ...grants().approvability(g, actor, now) })) });
+    const rows = grants().list({ principal, status: status as GrantStatus | undefined, source: source as 'manual' | 'migration' | undefined }).map((g) => ({ ...g, ...grants().approvability(g, actor, now) }));
+    res.json({ grants: actor.admin === false ? rows.filter((g) => g.can_approve) : rows });
   }));
 
-  app.get('/api/grants/:id', { action: 'grant.read', kind: 'admin' }, route(async (req, res) => {
-    const actor = await actorOf(req, res);
+  app.get('/api/grants/:id', { action: 'grant.read', kind: 'admin', statusNotVerdict: APPROVER_SEES }, route(async (req, res) => {
+    const actor = await approverOf(req, res);
     if (!actor) return;
     const g = grants().get(idOf(req));
     if (!g) throw new HttpError(404, `授予 ${req.params.id} 不存在`);
-    res.json({ grant: { ...g, ...grants().approvability(g, actor) } });
+    const view = { ...g, ...grants().approvability(g, actor) };
+    // 登录的人只看自己能放行的：别的一律当没有（不说有没有这一条）
+    if (actor.admin === false && !view.can_approve) throw new HttpError(404, `授予 ${req.params.id} 不存在`);
+    res.json({ grant: view });
   }));
 
   app.post('/api/grants', { action: 'grant.create', kind: 'admin' }, route(async (req, res) => {
@@ -295,8 +330,9 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
     send(res, grants().submit(idOf(req), actor), 'submit', actor);
   }));
 
-  app.post('/api/grants/:id/approve', { action: 'grant.approve', kind: 'admin' }, route(async (req, res) => {
-    const actor = await actorOf(req, res);
+  // 放行（L19）：写请求总门对这一条放行，登录的人进得来；能不能放行这一条由三档规则判
+  app.post('/api/grants/:id/approve', { action: 'grant.approve', kind: 'admin', statusNotVerdict: THREE_TIERS }, route(async (req, res) => {
+    const actor = await approverOf(req, res);
     if (!actor) return;
     send(res, grants().approve(idOf(req), actor), 'approve', actor);
   }));

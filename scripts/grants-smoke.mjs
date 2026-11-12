@@ -91,7 +91,7 @@ async function boot(name, extraEnv = {}, { expectFail = false } = {}) {
       return { status: res.status, text, json };
     } catch (e) { return { status: 0, text: String(e?.name ?? e), json: null }; }
   };
-  const srv = { name, base, host: new URL(base).host, data, stop, call, log: () => log, db: () => new DatabaseSync(join(data, 'workbench-market.db')) };
+  const srv = { name, base, host: new URL(base).host, data, stop, call, log: () => log, db: () => new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 }) };
   running.push(srv);
   return srv;
 }
@@ -266,8 +266,8 @@ try {
     const roles = await srv.call('GET', '/api/roles', { headers: { 'sec-fetch-site': 'same-origin' } });
     const one = await srv.call('GET', '/api/grants/1', { headers: { origin: 'http://attacker.invalid' } });
     const cli = await srv.call('GET', '/api/grants');
-    check(list.status === 403 && roles.status === 403 && one.status === 403 && cli.status === 200,
-      '本机浏览器（带 Origin 或 Sec-Fetch-Site）不带口令：列授予、看角色、看一条都 403；对照：本机命令行 200', show({ list: list.status, roles: roles.status, one: one.status, cli: cli.status }));
+    check(list.status === 401 && roles.status === 403 && one.status === 403 && cli.status === 200,
+      '本机浏览器（带 Origin 或 Sec-Fetch-Site）不带口令：列授予 401（没登录；L19 起授予的读认登录的人）、看角色 403、跨站看一条 403；对照：本机命令行 200', show({ list: list.status, roles: roles.status, one: one.status, cli: cli.status }));
   }
 
   // ---------- 三之四、放行分三档：带业务写的要管理层或属主，带业务拍板的要属主；管理口令、只有系统管理员身份的放行不了 ----------
@@ -343,6 +343,61 @@ try {
       '授予的 can_approve 和放行接口一致：说能的放行都成功，说不能的都被拒且代码相同（三档、管理口令、自己起草的、授给自己的各有例子）；列表也带这三个字段，说法照服务端',
       show({ mismatch: agree.filter((a) => !a.ok), kinds: [...kinds], listed: listed && { can: listed.can_approve, denied: listed.approve_denied } }));
     for (const id of [mgmt.id, dm, dl, mg, ai, mem, own, selfG]) await step(id, 'revoke', {}, { reason: '合成：收回' });
+  }
+
+  // ---------- 三之四·二、管理面上只认属主的事：管理员登录（不是属主）做不了 ----------
+  {
+    const byRoot = await srv.call('POST', '/api/grants/revoke-migration', { ...asRoot, body: { reason: '合成：管理员登录试整批撤销' } });
+    check(byRoot.status === 403 && byRoot.json?.error === 'owner_required', '迁移出来的授予整批撤销只认属主：管理员登录（不是属主）403 owner_required', show({ status: byRoot.status, body: byRoot.json }));
+  }
+
+  // ---------- 三之五、放行入口对登录的人放开（L19）：只有管理层、没有管理员身份的人能放行第二档，第一档、第三档照旧放行不了 ----------
+  {
+    const MG = { headers: { ...REMOTE, ...same }, session: SESSIONS.noAdminFlag }; // 只持管理层授予，不是管理员
+    const PLAIN = { headers: { ...REMOTE, ...same }, session: SESSIONS.alpha };
+    await srv.call('GET', '/api/auth/viewer', { session: SESSIONS.noAdminFlag });
+    const mg = await activate({ principal: 'user:no-flag', role: 'management' });
+    const pend = async (role) => { const d = await draft({ principal: 'user:gamma', role }, { headers: token }); await step(d.json?.grant?.id, 'submit', { headers: token }); return d.json?.grant?.id; };
+    const biz = await pend('dept-member'), basic = await pend('member'), top = await pend('dept-lead'), biz2 = await pend('dept-member');
+    const list = await srv.call('GET', '/api/grants', MG);
+    const listed = (list.json?.grants ?? []).map((g) => g.id);
+    const readBasic = await srv.call('GET', `/api/grants/${basic}`, MG);
+    const tried = (r) => `${r.status}:${r.json?.error ?? r.json?.grant?.status}`;
+    const r = {
+      mgBiz: tried(await step(biz, 'approve', MG)), mgBasic: tried(await step(basic, 'approve', MG)), mgTop: tried(await step(top, 'approve', MG)),
+      plainBiz: tried(await step(biz2, 'approve', PLAIN)), anonBiz: tried(await step(biz2, 'approve', { headers: REMOTE })),
+      crossBiz: tried(await step(biz2, 'approve', { headers: { ...REMOTE, origin: 'https://elsewhere.example', 'sec-fetch-site': 'cross-site' }, session: SESSIONS.noAdminFlag })),
+      tokenBasic: tried(await step(basic, 'approve', { headers: token })),
+    };
+    // 读不到的（不能放行的）对登录的人来说就是不存在：放行被拒的应答和一条根本不存在的授予一模一样（只差 id），不带档位、角色、状态
+    const ghostId = 999999;
+    const norm = (x, id) => ({ status: x.status, body: JSON.parse(JSON.stringify(x.json ?? null).split(String(id)).join('N')) });
+    const ghostMg = norm(await step(ghostId, 'approve', MG), ghostId), ghostPlain = norm(await step(ghostId, 'approve', PLAIN), ghostId);
+    const hidden = {
+      mgBasic: norm(await step(basic, 'approve', MG), basic), mgTop: norm(await step(top, 'approve', MG), top),
+      plainBiz: norm(await step(biz2, 'approve', PLAIN), biz2), mgDone: norm(await step(biz, 'approve', MG), biz),
+    };
+    // 普通员工对五种 id 放行：不存在、第一档、第三档、授给他自己的、被授人已停用的——应答完全相同（不露角色、档位、主体 id）
+    const pendFor = async (principal, role) => { const d = await draft({ principal, role }, { headers: token }); await step(d.json?.grant?.id, 'submit', { headers: token }); return d.json?.grant?.id; };
+    const selfG = await pendFor('user:alpha', 'dept-member'), offG = await pendFor('user:gamma', 'dept-member');
+    const disabled = await srv.call('POST', '/api/principals/disable', { body: { id: 'user:gamma', reason: '合成：停用被授人' } });
+    const realDisabled = await step(offG, 'approve', {}); // 对照：属主（本机命令行）放行它，确实被「被授人停用」拒
+    const realSelf = (await srv.call('GET', `/api/grants/${selfG}`, {})).json?.grant?.status;
+    hidden.plainBasic = norm(await step(basic, 'approve', PLAIN), basic);
+    hidden.plainTop = norm(await step(top, 'approve', PLAIN), top);
+    hidden.plainSelf = norm(await step(selfG, 'approve', PLAIN), selfG);
+    hidden.plainDisabled = norm(await step(offG, 'approve', PLAIN), offG);
+    await srv.call('POST', '/api/principals/restore', { body: { id: 'user:gamma' } });
+    for (const id of [selfG, offG]) await step(id, 'revoke', {}, { reason: '合成：收回' });
+    const leaks = Object.entries(hidden).filter(([k, v]) => show(v) !== show(k.startsWith('plain') ? ghostPlain : ghostMg));
+    check(Number.isInteger(selfG) && Number.isInteger(offG) && disabled.status === 200 && realDisabled.status === 422 && realSelf === 'pending' && ghostMg.status === 404 && leaks.length === 0 && !/admin_required|owner_required|business_approval|self_grant|principal_disabled|user:|dept-|member|active|pending/.test(show(hidden)),
+      '登录的人放行读不到的授予（第一档、第三档、普通员工放行第二档、授给自己的、被授人已停用的、已经生效的）：应答和一条不存在的授予一模一样，不带档位、角色、状态',
+      show({ ghostMg, ghostPlain, leaks, selfG, offG, disabled: disabled.status, realDisabled: [realDisabled.status, realDisabled.json?.error], realSelf }));
+    check(mg.a.status === 200 && listed.includes(biz) && !listed.includes(basic) && !listed.includes(top) && readBasic.status === 404
+      && show(r) === show({ mgBiz: '200:active', mgBasic: '404:grant_missing', mgTop: '404:grant_missing', plainBiz: '404:grant_missing', anonBiz: '401:grants_auth_required', crossBiz: '403:grants_cross_origin_denied', tokenBasic: '200:active' }),
+      '放行入口对登录的人放开（L19）：只有管理层、没有管理员身份的人列得到、放行得了带业务写的（200）；普通员工这类第一档、部门负责人这类第三档放行不了；列表里只有自己能放行的，看别的单条 404；普通员工放行不了；远程匿名 401；跨站 403；对照：口令照旧放行第一档',
+      show({ listed, ids: { biz, basic, top }, readBasic: readBasic.status, r }));
+    for (const id of [mg.id, biz, basic, top, biz2]) await step(id, 'revoke', {}, { reason: '合成：收回' });
   }
 
   // ---------- 四、没有在职责任人的非人主体 ----------
@@ -434,15 +489,21 @@ try {
       anonRoles: (await srv.call('GET', '/api/roles', { headers: REMOTE })).status,
       anonDraft: (await draft({ principal: 'user:beta', role: 'member' }, { headers: REMOTE })).status,
       memberDraft: (await draft({ principal: 'user:beta', role: 'member' }, { headers: { ...REMOTE, ...same }, session: SESSIONS.alpha })).status,
-      memberList: (await srv.call('GET', '/api/grants', { headers: { ...REMOTE, ...same }, session: SESSIONS.alpha })).status,
+      memberList: await srv.call('GET', '/api/grants', { headers: { ...REMOTE, ...same }, session: SESSIONS.alpha }),
       crossToken: (await draft({ principal: 'user:beta', role: 'member' }, { headers: { ...token, ...cross } })).status,
       crossLogin: (await draft({ principal: 'user:beta', role: 'member' }, { headers: { ...REMOTE, ...cross }, session: SESSIONS.admin })).status,
       wrongToken: (await srv.call('GET', '/api/grants', { headers: { ...REMOTE, 'x-admin-token': 'nope' } })).status,
     };
     const roles = await srv.call('GET', '/api/roles', { headers: token });
     const ids = roles.json?.roles?.map((r) => r.id);
-    check(Object.values(results).every((s) => s === 403) && show(ids?.slice(0, 7)) === show(['owner', 'admin', 'management', 'dept-lead', 'member', 'guest', 'ai-staff']) && roles.json?.source === 'file',
-      '接口：匿名、登录的非管理员、口令错、跨站（口令或管理员登录）都 403；对照：管理员能列出角色（平台七个预设在前，声明来自外部文件）', show({ results, ids }));
+    // L19：授予的读认登录的人——没登录、口令错是 401；登录的普通员工列得到，但只有自己能放行的（他一条也放行不了，是空的）
+    const memberList = results.memberList;
+    results.memberList = memberList.status;
+    const reads = { anonList: results.anonList, wrongToken: results.wrongToken, memberList: results.memberList };
+    const rest = Object.entries(results).filter(([k]) => !(k in reads)).map(([, s]) => s);
+    check(rest.every((s) => s === 403) && reads.anonList === 401 && reads.wrongToken === 401 && reads.memberList === 200 && Array.isArray(memberList.json?.grants) && memberList.json.grants.length === 0
+      && show(ids?.slice(0, 7)) === show(['owner', 'admin', 'management', 'dept-lead', 'member', 'guest', 'ai-staff']) && roles.json?.source === 'file',
+      '接口：起草、看角色——匿名、登录的非管理员、跨站都 403；授予的读——没登录、口令错 401，登录的普通员工列得到但是空的（只看自己能放行的）；对照：管理员能列出角色', show({ results, ids }));
   }
 
   // ---------- 九、只建结构不接判定 ----------

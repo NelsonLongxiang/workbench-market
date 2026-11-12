@@ -22,16 +22,18 @@ import { forward } from './attention-forward.ts';
 import { answerBody, findBoardWorkbench } from './owner-pending.ts';
 import { principalsAdmin } from './routes/principals.ts';
 import { changeRequestReview } from './routes/change-requests.ts';
+import { benchMcpDecider } from './routes/bench-views.ts';
 import { sopRunAcceptance } from './routes/sop-run-lifecycle.ts';
 import { HttpError } from './errors.ts';
-import { currentAskOfDelivery, pendingAskOfDelivery, pendingPrincipalAppearance } from './services/attention-sources.ts';
+import { askLogRow, currentAskOfDelivery, pendingAskOfDelivery, pendingPrincipalAppearance } from './services/attention-sources.ts';
 import { askTaskOf, deliveryTarget, eventDispatched, inReplyTx, queueReply } from './services/a2a-replies.ts';
 import { kickWorkbenchEvents, logDeliveryFact } from './workbench-events.ts';
 import { listVars, workbenchScope } from './workbench-vars.ts';
 import type { AnswerOutcome, AttentionProvider, AttentionService } from './services/attention.ts';
 import type { HttpService } from './http.ts';
 import type { WorkbenchService } from './services/workbench.ts';
-import { itemIdForEvent, type WorkItemService } from './services/work-item.ts';
+import { itemIdForEvent, type WorkItemRow, type WorkItemService } from './services/work-item.ts';
+import { itemDecisionVerdict, requestViewer } from './work-item-access.ts';
 
 export type AnswerDeps = {
   adminGuard: (req: express.Request, res: express.Response) => boolean;
@@ -77,6 +79,15 @@ export async function actorOf(req: Req): Promise<string> {
 const FORWARD: Record<string, Record<string, (id: string, input: Input) => Route>> = {
   'mcp-access': Object.fromEntries((['approve', 'reject'] as const).map((op) => [op, (id: string, input: Input): Route =>
     NUM.test(id) ? { method: 'POST', path: `/api/mcp/access-requests/${encodeURIComponent(id)}/${op}`, body: { note: text(input.note, 500) } } : bad('attention_id_invalid')])),
+  // 台的 MCP 授予申请：条目 id 是「台的标识:申请编号」。批可以带一句话；不批要写理由（记在申请的 note 里，申请的会话看得到）
+  'bench-mcp': Object.fromEntries((['approve', 'reject'] as const).map((op) => [op, (id: string, input: Input): Route => {
+    const m = /^([a-z0-9][a-z0-9-]{0,63}):([1-9]\d{0,8})$/.exec(id);
+    if (!m) return bad('attention_id_invalid');
+    // 不批的理由：reason 或 note 都认（别的来源两种叫法都有），先取 reason
+    const note = op === 'approve' ? text(input.note, 500) : text(input.reason, 500) || text(input.note, 500);
+    if (op === 'reject' && !note) return bad('reason_required');
+    return { method: 'POST', path: `/api/bench-views/${m[1]}/mcp-requests/${m[2]}`, body: { approve: op === 'approve', note } };
+  }])),
   'owner-pending': {
     answer: (no, input) => {
       if (!/^\d{1,4}$/.test(no)) return bad('attention_id_invalid');
@@ -99,7 +110,8 @@ const FORWARD: Record<string, Record<string, (id: string, input: Input) => Route
       const it = svc<WorkItemService>('workItems').get(id);
       if (!it) return bad('work_item_not_found', 404);
       if (!/^wbe-[0-9a-f]{16}$/.test(it.source_ref)) return bad('work_item_not_from_event', 409);
-      return { method: 'POST', path: `/api/workbench-events/${encodeURIComponent(it.source_ref)}/release`, body: {} };
+      // 和过目条目的 answer_via 同一个入口：谁能放、代办留痕都在那里判（管理层在团队没有负责人时代办）
+      return { method: 'POST', path: `/api/work-items/${encodeURIComponent(it.id)}/release`, body: {} };
     },
     withdraw: (id) => {
       const it = svc<WorkItemService>('workItems').get(id);
@@ -120,7 +132,8 @@ export function forwardRoute(source: string, answer: string, id: string, input: 
 }
 
 /** 直接实现的答法（以前没有旧入口） */
-const DIRECT: Record<string, Record<string, (req: Req, id: string, input: Input, actor: string) => Promise<AnswerOutcome>>> = {
+/** actingFor：替谁做的（itemDecisionVerdict 给的；空串是本人的事），记进事实，事项时间线照它写「代某某办」。不是事项上的动作的来源不管它 */
+const DIRECT: Record<string, Record<string, (req: Req, id: string, input: Input, actor: string, actingFor?: string) => Promise<AnswerOutcome>>> = {
   'change-requests': {
     approve: async (req, id, _input, actor) => reviewed(req, id, actor, (n, who) => changeRequestReview!.approve(n, who, who)),
     reject: async (req, id, input, actor) => {
@@ -130,11 +143,11 @@ const DIRECT: Record<string, Record<string, (req: Req, id: string, input: Input,
     },
   },
   'work-items': {
-    verify: async (_req, id, _input, actor) => applied(id, { kind: 'verify', source: 'attention', id: randomUUID(), actor }),
-    return: async (_req, id, input, actor) => {
+    verify: async (_req, id, _input, actor, actingFor) => applied(id, { kind: 'verify', source: 'attention', id: randomUUID(), actor, ...(actingFor ? { acting_for: actingFor } : {}) }),
+    return: async (_req, id, input, actor, actingFor) => {
       const reason = text(input.reason, 500);
       if (!reason) return { status: 400, body: { error: 'reason_required' } };
-      return applied(id, { kind: 'return', source: 'attention', id: randomUUID(), actor, reason });
+      return applied(id, { kind: 'return', source: 'attention', id: randomUUID(), actor, reason, ...(actingFor ? { acting_for: actingFor } : {}) });
     },
   },
   'sop-runs': {
@@ -159,14 +172,14 @@ const DIRECT: Record<string, Record<string, (req: Req, id: string, input: Input,
      *   · 阶段七 R2（receipt:attention，席位 A2A 回执里的提问）：记答复的同时排一条答复任务，作为同一 context 的新任务发回那个团队
      *     （superagent 的约定）；只通知的事件（dispatch:false）没有回写通道，不发。记答复和排发送在同一个保存点里。
      */
-    answer: async (_req, id, input, actor) => {
+    answer: async (_req, id, input, actor, actingFor) => {
       const answer = text(input.text);
       if (!answer) return { status: 400, body: { error: 'text_required' } };
       if (!/^[1-9]\d{0,15}$/.test(id)) return { status: 400, body: { error: 'attention_id_invalid' } };
       const ask = pendingAskOfDelivery(Number(id));
       if (!ask) return { status: 409, body: { error: 'seat_ask_not_pending' } };
       const itemId = itemIdForEvent(ask.event_id);
-      const fact = { kind: 'answer' as const, source: 'attention', id: randomUUID(), actor, ask_id: String(ask.ask_log_id), answer };
+      const fact = { kind: 'answer' as const, source: 'attention', id: randomUUID(), actor, ask_id: String(ask.ask_log_id), answer, ...(actingFor ? { acting_for: actingFor } : {}) };
       if (ask.ask_kind !== 'receipt') {
         const out = svc<WorkItemService>('workItems').apply(itemId, fact);
         if (!out.ok) return { status: 409, body: { error: `work_item_${out.reason}`, state: out.state ?? null } };
@@ -247,21 +260,55 @@ function keyOf(source: string, sourceId: string): string {
 }
 
 /**
- * 8e：建立人本人验收、退回自己的事项。调用前路由已经认过人（登录、同源、主体是启用的人），这里由事项服务判
- * 「是不是这件事项的建立人、能不能由建立人答」，再按「这一次进入等验收」记账（和「关注」答复入口同一本账，管理员和建立人
- * 答的是同一轮，谁先答谁生效，另一个拿到第一次的结果）。只收验收、退回两种。
+ * 事项的验收、退回（8e 起）。谁能做由调用方先用 itemDecisionVerdict 判过（建立人本人、退回时还有负责人、持有管理层授予的人代办），
+ * 这里按「这一次进入等验收」记账（和「关注」答复入口同一本账，谁先答谁生效，另一个拿到第一次的结果），再应用事实。只收验收、退回两种。
+ * actingFor 记进事实：负责人退回、管理层代办时是 creator。
  */
 export const CREATOR_ANSWERS = ['verify', 'return'] as const;
-export async function creatorAnswer(id: string, principal: string, answer: string, input: Input): Promise<AnswerOutcome> {
+export async function decideItemAnswer(id: string, actor: string, answer: string, input: Input, actingFor: string): Promise<AnswerOutcome> {
   if (!(CREATOR_ANSWERS as readonly string[]).includes(answer)) return { status: 400, body: { error: 'creator_answer_not_allowed', allowed: CREATOR_ANSWERS } };
-  const verdict = svc<WorkItemService>('workItems').creatorCheck(id, principal);
-  if (verdict === 'not_found') return { status: 404, body: { error: 'work_item_not_found' } };
-  if (verdict === 'not_eligible') return { status: 403, body: { error: 'work_item_creator_not_eligible', message: '建立人不是人、或来源未验证的事项，只能由管理员处理' } };
-  return svc<AttentionService>('attention').once('work-items', keyOf('work-items', id), answer, principal, async () => {
+  return svc<AttentionService>('attention').once('work-items', keyOf('work-items', id), answer, actor, async () => {
     const st = svc<WorkItemService>('workItems').get(id)?.state;
     if (st !== 'ready') return { status: 409, body: { error: 'work_item_not_ready', state: st ?? null } };
-    return DIRECT['work-items'][answer](undefined as unknown as Req, id, input, principal);
+    return DIRECT['work-items'][answer](undefined as unknown as Req, id, input, actor, actingFor);
   });
+}
+
+/** 席位提问对应的事项（在等的、或者最近那一轮已经答过的）：判谁能答用 */
+function itemOfAsk(deliveryId: string): WorkItemRow | undefined {
+  if (!/^[1-9]\d{0,15}$/.test(deliveryId)) return undefined;
+  const ask = pendingAskOfDelivery(Number(deliveryId)) ?? currentAskOfDelivery(Number(deliveryId));
+  return ask ? svc<WorkItemService>('workItems').get(itemIdForEvent(ask.event_id)) : undefined;
+}
+
+/**
+ * 阶段七：回答一件事项上的一条席位提问（入口 POST /api/work-items/:id/asks/:qid/answer，认人在路由里：itemDecisionVerdict）。
+ *   actingFor：持有管理层授予的人代办时是 creator，记进事件日志和事项日志
+ *   · qid 是提问那一行事件日志的 id（事项详情 asks[].id）；它必须属于这件事项、且是那次投递当前在等的提问；
+ *   · 请求体 { answer?, text? }：带选项的提问，answer 必须是选项之一；text 是自由文本；两者都给时以 answer 为准；
+ *     别的字段一概不看。答复作为同一 context 的新任务发回（v1 接单节点照旧只记不发）；
+ *   · 和「关注」里管理员的答复共用一本账（同一个去重键）：两个人同时答，一个生效、另一个 409（已处理，或正在处理）；本人重复答拿回第一次的结果。
+ */
+export async function answerItemAsk(itemId: string, askLogId: number, actor: string, body: Record<string, unknown>, actingFor = ''): Promise<AnswerOutcome & { duplicate?: boolean }> {
+  const row = askLogRow(askLogId);
+  if (!row || itemIdForEvent(row.event_id) !== itemId) return { status: 404, body: { error: 'seat_ask_not_found' } };
+  let detail: { question?: { options?: unknown } } = {};
+  try { detail = JSON.parse(row.detail || '{}'); } catch { /* 坏的 detail 当没有选项 */ }
+  const options = Array.isArray(detail.question?.options) ? (detail.question!.options as unknown[]).filter((o): o is string => typeof o === 'string') : [];
+  const picked = typeof body.answer === 'string' ? body.answer.trim() : '';
+  if (picked !== '' && options.length > 0 && !options.includes(picked)) return { status: 400, body: { error: 'answer_not_an_option', options } };
+  const answer = (picked !== '' ? picked : typeof body.text === 'string' ? body.text.trim() : '').slice(0, 4000);
+  if (!answer) return { status: 400, body: { error: 'text_required' } };
+  const attention = svc<AttentionService>('attention');
+  const key = `${row.delivery_id}:${row.id}`;
+  const pending = pendingAskOfDelivery(row.delivery_id);
+  if (!pending || pending.ask_log_id !== row.id) {
+    // 不在等了：按同一本账走（#657 的口径）——本人用同一种答法答成过的拿回第一次的结果，别人答过的 409 已处理；
+    // 谁都没答过（被后来的提问或接单、结果合上了）就是已合上（run 返回 409，账上不留占位）
+    return attention.once('seat-asks', key, 'answer', actor, async () => ({ status: 409, body: { error: 'seat_ask_not_pending' } }));
+  }
+  return attention.once('seat-asks', key, 'answer', actor, async () =>
+    DIRECT['seat-asks'].answer(undefined as unknown as Req, String(row.delivery_id), { text: answer }, actor, actingFor));
 }
 
 /** 这个来源有哪些答法（换算表和直接实现的并起来）：入口拿它核答法 */
@@ -279,13 +326,19 @@ export function withAnswers(p: AttentionProvider<Req>, deps: AnswerDeps): Attent
     deny: (req) => denial(p.source, req, deps),
     key: (sourceId) => keyOf(p.source, sourceId),
     answer: async (req, sourceId, answer, input) => {
-      // 事项的验收、退回直接改事项状态：不是管理员的人（写请求总门放开之后进得来，L20）只能答自己建的那件，
-      // 和事项自己的决定入口（POST /api/work-items/:id/decision）同一个函数 creatorAnswer；看得到不等于能答
-      if (p.source === 'work-items' && (CREATOR_ANSWERS as readonly string[]).includes(answer) && !(principalsAdmin && await principalsAdmin(req, capturing().res))) {
-        const cookie = String(req.headers.cookie ?? '');
-        const who = cookie ? await identity().resolveViewer(cookie) : null;
-        if (!who || !who.ok) return { status: 401, body: { error: 'work_items_auth_required' } };
-        return creatorAnswer(sourceId, who.viewer.sub, answer, input);
+      // 事项上替人做决定的答法（验收、退回、答席位提问）：谁能答只看 itemDecisionVerdict（和事项自己的入口、详情的 can 同一处），
+      // 过了管理门不等于能答；看得到也不等于能答
+      const decision = p.source === 'work-items' && (CREATOR_ANSWERS as readonly string[]).includes(answer) ? answer as 'verify' | 'return'
+        : p.source === 'seat-asks' && answer === 'answer' ? 'answer' : null;
+      if (decision) {
+        const viewer = await requestViewer(req, deps.adminGuard(req, capturing().res));
+        const item = decision === 'answer' ? itemOfAsk(sourceId) : svc<WorkItemService>('workItems').get(sourceId);
+        const v = itemDecisionVerdict(item, viewer, decision);
+        if (!v.ok) return { status: v.status, body: { error: v.error } };
+        // 记账和留痕的人和答复入口认「答过没有」用的同一个（actorOf）：会话登录的管理员记成身份来源的那个名字，别人记主体
+        const who = await actorOf(req);
+        if (decision !== 'answer') return decideItemAnswer(sourceId, who, answer, input, v.acting_for);
+        return attention().once(p.source, keyOf(p.source, sourceId), answer, who, async () => DIRECT['seat-asks'].answer(req, sourceId, input, who, v.acting_for));
       }
       const actor = await actorOf(req);
       return attention().once(p.source, keyOf(p.source, sourceId), answer, actor, async () => {
@@ -306,5 +359,6 @@ async function denial(source: string, req: Req, deps: AnswerDeps): Promise<Answe
   if (source === 'principal-pending' && principalsAdmin) { const c = capturing(); await principalsAdmin(req, c.res); return c.out(); }
   if (source === 'owner-pending') { const c = capturing(); await deps.varsAuthorizeRead(req, c.res, { id: 0, cls: 'external', slug: null }); return c.out(); }
   if (source === 'work-items') return { status: 401, body: { error: 'work_items_auth_required' } };
+  if (source === 'bench-mcp') { if (!benchMcpDecider) return { status: 404, body: { error: 'bench_views_off' } }; const c = capturing(); await benchMcpDecider(req, c.res, null); return c.out(); }
   return guardDenial(deps.adminGuard, req);
 }

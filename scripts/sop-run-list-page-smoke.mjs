@@ -27,7 +27,7 @@ try {
   for (;;) { try { if ((await fetch(base + '/api/health')).ok) break; } catch {} if (Date.now() > end) throw new Error('server not ready'); await sleep(250); }
 
   const { DatabaseSync } = await import('node:sqlite');
-  const db = new DatabaseSync(join(TMP, 'data', 'workbench-market.db'));
+  const db = new DatabaseSync(join(TMP, 'data', 'workbench-market.db'), { timeout: 5000 });
   const ins = db.prepare("INSERT INTO sop_runs (sop_slug, sop_version, status, data, updated_at) VALUES ('runlist-probe', 1, 'running', '{}', ?)");
   // 前 120 条共用同一时间戳（打开页面批量建 run 的真实形态），后 110 条时间各不相同
   for (let i = 0; i < 120; i++) ins.run('2026-11-01 00:00:00');
