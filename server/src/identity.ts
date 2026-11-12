@@ -36,6 +36,13 @@ export interface Viewer { login: string; uid: number; sub: string; name: string 
  */
 export type ViewerResult = { ok: true; viewer: Viewer; via?: 'session' } | { ok: false; http: number; error: string; held?: true };
 
+/**
+ * 身份来源不可达（到点没回答、抛错、回答的形状不对，都是 502）：和「没登录、会话失效」（401）分开说，页面按代号给一句人话。
+ * 路由认不出人时用它分：sourceDown 为真回 502 和这个代号，否则照旧 401。失败关闭，两种都不放行。
+ */
+export const IDENTITY_UNAVAILABLE = 'identity_unavailable';
+export const sourceDown = (r: ViewerResult): boolean => !r.ok && r.http === 502;
+
 /** whoami 的应答（GET /api/auth/viewer 原样用它） */
 export type Whoami = { http: number; body: Record<string, unknown> };
 

@@ -87,12 +87,15 @@ try {
     const read = await srv.call('GET', '/api/work-items', { session: SESSIONS.hangs });
     const write = await srv.call('POST', '/api/work-items', { session: SESSIONS.hangs, body: { title: '合成：来源不回包时建事项' } });
     const viewer = await srv.call('GET', '/api/auth/viewer', { session: SESSIONS.hangs });
+    const forged = await srv.call('GET', '/api/work-items', { session: SESSIONS.forged }); // 来源回答了「认不出」：照旧 401
     const s1 = await stats();
     const closed = (r) => r.status >= 400 && r.status !== 404 && !(r.json?.items?.length > 0);
     check(read.ms < BOUND_MS && write.ms < BOUND_MS && viewer.ms < BOUND_MS && closed(read) && closed(write) && closed(viewer)
-      && anon.status >= 400 && read.status >= 400 && s1.timeouts >= s0.timeouts + 1 && typeof s1.last_ms === 'number',
-      `来源不回包：带 cookie 的读、写、「你是谁」都在 ${BOUND_MS} 毫秒内有确定的应答，失败关闭（不是 2xx，不当成匿名放行）；health 记下到点没回答`,
-      show({ anon: anon.status, read: [read.status, read.ms], write: [write.status, write.ms], viewer: [viewer.status, viewer.ms, viewer.json?.error], s0, s1 }));
+      && anon.status >= 400 && read.status >= 400 && s1.timeouts >= s0.timeouts + 1 && typeof s1.last_ms === 'number'
+      && read.status === 502 && read.json?.error === 'identity_unavailable' && write.status === 502 && write.json?.error === 'identity_unavailable'
+      && forged.status === 401 && forged.json?.error === 'work_items_auth_required',
+      `来源不回包：带 cookie 的读、写、「你是谁」都在 ${BOUND_MS} 毫秒内有确定的应答，失败关闭（不是 2xx，不当成匿名放行）；事项的读写回 502 和固定代号 identity_unavailable，来源说认不出的照旧 401；health 记下到点没回答`,
+      show({ anon: anon.status, read: [read.status, read.ms, read.json?.error], write: [write.status, write.ms, write.json?.error], viewer: [viewer.status, viewer.ms, viewer.json?.error], forged: [forged.status, forged.json?.error], s0, s1 }));
   }
 
   // ---------- 二、同一个 cookie 反复认不出：只问一次 ----------
