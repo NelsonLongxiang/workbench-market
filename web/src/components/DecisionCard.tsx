@@ -8,7 +8,7 @@
  *  走哪个入口同「关注」：不是管理员时，自己的「等验收」走建立人入口，其余走答复入口。 */
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { App, Button, Input, Popconfirm, Radio, Space, Tag, Typography } from 'antd';
+import { App, Button, Checkbox, Input, Popconfirm, Radio, Space, Tag, Typography } from 'antd';
 import { apiFetch } from '../admin-token';
 import { attentionChanged, postCreatorDecision } from '../api';
 import { answerChoices, answerRoute, answerViaOf, viaBody, viaError, viaInput, viaPath, waited, type AttentionItem } from '../attention-view';
@@ -26,8 +26,12 @@ const NEEDS: Record<string, Record<string, { key: string; label: string; max?: n
   'seat-asks': { answer: { key: 'text', label: '你的答复' } },
   'work-items': { return: { key: 'reason', label: '打回的理由' } },
   'owner-pending': { answer: { key: 'summary', label: '你的答复' } },
+  // 待对接的外部账号：对到哪个主体（必填）；下面另有「这个主体还没有，就新建」的勾选（BIND_CREATE）
+  'principal-pending': { bind: { key: 'principal', label: '对到哪个主体（user:<名>）', max: 160 } },
   ...REVIEW_NEEDS,
 };
+/** 要额外勾一项的答法：对接外部账号时，主体还没有就新建（服务端要的是 create: true） */
+const BIND_CREATE = (source: string, answer: string | null) => source === 'principal-pending' && answer === 'bind';
 
 /** 卡片挂的事项：席位提问的 link 是 /work-items/<id>，事项来源的 source_id 就是事项 id */
 function workItemIdOf(item: AttentionItem): string | null {
@@ -90,12 +94,13 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
   const creatorName = (item.creator?.display_name || '').trim() || (item.creator?.principal || '').replace(/^(user|human):/, '');
   const wording = cardWording(item.category, admin, item.mine, creatorName);
   const label = (a: string) => (wording.proxy && PROXY[a]) || reviewAnswerLabel(item.source, a, item) || ANSWER[a] || a;
-  const send = async (answer: string, input: Record<string, string>) => {
+  const [create, setCreate] = useState(false);
+  const send = async (answer: string, input: Record<string, unknown>) => {
     setBusy(true);
     try {
       const route = answerRoute(admin, item);
       if (route === 'via' && via) {
-        const r = await apiFetch(viaPath(via, answer), { method: via.method, body: JSON.stringify(viaBody(via, answer, Object.values(input)[0] ?? '')) });
+        const r = await apiFetch(viaPath(via, answer), { method: via.method, body: JSON.stringify(viaBody(via, answer, String(Object.values(input)[0] ?? ''))) });
         if (!r.ok) throw Error(viaError(r.status, await r.json().catch(() => null)));
       } else if (route === 'ask') {
         // 建立人答自己事项上的席位提问：选了选项发 answer，否则发自由文本
@@ -105,7 +110,7 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
         if (r.status === 401) throw Error('请先登录');
         if (!r.ok) throw Error(body?.result?.error || body?.error || '没办成');
       } else if (route === 'creator') {
-        const { status, body } = await postCreatorDecision(item.source_id, answer, input.reason ?? '');
+        const { status, body } = await postCreatorDecision(item.source_id, answer, String(input.reason ?? ''));
         if (status === 401) throw Error('请先登录');
         if (status < 200 || status >= 300) throw Error(body?.result?.error || body?.error || '没办成');
       } else {
@@ -152,10 +157,11 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
     {open && !!needOf(open)?.options?.length && <Radio.Group value={text} onChange={(e) => setText(String(e.target.value))} optionType="button" data-testid="decision-via-options"
       options={(needOf(open)?.options ?? []).map((o) => ({ label: o, value: o }))} />}
     {open && !needOf(open)?.options?.length && <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} maxLength={needOf(open)?.max ?? 4000} showCount={!!needOf(open)?.max} placeholder={needOf(open)?.label} value={text} onChange={(e) => setText(e.target.value)} />}
+    {open && BIND_CREATE(item.source, open) && <Checkbox checked={create} onChange={(e) => setCreate(e.target.checked)} data-testid="decision-bind-create">这个主体还没有，就新建</Checkbox>}
     {!(isAsk && options.length > 0 && choices.includes('answer')) && <Space wrap size={8} className="wm-decision-actions">
       {choices.map((a, i) => {
         const need = needOf(a);
-        if (open === a && need) return <Button key={a} type="primary" loading={busy} disabled={!need.optional && !text.trim()} onClick={() => void send(a, { [need.key]: text.trim() })}>确定{label(a)}</Button>;
+        if (open === a && need) return <Button key={a} type="primary" loading={busy} disabled={!need.optional && !text.trim()} onClick={() => void send(a, { [need.key]: text.trim(), ...(BIND_CREATE(item.source, a) && create ? { create: true } : {}) })}>确定{label(a)}</Button>;
         // 要先填一句的答法不再另外确认一次：填的那一步就是确认
         const confirm = need ? null : confirmText(item, a);
         const btn = <Button key={a} type={i === 0 ? 'primary' : 'default'} danger={!!confirm && !!change} loading={busy && !open} disabled={!!run && !run.ready} onClick={confirm ? undefined : () => click(a)}>{label(a)}</Button>;

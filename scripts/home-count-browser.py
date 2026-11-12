@@ -44,6 +44,16 @@ with sync_playwright() as p:
     other = pg.locator('[data-testid=decisions-elsewhere] [data-testid=decision-card]')
     check(f'要到别处处理的单列一组（{other.count()} 张），总结句另说一句、不算进等你拍板', other.count() == len(elsewhere) and f'{len(elsewhere)} 件要到别处处理' in summary, summary)
     check('没有「可以代办」的条目时不出现那一组', pg.locator('[data-testid=decisions-proxy]').count() == 0)
+    # 完整列表（/attention，全景「全部 →」链过去）：同一张卡、同一个算法——等你拍板的件数和全景一样，要到别处处理的单列
+    pa = ctx.new_page(); pa.goto(M + '/attention'); pa.wait_for_selector('[data-testid=attention-summary]')
+    pa.wait_for_function("!document.querySelector('.wm-home .ant-skeleton')"); pa.wait_for_timeout(600)
+    a_sum = pa.locator('[data-testid=attention-summary]').inner_text()
+    a_now = pa.locator('[data-testid=attention-now] [data-testid=decision-card]').count()
+    a_else = pa.locator('[data-testid=attention-elsewhere] [data-testid=decision-card]').count()
+    check(f'完整列表：总结句和全景同一句，等你拍板 {a_now} 张、要到别处处理的 {a_else} 张', a_sum == summary and a_now == 2 and a_else == len(elsewhere), (a_sum, summary))
+    pa.locator('[data-testid=attention-filter]').get_by_text('等审核', exact=False).first.click(); pa.wait_for_timeout(300)
+    check('按类别筛：只看「等审核」时等你拍板那一组不在了，总结句不变', pa.locator('[data-testid=attention-now]').count() == 0 and pa.locator('[data-testid=attention-summary]').inner_text() == a_sum)
+    pa.close()
     # 当场放行一件（不刷新页面）：三处一起从 2 变成 1。角标不能直接没了
     now.first.get_by_role('button', name=re.compile('派出去')).click()
     pg.wait_for_function("document.querySelectorAll('[data-testid=decisions-now] [data-testid=decision-card]').length === 1", timeout=10000)
