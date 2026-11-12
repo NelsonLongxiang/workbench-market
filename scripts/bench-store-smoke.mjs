@@ -511,6 +511,7 @@ try {
 
   r = await pg.submitForm({ view: 'report', block: 0, version: pv }, { title: '第一条', kind: 'a' }, ctx({ idemKey: 'form-submit-0001' }));
   ok('R4 表单提交：追加一行', r.inserted === 1 && r.form.view === 'report' && (await pg.query({ dataset: 'reports' })).rows[0].title === '第一条', r);
+  ok('R4 写入记录里记成 form，和直接追加分得开', r.op === 'form' && (await pg.writes(1))[0].op === 'form', (await pg.writes(1))[0]);
   r = await pg.submitForm({ view: 'report', block: 0, version: pv }, { title: '第一条', kind: 'a' }, ctx({ idemKey: 'form-submit-0001' }));
   ok('R4 同一个幂等键再提交：不重复写', r.duplicate === true && (await pg.query({ dataset: 'reports' })).rows.length === 1, r);
   e = await refused(() => pg.submitForm({ view: 'report', block: 0, version: pv }, { title: 'x', secret: '偷写' }, ctx()));
@@ -532,6 +533,11 @@ try {
   await pg.defineDataset({ name: 'runs', columns: [{ name: 'id', type: 'integer' }, { name: 'day', type: 'date' }, { name: 'done', type: 'integer' }], key: ['id'] }, ctx());
   pgr = await pg.renderView({ params: { month: '2026-01' } });
   ok('R7 引用的列被删了：只那几个组件带 error，取数不整个失败', pgr.blocks[1].data.rows[0].v === 4 && pgr.blocks[2].error?.code === 'invalid' && pgr.blocks[0].fields[1].error?.code === 'invalid' && pgr.blocks[0].fields[1].options.length === 0, pgr.blocks[2]);
+  // 表单引用的列被删了：取数说表单坏了，提交也拒，不收剩下的字段
+  await pg.defineDataset({ name: 'reports', columns: [{ name: 'title', type: 'text', required: true }, { name: 'secret', type: 'text' }] }, ctx());
+  pgr = await pg.renderView({ view: 'report' });
+  e = await refused(() => pg.submitForm({ view: 'report', block: 0, version: pv2 }, { title: '只填还在的那一列' }, ctx()));
+  ok('R7 表单引用的列被删了：取数带 error，提交同样被拒', pgr.blocks[0].error?.code === 'invalid' && e?.code === 'invalid' && /不在了/.test(e.message) && (await pg.query({ dataset: 'reports' })).rows.length === 1, { e, block: pgr.blocks[0] });
   e = await refused(() => (benchStore('page-empty').then((x) => x.renderView())));
   ok('R8 还没有视图的台：说清楚', e?.code === 'not_found' && /还没有视图/.test(e.message), e);
   // 整个视图取回的内容合计有上限：三张各 3 MB 的表，前两张给，第三张带 error

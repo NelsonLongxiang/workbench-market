@@ -513,12 +513,12 @@ export class BenchStoreCore {
   append(name: string, input: unknown, ctx: WriteCtx) {
     return this.tx(() => this.appendIn(name, input, ctx));
   }
-  /** 追加的本体；要在事务里调（append 和表单提交共用） */
-  private async appendIn(name: string, input: unknown, ctx: WriteCtx): Promise<WriteResult> {
+  /** 追加的本体；要在事务里调（append 和表单提交共用）。op 是写入记录里记的操作名：表单提交记成 form，和直接追加分得开 */
+  private async appendIn(name: string, input: unknown, ctx: WriteCtx, op: 'append' | 'form' = 'append'): Promise<WriteResult> {
     const ds = await this.need(name), rows = decodeInput(input, this.caps.writeBytes), checked = checkRows(ds, rows, 'full', BENCH_LIMITS.rowsPerWrite, this.caps.writeBytes);
-    return this.logged(ds, 'append', rows, ctx, async () => {
+    return this.logged(ds, op, rows, ctx, async () => {
       await this.insert(ds, checked);
-      return { dataset: ds.name, op: 'append', rows: checked.length, row_count: 0, inserted: checked.length };
+      return { dataset: ds.name, op, rows: checked.length, row_count: 0, inserted: checked.length };
     });
   }
   /** 按主键有则改、无则加；每行给主键列和必填列，其余给了哪些列就改哪些列 */
@@ -724,7 +724,10 @@ export class BenchStoreCore {
       const fields = block.fields as string[];
       const extra = Object.keys(values).filter((k) => !fields.includes(k));
       if (extra.length) throw new BenchError('invalid', `表单里没有这些字段：${extra.map((k) => k.slice(0, 48)).join('、')}`);
-      const res = await this.appendIn(String(block.dataset), [values], ctx);
+      // 表单引用的数据集或列后来被删了：取数时说这个表单坏了，提交也一样拒，不收剩下的那部分字段
+      const ds = (await this.load()).get(String(block.dataset));
+      if (!ds || fields.some((f) => !ds.columns.some((c) => c.name === f))) throw new BenchError('invalid', '表单引用的数据集或列现在已经不在了');
+      const res = await this.appendIn(ds.name, [values], ctx, 'form');
       return { ...res, form: { view: target.view, block: target.block } };
     });
   }
