@@ -207,7 +207,7 @@ GET              /api/mcp-rest/apps/:slug/files        列文件（分页 + quot
 GET              /api/mcp-rest/apps/:slug/files/:id    二进制下载（Range / ETag=sha256；需 app_files_list）
 GET              /api/mcp-rest/apps/:slug/data         读台数据（分页；需 app_data_list）
 GET              /api/mcp-rest/sop/runs/:id[/files[/:fileId]]  SOP run 元数据 / 附件列表 / 附件下载（需 sop_run_get；附件另需 run 读授权）
-POST             /api/apps/:slug/data            自产台数据写入（JSON ≤1MB；按台的 data-contract.json 校验（必填/枚举/格式/条件规则 when 可带 require·equals·pattern/数组对象 items 可带自己的 when），违约 400+violations；契约规则合计 ≤500 条，超出时发布/同步即拒；{data, idempotency_key} 信封或 Idempotency-Key 头幂等（键按提交方隔开：验过票据的人、MCP 会话、匿名各算各的；匿名之间重复时不回那条的编号和时间）——沙箱台页（源为 null）预检只放行 content-type、x-app-token，只能用信封；台页 iframe 同源 fetch 直通）
+POST             /api/apps/:slug/data            自产台数据写入（JSON ≤1MB；按台的 data-contract.json 校验（必填/枚举/格式/条件规则 when 可带 require·equals·pattern/数组对象 items 可带自己的 when），违约 400+violations；契约规则合计 ≤500 条，超出时发布/同步即拒；{data, idempotency_key} 信封或 Idempotency-Key 头幂等（键按提交方隔开：台页面的提交是一方，每个 MCP 会话各是一方；页面里认不出是谁的匿名提交，重复和 409 时不回那条的编号和时间）——沙箱台页（源为 null）预检只放行 content-type、x-app-token，只能用信封；台页 iframe 同源 fetch 直通）
 GET              /api/mcp/access-requests        MCP 权限申请列表（?status=pending|approved|rejected；管理员）
 POST             /api/mcp/access-requests/:id/approve  批准：工具并入会话 grants（并集）+ 审计，同一事务；已吊销会话 409（管理员）
 POST             /api/mcp/access-requests/:id/reject   驳回：grants 不变，记审计（管理员）

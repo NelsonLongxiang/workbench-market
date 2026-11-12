@@ -205,29 +205,31 @@ try {
     check(decide.status === 401, '放进建立人验收的请求体：还是没登录（401）', show(decide.status));
     check(intake.status === 201 && runP === null, '放进建任务中心录入的请求体：不认（提需求的人留空）', show({ s: intake.status, runP }));
   }
-  // ---------- 幂等键按提交方隔开：验过票据的人各是一方，匿名是一方；只有同一方之间才算重复 ----------
+  // ---------- 幂等键按提交方隔开：台页面的提交（带不带票据）是同一方，MCP 会话各是一方；页面里认不出是谁的匿名提交，重复时不回 id ----------
   {
     const env = (data, key, ticket) => ({ data, idempotency_key: key, ...(ticket ? { submitter_ticket: ticket } : {}) });
     const K = 'idem-scope-1';
     const a1 = await submit(env({ v: 'alpha' }, K, tA));
-    const b1 = await submit(env({ v: 'beta' }, K, tB));
-    check(a1.status === 201 && b1.status === 201 && b1.body?.id !== a1.body?.id, '两个验过票据的人用同一个键：各自照常写入（不 409、不当成重复）', show({ a: a1.status, b: b1.status, bb: b1.body }));
+    const [b1, b2] = await Promise.all([submit(env({ v: 'beta' }, K, tB)), submit(env({ v: 'beta-again' }, K, tB))]);
+    check(a1.status === 201 && b1.status === 409 && b1.body?.id === a1.body?.id && b2.status === 409,
+      '两个登录的人用同一个固定键首次登记、内容不同（并发也一样）：先到的 201，后到的 409，带回那条的 id（台页面靠这个拦并发登记，行为不变）', show({ a: a1.status, b1: b1.body, b2: b2.status }));
+    const b3 = await submit(env({ v: 'alpha' }, K, tB));
+    check(b3.status === 200 && b3.body?.duplicate === true && b3.body?.id === a1.body?.id && typeof b3.body?.created_at === 'string', '另一个登录的人提交同键同内容：重复，带回 id 和时间（台页面靠 id 分「已登记」和「未确认」）', show(b3.body));
     const a2 = await submit(env({ v: 'alpha' }, K, tA));
-    check(a2.status === 200 && a2.body?.duplicate === true && a2.body?.id === a1.body?.id && typeof a2.body?.created_at === 'string', '同一个人原样重试：重复，照旧带回第一次的 id 和时间', show(a2.body));
-    const a3 = await submit(env({ v: 'changed' }, K, tA));
-    check(a3.status === 409 && a3.body?.id === a1.body?.id, '同一个人同键换内容：409，带回那条的 id（是他自己的）', show(a3.body));
-    const n1 = await submit(env({ v: 'anon' }, K));
-    check(n1.status === 201 && ![a1.body?.id, b1.body?.id].includes(n1.body?.id), '匿名用别人用过的键：照常写入，碰不到验过票据的人那一条', show({ s: n1.status, b: n1.body }));
-    const n2 = await submit(env({ v: 'anon' }, K));
-    check(n2.status === 200 && n2.body?.duplicate === true && !('id' in (n2.body ?? {})) && !('created_at' in (n2.body ?? {})), '匿名对匿名原样重试：只说重复，不带那条的 id 和时间', show(n2.body));
-    const n3 = await submit(env({ v: 'other' }, K));
-    check(n3.status === 409 && !('id' in (n3.body ?? {})) && !('created_at' in (n3.body ?? {})) && !show(n3.body).includes(String(n1.body?.id)), '匿名对匿名同键换内容：照旧 409，但不带那条的 id 和时间', show(n3.body));
+    check(a2.status === 200 && a2.body?.duplicate === true && a2.body?.id === a1.body?.id, '本人原样重试：重复，带回第一次的 id', show(a2.body));
+    const n1 = await submit(env({ v: 'alpha' }, K));
+    check(n1.status === 200 && n1.body?.duplicate === true && !('id' in (n1.body ?? {})) && !('created_at' in (n1.body ?? {})), '认不出是谁的匿名提交，同键同内容：只说重复，不带那条的 id 和时间', show(n1.body));
+    const n2 = await submit(env({ v: 'other' }, K));
+    check(n2.status === 409 && !('id' in (n2.body ?? {})) && !('created_at' in (n2.body ?? {})) && !show(n2.body).includes(String(a1.body?.id)), '匿名同键不同内容：照旧 409，但不带那条的 id 和时间', show(n2.body));
+    const K2 = 'idem-scope-2';
+    const m1 = await submit(env({ v: 'anon-first' }, K2)), m2 = await submit(env({ v: 'anon-first' }, K2));
+    check(m1.status === 201 && Number.isInteger(m1.body?.id) && m2.status === 200 && m2.body?.duplicate === true && !('id' in (m2.body ?? {})), '匿名首次提交照常 201 带 id；匿名再交一次：重复，不带 id', show({ m1: m1.body, m2: m2.body }));
     const stored = q('SELECT COUNT(*) AS n FROM app_data WHERE app_slug = ? AND idempotency_key = ?', 'tka', K)[0]?.n;
     check(stored === 0, '库里存的不是光秃秃的键（前面带着提交方），老代码按原键查不到这几条', show(stored));
     // 上线之前存的键（没有前缀）：按不存在处理
     const w = new DatabaseSync(join(I.data, 'workbench-market.db'));
     try { w.prepare("INSERT INTO app_data (app_slug, data, created_by, idempotency_key) VALUES ('tka', '{\"v\":\"legacy\"}', '', 'idem-legacy-1')").run(); } finally { w.close(); }
-    const old = await submit(env({ v: 'legacy-different' }, 'idem-legacy-1'));
+    const old = await submit(env({ v: 'legacy-different' }, 'idem-legacy-1', tA));
     check(old.status === 201, '上线之前存的键：按不存在处理，同键不同内容也照常写入（不 409）', show({ s: old.status, b: old.body }));
   }
   // ---------- 不外泄 ----------
