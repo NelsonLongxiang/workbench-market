@@ -48,6 +48,8 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_A2A_MEMBER_PROVENANCE`（缺省 `on`：市场名片声明 `canvasMemberProvenance`——a2a-net 0.8 起，对钉了公钥的画布成员只往声明了它的宿主转发，不声明则席位的回执到不了市场；声明即承诺：名片只列本节点自己服务、互不重复的句柄 `market/<8 hex>`，发给它们的消息只在本节点投递、查无或有歧义一律 404，句柄只由本节点密钥签发；`off`=不声明，名片与之前完全相同；其它值拒绝启动）
 - `WM_A2A_PROGRESS_RECEIPTS`（缺省 `on`：市场名片声明 `progressReceipts`——宿主只给声明了它的调用方发进展回执 `progress-<task>-<n>`；市场收下后只记录、给事项页做「正在处理」提示和子项，不结清原派工、不推事项状态；`off`=不声明，宿主不发进展；其它值拒绝启动）
 - `WM_A2A_TEAM_ROSTER`（缺省 `on`：市场名片声明 `teamRoster`——a2a-net next/0.8 的宿主只给声明了它的画布远端成员推团队名册 `[A2A roster]`，市场照规矩收（投递过的宿主、Sig3、节点键取自验过签的公钥）；`off` 时不声明、入站名册一律不收；其它值拒绝启动）
+- `WM_PROPOSAL_ROSTER_GONE_HOURS`（缺省 `24`：关系的提议指向的团队，在节点照常报名册的情况下连续不在名册超过这么多小时，提议才失效；短暂掉出又回来的不收，节点整个停推的只走总期限；1～720 的整数，别的值拒绝启动）
+- `WM_PROPOSAL_TTL_DAYS`（缺省 `14`：关系的提议（部门负责人、团队负责人、团队认领）超过这么多天没人处理就失效，目标不在了的也失效；每小时收一轮，失效的在提议人那里留 7 天；1～365 的整数，别的值拒绝启动）
 - `WM_ROSTER_STALE_MINUTES`（缺省 `60`：某个节点的团队名册超过这么多分钟没更新，就在管理员的「等你拍板」里列出来；1～10080 的整数，别的值拒绝启动）
 - `LAYERFS_SERVICE_URL`/`LAYERFS_SERVICE_TOKEN`（LayerFS·缺一即禁用）
 - `LAYERFS_SERVICE_TOKEN_FILE`（LayerFS 令牌文件·设了就以文件为准，不回落到库里或环境变量里的令牌；内容不足 32 字节拒绝启动）
@@ -476,7 +478,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   a2a-roster.ts（团队名册的读 GET /api/a2a/teams：登录即可读，只有席位信息（团队、席位名、角色、在岗、在办件数从事项现算），不含事项内容；名册只当信息，判定一律不看它）
   work-items.ts（「安排一件事」POST /api/work-items：会话登录的启用的人直接建一件事项，建立人是本人，派给绑在任务中心上的团队（GET /api/work-items/teams 列出），缺省先过目，幂等键按人，限流和员工直派开关在设置里（arrange_rate_per_minute、arrange_rate_per_day、staff_direct_dispatch），规则在 task-center.ts 的 arrangeTask。事项列表 /api/work-items：按 state、object、phase 筛，按更新时间倒序游标翻页，带可见范围里按状态的计数和每件的最后一条进展；可见范围和详情同一个判断，看不到的不出现也不计数。事项的读 /api/work-items/:id：事项和它的日志，事项页的时间线照着渲染；管理员看全部、登录的人只看自己建立的。建立人验收、退回 POST /api/work-items/:id/decision：不经管理门（写请求总门只对这一条子路径放行），经身份服务认人、主体须是启用的人、同源，事项服务判是不是建立人和能不能由建立人答，只收验收、退回，只对等验收的事项；建立人只认事项上的建立人主体，空着的只有管理员能看、能处理）
   workbenches.ts（工作台 /api/workbenches、/api/check-all）
-web/src/        pages/（Dashboard/Market/Sops/Types/Settings/UseWorkbench/Cockpit/McpGateways/Tasks/Skills/SopSpace/SopRunDetail/Vault/Reviews/OwnerPending/Attention/WorkItem/NotYet/Home） home-view.ts（全景首页的行、格子、总结句，纯函数） work-item-view.ts（事项详情页的提示、进展、结果解析，纯函数） NotYet.tsx（还没有数据来源的入口：说清要显示什么、在等哪项接口） components/（Shell.tsx 外壳：侧栏与主区卡片；WmPage.tsx 页面骨架：顶栏与内容区） admin-token.ts（统一口令注入）
+web/src/        pages/（Dashboard/Market/Sops/Types/Settings/UseWorkbench/Cockpit/McpGateways/Tasks/Skills/SopSpace/SopRunDetail/Vault/Reviews/OwnerPending/Attention/WorkItem/NotYet/Home/WorkItems） work-items-view.ts（事项列表的分组、计数、行说明，纯函数） home-view.ts（全景首页的行、格子、总结句，纯函数） work-item-view.ts（事项详情页的提示、进展、结果解析，纯函数） NotYet.tsx（还没有数据来源的入口：说清要显示什么、在等哪项接口） components/（Shell.tsx 外壳：侧栏与主区卡片；WmPage.tsx 页面骨架：顶栏与内容区） admin-token.ts（统一口令注入）
 deploy/         Dockerfile.market（多阶段·非 root·HEALTHCHECK） docker-compose.yml（回环默认·profiles 隔离） layerfs-svc.mjs
 docs/           layerfs-service-contract-v0/v1.md（LayerFS 服务契约） data-views.md（数据视图设计稿：模块化渲染组件、每台一份数据、经 MCP 更新；未开工）
 data/           SQLite 数据文件（git 忽略）
