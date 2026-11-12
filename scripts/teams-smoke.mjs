@@ -386,7 +386,7 @@ try {
     };`);
     const code = (r) => `${r.status}:${r.json?.error ?? r.json?.proposal?.status}`;
     check(show(Object.fromEntries(Object.entries(tries).map(([k, r]) => [k, code(r)]))) === show({ claimByToken: '403:business_confirm_required', claimByRoot: '403:business_confirm_required', claimByAlpha: '403:business_confirm_required', leadByMgmt: '403:owner_required', deptByMgmt: '403:owner_required' })
-      && seen?.can_approve === true && !(listAlpha.json?.proposals ?? []).some((p) => p.id === pClaim) && (attnMgmt.json?.items ?? []).some((i) => i.source === 'relation-proposals' && i.source_id === String(pClaim))
+      && seen?.can_approve === true && !(listAlpha.json?.proposals ?? []).some((p) => p.id === pClaim) && (attnMgmt.json?.items ?? []).some((i) => i.source === 'relation-proposals' && i.source_id === String(pClaim) && i.link === '/team')
       && code(claimByMgmt) === '200:approved' && code(leadByOwner) === '200:approved' && code(deptByOwner) === '200:approved'
       && confirmed.claimed === 'qa' && confirmed.rootTeam?.includes('team-lead') && confirmed.rootQa?.includes('dept-lead'),
       '确认：认领要管理层或接收部门的负责人（管理口令、只有系统管理员身份的登录、不相干的员工 403），负责人只有属主（管理层 403）；管理层在列表和「等你拍板」里看得到、能确认；属主确认之后关系才生效',
@@ -448,7 +448,7 @@ try {
     const staff = await srv.call('GET', '/api/attention', as(SESSIONS.alpha));
     db.prepare('UPDATE a2a_rosters SET received_at = ? WHERE host = ?').run(now, HOST);
     const item = (r) => (r.json?.items ?? []).find((i) => i.source === 'team-health' && i.phase === 'roster-stale');
-    check(asListed === '2000-01-01T00:00:00.000Z' && !item(fresh) && item(stale)?.title?.includes('合成节点') && item(stale)?.title?.includes('60 分钟') && !item(stale)?.title?.includes(HOST) && !item(staff),
+    check(asListed === '2000-01-01T00:00:00.000Z' && item(stale)?.link === '/team' && !item(fresh) && item(stale)?.title?.includes('合成节点') && item(stale)?.title?.includes('60 分钟') && !item(stale)?.title?.includes(HOST) && !item(staff),
       '名册超过阈值（缺省 60 分钟）没更新：进管理员的「等你拍板」，写节点名不写节点标识；新鲜的不列；员工看不到；库里的 SQLite 时刻给出去统一成 ISO',
       show({ fresh: !!item(fresh), stale: item(stale)?.title, staff: !!item(staff) }));
   }
