@@ -35,7 +35,7 @@ function peopleOf(body: unknown): Person[] {
 
 function MemberCard({ m, chief }: { m: Member; chief?: boolean }) {
   return (
-    <div className="wm-team-member" data-testid={chief ? 'team-router' : 'team-member'} data-seat={m.seat}>
+    <div className="wm-team-member" data-testid={chief ? 'team-router' : 'team-member'}>
       <div className="wm-team-member-head">
         <span className={m.online ? 'wm-team-dot on' : 'wm-team-dot'} title={m.online ? '在线' : '不在线'} />
         <b className="wm-team-member-name">{memberLabel(m)}</b>
@@ -54,7 +54,7 @@ function TeamBlock({ t }: { t: TeamT }) {
   const leads = leadsOf(t);
   const n = teamCounts(t);
   return (
-    <div className="wm-team-team" data-testid="team-team" data-team={t.team} data-status={t.status}>
+    <div className="wm-team-team" data-testid="team-team">
       <div className="wm-team-head">
         <div className="wm-team-head-top"><b>{teamTitle(t)}</b><Tag color={TAG[s.tone]} className="wm-team-st">{s.text}</Tag></div>
         <div className="wm-team-head-meta">
@@ -87,7 +87,7 @@ function ClaimCard({ t, depts, people, onDone }: { t: TeamT; depts: Department[]
     if (p) setErr(p); else onDone();
   };
   return (
-    <div className="wm-team-claim" data-testid="team-unclaimed" data-team={t.team}>
+    <div className="wm-team-claim" data-testid="team-unclaimed">
       <div className="wm-team-head-top"><b>{teamTitle(t)}</b><Tag color="warning" className="wm-team-st">待认领</Tag></div>
       <div className="wm-team-head-meta">
         <span>总工：{t.router ? memberLabel(t.router) : '名册里没有总工'}</span>
