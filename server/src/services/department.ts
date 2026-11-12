@@ -71,6 +71,14 @@ export class DepartmentService extends Service {
   }
 
   /** 建或改一个部门（标识建好不改）。lead 为 null 表示没有负责人；functionCode 为 null 表示不配职能代号 */
+  /** 负责人要是已有的人：直接设和提议（routes/departments.ts）用同一处 */
+  leadCheck(lead: string): DepartmentRefusal | null {
+    const p = db.prepare('SELECT kind FROM principals WHERE id = ?').get(lead) as { kind: string } | undefined;
+    if (!p) return refuse(422, 'lead_unknown', `负责人 ${lead} 不是已有的主体`);
+    if (p.kind !== 'person') return refuse(422, 'lead_not_person', `负责人要是人，${lead} 不是`);
+    return null;
+  }
+
   upsert(input: { id: string; name: string; functionCode: string | null; lead: string | null }, by: string, now: number): { ok: true; created: boolean; department: DepartmentView } | DepartmentRefusal {
     if (!DEPARTMENT_ID_RE.test(input.id)) return refuse(400, 'department_id_invalid', '部门标识要是小写字母开头的字母、数字、连字符，最多 48 个字符');
     const name = input.name.trim();
@@ -78,11 +86,8 @@ export class DepartmentService extends Service {
     const code = input.functionCode ?? '';
     if (code && !FUNCTION_CODE_RE.test(code)) return refuse(400, 'function_code_invalid', '职能代号要是小写字母开头的字母、数字、下划线、连字符，最多 48 个字符');
     const lead = input.lead ?? '';
-    if (lead) {
-      const p = db.prepare('SELECT kind FROM principals WHERE id = ?').get(lead) as { kind: string } | undefined;
-      if (!p) return refuse(422, 'lead_unknown', `负责人 ${lead} 不是已有的主体`);
-      if (p.kind !== 'person') return refuse(422, 'lead_not_person', `负责人要是人，${lead} 不是`);
-    }
+    const badLead = lead ? this.leadCheck(lead) : null;
+    if (badLead) return badLead;
     if (code) {
       const other = db.prepare('SELECT id FROM departments WHERE function_code = ? AND id <> ?').get(code, input.id) as { id: string } | undefined;
       if (other) return refuse(409, 'function_code_taken', `职能代号 ${code} 已经配给部门 ${other.id}`);

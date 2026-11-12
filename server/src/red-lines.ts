@@ -76,6 +76,11 @@ export const RED_LINES: readonly RedLine[] = [
     enforced_in: 'server/src/services/grant.ts、server/src/roles.ts', test: 'scripts/grants-smoke.mjs',
   },
   {
+    id: 'relations-need-confirmation', title: '带来权限的关系要属主或业务侧确认',
+    detail: '部门负责人、团队负责人只有属主能定；团队认领到部门要管理层或接收部门的负责人确认；成员分配只有团队负责人或管理层做。只有系统管理员身份的人（和管理口令）只能提议，提议期间关系不存在、不带来权限。部门成员表只是组织信息。',
+    enforced_in: 'server/src/services/relation-proposal.ts、server/src/routes/teams.ts、server/src/routes/departments.ts', test: 'scripts/teams-smoke.mjs',
+  },
+  {
     id: 'system-admin-no-business', title: '系统管理员缺省看不到业务数据',
     detail: '系统管理员只有系统域的读写管，业务域（事项、工作台数据、关注……）要另外授予。',
     enforced_in: 'server/src/roles.ts', test: 'scripts/role-presets-test.mjs',
