@@ -27,6 +27,8 @@ export interface HealthDeps {
 export function registerHealthRoutes(app: HttpService, deps: HealthDeps): void {
   const { healthBase, layerfsProbeCached, layerfsReadiness, A2A_DIRECT_SIG, A2A_DIRECT_SIG_BODY, adminRead } = deps;
   app.get('/api/health', { action: 'health.read', kind: 'read' }, (req, res) => {
+    // 应答因人而异（带有效管理口令时多了 a2a.roster、出站计数、回填细节）：不让共享缓存把管理员那份发给匿名
+    res.set('Cache-Control', 'private, no-store'); res.vary('X-Admin-Token');
     const result = healthBase(req);
     const probed = layerfsProbeCached();
     if (process.env.LAYERFS_SERVICE_URL && probed) result.layerfs = probed.status; // 只回缓存的上次结果，不触发探测
@@ -36,6 +38,7 @@ export function registerHealthRoutes(app: HttpService, deps: HealthDeps): void {
     res.json(result);
   });
   app.get('/api/health/ready', { action: 'health.ready', kind: 'read' }, async (req, res) => {
+    res.set('Cache-Control', 'private, no-store'); res.vary('X-Admin-Token'); // 同上：带管理口令时多了回填细节、出站计数
     const result = healthBase(req);
     if (process.env.LAYERFS_SERVICE_URL) {
       result.layerfs = await layerfsReadiness();

@@ -573,6 +573,10 @@ try {
       const rawHealth = await (await fetch(BASE + '/api/health')).text();
       const rh = (await adminHealth()).a2a?.roster ?? {};
       const badTok = await (await fetch(BASE + '/api/health', { headers: { 'x-admin-token': 'not-the-token' } })).json();
+      // 应答因人而异：带口令和匿名的都不进共享缓存、按管理口令区分
+      { const hdr = async (h) => { const r = await fetch(BASE + '/api/health', { headers: h }); await r.text(); return { cc: r.headers.get('cache-control') ?? '', vary: (r.headers.get('vary') ?? '').toLowerCase() }; };
+        const ha = await hdr({}), hk = await hdr({ 'x-admin-token': 'ans-admin' });
+        ok('health 应答带 Cache-Control: private, no-store 和 Vary: X-Admin-Token（匿名、带口令都带）', [ha, hk].every((h) => h.cc === 'private, no-store' && h.vary.split(/\s*,\s*/).includes('x-admin-token')), JSON.stringify({ ha, hk })); }
       ok('名册一块只给管理员：匿名、管理口令不对的 health 里连 roster 键都没有（管理员照旧有）', JSON.parse(rawHealth).a2a && !('roster' in JSON.parse(rawHealth).a2a) && badTok.a2a && !('roster' in badTok.a2a) && rh.outcomes !== undefined, JSON.stringify(Object.keys(JSON.parse(rawHealth).a2a ?? {})));
       const d = (k) => cnt(rh, k) - cnt(rh0, k);
       ok('health a2a.roster：收下、过期、不认、撞键、来源不是投递过的宿主、验签不过、超长、首行格式不对都有计数，带最近一次的时间',
