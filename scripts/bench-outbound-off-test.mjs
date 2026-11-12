@@ -56,6 +56,13 @@ try {
   const imp = [await outcome(new Liar(evilUrl.href)), await outcome(new Flipper(evilUrl.href)), await outcome(forged)];
   await new Promise((r) => setTimeout(r, 200));
   ok('冒名的三种写法（子类改写地址、第一次读和第二次读不一样、伪造的对象）：起的都不是那个别的文件，没有一个字节连出去', imp.every((x) => x !== 'leaked' && x !== 'started') && hits === 0, { imp, hits });
+  // 调用方给的启动参数不带进线程：--import 的文件会在线程入口装闸之前先跑，带进去就能在闸装上之前往外连
+  const before = hits;
+  const pre = new Worker(ENTRY, { workerData: { root: join(DATA, 'pre'), kit: benchSqlKit('sqlite'), port: srv.address().port }, execArgv: ['--import', evilUrl.href], env: { WM_OUTBOUND: 'on' } });
+  const preSt = await new Promise((res) => { const t = setTimeout(() => res('没有回话'), 5000); pre.on('message', (r) => { if (r === 'leaked' || r === 'blocked') return; clearTimeout(t); res(r); }); pre.once('error', (e) => { clearTimeout(t); res(`线程出错：${e.message}`); }); pre.postMessage({ id: 9, slug: '', method: '@outbound', args: [], budgetMs: 0 }); });
+  await new Promise((r) => setTimeout(r, 300));
+  await pre.terminate();
+  ok('调用方给的 execArgv（--import 一个往外连的文件）和 env 都不带进线程：没有一个字节连出去，线程里对外断开仍开着', hits === before && preSt?.ok === true && preSt.value?.off === true && preSt.value?.blocked === true, { hits: hits - before, preSt });
   srv.close();
 
   // 放行的线程：就算调用方想把对外断开关掉（env）或者塞启动参数，也不带过去；线程里往外连被拦
