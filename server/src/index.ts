@@ -62,6 +62,7 @@ import { registerAccessRoutes } from './routes/access.ts';
 import { registerLoginFlowRoutes } from './routes/login-flows.ts';
 import { registerLoginGateRoutes } from './routes/login-gate.ts';
 import { registerWorkbenchRoutes } from './routes/workbenches.ts';
+import { registerSpaFallbackRoute } from './routes/spa-fallback.ts';
 import { registerSopPageRoutes } from './routes/sop-page.ts';
 import { registerLoginEventRoutes } from './routes/login-events.ts';
 import { registerTaskRoutes } from './routes/tasks.ts';
@@ -3493,12 +3494,7 @@ function sendSurfaceIndex(req: express.Request, res: express.Response): void {
 }
 if (existsSync(webDist)) {
   app.use(express.static(webDist, { index: false })); // index.html 由 sendSurfaceIndex 注入后下发
-  // SPA fallback 只兜「路由路径」：静态资源（/assets/*、带扩展名文件）不存在的直接 404——
-  // 否则旧缓存 index.html 引用的已删 hash 会被回成 200 text/html，前端炸 MIME 错且难定位（实盘踩坑）
-  app.get(/^(?!\/api\/|\/assets\/|\/health).*/, (_req, res, next) => { // P1-4：/health* 不被 SPA 兜底（探活可区分）
-    if (/\.[A-Za-z0-9]+$/.test(_req.path) && _req.path !== '/index.html') return next(); // 带扩展名的文件请求不兜底
-    sendSurfaceIndex(_req, res);
-  });
+  registerSpaFallbackRoute(http, sendSurfaceIndex); // 页面兜底（路由在 routes/spa-fallback.ts），必须在静态托管之后、404 之前
   app.use((_req, res) => res.status(404).json({ error: 'not found' }));
 }
 

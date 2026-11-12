@@ -256,7 +256,7 @@
       "GET /api/mcp-rest/sop/runs/:id  -> mcp-rest.sop-run  read  （状态码不代表授权：MCP 会话令牌与工具授权由网关判，不是登录身份的结论）",
       "GET /api/mcp-rest/sop/runs/:id/files  -> mcp-rest.sop-run-files  read  （状态码不代表授权：MCP 会话令牌与工具授权由网关判，不是登录身份的结论）",
       "GET /api/mcp-rest/sop/runs/:id/files/:fileId  -> mcp-rest.sop-run-file-download  read  （状态码不代表授权：MCP 会话令牌与工具授权由网关判，不是登录身份的结论）",
-      "GET /^(?!\\/api\\/|\\/assets\\/|\\/health).*/  -> （未登记）"
+      "GET /^(?!\\/api\\/|\\/assets\\/|\\/health).*/  -> market.page  read"
     ]
   ],
   "tools": [
@@ -380,6 +380,7 @@
           "login.begin",
           "login.page",
           "market.export",
+          "market.page",
           "principal.bind",
           "principal.bind-batch",
           "principal.disable",
@@ -462,6 +463,7 @@
           "health.ready",
           "login.page",
           "market.export",
+          "market.page",
           "setting.read",
           "skill.list",
           "skill.role-packs",
@@ -510,6 +512,7 @@
           "health.ready",
           "login.page",
           "market.export",
+          "market.page",
           "setting.read",
           "skill.list",
           "skill.role-packs",

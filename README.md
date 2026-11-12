@@ -461,6 +461,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   settings.ts（设置 /api/settings）
   skills.ts（技能市场 /api/skills：发布、版本、导出、下载、钉装与校验、回滚、删除、迁移，和 /api/admin/rebuild-wm-skills）
   sop-page.ts（SOP 执行页 /sop/<slug>/：执行页和附件）
+  spa-fallback.ts（页面兜底：前端构建目录在时，不是 /api/、/assets/、/health 开头的 GET 回注入过的 index.html，带扩展名的文件不兜底；注入的 sendSurfaceIndex、前面的静态托管和最后的 404 留在 index.ts）
   sop-run-access.ts（SOP run 的私有读授权管理 /api/sop/runs/:id/read-grants、/read-caps：授权、撤销、重签读能力、撤销全部读能力，只给管理员）
   sop-run-control.ts（SOP run 的开建、指派与进行中列表 /api/sop/runs、/assign、/active；开 run 是公开入口，task-center 的录入经身份服务认出提需求的人）
   sop-run-files.ts（SOP run 的交付文件 /api/sop/runs/:id/files：上传、列表、下载、引用已有文件；上传是公开入口，读要本 run 的读能力或管理员）
