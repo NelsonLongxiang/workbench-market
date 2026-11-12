@@ -345,7 +345,7 @@ try {
   await check('U10 import 写期注错（行 / 类型 / 布局触发器 RAISE(ABORT)）：整体回滚，快照逐项不变；去掉触发器同请求成功', async () => {
     const w1 = (await call(s, 'GET', '/api/workbenches')).body[0];
     assert.equal((await call(s, 'POST', '/api/cockpits', { name: 'r3', panels: [{ i: 'p', workbenchId: w1.id, x: 0, y: 0, w: 2, h: 2 }] })).status, 201);
-    const db = new DatabaseSync(join(s.data, 'workbench-market.db'));
+    const db = new DatabaseSync(join(s.data, 'workbench-market.db'), { timeout: 5000 });
     const before = await snapshot(s);
     const exp = (await call(s, 'GET', '/api/export?reveal=1', undefined, { 'x-admin-token': 'r3-test' })).body;
     const rows = exp.workbenches.map(({ name, url, type, health_path }) => ({ name, url, type, health_path }));
@@ -429,7 +429,7 @@ try {
       const imp = await call(s, 'POST', '/api/import?mode=merge', { workbenches: [], types: [{ key: 'r3t-imp', name: 'imp', health_path: peerUrl }] });
       assert.equal(imp.body.error, 'invalid_health_path');
       // 存量：直接把类型改成绝对跨 origin（模拟旧版本写入），工作台本身 health 为空 → 继承
-      const db = new DatabaseSync(join(s.data, 'workbench-market.db'));
+      const db = new DatabaseSync(join(s.data, 'workbench-market.db'), { timeout: 5000 });
       db.prepare('UPDATE types SET health_path = ? WHERE key = ?').run(peerUrl, 'r3t');
       db.close();
       const w = await call(s, 'POST', '/api/workbenches', { name: 'inherit', url: `http://127.0.0.1:${base.address().port}/`, type: 'r3t' });

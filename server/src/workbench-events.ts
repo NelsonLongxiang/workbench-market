@@ -155,6 +155,8 @@ interface EventCore {
   handoff?: 'team' | 'own-seat' | 'lead-directed';
   reviewBy?: '' | 'lead' | 'requester';
   directedSeatId?: string;
+  /** 「安排一件事」从哪个驾驶舱安排的（驾驶舱的 id）。只记在 recorded 那一行，事项建出来时取 */
+  cockpitId?: number;
 }
 
 /** 写事件行 + 每个目标一行投递。调用方负责事务。返回 event_id。 */
@@ -164,7 +166,7 @@ function recordEvent(core: EventCore, targets: Target[], routed: 'target' | 'def
   db.prepare('INSERT INTO workbench_events (event_id, source, workbench, item, context_id, submitter_kind, submitter, form_version, data_sha256, dispatch, routed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(eventId, core.source, core.workbench, core.item, core.contextId, core.submitterKind, core.submitter, core.formVersion, core.dataSha256, core.dispatch ? 1 : 0, routed);
   log(eventId, null, 'market', 'recorded', { source: core.source, routed, submitter_kind: core.submitterKind, targets: targets.length, ...(core.requester ? { requester: core.requester } : {}), ...(core.via ? { via: core.via } : {}), ...(core.publisher ? { publisher: core.publisher } : {}), ...(core.object ? { object: core.object } : {}), ...(core.phase ? { phase: core.phase } : {}),
-    ...(core.handoff ? { handoff: core.handoff, review_by: core.reviewBy ?? (held ? 'lead' : '') } : {}), ...(core.directedSeatId ? { directed_seat_id: core.directedSeatId } : {}) });
+    ...(core.handoff ? { handoff: core.handoff, review_by: core.reviewBy ?? (held ? 'lead' : '') } : {}), ...(core.directedSeatId ? { directed_seat_id: core.directedSeatId } : {}), ...(core.cockpitId ? { cockpit_id: core.cockpitId } : {}) });
   const envelope = envelopeOf(eventId, createdAt);
   for (const t of targets) {
     let token = '';
@@ -188,7 +190,9 @@ export function recordTaskCenterEvent(task: { id: number; data: Record<string, u
   /** 「安排一件事」：直接指定派给的团队（必须是 assignableTeams 之一），不按「目标 SOP 台」解析；submitter 用本人主体；object、phase 记进 recorded */
   arranged?: { team: string; submitter: string; object?: string; phase?: string;
     /** 规范 14：交给方式、等谁过目、指名的席位（seatId）。阶段七的指名派工经这里写；不给就是交给团队、按 held 推等谁过目 */
-    handoff?: 'team' | 'own-seat' | 'lead-directed'; reviewBy?: '' | 'lead' | 'requester'; directedSeatId?: string } }): string {
+    handoff?: 'team' | 'own-seat' | 'lead-directed'; reviewBy?: '' | 'lead' | 'requester'; directedSeatId?: string;
+    /** 从哪个驾驶舱安排的（调用方已经核过驾驶舱存在） */
+    cockpitId?: number } }): string {
   let targetSop = '';
   let targets: Target[];
   let routed: 'target' | 'default' | 'unrouted' = 'target';
@@ -209,6 +213,7 @@ export function recordTaskCenterEvent(task: { id: number; data: Record<string, u
     ...(task.arranged?.object ? { object: task.arranged.object } : {}), ...(task.arranged?.phase ? { phase: task.arranged.phase } : {}),
     handoff: task.arranged?.handoff ?? 'team', ...(task.arranged?.reviewBy !== undefined ? { reviewBy: task.arranged.reviewBy } : {}),
     ...(task.arranged?.directedSeatId ? { directedSeatId: task.arranged.directedSeatId } : {}),
+    ...(task.arranged?.cockpitId ? { cockpitId: task.arranged.cockpitId } : {}),
   };
   const fields: Record<string, unknown> = { id: task.id };
   for (const key of ['title', 'intent', 'references', 'deliverable', 'target', 'due']) fields[key] = task.stepValue(key) ?? '';
@@ -274,6 +279,28 @@ function settle(row: DeliveryRow, status: 'sent' | 'dead' | 'cancelled', error =
  * （「有没有 held 的投递」接口在事务里数；事项那边看事项状态是不是 held，两者同进同退）。
  * 能放行返回 null；不能返回旧接口的应答。
  */
+/**
+ * 放行（只有这一处）：把这个事件 held 的投递转成待发，每条记一行 released。管理员的旧入口和负责人的新入口（POST /api/work-items/:id/release）都调它。
+ *   actor 记放行的人；actingFor 是代谁办（团队没有负责人时管理层代办记 team-lead），记进那一行的 detail，事项时间线照它写「代某某办」
+ */
+export function releaseCore(eventId: string, actor: string, actingFor = ''): { status: number; body: Record<string, unknown> } {
+  const blocked = releaseBlock(eventId);
+  if (blocked) return blocked;
+  db.exec('BEGIN IMMEDIATE');
+  let released: { id: number }[] = [];
+  try {
+    released = db.prepare("SELECT id FROM workbench_event_deliveries WHERE event_id = ? AND status = 'held'").all(eventId) as { id: number }[];
+    for (const r of released) {
+      db.prepare("UPDATE workbench_event_deliveries SET status = 'pending', next_at = datetime('now') WHERE id = ?").run(r.id);
+      log(eventId, r.id, actor, 'released', actingFor ? { acting_for: actingFor } : undefined);
+    }
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  if (released.length === 0) return { status: 409, body: { error: '该事件没有待确认（held）的投递', event_id: eventId } };
+  kickWorkbenchEvents();
+  return { status: 200, body: { ok: true, event_id: eventId, released: released.length, ...(actingFor ? { acting_for: actingFor } : {}) } };
+}
+
 export function releaseBlock(eventId: string): { status: number; body: Record<string, unknown> } | null {
   const ev = db.prepare('SELECT source, item FROM workbench_events WHERE event_id = ?').get(eventId) as { source: string; item: string } | undefined;
   if (!ev) return { status: 404, body: { error: 'event not found' } };
@@ -394,22 +421,8 @@ export function registerWorkbenchEventRoutes(app: HttpService, guards: { admin: 
     if (!guards.sameOrigin(req)) return res.status(403).json({ error: '跨源拒绝' });
     if (!guards.admin(req, res)) return;
     const eventId = req.params.eventId;
-    const blocked = releaseBlock(eventId);
-    if (blocked) return res.status(blocked.status).json(blocked.body);
-    const who = guards.actor(req);
-    db.exec('BEGIN IMMEDIATE');
-    let released: { id: number }[] = [];
-    try {
-      released = db.prepare("SELECT id FROM workbench_event_deliveries WHERE event_id = ? AND status = 'held'").all(eventId) as { id: number }[];
-      for (const r of released) {
-        db.prepare("UPDATE workbench_event_deliveries SET status = 'pending', next_at = datetime('now') WHERE id = ?").run(r.id);
-        log(eventId, r.id, who, 'released');
-      }
-      db.exec('COMMIT');
-    } catch (e) { db.exec('ROLLBACK'); throw e; }
-    if (released.length === 0) return res.status(409).json({ error: '该事件没有待确认（held）的投递', event_id: eventId });
-    kickWorkbenchEvents();
-    res.json({ ok: true, event_id: eventId, released: released.length });
+    const out = releaseCore(eventId, guards.actor(req));
+    res.status(out.status).json(out.body);
   });
   // 决定：接单节点凭投递里的 reply token 回写。ask 可再改；accept/decline 是终态。
   app.post('/api/workbench-events/:eventId/decision', { action: 'workbench-event.decision', kind: 'write', statusNotVerdict: '接单节点凭投递里的 reply token 回写，不是登录身份的结论' }, (req, res) => {

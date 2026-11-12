@@ -28,6 +28,7 @@ import { db } from '../db.ts';
 import type { GrantService } from './grant.ts';
 import type { DepartmentService } from './department.ts';
 import type { TeamService } from './team.ts';
+import { leadGrantActive, pendingLeadGrants, setDepartmentLead } from './dept-lead-grant.ts';
 import type { PrincipalService } from './principal.ts';
 import { isoTime } from './team.ts';
 
@@ -49,6 +50,8 @@ const principals = () => svc<PrincipalService>('principals');
 
 /** 失效的处理人写法（库里沿用 rejected，靠它和人手驳回分开）；失效的在提议人那里留多久 */
 export const EXPIRED_BY = 'system:expire';
+/** 存量补记的负责人提议（只有字段、没有授予的部门负责人，启动时补一条给属主）的提议人 */
+export const MIGRATION_BY = 'system:migration';
 export const EXPIRED_SHOW_MS = 7 * 24 * 3600_000;
 const EXPIRE_EVERY_MS = 3600_000;
 /** 一条提议的结局：待确认、已确认、被驳回、提的人撤回、失效 */
@@ -74,7 +77,7 @@ export function proposalTtlDaysFromEnv(env: NodeJS.ProcessEnv = process.env): nu
 
 /** 这种提议等谁确认（给页面原样显示：「已提出，等〈谁〉确认」）。和 confirmRefusal 的规则对应 */
 export const CONFIRM_BY: Readonly<Record<ProposalKind, string>> = {
-  'dept-lead': '属主', 'team-lead': '属主', 'team-claim': '管理层或接收部门的负责人',
+  'dept-lead': '属主（同时放行这个部门负责人的权限）', 'team-lead': '属主', 'team-claim': '管理层或接收部门的负责人',
 };
 
 /** 被拒时给页面的短说法（按代码） */
@@ -105,13 +108,20 @@ export class RelationProposalService extends Service {
     super(ctx, 'relationProposals');
     // 每小时一轮收掉失效的提议：只改本库，不往外发；随插件卸载停下，不拦进程退出
     ctx.effect(() => {
-      const timer = setInterval(() => {
+      const tick = () => {
         try { const n = this.expireStale(Date.now()); if (n) console.log(JSON.stringify({ source: 'relations', event: 'expire', count: n, at: new Date().toISOString() })); } catch (e) {
           console.error(`[relations] 收失效的提议出错（下一轮再试）：${String((e as Error)?.message ?? e).slice(0, 200)}`);
         }
-      }, EXPIRE_EVERY_MS);
+        try { const n = this.proposeMissingLeadGrants(Date.now()); if (n) console.log(JSON.stringify({ source: 'relations', event: 'lead-grant-backfill', count: n, at: new Date().toISOString() })); } catch (e) {
+          console.error(`[relations] 补记负责人提议出错（下一轮再试）：${String((e as Error)?.message ?? e).slice(0, 200)}`);
+        }
+      };
+      const timer = setInterval(tick, EXPIRE_EVERY_MS);
       timer.unref?.();
-      return () => clearInterval(timer);
+      // 启动时补一轮：所有服务在同一拍里注册完，下一拍再查
+      const first = setTimeout(tick, 0);
+      first.unref?.();
+      return () => { clearInterval(timer); clearTimeout(first); };
     }, 'relationProposals.expire');
   }
 
@@ -122,8 +132,12 @@ export class RelationProposalService extends Service {
   staleReason(p: ProposalRow, now: number): string | null {
     const personGone = (id: string) => { const x = principals().get(id) as { kind?: string; status?: string } | null; return !x || x.kind !== 'person' || x.status !== 'active'; };
     if (p.kind === 'dept-lead') {
-      if (!departments().get(p.department_id)) return '部门已经不在了';
+      const d = departments().get(p.department_id);
+      if (!d) return '部门已经不在了';
       if (personGone(p.principal_id)) return '被提名的人已停用或不在了';
+      // 存量补记的：字段已经换了人或清掉了、或者他的权限已经放行了，这条就不用再确认
+      if (p.proposed_by === MIGRATION_BY && d.lead?.principal !== p.principal_id) return '部门负责人已经换了';
+      if (p.proposed_by === MIGRATION_BY && leadGrantActive(p.principal_id, p.department_id, now)) return '负责人的权限已经放行了';
     } else {
       const k = { host: p.host, team: p.team };
       const inRoster = [...teams().rosterTeams().values()].some((t) => t.host === p.host && t.team === p.team);
@@ -167,6 +181,20 @@ export class RelationProposalService extends Service {
       if (r && typeof r === 'object' && (r as { ok?: unknown }).ok === false) db.exec('ROLLBACK'); else db.exec('COMMIT');
       return r;
     } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务已经不在了 */ } throw e; }
+  }
+
+  /**
+   * 存量补记：部门上写着负责人、但他没有这个部门拍板授予的（只有字段，待属主放行），各补一条负责人提议给属主（同样的提议在等就不重复记）。
+   * 只记提议，不发授予：属主确认时才发（confirm → setDepartmentLead）；属主驳回就清掉字段。返回新记了几条
+   */
+  proposeMissingLeadGrants(now: number): number {
+    let n = 0;
+    for (const x of pendingLeadGrants(now)) {
+      const p = principals().get(x.principal) as { kind?: string; status?: string } | null;
+      if (!p || p.kind !== 'person' || p.status !== 'active') continue;
+      if (this.propose({ kind: 'dept-lead', department_id: x.department_id, principal_id: x.principal }, { by: MIGRATION_BY, principal: null, owner: false }, now).created) n++;
+    }
+    return n;
   }
 
   /** 结局：失效和人手驳回分开，提的人自己驳回的算撤回 */
@@ -267,6 +295,11 @@ export class RelationProposalService extends Service {
     // 判过之后到写之前，别人可能已经确认或驳回了：没改到就是状态变了，不能回成功、带出别人的结果
     if (db.prepare("UPDATE relation_proposals SET status = 'rejected', decided_by = ?, decided_by_principal = ?, decided_at = ?, reason = ? WHERE id = ? AND status = 'pending'")
       .run(actor.by.slice(0, 256), actor.principal, now, reason.slice(0, 500), id).changes !== 1) return refuse(409, 'state', `提议 ${id} 的状态变了`);
+    // 存量补记的负责人提议被属主驳回：这个字段属主不认，清掉（不清的话每一轮都会再补记）
+    if (p.kind === 'dept-lead' && p.proposed_by === MIGRATION_BY && actor.owner) {
+      const d = departments().get(p.department_id);
+      if (d?.lead?.principal === p.principal_id) setDepartmentLead({ id: d.id, name: d.name, functionCode: d.function_code, lead: null }, { ...actor, owner: false }, now);
+    }
     return { ok: true, proposal: this.get(id)! };
   }
 
@@ -274,7 +307,8 @@ export class RelationProposalService extends Service {
     if (p.kind === 'dept-lead') {
       const d = departments().get(p.department_id);
       if (!d) return refuse(409, 'department_missing', `部门 ${p.department_id} 已经不在了`);
-      const r = departments().upsert({ id: d.id, name: d.name, functionCode: d.function_code, lead: p.principal_id }, actor.by, now);
+      // 落字段、发这个部门的拍板授予，一起（services/dept-lead-grant.ts）；确认只有属主，授予记属主放行
+      const r = setDepartmentLead({ id: d.id, name: d.name, functionCode: d.function_code, lead: p.principal_id }, actor, now);
       return r.ok ? null : refuse(r.http === 400 ? 422 : r.http as ProposalRefusal['http'], r.code, r.message);
     }
     const k = { host: p.host, team: p.team };
