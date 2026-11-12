@@ -53,11 +53,22 @@ export const CREATOR_ANSWERS = ['verify', 'return'];
  */
 export function answerChoices(admin: boolean, item: Pick<AttentionItem, 'source' | 'category' | 'answers'>): string[] {
   if (admin) return item.answers;
+  // 阶段七 #567：席位的提问只给建立人本人列出来，建立人在事项的提问入口答（POST /api/work-items/:id/asks/:qid/answer）
+  if (item.source === 'seat-asks') return item.answers.filter((a) => a === 'answer');
   if (item.source === 'work-items' && item.category === 'accept') return item.answers.filter((a) => CREATOR_ANSWERS.includes(a));
   return [];
 }
 
-/** 这一条用哪个入口答：不是管理员时建立人验收、退回走建立人入口，其余走答复入口 */
-export function answerRoute(admin: boolean, item: Pick<AttentionItem, 'source' | 'category'>): 'creator' | 'attention' {
+/** 这一条用哪个入口答：不是管理员时，验收、打回走建立人入口，席位提问走事项的提问入口；其余（管理员）走答复入口 */
+export function answerRoute(admin: boolean, item: Pick<AttentionItem, 'source' | 'category'>): 'creator' | 'ask' | 'attention' {
+  if (!admin && item.source === 'seat-asks') return 'ask';
   return !admin && item.source === 'work-items' && item.category === 'accept' ? 'creator' : 'attention';
+}
+
+/** 「等你拍板」的排法：能当场办的在前（在问、等验收、等过目、核准、其他），要跳到别处处理的（没有答法的，如「等你审核」）收在后面一组；
+ *  组里按等得久的在前 */
+const ORDER: Record<string, number> = { ask: 0, accept: 1, glance: 2, grant: 3, review: 4 };
+export function groupCards(items: AttentionItem[], choicesOf: (x: AttentionItem) => string[]): { now: AttentionItem[]; elsewhere: AttentionItem[] } {
+  const sorted = byWaited(items).map((x, i) => ({ x, i })).sort((a, b) => (ORDER[a.x.category] ?? 9) - (ORDER[b.x.category] ?? 9) || a.i - b.i).map((e) => e.x);
+  return { now: sorted.filter((x) => choicesOf(x).length > 0), elsewhere: sorted.filter((x) => choicesOf(x).length === 0) };
 }

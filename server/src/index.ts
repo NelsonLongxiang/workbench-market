@@ -52,6 +52,7 @@ import { registerA2aPeerRoutes } from './routes/a2a-peers.ts';
 import { registerA2aDirectRoutes } from './routes/a2a-direct.ts';
 import { registerA2aOutboundRoutes } from './routes/a2a-outbound.ts';
 import { registerExportImportRoutes } from './routes/export-import.ts';
+import { registerDepartmentRoutes } from './routes/departments.ts';
 import { registerLoginFlowRoutes } from './routes/login-flows.ts';
 import { registerWorkbenchRoutes } from './routes/workbenches.ts';
 import { registerSopPageRoutes } from './routes/sop-page.ts';
@@ -100,7 +101,7 @@ import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, redisConfigured, runStateRestore, runStateRead, runStateRetire, type RunStateRead } from './redis.ts';
 import { createRunCheckpoints } from './sop-state-checkpoints.ts';
 import { duplicateNode8s } from './services/a2a-handles.ts';
-import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, memberProvenanceMode, setMemberProvenance, teamRosterMode, setTeamRoster, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
+import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, memberProvenanceMode, setMemberProvenance, progressReceiptsMode, setProgressReceipts, teamRosterMode, setTeamRoster, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
 import type { IncomingMessage } from 'node:http';
 import { a2aHealth } from './a2a/health.ts';
 import { followupRateLimit } from './a2a/receipt-inbound.ts';
@@ -199,6 +200,14 @@ setMemberProvenance(A2A_MEMBER_PROVENANCE === 'on');
   if (dups.size > 0) console.warn(`[a2a] ${dups.size} 个 A2A 会话句柄被不止一个台占用（${[...dups].map((d) => `${MARKET_TEAM}/${d}`).join('、')}）：${A2A_MEMBER_PROVENANCE === 'on' ? '已不上卡、入站一律 404' : '开关关着，入站仍按第一个台承接'}；请给其中的台重新生成句柄`);
 }
 console.log(`[a2a] 名片${A2A_MEMBER_PROVENANCE === 'on' ? '声明' : '不声明'} canvasMemberProvenance（WM_A2A_MEMBER_PROVENANCE=${A2A_MEMBER_PROVENANCE}）`);
+// 名片是否声明 progressReceipts（WM_A2A_PROGRESS_RECEIPTS=on|off，缺省 on）；值不合法拒绝启动
+const A2A_PROGRESS_RECEIPTS = progressReceiptsMode();
+if (!A2A_PROGRESS_RECEIPTS) {
+  console.error('[a2a] 拒绝启动：WM_A2A_PROGRESS_RECEIPTS 只接受 on / off / 不设');
+  process.exit(1);
+}
+setProgressReceipts(A2A_PROGRESS_RECEIPTS === 'on');
+console.log(`[a2a] 名片${A2A_PROGRESS_RECEIPTS === 'on' ? '声明' : '不声明'} progressReceipts（WM_A2A_PROGRESS_RECEIPTS=${A2A_PROGRESS_RECEIPTS}）：进展回执只记录、不结清、不推状态`);
 // 名片是否声明 teamRoster（WM_A2A_TEAM_ROSTER=on|off，缺省 on）；值不合法拒绝启动
 const A2A_TEAM_ROSTER = teamRosterMode();
 if (!A2A_TEAM_ROSTER) {
@@ -699,6 +708,8 @@ async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkben
     const selfRow = svc<WorkbenchService>('workbench').byId(w.id) as unknown as WorkbenchRow;
     return rowToWorkbench(selfRow);
   }
+  // 兜底：对外断开时，任何调用方都不去探外部地址，也不改这个台的状态（不然会被记成离线、污染副本）
+  if (outboundOff()) { noteBlocked('health-check', w.url); return rowToWorkbench(w); }
   const t = typeOf(w.type);
   const settings = getSettings();
   // issue #8：坏 health_path / 非法组合不得让单测整体 500——探测目标构造失败时该台记 down
@@ -1630,22 +1641,50 @@ async function checkFileListsAgainstStore(rules: FieldRule[], data: Record<strin
 async function sopRunFinishCore(id: number): Promise<{ ok: boolean; id: number; status: string; steps: number }> {
   return runCheckpoints.serial(id, () => sopRunFinishLockedCore(id));
 }
+/** 这个 run 用的那一版 SOP 清单（版本目录里的 sop.yaml，没有就取当前版本）；任务中心的录入 run 没有字段规则 */
+function sopRunManifest(row: { sop_slug: string; sop_version: number }): SopManifest | null {
+  if (row.sop_slug === 'task-center') return null;
+  const yamlPath = join(appsRoot, row.sop_slug, `v${row.sop_version}`, 'sop.yaml');
+  return (existsSync(yamlPath) ? parseSopManifest(readFileSync(yamlPath, 'utf8')) : readActiveManifest(row.sop_slug)?.manifest) ?? null;
+}
+/** 完成前的字段校验（只有这一处）：完成接口用它拦，「等你拍板」的验收卡片用它预先告诉人「现在能不能验收通过」 */
+async function sopRunViolations(row: { id: number; sop_slug: string; sop_version: number }, data: string): Promise<string[]> {
+  const manifest = sopRunManifest(row);
+  if (!manifest) return [];
+  let parsedData: Record<string, unknown> = {};
+  try { parsedData = JSON.parse(data); } catch { parsedData = {}; }
+  const rules = extractFieldRules(manifest);
+  return [...checkRunData(rules, parsedData), ...(await checkFileListsAgainstStore(rules, parsedData, row.id))];
+}
+/**
+ * 「等你拍板」里待验收的派单 run 的卡片内容：哪条流程、哪次执行、谁派来的、各步骤填了没有（只给步骤名和填没填，不给内容）、
+ * 附件数和文件名（不给内容）、现在验收能不能通过（校验和完成接口同一处）。
+ */
+async function sopRunAcceptDetail(id: number): Promise<Record<string, unknown>> {
+  const row = sopRunRow(id);
+  const live = row.sop_slug === 'task-center' ? storedRunData(row) : (await runLiveData(row, false)).data;
+  const manifest = sopRunManifest(row);
+  const filled = (v: unknown) => v !== undefined && v !== null && !(typeof v === 'string' && v.trim() === '') && !(Array.isArray(v) && v.length === 0);
+  const ctx = svc<SopService>('sop').ctxSourceByRun(id) as { team?: string; caller?: string; task_id?: string } | undefined;
+  const files = (svc<SopService>('sop').runFiles(id) as { original_name: string }[]).map((f) => String(f.original_name ?? '').slice(0, 200));
+  const problems = row.status === 'running' ? await sopRunViolations(row, JSON.stringify(live)) : [];
+  return {
+    sop: row.sop_slug, sop_title: manifest?.title ?? readActiveManifest(row.sop_slug)?.app.title ?? '', run_id: row.id, version: row.sop_version,
+    started_at: row.started_at, updated_at: row.updated_at,
+    dispatcher: { team: ctx?.team ?? '', caller: ctx?.caller ?? '', task_id: ctx?.task_id ?? '' },
+    steps: (manifest?.steps ?? []).map((st) => ({ key: st.key, title: st.title, filled: filled((live as Record<string, unknown>)[st.key]) })),
+    attachments: { count: files.length, names: files.slice(0, 20) },
+    ready: problems.length === 0, problems: problems.slice(0, 5),
+  };
+}
+
 async function sopRunFinishLockedCore(id: number): Promise<{ ok: boolean; id: number; status: string; steps: number }> {
   const row = sopRunRow(id);
   if (row.status !== 'running') throw new HttpError(409, `run ${id} 已 ${row.status}`);
   const data = JSON.stringify(row.sop_slug === 'task-center' ? storedRunData(row) : (await runLiveData(row, true)).data);
   // 完成前按该 run 所用 SOP 版本里的字段规则（required/pattern/长度/类型）校验；不符则不完成、run 保持进行中
-  if (row.sop_slug !== 'task-center') {
-    const yamlPath = join(appsRoot, row.sop_slug, `v${row.sop_version}`, 'sop.yaml');
-    const manifest = existsSync(yamlPath) ? parseSopManifest(readFileSync(yamlPath, 'utf8')) : readActiveManifest(row.sop_slug)?.manifest;
-    if (manifest) {
-      let parsedData: Record<string, unknown> = {};
-      try { parsedData = JSON.parse(data); } catch { parsedData = {}; }
-      const rules = extractFieldRules(manifest);
-      const violations = [...checkRunData(rules, parsedData), ...(await checkFileListsAgainstStore(rules, parsedData, id))];
-      if (violations.length) throw new HttpError(400, `有 ${violations.length} 个字段未通过校验，未完成：${violations.slice(0, 5).join('；')}${violations.length > 5 ? ' 等' : ''}`, { violations });
-    }
-  }
+  const violations = await sopRunViolations(row, data);
+  if (violations.length) throw new HttpError(400, `有 ${violations.length} 个字段未通过校验，未完成：${violations.slice(0, 5).join('；')}${violations.length > 5 ? ' 等' : ''}`, { violations });
   svc<SopService>('sop').runFinish(id, data);
   runCheckpoints.forget(id); // only clear after the durable finish succeeds
   await runStateRetire(id); // best-effort cache retirement; SQLite status remains authoritative
@@ -1821,6 +1860,7 @@ registerAuthViewerRoutes(http, { wrap, odooLoginUrl });
 // ---------- 主体管理（列出、停用、恢复）：路由在域模块里 ----------
 registerPrincipalRoutes(http, { markOdooAdmin, adminGuard, adminActor });
 registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor }); // 阶段六 6b：角色声明与授予（只建结构，不接判定）
+registerDepartmentRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 部门：登录的人读、管理员写
 registerAttentionRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
 registerWorkItemRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8d：事项页的时间线
 registerRosterRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段七：团队名册的读（登录即可读，只有席位信息）
@@ -1828,7 +1868,7 @@ registerRosterRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req)
 // ---------- 扩展（WM_EXTENSIONS_DIR）：挂在身份/写门之后、SPA 回落之前；加载失败拒绝启动 ----------
 try {
   const loaded = await loadExtensions(process.env.WM_EXTENSIONS_DIR, {
-    app, wrap,
+    app, wrap, http, routesMode: extensionRoutesMode(process.env.WM_EXTENSION_ROUTES),
     adminGuard: async (req, res) => { await markOdooAdmin(req); return adminGuard(req, res); },
     odoo: { url: () => loginRelay().sourceUrl(), sessionOf: (cookie) => loginRelay().sessionOf(cookie), resolveViewer: (cookie) => identity().resolveViewer(cookie), loginUrl: odooLoginUrl, addReturnPath: (path) => loginRelay().addReturnPath(path) },
     remoteWrite: { allowExact: allowExtensionRemoteWrite },
@@ -2188,7 +2228,7 @@ async function sopRunUpgradePlan(id: number) {
     },
   };
 }
-registerSopRunLifecycleRoutes(http, { wrap, adminHeaderOk, runReadCapHeader, sopRunGetCore, sopRunGetMeta, sopRunStepSaveCore, sopRunFinishCore, markOdooAdmin, sopRunUpgradePlan, bad, runCheckpoints, adminActor, writeMode: SOP_RUN_WRITE });
+registerSopRunLifecycleRoutes(http, { wrap, adminHeaderOk, runReadCapHeader, sopRunGetCore, sopRunGetMeta, sopRunStepSaveCore, sopRunFinishCore, sopRunAcceptDetail, markOdooAdmin, sopRunUpgradePlan, bad, runCheckpoints, adminActor, writeMode: SOP_RUN_WRITE });
 
 // ---------- 自产台静态托管：GET /apps/:slug/* → DATA_DIR/apps/<slug>/v<active>/* ----------
 function serveApp(req: express.Request, res: express.Response) {
@@ -2523,7 +2563,7 @@ import { renderSopRunner as renderSopRunnerRaw } from './sop-runner.ts';
 import { loadTokensCss } from './design-tokens-css.ts';
 import { sqliteSsoTicketStore } from './sso-ticket-store.ts';
 import { closeYglUpstreams, yglHomeProblem, yglUpstreamRpc } from './mcp-stdio-upstream.ts';
-import { loadExtensions } from './extensions.ts';
+import { loadExtensions, extensionRoutesMode, assertExtensionNamespaces } from './extensions.ts';
 import { authorizeRunRead, issueRunReadCap, runReadGrantCreate, runReadGrantRevoke, runReadCapRevokeAll } from './sop-read-auth.ts';
 import { endpointStatsMiddleware } from './endpoint-stats.ts';
 import { fetchMainFiles, normalizeSource, SourceError, SOURCE_BRANCH } from './github-source.ts';
@@ -2634,6 +2674,8 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
     case 'workbench_summary':
       return summaryPayload();
     case 'workbench_check': {
+      // 对外断开（预发）：和 check-all 一样不探
+      if (outboundOff()) { noteBlocked('health-check'); throw new HttpError(503, '对外已断开（WM_OUTBOUND=off），不做探活'); }
       if (args?.all) {
         const settings = getSettings();
         const limit = Math.max(1, Number(settings.health_concurrency) || 8);
@@ -3428,6 +3470,7 @@ process.on('unhandledRejection', (r) => { console.error('[fatal] unhandledReject
 let timer: ReturnType<typeof setTimeout> | null = null;
 let checking = false;
 async function patrol(): Promise<void> {
+  if (outboundOff()) { noteBlocked('health-patrol'); return; } // 对外断开：启动后那一次和定时的都不探——探不到会把副本里每个台都记成离线
   if (checking) return;
   checking = true;
   try {
@@ -3468,6 +3511,8 @@ try { loadRoleDeclarations(http); } catch (e) {
   console.error(`[grants] 拒绝启动：${String((e as Error)?.message ?? e)}`);
   process.exit(1);
 }
+// 扩展名（动作前缀、路径首段）不能和核心动作的域、核心路径的首段重名：核心路由有的在扩展之后才注册，全部注册完再核一次
+try { assertExtensionNamespaces(http.actions(), http.stackLayers()); } catch (e) { console.error(`[extensions] 拒绝启动：${(e as Error).message}`); process.exit(1); }
 const goServer = registerSurface(app, 'market', PORT, () => {
   // #258 breaking：旧开关不再放行任何公网登记，只做兼容检测告警
   if (process.env.ALLOW_PUBLIC_NET === '1') console.warn('[R3] ALLOW_PUBLIC_NET=1: legacy flag no longer grants public registration; use WM_REGISTER_URL_ALLOWLIST exact entries.');

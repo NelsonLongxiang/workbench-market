@@ -11,6 +11,7 @@
  *   change-requests   GET /api/change-requests?status=pending  adminGuard（取数用 changeRequest 服务，和旧接口同一个函数）  审核
  *   mcp-access        GET /api/mcp/access-requests?status=pending adminGuard                 授权
  *   seat-asks         GET /api/workbench-events（决定是 ask 的）adminGuard                    提问
+ *   sop-runs          POST /api/sop/runs/:id/finish（派进来的 run 验收）  完成接口里不靠上传令牌的那两条（管理员、本机命令行）  验收
  *   tasks             GET /api/tasks（统一待办）                tasksReadAccess(adminHeaderOk) 审核
  *   owner-pending     GET /api/workbenches/:id/vars（看板台）  vars 接口的读门                提问
  *   principal-pending GET /api/principals/pending              主体路由的管理门               授权
@@ -25,6 +26,7 @@ import { collectTasks } from './tasks.ts';
 import { tasksReadAccess } from './tasks-read-access.ts';
 import { listVars, workbenchScope } from './workbench-vars.ts';
 import { principalsAdmin } from './routes/principals.ts';
+import { sopRunAcceptance } from './routes/sop-run-lifecycle.ts';
 import { buildBoard, findBoardWorkbench, parseConfig, BOARD_PATH, type BoardVar } from './owner-pending.ts';
 import { openSeatAsks } from './services/attention-sources.ts';
 
@@ -134,6 +136,26 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
       },
     }),
     provide({
+      // 别的节点经 A2A 派进来、还在跑的 SOP run：验收通过就是完成它（和完成接口同一处判断）。旧的 SOP 交付空间页已弃用，在这里当场办。
+      // 谁看得到、谁能办：不靠这个 run 的上传令牌就能写 run 的人（管理员、本机命令行），和完成接口同一处（sopRunAcceptance.allowed）
+      source: 'sop-runs', label: '待验收的派单执行',
+      list: async (req) => {
+        if (!sopRunAcceptance || !(await sopRunAcceptance.allowed(req))) return null;
+        const out: AttentionItem[] = [];
+        for (const r of sop().runsDispatched() as { id: number; sop_slug: string; updated_at: string }[]) {
+          const detail = await sopRunAcceptance.detail(r.id);
+          const by = detail.dispatcher as { team: string; caller: string };
+          out.push(item({
+            source: 'sop-runs', source_id: String(r.id), category: 'accept', kind: 'sop-run',
+            title: `${String(detail.sop_title || r.sop_slug)} 第 ${r.id} 次执行待验收`,
+            waiting_for: by.caller || by.team || '', since: r.updated_at, answers: ['finish'],
+            link: `/sops/${encodeURIComponent(r.sop_slug)}/runs/${r.id}`, object: r.sop_slug, detail,
+          }));
+        }
+        return out;
+      },
+    }),
+    provide({
       source: 'tasks', label: '任务中心收件（统一待办）',
       list: async (req) => {
         const access = await tasksReadAccess(deps.adminHeaderOk(req), String(req.headers.cookie ?? ''));
@@ -143,9 +165,13 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
         // 统一待办那一条不再列。只在「关注」聚合这里剔，/api/tasks 本身不变
         const taskIdOf = (id: string) => { const m = /^market:task-([1-9]\d{0,15})$/.exec(id); return m ? Number(m[1]) : null; };
         const withItems = svc<WorkItemService>('workItems').taskIdsWithItems(payload.tasks.map((t) => taskIdOf(t.id)).filter((n): n is number => n !== null));
+        // 待验收的派单 run：看得到「sop-runs」这个来源的人（能当场验收的），统一待办里的那一条不再列，以「sop-runs」为准
+        const accept = sopRunAcceptance && await sopRunAcceptance.allowed(req)
+          ? new Set((sop().runsDispatched() as { id: number }[]).map((r) => `market:run-${r.id}`)) : new Set<string>();
         return payload.tasks
           .filter((t) => t.status !== 'done' && !TASKS_DEDUPED_PREFIXES.some((p) => t.id.startsWith(p)))
           .filter((t) => { const n = taskIdOf(t.id); return n === null || !withItems.has(n); })
+          .filter((t) => !accept.has(t.id))
           .map((t) => item({
             source: 'tasks', source_id: t.id, category: 'review', title: t.title, waiting_for: t.source,
             since: '', answers: [], link: t.link ?? '/tasks', object: t.project ?? '', // 统一待办的信封没有「什么时候开始」

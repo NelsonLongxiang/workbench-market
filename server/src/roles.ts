@@ -17,7 +17,7 @@
  *   · 范围通常不写，由授予给；写了的只能比授予更窄（授予时核对）。
  *
  * 范围的写法（库里和声明文件里都是 ASCII，中文只在界面和文档里）：
- *   *（全部）、domain:<名>（一个授权域）、bench:<slug>（一个台）、sop:<slug>、tool:<名>、self（仅本人创建的）、
+ *   *（全部）、domain:<名>（一个授权域，即动作名的域）、dept:<部门标识>（一个部门，标识见部门表）、bench:<slug>（一个台）、sop:<slug>、tool:<名>、self（仅本人创建的）、
  *   object:<不透明标识>（预留给观测层的对象或阶段范围：这里只存、只比相等，不解释含义）。
  *
  * 启动时校验，不合格拒绝启动：形状不对、id 重复、和平台角色同名（id 或名字）、includes 指向不存在的角色、
@@ -35,14 +35,14 @@ export type RoleView = RoleDecl & { platform: boolean; custom: boolean; closure:
 
 const ROLE_ID_RE = /^[a-z][a-z0-9-]{0,47}$/;
 const ACTION_RE = /^[a-z][a-z0-9-]{0,31}\.[a-z][a-z0-9-]{0,47}$|^[a-z][a-z0-9_]{0,63}$/; // <域>.<动词>，或 MCP 工具名
-const SCOPE_RE = /^(\*|self|(domain|bench|sop|tool):[\x21-\x7e]{1,128}|object:[\x21-\x7e]{1,256})$/;
+const SCOPE_RE = /^(\*|self|(domain|bench|sop|tool):[\x21-\x7e]{1,128}|dept:[a-z][a-z0-9-]{0,47}|object:[\x21-\x7e]{1,256})$/;
 
 /**
  * 动作的域：系统那几块（人、角色、授予、设置、MCP 网关、工作台登记、连接、登录……）。进快照（surfaces/actions.json 的 domains），改它要过评审。
  * 不在这里的都算业务——新长出来的域默认是业务，系统管理员默认看不到
  */
 export const SYSTEM_DOMAINS: readonly string[] = [
-  'a2a', 'a2a-peer', 'admin', 'admin-token', 'agent-card', 'app', 'auth', 'binding', 'content', 'cookie', 'design-token', 'grant', 'health', 'judgment', 'login',
+  'a2a', 'a2a-peer', 'admin', 'admin-token', 'agent-card', 'app', 'auth', 'binding', 'content', 'cookie', 'department', 'design-token', 'grant', 'health', 'judgment', 'login',
   'market', 'mcp', 'principal', 'remote-allow', 'role', 'setting', 'skill', 'sso', 'stats', 'type', 'workbench',
 ];
 /** 明确算业务的域。和 SYSTEM_DOMAINS 一起要盖住全部已登记动作的域（扩展的动作另算，都是业务） */
@@ -68,7 +68,7 @@ export const BLOCKS: readonly { key: string; name: string; domains: readonly str
   { key: 'work', name: '事项与对话', domains: ['change-request', 'sop', 'sop-run', 'task-center', 'tasks', 'work-item', 'work-items', 'workbench-event'] },
   { key: 'attention', name: '关注', domains: ['attention'] },
   { key: 'bench-data', name: '工作台数据', domains: ['app-data', 'mcp-rest', 'mcp-tool'] },
-  { key: 'team', name: '团队与 AI 员工', domains: ['binding', 'principal'] },
+  { key: 'team', name: '团队与 AI 员工', domains: ['binding', 'department', 'principal'] },
   { key: 'access', name: '权限与角色', domains: ['admin', 'admin-token', 'grant', 'judgment', 'role'] },
   { key: 'system', name: '系统与节点', domains: ['a2a', 'a2a-peer', 'agent-card', 'app', 'auth', 'content', 'cookie', 'design-token', 'health', 'login', 'market', 'mcp', 'remote-allow', 'setting', 'skill', 'sso', 'stats', 'type', 'workbench'] },
 ];
@@ -141,7 +141,7 @@ export const PLATFORM_ROLES: readonly RoleDecl[] = [
   { id: 'admin', name: '系统管理员', permissions: [{ kinds: ['read', 'write', 'admin'], domains: [...SYSTEM_DOMAINS] }, { kinds: ['admin'] }] },
   // 管理层：全公司的读、写、决定；不管系统
   { id: 'management', name: '管理层', permissions: [{ kinds: ['read', 'write', 'decide'] }] },
-  // 部门负责人：读、写、决定，部门是哪个由授予的范围（domain:<部门>）给
+  // 部门负责人：读、写、决定，部门是哪个由授予的范围（dept:<部门标识>）给，标识是部门表里的
   { id: 'dept-lead', name: '部门负责人', permissions: [{ kinds: ['read', 'write', 'decide'] }] },
   // 普通员工：看；写只给提需求、补充说明那几个；决定只给自己的事（验收、答复自己提的）
   { id: 'member', name: '普通员工', permissions: [{ kinds: ['read'] }, { actions: [...MEMBER_WRITE_ACTIONS] }, { kinds: ['decide'], scope: 'self' }] },
@@ -156,7 +156,7 @@ export const NON_PERSON_ONLY_ROLES: readonly string[] = ['ai-staff'];
 /** 访客：授予必须有期限 */
 export const EXPIRY_REQUIRED_ROLES: readonly string[] = ['guest'];
 
-/** 通用的组织角色初始集合（名字通用，不含业务）。部门是哪个，由授予的范围（domain:<部门>）给 */
+/** 通用的组织角色初始集合（名字通用，不含业务）。部门是哪个，由授予的范围（dept:<部门标识>）给；部门标识就是部门表里的标识 */
 export const INITIAL_ORG_ROLES: readonly RoleDecl[] = [
   { id: 'dept-member', name: '部门成员', permissions: [{ kinds: ['read', 'write'] }] },
 ];

@@ -9,7 +9,7 @@
  *   · 管理员级的授予（属主、管理员，或者权限里带管理类的角色）只有属主能放行：本机命令行，或持有生效的 owner 授予的主体；
  *   · 不是人的主体要有在职的责任人（责任人是启用的人）才能被授予；
  *   · 决定类权限只给人：角色展开 includes 之后带决定类（按类别或按动作）的，不授予给不是人的主体；
- *   · 角色权限里写了范围的，要在授予的范围之内；
+ *   · 角色权限里写了范围的，要在授予的范围之内；部门范围（dept:<标识>）的部门要在部门表里；
  *   · 到期自动失效：判断生效时现比期限；另有周期任务把到期的标成 expired。
  * 每一步都重新核对（主体、角色声明可能在两步之间变了）。
  *
@@ -78,7 +78,9 @@ export class GrantService extends Service {
     if (!role) return refuse(422, 'role_unknown', `角色 ${g.role} 没有声明`);
     // 访客必须有期限
     if (EXPIRY_REQUIRED_ROLES.includes(g.role) && (g.expires_at === null || g.expires_at === undefined)) return refuse(422, 'expiry_required', `角色 ${g.role}（访客）的授予必须有期限`);
-    if (!scopeOk(g.scope)) return refuse(400, 'scope_invalid', '范围写法不对：*、domain:、bench:、sop:、tool:、self、object:');
+    if (!scopeOk(g.scope)) return refuse(400, 'scope_invalid', '范围写法不对：*、domain:、dept:、bench:、sop:、tool:、self、object:');
+    // 部门范围只认部门表里有的标识（只有一套部门名）
+    if (g.scope.startsWith('dept:') && !db.prepare('SELECT 1 FROM departments WHERE id = ?').get(g.scope.slice(5))) return refuse(422, 'department_unknown', `部门 ${g.scope.slice(5)} 不存在，先在部门里建好`);
     for (const p of role.closure) if (!scopeWithin(p.scope, g.scope)) return refuse(422, 'scope_wider', `角色 ${g.role} 里有范围 ${p.scope} 的权限，不在授予的范围 ${g.scope} 之内`);
     const p = db.prepare('SELECT id, kind, status, owner FROM principals WHERE id = ?').get(g.principal_id) as { id: string; kind: string; status: string; owner: string } | undefined;
     if (!p) return refuse(404, 'principal_missing', `主体 ${g.principal_id} 不存在`);
