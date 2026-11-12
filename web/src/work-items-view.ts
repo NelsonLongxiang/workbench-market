@@ -172,5 +172,6 @@ export function lastSaid(lp: { fact?: string; text?: string }): string {
   const body = /^[a-z][a-z0-9_-]*$/.test(raw) && !RESULT[raw] ? '' : progressSummary(raw);
   const word = FACT_WORD[lp.fact || ''];
   if (!word) return body;
-  return body ? `${word}：${body}` : word;
+  // 正文就是这件事的名字（「验收通过」）时不重复
+  return body && body !== word ? `${word}：${body}` : word;
 }
