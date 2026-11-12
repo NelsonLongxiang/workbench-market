@@ -72,6 +72,12 @@ with sync_playwright() as p:
     roles_shown = [''.join(t.split()) for t in pg.locator('[data-testid=acc-mine-role]').all_inner_texts()]
     check('非管理员：显示你的权限，两项角色、范围用块名、按范围的标尚未生效', len(roles_shown) == 2 and roles_shown[0].startswith('普通员工全部长期') and '「事项与对话」这一块' in roles_shown[1] and roles_shown[1].endswith('尚未生效') and '尚未生效' not in roles_shown[0], roles_shown)
     check('非管理员：下面一句别人的权限现在只有管理员能看', '别人的权限现在只有管理员能看' in mine and pg.locator('.ant-alert').count() == 0, mine)
+    # 部门范围不露标识：服务端没带 scope_name 写「一个部门」，带了写名字
+    DEPT = dict(ME, roles=[dict(ME['roles'][1], scope='dept:syn-dept-1'), dict(ME['roles'][1], id='member', name='普通员工', scope='dept:syn-dept-2', scope_name='合成部')])
+    pg.unroute('**/api/auth/me'); pg.route('**/api/auth/me', lambda r: fake(r, DEPT))
+    pg.goto(M + '/access'); pg.wait_for_selector('[data-testid=acc-mine-role]')
+    dept = [''.join(t.split()) for t in pg.locator('[data-testid=acc-mine-role]').all_inner_texts()]
+    check('部门范围：没有显示名写「一个部门」、有的写名字，不露 dept: 标识', len(dept) == 2 and '一个部门' in dept[0] and '「合成部」这个部门' in dept[1] and not any('dept:' in d or 'syn-dept' in d for d in dept), dept)
     pg.unroute('**/api/auth/me')
 
     pg.route('**/api/grants', lambda r: fake(r, GRANTS))

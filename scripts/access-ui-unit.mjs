@@ -76,5 +76,11 @@ ok('核准按钮：服务端说能 → 可点、不写说法；说不能 → 置
   && J(approveState({ can_approve: false, approve_denied_text: null })) === '{"enabled":false,"note":"你现在放行不了这一项"}'
   && J(approveState({})) === '{"enabled":true,"note":null}' && approveState({ can_approve: 'false' }).enabled === true);
 
+// 部门范围不露标识：服务端带了 scope_name 就写名字，没带写「一个部门」；别的范围有名字也用名字
+ok('部门范围：有显示名写名字，没有写「一个部门」，都不露 dept: 标识', scopeLabel('dept:trial-dev', undefined, '研发部') === '「研发部」这个部门' && scopeLabel('dept:trial-dev') === '一个部门'
+  && scopeLabel('dept:trial-dev', undefined, '  ') === '一个部门' && scopeLabel('dept:x', undefined, 5) === '一个部门' && !scopeLabel('dept:trial-dev').includes('trial-dev'));
+ok('别的范围带了显示名就用名字（工作台「…」、「…」这一块）；没带照旧', scopeLabel('bench:12', undefined, '采购台') === '工作台「采购台」' && scopeLabel('domain:work', undefined, '事项') === '「事项」这一块' && scopeLabel('bench:12') === '工作台 12' && scopeLabel('*', undefined, '名字') === '全部');
+ok('「你的权限」带上服务端给的范围显示名，没给就不带', myRolesOf({ authenticated: true, principal: 'user:a', roles: [{ id: 'dept-lead', name: '部门负责人', scope: 'dept:d1', scope_name: ' 研发部 ' }, { id: 'member', scope: '*' }] }).map((r) => r.scope_name ?? '-').join() === '研发部,-');
+
 console.log(`\naccess-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);
