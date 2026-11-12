@@ -23,9 +23,15 @@ export interface Team {
   /** 最近一次收下这个节点名册的时刻（毫秒）；服务端给的是 ISO 时刻或毫秒数的字符串，整形时统一成毫秒，没有就不带 */
   roster_at?: number;
   department: { id: string; name: string } | null; leads: Lead[]; router: Member | null; members: Member[];
+  /** 待确认的提议（关系确认制，只在管理员的视图里有）：认领到哪个部门、指定谁做负责人，等谁确认 */
+  pending_claim?: Pending | null; pending_leads?: Pending[];
 }
-export interface DeptBlock { id: string; name: string; lead: Person | null; teams: Team[] }
-export interface Teams { departments: DeptBlock[]; unclaimed: Team[] | null }
+/** 一条待确认的提议：服务端给「等谁确认」的说法，页面原样写 */
+export interface Pending { id: number; principal: string | null; department: string | null; confirm_by_text: string }
+export interface DeptBlock { id: string; name: string; lead: Person | null; teams: Team[]; pending_lead?: Pending | null }
+/** 看的人能做什么（服务端判好）：claim / add_lead 直接生效，propose_claim / propose_lead 只能提议 */
+export interface TeamsCan { claim: boolean; propose_claim: boolean; add_lead: boolean; propose_lead: boolean; manage_departments: boolean }
+export interface Teams { departments: DeptBlock[]; unclaimed: Team[] | null; can: TeamsCan | null }
 export interface Department { id: string; name: string; lead: Person | null; member_count: number }
 export interface SourceResult { status: number; body: unknown }
 
@@ -65,7 +71,32 @@ function teamOf(v: unknown): Team | null {
       .map((l) => ({ principal: l.principal as string, display_name: typeof l.display_name === 'string' ? l.display_name : '', source: typeof l.source === 'string' ? l.source : '' })),
     router: memberOf(t.router),
     members: arr<unknown>(t.members).map(memberOf).filter((m): m is Member => !!m),
+    ...('pending_claim' in t ? { pending_claim: pendingOf(t.pending_claim) } : {}),
+    ...(Array.isArray(t.pending_leads) ? { pending_leads: (t.pending_leads as unknown[]).map(pendingOf).filter((p): p is Pending => !!p) } : {}),
   };
+}
+function pendingOf(v: unknown): Pending | null {
+  const p = obj(v);
+  if (!p || typeof p.id !== 'number') return null;
+  return { id: p.id, principal: typeof p.principal === 'string' ? p.principal : null, department: typeof p.department === 'string' ? p.department : null,
+    confirm_by_text: typeof p.confirm_by_text === 'string' && p.confirm_by_text.trim() ? p.confirm_by_text.trim() : '业务侧' };
+}
+function canOf(v: unknown): TeamsCan | null {
+  const c = obj(v);
+  if (!c) return null;
+  const b = (k: string) => c[k] === true;
+  return { claim: b('claim'), propose_claim: b('propose_claim'), add_lead: b('add_lead'), propose_lead: b('propose_lead'), manage_departments: b('manage_departments') };
+}
+/** 「已提出，等〈谁〉确认」：谁照服务端给的（没给就写业务侧） */
+export const pendingText = (p: Pick<Pending, 'confirm_by_text'>): string => `已提出，等${p.confirm_by_text || '业务侧'}确认`;
+/**
+ * 写操作回的是提议（202，或者建部门时带 lead_proposal）：给一句「已提出，等〈谁〉确认」，不当成已生效。不是提议返回 null
+ */
+export function proposedText(r: SourceResult): string | null {
+  const b = obj(r.body);
+  const p = r.status === 202 ? obj(b?.proposal) : obj(b?.lead_proposal);
+  if (!p) return null;
+  return pendingText({ confirm_by_text: typeof p.confirm_by_text === 'string' ? p.confirm_by_text : '' });
 }
 function personOf(v: unknown): Person | null {
   const p = obj(v);
@@ -76,8 +107,9 @@ function personOf(v: unknown): Person | null {
 export function teamsOf(body: unknown): Teams {
   const b = obj(body);
   const departments = arr<unknown>(b?.departments).map(obj).filter((d): d is Record<string, unknown> => !!d && typeof d.id === 'string')
-    .map((d) => ({ id: d.id as string, name: typeof d.name === 'string' && d.name.trim() ? d.name : (d.id as string), lead: personOf(d.lead), teams: arr<unknown>(d.teams).map(teamOf).filter((t): t is Team => !!t) }));
-  return { departments, unclaimed: Array.isArray(b?.unclaimed) ? (b!.unclaimed as unknown[]).map(teamOf).filter((t): t is Team => !!t) : null };
+    .map((d) => ({ id: d.id as string, name: typeof d.name === 'string' && d.name.trim() ? d.name : (d.id as string), lead: personOf(d.lead), teams: arr<unknown>(d.teams).map(teamOf).filter((t): t is Team => !!t),
+      ...('pending_lead' in d ? { pending_lead: pendingOf(d.pending_lead) } : {}) }));
+  return { departments, unclaimed: Array.isArray(b?.unclaimed) ? (b!.unclaimed as unknown[]).map(teamOf).filter((t): t is Team => !!t) : null, can: canOf(b?.can) };
 }
 /** GET /api/departments：部门列表（认领时选、判断「还没有部门」） */
 export function departmentsOf(body: unknown): Department[] {

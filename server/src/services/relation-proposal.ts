@@ -34,6 +34,11 @@ const grants = () => svc<GrantService>('grants');
 const departments = () => svc<DepartmentService>('departments');
 const teams = () => svc<TeamService>('teams');
 
+/** 这种提议等谁确认（给页面原样显示：「已提出，等〈谁〉确认」）。和 confirmRefusal 的规则对应 */
+export const CONFIRM_BY: Readonly<Record<ProposalKind, string>> = {
+  'dept-lead': '属主', 'team-lead': '属主', 'team-claim': '管理层或接收部门的负责人',
+};
+
 /** 被拒时给页面的短说法（按代码） */
 export const CONFIRM_TEXT: Readonly<Record<string, string>> = {
   owner_required: '只有属主能放行',

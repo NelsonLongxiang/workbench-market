@@ -38,7 +38,7 @@ import type { GrantService } from '../services/grant.ts';
 import type { DepartmentService } from '../services/department.ts';
 import { HOST_RE, SEAT_ID_RE, SEAT_RE, TEAM_RE, type Actor, type SeatKey, type TeamKey, type TeamRefusal, type TeamService, type TeamView } from '../services/team.ts';
 import { teamName } from '../team-relation.ts';
-import type { RelationProposalService } from '../services/relation-proposal.ts';
+import { CONFIRM_BY, type RelationProposalService } from '../services/relation-proposal.ts';
 
 export type TeamRouteDeps = {
   markOdooAdmin: (req: express.Request) => Promise<void>;
@@ -154,11 +154,20 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
     }
     const nodes = new Map<string, ReturnType<TeamService['nodeInfo']>>();
     const nodeOf = (host: string) => { if (!nodes.has(host)) nodes.set(host, teams().nodeInfo(host)); return nodes.get(host)!; };
+    const isAdmin = v.kind === 'admin';
+    // 待确认的提议（只给管理员的视图）：页面在那一项上写「待确认，等〈谁〉确认」，不当成已生效
+    const pending = isAdmin ? proposals().list().filter((p) => p.status === 'pending') : [];
+    const pendingOf = (p: (typeof pending)[number]) => ({ id: p.id, principal: p.principal_id || null, department: p.department_id || null, confirm_by_text: CONFIRM_BY[p.kind] });
     const shape = (t: TeamView) => {
       const no = assignRefusal(v, t);
-      return { ...t, name: teamName(t.team), ...nodeOf(t.host), can_assign: !no, assign_denied_text: no?.message ?? null, ...(no ? {} : { assignable: assignableOf(t) }) };
+      const claim = pending.find((p) => p.kind === 'team-claim' && p.host === t.host && p.team === t.team);
+      const leads = pending.filter((p) => p.kind === 'team-lead' && p.host === t.host && p.team === t.team);
+      return {
+        ...t, name: teamName(t.team), ...nodeOf(t.host), can_assign: !no, assign_denied_text: no?.message ?? null, ...(no ? {} : { assignable: assignableOf(t) }),
+        ...(isAdmin ? { pending_claim: claim ? pendingOf(claim) : null, pending_leads: leads.map(pendingOf) } : {}),
+      };
     };
-    const isAdmin = v.kind === 'admin';
+    const deptPending = (id: string) => { const p = pending.find((x) => x.kind === 'dept-lead' && x.department_id === id); return p ? pendingOf(p) : null; };
     const owner = isAdmin && (v.by === 'cli' || grants().isOwner(v.principal));
     const business = owner || grants().isBusinessSide(v.principal);
     res.json({
@@ -167,7 +176,7 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
         claim: isAdmin && business, propose_claim: isAdmin && !business, release: isAdmin,
         add_lead: owner, propose_lead: isAdmin && !owner, manage_leads: isAdmin, manage_departments: isAdmin,
       },
-      departments: [...depts.values()].sort((a, b) => a.id.localeCompare(b.id)).map((d) => ({ ...d, teams: d.teams.map(shape) })),
+      departments: [...depts.values()].sort((a, b) => a.id.localeCompare(b.id)).map((d) => ({ ...d, ...(isAdmin ? { pending_lead: deptPending(d.id) } : {}), teams: d.teams.map(shape) })),
       ...(v.kind === 'admin' ? { unclaimed: seen.filter((t) => t.status === 'unclaimed').map(shape) } : {}),
     });
   }));
@@ -196,7 +205,7 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
       if (check) return void refused(res, check);
       const pr = proposals().propose({ kind: 'team-claim', host: k.host, team: k.team, department_id: dept }, actor, now);
       logged('claim-propose', k, { department: dept, proposal: pr.id }, actor.by);
-      return void res.status(202).json({ ok: true, proposed: true, proposal: { id: pr.id, status: 'pending' } });
+      return void res.status(202).json({ ok: true, proposed: true, proposal: { id: pr.id, status: 'pending', confirm_by_text: CONFIRM_BY['team-claim'] } });
     }
     const r = teams().claim(k, dept, actor, now);
     if (!r.ok) return void refused(res, r);
@@ -227,7 +236,7 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
       if (check) return void refused(res, check);
       const pr = proposals().propose({ kind: 'team-lead', host: k.host, team: k.team, principal_id: principal }, actor, now);
       logged('lead-propose', k, { principal, proposal: pr.id }, actor.by);
-      return void res.status(202).json({ ok: true, proposed: true, proposal: { id: pr.id, status: 'pending' } });
+      return void res.status(202).json({ ok: true, proposed: true, proposal: { id: pr.id, status: 'pending', confirm_by_text: CONFIRM_BY['team-lead'] } });
     }
     const r = teams().addLead(k, principal, actor, now);
     if (!r.ok) return void refused(res, r);

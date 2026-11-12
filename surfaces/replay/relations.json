@@ -34,11 +34,11 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "744", "etag": "W/\"2e8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "828", "etag": "W/\"33c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "proposals": [
-                { "id": 1, "kind": "team-claim", "department_id": "sales", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal_id": "", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true },
-                { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true }
+                { "id": 1, "kind": "team-claim", "department_id": "sales", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal_id": "", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "confirm_by_text": "管理层或接收部门的负责人", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true },
+                { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "confirm_by_text": "属主", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true }
               ]
             }
           }
@@ -52,11 +52,11 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "744", "etag": "W/\"2e8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "828", "etag": "W/\"33c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "proposals": [
-                { "id": 1, "kind": "team-claim", "department_id": "sales", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal_id": "", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true },
-                { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true }
+                { "id": 1, "kind": "team-claim", "department_id": "sales", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal_id": "", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "confirm_by_text": "管理层或接收部门的负责人", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true },
+                { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "confirm_by_text": "属主", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true }
               ]
             }
           }
@@ -149,9 +149,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "394", "etag": "W/\"18a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "421", "etag": "W/\"1a5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "proposal": { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "approved", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false }
+              "proposal": { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "approved", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "", "confirm_by_text": "属主", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false }
             }
           }
         },
@@ -217,9 +217,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "435", "etag": "W/\"1b3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "492", "etag": "W/\"1ec-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "proposal": { "id": 1, "kind": "team-claim", "department_id": "sales", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal_id": "", "status": "rejected", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "合成：不认领", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false }
+              "proposal": { "id": 1, "kind": "team-claim", "department_id": "sales", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal_id": "", "status": "rejected", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "合成：不认领", "confirm_by_text": "管理层或接收部门的负责人", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false }
             }
           }
         },
@@ -233,11 +233,11 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "820", "etag": "W/\"334-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "904", "etag": "W/\"388-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "proposals": [
-                { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "approved", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false },
-                { "id": 1, "kind": "team-claim", "department_id": "sales", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal_id": "", "status": "rejected", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "合成：不认领", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false }
+                { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "approved", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "", "confirm_by_text": "属主", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false },
+                { "id": 1, "kind": "team-claim", "department_id": "sales", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal_id": "", "status": "rejected", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "合成：不认领", "confirm_by_text": "管理层或接收部门的负责人", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false }
               ]
             }
           }

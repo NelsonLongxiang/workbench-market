@@ -39,7 +39,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "790", "etag": "W/\"316-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "830", "etag": "W/\"33e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "can": { "claim": true, "propose_claim": false, "release": true, "add_lead": true, "propose_lead": false, "manage_leads": true, "manage_departments": true },
               "departments": [],
@@ -57,7 +57,9 @@
                   "node_name": null,
                   "roster_received_at": "YYYY-MM-DDThh:mm:ss.fffZ",
                   "can_assign": false,
-                  "assign_denied_text": "团队还没认领，不能分配成员"
+                  "assign_denied_text": "团队还没认领，不能分配成员",
+                  "pending_claim": null,
+                  "pending_leads": []
                 }
               ]
             }
@@ -72,7 +74,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "790", "etag": "W/\"316-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "830", "etag": "W/\"33e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "can": { "claim": true, "propose_claim": false, "release": true, "add_lead": true, "propose_lead": false, "manage_leads": true, "manage_departments": true },
               "departments": [],
@@ -90,7 +92,9 @@
                   "node_name": null,
                   "roster_received_at": "YYYY-MM-DDThh:mm:ss.fffZ",
                   "can_assign": false,
-                  "assign_denied_text": "团队还没认领，不能分配成员"
+                  "assign_denied_text": "团队还没认领，不能分配成员",
+                  "pending_claim": null,
+                  "pending_leads": []
                 }
               ]
             }

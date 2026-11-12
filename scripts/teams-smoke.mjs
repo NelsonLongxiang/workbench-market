@@ -344,6 +344,18 @@ try {
       && after.qaLead === null && Array.isArray(after.seatQa) && after.seatQa.length === 0 && after.owner === ownerBefore && !!seatOther,
       '只有系统管理员身份（管理口令、管理员登录）：认领、指定团队负责人、指定部门负责人都只记成提议（同样的提议不重复记），分配成员 403；做完之后团队仍待认领、他不是负责人、席位不挂到部门、成员的主人没变（部门成员表照写，只是组织信息） [red-line:relations-need-confirmation]',
       show({ claimTok: claimTok.status, claimRoot: claimRoot.status, leadTok: leadTok.status, dept: deptTok.json?.lead_proposal, assignTok: [assignTok.status, assignTok.json?.error], assignRoot: assignRoot.status, after, ownerBefore }));
+    // 1b) 页面看得到「待确认」：管理员的视图带上待确认的认领、团队负责人和等谁确认；员工的视图不带
+    const adminView = await srv.call('GET', '/api/teams', { headers: token });
+    const staffView = await srv.call('GET', '/api/teams', as(SESSIONS.alpha));
+    const otherCard = adminView.json?.unclaimed?.find((t) => t.team === OTHER);
+    const mainCard = adminView.json?.departments?.flatMap((d) => d.teams).find((t) => t.team === TEAM);
+    const staffMain = staffView.json?.departments?.flatMap((d) => d.teams).find((t) => t.team === TEAM);
+    check(otherCard?.pending_claim?.department === 'qa' && otherCard.pending_claim.confirm_by_text === '管理层或接收部门的负责人'
+      && mainCard?.pending_leads?.some((p) => p.principal === 'user:root-admin' && p.confirm_by_text === '属主')
+      && claimTok.json?.proposal?.confirm_by_text === '管理层或接收部门的负责人' && leadTok.json?.proposal?.confirm_by_text === '属主' && deptTok.json?.lead_proposal?.confirm_by_text === '属主'
+      && staffMain && !('pending_leads' in staffMain),
+      '页面用的「待确认」：管理员的视图里待认领的卡带待确认的认领、团队带待确认的负责人，都写等谁确认（认领等管理层或接收部门的负责人，负责人等属主）；提议的应答也带；员工的视图不带',
+      show({ otherCard: otherCard?.pending_claim, mainPending: mainCard?.pending_leads, staff: staffMain && Object.keys(staffMain).filter((k) => k.startsWith('pending')) }));
     // 2) 谁能确认：认领要管理层或接收部门的负责人；负责人只有属主
     const pClaim = claimTok.json?.proposal?.id, pLead = leadTok.json?.proposal?.id, pDept = deptTok.json?.lead_proposal?.id;
     const listMgmt = await srv.call('GET', '/api/relations/proposals', as(SESSIONS.noAdminFlag));

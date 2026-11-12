@@ -23,7 +23,7 @@ import { identity } from '../identity.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import { DEPARTMENT_ID_RE, type DepartmentRefusal, type DepartmentService } from '../services/department.ts';
 import type { GrantService } from '../services/grant.ts';
-import type { RelationProposalService } from '../services/relation-proposal.ts';
+import { CONFIRM_BY, type RelationProposalService } from '../services/relation-proposal.ts';
 
 export type DepartmentRouteDeps = {
   markOdooAdmin: (req: express.Request) => Promise<void>;
@@ -136,10 +136,10 @@ export function registerDepartmentRoutes(app: HttpService, deps: DepartmentRoute
     }, by, now);
     if (!r.ok) return void refused(res, r);
     logged(r.created ? 'create' : 'update', { id, function_code: r.department.function_code, lead: r.department.lead?.principal ?? null }, by);
-    let leadProposal: { id: number; status: 'pending' } | undefined;
+    let leadProposal: { id: number; status: 'pending'; principal: string; confirm_by_text: string } | undefined;
     if (proposeLead) {
       const pr = proposals().propose({ kind: 'dept-lead', department_id: id, principal_id: lead }, { by, principal, owner }, now);
-      leadProposal = { id: pr.id, status: 'pending' };
+      leadProposal = { id: pr.id, status: 'pending', principal: lead, confirm_by_text: CONFIRM_BY['dept-lead'] };
       logged('lead-propose', { id, lead, proposal: pr.id }, by);
     }
     res.status(r.created ? 201 : 200).json({ department: r.department, ...(leadProposal ? { lead_proposal: leadProposal } : {}) });

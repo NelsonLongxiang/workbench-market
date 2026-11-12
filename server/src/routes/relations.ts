@@ -16,7 +16,7 @@ import { HttpError } from '../errors.ts';
 import { identity } from '../identity.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import type { GrantService } from '../services/grant.ts';
-import { CONFIRM_TEXT, type ProposalActor, type ProposalRow, type RelationProposalService } from '../services/relation-proposal.ts';
+import { CONFIRM_BY, CONFIRM_TEXT, type ProposalActor, type ProposalRow, type RelationProposalService } from '../services/relation-proposal.ts';
 
 export type RelationRouteDeps = {
   markOdooAdmin: (req: express.Request) => Promise<void>;
@@ -59,7 +59,7 @@ export function registerRelationRoutes(app: HttpService, deps: RelationRouteDeps
     const no = proposals().confirmRefusal(p, w.actor);
     const mine = p.proposed_by === w.actor.by || (!!w.actor.principal && p.proposed_by_principal === w.actor.principal);
     return {
-      ...p, can_approve: !no, approve_denied: no?.code ?? null, approve_denied_text: no ? (CONFIRM_TEXT[no.code] ?? no.message) : null,
+      ...p, confirm_by_text: CONFIRM_BY[p.kind], can_approve: !no, approve_denied: no?.code ?? null, approve_denied_text: no ? (CONFIRM_TEXT[no.code] ?? no.message) : null,
       can_reject: p.status === 'pending' && (w.admin || mine || !no),
     };
   };
