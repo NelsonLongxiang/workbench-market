@@ -367,6 +367,15 @@ try {
       leadByMgmt: await approve(pLead, as(SESSIONS.noAdminFlag)), deptByMgmt: await approve(pDept, as(SESSIONS.noAdminFlag)),
     };
     const seen = listMgmt.json?.proposals?.find((p) => p.id === pClaim);
+    // 页面用的只增字段：mine（是不是看的人提的）、显示名（不露代号）
+    const listTok = await srv.call('GET', '/api/relations/proposals', { headers: token });
+    const tokClaim = listTok.json?.proposals?.find((p) => p.id === pClaim), tokDept = listTok.json?.proposals?.find((p) => p.id === pDept);
+    const names = seen && { mine: seen.mine, team: seen.team_name, node: seen.node_name, dept: seen.department_name, by: seen.proposed_by_name };
+    check(show(names) === show({ mine: false, team: 'Other', node: '合成节点', dept: '合成质检部', by: '管理员（口令）' })
+      && tokClaim?.mine === true && tokDept?.mine === true && tokDept.principal_name === 'Synthetic root-admin' && tokDept.department_name === '合成质检部' && tokDept.decided_by_name === null
+      && !show(seen).includes('"proposed_by_name":"admin-token"'),
+      '提议列表给页面的：mine（管理层看口令提的是假，口令看自己提的是真）；团队、节点、部门、被提名的人、提议人都给显示名，口令说「管理员（口令）」；没处理的处理人为 null',
+      show({ names, tokClaim: tokClaim?.mine, tokDept: tokDept && [tokDept.mine, tokDept.principal_name, tokDept.department_name, tokDept.decided_by_name] }));
     const claimByMgmt = await approve(pClaim, as(SESSIONS.noAdminFlag)); // 管理层（不是管理员）：经写请求总门的放行进来
     const leadByOwner = await approve(pLead, {}); // 属主（本机命令行）
     const deptByOwner = await approve(pDept, {});
@@ -377,11 +386,39 @@ try {
     };`);
     const code = (r) => `${r.status}:${r.json?.error ?? r.json?.proposal?.status}`;
     check(show(Object.fromEntries(Object.entries(tries).map(([k, r]) => [k, code(r)]))) === show({ claimByToken: '403:business_confirm_required', claimByRoot: '403:business_confirm_required', claimByAlpha: '403:business_confirm_required', leadByMgmt: '403:owner_required', deptByMgmt: '403:owner_required' })
-      && seen?.can_approve === true && !(listAlpha.json?.proposals ?? []).some((p) => p.id === pClaim) && (attnMgmt.json?.items ?? []).some((i) => i.source === 'relation-proposals' && i.source_id === String(pClaim))
+      && seen?.can_approve === true && !(listAlpha.json?.proposals ?? []).some((p) => p.id === pClaim) && (attnMgmt.json?.items ?? []).some((i) => i.source === 'relation-proposals' && i.source_id === String(pClaim) && i.link === '/team')
       && code(claimByMgmt) === '200:approved' && code(leadByOwner) === '200:approved' && code(deptByOwner) === '200:approved'
       && confirmed.claimed === 'qa' && confirmed.rootTeam?.includes('team-lead') && confirmed.rootQa?.includes('dept-lead'),
       '确认：认领要管理层或接收部门的负责人（管理口令、只有系统管理员身份的登录、不相干的员工 403），负责人只有属主（管理层 403）；管理层在列表和「等你拍板」里看得到、能确认；属主确认之后关系才生效',
       show({ tries: Object.fromEntries(Object.entries(tries).map(([k, r]) => [k, code(r)])), seen: seen && [seen.can_approve, seen.approve_denied_text], claimByMgmt: code(claimByMgmt), leadByOwner: code(leadByOwner), deptByOwner: code(deptByOwner), confirmed }));
+    // 2b) 驳回只归能确认的人，提的人只能撤回自己提的；系统管理员不替业务驳回别人提的（管理口令、管理员登录都一样）
+    {
+      const reject = (id, who) => srv.call('POST', `/api/relations/proposals/${id}/reject`, { ...who, body: { reason: '合成' } });
+      const pLeadRoot = (await srv.call('POST', '/api/teams/leads', { ...asRoot, body: { ...tMain, principal: 'user:beta' } })).json?.proposal?.id; // 管理员登录提的
+      const pDeptTok = (await srv.call('PUT', '/api/departments/qa', { headers: token, body: { name: '合成质检部', lead: 'user:beta' } })).json?.lead_proposal?.id; // 口令提的
+      const pMoveTok = (await srv.call('POST', '/api/teams/claim', { headers: token, body: { ...tOther, department: 'sales' } })).json?.proposal?.id; // 口令提的认领
+      const rootList = (await srv.call('GET', '/api/relations/proposals', asRoot)).json?.proposals ?? [];
+      const rootSees = rootList.filter((p) => p.status === 'pending').map((p) => p.id).sort();
+      const rootLead = rootList.find((p) => p.id === pLeadRoot);
+      const r = {
+        tokRejectsRootLead: await reject(pLeadRoot, { headers: token }), rootRejectsTokDept: await reject(pDeptTok, asRoot), rootRejectsTokMove: await reject(pMoveTok, asRoot),
+        rootWithdrawsOwn: await reject(pLeadRoot, asRoot), ownerRejectsDept: await reject(pDeptTok, {}), mgmtRejectsMove: await reject(pMoveTok, as(SESSIONS.noAdminFlag)),
+      };
+      const codes = Object.fromEntries(Object.entries(r).map(([k, v]) => [k, `${v.status}:${v.json?.error ?? v.json?.proposal?.status}`]));
+      check(show(codes) === show({ tokRejectsRootLead: '403:reject_not_allowed', rootRejectsTokDept: '403:reject_not_allowed', rootRejectsTokMove: '403:reject_not_allowed', rootWithdrawsOwn: '200:rejected', ownerRejectsDept: '200:rejected', mgmtRejectsMove: '200:rejected' })
+        && show(rootSees) === show([pLeadRoot]) && rootLead?.mine === true && rootLead.can_reject === true && rootLead.can_approve === false,
+        '驳回：系统管理员（管理口令、管理员登录）驳回别人提的负责人、认领提议 403；撤回自己提的 200；能确认的人（属主对负责人、管理层对认领）驳回 200；管理员登录的列表里只看到自己提的那条（can_reject 是撤回、can_approve 假） [red-line:relations-need-confirmation]',
+        show({ codes, rootSees, ids: { pLeadRoot, pDeptTok, pMoveTok }, rootLead: rootLead && [rootLead.mine, rootLead.can_reject, rootLead.can_approve] }));
+      // 处理过的也按看的人裁剪：看自己提的、自己处理的；别人提、别人处理的不列（属主全看）
+      const idsOf = async (who) => ((await srv.call('GET', '/api/relations/proposals', who)).json?.proposals ?? []).map((p) => p.id);
+      const mgmtIds = await idsOf(as(SESSIONS.noAdminFlag)), rootIds = await idsOf(asRoot), ownerIds = await idsOf({});
+      const has = (ids, id) => ids.includes(id);
+      check(has(mgmtIds, pMoveTok) && !has(mgmtIds, pDeptTok) && !has(mgmtIds, pLeadRoot)
+        && has(rootIds, pLeadRoot) && !has(rootIds, pDeptTok) && !has(rootIds, pMoveTok)
+        && [pLeadRoot, pDeptTok, pMoveTok].every((id) => has(ownerIds, id)),
+        '处理过的提议也按看的人裁剪：管理层看得到自己驳回的认领，看不到属主驳回的、管理员登录撤回的；管理员登录只看得到自己撤回的那条；属主全看',
+        show({ mgmt: [pMoveTok, pDeptTok, pLeadRoot].map((id) => has(mgmtIds, id)), root: [pLeadRoot, pDeptTok, pMoveTok].map((id) => has(rootIds, id)), owner: [pLeadRoot, pDeptTok, pMoveTok].map((id) => has(ownerIds, id)) }));
+    }
     // 3) 接收部门的负责人（dept:<部门> 有拍板授予）能确认挂到他部门的认领；没有授予的部门负责人（只在部门表里）不能
     const g = await srv.call('POST', '/api/grants', { body: { principal: 'user:beta', role: 'dept-lead', scope: 'dept:ops', reason: '合成：ops 负责人' } });
     await srv.call('POST', `/api/grants/${g.json?.grant?.id}/submit`); await srv.call('POST', `/api/grants/${g.json?.grant?.id}/approve`);
@@ -411,9 +448,74 @@ try {
     const staff = await srv.call('GET', '/api/attention', as(SESSIONS.alpha));
     db.prepare('UPDATE a2a_rosters SET received_at = ? WHERE host = ?').run(now, HOST);
     const item = (r) => (r.json?.items ?? []).find((i) => i.source === 'team-health' && i.phase === 'roster-stale');
-    check(asListed === '2000-01-01T00:00:00.000Z' && !item(fresh) && item(stale)?.title?.includes('合成节点') && item(stale)?.title?.includes('60 分钟') && !item(stale)?.title?.includes(HOST) && !item(staff),
+    check(asListed === '2000-01-01T00:00:00.000Z' && item(stale)?.link === '/team' && !item(fresh) && item(stale)?.title?.includes('合成节点') && item(stale)?.title?.includes('60 分钟') && !item(stale)?.title?.includes(HOST) && !item(staff),
       '名册超过阈值（缺省 60 分钟）没更新：进管理员的「等你拍板」，写节点名不写节点标识；新鲜的不列；员工看不到；库里的 SQLite 时刻给出去统一成 ISO',
       show({ fresh: !!item(fresh), stale: item(stale)?.title, staff: !!item(staff) }));
+  }
+
+  // ---------- 八之五、没人处理的提议失效（不是驳回）：目标不在了、超过期限；接口给 outcome 和原因；失效的留 7 天 ----------
+  {
+    const inproc = (body) => {
+      const script = `
+        const { svc } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/context.ts')).href)});
+        const out = (() => { ${body} })();
+        console.log('OUT ' + JSON.stringify(out)); process.exit(0);`;
+      const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', script], { cwd: join(ROOT, 'server'), env: { ...process.env, DATA_DIR: data, NODE_ENV: 'test', REDIS_URL: '' }, encoding: 'utf8' });
+      const m = /OUT (.*)/.exec(r.stdout ?? '');
+      return m ? JSON.parse(m[1]) : { error: (r.stderr ?? '').slice(-400) };
+    };
+    await srv.call('PUT', '/api/departments/tmp', { body: { name: '合成临时部' } });
+    const pGone = (await srv.call('PUT', '/api/departments/tmp', { headers: token, body: { name: '合成临时部', lead: 'user:beta' } })).json?.lead_proposal?.id;
+    await srv.call('DELETE', '/api/departments/tmp'); // 部门删了：提议的目标不在了
+    const pOld = (await srv.call('POST', '/api/teams/leads', { headers: token, body: { host: HOST, team: TEAM, principal: 'user:no-flag' } })).json?.proposal?.id;
+    db.prepare('UPDATE relation_proposals SET proposed_at = ? WHERE id = ?').run(Date.now() - 20 * 86_400_000, pOld); // 20 天前提的
+    const pLive = (await srv.call('POST', '/api/teams/claim', { headers: token, body: { host: HOST, team: OTHER, department: 'ops' } })).json?.proposal?.id;
+    const pBack = (await srv.call('PUT', '/api/departments/sales', { headers: token, body: { name: '合成销售部', lead: 'user:no-flag' } })).json?.lead_proposal?.id;
+    await srv.call('POST', `/api/relations/proposals/${pBack}/reject`, { headers: token, body: { reason: '合成：提错了' } }); // 提的人撤回
+    const n = inproc('return svc("relationProposals").expireStale(Date.now());');
+    const list = (await srv.call('GET', '/api/relations/proposals', { headers: token })).json?.proposals ?? [];
+    const of = (id) => { const p = list.find((x) => x.id === id); return p && `${p.outcome}:${p.outcome_reason ?? ''}:${p.status}`; };
+    const gone = list.find((x) => x.id === pGone);
+    const got = { gone: of(pGone), old: of(pOld), live: of(pLive), back: of(pBack) };
+    // 第一节口令提的认领（后来属主直接认领了同一个部门）也在这一轮失效：团队已经挂到这个部门了
+    const satisfied = list.find((x) => x.outcome === 'expired' && x.outcome_reason === '团队已经挂到这个部门了' && x.team === TEAM);
+    check(n === 3 && !!satisfied && show(got) === show({ gone: 'expired:部门已经不在了:rejected', old: 'expired:超过 14 天没人处理:rejected', live: 'pending::pending', back: 'withdrawn:合成：提错了:rejected' })
+      && gone?.decided_by_name === '系统' && gone.can_reject === false && gone.can_approve === false,
+      '没人处理的提议失效：部门删了、超过 14 天的、团队已经挂到要挂的部门的都失效（outcome expired，写原因，处理人说「系统」，没有按钮），还有效的照旧待确认；提的人撤回的是 withdrawn，和失效、驳回分开',
+      show({ n, got, gone: gone && [gone.decided_by_name, gone.can_reject, gone.can_approve] }));
+    db.prepare('UPDATE relation_proposals SET decided_at = ? WHERE id = ?').run(Date.now() - 8 * 86_400_000, pGone); // 失效 8 天了
+    const later = (await srv.call('GET', '/api/relations/proposals', { headers: token })).json?.proposals ?? [];
+    check(!later.some((x) => x.id === pGone) && later.some((x) => x.id === pOld),
+      '失效的在提议人那里留 7 天：8 天前失效的不再列，刚失效的还在', show(later.map((x) => [x.id, x.outcome])));
+    // 团队不在名册要「持续」才算：节点照常在报、这个团队连续不在超过 24 小时；短暂掉出又回来的不收；节点整个停推的只走总期限
+    const sqlAt = (ms) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+    const change = db.prepare('INSERT INTO a2a_roster_changes (host, kind, team, seat, detail, at) VALUES (?, ?, ?, \'\', \'{}\', ?)');
+    const otherSeat = db.prepare('SELECT * FROM a2a_roster_seats WHERE host = ? AND team = ?').all(HOST, OTHER);
+    const dropOther = () => db.prepare('DELETE FROM a2a_roster_seats WHERE host = ? AND team = ?').run(HOST, OTHER);
+    const restoreOther = () => { for (const r of otherSeat) db.prepare(`INSERT OR REPLACE INTO a2a_roster_seats (${Object.keys(r).join(', ')}) VALUES (${Object.keys(r).map(() => '?').join(', ')})`).run(...Object.values(r)); };
+    const stateOf = (id) => db.prepare('SELECT status, reason FROM relation_proposals WHERE id = ?').get(id);
+    const expire = () => inproc('return svc("relationProposals").expireStale(Date.now());');
+    const t = Date.now();
+    db.prepare('UPDATE a2a_rosters SET received_at = ? WHERE host = ?').run(sqlAt(t), HOST); // 节点照常在报
+    dropOther(); change.run(HOST, 'team-removed', OTHER, sqlAt(t - 3600_000));
+    expire(); const shortGone = stateOf(pLive).status;
+    change.run(HOST, 'team-removed', OTHER, sqlAt(t - 30 * 3600_000)); change.run(HOST, 'team-added', OTHER, sqlAt(t - 3600_000)); restoreOther();
+    expire(); const cameBack = stateOf(pLive).status;
+    dropOther(); change.run(HOST, 'team-removed', OTHER, sqlAt(t - 25 * 3600_000));
+    expire(); const longGone = stateOf(pLive);
+    restoreOther(); change.run(HOST, 'team-added', OTHER, sqlAt(t));
+    // 节点整个停推：另一个节点，名册很久没报，它名下的团队 48 小时前就不在了
+    db.prepare("INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES ('b1b2b3b4', 'https://node-b.synthetic.invalid', 'zone2', '2000-01-01 00:00:00', '2000-01-01 00:00:00')").run();
+    change.run('b1b2b3b4', 'team-removed', 'zone2/canvas/Gone', sqlAt(t - 48 * 3600_000));
+    const pNode = Number(db.prepare("INSERT INTO relation_proposals (kind, host, team, department_id, proposed_by, proposed_at) VALUES ('team-claim', 'b1b2b3b4', 'zone2/canvas/Gone', 'ops', 'admin-token', ?)").run(t).lastInsertRowid);
+    expire(); const nodeStale = stateOf(pNode).status;
+    db.prepare('UPDATE relation_proposals SET proposed_at = ? WHERE id = ?').run(t - 20 * 86_400_000, pNode);
+    expire(); const nodeStaleOld = stateOf(pNode);
+    db.prepare("DELETE FROM a2a_rosters WHERE host = 'b1b2b3b4'").run();
+    check(shortGone === 'pending' && cameBack === 'pending' && longGone.status === 'rejected' && longGone.reason === '团队已经不在节点名册里超过 24 小时'
+      && nodeStale === 'pending' && nodeStaleOld.status === 'rejected' && nodeStaleOld.reason === '超过 14 天没人处理',
+      '团队不在名册要持续才算：掉出一小时提议还在；掉出过 30 小时又回来提议还在；连续不在 25 小时失效；节点整个停推的，团队不在 48 小时也不收，只走 14 天的总期限',
+      show({ shortGone, cameBack, longGone, nodeStale, nodeStaleOld }));
   }
 
   // ---------- 七、退回待认领；有团队挂着的部门不能删 ----------

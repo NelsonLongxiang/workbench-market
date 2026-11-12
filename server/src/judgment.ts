@@ -24,6 +24,7 @@
 import { root } from './root-context.ts';
 import { svc } from './context.ts';
 import type { GrantService, GrantRow } from './services/grant.ts';
+import type { PrincipalService } from './services/principal.ts';
 import { domainOf, type Kind, type Permission } from './roles.ts';
 import { ANONYMOUS_ACTIONS, builtin, narrowed, type BuiltinName } from './judgment-builtins.ts';
 
@@ -119,6 +120,46 @@ export function judgeBuiltin(input: JudgeInput): JudgeResult {
   if (ANONYMOUS_ACTIONS.includes(action)) return { verdict: 'allow', rule: 'anonymous-floor' };
   // 6. 其余
   return { verdict: 'deny', rule: own.scoped ? 'grant-scope-unknown' : 'no-grant' };
+}
+
+/**
+ * 部门范围的判定（对象范围接进统一判定之前的过渡，L13 的一部分；将来并进 judge）：
+ * 这个主体有没有一条已放行、没过期、没撤销的授予，范围是 * 或者正好是这个部门（dept:<部门标识>），角色展开后的权限盖住这个动作和类别。
+ *
+ * 数据视图按部门放行台的读写、事项按部门定可见范围，都问这一处。约定：
+ *   · 只认授予。部门成员表、部门负责人、团队认领、成员分配这些「关系」（team-relation.ts 的 relationOf）不带来权限，只能用来收窄；
+ *     带业务写的授予要管理层或属主放行、带业务拍板的只有属主放行（services/grant.ts 的三档），所以系统管理员一个人造不出这里的 allow。
+ *   · 内置身份（管理口令、本机命令行）不是主体，不经这里；调用方按自己的口径处理（数据视图先拒管理口令）。
+ *   · 主体停用、待放行的授予、范围是别的部门的授予：deny。决定类只给人；席位的责任人也要有同一项权限（和 judge 第 3、4 步同口径）。
+ *   · action、kind 由调用方给登记过的动作和它的类别，这里不查动作清单。
+ */
+export type ScopedInput = { principal: string; action: string; kind: Kind; scope: string; now?: number };
+export type ScopedResult = { verdict: 'allow' | 'deny'; rule: string; grant: number | null };
+const DEPT_SCOPE = /^dept:[a-z][a-z0-9-]{0,47}$/;
+
+function grantWithin(principal: string, action: string, kind: Kind, scope: string, now: number): GrantRow | null {
+  const views = new Map(grants().roles().map((r) => [r.id, r]));
+  for (const g of grants().activeFor(principal, now)) {
+    if (g.scope !== '*' && g.scope !== scope) continue;
+    const role = views.get(g.role);
+    if (role && permits(role.closure, action, kind).covers) return g;
+  }
+  return null;
+}
+
+export function scopedVerdict(input: ScopedInput): ScopedResult {
+  const now = input.now ?? Date.now();
+  if (!DEPT_SCOPE.test(input.scope)) return { verdict: 'deny', rule: 'scope-unsupported', grant: null };
+  const p = svc<PrincipalService>('principals').get(input.principal);
+  if (!p || p.status !== 'active') return { verdict: 'deny', rule: 'principal-inactive', grant: null };
+  if (input.kind === 'decide' && p.kind !== 'person') return { verdict: 'deny', rule: 'decide-non-person', grant: null };
+  const g = grantWithin(p.id, input.action, input.kind, input.scope, now);
+  if (!g) return { verdict: 'deny', rule: 'no-grant', grant: null };
+  if (p.kind !== 'person') {
+    const resp = p.owner ? svc<PrincipalService>('principals').get(p.owner) : null;
+    if (!resp || resp.status !== 'active' || !grantWithin(resp.id, input.action, input.kind, input.scope, now)) return { verdict: 'deny', rule: 'responsible-lacks-permission', grant: g.id };
+  }
+  return { verdict: 'allow', rule: g.scope === '*' ? 'grant' : 'grant-dept', grant: g.id };
 }
 
 /** 判一次：按 bail 派发，没有监听器给结论时用内置的六步（内置监听器装上之后不会走到这里） */
