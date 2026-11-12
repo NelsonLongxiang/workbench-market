@@ -7,7 +7,7 @@
  *  日志只增不改：每条事实一行；被拒的（表里没有、终态之后才到）也留一行「收到，未采信」，带原因。 */
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Alert, App, Badge, Button, Card, Col, Descriptions, Empty, Flex, Input, List, Radio, Row, Segmented, Space, Tag, Typography } from 'antd';
+import { Alert, App, Badge, Button, Card, Col, DatePicker, Descriptions, Empty, Flex, Input, List, Popover, Radio, Row, Segmented, Space, Tag, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import WmPage from '../components/WmPage';
 import RelTime from '../components/RelTime';
@@ -21,7 +21,8 @@ import WorkItemTimeline, { STATE, stateTag } from '../components/WorkItemTimelin
 export { STATE };
 import { choicesFor, routeFor, viewerOf, type Can, seatLine, showProgress, subitemsOf, ticketStateLabel } from '../work-item-view';
 import { teamLabel } from '../people';
-import { attachmentsOf, dueLabel, dueOf, sizeLabel } from '../work-item-extras';
+import { attachmentsOf, dueEditable, dueErrorText, dueLabel, dueOf, hasDueField, overdueOf, sizeLabel } from '../work-item-extras';
+import { getAuthMe, setWorkItemDue } from '../api';
 import { NO_NAMES, cleanSeatName, lifecycleNames, lineName, rosterNames, stageName, withRoster, type Names } from '../names';
 import { actorLabel, seatLabel, askerLabel, textOf, who, PROGRESS_STATE, TERMINAL, creatorLabel, hiddenInTimeline, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
 
@@ -183,6 +184,39 @@ function Artifacts({ list, empty }: { list: Artifact[]; empty: string }) {
 }
 
 
+/** 期限那一行：日期加离今天多远，过期了标红（照服务端的 overdue）；没有期限写「不限」。建立人能改、能清掉 */
+function DueLine({ itemId, due, overdue, editable, onSaved }: { itemId: string; due: string | null; overdue: boolean; editable: boolean; onSaved: () => void }) {
+  const { message } = App.useApp();
+  const [open, setOpen] = useState(false);
+  const [pick, setPick] = useState<string | null>(due);
+  const [busy, setBusy] = useState(false);
+  const save = async (v: string | null) => {
+    setBusy(true);
+    const r = await setWorkItemDue(itemId, v);
+    setBusy(false);
+    if (r.status >= 200 && r.status < 300) {
+      setOpen(false);
+      const n = Number(r.body?.notified) || 0;
+      void message.success(v ? `期限改成 ${v}${n ? '，已告诉在办的席位' : ''}` : `期限清掉了${n ? '，已告诉在办的席位' : ''}`);
+      onSaved();
+    } else void message.error(dueErrorText(r.status, typeof r.body?.error === 'string' ? r.body.error : undefined));
+  };
+  return <Space size={6} wrap data-testid="work-item-due-line">
+    <span data-testid="work-item-due">{due ? dueLabel(due, dayjs().format('YYYY-MM-DD')) : '不限'}</span>
+    {overdue && <Tag color="error" data-testid="work-item-overdue">已过期</Tag>}
+    {editable && <Popover trigger="click" open={open} onOpenChange={(o) => { setOpen(o); if (o) setPick(due); }} title="改期限"
+      content={<Space direction="vertical" data-testid="work-item-due-editor">
+        <DatePicker value={pick ? dayjs(pick) : null} onChange={(d) => setPick(d ? d.format('YYYY-MM-DD') : null)} placeholder="选一个日期" />
+        <Space>
+          <Button type="primary" size="small" loading={busy} disabled={!pick || pick === due} onClick={() => void save(pick)} data-testid="work-item-due-save">保存</Button>
+          {due && <Button size="small" disabled={busy} onClick={() => void save(null)} data-testid="work-item-due-clear">清掉期限</Button>}
+        </Space>
+      </Space>}>
+      <Typography.Link data-testid="work-item-due-edit">{due ? '改' : '加一个'}</Typography.Link>
+    </Popover>}
+  </Space>;
+}
+
 export default function WorkItem() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
@@ -227,6 +261,9 @@ export default function WorkItem() {
   const openAsks = asks ? asks.filter((a) => a.status === 'open').length : 0;
   // 「你」只给轮到的人：can / turn / creator 都取自详情应答（#587），不比对登录名、不看是不是管理员
   const viewer = viewerOf(data, who(item?.creator_principal || item?.created_by).replace(/^(user|human):/, ''));
+  // 登录的人是谁（主体）：只用来决定期限那一行给不给「改」（服务端没给 can.due 时）
+  const [me, setMe] = useState<string | null>(null);
+  useEffect(() => { void getAuthMe().then((m) => { const p = (m as { principal?: unknown } | null)?.principal; setMe(typeof p === 'string' && p ? p : null); }); }, []);
   const can = viewer.can;
   // 建立人能不能在这一页答：详情带了提问列表（建立人答复的入口开了），或者「关注」给了他答法
   const hint = item ? stateHint(item.state, item.seat, asks ? openAsks === 0 && asks.length > 0 : lastAskAnswered(data?.log ?? []), viewer, asks !== undefined || can.answer) : null;
@@ -255,8 +292,9 @@ export default function WorkItem() {
                 { key: 'obj', label: '哪条线 / 哪一步', children: [lineName(item.object, names), stageName(item.phase, names)].filter(Boolean).join(' / ') || '—' },
                 { key: 'eval', label: '接单判断', children: item.eval ? `${VERDICT[item.eval] ?? item.eval}${item.eval_reason ? `（${item.eval_reason}）` : ''}` : '—' },
                 { key: 'at', label: '最近变化', children: <RelTime value={item.updated_at} /> },
-                // 期限：服务端给了才显示（没给不写「不限」，可能其实有期限）
-                ...(dueOf(item) ? [{ key: 'due', label: '期限', children: <span data-testid="work-item-due">{dueLabel(dueOf(item)!, dayjs().format('YYYY-MM-DD'))}</span> }] : []),
+                // 期限：服务端给了这个字段才显示（旧服务端没有这个键，不写「不限」，可能其实有期限）；建立人、事项没结束时能改
+                ...(hasDueField(data?.item) || dueOf(item) ? [{ key: 'due', label: '期限', children: <DueLine itemId={item.id} due={dueOf(item)} overdue={overdueOf(data?.item)}
+                  editable={dueEditable(data, me, TERMINAL)} onSaved={() => void load()} /> }] : []),
               ]} />
             </Flex>
           </Card>

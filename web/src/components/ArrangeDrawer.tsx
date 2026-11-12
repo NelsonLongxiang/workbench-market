@@ -1,11 +1,14 @@
-/** 「安排一件事」（原型首页「在这里安排一件事」）：交给哪个团队、挂在哪条线哪一步、要做什么、交什么、期限、先过目再派出去。
+/** 「安排一件事」（原型首页「在这里安排一件事」）：交给哪个团队、挂在哪条线哪一步、要做什么、交什么、期限、附件、先过目再派出去。
+ *  附件：选了就先传（PUT /api/work-items/attachments/<名字>），传上的 id 安排时一起带上；最多 5 个、单个 ≤100 MB，传之前先挡。
  *  团队只列 GET /api/work-items/teams 给的；建好直接跳到这件事的详情。常用模板没有接口，先不放。
  *  状态：读团队中 / 没有可派的团队 / 不能安排（未登录、无权限）/ 服务没上线或出错，都在抽屉里说清楚。 */
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, App, Button, DatePicker, Drawer, Empty, Form, Input, Select, Skeleton, Switch } from 'antd';
-import { PaperClipOutlined } from '@ant-design/icons';
-import { getAssignableTeams, postWorkItem } from '../api';
+import './attachments.css';
+import { Alert, App, Button, DatePicker, Drawer, Empty, Form, Input, Select, Skeleton, Switch, Typography, Upload } from 'antd';
+import { CheckCircleFilled, CloseOutlined, LoadingOutlined, PaperClipOutlined } from '@ant-design/icons';
+import { getAssignableTeams, postWorkItem, uploadArrangeAttachment } from '../api';
+import { ATTACH_MAX_FILES, attachProblem, sizeLabel, uploadErrorText } from '../work-item-extras';
 import { EMPTY_FORM, LIMITS, buildBody, errorText, keyFor, resultText, teamOption, teamsBlockedText, validate, type ArrangeForm, type Created, type Team } from '../arrange-view';
 
 export type LineOption = { id: string; label: string };
@@ -23,11 +26,31 @@ export default function ArrangeDrawer({ open, onClose, lines = [], stages = [], 
   const [failure, setFailure] = useState('');
   const [busy, setBusy] = useState(false);
   const attempt = useRef<{ body: string; key: string } | null>(null);
+  /** 选了的附件：正在传 / 传上了（有 id）/ 没传上（写原因）。去掉一个只是不带它，服务端 24 小时后自己清掉没挂出去的 */
+  type Up = { uid: string; name: string; size: number; state: 'uploading' | 'done' | 'error'; id?: string; error?: string };
+  const [ups, setUps] = useState<Up[]>([]);
+  const kept = ups.filter((u) => u.state !== 'error');
+  const pickFile = async (file: File) => {
+    const uid = `${Date.now()}-${Math.random()}`;
+    const problem = attachProblem(file.size, kept.length);
+    if (problem) { setUps((x) => [...x, { uid, name: file.name, size: file.size, state: 'error', error: problem }]); return; }
+    setUps((x) => [...x, { uid, name: file.name, size: file.size, state: 'uploading' }]);
+    let sha = '';
+    try {
+      const d = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+      sha = [...new Uint8Array(d)].map((n) => n.toString(16).padStart(2, '0')).join('');
+    } catch { sha = ''; }
+    const r = await uploadArrangeAttachment(file, sha);
+    const id = r.body && typeof r.body.id === 'string' ? r.body.id : '';
+    setUps((x) => x.map((u) => (u.uid !== uid ? u : (r.status === 201 || r.status === 200) && id
+      ? { ...u, state: 'done', id }
+      : { ...u, state: 'error', error: uploadErrorText(r.status, typeof r.body?.error === 'string' ? r.body.error : undefined) })));
+  };
 
   useEffect(() => {
     if (!open) return;
     setForm({ ...EMPTY_FORM, object: preset?.object ?? '', phase: preset?.phase ?? '' });
-    setErrors({}); setFailure(''); attempt.current = null;
+    setErrors({}); setFailure(''); attempt.current = null; setUps([]);
     setTeams(null);
     void getAssignableTeams().then((r) => { setTeamsStatus(r.status); setTeams(r.teams); });
   }, [open, preset?.object, preset?.phase]);
@@ -36,12 +59,14 @@ export default function ArrangeDrawer({ open, onClose, lines = [], stages = [], 
 
   const submit = async () => {
     const list = teams ?? [];
-    const e = validate(form, list);
+    if (ups.some((u) => u.state === 'uploading')) { setFailure('附件还在传，传完再安排'); return; }
+    const withFiles = { ...form, attachments: ups.flatMap((u) => (u.state === 'done' && u.id ? [u.id] : [])) };
+    const e = validate(withFiles, list);
     setErrors(e); setFailure('');
     if (Object.keys(e).length) return;
-    attempt.current = keyFor(attempt.current, form);
+    attempt.current = keyFor(attempt.current, withFiles);
     setBusy(true);
-    const r = await postWorkItem(buildBody(form, attempt.current.key));
+    const r = await postWorkItem(buildBody(withFiles, attempt.current.key));
     setBusy(false);
     if (r.status === 200 || r.status === 201) {
       const c = (r.body ?? {}) as Created;
@@ -93,9 +118,18 @@ export default function ArrangeDrawer({ open, onClose, lines = [], stages = [], 
         <Form.Item label="期限（可不填）" validateStatus={errors.due ? 'error' : ''} help={errors.due}>
           <DatePicker className="wm-full" placeholder="不限" onChange={(d) => set('due', d ? d.format('YYYY-MM-DD') : '')} />
         </Form.Item>
-        {/* 附件：位置先画上（文件名、大小，详情里能取回）；服务端还不收附件，按钮不能点，不发任何请求 */}
-        <Form.Item label="附件（可不加）" extra="附件现在还不能加。" data-testid="arrange-attachments">
-          <Button icon={<PaperClipOutlined />} disabled>加附件</Button>
+        <Form.Item label="附件（可不加）" extra={`最多 ${ATTACH_MAX_FILES} 个，单个不超过 100 MB；选了就先传上去，安排时一起带上。`} data-testid="arrange-attachments">
+          <Upload multiple showUploadList={false} beforeUpload={(f) => { void pickFile(f); return false; }}>
+            <Button icon={<PaperClipOutlined />} disabled={kept.length >= ATTACH_MAX_FILES} data-testid="arrange-attach-pick">加附件</Button>
+          </Upload>
+          {ups.length > 0 && <ul className="wm-attach-list" data-testid="arrange-attach-list">{ups.map((u) => (
+            <li key={u.uid} data-testid="arrange-attach" data-state={u.state}>
+              {u.state === 'uploading' ? <LoadingOutlined /> : u.state === 'done' ? <CheckCircleFilled className="wm-attach-ok" /> : <CloseOutlined className="wm-attach-bad" />}
+              <Typography.Text ellipsis className="wm-attach-name">{u.name}</Typography.Text>
+              <Typography.Text type={u.state === 'error' ? 'danger' : 'secondary'} className="wm-caption">{u.state === 'error' ? u.error : u.state === 'uploading' ? '正在传…' : sizeLabel(u.size)}</Typography.Text>
+              <Button type="text" size="small" icon={<CloseOutlined />} aria-label={`去掉 ${u.name}`} disabled={u.state === 'uploading'} onClick={() => setUps((x) => x.filter((y) => y.uid !== u.uid))} />
+            </li>
+          ))}</ul>}
         </Form.Item>
         {/* 规范 14 第十节第 3 条：开关叫「先过目再派出去」，下面一行写谁来过目。现在放行的是管理员；
             过目归团队负责人、「交给谁」分组之后（交给团队锁定为开，交给自己的 AI 员工缺省关），这一行按接口给的换 */}
