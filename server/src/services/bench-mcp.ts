@@ -53,6 +53,11 @@ const forSession = (r: Row): BenchRequest => ({ id: Number(r.id), bench: String(
 export function benchRequestsOf(sessionId: number): BenchRequest[] {
   return (db.prepare('SELECT * FROM bench_mcp_requests WHERE session_id = ? ORDER BY id DESC LIMIT 50').all(sessionId) as Row[]).map(forSession);
 }
+/** 本会话的一条台申请（别的会话的和不存在的都是 null） */
+export function benchRequestOfSession(sessionId: number, id: number): BenchRequest | null {
+  const r = db.prepare('SELECT * FROM bench_mcp_requests WHERE id = ? AND session_id = ?').get(id, sessionId) as Row | undefined;
+  return r ? forSession(r) : null;
+}
 /**
  * 会话申请在一个台上用几个工具。台的标识只核写法，不核存不存在：没有授予的会话看不出台存不存在。
  * 写错了标识的申请不会有人看到，应答里说明这一点。
