@@ -39,6 +39,11 @@ export type Result<T> = { ok: true } & T | Refusal;
 const refuse = (http: Refusal['http'], code: string, message: string): Refusal => ({ ok: false, http, code, message });
 const text = (v: string, max: number) => v.slice(0, max);
 const VERB: Record<string, string> = { submit: '提交', approve: '放行', revoke: '撤销', expire: '标成过期' };
+/** 放行被拒时给页面的短说法（按拒绝代码；没列的用拒绝本身的说法） */
+const DENIED_TEXT: Record<string, string> = {
+  owner_required: APPROVAL_TEXT.owner, business_approval_required: APPROVAL_TEXT.business, self_grant: '不能放行授给自己的',
+  drafter_cannot_approve: '起草的人不能自己放行，要另一位放行', expired: '已经过了期限', state: '不在待核',
+};
 
 export class GrantService extends Service {
   private roleViews = new Map<string, RoleView>();
@@ -156,10 +161,11 @@ export class GrantService extends Service {
     return this.move(id, ['draft'], 'pending', 'submit', actor, '', now);
   }
 
-  /** 放行：按三档认放行人（见文件头）；第二、三档起草的人不能自己放行；过了期限的不能生效 */
-  approve(id: number, actor: Actor, now = Date.now()): Result<{ grant: GrantRow }> {
-    const g = db.prepare('SELECT * FROM grants WHERE id = ?').get(id) as GrantRow | undefined;
-    if (!g) return refuse(404, 'grant_missing', `授予 ${id} 不存在`);
+  /**
+   * 这个人能不能放行这条授予。放行接口和授予列表的 can_approve 共用这一处，页面不自己判。
+   * 顺序：各项核对（含不能放行授给自己的）→ 三档放行人 → 第二三档自己起草的 → 期限 → 状态要是待核。
+   */
+  approvalRefusal(g: GrantRow, actor: Actor, now = Date.now()): Refusal | null {
     const bad = this.check(g, actor);
     if (bad) return bad;
     const view = this.roleViews.get(g.role);
@@ -167,9 +173,27 @@ export class GrantService extends Service {
     if (tier === 'owner' && !actor.owner) return refuse(403, 'owner_required', `角色 ${g.role} ${view?.adminLevel ? '是管理员级的' : '带业务的拍板'}，${APPROVAL_TEXT.owner}`);
     if (tier === 'business' && !actor.owner && !this.isBusinessSide(actor.principal, now)) return refuse(403, 'business_approval_required', `角色 ${g.role} 带业务的写，${APPROVAL_TEXT.business}`);
     if (tier !== 'admin' && !actor.owner && (g.created_by === actor.by || (!!actor.principal && g.created_by_principal === actor.principal))) {
-      return refuse(403, 'drafter_cannot_approve', `授予 ${id} 是你起草的，角色 ${g.role} 这一档要另一位放行：${APPROVAL_TEXT[tier]}`);
+      return refuse(403, 'drafter_cannot_approve', `授予 ${g.id} 是你起草的，角色 ${g.role} 这一档要另一位放行：${APPROVAL_TEXT[tier]}`);
     }
-    if (g.expires_at !== null && g.expires_at <= now) return refuse(409, 'expired', `授予 ${id} 已经过了期限，不能生效`);
+    if (g.expires_at !== null && g.expires_at <= now) return refuse(409, 'expired', `授予 ${g.id} 已经过了期限，不能生效`);
+    if (g.status !== 'pending') return refuse(409, 'state', `授予 ${g.id} 现在是 ${g.status}，不能放行`);
+    return null;
+  }
+
+  /** 给页面的：当前这个人能不能放行，不能时的代码和一句说法（说法短，页面原样显示） */
+  approvability(g: GrantRow, actor: Actor, now = Date.now()): { can_approve: boolean; approve_denied: string | null; approve_denied_text: string | null } {
+    const r = this.approvalRefusal(g, actor, now);
+    if (!r) return { can_approve: true, approve_denied: null, approve_denied_text: null };
+    const text = DENIED_TEXT[r.code] ?? r.message;
+    return { can_approve: false, approve_denied: r.code, approve_denied_text: text };
+  }
+
+  /** 放行：按三档认放行人（见文件头）；第二、三档起草的人不能自己放行；过了期限的不能生效 */
+  approve(id: number, actor: Actor, now = Date.now()): Result<{ grant: GrantRow }> {
+    const g = db.prepare('SELECT * FROM grants WHERE id = ?').get(id) as GrantRow | undefined;
+    if (!g) return refuse(404, 'grant_missing', `授予 ${id} 不存在`);
+    const bad = this.approvalRefusal(g, actor, now);
+    if (bad && bad.code !== 'state') return bad;
     return this.move(id, ['pending'], 'active', 'approve', actor, '', now, true);
   }
 

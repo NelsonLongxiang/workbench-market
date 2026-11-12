@@ -54,7 +54,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "2476", "etag": "W/\"9ac-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "2500", "etag": "W/\"9c4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "source": "initial",
               "roles": [
@@ -69,7 +69,7 @@
                   "decides": true,
                   "business_write": true,
                   "approval": "owner",
-                  "approval_text": "要属主放行"
+                  "approval_text": "只有属主能放行"
                 },
                 {
                   "id": "admin",
@@ -119,7 +119,7 @@
                   "decides": false,
                   "business_write": false,
                   "approval": "owner",
-                  "approval_text": "要属主放行"
+                  "approval_text": "只有属主能放行"
                 },
                 {
                   "id": "management",
@@ -132,7 +132,7 @@
                   "decides": true,
                   "business_write": true,
                   "approval": "owner",
-                  "approval_text": "要属主放行"
+                  "approval_text": "只有属主能放行"
                 },
                 {
                   "id": "dept-lead",
@@ -145,7 +145,7 @@
                   "decides": true,
                   "business_write": true,
                   "approval": "owner",
-                  "approval_text": "要属主放行"
+                  "approval_text": "只有属主能放行"
                 },
                 {
                   "id": "member",
@@ -529,7 +529,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "481", "etag": "W/\"1e1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "563", "etag": "W/\"233-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "grant": {
                 "id": 1,
@@ -546,7 +546,10 @@
                 "created_at": 1893456000000,
                 "updated_at": 1893456000000,
                 "source": "manual",
-                "events": [{ "seq": 1, "grant_id": 1, "event": "draft", "from_status": null, "to_status": "draft", "actor": "cli", "actor_principal": null, "reason": "合成：回放", "at": 1893456000000 }]
+                "events": [{ "seq": 1, "grant_id": 1, "event": "draft", "from_status": null, "to_status": "draft", "actor": "cli", "actor_principal": null, "reason": "合成：回放", "at": 1893456000000 }],
+                "can_approve": false,
+                "approve_denied": "state",
+                "approve_denied_text": "不在待核"
               }
             }
           }
@@ -721,10 +724,10 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "315", "etag": "W/\"13b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "397", "etag": "W/\"18d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "grants": [
-                { "id": 1, "principal_id": "user:synthetic-a", "role": "member", "scope": "*", "expires_at": null, "reason": "合成：回放", "status": "revoked", "created_by": "cli", "created_by_principal": null, "approved_by": "cli", "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+                { "id": 1, "principal_id": "user:synthetic-a", "role": "member", "scope": "*", "expires_at": null, "reason": "合成：回放", "status": "revoked", "created_by": "cli", "created_by_principal": null, "approved_by": "cli", "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待核" }
               ]
             }
           }

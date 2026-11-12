@@ -110,7 +110,7 @@ export function isBusinessSide(perms: readonly Permission[]): boolean {
  */
 export type Approval = 'owner' | 'business' | 'admin';
 export const APPROVAL_TEXT: Readonly<Record<Approval, string>> = {
-  owner: '要属主放行', business: '要管理层或属主放行', admin: '管理员即可放行',
+  owner: '只有属主能放行', business: '要管理层或属主放行', admin: '管理员即可放行',
 };
 export const approvalOf = (v: Pick<RoleView, 'adminLevel' | 'businessWrite' | 'businessDecide'>): Approval =>
   (v.adminLevel || v.businessDecide ? 'owner' : v.businessWrite ? 'business' : 'admin');

@@ -254,22 +254,26 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
     res.set('Cache-Control', 'no-store').json({ roles: customRoles().activeDecls() });
   }));
 
+  // 列表和单条都带 can_approve / approve_denied / approve_denied_text：当前看的人能不能放行，和放行接口用同一处判断
   app.get('/api/grants', { action: 'grant.list', kind: 'admin' }, route(async (req, res) => {
-    if (!(await actorOf(req, res))) return;
+    const actor = await actorOf(req, res);
+    if (!actor) return;
     const principal = req.query.principal === undefined ? undefined : str(req.query.principal, 'principal', 160);
     const status = req.query.status === undefined ? undefined : str(req.query.status, 'status', 16);
     if (status !== undefined && !(STATUSES as readonly string[]).includes(status)) throw new HttpError(400, `status 只能是 ${STATUSES.join('、')}`);
     const source = req.query.source === undefined ? undefined : str(req.query.source, 'source', 16);
     if (source !== undefined && source !== 'manual' && source !== 'migration') throw new HttpError(400, 'source 只能是 manual、migration');
     grants().expireDue();
-    res.json({ grants: grants().list({ principal, status: status as GrantStatus | undefined, source: source as 'manual' | 'migration' | undefined }) });
+    const now = Date.now();
+    res.json({ grants: grants().list({ principal, status: status as GrantStatus | undefined, source: source as 'manual' | 'migration' | undefined }).map((g) => ({ ...g, ...grants().approvability(g, actor, now) })) });
   }));
 
   app.get('/api/grants/:id', { action: 'grant.read', kind: 'admin' }, route(async (req, res) => {
-    if (!(await actorOf(req, res))) return;
+    const actor = await actorOf(req, res);
+    if (!actor) return;
     const g = grants().get(idOf(req));
     if (!g) throw new HttpError(404, `授予 ${req.params.id} 不存在`);
-    res.json({ grant: g });
+    res.json({ grant: { ...g, ...grants().approvability(g, actor) } });
   }));
 
   app.post('/api/grants', { action: 'grant.create', kind: 'admin' }, route(async (req, res) => {
