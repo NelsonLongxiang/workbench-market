@@ -49,6 +49,13 @@ export function describe(row: Pick<LogRow, 'detail'>): string {
 }
 
 /** 建立人本人能答的（8e）：「等验收」的事项，验收、退回两种，走 POST /api/work-items/:id/decision */
+/** 条目挂的事项：席位提问的 link 是 /work-items/<id>，事项来源的 source_id 就是事项 id（卡片、驾驶舱的「办理过程」用） */
+export function workItemIdOf(item: Pick<AttentionItem, 'source' | 'source_id' | 'link'>): string | null {
+  if (item.source === 'work-items') return item.source_id;
+  const m = /^\/work-items\/([^/?#]+)/.exec(item.link || '');
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
 export const CREATOR_ANSWERS = ['verify', 'return'];
 
 /**
