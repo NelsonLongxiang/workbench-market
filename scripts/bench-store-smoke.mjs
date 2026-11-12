@@ -570,6 +570,17 @@ try {
   const badLabels = [['x', '不是对象'], [{ nope: { a: 'b' } }, '列不在查询的输出里'], [{ day: {} }, '一个取值都没有'], [{ day: { a: '' } }, '说法是空的'], [{ day: { a: 'x'.repeat(33) } }, '说法太长'], [{ day: { a: { text: 'ok', tone: 'purple' } } }, '颜色不认识'], [{ day: { a: { text: 'ok', html: '<b>' } } }, '说法里多出来的键'], [{ day: { a: 5 } }, '说法是数字'], [{ day: { ['k'.repeat(65)]: 'x' } }, '取值太长'], [{ constructor: { a: 'b' } }, '列名撞原型']];
   for (const [vl, why] of badLabels) ok(`R10 对照不合格被指出：${why}`, vlErrs(vl).length > 0, vlErrs(vl));
 
+  // 按值着色：保存视图描述时核对
+  const trDefs = new Map([['runs', { name: 'runs', columns: [{ name: 'id', type: 'integer', label: '', required: true }, { name: 'status', type: 'text', label: '', required: false }, { name: 'done', type: 'integer', label: '', required: false }], key: ['id'] }]]);
+  const trErrs = (block) => validateViewDoc({ title: '着色', views: [{ key: 'm', title: '主', blocks: [block] }] }, trDefs);
+  const barQ = { dataset: 'runs', group: ['status'], measures: [{ as: 'n', fn: 'sum', col: 'done' }] };
+  const bar1 = (extra) => ({ type: 'bar', query: barQ, x: 'status', y: 'n', ...extra });
+  ok('R11 着色规则合格：柱状图和统计卡都可以带', trErrs(bar1({ tone_rules: [{ col: 'n', op: '<', value: 20, tone: 'danger' }, { col: 'n', op: '>=', value: 80, tone: 'success' }] })).length === 0 && trErrs({ type: 'stat', query: { dataset: 'runs', measures: [{ as: 'v', fn: 'count' }] }, value: 'v', tone_rules: [{ col: 'v', op: '>', value: 0, tone: 'warning' }] }).length === 0, trErrs(bar1({ tone_rules: [{ col: 'n', op: '<', value: 20, tone: 'danger' }] })));
+  const rule = (o) => [{ col: 'n', op: '<', value: 20, tone: 'danger', ...o }];
+  const badRules = [['x', '不是数组'], [[], '一条也没有'], [[...rule({}), ...rule({}), ...rule({})], '超过两条'], [rule({ tone: '#ff0000' }), '给了任意色值'], [rule({ tone: 'primary' }), '不是三种语义色'], [rule({ op: 'like' }), '比较符不认识'], [rule({ op: 'constructor' }), '比较符撞原型'], [rule({ value: '20' }), '值不是数字'], [rule({ value: Infinity }), '值不是有限的数'], [rule({ col: 'status' }), '列不是数值'], [rule({ col: 'nope' }), '列不在输出里'], [rule({ css: 'x' }), '多出来的键']];
+  for (const [tr, why] of badRules) ok(`R11 着色规则不合格被指出：${why}`, trErrs(bar1({ tone_rules: tr })).length > 0, trErrs(bar1({ tone_rules: tr })));
+  ok('R11 多个系列的柱状图、线图不能带着色规则', trErrs(bar1({ y: ['n', 'n'], tone_rules: rule({}) })).length > 0 && trErrs({ type: 'line', query: barQ, x: 'status', y: 'n', tone_rules: rule({}) }).length > 0);
+
   // —— L：数据量上限（设计稿第十一节第 2 条）。用小的上限、不经工作线程，直接验逻辑本体 ——
   console.log('L 数据量上限');
   const capHost = new BenchHost(join(DATA, 'caps'), benchSqlKit('sqlite'), { datasetBytes: 10_000, storeBytes: 16_000, writeBytes: 4_000 });

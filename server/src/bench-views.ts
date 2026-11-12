@@ -74,6 +74,21 @@ export function validateViewDoc(doc: unknown, datasets: Map<string, DatasetDef>)
         if (!list.length || list.length > 12) { errs.push(`${at}：${prop} 须为 1～12 个输出列`); return; }
         for (const n of list) out(cols, n, prop, true);
       };
+      /** 按值着色：最多两条「列、比较符、值 → 语气」。语气只有三种语义色（危险 / 提醒 / 正常），不能给任意色值 */
+      const toneRules = (cols: OutColumn[] | null) => {
+        const v = block.tone_rules;
+        if (v === undefined) return;
+        if (!Array.isArray(v) || !v.length || v.length > 2) { errs.push(`${at}：tone_rules 须为 1～2 条规则`); return; }
+        v.forEach((r: unknown, ri: number) => {
+          const rAt = `${at}：tone_rules 第 ${ri + 1} 条`;
+          if (!isObj(r)) { errs.push(`${rAt}须为对象`); return; }
+          keys(r, ['col', 'op', 'value', 'tone'], rAt);
+          out(cols, r.col, `tone_rules 第 ${ri + 1} 条的 col`, true);
+          if (typeof r.op !== 'string' || !['<', '<=', '>', '>=', '=', '!='].includes(r.op)) errs.push(`${rAt}的 op 须为 < / <= / > / >= / = / !=`);
+          if (typeof r.value !== 'number' || !Number.isFinite(r.value)) errs.push(`${rAt}的 value 须为数字`);
+          if (typeof r.tone !== 'string' || !['danger', 'warning', 'success'].includes(r.tone)) errs.push(`${rAt}的 tone 须为 danger / warning / success`);
+        });
+      };
       const flag = (name: string) => { if (block[name] !== undefined && typeof block[name] !== 'boolean') errs.push(`${at}：${name} 须为 true 或 false`); };
 
       if (type === 'filter-bar') {
@@ -120,8 +135,9 @@ export function validateViewDoc(doc: unknown, datasets: Map<string, DatasetDef>)
       if (block.query === undefined) { errs.push(`${at}：缺 query`); return; }
       const cols = query();
       if (type === 'stat') {
-        keys(block, [...base, 'query', 'value', 'unit'], at);
+        keys(block, [...base, 'query', 'value', 'unit', 'tone_rules'], at);
         out(cols, block.value, 'value');
+        toneRules(cols);
         if (block.unit !== undefined && !isText(block.unit, 12)) errs.push(`${at}：unit 须为 1～12 个字符`);
       } else if (type === 'table') {
         keys(block, [...base, 'query', 'columns', 'page_size', 'value_labels'], at);
@@ -150,7 +166,12 @@ export function validateViewDoc(doc: unknown, datasets: Map<string, DatasetDef>)
         }
         if (block.page_size !== undefined && (!Number.isInteger(block.page_size) || (block.page_size as number) < 5 || (block.page_size as number) > 200)) errs.push(`${at}：page_size 须为 5～200 的整数`);
       } else if (type === 'bar' || type === 'line') {
-        keys(block, [...base, 'query', 'x', 'y', 'series', ...(type === 'bar' ? ['stacked', 'horizontal'] : ['area'])], at);
+        keys(block, [...base, 'query', 'x', 'y', 'series', ...(type === 'bar' ? ['stacked', 'horizontal', 'tone_rules'] : ['area'])], at);
+        if (type === 'bar') {
+          toneRules(cols);
+          // 按值着色是给每根柱子换色，只有一个系列时才说得清
+          if (block.tone_rules !== undefined && (block.series !== undefined || (Array.isArray(block.y) && block.y.length > 1))) errs.push(`${at}：tone_rules 只用在一个系列的柱状图上（不能和 series、多个 y 一起用）`);
+        }
         out(cols, block.x, 'x');
         outMany(cols, block.y, 'y');
         if (block.series !== undefined) {
