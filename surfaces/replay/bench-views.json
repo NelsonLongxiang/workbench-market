@@ -1,0 +1,2402 @@
+{
+  "domain": "bench-views",
+  "what": "数据视图的入口：/api/bench-views 的 17 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": [
+    "GET /api/bench-views",
+    "POST /api/bench-views",
+    "GET /api/bench-views/:bench/datasets",
+    "PUT /api/bench-views/:bench/datasets/:name",
+    "POST /api/bench-views/:bench/datasets/:name/rows",
+    "POST /api/bench-views/:bench/query",
+    "GET /api/bench-views/:bench/datasets/:name/snapshots",
+    "POST /api/bench-views/:bench/datasets/:name/snapshots",
+    "POST /api/bench-views/:bench/restore",
+    "GET /api/bench-views/:bench/view",
+    "PUT /api/bench-views/:bench/view",
+    "GET /api/bench-views/:bench/view/versions",
+    "GET /api/bench-views/:bench/view/diff",
+    "POST /api/bench-views/:bench/view/rollback",
+    "GET /api/bench-views/:bench/render",
+    "POST /api/bench-views/:bench/form",
+    "GET /api/bench-views/:bench/log"
+  ],
+  "exempt": [],
+  "scenarios": [
+    {
+      "name": "off",
+      "what": "缺省配置：开关关着。这组路由每条都回 404，不认人、不建库。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "fixtures": ["identity-fake"],
+      "steps": [
+        {
+          "id": "off-get",
+          "route": "GET /api/bench-views",
+          "class": "invalid",
+          "what": "开关关着：这条路由回 404，登录的管理层也一样",
+          "request": { "method": "GET", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
+        },
+        {
+          "id": "off-post",
+          "route": "POST /api/bench-views",
+          "class": "invalid",
+          "what": "开关关着：这条路由回 404，登录的管理层也一样",
+          "request": { "method": "POST", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
+        },
+        {
+          "id": "off-get-bench-datasets",
+          "route": "GET /api/bench-views/:bench/datasets",
+          "class": "invalid",
+          "what": "开关关着：这条路由回 404，登录的管理层也一样",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/datasets", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
+        },
+        {
+          "id": "off-put-bench-datasets-name",
+          "route": "PUT /api/bench-views/:bench/datasets/:name",
+          "class": "invalid",
+          "what": "开关关着：这条路由回 404，登录的管理层也一样",
+          "request": { "method": "PUT", "path": "/api/bench-views/demo/datasets/orders", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
+        },
+        {
+          "id": "off-post-bench-datasets-name-rows",
+          "route": "POST /api/bench-views/:bench/datasets/:name/rows",
+          "class": "invalid",
+          "what": "开关关着：这条路由回 404，登录的管理层也一样",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/orders/rows?op=replace",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "content-type": "application/json" },
+            "text": "[]"
+          },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
+        },
+        {
+          "id": "off-post-bench-query",
+          "route": "POST /api/bench-views/:bench/query",
+          "class": "invalid",
+          "what": "开关关着：这条路由回 404，登录的管理层也一样",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/query", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
+        },
+        {
+          "id": "off-get-bench-datasets-name-snapshots",
+          "route": "GET /api/bench-views/:bench/datasets/:name/snapshots",
+          "class": "invalid",
+          "what": "开关关着：这条路由回 404，登录的管理层也一样",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/datasets/orders/snapshots", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
+        },
+        {
+          "id": "off-post-bench-datasets-name-snapshots",
+          "route": "POST /api/bench-views/:bench/datasets/:name/snapshots",
+          "class": "invalid",
+          "what": "开关关着：这条路由回 404，登录的管理层也一样",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/datasets/orders/snapshots", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
+        },
+        {
+          "id": "off-post-bench-restore",
+          "route": "POST /api/bench-views/:bench/restore",
+          "class": "invalid",
+          "what": "开关关着：这条路由回 404，登录的管理层也一样",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/restore", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
+        },
+        {
+          "id": "off-get-bench-view",
+          "route": "GET /api/bench-views/:bench/view",
+          "class": "invalid",
+          "what": "开关关着：这条路由回 404，登录的管理层也一样",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/view", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
+        },
+        {
+          "id": "off-put-bench-view",
+          "route": "PUT /api/bench-views/:bench/view",
+          "class": "invalid",
+          "what": "开关关着：这条路由回 404，登录的管理层也一样",
+          "request": { "method": "PUT", "path": "/api/bench-views/demo/view", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
+        },
+        {
+          "id": "off-get-bench-view-versions",
+          "route": "GET /api/bench-views/:bench/view/versions",
+          "class": "invalid",
+          "what": "开关关着：这条路由回 404，登录的管理层也一样",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/view/versions", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
+        },
+        {
+          "id": "off-get-bench-view-diff",
+          "route": "GET /api/bench-views/:bench/view/diff",
+          "class": "invalid",
+          "what": "开关关着：这条路由回 404，登录的管理层也一样",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/view/diff", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
+        },
+        {
+          "id": "off-post-bench-view-rollback",
+          "route": "POST /api/bench-views/:bench/view/rollback",
+          "class": "invalid",
+          "what": "开关关着：这条路由回 404，登录的管理层也一样",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/view/rollback", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
+        },
+        {
+          "id": "off-get-bench-render",
+          "route": "GET /api/bench-views/:bench/render",
+          "class": "invalid",
+          "what": "开关关着：这条路由回 404，登录的管理层也一样",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/render", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
+        },
+        {
+          "id": "off-post-bench-form",
+          "route": "POST /api/bench-views/:bench/form",
+          "class": "invalid",
+          "what": "开关关着：这条路由回 404，登录的管理层也一样",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/form", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
+        },
+        {
+          "id": "off-get-bench-log",
+          "route": "GET /api/bench-views/:bench/log",
+          "class": "invalid",
+          "what": "开关关着：这条路由回 404，登录的管理层也一样",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/log", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
+        },
+        {
+          "id": "off-admin-token",
+          "what": "开关关着：带管理口令也是 404（在认人之前就回了）",
+          "request": { "method": "GET", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
+        },
+        {
+          "id": "off-anonymous",
+          "what": "开关关着：匿名也是 404，不是 401",
+          "request": { "method": "GET", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
+        }
+      ]
+    },
+    {
+      "name": "on",
+      "what": "开关开着。登录走假的提供方；alpha 有管理层授予（范围全部）能读写，beta 只有普通员工的授予（范围全部），读写都进不来，admin 会话没有授予。",
+      "env": { "WM_BENCH_VIEWS": "on", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "fixtures": ["identity-fake"],
+      "steps": [
+        {
+          "id": "seen-alpha",
+          "what": "（准备）让假提供方认出的人进主体表",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "seen-beta",
+          "what": "（准备）让假提供方认出的人进主体表",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "seen-admin",
+          "what": "（准备）让假提供方认出的人进主体表",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-internal-admin-0001" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "grant-mgr-draft",
+          "what": "（准备）本机命令行起草授予",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants", "json": { "scope": "*", "reason": "合成：数据视图回放", "principal": "user:alpha", "role": "management" } },
+          "save": { "g_mgr": "grant.id" },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "grant-mgr-submit",
+          "what": "（准备）提交",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/{{g_mgr}}/submit" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "grant-mgr-approve",
+          "what": "（准备）放行",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/{{g_mgr}}/approve" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "grant-mem-draft",
+          "what": "（准备）本机命令行起草授予",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants", "json": { "scope": "*", "reason": "合成：数据视图回放", "principal": "user:beta", "role": "member" } },
+          "save": { "g_mem": "grant.id" },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "grant-mem-submit",
+          "what": "（准备）提交",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/{{g_mem}}/submit" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "grant-mem-approve",
+          "what": "（准备）放行",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/{{g_mem}}/approve" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "anon-get",
+          "route": "GET /api/bench-views",
+          "class": "unauthorized",
+          "what": "没登录：401",
+          "request": { "method": "GET", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "anon-post",
+          "route": "POST /api/bench-views",
+          "class": "unauthorized",
+          "what": "没登录：401",
+          "request": { "method": "POST", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "anon-get-bench-datasets",
+          "route": "GET /api/bench-views/:bench/datasets",
+          "class": "unauthorized",
+          "what": "没登录：401",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/datasets", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "anon-put-bench-datasets-name",
+          "route": "PUT /api/bench-views/:bench/datasets/:name",
+          "class": "unauthorized",
+          "what": "没登录：401",
+          "request": { "method": "PUT", "path": "/api/bench-views/demo/datasets/orders", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "anon-post-bench-datasets-name-rows",
+          "route": "POST /api/bench-views/:bench/datasets/:name/rows",
+          "class": "unauthorized",
+          "what": "没登录：401",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/datasets/orders/rows?op=replace", "headers": { "x-forwarded-for": "198.51.100.7", "content-type": "application/json" }, "text": "[]" },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "anon-post-bench-query",
+          "route": "POST /api/bench-views/:bench/query",
+          "class": "unauthorized",
+          "what": "没登录：401",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/query", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "anon-get-bench-datasets-name-snapshots",
+          "route": "GET /api/bench-views/:bench/datasets/:name/snapshots",
+          "class": "unauthorized",
+          "what": "没登录：401",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/datasets/orders/snapshots", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "anon-post-bench-datasets-name-snapshots",
+          "route": "POST /api/bench-views/:bench/datasets/:name/snapshots",
+          "class": "unauthorized",
+          "what": "没登录：401",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/datasets/orders/snapshots", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "anon-post-bench-restore",
+          "route": "POST /api/bench-views/:bench/restore",
+          "class": "unauthorized",
+          "what": "没登录：401",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/restore", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "anon-get-bench-view",
+          "route": "GET /api/bench-views/:bench/view",
+          "class": "unauthorized",
+          "what": "没登录：401",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/view", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "anon-put-bench-view",
+          "route": "PUT /api/bench-views/:bench/view",
+          "class": "unauthorized",
+          "what": "没登录：401",
+          "request": { "method": "PUT", "path": "/api/bench-views/demo/view", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "anon-get-bench-view-versions",
+          "route": "GET /api/bench-views/:bench/view/versions",
+          "class": "unauthorized",
+          "what": "没登录：401",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/view/versions", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "anon-get-bench-view-diff",
+          "route": "GET /api/bench-views/:bench/view/diff",
+          "class": "unauthorized",
+          "what": "没登录：401",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/view/diff", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "anon-post-bench-view-rollback",
+          "route": "POST /api/bench-views/:bench/view/rollback",
+          "class": "unauthorized",
+          "what": "没登录：401",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/view/rollback", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "anon-get-bench-render",
+          "route": "GET /api/bench-views/:bench/render",
+          "class": "unauthorized",
+          "what": "没登录：401",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/render", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "anon-post-bench-form",
+          "route": "POST /api/bench-views/:bench/form",
+          "class": "unauthorized",
+          "what": "没登录：401",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/form", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "anon-get-bench-log",
+          "route": "GET /api/bench-views/:bench/log",
+          "class": "unauthorized",
+          "what": "没登录：401",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/log", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "token-read",
+          "route": "GET /api/bench-views",
+          "class": "unauthorized",
+          "what": "管理口令读：403，台里的数据管理口令看不了",
+          "request": { "method": "GET", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "154", "etag": "W/\"9a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_admin_token_denied", "message": "台里是业务数据，管理口令看不了、也改不了；用有管理层授予的账号登录" }
+          }
+        },
+        {
+          "id": "token-write",
+          "route": "POST /api/bench-views",
+          "class": "unauthorized",
+          "what": "管理口令写：403，没有登记出台",
+          "request": { "method": "POST", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "slug": "by-token", "title": "x" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "154", "etag": "W/\"9a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_admin_token_denied", "message": "台里是业务数据，管理口令看不了、也改不了；用有管理层授予的账号登录" }
+          }
+        },
+        {
+          "id": "token-with-login",
+          "route": "GET /api/bench-views",
+          "class": "unauthorized",
+          "what": "管理口令带着管理层的登录一起来：照样 403",
+          "request": { "method": "GET", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "154", "etag": "W/\"9a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_admin_token_denied", "message": "台里是业务数据，管理口令看不了、也改不了；用有管理层授予的账号登录" }
+          }
+        },
+        {
+          "id": "no-grant",
+          "route": "GET /api/bench-views",
+          "class": "unauthorized",
+          "what": "身份来源说是管理员、但没有授予的登录：403",
+          "request": { "method": "GET", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-admin-0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "local-cli",
+          "route": "GET /api/bench-views",
+          "class": "unauthorized",
+          "what": "本机命令行（回环直连、没有登录）：403",
+          "request": { "method": "GET", "path": "/api/bench-views" },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "cross-site",
+          "route": "GET /api/bench-views",
+          "class": "unauthorized",
+          "what": "带跨站标记：403，哪怕是管理层的登录",
+          "request": { "method": "GET", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "43", "etag": "W/\"2b-<指纹>\"", "vary": "Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_cross_origin_denied" }
+          }
+        },
+        {
+          "id": "list-empty",
+          "route": "GET /api/bench-views",
+          "class": "normal",
+          "what": "管理层：读得到，现在一个台都没有",
+          "request": { "method": "GET", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "14", "etag": "W/\"e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "benches": [] }
+          }
+        },
+        {
+          "id": "member-create",
+          "route": "POST /api/bench-views",
+          "class": "unauthorized",
+          "what": "普通员工只读：登记台 403",
+          "request": { "method": "POST", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" }, "json": { "slug": "by-member", "title": "x" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "create-bad-slug",
+          "route": "POST /api/bench-views",
+          "class": "invalid",
+          "what": "标识写法不对",
+          "request": { "method": "POST", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "slug": "../x", "title": "t" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "台的标识须为小写字母或数字开头，只含小写字母、数字、连字符，最多 64 个字符" }
+          }
+        },
+        {
+          "id": "create-no-body",
+          "route": "POST /api/bench-views",
+          "class": "invalid",
+          "what": "没有请求体",
+          "request": { "method": "POST", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "台的标识须为小写字母或数字开头，只含小写字母、数字、连字符，最多 64 个字符" }
+          }
+        },
+        {
+          "id": "create-no-title",
+          "route": "POST /api/bench-views",
+          "class": "invalid",
+          "what": "没写标题",
+          "request": { "method": "POST", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "slug": "demo" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "67", "etag": "W/\"43-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "台的名字须为 1～64 个字符" }
+          }
+        },
+        {
+          "id": "create",
+          "route": "POST /api/bench-views",
+          "class": "normal",
+          "what": "管理层登记一个台：记下是谁建的",
+          "vary": { "bench.created_at": 60000 },
+          "request": { "method": "POST", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "slug": "demo", "title": "示例台" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "98", "etag": "W/\"62-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "bench": { "slug": "demo", "title": "示例台", "created_by": "user:alpha", "created_at": 1893456000000 } }
+          }
+        },
+        {
+          "id": "create-again",
+          "route": "POST /api/bench-views",
+          "class": "invalid",
+          "what": "同一个标识再登记：冲突",
+          "request": { "method": "POST", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "slug": "demo", "title": "再来一个" } },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "63", "etag": "W/\"3f-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "conflict", "message": "已经有标识是 demo 的台" }
+          }
+        },
+        {
+          "id": "ghost-datasets",
+          "route": "GET /api/bench-views/:bench/datasets",
+          "class": "invalid",
+          "what": "没登记的标识：404",
+          "request": { "method": "GET", "path": "/api/bench-views/ghost/datasets", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_not_found" }
+          }
+        },
+        {
+          "id": "ghost-write",
+          "route": "PUT /api/bench-views/:bench/datasets/:name",
+          "class": "invalid",
+          "what": "往没登记的台写：404",
+          "request": {
+            "method": "PUT",
+            "path": "/api/bench-views/ghost/datasets/a",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "columns": [{ "name": "a", "type": "text" }] }
+          },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_not_found" }
+          }
+        },
+        {
+          "id": "ghost-no-grant",
+          "route": "GET /api/bench-views/:bench/datasets",
+          "class": "unauthorized",
+          "what": "没权限的人看不出台存不存在：没登记的也是 403",
+          "request": { "method": "GET", "path": "/api/bench-views/ghost/datasets", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-admin-0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "demo-no-grant",
+          "route": "GET /api/bench-views/:bench/datasets",
+          "class": "unauthorized",
+          "what": "没权限的人看不出台存不存在：登记过的也是 403",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/datasets", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-admin-0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "bench-bad-slug",
+          "route": "GET /api/bench-views/:bench/datasets",
+          "class": "invalid",
+          "what": "路径里的台标识写法不对",
+          "request": { "method": "GET", "path": "/api/bench-views/Demo/datasets", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_not_found" }
+          }
+        },
+        {
+          "id": "datasets-empty",
+          "route": "GET /api/bench-views/:bench/datasets",
+          "class": "normal",
+          "what": "新台没有数据集",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/datasets", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "15", "etag": "W/\"f-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "datasets": [] }
+          }
+        },
+        {
+          "id": "member-datasets",
+          "route": "GET /api/bench-views/:bench/datasets",
+          "class": "unauthorized",
+          "what": "普通员工（范围全部）读：403",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/datasets", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "member-define",
+          "route": "PUT /api/bench-views/:bench/datasets/:name",
+          "class": "unauthorized",
+          "what": "普通员工写不了",
+          "request": {
+            "method": "PUT",
+            "path": "/api/bench-views/demo/datasets/x",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" },
+            "json": { "columns": [{ "name": "a", "type": "text" }] }
+          },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "define-no-columns",
+          "route": "PUT /api/bench-views/:bench/datasets/:name",
+          "class": "invalid",
+          "what": "没写列",
+          "request": { "method": "PUT", "path": "/api/bench-views/demo/datasets/orders", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "50", "etag": "W/\"32-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "至少要有一列" }
+          }
+        },
+        {
+          "id": "define-bad-name",
+          "route": "PUT /api/bench-views/:bench/datasets/:name",
+          "class": "invalid",
+          "what": "数据集的名字写法不对",
+          "request": {
+            "method": "PUT",
+            "path": "/api/bench-views/demo/datasets/Orders",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "columns": [{ "name": "a", "type": "text" }] }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "132", "etag": "W/\"84-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "数据集名须为小写字母开头，只含小写字母、数字、下划线，最多 48 个字符" }
+          }
+        },
+        {
+          "id": "define-bad-type",
+          "route": "PUT /api/bench-views/:bench/datasets/:name",
+          "class": "invalid",
+          "what": "列的类型不认识",
+          "request": {
+            "method": "PUT",
+            "path": "/api/bench-views/demo/datasets/orders",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "columns": [{ "name": "a", "type": "blob" }] }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "116", "etag": "W/\"74-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "第 1 列（a）：类型须为 text / integer / decimal / date / datetime / boolean" }
+          }
+        },
+        {
+          "id": "define",
+          "route": "PUT /api/bench-views/:bench/datasets/:name",
+          "class": "normal",
+          "what": "建数据集",
+          "request": {
+            "method": "PUT",
+            "path": "/api/bench-views/demo/datasets/orders",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "订单", "key": ["id"], "columns": [{ "name": "id", "type": "integer" }, { "name": "day", "type": "date" }, { "name": "region", "type": "text" }, { "name": "amount", "type": "decimal" }] }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "114", "etag": "W/\"72-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "name": "orders", "version": 1, "created": true, "unchanged": false, "added": ["id", "day", "region", "amount"], "removed": [] }
+          }
+        },
+        {
+          "id": "define-same",
+          "route": "PUT /api/bench-views/:bench/datasets/:name",
+          "class": "normal",
+          "what": "同样的定义再发一次",
+          "request": {
+            "method": "PUT",
+            "path": "/api/bench-views/demo/datasets/orders",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "订单", "key": ["id"], "columns": [{ "name": "id", "type": "integer" }, { "name": "day", "type": "date" }, { "name": "region", "type": "text" }, { "name": "amount", "type": "decimal" }] }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "86", "etag": "W/\"56-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "name": "orders", "version": 1, "created": false, "unchanged": true, "added": [], "removed": [] }
+          }
+        },
+        {
+          "id": "datasets",
+          "route": "GET /api/bench-views/:bench/datasets",
+          "class": "normal",
+          "what": "数据集清单",
+          "vary": { "datasets.0.created_at": 60000, "datasets.0.updated_at": 60000 },
+          "request": { "method": "GET", "path": "/api/bench-views/demo/datasets", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "433", "etag": "W/\"1b1-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "datasets": [
+                {
+                  "name": "orders",
+                  "title": "订单",
+                  "version": 1,
+                  "columns": [
+                    { "name": "id", "type": "integer", "label": "", "required": true },
+                    { "name": "day", "type": "date", "label": "", "required": false },
+                    { "name": "region", "type": "text", "label": "", "required": false },
+                    { "name": "amount", "type": "decimal", "label": "", "required": false }
+                  ],
+                  "key": ["id"],
+                  "row_count": 0,
+                  "data_bytes": 0,
+                  "created_at": 1893456000000,
+                  "updated_at": 1893456000000,
+                  "updated_by": "user:alpha"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "rows-member",
+          "route": "POST /api/bench-views/:bench/datasets/:name/rows",
+          "class": "unauthorized",
+          "what": "普通员工写行：403",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/orders/rows?op=append",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001", "content-type": "application/json" },
+            "text": "[]"
+          },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "rows-no-op",
+          "route": "POST /api/bench-views/:bench/datasets/:name/rows",
+          "class": "invalid",
+          "what": "没写 op",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/orders/rows",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "content-type": "application/json" },
+            "text": "[]"
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "83", "etag": "W/\"53-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "op 须为 replace、upsert、append、delete 之一" }
+          }
+        },
+        {
+          "id": "rows-bad-op",
+          "route": "POST /api/bench-views/:bench/datasets/:name/rows",
+          "class": "invalid",
+          "what": "不认识的 op",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/orders/rows?op=nope",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "content-type": "application/json" },
+            "text": "[]"
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "83", "etag": "W/\"53-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "op 须为 replace、upsert、append、delete 之一" }
+          }
+        },
+        {
+          "id": "rows-bad-json",
+          "route": "POST /api/bench-views/:bench/datasets/:name/rows",
+          "class": "invalid",
+          "what": "请求体不是合法的 JSON",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/orders/rows?op=append",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "content-type": "application/json" },
+            "text": "[{\"id\": 9, \"day\": "
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "67", "etag": "W/\"43-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "写入的内容不是合法的 JSON" }
+          }
+        },
+        {
+          "id": "rows-not-array",
+          "route": "POST /api/bench-views/:bench/datasets/:name/rows",
+          "class": "invalid",
+          "what": "请求体不是数组",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/orders/rows?op=append",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "content-type": "application/json" },
+            "text": "{\"id\": 9}"
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "49", "etag": "W/\"31-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "rows 须为数组" }
+          }
+        },
+        {
+          "id": "rows-no-dataset",
+          "route": "POST /api/bench-views/:bench/datasets/:name/rows",
+          "class": "invalid",
+          "what": "数据集不存在",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/nope/rows?op=append",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "content-type": "application/json" },
+            "text": "[]"
+          },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "not_found", "message": "没有数据集 nope" }
+          }
+        },
+        {
+          "id": "rows-unknown-column",
+          "route": "POST /api/bench-views/:bench/datasets/:name/rows",
+          "class": "invalid",
+          "what": "行里有没定义的列",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/orders/rows?op=append",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "content-type": "application/json" },
+            "text": "[{\"id\": 9, \"nope\": 1}]"
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "126", "etag": "W/\"7e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "有 1 处不合格，整批未写入", "details": ["第 1 行：数据集 orders 没有列 nope"] }
+          }
+        },
+        {
+          "id": "rows-bad-key",
+          "route": "POST /api/bench-views/:bench/datasets/:name/rows",
+          "class": "invalid",
+          "what": "幂等键写法不对",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/orders/rows?op=append",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "content-type": "application/json", "idempotency-key": "x" },
+            "text": "[]"
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "78", "etag": "W/\"4e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "幂等键须为 8～128 个可见 ASCII 字符" }
+          }
+        },
+        {
+          "id": "rows-replace",
+          "route": "POST /api/bench-views/:bench/datasets/:name/rows",
+          "class": "normal",
+          "what": "整份替换：请求体是行的数组，幂等键走请求头",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/orders/rows?op=replace",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "content-type": "application/json", "idempotency-key": "replay-replace-0001" },
+            "text": "[{\"id\": 1, \"day\": \"2026-01-05\", \"region\": \"东区\", \"amount\": 1200.5}, {\"id\": 2, \"day\": \"2026-01-20\", \"region\": \"南区\", \"amount\": 860}]"
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "74", "etag": "W/\"4a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "dataset": "orders", "op": "replace", "rows": 2, "row_count": 2, "data_bytes": 64 }
+          }
+        },
+        {
+          "id": "rows-replace-again",
+          "route": "POST /api/bench-views/:bench/datasets/:name/rows",
+          "class": "normal",
+          "what": "带同一个幂等键再发：认得是同一次",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/orders/rows?op=replace",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "content-type": "application/json", "idempotency-key": "replay-replace-0001" },
+            "text": "[{\"id\": 1, \"day\": \"2026-01-05\", \"region\": \"东区\", \"amount\": 1200.5}, {\"id\": 2, \"day\": \"2026-01-20\", \"region\": \"南区\", \"amount\": 860}]"
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "91", "etag": "W/\"5b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "dataset": "orders", "op": "replace", "rows": 2, "row_count": 2, "data_bytes": 64, "duplicate": true }
+          }
+        },
+        {
+          "id": "rows-upsert",
+          "route": "POST /api/bench-views/:bench/datasets/:name/rows",
+          "class": "normal",
+          "what": "按主键更新",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/orders/rows?op=upsert",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "content-type": "application/json" },
+            "text": "[{\"id\": 2, \"day\": \"2026-01-20\", \"amount\": 900}, {\"id\": 3, \"day\": \"2026-02-02\", \"region\": \"东区\", \"amount\": 15}]"
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "98", "etag": "W/\"62-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "dataset": "orders", "op": "upsert", "rows": 2, "row_count": 3, "inserted": 1, "updated": 1, "data_bytes": 96 }
+          }
+        },
+        {
+          "id": "rows-append",
+          "route": "POST /api/bench-views/:bench/datasets/:name/rows",
+          "class": "normal",
+          "what": "追加",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/orders/rows?op=append",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "content-type": "application/json" },
+            "text": "[{\"id\": 4, \"day\": \"2026-02-03\", \"region\": \"西区\", \"amount\": 5}]"
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "87", "etag": "W/\"57-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "dataset": "orders", "op": "append", "rows": 1, "row_count": 4, "inserted": 1, "data_bytes": 128 }
+          }
+        },
+        {
+          "id": "rows-append-dup",
+          "route": "POST /api/bench-views/:bench/datasets/:name/rows",
+          "class": "invalid",
+          "what": "追加撞了主键",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/orders/rows?op=append",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "content-type": "application/json" },
+            "text": "[{\"id\": 4, \"day\": \"2026-02-03\", \"region\": \"西区\", \"amount\": 5}]"
+          },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "69", "etag": "W/\"45-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "conflict", "message": "主键重复：已有同主键的行" }
+          }
+        },
+        {
+          "id": "rows-delete",
+          "route": "POST /api/bench-views/:bench/datasets/:name/rows",
+          "class": "normal",
+          "what": "按主键删行：删之前留了快照",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/orders/rows?op=delete",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "content-type": "application/json" },
+            "text": "[{\"id\": 4}]"
+          },
+          "save": { "snap": "snapshot_id" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "101", "etag": "W/\"65-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "dataset": "orders", "op": "delete", "rows": 1, "row_count": 3, "deleted": 1, "snapshot_id": 1, "data_bytes": 96 }
+          }
+        },
+        {
+          "id": "query-no-body",
+          "route": "POST /api/bench-views/:bench/query",
+          "class": "invalid",
+          "what": "没有查询描述",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/query", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "56", "etag": "W/\"38-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "查询描述须为对象" }
+          }
+        },
+        {
+          "id": "query-no-dataset",
+          "route": "POST /api/bench-views/:bench/query",
+          "class": "invalid",
+          "what": "查一个不存在的数据集",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/query",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "query": { "dataset": "nope" } }
+          },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "not_found", "message": "没有数据集 nope" }
+          }
+        },
+        {
+          "id": "query-bad-fn",
+          "route": "POST /api/bench-views/:bench/query",
+          "class": "invalid",
+          "what": "不认识的聚合",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/query",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "query": { "dataset": "orders", "measures": [{ "as": "n", "fn": "evil" }] } }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "109", "etag": "W/\"6d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "measures 第 1 项：fn 须为 count / count_distinct / sum / avg / min / max" }
+          }
+        },
+        {
+          "id": "query-sql-in-col",
+          "route": "POST /api/bench-views/:bench/query",
+          "class": "invalid",
+          "what": "列名里夹了 SQL",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/query",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "query": { "dataset": "orders", "filter": [{ "col": "id; DROP TABLE x", "op": "eq", "value": 1 }] } }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "69", "etag": "W/\"45-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "filter 第 1 条：列名写法不对" }
+          }
+        },
+        {
+          "id": "query",
+          "route": "POST /api/bench-views/:bench/query",
+          "class": "normal",
+          "what": "分组聚合",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/query",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "query": { "dataset": "orders", "group": ["region"], "measures": [{ "as": "n", "fn": "count" }], "sort": [{ "col": "region" }] } }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "238", "etag": "W/\"ee-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "dataset": "orders",
+              "columns": [{ "name": "region", "type": "text", "label": "region", "role": "dimension" }, { "name": "n", "type": "integer", "label": "n", "role": "measure" }],
+              "truncated": false,
+              "rows": [{ "region": "东区", "n": 2 }, { "region": "南区", "n": 1 }]
+            }
+          }
+        },
+        {
+          "id": "query-member",
+          "route": "POST /api/bench-views/:bench/query",
+          "class": "unauthorized",
+          "what": "普通员工查：403",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/query",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" },
+            "json": { "query": { "dataset": "orders", "sort": [{ "col": "id" }] } }
+          },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "snapshots-no-dataset",
+          "route": "GET /api/bench-views/:bench/datasets/:name/snapshots",
+          "class": "invalid",
+          "what": "数据集不存在",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/datasets/nope/snapshots", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "not_found", "message": "没有数据集 nope" }
+          }
+        },
+        {
+          "id": "snapshots",
+          "route": "GET /api/bench-views/:bench/datasets/:name/snapshots",
+          "class": "normal",
+          "what": "列出快照",
+          "vary": { "snapshots.0.at": 60000 },
+          "request": { "method": "GET", "path": "/api/bench-views/demo/datasets/orders/snapshots", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "124", "etag": "W/\"7c-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "snapshots": [{ "id": 1, "dataset_version": 1, "reason": "before-delete", "row_count": 4, "author": "user:alpha", "at": 1893456000000 }] }
+          }
+        },
+        {
+          "id": "snapshot-member",
+          "route": "POST /api/bench-views/:bench/datasets/:name/snapshots",
+          "class": "unauthorized",
+          "what": "普通员工留快照：403",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/orders/snapshots",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" },
+            "json": { "note": "x" }
+          },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "snapshot-no-dataset",
+          "route": "POST /api/bench-views/:bench/datasets/:name/snapshots",
+          "class": "invalid",
+          "what": "数据集不存在",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/nope/snapshots",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "note": "x" }
+          },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "not_found", "message": "没有数据集 nope" }
+          }
+        },
+        {
+          "id": "snapshot-take",
+          "route": "POST /api/bench-views/:bench/datasets/:name/snapshots",
+          "class": "normal",
+          "what": "手工留一份快照",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/orders/snapshots",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "note": "回放留的" }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "59", "etag": "W/\"3b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "id": 2, "dataset": "orders", "row_count": 3, "unchanged": false }
+          }
+        },
+        {
+          "id": "restore-member",
+          "route": "POST /api/bench-views/:bench/restore",
+          "class": "unauthorized",
+          "what": "普通员工退回快照：403",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/restore", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" }, "json": { "snapshot_id": 1 } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "restore-no-id",
+          "route": "POST /api/bench-views/:bench/restore",
+          "class": "invalid",
+          "what": "没写快照号",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/restore", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "68", "etag": "W/\"44-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "要给 snapshot_id（快照编号）" }
+          }
+        },
+        {
+          "id": "restore-missing",
+          "route": "POST /api/bench-views/:bench/restore",
+          "class": "invalid",
+          "what": "快照号不存在",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/restore", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "snapshot_id": 999999 } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "not_found", "message": "没有快照 #999999" }
+          }
+        },
+        {
+          "id": "restore-text-id",
+          "route": "POST /api/bench-views/:bench/restore",
+          "class": "invalid",
+          "what": "快照号不是整数",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/restore", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "snapshot_id": "1" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "68", "etag": "W/\"44-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "要给 snapshot_id（快照编号）" }
+          }
+        },
+        {
+          "id": "restore-negative-id",
+          "route": "POST /api/bench-views/:bench/restore",
+          "class": "invalid",
+          "what": "快照号是负数",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/restore", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "snapshot_id": -1 } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "68", "etag": "W/\"44-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "要给 snapshot_id（快照编号）" }
+          }
+        },
+        {
+          "id": "restore",
+          "route": "POST /api/bench-views/:bench/restore",
+          "class": "normal",
+          "what": "退回删行之前：删掉的那一行回来了",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/restore",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "content-type": "application/json" },
+            "text": "{\"snapshot_id\": {{snap}}, \"note\": \"退回删行之前\"}"
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "89", "etag": "W/\"59-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "dataset": "orders", "restored_from": 1, "row_count": 4, "dropped_columns": [], "snapshot_id": 2 }
+          }
+        },
+        {
+          "id": "view-empty",
+          "route": "GET /api/bench-views/:bench/view",
+          "class": "normal",
+          "what": "还没有视图描述",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/view", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "13", "etag": "W/\"d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "view": null }
+          }
+        },
+        {
+          "id": "view-ghost",
+          "route": "GET /api/bench-views/:bench/view",
+          "class": "invalid",
+          "what": "没登记的台",
+          "request": { "method": "GET", "path": "/api/bench-views/ghost/view", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_not_found" }
+          }
+        },
+        {
+          "id": "view-bad-version",
+          "route": "GET /api/bench-views/:bench/view",
+          "class": "invalid",
+          "what": "版本号写法不对",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/view?version=abc", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "55", "etag": "W/\"37-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "version 要写成整数" }
+          }
+        },
+        {
+          "id": "versions-empty",
+          "route": "GET /api/bench-views/:bench/view/versions",
+          "class": "normal",
+          "what": "还没有版本",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/view/versions", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "15", "etag": "W/\"f-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "versions": [] }
+          }
+        },
+        {
+          "id": "render-empty",
+          "route": "GET /api/bench-views/:bench/render",
+          "class": "invalid",
+          "what": "还没有视图描述就取数",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/render", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "not_found", "message": "这个台还没有视图" }
+          }
+        },
+        {
+          "id": "view-put-member",
+          "route": "PUT /api/bench-views/:bench/view",
+          "class": "unauthorized",
+          "what": "普通员工存视图：403",
+          "request": {
+            "method": "PUT",
+            "path": "/api/bench-views/demo/view",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" },
+            "json": {
+              "doc": {
+                "title": "订单台",
+                "views": [
+                  {
+                    "key": "overview",
+                    "title": "总览",
+                    "blocks": [
+                      { "type": "filter-bar", "fields": [{ "name": "month", "kind": "month" }] },
+                      { "type": "stat", "title": "金额", "query": { "dataset": "orders", "filter": [{ "col": "day", "op": "prefix", "value": "$month" }], "measures": [{ "as": "v", "fn": "sum", "col": "amount" }] }, "value": "v" },
+                      { "type": "table", "query": { "dataset": "orders", "sort": [{ "col": "id" }] } }
+                    ]
+                  },
+                  { "key": "entry", "title": "补录", "blocks": [{ "type": "form", "dataset": "orders", "fields": ["id", "day", "region", "amount"] }] }
+                ]
+              },
+              "base": 0
+            }
+          },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "view-put-no-doc",
+          "route": "PUT /api/bench-views/:bench/view",
+          "class": "invalid",
+          "what": "没有视图描述",
+          "request": { "method": "PUT", "path": "/api/bench-views/demo/view", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "base": 0, "note": "x" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "113", "etag": "W/\"71-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "视图描述有 1 处不合格，未保存", "details": ["视图描述须为对象"] }
+          }
+        },
+        {
+          "id": "view-put-bad-block",
+          "route": "PUT /api/bench-views/:bench/view",
+          "class": "invalid",
+          "what": "块的类型不认识",
+          "request": {
+            "method": "PUT",
+            "path": "/api/bench-views/demo/view",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "doc": { "title": "x", "views": [{ "key": "a", "title": "a", "blocks": [{ "type": "html", "html": "<script>1</script>" }] }] }, "base": 0, "note": "x" }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "228", "etag": "W/\"e4-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "视图描述有 1 处不合格，未保存", "details": ["第 1 个视图第 1 个组件：不认识的组件类型 html（现有：filter-bar、stat、table、bar、line、pie、progress、form）"] }
+          }
+        },
+        {
+          "id": "view-put-bad-dataset",
+          "route": "PUT /api/bench-views/:bench/view",
+          "class": "invalid",
+          "what": "块引用了不存在的数据集",
+          "request": {
+            "method": "PUT",
+            "path": "/api/bench-views/demo/view",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "doc": { "title": "x", "views": [{ "key": "a", "title": "a", "blocks": [{ "type": "table", "query": { "dataset": "nope" } }] }] }, "base": 0, "note": "x" }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "163", "etag": "W/\"a3-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "视图描述有 1 处不合格，未保存", "details": ["第 1 个视图第 1 个组件：查询不合格——没有数据集 nope"] }
+          }
+        },
+        {
+          "id": "view-put",
+          "route": "PUT /api/bench-views/:bench/view",
+          "class": "normal",
+          "what": "保存视图描述：首版",
+          "request": {
+            "method": "PUT",
+            "path": "/api/bench-views/demo/view",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": {
+              "doc": {
+                "title": "订单台",
+                "views": [
+                  {
+                    "key": "overview",
+                    "title": "总览",
+                    "blocks": [
+                      { "type": "filter-bar", "fields": [{ "name": "month", "kind": "month" }] },
+                      { "type": "stat", "title": "金额", "query": { "dataset": "orders", "filter": [{ "col": "day", "op": "prefix", "value": "$month" }], "measures": [{ "as": "v", "fn": "sum", "col": "amount" }] }, "value": "v" },
+                      { "type": "table", "query": { "dataset": "orders", "sort": [{ "col": "id" }] } }
+                    ]
+                  },
+                  { "key": "entry", "title": "补录", "blocks": [{ "type": "form", "dataset": "orders", "fields": ["id", "day", "region", "amount"] }] }
+                ]
+              },
+              "base": 0,
+              "note": "首版"
+            }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "126", "etag": "W/\"7e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "version": 1, "active_version": 1, "unchanged": false, "sha256": "c189a3f8a73418d8caa3e4edbe5f9a4b914dc76fa4985fe2effba860b54ecfae" }
+          }
+        },
+        {
+          "id": "view-put-text-base",
+          "route": "PUT /api/bench-views/:bench/view",
+          "class": "invalid",
+          "what": "base 写成文字",
+          "request": {
+            "method": "PUT",
+            "path": "/api/bench-views/demo/view",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": {
+              "doc": {
+                "title": "订单台",
+                "views": [
+                  {
+                    "key": "overview",
+                    "title": "总览",
+                    "blocks": [
+                      { "type": "filter-bar", "fields": [{ "name": "month", "kind": "month" }] },
+                      { "type": "stat", "title": "金额", "query": { "dataset": "orders", "filter": [{ "col": "day", "op": "prefix", "value": "$month" }], "measures": [{ "as": "v", "fn": "sum", "col": "amount" }] }, "value": "v" },
+                      { "type": "table", "query": { "dataset": "orders", "sort": [{ "col": "id" }] } }
+                    ]
+                  },
+                  { "key": "entry", "title": "补录", "blocks": [{ "type": "form", "dataset": "orders", "fields": ["id", "day", "region", "amount"] }] }
+                ]
+              },
+              "base": "1"
+            }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "102", "etag": "W/\"66-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "要给 base（你是基于第几版改的；还没有版本时给 0）" }
+          }
+        },
+        {
+          "id": "view-put-no-note",
+          "route": "PUT /api/bench-views/:bench/view",
+          "class": "invalid",
+          "what": "没写说明",
+          "request": {
+            "method": "PUT",
+            "path": "/api/bench-views/demo/view",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": {
+              "doc": {
+                "title": "订单台二版",
+                "views": [
+                  {
+                    "key": "overview",
+                    "title": "总览",
+                    "blocks": [
+                      { "type": "filter-bar", "fields": [{ "name": "month", "kind": "month" }] },
+                      { "type": "stat", "title": "金额", "query": { "dataset": "orders", "filter": [{ "col": "day", "op": "prefix", "value": "$month" }], "measures": [{ "as": "v", "fn": "sum", "col": "amount" }] }, "value": "v" },
+                      { "type": "table", "query": { "dataset": "orders", "sort": [{ "col": "id" }] } }
+                    ]
+                  },
+                  { "key": "entry", "title": "补录", "blocks": [{ "type": "form", "dataset": "orders", "fields": ["id", "day", "region", "amount"] }] }
+                ]
+              },
+              "base": 1
+            }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "60", "etag": "W/\"3c-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "要写一句说明（note）" }
+          }
+        },
+        {
+          "id": "view-put-stale",
+          "route": "PUT /api/bench-views/:bench/view",
+          "class": "invalid",
+          "what": "基于旧版保存：冲突，不覆盖",
+          "request": {
+            "method": "PUT",
+            "path": "/api/bench-views/demo/view",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": {
+              "doc": {
+                "title": "订单台二版",
+                "views": [
+                  {
+                    "key": "overview",
+                    "title": "总览",
+                    "blocks": [
+                      { "type": "filter-bar", "fields": [{ "name": "month", "kind": "month" }] },
+                      { "type": "stat", "title": "金额", "query": { "dataset": "orders", "filter": [{ "col": "day", "op": "prefix", "value": "$month" }], "measures": [{ "as": "v", "fn": "sum", "col": "amount" }] }, "value": "v" },
+                      { "type": "table", "query": { "dataset": "orders", "sort": [{ "col": "id" }] } }
+                    ]
+                  },
+                  { "key": "entry", "title": "补录", "blocks": [{ "type": "form", "dataset": "orders", "fields": ["id", "day", "region", "amount"] }] }
+                ]
+              },
+              "base": 0,
+              "note": "基于旧版"
+            }
+          },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "148", "etag": "W/\"94-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "conflict", "message": "你是基于第 0 版改的，现在生效的是第 1 版：看过最新版再保存", "details": ["active_version=1"] }
+          }
+        },
+        {
+          "id": "view-put-2",
+          "route": "PUT /api/bench-views/:bench/view",
+          "class": "normal",
+          "what": "基于当前版保存：新版本",
+          "request": {
+            "method": "PUT",
+            "path": "/api/bench-views/demo/view",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": {
+              "doc": {
+                "title": "订单台二版",
+                "views": [
+                  {
+                    "key": "overview",
+                    "title": "总览",
+                    "blocks": [
+                      { "type": "filter-bar", "fields": [{ "name": "month", "kind": "month" }] },
+                      { "type": "stat", "title": "金额", "query": { "dataset": "orders", "filter": [{ "col": "day", "op": "prefix", "value": "$month" }], "measures": [{ "as": "v", "fn": "sum", "col": "amount" }] }, "value": "v" },
+                      { "type": "table", "query": { "dataset": "orders", "sort": [{ "col": "id" }] } }
+                    ]
+                  },
+                  { "key": "entry", "title": "补录", "blocks": [{ "type": "form", "dataset": "orders", "fields": ["id", "day", "region", "amount"] }] }
+                ]
+              },
+              "base": 1,
+              "note": "改标题"
+            }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "126", "etag": "W/\"7e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "version": 2, "active_version": 2, "unchanged": false, "sha256": "6768f6cb855175c37101920cb148f3428f86bdcaf5a57b9b7560243ebc1e804e" }
+          }
+        },
+        {
+          "id": "view-get",
+          "route": "GET /api/bench-views/:bench/view",
+          "class": "normal",
+          "what": "读现在生效的视图描述",
+          "vary": { "view.at": 60000 },
+          "request": { "method": "GET", "path": "/api/bench-views/demo/view", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "704", "etag": "W/\"2c0-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "view": {
+                "version": 2,
+                "active_version": 2,
+                "content": {
+                  "title": "订单台二版",
+                  "views": [
+                    {
+                      "blocks": [
+                        { "fields": [{ "kind": "month", "name": "month" }], "type": "filter-bar" },
+                        { "query": { "dataset": "orders", "filter": [{ "col": "day", "op": "prefix", "value": "$month" }], "measures": [{ "as": "v", "col": "amount", "fn": "sum" }] }, "title": "金额", "type": "stat", "value": "v" },
+                        { "query": { "dataset": "orders", "sort": [{ "col": "id" }] }, "type": "table" }
+                      ],
+                      "key": "overview",
+                      "title": "总览"
+                    },
+                    { "blocks": [{ "dataset": "orders", "fields": ["id", "day", "region", "amount"], "type": "form" }], "key": "entry", "title": "补录" }
+                  ]
+                },
+                "sha256": "6768f6cb855175c37101920cb148f3428f86bdcaf5a57b9b7560243ebc1e804e",
+                "author": "user:alpha",
+                "note": "改标题",
+                "at": 1893456000000
+              }
+            }
+          }
+        },
+        {
+          "id": "view-get-v1",
+          "route": "GET /api/bench-views/:bench/view",
+          "class": "normal",
+          "what": "读指定的一版",
+          "vary": { "view.at": 60000 },
+          "request": { "method": "GET", "path": "/api/bench-views/demo/view?version=1", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "695", "etag": "W/\"2b7-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "view": {
+                "version": 1,
+                "active_version": 2,
+                "content": {
+                  "title": "订单台",
+                  "views": [
+                    {
+                      "blocks": [
+                        { "fields": [{ "kind": "month", "name": "month" }], "type": "filter-bar" },
+                        { "query": { "dataset": "orders", "filter": [{ "col": "day", "op": "prefix", "value": "$month" }], "measures": [{ "as": "v", "col": "amount", "fn": "sum" }] }, "title": "金额", "type": "stat", "value": "v" },
+                        { "query": { "dataset": "orders", "sort": [{ "col": "id" }] }, "type": "table" }
+                      ],
+                      "key": "overview",
+                      "title": "总览"
+                    },
+                    { "blocks": [{ "dataset": "orders", "fields": ["id", "day", "region", "amount"], "type": "form" }], "key": "entry", "title": "补录" }
+                  ]
+                },
+                "sha256": "c189a3f8a73418d8caa3e4edbe5f9a4b914dc76fa4985fe2effba860b54ecfae",
+                "author": "user:alpha",
+                "note": "首版",
+                "at": 1893456000000
+              }
+            }
+          }
+        },
+        {
+          "id": "view-get-member",
+          "route": "GET /api/bench-views/:bench/view",
+          "class": "unauthorized",
+          "what": "普通员工读视图：403",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/view", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "view-get-missing-version",
+          "route": "GET /api/bench-views/:bench/view",
+          "class": "invalid",
+          "what": "没有这一版",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/view?version=99", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "56", "etag": "W/\"38-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "not_found", "message": "没有视图第 99 版" }
+          }
+        },
+        {
+          "id": "versions",
+          "route": "GET /api/bench-views/:bench/view/versions",
+          "class": "normal",
+          "what": "版本清单：记着是谁改的",
+          "vary": { "versions.0.at": 60000, "versions.1.at": 60000 },
+          "request": { "method": "GET", "path": "/api/bench-views/demo/view/versions", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "340", "etag": "W/\"154-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "versions": [
+                { "version": 2, "sha256": "6768f6cb855175c37101920cb148f3428f86bdcaf5a57b9b7560243ebc1e804e", "author": "user:alpha", "note": "改标题", "at": 1893456000000, "active": true },
+                { "version": 1, "sha256": "c189a3f8a73418d8caa3e4edbe5f9a4b914dc76fa4985fe2effba860b54ecfae", "author": "user:alpha", "note": "首版", "at": 1893456000000, "active": false }
+              ]
+            }
+          }
+        },
+        {
+          "id": "versions-ghost",
+          "route": "GET /api/bench-views/:bench/view/versions",
+          "class": "invalid",
+          "what": "没登记的台",
+          "request": { "method": "GET", "path": "/api/bench-views/ghost/view/versions", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_not_found" }
+          }
+        },
+        {
+          "id": "diff-no-params",
+          "route": "GET /api/bench-views/:bench/view/diff",
+          "class": "invalid",
+          "what": "没写要比哪两版",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/view/diff", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "62", "etag": "W/\"3e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "要给 a 和 b 两个版本号" }
+          }
+        },
+        {
+          "id": "diff-text",
+          "route": "GET /api/bench-views/:bench/view/diff",
+          "class": "invalid",
+          "what": "版本号写成文字",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/view/diff?a=1&b=two", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "49", "etag": "W/\"31-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "b 要写成整数" }
+          }
+        },
+        {
+          "id": "diff-missing",
+          "route": "GET /api/bench-views/:bench/view/diff",
+          "class": "invalid",
+          "what": "其中一版不存在",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/view/diff?a=1&b=99", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "56", "etag": "W/\"38-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "not_found", "message": "没有视图第 99 版" }
+          }
+        },
+        {
+          "id": "diff",
+          "route": "GET /api/bench-views/:bench/view/diff",
+          "class": "normal",
+          "what": "两版的差异",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/view/diff?a=1&b=2", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "47", "etag": "W/\"2f-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "diff": [{ "path": "/title", "change": "changed" }] }
+          }
+        },
+        {
+          "id": "rollback-member",
+          "route": "POST /api/bench-views/:bench/view/rollback",
+          "class": "unauthorized",
+          "what": "普通员工回退：403",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/view/rollback",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" },
+            "json": { "to": 1, "base": 2 }
+          },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "rollback-no-to",
+          "route": "POST /api/bench-views/:bench/view/rollback",
+          "class": "invalid",
+          "what": "没写退到哪一版",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/view/rollback", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "base": 2 } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "109", "etag": "W/\"6d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "要给 to（让第几版重新生效）和 base（你看到的生效版本）" }
+          }
+        },
+        {
+          "id": "rollback-stale",
+          "route": "POST /api/bench-views/:bench/view/rollback",
+          "class": "invalid",
+          "what": "基于旧版回退：冲突",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/view/rollback",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "to": 1, "base": 1, "note": "x" }
+          },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "121", "etag": "W/\"79-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "conflict", "message": "你看到的生效版本是第 1 版，现在是第 2 版", "details": ["active_version=2"] }
+          }
+        },
+        {
+          "id": "rollback-missing",
+          "route": "POST /api/bench-views/:bench/view/rollback",
+          "class": "invalid",
+          "what": "退到不存在的一版",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/view/rollback",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "to": 99, "base": 2, "note": "x" }
+          },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "56", "etag": "W/\"38-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "not_found", "message": "没有视图第 99 版" }
+          }
+        },
+        {
+          "id": "rollback",
+          "route": "POST /api/bench-views/:bench/view/rollback",
+          "class": "normal",
+          "what": "回退：首版重新生效",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/view/rollback",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "to": 1, "base": 2, "note": "回到首版" }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "active_version": 1, "unchanged": false }
+          }
+        },
+        {
+          "id": "render",
+          "route": "GET /api/bench-views/:bench/render",
+          "class": "normal",
+          "what": "取数：筛选栏的值经查询串给，没声明的不认",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/render?view=overview&p.month=2026-01&p.nope=x", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "1271", "etag": "W/\"4f7-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "title": "订单台",
+              "version": 1,
+              "active_version": 1,
+              "views": [{ "key": "overview", "title": "总览" }, { "key": "entry", "title": "补录" }],
+              "view": { "key": "overview", "title": "总览" },
+              "filters": [{ "name": "month", "kind": "month", "label": "month" }],
+              "params": { "month": "2026-01" },
+              "blocks": [
+                { "fields": [{ "kind": "month", "name": "month", "value": "2026-01" }], "type": "filter-bar" },
+                {
+                  "query": { "dataset": "orders", "filter": [{ "col": "day", "op": "prefix", "value": "$month" }], "measures": [{ "as": "v", "col": "amount", "fn": "sum" }] },
+                  "title": "金额",
+                  "type": "stat",
+                  "value": "v",
+                  "data": { "columns": [{ "name": "v", "type": "decimal", "label": "v", "role": "measure" }], "truncated": false, "rows": [{ "v": 2100.5 }] }
+                },
+                {
+                  "query": { "dataset": "orders", "sort": [{ "col": "id" }] },
+                  "type": "table",
+                  "data": {
+                    "columns": [
+                      { "name": "id", "type": "integer", "label": "id", "role": "dimension" },
+                      { "name": "day", "type": "date", "label": "day", "role": "dimension" },
+                      { "name": "region", "type": "text", "label": "region", "role": "dimension" },
+                      { "name": "amount", "type": "decimal", "label": "amount", "role": "measure" }
+                    ],
+                    "truncated": false,
+                    "rows": [
+                      { "id": 1, "day": "2026-01-05", "region": "东区", "amount": 1200.5 },
+                      { "id": 2, "day": "2026-01-20", "region": "南区", "amount": 900 },
+                      { "id": 3, "day": "2026-02-02", "region": "东区", "amount": 15 },
+                      { "id": 4, "day": "2026-02-03", "region": "西区", "amount": 5 }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "render-default",
+          "route": "GET /api/bench-views/:bench/render",
+          "class": "normal",
+          "what": "不写 view：取第一份",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/render", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "1247", "etag": "W/\"4df-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "title": "订单台",
+              "version": 1,
+              "active_version": 1,
+              "views": [{ "key": "overview", "title": "总览" }, { "key": "entry", "title": "补录" }],
+              "view": { "key": "overview", "title": "总览" },
+              "filters": [{ "name": "month", "kind": "month", "label": "month" }],
+              "params": {},
+              "blocks": [
+                { "fields": [{ "kind": "month", "name": "month", "value": "" }], "type": "filter-bar" },
+                {
+                  "query": { "dataset": "orders", "filter": [{ "col": "day", "op": "prefix", "value": "$month" }], "measures": [{ "as": "v", "col": "amount", "fn": "sum" }] },
+                  "title": "金额",
+                  "type": "stat",
+                  "value": "v",
+                  "data": { "columns": [{ "name": "v", "type": "decimal", "label": "v", "role": "measure" }], "truncated": false, "rows": [{ "v": 2120.5 }] }
+                },
+                {
+                  "query": { "dataset": "orders", "sort": [{ "col": "id" }] },
+                  "type": "table",
+                  "data": {
+                    "columns": [
+                      { "name": "id", "type": "integer", "label": "id", "role": "dimension" },
+                      { "name": "day", "type": "date", "label": "day", "role": "dimension" },
+                      { "name": "region", "type": "text", "label": "region", "role": "dimension" },
+                      { "name": "amount", "type": "decimal", "label": "amount", "role": "measure" }
+                    ],
+                    "truncated": false,
+                    "rows": [
+                      { "id": 1, "day": "2026-01-05", "region": "东区", "amount": 1200.5 },
+                      { "id": 2, "day": "2026-01-20", "region": "南区", "amount": 900 },
+                      { "id": 3, "day": "2026-02-02", "region": "东区", "amount": 15 },
+                      { "id": 4, "day": "2026-02-03", "region": "西区", "amount": 5 }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "render-member",
+          "route": "GET /api/bench-views/:bench/render",
+          "class": "unauthorized",
+          "what": "普通员工取数：403（驾驶舱面板显示「你看不到这个台的数据」）",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/render", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "render-no-view",
+          "route": "GET /api/bench-views/:bench/render",
+          "class": "invalid",
+          "what": "没有这份视图",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/render?view=nope", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "not_found", "message": "没有视图 nope" }
+          }
+        },
+        {
+          "id": "render-bad-version",
+          "route": "GET /api/bench-views/:bench/render",
+          "class": "invalid",
+          "what": "版本号写法不对",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/render?version=abc", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "55", "etag": "W/\"37-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "version 要写成整数" }
+          }
+        },
+        {
+          "id": "render-odd-param",
+          "route": "GET /api/bench-views/:bench/render",
+          "class": "normal",
+          "what": "筛选值只当文本用：写得不像月份也不报错，只是筛不出东西",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/render?view=overview&p.month=2026-13-99x", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "1277", "etag": "W/\"4fd-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "title": "订单台",
+              "version": 1,
+              "active_version": 1,
+              "views": [{ "key": "overview", "title": "总览" }, { "key": "entry", "title": "补录" }],
+              "view": { "key": "overview", "title": "总览" },
+              "filters": [{ "name": "month", "kind": "month", "label": "month" }],
+              "params": { "month": "2026-13-99x" },
+              "blocks": [
+                { "fields": [{ "kind": "month", "name": "month", "value": "2026-13-99x" }], "type": "filter-bar" },
+                {
+                  "query": { "dataset": "orders", "filter": [{ "col": "day", "op": "prefix", "value": "$month" }], "measures": [{ "as": "v", "col": "amount", "fn": "sum" }] },
+                  "title": "金额",
+                  "type": "stat",
+                  "value": "v",
+                  "data": { "columns": [{ "name": "v", "type": "decimal", "label": "v", "role": "measure" }], "truncated": false, "rows": [{ "v": null }] }
+                },
+                {
+                  "query": { "dataset": "orders", "sort": [{ "col": "id" }] },
+                  "type": "table",
+                  "data": {
+                    "columns": [
+                      { "name": "id", "type": "integer", "label": "id", "role": "dimension" },
+                      { "name": "day", "type": "date", "label": "day", "role": "dimension" },
+                      { "name": "region", "type": "text", "label": "region", "role": "dimension" },
+                      { "name": "amount", "type": "decimal", "label": "amount", "role": "measure" }
+                    ],
+                    "truncated": false,
+                    "rows": [
+                      { "id": 1, "day": "2026-01-05", "region": "东区", "amount": 1200.5 },
+                      { "id": 2, "day": "2026-01-20", "region": "南区", "amount": 900 },
+                      { "id": 3, "day": "2026-02-02", "region": "东区", "amount": 15 },
+                      { "id": 4, "day": "2026-02-03", "region": "西区", "amount": 5 }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "form-member",
+          "route": "POST /api/bench-views/:bench/form",
+          "class": "unauthorized",
+          "what": "普通员工提交表单：403",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/form",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" },
+            "json": { "view": "entry", "block": 0, "version": 1, "values": { "id": 60 } }
+          },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "form-no-body",
+          "route": "POST /api/bench-views/:bench/form",
+          "class": "invalid",
+          "what": "空请求体",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/form", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "133", "etag": "W/\"85-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "要给 view（哪份视图）、block（第几块，从 0 数）、version（页面是第几版的）" }
+          }
+        },
+        {
+          "id": "form-not-form",
+          "route": "POST /api/bench-views/:bench/form",
+          "class": "invalid",
+          "what": "指的那一块不是表单",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/form",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "view": "overview", "block": 1, "version": 1, "values": { "id": 60 } }
+          },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "not_found", "message": "这个位置不是表单" }
+          }
+        },
+        {
+          "id": "form-extra-field",
+          "route": "POST /api/bench-views/:bench/form",
+          "class": "invalid",
+          "what": "带了表单没列出的字段",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/form",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "view": "entry", "block": 0, "version": 1, "values": { "id": 60, "nope": 1 } }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "66", "etag": "W/\"42-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "表单里没有这些字段：nope" }
+          }
+        },
+        {
+          "id": "form-stale",
+          "route": "POST /api/bench-views/:bench/form",
+          "class": "invalid",
+          "what": "页面拿的不是现在生效的那一版",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/form",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "view": "entry", "block": 0, "version": 2, "values": { "id": 51, "day": "2026-03-01" } }
+          },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "139", "etag": "W/\"8b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "conflict", "message": "页面是第 2 版的，现在生效的是第 1 版：刷新之后再提交", "details": ["active_version=1"] }
+          }
+        },
+        {
+          "id": "form",
+          "route": "POST /api/bench-views/:bench/form",
+          "class": "normal",
+          "what": "表单提交",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/form",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "idempotency-key": "replay-form-000001" },
+            "json": { "view": "entry", "block": 0, "version": 1, "values": { "id": 50, "day": "2026-03-01", "region": "北区", "amount": 7 } }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "119", "etag": "W/\"77-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "dataset": "orders", "op": "form", "rows": 1, "row_count": 5, "inserted": 1, "data_bytes": 160, "form": { "view": "entry", "block": 0 } }
+          }
+        },
+        {
+          "id": "form-again",
+          "route": "POST /api/bench-views/:bench/form",
+          "class": "normal",
+          "what": "带同一个幂等键再交：认得是同一次",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/form",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "idempotency-key": "replay-form-000001" },
+            "json": { "view": "entry", "block": 0, "version": 1, "values": { "id": 50, "day": "2026-03-01", "region": "北区", "amount": 7 } }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "136", "etag": "W/\"88-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "dataset": "orders", "op": "form", "rows": 1, "row_count": 5, "inserted": 1, "data_bytes": 160, "duplicate": true, "form": { "view": "entry", "block": 0 } }
+          }
+        },
+        {
+          "id": "log-ghost",
+          "route": "GET /api/bench-views/:bench/log",
+          "class": "invalid",
+          "what": "没登记的台",
+          "request": { "method": "GET", "path": "/api/bench-views/ghost/log", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_not_found" }
+          }
+        },
+        {
+          "id": "log",
+          "route": "GET /api/bench-views/:bench/log",
+          "class": "normal",
+          "what": "留痕：谁、做了什么；只有摘要，没有内容",
+          "vary": { "changes.0.at": 60000, "changes.1.at": 60000, "changes.2.at": 60000, "changes.3.at": 60000, "changes.4.at": 60000, "changes.5.at": 60000, "writes.0.at": 60000, "writes.1.at": 60000, "writes.2.at": 60000, "writes.3.at": 60000, "writes.4.at": 60000 },
+          "request": { "method": "GET", "path": "/api/bench-views/demo/log", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "1629", "etag": "W/\"65d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "changes": [
+                { "id": 6, "kind": "view.rollback", "target": "views", "from": 2, "to": 1, "actor": "user:alpha", "note": "回到首版", "at": 1893456000000 },
+                { "id": 5, "kind": "view.put", "target": "views", "from": 1, "to": 2, "actor": "user:alpha", "note": "改标题", "at": 1893456000000 },
+                { "id": 4, "kind": "view.put", "target": "views", "from": 0, "to": 1, "actor": "user:alpha", "note": "首版", "at": 1893456000000 },
+                { "id": 3, "kind": "dataset.restore", "target": "orders", "from": 1, "to": 1, "actor": "user:alpha", "note": "退回删行之前", "at": 1893456000000 },
+                { "id": 2, "kind": "dataset.snapshot", "target": "orders", "from": 1, "to": 1, "actor": "user:alpha", "note": "回放留的", "at": 1893456000000 },
+                { "id": 1, "kind": "dataset.define", "target": "orders", "from": 0, "to": 1, "actor": "user:alpha", "note": "", "at": 1893456000000 }
+              ],
+              "writes": [
+                { "id": 5, "dataset": "orders", "op": "form", "body_sha256": "e27d9d39e6b0c93242f574aa8c3a8d0a4d2a539e4e0aaf7fb9131c8ecae84246", "rows": 1, "actor": "user:alpha", "at": 1893456000000 },
+                { "id": 4, "dataset": "orders", "op": "delete", "body_sha256": "b347dd2c82ba08147f32c0df69eb5e349dd2f12a29fdfe8bc5e459bfb641b212", "rows": 1, "actor": "user:alpha", "at": 1893456000000 },
+                { "id": 3, "dataset": "orders", "op": "append", "body_sha256": "33be3b6879dbe0a33bb5155026ee143c54764ea66117153d6398167bdc6a69a5", "rows": 1, "actor": "user:alpha", "at": 1893456000000 },
+                { "id": 2, "dataset": "orders", "op": "upsert", "body_sha256": "61a98366e5e5f981f3c3ec2681156d6a7dac15695806242074252e5d17a94733", "rows": 2, "actor": "user:alpha", "at": 1893456000000 },
+                { "id": 1, "dataset": "orders", "op": "replace", "body_sha256": "58a9b788283f2320e245b476bffe896b4a9e40eca81b2b2823bca51b02b4518d", "rows": 2, "actor": "user:alpha", "at": 1893456000000 }
+              ]
+            }
+          }
+        },
+        {
+          "id": "log-member",
+          "route": "GET /api/bench-views/:bench/log",
+          "class": "unauthorized",
+          "what": "普通员工看留痕：403",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/log", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "list",
+          "route": "GET /api/bench-views",
+          "class": "normal",
+          "what": "台的清单里只有登记过的那一个",
+          "vary": { "benches.0.created_at": 60000 },
+          "request": { "method": "GET", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "102", "etag": "W/\"66-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "benches": [{ "slug": "demo", "title": "示例台", "created_by": "user:alpha", "created_at": 1893456000000 }] }
+          }
+        },
+        {
+          "id": "list-member",
+          "route": "GET /api/bench-views",
+          "class": "unauthorized",
+          "what": "普通员工列台：403",
+          "request": { "method": "GET", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        }
+      ]
+    }
+  ]
+}

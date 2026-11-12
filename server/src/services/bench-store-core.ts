@@ -682,9 +682,12 @@ export class BenchStoreCore {
       const defs = await this.load(), given = isObj(opts.params) ? opts.params : {};
       // 筛选栏的值：只认声明过的字段；值只收文本
       const params: Record<string, string> = {};
+      // 这份视图认哪些筛选项（名字、类型、显示名）：驾驶舱把顶上那一排选中的值按名字传进来，认的就生效，不认的忽略
+      const filters: { name: string; kind: string; label: string }[] = [];
       for (const b of view.blocks) {
         if (b.type !== 'filter-bar') continue;
         for (const f of b.fields as FilterField[]) {
+          filters.push({ name: f.name, kind: f.kind, label: f.label ?? f.name });
           const v = Object.hasOwn(given, f.name) ? given[f.name] : undefined;
           if (v !== undefined && v !== null && (typeof v !== 'string' || v.length > 200)) throw new BenchError('invalid', `筛选字段 ${f.name} 的值须为 200 个字符以内的文本`);
           const val = typeof v === 'string' && v !== '' ? v : (f.default ?? '');
@@ -722,7 +725,7 @@ export class BenchStoreCore {
           blocks.push(ds && cols.length === (b.fields as string[]).length ? { ...b, columns: cols } : { ...b, columns: [], error: { code: 'invalid', message: '表单引用的数据集或列现在已经不在了' } });
         } else { const r = await run(b.query); blocks.push(r.data ? { ...b, data: r.data } : { ...b, error: r.error }); }
       }
-      return { title: doc.title, version, active_version: active, views: doc.views.map((x) => ({ key: x.key, title: x.title })), view: { key: view.key, title: view.title }, params, blocks };
+      return { title: doc.title, version, active_version: active, views: doc.views.map((x) => ({ key: x.key, title: x.title })), view: { key: view.key, title: view.title }, filters, params, blocks };
     });
   }
   /**

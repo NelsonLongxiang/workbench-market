@@ -22,7 +22,7 @@ const preload=String.raw`import net from'node:net';import{registerHooks}from'nod
 const listen=net.Server.prototype.listen;
 net.Server.prototype.listen=function(...a){if(typeof a[0]==='number'){if(typeof a[1]==='string')a[1]='127.0.0.1';else a.splice(1,0,'127.0.0.1')}return listen.apply(this,a)};
 const mutation=process.env.WM_SYNTHETIC_PROBE_MUTATION;
-registerHooks({load(url,ctx,next){const loaded=next(url,ctx);if(!mutation||!url.endsWith(mutation==='handler-error'?'/server/src/routes/workbenches.ts':mutation==='export-reveal'?'/server/src/routes/export-import.ts':mutation==='mcp-timeout'||mutation==='hold-probe'?'/server/src/routes/mcp-protocol.ts':mutation==='a2a-direct-unsigned'?'/server/src/routes/a2a-direct.ts':'/server/src/index.ts'))return loaded;let s=String(loaded.source);
+registerHooks({load(url,ctx,next){const loaded=next(url,ctx);if(!mutation||!url.endsWith(mutation==='handler-error'?'/server/src/routes/workbenches.ts':mutation==='export-reveal'?'/server/src/routes/export-import.ts':mutation==='mcp-timeout'||mutation==='hold-probe'?'/server/src/routes/mcp-protocol.ts':mutation==='a2a-direct-unsigned'?'/server/src/routes/a2a-direct.ts':mutation==='bench-views-anonymous'?'/server/src/routes/bench-views.ts':'/server/src/index.ts'))return loaded;let s=String(loaded.source);
 const replace=(from,to)=>{if(!s.includes(from))throw Error('mutation anchor missing: '+mutation);s=s.replace(from,to);};
 if(mutation==='login-gate')replace('app.use(loginGate.middleware);','app.use((_q,_s,n)=>n());');
 if(mutation==='login-gate-apps')replace('app.use(loginGate.middleware);',"app.use((q,s,n)=>q.path.startsWith('/apps/')?n():loginGate.middleware(q,s,n));");
@@ -30,6 +30,7 @@ if(mutation==='a2a-direct-unsigned')replace("    if (A2A_DIRECT_SIG !== 'off') {
 if(mutation==='mcp-auth')replace('  if (!MCP_GATEWAY_ON) return null;','  if (true || !MCP_GATEWAY_ON) return null;');
 if(mutation==='browser-write')replace("  if (p.startsWith('/api/')) {","  if (false && p.startsWith('/api/')) {");
 if(mutation==='export-reveal')replace("      if (!adminGuard(req, res)) return;\n      res.set('Cache-Control', 'no-store');","      res.set('Cache-Control', 'no-store');");
+if(mutation==='bench-views-anonymous')replace("if (actor.type === 'builtin' && actor.name === 'anonymous') { res.status(401).json({ error: 'login_required' }); return null; }","");
 if(mutation==='grants-admin-read')replace("registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor });","registerGrantRoutes(http, { markOdooAdmin, adminGuard: () => true, adminActor });");
 if(mutation==='app-data-read')replace('  cliOk: (req) => !browserMarked(req) && rawLoopback(req),','  cliOk: () => true,');
 if(mutation==='sop-run-write')replace('adminActor, writeMode: SOP_RUN_WRITE });',"adminActor, writeMode: 'warn' });");
@@ -39,13 +40,14 @@ if(mutation==='principals-admin-read')replace('registerPrincipalRoutes(http, { m
 if(mutation==='mcp-timeout'||mutation==='hold-probe'){const a="app.post('/mcp', { action: 'mcp.rpc', kind: 'write', statusNotVerdict: 'MCP 会话令牌与工具授权由网关判，不是登录身份的结论' }, async (req, res) => {";replace(a,a+(mutation==='mcp-timeout'?"if(req.headers['x-wm-self-probe'])return;":"if(req.headers['x-wm-self-probe'])await new Promise(r=>setTimeout(r,500));"));}
 if(mutation==='handler-error'){const a="app.post('/api/workbenches', { action: 'workbench.create', kind: 'admin', statusNotVerdict: 'URL 准入：地址不许登记时回 403，是登记规则不是授权' }, (req, res) => {";replace(a,a+"if(req.headers['x-wm-self-probe'])throw Error(process.env.ADMIN_TOKEN);");}
 return{...loaded,source:s};}});`;
-async function runCase(label,{off=false,control=false,occupied=false,unset=false,mutation='',expectFailure=false,nodeEnv='production',gate=''}={}){
+async function runCase(label,{off=false,control=false,occupied=false,unset=false,mutation='',expectFailure=false,nodeEnv='production',gate='',benchViews=''}={}){
  const dir=join(out,label);mkdirSync(dir,{recursive:true});const port=await spare();let cp=control?await spare():0;
  while(cp===port)cp=await spare();
  let foreign,foreignRequests=0;
  if(occupied){foreign=httpServer((_q,r)=>{foreignRequests++;r.statusCode=403;r.end()});await new Promise(r=>foreign.listen(0,'127.0.0.1',r));cp=foreign.address().port;}
  const env={};for(const k of['SystemRoot','WINDIR','PATH','PATHEXT','TEMP','TMP'])if(process.env[k])env[k]=process.env[k];
  Object.assign(env,{PORT:String(port),DATA_DIR:join(dir,'data'),YGL_HOME:join(dir,'home'),WM_CONTROL_PORT:String(cp),MCP_GATEWAY:off?'off':'on',ADMIN_TOKEN:'DO_NOT_LOG_SYNTHETIC_CREDENTIAL',REDIS_URL:'',NODE_ENV:nodeEnv,WM_SYNTHETIC_PROBE_MUTATION:mutation,WM_LOGIN_GATE:gate});
+ if(benchViews)env.WM_BENCH_VIEWS=benchViews;
  if(unset)delete env.MCP_GATEWAY;
  if(nodeEnv===null)delete env.NODE_ENV;
  const child=spawn(process.execPath,['--import','data:text/javascript,'+encodeURIComponent(preload),'server/src/index.ts'],{cwd:root,env,stdio:['ignore','pipe','pipe']});
@@ -72,6 +74,7 @@ async function runCase(label,{off=false,control=false,occupied=false,unset=false
    if(mutation==='login-gate-apps')check(label+' only the leaking /apps row fails',so.includes('"id":"market.login-gate.app","surface":"market","method":"GET","path":"/apps/wm-self-probe/","verdict":"fail"')&&so.includes('"id":"market.login-gate.page","surface":"market","method":"GET","path":"/","verdict":"pass"'));
    if(mutation==='export-reveal')check(label+' only the export reveal row fails',so.includes('"id":"market.export.reveal-anonymous"')&&so.split('"verdict":"fail"').length===2);
    if(mutation==='grants-admin-read')check(label+' only the grant list row fails',so.includes('"id":"market.grants.admin-read"')&&so.split('"verdict":"fail"').length===2);
+   if(mutation==='bench-views-anonymous')check(label+' only the two bench-view rows fail',so.includes('"id":"market.bench-views.anonymous-read","surface":"market","method":"GET","path":"/api/bench-views","verdict":"fail"')&&so.includes('"id":"market.bench-views.anonymous-write"')&&so.split('"verdict":"fail"').length===3);
    if(mutation==='app-data-read')check(label+' only the app data read row fails',so.includes('"id":"market.app-data.anonymous-read"')&&so.split('"verdict":"fail"').length===2);
    if(mutation==='sop-run-write')check(label+' only the run write row fails',so.includes('"id":"market.sop-run.anonymous-write"')&&so.split('"verdict":"fail"').length===2);
    if(mutation==='unsigned-login-event')check(label+' only the unsigned login event row fails',so.includes('"id":"market.login-flow.unsigned-event"')&&so.split('"verdict":"fail"').length===2);
@@ -89,11 +92,14 @@ async function runCase(label,{off=false,control=false,occupied=false,unset=false
    if(mutation==='hold-probe')check('real pending ingress checks ran before readiness',pendingChecked);
    if(gate==='enforce')check(label+' login-gate rows all pass',['page','app','api'].every(k=>health.self_probe.rows.some(x=>x.id==='market.login-gate.'+k&&x.verdict==='pass'))&&health.self_probe.rows.some(x=>x.id==='market.a2a-direct.unsigned'&&x.verdict==='pass')&&health.login_gate==='enforce');
    if(gate!=='enforce')check(label+' no login-gate rows when gate is off',!health.self_probe.rows.some(x=>x.id.startsWith('market.login-gate.')||x.id.startsWith('market.a2a-direct.')));
+   if(benchViews)check(label+' both bench-view rows pass',['read','write'].every(k=>health.self_probe.rows.some(x=>x.id==='market.bench-views.anonymous-'+k&&x.verdict==='pass'&&x.status===401)));
+   else check(label+' no bench-view rows while the entry is off',!health.self_probe.rows.some(x=>x.id.startsWith('market.bench-views.')));
    check(label+' ordinary request works after successful startup',(await fetch('http://127.0.0.1:'+port+'/api/workbenches')).status===200);
   }
   const db=new DatabaseSync(join(dir,'data','workbench-market.db'),{readOnly:true});
   try{db.exec('PRAGMA query_only=ON');
    check(label+' probe creates no workbench business object',db.prepare("SELECT COUNT(*) n FROM workbenches WHERE url<>'/sop/task-center/'").get().n===0&&db.prepare("SELECT COUNT(*) n FROM workbenches WHERE url='/sop/task-center/'").get().n===1);
+   check(label+' probe registers no bench',db.prepare('SELECT COUNT(*) n FROM bench_views').get().n===0);
    check(label+' probe never invokes/audits a business MCP tool',db.prepare("SELECT COUNT(*) n FROM mcp_calls WHERE tool<>''").get().n===0);
    check(label+' self-probe does not increase write adoption stats',db.prepare("SELECT COUNT(*) n FROM endpoint_stats WHERE endpoint='/api/workbenches'").get().n===0);
   }finally{db.close();}
@@ -123,6 +129,9 @@ await runCase('forged-login-callback-regression',{mutation:'forged-login-callbac
 await runCase('unsigned-login-event-regression',{mutation:'unsigned-login-event',expectFailure:true});
 await runCase('export-reveal-regression',{mutation:'export-reveal',expectFailure:true});
 await runCase('grants-admin-read-regression',{mutation:'grants-admin-read',expectFailure:true});
+await runCase('bench-views-on',{benchViews:'on'});
+await runCase('bench-views-on-login-gate',{benchViews:'on',gate:'enforce',control:true});
+await runCase('bench-views-anonymous-regression',{benchViews:'on',mutation:'bench-views-anonymous',expectFailure:true});
 await runCase('app-data-read-regression',{mutation:'app-data-read',expectFailure:true});
 await runCase('sop-run-write-regression',{mutation:'sop-run-write',expectFailure:true});
 await runCase('probe-timeout',{mutation:'mcp-timeout',expectFailure:true});
