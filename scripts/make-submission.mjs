@@ -246,7 +246,8 @@ let hit = 0;
 for (const [p, needle] of TEXT_FACTS) {
   const present = p === PORTAL_CALL_CHAIN_FACT.path && needle === PORTAL_CALL_CHAIN_FACT.needle
     ? readPortalCallChainFact(root).present
-    : (readFileSync(join(root, p), "utf8").includes(needle) ? 1 : 0);
+    // 文件不在了（页面删了）记 0，不让整个打包脚本崩；判据由验证器那边按这个 0 判（取证表本身不动）
+    : (existsSync(join(root, p)) && readFileSync(join(root, p), "utf8").includes(needle) ? 1 : 0);
   hit += present;
   ins.run(p, needle, present);
 }
