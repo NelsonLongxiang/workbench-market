@@ -12,7 +12,7 @@ import ArrangeDrawer from '../components/ArrangeDrawer';
 import { adminActive, subscribeAdminToken } from '../admin-token';
 import { ATTENTION_CHANGED, getAttention, getAuthMe, getLifecycle } from '../api';
 import { answerChoices, groupCards, type AttentionItem } from '../attention-view';
-import { buildRows, splitRows, daysLabel, filterAttention, greeting, panoramaType, stageColumns, summaryLine, toggleFocus, type Focus, type LcObject, type LcType } from '../home-view';
+import { buildRows, splitRows, daysLabel, filterAttention, greeting, panoramaType, stageColumns, summaryLine, decideLine, toggleFocus, type Focus, type LcObject, type LcType } from '../home-view';
 
 const MAX_PAGES = 10;
 
@@ -60,8 +60,10 @@ export default function Home() {
   const cols = type ? stageColumns(type) : [];
   const rows = useMemo(() => (type ? buildRows(type, objects, attention) : []), [type, objects, attention]);
   const { active, ended } = splitRows(rows);
+  // 总结句按全部条目算（不随点格筛选变）：能当场办的才算「等你拍板」
+  const all = groupCards(attention, (x) => answerChoices(admin, x));
   const cards = filterAttention(attention, focus);
-  const { now, elsewhere } = groupCards(cards, (x) => answerChoices(admin, x));
+  const { now, proxy, elsewhere } = groupCards(cards, (x) => answerChoices(admin, x));
   const card = (a: AttentionItem) => <DecisionCard key={`${a.source}:${a.source_id}`} item={a} admin={admin} onDone={() => undefined} />;
   const focusRow = focus ? rows.find((r) => r.id === focus.object) : null;
   const focusStage = focus ? cols.find((c) => c.code === focus.stage) : null;
@@ -70,7 +72,7 @@ export default function Home() {
     <div className="wm-home">
       <h1 className="wm-home-hi" data-testid="home-greeting">{greeting(new Date().getHours(), name)}</h1>
       <Typography.Paragraph type="secondary" className="wm-home-sum" data-testid="home-summary">
-        {lcState === 'ok' ? summaryLine(rows, attention.length) : attention.length ? `有 ${attention.length} 件事等你拍板。` : '眼下没有要你拍板的。'}
+        {lcState === 'ok' ? summaryLine(rows, all.now.length, all.elsewhere.length, all.proxy.length) : decideLine(all.now.length, all.elsewhere.length, false, all.proxy.length)}
       </Typography.Paragraph>
 
       {lcState === 'loading' && <Skeleton active paragraph={{ rows: 4 }} />}
@@ -105,7 +107,7 @@ export default function Home() {
       </>}
 
       <div className="wm-sec-h">
-        <h3>等你拍板</h3><span className="wm-sec-n">{cards.length}</span>
+        <h3>等你拍板</h3><span className="wm-sec-n">{now.length}</span>
         {focus && <Typography.Text type="secondary" className="wm-caption">只看 {focusRow?.label ?? focus.object} · {focusStage?.name ?? focus.stage}（<a onClick={() => setFocus(null)}>看全部</a> · <a onClick={() => setArrange(true)}>就这一步安排一件事</a>）</Typography.Text>}
         <Link to="/attention" className="wm-sec-more">全部 →</Link>
       </div>
@@ -113,6 +115,10 @@ export default function Home() {
         ? <div className="wm-home-box"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={focus ? '这一步没有要你拍板的。' : '眼下没有要你拍板的。'} /></div>
         : <>
           {now.length > 0 && <div className="wm-decisions" data-testid="decisions-now">{now.map(card)}</div>}
+          {proxy.length > 0 && <>
+            <div className="wm-sub-h">别人的事，你可以代办<span className="wm-sec-n">{proxy.length}</span></div>
+            <div className="wm-decisions" data-testid="decisions-proxy">{proxy.map(card)}</div>
+          </>}
           {elsewhere.length > 0 && <>
             <div className="wm-sub-h">要到别处处理的<span className="wm-sec-n">{elsewhere.length}</span></div>
             <div className="wm-decisions" data-testid="decisions-elsewhere">{elsewhere.map(card)}</div>
