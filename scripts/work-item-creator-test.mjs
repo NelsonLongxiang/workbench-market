@@ -61,6 +61,8 @@ const out = {
   beforeRebind: ready('user:alpha', 15),
   // L20：「关注」的答复入口对登录的人放开之后，经它验收
   viaAttn: ready('user:alpha', 16), viaAttnMgmt: ready('user:alpha', 17),
+  // 重放答过的一条：先判权，再认重复
+  replay: ready('user:alpha', 18),
 };
 const notReady = items.create({ title: '还在进行', created_by: 'user:alpha', creator_principal: 'user:alpha', source_kind: 'agent' });
 for (const [k, x] of [['submit', { dispatch_open: true }], ['eval', { verdict: 'accept' }], ['report', { status: 'progress' }]]) items.apply(notReady.id, { kind: k, source: 'seed', id: notReady.id + ':' + k, ...x });
@@ -197,6 +199,31 @@ try {
       && own.status === 200 && ownDone && anon.status === 401 && adminSource.status === 403 && down.status === 502 && down.body?.error === 'identity_unavailable' && untouched(S.viaAttnMgmt, n),
       '「关注」的答复入口对登录的人放开：建立人从这里验收自己的事项 200；管理层看得到别人的事项、从这里验收被拒（不是建立人，事项不动）；远程匿名 401；不是管理员答管理员的来源 403；身份来源不可达 502 identity_unavailable',
       show({ mgmtSees, byMgmt: [byMgmt.status, byMgmt.body?.result?.error ?? byMgmt.body?.error], own: [own.status, ownDone], anon: anon.status, adminSource: adminSource.status, down: [down.status, down.body?.error] }));
+  }
+
+  // ---------- 重放答过的一条：先过和第一次同样的判权，再认重复；无权的、换答法的拿到的和这一条不存在时一模一样 ----------
+  {
+    const viaAttn = (id, headers, ans = 'verify', input = {}) => call('POST', '/api/attention/answer', headers, { source: 'work-items', source_id: id, answer: ans, input });
+    const MGMT = { ...SAME, cookie: `session_id=${SESSIONS.noAdminFlag}` };
+    const ghost = 'wi_no_such_item_replay';
+    const first = await viaAttn(S.replay, ALPHA);
+    const strip = (r) => ({ status: r.status, body: { ...r.body, source_id: null } });
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    const bReplay = await viaAttn(S.replay, BETA), bGhost = await viaAttn(ghost, BETA);
+    const mReplay = await viaAttn(S.replay, MGMT), mGhost = await viaAttn(ghost, MGMT);
+    check(first.status === 200 && !first.body.duplicate && same(strip(bReplay), strip(bGhost)) && same(strip(mReplay), strip(mGhost)) && mReplay.status === 404 && !mReplay.body.result && !bReplay.body.result,
+      '无权的人（被停用的同事、看得到全部事项的管理层）重放一条已验收的：状态码、正文和这一条不存在时一模一样，不带 duplicate、不带上一次的结果',
+      show({ first: first.status, bReplay, bGhost, mReplay, mGhost }));
+    const aReplay = await viaAttn(S.replay, ALPHA);
+    check(aReplay.status === 200 && aReplay.body.duplicate === true && same(aReplay.body.result, first.body.result), '建立人本人用同一种答法重放：照旧返回 duplicate 和第一次的结果', show(aReplay));
+    const aOther = await viaAttn(S.replay, ALPHA, 'return', { reason: '换个答法' }), aGhost = await viaAttn(ghost, ALPHA, 'return', { reason: '换个答法' });
+    check(same(strip(aOther), strip(aGhost)) && aOther.status === 404 && !aOther.body.result && state(S.replay) === 'done', '换一种答法重放：不返回上一次的正文，和不存在时一样；事项不动', show({ aOther, aGhost }));
+    // 走事项自己的决定入口（同一本账）：别人答成过的这一轮，换答法不拿上一次的正文
+    const dOther = await call('POST', `/api/work-items/${S.replay}/decision`, ALPHA, { answer: 'return', reason: '换个答法' });
+    const dSame = await call('POST', `/api/work-items/${S.replay}/decision`, ALPHA, { answer: 'verify' });
+    check(dOther.status === 409 && dOther.body?.duplicate === false && dOther.body?.result?.error === 'attention_already_answered' && !show(dOther.body).includes(show(first.body.result).slice(1, 30))
+      && dSame.status === 200 && dSame.body?.duplicate === true && same(dSame.body.result, first.body.result) && state(S.replay) === 'done',
+      '事项自己的决定入口（同一本账）：换答法回「已经处理过了」、不带上一次的结果；同一种答法照旧 duplicate', show({ dOther, dSame }));
   }
 
   // ---------- 阶段七 R2：事项对话里的席位消息（看过、回复）——和验收入口同一个口径再加管理员 ----------

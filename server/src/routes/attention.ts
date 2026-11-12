@@ -10,7 +10,7 @@ import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import type { AttentionService } from '../services/attention.ts';
 import { installAttentionProviders, type AttentionDeps } from '../attention-providers.ts';
-import { answersOf } from '../attention-answers.ts';
+import { actorOf, answersOf } from '../attention-answers.ts';
 import { identity, IDENTITY_UNAVAILABLE, sourceDown } from '../identity.ts';
 import { browserMarked, rawLoopback } from '../surfaces.ts';
 import { nameResolver } from '../attention-names.ts';
@@ -84,7 +84,9 @@ export function registerAttentionRoutes(app: HttpService, deps: AttentionRouteDe
       }
       const hit = items.find((x) => x.source_id === sourceId);
       if (hit && !hit.answers.includes(answer)) return void res.status(400).json({ error: 'attention_answer_not_offered' });
-      if (!hit && !attention.answered(source, provider.key ? provider.key(sourceId) : sourceId)) return void res.status(404).json({ error: 'attention_item_not_found' });
+      // 不在列表里（答完了、或本来就没有）：只有这个人用这种答法答成过，才往下走拿第一次的应答；别人答的、换了答法的，
+      // 回的和这一条不存在时一模一样，不靠「重复」透露它存在过、上一次怎么答的
+      if (!hit && !attention.answered(source, provider.key ? provider.key(sourceId) : sourceId, await actorOf(req), answer)) return void res.status(404).json({ error: 'attention_item_not_found' });
       const out = await provider.answer(req, sourceId, answer, input);
       res.status(out.status).json({ source, source_id: sourceId, answer, duplicate: out.duplicate === true, result: out.body });
     })().catch(next);

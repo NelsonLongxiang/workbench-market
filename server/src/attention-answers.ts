@@ -63,7 +63,7 @@ const NUM = /^[1-9]\d{0,15}$/;
 const bjToday = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
 
 /** 谁在答：管理员落到人（口令是 admin-token，会话登录的是 odoo:<登录名>，本机命令行是 cli）；不是管理员的用登录的人 */
-async function actorOf(req: Req): Promise<string> {
+export async function actorOf(req: Req): Promise<string> {
   if (principalsAdmin) { const a = await principalsAdmin(req, capturing().res); if (a) return a; }
   const cookie = String(req.headers.cookie ?? '');
   if (cookie) { const who = await identity().resolveViewer(cookie); if (who.ok) return who.viewer.sub; }
