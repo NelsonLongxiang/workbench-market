@@ -252,23 +252,26 @@ check(id().credentialOf(cookie(SESSIONS.alpha)) === SESSIONS.alpha && id().crede
     check(again.ok === true && again.viewer.login === 'cache-a' && again.viewer.sub === 'user:cache-a', '调用方改了拿到的查看者，改不到缓存里的那一份', show(again));
     // 认不出也留着，同样是副本
     n = asked;
-    const no1 = await cached(cookie(SESSIONS.forged));
+    // 用一个这里没问过的会话：核心对认不出的回答也会留几秒（identity.ts 的 NEGATIVE_TTL_MS），问过的会被核心挡下、数不到提供方
+    const unseen = cookie('fake-unknown-cached-session-01');
+    const no1 = await cached(unseen);
     no1.ok = true; no1.http = 200;
-    const no2 = await cached(cookie(SESSIONS.forged));
+    const no2 = await cached(unseen);
     check(no2.ok === false && no2.http === 401 && asked - n === 1, '认不出的回答也留着（提供方只被问一次），调用方改不到缓存', `问了 ${asked - n} 次：${show(no2)}`);
     // 没有凭据不缓存
     n = asked;
     await cached('other=1'); await cached('other=1');
     check(asked - n === 2, '没有凭据的请求不进缓存');
-    // 过期
-    await sleep(TTL + 60);
+    // 过期：缓存的期限过了；核心对认不出的回答另留 3 秒（上面 live 那一次），也要过
+    await sleep(Math.max(TTL, 3000) + 60);
     n = asked;
     const expired = await cached(c);
     check(expired.ok === false && expired.http === 401 && asked - n === 1, '过了期限 → 重新问提供方（这个会话已经失效）', show(expired));
     // 容量：超过 max 就清空，不会无限长
     const small = id().cachedResolver({ ttlMs: 60_000, max: 2 });
     n = asked;
-    for (const sid of [SESSIONS.alpha, SESSIONS.beta, SESSIONS.admin, SESSIONS.portal]) await small(cookie(sid));
+    // 都用认得出的会话：认不出的会被核心留几秒，数不到提供方
+    for (const sid of [SESSIONS.alpha, SESSIONS.beta, SESSIONS.admin, SESSIONS.noAdminFlag]) await small(cookie(sid));
     await small(cookie(SESSIONS.alpha));
     check(asked - n === 5, '缓存有容量：放满之后清空，最早的那个要重新问', `问了 ${asked - n} 次`);
     // 各建各的，互不相干
