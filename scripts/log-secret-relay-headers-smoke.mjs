@@ -66,8 +66,11 @@ const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning',
 let logs = ''; server.stdout.on('data', (c) => (logs += c)); server.stderr.on('data', (c) => (logs += c));
 /** 等条件成立，带上限（不是固定睡几毫秒）；返回成没成立 */
 const waitFor = async (cond, ms) => { const end = Date.now() + ms; while (!cond() && Date.now() < end) await sleep(50); return cond(); };
-/** 等服务端日志静下来：连续 quiet 毫秒没有新内容（上限 ms）。「秘密不在日志里」要在日志写完之后判，否则负载下会假通过 */
-const settle = async (quiet = 300, ms = 5000) => { const end = Date.now() + ms; let last = logs.length, t = Date.now(); while (Date.now() < end) { await sleep(50); if (logs.length !== last) { last = logs.length; t = Date.now(); } else if (Date.now() - t >= quiet) return true; } return false; };
+/** 等服务端日志静下来：连续 quiet 毫秒没有新内容（上限 ms）。「秘密不在日志里」要在日志写完之后判，否则负载下会假通过。
+ *  到了上限日志还没静下来，返回 false；调用方用 quiet() 把它记成这一步失败，不照常往下判「不在日志里」 */
+const settle = async (quietMs = 300, ms = 5000) => { const end = Date.now() + ms; let last = logs.length, t = Date.now(); while (Date.now() < end) { await sleep(50); if (logs.length !== last) { last = logs.length; t = Date.now(); } else if (Date.now() - t >= quietMs) return true; } return false; };
+/** 等日志静下来，没静下来就判这一步失败（写明原因）；返回静没静下来，调用方据此跳过「不在日志里」的判断 */
+const quiet = async (what) => { const q = await settle(); if (!q) ok(`${what}：服务端日志 5 秒内一直没静下来，不能判「秘密不在日志里」`, false, `日志 ${logs.length} 字`); return q; };
 
 /** Chromium 里分别从同源（市场页面里插 iframe）、跨源（别的源的页面）iframe 嵌市场 /web/login；
  *  返回 { same, cross }，各为 blocked（子框落到 chrome-error）或 loaded */
@@ -137,18 +140,18 @@ try {
   const reg = await (await fetch(base + '/api/workbenches', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'synthetic portal target', url: `http://127.0.0.1:${other.address().port}/`, type: 'web' }) })).json();
   ok('合成外部台已登记', Number.isInteger(reg.id), JSON.stringify(reg));
   const go = await fetch(`${base}/go/${reg.id}/?state=${QUERY_SECRET}`, { redirect: 'manual' });
-  await go.text(); await waitFor(() => /\[proxres-entry\][^\n]*sc: /.test(logs), 5000); await settle();
+  await go.text(); await waitFor(() => /\[proxres-entry\][^\n]*sc: /.test(logs), 5000); const q1 = await quiet('门户请求之后');
   ok('门户请求经过代理', go.status === 200, String(go.status));
   ok('proxres-entry 日志只记 cookie 名', /\[proxres-entry\][^\n]*sc: [^\n]*session_id/.test(logs) && /\[proxres-entry\][^\n]*tracker/.test(logs), logs.split('\n').filter((l) => l.includes('proxres-entry')).join(' / ').slice(0, 200));
-  ok('上游 Odoo session_id 的值不进日志', !logs.includes(PORTAL_SECRET));
-  ok('其它上游 cookie 的值不进日志', !logs.includes(OTHER_SECRET));
+  ok('上游 Odoo session_id 的值不进日志', q1 && !logs.includes(PORTAL_SECRET));
+  ok('其它上游 cookie 的值不进日志', q1 && !logs.includes(OTHER_SECRET));
   for (const [label, path] of [['%3F', `/go/${reg.id}/safe%3F${ENC_SECRET}`], ['%253F', `/go/${reg.id}/safe%253F${DBL_SECRET}`]]) {
     const x = await fetch(base + path, { redirect: 'manual' }); await x.text();
   }
-  await settle();
-  ok('路径里 %3F 编码的查询串不进日志', !logs.includes(ENC_SECRET), logs.split('\n').filter((l) => l.includes(ENC_SECRET)).join(' / ').replaceAll(ENC_SECRET, '<E>').slice(0, 300));
-  ok('路径里 %253F 双重编码的查询串不进日志', !logs.includes(DBL_SECRET), logs.split('\n').filter((l) => l.includes(DBL_SECRET)).join(' / ').replaceAll(DBL_SECRET, '<D>').slice(0, 300));
-  ok('查询串（SSO state 等）不进日志', !logs.includes(QUERY_SECRET), logs.split('\n').filter((l) => l.includes(QUERY_SECRET)).join(' / ').replaceAll(QUERY_SECRET, '<Q>').slice(0, 300));
+  const q2 = await quiet('带编码查询串的请求之后');
+  ok('路径里 %3F 编码的查询串不进日志', q2 && !logs.includes(ENC_SECRET), logs.split('\n').filter((l) => l.includes(ENC_SECRET)).join(' / ').replaceAll(ENC_SECRET, '<E>').slice(0, 300));
+  ok('路径里 %253F 双重编码的查询串不进日志', q2 && !logs.includes(DBL_SECRET), logs.split('\n').filter((l) => l.includes(DBL_SECRET)).join(' / ').replaceAll(DBL_SECRET, '<D>').slice(0, 300));
+  ok('查询串（SSO state 等）不进日志', q2 && !logs.includes(QUERY_SECRET), logs.split('\n').filter((l) => l.includes(QUERY_SECRET)).join(' / ').replaceAll(QUERY_SECRET, '<Q>').slice(0, 300));
   other.close();
 
   // ② 同域登录中继：六种上游，核对响应头；带 CHROME_BIN 时逐一用 Chromium 同源 / 跨源 iframe 加载
@@ -181,8 +184,8 @@ try {
       ok(`${mode}：Chromium 跨源 iframe ${want.cross}`, v.cross === want.cross, v.cross);
     }
   }
-  await settle();
-  ok('中继下发的会话值不进日志', !logs.includes(RELAY_SECRET));
+  const q3 = await quiet('登录中继的请求之后');
+  ok('中继下发的会话值不进日志', q3 && !logs.includes(RELAY_SECRET));
 } catch (e) {
   fail++; console.log('  ✗ 异常', e?.stack ?? e);
 } finally {
