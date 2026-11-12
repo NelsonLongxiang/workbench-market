@@ -50,19 +50,13 @@ export const VIEW_ALL_KIND = 'decide' as const;
  * 管理门今天只认这两种现有管理员；统一判定生效（6d）以后，管理门也按授予判，那时「只授了系统管理员、没授管理层」的人才会出现，看不到事项。
  */
 export function isManagement(principal: string | null, admin: boolean): boolean {
-  return admin || holdsManagementGrant(principal);
-}
-
-/**
- * 持有管理层授予：按统一判定有 work-items.view-all 这个动作，不认管理门。
- * 读（isManagement）照旧认管理门（#634 留下的过渡，不往新功能上扩）；新的——卡住的事冒给管理层——只认它：
- * 管理口令、没有管理层授予的身份来源管理员都不算
- */
-export function holdsManagementGrant(principal: string | null): boolean {
-  if (!principal) return false;
-  const p = svc<PrincipalService>('principals').get(principal) as { kind?: string; status?: string; owner?: string } | undefined;
-  if (!p) return false;
-  return judge({ actor: { type: 'principal', id: principal, kind: p.kind ?? '', status: p.status ?? '', owner: p.owner ?? '' }, action: VIEW_ALL_ACTION, kind: VIEW_ALL_KIND, declared: true }).verdict === 'allow';
+  if (admin) return true;
+  if (principal) {
+    const p = svc<PrincipalService>('principals').get(principal) as { kind?: string; status?: string; owner?: string } | undefined;
+    if (!p) return false;
+    return judge({ actor: { type: 'principal', id: principal, kind: p.kind ?? '', status: p.status ?? '', owner: p.owner ?? '' }, action: VIEW_ALL_ACTION, kind: VIEW_ALL_KIND, declared: true }).verdict === 'allow';
+  }
+  return false;
 }
 
 /** UTC「YYYY-MM-DD hh:mm:ss」和毫秒互换（事项表里的时间是前者，团队服务的时间是后者） */
@@ -129,12 +123,12 @@ export function leadVacant(item: WorkItemRow): boolean {
   return itemTeams(item).every((t) => svc<TeamService>('teams').leads(t).length === 0);
 }
 /**
- * 卡住的事冒给谁（规范 14 第九节）：事项交给的团队的负责人；这些团队都没有负责人时，持有管理层授予的人（holdsManagementGrant，不认管理门）。
- * 建立人、成员的主人不冒（他们在自己的列表里看得到状态）；管理口令、只过了管理门没有管理层授予的系统管理员不冒（条目带事项标题）
+ * 卡住的事冒给谁（规范 14 第九节）：事项交给的团队的负责人；这些团队都没有负责人时，管理层。
+ * 建立人、成员的主人不冒（他们在自己的列表里看得到状态）；只过了管理门的系统管理员不冒（不看事项内容）
  */
 export function stuckGoesTo(item: WorkItemRow, viewer: WorkItemViewer): boolean {
   if (itemRoles(item, viewer).includes('lead')) return true;
-  return holdsManagementGrant(viewer.principal) && leadVacant(item);
+  return viewer.management && leadVacant(item);
 }
 /** 看得到这件事项：建立人、成员的主人、负责人、管理层之一 */
 export const canSee = (item: WorkItemRow, viewer: WorkItemViewer): boolean => itemRoles(item, viewer).length > 0;
