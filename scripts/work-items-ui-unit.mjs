@@ -31,17 +31,17 @@ ok('翻页去重：同一行只留一份，用后到的', merged.map((x) => `${x
 {
   const who = { seat: (x) => x.includes(' · ') ? x.replace(' · ', '（') + '）' : x, actor: (x, seat) => /^receiver:/.test(x) && seat ? (seat.includes(' · ') ? seat.replace(' · ', '（') + '）' : seat) : x.replace(/^(receiver|human):/, '') };
   ok('没席位时分开说：没派出去 / 派了还没说哪个席位 / 结束了不写', seatOrWaiting({ seat: null, state: 'held' }) === '还没派出去' && seatOrWaiting({ seat: '', state: 'delivered' }) === '还没说是哪个席位' && seatOrWaiting({ seat: '-', state: 'progress' }) === '还没说是哪个席位' && seatOrWaiting({ seat: null, state: 'done' }) === '');
-  ok('行说明：席位按页面给的写法；来源标记用承接席位顶上，和席位是同一个就不重复写', rowLine({ id: 'a', title: '', state: 'progress', object: 'o1', phase: 'p1', seat: '小采 · zone/a1', last_progress: { actor: 'receiver:dsh', fact: 'progress', text: '在比价', at: '' }, updated_at: '' }, 'state', who) === '未命名的线 · 小采（zone/a1） · 在比价');
+  ok('行说明：席位按页面给的写法；来源标记用承接席位顶上，和席位是同一个就不重复写', rowLine({ id: 'a', title: '', state: 'progress', object: 'o1', phase: 'p1', seat: '小采 · zone/a1', last_progress: { actor: 'receiver:zone', fact: 'progress', text: '在比价', at: '' }, updated_at: '' }, 'state', who) === '未命名的线 · 小采（zone/a1） · 在比价');
   ok('说话的只写了席位的名字或句柄，也算同一个，不重复', rowLine({ id: 'a', title: '', state: 'progress', object: '', phase: '', seat: '小物 · zone/55', last_progress: { actor: '小物', fact: 'progress', text: '核对中', at: '' }, updated_at: '' }, 'state', who) === '小物（zone/55） · 核对中' && rowLine({ id: 'a', title: '', state: 'progress', object: '', phase: '', seat: '小物 · zone/55', last_progress: { actor: 'zone/55', fact: 'progress', text: '核对中', at: '' }, updated_at: '' }, 'state', who) === '小物（zone/55） · 核对中');
   ok('说话的不是承接席位时写上是谁', rowLine({ id: 'a', title: '', state: 'done', object: '', phase: '', seat: 'zone/a1', last_progress: { actor: 'human:pm-a', fact: 'verify', text: '验收通过', at: '' }, updated_at: '' }, 'state', who) === 'zone/a1 · pm-a：验收通过');
   ok('行的时间：进展时间是空串时用更新时间', rowTime({ last_progress: { actor: '', fact: '', text: '', at: '' }, updated_at: 'U' }) === 'U' && rowTime({ last_progress: { actor: '', fact: '', text: '', at: 'A' }, updated_at: 'U' }) === 'A' && rowTime({ last_progress: null, updated_at: 'U' }) === 'U');
 }
 ok('视角：只给接口现在给得出的那一个——管理员「全部」，别人「我安排的」，件数是可见范围的总数', viewsFor(true, 22).map((v) => `${v.key}:${v.label}:${v.count}`).join() === 'all:全部:22' && viewsFor(false, 3).map((v) => `${v.key}:${v.label}:${v.count}`).join() === 'mine:我安排的:3');
 {
-  const roster = rosterNames([{ team: 'zone/canvas/t', seats: [{ seat: 'zone/98b94be9', name: '小运' }, { seat: 'zone/00', name: '' }, null, { name: 'x' }] }, 'bad']);
-  ok('名册拍平成句柄 → 名字；没名字、形状不对的不收', roster['zone/98b94be9'] === '小运' && Object.keys(roster).length === 1 && Object.keys(rosterNames(null)).length === 0);
-  ok('列表里的席位只写名字：带名字的取名字，只有句柄查名册，查不到显示句柄', seatNameOnly('小采 · zone/a1', roster) === '小采' && seatNameOnly('zone/98b94be9', roster) === '小运' && seatNameOnly('zone/ffff', roster) === 'zone/ffff' && seatNameOnly('-', roster) === '' && seatNameOnly('') === '');
-  ok('圆标的字：名字第一个字；只有句柄不放字符（页面放席位图标）；没有席位为空', avatarChar('小采') === '小' && avatarChar('zone/98b94be9') === '' && avatarChar('alpha') === 'A' && avatarChar('') === '');
+  const roster = rosterNames([{ team: 'zone/canvas/t', seats: [{ seat: 'zone/0a1b2c3d', name: '小运' }, { seat: 'zone/00', name: '' }, null, { name: 'x' }] }, 'bad']);
+  ok('名册拍平成句柄 → 名字；没名字、形状不对的不收', roster['zone/0a1b2c3d'] === '小运' && Object.keys(roster).length === 1 && Object.keys(rosterNames(null)).length === 0);
+  ok('列表里的席位只写名字：带名字的取名字，只有句柄查名册，查不到显示句柄', seatNameOnly('小采 · zone/a1', roster) === '小采' && seatNameOnly('zone/0a1b2c3d', roster) === '小运' && seatNameOnly('zone/ffff', roster) === 'zone/ffff' && seatNameOnly('-', roster) === '' && seatNameOnly('') === '');
+  ok('圆标的字：名字第一个字；只有句柄不放字符（页面放席位图标）；没有席位为空', avatarChar('小采') === '小' && avatarChar('zone/0a1b2c3d') === '' && avatarChar('alpha') === 'A' && avatarChar('') === '');
 }
 {
   const n = lifecycleNames([{ type: 'pd', stages: [{ code: 'st_pd_05', name: '在售' }, { code: 'x' }, null] }, 'bad'], [{ id: 'run:pd-A', name: '示例产品 A' }, { id: 'run:pd-B', name: null }, 7]);
@@ -51,12 +51,12 @@ ok('视角：只给接口现在给得出的那一个——管理员「全部」�
   ok('进展摘要：太长截断', progressSummary('x'.repeat(60)).endsWith('…') && [...progressSummary('x'.repeat(60))].length === 41);
 }
 ok('最后一条是验收、撤回、打回这类事时说出来；正文只是内部代号时不显示', lastSaid({ fact: 'withdraw', text: '' }) === '撤回了' && lastSaid({ fact: 'verify', text: '' }) === '验收通过' && lastSaid({ fact: 'return', text: '请换一句更短的，不超过十个字。' }) === '打回重做：请换一句更短的，不超过十个字' && lastSaid({ fact: 'note', text: 'followup-read' }) === '' && lastSaid({ fact: 'receipt', text: 'completed' }) === '做完了' && lastSaid({ fact: 'ask', text: '问候语用哪种风格？ 后面还有' }) === '在问：问候语用哪种风格' && lastSaid({ fact: 'submit', text: '' }) === '');
-ok('名册里的名字自带句柄后缀时去掉', cleanSeatName('成员二 (98b94be9)') === '成员二' && cleanSeatName('成员二（98b94be9）') === '成员二' && cleanSeatName('小采 (三组)') === '小采 (三组)' && rosterNames([{ seats: [{ seat: 'z/98b94be9', name: '成员二 (98b94be9)' }] }])['z/98b94be9'] === '成员二');
+ok('名册里的名字自带句柄后缀时去掉', cleanSeatName('成员二 (0a1b2c3d)') === '成员二' && cleanSeatName('成员二（0a1b2c3d）') === '成员二' && cleanSeatName('小采 (三组)') === '小采 (三组)' && rosterNames([{ seats: [{ seat: 'z/0a1b2c3d', name: '成员二 (0a1b2c3d)' }] }])['z/0a1b2c3d'] === '成员二');
 {
-  const ro = { 'zone/98b94be9': '小运', constructor: 'x' };
+  const ro = { 'zone/0a1b2c3d': '小运', constructor: 'x' };
   const plain = (v) => v.replace(/^(human|user|seat):/, '');
-  ok('说话人：画布团队只写团队名，不露句柄', speakerName('dsh/canvas/team-a', '', {}, plain) === 'team-a' && rowLine({ id: 'a', title: '', state: 'ready', object: '', phase: '', seat: '', last_progress: { actor: 'dsh/canvas/team-a', fact: 'receipt', text: 'completed', at: '' }, updated_at: '' }, 'state', { seat: (x) => x, actor: (x, seat) => speakerName(x, seat, {}, plain) }) === '还没说是哪个席位 · team-a：做完了');
-  ok('说话人：对端来源有承接用承接、没有不写；席位查名册；人去前缀', speakerName('receiver:dsh', '小采 · zone/a1', ro) === '小采' && speakerName('receiver:dsh', '', ro) === '' && speakerName('zone/98b94be9', '', ro) === '小运' && speakerName('human:pm-a', '', ro, plain) === 'pm-a' && speakerName('', '', ro) === '');
+  ok('说话人：画布团队只写团队名，不露句柄', speakerName('zone/canvas/team-a', '', {}, plain) === 'team-a' && rowLine({ id: 'a', title: '', state: 'ready', object: '', phase: '', seat: '', last_progress: { actor: 'zone/canvas/team-a', fact: 'receipt', text: 'completed', at: '' }, updated_at: '' }, 'state', { seat: (x) => x, actor: (x, seat) => speakerName(x, seat, {}, plain) }) === '还没说是哪个席位 · team-a：做完了');
+  ok('说话人：对端来源有承接用承接、没有不写；席位查名册；人去前缀', speakerName('receiver:zone', '小采 · zone/a1', ro) === '小采' && speakerName('receiver:zone', '', ro) === '' && speakerName('zone/0a1b2c3d', '', ro) === '小运' && speakerName('human:pm-a', '', ro, plain) === 'pm-a' && speakerName('', '', ro) === '');
   ok('查表只认自己的键（不认 toString、constructor 这类继承来的）', seatNameOnly('toString', {}) === 'toString' && lastSaid({ fact: 'toString', text: '' }) === '' && lastSaid({ fact: 'constructor', text: '进展' }) === '进展');
 }
 console.log(`\nwork-items-ui-unit: ${pass} 过 / ${fail} 败`);

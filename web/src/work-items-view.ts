@@ -133,7 +133,7 @@ export function viewsFor(seesAll: boolean, total: number): View[] {
   return [seesAll ? { key: 'all', label: '全部', count: total } : { key: 'mine', label: '我安排的', count: total }];
 }
 
-/** 节点报的名字有时自带「 (98b94be9)」这样的句柄后缀：列表里只要名字，去掉 */
+/** 节点报的名字有时自带「 (0a1b2c3d)」这样的句柄后缀：列表里只要名字，去掉 */
 export const cleanSeatName = (name: string): string => (name || '').replace(/\s*[（(][0-9a-f]{6,}[)）]\s*$/i, '').trim();
 
 /** 名册（GET /api/a2a/teams）拍平成「句柄 → 名字」；形状不对的项跳过，没有名字的不收 */
