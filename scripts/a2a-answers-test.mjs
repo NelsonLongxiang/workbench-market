@@ -119,11 +119,18 @@ try {
   { const reg = await api('POST', '/api/a2a/peers', { root_url: lab.url }); if (![200, 201].includes(reg.status)) throw new Error('登记 lab 失败：' + JSON.stringify(reg.body)); }
   for (let i = 0; i < 40; i++) { if (q("SELECT 1 FROM sqlite_master WHERE name = 'workbench_events'").length) break; await sleep(250); }
   // 持有管理层授予的两个人：root-admin（会话登录的管理员，答提问、回复用 dapi）、no-flag（不是管理员，看「节点没收下的答复」）；
-  // alpha（建立人）、beta（别的员工，没有授予）先登录一次，把主体建出来
+  // alpha（建立人）、beta（别的员工，没有授予）先登录一次，把主体建出来；
+  // squatted（身份来源说是管理员，过管理门；判定对照开着时第一次见到会迁出管理层那条，有就撤掉——他就是「只过了管理门、没有管理层授予」的人）
   {
     await dapi('GET', '/api/auth/me');
-    for (const s of [SESSIONS.alpha, SESSIONS.beta, SESSIONS.noAdminFlag]) await attentionAs(s);
+    for (const s of [SESSIONS.alpha, SESSIONS.beta, SESSIONS.noAdminFlag, SESSIONS.squatter]) await attentionAs(s);
     const local = async (path, body) => (await fetch(BASE + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
+    const mg = (((await (await fetch(BASE + '/api/grants?principal=user:squatted&status=active')).json())?.grants) ?? []).filter((g) => (g.role ?? g.role_id) === 'management');
+    for (const x of mg) await local(`/api/grants/${x.id}/revoke`, { reason: '合成：只留管理门、不带管理层授予' });
+    const mgLeft = (((await (await fetch(BASE + '/api/grants?principal=user:squatted&status=active')).json())?.grants) ?? []).filter((g) => (g.role ?? g.role_id) === 'management').length;
+    const gate = async (s) => (await fetch(BASE + '/api/principals/pending', { headers: { cookie: `session_id=${s}`, 'sec-fetch-site': 'same-origin' } })).status;
+    const [gAdmin, gBeta] = [await gate(SESSIONS.squatter), await gate(SESSIONS.beta)];
+    if (mgLeft !== 0 || gAdmin !== 200 || gBeta === 200) throw new Error('会话管理员不是「只过管理门、没有管理层授予」：' + JSON.stringify({ mg: mg.length, mgLeft, gAdmin, gBeta }));
     for (const principal of ['user:root-admin', 'user:no-flag']) {
       const g = await local('/api/grants', { principal, role: 'management', scope: '*', reason: '合成：持有管理层授予的人' });
       await local(`/api/grants/${g?.grant?.id}/submit`, {});
@@ -885,8 +892,10 @@ try {
       const byGrant = rejOf(await attentionAs(SESSIONS.noAdminFlag));
       const byOther = rejOf(await attentionAs(SESSIONS.beta));
       const byToken = rejOf((await api('GET', '/api/attention')).body?.items ?? []);
-      ok('「没收下你的答复」：建立人看得到（mine）、持有管理层授予的人看得到（不是 mine）；别的员工、管理口令（只过管理门）都看不到',
-        rejItem?.mine === true && byGrant && byGrant.mine === false && !byOther && !byToken, JSON.stringify({ creator: !!rejItem, mine: rejItem?.mine, byGrant: !!byGrant, byOther: !!byOther, byToken: !!byToken }));
+      const bySessionAdmin = rejOf(await attentionAs(SESSIONS.squatter));
+      ok('「没收下你的答复」：建立人看得到（mine）、持有管理层授予的人看得到（不是 mine）；别的员工、管理口令、只过管理门的会话管理员都看不到',
+        rejItem?.mine === true && byGrant && byGrant.mine === false && !byOther && !byToken && !bySessionAdmin,
+        JSON.stringify({ creator: !!rejItem, mine: rejItem?.mine, byGrant: !!byGrant, byOther: !!byOther, byToken: !!byToken, bySessionAdmin: !!bySessionAdmin }));
     }
     ok('答复任务回 rejected：只记一行 reply:rejected，没有 receipt:rejected；事项状态和事实都不变；「关注」里冒一条「没收下你的答复」（只提醒，没有答法）',
       r.status === 200 && logCount(G.ev, 'reply:rejected') === 1 && logCount(G.ev, 'receipt:rejected') === 0 && state(G.ev)?.state === gs0 && factsOf(G.ev) === gf0
