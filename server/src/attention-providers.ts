@@ -40,7 +40,7 @@ function optionsHint(json: string): string {
   try { const o = JSON.parse(json) as unknown; return Array.isArray(o) && o.length ? `（可选：${o.filter((x) => typeof x === 'string').join(' / ')}）` : ''; } catch { return ''; }
 }
 import { withAnswers } from './attention-answers.ts';
-import type { AttentionItem, AttentionProvider, AttentionService } from './services/attention.ts';
+import { answerVia, type AttentionItem, type AttentionProvider, type AttentionService } from './services/attention.ts';
 import type { ChangeRequestService } from './services/change-request.ts';
 import type { McpService } from './services/mcp.ts';
 import type { SopService } from './services/sop.ts';
@@ -137,9 +137,12 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           source: 'bench-mcp', source_id: `${r.bench}:${r.id}`, category: 'grant', kind: 'bench-mcp',
           title: `MCP 会话 ${r.session || '（已删）'} 申请在「${r.bench_title}」上用 ${r.tools.length} 个工具${r.tools.some((t) => t.category === 'write') ? '（含写）' : '（只读）'}`,
           waiting_for: r.session ? `mcp:${r.session}` : '', since: new Date(r.created_at).toISOString(), answers: ['approve', 'reject'], link: '',
-          // answer_via：答复入口（/api/attention/answer）在写请求总门后面，远程的非管理员过不了门；这类人直接调台上的这条路由，判断是同一处。
-          // 请求体 { approve: true | false, note }，不批时 note 写理由
-          detail: { session: r.session, bench: r.bench, bench_title: r.bench_title, tools: r.tools, reason: r.reason, created_at: r.created_at, answer_via: { method: 'POST', path: `/api/bench-views/${r.bench}/mcp-requests/${r.id}` } },
+          detail: { session: r.session, bench: r.bench, bench_title: r.bench_title, tools: r.tools, reason: r.reason, created_at: r.created_at },
+          // 能批的人（管理层）多半不是管理员，过不了答复入口前面的写请求总门：卡片照这个地址答，判断和答复入口转过去的是同一处
+          answer_via: answerVia('POST', `/api/bench-views/${r.bench}/mcp-requests/${r.id}`, {
+            approve: { body: { approve: true }, input: { note: { to: 'note', max: 500 } } },
+            reject: { body: { approve: false }, input: { note: { to: 'note', required: true, max: 500 } } },
+          }),
         }));
       },
     }),

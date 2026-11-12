@@ -119,6 +119,8 @@ export function decideBenchRequest(bench: string, id: number, approve: unknown, 
     const q = db.prepare('SELECT * FROM bench_mcp_requests WHERE id = ? AND bench = ?').get(id, bench) as Row | undefined;
     if (!q) throw new BenchError('not_found', `这个台上没有申请 #${id}`);
     if (String(q.status) !== 'pending') throw new BenchError('conflict', `申请 #${id} 已经${String(q.status) === 'approved' ? '批准' : '驳回'}过了`);
+    // 不批要写理由：申请的会话看得到这句话。在路由这一层就要求，卡片不经答复入口直接调过来时也一样
+    if (!approve && !why) throw new BenchError('invalid', '不批要写理由（note）');
     const sessionId = Number(q.session_id), tools = parseTools(q.tools).filter((t) => BENCH_TOOL_NAMES.has(t));
     if (approve) {
       const s = db.prepare('SELECT revoked_at FROM mcp_sessions WHERE id = ?').get(sessionId) as Row | undefined;

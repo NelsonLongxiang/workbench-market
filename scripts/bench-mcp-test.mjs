@@ -270,7 +270,7 @@ try {
   let v = await attention(mgr);
   const card = mine(v).find((x) => x.source_id === `other:${att1}`);
   check(mine(v).filter((x) => x.source_id.startsWith('other:')).length === 2 && card?.category === 'grant' && card.kind === 'bench-mcp' && card.mine === true && card.answers.join() === 'approve,reject' && card.waiting_for === 'mcp:seat-a'
-    && card.detail?.bench === 'other' && card.detail.session === 'seat-a' && card.detail.reason === '往 other 里追加' && card.detail.tools.map((t) => `${t.tool}:${t.category}`).join() === 'dataset_append:write,dataset_list:read' && /含写/.test(card.title) && card.detail.answer_via?.path === `/api/bench-views/other/mcp-requests/${att1}`,
+    && card.detail?.bench === 'other' && card.detail.session === 'seat-a' && card.detail.reason === '往 other 里追加' && card.detail.tools.map((t) => `${t.tool}:${t.category}`).join() === 'dataset_append:write,dataset_list:read' && /含写/.test(card.title) && card.answer_via?.method === 'POST' && card.answer_via.path === `/api/bench-views/other/mcp-requests/${att1}` && JSON.stringify(card.answer_via.answers) === JSON.stringify({ approve: { body: { approve: true }, input: { note: { to: 'note', max: 500 } } }, reject: { body: { approve: false }, input: { note: { to: 'note', required: true, max: 500 } } } }) && Object.keys(card.answer_via.answers).join() === card.answers.join(),
     '管理层的「关注」里有这两条：哪个会话、哪个台、要哪几个工具（读写分开）、为什么', JSON.stringify(mine(v)).slice(0, 300));
   check(!mine(v).some((x) => x.source_id.startsWith('ghost:') || x.source_id.startsWith('cap-')), '台没登记的申请不在清单里（没有人能批它）');
   const seen = {};
@@ -296,9 +296,12 @@ try {
     && db.prepare("SELECT actor FROM bench_mcp_audit WHERE request_id = ? AND action = 'approve'").get(att1)?.actor === 'user:root-admin', '经答复入口批：生效，留痕记的是这个人；多带的字段不算数', r.text.slice(0, 160));
   r = await answer(boss, `other:${att1}`, 'approve');
   check(r.status === 200 && r.json?.duplicate === true && db.prepare('SELECT COUNT(*) AS n FROM bench_mcp_audit WHERE request_id = ?').get(att1).n === 1, '同一条再答一次：认得是答过的，不再生效', r.text.slice(0, 100));
-  r = await srv.call('POST', `/api/bench-views/other/mcp-requests/${att2}`, { ...mgr, body: { approve: false, note: '页面由人改' } });
+  // 照条目的 answer_via 拼请求：固定的字段加上填的那一项
+  const via = mine(await attention(mgr)).find((x) => x.source_id === `other:${att2}`).answer_via;
+  const noReason = await srv.call(via.method, via.path, { ...mgr, body: { ...via.answers.reject.body } });
+  r = await srv.call(via.method, via.path, { ...mgr, body: { ...via.answers.reject.body, [via.answers.reject.input.note.to]: '页面由人改' } });
   const info2 = await tool(srv, A.token, 'access_info', {});
-  check(r.status === 200 && r.json?.status === 'rejected' && info2.json?.bench_requests?.find((x) => x.id === att2)?.note === '页面由人改' && !mine(await attention(mgr)).some((x) => x.source_id.startsWith('other:')), '管理层照条目上写的路由不批并写理由：申请的会话看得到理由；清单里没有了', r.text.slice(0, 120));
+  check(noReason.status === 400 && r.status === 200 && r.json?.status === 'rejected' && info2.json?.bench_requests?.find((x) => x.id === att2)?.note === '页面由人改' && !mine(await attention(mgr)).some((x) => x.source_id.startsWith('other:')), '管理层照条目的 answer_via 答：不批不写理由被拒；写了理由生效，申请的会话看得到理由；清单里没有了', r.text.slice(0, 120));
   r = await tool(srv, A.token, 'dataset_list', { bench: 'other' });
   check(!r.isError && Array.isArray(r.json?.datasets), '批了之后会话在那个台上用得了');
 
