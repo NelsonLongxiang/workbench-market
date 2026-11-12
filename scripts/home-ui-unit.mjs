@@ -74,5 +74,8 @@ ok('卡片说法只看条目的 mine：轮到你不算代办（管理员也是�
   ok('对端来源（receiver:）有承接席位写它的名字，没有写「对方团队」', waitingLabel('receiver:zone', { seat: '小运 · zone/11111111' }) === '小运' && waitingLabel('receiver:zone') === '对方团队');
 }
 
+ok('服务端给了名字（#657 的 waiting_for_name）就直接用；null、空串才退化', waitingLabel('person:x', { name: '合成同事甲' }) === '合成同事甲' && waitingLabel('person:x', { name: null }) === '一位同事'
+  && waitingLabel('person:x', { name: '  ' }) === '一位同事' && waitingLabel('mcp:s1', { name: 'MCP 会话 s1' }) === 'MCP 会话 s1');
+
 console.log(`\nhome-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

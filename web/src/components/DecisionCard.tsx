@@ -87,17 +87,18 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
   const options = detail?.options.length ? detail.options : parsed.options;
   const seat = detail?.seat ?? '';
   const whoLine = change
-    ? `${waitingLabel(change.requested_by, { people: [item.creator ?? {}] }) || '有人'} 申请`
+    ? `${waitingLabel(change.requested_by, { people: [item.creator ?? {}], name: item.waiting_for_name }) || '有人'} 申请`
     : run
     ? ''
     : grant
     ? ''
     : isAsk
-    ? `${waitingLabel(item.waiting_for, { seat, people: [item.creator ?? {}] })} 问`
+    ? `${waitingLabel(item.waiting_for, { seat, people: [item.creator ?? {}], name: item.waiting_for_name })} 问`
     : item.source === 'work-items' && detail
       ? [seat && `承接 ${seatLabel(seat)}`, detail.team && `派给 ${teamLabel(detail.team)}`].filter(Boolean).join(' · ')
-      : waitingLabel(item.waiting_for, { seat, people: [item.creator ?? {}] });
-  const creatorName = (item.creator?.display_name || '').trim() || (item.creator?.principal || '').replace(/^(user|human):/, '');
+      : waitingLabel(item.waiting_for, { seat, people: [item.creator ?? {}], name: item.waiting_for_name });
+  // 建立人的名字：服务端给的 creator_name（#657）优先，没有再看 creator 自带的显示名；都没有就不写名字（不露标识）
+  const creatorName = (item.creator_name || '').trim() || (item.creator?.display_name || '').trim();
   const wording = cardWording(item.category, admin, item.mine, creatorName);
   const label = (a: string) => (wording.proxy && PROXY[a]) || reviewAnswerLabel(item.source, a, item) || ANSWER[a] || a;
   const [create, setCreate] = useState(false);

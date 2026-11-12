@@ -49,7 +49,9 @@ const SYSTEM_WHO: Record<string, string> = { 'task-center': '任务中心', task
  *  · 认得的人（和条目带的 creator 是同一个主体）写显示名；别的人写「一位同事」；
  *  · 外部账号（<提供方>:<外部号>）写「一个外部账号」；AI 会话（mcp:<名字>）写「AI 会话「名字」」；
  *  · 系统来源写中文；画布团队写团队名；席位有名字写名字、只有句柄写「一位 AI 员工」；对端地址写「一个对端节点」 */
-export function waitingLabel(raw: string, opts: { seat?: string; people?: { principal?: string | null; display_name?: string | null }[] } = {}): string {
+export function waitingLabel(raw: string, opts: { seat?: string; people?: { principal?: string | null; display_name?: string | null }[]; name?: string | null } = {}): string {
+  // 服务端给了名字（「关注」条目的 waiting_for_name，#657）就用它：它从来不是内部键本身；给的是 null 才按下面退化
+  if (typeof opts.name === 'string' && opts.name.trim()) return opts.name.trim();
   const s = (raw || '').trim();
   if (!s) return '';
   for (const p of opts.people ?? []) if (p?.principal && p.principal === s) return (p.display_name || '').trim() || '一位同事';
