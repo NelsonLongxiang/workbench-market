@@ -414,6 +414,18 @@
       "snapshot_json TEXT NOT NULL DEFAULT ''",
       "created_at TEXT NOT NULL DEFAULT datetime('now')"
     ],
+    "seat_assignments": [
+      "id INTEGER PK",
+      "host TEXT NOT NULL",
+      "team TEXT NOT NULL",
+      "seat TEXT NOT NULL",
+      "seat_id TEXT NOT NULL DEFAULT ''",
+      "principal_id TEXT NOT NULL",
+      "assigned_by TEXT NOT NULL",
+      "assigned_at INTEGER NOT NULL",
+      "ended_by TEXT",
+      "ended_at INTEGER"
+    ],
     "settings": [
       "key TEXT PK",
       "value TEXT NOT NULL"
@@ -616,6 +628,38 @@
       "updated_at TEXT",
       "intake_run_id INTEGER",
       "template_version INTEGER"
+    ],
+    "team_events": [
+      "seq INTEGER PK",
+      "host TEXT NOT NULL",
+      "team TEXT NOT NULL",
+      "kind TEXT NOT NULL",
+      "seat TEXT NOT NULL DEFAULT ''",
+      "seat_id TEXT NOT NULL DEFAULT ''",
+      "principal_id TEXT NOT NULL DEFAULT ''",
+      "detail TEXT NOT NULL DEFAULT ''",
+      "actor TEXT NOT NULL",
+      "actor_principal TEXT",
+      "at INTEGER NOT NULL"
+    ],
+    "team_leads": [
+      "id INTEGER PK",
+      "host TEXT NOT NULL",
+      "team TEXT NOT NULL",
+      "principal_id TEXT NOT NULL",
+      "added_by TEXT NOT NULL",
+      "added_at INTEGER NOT NULL",
+      "ended_by TEXT",
+      "ended_at INTEGER"
+    ],
+    "teams": [
+      "host TEXT NOT NULL PK",
+      "team TEXT NOT NULL PK",
+      "department_id TEXT NOT NULL DEFAULT ''",
+      "claimed INTEGER NOT NULL DEFAULT 0",
+      "claimed_by TEXT NOT NULL DEFAULT ''",
+      "claimed_at INTEGER",
+      "updated_at INTEGER NOT NULL"
     ],
     "types": [
       "id INTEGER PK",
@@ -852,6 +896,9 @@
     "idx_principal_identities_principal ON principal_identities: CREATE INDEX idx_principal_identities_principal ON principal_identities (principal_id)",
     "idx_principals_status ON principals: CREATE INDEX idx_principals_status ON principals (status, id)",
     "idx_sdr_skill ON skill_digest_reports: CREATE INDEX idx_sdr_skill ON skill_digest_reports (skill_id, version)",
+    "idx_seat_assign_active_handle ON seat_assignments: CREATE UNIQUE INDEX idx_seat_assign_active_handle ON seat_assignments (host, team, seat) WHERE ended_at IS NULL AND seat_id = ''",
+    "idx_seat_assign_active_id ON seat_assignments: CREATE UNIQUE INDEX idx_seat_assign_active_id ON seat_assignments (host, seat_id) WHERE ended_at IS NULL AND seat_id <> ''",
+    "idx_seat_assign_principal ON seat_assignments: CREATE INDEX idx_seat_assign_principal ON seat_assignments (principal_id, ended_at)",
     "idx_skill_versions_domain_digest ON skill_versions: CREATE UNIQUE INDEX idx_skill_versions_domain_digest ON skill_versions(skill_id, tree_digest)",
     "idx_skills_family ON skills: CREATE INDEX idx_skills_family ON skills(family_parent)",
     "idx_skills_layer ON skills: CREATE INDEX idx_skills_layer ON skills(layer)",
@@ -867,6 +914,8 @@
     "idx_sso_tickets_source ON sso_tickets: CREATE INDEX idx_sso_tickets_source ON sso_tickets(source, exp)",
     "idx_task_source_subject ON task_source_read_grants: CREATE INDEX idx_task_source_subject ON task_source_read_grants(subject, source, revoked_at)",
     "idx_tasks_intake_run ON tasks: CREATE UNIQUE INDEX idx_tasks_intake_run ON tasks(intake_run_id) WHERE intake_run_id IS NOT NULL",
+    "idx_team_events_team ON team_events: CREATE INDEX idx_team_events_team ON team_events (host, team, seq)",
+    "idx_team_leads_active ON team_leads: CREATE UNIQUE INDEX idx_team_leads_active ON team_leads (host, team, principal_id) WHERE ended_at IS NULL",
     "idx_wbe_deliveries_due ON workbench_event_deliveries: CREATE INDEX idx_wbe_deliveries_due ON workbench_event_deliveries(status, next_at)",
     "idx_wbe_followups_status ON workbench_event_followups: CREATE INDEX idx_wbe_followups_status ON workbench_event_followups (status, id)",
     "idx_wbe_followups_zone ON workbench_event_followups: CREATE INDEX idx_wbe_followups_zone ON workbench_event_followups (peer_zone, created_at)",

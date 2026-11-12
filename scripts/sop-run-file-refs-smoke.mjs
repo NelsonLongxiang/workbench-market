@@ -6,9 +6,11 @@
 //   R3 重复引用记 duplicate；引用不占上传配额；下载引用文件内容与源一致
 //   R4 按 sha256 引用只限管理员；单批超上限 400；已完成的 run 不能再关联；审计记 ref:<源文件 id>
 //   R5（有 PYTHON 且装了 Playwright 时）执行页多选逐个上传：成功、失败各自显示，剩余配额可见
+//   R6 上传核对结果：带对的 sha256（表单字段或请求头）→ sha256-verified；不带 → unverified 且 sha256 与内容一致；
+//      带错的、格式错、头与字段不一致 → 400，库里和盘上都不留
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
@@ -108,6 +110,29 @@ try {
     ok('一个成功一个失败，各自显示；成功的不受失败影响', code === 0 && got && /已上传/.test(got.rows[0]) && /失败/.test(got.rows[1]), out.slice(-400));
     ok('剩余配额可见', !!got && /还能上传 19 个文件/.test(got.quota), got?.quota);
   } else console.log('  - R5 SKIP（设 PYTHON 指向装了 Playwright 的解释器才跑）');
+
+  console.log('▶ R6 上传核对结果（integrity / next）');
+  const D = await mk('refs-sop');
+  const onDisk = () => { const walk = (d) => existsSync(d) ? readdirSync(d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(join(d, e.name)) : [e.name]) : []; return walk(join(DATA, 'run-files')).length; };
+  const rows = async () => (await call('GET', `/api/sop/runs/${D.id}/files`, ADM)).body?.items?.length ?? -1;
+  const text = '核对结果 integrity', sha = createHash('sha256').update(text).digest('hex'), wrong = 'f'.repeat(64);
+  const up = async (name, field, headers = {}) => {
+    const fd = new FormData(); if (field !== undefined) fd.append('sha256', field); fd.append('file', new Blob([text], { type: 'text/plain' }), name);
+    const r = await fetch(`${B}/api/sop/runs/${D.id}/files`, { method: 'POST', headers, body: fd });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  };
+  let v = await up('v1.txt', sha);
+  ok('表单字段带对的 sha256：201，sha256-verified，next 说无需下载回读', v.status === 201 && v.body?.integrity === 'sha256-verified' && /无需下载回读/.test(v.body?.next ?? ''), JSON.stringify(v.body));
+  v = await up('v2.txt', undefined, { 'x-content-sha256': sha.toUpperCase() });
+  ok('请求头带对的 sha256（大写也认）：sha256-verified', v.status === 201 && v.body?.integrity === 'sha256-verified', JSON.stringify(v.body));
+  v = await up('v3.txt');
+  ok('不带：201，unverified，sha256 与内容一致，next 说比一下即可', v.status === 201 && v.body?.integrity === 'unverified' && v.body?.sha256 === sha && /不需要下载/.test(v.body?.next ?? ''), JSON.stringify(v.body));
+  const r0 = await rows(), d0 = onDisk();
+  ok('三次成功的都入库、都落盘（下面的计数有意义）', r0 === 3 && d0 > 0, `${r0} ${d0}`);
+  for (const [what, field, headers] of [['带错的 sha256', wrong, {}], ['sha256 格式错', 'abc', {}], ['请求头与表单字段不一致', sha, { 'x-content-sha256': wrong }], ['请求头带错的', undefined, { 'x-content-sha256': wrong }]]) {
+    v = await up('bad.txt', field, headers);
+    ok(`${what}：400，库里和盘上都不留`, v.status === 400 && (await rows()) === r0 && onDisk() === d0, `${v.status} ${JSON.stringify(v.body)} rows ${await rows()}/${r0} disk ${onDisk()}/${d0}`);
+  }
 } catch (e) {
   fail++; console.log('  ✗ 异常 ' + (e?.stack ?? e));
 } finally {
