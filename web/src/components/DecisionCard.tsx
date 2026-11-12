@@ -13,7 +13,7 @@ import { attentionChanged, postCreatorDecision } from '../api';
 import { answerChoices, answerRoute, waited, type AttentionItem } from '../attention-view';
 import { cardWording, splitAskTitle } from '../home-view';
 import { cleanWho, seatLabel, teamLabel } from '../people';
-import { REVIEW_NEEDS, changeCard, changeDetailOf, confirmText, reviewAnswerLabel, taskKindLabel } from '../review-view';
+import { REVIEW_NEEDS, changeCard, changeDetailOf, confirmText, reviewAnswerLabel, runCard, runDetailOf, taskKindLabel } from '../review-view';
 
 
 const COLOR: Record<string, string> = { ask: 'gold', accept: 'green', glance: 'default', review: 'blue', grant: 'purple' };
@@ -60,6 +60,8 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
   const change = changeDetailOf(item);
   const cc = change ? changeCard(change) : null;
   const taskKind = taskKindLabel(item);
+  const run = runDetailOf(item);
+  const rc = run ? runCard(run, teamLabel) : null;
   const isAsk = item.source === 'seat-asks';
   const parsed = isAsk ? splitAskTitle(item.title) : { question: item.title, options: [] };
   // 选项以事项详情里的为准；详情还没带提问列表时用标题里服务端写的「（可选：…）」
@@ -67,12 +69,14 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
   const seat = detail?.seat ?? '';
   const whoLine = change
     ? `${cleanWho(change.requested_by) || '有人'} 申请`
+    : run
+    ? ''
     : isAsk
     ? `${cleanWho(item.waiting_for, seat)} 问`
     : item.source === 'work-items' && detail
       ? [seat && `承接 ${seatLabel(seat)}`, detail.team && `派给 ${teamLabel(detail.team)}`].filter(Boolean).join(' · ')
       : cleanWho(item.waiting_for, seat);
-  const wording = cardWording(item.category, admin);
+  const wording = cardWording(item.category, admin, (item as { mine?: unknown }).mine);
   const label = (a: string) => (wording.proxy && PROXY[a]) || reviewAnswerLabel(item.source, a, item) || ANSWER[a] || a;
   const send = async (answer: string, input: Record<string, string>) => {
     setBusy(true);
@@ -110,7 +114,11 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
       <Tag color={taskKind ? 'default' : COLOR[item.category] ?? 'default'}>{taskKind ?? wording.label}</Tag>
       <Typography.Text type="secondary" className="wm-caption">{[whoLine, item.since && `等了 ${waited(item.since)}`].filter(Boolean).join(' · ')}</Typography.Text>
     </div>
-    <Typography.Text strong className="wm-decision-title">{cc ? cc.title : parsed.question}</Typography.Text>
+    <Typography.Text strong className="wm-decision-title">{cc ? cc.title : rc ? rc.title : parsed.question}</Typography.Text>
+    {rc && <div className="wm-decision-lines" data-testid="decision-run">
+      {rc.lines.map((l, i) => <Typography.Text key={i} type="secondary">{l}</Typography.Text>)}
+      {rc.problems.map((l, i) => <Typography.Text key={`p${i}`} type="warning">{l}</Typography.Text>)}
+    </div>}
     {cc && <div className="wm-decision-lines" data-testid="decision-change">
       {cc.lines.map((l, i) => <Typography.Text key={i} type="secondary">{l}</Typography.Text>)}
       {cc.warn && <Typography.Text type="warning">{cc.warn}</Typography.Text>}
@@ -129,10 +137,10 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
         const need = NEEDS[item.source]?.[a];
         if (open === a && need) return <Button key={a} type="primary" loading={busy} disabled={!text.trim()} onClick={() => void send(a, { [need.key]: text.trim() })}>确定{label(a)}</Button>;
         const confirm = confirmText(item, a);
-        const btn = <Button key={a} type={i === 0 ? 'primary' : 'default'} danger={!!confirm && !!change} loading={busy && !open} onClick={confirm ? undefined : () => click(a)}>{label(a)}</Button>;
+        const btn = <Button key={a} type={i === 0 ? 'primary' : 'default'} danger={!!confirm && !!change} loading={busy && !open} disabled={!!run && !run.ready} onClick={confirm ? undefined : () => click(a)}>{label(a)}</Button>;
         return confirm ? <Popconfirm key={a} title={`确定${label(a)}？`} description={confirm} okText={label(a)} cancelText="再想想" onConfirm={() => click(a)}>{btn}</Popconfirm> : btn;
       })}
-      {item.link && !item.link.startsWith('/api/') && !(cc && choices.length) && <Link to={item.link} className="wm-decision-more">{choices.length ? '看详情' : '去处理'} →</Link>}
+      {item.link && !item.link.startsWith('/api/') && !((cc || rc) && choices.length) && <Link to={item.link} className="wm-decision-more">{choices.length ? '看详情' : '去处理'} →</Link>}
     </Space>}
   </div>;
 }

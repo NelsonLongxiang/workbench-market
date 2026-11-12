@@ -78,8 +78,9 @@ export function splitAskTitle(title: string): { question: string; options: strin
 
 /** 「你」只给这件事本来该找的人：答复、验收找建立人。「关注」只把自己的事项给非管理员看，所以非管理员看到的就是自己的；
  *  管理员看到的是替建立人代办（卡片不知道建立人的名字，写「建立人」） */
-export function cardWording(category: string, admin: boolean): { label: string; proxy: boolean } {
-  const proxy = admin && (category === 'ask' || category === 'accept');
+export function cardWording(category: string, admin: boolean, mine?: unknown): { label: string; proxy: boolean } {
+  // 条目带了 mine（#587）就只看它：轮到你不是代办，不轮到你才是。没带（旧的应答）才按管理员推
+  const proxy = (category === 'ask' || category === 'accept') && (typeof mine === 'boolean' ? !mine : admin);
   const LABEL: Record<string, [string, string]> = { ask: ['在问你', '在问建立人'], accept: ['等你验收', '等建立人验收'], glance: ['等你过目', '等你过目'], review: ['等你审核', '等你审核'], grant: ['待你核准', '待你核准'] };
   const l = LABEL[category];
   // 不认识的类别（服务端以后会加：卡住的事、团队待认领、负责人缺位……）先写中性的「等你处理」，不把代号露出来（规范 14 第十节）

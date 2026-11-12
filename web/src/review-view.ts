@@ -52,6 +52,7 @@ export function changeCard(d: ChangeDetail): { title: string; lines: string[]; w
 
 /** 答法的叫法：变更申请叫「通过 / 不通过」；别的来源用卡片通用的叫法（返回 null） */
 export function reviewAnswerLabel(source: string, answer: string, item?: { source: string; detail?: unknown }): string | null {
+  if (source === 'sop-runs') return answer === 'finish' ? '验收通过' : null;
   if (source !== 'change-requests') return null;
   if (answer === 'reject') return '不通过';
   if (answer !== 'approve') return null;
@@ -85,4 +86,34 @@ const TASK_KIND: Record<string, string> = { task: '任务中心的任务', 'sop-
 export function taskKindLabel(item: Pick<AttentionItem, 'source'> & { kind?: unknown }): string | null {
   if (item.source !== 'tasks') return null;
   return TASK_KIND[typeof item.kind === 'string' ? item.kind : 'other'] ?? TASK_KIND.other;
+}
+
+/** 别的节点派进来、等验收的流程执行（「关注」来源 sop-runs，#612）：只有「验收通过」，没有打回。
+ *  detail 里只有摘要：哪条流程、谁派来的、每一步填了没有、附件的个数和名字、能不能验（ready）和还差什么（problems） */
+export type RunDetail = { sop_title: string; run_id: string; team: string; steps: { title: string; filled: boolean }[]; attachments: { count: number; names: string[] }; ready: boolean; problems: string[] };
+export function runDetailOf(item: Pick<AttentionItem, 'source'> & { detail?: unknown }): RunDetail | null {
+  if (item.source !== 'sop-runs' || !item.detail || typeof item.detail !== 'object') return null;
+  const d = item.detail as Record<string, unknown>;
+  const disp = d.dispatcher && typeof d.dispatcher === 'object' ? d.dispatcher as Record<string, unknown> : {};
+  const att = d.attachments && typeof d.attachments === 'object' ? d.attachments as Record<string, unknown> : {};
+  const steps = (Array.isArray(d.steps) ? d.steps : []).filter((x): x is Record<string, unknown> => !!x && typeof x === 'object').map((x) => ({ title: str(x.title) || str(x.key), filled: x.filled === true }));
+  const names = (Array.isArray(att.names) ? att.names : []).filter((x): x is string => typeof x === 'string');
+  return {
+    sop_title: str(d.sop_title) || str(d.sop), run_id: d.run_id === undefined || d.run_id === null ? '' : String(d.run_id), team: str(disp.team),
+    steps, attachments: { count: num(att.count) ?? names.length, names },
+    // 没明说能验就当不能验：不让人点下去才被拒
+    ready: d.ready === true, problems: (Array.isArray(d.problems) ? d.problems : []).filter((x): x is string => typeof x === 'string').slice(0, 5),
+  };
+}
+
+/** 卡片上怎么写一条派进来的执行：标题、几行摘要、还差什么。team：团队怎么显示由页面给（people.ts 的 teamLabel） */
+export function runCard(d: RunDetail, team: (t: string) => string = (t) => t): { title: string; lines: string[]; problems: string[] } {
+  const filled = d.steps.filter((s) => s.filled).length;
+  const lines = [
+    d.team ? `${team(d.team)} 派来的` : '别的团队派来的',
+    d.steps.length ? `${d.steps.length} 步里填了 ${filled} 步` : '',
+    d.attachments.count ? `交了 ${d.attachments.count} 个附件${d.attachments.names.length ? `：${d.attachments.names.slice(0, 3).join('、')}${d.attachments.count > 3 ? ' 等' : ''}` : ''}` : '没有附件',
+  ].filter(Boolean);
+  const problems = d.ready ? [] : d.problems.length ? d.problems : ['还有必填的没填，现在验不了'];
+  return { title: `${d.sop_title || '流程'}${d.run_id ? ` #${d.run_id}` : ''}`, lines, problems };
 }
