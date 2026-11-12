@@ -313,6 +313,8 @@ jobs:
         run: node scripts/attention-answer-test.mjs
       - name: 审核进「关注」（变更申请当场批：和旧入口同一处判断·审核人取认出来的管理员·不通过要理由·detail 只给看内容所需的最少字段、删除标不可恢复、不出文件内容·员工看不到也答不了·统一待办条目带 kind）
         run: node scripts/attention-review-test.mjs
+      - name: 待验收的派单 run 进「等你拍板」（当场验收和完成接口同一处判断、同一个执行·detail 不给步骤内容和文件内容·员工看不到也答不了·统一待办同一条去重）
+        run: node scripts/attention-sop-run-test.mjs
       - name: 建立人验收自己的事项（阶段八 8e，放宽访问的对抗组：别人的事项、冒用显示名、夹带建立人、停用的建立人、跨站、未登录、不在等验收、送别的事实、来源未验证都拒·退回后再进等验收能再答·管理员照旧·启动自检一行）
         run: node scripts/work-item-creator-test.mjs
       - name: 事项的 can、turn、creator 和「关注」的 mine（三种身份逐项对着动作接口验：can 说能接口就放行、说不能就拒·状态上不允许的一律 false·turn 只轮到建立人或有放行权限的人·放行留痕记真实的管理员）
