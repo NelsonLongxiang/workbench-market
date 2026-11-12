@@ -338,7 +338,7 @@ jobs:
       - name: 出自产台页面的单测（阶段八 8f-2：出票抛错页面照常不带票据·认人抛错当认不出·拼页面抛错回到原样页面并计数·历史版本不出票）
         run: node --disable-warning=ExperimentalWarning scripts/app-html-unit.mjs
       - name: 对外断开（WM_OUTBOUND=off：假网络记账，进程层 17 种出站办法一律在发出前被拦、实例层各触发点走一遍假网络收到 0 个连接、投递与回执保持 pending 不判死、自检与健康检查看得见；对照组不开开关必须收到连接；非法值拒绝启动）
-        run: node scripts/outbound-off-test.mjs && node scripts/bench-outbound-off-test.mjs
+        run: node scripts/outbound-off-test.mjs && node scripts/bench-outbound-off-test.mjs && node scripts/bench-views-entry-test.mjs
       - name: HTTP 服务单测（经服务注册与直接注册的路由栈逐行相同·注册可撤销·同一路径只撤一条·随插件卸载·撤销时在途请求不受影响）
         run: node scripts/http-service-test.mjs
       - name: 周期定时器随上下文停（index.ts 之外带周期定时器的模块起来之后都在跑；卸载根上下文之后一个不剩；把 unref 换成空操作，子进程照样自己退出）
@@ -470,6 +470,8 @@ jobs:
         run: node scripts/bench-blocks-ui-unit.mjs
       - name: 「谁能做什么」页单测（纯函数——授予的状态、范围、期限，待核准，按人排的表，矩阵格子；单列一步）
         run: node scripts/access-ui-unit.mjs
+      - name: 「团队」页单测（纯函数——团队状态、负责人、成员归谁用、计数、空和读不到的说法、建部门校验；单列一步）
+        run: node scripts/team-ui-unit.mjs
       - name: 凭据库（融合 dsh-vault：读写要口令·业务面 403·摘要无明文·坏 JSON 不进日志·写锁/重开/闲置上锁/限流）
         run: node scripts/vault-concurrency-test.mjs && node scripts/vault-smoke.mjs
       - name: 条目自带答复入口单测（纯函数——answer_via 的地址、请求体、填写项；核准卡片的写法；单列一步）

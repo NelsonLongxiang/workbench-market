@@ -20,7 +20,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "642", "etag": "W/\"282-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "722", "etag": "W/\"2d2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -37,7 +37,8 @@
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/messages\\/(read|[1-9]\\d{0,15}\\/reply)$/",
                 "/^\\/api\\/work-items$/",
                 "/^\\/api\\/teams\\/(assign|unassign)$/",
-                "/^\\/api\\/mcp-rest\\/(tools\\/[^/]+|apps\\/[a-z0-9-]{1,64}\\/files(\\/[^/]+)?)$/"
+                "/^\\/api\\/mcp-rest\\/(tools\\/[^/]+|apps\\/[a-z0-9-]{1,64}\\/files(\\/[^/]+)?)$/",
+                "/^\\/api\\/bench-views(\\/[a-z0-9][a-z0-9-]{0,63}(\\/[a-z0-9_/-]{1,160})?)?$/"
               ],
               "snapshot_count": 3
             }
@@ -52,7 +53,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "642", "etag": "W/\"282-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "722", "etag": "W/\"2d2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -69,7 +70,8 @@
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/messages\\/(read|[1-9]\\d{0,15}\\/reply)$/",
                 "/^\\/api\\/work-items$/",
                 "/^\\/api\\/teams\\/(assign|unassign)$/",
-                "/^\\/api\\/mcp-rest\\/(tools\\/[^/]+|apps\\/[a-z0-9-]{1,64}\\/files(\\/[^/]+)?)$/"
+                "/^\\/api\\/mcp-rest\\/(tools\\/[^/]+|apps\\/[a-z0-9-]{1,64}\\/files(\\/[^/]+)?)$/",
+                "/^\\/api\\/bench-views(\\/[a-z0-9][a-z0-9-]{0,63}(\\/[a-z0-9_/-]{1,160})?)?$/"
               ],
               "snapshot_count": 3
             }
@@ -152,7 +154,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "642", "etag": "W/\"282-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "722", "etag": "W/\"2d2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -169,7 +171,8 @@
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/messages\\/(read|[1-9]\\d{0,15}\\/reply)$/",
                 "/^\\/api\\/work-items$/",
                 "/^\\/api\\/teams\\/(assign|unassign)$/",
-                "/^\\/api\\/mcp-rest\\/(tools\\/[^/]+|apps\\/[a-z0-9-]{1,64}\\/files(\\/[^/]+)?)$/"
+                "/^\\/api\\/mcp-rest\\/(tools\\/[^/]+|apps\\/[a-z0-9-]{1,64}\\/files(\\/[^/]+)?)$/",
+                "/^\\/api\\/bench-views(\\/[a-z0-9][a-z0-9-]{0,63}(\\/[a-z0-9_/-]{1,160})?)?$/"
               ],
               "snapshot_count": 1
             }

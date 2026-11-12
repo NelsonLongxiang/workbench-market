@@ -38,6 +38,8 @@ try {
   await ghPublish(BASE, gh, { slug: 'e2e-import-probe', title: 'probe', files: [{ path: 'index.html', content: '<p>p</p>' }] });
   const probe_app = (await call('GET', '/api/workbenches')).body.find((w) => w.url === '/apps/e2e-import-probe/');
   const cp = (await call('POST', '/api/cockpits', { name: '舱', panels: [{ i: 'p1', workbenchId: http1.id, x: 0, y: 0, w: 4, h: 3 }] })).body;
+  // 视图面板不引用工作台（workbenchId=0 占位）：replace 剔悬空面板时不能把它当悬空的一起剔掉
+  const cpv = (await call('POST', '/api/cockpits', { name: '视图舱', panels: [{ kind: 'bench-view', bench: 'probe', view: 'main' }, { i: 'p1', workbenchId: http1.id }] })).body;
 
   // ① export → 删内部路径台（模拟丢注册）→ query mode replace 导回
   const exp = (await call('GET', '/api/export')).body;
@@ -53,6 +55,8 @@ try {
   const wids = new Set((await call('GET', '/api/workbenches')).body.map((w) => w.id));
   const dangling = (cp2.panels || []).filter((p) => !wids.has(p.workbenchId));
   ok('replace 后悬空面板已剔除（PR#15 prune 吸收面）', dangling.length === 0, JSON.stringify(cp2.panels));
+  const cpv2 = (await call('GET', `/api/cockpits/${cpv.id}`)).body;
+  ok('replace 后视图面板还在（不引用工作台，不算悬空）', (cpv2.panels || []).some((p) => p.kind === 'bench-view' && p.bench === 'probe' && p.view === 'main'), JSON.stringify(cpv2.panels));
   const rsave = await call('PUT', `/api/cockpits/${cp.id}`, { panels: cp2.panels });
   ok('清舱后保存布局 200（不再 400）', rsave.status === 200);
 

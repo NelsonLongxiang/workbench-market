@@ -1078,6 +1078,347 @@
               }
             ]
           }
+        },
+        {
+          "id": "create-view-panel",
+          "route": "POST /api/cockpits",
+          "class": "normal",
+          "what": "视图面板：只看形状。这个台和这份视图并不存在，照样存下来；tab、order、位置给缺省值，i 由服务端拼",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "回放·视图面板", "panels": [{ "kind": "bench-view", "bench": "sales", "view": "main" }] } },
+          "save": { "cbv": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "462", "etag": "W/\"1ce-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 9,
+              "name": "回放·视图面板",
+              "description": "",
+              "layout_config": "[{\"i\":\"bv-sales-main\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"main\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [{ "i": "bv-sales-main", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "main", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 }]
+            }
+          }
+        },
+        {
+          "id": "create-view-panel-full",
+          "route": "POST /api/cockpits",
+          "class": "normal",
+          "what": "视图面板和工作台面板、待办卡混放；自报的 i 和 workbenchId 不算数；多出来的字段不存；位置照旧钳位",
+          "request": {
+            "method": "POST",
+            "path": "/api/cockpits",
+            "json": {
+              "name": "回放·视图面板混放",
+              "panels": [
+                { "workbenchId": 2 },
+                { "kind": "tasks", "i": "tasks" },
+                { "kind": "bench-view", "bench": "sales", "view": "main", "tab": "detail", "order": 3, "i": "wb-2", "workbenchId": 2, "version": 7, "params": { "month": "x" }, "x": 20, "w": 0, "h": 100 },
+                { "kind": "bench-view", "bench": "0-a", "view": "a-1", "tab": "board", "order": 0 }
+              ]
+            }
+          },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1045", "etag": "W/\"415-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 10,
+              "name": "回放·视图面板混放",
+              "description": "",
+              "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":0,\"y\":0,\"w\":6,\"h\":12},{\"i\":\"bv-sales-main\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"main\",\"tab\":\"detail\",\"order\":3,\"x\":6,\"y\":0,\"w\":6,\"h\":40},{\"i\":\"bv-0-a-a-1\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"0-a\",\"view\":\"a-1\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [
+                { "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 0, "w": 6, "h": 12 },
+                { "i": "bv-sales-main", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "main", "tab": "detail", "order": 3, "x": 6, "y": 0, "w": 6, "h": 40 },
+                { "i": "bv-0-a-a-1", "workbenchId": 0, "kind": "bench-view", "bench": "0-a", "view": "a-1", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 }
+              ]
+            }
+          }
+        },
+        {
+          "id": "create-view-panel-no-bench",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "视图面板没写 bench",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "kind": "bench-view", "view": "main" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "视图面板的 bench 不是合法的台标识" } }
+        },
+        {
+          "id": "create-view-panel-bench-upper",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "bench 有大写字母",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "kind": "bench-view", "bench": "Sales", "view": "main" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "视图面板的 bench 不是合法的台标识" } }
+        },
+        {
+          "id": "create-view-panel-bench-path",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "bench 里有斜杠和点",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "kind": "bench-view", "bench": "../x", "view": "main" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "视图面板的 bench 不是合法的台标识" } }
+        },
+        {
+          "id": "create-view-panel-bench-long",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "bench 超过 64 个字符",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "kind": "bench-view", "bench": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "view": "main" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "视图面板的 bench 不是合法的台标识" } }
+        },
+        {
+          "id": "create-view-panel-bench-number",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "bench 不是字符串",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "kind": "bench-view", "bench": 7, "view": "main" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "视图面板的 bench 不是合法的台标识" } }
+        },
+        {
+          "id": "create-view-panel-view-digit",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "view 以数字开头",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "kind": "bench-view", "bench": "sales", "view": "1a" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "57", "etag": "W/\"39-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "视图面板的 view 不是合法的视图键" } }
+        },
+        {
+          "id": "create-view-panel-view-chars",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "view 里有空格和引号",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "kind": "bench-view", "bench": "sales", "view": "a \"b" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "57", "etag": "W/\"39-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "视图面板的 view 不是合法的视图键" } }
+        },
+        {
+          "id": "create-view-panel-view-long",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "view 超过 32 个字符",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "kind": "bench-view", "bench": "sales", "view": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "57", "etag": "W/\"39-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "视图面板的 view 不是合法的视图键" } }
+        },
+        {
+          "id": "create-view-panel-tab",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "tab 不是约定的两个值",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "kind": "bench-view", "bench": "sales", "view": "main", "tab": "other" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "视图面板的 tab 只能是 board 或 detail" } }
+        },
+        {
+          "id": "create-view-panel-tab-null",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "tab 写了 null",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "kind": "bench-view", "bench": "sales", "view": "main", "tab": null }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "视图面板的 tab 只能是 board 或 detail" } }
+        },
+        {
+          "id": "create-view-panel-order-fraction",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "order 是小数",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "kind": "bench-view", "bench": "sales", "view": "main", "order": 1.5 }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "61", "etag": "W/\"3d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "视图面板的 order 要是 0 到 9999 的整数" } }
+        },
+        {
+          "id": "create-view-panel-order-text",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "order 是文字",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "kind": "bench-view", "bench": "sales", "view": "main", "order": "2" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "61", "etag": "W/\"3d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "视图面板的 order 要是 0 到 9999 的整数" } }
+        },
+        {
+          "id": "create-view-panel-order-negative",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "order 是负数",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "kind": "bench-view", "bench": "sales", "view": "main", "order": -1 }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "61", "etag": "W/\"3d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "视图面板的 order 要是 0 到 9999 的整数" } }
+        },
+        {
+          "id": "create-view-panel-duplicate",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "同一份视图放了两次",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "kind": "bench-view", "bench": "sales", "view": "main" }, { "kind": "bench-view", "bench": "sales", "view": "main", "tab": "detail" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "50", "etag": "W/\"32-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "面板重复引用视图 bv-sales-main" } }
+        },
+        {
+          "id": "create-view-panel-too-many",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "视图面板超过个数上限",
+          "request": {
+            "method": "POST",
+            "path": "/api/cockpits",
+            "json": {
+              "name": "x",
+              "panels": [
+                { "kind": "bench-view", "bench": "sales", "view": "v0" },
+                { "kind": "bench-view", "bench": "sales", "view": "v1" },
+                { "kind": "bench-view", "bench": "sales", "view": "v2" },
+                { "kind": "bench-view", "bench": "sales", "view": "v3" },
+                { "kind": "bench-view", "bench": "sales", "view": "v4" },
+                { "kind": "bench-view", "bench": "sales", "view": "v5" },
+                { "kind": "bench-view", "bench": "sales", "view": "v6" },
+                { "kind": "bench-view", "bench": "sales", "view": "v7" },
+                { "kind": "bench-view", "bench": "sales", "view": "v8" },
+                { "kind": "bench-view", "bench": "sales", "view": "v9" },
+                { "kind": "bench-view", "bench": "sales", "view": "v10" },
+                { "kind": "bench-view", "bench": "sales", "view": "v11" },
+                { "kind": "bench-view", "bench": "sales", "view": "v12" },
+                { "kind": "bench-view", "bench": "sales", "view": "v13" },
+                { "kind": "bench-view", "bench": "sales", "view": "v14" },
+                { "kind": "bench-view", "bench": "sales", "view": "v15" },
+                { "kind": "bench-view", "bench": "sales", "view": "v16" },
+                { "kind": "bench-view", "bench": "sales", "view": "v17" },
+                { "kind": "bench-view", "bench": "sales", "view": "v18" },
+                { "kind": "bench-view", "bench": "sales", "view": "v19" },
+                { "kind": "bench-view", "bench": "sales", "view": "v20" },
+                { "kind": "bench-view", "bench": "sales", "view": "v21" },
+                { "kind": "bench-view", "bench": "sales", "view": "v22" },
+                { "kind": "bench-view", "bench": "sales", "view": "v23" },
+                { "kind": "bench-view", "bench": "sales", "view": "v24" }
+              ]
+            }
+          },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "55", "etag": "W/\"37-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "一个驾驶舱最多放 24 个视图面板" } }
+        },
+        {
+          "id": "create-view-panel-at-cap",
+          "route": "POST /api/cockpits",
+          "class": "normal",
+          "what": "视图面板正好到个数上限",
+          "request": {
+            "method": "POST",
+            "path": "/api/cockpits",
+            "json": {
+              "name": "回放·视图面板到上限",
+              "panels": [
+                { "kind": "bench-view", "bench": "sales", "view": "v0" },
+                { "kind": "bench-view", "bench": "sales", "view": "v1" },
+                { "kind": "bench-view", "bench": "sales", "view": "v2" },
+                { "kind": "bench-view", "bench": "sales", "view": "v3" },
+                { "kind": "bench-view", "bench": "sales", "view": "v4" },
+                { "kind": "bench-view", "bench": "sales", "view": "v5" },
+                { "kind": "bench-view", "bench": "sales", "view": "v6" },
+                { "kind": "bench-view", "bench": "sales", "view": "v7" },
+                { "kind": "bench-view", "bench": "sales", "view": "v8" },
+                { "kind": "bench-view", "bench": "sales", "view": "v9" },
+                { "kind": "bench-view", "bench": "sales", "view": "v10" },
+                { "kind": "bench-view", "bench": "sales", "view": "v11" },
+                { "kind": "bench-view", "bench": "sales", "view": "v12" },
+                { "kind": "bench-view", "bench": "sales", "view": "v13" },
+                { "kind": "bench-view", "bench": "sales", "view": "v14" },
+                { "kind": "bench-view", "bench": "sales", "view": "v15" },
+                { "kind": "bench-view", "bench": "sales", "view": "v16" },
+                { "kind": "bench-view", "bench": "sales", "view": "v17" },
+                { "kind": "bench-view", "bench": "sales", "view": "v18" },
+                { "kind": "bench-view", "bench": "sales", "view": "v19" },
+                { "kind": "bench-view", "bench": "sales", "view": "v20" },
+                { "kind": "bench-view", "bench": "sales", "view": "v21" },
+                { "kind": "bench-view", "bench": "sales", "view": "v22" },
+                { "kind": "bench-view", "bench": "sales", "view": "v23" }
+              ]
+            }
+          },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "7374", "etag": "W/\"1cce-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 11,
+              "name": "回放·视图面板到上限",
+              "description": "",
+              "layout_config": "[{\"i\":\"bv-sales-v0\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v0\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"bv-sales-v1\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v1\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"bv-sales-v2\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v2\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"bv-sales-v3\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v3\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"bv-sales-v4\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v4\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"bv-sales-v5\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v5\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"bv-sales-v6\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v6\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"bv-sales-v7\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v7\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"bv-sales-v8\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v8\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"bv-sales-v9\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v9\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"bv-sales-v10\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v10\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"bv-sales-v11\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v11\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"bv-sales-v12\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v12\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"bv-sales-v13\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v13\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"bv-sales-v14\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v14\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"bv-sales-v15\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v15\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"bv-sales-v16\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v16\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"bv-sales-v17\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v17\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"bv-sales-v18\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v18\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"bv-sales-v19\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v19\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"bv-sales-v20\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v20\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"bv-sales-v21\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v21\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"bv-sales-v22\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v22\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"bv-sales-v23\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"v23\",\"tab\":\"board\",\"order\":0,\"x\":0,\"y\":0,\"w\":6,\"h\":10}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [
+                { "i": "bv-sales-v0", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v0", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "bv-sales-v1", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v1", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "bv-sales-v2", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v2", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "bv-sales-v3", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v3", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "bv-sales-v4", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v4", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "bv-sales-v5", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v5", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "bv-sales-v6", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v6", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "bv-sales-v7", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v7", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "bv-sales-v8", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v8", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "bv-sales-v9", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v9", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "bv-sales-v10", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v10", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "bv-sales-v11", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v11", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "bv-sales-v12", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v12", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "bv-sales-v13", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v13", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "bv-sales-v14", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v14", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "bv-sales-v15", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v15", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "bv-sales-v16", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v16", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "bv-sales-v17", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v17", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "bv-sales-v18", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v18", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "bv-sales-v19", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v19", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "bv-sales-v20", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v20", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "bv-sales-v21", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v21", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "bv-sales-v22", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v22", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 },
+                { "i": "bv-sales-v23", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "v23", "tab": "board", "order": 0, "x": 0, "y": 0, "w": 6, "h": 10 }
+              ]
+            }
+          }
+        },
+        {
+          "id": "update-view-panel",
+          "route": "PUT /api/cockpits/:id",
+          "class": "normal",
+          "what": "PUT 换成另一份视图",
+          "request": { "method": "PUT", "path": "/api/cockpits/{{cbv}}", "json": { "panels": [{ "kind": "bench-view", "bench": "sales", "view": "detail", "tab": "detail", "order": 1 }] } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "472", "etag": "W/\"1d8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 9,
+              "name": "回放·视图面板",
+              "description": "",
+              "layout_config": "[{\"i\":\"bv-sales-detail\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"detail\",\"tab\":\"detail\",\"order\":1,\"x\":0,\"y\":0,\"w\":6,\"h\":10}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [{ "i": "bv-sales-detail", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "detail", "tab": "detail", "order": 1, "x": 0, "y": 0, "w": 6, "h": 10 }]
+            }
+          }
+        },
+        {
+          "id": "update-view-panel-bad",
+          "route": "PUT /api/cockpits/:id",
+          "class": "invalid",
+          "what": "PUT 带不合法的视图面板：不落库",
+          "request": { "method": "PUT", "path": "/api/cockpits/{{cbv}}", "json": { "panels": [{ "kind": "bench-view", "bench": "sales", "view": "Main" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "57", "etag": "W/\"39-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "视图面板的 view 不是合法的视图键" } }
+        },
+        {
+          "id": "get-view-panel",
+          "route": "GET /api/cockpits/:id",
+          "class": "normal",
+          "what": "读回：还是上一次成功的那份",
+          "request": { "method": "GET", "path": "/api/cockpits/{{cbv}}" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "472", "etag": "W/\"1d8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 9,
+              "name": "回放·视图面板",
+              "description": "",
+              "layout_config": "[{\"i\":\"bv-sales-detail\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"detail\",\"tab\":\"detail\",\"order\":1,\"x\":0,\"y\":0,\"w\":6,\"h\":10}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [{ "i": "bv-sales-detail", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "detail", "tab": "detail", "order": 1, "x": 0, "y": 0, "w": 6, "h": 10 }]
+            }
+          }
         }
       ]
     },

@@ -57,6 +57,8 @@ export const BUSINESS_DOMAINS: readonly string[] = [
   'app-data', 'attention', 'change-request', 'cockpit', 'mcp-rest', 'mcp-tool', 'sop', 'sop-run', 'summary', 'task-center', 'tasks', 'work-item', 'work-items',
   // 工作台事件（派单投递的列表、详情、放行、接单回写）：和任务中心、事项同属派活，算业务
   'workbench-event',
+  // 视图台的数据（数据集、视图描述、取数、表单）：台里的业务数据，系统管理员缺省看不到
+  'bench-store',
 ];
 /** 动作的域：点号前面那段；MCP 工具名（没有点）都算 mcp-tool */
 export const domainOf = (action: string): string => (action.includes('.') ? action.slice(0, action.indexOf('.')) : 'mcp-tool');
@@ -128,7 +130,7 @@ export const BLOCKS: readonly { key: string; name: string; domains: readonly str
   { key: 'overview', name: '全景', domains: ['cockpit', 'summary'] },
   { key: 'work', name: '事项与对话', domains: ['change-request', 'sop', 'sop-run', 'task-center', 'tasks', 'work-item', 'work-items', 'workbench-event'] },
   { key: 'attention', name: '关注', domains: ['attention'] },
-  { key: 'bench-data', name: '工作台数据', domains: ['app-data', 'mcp-rest', 'mcp-tool'] },
+  { key: 'bench-data', name: '工作台数据', domains: ['app-data', 'bench-store', 'mcp-rest', 'mcp-tool'] },
   { key: 'team', name: '团队与 AI 员工', domains: ['binding', 'department', 'principal', 'team'] },
   { key: 'access', name: '权限与角色', domains: ['access', 'admin', 'admin-token', 'grant', 'judgment', 'role', 'setup'] },
   { key: 'system', name: '系统与节点', domains: ['a2a', 'a2a-peer', 'agent-card', 'app', 'auth', 'content', 'cookie', 'design-token', 'health', 'login', 'market', 'mcp', 'remote-allow', 'setting', 'skill', 'sso', 'stats', 'type', 'vault', 'workbench'] },
