@@ -79,3 +79,10 @@ export function speakerName(actor: string, seat: string, roster: Record<string, 
   const team = /^[^/\s]+\/canvas\/(.+)$/.exec(p);
   return team ? team[1] : seatNameOnly(p, roster);
 }
+
+/** 人的名字：有显示名用显示名，没有就去掉标识的前缀（user:zhang → zhang）。用户卡、建立人、审核人都用它 */
+export function personLabel(p: { principal?: unknown; display_name?: unknown } | null | undefined): string {
+  if (!p) return '';
+  const name = typeof p.display_name === 'string' ? p.display_name.trim() : '';
+  return name || (typeof p.principal === 'string' ? p.principal.replace(/^[a-z]+:/, '') : '');
+}

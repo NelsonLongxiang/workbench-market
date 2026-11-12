@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 事项列表页的纯函数单测（web/src/work-items-view.ts）：状态归组、组的计数、按对象分组、行的说明、翻页去重。 */
-import { STATE_GROUPS, appendPage, byObject, byState, groupCount, groupOf, rowLine, rowTime, seatOrWaiting, viewsFor, avatarChar, lifecycleNames, progressSummary, lastSaid, objectName, phaseName } from '../web/src/work-items-view.ts';
+import { STATE_GROUPS, appendPage, byObject, byState, groupCount, groupOf, rowLine, rowTime, seatOrWaiting, viewsFor, avatarChar, urlFilter, lifecycleNames, progressSummary, lastSaid, objectName, phaseName } from '../web/src/work-items-view.ts';
 import { cleanSeatName, rosterNames, seatNameOnly, speakerName } from '../web/src/people.ts';
 
 let pass = 0, fail = 0;
@@ -59,5 +59,9 @@ ok('名册里的名字自带句柄后缀时去掉', cleanSeatName('成员二 (0a
   ok('说话人：对端来源有承接用承接、没有不写；席位查名册；人去前缀', speakerName('receiver:zone', '小采 · zone/a1', ro) === '小采' && speakerName('receiver:zone', '', ro) === '' && speakerName('zone/0a1b2c3d', '', ro) === '小运' && speakerName('human:pm-a', '', ro) === 'pm-a' && speakerName('', '', ro) === '');
   ok('查表只认自己的键（不认 toString、constructor 这类继承来的）', seatNameOnly('toString', {}) === 'toString' && lastSaid({ fact: 'toString', text: '' }) === '' && lastSaid({ fact: 'constructor', text: '进展' }) === '进展');
 }
+ok('地址里的视角和席位：只认四个视角名、席位不超过 200 字、去掉空白；认不出的当没带', JSON.stringify(urlFilter('?view=seats&seat=s-1')) === '{"view":"seats","seat":"s-1"}'
+  && JSON.stringify(urlFilter('?view=bogus&seat=')) === '{}' && JSON.stringify(urlFilter('')) === '{}' && JSON.stringify(urlFilter('?seat=%20zone%2F0a1b2c3d%20')) === '{"seat":"zone/0a1b2c3d"}'
+  && JSON.stringify(urlFilter('?seat=' + 'x'.repeat(201))) === '{}' && JSON.stringify(urlFilter('?view=all')) === '{"view":"all"}');
+
 console.log(`\nwork-items-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

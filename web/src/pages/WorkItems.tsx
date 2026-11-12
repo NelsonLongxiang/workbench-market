@@ -2,7 +2,7 @@
  *  数据来自 GET /api/work-items：管理员看全部，登录的人只看自己建立的；最近变化的在前，游标翻页。
  *  各组角标用服务端给的按状态计数（覆盖整个可见范围），已取回的行不够时组底注明「已加载 x / 共 n」，页底「加载更多」。 */
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Alert, Badge, Button, Card, Collapse, Empty, Flex, List, Segmented, Space, Tag, Typography } from 'antd';
 import { ReloadOutlined, RobotOutlined } from '@ant-design/icons';
 import WmPage from '../components/WmPage';
@@ -10,7 +10,7 @@ import RelTime from '../components/RelTime';
 import { api, getLifecycleNameSources, getRosterTeams } from '../api';
 import { adminActive, subscribeAdminToken } from '../admin-token';
 import { STATE } from './WorkItem';
-import { STATE_GROUPS, appendPage, byObject, byState, groupCount, objectName, phaseName, rowLine, rowTime, viewsFor, avatarChar, lifecycleNames, NO_NAMES, type Names, type Who, type WorkItemListRow } from '../work-items-view';
+import { STATE_GROUPS, appendPage, byObject, byState, groupCount, objectName, phaseName, rowLine, rowTime, viewsFor, avatarChar, lifecycleNames, urlFilter, NO_NAMES, type Names, type Who, type WorkItemListRow } from '../work-items-view';
 import { rosterNames, seatNameOnly, speakerName } from '../people';
 
 /** 列表行里「谁」只写名字（句柄在详情里才带）：席位查名册；来源标记 receiver:<区> 用承接席位顶上，别的去前缀 */
@@ -73,10 +73,22 @@ export default function WorkItems() {
   const [names, setNames] = useState<Names>(NO_NAMES);
   useEffect(() => { void getLifecycleNameSources().then((x) => setNames(lifecycleNames(x.types, x.objects))); }, []);
 
+  // 地址里带的视角、席位（驾驶舱「AI 员工」点卡过来的）；这个视角对看的人还不能用（403）就退回不带，告诉一声
+  const { search } = useLocation();
+  const navigate = useNavigate();
+  const [filter, setFilter] = useState(() => urlFilter(search));
+  useEffect(() => { setFilter(urlFilter(search)); }, [search]);
+  const [filterNote, setFilterNote] = useState('');
   const fetchPage = useCallback(async (after: string | null) => {
     setLoading(true); setError('');
     try {
-      const page = await api.listWorkItems(after ? { cursor: after } : {});
+      let page: Awaited<ReturnType<typeof api.listWorkItems>>;
+      try { page = await api.listWorkItems({ ...filter, ...(after ? { cursor: after } : {}) }); }
+      catch (e) {
+        if (!(filter.view || filter.seat) || !/view_unavailable|seat|view_invalid/.test(e instanceof Error ? e.message : '')) throw e;
+        setFilterNote('地址里要的视角你现在还看不了，先给你看能看的全部。');
+        page = await api.listWorkItems(after ? { cursor: after } : {});
+      }
       setRows((prev) => (after ? appendPage(prev, page.items) : page.items));
       setCounts(page.counts ?? {}); setTotal(page.total ?? 0); setCursor(page.next_cursor); setLoaded(true);
     } catch (e) {
@@ -84,8 +96,8 @@ export default function WorkItems() {
       // 401 是没登录；身份服务连不上（502 identity_unavailable）由请求层（#641）换成「身份服务暂时连不上，稍后再试」，这里原样显示
       setError(/auth_required/.test(msg) ? '请先登录' : msg);
     } finally { setLoading(false); }
-  }, []);
-  useEffect(() => { void fetchPage(null); }, [fetchPage]);
+  }, [filter]);
+  useEffect(() => { setFilterNote(''); void fetchPage(null); }, [fetchPage]);
 
   const changeMode = (m: Mode) => { setMode(m); try { localStorage.setItem(MODE_KEY, m); } catch { /* 存不了就只在本页有效 */ } };
   const grouped = byState(rows);
@@ -93,6 +105,10 @@ export default function WorkItems() {
   return <WmPage
     extra={<Button icon={<ReloadOutlined />} loading={loading} onClick={() => void fetchPage(null)}>刷新</Button>}>
     <Flex vertical gap="middle">
+      {(filter.view || filter.seat) && !filterNote && <Typography.Text type="secondary" data-testid="work-items-url-filter">
+        {filter.view === 'seats' ? '只看你的 AI 员工手上的' : '只看这个视角'}{filter.seat ? `：${seatNameOnly(filter.seat, roster)}` : ''} · <a onClick={() => navigate('/work-items')}>看全部</a>
+      </Typography.Text>}
+      {filterNote && <Alert type="info" showIcon closable message={filterNote} data-testid="work-items-url-filter-note" onClose={() => setFilterNote('')} />}
       {/* 视角在最上面一排；「按状态 / 按对象」是视角里面的分组 */}
       <div className="wm-view-row" data-testid="work-items-views">
         {viewsFor(seesAll, total).map((v) => <span key={v.key} className="wm-view on" data-testid={`work-items-view-${v.key}`}>{v.label}{loaded ? <i>{v.count}</i> : null}</span>)}

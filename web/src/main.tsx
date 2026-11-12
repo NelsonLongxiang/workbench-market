@@ -22,6 +22,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
       <ConfigProvider
         locale={zhCN}
+        // 两个字的按钮不在字中间插空格（「核准」不写成「核 准」）：全站一处设，页面里不再逐个关
+        button={{ autoInsertSpace: false }}
         theme={{
           // #315：取值来自 DESIGN.md（经 scripts/gen-design-tokens.mjs 生成），这里只做 antd 名字映射
           token: {
