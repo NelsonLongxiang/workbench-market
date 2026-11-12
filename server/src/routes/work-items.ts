@@ -37,7 +37,7 @@ import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import { identity, IDENTITY_UNAVAILABLE, sourceDown } from '../identity.ts';
-import { isCreator, STATES, type WorkItemService, type WorkItemState } from '../services/work-item.ts';
+import { COCKPIT_ID_MAX, isCreator, STATES, type WorkItemService, type WorkItemState } from '../services/work-item.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import { creatorAnswer } from '../attention-answers.ts';
 import { markSeatMessagesRead, replySeatMessage, seatMessagesOf, seatProgressOf, SEAT_REPLY_MAX } from '../seat-messages.ts';
@@ -94,6 +94,10 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
     if (viewRaw !== undefined && !(VIEWS as readonly string[]).includes(viewRaw)) return void res.status(400).json({ error: 'work_items_view_invalid' });
     const seat = str('seat');
     if (seat !== undefined && (seat === '' || seat.length > 200)) return void res.status(400).json({ error: 'work_items_seat_invalid' });
+    // 按驾驶舱筛（驾驶舱的 id）：只有形状不对才 400；不存在的驾驶舱回空列表
+    const cockpitRaw = str('cockpit');
+    if (cockpitRaw !== undefined && (!/^[1-9]\d{0,9}$/.test(cockpitRaw) || Number(cockpitRaw) > COCKPIT_ID_MAX)) return void res.status(400).json({ error: 'work_items_cockpit_invalid' });
+    const cockpit = cockpitRaw === undefined ? undefined : Number(cockpitRaw);
     (async () => {
       const viewer = await workItemViewer(req, deps);
       if (!viewer.admin && !viewer.principal) return void (viewer.sourceDown ? res.status(502).json({ error: IDENTITY_UNAVAILABLE }) : res.status(401).json({ error: 'work_items_auth_required' }));
@@ -104,7 +108,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       if (viewRaw !== undefined && !scopes[viewRaw as ViewName]) return void res.status(403).json({ error: 'work_items_view_unavailable', views });
       const view = (viewRaw as ViewName | undefined) ?? VIEWS.find((v) => views[v].available && views[v].count > 0) ?? VIEWS.find((v) => views[v].available);
       if (!view) return void res.json({ view: null, views, items: [], counts: Object.fromEntries(STATES.map((st) => [st, 0])), total: 0, next_cursor: null });
-      const page = items.page({ scope: scopes[view]!, state: state as WorkItemState | undefined, object: str('object'), phase: str('phase'), seat, limit, after });
+      const page = items.page({ scope: scopes[view]!, state: state as WorkItemState | undefined, object: str('object'), phase: str('phase'), seat, cockpit, limit, after });
       // 视角的 SQL 只是加速：筛出来的每一条再按 itemRoles 过一遍，这个视角对应的那种人不成立的不给（列表里有、详情 404 的情况不允许出现）。
       // SQL 和 itemRoles 同一个口径时这里一条都不会少；计数照 SQL，测试守「列表里每一条详情都是 200」和件数一致
       const roleOf: Record<ViewName, ItemRole> = { mine: 'creator', seats: 'owner', team: 'lead', all: 'management' };
@@ -112,7 +116,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       res.json({
         view, views,
         items: shown.map((w) => ({
-          id: w.id, title: w.title, state: w.state, object: w.object, phase: w.phase, seat: w.seat,
+          id: w.id, title: w.title, state: w.state, object: w.object, phase: w.phase, seat: w.seat, cockpit_id: w.cockpit_id,
           last_progress: w.last_log, updated_at: w.updated_at,
         })),
         counts: page.counts, total: page.total,

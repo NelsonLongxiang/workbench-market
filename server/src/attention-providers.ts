@@ -171,7 +171,7 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
             waiting_for: a.ask_kind === 'receipt' ? (a.asked_by || a.target_team) : a.asked_by ? `receiver:${a.asked_by}` : a.target_team, since: a.asked_at, answers: ['answer'],
             link: `/work-items/wi_${a.event_id}`,
             // 提问轮到的是建立人：管理员在这里是代办（除非他就是建立人）
-            mine: !!w && turnOf(w, viewer).answer, creator: w ? creatorOf(w) : null,
+            mine: !!w && turnOf(w, viewer).answer, creator: w ? creatorOf(w) : null, cockpit_id: w?.cockpit_id ?? null,
           });
         });
       },
@@ -267,11 +267,11 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           if (!canSee(w, viewer)) continue;
           // 答法只给答得了的人：管理员，和轮到的建立人。看得到但答不了的（管理层看别人建的）只列不给答法，免得点下去被拒
           out.push(item({ source: 'work-items', source_id: w.id, category: 'accept', title: w.title, waiting_for: w.target_team || w.seat || w.created_by, since: w.updated_at, answers: admin || turnOf(w, viewer).verify ? ['verify', 'return'] : [], link: `/work-items/${w.id}`, object: w.object, phase: w.phase,
-            mine: turnOf(w, viewer).verify, creator: creatorOf(w) }));
+            mine: turnOf(w, viewer).verify, creator: creatorOf(w), cockpit_id: w.cockpit_id }));
         }
         if (admin) for (const w of items.list({ state: 'held' })) {
           out.push(item({ source: 'work-items', source_id: w.id, category: 'glance', title: w.title, waiting_for: w.created_by, since: w.created_at, answers: ['release', 'withdraw'], link: `/work-items/${w.id}`, object: w.object, phase: w.phase,
-            mine: turnOf(w, viewer).release, creator: creatorOf(w) }));
+            mine: turnOf(w, viewer).release, creator: creatorOf(w), cockpit_id: w.cockpit_id }));
         }
         return out;
       },

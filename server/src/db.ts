@@ -1031,9 +1031,13 @@ for (const [column, ddl] of [
   ['directed_seat_id', "directed_seat_id TEXT NOT NULL DEFAULT ''"],
   ['seat_id', "seat_id TEXT NOT NULL DEFAULT ''"],
   ['seat_at', "seat_at TEXT NOT NULL DEFAULT ''"],
+  // 从哪个驾驶舱安排的（驾驶舱的 id）：只在「安排一件事」那一刻记，之后不改；别的路子建的、存量都是 null，不回填。
+  //   只是个标签，不给任何权限；驾驶舱删了也照旧留着这个数
+  ['cockpit_id', 'cockpit_id INTEGER'],
 ] as const) {
   if (!(db.prepare('PRAGMA table_info(work_items)').all() as { name: string }[]).some((c) => c.name === column)) db.exec(`ALTER TABLE work_items ADD COLUMN ${ddl}`);
 }
+db.exec('CREATE INDEX IF NOT EXISTS idx_work_items_cockpit ON work_items (cockpit_id, updated_at)');
 db.exec(`
 CREATE TRIGGER IF NOT EXISTS work_items_creator_principal_once BEFORE UPDATE OF creator_principal ON work_items
   WHEN OLD.creator_principal IS NOT NULL AND NEW.creator_principal IS NOT OLD.creator_principal

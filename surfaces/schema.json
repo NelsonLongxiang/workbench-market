@@ -821,7 +821,8 @@
       "review_by TEXT NOT NULL DEFAULT ''",
       "directed_seat_id TEXT NOT NULL DEFAULT ''",
       "seat_id TEXT NOT NULL DEFAULT ''",
-      "seat_at TEXT NOT NULL DEFAULT ''"
+      "seat_at TEXT NOT NULL DEFAULT ''",
+      "cockpit_id INTEGER"
     ],
     "workbench_event_deliveries": [
       "id INTEGER PK",
@@ -1014,6 +1015,7 @@
     "idx_wbe_replies_due ON workbench_event_replies: CREATE INDEX idx_wbe_replies_due ON workbench_event_replies (status, next_at)",
     "idx_work_item_log_item ON work_item_log: CREATE INDEX idx_work_item_log_item ON work_item_log (item_id, seq)",
     "idx_work_item_requests_time ON work_item_requests: CREATE INDEX idx_work_item_requests_time ON work_item_requests(requester, created_at)",
+    "idx_work_items_cockpit ON work_items: CREATE INDEX idx_work_items_cockpit ON work_items (cockpit_id, updated_at)",
     "idx_work_items_object ON work_items: CREATE INDEX idx_work_items_object ON work_items (object, phase)",
     "idx_work_items_source ON work_items: CREATE INDEX idx_work_items_source ON work_items (source_kind, source_ref)",
     "idx_work_items_state ON work_items: CREATE INDEX idx_work_items_state ON work_items (state, updated_at)",
