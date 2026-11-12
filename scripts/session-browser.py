@@ -1,6 +1,6 @@
 """身份变了以后页面重读；由 scripts/session-browser.mjs 起合成实例、造好数据后调用，参数为配置 JSON 路径。
 alpha 建的两件事项（标题在 cfg['titles']）只有 alpha（和管理员）看得到。每组都看：标题在页面的 DOM 里还在不在。"""
-import json, sys
+import json, re, sys
 from playwright.sync_api import sync_playwright
 cfg = json.load(open(sys.argv[1])); M = cfg['base']; T = cfg['titles']; WID = cfg['items'][0]
 ok = fail = 0
@@ -117,7 +117,24 @@ with sync_playwright() as p:
         ctx.close()
     reread(f"/cockpit/{cfg['cockpit']}", '/api/attention', '驾驶舱（右栏「事项」里 alpha 的事项、左栏「等你拍板」）', tab='ck-tab-items-items')
     reread(f"/cockpit/{cfg['cockpit']}", '/api/bench-views/', '驾驶舱里的数据视图面板')
-    reread('/team', '/api/teams', '团队页')
+    # 团队页：页面上要有只属于 alpha 的东西，「换人后没有 alpha 的内容」才不是空过（阶段四要求）。
+    # 截下 /api/teams，按请求带的会话给不同的应答：alpha 有一个合成部门，beta 什么都没有
+    ALPHA_DEPT = '合成：只给 alpha 看的部门'
+    def teams_by_session(route):
+        mine = cfg['alpha_session'] in (route.request.headers.get('cookie') or '')
+        body = {'departments': [{'id': 'syn-alpha-dept', 'name': ALPHA_DEPT, 'lead': {'principal': 'user:alpha', 'display_name': 'Synthetic alpha'}, 'teams': []}] if mine else [], 'unclaimed': []}
+        route.fulfill(status=200, content_type='application/json', body=json.dumps(body))
+    ctx = b.new_context(viewport={'width': 1440, 'height': 900})
+    ctx.add_cookies([{'name': 'session_id', 'value': cfg['alpha_session'], 'url': M}])
+    ctx.route(re.compile(r'/api/teams(\?|$)'), teams_by_session)
+    pg = ctx.new_page(); pg.set_default_timeout(10000)
+    pg.goto(M + '/team'); pg.wait_for_load_state('networkidle'); pg.wait_for_timeout(600)
+    had = ALPHA_DEPT in pg.content()
+    to_beta(ctx); pg.evaluate("window.dispatchEvent(new Event('focus'))")
+    try: pg.wait_for_function('(t) => !document.documentElement.innerHTML.includes(t)', arg=ALPHA_DEPT, timeout=6000); cleared = True
+    except Exception: cleared = False
+    check('团队页：alpha 看得到只属于他的部门 → 换成 beta → 这个部门不在页面上了', had and cleared, (had, cleared))
+    ctx.close()
     reread('/access', '/api/grants', '谁能做什么')
     skip('「等你拍板」完整列表（/attention）', '按新外壳重写的那一版在 #656，合进来之后在这里加一条；现在的旧页面同样被整棵重挂')
     b.close()
