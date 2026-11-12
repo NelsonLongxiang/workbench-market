@@ -81,7 +81,8 @@ export default function WorkItems() {
       setCounts(page.counts ?? {}); setTotal(page.total ?? 0); setCursor(page.next_cursor); setLoaded(true);
     } catch (e) {
       const msg = e instanceof Error ? e.message : '读取失败';
-      setError(/auth_required/.test(msg) ? '请先登录' : msg);
+      // 401 是没登录；502 identity_unavailable（#639）是身份服务连不上，不是没登录
+      setError(/auth_required/.test(msg) ? '请先登录' : /identity_unavailable/.test(msg) ? '登录服务暂时联系不上，稍后再试' : msg);
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { void fetchPage(null); }, [fetchPage]);
