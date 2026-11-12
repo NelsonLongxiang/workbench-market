@@ -410,7 +410,8 @@ body { background: var(--wm-color-page); }
 .wm-top-sep { margin: 0 var(--wm-space-2); }
 .wm-top-sub { font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); }
 .wm-top-actions { margin-left: auto; display: flex; align-items: center; gap: var(--wm-space-2); }
-.wm-page-body { width: 100%; max-width: 1040px; margin: 0 auto; padding: var(--wm-space-8) var(--wm-space-8) var(--wm-space-12); }
-.wm-page-body-wide { max-width: 1280px; }
+/* 宽度含内边距（border-box）：内容宽 1040 / 1280，加左右各 32 的内边距；主区不够宽时跟着主区收窄，不向右溢出 */
+.wm-page-body { box-sizing: border-box; width: 100%; max-width: 1104px; margin: 0 auto; padding: var(--wm-space-8) var(--wm-space-8) var(--wm-space-12); }
+.wm-page-body-wide { max-width: 1344px; }
 .wm-page-intro { margin-bottom: var(--wm-space-6); color: var(--wm-color-text-secondary); }
 .wm-page-spin { display: block; margin: var(--wm-space-12) auto; }

@@ -24,7 +24,15 @@ with sync_playwright() as p:
         h = round(top.bounding_box()['height'])
         primaries = top.locator('.wm-top-actions .ant-btn-primary').count()
         old = pg.locator('.ant-page-header, .ant-pro-page-container .ant-breadcrumb').count()
-        check(f'{path} 顶栏：标题「{name}」· 高 52 · 主操作 ≤1 · 无旧面包屑大标题', title == name and h == 52 and primaries <= 1 and old == 0, (title, h, primaries, old))
+        # 内容区不能比主区卡片宽（宽表页 wide 在 1440 下曾经向右溢出 64px）
+        over = pg.evaluate("(() => { const b = document.querySelector('.wm-page-body'), m = document.querySelector('.wm-main'); if (!b || !m) return 0; return Math.round(b.getBoundingClientRect().right - m.getBoundingClientRect().right); })()")
+        check(f'{path} 顶栏：标题「{name}」· 高 52 · 主操作 ≤1 · 无旧面包屑大标题 · 内容区不溢出', title == name and h == 52 and primaries <= 1 and old == 0 and over <= 0, (title, h, primaries, old, over))
+    # 宽表页（WmPage wide）：现在没有页面在用，所以在一个页面上临时加上 wide 的类来量——
+    # 内容区含内边距不能超出主区卡片，左右留白对称（1440 下曾经向右溢出 64px）
+    pg.goto(M + '/market'); pg.wait_for_selector('.wm-page-body')
+    wide = pg.evaluate("""(() => { const b = document.querySelector('.wm-page-body'), m = document.querySelector('.wm-main'); b.classList.add('wm-page-body-wide');
+      const rb = b.getBoundingClientRect(), rm = m.getBoundingClientRect(); return [Math.round(rb.left - rm.left), Math.round(rm.right - rb.right), Math.round(rb.width)]; })()""")
+    check(f'宽表页内容区不溢出主区、左右对称（左 {wide[0]} 右 {wide[1]} 宽 {wide[2]}）', wide[0] >= 0 and wide[1] >= 0 and abs(wide[0] - wide[1]) <= 2, wide)
     pg.goto(M + f"/cockpit/{cfg['cockpit']}")
     pg.wait_for_selector('.wm-top-crumb')
     pg.wait_for_function(f"document.querySelector('.wm-top-crumb')?.innerText.includes({json.dumps(cfg['cockpit_name'])})")
