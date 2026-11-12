@@ -28,7 +28,7 @@ export function groupOf(state: string): string {
 }
 
 /** 「等拍板」那几种状态（等放行、在问、等验收）里不轮到你的，另成一组「等别人处理」，中性色；
- *  每一行写清等谁。轮到不轮到你由页面传进来（「关注」里的同一个判法，见 attention-view 的 workItemTurns），这里不判 */
+ *  每一行写清等谁（拿不到名字就不说是谁，不猜）。轮到不轮到你由页面传进来（「关注」里的同一个判法，见 attention-view 的 workItemTurns），这里不判 */
 export const OTHERS_GROUP = { key: 'others', title: '等别人处理', empty: '没有在等别人处理的事项' };
 export const isDecideState = (state: string): boolean => groupOf(state) === 'decide';
 /** 不能当场办时这一行等的是谁：name 是建立人的显示名（「关注」条目带的），等验收没有名字就说「建立人」，不露标识 */
@@ -37,7 +37,8 @@ export function othersTurnLabel(state: string, name = ''): string {
   if (state === 'ready') return who ? `等 ${who} 验收` : '等建立人验收';
   // 在问：不知道问的是谁（「关注」里没有这一条，可能问的正是你、只是不能在这里答）就不说是谁
   if (state === 'blocked') return who ? `在等 ${who} 答复` : '在等答复';
-  if (state === 'held') return '等管理员放行';
+  // 等放行：谁放行由服务端判（负责人、没有负责人时管理层、或勾了先过目的建立人），页面拿不到放行人的名字，不猜
+  if (state === 'held') return '等放行';
   return '';
 }
 /** 把「等拍板」状态的行分成轮到你的、等别人的；件数：轮到你的数已取回的行，等别人的 = 服务端这几种状态的总数减去它（总数覆盖整个视角） */

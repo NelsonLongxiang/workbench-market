@@ -128,10 +128,21 @@ with sync_playwright() as p:
     others = pg.locator('[data-testid=work-items-group-others]')
     ohead = ''.join(others.locator('.ant-card-head-title').inner_text().split())
     tags = [t.strip() for t in others.locator('[data-testid=work-item-turn]').all_inner_texts()]
-    check('别人的另成「等别人处理」，中性色、不标红，每行写清等谁（不露标识）', ohead == '等别人处理3' and others.locator('.ant-badge').count() == 0 and tags == ['等 合成建立人 验收', '等 合成建立人 验收', '等管理员放行'], (ohead, tags))
+    check('别人的另成「等别人处理」，中性色、不标红，每行写清等谁（不露标识）', ohead == '等别人处理3' and others.locator('.ant-badge').count() == 0 and tags == ['等 合成建立人 验收', '等 合成建立人 验收', '等放行'] and '管理员' not in ''.join(tags), (ohead, tags))
     pg.locator('[data-testid=work-items-view-mine]').click(); wait_view(pg, 'mine')
     head = ''.join(pg.locator('[data-testid=work-items-group-decide] .ant-card-head-title').inner_text().split())
     check('「我安排的」视角：建立人自己的验收照旧轮到他、计入红色数；没有「等别人处理」', head == '等你拍板1' and pg.locator('[data-testid=work-items-group-others]').count() == 0, head)
+    # #631（放行归负责人）进了之后：负责人能放行的「等放行」，「关注」里带 mine 和 answer_via（直接调放行入口）。
+    # 同一个判法下它就轮到他：进「等你拍板」并计红，和侧栏角标同一个数
+    ATT['items'].append({'source': 'work-items', 'source_id': 'wi-syn-4', 'category': 'glance', 'title': '合成事项 4', 'waiting_for': '', 'since': '2026-11-12T00:00:00Z',
+        'answers': ['release'], 'object': '', 'phase': '', 'link': '/work-items/wi-syn-4', 'mine': True, 'creator': {'principal': 'user:syn-c', 'display_name': '合成建立人'},
+        'answer_via': {'method': 'POST', 'path': '/api/work-items/wi-syn-4/release', 'answers': {'release': {'body': {}}}}})
+    pg.goto(M + '/work-items?view=team'); wait_view(pg, 'team'); pg.wait_for_selector('[data-testid=work-items-group-others]')
+    decide = pg.locator('[data-testid=work-items-group-decide]')
+    head = ''.join(decide.locator('.ant-card-head-title').inner_text().split())
+    ohead = ''.join(pg.locator('[data-testid=work-items-group-others] .ant-card-head-title').inner_text().split())
+    nav = pg.locator('[data-testid=nav-pending]')
+    check('负责人能放行的「等放行」（夹具：mine + answer_via 放行）：进「等你拍板」计红，等别人处理少一件，侧栏角标同一个数', head == '等你拍板2' and decide.locator('[data-testid=work-item-row]').count() == 2 and ohead == '等别人处理2' and nav.count() == 1 and nav.inner_text().strip() == '2', (head, ohead, nav.all_inner_texts()))
     ctx.close()
     b.close()
 

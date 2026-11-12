@@ -85,8 +85,8 @@ ok('地址里的视角和席位：只认四个视角名、席位不超过 200 �
   ok('负责人在团队视角：建立人不是他的「等验收」不计入红色数，进「等别人处理」', sp.mineCount === 2 && sp.mine.map((r) => r.id).join() === 'wi-a,wi-d' && sp.others.map((r) => r.id).join() === 'wi-b,wi-c,wi-h' && sp.othersCount === 3, sp);
   ok('「等别人处理」的件数 = 这几种状态的总数减去轮到你的（总数覆盖整个视角）；不出负数', splitDecide(rows, t.mine, 9).othersCount === 7 && splitDecide(rows, t.mine, 1).othersCount === 0 && OTHERS_GROUP.title === '等别人处理');
   ok('读不到「关注」（空集合）：一件都不算轮到你', splitDecide(rows, new Set(), 5).mineCount === 0);
-  ok('等谁写清：有建立人名字写名字；等验收没有名字写「建立人」，在问没有名字不说是谁；等放行写管理员；不露标识', othersTurnLabel('ready', '合成建立人') === '等 合成建立人 验收' && othersTurnLabel('ready') === '等建立人验收'
-    && othersTurnLabel('blocked', '甲') === '在等 甲 答复' && othersTurnLabel('blocked', '  ') === '在等答复' && othersTurnLabel('held', '甲') === '等管理员放行' && othersTurnLabel('progress') === '');
+  ok('等谁写清：有建立人名字写名字；等验收没有名字写「建立人」，在问没有名字不说是谁；等放行不猜是谁、不写管理员；不露标识', othersTurnLabel('ready', '合成建立人') === '等 合成建立人 验收' && othersTurnLabel('ready') === '等建立人验收'
+    && othersTurnLabel('blocked', '甲') === '在等 甲 答复' && othersTurnLabel('blocked', '  ') === '在等答复' && othersTurnLabel('held', '甲') === '等放行' && !othersTurnLabel('held').includes('管理员') && othersTurnLabel('progress') === '');
 }
 
 console.log(`\nwork-items-ui-unit: ${pass} 过 / ${fail} 败`);
