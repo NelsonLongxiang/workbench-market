@@ -43,6 +43,8 @@ import { creatorAnswer } from '../attention-answers.ts';
 import { markSeatMessagesRead, replySeatMessage, seatMessagesOf, seatProgressOf, SEAT_REPLY_MAX } from '../seat-messages.ts';
 import { principalsAdmin } from './principals.ts';
 import { canOf, creatorOf, turnOf, workItemViewer, writerVerdict } from '../work-item-access.ts';
+import { arrangeTask } from '../task-center.ts';
+import { assignableTeams, kickWorkbenchEvents } from '../workbench-events.ts';
 
 export type WorkItemRouteDeps = {
   markOdooAdmin: (req: express.Request) => Promise<void>;
@@ -107,6 +109,46 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
         counts: page.counts, total: page.total,
         next_cursor: page.next ? Buffer.from(JSON.stringify({ u: page.next.updated_at, i: page.next.id }), 'utf8').toString('base64url') : null,
       });
+    })().catch(next);
+  });
+
+  /**
+   * 认登录的人（「安排一件事」的两个入口用）：只经身份服务认 cookie，主体须是启用的人。请求体里自报的谁都不看。
+   * 判不过就写好应答返回 null：没登录、认不出 401，主体不是启用的人 403。
+   */
+  async function person(req: express.Request, res: express.Response): Promise<string | null> {
+    const cookie = String(req.headers.cookie ?? '');
+    if (!cookie) { res.status(401).json({ error: 'work_items_auth_required' }); return null; }
+    const who = await identity().resolveViewer(cookie);
+    if (!who.ok) { res.status(401).json({ error: 'work_items_auth_required' }); return null; }
+    const principal = svc<PrincipalService>('principals').get(who.viewer.sub) as { kind?: string; status?: string } | undefined;
+    if (!principal || principal.kind !== 'person' || principal.status !== 'active') { res.status(403).json({ error: 'work_items_principal_not_active' }); return null; }
+    return who.viewer.sub;
+  }
+
+  // 「安排一件事」能派给的团队：绑在任务中心上的通知绑定（和建事项时的校验同一个函数）。管理员和登录的人能读。名册落地前 name 就是团队标识
+  app.get('/api/work-items/teams', { action: 'work-items.teams', kind: 'read' }, (req, res, next) => {
+    res.set('Cache-Control', 'private, no-store');
+    res.vary('Cookie'); res.vary('X-Admin-Token');
+    if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
+    (async () => {
+      await deps.markOdooAdmin(req);
+      if (!deps.adminGuard(req, silentRes()) && !(await person(req, res))) return;
+      res.json({ teams: assignableTeams().map((t) => ({ team: t.agent_node, name: t.agent_node })) });
+    })().catch(next);
+  });
+
+  // 「安排一件事」：登录的人直接建一件事项，建立人是本人。只认 cookie 认出的启用的人（口令、命令行、MCP 都不是人，不能用）。
+  // 写请求总门对这一条路径放行（index.ts），认人在这里；规则（派给、先过目、幂等、限流）在 task-center.ts 的 arrangeTask
+  app.post('/api/work-items', { action: 'work-items.create', kind: 'write' }, (req, res, next) => {
+    res.set('Cache-Control', 'private, no-store');
+    if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
+    (async () => {
+      const requester = await person(req, res);
+      if (!requester) return;
+      const out = arrangeTask(req.body, requester);
+      res.status(out.status).json(out.body);
+      if (out.status === 201 && out.body.held === false) kickWorkbenchEvents();
     })().catch(next);
   });
 

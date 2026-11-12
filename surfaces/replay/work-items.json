@@ -1,12 +1,259 @@
 {
   "domain": "work-items",
-  "what": "事项列表 /api/work-items 的读；事项：/api/work-items/:id 的读（8d）和 /api/work-items/:id/decision 建立人验收、退回（8e）两条路由；阶段七 R2 的事项对话里席位消息的看过（messages/read）、回复（messages/:mid/reply）两条。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
-  "routes": ["GET /api/work-items", "GET /api/work-items/:id", "POST /api/work-items/:id/decision", "POST /api/work-items/:id/messages/read", "POST /api/work-items/:id/messages/:mid/reply"],
+  "what": "「安排一件事」的可派团队 /api/work-items/teams 和建事项 POST /api/work-items；事项列表 /api/work-items 的读；事项：/api/work-items/:id 的读（8d）和 /api/work-items/:id/decision 建立人验收、退回（8e）两条路由；阶段七 R2 的事项对话里席位消息的看过（messages/read）、回复（messages/:mid/reply）两条。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /api/work-items/teams", "POST /api/work-items", "GET /api/work-items", "GET /api/work-items/:id", "POST /api/work-items/:id/decision", "POST /api/work-items/:id/messages/read", "POST /api/work-items/:id/messages/:mid/reply"],
   "exempt": [
     { "route": "POST /api/work-items/:id/decision", "class": "normal", "why": "正常应答要一件「等验收」的事项：今天没有 HTTP 入口能把事项推到等验收，seed 只能插草稿。正常的验收、退回由 scripts/work-item-creator-test.mjs 起实例、经事项服务造 ready 来测", "shown_by": "creator/decide-not-ready" },
-    { "route": "POST /api/work-items/:id/messages/:mid/reply", "class": "normal", "why": "正常回复要一件从工作台事件来的事项和一条签过名的席位跟进：seed 造不出验过签名的跟进。正常回复、发回、看过之后再回复由 scripts/a2a-answers-test.mjs 起实例、经入站造跟进来测", "shown_by": "creator/reply-no-message" }
+    { "route": "POST /api/work-items/:id/messages/:mid/reply", "class": "normal", "why": "正常回复要一件从工作台事件来的事项和一条签过名的席位跟进：seed 造不出验过签名的跟进。正常回复、发回、看过之后再回复由 scripts/a2a-answers-test.mjs 起实例、经入站造跟进来测", "shown_by": "creator/reply-no-message" },
+    { "route": "GET /api/work-items/teams", "class": "invalid", "why": "这个接口不收任何参数，没有参数非法的情形", "shown_by": "arrange/teams-alpha" }
   ],
   "scenarios": [
+    {
+      "name": "arrange",
+      "what": "「安排一件事」：任务中心上两个通知团队、一条撤销了的，别的台上一个",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "fixtures": ["identity-fake"],
+      "seed": [
+        {
+          "table": "bindings",
+          "row": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/canvas/team-a", "direction": "notify", "mode": "read", "notify_url": "http://127.0.0.1:1", "created_by": "seed", "revoked_at": "" }
+        },
+        {
+          "table": "bindings",
+          "row": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/canvas/team-b", "direction": "notify", "mode": "read", "notify_url": "http://127.0.0.1:1", "created_by": "seed", "revoked_at": "" }
+        },
+        {
+          "table": "bindings",
+          "row": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/canvas/team-old", "direction": "notify", "mode": "read", "notify_url": "http://127.0.0.1:1", "created_by": "seed", "revoked_at": "2026-01-01 00:00:00" }
+        },
+        { "table": "bindings", "row": { "target_type": "sop", "target_slug": "sop-x", "agent_node": "dsh/canvas/team-x", "direction": "notify", "mode": "read", "notify_url": "http://127.0.0.1:1", "created_by": "seed", "revoked_at": "" } }
+      ],
+      "steps": [
+        {
+          "id": "teams-alpha",
+          "route": "GET /api/work-items/teams",
+          "class": "normal",
+          "what": "登录的人：只列绑在任务中心上的通知绑定（别的台的、撤销了的不列）",
+          "request": { "method": "GET", "path": "/api/work-items/teams", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "123", "etag": "W/\"7b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "teams": [{ "team": "dsh/canvas/team-a", "name": "dsh/canvas/team-a" }, { "team": "dsh/canvas/team-b", "name": "dsh/canvas/team-b" }] }
+          }
+        },
+        {
+          "id": "teams-admin",
+          "route": "GET /api/work-items/teams",
+          "class": "normal",
+          "what": "管理员（口令）也能读可派团队",
+          "request": { "method": "GET", "path": "/api/work-items/teams", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "123", "etag": "W/\"7b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "teams": [{ "team": "dsh/canvas/team-a", "name": "dsh/canvas/team-a" }, { "team": "dsh/canvas/team-b", "name": "dsh/canvas/team-b" }] }
+          }
+        },
+        {
+          "id": "teams-anonymous",
+          "route": "GET /api/work-items/teams",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "GET", "path": "/api/work-items/teams", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "teams-cross-site",
+          "route": "GET /api/work-items/teams",
+          "class": "unauthorized",
+          "what": "跨站：403",
+          "request": { "method": "GET", "path": "/api/work-items/teams", "headers": { "sec-fetch-site": "cross-site", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_cross_origin_denied" }
+          }
+        },
+        {
+          "id": "create",
+          "route": "POST /api/work-items",
+          "class": "normal",
+          "what": "建一件：缺省先过目（held），建立人是本人",
+          "compare": ["state", "held", "duplicate", "reason"],
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "对一下上周的出货", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-arrange-key-0001" }
+          },
+          "response": { "status": 201, "picked": { "state": "held", "held": true, "duplicate": false } }
+        },
+        {
+          "id": "create-again",
+          "route": "POST /api/work-items",
+          "class": "normal",
+          "what": "同一个键再发：回同一件（duplicate）",
+          "compare": ["state", "held", "duplicate", "reason"],
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "对一下上周的出货", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-arrange-key-0001" }
+          },
+          "response": { "status": 200, "picked": { "state": "held", "held": true, "duplicate": true } }
+        },
+        {
+          "id": "create-conflict",
+          "route": "POST /api/work-items",
+          "class": "invalid",
+          "what": "同一个键、请求体不同：409",
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "换了个标题", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-arrange-key-0001" }
+          },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "idempotency_conflict" }
+          }
+        },
+        {
+          "id": "create-team-other",
+          "route": "POST /api/work-items",
+          "class": "invalid",
+          "what": "派给别的台上的团队：400",
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "对一下上周的出货", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-x", "object": "po:7", "phase": "对账", "idempotency_key": "replay-arrange-key-0002" }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "team_not_assignable" }
+          }
+        },
+        {
+          "id": "create-no-title",
+          "route": "POST /api/work-items",
+          "class": "invalid",
+          "what": "没有标题：400",
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-arrange-key-0003" }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "title_required" }
+          }
+        },
+        {
+          "id": "create-zero-review",
+          "route": "POST /api/work-items",
+          "class": "invalid",
+          "what": "review 是 0（不是布尔）：400",
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "对一下上周的出货", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-arrange-key-0004", "review": 0 }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "review_invalid" }
+          }
+        },
+        {
+          "id": "create-anonymous",
+          "route": "POST /api/work-items",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "x-forwarded-for": "198.51.100.7" },
+            "json": { "title": "对一下上周的出货", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-arrange-key-0001" }
+          },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "create-token-only",
+          "route": "POST /api/work-items",
+          "class": "unauthorized",
+          "what": "只带管理口令（不是人）：401",
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" },
+            "json": { "title": "对一下上周的出货", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-arrange-key-0001" }
+          },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "create-local-cli",
+          "route": "POST /api/work-items",
+          "class": "unauthorized",
+          "what": "本机命令行（回环直连、不带 cookie、没有浏览器标记）：不是人，401",
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "json": { "title": "对一下上周的出货", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-arrange-key-0001" }
+          },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "create-cross-site",
+          "route": "POST /api/work-items",
+          "class": "unauthorized",
+          "what": "跨站：403",
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "sec-fetch-site": "cross-site", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "对一下上周的出货", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-arrange-key-0001" }
+          },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_items_cross_origin_denied" }
+          }
+        }
+      ]
+    },
     {
       "name": "admin",
       "what": "管理口令由环境给（合成值，只在隔离实例里用）；库里先放一件 alpha 建的事项（草稿）和它的第一行日志。",

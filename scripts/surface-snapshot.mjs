@@ -9,11 +9,14 @@
  *   node scripts/surface-snapshot.mjs --write     把当前的面写进 surfaces/
  *   node scripts/surface-snapshot.mjs --json      只输出 {changed, counts}（给路线体检用），退出码恒为 0
  *   node scripts/surface-snapshot.mjs --selftest  比较逻辑的自检（不起实例）
+ *   node scripts/surface-snapshot.mjs --extensions <扩展目录> [--out <文件>]
+ *       带扩展起实例，只输出扩展那一节：各扩展报的路由（方法、路径、动作、类别、谁能调）和没报动作的路由、中间件。
+ *       缺省打到标准输出，--out 写到指定文件（部署方放进自己的私有仓库）。不写 surfaces/、不和核心快照比、不进体检预算
  */
 import { spawn } from './owned-script-fixture.mjs';
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -103,7 +106,7 @@ function readSchema(file) {
 }
 
 /** 起隔离实例，导出四份面。 */
-async function exportSurfaces() {
+async function exportSurfaces(extensionsDir = '') {
   const { MCP_TOOLS } = await import(pathToFileURL(join(ROOT, 'server/src/mcp-tools.ts')).href);
   const tools = MCP_TOOLS.map((t) => `${t.name}  ${t.category}${t.exempt ? '  exempt' : ''}`).sort();
   const toolActions = MCP_TOOLS.map((t) => `${t.name}  ${t.category}`).sort();
@@ -119,7 +122,7 @@ async function exportSurfaces() {
   cleanups.push(() => { try { rmSync(data, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch (e) { console.warn(`⚠ 临时目录没删干净（不影响结果）：${data}：${e?.code ?? e}`); } });
   const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', pathToFileURL(join(HERE, 'surface-recorder.mjs')).href, 'src/index.ts'], {
     cwd: join(ROOT, 'server'),
-    env: { PATH: process.env.PATH, HOME: process.env.HOME, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data },
+    env: { PATH: process.env.PATH, HOME: process.env.HOME, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, ...(extensionsDir ? { WM_EXTENSIONS_DIR: extensionsDir } : {}) },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   cleanups.push(() => child.kill('SIGKILL'));
@@ -153,11 +156,13 @@ async function exportSurfaces() {
     if (unknown.length) throw new Error(`内置身份引用了动作清单里没有的动作：${unknown.join('、')}`);
     const builtins = { identities: BUILTINS.map((b) => ({ name: b.name, label: b.label, ...(b.roles ? { roles: [...b.roles] } : {}), actions: [...b.actions], actsForOwner: [...b.actsForOwner] })), narrowed: NARROWED.map((n) => ({ action: n.action, only: [...n.only], why: n.why })) };
     // 每个已登记动作的域要么在系统域清单里、要么明确算业务：两边都不算的导出失败（新长出来的域要有人决定它算哪边）
-    const loose = unclassifiedDomains(known);
+    // 扩展报的动作另算（都算业务，见 roles.ts），不参加归类核对
+    const extActions = new Set((dumped.wmExtensions?.routes ?? []).map((r) => r.action));
+    const loose = unclassifiedDomains(new Set([...known].filter((a) => !extActions.has(a))));
     if (loose.length) throw new Error(`动作的域没有归类（server/src/roles.ts 的 SYSTEM_DOMAINS 或 BUSINESS_DOMAINS）：${loose.join('、')}`);
     const domains = { system: [...SYSTEM_DOMAINS], business: [...BUSINESS_DOMAINS] };
     const presets = PLATFORM_ROLES.map((r) => ({ id: r.id, name: r.name, ...(r.includes ? { includes: [...r.includes] } : {}), permissions: r.permissions.map((p) => ({ ...p })) }));
-    return { routes: { note: ENV_NOTE, apps }, actions: { note: ACTIONS_NOTE, apps: actionApps, tools: toolActions, builtins, domains, presets }, tools, schema: readSchema(join(data, 'workbench-market.db')) };
+    return { routes: { note: ENV_NOTE, apps }, actions: { note: ACTIONS_NOTE, apps: actionApps, tools: toolActions, builtins, domains, presets }, tools, schema: readSchema(join(data, 'workbench-market.db')), extensions: dumped.wmExtensions ?? { routes: [], undeclared: [] } };
   } finally {
     // 先请它退出；3 秒不退就强杀，并且等到它真的退出，再删数据目录
     const exited = () => child.exitCode !== null || child.signalCode !== null;
@@ -201,8 +206,38 @@ function selftest() {
   return failed ? 1 : 0;
 }
 
+/** 扩展那一节：按扩展分组 */
+function extensionSection(ext) {
+  const mws = ext.middleware ?? [];
+  const names = [...new Set([...ext.routes.map((r) => r.extension), ...ext.undeclared.map((u) => u.extension), ...mws.map((m) => m.extension)])].sort();
+  return {
+    note: '扩展的面（surface-snapshot.mjs --extensions）：routes 是经 ctx.routes.add 报了动作的路由（谁能调 who 是扩展自己声明的，只能从市场已有口径里选）；middleware 是经 ctx.routes.use 写明用途的中间件；undeclared 是 register 前后对比路由栈点出来、没报的路由、中间件和子路由器。不进核心快照和体检预算',
+    extensions: names.map((name) => ({
+      name,
+      routes: ext.routes.filter((r) => r.extension === name).map(({ extension, ...r }) => r),
+      middleware: mws.filter((m) => m.extension === name).map(({ extension, ...m }) => m),
+      undeclared: ext.undeclared.filter((u) => u.extension === name).map(({ extension, ...u }) => u),
+    })),
+  };
+}
+
 async function main() {
   if (flag('--selftest')) process.exit(selftest());
+  const extArg = argv.indexOf('--extensions');
+  if (extArg >= 0) {
+    const dir = argv[extArg + 1] ?? '';
+    if (!dir || dir.startsWith('--')) throw new Error('--extensions 后面要跟扩展目录（绝对路径）');
+    const section = extensionSection((await exportSurfaces(dir)).extensions);
+    const outArg = argv.indexOf('--out');
+    if (outArg >= 0) {
+      const out = argv[outArg + 1] ?? '';
+      if (!out || out.startsWith('--')) throw new Error('--out 后面要跟文件路径');
+      if (resolve(out) === OUT || resolve(out).startsWith(OUT + sep)) throw new Error('扩展的面不写进 surfaces/（那是核心的快照，公开仓不放私有扩展的内容）');
+      writeFileSync(out, render(section));
+      console.log(`已写入 ${out}：${section.extensions.length} 个扩展、${section.extensions.reduce((n, e) => n + e.routes.length, 0)} 条报了动作的路由、${section.extensions.reduce((n, e) => n + e.undeclared.filter((u) => u.type === 'route').length, 0)} 条没报动作`);
+    } else process.stdout.write(render(section));
+    return 0;
+  }
   const fresh = await exportSurfaces();
   const counts = {
     routes: fresh.routes.apps.flat().filter((line) => !line.trim().startsWith('USE ')).length,

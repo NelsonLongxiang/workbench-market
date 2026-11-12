@@ -44,6 +44,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_A2A_FOLLOWUP_RATE_10MIN`（席位跟进每个对端 10 分钟内存正文的条数上限·缺省 300·只收 1～100000 的整数，否则拒绝启动；超出的不存正文、只计数，结清回执照回）
 - `A2A_ORIGIN_CLAIM_UNBOUND`（v1 未绑定调用方签名兼容窗：`off`=停发 `X-A2A-Caller-Sig`，缺省继续发；v1 不绑路由，未升级对端上可被剥 Sig2 重放，全舰队升级后应设 `off`）
 - `WM_A2A_MEMBER_PROVENANCE`（缺省 `on`：市场名片声明 `canvasMemberProvenance`——a2a-net 0.8 起，对钉了公钥的画布成员只往声明了它的宿主转发，不声明则席位的回执到不了市场；声明即承诺：名片只列本节点自己服务、互不重复的句柄 `market/<8 hex>`，发给它们的消息只在本节点投递、查无或有歧义一律 404，句柄只由本节点密钥签发；`off`=不声明，名片与之前完全相同；其它值拒绝启动）
+- `WM_A2A_TEAM_ROSTER`（缺省 `on`：市场名片声明 `teamRoster`——a2a-net next/0.8 的宿主只给声明了它的画布远端成员推团队名册 `[A2A roster]`，市场照规矩收（投递过的宿主、Sig3、节点键取自验过签的公钥）；`off` 时不声明、入站名册一律不收；其它值拒绝启动）
 - `LAYERFS_SERVICE_URL`/`LAYERFS_SERVICE_TOKEN`（LayerFS·缺一即禁用）
 - `LAYERFS_SERVICE_TOKEN_FILE`（LayerFS 令牌文件·设了就以文件为准，不回落到库里或环境变量里的令牌；内容不足 32 字节拒绝启动）
 - `AI_GATEWAY_API_KEY`（`skill_search` 评估模型令牌·缺=工具报错不降级）
@@ -77,6 +78,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_FEISHU_AUTO_BIND_EMAIL`（`on`=没对到主体的人按飞书企业邮箱自动对到已有主体·缺省关·打开时必须配 `WM_FEISHU_TENANT_KEY`，否则拒绝启动）；见「主体」一节
 - `WM_TRUSTED_PROXIES`（可信反代·逗号分隔的 IP/CIDR·这些对端写入的 `X-Real-IP`/`X-Forwarded-For` 最右项才算来源 IP，用于登录门限频与审计、Odoo 登录票据按来源限额；回环恒可信；容器部署要写上 docker 网桥网关或反代网段；非法项拒绝启动）
 - `WM_EXTENSIONS_DIR`（扩展挂载点·绝对路径·缺省不加载任何扩展·见「扩展」）
+- `WM_EXTENSION_ROUTES`（扩展路由没报动作时怎么办·缺省 `warn`：照旧能跑，启动日志逐条点名并计数；`enforce`：有没报动作的扩展路由就拒绝启动，阶段六切换判定时打开；其它值拒绝启动·见「扩展」）
 - `YGL_MAX_PROJECTS`（统一待办读 ygl-trees 的 active 项目数上限·缺省 200·超出部分在 `degraded_projects` 报 cap-exceeded）
 - `YGL_TOTAL_BUDGET_MS`（ygl-trees 源总预算·缺省 8000·超预算未读的报 budget-exhausted；两项非整数或越界都回落缺省）。内容面（Draft，默认关闭）：`WM_CONTENT_PORT`（显式内容端口，缺省/0不启）
 - `WM_CONTENT_IP`（显式绑定非通配IP）
@@ -258,7 +260,7 @@ GET              /api/health/ready              就绪：含 LayerFS 探测（�
 - **外部身份**（`principal_identities`）挂在主体上：提供方 + 对方的用户标识唯一，一个主体可以有多个。现有登录认出一个人时，第一次见到就建一个 `user:<登录名>` 和一条外部身份，之后都是同一个主体。留痕里的旧写法 `odoo:<登录名>` 就是这条外部身份（提供方 `odoo`、标识是登录名），历史记录不用改。
 - **等待页**：登录门开着时，登录是成功的（提供方认出了人）、却停用了或还没对到主体的人要页面，给一张「等管理员处理」的页（403），写明登录成功了、要管理员处理，不送回登录页；停用和没对到是同一页、逐字节相同，不透露是哪一种；页上不带任何数据，接口照旧 401。没通过提供方认证的照旧跳登录页。飞书回调里被拦的也是这一页。
 - **停用**是本地动作：停用一个主体，所有认人的入口立即不认它——登录门、`/api/auth/viewer`、管理员认定、统一待办读权、SOP 运行读授权、内容面、交给扩展的认人；恢复之后立即照常。提供方的回答可以缓存（管理员认定和登录门各 30 秒），主体停没停用每次现查，不进缓存。共用数据目录的多个实例同样立即生效，重启不丢。
-- 标识已经被别的主体占着、这个外部身份却没绑定：不自动认领（那等于让一个外来账号顶替已有的主体），登录不认，要管理员处理。不管经哪个登录提供方，这样被拦的人都进待对接清单（`GET /api/principals/pending`，「关注」的待对接来源也看得到）：只记提供方、对方的用户标识、显示名、邮箱和最近一次来的时间，同一个人反复来只有一条，保留 30 天；停用的不进（那不是待对接）。「占着」按规范化之后的值比，规范化用 Unicode 的 NFKC_Casefold（完整大小写折叠加 NFKC，去掉零宽一类的默认可忽略字符；不用土耳其语规则）：只差大小写（含 ß、ẞ、SS）、全角半角、连字、夹零宽字符的写法算撞上，同样不认、不另建（表上按规范化值建了唯一约束）；只拒不并，原值照存。`scripts/principal-fold-test.mjs` 在全部码位上对照 Unicode 的派生属性核对它。
+- 标识已经被别的主体占着、这个外部身份却没绑定：不自动认领（那等于让一个外来账号顶替已有的主体），登录不认，要管理员处理。不管经哪个登录提供方，这样被拦的人都进待对接清单（`GET /api/principals/pending`，「关注」的待对接来源也看得到）：只记提供方、对方的用户标识、显示名、邮箱、为什么在清单上和最近一次来的时间，同一个人反复来只有一条，再来时没带邮箱、显示名就留着原来的，保留 30 天；停用的不进（那不是待对接）。原因有两种：`unbound`（对不到主体，管理员对接一次）；`bound-to-non-person`（这条外部身份绑在席位、节点这类非人主体上，不能拿来登录，对接会 409，要先解绑那条外部身份；「关注」里这一条不给对接的答法）。「占着」按规范化之后的值比，规范化用 Unicode 的 NFKC_Casefold（完整大小写折叠加 NFKC，去掉零宽一类的默认可忽略字符；不用土耳其语规则）：只差大小写（含 ß、ẞ、SS）、全角半角、连字、夹零宽字符的写法算撞上，同样不认、不另建（表上按规范化值建了唯一约束）；只拒不并，原值照存。`scripts/principal-fold-test.mjs` 在全部码位上对照 Unicode 的派生属性核对它。
 - **管理接口**（都要管理员：本机 CLI、口令或 Odoo 管理员）：`GET /api/principals` 列出全部主体和各自的外部身份；`POST /api/principals/disable`、`POST /api/principals/restore`，请求体 `{"id":"user:<名>","reason":"…"}`，行上记下最近一次是谁、什么时候、为什么。管理员不能停用自己。口令和本机 CLI 不是主体，停不掉，留作应急。
 - **对一次外部身份**（都要管理员）：`POST /api/principals/bind` 请求体 `{"provider":"…","external_id":"…","principal":"user:<名>","create":false,"reason":"…"}`，把一条外部身份绑到一个启用的人身上，`create: true` 时目标不存在就新建这个人；`POST /api/principals/unbind` 请求体 `{"provider":"…","external_id":"…"}`。已经绑在别处的（含等价写法）不能直接改绑，要先解绑；管理员不能动自己名下的绑定。变体写法先登录、把本人挡在外面的：先解绑旧写法，再把新写法绑到原来的主体上。每次绑定、解绑写一行日志。
 - **规范化依赖 Node 自带的 Unicode 数据**：已经分配的字符，折叠和规范化的结果按 Unicode 的稳定性承诺不会变；换 Node 版本时只有新分配的字符可能变。库里存的规范化值不重算，所以换版本不会让启动撞唯一约束；极少数情形下（登录名里有新分配的字符），撞名检查会多拦或漏拦一次。
@@ -389,7 +391,9 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   a2a-replies.ts（市场回给团队的消息的发送状态：答复、来信回复、跟进回执；时间由代码生成后写入）
   a2a-stats.ts（A2A 出站积压的聚合读数：两张出站表按状态计数、最老待发、最近回执时长）
   attention-sources.ts（「关注」要用、来源里还没有现成函数的只读查询：席位未答的提问）
-  bench-store.ts（台库：每个视图台一份自己的库，在数据目录 `bench-stores/` 下·数据集与列定义的版本·整份替换、追加、按主键更新和删行（逐行校验、幂等键、上限）·快照与退回·视图描述的版本、生效指针、并发保存不覆盖、回退只移指针·变更与写入记录只存摘要·接口全异步、时间由调用方给、一个台的读写排成一队·还没有对外入口，不判权限）
+  bench-store.ts（台库对市场进程的接口：读写不在市场进程里跑，这里只排队、转发给工作线程、看时限、线程出事时收拾·读 3 秒写 15 秒，时限加宽限过了还不停才强行终止线程并另起·排队有上限·接口全异步·还没有对外入口，不判权限）
+  bench-store-core.ts（台库的逻辑本体，在工作线程里跑：每个视图台一份自己的库，在数据目录 `bench-stores/` 下·数据集与列定义的版本·整份替换、追加、按主键更新和删行（逐行校验、幂等键、上限）·快照与退回·视图描述的版本、生效指针、并发保存不覆盖、回退只移指针·变更与写入记录只存摘要·时间由调用方给、一个台的读写排成一队·到时限自己停下并回滚·运行时不引用 `db.ts`，建表语句由调用方递进来）
+  bench-store-worker.ts（台库的工作线程入口：一次做一件事，只认登记过的操作名和消息格式，回话带上这件事提交了的变更）
   attention.ts（「关注」：Cordis 服务 `attention`·各来源注册提供方、可撤销·汇总当前这个人的条目和各类条数）
   binding.ts（A2A 人工绑定）
   change-request.ts（人审变更请求；detailOf 给审核卡片看内容所需的最少字段：版本从几到几、目标版本说明、删除连带几个版本几个文件、不可恢复）
@@ -404,6 +408,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   work-item.ts（事项与事项日志：Cordis 服务 `workItems`·按迁移表推进状态的唯一入口 `apply`·日志只增不改；听 workbench-events 每写一行事件日志发的 `workbench-event/logged`，在来源的事务里用保存点推进事项，出错不影响来源、按事实种类计数；`backfill()` 从事件表和事件日志补建存量事项，可重跑；建事项时标题取任务中心的任务标题（取不到退到来源坐标）、派给取投递的目标团队，存量里还是自动缺省值的启动时补上；建立人主体 `creator_principal` 只取发布时经身份服务认出、来源已验证的人，认不出就空着，「是不是他的」只认它（`isCreator`），`created_by` 只用于显示（认出提需求人时就是他的主体，认不出才用事件上自填的名字；不拿发布人顶替））
 server/src/routes/    按域分的路由模块，各带一个注册函数（一个文件一行，按文件名排序）：
   a2a-direct.ts（A2A 入站 /a2a/direct：POST 收对端投递（回执分流、入站签名、绑定准入），GET 一律 404）
+  a2a-outbound.ts（A2A 出站的两条管理面：/api/a2a/state 本节点 A2A 身份概况、/api/a2a/send 以市场身份发一条消息；都只给管理员，send 只发给对端登记表里 active 的对端，发往登记的根地址）
   a2a-peers.ts（对端登记表 /api/a2a/peers：列出和健康、登记、刷新名片、确认新公钥、停用、重新启用，只有管理员能用）
   admin-token.ts（管理口令 /api/admin/whoami、/api/admin-token）
   agent-card.ts（A2A 签名卡片 /.well-known/agent-card.json）
@@ -444,7 +449,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   tasks.ts（统一待办 /api/tasks 与 ygl 项目读授权的授予、撤销）
   types.ts（类型管理 /api/types）
   a2a-roster.ts（团队名册的读 GET /api/a2a/teams：登录即可读，只有席位信息（团队、席位名、角色、在岗、在办件数从事项现算），不含事项内容；名册只当信息，判定一律不看它）
-  work-items.ts（事项列表 /api/work-items：按 state、object、phase 筛，按更新时间倒序游标翻页，带可见范围里按状态的计数和每件的最后一条进展；可见范围和详情同一个判断，看不到的不出现也不计数。事项的读 /api/work-items/:id：事项和它的日志，事项页的时间线照着渲染；管理员看全部、登录的人只看自己建立的。建立人验收、退回 POST /api/work-items/:id/decision：不经管理门（写请求总门只对这一条子路径放行），经身份服务认人、主体须是启用的人、同源，事项服务判是不是建立人和能不能由建立人答，只收验收、退回，只对等验收的事项；建立人只认事项上的建立人主体，空着的只有管理员能看、能处理）
+  work-items.ts（「安排一件事」POST /api/work-items：会话登录的启用的人直接建一件事项，建立人是本人，派给绑在任务中心上的团队（GET /api/work-items/teams 列出），缺省先过目，幂等键按人，限流和员工直派开关在设置里（arrange_rate_per_minute、arrange_rate_per_day、staff_direct_dispatch），规则在 task-center.ts 的 arrangeTask。事项列表 /api/work-items：按 state、object、phase 筛，按更新时间倒序游标翻页，带可见范围里按状态的计数和每件的最后一条进展；可见范围和详情同一个判断，看不到的不出现也不计数。事项的读 /api/work-items/:id：事项和它的日志，事项页的时间线照着渲染；管理员看全部、登录的人只看自己建立的。建立人验收、退回 POST /api/work-items/:id/decision：不经管理门（写请求总门只对这一条子路径放行），经身份服务认人、主体须是启用的人、同源，事项服务判是不是建立人和能不能由建立人答，只收验收、退回，只对等验收的事项；建立人只认事项上的建立人主体，空着的只有管理员能看、能处理）
   workbenches.ts（工作台 /api/workbenches、/api/check-all）
 web/src/        pages/（Dashboard/Market/Sops/Types/Settings/UseWorkbench/Cockpit/McpGateways/Tasks/Skills/SopSpace/SopRunDetail/Vault/Reviews/OwnerPending/Attention/WorkItem/NotYet/Home） home-view.ts（全景首页的行、格子、总结句，纯函数） work-item-view.ts（事项详情页的提示、进展、结果解析，纯函数） NotYet.tsx（还没有数据来源的入口：说清要显示什么、在等哪项接口） components/（Shell.tsx 外壳：侧栏与主区卡片；WmPage.tsx 页面骨架：顶栏与内容区） admin-token.ts（统一口令注入）
 deploy/         Dockerfile.market（多阶段·非 root·HEALTHCHECK） docker-compose.yml（回环默认·profiles 隔离） layerfs-svc.mjs
@@ -567,7 +572,17 @@ UI：`/tasks` 页（源/状态过滤·扩展条目可标「仅查看」）· 总
 - `ctx`（`server/src/extensions.ts`，`apiVersion` 1）：`app`/`wrap` 挂路由（在身份与写门之后、SPA 回落之前）；`adminGuard`；`odoo.url`/`resolveViewer`/`loginUrl`/`addReturnPath`（登记需要身份的页面作登录回跳）；`tasks.addSource`；`remoteWrite.allowExact`（业务写面：远程浏览器 POST 该精确路径不经管理写门、由扩展自己判身份，只收 `/api/<非宿主命名空间>/…`，进 S3 豁免面快照）。
 - 前端扩展从 `@wm/host` 取宿主组件（`WmPage`、`useOdooPopupLogin`、`odooLoginHref`）；`react`、`antd` 等按宿主的一份解析。
 - 镜像：`deploy/Dockerfile.market` 有一个空的 `wm-extensions` 阶段，部署方用同名构建上下文覆盖它（compose `build.additional_contexts`），并传构建参数 `WM_EXTENSIONS_DIR=/opt/wm-extensions`；运行时同样设 `WM_EXTENSIONS_DIR`。
-- 冒烟：`node scripts/extensions-smoke.mjs`。
+- **路由报动作**：新写的路由用 `ctx.routes.add(method, path, { action, kind, who, statusNotVerdict? }, handler)`，经 HTTP 服务注册，和核心路由一样报动作。
+  - 动作名 `<扩展名>.<动词>`（只有一个点，动词里分段用连字符，比如 `lifecycle.board-read`）。
+  - 扩展名（也是动作前缀和路径首段）不能和核心动作的域、核心路径的首段重名：`api`、前端页面的首段（和 `web/src/App.tsx` 对得上）、内容面和资源的首段写在 `server/src/extensions.ts` 的保留名单里；核心路由栈里的首段（含直接挂在 Express 上的）在全部路由注册完之后自动收集再核一次。撞上了拒绝启动——否则扩展会抢走比它晚挂的核心路由。
+  - 路径只能在 `/api/<扩展名>/…` 或 `/<扩展名>/…` 下，只收字符串。
+  - 类别和方法要对得上：POST、PUT、PATCH、DELETE 不能报 `read`。处理函数实际写不写库没法在注册时看出来，报窄只有方法这一道检查，其余靠评审。
+  - `who`（谁能调）只能从市场已有的口径里选：`anonymous`（登录门关着时匿名也能调）、`member`（登录认出来的人）、`admin`、`owner`；管理类只能给 `admin`/`owner`，`anonymous` 只能配 `read`/`write`。判定（阶段六）照它算，扩展不改核心的内置清单。
+  - 不合格都在注册时抛错，拒绝启动并点名扩展。旧扩展按 `ctx.routes` 有没有来判断能不能用（`apiVersion` 不变）。
+- **中间件**：用 `ctx.routes.use(path, { purpose }, handler)`，路径在自己的命名空间下，写明用途（进扩展的面）。
+- **直接挂的**：经 `ctx.app`（或别处拿到的 Express 应用）挂的路由、中间件、子路由器照旧能跑，但每个扩展 `register` 前后对比路由栈，没报的逐条点名（日志 `source: extensions`、`event: route-undeclared`；中间件和子路由器记 `middleware-added`，子路由器里面的路由看不见，整层算没报）并合计。`WM_EXTENSION_ROUTES=enforce` 时只要有没报的层（路由、中间件、子路由器都算：中间件一样能直接应答）就拒绝启动（阶段六切换判定时打开）。`register` 之后才挂的点不出来。
+- **扩展的面**：`node scripts/surface-snapshot.mjs --extensions <扩展目录> [--out <文件>]` 带扩展起实例，只导出扩展那一节（报了动作的路由和没报的），缺省打到标准输出；不写 `surfaces/`、不进核心快照和体检预算，部署方放进自己的私有仓库。
+- 冒烟：`node scripts/extensions-smoke.mjs`、`node scripts/extension-routes-smoke.mjs`。
 
 ## 鉴权边界与代理相对路径（#132 ⑨⑩）
 

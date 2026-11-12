@@ -16,6 +16,17 @@ export const BENCH_LIMITS = {
   datasets: 50, columns: 60, keyColumns: 8, rows: 50_000, rowsPerWrite: 5_000, textChars: 10_000,
   snapshots: 5, viewVersions: 100, viewBytes: 200_000, queryLimit: 5_000, queryDefault: 200,
   noteChars: 200, writeLog: 5_000, changeLog: 2_000, filters: 20, measures: 12, inValues: 200,
+  // 数据量（UTF-8 字节：文本按字节数，数字和布尔算 8，空算 1）：单个数据集、一个台的在用数据合计、一次写入（整份替换可以到数据集的上限）。
+  // 数据集的上限同时保证一份快照序列化得下来、内存撑得住；快照另算，每个数据集最多留 snapshots 份
+  datasetBytes: 32_000_000, storeBytes: 256_000_000, writeBytes: 16_000_000,
+  // 列定义的历史版本每个数据集留最近多少版
+  datasetVersions: 100,
+  // 一次查询取回的内容（各格的字符数加起来）的上限：再大就不该一次取
+  resultChars: 8_000_000,
+  // 时限（毫秒）：读、写各一个；到了时限加宽限还没停下来，才强行终止工作线程
+  queryMs: 3_000, writeMs: 15_000, killGraceMs: 2_000,
+  // 排着队等工作线程的读写个数的上限
+  queue: 200,
 } as const;
 
 export const NAME_RE = /^[a-z][a-z0-9_]{0,47}$/;
@@ -24,20 +35,23 @@ export const COLUMN_TYPES: readonly BenchColumnType[] = ['text', 'integer', 'dec
 export type ColumnDef = { name: string; type: BenchColumnType; label: string; required: boolean };
 export type DatasetDef = {
   name: string; title: string; version: number; columns: ColumnDef[]; key: string[];
-  row_count: number; created_at: number; updated_at: number; updated_by: string;
+  row_count: number; data_bytes: number; created_at: number; updated_at: number; updated_by: string;
 };
 export type OutColumn = { name: string; type: BenchColumnType; label: string; role: 'dimension' | 'measure' };
 export type QueryPlan = { dataset: string; columns: OutColumn[]; params: string[]; sql: string; args: unknown[]; limit: number };
 
 export class BenchError extends Error {
-  /** internal：库或运行环境报了意料之外的错。说明文字是固定的一句，原始的错只放在 cause 里，不对外 */
-  code: 'invalid' | 'not_found' | 'conflict' | 'limit' | 'unsupported' | 'internal';
+  /**
+   * internal：库或运行环境报了意料之外的错。说明文字是固定的一句，原始的错只放在 cause 里，不对外。
+   * timeout：超过时限被中止。busy：排队的读写太多，这一次没有受理。
+   */
+  code: 'invalid' | 'not_found' | 'conflict' | 'limit' | 'unsupported' | 'internal' | 'timeout' | 'busy';
   http: number;
   details: string[];
   constructor(code: BenchError['code'], message: string, details: string[] = [], cause?: unknown) {
     super(message, cause === undefined ? undefined : { cause });
     this.code = code;
-    this.http = code === 'not_found' ? 404 : code === 'conflict' ? 409 : code === 'limit' ? 413 : code === 'internal' ? 500 : 400;
+    this.http = code === 'not_found' ? 404 : code === 'conflict' ? 409 : code === 'limit' ? 413 : code === 'internal' ? 500 : code === 'timeout' ? 504 : code === 'busy' ? 503 : 400;
     this.details = details;
   }
 }
@@ -119,9 +133,11 @@ const onlyKeys = (o: Record<string, unknown>, allowed: string[], where: string) 
  * 核对一份查询描述并翻成语句。
  * params：筛选栏当前的值（$名字 引用它）；某个参数没给或为空，这条筛选就不生效（相当于「全部」）。
  * 不给 params（保存视图描述时核对用）：所有 $ 引用都当作没给，只收集引用了哪些名字。
- * contains：「包含」在所用的库上怎么写（db.ts 的 benchContainsExpr）；要执行语句就必须给，只核对可以不给。
+ * contains：「包含」在所用的库上怎么写（db.ts 的 benchSqlKit）；要执行语句就必须给，只核对可以不给。
+ * guard：把整段筛选条件包一层（扫描守卫，同样出自 benchSqlKit）；参数是条件（没有筛选时是 null），返回包好的条件。
  */
-export function planQuery(spec: unknown, datasets: Map<string, DatasetDef>, opts: { params?: Record<string, unknown>; contains?: (col: string) => string } = {}): QueryPlan {
+export type PlanOpts = { params?: Record<string, unknown>; contains?: (col: string) => string; guard?: (cond: string | null) => string | null };
+export function planQuery(spec: unknown, datasets: Map<string, DatasetDef>, opts: PlanOpts = {}): QueryPlan {
   if (!isObj(spec)) invalid('查询描述须为对象');
   const q = spec as Record<string, unknown>;
   onlyKeys(q, ['dataset', 'select', 'filter', 'group', 'measures', 'sort', 'limit', 'offset'], '查询描述');
@@ -253,8 +269,9 @@ export function planQuery(spec: unknown, datasets: Map<string, DatasetDef>, opts
   };
   const limit = int(q.limit, BENCH_LIMITS.queryDefault, 1, BENCH_LIMITS.queryLimit, 'limit');
   const offset = int(q.offset, 0, 0, BENCH_LIMITS.rows, 'offset');
+  const cond = where.length ? where.join(' AND ') : null, guarded = opts.guard ? opts.guard(cond) : cond;
   const sql = `SELECT ${selects.join(', ')} FROM ${physTable(ds.name)}`
-    + (where.length ? ` WHERE ${where.join(' AND ')}` : '')
+    + (guarded ? ` WHERE ${guarded}` : '')
     + (group.length ? ` GROUP BY ${group.map((g) => physCol(g.name)).join(', ')}` : '')
     + (order.length ? ` ORDER BY ${order.join(', ')}` : '')
     + ` LIMIT ? OFFSET ?`;

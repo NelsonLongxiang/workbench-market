@@ -20,7 +20,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "575", "etag": "W/\"23f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "601", "etag": "W/\"259-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -35,6 +35,7 @@
                 "/^\\/api\\/workbench-events\\/wbe-[0-9a-f]{16}\\/decision$/",
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/decision$/",
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/messages\\/(read|[1-9]\\d{0,15}\\/reply)$/",
+                "/^\\/api\\/work-items$/",
                 "/^\\/api\\/mcp-rest\\/(tools\\/[^/]+|apps\\/[a-z0-9-]{1,64}\\/files(\\/[^/]+)?)$/"
               ],
               "snapshot_count": 3
@@ -50,7 +51,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "575", "etag": "W/\"23f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "601", "etag": "W/\"259-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -65,6 +66,7 @@
                 "/^\\/api\\/workbench-events\\/wbe-[0-9a-f]{16}\\/decision$/",
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/decision$/",
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/messages\\/(read|[1-9]\\d{0,15}\\/reply)$/",
+                "/^\\/api\\/work-items$/",
                 "/^\\/api\\/mcp-rest\\/(tools\\/[^/]+|apps\\/[a-z0-9-]{1,64}\\/files(\\/[^/]+)?)$/"
               ],
               "snapshot_count": 3
@@ -148,7 +150,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "575", "etag": "W/\"23f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "601", "etag": "W/\"259-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -163,6 +165,7 @@
                 "/^\\/api\\/workbench-events\\/wbe-[0-9a-f]{16}\\/decision$/",
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/decision$/",
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/messages\\/(read|[1-9]\\d{0,15}\\/reply)$/",
+                "/^\\/api\\/work-items$/",
                 "/^\\/api\\/mcp-rest\\/(tools\\/[^/]+|apps\\/[a-z0-9-]{1,64}\\/files(\\/[^/]+)?)$/"
               ],
               "snapshot_count": 1

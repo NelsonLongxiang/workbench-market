@@ -7,9 +7,11 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
+import { generateKeyPairSync } from 'node:crypto';
 import { mkdirSync, mkdtempSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { signCard } from '@nelsonlongxiang/dsh-open-a2a-net/card';
 
 const originSrc = process.env.A2A_ORIGIN_SRC ?? resolve('..', 'dsh-open-a2a-net', 'src', 'origin-claim.ts');
 const { verifyOriginClaim } = await import(pathToFileURL(originSrc).href);
@@ -22,9 +24,15 @@ const env = { ...process.env, PORT: String(port), DATA_DIR: data, ADMIN_TOKEN: '
 let child, logs = '', pass = 0;
 const check = (name, fn) => { fn(); pass++; console.log('PASS ' + name); };
 
-// 对端：记下每次投递的原始请求，用上游裁判按「窗已关」验
+// 对端：出示签名名片（市场只给登记过的对端发，先登记），记下每次投递的原始请求，用上游裁判按「窗已关」验
 const seen = [];
+const peerKey = generateKeyPairSync('ed25519');
 const peer = createServer((req, res) => {
+  if (req.method === 'GET' && req.url === '/.well-known/agent-card.json') {
+    const card = signCard({ capabilities: { a2a: true }, expiresAt: Date.now() + 3600_000, name: 'dsh-node', session: 'dsh', team: 'dsh' }, peerKey.privateKey);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify(card));
+  }
   let body = '';
   req.on('data', (c) => (body += c));
   req.on('end', () => {
@@ -57,6 +65,14 @@ async function stop() { if (child?.exitCode === null) { const closed = once(chil
 
 try {
   await start();
+  const send = () => fetch(base + '/api/a2a/send', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': 'oc-test' },
+    body: JSON.stringify({ target_url: peerBase, team: 'dsh/6a6b6c6d', message: 'origin-claim probe' }),
+  });
+  const early = await send();
+  check('没登记的对端：409，不发', () => { assert.equal(early.status, 409); assert.equal(seen.length, 0); });
+  const reg = await fetch(base + '/api/a2a/peers', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': 'oc-test' }, body: JSON.stringify({ root_url: peerBase }) });
+  check('登记对端 201', () => assert.equal(reg.status, 201, logs.slice(-400)));
   const sent = await fetch(base + '/api/a2a/send', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': 'oc-test' },
     body: JSON.stringify({ target_url: peerBase, team: 'dsh/6a6b6c6d', message: 'origin-claim probe' }),

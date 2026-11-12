@@ -50,6 +50,7 @@ import { registerAdminTokenRoutes } from './routes/admin-token.ts';
 import { registerBindingRoutes } from './routes/bindings.ts';
 import { registerA2aPeerRoutes } from './routes/a2a-peers.ts';
 import { registerA2aDirectRoutes } from './routes/a2a-direct.ts';
+import { registerA2aOutboundRoutes } from './routes/a2a-outbound.ts';
 import { registerExportImportRoutes } from './routes/export-import.ts';
 import { registerLoginFlowRoutes } from './routes/login-flows.ts';
 import { registerWorkbenchRoutes } from './routes/workbenches.ts';
@@ -99,7 +100,7 @@ import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, redisConfigured, runStateRestore, runStateRead, runStateRetire, type RunStateRead } from './redis.ts';
 import { createRunCheckpoints } from './sop-state-checkpoints.ts';
 import { duplicateNode8s } from './services/a2a-handles.ts';
-import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, memberProvenanceMode, setMemberProvenance, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
+import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, memberProvenanceMode, setMemberProvenance, teamRosterMode, setTeamRoster, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
 import type { IncomingMessage } from 'node:http';
 import { a2aHealth } from './a2a/health.ts';
 import { followupRateLimit } from './a2a/receipt-inbound.ts';
@@ -198,6 +199,14 @@ setMemberProvenance(A2A_MEMBER_PROVENANCE === 'on');
   if (dups.size > 0) console.warn(`[a2a] ${dups.size} 个 A2A 会话句柄被不止一个台占用（${[...dups].map((d) => `${MARKET_TEAM}/${d}`).join('、')}）：${A2A_MEMBER_PROVENANCE === 'on' ? '已不上卡、入站一律 404' : '开关关着，入站仍按第一个台承接'}；请给其中的台重新生成句柄`);
 }
 console.log(`[a2a] 名片${A2A_MEMBER_PROVENANCE === 'on' ? '声明' : '不声明'} canvasMemberProvenance（WM_A2A_MEMBER_PROVENANCE=${A2A_MEMBER_PROVENANCE}）`);
+// 名片是否声明 teamRoster（WM_A2A_TEAM_ROSTER=on|off，缺省 on）；值不合法拒绝启动
+const A2A_TEAM_ROSTER = teamRosterMode();
+if (!A2A_TEAM_ROSTER) {
+  console.error('[a2a] 拒绝启动：WM_A2A_TEAM_ROSTER 只接受 on / off / 不设');
+  process.exit(1);
+}
+setTeamRoster(A2A_TEAM_ROSTER === 'on');
+console.log(`[a2a] 名片${A2A_TEAM_ROSTER === 'on' ? '声明' : '不声明'} teamRoster（WM_A2A_TEAM_ROSTER=${A2A_TEAM_ROSTER}）：${A2A_TEAM_ROSTER === 'on' ? '节点推来的团队名册照规矩收' : '入站名册一律不收'}`);
 const A2A_DIRECT_SIG_BODY = directSigBodyMode();
 if (!A2A_DIRECT_SIG_RAW || !A2A_DIRECT_SIG_BODY) {
   console.error('[a2a-direct-sig] 拒绝启动：WM_A2A_DIRECT_SIG 只接受 require / accept / off / 不设，WM_A2A_DIRECT_SIG_BODY 只接受 require / accept / 不设');
@@ -382,6 +391,8 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/decision$/,
   // 阶段七 R2：事项对话里的席位消息——看过、回复（路由内认人：管理员或建立人本人；只此两条子路径）
   /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/messages\/(read|[1-9]\d{0,15}\/reply)$/,
+  // 「安排一件事」：登录的人直接建事项（路由内经身份服务认人，只认启用的人；只此一条路径，不带子路径）
+  /^\/api\/work-items$/,
   // MCP 工具 REST 开放：与 /mcp 同口径，凭会话令牌在路由内鉴权，不认管理口令
   /^\/api\/mcp-rest\/(tools\/[^/]+|apps\/[a-z0-9-]{1,64}\/files(\/[^/]+)?)$/,
 ];
@@ -458,7 +469,7 @@ async function markOdooAdmin(req: express.Request): Promise<void> {
   if (login) odooAdminReqs.set(req, login);
 }
 // 管理读面（GET 也走 adminGuard/vaultGuard 的）与口令/身份端点：进路由前先认定
-const ADMIN_IDENTITY_PATHS = /^\/api\/(admin\/whoami|admin-token(\/|$)|mcp\/(sessions|upstreams|tools|calls|access-requests)(\/|$)|change-requests(\/|$)|bindings(\/|$)|a2a\/peers(\/|$)|remote-allow\/diff|vault\/|tasks(\/|$)|workbench-events(\/|$))/; // a2a/peers：对端登记表的管理接口，会话登录的管理员也算管理员（和绑定同口径）；tasks：统一待办读面同样认 Odoo 管理员（与口令管理员同为全量）；workbench-events：工作台事件的列表、详情也认（「关注」的席位提问同口径）
+const ADMIN_IDENTITY_PATHS = /^\/api\/(admin\/whoami|admin-token(\/|$)|mcp\/(sessions|upstreams|tools|calls|access-requests)(\/|$)|change-requests(\/|$)|bindings(\/|$)|a2a\/(peers|state)(\/|$)|remote-allow\/diff|vault\/|tasks(\/|$)|workbench-events(\/|$))/; // a2a/peers：对端登记表的管理接口，会话登录的管理员也算管理员（和绑定同口径）；tasks：统一待办读面同样认 Odoo 管理员（与口令管理员同为全量）；workbench-events：工作台事件的列表、详情也认（「关注」的席位提问同口径）
 app.use(async (req, _res, next) => {
   if (ADMIN_IDENTITY_PATHS.test(req.path.toLowerCase())) await markOdooAdmin(req);
   next();
@@ -688,6 +699,8 @@ async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkben
     const selfRow = svc<WorkbenchService>('workbench').byId(w.id) as unknown as WorkbenchRow;
     return rowToWorkbench(selfRow);
   }
+  // 兜底：对外断开时，任何调用方都不去探外部地址，也不改这个台的状态（不然会被记成离线、污染副本）
+  if (outboundOff()) { noteBlocked('health-check', w.url); return rowToWorkbench(w); }
   const t = typeOf(w.type);
   const settings = getSettings();
   // issue #8：坏 health_path / 非法组合不得让单测整体 500——探测目标构造失败时该台记 down
@@ -1817,7 +1830,7 @@ registerRosterRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req)
 // ---------- 扩展（WM_EXTENSIONS_DIR）：挂在身份/写门之后、SPA 回落之前；加载失败拒绝启动 ----------
 try {
   const loaded = await loadExtensions(process.env.WM_EXTENSIONS_DIR, {
-    app, wrap,
+    app, wrap, http, routesMode: extensionRoutesMode(process.env.WM_EXTENSION_ROUTES),
     adminGuard: async (req, res) => { await markOdooAdmin(req); return adminGuard(req, res); },
     odoo: { url: () => loginRelay().sourceUrl(), sessionOf: (cookie) => loginRelay().sessionOf(cookie), resolveViewer: (cookie) => identity().resolveViewer(cookie), loginUrl: odooLoginUrl, addReturnPath: (path) => loginRelay().addReturnPath(path) },
     remoteWrite: { allowExact: allowExtensionRemoteWrite },
@@ -2453,7 +2466,7 @@ function sameOriginGuard(req: express.Request, res: express.Response): boolean {
 
 // ---- 任务中心 8 端点（读开放·写删人审·C13 元台只能人工面） ----
 registerTaskIntakeRoutes(http, { sameOriginGuard, adminGuard });
-registerWorkbenchEventRoutes(app, { admin: adminGuard, sameOrigin: (req) => sameOriginGuard(req, undefined as never), actor: (req) => (!browserMarked(req) && rawLoopback(req) ? 'cli' : adminActor(req)) });
+registerWorkbenchEventRoutes(http, { admin: adminGuard, sameOrigin: (req) => sameOriginGuard(req, undefined as never), actor: (req) => (!browserMarked(req) && rawLoopback(req) ? 'cli' : adminActor(req)) });
 registerTaskReadRoutes(http, { wrap, adminHeaderOk, runReadCapHeader });
 registerSopRunAccessRoutes(http, { adminGuard, sopRunRow, bad });
 registerTaskControlRoutes(http, { readActiveManifest, sameOriginGuard, adminGuard });
@@ -2476,6 +2489,19 @@ registerSopSpaceRoutes(http, { getApp, adminHeaderOk, bad, appsRoot, parseSopMan
 
 registerBindingRoutes(http, { adminGuard, getApp });
 registerA2aPeerRoutes(http, { adminGuard, adminActor }); // 对端登记表：只给管理员
+registerA2aOutboundRoutes(http, {
+  adminGuard,
+  state: () => {
+    const card = buildAgentCard(a2aKeyPath());
+    return {
+      team: MARKET_TEAM,
+      key: existsSync(a2aKeyPath()) ? 'present' : 'missing',
+      card: { name: card.name, session: card.session, team: card.team, expiresAt: card.expiresAt, sessionTeams: (card as any).sessionTeams ?? [] },
+      binding: svc<SopService>('sop').activeBindingCount(),
+    };
+  },
+  send: (target, message, contextId) => a2aSendOutbound(a2aKeyPath(), target, message, contextId),
+}); // A2A 出站：只给管理员，send 只发给已登记的正常对端
 
 // （旧双面绑定 CRUD 已删——统一面 /api/bindings 承接，410 过渡件在上）
 
@@ -2499,7 +2525,7 @@ import { renderSopRunner as renderSopRunnerRaw } from './sop-runner.ts';
 import { loadTokensCss } from './design-tokens-css.ts';
 import { sqliteSsoTicketStore } from './sso-ticket-store.ts';
 import { closeYglUpstreams, yglHomeProblem, yglUpstreamRpc } from './mcp-stdio-upstream.ts';
-import { loadExtensions } from './extensions.ts';
+import { loadExtensions, extensionRoutesMode, assertExtensionNamespaces } from './extensions.ts';
 import { authorizeRunRead, issueRunReadCap, runReadGrantCreate, runReadGrantRevoke, runReadCapRevokeAll } from './sop-read-auth.ts';
 import { endpointStatsMiddleware } from './endpoint-stats.ts';
 import { fetchMainFiles, normalizeSource, SourceError, SOURCE_BRANCH } from './github-source.ts';
@@ -2610,6 +2636,8 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
     case 'workbench_summary':
       return summaryPayload();
     case 'workbench_check': {
+      // 对外断开（预发）：和 check-all 一样不探
+      if (outboundOff()) { noteBlocked('health-check'); throw new HttpError(503, '对外已断开（WM_OUTBOUND=off），不做探活'); }
       if (args?.all) {
         const settings = getSettings();
         const limit = Math.max(1, Number(settings.health_concurrency) || 8);
@@ -3404,6 +3432,7 @@ process.on('unhandledRejection', (r) => { console.error('[fatal] unhandledReject
 let timer: ReturnType<typeof setTimeout> | null = null;
 let checking = false;
 async function patrol(): Promise<void> {
+  if (outboundOff()) { noteBlocked('health-patrol'); return; } // 对外断开：启动后那一次和定时的都不探——探不到会把副本里每个台都记成离线
   if (checking) return;
   checking = true;
   try {
@@ -3434,33 +3463,7 @@ function armPatrol(): void {
 // #326: background patrol is armed only after the startup safety gate passes.
 
 const PORT = Number(process.env.PORT) || 9800;
-// ---------- A2A 出站（#17 P4 最小面）：市场作为客户端向对端派单/发消息 ----------
-// 官方 A2aClient（fetchCardDetail 带 OriginClaim 信封 + routeDirect 投递），单进程单端口（9800）。
-// 三件自实现按官方示例：身份密钥（DATA_DIR/a2a-key.pem）、OriginClaim 签名、fetch/schedule 适配。
-app.get('/api/a2a/state', (_req, res) => {
-  const card = buildAgentCard(a2aKeyPath());
-  res.json({
-    team: MARKET_TEAM,
-    key: existsSync(a2aKeyPath()) ? 'present' : 'missing',
-    card: { name: card.name, session: card.session, team: card.team, expiresAt: card.expiresAt, sessionTeams: (card as any).sessionTeams ?? [] },
-    binding: svc<SopService>('sop').activeBindingCount(),
-  });
-});
-
-app.post('/api/a2a/send', wrap(async (req, res) => {
-  const target = String(req.body?.target_url ?? '').trim();
-  const team = String(req.body?.team ?? '').trim();
-  const message = String(req.body?.message ?? '');
-  if (!/^https?:\/\/[^\s]+$/.test(target)) bad('target_url 必须是 http(s):// 对端节点地址');
-  if (!/^[a-z][a-z0-9-]*\/[0-9a-f]{8}$/i.test(team)) bad('team 形如 market/<8hex>（对端卡片里的 sessionTeams）');
-  if (!message) bad('message 必填');
-  try {
-    const out = await a2aSendOutbound(a2aKeyPath(), { baseUrl: target.replace(/\/+$/, ''), team }, message, typeof req.body?.context_id === 'string' ? req.body.context_id : undefined);
-    res.json({ ok: true, target, team, result: out });
-  } catch (e: any) {
-    throw new HttpError(502, `出站失败：${String(e?.message ?? e)}`);
-  }
-}));
+// A2A 出站的 /api/a2a/state、/api/a2a/send 在 routes/a2a-outbound.ts（只给管理员；send 只发给已登记的正常对端）
 
 if (getApp('task-center').status === 'published') syncWorkbenchRegistration(getApp('task-center'));
 const SURFACE_PORTS = surfacePorts();
@@ -3470,6 +3473,8 @@ try { loadRoleDeclarations(http); } catch (e) {
   console.error(`[grants] 拒绝启动：${String((e as Error)?.message ?? e)}`);
   process.exit(1);
 }
+// 扩展名（动作前缀、路径首段）不能和核心动作的域、核心路径的首段重名：核心路由有的在扩展之后才注册，全部注册完再核一次
+try { assertExtensionNamespaces(http.actions(), http.stackLayers()); } catch (e) { console.error(`[extensions] 拒绝启动：${(e as Error).message}`); process.exit(1); }
 const goServer = registerSurface(app, 'market', PORT, () => {
   // #258 breaking：旧开关不再放行任何公网登记，只做兼容检测告警
   if (process.env.ALLOW_PUBLIC_NET === '1') console.warn('[R3] ALLOW_PUBLIC_NET=1: legacy flag no longer grants public registration; use WM_REGISTER_URL_ALLOWLIST exact entries.');

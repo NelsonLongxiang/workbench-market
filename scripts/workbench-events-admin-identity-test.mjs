@@ -42,6 +42,8 @@ const EXPECTED = [
   "POST /api/a2a/peers/:id/disable",
   "POST /api/a2a/peers/:id/enable",
   "POST /api/a2a/peers/:id/refresh",
+  // A2A 出站的身份概况（#594）：只给管理员，会话登录的管理员也认（send 是写请求，由写请求总门先认定，不在这张表里）
+  "GET /api/a2a/state",
   "DELETE /api/admin-token",
   "DELETE /api/bindings/:id",
   "DELETE /api/mcp/sessions/:id",

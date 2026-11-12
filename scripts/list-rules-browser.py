@@ -65,8 +65,8 @@ with sync_playwright() as p:
     pg.locator('.wm-page input[placeholder="搜索标题 / 项目"]').fill('run#1 '); pg.keyboard.press('Enter'); pg.wait_for_timeout(200)
     rows = pg.locator('.wm-tasks-table .ant-table-row').count()
     check('关键词筛选生效', 0 < rows < len(api_tasks), rows)
-    # ── 工作台市场 ──
-    pg.goto(M + '/market'); pg.wait_for_selector('.ant-table-row')
+    # ── 工作台管理（原来的工作台市场表格，新市场页之后在 /market/manage） ──
+    pg.goto(M + '/market/manage'); pg.wait_for_selector('.ant-table-row')
     h = headers(pg, '.wm-page')
     check('市场列序：状态最左、名称第二、操作最右', h[0] == '状态' and h[1] == '名称' and h[-1] == '操作', h)
     check('市场状态列固定最左、操作列固定最右', pg.locator('.wm-page thead th').first.evaluate("e=>e.className").find('fix-left') >= 0 and pg.locator('.wm-page thead th').last.evaluate("e=>e.className").find('fix-right') >= 0)

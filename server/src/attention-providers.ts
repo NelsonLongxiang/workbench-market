@@ -175,10 +175,14 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
       source: 'principal-pending', label: '待对接清单',
       list: async (req) => {
         if (!principalsAdmin || !(await principalsAdmin(req, silentRes()))) return null;
+        // 绑在非人主体上的：对接（bind）一定是 409，不给这个答法，标题里说清楚要先解绑那条外部身份
         return svc<PrincipalService>('principals').pending().map((p) => item({
           source: 'principal-pending', source_id: `${p.provider}:${p.external_id}`, category: 'grant',
-          title: `${p.display_name || p.external_id}（${p.provider}）等对接到主体`, waiting_for: `${p.provider}:${p.external_id}`,
-          since: p.last_seen, answers: ['bind'], link: '/api/principals/pending',
+          title: p.reason === 'bound-to-non-person'
+            ? `${p.display_name || p.external_id}（${p.provider}）这个账号绑在非人主体（席位、节点）上，不能拿来登录；要让本人登录，先解绑那条外部身份`
+            : `${p.display_name || p.external_id}（${p.provider}）等对接到主体`,
+          waiting_for: `${p.provider}:${p.external_id}`,
+          since: p.last_seen, answers: p.reason === 'bound-to-non-person' ? [] : ['bind'], link: '/api/principals/pending',
         }));
       },
     }),

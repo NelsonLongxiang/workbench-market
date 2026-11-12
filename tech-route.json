@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "as_of": "2026-11-11",
+  "as_of": "2026-11-12",
   "doc": "路线清单：规则、档位、基线、豁免。由 scripts/tech-route-check.mjs 读写，约定见 CONTRIBUTING.md。tier 是现在生效的档位（count 只报告，budget 超过基线失败，redline 超过目标失败）；proposed 是建议档位。属主 2026-11-10 裁定按建议档位开；落点还没建好的检查先留在 count，rule.note 写明什么时候开。deps 是登记过的运行时依赖；tests 登记不进 CI 的测试脚本和理由；waivers 是豁免：{rule, item, reason, by, until} 五项都要写，until 是 YYYY-MM-DD，过期不算。",
   "rules": [
     {
@@ -23,12 +23,11 @@
       "what": "没报动作的路由",
       "target": 0,
       "baseline": {
-        "total": 33,
+        "total": 29,
         "files": {
           "server/src/index.ts": 3,
           "server/src/login-gate.ts": 4,
           "server/src/vault-api.ts": 17,
-          "server/src/workbench-events.ts": 4,
           "server/src/workbench-vars.ts": 5
         }
       }

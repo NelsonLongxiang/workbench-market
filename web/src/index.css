@@ -414,6 +414,47 @@ body { background: var(--wm-color-page); }
 .wm-page-body-wide { max-width: 1280px; }
 .wm-page-intro { margin-bottom: var(--wm-space-6); color: var(--wm-color-text-secondary); }
 .wm-page-spin { display: block; margin: var(--wm-space-12) auto; }
+/* ---------- 工作台市场（照原型 3fbfd0b 的 #/market：分类胶囊、三列卡片） ---------- */
+.wm-mkt-tabs { display: flex; gap: var(--wm-space-1); margin-bottom: var(--wm-space-4); }
+.wm-mkt-tab {
+  height: 32px; padding: 0 var(--wm-space-4); border: 0; border-radius: var(--wm-radius-full); background: transparent; cursor: pointer;
+  color: var(--wm-color-text-secondary); font-size: var(--wm-font-size-body); font-family: inherit; display: inline-flex; align-items: center;
+}
+.wm-mkt-tab:not(.on):hover { background: var(--wm-color-page); }
+.wm-mkt-tab.on { background: var(--wm-color-text); color: var(--wm-color-surface); font-weight: var(--wm-font-weight-body-strong); }
+.wm-mkt-tab:focus-visible { outline: 2px solid var(--wm-color-primary); outline-offset: 2px; }
+.wm-mkt-alert { margin-bottom: var(--wm-space-3); }
+.wm-mkt-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--wm-space-3); }
+.wm-mkt-card {
+  display: flex; flex-direction: column; gap: var(--wm-space-2); min-height: 170px; padding: var(--wm-space-4); box-sizing: border-box;
+  background: var(--wm-color-surface); border: 1px solid var(--wm-color-border); border-radius: var(--wm-radius-lg); color: var(--wm-color-text);
+  transition: border-color var(--wm-motion-base), box-shadow var(--wm-motion-base), transform var(--wm-motion-base) var(--wm-motion-easing);
+}
+.wm-mkt-card:hover { color: var(--wm-color-text); border-color: var(--wm-color-border-strong); box-shadow: var(--wm-shadow-2); transform: translateY(-1px); }
+.wm-mkt-card:focus-visible { outline: 2px solid var(--wm-color-primary); outline-offset: 2px; }
+.wm-mkt-card-head { display: flex; align-items: center; gap: var(--wm-space-3); min-width: 0; }
+.wm-mkt-ic { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: var(--wm-radius-lg); background: var(--wm-color-page); font-size: var(--wm-font-size-title); }
+.wm-mkt-ic-initial { background: var(--wm-color-primary-subtle); color: var(--wm-color-primary); font-size: var(--wm-font-size-subtitle); font-weight: var(--wm-font-weight-body-strong); }
+.wm-mkt-name-box { min-width: 0; display: flex; flex-direction: column; }
+.wm-mkt-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wm-mkt-caption { font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); }
+.wm-mkt-desc {
+  color: var(--wm-color-text-secondary); font-size: var(--wm-font-size-body); line-height: var(--wm-line-height-body);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.wm-mkt-desc-none { color: var(--wm-color-text-disabled); }
+.wm-mkt-tags { display: flex; flex-wrap: wrap; gap: var(--wm-space-1); }
+.wm-mkt-tag {
+  display: inline-flex; align-items: center; height: 22px; padding: 0 var(--wm-space-2); border-radius: var(--wm-radius-sm);
+  background: var(--wm-color-page); color: var(--wm-color-text-secondary); font-size: var(--wm-font-size-caption); white-space: nowrap;
+}
+.wm-mkt-foot { margin-top: auto; display: flex; align-items: center; gap: var(--wm-space-3); font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); }
+.wm-mkt-usage { display: inline-flex; align-items: center; gap: var(--wm-space-1); }
+.wm-mkt-usage .wm-caption { font-size: inherit; }
+.wm-mkt-go { margin-left: auto; }
+.wm-mkt-card:hover .wm-mkt-go { color: var(--wm-color-primary); }
+@media (max-width: 960px) { .wm-mkt-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 767px) { .wm-mkt-grid { grid-template-columns: 1fr; } }
 
 /* ---------- 全景首页（原型 #/home）---------- */
 .wm-ml-1 { margin-left: var(--wm-space-1); }
