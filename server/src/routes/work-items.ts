@@ -49,6 +49,7 @@ import { arrangeTask } from '../task-center.ts';
 import { assignableTeams, kickWorkbenchEvents, logEventFact, releaseCore } from '../workbench-events.ts';
 import { eventOfItem } from '../seat-messages.ts';
 import { attachmentsOfEvent } from '../services/work-item-attachments.ts';
+import { deliveryTarget, eventDispatched, inReplyTx, liveDeliveriesOfEvent, queueReply } from '../services/a2a-replies.ts';
 
 export type WorkItemRouteDeps = {
   markOdooAdmin: (req: express.Request) => Promise<void>;
@@ -325,6 +326,9 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
   // 动作类别是「决定」：建立人替自己的事项拍板
   // 改截止日期（安排时填的，建立人可以改）：只有建立人本人（writerVerdict 为 ok），管理员也不行——截止是建立人对这件事的要求。
   // 请求体只读 due：'YYYY-MM-DD' 或 null（清掉）；事项结束了不能改（409）。事件日志记一行 due-changed（从几号改成几号、谁改的）
+  // 同步到节点：派工正文里的 due 不改（那是发出去了什么的证据），改为给这个事件每一条还活着的投递排一条「[截止变更]」，
+  // 作为同一 context 的新任务发给接这件事的团队；投递还在等过目、排队时，等它发出去了再发；投递撤回、判死了就不发；出站关着整轮不发。
+  // 应答多带 notified：排了几条
   app.post('/api/work-items/:id/due', { action: 'work-items.due-set', kind: 'write', statusNotVerdict: CREATOR_DECIDES }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
@@ -345,10 +349,30 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       const item = items.get(id);
       if (!item) return void res.status(404).json({ error: 'work_item_not_found' });
       const at = new Date().toISOString();
-      if (!items.setDue(id, dueAt, at.replace('T', ' ').slice(0, 19))) return void res.status(409).json({ error: 'work_item_ended', state: item.state });
-      if (item.source_ref.startsWith('wbe-')) logEventFact(item.source_ref, viewer.principal, 'due-changed', { from: item.due_at, to: dueAt });
+      const actor = viewer.principal;
+      // 改截止、留痕、给节点排变更在同一个保存点里：改了就一定留痕、一定排上
+      const out = inReplyTx(() => {
+        if (!items.setDue(id, dueAt, at.replace('T', ' ').slice(0, 19))) return null;
+        const ev = /^wbe-[0-9a-f]{16}$/.test(item.source_ref) ? item.source_ref : '';
+        if (!ev) return { notified: 0 };
+        const factId = logEventFact(ev, actor, 'due-changed', { from: item.due_at, to: dueAt });
+        if (!eventDispatched(ev)) return { notified: 0 };
+        // 同步到节点：正文里的 due 已经随派工发出去了（或者等放行时照原样发），所以给这个事件每一条还活着的投递排一条变更，
+        // 作为同一 context 的新任务发给那个团队；等那次投递真的发出去了才发，出站关着就不发（reply-outbound 的闸）
+        const text = `[截止变更] 原事项《${item.title.replace(/\s+/g, ' ').slice(0, 200)}》的截止日期${dueAt ? `改为 ${dueAt.slice(0, 10)}` : '取消了'}（原来是 ${item.due_at ? item.due_at.slice(0, 10) : '没有截止'}）`;
+        let n = 0;
+        for (const d of liveDeliveriesOfEvent(ev)) {
+          const target = deliveryTarget(d.id);
+          if (!target) continue;
+          if (queueReply({ kind: 'answer', eventId: ev, deliveryId: d.id, ref: factId, team: target.team, callerSession: target.caller_session, contextId: target.context_id, targetUrl: target.target_url,
+            message: JSON.stringify({ text, by: actor, notice: 'due-changed' }) }) !== null) n++;
+        }
+        return { notified: n };
+      });
+      if (!out) return void res.status(409).json({ error: 'work_item_ended', state: item.state });
+      if (out.notified > 0) kickWorkbenchEvents();
       const after = items.get(id)!;
-      res.json({ item_id: id, due: after.due_at ? after.due_at.slice(0, 10) : null, overdue: overdueOf(after) });
+      res.json({ item_id: id, due: after.due_at ? after.due_at.slice(0, 10) : null, overdue: overdueOf(after), notified: out.notified });
     })().catch(next);
   });
 

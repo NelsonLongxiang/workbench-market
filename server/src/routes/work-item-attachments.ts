@@ -2,10 +2,11 @@
  * 「安排一件事」的附件（只存文件引用，不把内容塞进派工正文）：
  *   PUT /api/work-items/attachments/:name   上传：登录的、启用的人；请求体即文件内容（≤100MB，和现有上传同一个上限），边收边算 sha256 边落盘；
  *                                           带 X-Content-SHA256 就在落库前核对，不符 400、不保存。返回 { id, name, mime, size, sha256 }。
- *                                           还没挂出去的每人最多 PENDING_ATTACHMENTS_PER_PERSON 个（429）。可执行文件拒收。
+ *                                           还没挂出去的每人最多 PENDING_ATTACHMENTS_PER_PERSON 个、总共最多 PENDING_BYTES_PER_PERSON 字节（429）。可执行文件拒收。
+ *                                           上传后 UNBOUND_TTL_MS（24 小时）还没被任何一次安排引用的，自动清掉（每次上传前清一轮，另有每小时一轮，随根上下文一起停）。
  *   GET /api/work-items/:id/attachments/:aid 人读：看得到这件事项的人（canSee，和事项详情同一处）才拿得到；读不到、不属于这件事项的一律 404
  *   GET /api/workbench-events/:id/attachments/:aid  接单节点取件：凭派工时给的回执令牌（请求头 X-Reply-Token），和回写决定同一套认法；
- *                                           认不出、不属于这个事件的一律 404
+ *                                           令牌只取得到它那次派工（这个事件）挂的附件；认不出、不属于这个事件、任务撤回了、事项已经结束（终态）的一律 404
  * 安排时在请求体里带 attachments: [id…]（只能是本人上传、还没挂出去的，每件最多 ATTACHMENTS_PER_ITEM 个），挂到那一次的事件上。
  */
 import type express from 'express';
@@ -20,9 +21,12 @@ import { svc } from '../context.ts';
 import { dataDir } from '../db.ts';
 import { sniff } from '../file-sniff.ts';
 import { expectedSha256 } from '../upload-integrity.ts';
+import { root } from '../root-context.ts';
+import { releaseBlock } from '../workbench-events.ts';
 import { itemIdForEvent, type WorkItemService } from '../services/work-item.ts';
-import { addAttachment, attachmentById, deliveryByReplyToken, pendingAttachmentCount, PENDING_ATTACHMENTS_PER_PERSON, type AttachmentRow } from '../services/work-item-attachments.ts';
-import { canSee, workItemViewer } from '../work-item-access.ts';
+import { addAttachment, attachmentById, deliveryByReplyToken, dropUnboundAttachment, pendingAttachmentBytes, pendingAttachmentCount, PENDING_ATTACHMENTS_PER_PERSON, PENDING_BYTES_PER_PERSON,
+  staleUnboundAttachments, UNBOUND_TTL_MS, type AttachmentRow } from '../services/work-item-attachments.ts';
+import { canSee, TERMINAL_STATES, workItemViewer } from '../work-item-access.ts';
 
 export type AttachmentRouteDeps = {
   markOdooAdmin: (req: express.Request) => Promise<void>;
@@ -45,6 +49,18 @@ function storePath(originalName: string): string {
   return join(dir, `${Date.now()}-${randomBytes(6).toString('hex')}${ext}`);
 }
 
+/** 清掉上传后 UNBOUND_TTL_MS 还没挂出去的附件：先删记录（只删没挂出去的），删成了再删文件。返回清了几个 */
+export function sweepUnboundAttachments(now = Date.now()): number {
+  let n = 0;
+  for (const a of staleUnboundAttachments(new Date(now - UNBOUND_TTL_MS).toISOString())) {
+    if (!dropUnboundAttachment(a.id)) continue;
+    const abs = resolve(dataDir, a.path);
+    if (abs.startsWith(resolve(uploadRoot) + '/')) rmSync(abs, { force: true });
+    n++;
+  }
+  return n;
+}
+
 function sendAttachment(res: express.Response, a: AttachmentRow): void {
   const abs = resolve(dataDir, a.path);
   if (!abs.startsWith(resolve(uploadRoot) + '/')) return void res.status(404).json({ error: 'attachment_not_found' });
@@ -61,6 +77,13 @@ function sendAttachment(res: express.Response, a: AttachmentRow): void {
 }
 
 export function registerWorkItemAttachmentRoutes(app: HttpService, deps: AttachmentRouteDeps): void {
+  // 每小时清一轮没挂出去的旧上传：挂在根上下文的 effect 上，卸载时一起停
+  root.effect(() => {
+    const every = setInterval(() => { try { sweepUnboundAttachments(); } catch (e) { console.error(`[attachments] 清理没挂出去的上传出错：${String((e as Error)?.message ?? e).slice(0, 200)}`); } }, 3600_000);
+    every.unref?.();
+    return () => { clearInterval(every); };
+  }, 'work-item-attachments.sweep(1h)');
+
   app.put('/api/work-items/attachments/:name', { action: 'work-items.attachment-upload', kind: 'write', statusNotVerdict: '上传的是登录的、启用的人自己（路由内经身份服务认人），不是角色授权' }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     res.setHeader('connection', 'close'); // 提前拒绝时不再读剩余请求体
@@ -77,7 +100,10 @@ export function registerWorkItemAttachmentRoutes(app: HttpService, deps: Attachm
       if (!viewer.person) return void res.status(403).json({ error: 'work_items_principal_not_active' });
       // 请求体要是原始字节：按 JSON、表单发来的已经被全局解析器读走了，存下来会是空文件——拒收（415），别存（先认人：匿名照旧 401）
       if ((req as unknown as { _body?: boolean })._body) return void res.status(415).json({ error: 'attachment_raw_body_required', message: '用 Content-Type: application/octet-stream（或文件本身的类型）发原始字节' });
+      sweepUnboundAttachments();
       if (pendingAttachmentCount(viewer.principal) >= PENDING_ATTACHMENTS_PER_PERSON) return void res.status(429).json({ error: 'attachments_pending_limit', limit: PENDING_ATTACHMENTS_PER_PERSON });
+      const pendingBytes = pendingAttachmentBytes(viewer.principal);
+      if (Number.isFinite(declared) && pendingBytes + declared > PENDING_BYTES_PER_PERSON) return void res.status(429).json({ error: 'attachments_pending_bytes_limit', limit_bytes: PENDING_BYTES_PER_PERSON });
       const abs = storePath(name);
       const h = createHash('sha256');
       let size = 0;
@@ -94,6 +120,8 @@ export function registerWorkItemAttachmentRoutes(app: HttpService, deps: Attachm
         if ((e as { tooLarge?: boolean }).tooLarge) return void res.status(413).json({ error: 'attachment_too_large', max_bytes: ATTACHMENT_MAX_BYTES });
         return void res.status(400).json({ error: 'attachment_upload_interrupted' });
       }
+      // 没带 content-length（分块发）的，收完再核一次总量
+      if (pendingAttachmentBytes(viewer.principal) + size > PENDING_BYTES_PER_PERSON) { rmSync(abs, { force: true }); return void res.status(429).json({ error: 'attachments_pending_bytes_limit', limit_bytes: PENDING_BYTES_PER_PERSON }); }
       const sha = h.digest('hex');
       if (wantSha !== null && wantSha !== sha) { rmSync(abs, { force: true }); return void res.status(400).json({ error: 'sha256_mismatch', sha256: sha }); }
       const head = Buffer.alloc(Math.min(size, 1024 * 1024));
@@ -127,6 +155,9 @@ export function registerWorkItemAttachmentRoutes(app: HttpService, deps: Attachm
     const token = String(req.headers['x-reply-token'] ?? '');
     const a = AID.test(aid) ? attachmentById(Number(aid)) : undefined;
     if (!a || a.event_id !== eventId || !deliveryByReplyToken(eventId, token)) return void res.status(404).json({ error: 'attachment_not_found' });
+    // 任务已经结束：任务撤回了（releaseBlock，和放行同一处判断）、事项到了终态（完成、失败、放弃、取消）——不再给取，和不存在一样答
+    const item = svc<WorkItemService>('workItems').get(itemIdForEvent(eventId));
+    if (releaseBlock(eventId) !== null || !item || TERMINAL_STATES.includes(item.state)) return void res.status(404).json({ error: 'attachment_not_found' });
     sendAttachment(res, a);
   });
 }

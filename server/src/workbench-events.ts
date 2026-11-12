@@ -96,14 +96,16 @@ export function logDeliveryFact(eventId: string, deliveryId: number, actor: stri
   log(eventId, deliveryId, actor, action, detail);
 }
 /** 事件层面（不属于哪一次投递）的一行留痕，比如建立人改了截止日期。调用方负责事务 */
-export function logEventFact(eventId: string, actor: string, action: string, detail: Record<string, unknown> = {}): void {
-  log(eventId, null, actor, action, detail);
+export function logEventFact(eventId: string, actor: string, action: string, detail: Record<string, unknown> = {}): number {
+  return log(eventId, null, actor, action, detail);
 }
-function log(eventId: string, deliveryId: number | null, actor: string, action: string, detail: Record<string, unknown> = {}): void {
+/** 写一行事件日志，返回行 id */
+function log(eventId: string, deliveryId: number | null, actor: string, action: string, detail: Record<string, unknown> = {}): number {
   const info = db.prepare('INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, ?, ?, ?)').run(eventId, deliveryId, actor, action, JSON.stringify(detail));
   // 听的一方出什么错都不影响这里：它自己回滚、计数，漏掉的由回填补上
   try { root.emit('workbench-event/logged', { id: Number(info.lastInsertRowid), event_id: eventId, delivery_id: deliveryId, action }); }
   catch (e) { console.error(`[workbench-events] 发事件日志事件失败（不影响本次写入）：${(e as Error)?.message ?? e}`); }
+  return Number(info.lastInsertRowid);
 }
 
 export interface Target { agent_node: string; notify_url: string }

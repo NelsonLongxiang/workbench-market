@@ -48,6 +48,17 @@ export function returnTargetOfEvent(eventId: string): { delivery_id: number; tas
   return sent ?? null;
 }
 
+/** 一个事件还活着的投递（等过目、排队、已发出）：改截止日期时给每一条排一条变更 */
+export function liveDeliveriesOfEvent(eventId: string): { id: number; status: 'held' | 'pending' | 'sent' }[] {
+  return db.prepare("SELECT id, status FROM workbench_event_deliveries WHERE event_id = ? AND status IN ('held','pending','sent') ORDER BY id").all(eventId) as never;
+}
+
+/** 一次投递现在的状态（没有这条返回 null）：变更类消息要等它发出去了再发 */
+export function deliveryStatusOf(deliveryId: number): string | null {
+  const row = db.prepare('SELECT status FROM workbench_event_deliveries WHERE id = ?').get(deliveryId) as { status: string } | undefined;
+  return row?.status ?? null;
+}
+
 export function queueReply(r: { kind: ReplyKind; eventId: string; deliveryId: number; ref: number; qid?: string; fixedTask?: string; team: string; callerSession: string; contextId: string; targetUrl: string; message: string; now?: number }): number | null {
   const at = sqlTime(r.now);
   const info = db.prepare(`INSERT OR IGNORE INTO workbench_event_replies (kind, event_id, delivery_id, ref, qid, fixed_task, team, caller_session, context_id, target_url, message, next_at, created_at)

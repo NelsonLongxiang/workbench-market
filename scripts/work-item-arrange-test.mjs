@@ -323,6 +323,17 @@ try {
       '改截止日期：别人（看不到这件）404、只带管理口令 401、远程匿名 401、不存在的日期 400、没带 due 400，都不改', show([other.status, adminOnly.status, anonRemote.status, badFmt.status, missing.status]));
     const d2 = dbr(); let trail = []; try { trail = d2.prepare("SELECT actor, detail FROM workbench_event_log WHERE event_id = ? AND action = 'due-changed'").all(past.body?.event_id).map((r) => ({ ...r })); } finally { d2.close(); }
     check(trail.length === 1 && trail[0].actor === 'user:alpha' && JSON.parse(trail[0].detail).from === '2026-01-01T00:00:00.000Z' && JSON.parse(trail[0].detail).to === '2099-01-02T00:00:00.000Z', '改截止日期留痕：谁改的、从几号改成几号', show(trail));
+    // 同步到节点：派工正文不改（证据），给这个事件每条还活着的投递排一条「[截止变更]」，同一 context 的新任务；拒掉的改动一条不排
+    const d3 = dbr(); let notes = [], body = '', dlv = []; try {
+      notes = d3.prepare("SELECT r.kind, r.delivery_id, r.context_id, r.message, r.status FROM workbench_event_replies r WHERE r.event_id = ?").all(past.body?.event_id).map((r) => ({ ...r }));
+      body = d3.prepare('SELECT message FROM workbench_event_deliveries WHERE event_id = ?').get(past.body?.event_id)?.message ?? '';
+      dlv = d3.prepare("SELECT id FROM workbench_event_deliveries WHERE event_id = ? AND status IN ('held','pending','sent')").all(past.body?.event_id).map((r) => r.id);
+    } finally { d3.close(); }
+    const nm = notes.map((n) => JSON.parse(n.message));
+    check(ch.body?.notified === dlv.length && dlv.length >= 1 && notes.length === dlv.length && notes.every((n) => n.kind === 'answer' && n.status === 'pending' && dlv.includes(n.delivery_id) && n.context_id !== '')
+      && nm.every((m) => m.notice === 'due-changed' && m.by === 'user:alpha' && m.text.startsWith('[截止变更]') && m.text.includes('2099-01-02') && m.text.includes('2026-01-01') && !m.text.includes('\n'))
+      && JSON.parse(body).task?.due === '2026-01-01',
+      '改截止日期同步到节点：每条还活着的投递排一条「[截止变更]」（一行字，新旧日期都写），作为同一 context 的新任务；派工正文里的 task.due 原样不改', show({ notified: ch.body?.notified, dlv, notes: nm }));
   }
 
   // ---------- 附件 ----------
@@ -383,6 +394,62 @@ try {
     const otherEv = await getRaw(`/api/workbench-events/${past0Event()}/attachments/${a1.body?.id}`, { 'x-reply-token': token });
     check(sent.stdout.includes('SENT') && heldTry.status === 404 && ok.status === 200 && ok.buf.equals(bytes) && badTok.status === 404 && noTok.status === 404 && otherEv.status === 404,
       '接单节点取件：投递送达之后凭回执令牌取得到原样字节；送达之前、令牌不对、没带令牌、换了事件号都是 404', show([heldTry.status, ok.status, badTok.status, noTok.status, otherEv.status]));
+
+    // (b) 令牌只取得到它那件任务挂的附件：另一件任务（ev2，挂 a4）各有各的令牌，交叉取一律 404；任务结束之后自己的也取不到
+    const bytes4 = Buffer.from('第二件事的附件', 'utf8');
+    const a4 = await up(ALPHA, '另一件.txt', bytes4);
+    const second = await call('POST', '/api/work-items', ALPHA, form({ attachments: [a4.body?.id] }));
+    const ev2 = second.body?.event_id;
+    const d2r = dbr(); let row2; try { row2 = d2r.prepare('SELECT id, message FROM workbench_event_deliveries WHERE event_id = ?').get(ev2); } finally { d2r.close(); }
+    const token2 = JSON.parse(row2?.message ?? '{}').reply?.token ?? '';
+    spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '-e', `
+      const { DatabaseSync } = require('node:sqlite'); const d = new DatabaseSync(${JSON.stringify(join(data, 'workbench-market.db'))});
+      d.prepare("UPDATE workbench_event_deliveries SET status = 'sent', sent_at = datetime('now') WHERE id = ?").run(${row2?.id});`], { encoding: 'utf8' });
+    const own2 = await getRaw(`/api/workbench-events/${ev2}/attachments/${a4.body?.id}`, { 'x-reply-token': token2 });
+    const crossA = await getRaw(`/api/workbench-events/${ev2}/attachments/${a4.body?.id}`, { 'x-reply-token': token });
+    const crossB = await getRaw(`/api/workbench-events/${ev}/attachments/${a4.body?.id}`, { 'x-reply-token': token });
+    const crossC = await getRaw(`/api/workbench-events/${ev2}/attachments/${a1.body?.id}`, { 'x-reply-token': token2 });
+    const crossD = await getRaw(`/api/workbench-events/${ev}/attachments/${a1.body?.id}`, { 'x-reply-token': token2 });
+    check(second.status === 201 && token2 !== '' && token2 !== token && own2.status === 200 && own2.buf.equals(bytes4) && [crossA, crossB, crossC, crossD].every((r) => r.status === 404),
+      '取件（b）：令牌只取得到它那件任务挂的附件——拿 A 的令牌取 B 的附件（换不换事件号）、拿 B 的令牌取 A 的附件，一律 404', show([own2.status, crossA.status, crossB.status, crossC.status, crossD.status]));
+    // 撤回这件任务（管理员经「关注」撤回；投递已发出，事项本身不一定立刻到终态）：之后凭自己的令牌也取不到
+    const wd = await call('POST', '/api/attention/answer', ADMIN, { source: 'work-items', source_id: second.body?.item_id, answer: 'withdraw', input: {} });
+    const st2 = (await call('GET', `/api/work-items/${second.body?.item_id}`, ALPHA)).body?.item?.state;
+    const after2 = await getRaw(`/api/workbench-events/${ev2}/attachments/${a4.body?.id}`, { 'x-reply-token': token2 });
+    check(wd.status === 200 && wd.body?.result?.status === 'withdrawn' && after2.status === 404, '取件（b）：任务撤回之后凭自己的令牌也取不到，和不存在一样 404', show({ wd: [wd.status, wd.body?.result], st2, after: after2.status }));
+
+    // (a) 没挂上的上传要有收场：24 小时没被引用的自动清掉（文件和记录一起）；每人没挂的总量有上限
+    const stale = await up(ALPHA, '放了一天.txt', Buffer.from('没人用'));
+    const back = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '-e', `
+      const { DatabaseSync } = require('node:sqlite'); const d = new DatabaseSync(${JSON.stringify(join(data, 'workbench-market.db'))});
+      d.prepare("UPDATE work_item_attachments SET created_at = ? WHERE id = ?").run(new Date(Date.now() - 25 * 3600 * 1000).toISOString(), ${stale.body?.id});
+      console.log('PATH ' + d.prepare('SELECT path FROM work_item_attachments WHERE id = ?').get(${stale.body?.id}).path);`], { encoding: 'utf8' });
+    const stalePath = join(data, (back.stdout.match(/PATH (.+)/) ?? [])[1] ?? 'missing');
+    const { existsSync } = await import('node:fs');
+    const fileBefore = existsSync(stalePath);
+    const fresh = await up(ALPHA, '新的.txt', Buffer.from('新'));
+    const d4 = dbr(); let gone, keptFresh, keptBound; try {
+      gone = d4.prepare('SELECT COUNT(*) AS n FROM work_item_attachments WHERE id = ?').get(stale.body?.id).n === 0;
+      keptFresh = d4.prepare('SELECT COUNT(*) AS n FROM work_item_attachments WHERE id = ?').get(fresh.body?.id).n === 1;
+      keptBound = d4.prepare("SELECT COUNT(*) AS n FROM work_item_attachments WHERE id = ? AND event_id != ''").get(a1.body?.id).n === 1;
+    } finally { d4.close(); }
+    const useStale = await call('POST', '/api/work-items', ALPHA, form({ attachments: [stale.body?.id] }));
+    check(stale.status === 201 && fileBefore && gone && !existsSync(stalePath) && keptFresh && keptBound && useStale.status === 400 && useStale.body?.error === 'attachments_invalid',
+      '收场（a）：上传后 24 小时没被引用的清掉（记录和文件都没了，再拿它安排 400）；新传的、已挂出去的不动', show({ fileBefore, gone, fileAfter: existsSync(stalePath), keptFresh, keptBound, use: useStale.status }));
+    // 总量上限：库里给 alpha 记上将近 500MB 没挂出去的（合成记录，不落文件），再传一个就超 → 429，不落盘；别人不受影响
+    const fill = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '-e', `
+      const { DatabaseSync } = require('node:sqlite'); const d = new DatabaseSync(${JSON.stringify(join(data, 'workbench-market.db'))});
+      const r = d.prepare("INSERT INTO work_item_attachments (uploaded_by, name, mime, size, sha256, path, created_at) VALUES ('user:alpha', '合成大文件', 'application/octet-stream', ?, ?, 'uploads/none/synthetic', ?)").run(500 * 1024 * 1024 - 4, '0'.repeat(64), new Date().toISOString());
+      console.log('FILL ' + r.lastInsertRowid);`], { encoding: 'utf8' });
+    const fillId = Number((fill.stdout.match(/FILL (\d+)/) ?? [])[1] ?? 0);
+    const over = await up(ALPHA, '超了.txt', Buffer.from('超过总量'));
+    const betaOk = await up(BETA, 'b.txt', Buffer.from('b'));
+    spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '-e', `
+      const { DatabaseSync } = require('node:sqlite'); const d = new DatabaseSync(${JSON.stringify(join(data, 'workbench-market.db'))});
+      d.prepare('DELETE FROM work_item_attachments WHERE id = ?').run(${fillId});`], { encoding: 'utf8' });
+    const afterFree = await up(ALPHA, '腾出来了.txt', Buffer.from('ok'));
+    check(fillId > 0 && over.status === 429 && over.body?.error === 'attachments_pending_bytes_limit' && over.body?.limit_bytes === 500 * 1024 * 1024 && betaOk.status === 201 && afterFree.status === 201,
+      '收场（a）：每人没挂出去的总量上限 500MB——超了先拒（429，不保存），别人不受影响；腾出来以后又能传', show({ over: [over.status, over.body], afterFree: afterFree.status, betaOk: betaOk.status }));
   }
 
   // ---------- 拒绝 ----------

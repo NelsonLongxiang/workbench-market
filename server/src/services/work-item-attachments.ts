@@ -11,6 +11,10 @@ export type AttachmentRow = { id: number; uploaded_by: string; name: string; mim
 /** 一件事最多挂几个附件；一个人手上还没挂出去的最多几个（防止只传不用） */
 export const ATTACHMENTS_PER_ITEM = 5;
 export const PENDING_ATTACHMENTS_PER_PERSON = 20;
+/** 一个人手上还没挂出去的附件总共最多多大（超了先拒，别让人只传不用、往服务器上堆文件） */
+export const PENDING_BYTES_PER_PERSON = 500 * 1024 * 1024;
+/** 上传之后这么久还没被任何一次安排引用，自动清掉（文件和记录一起） */
+export const UNBOUND_TTL_MS = 24 * 3600 * 1000;
 
 export function addAttachment(a: { uploaded_by: string; name: string; mime: string; size: number; sha256: string; path: string; at: string }): number {
   return Number(db.prepare('INSERT INTO work_item_attachments (uploaded_by, name, mime, size, sha256, path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
@@ -23,6 +27,21 @@ export function attachmentById(id: number): AttachmentRow | undefined {
 
 export function pendingAttachmentCount(by: string): number {
   return Number((db.prepare("SELECT COUNT(*) AS n FROM work_item_attachments WHERE uploaded_by = ? AND event_id = ''").get(by) as { n: number }).n);
+}
+
+/** 这个人手上还没挂出去的附件总共多少字节 */
+export function pendingAttachmentBytes(by: string): number {
+  return Number((db.prepare("SELECT COALESCE(SUM(size), 0) AS n FROM work_item_attachments WHERE uploaded_by = ? AND event_id = ''").get(by) as { n: number }).n);
+}
+
+/** 上传时间早于 before（ISO）还没挂出去的附件（清理用，一次最多 limit 条） */
+export function staleUnboundAttachments(before: string, limit = 200): { id: number; path: string }[] {
+  return db.prepare("SELECT id, path FROM work_item_attachments WHERE event_id = '' AND created_at < ? ORDER BY id LIMIT ?").all(before, limit) as { id: number; path: string }[];
+}
+
+/** 删掉一条还没挂出去的附件记录（挂出去了的不删）；删了返回 true */
+export function dropUnboundAttachment(id: number): boolean {
+  return Number(db.prepare("DELETE FROM work_item_attachments WHERE id = ? AND event_id = ''").run(id).changes) === 1;
 }
 
 /** 这些 id 是不是都由这个人上传、还没挂出去（安排前核） */
