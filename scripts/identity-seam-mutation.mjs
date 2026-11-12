@@ -27,7 +27,7 @@ const JOBS = Math.min(2, Math.max(1, Number(jobsArg >= 0 ? process.argv[jobsArg 
 const CONTRACT = 'identity-contract-test.mjs', SMOKE = 'identity-seam-smoke.mjs', SERVICE = 'principal-service-test.mjs', FOLD = 'principal-fold-test.mjs', FEISHU = 'feishu-login-smoke.mjs', OFFBOARD = 'feishu-offboard-smoke.mjs', GRANTS = 'grants-smoke.mjs', JUDGE = 'judgment-compare-smoke.mjs', ZERO = 'judgment-compare-zero-test.mjs', SWEEP = 'judgment-compare-sweep-test.mjs', PRESETS = 'role-presets-test.mjs', CUSTOM = 'custom-roles-smoke.mjs';
 const IDENTITY = 'server/src/identity.ts';
 const SESSIONS_SVC = 'server/src/services/login-session.ts', FLOWS = 'server/src/routes/login-flows.ts', EVENTS = 'server/src/routes/login-events.ts', GRANT_SVC = 'server/src/services/grant.ts', GRANT_ROUTES = 'server/src/routes/grants.ts', ROLES = 'server/src/roles.ts', COMPARE = 'server/src/judgment-compare.ts', BUILTINS_FILE = 'server/src/judgment-builtins.ts', JUDGE_FILE = 'server/src/judgment.ts', GRANT_SVC2 = 'server/src/services/grant.ts', FEISHU_PLUGIN = 'server/src/login-providers/feishu/index.ts';
-const PRINCIPAL = 'server/src/services/principal.ts', ROUTES = 'server/src/routes/principals.ts', DB = 'server/src/db.ts', GATE = 'server/src/login-gate.ts';
+const PRINCIPAL = 'server/src/services/principal.ts', ROUTES = 'server/src/routes/principals.ts', DB = 'server/src/db.ts', GATE = 'server/src/login-gate.ts', GATE_ROUTES = 'server/src/routes/login-gate.ts'; // 登录门的四条路由搬进了 routes/（阶段三）
 
 const INDEX = 'server/src/index.ts';
 const PRELOAD = 'scripts/identity-fake-preload.mjs', FAKE = 'scripts/identity-fake-provider.mjs';
@@ -228,8 +228,8 @@ const MUTANTS = [
     find: " AND p.status = 'active' AND p.kind = 'person'`", replace: "`" },
   { id: 'session-ignores-expiry', what: '会话不看期限', file: SESSIONS_SVC, suites: [FEISHU],
     find: 'WHERE s.token_sha256 = ? AND s.revoked_at IS NULL AND s.expires_at > ? AND', replace: 'WHERE s.token_sha256 = ? AND s.revoked_at IS NULL AND ? > 0 AND' },
-  { id: 'logout-keeps-session', what: '注销不注销市场会话', file: GATE, suites: [FEISHU],
-    find: '      const marketSession = identityService().endSession(cookie);', replace: '      const marketSession = false;' },
+  { id: 'logout-keeps-session', what: '注销不注销市场会话', file: GATE_ROUTES, suites: [FEISHU],
+    find: '    const marketSession = identityService().endSession(cookie);', replace: '    const marketSession = false;' },
   { id: 'disable-keeps-sessions', what: '停用不注销这个人的会话（恢复之后旧会话复活）', file: ROUTES, suites: [FEISHU],
     find: "    if (status === 'disabled') svc<LoginSessionService>('loginSessions').revokeAllFor(id);", replace: '' },
   { id: 'secret-to-userinfo', what: '应用密钥也发给取用户信息那一步', file: FEISHU_PLUGIN, suites: [FEISHU],
