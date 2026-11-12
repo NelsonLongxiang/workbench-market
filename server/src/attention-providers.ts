@@ -50,7 +50,9 @@ import type { GrantService } from './services/grant.ts';
 import type { RelationProposalService } from './services/relation-proposal.ts';
 import { browserMarked, rawLoopback } from './surfaces.ts';
 import { teamName } from './team-relation.ts';
-import { canSee, creatorOf, isManagement, turnOf, type WorkItemViewer } from './work-item-access.ts';
+import { canSee, creatorOf, isManagement, stuckGoesTo, turnOf, type WorkItemViewer } from './work-item-access.ts';
+import { pendingAsksOfEvent } from './services/attention-sources.ts';
+import { eventOfItem } from './seat-messages.ts';
 
 export type AttentionDeps = {
   /** index.ts 的管理门（变更申请、MCP 权限申请、工作台事件用的就是它） */
@@ -68,6 +70,10 @@ function silentRes(): express.Response {
   return res as unknown as express.Response;
 }
 const passes = (guard: (req: express.Request, res: express.Response) => boolean, req: express.Request) => guard(req, silentRes());
+
+/** 「停太久」条目：一次最多给几条、从索引里最多扫几条候选 */
+const STUCK_LIMIT = 50, STUCK_SCAN = 1000;
+const STATE_TEXT: Record<string, string> = { delivered: '已转交', accepted: '已接单', progress: '在做', waiting: '在等', blocked: '卡住了' };
 
 const item = (x: Omit<AttentionItem, 'object' | 'phase' | 'answers' | 'mine'> & Partial<Pick<AttentionItem, 'object' | 'phase' | 'answers' | 'mine'>>): AttentionItem =>
   ({ answers: [], object: '', phase: '', mine: true, ...x });
@@ -239,6 +245,34 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
             mine: turnOf(w, viewer).release, creator: creatorOf(w) }));
         }
         return out;
+      },
+    }),
+    provide({
+      // 停太久的事项（规范 14 第九节「卡住的冒给负责人，没有负责人冒给管理层」）：没有当场的答法，到事项页去催；不算进角标，汇总里单独数。
+      // 一次最多给 STUCK_LIMIT 条（按停得最久的排），total 是这个人一共有几条；候选从 (state, updated_at) 索引里按停得最久取，最多 STUCK_SCAN 条
+      source: 'work-items-stuck', label: '停太久的事项', stuck: true,
+      list: async (req) => {
+        const admin = passes(deps.adminGuard, req);
+        const viewer = await attentionViewer(req, admin);
+        if (!viewer.principal && !viewer.management) return null;
+        const items = svc<WorkItemService>('workItems');
+        const hours = items.stuckThresholdHours();
+        const now = Date.now();
+        const mine = items.stuckCandidates(now, STUCK_SCAN).filter((w) => {
+          const ev = eventOfItem(w);
+          if (ev && pendingAsksOfEvent(ev).length > 0) return false; // 在等答复的提问另有席位提问条目
+          return stuckGoesTo(w, viewer);
+        });
+        const stalled = (t: string) => Math.floor((now - Date.parse(t.replace(' ', 'T') + 'Z')) / 3_600_000);
+        return {
+          total: mine.length,
+          items: mine.slice(0, STUCK_LIMIT).map((w) => item({
+            source: 'work-items-stuck', source_id: w.id, category: 'glance',
+            title: `${w.title}在「${STATE_TEXT[w.state] ?? w.state}」停了 ${stalled(w.updated_at)} 小时（超过 ${hours} 小时算停太久）`,
+            waiting_for: w.seat || w.target_team, since: w.updated_at, link: `/work-items/${w.id}`, object: w.object, phase: w.phase,
+            creator: creatorOf(w),
+          })),
+        };
       },
     }),
     provide({

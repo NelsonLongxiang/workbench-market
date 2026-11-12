@@ -60,7 +60,9 @@ export type AttentionProvider<R = unknown> = {
   source: string;
   label: string;
   /** req 是这次请求（谁在看）。领域服务不认 HTTP 框架，这里不定它的类型，提供方自己知道 */
-  list: (req: R) => Promise<AttentionItem[] | null> | AttentionItem[] | null;
+  list: (req: R) => Promise<AttentionList | null> | AttentionList | null;
+  /** 这个来源的条目是「卡住的事」：没有当场的答法、不算进角标，汇总里单独数（counts.stuck_count） */
+  stuck?: boolean;
   /** 答一条。返回来源给的状态码和正文（转给原路由的，就是原路由的应答，原样）。不提供就是这个来源没有答法 */
   answer?: (req: R, sourceId: string, answer: string, input: Record<string, unknown>) => Promise<AnswerOutcome>;
   /** 这个人在这个来源看不到任何东西时，旧入口会怎么拒（状态码和正文）。不提供就回 403 */
@@ -70,6 +72,10 @@ export type AttentionProvider<R = unknown> = {
 };
 
 export type AnswerOutcome = { status: number; body: unknown; duplicate?: boolean };
+/** 提供方给的条目：一个数组；或者条目有上限时，给出来的那几条和这个人一共有几条（total ≥ items.length） */
+export type AttentionList = AttentionItem[] | { items: AttentionItem[]; total: number };
+/** 提供方给的条目（两种形状统一成数组） */
+export const itemsOf = (l: AttentionList | null): AttentionItem[] | null => (l === null ? null : Array.isArray(l) ? l : l.items);
 
 /** 答复占位的期限：转给原路由一次用不了这么久；过了还没收尾的就是卡死或被杀了 */
 export const PENDING_TTL_SECONDS = 120;
@@ -77,7 +83,8 @@ export const PENDING_TTL_SECONDS = 120;
 export type AttentionSourceMeta = { label: string; visible: boolean; count: number; error?: string };
 export type AttentionView = {
   items: AttentionItem[];
-  counts: { total: number; by_category: Record<Category, number>; by_source: Record<string, number> };
+  /** stuck_count：「卡住的事」这个人一共有几件（各卡住来源的总数，含超出上限没给出来的）。和角标分开，前端在总结句里另说一句 */
+  counts: { total: number; by_category: Record<Category, number>; by_source: Record<string, number>; stuck_count: number };
   sources: Record<string, AttentionSourceMeta>;
 };
 
@@ -157,11 +164,15 @@ export class AttentionService extends Service {
   async collect<R>(req: R): Promise<AttentionView> {
     const items: AttentionItem[] = [];
     const sources: Record<string, AttentionSourceMeta> = {};
+    let stuck = 0;
     for (const p of this.providers.values()) {
       try {
-        const got = await (p as AttentionProvider<R>).list(req);
-        sources[p.source] = { label: p.label, visible: got !== null, count: got?.length ?? 0 };
+        const raw = await (p as AttentionProvider<R>).list(req);
+        const got = itemsOf(raw);
+        const total = raw === null ? 0 : Array.isArray(raw) ? raw.length : Math.max(raw.total, raw.items.length);
+        sources[p.source] = { label: p.label, visible: got !== null, count: total };
         if (got) items.push(...got);
+        if (p.stuck) stuck += total;
       } catch (e) {
         sources[p.source] = { label: p.label, visible: false, count: 0, error: `${p.source}_source_unavailable` };
         console.error(`[attention] 来源 ${p.source} 取不到（只影响它自己）：${(e as Error)?.message ?? e}`);
@@ -171,6 +182,6 @@ export class AttentionService extends Service {
     const by_category = Object.fromEntries(CATEGORIES.map((c) => [c, 0])) as Record<Category, number>;
     const by_source: Record<string, number> = {};
     for (const it of items) { by_category[it.category]++; by_source[it.source] = (by_source[it.source] ?? 0) + 1; }
-    return { items, counts: { total: items.length, by_category, by_source }, sources };
+    return { items, counts: { total: items.length, by_category, by_source, stuck_count: stuck }, sources };
   }
 }

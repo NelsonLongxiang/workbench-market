@@ -17,6 +17,19 @@ import { db } from '../db.ts';
 export const STATES = ['draft', 'held', 'delivered', 'accepted', 'progress', 'waiting', 'ready', 'blocked', 'done', 'failed', 'dropped', 'cancelled'] as const;
 export type WorkItemState = typeof STATES[number];
 export const TERMINAL: readonly WorkItemState[] = ['done', 'failed', 'dropped', 'cancelled'];
+/**
+ * 会「停太久」的状态：已经交出去、还在往下走的。draft、held（有过目条目）、ready（有验收条目）和终态不算；
+ * 有在等答复的提问的另有席位提问条目，由「关注」那边再剔掉
+ */
+export const STUCK_STATES: readonly WorkItemState[] = ['delivered', 'accepted', 'progress', 'waiting', 'blocked'];
+/** 停多久算停太久（小时）：WM_WORK_ITEM_STUCK_HOURS，缺省 24，1～720 的整数；别的值返回 null（启动时拒绝）。只按自然时间算 */
+export function workItemStuckHoursFromEnv(env: NodeJS.ProcessEnv = process.env): number | null {
+  const raw = String(env.WM_WORK_ITEM_STUCK_HOURS ?? '');
+  if (raw === '') return 24;
+  if (!/^[1-9][0-9]{0,2}$/.test(raw)) return null;
+  const n = Number(raw);
+  return n <= 720 ? n : null;
+}
 const NON_TERMINAL = STATES.filter((s) => !TERMINAL.includes(s));
 
 export const SOURCE_KINDS = ['task-center', 'app-data', 'agent', 'cockpit'] as const;
@@ -755,6 +768,21 @@ export class WorkItemService extends Service {
   }
 
   /** 一个视角里有几件（不按状态、对象筛）：列表应答的 views 用 */
+  private stuckHours = 24;
+  setStuckHours(h: number): void { this.stuckHours = h; }
+  /** 停多久算停太久（小时，启动时由 WM_WORK_ITEM_STUCK_HOURS 设） */
+  stuckThresholdHours(): number { return this.stuckHours; }
+
+  /**
+   * 停在某一步太久的候选：在 STUCK_STATES 里、最后一次变动（updated_at，每应用一条事实都会更新）早于 now 减阈值。
+   * 按停得最久的排，最多 limit 条。走 (state, updated_at) 那个索引（idx_work_items_state），不全表扫；时间在代码里算
+   */
+  stuckCandidates(now: number, limit: number): WorkItemRow[] {
+    const cutoff = new Date(now - this.stuckHours * 3_600_000).toISOString().replace('T', ' ').slice(0, 19);
+    return db.prepare(`SELECT * FROM work_items WHERE state IN (${STUCK_STATES.map(() => '?').join(', ')}) AND updated_at < ? ORDER BY updated_at, id LIMIT ?`)
+      .all(...STUCK_STATES, cutoff, limit) as WorkItemRow[];
+  }
+
   countIn(scope: ViewScope): number {
     const w = this.scopeWhere(scope);
     return Number((db.prepare(`SELECT COUNT(*) AS n FROM work_items WHERE ${w.where}`).get(...w.args) as { n: number }).n);

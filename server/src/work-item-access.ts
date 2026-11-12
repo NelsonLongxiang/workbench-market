@@ -118,6 +118,18 @@ export function itemRoles(item: WorkItemRow, viewer: WorkItemViewer): ItemRole[]
   if (viewer.management) roles.push('management');
   return roles;
 }
+/** 事项交给的团队都没有在职负责人（包括名册里换不出团队的）：这时由管理层代办负责人的事 */
+export function leadVacant(item: WorkItemRow): boolean {
+  return itemTeams(item).every((t) => svc<TeamService>('teams').leads(t).length === 0);
+}
+/**
+ * 卡住的事冒给谁（规范 14 第九节）：事项交给的团队的负责人；这些团队都没有负责人时，管理层。
+ * 建立人、成员的主人不冒（他们在自己的列表里看得到状态）；只过了管理门的系统管理员不冒（不看事项内容）
+ */
+export function stuckGoesTo(item: WorkItemRow, viewer: WorkItemViewer): boolean {
+  if (itemRoles(item, viewer).includes('lead')) return true;
+  return viewer.management && leadVacant(item);
+}
 /** 看得到这件事项：建立人、成员的主人、负责人、管理层之一 */
 export const canSee = (item: WorkItemRow, viewer: WorkItemViewer): boolean => itemRoles(item, viewer).length > 0;
 
