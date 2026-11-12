@@ -54,7 +54,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "2511", "etag": "W/\"9cf-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "2519", "etag": "W/\"9d7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "source": "initial",
               "roles": [
@@ -109,6 +109,7 @@
                         "stats",
                         "team",
                         "type",
+                        "vault",
                         "workbench"
                       ]
                     },

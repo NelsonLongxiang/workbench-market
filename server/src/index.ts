@@ -2484,7 +2484,7 @@ function vaultGuard(req: express.Request, res: express.Response): boolean {
   }
   return adminGuard(req, res);
 }
-mountVault(app, vaultGuard, (req) => VAULT_ON_MAIN || surfaceOf(req) === 'control' || onVaultHost(req)); // 服务端持有主密码时只在控制面或凭据库专用域名开放（两者都不承载 /go/、/sop/、/apps/）；属主显式接受同源风险时主域名也开放
+mountVault(http, vaultGuard, (req) => VAULT_ON_MAIN || surfaceOf(req) === 'control' || onVaultHost(req)); // 服务端持有主密码时只在控制面或凭据库专用域名开放（两者都不承载 /go/、/sop/、/apps/）；属主显式接受同源风险时主域名也开放
 workbenchVars.mount(app); // #336 /api/workbenches/:id/vars
 
 // 存活 / 就绪分开：/api/health 是存活（只看本进程，不发外部请求）；/api/health/ready 是就绪（含 LayerFS）。
