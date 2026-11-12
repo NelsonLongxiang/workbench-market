@@ -11,8 +11,10 @@
  *   not_delivered_peer  来源不是投递过的宿主（照普通来信走）
  *   unverified          签名验不过（照普通来信走）
  *   not_declared        名片没声明 teamRoster（WM_A2A_TEAM_ROSTER=off，照普通来信走）
+ *   too_large           正文超过名册的上限（64 KiB，团队太大时会碰到），照普通来信走
+ *   malformed           首行不是「[A2A roster] <8 位指纹> <时间>」，照普通来信走
  */
-export const ROSTER_OUTCOMES = ['recorded', 'stale', 'not_accepted', 'host_conflict', 'not_delivered_peer', 'unverified', 'not_declared'] as const;
+export const ROSTER_OUTCOMES = ['recorded', 'stale', 'not_accepted', 'host_conflict', 'not_delivered_peer', 'unverified', 'not_declared', 'too_large', 'malformed'] as const;
 export type RosterOutcome = (typeof ROSTER_OUTCOMES)[number];
 
 const counts = new Map<RosterOutcome, { count: number; last_at: string }>();

@@ -403,10 +403,10 @@ const ROSTER_TEXT_MAX = 64 * 1024;
  * 名册只当信息（团队页、把句柄显示成名字、在岗数），不授予任何东西；同一台宿主以新替旧（按它报的时间），旧的、重复的回 stale。
  */
 async function handleRoster(req: Req, message: string, deps: { audiences: () => string[]; now?: () => number }): Promise<{ status: number; body: Record<string, unknown> } | null> {
-  if (message.length > ROSTER_TEXT_MAX) return null;
+  if (message.length > ROSTER_TEXT_MAX) { noteRoster('too_large'); return null; }
   const nl = message.indexOf('\n');
   const head = /^\[A2A roster\] ([0-9a-f]{8}) (\S{10,40})$/.exec(nl < 0 ? message : message.slice(0, nl));
-  if (!head) return null;
+  if (!head) { noteRoster('malformed'); return null; }
   const root = originOf(header(req, 'x-a2a-caller-url'));
   const zone = deliveredPeerZone(root);
   if (!zone) { noteRoster('not_delivered_peer'); return null; }
