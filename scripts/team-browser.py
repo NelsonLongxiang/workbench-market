@@ -153,11 +153,16 @@ with sync_playwright() as p:
         P(11, 'team-claim', can_approve=True, can_reject=True, proposed_by_name='丙'),
         P(12, 'team-lead', mine=True, can_reject=True, confirm_by_text='属主', approve_denied='proposer_cannot_confirm', approve_denied_text='提议的人不能自己确认，要另一位确认'),
         P(13, 'dept-lead', confirm_by_text='属主', approve_denied='owner_required', approve_denied_text='只有属主能放行', can_reject=True),
+        # 自己提的、已经失效的（#645 的 outcome）：标「失效」、写原因、没有按钮
+        P(14, 'team-claim', status='rejected', outcome='expired', outcome_reason='超过 14 天没人处理', mine=True, decided_by_name='系统', team_name='合成巡检', department_name='合成运营部'),
     ]
     pg.reload(); set_token(pg); pg.wait_for_selector('[data-testid=team-proposals-for-me]')
     pg.evaluate("window.__att = 0; window.addEventListener('wm-attention-changed', () => { window.__att++; })")
     fm, mi, ot = pg.locator('[data-testid=team-proposals-for-me]'), pg.locator('[data-testid=team-proposals-mine]'), pg.locator('[data-testid=team-proposals-others]')
-    check('三组：等你确认 1、你提的 1、还在等别人确认 1', fm.locator('[data-testid=team-proposal]').count() == 1 and mi.locator('[data-testid=team-proposal]').count() == 1 and ot.locator('[data-testid=team-proposal]').count() == 1)
+    check('三组：等你确认 1、你提的 2（一条待确认、一条失效）、还在等别人确认 1', fm.locator('[data-testid=team-proposal]').count() == 1 and mi.locator('[data-testid=team-proposal]').count() == 2 and ot.locator('[data-testid=team-proposal]').count() == 1)
+    ex = mi.locator('[data-testid=team-proposal]').nth(1)
+    check('你提的里失效的那条：标「失效」（不叫驳回）、写原因、不写等谁确认、没有按钮', ex.locator('[data-testid=team-proposal-outcome]').inner_text().strip() == '失效' and '原因：超过 14 天没人处理' in ex.inner_text()
+          and '等' not in ex.locator('.wm-team-head-meta').inner_text().replace('等你', '') and ex.locator('button').count() == 0 and '驳回' not in ex.inner_text(), ex.inner_text())
     t_fm = fm.inner_text()
     check('等你确认：写清楚是什么（团队挂到哪个部门）、谁提的、等谁确认；有「确认」「驳回」', '把「合成运营」挂到「合成运营部」' in t_fm and '丙 提的' in t_fm and f'等{CONFIRM_BY}确认' in t_fm
           and fm.locator('[data-testid=team-proposal-approve]').count() == 1 and fm.locator('[data-testid=team-proposal-reject]').inner_text().replace(' ', '') == '驳回', t_fm)
@@ -171,11 +176,11 @@ with sync_playwright() as p:
     n0 = len(posted)
     fm.locator('[data-testid=team-proposal-approve]').click(); pg.wait_for_function("document.querySelectorAll('[data-testid=team-proposals-for-me]').length === 0")
     check('确认发对了请求（这一条的 id），办完「等你确认」那一组没了，并广播「等你拍板」刷新', posted[n0][0] == 'approve' and posted[n0][1] == 11 and pg.evaluate('window.__att') >= 1, (posted[n0:], pg.evaluate('window.__att')))
-    mi.locator('[data-testid=team-proposal-reject]').click()
+    mi.locator('[data-testid=team-proposal-reject]').first.click()
     pg.locator('[data-testid=team-proposal-reason]').fill('  想错了  ')
-    pg.locator('[data-testid=team-proposal-reject-confirm]').click(); pg.wait_for_function("document.querySelectorAll('[data-testid=team-proposals-mine]').length === 0")
+    pg.locator('[data-testid=team-proposal-reject-confirm]').click(); pg.wait_for_function("document.querySelectorAll('[data-testid=team-proposals-mine] [data-testid=team-proposal]').length === 1")
     last = posted[-1]
-    check('撤回发的是驳回这一条，带着去掉空白的理由；办完「你提的」那一组没了', last[0] == 'reject' and last[1] == 12 and last[2].get('reason') == '想错了', last)
+    check('撤回发的是驳回这一条，带着去掉空白的理由；办完待确认的那条没了，失效的那条还在', last[0] == 'reject' and last[1] == 12 and last[2].get('reason') == '想错了' and pg.locator('[data-testid=team-proposals-mine] [data-testid=team-proposal]').count() == 1, last)
     props['list'] = []
 
     state['teams'] = {'departments': state['teams']['departments']}

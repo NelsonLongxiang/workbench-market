@@ -18,7 +18,7 @@ import { addTeamLead, approveRelationProposal, attentionChanged, claimTeam, getR
 import RelTime from '../../components/RelTime';
 import { subscribeAdminToken } from '../../admin-token';
 import {
-  actionProblem, pendingText, proposedText, claimButtonText, LEAD_SKIPPED_TEXT, proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterStaleText, sourceProblem,
+  actionProblem, pendingText, proposedText, claimButtonText, LEAD_SKIPPED_TEXT, proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, outcomeLabel, outcomeReasonText, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterStaleText, sourceProblem,
   teamCounts, teamStatusLabel, teamTitle, teamsOf,
 } from '../../team-view';
 import type { Department, KnownNames, Member, Proposal, SourceResult, Team as TeamT, TeamsCan, Tone } from '../../team-view';
@@ -172,6 +172,9 @@ function ProposalCard({ p, names, onDone }: { p: Proposal; names: KnownNames; on
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const rl = rejectLabel(p);
+  const pend = p.outcome === 'pending';
+  const ol = outcomeLabel(p), why = outcomeReasonText(p);
+  const canConfirm = pend && p.can_approve && p.mine !== true;
   const act = async (fn: () => Promise<SourceResult>) => {
     setBusy(true); setErr(null);
     const e = actionProblem(await fn());
@@ -182,11 +185,12 @@ function ProposalCard({ p, names, onDone }: { p: Proposal; names: KnownNames; on
   };
   return (
     <div className="wm-team-prop" data-testid="team-proposal" data-kind={p.kind}>
-      <div className="wm-team-head-top"><b>{proposalTitle(p, names)}</b><Tag color="warning" className="wm-team-st">待确认</Tag></div>
+      <div className="wm-team-head-top"><b>{proposalTitle(p, names)}</b><Tag color={TAG[ol.tone]} className="wm-team-st" data-testid="team-proposal-outcome">{ol.text}</Tag></div>
       <div className="wm-team-head-meta">
         <span>{p.mine === true ? '你提的' : `${proposerText(p, names)} 提的`}{p.proposed_at > 0 && <> · <RelTime value={new Date(p.proposed_at).toISOString()} /></>}</span>
-        <span>等{p.confirm_by_text}确认</span>
-        {!p.can_approve && p.mine !== true && p.approve_denied_text && <span data-testid="team-proposal-denied">{p.approve_denied_text}</span>}
+        {pend && <span>等{p.confirm_by_text}确认</span>}
+        {why && <span data-testid="team-proposal-reason-text">{why}</span>}
+        {pend && !p.can_approve && p.mine !== true && p.approve_denied_text && <span data-testid="team-proposal-denied">{p.approve_denied_text}</span>}
       </div>
       {rejecting ? (
         <div className="wm-team-prop-reject">
@@ -196,9 +200,9 @@ function ProposalCard({ p, names, onDone }: { p: Proposal; names: KnownNames; on
             <Button size="small" autoInsertSpace={false} type="text" disabled={busy} onClick={() => { setRejecting(false); setReason(''); }}>算了</Button>
           </div>
         </div>
-      ) : (p.can_approve && p.mine !== true) || rl ? (
+      ) : canConfirm || rl ? (
         <div className="wm-team-prop-ops">
-          {p.can_approve && p.mine !== true && <Button size="small" type="primary" loading={busy} onClick={() => act(() => approveRelationProposal(p.id))} data-testid="team-proposal-approve" autoInsertSpace={false}>确认</Button>}
+          {canConfirm && <Button size="small" type="primary" loading={busy} onClick={() => act(() => approveRelationProposal(p.id))} data-testid="team-proposal-approve" autoInsertSpace={false}>确认</Button>}
           {rl && <Button size="small" disabled={busy} onClick={() => setRejecting(true)} data-testid="team-proposal-reject" autoInsertSpace={false}>{rl}</Button>}
         </div>
       ) : null}
@@ -219,7 +223,7 @@ function ProposalsSection({ list, names, onDone }: { list: Proposal[]; names: Kn
   return (
     <>
       {group('for-me', '等你确认', '认领、指定负责人会带来权限，要能确认的人点头才生效；「等你拍板」里的同一条，这里办了那边就没了。', g.forMe)}
-      {group('mine', '你提的', '还没确认之前关系不生效，不带来权限；不需要了可以撤回。', g.mine)}
+      {group('mine', '你提的', '还没确认之前关系不生效，不带来权限；不需要了可以撤回。处理过的留几天，看得到结局和原因。', g.mine)}
       {group('others', '还在等别人确认', '你看得到，但不归你确认。', g.others)}
     </>
   );
