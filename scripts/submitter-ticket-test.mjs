@@ -221,6 +221,16 @@ try {
     check(n1.status === 200 && n1.body?.duplicate === true && !('id' in (n1.body ?? {})) && !('created_at' in (n1.body ?? {})), '认不出是谁的匿名提交，同键同内容：只说重复，不带那条的 id 和时间', show(n1.body));
     const n2 = await submit(env({ v: 'other' }, K));
     check(n2.status === 409 && !('id' in (n2.body ?? {})) && !('created_at' in (n2.body ?? {})) && !show(n2.body).includes(String(a1.body?.id)), '匿名同键不同内容：照旧 409，但不带那条的 id 和时间', show(n2.body));
+    // 带着验不过的票据（别的台的、改过一个字节的）：认不出是谁，和匿名一样——重复不带 id 和时间，409 也不带
+    const flip = (t) => t.slice(0, -2) + (t.at(-2) === 'A' ? 'B' : 'A') + t.at(-1);
+    const badTickets = { 别的台的: tBonB, 改过一个字节的: flip(tA) };
+    const badSeen = {};
+    for (const [label, t] of Object.entries(badTickets)) {
+      const same = await submit(env({ v: 'alpha' }, K, t)), diff = await submit(env({ v: `bad-${label}` }, K, t));
+      badSeen[label] = { same: same.status, sameKeys: Object.keys(same.body ?? {}), diff: diff.status, diffKeys: Object.keys(diff.body ?? {}) };
+    }
+    check(Object.values(badSeen).every((x) => x.same === 200 && !x.sameKeys.includes('id') && !x.sameKeys.includes('created_at') && x.diff === 409 && !x.diffKeys.includes('id') && !x.diffKeys.includes('created_at')),
+      '带验不过的票据（别的台的、改过一个字节的）：当成认不出是谁——同键同内容 200 不带 id 和时间，同键不同内容 409 也不带', badSeen);
     const K2 = 'idem-scope-2';
     const m1 = await submit(env({ v: 'anon-first' }, K2)), m2 = await submit(env({ v: 'anon-first' }, K2));
     check(m1.status === 201 && Number.isInteger(m1.body?.id) && m2.status === 200 && m2.body?.duplicate === true && !('id' in (m2.body ?? {})), '匿名首次提交照常 201 带 id；匿名再交一次：重复，不带 id', show({ m1: m1.body, m2: m2.body }));
