@@ -86,7 +86,8 @@ export function judgeBuiltin(input: JudgeInput): JudgeResult {
   // 收窄：只有列出的几种身份能做
   const narrow = narrowed(action);
   if (narrow) {
-    const ok = actor.type === 'builtin' ? narrow.only.includes(actor.name) : narrow.only.includes('owner') && isOwner(actor.id, now);
+    const ok = actor.type === 'builtin' ? narrow.only.includes(actor.name)
+      : (narrow.only.includes('person') && actor.kind === 'person') || (narrow.only.includes('owner') && isOwner(actor.id, now));
     return ok ? { verdict: 'allow', rule: `narrowed:${action}` } : { verdict: 'deny', rule: `narrowed:${action}` };
   }
   // 内置身份：按登记的清单

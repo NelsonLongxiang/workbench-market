@@ -1101,6 +1101,20 @@ CREATE TABLE IF NOT EXISTS a2a_peers (
 CREATE INDEX IF NOT EXISTS idx_a2a_peers_status ON a2a_peers (status);
 CREATE INDEX IF NOT EXISTS idx_a2a_peers_registered_by ON a2a_peers (registered_by);
 `);
+// 「安排一件事」（POST /api/work-items）的请求记账：一个人（requester）的一个幂等键一行。同一个人同一个键再发，回第一次的结果；
+//   键相同、请求体不同（body_sha256 对不上）拒。限流也按这张表数（每人最近一分钟、一天各几行）。时间、id 都由代码生成后传进来。
+db.exec(`
+CREATE TABLE IF NOT EXISTS work_item_requests (
+  requester TEXT NOT NULL CHECK (requester <> ''),
+  idem_key TEXT NOT NULL CHECK (idem_key <> ''),
+  body_sha256 TEXT NOT NULL,
+  task_id INTEGER NOT NULL,
+  event_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (requester, idem_key)
+);
+CREATE INDEX IF NOT EXISTS idx_work_item_requests_time ON work_item_requests(requester, created_at);
+`);
 // 阶段八 8d：「关注」的答复记账。每个（来源、来源里的 id）一行：第一次答成功就记下应答，同一条再答返回这一份；
 //   pending 表示正有人在答（并发的第二个人被告知正在处理）；答失败就删掉这一行，可以再答。原件的状态和留痕在来源自己那里。
 db.exec(`

@@ -78,6 +78,8 @@
       "GET /api/attention  -> attention.read  read",
       "POST /api/attention/answer  -> attention.answer  decide",
       "GET /api/work-items  -> work-items.list  read",
+      "GET /api/work-items/teams  -> work-items.teams  read",
+      "POST /api/work-items  -> work-items.create  write",
       "GET /api/work-items/:id  -> work-item.read  read",
       "POST /api/work-items/:id/messages/read  -> work-items.messages-read  write  （状态码不代表授权：按事项的建立人判：建立人本人或管理员，是事项上的规则不是角色授权）",
       "POST /api/work-items/:id/messages/:mid/reply  -> work-items.messages-reply  write  （状态码不代表授权：按事项的建立人判：建立人本人或管理员，是事项上的规则不是角色授权）",
@@ -488,6 +490,13 @@
           "local-cli"
         ],
         "why": "带管理类或决定类权限的自定义角色只有属主能放行（本机命令行在授予管理面上算属主），比管理员严"
+      },
+      {
+        "action": "work-items.create",
+        "only": [
+          "person"
+        ],
+        "why": "「安排一件事」只认人：建立人就是提需求的本人。任何启用的人都能安排（不靠角色给写权限）；管理口令、本机命令行、席位都不是人，一律不能"
       }
     ]
   },

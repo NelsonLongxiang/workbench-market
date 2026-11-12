@@ -3,7 +3,11 @@ import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { db } from './db.ts';
-import { initWorkbenchEvents, recordTaskCenterEvent } from './workbench-events.ts';
+import { assignableTeams, initWorkbenchEvents, recordTaskCenterEvent } from './workbench-events.ts';
+import { svc } from './context.ts';
+import type { TaskCenterService } from './services/task-center.ts';
+import type { SettingService } from './services/setting.ts';
+import { itemIdForEvent, type WorkItemService } from './services/work-item.ts';
 
 export const taskCenterSteps = [
   { key: 'title', title: '任务标题' }, { key: 'intent', title: '任务意图' },
@@ -89,4 +93,93 @@ export function publishTaskIntake(body: any, opts: { publisherPrincipal?: string
     db.exec('COMMIT');
     return {ok:true,id,status:'published',intake_run_id:runId,template_version:run.sop_version,material_sha256:hash,event_id};
   } catch(e) {db.exec('ROLLBACK');throw e;}
+}
+
+// ---------- 「安排一件事」：登录的人直接建一件事项（POST /api/work-items） ----------
+/**
+ * 和录入发布走同一个出口：建 tasks 行，同一事务里 recordTaskCenterEvent 记事件和投递；事项、held → 放行 → 派出、撤回全是现成的。
+ * 建立人是本人（requester 记进 recorded，事项服务照 8f 的规则认）；不经录入 run、不要管理员代发。
+ *   · 派给：只能是 assignableTeams()（绑在任务中心上的通知绑定），投递只发给这一个团队
+ *   · 先过目：review 缺省 true，一律 held 等管理员放行；review:false 只在中心总开关开、并且设置 staff_direct_dispatch 是 on 时直接派出，
+ *     否则照样 held，应答带原因 review_required_by_policy
+ *   · 幂等：同一个人同一个 idempotency_key 再发回第一次的结果；键相同、请求体不同 409
+ *   · 限流：每人每分钟 arrange_rate_per_minute（缺省 5）件、每天 arrange_rate_per_day（缺省 50）件，管理员在设置里调
+ * 调用方（路由）已经认过人：requester 是经身份服务认出来的、启用的人。
+ */
+export type ArrangeOutcome = { status: number; body: Record<string, unknown> };
+const ARRANGE_KEY = /^[A-Za-z0-9_-]{16,64}$/;
+const DUE = /^\d{4}-\d{2}-\d{2}$/;
+const sqlTime = (d: Date) => d.toISOString().replace('T', ' ').slice(0, 19);
+function settingInt(key: string, fallback: number): number {
+  const v = (svc<SettingService>('setting').get(key) as { value?: unknown } | undefined)?.value;
+  const n = typeof v === 'string' && /^\d{1,6}$/.test(v) ? Number(v) : NaN;
+  return n >= 1 ? n : fallback;
+}
+export function arrangeLimits(): { perMinute: number; perDay: number; staffDirect: boolean } {
+  const direct = (svc<SettingService>('setting').get('staff_direct_dispatch') as { value?: unknown } | undefined)?.value;
+  return { perMinute: settingInt('arrange_rate_per_minute', 5), perDay: settingInt('arrange_rate_per_day', 50), staffDirect: direct === 'on' };
+}
+
+export function arrangeTask(raw: unknown, requester: string, now: Date = new Date()): ArrangeOutcome {
+  const b = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  const str = (k: string) => (typeof b[k] === 'string' ? (b[k] as string).trim() : b[k] === undefined || b[k] === null ? '' : null);
+  const bad = (error: string, extra: Record<string, unknown> = {}): ArrangeOutcome => ({ status: 400, body: { error, ...extra } });
+  const need: [string, number][] = [['title', 200], ['intent', 4000], ['deliverable', 2000]];
+  const v: Record<string, string> = {};
+  for (const [k, max] of need) {
+    const x = str(k);
+    if (x === null || x === '') return bad(`${k}_required`);
+    if (x.length > max) return bad(`${k}_too_long`, { max });
+    v[k] = x;
+  }
+  for (const k of ['object', 'phase']) {
+    const x = str(k);
+    if (x === null || x.length > 200) return bad(`${k}_invalid`, { max: 200 });
+    v[k] = x;
+  }
+  const due = str('due');
+  if (due === null || (due !== '' && !DUE.test(due))) return bad('due_invalid');
+  if (b.review !== undefined && typeof b.review !== 'boolean') return bad('review_invalid');
+  const review = b.review !== false;
+  const key = typeof b.idempotency_key === 'string' ? b.idempotency_key : '';
+  if (!ARRANGE_KEY.test(key)) return bad('idempotency_key_invalid');
+  const team = str('team');
+  if (team === null || team === '') return bad('team_required');
+  const payload = JSON.stringify({ title: v.title, intent: v.intent, deliverable: v.deliverable, team, object: v.object, phase: v.phase, due, review });
+  const sha = createHash('sha256').update(payload, 'utf8').digest('hex');
+  const tasks = svc<TaskCenterService>('taskCenter');
+  const items = svc<WorkItemService>('workItems');
+  const view = (taskId: number, eventId: string, duplicate: boolean, extra: Record<string, unknown> = {}) => {
+    const item = items.get(itemIdForEvent(eventId));
+    return { item_id: itemIdForEvent(eventId), task_id: taskId, event_id: eventId, state: item?.state ?? null, held: item?.state === 'held', duplicate, ...extra };
+  };
+  tasks.arrangeBegin();
+  try {
+    const prev = tasks.arrangeRequest(requester, key);
+    if (prev) {
+      tasks.arrangeRollback();
+      if (prev.body_sha256 !== sha) return { status: 409, body: { error: 'idempotency_conflict' } };
+      return { status: 200, body: view(prev.task_id, prev.event_id, true) };
+    }
+    const limits = arrangeLimits();
+    if (tasks.arrangeCountSince(requester, sqlTime(new Date(now.getTime() - 60_000))) >= limits.perMinute) { tasks.arrangeRollback(); return { status: 429, body: { error: 'rate_limited', window: 'minute', limit: limits.perMinute } }; }
+    if (tasks.arrangeCountSince(requester, sqlTime(new Date(now.getTime() - 86_400_000))) >= limits.perDay) { tasks.arrangeRollback(); return { status: 429, body: { error: 'rate_limited', window: 'day', limit: limits.perDay } }; }
+    if (!assignableTeams().some((t) => t.agent_node === team)) { tasks.arrangeRollback(); return bad('team_not_assignable'); }
+    const centerOn = taskCenterPolicy().agent_dispatch_enabled;
+    const direct = !review && centerOn && limits.staffDirect;
+    const at = sqlTime(now);
+    const taskId = tasks.insertArranged({ title: v.title, payload, sha256: sha, requester, dispatch: direct, at });
+    const fields: Record<string, unknown> = { title: v.title, intent: v.intent, references: '', deliverable: v.deliverable, target: team, due };
+    const eventId = recordTaskCenterEvent({
+      id: taskId, data: fields, stepValue: (k) => fields[k], publishedBy: requester, requesterPrincipal: requester, publisherPrincipal: requester,
+      templateVersion: null, materialSha256: sha, agentDispatch: direct, centerOn,
+      arranged: { team, submitter: requester, ...(v.object ? { object: v.object } : {}), ...(v.phase ? { phase: v.phase } : {}) },
+    });
+    tasks.insertArrangeRequest({ requester, key, sha256: sha, taskId, eventId, at });
+    tasks.arrangeCommit();
+    return { status: 201, body: view(taskId, eventId, false, !review && !direct ? { reason: 'review_required_by_policy' } : {}) };
+  } catch (e) {
+    try { tasks.arrangeRollback(); } catch { /* 已经回滚 */ }
+    throw e;
+  }
 }
