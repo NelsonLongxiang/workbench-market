@@ -83,14 +83,14 @@ try {
   // ============ access_info：未授权会话看得到完整目录 ============
   const bare = await newSession('agent-bare');
   let names = await listNames(bare.token);
-  ok('零授权会话 tools/list 只有两个免授权工具', names.length === 2 && names.includes('access_info') && names.includes('access_request'), JSON.stringify(names));
+  ok('零授权会话 tools/list 只有免授权的五个（权限自助两个 + 读技能三个）', [...names].sort().join() === 'access_info,access_request,skill_read,skill_search,skills_list', JSON.stringify(names));
   let info = await tool(bare.token, 'access_info');
   ok('零授权会话 access_info 可调', !info.isError && info.payload?.session === 'agent-bare', info.text.slice(0, 120));
   const catalog = info.payload?.catalog ?? [];
   const adminTools = (await call('GET', '/api/mcp/tools', null, AT)).body ?? [];
-  ok('目录与注册表一致（33 = 27 + access_info/access_request/app_data_submit + 技能传输 3）', catalog.length === 33 && adminTools.length === 33, `catalog=${catalog.length} admin=${adminTools.length}`);
+  ok('目录与注册表一致（34 = 27 + access_info/access_request/app_data_submit + 技能传输 3 + skill_read）', catalog.length === 34 && adminTools.length === 34, `catalog=${catalog.length} admin=${adminTools.length}`);
   ok('目录每项带 name/description/category/granted', catalog.every((t) => t.name && typeof t.description === 'string' && ['read', 'write', 'admin'].includes(t.category) && typeof t.granted === 'boolean'));
-  ok('零授权：只有两个免授权工具 granted=true', catalog.filter((t) => t.granted).map((t) => t.name).sort().join() === 'access_info,access_request');
+  ok('零授权：只有免授权的五个 granted=true', catalog.filter((t) => t.granted).map((t) => t.name).sort().join() === 'access_info,access_request,skill_read,skill_search,skills_list');
   ok('类别标注：app_data_list=read · app_data_submit=write · workbench_register=admin',
     catalog.find((t) => t.name === 'app_data_list')?.category === 'read'
     && catalog.find((t) => t.name === 'app_data_submit')?.category === 'write'
@@ -101,7 +101,7 @@ try {
   info = await tool(part.token, 'access_info');
   const g = Object.fromEntries((info.payload?.catalog ?? []).map((t) => [t.name, t.granted]));
   ok('部分授权：granted 标记正确', g.workbench_summary === true && g.app_data_submit === false && g.access_info === true, JSON.stringify(info.payload?.granted_tools));
-  ok('granted_tools = 已授权 + 免授权', (info.payload?.granted_tools ?? []).sort().join() === 'access_info,access_request,workbench_summary');
+  ok('granted_tools = 已授权 + 免授权', (info.payload?.granted_tools ?? []).sort().join() === 'access_info,access_request,skill_read,skill_search,skills_list,workbench_summary');
   r = await tool(part.token, 'app_data_submit', { slug: SLUG, data: {} });
   ok('未授权 app_data_submit 仍按不存在应答', r.rpcError?.code === -32601);
 
@@ -156,7 +156,7 @@ try {
   ok('管理员批准 200', r.status === 200 && r.body?.status === 'approved', JSON.stringify(r.body).slice(0, 160));
   ok('批准 = 并集（保留原有 workbench_summary）', JSON.stringify(r.body?.grants) === '["workbench_summary","app_data_list","app_data_submit"]', JSON.stringify(r.body?.grants));
   names = await listNames(part.token);
-  ok('tools/list 立即多出所批工具', names.includes('app_data_submit') && names.includes('app_data_list') && names.includes('workbench_summary') && names.length === 5, JSON.stringify(names));
+  ok('tools/list 立即多出所批工具', names.includes('app_data_submit') && names.includes('app_data_list') && names.includes('workbench_summary') && names.length === 8, JSON.stringify(names));
   r = await call('POST', `/api/mcp/access-requests/${prId}/approve`, {}, AT);
   ok('重复批准 409', r.status === 409);
   info = await tool(part.token, 'access_info');
@@ -218,11 +218,12 @@ try {
   ok('同键不同内容 409', r.isError && r.payload?.status === 409);
   r = await tool(part.token, 'app_data_submit', { slug: SLUG, data: good, idempotency_key: 'bad key!' });
   ok('坏幂等键 400', r.isError && r.text.includes('idempotency_key'));
+  // 幂等键按提交方隔开：MCP 会话是一方，匿名的 REST 提交是另一方。同一个键，REST 那边照常写一条新的，不当成会话那条的重复
   const restDup = await call('POST', `/api/apps/${SLUG}/data`, { data: good, idempotency_key: 'job-1' });
-  ok('REST 信封带同键 → 同一条记录（两入口同核）', restDup.status === 200 && restDup.body?.id === firstId && restDup.body?.duplicate === true, JSON.stringify(restDup.body));
+  ok('匿名 REST 信封带会话用过的键 → 另写一条（提交方不同，不算重复）', restDup.status === 201 && Number.isInteger(restDup.body?.id) && restDup.body?.id !== firstId && !restDup.body?.duplicate, JSON.stringify(restDup.body));
   const list = await tool(part.token, 'app_data_list', { slug: SLUG });
   const mine = (list.payload?.items ?? []).filter((x) => x.data?.title === '整理清单');
-  ok('数据面只有一行且 created_by 缺省为 mcp:<会话名>', mine.length === 1 && mine[0].created_by === 'mcp:agent-part', JSON.stringify(mine).slice(0, 160));
+  ok('数据面两行：会话那条 created_by 缺省为 mcp:<会话名>，REST 那条留空', mine.length === 2 && mine.some((x) => x.id === firstId && x.created_by === 'mcp:agent-part') && mine.some((x) => x.id === restDup.body?.id && x.created_by === ''), JSON.stringify(mine).slice(0, 200));
   r = await tool(part.token, 'app_data_submit', { slug: 'no-such-app', data: good });
   ok('不存在的台报错', r.isError);
 } catch (e) {

@@ -5,7 +5,7 @@
  *
  *   身份：只有管理口令；只有系统管理员角色（身份来源说是管理员、另有一份系统管理授予，没有管理层授予）；
  *         持有管理层授予的非建立人；建立人本人
- *   动作：answer（「关注」答席位提问）、reply（事项对话里回复）、verify、return（事项自己的决定入口和「关注」两个入口各试一次）、release
+ *   动作：answer（答席位提问：「关注」和事项入口 /asks/:qid/answer 两个入口）、reply（事项对话里回复）、verify、return（事项自己的决定入口和「关注」两个入口各试一次）、release
  *   期望：口令、系统管理员角色——五个都不能（看得到，答不了）；持管理层授予的——都能，留痕 acting_for（放行 team-lead、其余 creator）；
  *         建立人——除放行（这件不是自审）外都能，留痕不带 acting_for
  *   「关注」：每种身份看到的答法 = can；mine 只对建立人是 true
@@ -164,7 +164,13 @@ try {
     };
     const acting = ACTING[w];
     await tryIt('reply', e.reply, () => call('POST', `/api/work-items/${s.asked}/messages/${s.msg}/reply`, H[w], { text: '回' }), s.asked, 'note', acting);
-    await tryIt('answer（「关注」）', e.answer, () => viaAttn(w, 'seat-asks', s.delivery, 'answer', { text: '东店' }), s.asked, 'answer', acting);
+    // 答席位提问有两个入口：「关注」和事项自己的 POST /api/work-items/:id/asks/:qid/answer（#567），同一个判法。
+    // 答不了的两个入口都试；答得了的只能答一次（答了提问就合上），管理层授予走事项入口、建立人走「关注」
+    const qid = dAsked?.asks?.find((a) => a.status === 'open')?.id;
+    check(Number.isInteger(qid), `${w}：详情 asks 里有在等的提问（拿到 qid）`, show(dAsked?.asks));
+    const viaItem = () => call('POST', `/api/work-items/${s.asked}/asks/${qid}/answer`, H[w], { text: '东店' });
+    if (!e.answer || w === '管理层授予') await tryIt('answer（事项入口）', e.answer, viaItem, s.asked, 'answer', acting);
+    if (!e.answer || w === '建立人') await tryIt('answer（「关注」）', e.answer, () => viaAttn(w, 'seat-asks', s.delivery, 'answer', { text: '东店' }), s.asked, 'answer', acting);
     await tryIt('verify（事项入口）', e.verify, () => call('POST', `/api/work-items/${s.verifyD}/decision`, H[w], { answer: 'verify' }), s.verifyD, 'verify', acting);
     await tryIt('verify（「关注」）', e.verify, () => viaAttn(w, 'work-items', s.verifyA, 'verify'), s.verifyA, 'verify', acting);
     await tryIt('return（事项入口）', e.return, () => call('POST', `/api/work-items/${s.returnD}/decision`, H[w], { answer: 'return', reason: '差一点' }), s.returnD, 'return', acting);

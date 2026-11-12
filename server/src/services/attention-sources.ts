@@ -76,6 +76,31 @@ export function currentAskOfDelivery(deliveryId: number): { ask_log_id: number; 
   return row ?? null;
 }
 
+/** 一行提问日志（decision:ask 或 receipt:attention）：它属于哪个事件、哪次投递 */
+export function askLogRow(askLogId: number): { id: number; event_id: string; delivery_id: number; action: string; detail: string; actor: string; at: string } | null {
+  if (!tableExists('workbench_events')) return null;
+  const row = db.prepare("SELECT id, event_id, delivery_id, action, detail, actor, at FROM workbench_event_log WHERE id = ? AND action IN ('decision:ask','receipt:attention') AND delivery_id IS NOT NULL").get(askLogId) as { id: number; event_id: string; delivery_id: number; action: string; detail: string; actor: string; at: string } | undefined;
+  return row ?? null;
+}
+
+/**
+ * 事项详情的提问列表：这个事件上的每一条提问日志（v1 的 decision:ask、席位回执的 receipt:attention），按时间先后；
+ * 带上人对它的答复（work_item_log 里 ask_id 等于这行日志 id、来源是 attention 的那条 answer——「关注」和事项入口记的都是这个来源；
+ * 同一投递又问一次时事项服务替旧提问记的那条合上不算）和它是不是投递当前在等的那一条。
+ */
+export function asksOfEvent(eventId: string, itemId: string): { id: number; delivery_id: number; action: string; detail: string; actor: string; at: string; pending: number; answer: string | null; answered_by: string | null; answered_at: string | null }[] {
+  if (!tableExists('workbench_events')) return [];
+  return db.prepare(`SELECT g.id, g.delivery_id, g.action, g.detail, g.actor, g.at,
+      EXISTS (SELECT 1 FROM (${OPEN_ASK_SQL}${NOT_ANSWERED}) o WHERE o.ask_log_id = g.id) AS pending,
+      (SELECT json_extract(l.detail, '$.answer') FROM work_item_log l WHERE l.item_id = ? AND l.fact = 'answer' AND l.rejected = '' AND l.fact_source = 'attention' AND json_extract(l.detail, '$.ask_id') = CAST(g.id AS TEXT) ORDER BY l.seq LIMIT 1) AS answer,
+      (SELECT l.actor FROM work_item_log l WHERE l.item_id = ? AND l.fact = 'answer' AND l.rejected = '' AND l.fact_source = 'attention' AND json_extract(l.detail, '$.ask_id') = CAST(g.id AS TEXT) ORDER BY l.seq LIMIT 1) AS answered_by,
+      (SELECT l.at FROM work_item_log l WHERE l.item_id = ? AND l.fact = 'answer' AND l.rejected = '' AND l.fact_source = 'attention' AND json_extract(l.detail, '$.ask_id') = CAST(g.id AS TEXT) ORDER BY l.seq LIMIT 1) AS answered_at
+    FROM workbench_event_log g
+    WHERE g.event_id = ? AND g.action IN ('decision:ask','receipt:attention') AND g.delivery_id IS NOT NULL
+      AND EXISTS (SELECT 1 FROM work_item_log k WHERE k.item_id = ? AND k.fact = 'ask' AND k.fact_id = CAST(g.id AS TEXT) AND k.rejected = '')
+    ORDER BY g.id LIMIT 200`).all(itemId, itemId, itemId, eventId, itemId) as never;
+}
+
 /** 待对接清单里这条外部身份这一次出现的序号（全局只增）；不在清单里返回 null（「关注」记账分轮用） */
 export function pendingPrincipalAppearance(provider: string, externalId: string): number | null {
   const row = db.prepare('SELECT appearance FROM principal_pending WHERE provider = ? AND external_id = ?').get(provider, externalId) as { appearance: number } | undefined;

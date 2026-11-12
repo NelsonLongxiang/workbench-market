@@ -315,22 +315,27 @@ try {
 
   // ---------- 五、新写的两类 ----------
   {
-    // 席位的提问：答是替人做决定的动作，谁能答只看 itemDecisionVerdict。口令管理员看得到这条、但没有管理层授予，答不了；
-    // 会话登录的管理员（这里给了管理层授予）代办
+    // 席位的提问：管理门（口令）看得到全部，但答复是替建立人做业务决定（L21）——口令不带答法、答了被拒；持有管理层授予的人（user:no-flag）代办
     const TOKEN = { ...SAME, 'x-admin-token': ADMIN_TOKEN };
-    const tokenView = (await call('GET', '/api/attention', TOKEN)).body.items.find((x) => x.source === 'seat-asks' && x.source_id === String(S.ask.delivery));
-    const tokenTry = await answer('seat-asks', S.ask.delivery, 'answer', { text: '店铺 A' }, TOKEN);
-    check(tokenView && tokenView.answers.length === 0 && tokenTry.status === 400,
-      '口令管理员（没有管理层授予）：看得到这条席位的提问，但没给答法，从答复入口答被拒（答法不在条目上）', show({ answers: tokenView?.answers, tokenTry: tokenTry.status }));
-    const before = await call('GET', '/api/attention', ADMIN);
-    check(before.body.items.some((x) => x.source === 'seat-asks' && x.source_id === String(S.ask.delivery) && show(x.answers) === show(['answer'])), '席位的提问在持有管理层授予的人的「关注」里，带答法');
-    const a = await answer('seat-asks', S.ask.delivery, 'answer', { text: '店铺 A' }, ADMIN);
+    const MGMT = { ...SAME, cookie: `session_id=${SESSIONS.noAdminFlag}` };
+    await call('GET', '/api/auth/viewer', MGMT);
+    const g = await call('POST', '/api/grants', {}, { principal: 'user:no-flag', role: 'management', scope: '*', reason: '合成：管理层' });
+    await call('POST', `/api/grants/${g.body?.grant?.id}/submit`, {}); await call('POST', `/api/grants/${g.body?.grant?.id}/approve`, {});
+    const before = await call('GET', '/api/attention', TOKEN);
+    const tokenRow = before.body.items.find((x) => x.source === 'seat-asks' && x.source_id === String(S.ask.delivery));
+    const byToken = await answer('seat-asks', S.ask.delivery, 'answer', { text: '口令答' }, TOKEN);
+    const stillOpen = JSON.parse(q('SELECT open_asks FROM work_items WHERE id = ?', `wi_${S.ask.event}`)[0].open_asks).length;
+    check(g.status === 201 && tokenRow && tokenRow.answers.length === 0 && [400, 403].includes(byToken.status) && stillOpen === 1,
+      '席位的提问在「关注」里；口令看得到但不带答法，答了被拒（L21：只过了管理门不能替建立人做决定），提问还开着', show({ g: g.status, tokenRow, byToken, stillOpen }));
+    const mrow = (await call('GET', '/api/attention', MGMT)).body?.items?.find((x) => x.source === 'seat-asks' && x.source_id === String(S.ask.delivery));
+    check(JSON.stringify(mrow?.answers) === JSON.stringify(['answer']), '持有管理层授予的人：「关注」里这条带答法', show(mrow));
+    const a = await answer('seat-asks', S.ask.delivery, 'answer', { text: '店铺 A' }, MGMT);
     const it = q('SELECT state, open_asks FROM work_items WHERE id = ?', `wi_${S.ask.event}`)[0];
     const after = await call('GET', '/api/attention', ADMIN);
     check(a.status === 200 && a.body.result.sent === false && a.body.result.reason === 'receiver_is_v1' && JSON.parse(it.open_asks).length === 0 && !after.body.items.some((x) => x.source === 'seat-asks'),
       '答席位的提问：记在事项上、合上提问，「关注」里不再有它；对方是 v1，按 06 不发回答事件（sent:false 写明原因）', show({ a, it }));
-    const again = await answer('seat-asks', S.ask.delivery, 'answer', { text: '店铺 B' }, ADMIN);
-    check(again.status === 200 && again.body.duplicate === true && again.body.result.item_id === a.body.result.item_id, '再答一次：返回第一次的结果', show(again));
+    const again = await answer('seat-asks', S.ask.delivery, 'answer', { text: '店铺 B' }, MGMT);
+    check(again.status === 200 && again.body.duplicate === true && again.body.result.item_id === a.body.result.item_id, '再答一次：返回第一次的结果');
     const v = await answer('work-items', S.ready.verify, 'verify');
     const r0 = await answer('work-items', S.ready.ret, 'return', {});
     const r = await answer('work-items', S.ready.ret, 'return', { reason: '差异没标' });
@@ -342,7 +347,7 @@ try {
 
   // ---------- 六、同一个 id 再次进入待处理；占位的期限；被杀之后重启 ----------
   {
-    const rw = () => { const c = new DatabaseSync(join(data, 'workbench-market.db')); c.exec('PRAGMA busy_timeout = 5000'); return c; };
+    const rw = () => { const c = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 }); c.exec('PRAGMA busy_timeout = 5000'); return c; };
     const facts = (id, list) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', `
       const at = (p) => ${JSON.stringify(pathToFileURL(ROOT).href)} + '/' + p;
       const { root } = await import(at('server/src/root-context.ts'));

@@ -55,8 +55,17 @@ export function isManagement(principal: string | null, admin: boolean): boolean 
 }
 
 /**
+ * 现在有几个主体持有管理层授予（health 只给管理口令看，只给个数、不给是谁）。
+ * 是 0 时，团队没有负责人、又没人能代办：那些团队的等过目的事项没人放得了（存量差异清单 L21）。
+ * 先按角色在库里筛（闭包覆盖 work-items.view-all 的角色、生效的授予，不限条数），再逐个照 holdsManagementGrant 判（主体启用、范围对）
+ */
+export function managementGrantHolders(): number {
+  return svc<GrantService>('grants').activeHolders(rolesCovering(VIEW_ALL_ACTION, VIEW_ALL_KIND)).filter(holdsManagementGrant).length;
+}
+
+/**
  * 持有管理层授予：按统一判定有 work-items.view-all 这个动作，不认管理门。
- * 读（isManagement）照旧认管理门；新的写——团队没有负责人时代办放行——只认它（协调方 2026-11-12 定的口径）：
+ * 读（isManagement）照旧认管理门；替建立人做业务决定（代办）只认它（协调方 2026-11-12 定的口径）：
  * 管理口令、没有管理层授予的身份来源管理员都不能代办
  */
 export function holdsManagementGrant(principal: string | null): boolean {
@@ -66,13 +75,11 @@ export function holdsManagementGrant(principal: string | null): boolean {
   return judge({ actor: { type: 'principal', id: principal, kind: p.kind ?? '', status: p.status ?? '', owner: p.owner ?? '' }, action: VIEW_ALL_ACTION, kind: VIEW_ALL_KIND, declared: true }).verdict === 'allow';
 }
 
-/**
- * 现在有几个主体持有管理层授予（health 只给管理口令看，只给个数、不给是谁）。
- * 是 0 时，团队没有负责人、又没人能代办：那些团队的等过目的事项没人放得了（存量差异清单 L21）。
- * 先按角色在库里筛（闭包覆盖 work-items.view-all 的角色、生效的授予，不限条数），再逐个照 holdsManagementGrant 判（主体启用、范围对）
- */
-export function managementGrantHolders(): number {
-  return svc<GrantService>('grants').activeHolders(rolesCovering(VIEW_ALL_ACTION, VIEW_ALL_KIND)).filter(holdsManagementGrant).length;
+/** 主体是不是启用的人（事项上写和做决定的都得是） */
+export function isActivePerson(principal: string | null): boolean {
+  if (!principal) return false;
+  const p = svc<PrincipalService>('principals').get(principal) as { kind?: string; status?: string } | undefined;
+  return !!p && p.kind === 'person' && p.status === 'active';
 }
 
 /** UTC「YYYY-MM-DD hh:mm:ss」和毫秒互换（事项表里的时间是前者，团队服务的时间是后者） */
@@ -182,8 +189,7 @@ export async function workItemViewer(req: express.Request, deps: { markOdooAdmin
     down = sourceDown(who);
     if (who.ok) {
       principal = who.viewer.sub;
-      const p = svc<PrincipalService>('principals').get(principal) as { kind?: string; status?: string } | undefined;
-      person = !!p && p.kind === 'person' && p.status === 'active';
+      person = isActivePerson(principal);
     }
   }
   return { admin, principal, person, actor: admin ? (deps.adminActor?.(req) ?? 'admin') : principal ?? 'anonymous', management: isManagement(principal, admin), ...(down ? { sourceDown: true } : {}) };

@@ -155,6 +155,8 @@ interface EventCore {
   handoff?: 'team' | 'own-seat' | 'lead-directed';
   reviewBy?: '' | 'lead' | 'requester';
   directedSeatId?: string;
+  /** 「安排一件事」从哪个驾驶舱安排的（驾驶舱的 id）。只记在 recorded 那一行，事项建出来时取 */
+  cockpitId?: number;
 }
 
 /** 写事件行 + 每个目标一行投递。调用方负责事务。返回 event_id。 */
@@ -164,7 +166,7 @@ function recordEvent(core: EventCore, targets: Target[], routed: 'target' | 'def
   db.prepare('INSERT INTO workbench_events (event_id, source, workbench, item, context_id, submitter_kind, submitter, form_version, data_sha256, dispatch, routed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(eventId, core.source, core.workbench, core.item, core.contextId, core.submitterKind, core.submitter, core.formVersion, core.dataSha256, core.dispatch ? 1 : 0, routed);
   log(eventId, null, 'market', 'recorded', { source: core.source, routed, submitter_kind: core.submitterKind, targets: targets.length, ...(core.requester ? { requester: core.requester } : {}), ...(core.via ? { via: core.via } : {}), ...(core.publisher ? { publisher: core.publisher } : {}), ...(core.object ? { object: core.object } : {}), ...(core.phase ? { phase: core.phase } : {}),
-    ...(core.handoff ? { handoff: core.handoff, review_by: core.reviewBy ?? (held ? 'lead' : '') } : {}), ...(core.directedSeatId ? { directed_seat_id: core.directedSeatId } : {}) });
+    ...(core.handoff ? { handoff: core.handoff, review_by: core.reviewBy ?? (held ? 'lead' : '') } : {}), ...(core.directedSeatId ? { directed_seat_id: core.directedSeatId } : {}), ...(core.cockpitId ? { cockpit_id: core.cockpitId } : {}) });
   const envelope = envelopeOf(eventId, createdAt);
   for (const t of targets) {
     let token = '';
@@ -188,7 +190,9 @@ export function recordTaskCenterEvent(task: { id: number; data: Record<string, u
   /** 「安排一件事」：直接指定派给的团队（必须是 assignableTeams 之一），不按「目标 SOP 台」解析；submitter 用本人主体；object、phase 记进 recorded */
   arranged?: { team: string; submitter: string; object?: string; phase?: string;
     /** 规范 14：交给方式、等谁过目、指名的席位（seatId）。阶段七的指名派工经这里写；不给就是交给团队、按 held 推等谁过目 */
-    handoff?: 'team' | 'own-seat' | 'lead-directed'; reviewBy?: '' | 'lead' | 'requester'; directedSeatId?: string } }): string {
+    handoff?: 'team' | 'own-seat' | 'lead-directed'; reviewBy?: '' | 'lead' | 'requester'; directedSeatId?: string;
+    /** 从哪个驾驶舱安排的（调用方已经核过驾驶舱存在） */
+    cockpitId?: number } }): string {
   let targetSop = '';
   let targets: Target[];
   let routed: 'target' | 'default' | 'unrouted' = 'target';
@@ -209,6 +213,7 @@ export function recordTaskCenterEvent(task: { id: number; data: Record<string, u
     ...(task.arranged?.object ? { object: task.arranged.object } : {}), ...(task.arranged?.phase ? { phase: task.arranged.phase } : {}),
     handoff: task.arranged?.handoff ?? 'team', ...(task.arranged?.reviewBy !== undefined ? { reviewBy: task.arranged.reviewBy } : {}),
     ...(task.arranged?.directedSeatId ? { directedSeatId: task.arranged.directedSeatId } : {}),
+    ...(task.arranged?.cockpitId ? { cockpitId: task.arranged.cockpitId } : {}),
   };
   const fields: Record<string, unknown> = { id: task.id };
   for (const key of ['title', 'intent', 'references', 'deliverable', 'target', 'due']) fields[key] = task.stepValue(key) ?? '';

@@ -49,7 +49,7 @@ async function stop() { if (!child || child.exitCode !== null) return; const don
 async function ready() { const end = Date.now() + 30000; while (Date.now() < end) { try { if ((await fetch(BASE + '/api/health')).status === 200) return true; } catch {} await new Promise((r) => setTimeout(r, 250)); } return false; }
 const card = async () => (await fetch(BASE + '/.well-known/agent-card.json')).json();
 async function call(method, path, body, headers = {}) { const r = await fetch(BASE + path, { method, headers: { 'Content-Type': 'application/json', ...headers }, body: body ? JSON.stringify(body) : undefined }); let j = null; try { j = await r.json(); } catch {} return { status: r.status, body: j }; }
-const db = () => new DatabaseSync(join(DATA, 'workbench-market.db'));
+const db = () => new DatabaseSync(join(DATA, 'workbench-market.db'), { timeout: 5000 });
 const refusedCounts = async () => (await (await fetch(BASE + '/api/health')).json()).a2a?.refused?.counts ?? {};
 
 // 「别的宿主」：市场若把消息转出去，这里会收到

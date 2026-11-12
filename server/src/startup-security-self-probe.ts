@@ -109,6 +109,8 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       { id: 'market.work-items.list-anonymous', target: m, surface: 'market', method: 'GET', path: '/api/work-items', headers: REMOTE_ANON, status: 401 },
       // 「安排一件事」（POST /api/work-items）：不经管理门，远程匿名来必须 401（登录门开着时登录门先拦，也是 401）
       { id: 'market.work-items.arrange-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/work-items', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
+      // 建立人回答席位提问的入口同样经写请求总门放行、路由内认人，远程匿名来必须 401
+      { id: 'market.work-items.seat-ask-answer-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/work-items/wi_selfprobe/asks/1/answer', body: '{"text":"selfprobe"}', origin: true, headers: REMOTE_ANON, status: 401 },
       { id: 'market.export.reveal-anonymous', target: m, surface: 'market', method: 'GET', path: '/api/export?reveal=1', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 },
       // 数据视图的入口（WM_BENCH_VIEWS=on 才有这两行；关着时整组路由回 404，由 scripts/bench-views-entry-test.mjs 看）：
       // 远程匿名读不到台的清单、也登记不了台（登录门开不开都是 401：登录门先拦，或者路由自己认不出人）
@@ -117,7 +119,10 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
         { id: 'market.bench-views.anonymous-write', target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views', body: '{"slug":"wm-self-probe","title":"x"}', headers: REMOTE_ANON, status: 401 },
       ] : []),
       // 授予管理面：远程匿名列不出授予（GET 不经写请求总门，拒的是路由自己的管理门；登录门开着时登录门先拦 401）
-      { id: 'market.grants.admin-read', target: m, surface: 'market', method: 'GET', path: '/api/grants', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 },
+      // L19：授予的读对登录的人放开（只看自己能放行的），远程匿名仍然读不到（没登录 401）
+      { id: 'market.grants.admin-read', target: m, surface: 'market', method: 'GET', path: '/api/grants', headers: REMOTE_ANON, status: 401 },
+      // L19：授予的放行经写请求总门放行、路由内认人，远程匿名来必须 401（能不能放行再由三档规则判）
+      { id: 'market.grants.approve-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/grants/1/approve', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
       // 台数据：远程匿名不带台令牌读不到任何台的数据（守卫先于查台，台不存在也是 403；登录门开着时登录门先拦 401）。
       // WM_APP_DATA_READ=warn 是上线过渡，读照旧放行，这一行不跑
       ...(appDataRead === 'warn' ? [] : [{ id: 'market.app-data.anonymous-read', target: m, surface: 'market' as const, method: 'GET', path: '/api/apps/wm-self-probe/data', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 }]),

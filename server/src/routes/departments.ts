@@ -24,6 +24,7 @@ import type { PrincipalService } from '../services/principal.ts';
 import { DEPARTMENT_ID_RE, type DepartmentRefusal, type DepartmentService } from '../services/department.ts';
 import type { GrantService } from '../services/grant.ts';
 import { CONFIRM_BY, type RelationProposalService } from '../services/relation-proposal.ts';
+import { removeDepartment, setDepartmentLead } from '../services/dept-lead-grant.ts';
 
 export type DepartmentRouteDeps = {
   markOdooAdmin: (req: express.Request) => Promise<void>;
@@ -62,7 +63,7 @@ function optional(v: unknown, name: string, max: number): string | null | undefi
 export function registerDepartmentRoutes(app: HttpService, deps: DepartmentRouteDeps): void {
   const route = (fn: (req: express.Request, res: express.Response) => Promise<unknown>): express.RequestHandler =>
     (req, res, next) => { fn(req, res).catch(next); };
-  const refused = (res: express.Response, r: DepartmentRefusal) => res.status(r.http).json({ error: r.code, message: r.message });
+  const refused = (res: express.Response, r: Pick<DepartmentRefusal, 'code' | 'message'> & { http: number }) => res.status(r.http).json({ error: r.code, message: r.message });
 
   /** 读：本机命令行、管理员、登录的人（主体停用的不行）。不过就已经写好应答（跨站 403、没登录 401），返回 false */
   async function reader(req: express.Request, res: express.Response): Promise<boolean> {
@@ -129,11 +130,13 @@ export function registerDepartmentRoutes(app: HttpService, deps: DepartmentRoute
     }
     const now = Date.now();
     // 不写的字段：改的时候保持原样，建的时候为空
-    const r = departments().upsert({
+    // 部门和负责人的授予一个事务里落（services/dept-lead-grant.ts）：属主这次明确写了 lead，就是属主在确认这个负责人，
+    // 授予随之发出（已经有拍板授予的不再发）；没写 lead、或不是属主，只收不发（换人、移除时收回随原负责人发的那条）
+    const r = setDepartmentLead({
       id, name: b.name,
       functionCode: code === undefined ? current?.function_code ?? null : code,
       lead: lead === undefined || proposeLead ? curLead : lead,
-    }, by, now);
+    }, { by, principal, owner: owner && typeof lead === 'string' }, now);
     if (!r.ok) return void refused(res, r);
     logged(r.created ? 'create' : 'update', { id, function_code: r.department.function_code, lead: r.department.lead?.principal ?? null }, by);
     let leadProposal: { id: number; status: 'pending'; principal: string; confirm_by_text: string } | undefined;
@@ -149,7 +152,8 @@ export function registerDepartmentRoutes(app: HttpService, deps: DepartmentRoute
     const by = await writer(req, res);
     if (!by) return;
     const id = deptId(req);
-    const r = departments().remove(id);
+    const principal = by === 'cli' ? null : by.startsWith('odoo:') ? principals().principalOf(identity().providerName() ?? '', by.slice(5)) : null;
+    const r = removeDepartment(id, { by, principal }, Date.now());
     if (!r.ok) return void refused(res, r);
     logged('delete', { id, members: r.members }, by);
     res.json({ ok: true, id, members_removed: r.members });

@@ -125,8 +125,17 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
       // 有「拍板」的人（现在是管理层）；系统管理员和管理口令看不到——台里是业务数据
       source: 'bench-mcp', label: '台的 MCP 授予申请',
       list: async (req) => {
-        if (!benchMcpDecider || !(await benchMcpDecider(req, silentRes()))) return null;
-        return pendingBenchRequests().map((r) => item({
+        if (!benchMcpDecider) return null;
+        // 管理层看得到全部；别的人只看得到自己有拍板授予的部门的台上的申请。一条都轮不到、又不是管理层的，整个来源不可见
+        const all = await benchMcpDecider(req, silentRes(), null) !== null;
+        const seen = new Map<string, boolean>();
+        const rows: ReturnType<typeof pendingBenchRequests> = [];
+        for (const r of pendingBenchRequests()) {
+          if (!all && !seen.has(r.bench)) seen.set(r.bench, await benchMcpDecider(req, silentRes(), r.bench) !== null);
+          if (all || seen.get(r.bench)) rows.push(r);
+        }
+        if (!all && !rows.length) return null;
+        return rows.map((r) => item({
           source: 'bench-mcp', source_id: `${r.bench}:${r.id}`, category: 'grant', kind: 'bench-mcp',
           title: `MCP 会话 ${r.session || '（已删）'} 申请在「${r.bench_title}」上用 ${r.tools.length} 个工具${r.tools.some((t) => t.category === 'write') ? '（含写）' : '（只读）'}`,
           waiting_for: r.session ? `mcp:${r.session}` : '', since: new Date(r.created_at).toISOString(), answers: ['approve', 'reject'], link: '',
@@ -159,7 +168,7 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
             answers: itemDecisionVerdict(w, viewer, 'answer').ok ? ['answer'] : [],
             link: `/work-items/wi_${a.event_id}`,
             // 提问轮到的是建立人：代办的人（管理层）在这里 mine 为假
-            mine: turnOf(w, viewer).answer, creator: creatorOf(w),
+            mine: turnOf(w, viewer).answer, creator: creatorOf(w), cockpit_id: w.cockpit_id ?? null,
           })];
         });
       },
@@ -257,7 +266,7 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           // 负责人只有退回；看得到但答不了的（只过了管理门的）只列不给答法，免得点下去被拒
           const answers = itemDecisionVerdict(w, viewer, 'verify').ok ? ['verify', 'return'] : itemDecisionVerdict(w, viewer, 'return').ok ? ['return'] : [];
           out.push(item({ source: 'work-items', source_id: w.id, category: 'accept', title: w.title, waiting_for: w.target_team || w.seat || w.created_by, since: w.updated_at, answers, link: `/work-items/${w.id}`, object: w.object, phase: w.phase,
-            mine: turnOf(w, viewer).verify, creator: creatorOf(w) }));
+            mine: turnOf(w, viewer).verify, creator: creatorOf(w), cockpit_id: w.cockpit_id }));
         }
         // 过目（规范 14 第九节）：只给能放行的人——负责人、团队没有负责人时代办的管理层、勾了先过目的建立人（canRelease，和详情的 can.release 同一处）。
         // 放行带 answer_via 直接调 POST /api/work-items/:id/release：负责人多半不是管理员，过不了「关注」答复入口前面的写请求总门。
@@ -268,7 +277,7 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           if (!release && !admin) continue;
           const answers = [...(release ? ['release'] : []), ...(admin ? ['withdraw'] : [])];
           out.push(item({ source: 'work-items', source_id: w.id, category: 'glance', title: w.title, waiting_for: w.created_by, since: w.created_at, answers, link: `/work-items/${w.id}`, object: w.object, phase: w.phase,
-            mine: turnOf(w, viewer).release, creator: creatorOf(w), ...(release ? { answer_via: answerVia('POST', `/api/work-items/${w.id}/release`, { release: { body: {} } }) } : {}) }));
+            mine: turnOf(w, viewer).release, creator: creatorOf(w), cockpit_id: w.cockpit_id, ...(release ? { answer_via: answerVia('POST', `/api/work-items/${w.id}/release`, { release: { body: {} } }) } : {}) }));
         }
         return out;
       },

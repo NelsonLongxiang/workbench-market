@@ -52,7 +52,7 @@ try {
   ok('③ run 建行', !!run.id, JSON.stringify(run).slice(0, 80));
   if (run.id) {
     const { DatabaseSync } = await import('node:sqlite');
-    const sdb = new DatabaseSync(DATA + '/workbench-market.db');
+    const sdb = new DatabaseSync(DATA + '/workbench-market.db', { timeout: 5000 });
     sdb.prepare("INSERT INTO sop_run_files (run_id, original_name, mime, size, storage_path, created_by) VALUES (?, 'sandbox-commit', 'application/x-layerfs-commit', 0, 'layerfs://abc123def456', 'sbx')").run(run.id);
     sdb.close();
     const fl = await (await fetch(B + '/api/sop/runs/' + run.id + '/files', { headers: { 'X-Run-Read-Capability': String(run.read_capability ?? '') } })).json();

@@ -232,7 +232,8 @@ with sync_playwright() as p:
         modal().locator('[data-testid=team-assign-to]').click()
         pg.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option', has_text=text).first.click()
     def modal_gone(): pg.wait_for_function("document.querySelectorAll('.ant-modal-wrap:not([style*=\"display: none\"]) .ant-modal').length === 0")
-    check('左下角是看的人（截下的 /api/auth/me），不是「未登录」', pg.get_by_text('未登录', exact=True).count() == 0 and pg.get_by_text('jia', exact=True).count() >= 1)
+    # 用户卡写显示名（#655 起不写登录名）：截下的 /api/auth/me 里登录名 jia、显示名甲经理
+    check('左下角是看的人（截下的 /api/auth/me），写显示名「甲经理」，不是「未登录」', pg.get_by_text('未登录', exact=True).count() == 0 and pg.locator('[data-testid=wm-me-name]').inner_text().strip() == '甲经理', pg.locator('[data-testid=wm-me-name]').inner_text())
     shot('team-lead-before-assign-1440.png')
     check('负责人：团队公用的成员出「分配给…」，已分配的出「改派」「收回」（收回是危险色）；总工卡上没有；负责人视图不写「分配由谁做」',
           card('小审').locator('[data-testid=team-assign-open]').count() == 1 and card('小审').locator('[data-testid=team-reassign-open]').count() == 0

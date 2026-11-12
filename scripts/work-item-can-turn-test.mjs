@@ -57,20 +57,22 @@ const publish = (title, dispatch) => {
   db.exec('COMMIT');
   return { task: id, event: e, item: 'wi_' + e, delivery: db.prepare('SELECT id FROM workbench_event_deliveries WHERE event_id = ?').get(e).id };
 };
-const held = publish('等过目', false), held2 = publish('会被撤回', false), asked = publish('在问', true);
+const held = publish('等过目', false), held2 = publish('会被撤回', false), asked = publish('在问', true), asked2 = publish('在问（建立人来答）', true);
 // 「在问」：投递标成已发出（不让投递工人再去发），接单节点问了一句，又发来两条消息
-db.prepare("UPDATE workbench_event_deliveries SET status = 'sent', sent_at = '2026-01-01 00:00:00' WHERE id = ?").run(asked.delivery);
-db.prepare("UPDATE workbench_event_deliveries SET decision = 'ask', decision_reason = '哪个店？', decided_by = 'bob', decided_at = '2026-01-01 00:00:01' WHERE id = ?").run(asked.delivery);
-db.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, 'market', 'sent', '{}')").run(asked.event, asked.delivery);
-db.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, 'receiver:bob', 'decision:ask', ?)").run(asked.event, asked.delivery, JSON.stringify({ reason: '哪个店？' }));
+for (const q of [asked, asked2]) {
+  db.prepare("UPDATE workbench_event_deliveries SET status = 'sent', sent_at = '2026-01-01 00:00:00' WHERE id = ?").run(q.delivery);
+  db.prepare("UPDATE workbench_event_deliveries SET decision = 'ask', decision_reason = '哪个店？', decided_by = 'bob', decided_at = '2026-01-01 00:00:01' WHERE id = ?").run(q.delivery);
+  db.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, 'market', 'sent', '{}')").run(q.event, q.delivery);
+  q.qid = Number(db.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, 'receiver:bob', 'decision:ask', ?)").run(q.event, q.delivery, JSON.stringify({ reason: '哪个店？' })).lastInsertRowid);
+}
 const msg = (e, d, t) => fu.recordFollowup({ eventId: e, deliveryId: d, peerZone: 'dsh', inboundTask: 'a2a-' + t, contextId: 'ctx', sender: 'seat:x', text: '消息 ' + t, truncated: false, status: 'open', now: Date.now() });
 const m1 = msg(asked.event, asked.delivery, 'm1'), m2 = msg(asked.event, asked.delivery, 'm2'), m3 = msg(held2.event, held2.delivery, 'm3');
-for (const e of [held, held2, asked]) items.syncEvent(e.event);
+for (const e of [held, held2, asked, asked2]) items.syncEvent(e.event);
 const ready = (n) => { const it = items.create({ title: '待验收 ' + n, created_by: 'user:alpha', creator_principal: 'user:alpha', source_kind: 'agent' });
   for (const [k, x] of [['submit', { dispatch_open: true }], ['eval', { verdict: 'accept' }], ['report', { status: 'progress' }], ['report', { status: 'ready' }]]) items.apply(it.id, { kind: k, source: 'seed', id: it.id + ':' + k + ':' + (x.status ?? x.verdict ?? ''), ...x });
   return it.id; };
 const loose = Number(db.prepare("INSERT INTO tasks (title, status, published_at, published_by) VALUES ('没有事件的任务', 'published', '2026-01-01 00:00:00', 'x')").run().lastInsertRowid);
-console.log('SEEDED ' + JSON.stringify({ held, held2, asked, m1, m2, m3, loose, readyA: ready('a'), readyB: ready('b') }));
+console.log('SEEDED ' + JSON.stringify({ held, held2, asked, asked2, m1, m2, m3, loose, readyA: ready('a'), readyB: ready('b') }));
 process.exit(0);
 `;
 
@@ -171,6 +173,11 @@ try {
     const none = await detail(S.asked.item, '建立人');
     check(!none.can.reply, '消息都回复过了：不能再回复', show(none.can));
     check(a.can.answer && !a.turn.answer && c.can.answer && c.turn.answer && !o.can.answer, 'answer：建立人能、轮到他；管理员（持管理层授予）能、不轮到他（代办）；无关的员工不能', show({ a: [a.can.answer, a.turn.answer], c: [c.can.answer, c.turn.answer], o: o.can.answer }));
+    // 建立人答另一件（答了提问就合上了，下面管理员那组还要用「在问」那件）
+    const c2 = await detail(S.asked2.item, '建立人');
+    pair('answer·建立人（「关注」）', c2.can.answer, await call('POST', '/api/attention/answer', WHO.建立人, { source: 'seat-asks', source_id: String(S.asked2.delivery), answer: 'answer', input: { text: '东店' } }));
+    const c2done = await detail(S.asked2.item, '建立人');
+    check(!c2done.can.answer && !c2done.turn.answer, '建立人答过之后：没有在等的提问，can.answer、turn.answer 都是 false', show({ can: c2done.can, turn: c2done.turn }));
     pair('answer·无关的员工（「关注」）', o.can.answer, await call('POST', '/api/attention/answer', WHO.无关的员工, { source: 'seat-asks', source_id: String(S.asked.delivery), answer: 'answer', input: { text: '东店' } }));
     // 先看「关注」里的 mine 和 creator（答了就没了）
     const att = (await call('GET', '/api/attention', WHO.管理员)).body?.items ?? [];
@@ -182,6 +189,7 @@ try {
       '「关注」：席位提问、过目放行对管理员都是代办（mine:false）、带建立人', show({ ask: ask && [ask.mine, ask.creator], glance: glance && [glance.mine, glance.creator] }));
     check(askC?.mine === true && show(askC.answers) === show(['answer']), '「关注」：席位提问对建立人 mine:true、能答', show(askC && [askC.mine, askC.answers]));
     check(att.filter((x) => x.source !== 'work-items' && x.source !== 'seat-asks').every((x) => x.mine === true) && acc.every((x) => typeof x.mine === 'boolean'), '「关注」：别的来源一律 mine:true；每条都有 mine');
+    pair('answer·无关的员工（事项入口）', o.can.answer, await call('POST', `/api/work-items/${S.asked.item}/asks/${S.asked.qid}/answer`, WHO.无关的员工, { text: '东店' }));
     pair('answer·建立人（「关注」）', c.can.answer, await call('POST', '/api/attention/answer', WHO.建立人, { source: 'seat-asks', source_id: String(S.asked.delivery), answer: 'answer', input: { text: '东店' } }));
     const fact = q("SELECT actor, detail FROM work_item_log WHERE item_id = ? AND fact = 'answer' ORDER BY seq DESC LIMIT 1", S.asked.item)[0];
     check(fact?.actor === 'user:alpha' && !JSON.parse(fact.detail || '{}').acting_for, '建立人自己答：事项日志记建立人本人、不带 acting_for', show(fact));

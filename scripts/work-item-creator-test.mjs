@@ -98,6 +98,7 @@ try {
     return { status: r.status, body: json };
   };
   const SAME = { 'sec-fetch-site': 'same-origin' };
+  const out = {};
   const ALPHA = { ...SAME, cookie: `session_id=${SESSIONS.alpha}` }, BETA = { ...SAME, cookie: `session_id=${SESSIONS.beta}` };
   const decide = (id, body, headers = ALPHA) => call('POST', `/api/work-items/${id}/decision`, headers, body);
   const db = () => new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true });
@@ -269,6 +270,164 @@ try {
     const tm = await call('GET', '/api/a2a/teams', ALPHA), tf = await call('GET', '/api/a2a/teams', { ...SAME, cookie: `session_id=${SESSIONS.forged}` });
     check(tm.status === 200 && Array.isArray(tm.body?.teams) && tf.status === 401, '团队名册：登录的员工能读（只有席位信息）；提供方不认的会话 401', show({ tm: tm.status, tf: tf.status }));
   }
+  // ---------- 阶段七：建立人回答自己事项上的席位提问 ----------
+  {
+    let seqAsk = 0;
+    /** 直接往库里造一件「从工作台事件来、席位在问」的事项（事件、投递、receipt:attention 日志、事项与 ask 事实），返回 { item, delivery } */
+    /** 往库里写一个「席位在问」的工作台事件（recorded 记下提需求人、投递已发、receipt:attention），事项由事项服务的回填按正常路径建出来 */
+    const seedAsk = (creator) => {
+      const c = new DatabaseSync(join(data, 'workbench-market.db'));
+      c.exec('PRAGMA busy_timeout = 5000');
+      try {
+        seqAsk++;
+        const ev = `wbe-${(0xc00 + seqAsk).toString(16).padStart(16, '0')}`, ctx = `wb:task-center:${9000 + seqAsk}`;
+        c.prepare("INSERT INTO workbench_events (event_id, source, workbench, item, context_id, submitter_kind, submitter, form_version, data_sha256, dispatch, routed) VALUES (?, 'task-center', 'task-center', ?, ?, 'human', 'human:alpha', 1, ?, 1, 'default')").run(ev, `task:${9000 + seqAsk}`, ctx, 'x'.repeat(64));
+        c.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, NULL, 'market', 'recorded', ?)").run(ev, JSON.stringify(creator ? { requester: creator } : {}));
+        const delivery = Number(c.prepare("INSERT INTO workbench_event_deliveries (event_id, target_team, target_url, caller_session, status, sent_at) VALUES (?, 'lab/canvas/team', 'http://peer.synthetic.invalid', 'market/12345678', 'sent', datetime('now'))").run(ev).lastInsertRowid);
+        for (const action of ['queued', 'sent']) c.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, 'market', ?, '{}')").run(ev, delivery, action);
+        const qid = Number(c.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, 'receiver:lab', 'receipt:attention', ?)").run(ev, delivery, JSON.stringify({ summary: '结论用中文还是英文？', disposition: 'attention', task: `${ev}.d${delivery}.a1`, qid: 'q1', question: { id: 'q1', text: '结论用中文还是英文？', options: ['中文', '英文'], default: '中文' } })).lastInsertRowid);
+        return { item: `wi_${ev}`, delivery, qid };
+      } finally { c.close(); }
+    };
+    const mineA = seedAsk('user:alpha'), theirsA = seedAsk('user:beta'), noPrinA = seedAsk(null), raceA = seedAsk('user:alpha'), rebindA = seedAsk('user:alpha'), seqA = seedAsk('user:alpha'), closedA = seedAsk('user:alpha'), fourA = seedAsk('user:alpha'), fourB = seedAsk('user:alpha');
+    // twiceA：同一投递先问 q1、再问 q2（q1 被 q2 合上）
+    const twiceA = seedAsk('user:alpha');
+    { const c = new DatabaseSync(join(data, 'workbench-market.db')); c.exec('PRAGMA busy_timeout = 5000'); try {
+      const ev = twiceA.item.slice(3);
+      twiceA.q2 = Number(c.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, 'receiver:lab', 'receipt:attention', ?)").run(ev, twiceA.delivery, JSON.stringify({ summary: '第二个问题', disposition: 'attention', task: `${ev}.d${twiceA.delivery}.a1`, qid: 'q2', question: { id: 'q2', text: '第二个问题' } })).lastInsertRowid);
+    } finally { c.close(); } }
+    // closedA：提问之后来了接单回执，这条提问被合上（没人答）
+    { const c = new DatabaseSync(join(data, 'workbench-market.db')); c.exec('PRAGMA busy_timeout = 5000'); try {
+      const ev = closedA.item.slice(3);
+      c.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, 'receiver:lab', 'receipt:acknowledged', ?)").run(ev, closedA.delivery, JSON.stringify({ summary: '接下', disposition: 'acknowledged', task: `${ev}.d${closedA.delivery}.a1` }));
+    } finally { c.close(); } }
+    const bf = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', `
+      const at = (p) => ${JSON.stringify(pathToFileURL(ROOT).href)} + '/' + p;
+      const { root } = await import(at('server/src/root-context.ts'));
+      const { WorkItemService } = await import(at('server/src/services/work-item.ts'));
+      await root.plugin(WorkItemService);
+      root.get('workItems').backfill();
+      console.log('DONE');`], { env, encoding: 'utf8' });
+    const st = (a) => { const c = db(); try { return c.prepare('SELECT state, creator_principal FROM work_items WHERE id = ?').get(a.item); } finally { c.close(); } };
+    check(bf.stdout.includes('DONE') && st(mineA)?.state === 'blocked' && st(mineA)?.creator_principal === 'user:alpha' && st(noPrinA)?.creator_principal === null, '造数据：事项服务按正常路径建出「在问你」的事项（建立人主体取自 recorded）', show({ out: bf.stdout.slice(-200), err: bf.stderr.slice(-300), mine: st(mineA), noPrin: st(noPrinA) }));
+    const ADMIN_H = { ...SAME, 'x-admin-token': ADMIN_TOKEN };
+    const asks = async (headers) => { const r = await call('GET', '/api/attention', headers); return { status: r.status, ids: (r.body?.items ?? []).filter((x) => x.source === 'seat-asks').map((x) => x.source_id), count: r.body?.sources?.['seat-asks']?.count ?? null, visible: r.body?.sources?.['seat-asks']?.visible ?? null }; };
+    const ans = (a, headers, body = { answer: '中文' }) => call('POST', `/api/work-items/${a.item}/asks/${a.qid}/answer`, headers, body);
+    const answered = (a) => { const c = db(); try { return c.prepare("SELECT COUNT(*) AS n FROM work_item_log WHERE item_id = ? AND fact = 'answer' AND rejected = ''").get(a.item).n; } finally { c.close(); } };
+    const sentAnswers = (a) => { const c = db(); try { return c.prepare("SELECT COUNT(*) AS n FROM workbench_event_replies WHERE kind = 'answer' AND delivery_id = ?").get(a.delivery).n; } finally { c.close(); } };
+
+    const la = await asks(ALPHA);
+    check(la.status === 200 && la.ids.includes(String(mineA.delivery)) && !la.ids.includes(String(theirsA.delivery)) && !la.ids.includes(String(noPrinA.delivery)) && la.count === la.ids.length,
+      '「关注」：alpha 只看到自己事项上的席位提问；别人的、建立人主体为空的都不列，条数按看得到的算', show(la));
+    const ad = await asks(ADMIN_H);
+    check([mineA, theirsA, noPrinA].every((a) => ad.ids.includes(String(a.delivery))), '「关注」：管理员照旧看全部', show(ad.ids));
+    const lb = await asks({ ...SAME, cookie: `session_id=${SESSIONS.forged}` });
+    check(lb.ids.length === 0 && lb.visible === false && lb.count === 0, 'A5「关注」：提供方不认的会话——席位的提问不可见、0 条', show(lb));
+    const lan = await asks({ ...SAME, 'x-forwarded-for': '198.51.100.7' });
+    check(lan.ids.length === 0 && lan.visible === false && lan.count === 0, 'A5「关注」：远程匿名——席位的提问不可见、0 条', show(lan));
+
+    const denials = [
+      ['别人的事项（alpha 答 beta 的）', () => ans(theirsA, ALPHA), 404, 'work_item_not_found', theirsA],
+      ['建立人主体为空（alpha 答）', () => ans(noPrinA, ALPHA), 404, 'work_item_not_found', noPrinA],
+      ['跨站请求', () => ans(mineA, { ...ALPHA, 'sec-fetch-site': 'cross-site' }), 403, 'work_items_cross_origin_denied', mineA],
+      ['别的站的页面', () => ans(mineA, { ...ALPHA, origin: 'https://elsewhere.example' }), 403, 'work_items_cross_origin_denied', mineA],
+      ['未登录（远程匿名）', () => ans(mineA, { ...SAME, 'x-forwarded-for': '198.51.100.7' }), 401, 'work_items_auth_required', mineA],
+      ['提供方不认的会话', () => ans(mineA, { ...SAME, cookie: `session_id=${SESSIONS.forged}` }), 401, 'work_items_auth_required', mineA],
+      ['被停用的建立人（beta 答自己的）', () => ans(theirsA, BETA), [401, 403], null, theirsA],
+      ['提问编号是别的事项的（alpha 拿 beta 事项上那条提问的编号）', () => call('POST', `/api/work-items/${mineA.item}/asks/${theirsA.qid}/answer`, ALPHA, { answer: '中文' }), 404, 'seat_ask_not_found', theirsA],
+      ['正文为空', () => ans(mineA, ALPHA, { text: '  ' }), 400, 'text_required', mineA],
+      ['带选项的提问，answer 不在选项里', () => ans(mineA, ALPHA, { answer: '法文' }), 400, 'answer_not_an_option', mineA],
+      ['请求体夹带自报的主体、答法（只认文本，照样被认人拦）', () => ans(theirsA, ALPHA, { text: '中文', principal: 'user:beta', as: 'user:beta', answer: 'release' }), 404, 'work_item_not_found', theirsA],
+    ];
+    for (const [label, run, st, err, a] of denials) {
+      const before = answered(a), sentBefore = sentAnswers(a);
+      const res = await run();
+      const sts = Array.isArray(st) ? st : [st];
+      const e = res.body?.result?.error ?? res.body?.error;
+      check(sts.includes(res.status) && (!err || e === err) && answered(a) === before && sentAnswers(a) === sentBefore, `答席位提问·${label}：被拒（${res.status} ${e ?? ''}），不记答复、不发回`, show(res));
+    }
+    const notItem = await call('POST', '/api/work-items/not-an-item/asks/1/answer', ALPHA, { text: '中文' });
+    check(notItem.status === 403, '答席位提问·路径不是事项 id 的样子：写请求总门照旧拦', show(notItem));
+    const badDel = await call('POST', `/api/work-items/${mineA.item}/asks/0x1/answer`, ALPHA, { text: '中文' });
+    check(badDel.status === 403, '答席位提问·提问编号不合形状：写请求总门照旧拦', show(badDel));
+    const page0 = await call('GET', `/api/work-items/${mineA.item}`, ALPHA);
+    const a0 = (page0.body?.asks ?? []).find((x) => x.id === mineA.qid);
+    check(page0.status === 200 && a0 && a0.status === 'open' && a0.question === '结论用中文还是英文？' && JSON.stringify(a0.options) === JSON.stringify(['中文', '英文']) && a0.default === '中文' && a0.answer === undefined,
+      '事项详情带结构化的提问列表：id、question、options、default、status=open', show(page0.body?.asks));
+    const pageB = await call('GET', `/api/work-items/${theirsA.item}`, ALPHA);
+    check(pageB.status === 404 && pageB.body?.asks === undefined, '别人事项的详情（连同提问列表）alpha 读不到', show(pageB));
+
+    const ok1 = await ans(mineA, ALPHA, { answer: '中文', text: '这句被忽略' });
+    check(ok1.status === 200 && ok1.body?.result?.sent === true && answered(mineA) === 1 && sentAnswers(mineA) === 1, '建立人 alpha 答自己事项上的提问：记下答复，作为同一 context 的新任务排发', show(ok1));
+    const page1 = await call('GET', `/api/work-items/${mineA.item}`, ALPHA);
+    const a1 = (page1.body?.asks ?? []).find((x) => x.id === mineA.qid);
+    check(a1?.status === 'answered' && a1.answer === '中文' && a1.answered_by === 'user:alpha' && typeof a1.answered_at === 'string' && (page1.body?.asks ?? []).filter((x) => x.id === mineA.qid).length === 1,
+      '……详情里这条变 answered，带答了什么（选了选项时以选项为准）、谁答的；同一问题只出现一次', show(page1.body?.asks));
+    const la2 = await asks(ALPHA);
+    check(!la2.ids.includes(String(mineA.delivery)), '……答完「关注」里不再列', show(la2.ids));
+    const again = await ans(mineA, ALPHA, { text: '英文' });
+    check(again.status === 200 && again.body?.duplicate === true && answered(mineA) === 1 && sentAnswers(mineA) === 1, '……再答一次：返回第一次的结果，不再发', show(again));
+
+    // A3：已合上（没人答、被接单回执合上）的提问再答 → 409，不记不发
+    { const before = answered(closedA), sb = sentAnswers(closedA);
+      const r3 = await ans(closedA, ALPHA, { answer: '中文' });
+      check(r3.status === 409 && (r3.body?.result?.error ?? r3.body?.error) === 'seat_ask_not_pending' && answered(closedA) === before && sentAnswers(closedA) === sb, 'A3：已合上的提问再答：409 seat_ask_not_pending，不记答复、不发回', show(r3)); }
+    // A3·同一投递再问：用被合上的 q1 的编号答 → 409，不能被记成对 q2 的答复
+    { const before = answered(twiceA), sb = sentAnswers(twiceA);
+      const r3b = await ans(twiceA, ALPHA, { text: '答的是 q1' });
+      const askList = (await call('GET', `/api/work-items/${twiceA.item}`, ALPHA)).body?.asks ?? [];
+      const q2 = askList.find((x) => x.id === twiceA.q2), q1 = askList.find((x) => x.id === twiceA.qid);
+      check(r3b.status === 409 && (r3b.body?.result?.error ?? r3b.body?.error) === 'seat_ask_not_pending' && q2?.status === 'open' && q1?.status === 'closed' && answered(twiceA) === before && sentAnswers(twiceA) === sb,
+        'A3：同一投递先问 q1、再问 q2，用 q1 的编号答：409，q2 仍在等，不记不发', show({ r3b, q1, q2 })); }
+    // 持有管理层授予的人（user:no-flag，上面 L20 那一段授的）：能代办答提问
+    const MGMT = { ...SAME, cookie: `session_id=${SESSIONS.noAdminFlag}` };
+    // L21 口径：答席位的提问是替建立人做业务决定——建立人本人，或持有管理层授予的人；只过了管理门的（管理口令、没有管理层授予的会话管理员）不能答。
+    // 四种身份分别看：详情的 can.answer、「关注」里给不给答法、事项入口真去答、「关注」入口真去答
+    {
+      const SADMIN = { ...SAME, cookie: `session_id=${SESSIONS.admin}` };
+      // 身份来源说是管理员的人，第一次见到时迁出系统管理员、管理层两条（judgment-compare 的 migrateOnSight）；撤掉管理层那条，他就是「只过了管理门」的人
+      await call('GET', '/api/auth/viewer', SADMIN); await call('GET', '/api/attention', SADMIN); await call('GET', `/api/work-items/${fourA.item}`, SADMIN);
+      const mg = ((await call('GET', '/api/grants?principal=user:root-admin&status=active', {})).body?.grants ?? []).filter((g) => (g.role ?? g.role_id) === 'management');
+      for (const g of mg) await call('POST', `/api/grants/${g.id}/revoke`, {}, { reason: '合成：只留管理门、不带管理层授予' });
+      const mgLeft = ((await call('GET', '/api/grants?principal=user:root-admin&status=active', {})).body?.grants ?? []).filter((g) => (g.role ?? g.role_id) === 'management').length;
+      check(mg.length >= 1 && mgLeft === 0, '造数据：会话管理员的管理层授予撤掉（系统管理员那条留着，管理门照旧过）', show({ mg: mg.length, mgLeft }));
+      const canAns = async (a, h) => (await call('GET', `/api/work-items/${a.item}`, h)).body?.can?.answer;
+      const listed = async (a, h) => ((await call('GET', '/api/attention', h)).body?.items ?? []).find((x) => x.source === 'seat-asks' && x.source_id === String(a.delivery))?.answers ?? null;
+      const viaAttn = (a, h, text) => call('POST', '/api/attention/answer', h, { source: 'seat-asks', source_id: String(a.delivery), answer: 'answer', input: { text } });
+      for (const [who, h] of [['管理口令', ADMIN_H], ['会话登录的管理员（没有管理层授予）', SADMIN]]) {
+        // 这两种身份过了读的门（管理门），事项详情读得到（200）——所以不能答回 403，不是 404（读不到的才和不存在一样回 404）
+        const readable = (await call('GET', `/api/work-items/${fourA.item}`, h)).status;
+        const c1 = await canAns(fourA, h), l1 = await listed(fourA, h);
+        const b0 = answered(fourA) + answered(fourB), s0 = sentAnswers(fourA) + sentAnswers(fourB);
+        const r1 = await ans(fourA, h), r2 = await viaAttn(fourB, h, '管理门答');
+        const e1 = r1.body?.error ?? r1.body?.result?.error, e2 = r2.body?.error ?? r2.body?.result?.error;
+        check(readable === 200 && c1 === false && (l1 === null || l1.length === 0) && r1.status === 403 && e1 === 'seat_ask_answer_forbidden' && [400, 403].includes(r2.status)
+          && answered(fourA) + answered(fourB) === b0 && sentAnswers(fourA) + sentAnswers(fourB) === s0,
+          `L21·${who}：读得到这件事项（详情 200），但 can.answer 为假、「关注」不给答法；事项入口 403（读得到、不能答）、「关注」入口被拒；不记答复、不发回`, show({ readable, c1, l1, r1: [r1.status, e1], r2: [r2.status, e2] }));
+      }
+      const cc = await canAns(fourA, ALPHA), lc = await listed(fourA, ALPHA);
+      check(cc === true && JSON.stringify(lc) === JSON.stringify(['answer']), 'L21·建立人本人：详情 can.answer 为真、「关注」给答法', show({ cc, lc }));
+      const cm = await canAns(fourA, MGMT), lm = await listed(fourA, MGMT);
+      const m1 = await ans(fourA, MGMT, { answer: '英文' }), m2 = await viaAttn(fourB, MGMT, '管理层代办答');
+      const late = await ans(fourA, ALPHA, { answer: '中文' });
+      check(cm === true && JSON.stringify(lm) === JSON.stringify(['answer']) && m1.status === 200 && m1.body?.result?.ok === true && m2.status === 200 && m2.body?.result?.ok === true
+        && answered(fourA) === 1 && answered(fourB) === 1 && sentAnswers(fourA) === 1 && sentAnswers(fourB) === 1 && late.status === 409,
+        'L21·持有管理层授予的人：详情 can.answer 为真、「关注」给答法；事项入口、「关注」入口都答得了（代办），各记一次、各发一条；建立人再答 409', show({ cm, lm, m1: [m1.status, m1.body?.result], m2: [m2.status, m2.body?.result], late: late.status }));
+    }
+    // A8：管理层先在「关注」里代办答，建立人再在事项入口答同一条 → 只生效一次、只发一条
+    { const a1 = await call('POST', '/api/attention/answer', MGMT, { source: 'seat-asks', source_id: String(seqA.delivery), answer: 'answer', input: { text: '管理层代办答' } });
+      const a2 = await ans(seqA, ALPHA, { answer: '英文' });
+      check(a1.status === 200 && a2.status === 409 && (a2.body?.result?.error ?? a2.body?.error) === 'attention_already_answered' && a2.body?.duplicate !== true && answered(seqA) === 1 && sentAnswers(seqA) === 1, 'A8：管理层（代办）和建立人先后答同一条：第二次 409 已处理（#657：别人答过的不给第一次的结果），只生效一次、只发一条', show({ a1: a1.status, a2: a2.status, body: a2.body })); }
+    // 同一提问两个人同时答（管理层经「关注」代办、建立人经事项入口）：一个生效，另一个被告知已处理
+    const [x, y] = await Promise.all([
+      call('POST', '/api/attention/answer', MGMT, { source: 'seat-asks', source_id: String(raceA.delivery), answer: 'answer', input: { text: '管理层代办答' } }),
+      ans(raceA, ALPHA, { text: '建立人答（自由文本）' }),
+    ]);
+    const xs = x.body?.result ?? x.body, ys = y.body?.result ?? y.body;
+    const winners = [x.status === 200 && x.body?.duplicate !== true && xs?.ok === true, y.status === 200 && y.body?.duplicate !== true && ys?.ok === true].filter(Boolean).length;
+    check(winners === 1 && answered(raceA) === 1 && sentAnswers(raceA) === 1, '同一提问管理层（代办）和建立人同时答：只有一个生效、只发一次，另一个被告知已处理', show({ x: [x.status, x.body?.duplicate, xs], y: [y.status, y.body?.duplicate, ys] }));
+    out.rebindAsk = rebindA;
+  }
   // ---------- 建立人主体：「是不是他的」只认它 ----------
   const attentionIds = async (headers) => { const r = await call('GET', '/api/attention', headers); return { status: r.status, ids: (r.body?.items ?? []).filter((x) => x.source === 'work-items').map((x) => x.source_id) }; };
   const ADMIN = { ...SAME, 'x-admin-token': ADMIN_TOKEN };
@@ -332,10 +491,15 @@ try {
     const who = await call('GET', '/api/admin/whoami', ALPHA);
     const a = await threeWays(S.beforeRebind, ALPHA);
     check(off.status === 200 && on.status === 200 && !a.listed && a.page === 404 && a.answer === 404 && a.untouched, '同一个登录名 alpha 改绑到另一个主体之后：原来 alpha 建的事项看不到、答不了', show({ off: off.status, on: on.status, who: who.body, a }));
+    const rb = out.rebindAsk;
+    const rbList = await call('GET', '/api/attention', ALPHA);
+    const rbAns = await call('POST', `/api/work-items/${rb.item}/asks/${rb.qid}/answer`, ALPHA, { answer: '中文' });
+    check(!(rbList.body?.items ?? []).some((x) => x.source === 'seat-asks' && x.source_id === String(rb.delivery)) && rbAns.status === 404, '改绑之后同一个登录名 alpha：原来 alpha 事项上的席位提问看不到、答不了', show({ status: rbAns.status }));
   }
   // ---------- 启动自检 ----------
   check(/"id":"market\.work-items\.creator-decision-anonymous"[^}]*"verdict":"pass"/.test(log), '启动自检有一行：远程匿名打这个入口必须 401，而且过了');
   check(/"id":"market\.work-items\.seat-reply-anonymous"[^}]*"verdict":"pass"/.test(log), '启动自检有一行：远程匿名回复席位消息必须 401，而且过了');
+  check(/"id":"market\.work-items\.seat-ask-answer-anonymous"[^}]*"verdict":"pass"/.test(log), '启动自检有一行：远程匿名回答席位提问必须 401，而且过了');
 } catch (e) {
   fail++;
   console.log(`  ✗ 跑不下去：${e?.stack ?? e}`);
