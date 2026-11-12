@@ -23,7 +23,7 @@ import { addTeamLead, approveRelationProposal, assignTeamSeat, attentionChanged,
 import RelTime from '../../components/RelTime';
 import { subscribeAdminToken } from '../../admin-token';
 import {
-  actionProblem, ASSIGN_BY_TEXT, assignDoneText, assigneeOptions, assignOps, reassignHalfDoneText, unassignConfirmText, pendingText, proposedText, claimButtonText, LEAD_SKIPPED_TEXT, proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, outcomeLabel, outcomeReasonText, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterStaleText, sourceProblem,
+  actionProblem, ASSIGN_BY_TEXT, assignDoneText, assigneeOptions, assignOps, reassignHalfDoneText, reassignStoppedText, unassignConfirmText, pendingText, proposedText, claimButtonText, LEAD_SKIPPED_TEXT, proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, outcomeLabel, outcomeReasonText, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterStaleText, sourceProblem,
   teamCounts, teamStatusLabel, teamTitle, teamsOf,
 } from '../../team-view';
 import type { Department, KnownNames, Member, Proposal, SourceResult, Team as TeamT, TeamsCan, Tone } from '../../team-view';
@@ -74,6 +74,8 @@ function MemberCard({ m, chief, t, onDone }: { m: Member; chief?: boolean; t?: T
       const u = await unassignTeamSeat(t.host, t.team, m.seat, m.seat_id);
       const pu = actionProblem(u);
       if (pu) { setBusy(false); setErr(pu); return; }
+      const held = proposedText(u); // 收回只记成了提议：没真的收回，不接着分配
+      if (held) { setBusy(false); finish('info', reassignStoppedText(name, held)); return; }
     }
     const r = await assignTeamSeat(t.host, t.team, m.seat, m.seat_id, to);
     const p = actionProblem(r);
@@ -84,7 +86,7 @@ function MemberCard({ m, chief, t, onDone }: { m: Member; chief?: boolean; t?: T
   };
   const picking = mode === 'assign' || mode === 'reassign';
   return (
-    <div className="wm-team-member" data-testid={chief ? 'team-router' : 'team-member'} data-seat={chief ? undefined : m.seat}>
+    <div className="wm-team-member" data-testid={chief ? 'team-router' : 'team-member'}>
       <div className="wm-team-member-head">
         <span className={m.online ? 'wm-team-dot on' : 'wm-team-dot'} title={m.online ? '在线' : '不在线'} />
         <b className="wm-team-member-name">{name}</b>
@@ -128,10 +130,10 @@ function MemberCard({ m, chief, t, onDone }: { m: Member; chief?: boolean; t?: T
   );
 }
 
-function TeamBlock({ t, nameOf, onDone, admin }: { t: TeamT; nameOf: (id: string) => string; onDone: () => void; admin: boolean }) {
+function TeamBlock({ t, nameOf, onDone, admin, staleMin }: { t: TeamT; nameOf: (id: string) => string; onDone: () => void; admin: boolean; staleMin?: number }) {
   const leads = leadsOf(t);
   const n = teamCounts(t);
-  const stale = rosterStaleText(t, Date.now());
+  const stale = rosterStaleText(t, Date.now(), staleMin);
   const s = teamStatusLabel(t.status, stale !== null);
   return (
     <div className="wm-team-team" data-testid="team-team">
@@ -345,7 +347,7 @@ export default function Team() {
     <WmPage wide loading={loading} extra={canCreateDept && depts!.length > 0 && !creating ? <Button onClick={() => setCreating(true)} data-testid="team-newdept-open">建部门</Button> : undefined}>
       <p className="wm-team-intro">每个部门有负责的人，部门下面挂着 AI 团队。团队的负责人直接对接它的总工；成员可以分配给某位员工直接用，没分配的是团队公用，由总工分派。</p>
       {problem && <Alert className="wm-team-alert" type={problem.type} showIcon message={problem.text} />}
-      {notice && <Alert className="wm-team-alert" type="info" showIcon closable onClose={() => setNotice(null)} message={notice} data-testid="team-notice" />}
+      {notice && <Alert className="wm-team-alert wm-team-note" type="info" showIcon closable onClose={() => setNotice(null)} message={notice} data-testid="team-notice" />}
       {!loading && proposals.length > 0 && <ProposalsSection list={proposals} names={names} onDone={reload} />}
       {creating && depts && <NewDepartment depts={depts} people={people} onDone={done} onCancel={() => setCreating(false)} onNotice={setNotice} />}
       {empty && (
@@ -359,7 +361,7 @@ export default function Team() {
             <div className="wm-team-dept-head"><h3>{d.name}</h3><span className="wm-team-cap">{d.lead ? `负责人 ${personName(d.lead)}` : '部门还没有负责人'}</span>
               {d.pending_lead && <span className="wm-team-pending" data-testid="team-dept-lead-pending">负责人待确认：{d.pending_lead.principal ? nameOf(d.pending_lead.principal) : '（没写是谁）'}，{pendingText(d.pending_lead)}</span>}</div>
             <div className="wm-team-cap wm-team-dept-n">{d.teams.length} 个团队</div>
-            {d.teams.map((x) => <TeamBlock key={`${x.host}-${x.team}`} t={x} nameOf={nameOf} onDone={reload} admin={admin} />)}
+            {d.teams.map((x) => <TeamBlock key={`${x.host}-${x.team}`} t={x} nameOf={nameOf} onDone={reload} admin={admin} staleMin={t.roster_stale_minutes} />)}
           </section>
         ))}</div>
       )}

@@ -584,6 +584,9 @@ body { background: var(--wm-color-page); }
 /* ---------- 团队页（规范 14：按部门分块、团队头卡、成员卡、待认领、建部门） ---------- */
 .wm-team-intro { margin: 0 0 var(--wm-space-4); color: var(--wm-color-text-secondary); }
 .wm-team-alert, .wm-team-err { margin: var(--wm-space-2) 0; }
+/* 「已提出，等谁确认」的提示：浅底（主题的提示色是深海军蓝，antd 推出来的底色偏深灰，像出错）；带关闭，同一条提议在「你提的」里还有 */
+.wm-team-note.ant-alert-info { background: var(--wm-color-info-bg); border-color: var(--wm-color-border); }
+.wm-team-note.ant-alert-info .ant-alert-icon { color: var(--wm-color-info); }
 .wm-team-empty { margin: var(--wm-space-8) 0; }
 .wm-team-cap { font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); }
 .wm-team-n { font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); }

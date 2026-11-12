@@ -22,6 +22,8 @@ export interface Team {
   node_name?: string;
   /** 最近一次收下这个节点名册的时刻（毫秒）；服务端给的是 ISO 时刻或毫秒数的字符串，整形时统一成毫秒，没有就不带 */
   roster_at?: number;
+  /** 服务端判好的「名册过期没有」（给了就照它，不再按阈值自己算）；没给时页面按阈值算 */
+  roster_stale?: boolean;
   department: { id: string; name: string } | null; leads: Lead[]; router: Member | null; members: Member[];
   /** 待确认的提议（关系确认制，只在管理员的视图里有）：认领到哪个部门、指定谁做负责人，等谁确认 */
   pending_claim?: Pending | null; pending_leads?: Pending[];
@@ -37,7 +39,11 @@ export interface Pending { id: number; principal: string | null; department: str
 export interface DeptBlock { id: string; name: string; lead: Person | null; teams: Team[]; pending_lead?: Pending | null }
 /** 看的人能做什么（服务端判好）：claim / add_lead 直接生效，propose_claim / propose_lead 只能提议 */
 export interface TeamsCan { claim: boolean; propose_claim: boolean; add_lead: boolean; propose_lead: boolean; manage_departments: boolean }
-export interface Teams { departments: DeptBlock[]; unclaimed: Team[] | null; can: TeamsCan | null }
+export interface Teams {
+  departments: DeptBlock[]; unclaimed: Team[] | null; can: TeamsCan | null;
+  /** 名册停推的阈值（分钟，服务端的 WM_ROSTER_STALE_MINUTES）：接口给了才有，没给时页面用缺省 ROSTER_STALE_MIN */
+  roster_stale_minutes?: number;
+}
 export interface Department { id: string; name: string; lead: Person | null; member_count: number }
 export interface SourceResult { status: number; body: unknown }
 
@@ -71,7 +77,7 @@ function teamOf(v: unknown): Team | null {
   if (!t || typeof t.host !== 'string' || typeof t.team !== 'string') return null;
   const d = obj(t.department);
   return {
-    host: t.host, team: t.team, name: typeof t.name === 'string' ? t.name : '', ...(typeof t.node_name === 'string' && t.node_name.trim() ? { node_name: t.node_name.trim() } : {}), ...(rosterAt(t.roster_received_at) !== null ? { roster_at: rosterAt(t.roster_received_at)! } : {}), status: typeof t.status === 'string' ? t.status : '', in_roster: t.in_roster !== false,
+    host: t.host, team: t.team, name: typeof t.name === 'string' ? t.name : '', ...(typeof t.node_name === 'string' && t.node_name.trim() ? { node_name: t.node_name.trim() } : {}), ...(rosterAt(t.roster_received_at) !== null ? { roster_at: rosterAt(t.roster_received_at)! } : {}), ...(typeof t.roster_stale === 'boolean' ? { roster_stale: t.roster_stale } : {}), status: typeof t.status === 'string' ? t.status : '', in_roster: t.in_roster !== false,
     department: d && typeof d.id === 'string' ? { id: d.id, name: typeof d.name === 'string' ? d.name : d.id } : null,
     leads: arr<unknown>(t.leads).map(obj).filter((l): l is Record<string, unknown> => !!l && typeof l.principal === 'string')
       .map((l) => ({ principal: l.principal as string, display_name: typeof l.display_name === 'string' ? l.display_name : '', source: typeof l.source === 'string' ? l.source : '' })),
@@ -118,7 +124,9 @@ export function teamsOf(body: unknown): Teams {
   const departments = arr<unknown>(b?.departments).map(obj).filter((d): d is Record<string, unknown> => !!d && typeof d.id === 'string')
     .map((d) => ({ id: d.id as string, name: typeof d.name === 'string' && d.name.trim() ? d.name : (d.id as string), lead: personOf(d.lead), teams: arr<unknown>(d.teams).map(teamOf).filter((t): t is Team => !!t),
       ...('pending_lead' in d ? { pending_lead: pendingOf(d.pending_lead) } : {}) }));
-  return { departments, unclaimed: Array.isArray(b?.unclaimed) ? (b!.unclaimed as unknown[]).map(teamOf).filter((t): t is Team => !!t) : null, can: canOf(b?.can) };
+  const rsm = b?.roster_stale_minutes;
+  return { departments, unclaimed: Array.isArray(b?.unclaimed) ? (b!.unclaimed as unknown[]).map(teamOf).filter((t): t is Team => !!t) : null, can: canOf(b?.can),
+    ...(typeof rsm === 'number' && Number.isInteger(rsm) && rsm >= 1 && rsm <= 10080 ? { roster_stale_minutes: rsm } : {}) };
 }
 /** GET /api/departments：部门列表（认领时选、判断「还没有部门」） */
 export function departmentsOf(body: unknown): Department[] {
@@ -209,6 +217,7 @@ export function assigneeOptions(t: Pick<Team, 'assignable'>, m: Pick<Member, 'as
 export function assignDoneText(op: 'assign' | 'reassign' | 'unassign', member: string, to: string, r: SourceResult): { kind: 'success' | 'info'; text: string } {
   const proposed = proposedText(r);
   if (op === 'unassign') {
+    if (proposed) return { kind: 'info', text: `收回「${member}」${proposed}。` };
     const removed = obj(r.body)?.removed;
     return removed === false ? { kind: 'info', text: `「${member}」本来就是团队公用。` } : { kind: 'success', text: `「${member}」已收回，现在是团队公用，由总工分派。` };
   }
@@ -222,6 +231,11 @@ export function assignDoneText(op: 'assign' | 'reassign' | 'unassign', member: s
  */
 export function unassignConfirmText(member: string, assignee: string): string {
   return `收回后「${member}」变成团队公用，由总工分派。它分给 ${assignee} 期间接手的事，${assignee} 照样看得到；收回之后再接的事，不再算 ${assignee} 的。`;
+}
+
+/** 改派的第一步（收回）回的是提议（202）：停下，不接着分配，照提议说 */
+export function reassignStoppedText(member: string, proposed: string): string {
+  return `收回「${member}」${proposed}；收回生效之前不改派，归属不变。`;
 }
 
 /** 改派是先收回再分配（服务端没有一步改派的接口）：收回成了、分配没成时，说清楚成员现在是团队公用 */
@@ -252,13 +266,16 @@ export function memberlessText(t: Pick<Team, 'status' | 'in_roster'>): string {
   return t.status === 'off-roster' || !t.in_roster ? '这个团队已经不在节点的名册里，看不到它的成员了。' : '名册里这个团队还没有成员。';
 }
 
-/** 名册多久没更新算「没更新」：先按 15 分钟（以后由服务端给） */
-export const ROSTER_STALE_MIN = 15;
-/** 名册超过阈值没更新时的一句提醒；没超过、没有收到时刻的返回 null。时间按分钟写，两小时以上按小时、两天以上按天 */
-export function rosterStaleText(t: Pick<Team, 'roster_at'>, now: number, staleMin = ROSTER_STALE_MIN): string | null {
-  if (typeof t.roster_at !== 'number') return null;
-  const min = Math.floor((now - t.roster_at) / 60_000);
-  if (min < staleMin) return null;
+/**
+ * 名册多久没更新算「没更新」的缺省（分钟）：和服务端 WM_ROSTER_STALE_MINUTES 的缺省一样（60），「等你拍板」里的「名册停推」也按它。
+ * 接口给了阈值（roster_stale_minutes）就用接口的；团队上直接给了 roster_stale 就照它，不再自己判
+ */
+export const ROSTER_STALE_MIN = 60;
+/** 名册过期时的一句提醒；没过期、没有收到时刻的返回 null。时间按分钟写，两小时以上按小时、两天以上按天 */
+export function rosterStaleText(t: Pick<Team, 'roster_at' | 'roster_stale'>, now: number, staleMin = ROSTER_STALE_MIN): string | null {
+  if (typeof t.roster_at !== 'number' || t.roster_stale === false) return null;
+  const min = Math.max(0, Math.floor((now - t.roster_at) / 60_000));
+  if (t.roster_stale !== true && min < staleMin) return null;
   const span = min >= 2 * 24 * 60 ? `${Math.floor(min / (24 * 60))} 天` : min >= 120 ? `${Math.floor(min / 60)} 小时` : `${min} 分钟`;
   return `名册已 ${span}没更新`;
 }

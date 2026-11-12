@@ -125,6 +125,8 @@ with sync_playwright() as p:
     pg.locator('[data-testid=team-claim]').click(); pg.wait_for_selector('[data-testid=team-notice]')
     check('认领发对了请求：团队的节点和名字、部门', posted and posted[0] == ('claim', {'host': HOST, 'team': 'ops/canvas/合成运营', 'department': 'synthetic-ops'}), posted)
     notice = pg.locator('[data-testid=team-notice]').inner_text()
+    nbg = pg.locator('[data-testid=team-notice]').evaluate('e => getComputedStyle(e).backgroundColor')
+    check('「已提出，等谁确认」的提示是浅底（和身份服务那条一样轻），带关闭，不是深灰的整条', nbg == 'rgb(238, 242, 247)' and pg.locator('[data-testid=team-notice] .ant-alert-close-icon').count() == 1, nbg)
     pg.wait_for_selector('[data-testid=team-claim-pending]')
     check('系统管理员认领只是提议：说「已提出，等管理层或接收部门的负责人确认」，不说认领成功', f'已提出，等{CONFIRM_BY}确认' in notice and '成功' not in notice, notice)
     check('提议期间：卡上标「待确认」、写挂到哪个部门等谁确认，没有认领按钮；没有部门分块（关系没生效）',
@@ -298,6 +300,18 @@ with sync_playwright() as p:
     t_info = toast('等管理层确认')
     check('分配回 202：提示「已提出，等管理层确认」（提示色，不是成功），卡片仍是团队公用', '「小审」分配给 丙：已提出，等管理层确认' in t_info.inner_text() and t_info.locator('.ant-message-info').count() == 1 and '团队公用' in card('小审').locator('[data-testid=team-assigned]').inner_text())
 
+    # 改派的收回回 202（成了提议）：停下，不接着分配
+    unassign_next = {'v': (202, {'ok': True, 'proposed': True, 'proposal': {'id': 78, 'status': 'pending', 'confirm_by_text': '管理层'}})}
+    def on_unassign_202(r):
+        b_ = json.loads(r.request.post_data or '{}'); posted.append(('unassign', b_)); st, body_ = unassign_next['v']; fake(r, body_, st)
+    pg.unroute('**/api/teams/unassign', on_unassign); pg.route('**/api/teams/unassign', on_unassign_202)
+    n0 = len(posted)
+    card('小算').locator('[data-testid=team-reassign-open]').click(); modal().wait_for(); pick_in_modal('丁')
+    modal().locator('[data-testid=team-assign-confirm]').click(); modal_gone()
+    t_held = toast('收回生效之前不改派')
+    check('改派的收回回 202：停下、不接着分配；提示照提议说，归属不变', [x[0] for x in posted[n0:]] == ['unassign'] and '收回「小算」已提出，等管理层确认' in t_held.inner_text() and '分配给 戊' in card('小算').inner_text(), posted[n0:])
+    pg.unroute('**/api/teams/unassign', on_unassign_202); pg.route('**/api/teams/unassign', on_unassign)
+
     # 改派一半：收回成了、分配没成
     assign['next'] = (422, {'error': 'assignee_not_person', 'message': '只分给启用的人，user:ding 不是'})
     card('小算').locator('[data-testid=team-reassign-open]').click(); modal().wait_for(); pick_in_modal('丁')
@@ -311,6 +325,7 @@ with sync_playwright() as p:
     state['teams'] = {'departments': [{'id': 'synthetic-ops', 'name': '合成运营部', 'lead': {'principal': 'user:jia', 'display_name': '甲经理'},
         'teams': [{**lead_team, 'can_assign': False, 'assign_denied_text': '只有这个团队的负责人或管理层能分配、收回成员', 'assignable': PEOPLE}]}]}
     pg.reload(); pg.wait_for_selector('[data-testid=team-member]')
+    check('页面结构里不挂席位句柄（属性里也没有）', 'ops/0000' not in pg.content(), [a for a in pg.content().split('"') if 'ops/0000' in a][:3])
     check('普通员工（can_assign 不是真）：成员卡上一个分配、改派、收回都没有（服务端多给了 assignable 也不出）；不是管理员也不写「分配由谁做」',
           pg.locator('.wm-team-member-ops').count() == 0 and pg.locator('[data-testid=team-member] button').count() == 0 and pg.locator('[data-testid=team-assign-by]').count() == 0)
     shot('team-member-readonly-1440.png')
@@ -321,6 +336,10 @@ with sync_playwright() as p:
     check('名册三小时没更新：头卡写「名册已 3 小时没更新」，状态标「名册过期」，不写「正常」（不带时区的时刻按 UTC 解析，不差 8 小时）',
           pg.locator('[data-testid=team-roster-stale]').inner_text() == '名册已 3 小时没更新' and pg.locator('.wm-team-st', has_text='名册过期').count() == 1 and pg.locator('.wm-team-st', has_text='正常').count() == 0,
           pg.locator('[data-testid=team-team] .wm-team-head').inner_text())
+    # 接口给了阈值（roster_stale_minutes=240）：三小时前的不算过期，标「正常」
+    state['teams']['roster_stale_minutes'] = 240
+    pg.reload(); pg.wait_for_selector('[data-testid=team-member]')
+    check('接口给了停推阈值（240 分钟）：三小时前的名册不算过期，标「正常」、不写没更新', pg.locator('[data-testid=team-roster-stale]').count() == 0 and pg.locator('.wm-team-st', has_text='正常').count() == 1)
     pg.unroute('**/api/auth/me')
 
     state['teams'] = {'departments': state['teams']['departments']}
