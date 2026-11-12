@@ -23,6 +23,7 @@ import { signCard } from '@nelsonlongxiang/dsh-open-a2a-net/card';
 import { SESSIONS } from './identity-fake-provider.mjs';
 // 答席位提问是替建立人做业务决定（L21）：只认建立人本人或持有管理层授予的人，管理口令不行。
 // 这里起实例时换上假的登录提供方（测试夹具，只在 NODE_ENV=test 下干活），答复用一个持有管理层授予的人（user:no-flag）
+// 「节点没收下的答复」只给建立人本人和持有管理层授予的人看（不认管理门）：用会话登录的人来看
 const PRELOAD = pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), 'identity-fake-preload.mjs')).href;
 
 let pass = 0, fail = 0;
@@ -86,14 +87,14 @@ const api = async (method, path, body) => { const r = await fetch(BASE + path, {
 const db = () => { const d = new DatabaseSync(join(DATA, 'workbench-market.db'), { timeout: 5000 }); d.exec('PRAGMA busy_timeout = 5000'); return d; };
 const q = (sql, ...a) => { const d = db(); try { return d.prepare(sql).all(...a); } finally { d.close(); } };
 let n = 0;
-function seedEvent({ dispatch = 1, zone = 'lab', root = lab.url } = {}) {
+function seedEvent({ dispatch = 1, zone = 'lab', root = lab.url, requester = '' } = {}) {
   n++;
   const ev = `wbe-${(0xa00 + n).toString(16).padStart(16, '0')}`;
   const ctx = `wb:task-center:${1000 + n}`;
   const d = db();
   try {
     d.prepare("INSERT INTO workbench_events (event_id, source, workbench, item, context_id, submitter_kind, submitter, form_version, data_sha256, dispatch, routed) VALUES (?, 'task-center', 'task-center', ?, ?, 'human', 'human:alice', 1, ?, ?, 'default')").run(ev, `task:${1000 + n}`, ctx, 'x'.repeat(64), dispatch);
-    d.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, NULL, 'market', 'recorded', '{}')").run(ev);
+    d.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, NULL, 'market', 'recorded', ?)").run(ev, requester ? JSON.stringify({ requester }) : '{}');
     const delivery = Number(d.prepare("INSERT INTO workbench_event_deliveries (event_id, target_team, target_url, caller_session, status, sent_at) VALUES (?, 'superagent-team/a1b2c3d4e5f60718', ?, 'market/12345678', 'sent', datetime('now'))").run(ev, lab.url).lastInsertRowid);
     for (const action of ['queued', 'sent']) d.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, 'market', ?, '{}')").run(ev, delivery, action);
     const task = `${ev}.d${delivery}.a1`;
@@ -109,19 +110,26 @@ const dapi = async (method, path, body) => { const r = await fetch(BASE + path, 
 const answer = async (deliveryId, text) => { const r = await dapi('POST', '/api/attention/answer', { source: 'seat-asks', source_id: String(deliveryId), answer: 'answer', input: { text } }); return { status: r.status, body: r.body?.result ?? r.body }; };
 const answerAsToken = async (deliveryId, text) => { const r = await api('POST', '/api/attention/answer', { source: 'seat-asks', source_id: String(deliveryId), answer: 'answer', input: { text } }); return { status: r.status, body: r.body?.result ?? r.body }; };
 async function waitFor(fn, ms = 8000) { const end = Date.now() + ms; while (Date.now() < end) { if (await fn()) return true; await sleep(150); } return false; }
+/** 以会话登录的人看「关注」 */
+const attentionAs = async (session) => { const r = await fetch(BASE + '/api/attention', { headers: { cookie: `session_id=${session}`, 'sec-fetch-site': 'same-origin' } }); try { return (await r.json())?.items ?? []; } catch { return []; } };
 
 try {
   if (!(await ready())) throw new Error('实例未就绪：' + out.slice(-600));
   // 把 lab 登记进对端登记表（取名片、钉公钥）：派工行只写给名片声明了对应能力的对端
   { const reg = await api('POST', '/api/a2a/peers', { root_url: lab.url }); if (![200, 201].includes(reg.status)) throw new Error('登记 lab 失败：' + JSON.stringify(reg.body)); }
   for (let i = 0; i < 40; i++) { if (q("SELECT 1 FROM sqlite_master WHERE name = 'workbench_events'").length) break; await sleep(250); }
+  // 持有管理层授予的两个人：root-admin（会话登录的管理员，答提问、回复用 dapi）、no-flag（不是管理员，看「节点没收下的答复」）；
+  // alpha（建立人）、beta（别的员工，没有授予）先登录一次，把主体建出来
   {
     await dapi('GET', '/api/auth/me');
+    for (const s of [SESSIONS.alpha, SESSIONS.beta, SESSIONS.noAdminFlag]) await attentionAs(s);
     const local = async (path, body) => (await fetch(BASE + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
-    const g = await local('/api/grants', { principal: 'user:root-admin', role: 'management', scope: '*', reason: '合成：持有管理层授予的人' });
-    await local(`/api/grants/${g?.grant?.id}/submit`, {});
-    const okd = await local(`/api/grants/${g?.grant?.id}/approve`, {});
-    if (okd?.grant?.status !== 'active') throw new Error('管理层授予没放成：' + JSON.stringify(okd));
+    for (const principal of ['user:root-admin', 'user:no-flag']) {
+      const g = await local('/api/grants', { principal, role: 'management', scope: '*', reason: '合成：持有管理层授予的人' });
+      await local(`/api/grants/${g?.grant?.id}/submit`, {});
+      const okd = await local(`/api/grants/${g?.grant?.id}/approve`, {});
+      if (okd?.grant?.status !== 'active') throw new Error('管理层授予没放成：' + JSON.stringify(okd));
+    }
   }
 
   console.log('一、提问进「关注」');
@@ -216,6 +224,11 @@ try {
     ok('……新任务登记了对端（重做的回执能回到这件事项），事件日志记一行 return-sent', q('SELECT kind FROM a2a_sent_tasks WHERE task_id = ?', redoTask)[0]?.kind === 'answer'
       && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE event_id = ? AND action = 'return-sent'", a.ev)[0].c === 1, redoTask);
     r = await receipt(redoTask, '接下重做', { idempotencyKey: redoTask, disposition: 'acknowledged' }, a.ctx, { inbound: `ack-${redoTask}` });
+    ok('……对方对打回任务接单 → 重新接手：记一行 receipt:acknowledged（不是 reply:receipt），事项从在办推到已接手（accepted）',
+      r.status === 200 && state(a.ev)?.state === 'accepted'
+        && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE event_id = ? AND action = 'receipt:acknowledged' AND json_extract(detail, '$.task') = ?", a.ev, redoTask)[0].c === 1
+        && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE event_id = ? AND action = 'reply:receipt' AND json_extract(detail, '$.task') = ?", a.ev, redoTask)[0].c === 0,
+      `${String(r.text ?? '').slice(0, 80)} ${JSON.stringify(state(a.ev))}`);
     r = await receipt(redoTask, '改好了', { outcome: 'completed', idempotencyKey: redoTask, disposition: 'result' }, a.ctx);
     ok('……重做的 completed 回执 → 回到等验收', r.status === 200 && state(a.ev)?.state === 'ready', `${r.text} ${JSON.stringify(state(a.ev))}`);
     // 只通知的事件（没派出去）：打回只记在事项上，不发
@@ -861,11 +874,20 @@ try {
       return lab.got.find((g) => String(g.body.task_id ?? '').startsWith(`${E.ev}.d${E.delivery}.q`))?.body?.task_id ?? '';
     };
     // 1. 答复任务回 rejected：不推事项、不改原投递，只记一行 reply:rejected；「关注」里给建立人冒一条；之后原派工任务照常推进
-    const G = seedEvent();
+    const G = seedEvent({ requester: 'user:alpha' });
     const gTask = await askAndAnswer(G, 'r1', 'A 方案');
     const gs0 = state(G.ev)?.state, gf0 = factsOf(G.ev);
     r = await receipt(gTask, '不收这条', { outcome: 'rejected', idempotencyKey: gTask, disposition: 'result' }, G.ctx);
-    const rejItem = ((await api('GET', '/api/attention')).body?.items ?? []).find((x) => x.source === 'reply-rejected' && x.link === `/work-items/wi_${G.ev}`);
+    const rejOf = (items) => items.find((x) => x.source === 'reply-rejected' && x.link === `/work-items/wi_${G.ev}`);
+    const rejItem = rejOf(await attentionAs(SESSIONS.alpha));
+    {
+      // 谁看得到（协调方 2026-11-13）：建立人本人、持有管理层授予的人；不认管理门
+      const byGrant = rejOf(await attentionAs(SESSIONS.noAdminFlag));
+      const byOther = rejOf(await attentionAs(SESSIONS.beta));
+      const byToken = rejOf((await api('GET', '/api/attention')).body?.items ?? []);
+      ok('「没收下你的答复」：建立人看得到（mine）、持有管理层授予的人看得到（不是 mine）；别的员工、管理口令（只过管理门）都看不到',
+        rejItem?.mine === true && byGrant && byGrant.mine === false && !byOther && !byToken, JSON.stringify({ creator: !!rejItem, mine: rejItem?.mine, byGrant: !!byGrant, byOther: !!byOther, byToken: !!byToken }));
+    }
     ok('答复任务回 rejected：只记一行 reply:rejected，没有 receipt:rejected；事项状态和事实都不变；「关注」里冒一条「没收下你的答复」（只提醒，没有答法）',
       r.status === 200 && logCount(G.ev, 'reply:rejected') === 1 && logCount(G.ev, 'receipt:rejected') === 0 && state(G.ev)?.state === gs0 && factsOf(G.ev) === gf0
         && rejItem && rejItem.answers.length === 0 && rejItem.title.includes('没收下你的答复'), JSON.stringify({ r: r.status, gs0, s1: state(G.ev), rejItem }));
@@ -874,7 +896,7 @@ try {
     lab.got.length = 0;
     await dapi('POST', '/api/attention/answer', { source: 'work-items', source_id: `wi_${G.ev}`, answer: 'return', input: { reason: '换一个' } });
     await waitFor(() => logCount(G.ev, 'reply-sent') >= 2, 20000);
-    const rejGone = !((await api('GET', '/api/attention')).body?.items ?? []).some((x) => x.source === 'reply-rejected' && x.link === `/work-items/wi_${G.ev}`);
+    const rejGone = !rejOf(await attentionAs(SESSIONS.alpha)) && !rejOf(await attentionAs(SESSIONS.noAdminFlag));
     ok('……同一次投递之后又发出子任务（这里是打回）：「关注」里那条不再列', rejGone);
     // 答复任务回 failed：工作在这一步做不下去，照 R2 推事项
     const H = seedEvent();

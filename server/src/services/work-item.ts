@@ -78,6 +78,8 @@ export type Fact = {
   others_engaged?: boolean;
   none_sent?: boolean;
   action?: string;
+  /** 打回（rework）任务上的接单：对方接了重做，事项从「在办」回到「已接手」 */
+  rework?: boolean;
   /** 阶段七：回执信封里的 by（谁在做）——「名字 · 句柄」或句柄；带了就更新事项的 seat（承接席位），只用于显示 */
   seat?: string;
   /** 阶段七：回执信封里的 artifacts（cleanArtifacts 洗过）；带了就并进事项的 outputs */
@@ -114,6 +116,9 @@ export const TRANSITIONS: readonly Row[] = [
   { from: ['progress', 'waiting', 'blocked'], fact: 'report', when: is('status', 'ready'), to: 'ready', note: '席位 report：ready（做完，等验收）' },
   { from: ['ready'], fact: 'verify', when: () => true, to: 'done', note: '人在关注队列里验收' },
   { from: ['ready'], fact: 'return', when: () => true, to: 'progress', note: '人退回' },
+  // 协调方 2026-11-13：打回之后，对方对打回任务接单 = 重新接手这件工作，状态推到「已接手」（普通答复的接单只记一行，见 messageOnlyReceipt）。
+  // RECORDS 先查：那里「已有团队接手之后，别的团队再来接或拒」的 progress 一行把它让出来了
+  { from: ['progress'], fact: 'eval', when: (f) => f.verdict === 'accept' && f.rework === true, to: 'accepted', note: '打回之后对方接了重做' },
   // 补定（规格附录 8a）：原地重复的上报算合法——状态不变，记一行日志，更新进展摘要
   { from: ['progress'], fact: 'report', when: is('status', 'progress'), to: 'progress', note: '原地：progress 时又报 progress' },
   { from: ['waiting'], fact: 'report', when: is('status', 'waiting'), to: 'waiting', note: '原地：waiting 时又报 waiting' },
@@ -149,7 +154,9 @@ export const RECORDS: readonly { from: readonly WorkItemState[]; fact: Fact['kin
   { from: NON_TERMINAL, fact: 'answer', when: (f) => typeof f.ask_id === 'string' && f.ask_id !== '', note: '人答了席位的提问' },
   { from: ['ready', ...TERMINAL], fact: 'receipt', when: (f) => typeof f.outcome === 'string' && f.outcome !== '' && f.outcome !== 'failed', note: '回执（outcome 不是 failed）' },
   // 8b：一个事件投给多个团队
-  { from: ['accepted', 'progress', 'waiting', 'ready'], fact: 'eval', when: (f) => ['accept', 'stop', 'ignore', 'unavailable'].includes(f.verdict ?? ''), note: '已有团队接手之后，别的团队再来接或拒' },
+  { from: ['accepted', 'waiting', 'ready'], fact: 'eval', when: (f) => ['accept', 'stop', 'ignore', 'unavailable'].includes(f.verdict ?? ''), note: '已有团队接手之后，别的团队再来接或拒' },
+  // 在办时打回任务的接单不在这里：它走 TRANSITIONS 推到「已接手」
+  { from: ['progress'], fact: 'eval', when: (f) => ['accept', 'stop', 'ignore', 'unavailable'].includes(f.verdict ?? '') && !(f.verdict === 'accept' && f.rework === true), note: '已有团队接手之后，别的团队再来接或拒' },
   { from: ['delivered', 'blocked'], fact: 'eval', when: (f) => ['stop', 'ignore', 'unavailable'].includes(f.verdict ?? '') && f.others_alive === true, note: '一个团队拒接，还有别的投递活着' },
   { from: ['delivered'], fact: 'delivery', when: (f) => f.outcome === 'dead' && f.others_alive === true, note: '一个投递 dead，还有别的投递活着' },
   // 阶段七 R3：一个团队说不干了（回执 failed / rejected / abandoned），别的投递还活着或已接手——只记录
@@ -423,7 +430,7 @@ const seatValue = (seat: string) => (seat === SEAT_NONE ? '' : seat);
 /** 这条结束回执是不是「打回之前派出的任务」晚到的：最近一次 return-sent 之后，它的任务号没在 reply-sent 里出现过 */
 /**
  * 子任务（市场在同一 context 发出的答复、打回、回复来信，任务号 <event>.d<投递>.q<行>.a<尝试>）上「只说明这条消息」的回执：
- * 回复来信（followup-reply）的任何回执；答复、打回的接单（acknowledged）和拒收（rejected）。
+ * 回复来信（followup-reply）的任何回执；答复的接单（acknowledged）和拒收（rejected）；打回的拒收（打回被接单是重新接手，照常推）。
  * 它们不推事项、不改原投递的结局、不进 others_alive / others_engaged。答复、打回的完成、失败、放弃是工作层面的终局，照常算。
  * 现在收回执时已经把这些记成 reply:*（receipt-inbound），这里是给旧的事件日志（回填）同一个结果
  */
@@ -433,6 +440,7 @@ function messageOnlyReceipt(row: Pick<EventLogRow, 'action' | 'detail'>): boolea
   try { task = String((JSON.parse(row.detail || '{}') as { task?: unknown }).task ?? ''); } catch { return false; }
   const kind = replyKindOfTask(task);
   if (kind === 'followup-reply') return true;
+  if (kind === 'rework') return row.action === 'receipt:rejected';
   return kind === 'answer' && (row.action === 'receipt:acknowledged' || row.action === 'receipt:rejected');
 }
 
@@ -480,7 +488,7 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
       const reason = typeof detail.reason === 'string' && detail.reason.trim() !== '' ? detail.reason : '未写理由';
       fact = { ...base, kind: 'eval', verdict: 'stop', reason, others_alive };
     } else if (row.action === 'decision:ask') fact = { ...base, kind: 'ask', question: typeof detail.reason === 'string' ? detail.reason : '' };
-    else if (row.action === 'receipt:acknowledged') fact = { ...base, kind: 'eval', verdict: 'accept', others_alive };
+    else if (row.action === 'receipt:acknowledged') fact = { ...base, kind: 'eval', verdict: 'accept', others_alive, ...(replyKindOfTask(String(detail.task ?? '')) === 'rework' ? { rework: true } : {}) };
     else if (RECEIPT_OUTCOME_ACTIONS.includes(row.action) && staleAfterReturn(rows, i, detail)) {
       // 打回重做之后（事件日志有 return-sent），只有打回之后发出的任务（reply-sent 记下的任务号）的结束回执才推状态；
       // 打回之前派出的任务晚到的结束回执只记录——否则旧结果会把事项提前推回等验收

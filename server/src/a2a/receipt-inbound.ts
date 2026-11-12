@@ -305,13 +305,14 @@ export async function handleInboundReceipt(req: Req, deps: { audiences: () => st
   // 同一 context 里市场发出的子任务（答复、打回、回复席位来信）：它承接的是这件工作，但「节点没收下这条消息」只说明这条消息。
   //   · 回复席位来信（followup-reply）只是对话里的一条回复，不是让对方继续交付的指令（上游每个入站任务各自要一份「做完了」的回执，
   //     工作的结果仍由原派工任务或答复任务带回来）：接单、完成、失败、拒绝都只记一行 reply:receipt，不推事项；
-  //   · 答复、打回：完成、失败、放弃是工作层面的终局，照 R2 推事项；接单只记一行 reply:receipt；
-  //     拒收（rejected）只记一行 reply:rejected，不推事项，并在「关注」里给建立人冒一条「节点没收下你的答复」。
+  //   · 答复、打回：完成、失败、放弃是工作层面的终局，照 R2 推事项；
+  //     接单：打回（rework）是让对方重做，接了就是重新接手，照 R2 推到「已接手」；普通答复接单只记一行 reply:receipt，不改状态；
+  //     拒收（rejected）只记一行 reply:rejected，不推事项，并在「关注」里给建立人（和持有管理层授予的人）冒一条「节点没收下你的答复」。
   //   · 子任务上的提问、进展照旧（那是工作里的提问）。reply:* 不是 receipt:*，事项服务、投递结局都不认它
   const replyKind = sent.kind === 'answer' && action !== 'receipt:unaccepted' && cls !== 'question' ? replyKindOfTask(sent.task_id) : null;
   if (replyKind === 'followup-reply') action = 'reply:receipt';
   else if (replyKind === 'answer' && action === 'receipt:acknowledged') action = 'reply:receipt';
-  else if (replyKind === 'answer' && action === 'receipt:rejected') action = 'reply:rejected';
+  else if ((replyKind === 'answer' || replyKind === 'rework') && action === 'receipt:rejected') action = 'reply:rejected';
   if (action === 'receipt:unaccepted') {
     // 不采信的回执不占接单 / 终局的槽：之后真的回执照常认。只记录（每次投递最多 20 行），不改状态
     noteA2aError('receipt:unaccepted');
