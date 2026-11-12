@@ -621,7 +621,8 @@
       "tasks",
       "work-item",
       "work-items",
-      "workbench-event"
+      "workbench-event",
+      "bench-store"
     ]
   },
   "presets": [
