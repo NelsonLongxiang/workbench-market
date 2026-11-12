@@ -75,10 +75,13 @@ with sync_playwright() as p:
     pg.route('**/api/grants', lambda r: fake(r, GRANTS))
     # 要谁放行（身份线 #618 在 GET /api/roles 加的 approval_text）：取实例真的角色，补上合成的说法
     APPROVAL = {'management': '只有属主能放行', 'member': '管理员即可放行'}
+    served = {}  # 页面实际拿到的每个角色的 approval_text（实例真的，加上上面两处改动）
     def on_roles(r):
         body = r.fetch().json()
         for x in body.get('roles', []):
             if x.get('id') in APPROVAL: x['approval_text'] = APPROVAL[x['id']]
+            if x.get('id') == 'guest': x.pop('approval_text', None)  # 夹具：一个接口里不带 approval_text 的角色，验「没有说法的不标」
+        served.clear(); served.update({x['id']: x.get('approval_text') for x in body.get('roles', [])})
         fake(r, body)
     pg.route('**/api/roles', on_roles)
     pg.route('**/api/principals', lambda r: fake(r, PRINCIPALS))
@@ -121,7 +124,10 @@ with sync_playwright() as p:
     check('切到角色预设：地址带 ?tab=roles', 'tab=roles' in pg.url, pg.url)
     with urllib.request.urlopen(urllib.request.Request(M + '/api/roles/matrix', headers={'x-admin-token': TOK})) as r: mx = json.load(r)
     ra = {pg.locator('[data-testid=acc-role]').nth(i).get_attribute('data-id'): pg.locator('[data-testid=acc-role]').nth(i).locator('[data-testid=acc-role-approval]') for i in range(pg.locator('[data-testid=acc-role]').count())}
-    check('角色卡标要谁放行：有说法的角色标，没有说法的不标', ra['management'].inner_text().strip() == '只有属主能放行' and ra['member'].inner_text().strip() == '管理员即可放行' and ra['owner'].count() == 0, {k: v.count() for k, v in ra.items()})
+    got = {k: (v.inner_text().strip() if v.count() else None) for k, v in ra.items()}
+    want = {k: (served.get(k).strip() if isinstance(served.get(k), str) and served.get(k).strip() else None) for k in ra}
+    check('角色卡标要谁放行：带 approval_text 的角色都标、文案和接口给的逐个一致', got == want and got['management'] == '只有属主能放行' and got['member'] == '管理员即可放行' and sum(1 for v in got.values() if v) >= 2, (got, want))
+    check('没有说法的不标：接口里不带 approval_text 的角色（夹具：访客）卡上没有这一行', 'guest' in ra and served.get('guest') is None and ra['guest'].count() == 0, (served.get('guest'), ra['guest'].count() if 'guest' in ra else None))
     check('每个角色一张卡', pg.locator('[data-testid=acc-role]').count() == len(mx['roles']), (pg.locator('[data-testid=acc-role]').count(), len(mx['roles'])))
     rows = pg.locator('[data-testid=acc-matrix] tbody tr')
     check('矩阵：七大块一行一块、四类一列一类', rows.count() == len(mx['blocks']) == 7 and pg.locator('[data-testid=acc-matrix] thead th').count() == 1 + len(mx['kinds']))
