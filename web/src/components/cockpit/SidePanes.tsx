@@ -48,13 +48,17 @@ export function AttentionPane({ onCount, onPick, picked }: { onCount?: (n: numbe
   if (s.state === 'loading') return <div className="wm-ck-pad"><Skeleton active paragraph={{ rows: 3 }} /></div>;
   if (s.state === 'error') return <div className="wm-ck-pad"><Typography.Text type="secondary">{sayError(s.status, '等你拍板的事')}</Typography.Text></div>;
   if (!rows.length) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有要你拍板的事" />;
-  return <div className="wm-ck-cards" data-testid="ck-attention">{rows.map((a) => {
+  return <div className="wm-ck-cards" data-testid="ck-attention">
+    {/* 驾驶舱和事项之间还没有关联字段，列的是该你办的全部（协调：标题下写明，别让人以为只是这个驾驶舱的） */}
+    <Typography.Text type="secondary" className="wm-caption" data-testid="ck-attention-scope">列的是该你办的全部，还没按这个驾驶舱筛</Typography.Text>
+    {rows.map((a) => {
     const wid = workItemIdOf(a);
     return <div key={`${a.source}:${a.source_id}`} className={wid && wid === picked ? 'wm-ck-card on' : 'wm-ck-card'}>
       <DecisionCard item={a} admin={admin} onDone={() => undefined} />
       {wid && onPick && <Button type="link" size="small" className="wm-ck-card-pick" onClick={() => onPick(wid)} data-testid="ck-pick">看办理过程 →</Button>}
     </div>;
-  })}</div>;
+  })}
+  </div>;
 }
 
 type Detail = { item?: { title?: string; seat?: unknown }; log?: LogRow[] };
