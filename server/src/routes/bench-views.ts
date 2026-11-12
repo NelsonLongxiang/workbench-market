@@ -106,7 +106,14 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     throw e;
   };
   const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
-  const int = (v: unknown): number | undefined => (typeof v === 'string' && /^\d{1,9}$/.test(v) ? Number(v) : typeof v === 'number' && Number.isSafeInteger(v) ? v : undefined);
+  /** 请求体里的编号：只收整数（数字类型），写成文字的不收 */
+  const int = (v: unknown): number | undefined => (typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : undefined);
+  /** 查询串里的编号：没写是 undefined；写了就得是整数，写错了直接拒——不能当成没写（那样会悄悄给出另一版） */
+  const qint = (v: unknown, name: string): number | undefined => {
+    if (v === undefined) return undefined;
+    if (typeof v === 'string' && /^\d{1,9}$/.test(v)) return Number(v);
+    throw new BenchError('invalid', `${name} 要写成整数`);
+  };
   const ctxOf = (req: express.Request, actor: string, note?: unknown) => ({ actor, at: Date.now(), idemKey: str(req.headers['idempotency-key']), note: str(note) });
 
   /** 一条「在某个台上做一件事」的路由：先判权限，再核台登记过，然后把台库交给 fn */
@@ -157,7 +164,7 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
   }));
 
   // —— 视图描述 ——
-  app.get('/api/bench-views/:bench/view', { action: 'bench-store.view-get', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.view-get', 'read', async (req, _res, s) => ({ view: await s.getView(int(req.query.version)) })));
+  app.get('/api/bench-views/:bench/view', { action: 'bench-store.view-get', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.view-get', 'read', async (req, _res, s) => ({ view: await s.getView(qint(req.query.version, 'version')) })));
   app.put('/api/bench-views/:bench/view', { action: 'bench-store.view-put', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.view-put', 'write', (req, _res, s, actor) => {
     const base = int(req.body?.base);
     if (base === undefined) throw new BenchError('invalid', '要给 base（你是基于第几版改的；还没有版本时给 0）');
@@ -165,7 +172,7 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
   }));
   app.get('/api/bench-views/:bench/view/versions', { action: 'bench-store.view-versions', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.view-versions', 'read', async (_req, _res, s) => ({ versions: await s.viewVersions() })));
   app.get('/api/bench-views/:bench/view/diff', { action: 'bench-store.view-diff', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.view-diff', 'read', async (req, _res, s) => {
-    const a = int(req.query.a), b = int(req.query.b);
+    const a = qint(req.query.a, 'a'), b = qint(req.query.b, 'b');
     if (a === undefined || b === undefined) throw new BenchError('invalid', '要给 a 和 b 两个版本号');
     return { diff: await s.diffViews(a, b) };
   }));
@@ -180,11 +187,13 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
   app.get('/api/bench-views/:bench/render', { action: 'bench-store.render', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.render', 'read', (req, _res, s) => {
     const params: Record<string, string> = {};
     for (const [k, v] of Object.entries(req.query)) if (k.startsWith('p.') && typeof v === 'string') params[k.slice(2)] = v;
-    return s.renderView({ view: str(req.query.view), params, version: int(req.query.version) });
+    return s.renderView({ view: str(req.query.view), params, version: qint(req.query.version, 'version') });
   }));
   app.post('/api/bench-views/:bench/form', { action: 'bench-store.form-submit', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.form-submit', 'write', (req, _res, s, actor) => {
     const b = (req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}) as Record<string, unknown>;
-    return s.submitForm({ view: String(b.view ?? ''), block: int(b.block) ?? -1, version: int(b.version) ?? -1 }, b.values, ctxOf(req, actor));
+    const view = str(b.view), block = int(b.block), version = int(b.version);
+    if (view === undefined || block === undefined || version === undefined) throw new BenchError('invalid', '要给 view（哪份视图）、block（第几块，从 0 数）、version（页面是第几版的）');
+    return s.submitForm({ view, block, version }, b.values, ctxOf(req, actor));
   }));
 
   // —— 留痕 ——
