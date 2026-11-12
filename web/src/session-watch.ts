@@ -38,6 +38,8 @@ export function createSessionWatch(deps: {
   const setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
   let gen = 0;
   let known: string | undefined;
+  /** 启动时那一问没问成（断网、502）：页面可能已经按当时的人读了数据，之后第一次问成时不知道是不是同一个人——按变了算，重读一次 */
+  let baselineMissed = false;
   let asking: Promise<void> | null = null;
   let pending = false;
   const subs = new Set<() => void>();
@@ -47,8 +49,8 @@ export function createSessionWatch(deps: {
       let r: { status: number; body: unknown };
       try { r = await deps.ask(); } catch { r = { status: 0, body: null }; }
       const k = whoKey(r.status, r.body);
-      if (k === undefined) return;
-      if (known === undefined) { known = k; return; } // 第一次只是记下是谁
+      if (k === undefined) { if (known === undefined) baselineMissed = true; return; }
+      if (known === undefined && !baselineMissed) { known = k; return; } // 第一次问成就只是记下是谁
       if (k !== known) {
         known = k; gen += 1;
         subs.forEach((f) => f()); deps.onLost?.();
@@ -68,6 +70,27 @@ export function createSessionWatch(deps: {
   };
 }
 
+/** 装在 fetch 外面的那一层（拆出来好单测）：同源 /api/ 回 401 就去确认；发出时记下世代号，
+ *  拿到响应头时、读完正文（json / text）时各比一次，世代号变了就不交回（这个 Promise 不再结束）。 */
+export function guardedFetch(raw: typeof fetch, w: SessionWatch, origin: string): typeof fetch {
+  const isApi = (url: string): boolean => { try { const u = new URL(url, origin); return u.origin === origin && u.pathname.startsWith('/api/'); } catch { return false; } };
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (!isApi(url)) return raw(input, init);
+    const at = w.generation();
+    const r = await raw(input, init);
+    // 旧身份发出去的请求：身份已经变了，应答不交回页面
+    if (w.generation() !== at) return new Promise<Response>(() => undefined);
+    // 读应答体（json / text）是在拿到响应头之后：读完再比一次，期间换了人也不交回
+    const fresh = <T,>(p: Promise<T>): Promise<T> => p.then((v) => (w.generation() !== at ? new Promise<T>(() => undefined) : v));
+    const json = r.json.bind(r), text = r.text.bind(r);
+    Object.defineProperty(r, 'json', { value: () => fresh(json()) });
+    Object.defineProperty(r, 'text', { value: () => fresh(text()) });
+    if (r.status === 401 && !new URL(url, origin).pathname.startsWith('/api/auth/me')) w.saw401();
+    return r;
+  }) as typeof fetch;
+}
+
 let watch: SessionWatch | null = null;
 export const sessionGeneration = (): number => watch?.generation() ?? 0;
 export const subscribeSession = (fn: () => void): (() => void) => watch?.subscribe(fn) ?? (() => undefined);
@@ -78,7 +101,6 @@ export function installSessionWatch(onLost: () => void): void {
   if (watch || typeof window === 'undefined') return;
   const raw = window.fetch.bind(window);
   const origin = window.location.origin;
-  const isApi = (url: string): boolean => { try { const u = new URL(url, origin); return u.origin === origin && u.pathname.startsWith('/api/'); } catch { return false; } };
   const ask = async () => {
     const r = await raw('/api/auth/me', { cache: 'no-store', credentials: 'same-origin', headers: { Accept: 'application/json' } });
     return { status: r.status, body: await r.json().catch(() => null) };
@@ -88,16 +110,8 @@ export function installSessionWatch(onLost: () => void): void {
     onLost: () => { onLost(); window.dispatchEvent(new Event(SESSION_LOST)); },
   });
   watch = w;
-  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    if (!isApi(url)) return raw(input, init);
-    const at = w.generation();
-    const r = await raw(input, init);
-    // 旧身份发出去的请求：身份已经变了，应答不交回页面
-    if (w.generation() !== at) return new Promise<Response>(() => undefined);
-    if (r.status === 401 && !new URL(url, origin).pathname.startsWith('/api/auth/me')) w.saw401();
-    return r;
-  };
+  window.fetch = guardedFetch(raw, w, origin);
+
   void w.check();
   window.addEventListener('focus', () => { void w.check(); });
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void w.check(); });

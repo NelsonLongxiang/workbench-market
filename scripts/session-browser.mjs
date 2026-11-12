@@ -47,8 +47,10 @@ try {
   if (!pub.ok) throw new Error(`sync count-sop → ${pub.status} ${await pub.text()}`);
   await call('POST', '/api/sops/count-sop/publish', ADMIN, {});
   for (let i = 0; i < 3; i++) await call('POST', '/api/sop/runs', ADMIN, { slug: 'count-sop', started_by: `合成-${i}` });
+  // 驾驶舱：一块数据视图的引用（数据视图开关缺省关着，面板位会写「数据视图未开启」——看的是它的读请求按新的人重发）
+  const ck = await call('POST', '/api/cockpits', ADMIN, { name: '合成驾驶舱', panels: [{ i: 'bv-synthetic-bench-kpi', kind: 'bench-view', bench: 'synthetic-bench', view: 'kpi', tab: 'board', order: 0 }] });
   const cfg = join(TMP, 'browser.json');
-  writeFileSync(cfg, JSON.stringify({ base, admin_session: SESSIONS.admin, alpha_session: SESSIONS.alpha, beta_session: SESSIONS.beta, items: [made.item_id, made2.item_id], titles: ['合成：比一比三家报价', '合成：核对到货数量'] }));
+  writeFileSync(cfg, JSON.stringify({ base, cockpit: ck.id, admin_session: SESSIONS.admin, alpha_session: SESSIONS.alpha, beta_session: SESSIONS.beta, items: [made.item_id, made2.item_id], titles: ['合成：比一比三家报价', '合成：核对到货数量'] }));
   const py = spawn(pythonBin(), ['scripts/session-browser.py', cfg], { stdio: 'inherit' });
   code = await new Promise((x, j) => { py.on('error', j); py.on('exit', x); });
 } catch (e) {

@@ -84,5 +84,41 @@ with sync_playwright() as p:
     if not persisted: skip('从浏览器缓存恢复的页面（后退）', '这次没命中浏览器缓存（无头 Chromium 常不进 bfcache），页面是重新加载的')
     else: check('从浏览器缓存恢复的页面（后退）：换了人 → alpha 的事项不在页面上', gone(pg), shows(pg))
     check('后退回来（不管命不命中缓存）：页面上没有 alpha 的事项', gone(pg), shows(pg))
-    ctx.close(); b.close()
+    ctx.close()
+    # 六、启动时第一问没问成（/api/auth/me 回 502）→ 换成 beta → 身份服务恢复 → alpha 的事项被清掉（首问失败后第一次问成按「变了」算）
+    ctx = b.new_context(viewport={'width': 1440, 'height': 900})
+    ctx.add_cookies([{'name': 'session_id', 'value': cfg['alpha_session'], 'url': M}])
+    ctx.route('**/api/auth/me', lambda r: r.fulfill(status=502, content_type='application/json', body=DOWN))
+    pg = ctx.new_page(); pg.set_default_timeout(10000)
+    pg.goto(M + '/work-items'); pg.wait_for_load_state('networkidle'); pg.wait_for_timeout(800)
+    before = shows(pg)
+    to_beta(ctx); ctx.unroute('**/api/auth/me')
+    pg.evaluate("window.dispatchEvent(new Event('focus'))")
+    check(f'首问失败（502）→ 换成 beta → 恢复：alpha 的事项被清掉（之前 {len(before)} 件）', len(before) >= 1 and gone(pg), shows(pg))
+    ctx.close()
+    # 七、确定的「从浏览器缓存恢复」：页面里发一个合成的 pageshow（persisted=true），会话已经换成 beta → 清
+    ctx, pg = open_as(b, cfg['alpha_session'], '/work-items')
+    before = shows(pg); to_beta(ctx)
+    pg.evaluate("window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))")
+    check(f'合成的 pageshow（persisted=true）+ 换成 beta → alpha 的事项被清掉（之前 {len(before)} 件）', len(before) >= 1 and gone(pg), shows(pg))
+    ctx.close()
+    # 八、其余各页：alpha 打开 → 换成 beta、回到前台 → 页面上没有 alpha 的内容；没有 alpha 专属内容的页，断言这一页的读请求按 beta 的会话重发了一次
+    def reread(path, api_pat, label, tab=None):
+        ctx, pg = open_as(b, cfg['alpha_session'], path)
+        if tab: pg.locator(f'[data-testid={tab}]').click(); pg.wait_for_load_state('networkidle'); pg.wait_for_timeout(600)
+        seen = []
+        pg.on('request', lambda r: seen.append((r.url.split(M)[-1], r.all_headers().get('cookie', ''))) if r.url.startswith(M + '/api/') else None)
+        before = shows(pg)
+        to_beta(ctx); pg.evaluate("window.dispatchEvent(new Event('focus'))")
+        cleared = gone(pg); pg.wait_for_timeout(1500)
+        again = [u for u, c in seen if api_pat in u and cfg['beta_session'] in c]
+        need_before = tab is not None
+        check(f'{label}：换成 beta → 没有 alpha 的内容（之前 {len(before)} 件），{api_pat} 按 beta 的会话重读了', cleared and len(again) >= 1 and (len(before) >= 1 or not need_before), (shows(pg), [u for u, _ in seen][:8]))
+        ctx.close()
+    reread(f"/cockpit/{cfg['cockpit']}", '/api/attention', '驾驶舱（右栏「事项」里 alpha 的事项、左栏「等你拍板」）', tab='ck-tab-items-items')
+    reread(f"/cockpit/{cfg['cockpit']}", '/api/bench-views/', '驾驶舱里的数据视图面板')
+    reread('/team', '/api/teams', '团队页')
+    reread('/access', '/api/grants', '谁能做什么')
+    skip('「等你拍板」完整列表（/attention）', '按新外壳重写的那一版在 #656，合进来之后在这里加一条；现在的旧页面同样被整棵重挂')
+    b.close()
 print(f'session-browser: {ok} passed / {fail} failed'); sys.exit(1 if fail else 0)
