@@ -2,7 +2,8 @@
 列表接口用合成的应答（page.route 截下 GET /api/work-items，按 ?view= 回不同的视角），核对：
   · 只出接口说能用的视角，带件数，先后是我安排的 / 我的 AI 员工手上的 / 我的团队的 / 全部；不能用的不出；
   · 不带 view 时选中的是接口回的那个视角；点别的视角改地址里的 ?view=、请求带着它；刷新、新开同一链接回到同一视角；
-  · 每个视角的空态各说各的；按某个 AI 员工筛着时说这个员工手上，点同一个视角去掉筛选。
+  · 每个视角的空态各说各的；按某个 AI 员工筛着时说这个员工手上，点同一个视角去掉筛选；
+  · 「等你拍板」只放轮到你的（和侧栏角标同一份「关注」、同一个判法），别人的另成「等别人处理」写清等谁。
 数据全是合成的。"""
 import json, re, sys
 from urllib.parse import urlparse, parse_qs
@@ -103,6 +104,34 @@ with sync_playwright() as p:
         pg.locator('[data-testid=work-items-view-seats]').click()
     wait_view(pg, 'seats')
     check('点同一个视角：去掉席位筛选，地址只剩 ?view=seats', parse_qs(urlparse(pg.url).query) == {'view': ['seats']} and seen[-1] == ('seats', None), (pg.url, seen[-1:]))
+    ctx.close()
+
+    # 团队负责人在「我的团队的」：三件等验收里只有 1 件是他自己建的、一件等放行（他不是管理员）。
+    # 「关注」（和侧栏角标同一份）截下：只有他建的那件 mine 为真
+    views = V(mine=1, team=5)
+    team_rows = [item(1, 'ready'), item(2, 'ready'), item(3, 'ready'), item(4, 'held'), item(5, 'progress')]
+    handler, seen = serve(views, {'mine': [item(1, 'ready')], 'team': team_rows}, 'team')
+    def acc(i, mine):
+        return {'source': 'work-items', 'source_id': f'wi-syn-{i}', 'category': 'accept', 'title': f'合成事项 {i}', 'waiting_for': '', 'since': '2026-11-12T00:00:00Z',
+                'answers': ['verify', 'return'] if mine else [], 'object': '', 'phase': '', 'link': f'/work-items/wi-syn-{i}', 'mine': mine,
+                'creator': {'principal': 'user:syn-c', 'display_name': '合成建立人'}}
+    ATT = {'items': [acc(1, True), acc(2, False), acc(3, False)], 'counts': {'total': 3, 'by_category': {'ask': 0, 'review': 0, 'accept': 3, 'glance': 0, 'grant': 0}}, 'sources': {}}
+    ctx = b.new_context(viewport={'width': 1440, 'height': 900}); pg = ctx.new_page(); pg.set_default_timeout(10000)
+    pg.route(LIST, handler)
+    pg.route(re.compile(r'/api/attention$'), lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps(ATT)))
+    pg.goto(M + '/work-items?view=team'); wait_view(pg, 'team'); pg.wait_for_selector('[data-testid=work-items-group-others]')
+    decide = pg.locator('[data-testid=work-items-group-decide]')
+    head = ''.join(decide.locator('.ant-card-head-title').inner_text().split())
+    check('负责人在团队视角：建立人不是他的「等验收」不计入红色数——「等你拍板」只有他自己建的 1 件，红色角标写 1', head == '等你拍板1' and decide.locator('.ant-badge').count() == 1 and decide.locator('[data-testid=work-item-row]').count() == 1, head)
+    nav = pg.locator('[data-testid=nav-pending]')
+    check('和侧栏角标同一个数（同一份「关注」、同一个判法）', nav.count() == 1 and nav.inner_text().strip() == '1', nav.all_inner_texts())
+    others = pg.locator('[data-testid=work-items-group-others]')
+    ohead = ''.join(others.locator('.ant-card-head-title').inner_text().split())
+    tags = [t.strip() for t in others.locator('[data-testid=work-item-turn]').all_inner_texts()]
+    check('别人的另成「等别人处理」，中性色、不标红，每行写清等谁（不露标识）', ohead == '等别人处理3' and others.locator('.ant-badge').count() == 0 and tags == ['等 合成建立人 验收', '等 合成建立人 验收', '等管理员放行'], (ohead, tags))
+    pg.locator('[data-testid=work-items-view-mine]').click(); wait_view(pg, 'mine')
+    head = ''.join(pg.locator('[data-testid=work-items-group-decide] .ant-card-head-title').inner_text().split())
+    check('「我安排的」视角：建立人自己的验收照旧轮到他、计入红色数；没有「等别人处理」', head == '等你拍板1' and pg.locator('[data-testid=work-items-group-others]').count() == 0, head)
     ctx.close()
     b.close()
 

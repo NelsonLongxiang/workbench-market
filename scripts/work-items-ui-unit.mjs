@@ -1,6 +1,7 @@
 #!/usr/bin/env node
+import { answerChoices, decideCount, workItemTurns } from '../web/src/attention-view.ts';
 /** 事项列表页的纯函数单测（web/src/work-items-view.ts）：状态归组、组的计数、按对象分组、行的说明、翻页去重。 */
-import { STATE_GROUPS, appendPage, byObject, byState, groupCount, groupOf, rowLine, rowTime, seatOrWaiting, viewsFor, emptyText, avatarChar, urlFilter, lifecycleNames, progressSummary, lastSaid, objectName, phaseName } from '../web/src/work-items-view.ts';
+import { STATE_GROUPS, appendPage, byObject, byState, groupCount, groupOf, rowLine, rowTime, seatOrWaiting, viewsFor, emptyText, splitDecide, othersTurnLabel, OTHERS_GROUP, avatarChar, urlFilter, lifecycleNames, progressSummary, lastSaid, objectName, phaseName } from '../web/src/work-items-view.ts';
 import { cleanSeatName, rosterNames, seatNameOnly, speakerName } from '../web/src/people.ts';
 
 let pass = 0, fail = 0;
@@ -68,6 +69,25 @@ ok('名册里的名字自带句柄后缀时去掉', cleanSeatName('成员二 (0a
 ok('地址里的视角和席位：只认四个视角名、席位不超过 200 字、去掉空白；认不出的当没带', JSON.stringify(urlFilter('?view=seats&seat=s-1')) === '{"view":"seats","seat":"s-1"}'
   && JSON.stringify(urlFilter('?view=bogus&seat=')) === '{}' && JSON.stringify(urlFilter('')) === '{}' && JSON.stringify(urlFilter('?seat=%20zone%2F0a1b2c3d%20')) === '{"seat":"zone/0a1b2c3d"}'
   && JSON.stringify(urlFilter('?seat=' + 'x'.repeat(201))) === '{}' && JSON.stringify(urlFilter('?view=all')) === '{"view":"all"}');
+
+// 「等你拍板」只放轮到你、能当场办的（和侧栏角标同一个判法）；别人的另成「等别人处理」
+{
+  const att = (id, category, mine, extra = {}) => ({ source: 'work-items', source_id: id, category, title: id, waiting_for: '', since: '', answers: category === 'accept' ? ['verify', 'return'] : ['release', 'withdraw'], object: '', phase: '', link: `/work-items/${id}`, mine, creator: { principal: 'user:c', display_name: '合成建立人' }, ...extra });
+  const ask = (id) => ({ source: 'seat-asks', source_id: 'q1', category: 'ask', title: '问', waiting_for: '', since: '', answers: ['answer'], object: '', phase: '', link: `/work-items/${id}`, mine: true });
+  const items = [att('wi-a', 'accept', true), att('wi-b', 'accept', false), att('wi-c', 'accept', false), ask('wi-d'), { ...att('wi-z', 'grant', true), source: 'a2a-peers', link: '/team' }];
+  const choices = (x) => answerChoices(false, x);
+  const t = workItemTurns(items, choices);
+  ok('轮到谁：和侧栏角标同一个判法——轮到你的事项数 = decideCount 里事项的那几条', [...t.mine].sort().join() === 'wi-a,wi-d' && t.mine.size === decideCount(items.filter((x) => x.link.startsWith('/work-items/')), choices), [...t.mine]);
+  const row = (id, state) => ({ id, title: id, state, object: null, phase: null, seat: null, last_progress: null, updated_at: '' });
+  // 团队负责人在团队视角：三件等验收里只有 wi-a 是他自己建的；wi-d 在问他；wi-h 等放行（不是管理员，轮不到）
+  const rows = [row('wi-a', 'ready'), row('wi-b', 'ready'), row('wi-c', 'ready'), row('wi-d', 'blocked'), row('wi-h', 'held'), row('wi-x', 'progress')];
+  const sp = splitDecide(rows, t.mine, 5);
+  ok('负责人在团队视角：建立人不是他的「等验收」不计入红色数，进「等别人处理」', sp.mineCount === 2 && sp.mine.map((r) => r.id).join() === 'wi-a,wi-d' && sp.others.map((r) => r.id).join() === 'wi-b,wi-c,wi-h' && sp.othersCount === 3, sp);
+  ok('「等别人处理」的件数 = 这几种状态的总数减去轮到你的（总数覆盖整个视角）；不出负数', splitDecide(rows, t.mine, 9).othersCount === 7 && splitDecide(rows, t.mine, 1).othersCount === 0 && OTHERS_GROUP.title === '等别人处理');
+  ok('读不到「关注」（空集合）：一件都不算轮到你', splitDecide(rows, new Set(), 5).mineCount === 0);
+  ok('等谁写清：有建立人名字写名字；等验收没有名字写「建立人」，在问没有名字不说是谁；等放行写管理员；不露标识', othersTurnLabel('ready', '合成建立人') === '等 合成建立人 验收' && othersTurnLabel('ready') === '等建立人验收'
+    && othersTurnLabel('blocked', '甲') === '在等 甲 答复' && othersTurnLabel('blocked', '  ') === '在等答复' && othersTurnLabel('held', '甲') === '等管理员放行' && othersTurnLabel('progress') === '');
+}
 
 console.log(`\nwork-items-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

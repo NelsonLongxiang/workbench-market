@@ -68,15 +68,28 @@ with sync_playwright() as p:
                     {'id': 'dept-lead', 'name': '部门负责人', 'scope': 'domain:work', 'preset': True, 'expires_at': NOW, 'source': 'manual', 'approved_by': 'odoo:jia'}]}
     pg.route('**/api/auth/me', lambda r: fake(r, ME))
     asked = []
-    ADMIN_READS = re.compile(r'/api/(grants|principals|roles|roles/matrix)$')
+    ADMIN_READS = re.compile(r'/api/(principals|roles|roles/matrix)$')
     def on_req(req):
         if ADMIN_READS.search(req.url.split('?')[0]): asked.append(req.url)
     errors = []
     pg.on('request', on_req); pg.on('console', lambda m: errors.append(m.text) if m.type == 'error' else None)
+    # 授予：L19（#659）起登录的人读得到自己能放行的那些——这里照它的应答截下：先是空列表
+    grants_seen = []
+    def on_grants_mine(r):
+        grants_seen.append(r.request.url); fake(r, MY_GRANTS)
+    MY_GRANTS = {'grants': []}
+    pg.route('**/api/grants', on_grants_mine)
     pg.goto(M + '/access'); pg.wait_for_selector('[data-testid=acc-mine]'); pg.wait_for_load_state('networkidle')
-    check('普通员工打开此页：网络里没有授予、主体、角色、矩阵四个请求，控制台没有 403', asked == [] and not any('403' in e for e in errors), (asked, errors))
+    check('普通员工打开此页：网络里没有主体、角色、矩阵三个请求，控制台没有 403；授予照常问（只拿到自己能放行的）', asked == [] and len(grants_seen) == 1 and not any('403' in e for e in errors), (asked, grants_seen, errors))
+    check('没有能放行的：只有「你的权限」，没有待核准卡片', pg.locator('[data-testid=acc-pending]').count() == 0)
     pg.locator('[data-testid=acc-tab-roles]').click(); pg.wait_for_timeout(400)
     check('普通员工切到角色预设：照旧说只有管理员能看，也不发请求', asked == [] and pg.locator('.ant-alert', has_text='只有管理员能看').count() == 1, (asked, pg.locator('.ant-alert').all_inner_texts()))
+    # 管理层那样的人：有一条轮到他放行的（带业务写的第二档），卡片在「你的权限」上面；角色读不到也写名字、不露标识
+    MY_GRANTS = {'grants': [dict(grant(8, 'user:jia', 'management', '*', 'pending', by='odoo:bing', reason='合成'), can_approve=True, approve_denied=None, approve_denied_text=None)]}
+    pg.goto(M + '/access'); pg.wait_for_selector('[data-testid=acc-pending]'); pg.wait_for_load_state('networkidle')
+    card = pg.locator('[data-testid=acc-pending]').inner_text()
+    check('不是管理员但有轮到他放行的：待核准卡片在「你的权限」里、上面；角色写「管理层」不写标识；还是不问那三个', pg.locator('[data-testid=acc-mine] [data-testid=acc-pending]').count() == 1 and '管理层' in card and 'management' not in card and asked == [], (card, asked))
+    pg.unroute('**/api/grants')
     pg.remove_listener('request', on_req)
     pg.goto(M + '/access'); pg.wait_for_selector('[data-testid=acc-mine]')
     mine = pg.locator('[data-testid=acc-mine]').inner_text()

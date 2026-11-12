@@ -46,7 +46,7 @@ ok('表：同一个人按状态排：待核准、生效中…已收回', J(rowsI
 ok('角色在用：只数生效中的', roleUsage(grants).get('member') === 1 && roleUsage(grants).get('admin') === 1 && !roleUsage(grants).has('nobody'));
 
 const roles = rolesOf({ roles: [{ id: 'owner', name: '属主', platform: true }, { id: 'member', name: '成员' }], custom: [] });
-ok('角色名：认得的用名字，不认得的原样', roleName('owner', roles) === '属主' && roleName('ghost', roles) === 'ghost' && rolesOf(null).size === 0);
+ok('角色名：认得的用名字；读不到角色列表时内置预设用固定名字，别的写「自定义角色」，不露标识', roleName('owner', roles) === '属主' && roleName('ghost', roles) === '自定义角色' && roleName('management', new Map()) === '管理层' && roleName('ai-staff', new Map()) === 'AI 员工' && roleName('constructor', new Map()) === '自定义角色' && rolesOf(null).size === 0);
 
 ok('矩阵格子：全部、范围内、部分、只限自己、不能、没有这类动作', J(CELL_LEGEND.map((c) => cellLabel(c).text)) === '["全部","范围内","部分","只限自己","不能","—"]' && cellLabel('toString').text === '—');
 ok('矩阵：形状对才用，不然按读不到', matrixOf({ blocks: [], kinds: [], roles: [] }) !== null && matrixOf({ blocks: [] }) === null && matrixOf(null) === null);

@@ -27,6 +27,26 @@ export function groupOf(state: string): string {
   return STATE_GROUPS.find((g) => g.states.includes(state))?.key ?? 'doing';
 }
 
+/** 「等拍板」那几种状态（等放行、在问、等验收）里不轮到你的，另成一组「等别人处理」，中性色；
+ *  每一行写清等谁。轮到不轮到你由页面传进来（「关注」里的同一个判法，见 attention-view 的 workItemTurns），这里不判 */
+export const OTHERS_GROUP = { key: 'others', title: '等别人处理', empty: '没有在等别人处理的事项' };
+export const isDecideState = (state: string): boolean => groupOf(state) === 'decide';
+/** 不能当场办时这一行等的是谁：name 是建立人的显示名（「关注」条目带的），等验收没有名字就说「建立人」，不露标识 */
+export function othersTurnLabel(state: string, name = ''): string {
+  const who = name.trim();
+  if (state === 'ready') return who ? `等 ${who} 验收` : '等建立人验收';
+  // 在问：不知道问的是谁（「关注」里没有这一条，可能问的正是你、只是不能在这里答）就不说是谁
+  if (state === 'blocked') return who ? `在等 ${who} 答复` : '在等答复';
+  if (state === 'held') return '等管理员放行';
+  return '';
+}
+/** 把「等拍板」状态的行分成轮到你的、等别人的；件数：轮到你的数已取回的行，等别人的 = 服务端这几种状态的总数减去它（总数覆盖整个视角） */
+export function splitDecide(rows: WorkItemListRow[], mine: ReadonlySet<string>, decideTotal: number): { mine: WorkItemListRow[]; others: WorkItemListRow[]; mineCount: number; othersCount: number } {
+  const m = rows.filter((r) => isDecideState(r.state) && mine.has(r.id));
+  const o = rows.filter((r) => isDecideState(r.state) && !mine.has(r.id));
+  return { mine: m, others: o, mineCount: m.length, othersCount: Math.max(0, decideTotal - m.length) };
+}
+
 /** 一组的总数：取服务端给的按状态计数（覆盖整个可见范围），不靠已取回的行来数 */
 export function groupCount(counts: Record<string, number>, key: string): number {
   const g = STATE_GROUPS.find((x) => x.key === key);
