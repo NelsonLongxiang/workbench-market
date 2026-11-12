@@ -74,7 +74,7 @@ export default function BenchBlocksDemo() {
         <PieBlock title="点一个扇区" span={6} label="k" value="v" data={few} onSelect={(rows, n) => setPicked(`扇区 ${n}（${rows.length} 行）`)} />
         <LineBlock title="一条线，带面积" span={6} x="month" y="amount" area data={{ columns: [col('month', 'text', '月份'), col('amount', 'decimal', '金额')], rows: ['01', '02', '03', '04', '05', '06'].map((m, i) => ({ month: `2026-${m}`, amount: 30000 + ((i * 7) % 5) * 4200 })) }} />
         <LineBlock title="系列太多：并成「其他」" span={6} x="k" y="v" series="s" data={many} />
-        <TableBlock title="状态用人话、整行可点" span={6} data={{ columns: [col('status', 'text', '状态', 'status'), col('owner', 'text', '负责人', 'person'), col('n', 'integer', '件数')], rows: [{ status: 'done', owner: '周一', n: 3 }, { status: 'late', owner: { name: '吴二', seat: 'w2' }, n: 12000 }, { status: 'x-unknown', owner: '郑三', n: null }] }} statusText={(v) => STATUS_TEXT[String(v)] ?? null} onRowClick={(r) => setPicked(`行 ${String(r.status)}`)} />
+        <TableBlock title="状态用人话、整行可点" span={6} data={{ columns: [col('status', 'text', '状态', 'status'), col('owner', 'text', '负责人', 'person'), col('n', 'integer', '件数')], rows: [{ status: 'done', owner: '周一', n: 3 }, { status: 'late', owner: { name: '吴二', seat: 'w2' }, n: 12000 }, { status: 'x-unknown', owner: '郑三', n: null }] }} statusText={(v) => STATUS_TEXT[String(v)] ?? null} onRowClick={(r) => setPicked(`行 ${String(r.status)}`)} rowActions={(r) => <Button type="link" size="small" onClick={() => setPicked(`操作 ${String(r.status)}`)}>催一下</Button>} />
       </DashGrid>
 
       <Typography.Paragraph type="secondary" className="wm-bb-demo-gap">三、四种状态：读取中、出错、空、数据不全。</Typography.Paragraph>

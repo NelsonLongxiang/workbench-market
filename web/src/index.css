@@ -514,6 +514,7 @@ body { background: var(--wm-color-page); }
 .wm-bb-canvas-click { cursor: pointer; }
 .wm-bb-progress-nums { display: flex; align-items: baseline; gap: var(--wm-space-1); }
 .wm-bb-row-click { cursor: pointer; }
+.wm-bb-actions { white-space: nowrap; }
 .wm-bb-table .ant-table { font-size: var(--wm-font-size-body); }
 .wm-bb-table .ant-table-thead > tr > th { font-size: var(--wm-font-size-caption); font-weight: 600; color: var(--wm-color-text-secondary); background: var(--wm-color-surface); }
 .wm-bb-filter-bar { box-shadow: none; }
