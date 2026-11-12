@@ -472,6 +472,8 @@ jobs:
         run: node scripts/access-ui-unit.mjs
       - name: 「团队」页单测（纯函数——团队状态、负责人、成员归谁用、计数、空和读不到的说法、建部门校验；单列一步）
         run: node scripts/team-ui-unit.mjs
+      - name: 站内页面路径单测（卡片上只把站内真有的页面做成链接·路由表和 App.tsx 一致；单列一步）
+        run: node scripts/page-paths-unit.mjs
       - name: 凭据库（融合 dsh-vault：读写要口令·业务面 403·摘要无明文·坏 JSON 不进日志·写锁/重开/闲置上锁/限流）
         run: node scripts/vault-concurrency-test.mjs && node scripts/vault-smoke.mjs
       - name: 条目自带答复入口单测（纯函数——answer_via 的地址、请求体、填写项；核准卡片的写法；单列一步）

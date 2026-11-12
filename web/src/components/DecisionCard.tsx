@@ -14,6 +14,7 @@ import { attentionChanged, postCreatorDecision } from '../api';
 import { answerChoices, answerRoute, answerViaOf, viaBody, viaError, viaInput, viaPath, waited, type AttentionItem } from '../attention-view';
 import { cardWording, splitAskTitle } from '../home-view';
 import { cleanWho, seatLabel, teamLabel } from '../people';
+import { pageLink } from '../page-paths';
 import { REVIEW_NEEDS, changeCard, changeDetailOf, confirmText, grantCard, grantDetailOf, reviewAnswerLabel, runCard, runDetailOf, taskKindLabel } from '../review-view';
 
 
@@ -22,12 +23,14 @@ const COLOR: Record<string, string> = { ask: 'gold', accept: 'green', glance: 'd
 const PROXY: Record<string, string> = { answer: '代答', verify: '代为验收', return: '代为打回' };
 const ANSWER: Record<string, string> = { approve: '批准', reject: '不给', answer: '答复', bind: '对接', verify: '验收通过', return: '打回重做', release: '派出去', withdraw: '撤回', reply: '回复', ack: '知道了' };
 /** 要先填一句的答法：键是来源 → 答法 → 要填的字段 */
-const NEEDS: Record<string, Record<string, { key: string; label: string; max?: number }>> = {
+const NEEDS: Record<string, Record<string, { key: string; label: string; max?: number; optional?: boolean }>> = {
   'seat-asks': { answer: { key: 'text', label: '你的答复' } },
   'work-items': { return: { key: 'reason', label: '打回的理由' } },
   'owner-pending': { answer: { key: 'summary', label: '你的答复' } },
   // 待对接的外部账号：对到哪个主体（必填）；下面另有「这个主体还没有，就新建」的勾选（BIND_CREATE）
   'principal-pending': { bind: { key: 'principal', label: '对到哪个主体（user:<名>）', max: 160 } },
+  // MCP 权限申请：不给时可以写一句理由（可不填），申请的 AI 会话会看到；批的时候不写
+  'mcp-access': { reject: { key: 'note', label: '不给的理由（可不填，申请的 AI 会话会看到）', max: 500, optional: true } },
   ...REVIEW_NEEDS,
 };
 /** 要额外勾一项的答法：对接外部账号时，主体还没有就新建（服务端要的是 create: true） */
@@ -61,6 +64,8 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
   const [detail, setDetail] = useState<Detail | null>(null);
   const [choice, setChoice] = useState('');
   const wid = workItemIdOf(item);
+  /** 只有站内真有的页面才做成链接（接口地址、已经没有的页面不显示） */
+  const page = pageLink(item.link);
   useEffect(() => { if (wid) void loadDetail(wid).then(setDetail); }, [wid]);
   const change = changeDetailOf(item);
   const cc = change ? changeCard(change) : null;
@@ -151,7 +156,7 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
         options={options.map((o) => ({ label: o === detail?.suggested ? `${o}（席位建议）` : o, value: o }))} />
       <Space wrap size={8} className="wm-decision-actions">
         <Button type="primary" loading={busy} disabled={!choice} onClick={() => void send('answer', { text: choice })}>{label('answer')}</Button>
-        {item.link && !item.link.startsWith('/api/') && <Link to={item.link} className="wm-decision-more">自己写一句 →</Link>}
+        {page && <Link to={page} className="wm-decision-more">自己写一句 →</Link>}
       </Space>
     </>}
     {open && !!needOf(open)?.options?.length && <Radio.Group value={text} onChange={(e) => setText(String(e.target.value))} optionType="button" data-testid="decision-via-options"
@@ -161,13 +166,20 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
     {!(isAsk && options.length > 0 && choices.includes('answer')) && <Space wrap size={8} className="wm-decision-actions">
       {choices.map((a, i) => {
         const need = needOf(a);
-        if (open === a && need) return <Button key={a} type="primary" loading={busy} disabled={!need.optional && !text.trim()} onClick={() => void send(a, { [need.key]: text.trim(), ...(BIND_CREATE(item.source, a) && create ? { create: true } : {}) })}>确定{label(a)}</Button>;
+        if (open === a && need) {
+          const go = () => void send(a, { [need.key]: text.trim(), ...(BIND_CREATE(item.source, a) && create ? { create: true } : {}) });
+          const ok = <Button key={a} type="primary" loading={busy} disabled={!need.optional && !text.trim()} onClick={BIND_CREATE(item.source, a) && create ? undefined : go} data-testid="decision-confirm">确定{label(a)}</Button>;
+          // 勾了「新建主体」：建了就多一个人，再确认一次
+          return BIND_CREATE(item.source, a) && create
+            ? <Popconfirm key={a} title="会新建一个主体" description={`建了就多一个人「${text.trim() || '（没写名字）'}」，确定新建并对接？`} okText="新建并对接" cancelText="再想想" onConfirm={go}>{ok}</Popconfirm>
+            : ok;
+        }
         // 要先填一句的答法不再另外确认一次：填的那一步就是确认
         const confirm = need ? null : confirmText(item, a);
         const btn = <Button key={a} type={i === 0 ? 'primary' : 'default'} danger={!!confirm && !!change} loading={busy && !open} disabled={!!run && !run.ready} onClick={confirm ? undefined : () => click(a)}>{label(a)}</Button>;
         return confirm ? <Popconfirm key={a} title={`确定${label(a)}？`} description={confirm} okText={label(a)} cancelText="再想想" onConfirm={() => click(a)}>{btn}</Popconfirm> : btn;
       })}
-      {item.link && !item.link.startsWith('/api/') && !((cc || rc || gc) && choices.length) && <Link to={item.link} className="wm-decision-more">{choices.length ? '看详情' : '去处理'} →</Link>}
+      {page && !((cc || rc || gc) && choices.length) && <Link to={page} className="wm-decision-more">{choices.length ? '看详情' : '去处理'} →</Link>}
     </Space>}
   </div>;
 }

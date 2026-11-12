@@ -71,5 +71,32 @@ with sync_playwright() as p:
     ctx, pg = open_home(b, cfg['alpha_session'])
     badge, in_sum, head, summary = three(pg)
     check(f'建立人 alpha：没有轮到他的，三处都是 0（{badge} / {in_sum} / {head}）', badge == 0 and in_sum == 0 and head == 0, summary)
+    ctx.close()
+    # 卡片上的链接和两种要填的答法（条目用页面里截下来的合成夹具）：
+    #   接口地址、路由表里没有的页面不做成链接；MCP 权限申请「不给」可写一句理由（可空）；对接外部账号勾「新建」要再确认一次
+    syn = [
+        {'source': 'relation-proposals', 'source_id': '9001', 'category': 'grant', 'title': '合成：关系的提议', 'waiting_for': 'person:x', 'since': '2026-11-12T00:00:00Z', 'answers': [], 'object': '', 'phase': '', 'link': '/teams', 'mine': True},
+        {'source': 'principal-pending', 'source_id': 'synthetic:ext-1', 'category': 'grant', 'title': '合成账号等对接到主体', 'waiting_for': 'synthetic:ext-1', 'since': '2026-11-12T00:00:00Z', 'answers': ['bind'], 'object': '', 'phase': '', 'link': '/api/principals/pending', 'mine': True},
+        {'source': 'mcp-access', 'source_id': '9002', 'category': 'grant', 'title': 'MCP 会话 合成会话 申请工具：list_rows', 'waiting_for': 'mcp:合成会话', 'since': '2026-11-12T00:00:00Z', 'answers': ['approve', 'reject'], 'object': '', 'phase': '', 'link': '/mcp-gateways?access_request=9002', 'mine': True},
+    ]
+    ctx = b.new_context(viewport={'width': 1440, 'height': 900}); ctx.add_cookies([{'name': 'session_id', 'value': cfg['admin_session'], 'url': M}])
+    ctx.route('**/api/attention', lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps({'items': syn, 'counts': {'total': len(syn)}, 'sources': {}})))
+    sent = []
+    ctx.route('**/api/attention/answer', lambda r: (sent.append(json.loads(r.request.post_data or '{}')), r.fulfill(status=200, content_type='application/json', body='{"ok":true}')))
+    pg = ctx.new_page(); pg.set_default_timeout(10000); pg.goto(M + '/attention'); pg.wait_for_selector('[data-testid=decision-card]'); pg.wait_for_timeout(500)
+    card = lambda t: pg.locator('[data-testid=decision-card]', has_text=t).first
+    check('路由表里没有的页面（/teams）不做成链接', card('合成：关系的提议').locator('a.wm-decision-more').count() == 0)
+    check('接口地址（/api/…）不做成链接', card('合成账号').locator('a.wm-decision-more').count() == 0)
+    check('站内真有的页面照样是链接', card('合成会话').locator('a.wm-decision-more').get_attribute('href') == '/mcp-gateways?access_request=9002')
+    mc = card('合成会话'); mc.get_by_role('button', name=re.compile('不\\s*给')).click(); pg.wait_for_timeout(300)
+    check('MCP 权限申请「不给」：展开一格理由，可以空着直接确定', mc.locator('textarea').count() == 1 and mc.get_by_role('button', name=re.compile('确定')).is_enabled())
+    mc.locator('textarea').fill('先不开'); mc.get_by_role('button', name=re.compile('确定')).click(); pg.wait_for_timeout(500)
+    check('理由带在请求里', any(x.get('source') == 'mcp-access' and x.get('answer') == 'reject' and x.get('input', {}).get('note') == '先不开' for x in sent), sent)
+    pc = card('合成账号'); pc.get_by_role('button', name=re.compile('对\\s*接')).click(); pg.wait_for_timeout(300)
+    pc.locator('textarea').fill('user:synthetic-new'); pc.locator('[data-testid=decision-bind-create]').click()
+    pc.locator('[data-testid=decision-confirm]').click(); pg.wait_for_timeout(300)
+    check('勾了「新建主体」：先弹再确认一次，没确认不发', pg.locator('.ant-popconfirm').count() >= 1 and not any(x.get('source') == 'principal-pending' for x in sent))
+    pg.get_by_role('button', name='新建并对接').click(); pg.wait_for_timeout(500)
+    check('确认之后发：对到的主体、create 为真', any(x.get('source') == 'principal-pending' and x.get('input', {}).get('principal') == 'user:synthetic-new' and x.get('input', {}).get('create') is True for x in sent), sent)
     ctx.close(); b.close()
 print(f'home-count-browser: {ok} passed / {fail} failed'); sys.exit(1 if fail else 0)
