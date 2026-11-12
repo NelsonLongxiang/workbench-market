@@ -74,7 +74,7 @@ ok('子项状态说中文：结束了按结局说', ticketStateLabel('ended', 'c
 }
 ok('「正在处理」只在还在做时给：结束了、等验收不给', showProgress('progress') && !showProgress('ready') && !showProgress('done') && !showProgress('failed'));
 ok('时间线的谁：用回执的 by（名字（席位）），不用事项当前承接', rowActor({ actor: 'receiver:dsh', detail: JSON.stringify({ by: { seat: 'zone/26b40ae2', name: '总工' } }) }) === '总工（zone/26b40ae2）');
-ok('时间线的谁：by 是字符串、没有 by 时只去前缀', rowActor({ actor: 'receiver:dsh', detail: JSON.stringify({ by: 'zone/26b40ae2' }) }) === 'zone/26b40ae2' && rowActor({ actor: 'receiver:dsh', detail: '{}' }) === 'dsh' && rowActor({ actor: 'market', detail: 'bad' }) === '市场');
+ok('时间线的谁：by 是字符串、没有 by 时只去前缀', rowActor({ actor: 'receiver:dsh', detail: JSON.stringify({ by: 'zone/26b40ae2' }) }) === 'zone/26b40ae2' && rowActor({ actor: 'receiver:dsh', detail: '{}' }) === '团队那边' && rowActor({ actor: 'market', detail: 'bad' }) === '市场');
 
 // 验收会话留的小修（stage1-accept、stage3-accept）
 {

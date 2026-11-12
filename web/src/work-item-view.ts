@@ -297,7 +297,10 @@ export function rowActor(row: { actor?: string; fact_source?: string; detail?: s
     if (name || seat) return name || seat;
   }
   if (typeof by === 'string' && by.trim()) return actorLabel(by, '');
-  return actorLabel(row.actor || row.fact_source || '', '');
+  const raw = row.actor || row.fact_source || '';
+  // receiver:<区> 只是「对端来的」这个来源标记，区名不是人：没有 by 就写「团队那边」
+  if (/^receiver:/.test(raw)) return '团队那边';
+  return actorLabel(raw, '');
 }
 
 /** 「承接」这一栏怎么写。有席位写席位；拆单在做写几个成员在做。没有席位时不一律说「没人接」，照事项走到哪一步说：

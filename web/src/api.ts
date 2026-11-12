@@ -161,3 +161,36 @@ export const getMarketWorkbenches = () => marketGet('/api/workbenches');
 export const getMarketSops = () => marketGet('/api/sops');
 export const getMarketSkills = () => marketGet('/api/skills');
 export const getMarketRunningSops = () => marketGet('/api/sop/runs/active');
+
+/** 席位名册（阶段七 #581）：登录的人能读，只当显示用（句柄换名字）。读不到给空，页面照旧显示句柄 */
+export async function getRosterTeams(): Promise<unknown[]> {
+  try {
+    const r = await fetch('/api/a2a/teams', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    const j = r.ok ? await r.json() as { teams?: unknown } : null;
+    return Array.isArray(j?.teams) ? j.teams : [];
+  } catch { return []; }
+}
+
+/** 生命周期里各条线、各阶段的显示名（事项列表把代号换成名字用）：阶段码表一次，对象按类型翻页取（每类最多 5 页）。
+ *  读不到（观测层没挂、没登录）给空表，页面写中性说法，不露代号 */
+export async function getLifecycleNameSources(): Promise<{ types: unknown[]; objects: unknown[] }> {
+  const get = async (path: string): Promise<Record<string, unknown> | null> => {
+    try { const r = await fetch(`/api/lifecycle/${path}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } }); return r.ok ? await r.json() as Record<string, unknown> : null; } catch { return null; }
+  };
+  const st = await get('stages');
+  const types = Array.isArray(st?.types) ? st.types as { type?: unknown }[] : [];
+  const objects: unknown[] = [];
+  for (const t of types) {
+    if (typeof t?.type !== 'string') continue;
+    let cursor: string | null = null;
+    for (let i = 0; i < 5; i++) {
+      const q = new URLSearchParams({ type: t.type, limit: '200', ...(cursor ? { cursor } : {}) });
+      const page = await get(`objects?${q}`);
+      if (!page || !Array.isArray(page.items)) break;
+      objects.push(...page.items);
+      cursor = typeof page.next_cursor === 'string' ? page.next_cursor : null;
+      if (!cursor) break;
+    }
+  }
+  return { types, objects };
+}
