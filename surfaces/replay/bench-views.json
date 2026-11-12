@@ -186,7 +186,7 @@
     },
     {
       "name": "on",
-      "what": "开关开着。登录走假的提供方；alpha 有管理层授予（范围全部）能读写，beta 是普通员工只读，admin 会话没有授予。",
+      "what": "开关开着。登录走假的提供方；alpha 有管理层授予（范围全部）能读写，beta 只有普通员工的授予（范围全部），读写都进不来，admin 会话没有授予。",
       "env": { "WM_BENCH_VIEWS": "on", "ADMIN_TOKEN": "replay-synthetic-admin" },
       "clock": "2030-01-01T00:00:00Z",
       "fixtures": ["identity-fake"],
@@ -733,14 +733,14 @@
         {
           "id": "member-datasets",
           "route": "GET /api/bench-views/:bench/datasets",
-          "class": "normal",
-          "what": "普通员工读得到",
+          "class": "unauthorized",
+          "what": "普通员工（范围全部）读：403",
           "request": { "method": "GET", "path": "/api/bench-views/demo/datasets", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
           "response": {
-            "status": 200,
+            "status": 403,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "15", "etag": "W/\"f-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
-            "body": { "datasets": [] }
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
           }
         },
         {
@@ -1226,8 +1226,8 @@
         {
           "id": "query-member",
           "route": "POST /api/bench-views/:bench/query",
-          "class": "normal",
-          "what": "普通员工能查（这是读）",
+          "class": "unauthorized",
+          "what": "普通员工查：403",
           "request": {
             "method": "POST",
             "path": "/api/bench-views/demo/query",
@@ -1235,20 +1235,10 @@
             "json": { "query": { "dataset": "orders", "sort": [{ "col": "id" }] } }
           },
           "response": {
-            "status": 200,
+            "status": 403,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "500", "etag": "W/\"1f4-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
-            "body": {
-              "dataset": "orders",
-              "columns": [
-                { "name": "id", "type": "integer", "label": "id", "role": "dimension" },
-                { "name": "day", "type": "date", "label": "day", "role": "dimension" },
-                { "name": "region", "type": "text", "label": "region", "role": "dimension" },
-                { "name": "amount", "type": "decimal", "label": "amount", "role": "measure" }
-              ],
-              "truncated": false,
-              "rows": [{ "id": 1, "day": "2026-01-05", "region": "东区", "amount": 1200.5 }, { "id": 2, "day": "2026-01-20", "region": "南区", "amount": 900 }, { "id": 3, "day": "2026-02-02", "region": "东区", "amount": 15 }]
-            }
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
           }
         },
         {
@@ -1786,7 +1776,7 @@
           "class": "normal",
           "what": "读指定的一版",
           "vary": { "view.at": 60000 },
-          "request": { "method": "GET", "path": "/api/bench-views/demo/view?version=1", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "request": { "method": "GET", "path": "/api/bench-views/demo/view?version=1", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
@@ -1816,6 +1806,19 @@
                 "at": 1893456000000
               }
             }
+          }
+        },
+        {
+          "id": "view-get-member",
+          "route": "GET /api/bench-views/:bench/view",
+          "class": "unauthorized",
+          "what": "普通员工读视图：403",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/view", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
           }
         },
         {
@@ -2055,7 +2058,7 @@
           "route": "GET /api/bench-views/:bench/render",
           "class": "normal",
           "what": "不写 view：取第一份",
-          "request": { "method": "GET", "path": "/api/bench-views/demo/render", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "request": { "method": "GET", "path": "/api/bench-views/demo/render", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
@@ -2098,6 +2101,19 @@
                 }
               ]
             }
+          }
+        },
+        {
+          "id": "render-member",
+          "route": "GET /api/bench-views/:bench/render",
+          "class": "unauthorized",
+          "what": "普通员工取数：403（驾驶舱面板显示「你看不到这个台的数据」）",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/render", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
           }
         },
         {
@@ -2343,31 +2359,14 @@
         {
           "id": "log-member",
           "route": "GET /api/bench-views/:bench/log",
-          "class": "normal",
-          "what": "普通员工也看得到留痕",
-          "vary": { "changes.0.at": 60000, "changes.1.at": 60000, "changes.2.at": 60000, "changes.3.at": 60000, "changes.4.at": 60000, "changes.5.at": 60000, "writes.0.at": 60000, "writes.1.at": 60000, "writes.2.at": 60000, "writes.3.at": 60000, "writes.4.at": 60000 },
+          "class": "unauthorized",
+          "what": "普通员工看留痕：403",
           "request": { "method": "GET", "path": "/api/bench-views/demo/log", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
           "response": {
-            "status": 200,
+            "status": 403,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1629", "etag": "W/\"65d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
-            "body": {
-              "changes": [
-                { "id": 6, "kind": "view.rollback", "target": "views", "from": 2, "to": 1, "actor": "user:alpha", "note": "回到首版", "at": 1893456000000 },
-                { "id": 5, "kind": "view.put", "target": "views", "from": 1, "to": 2, "actor": "user:alpha", "note": "改标题", "at": 1893456000000 },
-                { "id": 4, "kind": "view.put", "target": "views", "from": 0, "to": 1, "actor": "user:alpha", "note": "首版", "at": 1893456000000 },
-                { "id": 3, "kind": "dataset.restore", "target": "orders", "from": 1, "to": 1, "actor": "user:alpha", "note": "退回删行之前", "at": 1893456000000 },
-                { "id": 2, "kind": "dataset.snapshot", "target": "orders", "from": 1, "to": 1, "actor": "user:alpha", "note": "回放留的", "at": 1893456000000 },
-                { "id": 1, "kind": "dataset.define", "target": "orders", "from": 0, "to": 1, "actor": "user:alpha", "note": "", "at": 1893456000000 }
-              ],
-              "writes": [
-                { "id": 5, "dataset": "orders", "op": "form", "body_sha256": "e27d9d39e6b0c93242f574aa8c3a8d0a4d2a539e4e0aaf7fb9131c8ecae84246", "rows": 1, "actor": "user:alpha", "at": 1893456000000 },
-                { "id": 4, "dataset": "orders", "op": "delete", "body_sha256": "b347dd2c82ba08147f32c0df69eb5e349dd2f12a29fdfe8bc5e459bfb641b212", "rows": 1, "actor": "user:alpha", "at": 1893456000000 },
-                { "id": 3, "dataset": "orders", "op": "append", "body_sha256": "33be3b6879dbe0a33bb5155026ee143c54764ea66117153d6398167bdc6a69a5", "rows": 1, "actor": "user:alpha", "at": 1893456000000 },
-                { "id": 2, "dataset": "orders", "op": "upsert", "body_sha256": "61a98366e5e5f981f3c3ec2681156d6a7dac15695806242074252e5d17a94733", "rows": 2, "actor": "user:alpha", "at": 1893456000000 },
-                { "id": 1, "dataset": "orders", "op": "replace", "body_sha256": "58a9b788283f2320e245b476bffe896b4a9e40eca81b2b2823bca51b02b4518d", "rows": 2, "actor": "user:alpha", "at": 1893456000000 }
-              ]
-            }
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
           }
         },
         {
@@ -2376,12 +2375,25 @@
           "class": "normal",
           "what": "台的清单里只有登记过的那一个",
           "vary": { "benches.0.created_at": 60000 },
-          "request": { "method": "GET", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "request": { "method": "GET", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "102", "etag": "W/\"66-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": { "benches": [{ "slug": "demo", "title": "示例台", "created_by": "user:alpha", "created_at": 1893456000000 }] }
+          }
+        },
+        {
+          "id": "list-member",
+          "route": "GET /api/bench-views",
+          "class": "unauthorized",
+          "what": "普通员工列台：403",
+          "request": { "method": "GET", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
           }
         }
       ]

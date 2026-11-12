@@ -68,7 +68,7 @@
       "POST /api/bench-views  <- <anonymous>",
       "GET /api/bench-views/:bench/datasets  <- <anonymous>",
       "PUT /api/bench-views/:bench/datasets/:name  <- <anonymous>",
-      "POST /api/bench-views/:bench/datasets/:name/rows  <- <anonymous>, <anonymous>",
+      "POST /api/bench-views/:bench/datasets/:name/rows  <- <anonymous>",
       "POST /api/bench-views/:bench/query  <- <anonymous>",
       "GET /api/bench-views/:bench/datasets/:name/snapshots  <- <anonymous>",
       "POST /api/bench-views/:bench/datasets/:name/snapshots  <- <anonymous>",
