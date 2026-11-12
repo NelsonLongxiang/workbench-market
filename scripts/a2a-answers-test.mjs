@@ -428,7 +428,7 @@ try {
       const Z = seedEvent();
       await receipt(Z.task, '接下', { idempotencyKey: Z.task, disposition: 'acknowledged' }, Z.ctx, { inbound: `ack-${Z.task}` });
       await receipt(Z.task, '排队', { idempotencyKey: Z.task, disposition: 'progress', progress: { n: 1, state: 'queued', at: '2026-11-11T08:00:00.000Z', ahead: 1 },
-        tickets: [{ id: 'z1', title: '重做那一件', seat: 'lab/98b94be9', state: 'queued' }] }, Z.ctx, { inbound: `progress-${Z.task}-1` });
+        tickets: [{ id: 'z1', title: '重做那一件', seat: 'lab/a9a9a9a9', state: 'queued' }] }, Z.ctx, { inbound: `progress-${Z.task}-1` });
       const mid = (await api('GET', `/api/work-items/wi_${Z.ev}`)).body ?? {};
       ok('（对照）任务还没结束：进展和子项照常给', mid.progress?.state === 'queued' && (mid.subitems ?? []).length === 1, JSON.stringify({ p: mid.progress, s: mid.subitems }));
       r = await receipt(Z.task, '做完了', { outcome: 'completed', idempotencyKey: Z.task, disposition: 'result' }, Z.ctx);
