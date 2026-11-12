@@ -32,7 +32,11 @@ export const BENCH_LIMITS = {
 export const NAME_RE = /^[a-z][a-z0-9_]{0,47}$/;
 export const COLUMN_TYPES: readonly BenchColumnType[] = ['text', 'integer', 'decimal', 'date', 'datetime', 'boolean'];
 
-export type ColumnDef = { name: string; type: BenchColumnType; label: string; required: boolean };
+/**
+ * 列定义。values：这一列各个取值是什么意思（业务口径，比如 { ok: '正常', bad: '异常' }），由定义数据集的人写，dataset_list 原样给出；
+ * auto：主键由服务端分配（只用于唯一的整数主键列；追加时没给这一列的行，按现有最大值往上数）
+ */
+export type ColumnDef = { name: string; type: BenchColumnType; label: string; required: boolean; values?: Record<string, string>; auto?: true };
 export type DatasetDef = {
   name: string; title: string; version: number; columns: ColumnDef[]; key: string[];
   row_count: number; data_bytes: number; created_at: number; updated_at: number; updated_by: string;
@@ -126,7 +130,7 @@ const CONTAINS_UNSET = (col: string) => `bench_contains_unset(${col}, ?)`;
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const onlyKeys = (o: Record<string, unknown>, allowed: string[], where: string) => {
   const extra = Object.keys(o).filter((k) => !allowed.includes(k));
-  if (extra.length) invalid(`${where} 有不认识的键：${extra.join('、')}`);
+  if (extra.length) invalid(`${where} 有不认识的键：${extra.join('、')}。能用的键：${allowed.join('、')}`);
 };
 
 /**

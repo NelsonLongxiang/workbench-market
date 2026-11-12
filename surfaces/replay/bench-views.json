@@ -2355,7 +2355,7 @@
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "136", "etag": "W/\"88-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
-            "body": { "dataset": "orders", "op": "form", "rows": 1, "row_count": 5, "inserted": 1, "data_bytes": 160, "duplicate": true, "form": { "view": "entry", "block": 0 } }
+            "body": { "dataset": "orders", "op": "form", "rows": 1, "row_count": 5, "inserted": 0, "data_bytes": 160, "duplicate": true, "form": { "view": "entry", "block": 0 } }
           }
         },
         {
