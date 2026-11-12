@@ -367,6 +367,15 @@ try {
       leadByMgmt: await approve(pLead, as(SESSIONS.noAdminFlag)), deptByMgmt: await approve(pDept, as(SESSIONS.noAdminFlag)),
     };
     const seen = listMgmt.json?.proposals?.find((p) => p.id === pClaim);
+    // 页面用的只增字段：mine（是不是看的人提的）、显示名（不露代号）
+    const listTok = await srv.call('GET', '/api/relations/proposals', { headers: token });
+    const tokClaim = listTok.json?.proposals?.find((p) => p.id === pClaim), tokDept = listTok.json?.proposals?.find((p) => p.id === pDept);
+    const names = seen && { mine: seen.mine, team: seen.team_name, node: seen.node_name, dept: seen.department_name, by: seen.proposed_by_name };
+    check(show(names) === show({ mine: false, team: 'Other', node: '合成节点', dept: '合成质检部', by: '管理员（口令）' })
+      && tokClaim?.mine === true && tokDept?.mine === true && tokDept.principal_name === 'Synthetic root-admin' && tokDept.department_name === '合成质检部' && tokDept.decided_by_name === null
+      && !show(seen).includes('"proposed_by_name":"admin-token"'),
+      '提议列表给页面的：mine（管理层看口令提的是假，口令看自己提的是真）；团队、节点、部门、被提名的人、提议人都给显示名，口令说「管理员（口令）」；没处理的处理人为 null',
+      show({ names, tokClaim: tokClaim?.mine, tokDept: tokDept && [tokDept.mine, tokDept.principal_name, tokDept.department_name, tokDept.decided_by_name] }));
     const claimByMgmt = await approve(pClaim, as(SESSIONS.noAdminFlag)); // 管理层（不是管理员）：经写请求总门的放行进来
     const leadByOwner = await approve(pLead, {}); // 属主（本机命令行）
     const deptByOwner = await approve(pDept, {});
