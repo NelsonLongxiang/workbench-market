@@ -103,6 +103,6 @@ export function registerMcpProtocolRoutes(app: HttpService, deps: McpProtocolDep
       return fail(-32603, `Internal error: ${e?.message || e}`);
     }
   });
-  app.get('/mcp', { action: 'mcp.stream', kind: 'read' }, (_req, res) => res.status(405).json({ error: 'stateless StreamableHTTP：仅支持 POST（无服务端会话流）' }));
-  app.delete('/mcp', { action: 'mcp.session-end', kind: 'write' }, (_req, res) => res.status(405).json({ error: '无会话可终止（stateless）' }));
+  app.get('/mcp', { action: 'mcp.stream', kind: 'read', statusNotVerdict: '固定应答：无会话流，谁来都是 405' }, (_req, res) => res.status(405).json({ error: 'stateless StreamableHTTP：仅支持 POST（无服务端会话流）' }));
+  app.delete('/mcp', { action: 'mcp.session-end', kind: 'write', statusNotVerdict: '固定应答：无会话可终止，谁来都是 405' }, (_req, res) => res.status(405).json({ error: '无会话可终止（stateless）' }));
 }
