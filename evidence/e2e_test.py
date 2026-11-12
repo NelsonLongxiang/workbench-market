@@ -194,16 +194,7 @@ with sync_playwright() as p:
     except Exception as _e:
         print('[E2E] MCP 会话引导失败:', _e)
 
-    # ---------- 1. 仪表盘（新外壳 #571：/ 是全景，原来的总览在 /overview） ----------
-    try:
-        page.goto(BASE + '/overview')
-        page.wait_for_load_state('networkidle')
-        body = page.inner_text('body')
-        assert '工作台总数' in body and '平均延迟' in body, '统计卡缺失'
-        assert '全部检测' in body, '操作按钮缺失'
-        record('仪表盘渲染（统计卡/操作）', True)
-    except Exception as e:
-        record('仪表盘渲染（统计卡/操作）', False, str(e)); shot('dashboard')
+    # ---------- 1. 仪表盘：原来的总览（/overview）随旧页面删了（属主 2026-11-11），全景另有回归 ----------
 
     if ADMIN_UI:  # #292 M1：市场管理（新增/开关/改名/复制/删除）只在控制面页面做；控制面关闭时走下方本机 CLI 分支
         # ---------- 2. 市场页：新增（含校验失败分支） ----------
@@ -689,7 +680,6 @@ with sync_playwright() as p:
         ('/ 使用页·标题', f'/use/{_use_wid}', '.wm-use-bar .wm-use-title', 4.5),
         ('/ 使用页·地址文字', f'/use/{_use_wid}', '.wm-use-bar .wm-mono', 4.5),
         ('/ 使用页·顶栏按钮', f'/use/{_use_wid}', '.wm-use-bar .ant-btn', 4.5),
-        ('/overview 总览·统计标签', '/overview', '.wm-stat-card .wm-stat-label', 4.5),
         ('/ 全景·侧栏主入口', '/', '[data-testid=wm-side] .wm-nav-item:not(.on)', 4.5),
         ('/market/manage 表格·状态文字', '/market/manage', '.ant-table-tbody .ant-badge-status-text', 4.5),
         ('/sops 表格·SOP 状态 Tag', '/sops', '.ant-table-tbody .ant-tag', 4.5),
