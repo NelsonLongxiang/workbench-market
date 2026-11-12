@@ -18,13 +18,15 @@ export interface TableBlockProps extends BlockFrameProps {
   onRowClick?: (row: Row) => void;
   /** 每行的操作：内容由调用方给，这里把它放在最右一列并固定。直接露出的不超过 2 个，多的由调用方收进「更多」（components/RowActions.tsx） */
   rowActions?: (row: Row) => ReactNode;
+  /** 紧凑：行高照原型明细表的密度。拼进面板里用；单独成页不给 */
+  dense?: boolean;
   /** 状态列的值怎么说、用什么颜色；没给的值原样显示成灰标签。不要把服务端的状态代号直接给人看 */
   statusText?: (value: unknown, column: string) => { text: string; tone?: 'success' | 'warning' | 'danger' | 'default' } | null;
 }
 
 const TONE: Record<string, string> = { success: 'success', warning: 'warning', danger: 'error', default: 'default' };
 
-export function TableBlock({ columns, pageSize = 10, onRowClick, rowActions, statusText, span = 12, ...frame }: TableBlockProps) {
+export function TableBlock({ columns, pageSize = 10, onRowClick, rowActions, statusText, dense, span = 12, ...frame }: TableBlockProps) {
   const defs = frame.data?.columns ?? [];
   const picked = (columns ? columns.map((n) => defs.find((c) => c.name === n)).filter((c): c is BlockColumn => !!c) : defs);
   // 状态列排最左
@@ -41,7 +43,9 @@ export function TableBlock({ columns, pageSize = 10, onRowClick, rowActions, sta
         if (kind === 'status') {
           if (v === null || v === undefined || v === '') return '-';
           const s = statusText?.(v, c.name);
-          return <Tag color={TONE[s?.tone ?? 'default']}>{s?.text ?? String(v)}</Tag>;
+          // 没配说法的取值：灰色的原文，比标签弱一档，一眼看得出「这个还没配说法」
+          if (!s) return <span className="wm-bb-raw" title="这个取值还没有配说法">{String(v)}</span>;
+          return <Tag color={TONE[s.tone ?? 'default']}>{s.text}</Tag>;
         }
         return cellText(v, kind);
       },
@@ -55,7 +59,7 @@ export function TableBlock({ columns, pageSize = 10, onRowClick, rowActions, sta
   return (
     <BlockFrame {...frame} span={span} kind="table">
       <Table<Row>
-        size="middle" scroll={rowActions ? { x: 'max-content' } : undefined} columns={cols} dataSource={rows} rowKey={(r) => keyOf.get(r) ?? ''}
+        size={dense ? 'small' : 'middle'} className={dense ? 'wm-bb-dense' : undefined} scroll={rowActions ? { x: 'max-content' } : undefined} columns={cols} dataSource={rows} rowKey={(r) => keyOf.get(r) ?? ''}
         pagination={rows.length > pageSize ? { pageSize, size: 'small', showSizeChanger: false, hideOnSinglePage: true } : false}
         onRow={onRowClick ? (row) => ({ onClick: () => onRowClick(row), className: 'wm-bb-row-click' }) : undefined}
       />

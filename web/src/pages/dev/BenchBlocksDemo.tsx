@@ -51,6 +51,7 @@ function render(params: Record<string, string>): ViewResult {
   };
 }
 
+const MARGINS: BlockData = { columns: [col('sku', 'text', '商品'), col('margin', 'decimal', '毛利率')], rows: [34, 31, 29, 27, 26, 25, 23, 22, 19, 18, 17, 16, 14, 11].map((margin, i) => ({ sku: `商品 ${String.fromCharCode(65 + i)}`, margin })) };
 const STATUS_TEXT: Record<string, { text: string; tone: 'success' | 'warning' | 'danger' }> = { done: { text: '已完成', tone: 'success' }, doing: { text: '进行中', tone: 'warning' }, late: { text: '已超期', tone: 'danger' } };
 const few: BlockData = { columns: [col('k', 'text', '类目'), col('v', 'integer', '数量')], rows: [{ k: '甲', v: 12 }, { k: '乙', v: 7 }, { k: '丙', v: 3 }] };
 const many: BlockData = { columns: [col('k', 'text', '类目'), col('s', 'text', '系列'), col('v', 'integer', '数量')], rows: ['甲', '乙', '丙'].flatMap((k, i) => ['一', '二', '三', '四', '五', '六', '七'].map((s, j) => ({ k, s, v: 3 + ((i * 5 + j * 3) % 8) }))) };
@@ -77,7 +78,19 @@ export default function BenchBlocksDemo() {
         <TableBlock title="状态用人话、整行可点" span={6} data={{ columns: [col('status', 'text', '状态', 'status'), col('owner', 'text', '负责人', 'person'), col('n', 'integer', '件数')], rows: [{ status: 'done', owner: '周一', n: 3 }, { status: 'late', owner: { name: '吴二', seat: 'w2' }, n: 12000 }, { status: 'x-unknown', owner: '郑三', n: null }] }} statusText={(v) => STATUS_TEXT[String(v)] ?? null} onRowClick={(r) => setPicked(`行 ${String(r.status)}`)} rowActions={(r) => <Button type="link" size="small" onClick={() => setPicked(`操作 ${String(r.status)}`)}>催一下</Button>} />
       </DashGrid>
 
-      <Typography.Paragraph type="secondary" className="wm-bb-demo-gap">三、四种状态：读取中、出错、空、数据不全。</Typography.Paragraph>
+      <Typography.Paragraph type="secondary" className="wm-bb-demo-gap">三、拼进面板里的样子：不带外框、按值着色、表格紧凑。</Typography.Paragraph>
+      <div className="wm-bb-demo-panel">
+        <DashGrid>
+          <StatBlock frame="none" title="本月营收" unit="元" value="v" data={{ columns: [col('v', 'decimal', '营收')], rows: [{ v: 34700 }] }} delta={{ value: 4.2, direction: 'up', label: '% 比上月' }} />
+          <StatBlock frame="none" title="本月毛利" unit="元" value="v" data={{ columns: [col('v', 'decimal', '毛利')], rows: [{ v: 8500 }] }} />
+          <StatBlock frame="none" title="平均毛利率" unit="%" value="v" data={{ columns: [col('v', 'decimal', '毛利率')], rows: [{ v: 24.4 }] }} />
+          <StatBlock frame="none" title="毛利率低于 20%" unit="个" value="v" data={{ columns: [col('v', 'integer', '个数')], rows: [{ v: 6 }] }} toneRules={[{ col: 'v', op: '>', value: 0, tone: 'danger' }]} />
+          <BarBlock frame="none" span={12} x="sku" y="margin" data={MARGINS} toneRules={[{ col: 'margin', op: '<', value: 20, tone: 'danger' }]} toneUnit="%" onSelect={(rows, c) => setPicked(`柱 ${c}（${rows.length} 行）`)} />
+          <TableBlock frame="none" dense span={12} pageSize={6} data={{ columns: [col('sku', 'text', '商品'), col('status', 'text', '运费', 'status'), col('revenue', 'decimal', '营收'), col('margin', 'decimal', '毛利率')], rows: MARGINS.rows.map((r, i) => ({ ...r, status: i % 3 === 0 ? 'est' : i % 5 === 0 ? 'unknown' : 'real', revenue: 4280 - i * 190 })) }} statusText={(v) => (v === 'est' ? { text: '估算', tone: 'warning' } : v === 'real' ? { text: '实收' } : null)} />
+        </DashGrid>
+      </div>
+
+      <Typography.Paragraph type="secondary" className="wm-bb-demo-gap">四、四种状态：读取中、出错、空、数据不全。</Typography.Paragraph>
       <DashGrid>
         <StatBlock title="读取中" value="v" loading />
         <StatBlock title="出错" value="v" error={{ code: 'timeout' }} />

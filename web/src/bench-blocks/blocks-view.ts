@@ -136,6 +136,30 @@ export function errorText(e: BlockError): string {
   return '读不到这块数据，稍后再试。';
 }
 
+export type Tone = 'danger' | 'warning' | 'success';
+/** 按值着色的一条规则：某一列的值满足条件，就用这种语气的颜色。颜色只有三种语义色，不能给任意色值 */
+export type ToneRule = { col: string; op: '<' | '<=' | '>' | '>=' | '=' | '!='; value: number; tone: Tone };
+export const MAX_TONE_RULES = 2;
+const TONE_OPS: Record<string, (a: number, b: number) => boolean> = { '<': (a, b) => a < b, '<=': (a, b) => a <= b, '>': (a, b) => a > b, '>=': (a, b) => a >= b, '=': (a, b) => a === b, '!=': (a, b) => a !== b };
+const TONES = ['danger', 'warning', 'success'];
+/** 只留写得对的规则，最多两条（保存视图描述时服务端核对过；这里再守一道，写错的当作没有） */
+export function toneRules(v: unknown): ToneRule[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((r): r is ToneRule => !!r && typeof r === 'object' && typeof r.col === 'string' && Object.hasOwn(TONE_OPS, r.op) && isNum(r.value) && TONES.includes(r.tone)).slice(0, MAX_TONE_RULES);
+}
+/** 这一行按规则该用什么语气：按先后，第一条满足的算；都不满足、或者那一列不是数字，就没有 */
+export function toneOf(row: Record<string, unknown> | undefined, rules: ToneRule[]): Tone | null {
+  if (!row) return null;
+  for (const r of rules) { const v = Object.hasOwn(row, r.col) ? row[r.col] : undefined; if (isNum(v) && TONE_OPS[r.op](v, r.value)) return r.tone; }
+  return null;
+}
+const TONE_WORD: Record<Tone, string> = { danger: '红', warning: '黄', success: '绿' };
+const OP_WORD: Record<string, string> = { '<': '低于', '<=': '不高于', '>': '高于', '>=': '不低于', '=': '等于', '!=': '不等于' };
+/** 图下那一行说明：「红 = 毛利率低于 20；黄 = …」。只有一列在算的时候可以不写列名 */
+export function toneNote(rules: ToneRule[], data: BlockData | null | undefined, unit = ''): string {
+  return rules.map((r) => `${TONE_WORD[r.tone]} = ${colLabel(data, r.col)}${OP_WORD[r.op]} ${fmtNumber(r.value)}${unit}`).join('；');
+}
+
 export type ValueLabel = { text: string; tone?: 'success' | 'warning' | 'danger' | 'default' };
 /**
  * 视图描述里表格的「取值 → 说法」对照（value_labels：列名 → 取值 → 说法，说法可以只写文字，也可以带颜色）。

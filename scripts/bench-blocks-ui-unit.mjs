@@ -61,11 +61,18 @@ ok('数字、布尔的取值按文本对', v.valueLabel({ n: { 1: '一', true: '
 const wl = v.withLabelColumns({ columns: [col('status', 'text'), col('n', 'integer'), { ...col('who', 'text'), display: 'person' }], rows: [] }, { status: {}, who: {} });
 ok('有对照的列按状态画；已经指定了画法的不改；别的列不动', wl.columns[0].display === 'status' && wl.columns[1].display === undefined && wl.columns[2].display === 'person' && v.withLabelColumns(null, L) === null);
 
+console.log('按值着色');
+const R = v.toneRules([{ col: 'm', op: '<', value: 20, tone: 'danger' }, { col: 'm', op: '<', value: 25, tone: 'warning' }, { col: 'm', op: '>=', value: 30, tone: 'success' }]);
+ok('最多两条规则；写错的当作没有', R.length === 2 && v.toneRules('x').length === 0 && v.toneRules([{ col: 'm', op: 'like', value: 1, tone: 'danger' }, { col: 'm', op: '<', value: '20', tone: 'danger' }, { col: 'm', op: '<', value: 1, tone: '#ff0000' }, { col: 'm', op: 'constructor', value: 1, tone: 'danger' }, null]).length === 0);
+ok('按先后，第一条满足的算；都不满足没有；那一列不是数字没有', v.toneOf({ m: 12 }, R) === 'danger' && v.toneOf({ m: 22 }, R) === 'warning' && v.toneOf({ m: 40 }, R) === null && v.toneOf({ m: '12' }, R) === null && v.toneOf({}, R) === null && v.toneOf(undefined, R) === null);
+ok('六种比较符', ['<', '<=', '>', '>=', '=', '!='].map((op) => v.toneOf({ m: 20 }, v.toneRules([{ col: 'm', op, value: 20, tone: 'danger' }])) ? 1 : 0).join('') === '010110');
+ok('说明那一行：红 = 列的显示名 低于 值（带单位）', v.toneNote(R, { columns: [col('m', 'decimal', '毛利率')], rows: [] }, '%') === '红 = 毛利率低于 20%；黄 = 毛利率低于 25%', v.toneNote(R, { columns: [col('m', 'decimal', '毛利率')], rows: [] }, '%'));
+
 console.log('图表配置只取 token');
-const T = { series: ['#111111', '#222222', '#333333', '#444444', '#555555'], muted: '#999999', text: '#000001', textSecondary: '#000002', border: '#000003', surface: '#000004', fontFamily: 'F', fontSize: 12 };
+const T = { series: ['#111111', '#222222', '#333333', '#444444', '#555555'], muted: '#999999', tones: { danger: '#aa0001', warning: '#aa0002', success: '#aa0003' }, text: '#000001', textSecondary: '#000002', border: '#000003', surface: '#000004', fontFamily: 'F', fontSize: 12 };
 const hexes = (o) => [...new Set(JSON.stringify(o).match(/#[0-9a-fA-F]{3,8}\b/g) ?? [])];
 const model = { categories: ['a', 'b'], series: [{ name: 's1', values: [1, 2] }, { name: 's2', values: [3, null] }] };
-const allowed = new Set([...T.series, T.muted, T.text, T.textSecondary, T.border, T.surface]);
+const allowed = new Set([...T.series, T.muted, ...Object.values(T.tones), T.text, T.textSecondary, T.border, T.surface]);
 for (const [name, o] of [['柱', c.cartesianOption('bar', model, T, { stacked: true })], ['横向柱', c.cartesianOption('bar', model, T, { horizontal: true })], ['线', c.cartesianOption('line', model, T, { area: true })], ['饼', c.pieOption([{ name: 'a', value: 1 }], T, { donut: true })]]) {
   ok(`${name}：出现的色值都是递进来的 token，没有图表库自带的颜色`, hexes(o).every((h) => allowed.has(h)) && o.color === T.series && o.textStyle.fontFamily === 'F', hexes(o));
 }
@@ -77,6 +84,13 @@ o = c.cartesianOption('line', { ...model, merged: true }, T);
 ok('并出来的「其他」用中性色，别的系列不动', o.series[1].color === T.muted && o.series[0].color === undefined);
 o = c.pieOption([{ name: 'a', value: 2 }, { name: '其他', value: 1 }], T, { merged: true });
 ok('饼：并出来的那一块用中性色；环形和实心的半径不同', o.series[0].data[1].itemStyle.color === T.muted && o.series[0].data[0].itemStyle === undefined && o.series[0].radius[0] === 0 && c.pieOption([], T, { donut: true }).series[0].radius[0] !== 0);
+
+const single = { categories: ['a', 'b', 'c'], series: [{ name: 's', values: [1, 2, 3] }] };
+o = c.cartesianOption('bar', single, T, { tones: ['danger', null, 'warning'] });
+ok('按值着色：只有那几根柱子换成语义色，别的还是系列的颜色', o.series[0].data[0].itemStyle.color === T.tones.danger && o.series[0].data[1] === 2 && o.series[0].data[2].itemStyle.color === T.tones.warning && hexes(o).every((h) => allowed.has(h)));
+ok('多个系列、线图：不按值着色', c.cartesianOption('bar', model, T, { tones: ['danger', 'danger'] }).series[0].data[0] === 1 && c.cartesianOption('line', single, T, { tones: ['danger', null, null] }).series[0].data[0] === 1);
+o = c.pieOption([{ name: 'a', value: 1 }], T, { donut: true });
+ok('饼的半径按像素定（块再宽也不变大）；图例缺省在右，窄的时候在下', typeof o.series[0].radius[1] === 'number' && o.legend.orient === 'vertical' && c.pieOption([{ name: 'a', value: 1 }], T, { legendBelow: true }).legend.bottom === 0);
 
 console.log(`\nbench-blocks-ui-unit: ${pass} passed / ${fail} failed`);
 process.exit(fail ? 1 : 0);

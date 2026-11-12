@@ -24,9 +24,11 @@ export interface BlockFrameProps {
   /** 空的时候说什么：说清为什么空、下一步能做什么。不给就只说没有符合条件的数据 */
   empty?: string;
   data?: BlockData | null;
+  /** 外框：card（缺省，单独成页时用）带白底细边框；none 没有外框，拼进驾驶舱的面板里用——统计卡和进度是浅底圆角的一块，图表和表格是裸内容 */
+  frame?: 'card' | 'none';
 }
 
-export function BlockFrame({ title, span = 6, extra, asOf, staleAfterMs, loading, error, errorMessage, empty, data, kind, skipEmpty, smallTitle, onClick, label, children }: BlockFrameProps & {
+export function BlockFrame({ title, span = 6, extra, asOf, staleAfterMs, loading, error, errorMessage, empty, data, frame = 'card', kind, skipEmpty, smallTitle, onClick, label, children }: BlockFrameProps & {
   /** skipEmpty：这个块没有「空」这一说（筛选栏、表单）。smallTitle：标题画成数字上面那行小标签（统计卡、进度），四种状态下都在 */
   kind: string; skipEmpty?: boolean; smallTitle?: boolean; onClick?: () => void; label?: string; children?: ReactNode;
 }) {
@@ -36,8 +38,8 @@ export function BlockFrame({ title, span = 6, extra, asOf, staleAfterMs, loading
   const state = loading ? 'loading' : error ? 'error' : !skipEmpty && isEmptyData(data) ? 'empty' : 'ready';
   return (
     <section
-      className={`wm-dash-card wm-bb wm-bb-${kind} wm-span-${span}${onClick ? ' wm-dash-clickable' : ''}`}
-      data-span={span} data-bb={kind} data-bb-state={state}
+      className={`${frame === 'none' ? 'wm-bb-bare' : 'wm-dash-card'} wm-bb wm-bb-${kind} wm-span-${span}${onClick ? ' wm-dash-clickable' : ''}`}
+      data-span={span} data-bb={kind} data-bb-state={state} data-bb-frame={frame}
       {...(onClick ? { role: 'button', tabIndex: 0, 'aria-label': label, onClick, onKeyDown: onKey } : {})}
     >
       {head ? (

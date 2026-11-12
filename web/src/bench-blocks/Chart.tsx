@@ -6,14 +6,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DESIGN_TOKENS as T } from '../design-tokens';
 import { BlockFrame, type BlockFrameProps } from './Frame';
-import { MAX_SERIES, toSeries, toSlices } from './blocks-view';
+import { MAX_SERIES, toSeries, toSlices, toneNote, toneOf, toneRules } from './blocks-view';
 import { cartesianOption, pieOption, type ChartTokens } from './chart-option';
 
 type Row = Record<string, unknown>;
 const TOKENS: ChartTokens = {
   // 系列的颜色只有 token 里这几种。危险色排最后：它本来的意思是「出问题了」，只有分到第五个系列才用上
   series: [T.colors.primary, T.colors.success, T.colors.warning, T.colors['text-secondary'], T.colors.danger],
-  muted: T.colors['border-strong'], text: T.colors.text, textSecondary: T.colors['text-secondary'], border: T.colors.border, surface: T.colors.surface,
+  muted: T.colors['border-strong'], tones: { danger: T.colors.danger, warning: T.colors.warning, success: T.colors.success }, text: T.colors.text, textSecondary: T.colors['text-secondary'], border: T.colors.border, surface: T.colors.surface,
   fontFamily: T.typography['family-sans'], fontSize: parseInt(T.typography.caption.fontSize, 10),
 };
 
@@ -52,20 +52,24 @@ interface CartesianProps extends BlockFrameProps {
   /** 点了某个类目（柱或点）：给出这个类目对应的那几行 */
   onSelect?: (rows: Row[], category: string) => void;
 }
-function Cartesian({ kind, x, y, series, onSelect, flags, ...frame }: CartesianProps & { kind: 'bar' | 'line'; flags: { stacked?: boolean; horizontal?: boolean; area?: boolean } }) {
+/** 柱状图另有：按值着色（只有一个系列时生效），图下自动带一行说明 */
+function Cartesian({ kind, x, y, series, onSelect, flags, rules, unit, ...frame }: CartesianProps & { kind: 'bar' | 'line'; flags: { stacked?: boolean; horizontal?: boolean; area?: boolean }; rules?: unknown; unit?: string }) {
   const m = useMemo(() => toSeries(frame.data, x, y, series), [frame.data, x, y, series]);
-  const option = useMemo(() => cartesianOption(kind, m, TOKENS, flags), [kind, m, flags.stacked, flags.horizontal, flags.area]); // eslint-disable-line react-hooks/exhaustive-deps
+  const tr = useMemo(() => (kind === 'bar' && m.series.length === 1 ? toneRules(rules) : []), [kind, m, rules]);
+  const tones = useMemo(() => (tr.length ? m.rowsAt.map((rows) => toneOf(rows[0], tr)) : undefined), [m, tr]);
+  const option = useMemo(() => cartesianOption(kind, m, TOKENS, { ...flags, tones }), [kind, m, tones, flags.stacked, flags.horizontal, flags.area]); // eslint-disable-line react-hooks/exhaustive-deps
   const label = `${typeof frame.title === 'string' ? frame.title : '图表'}：${m.categories.map((c, i) => `${c} ${m.series.map((s) => `${s.name} ${s.values[i] ?? '无'}`).join('，')}`).join('；')}`;
   return (
     <BlockFrame {...frame} kind={kind}>
       <Canvas option={option} label={label} onPick={onSelect ? (p) => { const i = m.categories.indexOf(String(p.name)); if (i >= 0) onSelect(m.rowsAt[i], m.categories[i]); } : undefined} />
       {m.merged ? mergedNote : null}
+      {tr.length ? <div className="wm-bb-truncated" data-bb-tone-note>{toneNote(tr, frame.data, unit)}</div> : null}
     </BlockFrame>
   );
 }
 
-export interface BarBlockProps extends CartesianProps { stacked?: boolean; horizontal?: boolean }
-export function BarBlock({ stacked, horizontal, ...p }: BarBlockProps) { return <Cartesian {...p} kind="bar" flags={{ stacked, horizontal }} />; }
+export interface BarBlockProps extends CartesianProps { stacked?: boolean; horizontal?: boolean; toneRules?: unknown; /** 说明那一行里数值后面带的单位（如 %） */ toneUnit?: string }
+export function BarBlock({ stacked, horizontal, toneRules: rules, toneUnit, ...p }: BarBlockProps) { return <Cartesian {...p} kind="bar" flags={{ stacked, horizontal }} rules={rules} unit={toneUnit} />; }
 
 export interface LineBlockProps extends CartesianProps { area?: boolean }
 export function LineBlock({ area, ...p }: LineBlockProps) { return <Cartesian {...p} kind="line" flags={{ area }} />; }
@@ -76,7 +80,9 @@ export interface PieBlockProps extends BlockFrameProps {
 }
 export function PieBlock({ label, value, donut, onSelect, ...frame }: PieBlockProps) {
   const m = useMemo(() => toSlices(frame.data, label, value), [frame.data, label, value]);
-  const option = useMemo(() => pieOption(m.slices, TOKENS, { donut, merged: m.merged }), [m, donut]);
+  // 块窄（占 3、4 栏）时图例放不下右边，放到下面
+  const legendBelow = (frame.span ?? 6) <= 4;
+  const option = useMemo(() => pieOption(m.slices, TOKENS, { donut, merged: m.merged, legendBelow }), [m, donut, legendBelow]);
   const aria = `${typeof frame.title === 'string' ? frame.title : '占比'}：${m.slices.map((s) => `${s.name} ${s.value}`).join('；')}`;
   return (
     <BlockFrame {...frame} kind="pie" data={m.slices.length ? frame.data : null}>

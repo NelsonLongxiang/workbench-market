@@ -7,4 +7,4 @@ export { BarBlock, LineBlock, PieBlock, type BarBlockProps, type LineBlockProps,
 export { FilterBar, type FilterBarProps, type FilterField } from './FilterBar';
 export { FormBlock, type FormBlockProps, type FormField } from './Form';
 export { BenchView, type BenchViewProps, type ViewResult } from './BenchView';
-export type { BlockData, BlockColumn, BlockError, CellKind } from './blocks-view';
+export type { BlockData, BlockColumn, BlockError, CellKind, ToneRule } from './blocks-view';
