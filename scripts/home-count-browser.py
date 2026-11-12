@@ -61,5 +61,16 @@ with sync_playwright() as p:
     ctx, pg = open_home(b, cfg['alpha_session'])
     badge, in_sum, head, summary = three(pg)
     check(f'建立人 alpha：没有轮到他的，三处都是 0（{badge} / {in_sum} / {head}）', badge == 0 and in_sum == 0 and head == 0, summary)
+    # 外壳两处：用户卡写显示名（不是登录名），头像取显示名首字；两个字的按钮不插空格（全站一处设）
+    me_name = pg.locator('[data-testid=wm-me-name]').inner_text().strip()
+    me_av = pg.locator('[data-testid=wm-me-avatar]').inner_text().strip()
+    check(f'用户卡写显示名、头像取显示名首字（{me_name} / {me_av}）', me_name == 'Synthetic alpha' and me_av == 'S', (me_name, me_av))
+    pg.goto(M + '/work-items'); pg.wait_for_selector('[data-testid=work-items-views]')
+    btn = pg.get_by_role('button', name='刷新').first
+    check('两个字的按钮不在字中间插空格（「刷新」不是「刷 新」）', btn.inner_text().strip() == '刷新', btn.inner_text())
+    # 地址里带视角和席位（驾驶舱「AI 员工」点卡过来的）：页面认得；这个视角还不能用时退回能看的、告诉一声，不报错
+    pg.goto(M + '/work-items?view=seats&seat=s-synthetic'); pg.wait_for_selector('[data-testid=work-items-views]'); pg.wait_for_timeout(800)
+    shown = pg.locator('[data-testid=work-items-url-filter], [data-testid=work-items-url-filter-note]')
+    check('事项列表认地址里的 view / seat：要么按它筛着，要么说清这个视角还看不了', shown.count() >= 1 and pg.locator('.ant-alert-error').count() == 0, shown.all_inner_texts())
     ctx.close(); b.close()
 print(f'home-count-browser: {ok} passed / {fail} failed'); sys.exit(1 if fail else 0)

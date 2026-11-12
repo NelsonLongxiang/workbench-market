@@ -81,7 +81,7 @@ child.stderr.on('data', (d) => { out += d; });
 async function ready() { const end = Date.now() + 30000; while (Date.now() < end) { try { if ((await fetch(BASE + '/api/health')).status === 200) return true; } catch {} await sleep(250); } return false; }
 const ADMIN = { 'x-admin-token': 'ans-admin', 'sec-fetch-site': 'same-origin' };
 const api = async (method, path, body) => { const r = await fetch(BASE + path, { method, headers: { ...ADMIN, ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined }); let j = null; try { j = await r.json(); } catch {} return { status: r.status, body: j }; };
-const db = () => { const d = new DatabaseSync(join(DATA, 'workbench-market.db')); d.exec('PRAGMA busy_timeout = 5000'); return d; };
+const db = () => { const d = new DatabaseSync(join(DATA, 'workbench-market.db'), { timeout: 5000 }); d.exec('PRAGMA busy_timeout = 5000'); return d; };
 const q = (sql, ...a) => { const d = db(); try { return d.prepare(sql).all(...a); } finally { d.close(); } };
 let n = 0;
 function seedEvent({ dispatch = 1, zone = 'lab', root = lab.url } = {}) {
@@ -100,7 +100,7 @@ function seedEvent({ dispatch = 1, zone = 'lab', root = lab.url } = {}) {
   } finally { d.close(); }
 }
 const state = (ev) => q('SELECT state, open_asks FROM work_items WHERE id = ?', `wi_${ev}`)[0] ?? null;
-const noRecProbe = (inbound) => { const d = new DatabaseSync(join(DATA, 'workbench-market.db')); try { d.exec('PRAGMA busy_timeout = 5000'); return d.prepare('SELECT COUNT(*) AS c FROM workbench_event_followups WHERE inbound_task = ?').get(inbound).c === 0; } finally { d.close(); } };
+const noRecProbe = (inbound) => { const d = new DatabaseSync(join(DATA, 'workbench-market.db'), { timeout: 5000 }); try { d.exec('PRAGMA busy_timeout = 5000'); return d.prepare('SELECT COUNT(*) AS c FROM workbench_event_followups WHERE inbound_task = ?').get(inbound).c === 0; } finally { d.close(); } };
 /** 持有管理层授予的人（会话登录）：席位提问由他代办答 */
 const MGMT = { cookie: `session_id=${SESSIONS.noAdminFlag}`, 'sec-fetch-site': 'same-origin' };
 const asMgmt = async (method, path, body) => { const r = await fetch(BASE + path, { method, headers: { ...MGMT, ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined }); let j = null; try { j = await r.json(); } catch {} return { status: r.status, body: j }; };

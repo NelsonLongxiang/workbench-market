@@ -96,7 +96,7 @@ async function stop() { if (!child || child.exitCode !== null) return; const don
 boot();
 async function ready() { const end = Date.now() + 30000; while (Date.now() < end) { try { if ((await fetch(BASE + '/api/health')).status === 200) return true; } catch {} await new Promise((r) => setTimeout(r, 250)); } return false; }
 
-const db = () => new DatabaseSync(join(DATA, 'workbench-market.db'));
+const db = () => new DatabaseSync(join(DATA, 'workbench-market.db'), { timeout: 5000 });
 let n = 0;
 /** 造一个已送达的事件（照 workbench-events 的列）+ 一次投递 + 我们发出的任务号；返回 { ev, task, delivery } */
 function seedEvent({ zone = 'lab', root = lab.url, submitter = 'human', teams = 1 } = {}) {

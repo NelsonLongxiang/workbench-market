@@ -137,7 +137,7 @@ try {
   ok('伪造票号 404，也带 no-referrer', bad.status === 404 && bad.headers.get('referrer-policy') === 'no-referrer');
   {
     const { DatabaseSync } = await import('node:sqlite');
-    const sdb = new DatabaseSync(join(DATA, 'workbench-market.db'));
+    const sdb = new DatabaseSync(join(DATA, 'workbench-market.db'), { timeout: 5000 });
     const ticket = dl.out.download_url.split('/').pop();
     const key = createHash('sha256').update(ticket).digest('hex');
     ok('票据表里查不到明文票号（只存 sha256）', !sdb.prepare('SELECT 1 FROM skill_download_tickets WHERE id = ?').get(ticket) && !sdb.prepare('SELECT 1 FROM skill_download_tickets WHERE instr(id, ?) > 0 OR instr(issued_to, ?) > 0').get(ticket, ticket));

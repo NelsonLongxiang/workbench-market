@@ -384,6 +384,8 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   sop-state-checkpoints.ts（#337 热写检查点：逐 run 串行与 SQLite 落盘期限）
   sop-types.ts（SOP 类型）
   sso-ticket-store.ts（门户 SSO 回调一次性票据的 SQLite 存储：重启不丢、多实例原子取出）
+  startup-gate-hold.ts（服务进程最先引入：拉上启动闸）
+  startup-gate.ts（启动闸：后台任务——事项回填——等启动自检通过再开始；没拉闸的进程照旧马上开始）
   startup-security-self-probe.ts（#326 启动匿名安全面自检与门闩）
   submitter-ticket.ts  提交人票据：出台页面 HTML 时给认得出的启用的人一张票据（服务端密钥签名，绑主体、台、两小时，不续期），台页面提交时放在信封的 submitter_ticket 里带回，验过才在这个台的提交上记下这个人；别的入口一律不认；启动自检失败就关掉（不出、不认）
   surfaces.ts（#292 M1 业务面/控制面多端口监听·按 localPort 判面·浏览器标记与回环判定）
