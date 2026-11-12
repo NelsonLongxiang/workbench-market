@@ -409,6 +409,15 @@ try {
         && show(rootSees) === show([pLeadRoot]) && rootLead?.mine === true && rootLead.can_reject === true && rootLead.can_approve === false,
         '驳回：系统管理员（管理口令、管理员登录）驳回别人提的负责人、认领提议 403；撤回自己提的 200；能确认的人（属主对负责人、管理层对认领）驳回 200；管理员登录的列表里只看到自己提的那条（can_reject 是撤回、can_approve 假） [red-line:relations-need-confirmation]',
         show({ codes, rootSees, ids: { pLeadRoot, pDeptTok, pMoveTok }, rootLead: rootLead && [rootLead.mine, rootLead.can_reject, rootLead.can_approve] }));
+      // 处理过的也按看的人裁剪：看自己提的、自己处理的；别人提、别人处理的不列（属主全看）
+      const idsOf = async (who) => ((await srv.call('GET', '/api/relations/proposals', who)).json?.proposals ?? []).map((p) => p.id);
+      const mgmtIds = await idsOf(as(SESSIONS.noAdminFlag)), rootIds = await idsOf(asRoot), ownerIds = await idsOf({});
+      const has = (ids, id) => ids.includes(id);
+      check(has(mgmtIds, pMoveTok) && !has(mgmtIds, pDeptTok) && !has(mgmtIds, pLeadRoot)
+        && has(rootIds, pLeadRoot) && !has(rootIds, pDeptTok) && !has(rootIds, pMoveTok)
+        && [pLeadRoot, pDeptTok, pMoveTok].every((id) => has(ownerIds, id)),
+        '处理过的提议也按看的人裁剪：管理层看得到自己驳回的认领，看不到属主驳回的、管理员登录撤回的；管理员登录只看得到自己撤回的那条；属主全看',
+        show({ mgmt: [pMoveTok, pDeptTok, pLeadRoot].map((id) => has(mgmtIds, id)), root: [pLeadRoot, pDeptTok, pMoveTok].map((id) => has(rootIds, id)), owner: [pLeadRoot, pDeptTok, pMoveTok].map((id) => has(ownerIds, id)) }));
     }
     // 3) 接收部门的负责人（dept:<部门> 有拍板授予）能确认挂到他部门的认领；没有授予的部门负责人（只在部门表里）不能
     const g = await srv.call('POST', '/api/grants', { body: { principal: 'user:beta', role: 'dept-lead', scope: 'dept:ops', reason: '合成：ops 负责人' } });
