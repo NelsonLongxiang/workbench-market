@@ -23,13 +23,15 @@ with sync_playwright() as p:
     writes = []
     pg3 = ctx.new_page(); pg3.set_default_timeout(10000)
     pg3.on('request', lambda r: writes.append(f'{r.method} {r.url}') if r.method != 'GET' and '/api/cockpits' in r.url else None)
-    pg3.goto(M + f'/cockpit/{cid}'); pg3.wait_for_selector('.wm-cockpit-grid .wm-panel')
+    pg3.goto(M + f'/cockpit/{cid}'); pg3.wait_for_selector('.wm-ck-benches .wm-panel')
     pg3.wait_for_timeout(800)
-    n = pg3.locator('.wm-cockpit-grid .wm-panel').count()
+    n = pg3.locator('.wm-ck-benches .wm-panel').count()
     check(f'旧布局升级后不丢卡片（{n}/{len(before)}）', n == len(before))
-    cols = pg3.evaluate("""(()=>{const g=document.querySelector('.wm-cockpit-grid');const gw=g.getBoundingClientRect().width;
-      return [...g.querySelectorAll(':scope > .react-grid-item')].map(e=>{const s=e.style.width;return Math.round((e.getBoundingClientRect().width+12)/(gw+12)*12*10)/10})})()""")
-    check(f'面板宽度吸附到 3/4/6/12 档（{cols}）', all(min(abs(c - k) for k in (3, 4, 6, 12)) <= 0.3 for c in cols))
+    # 内嵌的工作台按栏宽单列排：一个台占满栏宽，不能拖、不能拉伸
+    ws = pg3.evaluate("""(()=>{const g=document.querySelector('.wm-ck-benches');const gw=g.getBoundingClientRect().width;
+      return [...g.querySelectorAll(':scope > .wm-panel')].map(e=>Math.round(e.getBoundingClientRect().width-gw))})()""")
+    check(f'内嵌台单列、占满栏宽（{ws}）', len(ws) == n and all(abs(d) <= 2 for d in ws))
+    check('没有拖动和拉伸的把手', pg3.locator('.react-resizable-handle, .react-draggable, .wm-panel-grip').count() == 0)
     check('只读页挂载不发布局写请求', not writes, writes)
     check('接口里的布局数据不被改（读时迁移不回写）', get(f'/api/cockpits/{cid}')['panels'] == before)
     ctx.unroute(M + '/api/tasks'); ctx.close(); b.close()

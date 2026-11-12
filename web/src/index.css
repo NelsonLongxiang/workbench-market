@@ -670,3 +670,47 @@ body { background: var(--wm-color-page); }
 .wm-view i { font-style: normal; font-size: var(--wm-font-size-caption); font-variant-numeric: tabular-nums; }
 .wm-view-group { margin-left: auto; display: inline-flex; align-items: center; gap: var(--wm-space-2); }
 .wm-avatar-none { background: transparent; border: 1px dashed var(--wm-color-border-strong); }
+
+/* ---------- 驾驶舱骨架（原型的驾驶舱那一屏：一排「看的是」+ 三栏可拖、可放大的块） ---------- */
+.wm-ck { display: flex; flex-direction: column; gap: var(--wm-space-2); min-height: 0; height: calc(100vh - 52px - var(--wm-space-8) - var(--wm-space-4)); }
+.wm-ck-bar { display: flex; align-items: center; gap: var(--wm-space-2); flex-wrap: wrap; min-height: 32px; }
+.wm-ck-bar-extra { margin-left: auto; display: inline-flex; align-items: center; gap: var(--wm-space-2); }
+.wm-ck-chip { display: inline-flex; align-items: center; gap: var(--wm-space-1); height: 24px; padding: 0 var(--wm-space-2); border-radius: var(--wm-radius-full); background: var(--wm-color-primary-subtle); color: var(--wm-color-text-secondary); font-size: var(--wm-font-size-caption); }
+.wm-ck-chip b { color: var(--wm-color-primary); font-weight: var(--wm-font-weight-body-strong); }
+.wm-ck-grid { flex: 1; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
+.wm-ck-mid { display: grid; min-height: 0; min-width: 0; }
+.wm-ck-pane { display: flex; flex-direction: column; min-height: 0; min-width: 0; border: 1px solid var(--wm-color-border); border-radius: var(--wm-radius-lg); background: var(--wm-color-surface); overflow: hidden; }
+.wm-ck-pane-h { display: flex; align-items: center; gap: var(--wm-space-1); height: 36px; flex: none; padding: 0 var(--wm-space-2); border-bottom: 1px solid var(--wm-color-border); }
+.wm-ck-tab { height: 28px; padding: 0 var(--wm-space-2); border: 0; border-radius: var(--wm-radius-md); background: transparent; color: var(--wm-color-text-secondary); font: inherit; font-size: var(--wm-font-size-caption); cursor: pointer; display: inline-flex; align-items: center; gap: var(--wm-space-1); }
+.wm-ck-tab.on { color: var(--wm-color-text); font-weight: var(--wm-font-weight-body-strong); background: var(--wm-color-page); }
+.wm-ck-tab-n { min-width: 16px; padding: 0 4px; border-radius: var(--wm-radius-full); background: var(--wm-color-danger); color: var(--wm-color-on-primary); font-size: var(--wm-font-size-caption); line-height: 16px; text-align: center; }
+.wm-ck-max { margin-left: auto; width: 28px; height: 28px; border: 0; border-radius: var(--wm-radius-md); background: transparent; color: var(--wm-color-text-secondary); cursor: pointer; }
+.wm-ck-max:hover { background: var(--wm-color-page); color: var(--wm-color-text); }
+.wm-ck-pane-b { flex: 1; min-height: 0; overflow: auto; }
+.wm-ck-split { background: transparent; touch-action: none; }
+.wm-ck-split.v { cursor: col-resize; }
+.wm-ck-split.h { cursor: row-resize; }
+.wm-ck-split:hover { background: var(--wm-color-primary-subtle); border-radius: var(--wm-radius-sm); }
+/* 放大：只留放大的那一块，占满 */
+.wm-ck-grid.max { display: block; }
+.wm-ck-grid.max .wm-ck-pane:not(.maxed), .wm-ck-grid.max .wm-ck-split { display: none; }
+.wm-ck-grid.max .wm-ck-mid { display: contents; }
+.wm-ck-grid.max .wm-ck-pane.maxed { height: 100%; }
+.wm-ck-list { list-style: none; margin: 0; padding: 0; }
+.wm-ck-list li { display: flex; flex-direction: column; gap: 2px; padding: var(--wm-space-2) var(--wm-space-3); border-bottom: 1px solid var(--wm-color-border); }
+.wm-ck-list li:last-child { border-bottom: 0; }
+.wm-ck-pad { padding: var(--wm-space-3); }
+@media (max-width: 960px) { .wm-ck { height: auto; } .wm-ck-grid { display: block; } .wm-ck-mid { display: block; } .wm-ck-pane { margin-bottom: var(--wm-space-2); min-height: 240px; } .wm-ck-split { display: none; } }
+.wm-ck-edit { min-width: 320px; }
+/* 驾驶舱：页面两边少留一点，宽度让给中间栏；内嵌的工作台按栏宽单列排，不能拖、不能拉伸 */
+.wm-page-body:has(.wm-ck) { padding-left: var(--wm-space-4); padding-right: var(--wm-space-4); }
+.wm-ck-benches { display: flex; flex-direction: column; gap: var(--wm-space-3); width: 100%; }
+.wm-ck-benches .wm-panel { height: 520px; }
+.wm-ck-benches .wm-panel-head { cursor: default; }
+.wm-ck-pad.wm-w-full { box-sizing: border-box; }
+/* 驾驶舱左栏：全景同一张卡，一张接一张；挂着事项的卡下面一个「看办理过程」，点中的那张描边 */
+.wm-ck-cards { display: flex; flex-direction: column; gap: var(--wm-space-2); padding: var(--wm-space-2); }
+.wm-ck-card { display: flex; flex-direction: column; border-radius: var(--wm-radius-lg); }
+.wm-ck-card.on { outline: 2px solid var(--wm-color-primary); outline-offset: 1px; }
+.wm-ck-card-pick { align-self: flex-end; }
+.wm-ck-process-h { margin-bottom: var(--wm-space-3); }

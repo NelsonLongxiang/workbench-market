@@ -268,7 +268,8 @@ export const putDepartment = (id: string, name: string, lead: string | null) => 
 /** 席位名册（阶段七 #581）：登录的人能读，只当显示用（句柄换名字）。读不到给空，页面照旧显示句柄 */
 export async function getRosterTeams(): Promise<unknown[]> {
   try {
-    const r = await fetch('/api/a2a/teams', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    // 名册只用来把句柄换成名字：最多等 8 秒，读不到就显示句柄，不让它拖住页面
+    const r = await fetch('/api/a2a/teams', { credentials: 'same-origin', headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(8000) });
     const j = r.ok ? await r.json() as { teams?: unknown } : null;
     return Array.isArray(j?.teams) ? j.teams : [];
   } catch { return []; }
@@ -302,3 +303,15 @@ export async function getLifecycleNameSources(): Promise<{ types: unknown[]; obj
 export const getRelationProposals = () => teamCall('/api/relations/proposals');
 export const approveRelationProposal = (id: number) => teamCall(`/api/relations/proposals/${id}/approve`, { method: 'POST', body: {} });
 export const rejectRelationProposal = (id: number, reason: string) => teamCall(`/api/relations/proposals/${id}/reject`, { method: 'POST', body: { reason } });
+
+/** 数据视图的取数入口（驾驶舱按引用取一份视图）：带登录的 cookie，不带管理口令（入口不认口令）。
+ *  返回状态码和 error 代号，让块自己给说法；断网当状态码 0 */
+export async function getBenchView(ref: { bench: string; view: string }, params: Record<string, string> = {}): Promise<{ status: number; body: unknown; error?: string }> {
+  try {
+    const q = new URLSearchParams({ view: ref.view });
+    for (const [k, v] of Object.entries(params)) if (typeof v === 'string' && v !== '') q.set(`p.${k}`, v);
+    const r = await fetch(`/api/bench-views/${encodeURIComponent(ref.bench)}/render?${q}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    const body = await r.json().catch(() => null) as { error?: string } | null;
+    return { status: r.status, body: r.ok ? body : null, error: typeof body?.error === 'string' ? body.error : undefined };
+  } catch { return { status: 0, body: null }; }
+}
