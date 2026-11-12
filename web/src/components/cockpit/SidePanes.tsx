@@ -50,15 +50,17 @@ export function AttentionPane({ onCount }: { onCount?: (n: number) => void }) {
 type ItemRow = { id: string; title: string; state: string; updated_at: string };
 type Items = { state: 'loading' } | { state: 'ok'; rows: ItemRow[]; view: unknown } | { state: 'error'; status: number };
 /** 事项：最近变化的几件。先要「我安排的」（列表接口的 view=mine，#626）；这个视角对看的人不可用（403）就不带视角再要一次，
- *  落在服务端给的第一个有内容的视角。旧的服务端不认 view，照它原来的可见范围给。用的是哪个视角报给页签（onView） */
+ *  落在服务端给的第一个有内容的视角。8 秒没回就当读不到。旧的服务端不认 view，照它原来的可见范围给。用的是哪个视角报给页签（onView） */
 export function ItemsPane({ onView }: { onView?: (view: unknown) => void }) {
   const [s, setS] = useState<Items>({ state: 'loading' });
   useEffect(() => {
     let live = true;
     void (async () => {
       try {
-        let r = await apiFetch('/api/work-items?view=mine&limit=12');
-        if (r.status === 403) r = await apiFetch('/api/work-items?limit=12');
+        // 最多等 8 秒：服务端认人要问上游，上游慢的时候不让这一栏一直转（也不拖住整页）
+        const get = (url: string) => apiFetch(url, { signal: AbortSignal.timeout(8000) });
+        let r = await get('/api/work-items?view=mine&limit=12');
+        if (r.status === 403) r = await get('/api/work-items?limit=12');
         const body = await r.json().catch(() => ({})) as { items?: unknown; view?: unknown };
         if (live) setS(r.ok ? { state: 'ok', rows: Array.isArray(body.items) ? body.items as ItemRow[] : [], view: body.view } : { state: 'error', status: r.status });
       } catch { if (live) setS({ state: 'error', status: 0 }); }
