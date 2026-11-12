@@ -4,11 +4,12 @@
  *   GET  /api/teams                  团队页：部门 → 团队（状态、负责人、总工）→ 成员（分配给谁、在办几件）；待认领的单列（只给管理员）。
  *                                    按看的人的可见范围在服务端裁好，页面只渲染。名册部分取自节点名册（services/a2a-roster.ts）。
  *   GET  /api/teams/mine             「我的 AI 员工」：分配给我的成员；我是负责人的，加上我的团队和它的总工。
- *   POST /api/teams/claim            认领团队并挂部门（已认领的就是换部门）。管理员。
+ *   POST /api/teams/claim            认领团队并挂部门（已认领的就是换部门）。管理员发起；属主、管理层直接生效，
+ *                                    别的管理员只记成提议（202，规范 14「关系由谁说了算」），由管理层或接收部门的负责人在 /api/relations 确认。
  *   POST /api/teams/release          退回待认领。管理员。
- *   POST /api/teams/leads            另外指定一个负责人。管理员。
+ *   POST /api/teams/leads            另外指定一个负责人。管理员发起；带拍板，属主直接生效，别的管理员只记成提议（202），属主确认。
  *   POST /api/teams/leads/remove     移除负责人（最后一个不能直接移除，409）。管理员。
- *   POST /api/teams/assign           把成员分配给员工。这个团队的负责人，或者管理员（过渡期代办）。
+ *   POST /api/teams/assign           把成员分配给员工。这个团队的负责人，或者管理层（本机命令行也行）；系统管理员、管理口令不能代办。
  *   POST /api/teams/unassign         收回。同上。
  *
  * 谁能看到哪些团队（读）：
@@ -37,6 +38,7 @@ import type { GrantService } from '../services/grant.ts';
 import type { DepartmentService } from '../services/department.ts';
 import { HOST_RE, SEAT_ID_RE, SEAT_RE, TEAM_RE, type Actor, type SeatKey, type TeamKey, type TeamRefusal, type TeamService, type TeamView } from '../services/team.ts';
 import { teamName } from '../team-relation.ts';
+import type { RelationProposalService } from '../services/relation-proposal.ts';
 
 export type TeamRouteDeps = {
   markOdooAdmin: (req: express.Request) => Promise<void>;
@@ -50,6 +52,7 @@ const teams = () => svc<TeamService>('teams');
 const principals = () => svc<PrincipalService>('principals');
 const grants = () => svc<GrantService>('grants');
 const departments = () => svc<DepartmentService>('departments');
+const proposals = () => svc<RelationProposalService>('relationProposals');
 const PRINCIPAL_RE = /^[a-z]+:[\x21-\x7e]{1,150}$/;
 const LEAD_DECIDES = '按团队的负责人判：负责人是按对象的范围，统一判定还不认（L13），由团队这个域自己判';
 
@@ -96,9 +99,11 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
   /** 这个人能不能分配、收回这个团队的成员：分配接口和团队页的 can_assign 共用这一处。能就返回 null，不能返回说法 */
   function assignRefusal(v: Viewer, t: TeamView | TeamKey): { code: string; message: string } | null {
     if ('status' in t && t.status === 'unclaimed') return { code: 'team_not_claimed', message: '团队还没认领，不能分配成员' };
-    if (v.kind === 'admin') return null;
-    if (teams().leads(t).some((l) => l.principal === v.principal)) return null;
-    return { code: 'not_team_lead', message: '只有这个团队的负责人（或管理员）能分配、收回成员' };
+    if (v.kind === 'admin' && v.by === 'cli') return null; // 本机命令行：授予面上算属主（L1）
+    if (v.principal && teams().leads(t).some((l) => l.principal === v.principal)) return null;
+    if (grants().isBusinessSide(v.principal)) return null; // 管理层（属主也是）
+    // 系统管理员、管理口令不代办：分配会带来成员的主人这层关系（规范 14「关系由谁说了算」）
+    return { code: 'not_team_lead', message: '只有这个团队的负责人或管理层能分配、收回成员' };
   }
 
   /** 可以分给谁：所挂部门的成员和负责人、这个团队的负责人，只要启用的人 */
@@ -124,12 +129,13 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
   }
 
   /** 管理员（同源）或本机命令行；不是就回 403，返回 null */
-  async function admin(req: express.Request, res: express.Response): Promise<Actor | null> {
-    if (!browserMarked(req) && rawLoopback(req)) return { by: 'cli', principal: null };
+  async function admin(req: express.Request, res: express.Response): Promise<(Actor & { owner: boolean }) | null> {
+    if (!browserMarked(req) && rawLoopback(req)) return { by: 'cli', principal: null, owner: true };
     await deps.markOdooAdmin(req);
     if (!deps.adminGuard(req, res)) return null;
     const by = deps.adminActor(req);
-    return { by, principal: by.startsWith('odoo:') ? principals().principalOf(identity().providerName() ?? '', by.slice(5)) : null };
+    const principal = by.startsWith('odoo:') ? principals().principalOf(identity().providerName() ?? '', by.slice(5)) : null;
+    return { by, principal, owner: grants().isOwner(principal) };
   }
 
   app.get('/api/teams', { action: 'team.list', kind: 'read' }, route(async (req, res) => {
@@ -153,8 +159,14 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
       return { ...t, name: teamName(t.team), ...nodeOf(t.host), can_assign: !no, assign_denied_text: no?.message ?? null, ...(no ? {} : { assignable: assignableOf(t) }) };
     };
     const isAdmin = v.kind === 'admin';
+    const owner = isAdmin && (v.by === 'cli' || grants().isOwner(v.principal));
+    const business = owner || grants().isBusinessSide(v.principal);
     res.json({
-      can: { claim: isAdmin, release: isAdmin, manage_leads: isAdmin, manage_departments: isAdmin },
+      // claim / add_lead：直接生效；propose_claim / propose_lead：只能提议（确认在 /api/relations/proposals）；release、manage_leads（移除）是收紧，管理员一步完成
+      can: {
+        claim: isAdmin && business, propose_claim: isAdmin && !business, release: isAdmin,
+        add_lead: owner, propose_lead: isAdmin && !owner, manage_leads: isAdmin, manage_departments: isAdmin,
+      },
       departments: [...depts.values()].sort((a, b) => a.id.localeCompare(b.id)).map((d) => ({ ...d, teams: d.teams.map(shape) })),
       ...(v.kind === 'admin' ? { unclaimed: seen.filter((t) => t.status === 'unclaimed').map(shape) } : {}),
     });
@@ -177,7 +189,16 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
     const b = bodyOf(req);
     const k = teamKeyOf(b);
     const dept = str(b.department, 'department', /^[a-z][a-z0-9-]{0,47}$/, 48);
-    const r = teams().claim(k, dept, actor, Date.now());
+    const now = Date.now();
+    if (!proposals().direct('team-claim', actor, dept, now)) {
+      const check = teams().claimCheck(k, dept);
+      if (check === 'unchanged') return void res.json({ ok: true, changed: false });
+      if (check) return void refused(res, check);
+      const pr = proposals().propose({ kind: 'team-claim', host: k.host, team: k.team, department_id: dept }, actor, now);
+      logged('claim-propose', k, { department: dept, proposal: pr.id }, actor.by);
+      return void res.status(202).json({ ok: true, proposed: true, proposal: { id: pr.id, status: 'pending' } });
+    }
+    const r = teams().claim(k, dept, actor, now);
     if (!r.ok) return void refused(res, r);
     if (r.changed) logged('claim', k, { department: dept }, actor.by);
     res.json({ ok: true, changed: r.changed });
@@ -199,7 +220,16 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
     const b = bodyOf(req);
     const k = teamKeyOf(b);
     const principal = str(b.principal, 'principal', PRINCIPAL_RE, 160);
-    const r = teams().addLead(k, principal, actor, Date.now());
+    const now = Date.now();
+    if (!actor.owner) {
+      const check = teams().leadCheck(k, principal);
+      if (check === 'already') return void res.json({ ok: true, added: false });
+      if (check) return void refused(res, check);
+      const pr = proposals().propose({ kind: 'team-lead', host: k.host, team: k.team, principal_id: principal }, actor, now);
+      logged('lead-propose', k, { principal, proposal: pr.id }, actor.by);
+      return void res.status(202).json({ ok: true, proposed: true, proposal: { id: pr.id, status: 'pending' } });
+    }
+    const r = teams().addLead(k, principal, actor, now);
     if (!r.ok) return void refused(res, r);
     if (r.added) logged('lead-add', k, { principal }, actor.by);
     res.status(r.added ? 201 : 200).json(r);

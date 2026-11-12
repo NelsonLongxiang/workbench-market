@@ -55,6 +55,8 @@ import { registerA2aOutboundRoutes } from './routes/a2a-outbound.ts';
 import { registerExportImportRoutes } from './routes/export-import.ts';
 import { registerDepartmentRoutes } from './routes/departments.ts';
 import { registerTeamRoutes } from './routes/teams.ts';
+import { registerRelationRoutes } from './routes/relations.ts';
+import { rosterStaleMinutesFromEnv, type TeamService } from './services/team.ts';
 import { registerAccessRoutes } from './routes/access.ts';
 import { registerLoginFlowRoutes } from './routes/login-flows.ts';
 import { registerLoginGateRoutes } from './routes/login-gate.ts';
@@ -235,6 +237,13 @@ if (!A2A_TEAM_ROSTER) {
 }
 setTeamRoster(A2A_TEAM_ROSTER === 'on');
 console.log(`[a2a] 名片${A2A_TEAM_ROSTER === 'on' ? '声明' : '不声明'} teamRoster（WM_A2A_TEAM_ROSTER=${A2A_TEAM_ROSTER}）：${A2A_TEAM_ROSTER === 'on' ? '节点推来的团队名册照规矩收' : '入站名册一律不收'}`);
+// 名册多久没更新算停推（WM_ROSTER_STALE_MINUTES，缺省 60 分钟）：超过就进管理员的「等你拍板」；值不合法拒绝启动
+const ROSTER_STALE_MINUTES = rosterStaleMinutesFromEnv();
+if (ROSTER_STALE_MINUTES === null) {
+  console.error('[teams] 拒绝启动：WM_ROSTER_STALE_MINUTES 要是 1～10080 的整数（分钟），或者不设（缺省 60）');
+  process.exit(1);
+}
+svc<TeamService>('teams').setRosterStaleMs(ROSTER_STALE_MINUTES * 60_000);
 const A2A_DIRECT_SIG_BODY = directSigBodyMode();
 if (!A2A_DIRECT_SIG_RAW || !A2A_DIRECT_SIG_BODY) {
   console.error('[a2a-direct-sig] 拒绝启动：WM_A2A_DIRECT_SIG 只接受 require / accept / off / 不设，WM_A2A_DIRECT_SIG_BODY 只接受 require / accept / 不设');
@@ -425,6 +434,8 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/work-items$/,
   // 团队：成员的分配、收回由团队的负责人做（路由内认人、核同源、判是不是负责人或管理员；只此两条）
   /^\/api\/teams\/(assign|unassign)$/,
+  // 关系的提议：确认、驳回由属主、管理层、接收部门的负责人做，他们大多不是管理员（路由内认人、核同源，服务判能不能确认；只此两条）
+  /^\/api\/relations\/proposals\/[1-9]\d{0,15}\/(approve|reject)$/,
   // MCP 工具 REST 开放：与 /mcp 同口径，凭会话令牌在路由内鉴权，不认管理口令
   /^\/api\/mcp-rest\/(tools\/[^/]+|apps\/[a-z0-9-]{1,64}\/files(\/[^/]+)?)$/,
   // 数据视图的入口（开关关着时每条都回 404）：路由内自己判——先拒管理口令，再经身份服务认人、问判定，只有管理层和范围是「全部」的授予放行。
@@ -1889,6 +1900,7 @@ registerPrincipalRoutes(http, { markOdooAdmin, adminGuard, adminActor });
 registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor }); // 阶段六 6b：角色声明与授予（只建结构，不接判定）
 registerDepartmentRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 部门：登录的人读、管理员写
 registerTeamRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 团队与分配（规范 14 第 1 步）：登录的人按可见范围读；认领、负责人是管理员，分配是负责人
+registerRelationRoutes(http, { markOdooAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 关系的提议（规范 14「关系由谁说了算」）：负责人、团队认领要属主或业务侧确认
 registerAccessRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 角色预设 ②：以某人的身份看、红线清单、首次安装向导
 registerAttentionRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
 registerWorkItemRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8d：事项页的时间线

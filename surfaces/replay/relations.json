@@ -1,0 +1,248 @@
+{
+  "domain": "relations",
+  "what": "关系的提议：/api/relations/proposals 的 3 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。人、部门、名册、提议都是合成的。",
+  "routes": ["GET /api/relations/proposals", "POST /api/relations/proposals/:id/approve", "POST /api/relations/proposals/:id/reject"],
+  "exempt": [{ "route": "GET /api/relations/proposals", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/list-junk" }],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "缺省配置：登录门关，没设管理口令。本机命令行是属主（L1）；假登录提供方认出 alpha、beta（都不是管理员、没有授予）。库里预先放好部门 sales（没有负责人）、一个节点的名册（一个团队）和两条待确认的提议：把团队认领到 sales（口令管理员提的）、让 beta 做 sales 的负责人。",
+      "env": {},
+      "clock": "2030-01-01T00:00:00Z",
+      "fixtures": ["identity-fake"],
+      "seed": [
+        { "table": "principals", "row": { "id": "user:alpha", "id_key": "user:alpha", "kind": "person", "display_name": "合成甲" } },
+        { "table": "principals", "row": { "id": "user:beta", "id_key": "user:beta", "kind": "person", "display_name": "合成乙" } },
+        { "table": "principal_identities", "row": { "provider": "fake", "external_id": "alpha", "external_key": "alpha", "principal_id": "user:alpha" } },
+        { "table": "principal_identities", "row": { "provider": "fake", "external_id": "beta", "external_key": "beta", "principal_id": "user:beta" } },
+        { "table": "departments", "row": { "id": "sales", "name": "合成销售部", "created_at": 0, "updated_at": 0 } },
+        { "table": "a2a_rosters", "row": { "host": "a1b2c3d4", "peer_root": "https://node.synthetic.invalid", "peer_zone": "zone1", "reported_at": "2030-01-01T00:00:00Z", "received_at": "2030-01-01T00:00:00Z" } },
+        {
+          "table": "a2a_roster_seats",
+          "row": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "seat": "zone1/0000000a", "seat_id": "seat-0000000a", "name": "合成总工", "role": "router", "online": 1, "first_seen_at": "2030-01-01T00:00:00Z" }
+        },
+        { "table": "relation_proposals", "row": { "id": 1, "kind": "team-claim", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "department_id": "sales", "proposed_by": "admin-token", "proposed_at": 0 } },
+        { "table": "relation_proposals", "row": { "id": 2, "kind": "dept-lead", "department_id": "sales", "principal_id": "user:beta", "proposed_by": "admin-token", "proposed_at": 0 } }
+      ],
+      "steps": [
+        {
+          "id": "list-cli",
+          "route": "GET /api/relations/proposals",
+          "class": "normal",
+          "what": "本机命令行（属主）：两条都在，都能确认",
+          "request": { "method": "GET", "path": "/api/relations/proposals" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "744", "etag": "W/\"2e8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "proposals": [
+                { "id": 1, "kind": "team-claim", "department_id": "sales", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal_id": "", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true },
+                { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true }
+              ]
+            }
+          }
+        },
+        {
+          "id": "list-junk",
+          "route": "GET /api/relations/proposals",
+          "class": "normal",
+          "what": "这条路由不读查询串：带无关参数照常",
+          "request": { "method": "GET", "path": "/api/relations/proposals?x=1&y[]=2" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "744", "etag": "W/\"2e8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "proposals": [
+                { "id": 1, "kind": "team-claim", "department_id": "sales", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal_id": "", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true },
+                { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true }
+              ]
+            }
+          }
+        },
+        {
+          "id": "list-remote-anon",
+          "route": "GET /api/relations/proposals",
+          "class": "unauthorized",
+          "what": "远程、没登录：401",
+          "request": { "method": "GET", "path": "/api/relations/proposals", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "relations_auth_required" }
+          }
+        },
+        {
+          "id": "list-staff",
+          "route": "GET /api/relations/proposals",
+          "class": "normal",
+          "what": "员工 alpha：一条也确认不了、也不是他提的，空",
+          "request": { "method": "GET", "path": "/api/relations/proposals", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "16", "etag": "W/\"10-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "proposals": [] }
+          }
+        },
+        {
+          "id": "approve-remote-anon",
+          "route": "POST /api/relations/proposals/:id/approve",
+          "class": "unauthorized",
+          "what": "远程、没登录：401",
+          "request": { "method": "POST", "path": "/api/relations/proposals/1/approve", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "relations_auth_required" }
+          }
+        },
+        {
+          "id": "approve-staff",
+          "route": "POST /api/relations/proposals/:id/approve",
+          "class": "unauthorized",
+          "what": "员工 alpha 确认认领：不是管理层、也不是 sales 的负责人，403",
+          "request": { "method": "POST", "path": "/api/relations/proposals/1/approve", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "122", "etag": "W/\"7a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "business_confirm_required", "message": "把团队认领到部门，要管理层或接收部门的负责人确认" }
+          }
+        },
+        {
+          "id": "approve-bad-id",
+          "route": "POST /api/relations/proposals/:id/approve",
+          "class": "invalid",
+          "what": "提议号写法不对：404",
+          "request": { "method": "POST", "path": "/api/relations/proposals/0/approve" },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "提议 0 不存在" }
+          }
+        },
+        {
+          "id": "approve-missing",
+          "route": "POST /api/relations/proposals/:id/approve",
+          "class": "invalid",
+          "what": "提议不存在：404",
+          "request": { "method": "POST", "path": "/api/relations/proposals/999/approve" },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "61", "etag": "W/\"3d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "proposal_missing", "message": "提议 999 不存在" }
+          }
+        },
+        {
+          "id": "approve-cli",
+          "route": "POST /api/relations/proposals/:id/approve",
+          "class": "normal",
+          "what": "属主（本机命令行）确认 beta 做 sales 的负责人",
+          "vary": { "proposal.decided_at": 60000 },
+          "request": { "method": "POST", "path": "/api/relations/proposals/2/approve" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "394", "etag": "W/\"18a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "proposal": { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "approved", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false }
+            }
+          }
+        },
+        {
+          "id": "approve-again",
+          "route": "POST /api/relations/proposals/:id/approve",
+          "class": "invalid",
+          "what": "已经确认过：409",
+          "request": { "method": "POST", "path": "/api/relations/proposals/2/approve" },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "72", "etag": "W/\"48-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "state", "message": "提议 2 现在是 approved，不能确认" }
+          }
+        },
+        {
+          "id": "reject-remote-anon",
+          "route": "POST /api/relations/proposals/:id/reject",
+          "class": "unauthorized",
+          "what": "远程、没登录：401",
+          "request": { "method": "POST", "path": "/api/relations/proposals/1/reject", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "reason": "x" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "relations_auth_required" }
+          }
+        },
+        {
+          "id": "reject-staff",
+          "route": "POST /api/relations/proposals/:id/reject",
+          "class": "unauthorized",
+          "what": "员工 alpha 驳回：不能确认、不是他提的、不是管理员，403",
+          "request": { "method": "POST", "path": "/api/relations/proposals/1/reject", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "reason": "x" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "100", "etag": "W/\"64-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "reject_not_allowed", "message": "只有能确认的人、提议的人或管理员能驳回" }
+          }
+        },
+        {
+          "id": "reject-missing",
+          "route": "POST /api/relations/proposals/:id/reject",
+          "class": "invalid",
+          "what": "提议不存在：404",
+          "request": { "method": "POST", "path": "/api/relations/proposals/999/reject", "json": { "reason": "x" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "61", "etag": "W/\"3d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "proposal_missing", "message": "提议 999 不存在" }
+          }
+        },
+        {
+          "id": "reject-cli",
+          "route": "POST /api/relations/proposals/:id/reject",
+          "class": "normal",
+          "what": "属主驳回认领",
+          "vary": { "proposal.decided_at": 60000 },
+          "request": { "method": "POST", "path": "/api/relations/proposals/1/reject", "json": { "reason": "合成：不认领" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "435", "etag": "W/\"1b3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "proposal": { "id": 1, "kind": "team-claim", "department_id": "sales", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal_id": "", "status": "rejected", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "合成：不认领", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false }
+            }
+          }
+        },
+        {
+          "id": "list-after",
+          "route": "GET /api/relations/proposals",
+          "class": "normal",
+          "what": "之后：两条都处理过了",
+          "vary": { "proposals.0.decided_at": 60000, "proposals.1.decided_at": 60000 },
+          "request": { "method": "GET", "path": "/api/relations/proposals" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "820", "etag": "W/\"334-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "proposals": [
+                { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "approved", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false },
+                { "id": 1, "kind": "team-claim", "department_id": "sales", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal_id": "", "status": "rejected", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "合成：不认领", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

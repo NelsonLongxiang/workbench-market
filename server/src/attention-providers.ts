@@ -17,6 +17,8 @@
  *   principal-pending GET /api/principals/pending              主体路由的管理门               授权
  *   work-items        没有旧接口：验收 = ready（看得到这件事项的人）；过目 = held（管理员）  验收 / 过目
  *   a2a-peers         GET /api/a2a/peers（对端名片的公钥变了、等确认的）adminGuard           授权
+ *   team-health       GET /api/teams（待认领、不在名册里、没有负责人的团队；名册超过阈值没更新的节点） adminGuard  过目
+ *   relation-proposals GET /api/relations/proposals（这个人能确认的关系提议，和确认接口同一处 confirmRefusal） 登录的人   授权
  *                     验收条目给看得到这件事项的人（itemRoles 的 canSee，和事项页同一个函数），mine 只对建立人为真
  */
 import type express from 'express';
@@ -43,6 +45,11 @@ import type { PrincipalService } from './services/principal.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { WorkItemService } from './services/work-item.ts';
 import type { A2aPeerService } from './services/a2a-peers.ts';
+import type { TeamService } from './services/team.ts';
+import type { GrantService } from './services/grant.ts';
+import type { RelationProposalService } from './services/relation-proposal.ts';
+import { browserMarked, rawLoopback } from './surfaces.ts';
+import { teamName } from './team-relation.ts';
 import { canSee, creatorOf, isManagement, turnOf, type WorkItemViewer } from './work-item-access.ts';
 
 export type AttentionDeps = {
@@ -244,6 +251,48 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           waiting_for: p.root_url, since: p.updated_at, answers: [], link: `/a2a-peers?peer=${p.id}`,
         }))
         : null,
+    }),
+    provide({
+      // 团队和名册的毛病：只有管理员看得到；没有当场的答法（认领、指定负责人在团队页做）。页面不显示节点标识，用节点名
+      source: 'team-health', label: '团队与名册',
+      list: (req) => {
+        if (!passes(deps.adminGuard, req)) return null;
+        const t = svc<TeamService>('teams');
+        const what = { unclaimed: '待认领', 'off-roster': '不在节点名册里了', 'lead-vacant': '没有负责人' } as const;
+        const teamsOut = t.needingAttention().map((x) => {
+          const node = t.nodeInfo(x.host);
+          return item({
+            source: 'team-health', source_id: `team:${x.host}:${x.team}`, category: 'glance',
+            title: `团队 ${teamName(x.team) || '（没有名字）'}${node.node_name ? `（来自 ${node.node_name}）` : ''}${what[x.status]}`,
+            waiting_for: node.node_name ?? '', since: node.roster_received_at ?? '', link: '/teams', object: x.team, phase: x.status,
+          });
+        });
+        const stale = t.staleRosters().map((r) => item({
+          source: 'team-health', source_id: `roster:${r.host}`, category: 'glance',
+          title: `${r.node_name ? `节点 ${r.node_name}` : '一个节点'}的团队名册超过 ${t.rosterStaleMinutes()} 分钟没更新（最近一次收到：${r.roster_received_at}）`,
+          waiting_for: r.node_name ?? '', since: r.roster_received_at, link: '/teams', phase: 'roster-stale',
+        }));
+        return [...stale, ...teamsOut];
+      },
+    }),
+    provide({
+      // 关系的提议：只列这个人能确认的（和确认接口同一处 confirmRefusal）；确认在团队页、部门页经 /api/relations/proposals 做
+      source: 'relation-proposals', label: '关系的提议',
+      list: async (req) => {
+        const cli = !browserMarked(req) && rawLoopback(req);
+        let principal: string | null = null;
+        const cookie = String(req.headers.cookie ?? '');
+        if (cookie) { const who = await identity().resolveViewer(cookie); if (who.ok) principal = svc<PrincipalService>('principals').principalOf(identity().providerName() ?? '', who.viewer.login) ?? who.viewer.sub; }
+        if (!cli && !principal) return null;
+        const actor = { by: cli ? 'cli' : principal!, principal, owner: cli || svc<GrantService>('grants').isOwner(principal) };
+        const ps = svc<RelationProposalService>('relationProposals');
+        const what = { 'dept-lead': '部门负责人', 'team-lead': '团队负责人', 'team-claim': '团队认领到部门' } as const;
+        return ps.list().filter((p) => p.status === 'pending' && ps.confirmRefusal(p, actor) === null).map((p) => item({
+          source: 'relation-proposals', source_id: String(p.id), category: 'grant',
+          title: `${what[p.kind]}：${p.kind === 'team-claim' ? `团队 ${teamName(p.team) || '（没有名字）'} → 部门 ${p.department_id}` : `${p.principal_id}${p.kind === 'dept-lead' ? ` 做部门 ${p.department_id} 的负责人` : ` 做团队 ${teamName(p.team) || '（没有名字）'} 的负责人`}`}（${p.proposed_by} 提议）`,
+          waiting_for: p.proposed_by, since: new Date(p.proposed_at).toISOString(), link: '/teams', phase: p.kind,
+        }));
+      },
     }),
   ];
 }

@@ -38,6 +38,15 @@ export type Member = {
   seat: string; seat_id: string; name: string; role: string; online: boolean; router: boolean;
   assigned_to: { principal: string; display_name: string } | null; active_items: number;
 };
+/** 名册多久没更新算停推（分钟）：WM_ROSTER_STALE_MINUTES，缺省 60，1～10080 的整数；别的值返回 null（启动时拒绝） */
+export function rosterStaleMinutesFromEnv(env: NodeJS.ProcessEnv = process.env): number | null {
+  const raw = String(env.WM_ROSTER_STALE_MINUTES ?? '');
+  if (raw === '') return 60;
+  if (!/^[1-9][0-9]{0,4}$/.test(raw)) return null;
+  const n = Number(raw);
+  return n <= 10080 ? n : null;
+}
+
 export type TeamView = {
   host: string; team: string; status: TeamStatus; in_roster: boolean;
   department: { id: string; name: string } | null;
@@ -134,11 +143,26 @@ export class TeamService extends Service {
   }
 
   /** 认领并挂部门；已经认领的换部门（记 department）。团队要在名册里 */
-  claim(k: TeamKey, departmentId: string, actor: Actor, now: number): { ok: true; changed: boolean } | TeamRefusal {
+  /** 认领（或换部门）之前的核对：提议和直接认领用同一处。null 表示能认领；unchanged 表示已经挂在这个部门 */
+  claimCheck(k: TeamKey, departmentId: string): TeamRefusal | 'unchanged' | null {
     if (!this.rosterTeams().has(tkey(k.host, k.team))) return refuse(404, 'team_not_in_roster', '名册里没有这个团队');
     if (!db.prepare('SELECT 1 FROM departments WHERE id = ?').get(departmentId)) return refuse(422, 'department_unknown', `部门 ${departmentId} 不存在`);
     const reg = this.registration(k);
-    if (reg?.claimed && reg.department_id === departmentId) return { ok: true, changed: false };
+    return reg?.claimed && reg.department_id === departmentId ? 'unchanged' : null;
+  }
+
+  /** 指定负责人之前的核对：提议和直接指定用同一处。null 表示能指定；already 表示已经是 */
+  leadCheck(k: TeamKey, principal: string): TeamRefusal | 'already' | null {
+    if (!this.registration(k)?.claimed) return refuse(409, 'team_not_claimed', '先认领团队、挂到部门上，再指定负责人');
+    if (!this.personActive(principal)) return refuse(422, 'lead_not_person', `负责人要是启用的人，${principal} 不是`);
+    return db.prepare('SELECT 1 FROM team_leads WHERE host = ? AND team = ? AND principal_id = ? AND ended_at IS NULL').get(k.host, k.team, principal) ? 'already' : null;
+  }
+
+  claim(k: TeamKey, departmentId: string, actor: Actor, now: number): { ok: true; changed: boolean } | TeamRefusal {
+    const check = this.claimCheck(k, departmentId);
+    if (check === 'unchanged') return { ok: true, changed: false };
+    if (check) return check;
+    const reg = this.registration(k);
     return this.tx(() => {
       db.prepare(`INSERT INTO teams (host, team, department_id, claimed, claimed_by, claimed_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?)
         ON CONFLICT (host, team) DO UPDATE SET department_id = excluded.department_id, claimed = 1,
@@ -164,9 +188,9 @@ export class TeamService extends Service {
   }
 
   addLead(k: TeamKey, principal: string, actor: Actor, now: number): { ok: true; added: boolean } | TeamRefusal {
-    if (!this.registration(k)?.claimed) return refuse(409, 'team_not_claimed', '先认领团队、挂到部门上，再指定负责人');
-    if (!this.personActive(principal)) return refuse(422, 'lead_not_person', `负责人要是启用的人，${principal} 不是`);
-    if (db.prepare('SELECT 1 FROM team_leads WHERE host = ? AND team = ? AND principal_id = ? AND ended_at IS NULL').get(k.host, k.team, principal)) return { ok: true, added: false };
+    const check = this.leadCheck(k, principal);
+    if (check === 'already') return { ok: true, added: false };
+    if (check) return check;
     return this.tx(() => {
       db.prepare('INSERT INTO team_leads (host, team, principal_id, added_by, added_at) VALUES (?, ?, ?, ?, ?)').run(k.host, k.team, principal, actor.by.slice(0, 256), now);
       this.event(k, 'lead-add', actor, now, { principal });
@@ -337,6 +361,19 @@ export class TeamService extends Service {
    * 要人拍板的团队（「等你拍板」的聚合在读时调这个，不另写判断）：待认领、负责人缺位、不在名册。
    * 和团队页同一个推导（allViews → status），正常的不出现。按 host、team 排序。
    */
+  /** 名册多久没更新算停推（毫秒）：启动时由 index.ts 按 WM_ROSTER_STALE_MINUTES 设一次 */
+  private rosterStaleMs = 60 * 60_000;
+  setRosterStaleMs(ms: number): void { this.rosterStaleMs = ms; }
+  rosterStaleMinutes(): number { return Math.round(this.rosterStaleMs / 60_000); }
+
+  /** 超过阈值没更新名册的节点：节点标识、名字、最近收到的时间（页面不显示节点标识，用名字） */
+  staleRosters(now = Date.now()): { host: string; node_name: string | null; roster_received_at: string }[] {
+    const toMs = (t: string) => Date.parse(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(t) ? `${t.replace(' ', 'T')}Z` : t);
+    return (db.prepare('SELECT host, received_at FROM a2a_rosters ORDER BY host').all() as { host: string; received_at: string }[])
+      .filter((r) => { const t = toMs(r.received_at); return Number.isFinite(t) && now - t > this.rosterStaleMs; })
+      .map((r) => ({ host: r.host, node_name: this.nodeInfo(r.host).node_name, roster_received_at: r.received_at }));
+  }
+
   needingAttention(): { host: string; team: string; status: Exclude<TeamStatus, 'active'>; department: { id: string; name: string } | null; leads: Lead[] }[] {
     return this.allViews().filter((t) => t.status !== 'active')
       .map((t) => ({ host: t.host, team: t.team, status: t.status as Exclude<TeamStatus, 'active'>, department: t.department, leads: t.leads }));

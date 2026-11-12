@@ -39,9 +39,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "727", "etag": "W/\"2d7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "786", "etag": "W/\"312-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "can": { "claim": true, "release": true, "manage_leads": true, "manage_departments": true },
+              "can": { "claim": true, "propose_claim": false, "release": true, "add_lead": true, "propose_lead": false, "manage_leads": true, "manage_departments": true },
               "departments": [],
               "unclaimed": [
                 {
@@ -72,9 +72,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "727", "etag": "W/\"2d7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "786", "etag": "W/\"312-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "can": { "claim": true, "release": true, "manage_leads": true, "manage_departments": true },
+              "can": { "claim": true, "propose_claim": false, "release": true, "add_lead": true, "propose_lead": false, "manage_leads": true, "manage_departments": true },
               "departments": [],
               "unclaimed": [
                 {
@@ -118,8 +118,8 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "104", "etag": "W/\"68-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "can": { "claim": false, "release": false, "manage_leads": false, "manage_departments": false }, "departments": [] }
+            "headers": { "cache-control": "private, no-store", "content-length": "164", "etag": "W/\"a4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "can": { "claim": false, "propose_claim": false, "release": false, "add_lead": false, "propose_lead": false, "manage_leads": false, "manage_departments": false }, "departments": [] }
           }
         },
         {
@@ -269,9 +269,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1138", "etag": "W/\"472-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1198", "etag": "W/\"4ae-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "can": { "claim": false, "release": false, "manage_leads": false, "manage_departments": false },
+              "can": { "claim": false, "propose_claim": false, "release": false, "add_lead": false, "propose_lead": false, "manage_leads": false, "manage_departments": false },
               "departments": [
                 {
                   "id": "sales",

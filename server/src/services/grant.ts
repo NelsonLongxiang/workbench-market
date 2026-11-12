@@ -81,6 +81,11 @@ export class GrantService extends Service {
     return !!principal && this.activeFor(principal, now).some((g) => g.scope === '*' && isBusinessSide(this.roleViews.get(g.role)?.closure ?? []));
   }
 
+  /** 这个主体在这个范围（* 或 dept:<部门>）有没有生效的、带业务拍板的授予（部门负责人、管理层、属主这类） */
+  decidesBusinessIn(principal: string | null, scope: string, now = Date.now()): boolean {
+    return !!principal && this.activeFor(principal, now).some((g) => (g.scope === '*' || g.scope === scope) && !!this.roleViews.get(g.role)?.businessDecide);
+  }
+
   /** 这个主体是不是属主：持有生效的 owner 授予 */
   isOwner(principal: string | null, now = Date.now()): boolean {
     return !!principal && this.activeFor(principal, now).some((g) => g.role === 'owner');
