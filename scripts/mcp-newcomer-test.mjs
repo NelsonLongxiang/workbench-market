@@ -10,7 +10,7 @@
  * 测试数据都是合成的。
  */
 import { spawn } from 'node:child_process';
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { linkSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 
@@ -109,6 +109,10 @@ try {
   const snap = join(DATA, 'skill-snapshots', encodeURIComponent('newcomer-guide'), 'v1');
   writeFileSync(join(DATA, 'outside-secret.txt'), 'synthetic-outside-secret\n');
   try { symlinkSync(join(process.cwd(), DATA, 'outside-secret.txt'), join(snap, 'references', 'leak.md')); } catch { /* 平台不支持符号链接就跳过这一条 */ }
+  // 硬链接：和快照外的文件是同一份（lstat 看着是普通文件），一样不能读、不列
+  try { linkSync(join(DATA, 'outside-secret.txt'), join(snap, 'references', 'hard.md')); } catch { /* 跨设备等建不了就跳过 */ }
+  // 指向目录的符号链接、真的子目录名：都不是文件
+  try { symlinkSync(join(process.cwd(), DATA), join(snap, 'references', 'dirlink')); } catch { /* 跳过 */ }
 
   r = await tool(bare.token, 'skill_read', { slug: 'newcomer-guide' });
   ok('零授权 skill_read：缺省读 SKILL.md，原文、版本、sha256 都给', !r.isError && r.payload?.path === 'SKILL.md' && r.payload?.content === SKILL_MD && r.payload?.version === 1
@@ -119,7 +123,7 @@ try {
   r = await tool(bare.token, 'skill_read', { slug: 'newcomer-guide', path: 'assets/logo.png' });
   ok('skill_read：二进制不给内容，只给大小和摘要，并指向 skill_download', !r.isError && r.payload?.binary === true && r.payload?.content === undefined && r.payload?.size === BIN.length && /skill_download/.test(r.payload?.note ?? ''), r.text.slice(0, 160));
   const missing = (await tool(bare.token, 'skill_read', { slug: 'newcomer-guide', path: 'nope.md' })).text;
-  for (const p of ['references/leak.md', '../v1/SKILL.md', 'references/../SKILL.md', './SKILL.md', '/etc/hosts', 'references\\basics.md', join(process.cwd(), DATA, 'outside-secret.txt'), '.wm-skill.json']) {
+  for (const p of ['references/leak.md', 'references/hard.md', 'references/dirlink', 'references/dirlink/outside-secret.txt', 'references', '../v1/SKILL.md', 'references/../SKILL.md', './SKILL.md', '/etc/hosts', 'references\\basics.md', join(process.cwd(), DATA, 'outside-secret.txt'), '.wm-skill.json']) {
     const x = await tool(bare.token, 'skill_read', { slug: 'newcomer-guide', path: p });
     ok(`skill_read 读不到快照外或不规范的路径（${p.length > 40 ? '绝对路径' : p}）：和没有这个文件同一句`, x.isError && x.text.replace(p, 'P') === missing.replace('nope.md', 'P') && !x.text.includes('synthetic-outside-secret'), x.text.slice(0, 160));
   }

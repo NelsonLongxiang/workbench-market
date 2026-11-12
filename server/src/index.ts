@@ -1995,10 +1995,13 @@ function resolveMcpSkillSlug(slugIn: unknown): string {
   throw new HttpError(404, `skill not found: ${want}（没有这个技能；先调 skills_list 看有哪些、完整名字是什么）`);
 }
 const SKILL_READ_MAX_BYTES = 256 * 1024;
-/** skill_read：读这一版里的一个普通文件（缺省 SKILL.md）。只认快照里列得出的普通文件——路径必须和列表里的一字不差，符号链接、目录都不算 */
+/**
+ * skill_read：读这一版里的一个普通文件（缺省 SKILL.md）。只认快照里列得出的普通文件——路径必须和列表里的一字不差；
+ * 符号链接、目录、硬链接（链接数大于 1：可能和快照外的文件是同一份）都不算。发版写进快照的文件都是新建的，只有一个链接
+ */
 function skillRead(slugIn: unknown, pathIn: unknown, versionIn: unknown): Record<string, unknown> {
   const { row, target, dir } = skillVersionDir(resolveMcpSkillSlug(slugIn), versionIn);
-  const files = skillSnapFiles(dir).filter((f) => { try { return lstatSync(f.abs).isFile(); } catch { return false; } });
+  const files = skillSnapFiles(dir).filter((f) => { try { const st = lstatSync(f.abs); return st.isFile() && st.nlink === 1; } catch { return false; } });
   const want = pathIn === undefined || pathIn === null || pathIn === '' ? 'SKILL.md' : String(pathIn);
   const hit = files.find((f) => f.path === want);
   if (!hit) throw new HttpError(404, `这一版里没有这个文件：path 写这一版文件列表里的相对路径（缺省 SKILL.md；不带 path 调一次看 files）`);
