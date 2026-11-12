@@ -385,7 +385,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   tasks.ts（定时任务）
   upload-integrity.ts（上传应答的核对结果：调用方带了期望的 sha256 / size 且对上才会存，应答写明 integrity 与 next，agent 不必下载回读；MCP 上传与 REST 上传共用）
   url-admission.ts（#258 R3 业务 URL 登记准入单核·WM_REGISTER_URL_ALLOWLIST）
-  vault-api.ts（凭据库 REST 面）
+  vault-api.ts（凭据库 REST 面：17 条路由经 HTTP 服务注册，报动作 vault.*（管理类）；除状态外声明面门——服务端持有主密码时只在控制面或凭据库专用域名开放）
   vault/（dsh-vault 存储层引入件·见其 README）
   work-item-access.ts（事项上的几种人 itemRoles（现在是建立人和管理层，管理层按 work-items.view-all 这个拍板类动作认；成员的主人、负责人随关系确认制接上）和看得到的范围 canSee、列表的视角 viewScopes（现在是 mine、all；seats、team 列出但不可用）；事项上这个人能做什么、是不是轮到他：canOf、turnOf、creatorOf，事项详情和「关注」共用；每一项和对应动作接口同一处判断（放行 releaseBlock、对话写入和验收 writerVerdict、回复 replyableMessages、提问 pendingAsksOfEvent））
   workbench-events.ts（工作台事件层 v1：人提交→事件→团队接单→决定回写）
