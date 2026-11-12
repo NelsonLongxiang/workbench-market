@@ -2,7 +2,7 @@
 /** 「团队」页的纯函数单测（web/src/team-view.ts）：应答整形、管理员视图、团队状态、负责人、成员归谁用、计数、空的说法、读不到和被拒的说法、建部门的校验。数据都是合成的。 */
 // 在非 UTC 的时区里跑（东八区）：不带时区的时间写法要按 UTC 解析，在这里才看得出来
 process.env.TZ = 'Asia/Shanghai';
-import { actionProblem, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterAt, rosterStaleText, ROSTER_STALE_MIN, sourceProblem, teamCounts, teamStatusLabel, teamTitle, teamsOf, pendingText, proposedText } from '../web/src/team-view.ts';
+import { actionProblem, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterAt, rosterStaleText, ROSTER_STALE_MIN, sourceProblem, teamCounts, teamStatusLabel, teamTitle, teamsOf, pendingText, proposedText , proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, claimButtonText, LEAD_SKIPPED_TEXT, teamKey, outcomeLabel, outcomeReasonText} from '../web/src/team-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -64,6 +64,38 @@ ok('说法里没有开发用语', [emptyText(teamsOf({ departments: [] }), [], t
     && proposedText({ status: 201, body: { department: {}, lead_proposal: { id: 2, confirm_by_text: '属主' } } }) === '已提出，等属主确认'
     && proposedText({ status: 200, body: { ok: true, changed: true } }) === null && proposedText({ status: 201, body: { department: {} } }) === null && proposedText({ status: 202, body: null }) === null);
 }
+
+// ---------- 关系的提议 ----------
+const P = (id, kind, more = {}) => ({ id, kind, status: 'pending', department_id: 'synthetic-ops', host: 'a1b2c3d4', team: 'ops/canvas/合成运营', principal_id: 'user:yi', proposed_by: 'admin-token', proposed_at: 1000 + id, confirm_by_text: '管理层或接收部门的负责人', can_approve: false, approve_denied_text: null, can_reject: false, ...more });
+const props = proposalsOf({ proposals: [P(1, 'team-claim', { can_approve: true, can_reject: true }), P(2, 'team-lead', { mine: true, can_reject: true, confirm_by_text: '属主' }), P(3, 'dept-lead', { approve_denied_text: '只有属主能放行', can_reject: true }), P(4, 'team-claim', { status: 'approved' }), P(5, 'weird'), { id: 'x' }] });
+ok('提议整形：can_approve、can_reject、mine 只认真正的布尔真（字符串 \'true\'、数字 1 都当不是）', (() => { const q = proposalsOf({ proposals: [P(31, 'team-claim', { can_approve: 'true', can_reject: 1, mine: 'true' }), P(32, 'team-claim', { can_approve: 1 })] }); return q[0].can_approve === false && q[0].can_reject === false && q[0].mine === null && q[1].can_approve === false && proposalGroups(q).forMe.length === 0 && rejectLabel(q[0]) === null; })());
+ok('提议整形：只留待确认的、种类认得的；mine 没给是 null', props.length === 3 && props[0].mine === null && props[1].mine === true && props[2].approve_denied_text === '只有属主能放行');
+const kn = knownNames(teamsOf({ departments: [{ id: 'synthetic-ops', name: '合成运营部', teams: [] }], unclaimed: [{ host: 'a1b2c3d4', team: 'ops/canvas/合成运营', name: '合成运营' }] }), [], [{ id: 'user:yi', name: '乙主管' }]);
+ok('提议怎么说：认领、团队负责人、部门负责人；名字取页面已有的', proposalTitle(props[0], kn) === '把「合成运营」挂到「合成运营部」' && proposalTitle(props[1], kn) === '让 乙主管 做「合成运营」的负责人' && proposalTitle(props[2], kn) === '让 乙主管 做「合成运营部」的负责人');
+const none = knownNames(teamsOf({ departments: [] }), null, []);
+ok('名字页面也不知道时写人话，不露标识；服务端给了名字就用服务端的', proposalTitle(props[0], none) === '把「一个团队」挂到「一个部门」' && proposalTitle(props[1], none) === '让 一位同事 做「一个团队」的负责人' && proposalTitle(proposalsOf({ proposals: [P(9, 'team-claim', { team_name: '服务端团队', department_name: '服务端部门' })] })[0], none) === '把「服务端团队」挂到「服务端部门」');
+ok('谁提的：服务端的名字；管理口令写「管理员」，本机命令行写「本机命令行」；对不到人写「一位同事」', proposerText(props[0], none) === '管理员' && proposerText(proposalsOf({ proposals: [P(9, 'team-claim', { proposed_by: 'cli' })] })[0], none) === '本机命令行' && proposerText(proposalsOf({ proposals: [P(9, 'team-claim', { proposed_by: 'user:zz' })] })[0], none) === '一位同事' && proposerText(proposalsOf({ proposals: [P(9, 'team-claim', { proposed_by_name: '丙' })] })[0], none) === '丙');
+const g = proposalGroups(props);
+ok('分组：能确认的进「等你确认」，自己提的进「你提的」（能确认也不进前一组），其余进「别的」', J(g.forMe.map((p) => p.id)) === '[1]' && J(g.mine.map((p) => p.id)) === '[2]' && J(g.others.map((p) => p.id)) === '[3]' && proposalGroups(proposalsOf({ proposals: [P(7, 'team-claim', { mine: true, can_approve: true })] })).forMe.length === 0);
+ok('驳回按钮：自己提的叫「撤回」，别人提的叫「驳回」，服务端说不能就不出', rejectLabel(props[1]) === '撤回' && rejectLabel(props[0]) === '驳回' && rejectLabel(proposalsOf({ proposals: [P(8, 'team-claim')] })[0]) === null);
+const dec = proposalsOf({ proposals: [
+  P(41, 'team-claim', { status: 'rejected', outcome: 'expired', outcome_reason: '部门已经不在了', mine: true, decided_by_name: '系统' }),
+  P(42, 'team-lead', { status: 'rejected', outcome: 'rejected', outcome_reason: '人选再议', mine: true }),
+  P(43, 'team-lead', { status: 'rejected', outcome: 'withdrawn', mine: true }),
+  P(44, 'team-claim', { status: 'approved', outcome: 'approved', mine: true }),
+  P(45, 'team-claim', { status: 'approved', outcome: 'approved' }),
+  P(46, 'team-claim', { status: 'rejected', mine: true }),
+  P(47, 'team-claim', { outcome: 'weird', mine: true }),
+  P(48, 'team-claim', { mine: true, can_reject: true }),
+] });
+ok('结局：处理过的只留自己提的、服务端给了结局的；别人的、没给结局的、结局不认得的都不列', J(dec.map((p) => p.id)) === '[41,42,43,44,48]');
+const gd = proposalGroups(dec);
+ok('你提的：待确认的在前，处理过的在后；别的两组只有待确认的', J(gd.mine.map((p) => p.id)) === '[48,41,42,43,44]' && gd.forMe.length === 0 && gd.others.length === 0);
+ok('结局怎么说：失效叫「失效」不叫驳回；被驳回、已撤回、已确认；按 outcome 判，不看处理人', J(dec.slice(0, 4).map((p) => outcomeLabel(p).text)) === '["失效","被驳回","已撤回","已确认"]' && outcomeLabel(dec[4]).text === '待确认');
+ok('结局的原因：失效、驳回写服务端的原因；撤回没给原因不写；失效没给原因写一句兜底；已确认不写', outcomeReasonText(dec[0]) === '原因：部门已经不在了' && outcomeReasonText(dec[1]) === '原因：人选再议' && outcomeReasonText(dec[2]) === null && outcomeReasonText({ outcome: 'expired', outcome_reason: null }) === '原因：没有人否决，已经不能确认了' && outcomeReasonText(dec[3]) === null);
+ok('处理过的不出撤回、驳回（就算 can_reject 写成真）', rejectLabel({ ...dec[0], can_reject: true }) === null && rejectLabel(dec[4]) === '撤回');
+ok('认领按钮照 can：能直接认领写「认领」，只能提议写「提议认领」，都不能不出；没给 can 照旧「认领」', claimButtonText({ claim: true, propose_claim: false }) === '认领' && claimButtonText({ claim: false, propose_claim: true }) === '提议认领' && claimButtonText({ claim: false, propose_claim: false }) === null && claimButtonText(null) === '认领');
+ok('认领只是提议、选了负责人：补一句负责人等认领确认后再指定', /负责人等认领确认后再指定/.test(LEAD_SKIPPED_TEXT) && teamKey('a', 'b') !== teamKey('ab', ''));
 
 console.log(`\nteam-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

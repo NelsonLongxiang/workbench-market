@@ -7,31 +7,24 @@
  *  日志只增不改：每条事实一行；被拒的（表里没有、终态之后才到）也留一行「收到，未采信」，带原因。 */
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Alert, App, Badge, Button, Card, Col, Descriptions, Empty, Flex, Input, List, Radio, Row, Segmented, Space, Tag, Timeline, Typography } from 'antd';
+import { Alert, App, Badge, Button, Card, Col, Descriptions, Empty, Flex, Input, List, Radio, Row, Segmented, Space, Tag, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import WmPage from '../components/WmPage';
 import RelTime from '../components/RelTime';
 import { apiFetch } from '../admin-token';
-import { OUTCOME, VERDICT, describe, type AttentionItem, type LogRow } from '../attention-view';
+import { OUTCOME, VERDICT, type AttentionItem, type LogRow } from '../attention-view';
 import { getLifecycleNameSources, getRosterTeams, getWorkItem, postAskAnswer, postCreatorDecision, postSeatMessageReply, postSeatMessagesRead } from '../api';
 import SectionBoundary from '../components/SectionBoundary';
-import { choicesFor, routeFor, viewerOf, type Can, rowActor, seatLine, showProgress, subitemsOf, ticketStateLabel } from '../work-item-view';
+import WorkItemTimeline, { STATE, stateTag } from '../components/WorkItemTimeline';
+
+export { STATE };
+import { choicesFor, routeFor, viewerOf, type Can, seatLine, showProgress, subitemsOf, ticketStateLabel } from '../work-item-view';
 import { teamLabel } from '../people';
 import { NO_NAMES, cleanSeatName, lifecycleNames, lineName, rosterNames, stageName, withRoster, type Names } from '../names';
-import { VIEWER_NONE, actorLabel, groupTimeline, seatLabel, type Viewer, askerLabel, textOf, who, PROGRESS_STATE, TERMINAL, stateLabel, askIdOf, creatorLabel, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
+import { actorLabel, seatLabel, askerLabel, textOf, who, PROGRESS_STATE, TERMINAL, creatorLabel, hiddenInTimeline, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
 
 type Item = { id: string; title: string; state: string; created_by: string; creator_principal?: string | null; created_at: string; updated_at: string; source_kind: string; source_ref: string; target_team: string; seat: string; eval: string; eval_reason: string; progress_summary: string; receipt_outcome: string; object: string; phase: string; open_asks: string; outputs: string; evidence: string };
 
-/** 状态的颜色和中性叫法（不带「你」；列表页也用它）。详情页按看的人能做什么另取叫法：stateLabel */
-const STATE_COLOR: Record<string, string> = {
-  draft: 'default', held: 'default', delivered: 'blue', accepted: 'cyan', progress: 'geekblue', waiting: 'orange',
-  blocked: 'gold', ready: 'green', done: 'success', failed: 'error', dropped: 'default', cancelled: 'default',
-};
-export const STATE: Record<string, { label: string; color: string }> = Object.fromEntries(Object.entries(STATE_COLOR).map(([k, color]) => [k, { label: stateLabel(k), color }]));
-const FACT: Record<string, string> = {
-  create: '建立', submit: '提交', release: '放行', withdraw: '撤回', delivery: '投递结果', eval: '接单判断', report: '进展上报', ask: '席位问了',
-  receipt: '回执', verify: '验收', return: '打回重做', answer: '答复', note: '备注',
-};
 type SeatMessage = { id: number; sender: string; peer: string; text: string; truncated: boolean; at: string; status: 'unread' | 'read' | 'replied' | 'over-cap' };
 type Data = { item: Item; log: LogRow[]; messages?: SeatMessage[]; unread?: number; progress?: SeatProgress | null; asks?: SeatAsk[]; subitems?: unknown; can?: unknown; turn?: unknown; creator?: unknown };
 const MSG_STATUS: Record<SeatMessage['status'], { label: string; color: string }> = {
@@ -187,22 +180,6 @@ function Artifacts({ list, empty }: { list: Artifact[]; empty: string }) {
   }} />;
 }
 
-const REJECTED: Record<string, string> = { not_allowed: '这时候不该有这条事实', terminal: '事项已经结束之后才到' };
-function LogLine({ row, askIds, nameOf }: { row: LogRow; askIds?: Set<string>; seat: string; nameOf?: (s: string) => string }) {
-  const ask = askIdOf(row);
-  const jump = ask && askIds?.has(ask) && !(row.fact_id ?? '').includes(':closes-ask:') ? ask : null;
-  return <div data-testid="timeline-row">
-    <Space wrap size={4}>
-      <Typography.Text strong>{timelineLabel(row, FACT)}</Typography.Text>
-      {jump && <Typography.Link data-testid="timeline-ask-link" onClick={() => document.getElementById(`ask-${jump}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>看这条提问</Typography.Link>}
-      {row.from_state !== row.to_state ? <>{stateTag(row.from_state)}→{stateTag(row.to_state)}</> : null}
-      {row.rejected && <Tag color="default">收到，未采信：{REJECTED[row.rejected] ?? row.rejected}</Tag>}
-    </Space>
-    <div><Typography.Text type="secondary">{row.at} · {nameOf ? nameOf(rowActor(row)) : rowActor(row)}</Typography.Text></div>
-    {describe(row) && <div>{describe(row)}</div>}
-  </div>;
-}
-const stateTag = (s: string, viewer: Viewer = VIEWER_NONE) => <Tag color={STATE[s]?.color ?? 'default'}>{stateLabel(s, viewer)}</Tag>;
 
 export default function WorkItem() {
   const { id = '' } = useParams();
@@ -312,11 +289,7 @@ export default function WorkItem() {
           </SectionBoundary>
           <SectionBoundary name="时间线">
           <Card title="时间线" size="small">
-            {timeline.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有记录" /> : <Timeline items={groupTimeline(timeline).map((g) => g.kind === 'row'
-              ? { key: g.row.seq, color: g.row.rejected ? 'gray' : g.row.from_state !== g.row.to_state ? 'blue' : 'green', children: <LogLine row={g.row} askIds={askIds} seat={who(item.seat)} nameOf={(x) => seatLabel(named(x))} /> }
-              : { key: `${g.kind}-${g.rows[0].seq}`, color: g.kind === 'rejected' ? 'gray' : 'green', children: <details data-testid={g.kind === 'rejected' ? 'timeline-rejected' : 'timeline-progress'}><summary><Typography.Text type="secondary">{g.kind === 'rejected'
-                ? `${g.rows.length} 条收到、未采信的记录（${REJECTED[g.rows[0].rejected] ?? g.rows[0].rejected}）`
-                : `席位报了 ${g.rows.length} 次进展（最新一次在「正在处理」里）`}</Typography.Text></summary>{g.rows.map((row) => <LogLine key={row.seq} row={row} askIds={askIds} seat={who(item.seat)} nameOf={(x) => seatLabel(named(x))} />)}</details> })} />}
+            <WorkItemTimeline log={timeline} askIds={askIds} nameOf={(x) => seatLabel(named(x))} />
           </Card>
           </SectionBoundary>
         </Flex>

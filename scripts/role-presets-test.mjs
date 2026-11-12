@@ -30,6 +30,7 @@ try {
   const { db } = await import(at('server/src/db.ts'));
   const roles = await import(at('server/src/roles.ts'));
   const { judgeBuiltin, scopedVerdict } = await import(at('server/src/judgment.ts'));
+  const { nameResolver } = await import(at('server/src/attention-names.ts'));
   const { MCP_TOOLS } = await import(at('server/src/mcp-tools.ts'));
 
   // 动作清单：快照里每条路由报的动作（含细分的）和 MCP 工具
@@ -180,6 +181,19 @@ try {
     check(oddGot.every((x) => x.endsWith('=deny:scope-unsupported')) && scopedVerdict({ principal: 'user:mg', action: 'sop-run.read', kind: 'read', scope: 'dept:sales', now }).verdict === 'allow',
       '部门范围的判定：范围只收 dept:<部门标识>；* 、空、大写、别的前缀、带斜杠的一律拒（scope-unsupported），持 * 授予的管理层也一样；对照：dept:sales 能过',
       show(oddGot));
+    // 「关注」条目上的显示名（attention-names.ts）：只给看的人本来就看得到的人的名字
+    for (const [id, n] of [['user:rel', '合成·关系人'], ['user:dm', '合成·部门成员'], ['user:pend', '合成·没部门的'], ['user:gone', '合成·停用的']]) db.prepare('UPDATE principals SET display_name = ? WHERE id = ?').run(n, id);
+    deps.addMember('sales', 'user:dm', 'cli', now); // dm 和 rel 同在 sales（rel 前面已经加进 sales 并当了负责人）
+    const nm = (viewer) => { const f = nameResolver(viewer); return [f('user:rel'), f('receiver:user:rel'), f('user:gone'), f('seat:dept-bot'), f('mcp:合成会话'), f('zone1/0000000b'), f('')]; };
+    const names = {
+      sameDept: nm({ admin: false, principal: 'user:dm' }), noDept: nm({ admin: false, principal: 'user:pend' }), mgmt: nm({ admin: false, principal: 'user:mg' }),
+      admin: nm({ admin: true, principal: null }), self: nameResolver({ admin: false, principal: 'user:pend' })('user:pend'),
+    };
+    check(show(names.sameDept) === show(['合成·关系人', '合成·关系人', null, null, 'MCP 会话 合成会话', null, null])
+      && show(names.noDept) === show([null, null, null, null, 'MCP 会话 合成会话', null, null])
+      && names.mgmt[0] === '合成·关系人' && names.admin[0] === '合成·关系人' && names.self === '合成·没部门的',
+      '「关注」的显示名：同部门的、管理层、管理员、本人看得到名字；不在一个部门的普通员工拿到 null；停用的、席位、节点句柄给 null；MCP 会话给类型加名字',
+      show(names));
   }
 
   // ---------- 四、声明文件和内置预设同名：报错说清怎么改 ----------

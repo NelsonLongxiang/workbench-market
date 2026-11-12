@@ -327,6 +327,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   seat-messages.ts（事项对话里的席位消息：跟进不进「关注」，在事项页列出、带未读数；看过标已读、回复作为同一 context 的新任务发回）
   attention-answers.ts（「关注」各来源的答法：转给原路由的换算表——路径固定、id 核形状后编码、请求体只取这种答法要的字段；席位提问的答复、事项的验收和退回直接实现）
   attention-forward.ts（进程内把答复转给原路由：全局中间件和原路由的守卫照走，身份头原样、来源地址照抄，应答原样交回）
+  attention-names.ts（「关注」条目的显示名 waiting_for_name、creator_name：在汇总那一层统一补，只给看的人本来就看得到的人的名字——管理员、本人、管理层、同部门的；别的给 null，席位、对端这些非人键给 null，MCP 会话给类型加名字）
   attention-providers.ts（「关注」的七个提供方：各来源用旧接口自己的守卫判可见性，只读地取数；阶段三搬完再挪回各域）
   bench-query.ts（数据视图的查询描述：台的作者和 agent 不写 SQL，只给筛选、分组、聚合、排序、行数上限；这里核对并翻成参数化语句·名字只认白名单且必须已定义·值全走参数·见 docs/data-views.md）
   bench-views.ts（数据视图的视图描述：保存前核对组件类型、键、引用的数据集和列、查询、筛选栏参数；两个版本之间的差异·第一批八种组件）
@@ -334,6 +335,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   content-static.ts（无令牌静态资产读取）
   content-surface.ts（内容面终结分发与到期引导）
   context.ts（服务容器）
+  db-busy.ts（库被别的连接锁着写时最多等多久：DB_BUSY_TIMEOUT_MS = 5000。市场主库、判定比对库用它，台库每次读写取它和那一次时限中较小的；部署切换时新旧进程短暂重叠写不直接报 database is locked，超过上限照样报错。多个进程同时写同一个库仍不支持）
   db.ts（schema+迁移）
   design-standard.ts（MCP design_standard 工具的 design token 标准只读读取）
   design-tokens-css.ts（DESIGN.md 生成的 tokens.css 服务端出口）
@@ -391,7 +393,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   url-admission.ts（#258 R3 业务 URL 登记准入单核·WM_REGISTER_URL_ALLOWLIST）
   vault-api.ts（凭据库 REST 面）
   vault/（dsh-vault 存储层引入件·见其 README）
-  work-item-access.ts（事项上的几种人 itemRoles（现在是建立人和管理层，管理层按 work-items.view-all 这个拍板类动作认；成员的主人、负责人随关系确认制接上）和看得到的范围 canSee、列表的视角 viewScopes（现在是 mine、all；seats、team 列出但不可用）；事项上这个人能做什么、是不是轮到他：canOf、turnOf、creatorOf，事项详情和「关注」共用；每一项和对应动作接口同一处判断（放行 releaseBlock、对话写入和验收 writerVerdict、回复 replyableMessages、提问 pendingAsksOfEvent））
+  work-item-access.ts（事项上的四种人 itemRoles（建立人、成员的主人、负责人、管理层，成员的主人按团队服务的分配段和 inSegment（左闭右开，列表 seats 视角同一个口径，席位按（节点, seat_id）或（节点, 团队, 句柄）完整的键认），负责人按 relationOf，管理层按 work-items.view-all 这个拍板类动作认）和看得到的范围 canSee、列表的视角 viewScopes（mine、seats、team、all）；事项上这个人能做什么、是不是轮到他：canOf、turnOf、creatorOf，事项详情和「关注」共用；每一项和对应动作接口同一处判断（放行 releaseBlock、对话写入和验收 writerVerdict、回复 replyableMessages、提问 pendingAsksOfEvent））
   workbench-events.ts（工作台事件层 v1：人提交→事件→团队接单→决定回写）
   workbench-vars.ts（#336 工作台变量与常量：按台隔离、revision 乐观锁、常量保护）
 server/src/login-providers/  登录提供方插件（身份的具体实现只放这里，核心不引用）：index.ts（清单：这个部署装哪些提供方） feishu/index.ts（飞书登录方式：授权码流程，向 `identity` 登记一个登录方式，凭证从凭据库取） odoo/index.ts（Odoo 提供方的插件入口：向 `identity` 登记、提供 `loginRelay`） odoo/odoo-viewer.ts（Odoo 查看人现查） odoo/odoo-session.ts（门户 Odoo 会话可信源判定与剥除、登录回调票据） odoo/odoo-login-proxy.ts（可选同源 Odoo 登录中继 WM_ODOO_LOGIN_PROXY：只放行登录面，不代理 Odoo 应用） odoo/odoo-browser-origin.ts（只给浏览器用的 Odoo 登录地址 WM_ODOO_BROWSER_URL：登录一跳送到可信内网地址，身份与代理目标不变）

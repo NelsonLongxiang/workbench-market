@@ -178,6 +178,10 @@ try {
   check(['change-requests', 'mcp-access', 'seat-asks', 'tasks', 'owner-pending', 'principal-pending', 'work-items'].every((s) => admin.counts.by_source[s] >= 1), '七个来源各造的待决都出现在管理员的「关注」里', show(admin.counts.by_source));
   check(bySource(admin, 'change-requests').length === 2 && bySource(admin, 'mcp-access').length === 1, '对照：已批、已拒的不出现', show(admin.counts.by_source));
   check(admin.items.every((x) => ['source', 'source_id', 'category', 'title', 'waiting_for', 'since', 'answers', 'object', 'phase', 'link'].every((k) => k in x)), '每条的形状统一（来源、id、类别、标题、谁在等、从何时等、答法、对象、阶段、链接）');
+  // 显示名在汇总那一层统一补：每条都有 waiting_for_name（看不到的、不是人的为 null），从来不是内部键本身
+  check(Object.values(views).every((v) => (v.items ?? []).every((x) => 'waiting_for_name' in x && (x.waiting_for_name === null || (typeof x.waiting_for_name === 'string' && x.waiting_for_name !== x.waiting_for))))
+    && bySource(admin, 'principal-pending').every((x) => x.waiting_for_name === null),
+    '每条都带 waiting_for_name（汇总那一层补的）；不是人的键（待对接的外部身份）为 null，名字从来不是内部键本身', show(admin.items.map((x) => [x.source, x.waiting_for, x.waiting_for_name])));
   check(bySource(admin, 'seat-asks')[0]?.link.startsWith('/work-items/wi_wbe-'), '席位的提问带着对应事项的链接', show(bySource(admin, 'seat-asks')));
   // 链接只放站内页面路径：要么 null（没有对应页面，在卡片上当场办），要么是 / 开头、不是 /api/ 的路径
   const badLinks = Object.entries(views).flatMap(([who, v]) => (v.items ?? []).filter((x) => !(x.link === null || (typeof x.link === 'string' && x.link.startsWith('/') && !x.link.startsWith('/api/')))).map((x) => [who, x.source, x.link]));

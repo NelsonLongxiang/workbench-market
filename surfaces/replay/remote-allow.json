@@ -20,7 +20,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "844", "etag": "W/\"34c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "868", "etag": "W/\"364-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -30,6 +30,7 @@
                 "/a2a/direct",
                 "/api/auth/login",
                 "/api/auth/logout",
+                "/api/attention/answer",
                 "/^\\/api\\/apps\\/[a-z0-9-]{1,64}\\/(data|files)(\\/|$)/",
                 "/^\\/api\\/sop\\/runs(\\/\\d+(\\/(finish|files|files\\/refs))?)?$/",
                 "/^\\/api\\/workbench-events\\/wbe-[0-9a-f]{16}\\/decision$/",
@@ -55,7 +56,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "844", "etag": "W/\"34c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "868", "etag": "W/\"364-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -65,6 +66,7 @@
                 "/a2a/direct",
                 "/api/auth/login",
                 "/api/auth/logout",
+                "/api/attention/answer",
                 "/^\\/api\\/apps\\/[a-z0-9-]{1,64}\\/(data|files)(\\/|$)/",
                 "/^\\/api\\/sop\\/runs(\\/\\d+(\\/(finish|files|files\\/refs))?)?$/",
                 "/^\\/api\\/workbench-events\\/wbe-[0-9a-f]{16}\\/decision$/",
@@ -158,7 +160,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "844", "etag": "W/\"34c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "868", "etag": "W/\"364-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -168,6 +170,7 @@
                 "/a2a/direct",
                 "/api/auth/login",
                 "/api/auth/logout",
+                "/api/attention/answer",
                 "/^\\/api\\/apps\\/[a-z0-9-]{1,64}\\/(data|files)(\\/|$)/",
                 "/^\\/api\\/sop\\/runs(\\/\\d+(\\/(finish|files|files\\/refs))?)?$/",
                 "/^\\/api\\/workbench-events\\/wbe-[0-9a-f]{16}\\/decision$/",

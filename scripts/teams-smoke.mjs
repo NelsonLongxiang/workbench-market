@@ -311,6 +311,7 @@ try {
       const script = `
         const { relationOf } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/team-relation.ts')).href)});
         const { svc } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/context.ts')).href)});
+        const { db } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/db.ts')).href)});
         const out = (() => { ${body} })();
         console.log('OUT ' + JSON.stringify(out)); process.exit(0);`;
       const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', script], { cwd: join(ROOT, 'server'), env: { ...process.env, DATA_DIR: data, NODE_ENV: 'test', REDIS_URL: '' }, encoding: 'utf8' });
@@ -385,11 +386,11 @@ try {
       rootQa: relationOf({ principal: 'user:root-admin' }, { department: 'qa' }).relations,
     };`);
     const code = (r) => `${r.status}:${r.json?.error ?? r.json?.proposal?.status}`;
-    check(show(Object.fromEntries(Object.entries(tries).map(([k, r]) => [k, code(r)]))) === show({ claimByToken: '403:business_confirm_required', claimByRoot: '403:business_confirm_required', claimByAlpha: '403:business_confirm_required', leadByMgmt: '403:owner_required', deptByMgmt: '403:owner_required' })
+    check(show(Object.fromEntries(Object.entries(tries).map(([k, r]) => [k, code(r)]))) === show({ claimByToken: '403:business_confirm_required', claimByRoot: '404:proposal_missing', claimByAlpha: '404:proposal_missing', leadByMgmt: '404:proposal_missing', deptByMgmt: '404:proposal_missing' })
       && seen?.can_approve === true && !(listAlpha.json?.proposals ?? []).some((p) => p.id === pClaim) && (attnMgmt.json?.items ?? []).some((i) => i.source === 'relation-proposals' && i.source_id === String(pClaim) && i.link === '/team')
       && code(claimByMgmt) === '200:approved' && code(leadByOwner) === '200:approved' && code(deptByOwner) === '200:approved'
       && confirmed.claimed === 'qa' && confirmed.rootTeam?.includes('team-lead') && confirmed.rootQa?.includes('dept-lead'),
-      '确认：认领要管理层或接收部门的负责人（管理口令、只有系统管理员身份的登录、不相干的员工 403），负责人只有属主（管理层 403）；管理层在列表和「等你拍板」里看得到、能确认；属主确认之后关系才生效',
+      '确认：认领要管理层或接收部门的负责人（提的人自己 403；只有系统管理员身份的登录、不相干的员工读不到，和不存在一样 404），负责人只有属主（管理层读不到，404）；管理层在列表和「等你拍板」里看得到、能确认；属主确认之后关系才生效',
       show({ tries: Object.fromEntries(Object.entries(tries).map(([k, r]) => [k, code(r)])), seen: seen && [seen.can_approve, seen.approve_denied_text], claimByMgmt: code(claimByMgmt), leadByOwner: code(leadByOwner), deptByOwner: code(deptByOwner), confirmed }));
     // 2b) 驳回只归能确认的人，提的人只能撤回自己提的；系统管理员不替业务驳回别人提的（管理口令、管理员登录都一样）
     {
@@ -405,10 +406,43 @@ try {
         rootWithdrawsOwn: await reject(pLeadRoot, asRoot), ownerRejectsDept: await reject(pDeptTok, {}), mgmtRejectsMove: await reject(pMoveTok, as(SESSIONS.noAdminFlag)),
       };
       const codes = Object.fromEntries(Object.entries(r).map(([k, v]) => [k, `${v.status}:${v.json?.error ?? v.json?.proposal?.status}`]));
-      check(show(codes) === show({ tokRejectsRootLead: '403:reject_not_allowed', rootRejectsTokDept: '403:reject_not_allowed', rootRejectsTokMove: '403:reject_not_allowed', rootWithdrawsOwn: '200:rejected', ownerRejectsDept: '200:rejected', mgmtRejectsMove: '200:rejected' })
+      check(show(codes) === show({ tokRejectsRootLead: '404:proposal_missing', rootRejectsTokDept: '404:proposal_missing', rootRejectsTokMove: '404:proposal_missing', rootWithdrawsOwn: '200:rejected', ownerRejectsDept: '200:rejected', mgmtRejectsMove: '200:rejected' })
         && show(rootSees) === show([pLeadRoot]) && rootLead?.mine === true && rootLead.can_reject === true && rootLead.can_approve === false,
-        '驳回：系统管理员（管理口令、管理员登录）驳回别人提的负责人、认领提议 403；撤回自己提的 200；能确认的人（属主对负责人、管理层对认领）驳回 200；管理员登录的列表里只看到自己提的那条（can_reject 是撤回、can_approve 假） [red-line:relations-need-confirmation]',
+        '驳回：系统管理员（管理口令、管理员登录）驳回别人提的负责人、认领提议：读不到，和不存在一样 404；撤回自己提的 200；能确认的人（属主对负责人、管理层对认领）驳回 200；管理员登录的列表里只看到自己提的那条（can_reject 是撤回、can_approve 假） [red-line:relations-need-confirmation]',
         show({ codes, rootSees, ids: { pLeadRoot, pDeptTok, pMoveTok }, rootLead: rootLead && [rootLead.mine, rootLead.can_reject, rootLead.can_approve] }));
+      // 读不到的提议，确认、驳回、撤回的任何失败都和这条不存在时一模一样：不相干的人按 id 枚举，看不出有没有、是什么结局
+      {
+        const ghost = 999999;
+        const norm = (x, id) => ({ status: x.status, body: JSON.parse(JSON.stringify(x.json ?? null).split(String(id)).join('N')) });
+        const probes = [];
+        // 每个人读不到的：员工什么都没提、没处理；管理员登录只提过 pLeadRoot；口令提了别的几条，读不到管理员登录提的那条
+        const unreadable = [['员工', as(SESSIONS.alpha), [pClaim, pLead, pDept, pDeptTok, pMoveTok, pLeadRoot]], ['管理员登录', asRoot, [pClaim, pLead, pDept, pDeptTok, pMoveTok]], ['管理口令', { headers: token }, [pLeadRoot]]];
+        for (const who of unreadable) {
+          for (const [verb, call] of [['approve', approve], ['reject', reject]]) {
+            const g0 = norm(await call(ghost, who[1]), ghost);
+            for (const id of who[2]) {
+              const got = norm(await call(id, who[1]), id);
+              if (show(got) !== show(g0)) probes.push({ who: who[0], verb, id, got, g0 });
+            }
+          }
+        }
+        check(probes.length === 0, '读不到的提议（别人提、别人处理过的：驳回的、确认的）：确认、驳回对不相干的人回的和不存在的 id 一模一样，按 id 枚举看不出结局', show(probes));
+      }
+      // 驳回和别人的确认撞在一起：判过之后、写之前状态变了，驳回不能回成功、带出别人确认的结果
+      {
+        const raced = inproc(`
+          const P = svc('relationProposals');
+          const owner = { by: 'cli', principal: null, owner: true };
+          const { id } = P.propose({ kind: 'team-lead', host: '${HOST}', team: ${JSON.stringify(TEAM)}, principal_id: 'user:gamma' }, { by: 'admin-token', principal: null, owner: false }, Date.now());
+          const orig = P.rejectRefusal.bind(P);
+          P.rejectRefusal = (p, a, n) => { const r = orig(p, a, n); db.prepare("UPDATE relation_proposals SET status = 'approved', decided_by = 'someone-else', decided_at = ? WHERE id = ?").run(Date.now(), id); return r; };
+          const r = P.reject(id, owner, '合成：并发', Date.now());
+          const row = P.get(id);
+          db.prepare('DELETE FROM relation_proposals WHERE id = ?').run(id);
+          return { ok: r.ok, http: r.http ?? null, code: r.code ?? null, status: row.status, decided_by: row.decided_by };`);
+        check(raced.ok === false && raced.http === 409 && raced.code === 'state' && raced.status === 'approved' && raced.decided_by === 'someone-else',
+          '驳回时状态已被别人改了（并发确认）：回 409，不回成功、不带出别人确认的结果，记录还是别人确认的那样', show(raced));
+      }
       // 处理过的也按看的人裁剪：看自己提的、自己处理的；别人提、别人处理的不列（属主全看）
       const idsOf = async (who) => ((await srv.call('GET', '/api/relations/proposals', who)).json?.proposals ?? []).map((p) => p.id);
       const mgmtIds = await idsOf(as(SESSIONS.noAdminFlag)), rootIds = await idsOf(asRoot), ownerIds = await idsOf({});
@@ -431,7 +465,7 @@ try {
     const direct = await srv.call('POST', '/api/teams/claim', { ...asRoot, body: { ...tOther, department: 'qa' } });
     await srv.call('POST', `/api/grants/${mg.json?.grant?.id}/revoke`, { body: { reason: '合成：收回' } });
     await srv.call('POST', `/api/grants/${g.json?.grant?.id}/revoke`, { body: { reason: '合成：收回' } });
-    check(move.status === 202 && code(byQaLead) === '403:business_confirm_required' && code(byOpsLead) === '200:approved' && direct.status === 200 && direct.json?.changed === true,
+    check(move.status === 202 && code(byQaLead) === '404:proposal_missing' && code(byOpsLead) === '200:approved' && direct.status === 200 && direct.json?.changed === true,
       '接收部门的负责人（dept:ops 拍板授予）能确认挂到 ops 的认领，不相干的人不能；现有管理员（系统管理员加管理层）认领照常直接生效',
       show({ move: move.status, byQaLead: code(byQaLead), byOpsLead: code(byOpsLead), direct: [direct.status, direct.json] }));
     // 收尾：别队退回、root-admin 的负责人移除（后面几节按原来的状态测）
