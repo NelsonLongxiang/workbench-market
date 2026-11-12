@@ -67,7 +67,7 @@ try {
   r = await call('GET', '/api/mcp/tools');
   ok('GET /api/mcp/tools 无口令 403', r.status === 403);
   r = await call('GET', '/api/mcp/tools', null, AT);
-  ok('tools 面 33 个（#178 skill_search +1·design_standard +1；11-02 来源收敛 app_publish→app_sync、草稿三工具移除 −3；#336 workbench_vars_get/set +2；权限自助 access_info/access_request +2·app_data_submit +1·技能传输 skill_file_put/skill_publish/skill_download +3）', Array.isArray(r.body) && r.body.length === 33, `len=${r.body?.length}`);
+  ok('tools 面 33 个（#178 skill_search +1·design_standard +1；11-02 来源收敛 app_publish→app_sync、草稿三工具移除 −3；#336 workbench_vars_get/set +2；权限自助 access_info/access_request +2·app_data_submit +1·技能传输 skill_file_put/skill_publish/skill_download +3·读技能正文 skill_read +1）', Array.isArray(r.body) && r.body.length === 34, `len=${r.body?.length}`);
   // 授权两个
   r = await call('PUT', `/api/mcp/sessions/${sid}/grants`, { grants: ['workbench_summary', 'use_url'] }, AT);
   ok('grants 整体替换', r.status === 200 && r.body.grants.length === 2);
@@ -86,7 +86,7 @@ try {
   // tools/list 过滤
   r = await rpc('tools/list', {}, alphaToken);
   const names = (r.body?.result?.tools ?? []).map((t) => t.name);
-  ok('tools/list 按授权过滤=2 + 两个免授权工具', names.length === 4 && names.includes('workbench_summary') && names.includes('use_url') && names.includes('access_info') && names.includes('access_request'), JSON.stringify(names));
+  ok('tools/list 按授权过滤=2 + 免授权的五个（权限自助两个、读技能三个）', [...names].sort().join() === 'access_info,access_request,skill_read,skill_search,skills_list,use_url,workbench_summary', JSON.stringify(names));
   // 未授权调用 = 与未知工具同应答
   const r1 = await rpc('tools/call', { name: 'app_sync', arguments: {} }, alphaToken);   // 未授权（存在但未授予）
   const r2 = await rpc('tools/call', { name: 'no_such_tool', arguments: {} }, alphaToken);  // 不存在

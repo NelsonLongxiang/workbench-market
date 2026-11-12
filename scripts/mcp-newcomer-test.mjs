@@ -167,7 +167,7 @@ try {
   ok('台申请：照旧不核台存不存在；应答说清只核写法、写错了不会有人批、拿编号和标识去找给任务的人核对，以及批了怎么知道',
     !b1.isError && /只核写法/.test(b1.payload?.note ?? '') && (b1.payload?.note ?? '').includes(qb?.ref ?? '#') && /access_info/.test(b1.payload?.next ?? ''), b1.text.slice(0, 300));
   const b2 = await tool(other.token, 'access_request', { tools: ['dataset_list@bench:missing-bench-zz'], reason: '合成' });
-  ok('台申请：不存在的台和存在的台应答一样（不泄露存在性）', !b2.isError && b2.payload?.note?.replace(b2.payload.request.ref, 'R') === b1.payload?.note?.replace(qb.ref, 'R'), b2.text.slice(0, 200));
+  ok('台申请：不存在的台和存在的台应答一样（不泄露存在性）', !b2.isError && b2.payload?.note?.replace(b2.payload.request.ref, 'R').replace('missing-bench-zz', 'B') === b1.payload?.note?.replace(qb.ref, 'R').replace('newcomer-bench', 'B'), b2.text.slice(0, 200));
 
   r = await tool(bare.token, 'access_info', { ref: q1.ref });
   ok('access_info {ref}：只回这一条（自己的通用申请）', J(r.payload?.request?.ref) === J(q1.ref) && r.payload?.request?.status === 'pending' && r.payload?.catalog === undefined, r.text.slice(0, 200));

@@ -445,7 +445,7 @@ jobs:
       - name: 登录门上线演练（enforce 隔离实例：MCP/健康/A2A/SOP/台与门户/生命周期/运维/回滚逐类真实请求）
         run: node scripts/login-gate-rollout-check.mjs
       - name: MCP 权限可见与自助申请（access_info 全目录·access_request 去重限频·管理员批准并集/驳回不动 grants/吊销不能批·app_data_submit 与 REST 同核契约校验·匿名 401）
-        run: node scripts/mcp-access-smoke.mjs && node scripts/mcp-grant-scope-smoke.mjs
+        run: node scripts/mcp-access-smoke.mjs && node scripts/mcp-grant-scope-smoke.mjs && node scripts/mcp-newcomer-test.mjs
       - name: MCP 内嵌 REST / OpenAPI（文件：99MB 流式上传 sha256 一致·Range/ETag 下载·415·403/401；资源：列文件/读数据/SOP 附件；工具映射与 /mcp 同链·审计 channel=rest·匿名 5MB 413）
         run: node scripts/mcp-rest-smoke.mjs && node scripts/mcp-rest-smoke.mjs --login-gate
       - name: 台数据与附件的读守卫（台令牌、管理员或本机命令行；匿名、跨站、员工、别台令牌、换过的令牌一律 403 且先于查台；查看凭证只认下载；告警模式；MCP 按台授权）

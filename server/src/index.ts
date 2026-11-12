@@ -15,7 +15,7 @@ import { contentConfig, createContentSurface, mountContentSurface, listenContent
 import { createPortalObservation } from './portal-observation.ts';
 import { allSurfaceServers, browserMarked, originIsThisSurface, rawLoopback, registerSurface, surfaceOf, surfacePorts, surfaceUrl } from './surfaces.ts';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -67,7 +67,7 @@ import { registerLoginEventRoutes } from './routes/login-events.ts';
 import { registerTaskRoutes } from './routes/tasks.ts';
 import { benchViewsConfig, registerBenchViewRoutes, BENCH_ROWS_PATH } from './routes/bench-views.ts';
 import { BENCH_TOOL_NAMES, BENCH_GRANT_RE } from './bench-mcp-tools.ts';
-import { benchGrantsOf, benchRequestsOf, benchToolTarget, requestBenchTools, runBenchTool } from './services/bench-mcp.ts';
+import { benchGrantsOf, benchRequestOfSession, benchRequestsOf, benchToolTarget, requestBenchTools, runBenchTool } from './services/bench-mcp.ts';
 import { BenchError } from './bench-query.ts';
 import { registerChangeRequestRoutes } from './routes/change-requests.ts';
 import { registerSopStateRoutes, registerSopSpaceRoutes } from './routes/sops.ts';
@@ -88,6 +88,7 @@ import { registerSopRunAccessRoutes } from './routes/sop-run-access.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { WorkItemService } from './services/work-item.ts';
 import type { SopService } from './services/sop.ts';
+import type { McpService } from './services/mcp.ts';
 import type { ChangeRequestService } from './services/change-request.ts';
 import type { TaskCenterService } from './services/task-center.ts';
 import type { RemoteAllowService } from './services/remote-allow.ts';
@@ -1977,6 +1978,38 @@ function skillVersionDir(slugIn: unknown, versionIn: unknown): { row: any; targe
   if (!dir || !existsSync(dir)) throw new HttpError(404, `snapshot missing: v${target.version}`);
   return { row, target, dir };
 }
+/** 技能的短名字：去掉来源前缀（agents:wm-data-views → wm-data-views）；没有前缀就是它自己 */
+const skillShortName = (slug: string) => String(slug).slice(String(slug).lastIndexOf(':') + 1);
+/**
+ * MCP 上传进来的技能名：完整名字照常认；库里没有、又不带前缀的，按短名字找——正好一个就用它（技能正文里一般写短名字），
+ * 几个来源都有同名的就报错并列出完整名字（技能对所有会话都看得到，不按看的人裁）
+ */
+function resolveMcpSkillSlug(slugIn: unknown): string {
+  const want = String(slugIn ?? '').trim();
+  const S = svc<SkillService>('skill');
+  if (!want || S.skillBySlug(want)) return want;
+  if (want.includes(':')) throw new HttpError(404, `skill not found: ${want}（完整名字用 skills_list 查）`);
+  const same = (S.skillsAll() as { slug: string }[]).map((r) => r.slug).filter((x) => x.includes(':') && skillShortName(x) === want).sort();
+  if (same.length === 1) return same[0];
+  if (same.length > 1) throw new HttpError(409, `有 ${same.length} 个同名技能，请用完整名字：${same.join('、')}`);
+  throw new HttpError(404, `skill not found: ${want}（没有这个技能；先调 skills_list 看有哪些、完整名字是什么）`);
+}
+const SKILL_READ_MAX_BYTES = 256 * 1024;
+/** skill_read：读这一版里的一个普通文件（缺省 SKILL.md）。只认快照里列得出的普通文件——路径必须和列表里的一字不差，符号链接、目录都不算 */
+function skillRead(slugIn: unknown, pathIn: unknown, versionIn: unknown): Record<string, unknown> {
+  const { row, target, dir } = skillVersionDir(resolveMcpSkillSlug(slugIn), versionIn);
+  const files = skillSnapFiles(dir).filter((f) => { try { return lstatSync(f.abs).isFile(); } catch { return false; } });
+  const want = pathIn === undefined || pathIn === null || pathIn === '' ? 'SKILL.md' : String(pathIn);
+  const hit = files.find((f) => f.path === want);
+  if (!hit) throw new HttpError(404, `这一版里没有这个文件：path 写这一版文件列表里的相对路径（缺省 SKILL.md；不带 path 调一次看 files）`);
+  const bytes = readFileSync(hit.abs);
+  const list = files.map((f) => ({ path: f.path, size: statSync(f.abs).size }));
+  const head = { slug: row.slug, short_name: skillShortName(row.slug), version: target.version, path: hit.path, size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), files: list };
+  let text: string | null = null;
+  if (bytes.length <= SKILL_READ_MAX_BYTES && !bytes.includes(0)) { try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { text = null; } }
+  if (text === null) return { ...head, binary: bytes.length <= SKILL_READ_MAX_BYTES, note: bytes.length > SKILL_READ_MAX_BYTES ? `文件超过 ${SKILL_READ_MAX_BYTES / 1024}KB，不在这里给原文；要整包用 skill_download` : '二进制文件不给原文；要整包用 skill_download' };
+  return { ...head, content: text };
+}
 function skillSnapFiles(dir: string): { path: string; abs: string }[] {
   const out: { path: string; abs: string }[] = [];
   (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else out.push({ path: rel + e.name, abs: fp }); } })(dir);
@@ -2651,7 +2684,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       if (typeof args?.q === 'string' && args.q) { const k = args.q.toLowerCase(); rows = rows.filter((r) => `${r.name} ${r.description}`.toLowerCase().includes(k)); }
       return rows.slice(0, 200).map((r) => {
       const led = (S.ledgerActive() as any[]).find((l: any) => l.skill_id === r.id && l.status === 'installed');
-      return { slug: r.slug, name: r.name, layer: r.layer, layer_name: r.layer_name, family_parent: r.family_parent, legacy: r.legacy === 1, versions: (S.versionsBySkill(r.id) as any[]).length, active_version: SkillService.currentOf(r, S.versionsBySkill(r.id) as any[])?.version ?? null, is_installed: !!led, current_version: led ? (S.versionsBySkill(r.id) as any[]).find((v) => v.id === led.version_id)?.version ?? null : null }; // #132 P1⑤ MCP
+      return { slug: r.slug, short_name: skillShortName(r.slug), name: r.name, layer: r.layer, layer_name: r.layer_name, family_parent: r.family_parent, legacy: r.legacy === 1, versions: (S.versionsBySkill(r.id) as any[]).length, active_version: SkillService.currentOf(r, S.versionsBySkill(r.id) as any[])?.version ?? null, is_installed: !!led, current_version: led ? (S.versionsBySkill(r.id) as any[]).find((v) => v.id === led.version_id)?.version ?? null : null }; // #132 P1⑤ MCP
     });
     }
     case 'skill_versions': {
@@ -2670,7 +2703,9 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       // 审计人恒为调用会话（不收 agent 自报的 reviewed_by）
       return skillPublishCore(args?.slug, args?.files, args?.changelog, subject, { refsOnly: true });
     case 'skill_download':
-      return skillDownloadIssue(args?.slug, args?.version, subject, origin);
+      return skillDownloadIssue(resolveMcpSkillSlug(args?.slug), args?.version, subject, origin);
+    case 'skill_read':
+      return skillRead(args?.slug, args?.path, args?.version);
     case 'skill_install_plan': {
       const S = svc<SkillService>('skill');
       const row = S.skillBySlug(String(args?.slug ?? ''));
@@ -2694,6 +2729,9 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       const SS = svc<SkillService>('skill');
       const all = (layerFilter >= 1 && layerFilter <= 5 ? SS.skillsByLayer(layerFilter) : SS.skillsAll()) as any[];
       const alive = all.filter((s) => !(s.legacy === 1 && (SS.versionsBySkill(s.id) as any[]).length === 0));
+      // 库是空的（或这一层没有）：不调评估模型，直说还没有导入技能——和「有技能但没有够格的」分开，免得新人以为是自己描述得不好
+      if (alive.length === 0) return { need_digest: createHash('sha256').update(need, 'utf8').digest('hex').slice(0, 12), candidates_total: 0, top_n: Math.max(1, Math.floor(Number((args as any)?.top_n ?? 30)) || 30), items: [],
+        note: layerFilter >= 1 && layerFilter <= 5 ? `这一层（layer ${layerFilter}）还没有技能；去掉 layer 再搜，或用 skills_list 看全部` : '这个实例还没有导入技能（技能库是空的），搜不到不是描述的问题；照 access_info 的目录（带参数表）直接用或申请工具' };
       const tokens = need.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 2);
       const scored = alive.map((s) => {
         const hay = (String(s.name ?? '') + ' ' + String(s.description ?? '') + ' ' + String(s.argument_hint ?? '')).toLowerCase();
@@ -2719,11 +2757,11 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
         const s = qidOf.get(qid);
         const vs = SS.versionsBySkill(s.id) as any[];
         const cur = SkillService.currentOf(s, vs)?.version ?? null;
-        return { slug: s.slug, name: s.name, layer: s.layer, description: String(s.description ?? ''), confidence: pv, version: cur, install_plan: { slug: s.slug, version: cur } };
+        return { slug: s.slug, short_name: skillShortName(s.slug), name: s.name, layer: s.layer, description: String(s.description ?? ''), confidence: pv, version: cur, install_plan: { slug: s.slug, version: cur } };
       });
       try { db.prepare("INSERT INTO mcp_calls (at, session_name, method, tool, ok, error, duration_ms, args_sha256) VALUES (datetime('now'), ?, 'tools/call', 'skill_search', 1, '', 0, ?)").run('skill_search', need_digest); } catch { /* 审计失败不阻 */ }
       const _total = { candidates_total: candidatesTotal, top_n: topN }; // #007 总量披露（恒报·含未截断）
-      return items.length ? { need_digest, ..._total, items } : { need_digest, ..._total, items: [], note: '无置信度大于 0.7 的技能' };
+      return items.length ? { need_digest, ..._total, items } : { need_digest, ..._total, items: [], note: `库里有 ${candidatesTotal} 个技能，没有置信度大于 0.7 的；换个说法再搜，或用 skills_list 按关键词看全部、用 skill_read 读正文` };
     }
 
     case 'workbench_list': {
@@ -3086,6 +3124,8 @@ function resolveGrants(raw: unknown[], held: string[], registered: Set<string>):
 // ---------- MCP 权限自助：access_info / access_request（免 grants）+ 管理员审批面 ----------
 // 会话只能看和申请；批准、驳回只走下面的管理员 REST（adminGuard：口令或 Odoo 管理员），会话令牌不是管理身份，自己批不了。
 const MCP_EXEMPT_TOOLS = new Set(MCP_TOOLS.filter((t) => t.exempt).map((t) => t.name));
+/** 权限自助的两个（由 mcpAccessTool 应答）；别的免授权工具（读技能的三个）照常走 callTool */
+const MCP_ACCESS_TOOLS: ReadonlySet<string> = new Set(['access_info', 'access_request']);
 /** #452 可按台授权（工具@台）的工具：按 id 参数取工作台的；读台数据和附件的两个按 slug 取，台 id 是这个自产台在市场里的卡片（/apps/<slug>/）。
  *  不带 @ 的全局授权照旧是全部台（和 vars 一样）。以后可扩到 app_files_upload / app_sync。
  *  依赖 workbenches.id 为 AUTOINCREMENT、不复用：台删除后旧的 工具@台 要到下次保存才剔除，期间新台拿不到旧 id。
@@ -3119,10 +3159,23 @@ type AccessRequestRow = { id: number; session_id: number; tools: string; reason:
 function parseToolList(raw: string): string[] {
   try { const v = JSON.parse(raw || '[]'); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []; } catch { return []; }
 }
-/** 会话看到的申请：不带 decided_by（管理员身份不外露给会话） */
-function accessRequestForSession(r: Pick<AccessRequestRow, 'id' | 'tools' | 'reason' | 'status' | 'note' | 'decided_at' | 'created_at'>) {
-  return { id: r.id, tools: parseToolList(r.tools), reason: r.reason, status: r.status, note: r.note, decided_at: r.decided_at || null, created_at: r.created_at };
+/** 库里的 UTC 时刻（sqlTime：「2026-11-12 08:00:00」）或毫秒数，对会话统一成 ISO（带 Z）；空、写不出的为 null */
+function isoOf(v: unknown): string | null {
+  if (v === null || v === undefined || v === '') return null;
+  const ms = typeof v === 'number' ? v : /^\d{4}-\d\d-\d\d[ T]\d\d:\d\d(:\d\d(\.\d+)?)?$/.test(String(v)) ? Date.parse(String(v).replace(' ', 'T') + 'Z') : Date.parse(String(v));
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
 }
+/** 申请对会话的编号：通用申请 mcp-N，台的申请 bench-N（两套编号各自从 1 起，不带前缀会撞号） */
+const ACCESS_REF_RE = /^(mcp|bench)-([1-9]\d{0,11})$/;
+/** 会话看到的申请：不带 decided_by（管理员身份不外露给会话）；时刻统一成 ISO */
+function accessRequestForSession(r: Pick<AccessRequestRow, 'id' | 'tools' | 'reason' | 'status' | 'note' | 'decided_at' | 'created_at'>) {
+  return { id: r.id, ref: `mcp-${r.id}`, tools: parseToolList(r.tools), reason: r.reason, status: r.status, note: r.note, decided_at: isoOf(r.decided_at), created_at: isoOf(r.created_at) };
+}
+function benchRequestForSession<T extends { id: number; created_at: unknown; decided_at: unknown }>(r: T) {
+  return { ...r, ref: `bench-${r.id}`, created_at: isoOf(r.created_at), decided_at: isoOf(r.decided_at) };
+}
+/** 申请之后怎么知道批没批：两种申请同一套说法 */
+const accessNext = (ref: string) => `批了就立即生效：回头调 access_info {ref: "${ref}"} 看这一条的 status（approved / rejected，驳回时 note 里有原因），批了之后 tools/list 会多出这些工具。等的时候可以接着申请别的。`;
 
 /** 对外基址：设了 MARKET_PUBLIC_URL 用它（反代/TLS 终止后 req.protocol 不可信），否则按本次请求的主机 */
 function mcpPublicOrigin(req: express.Request): string {
@@ -3140,6 +3193,22 @@ function mcpRestInfo(origin: string) {
 
 async function mcpAccessTool(name: string, args: any, sess: McpSess | null, origin: string): Promise<unknown> {
   const catalog = await mcpAggregatedTools();
+  if (name === 'access_info' && args?.ref !== undefined) {
+    // 只查一条：只认本会话的；别的会话的和不存在的同一句
+    const m = typeof args.ref === 'string' ? ACCESS_REF_RE.exec(args.ref.trim()) : null;
+    if (!m) bad('ref 写成 mcp-<编号>（通用申请）或 bench-<编号>（台的申请），编号见 access_request 的应答');
+    const id = Number(m![2]);
+    const notFound = () => bad(`本会话没有这条申请：${args.ref}`);
+    if (!sess) notFound();
+    if (m![1] === 'mcp') {
+      const row = svc<McpService>('mcp').accessRequestById(id) as AccessRequestRow | undefined;
+      if (!row || row.session_id !== sess!.id) notFound();
+      return { request: accessRequestForSession(row!) };
+    }
+    const row = BENCH_VIEWS.on ? benchRequestOfSession(sess!.id, id) : null;
+    if (!row) notFound();
+    return { request: benchRequestForSession(row!) };
+  }
   if (name === 'access_info') {
     const granted = (t: McpToolDef) => mcpToolGranted(sess, t.name); // 网关关时全部可调
     const benchGrants = sess && BENCH_VIEWS.on ? benchGrantsOf(sess.id) : new Map<string, string[]>();
@@ -3148,9 +3217,9 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
       gateway: MCP_GATEWAY_ON ? 'on' : 'off',
       session: sess?.name ?? null,
       granted_tools: catalog.filter(granted).map((t) => t.name),
-      catalog: catalog.map((t) => ({ name: t.name, description: t.description, category: t.category, granted: granted(t), ...(t.benchScoped ? { bench_scoped: true, scope: '必须限定到台', granted_benches: benchGrants.get(t.name) ?? [] } : {}), ...(scopeOf(t) ? { granted_workbenches: scopeOf(t) } : {}), ...(MCP_SCOPED_TOOLS.has(t.name) ? { scopable: true } : {}), ...(t.exempt ? { always_allowed: true } : {}) })),
+      catalog: catalog.map((t) => ({ name: t.name, description: t.description, category: t.category, granted: granted(t), input_schema: t.inputSchema, ...(t.benchScoped ? { bench_scoped: true, scope: '必须限定到台', granted_benches: benchGrants.get(t.name) ?? [] } : {}), ...(scopeOf(t) ? { granted_workbenches: scopeOf(t) } : {}), ...(MCP_SCOPED_TOOLS.has(t.name) ? { scopable: true } : {}), ...(t.exempt ? { always_allowed: true } : {}) })),
       requests: sess ? (svc<McpService>('mcp').accessRequestsBySession(sess.id) as AccessRequestRow[]).map(accessRequestForSession) : [],
-      ...(BENCH_VIEWS.on ? { bench_requests: sess ? benchRequestsOf(sess.id) : [], how_to_request_bench: 'access_request {tools: [工具名@bench:台的标识], reason: 用途}：数据视图的工具必须限定到台，读也一样；一次只申请一个台；由台的管理层批准，不经 MCP 网关页' } : {}),
+      ...(BENCH_VIEWS.on ? { bench_requests: sess ? benchRequestsOf(sess.id).map(benchRequestForSession) : [], how_to_request_bench: 'access_request {tools: [工具名@bench:台的标识], reason: 用途}：数据视图的工具必须限定到台，读也一样；一次只申请一个台；由台的管理层批准，不经 MCP 网关页' } : {}),
       how_to_request: `access_request {tools: [工具名], reason: 用途}；只要一张台时写 工具@台id（目前 ${[...MCP_SCOPED_TOOLS].join(' / ')} 支持）；管理员在「MCP 网关」页「权限申请」批准后立即生效（并入现有授权）`,
       ...mcpRestInfo(origin),
     };
@@ -3170,7 +3239,11 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
     if (!benchAsk.every((m) => m && BENCH_TOOL_NAMES.has(m[1]))) bad('数据视图的工具单独申请，不和别的工具写在同一条里');
     const benches = [...new Set(benchAsk.map((m) => m![2]))];
     if (benches.length !== 1) bad('一条申请只能是一个台的；几个台分开申请');
-    try { return requestBenchTools(s.id, benches[0], benchAsk.map((m) => m![1]), args?.reason, Date.now()); } catch (e) { throw benchToolError(e); }
+    let made;
+    try { made = requestBenchTools(s.id, benches[0], benchAsk.map((m) => m![1]), args?.reason, Date.now()); } catch (e) { throw benchToolError(e); }
+    const request = benchRequestForSession(made.request);
+    // 台存不存在照旧不核（没有授予的会话看不出台存不存在，docs/data-views.md 第十节 3b）：写清写错了会怎样、拿什么去核对
+    return { ...made, request, note: `台的管理层批准之后生效。台的标识只核写法、不核存不存在：写错了不会有人批——拿不准时把申请编号 ${request.ref} 和标识「${benches[0]}」交给给你任务的人核对。`, next: accessNext(request.ref) };
   }
   for (const t of raw) {
     const p = typeof t === 'string' ? parseGrant(t) : null;
@@ -3199,7 +3272,7 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
       out = { ok: true, duplicate: false, request: accessRequestForSession(mcp.accessRequestById(Number(r.lastInsertRowid)) as AccessRequestRow) };
     }
     db.exec('COMMIT');
-    return out;
+    return { ...out, next: accessNext(out.request.ref) };
   } catch (e) {
     db.exec('ROLLBACK');
     throw e;
@@ -3293,7 +3366,7 @@ async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, 
   // 上游路由（P2）：<prefix>__<tool> → 转发到对应上游 MCP
   const up = MCP_EXEMPT_TOOLS.has(toolName) ? null : routeUpstream(toolName);
   try {
-    const out = MCP_EXEMPT_TOOLS.has(toolName)
+    const out = MCP_ACCESS_TOOLS.has(toolName)
       ? await mcpAccessTool(toolName, args ?? {}, sess, origin)
       : up
       ? await upstreamRpc(up.upstream, 'tools/call', { name: up.remoteTool, arguments: args ?? {} }, 2, sess ? `mcp/${sess.name}` : undefined)

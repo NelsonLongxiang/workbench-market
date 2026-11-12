@@ -111,7 +111,7 @@ try {
   const ops = Object.entries(doc.paths ?? {}).filter(([p]) => p.startsWith('/api/mcp-rest/tools/')).map(([p, v]) => ({ path: p, op: v.post }));
   ok('每个 operation 有 operationId 与 requestBody（schema 即 inputSchema）', ops.length > 0 && ops.every((o) => o.op?.operationId && o.op?.requestBody?.content?.['application/json']?.schema && o.path === `/api/mcp-rest/tools/${o.op.operationId}`));
   const opNames = ops.map((o) => o.op.operationId).sort();
-  ok('只列可调用工具（已授权 4 个 + 免授权 2 个；含上游 up__echo）', opNames.join() === ['access_info', 'access_request', 'app_data_list', 'app_data_submit', 'up__echo', 'workbench_summary'].sort().join(), JSON.stringify(opNames));
+  ok('只列可调用工具（已授权 4 个 + 免授权 5 个；含上游 up__echo）', opNames.join() === ['access_info', 'access_request', 'app_data_list', 'app_data_submit', 'skill_read', 'skill_search', 'skills_list', 'up__echo', 'workbench_summary'].sort().join(), JSON.stringify(opNames));
   ok('每个工具标 x-granted 与 x-category', ops.every((o) => o.op['x-granted'] === true && ['read', 'write', 'admin'].includes(o.op['x-category'])));
   ok('上游只读工具 x-category=read，本地写工具=write',
     ops.find((o) => o.op.operationId === 'up__echo')?.op['x-category'] === 'read' && ops.find((o) => o.op.operationId === 'app_data_submit')?.op['x-category'] === 'write');
@@ -120,7 +120,7 @@ try {
   ok('/api/mcp-rest/openapi.json 与 /openapi.json 同内容', JSON.stringify(alias.body?.paths) === JSON.stringify(doc.paths));
   const bare = await newSession('agent-rest-bare');
   r = await call('GET', '/openapi.json', undefined, bearer(bare.token));
-  ok('零授权会话只看到两个免授权工具（无文件与资源接口）', Object.values(r.body?.paths ?? {}).map((v) => v.post?.operationId).sort().join() === 'access_info,access_request');
+  ok('零授权会话只看到免授权的五个工具（无文件与资源接口）', Object.values(r.body?.paths ?? {}).map((v) => v.post?.operationId).sort().join() === 'access_info,access_request,skill_read,skill_search,skills_list');
 
   // ============ REST 调用 ============
   r = await rest(sess.token, 'workbench_summary', {});
