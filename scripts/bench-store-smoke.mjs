@@ -364,6 +364,7 @@ try {
     try { return { value: await fn(), took: performance.now() - t0, gap, turns }; } finally { clearInterval(iv); }
   };
   const base = configureBenchRuntime({});
+  ok('T0 缺省的时限：读 3 秒、写 15 秒、宽限 2 秒（别的用例用的都是临时改小的，这一条钉住缺省值）', base.queryMs === 3000 && base.writeMs === 15000 && base.graceMs === 2000 && BENCH_LIMITS.queryMs === 3000 && BENCH_LIMITS.writeMs === 15000 && BENCH_LIMITS.killGraceMs === 2000, base);
   let m = await watch(() => big.query(slow));
   console.log(`    慢查询 ${m.took.toFixed(0)} 毫秒，期间本进程最长停顿 ${m.gap.toFixed(0)} 毫秒`);
   ok(`T1 慢查询期间市场进程照常转：事件循环轮到了 ${m.turns} 次（要是在本进程里跑，一次也轮不到）`, m.value.rows[0].n === N && m.turns >= 3, { took: m.took, gap: m.gap, turns: m.turns });
