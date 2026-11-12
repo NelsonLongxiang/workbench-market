@@ -168,9 +168,16 @@ try {
     const wrong = [];
     for (const [src, old] of Object.entries(OLD)) {
       const n = await old(h), meta = r.body.sources[src];
+      // 例外（阶段七 #567）：席位的提问，旧接口只给管理员；「关注」里登录的人也可见，只列他是建立人的事项上的提问。
+      // 这里造的提问挂在没有建立人主体的事项上，所以登录的员工可见、0 条；远程匿名照旧不可见
+      if (src === 'seat-asks' && n === null) {
+        const expectVisible = who !== '远程匿名';
+        if (meta.visible !== expectVisible || meta.count !== 0) wrong.push(`seat-asks：应当${expectVisible ? '可见、0 条' : '不可见'}，「关注」${meta.visible ? '可见' : '不可见'} ${meta.count} 条`);
+        continue;
+      }
       if (n === null ? (meta.visible || meta.count !== 0) : (!meta.visible || meta.count !== n)) wrong.push(`${src}：旧接口 ${n === null ? '看不见' : n + ' 条'}，「关注」${meta.visible ? '可见' : '不可见'} ${meta.count} 条`);
     }
-    check(wrong.length === 0, `${who}：六个有旧接口的来源，可见性和条数都和旧接口一致`, wrong.join('；'));
+    check(wrong.length === 0, `${who}：六个有旧接口的来源，可见性和条数都和旧接口一致（席位的提问按建立人另算，见例外）`, wrong.join('；'));
   }
 
   const admin = views.管理员;

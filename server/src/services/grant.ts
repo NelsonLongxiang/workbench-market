@@ -57,6 +57,12 @@ export class GrantService extends Service {
   /** 启动时交进来已经校验过的角色声明（roles.ts 的 buildRoles） */
   setRoles(views: Map<string, RoleView>): void { this.roleViews = views; }
   roles(): RoleView[] { return [...this.roleViews.values()]; }
+  /** 一个角色现在的展开（没有声明为 null） */
+  roleView(id: string): RoleView | null { return this.roleViews.get(id) ?? null; }
+  /** 起草前的各项核对（角色、范围、主体、不能授给自己），给别的服务在自己的事务里发授予之前用；能发返回 null */
+  issueCheck(g: { principal_id: string; role: string; scope: string; expires_at?: number | null }, actor: Actor): Refusal | null {
+    return this.check(g, actor);
+  }
 
   get(id: number): (GrantRow & { events: GrantEvent[] }) | null {
     const row = db.prepare('SELECT * FROM grants WHERE id = ?').get(id) as GrantRow | undefined;

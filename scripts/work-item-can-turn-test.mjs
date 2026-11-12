@@ -7,7 +7,7 @@
  *     release  POST /api/workbench-events/:id/release（管理员；事项 held）
  *     verify   管理员走「关注」答 verify；建立人走 POST /api/work-items/:id/decision（事项 ready）
  *     reply    POST /api/work-items/:id/messages/:mid/reply（管理员或建立人；有没回复过的消息；事项没结束）
- *     answer   管理员走「关注」答席位提问（建立人答提问的入口在阶段七，合并后另补）
+ *     answer   建立人本人（「关注」里只给他看自己事项上的提问），或持有管理层授予的人代办（L21）；只过了管理门、没有管理层授予的会话管理员不能答
  *   状态上不允许的一律 false：撤回（cancelled）之后不能回复，回复接口也拒（409 work_item_ended）
  *   turn：answer、verify 轮到建立人；release 轮到有放行权限的人。管理员看建立人的事 can 真、turn 假（代办）
  *   creator：{ principal, display_name }，详情和「关注」同一个形状
@@ -57,20 +57,22 @@ const publish = (title, dispatch) => {
   db.exec('COMMIT');
   return { task: id, event: e, item: 'wi_' + e, delivery: db.prepare('SELECT id FROM workbench_event_deliveries WHERE event_id = ?').get(e).id };
 };
-const held = publish('等过目', false), held2 = publish('会被撤回', false), asked = publish('在问', true);
+const held = publish('等过目', false), held2 = publish('会被撤回', false), asked = publish('在问', true), asked2 = publish('在问（建立人来答）', true);
 // 「在问」：投递标成已发出（不让投递工人再去发），接单节点问了一句，又发来两条消息
-db.prepare("UPDATE workbench_event_deliveries SET status = 'sent', sent_at = '2026-01-01 00:00:00' WHERE id = ?").run(asked.delivery);
-db.prepare("UPDATE workbench_event_deliveries SET decision = 'ask', decision_reason = '哪个店？', decided_by = 'bob', decided_at = '2026-01-01 00:00:01' WHERE id = ?").run(asked.delivery);
-db.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, 'market', 'sent', '{}')").run(asked.event, asked.delivery);
-db.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, 'receiver:bob', 'decision:ask', ?)").run(asked.event, asked.delivery, JSON.stringify({ reason: '哪个店？' }));
+for (const q of [asked, asked2]) {
+  db.prepare("UPDATE workbench_event_deliveries SET status = 'sent', sent_at = '2026-01-01 00:00:00' WHERE id = ?").run(q.delivery);
+  db.prepare("UPDATE workbench_event_deliveries SET decision = 'ask', decision_reason = '哪个店？', decided_by = 'bob', decided_at = '2026-01-01 00:00:01' WHERE id = ?").run(q.delivery);
+  db.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, 'market', 'sent', '{}')").run(q.event, q.delivery);
+  q.qid = Number(db.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, 'receiver:bob', 'decision:ask', ?)").run(q.event, q.delivery, JSON.stringify({ reason: '哪个店？' })).lastInsertRowid);
+}
 const msg = (e, d, t) => fu.recordFollowup({ eventId: e, deliveryId: d, peerZone: 'dsh', inboundTask: 'a2a-' + t, contextId: 'ctx', sender: 'seat:x', text: '消息 ' + t, truncated: false, status: 'open', now: Date.now() });
 const m1 = msg(asked.event, asked.delivery, 'm1'), m2 = msg(asked.event, asked.delivery, 'm2'), m3 = msg(held2.event, held2.delivery, 'm3');
-for (const e of [held, held2, asked]) items.syncEvent(e.event);
+for (const e of [held, held2, asked, asked2]) items.syncEvent(e.event);
 const ready = (n) => { const it = items.create({ title: '待验收 ' + n, created_by: 'user:alpha', creator_principal: 'user:alpha', source_kind: 'agent' });
   for (const [k, x] of [['submit', { dispatch_open: true }], ['eval', { verdict: 'accept' }], ['report', { status: 'progress' }], ['report', { status: 'ready' }]]) items.apply(it.id, { kind: k, source: 'seed', id: it.id + ':' + k + ':' + (x.status ?? x.verdict ?? ''), ...x });
   return it.id; };
 const loose = Number(db.prepare("INSERT INTO tasks (title, status, published_at, published_by) VALUES ('没有事件的任务', 'published', '2026-01-01 00:00:00', 'x')").run().lastInsertRowid);
-console.log('SEEDED ' + JSON.stringify({ held, held2, asked, m1, m2, m3, loose, readyA: ready('a'), readyB: ready('b') }));
+console.log('SEEDED ' + JSON.stringify({ held, held2, asked, asked2, m1, m2, m3, loose, readyA: ready('a'), readyB: ready('b') }));
 process.exit(0);
 `;
 
@@ -102,6 +104,16 @@ try {
   const SAME = { 'sec-fetch-site': 'same-origin' };
   const WHO = { 管理员: { ...SAME, cookie: `session_id=${SESSIONS.admin}` }, 建立人: { ...SAME, cookie: `session_id=${SESSIONS.alpha}` }, 无关的员工: { ...SAME, cookie: `session_id=${SESSIONS.beta}` } };
   for (const h of Object.values(WHO)) await call('GET', '/api/auth/me', h);
+  // L21：答席位提问是替建立人做业务决定，只认建立人本人或持有管理层授予的人。管理层（user:no-flag）授一条管理层；
+  // 会话管理员身上要是迁出了管理层（身份来源说是管理员的，第一次见到时迁），撤掉，让他只剩管理门
+  const MGMT = { ...SAME, cookie: `session_id=${SESSIONS.noAdminFlag}` };
+  await call('GET', '/api/auth/me', MGMT);
+  { const g = await call('POST', '/api/grants', {}, { principal: 'user:no-flag', role: 'management', scope: '*', reason: '合成：管理层' });
+    await call('POST', `/api/grants/${g.body?.grant?.id}/submit`, {}); await call('POST', `/api/grants/${g.body?.grant?.id}/approve`, {});
+    await call('GET', '/api/attention', WHO.管理员);
+    for (const x of ((await call('GET', '/api/grants?principal=user:root-admin&status=active', {})).body?.grants ?? []).filter((x) => x.role === 'management')) await call('POST', `/api/grants/${x.id}/revoke`, {}, { reason: '合成：只留管理门' });
+    const left = ((await call('GET', '/api/grants?status=active', {})).body?.grants ?? []).filter((x) => x.role === 'management').map((x) => x.principal_id);
+    check(g.status === 201 && JSON.stringify(left) === JSON.stringify(['user:no-flag']), '造数据：管理层授予只在 user:no-flag 身上（会话管理员只有管理门）', JSON.stringify({ g: g.status, left })); }
   const q = (sql, ...a) => { const d = new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true }); try { return d.prepare(sql).all(...a).map((r) => ({ ...r })); } finally { d.close(); } };
   const detail = async (id, who) => { const r = await call('GET', `/api/work-items/${id}`, WHO[who]); return r.status === 200 ? r.body : { can: { release: false, answer: false, verify: false, reply: false }, turn: { release: false, answer: false, verify: false }, status: r.status }; };
   const ok2 = (r) => r.status >= 200 && r.status < 300;
@@ -160,8 +172,14 @@ try {
     pair('reply·管理员', a.can.reply, await call('POST', `/api/work-items/${S.asked.item}/messages/${S.m2}/reply`, WHO.管理员, { text: '回' }));
     const none = await detail(S.asked.item, '建立人');
     check(!none.can.reply, '消息都回复过了：不能再回复', show(none.can));
-    check(a.can.answer && !a.turn.answer && !c.can.answer && c.turn.answer && !o.can.answer, 'answer：管理员能、不轮到他；建立人轮到他（提问轮到建立人），但答提问的入口在阶段七、现在还不能；无关的员工不能', show({ a: [a.can.answer, a.turn.answer], c: [c.can.answer, c.turn.answer] }));
-    pair('answer·建立人（「关注」）', c.can.answer, await call('POST', '/api/attention/answer', WHO.建立人, { source: 'seat-asks', source_id: String(S.asked.delivery), answer: 'answer', input: { text: '东店' } }));
+    const mg = (await call('GET', `/api/work-items/${S.asked.item}`, MGMT)).body ?? {};
+    check(!a.can.answer && !a.turn.answer && mg.can?.answer === true && mg.turn?.answer === false && c.can.answer && c.turn.answer && !o.can.answer,
+      'answer（L21）：只过了管理门的会话管理员不能；持有管理层授予的人能、不轮到他（代办）；建立人能、轮到他；无关的员工不能', show({ a: [a.can.answer, a.turn.answer], m: [mg.can?.answer, mg.turn?.answer], c: [c.can.answer, c.turn.answer], o: o.can.answer }));
+    // 建立人答另一件（答了提问就合上了，下面管理员那组还要用「在问」那件）
+    const c2 = await detail(S.asked2.item, '建立人');
+    pair('answer·建立人（「关注」）', c2.can.answer, await call('POST', '/api/attention/answer', WHO.建立人, { source: 'seat-asks', source_id: String(S.asked2.delivery), answer: 'answer', input: { text: '东店' } }));
+    const c2done = await detail(S.asked2.item, '建立人');
+    check(!c2done.can.answer && !c2done.turn.answer, '建立人答过之后：没有在等的提问，can.answer、turn.answer 都是 false', show({ can: c2done.can, turn: c2done.turn }));
     pair('answer·无关的员工（「关注」）', o.can.answer, await call('POST', '/api/attention/answer', WHO.无关的员工, { source: 'seat-asks', source_id: String(S.asked.delivery), answer: 'answer', input: { text: '东店' } }));
     // 先看「关注」里的 mine 和 creator（答了就没了）
     const att = (await call('GET', '/api/attention', WHO.管理员)).body?.items ?? [];
@@ -171,9 +189,11 @@ try {
     check(ask?.mine === false && ask.creator?.principal === 'user:alpha' && glance?.mine === true && glance.creator?.display_name === 'Synthetic alpha',
       '「关注」：席位提问对管理员是代办（mine:false）、带建立人；过目放行轮到管理员（mine:true）', show({ ask: ask && [ask.mine, ask.creator], glance: glance && [glance.mine, glance.creator] }));
     check(att.filter((x) => x.source !== 'work-items' && x.source !== 'seat-asks').every((x) => x.mine === true) && acc.every((x) => typeof x.mine === 'boolean'), '「关注」：别的来源一律 mine:true；每条都有 mine');
-    pair('answer·管理员（「关注」）', a.can.answer, await call('POST', '/api/attention/answer', WHO.管理员, { source: 'seat-asks', source_id: String(S.asked.delivery), answer: 'answer', input: { text: '东店' } }));
-    const answered = await detail(S.asked.item, '管理员'), answeredC = await detail(S.asked.item, '建立人');
-    check(!answered.can.answer && !answeredC.turn.answer, '答过之后没有在等的提问：管理员 can.answer、建立人 turn.answer 都是 false', show({ can: answered.can, turn: answeredC.turn }));
+    pair('answer·只过了管理门的会话管理员（「关注」）', a.can.answer, await call('POST', '/api/attention/answer', WHO.管理员, { source: 'seat-asks', source_id: String(S.asked.delivery), answer: 'answer', input: { text: '东店' } }));
+    pair('answer·只过了管理门的会话管理员（事项入口）', a.can.answer, await call('POST', `/api/work-items/${S.asked.item}/asks/${S.asked.qid}/answer`, WHO.管理员, { text: '东店' }));
+    pair('answer·持有管理层授予的人（「关注」，代办）', mg.can?.answer === true, await call('POST', '/api/attention/answer', MGMT, { source: 'seat-asks', source_id: String(S.asked.delivery), answer: 'answer', input: { text: '东店' } }));
+    const answeredM = (await call('GET', `/api/work-items/${S.asked.item}`, MGMT)).body ?? {}, answeredC = await detail(S.asked.item, '建立人');
+    check(answeredM.can?.answer === false && !answeredC.turn.answer, '答过之后没有在等的提问：管理层 can.answer、建立人 turn.answer 都是 false', show({ can: answeredM.can, turn: answeredC.turn }));
   }
 
   // ---------- canOf 单元：非建立人的登录员工（详情对他是 404，这里直接对函数验） ----------

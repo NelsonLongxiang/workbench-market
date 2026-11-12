@@ -30,6 +30,7 @@
  * 阶段七 R2：事项对话里的席位消息（跟进）。读接口带出 messages 和 unread；两个写入口：
  *   POST /api/work-items/:id/messages/read          看过：未读的标成已读
  *   POST /api/work-items/:id/messages/:mid/reply    回复：同一 context 的新任务发回发消息的团队
+ *   POST /api/work-items/:id/asks/:qid/answer       回答这件事项上的一条席位提问（qid = 详情里 asks[].id；{ answer?, text? }；同一 context 的新任务发回）
  * 谁能写和 decision 同一个口径再加管理员：管理员；或者建立人本人（启用的人、事项可由建立人处理）。
  * 和 decision 一样经写请求总门放行这两条子路径，认人在这里做；别的人一律 404（不说有没有这件事项）。
  */
@@ -37,12 +38,12 @@ import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import { identity, IDENTITY_UNAVAILABLE, sourceDown } from '../identity.ts';
-import { isCreator, STATES, type WorkItemService, type WorkItemState } from '../services/work-item.ts';
+import { COCKPIT_ID_MAX, isCreator, STATES, type WorkItemService, type WorkItemState } from '../services/work-item.ts';
 import type { PrincipalService } from '../services/principal.ts';
-import { creatorAnswer } from '../attention-answers.ts';
-import { markSeatMessagesRead, replySeatMessage, seatMessagesOf, seatProgressOf, SEAT_REPLY_MAX } from '../seat-messages.ts';
+import { answerItemAsk, creatorAnswer } from '../attention-answers.ts';
+import { markSeatMessagesRead, replySeatMessage, seatAsksOf, seatMessagesOf, seatProgressOf, SEAT_REPLY_MAX } from '../seat-messages.ts';
 import { principalsAdmin } from './principals.ts';
-import { canOf, canSee, creatorOf, itemRoles, turnOf, VIEW_ALL_ACTION, VIEW_ALL_KIND, VIEWS, viewScopes, workItemViewer, writerVerdict, type ItemRole, type ViewName } from '../work-item-access.ts';
+import { askAnswerRole, canOf, canSee, creatorOf, itemRoles, turnOf, VIEW_ALL_ACTION, VIEW_ALL_KIND, VIEWS, viewScopes, workItemViewer, writerVerdict, type ItemRole, type ViewName } from '../work-item-access.ts';
 import { arrangeTask } from '../task-center.ts';
 import { assignableTeams, kickWorkbenchEvents } from '../workbench-events.ts';
 
@@ -94,6 +95,10 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
     if (viewRaw !== undefined && !(VIEWS as readonly string[]).includes(viewRaw)) return void res.status(400).json({ error: 'work_items_view_invalid' });
     const seat = str('seat');
     if (seat !== undefined && (seat === '' || seat.length > 200)) return void res.status(400).json({ error: 'work_items_seat_invalid' });
+    // 按驾驶舱筛（驾驶舱的 id）：只有形状不对才 400；不存在的驾驶舱回空列表
+    const cockpitRaw = str('cockpit');
+    if (cockpitRaw !== undefined && (!/^[1-9]\d{0,9}$/.test(cockpitRaw) || Number(cockpitRaw) > COCKPIT_ID_MAX)) return void res.status(400).json({ error: 'work_items_cockpit_invalid' });
+    const cockpit = cockpitRaw === undefined ? undefined : Number(cockpitRaw);
     (async () => {
       const viewer = await workItemViewer(req, deps);
       if (!viewer.admin && !viewer.principal) return void (viewer.sourceDown ? res.status(502).json({ error: IDENTITY_UNAVAILABLE }) : res.status(401).json({ error: 'work_items_auth_required' }));
@@ -104,7 +109,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       if (viewRaw !== undefined && !scopes[viewRaw as ViewName]) return void res.status(403).json({ error: 'work_items_view_unavailable', views });
       const view = (viewRaw as ViewName | undefined) ?? VIEWS.find((v) => views[v].available && views[v].count > 0) ?? VIEWS.find((v) => views[v].available);
       if (!view) return void res.json({ view: null, views, items: [], counts: Object.fromEntries(STATES.map((st) => [st, 0])), total: 0, next_cursor: null });
-      const page = items.page({ scope: scopes[view]!, state: state as WorkItemState | undefined, object: str('object'), phase: str('phase'), seat, limit, after });
+      const page = items.page({ scope: scopes[view]!, state: state as WorkItemState | undefined, object: str('object'), phase: str('phase'), seat, cockpit, limit, after });
       // 视角的 SQL 只是加速：筛出来的每一条再按 itemRoles 过一遍，这个视角对应的那种人不成立的不给（列表里有、详情 404 的情况不允许出现）。
       // SQL 和 itemRoles 同一个口径时这里一条都不会少；计数照 SQL，测试守「列表里每一条详情都是 200」和件数一致
       const roleOf: Record<ViewName, ItemRole> = { mine: 'creator', seats: 'owner', team: 'lead', all: 'management' };
@@ -112,7 +117,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       res.json({
         view, views,
         items: shown.map((w) => ({
-          id: w.id, title: w.title, state: w.state, object: w.object, phase: w.phase, seat: w.seat,
+          id: w.id, title: w.title, state: w.state, object: w.object, phase: w.phase, seat: w.seat, cockpit_id: w.cockpit_id,
           last_progress: w.last_log, updated_at: w.updated_at,
         })),
         counts: page.counts, total: page.total,
@@ -175,7 +180,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       const item = items.get(id);
       if (!item || !canSee(item, viewer)) return void res.status(404).json({ error: 'work_item_not_found' });
       // 只增：这个人能做什么（can）、是不是轮到他（turn）、建立人是谁（creator）。判断都在 work-item-access.ts，和各动作接口同一处
-      res.json({ item, log: items.log(id), ...seatMessagesOf(item), progress: seatProgressOf(item), can: canOf(item, viewer), turn: turnOf(item, viewer), creator: creatorOf(item) });
+      res.json({ item, log: items.log(id), ...seatMessagesOf(item), progress: seatProgressOf(item), asks: seatAsksOf(item), can: canOf(item, viewer), turn: turnOf(item, viewer), creator: creatorOf(item) });
     })().catch(next);
   });
 
@@ -196,6 +201,38 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
     if (verdict === 'admin') return { actor: (principalsAdmin ? await principalsAdmin(req, silentRes()) : null) || 'admin', item };
     return { actor: viewer.principal!, item };
   }
+
+  // 阶段七：回答事项上的一条席位提问（建立人本人，或持有管理层授予的人代办；只过了管理门的不能答——askAnswerRole，和详情的 can.answer 同一处）。
+  // 请求体只读 answer、text，别的字段（自报的主体、建立人、答法）一概不看
+  app.post('/api/work-items/:id/asks/:qid/answer', { action: 'work-items.asks-answer', kind: 'decide', statusNotVerdict: SEAT_WRITER_DECIDES }, (req, res, next) => {
+    res.set('Cache-Control', 'private, no-store');
+    if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
+    const id = String(req.params.id ?? '');
+    if (!ITEM_ID.test(id)) return void res.status(400).json({ error: 'work_item_id_invalid' });
+    const qid = String(req.params.qid ?? '');
+    if (!/^[1-9]\d{0,15}$/.test(qid)) return void res.status(400).json({ error: 'seat_ask_id_invalid' });
+    const b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body as Record<string, unknown> : {};
+    (async () => {
+      const viewer = await workItemViewer(req, deps);
+      if (!viewer.admin && !viewer.principal) return void (viewer.sourceDown ? res.status(502).json({ error: IDENTITY_UNAVAILABLE }) : res.status(401).json({ error: 'work_items_auth_required' }));
+      const item = svc<WorkItemService>('workItems').get(id);
+      // 读不到这件事项的：一律 404，和不存在一样（和详情同一处 canSee）。读得到但不能答的才是 403——
+      // 管理口令、身份来源管理员过了读的门（isManagement 认管理门），对他们是 403，不是 404
+      if (!item || !canSee(item, viewer)) return void res.status(404).json({ error: 'work_item_not_found' });
+      const role = askAnswerRole(item, viewer);
+      if (!role) {
+        const v = writerVerdict(viewer, id, false);
+        if (v === 'inactive') return void res.status(403).json({ error: 'work_items_principal_not_active' });
+        if (v === 'not_eligible') return void res.status(403).json({ error: 'work_item_creator_not_eligible' });
+        return void res.status(403).json({ error: 'seat_ask_answer_forbidden', message: '答席位的提问是替建立人做决定：建立人本人，或持有管理层授予的人；只过了管理门的不行' });
+      }
+      // askAnswerRole 只在有登录的人时认（管理口令没有人，上面已拒），答的人记这个主体
+      const answerer = viewer.principal;
+      if (!answerer) return void res.status(403).json({ error: 'seat_ask_answer_forbidden' });
+      const out = await answerItemAsk(id, Number(qid), answerer, { answer: b.answer, text: b.text });
+      res.status(out.status).json({ item_id: id, duplicate: out.duplicate === true, result: out.body });
+    })().catch(next);
+  });
 
   app.post('/api/work-items/:id/messages/read', { action: 'work-items.messages-read', kind: 'write', statusNotVerdict: SEAT_WRITER_DECIDES }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');

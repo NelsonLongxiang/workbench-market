@@ -16,9 +16,14 @@ import { createServer } from 'node:http';
 import { createServer as netServer } from 'node:net';
 import { createHash, createPublicKey, generateKeyPairSync, sign as edSign } from 'node:crypto';
 import { mkdirSync, rmSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { signCard } from '@nelsonlongxiang/dsh-open-a2a-net/card';
+import { SESSIONS } from './identity-fake-provider.mjs';
+// 答席位提问是替建立人做业务决定（L21）：只认建立人本人或持有管理层授予的人，管理口令不行。
+// 这里起实例时换上假的登录提供方（测试夹具，只在 NODE_ENV=test 下干活），答复用一个持有管理层授予的人（user:no-flag）
+const PRELOAD = pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), 'identity-fake-preload.mjs')).href;
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -65,7 +70,7 @@ const post = async (raw, headers) => { const r = await fetch(BASE + '/a2a/direct
 const receiptRaw = (task, summary, env, ctx, inbound) => JSON.stringify({ team: 'market/12345678', message: `[A2A receipt] task ${task} ${summary}\n${JSON.stringify(env)}`, caller_session: 'superagent-team/a1b2c3d4e5f60718', context_id: ctx, wait: false, task_id: inbound ?? `receipt-${task}` });
 const receipt = (task, summary, env, ctx, opts = {}) => { const raw = receiptRaw(task, summary, env, ctx, opts.inbound); return post(raw, opts.unsigned ? {} : signed(opts.signer ?? lab, raw)); };
 
-const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
+const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], {
   cwd: 'server',
   env: { ...process.env, DATA_DIR: DATA, PORT: String(PM), WM_CONTROL_PORT: '0', NODE_ENV: 'test', MCP_GATEWAY: 'off', ADMIN_TOKEN: 'ans-admin', MARKET_PUBLIC_URL: BASE, WM_A2A_DIRECT_SIG: '', WM_LOGIN_GATE: '', A2A_OUTBOX_BACKOFF_SCALE: '0.0001', WM_A2A_FOLLOWUP_RATE_10MIN: '80' },
   stdio: ['ignore', 'pipe', 'pipe'],
@@ -76,7 +81,7 @@ child.stderr.on('data', (d) => { out += d; });
 async function ready() { const end = Date.now() + 30000; while (Date.now() < end) { try { if ((await fetch(BASE + '/api/health')).status === 200) return true; } catch {} await sleep(250); } return false; }
 const ADMIN = { 'x-admin-token': 'ans-admin', 'sec-fetch-site': 'same-origin' };
 const api = async (method, path, body) => { const r = await fetch(BASE + path, { method, headers: { ...ADMIN, ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined }); let j = null; try { j = await r.json(); } catch {} return { status: r.status, body: j }; };
-const db = () => { const d = new DatabaseSync(join(DATA, 'workbench-market.db')); d.exec('PRAGMA busy_timeout = 5000'); return d; };
+const db = () => { const d = new DatabaseSync(join(DATA, 'workbench-market.db'), { timeout: 5000 }); d.exec('PRAGMA busy_timeout = 5000'); return d; };
 const q = (sql, ...a) => { const d = db(); try { return d.prepare(sql).all(...a); } finally { d.close(); } };
 let n = 0;
 function seedEvent({ dispatch = 1, zone = 'lab', root = lab.url } = {}) {
@@ -95,14 +100,27 @@ function seedEvent({ dispatch = 1, zone = 'lab', root = lab.url } = {}) {
   } finally { d.close(); }
 }
 const state = (ev) => q('SELECT state, open_asks FROM work_items WHERE id = ?', `wi_${ev}`)[0] ?? null;
-const noRecProbe = (inbound) => { const d = new DatabaseSync(join(DATA, 'workbench-market.db')); try { d.exec('PRAGMA busy_timeout = 5000'); return d.prepare('SELECT COUNT(*) AS c FROM workbench_event_followups WHERE inbound_task = ?').get(inbound).c === 0; } finally { d.close(); } };
-const seatAsks = async () => ((await api('GET', '/api/attention')).body?.items ?? []).filter((x) => x.source === 'seat-asks');
-const answer = async (deliveryId, text) => { const r = await api('POST', '/api/attention/answer', { source: 'seat-asks', source_id: String(deliveryId), answer: 'answer', input: { text } }); return { status: r.status, body: r.body?.result ?? r.body }; };
+const noRecProbe = (inbound) => { const d = new DatabaseSync(join(DATA, 'workbench-market.db'), { timeout: 5000 }); try { d.exec('PRAGMA busy_timeout = 5000'); return d.prepare('SELECT COUNT(*) AS c FROM workbench_event_followups WHERE inbound_task = ?').get(inbound).c === 0; } finally { d.close(); } };
+/** 持有管理层授予的人（会话登录）：席位提问由他代办答 */
+const MGMT = { cookie: `session_id=${SESSIONS.noAdminFlag}`, 'sec-fetch-site': 'same-origin' };
+const asMgmt = async (method, path, body) => { const r = await fetch(BASE + path, { method, headers: { ...MGMT, ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined }); let j = null; try { j = await r.json(); } catch {} return { status: r.status, body: j }; };
+/** 本机命令行（不带头）：授予只有它（代属主）放得了 */
+const cli = async (method, path, body) => { const r = await fetch(BASE + path, { method, headers: body ? { 'content-type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined }); let j = null; try { j = await r.json(); } catch {} return { status: r.status, body: j }; };
+const seatAsks = async () => ((await asMgmt('GET', '/api/attention')).body?.items ?? []).filter((x) => x.source === 'seat-asks');
+const answerAsToken = async (deliveryId, text) => { const r = await api('POST', '/api/attention/answer', { source: 'seat-asks', source_id: String(deliveryId), answer: 'answer', input: { text } }); return { status: r.status, body: r.body?.result ?? r.body }; };
+const answer = async (deliveryId, text) => { const r = await asMgmt('POST', '/api/attention/answer', { source: 'seat-asks', source_id: String(deliveryId), answer: 'answer', input: { text } }); return { status: r.status, body: r.body?.result ?? r.body }; };
 async function waitFor(fn, ms = 8000) { const end = Date.now() + ms; while (Date.now() < end) { if (await fn()) return true; await sleep(150); } return false; }
 
 try {
   if (!(await ready())) throw new Error('实例未就绪：' + out.slice(-600));
   for (let i = 0; i < 40; i++) { if (q("SELECT 1 FROM sqlite_master WHERE name = 'workbench_events'").length) break; await sleep(250); }
+  {
+    await asMgmt('GET', '/api/auth/viewer');
+    const g = await cli('POST', '/api/grants', { principal: 'user:no-flag', role: 'management', scope: '*', reason: '合成：管理层（代办答席位提问）' });
+    await cli('POST', `/api/grants/${g.body?.grant?.id}/submit`); await cli('POST', `/api/grants/${g.body?.grant?.id}/approve`);
+    const active = (await cli('GET', '/api/grants?principal=user:no-flag&status=active')).body?.grants ?? [];
+    ok('（准备）user:no-flag 持有管理层授予（答席位提问的代办人）', g.status === 201 && active.some((x) => x.role === 'management'), JSON.stringify({ g: g.status, active: active.map((x) => x.role) }));
+  }
 
   console.log('一、提问进「关注」');
   const a = seedEvent();
@@ -122,8 +140,25 @@ try {
   const mm = asks.filter((x) => x.source_id === String(m.delivery));
   ok('v1 提问之后又来回执提问 → 只列最近那条（回执里的）', mm.length === 1 && mm[0].title.includes('回执里的提问'), JSON.stringify(mm));
   ok('……两边条数仍相等（事项上旧提问已被新提问合上）', asks.length === openAsksTotal(), `${asks.length} vs ${openAsksTotal()}`);
+  {
+    const ia = (await api('GET', `/api/work-items/wi_${m.ev}`)).body?.asks ?? [];
+    ok('事项详情的提问列表：v1 的 decision:ask 和回执里的提问都在、按时间先后、各一条；旧的被新提问合上（closed），新的在等（open）',
+      ia.length === 2 && ia[0].question === 'v1 的提问' && ia[0].status === 'closed' && ia[1].question === '回执里的提问' && ia[1].status === 'open' && ia[1].options.length === 0, JSON.stringify(ia));
+  }
 
   console.log('二、答复发回');
+  {
+    // L21：管理口令只过了管理门，答席位提问是替建立人做决定——列表里不给它答法，答了被拒，不记答复、不发回
+    const tokenRow = ((await api('GET', '/api/attention')).body?.items ?? []).find((x) => x.source === 'seat-asks' && x.source_id === String(a.delivery));
+    const before = q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE delivery_id = ?", a.delivery)[0].c;
+    lab.got.length = 0;
+    const byToken = await answerAsToken(a.delivery, '口令来答');
+    await sleep(600);
+    ok('管理口令答席位提问：看得到这条但不给答法，答了被拒（400 attention_answer_not_offered），不记答复、不发回，提问仍开着',
+      tokenRow && tokenRow.answers.length === 0 && byToken.status === 400 && byToken.body?.error === 'attention_answer_not_offered'
+        && q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE delivery_id = ?", a.delivery)[0].c === before && lab.got.length === 0 && (await seatAsks()).some((x) => x.source_id === String(a.delivery)),
+      JSON.stringify({ tokenRow: tokenRow?.answers, byToken }));
+  }
   r = await answer(a.delivery, '发 apps 仓库');
   ok('答复 → 200，sent=true（已排发送）', r.status === 200 && r.body?.sent === true && r.body?.reason === 'queued', JSON.stringify(r.body));
   ok('……「关注」里这条不再等', !(await seatAsks()).some((x) => x.source_id === String(a.delivery)));
@@ -371,6 +406,28 @@ try {
     ok('别的团队「说不干了」（rejected，只记录）→ 承接仍是接手的团队', r.status === 200 && state(M2.ev)?.state === 'accepted' && seatOf(M2.ev) === 'lab/aaaaaaaa', `${seatOf(M2.ev)} ${JSON.stringify(state(M2.ev))}`);
   }
 
+  console.log('二之三之三、回执的产物并进事项的 outputs');
+  {
+    const outs = (ev) => { const v = JSON.parse(q('SELECT outputs FROM work_items WHERE id = ?', `wi_${ev}`)[0]?.outputs ?? '[]'); return Array.isArray(v) ? v : []; };
+    const O = seedEvent();
+    await receipt(O.task, '接下', { idempotencyKey: O.task, disposition: 'acknowledged' }, O.ctx, { inbound: `ack-${O.task}` });
+    await receipt(O.task, '进展', { idempotencyKey: O.task, disposition: 'progress', progress: { n: 1, state: 'working', at: '2026-11-11T08:00:00.000Z' }, artifacts: [{ kind: 'table', id: 'orders' }, { kind: '', id: 'x' }, { kind: 'file', id: '' }] }, O.ctx, { inbound: `progress-${O.task}-1` });
+    ok('进展回执带的产物并进 outputs（坏的逐个丢）', JSON.stringify(outs(O.ev)) === JSON.stringify([{ kind: 'table', id: 'orders' }]), JSON.stringify(outs(O.ev)));
+    const many = [{ kind: 'table', id: 'orders' }, ...Array.from({ length: 20 }, (_, k) => ({ kind: 'file', id: `f${k}` }))];
+    await receipt(O.task, '做完了', { outcome: 'completed', idempotencyKey: O.task, disposition: 'result', artifacts: many }, O.ctx);
+    const o2 = outs(O.ev);
+    ok('结果回执的产物再并进来：按 kind+id 去重、保持先后、最多 16 项', o2.length === 16 && o2[0].kind === 'table' && o2[1].id === 'f0' && o2.filter((x) => x.id === 'orders').length === 1, JSON.stringify(o2));
+    const ia = (await api('GET', `/api/work-items/wi_${O.ev}`)).body?.item;
+    ok('……读接口的 item.outputs 就是这一份', ia && JSON.parse(ia.outputs).length === 16, String(ia?.outputs).slice(0, 80));
+    const U = seedEvent();
+    await receipt(U.task, '做完了', { outcome: 'completed', idempotencyKey: U.task, disposition: 'result', artifacts: [{ kind: 'table', id: 'stolen' }] }, U.ctx, { signer: evil });
+    ok('没采信的回执（别的宿主签的）带的产物不进 outputs', outs(U.ev).length === 0, JSON.stringify(outs(U.ev)));
+    // A11：签名对、但形状不对、不采信的回执（receipt-<task> 上的 disposition 不认识）带的产物也不进
+    const V = seedEvent();
+    r = await receipt(V.task, '奇怪的回执', { idempotencyKey: V.task, disposition: 'bogus', artifacts: [{ kind: 'table', id: 'not-accepted' }] }, V.ctx);
+    ok('A11：签名对但未采信的回执（receipt:unaccepted）带的产物不进 outputs', r.text.includes('"receipt":"not-accepted"') && outs(V.ev).length === 0, `${r.text.slice(0, 100)} ${JSON.stringify(outs(V.ev))}`);
+  }
+
   console.log('二之四、来信分流先验格式再查库');
   {
     const T = seedEvent();
@@ -438,7 +495,9 @@ try {
 
   console.log('二之五、团队名册（[A2A roster]）');
   {
-    const rosterHealth = async () => ((await (await fetch(BASE + '/api/health')).json()).a2a?.roster ?? {});
+    // 名册一块只给管理员（带管理口令）；匿名、口令不对的连键都看不到
+    const adminHealth = async () => (await (await fetch(BASE + '/api/health', { headers: { 'x-admin-token': 'ans-admin' } })).json());
+    const rosterHealth = async () => ((await adminHealth()).a2a?.roster ?? {});
     const cnt = (h, k) => h.outcomes?.[k]?.count ?? 0;
     const rh0 = await rosterHealth();
     const R0 = seedEvent();   // lab 是投递过的宿主（区 lab）
@@ -569,7 +628,13 @@ try {
         const r2 = await post(bad, signed(lab, bad)); ok('（准备）首行格式不对的名册不认作名册', !r2.text.includes('"roster":'), r2.text.slice(0, 120)); }
       await new Promise((r) => setTimeout(r, 5100)); // 来源汇总缓存 5 秒
       const rawHealth = await (await fetch(BASE + '/api/health')).text();
-      const rh = JSON.parse(rawHealth).a2a?.roster ?? {};
+      const rh = (await adminHealth()).a2a?.roster ?? {};
+      const badTok = await (await fetch(BASE + '/api/health', { headers: { 'x-admin-token': 'not-the-token' } })).json();
+      // 应答因人而异：带口令和匿名的都不进共享缓存、按管理口令区分
+      { const hdr = async (h) => { const r = await fetch(BASE + '/api/health', { headers: h }); await r.text(); return { cc: r.headers.get('cache-control') ?? '', vary: (r.headers.get('vary') ?? '').toLowerCase() }; };
+        const ha = await hdr({}), hk = await hdr({ 'x-admin-token': 'ans-admin' });
+        ok('health 应答带 Cache-Control: private, no-store 和 Vary: X-Admin-Token（匿名、带口令都带）', [ha, hk].every((h) => h.cc === 'private, no-store' && h.vary.split(/\s*,\s*/).includes('x-admin-token')), JSON.stringify({ ha, hk })); }
+      ok('名册一块只给管理员：匿名、管理口令不对的 health 里连 roster 键都没有（管理员照旧有）', JSON.parse(rawHealth).a2a && !('roster' in JSON.parse(rawHealth).a2a) && badTok.a2a && !('roster' in badTok.a2a) && rh.outcomes !== undefined, JSON.stringify(Object.keys(JSON.parse(rawHealth).a2a ?? {})));
       const d = (k) => cnt(rh, k) - cnt(rh0, k);
       ok('health a2a.roster：收下、过期、不认、撞键、来源不是投递过的宿主、验签不过、超长、首行格式不对都有计数，带最近一次的时间',
         d('recorded') >= 3 && d('stale') >= 1 && d('not_accepted') >= 4 && d('host_conflict') >= 1 && d('not_delivered_peer') >= 1 && d('unverified') >= 1 && d('too_large') === 1 && d('malformed') === 1
@@ -578,7 +643,7 @@ try {
       ok('health a2a.roster.sources：来源个数、最久没收下的时间、超过 15 分钟没收下的个数（没有标识）',
         rh.sources?.sources >= 1 && typeof rh.sources?.stalest_received_at === 'string' && rh.sources?.stale_15m === 0 && Object.keys(rh.sources ?? {}).sort().join() === 'sources,stale_15m,stalest_received_at', JSON.stringify(rh.sources));
       const fpLab = createHash('sha256').update(createPublicKey(lab.key).export({ type: 'spki', format: 'der' })).digest('hex').slice(0, 8);
-      ok('匿名 health 里没有对端的节点键、地址、区、团队名、席位', ![fpLab, lab.url, 'lab/canvas', 'lab/', 'evil', 'twin'].some((x) => rawHealth.includes(x)), rawHealth.slice(0, 200));
+      ok('匿名 health 里没有对端的节点键、地址、区、团队名、席位，也没有名册来源的个数', ![fpLab, lab.url, 'lab/canvas', 'lab/', 'evil', 'twin', 'stale_15m', 'stalest_received_at', '"sources"'].some((x) => rawHealth.includes(x)), rawHealth.slice(0, 200));
     }
     const anon = await fetch(BASE + '/api/a2a/teams');
     ok('读接口：没登录 401', anon.status === 401);
@@ -737,7 +802,7 @@ try {
       const rr = await post(raw, signed(lab, raw));
       ok('off：投递过的宿主、Sig3 签的名册也不收（应答里没有 roster），名册表不变', !rr.text.includes('"roster":') && JSON.stringify(q('SELECT host, reported_at FROM a2a_rosters ORDER BY host')) === before
         && q("SELECT COUNT(*) AS c FROM a2a_roster_seats WHERE seat = 'lab/f1f1f1f1'")[0].c === 0, rr.text.slice(0, 160));
-      const offRoster = (await (await fetch(BASE + '/api/health')).json()).a2a?.roster ?? {};
+      const offRoster = (await (await fetch(BASE + '/api/health', { headers: { 'x-admin-token': 'ans-admin' } })).json()).a2a?.roster ?? {};
       ok('off：health 记一次 not_declared（名片没声明，推来的名册照普通来信走）', offRoster.outcomes?.not_declared?.count === 1, JSON.stringify(offRoster.outcomes));
     } finally { off.kill(); await new Promise((r) => { if (off.exitCode !== null) r(); else off.once('exit', r); }); }
   }
