@@ -1,6 +1,8 @@
 """工作台市场（照原型 3fbfd0b 重做的 /market）浏览器回归；由 scripts/sider-menu-browser.mjs 起合成实例后调用，参数为配置 JSON 路径。
 合成实例里有两个登记的工作台、一个发布了的流程，没有技能。
-  · 分类胶囊只有 全部 / 工作台 / 流程 / 技能（没有数据来源的「连接器」不出现），1440 宽三列卡片，卡片数 = 三个接口里该上市场的条数；
+  · 不是管理员：分类胶囊只有 全部 / 工作台 / 流程 / 技能（「连接器」只给管理员，也不去问），1440 宽三列卡片，卡片数 = 三个接口里该上市场的条数；
+  · 「全部」里卡片第一个标签补类别，某一类的页签里不重复类别（#584）；工作台卡片右上角有「详情」入口，卡片本身照旧去打开；
+  · 管理员多一个「连接器」，卡片数 = MCP 上游条数（没有就说为什么空）；
   · 切分类改地址（?k=），只剩那一类；空的一类说为什么空；
   · 一个来源读不到只在它那一类给提示，别的照常；应答形状不对不带崩整页；
   · 管理员才有「管理工作台」，点进去是原来的工作台表格（/market/manage，顶栏「工作台市场 / 管理工作台」）。"""
@@ -47,10 +49,14 @@ with sync_playwright() as p:
     b = p.chromium.launch()
     ctx = b.new_context(viewport={'width': 1440, 'height': 900})
     pg = ctx.new_page(); pg.set_default_timeout(10000); slow(pg)
+    upstream_asked = []
+    pg.on('request', lambda r: upstream_asked.append(r.url) if '/api/mcp/upstreams' in r.url else None)
     pg.goto(M + '/market'); pg.wait_for_selector('[data-testid=mkt-card]')
     check('顶栏标题是导航名「工作台市场」', pg.locator('.wm-top-title').inner_text().strip() == '工作台市场')
     tabs = [t.strip() for t in pg.locator('.wm-mkt-tab').all_inner_texts()]
-    check('分类只有 全部 / 工作台 / 流程 / 技能（连接器没有来源，不出现）', tabs == ['全部', '工作台', '流程', '技能'], tabs)
+    check('不是管理员：分类只有 全部 / 工作台 / 流程 / 技能，连接器不出现、也不去问', tabs == ['全部', '工作台', '流程', '技能'] and upstream_asked == [], (tabs, upstream_asked))
+    pg.goto(M + '/market?k=连接器'); pg.wait_for_selector('[data-testid=mkt-card]')
+    check('不是管理员地址里带 ?k=连接器：落「全部」，仍不去问', pg.locator('.wm-mkt-tab.on').inner_text().strip() == '全部' and upstream_asked == [], upstream_asked)
     check('合成数据里有工作台和流程（不然后面是空过）', len(wbs) >= 2 and len(sops) >= 1 and want >= 3, (len(wbs), len(sops)))
     cards = pg.locator('[data-testid=mkt-card]')
     check(f'卡片数 = 该上市场的条数（{cards.count()} / {want}）', cards.count() == want)
@@ -62,7 +68,9 @@ with sync_playwright() as p:
     check('工作台卡片去 /use/<id>，流程卡片去 /sops/<slug>', all(f'/use/{w["id"]}' in hrefs for w in wbs) and all(f'/sops/{s["slug"]}' in hrefs for s in sops), hrefs)
     check('没有管理员：不露「管理」', pg.locator('[data-testid=mkt-manage]').count() == 0)
     tags_rows = pg.evaluate("[...document.querySelectorAll('[data-testid=mkt-card]')].map(e=>[e.dataset.kind,[...e.querySelectorAll('.wm-mkt-tag')].map(t=>t.innerText.trim())])")
-    check('标签行不重复类别；只有类别的卡片没有标签行', all(kind not in tags for kind, tags in tags_rows), tags_rows)
+    check('「全部」里几类混排：第一个标签补类别，后面不再重复类别', all(tags and tags[0] == kind and kind not in tags[1:] for kind, tags in tags_rows), tags_rows)
+    details = pg.evaluate("[...document.querySelectorAll('.wm-mkt-cell')].map(c=>[c.querySelector('[data-testid=mkt-card]').dataset.kind, c.querySelector('[data-testid=mkt-detail]')?.getAttribute('href')||''])")
+    check('工作台卡片右上角有「详情」入口去 /market/wb/<id>，流程卡片没有；卡片本身照旧去打开', sorted(h for k, h in details if k == '工作台') == sorted(f'/market/wb/{w["id"]}' for w in wbs) and all(h == '' for k, h in details if k != '工作台'), details)
     descs = pg.evaluate("[...document.querySelectorAll('[data-testid=mkt-card]')].map(e=>e.querySelector('.wm-mkt-desc')?.innerText.trim()||'')")
     check('每张卡片都有说明区：没有说明的写「还没有说明」', all(d for d in descs), descs)
     bottoms = pg.evaluate("[...document.querySelectorAll('[data-testid=mkt-card]')].slice(0,3).map(e=>Math.round(e.getBoundingClientRect().bottom))")
@@ -73,6 +81,8 @@ with sync_playwright() as p:
     check('切到「流程」：地址带 ?k=流程，只剩流程', '?k=' in pg.url and kinds == {'流程'} and pg.locator('[data-testid=mkt-card]').count() == len(sops), (pg.url, kinds))
     pg.reload(); pg.wait_for_selector('[data-testid=mkt-card]')
     check('刷新后停在「流程」', pg.locator('.wm-mkt-tab.on').inner_text().strip() == '流程')
+    one_kind = pg.evaluate("[...document.querySelectorAll('[data-testid=mkt-card]')].map(e=>[...e.querySelectorAll('.wm-mkt-tag')].map(t=>t.innerText.trim()))")
+    check('某一类的页签里不重复类别（#584）', all('流程' not in tags for tags in one_kind), one_kind)
     if not skills:
         pg.locator('[data-testid="mkt-tab-技能"]').click(); pg.wait_for_timeout(200)
         desc = pg.locator('.ant-empty-description').all_inner_texts()
@@ -105,6 +115,24 @@ with sync_playwright() as p:
     check('管理页：顶栏「工作台市场 / 管理工作台」，原来的工作台表格在', '工作台市场' in crumb and '管理工作台' in crumb and pg.locator('.ant-table-row').count() == len(wbs), crumb)
     pg.locator('.wm-top-crumb a').click(); pg.wait_for_url(M + '/market'); pg.wait_for_selector('[data-testid=mkt-card]')
     check('点「工作台市场」回到市场', pg.locator('.wm-mkt-tabs').count() == 1)
+    tabs = [t.strip() for t in pg.locator('.wm-mkt-tab').all_inner_texts()]
+    check('管理员：多一个「连接器」页签，排最后', tabs == ['全部', '工作台', '流程', '技能', '连接器'], tabs)
+    with urllib.request.urlopen(urllib.request.Request(M + '/api/mcp/upstreams', headers={'x-admin-token': TOK})) as r: ups = json.load(r)
+    pg.locator('[data-testid=mkt-tab-连接器]').click(); pg.wait_for_timeout(800)
+    n = pg.locator('[data-testid=mkt-card][data-kind=连接器]').count()
+    empty = pg.locator('.ant-empty-description').all_inner_texts()
+    check(f'连接器：卡片数 = MCP 上游条数（{n} / {len(ups)}）；没有就说为什么空', n == len(ups) and (n > 0 or any('还没有接上的连接器' in e for e in empty)), (n, len(ups), empty))
+    # 合成两个上游（一个连得上、一个连不上），看卡片怎么说
+    UPS = [{'prefix': 'synb', 'kind': 'http', 'enabled': True, 'reachable': False, 'tools': 0, 'last_checked_at': ''},
+           {'prefix': 'syna', 'kind': 'ygl-trees', 'enabled': True, 'reachable': True, 'tools': 3, 'last_checked_at': '2026-11-12 08:00:00'}]
+    pg.route('**/api/mcp/upstreams', lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps(UPS)))
+    # 口令只存在本页、离开就清（#292）：重新进市场、再设一次口令，页面才会按管理员去问上游
+    pg.goto(M + '/market'); pg.wait_for_selector('[data-testid=mkt-card]'); set_token(pg)
+    pg.locator('[data-testid=mkt-tab-连接器]').click(); pg.wait_for_selector('[data-testid=mkt-card][data-kind=连接器]')
+    conn = [''.join(t.split()) for t in pg.locator('[data-testid=mkt-card][data-kind=连接器]').all_inner_texts()]
+    check('连接器卡片：按名字排，写连得上几个工具 / 连不上；点了去 MCP 网关管理页；没有「详情」入口', len(conn) == 2 and 'syna' in conn[0] and 'synb' in conn[1] and '连得上·3个工具' in conn[0] and '连不上' in conn[1]
+          and all(h == '/mcp-gateways' for h in pg.evaluate("[...document.querySelectorAll('[data-testid=mkt-card][data-kind=连接器]')].map(e=>e.getAttribute('href'))")) and pg.locator('[data-testid=mkt-detail]').count() == 0, conn)
+    pg.unroute('**/api/mcp/upstreams')
     b.close()
 
 print(f'market-browser: {ok} 过 / {fail} 败')
