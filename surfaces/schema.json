@@ -404,6 +404,22 @@
       "status_reason TEXT NOT NULL DEFAULT ''",
       "created_at TEXT NOT NULL DEFAULT datetime('now')"
     ],
+    "relation_proposals": [
+      "id INTEGER PK",
+      "kind TEXT NOT NULL",
+      "department_id TEXT NOT NULL DEFAULT ''",
+      "host TEXT NOT NULL DEFAULT ''",
+      "team TEXT NOT NULL DEFAULT ''",
+      "principal_id TEXT NOT NULL DEFAULT ''",
+      "status TEXT NOT NULL DEFAULT 'pending'",
+      "proposed_by TEXT NOT NULL",
+      "proposed_by_principal TEXT",
+      "proposed_at INTEGER NOT NULL",
+      "decided_by TEXT",
+      "decided_by_principal TEXT",
+      "decided_at INTEGER",
+      "reason TEXT NOT NULL DEFAULT ''"
+    ],
     "remote_allow_state": [
       "id INTEGER PK",
       "snapshot TEXT NOT NULL",
@@ -914,6 +930,7 @@
     "idx_mcp_grant_audit_session ON mcp_grant_audit: CREATE INDEX idx_mcp_grant_audit_session ON mcp_grant_audit (session_id, id)",
     "idx_principal_identities_principal ON principal_identities: CREATE INDEX idx_principal_identities_principal ON principal_identities (principal_id)",
     "idx_principals_status ON principals: CREATE INDEX idx_principals_status ON principals (status, id)",
+    "idx_relation_proposals_status ON relation_proposals: CREATE INDEX idx_relation_proposals_status ON relation_proposals (status, id)",
     "idx_sdr_skill ON skill_digest_reports: CREATE INDEX idx_sdr_skill ON skill_digest_reports (skill_id, version)",
     "idx_seat_assign_active_handle ON seat_assignments: CREATE UNIQUE INDEX idx_seat_assign_active_handle ON seat_assignments (host, team, seat) WHERE ended_at IS NULL AND seat_id = ''",
     "idx_seat_assign_active_id ON seat_assignments: CREATE UNIQUE INDEX idx_seat_assign_active_id ON seat_assignments (host, seat_id) WHERE ended_at IS NULL AND seat_id <> ''",
