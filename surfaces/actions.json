@@ -116,7 +116,7 @@
       "POST /api/setup/wizard  -> setup.wizard-run  admin",
       "POST /api/setup/wizard/approve  -> setup.wizard-approve  admin",
       "GET /api/attention  -> attention.read  read",
-      "POST /api/attention/answer  -> attention.answer  decide",
+      "POST /api/attention/answer  -> attention.answer  decide  （状态码不代表授权：能不能答由条目的来源判：先看这个人的「关注」列表里有没有这一条；转给原路由的再过写请求总门和原路由的守卫；直接实现的各自核）",
       "GET /api/work-items  -> work-items.list  read  （没认出人回 401）；细分：work-items.view-all  decide（「全部」视角只给管理层（按动作认，不按角色名；类别见 VIEW_ALL_KIND））",
       "GET /api/work-items/teams  -> work-items.teams  read",
       "POST /api/work-items  -> work-items.create  write  （没认出人回 401）",
