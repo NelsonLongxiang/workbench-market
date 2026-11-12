@@ -76,7 +76,7 @@ async function boot() {
 
 try {
   const srv = await boot();
-  const db = new DatabaseSync(join(data, 'workbench-market.db'));
+  const db = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 });
   const same = { origin: `http://${srv.host}`, 'sec-fetch-site': 'same-origin' };
   const as = (s) => ({ headers: { ...REMOTE, ...same }, session: s });
   for (const s of [SESSIONS.admin, SESSIONS.alpha, SESSIONS.beta]) await srv.call('GET', '/api/auth/viewer', { session: s });

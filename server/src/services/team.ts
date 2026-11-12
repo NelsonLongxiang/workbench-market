@@ -296,8 +296,8 @@ export class TeamService extends Service {
   /** 那时这个成员归谁（at 毫秒，含起点、不含终点）；没分配为 null */
   ownerAt(k: SeatKey, at: number): string | null {
     const r = (k.seat_id
-      ? db.prepare('SELECT principal_id FROM seat_assignments WHERE host = ? AND seat_id = ? AND assigned_at <= ? AND (ended_at IS NULL OR ended_at > ?) ORDER BY assigned_at DESC LIMIT 1').get(k.host, k.seat_id, at, at)
-      : db.prepare("SELECT principal_id FROM seat_assignments WHERE host = ? AND team = ? AND seat = ? AND seat_id = '' AND assigned_at <= ? AND (ended_at IS NULL OR ended_at > ?) ORDER BY assigned_at DESC LIMIT 1").get(k.host, k.team, k.seat, at, at)) as { principal_id: string } | undefined;
+      ? db.prepare('SELECT principal_id FROM seat_assignments WHERE host = ? AND seat_id = ? AND assigned_at <= ? AND (ended_at IS NULL OR ended_at > ?) ORDER BY assigned_at DESC, id DESC LIMIT 1').get(k.host, k.seat_id, at, at)
+      : db.prepare("SELECT principal_id FROM seat_assignments WHERE host = ? AND team = ? AND seat = ? AND seat_id = '' AND assigned_at <= ? AND (ended_at IS NULL OR ended_at > ?) ORDER BY assigned_at DESC, id DESC LIMIT 1").get(k.host, k.team, k.seat, at, at)) as { principal_id: string } | undefined;
     return r?.principal_id ?? null;
   }
 
@@ -310,7 +310,7 @@ export class TeamService extends Service {
     if (!points.length) return [];
     const hosts = [...new Set(points.map((p) => p.key.host))];
     const rows: AssignRow[] = [];
-    const q = db.prepare('SELECT * FROM seat_assignments WHERE host = ? ORDER BY assigned_at DESC');
+    const q = db.prepare('SELECT * FROM seat_assignments WHERE host = ? ORDER BY assigned_at DESC, id DESC');
     for (const h of hosts) rows.push(...(q.all(h) as AssignRow[]));
     return points.map(({ key, at }) => {
       const hit = rows.find((r) => sameSeat(r, key) && r.assigned_at <= at && (r.ended_at === null || r.ended_at > at));
@@ -330,7 +330,7 @@ export class TeamService extends Service {
 
   /** 这个人现在被分到的成员 */
   assignedTo(principal: string): AssignRow[] {
-    return db.prepare('SELECT * FROM seat_assignments WHERE principal_id = ? AND ended_at IS NULL ORDER BY assigned_at').all(principal) as AssignRow[];
+    return db.prepare('SELECT * FROM seat_assignments WHERE principal_id = ? AND ended_at IS NULL ORDER BY assigned_at, id').all(principal) as AssignRow[];
   }
 
   /** 这个人另外被指定为负责人的团队（不含经部门推出来的） */

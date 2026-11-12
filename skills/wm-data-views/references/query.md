@@ -19,10 +19,12 @@
 | `select` | 明细查询取哪些列；不给就是全部列。有 `group` 或 `measures` 时不能写 |
 | `filter` | 筛选条件的数组，各条之间是「并且」。最多 20 条 |
 | `group` | 按哪些列分组 |
-| `measures` | 聚合：`{ "as": 别名, "fn": 函数, "col": 列, "label": 显示名 }`。最多 12 个 |
-| `sort` | `{ "col": 列, "dir": "asc" 或 "desc" }`，最多 8 项。聚合查询只能按输出列（分组列和别名）排 |
+| `measures` | 聚合：`{ "as": 别名, "fn": 函数, "col": 列, "label": 显示名 }`。`as`、`fn` 必填。最多 12 个 |
+| `sort` | `{ "col": 列, "dir": "asc" 或 "desc" }`，`dir` 不写是 `asc`。最多 8 项。聚合查询只能按输出列（分组列和别名）排；不写 `sort` 时，聚合按分组列升序、明细按写入的先后 |
 | `limit` | 1～5000，不给是 200 |
 | `offset` | 跳过多少行 |
+
+写了上面没有的键会被拒，报错里会列出这一处能用的键（比如 `filter` 的一条只认 `col`、`op`、`value`、`values`；`measures` 的一项只认 `as`、`fn`、`col`、`label`）。
 
 没有连表，没有子查询，没有自己写的表达式。要两个数据集的数放在一起，就在写入的时候算好放进一个数据集。
 
@@ -38,7 +40,7 @@
 
 ## 聚合函数
 
-`count`（不给 `col` 是数行数）、`count_distinct`、`sum`、`avg`、`min`、`max`。`sum` 和 `avg` 只用于数字列。
+`count`（不给 `col` 就是数行数，等于 `COUNT(*)`；给了 `col` 是数这一列不为空的行）、`count_distinct`（数不同的值）、`sum`、`avg`、`min`、`max`。`sum` 和 `avg` 只用于数字列。
 
 ## `$参数`：跟着筛选栏变
 
@@ -55,3 +57,7 @@
 ## 结果
 
 `{ dataset, columns: [{ name, type, label, role }], rows: [{…}], truncated }`。`truncated` 为真表示数据不止这些（到了 `limit`）。一次取回的内容（各格字符数相加）超过 800 万会被拒：少取几列，或者把 `limit` 调小。
+
+## 业务口径去哪查
+
+「异常」「完成」这类说法对应数据里的哪个值，看 `dataset_list` 里列的 `values`（取值说明，比如 `{ "ok": "正常", "bad": "异常" }`）。没写取值说明的，问派任务的人或台的管理层，不要自己定一个口径；定了口径的，请建台的人把它写进列的 `values`（见 datasets.md）。视图里组件的 `value_labels` 只管页面上怎么显示，不是口径的来源。

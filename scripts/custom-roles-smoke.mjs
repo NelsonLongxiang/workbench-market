@@ -80,7 +80,7 @@ try {
   writeFileSync(rolesFile, JSON.stringify({ roles: [{ id: 'buyer', name: '采购专员', permissions: [{ kinds: ['read'] }] }] }));
   let srv = await boot({ WM_ROLES_FILE: rolesFile });
   // 种两个人，后面起草授予用
-  { const db = new DatabaseSync(join(data, 'workbench-market.db')); try { db.exec('PRAGMA busy_timeout=5000'); for (const p of ['user:amy', 'user:ben']) db.prepare("INSERT INTO principals (id, id_key, kind) VALUES (?, ?, 'person')").run(p, p); db.prepare("INSERT INTO principals (id, id_key, kind, owner) VALUES ('seat:bot', 'seat:bot', 'seat', 'user:amy')").run(); } finally { db.close(); } }
+  { const db = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 }); try { db.exec('PRAGMA busy_timeout=5000'); for (const p of ['user:amy', 'user:ben']) db.prepare("INSERT INTO principals (id, id_key, kind) VALUES (?, ?, 'person')").run(p, p); db.prepare("INSERT INTO principals (id, id_key, kind, owner) VALUES ('seat:bot', 'seat:bot', 'seat', 'user:amy')").run(); } finally { db.close(); } }
 
   // ---------- 一、锁住的和重名的 ----------
   {

@@ -57,7 +57,7 @@ try {
   // ⑤ role-pack 展开清单（自带种子：经服务面插一条测试 bundle）
   {
     const { DatabaseSync } = await import('node:sqlite');
-    const db = new DatabaseSync(`${DATA}/workbench-market.db`);
+    const db = new DatabaseSync(`${DATA}/workbench-market.db`, { timeout: 5000 });
     db.prepare(`INSERT OR REPLACE INTO role_bundles (pack_id, member_name, bundle_version, roster_digest, skill_slugs) VALUES ('p1b-pack', 'probe-member', 1, 'dg-x', '["agents:brand"]')`).run();
     db.close();
   }

@@ -190,7 +190,7 @@ try {
     const b = browser(open);
     await feishuLogin(b, fake, 'alice');
     const before = await whoami(b);
-    const sql = (q, ...a) => { const db = new DatabaseSync(join(open.data, 'workbench-market.db')); try { db.exec('PRAGMA busy_timeout=5000'); return db.prepare(q).run(...a); } finally { db.close(); } };
+    const sql = (q, ...a) => { const db = new DatabaseSync(join(open.data, 'workbench-market.db'), { timeout: 5000 }); try { db.exec('PRAGMA busy_timeout=5000'); return db.prepare(q).run(...a); } finally { db.close(); } };
     sql("UPDATE principals SET status = 'disabled' WHERE id = 'user:alpha'");
     const during = await whoami(b);
     sql("UPDATE principals SET status = 'active' WHERE id = 'user:alpha'");
@@ -201,7 +201,7 @@ try {
     const b = browser(open);
     await feishuLogin(b, fake, 'alice');
     const before = await whoami(b);
-    const db = new DatabaseSync(join(open.data, 'workbench-market.db'));
+    const db = new DatabaseSync(join(open.data, 'workbench-market.db'), { timeout: 5000 });
     try { db.exec('PRAGMA busy_timeout=5000'); db.prepare('UPDATE market_sessions SET expires_at = ? WHERE revoked_at IS NULL').run(Date.now() - 1); } finally { db.close(); }
     const after = await whoami(b);
     const fresh = browser(open); await feishuLogin(fresh, fake, 'alice');
@@ -227,7 +227,7 @@ try {
     const revived = await whoami(browser(open), { wm_session: token });
     const c = browser(open); await feishuLogin(c, fake, 'alice');
     const fresh = await whoami(c);
-    const sql = (q, ...a) => { const db = new DatabaseSync(join(open.data, 'workbench-market.db')); try { db.exec('PRAGMA busy_timeout=5000'); return db.prepare(q).run(...a); } finally { db.close(); } };
+    const sql = (q, ...a) => { const db = new DatabaseSync(join(open.data, 'workbench-market.db'), { timeout: 5000 }); try { db.exec('PRAGMA busy_timeout=5000'); return db.prepare(q).run(...a); } finally { db.close(); } };
     sql("DELETE FROM principal_identities WHERE provider = 'feishu' AND external_id = ?", PEOPLE.alice.union_id);
     const dropped = await whoami(c);
     sql("INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES ('feishu', ?, ?, 'user:alpha')", PEOPLE.alice.union_id, PEOPLE.alice.union_id);
@@ -490,7 +490,7 @@ try {
     // 待对接清单：只放最少的信息，保留 30 天
     await feishuLogin(browser(open), fake, 'carol');
     const listed = ((await ops.req('GET', '/api/principals/pending', { headers: admin })).json?.pending ?? []).find((p) => p.external_id === PEOPLE.carol.union_id);
-    const db = new DatabaseSync(join(open.data, 'workbench-market.db'));
+    const db = new DatabaseSync(join(open.data, 'workbench-market.db'), { timeout: 5000 });
     try { db.exec('PRAGMA busy_timeout=5000'); db.prepare("UPDATE principal_pending SET last_seen = datetime('now', '-31 days') WHERE external_id = ?").run(PEOPLE.carol.union_id); } finally { db.close(); }
     const gone = !((await ops.req('GET', '/api/principals/pending', { headers: admin })).json?.pending ?? []).some((p) => p.external_id === PEOPLE.carol.union_id);
     const db2 = new DatabaseSync(join(open.data, 'workbench-market.db'), { readOnly: true });

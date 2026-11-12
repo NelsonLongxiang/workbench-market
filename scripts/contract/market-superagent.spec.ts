@@ -17,6 +17,7 @@
 import { mkdtempSync } from '../temp-dirs.ts'
 import { describe, it, vi } from 'vitest'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { tmpdir } from 'node:os'
 import { Context, Service } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -117,7 +118,10 @@ describe('契约联调：市场 × superagent 宿主', () => {
       const [PM, PX] = [await freePort(), await freePort()]
       const M = `http://127.0.0.1:${PM}`, X = `http://127.0.0.1:${PX}`
       const mdata = mkdtempSync(join(tmpdir(), 'contract-market-'))
-      const market = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
+      // 答席位提问是替建立人做业务决定（L21）：只认建立人本人或持有管理层授予的人，管理口令不行。
+      // 市场起的时候换上假的登录提供方（市场仓库的测试夹具，只在 NODE_ENV=test 下干活），下面由一个持有管理层授予的人代办答复
+      const PRELOAD = pathToFileURL(join(MARKET_TREE, 'scripts/identity-fake-preload.mjs')).href
+      const market = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], {
         cwd: join(MARKET_TREE, 'server'),
         env: { PATH: process.env.PATH, HOME: mkdtempSync(join(tmpdir(), 'contract-home-')), DATA_DIR: mdata, PORT: String(PM), NODE_ENV: 'test', MCP_GATEWAY: 'off', ADMIN_TOKEN: ADMIN, MARKET_PUBLIC_URL: X, A2A_OUTBOX_BACKOFF_SCALE: '0.01', ...JSON.parse(process.env.CONTRACT_MARKET_ENV ?? '{}') },
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -291,7 +295,18 @@ describe('契约联调：市场 × superagent 宿主', () => {
       const listed = await call('GET', '/api/attention')
       const seatAsk = (listed.body?.items ?? []).find((x: any) => x.source === 'seat-asks')
       rec('提问出现在市场「关注」里（seat-asks）', seatAsk !== undefined, JSON.stringify((listed.body?.items ?? []).map((x: any) => [x.source, x.source_id, x.answers])).slice(0, 300))
-      const ans = await call('POST', '/api/attention/answer', { source: 'seat-asks', source_id: String(seatAsk?.source_id ?? deliveryId), answer: 'answer', input: { text: '测试环境' } })
+      // 代办答复的人：会话登录、持有管理层授予（本机命令行放行这条授予——管理层只有属主放得了，命令行代属主）
+      const { SESSIONS } = await import(pathToFileURL(join(MARKET_TREE, 'scripts/identity-fake-provider.mjs')).href)
+      const MGMT = { Cookie: `session_id=${SESSIONS.noAdminFlag}`, 'Sec-Fetch-Site': 'same-origin' }
+      const plain = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<{ status: number; body: any }> => {
+        const r = await fetch(M + path, { method, headers: { 'Content-Type': 'application/json', ...headers }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) })
+        let j: any = null; try { j = await r.json() } catch { /* 不是 JSON */ }
+        return { status: r.status, body: j }
+      }
+      await plain('GET', '/api/auth/viewer', undefined, MGMT)
+      const grant = await plain('POST', '/api/grants', { principal: 'user:no-flag', role: 'management', scope: '*', reason: '合成：管理层（代办答席位提问）' })
+      await plain('POST', `/api/grants/${grant.body?.grant?.id}/submit`); await plain('POST', `/api/grants/${grant.body?.grant?.id}/approve`)
+      const ans = await plain('POST', '/api/attention/answer', { source: 'seat-asks', source_id: String(seatAsk?.source_id ?? deliveryId), answer: 'answer', input: { text: '测试环境' } }, MGMT)
       if (ans.status === 404 || ans.status === 400 && /not_offered|unknown/.test(JSON.stringify(ans.body))) rec('答复：市场把人的答复作为同 context 新任务发回', false, `这一版市场没有答复席位提问的入口：${ans.status} ${JSON.stringify(ans.body).slice(0, 160)}`)
       else {
         rec('答复：市场记下答复并排发', ans.status < 300 && ans.body?.sent !== false, `${ans.status} ${JSON.stringify(ans.body).slice(0, 240)}`)
