@@ -152,8 +152,8 @@ export function matrixOf(body: unknown): Matrix | null {
   return m && Array.isArray(m.blocks) && Array.isArray(m.kinds) && Array.isArray(m.roles) ? m : null;
 }
 
-/** 别人的权限谁能看（授予、主体、角色、矩阵几个接口只给管理员：口令或管理员登录，即系统管理员与管理层） */
-export const OTHERS_ONLY_ADMINS = '别人的权限只有管理层和系统管理员能看。';
+/** 别人的权限谁能看：授予、主体、角色、矩阵几个接口今天只认管理员（口令或管理员登录）；管理层的授予要到判定切换之后才生效，到时再改这句 */
+export const OTHERS_ONLY_ADMINS = '别人的权限现在只有管理员能看。';
 
 /** 「你的权限」：/api/auth/me 带本人生效中的角色（{ id, name, scope, preset, expires_at, ... }）。
  *  认出了人（有 principal）才返回列表，可以是空的；没登录、只有口令、读不到都返回 null */

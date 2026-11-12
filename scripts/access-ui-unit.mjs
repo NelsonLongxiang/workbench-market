@@ -51,7 +51,7 @@ ok('角色名：认得的用名字，不认得的原样', roleName('owner', role
 ok('矩阵格子：全部、范围内、部分、只限自己、不能、没有这类动作', J(CELL_LEGEND.map((c) => cellLabel(c).text)) === '["全部","范围内","部分","只限自己","不能","—"]' && cellLabel('toString').text === '—');
 ok('矩阵：形状对才用，不然按读不到', matrixOf({ blocks: [], kinds: [], roles: [] }) !== null && matrixOf({ blocks: [] }) === null && matrixOf(null) === null);
 
-ok('读不到：401 请先登录、403 只有管理层和系统管理员能看、404 没上线、其余读不到', sourceProblem('授予', { status: 401 }).text.startsWith('请先登录') && sourceProblem('授予', { status: 403 }).text.includes('只有管理层和系统管理员能看') && sourceProblem('授予', { status: 404 }).type === 'info' && sourceProblem('授予', { status: 0 }).text === '读不到授予，稍后再试。' && sourceProblem('授予', { status: 200 }) === null);
+ok('读不到：401 请先登录、403 现在只有管理员能看、404 没上线、其余读不到', sourceProblem('授予', { status: 401 }).text.startsWith('请先登录') && sourceProblem('授予', { status: 403 }).text.includes('现在只有管理员能看') && sourceProblem('授予', { status: 404 }).type === 'info' && sourceProblem('授予', { status: 0 }).text === '读不到授予，稍后再试。' && sourceProblem('授予', { status: 200 }) === null);
 ok('核准、不给被拒：服务端给了说法就用它', actionProblem({ status: 403, body: { error: 'owner_required', message: '角色 admin 是管理员级的，只有属主能放行' } }).includes('只有属主') && actionProblem({ status: 200, body: {} }) === null && actionProblem({ status: 500, body: null }) === '没办成，稍后再试。');
 ok('不给的理由：去掉空白后 1～500 字', declineReasonOk('不需要') && !declineReasonOk('   ') && !declineReasonOk('长'.repeat(501)));
 ok('说法里没有开发用语', [sourceProblem('授予', { status: 403 }).text, sourceProblem('角色', { status: 500 }).text].every((t) => !/接口|字段|暂无数据|待实现/.test(t)));
@@ -62,7 +62,7 @@ const mine = myRolesOf(me);
 ok('你的权限：认出了人才有列表；名字空的用角色键；坏项丢掉', J(mine?.map((r) => r.name)) === '["普通员工","dept-lead"]' && mine[1].scope === 'domain:work' && mine[1].expires_at === NOW + 86400000);
 ok('你的权限：没登录、只有口令（principal 为空）、读不到都是 null；认出了人没有角色是空列表', myRolesOf(null) === null && myRolesOf({ authenticated: false, roles: [] }) === null && myRolesOf({ authenticated: true, principal: null, roles: [] }) === null && J(myRolesOf({ authenticated: true, principal: 'user:x', roles: [] })) === '[]');
 ok('读不到矩阵时，块的范围也说名字（「事项与对话」这一块）；矩阵给的名字优先；原型链上的名字不当块名', scopeLabel('domain:work') === '「事项与对话」这一块' && scopeLabel('domain:work', new Map([['work', '事项']])) === '「事项」这一块' && scopeLabel('domain:toString') === '这一块 toString');
-ok('别人的权限谁能看：一句话', OTHERS_ONLY_ADMINS === '别人的权限只有管理层和系统管理员能看。');
+ok('别人的权限谁能看：一句话', OTHERS_ONLY_ADMINS === '别人的权限现在只有管理员能看。');
 ok('能做一格：去掉「能做：」前缀和「；能管：…」', summaryDo('能做：事项与对话（全部）；能管：全景（全部）、关注（全部）') === '事项与对话（全部）' && summaryDo('能做：无') === '无' && summaryDo(undefined) === '');
 
 console.log(`\naccess-ui-unit: ${pass} 过 / ${fail} 败`);
