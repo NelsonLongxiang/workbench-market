@@ -519,6 +519,15 @@ try {
   e = await refused(() => ts.replace('a', rowsOfSize(2, 1000), ctx()));
   ok('L5 换成更小的一份不被拦', e === null, e);
   await tight.closeAll();
+  // 结构对不上的库文件（定稿之前旧代码建的）：明确拒绝，不静默照用
+  mkdirSync(join(DATA, 'oldshape'), { recursive: true });
+  const oldDb = new DatabaseSync(join(DATA, 'oldshape', 'o.sqlite'));
+  oldDb.exec("CREATE TABLE bs_meta (k TEXT PRIMARY KEY, v TEXT NOT NULL); INSERT INTO bs_meta VALUES ('schema_version', '1'); CREATE TABLE bs_datasets (name TEXT PRIMARY KEY, title TEXT NOT NULL, version INTEGER NOT NULL, columns TEXT NOT NULL, key_cols TEXT NOT NULL, row_count INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, updated_by TEXT NOT NULL)");
+  oldDb.close();
+  const oldHost = new BenchHost(join(DATA, 'oldshape'), benchSqlKit('sqlite'));
+  e = await refused(() => oldHost.store('o'));
+  ok('L5 结构对不上的旧库文件：写明结构不符、不打开，不是「内部错误」', e?.code === 'unsupported' && /结构.*不符/.test(e.message), e);
+  await oldHost.closeAll();
 
   // 原始字节：和给数组是同一回事
   const rawHost = new BenchHost(join(DATA, 'raw'), benchSqlKit('sqlite'), { writeBytes: 2_000 });

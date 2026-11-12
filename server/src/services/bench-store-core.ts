@@ -300,6 +300,10 @@ export class BenchStoreCore {
       const v = await this.meta('schema_version');
       if (v === null) await this.setMeta('schema_version', String(mine));
       else if (Number(v) > mine) throw new BenchError('unsupported', `台库 ${this.slug} 的结构是第 ${v} 版，比这份代码认识的第 ${mine} 版新，不打开`);
+      // 版本号对得上，结构也要对得上：固定的几张表各试读一遍该有的列
+      for (const probe of this.kit.probes) {
+        try { await this.conn.all(probe); } catch (e) { throw new BenchError('unsupported', `台库 ${this.slug} 的结构和这份代码不符，不打开`, [], e); }
+      }
     });
   }
   private async meta(k: string): Promise<string | null> {
