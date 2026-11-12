@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { Service } from '@deepseek-ai/cordis';
 import { db, hasTable } from '../db.ts';
 import { afterStartup } from '../startup-gate.ts';
+import { replyKindOfTask } from './a2a-replies.ts';
 
 export const STATES = ['draft', 'held', 'delivered', 'accepted', 'progress', 'waiting', 'ready', 'blocked', 'done', 'failed', 'dropped', 'cancelled'] as const;
 export type WorkItemState = typeof STATES[number];
@@ -420,6 +421,21 @@ function ticketSeat(detail: Record<string, unknown>): string {
 }
 const seatValue = (seat: string) => (seat === SEAT_NONE ? '' : seat);
 /** 这条结束回执是不是「打回之前派出的任务」晚到的：最近一次 return-sent 之后，它的任务号没在 reply-sent 里出现过 */
+/**
+ * 子任务（市场在同一 context 发出的答复、打回、回复来信，任务号 <event>.d<投递>.q<行>.a<尝试>）上「只说明这条消息」的回执：
+ * 回复来信（followup-reply）的任何回执；答复、打回的接单（acknowledged）和拒收（rejected）。
+ * 它们不推事项、不改原投递的结局、不进 others_alive / others_engaged。答复、打回的完成、失败、放弃是工作层面的终局，照常算。
+ * 现在收回执时已经把这些记成 reply:*（receipt-inbound），这里是给旧的事件日志（回填）同一个结果
+ */
+function messageOnlyReceipt(row: Pick<EventLogRow, 'action' | 'detail'>): boolean {
+  if (!row.action.startsWith('receipt:') || row.action === 'receipt:attention' || row.action === 'receipt:progress') return false;
+  let task = '';
+  try { task = String((JSON.parse(row.detail || '{}') as { task?: unknown }).task ?? ''); } catch { return false; }
+  const kind = replyKindOfTask(task);
+  if (kind === 'followup-reply') return true;
+  return kind === 'answer' && (row.action === 'receipt:acknowledged' || row.action === 'receipt:rejected');
+}
+
 function staleAfterReturn(rows: readonly EventLogRow[], i: number, detail: Record<string, unknown>): boolean {
   let lastReturn = -1;
   for (let k = i - 1; k >= 0; k--) if (rows[k].action === 'return-sent') { lastReturn = k; break; }
@@ -437,6 +453,7 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
   const detail = (() => { try { return JSON.parse(row.detail || '{}') as Record<string, unknown>; } catch { return {}; } })();
   const base = { source: EVENT_FACT_SOURCE, id: String(row.id), actor: row.actor, action: row.action };
   let fact: Fact | null = null;
+  if (messageOnlyReceipt(row)) return null;
   const seat = seatOfReceipt(row.action, detail);
   // 8f-2：dispatch:false 的事件（只通知、不派发）没有回写通道，排上的投递不映射成「已转交」：停在草稿，日志记一行「未派发」。
   // 事实 id 和原来那条 submit 相同：存量里已经应用过的照旧按（来源、id）跳过，回填重跑结果不变
@@ -453,7 +470,8 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
   else if (row.action === 'receipt:attention') fact = { ...base, kind: 'ask', question: typeof detail.summary === 'string' ? detail.summary : '' };
   else if (row.action === 'dead' || row.action.startsWith('decision:') || row.action === 'receipt:acknowledged' || RECEIPT_OUTCOME_ACTIONS.includes(row.action)) {
     const status = new Map<number, DeliveryStatus>();
-    for (const r of rows.slice(0, i)) if (r.delivery_id !== null && DELIVERY_AFTER[r.action]) status.set(r.delivery_id, DELIVERY_AFTER[r.action]);
+    // 子任务上只说明这条消息的回执（messageOnlyReceipt）不覆盖原投递的结局，也不进 others_alive / others_engaged 的计算
+    for (const r of rows.slice(0, i)) if (r.delivery_id !== null && DELIVERY_AFTER[r.action] && !messageOnlyReceipt(r)) status.set(r.delivery_id, DELIVERY_AFTER[r.action]);
     const others_alive = [...status].some(([d, st]) => d !== row.delivery_id && ALIVE.includes(st));
     const others_engaged = [...status].some(([d, st]) => d !== row.delivery_id && (ALIVE.includes(st) || st === 'accepted'));
     if (row.action === 'dead') fact = { ...base, kind: 'delivery', outcome: 'dead', others_alive };
@@ -486,7 +504,7 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
  * 版本没变时每次启动只做增量：从上次记下的事件日志水位往后核（没装事项服务的进程——比如回滚到旧版本期间——
  * 写进来的事件和事实，靠它补回来）。监听器漏过事实（dirty）也从头全量核。
  */
-export const BACKFILL_VERSION = 9; // 2：阶段七 R2 加了跟进、回复、看过的映射（#546）；3：进展回执的映射（PR-A）；4：回执的 by 记成承接席位；5：承接只取成员、重复事实补写承接（4 已被试联实例用过），终态事项承接空着的也补；6：承接只存句柄、进展只取在做的子项、回填按顺序最后一条为准；7：回执的 artifacts 并进 outputs；8：拆单后多个成员在做时承接清空；9：打回之后旧任务晚到的结束回执只记录
+export const BACKFILL_VERSION = 10; // 2：阶段七 R2 加了跟进、回复、看过的映射（#546）；3：进展回执的映射（PR-A）；4：回执的 by 记成承接席位；5：承接只取成员、重复事实补写承接（4 已被试联实例用过），终态事项承接空着的也补；6：承接只存句柄、进展只取在做的子项、回填按顺序最后一条为准；7、8 由 #567、#575 占用；9：打回之后旧任务晚到的结束回执只记录；10：子任务上只说明这条消息的回执（回复来信的、答复和打回的接单与拒收）不推事项、不覆盖原投递的结局
 /** 后台回填每一片最多占用事件循环的时长（毫秒），之后让出，好让请求得到应答 */
 const BACKFILL_SLICE_MS = 25;
 /** 每次取的行数（取出来的一批跨片接着用，用完再取） */

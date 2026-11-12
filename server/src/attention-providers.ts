@@ -11,6 +11,7 @@
  *   change-requests   GET /api/change-requests?status=pending  adminGuard（取数用 changeRequest 服务，和旧接口同一个函数）  审核
  *   mcp-access        GET /api/mcp/access-requests?status=pending adminGuard                 授权
  *   seat-asks         GET /api/workbench-events（决定是 ask 的）adminGuard                    提问
+ *   reply-rejected    没有旧接口：答复、打回任务被节点拒收（reply:rejected）  管理门看全部，建立人看自己的    提问（只提醒，没有答法）
  *   sop-runs          POST /api/sop/runs/:id/finish（派进来的 run 验收）  完成接口里不靠上传令牌的那两条（管理员、本机命令行）  验收
  *   tasks             GET /api/tasks（统一待办）                tasksReadAccess(adminHeaderOk) 审核
  *   owner-pending     GET /api/workbenches/:id/vars（看板台）  vars 接口的读门                提问
@@ -31,7 +32,7 @@ import { listVars, workbenchScope } from './workbench-vars.ts';
 import { principalsAdmin } from './routes/principals.ts';
 import { sopRunAcceptance } from './routes/sop-run-lifecycle.ts';
 import { buildBoard, findBoardWorkbench, parseConfig, BOARD_PATH, type BoardVar } from './owner-pending.ts';
-import { openSeatAsks, SEAT_ASK_BATCH, SEAT_ASK_LIMIT } from './services/attention-sources.ts';
+import { openSeatAsks, rejectedReplies, SEAT_ASK_BATCH, SEAT_ASK_LIMIT } from './services/attention-sources.ts';
 import { benchMcpDecider, benchViewsConfig } from './routes/bench-views.ts';
 import { pendingBenchRequests } from './services/bench-mcp.ts';
 
@@ -53,7 +54,7 @@ import type { GrantService } from './services/grant.ts';
 import type { RelationProposalService } from './services/relation-proposal.ts';
 import { browserMarked, rawLoopback } from './surfaces.ts';
 import { teamName } from './team-relation.ts';
-import { canRelease, canSee, creatorOf, itemDecisionVerdict, requestViewer, stuckGoesTo, turnOf } from './work-item-access.ts';
+import { canRelease, canSee, creatorOf, isManagement, itemDecisionVerdict, requestViewer, stuckGoesTo, TERMINAL_STATES, turnOf, type WorkItemViewer } from './work-item-access.ts';
 import { pendingAsksOfEvent } from './services/attention-sources.ts';
 import { eventOfItem } from './seat-messages.ts';
 
@@ -190,6 +191,31 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           after = { asked_at: last.asked_at, delivery_id: Number(last.delivery_id) };
         }
         return more ? { items: list, total: list.length, more } : list;
+      },
+    }),
+    provide({
+      // 节点没收下你的答复（答复、打回任务回了 rejected）：给建立人冒一条，让他重发或改用别的办法。只是提醒，没有当场的答法；
+      // 管理门看得到全部，别人看自己建的（creatorCheck，和席位提问同一处）。事项到了终态、同一投递之后又发过子任务的不列
+      source: 'reply-rejected', label: '节点没收下的答复',
+      list: async (req) => {
+        const admin = passes(deps.adminGuard, req);
+        const viewer = await attentionViewer(req, admin);
+        if (!admin && !viewer.principal) return null;
+        const items = svc<WorkItemService>('workItems');
+        const out: AttentionItem[] = [];
+        for (const r of rejectedReplies()) {
+          const w = items.get(`wi_${r.event_id}`);
+          if (!w || TERMINAL_STATES.includes(w.state)) continue;
+          const mine = viewer.principal !== null && items.creatorCheck(w.id, viewer.principal) === 'ok';
+          if (!admin && !mine) continue;
+          out.push(item({
+            source: 'reply-rejected', source_id: String(r.log_id), category: 'ask',
+            title: `${r.target_team} 没收下你的答复${r.summary ? `：${r.summary}` : ''}——可以重发，或改用别的办法`,
+            waiting_for: viewer.principal && mine ? viewer.principal : (w.creator_principal ?? ''), since: r.at, answers: [],
+            link: `/work-items/${w.id}`, mine, creator: creatorOf(w),
+          }));
+        }
+        return out;
       },
     }),
     provide({

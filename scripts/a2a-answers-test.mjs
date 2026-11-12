@@ -178,8 +178,10 @@ try {
   ok('……带 OriginClaim 签名', typeof sentToPeer?.headers['x-a2a-caller-sig2'] === 'string');
   const answerTask = sentToPeer?.body?.task_id ?? '';
   ok('……新任务号登记了对端（kind=answer）', q('SELECT kind, peer_zone, delivery_id FROM a2a_sent_tasks WHERE task_id = ?', answerTask)[0]?.peer_zone === 'lab', answerTask);
+  const beforeAck = state(a.ev)?.state;
   r = await receipt(answerTask, '接下', { idempotencyKey: answerTask, disposition: 'acknowledged' }, a.ctx, { inbound: `ack-${answerTask}` });
-  ok('对方对新任务回 acknowledged → 事项已接手', r.status === 200 && state(a.ev)?.state === 'accepted', `${r.text} ${JSON.stringify(state(a.ev))}`);
+  ok('对方对答复任务回 acknowledged → 只说明收下了这条答复：记一行 reply:receipt，事项状态不变（不再推到已接手）', r.status === 200 && state(a.ev)?.state === beforeAck
+    && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE event_id = ? AND action = 'reply:receipt'", a.ev)[0].c === 1, `${r.text} ${beforeAck} ${JSON.stringify(state(a.ev))}`);
   r = await receipt(answerTask, '做完了', { outcome: 'completed', idempotencyKey: answerTask, disposition: 'result' }, a.ctx);
   ok('……再回 completed → 等验收', r.status === 200 && state(a.ev)?.state === 'ready', r.text);
   {
@@ -844,6 +846,76 @@ try {
   const msgReply = (ev, mid, text) => dapi('POST', `/api/work-items/wi_${ev}/messages/${mid}/reply`, { text });
   const msgRead = (ev) => api('POST', `/api/work-items/wi_${ev}/messages/read`, {});
   const runs = () => q('SELECT COUNT(*) AS c FROM sop_runs')[0].c;
+  // 子任务（答复、打回、回复来信）的回执：「节点没收下这条消息」只说明这条消息，不代表工作
+  {
+    lab.fail = false;
+    const factsOf = (ev) => q('SELECT COUNT(*) AS c FROM work_item_log WHERE item_id = ?', `wi_${ev}`)[0].c;
+    const logCount = (ev, action) => q('SELECT COUNT(*) AS c FROM workbench_event_log WHERE event_id = ? AND action = ?', ev, action)[0].c;
+    /** 造一件在问的事，答它，返回答复任务号 */
+    const askAndAnswer = async (E, qid, text) => {
+      await receipt(E.task, '接下', { idempotencyKey: E.task, disposition: 'acknowledged' }, E.ctx, { inbound: `ack-${E.task}` });
+      await receipt(E.task, '问', { idempotencyKey: E.task, disposition: 'attention', question: { id: qid, text: '用哪个？' } }, E.ctx, { inbound: `attention-${E.task}-${qid}` });
+      lab.got.length = 0;
+      await answer(E.delivery, text);
+      await waitFor(() => lab.got.some((g) => String(g.body.task_id ?? '').startsWith(`${E.ev}.d${E.delivery}.q`)), 20000);
+      return lab.got.find((g) => String(g.body.task_id ?? '').startsWith(`${E.ev}.d${E.delivery}.q`))?.body?.task_id ?? '';
+    };
+    // 1. 答复任务回 rejected：不推事项、不改原投递，只记一行 reply:rejected；「关注」里给建立人冒一条；之后原派工任务照常推进
+    const G = seedEvent();
+    const gTask = await askAndAnswer(G, 'r1', 'A 方案');
+    const gs0 = state(G.ev)?.state, gf0 = factsOf(G.ev);
+    r = await receipt(gTask, '不收这条', { outcome: 'rejected', idempotencyKey: gTask, disposition: 'result' }, G.ctx);
+    const rejItem = ((await api('GET', '/api/attention')).body?.items ?? []).find((x) => x.source === 'reply-rejected' && x.link === `/work-items/wi_${G.ev}`);
+    ok('答复任务回 rejected：只记一行 reply:rejected，没有 receipt:rejected；事项状态和事实都不变；「关注」里冒一条「没收下你的答复」（只提醒，没有答法）',
+      r.status === 200 && logCount(G.ev, 'reply:rejected') === 1 && logCount(G.ev, 'receipt:rejected') === 0 && state(G.ev)?.state === gs0 && factsOf(G.ev) === gf0
+        && rejItem && rejItem.answers.length === 0 && rejItem.title.includes('没收下你的答复'), JSON.stringify({ r: r.status, gs0, s1: state(G.ev), rejItem }));
+    r = await receipt(G.task, '交付', { outcome: 'completed', idempotencyKey: G.task, disposition: 'result' }, G.ctx);
+    ok('……原派工任务之后的 completed 照常推到等验收（原投递没被记成拒绝）', r.status === 200 && state(G.ev)?.state === 'ready', JSON.stringify(state(G.ev)));
+    lab.got.length = 0;
+    await dapi('POST', '/api/attention/answer', { source: 'work-items', source_id: `wi_${G.ev}`, answer: 'return', input: { reason: '换一个' } });
+    await waitFor(() => logCount(G.ev, 'reply-sent') >= 2, 20000);
+    const rejGone = !((await api('GET', '/api/attention')).body?.items ?? []).some((x) => x.source === 'reply-rejected' && x.link === `/work-items/wi_${G.ev}`);
+    ok('……同一次投递之后又发出子任务（这里是打回）：「关注」里那条不再列', rejGone);
+    // 答复任务回 failed：工作在这一步做不下去，照 R2 推事项
+    const H = seedEvent();
+    const hTask = await askAndAnswer(H, 'f1', 'B 方案');
+    r = await receipt(hTask, '做不下去', { outcome: 'failed', idempotencyKey: hTask, disposition: 'result' }, H.ctx);
+    ok('答复任务回 failed：工作层面的终局，照常按映射推事项（receipt:failed、事项失败）', r.status === 200 && logCount(H.ev, 'receipt:failed') === 1 && state(H.ev)?.state === 'failed', JSON.stringify(state(H.ev)));
+
+    // 2. 回复席位来信的任务：它的 completed 只记一行，不推到等验收；工作结果仍以原派工任务为准
+    const F = seedEvent();
+    await receipt(F.task, '接下', { idempotencyKey: F.task, disposition: 'acknowledged' }, F.ctx, { inbound: `ack-${F.task}` });
+    const fraw = fu(F.ctx, '成员问：用哪个分支？', 'a2a-follow-rr01');
+    await post(fraw, signed(lab, fraw));
+    const fmsg = ((await itemOf(F.ev)).messages ?? []).find((x) => x.text.includes('用哪个分支'));
+    lab.got.length = 0;
+    await msgReply(F.ev, fmsg?.id, '用 main');
+    await waitFor(() => lab.got.some((g) => String(g.body.task_id ?? '').startsWith(`${F.ev}.d${F.delivery}.q`)), 20000);
+    const fTask = lab.got.find((g) => String(g.body.task_id ?? '').startsWith(`${F.ev}.d${F.delivery}.q`))?.body?.task_id ?? '';
+    const fs0 = state(F.ev)?.state, ff0 = factsOf(F.ev);
+    const fr1 = await receipt(fTask, '收到', { idempotencyKey: fTask, disposition: 'acknowledged' }, F.ctx, { inbound: `ack-${fTask}` });
+    const fr2 = await receipt(fTask, '好的，用 main', { outcome: 'completed', idempotencyKey: fTask, disposition: 'result' }, F.ctx);
+    ok('回复来信的任务回接单、completed：都只记 reply:receipt，没有 receipt:* 行；事项状态和事实不变（不推到等验收）',
+      fr1.status === 200 && fr2.status === 200 && logCount(F.ev, 'reply:receipt') === 2 && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE event_id = ? AND action LIKE 'receipt:%' AND json_extract(detail, '$.task') = ?", F.ev, fTask)[0].c === 0
+        && state(F.ev)?.state === fs0 && fs0 !== 'ready' && factsOf(F.ev) === ff0, JSON.stringify({ fr: [fr1.status, fr2.status], fTask, reply: logCount(F.ev, 'reply:receipt'), rows: q('SELECT action, detail FROM workbench_event_log WHERE event_id = ? AND id > 0 ORDER BY id DESC LIMIT 4', F.ev), fs0, s1: state(F.ev), f: [ff0, factsOf(F.ev)] }));
+    r = await receipt(F.task, '交付', { outcome: 'completed', idempotencyKey: F.task, disposition: 'result' }, F.ctx);
+    ok('……工作结果以原派工任务为准：原任务 completed → 等验收', r.status === 200 && state(F.ev)?.state === 'ready', JSON.stringify(state(F.ev)));
+
+    // 3. 两次投递：答复任务 rejected 之后原投递仍是 accepted（others_engaged 里算它），另一次投递失败不把事项判失败
+    const D = seedEvent();
+    let d2, task2;
+    { const d = db(); try {
+      d2 = Number(d.prepare("INSERT INTO workbench_event_deliveries (event_id, target_team, target_url, caller_session, status, sent_at) VALUES (?, 'superagent-team/b2c3d4e5f6071829', ?, 'market/12345678', 'sent', datetime('now'))").run(D.ev, lab.url).lastInsertRowid);
+      for (const action of ['queued', 'sent']) d.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, 'market', ?, '{}')").run(D.ev, d2, action);
+      task2 = `${D.ev}.d${d2}.a1`;
+      d.prepare('INSERT INTO a2a_sent_tasks (task_id, kind, event_id, delivery_id, peer_root, peer_zone) VALUES (?, ?, ?, ?, ?, ?)').run(task2, 'delivery', D.ev, d2, lab.url, 'lab');
+    } finally { d.close(); } }
+    await receipt(task2, '接下', { idempotencyKey: task2, disposition: 'acknowledged' }, D.ctx, { inbound: `ack-${task2}` });
+    const dTask = await askAndAnswer(D, 'm1', 'C 方案');
+    await receipt(dTask, '不收这条', { outcome: 'rejected', idempotencyKey: dTask, disposition: 'result' }, D.ctx);
+    r = await receipt(task2, '这边做不了', { outcome: 'failed', idempotencyKey: task2, disposition: 'result' }, D.ctx);
+    ok('答复任务 rejected 之后原投递仍是 accepted：另一次投递 failed 时它还算在做（others_engaged），事项不判失败', r.status === 200 && state(D.ev)?.state !== 'failed' && state(D.ev)?.state !== 'declined', JSON.stringify(state(D.ev)));
+  }
   const L = seedEvent();
   const runsBefore = runs();
   lab.got.length = 0;
