@@ -607,3 +607,7 @@ body { background: var(--wm-color-page); }
 .wm-bb-form-why { font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); }
 .wm-bb-demo-gap { margin-top: var(--wm-space-6); }
 .wm-bb-demo-panel { padding: var(--wm-space-4); background: var(--wm-color-surface); border: 1px solid var(--wm-color-border); border-radius: var(--wm-radius-lg); }
+/* 身份服务连不上（#639）：外壳顶上一条整页提示；角标写「暂时取不到」，用中性色，不用表示待办的红色 */
+.wm-identity-down { position: sticky; top: 0; z-index: 10; border-radius: var(--wm-radius-lg) var(--wm-radius-lg) 0 0; }
+.wm-nav-cnt.wm-nav-cnt-off { background: var(--wm-color-page); color: var(--wm-color-text-secondary); font-weight: var(--wm-font-weight-body); }
+.wm-home-down { display: flex; align-items: center; justify-content: center; gap: var(--wm-space-2); color: var(--wm-color-text-secondary); }

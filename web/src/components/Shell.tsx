@@ -1,19 +1,24 @@
 /** 外壳（产品化原型 3fbfd0b）：左边 248px 浅色侧栏，右边一张圆角的主区卡片。
  *  侧栏从上到下：品牌行 → 主入口一列（「全景」带等你拍板数）→ 我的驾驶舱 → 底部（管理员的设置 / 管理、口令、登录身份）。
  *  入口数据只来自 nav.tsx；AI 员工列表、在岗数、搜索等接口有了再加（不放占位）。 */
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Dropdown, Popover } from 'antd';
+import { Alert, Button, Dropdown, Popover } from 'antd';
 import { PlusOutlined, SettingOutlined } from '@ant-design/icons';
 import { NAV_GROUPS, findNav } from '../nav';
 import { ATTENTION_CHANGED, getAttention, getAuthMe, listCockpitsShared } from '../api';
 import { answerChoices, decideCount, type AttentionItem } from '../attention-view';
 import type { Cockpit } from '../types';
+import { IDENTITY_DOWN_TEXT, identityDown, retryIdentityNow, subscribeIdentity } from '../identity-status';
 
-function NavItem({ to, icon, name, on, count }: { to: string; icon: ReactNode; name: string; on: boolean; count?: number | null }) {
+/** 角标：数字；身份服务连不上时写「暂时取不到」（不能写 0 或不显示——那会让人以为没有待办） */
+export type Pending = number | 'down' | null;
+
+function NavItem({ to, icon, name, on, count }: { to: string; icon: ReactNode; name: string; on: boolean; count?: Pending }) {
   return <Link to={to} className={on ? 'wm-nav-item on' : 'wm-nav-item'} data-testid={`nav-${to}`}>
     <span className="wm-nav-icon">{icon}</span><span>{name}</span>
-    {count ? <span className="wm-nav-cnt" data-testid="nav-pending">{count}</span> : null}
+    {count === 'down' ? <span className="wm-nav-cnt wm-nav-cnt-off" data-testid="nav-pending" title="身份服务连不上，等你拍板的事暂时取不到">暂时取不到</span>
+      : count ? <span className="wm-nav-cnt" data-testid="nav-pending">{count}</span> : null}
   </Link>;
 }
 
@@ -21,7 +26,8 @@ function NavItem({ to, icon, name, on, count }: { to: string; icon: ReactNode; n
 export default function Shell({ admin, footer, children }: { admin: boolean; footer?: ReactNode; children: ReactNode }) {
   const { pathname } = useLocation();
   const current = findNav(pathname);
-  const [pending, setPending] = useState<number | null>(null);
+  const [pending, setPending] = useState<Pending>(null);
+  const down = useSyncExternalStore(subscribeIdentity, identityDown);
   const [cockpits, setCockpits] = useState<Cockpit[] | null>(null);
   const [login, setLogin] = useState<string | null>(null);
   const [meOpen, setMeOpen] = useState(false);
@@ -31,7 +37,7 @@ export default function Shell({ admin, footer, children }: { admin: boolean; foo
   // 监听写在同一个 effect 里、依赖带上 admin：分开写、依赖留空时，监听拿到的是第一次渲染的 admin，办完一件角标会被算成 0
   useEffect(() => {
     let live = true;
-    const read = () => { void getAttention().then((a) => { if (live) setPending(a.status >= 200 && a.status < 300 ? decideCount(a.items as unknown as AttentionItem[], (x) => answerChoices(admin, x)) : null); }); };
+    const read = () => { void getAttention().then((a) => { if (live) setPending(a.identityDown ? 'down' : a.status >= 200 && a.status < 300 ? decideCount(a.items as unknown as AttentionItem[], (x) => answerChoices(admin, x)) : null); }); };
     read();
     window.addEventListener(ATTENTION_CHANGED, read);
     return () => { live = false; window.removeEventListener(ATTENTION_CHANGED, read); };
@@ -70,7 +76,12 @@ export default function Shell({ admin, footer, children }: { admin: boolean; foo
           </Popover>
         </div>
       </aside>
-      <main className="wm-main">{children}</main>
+      <main className="wm-main">
+        {down && <Alert type="warning" banner showIcon className="wm-identity-down" data-testid="wm-identity-down"
+          message={`${IDENTITY_DOWN_TEXT}，认不出你是谁，有些内容这会儿取不到。正在自动重试，连上后这条提示会自己消失。`}
+          action={<Button size="small" type="text" onClick={retryIdentityNow}>现在重试</Button>} />}
+        {children}
+      </main>
     </div>
   );
 }

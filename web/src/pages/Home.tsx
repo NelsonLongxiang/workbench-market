@@ -5,14 +5,14 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
 import { Button, Empty, Skeleton, Tag, Typography } from 'antd';
-import { CheckOutlined, PlusOutlined } from '@ant-design/icons';
+import { CheckOutlined, PlusOutlined, DisconnectOutlined } from '@ant-design/icons';
 import WmPage from '../components/WmPage';
 import DecisionCard from '../components/DecisionCard';
 import ArrangeDrawer from '../components/ArrangeDrawer';
 import { adminActive, subscribeAdminToken } from '../admin-token';
 import { ATTENTION_CHANGED, getAttention, getAuthMe, getLifecycle } from '../api';
 import { answerChoices, groupCards, type AttentionItem } from '../attention-view';
-import { buildRows, splitRows, daysLabel, filterAttention, greeting, panoramaType, stageColumns, summaryLine, decideLine, toggleFocus, type Focus, type LcObject, type LcType } from '../home-view';
+import { buildRows, splitRows, daysLabel, filterAttention, greeting, panoramaType, stageColumns, summaryLine, decideLine, downLine, DECIDE_DOWN, toggleFocus, type Focus, type LcObject, type LcType } from '../home-view';
 
 const MAX_PAGES = 10;
 
@@ -23,11 +23,14 @@ export default function Home() {
   const [objects, setObjects] = useState<LcObject[]>([]);
   const [lcState, setLcState] = useState<'loading' | 'ok' | 'none'>('loading');
   const [attention, setAttention] = useState<AttentionItem[]>([]);
+  /** 身份服务连不上：等你拍板的事取不到，不能当成「没有」 */
+  const [attDown, setAttDown] = useState(false);
   const [focus, setFocus] = useState<Focus>(null);
   const [arrange, setArrange] = useState(false);
 
   const loadAttention = useCallback(async () => {
     const r = await getAttention();
+    setAttDown(r.identityDown);
     setAttention(r.status >= 200 && r.status < 300 ? r.items as AttentionItem[] : []);
   }, []);
   // 别处（侧栏、卡片）办完一件也跟着刷新
@@ -72,7 +75,7 @@ export default function Home() {
     <div className="wm-home">
       <h1 className="wm-home-hi" data-testid="home-greeting">{greeting(new Date().getHours(), name)}</h1>
       <Typography.Paragraph type="secondary" className="wm-home-sum" data-testid="home-summary">
-        {lcState === 'ok' ? summaryLine(rows, all.now.length, all.elsewhere.length, all.proxy.length) : decideLine(all.now.length, all.elsewhere.length, false, all.proxy.length)}
+        {attDown ? downLine(lcState === 'ok' ? rows : null) : lcState === 'ok' ? summaryLine(rows, all.now.length, all.elsewhere.length, all.proxy.length) : decideLine(all.now.length, all.elsewhere.length, false, all.proxy.length)}
       </Typography.Paragraph>
 
       {lcState === 'loading' && <Skeleton active paragraph={{ rows: 4 }} />}
@@ -107,11 +110,14 @@ export default function Home() {
       </>}
 
       <div className="wm-sec-h">
-        <h3>等你拍板</h3><span className="wm-sec-n">{now.length}</span>
+        <h3>等你拍板</h3><span className="wm-sec-n" data-testid="home-decide-n">{attDown ? '暂时取不到' : now.length}</span>
         {focus && <Typography.Text type="secondary" className="wm-caption">只看 {focusRow?.label ?? focus.object} · {focusStage?.name ?? focus.stage}（<a onClick={() => setFocus(null)}>看全部</a> · <a onClick={() => setArrange(true)}>就这一步安排一件事</a>）</Typography.Text>}
         <Link to="/attention" className="wm-sec-more">全部 →</Link>
       </div>
-      {cards.length === 0
+      {attDown
+        // 不用空态的图（那是「没有」的意思），写清是取不到
+        ? <div className="wm-home-box wm-home-down" data-testid="home-decide-down"><DisconnectOutlined /><span>{DECIDE_DOWN}</span></div>
+        : cards.length === 0
         ? <div className="wm-home-box"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={focus ? '这一步没有要你拍板的。' : '眼下没有要你拍板的。'} /></div>
         : <>
           {now.length > 0 && <div className="wm-decisions" data-testid="decisions-now">{now.map(card)}</div>}

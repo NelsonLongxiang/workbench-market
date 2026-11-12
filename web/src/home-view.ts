@@ -67,6 +67,12 @@ export function decideLine(now: number, elsewhere: number, redCells = false, pro
   return `有 ${now} 件等你拍板${redCells ? '——红色标出来的格子就是' : ''}。${more}`;
 }
 
+/** 身份服务连不上（#639）时的总结句：不说「没有要你拍板的」——那会让人以为没有待办；表读到了照样说几条线在走 */
+export const DECIDE_DOWN = '等你拍板的事暂时取不到：身份服务连不上，连上后会自动刷新。';
+export function downLine(rows: Row[] | null): string {
+  return rows ? `公司现在有 ${rows.filter((r) => !r.terminal).length} 条线在走，${DECIDE_DOWN}` : DECIDE_DOWN;
+}
+
 /** 席位提问卡的标题是「<团队> 问：<问题>（可选：a / b）」：拆成问题本身和选项；不是这个样子的原样返回、没有选项 */
 export function splitAskTitle(title: string): { question: string; options: string[] } {
   let q = (title || '').replace(/^\S+ 问：/, '');
