@@ -7,7 +7,7 @@
  *   二、同一个身份真的去改一下（PUT 改名）：过得了门的就是 can.edit 为 true 的那几个，一个不多一个不少
  *   三、读不存在的驾驶舱照旧 404（处理函数改成异步之后，出错照样交给错误中间件）
  *   四、管理层（登录的人，没有管理员身份）：能建、能改共享的、能删；建的时候记下建立人，但读应答里不带；/api/auth/me 说能新建。
- *       普通员工、部门负责人（范围「全部」）：建、改都 403，什么都没改；AI 员工的预设里没有这三个动作。
+ *       普通员工、部门负责人（范围「全部」）：建、改都 403，什么都没改；持 AI 员工授予的席位：判定说建、改、删都是 deny。
  *       管理层授予一撤，这个人当场改不了——连他自己建的那个也改不了（建立人这次不单独给权）。
  *       管理层的授予仍是「只有属主能放行」那一档。
  *       改驾驶舱不带来看数据的权力：管理层把一份数据视图挂进驾驶舱之后，没有台权限的人取那份视图照样 403。
@@ -136,8 +136,15 @@ try {
   check(COCKPIT.every((a) => named(role('management')).includes(a)) && role('management')?.approval === 'owner',
     '管理层的预设点名了这三个动作；管理层的授予仍是「只有属主能放行」那一档', { perms: role('management')?.permissions, approval: role('management')?.approval });
   check(role('ai-staff') && !kinds(role('ai-staff')).includes('admin') && !COCKPIT.some((a) => named(role('ai-staff')).includes(a)), 'AI 员工的预设：没有管理类，也没有点名这三个动作（席位建、改驾驶舱的判定一定是拒）', role('ai-staff')?.permissions);
-  const seatJudge = await call('GET', '/api/principals/user%3Ano-flag/access?action=cockpit.update', {});
-  check(seatJudge.json?.decision?.verdict === 'deny', '对照：判定说部门负责人改驾驶舱是 deny', seatJudge.json?.decision);
+  const leadJudge = await call('GET', '/api/principals/user%3Ano-flag/access?action=cockpit.update', {});
+  check(leadJudge.json?.decision?.verdict === 'deny', '对照：判定说部门负责人改驾驶舱是 deny', leadJudge.json?.decision);
+  // 持 ai-staff 授予（范围「全部」）的席位：路由那一层只认人，这里直接问判定（和路由同一个 judge）——建、改、删都是 deny。
+  // 责任人是管理层（beta，这时还没撤），所以拒绝只能来自 AI 员工的预设本身，不是「责任人没有这项权限」
+  { const w = new DatabaseSync(join(OUT, 'data', 'workbench-market.db')); try { w.exec("INSERT INTO principals (id, id_key, kind, display_name, owner) VALUES ('seat:ck-bot', 'seat:ck-bot', 'seat', '合成席位', 'user:beta')"); } finally { w.close(); } }
+  const gS = await grant('seat:ck-bot', 'ai-staff');
+  const seatVerdicts = {};
+  for (const a of COCKPIT) seatVerdicts[a] = (await call('GET', `/api/principals/seat%3Ack-bot/access?action=${a}`, {})).json?.decision?.verdict;
+  check(gS.ok && Object.values(seatVerdicts).every((v) => v === 'deny'), '持 AI 员工授予（范围「全部」，已放行）、责任人是管理层的席位：判定说建、改、删驾驶舱都是 deny', { gS, seatVerdicts });
 
   // 改驾驶舱不带来看数据的权力：管理层登记一个台、挂一份视图进驾驶舱；alpha 取那份视图照样 403
   await call('POST', '/api/bench-views', mgr, { slug: 'synth-ck', title: '合成·驾驶舱台' });
