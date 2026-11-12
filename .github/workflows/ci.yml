@@ -2,6 +2,10 @@ name: CI
 on:
   pull_request:
     branches: [main]
+# 同一个 PR 推了新提交，旧提交上还在跑的那一轮就取消：旧头的结果没人用，却占着并发名额。
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   odoo-operator-synthetic:
     runs-on: windows-latest
