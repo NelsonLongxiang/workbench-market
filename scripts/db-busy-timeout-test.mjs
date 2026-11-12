@@ -5,6 +5,7 @@
  *   市场主库、判定比对库：
  *     另一个进程持写锁 1 秒后放开：市场的写等得到、不报错，写完的时刻在对方放开之后（确实等了）
  *     同一时刻别的连接一直持着写锁：市场的写在上限前后报 database is locked，不无限等
+ *   起实例：另一个连接正在写同一个库（持写锁 1.5 秒）时起服务，起得来、启动自检过（CI 上「起实例时 database is locked」那一类偶发）
  *   台库：每次读写的等待取上限和这一次的时限中较小的一个
  *     时限 800 毫秒、锁一直不放：800 毫秒左右报错（不等满上限，不至于被看门狗强行中止）
  *     不限时、另一个进程持锁 1 秒：等得到
@@ -15,6 +16,7 @@
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, rmSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -82,6 +84,25 @@ try {
       catch (e) { console.log('RESULT ' + JSON.stringify({ ok: false, error: String(e?.message ?? e), ms: Date.now() - t })); }
       other.exec('ROLLBACK');`, env));
     check(k.ok === false && /locked/.test(k.error) && k.ms >= 4500 && k.ms < 8000, `${label}：写锁一直不放，市场的写在上限（5 秒）前后报 database is locked，不无限等`, show(k));
+  }
+
+  // ---------- 起实例：另一个连接正在写同一个库 ----------
+  {
+    const port = await new Promise((ok) => { const v = createServer(); v.listen(0, '127.0.0.1', () => { const { port: p } = v.address(); v.close(() => ok(p)); }); });
+    mkdirSync(join(OUT, 'ext'), { recursive: true });
+    const h = holdLock(join(data, 'workbench-market.db'), 1500);
+    await h.locked;
+    const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], { cwd: join(ROOT, 'server'), env: { PATH: process.env.PATH, HOME: data, DATA_DIR: data, NODE_ENV: 'test', ADMIN_TOKEN: 'busy-synthetic', REDIS_URL: '', MCP_GATEWAY: 'on', WM_CONTROL_PORT: '0', WM_EXTENSIONS_DIR: join(OUT, 'ext'), MARKET_PUBLIC_URL: 'http://market.synthetic.invalid', PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
+    let log = ''; child.stdout.on('data', (d) => { log += d; }); child.stderr.on('data', (d) => { log += d; });
+    let health = null;
+    for (const t0 = Date.now(); Date.now() - t0 < 90000 && child.exitCode === null;) {
+      try { const r = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(5000) }); const j = await r.json(); if (j.self_probe?.at) { health = j; break; } } catch { /* 还没起来 */ }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    const releasedAt = await h.released;
+    check(health?.self_probe?.passed === true && child.exitCode === null && releasedAt > 0,
+      '起实例：另一个进程正持着同一个库的写锁（1.5 秒）时起服务，等到它放开、起得来，启动自检过', show({ exit: child.exitCode, passed: health?.self_probe?.passed, err: child.exitCode !== null ? log.split('\n').filter((l) => !l.includes('"verdict":"pass"')).slice(-12).join(' | ') : '' }));
+    if (child.exitCode === null) { child.kill('SIGTERM'); await new Promise((r) => { const t = setTimeout(r, 3000); child.once('exit', () => { clearTimeout(t); r(); }); }); }
   }
 
   // ---------- 台库 ----------
