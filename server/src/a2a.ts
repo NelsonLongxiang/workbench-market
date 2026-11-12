@@ -53,6 +53,21 @@ export function progressReceiptsMode(env: NodeJS.ProcessEnv = process.env): 'on'
 }
 export function setProgressReceipts(on: boolean): void { progressReceipts = on; }
 
+/**
+ * 名片是否声明 teamRoster（a2a-net next/0.8：宿主只给声明了它的画布远端成员推团队名册 [A2A roster]）。
+ * 声明了，入站名册照 #581 的规矩收（投递过的宿主、Sig3、节点键取自验过签的公钥、时间上限、只收本区席位）；
+ * 不声明，入站名册一律不收（照普通来信走）——不声明就不该有人推，推来的也不认。
+ * 开关 WM_A2A_TEAM_ROSTER（缺省 on；off 时名片不声明、不收名册），启动时由 index.ts 读一次并设进来。
+ */
+let teamRoster = true;
+export function teamRosterMode(env: NodeJS.ProcessEnv = process.env): 'on' | 'off' | null {
+  const raw = String(env.WM_A2A_TEAM_ROSTER ?? '');
+  if (raw === '' || raw === 'on') return 'on';
+  return raw === 'off' ? 'off' : null;
+}
+export function setTeamRoster(on: boolean): void { teamRoster = on; }
+export function teamRosterDeclared(): boolean { return teamRoster; }
+
 let cachedKey: KeyObject | null = null;
 
 /** 首启生成 Ed25519 并存 DATA_DIR/a2a-key.pem（0600）；之后加载。 */
@@ -150,7 +165,7 @@ export function buildAgentCard(keyPath: string): Record<string, unknown> {
     if (Array.isArray(parsed)) peers = parsed.filter((x) => typeof x === 'string');
   } catch { /* 配置坏值忽略 */ }
   const core = {
-    capabilities: { sop: true, bindings: 'human-only', stage: 'P1-readonly', reworkReturns: true, ...(memberProvenance ? { canvasMemberProvenance: true } : {}), ...(progressReceipts ? { progressReceipts: true } : {}) },
+    capabilities: { sop: true, bindings: 'human-only', stage: 'P1-readonly', reworkReturns: true, ...(memberProvenance ? { canvasMemberProvenance: true } : {}), ...(progressReceipts ? { progressReceipts: true } : {}), ...(teamRoster ? { teamRoster: true } : {}) },
     expiresAt: now + CARD_TTL_MS,
     name: 'workbench-market',
     session: MARKET_TEAM,

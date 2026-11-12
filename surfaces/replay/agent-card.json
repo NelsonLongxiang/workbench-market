@@ -24,9 +24,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "427", "etag": "W/\"1ab-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "466", "etag": "W/\"1d2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly", "canvasMemberProvenance": true, "progressReceipts": true },
+              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly", "reworkReturns": true, "canvasMemberProvenance": true, "progressReceipts": true, "teamRoster": true },
               "expiresAt": 1893618000000,
               "name": "workbench-market",
               "session": "market",
@@ -50,9 +50,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "427", "etag": "W/\"1ab-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "466", "etag": "W/\"1d2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly", "canvasMemberProvenance": true, "progressReceipts": true },
+              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly", "reworkReturns": true, "canvasMemberProvenance": true, "progressReceipts": true, "teamRoster": true },
               "expiresAt": 1893618000000,
               "name": "workbench-market",
               "session": "market",
@@ -76,9 +76,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "427", "etag": "W/\"1ab-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "466", "etag": "W/\"1d2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly", "canvasMemberProvenance": true, "progressReceipts": true },
+              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly", "reworkReturns": true, "canvasMemberProvenance": true, "progressReceipts": true, "teamRoster": true },
               "expiresAt": 1893618000000,
               "name": "workbench-market",
               "session": "market",
@@ -102,9 +102,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "427", "etag": "W/\"1ab-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "466", "etag": "W/\"1d2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly", "canvasMemberProvenance": true, "progressReceipts": true },
+              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly", "reworkReturns": true, "canvasMemberProvenance": true, "progressReceipts": true, "teamRoster": true },
               "expiresAt": 1893618000000,
               "name": "workbench-market",
               "session": "market",
@@ -135,9 +135,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "471", "etag": "W/\"1d7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "510", "etag": "W/\"1fe-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly", "canvasMemberProvenance": true, "progressReceipts": true },
+              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly", "reworkReturns": true, "canvasMemberProvenance": true, "progressReceipts": true, "teamRoster": true },
               "expiresAt": 1893618000000,
               "name": "workbench-market",
               "session": "market",
@@ -169,9 +169,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "454", "etag": "W/\"1c6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "493", "etag": "W/\"1ed-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly", "canvasMemberProvenance": true, "progressReceipts": true },
+              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly", "reworkReturns": true, "canvasMemberProvenance": true, "progressReceipts": true, "teamRoster": true },
               "expiresAt": 1893618000000,
               "name": "workbench-market",
               "session": "market",
@@ -203,9 +203,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "427", "etag": "W/\"1ab-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "466", "etag": "W/\"1d2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly", "canvasMemberProvenance": true, "progressReceipts": true },
+              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly", "reworkReturns": true, "canvasMemberProvenance": true, "progressReceipts": true, "teamRoster": true },
               "expiresAt": 1893618000000,
               "name": "workbench-market",
               "session": "market",
@@ -236,9 +236,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "427", "etag": "W/\"1ab-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "466", "etag": "W/\"1d2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly", "canvasMemberProvenance": true, "progressReceipts": true },
+              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly", "reworkReturns": true, "canvasMemberProvenance": true, "progressReceipts": true, "teamRoster": true },
               "expiresAt": 1893618000000,
               "name": "workbench-market",
               "session": "market",
@@ -277,9 +277,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "427", "etag": "W/\"1ab-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "466", "etag": "W/\"1d2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly", "canvasMemberProvenance": true, "progressReceipts": true },
+              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly", "reworkReturns": true, "canvasMemberProvenance": true, "progressReceipts": true, "teamRoster": true },
               "expiresAt": 1893618000000,
               "name": "workbench-market",
               "session": "market",
@@ -303,9 +303,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "427", "etag": "W/\"1ab-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "466", "etag": "W/\"1d2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly", "canvasMemberProvenance": true, "progressReceipts": true },
+              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly", "reworkReturns": true, "canvasMemberProvenance": true, "progressReceipts": true, "teamRoster": true },
               "expiresAt": 1893618000000,
               "name": "workbench-market",
               "session": "market",
@@ -329,9 +329,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "427", "etag": "W/\"1ab-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "466", "etag": "W/\"1d2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly", "canvasMemberProvenance": true, "progressReceipts": true },
+              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly", "reworkReturns": true, "canvasMemberProvenance": true, "progressReceipts": true, "teamRoster": true },
               "expiresAt": 1893618000000,
               "name": "workbench-market",
               "session": "market",
