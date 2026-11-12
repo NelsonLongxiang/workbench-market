@@ -71,6 +71,12 @@ export class GrantService extends Service {
     return db.prepare(`SELECT * FROM grants ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC LIMIT 500`).all(...args) as GrantRow[];
   }
 
+  /** 现在持有这些角色里任一个生效授予的主体（去重；不限条数） */
+  activeHolders(roles: string[], now = Date.now()): string[] {
+    if (roles.length === 0) return [];
+    return (db.prepare(`SELECT DISTINCT principal_id FROM grants WHERE status = 'active' AND (expires_at IS NULL OR expires_at > ?) AND role IN (${roles.map(() => '?').join(', ')}) ORDER BY principal_id`).all(now, ...roles) as { principal_id: string }[]).map((r) => r.principal_id);
+  }
+
   /** 这个主体现在生效的授予（现比期限，不等周期任务） */
   activeFor(principal: string, now = Date.now()): GrantRow[] {
     return db.prepare("SELECT * FROM grants WHERE principal_id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?) ORDER BY id").all(principal, now) as GrantRow[];

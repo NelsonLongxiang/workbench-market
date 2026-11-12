@@ -39,10 +39,11 @@ import { svc } from '../context.ts';
 import { identity, IDENTITY_UNAVAILABLE, sourceDown } from '../identity.ts';
 import { isCreator, STATES, type WorkItemService, type WorkItemState } from '../services/work-item.ts';
 import type { PrincipalService } from '../services/principal.ts';
-import { creatorAnswer } from '../attention-answers.ts';
+import type { TeamService } from '../services/team.ts';
+import { CREATOR_ANSWERS, decideItemAnswer } from '../attention-answers.ts';
 import { markSeatMessagesRead, replySeatMessage, seatMessagesOf, seatProgressOf, SEAT_REPLY_MAX } from '../seat-messages.ts';
 import { principalsAdmin } from './principals.ts';
-import { canOf, canSee, creatorOf, itemRoles, releaseRole, turnOf, VIEW_ALL_ACTION, VIEW_ALL_KIND, VIEWS, viewScopes, workItemViewer, writerVerdict, type ItemRole, type ViewName } from '../work-item-access.ts';
+import { canOf, canSee, creatorOf, itemDecisionVerdict, itemRoles, releaseBy, turnOf, VIEW_ALL_ACTION, VIEW_ALL_KIND, VIEWS, viewScopes, workItemViewer, writerVerdict, type ItemRole, type ViewName } from '../work-item-access.ts';
 import { arrangeTask } from '../task-center.ts';
 import { assignableTeams, kickWorkbenchEvents, releaseCore } from '../workbench-events.ts';
 import { eventOfItem } from '../seat-messages.ts';
@@ -65,9 +66,11 @@ function silentRes(): express.Response {
 /** 席位消息的已读与回复：建立人本人或管理员能做，是事项上的规则（判定这一步还不知道落在哪件事项上），401、403、404 不拿来和统一判定比 */
 const SEAT_WRITER_DECIDES = '按事项的建立人判：建立人本人或管理员，是事项上的规则不是角色授权';
 /** 建立人验收、退回自己的事项：只有这件事项的建立人本人能答，是事项上的规则；判定这一步还不知道落在哪件事项上 */
-const CREATOR_DECIDES = '按事项的建立人判：只有建立人本人能验收、退回自己的事项，是事项上的规则不是角色授权';
+const CREATOR_DECIDES = '按事项判：建立人本人验收、退回；负责人可退回本团队的；持有管理层授予的人代办，是事项上的规则不是角色授权';
+/** 回复席位消息：替人做决定的动作，和验收同一处判（itemDecisionVerdict） */
+const ITEM_REPLY_DECIDES = '按事项判：建立人本人回复；持有管理层授予的人代办（过了管理门不算），是事项上的规则不是角色授权';
 /** 放行：团队的负责人（缺位时管理层代办），是事项上的规则；判定这一步还不知道落在哪件事项上 */
-const LEAD_RELEASES = '按事项交给的团队判：负责人放行，团队没有负责人时管理层代办，是事项上的规则不是角色授权';
+const LEAD_RELEASES = '按事项交给的团队判：负责人放行，团队没有负责人时持有管理层授予的人代办，是事项上的规则不是角色授权';
 
 export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps): void {
   // 列表：GET /api/work-items?state=&object=&phase=&limit=&cursor=。可见范围和详情同一个判断（管理员看全部，别人只看自己是建立人的），
@@ -112,11 +115,13 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       // SQL 和 itemRoles 同一个口径时这里一条都不会少；计数照 SQL，测试守「列表里每一条详情都是 200」和件数一致
       const roleOf: Record<ViewName, ItemRole> = { mine: 'creator', seats: 'owner', team: 'lead', all: 'management' };
       const shown = page.items.filter((w) => itemRoles(w, viewer).includes(roleOf[view]));
+      // 等谁放行：这一页有 held 的才取一次全部团队视图（负责人名字按看的人裁）
+      const teamViews = shown.some((w) => w.state === 'held') ? svc<TeamService>('teams').allViews() : [];
       res.json({
         view, views,
         items: shown.map((w) => ({
           id: w.id, title: w.title, state: w.state, object: w.object, phase: w.phase, seat: w.seat,
-          last_progress: w.last_log, updated_at: w.updated_at,
+          last_progress: w.last_log, updated_at: w.updated_at, release_by: releaseBy(w, viewer, teamViews),
         })),
         counts: page.counts, total: page.total,
         next_cursor: page.next ? Buffer.from(JSON.stringify({ u: page.next.updated_at, i: page.next.id }), 'utf8').toString('base64url') : null,
@@ -178,7 +183,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       const item = items.get(id);
       if (!item || !canSee(item, viewer)) return void res.status(404).json({ error: 'work_item_not_found' });
       // 只增：这个人能做什么（can）、是不是轮到他（turn）、建立人是谁（creator）。判断都在 work-item-access.ts，和各动作接口同一处
-      res.json({ item, log: items.log(id), ...seatMessagesOf(item), progress: seatProgressOf(item), can: canOf(item, viewer), turn: turnOf(item, viewer), creator: creatorOf(item) });
+      res.json({ item, log: items.log(id), ...seatMessagesOf(item), progress: seatProgressOf(item), can: canOf(item, viewer), turn: turnOf(item, viewer), creator: creatorOf(item), release_by: releaseBy(item, viewer) });
     })().catch(next);
   });
 
@@ -212,7 +217,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
     })().catch(next);
   });
 
-  app.post('/api/work-items/:id/messages/:mid/reply', { action: 'work-items.messages-reply', kind: 'write', statusNotVerdict: SEAT_WRITER_DECIDES }, (req, res, next) => {
+  app.post('/api/work-items/:id/messages/:mid/reply', { action: 'work-items.messages-reply', kind: 'write', statusNotVerdict: ITEM_REPLY_DECIDES }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
     const id = String(req.params.id ?? '');
@@ -224,9 +229,13 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
     if (!text) return void res.status(400).json({ error: 'text_required' });
     if (text.length > SEAT_REPLY_MAX) return void res.status(400).json({ error: 'text_too_long', max: SEAT_REPLY_MAX });
     (async () => {
-      const w = await seatWriter(req, res, id);
-      if (!w) return;
-      const out = replySeatMessage(w.item, Number(mid), text, w.actor);
+      // 回复是替人做决定的动作：谁能回只看 itemDecisionVerdict（建立人本人、持有管理层授予的人代办；过了管理门不算）
+      const viewer = await workItemViewer(req, deps);
+      if (!viewer.admin && !viewer.principal) return void (viewer.sourceDown ? res.status(502).json({ error: IDENTITY_UNAVAILABLE }) : res.status(401).json({ error: 'work_items_auth_required' }));
+      const item = svc<WorkItemService>('workItems').get(id);
+      const v = itemDecisionVerdict(item, viewer, 'reply');
+      if (!v.ok) return void res.status(v.status).json({ error: v.error });
+      const out = replySeatMessage(item!, Number(mid), text, viewer.principal!, v.acting_for);
       res.status(out.status).json(out.body);
     })().catch(next);
   });
@@ -249,8 +258,8 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       if (!viewer.admin && !viewer.principal) return void res.status(401).json({ error: 'work_items_auth_required' });
       const item = items.get(id);
       if (!item || !canSee(item, viewer)) return void res.status(404).json({ error: 'work_item_not_found' });
-      const role = releaseRole(item, viewer);
-      if (!role) return void res.status(403).json({ error: 'work_item_release_not_yours' });
+      const role = itemDecisionVerdict(item, viewer, 'release');
+      if (!role.ok) return void res.status(403).json({ error: 'work_item_release_not_yours' });
       if (item.state !== 'held') {
         if (items.log(id).some((l) => l.fact === 'release' && !l.rejected)) return void res.json({ ok: true, item_id: id, duplicate: true, released: 0 });
         return void res.status(409).json({ error: 'work_item_not_held', state: item.state });
@@ -279,7 +288,12 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       if (!who.ok) return void (sourceDown(who) ? res.status(502).json({ error: IDENTITY_UNAVAILABLE }) : res.status(401).json({ error: 'work_items_auth_required' }));
       const principal = svc<PrincipalService>('principals').get(who.viewer.sub) as { kind?: string; status?: string } | undefined;
       if (!principal || principal.kind !== 'person' || principal.status !== 'active') return void res.status(403).json({ error: 'work_items_principal_not_active' });
-      const out = await creatorAnswer(id, who.viewer.sub, answer, { reason: b.reason });
+      if (!(CREATOR_ANSWERS as readonly string[]).includes(answer)) return void res.status(400).json({ item_id: id, answer, duplicate: false, result: { error: 'creator_answer_not_allowed', allowed: CREATOR_ANSWERS } });
+      // 谁能验收、退回只看 itemDecisionVerdict：建立人本人；退回还认负责人；持有管理层授予的人代办（acting_for 记 creator）
+      const viewer = await workItemViewer(req, deps);
+      const v = itemDecisionVerdict(svc<WorkItemService>('workItems').get(id), viewer, answer as 'verify' | 'return');
+      if (!v.ok) return void res.status(v.status).json({ item_id: id, answer, duplicate: false, result: { error: v.error } });
+      const out = await decideItemAnswer(id, who.viewer.sub, answer, { reason: b.reason }, v.acting_for);
       res.status(out.status).json({ item_id: id, answer, duplicate: out.duplicate === true, result: out.body });
     })().catch(next);
   });

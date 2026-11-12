@@ -343,6 +343,8 @@ jobs:
         run: node scripts/work-item-creator-test.mjs
       - name: 事项的 can、turn、creator 和「关注」的 mine（三种身份逐项对着动作接口验：can 说能接口就放行、说不能就拒·状态上不允许的一律 false·turn 只轮到建立人或有放行权限的人·放行留痕记真实的管理员）
         run: node scripts/work-item-can-turn-test.mjs
+      - name: 事项上替人做决定的五个动作只有一个判法（对抗组：只有管理口令、只有系统管理员角色、持管理层授予的非建立人、建立人本人 × 答提问、回复、验收、退回、放行；can 和真调对得上·「关注」的答法和 mine 照同一个函数·代办留痕记 acting_for）
+        run: node scripts/work-item-decision-verdict-test.mjs
       - name: 事项列表（放宽访问的对抗：管理员看全部、登录的人只看自己是建立人的·别人的和建立人空着的不出现也不计数·筛选与计数·游标翻页不重不漏·匿名、本机页面、不认的会话 401·跨站 403·坏参数 400·启动自检一行）
         run: node scripts/work-items-list-test.mjs
       - name: 提需求的人（阶段八 8f-1：建录入时经身份服务认出的人记在录入上，发布时当事项的建立人·发布的人只留痕、不顶替·请求体自报不认·认不出照样放行·不带内容的提交计数）

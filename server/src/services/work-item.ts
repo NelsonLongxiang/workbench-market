@@ -367,7 +367,8 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
   else if (row.action === 'receipt:untrusted' || row.action === 'receipt:unaccepted') fact = { ...base, kind: 'note', note: 'untrusted' };
   else if (row.action === 'receipt:progress') fact = { ...base, kind: 'note', note: 'progress', text: typeof detail.summary === 'string' ? detail.summary : '' };
   else if (row.action === 'followup') fact = { ...base, kind: 'note', note: 'followup', text: typeof detail.text === 'string' ? detail.text : '' };
-  else if (row.action === 'followup-replied') fact = { ...base, kind: 'note', note: 'followup-reply', text: typeof detail.text === 'string' ? detail.text : '' };
+  // 代建立人回复（持管理层授予的人）：同放行，acting_for 原样带进事项日志
+  else if (row.action === 'followup-replied') fact = { ...base, kind: 'note', note: 'followup-reply', text: typeof detail.text === 'string' ? detail.text : '', ...(typeof detail.acting_for === 'string' && detail.acting_for ? { acting_for: detail.acting_for.slice(0, 64) } : {}) };
   else if (row.action === 'receipt:attention') fact = { ...base, kind: 'ask', question: typeof detail.summary === 'string' ? detail.summary : '' };
   else if (row.action === 'dead' || row.action.startsWith('decision:') || row.action === 'receipt:acknowledged' || RECEIPT_OUTCOME_ACTIONS.includes(row.action)) {
     const status = new Map<number, DeliveryStatus>();

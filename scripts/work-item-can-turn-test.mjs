@@ -7,7 +7,7 @@
  *     release  POST /api/work-items/:id/release（事项 held；这里的团队名册里没有、没有负责人，由管理层代办）
  *     verify   管理员走「关注」答 verify；建立人走 POST /api/work-items/:id/decision（事项 ready）
  *     reply    POST /api/work-items/:id/messages/:mid/reply（管理员或建立人；有没回复过的消息；事项没结束）
- *     answer   管理员走「关注」答席位提问（建立人答提问的入口在阶段七，合并后另补）
+ *     answer   建立人或持管理层授予的人走「关注」答席位提问（itemDecisionVerdict 一个判法）
  *   状态上不允许的一律 false：撤回（cancelled）之后不能回复，回复接口也拒（409 work_item_ended）
  *   turn：answer、verify 轮到建立人；release 轮到负责人。管理员看建立人的事 can 真、turn 假（代办）；团队没负责人时管理层代办放行，也是 can 真、turn 假
  *   creator：{ principal, display_name }，详情和「关注」同一个形状
@@ -170,20 +170,24 @@ try {
     pair('reply·管理员', a.can.reply, await call('POST', `/api/work-items/${S.asked.item}/messages/${S.m2}/reply`, WHO.管理员, { text: '回' }));
     const none = await detail(S.asked.item, '建立人');
     check(!none.can.reply, '消息都回复过了：不能再回复', show(none.can));
-    check(a.can.answer && !a.turn.answer && !c.can.answer && c.turn.answer && !o.can.answer, 'answer：管理员能、不轮到他；建立人轮到他（提问轮到建立人），但答提问的入口在阶段七、现在还不能；无关的员工不能', show({ a: [a.can.answer, a.turn.answer], c: [c.can.answer, c.turn.answer] }));
-    pair('answer·建立人（「关注」）', c.can.answer, await call('POST', '/api/attention/answer', WHO.建立人, { source: 'seat-asks', source_id: String(S.asked.delivery), answer: 'answer', input: { text: '东店' } }));
+    check(a.can.answer && !a.turn.answer && c.can.answer && c.turn.answer && !o.can.answer, 'answer：建立人能、轮到他；管理员（持管理层授予）能、不轮到他（代办）；无关的员工不能', show({ a: [a.can.answer, a.turn.answer], c: [c.can.answer, c.turn.answer], o: o.can.answer }));
     pair('answer·无关的员工（「关注」）', o.can.answer, await call('POST', '/api/attention/answer', WHO.无关的员工, { source: 'seat-asks', source_id: String(S.asked.delivery), answer: 'answer', input: { text: '东店' } }));
     // 先看「关注」里的 mine 和 creator（答了就没了）
     const att = (await call('GET', '/api/attention', WHO.管理员)).body?.items ?? [];
     const ask = att.find((x) => x.source === 'seat-asks' && x.source_id === String(S.asked.delivery));
     const glance = att.find((x) => x.source === 'work-items' && x.source_id === S.held2.item);
     const acc = (await call('GET', '/api/attention', WHO.建立人)).body?.items ?? [];
+    const askC = acc.find((x) => x.source === 'seat-asks' && x.source_id === String(S.asked.delivery));
     check(ask?.mine === false && ask.creator?.principal === 'user:alpha' && glance?.mine === false && glance.creator?.display_name === 'Synthetic alpha',
       '「关注」：席位提问、过目放行对管理员都是代办（mine:false）、带建立人', show({ ask: ask && [ask.mine, ask.creator], glance: glance && [glance.mine, glance.creator] }));
+    check(askC?.mine === true && show(askC.answers) === show(['answer']), '「关注」：席位提问对建立人 mine:true、能答', show(askC && [askC.mine, askC.answers]));
     check(att.filter((x) => x.source !== 'work-items' && x.source !== 'seat-asks').every((x) => x.mine === true) && acc.every((x) => typeof x.mine === 'boolean'), '「关注」：别的来源一律 mine:true；每条都有 mine');
-    pair('answer·管理员（「关注」）', a.can.answer, await call('POST', '/api/attention/answer', WHO.管理员, { source: 'seat-asks', source_id: String(S.asked.delivery), answer: 'answer', input: { text: '东店' } }));
+    pair('answer·建立人（「关注」）', c.can.answer, await call('POST', '/api/attention/answer', WHO.建立人, { source: 'seat-asks', source_id: String(S.asked.delivery), answer: 'answer', input: { text: '东店' } }));
+    const fact = q("SELECT actor, detail FROM work_item_log WHERE item_id = ? AND fact = 'answer' ORDER BY seq DESC LIMIT 1", S.asked.item)[0];
+    check(fact?.actor === 'user:alpha' && !JSON.parse(fact.detail || '{}').acting_for, '建立人自己答：事项日志记建立人本人、不带 acting_for', show(fact));
     const answered = await detail(S.asked.item, '管理员'), answeredC = await detail(S.asked.item, '建立人');
-    check(!answered.can.answer && !answeredC.turn.answer, '答过之后没有在等的提问：管理员 can.answer、建立人 turn.answer 都是 false', show({ can: answered.can, turn: answeredC.turn }));
+    check(!answered.can.answer && !answeredC.can.answer && !answeredC.turn.answer, '答过之后没有在等的提问：管理员、建立人 can.answer 都是 false，turn.answer 也是 false', show({ can: answered.can, turn: answeredC.turn }));
+    pair('answer·管理员（答过之后，「关注」）', answered.can.answer, await call('POST', '/api/attention/answer', WHO.管理员, { source: 'seat-asks', source_id: String(S.asked.delivery), answer: 'answer', input: { text: '西店' } }));
   }
 
   // ---------- canOf 单元：非建立人的登录员工（详情对他是 404，这里直接对函数验） ----------

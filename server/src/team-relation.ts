@@ -19,7 +19,9 @@
  *     接收部门的负责人确认（services/relation-proposal.ts），成员分配只有团队负责人或管理层做。提议期间这些关系不存在，这里查不到。
  */
 import { svc } from './context.ts';
-import { sameSeat, type SeatKey, type TeamKey, type TeamService } from './services/team.ts';
+import { sameSeat, type SeatKey, type TeamKey, type TeamService, type TeamView } from './services/team.ts';
+import type { DepartmentService } from './services/department.ts';
+import type { GrantService } from './services/grant.ts';
 
 export type Subject = { principal: string } | { seat: { host: string; team: string; seat: string; seat_id?: string } };
 export type Target = { department: string } | { team: TeamKey } | { seat: { host: string; team: string; seat: string; seat_id?: string } };
@@ -91,4 +93,28 @@ export function relationOf(subject: Subject, target: Target): RelationResult {
     }
   }
   return { relations: [...rel], display };
+}
+
+/** 团队页上的「管理层」：持有全组织范围（scope *）的管理层或属主授予 */
+export function orgWideManagement(principal: string | null): boolean {
+  return !!principal && svc<GrantService>('grants').activeFor(principal).some((g) => (g.role === 'management' || g.role === 'owner') && g.scope === '*');
+}
+
+/**
+ * 这个人看不看得到这个团队（团队页的列表、事项的「等谁放行」里负责人的名字共用这一处）：
+ *   管理员（管理口令、身份来源管理员）看全部；待认领的别人看不到；管理层看全部认领过的；
+ *   其余只看自己是负责人、有成员分给自己、或所挂部门里有自己的团队
+ */
+export function teamVisibleTo(v: { admin: boolean; principal: string | null; management: boolean }, t: TeamView): boolean {
+  if (v.admin) return true;
+  if (t.status === 'unclaimed') return false;
+  if (v.management) return true;
+  if (!v.principal) return false;
+  if (t.leads.some((l) => l.principal === v.principal)) return true;
+  if (t.members.some((m) => m.assigned_to?.principal === v.principal)) return true;
+  if (t.department) {
+    const d = t.department.id;
+    if (svc<DepartmentService>('departments').of(v.principal).some((x) => x.id === d)) return true;
+  }
+  return false;
 }

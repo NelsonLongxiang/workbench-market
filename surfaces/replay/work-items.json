@@ -282,7 +282,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1020", "etag": "W/\"3fc-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1053", "etag": "W/\"41d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "item": { "id": "wi_replay_alpha", "title": "回放用事项", "created_at": "YYYY-MM-DD hh:mm:ss", "created_by": "user:alpha", "source_kind": "agent", "source_ref": "", "context": "{}", "event_id": null, "task_ids": "[]", "target_team": "", "seat": "", "eval": "", "eval_reason": "", "state": "draft", "progress_summary": "", "progress_at": "", "open_asks": "[]", "receipt_outcome": "", "receipt_at": "", "outputs": "{}", "evidence": "[]", "object": "", "phase": "", "updated_at": "YYYY-MM-DD hh:mm:ss", "creator_principal": "user:alpha", "handoff": "team", "review_by": "", "directed_seat_id": "", "seat_id": "", "seat_at": "" },
               "log": [
@@ -291,9 +291,10 @@
               "messages": [],
               "unread": 0,
               "progress": null,
-              "can": { "release": false, "answer": false, "verify": false, "reply": false },
+              "can": { "release": false, "answer": false, "verify": false, "return": false, "reply": false },
               "turn": { "release": false, "answer": false, "verify": false },
-              "creator": { "principal": "user:alpha", "display_name": null }
+              "creator": { "principal": "user:alpha", "display_name": null },
+              "release_by": null
             }
           }
         },
@@ -396,7 +397,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1033", "etag": "W/\"409-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1066", "etag": "W/\"42a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "item": { "id": "wi_replay_alpha", "title": "回放用事项", "created_at": "YYYY-MM-DD hh:mm:ss", "created_by": "user:alpha", "source_kind": "agent", "source_ref": "", "context": "{}", "event_id": null, "task_ids": "[]", "target_team": "", "seat": "", "eval": "", "eval_reason": "", "state": "draft", "progress_summary": "", "progress_at": "", "open_asks": "[]", "receipt_outcome": "", "receipt_at": "", "outputs": "{}", "evidence": "[]", "object": "", "phase": "", "updated_at": "YYYY-MM-DD hh:mm:ss", "creator_principal": "user:alpha", "handoff": "team", "review_by": "", "directed_seat_id": "", "seat_id": "", "seat_at": "" },
               "log": [
@@ -405,9 +406,10 @@
               "messages": [],
               "unread": 0,
               "progress": null,
-              "can": { "release": false, "answer": false, "verify": false, "reply": false },
+              "can": { "release": false, "answer": false, "verify": false, "return": false, "reply": false },
               "turn": { "release": false, "answer": false, "verify": false },
-              "creator": { "principal": "user:alpha", "display_name": "Synthetic alpha" }
+              "creator": { "principal": "user:alpha", "display_name": "Synthetic alpha" },
+              "release_by": null
             }
           }
         },
@@ -695,7 +697,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1554", "etag": "W/\"612-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1644", "etag": "W/\"66c-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": "all",
               "views": { "mine": { "available": false, "count": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": true, "count": 5 } },
@@ -708,7 +710,8 @@
                   "phase": "p1",
                   "seat": "",
                   "last_progress": { "actor": "human:somebody", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "release_by": null
                 },
                 {
                   "id": "wi_list_beta_1",
@@ -718,7 +721,8 @@
                   "phase": "p1",
                   "seat": "",
                   "last_progress": { "actor": "user:beta", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "release_by": null
                 },
                 {
                   "id": "wi_list_alpha_3",
@@ -728,7 +732,8 @@
                   "phase": "p1",
                   "seat": "",
                   "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "release_by": null
                 },
                 {
                   "id": "wi_list_alpha_2",
@@ -738,7 +743,8 @@
                   "phase": "p1",
                   "seat": "seat:checker",
                   "last_progress": { "actor": "seat:checker", "fact": "report", "text": "对账做到第三步", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "release_by": null
                 },
                 {
                   "id": "wi_list_alpha_1",
@@ -748,7 +754,8 @@
                   "phase": "p1",
                   "seat": "",
                   "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "release_by": null
                 }
               ],
               "counts": { "draft": 5, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
@@ -766,7 +773,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "882", "etag": "W/\"372-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "918", "etag": "W/\"396-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": "all",
               "views": { "mine": { "available": false, "count": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": true, "count": 5 } },
@@ -779,7 +786,8 @@
                   "phase": "p1",
                   "seat": "",
                   "last_progress": { "actor": "human:somebody", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "release_by": null
                 },
                 {
                   "id": "wi_list_beta_1",
@@ -789,7 +797,8 @@
                   "phase": "p1",
                   "seat": "",
                   "last_progress": { "actor": "user:beta", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "release_by": null
                 }
               ],
               "counts": { "draft": 5, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
@@ -807,7 +816,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "858", "etag": "W/\"35a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "894", "etag": "W/\"37e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": "all",
               "views": { "mine": { "available": false, "count": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": true, "count": 5 } },
@@ -820,7 +829,8 @@
                   "phase": "p1",
                   "seat": "seat:checker",
                   "last_progress": { "actor": "seat:checker", "fact": "report", "text": "对账做到第三步", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "release_by": null
                 },
                 {
                   "id": "wi_list_alpha_1",
@@ -830,7 +840,8 @@
                   "phase": "p1",
                   "seat": "",
                   "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "release_by": null
                 }
               ],
               "counts": { "draft": 5, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
@@ -848,7 +859,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1095", "etag": "W/\"447-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1149", "etag": "W/\"47d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": "mine",
               "views": { "mine": { "available": true, "count": 3 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } },
@@ -861,7 +872,8 @@
                   "phase": "p1",
                   "seat": "",
                   "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "release_by": null
                 },
                 {
                   "id": "wi_list_alpha_2",
@@ -871,7 +883,8 @@
                   "phase": "p1",
                   "seat": "seat:checker",
                   "last_progress": { "actor": "seat:checker", "fact": "report", "text": "对账做到第三步", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "release_by": null
                 },
                 {
                   "id": "wi_list_alpha_1",
@@ -881,7 +894,8 @@
                   "phase": "p1",
                   "seat": "",
                   "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "release_by": null
                 }
               ],
               "counts": { "draft": 3, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
@@ -919,7 +933,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "585", "etag": "W/\"249-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "603", "etag": "W/\"25b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": "mine",
               "views": { "mine": { "available": true, "count": 1 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } },
@@ -932,7 +946,8 @@
                   "phase": "p1",
                   "seat": "",
                   "last_progress": { "actor": "user:beta", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "release_by": null
                 }
               ],
               "counts": { "draft": 1, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
@@ -1067,7 +1082,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1095", "etag": "W/\"447-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1149", "etag": "W/\"47d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": "mine",
               "views": { "mine": { "available": true, "count": 3 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } },
@@ -1080,7 +1095,8 @@
                   "phase": "p1",
                   "seat": "",
                   "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "release_by": null
                 },
                 {
                   "id": "wi_list_alpha_2",
@@ -1090,7 +1106,8 @@
                   "phase": "p1",
                   "seat": "seat:checker",
                   "last_progress": { "actor": "seat:checker", "fact": "report", "text": "对账做到第三步", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "release_by": null
                 },
                 {
                   "id": "wi_list_alpha_1",
@@ -1100,7 +1117,8 @@
                   "phase": "p1",
                   "seat": "",
                   "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "release_by": null
                 }
               ],
               "counts": { "draft": 3, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
@@ -1118,7 +1136,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1554", "etag": "W/\"612-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1644", "etag": "W/\"66c-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": "all",
               "views": { "mine": { "available": false, "count": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": true, "count": 5 } },
@@ -1131,7 +1149,8 @@
                   "phase": "p1",
                   "seat": "",
                   "last_progress": { "actor": "human:somebody", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "release_by": null
                 },
                 {
                   "id": "wi_list_beta_1",
@@ -1141,7 +1160,8 @@
                   "phase": "p1",
                   "seat": "",
                   "last_progress": { "actor": "user:beta", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "release_by": null
                 },
                 {
                   "id": "wi_list_alpha_3",
@@ -1151,7 +1171,8 @@
                   "phase": "p1",
                   "seat": "",
                   "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "release_by": null
                 },
                 {
                   "id": "wi_list_alpha_2",
@@ -1161,7 +1182,8 @@
                   "phase": "p1",
                   "seat": "seat:checker",
                   "last_progress": { "actor": "seat:checker", "fact": "report", "text": "对账做到第三步", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "release_by": null
                 },
                 {
                   "id": "wi_list_alpha_1",
@@ -1171,7 +1193,8 @@
                   "phase": "p1",
                   "seat": "",
                   "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "release_by": null
                 }
               ],
               "counts": { "draft": 5, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },

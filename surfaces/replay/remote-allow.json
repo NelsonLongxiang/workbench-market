@@ -20,7 +20,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "819", "etag": "W/\"333-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "880", "etag": "W/\"370-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -35,6 +35,7 @@
                 "/^\\/api\\/sop\\/runs(\\/\\d+(\\/(finish|files|files\\/refs))?)?$/",
                 "/^\\/api\\/workbench-events\\/wbe-[0-9a-f]{16}\\/decision$/",
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/decision$/",
+                "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/release$/",
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/messages\\/(read|[1-9]\\d{0,15}\\/reply)$/",
                 "/^\\/api\\/work-items$/",
                 "/^\\/api\\/teams\\/(assign|unassign)$/",
@@ -55,7 +56,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "819", "etag": "W/\"333-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "880", "etag": "W/\"370-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -70,6 +71,7 @@
                 "/^\\/api\\/sop\\/runs(\\/\\d+(\\/(finish|files|files\\/refs))?)?$/",
                 "/^\\/api\\/workbench-events\\/wbe-[0-9a-f]{16}\\/decision$/",
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/decision$/",
+                "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/release$/",
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/messages\\/(read|[1-9]\\d{0,15}\\/reply)$/",
                 "/^\\/api\\/work-items$/",
                 "/^\\/api\\/teams\\/(assign|unassign)$/",
@@ -158,7 +160,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "819", "etag": "W/\"333-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "880", "etag": "W/\"370-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -173,6 +175,7 @@
                 "/^\\/api\\/sop\\/runs(\\/\\d+(\\/(finish|files|files\\/refs))?)?$/",
                 "/^\\/api\\/workbench-events\\/wbe-[0-9a-f]{16}\\/decision$/",
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/decision$/",
+                "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/release$/",
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/messages\\/(read|[1-9]\\d{0,15}\\/reply)$/",
                 "/^\\/api\\/work-items$/",
                 "/^\\/api\\/teams\\/(assign|unassign)$/",

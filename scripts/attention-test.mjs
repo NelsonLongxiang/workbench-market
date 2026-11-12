@@ -167,7 +167,11 @@ try {
     if (r.status !== 200) { check(false, `${who}：GET /api/attention 应答 200`, `${r.status} ${show(r.body)}`); continue; }
     const wrong = [];
     for (const [src, old] of Object.entries(OLD)) {
-      const n = await old(h), meta = r.body.sources[src];
+      let n = await old(h);
+      const meta = r.body.sources[src];
+      // 席位的提问：旧接口（工作台事件列表）只认管理员；「关注」照 itemDecisionVerdict 对登录的人放开，只列他看得到的事项上的提问
+      // （遗留差异 L21）。这里的提问都在别人的事项上，登录的员工看得到这个来源、0 条
+      if (src === 'seat-asks' && n === null && who !== '远程匿名') n = 0;
       if (n === null ? (meta.visible || meta.count !== 0) : (!meta.visible || meta.count !== n)) wrong.push(`${src}：旧接口 ${n === null ? '看不见' : n + ' 条'}，「关注」${meta.visible ? '可见' : '不可见'} ${meta.count} 条`);
     }
     check(wrong.length === 0, `${who}：六个有旧接口的来源，可见性和条数都和旧接口一致`, wrong.join('；'));

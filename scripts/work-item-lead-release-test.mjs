@@ -10,6 +10,7 @@
  *   幂等：放过的再来一次 200、duplicate=true，不再放、不再记；没放过、已经不在等过目的 409
  *   「关注」：过目条目只给能放的人；带 answer_via 指向这个入口；不是管理员的只有 release 这一种答法
  *   跨站来的拒；坏 id 400
+ *   等谁放行（release_by，详情和列表）：团队和负责人的名字（看不到这个团队的人负责人是 null）；没有负责人是管理层；自审是建立人；不在等过目是 null
  *
  *   node scripts/work-item-lead-release-test.mjs              测本仓库
  *   node scripts/work-item-lead-release-test.mjs --root DIR   测另一棵目录树（变异测试用）
@@ -110,6 +111,24 @@ try {
   const factOf = (id) => q("SELECT actor, detail FROM work_item_log WHERE item_id = ? AND fact = 'release'", id).map((r) => ({ actor: r.actor, acting_for: JSON.parse(r.detail || '{}').acting_for ?? null }));
   const glances = async (h) => ((await call('GET', '/api/attention', h)).body?.items ?? []).filter((x) => x.source === 'work-items' && x.category === 'glance');
 
+  // ---------- 等谁放行（release_by）：详情和列表同一个；负责人的名字按看的人裁 ----------
+  {
+    const rb = async (id, h) => { const r = await call('GET', `/api/work-items/${id}`, h); return r.status === 200 ? r.body.release_by : { status: r.status }; };
+    const lead = { 负责人: await rb(I.lead.item, WHO.负责人), 口令管理员: await rb(I.lead.item, ADMIN), 建立人: await rb(I.lead.item, WHO.建立人), 无关的人: await rb(I.lead.item, WHO.无关的人) };
+    const named = { kind: 'team-lead', text: 'Team A 的负责人 Synthetic beta', teams: [{ team: TEAM, name: 'Team A', leads: [{ principal: 'user:beta', display_name: 'Synthetic beta' }] }] };
+    check(show(lead.负责人) === show(named) && show(lead.口令管理员) === show(named),
+      '等谁放行：团队有负责人，看得到这个团队的人（负责人本人、管理员）拿到团队名和负责人的名字', show(lead));
+    check(show(lead.建立人) === show({ kind: 'team-lead', text: 'Team A 的负责人', teams: [{ team: TEAM, name: 'Team A', leads: null }] }) && lead.无关的人.status === 404,
+      '等谁放行：看不到这个团队的人（建立人不在这个团队、部门里）负责人是 null，文字里也不带名字；看不到事项的人 404', show(lead));
+    const vac = await rb(I.vacant.item, WHO.建立人), req = await rb(I.requester.item, WHO.负责人);
+    check(show(vac) === show({ kind: 'management', text: '管理层' }) && req?.kind === 'creator' && req.creator?.principal === 'user:alpha' && req.text === `建立人 ${req.creator.display_name}`,
+      '等谁放行：团队没有负责人 → 管理层；建立人自己过目 → 建立人', show({ vac, req }));
+    const rows = (await call('GET', '/api/work-items?view=mine', WHO.建立人)).body?.items ?? [];
+    const row = (id) => rows.find((x) => x.id === id)?.release_by;
+    check(show(row(I.lead.item)) === show(lead.建立人) && show(row(I.vacant.item)) === show(vac) && rows.filter((x) => x.state !== 'held').every((x) => x.release_by === null) && rows.length > 0,
+      '等谁放行：列表每一行和详情一样（同样按看的人裁）；不在等过目的是 null', show(rows.map((x) => [x.state, x.release_by])));
+  }
+
   // ---------- 代办只认管理层授予，不认管理门 ----------
   {
     const t = await detail(I.vacant.item, ADMIN), s0 = await detail(I.vacant.item, WHO.管理层);
@@ -132,6 +151,21 @@ try {
     const a = await call('POST', `/api/grants/${d.body?.grant?.id}/approve`, {}, {});
     const h = await call('GET', '/api/health', ADMIN);
     check(a.status === 200 && h.body?.work_items?.management_grant_holders === 1, '授予管理层之后：health 里持有管理层授予的主体是 1', show({ a: a.status, h: h.body?.work_items }));
+    // 之后又有 600 份普通授予（比那份管理层授予新）：按角色在库里数，不按「最近的 500 份授予」数
+    const db = new DatabaseSync(join(data, 'workbench-market.db'));
+    try {
+      const now = Date.now();
+      db.exec('BEGIN');
+      // 授予只能从草稿起步、状态只往前走（表上的触发器）：照着走 draft → pending → active
+      const ins = db.prepare("INSERT INTO grants (principal_id, role, scope, reason, created_by, created_at, updated_at) VALUES (?, 'member', '*', '合成：普通授予', 'test', ?, ?)");
+      const ids = [];
+      for (let i = 0; i < 600; i++) ids.push(Number(ins.run(`user:filler-${i}`, now, now).lastInsertRowid));
+      const step = db.prepare("UPDATE grants SET status = ?, approved_by = CASE WHEN ? = 'active' THEN 'test-approver' ELSE approved_by END WHERE id = ?");
+      for (const id of ids) { step.run('pending', 'pending', id); step.run('active', 'active', id); }
+      db.exec('COMMIT');
+    } finally { db.close(); }
+    const h2 = await call('GET', '/api/health', ADMIN);
+    check(h2.body?.work_items?.management_grant_holders === 1, '又有 600 份更新的普通授予：持有管理层授予的主体照旧是 1（按角色在库里数，不受条数上限影响）', show(h2.body?.work_items));
   }
   // ---------- 团队有负责人：只有负责人能放 ----------
   {

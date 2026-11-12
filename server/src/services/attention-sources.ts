@@ -70,9 +70,9 @@ export function pendingAsksOfEvent(eventId: string): number[] {
 /**
  * 一个投递当前这一轮提问（答没答过都算）：「关注」记账分轮用——答完之后键不变，重复答才认得出；再问一次是新的一轮。
  */
-export function currentAskOfDelivery(deliveryId: number): { ask_log_id: number } | null {
+export function currentAskOfDelivery(deliveryId: number): { ask_log_id: number; event_id: string } | null {
   if (!tableExists('workbench_events')) return null;
-  const row = db.prepare(`SELECT o.ask_log_id FROM (${OPEN_ASK_SQL}) o WHERE o.delivery_id = ?`).get(deliveryId) as { ask_log_id: number } | undefined;
+  const row = db.prepare(`SELECT o.ask_log_id, o.event_id FROM (${OPEN_ASK_SQL}) o WHERE o.delivery_id = ?`).get(deliveryId) as { ask_log_id: number; event_id: string } | undefined;
   return row ?? null;
 }
 

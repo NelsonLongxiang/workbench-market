@@ -32,7 +32,8 @@ import { listVars, workbenchScope } from './workbench-vars.ts';
 import type { AnswerOutcome, AttentionProvider, AttentionService } from './services/attention.ts';
 import type { HttpService } from './http.ts';
 import type { WorkbenchService } from './services/workbench.ts';
-import { itemIdForEvent, type WorkItemService } from './services/work-item.ts';
+import { itemIdForEvent, type WorkItemRow, type WorkItemService } from './services/work-item.ts';
+import { itemDecisionVerdict, requestViewer } from './work-item-access.ts';
 
 export type AnswerDeps = {
   adminGuard: (req: express.Request, res: express.Response) => boolean;
@@ -131,7 +132,8 @@ export function forwardRoute(source: string, answer: string, id: string, input: 
 }
 
 /** 直接实现的答法（以前没有旧入口） */
-const DIRECT: Record<string, Record<string, (req: Req, id: string, input: Input, actor: string) => Promise<AnswerOutcome>>> = {
+/** actingFor：替谁做的（itemDecisionVerdict 给的；空串是本人的事），记进事实，事项时间线照它写「代某某办」。不是事项上的动作的来源不管它 */
+const DIRECT: Record<string, Record<string, (req: Req, id: string, input: Input, actor: string, actingFor?: string) => Promise<AnswerOutcome>>> = {
   'change-requests': {
     approve: async (req, id, _input, actor) => reviewed(req, id, actor, (n, who) => changeRequestReview!.approve(n, who, who)),
     reject: async (req, id, input, actor) => {
@@ -141,11 +143,11 @@ const DIRECT: Record<string, Record<string, (req: Req, id: string, input: Input,
     },
   },
   'work-items': {
-    verify: async (_req, id, _input, actor) => applied(id, { kind: 'verify', source: 'attention', id: randomUUID(), actor }),
-    return: async (_req, id, input, actor) => {
+    verify: async (_req, id, _input, actor, actingFor) => applied(id, { kind: 'verify', source: 'attention', id: randomUUID(), actor, ...(actingFor ? { acting_for: actingFor } : {}) }),
+    return: async (_req, id, input, actor, actingFor) => {
       const reason = text(input.reason, 500);
       if (!reason) return { status: 400, body: { error: 'reason_required' } };
-      return applied(id, { kind: 'return', source: 'attention', id: randomUUID(), actor, reason });
+      return applied(id, { kind: 'return', source: 'attention', id: randomUUID(), actor, reason, ...(actingFor ? { acting_for: actingFor } : {}) });
     },
   },
   'sop-runs': {
@@ -170,14 +172,14 @@ const DIRECT: Record<string, Record<string, (req: Req, id: string, input: Input,
      *   · 阶段七 R2（receipt:attention，席位 A2A 回执里的提问）：记答复的同时排一条答复任务，作为同一 context 的新任务发回那个团队
      *     （superagent 的约定）；只通知的事件（dispatch:false）没有回写通道，不发。记答复和排发送在同一个保存点里。
      */
-    answer: async (_req, id, input, actor) => {
+    answer: async (_req, id, input, actor, actingFor) => {
       const answer = text(input.text);
       if (!answer) return { status: 400, body: { error: 'text_required' } };
       if (!/^[1-9]\d{0,15}$/.test(id)) return { status: 400, body: { error: 'attention_id_invalid' } };
       const ask = pendingAskOfDelivery(Number(id));
       if (!ask) return { status: 409, body: { error: 'seat_ask_not_pending' } };
       const itemId = itemIdForEvent(ask.event_id);
-      const fact = { kind: 'answer' as const, source: 'attention', id: randomUUID(), actor, ask_id: String(ask.ask_log_id), answer };
+      const fact = { kind: 'answer' as const, source: 'attention', id: randomUUID(), actor, ask_id: String(ask.ask_log_id), answer, ...(actingFor ? { acting_for: actingFor } : {}) };
       if (ask.ask_kind !== 'receipt') {
         const out = svc<WorkItemService>('workItems').apply(itemId, fact);
         if (!out.ok) return { status: 409, body: { error: `work_item_${out.reason}`, state: out.state ?? null } };
@@ -258,21 +260,25 @@ function keyOf(source: string, sourceId: string): string {
 }
 
 /**
- * 8e：建立人本人验收、退回自己的事项。调用前路由已经认过人（登录、同源、主体是启用的人），这里由事项服务判
- * 「是不是这件事项的建立人、能不能由建立人答」，再按「这一次进入等验收」记账（和「关注」答复入口同一本账，管理员和建立人
- * 答的是同一轮，谁先答谁生效，另一个拿到第一次的结果）。只收验收、退回两种。
+ * 事项的验收、退回（8e 起）。谁能做由调用方先用 itemDecisionVerdict 判过（建立人本人、退回时还有负责人、持有管理层授予的人代办），
+ * 这里按「这一次进入等验收」记账（和「关注」答复入口同一本账，谁先答谁生效，另一个拿到第一次的结果），再应用事实。只收验收、退回两种。
+ * actingFor 记进事实：负责人退回、管理层代办时是 creator。
  */
 export const CREATOR_ANSWERS = ['verify', 'return'] as const;
-export async function creatorAnswer(id: string, principal: string, answer: string, input: Input): Promise<AnswerOutcome> {
+export async function decideItemAnswer(id: string, actor: string, answer: string, input: Input, actingFor: string): Promise<AnswerOutcome> {
   if (!(CREATOR_ANSWERS as readonly string[]).includes(answer)) return { status: 400, body: { error: 'creator_answer_not_allowed', allowed: CREATOR_ANSWERS } };
-  const verdict = svc<WorkItemService>('workItems').creatorCheck(id, principal);
-  if (verdict === 'not_found') return { status: 404, body: { error: 'work_item_not_found' } };
-  if (verdict === 'not_eligible') return { status: 403, body: { error: 'work_item_creator_not_eligible', message: '建立人不是人、或来源未验证的事项，只能由管理员处理' } };
-  return svc<AttentionService>('attention').once('work-items', keyOf('work-items', id), answer, principal, async () => {
+  return svc<AttentionService>('attention').once('work-items', keyOf('work-items', id), answer, actor, async () => {
     const st = svc<WorkItemService>('workItems').get(id)?.state;
     if (st !== 'ready') return { status: 409, body: { error: 'work_item_not_ready', state: st ?? null } };
-    return DIRECT['work-items'][answer](undefined as unknown as Req, id, input, principal);
+    return DIRECT['work-items'][answer](undefined as unknown as Req, id, input, actor, actingFor);
   });
+}
+
+/** 席位提问对应的事项（在等的、或者最近那一轮已经答过的）：判谁能答用 */
+function itemOfAsk(deliveryId: string): WorkItemRow | undefined {
+  if (!/^[1-9]\d{0,15}$/.test(deliveryId)) return undefined;
+  const ask = pendingAskOfDelivery(Number(deliveryId)) ?? currentAskOfDelivery(Number(deliveryId));
+  return ask ? svc<WorkItemService>('workItems').get(itemIdForEvent(ask.event_id)) : undefined;
 }
 
 /** 这个来源有哪些答法（换算表和直接实现的并起来）：入口拿它核答法 */
@@ -290,13 +296,19 @@ export function withAnswers(p: AttentionProvider<Req>, deps: AnswerDeps): Attent
     deny: (req) => denial(p.source, req, deps),
     key: (sourceId) => keyOf(p.source, sourceId),
     answer: async (req, sourceId, answer, input) => {
-      // 事项的验收、退回直接改事项状态：不是管理员的人（写请求总门放开之后进得来，L20）只能答自己建的那件，
-      // 和事项自己的决定入口（POST /api/work-items/:id/decision）同一个函数 creatorAnswer；看得到不等于能答
-      if (p.source === 'work-items' && (CREATOR_ANSWERS as readonly string[]).includes(answer) && !(principalsAdmin && await principalsAdmin(req, capturing().res))) {
-        const cookie = String(req.headers.cookie ?? '');
-        const who = cookie ? await identity().resolveViewer(cookie) : null;
-        if (!who || !who.ok) return { status: 401, body: { error: 'work_items_auth_required' } };
-        return creatorAnswer(sourceId, who.viewer.sub, answer, input);
+      // 事项上替人做决定的答法（验收、退回、答席位提问）：谁能答只看 itemDecisionVerdict（和事项自己的入口、详情的 can 同一处），
+      // 过了管理门不等于能答；看得到也不等于能答
+      const decision = p.source === 'work-items' && (CREATOR_ANSWERS as readonly string[]).includes(answer) ? answer as 'verify' | 'return'
+        : p.source === 'seat-asks' && answer === 'answer' ? 'answer' : null;
+      if (decision) {
+        const viewer = await requestViewer(req, deps.adminGuard(req, capturing().res));
+        const item = decision === 'answer' ? itemOfAsk(sourceId) : svc<WorkItemService>('workItems').get(sourceId);
+        const v = itemDecisionVerdict(item, viewer, decision);
+        if (!v.ok) return { status: v.status, body: { error: v.error } };
+        // 记账和留痕的人和答复入口认「答过没有」用的同一个（actorOf）：会话登录的管理员记成身份来源的那个名字，别人记主体
+        const who = await actorOf(req);
+        if (decision !== 'answer') return decideItemAnswer(sourceId, who, answer, input, v.acting_for);
+        return attention().once(p.source, keyOf(p.source, sourceId), answer, who, async () => DIRECT['seat-asks'].answer(req, sourceId, input, who, v.acting_for));
       }
       const actor = await actorOf(req);
       return attention().once(p.source, keyOf(p.source, sourceId), answer, actor, async () => {
