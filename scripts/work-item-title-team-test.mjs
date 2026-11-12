@@ -49,7 +49,7 @@ try {
     }
     return id;
   };
-  const t1 = task('  试联：用一句话\n说明这次联调的目的  '), tBlank = task('   ');
+  const t1 = task('  合成任务：核对\n一批出货单  '), tBlank = task('   ');
   const E = {
     titled: event('task-center', 'task-center', `task:${t1}`, ['dsh/canvas/b', 'dsh/canvas/a']),
     gone: event('task-center', 'sop-x', 'task:999', ['dsh/canvas/c']),
@@ -67,7 +67,7 @@ try {
   const get = (k) => items.get(itemIdForEvent(E[k]));
 
   // ---------- 新建（回填建出来的） ----------
-  check(get('titled')?.title === '试联：用一句话 说明这次联调的目的', '任务中心发布的事项：标题取任务标题（空白收成一个空格、去首尾）', show(get('titled')?.title));
+  check(get('titled')?.title === '合成任务：核对 一批出货单', '任务中心发布的事项：标题取任务标题（空白收成一个空格、去首尾）', show(get('titled')?.title));
   check(get('titled')?.target_team === 'dsh/canvas/b, dsh/canvas/a', '派给：每个投递的目标团队，按投递顺序、用「, 」连起来（held 的也算）', show(get('titled')?.target_team));
   check(get('gone')?.title === coord('task-center', 'sop-x', 'task:999') && get('gone')?.target_team === 'dsh/canvas/c', '任务没了：标题退到来源坐标；派给照样写上', show(get('gone')));
   check(get('blank')?.title === coord('task-center', 'task-center', `task:${tBlank}`) && get('blank')?.target_team === '', '任务标题空白：退到来源坐标；没有投递（unrouted）派给是空串', show(get('blank')));
@@ -97,10 +97,10 @@ try {
   check(get('titled')?.title === '也被改过' && get('titled')?.target_team === 'dsh/canvas/b, dsh/canvas/a', '任务还在、标题却被改过：同步时标题不动（只换自动起的来源坐标），派给补上', show(get('titled')));
   asOld();
   items.syncEvent(E.titled);
-  check(get('titled')?.title === '试联：用一句话 说明这次联调的目的' && get('titled')?.target_team === 'dsh/canvas/b, dsh/canvas/a', '存量事项再同步一次（来了新的事件日志）：同一个规则补上标题和派给', show(get('titled')));
+  check(get('titled')?.title === '合成任务：核对 一批出货单' && get('titled')?.target_team === 'dsh/canvas/b, dsh/canvas/a', '存量事项再同步一次（来了新的事件日志）：同一个规则补上标题和派给', show(get('titled')));
   asOld();
   const filled = items.fillDerivedAll();
-  check(get('titled')?.title === '试联：用一句话 说明这次联调的目的' && get('titled')?.target_team === 'dsh/canvas/b, dsh/canvas/a', '存量事项：标题还是来源坐标的换成任务标题，派给空着的写上', show(get('titled')));
+  check(get('titled')?.title === '合成任务：核对 一批出货单' && get('titled')?.target_team === 'dsh/canvas/b, dsh/canvas/a', '存量事项：标题还是来源坐标的换成任务标题，派给空着的写上', show(get('titled')));
   check(get('gone')?.title === '人改过的标题' && get('gone')?.target_team === 'dsh/canvas/c', '标题不是来源坐标（别处改过的）：不动；派给照样补', show(get('gone')));
   check(get('appData')?.title === coord('app-data', 'shop-form', 'item:5') && get('appData')?.target_team === 'dsh/canvas/e', '台数据来的存量：标题不变，派给补上', show(get('appData')));
   check(filled === 4, '补了 4 件（titled、gone、oddItem、appData；blank 没有可补的）', show(filled));
@@ -124,7 +124,7 @@ try {
       process.exit(0);`], { env: { ...process.env, DATA_DIR: OUT }, encoding: 'utf8' });
     const m = /STARTED (.*)/.exec(child.stdout);
     const r = m ? JSON.parse(m[1]) : null;
-    check(r?.title === '试联：用一句话 说明这次联调的目的' && r.team === 'dsh/canvas/b, dsh/canvas/a' && /补了 \d+ 件存量事项/.test(child.stdout),
+    check(r?.title === '合成任务：核对 一批出货单' && r.team === 'dsh/canvas/b, dsh/canvas/a' && /补了 \d+ 件存量事项/.test(child.stdout),
       '重启装上事项服务：回填版本没变也补存量的标题和派给，并记一行', show({ r, out: child.stdout.slice(-300), err: child.stderr.slice(-300) }));
   }
 } catch (e) {

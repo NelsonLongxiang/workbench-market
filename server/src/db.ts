@@ -873,6 +873,7 @@ CREATE TRIGGER IF NOT EXISTS grants_source_fixed BEFORE UPDATE OF source ON gran
 //   只记路由模式、动作、身份类别、两边结论、命中的规则，不记请求体、查询串、凭据，也不记路径里的 id。
 //   judgment_tally：每条路由每种结果的计数（一致、不一致、不确定、404 不判、没报动作、状态码不代表授权、被完整性门拦下、出错、溢出）。
 //   judgment_mismatches：不一致按「路由模式、身份类别、两边结论、命中规则」合并计数，留一个主体标识和一条授予做样例；最多 1000 种。
+//   judgment_enforced：切换开关（WM_JUDGMENT_ENFORCE）打开的域里，新判定在路由处理之前拒掉的请求，按「路由模式、身份类别、结论、规则」计数（旧守卫没跑，不比）。
 let compareDb: DatabaseSync | null = null;
 export function judgmentCompareDb(): DatabaseSync {
   if (compareDb) return compareDb;
@@ -901,6 +902,15 @@ CREATE TABLE IF NOT EXISTS judgment_mismatches (
   count INTEGER NOT NULL DEFAULT 0,
   first_at INTEGER NOT NULL,
   last_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS judgment_enforced (
+  route TEXT NOT NULL,
+  action TEXT NOT NULL,
+  actor_kind TEXT NOT NULL,
+  verdict TEXT NOT NULL CHECK (verdict IN ('deny','ask')),
+  rule TEXT NOT NULL,
+  count INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (route, actor_kind, verdict, rule)
 );
 `);
   compareDb = handle;

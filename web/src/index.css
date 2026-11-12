@@ -507,6 +507,34 @@ body { background: var(--wm-color-page); }
 .wm-drawer-foot { display: flex; justify-content: flex-end; gap: var(--wm-space-2); }
 .wm-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--wm-space-3); }
 .wm-full { width: 100%; }
+/* ---------- 数据视图组件（bench-blocks）：统计卡、表格、柱线饼、进度、筛选栏、表单；外框沿用看板的 .wm-dash-card ---------- */
+.wm-bb-body { display: flex; flex-direction: column; gap: var(--wm-space-2); min-width: 0; }
+/* 无外框（拼进面板里用）：统计卡和进度是浅底圆角的一块，图表和表格是裸内容 */
+.wm-bb-bare { display: flex; flex-direction: column; gap: var(--wm-space-2); min-width: 0; }
+.wm-bb-bare.wm-bb-stat, .wm-bb-bare.wm-bb-progress { padding: var(--wm-space-3) var(--wm-space-4); background: var(--wm-color-primary-subtle); border-radius: var(--wm-radius-lg); }
+.wm-bb-raw { font-size: var(--wm-font-size-caption); color: var(--wm-color-text-disabled); }
+.wm-bb-dense .ant-table-tbody > tr > td, .wm-bb-dense .ant-table-thead > tr > th { padding: 5px var(--wm-space-2); }
+.wm-bb-truncated { font-size: var(--wm-font-size-caption); line-height: var(--wm-line-height-caption); color: var(--wm-color-text-secondary); }
+.wm-bb-canvas { width: 100%; height: 240px; }
+.wm-bb-canvas-click { cursor: pointer; }
+.wm-bb-progress-nums { display: flex; align-items: baseline; gap: var(--wm-space-1); }
+.wm-bb-row-click { cursor: pointer; }
+.wm-bb-actions { white-space: nowrap; }
+.wm-bb-table .ant-table { font-size: var(--wm-font-size-body); }
+.wm-bb-table .ant-table-thead > tr > th { font-size: var(--wm-font-size-caption); font-weight: 600; color: var(--wm-color-text-secondary); background: var(--wm-color-surface); }
+.wm-bb-filter-bar { box-shadow: none; }
+.wm-bb-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--wm-space-3) var(--wm-space-4); }
+.wm-bb-filter { display: inline-flex; align-items: center; gap: var(--wm-space-2); }
+.wm-bb-filter-label { font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); white-space: nowrap; }
+.wm-bb-filter-select { min-width: 120px; }
+.wm-bb-filter-search { width: 180px; }
+.wm-bb-form .ant-form-item { margin-bottom: var(--wm-space-3); }
+.wm-bb-form-wide { width: 100%; }
+.wm-bb-form-msg { margin-bottom: var(--wm-space-3); }
+.wm-bb-form-foot { display: flex; align-items: center; gap: var(--wm-space-3); }
+.wm-bb-form-why { font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); }
+.wm-bb-demo-gap { margin-top: var(--wm-space-6); }
+.wm-bb-demo-panel { padding: var(--wm-space-4); background: var(--wm-color-surface); border: 1px solid var(--wm-color-border); border-radius: var(--wm-radius-lg); }
 
 /* ---------- 事项列表（#590）：视角一排，分组在右 ---------- */
 .wm-view-row { display: flex; align-items: center; gap: var(--wm-space-2); }

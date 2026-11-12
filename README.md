@@ -70,8 +70,9 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_APP_DATA_READ`（台数据与附件的读守卫·缺省 `enforce`：`GET /api/apps/<台>/data`、`/files`、`/files/<id>` 要本台的台令牌、管理员（同源）或本机命令行，下载另认本台页面的查看凭证，都不满足 403；`warn`＝上线过渡用，照旧放行，只按路由和调用方类别计数留痕（日志 `source: app-data-read`），过渡完设回 `enforce`；其它值拒绝启动）
 - `WM_SOP_RUN_WRITE`（SOP run 的写守卫·缺省 `enforce`：保存一步 `PUT /api/sop/runs/<id>`、完成 `POST …/finish` 要这个 run 的上传令牌 `X-Run-Upload-Token`（run 还在执行）、管理员（同源）或本机命令行，都不满足 403，不分登录门开没开；`warn`＝上线过渡用，照旧放行，只按路由和调用方类别计数留痕（日志 `source: sop-run-write`），过渡完设回 `enforce`；其它值拒绝启动）
 - `WM_ROLES_FILE`（组织角色的外部声明文件·绝对路径·JSON `{"roles":[…]}`·设了就以它为准，不设用仓库里的通用初始集合·平台内置角色不能被覆盖，同名、循环包含、引用不存在的动作、范围写法不对都拒绝启动）
-- `WM_JUDGMENT_COMPARE`（判定的并行比对·`on` 打开·缺省 `off`·别的值拒绝启动·打开时每个请求应答结束之后算新判定、和旧守卫的结论比，不改应答，并给第一次见到的人迁移 `member`、身份来源说是管理员的迁移 `admin`（来源记 migration）·只在 CI 和出报告用的实例里开，不在生产上开）
+- `WM_JUDGMENT_COMPARE`（判定的并行比对·`on` 打开·缺省 `off`·别的值拒绝启动·打开时每个请求应答结束之后算新判定、和旧守卫的结论比，不改应答，并给第一次见到的人迁移 `member`、身份来源说是管理员的迁移 `admin` 和 `management`（来源记 migration）·CI 和出报告用的实例里开；判定切换（6d）的第 0 步起生产也打开观察，见 [docs/judgment-legacy-differences.md](docs/judgment-legacy-differences.md)）
 - `WM_JUDGMENT_COMPARE_OUT`（比对打开时每比一次追加一行 JSON 的文件·绝对路径·可选·给出报告的脚本汇总）
+- `WM_JUDGMENT_ENFORCE`（判定切换的开关·缺省空＝一个域都不切、行为不变·写域名列表（逗号分隔）或 `all`·要和 `WM_JUDGMENT_COMPARE=on` 一起开·写法不对、域没有登记的动作都拒绝启动·切了的域在路由处理之前由新判定说放不放行，拒绝回 403 `judgment_denied`（转提议是 `judgment_ask`），记进比对库的 `judgment_enforced`；放行的照旧交给原来的处理函数，旧守卫再判一遍做反向比对·声明了状态码不代表授权的路由、没报动作的存量路由、「暂不切」清单里的动作不受影响·回退：去掉这个域、重启）
 - `WM_FEISHU_LOGIN`（`on`=打开飞书登录·缺省关）
 - `WM_FEISHU_AUTHORIZE_URL` / `WM_FEISHU_TOKEN_URL` / `WM_FEISHU_USERINFO_URL`（飞书授权页、换令牌、取用户信息的地址·缺省取飞书开放平台文档里的·只收 https）
 - `WM_FEISHU_TENANT_TOKEN_URL` / `WM_FEISHU_CONTACT_USER_URL`（对账用：取 tenant_access_token、按 union_id 查人的地址·缺省同上）
@@ -344,6 +345,8 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   judgment-builtins.ts（内置身份：管理口令、本机命令行、本机页面、匿名，权限按动作逐条列出，进快照）
   judgment-compare.ts（判定的并行比对：WM_JUDGMENT_COMPARE 打开时比新旧结论、记不一致）
   team-relation.ts（「这个人或席位，对这个部门、团队、席位是什么关系」：dept-member、dept-lead、team-lead、seat-owner、team-seat、router，另带显示用的名字；过目、安排、事项详情、数据视图「谁能改这个台」共用）
+  judgment-enforce.ts（判定切换的开关 WM_JUDGMENT_ENFORCE：读开关、核域、在切了的域里路由处理之前先判；「暂不切」清单在 judgment-builtins.ts）
+  judgment-read-deny.ts（判定切换的读路：新判定拒也让旧处理函数照跑，在应答头发出去那一刻看状态码，旧的要放行才换成拒绝；不依赖服务，单独测）
   judgment.ts（判定：Cordis 事件 `judgment/judge`，内置监听器照六步判）
   layerfs-shadow.ts（LayerFS 影子发布结果持久化：只回写 commit_id 为空的版本行，失败标记后可重试）
   login-gate.ts（全站登录门 WM_LOGIN_GATE：enforce 时页面 302 登录、API 401）
@@ -437,6 +440,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   health.ts（健康与就绪 /api/health、/api/health/ready：只回缓存的 LayerFS 结果、配了 LayerFS 才探；带 A2A 的开关、计数和时长；公开）
   login-events.ts（离职即时失效：/login/<方式>/events 失效通知、每日对账）
   login-flows.ts（登录方式 /login/<方式> 与回调：state、next、对到主体、发市场会话）
+  login-gate.ts（登录门的四条路由：登录页 /login、口令登录、登出、我是谁 /api/auth/me；登录 cookie、限频、同源判断、认人留在 server/src/login-gate.ts，经参数传进来）
   mcp-protocol.ts（MCP 协议入口 /mcp（无状态 StreamableHTTP）：POST 收 JSON-RPC（initialize、ping、tools/list、tools/call），GET、DELETE 回 405；认证是 MCP 会话令牌）
   mcp-rest.ts（MCP 内嵌的 REST /api/mcp-rest、/openapi.json：OpenAPI 文档、工具调用、台文件上传（原始字节、multipart）列表下载（Range、ETag）、台数据、SOP run 与附件；认证是 MCP 会话令牌，授权映射到工具 grants）
   mcp.ts（MCP 网关控制面 /api/mcp：上游、会话、授权、工具目录、调用记录、权限申请的批准与驳回）

@@ -69,7 +69,7 @@ const CREATOR_DECIDES = '按事项的建立人判：只有建立人本人能验�
 export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps): void {
   // 列表：GET /api/work-items?state=&object=&phase=&limit=&cursor=。可见范围和详情同一个判断（管理员看全部，别人只看自己是建立人的），
   // 看不到的不出现也不计数。按 updated_at、id 倒序，游标翻页（limit 缺省 100、上限 200）；另带可见范围里按状态的计数
-  app.get('/api/work-items', { action: 'work-items.list', kind: 'read' }, (req, res, next) => {
+  app.get('/api/work-items', { action: 'work-items.list', kind: 'read', unauthenticated: 401 }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     res.vary('Cookie'); res.vary('X-Admin-Token');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
@@ -140,7 +140,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
 
   // 「安排一件事」：登录的人直接建一件事项，建立人是本人。只认 cookie 认出的启用的人（口令、命令行、MCP 都不是人，不能用）。
   // 写请求总门对这一条路径放行（index.ts），认人在这里；规则（派给、先过目、幂等、限流）在 task-center.ts 的 arrangeTask
-  app.post('/api/work-items', { action: 'work-items.create', kind: 'write' }, (req, res, next) => {
+  app.post('/api/work-items', { action: 'work-items.create', kind: 'write', unauthenticated: 401 }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
     (async () => {
@@ -152,7 +152,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
     })().catch(next);
   });
 
-  app.get('/api/work-items/:id', { action: 'work-item.read', kind: 'read' }, (req, res, next) => {
+  app.get('/api/work-items/:id', { action: 'work-item.read', kind: 'read', unauthenticated: 401 }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     res.vary('Cookie'); res.vary('X-Admin-Token');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
