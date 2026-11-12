@@ -10,6 +10,7 @@
  *   五、只在批了的那个台、批了的那几个工具上生效：别的台、别的工具、别的会话都不行
  *   六、写：建数据集、写行（幂等键）、存视图；留痕里是 mcp:<会话名>；出错只有代号、说明、细目
  *   七、收回：立即失效；会话吊销之后它的申请批不了
+ *   七之二、「等你拍板」里的待批清单：只有有拍板权限的人看得到、答得了；答法和直接调路由是同一处判断
  *   八、入口关着：工具不在目录里、调不了、申请不了。网关关着：别的工具放开了，这些照样调不了
  *
  *   node scripts/bench-mcp-test.mjs              测本仓库
@@ -258,8 +259,56 @@ try {
   check(r.status === 409 && dead.status === 401 && db.prepare('SELECT COUNT(*) AS n FROM bench_mcp_grants WHERE session_id = ?').get(B.id).n === 0, '会话吊销之后：它的申请批不了，令牌也进不来', { decide: r.status, call: dead.status });
   r = await srv.call('PUT', '/api/bench-views/demo/mcp-grants', { ...mgr, body: { session: 'seat-b', tools: ['dataset_list'] } });
   check(r.status === 409, '给吊销了的会话直接授予：拒', r.status);
+  console.log('七之二、「等你拍板」里的待批清单');
+  r = await tool(srv, A.token, 'access_request', { tools: ['dataset_list@bench:other', 'dataset_append@bench:other'], reason: '往 other 里追加' });
+  const att1 = r.json?.request?.id;
+  r = await tool(srv, A.token, 'access_request', { tools: ['view_get@bench:other'], reason: '看页面' });
+  const att2 = r.json?.request?.id;
+  const attention = async (opts) => (await srv.call('GET', '/api/attention', opts)).json;
+  const mine = (v) => (v?.items ?? []).filter((x) => x.source === 'bench-mcp');
+  const answer = (opts, source_id, ans, input = {}) => srv.call('POST', '/api/attention/answer', { ...opts, body: { source: 'bench-mcp', source_id, answer: ans, input } });
+  let v = await attention(mgr);
+  const card = mine(v).find((x) => x.source_id === `other:${att1}`);
+  check(mine(v).filter((x) => x.source_id.startsWith('other:')).length === 2 && card?.category === 'grant' && card.kind === 'bench-mcp' && card.mine === true && card.answers.join() === 'approve,reject' && card.waiting_for === 'mcp:seat-a'
+    && card.detail?.bench === 'other' && card.detail.session === 'seat-a' && card.detail.reason === '往 other 里追加' && card.detail.tools.map((t) => `${t.tool}:${t.category}`).join() === 'dataset_append:write,dataset_list:read' && /含写/.test(card.title) && card.answer_via?.method === 'POST' && card.answer_via.path === `/api/bench-views/other/mcp-requests/${att1}` && JSON.stringify(card.answer_via.answers) === JSON.stringify({ approve: { body: { approve: true }, input: { note: { to: 'note', max: 500 } } }, reject: { body: { approve: false }, input: { note: { to: 'note', required: true, max: 500 } } } }) && Object.keys(card.answer_via.answers).join() === card.answers.join(),
+    '管理层的「关注」里有这两条：哪个会话、哪个台、要哪几个工具（读写分开）、为什么', JSON.stringify(mine(v)).slice(0, 300));
+  check(!mine(v).some((x) => x.source_id.startsWith('ghost:') || x.source_id.startsWith('cap-')), '台没登记的申请不在清单里（没有人能批它）');
+  check(db.prepare("SELECT COUNT(*) AS n FROM bench_mcp_requests WHERE id = ? AND status = 'pending'").get(bReq).n === 1 && !mine(v).some((x) => x.source_id === `demo:${bReq}`) && mine(v).length === 2, '吊销了的会话之前提的申请不在清单里（批不了）；台上的管理页里还看得到', mine(v).map((x) => x.source_id));
+  const seen = {};
+  for (const [name, opts] of [['管理口令', admin], ['普通员工', member], ['有做没有拍板', staff], ['身份来源说的管理员', who(SESSIONS.admin)], ['本机命令行', {}]]) { const x = await attention(opts); seen[name] = `${mine(x).length}/${x?.sources?.['bench-mcp']?.visible}`; }
+  check(Object.values(seen).every((x) => x === '0/false'), '管理口令、普通员工、有做没有拍板的角色、没有授予的管理员、本机命令行：清单里都没有这类条目', seen);
+  r = await answer(admin, `other:${att1}`, 'approve');
+  const r6 = await answer(member, `other:${att1}`, 'approve');
+  const r7 = await answer(staff, `other:${att1}`, 'approve');
+  check(r.status === 403 && r.json?.error === 'bench_views_admin_token_denied' && r6.status === 403 && r7.status === 403 && db.prepare("SELECT COUNT(*) AS n FROM bench_mcp_grants WHERE bench = 'other'").get().n === 0, '他们来答：和直接调那条路由一样被拒（管理口令 403、没有拍板 403），没有产生授予', { token: r.text.slice(0, 60), member: r6.status, staff: r7.status });
+  // 答复入口 /api/attention/answer 对登录的人放开了（L20）：过不过得了不看是不是管理员，由条目的来源判——这里就是台上那条路由的判断。
+  // 所以管理层（不是管理员）经它答和直接调台上的路由（条目的 detail.answer_via 写着）是同一处判断，两条路都通；下面批的那一步就用这个人。
+  await activate({ principal: 'user:root-admin', role: 'management' });
+  const boss = who(SESSIONS.admin);
+  r = await answer(mgr, `other:${att1}`, 'reject', {});
+  check(r.status === 400 && r.json?.result?.error === 'reason_required' && db.prepare('SELECT status FROM bench_mcp_requests WHERE id = ?').get(att1).status === 'pending' && db.prepare("SELECT COUNT(*) AS n FROM bench_mcp_grants WHERE bench = 'other'").get().n === 0,
+    '管理层（不是管理员）经答复入口答：进得来，由台上那条路由判——不批不写理由照样被拒，申请还在', r.text.slice(0, 120));
+  r = await answer(boss, `other:${att2}`, 'reject', {});
+  check(r.status === 400 && r.json?.result?.error === 'reason_required' && db.prepare('SELECT status FROM bench_mcp_requests WHERE id = ?').get(att2).status === 'pending', '不批不写理由：拒，申请还在', r.text.slice(0, 120));
+  const wrong = [];
+  for (const bad of ['other', `other:${att1}:x`, `../other:${att1}`, `OTHER:${att1}`, 'other:0', `demo:${att1}`]) { const x = await answer(mgr, bad, 'approve'); if (x.status < 400) wrong.push(bad); }
+  check(wrong.length === 0 && db.prepare('SELECT COUNT(*) AS n FROM bench_mcp_grants WHERE request_id IN (?, ?)').get(att1, att2).n === 0, '条目 id 写错、写成别的台：都被拒，没批成', wrong);
+  r = await answer(mgr, `other:${att1}`, 'approve', { note: '可以', approve: false, session: 'seat-b' });
+  check(r.status === 200 && r.json?.result?.status === 'approved' && r.json.duplicate === false && db.prepare("SELECT COUNT(*) AS n FROM bench_mcp_grants WHERE bench = 'other' AND session_id = ?").get(A.id).n === 2
+    && db.prepare("SELECT actor FROM bench_mcp_audit WHERE request_id = ? AND action = 'approve'").get(att1)?.actor === 'user:alpha', '管理层（不是管理员）经答复入口批：生效，留痕记的是这个人；多带的字段不算数', r.text.slice(0, 160));
+  r = await answer(mgr, `other:${att1}`, 'approve');
+  check(r.status === 200 && r.json?.duplicate === true && db.prepare('SELECT COUNT(*) AS n FROM bench_mcp_audit WHERE request_id = ?').get(att1).n === 1, '同一条再答一次：认得是答过的，不再生效', r.text.slice(0, 100));
+  // 照条目的 answer_via 拼请求：固定的字段加上填的那一项
+  const via = mine(await attention(mgr)).find((x) => x.source_id === `other:${att2}`).answer_via;
+  const noReason = await srv.call(via.method, via.path, { ...mgr, body: { ...via.answers.reject.body } });
+  r = await srv.call(via.method, via.path, { ...mgr, body: { ...via.answers.reject.body, [via.answers.reject.input.note.to]: '页面由人改' } });
+  const info2 = await tool(srv, A.token, 'access_info', {});
+  check(noReason.status === 400 && r.status === 200 && r.json?.status === 'rejected' && info2.json?.bench_requests?.find((x) => x.id === att2)?.note === '页面由人改' && !mine(await attention(mgr)).some((x) => x.source_id.startsWith('other:')), '管理层照条目的 answer_via 答：不批不写理由被拒；写了理由生效，申请的会话看得到理由；清单里没有了', r.text.slice(0, 120));
+  r = await tool(srv, A.token, 'dataset_list', { bench: 'other' });
+  check(!r.isError && Array.isArray(r.json?.datasets), '批了之后会话在那个台上用得了');
+
   let n = 0; for (let i = 0; i < 12; i++) { const x = await tool(srv, A.token, 'access_request', { tools: [`dataset_list@bench:cap-${i}`], reason: '刷' }); if (x.json?.ok) n++; }
-  check(n < 12 && n >= 7, '申请有每小时的上限', n);
+  check(n < 12 && n >= 4, '申请有每小时的上限', n);
   await srv.stop();
 
   console.log('八、入口关着、网关关着');

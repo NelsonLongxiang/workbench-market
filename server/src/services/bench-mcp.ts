@@ -101,6 +101,15 @@ export function listBenchMcp(bench: string) {
     .map((r) => ({ id: Number(r.id), session_id: Number(r.session_id), action: String(r.action), tools: parseTools(r.tools), actor: String(r.actor), request_id: r.request_id === null ? null : Number(r.request_id), note: String(r.note), at: Number(r.at) }));
   return { grants: [...grants.values()], requests, log };
 }
+/** 所有登记过的台上还没定的申请（「关注」里的待批清单用）。台没登记的、会话已吊销或删除的不在里面：批不了，列出来只能让人去点一个必然失败的「同意」 */
+export function pendingBenchRequests(limit = 200) {
+  return (db.prepare(`SELECT q.id, q.bench, q.tools, q.reason, q.created_at, s.name AS session, b.title AS bench_title
+    FROM bench_mcp_requests q JOIN bench_views b ON b.slug = q.bench JOIN mcp_sessions s ON s.id = q.session_id AND s.revoked_at = ''
+    WHERE q.status = 'pending' ORDER BY q.id LIMIT ?`).all(limit) as Row[]).map((r) => ({
+    id: Number(r.id), bench: String(r.bench), bench_title: String(r.bench_title), session: r.session === null ? '' : String(r.session), reason: String(r.reason), created_at: Number(r.created_at),
+    tools: parseTools(r.tools).map((t) => ({ tool: t, category: CATEGORY.get(t) ?? 'write' })),
+  }));
+}
 /** 批准或驳回一条申请。申请得是这个台的、还没定过的 */
 export function decideBenchRequest(bench: string, id: number, approve: unknown, actor: string, note: unknown, at: number) {
   if (typeof approve !== 'boolean') throw new BenchError('invalid', '要给 approve（true 批准 / false 驳回）');
@@ -110,6 +119,8 @@ export function decideBenchRequest(bench: string, id: number, approve: unknown, 
     const q = db.prepare('SELECT * FROM bench_mcp_requests WHERE id = ? AND bench = ?').get(id, bench) as Row | undefined;
     if (!q) throw new BenchError('not_found', `这个台上没有申请 #${id}`);
     if (String(q.status) !== 'pending') throw new BenchError('conflict', `申请 #${id} 已经${String(q.status) === 'approved' ? '批准' : '驳回'}过了`);
+    // 不批要写理由：申请的会话看得到这句话。在路由这一层就要求，卡片不经答复入口直接调过来时也一样
+    if (!approve && !why) throw new BenchError('invalid', '不批要写理由（note）');
     const sessionId = Number(q.session_id), tools = parseTools(q.tools).filter((t) => BENCH_TOOL_NAMES.has(t));
     if (approve) {
       const s = db.prepare('SELECT revoked_at FROM mcp_sessions WHERE id = ?').get(sessionId) as Row | undefined;

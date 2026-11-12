@@ -54,6 +54,13 @@ export interface BenchViewRouteDeps {
 const NOT_VERDICT = '放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404';
 const OPS = new Map<string, 'replace' | 'upsert' | 'append' | 'deleteRows'>([['replace', 'replace'], ['upsert', 'upsert'], ['append', 'append'], ['delete', 'deleteRows']]);
 
+/**
+ * 「关注」用（attention-providers.ts、attention-answers.ts）：这个请求能不能批台上的 MCP 授予申请。
+ * 能，返回做这件事的人；不能，照这组路由的口径往 res 里写拒绝（入口关着 404、跨站 403、管理口令 403、没登录 401、没有拍板权限 403）并返回 null。
+ * 判断和下面三条授予路由是同一处（allow），不另写一份。路由还没注册时是 null。
+ */
+export let benchMcpDecider: ((req: express.Request, res: express.Response) => Promise<string | null>) | null = null;
+
 export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDeps): void {
   const { wrap: wrapInner, adminTokenOk, devOriginOk } = deps;
   // 开关关着：在一切之前回 404
@@ -103,6 +110,11 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     if (verdict.verdict !== 'allow') { res.status(403).json({ error: 'bench_views_forbidden' }); return null; }
     return actor.type === 'principal' ? actor.id : `builtin:${actor.name}`;
   }
+
+  benchMcpDecider = async (req, res) => {
+    if (!deps.on) { res.status(404).json({ error: 'bench_views_off' }); return null; }
+    return allow(req, res, 'bench-store.mcp-decide', 'decide');
+  };
 
   const fail = (res: express.Response, e: unknown): void => {
     if (e instanceof BenchError) {
