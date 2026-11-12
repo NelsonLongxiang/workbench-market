@@ -185,11 +185,21 @@ describe('契约联调：市场 × superagent 宿主', () => {
       // 2.4 准入：用团队的 CLI 身份
       const teamCli = await until(() => findFile(home, 'cli.json'), 20_000)
       let admission: any = null
+      let admissionAsks = 0
       if (teamCli) {
-        const out = await new Promise<string>(resolve => { const c = spawn(process.execPath, [join(process.cwd(), 'cli/a2a.mjs'), 'admission', marketSession, '--json', '--home', H], { env: cliEnv(join(teamCli, '..')) }); let s = ''; c.stdout.on('data', d => { s += d }); c.stderr.on('data', d => { s += d }); c.on('close', () => resolve(s)) })
-        try { admission = JSON.parse(out) } catch { admission = out }
+        const ask = () => new Promise<string>(resolve => { const c = spawn(process.execPath, [join(process.cwd(), 'cli/a2a.mjs'), 'admission', marketSession, '--json', '--home', H], { env: cliEnv(join(teamCli, '..')) }); let s = ''; c.stdout.on('data', d => { s += d }); c.stderr.on('data', d => { s += d }); c.on('close', () => resolve(s)) })
+        // cli.json 这个文件出现，不等于宿主已经收下这个 CLI 身份的登记：查得太快时宿主还不认这次查询，CLI 报的是一句话、不是 JSON
+        // （偶发，约四十轮一次）。所以有上限地等：宿主没认这次查询就隔一会儿再问，最多 20 秒。
+        // 宿主一旦给出 JSON 应答——准入还是不准入——就以它为准，不再问：真不准入、规则不对，照样判不过。
+        let last = ''
+        const answered = await until(async () => {
+          admissionAsks += 1
+          last = await ask()
+          try { const v = JSON.parse(last); return v !== null && typeof v === 'object' ? v : undefined } catch { return undefined }
+        }, 20_000)
+        admission = answered ?? last
       }
-      rec('清单§2.4 准入：admitted=true，规则 remote-ref-*', admission?.admitted === true && /^remote-ref-/.test(String(admission?.rule)), JSON.stringify(admission).slice(0, 300))
+      rec('清单§2.4 准入：admitted=true，规则 remote-ref-*', admission?.admitted === true && /^remote-ref-/.test(String(admission?.rule)), `${JSON.stringify(admission).slice(0, 300)}（问了 ${admissionAsks} 次）`)
 
       // ---------- 派工：市场发布一件任务 ----------
       let runSeq = 0
