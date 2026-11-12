@@ -8,17 +8,19 @@
  *   · 管理员（应答里有「待认领的团队」这一栏）：把待认领的团队挂到部门、顺带指定一位负责人；没有部门时先建部门。
  *     关系确认制（#638）：不是属主、管理层的人认领、指定负责人，服务端只记成提议（202）——页面说「已提出，等〈谁〉确认」，
  *     那一项标「待确认」，不当成已生效；按钮照服务端的 can（claim / propose_claim、add_lead / propose_lead）出现。确认、撤回不在这一版。
- *   · 负责人在成员卡上「分配给…」「收回」：接口还没给「当前的人能不能分配」，这一版只读，等服务端给了再接。
+ *   · 成员分配（规范 14 第二节）：团队上 can_assign 为真的人（负责人、管理层；服务端判），在成员卡上
+ *     对团队公用的成员「分配给…」，对已分配的「改派」「收回」。分给谁只从服务端给的 assignable 里选；总工不分配。
+ *     改派是先收回再分配（服务端没有一步改派的接口）；分配回 202 时照提议说「已提出，等〈谁〉确认」。办完重读，成员卡和头卡当场更新。
  * 不做：工作方式开关、本周办结和通过率、技能、招 AI 员工（没有数据，不放占位）。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Empty, Input, Select, Skeleton, Tag } from 'antd';
 import WmPage from '../../components/WmPage';
-import { addTeamLead, approveRelationProposal, attentionChanged, claimTeam, getRelationProposals, getTeamDepartments, getTeamPeople, getTeams, putDepartment, rejectRelationProposal } from '../../api';
+import { addTeamLead, approveRelationProposal, assignTeamSeat, attentionChanged, claimTeam, getRelationProposals, getTeamDepartments, getTeamPeople, getTeams, putDepartment, rejectRelationProposal, unassignTeamSeat } from '../../api';
 import RelTime from '../../components/RelTime';
 import { subscribeAdminToken } from '../../admin-token';
 import {
-  actionProblem, pendingText, proposedText, claimButtonText, LEAD_SKIPPED_TEXT, proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, outcomeLabel, outcomeReasonText, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterStaleText, sourceProblem,
+  actionProblem, assignDoneText, assigneeOptions, assignOps, reassignHalfDoneText, pendingText, proposedText, claimButtonText, LEAD_SKIPPED_TEXT, proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, outcomeLabel, outcomeReasonText, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterStaleText, sourceProblem,
   teamCounts, teamStatusLabel, teamTitle, teamsOf,
 } from '../../team-view';
 import type { Department, KnownNames, Member, Proposal, SourceResult, Team as TeamT, TeamsCan, Tone } from '../../team-view';
@@ -36,23 +38,84 @@ function peopleOf(body: unknown): Person[] {
   }).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
 }
 
-function MemberCard({ m, chief }: { m: Member; chief?: boolean }) {
+type AssignMode = 'assign' | 'reassign' | 'unassign';
+const NO_OPS = { assign: false, reassign: false, unassign: false };
+
+/** 成员卡：名字、在不在线、在办几件、归谁用；看的人能分配时，带「分配给…」或「改派」「收回」 */
+function MemberCard({ m, chief, t, onDone, onNotice }: { m: Member; chief?: boolean; t?: TeamT; onDone?: () => void; onNotice?: (text: string) => void }) {
+  const ops = t ? assignOps(t, m, chief) : NO_OPS;
+  const [mode, setMode] = useState<AssignMode | null>(null);
+  const [to, setTo] = useState<string | undefined>();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const name = memberLabel(m);
+  const options = t && (mode === 'assign' || mode === 'reassign') ? assigneeOptions(t, m) : [];
+  const toName = options.find((o) => o.value === to)?.label ?? '';
+  const close = () => { setMode(null); setTo(undefined); setErr(null); };
+  const finish = (text: string) => { close(); onNotice?.(text); onDone?.(); };
+  const submit = async () => {
+    if (!t || !mode) return;
+    setBusy(true); setErr(null);
+    if (mode === 'unassign') {
+      const r = await unassignTeamSeat(t.host, t.team, m.seat, m.seat_id);
+      const p = actionProblem(r);
+      setBusy(false);
+      if (p) setErr(p); else finish(assignDoneText('unassign', name, '', r));
+      return;
+    }
+    if (!to) { setBusy(false); return; }
+    if (mode === 'reassign') {
+      const u = await unassignTeamSeat(t.host, t.team, m.seat, m.seat_id);
+      const pu = actionProblem(u);
+      if (pu) { setBusy(false); setErr(pu); return; }
+    }
+    const r = await assignTeamSeat(t.host, t.team, m.seat, m.seat_id, to);
+    const p = actionProblem(r);
+    setBusy(false);
+    if (!p) finish(assignDoneText(mode, name, toName, r));
+    else if (mode === 'reassign') finish(reassignHalfDoneText(name, toName, p)); // 已经收回了：重读，让卡片照实显示团队公用
+    else setErr(p);
+  };
   return (
-    <div className="wm-team-member" data-testid={chief ? 'team-router' : 'team-member'}>
+    <div className="wm-team-member" data-testid={chief ? 'team-router' : 'team-member'} data-seat={chief ? undefined : m.seat}>
       <div className="wm-team-member-head">
         <span className={m.online ? 'wm-team-dot on' : 'wm-team-dot'} title={m.online ? '在线' : '不在线'} />
-        <b className="wm-team-member-name">{memberLabel(m)}</b>
+        <b className="wm-team-member-name">{name}</b>
         {chief && <span className="wm-team-kind">总工</span>}
       </div>
       <div className="wm-team-member-meta">
         <span>{m.active_items > 0 ? `在办 ${m.active_items} 件` : '手上没有在办的'}</span>
         <span className={m.assigned_to ? 'wm-team-assigned' : 'wm-team-shared'} data-testid="team-assigned">{chief ? '只对负责人' : assignedText(m)}</span>
       </div>
+      {mode === null && (ops.assign || ops.reassign || ops.unassign) && (
+        <div className="wm-team-member-ops">
+          {ops.assign && <Button size="small" type="link" onClick={() => setMode('assign')} data-testid="team-assign-open" autoInsertSpace={false}>分配给…</Button>}
+          {ops.reassign && <Button size="small" type="link" onClick={() => setMode('reassign')} data-testid="team-reassign-open" autoInsertSpace={false}>改派</Button>}
+          {ops.unassign && <Button size="small" type="link" onClick={() => setMode('unassign')} data-testid="team-unassign-open" autoInsertSpace={false}>收回</Button>}
+        </div>
+      )}
+      {(mode === 'assign' || mode === 'reassign') && (
+        <div className="wm-team-member-form" data-testid="team-assign-form">
+          {options.length > 0
+            ? <Select size="small" placeholder={mode === 'reassign' ? '改派给谁' : '分给谁'} value={to} onChange={setTo} options={options} showSearch optionFilterProp="label" data-testid="team-assign-to" className="wm-team-select" />
+            : <span className="wm-team-hint" data-testid="team-assign-nobody">{mode === 'reassign' ? '部门里没有别的人可以改派。' : '部门里还没有可以分的人，先把人加进部门。'}</span>}
+          <Button size="small" type="primary" disabled={!to} loading={busy} onClick={submit} data-testid="team-assign-confirm" autoInsertSpace={false}>{mode === 'reassign' ? '改派' : '分配'}</Button>
+          <Button size="small" type="text" disabled={busy} onClick={close} autoInsertSpace={false}>算了</Button>
+        </div>
+      )}
+      {mode === 'unassign' && (
+        <div className="wm-team-member-form" data-testid="team-unassign-form">
+          <span className="wm-team-hint">收回之后「{name}」回到团队公用，由总工分派。</span>
+          <Button size="small" danger loading={busy} onClick={submit} data-testid="team-unassign-confirm" autoInsertSpace={false}>确认收回</Button>
+          <Button size="small" type="text" disabled={busy} onClick={close} autoInsertSpace={false}>算了</Button>
+        </div>
+      )}
+      {err && <Alert className="wm-team-err" type="warning" showIcon message={err} data-testid="team-assign-err" />}
     </div>
   );
 }
 
-function TeamBlock({ t, nameOf }: { t: TeamT; nameOf: (id: string) => string }) {
+function TeamBlock({ t, nameOf, onDone, onNotice }: { t: TeamT; nameOf: (id: string) => string; onDone: () => void; onNotice: (text: string) => void }) {
   const s = teamStatusLabel(t.status);
   const leads = leadsOf(t);
   const n = teamCounts(t);
@@ -72,7 +135,7 @@ function TeamBlock({ t, nameOf }: { t: TeamT; nameOf: (id: string) => string }) 
         ))}
       </div>
       {t.router && <MemberCard m={t.router} chief />}
-      {t.members.map((m) => <MemberCard key={`${m.seat}-${m.seat_id}`} m={m} />)}
+      {t.members.map((m) => <MemberCard key={`${m.seat}-${m.seat_id}`} m={m} t={t} onDone={onDone} onNotice={onNotice} />)}
       {t.members.length === 0 && <div className="wm-team-none">{memberlessText(t)}</div>}
     </div>
   );
@@ -239,7 +302,7 @@ export default function Team() {
   useEffect(() => subscribeAdminToken(reload), [reload]);
   useEffect(() => {
     let live = true;
-    setLoading(true);
+    if (tick === 0) setLoading(true); // 办完事重读时不闪骨架、不丢滚动位置：卡片原地更新
     void Promise.all([getTeams(), getTeamDepartments(), getRelationProposals()]).then(async ([teams, depts, proposals]) => {
       // 人的列表只有管理员读得到，也只在管理员的操作里用：是管理员的视图才去读
       const admin = ok(teams) && isAdminView(teamsOf(teams.body));
@@ -282,7 +345,7 @@ export default function Team() {
             <div className="wm-team-dept-head"><h3>{d.name}</h3><span className="wm-team-cap">{d.lead ? `负责人 ${personName(d.lead)}` : '部门还没有负责人'}</span>
               {d.pending_lead && <span className="wm-team-pending" data-testid="team-dept-lead-pending">负责人待确认：{d.pending_lead.principal ? nameOf(d.pending_lead.principal) : '（没写是谁）'}，{pendingText(d.pending_lead)}</span>}</div>
             <div className="wm-team-cap wm-team-dept-n">{d.teams.length} 个团队</div>
-            {d.teams.map((x) => <TeamBlock key={`${x.host}-${x.team}`} t={x} nameOf={nameOf} />)}
+            {d.teams.map((x) => <TeamBlock key={`${x.host}-${x.team}`} t={x} nameOf={nameOf} onDone={reload} onNotice={setNotice} />)}
           </section>
         ))}</div>
       )}

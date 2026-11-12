@@ -2,7 +2,7 @@
 /** 「团队」页的纯函数单测（web/src/team-view.ts）：应答整形、管理员视图、团队状态、负责人、成员归谁用、计数、空的说法、读不到和被拒的说法、建部门的校验。数据都是合成的。 */
 // 在非 UTC 的时区里跑（东八区）：不带时区的时间写法要按 UTC 解析，在这里才看得出来
 process.env.TZ = 'Asia/Shanghai';
-import { actionProblem, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterAt, rosterStaleText, ROSTER_STALE_MIN, sourceProblem, teamCounts, teamStatusLabel, teamTitle, teamsOf, pendingText, proposedText , proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, claimButtonText, LEAD_SKIPPED_TEXT, teamKey, outcomeLabel, outcomeReasonText} from '../web/src/team-view.ts';
+import { actionProblem, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterAt, rosterStaleText, ROSTER_STALE_MIN, sourceProblem, teamCounts, teamStatusLabel, teamTitle, teamsOf, pendingText, proposedText , proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, claimButtonText, LEAD_SKIPPED_TEXT, teamKey, outcomeLabel, outcomeReasonText, assignOps, assigneeOptions, assignDoneText, reassignHalfDoneText } from '../web/src/team-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -96,6 +96,29 @@ ok('结局的原因：失效、驳回写服务端的原因；撤回没给原因�
 ok('处理过的不出撤回、驳回（就算 can_reject 写成真）', rejectLabel({ ...dec[0], can_reject: true }) === null && rejectLabel(dec[4]) === '撤回');
 ok('认领按钮照 can：能直接认领写「认领」，只能提议写「提议认领」，都不能不出；没给 can 照旧「认领」', claimButtonText({ claim: true, propose_claim: false }) === '认领' && claimButtonText({ claim: false, propose_claim: true }) === '提议认领' && claimButtonText({ claim: false, propose_claim: false }) === null && claimButtonText(null) === '认领');
 ok('认领只是提议、选了负责人：补一句负责人等认领确认后再指定', /负责人等认领确认后再指定/.test(LEAD_SKIPPED_TEXT) && teamKey('a', 'b') !== teamKey('ab', ''));
+
+// ---------- 成员分配（规范 14 第二节）----------
+const asg = teamsOf({ departments: [{ id: 'ops', name: '运营部', teams: [
+  team({ can_assign: true, assign_denied_text: null, assignable: [{ principal: 'user:wang', display_name: '王' }, { principal: 'user:zhao', display_name: '赵' }, { principal: 'user:wang', display_name: '王' }, { bad: 1 }, { principal: 'user:li', display_name: '' }],
+    members: [member('ops/00000001', { name: '小算', assigned_to: { principal: 'user:wang', display_name: '王' } }), member('ops/00000002', { name: '小记' })], router: member('ops/r', { router: true }) }),
+  team({ team: 'ops/canvas/另一个', can_assign: false, assign_denied_text: '只有这个团队的负责人或管理层能分配、收回成员', assignable: [{ principal: 'user:wang', display_name: '王' }], members: [member('ops/00000003')] }),
+  team({ team: 'ops/canvas/没给', members: [member('ops/00000004')] }),
+] }] }).departments[0].teams;
+ok('整形：can_assign 只认 true；不能分配时不收 assignable（服务端给了也丢）；说法原样留', asg[0].can_assign === true && asg[1].can_assign === false && asg[2].can_assign === false
+  && asg[1].assignable.length === 0 && asg[2].assignable.length === 0 && asg[1].assign_denied_text === '只有这个团队的负责人或管理层能分配、收回成员' && asg[2].assign_denied_text === null);
+ok('整形：assignable 里坏的丢掉', asg[0].assignable.length === 4);
+ok('操作：团队公用的出「分配给…」，已分配的出「改派」「收回」', J(assignOps(asg[0], asg[0].members[1])) === '{"assign":true,"reassign":false,"unassign":false}' && J(assignOps(asg[0], asg[0].members[0])) === '{"assign":false,"reassign":true,"unassign":true}');
+ok('操作：总工不分配（不论当总工传进来、还是成员上标了 router）', J(assignOps(asg[0], asg[0].router, true)) === '{"assign":false,"reassign":false,"unassign":false}' && !assignOps(asg[0], member('x', { router: true })).assign);
+ok('操作：can_assign 不是真、没给、团队待认领，一个都不出', J([assignOps(asg[1], asg[1].members[0]), assignOps(asg[2], asg[2].members[0]), assignOps({ ...asg[0], status: 'unclaimed' }, asg[0].members[1])].map((o) => o.assign || o.reassign || o.unassign)) === '[false,false,false]');
+ok('选人：去重、按名字排；没显示名的用标识去前缀', J(assigneeOptions(asg[0], asg[0].members[1]).map((o) => o.label)) === J(['li', '王', '赵'].sort((a, b) => a.localeCompare(b, 'zh-CN'))));
+ok('选人：改派时去掉现在归的那个人', !assigneeOptions(asg[0], asg[0].members[0]).some((o) => o.value === 'user:wang') && assigneeOptions(asg[0], asg[0].members[0]).length === 2);
+ok('办成的说法：分配、改派直接生效写「已分配给」「已改派给」；回 202 照提议说，不当成已生效',
+  assignDoneText('assign', '小记', '赵', { status: 201, body: { ok: true, id: 3 } }) === '「小记」已分配给 赵。'
+  && assignDoneText('reassign', '小算', '赵', { status: 201, body: { ok: true } }) === '「小算」已改派给 赵。'
+  && assignDoneText('assign', '小记', '赵', { status: 202, body: { ok: true, proposed: true, proposal: { id: 9, confirm_by_text: '业务侧负责人' } } }) === '「小记」分配给 赵：已提出，等业务侧负责人确认。');
+ok('收回的说法：收回了写回到团队公用；本来就没分配（removed=false）照实说', assignDoneText('unassign', '小算', '', { status: 200, body: { ok: true, removed: true } }).includes('现在是团队公用') && assignDoneText('unassign', '小算', '', { status: 200, body: { ok: true, removed: false } }) === '「小算」本来就是团队公用。');
+ok('改派一半：收回成了、分配没成，说清楚现在是团队公用；原因末尾的句号不重复', reassignHalfDoneText('小算', '赵', '只分给启用的人，user:zhao 不是。') === '「小算」已收回，但改派给 赵 没办成：只分给启用的人，user:zhao 不是。现在是团队公用，可以再分一次。');
+ok('分配被拒：服务端的说法原样给（409 已分给别人、422 不是启用的人、403 不是负责人）', actionProblem({ status: 409, body: { error: 'seat_assigned', message: '这个成员已经分给 user:wang，先收回再分' } }) === '这个成员已经分给 user:wang，先收回再分' && actionProblem({ status: 403, body: { error: 'not_team_lead' } }) === '你的账号现在不能做这一步。');
 
 console.log(`\nteam-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

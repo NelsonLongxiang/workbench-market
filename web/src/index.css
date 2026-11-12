@@ -604,6 +604,9 @@ body { background: var(--wm-color-page); }
 .wm-team-member-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .wm-team-member-meta { display: flex; justify-content: space-between; gap: var(--wm-space-2); font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); }
 .wm-team-assigned { color: var(--wm-color-text); }
+.wm-team-member-ops { display: flex; justify-content: flex-end; gap: var(--wm-space-3); }
+.wm-team-member-ops .ant-btn-link { padding: 0; height: auto; font-size: var(--wm-font-size-caption); }
+.wm-team-member-form { display: flex; flex-wrap: wrap; align-items: center; gap: var(--wm-space-2); margin-top: var(--wm-space-1); }
 .wm-team-dot { flex: none; width: 8px; height: 8px; border-radius: var(--wm-radius-full); background: var(--wm-color-border); }
 .wm-team-dot.on { background: var(--wm-color-success-text); }
 .wm-team-kind { flex: none; margin-left: auto; padding: 0 var(--wm-space-1); font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); background: var(--wm-color-page); border-radius: var(--wm-radius-sm); }

@@ -25,6 +25,12 @@ export interface Team {
   department: { id: string; name: string } | null; leads: Lead[]; router: Member | null; members: Member[];
   /** 待确认的提议（关系确认制，只在管理员的视图里有）：认领到哪个部门、指定谁做负责人，等谁确认 */
   pending_claim?: Pending | null; pending_leads?: Pending[];
+  /** 看的人能不能在这个团队里分配、收回成员（服务端判好：团队的负责人、管理层能；系统管理员、管理口令不代办）。没给按不能 */
+  can_assign: boolean;
+  /** 不能分配时服务端给的说法（页面不用它出按钮，只在要解释时用） */
+  assign_denied_text: string | null;
+  /** 可以分给谁（服务端按部门成员、负责人裁好，只在 can_assign 时给） */
+  assignable: Person[];
 }
 /** 一条待确认的提议：服务端给「等谁确认」的说法，页面原样写 */
 export interface Pending { id: number; principal: string | null; department: string | null; confirm_by_text: string }
@@ -73,6 +79,9 @@ function teamOf(v: unknown): Team | null {
     members: arr<unknown>(t.members).map(memberOf).filter((m): m is Member => !!m),
     ...('pending_claim' in t ? { pending_claim: pendingOf(t.pending_claim) } : {}),
     ...(Array.isArray(t.pending_leads) ? { pending_leads: (t.pending_leads as unknown[]).map(pendingOf).filter((p): p is Pending => !!p) } : {}),
+    can_assign: t.can_assign === true,
+    assign_denied_text: typeof t.assign_denied_text === 'string' && t.assign_denied_text.trim() ? t.assign_denied_text.trim() : null,
+    assignable: t.can_assign === true ? arr<unknown>(t.assignable).map(personOf).filter((p): p is Person => !!p) : [],
   };
 }
 function pendingOf(v: unknown): Pending | null {
@@ -162,6 +171,43 @@ export function memberLabel(m: Pick<Member, 'name' | 'seat'>): string {
 /** 成员归谁用：分配给某人，或者团队公用（由总工分派） */
 export function assignedText(m: Pick<Member, 'assigned_to'>): string {
   return m.assigned_to ? `分配给 ${personName(m.assigned_to)}` : '团队公用';
+}
+
+/**
+ * 成员卡上的分配操作（规范 14 第二节）。能不能做只看服务端的 can_assign，页面不自己判；总工不分配（只对负责人）。
+ * 没分配的出「分配给…」；已分配的出「改派」「收回」。
+ */
+export function assignOps(t: Pick<Team, 'can_assign' | 'status'>, m: Pick<Member, 'router' | 'assigned_to'>, chief = false): { assign: boolean; reassign: boolean; unassign: boolean } {
+  const can = t.can_assign === true && t.status !== 'unclaimed' && !chief && !m.router;
+  return { assign: can && !m.assigned_to, reassign: can && !!m.assigned_to, unassign: can && !!m.assigned_to };
+}
+
+/** 分给谁的选项：服务端给的 assignable（去重），改派时去掉现在归的那个人；按名字排 */
+export function assigneeOptions(t: Pick<Team, 'assignable'>, m: Pick<Member, 'assigned_to'>): { value: string; label: string }[] {
+  const seen = new Set<string>();
+  const out: { value: string; label: string }[] = [];
+  for (const p of t.assignable) {
+    if (seen.has(p.principal) || p.principal === m.assigned_to?.principal) continue;
+    seen.add(p.principal);
+    out.push({ value: p.principal, label: personName(p) });
+  }
+  return out.sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
+}
+
+/** 分配、改派、收回办成之后的一句话；服务端回的是提议（202）时照「已提出，等〈谁〉确认」说，不当成已生效 */
+export function assignDoneText(op: 'assign' | 'reassign' | 'unassign', member: string, to: string, r: SourceResult): string {
+  const proposed = proposedText(r);
+  if (op === 'unassign') {
+    const removed = obj(r.body)?.removed;
+    return removed === false ? `「${member}」本来就是团队公用。` : `「${member}」已收回，现在是团队公用，由总工分派。`;
+  }
+  const verb = op === 'reassign' ? '改派给' : '分配给';
+  return proposed ? `「${member}」${verb} ${to}：${proposed}。` : `「${member}」已${verb} ${to}。`;
+}
+
+/** 改派是先收回再分配（服务端没有一步改派的接口）：收回成了、分配没成时，说清楚成员现在是团队公用 */
+export function reassignHalfDoneText(member: string, to: string, problem: string): string {
+  return `「${member}」已收回，但改派给 ${to} 没办成：${problem.trim().replace(/[。.]$/, '')}。现在是团队公用，可以再分一次。`;
 }
 
 /** 负责人：去重，按出现先后；挂部门带来的标「部门负责人」 */

@@ -10,8 +10,12 @@
   · 待确认的关系（GET /api/relations/proposals，截下来换成合成的）：等你确认、你提的、别的三组，按钮照 can_approve / can_reject，
     自己提的写「撤回」、不出确认；确认、撤回发对了请求，办完卡片没了，并广播「等你拍板」刷新；
   · 认领之后：按部门分块，团队头卡写状态、负责人（部门负责人标出来）、总工、成员数和在办；成员卡写在办几件、分配给谁或团队公用；
-  · 不是管理员的视图（应答里没有待认领这一栏）：没有建部门、没有待认领；也没有分配、收回（接口还没给能不能做）。"""
-import json, sys, urllib.request
+  · 成员分配（规范 14 第二节）：团队上 can_assign 为真时（负责人、管理层），团队公用的成员出「分配给…」，已分配的出「改派」「收回」；
+    总工没有；选人只从 assignable 里选，改派时不列现在的人；分配、改派（先收回再分配）、收回发对了请求，卡片原地更新、不闪骨架；
+    被拒时写服务端的说法、卡片不变；改派收回成了分配没成时说清楚现在是团队公用；回 202 时照提议说；
+    can_assign 不是真（系统管理员、普通员工）：一个按钮都没有。环境变量 TEAM_SHOTS 指一个目录时，存三张 1440 截图（分配前、分配后、普通员工只读）；
+  · 不是管理员的视图（应答里没有待认领这一栏）：没有建部门、没有待认领。"""
+import json, os, sys, urllib.request
 from playwright.sync_api import sync_playwright
 cfg = json.load(open(sys.argv[1]))
 M, TOK = cfg['base'], cfg['token']
@@ -140,7 +144,7 @@ with sync_playwright() as p:
     check('在线、不在线用点区分', mems.nth(0).locator('.wm-team-dot.on').count() == 1 and mems.nth(1).locator('.wm-team-dot.on').count() == 0)
     check('待认领清空了就不显示这一块', pg.locator('.wm-team-unclaimed').count() == 0)
     check('整页不露代号：节点标识、团队和席位句柄都不出现', not any(x in pg.locator('body').inner_text() for x in [HOST, 'ops/', '/canvas/']), pg.locator('body').inner_text()[:300])
-    check('没有放分配、收回（接口还没给能不能做）；没有工作方式、通过率、招 AI 员工', all(pg.locator('body').inner_text().count(s) == 0 for s in ['收回', '分配给…', '工作方式', '通过率', '招一个']))
+    check('系统管理员的视图里团队没给 can_assign（不代办）：没有分配、改派、收回；也没有工作方式、通过率、招 AI 员工', all(pg.locator('body').inner_text().count(s) == 0 for s in ['收回', '改派', '分配给…', '工作方式', '通过率', '招一个']))
 
     # 不是管理员的视图：应答里没有待认领这一栏
     # 待确认的关系：三组、按钮照服务端的字段；办完卡片没了、广播「等你拍板」刷新
@@ -182,6 +186,100 @@ with sync_playwright() as p:
     last = posted[-1]
     check('撤回发的是驳回这一条，带着去掉空白的理由；办完待确认的那条没了，失效的那条还在', last[0] == 'reject' and last[1] == 12 and last[2].get('reason') == '想错了' and pg.locator('[data-testid=team-proposals-mine] [data-testid=team-proposal]').count() == 1, last)
     props['list'] = []
+
+    # ---------- 成员分配：负责人的视图（团队上 can_assign 为真，带 assignable） ----------
+    SHOTS = os.environ.get('TEAM_SHOTS')
+    def shot(name):
+        if SHOTS: pg.screenshot(path=os.path.join(SHOTS, name), full_page=False)
+    PEOPLE = [{'principal': 'user:bing', 'display_name': '丙'}, {'principal': 'user:ding', 'display_name': '丁'}, {'principal': 'user:wu', 'display_name': '戊'}]
+    lead_team = {**claimed('合成运营部'), 'can_assign': True, 'assign_denied_text': None, 'assignable': PEOPLE,
+                 'members': [seat('ops/00000001', '小算', active=3, to={'principal': 'user:bing', 'display_name': '丙'}), seat('ops/00000002', '小审', online=False)]}
+    state['teams'] = {'departments': [{'id': 'synthetic-ops', 'name': '合成运营部', 'lead': {'principal': 'user:jia', 'display_name': '甲经理'}, 'teams': [lead_team]}]}
+    assign = {'next': None}  # 下一次分配要回什么：None 照常 201；或者 (status, body)
+    def member_of(seat_):
+        return next(m for m in lead_team['members'] if m['seat'] == seat_)
+    def on_assign(r):
+        b_ = json.loads(r.request.post_data or '{}'); posted.append(('assign', b_))
+        if assign['next']: st, body_ = assign['next']; assign['next'] = None; return fake(r, body_, st)
+        who = next(x for x in PEOPLE if x['principal'] == b_['principal'])
+        member_of(b_['seat'])['assigned_to'] = who; fake(r, {'ok': True, 'id': len(posted)}, 201)
+    def on_unassign(r):
+        b_ = json.loads(r.request.post_data or '{}'); posted.append(('unassign', b_))
+        m_ = member_of(b_['seat']); had = m_['assigned_to'] is not None; m_['assigned_to'] = None
+        fake(r, {'ok': True, 'removed': had})
+    pg.route('**/api/teams/assign', on_assign)
+    pg.route('**/api/teams/unassign', on_unassign)
+    pg.reload(); pg.wait_for_selector('[data-testid=team-member]')
+    card = lambda name: pg.locator('[data-testid=team-member]', has_text=name)
+    shot('team-lead-before-assign-1440.png')
+    check('负责人：团队公用的成员出「分配给…」，已分配的出「改派」「收回」；总工卡上没有',
+          card('小审').locator('[data-testid=team-assign-open]').count() == 1 and card('小审').locator('[data-testid=team-reassign-open]').count() == 0
+          and card('小算').locator('[data-testid=team-reassign-open]').count() == 1 and card('小算').locator('[data-testid=team-unassign-open]').count() == 1 and card('小算').locator('[data-testid=team-assign-open]').count() == 0
+          and pg.locator('[data-testid=team-router] button').count() == 0)
+    check('两字按钮不自动插空格：「改派」「收回」', card('小算').locator('[data-testid=team-reassign-open]').inner_text() == '改派' and card('小算').locator('[data-testid=team-unassign-open]').inner_text() == '收回')
+
+    # 分配：选人只从 assignable 里选
+    n0 = len(posted)
+    card('小审').locator('[data-testid=team-assign-open]').click()
+    check('分配：没选人之前不能点', card('小审').locator('[data-testid=team-assign-confirm]').is_disabled())
+    card('小审').locator('[data-testid=team-assign-to]').click()
+    opts = pg.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option').all_inner_texts()
+    check('分配：可选的人就是服务端给的 assignable（只写名字，不露标识）', sorted(opts) == sorted(['丙', '丁', '戊']), opts)
+    pg.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option', has_text='丁').first.click()
+    card('小审').locator('[data-testid=team-assign-confirm]').click()
+    pg.wait_for_function("[...document.querySelectorAll('[data-testid=team-member]')].some(e => e.innerText.includes('小审') && e.innerText.includes('分配给 丁'))")
+    check('分配：发的是这个席位、分给丁；办完卡片当场写「分配给 丁」，按钮换成改派、收回', posted[n0:] == [('assign', {'host': HOST, 'team': 'ops/canvas/合成运营', 'seat': 'ops/00000002', 'seat_id': '', 'principal': 'user:ding'})]
+          and card('小审').locator('[data-testid=team-reassign-open]').count() == 1, posted[n0:])
+    check('分配：页面上方说一句已分配给谁', '「小审」已分配给 丁' in pg.locator('[data-testid=team-notice]').inner_text())
+    check('分配：重读不闪骨架（部门分块一直在）', pg.locator('.ant-skeleton').count() == 0 and pg.locator('[data-testid=team-dept]').count() == 1)
+
+    # 改派：先收回再分配；不列现在的人
+    n0 = len(posted)
+    card('小算').locator('[data-testid=team-reassign-open]').click()
+    card('小算').locator('[data-testid=team-assign-to]').click()
+    opts = pg.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option').all_inner_texts()
+    check('改派：不列现在归的那个人', sorted(opts) == ['丁', '戊'] or sorted(opts) == sorted(['丁', '戊']), opts)
+    pg.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option', has_text='戊').first.click()
+    card('小算').locator('[data-testid=team-assign-confirm]').click()
+    pg.wait_for_function("[...document.querySelectorAll('[data-testid=team-member]')].some(e => e.innerText.includes('小算') && e.innerText.includes('分配给 戊'))")
+    check('改派：先收回、再分给戊；卡片当场写「分配给 戊」', [x[0] for x in posted[n0:]] == ['unassign', 'assign'] and posted[n0 + 1][1]['principal'] == 'user:wu' and posted[n0][1]['seat'] == 'ops/00000001', posted[n0:])
+    shot('team-lead-after-assign-1440.png')
+
+    # 收回
+    n0 = len(posted)
+    card('小审').locator('[data-testid=team-unassign-open]').click()
+    check('收回：先说清楚收回之后回到团队公用，再点确认', '回到团队公用' in card('小审').locator('[data-testid=team-unassign-form]').inner_text())
+    card('小审').locator('[data-testid=team-unassign-confirm]').click()
+    pg.wait_for_function("[...document.querySelectorAll('[data-testid=team-member]')].some(e => e.innerText.includes('小审') && e.innerText.includes('团队公用'))")
+    check('收回：发的是这个席位；卡片当场写「团队公用」，按钮回到「分配给…」', posted[n0:] == [('unassign', {'host': HOST, 'team': 'ops/canvas/合成运营', 'seat': 'ops/00000002', 'seat_id': ''})]
+          and card('小审').locator('[data-testid=team-assign-open]').count() == 1, posted[n0:])
+
+    # 被拒：写服务端的说法，卡片不变
+    assign['next'] = (409, {'error': 'seat_assigned', 'message': '这个成员已经分给 丙，先收回再分'})
+    card('小审').locator('[data-testid=team-assign-open]').click(); pick(pg, 'team-assign-to', '丙')
+    card('小审').locator('[data-testid=team-assign-confirm]').click(); card('小审').locator('[data-testid=team-assign-err]').wait_for()
+    check('分配被拒：卡片上写服务端的说法，归属不变', '先收回再分' in card('小审').locator('[data-testid=team-assign-err]').inner_text() and '团队公用' in card('小审').locator('[data-testid=team-assigned]').inner_text())
+    card('小审').locator('button', has_text='算了').click()
+
+    # 回 202（分配只是提议）：照提议说，不当成已生效
+    assign['next'] = (202, {'ok': True, 'proposed': True, 'proposal': {'id': 77, 'status': 'pending', 'confirm_by_text': '管理层'}})
+    card('小审').locator('[data-testid=team-assign-open]').click(); pick(pg, 'team-assign-to', '丙')
+    card('小审').locator('[data-testid=team-assign-confirm]').click(); pg.wait_for_function("(document.querySelector('[data-testid=team-notice]')?.innerText ?? '').includes('等管理层确认')")
+    check('分配回 202：上方说「已提出，等管理层确认」，卡片仍是团队公用', '「小审」分配给 丙：已提出，等管理层确认' in pg.locator('[data-testid=team-notice]').inner_text() and '团队公用' in card('小审').locator('[data-testid=team-assigned]').inner_text())
+
+    # 改派一半：收回成了、分配没成
+    assign['next'] = (422, {'error': 'assignee_not_person', 'message': '只分给启用的人，user:ding 不是'})
+    card('小算').locator('[data-testid=team-reassign-open]').click(); pick(pg, 'team-assign-to', '丁')
+    card('小算').locator('[data-testid=team-assign-confirm]').click()
+    pg.wait_for_function("[...document.querySelectorAll('[data-testid=team-member]')].some(e => e.innerText.includes('小算') && e.innerText.includes('团队公用'))")
+    check('改派一半：上方说已收回、改派没办成、现在是团队公用；卡片照实写团队公用', '已收回，但改派给 丁 没办成' in pg.locator('[data-testid=team-notice]').inner_text() and '现在是团队公用' in pg.locator('[data-testid=team-notice]').inner_text())
+
+    # 普通员工（can_assign 不是真）：只读
+    state['teams'] = {'departments': [{'id': 'synthetic-ops', 'name': '合成运营部', 'lead': {'principal': 'user:jia', 'display_name': '甲经理'},
+        'teams': [{**lead_team, 'can_assign': False, 'assign_denied_text': '只有这个团队的负责人或管理层能分配、收回成员', 'assignable': PEOPLE}]}]}
+    pg.reload(); pg.wait_for_selector('[data-testid=team-member]')
+    check('普通员工（can_assign 不是真）：成员卡上一个分配、改派、收回都没有（服务端多给了 assignable 也不出）', pg.locator('.wm-team-member-ops').count() == 0 and pg.locator('[data-testid=team-member] button').count() == 0)
+    shot('team-member-readonly-1440.png')
 
     state['teams'] = {'departments': state['teams']['departments']}
     pg.reload(); pg.wait_for_selector('[data-testid=team-dept]')
