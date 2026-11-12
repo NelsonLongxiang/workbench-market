@@ -3,7 +3,7 @@
  *
  * can 的每一项和对应动作接口用同一处判断，不另写规则：
  *   release  事项在 held、releaseBlock 放行（事件在、任务没撤回），并且 releaseRole 认这个人（和 POST /api/work-items/:id/release 同一处）：
- *            负责人；团队没有负责人时管理层代办；建立人勾了「先给我过目」的由建立人本人放行。只过了管理门的系统管理员不放行
+ *            负责人；团队没有负责人时持有管理层授予的人代办（管理门不算）；建立人勾了「先给我过目」的由建立人本人放行。只过了管理门的系统管理员不放行
  *   verify   事项在 ready，并且：管理员（「关注」里答 verify），或者建立人本人（writerVerdict 是 ok，和 POST /api/work-items/:id/decision 同一处）
  *   reply    事项不在终态，有可回复的席位消息（replyableMessages，和回复接口同一个判断），并且 writerVerdict 是 admin 或 ok（和回复接口的认人同一处）
  *   answer   事项不在终态，有在等答复的提问（pendingAsksOfEvent，和「关注」里答席位提问同一个定义），并且是管理员
@@ -24,6 +24,7 @@ import { judge } from './judgment.ts';
 import { rosterHosts } from './services/a2a-roster.ts';
 import { relationOf } from './team-relation.ts';
 import type { TeamKey, TeamService } from './services/team.ts';
+import type { GrantService } from './services/grant.ts';
 import type { ViewScope } from './services/work-item.ts';
 
 /** 终态：事项不再往下走，不能再回复、答复、验收 */
@@ -51,13 +52,29 @@ export const VIEW_ALL_KIND = 'decide' as const;
  * 管理门今天只认这两种现有管理员；统一判定生效（6d）以后，管理门也按授予判，那时「只授了系统管理员、没授管理层」的人才会出现，看不到事项。
  */
 export function isManagement(principal: string | null, admin: boolean): boolean {
-  if (admin) return true;
-  if (principal) {
-    const p = svc<PrincipalService>('principals').get(principal) as { kind?: string; status?: string; owner?: string } | undefined;
-    if (!p) return false;
-    return judge({ actor: { type: 'principal', id: principal, kind: p.kind ?? '', status: p.status ?? '', owner: p.owner ?? '' }, action: VIEW_ALL_ACTION, kind: VIEW_ALL_KIND, declared: true }).verdict === 'allow';
-  }
-  return false;
+  return admin || holdsManagementGrant(principal);
+}
+
+/**
+ * 持有管理层授予：按统一判定有 work-items.view-all 这个动作，不认管理门。
+ * 读（isManagement）照旧认管理门；新的写——团队没有负责人时代办放行——只认它（协调方 2026-11-12 定的口径）：
+ * 管理口令、没有管理层授予的身份来源管理员都不能代办
+ */
+export function holdsManagementGrant(principal: string | null): boolean {
+  if (!principal) return false;
+  const p = svc<PrincipalService>('principals').get(principal) as { kind?: string; status?: string; owner?: string } | undefined;
+  if (!p) return false;
+  return judge({ actor: { type: 'principal', id: principal, kind: p.kind ?? '', status: p.status ?? '', owner: p.owner ?? '' }, action: VIEW_ALL_ACTION, kind: VIEW_ALL_KIND, declared: true }).verdict === 'allow';
+}
+
+/**
+ * 现在有几个主体持有管理层授予（health 只给管理口令看，只给个数、不给是谁）。
+ * 是 0 时，团队没有负责人、又没人能代办：那些团队的等过目的事项没人放得了（存量差异清单 L21）。
+ * 只看生效的授予（授予表最多取 500 条，够这个量级）
+ */
+export function managementGrantHolders(): number {
+  const ps = new Set(svc<GrantService>('grants').list({ status: 'active' }).map((g) => g.principal_id));
+  return [...ps].filter(holdsManagementGrant).length;
 }
 
 /** UTC「YYYY-MM-DD hh:mm:ss」和毫秒互换（事项表里的时间是前者，团队服务的时间是后者） */
@@ -202,7 +219,7 @@ export const canRelease = (item: WorkItemRow, viewer: WorkItemViewer): boolean =
  * 谁能放行这件事项（规范 14 第九节，只有这一处；不看事项现在是不是 held，那是 releasable 的事）：
  *   建立人勾了「先给我过目」（review_by = requester）：建立人本人（启用的人）放行，别人都不放
  *   其余：事项交给的团队的负责人（relationOf 里有 team-lead）；
- *         这些团队都没有在职负责人（包括名册里还换不出团队的）时，管理层代办，acting_for 记 team-lead
+ *         这些团队都没有在职负责人（包括名册里还换不出团队的）时，持有管理层授予的人代办（管理口令、没有授予的身份来源管理员不算），acting_for 记 team-lead
  * 系统管理员（只过了管理门、不是管理层）不放行。返回 null 是不能放；acting_for 为空串是本人的事，不是代办
  */
 export function releaseRole(item: WorkItemRow, viewer: WorkItemViewer): { acting_for: '' | 'team-lead' } | null {
@@ -211,7 +228,8 @@ export function releaseRole(item: WorkItemRow, viewer: WorkItemViewer): { acting
   const teams = itemTeams(item);
   if (p && viewer.person && teams.some((t) => relationOf({ principal: p }, { team: t }).relations.includes('team-lead'))) return { acting_for: '' };
   const vacant = teams.every((t) => svc<TeamService>('teams').leads(t).length === 0);
-  return vacant && viewer.management ? { acting_for: 'team-lead' } : null;
+  // 代办只认持有管理层授予的主体，不认管理门（读的 isManagement 认，写不扩过去）
+  return vacant && holdsManagementGrant(viewer.principal) ? { acting_for: 'team-lead' } : null;
 }
 
 export function canOf(item: WorkItemRow, viewer: WorkItemViewer): Can {

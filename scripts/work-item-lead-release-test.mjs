@@ -4,7 +4,8 @@
  *
  *   负责人：自己团队的事项 can、turn 都真；POST /api/work-items/:id/release 放行，留痕记本人、不记代办
  *   团队有负责人时，管理层（会话登录的管理员）、口令管理员都不放（403），建立人不放（403），看不到的人 404
- *   团队没有负责人：管理层代办（can 真、turn 假），事件日志和事项日志记 acting_for = team-lead
+ *   团队没有负责人：持有管理层授予的人代办（can 真、turn 假），事件日志和事项日志记 acting_for = team-lead；
+ *     只过了管理门的（管理口令、没有管理层授予的身份来源管理员）不能代办，「关注」里只给他们撤回
  *   建立人勾了「先给我过目」（review_by = requester）：建立人本人放，负责人、管理层都不放
  *   幂等：放过的再来一次 200、duplicate=true，不再放、不再记；没放过、已经不在等过目的 409
  *   「关注」：过目条目只给能放的人；带 answer_via 指向这个入口；不是管理员的只有 release 这一种答法
@@ -109,6 +110,29 @@ try {
   const factOf = (id) => q("SELECT actor, detail FROM work_item_log WHERE item_id = ? AND fact = 'release'", id).map((r) => ({ actor: r.actor, acting_for: JSON.parse(r.detail || '{}').acting_for ?? null }));
   const glances = async (h) => ((await call('GET', '/api/attention', h)).body?.items ?? []).filter((x) => x.source === 'work-items' && x.category === 'glance');
 
+  // ---------- 代办只认管理层授予，不认管理门 ----------
+  {
+    const t = await detail(I.vacant.item, ADMIN), s0 = await detail(I.vacant.item, WHO.管理层);
+    const rt = await release(I.vacant.item, ADMIN), rs = await release(I.vacant.item, WHO.管理层);
+    const g = (await glances(WHO.管理层)).find((x) => x.source_id === I.vacant.item);
+    check(show(t) === show({ can: false, turn: false }) && show(s0) === show({ can: false, turn: false }) && rt.status === 403 && rs.status === 403 && rs.body?.error === 'work_item_release_not_yours'
+      && released(I.vacant.event).length === 0 && g && show(g.answers) === show(['withdraw']) && !g.answer_via,
+      '团队没有负责人：管理口令、没有管理层授予的身份来源管理员都不能代办（can 假，放行 403，没放）；「关注」里只给撤回、不带放行地址', show({ t, s0, rt: rt.status, rs: [rs.status, rs.body?.error], g: g && [g.answers, !!g.answer_via] }));
+    // 有别的生效授予（普通员工）不算持有管理层授予
+    const m = await call('POST', '/api/grants', {}, { principal: 'user:alpha', role: 'member', scope: '*', reason: '合成：普通员工' });
+    await call('POST', `/api/grants/${m.body?.grant?.id}/submit`, {}, {});
+    await call('POST', `/api/grants/${m.body?.grant?.id}/approve`, {}, {});
+    const h = await call('GET', '/api/health', ADMIN), hAnon = await call('GET', '/api/health', {});
+    check(h.body?.work_items?.management_grant_holders === 0 && !('work_items' in (hAnon.body ?? {})), 'health：管理口令看得到「持有管理层授予的主体」是 0（只有普通员工授予的不算）；别人看不到这一项', show({ h: h.body?.work_items, anon: 'work_items' in (hAnon.body ?? {}) }));
+  }
+  // 给身份来源管理员一份管理层授予（本机命令行即属主，走完起草→提交→放行）：下面「管理层」都是持有授予的
+  {
+    const d = await call('POST', '/api/grants', {}, { principal: 'user:root-admin', role: 'management', scope: '*', reason: '合成：持有管理层授予的人' });
+    await call('POST', `/api/grants/${d.body?.grant?.id}/submit`, {}, {});
+    const a = await call('POST', `/api/grants/${d.body?.grant?.id}/approve`, {}, {});
+    const h = await call('GET', '/api/health', ADMIN);
+    check(a.status === 200 && h.body?.work_items?.management_grant_holders === 1, '授予管理层之后：health 里持有管理层授予的主体是 1', show({ a: a.status, h: h.body?.work_items }));
+  }
   // ---------- 团队有负责人：只有负责人能放 ----------
   {
     const d = { 负责人: await detail(I.lead.item, WHO.负责人), 管理层: await detail(I.lead.item, WHO.管理层), 建立人: await detail(I.lead.item, WHO.建立人), 无关的人: await detail(I.lead.item, WHO.无关的人) };
@@ -130,8 +154,9 @@ try {
       '负责人的「关注」：过目条目轮到他（mine）、只有 release、answer_via 指向事项的放行入口', show(g));
     check(!lead.some((x) => x.source_id === I.vacant.item) && !lead.some((x) => x.source_id === I.requester.item), '负责人看不到别的团队、建立人自己过目的那件');
     const v = mgmt.find((x) => x.source_id === I.vacant.item);
-    check(!mgmt.some((x) => x.source_id === I.lead.item) && v && v.mine === false && show(v.answers) === show(['release', 'withdraw']) && v.answer_via?.path === `/api/work-items/${I.vacant.item}/release`,
-      '管理层的「关注」：团队有负责人的那件不出现；没有负责人的那件出现、是代办（mine:false）、能放能撤回', show({ ids: mgmt.map((x) => x.source_id), v }));
+    const l = mgmt.find((x) => x.source_id === I.lead.item);
+    check(l && show(l.answers) === show(['withdraw']) && !l.answer_via && v && v.mine === false && show(v.answers) === show(['release', 'withdraw']) && v.answer_via?.path === `/api/work-items/${I.vacant.item}/release`,
+      '管理层的「关注」：团队有负责人的那件只给撤回（不能放）；没有负责人的那件是代办（mine:false）、能放能撤回', show({ l: l && [l.answers, !!l.answer_via], v }));
     const c = creator.find((x) => x.source_id === I.requester.item);
     check(creator.length === 1 && c?.mine === true && show(c.answers) === show(['release']), '建立人的「关注」：只有自己过目的那件，轮到他', show(creator.map((x) => [x.source_id, x.mine])));
   }

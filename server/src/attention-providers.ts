@@ -237,10 +237,13 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
         // 过目（规范 14 第九节）：只给能放行的人——负责人、团队没有负责人时代办的管理层、勾了先过目的建立人（canRelease，和详情的 can.release 同一处）。
         // 放行带 answer_via 直接调 POST /api/work-items/:id/release：负责人多半不是管理员，过不了「关注」答复入口前面的写请求总门。
         // 撤回还是任务中心的管理员接口，只给过了管理门的人
+        // 过了管理门、又放不了的（管理口令、没有管理层授予的管理员）：照旧列出来，只给撤回，不给放行
         for (const w of items.list({ state: 'held' })) {
-          if (!canRelease(w, viewer)) continue;
-          out.push(item({ source: 'work-items', source_id: w.id, category: 'glance', title: w.title, waiting_for: w.created_by, since: w.created_at, answers: admin ? ['release', 'withdraw'] : ['release'], link: `/work-items/${w.id}`, object: w.object, phase: w.phase,
-            mine: turnOf(w, viewer).release, creator: creatorOf(w), answer_via: answerVia('POST', `/api/work-items/${w.id}/release`, { release: { body: {} } }) }));
+          const release = canRelease(w, viewer);
+          if (!release && !admin) continue;
+          const answers = [...(release ? ['release'] : []), ...(admin ? ['withdraw'] : [])];
+          out.push(item({ source: 'work-items', source_id: w.id, category: 'glance', title: w.title, waiting_for: w.created_by, since: w.created_at, answers, link: `/work-items/${w.id}`, object: w.object, phase: w.phase,
+            mine: turnOf(w, viewer).release, creator: creatorOf(w), ...(release ? { answer_via: answerVia('POST', `/api/work-items/${w.id}/release`, { release: { body: {} } }) } : {}) }));
         }
         return out;
       },

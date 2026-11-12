@@ -117,6 +117,10 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 自检只使用固定 127.0.0.1、实际监听端口和固定路径，不发送 Cookie、Bearer 或管理员口令。拒绝写探针使用空的非法 name/url，并以无 Origin 的 400 校验对照证明不落业务库；自检审计只标 `source=self-probe` 的状态/行名，不存请求或响应正文，也不计入采纳流量。**后续安全修复必须往自检表增加对应行及正反测试**，不能仅凭配置值宣称生效。详见 [启动自检契约](docs/startup-security-self-probe.md)。本功能不替代 #309/#324 等各自的授权修复或现网上线验收。
 
 
+## 上线前确认
+
+- 至少一个主体持有管理层授予（管理口令读 `GET /api/health`，`work_items.management_grant_holders` 不是 0）。团队没有负责人时，只有他们能代办放行等过目的事项；一个都没有时，那些事项没人放得了（存量差异清单 L21）。
+
 ## 升级冒烟
 
 每次上线前跑一遍 `node scripts/upgrade-smoke.mjs`，看「线上那个版本的库，换成这份代码启动」会发生什么。CI 里是单独的一个 job（`upgrade-smoke`）。

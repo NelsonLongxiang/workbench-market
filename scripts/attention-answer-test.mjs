@@ -132,6 +132,14 @@ try {
     return { status: r.status, body: json };
   };
   const answer = (source, source_id, ans, input = {}, headers = ADMIN, extra = {}) => call('POST', '/api/attention/answer', headers, { source, source_id: String(source_id), answer: ans, input, ...extra });
+  // 代办放行只认管理层授予（不认管理门）：给会话登录的管理员一份管理层授予（本机命令行即属主，走完起草→提交→放行）
+  {
+    await call('GET', '/api/auth/me', ADMIN);
+    const g = await call('POST', '/api/grants', {}, { principal: 'user:root-admin', role: 'management', scope: '*', reason: '合成：持有管理层授予的人' });
+    await call('POST', `/api/grants/${g.body?.grant?.id}/submit`, {}, {});
+    const ok = await call('POST', `/api/grants/${g.body?.grant?.id}/approve`, {}, {});
+    if (ok.status !== 200) throw new Error(`管理层授予没放成：${JSON.stringify(ok)}`);
+  }
   const db = () => new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true });
   const q = (sql, ...a) => { const c = db(); try { return c.prepare(sql).all(...a); } finally { c.close(); } };
   /** 比较时去掉每一行里必然不同的：自增 id、时间、指向各自那一条的外键 */

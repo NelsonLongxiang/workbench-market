@@ -102,6 +102,14 @@ try {
   const SAME = { 'sec-fetch-site': 'same-origin' };
   const WHO = { 管理员: { ...SAME, cookie: `session_id=${SESSIONS.admin}` }, 建立人: { ...SAME, cookie: `session_id=${SESSIONS.alpha}` }, 无关的员工: { ...SAME, cookie: `session_id=${SESSIONS.beta}` } };
   for (const h of Object.values(WHO)) await call('GET', '/api/auth/me', h);
+  // 代办放行只认管理层授予（不认管理门）：给会话登录的管理员一份管理层授予（本机命令行即属主，走完起草→提交→放行）
+  {
+    await call('GET', '/api/auth/me', WHO.管理员);
+    const g = await call('POST', '/api/grants', {}, { principal: 'user:root-admin', role: 'management', scope: '*', reason: '合成：持有管理层授予的人' });
+    await call('POST', `/api/grants/${g.body?.grant?.id}/submit`, {}, {});
+    const ok = await call('POST', `/api/grants/${g.body?.grant?.id}/approve`, {}, {});
+    if (ok.status !== 200) throw new Error(`管理层授予没放成：${JSON.stringify(ok)}`);
+  }
   const q = (sql, ...a) => { const d = new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true }); try { return d.prepare(sql).all(...a).map((r) => ({ ...r })); } finally { d.close(); } };
   const detail = async (id, who) => { const r = await call('GET', `/api/work-items/${id}`, WHO[who]); return r.status === 200 ? r.body : { can: { release: false, answer: false, verify: false, reply: false }, turn: { release: false, answer: false, verify: false }, status: r.status }; };
   const ok2 = (r) => r.status >= 200 && r.status < 300;

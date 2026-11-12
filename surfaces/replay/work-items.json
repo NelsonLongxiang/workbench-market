@@ -365,14 +365,14 @@
         {
           "id": "release-not-held",
           "route": "POST /api/work-items/:id/release",
-          "class": "invalid",
-          "what": "管理员（管理层）：这件没交给有负责人的团队，能代办；但它是草稿、不在等过目、也没放过，409",
+          "class": "unauthorized",
+          "what": "管理口令：这件没交给有负责人的团队，但口令不算持有管理层授予，不能代办，403（不认管理门）",
           "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/release", "headers": { "sec-fetch-site": "same-origin", "x-admin-token": "replay-synthetic-admin" }, "json": {} },
           "response": {
-            "status": 409,
+            "status": 403,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "46", "etag": "W/\"2e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "work_item_not_held", "state": "draft" }
+            "headers": { "cache-control": "private, no-store", "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_item_release_not_yours" }
           }
         }
       ]
