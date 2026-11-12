@@ -36,7 +36,7 @@
 import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
-import { identity } from '../identity.ts';
+import { identity, IDENTITY_UNAVAILABLE, sourceDown } from '../identity.ts';
 import { isCreator, STATES, type WorkItemService, type WorkItemState } from '../services/work-item.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import { creatorAnswer } from '../attention-answers.ts';
@@ -96,7 +96,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
     if (seat !== undefined && (seat === '' || seat.length > 200)) return void res.status(400).json({ error: 'work_items_seat_invalid' });
     (async () => {
       const viewer = await workItemViewer(req, deps);
-      if (!viewer.admin && !viewer.principal) return void res.status(401).json({ error: 'work_items_auth_required' });
+      if (!viewer.admin && !viewer.principal) return void (viewer.sourceDown ? res.status(502).json({ error: IDENTITY_UNAVAILABLE }) : res.status(401).json({ error: 'work_items_auth_required' }));
       // 视角（规范 14 第九节第 4 条）：服务端按身份给出哪些视角可用、各几件；不带 view 时落在第一个有内容的（都没有就第一个可用的）
       const scopes = viewScopes(viewer);
       const items = svc<WorkItemService>('workItems');
@@ -129,7 +129,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
     const cookie = String(req.headers.cookie ?? '');
     if (!cookie) { res.status(401).json({ error: 'work_items_auth_required' }); return null; }
     const who = await identity().resolveViewer(cookie);
-    if (!who.ok) { res.status(401).json({ error: 'work_items_auth_required' }); return null; }
+    if (!who.ok) { if (sourceDown(who)) res.status(502).json({ error: IDENTITY_UNAVAILABLE }); else res.status(401).json({ error: 'work_items_auth_required' }); return null; }
     const principal = svc<PrincipalService>('principals').get(who.viewer.sub) as { kind?: string; status?: string } | undefined;
     if (!principal || principal.kind !== 'person' || principal.status !== 'active') { res.status(403).json({ error: 'work_items_principal_not_active' }); return null; }
     return who.viewer.sub;
@@ -170,7 +170,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
     (async () => {
       const items = svc<WorkItemService>('workItems');
       const viewer = await workItemViewer(req, deps);
-      if (!viewer.admin && !viewer.principal) return void res.status(401).json({ error: 'work_items_auth_required' });
+      if (!viewer.admin && !viewer.principal) return void (viewer.sourceDown ? res.status(502).json({ error: IDENTITY_UNAVAILABLE }) : res.status(401).json({ error: 'work_items_auth_required' }));
       // 看得到的：建立人、管理层（itemRoles，规范 14 第九节第 1 条；成员的主人、负责人随关系确认制接上）。别的一律 404，不说有没有这件
       const item = items.get(id);
       if (!item || !canSee(item, viewer)) return void res.status(404).json({ error: 'work_item_not_found' });
@@ -187,7 +187,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
     const viewer = await workItemViewer(req, deps);
     const verdict = writerVerdict(viewer, id);
     const items = svc<WorkItemService>('workItems');
-    if (verdict === 'unauthenticated') { res.status(401).json({ error: 'work_items_auth_required' }); return null; }
+    if (verdict === 'unauthenticated') { if (viewer.sourceDown) res.status(502).json({ error: IDENTITY_UNAVAILABLE }); else res.status(401).json({ error: 'work_items_auth_required' }); return null; }
     if (verdict === 'not_found') { res.status(404).json({ error: 'work_item_not_found' }); return null; }
     if (verdict === 'inactive') { res.status(403).json({ error: 'work_items_principal_not_active' }); return null; }
     if (verdict === 'not_eligible') { res.status(403).json({ error: 'work_item_creator_not_eligible' }); return null; }
@@ -241,7 +241,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       const cookie = String(req.headers.cookie ?? '');
       if (!cookie) return void res.status(401).json({ error: 'work_items_auth_required' });
       const who = await identity().resolveViewer(cookie);
-      if (!who.ok) return void res.status(401).json({ error: 'work_items_auth_required' });
+      if (!who.ok) return void (sourceDown(who) ? res.status(502).json({ error: IDENTITY_UNAVAILABLE }) : res.status(401).json({ error: 'work_items_auth_required' }));
       const principal = svc<PrincipalService>('principals').get(who.viewer.sub) as { kind?: string; status?: string } | undefined;
       if (!principal || principal.kind !== 'person' || principal.status !== 'active') return void res.status(403).json({ error: 'work_items_principal_not_active' });
       const out = await creatorAnswer(id, who.viewer.sub, answer, { reason: b.reason });
