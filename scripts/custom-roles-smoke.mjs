@@ -101,7 +101,7 @@ try {
     const approved = await srv.call('POST', '/api/roles/exec-copy/approve');
     const usableAfter = await srv.call('POST', '/api/grants', {}, { principal: 'user:amy', role: 'exec-copy', scope: '*', reason: '合成' });
     check(byToken.status === 201 && byToken.json?.role?.status === 'pending' && usable.status === 422 && approveByToken.status === 403 && approved.status === 200 && usableAfter.status === 201,
-      '口令管理员复制带决定类的预设：先待属主放行，放行前不能授予；口令放行 403，属主（本机命令行）放行后能授予', show({ byToken: byToken.json?.role?.status, usable: usable.status, approveByToken: approveByToken.status, approved: approved.status, usableAfter: usableAfter.status }));
+      '口令管理员复制带决定类的预设：先待属主放行，放行前不能授予；口令放行 403，属主（本机命令行）放行后能授予 [red-line:custom-roles-owner-approval]', show({ byToken: byToken.json?.role?.status, usable: usable.status, approveByToken: approveByToken.status, approved: approved.status, usableAfter: usableAfter.status }));
     // 读的角色改成带管理类：口令管理员改的先记成提议，生效的定义不动
     const reader = await srv.call('POST', '/api/roles/guest/copy', TOKEN, { id: 'reader', name: '只读' });
     const widen = await srv.call('PUT', '/api/roles/reader', TOKEN, { permissions: [{ kinds: ['read', 'admin'] }] });
@@ -131,7 +131,7 @@ try {
     const plainDecide = await srv.call('PUT', '/api/roles/not-ai', {}, { permissions: [{ kinds: ['read', 'decide'] }] });
     check(x1.status === 201 && x2.status === 201 && twoLevels.status === 422 && twoLevels.json?.error === 'decide_non_person'
       && delMiddle.status === 200 && afterDelete.status === 422 && plainDecide.status === 200,
-      'AI 员工复制两层（ai-staff → ai-x1 → ai-x2）再加决定类照样 422；删掉中间一层之后还是 422（来源接到上一层）；不是从 AI 员工来的照常',
+      'AI 员工复制两层（ai-staff → ai-x1 → ai-x2）再加决定类照样 422；删掉中间一层之后还是 422（来源接到上一层）；不是从 AI 员工来的照常 [red-line:ai-copies-no-decide]',
       show({ twoLevels: twoLevels.status, delMiddle: delMiddle.status, afterDelete: afterDelete.status, plain: plainDecide.status }));
   }
   // ---------- 四、留痕、导出 ----------

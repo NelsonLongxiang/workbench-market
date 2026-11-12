@@ -218,7 +218,7 @@ try {
     try { db.prepare("INSERT INTO grants (principal_id, role, scope, reason, created_by, created_by_principal, created_at, updated_at) VALUES ('user:alpha', 'member', '*', 'x', 'odoo:alpha', 'user:alpha', 1, 1)").run(); } catch { dbSelf = true; }
     check(own.status === 403 && own.json?.error === 'self_grant' && selfApprove.status === 403 && selfApprove.json?.error === 'self_grant' && selfSubmit.status === 403
       && ctl.status === 200 && dbSelf,
-      '自授：起草给自己、提交给自己的、放行给自己的都 403；库里的约束也拦（起草人就是被授予的主体）；对照：别人放行 200', show({ own: own.status, selfApprove: selfApprove.status, selfSubmit: selfSubmit.status, ctl: ctl.status, dbSelf }));
+      '自授：起草给自己、提交给自己的、放行给自己的都 403；库里的约束也拦（起草人就是被授予的主体）；对照：别人放行 200 [red-line:no-self-grant]', show({ own: own.status, selfApprove: selfApprove.status, selfSubmit: selfSubmit.status, ctl: ctl.status, dbSelf }));
   }
 
   // ---------- 三、越级放行 ----------
@@ -234,7 +234,7 @@ try {
     const owner = await activate({ principal: 'user:root-admin', role: 'owner' });
     const byOwner = await step(levels.cfg.id, 'approve', asRoot);
     check(Object.values(levels).every((l) => l.byToken === 403 && l.byAdminLogin === 403) && byCli.status === 200 && owner.a.status === 200 && byOwner.status === 200,
-      '越级放行：管理员级的授予（admin、owner、带管理类权限的组织角色）口令管理员、不是属主的管理员登录放行都 403；对照：本机命令行放行 200，持 owner 授予的人放行 200',
+      '越级放行：管理员级的授予（admin、owner、带管理类权限的组织角色）口令管理员、不是属主的管理员登录放行都 403；对照：本机命令行放行 200，持 owner 授予的人放行 200 [red-line:owner-approves-admin-grants]',
       show({ levels, byCli: byCli.status, owner: owner.a.status, byOwner: byOwner.status }));
     // 收回 root-admin 的 owner：之后它就不是属主了，再放行管理员级的授予要被拒
     const revoked = await step(owner.id, 'revoke', {}, { reason: '合成：收回' });
@@ -281,7 +281,7 @@ try {
     let dbNoOwner = false;
     try { db.exec("INSERT INTO principals (id, id_key, kind, owner) VALUES ('seat:none', 'seat:none', 'seat', '')"); } catch { dbNoOwner = true; }
     check(orphan.status === 422 && orphan.json?.error === 'no_responsible' && ok.status === 201 && afterOwnerOff.status === 422 && afterOwnerOff.json?.error === 'no_responsible' && back.status === 200 && dbNoOwner,
-      '非人主体：责任人不存在 422；责任人停用之后提交 422，恢复之后能提交；库里不许建没有责任人的非人主体；对照：有在职责任人的能起草',
+      '非人主体：责任人不存在 422；责任人停用之后提交 422，恢复之后能提交；库里不许建没有责任人的非人主体；对照：有在职责任人的能起草 [red-line:non-person-needs-responsible]',
       show({ orphan: orphan.status, ok: ok.status, afterOwnerOff: afterOwnerOff.status, back: back.status, dbNoOwner }));
   }
 
@@ -293,7 +293,7 @@ try {
     const member = await draft({ principal: 'seat:bot', role: 'dept-member' });
     const person = await draft({ principal: 'user:beta', role: 'deep' });
     check([direct, nested, owner].every((r) => r.status === 422 && r.json?.error === 'decide_non_person') && member.status === 201 && person.status === 201,
-      '决定类权限不给非人主体：直接带的、经两层 includes 带进来的、owner 都 422；对照：不带决定类的给席位、带决定类的给人都能起草',
+      '决定类权限不给非人主体：直接带的、经两层 includes 带进来的、owner 都 422；对照：不带决定类的给席位、带决定类的给人都能起草 [red-line:decide-person-only]',
       show({ direct: direct.status, nested: nested.status, owner: owner.status, member: member.status, person: person.status }));
   }
 

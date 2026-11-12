@@ -430,6 +430,19 @@
       "key TEXT PK",
       "value TEXT NOT NULL"
     ],
+    "setup_wizard_grants": [
+      "run_id INTEGER NOT NULL PK",
+      "grant_id INTEGER NOT NULL PK"
+    ],
+    "setup_wizard_runs": [
+      "id INTEGER PK",
+      "shape TEXT NOT NULL",
+      "created_by TEXT NOT NULL",
+      "created_by_principal TEXT",
+      "created_at INTEGER NOT NULL",
+      "approved_by TEXT",
+      "approved_at INTEGER"
+    ],
     "skill_digest_reports": [
       "id INTEGER PK",
       "skill_id INTEGER NOT NULL",
@@ -899,6 +912,7 @@
     "idx_seat_assign_active_handle ON seat_assignments: CREATE UNIQUE INDEX idx_seat_assign_active_handle ON seat_assignments (host, team, seat) WHERE ended_at IS NULL AND seat_id = ''",
     "idx_seat_assign_active_id ON seat_assignments: CREATE UNIQUE INDEX idx_seat_assign_active_id ON seat_assignments (host, seat_id) WHERE ended_at IS NULL AND seat_id <> ''",
     "idx_seat_assign_principal ON seat_assignments: CREATE INDEX idx_seat_assign_principal ON seat_assignments (principal_id, ended_at)",
+    "idx_setup_wizard_grants_grant ON setup_wizard_grants: CREATE INDEX idx_setup_wizard_grants_grant ON setup_wizard_grants (grant_id)",
     "idx_skill_versions_domain_digest ON skill_versions: CREATE UNIQUE INDEX idx_skill_versions_domain_digest ON skill_versions(skill_id, tree_digest)",
     "idx_skills_family ON skills: CREATE INDEX idx_skills_family ON skills(family_parent)",
     "idx_skills_layer ON skills: CREATE INDEX idx_skills_layer ON skills(layer)",

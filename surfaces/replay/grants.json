@@ -54,7 +54,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1814", "etag": "W/\"716-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "1831", "etag": "W/\"727-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "source": "initial",
               "roles": [
@@ -69,6 +69,7 @@
                       "domains": [
                         "a2a",
                         "a2a-peer",
+                        "access",
                         "admin",
                         "admin-token",
                         "agent-card",
@@ -89,6 +90,7 @@
                         "remote-allow",
                         "role",
                         "setting",
+                        "setup",
                         "skill",
                         "sso",
                         "stats",

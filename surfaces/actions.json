@@ -90,6 +90,11 @@
       "POST /api/teams/leads/remove  -> team.lead-remove  admin",
       "POST /api/teams/assign  -> team.assign  write  （状态码不代表授权：按团队的负责人判：负责人是按对象的范围，统一判定还不认（L13），由团队这个域自己判）",
       "POST /api/teams/unassign  -> team.unassign  write  （状态码不代表授权：按团队的负责人判：负责人是按对象的范围，统一判定还不认（L13），由团队这个域自己判）",
+      "GET /api/principals/:id/access  -> principal.access  admin  （状态码不代表授权：按对象判：管理员看任何人，登录的人只看自己（本人是对象范围，统一判定还不认，L13））",
+      "GET /api/access/red-lines  -> access.red-lines  read",
+      "GET /api/setup/wizard  -> setup.wizard-read  admin",
+      "POST /api/setup/wizard  -> setup.wizard-run  admin",
+      "POST /api/setup/wizard/approve  -> setup.wizard-approve  admin",
       "GET /api/attention  -> attention.read  read",
       "POST /api/attention/answer  -> attention.answer  decide",
       "GET /api/work-items  -> work-items.list  read  （没认出人回 401）",
@@ -324,6 +329,11 @@
           "department.membership",
           "department.read",
           "department.upsert",
+          "access.red-lines",
+          "principal.access",
+          "setup.wizard-approve",
+          "setup.wizard-read",
+          "setup.wizard-run",
           "team.assign",
           "team.claim",
           "team.lead-add",
@@ -520,6 +530,14 @@
         "why": "整批撤销迁移出来的授予只有属主能做（本机命令行在授予管理面上算属主），比管理员严"
       },
       {
+        "action": "setup.wizard-approve",
+        "only": [
+          "owner",
+          "local-cli"
+        ],
+        "why": "首次安装向导这一批只有属主能放行（本机命令行在授予管理面上算属主），比管理员严"
+      },
+      {
         "action": "role.approve",
         "only": [
           "owner",
@@ -559,6 +577,7 @@
     "system": [
       "a2a",
       "a2a-peer",
+      "access",
       "admin",
       "admin-token",
       "agent-card",
@@ -579,6 +598,7 @@
       "remote-allow",
       "role",
       "setting",
+      "setup",
       "skill",
       "sso",
       "stats",
@@ -631,6 +651,7 @@
           "domains": [
             "a2a",
             "a2a-peer",
+            "access",
             "admin",
             "admin-token",
             "agent-card",
@@ -651,6 +672,7 @@
             "remote-allow",
             "role",
             "setting",
+            "setup",
             "skill",
             "sso",
             "stats",

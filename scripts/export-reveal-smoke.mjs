@@ -116,7 +116,7 @@ try {
       ['只带 Origin 的跨站（没有 Sec-Fetch-Site）、口令对', await open.call('GET', '/api/export?reveal=1', { headers: { ...REMOTE, origin: 'https://elsewhere.example', 'x-admin-token': ADMIN_TOKEN } })],
     ];
     const bad = cases.filter(([, r]) => !denied(r)).map(([label, r]) => [label, r.status, leaks(r.text)]);
-    check(bad.length === 0, `登录门关着，取真值的拒绝例（${cases.length} 种）：都 403，正文里没有真值，也没降级成掩码的导出`, show(bad));
+    check(bad.length === 0, `登录门关着，取真值的拒绝例（${cases.length} 种）：都 403，正文里没有真值，也没降级成掩码的导出 [red-line:export-reveal-admin-only]`, show(bad));
 
     // 管理员登录的主体被停用：用口令管理员停掉它，再拿它的会话来取
     const before = await open.call('GET', '/api/export?reveal=1', { headers: { ...REMOTE, ...same }, session: SESSIONS.admin });
