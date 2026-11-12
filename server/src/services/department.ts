@@ -14,9 +14,11 @@
  */
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
+import { leadGrantActive } from './dept-lead-grant.ts';
 
 export type DepartmentSource = 'manual' | 'odoo';
-export type DepartmentLead = { principal: string; display_name: string } | null;
+/** 负责人：grant 是他有没有这个部门的拍板授予（missing 是只有字段，待属主放行，不带任何权力） */
+export type DepartmentLead = { principal: string; display_name: string; grant: 'active' | 'missing' } | null;
 export type DepartmentView = {
   id: string; name: string; function_code: string | null; lead: DepartmentLead; member_count: number; source: DepartmentSource;
 };
@@ -33,7 +35,7 @@ const refuse = (http: DepartmentRefusal['http'], code: string, message: string):
 type Row = { id: string; name: string; function_code: string; lead_principal: string; lead_name: string | null; member_count: number; source: DepartmentSource };
 const view = (r: Row): DepartmentView => ({
   id: r.id, name: r.name, function_code: r.function_code || null,
-  lead: r.lead_principal ? { principal: r.lead_principal, display_name: r.lead_name ?? '' } : null,
+  lead: r.lead_principal ? { principal: r.lead_principal, display_name: r.lead_name ?? '', grant: leadGrantActive(r.lead_principal, r.id) ? 'active' : 'missing' } : null,
   member_count: Number(r.member_count), source: r.source,
 });
 const SELECT = `SELECT d.id, d.name, d.function_code, d.lead_principal, p.display_name AS lead_name, d.source,
@@ -105,14 +107,16 @@ export class DepartmentService extends Service {
     if (Number(open.n) > 0) return refuse(409, 'department_in_use', `还有 ${open.n} 条没结束的授予范围是这个部门，先撤销再删`);
     const teamsOn = db.prepare('SELECT COUNT(*) AS n FROM teams WHERE department_id = ? AND claimed = 1').get(id) as { n: number };
     if (Number(teamsOn.n) > 0) return refuse(409, 'department_has_teams', `还有 ${teamsOn.n} 个团队挂在这个部门上，先换部门或退回待认领再删`);
-    db.exec('BEGIN');
+    // 外面已经开着事务（删部门时一并收回随负责人发的授予，services/dept-lead-grant.ts）就跟着它，不另开
+    const own = !db.isTransaction;
+    if (own) db.exec('BEGIN');
     try {
       const members = db.prepare('DELETE FROM department_members WHERE department_id = ?').run(id).changes;
       db.prepare('DELETE FROM departments WHERE id = ?').run(id);
-      db.exec('COMMIT');
+      if (own) db.exec('COMMIT');
       return { ok: true, members: Number(members) };
     } catch (e) {
-      try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ }
+      if (own) { try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ } }
       throw e;
     }
   }
