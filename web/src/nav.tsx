@@ -38,7 +38,6 @@ const BASE_GROUPS: NavGroup[] = [
     { path: '/tasks', name: '统一待办', icon: null },
     { path: '/sops', name: 'SOP 交付空间', icon: null },
     { path: '/skills', name: '技能市场', icon: null },
-    { path: '/overview', name: '原来的总览', icon: null },
     { path: '/reviews', name: '审核', icon: null },
   ] },
   { key: '/g/admin', name: '管理', admin: true, pages: [
