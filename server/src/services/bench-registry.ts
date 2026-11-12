@@ -14,13 +14,14 @@ import { BenchError } from '../bench-query.ts';
 import { BENCH_SLUG_RE } from './bench-store-core.ts';
 
 export type BenchBinding = { department_id: string; team_host: string; team: string };
-export type BenchEntry = { slug: string; title: string; created_by: string; created_at: number } & BenchBinding;
+export type BenchEntry = { slug: string; title: string; created_by: string; created_at: number; workbench_id: number | null } & BenchBinding;
 /** 登记的台最多这么多：每个台的在用数据有上限，台数也要有界 */
 export const MAX_BENCHES = 500;
 const DEPARTMENT_ID_RE = /^[a-z][a-z0-9-]{0,47}$/;
-const COLS = 'slug, title, created_by, created_at, department_id, team_host, team';
+// workbench_id：对应的登记台还在才给，删了按没有对应（null）
+const COLS = 'slug, title, created_by, created_at, department_id, team_host, team, (SELECT w.id FROM workbenches w WHERE w.id = bench_views.workbench_id) AS workbench_id';
 
-const row = (r: Record<string, unknown>): BenchEntry => ({ slug: String(r.slug), title: String(r.title), created_by: String(r.created_by), created_at: Number(r.created_at), department_id: String(r.department_id ?? ''), team_host: String(r.team_host ?? ''), team: String(r.team ?? '') });
+const row = (r: Record<string, unknown>): BenchEntry => ({ slug: String(r.slug), title: String(r.title), created_by: String(r.created_by), created_at: Number(r.created_at), department_id: String(r.department_id ?? ''), team_host: String(r.team_host ?? ''), team: String(r.team ?? ''), workbench_id: r.workbench_id === null || r.workbench_id === undefined ? null : Number(r.workbench_id) });
 const bindingText = (b: BenchBinding): string => (b.department_id ? `${b.department_id}${b.team ? ` / ${b.team_host} ${b.team}` : ''}` : '');
 
 export function listBenches(): BenchEntry[] {
@@ -52,24 +53,36 @@ export function parseBinding(o: Record<string, unknown>): BenchBinding {
   return { department_id: dep, team_host: host, team };
 }
 
+/** 核对应的登记台号：null 是不对应；给了就要是正整数，而且市场里登记着这个台 */
+export function parseWorkbenchId(v: unknown): number | null {
+  if (v === null) return null;
+  if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 1) throw new BenchError('invalid', 'workbench_id 要是登记的台号（正整数），或者 null');
+  if (!db.prepare('SELECT 1 FROM workbenches WHERE id = ?').get(v)) throw new BenchError('not_found', `没有登记的台 ${v}`);
+  return v;
+}
+const workbenchTaken = (id: number, slug: string): boolean => !!db.prepare('SELECT 1 FROM bench_views WHERE workbench_id = ? AND slug <> ?').get(id, slug);
+
 /** 登记一个新台。标识：小写字母或数字开头，只含小写字母、数字、连字符，最多 64 个字符；已有的拒绝。可以同时绑到部门 */
 export function createBench(input: unknown, actor: string, at: number): BenchEntry {
   const o = (input && typeof input === 'object' && !Array.isArray(input) ? input : {}) as Record<string, unknown>;
-  const extra = Object.keys(o).filter((k) => !['slug', 'title', 'department', 'team_host', 'team'].includes(k));
+  const extra = Object.keys(o).filter((k) => !['slug', 'title', 'department', 'team_host', 'team', 'workbench_id'].includes(k));
   if (extra.length) throw new BenchError('invalid', `登记台时有不认识的键：${extra.map((k) => k.slice(0, 40)).join('、')}`);
   if (typeof o.slug !== 'string' || !BENCH_SLUG_RE.test(o.slug)) throw new BenchError('invalid', '台的标识须为小写字母或数字开头，只含小写字母、数字、连字符，最多 64 个字符');
   if (typeof o.title !== 'string' || !o.title.trim() || o.title.length > 64) throw new BenchError('invalid', '台的名字须为 1～64 个字符');
   const b = parseBinding(o);
+  const wb = o.workbench_id === undefined ? null : parseWorkbenchId(o.workbench_id);
   if (getBench(o.slug)) throw new BenchError('conflict', `已经有标识是 ${o.slug} 的台`);
+  if (wb !== null && workbenchTaken(wb, o.slug)) throw new BenchError('conflict', `登记的台 ${wb} 已经对应了别的视图台`);
   const n = Number((db.prepare('SELECT COUNT(*) AS n FROM bench_views').get() as { n: number }).n);
   if (n >= MAX_BENCHES) throw new BenchError('limit', `登记的台已经到上限 ${MAX_BENCHES} 个`);
   db.exec('BEGIN IMMEDIATE');
   try {
-    db.prepare('INSERT INTO bench_views (slug, title, created_by, created_at, department_id, team_host, team) VALUES (?, ?, ?, ?, ?, ?, ?)').run(o.slug, o.title.trim(), actor, at, b.department_id, b.team_host, b.team);
+    db.prepare('INSERT INTO bench_views (slug, title, created_by, created_at, department_id, team_host, team, workbench_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(o.slug, o.title.trim(), actor, at, b.department_id, b.team_host, b.team, wb);
+    if (wb !== null) db.prepare('INSERT INTO bench_bind_audit (slug, action, before, after, actor, at) VALUES (?, ?, ?, ?, ?, ?)').run(o.slug, 'workbench', '', String(wb), actor, at);
     if (b.department_id) db.prepare('INSERT INTO bench_bind_audit (slug, action, before, after, actor, at) VALUES (?, ?, ?, ?, ?, ?)').run(o.slug, 'bind', '', bindingText(b), actor, at);
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
-  return { slug: o.slug, title: o.title.trim(), created_by: actor, created_at: at, ...b };
+  return { slug: o.slug, title: o.title.trim(), created_by: actor, created_at: at, workbench_id: wb, ...b };
 }
 
 /**
@@ -110,5 +123,31 @@ export function bindBench(slug: string, input: unknown, actor: string, at: numbe
     }
     db.exec('COMMIT');
     return { bench: { ...cur, ...b }, changed, revoked_mcp_grants: revoked, rejected_mcp_requests: rejected };
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+}
+
+/**
+ * 改一个台对应市场登记的哪个台（null 是去掉对应）。一个登记的台最多对应一个视图台：已经被别的视图台占着的拒绝（409）。
+ * 和现在一样的不留痕；变了在绑定的留痕表里记一行（action = workbench）。只是对应关系，不动谁进得来，所以不收授予。
+ */
+export function linkWorkbench(slug: string, input: unknown, actor: string, at: number): { bench: BenchEntry; changed: boolean } {
+  const o = (input && typeof input === 'object' && !Array.isArray(input) ? input : {}) as Record<string, unknown>;
+  const extra = Object.keys(o).filter((k) => !['workbench_id', 'note'].includes(k));
+  if (extra.length) throw new BenchError('invalid', `有不认识的键：${extra.map((k) => k.slice(0, 40)).join('、')}`);
+  if (o.workbench_id === undefined) throw new BenchError('invalid', '要给 workbench_id（登记的台号；null 是去掉对应）');
+  const wb = parseWorkbenchId(o.workbench_id);
+  const note = typeof o.note === 'string' ? o.note.trim().slice(0, 500) : '';
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const cur = getBench(slug);
+    if (!cur) throw new BenchError('not_found', '没有这个台');
+    if (wb !== null && workbenchTaken(wb, slug)) throw new BenchError('conflict', `登记的台 ${wb} 已经对应了别的视图台`);
+    const changed = cur.workbench_id !== wb;
+    if (changed) {
+      db.prepare('UPDATE bench_views SET workbench_id = ? WHERE slug = ?').run(wb, slug);
+      db.prepare('INSERT INTO bench_bind_audit (slug, action, before, after, actor, note, at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(slug, 'workbench', cur.workbench_id === null ? '' : String(cur.workbench_id), wb === null ? '' : String(wb), actor, note, at);
+    }
+    db.exec('COMMIT');
+    return { bench: getBench(slug)!, changed };
   } catch (e) { db.exec('ROLLBACK'); throw e; }
 }

@@ -225,7 +225,8 @@
       "created_at INTEGER NOT NULL",
       "department_id TEXT NOT NULL DEFAULT ''",
       "team_host TEXT NOT NULL DEFAULT ''",
-      "team TEXT NOT NULL DEFAULT ''"
+      "team TEXT NOT NULL DEFAULT ''",
+      "workbench_id INTEGER"
     ],
     "bindings": [
       "id INTEGER PK",
@@ -964,6 +965,7 @@
     "idx_bench_mcp_grants_bench ON bench_mcp_grants: CREATE INDEX idx_bench_mcp_grants_bench ON bench_mcp_grants (bench, session_id)",
     "idx_bench_mcp_requests_bench ON bench_mcp_requests: CREATE INDEX idx_bench_mcp_requests_bench ON bench_mcp_requests (bench, id)",
     "idx_bench_mcp_requests_session ON bench_mcp_requests: CREATE INDEX idx_bench_mcp_requests_session ON bench_mcp_requests (session_id, created_at)",
+    "idx_bench_views_workbench ON bench_views: CREATE UNIQUE INDEX idx_bench_views_workbench ON bench_views (workbench_id) WHERE workbench_id IS NOT NULL",
     "idx_bindings_node ON bindings: CREATE INDEX idx_bindings_node ON bindings (agent_node, revoked_at)",
     "idx_bindings_target ON bindings: CREATE INDEX idx_bindings_target ON bindings (target_type, target_slug, revoked_at)",
     "idx_change_requests_status ON change_requests: CREATE INDEX idx_change_requests_status ON change_requests (status, created_at)",
