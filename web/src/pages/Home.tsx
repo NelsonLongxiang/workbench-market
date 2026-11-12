@@ -72,7 +72,7 @@ export default function Home() {
       </Typography.Paragraph>
 
       {lcState === 'loading' && <Skeleton active paragraph={{ rows: 4 }} />}
-      {lcState === 'none' && <div className="wm-panel"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这里会显示公司正在走的每条线、各走到哪一步。" /></div>}
+      {lcState === 'none' && <div className="wm-home-box"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这里会显示公司正在走的每条线、各走到哪一步。" /></div>}
       {lcState === 'ok' && type && <>
         <div className="wm-grid" data-testid="home-grid" style={{ gridTemplateColumns: `200px repeat(${cols.length}, minmax(96px, 1fr))` }}>
           <div className="wm-grid-h"><b>{type.name}</b><span>一条线一行</span></div>
@@ -108,7 +108,7 @@ export default function Home() {
         <Link to="/attention" className="wm-sec-more">全部 →</Link>
       </div>
       {cards.length === 0
-        ? <div className="wm-panel"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={focus ? '这一步没有要你拍板的。' : '眼下没有要你拍板的。'} /></div>
+        ? <div className="wm-home-box"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={focus ? '这一步没有要你拍板的。' : '眼下没有要你拍板的。'} /></div>
         : <>
           {now.length > 0 && <div className="wm-decisions" data-testid="decisions-now">{now.map(card)}</div>}
           {elsewhere.length > 0 && <>
