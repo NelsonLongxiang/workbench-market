@@ -62,9 +62,9 @@ try {
   console.log('开关');
   {
     const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], { cwd: 'server', env: { ...process.env, DATA_DIR: DATA, PORT: '0', WM_CONTROL_PORT: '0', NODE_ENV: 'test', MCP_GATEWAY: 'off', WM_A2A_MEMBER_PROVENANCE: 'yes' }, encoding: 'utf8', timeout: 30000 });
-    ok('非法值拒绝启动', r.status !== 0 && /WM_A2A_MEMBER_PROVENANCE/.test(r.stderr + r.stdout), `status=${r.status}`);
+    ok('非法值拒绝启动（退出码 1，不是超时被杀）', r.status === 1 && r.signal === null && /拒绝启动：WM_A2A_MEMBER_PROVENANCE/.test(r.stderr + r.stdout), `status=${r.status} signal=${r.signal}`);
     const r2 = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], { cwd: 'server', env: { ...process.env, DATA_DIR: DATA, PORT: '0', WM_CONTROL_PORT: '0', NODE_ENV: 'test', MCP_GATEWAY: 'off', WM_A2A_TEAM_ROSTER: 'yes' }, encoding: 'utf8', timeout: 30000 });
-    ok('WM_A2A_TEAM_ROSTER 非法值拒绝启动', r2.status !== 0 && /WM_A2A_TEAM_ROSTER/.test(r2.stderr + r2.stdout), `status=${r2.status}`);
+    ok('WM_A2A_TEAM_ROSTER 非法值拒绝启动（退出码 1，不是超时被杀）', r2.status === 1 && r2.signal === null && /拒绝启动：WM_A2A_TEAM_ROSTER/.test(r2.stderr + r2.stdout), `status=${r2.status} signal=${r2.signal}`);
   }
 
   boot();
