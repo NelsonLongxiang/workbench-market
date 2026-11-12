@@ -6,6 +6,9 @@
   · 待认领的团队：只有管理员的视图里有；挂到部门，发对了请求；
   · 关系确认制（#638）：口令管理员（系统管理员，不是管理层）认领只记成提议（202）——页面说「已提出，等〈谁〉确认」、那张卡标「待确认」，
     不出现部门分块（关系没生效）；管理层确认之后（截下的应答换成认领了的）才按部门分块；
+  · 认领按钮照 can：系统管理员只能提议，按钮写「提议认领」；选了负责人又只是提议时，提示补一句负责人等认领确认后再指定；
+  · 待确认的关系（GET /api/relations/proposals，截下来换成合成的）：等你确认、你提的、别的三组，按钮照 can_approve / can_reject，
+    自己提的写「撤回」、不出确认；确认、撤回发对了请求，办完卡片没了，并广播「等你拍板」刷新；
   · 认领之后：按部门分块，团队头卡写状态、负责人（部门负责人标出来）、总工、成员数和在办；成员卡写在办几件、分配给谁或团队公用；
   · 不是管理员的视图（应答里没有待认领这一栏）：没有建部门、没有待认领；也没有分配、收回（接口还没给能不能做）。"""
 import json, sys, urllib.request
@@ -66,6 +69,17 @@ with sync_playwright() as p:
     pg.route('**/api/teams', on_teams)
     pg.route('**/api/teams/claim', on_write)
     pg.route('**/api/teams/leads', on_write)
+    # 人（只有管理员读得到）：截下来换成一个合成的启用的人，指定负责人时有得选
+    pg.route('**/api/principals', lambda r: fake(r, {'principals': [{'id': 'user:yi', 'kind': 'person', 'status': 'active', 'display_name': '乙主管'}]}))
+    props = {'list': []}
+    pg.route('**/api/relations/proposals', lambda r: fake(r, {'proposals': props['list']}))
+    def on_prop(r):
+        tail = r.request.url.split('/api/relations/proposals/')[1]
+        pid, verb = int(tail.split('/')[0]), tail.split('/')[1]
+        posted.append((verb, pid, json.loads(r.request.post_data or '{}')))
+        props['list'] = [p for p in props['list'] if p['id'] != pid]
+        fake(r, {'proposal': {'id': pid, 'status': 'approved' if verb == 'approve' else 'rejected'}})
+    pg.route('**/api/relations/proposals/*/*', on_prop)
     pg.goto(M + '/team'); pg.wait_for_selector('.wm-team-intro')
     set_token(pg)
     pg.wait_for_selector('[data-testid=team-empty]')
@@ -90,6 +104,8 @@ with sync_playwright() as p:
     # 认领：挂到部门、顺带指定负责人
     pick(pg, 'team-claim-dept', '合成运营部')
     check('选了部门才能认领', pg.locator('[data-testid=team-claim]').is_enabled())
+    check('系统管理员只能提议：按钮写「提议认领」，不写「认领」', pg.locator('[data-testid=team-claim]').inner_text().replace(' ', '') == '提议认领', pg.locator('[data-testid=team-claim]').inner_text())
+    pick(pg, 'team-claim-lead', '乙主管')
     def on_claim(r):
         posted.append(('claim', json.loads(r.request.post_data or '{}')))
         pend = {'id': 1, 'principal': None, 'department': 'synthetic-ops', 'confirm_by_text': CONFIRM_BY}
@@ -105,6 +121,7 @@ with sync_playwright() as p:
           pg.locator('[data-testid=team-claim-state]').inner_text().strip() == '待确认' and '合成运营部' in pg.locator('[data-testid=team-claim-pending]').inner_text()
           and pg.locator('[data-testid=team-claim]').count() == 0 and pg.locator('[data-testid=team-dept]').count() == 0, pg.locator('[data-testid=team-unclaimed]').inner_text())
     check('认领只是提议时不接着指定负责人（团队还没挂上）', all(x[0] == 'claim' for x in posted), posted)
+    check('选了的负责人被跳过时，提示补一句「负责人等认领确认后再指定」', '负责人等认领确认后再指定' in notice, notice)
 
     # 管理层确认之后：关系生效，按部门分块（截下的应答换成认领了的）
     state['teams'] = {'can': CAN_ADMIN, 'departments': [{'id': 'synthetic-ops', 'name': '合成运营部', 'lead': {'principal': 'user:jia', 'display_name': '甲经理'}, 'teams': [claimed('合成运营部')]}], 'unclaimed': []}
@@ -126,6 +143,39 @@ with sync_playwright() as p:
     check('没有放分配、收回（接口还没给能不能做）；没有工作方式、通过率、招 AI 员工', all(pg.locator('body').inner_text().count(s) == 0 for s in ['收回', '分配给…', '工作方式', '通过率', '招一个']))
 
     # 不是管理员的视图：应答里没有待认领这一栏
+    # 待确认的关系：三组、按钮照服务端的字段；办完卡片没了、广播「等你拍板」刷新
+    def P(i, kind, **more):
+        base = {'id': i, 'kind': kind, 'status': 'pending', 'department_id': 'synthetic-ops', 'host': HOST, 'team': 'ops/canvas/合成运营', 'principal_id': 'user:yi',
+                'proposed_by': 'admin-token', 'proposed_by_principal': None, 'proposed_at': 1_800_000_000_000, 'confirm_by_text': CONFIRM_BY,
+                'can_approve': False, 'approve_denied': None, 'approve_denied_text': None, 'can_reject': False}
+        base.update(more); return base
+    props['list'] = [
+        P(11, 'team-claim', can_approve=True, can_reject=True, proposed_by_name='丙'),
+        P(12, 'team-lead', mine=True, can_reject=True, confirm_by_text='属主', approve_denied='proposer_cannot_confirm', approve_denied_text='提议的人不能自己确认，要另一位确认'),
+        P(13, 'dept-lead', confirm_by_text='属主', approve_denied='owner_required', approve_denied_text='只有属主能放行', can_reject=True),
+    ]
+    pg.reload(); set_token(pg); pg.wait_for_selector('[data-testid=team-proposals-for-me]')
+    pg.evaluate("window.__att = 0; window.addEventListener('wm-attention-changed', () => { window.__att++; })")
+    fm, mi, ot = pg.locator('[data-testid=team-proposals-for-me]'), pg.locator('[data-testid=team-proposals-mine]'), pg.locator('[data-testid=team-proposals-others]')
+    check('三组：等你确认 1、你提的 1、还在等别人确认 1', fm.locator('[data-testid=team-proposal]').count() == 1 and mi.locator('[data-testid=team-proposal]').count() == 1 and ot.locator('[data-testid=team-proposal]').count() == 1)
+    t_fm = fm.inner_text()
+    check('等你确认：写清楚是什么（团队挂到哪个部门）、谁提的、等谁确认；有「确认」「驳回」', '把「合成运营」挂到「合成运营部」' in t_fm and '丙 提的' in t_fm and f'等{CONFIRM_BY}确认' in t_fm
+          and fm.locator('[data-testid=team-proposal-approve]').count() == 1 and fm.locator('[data-testid=team-proposal-reject]').inner_text().replace(' ', '') == '驳回', t_fm)
+    check('你提的：写「你提的」，按钮是「撤回」，没有「确认」（自己不能确认自己的）', '你提的' in mi.inner_text() and mi.locator('[data-testid=team-proposal-approve]').count() == 0
+          and mi.locator('[data-testid=team-proposal-reject]').inner_text().replace(' ', '') == '撤回' and '让 乙主管 做「合成运营」的负责人' in mi.inner_text(), mi.inner_text())
+    check('别的：写服务端给的不能确认的说法，没有「确认」；管理员能驳回', '只有属主能放行' in ot.inner_text() and ot.locator('[data-testid=team-proposal-approve]').count() == 0
+          and ot.locator('[data-testid=team-proposal-reject]').count() == 1 and '管理员 提的' in ot.inner_text(), ot.inner_text())
+    check('提议卡上不露标识（团队句柄、节点标识、主体标识）', not any(x in pg.locator('.wm-team-props').first.inner_text() for x in [HOST, 'ops/', 'user:', 'admin-token']))
+    n0 = len(posted)
+    fm.locator('[data-testid=team-proposal-approve]').click(); pg.wait_for_function("document.querySelectorAll('[data-testid=team-proposals-for-me]').length === 0")
+    check('确认发对了请求（这一条的 id），办完「等你确认」那一组没了，并广播「等你拍板」刷新', posted[n0][0] == 'approve' and posted[n0][1] == 11 and pg.evaluate('window.__att') >= 1, (posted[n0:], pg.evaluate('window.__att')))
+    mi.locator('[data-testid=team-proposal-reject]').click()
+    pg.locator('[data-testid=team-proposal-reason]').fill('  想错了  ')
+    pg.locator('[data-testid=team-proposal-reject-confirm]').click(); pg.wait_for_function("document.querySelectorAll('[data-testid=team-proposals-mine]').length === 0")
+    last = posted[-1]
+    check('撤回发的是驳回这一条，带着去掉空白的理由；办完「你提的」那一组没了', last[0] == 'reject' and last[1] == 12 and last[2].get('reason') == '想错了', last)
+    props['list'] = []
+
     state['teams'] = {'departments': state['teams']['departments']}
     pg.reload(); pg.wait_for_selector('[data-testid=team-dept]')
     check('不是管理员的视图：没有建部门、没有待认领', pg.locator('[data-testid=team-newdept-open]').count() == 0 and pg.locator('.wm-team-unclaimed').count() == 0)
