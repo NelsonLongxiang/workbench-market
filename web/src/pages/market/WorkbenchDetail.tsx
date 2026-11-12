@@ -1,6 +1,7 @@
 /** 单个台的详情（/market/wb/:id）：市场卡片右上角的「详情」入口进来；卡片本身点了照原型直接打开。
  *  头部（图标、名字、类别、在线状态和上次检测时间）、说明和标签、「打开」；管理员多一栏：立即检测、编辑（先回到管理页的那一行）、停用 / 启用。
- *  「这个台的数据视图」不放：数据视图的台（bench_views，按标识）和市场登记的台（按台号）现在没有对应关系，按名字去猜会对错台。
+ *  「这个台的数据视图」：数据视图的台上记着对应的登记台号（#674 的 workbench_id），按它找；找到了列视图的名字（只读），说在驾驶舱里怎么挂。
+ *  找不到、没权限、数据视图没开、这个台没有视图——整块不出现，不报错；不按名字去配。
  *  读不到时分「不在了 / 请先登录 / 没权限 / 读不到」各说各的；停用的台对不是管理员的人只说已停用。判断在 web/src/market-view.ts。 */
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
@@ -9,9 +10,9 @@ import { ExportOutlined, ReloadOutlined } from '@ant-design/icons';
 import './market.css';
 import WmPage from '../../components/WmPage';
 import RelTime from '../../components/RelTime';
-import { api, getMarketWorkbench } from '../../api';
+import { api, getBenchViewDoc, getMarketWorkbench, listBenchViews } from '../../api';
 import { adminActive, subscribeAdminToken } from '../../admin-token';
-import { detailProblem, healthLabel, initialOf, manageHref, usableIcon, workbenchIdOf, NO_DESCRIPTION } from '../../market-view';
+import { benchSlugFor, detailProblem, healthLabel, initialOf, manageHref, usableIcon, viewTitles, workbenchIdOf, NO_DESCRIPTION } from '../../market-view';
 import type { Workbench } from '../../types';
 
 type State = { phase: 'loading' } | { phase: 'ok'; w: Workbench } | { phase: 'problem'; kind: 'gone' | 'login' | 'denied' | 'error'; text: string };
@@ -34,6 +35,21 @@ export default function WorkbenchDetail() {
     setS(p ? { phase: 'problem', ...p } : { phase: 'ok', w: r.body as Workbench });
   }, [id]);
   useEffect(() => { void load(); }, [load, admin]);
+  // 这个台的数据视图：先在数据视图的台清单里按台号找，找到了再取它的视图名。任何一步没取到都当没有（这一块不出现）
+  const [views, setViews] = useState<string[]>([]);
+  useEffect(() => {
+    if (id === null) return;
+    let live = true;
+    setViews([]);
+    void (async () => {
+      const list = await listBenchViews();
+      const slug = benchSlugFor(list.status, list.body, id);
+      if (!slug) return;
+      const doc = await getBenchViewDoc(slug);
+      if (live) setViews(viewTitles(doc.status, doc.body));
+    })();
+    return () => { live = false; };
+  }, [id]);
 
   const act = async (what: 'check' | 'toggle', run: () => Promise<Workbench>, done: (w: Workbench) => string) => {
     setBusy(what);
@@ -79,6 +95,12 @@ export default function WorkbenchDetail() {
             {Array.isArray(w.tags) && w.tags.length > 0 && <div className="wm-mkt-tags" data-testid="wbd-tags">{w.tags.map((t) => <span key={t} className="wm-mkt-tag">{t}</span>)}</div>}
           </Flex>
         </Card>
+        {views.length > 0 && <Card size="small" title={`这个台的数据视图 ${views.length}`} data-testid="wbd-views">
+          <Flex vertical gap="small">
+            <div className="wm-mkt-tags">{views.map((t) => <span key={t} className="wm-mkt-tag" data-testid="wbd-view">{t}</span>)}</div>
+            <Typography.Text type="secondary" className="wm-caption">要在驾驶舱里看：打开一个驾驶舱，点「数据视图」把它们挂上。<Link to="/cockpit">去驾驶舱 →</Link></Typography.Text>
+          </Flex>
+        </Card>}
         {admin && <Card size="small" title="管理" data-testid="wbd-admin">
           <Flex vertical gap="small">
             <Space wrap>

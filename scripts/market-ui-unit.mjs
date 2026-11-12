@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 工作台市场页的纯函数单测（web/src/market-view.ts）：三个来源合成卡片、分类计数、读不到和空着时怎么说。数据都是合成的。 */
-import { NO_DESCRIPTION, cardTags, connectorCards, detailProblem, manageHref, tabsFor, workbenchIdOf, cardsOf, emptyText, extraTags, healthLabel, initialOf, runningBySlug, skillCards, sopCards, sourceProblem, tabFromQuery, usableIcon, workbenchCards } from '../web/src/market-view.ts';
+import { NO_DESCRIPTION, benchSlugFor, viewTitles, cardTags, connectorCards, detailProblem, manageHref, tabsFor, workbenchIdOf, cardsOf, emptyText, extraTags, healthLabel, initialOf, runningBySlug, skillCards, sopCards, sourceProblem, tabFromQuery, usableIcon, workbenchCards } from '../web/src/market-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -65,6 +65,15 @@ ok('连接器应答形状不对：按空处理', connectorCards(null).length ===
 ok('详情页读不到：不在了 / 请先登录 / 没权限 / 读不到 各说各的；读到了是 null', detailProblem(200) === null && detailProblem(404).kind === 'gone' && detailProblem(401).kind === 'login' && detailProblem(403).kind === 'denied' && detailProblem(500).kind === 'error' && detailProblem(0).kind === 'error');
 ok('地址里的台号：正整数才认', workbenchIdOf('12') === 12 && workbenchIdOf('0') === null && workbenchIdOf('abc') === null && workbenchIdOf('1.5') === null && workbenchIdOf(undefined) === null && workbenchIdOf('-3') === null);
 ok('「编辑」回管理页那一行：?q=台名（编码过）', manageHref('采购 台&x') === '/market/manage?q=' + encodeURIComponent('采购 台&x'));
+
+// 这个台的数据视图（#674 的 workbench_id）：只按台号对，不按名字；取不到都当没有
+{
+  const list = { benches: [{ slug: 'pricing', title: '定价台', workbench_id: 7 }, { slug: 'ops', title: '运营台', workbench_id: null }, { slug: 'same-name', title: '任务中心', workbench_id: 9 }] };
+  ok('数据视图的台：只认 workbench_id 正好是这个台号的那一项', benchSlugFor(200, list, 7) === 'pricing' && benchSlugFor(200, list, 8) === null && benchSlugFor(200, list, 9) === 'same-name');
+  ok('清单没取到（401 / 403 / 404 / 出错）或形状不对：当没有', benchSlugFor(403, list, 7) === null && benchSlugFor(404, { error: 'bench_views_off' }, 7) === null && benchSlugFor(200, { benches: 'x' }, 7) === null && benchSlugFor(200, null, 7) === null && benchSlugFor(200, { benches: [{ slug: 'x', workbench_id: '7' }] }, 7) === null);
+  const doc = { view: { content: { views: [{ key: 'board', title: '利润看板' }, { key: 'rows', title: ' 商品明细 ' }, { key: 'nokey' }] } } };
+  ok('视图的名字：取 view.content.views[].title；没写名字的不拿键顶替；没取到都是空', viewTitles(200, doc).join() === '利润看板,商品明细' && viewTitles(403, doc).length === 0 && viewTitles(200, { view: null }).length === 0);
+}
 
 console.log(`\nmarket-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

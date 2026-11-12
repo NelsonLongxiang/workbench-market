@@ -221,3 +221,21 @@ export function workbenchIdOf(raw: string | undefined): number | null {
 export function manageHref(name: string): string {
   return `/market/manage?q=${encodeURIComponent(name)}`;
 }
+
+/** 这个登记的台对应哪个数据视图的台（#674：GET /api/bench-views 每一项带 workbench_id）。只认 workbench_id 正好是这个台号的那一项，不按名字配。
+ *  清单没取到（没登录、没权限 403、没开启 404、出错）或者没有对应的，都是 null——详情页这一块就不出现 */
+export function benchSlugFor(status: number, body: unknown, workbenchId: number): string | null {
+  if (status !== 200) return null;
+  const list = (body as { benches?: unknown } | null)?.benches;
+  if (!Array.isArray(list)) return null;
+  const hit = list.find((b) => !!b && typeof b === 'object' && (b as { workbench_id?: unknown }).workbench_id === workbenchId && typeof (b as { slug?: unknown }).slug === 'string');
+  return hit ? (hit as { slug: string }).slug : null;
+}
+/** 一个数据视图的台有哪些视图的名字（GET /api/bench-views/<台>/view 的 view.content.views[]）。没取到、没有视图都是空——这一块不出现。
+ *  名字没写的用不上（不拿视图键顶替：键是代号） */
+export function viewTitles(status: number, body: unknown): string[] {
+  if (status !== 200) return [];
+  const views = (body as { view?: { content?: { views?: unknown } } | null } | null)?.view?.content?.views;
+  if (!Array.isArray(views)) return [];
+  return views.flatMap((v) => (v && typeof v === 'object' && typeof (v as { title?: unknown }).title === 'string' && (v as { title: string }).title.trim() ? [(v as { title: string }).title.trim()] : []));
+}

@@ -47,6 +47,21 @@ with sync_playwright() as p:
     pg.locator('[data-testid=wbd-open]').click(); pg.wait_for_url(re.compile(rf'/use/{W["id"]}$'))
     check('「打开」去 /use/<id>', pg.url.endswith(f'/use/{W["id"]}'))
 
+    # 这个台的数据视图（#674）：数据视图的台清单里有 workbench_id 正好是这个台号的，就列它的视图名；别的情况整块不出现
+    BV = re.compile(r'/api/bench-views$'); DOC = re.compile(r'/api/bench-views/syn-bench/view$')
+    def bench_list(match):
+        return lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps({'benches': [{'slug': 'syn-bench', 'title': '合成台', 'workbench_id': W['id'] if match else 99999}, {'slug': 'syn-other', 'title': W['name'], 'workbench_id': None}]}))
+    pg.route(DOC, fake(200, {'view': {'content': {'views': [{'key': 'board', 'title': '合成看板'}, {'key': 'rows', 'title': '合成明细'}]}}}))
+    pg.route(BV, bench_list(True)); pg.goto(M + f'/market/wb/{W["id"]}'); pg.wait_for_selector('[data-testid=wbd-views]')
+    check('有对应的数据视图台：列视图的名字（只读），说在驾驶舱里怎么挂', [t.strip() for t in pg.locator('[data-testid=wbd-view]').all_inner_texts()] == ['合成看板', '合成明细'] and '驾驶舱' in pg.locator('[data-testid=wbd-views]').inner_text())
+    for label, handler in (('没有 workbench_id 对上的（同名的台不算）', bench_list(False)), ('清单 403（没权限）', fake(403, {'error': 'bench_views_forbidden'})), ('数据视图没开（404）', fake(404, {'error': 'bench_views_off'}))):
+        pg.unroute(BV); pg.route(BV, handler); pg.goto(M + f'/market/wb/{W["id"]}'); pg.wait_for_selector('[data-testid=wbd-main]'); pg.wait_for_timeout(600)
+        check(f'{label}：整块不出现，不报错', pg.locator('[data-testid=wbd-views]').count() == 0 and pg.locator('.ant-alert-error').count() == 0)
+    pg.unroute(BV); pg.route(BV, bench_list(True)); pg.unroute(DOC); pg.route(DOC, fake(403, {'error': 'forbidden'}))
+    pg.goto(M + f'/market/wb/{W["id"]}'); pg.wait_for_selector('[data-testid=wbd-main]'); pg.wait_for_timeout(600)
+    check('对上了但视图读不到（403）：整块不出现', pg.locator('[data-testid=wbd-views]').count() == 0)
+    pg.unroute(BV); pg.unroute(DOC)
+
     # 读不到的几种
     for path, want in [('/market/wb/abc', 'gone'), ('/market/wb/999999', 'gone')]:
         pg.goto(M + path); pg.wait_for_selector('[data-testid=wbd-problem]')
