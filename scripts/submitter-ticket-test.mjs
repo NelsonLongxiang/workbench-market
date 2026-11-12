@@ -205,6 +205,31 @@ try {
     check(decide.status === 401, '放进建立人验收的请求体：还是没登录（401）', show(decide.status));
     check(intake.status === 201 && runP === null, '放进建任务中心录入的请求体：不认（提需求的人留空）', show({ s: intake.status, runP }));
   }
+  // ---------- 幂等键按提交方隔开：验过票据的人各是一方，匿名是一方；只有同一方之间才算重复 ----------
+  {
+    const env = (data, key, ticket) => ({ data, idempotency_key: key, ...(ticket ? { submitter_ticket: ticket } : {}) });
+    const K = 'idem-scope-1';
+    const a1 = await submit(env({ v: 'alpha' }, K, tA));
+    const b1 = await submit(env({ v: 'beta' }, K, tB));
+    check(a1.status === 201 && b1.status === 201 && b1.body?.id !== a1.body?.id, '两个验过票据的人用同一个键：各自照常写入（不 409、不当成重复）', show({ a: a1.status, b: b1.status, bb: b1.body }));
+    const a2 = await submit(env({ v: 'alpha' }, K, tA));
+    check(a2.status === 200 && a2.body?.duplicate === true && a2.body?.id === a1.body?.id && typeof a2.body?.created_at === 'string', '同一个人原样重试：重复，照旧带回第一次的 id 和时间', show(a2.body));
+    const a3 = await submit(env({ v: 'changed' }, K, tA));
+    check(a3.status === 409 && a3.body?.id === a1.body?.id, '同一个人同键换内容：409，带回那条的 id（是他自己的）', show(a3.body));
+    const n1 = await submit(env({ v: 'anon' }, K));
+    check(n1.status === 201 && ![a1.body?.id, b1.body?.id].includes(n1.body?.id), '匿名用别人用过的键：照常写入，碰不到验过票据的人那一条', show({ s: n1.status, b: n1.body }));
+    const n2 = await submit(env({ v: 'anon' }, K));
+    check(n2.status === 200 && n2.body?.duplicate === true && !('id' in (n2.body ?? {})) && !('created_at' in (n2.body ?? {})), '匿名对匿名原样重试：只说重复，不带那条的 id 和时间', show(n2.body));
+    const n3 = await submit(env({ v: 'other' }, K));
+    check(n3.status === 409 && !('id' in (n3.body ?? {})) && !('created_at' in (n3.body ?? {})) && !show(n3.body).includes(String(n1.body?.id)), '匿名对匿名同键换内容：照旧 409，但不带那条的 id 和时间', show(n3.body));
+    const stored = q('SELECT COUNT(*) AS n FROM app_data WHERE app_slug = ? AND idempotency_key = ?', 'tka', K)[0]?.n;
+    check(stored === 0, '库里存的不是光秃秃的键（前面带着提交方），老代码按原键查不到这几条', show(stored));
+    // 上线之前存的键（没有前缀）：按不存在处理
+    const w = new DatabaseSync(join(I.data, 'workbench-market.db'));
+    try { w.prepare("INSERT INTO app_data (app_slug, data, created_by, idempotency_key) VALUES ('tka', '{\"v\":\"legacy\"}', '', 'idem-legacy-1')").run(); } finally { w.close(); }
+    const old = await submit(env({ v: 'legacy-different' }, 'idem-legacy-1'));
+    check(old.status === 201, '上线之前存的键：按不存在处理，同键不同内容也照常写入（不 409）', show({ s: old.status, b: old.body }));
+  }
   // ---------- 不外泄 ----------
   {
     const leaks = [];

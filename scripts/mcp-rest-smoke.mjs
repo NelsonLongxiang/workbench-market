@@ -148,6 +148,10 @@ try {
   ok('违约 violations 与 /mcp 同一组', mv.body?.result?.isError && JSON.stringify(JSON.parse(mvText.split('\n').slice(1).join('\n')).violations) === JSON.stringify(restViolations));
   r = await rest(sess.token, 'app_data_submit', { slug: SLUG, data: { record_type: 'task', title: '整理清单', state: 'todo' }, idempotency_key: 'rest-1' });
   ok('合规写入 200（结果带 status=201 与 id）', r.status === 200 && r.body?.status === 201 && Number.isInteger(r.body?.id), JSON.stringify(r.body));
+  r = await rest(sess.token, 'app_data_submit', { slug: SLUG, data: { record_type: 'task', title: '整理清单', state: 'todo' }, idempotency_key: 'rest-1' });
+  ok('同一个会话原样重试：重复，带回第一次的 id', r.status === 200 && r.body?.duplicate === true && Number.isInteger(r.body?.id), JSON.stringify(r.body));
+  r = await call('POST', `/api/apps/${SLUG}/data`, { data: { record_type: 'task', title: '另一份', state: 'todo' }, idempotency_key: 'rest-1' });
+  ok('幂等键按提交方隔开：匿名的 REST 提交用 MCP 会话用过的键，照常写入（不 409）', r.status === 201, JSON.stringify(r.body));
   r = await rest(sess.token, 'app_data_list', { slug: SLUG });
   ok('写入者为 mcp:<会话名>（与 /mcp 同一身份）', (r.body?.items ?? []).some((x) => x.created_by === 'mcp:agent-rest'), JSON.stringify(r.body).slice(0, 200));
   r = await rest(sess.token, 'up__echo', { text: 'hi' });
