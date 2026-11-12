@@ -449,6 +449,8 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/work-items$/,
   // 团队：成员的分配、收回由团队的负责人做（路由内认人、核同源、判是不是负责人或管理员；只此两条）
   /^\/api\/teams\/(assign|unassign)$/,
+  // 授予的放行（L19）：管理层、属主多半不是管理员。路由内认人、核同源，三档规则判能不能放行；只此一条子路径
+  /^\/api\/grants\/[1-9]\d{0,15}\/approve$/,
   // 关系的提议：确认、驳回由属主、管理层、接收部门的负责人做，他们大多不是管理员（路由内认人、核同源，服务判能不能确认；只此两条）
   /^\/api\/relations\/proposals\/[1-9]\d{0,15}\/(approve|reject)$/,
   // MCP 工具 REST 开放：与 /mcp 同口径，凭会话令牌在路由内鉴权，不认管理口令
@@ -1912,7 +1914,7 @@ registerAuthViewerRoutes(http, { wrap, odooLoginUrl });
 
 // ---------- 主体管理（列出、停用、恢复）：路由在域模块里 ----------
 registerPrincipalRoutes(http, { markOdooAdmin, adminGuard, adminActor });
-registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor }); // 阶段六 6b：角色声明与授予（只建结构，不接判定）
+registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor, adminHeaderOk, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段六 6b：角色声明与授予（只建结构，不接判定）
 registerDepartmentRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 部门：登录的人读、管理员写
 registerTeamRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 团队与分配（规范 14 第 1 步）：登录的人按可见范围读；认领、负责人是管理员，分配是负责人
 registerRelationRoutes(http, { markOdooAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 关系的提议（规范 14「关系由谁说了算」）：负责人、团队认领要属主或业务侧确认

@@ -32,7 +32,9 @@ export type GrantRow = {
 };
 export type GrantEvent = { seq: number; grant_id: number; event: string; from_status: string | null; to_status: string; actor: string; actor_principal: string | null; reason: string; at: number };
 /** 做这一步的是谁：留痕写法（cli、admin-token、odoo:<登录名>）、对到的主体（没有为 null）、是不是属主 */
-export type Actor = { by: string; principal: string | null; owner: boolean };
+/** 做这一步的是谁。admin：过了管理员门（口令、管理员登录、本机命令行）；为 false 是登录的人自己（L19：放行入口对登录的人放开），
+ *  这时第一档（普通员工、访客这类，管理员即可放行的）不归他放行。不写当成过了管理员门（老的调用方都从管理员门进来） */
+export type Actor = { by: string; principal: string | null; owner: boolean; admin?: boolean };
 export type Refusal = { ok: false; http: 400 | 403 | 404 | 409 | 422; code: string; message: string };
 export type Result<T> = { ok: true } & T | Refusal;
 
@@ -42,7 +44,7 @@ const VERB: Record<string, string> = { submit: '提交', approve: '放行', revo
 /** 放行被拒时给页面的短说法（按拒绝代码；没列的用拒绝本身的说法） */
 const DENIED_TEXT: Record<string, string> = {
   owner_required: APPROVAL_TEXT.owner, business_approval_required: APPROVAL_TEXT.business, self_grant: '不能放行授给自己的',
-  drafter_cannot_approve: '起草的人不能自己放行，要另一位放行', expired: '已经过了期限', state: '不在待核',
+  drafter_cannot_approve: '起草的人不能自己放行，要另一位放行', expired: '已经过了期限', state: '不在待核', admin_required: '由管理员放行',
 };
 
 export class GrantService extends Service {
@@ -175,6 +177,7 @@ export class GrantService extends Service {
     if (bad) return bad;
     const view = this.roleViews.get(g.role);
     const tier = view ? approvalOf(view) : 'owner';
+    if (tier === 'admin' && !actor.owner && actor.admin === false) return refuse(403, 'admin_required', `角色 ${g.role} 由管理员放行`);
     if (tier === 'owner' && !actor.owner) return refuse(403, 'owner_required', `角色 ${g.role} ${view?.adminLevel ? '是管理员级的' : '带业务的拍板'}，${APPROVAL_TEXT.owner}`);
     if (tier === 'business' && !actor.owner && !this.isBusinessSide(actor.principal, now)) return refuse(403, 'business_approval_required', `角色 ${g.role} 带业务的写，${APPROVAL_TEXT.business}`);
     if (tier !== 'admin' && !actor.owner && (g.created_by === actor.by || (!!actor.principal && g.created_by_principal === actor.principal))) {
