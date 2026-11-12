@@ -166,7 +166,8 @@ try {
   r = await srv.call('GET', '/api/bench-views/demo/mcp-grants', { headers: REMOTE });
   check(r.status === 401, '没登录看台上的授予：401', r.status);
   r = await srv.call('POST', `/api/bench-views/demo/mcp-requests/${reqId}`, { ...member, body: { approve: true } });
-  check(r.status === 403, '普通员工批：403', r.status);
+  const mList = await srv.call('GET', '/api/bench-views/demo/mcp-grants', member);
+  check(r.status === 403 && mList.status === 403, '普通员工（范围「全部」）看台上的授予、批申请：都是 403', { decide: r.status, list: mList.status });
   r = await srv.call('GET', '/api/bench-views/demo/mcp-grants', mgr);
   check(r.status === 200 && r.json?.requests?.some((x) => x.id === reqId && x.session === 'seat-a' && x.reason === '读订单做日报') && r.json.grants.length === 0, '管理层看得到这条申请：哪个会话、要什么、为什么', r.text.slice(0, 200));
   r = await srv.call('GET', '/api/bench-views/other/mcp-grants', mgr);

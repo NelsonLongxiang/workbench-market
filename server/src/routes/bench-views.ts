@@ -205,9 +205,9 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
   }));
 
   // —— MCP 工具的授予（3b）：按「会话 × 台 × 工具」记，由能改这个台的人批；管理口令在上面已经拒了 ——
-  app.get('/api/bench-views/:bench/mcp-grants', { action: 'bench-store.mcp-list', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.mcp-list', 'read', async (req) => listBenchMcp(req.params.bench)));
-  app.put('/api/bench-views/:bench/mcp-grants', { action: 'bench-store.mcp-grant', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.mcp-grant', 'write', async (req, _res, _s, actor) => setBenchGrants(req.params.bench, req.body, actor, Date.now())));
-  app.post('/api/bench-views/:bench/mcp-requests/:id', { action: 'bench-store.mcp-decide', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.mcp-decide', 'write', async (req, _res, _s, actor) => {
+  app.get('/api/bench-views/:bench/mcp-grants', { action: 'bench-store.mcp-list', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.mcp-list', async (req) => listBenchMcp(req.params.bench)));
+  app.put('/api/bench-views/:bench/mcp-grants', { action: 'bench-store.mcp-grant', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.mcp-grant', async (req, _res, _s, actor) => setBenchGrants(req.params.bench, req.body, actor, Date.now())));
+  app.post('/api/bench-views/:bench/mcp-requests/:id', { action: 'bench-store.mcp-decide', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.mcp-decide', async (req, _res, _s, actor) => {
     const id = /^\d{1,9}$/.test(req.params.id) ? Number(req.params.id) : NaN;
     if (!Number.isInteger(id) || id < 1) throw new BenchError('not_found', '没有这条申请');
     return decideBenchRequest(req.params.bench, id, req.body?.approve, actor, req.body?.note, Date.now());
