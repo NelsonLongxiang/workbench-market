@@ -94,13 +94,9 @@ export function dueErrorText(status: number, code?: string): string {
   return '没改成，稍后再试';
 }
 
-/** 期限能不能在这里改：服务端给了 can.due 就照它；没给就看登录的人是不是建立人（服务端照样只认建立人，别人改会 404）。
- *  事项结束了（终态）不能改 */
-export function dueEditable(d: { can?: unknown; creator?: unknown; item?: { creator_principal?: unknown; state?: unknown } } | null | undefined, me: string | null, terminal: readonly string[]): boolean {
-  if (!d?.item || terminal.includes(String(d.item.state))) return false;
-  const c = d.can && typeof d.can === 'object' ? (d.can as Record<string, unknown>).due : undefined;
-  if (typeof c === 'boolean') return c;
-  if (!me) return false;
-  const cr = d.creator && typeof d.creator === 'object' ? (d.creator as { principal?: unknown }).principal : undefined;
-  return cr === me || d.item.creator_principal === me;
+/** 期限能不能在这里改：照服务端给的 can.due（建立人本人、事项没到终态；和 POST /due 同一处判断，管理员不能代改）。
+ *  没给 can.due（旧服务端）就不给「改」，页面不自己比是不是建立人 */
+export function dueEditable(d: { can?: unknown } | null | undefined): boolean {
+  const c = d?.can && typeof d.can === 'object' ? (d.can as Record<string, unknown>).due : undefined;
+  return c === true;
 }

@@ -29,10 +29,7 @@ ok('传之前先挡：超过 5 个、超过 100 MB、空文件', attachProblem(1
 ok('传附件没传成的说法：413 太大、415 类型、429 两种上限、摘要不符、可执行文件、断网', uploadErrorText(413).includes('100 MB') && uploadErrorText(415).includes('类型') && uploadErrorText(429, 'attachments_pending_bytes_limit').includes('500 MB') && uploadErrorText(429, 'attachments_pending_limit').includes('20 个')
   && uploadErrorText(400, 'sha256_mismatch').includes('重传') && uploadErrorText(400, 'x').includes('可执行') && uploadErrorText(0).includes('连不上'));
 ok('改期限没改成的说法：别人改 404、结束了 409、日期不对', dueErrorText(404).includes('建立人') && dueErrorText(409, 'work_item_ended').includes('结束') && dueErrorText(400, 'due_invalid') === '日期不对');
-const T = ['done', 'failed', 'dropped', 'cancelled'];
-const d = (state, extra = {}) => ({ item: { state, creator_principal: 'user:a' }, creator: { principal: 'user:a' }, ...extra });
-ok('期限能不能改：服务端给了 can.due 照它；没给看登录的人是不是建立人；终态不能改；没登录不能改', dueEditable(d('progress'), 'user:a', T) && !dueEditable(d('progress'), 'user:b', T) && !dueEditable(d('done'), 'user:a', T)
-  && !dueEditable(d('progress'), null, T) && dueEditable(d('progress', { can: { due: true } }), 'user:b', T) && !dueEditable(d('progress', { can: { due: false } }), 'user:a', T) && !dueEditable(null, 'user:a', T));
+ok('期限能不能改：只照服务端的 can.due（建立人本人、没到终态；管理员不能代改）；没给 can.due 不给改', dueEditable({ can: { due: true } }) && !dueEditable({ can: { due: false } }) && !dueEditable({ can: {} }) && !dueEditable({ can: { due: 'true' } }) && !dueEditable(null));
 
 console.log(`\nwork-item-extras-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

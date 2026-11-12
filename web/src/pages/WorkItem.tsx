@@ -22,7 +22,7 @@ export { STATE };
 import { choicesFor, routeFor, viewerOf, type Can, seatLine, showProgress, subitemsOf, ticketStateLabel } from '../work-item-view';
 import { teamLabel } from '../people';
 import { attachmentsOf, dueEditable, dueErrorText, dueLabel, dueOf, hasDueField, overdueOf, sizeLabel } from '../work-item-extras';
-import { getAuthMe, setWorkItemDue } from '../api';
+import { setWorkItemDue } from '../api';
 import { NO_NAMES, cleanSeatName, lifecycleNames, lineName, rosterNames, stageName, withRoster, type Names } from '../names';
 import { actorLabel, seatLabel, askerLabel, textOf, who, PROGRESS_STATE, TERMINAL, creatorLabel, hiddenInTimeline, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
 
@@ -261,9 +261,6 @@ export default function WorkItem() {
   const openAsks = asks ? asks.filter((a) => a.status === 'open').length : 0;
   // 「你」只给轮到的人：can / turn / creator 都取自详情应答（#587），不比对登录名、不看是不是管理员
   const viewer = viewerOf(data, who(item?.creator_principal || item?.created_by).replace(/^(user|human):/, ''));
-  // 登录的人是谁（主体）：只用来决定期限那一行给不给「改」（服务端没给 can.due 时）
-  const [me, setMe] = useState<string | null>(null);
-  useEffect(() => { void getAuthMe().then((m) => { const p = (m as { principal?: unknown } | null)?.principal; setMe(typeof p === 'string' && p ? p : null); }); }, []);
   const can = viewer.can;
   // 建立人能不能在这一页答：详情带了提问列表（建立人答复的入口开了），或者「关注」给了他答法
   const hint = item ? stateHint(item.state, item.seat, asks ? openAsks === 0 && asks.length > 0 : lastAskAnswered(data?.log ?? []), viewer, asks !== undefined || can.answer) : null;
@@ -294,7 +291,7 @@ export default function WorkItem() {
                 { key: 'at', label: '最近变化', children: <RelTime value={item.updated_at} /> },
                 // 期限：服务端给了这个字段才显示（旧服务端没有这个键，不写「不限」，可能其实有期限）；建立人、事项没结束时能改
                 ...(hasDueField(data?.item) || dueOf(item) ? [{ key: 'due', label: '期限', children: <DueLine itemId={item.id} due={dueOf(item)} overdue={overdueOf(data?.item)}
-                  editable={dueEditable(data, me, TERMINAL)} onSaved={() => void load()} /> }] : []),
+                  editable={dueEditable(data)} onSaved={() => void load()} /> }] : []),
               ]} />
             </Flex>
           </Card>

@@ -1,8 +1,8 @@
 """事项的期限和附件浏览器回归（接口照阶段七 claude/stage7-arrange-due-attach）；由 scripts/sider-menu-browser.mjs 起合成实例后调用，参数为配置 JSON 路径。
-事项详情、/api/auth/me、改期限、传附件、安排都用合成的应答（page.route 截下）：
+事项详情、改期限、传附件、安排都用合成的应答（page.route 截下）：
   · 详情：有期限写日期和离今天多远；过期照服务端的 overdue 标「已过期」；期限是 null 写「不限」；没有 due 这个键（旧服务端）不画这一行；
   · 附件：右栏「附件 N」，文件名取回、写大小；外链不出现；
-  · 改期限：只有建立人看得到「改」；保存发 POST /due { due }，清掉发 { due: null }；结束了的事项、不是建立人都没有「改」；被拒说服务端的说法；
+  · 改期限：照服务端的 can.due 给「改」；保存发 POST /due { due }，清掉发 { due: null }；结束了的事项、不是建立人都没有「改」；被拒说服务端的说法；
   · 安排一件事：选文件就传（PUT /api/work-items/attachments/<名字>，原始字节、带摘要头），传上的写大小、没传上的写原因、能去掉；安排时带 attachments:[id]。
 数据全是合成的。"""
 import json, re, sys
@@ -15,18 +15,17 @@ def check(n, c, x=''):
     if c: ok += 1; print('  ✓', n)
     else: fail += 1; print('  ✗', n, x)
 
-def item(i, state='progress', **extra):
+def item(i, state='progress', can_due=True, **extra):
     base = {'id': f'wi-syn-{i}', 'title': f'合成事项 {i}', 'state': state, 'created_by': 'user:syn-a', 'creator_principal': 'user:syn-a', 'created_at': '2026-11-10 08:00:00', 'updated_at': '2026-11-12 08:00:00',
             'source_kind': 'arrange', 'source_ref': '', 'target_team': '', 'seat': '', 'eval': '', 'eval_reason': '', 'progress_summary': '', 'receipt_outcome': '', 'object': '', 'phase': '', 'open_asks': '', 'outputs': '', 'evidence': ''}
     base.update(extra)
-    return {'item': base, 'log': [], 'messages': [], 'unread': 0, 'progress': None, 'can': {'release': False, 'answer': False, 'verify': False}, 'turn': {'release': False, 'answer': False, 'verify': False}, 'creator': {'principal': 'user:syn-a', 'display_name': '合成甲'}}
+    return {'item': base, 'log': [], 'messages': [], 'unread': 0, 'progress': None, 'can': {'release': False, 'answer': False, 'verify': False, 'due': can_due and state not in ('done', 'failed', 'dropped', 'cancelled')}, 'turn': {'release': False, 'answer': False, 'verify': False}, 'creator': {'principal': 'user:syn-a', 'display_name': '合成甲'}}
 ATT = [{'id': 'a1', 'name': '合成报价单.xlsx', 'size': 23456, 'mime': 'application/vnd.ms-excel', 'sha256': 'ab', 'url': '/api/work-items/wi-syn-1/attachments/a1'},
        {'id': 'a2', 'name': '合成外链.pdf', 'size': 10, 'mime': 'application/pdf', 'sha256': 'cd', 'url': 'https://example.invalid/a.pdf'},
        {'id': 'a3', 'name': '合成图片.png', 'size': None, 'mime': 'image/png', 'sha256': 'ef', 'url': '/api/work-items/wi-syn-1/attachments/a3'}]
-DETAILS = {'1': item(1, due='2099-12-31', overdue=False, attachments=ATT), '2': item(2), '3': item(3, due='2026-01-02', overdue=True),
-           '4': item(4, due=None, overdue=False), '5': item(5, state='done', due='2026-01-02', overdue=False)}
+DETAILS = {'1': item(1, due='2099-12-31', overdue=False, attachments=ATT), '2': item(2, can_due=False), '3': item(3, due='2026-01-02', overdue=True),
+           '4': item(4, due=None, overdue=False), '5': item(5, state='done', due='2026-01-02', overdue=False), '6': item(6, can_due=False, due='2099-12-31', overdue=False)}
 DETAIL = re.compile(r'/api/work-items/wi-syn-(\d+)$')
-me = {'principal': 'user:syn-a'}
 due_posts = []
 def on_due(route):
     body = json.loads(route.request.post_data or '{}'); due_posts.append(body)
@@ -38,7 +37,6 @@ with sync_playwright() as p:
     b = p.chromium.launch()
     pg = b.new_page(viewport={'width': 1440, 'height': 900}); pg.set_default_timeout(10000)
     pg.route(DETAIL, lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps(DETAILS[DETAIL.search(r.request.url).group(1)])))
-    pg.route('**/api/auth/me', lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps({'authenticated': True, 'via': 'odoo', 'login': 'syn', 'display_name': '合成甲', 'principal': me['principal'], 'roles': []})))
     pg.route(re.compile(r'/api/work-items/wi-syn-\d+/due$'), on_due)
     def open_item(i):
         pg.goto(M + f'/work-items/wi-syn-{i}'); pg.wait_for_selector('[data-testid=work-item-summary]'); pg.wait_for_timeout(300)
@@ -67,9 +65,8 @@ with sync_playwright() as p:
     check('改期限被拒（404）：说只有建立人能改', pg.locator('.ant-message-notice', has_text='只有建立人能改期限').count() >= 1)
     open_item(5)
     check('事项结束了：期限照写，没有「改」', pg.locator('[data-testid=work-item-due]').count() == 1 and pg.locator('[data-testid=work-item-due-edit]').count() == 0)
-    me['principal'] = 'user:someone-else'
-    open_item(1)
-    check('不是建立人：期限照写，没有「改」', pg.locator('[data-testid=work-item-due]').count() == 1 and pg.locator('[data-testid=work-item-due-edit]').count() == 0)
+    open_item(6)
+    check('服务端说不能改（can.due 为假：不是建立人，或管理员）：期限照写，没有「改」', pg.locator('[data-testid=work-item-due]').count() == 1 and pg.locator('[data-testid=work-item-due-edit]').count() == 0)
     open_item(2)
     summary = pg.locator('[data-testid=work-item-summary]').inner_text()
     check('旧服务端（没有 due 这个键）：不画期限、不写「不限」，没有附件卡片', pg.locator('[data-testid=work-item-due]').count() == 0 and '期限' not in summary and '不限' not in summary and pg.locator('[data-testid=work-item-attachments]').count() == 0, summary)
