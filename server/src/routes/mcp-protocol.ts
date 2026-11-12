@@ -55,7 +55,7 @@ export function registerMcpProtocolRoutes(app: HttpService, deps: McpProtocolDep
             protocolVersion: MCP_KNOWN_PROTOCOLS.includes(want) ? want : MCP_PROTOCOL,
             capabilities: { tools: {} },
             serverInfo: { name: 'workbench-market', version: '0.1.0', title: '工作台市场' },
-            instructions: `缺工具先调 access_info。大文件上传下载与资源读取可用同一会话令牌走 REST：${rest.rest_base}（OpenAPI：${rest.openapi_url}）`,
+            instructions: `缺工具先调 access_info。大文件上传下载与资源读取可用同一会话令牌走 REST：${rest.rest_base}（OpenAPI：${rest.openapi_url}）。上传成功的应答自带核对结果（integrity、sha256），不需要下载回读。`,
             ...rest,
           },
         });

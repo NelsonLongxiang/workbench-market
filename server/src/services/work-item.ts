@@ -153,11 +153,14 @@ export type NewWorkItem = {
   /** 8e：建立人的主体标识。只有认出了人、来源已验证时才给；不给就是空（没有「建立人」，只有管理员能处理） */
   creator_principal?: string | null;
   context?: Record<string, unknown>; event_id?: number | null; target_team?: string; seat?: string; object?: string; phase?: string;
+  /** 规范 14 第 2 步：交给方式、等谁过目、指名的席位（seatId） */
+  handoff?: Handoff; review_by?: ReviewBy; directed_seat_id?: string;
 };
 
 export type WorkItemRow = {
   id: string; title: string; created_at: string; created_by: string; creator_principal: string | null; source_kind: SourceKind; source_ref: string; context: string;
   event_id: number | null; task_ids: string; target_team: string; seat: string; eval: string; eval_reason: string; state: WorkItemState;
+  handoff: Handoff; review_by: ReviewBy; directed_seat_id: string; seat_id: string; seat_at: string;
   progress_summary: string; progress_at: string; open_asks: string; receipt_outcome: string; receipt_at: string;
   outputs: string; evidence: string; object: string; phase: string; updated_at: string;
 };
@@ -223,6 +226,20 @@ export type EventRow = {
   /** 1 = 派发，0 = 只通知（app-data）。8f-2 之前的调用方可能没带，按派发算 */
   dispatch?: number;
 };
+/** 规范 14 第 2 步：事项是怎么交出去的（字段名和取值和阶段七对齐过：阶段七的指名派工也经事件层 recorded 写这几项） */
+export const HANDOFFS = ['team', 'own-seat', 'lead-directed'] as const;
+export type Handoff = (typeof HANDOFFS)[number];
+export const REVIEW_BY = ['', 'lead', 'requester'] as const;
+export type ReviewBy = (typeof REVIEW_BY)[number];
+const SEAT_ID = /^seat-[0-9a-f]{8}$/;
+/** 从 recorded 那一行的 detail 里取交给方式（只在新建时取）；取值不认得的一律当没写：交给团队、不过目、没有指名 */
+function handoffOf(rec: { handoff?: unknown; review_by?: unknown; directed_seat_id?: unknown }): { handoff: Handoff; review_by: ReviewBy; directed_seat_id: string } {
+  const handoff = (HANDOFFS as readonly unknown[]).includes(rec.handoff) ? rec.handoff as Handoff : 'team';
+  const review_by = (REVIEW_BY as readonly unknown[]).includes(rec.review_by) ? rec.review_by as ReviewBy : '';
+  const directed_seat_id = typeof rec.directed_seat_id === 'string' && SEAT_ID.test(rec.directed_seat_id) ? rec.directed_seat_id : '';
+  return { handoff, review_by, directed_seat_id };
+}
+
 export type EventLogRow = { id: number; delivery_id: number | null; actor: string; action: string; detail: string };
 
 /** 事件的来源坐标（「task-center · task-center · task:1」）：没有更好的标题时的退路，也用来认出「标题还是自动起的」 */
@@ -571,11 +588,12 @@ export class WorkItemService extends Service {
       const createdBy = creator ?? (event.submitter_kind !== 'unverified' && /^[^:\s]+:\S/.test(who) ? who : `${event.submitter_kind}:${who || 'unknown'}`);
       const derived = derivedOf(event);
       // 「安排一件事」：挂在哪条线、哪一步，记在 recorded 那一行里（只在新建时取，存量没有这两项）
-      let rec: { object?: unknown; phase?: unknown } = {};
+      let rec: { object?: unknown; phase?: unknown; handoff?: unknown; review_by?: unknown; directed_seat_id?: unknown } = {};
       try { rec = JSON.parse(recorded.detail || '{}'); } catch { /* 坏的 detail 当没有 */ }
       const tag = (v: unknown) => (typeof v === 'string' ? v.trim().slice(0, 200) : '');
       this.insertItem(itemId, {
         title: derived.title, target_team: derived.target_team, created_by: createdBy, creator_principal: creator, object: tag(rec.object), phase: tag(rec.phase),
+        ...handoffOf(rec),
         source_kind: event.source as SourceKind, source_ref: event.event_id, event_id: event.id,
         context: { workbench: event.workbench, item: event.item, context_id: event.context_id, submitter_kind: event.submitter_kind, ...(creator && event.submitter_kind === 'unverified' ? { submitter_via: 'ticket' } : {}) },
       }, { source: EVENT_FACT_SOURCE, id: String(recorded.id) }, event.created_at);
@@ -614,10 +632,11 @@ export class WorkItemService extends Service {
   }
 
   private insertItem(id: string, input: NewWorkItem, by: { source: string; id: string }, createdAt?: string): void {
-    db.prepare(`INSERT INTO work_items (id, title, created_by, creator_principal, source_kind, source_ref, context, event_id, target_team, seat, object, phase, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))`).run(
+    db.prepare(`INSERT INTO work_items (id, title, created_by, creator_principal, source_kind, source_ref, context, event_id, target_team, seat, object, phase, handoff, review_by, directed_seat_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))`).run(
       id, input.title, input.created_by, input.creator_principal ?? null, input.source_kind, input.source_ref ?? '', JSON.stringify(input.context ?? {}),
-      input.event_id ?? null, input.target_team ?? '', input.seat ?? '', input.object ?? '', input.phase ?? '', createdAt ?? null, createdAt ?? null);
+      input.event_id ?? null, input.target_team ?? '', input.seat ?? '', input.object ?? '', input.phase ?? '',
+      input.handoff ?? 'team', input.review_by ?? '', input.directed_seat_id ?? '', createdAt ?? null, createdAt ?? null);
     db.prepare(`INSERT INTO work_item_log (item_id, fact, fact_source, fact_id, from_state, to_state, actor, detail)
       VALUES (?, 'create', ?, ?, 'draft', 'draft', ?, '{}')`).run(id, by.source, by.id, input.created_by);
   }

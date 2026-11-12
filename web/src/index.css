@@ -502,3 +502,8 @@ body { background: var(--wm-color-page); }
 .wm-ended ul { margin: var(--wm-space-1) 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: var(--wm-space-2) var(--wm-space-6); }
 .wm-ended li { display: flex; gap: var(--wm-space-2); align-items: baseline; }
 .wm-ended b { color: var(--wm-color-text); font-weight: var(--wm-font-weight-body); }
+
+/* 安排一件事 */
+.wm-drawer-foot { display: flex; justify-content: flex-end; gap: var(--wm-space-2); }
+.wm-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--wm-space-3); }
+.wm-full { width: 100%; }

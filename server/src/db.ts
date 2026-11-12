@@ -1008,6 +1008,20 @@ CREATE TRIGGER work_item_log_no_update BEFORE UPDATE ON work_item_log
 if (!(db.prepare('PRAGMA table_info(work_items)').all() as { name: string }[]).some((c) => c.name === 'creator_principal')) {
   db.exec("ALTER TABLE work_items ADD COLUMN creator_principal TEXT CHECK (creator_principal IS NULL OR creator_principal GLOB 'user:?*')");
 }
+// 规范 14 第 2 步：事项是怎么交出去的（建的时候记下，之后分配变了也不改）。
+//   handoff：team = 交给团队（总工分派；存量一律算这个），own-seat = 交给自己的 AI 员工，lead-directed = 负责人指名
+//   review_by：等谁过目——lead = 目标团队的负责人，requester = 建立人自己（交给自己的 AI 员工时勾了「先过目再派出去」），空 = 不过目
+//   directed_seat_id：指名的席位（seatId，形如 seat-<8hex>；句柄跟会话走会变，不存句柄）。第 3 步才按它派
+//   seat_id、seat_at：承接席位的 seatId 和第一次有承接的时间（「我的 AI 员工手上的」按这个时间点查分配）；由记承接的那一路写
+for (const [column, ddl] of [
+  ['handoff', "handoff TEXT NOT NULL DEFAULT 'team' CHECK (handoff IN ('team', 'own-seat', 'lead-directed'))"],
+  ['review_by', "review_by TEXT NOT NULL DEFAULT '' CHECK (review_by IN ('', 'lead', 'requester'))"],
+  ['directed_seat_id', "directed_seat_id TEXT NOT NULL DEFAULT ''"],
+  ['seat_id', "seat_id TEXT NOT NULL DEFAULT ''"],
+  ['seat_at', "seat_at TEXT NOT NULL DEFAULT ''"],
+] as const) {
+  if (!(db.prepare('PRAGMA table_info(work_items)').all() as { name: string }[]).some((c) => c.name === column)) db.exec(`ALTER TABLE work_items ADD COLUMN ${ddl}`);
+}
 db.exec(`
 CREATE TRIGGER IF NOT EXISTS work_items_creator_principal_once BEFORE UPDATE OF creator_principal ON work_items
   WHEN OLD.creator_principal IS NOT NULL AND NEW.creator_principal IS NOT OLD.creator_principal
@@ -1363,6 +1377,8 @@ function benchStoreSchema(d: BenchDialect): string[] {
       id ${benchAutoId(d)}, kind TEXT NOT NULL, target TEXT NOT NULL, from_version INTEGER NOT NULL, to_version INTEGER NOT NULL,
       actor TEXT NOT NULL, note TEXT NOT NULL, at ${big} NOT NULL)`,
     `CREATE INDEX IF NOT EXISTS idx_bs_snapshots_dataset ON bs_snapshots (dataset, id)`,
+    // 快照的行：一行数据一条，row 是按留快照时的列次序排的 JSON 数组。bs_snapshots.content 只放列定义和主键
+    `CREATE TABLE IF NOT EXISTS bs_snapshot_rows (snapshot_id ${big} NOT NULL, seq ${big} NOT NULL, row TEXT NOT NULL, PRIMARY KEY (snapshot_id, seq))`,
   ];
 }
 
@@ -1390,6 +1406,8 @@ export type BenchSqlKit = {
   dropIndex: string;
   /** 「这一列的文本里包含某段文本」（区分大小写）：两种库的函数名不同 */
   contains: string;
+  /** 把一行的各列拼成一个 JSON 数组的文本（留快照时在库里直接从数据集的表复制到快照的表，不经过服务的内存） */
+  snapshotRow: string;
   /**
    * 扫描守卫：把一条查询的筛选条件 {cond} 包起来，让库每扫过约 256 行回到服务里看一眼时限（bench_tick 由连接登记）。
    * 直接写「条件 AND bench_tick()」不行：条件先不成立时后一半不会算，一条全表扫但没有命中的查询就一次也回不来。
@@ -1410,6 +1428,7 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
       'SELECT id, dataset, dataset_version, reason, row_count, content, content_sha256, author, at FROM bs_snapshots WHERE 1 = 0',
       'SELECT id, dataset, op, idem_key, body_sha256, row_count, actor, at, result FROM bs_writes WHERE 1 = 0',
       'SELECT id, kind, target, from_version, to_version, actor, note, at FROM bs_changes WHERE 1 = 0',
+      'SELECT snapshot_id, seq, row FROM bs_snapshot_rows WHERE 1 = 0',
     ],
     types: types.map((t) => [t, benchSqlType(d, t)]),
     createTable: `CREATE TABLE {table} (rid ${benchAutoId(d)}{columns})`,
@@ -1418,6 +1437,7 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
     keyIndex: 'CREATE UNIQUE INDEX {index} ON {table} ({cols})',
     dropIndex: 'DROP INDEX IF EXISTS {index}',
     contains: d === 'sqlite' ? 'instr({col}, ?) > 0' : 'strpos({col}, ?) > 0',
+    snapshotRow: d === 'sqlite' ? 'json_array({cols})' : 'json_build_array({cols})::text',
     scanGuard: d === 'sqlite' ? 'CASE WHEN (rid & 255) <> 0 OR bench_tick() THEN ({cond}) ELSE 0 END' : null,
   };
 }

@@ -465,23 +465,24 @@ export class BenchStoreCore {
       await this.conn.run(`INSERT INTO ${tbl} (${r.cols.map(physCol).join(', ')}) VALUES (${r.cols.map(() => '?').join(', ')})`, r.vals);
     }
   }
-  /** 数据集的全部行，每行是按列定义的次序排的一个数组（快照就这样存：不在每一行里重复列名） */
-  private async rowsOf(ds: DatasetDef): Promise<unknown[][]> {
-    const rows = await this.conn.all(`SELECT ${ds.columns.map((c) => `${physCol(c.name)} AS "${c.name}"`).join(', ')} FROM ${physTable(ds.name)} ORDER BY rid`);
-    return rows.map((r) => ds.columns.map((c) => decodeValue(c.type, r[c.name])));
-  }
   /**
    * 给数据集留一份快照。内容和这个数据集最近的一份快照一样就不再存，返回那一份的编号（reused）：
    * 快照个数有上限、旧的先清，不改变数据的操作不该把还用得上的那几份挤掉。
    * 最近一次整份替换留下的那一份（上一代）不参与淘汰：替换之后又删了多少次行，替换前的数据都还退得回去，直到下一次整份替换。
+   *
+   * 行不读进服务的内存：先逐行扫一遍只算摘要（过一行丢一行），不重复才在库里直接从数据集的表复制到快照的表。
+   * 每行存成按列次序排的 JSON 数组；列定义和主键放在快照的头里。
    */
   private async takeSnapshot(ds: DatasetDef, reason: string, c: { actor: string; at: number }): Promise<{ id: number; reused: boolean }> {
-    const rows = await this.rowsOf(ds);
-    let content: string;
-    try { content = JSON.stringify({ columns: ds.columns, key: ds.key, rows }); } catch (e) {
-      throw new BenchError('limit', `数据集 ${ds.name} 太大，留不下快照；这次操作没有执行`, [], e);
-    }
-    const sum = sha256(content);
+    const tbl = physTable(ds.name), rowExpr = fill(this.kit.snapshotRow, { cols: ds.columns.map((x) => physCol(x.name)).join(', ') });
+    const head = JSON.stringify({ columns: ds.columns, key: ds.key });
+    const h = createHash('sha256').update(head, 'utf8');
+    let n = 0;
+    await this.conn.scan(`SELECT ${rowExpr} AS r FROM ${tbl} ORDER BY rid`, [], (r) => {
+      if ((n++ & 1023) === 0) this.conn.check('留快照的中途');
+      h.update('\n').update(String(r.r), 'utf8');
+    });
+    const sum = h.digest('hex');
     const last = await this.conn.all('SELECT id, reason, content_sha256 FROM bs_snapshots WHERE dataset = ? ORDER BY id DESC LIMIT 1', [ds.name]);
     if (last.length && last[0].content_sha256 === sum) {
       // 沿用的这一份现在是「替换前的上一代」了：改记成替换留下的，它才受上面那条保护
@@ -489,12 +490,17 @@ export class BenchStoreCore {
       return { id: Number(last[0].id), reused: true };
     }
     const r = await this.conn.all('INSERT INTO bs_snapshots (dataset, dataset_version, reason, row_count, content, content_sha256, author, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
-      [ds.name, ds.version, reason, rows.length, content, sum, c.actor, c.at]);
+      [ds.name, ds.version, reason, n, head, sum, c.actor, c.at]);
+    const id = Number(r[0].id);
+    await this.conn.run(`INSERT INTO bs_snapshot_rows (snapshot_id, seq, row) SELECT ?, rid, ${rowExpr} FROM ${tbl}`, [id]);
     const all = await this.conn.all('SELECT id, reason FROM bs_snapshots WHERE dataset = ? ORDER BY id DESC', [ds.name]);
     const pinned = all.find((x) => x.reason === 'replace');
     const others = all.filter((x) => x !== pinned);
-    for (const x of others.slice(BENCH_LIMITS.snapshots - (pinned ? 1 : 0))) await this.conn.run('DELETE FROM bs_snapshots WHERE id = ?', [Number(x.id)]);
-    return { id: Number(r[0].id), reused: false };
+    for (const x of others.slice(BENCH_LIMITS.snapshots - (pinned ? 1 : 0))) {
+      await this.conn.run('DELETE FROM bs_snapshot_rows WHERE snapshot_id = ?', [Number(x.id)]);
+      await this.conn.run('DELETE FROM bs_snapshots WHERE id = ?', [Number(x.id)]);
+    }
+    return { id, reused: false };
   }
 
   /** 整份替换：给全部行，原子切换；原来有数据就先留一份快照（上一代）。行可以给数组，也可以给原始字节（见 decodeInput） */
@@ -601,14 +607,24 @@ export class BenchStoreCore {
       const s = Number.isSafeInteger(snapshotId) ? await this.conn.all('SELECT id, dataset, content FROM bs_snapshots WHERE id = ?', [snapshotId]) : [];
       if (!s.length) throw new BenchError('not_found', `没有快照 #${String(snapshotId)}`);
       const ds = await this.need(String(s[0].dataset));
-      const snap = JSON.parse(String(s[0].content)) as { columns: ColumnDef[]; rows: unknown[][] };
+      const snap = JSON.parse(String(s[0].content)) as { columns: ColumnDef[] };
       // 快照里的行是数组，次序是留快照时的列定义；现在还在、类型没变的列才放回去
-      const cols = snap.columns.map((x, i) => ({ name: x.name, i, usable: ds.columns.some((y) => y.name === x.name && y.type === x.type) }));
+      const cols = snap.columns.map((x, i) => ({ name: x.name, type: x.type, i, usable: ds.columns.some((y) => y.name === x.name && y.type === x.type) }));
       const usable = cols.filter((x) => x.usable), dropped = cols.filter((x) => !x.usable).map((x) => x.name);
-      const checked = checkRows(ds, snap.rows.map((r) => Object.fromEntries(usable.map((u) => [u.name, r[u.i]]))), 'full', BENCH_LIMITS.rows, Infinity);
       const backup = ds.row_count > 0 ? (await this.takeSnapshot(ds, 'before-restore', c)).id : undefined;
       await this.conn.run(`DELETE FROM ${physTable(ds.name)}`);
-      await this.insert(ds, checked);
+      // 一批一批放回去，不把整份快照读进内存；中途出错由事务整个回滚
+      let after = -1, restored = 0;
+      for (;;) {
+        this.conn.check('退回快照的中途');
+        const page = await this.conn.all('SELECT seq, row FROM bs_snapshot_rows WHERE snapshot_id = ? AND seq > ? ORDER BY seq LIMIT 500', [snapshotId, after]);
+        if (!page.length) break;
+        after = Number(page[page.length - 1].seq);
+        const rows = page.map((p) => { const arr = JSON.parse(String(p.row)) as unknown[]; return Object.fromEntries(usable.map((u) => [u.name, decodeValue(u.type, arr[u.i])])); });
+        await this.insert(ds, checkRows(ds, rows, 'full', 500, Infinity));
+        restored += rows.length;
+      }
+      const checked = { length: restored };
       const bytes = await this.account(ds);
       await this.conn.run('UPDATE bs_datasets SET row_count = ?, data_bytes = ?, updated_at = ?, updated_by = ? WHERE name = ?', [checked.length, bytes, c.at, c.actor, ds.name]);
       await this.change('dataset.restore', ds.name, ds.version, ds.version, { ...c, note: c.note || `退回快照 #${snapshotId}` });

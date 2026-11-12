@@ -169,7 +169,7 @@ export const MCP_TOOLS: McpToolDef[] = [
   {
     name: 'app_files_list',
     category: 'read',
-    description: '读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。',
+    description: '读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -184,15 +184,15 @@ export const MCP_TOOLS: McpToolDef[] = [
   {
     name: 'app_files_upload',
     category: 'write',
-    description: '向自产台上传文件（base64 内容·原始 ≤100MB/个，base64 约 ≤134MB）——agent 侧交付物直接入台文件面（与 REST multipart 同表同链、同一套按内容的类型检查）。返回 id/url/mime/size/sha256/note。建议同时传 size（原始字节数）或 sha256：有的 MCP 客户端会把过长的参数截短（常见截在 64KB），带上它们服务端才能发现并拒收残缺文件；base64 恰好 65536 字符又没带时按疑似截断拒收。上传前可用 app_files_list 的 quota 查剩余文件数与上限。超过几十 KB 的文件优先用 REST 上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>，请求体为原始字节（同一会话令牌，不经 base64；入口见 access_info 的 rest_base 与 openapi_url）。',
+    description: '向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务端核对，不符就拒收、不保存（防客户端把长参数截短，base64 恰好 65536 字符又都没带时按疑似截断拒收）。成功应答的 sha256 是服务端对已保存字节算的，和本地文件一致就是完整的，不要为了验证再下载；integrity 为 sha256-verified 时服务端已替你核对过。超过几十 KB 的文件优先用 REST 原始字节上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>（同一会话令牌，不经 base64，可带请求头 X-Content-SHA256；入口见 access_info 的 rest_base 与 openapi_url）。剩余文件数看 app_files_list 的 quota。',
     inputSchema: {
       type: 'object',
       properties: {
         slug: { type: 'string' },
         name: { type: 'string', description: '原始文件名（含扩展名）' },
         content_base64: { type: 'string', description: '文件内容 base64（≤100MB 原始）' },
-        size: { type: 'integer', description: '原始字节数（建议带：与收到的内容不符即拒收，防客户端截断）' },
-        sha256: { type: 'string', description: '原始内容 sha256（64 位十六进制，建议带：不符即拒收）' },
+        size: { type: 'integer', description: '原始字节数（与收到的内容不符即拒收；能带 sha256 就带 sha256）' },
+        sha256: { type: 'string', description: '原始内容 sha256（64 位十六进制，推荐带：带了就由服务端替你核对，不符即拒收、不保存）' },
         mime: { type: 'string', description: 'MIME（缺省 application/octet-stream）' },
         note: { type: 'string', description: '备注（≤500 字·可 PATCH 更新）' },
         created_by: { type: 'string', description: '创建者标识（≤128 字符）' },

@@ -375,6 +375,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   task-center.ts（任务中心元台种子+收件发布）
   tasks-read-access.ts（#324 待办身份与来源授权）
   tasks.ts（定时任务）
+  upload-integrity.ts（上传应答的核对结果：调用方带了期望的 sha256 / size 且对上才会存，应答写明 integrity 与 next，agent 不必下载回读；MCP 上传与 REST 上传共用）
   url-admission.ts（#258 R3 业务 URL 登记准入单核·WM_REGISTER_URL_ALLOWLIST）
   vault-api.ts（凭据库 REST 面）
   vault/（dsh-vault 存储层引入件·见其 README）
@@ -407,7 +408,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   remote-allow.ts（远程写豁免面的快照）
   submission-counts.ts（「人提需求」的提交计数：只记通道、有没有登录凭据、认没认出人，按天累计次数，不存内容；提交人票据验得过、验不过的次数）
   task-center.ts（任务中心：任务、事件、总开关、状态迁移）
-  work-item.ts（事项与事项日志：Cordis 服务 `workItems`·按迁移表推进状态的唯一入口 `apply`·日志只增不改；听 workbench-events 每写一行事件日志发的 `workbench-event/logged`，在来源的事务里用保存点推进事项，出错不影响来源、按事实种类计数；`backfill()` 从事件表和事件日志补建存量事项，可重跑；建事项时标题取任务中心的任务标题（取不到退到来源坐标）、派给取投递的目标团队，存量里还是自动缺省值的启动时补上；建立人主体 `creator_principal` 只取发布时经身份服务认出、来源已验证的人，认不出就空着，「是不是他的」只认它（`isCreator`），`created_by` 只用于显示（认出提需求人时就是他的主体，认不出才用事件上自填的名字；不拿发布人顶替））
+  work-item.ts（事项与事项日志：Cordis 服务 `workItems`·按迁移表推进状态的唯一入口 `apply`·日志只增不改；听 workbench-events 每写一行事件日志发的 `workbench-event/logged`，在来源的事务里用保存点推进事项，出错不影响来源、按事实种类计数；`backfill()` 从事件表和事件日志补建存量事项，可重跑；建事项时记下交给方式（handoff：team / own-seat / lead-directed，存量是 team）、等谁过目（review_by）和指名的席位（directed_seat_id，只认 seatId），都从事件层 recorded 那一行取；建事项时标题取任务中心的任务标题（取不到退到来源坐标）、派给取投递的目标团队，存量里还是自动缺省值的启动时补上；建立人主体 `creator_principal` 只取发布时经身份服务认出、来源已验证的人，认不出就空着，「是不是他的」只认它（`isCreator`），`created_by` 只用于显示（认出提需求人时就是他的主体，认不出才用事件上自填的名字；不拿发布人顶替））
 server/src/routes/    按域分的路由模块，各带一个注册函数（一个文件一行，按文件名排序）：
   a2a-direct.ts（A2A 入站 /a2a/direct：POST 收对端投递（回执分流、入站签名、绑定准入），GET 一律 404）
   a2a-outbound.ts（A2A 出站的两条管理面：/api/a2a/state 本节点 A2A 身份概况、/api/a2a/send 以市场身份发一条消息；都只给管理员，send 只发给对端登记表里 active 的对端，发往登记的根地址）
@@ -491,7 +492,7 @@ data/           SQLite 数据文件（git 忽略）
 | 面 | 语义 |
 |---|---|
 | `POST /api/apps/:slug/files` | multipart 上传（`file` 字段·≤100MB）；可带 `note`/`created_by` 表单字段 |
-| `POST /mcp` `app_files_upload` | **MCP 侧上传**：`{slug,name,content_base64,size?,sha256?,mime?,note?,created_by?}`——同表同链（app_files+落盘）。有的 MCP 客户端会把过长参数截短（常见截在 64KB），所以 base64 严格校验、带了 `size`/`sha256` 不符即拒收不落库、恰好 65536 字符又没带时按疑似截断拒收；大文件优先用 REST 原始字节上传 |
+| `POST /mcp` `app_files_upload` | **MCP 侧上传**：`{slug,name,content_base64,size?,sha256?,mime?,note?,created_by?}`——同表同链（app_files+落盘）。有的 MCP 客户端会把过长参数截短（常见截在 64KB），所以 base64 严格校验、带了 `size`/`sha256` 不符即拒收不落库、恰好 65536 字符又没带时按疑似截断拒收；大文件优先用 REST 原始字节上传。成功应答带 `integrity`（带了 sha256 且对上为 `sha256-verified`，只带 size 为 `size-verified`，都没带为 `unverified`）和给 agent 的 `next`：应答的 `sha256` 是服务端对已保存字节算的，与本地一致即完整，不需要下载回读 |
 | `GET /api/apps/:slug/files` | 列表（倒序游标）：`id/original_name/mime/size/note/created_by/created_at/url`·软删行不返 |
 | `GET /api/apps/:slug/files/:id` | 下载：`Content-Disposition` 白名单 mime inline（png/jpeg/webp/gif/pdf/plain/csv/markdown），其余 attachment·`nosniff` |
 | `PATCH /api/apps/:slug/files/:id` | 更新 `note`（≤500 字） |
@@ -619,15 +620,15 @@ MCP 自带一套 REST：不说 MCP 协议的客户端（普通脚本、按 OpenA
 
 | 接口 | 需要的工具授权 | 说明 |
 |---|---|---|
-| `PUT {rest_base}/apps/{slug}/files/{文件名}` | `app_files_upload` | 请求体就是文件的原始字节，边收边落盘，不整包读进内存，单文件 ≤100MB；可带 `?note=&created_by=`（`created_by` 缺省为 `mcp:<会话名>`） |
-| `POST {rest_base}/apps/{slug}/files` | `app_files_upload` | multipart：字段 `file`，可选 `note`、`created_by` |
+| `PUT {rest_base}/apps/{slug}/files/{文件名}` | `app_files_upload` | 请求体就是文件的原始字节，边收边落盘，不整包读进内存，单文件 ≤100MB；可带 `?note=&created_by=`（`created_by` 缺省为 `mcp:<会话名>`）；推荐带请求头 `X-Content-SHA256`（期望的 sha256），不符 400、不保存 |
+| `POST {rest_base}/apps/{slug}/files` | `app_files_upload` | multipart：字段 `file`，可选 `note`、`created_by`、`sha256`（期望的 sha256，也可放请求头 `X-Content-SHA256`，两处都带须一致） |
 | `GET {rest_base}/apps/{slug}/files` | `app_files_list` | 列文件，倒序分页（`limit`、`before_id`），带 `quota` |
 | `GET {rest_base}/apps/{slug}/files/{id}` | `app_files_list` | 二进制下载 |
 | `GET {rest_base}/apps/{slug}/data` | `app_data_list` | 读台数据（分页） |
 | `GET {rest_base}/sop/runs/{id}` | `sop_run_get` | 结果与 sop_run_get 相同；没有 run 读授权时只返回元数据 |
 | `GET {rest_base}/sop/runs/{id}/files[/{fileId}]` | `sop_run_get` + 该 run 的读授权 | 附件列表与下载 |
 
-- 上传和浏览器上传走同一套入库核心：按内容识别类型（扩展名与内容不符、或是可执行文件返回 415），并检查台文件数配额。返回 `id`、`sha256`、`mime`、`size`、`url`（REST 下载地址）和 `download_url`（台页面用的下载地址）。
+- 上传和浏览器上传走同一套入库核心：按内容识别类型（扩展名与内容不符、或是可执行文件返回 415），并检查台文件数配额。返回 `id`、`sha256`、`mime`、`size`、`url`（REST 下载地址）、`download_url`（台页面用的下载地址）、`integrity`（`sha256-verified` / `unverified`）和 `next`；`sha256` 是对已保存字节算的，与本地一致即完整，不需要下载回读。
 - 下载：响应头 `ETag` 和 `X-Content-SHA256` 都是文件的 sha256（上传时存进 `app_files.sha256`；早先没存的文件第一次下载时算一次并写回）；`If-None-Match` 命中返回 304；单段 `Range`（`bytes=a-b` / `a-` / `-n`）返回 206，越界返回 416；`If-Range` 不符时回整份。安全头沿用现有下载：`Content-Disposition: attachment`、`X-Content-Type-Options: nosniff`。
 
 ```bash

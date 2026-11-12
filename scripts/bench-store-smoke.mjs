@@ -131,17 +131,31 @@ try {
   ok('S6 替换前的数据找得回来', (await s.query({ dataset: 'keep', sort: [{ col: 'id' }] })).rows.map((x) => `${x.id}${x.v}`).join() === '1good,2good');
   e = await refused(() => s.deleteRows('keep', [{ v: 'good' }], ctx()));
   ok('S7 删行的键个数对、名字不对也被拒', e?.code === 'invalid', e);
-  // 快照序列化不下来（数据集大到一定程度会这样）：说清是超限，后面的破坏性操作不执行。
-  // 要在同一个线程里把 JSON.stringify 换掉才造得出来，所以这一项不经工作线程，直接用逻辑本体
+  // 快照的行在库里一行一条，头里只有列定义和主键：不把整个数据集拼成一段文本
   const inproc = new BenchHost(join(DATA, 'inproc'), benchSqlKit('sqlite'));
   const core = await inproc.store('keep');
-  await core.defineDataset({ name: 'keep', columns: [{ name: 'id', type: 'integer' }, { name: 'v', type: 'text' }], key: ['id'] }, ctx());
-  await core.replace('keep', [{ id: 1, v: 'good' }, { id: 2, v: 'good' }], ctx());
-  const realStringify = JSON.stringify;
-  JSON.stringify = (v, ...a) => { if (v && typeof v === 'object' && Array.isArray(v.rows) && Array.isArray(v.columns)) throw new RangeError('Invalid string length'); return realStringify(v, ...a); };
-  try { e = await refused(() => core.replace('keep', [{ id: 5, v: 'x' }], ctx())); } finally { JSON.stringify = realStringify; }
-  ok('S8 快照留不下来：报超限，替换没有执行', e?.code === 'limit' && (await core.query({ dataset: 'keep' })).rows.length === 2, e);
+  await core.defineDataset({ name: 'keep', columns: [{ name: 'id', type: 'integer' }, { name: 'v', type: 'text' }, { name: 'ok', type: 'boolean' }, { name: 'n', type: 'decimal' }], key: ['id'] }, ctx());
+  const tricky = [{ id: 1, v: '带"引号"和\\反斜杠\n换行，和逗号', ok: true, n: 1.5 }, { id: 2, v: null, ok: false, n: null }, { id: 3, v: '[1,2]', ok: null, n: -0.25 }];
+  await core.replace('keep', tricky, ctx());
+  const snapId = (await core.replace('keep', [{ id: 9, v: 'x', ok: true, n: 0 }], ctx())).snapshot_id;
   await inproc.closeAll();
+  const sdb = new DatabaseSync(join(DATA, 'inproc', 'keep.sqlite'));
+  const headRow = sdb.prepare('SELECT content, row_count FROM bs_snapshots WHERE id = ?').get(snapId);
+  const nRows = sdb.prepare('SELECT COUNT(*) AS n FROM bs_snapshot_rows WHERE snapshot_id = ?').get(snapId).n;
+  sdb.close();
+  ok('S8 快照：头里只有列定义和主键，行在快照的行表里一行一条', Object.keys(JSON.parse(headRow.content)).sort().join() === 'columns,key' && nRows === 3 && headRow.row_count === 3, { head: headRow.content.slice(0, 80), nRows });
+  const core2 = await new BenchHost(join(DATA, 'inproc'), benchSqlKit('sqlite')).store('keep');
+  await core2.restore(snapId, ctx());
+  const backRows = (await core2.query({ dataset: 'keep', sort: [{ col: 'id' }] })).rows;
+  ok('S8 退回之后和原来逐格相同：引号、反斜杠、换行、空、布尔、小数、长得像数组的文本', JSON.stringify(backRows) === JSON.stringify(tricky), backRows);
+  // 超过一批（500 行）的也一行不差
+  const many600 = Array.from({ length: 1234 }, (_, i) => ({ id: i, v: `行${i}`, ok: i % 2 === 0, n: i / 4 }));
+  await core2.replace('keep', many600, ctx());
+  const bigSnap = (await core2.replace('keep', [{ id: 1, v: 'x', ok: null, n: null }], ctx())).snapshot_id;
+  await core2.restore(bigSnap, ctx());
+  const backMany = (await core2.query({ dataset: 'keep', sort: [{ col: 'id' }], limit: 5000 })).rows;
+  ok('S8 一千多行（跨三批）退回之后一行不差', backMany.length === 1234 && JSON.stringify(backMany) === JSON.stringify(many600));
+  ok('S8 清掉的快照，它的行也跟着清', await (async () => { for (let i = 0; i < 8; i++) await core2.replace('keep', [{ id: i, v: String(i), ok: null, n: null }], ctx()); const ids = (await core2.snapshots('keep')).map((x) => x.id); await core2.close(); const d = new DatabaseSync(join(DATA, 'inproc', 'keep.sqlite')); const orphan = d.prepare(`SELECT COUNT(*) AS n FROM bs_snapshot_rows WHERE snapshot_id NOT IN (${ids.join(',')})`).get().n; d.close(); return orphan === 0 && ids.length === BENCH_LIMITS.snapshots; })());
 
   // —— 改列定义 ——
   console.log('改列定义');
@@ -548,6 +562,24 @@ try {
   e = await refused(() => big.renderView());
   configureBenchRuntime(base);
   ok('R9 取数超时：整个这一次报 timeout，不当成某个组件的错', e?.code === 'timeout', e);
+
+  // 表格的「取值 → 说法」对照：保存视图描述时核对
+  const vlDoc = (value_labels) => ({ title: '对照', views: [{ key: 'm', title: '主', blocks: [{ type: 'table', query: { dataset: 'runs', select: ['id', 'day'] }, value_labels }] }] });
+  const vlErrs = (value_labels) => validateViewDoc(vlDoc(value_labels), new Map([['runs', { name: 'runs', columns: [{ name: 'id', type: 'integer', label: '', required: true }, { name: 'day', type: 'date', label: '', required: false }], key: ['id'] }]]));
+  ok('R10 对照合格：说法可以是一段文字，也可以带颜色', vlErrs({ day: { '2026-01-05': '开工', '2026-02-02': { text: '收工', tone: 'success' } } }).length === 0, vlErrs({ day: { '2026-01-05': '开工' } }));
+  const badLabels = [['x', '不是对象'], [{ nope: { a: 'b' } }, '列不在查询的输出里'], [{ day: {} }, '一个取值都没有'], [{ day: { a: '' } }, '说法是空的'], [{ day: { a: 'x'.repeat(33) } }, '说法太长'], [{ day: { a: { text: 'ok', tone: 'purple' } } }, '颜色不认识'], [{ day: { a: { text: 'ok', html: '<b>' } } }, '说法里多出来的键'], [{ day: { a: 5 } }, '说法是数字'], [{ day: { ['k'.repeat(65)]: 'x' } }, '取值太长'], [{ constructor: { a: 'b' } }, '列名撞原型']];
+  for (const [vl, why] of badLabels) ok(`R10 对照不合格被指出：${why}`, vlErrs(vl).length > 0, vlErrs(vl));
+
+  // 按值着色：保存视图描述时核对
+  const trDefs = new Map([['runs', { name: 'runs', columns: [{ name: 'id', type: 'integer', label: '', required: true }, { name: 'status', type: 'text', label: '', required: false }, { name: 'done', type: 'integer', label: '', required: false }], key: ['id'] }]]);
+  const trErrs = (block) => validateViewDoc({ title: '着色', views: [{ key: 'm', title: '主', blocks: [block] }] }, trDefs);
+  const barQ = { dataset: 'runs', group: ['status'], measures: [{ as: 'n', fn: 'sum', col: 'done' }] };
+  const bar1 = (extra) => ({ type: 'bar', query: barQ, x: 'status', y: 'n', ...extra });
+  ok('R11 着色规则合格：柱状图和统计卡都可以带', trErrs(bar1({ tone_rules: [{ col: 'n', op: '<', value: 20, tone: 'danger' }, { col: 'n', op: '>=', value: 80, tone: 'success' }] })).length === 0 && trErrs({ type: 'stat', query: { dataset: 'runs', measures: [{ as: 'v', fn: 'count' }] }, value: 'v', tone_rules: [{ col: 'v', op: '>', value: 0, tone: 'warning' }] }).length === 0, trErrs(bar1({ tone_rules: [{ col: 'n', op: '<', value: 20, tone: 'danger' }] })));
+  const rule = (o) => [{ col: 'n', op: '<', value: 20, tone: 'danger', ...o }];
+  const badRules = [['x', '不是数组'], [[], '一条也没有'], [[...rule({}), ...rule({}), ...rule({})], '超过两条'], [rule({ tone: '#ff0000' }), '给了任意色值'], [rule({ tone: 'primary' }), '不是三种语义色'], [rule({ op: 'like' }), '比较符不认识'], [rule({ op: 'constructor' }), '比较符撞原型'], [rule({ value: '20' }), '值不是数字'], [rule({ value: Infinity }), '值不是有限的数'], [rule({ col: 'status' }), '列不是数值'], [rule({ col: 'nope' }), '列不在输出里'], [rule({ css: 'x' }), '多出来的键']];
+  for (const [tr, why] of badRules) ok(`R11 着色规则不合格被指出：${why}`, trErrs(bar1({ tone_rules: tr })).length > 0, trErrs(bar1({ tone_rules: tr })));
+  ok('R11 多个系列的柱状图、线图不能带着色规则', trErrs(bar1({ y: ['n', 'n'], tone_rules: rule({}) })).length > 0 && trErrs({ type: 'line', query: barQ, x: 'status', y: 'n', tone_rules: rule({}) }).length > 0);
 
   // —— L：数据量上限（设计稿第十一节第 2 条）。用小的上限、不经工作线程，直接验逻辑本体 ——
   console.log('L 数据量上限');
