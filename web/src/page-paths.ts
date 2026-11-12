@@ -13,3 +13,18 @@ export function pageLink(link: unknown): string | null {
   if (seg === 'api') return null;
   return PAGE_SEGMENTS.includes(seg) ? link : null;
 }
+
+/** 条目没给可用的链接时去哪办：按来源给缺省的站内页面；实在没有页面的写一句去哪办。认不出的来源返回空 */
+const FALLBACK: Record<string, { link?: string; text?: string }> = {
+  'relation-proposals': { link: '/team' },
+  'team-health': { link: '/team' },
+  'principal-pending': { link: '/access', text: '到「谁能做什么」里处理这个外部账号' },
+  'a2a-peers': { text: '管理员在 A2A 对端的设置里核对新公钥的指纹后确认' },
+  'change-requests': { link: '/market' },
+  'mcp-access': { link: '/mcp-gateways' },
+};
+export function fallbackPlace(source: string): { link: string; text: string } {
+  const f = Object.hasOwn(FALLBACK, source) ? FALLBACK[source] : {};
+  const link = f.link ? pageLink(f.link) : null;
+  return { link: link ?? '', text: f.text ?? '' };
+}

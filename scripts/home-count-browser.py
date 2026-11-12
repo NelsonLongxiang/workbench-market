@@ -76,6 +76,7 @@ with sync_playwright() as p:
     #   接口地址、路由表里没有的页面不做成链接；MCP 权限申请「不给」可写一句理由（可空）；对接外部账号勾「新建」要再确认一次
     syn = [
         {'source': 'relation-proposals', 'source_id': '9001', 'category': 'grant', 'title': '合成：关系的提议', 'waiting_for': 'person:x', 'since': '2026-11-12T00:00:00Z', 'answers': [], 'object': '', 'phase': '', 'link': '/teams', 'mine': True},
+        {'source': 'relation-proposals', 'source_id': '9003', 'category': 'grant', 'title': '合成：另一条关系的提议（新形状）', 'waiting_for': 'person:synthetic-beta', 'since': '2026-11-12T00:00:00Z', 'answers': [], 'object': '', 'phase': 'team-lead', 'link': '/team', 'mine': True, 'creator': {'principal': 'person:synthetic-beta', 'display_name': 'Synthetic beta'}},
         {'source': 'principal-pending', 'source_id': 'synthetic:ext-1', 'category': 'grant', 'title': '合成账号等对接到主体', 'waiting_for': 'synthetic:ext-1', 'since': '2026-11-12T00:00:00Z', 'answers': ['bind'], 'object': '', 'phase': '', 'link': '/api/principals/pending', 'mine': True},
         {'source': 'mcp-access', 'source_id': '9002', 'category': 'grant', 'title': 'MCP 会话 合成会话 申请工具：list_rows', 'waiting_for': 'mcp:合成会话', 'since': '2026-11-12T00:00:00Z', 'answers': ['approve', 'reject'], 'object': '', 'phase': '', 'link': '/mcp-gateways?access_request=9002', 'mine': True},
     ]
@@ -85,11 +86,18 @@ with sync_playwright() as p:
     ctx.route('**/api/attention/answer', lambda r: (sent.append(json.loads(r.request.post_data or '{}')), r.fulfill(status=200, content_type='application/json', body='{"ok":true}')))
     pg = ctx.new_page(); pg.set_default_timeout(10000); pg.goto(M + '/attention'); pg.wait_for_selector('[data-testid=decision-card]'); pg.wait_for_timeout(500)
     card = lambda t: pg.locator('[data-testid=decision-card]', has_text=t).first
-    check('路由表里没有的页面（/teams）不做成链接', card('合成：关系的提议').locator('a.wm-decision-more').count() == 0)
-    check('接口地址（/api/…）不做成链接', card('合成账号').locator('a.wm-decision-more').count() == 0)
+    check('路由表里没有的页面（/teams）不做成坏链接，按来源给缺省去处（团队页）', card('合成：关系的提议').locator('a.wm-decision-more').get_attribute('href') == '/team')
+    check('新形状的关系提议自带 /team：要到别处处理的卡都有去处', card('另一条关系的提议').locator('a.wm-decision-more').get_attribute('href') == '/team')
+    heads = ' '.join(pg.locator('[data-testid=decision-card] .wm-decision-head').all_inner_texts())
+    check('卡片第一行不露主体键和来源代号（person: / synthetic: / mcp: / task-center）', not any(x in heads for x in ['person:', 'synthetic:', 'mcp:', 'task-center']) and 'Synthetic beta' in heads and '一个外部账号' in heads, heads)
+    check('接口地址（/api/…）不做成链接', card('合成账号').locator('a.wm-decision-more[href^="/api"]').count() == 0)
     check('站内真有的页面照样是链接', card('合成会话').locator('a.wm-decision-more').get_attribute('href') == '/mcp-gateways?access_request=9002')
     mc = card('合成会话'); mc.get_by_role('button', name=re.compile('不\\s*给')).click(); pg.wait_for_timeout(300)
     check('MCP 权限申请「不给」：展开一格理由，可以空着直接确定', mc.locator('textarea').count() == 1 and mc.get_by_role('button', name=re.compile('确定')).is_enabled())
+    check('展开理由时只留「确定不给」和「取消」，「批准」先收起来', mc.get_by_role('button', name=re.compile('批\\s*准')).count() == 0 and mc.locator('[data-testid=decision-cancel]').count() == 1)
+    mc.locator('[data-testid=decision-cancel]').click(); pg.wait_for_timeout(200)
+    check('「取消」收起理由框、回到原来两个按钮', mc.locator('textarea').count() == 0 and mc.get_by_role('button', name=re.compile('批\\s*准')).count() == 1)
+    mc.get_by_role('button', name=re.compile('不\\s*给')).click(); pg.wait_for_timeout(300)
     mc.locator('textarea').fill('先不开'); mc.get_by_role('button', name=re.compile('确定')).click(); pg.wait_for_timeout(500)
     check('理由带在请求里', any(x.get('source') == 'mcp-access' and x.get('answer') == 'reject' and x.get('input', {}).get('note') == '先不开' for x in sent), sent)
     pc = card('合成账号'); pc.get_by_role('button', name=re.compile('对\\s*接')).click(); pg.wait_for_timeout(300)
@@ -104,7 +112,7 @@ with sync_playwright() as p:
     shot = os.environ.get('WM_SHOT')
     if shot:
         full = syn + [
-            {'source': 'work-items', 'source_id': 'wi-synthetic-proxy', 'category': 'accept', 'title': '合成：核对到货数量（等建立人验收）', 'waiting_for': 'person:other', 'since': '2026-11-12T01:00:00Z', 'answers': ['verify', 'return'], 'object': '', 'phase': '', 'link': '', 'mine': False, 'creator': {'principal': 'person:synthetic-beta', 'display_name': 'Synthetic beta'}},
+            {'source': 'work-items', 'source_id': 'wi-synthetic-proxy', 'category': 'accept', 'title': '合成：核对到货数量（等建立人验收）', 'waiting_for': 'person:synthetic-beta', 'since': '2026-11-12T01:00:00Z', 'answers': ['verify', 'return'], 'object': '', 'phase': '', 'link': '', 'mine': False, 'creator': {'principal': 'person:synthetic-beta', 'display_name': 'Synthetic beta'}},
             {'source': 'tasks', 'source_id': 'task-synthetic-1', 'category': 'review', 'kind': 'sop-run', 'title': '合成：样品检验流程 #12 在跑', 'waiting_for': 'task-center', 'since': '2026-11-11T08:00:00Z', 'answers': [], 'object': '', 'phase': '', 'link': '/tasks', 'mine': True},
         ]
         ctx = b.new_context(viewport={'width': 1440, 'height': 900}); ctx.add_cookies([{'name': 'session_id', 'value': cfg['admin_session'], 'url': M}])

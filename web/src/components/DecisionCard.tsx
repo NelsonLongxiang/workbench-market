@@ -13,8 +13,8 @@ import { apiFetch } from '../admin-token';
 import { attentionChanged, postCreatorDecision } from '../api';
 import { answerChoices, answerRoute, answerViaOf, viaBody, viaError, viaInput, viaPath, waited, type AttentionItem } from '../attention-view';
 import { cardWording, splitAskTitle } from '../home-view';
-import { cleanWho, seatLabel, teamLabel } from '../people';
-import { pageLink } from '../page-paths';
+import { seatLabel, teamLabel, waitingLabel } from '../people';
+import { fallbackPlace, pageLink } from '../page-paths';
 import { REVIEW_NEEDS, changeCard, changeDetailOf, confirmText, grantCard, grantDetailOf, reviewAnswerLabel, runCard, runDetailOf, taskKindLabel } from '../review-view';
 
 
@@ -64,8 +64,9 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
   const [detail, setDetail] = useState<Detail | null>(null);
   const [choice, setChoice] = useState('');
   const wid = workItemIdOf(item);
-  /** 只有站内真有的页面才做成链接（接口地址、已经没有的页面不显示） */
+  /** 只有站内真有的页面才做成链接（接口地址、已经没有的页面不显示）；没有可用链接时按来源给缺省去处，实在没有就写一句去哪办 */
   const page = pageLink(item.link);
+  const place = page ? { link: page, text: '' } : fallbackPlace(item.source);
   useEffect(() => { if (wid) void loadDetail(wid).then(setDetail); }, [wid]);
   const change = changeDetailOf(item);
   const cc = change ? changeCard(change) : null;
@@ -86,16 +87,16 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
   const options = detail?.options.length ? detail.options : parsed.options;
   const seat = detail?.seat ?? '';
   const whoLine = change
-    ? `${cleanWho(change.requested_by) || '有人'} 申请`
+    ? `${waitingLabel(change.requested_by, { people: [item.creator ?? {}] }) || '有人'} 申请`
     : run
     ? ''
     : grant
     ? ''
     : isAsk
-    ? `${cleanWho(item.waiting_for, seat)} 问`
+    ? `${waitingLabel(item.waiting_for, { seat, people: [item.creator ?? {}] })} 问`
     : item.source === 'work-items' && detail
       ? [seat && `承接 ${seatLabel(seat)}`, detail.team && `派给 ${teamLabel(detail.team)}`].filter(Boolean).join(' · ')
-      : cleanWho(item.waiting_for, seat);
+      : waitingLabel(item.waiting_for, { seat, people: [item.creator ?? {}] });
   const creatorName = (item.creator?.display_name || '').trim() || (item.creator?.principal || '').replace(/^(user|human):/, '');
   const wording = cardWording(item.category, admin, item.mine, creatorName);
   const label = (a: string) => (wording.proxy && PROXY[a]) || reviewAnswerLabel(item.source, a, item) || ANSWER[a] || a;
@@ -174,13 +175,16 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
             ? <Popconfirm key={a} title="会新建一个主体" description={`建了就多一个人「${text.trim() || '（没写名字）'}」，确定新建并对接？`} okText="新建并对接" cancelText="再想想" onConfirm={go}>{ok}</Popconfirm>
             : ok;
         }
+        // 展开了某个答法要填的一格时，只留它的「确定」和「取消」，别的答法先收起来（免得误点、也看得出理由框是给谁的）
+        if (open && open !== a && needOf(open)) return null;
         // 要先填一句的答法不再另外确认一次：填的那一步就是确认
         const confirm = need ? null : confirmText(item, a);
-        // 展开了别的答法要填的一格时，那一格的「确定」是唯一的主按钮，别的退成普通样子
-        const btn = <Button key={a} type={i === 0 && !open ? 'primary' : 'default'} danger={!!confirm && !!change} loading={busy && !open} disabled={!!run && !run.ready} onClick={confirm ? undefined : () => click(a)}>{label(a)}</Button>;
+        const btn = <Button key={a} type={i === 0 ? 'primary' : 'default'} danger={!!confirm && !!change} loading={busy && !open} disabled={!!run && !run.ready} onClick={confirm ? undefined : () => click(a)}>{label(a)}</Button>;
         return confirm ? <Popconfirm key={a} title={`确定${label(a)}？`} description={confirm} okText={label(a)} cancelText="再想想" onConfirm={() => click(a)}>{btn}</Popconfirm> : btn;
       })}
-      {page && !((cc || rc || gc) && choices.length) && <Link to={page} className="wm-decision-more">{choices.length ? '看详情' : '去处理'} →</Link>}
+      {open && needOf(open) && <Button onClick={() => { setOpen(null); setText(''); setCreate(false); }} data-testid="decision-cancel">取消</Button>}
+      {!open && place.link && !((cc || rc || gc) && choices.length) && <Link to={place.link} className="wm-decision-more">{choices.length ? '看详情' : '去处理'} →</Link>}
+      {!open && !place.link && place.text && !choices.length && <Typography.Text type="secondary" className="wm-caption" data-testid="decision-where">{place.text}</Typography.Text>}
     </Space>}
   </div>;
 }
