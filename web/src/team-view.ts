@@ -241,3 +241,82 @@ export function newDeptProblem(id: string, name: string, existing: Department[])
   if (existing.some((d) => d.id === i)) return '这个标识已经有部门在用';
   return null;
 }
+
+// ---------- 关系的提议（规范 14「关系由谁说了算」，GET /api/relations/proposals） ----------
+// 服务端已经按看的人裁好（不是管理员只拿到自己能确认的、自己提的），每条带 can_approve / approve_denied_text / can_reject。
+// 页面只照这些字段出按钮、写说法，不自己判谁能确认。显示名优先用服务端给的，缺了才用页面已有的，再缺就写人话，不露标识。
+
+export type ProposalKind = 'team-claim' | 'team-lead' | 'dept-lead';
+export interface Proposal {
+  id: number; kind: ProposalKind; status: string; department_id: string; host: string; team: string; principal_id: string;
+  proposed_by: string; proposed_at: number; confirm_by_text: string;
+  can_approve: boolean; approve_denied_text: string | null; can_reject: boolean;
+  /** 是不是当前看的人提的（服务端给了才有；没有就当不是） */
+  mine: boolean | null;
+  team_name: string | null; node_name: string | null; department_name: string | null; principal_name: string | null; proposed_by_name: string | null;
+}
+const KINDS: readonly ProposalKind[] = ['team-claim', 'team-lead', 'dept-lead'];
+const strOrNull = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
+/** 应答整形：只留待确认的；形状不对的丢掉 */
+export function proposalsOf(body: unknown): Proposal[] {
+  return arr<unknown>(obj(body)?.proposals).map(obj).filter((p): p is Record<string, unknown> => !!p && typeof p.id === 'number' && KINDS.includes(p.kind as ProposalKind) && p.status === 'pending')
+    .map((p) => ({
+      id: p.id as number, kind: p.kind as ProposalKind, status: 'pending', department_id: String(p.department_id ?? ''), host: String(p.host ?? ''), team: String(p.team ?? ''),
+      principal_id: String(p.principal_id ?? ''), proposed_by: String(p.proposed_by ?? ''), proposed_at: typeof p.proposed_at === 'number' ? p.proposed_at : 0,
+      confirm_by_text: strOrNull(p.confirm_by_text) ?? '业务侧',
+      can_approve: p.can_approve === true, approve_denied_text: strOrNull(p.approve_denied_text), can_reject: p.can_reject === true,
+      mine: typeof p.mine === 'boolean' ? p.mine : null,
+      team_name: strOrNull(p.team_name), node_name: strOrNull(p.node_name), department_name: strOrNull(p.department_name),
+      principal_name: strOrNull(p.principal_name), proposed_by_name: strOrNull(p.proposed_by_name),
+    }));
+}
+
+/** 页面已经知道的名字（服务端没给时用）：团队名按「节点 + 团队」，部门名，人名 */
+export interface KnownNames { teams: Map<string, string>; departments: Map<string, string>; people: Map<string, string> }
+export const teamKey = (host: string, team: string): string => `${host}\u0000${team}`;
+export function knownNames(t: Teams, depts: Department[] | null, people: { id: string; name: string }[]): KnownNames {
+  const teams = new Map<string, string>();
+  for (const x of [...t.departments.flatMap((d) => d.teams), ...(t.unclaimed ?? [])]) if (x.name.trim()) teams.set(teamKey(x.host, x.team), x.name.trim());
+  const departments = new Map<string, string>([...t.departments.map((d) => [d.id, d.name] as [string, string]), ...(depts ?? []).map((d) => [d.id, d.name] as [string, string])]);
+  return { teams, departments, people: new Map(people.map((p) => [p.id, p.name])) };
+}
+
+/** 一条提议怎么说：「把『团队』挂到『部门』」「让某某做『团队』的负责人」「让某某做『部门』的负责人」 */
+export function proposalTitle(p: Proposal, k: KnownNames): string {
+  const team = p.team_name ?? k.teams.get(teamKey(p.host, p.team)) ?? '一个团队';
+  const dept = p.department_name ?? k.departments.get(p.department_id) ?? '一个部门';
+  const person = p.principal_name ?? k.people.get(p.principal_id) ?? '一位同事';
+  if (p.kind === 'team-claim') return `把「${team}」挂到「${dept}」`;
+  if (p.kind === 'team-lead') return `让 ${person} 做「${team}」的负责人`;
+  return `让 ${person} 做「${dept}」的负责人`;
+}
+/** 谁提的：服务端给的名字；没有就按留痕的写法说人话（管理口令、本机命令行），对得到人就用人名，都没有写「一位同事」 */
+export function proposerText(p: Proposal, k: KnownNames): string {
+  if (p.proposed_by_name) return p.proposed_by_name;
+  if (p.proposed_by === 'admin-token') return '管理员';
+  if (p.proposed_by === 'cli') return '本机命令行';
+  return k.people.get(p.proposed_by) ?? '一位同事';
+}
+
+/** 分三组：等你确认的（能确认、不是自己提的）、你提的、别的（管理员看得到、但不归自己确认的） */
+export function proposalGroups(list: Proposal[]): { forMe: Proposal[]; mine: Proposal[]; others: Proposal[] } {
+  const byTime = (a: Proposal, b: Proposal) => a.proposed_at - b.proposed_at || a.id - b.id;
+  const mine = list.filter((p) => p.mine === true).sort(byTime);
+  const forMe = list.filter((p) => p.mine !== true && p.can_approve).sort(byTime);
+  const others = list.filter((p) => p.mine !== true && !p.can_approve).sort(byTime);
+  return { forMe, mine, others };
+}
+/** 驳回那个按钮：自己提的叫「撤回」，别人提的叫「驳回」；服务端说不能就不出 */
+export function rejectLabel(p: Proposal): string | null {
+  if (!p.can_reject) return null;
+  return p.mine === true ? '撤回' : '驳回';
+}
+/** 认领按钮：能直接认领写「认领」，只能提议写「提议认领」（系统管理员看到的是提议）；都不能返回 null */
+export function claimButtonText(can: TeamsCan | null): string | null {
+  if (!can) return '认领';
+  if (can.claim) return '认领';
+  if (can.propose_claim) return '提议认领';
+  return null;
+}
+/** 认领只是提议、又选了负责人：负责人这一步没做，补一句 */
+export const LEAD_SKIPPED_TEXT = '选的负责人这次没有指定：负责人等认领确认后再指定。';
