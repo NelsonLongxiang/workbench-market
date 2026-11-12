@@ -334,6 +334,25 @@ try {
   const oneE = await tool(srv, E.token, 'access_info', { ref: `bench-${e3.json.request.id}` });
   check(oneE.json?.request?.status === 'expired' && oneE.json?.request?.note === '失效：没有人处理', '单查一条到期没清的申请：同样说「失效：没有人处理」，不说待批', oneE.text?.slice(0, 160) ?? oneE.json);
 
+  // 管理层驳回时备注正好写成「失效：没有人处理」：仍是人驳回，不当成过期
+  const F = await mk('seat-f');
+  const f1 = await tool(srv, F.token, 'access_request', { tools: ['dataset_list@bench:other'], reason: '要被人驳回的' });
+  const fid = f1.json?.request?.id;
+  const fr = await answer(mgr, `other:${fid}`, 'reject', { note: '失效：没有人处理' });
+  const fInfo = await tool(srv, F.token, 'access_info', {});
+  const fOne = await tool(srv, F.token, 'access_info', { ref: `bench-${fid}` });
+  const fListed = await srv.call('GET', '/api/bench-views/other/mcp-grants', mgr);
+  const fAgain = await answer(mgr, `other:${fid}`, 'reject', { note: '失效：没有人处理' });
+  const fLate = await srv.call('POST', `/api/bench-views/other/mcp-requests/${fid}`, { ...mgr, body: { approve: true } });
+  const fTrail = db.prepare('SELECT action, actor FROM bench_mcp_audit WHERE request_id = ? ORDER BY id').all(fid);
+  check(fr.status === 200 && fInfo.json?.bench_requests?.find((x) => x.id === fid)?.status === 'rejected' && fOne.json?.request?.status === 'rejected'
+    && fListed.json?.requests?.find((x) => x.id === fid)?.status === 'rejected'
+    && fAgain.status === 200 && fAgain.json?.duplicate === true && !mine(await attention(mgr)).some((x) => x.source_id === `other:${fid}`)
+    && fLate.status === 409 && /驳回/.test(fLate.json?.message ?? '') && !/失效/.test(fLate.json?.message ?? '')
+    && JSON.stringify(fTrail) === JSON.stringify([{ action: 'reject', actor: 'user:alpha' }]),
+    '管理层驳回时理由正好写「失效：没有人处理」：申请人（清单和单查）、台的管理层看到的都是 rejected；「关注」按人驳回处理（再答认得是答过的，再批说已驳回）；留痕是这个人驳回',
+    { fr: fr.status, info: fInfo.json?.bench_requests?.find((x) => x.id === fid)?.status, one: fOne.json?.request?.status, listed: fListed.json?.requests?.find((x) => x.id === fid)?.status, again: fAgain.json, late: fLate.json?.message, fTrail });
+
   let n = 0; for (let i = 0; i < 12; i++) { const x = await tool(srv, A.token, 'access_request', { tools: [`dataset_list@bench:cap-${i}`], reason: '刷' }); if (x.json?.ok) n++; }
   check(n < 12 && n >= 4, '申请有每小时的上限', n);
   await srv.stop();

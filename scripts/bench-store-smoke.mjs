@@ -98,6 +98,16 @@ try {
   ok('W5 按主键更新：有则改（只改给了的列）、无则加', r.inserted === 1 && r.updated === 1 && q.rows[0].done === 50 && q.rows[0].status === 'a' && q.rows[1].status === 'new' && q.rows[1].amount === null, q.rows);
   r = await s.deleteRows('runs', [{ id: 6 }, { id: 999 }], ctx());
   ok('W6 按主键删行，删之前自动留快照', r.deleted === 1 && r.row_count === 4 && Number.isInteger(r.snapshot_id));
+  {
+    // 重放的应答：更新、删除也一样，duplicate 为 true 时 inserted、updated、deleted 全是 0
+    const up1 = await s.upsert('runs', [{ id: 1, done: 51 }, { id: 6, status: 'new', done: 0 }], ctx({ idemKey: 'idem-upsert-01' }));
+    const up2 = await s.upsert('runs', [{ id: 1, done: 51 }, { id: 6, status: 'new', done: 0 }], ctx({ idemKey: 'idem-upsert-01' }));
+    ok('W6b 更新带幂等键重放：duplicate 为 true，inserted、updated 都是 0', up1.inserted === 1 && up1.updated === 1 && up2.duplicate === true && up2.inserted === 0 && up2.updated === 0, { up1, up2 });
+    const del1 = await s.deleteRows('runs', [{ id: 6 }], ctx({ idemKey: 'idem-delete-01' }));
+    const del2 = await s.deleteRows('runs', [{ id: 6 }], ctx({ idemKey: 'idem-delete-01' }));
+    ok('W6b 删除带幂等键重放：duplicate 为 true，deleted、updated 都是 0', del1.deleted === 1 && del2.duplicate === true && del2.deleted === 0 && (del2.updated ?? 0) === 0 && del2.row_count === 4, { del1, del2 });
+    await s.upsert('runs', [{ id: 1, done: 50 }], ctx()); // 还原，后面的检查照旧
+  }
   e = await refused(() => s.deleteRows('runs', [{ id: 1, status: 'a' }], ctx()));
   ok('W6 删行的键只能是主键列', e?.code === 'invalid');
   e = await refused(() => s.append('runs', Array.from({ length: BENCH_LIMITS.rowsPerWrite + 1 }, (_, i) => row(1000 + i, 'x', 0)), ctx()));
@@ -107,7 +117,7 @@ try {
   e = await refused(() => s.replace('nope', [], ctx()));
   ok('W8 没有这个数据集', e?.code === 'not_found');
   const wl = await s.writes();
-  ok('W9 写入记录只有摘要，没有内容', wl.length === 5 && wl.map((w) => w.op).join() === 'delete,upsert,upsert,append,replace' && wl.map((w) => w.actor).join() === 'tester,tester,someone-else,tester,tester' && wl.every((w) => /^[0-9a-f]{64}$/.test(w.body_sha256) && !('rows_json' in w) && !('result' in w)));
+  ok('W9 写入记录只有摘要，没有内容', wl.length === 8 && wl.map((w) => w.op).join() === 'upsert,delete,upsert,delete,upsert,upsert,append,replace' && wl.map((w) => w.actor).join() === 'tester,tester,tester,tester,tester,someone-else,tester,tester' && wl.every((w) => /^[0-9a-f]{64}$/.test(w.body_sha256) && !('rows_json' in w) && !('result' in w)));
   // —— 冷读的改进：取值说明、服务端分配主键、查询描述的报错列出能用的键 ——
   console.log('冷读的改进');
   r = await s.defineDataset({ name: 'checks', title: '巡检', key: ['id'], columns: [{ name: 'id', type: 'integer', auto: true }, { name: 'result', type: 'text', values: { ok: '正常', bad: '异常' } }, { name: 'area', type: 'text' }] }, ctx());
@@ -124,6 +134,9 @@ try {
   r = await s.append('checks', [{ result: 'ok', area: '东' }, { result: 'bad', area: '东' }], ctx());
   const r2 = await s.append('checks', [{ result: 'bad', area: '西' }, { id: 10, result: 'ok', area: '西' }, { result: 'ok', area: '南' }], ctx());
   ok('C2 主键由服务端分配：没给主键的行按现有最大值往上数，应答的 ids 是分配到的号；给了的照用', JSON.stringify(r.ids) === '[1,2]' && JSON.stringify(r2.ids) === '[3,4]' && (await s.query({ dataset: 'checks', select: ['id'], sort: [{ col: 'id' }] })).rows.map((x) => x.id).join() === '1,2,3,4,10', { r: r.ids, r2: r2.ids });
+  const r3 = await s.append('checks', [{ result: 'ok', area: '北' }, { id: 11, result: 'ok', area: '北' }], ctx()).catch((x) => ({ refused: x?.code ?? String(x) }));
+  ok('C2 同一批里手填的主键正好是「现有最大 + 1」：自动分配的跳过这个号，不撞号、整批写进', JSON.stringify(r3.ids) === '[12]' && r3.inserted === 2, r3);
+  await s.deleteRows('checks', [{ id: 11 }, { id: 12 }], ctx()); // 还原，后面的检查照旧
   const [p1, p2] = await Promise.all([s.append('checks', [{ result: 'ok', area: '北' }], ctx({ actor: 'seat-1' })), s.append('checks', [{ result: 'ok', area: '北' }], ctx({ actor: 'seat-2' }))]);
   ok('C2 两个席位同时追加：各拿各的号，不撞', p1.ids.length === 1 && p2.ids.length === 1 && p1.ids[0] !== p2.ids[0] && Math.min(p1.ids[0], p2.ids[0]) === 11, { p1: p1.ids, p2: p2.ids });
   const k1 = await s.append('checks', [{ result: 'bad', area: '南' }], ctx({ idemKey: 'auto-key-0001' }));

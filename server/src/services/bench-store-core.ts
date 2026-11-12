@@ -553,11 +553,15 @@ export class BenchStoreCore {
     let filled: unknown = rows, ids: number[] | undefined;
     if (auto && Array.isArray(rows)) {
       const max = Number((await this.conn.all(`SELECT MAX(${physCol(auto.name)}) AS m FROM ${physTable(ds.name)}`))[0].m ?? 0);
+      // 同一批里手填了的号跳过，免得分到的号正好撞上这批手填的
+      // （表单那条路宽松，号可以写成字符串，也认）
+      const given = new Set(rows.map((r) => { const v = isObj(r) ? r[auto.name] : undefined; return typeof v === 'string' && /^-?\d{1,15}$/.test(v.trim()) ? Number(v.trim()) : v; }).filter((v): v is number => Number.isSafeInteger(v)));
       let next = max;
       ids = [];
       filled = rows.map((r) => {
         if (!isObj(r) || (Object.prototype.hasOwnProperty.call(r, auto.name) && r[auto.name] !== null)) return r;
-        ids!.push(++next);
+        do next++; while (given.has(next));
+        ids!.push(next);
         return { ...r, [auto.name]: next };
       });
     }
