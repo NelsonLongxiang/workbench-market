@@ -1,16 +1,16 @@
-/** 事项列表：按状态分组（等你拍板 / 在办 / 已结束 / 未派发）或按对象分组。
- *  数据来自 GET /api/work-items：管理员看全部，登录的人只看自己建立的；最近变化的在前，游标翻页。
+/** 事项列表：最上面一排是视角（我安排的 / 我的 AI 员工手上的 / 我的团队的 / 全部，服务端按身份给哪些能用、各几件），
+ *  切视角改地址里的 ?view=，刷新、分享链接回到同一个视角；视角里面按状态分组（等你拍板 / 在办 / 已结束 / 未派发）或按对象分组。
+ *  数据来自 GET /api/work-items；最近变化的在前，游标翻页。
  *  各组角标用服务端给的按状态计数（覆盖整个可见范围），已取回的行不够时组底注明「已加载 x / 共 n」，页底「加载更多」。 */
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Alert, Badge, Button, Card, Collapse, Empty, Flex, List, Segmented, Space, Tag, Typography } from 'antd';
 import { ReloadOutlined, RobotOutlined } from '@ant-design/icons';
 import WmPage from '../components/WmPage';
 import RelTime from '../components/RelTime';
 import { api, getLifecycleNameSources, getRosterTeams } from '../api';
-import { adminActive, subscribeAdminToken } from '../admin-token';
 import { STATE } from './WorkItem';
-import { STATE_GROUPS, appendPage, byObject, byState, groupCount, objectName, phaseName, rowLine, rowTime, viewsFor, avatarChar, lifecycleNames, urlFilter, NO_NAMES, type Names, type Who, type WorkItemListRow } from '../work-items-view';
+import { STATE_GROUPS, appendPage, byObject, byState, groupCount, objectName, phaseName, rowLine, rowTime, viewsFor, emptyText, avatarChar, lifecycleNames, urlFilter, NO_NAMES, type Names, type View, type ViewKey, type Who, type WorkItemListRow } from '../work-items-view';
 import { rosterNames, seatNameOnly, speakerName } from '../people';
 
 /** 列表行里「谁」只写名字（句柄在详情里才带）：席位查名册；来源标记 receiver:<区> 用承接席位顶上，别的去前缀 */
@@ -57,12 +57,12 @@ function Rows({ rows, mode, empty, total, who, names }: { rows: WorkItemListRow[
 }
 
 export default function WorkItems() {
-  // 只用来说明接口现在给的是哪个可见范围（管理员是全部）；视角由服务端按身份给出之后，这一处换成接口的字段
-  const seesAll = useSyncExternalStore(subscribeAdminToken, adminActive);
   const [mode, setMode] = useState<Mode>(savedMode);
   const [rows, setRows] = useState<WorkItemListRow[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [total, setTotal] = useState(0);
+  const [views, setViews] = useState<View[]>([]);
+  const [view, setView] = useState<ViewKey | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -90,6 +90,7 @@ export default function WorkItems() {
         page = await api.listWorkItems(after ? { cursor: after } : {});
       }
       setRows((prev) => (after ? appendPage(prev, page.items) : page.items));
+      if (!after) { setViews(viewsFor(page.views)); setView(page.view ?? null); }
       setCounts(page.counts ?? {}); setTotal(page.total ?? 0); setCursor(page.next_cursor); setLoaded(true);
     } catch (e) {
       const msg = e instanceof Error ? e.message : '读取失败';
@@ -105,13 +106,15 @@ export default function WorkItems() {
   return <WmPage
     extra={<Button icon={<ReloadOutlined />} loading={loading} onClick={() => void fetchPage(null)}>刷新</Button>}>
     <Flex vertical gap="middle">
-      {(filter.view || filter.seat) && !filterNote && <Typography.Text type="secondary" data-testid="work-items-url-filter">
-        {filter.view === 'seats' ? '只看你的 AI 员工手上的' : '只看这个视角'}{filter.seat ? `：${seatNameOnly(filter.seat, roster)}` : ''} · <a onClick={() => navigate('/work-items')}>看全部</a>
+      {filter.seat && !filterNote && <Typography.Text type="secondary" data-testid="work-items-url-filter">
+        只看这个 AI 员工手上的：{seatNameOnly(filter.seat, roster)} · <a onClick={() => navigate(`/work-items?view=${view ?? 'seats'}`)}>看这个视角的全部</a>
       </Typography.Text>}
       {filterNote && <Alert type="info" showIcon closable message={filterNote} data-testid="work-items-url-filter-note" onClose={() => setFilterNote('')} />}
       {/* 视角在最上面一排；「按状态 / 按对象」是视角里面的分组 */}
-      <div className="wm-view-row" data-testid="work-items-views">
-        {viewsFor(seesAll, total).map((v) => <span key={v.key} className="wm-view on" data-testid={`work-items-view-${v.key}`}>{v.label}{loaded ? <i>{v.count}</i> : null}</span>)}
+      {/* 只出能用的视角；切换改地址（去掉按席位的筛选），件数是这个视角的全部 */}
+      <div className="wm-view-row" role="tablist" aria-label="视角" data-testid="work-items-views">
+        {views.map((v) => <button type="button" role="tab" key={v.key} aria-selected={v.key === view} className={v.key === view ? 'wm-view on' : 'wm-view'} data-testid={`work-items-view-${v.key}`}
+          onClick={() => { if (v.key !== view || filter.seat) navigate(`/work-items?view=${v.key}`); }}>{v.label}<i>{v.count}</i></button>)}
         <span className="wm-view-group">
           <Typography.Text type="secondary" className="wm-caption">分组</Typography.Text>
           <Segmented<Mode> size="small" value={mode} onChange={changeMode} data-testid="work-items-mode"
@@ -119,7 +122,7 @@ export default function WorkItems() {
         </span>
       </div>
       {error && <Alert type="error" showIcon message={error} />}
-      {loaded && total === 0 && !error ? <Card><Empty description="还没有事项" /></Card> : null}
+      {loaded && total === 0 && !error ? <Card data-testid="work-items-empty"><Empty description={emptyText(view, filter.seat)} /></Card> : null}
       {loaded && total > 0 && mode === 'state' ? STATE_GROUPS.map((g) => {
         const n = groupCount(counts, g.key);
         const head = <Space size={6}><span>{g.title}</span><Count n={n} urgent={g.key === 'decide'} /></Space>;

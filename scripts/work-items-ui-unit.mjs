@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 事项列表页的纯函数单测（web/src/work-items-view.ts）：状态归组、组的计数、按对象分组、行的说明、翻页去重。 */
-import { STATE_GROUPS, appendPage, byObject, byState, groupCount, groupOf, rowLine, rowTime, seatOrWaiting, viewsFor, avatarChar, urlFilter, lifecycleNames, progressSummary, lastSaid, objectName, phaseName } from '../web/src/work-items-view.ts';
+import { STATE_GROUPS, appendPage, byObject, byState, groupCount, groupOf, rowLine, rowTime, seatOrWaiting, viewsFor, emptyText, avatarChar, urlFilter, lifecycleNames, progressSummary, lastSaid, objectName, phaseName } from '../web/src/work-items-view.ts';
 import { cleanSeatName, rosterNames, seatNameOnly, speakerName } from '../web/src/people.ts';
 
 let pass = 0, fail = 0;
@@ -37,7 +37,13 @@ ok('翻页去重：同一行只留一份，用后到的', merged.map((x) => `${x
   ok('说话的不是承接席位时写上是谁', rowLine({ id: 'a', title: '', state: 'done', object: '', phase: '', seat: 'zone/a1', last_progress: { actor: 'human:pm-a', fact: 'verify', text: '验收通过', at: '' }, updated_at: '' }, 'state', who) === 'zone/a1 · pm-a：验收通过');
   ok('行的时间：进展时间是空串时用更新时间', rowTime({ last_progress: { actor: '', fact: '', text: '', at: '' }, updated_at: 'U' }) === 'U' && rowTime({ last_progress: { actor: '', fact: '', text: '', at: 'A' }, updated_at: 'U' }) === 'A' && rowTime({ last_progress: null, updated_at: 'U' }) === 'U');
 }
-ok('视角：只给接口现在给得出的那一个——管理员「全部」，别人「我安排的」，件数是可见范围的总数', viewsFor(true, 22).map((v) => `${v.key}:${v.label}:${v.count}`).join() === 'all:全部:22' && viewsFor(false, 3).map((v) => `${v.key}:${v.label}:${v.count}`).join() === 'mine:我安排的:3');
+ok('视角：按接口的 views 只出能用的，先后是我安排的 / 我的 AI 员工手上的 / 我的团队的 / 全部，件数照接口', viewsFor({ all: { available: false, count: 0 }, team: { available: true, count: 29 }, seats: { available: false, count: 0 }, mine: { available: true, count: 6 } }).map((v) => `${v.key}:${v.label}:${v.count}`).join() === 'mine:我安排的:6,team:我的团队的:29');
+ok('视角：四个都能用时四个都出；件数是 0 的照出', viewsFor({ mine: { available: true, count: 0 }, seats: { available: true, count: 2 }, team: { available: true, count: 3 }, all: { available: true, count: 9 } }).map((v) => v.label).join('/') === '我安排的/我的 AI 员工手上的/我的团队的/全部');
+ok('视角：接口没给 views（旧服务端）或形状不对就一个都不出；available 不是 true 的不出；件数不是数当 0', viewsFor(undefined).length === 0 && viewsFor('x').length === 0
+  && viewsFor({ mine: { available: 'true', count: 3 } }).length === 0 && viewsFor({ mine: { available: true, count: 'abc' } })[0].count === 0 && viewsFor({ zzz: { available: true, count: 1 } }).length === 0);
+ok('空态：每个视角各说各的；按 AI 员工筛着时说这个员工手上；没有能用的视角另说', emptyText('mine') === '你还没有安排过事项' && emptyText('seats') === '你的 AI 员工手上现在没有事项'
+  && emptyText('team') === '你的团队现在没有事项' && emptyText('all') === '还没有事项' && emptyText('seats', 's-1') === '这个 AI 员工手上现在没有事项' && emptyText(null) === '你现在没有能看的事项'
+  && new Set(['mine', 'seats', 'team', 'all'].map((k) => emptyText(k))).size === 4);
 {
   const roster = rosterNames([{ team: 'zone/canvas/t', seats: [{ seat: 'zone/0a1b2c3d', name: '小运' }, { seat: 'zone/00', name: '' }, null, { name: 'x' }] }, 'bad']);
   ok('名册拍平成句柄 → 名字；没名字、形状不对的不收', roster['zone/0a1b2c3d'] === '小运' && Object.keys(roster).length === 1 && Object.keys(rosterNames(null)).length === 0);

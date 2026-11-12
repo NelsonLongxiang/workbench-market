@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 「谁能做什么」页的纯函数单测（web/src/access-view.ts）：状态、范围、期限的说法，待核准卡片，按人排的权限表，矩阵格子，读不到时怎么说。数据都是合成的。 */
-import { ACCESS_TABS, CELL_LEGEND, actionProblem, cellLabel, declineReasonOk, grantActorRaw, grantRows, grantsOf, indexPrincipals, kindLabel, matrixOf, pendingGrants, principalName, responsibleOf, roleName, roleUsage, rolesOf, scopeLabel, scopeNotYetEffective, sourceProblem, statusLabel, tabFromQuery, termLabel, myRolesOf, summaryDo, OTHERS_ONLY_ADMINS, approvalText, approveState } from '../web/src/access-view.ts';
+import { ACCESS_TABS, CELL_LEGEND, actionProblem, cellLabel, declineReasonOk, grantActorRaw, grantRows, grantsOf, indexPrincipals, kindLabel, matrixOf, pendingGrants, principalName, responsibleOf, roleName, roleUsage, rolesOf, scopeLabel, scopeNotYetEffective, sourceProblem, statusLabel, tabFromQuery, termLabel, myRolesOf, summaryDo, OTHERS_ONLY_ADMINS, approvalText, approveState, mayReadAccessAdmin } from '../web/src/access-view.ts';
 import { actorLabel } from '../web/src/people.ts';
 
 let pass = 0, fail = 0;
@@ -75,6 +75,19 @@ ok('核准按钮：服务端说能 → 可点、不写说法；说不能 → 置
   && J(approveState({ can_approve: false, approve_denied_text: ' 只有属主能放行 ' })) === '{"enabled":false,"note":"只有属主能放行"}'
   && J(approveState({ can_approve: false, approve_denied_text: null })) === '{"enabled":false,"note":"你现在放行不了这一项"}'
   && J(approveState({})) === '{"enabled":true,"note":null}' && approveState({ can_approve: 'false' }).enabled === true);
+
+// 四个管理读接口问不问：认出了人、明知没有管理权的不问；页面以管理员身份、有管理类预设或自定义角色、没认出人的照旧问
+{
+  const me = (roles) => ({ authenticated: true, principal: 'user:x', roles });
+  const preset = (id) => ({ id, name: id, scope: '*', preset: true });
+  ok('普通员工（没有角色）不问', mayReadAccessAdmin(me([]), false) === false);
+  ok('只有不带管理类的内置预设（普通员工、部门负责人、管理层）不问', mayReadAccessAdmin(me([preset('member'), preset('dept-lead'), preset('management')]), false) === false);
+  ok('属主、系统管理员预设照旧问', mayReadAccessAdmin(me([preset('member'), preset('owner')]), false) && mayReadAccessAdmin(me([preset('admin')]), false));
+  ok('自定义角色（preset 不是 true）照旧问，由服务端判', mayReadAccessAdmin(me([{ id: 'custom-x', name: '自定义', scope: '*', preset: false }]), false) && mayReadAccessAdmin(me([{ id: 'custom-y', scope: '*' }]), false));
+  ok('页面以管理员身份工作（口令或 Odoo 管理员）照旧问', mayReadAccessAdmin(me([]), true));
+  ok('没认出人（没登录、读不到、没有主体、角色不是数组）照旧问', mayReadAccessAdmin(null, false) && mayReadAccessAdmin({ authenticated: false, roles: [] }, false)
+    && mayReadAccessAdmin({ authenticated: true, principal: null, roles: [] }, false) && mayReadAccessAdmin({ authenticated: true, principal: 'user:x' }, false));
+}
 
 console.log(`\naccess-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

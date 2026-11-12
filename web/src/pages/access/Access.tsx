@@ -3,7 +3,7 @@
  *  · 人和权限：上面是「待你核准的授予」卡片（当场核准，或者不给并写理由），下面是给出去的全部权限，按人排。
  *  · 角色预设：每个角色一张卡（几条生效中的授予在用），选一个看它在七大块上能看、能做、能拍板、能管什么；矩阵由服务端算。
  * 第三个页签「以某人的身份看」、红线清单、AI 员工遇到动作怎么办、全部留痕，等身份线的接口，现在不出现（不放占位）。
- * 谁能看：照接口实际返回的来，页面不自己判。授予、主体、角色、矩阵几个接口只给管理员；别人读不到授予时，「人和权限」改用
+ * 谁能看：照接口实际返回的来。授予、主体、角色、矩阵几个接口只给能管的人；认出了人、明知没有管理权的就不去问（mayReadAccessAdmin）。读不到授予时，「人和权限」改用
  * /api/auth/me 带的本人角色显示「你的权限」，下面一句别人的权限谁能看。
  * 判断逻辑在 web/src/access-view.ts（有单测）。
  */
@@ -14,11 +14,11 @@ import type { ColumnsType } from 'antd/es/table';
 import WmPage from '../../components/WmPage';
 import { actorLabel } from '../../people';
 import { approveAccessGrant, declineAccessGrant, getAccessGrants, getAccessMatrix, getAccessPrincipals, getAccessRoles, getAuthMe } from '../../api';
-import { subscribeAdminToken } from '../../admin-token';
+import { adminActive, subscribeAdminToken } from '../../admin-token';
 import {
   ACCESS_TABS, CELL_LEGEND, actionProblem, cellLabel, declineReasonOk, grantActorRaw, grantRows, grantsOf, indexPrincipals, kindLabel, matrixOf,
   pendingGrants, principalName, responsibleOf, roleName, roleUsage, rolesOf, scopeLabel, scopeNotYetEffective, sourceProblem, statusLabel, tabFromQuery, termLabel, SCOPE_PENDING,
-  OTHERS_ONLY_ADMINS, myRolesOf, summaryDo, approvalText, approveState,
+  OTHERS_ONLY_ADMINS, myRolesOf, mayReadAccessAdmin, summaryDo, approvalText, approveState,
 } from '../../access-view';
 import type { AccessTab, Grant, Principal, RoleInfo, SourceResult, Tone } from '../../access-view';
 
@@ -27,6 +27,8 @@ const ok = (r: SourceResult | null) => !!r && r.status >= 200 && r.status < 300;
 
 type Sources = { grants: SourceResult | null; principals: SourceResult | null; roles: SourceResult | null; matrix: SourceResult | null; me: unknown };
 const NONE: Sources = { grants: null, principals: null, roles: null, matrix: null, me: null };
+/** 没去问的管理读接口：按身份已知问了也是 403，页面照 403 的样子说（不是取到的数据） */
+const NOT_ASKED: SourceResult = { status: 403, body: null };
 
 function PendingCard({ g, who, kind, role, by, scope, approval, onDone }: { g: Grant; who: string; kind: string; role: string; by: string; scope: string; approval: string | null; onDone: () => void }) {
   const [declining, setDeclining] = useState(false);
@@ -84,7 +86,12 @@ export default function Access() {
   useEffect(() => {
     let live = true;
     setLoading(true);
-    void Promise.all([getAccessGrants(), getAccessPrincipals(), getAccessRoles(), getAccessMatrix(), getAuthMe()]).then(([grants, principals, roles, matrix, me]) => {
+    // 先认人：明知没有管理权的（普通员工、负责人），四个管理读接口不去问，当作 403 显示「你的权限」
+    void getAuthMe().then(async (me) => {
+      const skip = !mayReadAccessAdmin(me, adminActive());
+      const [grants, principals, roles, matrix] = skip
+        ? [NOT_ASKED, NOT_ASKED, NOT_ASKED, NOT_ASKED]
+        : await Promise.all([getAccessGrants(), getAccessPrincipals(), getAccessRoles(), getAccessMatrix()]);
       if (!live) return;
       setSrc({ grants, principals, roles, matrix, me });
       setLoading(false);

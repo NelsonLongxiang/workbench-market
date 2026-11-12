@@ -182,6 +182,19 @@ export function myRolesOf(me: unknown): MyRole[] | null {
     .map((r) => ({ id: r.id, name: typeof r.name === 'string' && r.name.trim() ? r.name.trim() : r.id, scope: String(r.scope ?? '*'), expires_at: typeof r.expires_at === 'number' ? r.expires_at : null }));
 }
 
+/** 授予、主体、角色、矩阵四个读接口只给能管的人（服务端那边是「管理」类动作）。认出了人、又明知他没有管理权的，页面就不去问，
+ *  免得每次打开都白挨四个 403。能管的：页面以管理员身份工作（持口令或 Odoo 管理员），或本人角色里有带「管理」类的内置预设
+ *  （属主、系统管理员，见 server/src/roles.ts 的 PLATFORM_ROLES），或有自定义角色（能不能管页面不知道，照旧去问、由服务端判）。
+ *  没认出人（没登录、本机命令行、/api/auth/me 读不到）也照旧去问：页面不知道，交给服务端。 */
+export const ADMIN_PRESETS: readonly string[] = ['owner', 'admin'];
+export function mayReadAccessAdmin(me: unknown, adminMode: boolean): boolean {
+  if (adminMode) return true;
+  if (!me || typeof me !== 'object') return true;
+  const m = me as { authenticated?: unknown; principal?: unknown; roles?: unknown };
+  if (m.authenticated !== true || typeof m.principal !== 'string' || !m.principal || !Array.isArray(m.roles)) return true;
+  return (m.roles as { id?: unknown; preset?: unknown }[]).some((r) => !!r && (r.preset !== true || ADMIN_PRESETS.includes(String(r.id))));
+}
+
 /** 角色的「能做」一格：服务端的 summary.do 是「能做：…；能管：…」，能管交给矩阵的「管理」一列去说，这一格只留能做 */
 export function summaryDo(s: unknown): string {
   return String(s ?? '').replace(/^能做：/, '').replace(/；能管：.*$/, '').trim();

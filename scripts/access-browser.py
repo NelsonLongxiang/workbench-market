@@ -1,11 +1,11 @@
 """「谁能做什么」（照原型 3fbfd0b 重做的 /access）浏览器回归；由 scripts/sider-menu-browser.mjs 起合成实例后调用，参数为配置 JSON 路径。
 授予和主体两份列表用合成的应答（经 page.route 截下）；角色和矩阵用实例真的。核准、不给两个写请求也截下，核对发了什么。
   · 没有口令、没登录：授予读不到，说「现在只有管理员能看」，不弹口令框；
-  · 认出了人但不是管理员：「人和权限」显示「你的权限」（取 /api/auth/me 的本人角色），下面一句别人的权限谁能看；
+  · 认出了人但不是管理员：「人和权限」显示「你的权限」（取 /api/auth/me 的本人角色），下面一句别人的权限谁能看；四个管理读接口不去问（网络里没有）；
   · 有口令：两个页签（没有「以某人的身份看」）；待核准卡片、按人排的表（状态最左），范围不是全部的生效中授予标「尚未生效」；矩阵里「范围内」的格子同样标；
   · 核准发对了请求；不给要写理由，理由空着确认按钮不能点，写了才发、带着理由；被拒时说服务端给的说法；
   · 角色预设：每个角色一张卡、选中的角色有七块 × 四类的矩阵，格子是「全部 / 范围内 / 部分 / 只限自己 / 不能 / —」之一。"""
-import json, sys, urllib.request
+import json, re, sys, urllib.request
 from playwright.sync_api import sync_playwright
 cfg = json.load(open(sys.argv[1]))
 M, TOK = cfg['base'], cfg['token']
@@ -67,6 +67,17 @@ with sync_playwright() as p:
           'roles': [{'id': 'member', 'name': '普通员工', 'scope': '*', 'preset': True, 'expires_at': None, 'source': 'manual', 'approved_by': 'odoo:jia'},
                     {'id': 'dept-lead', 'name': '部门负责人', 'scope': 'domain:work', 'preset': True, 'expires_at': NOW, 'source': 'manual', 'approved_by': 'odoo:jia'}]}
     pg.route('**/api/auth/me', lambda r: fake(r, ME))
+    asked = []
+    ADMIN_READS = re.compile(r'/api/(grants|principals|roles|roles/matrix)$')
+    def on_req(req):
+        if ADMIN_READS.search(req.url.split('?')[0]): asked.append(req.url)
+    errors = []
+    pg.on('request', on_req); pg.on('console', lambda m: errors.append(m.text) if m.type == 'error' else None)
+    pg.goto(M + '/access'); pg.wait_for_selector('[data-testid=acc-mine]'); pg.wait_for_load_state('networkidle')
+    check('普通员工打开此页：网络里没有授予、主体、角色、矩阵四个请求，控制台没有 403', asked == [] and not any('403' in e for e in errors), (asked, errors))
+    pg.locator('[data-testid=acc-tab-roles]').click(); pg.wait_for_timeout(400)
+    check('普通员工切到角色预设：照旧说只有管理员能看，也不发请求', asked == [] and pg.locator('.ant-alert', has_text='只有管理员能看').count() == 1, (asked, pg.locator('.ant-alert').all_inner_texts()))
+    pg.remove_listener('request', on_req)
     pg.goto(M + '/access'); pg.wait_for_selector('[data-testid=acc-mine]')
     mine = pg.locator('[data-testid=acc-mine]').inner_text()
     roles_shown = [''.join(t.split()) for t in pg.locator('[data-testid=acc-mine-role]').all_inner_texts()]
