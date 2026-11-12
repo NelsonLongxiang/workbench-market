@@ -1,0 +1,508 @@
+{
+  "domain": "teams",
+  "what": "团队与分配：/api/teams 的 8 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。人、部门、名册都是合成的。",
+  "routes": ["GET /api/teams", "GET /api/teams/mine", "POST /api/teams/claim", "POST /api/teams/release", "POST /api/teams/leads", "POST /api/teams/leads/remove", "POST /api/teams/assign", "POST /api/teams/unassign"],
+  "exempt": [
+    { "route": "GET /api/teams", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/list-junk" },
+    { "route": "GET /api/teams/mine", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入", "shown_by": "open/mine-junk" }
+  ],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "缺省配置：登录门关，没设管理口令。本机命令行算管理员；假登录提供方认出 alpha、beta（都不是管理员）。库里预先放好部门 sales（负责人 beta、成员 alpha）和一个节点的名册（一个团队：总工和一个成员）。",
+      "env": {},
+      "fixtures": ["identity-fake"],
+      "seed": [
+        { "table": "principals", "row": { "id": "user:alpha", "id_key": "user:alpha", "kind": "person", "display_name": "合成甲" } },
+        { "table": "principals", "row": { "id": "user:beta", "id_key": "user:beta", "kind": "person", "display_name": "合成乙" } },
+        { "table": "principal_identities", "row": { "provider": "fake", "external_id": "alpha", "external_key": "alpha", "principal_id": "user:alpha" } },
+        { "table": "principal_identities", "row": { "provider": "fake", "external_id": "beta", "external_key": "beta", "principal_id": "user:beta" } },
+        { "table": "departments", "row": { "id": "sales", "name": "合成销售部", "lead_principal": "user:beta", "created_at": 0, "updated_at": 0 } },
+        { "table": "department_members", "row": { "department_id": "sales", "principal_id": "user:alpha", "created_at": 0 } },
+        { "table": "a2a_rosters", "row": { "host": "a1b2c3d4", "peer_root": "https://node.synthetic.invalid", "peer_zone": "zone1", "reported_at": "2030-01-01T00:00:00Z", "received_at": "2030-01-01T00:00:00Z" } },
+        {
+          "table": "a2a_roster_seats",
+          "row": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "seat": "zone1/0000000a", "seat_id": "seat-0000000a", "name": "合成总工", "role": "router", "online": 1, "first_seen_at": "2030-01-01T00:00:00Z" }
+        },
+        {
+          "table": "a2a_roster_seats",
+          "row": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "seat": "zone1/0000000b", "seat_id": "seat-0000000b", "name": "合成成员", "role": "member", "online": 1, "first_seen_at": "2030-01-01T00:00:00Z" }
+        }
+      ],
+      "steps": [
+        {
+          "id": "list-unclaimed",
+          "route": "GET /api/teams",
+          "class": "normal",
+          "what": "本机命令行：一个待认领的团队",
+          "request": { "method": "GET", "path": "/api/teams" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "502", "etag": "W/\"1f6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "departments": [],
+              "unclaimed": [
+                {
+                  "host": "a1b2c3d4",
+                  "team": "zone1/canvas/Sales Team",
+                  "status": "unclaimed",
+                  "in_roster": true,
+                  "department": null,
+                  "leads": [],
+                  "router": { "seat": "zone1/0000000a", "seat_id": "seat-0000000a", "name": "合成总工", "role": "router", "online": true, "router": true, "assigned_to": null, "active_items": 0 },
+                  "members": [{ "seat": "zone1/0000000b", "seat_id": "seat-0000000b", "name": "合成成员", "role": "member", "online": true, "router": false, "assigned_to": null, "active_items": 0 }],
+                  "name": "Sales Team"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "list-junk",
+          "route": "GET /api/teams",
+          "class": "normal",
+          "what": "这条路由不读查询串：带无关参数照常",
+          "request": { "method": "GET", "path": "/api/teams?x=1&y[]=2" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "502", "etag": "W/\"1f6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "departments": [],
+              "unclaimed": [
+                {
+                  "host": "a1b2c3d4",
+                  "team": "zone1/canvas/Sales Team",
+                  "status": "unclaimed",
+                  "in_roster": true,
+                  "department": null,
+                  "leads": [],
+                  "router": { "seat": "zone1/0000000a", "seat_id": "seat-0000000a", "name": "合成总工", "role": "router", "online": true, "router": true, "assigned_to": null, "active_items": 0 },
+                  "members": [{ "seat": "zone1/0000000b", "seat_id": "seat-0000000b", "name": "合成成员", "role": "member", "online": true, "router": false, "assigned_to": null, "active_items": 0 }],
+                  "name": "Sales Team"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "list-remote-anon",
+          "route": "GET /api/teams",
+          "class": "unauthorized",
+          "what": "远程、没登录：401",
+          "request": { "method": "GET", "path": "/api/teams", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "teams_auth_required" }
+          }
+        },
+        {
+          "id": "list-staff-empty",
+          "route": "GET /api/teams",
+          "class": "normal",
+          "what": "员工 alpha：待认领的看不到，空",
+          "request": { "method": "GET", "path": "/api/teams", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "18", "etag": "W/\"12-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "departments": [] }
+          }
+        },
+        {
+          "id": "claim-remote-anon",
+          "route": "POST /api/teams/claim",
+          "class": "unauthorized",
+          "what": "远程、没有口令：认领不了",
+          "request": { "method": "POST", "path": "/api/teams/claim", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "department": "sales" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "claim-bad-host",
+          "route": "POST /api/teams/claim",
+          "class": "invalid",
+          "what": "节点键写法不对：400",
+          "request": { "method": "POST", "path": "/api/teams/claim", "json": { "host": "XYZ", "team": "zone1/canvas/Sales Team", "department": "sales" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "host 写法不对", "code": "host_invalid" } }
+        },
+        {
+          "id": "claim-dept-unknown",
+          "route": "POST /api/teams/claim",
+          "class": "invalid",
+          "what": "部门不存在：422",
+          "request": { "method": "POST", "path": "/api/teams/claim", "json": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "department": "nope" } },
+          "response": {
+            "status": 422,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "64", "etag": "W/\"40-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "department_unknown", "message": "部门 nope 不存在" }
+          }
+        },
+        {
+          "id": "claim",
+          "route": "POST /api/teams/claim",
+          "class": "normal",
+          "what": "本机命令行认领并挂到 sales",
+          "request": { "method": "POST", "path": "/api/teams/claim", "json": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "department": "sales" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "changed": true } }
+        },
+        {
+          "id": "claim-again",
+          "route": "POST /api/teams/claim",
+          "class": "normal",
+          "what": "再认领同一个部门：changed=false",
+          "request": { "method": "POST", "path": "/api/teams/claim", "json": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "department": "sales" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "changed": false } }
+        },
+        {
+          "id": "lead-remote-anon",
+          "route": "POST /api/teams/leads",
+          "class": "unauthorized",
+          "what": "远程、没有口令：指定不了负责人",
+          "request": { "method": "POST", "path": "/api/teams/leads", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal": "user:alpha" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "lead-not-person",
+          "route": "POST /api/teams/leads",
+          "class": "invalid",
+          "what": "负责人不是启用的人：422",
+          "request": { "method": "POST", "path": "/api/teams/leads", "json": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal": "user:nobody" } },
+          "response": {
+            "status": 422,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "88", "etag": "W/\"58-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "lead_not_person", "message": "负责人要是启用的人，user:nobody 不是" }
+          }
+        },
+        {
+          "id": "lead-add",
+          "route": "POST /api/teams/leads",
+          "class": "normal",
+          "what": "另外指定 alpha 为负责人：201",
+          "request": { "method": "POST", "path": "/api/teams/leads", "json": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal": "user:alpha" } },
+          "response": { "status": 201, "type": "application/json; charset=utf-8", "headers": { "content-length": "24", "etag": "W/\"18-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "added": true } }
+        },
+        {
+          "id": "assign-remote-anon",
+          "route": "POST /api/teams/assign",
+          "class": "unauthorized",
+          "what": "远程、没登录：401",
+          "request": {
+            "method": "POST",
+            "path": "/api/teams/assign",
+            "headers": { "x-forwarded-for": "192.0.2.10" },
+            "json": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "seat": "zone1/0000000b", "seat_id": "seat-0000000b", "principal": "user:beta" }
+          },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "teams_auth_required" }
+          }
+        },
+        {
+          "id": "assign-router",
+          "route": "POST /api/teams/assign",
+          "class": "invalid",
+          "what": "总工不能分配：422",
+          "request": {
+            "method": "POST",
+            "path": "/api/teams/assign",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "seat": "zone1/0000000a", "seat_id": "seat-0000000a", "principal": "user:beta" }
+          },
+          "response": {
+            "status": 422,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "88", "etag": "W/\"58-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "router_not_assignable", "message": "总工不分配给员工，只对负责人" }
+          }
+        },
+        {
+          "id": "assign",
+          "route": "POST /api/teams/assign",
+          "class": "normal",
+          "what": "负责人 alpha 把成员分给 beta：201",
+          "request": {
+            "method": "POST",
+            "path": "/api/teams/assign",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "seat": "zone1/0000000b", "seat_id": "seat-0000000b", "principal": "user:beta" }
+          },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "18", "etag": "W/\"12-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 1 }
+          }
+        },
+        {
+          "id": "list-after",
+          "route": "GET /api/teams",
+          "class": "normal",
+          "what": "员工 alpha：看到 sales 下的团队、负责人、总工、成员分给 beta",
+          "request": { "method": "GET", "path": "/api/teams", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "825", "etag": "W/\"339-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "departments": [
+                {
+                  "id": "sales",
+                  "name": "合成销售部",
+                  "lead": { "principal": "user:beta", "display_name": "合成乙" },
+                  "teams": [
+                    {
+                      "host": "a1b2c3d4",
+                      "team": "zone1/canvas/Sales Team",
+                      "status": "active",
+                      "in_roster": true,
+                      "department": { "id": "sales", "name": "合成销售部" },
+                      "leads": [{ "principal": "user:alpha", "display_name": "合成甲", "source": "explicit" }, { "principal": "user:beta", "display_name": "合成乙", "source": "department" }],
+                      "router": { "seat": "zone1/0000000a", "seat_id": "seat-0000000a", "name": "合成总工", "role": "router", "online": true, "router": true, "assigned_to": null, "active_items": 0 },
+                      "members": [{ "seat": "zone1/0000000b", "seat_id": "seat-0000000b", "name": "合成成员", "role": "member", "online": true, "router": false, "assigned_to": { "principal": "user:beta", "display_name": "合成乙" }, "active_items": 0 }],
+                      "name": "Sales Team"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "mine-beta",
+          "route": "GET /api/teams/mine",
+          "class": "normal",
+          "what": "beta 的「我的 AI 员工」：分给他的成员；他是部门负责人，也带团队",
+          "request": { "method": "GET", "path": "/api/teams/mine", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "598", "etag": "W/\"256-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "principal": "user:beta",
+              "members": [
+                {
+                  "host": "a1b2c3d4",
+                  "team": "zone1/canvas/Sales Team",
+                  "team_name": "Sales Team",
+                  "status": "active",
+                  "seat": "zone1/0000000b",
+                  "seat_id": "seat-0000000b",
+                  "name": "合成成员",
+                  "role": "member",
+                  "online": true,
+                  "router": false,
+                  "assigned_to": { "principal": "user:beta", "display_name": "合成乙" },
+                  "active_items": 0
+                }
+              ],
+              "teams": [
+                {
+                  "host": "a1b2c3d4",
+                  "team": "zone1/canvas/Sales Team",
+                  "name": "Sales Team",
+                  "status": "active",
+                  "router": { "seat": "zone1/0000000a", "seat_id": "seat-0000000a", "name": "合成总工", "role": "router", "online": true, "router": true, "assigned_to": null, "active_items": 0 }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "mine-junk",
+          "route": "GET /api/teams/mine",
+          "class": "normal",
+          "what": "这条路由不读查询串",
+          "request": { "method": "GET", "path": "/api/teams/mine?x=1", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "598", "etag": "W/\"256-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "principal": "user:beta",
+              "members": [
+                {
+                  "host": "a1b2c3d4",
+                  "team": "zone1/canvas/Sales Team",
+                  "team_name": "Sales Team",
+                  "status": "active",
+                  "seat": "zone1/0000000b",
+                  "seat_id": "seat-0000000b",
+                  "name": "合成成员",
+                  "role": "member",
+                  "online": true,
+                  "router": false,
+                  "assigned_to": { "principal": "user:beta", "display_name": "合成乙" },
+                  "active_items": 0
+                }
+              ],
+              "teams": [
+                {
+                  "host": "a1b2c3d4",
+                  "team": "zone1/canvas/Sales Team",
+                  "name": "Sales Team",
+                  "status": "active",
+                  "router": { "seat": "zone1/0000000a", "seat_id": "seat-0000000a", "name": "合成总工", "role": "router", "online": true, "router": true, "assigned_to": null, "active_items": 0 }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "mine-remote-anon",
+          "route": "GET /api/teams/mine",
+          "class": "unauthorized",
+          "what": "远程、没登录：401",
+          "request": { "method": "GET", "path": "/api/teams/mine", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "teams_auth_required" }
+          }
+        },
+        {
+          "id": "unassign-remote-anon",
+          "route": "POST /api/teams/unassign",
+          "class": "unauthorized",
+          "what": "远程、没登录：401",
+          "request": { "method": "POST", "path": "/api/teams/unassign", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "seat": "zone1/0000000b", "seat_id": "seat-0000000b" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "teams_auth_required" }
+          }
+        },
+        {
+          "id": "unassign-bad-seat",
+          "route": "POST /api/teams/unassign",
+          "class": "invalid",
+          "what": "席位句柄写法不对：400",
+          "request": {
+            "method": "POST",
+            "path": "/api/teams/unassign",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "seat": "bad", "seat_id": "" }
+          },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "seat 写法不对", "code": "seat_invalid" } }
+        },
+        {
+          "id": "unassign",
+          "route": "POST /api/teams/unassign",
+          "class": "normal",
+          "what": "负责人收回：removed=true",
+          "request": {
+            "method": "POST",
+            "path": "/api/teams/unassign",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "seat": "zone1/0000000b", "seat_id": "seat-0000000b" }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "removed": true }
+          }
+        },
+        {
+          "id": "lead-remove-remote-anon",
+          "route": "POST /api/teams/leads/remove",
+          "class": "unauthorized",
+          "what": "远程、没有口令：移除不了",
+          "request": { "method": "POST", "path": "/api/teams/leads/remove", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal": "user:alpha" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "lead-remove-dept",
+          "route": "POST /api/teams/leads/remove",
+          "class": "invalid",
+          "what": "部门负责人跟着部门走：409",
+          "request": { "method": "POST", "path": "/api/teams/leads/remove", "json": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal": "user:beta" } },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "153", "etag": "W/\"99-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "lead_from_department", "message": "这位是所挂部门的负责人，跟着部门走：换部门负责人，或者把团队挂到别的部门" }
+          }
+        },
+        {
+          "id": "lead-remove",
+          "route": "POST /api/teams/leads/remove",
+          "class": "normal",
+          "what": "移除 alpha（还有部门负责人 beta）：200",
+          "request": { "method": "POST", "path": "/api/teams/leads/remove", "json": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal": "user:alpha" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "removed": true } }
+        },
+        {
+          "id": "release-remote-anon",
+          "route": "POST /api/teams/release",
+          "class": "unauthorized",
+          "what": "远程、没有口令：退回不了",
+          "request": { "method": "POST", "path": "/api/teams/release", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "release-bad-team",
+          "route": "POST /api/teams/release",
+          "class": "invalid",
+          "what": "团队写法不对：400",
+          "request": { "method": "POST", "path": "/api/teams/release", "json": { "host": "a1b2c3d4", "team": "bad" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "team 写法不对", "code": "team_invalid" } }
+        },
+        {
+          "id": "release",
+          "route": "POST /api/teams/release",
+          "class": "normal",
+          "what": "退回待认领",
+          "request": { "method": "POST", "path": "/api/teams/release", "json": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "49", "etag": "W/\"31-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "leads_ended": 0, "assignments_ended": 0 }
+          }
+        },
+        {
+          "id": "release-again",
+          "route": "POST /api/teams/release",
+          "class": "invalid",
+          "what": "已经是待认领：409",
+          "request": { "method": "POST", "path": "/api/teams/release", "json": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team" } },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "65", "etag": "W/\"41-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "team_not_claimed", "message": "这个团队没有认领" }
+          }
+        }
+      ]
+    }
+  ]
+}

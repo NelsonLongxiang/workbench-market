@@ -8,13 +8,14 @@
  */
 import type express from 'express';
 import type multer from 'multer';
-import { createReadStream, existsSync, readFileSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, rmSync } from 'node:fs';
 import { join, sep as pathSep } from 'node:path';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import { dataDir, type SopRunRow } from '../db.ts';
 import type { SopService } from '../services/sop.ts';
 import { HttpError } from '../errors.ts';
+import { expectedSha256, uploadIntegrity } from '../upload-integrity.ts';
 import { authorizeRunRead } from '../sop-read-auth.ts';
 import type { Sniff } from '../file-sniff.ts';
 
@@ -129,12 +130,20 @@ export function registerSopRunFileRoutes(app: HttpService, deps: SopRunFilesDeps
         const createdBy = typeof req.body?.created_by === 'string' ? req.body.created_by.trim().slice(0, 128) : '';
         const rel = req.file.path.replace(dataDir, '').split(pathSep).join('/').replace(/^\/+/, '');
         const originalName = fixFileName(req.file.originalname);
+        // 期望的 sha256：请求头 X-Content-SHA256 或表单字段 sha256（都带时须一致），不符拒收、不保存
+        const fromHeader = expectedSha256(req.headers['x-content-sha256']), fromField = expectedSha256(req.body?.sha256);
+        if (fromHeader === 'bad' || fromField === 'bad' || (fromHeader !== null && fromField !== null && fromHeader !== fromField)) {
+          rmSync(req.file.path, { force: true });
+          bad(fromHeader === 'bad' || fromField === 'bad' ? 'sha256 须为 64 位十六进制' : 'X-Content-SHA256 与表单字段 sha256 不一致');
+        }
+        const wantSha = (fromHeader ?? fromField) as string | null;
         const kind = checkUploadKind(res, req.file, originalName);
         if (!kind) return;
         const sha = sha256Hex(readFileSync(req.file.path) as unknown as string);
+        if (wantSha !== null && sha !== wantSha) { rmSync(req.file.path, { force: true }); bad(`收到内容的 sha256 与声明不符（收到 ${req.file.size} 字节）：内容可能在传输中被截断或改动，未保存`); }
         const r = svc<SopService>('sop').runFileInsert({ runId, name: originalName, mime: kind.mime, size: req.file.size, storagePath: rel, createdBy, sha256: sha }) as unknown as { lastInsertRowid: number | bigint };
         try { svc<SopService>('sop').runFileAudit(runId, originalName, req.file.size, sha, String(req.headers['x-run-upload-token'] ? 'token' : 'admin')); } catch { /* 审计失败不阻 */ }
-        res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), run_id: runId, name: originalName, mime: kind.mime, size: req.file.size, sha256: sha, url: `/api/sop/runs/${runId}/files/${Number(r.lastInsertRowid)}`, quota: runFileQuota(runId) });
+        res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), run_id: runId, name: originalName, mime: kind.mime, size: req.file.size, sha256: sha, url: `/api/sop/runs/${runId}/files/${Number(r.lastInsertRowid)}`, quota: runFileQuota(runId), ...uploadIntegrity(wantSha, null) });
       } catch (e) { next(e); }
     });
   });

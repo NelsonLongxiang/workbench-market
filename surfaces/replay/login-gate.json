@@ -1,0 +1,819 @@
+{
+  "domain": "login-gate",
+  "what": "登录门：/login、/api/auth/login、/api/auth/logout、/api/auth/me 的 4 条路由（登录页、口令登录、登出、我是谁）。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。口令、会话都是合成的；登录 cookie 的值每次随机，只比长度和属性。",
+  "routes": ["GET /login", "POST /api/auth/login", "POST /api/auth/logout", "GET /api/auth/me"],
+  "exempt": [
+    { "route": "GET /login", "class": "unauthorized", "why": "登录页本来就是给还没登录的人看的，不查身份；登录门开着也不拦它", "shown_by": "open/page" },
+    { "route": "GET /login", "class": "invalid", "why": "只读 next，不合规的 next 换成 /，页面照出，没有会被拒的输入", "shown_by": "open/page-next-offsite" },
+    { "route": "GET /api/auth/me", "class": "unauthorized", "why": "回答「你是谁」：没认出也是 200，authenticated 为 false，不拦人", "shown_by": "open/me-anonymous" },
+    { "route": "GET /api/auth/me", "class": "invalid", "why": "不读查询串、请求体；坏的登录 cookie 只是认不出，没有会被拒的输入", "shown_by": "open/me-junk" }
+  ],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "缺省配置：登录门关，环境没给口令。",
+      "env": {},
+      "steps": [
+        {
+          "id": "page",
+          "route": "GET /login",
+          "class": "normal",
+          "what": "登录页：200 HTML，不缓存、不许被框",
+          "request": { "method": "GET", "path": "/login" },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "7813", "content-security-policy": "frame-ancestors 'none'", "etag": "W/\"1e85-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<title>登录 · 工作台市场</title><style>\n/* 由 scripts/gen-design-tokens.mjs 从 DESIGN.md v1.0.0 生成，勿手改；改 token 请改 DESIGN.md 后重新生成。\n   变量契约见 DESIGN.md「CSS 变量契约」：名字稳定、值可变。 */\n:root {\n  --wm-version: \"1.0.0\";\n  --wm-color-primary: #1E3A5F;\n  --wm-color-on-primary: #FFFFFF;\n  --wm-color-primary-subtle: #EEF2F7;\n  --wm-color-text: #0F172A;\n  --wm-color-text-secondary: #5A6577;\n  --wm-color-text-disabled: #94A3B8;\n  --wm-color-page: #F6F7F9;\n  --wm-color-surface: #FFFFFF;\n  --wm-color-border: #E2E8F0;\n  --wm-color-border-strong: #CBD5E1;\n  --wm-color-success: #047857;\n  --wm-color-success-text: #047857;\n  --wm-color-success-bg: #ECFDF5;\n  --wm-color-warning: #F59E0B;\n  --wm-color-warning-text: #B45309;\n  --wm-color-warning-bg: #FFFBEB;\n  --wm-color-danger: #DC2626;\n  --wm-color-danger-text: #B91C1C;\n  --wm-color-danger-bg: #FEF2F2;\n  --wm-color-nav-bg: #F6F7F9;\n  --wm-color-nav-text: #5A6577;\n  --wm-color-nav-text-active: #1E3A5F;\n  --wm-color-nav-item-active-bg: #EEF2F7;\n  --wm-color-info: #1E3A5F;\n  --wm-color-info-bg: #EEF2F7;\n  --wm-font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;\n  --wm-font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;\n  --wm-font-size-caption: 12px;\n  --wm-line-height-caption: 20px;\n  --wm-font-weight-caption: 400;\n  --wm-font-size-body: 14px;\n  --wm-line-height-body: 22px;\n  --wm-font-weight-body: 400;\n  --wm-font-size-body-strong: 14px;\n  --wm-line-height-body-strong: 22px;\n  --wm-font-weight-body-strong: 600;\n  --wm-font-size-subtitle: 16px;\n  --wm-line-height-subtitle: 24px;\n  --wm-font-weight-subtitle: 600;\n  --wm-font-size-title: 20px;\n  --wm-line-height-title: 28px;\n  --wm-font-weight-title: 600;\n  --wm-font-size-display: 24px;\n  --wm-line-height-display: 32px;\n  --wm-font-weight-display: 600;\n  --wm-font-size-stat-label: 12px;\n  --wm-line-height-stat-label: 20px;\n  --wm-font-weight-stat-label: 600;\n  --wm-space-1: 4px;\n  --wm-space-2: 8px;\n  --wm-space-3: 12px;\n  --wm-space-4: 16px;\n  --wm-space-6: 24px;\n  --wm-space-8: 32px;\n  --wm-space-12: 48px;\n  --wm-radius-sm: 4px;\n  --wm-radius-md: 6px;\n  --wm-radius-lg: 8px;\n  --wm-radius-full: 9999px;\n  --wm-shadow-0: none;\n  --wm-shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05);\n  --wm-shadow-2: 0 4px 12px rgba(15, 23, 42, 0.10);\n  --wm-shadow-3: 0 12px 32px rgba(15, 23, 42, 0.16);\n  --wm-motion-fast: 120ms;\n  --wm-motion-base: 200ms;\n  --wm-motion-easing: ease;\n}\n\nbody{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:var(--wm-font-sans,system-ui);font-size:var(--wm-font-size-body,14px);line-height:var(--wm-line-height-body,1.6);color:var(--wm-color-text,#1f2329);background:var(--wm-color-page,#f5f6f7)}\n.card{width:360px;background:var(--wm-color-surface,#fff);border:1px solid var(--wm-color-border,#dee0e3);border-radius:var(--wm-radius-lg,8px);padding:var(--wm-space-8,32px)}\nh1{margin:0 0 var(--wm-space-1,4px);font-size:var(--wm-font-size-title,20px);line-height:var(--wm-line-height-title,1.4);font-weight:var(--wm-font-weight-title,600)}\n.sub{margin:0 0 var(--wm-space-6,24px);color:var(--wm-color-text-secondary,#646a73);font-size:var(--wm-font-size-caption,12px)}\nbutton{width:100%;height:36px;border-radius:var(--wm-radius-md,6px);font:inherit;cursor:pointer;border:1px solid var(--wm-color-border-strong,#c9cdd4);background:var(--wm-color-surface,#fff);color:var(--wm-color-text,#1f2329)}\nbutton.primary{background:var(--wm-color-primary,#3370ff);border-color:var(--wm-color-primary,#3370ff);color:var(--wm-color-on-primary,#fff)}\nbutton:disabled{opacity:.6;cursor:default}\ninput{box-sizing:border-box;width:100%;height:36px;padding:0 var(--wm-space-3,12px);border:1px solid var(--wm-color-border-strong,#c9cdd4);border-radius:var(--wm-radius-md,6px);font:inherit;margin-bottom:var(--wm-space-3,12px)}\n.or{display:flex;align-items:center;gap:var(--wm-space-3,12px);margin:var(--wm-space-6,24px) 0;color:var(--wm-color-text-secondary,#646a73);font-size:var(--wm-font-size-caption,12px)}\n.or:before,.or:after{content:\"\";flex:1;border-top:1px solid var(--wm-color-border,#dee0e3)}\n.msg{min-height:20px;margin-top:var(--wm-space-2,8px);font-size:var(--wm-font-size-caption,12px);color:var(--wm-color-danger-text,#d83931)}\n.msg.info{color:var(--wm-color-text-secondary,#646a73)}\n</style></head><body><main class=\"card\">\n<h1>工作台市场</h1><p class=\"sub\">登录门未开启（WM_LOGIN_GATE=off）</p>\n\n\n<form id=\"f\"><input id=\"t\" type=\"password\" autocomplete=\"current-password\" placeholder=\"管理员口令\" aria-label=\"管理员口令\" required>\n<button class=\"primary\" type=\"submit\" id=\"go\">输入管理员口令登录</button><div class=\"msg\" id=\"msg\" role=\"alert\"></div></form>\n</main><script>(function(){var next=\"/\",odoo=null;\nfunction done(){location.replace(next)}\nvar f=document.getElementById('f'),t=document.getElementById('t'),go=document.getElementById('go'),msg=document.getElementById('msg');\nf.addEventListener('submit',function(e){e.preventDefault();go.disabled=true;msg.textContent='';\nfetch('/api/auth/login',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:t.value})})\n.then(function(r){return r.json().catch(function(){return{}}).then(function(b){t.value='';if(r.ok)return done();msg.textContent=r.status===429?'尝试过于频繁，请 '+(b.retry_after_s||60)+' 秒后再试':(b.error||'登录失败');go.disabled=false;t.focus()})})\n.catch(function(){msg.textContent='网络错误';go.disabled=false})});\nvar ob=document.getElementById('odoo-logout'),oe=document.getElementById('odoo-logout-msg');\nif(ob)ob.addEventListener('click',function(){ob.disabled=true;oe.textContent='';\nfetch('/api/auth/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-WM-Odoo-Logout':'1'},body:'{}'})\n.then(function(r){return r.json().catch(function(){return{}}).then(function(b){if(r.ok&&b.ok){location.reload();return}oe.textContent=b.error||'无法确认 Odoo 会话已退出';ob.disabled=false})})\n.catch(function(){oe.textContent='网络错误，无法确认会话已退出';ob.disabled=false})});\nif(!odoo)return;var btn=document.getElementById('odoo'),om=document.getElementById('odoo-msg'),pop=null,until=0,timer=0;\nfunction check(){if(!until||Date.now()>until)return;fetch('/api/auth/me',{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json()}).then(function(b){if(b&&b.authenticated){until=0;try{pop&&pop.close()}catch(e){}done()}}).catch(function(){})}\nbtn.addEventListener('click',function(){\n// 与 #275 弹窗流同法：先开空白页、切断 opener 再跳 Odoo 中继，保住句柄；登录后回本页轮询身份\nvar w=window.open('about:blank','_blank','popup,width=520,height=680');if(!w){om.textContent='弹窗被浏览器拦截，请允许弹窗后重试';return}\ntry{w.opener=null}catch(e){}var cut=false;try{cut=w.opener===null}catch(e){}if(!cut){try{w.close()}catch(e){}om.textContent='无法安全打开登录窗口';return}\ntry{w.location.replace(odoo)}catch(e){w.location.href=odoo}pop=w;until=Date.now()+600000;om.textContent='在弹出的窗口里登录 Odoo，完成后回到本页';btn.disabled=true;\nclearInterval(timer);timer=setInterval(function(){if(Date.now()>until){clearInterval(timer);btn.disabled=false;om.textContent='等待超时，可重试'}else check()},1500)});\nwindow.addEventListener('focus',check);document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')check()});\n})()</script></body></html>"
+          }
+        },
+        {
+          "id": "page-next",
+          "route": "GET /login",
+          "class": "normal",
+          "what": "带 next=/tasks：登录后去向原样带进页面",
+          "request": { "method": "GET", "path": "/login?next=%2Ftasks" },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "7818", "content-security-policy": "frame-ancestors 'none'", "etag": "W/\"1e8a-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<title>登录 · 工作台市场</title><style>\n/* 由 scripts/gen-design-tokens.mjs 从 DESIGN.md v1.0.0 生成，勿手改；改 token 请改 DESIGN.md 后重新生成。\n   变量契约见 DESIGN.md「CSS 变量契约」：名字稳定、值可变。 */\n:root {\n  --wm-version: \"1.0.0\";\n  --wm-color-primary: #1E3A5F;\n  --wm-color-on-primary: #FFFFFF;\n  --wm-color-primary-subtle: #EEF2F7;\n  --wm-color-text: #0F172A;\n  --wm-color-text-secondary: #5A6577;\n  --wm-color-text-disabled: #94A3B8;\n  --wm-color-page: #F6F7F9;\n  --wm-color-surface: #FFFFFF;\n  --wm-color-border: #E2E8F0;\n  --wm-color-border-strong: #CBD5E1;\n  --wm-color-success: #047857;\n  --wm-color-success-text: #047857;\n  --wm-color-success-bg: #ECFDF5;\n  --wm-color-warning: #F59E0B;\n  --wm-color-warning-text: #B45309;\n  --wm-color-warning-bg: #FFFBEB;\n  --wm-color-danger: #DC2626;\n  --wm-color-danger-text: #B91C1C;\n  --wm-color-danger-bg: #FEF2F2;\n  --wm-color-nav-bg: #F6F7F9;\n  --wm-color-nav-text: #5A6577;\n  --wm-color-nav-text-active: #1E3A5F;\n  --wm-color-nav-item-active-bg: #EEF2F7;\n  --wm-color-info: #1E3A5F;\n  --wm-color-info-bg: #EEF2F7;\n  --wm-font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;\n  --wm-font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;\n  --wm-font-size-caption: 12px;\n  --wm-line-height-caption: 20px;\n  --wm-font-weight-caption: 400;\n  --wm-font-size-body: 14px;\n  --wm-line-height-body: 22px;\n  --wm-font-weight-body: 400;\n  --wm-font-size-body-strong: 14px;\n  --wm-line-height-body-strong: 22px;\n  --wm-font-weight-body-strong: 600;\n  --wm-font-size-subtitle: 16px;\n  --wm-line-height-subtitle: 24px;\n  --wm-font-weight-subtitle: 600;\n  --wm-font-size-title: 20px;\n  --wm-line-height-title: 28px;\n  --wm-font-weight-title: 600;\n  --wm-font-size-display: 24px;\n  --wm-line-height-display: 32px;\n  --wm-font-weight-display: 600;\n  --wm-font-size-stat-label: 12px;\n  --wm-line-height-stat-label: 20px;\n  --wm-font-weight-stat-label: 600;\n  --wm-space-1: 4px;\n  --wm-space-2: 8px;\n  --wm-space-3: 12px;\n  --wm-space-4: 16px;\n  --wm-space-6: 24px;\n  --wm-space-8: 32px;\n  --wm-space-12: 48px;\n  --wm-radius-sm: 4px;\n  --wm-radius-md: 6px;\n  --wm-radius-lg: 8px;\n  --wm-radius-full: 9999px;\n  --wm-shadow-0: none;\n  --wm-shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05);\n  --wm-shadow-2: 0 4px 12px rgba(15, 23, 42, 0.10);\n  --wm-shadow-3: 0 12px 32px rgba(15, 23, 42, 0.16);\n  --wm-motion-fast: 120ms;\n  --wm-motion-base: 200ms;\n  --wm-motion-easing: ease;\n}\n\nbody{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:var(--wm-font-sans,system-ui);font-size:var(--wm-font-size-body,14px);line-height:var(--wm-line-height-body,1.6);color:var(--wm-color-text,#1f2329);background:var(--wm-color-page,#f5f6f7)}\n.card{width:360px;background:var(--wm-color-surface,#fff);border:1px solid var(--wm-color-border,#dee0e3);border-radius:var(--wm-radius-lg,8px);padding:var(--wm-space-8,32px)}\nh1{margin:0 0 var(--wm-space-1,4px);font-size:var(--wm-font-size-title,20px);line-height:var(--wm-line-height-title,1.4);font-weight:var(--wm-font-weight-title,600)}\n.sub{margin:0 0 var(--wm-space-6,24px);color:var(--wm-color-text-secondary,#646a73);font-size:var(--wm-font-size-caption,12px)}\nbutton{width:100%;height:36px;border-radius:var(--wm-radius-md,6px);font:inherit;cursor:pointer;border:1px solid var(--wm-color-border-strong,#c9cdd4);background:var(--wm-color-surface,#fff);color:var(--wm-color-text,#1f2329)}\nbutton.primary{background:var(--wm-color-primary,#3370ff);border-color:var(--wm-color-primary,#3370ff);color:var(--wm-color-on-primary,#fff)}\nbutton:disabled{opacity:.6;cursor:default}\ninput{box-sizing:border-box;width:100%;height:36px;padding:0 var(--wm-space-3,12px);border:1px solid var(--wm-color-border-strong,#c9cdd4);border-radius:var(--wm-radius-md,6px);font:inherit;margin-bottom:var(--wm-space-3,12px)}\n.or{display:flex;align-items:center;gap:var(--wm-space-3,12px);margin:var(--wm-space-6,24px) 0;color:var(--wm-color-text-secondary,#646a73);font-size:var(--wm-font-size-caption,12px)}\n.or:before,.or:after{content:\"\";flex:1;border-top:1px solid var(--wm-color-border,#dee0e3)}\n.msg{min-height:20px;margin-top:var(--wm-space-2,8px);font-size:var(--wm-font-size-caption,12px);color:var(--wm-color-danger-text,#d83931)}\n.msg.info{color:var(--wm-color-text-secondary,#646a73)}\n</style></head><body><main class=\"card\">\n<h1>工作台市场</h1><p class=\"sub\">登录门未开启（WM_LOGIN_GATE=off）</p>\n\n\n<form id=\"f\"><input id=\"t\" type=\"password\" autocomplete=\"current-password\" placeholder=\"管理员口令\" aria-label=\"管理员口令\" required>\n<button class=\"primary\" type=\"submit\" id=\"go\">输入管理员口令登录</button><div class=\"msg\" id=\"msg\" role=\"alert\"></div></form>\n</main><script>(function(){var next=\"/tasks\",odoo=null;\nfunction done(){location.replace(next)}\nvar f=document.getElementById('f'),t=document.getElementById('t'),go=document.getElementById('go'),msg=document.getElementById('msg');\nf.addEventListener('submit',function(e){e.preventDefault();go.disabled=true;msg.textContent='';\nfetch('/api/auth/login',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:t.value})})\n.then(function(r){return r.json().catch(function(){return{}}).then(function(b){t.value='';if(r.ok)return done();msg.textContent=r.status===429?'尝试过于频繁，请 '+(b.retry_after_s||60)+' 秒后再试':(b.error||'登录失败');go.disabled=false;t.focus()})})\n.catch(function(){msg.textContent='网络错误';go.disabled=false})});\nvar ob=document.getElementById('odoo-logout'),oe=document.getElementById('odoo-logout-msg');\nif(ob)ob.addEventListener('click',function(){ob.disabled=true;oe.textContent='';\nfetch('/api/auth/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-WM-Odoo-Logout':'1'},body:'{}'})\n.then(function(r){return r.json().catch(function(){return{}}).then(function(b){if(r.ok&&b.ok){location.reload();return}oe.textContent=b.error||'无法确认 Odoo 会话已退出';ob.disabled=false})})\n.catch(function(){oe.textContent='网络错误，无法确认会话已退出';ob.disabled=false})});\nif(!odoo)return;var btn=document.getElementById('odoo'),om=document.getElementById('odoo-msg'),pop=null,until=0,timer=0;\nfunction check(){if(!until||Date.now()>until)return;fetch('/api/auth/me',{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json()}).then(function(b){if(b&&b.authenticated){until=0;try{pop&&pop.close()}catch(e){}done()}}).catch(function(){})}\nbtn.addEventListener('click',function(){\n// 与 #275 弹窗流同法：先开空白页、切断 opener 再跳 Odoo 中继，保住句柄；登录后回本页轮询身份\nvar w=window.open('about:blank','_blank','popup,width=520,height=680');if(!w){om.textContent='弹窗被浏览器拦截，请允许弹窗后重试';return}\ntry{w.opener=null}catch(e){}var cut=false;try{cut=w.opener===null}catch(e){}if(!cut){try{w.close()}catch(e){}om.textContent='无法安全打开登录窗口';return}\ntry{w.location.replace(odoo)}catch(e){w.location.href=odoo}pop=w;until=Date.now()+600000;om.textContent='在弹出的窗口里登录 Odoo，完成后回到本页';btn.disabled=true;\nclearInterval(timer);timer=setInterval(function(){if(Date.now()>until){clearInterval(timer);btn.disabled=false;om.textContent='等待超时，可重试'}else check()},1500)});\nwindow.addEventListener('focus',check);document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')check()});\n})()</script></body></html>"
+          }
+        },
+        {
+          "id": "page-next-offsite",
+          "route": "GET /login",
+          "class": "normal",
+          "what": "next 指向站外（//evil.example）：换成 /，页面照出",
+          "request": { "method": "GET", "path": "/login?next=%2F%2Fevil.example%2Fx" },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "7813", "content-security-policy": "frame-ancestors 'none'", "etag": "W/\"1e85-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<title>登录 · 工作台市场</title><style>\n/* 由 scripts/gen-design-tokens.mjs 从 DESIGN.md v1.0.0 生成，勿手改；改 token 请改 DESIGN.md 后重新生成。\n   变量契约见 DESIGN.md「CSS 变量契约」：名字稳定、值可变。 */\n:root {\n  --wm-version: \"1.0.0\";\n  --wm-color-primary: #1E3A5F;\n  --wm-color-on-primary: #FFFFFF;\n  --wm-color-primary-subtle: #EEF2F7;\n  --wm-color-text: #0F172A;\n  --wm-color-text-secondary: #5A6577;\n  --wm-color-text-disabled: #94A3B8;\n  --wm-color-page: #F6F7F9;\n  --wm-color-surface: #FFFFFF;\n  --wm-color-border: #E2E8F0;\n  --wm-color-border-strong: #CBD5E1;\n  --wm-color-success: #047857;\n  --wm-color-success-text: #047857;\n  --wm-color-success-bg: #ECFDF5;\n  --wm-color-warning: #F59E0B;\n  --wm-color-warning-text: #B45309;\n  --wm-color-warning-bg: #FFFBEB;\n  --wm-color-danger: #DC2626;\n  --wm-color-danger-text: #B91C1C;\n  --wm-color-danger-bg: #FEF2F2;\n  --wm-color-nav-bg: #F6F7F9;\n  --wm-color-nav-text: #5A6577;\n  --wm-color-nav-text-active: #1E3A5F;\n  --wm-color-nav-item-active-bg: #EEF2F7;\n  --wm-color-info: #1E3A5F;\n  --wm-color-info-bg: #EEF2F7;\n  --wm-font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;\n  --wm-font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;\n  --wm-font-size-caption: 12px;\n  --wm-line-height-caption: 20px;\n  --wm-font-weight-caption: 400;\n  --wm-font-size-body: 14px;\n  --wm-line-height-body: 22px;\n  --wm-font-weight-body: 400;\n  --wm-font-size-body-strong: 14px;\n  --wm-line-height-body-strong: 22px;\n  --wm-font-weight-body-strong: 600;\n  --wm-font-size-subtitle: 16px;\n  --wm-line-height-subtitle: 24px;\n  --wm-font-weight-subtitle: 600;\n  --wm-font-size-title: 20px;\n  --wm-line-height-title: 28px;\n  --wm-font-weight-title: 600;\n  --wm-font-size-display: 24px;\n  --wm-line-height-display: 32px;\n  --wm-font-weight-display: 600;\n  --wm-font-size-stat-label: 12px;\n  --wm-line-height-stat-label: 20px;\n  --wm-font-weight-stat-label: 600;\n  --wm-space-1: 4px;\n  --wm-space-2: 8px;\n  --wm-space-3: 12px;\n  --wm-space-4: 16px;\n  --wm-space-6: 24px;\n  --wm-space-8: 32px;\n  --wm-space-12: 48px;\n  --wm-radius-sm: 4px;\n  --wm-radius-md: 6px;\n  --wm-radius-lg: 8px;\n  --wm-radius-full: 9999px;\n  --wm-shadow-0: none;\n  --wm-shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05);\n  --wm-shadow-2: 0 4px 12px rgba(15, 23, 42, 0.10);\n  --wm-shadow-3: 0 12px 32px rgba(15, 23, 42, 0.16);\n  --wm-motion-fast: 120ms;\n  --wm-motion-base: 200ms;\n  --wm-motion-easing: ease;\n}\n\nbody{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:var(--wm-font-sans,system-ui);font-size:var(--wm-font-size-body,14px);line-height:var(--wm-line-height-body,1.6);color:var(--wm-color-text,#1f2329);background:var(--wm-color-page,#f5f6f7)}\n.card{width:360px;background:var(--wm-color-surface,#fff);border:1px solid var(--wm-color-border,#dee0e3);border-radius:var(--wm-radius-lg,8px);padding:var(--wm-space-8,32px)}\nh1{margin:0 0 var(--wm-space-1,4px);font-size:var(--wm-font-size-title,20px);line-height:var(--wm-line-height-title,1.4);font-weight:var(--wm-font-weight-title,600)}\n.sub{margin:0 0 var(--wm-space-6,24px);color:var(--wm-color-text-secondary,#646a73);font-size:var(--wm-font-size-caption,12px)}\nbutton{width:100%;height:36px;border-radius:var(--wm-radius-md,6px);font:inherit;cursor:pointer;border:1px solid var(--wm-color-border-strong,#c9cdd4);background:var(--wm-color-surface,#fff);color:var(--wm-color-text,#1f2329)}\nbutton.primary{background:var(--wm-color-primary,#3370ff);border-color:var(--wm-color-primary,#3370ff);color:var(--wm-color-on-primary,#fff)}\nbutton:disabled{opacity:.6;cursor:default}\ninput{box-sizing:border-box;width:100%;height:36px;padding:0 var(--wm-space-3,12px);border:1px solid var(--wm-color-border-strong,#c9cdd4);border-radius:var(--wm-radius-md,6px);font:inherit;margin-bottom:var(--wm-space-3,12px)}\n.or{display:flex;align-items:center;gap:var(--wm-space-3,12px);margin:var(--wm-space-6,24px) 0;color:var(--wm-color-text-secondary,#646a73);font-size:var(--wm-font-size-caption,12px)}\n.or:before,.or:after{content:\"\";flex:1;border-top:1px solid var(--wm-color-border,#dee0e3)}\n.msg{min-height:20px;margin-top:var(--wm-space-2,8px);font-size:var(--wm-font-size-caption,12px);color:var(--wm-color-danger-text,#d83931)}\n.msg.info{color:var(--wm-color-text-secondary,#646a73)}\n</style></head><body><main class=\"card\">\n<h1>工作台市场</h1><p class=\"sub\">登录门未开启（WM_LOGIN_GATE=off）</p>\n\n\n<form id=\"f\"><input id=\"t\" type=\"password\" autocomplete=\"current-password\" placeholder=\"管理员口令\" aria-label=\"管理员口令\" required>\n<button class=\"primary\" type=\"submit\" id=\"go\">输入管理员口令登录</button><div class=\"msg\" id=\"msg\" role=\"alert\"></div></form>\n</main><script>(function(){var next=\"/\",odoo=null;\nfunction done(){location.replace(next)}\nvar f=document.getElementById('f'),t=document.getElementById('t'),go=document.getElementById('go'),msg=document.getElementById('msg');\nf.addEventListener('submit',function(e){e.preventDefault();go.disabled=true;msg.textContent='';\nfetch('/api/auth/login',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:t.value})})\n.then(function(r){return r.json().catch(function(){return{}}).then(function(b){t.value='';if(r.ok)return done();msg.textContent=r.status===429?'尝试过于频繁，请 '+(b.retry_after_s||60)+' 秒后再试':(b.error||'登录失败');go.disabled=false;t.focus()})})\n.catch(function(){msg.textContent='网络错误';go.disabled=false})});\nvar ob=document.getElementById('odoo-logout'),oe=document.getElementById('odoo-logout-msg');\nif(ob)ob.addEventListener('click',function(){ob.disabled=true;oe.textContent='';\nfetch('/api/auth/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-WM-Odoo-Logout':'1'},body:'{}'})\n.then(function(r){return r.json().catch(function(){return{}}).then(function(b){if(r.ok&&b.ok){location.reload();return}oe.textContent=b.error||'无法确认 Odoo 会话已退出';ob.disabled=false})})\n.catch(function(){oe.textContent='网络错误，无法确认会话已退出';ob.disabled=false})});\nif(!odoo)return;var btn=document.getElementById('odoo'),om=document.getElementById('odoo-msg'),pop=null,until=0,timer=0;\nfunction check(){if(!until||Date.now()>until)return;fetch('/api/auth/me',{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json()}).then(function(b){if(b&&b.authenticated){until=0;try{pop&&pop.close()}catch(e){}done()}}).catch(function(){})}\nbtn.addEventListener('click',function(){\n// 与 #275 弹窗流同法：先开空白页、切断 opener 再跳 Odoo 中继，保住句柄；登录后回本页轮询身份\nvar w=window.open('about:blank','_blank','popup,width=520,height=680');if(!w){om.textContent='弹窗被浏览器拦截，请允许弹窗后重试';return}\ntry{w.opener=null}catch(e){}var cut=false;try{cut=w.opener===null}catch(e){}if(!cut){try{w.close()}catch(e){}om.textContent='无法安全打开登录窗口';return}\ntry{w.location.replace(odoo)}catch(e){w.location.href=odoo}pop=w;until=Date.now()+600000;om.textContent='在弹出的窗口里登录 Odoo，完成后回到本页';btn.disabled=true;\nclearInterval(timer);timer=setInterval(function(){if(Date.now()>until){clearInterval(timer);btn.disabled=false;om.textContent='等待超时，可重试'}else check()},1500)});\nwindow.addEventListener('focus',check);document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')check()});\n})()</script></body></html>"
+          }
+        },
+        {
+          "id": "page-next-api",
+          "route": "GET /login",
+          "class": "normal",
+          "what": "next 指向 /api/：换成 /",
+          "request": { "method": "GET", "path": "/login?next=%2Fapi%2Fgrants" },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "7813", "content-security-policy": "frame-ancestors 'none'", "etag": "W/\"1e85-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<title>登录 · 工作台市场</title><style>\n/* 由 scripts/gen-design-tokens.mjs 从 DESIGN.md v1.0.0 生成，勿手改；改 token 请改 DESIGN.md 后重新生成。\n   变量契约见 DESIGN.md「CSS 变量契约」：名字稳定、值可变。 */\n:root {\n  --wm-version: \"1.0.0\";\n  --wm-color-primary: #1E3A5F;\n  --wm-color-on-primary: #FFFFFF;\n  --wm-color-primary-subtle: #EEF2F7;\n  --wm-color-text: #0F172A;\n  --wm-color-text-secondary: #5A6577;\n  --wm-color-text-disabled: #94A3B8;\n  --wm-color-page: #F6F7F9;\n  --wm-color-surface: #FFFFFF;\n  --wm-color-border: #E2E8F0;\n  --wm-color-border-strong: #CBD5E1;\n  --wm-color-success: #047857;\n  --wm-color-success-text: #047857;\n  --wm-color-success-bg: #ECFDF5;\n  --wm-color-warning: #F59E0B;\n  --wm-color-warning-text: #B45309;\n  --wm-color-warning-bg: #FFFBEB;\n  --wm-color-danger: #DC2626;\n  --wm-color-danger-text: #B91C1C;\n  --wm-color-danger-bg: #FEF2F2;\n  --wm-color-nav-bg: #F6F7F9;\n  --wm-color-nav-text: #5A6577;\n  --wm-color-nav-text-active: #1E3A5F;\n  --wm-color-nav-item-active-bg: #EEF2F7;\n  --wm-color-info: #1E3A5F;\n  --wm-color-info-bg: #EEF2F7;\n  --wm-font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;\n  --wm-font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;\n  --wm-font-size-caption: 12px;\n  --wm-line-height-caption: 20px;\n  --wm-font-weight-caption: 400;\n  --wm-font-size-body: 14px;\n  --wm-line-height-body: 22px;\n  --wm-font-weight-body: 400;\n  --wm-font-size-body-strong: 14px;\n  --wm-line-height-body-strong: 22px;\n  --wm-font-weight-body-strong: 600;\n  --wm-font-size-subtitle: 16px;\n  --wm-line-height-subtitle: 24px;\n  --wm-font-weight-subtitle: 600;\n  --wm-font-size-title: 20px;\n  --wm-line-height-title: 28px;\n  --wm-font-weight-title: 600;\n  --wm-font-size-display: 24px;\n  --wm-line-height-display: 32px;\n  --wm-font-weight-display: 600;\n  --wm-font-size-stat-label: 12px;\n  --wm-line-height-stat-label: 20px;\n  --wm-font-weight-stat-label: 600;\n  --wm-space-1: 4px;\n  --wm-space-2: 8px;\n  --wm-space-3: 12px;\n  --wm-space-4: 16px;\n  --wm-space-6: 24px;\n  --wm-space-8: 32px;\n  --wm-space-12: 48px;\n  --wm-radius-sm: 4px;\n  --wm-radius-md: 6px;\n  --wm-radius-lg: 8px;\n  --wm-radius-full: 9999px;\n  --wm-shadow-0: none;\n  --wm-shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05);\n  --wm-shadow-2: 0 4px 12px rgba(15, 23, 42, 0.10);\n  --wm-shadow-3: 0 12px 32px rgba(15, 23, 42, 0.16);\n  --wm-motion-fast: 120ms;\n  --wm-motion-base: 200ms;\n  --wm-motion-easing: ease;\n}\n\nbody{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:var(--wm-font-sans,system-ui);font-size:var(--wm-font-size-body,14px);line-height:var(--wm-line-height-body,1.6);color:var(--wm-color-text,#1f2329);background:var(--wm-color-page,#f5f6f7)}\n.card{width:360px;background:var(--wm-color-surface,#fff);border:1px solid var(--wm-color-border,#dee0e3);border-radius:var(--wm-radius-lg,8px);padding:var(--wm-space-8,32px)}\nh1{margin:0 0 var(--wm-space-1,4px);font-size:var(--wm-font-size-title,20px);line-height:var(--wm-line-height-title,1.4);font-weight:var(--wm-font-weight-title,600)}\n.sub{margin:0 0 var(--wm-space-6,24px);color:var(--wm-color-text-secondary,#646a73);font-size:var(--wm-font-size-caption,12px)}\nbutton{width:100%;height:36px;border-radius:var(--wm-radius-md,6px);font:inherit;cursor:pointer;border:1px solid var(--wm-color-border-strong,#c9cdd4);background:var(--wm-color-surface,#fff);color:var(--wm-color-text,#1f2329)}\nbutton.primary{background:var(--wm-color-primary,#3370ff);border-color:var(--wm-color-primary,#3370ff);color:var(--wm-color-on-primary,#fff)}\nbutton:disabled{opacity:.6;cursor:default}\ninput{box-sizing:border-box;width:100%;height:36px;padding:0 var(--wm-space-3,12px);border:1px solid var(--wm-color-border-strong,#c9cdd4);border-radius:var(--wm-radius-md,6px);font:inherit;margin-bottom:var(--wm-space-3,12px)}\n.or{display:flex;align-items:center;gap:var(--wm-space-3,12px);margin:var(--wm-space-6,24px) 0;color:var(--wm-color-text-secondary,#646a73);font-size:var(--wm-font-size-caption,12px)}\n.or:before,.or:after{content:\"\";flex:1;border-top:1px solid var(--wm-color-border,#dee0e3)}\n.msg{min-height:20px;margin-top:var(--wm-space-2,8px);font-size:var(--wm-font-size-caption,12px);color:var(--wm-color-danger-text,#d83931)}\n.msg.info{color:var(--wm-color-text-secondary,#646a73)}\n</style></head><body><main class=\"card\">\n<h1>工作台市场</h1><p class=\"sub\">登录门未开启（WM_LOGIN_GATE=off）</p>\n\n\n<form id=\"f\"><input id=\"t\" type=\"password\" autocomplete=\"current-password\" placeholder=\"管理员口令\" aria-label=\"管理员口令\" required>\n<button class=\"primary\" type=\"submit\" id=\"go\">输入管理员口令登录</button><div class=\"msg\" id=\"msg\" role=\"alert\"></div></form>\n</main><script>(function(){var next=\"/\",odoo=null;\nfunction done(){location.replace(next)}\nvar f=document.getElementById('f'),t=document.getElementById('t'),go=document.getElementById('go'),msg=document.getElementById('msg');\nf.addEventListener('submit',function(e){e.preventDefault();go.disabled=true;msg.textContent='';\nfetch('/api/auth/login',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:t.value})})\n.then(function(r){return r.json().catch(function(){return{}}).then(function(b){t.value='';if(r.ok)return done();msg.textContent=r.status===429?'尝试过于频繁，请 '+(b.retry_after_s||60)+' 秒后再试':(b.error||'登录失败');go.disabled=false;t.focus()})})\n.catch(function(){msg.textContent='网络错误';go.disabled=false})});\nvar ob=document.getElementById('odoo-logout'),oe=document.getElementById('odoo-logout-msg');\nif(ob)ob.addEventListener('click',function(){ob.disabled=true;oe.textContent='';\nfetch('/api/auth/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-WM-Odoo-Logout':'1'},body:'{}'})\n.then(function(r){return r.json().catch(function(){return{}}).then(function(b){if(r.ok&&b.ok){location.reload();return}oe.textContent=b.error||'无法确认 Odoo 会话已退出';ob.disabled=false})})\n.catch(function(){oe.textContent='网络错误，无法确认会话已退出';ob.disabled=false})});\nif(!odoo)return;var btn=document.getElementById('odoo'),om=document.getElementById('odoo-msg'),pop=null,until=0,timer=0;\nfunction check(){if(!until||Date.now()>until)return;fetch('/api/auth/me',{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json()}).then(function(b){if(b&&b.authenticated){until=0;try{pop&&pop.close()}catch(e){}done()}}).catch(function(){})}\nbtn.addEventListener('click',function(){\n// 与 #275 弹窗流同法：先开空白页、切断 opener 再跳 Odoo 中继，保住句柄；登录后回本页轮询身份\nvar w=window.open('about:blank','_blank','popup,width=520,height=680');if(!w){om.textContent='弹窗被浏览器拦截，请允许弹窗后重试';return}\ntry{w.opener=null}catch(e){}var cut=false;try{cut=w.opener===null}catch(e){}if(!cut){try{w.close()}catch(e){}om.textContent='无法安全打开登录窗口';return}\ntry{w.location.replace(odoo)}catch(e){w.location.href=odoo}pop=w;until=Date.now()+600000;om.textContent='在弹出的窗口里登录 Odoo，完成后回到本页';btn.disabled=true;\nclearInterval(timer);timer=setInterval(function(){if(Date.now()>until){clearInterval(timer);btn.disabled=false;om.textContent='等待超时，可重试'}else check()},1500)});\nwindow.addEventListener('focus',check);document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')check()});\n})()</script></body></html>"
+          }
+        },
+        {
+          "id": "me-cli",
+          "route": "GET /api/auth/me",
+          "class": "normal",
+          "what": "本机直连（没有浏览器标记）：本机命令行，已认出",
+          "request": { "method": "GET", "path": "/api/auth/me" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "108", "etag": "W/\"6c-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "gate": "off", "authenticated": true, "via": "cli", "login": null, "principal": null, "display_name": null, "roles": [] }
+          }
+        },
+        {
+          "id": "me-anonymous",
+          "route": "GET /api/auth/me",
+          "class": "normal",
+          "what": "远程匿名：没认出，principal 为空、roles 空",
+          "request": { "method": "GET", "path": "/api/auth/me", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "108", "etag": "W/\"6c-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "gate": "off", "authenticated": false, "via": null, "login": null, "principal": null, "display_name": null, "roles": [] }
+          }
+        },
+        {
+          "id": "me-junk",
+          "route": "GET /api/auth/me",
+          "class": "normal",
+          "what": "带乱七八糟的查询串、坏的登录 cookie：不读这些，照样没认出",
+          "request": { "method": "GET", "path": "/api/auth/me?x=1&next=//e", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "wm_login=not.a.valid.cookie" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "108", "etag": "W/\"6c-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "gate": "off", "authenticated": false, "via": null, "login": null, "principal": null, "display_name": null, "roles": [] }
+          }
+        },
+        {
+          "id": "login-no-token-configured",
+          "route": "POST /api/auth/login",
+          "class": "unauthorized",
+          "what": "环境没给口令：交什么都 401（口令错与未设同答）",
+          "request": { "method": "POST", "path": "/api/auth/login", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "token": "anything" } },
+          "response": { "status": 401, "type": "application/json; charset=utf-8", "headers": { "cache-control": "no-store", "content-length": "24", "etag": "W/\"18-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "口令无效" } }
+        },
+        {
+          "id": "login-cross-origin",
+          "route": "POST /api/auth/login",
+          "class": "unauthorized",
+          "what": "跨站来的登录：403",
+          "request": { "method": "POST", "path": "/api/auth/login", "headers": { "x-forwarded-for": "198.51.100.7", "origin": "https://evil.example", "sec-fetch-site": "cross-site" }, "json": { "token": "anything" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "cache-control": "no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源登录被拒绝" } }
+        },
+        {
+          "id": "logout-plain",
+          "route": "POST /api/auth/logout",
+          "class": "normal",
+          "what": "远程、没带任何 cookie：200，没有 Odoo 会话",
+          "request": { "method": "POST", "path": "/api/auth/logout", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "32", "etag": "W/\"20-<指纹>\"", "set-cookie": ["wm_login=; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"], "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "odoo_session": false }
+          }
+        },
+        {
+          "id": "logout-cross-site",
+          "route": "POST /api/auth/logout",
+          "class": "unauthorized",
+          "what": "跨站来的登出（sec-fetch-site: cross-site）：403",
+          "request": { "method": "POST", "path": "/api/auth/logout", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "cross-site" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "cache-control": "no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "跨源登出被拒绝" } }
+        },
+        {
+          "id": "logout-foreign-origin",
+          "route": "POST /api/auth/logout",
+          "class": "unauthorized",
+          "what": "Origin 和 Host 对不上：403",
+          "request": { "method": "POST", "path": "/api/auth/logout", "raw": true, "headers": { "x-forwarded-for": "198.51.100.7", "origin": "https://evil.example", "host": "market.example" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "cache-control": "no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源登出被拒绝" } }
+        },
+        {
+          "id": "logout-bad-cookie",
+          "route": "POST /api/auth/logout",
+          "class": "normal",
+          "what": "坏的登录 cookie：照样清掉、200",
+          "request": { "method": "POST", "path": "/api/auth/logout", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "wm_login=garbage" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "32", "etag": "W/\"20-<指纹>\"", "set-cookie": ["wm_login=; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"], "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "odoo_session": false }
+          }
+        },
+        {
+          "id": "logout-same-origin",
+          "route": "POST /api/auth/logout",
+          "class": "normal",
+          "what": "同源浏览器的登出（Origin 与 Host 一致）：200",
+          "request": { "method": "POST", "path": "/api/auth/logout", "raw": true, "headers": { "origin": "http://market.example", "host": "market.example", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "32", "etag": "W/\"20-<指纹>\"", "set-cookie": ["wm_login=; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"], "x-powered-by": "Express" },
+            "body": { "ok": true, "odoo_session": false }
+          }
+        }
+      ]
+    },
+    {
+      "name": "token",
+      "what": "口令由启动环境给（合成值）：登录、登录失败、经口令的 me。失败只有两次，不碰退避。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "steps": [
+        {
+          "id": "login-ok",
+          "route": "POST /api/auth/login",
+          "class": "normal",
+          "what": "口令对：200，下发登录 cookie（值每次随机）、到期时刻",
+          "vary": { "$cookies": { "wm_login": ["value", "max-age"] }, "expires_at": "random" },
+          "request": { "method": "POST", "path": "/api/auth/login", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "51",
+              "etag": "W/\"33-<指纹>\"",
+              "set-cookie": ["wm_login=<每个实例随机·209>; Max-Age=<约720分>; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            },
+            "body": { "ok": true, "expires_at": "<每个实例随机·string·24>" }
+          }
+        },
+        {
+          "id": "login-ok-same-origin",
+          "route": "POST /api/auth/login",
+          "class": "normal",
+          "what": "同源浏览器带对的口令：200",
+          "vary": { "$cookies": { "wm_login": ["value", "max-age"] }, "expires_at": "random" },
+          "request": { "method": "POST", "path": "/api/auth/login", "raw": true, "headers": { "origin": "http://market.example", "host": "market.example", "sec-fetch-site": "same-origin" }, "json": { "token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "51", "etag": "W/\"33-<指纹>\"", "set-cookie": ["wm_login=<每个实例随机·209>; Max-Age=<约720分>; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"], "x-powered-by": "Express" },
+            "body": { "ok": true, "expires_at": "<每个实例随机·string·24>" }
+          }
+        },
+        {
+          "id": "login-wrong",
+          "route": "POST /api/auth/login",
+          "class": "unauthorized",
+          "what": "口令错：401",
+          "request": { "method": "POST", "path": "/api/auth/login", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "token": "wrong-synthetic" } },
+          "response": { "status": 401, "type": "application/json; charset=utf-8", "headers": { "cache-control": "no-store", "content-length": "24", "etag": "W/\"18-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "口令无效" } }
+        },
+        {
+          "id": "login-missing",
+          "route": "POST /api/auth/login",
+          "class": "unauthorized",
+          "what": "没带 token：401，同口令错",
+          "request": { "method": "POST", "path": "/api/auth/login", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": { "status": 401, "type": "application/json; charset=utf-8", "headers": { "cache-control": "no-store", "content-length": "24", "etag": "W/\"18-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "口令无效" } }
+        },
+        {
+          "id": "me-token",
+          "route": "GET /api/auth/me",
+          "class": "normal",
+          "what": "带对的管理口令（远程）：经口令认出，不是人，principal 为空",
+          "request": { "method": "GET", "path": "/api/auth/me", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "110", "etag": "W/\"6e-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "gate": "off", "authenticated": true, "via": "token", "login": null, "principal": null, "display_name": null, "roles": [] }
+          }
+        },
+        {
+          "id": "me-token-wrong",
+          "route": "GET /api/auth/me",
+          "class": "normal",
+          "what": "带错的管理口令（远程）：没认出",
+          "request": { "method": "GET", "path": "/api/auth/me", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "wrong-synthetic" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "108", "etag": "W/\"6c-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "gate": "off", "authenticated": false, "via": null, "login": null, "principal": null, "display_name": null, "roles": [] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "token-malformed",
+      "what": "口令由启动环境给：几种不合规的 token，各算一次失败（三次以内，不碰退避的时刻）。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "steps": [
+        {
+          "id": "login-too-long",
+          "route": "POST /api/auth/login",
+          "class": "unauthorized",
+          "what": "token 超过 256 字：401，不去比对",
+          "request": {
+            "method": "POST",
+            "path": "/api/auth/login",
+            "headers": { "x-forwarded-for": "198.51.100.7" },
+            "json": { "token": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }
+          },
+          "response": { "status": 401, "type": "application/json; charset=utf-8", "headers": { "cache-control": "no-store", "content-length": "24", "etag": "W/\"18-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "口令无效" } }
+        },
+        {
+          "id": "login-not-string",
+          "route": "POST /api/auth/login",
+          "class": "unauthorized",
+          "what": "token 不是字符串：401",
+          "request": { "method": "POST", "path": "/api/auth/login", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "token": 12345 } },
+          "response": { "status": 401, "type": "application/json; charset=utf-8", "headers": { "cache-control": "no-store", "content-length": "24", "etag": "W/\"18-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "口令无效" } }
+        },
+        {
+          "id": "login-text-body",
+          "route": "POST /api/auth/login",
+          "class": "unauthorized",
+          "what": "请求体不是 JSON：401",
+          "request": { "method": "POST", "path": "/api/auth/login", "headers": { "x-forwarded-for": "198.51.100.7", "content-type": "text/plain" }, "text": "token=x" },
+          "response": { "status": 401, "type": "application/json; charset=utf-8", "headers": { "cache-control": "no-store", "content-length": "24", "etag": "W/\"18-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "口令无效" } }
+        }
+      ]
+    },
+    {
+      "name": "rate",
+      "what": "口令由启动环境给：同一来源每分钟 10 次，第 11 次 429。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "steps": [
+        {
+          "id": "login-1",
+          "route": "POST /api/auth/login",
+          "class": "normal",
+          "what": "连着 10 次口令对的登录都 200（每分钟 10 次之内）",
+          "vary": { "$cookies": { "wm_login": ["value", "max-age"] }, "expires_at": "random" },
+          "request": { "method": "POST", "path": "/api/auth/login", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "51",
+              "etag": "W/\"33-<指纹>\"",
+              "set-cookie": ["wm_login=<每个实例随机·209>; Max-Age=<约720分>; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            },
+            "body": { "ok": true, "expires_at": "<每个实例随机·string·24>" }
+          }
+        },
+        {
+          "id": "login-2",
+          "route": "POST /api/auth/login",
+          "class": "normal",
+          "what": "第 2 次口令对的登录：200",
+          "vary": { "$cookies": { "wm_login": ["value", "max-age"] }, "expires_at": "random" },
+          "request": { "method": "POST", "path": "/api/auth/login", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "51",
+              "etag": "W/\"33-<指纹>\"",
+              "set-cookie": ["wm_login=<每个实例随机·209>; Max-Age=<约720分>; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            },
+            "body": { "ok": true, "expires_at": "<每个实例随机·string·24>" }
+          }
+        },
+        {
+          "id": "login-3",
+          "route": "POST /api/auth/login",
+          "class": "normal",
+          "what": "第 3 次口令对的登录：200",
+          "vary": { "$cookies": { "wm_login": ["value", "max-age"] }, "expires_at": "random" },
+          "request": { "method": "POST", "path": "/api/auth/login", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "51",
+              "etag": "W/\"33-<指纹>\"",
+              "set-cookie": ["wm_login=<每个实例随机·209>; Max-Age=<约720分>; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            },
+            "body": { "ok": true, "expires_at": "<每个实例随机·string·24>" }
+          }
+        },
+        {
+          "id": "login-4",
+          "route": "POST /api/auth/login",
+          "class": "normal",
+          "what": "第 4 次口令对的登录：200",
+          "vary": { "$cookies": { "wm_login": ["value", "max-age"] }, "expires_at": "random" },
+          "request": { "method": "POST", "path": "/api/auth/login", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "51",
+              "etag": "W/\"33-<指纹>\"",
+              "set-cookie": ["wm_login=<每个实例随机·209>; Max-Age=<约720分>; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            },
+            "body": { "ok": true, "expires_at": "<每个实例随机·string·24>" }
+          }
+        },
+        {
+          "id": "login-5",
+          "route": "POST /api/auth/login",
+          "class": "normal",
+          "what": "第 5 次口令对的登录：200",
+          "vary": { "$cookies": { "wm_login": ["value", "max-age"] }, "expires_at": "random" },
+          "request": { "method": "POST", "path": "/api/auth/login", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "51",
+              "etag": "W/\"33-<指纹>\"",
+              "set-cookie": ["wm_login=<每个实例随机·209>; Max-Age=<约720分>; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            },
+            "body": { "ok": true, "expires_at": "<每个实例随机·string·24>" }
+          }
+        },
+        {
+          "id": "login-6",
+          "route": "POST /api/auth/login",
+          "class": "normal",
+          "what": "第 6 次口令对的登录：200",
+          "vary": { "$cookies": { "wm_login": ["value", "max-age"] }, "expires_at": "random" },
+          "request": { "method": "POST", "path": "/api/auth/login", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "51",
+              "etag": "W/\"33-<指纹>\"",
+              "set-cookie": ["wm_login=<每个实例随机·209>; Max-Age=<约720分>; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            },
+            "body": { "ok": true, "expires_at": "<每个实例随机·string·24>" }
+          }
+        },
+        {
+          "id": "login-7",
+          "route": "POST /api/auth/login",
+          "class": "normal",
+          "what": "第 7 次口令对的登录：200",
+          "vary": { "$cookies": { "wm_login": ["value", "max-age"] }, "expires_at": "random" },
+          "request": { "method": "POST", "path": "/api/auth/login", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "51",
+              "etag": "W/\"33-<指纹>\"",
+              "set-cookie": ["wm_login=<每个实例随机·209>; Max-Age=<约720分>; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            },
+            "body": { "ok": true, "expires_at": "<每个实例随机·string·24>" }
+          }
+        },
+        {
+          "id": "login-8",
+          "route": "POST /api/auth/login",
+          "class": "normal",
+          "what": "第 8 次口令对的登录：200",
+          "vary": { "$cookies": { "wm_login": ["value", "max-age"] }, "expires_at": "random" },
+          "request": { "method": "POST", "path": "/api/auth/login", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "51",
+              "etag": "W/\"33-<指纹>\"",
+              "set-cookie": ["wm_login=<每个实例随机·209>; Max-Age=<约720分>; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            },
+            "body": { "ok": true, "expires_at": "<每个实例随机·string·24>" }
+          }
+        },
+        {
+          "id": "login-9",
+          "route": "POST /api/auth/login",
+          "class": "normal",
+          "what": "第 9 次口令对的登录：200",
+          "vary": { "$cookies": { "wm_login": ["value", "max-age"] }, "expires_at": "random" },
+          "request": { "method": "POST", "path": "/api/auth/login", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "51",
+              "etag": "W/\"33-<指纹>\"",
+              "set-cookie": ["wm_login=<每个实例随机·209>; Max-Age=<约720分>; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            },
+            "body": { "ok": true, "expires_at": "<每个实例随机·string·24>" }
+          }
+        },
+        {
+          "id": "login-10",
+          "route": "POST /api/auth/login",
+          "class": "normal",
+          "what": "第 10 次口令对的登录：200",
+          "vary": { "$cookies": { "wm_login": ["value", "max-age"] }, "expires_at": "random" },
+          "request": { "method": "POST", "path": "/api/auth/login", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "51",
+              "etag": "W/\"33-<指纹>\"",
+              "set-cookie": ["wm_login=<每个实例随机·209>; Max-Age=<约720分>; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            },
+            "body": { "ok": true, "expires_at": "<每个实例随机·string·24>" }
+          }
+        },
+        {
+          "id": "login-11-limited",
+          "route": "POST /api/auth/login",
+          "class": "invalid",
+          "what": "一分钟内第 11 次：429，带 Retry-After（秒数随时刻变，只比形状）",
+          "vary": { "retry_after_s": "random", "$header:retry-after": "random" },
+          "request": { "method": "POST", "path": "/api/auth/login", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 429,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "67", "etag": "W/\"43-<指纹>\"", "retry-after": "<每个实例随机·string·2>", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "尝试过于频繁，请稍后再试", "retry_after_s": "<每个实例随机·number·2>" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "odoo",
+      "what": "登录提供方换成假的（测试夹具，不访问外部系统）：认出了人才有主体和角色。",
+      "env": {},
+      "fixtures": ["identity-fake"],
+      "steps": [
+        {
+          "id": "me-alpha",
+          "route": "GET /api/auth/me",
+          "class": "normal",
+          "what": "Odoo 内部员工 alpha（假提供方）：认出了人，带主体和显示名，还没有角色",
+          "request": { "method": "GET", "path": "/api/auth/me", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "133", "etag": "W/\"85-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "gate": "off", "authenticated": true, "via": "odoo", "login": "alpha", "principal": "user:alpha", "display_name": "Synthetic alpha", "roles": [] }
+          }
+        },
+        {
+          "id": "grant-draft",
+          "what": "本机命令行给 alpha 起草一项普通员工授予（准备数据，不属于这批路由）",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants", "json": { "principal": "user:alpha", "role": "member", "scope": "*", "reason": "回放合成" } },
+          "save": { "gid": "grant.id" },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "grant-submit",
+          "what": "提交",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/{{gid}}/submit" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "grant-approve",
+          "what": "核准",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/{{gid}}/approve" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "me-alpha-roles",
+          "route": "GET /api/auth/me",
+          "class": "normal",
+          "what": "核准之后：roles 里有普通员工（中文名、范围、期限、来源、谁核准的）",
+          "request": { "method": "GET", "path": "/api/auth/me", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "252", "etag": "W/\"fc-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": {
+              "gate": "off",
+              "authenticated": true,
+              "via": "odoo",
+              "login": "alpha",
+              "principal": "user:alpha",
+              "display_name": "Synthetic alpha",
+              "roles": [{ "id": "member", "name": "普通员工", "scope": "*", "preset": true, "expires_at": null, "source": "manual", "approved_by": "cli" }]
+            }
+          }
+        },
+        {
+          "id": "me-forged",
+          "route": "GET /api/auth/me",
+          "class": "normal",
+          "what": "提供方不认的会话：没认出",
+          "request": { "method": "GET", "path": "/api/auth/me", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "session_id=fake-forged-session-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "108", "etag": "W/\"6c-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "gate": "off", "authenticated": false, "via": null, "login": null, "principal": null, "display_name": null, "roles": [] }
+          }
+        },
+        {
+          "id": "me-portal",
+          "route": "GET /api/auth/me",
+          "class": "normal",
+          "what": "非内部账号：没认出",
+          "request": { "method": "GET", "path": "/api/auth/me", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "session_id=fake-portal-account-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "108", "etag": "W/\"6c-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "gate": "off", "authenticated": false, "via": null, "login": null, "principal": null, "display_name": null, "roles": [] }
+          }
+        },
+        {
+          "id": "logout-odoo",
+          "route": "POST /api/auth/logout",
+          "class": "normal",
+          "what": "带 Odoo 会话登出（不是中继）：200，报有 Odoo 会话，只清本站的",
+          "request": { "method": "POST", "path": "/api/auth/logout", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "set-cookie": ["wm_login=; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"], "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "odoo_session": true }
+          }
+        }
+      ]
+    },
+    {
+      "name": "odoo-relay",
+      "what": "假提供方、中继模式（WM_ODOO_LOGIN_PROXY=1）：登出要显式的同源 JSON 请求，还要去注销 Odoo 会话。",
+      "env": { "WM_ODOO_LOGIN_PROXY": "1" },
+      "fixtures": ["identity-fake"],
+      "steps": [
+        {
+          "id": "logout-relay-no-session",
+          "route": "POST /api/auth/logout",
+          "class": "normal",
+          "what": "中继模式、没有 Odoo 会话：200，浏览器会话已清",
+          "request": { "method": "POST", "path": "/api/auth/logout", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "63",
+              "etag": "W/\"3f-<指纹>\"",
+              "set-cookie": ["wm_login=; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax", "session_id=; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            },
+            "body": { "ok": true, "odoo_session": false, "browser_session_cleared": true }
+          }
+        },
+        {
+          "id": "logout-relay-no-header",
+          "route": "POST /api/auth/logout",
+          "class": "unauthorized",
+          "what": "中继模式、有 Odoo 会话，但不是显式的同源 JSON 登出（缺 X-WM-Odoo-Logout）：403",
+          "request": { "method": "POST", "path": "/api/auth/logout", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "50", "etag": "W/\"32-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "Odoo 登出请求不符合安全要求" }
+          }
+        },
+        {
+          "id": "logout-relay-wrong-proto",
+          "route": "POST /api/auth/logout",
+          "class": "unauthorized",
+          "what": "中继模式、Origin 协议和本站对不上（https 对 http）：403",
+          "request": {
+            "method": "POST",
+            "path": "/api/auth/logout",
+            "raw": true,
+            "headers": { "cookie": "session_id=fake-internal-alpha-0001", "origin": "https://market.example", "host": "market.example", "x-wm-odoo-logout": "1", "content-type": "application/json" },
+            "json": {}
+          },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "cache-control": "no-store", "content-length": "50", "etag": "W/\"32-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "Odoo 登出请求不符合安全要求" } }
+        },
+        {
+          "id": "logout-relay-two",
+          "route": "POST /api/auth/logout",
+          "class": "invalid",
+          "what": "中继模式、带了两个 Odoo 会话：409，没法确认注销了哪一个",
+          "request": {
+            "method": "POST",
+            "path": "/api/auth/logout",
+            "raw": true,
+            "headers": { "cookie": "session_id=fake-internal-alpha-0001; session_id=fake-internal-beta-00001", "origin": "http://market.example", "host": "market.example", "x-wm-odoo-logout": "1", "content-type": "application/json" },
+            "json": {}
+          },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "139",
+              "etag": "W/\"8b-<指纹>\"",
+              "set-cookie": ["wm_login=; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax", "session_id=; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "x-powered-by": "Express"
+            },
+            "body": { "ok": false, "error": "Odoo 会话不唯一，无法确认服务器端已注销", "browser_session_cleared": true, "odoo_session_revoked": false }
+          }
+        },
+        {
+          "id": "logout-relay-revoke-fails",
+          "what": "中继模式、显式同源 JSON 登出：本站清了，假提供方注销不了 → 502 并说明（502 不归三类，只比应答）",
+          "request": {
+            "method": "POST",
+            "path": "/api/auth/logout",
+            "raw": true,
+            "headers": { "cookie": "session_id=fake-internal-alpha-0001", "origin": "http://market.example", "host": "market.example", "x-wm-odoo-logout": "1", "content-type": "application/json" },
+            "json": {}
+          },
+          "response": {
+            "status": 502,
+            "type": "application/json; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "169",
+              "etag": "W/\"a9-<指纹>\"",
+              "set-cookie": ["wm_login=; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax", "session_id=; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "x-powered-by": "Express"
+            },
+            "body": { "ok": false, "odoo_session": true, "browser_session_cleared": true, "odoo_session_revoked": false, "error": "已清除浏览器会话，但无法确认 Odoo 服务器端注销" }
+          }
+        },
+        {
+          "id": "me-relay-alpha",
+          "route": "GET /api/auth/me",
+          "class": "normal",
+          "what": "中继模式下 me 现查提供方：认出 alpha",
+          "request": { "method": "GET", "path": "/api/auth/me", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "133", "etag": "W/\"85-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "gate": "off", "authenticated": true, "via": "odoo", "login": "alpha", "principal": "user:alpha", "display_name": "Synthetic alpha", "roles": [] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce），口令由环境给：这四条本身不被登录门拦。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "steps": [
+        {
+          "id": "gated-page",
+          "route": "GET /login",
+          "class": "normal",
+          "what": "登录门开着：登录页本身不拦",
+          "request": { "method": "GET", "path": "/login", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "7799", "content-security-policy": "frame-ancestors 'none'", "etag": "W/\"1e77-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<title>登录 · 工作台市场</title><style>\n/* 由 scripts/gen-design-tokens.mjs 从 DESIGN.md v1.0.0 生成，勿手改；改 token 请改 DESIGN.md 后重新生成。\n   变量契约见 DESIGN.md「CSS 变量契约」：名字稳定、值可变。 */\n:root {\n  --wm-version: \"1.0.0\";\n  --wm-color-primary: #1E3A5F;\n  --wm-color-on-primary: #FFFFFF;\n  --wm-color-primary-subtle: #EEF2F7;\n  --wm-color-text: #0F172A;\n  --wm-color-text-secondary: #5A6577;\n  --wm-color-text-disabled: #94A3B8;\n  --wm-color-page: #F6F7F9;\n  --wm-color-surface: #FFFFFF;\n  --wm-color-border: #E2E8F0;\n  --wm-color-border-strong: #CBD5E1;\n  --wm-color-success: #047857;\n  --wm-color-success-text: #047857;\n  --wm-color-success-bg: #ECFDF5;\n  --wm-color-warning: #F59E0B;\n  --wm-color-warning-text: #B45309;\n  --wm-color-warning-bg: #FFFBEB;\n  --wm-color-danger: #DC2626;\n  --wm-color-danger-text: #B91C1C;\n  --wm-color-danger-bg: #FEF2F2;\n  --wm-color-nav-bg: #F6F7F9;\n  --wm-color-nav-text: #5A6577;\n  --wm-color-nav-text-active: #1E3A5F;\n  --wm-color-nav-item-active-bg: #EEF2F7;\n  --wm-color-info: #1E3A5F;\n  --wm-color-info-bg: #EEF2F7;\n  --wm-font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;\n  --wm-font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;\n  --wm-font-size-caption: 12px;\n  --wm-line-height-caption: 20px;\n  --wm-font-weight-caption: 400;\n  --wm-font-size-body: 14px;\n  --wm-line-height-body: 22px;\n  --wm-font-weight-body: 400;\n  --wm-font-size-body-strong: 14px;\n  --wm-line-height-body-strong: 22px;\n  --wm-font-weight-body-strong: 600;\n  --wm-font-size-subtitle: 16px;\n  --wm-line-height-subtitle: 24px;\n  --wm-font-weight-subtitle: 600;\n  --wm-font-size-title: 20px;\n  --wm-line-height-title: 28px;\n  --wm-font-weight-title: 600;\n  --wm-font-size-display: 24px;\n  --wm-line-height-display: 32px;\n  --wm-font-weight-display: 600;\n  --wm-font-size-stat-label: 12px;\n  --wm-line-height-stat-label: 20px;\n  --wm-font-weight-stat-label: 600;\n  --wm-space-1: 4px;\n  --wm-space-2: 8px;\n  --wm-space-3: 12px;\n  --wm-space-4: 16px;\n  --wm-space-6: 24px;\n  --wm-space-8: 32px;\n  --wm-space-12: 48px;\n  --wm-radius-sm: 4px;\n  --wm-radius-md: 6px;\n  --wm-radius-lg: 8px;\n  --wm-radius-full: 9999px;\n  --wm-shadow-0: none;\n  --wm-shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05);\n  --wm-shadow-2: 0 4px 12px rgba(15, 23, 42, 0.10);\n  --wm-shadow-3: 0 12px 32px rgba(15, 23, 42, 0.16);\n  --wm-motion-fast: 120ms;\n  --wm-motion-base: 200ms;\n  --wm-motion-easing: ease;\n}\n\nbody{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:var(--wm-font-sans,system-ui);font-size:var(--wm-font-size-body,14px);line-height:var(--wm-line-height-body,1.6);color:var(--wm-color-text,#1f2329);background:var(--wm-color-page,#f5f6f7)}\n.card{width:360px;background:var(--wm-color-surface,#fff);border:1px solid var(--wm-color-border,#dee0e3);border-radius:var(--wm-radius-lg,8px);padding:var(--wm-space-8,32px)}\nh1{margin:0 0 var(--wm-space-1,4px);font-size:var(--wm-font-size-title,20px);line-height:var(--wm-line-height-title,1.4);font-weight:var(--wm-font-weight-title,600)}\n.sub{margin:0 0 var(--wm-space-6,24px);color:var(--wm-color-text-secondary,#646a73);font-size:var(--wm-font-size-caption,12px)}\nbutton{width:100%;height:36px;border-radius:var(--wm-radius-md,6px);font:inherit;cursor:pointer;border:1px solid var(--wm-color-border-strong,#c9cdd4);background:var(--wm-color-surface,#fff);color:var(--wm-color-text,#1f2329)}\nbutton.primary{background:var(--wm-color-primary,#3370ff);border-color:var(--wm-color-primary,#3370ff);color:var(--wm-color-on-primary,#fff)}\nbutton:disabled{opacity:.6;cursor:default}\ninput{box-sizing:border-box;width:100%;height:36px;padding:0 var(--wm-space-3,12px);border:1px solid var(--wm-color-border-strong,#c9cdd4);border-radius:var(--wm-radius-md,6px);font:inherit;margin-bottom:var(--wm-space-3,12px)}\n.or{display:flex;align-items:center;gap:var(--wm-space-3,12px);margin:var(--wm-space-6,24px) 0;color:var(--wm-color-text-secondary,#646a73);font-size:var(--wm-font-size-caption,12px)}\n.or:before,.or:after{content:\"\";flex:1;border-top:1px solid var(--wm-color-border,#dee0e3)}\n.msg{min-height:20px;margin-top:var(--wm-space-2,8px);font-size:var(--wm-font-size-caption,12px);color:var(--wm-color-danger-text,#d83931)}\n.msg.info{color:var(--wm-color-text-secondary,#646a73)}\n</style></head><body><main class=\"card\">\n<h1>工作台市场</h1><p class=\"sub\">本站需要登录后访问</p>\n\n\n<form id=\"f\"><input id=\"t\" type=\"password\" autocomplete=\"current-password\" placeholder=\"管理员口令\" aria-label=\"管理员口令\" required>\n<button class=\"primary\" type=\"submit\" id=\"go\">输入管理员口令登录</button><div class=\"msg\" id=\"msg\" role=\"alert\"></div></form>\n</main><script>(function(){var next=\"/\",odoo=null;\nfunction done(){location.replace(next)}\nvar f=document.getElementById('f'),t=document.getElementById('t'),go=document.getElementById('go'),msg=document.getElementById('msg');\nf.addEventListener('submit',function(e){e.preventDefault();go.disabled=true;msg.textContent='';\nfetch('/api/auth/login',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:t.value})})\n.then(function(r){return r.json().catch(function(){return{}}).then(function(b){t.value='';if(r.ok)return done();msg.textContent=r.status===429?'尝试过于频繁，请 '+(b.retry_after_s||60)+' 秒后再试':(b.error||'登录失败');go.disabled=false;t.focus()})})\n.catch(function(){msg.textContent='网络错误';go.disabled=false})});\nvar ob=document.getElementById('odoo-logout'),oe=document.getElementById('odoo-logout-msg');\nif(ob)ob.addEventListener('click',function(){ob.disabled=true;oe.textContent='';\nfetch('/api/auth/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-WM-Odoo-Logout':'1'},body:'{}'})\n.then(function(r){return r.json().catch(function(){return{}}).then(function(b){if(r.ok&&b.ok){location.reload();return}oe.textContent=b.error||'无法确认 Odoo 会话已退出';ob.disabled=false})})\n.catch(function(){oe.textContent='网络错误，无法确认会话已退出';ob.disabled=false})});\nif(!odoo)return;var btn=document.getElementById('odoo'),om=document.getElementById('odoo-msg'),pop=null,until=0,timer=0;\nfunction check(){if(!until||Date.now()>until)return;fetch('/api/auth/me',{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json()}).then(function(b){if(b&&b.authenticated){until=0;try{pop&&pop.close()}catch(e){}done()}}).catch(function(){})}\nbtn.addEventListener('click',function(){\n// 与 #275 弹窗流同法：先开空白页、切断 opener 再跳 Odoo 中继，保住句柄；登录后回本页轮询身份\nvar w=window.open('about:blank','_blank','popup,width=520,height=680');if(!w){om.textContent='弹窗被浏览器拦截，请允许弹窗后重试';return}\ntry{w.opener=null}catch(e){}var cut=false;try{cut=w.opener===null}catch(e){}if(!cut){try{w.close()}catch(e){}om.textContent='无法安全打开登录窗口';return}\ntry{w.location.replace(odoo)}catch(e){w.location.href=odoo}pop=w;until=Date.now()+600000;om.textContent='在弹出的窗口里登录 Odoo，完成后回到本页';btn.disabled=true;\nclearInterval(timer);timer=setInterval(function(){if(Date.now()>until){clearInterval(timer);btn.disabled=false;om.textContent='等待超时，可重试'}else check()},1500)});\nwindow.addEventListener('focus',check);document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')check()});\n})()</script></body></html>"
+          }
+        },
+        {
+          "id": "gated-me-anon",
+          "route": "GET /api/auth/me",
+          "class": "normal",
+          "what": "登录门开着、远程匿名：me 不拦，回没认出（gate=enforce）",
+          "request": { "method": "GET", "path": "/api/auth/me", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "112", "etag": "W/\"70-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "gate": "enforce", "authenticated": false, "via": null, "login": null, "principal": null, "display_name": null, "roles": [] }
+          }
+        },
+        {
+          "id": "gated-login",
+          "route": "POST /api/auth/login",
+          "class": "normal",
+          "what": "登录门开着：口令登录不拦",
+          "vary": { "$cookies": { "wm_login": ["value", "max-age"] }, "expires_at": "random" },
+          "request": { "method": "POST", "path": "/api/auth/login", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "51",
+              "etag": "W/\"33-<指纹>\"",
+              "set-cookie": ["wm_login=<每个实例随机·209>; Max-Age=<约720分>; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            },
+            "body": { "ok": true, "expires_at": "<每个实例随机·string·24>" }
+          }
+        },
+        {
+          "id": "gated-logout",
+          "route": "POST /api/auth/logout",
+          "class": "normal",
+          "what": "登录门开着：登出不拦",
+          "request": { "method": "POST", "path": "/api/auth/logout", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "32", "etag": "W/\"20-<指纹>\"", "set-cookie": ["wm_login=; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"], "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "odoo_session": false }
+          }
+        }
+      ]
+    }
+  ]
+}

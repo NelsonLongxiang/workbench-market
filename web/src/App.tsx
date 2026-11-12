@@ -30,6 +30,8 @@ import Home from './pages/Home';
 import SkillsPage from './pages/Skills';
 import ViewerChip from './components/ViewerChip';
 import LoginChip from './components/LoginChip';
+// import.meta.hot 只在 vite dev 时有；正式构建里它是 undefined，这一行连同演示页整个被摇掉
+const BenchBlocksDemo = import.meta.hot ? React.lazy(() => import('./pages/dev/BenchBlocksDemo')) : null;
 
 /** #292 M1：控制面上的业务页跳回业务面同 path */
 function MarketOnlyRedirect() {
@@ -145,6 +147,8 @@ export default function App() {
         <Route path="/types" element={<Types />} />
         <Route path="/skills" element={<SkillsPage />} />
         <Route path="/settings" element={<Settings />} />
+        {/* 数据视图组件的演示页：只在开发时有（合成数据），正式构建里没有这一行，也不进侧栏 */}
+        {BenchBlocksDemo ? <Route path="/dev/bench-blocks" element={<React.Suspense fallback={null}><BenchBlocksDemo /></React.Suspense>} /> : null}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Shell>

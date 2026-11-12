@@ -1,5 +1,5 @@
 """外壳浏览器回归（产品化原型 3fbfd0b 的新外壳，#571）；由 scripts/sider-menu-browser.mjs 起合成实例后调用，参数为配置 JSON 路径。
-断言：旧路由直接打开仍可用 · 侧栏主入口七个按序、各有专属图标 · 侧栏文字对比度 ≥4.5 · 「全景」角标 = 「关注」条数 ·
+断言：旧路由直接打开仍可用 · 侧栏主入口七个按序、各有专属图标 · 侧栏文字对比度 ≥4.5 · 「全景」角标 = 轮到你且能当场办的条数（别处处理的不算）·
 我的驾驶舱列出驾驶舱并可跳转 · 「设置 / 管理」只对管理员出现、点开五项可跳转 · 用户卡点开是弹出层（口令在里面）·
 / 是全景 · 没有「旧版页面」菜单 · 控制面没口令也看不到管理入口。"""
 import json, sys, urllib.request
@@ -20,8 +20,11 @@ def ratio(a, b):
 def rgb(s): return tuple(int(float(x)) for x in s[s.index('(') + 1:s.index(')')].split(',')[:3])
 def attention_count(token=None):
     req = urllib.request.Request(M + '/api/attention', headers={'x-admin-token': token} if token else {})
-    try: return len(json.load(urllib.request.urlopen(req)).get('items', []))
-    except Exception: return 0
+    # 角标只数「轮到你、而且能当场办」的条目（有答法、mine 不是假）；要到别处处理的不算。返回 (该数的, 全部)
+    try:
+        items = json.load(urllib.request.urlopen(req)).get('items', [])
+        return len([x for x in items if x.get('answers') and x.get('mine') is not False]), len(items)
+    except Exception: return 0, 0
 
 # 弹出层、下拉菜单「开好了」：盒子有尺寸、放大 / 滑入动画的类已经摘掉。
 # 不用「此刻可见不可见」来判断——动画起点那一帧尺寸是 0，慢机器上正好撞上就误判（CI 上撞上过两次）。
@@ -77,13 +80,12 @@ with sync_playwright() as p:
     pg.wait_for_selector('[data-testid=nav-admin]', timeout=10000)
     pg.keyboard.press('Escape'); pg.mouse.click(900, 450); pg.wait_for_timeout(300)  # 关掉用户卡弹出层
     check('有口令：侧栏底部出现「设置 / 管理」', pg.locator('[data-testid=nav-admin]').count() == 1)
-    # 角标 = 「关注」给这个身份的条数
-    want = attention_count(TOK)
-    try: pg.wait_for_function("(n) => document.querySelector('[data-testid=nav-pending]')?.innerText.trim() === String(n)", arg=want, timeout=10000)  # 换了身份，角标要重读一次
-    except Exception: pass  # 等不到就让下面的断言照实报数
+    # 角标 = 轮到这个身份、能当场办的条数；合成实例里的 25 条统一待办没有当场的答法，不该算进去
+    want, total = attention_count(TOK)
+    pg.wait_for_timeout(1500)  # 换了身份，角标要重读一次
     got = pg.locator('[data-testid=nav-pending]')
     got_n = int(got.inner_text()) if got.count() else 0
-    check(f'「全景」角标 = 关注条数（{got_n} / {want}）', want > 0 and got_n == want, (got_n, want))
+    check(f'「全景」角标 = 轮到你且能当场办的条数（{got_n} / {want}；关注共 {total} 条，别处处理的不算）', total > 0 and got_n == want and want < total, (got_n, want, total))
     # 设置 / 管理：五项，点了跳转
     pg.locator('[data-testid=nav-admin]').click()
     OPEN_MENU = '.ant-dropdown:not(.ant-dropdown-hidden) .ant-dropdown-menu-item'

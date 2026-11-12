@@ -7,6 +7,7 @@
 | wm-usage | 如何使用市场（用户视角 5 分钟）|
 | wm-quickstart | 快速开始构建（builder 视角 15 分钟）|
 | wm-market-guide | 深度参考（25 工具全景/token/坑）|
+| wm-data-views | 数据视图：不写 HTML 建台——建数据集、更新数据、写视图描述、八种组件、上限、出错怎么办。例子由 `scripts/skill-data-views-examples-test.mjs` 用真实现逐个跑（CI），代码改了技能没跟上会红 |
 
 ## 市场技能聚合（三源·`node scripts/skill-import.mjs` 幂等重跑=漂移自动升版）
 

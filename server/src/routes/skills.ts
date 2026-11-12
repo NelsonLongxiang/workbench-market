@@ -113,7 +113,7 @@ export function registerSkillRoutes(app: HttpService, deps: SkillDeps): void {
     res.status(201).json(await skillPublishCore(String(req.params.slug ?? ''), req.body?.files, req.body?.changelog, req.body?.reviewed_by));
   }));
 
-  app.get('/api/skills/dl/:ticket', { action: 'skill.download', kind: 'read' }, (req, res) => {
+  app.get('/api/skills/dl/:ticket', { action: 'skill.download', kind: 'read', statusNotVerdict: '按下载票判：票就是凭据，404 不透露票号是否签发过' }, (req, res) => {
     res.setHeader('Referrer-Policy', 'no-referrer'); // 票号在路径里：不随 Referer 外带（404 也带）
     const ticket = String(req.params.ticket ?? '');
     const key = /^[0-9a-f]{64}$/.test(ticket) ? skillTicketKey(ticket) : '';

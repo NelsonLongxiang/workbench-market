@@ -110,7 +110,7 @@ async function exportSurfaces(extensionsDir = '') {
   const { MCP_TOOLS } = await import(pathToFileURL(join(ROOT, 'server/src/mcp-tools.ts')).href);
   const tools = MCP_TOOLS.map((t) => `${t.name}  ${t.category}${t.exempt ? '  exempt' : ''}`).sort();
   const toolActions = MCP_TOOLS.map((t) => `${t.name}  ${t.category}`).sort();
-  const { BUILTINS, NARROWED, unknownBuiltinActions } = await import(pathToFileURL(join(ROOT, 'server/src/judgment-builtins.ts')).href);
+  const { BUILTINS, NARROWED, NOT_SWITCHED, READ_WITH_SIDE_EFFECTS, unknownBuiltinActions } = await import(pathToFileURL(join(ROOT, 'server/src/judgment-builtins.ts')).href);
   const { PLATFORM_ROLES, SYSTEM_DOMAINS, BUSINESS_DOMAINS, unclassifiedDomains } = await import(pathToFileURL(join(ROOT, 'server/src/roles.ts')).href);
 
   if (claimStub()) cleanups.push(releaseStub);
@@ -154,7 +154,7 @@ async function exportSurfaces(extensionsDir = '') {
     for (const line of actionApps.flat()) for (const m of String(line).matchAll(/(?:-> |；细分：)([a-z][a-z0-9-]*\.[a-z][a-z0-9-]*)  /g)) known.add(m[1]);
     const unknown = unknownBuiltinActions((a) => known.has(a));
     if (unknown.length) throw new Error(`内置身份引用了动作清单里没有的动作：${unknown.join('、')}`);
-    const builtins = { identities: BUILTINS.map((b) => ({ name: b.name, label: b.label, ...(b.roles ? { roles: [...b.roles] } : {}), actions: [...b.actions], actsForOwner: [...b.actsForOwner] })), narrowed: NARROWED.map((n) => ({ action: n.action, only: [...n.only], why: n.why })) };
+    const builtins = { identities: BUILTINS.map((b) => ({ name: b.name, label: b.label, ...(b.roles ? { roles: [...b.roles] } : {}), actions: [...b.actions], actsForOwner: [...b.actsForOwner] })), narrowed: NARROWED.map((n) => ({ action: n.action, only: [...n.only], why: n.why })), notSwitched: NOT_SWITCHED.map((n) => ({ action: n.action, why: n.why })), readWithSideEffects: READ_WITH_SIDE_EFFECTS.map((n) => ({ action: n.action, why: n.why })) };
     // 每个已登记动作的域要么在系统域清单里、要么明确算业务：两边都不算的导出失败（新长出来的域要有人决定它算哪边）
     // 扩展报的动作另算（都算业务，见 roles.ts），不参加归类核对
     const extActions = new Set((dumped.wmExtensions?.routes ?? []).map((r) => r.action));
