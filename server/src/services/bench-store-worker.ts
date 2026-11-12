@@ -4,9 +4,12 @@
  * 台库是同步访问的：一条语句跑多久，所在的线程就停多久。放在这个线程里跑，停的是它，市场进程只等回话。
  * 市场进程一次只发一件事过来（bench-store.ts 那边排队），这里做完回一句，带上这件事提交了的变更。
  *
- * 这个文件和它引用的东西都不引用 db.ts（只引类型）：引用就会在这个线程里再开一次主库。
+ * 这个文件和它引用的东西都不引用 db.ts（只引类型；出站闸只引 Node 自带的模块）：引用就会在这个线程里再开一次主库。
  * 库文件放在哪、建表语句和随库不同的写法，都由市场进程在起线程的时候递进来（workerData）。
  */
+// 必须是第一句：对外断开（WM_OUTBOUND=off）时，这个线程自己先装上出站闸——每个线程有自己的一份模块，市场进程里装的管不到这里。
+// 出站闸只放行会这样做的线程入口（outbound-gate.ts 的 ALLOWED_WORKERS）。
+import { outboundOff, verifyOutboundGate } from '../outbound-gate.ts';
 import { parentPort, workerData } from 'node:worker_threads';
 import type { BenchSqlKit } from '../db.ts';
 import { BenchError } from '../bench-query.ts';
@@ -18,6 +21,11 @@ export type BenchReply = { id: number; changes: BenchChange[] } & ({ ok: true; v
 
 const port = parentPort;
 if (!port) throw new Error('bench-store-worker.ts 只作为工作线程运行');
+// 对外断开时，起来先真的连一次不可路由的地址，确认在连之前就被拦下；闸没装上就不干活（线程退出，市场进程那边会报错）
+if (outboundOff()) {
+  const gate = await verifyOutboundGate();
+  if (!gate.ok) throw new Error(`台库的工作线程里出站闸没装上（${gate.reason}），拒绝运行`);
+}
 const { root, kit } = workerData as { root: string; kit: BenchSqlKit };
 const host = new BenchHost(root, kit);
 
@@ -30,6 +38,7 @@ function wire(e: unknown): BenchWireError {
 
 async function handle(m: BenchRequest): Promise<unknown> {
   if (typeof m.slug !== 'string' || typeof m.method !== 'string' || !Array.isArray(m.args) || typeof m.budgetMs !== 'number') throw new BenchError('invalid', '发给台库的消息格式不对');
+  if (m.method === '@outbound') return { off: outboundOff(), blocked: outboundOff() ? (await verifyOutboundGate()).ok : false };
   if (m.method === '@open') { await host.store(m.slug); return null; }
   if (m.method === '@remove') { await host.remove(m.slug); return null; }
   if (m.method === '@closeAll') { await host.closeAll(); return null; }

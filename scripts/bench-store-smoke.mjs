@@ -131,17 +131,31 @@ try {
   ok('S6 替换前的数据找得回来', (await s.query({ dataset: 'keep', sort: [{ col: 'id' }] })).rows.map((x) => `${x.id}${x.v}`).join() === '1good,2good');
   e = await refused(() => s.deleteRows('keep', [{ v: 'good' }], ctx()));
   ok('S7 删行的键个数对、名字不对也被拒', e?.code === 'invalid', e);
-  // 快照序列化不下来（数据集大到一定程度会这样）：说清是超限，后面的破坏性操作不执行。
-  // 要在同一个线程里把 JSON.stringify 换掉才造得出来，所以这一项不经工作线程，直接用逻辑本体
+  // 快照的行在库里一行一条，头里只有列定义和主键：不把整个数据集拼成一段文本
   const inproc = new BenchHost(join(DATA, 'inproc'), benchSqlKit('sqlite'));
   const core = await inproc.store('keep');
-  await core.defineDataset({ name: 'keep', columns: [{ name: 'id', type: 'integer' }, { name: 'v', type: 'text' }], key: ['id'] }, ctx());
-  await core.replace('keep', [{ id: 1, v: 'good' }, { id: 2, v: 'good' }], ctx());
-  const realStringify = JSON.stringify;
-  JSON.stringify = (v, ...a) => { if (v && typeof v === 'object' && Array.isArray(v.rows) && Array.isArray(v.columns)) throw new RangeError('Invalid string length'); return realStringify(v, ...a); };
-  try { e = await refused(() => core.replace('keep', [{ id: 5, v: 'x' }], ctx())); } finally { JSON.stringify = realStringify; }
-  ok('S8 快照留不下来：报超限，替换没有执行', e?.code === 'limit' && (await core.query({ dataset: 'keep' })).rows.length === 2, e);
+  await core.defineDataset({ name: 'keep', columns: [{ name: 'id', type: 'integer' }, { name: 'v', type: 'text' }, { name: 'ok', type: 'boolean' }, { name: 'n', type: 'decimal' }], key: ['id'] }, ctx());
+  const tricky = [{ id: 1, v: '带"引号"和\\反斜杠\n换行，和逗号', ok: true, n: 1.5 }, { id: 2, v: null, ok: false, n: null }, { id: 3, v: '[1,2]', ok: null, n: -0.25 }];
+  await core.replace('keep', tricky, ctx());
+  const snapId = (await core.replace('keep', [{ id: 9, v: 'x', ok: true, n: 0 }], ctx())).snapshot_id;
   await inproc.closeAll();
+  const sdb = new DatabaseSync(join(DATA, 'inproc', 'keep.sqlite'));
+  const headRow = sdb.prepare('SELECT content, row_count FROM bs_snapshots WHERE id = ?').get(snapId);
+  const nRows = sdb.prepare('SELECT COUNT(*) AS n FROM bs_snapshot_rows WHERE snapshot_id = ?').get(snapId).n;
+  sdb.close();
+  ok('S8 快照：头里只有列定义和主键，行在快照的行表里一行一条', Object.keys(JSON.parse(headRow.content)).sort().join() === 'columns,key' && nRows === 3 && headRow.row_count === 3, { head: headRow.content.slice(0, 80), nRows });
+  const core2 = await new BenchHost(join(DATA, 'inproc'), benchSqlKit('sqlite')).store('keep');
+  await core2.restore(snapId, ctx());
+  const backRows = (await core2.query({ dataset: 'keep', sort: [{ col: 'id' }] })).rows;
+  ok('S8 退回之后和原来逐格相同：引号、反斜杠、换行、空、布尔、小数、长得像数组的文本', JSON.stringify(backRows) === JSON.stringify(tricky), backRows);
+  // 超过一批（500 行）的也一行不差
+  const many600 = Array.from({ length: 1234 }, (_, i) => ({ id: i, v: `行${i}`, ok: i % 2 === 0, n: i / 4 }));
+  await core2.replace('keep', many600, ctx());
+  const bigSnap = (await core2.replace('keep', [{ id: 1, v: 'x', ok: null, n: null }], ctx())).snapshot_id;
+  await core2.restore(bigSnap, ctx());
+  const backMany = (await core2.query({ dataset: 'keep', sort: [{ col: 'id' }], limit: 5000 })).rows;
+  ok('S8 一千多行（跨三批）退回之后一行不差', backMany.length === 1234 && JSON.stringify(backMany) === JSON.stringify(many600));
+  ok('S8 清掉的快照，它的行也跟着清', await (async () => { for (let i = 0; i < 8; i++) await core2.replace('keep', [{ id: i, v: String(i), ok: null, n: null }], ctx()); const ids = (await core2.snapshots('keep')).map((x) => x.id); await core2.close(); const d = new DatabaseSync(join(DATA, 'inproc', 'keep.sqlite')); const orphan = d.prepare(`SELECT COUNT(*) AS n FROM bs_snapshot_rows WHERE snapshot_id NOT IN (${ids.join(',')})`).get().n; d.close(); return orphan === 0 && ids.length === BENCH_LIMITS.snapshots; })());
 
   // —— 改列定义 ——
   console.log('改列定义');
