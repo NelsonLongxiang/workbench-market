@@ -378,7 +378,7 @@ const MUTANTS = [
   { id: 'custom-approve-by-admin', what: '自定义角色的放行不核属主（口令管理员也能放行）', file: GRANT_ROUTES, suites: [CUSTOM],
     find: "    if (!actor.owner) return res.status(403).json({ error: 'owner_required', message: '带管理类或决定类权限的自定义角色只有属主能放行' });\n", replace: '' },
   { id: 'custom-pending-skipped', what: '口令管理员建带决定类的自定义角色直接生效（不等属主放行）', file: GRANT_ROUTES, suites: [CUSTOM],
-    find: "    const pending = (shape.adminLevel || shape.decides) && !actor.owner;", replace: "    const pending = false;" },
+    find: "    const pending = (shape.adminLevel || shape.decides || shape.business) && !actor.owner;", replace: "    const pending = false;" },
   { id: 'custom-ai-decide', what: '从 AI 员工复制出来的能加决定类', file: GRANT_ROUTES, suites: [CUSTOM],
     find: "    if (customRoles().descendsFrom(id, 'ai-staff') && shape.decides) return res", replace: "    if (false) return res" },
   { id: 'custom-ai-decide-one-level', what: '从 AI 员工复制的只看一层来源（复制两层就能加决定类）', file: GRANT_ROUTES, suites: [CUSTOM],

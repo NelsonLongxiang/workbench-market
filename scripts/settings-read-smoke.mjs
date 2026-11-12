@@ -99,7 +99,7 @@ try {
   await start();
   {
     const line = log.split('\n').find((l) => l.includes('"id":"settings.no-secret-values"'));
-    check(!!line && line.includes('"verdict":"pass"'), '启动自检（设置的出口）：带着凭据类的值重起，两级出口都不带出值，记一行 pass', line ?? '没有这一行');
+    check(!!line && line.includes('"verdict":"pass"'), '启动自检（设置的出口）：带着凭据类的值重起，两级出口都不带出值，记一行 pass [red-line:settings-no-secret-values]', line ?? '没有这一行');
     // 故意漏的出口：自检要抓得到（只报键名，不报值）
     const { settingsViewsLeak, settingsForAdmin } = await import(pathToFileURL(join(ROOT, 'server/src/settings-view.ts')).href);
     const sample = { layerfs_service_token: 'CANARY-UNIT-TOKEN-99', health_concurrency: '4' };
