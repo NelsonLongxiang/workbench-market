@@ -98,5 +98,25 @@ with sync_playwright() as p:
     check('勾了「新建主体」：先弹再确认一次，没确认不发', pg.locator('.ant-popconfirm').count() >= 1 and not any(x.get('source') == 'principal-pending' for x in sent))
     pg.get_by_role('button', name='新建并对接').click(); pg.wait_for_timeout(500)
     check('确认之后发：对到的主体、create 为真', any(x.get('source') == 'principal-pending' and x.get('input', {}).get('principal') == 'user:synthetic-new' and x.get('input', {}).get('create') is True for x in sent), sent)
-    ctx.close(); b.close()
+    ctx.close()
+    # 本机看样子用（CI 不设 WM_SHOT）：三组都有内容、按类别筛过、「不给」展开理由，各截一张 1440
+    import os
+    shot = os.environ.get('WM_SHOT')
+    if shot:
+        full = syn + [
+            {'source': 'work-items', 'source_id': 'wi-synthetic-proxy', 'category': 'accept', 'title': '合成：核对到货数量（等建立人验收）', 'waiting_for': 'person:other', 'since': '2026-11-12T01:00:00Z', 'answers': ['verify', 'return'], 'object': '', 'phase': '', 'link': '', 'mine': False, 'creator': {'principal': 'person:synthetic-beta', 'display_name': 'Synthetic beta'}},
+            {'source': 'tasks', 'source_id': 'task-synthetic-1', 'category': 'review', 'kind': 'sop-run', 'title': '合成：样品检验流程 #12 在跑', 'waiting_for': 'task-center', 'since': '2026-11-11T08:00:00Z', 'answers': [], 'object': '', 'phase': '', 'link': '/tasks', 'mine': True},
+        ]
+        ctx = b.new_context(viewport={'width': 1440, 'height': 900}); ctx.add_cookies([{'name': 'session_id', 'value': cfg['admin_session'], 'url': M}])
+        ctx.route('**/api/attention', lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps({'items': full, 'counts': {'total': len(full)}, 'sources': {}})))
+        pg = ctx.new_page(); pg.goto(M + '/attention'); pg.wait_for_selector('[data-testid=attention-proxy]'); pg.wait_for_timeout(600)
+        pg.screenshot(path=shot.replace('.png', '-三组.png'))
+        pg.locator('[data-testid=attention-filter]').get_by_text('待核准', exact=False).first.click(); pg.wait_for_timeout(400)
+        pg.screenshot(path=shot.replace('.png', '-按类别.png'))
+        mc = pg.locator('[data-testid=decision-card]', has_text='合成会话').first
+        mc.get_by_role('button', name=re.compile('不\\s*给')).click(); pg.wait_for_timeout(300)
+        mc.locator('textarea').fill('这个会话只需要读，不给写的工具')
+        pg.screenshot(path=shot.replace('.png', '-不给理由.png'))
+        ctx.close()
+    b.close()
 print(f'home-count-browser: {ok} passed / {fail} failed'); sys.exit(1 if fail else 0)

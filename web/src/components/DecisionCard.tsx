@@ -176,7 +176,8 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
         }
         // 要先填一句的答法不再另外确认一次：填的那一步就是确认
         const confirm = need ? null : confirmText(item, a);
-        const btn = <Button key={a} type={i === 0 ? 'primary' : 'default'} danger={!!confirm && !!change} loading={busy && !open} disabled={!!run && !run.ready} onClick={confirm ? undefined : () => click(a)}>{label(a)}</Button>;
+        // 展开了别的答法要填的一格时，那一格的「确定」是唯一的主按钮，别的退成普通样子
+        const btn = <Button key={a} type={i === 0 && !open ? 'primary' : 'default'} danger={!!confirm && !!change} loading={busy && !open} disabled={!!run && !run.ready} onClick={confirm ? undefined : () => click(a)}>{label(a)}</Button>;
         return confirm ? <Popconfirm key={a} title={`确定${label(a)}？`} description={confirm} okText={label(a)} cancelText="再想想" onConfirm={() => click(a)}>{btn}</Popconfirm> : btn;
       })}
       {page && !((cc || rc || gc) && choices.length) && <Link to={page} className="wm-decision-more">{choices.length ? '看详情' : '去处理'} →</Link>}
