@@ -1284,6 +1284,14 @@ CREATE TABLE IF NOT EXISTS relation_proposals (
   reason TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_relation_proposals_status ON relation_proposals (status, id);
+-- 随部门负责人发的那条授予（规范 14「关系由谁说了算」）：属主确认部门负责人时，同一事务里落负责人字段、发这个部门范围的 dept-lead 授予，
+--   记在这里；换人、移除负责人时只收这一条，这个人另外持有的授予不碰。一个部门同时最多一条（换人时先删后记）
+CREATE TABLE IF NOT EXISTS dept_lead_grants (
+  department_id TEXT PRIMARY KEY,
+  grant_id INTEGER NOT NULL,
+  principal_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
 `);
 // 阶段八 8d：待对接清单的「出现序号」。同一条外部身份绑定后又出现在清单里，是新的一轮待决；「关注」的记账按它分轮，
 //   不靠时间（只到秒，同一秒里又出现就分不开）。每次新插入一行（主体服务是 upsert，只在真的新进清单时插入）取一个全局只增的号：

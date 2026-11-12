@@ -309,6 +309,12 @@
       "updated_at INTEGER NOT NULL",
       "updated_by TEXT NOT NULL DEFAULT ''"
     ],
+    "dept_lead_grants": [
+      "department_id TEXT PK",
+      "grant_id INTEGER NOT NULL",
+      "principal_id TEXT NOT NULL",
+      "created_at INTEGER NOT NULL"
+    ],
     "endpoint_stats": [
       "endpoint TEXT NOT NULL PK",
       "day TEXT NOT NULL PK",

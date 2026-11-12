@@ -420,6 +420,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   department.ts（部门：Cordis 服务 `departments`·部门清单、负责人、成员归属、职能代号·部门标识即授予范围 dept:<标识>·还有没结束的部门授予时不能删）
   team.ts（团队与分配：Cordis 服务 `teams`·团队登记（认领、挂部门）、负责人（另外指定的加所挂部门的负责人）、成员分配（起止时间、同一席位只有一条生效、按时间点查那时归谁）·键和节点名册一致·状态读的时候推·每步留痕 team_events）
   relation-proposal.ts（关系的提议：Cordis 服务 `relationProposals`·部门负责人、团队负责人只有属主能确认，团队认领到部门要管理层或接收部门的负责人确认·提议期间关系不存在、不带来权限·确认接口和页面的 can_approve 共用 confirmRefusal）
+  dept-lead-grant.ts（部门负责人的字段和授予一起落：属主确认、属主直接指定时同一事务里写负责人字段、发这个部门范围的 dept-lead 授予并记进 dept_lead_grants；换人、移除只收回记着的那条；字段单独不带来权力，只有字段的是「待属主放行」，启动时补记一条负责人提议给属主）
   setup-wizard.ts（首次安装向导：Cordis 服务 `setupWizard`·按形态（small / standard）生成一批草稿授予、可重复跑、属主一次放行·「向导建的」记在 setup_wizard_runs / setup_wizard_grants，读的时候推出来源 wizard）
   grant.ts（授予：Cordis 服务 `grants`·草稿→待核→生效→撤销或过期只能往前走·不能给自己授予·管理员级只有属主能放行·决定类只给人·到期自动失效·每步留痕）
   judgment-compare.ts（判定比对的记账：Cordis 服务 `judgmentCompare`·按路由计数·不一致合并计数、有上限）
