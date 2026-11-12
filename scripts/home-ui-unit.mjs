@@ -2,7 +2,7 @@
 /** 全景首页的纯函数单测（web/src/home-view.ts）：进全景的类型、列、每格状态与待定件数、终态的线、总结句、问候、点格筛选。
  *  数据形状照生命周期只读接口（/api/lifecycle/stages、objects）；全是合成值。 */
 import { cleanWho, seatLabel, teamLabel } from '../web/src/people.ts';
-import { answerChoices, groupCards } from '../web/src/attention-view.ts';
+import { answerChoices, decideCount, groupCards, isMine } from '../web/src/attention-view.ts';
 import { cardWording, splitAskTitle, buildRows, splitRows, daysLabel, filterAttention, greeting, objectLabel, panoramaType, stageColumns, summaryLine, decideLine, toggleFocus } from '../web/src/home-view.ts';
 
 let pass = 0, fail = 0;
@@ -56,5 +56,14 @@ ok('筛选要同时看线和这一步：同一条线两个阶段各一条，点�
 ok('不认识的类别写中性的「等你处理」，不露代号', cardWording('stuck', false).label === '等你处理' && cardWording('team-unclaimed', true).label === '等你处理' && !cardWording('stuck', true).proxy);
 ok('总结只数能当场办的，要到别处处理的另说一句', summaryLine(buildRows(pd, [obj('a', 'st_1')], []), 2, 2) === '公司现在有 1 条线在走，有 2 件等你拍板。另有 2 件要到别处处理。' && decideLine(0, 3) === '眼下没有要你当场拍板的，另有 3 件要到别处处理。' && decideLine(0, 0) === '眼下没有要你拍板的。' && decideLine(4, 0) === '有 4 件等你拍板。');
 ok('卡片说法只看条目的 mine：轮到你不算代办（管理员也是）；不轮到你才是代办；没带 mine 才按管理员推', cardWording('accept', true, true).label === '等你验收' && !cardWording('accept', true, true).proxy && cardWording('accept', false, false).proxy && cardWording('accept', false, false).label === '等建立人验收' && cardWording('ask', true, undefined).proxy && !cardWording('ask', false, undefined).proxy);
+{
+  const it = (id, category, mine, answers = ['a']) => ({ source: 'work-items', source_id: id, category, title: '', waiting_for: '', since: '', answers, object: '', phase: '', link: '', ...(mine === undefined ? {} : { mine }) });
+  const items = [it('m1', 'glance', true), it('p1', 'accept', false), it('p2', 'ask', false), it('e1', 'review', true, []), it('old', 'accept', undefined)];
+  const g = groupCards(items, (x) => x.answers);
+  ok('三组：轮到你能当场办的 / 别人的事你能代办的 / 要到别处处理的', g.now.map((x) => x.source_id).join() === 'old,m1' && g.proxy.map((x) => x.source_id).join() === 'p2,p1' && g.elsewhere.map((x) => x.source_id).join() === 'e1', JSON.stringify([g.now.map((x) => x.source_id), g.proxy.map((x) => x.source_id)]));
+  ok('「等你拍板」的件数：角标、总结句、卡片区同一个数——轮到你且能当场办的', decideCount(items, (x) => x.answers) === g.now.length && decideCount(items, (x) => x.answers) === 2 && isMine({}) && !isMine({ mine: false }));
+  ok('总结句：代办的、别处处理的各说一句，不算进等你拍板', decideLine(2, 1, false, 3) === '有 2 件等你拍板。另有 3 件别人的事你可以代办，1 件要到别处处理。' && decideLine(0, 0, false, 2) === '眼下没有要你当场拍板的，另有 2 件别人的事你可以代办。' && decideLine(1, 2) === '有 1 件等你拍板。另有 2 件要到别处处理。');
+  ok('代办的卡片写出在等谁：有建立人名字写名字，没有写「建立人」', cardWording('accept', true, false, 'alpha').label === '等 alpha 验收' && cardWording('ask', true, false, 'alpha').label === '在问 alpha' && cardWording('accept', true, false, '').label === '等建立人验收' && cardWording('accept', false, true, 'alpha').label === '等你验收');
+}
 console.log(`\nhome-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

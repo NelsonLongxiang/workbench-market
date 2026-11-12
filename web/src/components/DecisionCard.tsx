@@ -76,7 +76,8 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
     : item.source === 'work-items' && detail
       ? [seat && `承接 ${seatLabel(seat)}`, detail.team && `派给 ${teamLabel(detail.team)}`].filter(Boolean).join(' · ')
       : cleanWho(item.waiting_for, seat);
-  const wording = cardWording(item.category, admin, (item as { mine?: unknown }).mine);
+  const creatorName = (item.creator?.display_name || '').trim() || (item.creator?.principal || '').replace(/^(user|human):/, '');
+  const wording = cardWording(item.category, admin, item.mine, creatorName);
   const label = (a: string) => (wording.proxy && PROXY[a]) || reviewAnswerLabel(item.source, a, item) || ANSWER[a] || a;
   const send = async (answer: string, input: Record<string, string>) => {
     setBusy(true);

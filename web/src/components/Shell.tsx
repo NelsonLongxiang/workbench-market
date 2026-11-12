@@ -6,7 +6,8 @@ import { Link, useLocation } from 'react-router-dom';
 import { Dropdown, Popover } from 'antd';
 import { PlusOutlined, SettingOutlined } from '@ant-design/icons';
 import { NAV_GROUPS, findNav } from '../nav';
-import { ATTENTION_CHANGED, getAttentionCount, getAuthMe, listCockpitsShared } from '../api';
+import { ATTENTION_CHANGED, getAttention, getAuthMe, listCockpitsShared } from '../api';
+import { answerChoices, decideCount, type AttentionItem } from '../attention-view';
 import type { Cockpit } from '../types';
 
 function NavItem({ to, icon, name, on, count }: { to: string; icon: ReactNode; name: string; on: boolean; count?: number | null }) {
@@ -25,10 +26,12 @@ export default function Shell({ admin, footer, children }: { admin: boolean; foo
   const [login, setLogin] = useState<string | null>(null);
   const [meOpen, setMeOpen] = useState(false);
   // 角标随换页、换身份刷新；驾驶舱和登录身份只在进来时读一次
-  useEffect(() => { void getAttentionCount().then(setPending); }, [pathname, admin]);
+  // 角标 = 轮到你、能当场办的件数，和全景的总结句、「等你拍板」的数是同一个函数算的
+  const readPending = () => getAttention().then((a) => (a.status >= 200 && a.status < 300 ? decideCount(a.items as unknown as AttentionItem[], (x) => answerChoices(admin, x)) : null));
+  useEffect(() => { void readPending().then(setPending); }, [pathname, admin]);
   // 页面上办完一件（全景的卡片会广播 wm-attention-changed），角标当场刷新
   useEffect(() => {
-    const on = () => { void getAttentionCount().then(setPending); };
+    const on = () => { void readPending().then(setPending); };
     window.addEventListener(ATTENTION_CHANGED, on);
     return () => window.removeEventListener(ATTENTION_CHANGED, on);
   }, []);
