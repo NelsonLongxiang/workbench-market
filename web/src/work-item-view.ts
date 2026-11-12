@@ -1,7 +1,7 @@
 /** 事项详情页的纯函数：不碰 React，scripts/work-item-detail-ui-unit.mjs 直接测。 */
 import type { AttentionItem } from './attention-view';
 // 「谁」的写法只在 people.ts 一处（全站共用）；这里转出去，事项详情页照旧从这里引
-import { actorLabel, personLabel, seatLabel, who } from './people.ts';
+import { actorLabel, membersText, personLabel, seatLabel, who, UNNAMED_SEAT } from './people.ts';
 export { actorLabel, seatLabel, who };
 
 /** 看的人对这件事项能做什么、是不是轮到他：直接取事项详情应答里的 can、turn（#587，和动作接口同一处判断），
@@ -257,8 +257,10 @@ export function subitemsOf(subitems: unknown, progress: SeatProgress | null | un
 export function seatSummary(seat: unknown, subitems: Ticket[]): string {
   const s = seatLabel(who(seat));
   if (s && s !== '-') return s;
-  const doing = [...new Set(subitems.filter((t) => ['working', 'waiting', 'blocked'].includes(t.state)).map((t) => seatLabel(who(t.seat))).filter(Boolean))];
-  return doing.length > 1 ? `${doing.length} 个成员在做：${doing.join('、')}` : doing[0] ?? '';
+  // 按不同的席位数人（两个查不到名字的成员是两个人），名字只写名字、查不到写「一位 AI 员工」
+  const m = membersText(subitems.filter((t) => ['working', 'waiting', 'blocked'].includes(t.state)).map((t) => who(t.seat)), (x) => seatLabel(x));
+  if (m.n > 1) return m.text ? `${m.n} 个成员在做：${m.text}` : `${m.n} 个成员在做`;
+  return m.n === 1 ? (m.text || UNNAMED_SEAT) : '';
 }
 
 /** 「正在处理」只在事项还在做时给：结束了、等验收（ready）时上一次进展已经过时，不显示 */
@@ -271,8 +273,9 @@ export function rowActor(row: { actor?: string; fact_source?: string; detail?: s
   if (by && typeof by === 'object') {
     const o = by as Record<string, unknown>;
     const name = typeof o.name === 'string' ? o.name.trim() : '', seat = typeof o.seat === 'string' ? o.seat.trim() : '';
-    if (name && seat) return `${name}（${seat}）`;
-    if (name || seat) return name || seat;
+    // 只写名字，不带句柄（协调 2026-11-12）；只有句柄时按席位的说法（一位 AI 员工）
+    if (name) return name;
+    if (seat) return actorLabel(seat, '');
   }
   if (typeof by === 'string' && by.trim()) return actorLabel(by, '');
   const raw = row.actor || row.fact_source || '';
@@ -288,8 +291,9 @@ export function seatLine(item: { seat?: unknown; state: string; target_team?: st
   const s = seatSummary(item.seat, subitems);
   if (s) return s;
   if (TERMINAL.includes(item.state)) {
-    const did = [...new Set(subitems.map((t) => seatLabel(who(t.seat))).filter(Boolean))];
-    return did.length > 1 ? `${did.length} 个成员做过：${did.join('、')}` : did[0] ? `${did[0]} 做过` : '';
+    const m = membersText(subitems.map((t) => who(t.seat)), (x) => seatLabel(x));
+    if (m.n > 1) return m.text ? `${m.n} 个成员做过：${m.text}` : `${m.n} 个成员做过`;
+    return m.n === 1 ? `${m.text || UNNAMED_SEAT} 做过` : '';
   }
   if (item.state === 'draft' || item.state === 'held') return '还没派出去';
   const t = item.target_team ? team(item.target_team) : '';

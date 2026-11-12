@@ -41,7 +41,7 @@ ok('视角：只给接口现在给得出的那一个——管理员「全部」�
 {
   const roster = rosterNames([{ team: 'zone/canvas/t', seats: [{ seat: 'zone/0a1b2c3d', name: '小运' }, { seat: 'zone/00', name: '' }, null, { name: 'x' }] }, 'bad']);
   ok('名册拍平成句柄 → 名字；没名字、形状不对的不收', roster['zone/0a1b2c3d'] === '小运' && Object.keys(roster).length === 1 && Object.keys(rosterNames(null)).length === 0);
-  ok('列表里的席位只写名字：带名字的取名字，只有句柄查名册，查不到显示句柄', seatNameOnly('小采 · zone/a1', roster) === '小采' && seatNameOnly('zone/0a1b2c3d', roster) === '小运' && seatNameOnly('zone/ffff', roster) === 'zone/ffff' && seatNameOnly('-', roster) === '' && seatNameOnly('') === '');
+  ok('列表里的席位只写名字：带名字的取名字，只有句柄查名册，查不到写「一位 AI 员工」', seatNameOnly('小采 · zone/a1', roster) === '小采' && seatNameOnly('zone/0a1b2c3d', roster) === '小运' && seatNameOnly('zone/ffff', roster) === '一位 AI 员工' && seatNameOnly('-', roster) === '' && seatNameOnly('') === '');
   ok('圆标的字：名字第一个字；只有句柄不放字符（页面放席位图标）；没有席位为空', avatarChar('小采') === '小' && avatarChar('zone/0a1b2c3d') === '' && avatarChar('alpha') === 'A' && avatarChar('') === '');
 }
 {
