@@ -23,10 +23,11 @@ import { svc } from '../context.ts';
 import { identity } from '../identity.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import { browserMarked, originIsThisSurface, rawLoopback } from '../surfaces.ts';
-import { judge, type JudgedActor } from '../judgment.ts';
+import { judge, scopedVerdict, type JudgedActor } from '../judgment.ts';
 import { BENCH_LIMITS, BenchError } from '../bench-query.ts';
 import { benchStore, type BenchStore } from '../services/bench-store.ts';
-import { createBench, getBench, listBenches } from '../services/bench-registry.ts';
+import { bindBench, createBench, getBench, listBenches, type BenchEntry } from '../services/bench-registry.ts';
+import { relationOf } from '../team-relation.ts';
 import { decideBenchRequest, listBenchMcp, setBenchGrants } from '../services/bench-mcp.ts';
 
 export type BenchViewsConfig = { on: boolean };
@@ -53,6 +54,14 @@ export interface BenchViewRouteDeps {
 
 const NOT_VERDICT = '放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404';
 const OPS = new Map<string, 'replace' | 'upsert' | 'append' | 'deleteRows'>([['replace', 'replace'], ['upsert', 'upsert'], ['append', 'append'], ['delete', 'deleteRows']]);
+
+/**
+ * 「关注」用（attention-providers.ts、attention-answers.ts）：这个请求能不能批台上的 MCP 授予申请。
+ * 能，返回做这件事的人；不能，照这组路由的口径往 res 里写拒绝（入口关着 404、跨站 403、管理口令 403、没登录 401、没有拍板权限 403）并返回 null。
+ * bench 给台的标识：问这一个台（管理层，或者在这个台所绑的部门上有拍板授予的人）；给 null：只问管理层那一档（不指哪个台）。
+ * 判断和下面三条授予路由是同一处（allow），不另写一份。路由还没注册时是 null。
+ */
+export let benchMcpDecider: ((req: express.Request, res: express.Response, bench: string | null) => Promise<string | null>) | null = null;
 
 export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDeps): void {
   const { wrap: wrapInner, adminTokenOk, devOriginOk } = deps;
@@ -85,24 +94,50 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     return { type: 'builtin', name: 'anonymous' };
   }
 
-  /** 放不放行。放行返回做这件事的人的标识；不放行已经回了应答，返回 null */
   /**
-   * 这一步读和写是同一道门：都按「能不能写」问判定。
-   * 原因：普通员工的预设带着全部业务域的「看」，而每个登录过的员工都会迁出一条范围是「全部」的普通员工授予——
-   * 按「看」放行的话，入口一开全公司都读得到所有台的数据。按部门、按团队判读权限的那一半做完之前，读也只给能写的人（管理层）。
-   * 路由登记的类别（read / write）照实写，只用于动作清单；放不放行不看它。
+   * 放不放行，两档：
+   *   一、管理层这一档：问统一判定（它现在只认范围是「全部」的授予）。读和写是同一道门，都按「能不能写」问——
+   *       普通员工的预设带着全部业务域的「看」，每个登录过的员工又都会迁出一条范围「全部」的普通员工授予，按「看」放行等于全公司可读。
+   *   二、部门这一档：台绑了部门，这个人在这个部门上有一条已放行的授予盖住这个动作（scopedVerdict）。
+   *       只认授予：部门成员表、部门负责人、团队认领这些关系是系统管理员一个人写得出来的，不带来权限。
+   *       细到团队的台，写再收窄到这个团队的负责人、成员的主人，或者有这个部门拍板授予的人——关系在这里只会让人更少。
+   * 没绑部门的台只有第一档。路由登记的类别（read / write）照实写，只用于动作清单；放不放行不看它。
    */
-  async function allow(req: express.Request, res: express.Response, action: string, gate: 'write' | 'decide' = 'write'): Promise<string | null> {
+  type Gate = 'write' | 'decide';
+  /** 认人。跨站、管理口令、没登录在这里拒（已经回了应答，返回 null） */
+  async function who(req: express.Request, res: express.Response): Promise<JudgedActor | null> {
     res.set('Cache-Control', 'private, no-store');
     res.vary('Cookie'); res.vary('X-Admin-Token');
     if (req.headers['sec-fetch-site'] === 'cross-site' || (req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req))) { res.status(403).json({ error: 'bench_views_cross_origin_denied' }); return null; }
     const actor = await actorOf(req);
     if (actor.type === 'builtin' && actor.name === 'admin-token') { res.status(403).json({ error: 'bench_views_admin_token_denied', message: '台里是业务数据，管理口令看不了、也改不了；用有管理层授予的账号登录' }); return null; }
     if (actor.type === 'builtin' && actor.name === 'anonymous') { res.status(401).json({ error: 'login_required' }); return null; }
-    const verdict = judge({ actor, action, kind: gate, declared: true });
-    if (verdict.verdict !== 'allow') { res.status(403).json({ error: 'bench_views_forbidden' }); return null; }
-    return actor.type === 'principal' ? actor.id : `builtin:${actor.name}`;
+    return actor;
   }
+  const idOf = (actor: JudgedActor): string => (actor.type === 'principal' ? actor.id : `builtin:${actor.name}`);
+  const everywhere = (actor: JudgedActor, action: string, gate: Gate): boolean => judge({ actor, action, kind: gate, declared: true }).verdict === 'allow';
+  const inDept = (actor: JudgedActor, action: string, gate: Gate, department: string): boolean =>
+    actor.type === 'principal' && scopedVerdict({ principal: actor.id, action, kind: gate, scope: `dept:${department}` }).verdict === 'allow';
+  function within(actor: JudgedActor, action: string, gate: Gate, bench: BenchEntry | null): boolean {
+    if (actor.type !== 'principal' || !bench || !bench.department_id) return false;
+    if (!inDept(actor, action, gate, bench.department_id)) return false;
+    if (!bench.team || gate === 'decide') return true;
+    if (inDept(actor, 'bench-store.mcp-decide', 'decide', bench.department_id)) return true;
+    const rel = relationOf({ principal: actor.id }, { team: { host: bench.team_host, team: bench.team } }).relations;
+    return rel.includes('team-lead') || rel.includes('seat-owner');
+  }
+  const forbid = (res: express.Response): null => { res.status(403).json({ error: 'bench_views_forbidden' }); return null; };
+  /** 放行返回做这件事的人的标识；不放行已经回了应答，返回 null。bench 是这次要碰的台（没登记是 null：只剩第一档，所以没权限的人看不出台存不存在） */
+  async function allow(req: express.Request, res: express.Response, action: string, gate: Gate = 'write', bench: BenchEntry | null = null): Promise<string | null> {
+    const actor = await who(req, res);
+    if (!actor) return null;
+    return everywhere(actor, action, gate) || within(actor, action, gate, bench) ? idOf(actor) : forbid(res);
+  }
+
+  benchMcpDecider = async (req, res, bench) => {
+    if (!deps.on) { res.status(404).json({ error: 'bench_views_off' }); return null; }
+    return allow(req, res, 'bench-store.mcp-decide', 'decide', bench === null ? null : getBench(bench));
+  };
 
   const fail = (res: express.Response, e: unknown): void => {
     if (e instanceof BenchError) {
@@ -127,21 +162,41 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
   const rawRows = express.raw({ type: () => true, limit: BENCH_LIMITS.datasetBytes + 1_000_000 });
   /** 一条「在某个台上做一件事」的路由：先判权限，再核台登记过，然后把台库交给 fn */
   const on = (action: string, fn: (req: express.Request, res: express.Response, s: BenchStore, actor: string) => Promise<unknown>, gate: 'write' | 'decide' = 'write') => wrap(async (req, res) => {
-    const actor = await allow(req, res, action, gate);
+    const bench = getBench(req.params.bench);
+    const actor = await allow(req, res, action, gate, bench);
     if (!actor) return;
-    if (!getBench(req.params.bench)) return res.status(404).json({ error: 'bench_not_found' });
+    if (!bench) return res.status(404).json({ error: 'bench_not_found' });
     try { res.json(await fn(req, res, await benchStore(req.params.bench), actor)); } catch (e) { fail(res, e); }
   });
 
   // —— 台的登记 ——
   app.get('/api/bench-views', { action: 'bench-store.bench-list', kind: 'read', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
-    if (!await allow(req, res, 'bench-store.bench-list')) return;
-    res.json({ benches: listBenches() });
+    // 清单只列这个人进得去的台：管理层全部；别的人是自己有授予的部门的台，一个都没有就是 403
+    const actor = await who(req, res);
+    if (!actor) return;
+    const all = listBenches();
+    if (everywhere(actor, 'bench-store.bench-list', 'write')) return void res.json({ benches: all });
+    const mine = all.filter((b) => within(actor, 'bench-store.bench-list', 'write', b));
+    if (!mine.length) return void forbid(res);
+    res.json({ benches: mine });
   }));
   app.post('/api/bench-views', { action: 'bench-store.bench-create', kind: 'write', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
-    const actor = await allow(req, res, 'bench-store.bench-create');
+    // 管理层可以登记到任何部门（或者先不绑）；别的人只能登记到自己有拍板授予的部门，而且必须绑
+    const actor = await who(req, res);
     if (!actor) return;
-    try { res.status(201).json({ bench: createBench(req.body, actor, Date.now()) }); } catch (e) { fail(res, e); }
+    const dep = (req.body as { department?: unknown } | undefined)?.department;
+    const ok = everywhere(actor, 'bench-store.bench-create', 'write')
+      || (typeof dep === 'string' && /^[a-z][a-z0-9-]{0,47}$/.test(dep) && inDept(actor, 'bench-store.bench-create', 'decide', dep));
+    if (!ok) return void forbid(res);
+    try { res.status(201).json({ bench: createBench(req.body, idOf(actor), Date.now()) }); } catch (e) { fail(res, e); }
+  }));
+  // 改绑、解绑：只有管理层。绑到哪个部门决定了谁进得来，不交给部门自己
+  app.put('/api/bench-views/:bench/binding', { action: 'bench-store.bench-bind', kind: 'decide', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    const actor = await who(req, res);
+    if (!actor) return;
+    if (!everywhere(actor, 'bench-store.bench-bind', 'decide')) return void forbid(res);
+    if (!getBench(req.params.bench)) return void res.status(404).json({ error: 'bench_not_found' });
+    try { res.json(bindBench(req.params.bench, req.body, idOf(actor), Date.now())); } catch (e) { fail(res, e); }
   }));
 
   // —— 数据集 ——

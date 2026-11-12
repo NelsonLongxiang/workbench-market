@@ -2,7 +2,7 @@
 /** 「团队」页的纯函数单测（web/src/team-view.ts）：应答整形、管理员视图、团队状态、负责人、成员归谁用、计数、空的说法、读不到和被拒的说法、建部门的校验。数据都是合成的。 */
 // 在非 UTC 的时区里跑（东八区）：不带时区的时间写法要按 UTC 解析，在这里才看得出来
 process.env.TZ = 'Asia/Shanghai';
-import { actionProblem, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterAt, rosterStaleText, ROSTER_STALE_MIN, sourceProblem, teamCounts, teamStatusLabel, teamTitle, teamsOf, pendingText, proposedText , proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, claimButtonText, LEAD_SKIPPED_TEXT, teamKey, outcomeLabel, outcomeReasonText} from '../web/src/team-view.ts';
+import { actionProblem, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterAt, rosterStaleText, ROSTER_STALE_MIN, sourceProblem, teamCounts, teamStatusLabel, teamTitle, teamsOf, pendingText, proposedText , proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, claimButtonText, LEAD_SKIPPED_TEXT, teamKey, outcomeLabel, outcomeReasonText, assignOps, assigneeOptions, assignDoneText, reassignHalfDoneText, unassignConfirmText, ASSIGN_BY_TEXT, reassignStoppedText } from '../web/src/team-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -35,7 +35,11 @@ const at = (v) => teamsOf({ departments: [], unclaimed: [{ host: 'a1b2c3d4', tea
 const T0 = Date.parse('2030-01-01T00:00:00Z');
 ok('名册时刻：ISO 时刻、毫秒数的字符串都认；坏的、空的、null 不带', at('2030-01-01T00:00:00Z') === T0 && at(String(T0)) === T0 && at('不是时间') === undefined && at('') === undefined && at(null) === undefined);
 ok('名册时刻：服务端的 sqlTime 写法「2030-01-01 06:00:00」（UTC、不带时区、空格）按 UTC 解析；不带 Z 的 T 写法也按 UTC；带时区的照它', new Date().getTimezoneOffset() === -480 && at('2030-01-01 06:00:00') === Date.UTC(2030, 0, 1, 6) && rosterAt('2030-01-01T06:00:00') === Date.UTC(2030, 0, 1, 6) && rosterAt('2030-01-01 06:00') === Date.UTC(2030, 0, 1, 6) && rosterAt('2030-01-01T14:00:00+08:00') === Date.UTC(2030, 0, 1, 6) && rosterAt('2030-01-01 06:00:00.5') === Date.UTC(2030, 0, 1, 6) + 500);
-ok('名册没更新：阈值 15 分钟，没到不提醒，到了按分钟、两小时以上按小时、两天以上按天；没有时刻不提醒', ROSTER_STALE_MIN === 15 && rosterStaleText({ roster_at: T0 }, T0 + 14 * 60_000) === null && rosterStaleText({ roster_at: T0 }, T0 + 15 * 60_000) === '名册已 15 分钟没更新' && rosterStaleText({ roster_at: T0 }, T0 + 119 * 60_000) === '名册已 119 分钟没更新' && rosterStaleText({ roster_at: T0 }, T0 + 3 * 3600_000) === '名册已 3 小时没更新' && rosterStaleText({ roster_at: T0 }, T0 + 50 * 3600_000) === '名册已 2 天没更新' && rosterStaleText({}, T0) === null);
+ok('名册没更新：缺省阈值 60 分钟（和服务端 WM_ROSTER_STALE_MINUTES 的缺省一样）；传进来的阈值优先', ROSTER_STALE_MIN === 60 && rosterStaleText({ roster_at: T0 }, T0 + 59 * 60_000) === null && rosterStaleText({ roster_at: T0 }, T0 + 60 * 60_000) === '名册已 60 分钟没更新' && rosterStaleText({ roster_at: T0 }, T0 + 3 * 3600_000, 240) === null);
+ok('名册没更新：团队上给了 roster_stale 就照它（false 不提醒、true 没到阈值也提醒）；接口的 roster_stale_minutes 只收 1～10080 的整数', rosterStaleText({ roster_at: T0, roster_stale: false }, T0 + 50 * 3600_000) === null && rosterStaleText({ roster_at: T0, roster_stale: true }, T0 + 5 * 60_000) === '名册已 5 分钟没更新'
+  && teamsOf({ departments: [], roster_stale_minutes: 30 }).roster_stale_minutes === 30 && [0, 10081, 1.5, '30', null].every((x) => teamsOf({ departments: [], roster_stale_minutes: x }).roster_stale_minutes === undefined)
+  && teamsOf({ departments: [{ id: 'd', teams: [{ host: 'h', team: 't', roster_stale: true }, { host: 'h', team: 'u', roster_stale: 'yes' }] }] }).departments[0].teams.map((x) => x.roster_stale).join() === 'true,');
+ok('名册没更新：到了按分钟、两小时以上按小时、两天以上按天；没有时刻不提醒', rosterStaleText({ roster_at: T0 }, T0 + 15 * 60_000, 15) === '名册已 15 分钟没更新' && rosterStaleText({ roster_at: T0 }, T0 + 119 * 60_000, 15) === '名册已 119 分钟没更新' && rosterStaleText({ roster_at: T0 }, T0 + 3 * 3600_000) === '名册已 3 小时没更新' && rosterStaleText({ roster_at: T0 }, T0 + 50 * 3600_000) === '名册已 2 天没更新' && rosterStaleText({}, T0) === null);
 ok('人名：显示名优先，没有去前缀，空的给空串', personName({ principal: 'user:zhao', display_name: '' }) === 'zhao' && personName(null) === '');
 
 const deps = departmentsOf({ departments: [{ id: 'ops', name: '运营部', lead: null, member_count: 3 }, { name: '缺标识' }] });
@@ -96,6 +100,34 @@ ok('结局的原因：失效、驳回写服务端的原因；撤回没给原因�
 ok('处理过的不出撤回、驳回（就算 can_reject 写成真）', rejectLabel({ ...dec[0], can_reject: true }) === null && rejectLabel(dec[4]) === '撤回');
 ok('认领按钮照 can：能直接认领写「认领」，只能提议写「提议认领」，都不能不出；没给 can 照旧「认领」', claimButtonText({ claim: true, propose_claim: false }) === '认领' && claimButtonText({ claim: false, propose_claim: true }) === '提议认领' && claimButtonText({ claim: false, propose_claim: false }) === null && claimButtonText(null) === '认领');
 ok('认领只是提议、选了负责人：补一句负责人等认领确认后再指定', /负责人等认领确认后再指定/.test(LEAD_SKIPPED_TEXT) && teamKey('a', 'b') !== teamKey('ab', ''));
+
+// ---------- 成员分配（规范 14 第二节）----------
+const asg = teamsOf({ departments: [{ id: 'ops', name: '运营部', teams: [
+  team({ can_assign: true, assign_denied_text: null, assignable: [{ principal: 'user:wang', display_name: '王' }, { principal: 'user:zhao', display_name: '赵' }, { principal: 'user:wang', display_name: '王' }, { bad: 1 }, { principal: 'user:li', display_name: '' }],
+    members: [member('ops/00000001', { name: '小算', assigned_to: { principal: 'user:wang', display_name: '王' } }), member('ops/00000002', { name: '小记' })], router: member('ops/r', { router: true }) }),
+  team({ team: 'ops/canvas/另一个', can_assign: false, assign_denied_text: '只有这个团队的负责人或管理层能分配、收回成员', assignable: [{ principal: 'user:wang', display_name: '王' }], members: [member('ops/00000003')] }),
+  team({ team: 'ops/canvas/没给', members: [member('ops/00000004')] }),
+] }] }).departments[0].teams;
+ok('整形：can_assign 只认 true；不能分配时不收 assignable（服务端给了也丢）；说法原样留', asg[0].can_assign === true && asg[1].can_assign === false && asg[2].can_assign === false
+  && asg[1].assignable.length === 0 && asg[2].assignable.length === 0 && asg[1].assign_denied_text === '只有这个团队的负责人或管理层能分配、收回成员' && asg[2].assign_denied_text === null);
+ok('整形：assignable 里坏的丢掉', asg[0].assignable.length === 4);
+ok('操作：团队公用的出「分配给…」，已分配的出「改派」「收回」', J(assignOps(asg[0], asg[0].members[1])) === '{"assign":true,"reassign":false,"unassign":false}' && J(assignOps(asg[0], asg[0].members[0])) === '{"assign":false,"reassign":true,"unassign":true}');
+ok('操作：总工不分配（不论当总工传进来、还是成员上标了 router）', J(assignOps(asg[0], asg[0].router, true)) === '{"assign":false,"reassign":false,"unassign":false}' && !assignOps(asg[0], member('x', { router: true })).assign);
+ok('操作：can_assign 不是真、没给、团队待认领，一个都不出', J([assignOps(asg[1], asg[1].members[0]), assignOps(asg[2], asg[2].members[0]), assignOps({ ...asg[0], status: 'unclaimed' }, asg[0].members[1])].map((o) => o.assign || o.reassign || o.unassign)) === '[false,false,false]');
+ok('选人：去重、按名字排；没显示名的用标识去前缀', J(assigneeOptions(asg[0], asg[0].members[1]).map((o) => o.label)) === J(['li', '王', '赵'].sort((a, b) => a.localeCompare(b, 'zh-CN'))));
+ok('选人：改派时去掉现在归的那个人', !assigneeOptions(asg[0], asg[0].members[0]).some((o) => o.value === 'user:wang') && assigneeOptions(asg[0], asg[0].members[0]).length === 2);
+ok('办成的说法：分配、改派直接生效写「已分配给」「已改派给」，是成功；回 202 照提议说，是提示、不当成已生效',
+  J(assignDoneText('assign', '小记', '赵', { status: 201, body: { ok: true, id: 3 } })) === J({ kind: 'success', text: '「小记」已分配给 赵。' })
+  && J(assignDoneText('reassign', '小算', '赵', { status: 201, body: { ok: true } })) === J({ kind: 'success', text: '「小算」已改派给 赵。' })
+  && J(assignDoneText('assign', '小记', '赵', { status: 202, body: { ok: true, proposed: true, proposal: { id: 9, confirm_by_text: '业务侧负责人' } } })) === J({ kind: 'info', text: '「小记」分配给 赵：已提出，等业务侧负责人确认。' }));
+ok('收回的说法：收回了写回到团队公用（成功）；本来就没分配（removed=false）照实说（提示）', assignDoneText('unassign', '小算', '', { status: 200, body: { ok: true, removed: true } }).text.includes('现在是团队公用') && J(assignDoneText('unassign', '小算', '', { status: 200, body: { ok: true, removed: false } })) === J({ kind: 'info', text: '「小算」本来就是团队公用。' }));
+ok('收回的确认：照实说变成团队公用，分给他期间接手的事他照样看得到，之后的不算他的', unassignConfirmText('小算', '丙') === '收回后「小算」变成团队公用，由总工分派。它分给 丙 期间接手的事，丙 照样看得到；收回之后再接的事，不再算 丙 的。');
+ok('名册过期：正常的团队改标「名册过期」（提醒色），不和「名册已 N 天没更新」打架；别的状态照旧', J(teamStatusLabel('active', true)) === J({ text: '名册过期', tone: 'warning' }) && teamStatusLabel('active', false).text === '正常' && teamStatusLabel('lead-vacant', true).text === '负责人缺位' && teamStatusLabel('active').text === '正常');
+ok('系统管理员头卡上的一句：分配归负责人或管理层', ASSIGN_BY_TEXT === '成员分配由团队负责人或管理层做');
+ok('收回回 202：照提议说（提示），不说已收回；改派的收回回 202 时停下，归属不变', J(assignDoneText('unassign', '小算', '', { status: 202, body: { ok: true, proposed: true, proposal: { id: 5, confirm_by_text: '管理层' } } })) === J({ kind: 'info', text: '收回「小算」已提出，等管理层确认。' })
+  && reassignStoppedText('小算', '已提出，等管理层确认') === '收回「小算」已提出，等管理层确认；收回生效之前不改派，归属不变。');
+ok('改派一半：收回成了、分配没成，说清楚现在是团队公用；原因末尾的句号不重复', reassignHalfDoneText('小算', '赵', '只分给启用的人，user:zhao 不是。') === '「小算」已收回，但改派给 赵 没办成：只分给启用的人，user:zhao 不是。现在是团队公用，可以再分一次。');
+ok('分配被拒：服务端的说法原样给（409 已分给别人、422 不是启用的人、403 不是负责人）', actionProblem({ status: 409, body: { error: 'seat_assigned', message: '这个成员已经分给 user:wang，先收回再分' } }) === '这个成员已经分给 user:wang，先收回再分' && actionProblem({ status: 403, body: { error: 'not_team_lead' } }) === '你的账号现在不能做这一步。');
 
 console.log(`\nteam-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

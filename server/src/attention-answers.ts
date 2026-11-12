@@ -22,6 +22,7 @@ import { forward } from './attention-forward.ts';
 import { answerBody, findBoardWorkbench } from './owner-pending.ts';
 import { principalsAdmin } from './routes/principals.ts';
 import { changeRequestReview } from './routes/change-requests.ts';
+import { benchMcpDecider } from './routes/bench-views.ts';
 import { sopRunAcceptance } from './routes/sop-run-lifecycle.ts';
 import { HttpError } from './errors.ts';
 import { currentAskOfDelivery, pendingAskOfDelivery, pendingPrincipalAppearance } from './services/attention-sources.ts';
@@ -77,6 +78,15 @@ export async function actorOf(req: Req): Promise<string> {
 const FORWARD: Record<string, Record<string, (id: string, input: Input) => Route>> = {
   'mcp-access': Object.fromEntries((['approve', 'reject'] as const).map((op) => [op, (id: string, input: Input): Route =>
     NUM.test(id) ? { method: 'POST', path: `/api/mcp/access-requests/${encodeURIComponent(id)}/${op}`, body: { note: text(input.note, 500) } } : bad('attention_id_invalid')])),
+  // 台的 MCP 授予申请：条目 id 是「台的标识:申请编号」。批可以带一句话；不批要写理由（记在申请的 note 里，申请的会话看得到）
+  'bench-mcp': Object.fromEntries((['approve', 'reject'] as const).map((op) => [op, (id: string, input: Input): Route => {
+    const m = /^([a-z0-9][a-z0-9-]{0,63}):([1-9]\d{0,8})$/.exec(id);
+    if (!m) return bad('attention_id_invalid');
+    // 不批的理由：reason 或 note 都认（别的来源两种叫法都有），先取 reason
+    const note = op === 'approve' ? text(input.note, 500) : text(input.reason, 500) || text(input.note, 500);
+    if (op === 'reject' && !note) return bad('reason_required');
+    return { method: 'POST', path: `/api/bench-views/${m[1]}/mcp-requests/${m[2]}`, body: { approve: op === 'approve', note } };
+  }])),
   'owner-pending': {
     answer: (no, input) => {
       if (!/^\d{1,4}$/.test(no)) return bad('attention_id_invalid');
@@ -306,5 +316,6 @@ async function denial(source: string, req: Req, deps: AnswerDeps): Promise<Answe
   if (source === 'principal-pending' && principalsAdmin) { const c = capturing(); await principalsAdmin(req, c.res); return c.out(); }
   if (source === 'owner-pending') { const c = capturing(); await deps.varsAuthorizeRead(req, c.res, { id: 0, cls: 'external', slug: null }); return c.out(); }
   if (source === 'work-items') return { status: 401, body: { error: 'work_items_auth_required' } };
+  if (source === 'bench-mcp') { if (!benchMcpDecider) return { status: 404, body: { error: 'bench_views_off' } }; const c = capturing(); await benchMcpDecider(req, c.res, null); return c.out(); }
   return guardDenial(deps.adminGuard, req);
 }
