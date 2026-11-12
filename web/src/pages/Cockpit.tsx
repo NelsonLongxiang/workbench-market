@@ -14,6 +14,8 @@ import type { Cockpit as CockpitT, PanelConfig, Workbench } from '../types';
 import { useSyncExternalStore } from 'react';
 import { adminActive, subscribeAdminToken } from '../admin-token';
 import WmPage from '../components/WmPage';
+import CockpitFrame from '../components/cockpit/CockpitFrame';
+import { AttentionPane, ItemsPane } from '../components/cockpit/SidePanes';
 
 /** 驾驶舱写（/api/cockpits）是管理写：不是管理员（口令或 Odoo 管理员）时只读，隐藏新建/删除/改名/加移面板，网格不可拖拽 */
 const READ_ONLY_HINT = '编辑驾驶舱需要管理员：在顶栏输入管理员口令，或用 Odoo 管理员账号登录。';
@@ -55,6 +57,7 @@ export default function Cockpit() {
 
   const [panels, setPanels] = useState<PanelConfig[] | null>(null);
   // 驾驶舱改名（监督席 direct-3b98f8c2 用户报障：后端 PUT name 一直在，前端无入口）
+  const [attentionCount, setAttentionCount] = useState<number | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const submitRename = async () => {
@@ -234,9 +237,8 @@ export default function Cockpit() {
     );
   }
 
-  return (
-    <WmPage detail={active.name}>
-    <Flex vertical gap={12} className="wm-w-full" align="start">
+  // 骨架照原型的驾驶舱：上面一排（切换、改名、加面板）；左「等你拍板」、中「看板」（现有的工作台面板）、右「事项」
+  const bar = (
       <Flex justify="space-between" align="center" gap={12} className="wm-w-full" style={{ flexWrap: 'wrap', rowGap: 8 }}>
         <Flex align="center" gap={8}>
           <Button icon={<ArrowLeftOutlined />} onClick={() => nav('/cockpit')} aria-label="返回驾驶舱列表" />
@@ -295,6 +297,9 @@ export default function Cockpit() {
           加待办卡
         </Button>}
       </Flex>
+  );
+  const board = (
+    <Flex vertical gap={12} className="wm-w-full wm-ck-pad" align="start">
       {READ_ONLY && <Alert type="info" showIcon className="wm-cockpit-readonly wm-w-full" message="驾驶舱在这里只能查看" description={READ_ONLY_HINT} />}
 
       {panels.length === 0 ? (
@@ -369,6 +374,13 @@ export default function Cockpit() {
         <Link to="/market">去工作台市场</Link>
       </Typography.Text>
     </Flex>
+  );
+  return (
+    <WmPage detail={active.name} wide>
+      <CockpitFrame storageKey={String(active.id)} bar={bar}
+        left={{ id: 'attention', tabs: [{ key: 'attention', label: '等你拍板', count: attentionCount, content: <AttentionPane onCount={setAttentionCount} /> }] }}
+        main={{ id: 'board', tabs: [{ key: 'board', label: '看板', content: board }] }}
+        right={{ id: 'items', tabs: [{ key: 'items', label: '事项', content: <ItemsPane /> }] }} />
     </WmPage>
   );
 }
