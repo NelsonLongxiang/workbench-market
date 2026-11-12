@@ -242,6 +242,11 @@ function handoffOf(rec: { handoff?: unknown; review_by?: unknown; directed_seat_
   return { handoff, review_by, directed_seat_id };
 }
 
+/** 列表的视角圈出来的范围（scopeWhere）。我的 AI 员工手上的、我团队的两个视角随关系确认制接上 */
+export type ViewScope =
+  | { kind: 'all' }
+  | { kind: 'mine'; principal: string };
+
 export type EventLogRow = { id: number; delivery_id: number | null; actor: string; action: string; detail: string };
 
 /** 事件的来源坐标（「task-center · task-center · task:1」）：没有更好的标题时的退路，也用来认出「标题还是自动起的」 */
@@ -713,33 +718,50 @@ export class WorkItemService extends Service {
   }
 
   /**
-   * 列表一页（给事项列表的读接口）：按 updated_at、id 倒序，游标翻页；同时给可见范围里按状态的计数。
-   *   viewer = null 是管理员（看全部）；否则是查看者的主体标识，只看自己是建立人的——和详情、「关注」同一个判断（isCreator）。
-   *   看不到的不出现，也不计数。每行带最后一条事项日志（谁、做了什么、什么时候），前端不再拉全量日志。
-   * SQL 只用两种库都认的写法：游标比较、IN 列表、GROUP BY。
+   * 一个视角圈出来的事项范围（规范 14 第九节第 4 条，只有这一处拼条件）：
+   *   all   全部（管理层）
+   *   mine  我是建立人（isCreator 同一个口径：按建立人主体）
+   * SQL 只用两种库都认的写法。
    */
-  page(opts: { viewer: string | null; state?: WorkItemState; object?: string; phase?: string; limit: number; after?: { updated_at: string; id: string } }): {
+  private scopeWhere(scope: ViewScope): { where: string; args: (string | number)[] } {
+    if (scope.kind === 'all') return { where: '1 = 1', args: [] };
+    return PERSON_PRINCIPAL.test(scope.principal) ? { where: 'creator_principal = ?', args: [scope.principal] } : { where: '1 = 0', args: [] };
+  }
+
+  /** 一个视角里有几件（不按状态、对象筛）：列表应答的 views 用 */
+  countIn(scope: ViewScope): number {
+    const w = this.scopeWhere(scope);
+    return Number((db.prepare(`SELECT COUNT(*) AS n FROM work_items WHERE ${w.where}`).get(...w.args) as { n: number }).n);
+  }
+
+  /**
+   * 列表一页（给事项列表的读接口）：按 updated_at、id 倒序，游标翻页；同时给这个视角里按状态的计数。
+   * 范围由 scope 定（scopeWhere）；看不到的不出现，也不计数。每行带最后一条事项日志（谁、做了什么、什么时候）。
+   */
+  page(opts: { scope: ViewScope; state?: WorkItemState; object?: string; phase?: string; seat?: string; limit: number; after?: { updated_at: string; id: string } }): {
     items: (WorkItemRow & { last_log: { actor: string; fact: string; text: string; at: string } | null })[];
     counts: Record<WorkItemState, number>; total: number; next: { updated_at: string; id: string } | null;
   } {
     const counts = Object.fromEntries(STATES.map((st) => [st, 0])) as Record<WorkItemState, number>;
-    if (opts.viewer !== null && !PERSON_PRINCIPAL.test(opts.viewer)) return { items: [], counts, total: 0, next: null };
-    const scope: string[] = [], scopeArgs: string[] = [];
-    if (opts.viewer !== null) { scope.push('creator_principal = ?'); scopeArgs.push(opts.viewer); }
-    const filt: string[] = [...scope], filtArgs: string[] = [...scopeArgs];
-    for (const k of ['state', 'object', 'phase'] as const) if (typeof opts[k] === 'string') { filt.push(`${k} = ?`); filtArgs.push(opts[k]!); }
-    // 计数：可见范围里、按 object、phase 筛过（不按 state 筛）之后按状态分组
-    const countWhere = filt.filter((w) => !w.startsWith('state ')), countArgs = filtArgs.filter((_, i) => !filt[i].startsWith('state '));
-    for (const r of db.prepare(`SELECT state, COUNT(*) AS n FROM work_items ${countWhere.length ? 'WHERE ' + countWhere.join(' AND ') : ''} GROUP BY state`).all(...countArgs) as { state: WorkItemState; n: number }[]) {
+    const sc = this.scopeWhere(opts.scope);
+    const filt: string[] = [sc.where], filtArgs: (string | number)[] = [...sc.args];
+    const extra: string[] = [], extraArgs: string[] = [];
+    for (const k of ['object', 'phase'] as const) if (typeof opts[k] === 'string') { extra.push(`${k} = ?`); extraArgs.push(opts[k]!); }
+    // 按席位筛：给的是 seatId 就按 seat_id，否则按句柄（seat_id 为空的旧席位）
+    if (typeof opts.seat === 'string') { extra.push("(seat_id = ? OR (seat_id = '' AND seat = ?))"); extraArgs.push(opts.seat, opts.seat); }
+    // 计数：这个视角里、按 object、phase 筛过（不按 state 筛）之后按状态分组
+    for (const r of db.prepare(`SELECT state, COUNT(*) AS n FROM work_items WHERE ${[...filt, ...extra].join(' AND ')} GROUP BY state`).all(...filtArgs, ...extraArgs) as { state: WorkItemState; n: number }[]) {
       if (r.state in counts) counts[r.state] = Number(r.n);
     }
-    const page = [...filt], pageArgs: (string | number)[] = [...filtArgs];
+    const page = [...filt, ...extra], pageArgs: (string | number)[] = [...filtArgs, ...extraArgs];
+    if (typeof opts.state === 'string') { page.push('state = ?'); pageArgs.push(opts.state); }
     if (opts.after) { page.push('(updated_at < ? OR (updated_at = ? AND id < ?))'); pageArgs.push(opts.after.updated_at, opts.after.updated_at, opts.after.id); }
-    const rows = db.prepare(`SELECT * FROM work_items ${page.length ? 'WHERE ' + page.join(' AND ') : ''} ORDER BY updated_at DESC, id DESC LIMIT ?`)
+    const rows = db.prepare(`SELECT * FROM work_items WHERE ${page.join(' AND ')} ORDER BY updated_at DESC, id DESC LIMIT ?`)
       .all(...pageArgs, opts.limit + 1) as WorkItemRow[];
     const more = rows.length > opts.limit;
-    // 再按同一个判断函数过一遍（SQL 那一道之外的纵深）
-    const visible = rows.slice(0, opts.limit).filter((w) => opts.viewer === null || isCreator(w, opts.viewer));
+    // 「我安排的」再按同一个判断函数过一遍（SQL 那一道之外的纵深）
+    const scope = opts.scope;
+    const visible = rows.slice(0, opts.limit).filter((w) => scope.kind !== 'mine' || isCreator(w, scope.principal));
     const last = new Map<string, WorkItemLogRow>();
     if (visible.length) {
       const ids = visible.map((w) => w.id);
