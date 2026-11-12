@@ -493,7 +493,7 @@ with sync_playwright() as p:
             page.reload(); page.wait_for_load_state('networkidle'); page.wait_for_timeout(800)
             trow = page.locator('.ant-table-row').filter(has_text='e2e-custom')
             trow.get_by_role('button', name='删除').click()
-            page.get_by_role('button', name='确 定').click()
+            page.get_by_role('button', name='确定').click()  # 全站两个字的按钮不插空格（ConfigProvider button.autoInsertSpace=false）
             page.wait_for_timeout(1000)
             expect(page.locator('.ant-table-row').filter(has_text='e2e-custom')).to_have_count(0)
             record('解除引用后删除类型', True)
