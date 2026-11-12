@@ -40,7 +40,7 @@ ROUTER = seat('ops/a1b2c3d4', '合成总工', role='router', active=2)
 UNCLAIMED = {'host': HOST, 'team': 'ops/canvas/合成运营', 'name': '合成运营', 'status': 'unclaimed', 'in_roster': True, 'department': None, 'leads': [], 'router': ROUTER,
              'members': [seat('ops/00000001', '小算', active=3), seat('ops/00000002', '小审')]}
 def claimed(dept_name):
-    return {**UNCLAIMED, 'status': 'active', 'node_name': '合成节点', 'roster_received_at': '2020-01-01T00:00:00Z', 'department': {'id': 'synthetic-ops', 'name': dept_name},
+    return {**UNCLAIMED, 'status': 'active', 'node_name': '合成节点', 'roster_received_at': '2020-01-01 00:00:00', 'department': {'id': 'synthetic-ops', 'name': dept_name},
             'leads': [{'principal': 'user:jia', 'display_name': '甲经理', 'source': 'department'}, {'principal': 'user:yi', 'display_name': '乙主管', 'source': 'explicit'}],
             'members': [seat('ops/00000001', '小算', active=3, to={'principal': 'user:bing', 'display_name': '丙'}), seat('ops/00000002', '小审', online=False)]}
 state = {'teams': {'departments': [], 'unclaimed': [UNCLAIMED]}}

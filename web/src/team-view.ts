@@ -43,12 +43,15 @@ function memberOf(v: unknown): Member | null {
     active_items: typeof m.active_items === 'number' && Number.isFinite(m.active_items) && m.active_items > 0 ? Math.floor(m.active_items) : 0,
   };
 }
-/** 名册收到的时刻：ISO 时刻，或者毫秒数（数字或数字串）；都不是返回 null */
-function rosterAt(v: unknown): number | null {
+/** 名册收到的时刻：ISO 时刻，或者毫秒数（数字或数字串）；都不是返回 null。
+ *  服务端库里存的是 sqlTime 写法「2026-11-12 06:00:00」：UTC、不带时区、中间是空格（/api/a2a/teams 的 received_at 同一个来源）。
+ *  浏览器的 Date.parse 会把不带时区的日期时间当本地时间，在东八区就早了 8 小时；所以不带时区标记的一律按 UTC 解析 */
+export function rosterAt(v: unknown): number | null {
   if (typeof v === 'number') return Number.isFinite(v) && v > 0 ? v : null;
   if (typeof v !== 'string' || !v.trim()) return null;
   const s = v.trim();
-  const ms = /^\d{10,}$/.test(s) ? Number(s) : Date.parse(s);
+  const naive = /^(\d{4}-\d\d-\d\d)[ T](\d\d:\d\d(?::\d\d(?:\.\d+)?)?)$/.exec(s);
+  const ms = /^\d{10,}$/.test(s) ? Number(s) : naive ? Date.parse(`${naive[1]}T${naive[2]}Z`) : Date.parse(s);
   return Number.isFinite(ms) && ms > 0 ? ms : null;
 }
 function teamOf(v: unknown): Team | null {

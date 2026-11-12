@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /** 「团队」页的纯函数单测（web/src/team-view.ts）：应答整形、管理员视图、团队状态、负责人、成员归谁用、计数、空的说法、读不到和被拒的说法、建部门的校验。数据都是合成的。 */
-import { actionProblem, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterStaleText, ROSTER_STALE_MIN, sourceProblem, teamCounts, teamStatusLabel, teamTitle, teamsOf } from '../web/src/team-view.ts';
+// 在非 UTC 的时区里跑（东八区）：不带时区的时间写法要按 UTC 解析，在这里才看得出来
+process.env.TZ = 'Asia/Shanghai';
+import { actionProblem, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterAt, rosterStaleText, ROSTER_STALE_MIN, sourceProblem, teamCounts, teamStatusLabel, teamTitle, teamsOf } from '../web/src/team-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -32,6 +34,7 @@ ok('没有成员时：不在名册的说不在名册了，别的说还没有成�
 const at = (v) => teamsOf({ departments: [], unclaimed: [{ host: 'a1b2c3d4', team: '', roster_received_at: v }] }).unclaimed[0].roster_at;
 const T0 = Date.parse('2030-01-01T00:00:00Z');
 ok('名册时刻：ISO 时刻、毫秒数的字符串都认；坏的、空的、null 不带', at('2030-01-01T00:00:00Z') === T0 && at(String(T0)) === T0 && at('不是时间') === undefined && at('') === undefined && at(null) === undefined);
+ok('名册时刻：服务端的 sqlTime 写法「2030-01-01 06:00:00」（UTC、不带时区、空格）按 UTC 解析；不带 Z 的 T 写法也按 UTC；带时区的照它', new Date().getTimezoneOffset() === -480 && at('2030-01-01 06:00:00') === Date.UTC(2030, 0, 1, 6) && rosterAt('2030-01-01T06:00:00') === Date.UTC(2030, 0, 1, 6) && rosterAt('2030-01-01 06:00') === Date.UTC(2030, 0, 1, 6) && rosterAt('2030-01-01T14:00:00+08:00') === Date.UTC(2030, 0, 1, 6) && rosterAt('2030-01-01 06:00:00.5') === Date.UTC(2030, 0, 1, 6) + 500);
 ok('名册没更新：阈值 15 分钟，没到不提醒，到了按分钟、两小时以上按小时、两天以上按天；没有时刻不提醒', ROSTER_STALE_MIN === 15 && rosterStaleText({ roster_at: T0 }, T0 + 14 * 60_000) === null && rosterStaleText({ roster_at: T0 }, T0 + 15 * 60_000) === '名册已 15 分钟没更新' && rosterStaleText({ roster_at: T0 }, T0 + 119 * 60_000) === '名册已 119 分钟没更新' && rosterStaleText({ roster_at: T0 }, T0 + 3 * 3600_000) === '名册已 3 小时没更新' && rosterStaleText({ roster_at: T0 }, T0 + 50 * 3600_000) === '名册已 2 天没更新' && rosterStaleText({}, T0) === null);
 ok('人名：显示名优先，没有去前缀，空的给空串', personName({ principal: 'user:zhao', display_name: '' }) === 'zhao' && personName(null) === '');
 
