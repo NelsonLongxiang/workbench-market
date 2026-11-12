@@ -25,7 +25,7 @@ import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { BlockList, isIP } from 'node:net';
 import { browserMarked, rawLoopback, surfaceOf } from './surfaces.ts';
-import { identity as identityService, loginRelay, SESSION_COOKIE } from './identity.ts';
+import { identity as identityService, IDENTITY_UNAVAILABLE, loginRelay, SESSION_COOKIE } from './identity.ts';
 import type { LoginGateRouteDeps } from './routes/login-gate.ts';
 
 export type LoginGateMode = 'enforce' | 'off';
@@ -46,7 +46,7 @@ export type LoginGateDeps = {
   adminTokenFingerprint: () => string;
   /** Odoo 内部员工（未配置 Odoo、门户账号、会话无效一律 null）。登录是成功的、卡在主体那一步（停用了或还没对到主体）回 { held: true }。
    *  fresh=true 每次都问提供方；false 时提供方的回答可以用缓存的（期限由装配方定）。主体停没停用总是现查，这里不再自己缓存 */
-  odooViewer: (cookieHeader: string, fresh: boolean) => Promise<{ login: string; admin: boolean; via?: 'session' } | { held: true } | null>;
+  odooViewer: (cookieHeader: string, fresh: boolean) => Promise<{ login: string; admin: boolean; via?: 'session' } | { held: true } | { down: true } | null>;
   /** /api/auth/me 附带的「我是谁」：主体、显示名、当前生效授予的角色（侧栏用户卡用）。不给就只回原来的几项 */
   profile?: (req: express.Request) => Promise<{ principal: string | null; display_name: string | null; roles: { id: string; name: string; scope: string; preset: boolean; expires_at: number | null; source: 'manual' | 'migration'; approved_by: string | null }[] }>;
   /** 登录页上列出的登录方式（发市场会话的那几种，比如飞书）：名字和按钮上的字 */
@@ -206,7 +206,7 @@ export function createLoginGate(deps: LoginGateDeps) {
   const viewCaps = new WeakMap<IncomingMessage, { slug: string; cap: string; base: string }>();
 
   // ---------- Odoo 内部员工 ----------
-  async function odooOf(cookie: string): Promise<{ login: string; admin: boolean; via?: 'session' } | { held: true } | null> {
+  async function odooOf(cookie: string): Promise<{ login: string; admin: boolean; via?: 'session' } | { held: true } | { down: true } | null> {
     if (!identityService().hasCredential(cookie)) return null;
     // Relay mode supports explicit Odoo logout: do not keep a stale positive identity
     // after the upstream session has been revoked. 其余情况提供方的回答可以用缓存的（缓存在身份服务里，主体状态不进缓存）。
@@ -217,6 +217,8 @@ export function createLoginGate(deps: LoginGateDeps) {
   const identities = new WeakMap<IncomingMessage, Identity | null>();
   /** 登录成功、卡在主体那一步的请求：没有身份（照旧什么都不给），只是要页面时给等待页而不是登录页 */
   const held = new WeakSet<IncomingMessage>();
+  /** 带了凭据、但身份来源不可达的请求：没有身份（照旧什么都不给），接口回 502 identity_unavailable 而不是「请先登录」 */
+  const down = new WeakSet<IncomingMessage>();
   async function identity(req: IncomingMessage): Promise<Identity | null> {
     if (identities.has(req)) return identities.get(req)!;
     let id: Identity | null = null;
@@ -226,6 +228,7 @@ export function createLoginGate(deps: LoginGateDeps) {
     else {
       const who = await odooOf(String(req.headers.cookie ?? ''));
       if (who && 'held' in who) held.add(req);
+      else if (who && 'down' in who) down.add(req);
       else if (who) id = { via: who.via === 'session' ? 'session' : 'odoo', login: who.login, admin: who.admin };
     }
     identities.set(req, id);
@@ -240,6 +243,8 @@ export function createLoginGate(deps: LoginGateDeps) {
       res.redirect(302, next === '/' ? '/login' : `/login?next=${encodeURIComponent(next)}`);
       return;
     }
+    // 身份来源不可达：不是没登录，接口给固定代号，页面说「登录服务暂时联系不上」。失败关闭，照样不放行
+    if (down.has(req)) { res.status(502).json({ error: IDENTITY_UNAVAILABLE, message: '登录服务暂时联系不上，稍后再试' }); return; }
     res.setHeader('X-WM-Login-Required', '1');
     res.status(401).json({ error: 'login_required', message: '需要登录：用 Odoo 内部账号或管理员口令登录', login_url: '/login' });
   }

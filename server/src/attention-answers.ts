@@ -22,6 +22,7 @@ import { forward } from './attention-forward.ts';
 import { answerBody, findBoardWorkbench } from './owner-pending.ts';
 import { principalsAdmin } from './routes/principals.ts';
 import { changeRequestReview } from './routes/change-requests.ts';
+import { benchMcpDecider } from './routes/bench-views.ts';
 import { sopRunAcceptance } from './routes/sop-run-lifecycle.ts';
 import { HttpError } from './errors.ts';
 import { currentAskOfDelivery, pendingAskOfDelivery, pendingPrincipalAppearance } from './services/attention-sources.ts';
@@ -63,7 +64,7 @@ const NUM = /^[1-9]\d{0,15}$/;
 const bjToday = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
 
 /** 谁在答：管理员落到人（口令是 admin-token，会话登录的是 odoo:<登录名>，本机命令行是 cli）；不是管理员的用登录的人 */
-async function actorOf(req: Req): Promise<string> {
+export async function actorOf(req: Req): Promise<string> {
   if (principalsAdmin) { const a = await principalsAdmin(req, capturing().res); if (a) return a; }
   const cookie = String(req.headers.cookie ?? '');
   if (cookie) { const who = await identity().resolveViewer(cookie); if (who.ok) return who.viewer.sub; }
@@ -77,6 +78,15 @@ async function actorOf(req: Req): Promise<string> {
 const FORWARD: Record<string, Record<string, (id: string, input: Input) => Route>> = {
   'mcp-access': Object.fromEntries((['approve', 'reject'] as const).map((op) => [op, (id: string, input: Input): Route =>
     NUM.test(id) ? { method: 'POST', path: `/api/mcp/access-requests/${encodeURIComponent(id)}/${op}`, body: { note: text(input.note, 500) } } : bad('attention_id_invalid')])),
+  // 台的 MCP 授予申请：条目 id 是「台的标识:申请编号」。批可以带一句话；不批要写理由（记在申请的 note 里，申请的会话看得到）
+  'bench-mcp': Object.fromEntries((['approve', 'reject'] as const).map((op) => [op, (id: string, input: Input): Route => {
+    const m = /^([a-z0-9][a-z0-9-]{0,63}):([1-9]\d{0,8})$/.exec(id);
+    if (!m) return bad('attention_id_invalid');
+    // 不批的理由：reason 或 note 都认（别的来源两种叫法都有），先取 reason
+    const note = op === 'approve' ? text(input.note, 500) : text(input.reason, 500) || text(input.note, 500);
+    if (op === 'reject' && !note) return bad('reason_required');
+    return { method: 'POST', path: `/api/bench-views/${m[1]}/mcp-requests/${m[2]}`, body: { approve: op === 'approve', note } };
+  }])),
   'owner-pending': {
     answer: (no, input) => {
       if (!/^\d{1,4}$/.test(no)) return bad('attention_id_invalid');
@@ -279,6 +289,14 @@ export function withAnswers(p: AttentionProvider<Req>, deps: AnswerDeps): Attent
     deny: (req) => denial(p.source, req, deps),
     key: (sourceId) => keyOf(p.source, sourceId),
     answer: async (req, sourceId, answer, input) => {
+      // 事项的验收、退回直接改事项状态：不是管理员的人（写请求总门放开之后进得来，L20）只能答自己建的那件，
+      // 和事项自己的决定入口（POST /api/work-items/:id/decision）同一个函数 creatorAnswer；看得到不等于能答
+      if (p.source === 'work-items' && (CREATOR_ANSWERS as readonly string[]).includes(answer) && !(principalsAdmin && await principalsAdmin(req, capturing().res))) {
+        const cookie = String(req.headers.cookie ?? '');
+        const who = cookie ? await identity().resolveViewer(cookie) : null;
+        if (!who || !who.ok) return { status: 401, body: { error: 'work_items_auth_required' } };
+        return creatorAnswer(sourceId, who.viewer.sub, answer, input);
+      }
       const actor = await actorOf(req);
       return attention().once(p.source, keyOf(p.source, sourceId), answer, actor, async () => {
         const direct = directs?.[answer];
@@ -298,5 +316,6 @@ async function denial(source: string, req: Req, deps: AnswerDeps): Promise<Answe
   if (source === 'principal-pending' && principalsAdmin) { const c = capturing(); await principalsAdmin(req, c.res); return c.out(); }
   if (source === 'owner-pending') { const c = capturing(); await deps.varsAuthorizeRead(req, c.res, { id: 0, cls: 'external', slug: null }); return c.out(); }
   if (source === 'work-items') return { status: 401, body: { error: 'work_items_auth_required' } };
+  if (source === 'bench-mcp') { if (!benchMcpDecider) return { status: 404, body: { error: 'bench_views_off' } }; const c = capturing(); await benchMcpDecider(req, c.res); return c.out(); }
   return guardDenial(deps.adminGuard, req);
 }

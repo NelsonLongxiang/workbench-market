@@ -250,10 +250,17 @@ function handoffOf(rec: { handoff?: unknown; review_by?: unknown; directed_seat_
   return { handoff, review_by, directed_seat_id };
 }
 
-/** 列表的视角圈出来的范围（scopeWhere）。我的 AI 员工手上的、我团队的两个视角随关系确认制接上 */
+/**
+ * 列表的视角圈出来的范围（scopeWhere）。
+ * seats 的每一段是一个席位的一段分配：席位按完整的键认——有 seat_id 的按（节点, seat_id），seat_id 为空的旧席位按（节点, 团队, 句柄）；
+ * 节点用名册里的根地址 root 表示（事项的投递地址在它下面）。from、to 是这段分配换成 seat_at 写法（UTC「YYYY-MM-DD hh:mm:ss」）的边界，
+ * 由 work-item-access.ts 的 segmentBound 算（和详情的 ownerAt 同一个左闭右开口径）；to 为 null 是这段还在
+ */
 export type ViewScope =
   | { kind: 'all' }
-  | { kind: 'mine'; principal: string };
+  | { kind: 'mine'; principal: string }
+  | { kind: 'seats'; segments: { root: string; team: string; seat: string; seat_id: string; from: string; to: string | null }[] }
+  | { kind: 'team'; teams: { root: string; team: string }[] };
 
 export type EventLogRow = { id: number; delivery_id: number | null; actor: string; action: string; detail: string };
 
@@ -729,17 +736,41 @@ export class WorkItemService extends Service {
    * 一个视角圈出来的事项范围（规范 14 第九节第 4 条，只有这一处拼条件）：
    *   all   全部（管理层）
    *   mine  我是建立人（isCreator 同一个口径：按建立人主体）
+   *   seats 承接席位在接手那一刻（seat_at）分配给我的：有 seatId 的分配段按（节点, seat_id）配，seat_id 为空的旧席位按（节点, 团队, 句柄）三项全等配；
+   *         空串的 seat_id 不参加匹配，不做子串，不跨节点。节点、团队从事项事件的投递来（和 itemTeams 同一个口径：画布团队、根地址在名册里）
+   *   team  交给我负责的团队：事项的事件有一条投递，目标团队和根地址对得上
    * SQL 只用两种库都认的写法。
    */
   private scopeWhere(scope: ViewScope): { where: string; args: (string | number)[] } {
     if (scope.kind === 'all') return { where: '1 = 1', args: [] };
-    return PERSON_PRINCIPAL.test(scope.principal) ? { where: 'creator_principal = ?', args: [scope.principal] } : { where: '1 = 0', args: [] };
+    if (scope.kind === 'mine') return PERSON_PRINCIPAL.test(scope.principal) ? { where: 'creator_principal = ?', args: [scope.principal] } : { where: '1 = 0', args: [] };
+    if (scope.kind === 'seats') {
+      const parts: string[] = [], args: (string | number)[] = [];
+      for (const g of scope.segments) {
+        const range = g.to === null ? 'seat_at >= ?' : 'seat_at >= ? AND seat_at < ?';
+        const times = g.to === null ? [g.from] : [g.from, g.to];
+        // 事项投到这个节点（根地址）上的画布团队；旧席位还要团队相等
+        const onHost = "EXISTS (SELECT 1 FROM workbench_event_deliveries d WHERE d.event_id = work_items.source_ref AND d.target_team LIKE '%/canvas/%' AND (d.target_url = ? OR d.target_url LIKE ?)";
+        if (g.seat_id) { parts.push(`(seat_id = ? AND seat_at <> '' AND ${range} AND ${onHost}))`); args.push(g.seat_id, ...times, g.root, g.root + '/%'); }
+        else if (g.seat) { parts.push(`(seat_id = '' AND seat = ? AND seat_at <> '' AND ${range} AND ${onHost} AND d.target_team = ?))`); args.push(g.seat, ...times, g.root, g.root + '/%', g.team); }
+      }
+      return parts.length ? { where: `(${parts.join(' OR ')})`, args } : { where: '1 = 0', args: [] };
+    }
+    const parts: string[] = [], args: (string | number)[] = [];
+    for (const t of scope.teams) { parts.push('(d.target_team = ? AND (d.target_url = ? OR d.target_url LIKE ?))'); args.push(t.team, t.root, t.root + '/%'); }
+    if (!parts.length) return { where: '1 = 0', args: [] };
+    return { where: `EXISTS (SELECT 1 FROM workbench_event_deliveries d WHERE d.event_id = work_items.source_ref AND (${parts.join(' OR ')}))`, args };
   }
 
   /** 一个视角里有几件（不按状态、对象筛）：列表应答的 views 用 */
   countIn(scope: ViewScope): number {
     const w = this.scopeWhere(scope);
     return Number((db.prepare(`SELECT COUNT(*) AS n FROM work_items WHERE ${w.where}`).get(...w.args) as { n: number }).n);
+  }
+
+  /** 事项的事件发往哪些团队（投递的目标团队和投递地址）：认事项属于哪个团队用 */
+  deliveryTargets(eventId: string): { team: string; url: string }[] {
+    return db.prepare('SELECT target_team AS team, target_url AS url FROM workbench_event_deliveries WHERE event_id = ? ORDER BY id').all(eventId) as { team: string; url: string }[];
   }
 
   /**
