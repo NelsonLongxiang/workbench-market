@@ -185,6 +185,8 @@ export class BenchStore {
   changes(...a: Parameters<Core['changes']>): ReturnType<Core['changes']> { return this.rpc('changes', a); }
   writes(...a: Parameters<Core['writes']>): ReturnType<Core['writes']> { return this.rpc('writes', a); }
   backupTo(...a: Parameters<Core['backupTo']>): ReturnType<Core['backupTo']> { return this.rpc('backupTo', a); }
+  renderView(...a: Parameters<Core['renderView']>): ReturnType<Core['renderView']> { return this.rpc('renderView', a); }
+  submitForm(...a: Parameters<Core['submitForm']>): ReturnType<Core['submitForm']> { return this.rpc('submitForm', a); }
 }
 
 // —— 打开、关闭、删除 ——
