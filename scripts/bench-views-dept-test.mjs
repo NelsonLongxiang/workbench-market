@@ -9,6 +9,7 @@
  *   五、授予要放行：系统管理员起草的部门范围授予停在待放行时 403，属主放行后才通
  *   六、改绑：原部门的人立即进不来，新部门的人进得来；解绑之后只有管理层；留痕
  *   七、细到团队的台：同部门别的人写不了；团队负责人（有授予的）、有部门拍板授予的人写得了
+ *   七之二、席位不按部门认：团队认领到部门之后，这个团队的席位仍调不了这个部门的台，要按台批
  *   八、「等你拍板」：只看得到自己有拍板授予的部门的台上的申请
  *   九、主体停用：进不来
  *
@@ -197,6 +198,21 @@ try {
   check(t4 === 200 && t5 === 403 && t6 === 403, '设成团队负责人之后：有这个部门授予的人进得来；没有这个部门授予的人（别的部门的）当了团队负责人也进不来', { withGrant: t4, noGrantWrite: t5, noGrantRead: t6 });
   r = await srv.call('GET', '/api/bench-views', member);
   check(r.json?.benches?.map((b) => b.slug).sort().join() === 'sales-2,sales-b,team-b', '清单跟着变：现在进得去的三个', r.text.slice(0, 200));
+
+  console.log('七之二、席位不按部门认');
+  // 团队已经认领到 sales（上面那一行）。名册里放一个这个团队的席位，再给它一个同名的 MCP 会话：
+  // 团队挂在部门下不等于席位能碰这个部门的台——席位没有授予这一层，在「认领要业务侧放行」做完之前只认按台批的授予（3b）
+  db.prepare('INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?)').run('abcdef01', 'https://node.synthetic.invalid', 'z', Date.now(), Date.now());
+  db.prepare('INSERT INTO a2a_roster_seats (host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)').run('abcdef01', 'z/canvas/tigers', 'seat-t', 'sid-seat-t', 'seat-t', 'member', Date.now(), Date.now());
+  const seatT = (await srv.call('POST', '/api/mcp/sessions', { ...token, body: { name: 'seat-t' } })).json;
+  const call = async (tk, name, args) => { const x = await srv.call('POST', '/mcp', { headers: { authorization: `Bearer ${tk}` }, body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } } }); return x.json?.error?.code ?? (x.json?.result?.isError ? 'isError' : 'ok'); };
+  const s1 = await call(seatT.token, 'dataset_list', { bench: 'team-b' }), s2 = await call(seatT.token, 'dataset_list', { bench: 'sales-b' }), s3 = await call(seatT.token, 'dataset_query', { bench: 'team-b', query: { dataset: 'x' } });
+  const listed = ((await srv.call('POST', '/mcp', { headers: { authorization: `Bearer ${seatT.token}` }, body: { jsonrpc: '2.0', id: 1, method: 'tools/list' } })).json?.result?.tools ?? []).map((t) => t.name);
+  check(typeof seatT?.token === 'string' && s1 === -32601 && s2 === -32601 && s3 === -32601 && !listed.includes('dataset_list') && db.prepare('SELECT COUNT(*) AS n FROM bench_mcp_grants WHERE session_id = ?').get(seatT.id).n === 0,
+    '团队认领到部门之后，这个团队的席位仍调不了这个部门的台（细到这个团队的台也不行）：没有按台批的授予就和没有这个工具一样', { team: s1, dept: s2, query: s3 });
+  const g1 = await st(lead, 'PUT', '/team-b/mcp-grants', { session: 'seat-t', tools: ['dataset_list'] });
+  const s4 = await call(seatT.token, 'dataset_list', { bench: 'team-b' }), s5 = await call(seatT.token, 'dataset_list', { bench: 'sales-b' });
+  check(g1 === 200 && s4 === 'ok' && s5 === -32601, '有部门拍板授予的人按台批给它之后：批了的那个台调得了，同部门别的台照样不行', { grant: g1, granted: s4, other: s5 });
 
   console.log('八、「等你拍板」');
   const ask = async (tools) => (await srv.call('POST', '/mcp', { headers: { authorization: `Bearer ${seat.token}` }, body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'access_request', arguments: { tools, reason: '合成' } } } })).status;
