@@ -48,6 +48,8 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_A2A_MEMBER_PROVENANCE`（缺省 `on`：市场名片声明 `canvasMemberProvenance`——a2a-net 0.8 起，对钉了公钥的画布成员只往声明了它的宿主转发，不声明则席位的回执到不了市场；声明即承诺：名片只列本节点自己服务、互不重复的句柄 `market/<8 hex>`，发给它们的消息只在本节点投递、查无或有歧义一律 404，句柄只由本节点密钥签发；`off`=不声明，名片与之前完全相同；其它值拒绝启动）
 - `WM_A2A_PROGRESS_RECEIPTS`（缺省 `on`：市场名片声明 `progressReceipts`——宿主只给声明了它的调用方发进展回执 `progress-<task>-<n>`；市场收下后只记录、给事项页做「正在处理」提示和子项，不结清原派工、不推事项状态；`off`=不声明，宿主不发进展；其它值拒绝启动）
 - `WM_A2A_TEAM_ROSTER`（缺省 `on`：市场名片声明 `teamRoster`——a2a-net next/0.8 的宿主只给声明了它的画布远端成员推团队名册 `[A2A roster]`，市场照规矩收（投递过的宿主、Sig3、节点键取自验过签的公钥）；`off` 时不声明、入站名册一律不收；其它值拒绝启动）
+- `WM_PROPOSAL_ROSTER_GONE_HOURS`（缺省 `24`：关系的提议指向的团队，在节点照常报名册的情况下连续不在名册超过这么多小时，提议才失效；短暂掉出又回来的不收，节点整个停推的只走总期限；1～720 的整数，别的值拒绝启动）
+- `WM_PROPOSAL_TTL_DAYS`（缺省 `14`：关系的提议（部门负责人、团队负责人、团队认领）超过这么多天没人处理就失效，目标不在了的也失效；每小时收一轮，失效的在提议人那里留 7 天；1～365 的整数，别的值拒绝启动）
 - `WM_ROSTER_STALE_MINUTES`（缺省 `60`：某个节点的团队名册超过这么多分钟没更新，就在管理员的「等你拍板」里列出来；1～10080 的整数，别的值拒绝启动）
 - `LAYERFS_SERVICE_URL`/`LAYERFS_SERVICE_TOKEN`（LayerFS·缺一即禁用）
 - `LAYERFS_SERVICE_TOKEN_FILE`（LayerFS 令牌文件·设了就以文件为准，不回落到库里或环境变量里的令牌；内容不足 32 字节拒绝启动）
@@ -291,7 +293,7 @@ GET              /api/health/ready              就绪：含 LayerFS 探测（�
     - 不记请求体、查询串、凭据和路径里的 id；
     - 记账攒批，应答之后异步写进单独的库文件 `judgment-compare.db`（不和业务库抢锁），写失败只计数；
     - 判定出错只计数，不影响应答。
-  - 结果看 `GET /api/judgment/compare`。`scripts/judgment-compare-report.mjs` 把回放和 CI 脚本在比对打开时跑一遍，按域×原因出报告。零不一致的门槛有两道，都在 CI 里：`scripts/judgment-compare-zero-test.mjs` 跑全量回放；`scripts/judgment-compare-sweep-test.mjs` 让六种身份把每条 GET 打一遍、写面挑代表。
+  - 结果看 `GET /api/judgment/compare`。`scripts/judgment-compare-report.mjs` 把回放和 CI 脚本在比对打开时跑一遍，按域×原因出报告，另有按域×结果的汇总；`--from <比对输出.jsonl>` 不跑脚本，只汇总已有的比对输出（生产上 `WM_JUDGMENT_COMPARE_OUT` 的文件）。零不一致的门槛有两道，都在 CI 里：`scripts/judgment-compare-zero-test.mjs` 跑全量回放；`scripts/judgment-compare-sweep-test.mjs` 让六种身份把每条 GET 打一遍、写面挑代表。
   - 迁移出来的授予来源记 migration：`GET /api/grants?source=migration` 列出，`POST /api/grants/revoke-migration`（只有属主）整批撤销。
 - 管不到的：按 run 发的读凭据、自产台查看凭证是不记名的，各有各的期限和吊销，不随主体停用失效；已经建立的 WebSocket 连接不会被掐断，新的请求和新的连接立即拒绝。停用是按登录名对的：身份来源那边把登录名改了，就是另一个人。
 - **读要凭据**：`GET /api/apps/<slug>/data`、`/files`、`/files/<id>` 要本台的台令牌（`X-App-Token`，服务端出台页面时注入）、管理员（口令或管理员登录，同源）或本机命令行；沙箱页的下载链接和图片带不了头，认登录门签给本台页面的查看凭证（`wm_av`）。不满足一律 403，先于查台。远程 agent 读台数据走 MCP（`app_data_list`、`app_files_list`，可按台授权）。设计上，能打开某个台页面的人就能读这个台的数据（台令牌在页面里）；「谁能打开哪个台」和按人读另行设计。
@@ -325,13 +327,16 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   seat-messages.ts（事项对话里的席位消息：跟进不进「关注」，在事项页列出、带未读数；看过标已读、回复作为同一 context 的新任务发回）
   attention-answers.ts（「关注」各来源的答法：转给原路由的换算表——路径固定、id 核形状后编码、请求体只取这种答法要的字段；席位提问的答复、事项的验收和退回直接实现）
   attention-forward.ts（进程内把答复转给原路由：全局中间件和原路由的守卫照走，身份头原样、来源地址照抄，应答原样交回）
+  attention-names.ts（「关注」条目的显示名 waiting_for_name、creator_name：在汇总那一层统一补，只给看的人本来就看得到的人的名字——管理员、本人、管理层、同部门的；别的给 null，席位、对端这些非人键给 null，MCP 会话给类型加名字）
   attention-providers.ts（「关注」的七个提供方：各来源用旧接口自己的守卫判可见性，只读地取数；阶段三搬完再挪回各域）
+  bench-mcp-tools.ts（数据视图的 MCP 工具定义：纯数据，十五个工具的名字、说明、类别和参数；都必须限定到台，授予和执行在 services/bench-mcp.ts）
   bench-query.ts（数据视图的查询描述：台的作者和 agent 不写 SQL，只给筛选、分组、聚合、排序、行数上限；这里核对并翻成参数化语句·名字只认白名单且必须已定义·值全走参数·见 docs/data-views.md）
   bench-views.ts（数据视图的视图描述：保存前核对组件类型、键、引用的数据集和列、查询、筛选栏参数；两个版本之间的差异·第一批八种组件）
   content-access.ts（内容票据与准入）
   content-static.ts（无令牌静态资产读取）
   content-surface.ts（内容面终结分发与到期引导）
   context.ts（服务容器）
+  db-busy.ts（库被别的连接锁着写时最多等多久：DB_BUSY_TIMEOUT_MS = 5000。市场主库、判定比对库用它，台库每次读写取它和那一次时限中较小的；部署切换时新旧进程短暂重叠写不直接报 database is locked，超过上限照样报错。多个进程同时写同一个库仍不支持）
   db.ts（schema+迁移）
   design-standard.ts（MCP design_standard 工具的 design token 标准只读读取）
   design-tokens-css.ts（DESIGN.md 生成的 tokens.css 服务端出口）
@@ -389,7 +394,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   url-admission.ts（#258 R3 业务 URL 登记准入单核·WM_REGISTER_URL_ALLOWLIST）
   vault-api.ts（凭据库 REST 面：17 条路由经 HTTP 服务注册，报动作 vault.*（管理类）；除状态外声明面门——服务端持有主密码时只在控制面或凭据库专用域名开放）
   vault/（dsh-vault 存储层引入件·见其 README）
-  work-item-access.ts（事项上的几种人 itemRoles（现在是建立人和管理层，管理层按 work-items.view-all 这个拍板类动作认；成员的主人、负责人随关系确认制接上）和看得到的范围 canSee、列表的视角 viewScopes（现在是 mine、all；seats、team 列出但不可用）；事项上这个人能做什么、是不是轮到他：canOf、turnOf、creatorOf，事项详情和「关注」共用；每一项和对应动作接口同一处判断（放行 releaseBlock、对话写入和验收 writerVerdict、回复 replyableMessages、提问 pendingAsksOfEvent））
+  work-item-access.ts（事项上的四种人 itemRoles（建立人、成员的主人、负责人、管理层，成员的主人按团队服务的分配段和 inSegment（左闭右开，列表 seats 视角同一个口径，席位按（节点, seat_id）或（节点, 团队, 句柄）完整的键认），负责人按 relationOf，管理层按 work-items.view-all 这个拍板类动作认）和看得到的范围 canSee、列表的视角 viewScopes（mine、seats、team、all）；事项上这个人能做什么、是不是轮到他：canOf、turnOf、creatorOf，事项详情和「关注」共用；每一项和对应动作接口同一处判断（放行 releaseBlock、对话写入和验收 writerVerdict、回复 replyableMessages、提问 pendingAsksOfEvent））
   workbench-events.ts（工作台事件层 v1：人提交→事件→团队接单→决定回写）
   workbench-vars.ts（#336 工作台变量与常量：按台隔离、revision 乐观锁、常量保护）
 server/src/login-providers/  登录提供方插件（身份的具体实现只放这里，核心不引用）：index.ts（清单：这个部署装哪些提供方） feishu/index.ts（飞书登录方式：授权码流程，向 `identity` 登记一个登录方式，凭证从凭据库取） odoo/index.ts（Odoo 提供方的插件入口：向 `identity` 登记、提供 `loginRelay`） odoo/odoo-viewer.ts（Odoo 查看人现查） odoo/odoo-session.ts（门户 Odoo 会话可信源判定与剥除、登录回调票据） odoo/odoo-login-proxy.ts（可选同源 Odoo 登录中继 WM_ODOO_LOGIN_PROXY：只放行登录面，不代理 Odoo 应用） odoo/odoo-browser-origin.ts（只给浏览器用的 Odoo 登录地址 WM_ODOO_BROWSER_URL：登录一跳送到可信内网地址，身份与代理目标不变）
@@ -403,6 +408,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   a2a-replies.ts（市场回给团队的消息的发送状态：答复、来信回复、跟进回执；时间由代码生成后写入）
   a2a-stats.ts（A2A 出站积压的聚合读数：两张出站表按状态计数、最老待发、最近回执时长）
   attention-sources.ts（「关注」要用、来源里还没有现成函数的只读查询：席位未答的提问）
+  bench-mcp.ts（数据视图的 MCP 工具：授予按「会话 × 台 × 工具」记在自己的表里，不放进会话的 grants·申请由会话提、台的管理层批·读也按台限定·执行时把台库的方法对到工具名上）
   bench-registry.ts（视图台的登记：主库里只记有这个台、叫什么、谁建的·登记过的台才有库，没登记的标识一律当作不存在）
   bench-store.ts（台库对市场进程的接口：读写不在市场进程里跑，这里只排队、转发给工作线程、看时限、线程出事时收拾·读 3 秒写 15 秒，时限加宽限过了还不停才强行终止线程并另起·排队有上限·接口全异步·还没有对外入口，不判权限）
   bench-store-core.ts（台库的逻辑本体，在工作线程里跑：每个视图台一份自己的库，在数据目录 `bench-stores/` 下·数据集与列定义的版本·整份替换、追加、按主键更新和删行（逐行校验、幂等键、上限）·快照与退回·视图描述的版本、生效指针、并发保存不覆盖、回退只移指针·变更与写入记录只存摘要·视图取数（一次取齐各组件的数据）和表单提交·三道数据量上限·时间由调用方给、一个台的读写排成一队·到时限自己停下并回滚·运行时不引用 `db.ts`，建表语句由调用方递进来）
@@ -474,7 +480,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   a2a-roster.ts（团队名册的读 GET /api/a2a/teams：登录即可读，只有席位信息（团队、席位名、角色、在岗、在办件数从事项现算），不含事项内容；名册只当信息，判定一律不看它）
   work-items.ts（「安排一件事」POST /api/work-items：会话登录的启用的人直接建一件事项，建立人是本人，派给绑在任务中心上的团队（GET /api/work-items/teams 列出），缺省先过目，幂等键按人，限流和员工直派开关在设置里（arrange_rate_per_minute、arrange_rate_per_day、staff_direct_dispatch），规则在 task-center.ts 的 arrangeTask。事项列表 /api/work-items：按 state、object、phase 筛，按更新时间倒序游标翻页，带可见范围里按状态的计数和每件的最后一条进展；可见范围和详情同一个判断，看不到的不出现也不计数。事项的读 /api/work-items/:id：事项和它的日志，事项页的时间线照着渲染；管理员看全部、登录的人只看自己建立的。建立人验收、退回 POST /api/work-items/:id/decision：不经管理门（写请求总门只对这一条子路径放行），经身份服务认人、主体须是启用的人、同源，事项服务判是不是建立人和能不能由建立人答，只收验收、退回，只对等验收的事项；建立人只认事项上的建立人主体，空着的只有管理员能看、能处理）
   workbenches.ts（工作台 /api/workbenches、/api/check-all）
-web/src/        pages/（Dashboard/Market/Sops/Types/Settings/UseWorkbench/Cockpit/McpGateways/Tasks/Skills/SopSpace/SopRunDetail/Vault/Reviews/OwnerPending/Attention/WorkItem/NotYet/Home） home-view.ts（全景首页的行、格子、总结句，纯函数） work-item-view.ts（事项详情页的提示、进展、结果解析，纯函数） NotYet.tsx（还没有数据来源的入口：说清要显示什么、在等哪项接口） components/（Shell.tsx 外壳：侧栏与主区卡片；WmPage.tsx 页面骨架：顶栏与内容区） admin-token.ts（统一口令注入）
+web/src/        pages/（Dashboard/Market/Sops/Types/Settings/UseWorkbench/Cockpit/McpGateways/Tasks/Skills/SopSpace/SopRunDetail/Vault/Reviews/OwnerPending/Attention/WorkItem/NotYet/Home/WorkItems） work-items-view.ts（事项列表的分组、计数、行说明，纯函数） home-view.ts（全景首页的行、格子、总结句，纯函数） work-item-view.ts（事项详情页的提示、进展、结果解析，纯函数） NotYet.tsx（还没有数据来源的入口：说清要显示什么、在等哪项接口） components/（Shell.tsx 外壳：侧栏与主区卡片；WmPage.tsx 页面骨架：顶栏与内容区） admin-token.ts（统一口令注入）
 deploy/         Dockerfile.market（多阶段·非 root·HEALTHCHECK） docker-compose.yml（回环默认·profiles 隔离） layerfs-svc.mjs
 docs/           layerfs-service-contract-v0/v1.md（LayerFS 服务契约） data-views.md（数据视图设计稿：模块化渲染组件、每台一份数据、经 MCP 更新；未开工）
 data/           SQLite 数据文件（git 忽略）

@@ -1,6 +1,6 @@
 # REST 入口
 
-页面和脚本用的入口，都在 `/api/bench-views` 下面。部署方设了 `WM_BENCH_VIEWS=on` 才开；关着的时候每一条都回 404（`bench_views_off`）。
+页面和脚本用的入口，都在 `/api/bench-views` 下面，用登录账号（cookie）进；MCP 会话的令牌进不了这些地址，会话用的是同名的 MCP 工具。部署方设了 `WM_BENCH_VIEWS=on` 才开；关着的时候每一条都回 404（`bench_views_off`）。
 
 ## 谁进得来
 
@@ -38,6 +38,9 @@
 | 取数（页面用） | `GET /api/bench-views/<台>/render?view=<键>&p.<筛选项>=<值>` | — |
 | 提交表单（页面用） | `POST /api/bench-views/<台>/form`，`{ view, block, version, values }` | — |
 | 留痕 | `GET /api/bench-views/<台>/log` | — |
+| 看这个台上的 MCP 授予和申请 | `GET /api/bench-views/<台>/mcp-grants` | — |
+| 批准或驳回一条申请 | `POST /api/bench-views/<台>/mcp-requests/<编号>`，`{ approve, note }` | — |
+| 整份改一个会话在这个台上的工具 | `PUT /api/bench-views/<台>/mcp-grants`，`{ session, tools, note }`（`tools` 给空数组就是全收回） | — |
 
 几条规矩：
 

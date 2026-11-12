@@ -7,12 +7,15 @@ import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
 import App from './App';
 import { installAdminTokenLeaveGuard } from './admin-token';
+import { attentionChanged } from './api';
+import { installIdentityWatch } from './identity-status';
 import { DESIGN_TOKENS as T } from './design-tokens';
 import './tokens.css';
 import './index.css';
 
 dayjs.locale('zh-cn');
 installAdminTokenLeaveGuard(); // #292 M4
+installIdentityWatch(attentionChanged); // #639：身份服务连不上时挂提示、自动重试，连上后页面重读
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

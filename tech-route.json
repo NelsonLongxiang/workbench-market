@@ -129,7 +129,6 @@
           "mcp-app-files-upload-smoke.mjs",
           "meta-sop-smoke.mjs",
           "omni-a2a-smoke.mjs",
-          "omni-dashboard-smoke.mjs",
           "omni-inbox-smoke.mjs",
           "p0-upload-auth-smoke.mjs",
           "portal-cookie-smoke.mjs",

@@ -1,5 +1,5 @@
 /**
- * 健康与就绪：GET /api/health（只回缓存的 LayerFS 结果，不触发探测；带 A2A 的开关、计数和时长）、GET /api/health/ready（配了 LayerFS 就探，不健康 503）。公开。
+ * 健康与就绪：GET /api/health（只回缓存的 LayerFS 结果，不触发探测；带 A2A 的开关、计数和时长；带问身份来源的计数和最近一次耗时）、GET /api/health/ready（配了 LayerFS 就探，不健康 503）。公开。
  * 原样搬自 index.ts，一个字没改，只多了两格缩进。两条在 index.ts 里连在一起，在原来的位置注册。
  * 基础字段、LayerFS 探测与缓存、A2A 签名开关留在 index.ts，经参数传进来（探测缓存会在就绪探测时更新，所以传的是取值函数）；
  * A2A 的健康字段（阶段七）由模块直接引入。
@@ -9,6 +9,7 @@
 import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { a2aHealth } from '../a2a/health.ts';
+import { identity } from '../identity.ts';
 
 type ProbeStatus = 'healthy' | 'unhealthy' | 'unreachable';
 
@@ -28,6 +29,8 @@ export function registerHealthRoutes(app: HttpService, deps: HealthDeps): void {
     const probed = layerfsProbeCached();
     if (process.env.LAYERFS_SERVICE_URL && probed) result.layerfs = probed.status; // 只回缓存的上次结果，不触发探测
     result.a2a = a2aHealth({ directSig: A2A_DIRECT_SIG, directSigBody: A2A_DIRECT_SIG_BODY! }); // 阶段七第 5 步：只出开关、计数和时长
+    // 身份来源慢或不通看得出来：问了几次、到点没回答几次、失败几次、合并和认不出缓存挡下几次、最近一次耗时。只有计数，不带凭据和人
+    result.identity_source = identity().sourceStats();
     res.json(result);
   });
   app.get('/api/health/ready', { action: 'health.ready', kind: 'read' }, async (req, res) => {

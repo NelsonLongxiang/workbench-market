@@ -36,6 +36,14 @@ export interface Viewer { login: string; uid: number; sub: string; name: string 
  */
 export type ViewerResult = { ok: true; viewer: Viewer; via?: 'session' } | { ok: false; http: number; error: string; held?: true };
 
+/**
+ * 身份来源不可达（到点没回答、抛错、来源自己说不可达）：和「没登录、会话失效」（401）分开说，页面按代号给一句人话。
+ * 路由认不出人时用它分：sourceDown 为真回 502 和这个代号，否则照旧 401。失败关闭，两种都不放行。
+ */
+export const IDENTITY_UNAVAILABLE = 'identity_unavailable';
+// 回答形状不对（unrecognized，也是 502）是校验没过，不算来源不可达：照旧按认不出（401）
+export const sourceDown = (r: ViewerResult): boolean => !r.ok && r.http === 502 && r.error !== '身份来源的回答无法识别，按认不出处理';
+
 /** whoami 的应答（GET /api/auth/viewer 原样用它） */
 export type Whoami = { http: number; body: Record<string, unknown> };
 
@@ -82,6 +90,16 @@ const UNAVAILABLE = '身份来源不可用';
 const UNRECOGNIZED = '身份来源的回答无法识别，按认不出处理';
 /** 提供方没有自报期限时的底线。比自带提供方自己的 5 秒超时长，不会抢在它前面 */
 const DEFAULT_DEADLINE_MS = 10_000;
+/**
+ * 「来源不可达」（502：到点没回答、抛错、回答形状不对）留多久（毫秒）：来源慢或不通时，一个请求里几处认人（登录门、管理员认定、
+ * 路由自己）只等一次，同一个凭据短时间里也不反复去等。来源回答了「认不出」（401、403）的不留——刚登录的同一个凭据下一次就要认得出；
+ * 认得出的也不在这里留（主体那一步每次现查）。
+ */
+export const SOURCE_DOWN_TTL_MS = 3_000;
+const NEGATIVE_TTL_MS = SOURCE_DOWN_TTL_MS;
+const NEGATIVE_MAX = 1000;
+/** 问身份来源的计数（health 里给运维看：只有计数和最近一次耗时，不带任何凭据和人） */
+export type SourceStats = { asked: number; timeouts: number; failed: number; shared: number; negative_hits: number; last_ms: number | null; last_failed_at: string | null };
 const MAX_DEADLINE_MS = 60_000;
 
 const loginOk = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 128 && v === v.trim() && !/[\x00-\x1f\x7f]/.test(v);
@@ -216,6 +234,14 @@ function checkedFlowIdentity(answer: unknown): FlowComplete {
 export class IdentityService extends Service {
   private provider: LoginProvider | null = null;
   private deadlineMs = DEFAULT_DEADLINE_MS;
+  /** 正在问的：同一个凭据同时来几次，只问一次，大家等同一个回答 */
+  private inFlight = new Map<string, Promise<{ provider: LoginProvider; result: ViewerResult }>>();
+  /** 来源不可达的回答：按凭据（和指定的来源）分，留 NEGATIVE_TTL_MS */
+  private negative = new Map<string, { at: number; provider: LoginProvider; result: ViewerResult }>();
+  private stats: SourceStats = { asked: 0, timeouts: 0, failed: 0, shared: 0, negative_hits: 0, last_ms: null, last_failed_at: null };
+
+  /** 问身份来源的计数（副本） */
+  sourceStats(): SourceStats { return { ...this.stats }; }
 
   constructor(ctx: Context) {
     super(ctx, 'identity');
@@ -406,9 +432,43 @@ export class IdentityService extends Service {
   private async recognize(cookieHeader: string, source?: string): Promise<{ provider: LoginProvider | null; result: ViewerResult }> {
     const provider = this.provider;
     if (!provider) return { provider: null, result: { ok: false, http: 503, error: NO_PROVIDER } };
+    // 按凭据合并：同时来的只问一次；刚不可达的，NEGATIVE_TTL_MS 之内不再问（换了提供方作废）
+    let credential: string | null = null;
+    try { credential = provider.credentialOf(cookieHeader); } catch { credential = null; }
+    if (!credential) return { provider, result: await this.ask(provider, cookieHeader, source) };
+    const key = createHash('sha256').update(`${source ?? ''}\u0000${credential}`).digest('hex');
+    const neg = this.negative.get(key);
+    if (neg && neg.provider === provider && Date.now() - neg.at < NEGATIVE_TTL_MS) { this.stats.negative_hits++; return { provider, result: { ...neg.result } }; }
+    const pending = this.inFlight.get(key);
+    if (pending) { this.stats.shared++; const r = await pending; return { provider: r.provider, result: { ...r.result } }; }
+    const run = (async () => {
+      const result = await this.ask(provider, cookieHeader, source);
+      if (sourceDown(result)) {
+        if (this.negative.size >= NEGATIVE_MAX) this.negative.clear();
+        this.negative.set(key, { at: Date.now(), provider, result });
+      }
+      return { provider, result };
+    })();
+    this.inFlight.set(key, run);
+    try { const r = await run; return { provider: r.provider, result: { ...r.result } }; } finally { this.inFlight.delete(key); }
+  }
+
+  /** 真的去问一次身份来源：到点没回答、抛错，都按不可达（502，认不出、失败关闭），记进计数 */
+  private async ask(provider: LoginProvider, cookieHeader: string, source?: string): Promise<ViewerResult> {
+    const t0 = Date.now();
+    this.stats.asked++;
+    // 只有问提供方这一步在 try 里：到点没回答、抛错是来源不可达；回答读起来抛错、形状不对，由 checked 按认不出处理（不算来源不可达）
+    let result: ViewerResult | undefined;
     let answer: unknown;
-    try { answer = await within(Promise.resolve(provider.resolveViewer(cookieHeader, source)), this.deadlineMs); } catch { return { provider, result: { ok: false, http: 502, error: UNAVAILABLE } }; }
-    return { provider, result: checked(answer) };
+    try { answer = await within(Promise.resolve(provider.resolveViewer(cookieHeader, source)), this.deadlineMs); } catch (e) {
+      if (e instanceof Error && e.message === 'deadline') this.stats.timeouts++;
+      answer = undefined;
+      result = { ok: false, http: 502, error: UNAVAILABLE };
+    }
+    if (result === undefined) result = checked(answer);
+    this.stats.last_ms = Date.now() - t0;
+    if (!result.ok && result.http >= 500) { this.stats.failed++; this.stats.last_failed_at = new Date().toISOString(); }
+    return result;
   }
 
   /** 把请求带来的 cookie 认成查看者。从不抛错，也不会一直等：认不出、提供方出错、到点没回答、主体停用或对不上，都是 ok:false */
