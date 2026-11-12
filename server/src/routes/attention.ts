@@ -12,6 +12,8 @@ import type { AttentionService } from '../services/attention.ts';
 import { installAttentionProviders, type AttentionDeps } from '../attention-providers.ts';
 import { answersOf } from '../attention-answers.ts';
 import { identity, IDENTITY_UNAVAILABLE, sourceDown } from '../identity.ts';
+import { browserMarked, rawLoopback } from '../surfaces.ts';
+import { nameResolver } from '../attention-names.ts';
 
 export type AttentionRouteDeps = AttentionDeps & {
   /** 按需认定管理员登录（会话登录的管理员）：汇总之前认定一次，每个来源的守卫看到的是同一个结论，和提供方的先后无关 */
@@ -37,7 +39,14 @@ export function registerAttentionRoutes(app: HttpService, deps: AttentionRouteDe
         return void res.status(502).json({ error: IDENTITY_UNAVAILABLE, message: '登录服务暂时联系不上，稍后再试' });
       }
       const view = await svc<AttentionService>('attention').collect(req);
-      res.json({ ...view, generated_at: new Date().toISOString() });
+      // 显示名在汇总这一层统一补（attention-names.ts）：只给这个看的人本来就看得到的人的名字，别的给 null
+      const who = cookie ? await identity().resolveViewer(cookie) : null;
+      const nameOf = nameResolver({ admin: (!browserMarked(req) && rawLoopback(req)) || deps.adminHeaderOk(req), principal: who && who.ok ? who.viewer.sub : null });
+      const items = view.items.map((it) => ({
+        ...it, waiting_for_name: nameOf(it.waiting_for),
+        ...(it.creator ? { creator_name: it.creator.display_name ?? nameOf(it.creator.principal) } : {}),
+      }));
+      res.json({ ...view, items, generated_at: new Date().toISOString() });
     })().catch(next);
   });
 

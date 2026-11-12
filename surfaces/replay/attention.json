@@ -22,7 +22,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1795", "etag": "W/\"703-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1858", "etag": "W/\"742-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -37,7 +37,8 @@
                   "waiting_for": "mcp:replay",
                   "since": "YYYY-MM-DD hh:mm:ss",
                   "link": "/reviews?request=1",
-                  "detail": { "kind": "app", "op": "rollback", "slug": "replay-app", "title": "", "exists": false, "current_version": null, "target_version": 1, "target_changelog": "", "requested_by": "mcp:replay", "reason": "回放用", "created_at": "YYYY-MM-DD hh:mm:ss", "irreversible": false }
+                  "detail": { "kind": "app", "op": "rollback", "slug": "replay-app", "title": "", "exists": false, "current_version": null, "target_version": 1, "target_changelog": "", "requested_by": "mcp:replay", "reason": "回放用", "created_at": "YYYY-MM-DD hh:mm:ss", "irreversible": false },
+                  "waiting_for_name": "MCP 会话 replay"
                 },
                 {
                   "answers": ["bind"],
@@ -50,7 +51,8 @@
                   "title": "Synthetic Pending（replay）等对接到主体",
                   "waiting_for": "replay:synthetic-pending",
                   "since": "YYYY-MM-DD hh:mm:ss",
-                  "link": null
+                  "link": null,
+                  "waiting_for_name": null
                 }
               ],
               "counts": { "total": 2, "by_category": { "ask": 0, "review": 1, "accept": 0, "glance": 0, "grant": 1 }, "by_source": { "change-requests": 1, "principal-pending": 1 } },
@@ -80,7 +82,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1795", "etag": "W/\"703-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1858", "etag": "W/\"742-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -95,7 +97,8 @@
                   "waiting_for": "mcp:replay",
                   "since": "YYYY-MM-DD hh:mm:ss",
                   "link": "/reviews?request=1",
-                  "detail": { "kind": "app", "op": "rollback", "slug": "replay-app", "title": "", "exists": false, "current_version": null, "target_version": 1, "target_changelog": "", "requested_by": "mcp:replay", "reason": "回放用", "created_at": "YYYY-MM-DD hh:mm:ss", "irreversible": false }
+                  "detail": { "kind": "app", "op": "rollback", "slug": "replay-app", "title": "", "exists": false, "current_version": null, "target_version": 1, "target_changelog": "", "requested_by": "mcp:replay", "reason": "回放用", "created_at": "YYYY-MM-DD hh:mm:ss", "irreversible": false },
+                  "waiting_for_name": "MCP 会话 replay"
                 },
                 {
                   "answers": ["bind"],
@@ -108,7 +111,8 @@
                   "title": "Synthetic Pending（replay）等对接到主体",
                   "waiting_for": "replay:synthetic-pending",
                   "since": "YYYY-MM-DD hh:mm:ss",
-                  "link": null
+                  "link": null,
+                  "waiting_for_name": null
                 }
               ],
               "counts": { "total": 2, "by_category": { "ask": 0, "review": 1, "accept": 0, "glance": 0, "grant": 1 }, "by_source": { "change-requests": 1, "principal-pending": 1 } },
@@ -138,7 +142,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1264", "etag": "W/\"4f0-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1288", "etag": "W/\"508-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -152,7 +156,8 @@
                   "title": "Synthetic Pending（replay）等对接到主体",
                   "waiting_for": "replay:synthetic-pending",
                   "since": "YYYY-MM-DD hh:mm:ss",
-                  "link": null
+                  "link": null,
+                  "waiting_for_name": null
                 }
               ],
               "counts": { "total": 1, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 1 }, "by_source": { "principal-pending": 1 } },
