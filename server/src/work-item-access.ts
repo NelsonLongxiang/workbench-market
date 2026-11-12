@@ -6,7 +6,7 @@
  *   verify   事项在 ready，并且：管理员（「关注」里答 verify），或者建立人本人（writerVerdict 是 ok，和 POST /api/work-items/:id/decision 同一处）
  *   reply    事项不在终态，有可回复的席位消息（replyableMessages，和回复接口同一个判断），并且 writerVerdict 是 admin 或 ok（和回复接口的认人同一处）
  *   answer   事项不在终态，有在等答复的提问（pendingAsksOfEvent，和「关注」里答席位提问同一个定义），并且是管理员
- *            （建立人答提问的入口在阶段七 #567，合并后这里改成 writerVerdict，另一个小 PR）
+ *            （或者建立人本人：writerVerdict 是 ok，和建立人答提问的入口 POST /api/work-items/:id/asks/:qid/answer、「关注」里的席位提问同一处，#567）
  *
  * turn（是不是轮到这个人）只有两句：answer、verify 轮到的是建立人；release 轮到的是有放行权限的人。
  * can 为真而 turn 为假，就是「能代办」。
@@ -199,7 +199,7 @@ export function canOf(item: WorkItemRow, viewer: WorkItemViewer): Can {
   const creatorOk = writerVerdict(viewer, item.id, false) === 'ok';
   return {
     release: viewer.admin && releasable(item),
-    answer: live && viewer.admin && pendingAsks(item) > 0,
+    answer: live && (viewer.admin || creatorOk) && pendingAsks(item) > 0,
     verify: item.state === 'ready' && (viewer.admin || creatorOk),
     reply: live && (viewer.admin || creatorOk) && replyableMessages(item).length > 0,
   };
