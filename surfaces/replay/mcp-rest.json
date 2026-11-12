@@ -113,7 +113,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "22705", "etag": "W/\"58b1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "24202", "etag": "W/\"5e8a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -124,12 +124,13 @@
                   "put": {
                     "operationId": "rest_file_upload",
                     "summary": "上传文件（原始字节，流式落盘）",
-                    "description": "请求体即文件内容（≤100MB），边收边落盘，不经 base64。与浏览器上传同一套核心：按内容识别类型（扩展名与内容不符 415）、台文件数配额。返回 id / sha256 / mime / url。",
+                    "description": "请求体即文件内容（≤100MB），边收边落盘，不经 base64。与浏览器上传同一套核心：按内容识别类型（扩展名与内容不符 415）、台文件数配额。推荐带请求头 X-Content-SHA256：服务端核对，不符 400、不保存。返回 id / sha256 / mime / url / integrity / next；应答的 sha256 是对已保存字节算的，与本地一致即完整，不必下载回读。",
                     "parameters": [
                       { "name": "slug", "in": "path", "required": true, "description": "自产台 slug", "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" } },
                       { "name": "name", "in": "path", "required": true, "description": "文件名（含扩展名，URL 编码）", "schema": { "type": "string" } },
                       { "name": "note", "in": "query", "required": false, "description": "备注（≤500 字）", "schema": { "type": "string" } },
-                      { "name": "created_by", "in": "query", "required": false, "description": "提交人（缺省 mcp:<会话名>）", "schema": { "type": "string" } }
+                      { "name": "created_by", "in": "query", "required": false, "description": "提交人（缺省 mcp:<会话名>）", "schema": { "type": "string" } },
+                      { "name": "X-Content-SHA256", "in": "header", "required": false, "description": "期望的文件 sha256（64 位十六进制，推荐带：不符 400、不保存）", "schema": { "type": "string" } }
                     ],
                     "requestBody": { "required": true, "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } }, "*/*": { "schema": { "type": "string", "format": "binary" } } } },
                     "responses": {
@@ -149,7 +150,9 @@
                                 "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
                                 "note": { "type": "string" },
                                 "url": { "type": "string", "description": "REST 下载地址" },
-                                "download_url": { "type": "string", "description": "台页面用的下载地址" }
+                                "download_url": { "type": "string", "description": "台页面用的下载地址" },
+                                "integrity": { "type": "string", "enum": ["sha256-verified", "unverified"], "description": "sha256-verified：服务端已按请求里的期望 sha256 核对过；unverified：请求没带，比对应答的 sha256 与本地即可" },
+                                "next": { "type": "string", "description": "给 agent 的下一步提示：不需要下载回读" }
                               }
                             }
                           }
@@ -171,11 +174,22 @@
                   "post": {
                     "operationId": "rest_file_upload_multipart",
                     "summary": "上传文件（multipart）",
-                    "description": "multipart/form-data：字段 file（单文件 ≤100MB）+ 可选 note / created_by。其余同原始字节上传。",
-                    "parameters": [{ "name": "slug", "in": "path", "required": true, "description": "自产台 slug", "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" } }],
+                    "description": "multipart/form-data：字段 file（单文件 ≤100MB）+ 可选 note / created_by / sha256（期望的 sha256，也可放请求头 X-Content-SHA256，两处都带须一致）。其余同原始字节上传。",
+                    "parameters": [
+                      { "name": "slug", "in": "path", "required": true, "description": "自产台 slug", "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" } },
+                      { "name": "X-Content-SHA256", "in": "header", "required": false, "description": "期望的文件 sha256（64 位十六进制，推荐带：不符 400、不保存）", "schema": { "type": "string" } }
+                    ],
                     "requestBody": {
                       "required": true,
-                      "content": { "multipart/form-data": { "schema": { "type": "object", "required": ["file"], "properties": { "file": { "type": "string", "format": "binary" }, "note": { "type": "string" }, "created_by": { "type": "string" } } } } }
+                      "content": {
+                        "multipart/form-data": {
+                          "schema": {
+                            "type": "object",
+                            "required": ["file"],
+                            "properties": { "file": { "type": "string", "format": "binary" }, "note": { "type": "string" }, "created_by": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
+                          }
+                        }
+                      }
                     },
                     "responses": {
                       "201": {
@@ -194,7 +208,9 @@
                                 "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
                                 "note": { "type": "string" },
                                 "url": { "type": "string", "description": "REST 下载地址" },
-                                "download_url": { "type": "string", "description": "台页面用的下载地址" }
+                                "download_url": { "type": "string", "description": "台页面用的下载地址" },
+                                "integrity": { "type": "string", "enum": ["sha256-verified", "unverified"], "description": "sha256-verified：服务端已按请求里的期望 sha256 核对过；unverified：请求没带，比对应答的 sha256 与本地即可" },
+                                "next": { "type": "string", "description": "给 agent 的下一步提示：不需要下载回读" }
                               }
                             }
                           }
@@ -499,8 +515,8 @@
                   "post": {
                     "tags": ["tools"],
                     "operationId": "app_files_list",
-                    "summary": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /ap",
-                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。",
+                    "summary": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 RES",
+                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。",
                     "x-category": "read",
                     "x-granted": true,
                     "requestBody": {
@@ -529,8 +545,8 @@
                   "post": {
                     "tags": ["tools"],
                     "operationId": "app_files_upload",
-                    "summary": "向自产台上传文件（base64 内容·原始 ≤100MB/个，base64 约 ≤134MB）——agent 侧交付物直接入台文件面（与 REST multipart 同表同链、同一套按内容的类型检查）。返回 id/url/mime/siz",
-                    "description": "向自产台上传文件（base64 内容·原始 ≤100MB/个，base64 约 ≤134MB）——agent 侧交付物直接入台文件面（与 REST multipart 同表同链、同一套按内容的类型检查）。返回 id/url/mime/size/sha256/note。建议同时传 size（原始字节数）或 sha256：有的 MCP 客户端会把过长的参数截短（常见截在 64KB），带上它们服务端才能发现并拒收残缺文件；base64 恰好 65536 字符又没带时按疑似截断拒收。上传前可用 app_files_list 的 quota 查剩余文件数与上限。超过几十 KB 的文件优先用 REST 上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>，请求体为原始字节（同一会话令牌，不经 base64；入口见 access_info 的 rest_base 与 openapi_url）。",
+                    "summary": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务",
+                    "description": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务端核对，不符就拒收、不保存（防客户端把长参数截短，base64 恰好 65536 字符又都没带时按疑似截断拒收）。成功应答的 sha256 是服务端对已保存字节算的，和本地文件一致就是完整的，不要为了验证再下载；integrity 为 sha256-verified 时服务端已替你核对过。超过几十 KB 的文件优先用 REST 原始字节上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>（同一会话令牌，不经 base64，可带请求头 X-Content-SHA256；入口见 access_info 的 rest_base 与 openapi_url）。剩余文件数看 app_files_list 的 quota。",
                     "x-category": "write",
                     "x-granted": true,
                     "requestBody": {
@@ -543,8 +559,8 @@
                               "slug": { "type": "string" },
                               "name": { "type": "string", "description": "原始文件名（含扩展名）" },
                               "content_base64": { "type": "string", "description": "文件内容 base64（≤100MB 原始）" },
-                              "size": { "type": "integer", "description": "原始字节数（建议带：与收到的内容不符即拒收，防客户端截断）" },
-                              "sha256": { "type": "string", "description": "原始内容 sha256（64 位十六进制，建议带：不符即拒收）" },
+                              "size": { "type": "integer", "description": "原始字节数（与收到的内容不符即拒收；能带 sha256 就带 sha256）" },
+                              "sha256": { "type": "string", "description": "原始内容 sha256（64 位十六进制，推荐带：带了就由服务端替你核对，不符即拒收、不保存）" },
                               "mime": { "type": "string", "description": "MIME（缺省 application/octet-stream）" },
                               "note": { "type": "string", "description": "备注（≤500 字·可 PATCH 更新）" },
                               "created_by": { "type": "string", "description": "创建者标识（≤128 字符）" }
@@ -673,7 +689,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "22705", "etag": "W/\"58b1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "24202", "etag": "W/\"5e8a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -684,12 +700,13 @@
                   "put": {
                     "operationId": "rest_file_upload",
                     "summary": "上传文件（原始字节，流式落盘）",
-                    "description": "请求体即文件内容（≤100MB），边收边落盘，不经 base64。与浏览器上传同一套核心：按内容识别类型（扩展名与内容不符 415）、台文件数配额。返回 id / sha256 / mime / url。",
+                    "description": "请求体即文件内容（≤100MB），边收边落盘，不经 base64。与浏览器上传同一套核心：按内容识别类型（扩展名与内容不符 415）、台文件数配额。推荐带请求头 X-Content-SHA256：服务端核对，不符 400、不保存。返回 id / sha256 / mime / url / integrity / next；应答的 sha256 是对已保存字节算的，与本地一致即完整，不必下载回读。",
                     "parameters": [
                       { "name": "slug", "in": "path", "required": true, "description": "自产台 slug", "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" } },
                       { "name": "name", "in": "path", "required": true, "description": "文件名（含扩展名，URL 编码）", "schema": { "type": "string" } },
                       { "name": "note", "in": "query", "required": false, "description": "备注（≤500 字）", "schema": { "type": "string" } },
-                      { "name": "created_by", "in": "query", "required": false, "description": "提交人（缺省 mcp:<会话名>）", "schema": { "type": "string" } }
+                      { "name": "created_by", "in": "query", "required": false, "description": "提交人（缺省 mcp:<会话名>）", "schema": { "type": "string" } },
+                      { "name": "X-Content-SHA256", "in": "header", "required": false, "description": "期望的文件 sha256（64 位十六进制，推荐带：不符 400、不保存）", "schema": { "type": "string" } }
                     ],
                     "requestBody": { "required": true, "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } }, "*/*": { "schema": { "type": "string", "format": "binary" } } } },
                     "responses": {
@@ -709,7 +726,9 @@
                                 "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
                                 "note": { "type": "string" },
                                 "url": { "type": "string", "description": "REST 下载地址" },
-                                "download_url": { "type": "string", "description": "台页面用的下载地址" }
+                                "download_url": { "type": "string", "description": "台页面用的下载地址" },
+                                "integrity": { "type": "string", "enum": ["sha256-verified", "unverified"], "description": "sha256-verified：服务端已按请求里的期望 sha256 核对过；unverified：请求没带，比对应答的 sha256 与本地即可" },
+                                "next": { "type": "string", "description": "给 agent 的下一步提示：不需要下载回读" }
                               }
                             }
                           }
@@ -731,11 +750,22 @@
                   "post": {
                     "operationId": "rest_file_upload_multipart",
                     "summary": "上传文件（multipart）",
-                    "description": "multipart/form-data：字段 file（单文件 ≤100MB）+ 可选 note / created_by。其余同原始字节上传。",
-                    "parameters": [{ "name": "slug", "in": "path", "required": true, "description": "自产台 slug", "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" } }],
+                    "description": "multipart/form-data：字段 file（单文件 ≤100MB）+ 可选 note / created_by / sha256（期望的 sha256，也可放请求头 X-Content-SHA256，两处都带须一致）。其余同原始字节上传。",
+                    "parameters": [
+                      { "name": "slug", "in": "path", "required": true, "description": "自产台 slug", "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" } },
+                      { "name": "X-Content-SHA256", "in": "header", "required": false, "description": "期望的文件 sha256（64 位十六进制，推荐带：不符 400、不保存）", "schema": { "type": "string" } }
+                    ],
                     "requestBody": {
                       "required": true,
-                      "content": { "multipart/form-data": { "schema": { "type": "object", "required": ["file"], "properties": { "file": { "type": "string", "format": "binary" }, "note": { "type": "string" }, "created_by": { "type": "string" } } } } }
+                      "content": {
+                        "multipart/form-data": {
+                          "schema": {
+                            "type": "object",
+                            "required": ["file"],
+                            "properties": { "file": { "type": "string", "format": "binary" }, "note": { "type": "string" }, "created_by": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
+                          }
+                        }
+                      }
                     },
                     "responses": {
                       "201": {
@@ -754,7 +784,9 @@
                                 "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
                                 "note": { "type": "string" },
                                 "url": { "type": "string", "description": "REST 下载地址" },
-                                "download_url": { "type": "string", "description": "台页面用的下载地址" }
+                                "download_url": { "type": "string", "description": "台页面用的下载地址" },
+                                "integrity": { "type": "string", "enum": ["sha256-verified", "unverified"], "description": "sha256-verified：服务端已按请求里的期望 sha256 核对过；unverified：请求没带，比对应答的 sha256 与本地即可" },
+                                "next": { "type": "string", "description": "给 agent 的下一步提示：不需要下载回读" }
                               }
                             }
                           }
@@ -1059,8 +1091,8 @@
                   "post": {
                     "tags": ["tools"],
                     "operationId": "app_files_list",
-                    "summary": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /ap",
-                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。",
+                    "summary": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 RES",
+                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。",
                     "x-category": "read",
                     "x-granted": true,
                     "requestBody": {
@@ -1089,8 +1121,8 @@
                   "post": {
                     "tags": ["tools"],
                     "operationId": "app_files_upload",
-                    "summary": "向自产台上传文件（base64 内容·原始 ≤100MB/个，base64 约 ≤134MB）——agent 侧交付物直接入台文件面（与 REST multipart 同表同链、同一套按内容的类型检查）。返回 id/url/mime/siz",
-                    "description": "向自产台上传文件（base64 内容·原始 ≤100MB/个，base64 约 ≤134MB）——agent 侧交付物直接入台文件面（与 REST multipart 同表同链、同一套按内容的类型检查）。返回 id/url/mime/size/sha256/note。建议同时传 size（原始字节数）或 sha256：有的 MCP 客户端会把过长的参数截短（常见截在 64KB），带上它们服务端才能发现并拒收残缺文件；base64 恰好 65536 字符又没带时按疑似截断拒收。上传前可用 app_files_list 的 quota 查剩余文件数与上限。超过几十 KB 的文件优先用 REST 上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>，请求体为原始字节（同一会话令牌，不经 base64；入口见 access_info 的 rest_base 与 openapi_url）。",
+                    "summary": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务",
+                    "description": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务端核对，不符就拒收、不保存（防客户端把长参数截短，base64 恰好 65536 字符又都没带时按疑似截断拒收）。成功应答的 sha256 是服务端对已保存字节算的，和本地文件一致就是完整的，不要为了验证再下载；integrity 为 sha256-verified 时服务端已替你核对过。超过几十 KB 的文件优先用 REST 原始字节上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>（同一会话令牌，不经 base64，可带请求头 X-Content-SHA256；入口见 access_info 的 rest_base 与 openapi_url）。剩余文件数看 app_files_list 的 quota。",
                     "x-category": "write",
                     "x-granted": true,
                     "requestBody": {
@@ -1103,8 +1135,8 @@
                               "slug": { "type": "string" },
                               "name": { "type": "string", "description": "原始文件名（含扩展名）" },
                               "content_base64": { "type": "string", "description": "文件内容 base64（≤100MB 原始）" },
-                              "size": { "type": "integer", "description": "原始字节数（建议带：与收到的内容不符即拒收，防客户端截断）" },
-                              "sha256": { "type": "string", "description": "原始内容 sha256（64 位十六进制，建议带：不符即拒收）" },
+                              "size": { "type": "integer", "description": "原始字节数（与收到的内容不符即拒收；能带 sha256 就带 sha256）" },
+                              "sha256": { "type": "string", "description": "原始内容 sha256（64 位十六进制，推荐带：带了就由服务端替你核对，不符即拒收、不保存）" },
                               "mime": { "type": "string", "description": "MIME（缺省 application/octet-stream）" },
                               "note": { "type": "string", "description": "备注（≤500 字·可 PATCH 更新）" },
                               "created_by": { "type": "string", "description": "创建者标识（≤128 字符）" }
@@ -1239,7 +1271,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "12990", "etag": "W/\"32be-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "13085", "etag": "W/\"331d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "gateway": "on",
               "session": "replay-none",
@@ -1263,8 +1295,8 @@
                 { "name": "sop_run_finish", "description": "归档 run（热态全量沉淀 SQLite，Redis 条目平滑淘汰）。", "category": "write", "granted": false },
                 { "name": "app_data_list", "description": "读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读；可以按台授权（app_data_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。", "category": "read", "granted": false, "scopable": true },
                 { "name": "app_data_submit", "description": "向自产台写一条表单数据（与台页面 POST /api/apps/<slug>/data 同一条写入链：1MB 上限、按台的 data-contract.json 校验、写入后照常推送事件）。不符合契约时返回 400 与逐条 violations。附件先用 app_files_upload 上传，再把返回的 id 放进 data.file_ids。带 idempotency_key 重试不会重复写：同键同内容返回原记录（duplicate=true），同键不同内容 409。", "category": "write", "granted": false },
-                { "name": "app_files_list", "description": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。", "category": "read", "granted": false, "scopable": true },
-                { "name": "app_files_upload", "description": "向自产台上传文件（base64 内容·原始 ≤100MB/个，base64 约 ≤134MB）——agent 侧交付物直接入台文件面（与 REST multipart 同表同链、同一套按内容的类型检查）。返回 id/url/mime/size/sha256/note。建议同时传 size（原始字节数）或 sha256：有的 MCP 客户端会把过长的参数截短（常见截在 64KB），带上它们服务端才能发现并拒收残缺文件；base64 恰好 65536 字符又没带时按疑似截断拒收。上传前可用 app_files_list 的 quota 查剩余文件数与上限。超过几十 KB 的文件优先用 REST 上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>，请求体为原始字节（同一会话令牌，不经 base64；入口见 access_info 的 rest_base 与 openapi_url）。", "category": "write", "granted": false },
+                { "name": "app_files_list", "description": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。", "category": "read", "granted": false, "scopable": true },
+                { "name": "app_files_upload", "description": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务端核对，不符就拒收、不保存（防客户端把长参数截短，base64 恰好 65536 字符又都没带时按疑似截断拒收）。成功应答的 sha256 是服务端对已保存字节算的，和本地文件一致就是完整的，不要为了验证再下载；integrity 为 sha256-verified 时服务端已替你核对过。超过几十 KB 的文件优先用 REST 原始字节上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>（同一会话令牌，不经 base64，可带请求头 X-Content-SHA256；入口见 access_info 的 rest_base 与 openapi_url）。剩余文件数看 app_files_list 的 quota。", "category": "write", "granted": false },
                 { "name": "workbench_vars_get", "description": "读某工作台的看板变量/常量：带 key 取单个（含 revision），不带 key 列全部（可按 prefix 过滤）。各台按 workbench id 隔离，自产台/SOP 台/外部台通用。", "category": "read", "granted": false, "scopable": true },
                 { "name": "workbench_vars_set", "description": "写某工作台的看板变量（JSON 值）。新建可不带 revision（或 revision=0 表示仅在不存在时创建）；改已存在的键必须带当前 revision，不符返回 revision 冲突与当前值。kind=const 写入后不能直接改：谁写的谁维护——新建常量的会话是作者，作者本人带 override=true 与 reason 可修订；别人的常量改不了（作者缺失时由部署机本机命令行兜底）。作者本人修订时带 owner=\"*\" 可把常量设成公共：之后任何 MCP 会话或 Odoo 登录带 override 与 reason 都能修订，台令牌仍不能写。", "category": "write", "granted": false, "scopable": true },
                 { "name": "workbench_register", "description": "登记外部工作台入册（agent 发现内网新服务时自主登记；门户/市场即刻可用）。凭据不接受——需人工经市场页配置（安全边界）。", "category": "admin", "granted": false },
@@ -1359,29 +1391,60 @@
           }
         },
         {
+          "id": "put-sha-wrong",
+          "route": "PUT /api/mcp-rest/apps/:slug/files/:name",
+          "class": "invalid",
+          "what": "X-Content-SHA256 和收到的内容不符：400，不保存（之后 put 拿到的 id 不变）",
+          "request": {
+            "method": "PUT",
+            "path": "/api/mcp-rest/apps/replay-data/files/w.txt",
+            "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "content-type": "text/plain", "x-content-sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" },
+            "text": "put 的内容\n"
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "收到内容的 sha256 与 X-Content-SHA256 不符（收到 14 字节）：内容可能在传输中被截断或改动，未保存" }
+          }
+        },
+        {
+          "id": "put-sha-bad",
+          "route": "PUT /api/mcp-rest/apps/:slug/files/:name",
+          "class": "invalid",
+          "what": "X-Content-SHA256 不是 64 位十六进制：400",
+          "request": {
+            "method": "PUT",
+            "path": "/api/mcp-rest/apps/replay-data/files/w.txt",
+            "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "content-type": "text/plain", "x-content-sha256": "abc" },
+            "text": "x\n"
+          },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "X-Content-SHA256 须为 64 位十六进制" } }
+        },
+        {
           "id": "put",
           "route": "PUT /api/mcp-rest/apps/:slug/files/:name",
           "class": "normal",
-          "what": "上传：201，sha256、url（REST）、download_url（台页面）；created_by 缺省 mcp:<会话名>；note 两头空白去掉",
+          "what": "上传：201，sha256、url（REST）、download_url（台页面）；created_by 缺省 mcp:<会话名>；note 两头空白去掉；带了对的 X-Content-SHA256（大写也认）：integrity=sha256-verified",
           "request": {
             "method": "PUT",
             "path": "/api/mcp-rest/apps/replay-data/files/put.txt?note=%20%E8%AF%B4%E6%98%8E%20",
-            "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "content-type": "application/octet-stream" },
+            "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "content-type": "application/octet-stream", "x-content-sha256": "00D87213AD9E3A9C19C85305DFA185623A3607D5BA0C3A68D0EC4D888319AA13" },
             "text": "put 的内容\n"
           },
           "save": { "fput": "id" },
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "287", "etag": "W/\"11f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "ok": true, "id": 5, "slug": "replay-data", "name": "put.txt", "mime": "text/plain; charset=utf-8", "size": 14, "note": "说明", "url": "/api/mcp-rest/apps/replay-data/files/5", "sha256": "00d87213ad9e3a9c19c85305dfa185623a3607d5ba0c3a68d0ec4d888319aa13", "download_url": "/api/apps/replay-data/files/5" }
+            "headers": { "content-length": "398", "etag": "W/\"18e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 5, "slug": "replay-data", "name": "put.txt", "mime": "text/plain; charset=utf-8", "size": 14, "note": "说明", "url": "/api/mcp-rest/apps/replay-data/files/5", "sha256": "00d87213ad9e3a9c19c85305dfa185623a3607d5ba0c3a68d0ec4d888319aa13", "download_url": "/api/apps/replay-data/files/5", "integrity": "sha256-verified", "next": "服务端已按你给的 sha256 核对过并保存，无需下载回读" }
           }
         },
         {
           "id": "put-created-by",
           "route": "PUT /api/mcp-rest/apps/:slug/files/:name",
           "class": "normal",
-          "what": "created_by 查询参数",
+          "what": "created_by 查询参数；没带 X-Content-SHA256：integrity=unverified",
           "request": {
             "method": "PUT",
             "path": "/api/mcp-rest/apps/replay-data/files/put2.txt?created_by=%20alice%20",
@@ -1391,8 +1454,8 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "281", "etag": "W/\"119-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "ok": true, "id": 6, "slug": "replay-data", "name": "put2.txt", "mime": "text/plain; charset=utf-8", "size": 5, "note": "", "url": "/api/mcp-rest/apps/replay-data/files/6", "sha256": "9739c8feddfd447a824176ecad55e23132794de74eb85ba04a4f2b531291600e", "download_url": "/api/apps/replay-data/files/6" }
+            "headers": { "content-length": "398", "etag": "W/\"18e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 6, "slug": "replay-data", "name": "put2.txt", "mime": "text/plain; charset=utf-8", "size": 5, "note": "", "url": "/api/mcp-rest/apps/replay-data/files/6", "sha256": "9739c8feddfd447a824176ecad55e23132794de74eb85ba04a4f2b531291600e", "download_url": "/api/apps/replay-data/files/6", "integrity": "unverified", "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载" }
           }
         },
         {
@@ -1453,6 +1516,37 @@
           "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "48", "etag": "W/\"30-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "上传失败：Unexpected file field" } }
         },
         {
+          "id": "mp-sha-wrong",
+          "route": "POST /api/mcp-rest/apps/:slug/files",
+          "class": "invalid",
+          "what": "表单字段 sha256 和文件内容不符：400，不保存",
+          "request": {
+            "method": "POST",
+            "path": "/api/mcp-rest/apps/replay-data/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW", "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"sha256\"\r\n\r\neeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\r\n--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"m.txt\"\r\nContent-Type: text/plain\r\n\r\nm\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "128", "etag": "W/\"80-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "收到内容的 sha256 与声明不符（收到 2 字节）：内容可能在传输中被截断或改动，未保存" }
+          }
+        },
+        {
+          "id": "mp-sha-disagree",
+          "route": "POST /api/mcp-rest/apps/:slug/files",
+          "class": "invalid",
+          "what": "请求头和表单字段的 sha256 不一致：400，不保存",
+          "request": {
+            "method": "POST",
+            "path": "/api/mcp-rest/apps/replay-data/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW", "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "x-content-sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"sha256\"\r\n\r\neeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\r\n--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"m.txt\"\r\nContent-Type: text/plain\r\n\r\nm\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "61", "etag": "W/\"3d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "X-Content-SHA256 与表单字段 sha256 不一致" } }
+        },
+        {
           "id": "mp",
           "route": "POST /api/mcp-rest/apps/:slug/files",
           "class": "normal",
@@ -1466,8 +1560,8 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "287", "etag": "W/\"11f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "ok": true, "id": 7, "slug": "replay-data", "name": "报表.csv", "mime": "text/csv; charset=utf-8", "size": 8, "note": "备注", "url": "/api/mcp-rest/apps/replay-data/files/7", "sha256": "492d5ea496056f1a6a6592241032fab764c321596317930b4fa0e1e8bc3b7470", "download_url": "/api/apps/replay-data/files/7" }
+            "headers": { "content-length": "404", "etag": "W/\"194-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 7, "slug": "replay-data", "name": "报表.csv", "mime": "text/csv; charset=utf-8", "size": 8, "note": "备注", "url": "/api/mcp-rest/apps/replay-data/files/7", "sha256": "492d5ea496056f1a6a6592241032fab764c321596317930b4fa0e1e8bc3b7470", "download_url": "/api/apps/replay-data/files/7", "integrity": "unverified", "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载" }
           }
         },
         {
@@ -2298,7 +2392,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "58648", "etag": "W/\"e518-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "60145", "etag": "W/\"eaf1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -2309,12 +2403,13 @@
                   "put": {
                     "operationId": "rest_file_upload",
                     "summary": "上传文件（原始字节，流式落盘）",
-                    "description": "请求体即文件内容（≤100MB），边收边落盘，不经 base64。与浏览器上传同一套核心：按内容识别类型（扩展名与内容不符 415）、台文件数配额。返回 id / sha256 / mime / url。",
+                    "description": "请求体即文件内容（≤100MB），边收边落盘，不经 base64。与浏览器上传同一套核心：按内容识别类型（扩展名与内容不符 415）、台文件数配额。推荐带请求头 X-Content-SHA256：服务端核对，不符 400、不保存。返回 id / sha256 / mime / url / integrity / next；应答的 sha256 是对已保存字节算的，与本地一致即完整，不必下载回读。",
                     "parameters": [
                       { "name": "slug", "in": "path", "required": true, "description": "自产台 slug", "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" } },
                       { "name": "name", "in": "path", "required": true, "description": "文件名（含扩展名，URL 编码）", "schema": { "type": "string" } },
                       { "name": "note", "in": "query", "required": false, "description": "备注（≤500 字）", "schema": { "type": "string" } },
-                      { "name": "created_by", "in": "query", "required": false, "description": "提交人（缺省 mcp:<会话名>）", "schema": { "type": "string" } }
+                      { "name": "created_by", "in": "query", "required": false, "description": "提交人（缺省 mcp:<会话名>）", "schema": { "type": "string" } },
+                      { "name": "X-Content-SHA256", "in": "header", "required": false, "description": "期望的文件 sha256（64 位十六进制，推荐带：不符 400、不保存）", "schema": { "type": "string" } }
                     ],
                     "requestBody": { "required": true, "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } }, "*/*": { "schema": { "type": "string", "format": "binary" } } } },
                     "responses": {
@@ -2334,7 +2429,9 @@
                                 "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
                                 "note": { "type": "string" },
                                 "url": { "type": "string", "description": "REST 下载地址" },
-                                "download_url": { "type": "string", "description": "台页面用的下载地址" }
+                                "download_url": { "type": "string", "description": "台页面用的下载地址" },
+                                "integrity": { "type": "string", "enum": ["sha256-verified", "unverified"], "description": "sha256-verified：服务端已按请求里的期望 sha256 核对过；unverified：请求没带，比对应答的 sha256 与本地即可" },
+                                "next": { "type": "string", "description": "给 agent 的下一步提示：不需要下载回读" }
                               }
                             }
                           }
@@ -2356,11 +2453,22 @@
                   "post": {
                     "operationId": "rest_file_upload_multipart",
                     "summary": "上传文件（multipart）",
-                    "description": "multipart/form-data：字段 file（单文件 ≤100MB）+ 可选 note / created_by。其余同原始字节上传。",
-                    "parameters": [{ "name": "slug", "in": "path", "required": true, "description": "自产台 slug", "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" } }],
+                    "description": "multipart/form-data：字段 file（单文件 ≤100MB）+ 可选 note / created_by / sha256（期望的 sha256，也可放请求头 X-Content-SHA256，两处都带须一致）。其余同原始字节上传。",
+                    "parameters": [
+                      { "name": "slug", "in": "path", "required": true, "description": "自产台 slug", "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" } },
+                      { "name": "X-Content-SHA256", "in": "header", "required": false, "description": "期望的文件 sha256（64 位十六进制，推荐带：不符 400、不保存）", "schema": { "type": "string" } }
+                    ],
                     "requestBody": {
                       "required": true,
-                      "content": { "multipart/form-data": { "schema": { "type": "object", "required": ["file"], "properties": { "file": { "type": "string", "format": "binary" }, "note": { "type": "string" }, "created_by": { "type": "string" } } } } }
+                      "content": {
+                        "multipart/form-data": {
+                          "schema": {
+                            "type": "object",
+                            "required": ["file"],
+                            "properties": { "file": { "type": "string", "format": "binary" }, "note": { "type": "string" }, "created_by": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
+                          }
+                        }
+                      }
                     },
                     "responses": {
                       "201": {
@@ -2379,7 +2487,9 @@
                                 "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
                                 "note": { "type": "string" },
                                 "url": { "type": "string", "description": "REST 下载地址" },
-                                "download_url": { "type": "string", "description": "台页面用的下载地址" }
+                                "download_url": { "type": "string", "description": "台页面用的下载地址" },
+                                "integrity": { "type": "string", "enum": ["sha256-verified", "unverified"], "description": "sha256-verified：服务端已按请求里的期望 sha256 核对过；unverified：请求没带，比对应答的 sha256 与本地即可" },
+                                "next": { "type": "string", "description": "给 agent 的下一步提示：不需要下载回读" }
                               }
                             }
                           }
@@ -3052,8 +3162,8 @@
                   "post": {
                     "tags": ["tools"],
                     "operationId": "app_files_list",
-                    "summary": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /ap",
-                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。",
+                    "summary": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 RES",
+                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。",
                     "x-category": "read",
                     "x-granted": true,
                     "requestBody": {
@@ -3082,8 +3192,8 @@
                   "post": {
                     "tags": ["tools"],
                     "operationId": "app_files_upload",
-                    "summary": "向自产台上传文件（base64 内容·原始 ≤100MB/个，base64 约 ≤134MB）——agent 侧交付物直接入台文件面（与 REST multipart 同表同链、同一套按内容的类型检查）。返回 id/url/mime/siz",
-                    "description": "向自产台上传文件（base64 内容·原始 ≤100MB/个，base64 约 ≤134MB）——agent 侧交付物直接入台文件面（与 REST multipart 同表同链、同一套按内容的类型检查）。返回 id/url/mime/size/sha256/note。建议同时传 size（原始字节数）或 sha256：有的 MCP 客户端会把过长的参数截短（常见截在 64KB），带上它们服务端才能发现并拒收残缺文件；base64 恰好 65536 字符又没带时按疑似截断拒收。上传前可用 app_files_list 的 quota 查剩余文件数与上限。超过几十 KB 的文件优先用 REST 上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>，请求体为原始字节（同一会话令牌，不经 base64；入口见 access_info 的 rest_base 与 openapi_url）。",
+                    "summary": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务",
+                    "description": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务端核对，不符就拒收、不保存（防客户端把长参数截短，base64 恰好 65536 字符又都没带时按疑似截断拒收）。成功应答的 sha256 是服务端对已保存字节算的，和本地文件一致就是完整的，不要为了验证再下载；integrity 为 sha256-verified 时服务端已替你核对过。超过几十 KB 的文件优先用 REST 原始字节上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>（同一会话令牌，不经 base64，可带请求头 X-Content-SHA256；入口见 access_info 的 rest_base 与 openapi_url）。剩余文件数看 app_files_list 的 quota。",
                     "x-category": "write",
                     "x-granted": true,
                     "requestBody": {
@@ -3096,8 +3206,8 @@
                               "slug": { "type": "string" },
                               "name": { "type": "string", "description": "原始文件名（含扩展名）" },
                               "content_base64": { "type": "string", "description": "文件内容 base64（≤100MB 原始）" },
-                              "size": { "type": "integer", "description": "原始字节数（建议带：与收到的内容不符即拒收，防客户端截断）" },
-                              "sha256": { "type": "string", "description": "原始内容 sha256（64 位十六进制，建议带：不符即拒收）" },
+                              "size": { "type": "integer", "description": "原始字节数（与收到的内容不符即拒收；能带 sha256 就带 sha256）" },
+                              "sha256": { "type": "string", "description": "原始内容 sha256（64 位十六进制，推荐带：带了就由服务端替你核对，不符即拒收、不保存）" },
                               "mime": { "type": "string", "description": "MIME（缺省 application/octet-stream）" },
                               "note": { "type": "string", "description": "备注（≤500 字·可 PATCH 更新）" },
                               "created_by": { "type": "string", "description": "创建者标识（≤128 字符）" }
@@ -3568,8 +3678,8 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "280", "etag": "W/\"118-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "ok": true, "id": 5, "slug": "replay-data", "name": "off.txt", "mime": "text/plain; charset=utf-8", "size": 4, "note": "", "url": "/api/mcp-rest/apps/replay-data/files/5", "sha256": "b470b84cf0cd3189e10615bffea7d5cbd9f61134ba1c2cfd513ddd45b776a5f6", "download_url": "/api/apps/replay-data/files/5" }
+            "headers": { "content-length": "397", "etag": "W/\"18d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 5, "slug": "replay-data", "name": "off.txt", "mime": "text/plain; charset=utf-8", "size": 4, "note": "", "url": "/api/mcp-rest/apps/replay-data/files/5", "sha256": "b470b84cf0cd3189e10615bffea7d5cbd9f61134ba1c2cfd513ddd45b776a5f6", "download_url": "/api/apps/replay-data/files/5", "integrity": "unverified", "next": "把应答里的 sha256 和本地文件的 sha256 比一下即可，不需要下载" }
           }
         },
         {
@@ -3658,7 +3768,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "22705", "etag": "W/\"58b1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "24202", "etag": "W/\"5e8a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -3669,12 +3779,13 @@
                   "put": {
                     "operationId": "rest_file_upload",
                     "summary": "上传文件（原始字节，流式落盘）",
-                    "description": "请求体即文件内容（≤100MB），边收边落盘，不经 base64。与浏览器上传同一套核心：按内容识别类型（扩展名与内容不符 415）、台文件数配额。返回 id / sha256 / mime / url。",
+                    "description": "请求体即文件内容（≤100MB），边收边落盘，不经 base64。与浏览器上传同一套核心：按内容识别类型（扩展名与内容不符 415）、台文件数配额。推荐带请求头 X-Content-SHA256：服务端核对，不符 400、不保存。返回 id / sha256 / mime / url / integrity / next；应答的 sha256 是对已保存字节算的，与本地一致即完整，不必下载回读。",
                     "parameters": [
                       { "name": "slug", "in": "path", "required": true, "description": "自产台 slug", "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" } },
                       { "name": "name", "in": "path", "required": true, "description": "文件名（含扩展名，URL 编码）", "schema": { "type": "string" } },
                       { "name": "note", "in": "query", "required": false, "description": "备注（≤500 字）", "schema": { "type": "string" } },
-                      { "name": "created_by", "in": "query", "required": false, "description": "提交人（缺省 mcp:<会话名>）", "schema": { "type": "string" } }
+                      { "name": "created_by", "in": "query", "required": false, "description": "提交人（缺省 mcp:<会话名>）", "schema": { "type": "string" } },
+                      { "name": "X-Content-SHA256", "in": "header", "required": false, "description": "期望的文件 sha256（64 位十六进制，推荐带：不符 400、不保存）", "schema": { "type": "string" } }
                     ],
                     "requestBody": { "required": true, "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } }, "*/*": { "schema": { "type": "string", "format": "binary" } } } },
                     "responses": {
@@ -3694,7 +3805,9 @@
                                 "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
                                 "note": { "type": "string" },
                                 "url": { "type": "string", "description": "REST 下载地址" },
-                                "download_url": { "type": "string", "description": "台页面用的下载地址" }
+                                "download_url": { "type": "string", "description": "台页面用的下载地址" },
+                                "integrity": { "type": "string", "enum": ["sha256-verified", "unverified"], "description": "sha256-verified：服务端已按请求里的期望 sha256 核对过；unverified：请求没带，比对应答的 sha256 与本地即可" },
+                                "next": { "type": "string", "description": "给 agent 的下一步提示：不需要下载回读" }
                               }
                             }
                           }
@@ -3716,11 +3829,22 @@
                   "post": {
                     "operationId": "rest_file_upload_multipart",
                     "summary": "上传文件（multipart）",
-                    "description": "multipart/form-data：字段 file（单文件 ≤100MB）+ 可选 note / created_by。其余同原始字节上传。",
-                    "parameters": [{ "name": "slug", "in": "path", "required": true, "description": "自产台 slug", "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" } }],
+                    "description": "multipart/form-data：字段 file（单文件 ≤100MB）+ 可选 note / created_by / sha256（期望的 sha256，也可放请求头 X-Content-SHA256，两处都带须一致）。其余同原始字节上传。",
+                    "parameters": [
+                      { "name": "slug", "in": "path", "required": true, "description": "自产台 slug", "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" } },
+                      { "name": "X-Content-SHA256", "in": "header", "required": false, "description": "期望的文件 sha256（64 位十六进制，推荐带：不符 400、不保存）", "schema": { "type": "string" } }
+                    ],
                     "requestBody": {
                       "required": true,
-                      "content": { "multipart/form-data": { "schema": { "type": "object", "required": ["file"], "properties": { "file": { "type": "string", "format": "binary" }, "note": { "type": "string" }, "created_by": { "type": "string" } } } } }
+                      "content": {
+                        "multipart/form-data": {
+                          "schema": {
+                            "type": "object",
+                            "required": ["file"],
+                            "properties": { "file": { "type": "string", "format": "binary" }, "note": { "type": "string" }, "created_by": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
+                          }
+                        }
+                      }
                     },
                     "responses": {
                       "201": {
@@ -3739,7 +3863,9 @@
                                 "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
                                 "note": { "type": "string" },
                                 "url": { "type": "string", "description": "REST 下载地址" },
-                                "download_url": { "type": "string", "description": "台页面用的下载地址" }
+                                "download_url": { "type": "string", "description": "台页面用的下载地址" },
+                                "integrity": { "type": "string", "enum": ["sha256-verified", "unverified"], "description": "sha256-verified：服务端已按请求里的期望 sha256 核对过；unverified：请求没带，比对应答的 sha256 与本地即可" },
+                                "next": { "type": "string", "description": "给 agent 的下一步提示：不需要下载回读" }
                               }
                             }
                           }
@@ -4044,8 +4170,8 @@
                   "post": {
                     "tags": ["tools"],
                     "operationId": "app_files_list",
-                    "summary": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /ap",
-                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。",
+                    "summary": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 RES",
+                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。",
                     "x-category": "read",
                     "x-granted": true,
                     "requestBody": {
@@ -4074,8 +4200,8 @@
                   "post": {
                     "tags": ["tools"],
                     "operationId": "app_files_upload",
-                    "summary": "向自产台上传文件（base64 内容·原始 ≤100MB/个，base64 约 ≤134MB）——agent 侧交付物直接入台文件面（与 REST multipart 同表同链、同一套按内容的类型检查）。返回 id/url/mime/siz",
-                    "description": "向自产台上传文件（base64 内容·原始 ≤100MB/个，base64 约 ≤134MB）——agent 侧交付物直接入台文件面（与 REST multipart 同表同链、同一套按内容的类型检查）。返回 id/url/mime/size/sha256/note。建议同时传 size（原始字节数）或 sha256：有的 MCP 客户端会把过长的参数截短（常见截在 64KB），带上它们服务端才能发现并拒收残缺文件；base64 恰好 65536 字符又没带时按疑似截断拒收。上传前可用 app_files_list 的 quota 查剩余文件数与上限。超过几十 KB 的文件优先用 REST 上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>，请求体为原始字节（同一会话令牌，不经 base64；入口见 access_info 的 rest_base 与 openapi_url）。",
+                    "summary": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务",
+                    "description": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务端核对，不符就拒收、不保存（防客户端把长参数截短，base64 恰好 65536 字符又都没带时按疑似截断拒收）。成功应答的 sha256 是服务端对已保存字节算的，和本地文件一致就是完整的，不要为了验证再下载；integrity 为 sha256-verified 时服务端已替你核对过。超过几十 KB 的文件优先用 REST 原始字节上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>（同一会话令牌，不经 base64，可带请求头 X-Content-SHA256；入口见 access_info 的 rest_base 与 openapi_url）。剩余文件数看 app_files_list 的 quota。",
                     "x-category": "write",
                     "x-granted": true,
                     "requestBody": {
@@ -4088,8 +4214,8 @@
                               "slug": { "type": "string" },
                               "name": { "type": "string", "description": "原始文件名（含扩展名）" },
                               "content_base64": { "type": "string", "description": "文件内容 base64（≤100MB 原始）" },
-                              "size": { "type": "integer", "description": "原始字节数（建议带：与收到的内容不符即拒收，防客户端截断）" },
-                              "sha256": { "type": "string", "description": "原始内容 sha256（64 位十六进制，建议带：不符即拒收）" },
+                              "size": { "type": "integer", "description": "原始字节数（与收到的内容不符即拒收；能带 sha256 就带 sha256）" },
+                              "sha256": { "type": "string", "description": "原始内容 sha256（64 位十六进制，推荐带：带了就由服务端替你核对，不符即拒收、不保存）" },
                               "mime": { "type": "string", "description": "MIME（缺省 application/octet-stream）" },
                               "note": { "type": "string", "description": "备注（≤500 字·可 PATCH 更新）" },
                               "created_by": { "type": "string", "description": "创建者标识（≤128 字符）" }

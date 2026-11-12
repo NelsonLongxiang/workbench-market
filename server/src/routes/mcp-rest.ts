@@ -19,6 +19,7 @@ import { dataDir, type AppRow, type SopRunRow } from '../db.ts';
 import type { AppDataService } from '../services/app-data.ts';
 import type { SopService } from '../services/sop.ts';
 import { HttpError } from '../errors.ts';
+import { expectedSha256, uploadIntegrity } from '../upload-integrity.ts';
 
 type McpSess = { id: number; name: string; grants: string[] };
 type McpChannel = 'mcp' | 'rest';
@@ -102,6 +103,9 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
     const createdBy = typeof req.query.created_by === 'string' && req.query.created_by.trim() ? req.query.created_by.trim().slice(0, 128) : (sess ? `mcp:${sess.name}` : '');
     await mcpRestRun(sess, 'app_files_upload', 'file_upload', { slug: req.params.slug, name }, async () => {
       if (!name || name.length > 255 || name === '.' || name === '..' || /[\/\\\x00-\x1f]/.test(name)) bad('文件名不合法（≤255 字符，不含路径分隔符与控制字符）');
+      // 期望的 sha256（请求头 X-Content-SHA256，可选）：带了就在落库前核对，不符拒收、不保存
+      const wantSha = expectedSha256(req.headers['x-content-sha256']);
+      if (wantSha === 'bad') bad('X-Content-SHA256 须为 64 位十六进制');
       const a = getApp(req.params.slug);
       if (appFilesQuota(a.slug).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`, { quota: appFilesQuota(a.slug) });
       const declared = Number(req.headers['content-length']);
@@ -127,8 +131,9 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
       if (size === 0) { rmSync(abs, { force: true }); bad('请求体为空'); }
       const reported = String(req.headers['content-type'] ?? '').split(';')[0].trim();
       const sha256 = h.digest('hex');
+      if (wantSha !== null && sha256 !== wantSha) { rmSync(abs, { force: true }); bad(`收到内容的 sha256 与 X-Content-SHA256 不符（收到 ${size} 字节）：内容可能在传输中被截断或改动，未保存`); }
       const out = appFileStoreCore(a.slug, { path: abs, size, name, reportedMime: reported === 'application/octet-stream' ? '' : reported, createdBy, note, sha256 });
-      res.status(201).json({ ...out, sha256, url: `${MCP_REST_BASE}/apps/${a.slug}/files/${out.id}`, download_url: out.url });
+      res.status(201).json({ ...out, sha256, url: `${MCP_REST_BASE}/apps/${a.slug}/files/${out.id}`, download_url: out.url, ...uploadIntegrity(wantSha as string | null, null) });
     });
   }));
   // 上传（multipart）：POST /api/mcp-rest/apps/<slug>/files，字段 file + 可选 note/created_by——与浏览器上传同一个 multer 与入库核心
@@ -147,9 +152,17 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
       const file = req.file!;
       const createdBy = typeof req.body?.created_by === 'string' && req.body.created_by.trim() ? req.body.created_by.trim().slice(0, 128) : (sess ? `mcp:${sess.name}` : '');
       const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 500) : '';
+      // 期望的 sha256：请求头 X-Content-SHA256 或表单字段 sha256（都带时须一致），不符拒收、不保存
+      const fromHeader = expectedSha256(req.headers['x-content-sha256']), fromField = expectedSha256(req.body?.sha256);
+      if (fromHeader === 'bad' || fromField === 'bad' || (fromHeader !== null && fromField !== null && fromHeader !== fromField)) {
+        rmSync(file.path, { force: true });
+        bad(fromHeader === 'bad' || fromField === 'bad' ? 'sha256 须为 64 位十六进制' : 'X-Content-SHA256 与表单字段 sha256 不一致');
+      }
+      const wantSha = (fromHeader ?? fromField) as string | null;
       const sha256 = await fileSha256(file.path);
+      if (wantSha !== null && sha256 !== wantSha) { rmSync(file.path, { force: true }); bad(`收到内容的 sha256 与声明不符（收到 ${file.size} 字节）：内容可能在传输中被截断或改动，未保存`); }
       const out = appFileStoreCore(a.slug, { path: file.path, size: file.size, name: fixFileName(file.originalname), reportedMime: file.mimetype || '', createdBy, note, sha256 });
-      res.status(201).json({ ...out, sha256, url: `${MCP_REST_BASE}/apps/${a.slug}/files/${out.id}`, download_url: out.url });
+      res.status(201).json({ ...out, sha256, url: `${MCP_REST_BASE}/apps/${a.slug}/files/${out.id}`, download_url: out.url, ...uploadIntegrity(wantSha, null) });
     });
   }));
   // 列文件（倒序游标分页 + quota）：与 app_files_list 工具同一结果，url 指向 REST 下载
