@@ -17,7 +17,7 @@ import { getLifecycleNameSources, getRosterTeams, getWorkItem, postAskAnswer, po
 import SectionBoundary from '../components/SectionBoundary';
 import { choicesFor, routeFor, viewerOf, type Can, rowActor, seatLine, showProgress, subitemsOf, ticketStateLabel } from '../work-item-view';
 import { teamLabel } from '../people';
-import { NO_NAMES, lifecycleNames, lineName, rosterNames, stageName, withRoster, type Names } from '../names';
+import { NO_NAMES, cleanSeatName, lifecycleNames, lineName, rosterNames, stageName, withRoster, type Names } from '../names';
 import { VIEWER_NONE, actorLabel, groupTimeline, seatLabel, type Viewer, askerLabel, textOf, who, PROGRESS_STATE, TERMINAL, stateLabel, askIdOf, creatorLabel, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
 
 type Item = { id: string; title: string; state: string; created_by: string; creator_principal?: string | null; created_at: string; updated_at: string; source_kind: string; source_ref: string; target_team: string; seat: string; eval: string; eval_reason: string; progress_summary: string; receipt_outcome: string; object: string; phase: string; open_asks: string; outputs: string; evidence: string };
@@ -162,7 +162,7 @@ function SeatMessages({ itemId, messages, closed, onChanged }: { itemId: string;
   if (!messages.length) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="席位还没发来消息" />;
   return <>{closed && <Typography.Text type="secondary" data-testid="seat-messages-closed">事项已经结束，不能再回复。</Typography.Text>}<List itemLayout="vertical" size="small" dataSource={messages} rowKey="id" renderItem={(m) => <List.Item data-testid="seat-message">
     <Space wrap size={4}>
-      <Typography.Text strong>{who(m.sender) || who(m.peer)}</Typography.Text>
+      <Typography.Text strong>{cleanSeatName(who(m.sender) || who(m.peer))}</Typography.Text>
       <Tag color={MSG_STATUS[m.status].color}>{MSG_STATUS[m.status].label}</Tag>
       <RelTime value={m.at} />
     </Space>
