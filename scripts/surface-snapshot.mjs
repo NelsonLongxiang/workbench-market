@@ -156,7 +156,9 @@ async function exportSurfaces(extensionsDir = '') {
     if (unknown.length) throw new Error(`内置身份引用了动作清单里没有的动作：${unknown.join('、')}`);
     const builtins = { identities: BUILTINS.map((b) => ({ name: b.name, label: b.label, ...(b.roles ? { roles: [...b.roles] } : {}), actions: [...b.actions], actsForOwner: [...b.actsForOwner] })), narrowed: NARROWED.map((n) => ({ action: n.action, only: [...n.only], why: n.why })) };
     // 每个已登记动作的域要么在系统域清单里、要么明确算业务：两边都不算的导出失败（新长出来的域要有人决定它算哪边）
-    const loose = unclassifiedDomains(known);
+    // 扩展报的动作另算（都算业务，见 roles.ts），不参加归类核对
+    const extActions = new Set((dumped.wmExtensions?.routes ?? []).map((r) => r.action));
+    const loose = unclassifiedDomains(new Set([...known].filter((a) => !extActions.has(a))));
     if (loose.length) throw new Error(`动作的域没有归类（server/src/roles.ts 的 SYSTEM_DOMAINS 或 BUSINESS_DOMAINS）：${loose.join('、')}`);
     const domains = { system: [...SYSTEM_DOMAINS], business: [...BUSINESS_DOMAINS] };
     const presets = PLATFORM_ROLES.map((r) => ({ id: r.id, name: r.name, ...(r.includes ? { includes: [...r.includes] } : {}), permissions: r.permissions.map((p) => ({ ...p })) }));

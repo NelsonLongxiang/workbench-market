@@ -41,7 +41,7 @@ export interface ExtensionMiddlewareRecord { extension: string; path: string; pu
  * 内容面和资源的首段。核心路由栈里的首段另在全部注册完之后自动收集（assertExtensionNamespaces）。
  * 前端页面的首段和 web/src/App.tsx 对得上（scripts/extension-routes-smoke.mjs 核对，漂了就红）
  */
-export const SPA_PAGE_SEGMENTS: readonly string[] = ['attention', 'cockpit', 'market', 'mcp-gateways', 'owner-pending', 'reviews', 'settings', 'skills', 'sops', 'tasks', 'types', 'use', 'vault', 'work-items'];
+export const SPA_PAGE_SEGMENTS: readonly string[] = ['access', 'attention', 'cockpit', 'knowledge', 'market', 'mcp-gateways', 'overview', 'owner-pending', 'reviews', 'settings', 'skills', 'sops', 'tasks', 'team', 'types', 'use', 'vault', 'work-items'];
 const RESERVED_SEGMENTS: ReadonlySet<string> = new Set(['api', 'apps', 'go', 'sop', 'design', 'login', 'mcp', 'assets', 'static', 'openapi.json', '.well-known', '~wm', 'favicon.ico', 'index.html', ...SPA_PAGE_SEGMENTS]);
 /** 扩展路由的模式：warn 点名计数（缺省），enforce 有没报动作的扩展路由就拒绝启动（6d 切换时打开） */
 export type ExtensionRoutesMode = 'warn' | 'enforce';
