@@ -34,6 +34,30 @@ try {
   ok('登记的入口带查询串、带片段：拒', tryNew(new URL(`${ENTRY.href}?x=1`)) === 'EOUTBOUNDOFF' && tryNew(new URL(`${ENTRY.href}#a`)) === 'EOUTBOUNDOFF');
   ok('登记的入口加 eval：拒', tryNew(ENTRY, { eval: true }) === 'EOUTBOUNDOFF');
 
+  // 冒名：对象自己报的地址是登记的入口，实际要起的是别的文件。放行必须只按核对过的那个地址起，不用调用方给的对象
+  const net = await import('node:net');
+  let hits = 0;
+  const srv = net.createServer((c) => { hits++; c.destroy(); });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const { writeFileSync } = await import('node:fs');
+  const evil = join(DATA, 'evil-worker.mjs');
+  writeFileSync(evil, `import net from 'node:net'; import { parentPort, workerData } from 'node:worker_threads'; const s = net.connect(workerData?.port ?? ${srv.address().port}, '127.0.0.1'); s.on('connect', () => { s.destroy(); parentPort?.postMessage('leaked'); }); s.on('error', () => parentPort?.postMessage('blocked'));`);
+  const evilUrl = pathToFileURL(evil);
+  const outcome = (file) => new Promise((res) => {
+    let w; try { w = new Worker(file, { workerData: { root: join(DATA, 'imp'), kit: benchSqlKit('sqlite'), port: srv.address().port } }); } catch (e) { return res(e.code ?? e.message); }
+    const t = setTimeout(() => { void w.terminate(); res('no-leak'); }, 1200);
+    w.once('message', (m) => { clearTimeout(t); void w.terminate(); res(m === 'leaked' ? 'leaked' : 'no-leak'); });
+    w.once('error', () => { clearTimeout(t); res('no-leak'); });
+  });
+  class Liar extends URL { get href() { return ENTRY.href; } }
+  let flip = 0;
+  class Flipper extends URL { get href() { return flip++ === 0 ? ENTRY.href : super.href; } }
+  const forged = Object.setPrototypeOf({ href: ENTRY.href, protocol: 'file:', pathname: evilUrl.pathname, hostname: '', host: '', search: '', hash: '', origin: 'null' }, URL.prototype);
+  const imp = [await outcome(new Liar(evilUrl.href)), await outcome(new Flipper(evilUrl.href)), await outcome(forged)];
+  await new Promise((r) => setTimeout(r, 200));
+  ok('冒名的三种写法（子类改写地址、第一次读和第二次读不一样、伪造的对象）：起的都不是那个别的文件，没有一个字节连出去', imp.every((x) => x !== 'leaked' && x !== 'started') && hits === 0, { imp, hits });
+  srv.close();
+
   // 放行的线程：就算调用方想把对外断开关掉（env）或者塞启动参数，也不带过去；线程里往外连被拦
   const w = new Worker(ENTRY, { workerData: { root: join(DATA, 'direct'), kit: benchSqlKit('sqlite') }, env: { WM_OUTBOUND: 'on' }, execArgv: ['--no-warnings'], argv: ['x'] });
   const ask = (msg) => new Promise((res) => { const t = setTimeout(() => res('没有回话'), 5000); w.once('message', (r) => { clearTimeout(t); res(r); }); w.once('error', (e) => { clearTimeout(t); res(`线程出错：${e.message}`); }); w.postMessage(msg); });

@@ -180,13 +180,18 @@ if (OFF) {
   // worker_threads：只放行登记过的入口，别的一构造就抛错
   (workerThreads as unknown as Record<string, unknown>).Worker = class GatedWorker extends RealWorker {
     constructor(file: unknown, options?: { workerData?: unknown; resourceLimits?: unknown; eval?: unknown }) {
-      // 只认 URL 对象、逐字相等：字符串路径、带查询串的、eval 的代码都不是登记过的那个入口
-      if (!(file instanceof URL) || !ALLOWED_WORKERS.has(file.href) || options?.eval) {
-        noteBlocked('worker', String(file ?? ''));
+      // 只认 URL 对象、逐字相等：字符串路径、带查询串的、eval 的代码都不是登记过的那个入口。
+      // 地址只读一次，然后用核对过的这个地址另建一个对象去起线程，不把调用方给的对象交下去：
+      // 对象自己报的地址可以是假的（子类改写读取器、第一次读和第二次读不一样、伪造一个挂着 URL 原型的对象），
+      // 而起线程实际读的是它的路径。
+      let href = '';
+      try { href = file instanceof URL ? String(file.href) : ''; } catch { href = ''; }
+      if (!ALLOWED_WORKERS.has(href) || options?.eval) {
+        noteBlocked('worker', String(href || typeof file));
         throw new OutboundBlockedError('新开 Worker');
       }
       // 只带数据和内存上限过去；环境变量强制是「对外断开」，调用方给的 env、execArgv、argv 一概不带
-      super(file, { workerData: options?.workerData, resourceLimits: options?.resourceLimits as never, env: { ...process.env, WM_OUTBOUND: 'off' } });
+      super(new URL(href), { workerData: options?.workerData, resourceLimits: options?.resourceLimits as never, env: { ...process.env, WM_OUTBOUND: 'off' } });
     }
   };
   // 让 ESM 的具名引入（import { spawn } from 'node:child_process'）也看到替换后的函数
