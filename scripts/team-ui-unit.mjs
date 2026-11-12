@@ -2,7 +2,7 @@
 /** 「团队」页的纯函数单测（web/src/team-view.ts）：应答整形、管理员视图、团队状态、负责人、成员归谁用、计数、空的说法、读不到和被拒的说法、建部门的校验。数据都是合成的。 */
 // 在非 UTC 的时区里跑（东八区）：不带时区的时间写法要按 UTC 解析，在这里才看得出来
 process.env.TZ = 'Asia/Shanghai';
-import { actionProblem, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterAt, rosterStaleText, ROSTER_STALE_MIN, sourceProblem, teamCounts, teamStatusLabel, teamTitle, teamsOf, pendingText, proposedText , proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, claimButtonText, LEAD_SKIPPED_TEXT, teamKey, outcomeLabel, outcomeReasonText, assignOps, assigneeOptions, assignDoneText, reassignHalfDoneText } from '../web/src/team-view.ts';
+import { actionProblem, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterAt, rosterStaleText, ROSTER_STALE_MIN, sourceProblem, teamCounts, teamStatusLabel, teamTitle, teamsOf, pendingText, proposedText , proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, claimButtonText, LEAD_SKIPPED_TEXT, teamKey, outcomeLabel, outcomeReasonText, assignOps, assigneeOptions, assignDoneText, reassignHalfDoneText, unassignConfirmText, ASSIGN_BY_TEXT } from '../web/src/team-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -112,11 +112,14 @@ ok('操作：总工不分配（不论当总工传进来、还是成员上标了 
 ok('操作：can_assign 不是真、没给、团队待认领，一个都不出', J([assignOps(asg[1], asg[1].members[0]), assignOps(asg[2], asg[2].members[0]), assignOps({ ...asg[0], status: 'unclaimed' }, asg[0].members[1])].map((o) => o.assign || o.reassign || o.unassign)) === '[false,false,false]');
 ok('选人：去重、按名字排；没显示名的用标识去前缀', J(assigneeOptions(asg[0], asg[0].members[1]).map((o) => o.label)) === J(['li', '王', '赵'].sort((a, b) => a.localeCompare(b, 'zh-CN'))));
 ok('选人：改派时去掉现在归的那个人', !assigneeOptions(asg[0], asg[0].members[0]).some((o) => o.value === 'user:wang') && assigneeOptions(asg[0], asg[0].members[0]).length === 2);
-ok('办成的说法：分配、改派直接生效写「已分配给」「已改派给」；回 202 照提议说，不当成已生效',
-  assignDoneText('assign', '小记', '赵', { status: 201, body: { ok: true, id: 3 } }) === '「小记」已分配给 赵。'
-  && assignDoneText('reassign', '小算', '赵', { status: 201, body: { ok: true } }) === '「小算」已改派给 赵。'
-  && assignDoneText('assign', '小记', '赵', { status: 202, body: { ok: true, proposed: true, proposal: { id: 9, confirm_by_text: '业务侧负责人' } } }) === '「小记」分配给 赵：已提出，等业务侧负责人确认。');
-ok('收回的说法：收回了写回到团队公用；本来就没分配（removed=false）照实说', assignDoneText('unassign', '小算', '', { status: 200, body: { ok: true, removed: true } }).includes('现在是团队公用') && assignDoneText('unassign', '小算', '', { status: 200, body: { ok: true, removed: false } }) === '「小算」本来就是团队公用。');
+ok('办成的说法：分配、改派直接生效写「已分配给」「已改派给」，是成功；回 202 照提议说，是提示、不当成已生效',
+  J(assignDoneText('assign', '小记', '赵', { status: 201, body: { ok: true, id: 3 } })) === J({ kind: 'success', text: '「小记」已分配给 赵。' })
+  && J(assignDoneText('reassign', '小算', '赵', { status: 201, body: { ok: true } })) === J({ kind: 'success', text: '「小算」已改派给 赵。' })
+  && J(assignDoneText('assign', '小记', '赵', { status: 202, body: { ok: true, proposed: true, proposal: { id: 9, confirm_by_text: '业务侧负责人' } } })) === J({ kind: 'info', text: '「小记」分配给 赵：已提出，等业务侧负责人确认。' }));
+ok('收回的说法：收回了写回到团队公用（成功）；本来就没分配（removed=false）照实说（提示）', assignDoneText('unassign', '小算', '', { status: 200, body: { ok: true, removed: true } }).text.includes('现在是团队公用') && J(assignDoneText('unassign', '小算', '', { status: 200, body: { ok: true, removed: false } })) === J({ kind: 'info', text: '「小算」本来就是团队公用。' }));
+ok('收回的确认：照实说变成团队公用，分给他期间接手的事他照样看得到，之后的不算他的', unassignConfirmText('小算', '丙') === '收回后「小算」变成团队公用，由总工分派。它分给 丙 期间接手的事，丙 照样看得到；收回之后再接的事，不再算 丙 的。');
+ok('名册过期：正常的团队改标「名册过期」（提醒色），不和「名册已 N 天没更新」打架；别的状态照旧', J(teamStatusLabel('active', true)) === J({ text: '名册过期', tone: 'warning' }) && teamStatusLabel('active', false).text === '正常' && teamStatusLabel('lead-vacant', true).text === '负责人缺位' && teamStatusLabel('active').text === '正常');
+ok('系统管理员头卡上的一句：分配归负责人或管理层', ASSIGN_BY_TEXT === '成员分配由团队负责人或管理层做');
 ok('改派一半：收回成了、分配没成，说清楚现在是团队公用；原因末尾的句号不重复', reassignHalfDoneText('小算', '赵', '只分给启用的人，user:zhao 不是。') === '「小算」已收回，但改派给 赵 没办成：只分给启用的人，user:zhao 不是。现在是团队公用，可以再分一次。');
 ok('分配被拒：服务端的说法原样给（409 已分给别人、422 不是启用的人、403 不是负责人）', actionProblem({ status: 409, body: { error: 'seat_assigned', message: '这个成员已经分给 user:wang，先收回再分' } }) === '这个成员已经分给 user:wang，先收回再分' && actionProblem({ status: 403, body: { error: 'not_team_lead' } }) === '你的账号现在不能做这一步。');
 

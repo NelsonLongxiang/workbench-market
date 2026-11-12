@@ -140,9 +140,17 @@ const STATUS: Record<string, { text: string; tone: Tone }> = {
   'off-roster': { text: '不在名册', tone: 'default' },
   unclaimed: { text: '待认领', tone: 'warning' },
 };
-export function teamStatusLabel(status: unknown): { text: string; tone: Tone } {
+/**
+ * 团队状态的标签。服务端的 status 不看名册新不新（认领了、在名册里、有负责人就是 active）；名册多久没更新是页面按 roster_received_at 算的。
+ * 两样都写时不能一边「正常」一边「名册已 N 天没更新」：名册过期（stale 为真）时 active 改标「名册过期」，提醒色
+ */
+export function teamStatusLabel(status: unknown, stale = false): { text: string; tone: Tone } {
+  if (stale && status === 'active') return { text: '名册过期', tone: 'warning' };
   return Object.hasOwn(STATUS, String(status)) ? STATUS[String(status)] : { text: '状态未知', tone: 'default' };
 }
+
+/** 系统管理员（只过了管理门）看团队页：团队上 can_assign 为假，头卡上说一句分配归谁 */
+export const ASSIGN_BY_TEXT = '成员分配由团队负责人或管理层做';
 
 /** 人的名字：有显示名用显示名，没有就去掉标识的前缀（user:zhang → zhang） */
 export function personName(p: Person | null | undefined): string {
@@ -194,15 +202,26 @@ export function assigneeOptions(t: Pick<Team, 'assignable'>, m: Pick<Member, 'as
   return out.sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
 }
 
-/** 分配、改派、收回办成之后的一句话；服务端回的是提议（202）时照「已提出，等〈谁〉确认」说，不当成已生效 */
-export function assignDoneText(op: 'assign' | 'reassign' | 'unassign', member: string, to: string, r: SourceResult): string {
+/**
+ * 分配、改派、收回办成之后的一句话和轻重：生效了是 success（页面用几秒自动消失的轻提示）；
+ * 服务端回的是提议（202）时照「已提出，等〈谁〉确认」说，是 info，不当成已生效；收回时本来就没分配也是 info
+ */
+export function assignDoneText(op: 'assign' | 'reassign' | 'unassign', member: string, to: string, r: SourceResult): { kind: 'success' | 'info'; text: string } {
   const proposed = proposedText(r);
   if (op === 'unassign') {
     const removed = obj(r.body)?.removed;
-    return removed === false ? `「${member}」本来就是团队公用。` : `「${member}」已收回，现在是团队公用，由总工分派。`;
+    return removed === false ? { kind: 'info', text: `「${member}」本来就是团队公用。` } : { kind: 'success', text: `「${member}」已收回，现在是团队公用，由总工分派。` };
   }
   const verb = op === 'reassign' ? '改派给' : '分配给';
-  return proposed ? `「${member}」${verb} ${to}：${proposed}。` : `「${member}」已${verb} ${to}。`;
+  return proposed ? { kind: 'info', text: `「${member}」${verb} ${to}：${proposed}。` } : { kind: 'success', text: `「${member}」已${verb} ${to}。` };
+}
+
+/**
+ * 收回之前的确认：照实说后果。事项上的「成员的主人」按承接那一刻的分配算（服务端 work-item-access 的 owner）：
+ * 分给这个人期间接手的事，这个人照样看得到；收回之后接的事不再算他的
+ */
+export function unassignConfirmText(member: string, assignee: string): string {
+  return `收回后「${member}」变成团队公用，由总工分派。它分给 ${assignee} 期间接手的事，${assignee} 照样看得到；收回之后再接的事，不再算 ${assignee} 的。`;
 }
 
 /** 改派是先收回再分配（服务端没有一步改派的接口）：收回成了、分配没成时，说清楚成员现在是团队公用 */

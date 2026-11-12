@@ -13,9 +13,13 @@
   · 成员分配（规范 14 第二节）：团队上 can_assign 为真时（负责人、管理层），团队公用的成员出「分配给…」，已分配的出「改派」「收回」；
     总工没有；选人只从 assignable 里选，改派时不列现在的人；分配、改派（先收回再分配）、收回发对了请求，卡片原地更新、不闪骨架；
     被拒时写服务端的说法、卡片不变；改派收回成了分配没成时说清楚现在是团队公用；回 202 时照提议说；
-    can_assign 不是真（系统管理员、普通员工）：一个按钮都没有。环境变量 TEAM_SHOTS 指一个目录时，存三张 1440 截图（分配前、分配后、普通员工只读）；
+    选人和收回的确认在弹窗里，收回照实写后果；办成了是轻提示（antd message），202 是提示色，改派一半是警示色；
+    can_assign 不是真（系统管理员、普通员工）：一个按钮都没有；系统管理员的头卡上写一句分配归谁；
+    名册新的标「正常」，过期的标「名册过期」（不同时写「正常」）；看的人由截下的 /api/auth/me 给，左下角不是「未登录」。
+    环境变量 TEAM_SHOTS 指一个目录时，存 1440 截图（分配前、选人弹窗、分配后、收回确认、普通员工只读）；
   · 不是管理员的视图（应答里没有待认领这一栏）：没有建部门、没有待认领。"""
 import json, os, sys, urllib.request
+from datetime import datetime, timedelta, timezone
 from playwright.sync_api import sync_playwright
 cfg = json.load(open(sys.argv[1]))
 M, TOK = cfg['base'], cfg['token']
@@ -48,8 +52,10 @@ HOST = 'a1b2c3d4'
 ROUTER = seat('ops/a1b2c3d4', '合成总工', role='router', active=2)
 UNCLAIMED = {'host': HOST, 'team': 'ops/canvas/合成运营', 'name': '合成运营', 'status': 'unclaimed', 'in_roster': True, 'department': None, 'leads': [], 'router': ROUTER,
              'members': [seat('ops/00000001', '小算', active=3), seat('ops/00000002', '小审')]}
+# 名册收到的时刻：库里的写法（UTC、不带时区、中间空格）。默认是三分钟前（新的）；过期的另造三小时前的
+def sql_time(ago): return (datetime.now(timezone.utc) - ago).strftime('%Y-%m-%d %H:%M:%S')
 def claimed(dept_name):
-    return {**UNCLAIMED, 'status': 'active', 'node_name': '合成节点', 'roster_received_at': '2020-01-01 00:00:00', 'department': {'id': 'synthetic-ops', 'name': dept_name},
+    return {**UNCLAIMED, 'status': 'active', 'node_name': '合成节点', 'roster_received_at': sql_time(timedelta(minutes=3)), 'department': {'id': 'synthetic-ops', 'name': dept_name},
             'leads': [{'principal': 'user:jia', 'display_name': '甲经理', 'source': 'department'}, {'principal': 'user:yi', 'display_name': '乙主管', 'source': 'explicit'}],
             'members': [seat('ops/00000001', '小算', active=3, to={'principal': 'user:bing', 'display_name': '丙'}), seat('ops/00000002', '小审', online=False)]}
 # 口令管理员是系统管理员、不是管理层：认领、指定负责人只能提议（服务端的 can）
@@ -140,7 +146,8 @@ with sync_playwright() as p:
     m1, m2 = mems.nth(0).inner_text(), mems.nth(1).inner_text()
     check('成员卡：名字（不带句柄）、在办几件、分配给谁 / 团队公用', mems.count() == 2 and m1.split('\n')[0].strip() == '小算' and '在办 3 件' in m1 and '分配给 丙' in m1 and '团队公用' in m2 and '手上没有在办的' in m2, [m1, m2])
     check('总工单独一张卡，写「只对负责人」', '只对负责人' in pg.locator('[data-testid=team-router]').inner_text())
-    check('名册很久没更新：头卡上用提醒色写一句（合成的收到时刻在很久以前）', '名册已' in pg.locator('[data-testid=team-roster-stale]').inner_text() and '没更新' in pg.locator('[data-testid=team-roster-stale]').inner_text())
+    check('名册是新的（三分钟前）：标「正常」，不写没更新', pg.locator('[data-testid=team-roster-stale]').count() == 0 and pg.locator('.wm-team-st', has_text='正常').count() == 1)
+    check('系统管理员的视图（团队上 can_assign 为假）：头卡上写「成员分配由团队负责人或管理层做」', pg.locator('[data-testid=team-assign-by]').inner_text() == '成员分配由团队负责人或管理层做')
     check('在线、不在线用点区分', mems.nth(0).locator('.wm-team-dot.on').count() == 1 and mems.nth(1).locator('.wm-team-dot.on').count() == 0)
     check('待认领清空了就不显示这一块', pg.locator('.wm-team-unclaimed').count() == 0)
     check('整页不露代号：节点标识、团队和席位句柄都不出现', not any(x in pg.locator('body').inner_text() for x in [HOST, 'ops/', '/canvas/']), pg.locator('body').inner_text()[:300])
@@ -209,77 +216,112 @@ with sync_playwright() as p:
         fake(r, {'ok': True, 'removed': had})
     pg.route('**/api/teams/assign', on_assign)
     pg.route('**/api/teams/unassign', on_unassign)
+    # 看的人：负责人甲经理（/api/auth/me 截下来，左下角写他，不是「未登录」）
+    def me(login, name): return {'gate': 'off', 'authenticated': True, 'via': 'odoo', 'login': login, 'principal': f'user:{login}', 'display_name': name, 'roles': []}
+    who = {'me': me('jia', '甲经理')}
+    pg.route('**/api/auth/me', lambda r: fake(r, who['me']))
     pg.reload(); pg.wait_for_selector('[data-testid=team-member]')
     card = lambda name: pg.locator('[data-testid=team-member]', has_text=name)
+    modal = lambda: pg.locator('.ant-modal-wrap:not([style*="display: none"]) .ant-modal')
+    def toast(text):
+        pg.wait_for_function("(t) => [...document.querySelectorAll('.ant-message-notice')].some(e => e.innerText.includes(t))", arg=text)
+        return pg.locator('.ant-message-notice', has_text=text).first
+    def pick_in_modal(text):
+        modal().locator('[data-testid=team-assign-to]').click()
+        pg.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option', has_text=text).first.click()
+    def modal_gone(): pg.wait_for_function("document.querySelectorAll('.ant-modal-wrap:not([style*=\"display: none\"]) .ant-modal').length === 0")
+    check('左下角是看的人（截下的 /api/auth/me），不是「未登录」', pg.get_by_text('未登录', exact=True).count() == 0 and pg.get_by_text('jia', exact=True).count() >= 1)
     shot('team-lead-before-assign-1440.png')
-    check('负责人：团队公用的成员出「分配给…」，已分配的出「改派」「收回」；总工卡上没有',
+    check('负责人：团队公用的成员出「分配给…」，已分配的出「改派」「收回」（收回是危险色）；总工卡上没有；负责人视图不写「分配由谁做」',
           card('小审').locator('[data-testid=team-assign-open]').count() == 1 and card('小审').locator('[data-testid=team-reassign-open]').count() == 0
-          and card('小算').locator('[data-testid=team-reassign-open]').count() == 1 and card('小算').locator('[data-testid=team-unassign-open]').count() == 1 and card('小算').locator('[data-testid=team-assign-open]').count() == 0
-          and pg.locator('[data-testid=team-router] button').count() == 0)
+          and card('小算').locator('[data-testid=team-reassign-open]').count() == 1 and card('小算').locator('[data-testid=team-unassign-open].ant-btn-dangerous').count() == 1 and card('小算').locator('[data-testid=team-assign-open]').count() == 0
+          and pg.locator('[data-testid=team-router] button').count() == 0 and pg.locator('[data-testid=team-assign-by]').count() == 0)
     check('两字按钮不自动插空格：「改派」「收回」', card('小算').locator('[data-testid=team-reassign-open]').inner_text() == '改派' and card('小算').locator('[data-testid=team-unassign-open]').inner_text() == '收回')
 
-    # 分配：选人只从 assignable 里选
+    # 分配：弹窗里选人，只从 assignable 里选
     n0 = len(posted)
-    card('小审').locator('[data-testid=team-assign-open]').click()
-    check('分配：没选人之前不能点', card('小审').locator('[data-testid=team-assign-confirm]').is_disabled())
-    card('小审').locator('[data-testid=team-assign-to]').click()
+    card('小审').locator('[data-testid=team-assign-open]').click(); modal().wait_for()
+    check('分配：弹窗标题写把谁分给谁；没选人之前不能点', '把「小审」分配给谁' in modal().inner_text() and modal().locator('[data-testid=team-assign-confirm]').is_disabled())
+    modal().locator('[data-testid=team-assign-to]').click()
     opts = pg.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option').all_inner_texts()
     check('分配：可选的人就是服务端给的 assignable（只写名字，不露标识）', sorted(opts) == sorted(['丙', '丁', '戊']), opts)
     pg.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option', has_text='丁').first.click()
-    card('小审').locator('[data-testid=team-assign-confirm]').click()
+    pg.wait_for_timeout(400); shot('team-lead-assign-modal-1440.png')
+    modal().locator('[data-testid=team-assign-confirm]').click(); modal_gone()
     pg.wait_for_function("[...document.querySelectorAll('[data-testid=team-member]')].some(e => e.innerText.includes('小审') && e.innerText.includes('分配给 丁'))")
     check('分配：发的是这个席位、分给丁；办完卡片当场写「分配给 丁」，按钮换成改派、收回', posted[n0:] == [('assign', {'host': HOST, 'team': 'ops/canvas/合成运营', 'seat': 'ops/00000002', 'seat_id': '', 'principal': 'user:ding'})]
           and card('小审').locator('[data-testid=team-reassign-open]').count() == 1, posted[n0:])
-    check('分配：页面上方说一句已分配给谁', '「小审」已分配给 丁' in pg.locator('[data-testid=team-notice]').inner_text())
+    t_ok = toast('「小审」已分配给 丁')
+    check('分配：成功是轻提示（几秒自动消失的成功消息），不是页面上方的横幅', t_ok.locator('.ant-message-success').count() == 1 and pg.locator('[data-testid=team-notice]').count() == 0)
     check('分配：重读不闪骨架（部门分块一直在）', pg.locator('.ant-skeleton').count() == 0 and pg.locator('[data-testid=team-dept]').count() == 1)
 
-    # 改派：先收回再分配；不列现在的人
+    # 改派：弹窗里写现在归谁，不列现在的人；先收回再分配
     n0 = len(posted)
-    card('小算').locator('[data-testid=team-reassign-open]').click()
-    card('小算').locator('[data-testid=team-assign-to]').click()
+    card('小算').locator('[data-testid=team-reassign-open]').click(); modal().wait_for()
+    check('改派：弹窗写现在分给丙、改派是先收回再分', '现在分给 丙' in modal().inner_text() and '先收回' in modal().inner_text(), modal().inner_text())
+    modal().locator('[data-testid=team-assign-to]').click()
     opts = pg.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option').all_inner_texts()
-    check('改派：不列现在归的那个人', sorted(opts) == ['丁', '戊'] or sorted(opts) == sorted(['丁', '戊']), opts)
+    check('改派：不列现在归的那个人', sorted(opts) == sorted(['丁', '戊']), opts)
     pg.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option', has_text='戊').first.click()
-    card('小算').locator('[data-testid=team-assign-confirm]').click()
+    modal().locator('[data-testid=team-assign-confirm]').click(); modal_gone()
     pg.wait_for_function("[...document.querySelectorAll('[data-testid=team-member]')].some(e => e.innerText.includes('小算') && e.innerText.includes('分配给 戊'))")
     check('改派：先收回、再分给戊；卡片当场写「分配给 戊」', [x[0] for x in posted[n0:]] == ['unassign', 'assign'] and posted[n0 + 1][1]['principal'] == 'user:wu' and posted[n0][1]['seat'] == 'ops/00000001', posted[n0:])
-    shot('team-lead-after-assign-1440.png')
+    toast('「小算」已改派给 戊')
+    pg.wait_for_timeout(300); shot('team-lead-after-assign-1440.png')
 
-    # 收回
+    # 收回：二次确认，照实写后果
     n0 = len(posted)
-    card('小审').locator('[data-testid=team-unassign-open]').click()
-    check('收回：先说清楚收回之后回到团队公用，再点确认', '回到团队公用' in card('小审').locator('[data-testid=team-unassign-form]').inner_text())
-    card('小审').locator('[data-testid=team-unassign-confirm]').click()
+    card('小审').locator('[data-testid=team-unassign-open]').click(); modal().wait_for()
+    body_ = modal().inner_text()
+    check('收回：先弹确认，照实写变成团队公用、分给丁期间接手的事丁照样看得到、之后的不算丁的；还没发请求',
+          '收回「小审」？' in body_ and '变成团队公用' in body_ and '丁 照样看得到' in body_ and '不再算 丁 的' in body_ and posted[n0:] == [], body_)
+    pg.wait_for_timeout(400); shot('team-lead-unassign-confirm-1440.png')
+    modal().locator('button', has_text='算了').click(); modal_gone()
+    check('收回：点「算了」什么都不发，归属不变', posted[n0:] == [] and '分配给 丁' in card('小审').inner_text())
+    card('小审').locator('[data-testid=team-unassign-open]').click(); modal().wait_for()
+    modal().locator('[data-testid=team-unassign-confirm]').click(); modal_gone()
     pg.wait_for_function("[...document.querySelectorAll('[data-testid=team-member]')].some(e => e.innerText.includes('小审') && e.innerText.includes('团队公用'))")
-    check('收回：发的是这个席位；卡片当场写「团队公用」，按钮回到「分配给…」', posted[n0:] == [('unassign', {'host': HOST, 'team': 'ops/canvas/合成运营', 'seat': 'ops/00000002', 'seat_id': ''})]
+    check('收回：确认之后发的是这个席位；卡片当场写「团队公用」，按钮回到「分配给…」', posted[n0:] == [('unassign', {'host': HOST, 'team': 'ops/canvas/合成运营', 'seat': 'ops/00000002', 'seat_id': ''})]
           and card('小审').locator('[data-testid=team-assign-open]').count() == 1, posted[n0:])
 
-    # 被拒：写服务端的说法，卡片不变
+    # 被拒：弹窗里写服务端的说法，卡片不变
     assign['next'] = (409, {'error': 'seat_assigned', 'message': '这个成员已经分给 丙，先收回再分'})
-    card('小审').locator('[data-testid=team-assign-open]').click(); pick(pg, 'team-assign-to', '丙')
-    card('小审').locator('[data-testid=team-assign-confirm]').click(); card('小审').locator('[data-testid=team-assign-err]').wait_for()
-    check('分配被拒：卡片上写服务端的说法，归属不变', '先收回再分' in card('小审').locator('[data-testid=team-assign-err]').inner_text() and '团队公用' in card('小审').locator('[data-testid=team-assigned]').inner_text())
-    card('小审').locator('button', has_text='算了').click()
+    card('小审').locator('[data-testid=team-assign-open]').click(); modal().wait_for(); pick_in_modal('丙')
+    modal().locator('[data-testid=team-assign-confirm]').click(); modal().locator('[data-testid=team-assign-err]').wait_for()
+    check('分配被拒：弹窗里写服务端的说法，归属不变', '先收回再分' in modal().locator('[data-testid=team-assign-err]').inner_text() and '团队公用' in card('小审').locator('[data-testid=team-assigned]').inner_text())
+    modal().locator('button', has_text='算了').click(); modal_gone()
 
     # 回 202（分配只是提议）：照提议说，不当成已生效
     assign['next'] = (202, {'ok': True, 'proposed': True, 'proposal': {'id': 77, 'status': 'pending', 'confirm_by_text': '管理层'}})
-    card('小审').locator('[data-testid=team-assign-open]').click(); pick(pg, 'team-assign-to', '丙')
-    card('小审').locator('[data-testid=team-assign-confirm]').click(); pg.wait_for_function("(document.querySelector('[data-testid=team-notice]')?.innerText ?? '').includes('等管理层确认')")
-    check('分配回 202：上方说「已提出，等管理层确认」，卡片仍是团队公用', '「小审」分配给 丙：已提出，等管理层确认' in pg.locator('[data-testid=team-notice]').inner_text() and '团队公用' in card('小审').locator('[data-testid=team-assigned]').inner_text())
+    card('小审').locator('[data-testid=team-assign-open]').click(); modal().wait_for(); pick_in_modal('丙')
+    modal().locator('[data-testid=team-assign-confirm]').click(); modal_gone()
+    t_info = toast('等管理层确认')
+    check('分配回 202：提示「已提出，等管理层确认」（提示色，不是成功），卡片仍是团队公用', '「小审」分配给 丙：已提出，等管理层确认' in t_info.inner_text() and t_info.locator('.ant-message-info').count() == 1 and '团队公用' in card('小审').locator('[data-testid=team-assigned]').inner_text())
 
     # 改派一半：收回成了、分配没成
     assign['next'] = (422, {'error': 'assignee_not_person', 'message': '只分给启用的人，user:ding 不是'})
-    card('小算').locator('[data-testid=team-reassign-open]').click(); pick(pg, 'team-assign-to', '丁')
-    card('小算').locator('[data-testid=team-assign-confirm]').click()
+    card('小算').locator('[data-testid=team-reassign-open]').click(); modal().wait_for(); pick_in_modal('丁')
+    modal().locator('[data-testid=team-assign-confirm]').click(); modal_gone()
     pg.wait_for_function("[...document.querySelectorAll('[data-testid=team-member]')].some(e => e.innerText.includes('小算') && e.innerText.includes('团队公用'))")
-    check('改派一半：上方说已收回、改派没办成、现在是团队公用；卡片照实写团队公用', '已收回，但改派给 丁 没办成' in pg.locator('[data-testid=team-notice]').inner_text() and '现在是团队公用' in pg.locator('[data-testid=team-notice]').inner_text())
+    t_warn = toast('已收回，但改派给 丁 没办成')
+    check('改派一半：警示说已收回、改派没办成、现在是团队公用；卡片照实写团队公用', '现在是团队公用' in t_warn.inner_text() and t_warn.locator('.ant-message-warning').count() == 1)
 
     # 普通员工（can_assign 不是真）：只读
+    who['me'] = me('geng', '庚')
     state['teams'] = {'departments': [{'id': 'synthetic-ops', 'name': '合成运营部', 'lead': {'principal': 'user:jia', 'display_name': '甲经理'},
         'teams': [{**lead_team, 'can_assign': False, 'assign_denied_text': '只有这个团队的负责人或管理层能分配、收回成员', 'assignable': PEOPLE}]}]}
     pg.reload(); pg.wait_for_selector('[data-testid=team-member]')
-    check('普通员工（can_assign 不是真）：成员卡上一个分配、改派、收回都没有（服务端多给了 assignable 也不出）', pg.locator('.wm-team-member-ops').count() == 0 and pg.locator('[data-testid=team-member] button').count() == 0)
+    check('普通员工（can_assign 不是真）：成员卡上一个分配、改派、收回都没有（服务端多给了 assignable 也不出）；不是管理员也不写「分配由谁做」',
+          pg.locator('.wm-team-member-ops').count() == 0 and pg.locator('[data-testid=team-member] button').count() == 0 and pg.locator('[data-testid=team-assign-by]').count() == 0)
     shot('team-member-readonly-1440.png')
+
+    # 名册过期：三小时前收到的（库里的写法，按 UTC 解析）——标「名册过期」，不再同时写「正常」
+    state['teams']['departments'][0]['teams'][0]['roster_received_at'] = sql_time(timedelta(hours=3, minutes=5))
+    pg.reload(); pg.wait_for_selector('[data-testid=team-roster-stale]')
+    check('名册三小时没更新：头卡写「名册已 3 小时没更新」，状态标「名册过期」，不写「正常」（不带时区的时刻按 UTC 解析，不差 8 小时）',
+          pg.locator('[data-testid=team-roster-stale]').inner_text() == '名册已 3 小时没更新' and pg.locator('.wm-team-st', has_text='名册过期').count() == 1 and pg.locator('.wm-team-st', has_text='正常').count() == 0,
+          pg.locator('[data-testid=team-team] .wm-team-head').inner_text())
+    pg.unroute('**/api/auth/me')
 
     state['teams'] = {'departments': state['teams']['departments']}
     pg.reload(); pg.wait_for_selector('[data-testid=team-dept]')
