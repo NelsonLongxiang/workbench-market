@@ -1,0 +1,505 @@
+{
+  "domain": "departments",
+  "what": "部门：/api/departments 的 7 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。主体都是合成的。",
+  "routes": [
+    "GET /api/departments",
+    "GET /api/departments/of/:principal",
+    "GET /api/departments/:id",
+    "PUT /api/departments/:id",
+    "DELETE /api/departments/:id",
+    "PUT /api/departments/:id/members/:principal",
+    "DELETE /api/departments/:id/members/:principal"
+  ],
+  "exempt": [{ "route": "GET /api/departments", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/list-junk-query" }],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "缺省配置：登录门关，没设管理口令。本机命令行（回环直连、不带浏览器标记和转发头）算管理员；带转发头的按远程处理。库里预先放一个人、一个席位、一个系统身份。",
+      "env": {},
+      "seed": [
+        { "table": "principals", "row": { "id": "user:synthetic-a", "id_key": "user:synthetic-a", "kind": "person", "display_name": "合成甲" } },
+        { "table": "principals", "row": { "id": "seat:synthetic-bot", "id_key": "seat:synthetic-bot", "kind": "seat", "display_name": "合成席位", "owner": "user:synthetic-a" } },
+        { "table": "principals", "row": { "id": "system:synthetic-cron", "id_key": "system:synthetic-cron", "kind": "system", "display_name": "合成系统", "owner": "user:synthetic-a" } }
+      ],
+      "steps": [
+        {
+          "id": "list-empty",
+          "route": "GET /api/departments",
+          "class": "normal",
+          "what": "新库里没有部门：空数组",
+          "request": { "method": "GET", "path": "/api/departments" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "18", "etag": "W/\"12-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "departments": [] }
+          }
+        },
+        {
+          "id": "list-junk-query",
+          "route": "GET /api/departments",
+          "class": "normal",
+          "what": "这条路由不读查询串：带无关、畸形的参数照常应答",
+          "request": { "method": "GET", "path": "/api/departments?limit=abc&id=-1&x[]=y" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "18", "etag": "W/\"12-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "departments": [] }
+          }
+        },
+        {
+          "id": "list-remote-anon",
+          "route": "GET /api/departments",
+          "class": "unauthorized",
+          "what": "远程、没登录：读不到",
+          "request": { "method": "GET", "path": "/api/departments", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "departments_auth_required" }
+          }
+        },
+        {
+          "id": "put-remote-anon",
+          "route": "PUT /api/departments/:id",
+          "class": "unauthorized",
+          "what": "远程、没有口令：建不了",
+          "request": { "method": "PUT", "path": "/api/departments/sales", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "name": "合成销售部" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "put-bad-id",
+          "route": "PUT /api/departments/:id",
+          "class": "invalid",
+          "what": "标识写法不对：400",
+          "request": { "method": "PUT", "path": "/api/departments/Sales", "json": { "name": "合成销售部" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "131", "etag": "W/\"83-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "部门标识要是小写字母开头的字母、数字、连字符，最多 48 个字符", "code": "department_id_invalid" }
+          }
+        },
+        {
+          "id": "put-no-name",
+          "route": "PUT /api/departments/:id",
+          "class": "invalid",
+          "what": "没有名称：400",
+          "request": { "method": "PUT", "path": "/api/departments/sales", "json": {} },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "90", "etag": "W/\"5a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "name 要是部门名称（1～64 个字符）", "code": "department_name_invalid" }
+          }
+        },
+        {
+          "id": "put-lead-seat",
+          "route": "PUT /api/departments/:id",
+          "class": "invalid",
+          "what": "负责人不是人：422",
+          "request": { "method": "PUT", "path": "/api/departments/sales", "json": { "name": "合成销售部", "lead": "seat:synthetic-bot" } },
+          "response": {
+            "status": 422,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "86", "etag": "W/\"56-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "lead_not_person", "message": "负责人要是人，seat:synthetic-bot 不是" }
+          }
+        },
+        {
+          "id": "put-create",
+          "route": "PUT /api/departments/:id",
+          "class": "normal",
+          "what": "本机命令行建部门：201",
+          "request": { "method": "PUT", "path": "/api/departments/sales", "json": { "name": "合成销售部", "function_code": "dp_sales", "lead": "user:synthetic-a" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "183", "etag": "W/\"b7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "department": { "id": "sales", "name": "合成销售部", "function_code": "dp_sales", "lead": { "principal": "user:synthetic-a", "display_name": "合成甲" }, "member_count": 0, "source": "manual" } }
+          }
+        },
+        {
+          "id": "put-update",
+          "route": "PUT /api/departments/:id",
+          "class": "normal",
+          "what": "改名称，不写的职能代号、负责人保持原样：200",
+          "request": { "method": "PUT", "path": "/api/departments/sales", "json": { "name": "合成销售中心" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "186", "etag": "W/\"ba-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "department": { "id": "sales", "name": "合成销售中心", "function_code": "dp_sales", "lead": { "principal": "user:synthetic-a", "display_name": "合成甲" }, "member_count": 0, "source": "manual" } }
+          }
+        },
+        {
+          "id": "put-code-taken",
+          "route": "PUT /api/departments/:id",
+          "class": "invalid",
+          "what": "职能代号已经配给别的部门：409",
+          "request": { "method": "PUT", "path": "/api/departments/ops", "json": { "name": "合成运营部", "function_code": "dp_sales" } },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "90", "etag": "W/\"5a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "function_code_taken", "message": "职能代号 dp_sales 已经配给部门 sales" }
+          }
+        },
+        {
+          "id": "member-remote-anon",
+          "route": "PUT /api/departments/:id/members/:principal",
+          "class": "unauthorized",
+          "what": "远程、没有口令：加不了成员",
+          "request": { "method": "PUT", "path": "/api/departments/sales/members/user:synthetic-a", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "member-system",
+          "route": "PUT /api/departments/:id/members/:principal",
+          "class": "invalid",
+          "what": "成员是系统身份：422",
+          "request": { "method": "PUT", "path": "/api/departments/sales/members/system:synthetic-cron" },
+          "response": {
+            "status": 422,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "101", "etag": "W/\"65-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "member_kind", "message": "部门成员要是人或席位，system:synthetic-cron 是 system" }
+          }
+        },
+        {
+          "id": "member-bad-id",
+          "route": "PUT /api/departments/:id/members/:principal",
+          "class": "invalid",
+          "what": "主体标识写法不对：400",
+          "request": { "method": "PUT", "path": "/api/departments/sales/members/nobody" },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "95", "etag": "W/\"5f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "主体标识写法不对（形如 user:<登录名>）", "code": "principal_id_invalid" }
+          }
+        },
+        {
+          "id": "member-add",
+          "route": "PUT /api/departments/:id/members/:principal",
+          "class": "normal",
+          "what": "加成员：201",
+          "request": { "method": "PUT", "path": "/api/departments/sales/members/user:synthetic-a" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "68", "etag": "W/\"44-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": "sales", "principal": "user:synthetic-a", "added": true }
+          }
+        },
+        {
+          "id": "member-add-seat",
+          "route": "PUT /api/departments/:id/members/:principal",
+          "class": "normal",
+          "what": "加席位：201",
+          "request": { "method": "PUT", "path": "/api/departments/sales/members/seat:synthetic-bot" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "70", "etag": "W/\"46-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": "sales", "principal": "seat:synthetic-bot", "added": true }
+          }
+        },
+        {
+          "id": "member-add-again",
+          "route": "PUT /api/departments/:id/members/:principal",
+          "class": "normal",
+          "what": "已经在里面：200，added=false",
+          "request": { "method": "PUT", "path": "/api/departments/sales/members/user:synthetic-a" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "69", "etag": "W/\"45-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": "sales", "principal": "user:synthetic-a", "added": false }
+          }
+        },
+        {
+          "id": "list-one",
+          "route": "GET /api/departments",
+          "class": "normal",
+          "what": "列表：负责人、成员人数、职能代号、来源",
+          "request": { "method": "GET", "path": "/api/departments" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "189", "etag": "W/\"bd-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "departments": [{ "id": "sales", "name": "合成销售中心", "function_code": "dp_sales", "lead": { "principal": "user:synthetic-a", "display_name": "合成甲" }, "member_count": 2, "source": "manual" }] }
+          }
+        },
+        {
+          "id": "read",
+          "route": "GET /api/departments/:id",
+          "class": "normal",
+          "what": "单个部门连同成员",
+          "request": { "method": "GET", "path": "/api/departments/sales" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "420", "etag": "W/\"1a4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "department": { "id": "sales", "name": "合成销售中心", "function_code": "dp_sales", "lead": { "principal": "user:synthetic-a", "display_name": "合成甲" }, "member_count": 2, "source": "manual" },
+              "members": [
+                { "principal": "seat:synthetic-bot", "display_name": "合成席位", "kind": "seat", "status": "active", "is_lead": false },
+                { "principal": "user:synthetic-a", "display_name": "合成甲", "kind": "person", "status": "active", "is_lead": true }
+              ]
+            }
+          }
+        },
+        {
+          "id": "read-remote-anon",
+          "route": "GET /api/departments/:id",
+          "class": "unauthorized",
+          "what": "远程、没登录：读不到",
+          "request": { "method": "GET", "path": "/api/departments/sales", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "departments_auth_required" }
+          }
+        },
+        {
+          "id": "read-missing",
+          "route": "GET /api/departments/:id",
+          "class": "invalid",
+          "what": "部门不存在：404",
+          "request": { "method": "GET", "path": "/api/departments/nope" },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "64", "etag": "W/\"40-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "department_missing", "message": "部门 nope 不存在" }
+          }
+        },
+        {
+          "id": "read-bad-id",
+          "route": "GET /api/departments/:id",
+          "class": "invalid",
+          "what": "标识写法不对：400",
+          "request": { "method": "GET", "path": "/api/departments/NOPE" },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "131", "etag": "W/\"83-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "部门标识要是小写字母开头的字母、数字、连字符，最多 48 个字符", "code": "department_id_invalid" }
+          }
+        },
+        {
+          "id": "of",
+          "route": "GET /api/departments/of/:principal",
+          "class": "normal",
+          "what": "某人属于哪些部门",
+          "request": { "method": "GET", "path": "/api/departments/of/user:synthetic-a" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "150", "etag": "W/\"96-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "principal": "user:synthetic-a", "departments": [{ "id": "sales", "name": "合成销售中心", "function_code": "dp_sales", "is_lead": true, "is_member": true }] }
+          }
+        },
+        {
+          "id": "of-none",
+          "route": "GET /api/departments/of/:principal",
+          "class": "normal",
+          "what": "不在任何部门：空数组",
+          "request": { "method": "GET", "path": "/api/departments/of/user:synthetic-nobody" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "principal": "user:synthetic-nobody", "departments": [] }
+          }
+        },
+        {
+          "id": "of-remote-anon",
+          "route": "GET /api/departments/of/:principal",
+          "class": "unauthorized",
+          "what": "远程、没登录：读不到",
+          "request": { "method": "GET", "path": "/api/departments/of/user:synthetic-a", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "departments_auth_required" }
+          }
+        },
+        {
+          "id": "of-bad-id",
+          "route": "GET /api/departments/of/:principal",
+          "class": "invalid",
+          "what": "主体标识写法不对：400",
+          "request": { "method": "GET", "path": "/api/departments/of/nobody" },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "95", "etag": "W/\"5f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "主体标识写法不对（形如 user:<登录名>）", "code": "principal_id_invalid" }
+          }
+        },
+        {
+          "id": "member-remove-remote-anon",
+          "route": "DELETE /api/departments/:id/members/:principal",
+          "class": "unauthorized",
+          "what": "远程、没有口令：移不了",
+          "request": { "method": "DELETE", "path": "/api/departments/sales/members/seat:synthetic-bot", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "member-remove-bad-id",
+          "route": "DELETE /api/departments/:id/members/:principal",
+          "class": "invalid",
+          "what": "主体标识写法不对：400",
+          "request": { "method": "DELETE", "path": "/api/departments/sales/members/nobody" },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "95", "etag": "W/\"5f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "主体标识写法不对（形如 user:<登录名>）", "code": "principal_id_invalid" }
+          }
+        },
+        {
+          "id": "member-remove",
+          "route": "DELETE /api/departments/:id/members/:principal",
+          "class": "normal",
+          "what": "移出席位：removed=true",
+          "request": { "method": "DELETE", "path": "/api/departments/sales/members/seat:synthetic-bot" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "72", "etag": "W/\"48-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": "sales", "principal": "seat:synthetic-bot", "removed": true }
+          }
+        },
+        {
+          "id": "member-remove-again",
+          "route": "DELETE /api/departments/:id/members/:principal",
+          "class": "normal",
+          "what": "再移一次：removed=false",
+          "request": { "method": "DELETE", "path": "/api/departments/sales/members/seat:synthetic-bot" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "73", "etag": "W/\"49-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": "sales", "principal": "seat:synthetic-bot", "removed": false }
+          }
+        },
+        {
+          "id": "delete-remote-anon",
+          "route": "DELETE /api/departments/:id",
+          "class": "unauthorized",
+          "what": "远程、没有口令：删不了",
+          "request": { "method": "DELETE", "path": "/api/departments/sales", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "delete-missing",
+          "route": "DELETE /api/departments/:id",
+          "class": "invalid",
+          "what": "部门不存在：404",
+          "request": { "method": "DELETE", "path": "/api/departments/nope" },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "64", "etag": "W/\"40-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "department_missing", "message": "部门 nope 不存在" }
+          }
+        },
+        {
+          "id": "delete",
+          "route": "DELETE /api/departments/:id",
+          "class": "normal",
+          "what": "删部门，成员归属一起删",
+          "request": { "method": "DELETE", "path": "/api/departments/sales" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "44", "etag": "W/\"2c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "id": "sales", "members_removed": 1 } }
+        },
+        {
+          "id": "list-after-delete",
+          "route": "GET /api/departments",
+          "class": "normal",
+          "what": "删了之后列表又是空的",
+          "request": { "method": "GET", "path": "/api/departments" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "18", "etag": "W/\"12-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "departments": [] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "staff",
+      "what": "假登录提供方：内部员工 alpha 登录（不是管理员）。",
+      "env": {},
+      "fixtures": ["identity-fake"],
+      "steps": [
+        {
+          "id": "staff-list",
+          "route": "GET /api/departments",
+          "class": "normal",
+          "what": "登录的员工读部门列表（空）",
+          "request": { "method": "GET", "path": "/api/departments", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "18", "etag": "W/\"12-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "departments": [] }
+          }
+        },
+        {
+          "id": "staff-cross-site",
+          "route": "GET /api/departments",
+          "class": "unauthorized",
+          "what": "登录的员工，浏览器从别的站点发来：403",
+          "request": { "method": "GET", "path": "/api/departments", "headers": { "sec-fetch-site": "cross-site", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "43", "etag": "W/\"2b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "departments_cross_origin_denied" }
+          }
+        },
+        {
+          "id": "staff-put",
+          "route": "PUT /api/departments/:id",
+          "class": "unauthorized",
+          "what": "登录的员工不是管理员：建不了",
+          "request": { "method": "PUT", "path": "/api/departments/sales", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "origin": "http://127.0.0.1" }, "json": { "name": "合成销售部" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        }
+      ]
+    }
+  ]
+}

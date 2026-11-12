@@ -44,6 +44,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_A2A_FOLLOWUP_RATE_10MIN`（席位跟进每个对端 10 分钟内存正文的条数上限·缺省 300·只收 1～100000 的整数，否则拒绝启动；超出的不存正文、只计数，结清回执照回）
 - `A2A_ORIGIN_CLAIM_UNBOUND`（v1 未绑定调用方签名兼容窗：`off`=停发 `X-A2A-Caller-Sig`，缺省继续发；v1 不绑路由，未升级对端上可被剥 Sig2 重放，全舰队升级后应设 `off`）
 - `WM_A2A_MEMBER_PROVENANCE`（缺省 `on`：市场名片声明 `canvasMemberProvenance`——a2a-net 0.8 起，对钉了公钥的画布成员只往声明了它的宿主转发，不声明则席位的回执到不了市场；声明即承诺：名片只列本节点自己服务、互不重复的句柄 `market/<8 hex>`，发给它们的消息只在本节点投递、查无或有歧义一律 404，句柄只由本节点密钥签发；`off`=不声明，名片与之前完全相同；其它值拒绝启动）
+- `WM_A2A_PROGRESS_RECEIPTS`（缺省 `on`：市场名片声明 `progressReceipts`——宿主只给声明了它的调用方发进展回执 `progress-<task>-<n>`；市场收下后只记录、给事项页做「正在处理」提示和子项，不结清原派工、不推事项状态；`off`=不声明，宿主不发进展；其它值拒绝启动）
 - `WM_A2A_TEAM_ROSTER`（缺省 `on`：市场名片声明 `teamRoster`——a2a-net next/0.8 的宿主只给声明了它的画布远端成员推团队名册 `[A2A roster]`，市场照规矩收（投递过的宿主、Sig3、节点键取自验过签的公钥）；`off` 时不声明、入站名册一律不收；其它值拒绝启动）
 - `LAYERFS_SERVICE_URL`/`LAYERFS_SERVICE_TOKEN`（LayerFS·缺一即禁用）
 - `LAYERFS_SERVICE_TOKEN_FILE`（LayerFS 令牌文件·设了就以文件为准，不回落到库里或环境变量里的令牌；内容不足 32 字节拒绝启动）
@@ -268,7 +269,7 @@ GET              /api/health/ready              就绪：含 LayerFS 探测（�
 - **飞书登录**（`WM_FEISHU_LOGIN=on`）：标准授权码流程，`GET /login/feishu?next=<站内地址>` 发起，回调 `/login/feishu/callback`。回调地址按 `MARKET_PUBLIC_URL` 拼，要和飞书应用里登记的一致。`state` 一次性、绑在发起它的浏览器上、10 分钟有效、按来源限额；`next` 只收站内路径。飞书应用的标识和密钥从凭据库里的一条（`WM_FEISHU_VAULT_ENTRY`）取，要部署方配了服务端主密码（`DSH_VAULT_PASSWORD_FILE`）才能无人值守读；库锁着时飞书登录回 503。认人用 union_id。还没对到主体的飞书身份：不自动建主体，停在「等管理员开通」，列进 `GET /api/principals/pending`，管理员用 `POST /api/principals/bind` 对一次，第一批上线可以用 `POST /api/principals/bind-batch`（请求体 `{"items":[{"provider","external_id","principal","create"}…],"reason"}`，一次最多 500 条，逐条给结果）。待对接清单只放对方的用户标识、显示名、企业邮箱和最近一次来的时间，30 天没再来的清掉；等待页对停用的和没对到主体的一模一样，不透露有没有这个人。打开 `WM_FEISHU_AUTO_BIND_EMAIL` 时，飞书企业邮箱和身份来源的登录名（按规范化之后）恰好对上一个启用的人、而且那个人还没有别的飞书身份，才自动绑，每次自动绑定留一行痕。
 - **离职即时失效**：飞书事件订阅的请求地址填 `<MARKET_PUBLIC_URL>/login/feishu/events`，订阅「员工离职」`contact.user.deleted_v3` 和「员工信息被修改」`contact.user.updated_v3`，并配 Encrypt Key。Encrypt Key、Verification Token 放在凭据库同一条（`WM_FEISHU_VAULT_ENTRY`）的自定义字段 `encrypt_key`、`verification_token` 里。照飞书文档验签（时间戳 5 分钟内、`X-Lark-Signature`）、解密、核对 Token 和 App ID；验不过 401。同一个事件号只处理一次（多实例共用、保留 7 天）；记事件号和停用在同一个事务里，停用出错事件号一起撤回，飞书重推时照常处理。处理出错只回固定的 503（`event_unavailable`），内部原因只进日志。离职、被修改成离职、冻结、退出的人：停用他绑着的主体，每个入口立即不认，会话一并注销；还没对到主体的从待对接清单里删掉。配了租户时别的租户的事件不处理。
 - **每日对账**：每天一次把绑在启用的人身上的飞书身份交给飞书查（`tenant_access_token` 加按 union_id 查人），状态明确说离职、冻结、退出的才停用；飞书出错、查不到的一个也不停用，只计数留痕。管理员可以手动跑一次：`POST /api/principals/reconcile`，请求体 `{"flow":"feishu"}`。**补不上的情形**：飞书那边直接删掉的人，如果「员工离职」事件也丢了，按 union_id 查回来是「不存在」，对账按查不清处理、不停用，每天留痕里的 `unknown` 会一直算上他。`unknown` 不为 0 就要人工复核：留痕的 `unknown_ids` 列出查不清的 union_id（最多 100 个），对着飞书通讯录核对，确认离开了由管理员手动停用（`POST /api/principals/disable`）。
-- **角色与授予**（阶段六 6b，只建结构，不接判定，不改变任何人能做什么）：角色是声明——平台的七个内置预设（`owner` 属主＝全部；`admin` 系统管理员＝系统域的读写管、各处的管理类，**默认不看业务数据**；`management` 管理层＝全公司的读写决定、不管系统；`dept-lead` 部门负责人＝读写决定、范围由授予给；`member` 普通员工＝读、提需求那几个写、只限自己的事的决定；`guest` 访客＝空、授予必须有期限；`ai-staff` AI 员工＝读写、只授予非人主体、决定类永远无效），组织角色用仓库里的通用初始集合（`dept-member` 部门成员＝读写），或者 `WM_ROLES_FILE` 指的外部声明文件。内置预设不能被覆盖、不能改，只能复制成自定义角色；预设的定义在阶段六切换之前不生效（放不放行照旧由各处的旧守卫决定）。权限按动作或按类别写，类别可以用 `domains` 圈在几个动作的域里；域分「系统」「业务」两张清单（`server/src/roles.ts`，进快照），每个已登记动作的域都要在其中一张，清单外新长出来的域算业务。范围通常不写、由授予给（`*`、`domain:`、`bench:`、`sop:`、`tool:`、`self`，另预留 `object:` 只存只比相等）。授予是数据：`/api/grants` 起草→提交→放行→撤销，状态只能往前走、每步留痕；不能给自己授予；管理员级的只有属主（本机命令行，或持有生效的 `owner` 授予的人）能放行；不是人的主体要有在职的责任人；决定类权限不给不是人的主体；到期自动失效。
+- **角色与授予**（阶段六 6b，只建结构，不接判定，不改变任何人能做什么）：角色是声明——平台的七个内置预设（`owner` 属主＝全部；`admin` 系统管理员＝系统域的读写管、各处的管理类，**默认不看业务数据**；`management` 管理层＝全公司的读写决定、不管系统；`dept-lead` 部门负责人＝读写决定、范围由授予给；`member` 普通员工＝读、提需求那几个写、只限自己的事的决定；`guest` 访客＝空、授予必须有期限；`ai-staff` AI 员工＝读写、只授予非人主体、决定类永远无效），组织角色用仓库里的通用初始集合（`dept-member` 部门成员＝读写），或者 `WM_ROLES_FILE` 指的外部声明文件。内置预设不能被覆盖、不能改，只能复制成自定义角色；预设的定义在阶段六切换之前不生效（放不放行照旧由各处的旧守卫决定）。权限按动作或按类别写，类别可以用 `domains` 圈在几个动作的域里；域分「系统」「业务」两张清单（`server/src/roles.ts`，进快照），每个已登记动作的域都要在其中一张，清单外新长出来的域算业务。范围通常不写、由授予给（`*`、`domain:`（授权域）、`dept:`（部门，标识要在部门表里）、`bench:`、`sop:`、`tool:`、`self`，另预留 `object:` 只存只比相等）。授予是数据：`/api/grants` 起草→提交→放行→撤销，状态只能往前走、每步留痕；不能给自己授予；管理员级的只有属主（本机命令行，或持有生效的 `owner` 授予的人）能放行；不是人的主体要有在职的责任人；决定类权限不给不是人的主体；到期自动失效。
 - **自定义角色**（存库，校验和声明文件同一套）：`POST /api/roles/:id/copy {id, name}` 从任一角色复制；`PUT /api/roles/:id {name?, permissions}` 改（应答里 `affected_grants` 列出会影响的授予）；`DELETE /api/roles/:id`（有授予在用 409）；`POST /api/roles/:id/approve` 属主放行；`GET /api/roles/export` 导出成声明文件的格式。带来管理类或决定类权限的建和改要属主放行：口令管理员建的先 `pending`（放行前不能授予），改的先记成 `proposed`（放行前生效的定义不动）。从 AI 员工复制出来的不许带决定类。不能和内置预设、声明文件里的重名；声明文件后来用了同一个 id 或名字的，重启后以声明文件为准。每次建、提议、改、放行、删都留痕。都要管理员，放行只认属主。`GET /api/roles/matrix` 给「谁能做什么」的角色矩阵：角色 × 七大块（全景、事项与对话、关注、工作台数据、团队与 AI 员工、权限与角色、系统与节点，`roles.ts` 的 `BLOCKS`，每个动作的域归且只归一块）× 看/做/拍板/管理，格子取值 `all`（全部）、`scoped`（范围内）、`some`（部分动作）、`self`（只限自己的）、`none`（不能）、`na`（这一块没有这一类动作），另带卡片用的四句白话；服务端从角色定义算，前端不拼。`/api/auth/me` 认出了人时另带 `principal`、`display_name`、`roles`（当前生效授予的角色键、中文名、范围、是不是预设、来源 manual/migration、放行人）；口令、本机命令行、没登录时 `principal` 为 null、`roles` 为空。升级要注意的见 [docs/upgrade-notes.md](docs/upgrade-notes.md)。
 - **判定与并行比对**（阶段六 6c，不改变任何人能做什么）：
   - 判定是 Cordis 事件 `judgment/judge`，按 bail 派发。内置监听器照六步判：主体停用→拒；动作没声明→拒；决定类而做的不是人→先问人；有覆盖的授予→允许，席位还要责任人也有；其余→拒。企业规则是另外的插件，挂在它前面。
@@ -392,12 +393,13 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   a2a-stats.ts（A2A 出站积压的聚合读数：两张出站表按状态计数、最老待发、最近回执时长）
   attention-sources.ts（「关注」要用、来源里还没有现成函数的只读查询：席位未答的提问）
   bench-store.ts（台库对市场进程的接口：读写不在市场进程里跑，这里只排队、转发给工作线程、看时限、线程出事时收拾·读 3 秒写 15 秒，时限加宽限过了还不停才强行终止线程并另起·排队有上限·接口全异步·还没有对外入口，不判权限）
-  bench-store-core.ts（台库的逻辑本体，在工作线程里跑：每个视图台一份自己的库，在数据目录 `bench-stores/` 下·数据集与列定义的版本·整份替换、追加、按主键更新和删行（逐行校验、幂等键、上限）·快照与退回·视图描述的版本、生效指针、并发保存不覆盖、回退只移指针·变更与写入记录只存摘要·时间由调用方给、一个台的读写排成一队·到时限自己停下并回滚·运行时不引用 `db.ts`，建表语句由调用方递进来）
+  bench-store-core.ts（台库的逻辑本体，在工作线程里跑：每个视图台一份自己的库，在数据目录 `bench-stores/` 下·数据集与列定义的版本·整份替换、追加、按主键更新和删行（逐行校验、幂等键、上限）·快照与退回·视图描述的版本、生效指针、并发保存不覆盖、回退只移指针·变更与写入记录只存摘要·视图取数（一次取齐各组件的数据）和表单提交·三道数据量上限·时间由调用方给、一个台的读写排成一队·到时限自己停下并回滚·运行时不引用 `db.ts`，建表语句由调用方递进来）
   bench-store-worker.ts（台库的工作线程入口：一次做一件事，只认登记过的操作名和消息格式，回话带上这件事提交了的变更）
   attention.ts（「关注」：Cordis 服务 `attention`·各来源注册提供方、可撤销·汇总当前这个人的条目和各类条数）
   binding.ts（A2A 人工绑定）
   change-request.ts（人审变更请求；detailOf 给审核卡片看内容所需的最少字段：版本从几到几、目标版本说明、删除连带几个版本几个文件、不可恢复）
   custom-role.ts（自定义角色：Cordis 服务 `customRoles`·从内置预设复制、改、删、属主放行、导出·每步留痕·带来管理类或决定类权限的要属主放行）
+  department.ts（部门：Cordis 服务 `departments`·部门清单、负责人、成员归属、职能代号·部门标识即授予范围 dept:<标识>·还有没结束的部门授予时不能删）
   grant.ts（授予：Cordis 服务 `grants`·草稿→待核→生效→撤销或过期只能往前走·不能给自己授予·管理员级只有属主能放行·决定类只给人·到期自动失效·每步留痕）
   judgment-compare.ts（判定比对的记账：Cordis 服务 `judgmentCompare`·按路由计数·不一致合并计数、有上限）
   login-session.ts（市场会话与登录 state：Cordis 服务 `loginSessions`·绝对期限·注销与停用即失效·state 一次性并绑浏览器）
@@ -405,7 +407,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   remote-allow.ts（远程写豁免面的快照）
   submission-counts.ts（「人提需求」的提交计数：只记通道、有没有登录凭据、认没认出人，按天累计次数，不存内容；提交人票据验得过、验不过的次数）
   task-center.ts（任务中心：任务、事件、总开关、状态迁移）
-  work-item.ts（事项与事项日志：Cordis 服务 `workItems`·按迁移表推进状态的唯一入口 `apply`·日志只增不改；听 workbench-events 每写一行事件日志发的 `workbench-event/logged`，在来源的事务里用保存点推进事项，出错不影响来源、按事实种类计数；`backfill()` 从事件表和事件日志补建存量事项，可重跑；建事项时标题取任务中心的任务标题（取不到退到来源坐标）、派给取投递的目标团队，存量里还是自动缺省值的启动时补上；建立人主体 `creator_principal` 只取发布时经身份服务认出、来源已验证的人，认不出就空着，「是不是他的」只认它（`isCreator`），`created_by` 只用于显示（认出提需求人时就是他的主体，认不出才用事件上自填的名字；不拿发布人顶替））
+  work-item.ts（事项与事项日志：Cordis 服务 `workItems`·按迁移表推进状态的唯一入口 `apply`·日志只增不改；听 workbench-events 每写一行事件日志发的 `workbench-event/logged`，在来源的事务里用保存点推进事项，出错不影响来源、按事实种类计数；`backfill()` 从事件表和事件日志补建存量事项，可重跑；建事项时记下交给方式（handoff：team / own-seat / lead-directed，存量是 team）、等谁过目（review_by）和指名的席位（directed_seat_id，只认 seatId），都从事件层 recorded 那一行取；建事项时标题取任务中心的任务标题（取不到退到来源坐标）、派给取投递的目标团队，存量里还是自动缺省值的启动时补上；建立人主体 `creator_principal` 只取发布时经身份服务认出、来源已验证的人，认不出就空着，「是不是他的」只认它（`isCreator`），`created_by` 只用于显示（认出提需求人时就是他的主体，认不出才用事件上自填的名字；不拿发布人顶替））
 server/src/routes/    按域分的路由模块，各带一个注册函数（一个文件一行，按文件名排序）：
   a2a-direct.ts（A2A 入站 /a2a/direct：POST 收对端投递（回执分流、入站签名、绑定准入），GET 一律 404）
   a2a-outbound.ts（A2A 出站的两条管理面：/api/a2a/state 本节点 A2A 身份概况、/api/a2a/send 以市场身份发一条消息；都只给管理员，send 只发给对端登记表里 active 的对端，发往登记的根地址）
@@ -422,6 +424,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   cockpits.ts（驾驶舱 /api/cockpits）
   content-observation.ts（门户观测状态 /api/content/observation）
   cookies.ts（Cookie 池 /api/cookies）
+  departments.ts（部门 /api/departments：登录的人读列表、单个部门的成员、某人属于哪些部门；管理员建改删部门和成员）
   design-tokens.ts（设计 token 固定路径 /design/tokens@<版本>.css）
   export-import.ts（导出与导入 /api/export、/api/import）
   grants.ts（角色与授予的管理接口 /api/roles、/api/grants：起草、提交、放行、撤销）
@@ -440,7 +443,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   sop-run-access.ts（SOP run 的私有读授权管理 /api/sop/runs/:id/read-grants、/read-caps：授权、撤销、重签读能力、撤销全部读能力，只给管理员）
   sop-run-control.ts（SOP run 的开建、指派与进行中列表 /api/sop/runs、/assign、/active；开 run 是公开入口，task-center 的录入经身份服务认出提需求的人）
   sop-run-files.ts（SOP run 的交付文件 /api/sop/runs/:id/files：上传、列表、下载、引用已有文件；上传是公开入口，读要本 run 的读能力或管理员）
-  sop-run-lifecycle.ts（SOP run 的列表、读、写一步、完成、升级预检、升级 /api/sop/runs、/:id、/finish、/upgrade-preflight、/upgrade；写一步和完成是公开入口，读要读能力或管理员，升级要管理员或本机命令行）
+  sop-run-lifecycle.ts（SOP run 的列表、读、写一步、完成、升级预检、升级 /api/sop/runs、/:id、/finish、/upgrade-preflight、/upgrade；写一步和完成是公开入口，读要读能力或管理员，升级要管理员或本机命令行；「等你拍板」里待验收派单 run 的当场验收经导出的 sopRunAcceptance：不靠上传令牌的那两条（管理员、本机命令行）和完成接口同一处，执行就是完成接口那一个）
   sops.ts（SOP 台 /api/sops：列表、发布、废弃，和定义、治理时间线）
   sso.ts（SSO 回调 /sso/callback）
   stats.ts（端点命中统计 /api/stats）
@@ -451,7 +454,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   a2a-roster.ts（团队名册的读 GET /api/a2a/teams：登录即可读，只有席位信息（团队、席位名、角色、在岗、在办件数从事项现算），不含事项内容；名册只当信息，判定一律不看它）
   work-items.ts（「安排一件事」POST /api/work-items：会话登录的启用的人直接建一件事项，建立人是本人，派给绑在任务中心上的团队（GET /api/work-items/teams 列出），缺省先过目，幂等键按人，限流和员工直派开关在设置里（arrange_rate_per_minute、arrange_rate_per_day、staff_direct_dispatch），规则在 task-center.ts 的 arrangeTask。事项列表 /api/work-items：按 state、object、phase 筛，按更新时间倒序游标翻页，带可见范围里按状态的计数和每件的最后一条进展；可见范围和详情同一个判断，看不到的不出现也不计数。事项的读 /api/work-items/:id：事项和它的日志，事项页的时间线照着渲染；管理员看全部、登录的人只看自己建立的。建立人验收、退回 POST /api/work-items/:id/decision：不经管理门（写请求总门只对这一条子路径放行），经身份服务认人、主体须是启用的人、同源，事项服务判是不是建立人和能不能由建立人答，只收验收、退回，只对等验收的事项；建立人只认事项上的建立人主体，空着的只有管理员能看、能处理）
   workbenches.ts（工作台 /api/workbenches、/api/check-all）
-web/src/        pages/（Dashboard/Market/Sops/Types/Settings/UseWorkbench/Cockpit/McpGateways/Tasks/Skills/SopSpace/SopRunDetail/Vault/Reviews/OwnerPending/Attention/WorkItem/NotYet） work-item-view.ts（事项详情页的提示、进展、结果解析，纯函数） NotYet.tsx（还没有数据来源的入口：说清要显示什么、在等哪项接口） components/（Shell.tsx 外壳：侧栏与主区卡片；WmPage.tsx 页面骨架：顶栏与内容区） admin-token.ts（统一口令注入）
+web/src/        pages/（Dashboard/Market/Sops/Types/Settings/UseWorkbench/Cockpit/McpGateways/Tasks/Skills/SopSpace/SopRunDetail/Vault/Reviews/OwnerPending/Attention/WorkItem/NotYet/Home） home-view.ts（全景首页的行、格子、总结句，纯函数） work-item-view.ts（事项详情页的提示、进展、结果解析，纯函数） NotYet.tsx（还没有数据来源的入口：说清要显示什么、在等哪项接口） components/（Shell.tsx 外壳：侧栏与主区卡片；WmPage.tsx 页面骨架：顶栏与内容区） admin-token.ts（统一口令注入）
 deploy/         Dockerfile.market（多阶段·非 root·HEALTHCHECK） docker-compose.yml（回环默认·profiles 隔离） layerfs-svc.mjs
 docs/           layerfs-service-contract-v0/v1.md（LayerFS 服务契约） data-views.md（数据视图设计稿：模块化渲染组件、每台一份数据、经 MCP 更新；未开工）
 data/           SQLite 数据文件（git 忽略）

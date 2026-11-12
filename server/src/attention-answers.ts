@@ -22,6 +22,7 @@ import { forward } from './attention-forward.ts';
 import { answerBody, findBoardWorkbench } from './owner-pending.ts';
 import { principalsAdmin } from './routes/principals.ts';
 import { changeRequestReview } from './routes/change-requests.ts';
+import { sopRunAcceptance } from './routes/sop-run-lifecycle.ts';
 import { HttpError } from './errors.ts';
 import { currentAskOfDelivery, pendingAskOfDelivery, pendingPrincipalAppearance } from './services/attention-sources.ts';
 import { askTaskOf, deliveryTarget, eventDispatched, inReplyTx, queueReply } from './services/a2a-replies.ts';
@@ -134,6 +135,21 @@ const DIRECT: Record<string, Record<string, (req: Req, id: string, input: Input,
       const reason = text(input.reason, 500);
       if (!reason) return { status: 400, body: { error: 'reason_required' } };
       return applied(id, { kind: 'return', source: 'attention', id: randomUUID(), actor, reason });
+    },
+  },
+  'sop-runs': {
+    /**
+     * 待验收的派单 run：验收通过 = 完成这个 run（和 POST /api/sop/runs/:id/finish 同一个执行：字段校验、完成、给派单方发回执）。
+     * 谁能做和完成接口里不靠上传令牌的那两条同一处（管理员、本机命令行）；字段没填全照旧 400，run 不动。没有打回（run 没有退回的语义）
+     */
+    finish: async (req, id) => {
+      if (!NUM.test(id)) return { status: 400, body: { error: 'attention_id_invalid' } };
+      if (!sopRunAcceptance) return { status: 503, body: { error: 'sop_run_acceptance_unavailable' } };
+      if (!(await sopRunAcceptance.allowed(req))) return { status: 403, body: { error: 'forbidden' } };
+      try { return { status: 200, body: await sopRunAcceptance.finish(Number(id)) as Record<string, unknown> }; } catch (e) {
+        if (e instanceof HttpError) return { status: e.status, body: { error: e.message, ...(e.extra ?? {}) } };
+        throw e;
+      }
     },
   },
   'seat-asks': {

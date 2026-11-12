@@ -65,6 +65,8 @@ try {
     ok('非法值拒绝启动（退出码 1，不是超时被杀）', r.status === 1 && r.signal === null && /拒绝启动：WM_A2A_MEMBER_PROVENANCE/.test(r.stderr + r.stdout), `status=${r.status} signal=${r.signal}`);
     const r2 = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], { cwd: 'server', env: { ...process.env, DATA_DIR: DATA, PORT: '0', WM_CONTROL_PORT: '0', NODE_ENV: 'test', MCP_GATEWAY: 'off', WM_A2A_TEAM_ROSTER: 'yes' }, encoding: 'utf8', timeout: 30000 });
     ok('WM_A2A_TEAM_ROSTER 非法值拒绝启动（退出码 1，不是超时被杀）', r2.status === 1 && r2.signal === null && /拒绝启动：WM_A2A_TEAM_ROSTER/.test(r2.stderr + r2.stdout), `status=${r2.status} signal=${r2.signal}`);
+    const r3 = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], { cwd: 'server', env: { ...process.env, DATA_DIR: DATA, PORT: '0', WM_CONTROL_PORT: '0', NODE_ENV: 'test', MCP_GATEWAY: 'off', WM_A2A_PROGRESS_RECEIPTS: 'yes' }, encoding: 'utf8', timeout: 30000 });
+    ok('WM_A2A_PROGRESS_RECEIPTS 非法值拒绝启动（退出码 1，不是超时被杀）', r3.status === 1 && r3.signal === null && /拒绝启动：WM_A2A_PROGRESS_RECEIPTS/.test(r3.stderr + r3.stdout), `status=${r3.status} signal=${r3.signal}`);
   }
 
   boot();
@@ -82,6 +84,8 @@ try {
   const c1 = await card();
   ok('缺省：名片声明 teamRoster（节点只给声明了它的远端推名册），启动日志写明', c1.capabilities?.teamRoster === true && /名片声明 teamRoster/.test(out), JSON.stringify(c1.capabilities));
   ok('缺省声明 canvasMemberProvenance', c1.capabilities?.canvasMemberProvenance === true, JSON.stringify(c1.capabilities));
+  ok('缺省声明 progressReceipts（进展入站已按「不结清、不推状态」收）', c1.capabilities?.progressReceipts === true, JSON.stringify(c1.capabilities));
+  ok('启动日志有一行说明声明了 progressReceipts', /名片声明 progressReceipts（WM_A2A_PROGRESS_RECEIPTS=on）/.test(out));
   ok('名片验签过（能力在签名面里）', verifyCard(c1, Date.now()).ok === true);
   const handles = (c1.sessionTeams ?? []).map((t) => t.team);
   ok('句柄形如 market/<8 hex>，前缀是名片 team', handles.length === 2 && handles.every((h) => /^market\/[0-9a-f]{8}$/.test(h) && h.startsWith(c1.team + '/')), JSON.stringify(handles));
@@ -183,10 +187,10 @@ try {
 
   console.log('开关 off');
   await stop();
-  boot({ WM_A2A_MEMBER_PROVENANCE: 'off', WM_A2A_TEAM_ROSTER: 'off' });
+  boot({ WM_A2A_MEMBER_PROVENANCE: 'off', WM_A2A_PROGRESS_RECEIPTS: 'off', WM_A2A_TEAM_ROSTER: 'off' });
   if (!(await ready())) throw new Error('off 未就绪');
   const c4 = await card();
-  ok('开关都 off：capabilities 与之前完全相同（不声明 canvasMemberProvenance、teamRoster）', JSON.stringify(c4.capabilities) === JSON.stringify({ sop: true, bindings: 'human-only', stage: 'P1-readonly' }), JSON.stringify(c4.capabilities));
+  ok('开关都 off：capabilities 与之前完全相同（不声明 canvasMemberProvenance、progressReceipts、teamRoster）', JSON.stringify(c4.capabilities) === JSON.stringify({ sop: true, bindings: 'human-only', stage: 'P1-readonly' }), JSON.stringify(c4.capabilities));
   ok('off：名片验签过', verifyCard(c4, Date.now()).ok === true);
   // 已知的存量差异：开关关着时不比 zone，别的 zone 前缀 + 存在的 node8 仍被承接（与之前逐字节相同）
   r = await call('POST', '/a2a/direct', { team: `other/${(c4.sessionTeams ?? [])[0]?.team?.split('/')[1]}`, message: JSON.stringify({ sop: { action: 'start' } }), caller_session: 'dsh/1a2b3c4d', task_id: 'prov-off-1' });
