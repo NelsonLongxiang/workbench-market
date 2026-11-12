@@ -8,6 +8,7 @@
  *   二、回填中途进程被杀：重启接着跑（从记下的游标），终态和一次跑完的逐行相同
  *   三、重跑逐行相同；再启动只从上次的水位往后增量核（没有新事实时核 0 个）
  *   三之二、回滚到没有事项服务的版本期间写进来的事件和事实：再启动时增量补回来（验收方复现的场景）
+ *   三之三、增量阶段一个事件的新日志行跨过批（50 行）和片的边界（每片一行）：这个事件只核一次，events 是事件数不是行数
  *   四、回填期间新进来的事实（游标已过的事件、还没核到的事件、新事件）不丢、不重复
  *   五、回填跑的期间监听器漏过事实：这一轮记成 stale，下次启动从头全量核、补回来
  *   匿名的健康检查只给回填的 state，细节（批数、游标、事件数）只给带管理口令的请求
@@ -102,16 +103,17 @@ function snapshot(dataDir) {
 }
 const mark = (dataDir) => { const c = new DatabaseSync(join(dataDir, 'workbench-market.db'), { readOnly: true }); try { return c.prepare('SELECT version, status, phase, cursor, batches, events, log_mark, dirty FROM work_item_backfill WHERE id = 1').get(); } catch { return null; } finally { c.close(); } };
 
-/** 参照：同一份数据，进程内一次同步跑完（手动入口 backfill()） */
+/** 参照：同一份数据，进程内一次同步跑完（手动入口 backfill()）。返回它的耗时（毫秒）：同一台机器上量后台回填吞吐的尺子 */
 function reference(dataDir) {
   const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', `
     const { root } = await import(${JSON.stringify(at('server/src/root-context.ts'))});
     const { WorkItemService } = await import(${JSON.stringify(at('server/src/services/work-item.ts'))});
     await root.plugin(WorkItemService);
-    const r1 = root.get('workItems').backfill();
-    console.log('REF ' + JSON.stringify(r1));
+    const t = Date.now(); const r1 = root.get('workItems').backfill();
+    console.log('REF ' + JSON.stringify({ ...r1, ms: Date.now() - t }));
     process.exit(0);`], { env: ENV(dataDir), encoding: 'utf8', timeout: 300000 });
   if (!r.stdout.includes('REF')) throw new Error(`参照跑不完：${r.stderr.slice(-600)}`);
+  return JSON.parse(/REF (.*)/.exec(r.stdout)[1]).ms;
 }
 
 rmSync(OUT, { recursive: true, force: true });
@@ -121,7 +123,8 @@ try {
   const small = join(OUT, 'small'), big = join(OUT, 'big');
   seed(small, 1000); seed(big, 10000);
   const bigCopy = join(OUT, 'big-copy'); cpSync(big, bigCopy, { recursive: true }); // 给第二节用
-  const refDir = join(OUT, 'ref'); cpSync(big, refDir, { recursive: true }); reference(refDir);
+  const refDir = join(OUT, 'ref'); cpSync(big, refDir, { recursive: true }); const refMs = reference(refDir);
+  const refDir2 = join(OUT, 'ref-after'); cpSync(big, refDir2, { recursive: true }); // 后台回填跑完之后再量一次同步参照
   const refSnap = snapshot(refDir);
   check(refSnap.items === 10000, '参照：一次同步跑完，10000 个事件建出 10000 件事项', show(refSnap.items));
   const s1 = await start(small); await s1.stop('SIGKILL');
@@ -129,7 +132,15 @@ try {
   console.log(`  · 首个应答：1000 个事件 ${s1.firstMs} ms，10000 个事件 ${s2.firstMs} ms（回填状态 ${s2.firstState}）`);
   check(s2.firstState !== null && s2.firstState !== 'done', '回填不挡启动：10000 个事件时，首个应答里回填还没跑完（应答先于回填）', show({ firstState: s2.firstState }));
   check(s2.firstMs <= 3 * s1.firstMs, '启动到能应答的时间不随事件数增长（10000 个事件的首个应答耗时不超过 1000 个的 3 倍）', show({ small: s1.firstMs, big: s2.firstMs }));
-  const d2 = await waitDone(s2, 60000);
+  // 期限只防卡死，不是吞吐判据（吞吐看下面那条相对断言）。回填等启动自检过了才开始（#652），从首个应答算起要跑完全部事件，
+  // 不再像以前那样启动时先跑一段：所以不用一个跟机器快慢绑在一起的绝对数
+  const d2 = await waitDone(s2, Math.max(120000, 6 * refMs));
+  // 吞吐：回填自己这一段（从第一片到跑完，产品在完成那一行日志里报的用时）和同一份数据、同一台机器上一次同步跑完比，不超过 1.5 倍。
+  // 同步参照在后台回填前后各量一次、取大的：负载下这把尺子自己晃得厉害（阶段一验收压着负载量过 68、26、24 秒），取大的少些慢机器上的误报
+  const bgMs = Number(/后台回填完成[^\n]*用时 (\d+) 毫秒/.exec(s2.log())?.[1] ?? NaN);
+  const refMs2 = reference(refDir2), refBase = Math.max(refMs, refMs2);
+  console.log(`  · 后台回填自己用时 ${bgMs} ms，同一份数据一次同步跑完 ${refMs} / ${refMs2} ms（前 / 后，取大的；${(bgMs / refBase).toFixed(2)} 倍）`);
+  check(Number.isFinite(bgMs) && bgMs <= 1.5 * refBase, '后台分批回填的吞吐：从第一片到跑完的用时不超过同一份数据一次同步跑完的 1.5 倍（同一台机器上比，参照前后各量一次取大的；分片让出、照常应答的代价有上限）', show({ bgMs, refMs, refMs2 }));
   const anon = await s2.health(true);
   await s2.stop();
   check(show(Object.keys(anon.backfill ?? {})) === show(['state']) && anon.backfill.state === 'done', '匿名的健康检查只给回填的 state（不透露批数、游标、事件数）', show(anon.backfill));
@@ -188,6 +199,50 @@ try {
     check(d.h.backfill.phase === 'incremental' && counts.events === 10005 && counts.items === 10005 && counts.asks === 1, '回滚期间（没有事项服务）写进来的 5 个新事件和老事件上的一条新提问：再启动增量补回来（事件 10005、事项 10005）', show({ counts, done: d.h.backfill }));
     check(d.h.backfill.events === 6, '增量只核有新日志行的事件（6 个），不是全量', show(d.h.backfill));
     check(snapshot(big).digest === snapshot(copy).digest, '增量补完的结果，和事后同步全量重跑一遍的逐行相同');
+  }
+
+  // ---------- 三之三、增量阶段一个事件的新日志行跨过批（50 行）和片的边界：这个事件只核一次 ----------
+  {
+    // 三个事件各来 70 条新日志行、交错写（210 行，跨四批）；增量那次让 Date.now 每调一次走 30 毫秒，
+    // 每一片只处理一行就到点（片的边界落在每一行之后，确定、和机器快慢无关）。数每个事件被核（syncEvent）几次
+    const dir = join(OUT, 'cross'); seed(dir, 20);
+    const run = (code, label) => {
+      const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', code], { env: ENV(dir), encoding: 'utf8', timeout: 120000 });
+      const m = /OUT (.*)/.exec(r.stdout);
+      if (!m) throw new Error(`${label}跑不完：${r.stderr.slice(-600)}`);
+      return JSON.parse(m[1]);
+    };
+    const waitDone = `const svc = root.get('workItems');
+      for (let i = 0; i < 1200 && svc.backfillStatus().state !== 'done'; i++) await new Promise((r) => setTimeout(r, 50));`;
+    const full = run(`
+      const { root } = await import(${JSON.stringify(at('server/src/root-context.ts'))});
+      const { WorkItemService } = await import(${JSON.stringify(at('server/src/services/work-item.ts'))});
+      await root.plugin(WorkItemService);
+      ${waitDone}
+      console.log('OUT ' + JSON.stringify(svc.backfillStatus())); process.exit(0);`, '先全量跑完');
+    run(`
+      const { db } = await import(${JSON.stringify(at('server/src/db.ts'))});
+      const ids = [3, 7, 11].map((i) => 'wbe-' + i.toString(16).padStart(16, '0'));
+      const l = db.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, 'receiver:team-a', 'receipt:progress', ?)");
+      const del = Object.fromEntries(ids.map((id) => [id, db.prepare('SELECT id FROM workbench_event_deliveries WHERE event_id = ?').get(id).id]));
+      db.exec('BEGIN');
+      for (let n = 0; n < 70; n++) for (const id of ids) l.run(id, del[id], JSON.stringify({ summary: '第 ' + n + ' 步' }));
+      db.exec('COMMIT');
+      console.log('OUT {}'); process.exit(0);`, '写新日志行');
+    const inc = run(`
+      let fake = Date.now(); Date.now = () => (fake += 30);
+      const { root } = await import(${JSON.stringify(at('server/src/root-context.ts'))});
+      const { WorkItemService } = await import(${JSON.stringify(at('server/src/services/work-item.ts'))});
+      const synced = {};
+      const orig = WorkItemService.prototype.syncEvent;
+      WorkItemService.prototype.syncEvent = function (id) { synced[id] = (synced[id] ?? 0) + 1; return orig.call(this, id); };
+      await root.plugin(WorkItemService);
+      ${waitDone}
+      console.log('OUT ' + JSON.stringify({ status: svc.backfillStatus(), synced })); process.exit(0);`, '增量');
+    const counts = Object.values(inc.synced);
+    check(full.state === 'done' && inc.status.state === 'done' && inc.status.phase === 'incremental' && inc.status.batches >= 210
+      && Object.keys(inc.synced).length === 3 && counts.every((n) => n === 1) && inc.status.events === 3,
+      '增量阶段一个事件的新日志行跨过批和片的边界（3 个事件 × 70 行交错、每片一行）：每个事件只核一次，events 是事件数（3）不是行数', show({ full: full.state, inc }));
   }
 
   // ---------- 四、回填期间新进来的事实不丢、不重复 ----------

@@ -80,7 +80,7 @@ async function boot(name, extraEnv = {}, { expectFail = false } = {}) {
       return { status: res.status, text, json };
     } catch (e) { return { status: 0, text: String(e?.name ?? e), json: null }; }
   };
-  const srv = { name, base, host: new URL(base).host, data, stop, call, log: () => log, db: () => new DatabaseSync(join(data, 'workbench-market.db')) };
+  const srv = { name, base, host: new URL(base).host, data, stop, call, log: () => log, db: () => new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 }) };
   running.push(srv);
   return srv;
 }

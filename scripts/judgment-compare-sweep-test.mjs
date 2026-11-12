@@ -87,7 +87,7 @@ try {
   // 种一个台、一个自产台、一个 run，让带 id 的路由走到处理函数里
   await call('POST', '/api/workbenches', {}, { name: 'sweep-wb', url: 'http://127.0.0.1:9/x', type: 'web' });
   {
-    const db = new DatabaseSync(join(data, 'workbench-market.db'));
+    const db = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 });
     try { db.exec('PRAGMA busy_timeout=5000'); db.prepare("INSERT INTO apps (slug, title) VALUES ('sweep-app', 'sweep-app')").run(); } finally { db.close(); }
   }
   const concrete = (p) => {

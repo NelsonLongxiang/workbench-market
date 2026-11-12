@@ -13,6 +13,7 @@
 import { randomUUID } from 'node:crypto';
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
+import { afterStartup } from '../startup-gate.ts';
 
 export const STATES = ['draft', 'held', 'delivered', 'accepted', 'progress', 'waiting', 'ready', 'blocked', 'done', 'failed', 'dropped', 'cancelled'] as const;
 export type WorkItemState = typeof STATES[number];
@@ -398,8 +399,10 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
 export const BACKFILL_VERSION = 6; // 2：阶段七 R2 加了跟进、回复、看过的映射（#546）；3：进展回执的映射（PR-A）；4：回执的 by 记成承接席位；5：承接只取成员、重复事实补写承接（4 已被试联实例用过），终态事项承接空着的也补；6：承接只存句柄、进展只取在做的子项、回填按顺序最后一条为准
 /** 后台回填每一片最多占用事件循环的时长（毫秒），之后让出，好让请求得到应答 */
 const BACKFILL_SLICE_MS = 25;
-/** 每次取的行数（一片里可以取好几次） */
+/** 每次取的行数（取出来的一批跨片接着用，用完再取） */
 const BACKFILL_FETCH = 50;
+/** 进度记账（游标）最多隔多久写一次库：第一片之后记一次，之后按时间节流，跑完照记。进程中途被杀，重启最多重核最后这 1 秒处理过的事件，事实按（来源、id）去重，终态不变 */
+const BACKFILL_MARK_MS = 1000;
 
 export type BackfillStatus = {
   /** pending = 还没开始；running = 在跑；done = 跑完（全量或增量）；failed = 这一轮出错停下（下次启动接着跑） */
@@ -431,11 +434,12 @@ export class WorkItemService extends Service {
     super(ctx, 'workItems');
     // 8b：workbench-events 每写一行事件日志就发一个事件（在它自己的事务里）。随插件卸载自动撤销。
     ctx.on('workbench-event/logged', (row: { event_id: string; action: string }) => this.onLogged(row));
-    // 回填不挡启动：在后台分批跑（每一片让出事件循环），期间事项照常可读、随回填逐步补齐。随插件卸载停下
+    // 回填不挡启动：在后台分批跑（每一片让出事件循环），期间事项照常可读、随回填逐步补齐。随插件卸载停下。
+    // 服务进程里等启动自检通过再开始（startup-gate.ts）：不和自检的请求抢事件循环；自检没过不开始
     ctx.effect(() => {
       let stopped = false;
       // 后台回填出任何错都不能拖垮服务：记下、停在这里，下次启动接着跑
-      const timer = setImmediate(() => {
+      const cancel = afterStartup(() => {
         if (stopped) return;
         // 存量事项补标题和派给：出错只记下，不挡回填
         try { const n = this.fillDerivedAll(); if (n) console.log(`[work-items] 补了 ${n} 件存量事项的标题或派给`); } catch (e) {
@@ -446,7 +450,7 @@ export class WorkItemService extends Service {
           console.error(`[work-items] 后台回填没能开始（不影响服务，下次启动再试，或手动 backfill()）：${(e as Error)?.message ?? e}`);
         }
       });
-      return () => { stopped = true; clearImmediate(timer); };
+      return () => { stopped = true; cancel(); };
     }, 'workItems.backfill');
   }
 
@@ -502,26 +506,37 @@ export class WorkItemService extends Service {
     this.saveBackfillMark({ status: 'running', phase, cursor, batches, events, log_mark: logMark });
     const from = cursor;
     this.progress = { state: 'running', version: BACKFILL_VERSION, phase, cursor, batches, events, from };
+    // 取出来的一批跨片接着用（不每片重取）；增量阶段这一轮核过的事件跨片记着：一个事件的日志行切在两片里也只核一次。
+    // 核一个事件时它在库里的事实都会追上，之后新来的由监听器实时应用，所以这一轮里不用再核第二遍
+    // seen 的上界：这一轮有新日志行的事件数（全量阶段不用它）；进程重启后这一轮从记下的游标重新开始，seen 也从空开始
+    let queue: { id: number; event_id: string }[] = [];
+    let qi = 0;
+    const seen = new Set<string>();
+    let lastMark = 0;
+    // 回填自己这一段从第一片开始算（不含启动、不含等自检），跑完时写进完成那一行日志，量吞吐用
+    const startedAt = Date.now();
     const slice = () => {
       if (stopped()) return;
       try {
         const t0 = Date.now();
+        // 每处理一个事件看一次表：一片最多超出时间表一个事件的工夫
+        const overtime = () => Date.now() - t0 >= BACKFILL_SLICE_MS;
         let finished = false;
         do {
-          // 新库上事件表可能还没建（任务中心初始化时才建）：那就没有可回填的
-          if (!this.hasEvents()) { finished = true; break; }
-          if (phase === 'full') {
-            const ids = db.prepare('SELECT id, event_id FROM workbench_events WHERE id > ? ORDER BY id LIMIT ?').all(cursor, BACKFILL_FETCH) as { id: number; event_id: string }[];
-            if (ids.length === 0) { finished = true; break; }
-            for (const { id, event_id } of ids) { this.syncEvent(event_id); cursor = id; events++; }
-          } else {
-            const rows = db.prepare('SELECT id, event_id FROM workbench_event_log WHERE id > ? ORDER BY id LIMIT ?').all(cursor, BACKFILL_FETCH) as { id: number; event_id: string }[];
-            if (rows.length === 0) { finished = true; break; }
-            const seen = new Set<string>();
-            for (const { event_id } of rows) if (!seen.has(event_id)) { seen.add(event_id); this.syncEvent(event_id); events++; }
-            cursor = rows[rows.length - 1].id;
+          if (qi >= queue.length) {
+            // 新库上事件表可能还没建（任务中心初始化时才建）：那就没有可回填的
+            if (!this.hasEvents()) { finished = true; break; }
+            queue = (phase === 'full'
+              ? db.prepare('SELECT id, event_id FROM workbench_events WHERE id > ? ORDER BY id LIMIT ?')
+              : db.prepare('SELECT id, event_id FROM workbench_event_log WHERE id > ? ORDER BY id LIMIT ?')).all(cursor, BACKFILL_FETCH) as { id: number; event_id: string }[];
+            qi = 0;
+            if (queue.length === 0) { finished = true; break; }
           }
-        } while (Date.now() - t0 < BACKFILL_SLICE_MS);
+          const { id, event_id } = queue[qi++];
+          if (phase === 'full') { this.syncEvent(event_id); events++; }
+          else if (!seen.has(event_id)) { seen.add(event_id); this.syncEvent(event_id); events++; }
+          cursor = id;
+        } while (!overtime());
         batches++;
         if (finished) {
           const dirty = Boolean(this.readBackfillMark()?.dirty);
@@ -529,10 +544,11 @@ export class WorkItemService extends Service {
           this.saveBackfillMark({ status: dirty ? 'stale' : 'done', phase, cursor, batches, events, log_mark: high });
           if (dirty) this.setDirty(true); // saveBackfillMark 不动 dirty；这里显式留着，下次启动从头全量核
           this.progress = { state: 'done', version: BACKFILL_VERSION, phase, cursor, batches, events, from };
-          console.log(`[work-items] 后台回填完成（${phase === 'full' ? '全量' : '增量'}）：核对 ${events} 个事件，${batches} 批${dirty ? '；期间监听器漏过事实，下次启动从头全量核' : ''}`);
+          console.log(`[work-items] 后台回填完成（${phase === 'full' ? '全量' : '增量'}）：核对 ${events} 个事件，${batches} 批，用时 ${Date.now() - startedAt} 毫秒（从第一片到跑完）${dirty ? '；期间监听器漏过事实，下次启动从头全量核' : ''}`);
           return;
         }
-        this.saveBackfillMark({ status: 'running', phase, cursor, batches, events, log_mark: logMark });
+        // 进度记账节流：第一片之后记一次，之后最多隔 BACKFILL_MARK_MS 记一次（每片写一次库的固定开销在慢盘上会拖慢回填）
+        if (lastMark === 0 || Date.now() - lastMark >= BACKFILL_MARK_MS) { this.saveBackfillMark({ status: 'running', phase, cursor, batches, events, log_mark: logMark }); lastMark = Date.now(); }
         this.progress = { state: 'running', version: BACKFILL_VERSION, phase, cursor, batches, events, from };
         setImmediate(slice);
       } catch (e) {

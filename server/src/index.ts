@@ -1,5 +1,8 @@
 // 对外断开（WM_OUTBOUND=off）的闸必须最先装上：之后引入的模块一开套接字就要经过它
 import { outboundOff, noteBlocked, outboundStatus, verifyOutboundGate } from './outbound-gate.ts';
+// 启动闸也要赶在装服务（context.ts）之前拉上：后台任务（事项回填）等启动自检通过再开始
+import './startup-gate-hold.ts';
+import { startupPassed } from './startup-gate.ts';
 import express from 'express';
 import { createStartupSecurityProbe, isStartupProbeRequest, TEST_ENV_WAITS } from './startup-security-self-probe.ts';
 import { createLoginGate, loginGateMode, trustedProxies } from './login-gate.ts';
@@ -3648,6 +3651,7 @@ if (contentCfg && contentRuntime) listenContentSurface(app, contentCfg, contentR
 
 void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, benchViews: BENCH_VIEWS.on, outbound: outboundOff() ? verifyOutboundGate : undefined }).then((result) => {
   if (!result.passed) return refuseUnsafeStartup();
+  startupPassed(); // 放开启动闸：事项回填这类后台任务从这里开始（自检没过不开始）
   startRedis();
   armPatrol();
   svc<SettingService>('setting').put('patrol_armed_at', new Date().toISOString());
