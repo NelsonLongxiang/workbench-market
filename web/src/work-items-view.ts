@@ -31,22 +31,9 @@ export function groupCount(counts: Record<string, number>, key: string): number 
 
 /** 对象（哪条线）、阶段的显示名：从生命周期读接口取（和全景同一处）。代号不露给人：
  *  线没有名字写「未命名的线」；阶段查不到名字就不写这一格 */
-export type Names = { objects: Record<string, string>; stages: Record<string, string> };
-export const NO_NAMES: Names = { objects: {}, stages: {} };
-export const UNNAMED_LINE = '未命名的线';
-export const objectName = (id: string | null | undefined, names: Names = NO_NAMES): string => (id ? names.objects[id] || UNNAMED_LINE : '');
-export const phaseName = (code: string | null | undefined, names: Names = NO_NAMES): string => (code ? names.stages[code] || '' : '');
-
-/** 把生命周期的阶段码表和对象列表拍平成名字表；形状不对的项跳过，没有名字的不收 */
-export function lifecycleNames(types: unknown, objects: unknown): Names {
-  const out: Names = { objects: {}, stages: {} };
-  for (const t of Array.isArray(types) ? types : []) {
-    const st = t && typeof t === 'object' && Array.isArray((t as { stages?: unknown }).stages) ? (t as { stages: unknown[] }).stages : [];
-    for (const x of st) { const o = x as { code?: unknown; name?: unknown } | null; if (o && typeof o.code === 'string' && typeof o.name === 'string' && o.name.trim()) out.stages[o.code] = o.name.trim(); }
-  }
-  for (const x of Array.isArray(objects) ? objects : []) { const o = x as { id?: unknown; name?: unknown } | null; if (o && typeof o.id === 'string' && typeof o.name === 'string' && o.name.trim()) out.objects[o.id] = o.name.trim(); }
-  return out;
-}
+// 线和阶段的名字只在 names.ts 一处；列表页一直叫 objectName / phaseName，这里转一下名字
+import { NO_NAMES, UNNAMED_LINE, lifecycleNames, lineName as objectName, stageName as phaseName, type Names } from './names.ts';
+export { NO_NAMES, UNNAMED_LINE, lifecycleNames, objectName, phaseName, type Names };
 
 /** 最后一条进展怎么写成一句人话。节点给的原文像「completed：工单「…」已结束（completed）：【…结果回执】正文…」：
  *  开头的结局代号换成中文（做完了、没办成……），去掉节点自带的套话和代号，只留正文的头一句；清不出正文就只写结局。 */
@@ -151,4 +138,14 @@ export function lastSaid(lp: { fact?: string; text?: string }): string {
   if (!word) return body;
   // 正文就是这件事的名字（「验收通过」）时不重复
   return body && body !== word ? `${word}：${body}` : word;
+}
+
+/** 地址里带的视角和席位（驾驶舱「AI 员工」点卡跳过来是 ?view=seats&seat=…）：只认四个视角名、席位不超过 200 字；认不出的当没带。
+ *  返回给列表接口的参数（GET /api/work-items?view=&seat=，#626） */
+export const VIEW_NAMES = ['mine', 'seats', 'team', 'all'] as const;
+export function urlFilter(search: string): { view?: string; seat?: string } {
+  const q = new URLSearchParams(search);
+  const view = q.get('view') ?? '';
+  const seat = (q.get('seat') ?? '').trim();
+  return { ...((VIEW_NAMES as readonly string[]).includes(view) ? { view } : {}), ...(seat && seat.length <= 200 && !/[\u0000-\u001f]/.test(seat) ? { seat } : {}) };
 }

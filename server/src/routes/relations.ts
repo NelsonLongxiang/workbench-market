@@ -18,7 +18,7 @@ import { HttpError } from '../errors.ts';
 import { identity } from '../identity.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import type { GrantService } from '../services/grant.ts';
-import { CONFIRM_BY, CONFIRM_TEXT, EXPIRED_SHOW_MS, type ProposalActor, type ProposalRow, type RelationProposalService } from '../services/relation-proposal.ts';
+import { CONFIRM_BY, CONFIRM_TEXT, type ProposalActor, type ProposalRow, type RelationProposalService } from '../services/relation-proposal.ts';
 import type { DepartmentService } from '../services/department.ts';
 import type { TeamService } from '../services/team.ts';
 import { teamName } from '../team-relation.ts';
@@ -103,14 +103,9 @@ export function registerRelationRoutes(app: HttpService, deps: RelationRouteDeps
   app.get('/api/relations/proposals', { action: 'relation.proposal-list', kind: 'read' }, route(async (req, res) => {
     const w = await who(req, res);
     if (!w) return;
-    // 按看的人裁剪（管理员也一样，不替业务看别人提的）：待确认的，看自己能确认、能驳回的和自己提的；
-    // 处理过的，看自己提的、自己处理的；属主什么都能确认，全看
-    const decidedByMe = (p: ProposalRow) => p.decided_by === w.actor.by || (!!w.actor.principal && p.decided_by_principal === w.actor.principal);
-    // 失效的在提议人那里留 7 天，过了就不再列
+    // 按看的人裁剪（管理员也一样，不替业务看别人提的）：和确认、驳回入口同一处 visibleTo（读不到的，入口回不存在）
     const now = Date.now();
-    const rows = proposals().list().filter((p) => !(proposals().outcomeOf(p) === 'expired' && (p.decided_at ?? 0) < now - EXPIRED_SHOW_MS))
-      .filter((p) => w.actor.owner || (p.status === 'pending' ? true : decidedByMe(p) || proposals().isMine(p, w.actor)))
-      .map((p) => shape(p, w)).filter((p) => w.actor.owner || p.status !== 'pending' || p.can_approve || p.can_reject || p.mine);
+    const rows = proposals().list().filter((p) => proposals().visibleTo(p, w.actor, now)).map((p) => shape(p, w));
     res.json({ proposals: rows });
   }));
 

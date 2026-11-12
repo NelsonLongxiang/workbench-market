@@ -13,6 +13,7 @@
 import { randomUUID } from 'node:crypto';
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
+import { afterStartup } from '../startup-gate.ts';
 
 export const STATES = ['draft', 'held', 'delivered', 'accepted', 'progress', 'waiting', 'ready', 'blocked', 'done', 'failed', 'dropped', 'cancelled'] as const;
 export type WorkItemState = typeof STATES[number];
@@ -65,6 +66,8 @@ export type Fact = {
   action?: string;
   /** 阶段七：回执信封里的 by（谁在做）——「名字 · 句柄」或句柄；带了就更新事项的 seat（承接席位），只用于显示 */
   seat?: string;
+  /** 阶段七：回执信封里的 artifacts（cleanArtifacts 洗过）；带了就并进事项的 outputs */
+  artifacts?: { kind: string; id: string }[];
 };
 
 type Row = { from: readonly WorkItemState[]; fact: Fact['kind']; when: (f: Fact) => boolean; to: WorkItemState; note: string };
@@ -157,12 +160,14 @@ export type NewWorkItem = {
   context?: Record<string, unknown>; event_id?: number | null; target_team?: string; seat?: string; object?: string; phase?: string;
   /** 规范 14 第 2 步：交给方式、等谁过目、指名的席位（seatId） */
   handoff?: Handoff; review_by?: ReviewBy; directed_seat_id?: string;
+  /** 从哪个驾驶舱安排的：只在建的时候记，之后不改 */
+  cockpit_id?: number | null;
 };
 
 export type WorkItemRow = {
   id: string; title: string; created_at: string; created_by: string; creator_principal: string | null; source_kind: SourceKind; source_ref: string; context: string;
   event_id: number | null; task_ids: string; target_team: string; seat: string; eval: string; eval_reason: string; state: WorkItemState;
-  handoff: Handoff; review_by: ReviewBy; directed_seat_id: string; seat_id: string; seat_at: string;
+  handoff: Handoff; review_by: ReviewBy; directed_seat_id: string; seat_id: string; seat_at: string; cockpit_id: number | null;
   progress_summary: string; progress_at: string; open_asks: string; receipt_outcome: string; receipt_at: string;
   outputs: string; evidence: string; object: string; phase: string; updated_at: string;
 };
@@ -235,6 +240,12 @@ export const REVIEW_BY = ['', 'lead', 'requester'] as const;
 export type ReviewBy = (typeof REVIEW_BY)[number];
 const SEAT_ID = /^seat-[0-9a-f]{8}$/;
 /** 从 recorded 那一行的 detail 里取交给方式（只在新建时取）；取值不认得的一律当没写：交给团队、不过目、没有指名 */
+/** 驾驶舱的 id：正整数才认，别的（坏的 detail、没有）当没有 */
+export const COCKPIT_ID_MAX = 2_147_483_647;
+function cockpitOf(v: unknown): number | null {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= COCKPIT_ID_MAX ? v : null;
+}
+
 function handoffOf(rec: { handoff?: unknown; review_by?: unknown; directed_seat_id?: unknown }): { handoff: Handoff; review_by: ReviewBy; directed_seat_id: string } {
   const handoff = (HANDOFFS as readonly unknown[]).includes(rec.handoff) ? rec.handoff as Handoff : 'team';
   const review_by = (REVIEW_BY as readonly unknown[]).includes(rec.review_by) ? rec.review_by as ReviewBy : '';
@@ -327,6 +338,28 @@ const ALIVE: readonly DeliveryStatus[] = ['held', 'pending', 'sent'];
  *   · 提交方未验证的事件：本来是事实的，都只记「收到但未采信」
  */
 /**
+ * 事项的 outputs（以及回执信封里的 artifacts）只有这一处定义：[{ kind, id }]，kind、id 都是非空字符串、各 ≤200 字（去控制字符），
+ * 最多 16 项；只存标识，不存 url、标题、正文。kind 目前约定 sop-run（id = <slug>/<runId>）、table、file，别的值原样存。
+ * 上游（a2a-net receipt-envelope-fields）只说「kind such as table, file, sop-run」，id 是需求方系统里的标识，节点不校验存在与否。
+ */
+export const OUTPUTS_MAX = 16;
+export function cleanArtifacts(v: unknown): { kind: string; id: string }[] {
+  if (!Array.isArray(v)) return [];
+  const str = (x: unknown) => (typeof x === 'string' ? x.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 200) : '');
+  const seen = new Set<string>();
+  const out: { kind: string; id: string }[] = [];
+  for (const a of v) {
+    if (!a || typeof a !== 'object' || Array.isArray(a)) continue;
+    const kind = str((a as Record<string, unknown>).kind), id = str((a as Record<string, unknown>).id);
+    if (kind === '' || id === '' || seen.has(`${kind}\u0000${id}`)) continue;
+    seen.add(`${kind}\u0000${id}`);
+    out.push({ kind, id });
+    if (out.length >= OUTPUTS_MAX) break;
+  }
+  return out;
+}
+
+/**
  * 承接席位：事项上只显示实际干活的成员，不显示总工。上游宿主取 by 的规则是「工单有成员就填成员，否则填总工」，
  * 所以确认、还没派给成员的进展里的 by 可能是总工。按上游的口径（A2A团队构建优化 2026-11-11）：
  *   · by.role（上游只增字段，dsh-open-a2a-net#611）是 member 或 observer 的，任何一类在做的回执都取；是 router 的一律不取；
@@ -361,12 +394,14 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
   // 事实 id 和原来那条 submit 相同：存量里已经应用过的照旧按（来源、id）跳过，回填重跑结果不变
   if ((row.action === 'held' || row.action === 'queued') && Number(event.dispatch) === 0) return { ...base, kind: 'note', note: 'undispatched' };
   if (row.action === 'held' || row.action === 'queued') fact = { ...base, kind: 'submit', dispatch_open: row.action === 'queued' };
-  else if (row.action === 'released') fact = { ...base, kind: 'release' };
+  // 代办放行（团队没有负责人时管理层代办）：事件日志那一行的 detail 记着 acting_for，原样带进事项日志，时间线照它写「代某某办」
+  else if (row.action === 'released') fact = { ...base, kind: 'release', ...(typeof detail.acting_for === 'string' && detail.acting_for ? { acting_for: detail.acting_for.slice(0, 64) } : {}) };
   else if (row.action === 'cancelled') fact = { ...base, kind: 'withdraw', none_sent: !rows.slice(0, i + 1).some((r) => r.action === 'sent' || r.action === 'sent-after-withdraw') };
   else if (row.action === 'receipt:untrusted' || row.action === 'receipt:unaccepted') fact = { ...base, kind: 'note', note: 'untrusted' };
   else if (row.action === 'receipt:progress') fact = { ...base, kind: 'note', note: 'progress', text: typeof detail.summary === 'string' ? detail.summary : '' };
   else if (row.action === 'followup') fact = { ...base, kind: 'note', note: 'followup', text: typeof detail.text === 'string' ? detail.text : '' };
-  else if (row.action === 'followup-replied') fact = { ...base, kind: 'note', note: 'followup-reply', text: typeof detail.text === 'string' ? detail.text : '' };
+  // 代建立人回复（持管理层授予的人）：同放行，acting_for 原样带进事项日志
+  else if (row.action === 'followup-replied') fact = { ...base, kind: 'note', note: 'followup-reply', text: typeof detail.text === 'string' ? detail.text : '', ...(typeof detail.acting_for === 'string' && detail.acting_for ? { acting_for: detail.acting_for.slice(0, 64) } : {}) };
   else if (row.action === 'receipt:attention') fact = { ...base, kind: 'ask', question: typeof detail.summary === 'string' ? detail.summary : '' };
   else if (row.action === 'dead' || row.action.startsWith('decision:') || row.action === 'receipt:acknowledged' || RECEIPT_OUTCOME_ACTIONS.includes(row.action)) {
     const status = new Map<number, DeliveryStatus>();
@@ -387,6 +422,9 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
   }
   if (fact && event.submitter_kind === 'unverified') return { ...base, kind: 'note', note: 'untrusted' };
   if (fact && seat !== '') fact = { ...fact, seat };
+  // 采信的回执带的产物：并进事项的 outputs（只记录类的回执、终态之后晚到的也并：产物是事实，不是状态）
+  const artifacts = row.action.startsWith('receipt:') && row.action !== 'receipt:untrusted' && row.action !== 'receipt:unaccepted' ? cleanArtifacts(detail.artifacts) : [];
+  if (fact && artifacts.length > 0) fact = { ...fact, artifacts };
   return fact;
 }
 
@@ -395,11 +433,13 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
  * 版本没变时每次启动只做增量：从上次记下的事件日志水位往后核（没装事项服务的进程——比如回滚到旧版本期间——
  * 写进来的事件和事实，靠它补回来）。监听器漏过事实（dirty）也从头全量核。
  */
-export const BACKFILL_VERSION = 6; // 2：阶段七 R2 加了跟进、回复、看过的映射（#546）；3：进展回执的映射（PR-A）；4：回执的 by 记成承接席位；5：承接只取成员、重复事实补写承接（4 已被试联实例用过），终态事项承接空着的也补；6：承接只存句柄、进展只取在做的子项、回填按顺序最后一条为准
+export const BACKFILL_VERSION = 7; // 2：阶段七 R2 加了跟进、回复、看过的映射（#546）；3：进展回执的映射（PR-A）；4：回执的 by 记成承接席位；5：承接只取成员、重复事实补写承接（4 已被试联实例用过），终态事项承接空着的也补；6：承接只存句柄、进展只取在做的子项、回填按顺序最后一条为准；7：回执的 artifacts 并进 outputs
 /** 后台回填每一片最多占用事件循环的时长（毫秒），之后让出，好让请求得到应答 */
 const BACKFILL_SLICE_MS = 25;
-/** 每次取的行数（一片里可以取好几次） */
+/** 每次取的行数（取出来的一批跨片接着用，用完再取） */
 const BACKFILL_FETCH = 50;
+/** 进度记账（游标）最多隔多久写一次库：第一片之后记一次，之后按时间节流，跑完照记。进程中途被杀，重启最多重核最后这 1 秒处理过的事件，事实按（来源、id）去重，终态不变 */
+const BACKFILL_MARK_MS = 1000;
 
 export type BackfillStatus = {
   /** pending = 还没开始；running = 在跑；done = 跑完（全量或增量）；failed = 这一轮出错停下（下次启动接着跑） */
@@ -431,11 +471,12 @@ export class WorkItemService extends Service {
     super(ctx, 'workItems');
     // 8b：workbench-events 每写一行事件日志就发一个事件（在它自己的事务里）。随插件卸载自动撤销。
     ctx.on('workbench-event/logged', (row: { event_id: string; action: string }) => this.onLogged(row));
-    // 回填不挡启动：在后台分批跑（每一片让出事件循环），期间事项照常可读、随回填逐步补齐。随插件卸载停下
+    // 回填不挡启动：在后台分批跑（每一片让出事件循环），期间事项照常可读、随回填逐步补齐。随插件卸载停下。
+    // 服务进程里等启动自检通过再开始（startup-gate.ts）：不和自检的请求抢事件循环；自检没过不开始
     ctx.effect(() => {
       let stopped = false;
       // 后台回填出任何错都不能拖垮服务：记下、停在这里，下次启动接着跑
-      const timer = setImmediate(() => {
+      const cancel = afterStartup(() => {
         if (stopped) return;
         // 存量事项补标题和派给：出错只记下，不挡回填
         try { const n = this.fillDerivedAll(); if (n) console.log(`[work-items] 补了 ${n} 件存量事项的标题或派给`); } catch (e) {
@@ -446,7 +487,7 @@ export class WorkItemService extends Service {
           console.error(`[work-items] 后台回填没能开始（不影响服务，下次启动再试，或手动 backfill()）：${(e as Error)?.message ?? e}`);
         }
       });
-      return () => { stopped = true; clearImmediate(timer); };
+      return () => { stopped = true; cancel(); };
     }, 'workItems.backfill');
   }
 
@@ -502,26 +543,37 @@ export class WorkItemService extends Service {
     this.saveBackfillMark({ status: 'running', phase, cursor, batches, events, log_mark: logMark });
     const from = cursor;
     this.progress = { state: 'running', version: BACKFILL_VERSION, phase, cursor, batches, events, from };
+    // 取出来的一批跨片接着用（不每片重取）；增量阶段这一轮核过的事件跨片记着：一个事件的日志行切在两片里也只核一次。
+    // 核一个事件时它在库里的事实都会追上，之后新来的由监听器实时应用，所以这一轮里不用再核第二遍
+    // seen 的上界：这一轮有新日志行的事件数（全量阶段不用它）；进程重启后这一轮从记下的游标重新开始，seen 也从空开始
+    let queue: { id: number; event_id: string }[] = [];
+    let qi = 0;
+    const seen = new Set<string>();
+    let lastMark = 0;
+    // 回填自己这一段从第一片开始算（不含启动、不含等自检），跑完时写进完成那一行日志，量吞吐用
+    const startedAt = Date.now();
     const slice = () => {
       if (stopped()) return;
       try {
         const t0 = Date.now();
+        // 每处理一个事件看一次表：一片最多超出时间表一个事件的工夫
+        const overtime = () => Date.now() - t0 >= BACKFILL_SLICE_MS;
         let finished = false;
         do {
-          // 新库上事件表可能还没建（任务中心初始化时才建）：那就没有可回填的
-          if (!this.hasEvents()) { finished = true; break; }
-          if (phase === 'full') {
-            const ids = db.prepare('SELECT id, event_id FROM workbench_events WHERE id > ? ORDER BY id LIMIT ?').all(cursor, BACKFILL_FETCH) as { id: number; event_id: string }[];
-            if (ids.length === 0) { finished = true; break; }
-            for (const { id, event_id } of ids) { this.syncEvent(event_id); cursor = id; events++; }
-          } else {
-            const rows = db.prepare('SELECT id, event_id FROM workbench_event_log WHERE id > ? ORDER BY id LIMIT ?').all(cursor, BACKFILL_FETCH) as { id: number; event_id: string }[];
-            if (rows.length === 0) { finished = true; break; }
-            const seen = new Set<string>();
-            for (const { event_id } of rows) if (!seen.has(event_id)) { seen.add(event_id); this.syncEvent(event_id); events++; }
-            cursor = rows[rows.length - 1].id;
+          if (qi >= queue.length) {
+            // 新库上事件表可能还没建（任务中心初始化时才建）：那就没有可回填的
+            if (!this.hasEvents()) { finished = true; break; }
+            queue = (phase === 'full'
+              ? db.prepare('SELECT id, event_id FROM workbench_events WHERE id > ? ORDER BY id LIMIT ?')
+              : db.prepare('SELECT id, event_id FROM workbench_event_log WHERE id > ? ORDER BY id LIMIT ?')).all(cursor, BACKFILL_FETCH) as { id: number; event_id: string }[];
+            qi = 0;
+            if (queue.length === 0) { finished = true; break; }
           }
-        } while (Date.now() - t0 < BACKFILL_SLICE_MS);
+          const { id, event_id } = queue[qi++];
+          if (phase === 'full') { this.syncEvent(event_id); events++; }
+          else if (!seen.has(event_id)) { seen.add(event_id); this.syncEvent(event_id); events++; }
+          cursor = id;
+        } while (!overtime());
         batches++;
         if (finished) {
           const dirty = Boolean(this.readBackfillMark()?.dirty);
@@ -529,10 +581,11 @@ export class WorkItemService extends Service {
           this.saveBackfillMark({ status: dirty ? 'stale' : 'done', phase, cursor, batches, events, log_mark: high });
           if (dirty) this.setDirty(true); // saveBackfillMark 不动 dirty；这里显式留着，下次启动从头全量核
           this.progress = { state: 'done', version: BACKFILL_VERSION, phase, cursor, batches, events, from };
-          console.log(`[work-items] 后台回填完成（${phase === 'full' ? '全量' : '增量'}）：核对 ${events} 个事件，${batches} 批${dirty ? '；期间监听器漏过事实，下次启动从头全量核' : ''}`);
+          console.log(`[work-items] 后台回填完成（${phase === 'full' ? '全量' : '增量'}）：核对 ${events} 个事件，${batches} 批，用时 ${Date.now() - startedAt} 毫秒（从第一片到跑完）${dirty ? '；期间监听器漏过事实，下次启动从头全量核' : ''}`);
           return;
         }
-        this.saveBackfillMark({ status: 'running', phase, cursor, batches, events, log_mark: logMark });
+        // 进度记账节流：第一片之后记一次，之后最多隔 BACKFILL_MARK_MS 记一次（每片写一次库的固定开销在慢盘上会拖慢回填）
+        if (lastMark === 0 || Date.now() - lastMark >= BACKFILL_MARK_MS) { this.saveBackfillMark({ status: 'running', phase, cursor, batches, events, log_mark: logMark }); lastMark = Date.now(); }
         this.progress = { state: 'running', version: BACKFILL_VERSION, phase, cursor, batches, events, from };
         setImmediate(slice);
       } catch (e) {
@@ -629,12 +682,12 @@ export class WorkItemService extends Service {
       const createdBy = creator ?? (event.submitter_kind !== 'unverified' && /^[^:\s]+:\S/.test(who) ? who : `${event.submitter_kind}:${who || 'unknown'}`);
       const derived = derivedOf(event);
       // 「安排一件事」：挂在哪条线、哪一步，记在 recorded 那一行里（只在新建时取，存量没有这两项）
-      let rec: { object?: unknown; phase?: unknown; handoff?: unknown; review_by?: unknown; directed_seat_id?: unknown } = {};
+      let rec: { object?: unknown; phase?: unknown; handoff?: unknown; review_by?: unknown; directed_seat_id?: unknown; cockpit_id?: unknown } = {};
       try { rec = JSON.parse(recorded.detail || '{}'); } catch { /* 坏的 detail 当没有 */ }
       const tag = (v: unknown) => (typeof v === 'string' ? v.trim().slice(0, 200) : '');
       this.insertItem(itemId, {
         title: derived.title, target_team: derived.target_team, created_by: createdBy, creator_principal: creator, object: tag(rec.object), phase: tag(rec.phase),
-        ...handoffOf(rec),
+        ...handoffOf(rec), cockpit_id: cockpitOf(rec.cockpit_id),
         source_kind: event.source as SourceKind, source_ref: event.event_id, event_id: event.id,
         context: { workbench: event.workbench, item: event.item, context_id: event.context_id, submitter_kind: event.submitter_kind, ...(creator && event.submitter_kind === 'unverified' ? { submitter_via: 'ticket' } : {}) },
       }, { source: EVENT_FACT_SOURCE, id: String(recorded.id) }, event.created_at);
@@ -673,11 +726,11 @@ export class WorkItemService extends Service {
   }
 
   private insertItem(id: string, input: NewWorkItem, by: { source: string; id: string }, createdAt?: string): void {
-    db.prepare(`INSERT INTO work_items (id, title, created_by, creator_principal, source_kind, source_ref, context, event_id, target_team, seat, object, phase, handoff, review_by, directed_seat_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))`).run(
+    db.prepare(`INSERT INTO work_items (id, title, created_by, creator_principal, source_kind, source_ref, context, event_id, target_team, seat, object, phase, handoff, review_by, directed_seat_id, cockpit_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))`).run(
       id, input.title, input.created_by, input.creator_principal ?? null, input.source_kind, input.source_ref ?? '', JSON.stringify(input.context ?? {}),
       input.event_id ?? null, input.target_team ?? '', input.seat ?? '', input.object ?? '', input.phase ?? '',
-      input.handoff ?? 'team', input.review_by ?? '', input.directed_seat_id ?? '', createdAt ?? null, createdAt ?? null);
+      input.handoff ?? 'team', input.review_by ?? '', input.directed_seat_id ?? '', input.cockpit_id ?? null, createdAt ?? null, createdAt ?? null);
     db.prepare(`INSERT INTO work_item_log (item_id, fact, fact_source, fact_id, from_state, to_state, actor, detail)
       VALUES (?, 'create', ?, ?, 'draft', 'draft', ?, '{}')`).run(id, by.source, by.id, input.created_by);
   }
@@ -769,17 +822,19 @@ export class WorkItemService extends Service {
    * 列表一页（给事项列表的读接口）：按 updated_at、id 倒序，游标翻页；同时给这个视角里按状态的计数。
    * 范围由 scope 定（scopeWhere）；看不到的不出现，也不计数。每行带最后一条事项日志（谁、做了什么、什么时候）。
    */
-  page(opts: { scope: ViewScope; state?: WorkItemState; object?: string; phase?: string; seat?: string; limit: number; after?: { updated_at: string; id: string } }): {
+  page(opts: { scope: ViewScope; state?: WorkItemState; object?: string; phase?: string; seat?: string; cockpit?: number; limit: number; after?: { updated_at: string; id: string } }): {
     items: (WorkItemRow & { last_log: { actor: string; fact: string; text: string; at: string } | null })[];
     counts: Record<WorkItemState, number>; total: number; next: { updated_at: string; id: string } | null;
   } {
     const counts = Object.fromEntries(STATES.map((st) => [st, 0])) as Record<WorkItemState, number>;
     const sc = this.scopeWhere(opts.scope);
     const filt: string[] = [sc.where], filtArgs: (string | number)[] = [...sc.args];
-    const extra: string[] = [], extraArgs: string[] = [];
+    const extra: string[] = [], extraArgs: (string | number)[] = [];
     for (const k of ['object', 'phase'] as const) if (typeof opts[k] === 'string') { extra.push(`${k} = ?`); extraArgs.push(opts[k]!); }
     // 按席位筛：给的是 seatId 就按 seat_id，否则按句柄（seat_id 为空的旧席位）
     if (typeof opts.seat === 'string') { extra.push("(seat_id = ? OR (seat_id = '' AND seat = ?))"); extraArgs.push(opts.seat, opts.seat); }
+    // 按驾驶舱筛：只在视角里面收窄；驾驶舱不存在就是没有命中，不报错
+    if (typeof opts.cockpit === 'number') { extra.push('cockpit_id = ?'); extraArgs.push(opts.cockpit); }
     // 计数：这个视角里、按 object、phase 筛过（不按 state 筛）之后按状态分组
     for (const r of db.prepare(`SELECT state, COUNT(*) AS n FROM work_items WHERE ${[...filt, ...extra].join(' AND ')} GROUP BY state`).all(...filtArgs, ...extraArgs) as { state: WorkItemState; n: number }[]) {
       if (r.state in counts) counts[r.state] = Number(r.n);
@@ -837,8 +892,11 @@ export class WorkItemService extends Service {
       // （只是显示用的一列）。走到这里的是已经应用过的历史事实——回填按事件日志顺序重放——所以不分终态，最后一条取得到席位的为准，
       // 不先写先占；终态之后才到的新回执走的是只记录那条路，那里照旧不改承接——所以第一次应用时事项已经是终态的（from_state 是终态），
       // 重放时也不改承接，和实时一致
-      const seatFilled = typeof fact.seat === 'string' && fact.seat !== '' && !TERMINAL.includes(seen.from_state)
+      const seatChanged = typeof fact.seat === 'string' && fact.seat !== '' && !TERMINAL.includes(seen.from_state)
         && Number(db.prepare('UPDATE work_items SET seat = ? WHERE id = ? AND seat <> ?').run(fact.seat, itemId, fact.seat).changes) === 1;
+      // 产物也一样：后来才从事实里取的，回填再核时补上（终态之后也补：产物是事实）
+      const outputsChanged = this.mergeOutputs(itemId, fact.artifacts);
+      const seatFilled = seatChanged || outputsChanged;
       return { ok: true, state: item.state, from: seen.from_state, duplicate: true, ...(seatFilled ? { seatFilled: true } : {}) };
     }
 
@@ -854,6 +912,7 @@ export class WorkItemService extends Service {
     const set: string[] = ['state = ?', "updated_at = datetime('now')"], args: (string | number | null)[] = [to];
     if (kind === 'eval') { set.push('eval = ?', 'eval_reason = ?'); args.push(fact.verdict ?? '', fact.reason ?? ''); }
     if (typeof fact.seat === 'string' && fact.seat !== '') { set.push('seat = ?'); args.push(fact.seat); }
+    this.mergeOutputs(itemId, fact.artifacts);
     if (kind === 'report' && typeof fact.summary === 'string') { set.push('progress_summary = ?', "progress_at = datetime('now')"); args.push(fact.summary); }
     if (kind === 'ask') { const asks = JSON.parse(item.open_asks || '[]'); asks.push({ id, source, question: fact.question ?? '' }); set.push('open_asks = ?'); args.push(JSON.stringify(asks)); }
     const receipt = kind === 'receipt' ? fact.outcome : fact.receipt?.outcome;
@@ -879,6 +938,19 @@ export class WorkItemService extends Service {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(itemId, fact.kind, fact.source, fact.id, from, to, fact.actor ?? '', JSON.stringify(clean), rejected);
   }
 
+  /** 把产物并进 outputs：按 kind+id 去重、保持先后、最多 OUTPUTS_MAX 项；改到了返回 true */
+  private mergeOutputs(itemId: string, artifacts: { kind: string; id: string }[] | undefined): boolean {
+    if (!artifacts || artifacts.length === 0) return false;
+    const row = db.prepare('SELECT outputs FROM work_items WHERE id = ?').get(itemId) as { outputs: string } | undefined;
+    let cur: unknown = [];
+    try { cur = JSON.parse(row?.outputs || '[]'); } catch { cur = []; }
+    const before = cleanArtifacts(cur);
+    const merged = cleanArtifacts([...before, ...artifacts]);
+    if (merged.length === before.length) return false;
+    db.prepare('UPDATE work_items SET outputs = ? WHERE id = ?').run(JSON.stringify(merged), itemId);
+    return true;
+  }
+
   /** 只记录、不改状态：写一行 from = to 的日志，更新摘要字段。 */
   private recordLocked(itemId: string, item: { state: WorkItemState; open_asks: string }, fact: Fact): ApplyResult {
     const { kind, source, id, actor, ...detail } = fact;
@@ -902,6 +974,7 @@ export class WorkItemService extends Service {
     db.prepare("UPDATE work_items SET receipt_outcome = ?, receipt_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND receipt_outcome = ''").run(fact.outcome ?? '', itemId);
     // 承接席位：进展、只记录的回执带了 by 也更新（成员换人时）；终态之后晚到的不改
     if (!late && typeof fact.seat === 'string' && fact.seat !== '') db.prepare('UPDATE work_items SET seat = ? WHERE id = ?').run(fact.seat, itemId);
+    this.mergeOutputs(itemId, fact.artifacts);
     return { ok: true, state: item.state, from: item.state, duplicate: false, recorded: true, late };
   }
 }

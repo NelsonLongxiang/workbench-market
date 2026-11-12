@@ -14,8 +14,8 @@ ok('提示条：验收同理', stateHint('ready', '', false, V({ mine: true })).
 ok('看的人：can、turn、creator 直接取详情应答；显示名没有就用登录名', (() => { const v = viewerOf({ can: { release: false, answer: true, verify: true, reply: true }, turn: { release: false, answer: false, verify: true }, creator: { principal: 'user:alpha', display_name: null } }); return v.can.answer && v.can.verify && !v.can.release && v.turn.verify && !v.turn.answer && v.creator === 'alpha' && v.reply === true; })() && viewerOf({ creator: { principal: 'user:alpha', display_name: '阿尔法' } }).creator === '阿尔法');
 ok('看的人：字段缺了或形状不对，一律当不能、没轮到；回复能不能照旧由页面按终态判断', (() => { const v = viewerOf({ can: 'x', turn: null }, 'beta'); return !v.can.release && !v.can.answer && !v.can.verify && !v.turn.release && !v.turn.answer && !v.turn.verify && v.creator === 'beta' && v.reply === null; })() && viewerOf(null).reply === null);
 ok('状态说法只看 turn：轮到的人带「你」，能代办的人不带', stateLabel('ready', viewerOf({ can: { verify: true }, turn: { verify: true }, creator: { principal: 'user:alpha' } })) === '等你验收' && stateLabel('ready', viewerOf({ can: { verify: true }, turn: {}, creator: { principal: 'user:alpha' } })) === '等 alpha 验收' && stateLabel('held', viewerOf({ can: { release: true }, turn: { release: true } })) === '等你过目' && stateLabel('held', viewerOf({ can: { release: true }, turn: {} })) === '等放行' && stateHint('held', '', false, viewerOf({ can: { release: true }, turn: {} })).text.includes('你可以代为放行'));
-ok('席位：名字 · 句柄 显示成 名字（句柄），只有句柄照用', seatLabel('成员一 · zone/1b2c3d4e') === '成员一（zone/1b2c3d4e）' && seatLabel('zone/1b2c3d4e') === 'zone/1b2c3d4e' && seatLabel('') === '');
-ok('日志的谁：去前缀、对端席位换承接名字、系统来源说人话', actorLabel('receiver:zone', '成员一 · zone/x') === '成员一（zone/x）' && actorLabel('human:root-admin', '') === 'root-admin' && actorLabel('market', '') === '市场' && actorLabel('admin-token', '') === '管理员' && actorLabel('user:alpha', '') === 'alpha');
+ok('席位只写名字：名字 · 句柄 取名字；只有句柄查名册，查不到写「一位 AI 员工」，不露句柄', seatLabel('成员一 · zone/1b2c3d4e') === '成员一' && seatLabel('zone/1b2c3d4e') === '一位 AI 员工' && seatLabel('zone/1b2c3d4e', { 'zone/1b2c3d4e': '成员一' }) === '成员一' && seatLabel('') === '');
+ok('日志的谁：去前缀、对端席位换承接名字、系统来源说人话', actorLabel('receiver:zone', '成员一 · zone/x') === '成员一' && actorLabel('receiver:zone', '') === '一位 AI 员工' && actorLabel('seat:zone/1b2c', '') === '一位 AI 员工' && actorLabel('human:root-admin', '') === 'root-admin' && actorLabel('market', '') === '市场' && actorLabel('admin-token', '') === '管理员' && actorLabel('user:alpha', '') === 'alpha');
 const tg = groupTimeline([{ seq: 1, fact: 'ask', detail: '' }, { seq: 2, fact: 'note', detail: '{"note":"progress"}' }, { seq: 3, fact: 'note', detail: '{"note":"progress"}' }, { seq: 4, fact: 'note', detail: '{"note":"progress"}' }, { seq: 5, fact: 'note', detail: '{"note":"progress"}' }, { seq: 6, fact: 'answer', detail: '', rejected: 'terminal' }, { seq: 7, fact: 'answer', detail: '', rejected: 'terminal' }]).map((g) => g.kind === 'row' ? g.row.seq : g.kind + ':' + g.rows.map((r) => r.seq).join('+'));
 ok('时间线收组：连续进展收一组、连续被拒收一组', JSON.stringify(tg) === '[1,"progress:2+3+4+5","rejected:6+7"]', JSON.stringify(tg));
 ok('时间线：进展备注叫「进展」', timelineLabel({ fact: 'note', detail: '{"note":"progress"}' }, { note: '备注' }) === '进展');
@@ -58,7 +58,7 @@ ok('时间线：单独一条被拒行不收组，连续的才收', JSON.stringif
 ok('对端给的「谁」：字符串照用，对象取 name、没有取 seat，别的给空串，永远是字符串', who('seat_a') === 'seat_a' && who({ seat: 'zone/1b2c3d4e', name: '成员一' }) === '成员一' && who({ seat: 'zone/1b2c3d4e' }) === 'zone/1b2c3d4e' && who({ role: 'x' }) === '' && who(null) === '' && who(['a']) === '');
 ok('对端给的文字：字符串和数字照用，对象给空串', textOf('a') === 'a' && textOf(3) === '3' && textOf({ a: 1 }) === '' && textOf(undefined) === '');
 
-ok('提问人：来源标记 receiver:<区> 换成承接席位，没有承接就去前缀；别的照用', askerLabel('receiver:zone', '成员一 · zone/1b2c3d4e') === '成员一（zone/1b2c3d4e）' && askerLabel('receiver:zone', '') === 'zone' && askerLabel('seat:a', 'x') === 'a' && askerLabel({ name: '成员二' }, 'x') === '成员二');
+ok('提问人：来源标记 receiver:<区> 换成承接席位，没有承接就去前缀；别的照用', askerLabel('receiver:zone', '成员一 · zone/1b2c3d4e') === '成员一' && askerLabel('receiver:zone', '') === '一位 AI 员工' && askerLabel('seat:a', 'x') === 'a' && askerLabel({ name: '成员二' }, 'x') === '成员二');
 
 const att = (source, link) => ({ source, source_id: '1', category: 'ask', title: '', waiting_for: '', since: '', answers: [], object: '', phase: '', link });
 const mine = pendingFor([att('seat-asks', '/work-items/wi_a'), att('work-items', '/work-items/wi_b'), att('work-items', '/work-items/wi_a'), att('x', '/other')], 'wi_a');
@@ -68,20 +68,20 @@ ok('关注条目：只取链接到这件事项的', mine.length === 2 && mine.ev
 ok('子项状态说中文：结束了按结局说', ticketStateLabel('ended', 'completed') === '做完了' && ticketStateLabel('ended', 'failed') === '没办成' && ticketStateLabel('ended', '') === '结束了' && ticketStateLabel('working') === '正在处理' && ticketStateLabel('waiting', 'x') === '在等 · x');
 {
   const subs = [{ id: 't1', title: 'A', seat: '小采 · zone/a1', state: 'working' }, { id: 't2', title: 'B', seat: 'zone/b2', state: 'waiting' }, { id: 't3', title: 'C', seat: 'zone/c3', state: 'ended', outcome: 'completed' }];
-  ok('拆单承接：席位清空时按在做的子项数成员', seatSummary('', subs) === '2 个成员在做：小采（zone/a1）、zone/b2', seatSummary('', subs));
-  ok('拆单承接：有席位照常显示、标记 - 当空', seatSummary('小采 · zone/a1', subs) === '小采（zone/a1）' && seatSummary('-', [subs[0]]) === '小采（zone/a1）' && seatSummary('', []) === '');
+  ok('拆单承接：席位清空时按在做的子项数成员', seatSummary('', subs) === '2 个成员在做：小采、一位 AI 员工', seatSummary('', subs));
+  ok('拆单承接：有席位照常显示、标记 - 当空', seatSummary('小采 · zone/a1', subs) === '小采' && seatSummary('-', [subs[0]]) === '小采' && seatSummary('', []) === '');
   ok('子项：详情 subitems 优先，没有用进展的 tickets，坏项丢掉', subitemsOf(subs, null).length === 3 && subitemsOf([], { tickets: [subs[0], null, 7] }).length === 1 && subitemsOf(null, null).length === 0);
 }
 ok('「正在处理」只在还在做时给：结束了、等验收不给', showProgress('progress') && !showProgress('ready') && !showProgress('done') && !showProgress('failed'));
-ok('时间线的谁：用回执的 by（名字（席位）），不用事项当前承接', rowActor({ actor: 'receiver:zone', detail: JSON.stringify({ by: { seat: 'zone/3d4e5f60', name: '总工' } }) }) === '总工（zone/3d4e5f60）');
-ok('时间线的谁：by 是字符串、没有 by 时只去前缀', rowActor({ actor: 'receiver:zone', detail: JSON.stringify({ by: 'zone/3d4e5f60' }) }) === 'zone/3d4e5f60' && rowActor({ actor: 'receiver:zone', detail: '{}' }) === '团队那边' && rowActor({ actor: 'market', detail: 'bad' }) === '市场');
+ok('时间线的谁：用回执的 by（只写名字，不带席位句柄），不用事项当前承接', rowActor({ actor: 'receiver:zone', detail: JSON.stringify({ by: { seat: 'zone/3d4e5f60', name: '总工' } }) }) === '总工');
+ok('时间线的谁：by 是字符串、没有 by 时只去前缀', rowActor({ actor: 'receiver:zone', detail: JSON.stringify({ by: 'zone/3d4e5f60' }) }) === '一位 AI 员工' && rowActor({ actor: 'x', detail: JSON.stringify({ by: { name: '小采', seat: 'zone/a1' } }) }) === '小采' && rowActor({ actor: 'receiver:zone', detail: '{}' }) === '团队那边' && rowActor({ actor: 'market', detail: 'bad' }) === '市场');
 
 // 验收会话留的小修（stage1-accept、stage3-accept）
 {
   const done = [{ id: 't1', title: 'A', seat: '小采 · zone/a1', state: 'ended', outcome: 'completed' }, { id: 't2', title: 'B', seat: 'zone/b2', state: 'ended', outcome: 'failed' }];
   const team = (t) => t.replace(/^[^/]+\/canvas\//, '');
-  ok('承接：有席位照常；拆单在做写几个成员在做', seatLine({ seat: '小采 · zone/a1', state: 'progress' }, []) === '小采（zone/a1）' && seatLine({ seat: '', state: 'progress' }, [{ id: 'x', title: '', seat: 'zone/a1', state: 'working' }, { id: 'y', title: '', seat: 'zone/b2', state: 'waiting' }]) === '2 个成员在做：zone/a1、zone/b2');
-  ok('承接：拆单结束后写几个成员做过，不写「还没有席位接手」', seatLine({ seat: '-', state: 'failed' }, done) === '2 个成员做过：小采（zone/a1）、zone/b2' && seatLine({ seat: '', state: 'done' }, [done[0]]) === '小采（zone/a1） 做过');
+  ok('承接：有席位照常；拆单在做写几个成员在做', seatLine({ seat: '小采 · zone/a1', state: 'progress' }, []) === '小采' && seatLine({ seat: '', state: 'progress' }, [{ id: 'x', title: '', seat: 'zone/a1', state: 'working' }, { id: 'y', title: '', seat: 'zone/b2', state: 'waiting' }]) === '2 个成员在做');
+  ok('承接：拆单结束后写几个成员做过，不写「还没有席位接手」', seatLine({ seat: '-', state: 'failed' }, done) === '2 个成员做过：小采、一位 AI 员工' && seatLine({ seat: '', state: 'done' }, [done[0]]) === '小采 做过');
   ok('承接：结束了又一个都不知道就留空（页面显示 —）', seatLine({ seat: '', state: 'cancelled' }, []) === '');
   ok('承接：团队接了还没报席位，写「××接了，还没说是哪个席位」，团队显示团队名', seatLine({ seat: '', state: 'accepted', target_team: 'zone/canvas/team-a' }, [], team) === 'team-a 接了，还没说是哪个席位' && seatLine({ seat: '', state: 'ready', target_team: '' }, []) === '团队接了，还没说是哪个席位');
   ok('承接：还没派出去、已转交还没接手，分开说', seatLine({ seat: '', state: 'held', target_team: 'zone/canvas/team-a' }, [], team) === '还没派出去' && seatLine({ seat: '', state: 'draft' }, []) === '还没派出去' && seatLine({ seat: '', state: 'delivered', target_team: 'zone/canvas/team-a' }, [], team) === '已转交给 team-a，还没接手');
@@ -92,5 +92,8 @@ ok('时间线的谁：by 是字符串、没有 by 时只去前缀', rowActor({ a
 }
 
 ok('mine 只跟 turn 走：能代办（can 真、turn 全假）不算「你」；轮到答复或验收才算', viewerOf({ can: { release: true, answer: true, verify: true }, turn: {} }).mine === false && viewerOf({ can: { verify: true }, turn: { verify: true } }).mine === true && viewerOf({ can: {}, turn: { answer: true } }).mine === true && viewerOf({ can: { release: true }, turn: { release: true } }).mine === false);
+ok('几个成员：按席位数人（两个查不到名字的是两个人）；有名字的列名字，没名字的合成「N 位 AI 员工」', seatLine({ seat: '', state: 'progress' }, [{ id: 'x', title: '', seat: '小采 · zone/a1', state: 'working' }, { id: 'y', title: '', seat: 'zone/b2', state: 'waiting' }, { id: 'z', title: '', seat: 'zone/b3', state: 'waiting' }]) === '3 个成员在做：小采、2 位 AI 员工'
+  && seatLine({ seat: '', state: 'progress' }, [{ id: 'x', title: '', seat: 'zone/b2', state: 'working' }]) === '一位 AI 员工');
+
 console.log(`\nwork-item-detail-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);
