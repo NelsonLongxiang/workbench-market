@@ -230,10 +230,13 @@ export class TeamService extends Service {
     });
   }
 
-  /** 节点的名字：名册报上来的节点根地址，对到对端登记表里登记的名字；没登记、没名字为 null（页面不显示节点标识） */
-  nodeName(host: string): string | null {
-    const r = db.prepare("SELECT p.name AS name FROM a2a_rosters r JOIN a2a_peers p ON p.root_url = r.peer_root WHERE r.host = ? AND p.name <> ''").get(host) as { name: string } | undefined;
-    return r?.name ?? null;
+  /**
+   * 节点的两样：名字（名册报上来的节点根地址，对到对端登记表里登记的名字；没登记、没名字为 null，页面不显示节点标识），
+   * 和最近一次成功收下这个节点名册的时间（a2a_rosters.received_at，和 GET /api/a2a/teams 同一个来源；没收过为 null）
+   */
+  nodeInfo(host: string): { node_name: string | null; roster_received_at: string | null } {
+    const r = db.prepare("SELECT r.received_at AS received_at, COALESCE(p.name, '') AS name FROM a2a_rosters r LEFT JOIN a2a_peers p ON p.root_url = r.peer_root WHERE r.host = ?").get(host) as { received_at: string; name: string } | undefined;
+    return { node_name: r?.name ? r.name : null, roster_received_at: r?.received_at ?? null };
   }
 
   /** 那时这个成员归谁（at 毫秒，含起点、不含终点）；没分配为 null */

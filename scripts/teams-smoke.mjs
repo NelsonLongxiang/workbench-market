@@ -111,9 +111,9 @@ try {
   {
     const cli = await srv.call('GET', '/api/teams');
     const staff = await srv.call('GET', '/api/teams', as(SESSIONS.alpha));
-    check(cli.status === 200 && cli.json?.unclaimed?.length === 2 && cli.json.unclaimed.every((t) => t.status === 'unclaimed' && t.node_name === '合成节点') && cli.json.departments.length === 0
+    check(cli.status === 200 && cli.json?.unclaimed?.length === 2 && cli.json.unclaimed.every((t) => t.status === 'unclaimed' && t.node_name === '合成节点' && t.roster_received_at === String(now)) && cli.json.departments.length === 0
       && staff.status === 200 && show(staff.json) === '{"can":{"claim":false,"release":false,"manage_leads":false,"manage_departments":false},"departments":[]}',
-      '待认领的团队只有管理员看得到（本机命令行看到两个，带节点在对端登记表里的名字），员工什么都看不到、连待认领那一栏都没有', show({ cli: cli.json?.unclaimed?.map((t) => t.team), staff: staff.json }));
+      '待认领的团队只有管理员看得到（本机命令行看到两个，带节点在对端登记表里的名字和名册最近收到的时间），员工什么都看不到、连待认领那一栏都没有', show({ cli: cli.json?.unclaimed?.map((t) => t.team), staff: staff.json }));
     const denied = {
       staff: await srv.call('POST', '/api/teams/claim', { ...as(SESSIONS.alpha), body: { ...team, department: 'sales' } }),
       anonymous: await srv.call('POST', '/api/teams/claim', { headers: REMOTE, body: { ...team, department: 'sales' } }),
