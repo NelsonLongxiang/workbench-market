@@ -288,16 +288,26 @@ try {
 
   // ---------- 五、新写的两类 ----------
   {
-    // 席位的提问：旧接口（工作台事件列表）只认口令管理员，这里用口令
+    // 席位的提问：管理门（口令）看得到全部，但答复是替建立人做业务决定（L21）——口令不带答法、答了被拒；持有管理层授予的人（user:no-flag）代办
     const TOKEN = { ...SAME, 'x-admin-token': ADMIN_TOKEN };
+    const MGMT = { ...SAME, cookie: `session_id=${SESSIONS.noAdminFlag}` };
+    await call('GET', '/api/auth/viewer', MGMT);
+    const g = await call('POST', '/api/grants', {}, { principal: 'user:no-flag', role: 'management', scope: '*', reason: '合成：管理层' });
+    await call('POST', `/api/grants/${g.body?.grant?.id}/submit`, {}); await call('POST', `/api/grants/${g.body?.grant?.id}/approve`, {});
     const before = await call('GET', '/api/attention', TOKEN);
-    check(before.body.items.some((x) => x.source === 'seat-asks' && x.source_id === String(S.ask.delivery)), '席位的提问在「关注」里');
-    const a = await answer('seat-asks', S.ask.delivery, 'answer', { text: '店铺 A' }, TOKEN);
+    const tokenRow = before.body.items.find((x) => x.source === 'seat-asks' && x.source_id === String(S.ask.delivery));
+    const byToken = await answer('seat-asks', S.ask.delivery, 'answer', { text: '口令答' }, TOKEN);
+    const stillOpen = JSON.parse(q('SELECT open_asks FROM work_items WHERE id = ?', `wi_${S.ask.event}`)[0].open_asks).length;
+    check(g.status === 201 && tokenRow && tokenRow.answers.length === 0 && [400, 403].includes(byToken.status) && stillOpen === 1,
+      '席位的提问在「关注」里；口令看得到但不带答法，答了被拒（L21：只过了管理门不能替建立人做决定），提问还开着', show({ g: g.status, tokenRow, byToken, stillOpen }));
+    const mrow = (await call('GET', '/api/attention', MGMT)).body?.items?.find((x) => x.source === 'seat-asks' && x.source_id === String(S.ask.delivery));
+    check(JSON.stringify(mrow?.answers) === JSON.stringify(['answer']), '持有管理层授予的人：「关注」里这条带答法', show(mrow));
+    const a = await answer('seat-asks', S.ask.delivery, 'answer', { text: '店铺 A' }, MGMT);
     const it = q('SELECT state, open_asks FROM work_items WHERE id = ?', `wi_${S.ask.event}`)[0];
     const after = await call('GET', '/api/attention', TOKEN);
     check(a.status === 200 && a.body.result.sent === false && a.body.result.reason === 'receiver_is_v1' && JSON.parse(it.open_asks).length === 0 && !after.body.items.some((x) => x.source === 'seat-asks'),
       '答席位的提问：记在事项上、合上提问，「关注」里不再有它；对方是 v1，按 06 不发回答事件（sent:false 写明原因）', show({ a, it }));
-    const again = await answer('seat-asks', S.ask.delivery, 'answer', { text: '店铺 B' }, TOKEN);
+    const again = await answer('seat-asks', S.ask.delivery, 'answer', { text: '店铺 B' }, MGMT);
     check(again.status === 200 && again.body.duplicate === true && again.body.result.item_id === a.body.result.item_id, '再答一次：返回第一次的结果');
     const v = await answer('work-items', S.ready.verify, 'verify');
     const r0 = await answer('work-items', S.ready.ret, 'return', {});

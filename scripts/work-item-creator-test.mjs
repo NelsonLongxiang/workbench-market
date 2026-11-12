@@ -288,7 +288,7 @@ try {
         return { item: `wi_${ev}`, delivery, qid };
       } finally { c.close(); }
     };
-    const mineA = seedAsk('user:alpha'), theirsA = seedAsk('user:beta'), noPrinA = seedAsk(null), raceA = seedAsk('user:alpha'), rebindA = seedAsk('user:alpha'), seqA = seedAsk('user:alpha'), closedA = seedAsk('user:alpha');
+    const mineA = seedAsk('user:alpha'), theirsA = seedAsk('user:beta'), noPrinA = seedAsk(null), raceA = seedAsk('user:alpha'), rebindA = seedAsk('user:alpha'), seqA = seedAsk('user:alpha'), closedA = seedAsk('user:alpha'), fourA = seedAsk('user:alpha'), fourB = seedAsk('user:alpha');
     // twiceA：同一投递先问 q1、再问 q2（q1 被 q2 合上）
     const twiceA = seedAsk('user:alpha');
     { const c = new DatabaseSync(join(data, 'workbench-market.db')); c.exec('PRAGMA busy_timeout = 5000'); try {
@@ -378,18 +378,53 @@ try {
       const q2 = askList.find((x) => x.id === twiceA.q2), q1 = askList.find((x) => x.id === twiceA.qid);
       check(r3b.status === 409 && (r3b.body?.result?.error ?? r3b.body?.error) === 'seat_ask_not_pending' && q2?.status === 'open' && q1?.status === 'closed' && answered(twiceA) === before && sentAnswers(twiceA) === sb,
         'A3：同一投递先问 q1、再问 q2，用 q1 的编号答：409，q2 仍在等，不记不发', show({ r3b, q1, q2 })); }
-    // A8：管理员先在「关注」里答，建立人再在事项入口答同一条 → 只生效一次、只发一条
-    { const a1 = await call('POST', '/api/attention/answer', ADMIN_H, { source: 'seat-asks', source_id: String(seqA.delivery), answer: 'answer', input: { text: '管理员答' } });
+    // 持有管理层授予的人（user:no-flag，上面 L20 那一段授的）：能代办答提问
+    const MGMT = { ...SAME, cookie: `session_id=${SESSIONS.noAdminFlag}` };
+    // L21 口径：答席位的提问是替建立人做业务决定——建立人本人，或持有管理层授予的人；只过了管理门的（管理口令、没有管理层授予的会话管理员）不能答。
+    // 四种身份分别看：详情的 can.answer、「关注」里给不给答法、事项入口真去答、「关注」入口真去答
+    {
+      const SADMIN = { ...SAME, cookie: `session_id=${SESSIONS.admin}` };
+      // 身份来源说是管理员的人，第一次见到时迁出系统管理员、管理层两条（judgment-compare 的 migrateOnSight）；撤掉管理层那条，他就是「只过了管理门」的人
+      await call('GET', '/api/auth/viewer', SADMIN); await call('GET', '/api/attention', SADMIN); await call('GET', `/api/work-items/${fourA.item}`, SADMIN);
+      const mg = ((await call('GET', '/api/grants?principal=user:root-admin&status=active', {})).body?.grants ?? []).filter((g) => (g.role ?? g.role_id) === 'management');
+      for (const g of mg) await call('POST', `/api/grants/${g.id}/revoke`, {}, { reason: '合成：只留管理门、不带管理层授予' });
+      const mgLeft = ((await call('GET', '/api/grants?principal=user:root-admin&status=active', {})).body?.grants ?? []).filter((g) => (g.role ?? g.role_id) === 'management').length;
+      check(mg.length >= 1 && mgLeft === 0, '造数据：会话管理员的管理层授予撤掉（系统管理员那条留着，管理门照旧过）', show({ mg: mg.length, mgLeft }));
+      const canAns = async (a, h) => (await call('GET', `/api/work-items/${a.item}`, h)).body?.can?.answer;
+      const listed = async (a, h) => ((await call('GET', '/api/attention', h)).body?.items ?? []).find((x) => x.source === 'seat-asks' && x.source_id === String(a.delivery))?.answers ?? null;
+      const viaAttn = (a, h, text) => call('POST', '/api/attention/answer', h, { source: 'seat-asks', source_id: String(a.delivery), answer: 'answer', input: { text } });
+      for (const [who, h] of [['管理口令', ADMIN_H], ['会话登录的管理员（没有管理层授予）', SADMIN]]) {
+        // 这两种身份过了读的门（管理门），事项详情读得到（200）——所以不能答回 403，不是 404（读不到的才和不存在一样回 404）
+        const readable = (await call('GET', `/api/work-items/${fourA.item}`, h)).status;
+        const c1 = await canAns(fourA, h), l1 = await listed(fourA, h);
+        const b0 = answered(fourA) + answered(fourB), s0 = sentAnswers(fourA) + sentAnswers(fourB);
+        const r1 = await ans(fourA, h), r2 = await viaAttn(fourB, h, '管理门答');
+        const e1 = r1.body?.error ?? r1.body?.result?.error, e2 = r2.body?.error ?? r2.body?.result?.error;
+        check(readable === 200 && c1 === false && (l1 === null || l1.length === 0) && r1.status === 403 && e1 === 'seat_ask_answer_forbidden' && [400, 403].includes(r2.status)
+          && answered(fourA) + answered(fourB) === b0 && sentAnswers(fourA) + sentAnswers(fourB) === s0,
+          `L21·${who}：读得到这件事项（详情 200），但 can.answer 为假、「关注」不给答法；事项入口 403（读得到、不能答）、「关注」入口被拒；不记答复、不发回`, show({ readable, c1, l1, r1: [r1.status, e1], r2: [r2.status, e2] }));
+      }
+      const cc = await canAns(fourA, ALPHA), lc = await listed(fourA, ALPHA);
+      check(cc === true && JSON.stringify(lc) === JSON.stringify(['answer']), 'L21·建立人本人：详情 can.answer 为真、「关注」给答法', show({ cc, lc }));
+      const cm = await canAns(fourA, MGMT), lm = await listed(fourA, MGMT);
+      const m1 = await ans(fourA, MGMT, { answer: '英文' }), m2 = await viaAttn(fourB, MGMT, '管理层代办答');
+      const late = await ans(fourA, ALPHA, { answer: '中文' });
+      check(cm === true && JSON.stringify(lm) === JSON.stringify(['answer']) && m1.status === 200 && m1.body?.result?.ok === true && m2.status === 200 && m2.body?.result?.ok === true
+        && answered(fourA) === 1 && answered(fourB) === 1 && sentAnswers(fourA) === 1 && sentAnswers(fourB) === 1 && late.status === 409,
+        'L21·持有管理层授予的人：详情 can.answer 为真、「关注」给答法；事项入口、「关注」入口都答得了（代办），各记一次、各发一条；建立人再答 409', show({ cm, lm, m1: [m1.status, m1.body?.result], m2: [m2.status, m2.body?.result], late: late.status }));
+    }
+    // A8：管理层先在「关注」里代办答，建立人再在事项入口答同一条 → 只生效一次、只发一条
+    { const a1 = await call('POST', '/api/attention/answer', MGMT, { source: 'seat-asks', source_id: String(seqA.delivery), answer: 'answer', input: { text: '管理层代办答' } });
       const a2 = await ans(seqA, ALPHA, { answer: '英文' });
-      check(a1.status === 200 && a2.status === 409 && (a2.body?.result?.error ?? a2.body?.error) === 'attention_already_answered' && a2.body?.duplicate !== true && answered(seqA) === 1 && sentAnswers(seqA) === 1, 'A8：管理员和建立人先后答同一条：第二次 409 已处理（#657：别人答过的不给第一次的结果），只生效一次、只发一条', show({ a1: a1.status, a2: a2.status, body: a2.body })); }
-    // 同一提问两个人同时答（管理员经「关注」、建立人经事项入口）：一个生效，另一个被告知已处理
+      check(a1.status === 200 && a2.status === 409 && (a2.body?.result?.error ?? a2.body?.error) === 'attention_already_answered' && a2.body?.duplicate !== true && answered(seqA) === 1 && sentAnswers(seqA) === 1, 'A8：管理层（代办）和建立人先后答同一条：第二次 409 已处理（#657：别人答过的不给第一次的结果），只生效一次、只发一条', show({ a1: a1.status, a2: a2.status, body: a2.body })); }
+    // 同一提问两个人同时答（管理层经「关注」代办、建立人经事项入口）：一个生效，另一个被告知已处理
     const [x, y] = await Promise.all([
-      call('POST', '/api/attention/answer', ADMIN_H, { source: 'seat-asks', source_id: String(raceA.delivery), answer: 'answer', input: { text: '管理员答' } }),
+      call('POST', '/api/attention/answer', MGMT, { source: 'seat-asks', source_id: String(raceA.delivery), answer: 'answer', input: { text: '管理层代办答' } }),
       ans(raceA, ALPHA, { text: '建立人答（自由文本）' }),
     ]);
     const xs = x.body?.result ?? x.body, ys = y.body?.result ?? y.body;
     const winners = [x.status === 200 && x.body?.duplicate !== true && xs?.ok === true, y.status === 200 && y.body?.duplicate !== true && ys?.ok === true].filter(Boolean).length;
-    check(winners === 1 && answered(raceA) === 1 && sentAnswers(raceA) === 1, '同一提问管理员和建立人同时答：只有一个生效、只发一次，另一个被告知已处理', show({ x: [x.status, x.body?.duplicate, xs], y: [y.status, y.body?.duplicate, ys] }));
+    check(winners === 1 && answered(raceA) === 1 && sentAnswers(raceA) === 1, '同一提问管理层（代办）和建立人同时答：只有一个生效、只发一次，另一个被告知已处理', show({ x: [x.status, x.body?.duplicate, xs], y: [y.status, y.body?.duplicate, ys] }));
     out.rebindAsk = rebindA;
   }
   // ---------- 建立人主体：「是不是他的」只认它 ----------

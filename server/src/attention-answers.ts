@@ -32,6 +32,7 @@ import type { AnswerOutcome, AttentionProvider, AttentionService } from './servi
 import type { HttpService } from './http.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import { itemIdForEvent, type WorkItemService } from './services/work-item.ts';
+import { askAnswerRole, isActivePerson } from './work-item-access.ts';
 
 export type AnswerDeps = {
   adminGuard: (req: express.Request, res: express.Response) => boolean;
@@ -315,6 +316,22 @@ export function withAnswers(p: AttentionProvider<Req>, deps: AnswerDeps): Attent
         const who = cookie ? await identity().resolveViewer(cookie) : null;
         if (!who || !who.ok) return { status: 401, body: { error: 'work_items_auth_required' } };
         return creatorAnswer(sourceId, who.viewer.sub, answer, input);
+      }
+      // 席位的提问：答复是替建立人做决定，和事项入口同一处判（askAnswerRole）——建立人本人，或持有管理层授予的人；
+      // 只过了管理门的（管理口令、没有管理层授予的身份来源管理员）不能答。列表里已经不给他们答法，这里再判一次。答的人记登录的主体
+      if (p.source === 'seat-asks') {
+        const cookie = String(req.headers.cookie ?? '');
+        const who = cookie ? await identity().resolveViewer(cookie) : null;
+        const principal = who && who.ok ? who.viewer.sub : null;
+        const forbidden: AnswerOutcome = { status: 403, body: { error: 'seat_ask_answer_forbidden' } };
+        if (!principal) return forbidden;
+        const ask = /^[1-9]\d{0,15}$/.test(sourceId) ? pendingAskOfDelivery(Number(sourceId)) : null;
+        if (ask) {
+          const item = svc<WorkItemService>('workItems').get(itemIdForEvent(ask.event_id));
+          const viewer = { admin: false, principal, person: isActivePerson(principal), actor: principal, management: false };
+          if (!item || askAnswerRole(item, viewer) === null) return forbidden;
+        }
+        return attention().once(p.source, keyOf(p.source, sourceId), answer, principal, async () => directs!.answer(req, sourceId, input, principal));
       }
       const actor = await actorOf(req);
       return attention().once(p.source, keyOf(p.source, sourceId), answer, actor, async () => {
