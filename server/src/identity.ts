@@ -456,11 +456,15 @@ export class IdentityService extends Service {
   private async ask(provider: LoginProvider, cookieHeader: string, source?: string): Promise<ViewerResult> {
     const t0 = Date.now();
     this.stats.asked++;
-    let result: ViewerResult;
-    try { result = checked(await within(Promise.resolve(provider.resolveViewer(cookieHeader, source)), this.deadlineMs)); } catch (e) {
+    // 只有问提供方这一步在 try 里：到点没回答、抛错是来源不可达；回答读起来抛错、形状不对，由 checked 按认不出处理（不算来源不可达）
+    let result: ViewerResult | undefined;
+    let answer: unknown;
+    try { answer = await within(Promise.resolve(provider.resolveViewer(cookieHeader, source)), this.deadlineMs); } catch (e) {
       if (e instanceof Error && e.message === 'deadline') this.stats.timeouts++;
+      answer = undefined;
       result = { ok: false, http: 502, error: UNAVAILABLE };
     }
+    if (result === undefined) result = checked(answer);
     this.stats.last_ms = Date.now() - t0;
     if (!result.ok && result.http >= 500) { this.stats.failed++; this.stats.last_failed_at = new Date().toISOString(); }
     return result;
