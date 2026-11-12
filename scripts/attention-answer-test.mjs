@@ -6,6 +6,7 @@
  *       （变更申请的拒绝和批准失败、MCP 权限申请的批准、待属主看板的答复、待对接的绑定、事项的放行和撤回）
  *   二、无权的人从新入口答，被拒的方式和旧入口一样；看得到但不在列表里的 404
  *   三、重复答返回第一次的结果、不再生效；并发答一个生效、另一个被告知
+ *   三之二、重放答过的一条：先判权再认重复——无权的人、别的答的人、换了答法的，拿到的和这一条不存在时一模一样
  *   四、转发的硬约束：路径只来自写死的表（id 核形状、编码；转不到表外、转不回入口自己）；身份原样（留痕里的人和旧入口一样）；
  *       请求体只由答法换算（多带的字段不透传）；原路由的状态码和正文原样交回
  *   五、新写的两类：席位提问的答复（记在事项上、合上提问、对 v1 不发）、事项的验收和退回
@@ -95,6 +96,23 @@ try {
     const badIds = ['1/../../attention/answer', '1?x=1', '0x1', '1 ', '%2e%2e', '-1', ''];
     const through = badIds.filter((id) => { const r = forwardRoute('mcp-access', 'approve', id, {}); return !r || !('error' in r); });
     const ok = forwardRoute('mcp-access', 'reject', '12', { note: ' n ', status: 'approved', path: '/x' });
+    // 台的 MCP 授予申请：条目 id 是「台的标识:申请编号」，两段都先核形状；请求体只有 approve 和 note，不批要有理由
+    const benchBad = ['demo', 'demo:', ':1', 'demo:0', 'demo:1:2', 'Demo:1', '../demo:1', 'demo/..:1', 'demo:1/../../x', 'demo:1?x=1', 'demo:0x1', 'demo: 1', 'a b:1', 'demo:-1', `${'a'.repeat(65)}:1`, 'demo:1#x', 'demo#x:1', 'demo:abc', 'demo:1e3', `demo:${'9'.repeat(10)}`, 'demo:01', 'demo:1:', ':demo:1', 'demo::1', 'demo:1\n', 'demo%2f..:1', 'démo:1'];
+    const benchThrough = benchBad.filter((id) => { const r = forwardRoute('bench-mcp', 'approve', id, {}); return !r || !('error' in r); });
+    const benchOk = forwardRoute('bench-mcp', 'approve', 'sales-1:12', { note: ' 可以 ', approve: false, session: 'x', tools: ['view_put'] });
+    const benchNo = forwardRoute('bench-mcp', 'reject', 'sales-1:12', { reason: ' 不行 ', note: '不取这个' });
+    check(benchThrough.length === 0 && benchOk.path === '/api/bench-views/sales-1/mcp-requests/12' && benchOk.method === 'POST' && show(benchOk.body) === show({ approve: true, note: '可以' })
+      && show(benchNo.body) === show({ approve: false, note: '不行' }) && show(forwardRoute('bench-mcp', 'reject', 'sales-1:12', { note: ' 只写了 note ' }).body) === show({ approve: false, note: '只写了 note' }) && forwardRoute('bench-mcp', 'reject', 'sales-1:12', { note: '  ' }).error?.body?.error === 'reason_required' && forwardRoute('bench-mcp', 'grant', 'sales-1:12', {}) === null,
+      '换算表·台的 MCP 授予申请：坏 id 一律拒；路径固定；请求体只有 approve 和 note（夹带的 approve、session、tools 不进去）；不批没有理由拒；表外的答法没有', show({ benchThrough, benchOk, benchNo }));
+    // 条目自带的答复地址：只收同源的、/api/ 开头的相对路径；每种答法另写的地址同样核
+    const { answerVia } = await import(at('server/src/services/attention.ts'));
+    const throwsOn = (path, answers = { ok: { body: {} } }) => { try { answerVia('POST', path, answers); return false; } catch { return true; } };
+    const viaBad = ['https://elsewhere.example/api/x', '//elsewhere.example/api/x', 'api/x', '/apix', '/api/', '/login/x', '/api/x?y=1', '/api/x#y', '/api/../x', '/api/x/../y', '/api/x//y', '/api/x y', '/api/x\\y', '/API/x'];
+    const viaThrough = viaBad.filter((x) => !throwsOn(x));
+    const viaOk = answerVia('POST', '/api/work-items/wi_1/release', { release: { body: {} }, withdraw: { path: '/api/work-items/wi_1/withdraw', body: {} }, answer: { body: {}, input: { pick: { to: 'answer', required: true, options: ['a', 'b'] } } } });
+    check(viaThrough.length === 0 && throwsOn('/api/x', { a: { path: 'https://elsewhere.example/api/x', body: {} } }) && throwsOn('/api/x', { a: { path: '/api/../x', body: {} } })
+      && viaOk.path === '/api/work-items/wi_1/release' && viaOk.answers.withdraw.path === '/api/work-items/wi_1/withdraw' && viaOk.answers.answer.input.pick.options.join() === 'a,b',
+      '条目自带的答复地址：外部地址、不是 /api/ 开头、带查询串或 ..、双斜杠一律不收（顶层和每种答法另写的都核）；合规的原样带出', show({ viaThrough }));
     const bind = forwardRoute('principal-pending', 'bind', 'synthetic:a/b?c', { principal: 'user:x', create: true, reason: 'r', display_name: 'd', provider: 'evil' });
     check(through.length === 0 && ok.path === '/api/mcp/access-requests/12/reject' && ok.method === 'POST' && show(ok.body) === show({ note: 'n' })
       && bind.path === '/api/principals/bind' && show(Object.keys(bind.body).sort()) === show(['create', 'external_id', 'principal', 'provider', 'reason']) && bind.body.provider === 'synthetic' && bind.body.external_id === 'a/b?c'
@@ -253,6 +271,28 @@ try {
     const done = [r1, r2].filter((r) => r.status === 200 && !r.body.duplicate), told = [r1, r2].filter((r) => r.status === 409 || r.body?.duplicate === true);
     const who = q('SELECT reviewed_by FROM change_requests WHERE id = ?', S.cr.race)[0].reviewed_by;
     check(done.length === 1 && told.length === 1 && who === done[0].body.result.reviewed_by, '两个人同时答：一个生效，另一个被告知已处理（正在处理或已答过）', show({ r1, r2, who }));
+  }
+
+  // ---------- 三之二、重放答过的一条：先判权，再认重复 ----------
+  {
+    // 事项来源（无权的人、换答法）的重放在 work-item-creator-test 的 L20 节
+    const TOKEN = { ...SAME, 'x-admin-token': ADMIN_TOKEN };
+    // 管理员放行过的待过目事项：普通登录的人（什么都看不到）、员工对它发另一种答法或同一种答法，和对不存在的事项一样，不是 200、不带上一次的结果
+    {
+      const released = `wi_${S.release.new}`, ghostItem = 'wi_no_such_item_replay';
+      const out = [];
+      for (const [who, h] of [['alpha', { ...SAME, cookie: `session_id=${SESSIONS.alpha}` }], ['beta', { ...SAME, cookie: `session_id=${SESSIONS.beta}` }]]) {
+        for (const ans of ['withdraw', 'release']) {
+          const got = await answer('work-items', released, ans, {}, h), ghost = await answer('work-items', ghostItem, ans, {}, h);
+          out.push({ who, ans, same: got.status === ghost.status && same(got.body, ghost.body), got });
+        }
+      }
+      check(out.every((o) => o.same && o.got.status !== 200 && !o.got.body?.result), '管理员放行过的事项：不是当事人的人用任意答法重放，应答和不存在的事项一样，不是 200、不带上一次的事件号和结果', show(out.filter((o) => !o.same || o.got.status === 200)));
+    }
+    // 管理员里换一个人（口令）重放会话管理员答过的变更申请：和不存在的一样，不拿别人的结果
+    const tReplay = await answer('change-requests', S.cr.dup, 'reject', { reason: '口令重放' }, TOKEN);
+    const tGhost = await answer('change-requests', 999998, 'reject', { reason: '口令重放' }, TOKEN);
+    check(tReplay.status === tGhost.status && tReplay.status === 404 && same(tReplay.body, tGhost.body), '别的答的人（管理口令）重放会话管理员答过的一条：和不存在时一样', show({ tReplay, tGhost }));
   }
 
   // ---------- 四、转发的硬约束 ----------

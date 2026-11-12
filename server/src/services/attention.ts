@@ -52,6 +52,34 @@ export function answerVia(method: AnswerVia['method'], path: string, answers: An
 }
 
 /** 每条的统一形状 */
+/**
+ * 条目自带的答复地址（只增）。带了，卡片就照它答；没带，照旧走 POST /api/attention/answer。
+ * 给「答复就是来源自己的一条路由」的来源用：卡片直接调那条路由，应答、报错都是它自己的，不用经答复入口再包一层。
+ *（答复入口对登录的人放开之后（L20），不带 answer_via 的条目不是管理员也答得了；带了的，两条路是同一处判断。）
+ *   method、path：调哪里。path 必须是同源的相对路径、以 /api/ 开头、不带查询串——前端只接受这种，不跟外部地址。
+ *   answers：每种答法（和条目的 answers 一一对应）怎么拼请求体——
+ *     path  可选：这种答法另调一个地址（一张卡上两种答法是两条路由时用）；不写就用顶层的 path。要求和顶层的一样；
+ *     body  固定带的字段；
+ *     input 这种答法让人填的字段：键是填写项的名字，to 是它放进请求体的哪个键，required 为真时必填，max 是字数上限，
+ *           options 给了就是只能从这几个里选一个（下拉或单选），值照样放进 to 指定的键。
+ *           前端的卡片一个答法只画一个填写项（有必填的画必填的那个）；一个答法有两个以上必填项的不会出现在卡片上。
+ *   请求体 = { ...body, [to]: 填的值 }。应答就是那条路由自己的应答（不包 result）：2xx 成功；4xx 的正文有 error，多半还有 message，原样显示。
+ * 地址背后的路由自己认人、自己判权限；这里只是告诉卡片该调哪里，不代表这个人一定答得成。
+ */
+export type AnswerVia = {
+  method: 'POST' | 'PUT';
+  path: string;
+  answers: Record<string, { path?: string; body: Record<string, unknown>; input?: Record<string, { to: string; required?: boolean; max?: number; options?: string[] }> }>;
+};
+const ANSWER_VIA_PATH = /^\/api\/[A-Za-z0-9][A-Za-z0-9._~:@/-]{0,300}$/;
+/** 拼一个 answer_via：地址不合规（不是 /api/ 开头的同源相对路径、带 ..、带查询串）直接抛错，不交给前端 */
+export function answerVia(method: AnswerVia['method'], path: string, answers: AnswerVia['answers']): AnswerVia {
+  for (const p of [path, ...Object.values(answers).map((a) => a.path).filter((x): x is string => x !== undefined)]) {
+    if (typeof p !== 'string' || !ANSWER_VIA_PATH.test(p) || /(^|\/)\.\.?(\/|$)/.test(p) || p.includes('//')) throw new Error(`attention：answer_via 的地址不合规：${String(p).slice(0, 80)}`);
+  }
+  return { method, path, answers };
+}
+
 export type AttentionItem = {
   source: string;
   source_id: string;
@@ -69,6 +97,8 @@ export type AttentionItem = {
   link: string | null;
   /** 审核卡片当场办所需的最少内容（变更申请：要动什么、从第几版到第几版、谁为什么申请、删除连带几个版本几个文件、不可恢复） */
   detail?: Record<string, unknown>;
+  /** 条目自带的答复地址：带了就照它答，见 AnswerVia */
+  answer_via?: AnswerVia;
   /** 统一待办条目是哪一类：task（任务中心任务）、sop-run（SOP 执行）、ygl、a2a、other。前端据此不把它们放进「等你审核」 */
   kind?: string;
   /** 条目自带的答复地址：带了就照它答，见 AnswerVia（和数据视图 #623 同一个定义，谁后合并谁去重） */
@@ -149,24 +179,31 @@ export class AttentionService extends Service {
     return best?.key ?? null;
   }
 
-  /** 这一条已经答成过（答完它就不在列表里了，重复答时用它认出来） */
-  answered(source: string, sourceId: string): boolean {
-    return Boolean(db.prepare("SELECT 1 FROM attention_answers WHERE source = ? AND source_id = ? AND state = 'done'").get(source, sourceId));
+  /**
+   * 这个人用这种答法答成过这一条（答完它就不在列表里了，重复答时用它认出来）。键里带答的人和答法：
+   * 别人答的、换了答法的都不算，入口对它们回「没有这一条」，和这一条从没存在过一样
+   */
+  answered(source: string, sourceId: string, by: string, answer: string): boolean {
+    return Boolean(db.prepare("SELECT 1 FROM attention_answers WHERE source = ? AND source_id = ? AND state = 'done' AND answered_by = ? AND answer = ?").get(source, sourceId, by, answer));
   }
 
   /**
    * 记账着答一次：
-   *   · 已经答成过：返回第一次的应答（duplicate），不再生效；
+   *   · 同一个人用同一种答法答成过：返回第一次的应答（duplicate），不再生效；
+   *   · 别人答成过、或换了答法：409，不带上一次的应答（调用方已经判过权，这里只是不把别人的结果给他）；
    *   · 正有人在答：409，告诉他已在处理（并发的两个人，一个生效、另一个被告知）；
    *   · 否则先占住这一条，再 run；成功（2xx）记下应答，失败删掉占位、原样返回失败（不吞），可以再答。
    */
   async once(source: string, sourceId: string, answer: string, by: string, run: () => Promise<AnswerOutcome>): Promise<AnswerOutcome> {
     // 占位有期限：超过 PENDING_TTL_SECONDS 还没收尾的（进程在答的途中卡死、或被杀了），当它不存在
     db.prepare(`DELETE FROM attention_answers WHERE source = ? AND source_id = ? AND state = 'pending' AND at < datetime('now', '-${PENDING_TTL_SECONDS} seconds')`).run(source, sourceId);
-    const prior = () => db.prepare('SELECT state, status, body FROM attention_answers WHERE source = ? AND source_id = ?').get(source, sourceId) as { state: string; status: number; body: string } | undefined;
-    const seen = (row: { state: string; status: number; body: string }): AnswerOutcome => row.state === 'done'
-      ? { status: row.status, body: JSON.parse(row.body || 'null'), duplicate: true }
-      : { status: 409, body: { error: 'attention_answer_in_progress', message: '这一条正在被别人处理' } };
+    type Row = { state: string; status: number; body: string; answer: string; answered_by: string };
+    const prior = () => db.prepare('SELECT state, status, body, answer, answered_by FROM attention_answers WHERE source = ? AND source_id = ?').get(source, sourceId) as Row | undefined;
+    const seen = (row: Row): AnswerOutcome => row.state !== 'done'
+      ? { status: 409, body: { error: 'attention_answer_in_progress', message: '这一条正在被别人处理' } }
+      : row.answered_by === by && row.answer === answer
+        ? { status: row.status, body: JSON.parse(row.body || 'null'), duplicate: true }
+        : { status: 409, body: { error: 'attention_already_answered', message: '这一条已经处理过了' } };
     const before = prior();
     if (before) return seen(before);
     const claimed = db.prepare("INSERT OR IGNORE INTO attention_answers (source, source_id, answer, state, answered_by) VALUES (?, ?, ?, 'pending', ?)").run(source, sourceId, answer, by);
