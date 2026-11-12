@@ -121,7 +121,11 @@ with sync_playwright() as p:
     check('切到角色预设：地址带 ?tab=roles', 'tab=roles' in pg.url, pg.url)
     with urllib.request.urlopen(urllib.request.Request(M + '/api/roles/matrix', headers={'x-admin-token': TOK})) as r: mx = json.load(r)
     ra = {pg.locator('[data-testid=acc-role]').nth(i).get_attribute('data-id'): pg.locator('[data-testid=acc-role]').nth(i).locator('[data-testid=acc-role-approval]') for i in range(pg.locator('[data-testid=acc-role]').count())}
-    check('角色卡标要谁放行：有说法的角色标，没有说法的不标', ra['management'].inner_text().strip() == '只有属主能放行' and ra['member'].inner_text().strip() == '管理员即可放行' and ra['owner'].count() == 0, {k: v.count() for k, v in ra.items()})
+    # 要的说法：截下来改过的两个角色用合成的说法，其余照服务端给的（#618 起服务端每个角色都带 approval_text；没有就不标）
+    with urllib.request.urlopen(urllib.request.Request(M + '/api/roles', headers={'x-admin-token': TOK})) as r: real = {x['id']: x.get('approval_text') for x in json.load(r)['roles']}
+    want = {k: APPROVAL.get(k, real.get(k)) for k in ra}
+    got = {k: (v.inner_text().strip() if v.count() else None) for k, v in ra.items()}
+    check('角色卡标要谁放行：照服务端的说法原样标（截下来的两个是合成的），没有说法的不标', got == want and got['management'] == '只有属主能放行' and got['member'] == '管理员即可放行', (got, want))
     check('每个角色一张卡', pg.locator('[data-testid=acc-role]').count() == len(mx['roles']), (pg.locator('[data-testid=acc-role]').count(), len(mx['roles'])))
     rows = pg.locator('[data-testid=acc-matrix] tbody tr')
     check('矩阵：七大块一行一块、四类一列一类', rows.count() == len(mx['blocks']) == 7 and pg.locator('[data-testid=acc-matrix] thead th').count() == 1 + len(mx['kinds']))
