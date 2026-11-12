@@ -86,6 +86,11 @@ try {
   ok('W4 同幂等键同内容：返回原结果，不重复写', r.row_count === 4 && again.duplicate === true && again.row_count === 4 && (await s.query({ dataset: 'runs' })).rows.length === 4);
   e = await refused(() => s.append('runs', [row(5, 'c', 2)], ctx({ idemKey: 'idem-key-0001' })));
   ok('W4 同幂等键不同内容被拒', e?.code === 'conflict');
+  // 键按写的人隔开：另一个人用同一个键，等于没人用过——既不拿到前一个人的结果，也不报「键已用在另一份内容上」
+  const byOther = await s.upsert('runs', [row(4, 'c', 2)], ctx({ actor: 'someone-else', idemKey: 'idem-key-0001' }));
+  const byOtherAgain = await s.upsert('runs', [row(4, 'c', 2)], ctx({ actor: 'someone-else', idemKey: 'idem-key-0001' }));
+  const byMeAgain = await s.append('runs', [row(4, 'c', 2)], ctx({ idemKey: 'idem-key-0001' }));
+  ok('W4 另一个人用同一个键：照常写入，不算重复、不报冲突；各人重试各自认得', byOther.duplicate === undefined && byOther.op === 'upsert' && byOther.updated === 1 && byOtherAgain.duplicate === true && byOtherAgain.op === 'upsert' && byMeAgain.duplicate === true && byMeAgain.op === 'append', { byOther, byOtherAgain: byOtherAgain.duplicate, byMeAgain: byMeAgain.op });
   r = await s.upsert('runs', [{ id: 1, done: 50 }, { id: 6, status: 'new', done: 0 }], ctx());
   q = await s.query({ dataset: 'runs', filter: [{ col: 'id', op: 'in', values: [1, 6] }], sort: [{ col: 'id' }] });
   ok('W5 按主键更新：有则改（只改给了的列）、无则加', r.inserted === 1 && r.updated === 1 && q.rows[0].done === 50 && q.rows[0].status === 'a' && q.rows[1].status === 'new' && q.rows[1].amount === null, q.rows);
@@ -100,7 +105,7 @@ try {
   e = await refused(() => s.replace('nope', [], ctx()));
   ok('W8 没有这个数据集', e?.code === 'not_found');
   const wl = await s.writes();
-  ok('W9 写入记录只有摘要，没有内容', wl.length === 4 && wl.map((w) => w.op).join() === 'delete,upsert,append,replace' && wl.every((w) => /^[0-9a-f]{64}$/.test(w.body_sha256) && !('rows_json' in w) && !('result' in w)));
+  ok('W9 写入记录只有摘要，没有内容', wl.length === 5 && wl.map((w) => w.op).join() === 'delete,upsert,upsert,append,replace' && wl.map((w) => w.actor).join() === 'tester,tester,someone-else,tester,tester' && wl.every((w) => /^[0-9a-f]{64}$/.test(w.body_sha256) && !('rows_json' in w) && !('result' in w)));
 
   // —— 快照与退回 ——
   console.log('快照与退回');
