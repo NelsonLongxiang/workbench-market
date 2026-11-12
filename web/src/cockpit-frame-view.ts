@@ -100,3 +100,12 @@ export function benchViewError(status: number, code?: string): string {
   if (status === 0) return '连不上服务器';
   return '读不到这份视图，稍后再试';
 }
+
+/** 右栏「事项」列的是哪个视角（列表接口应答里的 view，#626）：页签照它写。
+ *  服务端还没给 view 的（旧的应答）：看的人只拿得到自己建立的就写「我安排的事项」，否则只写「事项」 */
+const VIEW_LABEL: Record<string, string> = { mine: '我安排的事项', seats: '我的 AI 员工手上的事项', team: '我团队的事项', all: '全部事项' };
+export function itemsTabLabel(view: unknown, seesAll: boolean): string {
+  if (typeof view === 'string' && VIEW_LABEL[view]) return VIEW_LABEL[view];
+  return seesAll ? '事项' : '我安排的事项';
+}
+

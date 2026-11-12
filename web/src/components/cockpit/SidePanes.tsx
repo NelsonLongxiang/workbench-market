@@ -48,9 +48,24 @@ export function AttentionPane({ onCount }: { onCount?: (n: number) => void }) {
 }
 
 type ItemRow = { id: string; title: string; state: string; updated_at: string };
-/** 事项：最近变化的几件（可见范围同事项页：管理员看全部，别人只看自己建立的） */
-export function ItemsPane() {
-  const s = useList<ItemRow>('/api/work-items?limit=12', (b) => (Array.isArray((b as { items?: unknown }).items) ? (b as { items: ItemRow[] }).items : []));
+type Items = { state: 'loading' } | { state: 'ok'; rows: ItemRow[]; view: unknown } | { state: 'error'; status: number };
+/** 事项：最近变化的几件。先要「我安排的」（列表接口的 view=mine，#626）；这个视角对看的人不可用（403）就不带视角再要一次，
+ *  落在服务端给的第一个有内容的视角。旧的服务端不认 view，照它原来的可见范围给。用的是哪个视角报给页签（onView） */
+export function ItemsPane({ onView }: { onView?: (view: unknown) => void }) {
+  const [s, setS] = useState<Items>({ state: 'loading' });
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      try {
+        let r = await apiFetch('/api/work-items?view=mine&limit=12');
+        if (r.status === 403) r = await apiFetch('/api/work-items?limit=12');
+        const body = await r.json().catch(() => ({})) as { items?: unknown; view?: unknown };
+        if (live) setS(r.ok ? { state: 'ok', rows: Array.isArray(body.items) ? body.items as ItemRow[] : [], view: body.view } : { state: 'error', status: r.status });
+      } catch { if (live) setS({ state: 'error', status: 0 }); }
+    })();
+    return () => { live = false; };
+  }, []);
+  useEffect(() => { if (s.state === 'ok') onView?.(s.view); }, [s, onView]);
   if (s.state === 'loading') return <div className="wm-ck-pad"><Skeleton active paragraph={{ rows: 3 }} /></div>;
   if (s.state === 'error') return <div className="wm-ck-pad"><Typography.Text type="secondary">{sayError(s.status, '事项')}</Typography.Text></div>;
   if (!s.rows.length) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有事项" />;

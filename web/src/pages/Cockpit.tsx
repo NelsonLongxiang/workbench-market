@@ -13,7 +13,7 @@ import WmPage from '../components/WmPage';
 import CockpitFrame from '../components/cockpit/CockpitFrame';
 import { AttentionPane, ItemsPane } from '../components/cockpit/SidePanes';
 import BenchViewPanel from '../components/cockpit/BenchViewPanel';
-import { benchViewRefs, isBenchViewPanel, mainTabKeys, refsOfTab } from '../cockpit-frame-view';
+import { benchViewRefs, isBenchViewPanel, itemsTabLabel, mainTabKeys, refsOfTab } from '../cockpit-frame-view';
 
 /** 驾驶舱写（/api/cockpits）是管理写：不是管理员（口令或 Odoo 管理员）时只读，隐藏新建/删除/改名/加移面板，网格不可拖拽 */
 const READ_ONLY_HINT = '编辑驾驶舱需要管理员：在顶栏输入管理员口令，或用 Odoo 管理员账号登录。';
@@ -52,6 +52,7 @@ export default function Cockpit() {
   const [panels, setPanels] = useState<PanelConfig[] | null>(null);
   // 驾驶舱改名（监督席 direct-3b98f8c2 用户报障：后端 PUT name 一直在，前端无入口）
   const [attentionCount, setAttentionCount] = useState<number | null>(null);
+  const [itemsView, setItemsView] = useState<unknown>(undefined);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const submitRename = async () => {
@@ -345,7 +346,7 @@ export default function Cockpit() {
         main={{ id: 'board', tabs: mainTabKeys(refs, panels.length).map((k) => (k === 'benches'
           ? { key: 'benches', label: '工作台', content: board }
           : { key: k, label: k === 'board' ? '看板' : '明细', content: <>{refsOfTab(refs, k).map((x) => <BenchViewPanel key={x.i} refItem={x} />)}</> })) }}
-        right={{ id: 'items', tabs: [{ key: 'items', label: READ_ONLY ? '我安排的事项' : '事项', content: <ItemsPane /> }] }} />
+        right={{ id: 'items', tabs: [{ key: 'items', label: itemsTabLabel(itemsView, !READ_ONLY), content: <ItemsPane onView={setItemsView} /> }] }} />
     </WmPage>
   );
 }
