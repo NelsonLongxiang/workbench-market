@@ -293,3 +293,8 @@ export async function getLifecycleNameSources(): Promise<{ types: unknown[]; obj
   }
   return { types, objects };
 }
+
+/** 关系的提议（规范 14「关系由谁说了算」）：服务端按看的人裁好；确认、驳回或撤回。返回状态码让页面给说法 */
+export const getRelationProposals = () => teamCall('/api/relations/proposals');
+export const approveRelationProposal = (id: number) => teamCall(`/api/relations/proposals/${id}/approve`, { method: 'POST', body: {} });
+export const rejectRelationProposal = (id: number, reason: string) => teamCall(`/api/relations/proposals/${id}/reject`, { method: 'POST', body: { reason } });
