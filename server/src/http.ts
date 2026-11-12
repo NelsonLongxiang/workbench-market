@@ -50,7 +50,14 @@ export type ActionSpec = {
    * 状态码和旧守卫一致（启动自检、客户端都按状态码判）。不写就是 403。
    */
   readonly unauthenticated?: 401;
+  /**
+   * 面门（阶段六 6d）：这条路由只在某个面上开放，从别的面来的请求由路由自己拒（比如凭据库只在控制面开放）。
+   * when(req) 说「这个请求走错了面」；成立时旧守卫的拒绝是面的规则、不是「谁能做什么」：比对单列「被面门拦下」不算不一致，
+   * 判定切换的开关不抢先、交给旧的面门。写一句原因；when 只看请求，不改请求。进快照。
+   */
+  readonly surfaceGate?: SurfaceGate;
 };
+export type SurfaceGate = { readonly why: string; readonly when: (req: express.Request) => boolean };
 /** 请求进来时的事实（判定比对在请求进来时取，请求本身可能改掉它们） */
 export type RequestFacts = { adminTokenSet: boolean };
 export type ActionRefinement = { readonly action: string; readonly kind: ActionKind; readonly why: string; readonly when: (req: express.Request, facts: RequestFacts) => boolean };
@@ -85,6 +92,12 @@ function checkSpec(method: RouteMethod, path: RoutePath, spec: unknown): ActionS
   if (snv !== undefined && (typeof snv !== 'string' || !snv.trim() || snv.length > 120 || /[\x00-\x1f\x7f]/.test(snv))) throw new Error(`http：${where} 的 statusNotVerdict 要写一句原因（1～120 个字符）`);
   const unauth = (spec as { unauthenticated?: unknown }).unauthenticated;
   if (unauth !== undefined && unauth !== 401) throw new Error(`http：${where} 的 unauthenticated 只能写 401`);
+  const gate = (spec as { surfaceGate?: { why?: unknown; when?: unknown } }).surfaceGate;
+  if (gate !== undefined) {
+    if (!gate || typeof gate !== 'object') throw new Error(`http：${where} 的 surfaceGate 要是 { why, when }`);
+    if (typeof gate.why !== 'string' || !gate.why.trim() || gate.why.length > 120 || /[\x00-\x1f\x7f]/.test(gate.why)) throw new Error(`http：${where} 的面门要写一句原因（1～120 个字符）`);
+    if (typeof gate.when !== 'function') throw new Error(`http：${where} 的面门要有 when(req)`);
+  }
   const refine = (spec as { refine?: unknown }).refine;
   if (refine !== undefined) {
     if (!Array.isArray(refine) || refine.length === 0) throw new Error(`http：${where} 的 refine 要是非空数组`);
@@ -95,7 +108,7 @@ function checkSpec(method: RouteMethod, path: RoutePath, spec: unknown): ActionS
       if (typeof r.when !== 'function') throw new Error(`http：${where} 细分的动作 ${r.action} 要有 when`);
     }
   }
-  return Object.freeze({ action, kind: kind as ActionKind, ...(snv !== undefined ? { statusNotVerdict: snv as string } : {}), ...(unauth !== undefined ? { unauthenticated: 401 as const } : {}), ...(refine !== undefined ? { refine: Object.freeze([...(refine as ActionRefinement[])]) } : {}) });
+  return Object.freeze({ action, kind: kind as ActionKind, ...(snv !== undefined ? { statusNotVerdict: snv as string } : {}), ...(unauth !== undefined ? { unauthenticated: 401 as const } : {}), ...(gate !== undefined ? { surfaceGate: Object.freeze({ why: gate.why as string, when: gate.when as SurfaceGate['when'] }) } : {}), ...(refine !== undefined ? { refine: Object.freeze([...(refine as ActionRefinement[])]) } : {}) });
 }
 
 export class HttpService extends Service {

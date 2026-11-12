@@ -58,7 +58,7 @@ function actionsOf(stack, depth = 0) {
       const path = Array.isArray(layer.route.path) ? layer.route.path.map(String).join(' | ') : String(layer.route.path);
       const a = layer.route.wmAction;
       const refine = a?.refine ? a.refine.map((r) => `；细分：${r.action}  ${r.kind}（${r.why}）`).join('') : '';
-      lines.push(`${pad}${methods} ${path}  -> ${a ? `${a.action}  ${a.kind}${a.statusNotVerdict ? `  （状态码不代表授权：${a.statusNotVerdict}）` : ''}${a.unauthenticated ? '  （没认出人回 401）' : ''}${refine}` : '（未登记）'}`);
+      lines.push(`${pad}${methods} ${path}  -> ${a ? `${a.action}  ${a.kind}${a.statusNotVerdict ? `  （状态码不代表授权：${a.statusNotVerdict}）` : ''}${a.unauthenticated ? '  （没认出人回 401）' : ''}${a.surfaceGate ? `  （面门：${a.surfaceGate.why}）` : ''}${refine}` : '（未登记）'}`);
     } else if (layer.handle?.stack) {
       lines.push(...actionsOf(layer.handle.stack, depth + 1));
     }

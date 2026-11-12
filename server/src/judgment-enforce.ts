@@ -26,7 +26,7 @@ import { svc } from './context.ts';
 import { enforcedDenials, migrateOnSight, type ActorOf } from './judgment-compare.ts';
 import type { JudgmentCompareService } from './services/judgment-compare.ts';
 import { NOT_SWITCHED, READ_WITH_SIDE_EFFECTS } from './judgment-builtins.ts';
-import { denyIfAllowed } from './judgment-read-deny.ts';
+import { denyIfAllowed, surfaceBlocked } from './judgment-read-deny.ts';
 
 export type EnforceConfig = { domains: ReadonlySet<string> | 'all' | null };
 
@@ -76,6 +76,8 @@ export function enforceGate(config: EnforceConfig, actorOf: ActorOf, facts: () =
     const refined = declared.refine?.find((r) => { try { return r.when(req, f); } catch { return false; } });
     const spec = refined ? { ...declared, action: refined.action, kind: refined.kind } : declared;
     if (declared.statusNotVerdict || !enforced(config, spec.action)) return next();
+    // 面门：走错了面的交给路由自己的面门拒，开关不抢先
+    if (surfaceBlocked(declared, req)) return next();
     actorOf(req).then(({ actor, admin }) => {
       migrateOnSight(actor, admin);
       const result = judge({ actor, action: spec.action, kind: spec.kind, declared: true });

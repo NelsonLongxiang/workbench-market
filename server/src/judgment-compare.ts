@@ -27,6 +27,7 @@ import { identity } from './identity.ts';
 import { browserMarked, rawLoopback } from './surfaces.ts';
 import { ACTION_KEY, type ActionSpec, type RequestFacts } from './http.ts';
 import { judge, type JudgedActor } from './judgment.ts';
+import { surfaceBlocked } from './judgment-read-deny.ts';
 import type { GrantService } from './services/grant.ts';
 import type { PrincipalService } from './services/principal.ts';
 import type { JudgmentCompareService, Outcome } from './services/judgment-compare.ts';
@@ -142,6 +143,8 @@ export function mountJudgmentCompare(app: express.Express, config: CompareConfig
     const spec = declared && refined ? { ...declared, action: refined.action, kind: refined.kind } : declared;
     if (!spec) { compare().tally(pattern, '', 'unregistered'); write({ route: pattern, outcome: 'unregistered' , step: stepOf(req) }); return; }
     if (enforcedDenials.has(req)) { write({ route: pattern, action: spec.action, outcome: 'enforced-deny', status: res.statusCode, step: stepOf(req) }); return; }
+    // 面门：走错了面、旧的拒了，是面的规则不是授权，单列（和完整性门同一类计数，输出里写 surface-blocked）
+    if (surfaceBlocked(declared, req) && oldVerdict(res.statusCode) === 'deny') { compare().tally(pattern, spec.action, 'integrity-blocked'); write({ route: pattern, action: spec.action, outcome: 'surface-blocked', status: res.statusCode, step: stepOf(req) }); return; }
     if (spec.statusNotVerdict) { compare().tally(pattern, spec.action, 'not-verdict'); write({ route: pattern, action: spec.action, outcome: 'not-verdict', status: res.statusCode, step: stepOf(req) }); return; }
     const old = oldVerdict(res.statusCode);
     if (old === 'deny' && crossMarked(req)) { compare().tally(pattern, spec.action, 'integrity-blocked'); write({ route: pattern, action: spec.action, outcome: 'integrity-blocked', status: res.statusCode, step: stepOf(req) }); return; }

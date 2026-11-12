@@ -41,3 +41,12 @@ export function denyIfAllowed(res: express.Response, status: number, body: strin
     return (end as (b: string, cb?: () => void) => unknown)(res.req.method === 'HEAD' ? '' : body, cb);
   };
 }
+
+/**
+ * 面门：这个请求是不是被面门挡在外面（路由声明了 surfaceGate、when 成立）。when 抛错按「没走错面」算——
+ * 面门判不了就照常比、照常判，不靠它把请求从比对里摘出去（摘出去会藏住不一致）。
+ */
+export function surfaceBlocked(spec: { surfaceGate?: { when: (req: express.Request) => boolean } } | undefined, req: express.Request): boolean {
+  if (!spec?.surfaceGate) return false;
+  try { return spec.surfaceGate.when(req) === true; } catch { return false; }
+}

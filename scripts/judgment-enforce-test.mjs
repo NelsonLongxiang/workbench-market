@@ -11,6 +11,7 @@
  *       · 管理面的读（GET）走读的路：远程匿名、普通员工列主体，新旧都拒，应答是旧守卫的、和不切时逐字一样；
  *       · 没切的域照旧按旧守卫（匿名读 Cookie 池、远程匿名列授予的拒绝写法不变）；
  *       · 反向比对：给员工一条 admin 授予，新判定放行、旧守卫照旧拒，记成不一致（说明旧守卫还不能拿掉）
+ *   面门：走错面的才算被挡（比对单列、开关不抢先），没声明、判不了的照常
  *   四、读的路（类别 read）：新判定拒，旧处理函数照跑——旧的也拒就原样回旧应答（逐字一样，404 还是 404）；
  *       旧的要放行就换成拒绝，旧的应答体一个字节都不发（json、流式写、跳转、HEAD 都试）
  *
@@ -149,7 +150,12 @@ try {
     // 拦截函数单独测：一个最小的 Express 应用，每条路由前面都套上「新判定拒」
     const require = createRequire(join(ROOT, 'server', 'package.json'));
     const express = require('express');
-    const { denyIfAllowed } = await import(pathToFileURL(join(ROOT, 'server/src/judgment-read-deny.ts')).href);
+    const { denyIfAllowed, surfaceBlocked } = await import(pathToFileURL(join(ROOT, 'server/src/judgment-read-deny.ts')).href);
+    // 面门：when 成立才算被挡；没声明、when 抛错都按没走错面（不靠它把请求从比对里摘出去）
+    const wrongSurface = { surfaceGate: { why: '只在控制面', when: (q) => q.headers['x-surface'] !== 'control' } };
+    const throws = { surfaceGate: { why: '判不了', when: () => { throw new Error('boom'); } } };
+    const sb = [surfaceBlocked(wrongSurface, { headers: { 'x-surface': 'market' } }), surfaceBlocked(wrongSurface, { headers: { 'x-surface': 'control' } }), surfaceBlocked(undefined, { headers: {} }), surfaceBlocked({ action: 'x.read' }, { headers: {} }), surfaceBlocked(throws, { headers: {} })];
+    check(JSON.stringify(sb) === JSON.stringify([true, false, false, false, false]), '面门：走错面的才算被挡；没声明面门、when 抛错都按没走错面', JSON.stringify(sb));
     const app = express();
     const recorded = [];
     const body = JSON.stringify({ error: 'judgment_denied', action: 'x.read' });
