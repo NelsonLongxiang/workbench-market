@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 「谁能做什么」页的纯函数单测（web/src/access-view.ts）：状态、范围、期限的说法，待核准卡片，按人排的权限表，矩阵格子，读不到时怎么说。数据都是合成的。 */
-import { ACCESS_TABS, CELL_LEGEND, actionProblem, cellLabel, declineReasonOk, grantActorRaw, grantRows, grantsOf, indexPrincipals, kindLabel, matrixOf, pendingGrants, principalName, responsibleOf, roleName, roleUsage, rolesOf, scopeLabel, scopeNotYetEffective, sourceProblem, statusLabel, tabFromQuery, termLabel, myRolesOf, summaryDo, OTHERS_ONLY_ADMINS } from '../web/src/access-view.ts';
+import { ACCESS_TABS, CELL_LEGEND, actionProblem, cellLabel, declineReasonOk, grantActorRaw, grantRows, grantsOf, indexPrincipals, kindLabel, matrixOf, pendingGrants, principalName, responsibleOf, roleName, roleUsage, rolesOf, scopeLabel, scopeNotYetEffective, sourceProblem, statusLabel, tabFromQuery, termLabel, myRolesOf, summaryDo, OTHERS_ONLY_ADMINS, approvalText } from '../web/src/access-view.ts';
 import { actorLabel } from '../web/src/people.ts';
 
 let pass = 0, fail = 0;
@@ -64,6 +64,10 @@ ok('你的权限：没登录、只有口令（principal 为空）、读不到都
 ok('读不到矩阵时，块的范围也说名字（「事项与对话」这一块）；矩阵给的名字优先；原型链上的名字不当块名', scopeLabel('domain:work') === '「事项与对话」这一块' && scopeLabel('domain:work', new Map([['work', '事项']])) === '「事项」这一块' && scopeLabel('domain:toString') === '这一块 toString');
 ok('别人的权限谁能看：一句话', OTHERS_ONLY_ADMINS === '别人的权限现在只有管理员能看。');
 ok('能做一格：去掉「能做：」前缀和「；能管：…」', summaryDo('能做：事项与对话（全部）；能管：全景（全部）、关注（全部）') === '事项与对话（全部）' && summaryDo('能做：无') === '无' && summaryDo(undefined) === '');
+
+// 要谁放行：服务端给的 approval_text 原样用；没有这个字段（服务端还没加）就不显示
+const rolesWithApproval = rolesOf({ roles: [{ id: 'management', name: '管理层', approval: 'owner', approval_text: '只有属主能放行' }, { id: 'member', name: '普通员工', approval: 'admin', approval_text: '  管理员即可放行 ' }, { id: 'guest', name: '访客' }, { id: 'odd', name: '怪', approval_text: 7 }] });
+ok('要谁放行：照服务端的说法原样显示（去掉两头空白）；没有字段、不是字符串、没有这个角色都不显示', approvalText('management', rolesWithApproval) === '只有属主能放行' && approvalText('member', rolesWithApproval) === '管理员即可放行' && approvalText('guest', rolesWithApproval) === null && approvalText('odd', rolesWithApproval) === null && approvalText('nope', rolesWithApproval) === null);
 
 console.log(`\naccess-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

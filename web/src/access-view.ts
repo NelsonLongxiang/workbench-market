@@ -13,7 +13,7 @@ export interface Grant {
 }
 export type PrincipalKind = 'person' | 'seat' | 'app' | 'system' | 'node';
 export interface Principal { id: string; kind: PrincipalKind; display_name: string; owner: string; status: 'active' | 'disabled' | string; identities?: { provider: string; external_id: string }[] }
-export interface RoleInfo { id: string; name: string; platform?: boolean; custom?: boolean }
+export interface RoleInfo { id: string; name: string; platform?: boolean; custom?: boolean; approval?: string; approval_text?: string }
 export type Cell = 'all' | 'scoped' | 'some' | 'self' | 'none' | 'na';
 export interface MatrixRole { id: string; name: string; preset: boolean; custom: boolean; cells: Record<string, Record<string, Cell>>; summary: { see: string; do: string; decide: string; cannot: string } }
 export interface Matrix { blocks: { key: string; name: string }[]; kinds: { key: string; name: string }[]; roles: MatrixRole[] }
@@ -109,6 +109,12 @@ export function rolesOf(body: unknown): Map<string, RoleInfo> {
 }
 export function roleName(id: string, roles: Map<string, RoleInfo>): string {
   return roles.get(id)?.name || id;
+}
+/** 这个角色的授予要谁放行：服务端（GET /api/roles 的 approval_text）给的说法原样用，页面不自己判谁放行得了；
+ *  没有这个字段（服务端还没加）就返回 null，页面照旧不显示 */
+export function approvalText(id: string, roles: Map<string, RoleInfo>): string | null {
+  const t = roles.get(id)?.approval_text;
+  return typeof t === 'string' && t.trim() ? t.trim() : null;
 }
 
 /** 待你核准的：先提交的在前 */

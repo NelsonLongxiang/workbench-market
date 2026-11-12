@@ -18,7 +18,7 @@ import { subscribeAdminToken } from '../../admin-token';
 import {
   ACCESS_TABS, CELL_LEGEND, actionProblem, cellLabel, declineReasonOk, grantActorRaw, grantRows, grantsOf, indexPrincipals, kindLabel, matrixOf,
   pendingGrants, principalName, responsibleOf, roleName, roleUsage, rolesOf, scopeLabel, scopeNotYetEffective, sourceProblem, statusLabel, tabFromQuery, termLabel, SCOPE_PENDING,
-  OTHERS_ONLY_ADMINS, myRolesOf, summaryDo,
+  OTHERS_ONLY_ADMINS, myRolesOf, summaryDo, approvalText,
 } from '../../access-view';
 import type { AccessTab, Grant, Principal, RoleInfo, SourceResult, Tone } from '../../access-view';
 
@@ -28,7 +28,7 @@ const ok = (r: SourceResult | null) => !!r && r.status >= 200 && r.status < 300;
 type Sources = { grants: SourceResult | null; principals: SourceResult | null; roles: SourceResult | null; matrix: SourceResult | null; me: unknown };
 const NONE: Sources = { grants: null, principals: null, roles: null, matrix: null, me: null };
 
-function PendingCard({ g, who, kind, role, by, scope, onDone }: { g: Grant; who: string; kind: string; role: string; by: string; scope: string; onDone: () => void }) {
+function PendingCard({ g, who, kind, role, by, scope, approval, onDone }: { g: Grant; who: string; kind: string; role: string; by: string; scope: string; approval: string | null; onDone: () => void }) {
   const [declining, setDeclining] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -49,6 +49,7 @@ function PendingCard({ g, who, kind, role, by, scope, onDone }: { g: Grant; who:
       </div>
       <div className="wm-acc-ask-role">{role}</div>
       <div className="wm-acc-ask-meta">范围：{scope} · 期限：{termLabel(g.expires_at, Date.now())}{g.expires_at !== null ? '，到期自动收回' : ''}{g.reason ? ` · 理由：${g.reason}` : ''}</div>
+      {approval && <div className="wm-acc-ask-approval" data-testid="acc-approval">这一项{approval}</div>}
       {declining ? (
         <div className="wm-acc-decline">
           <Input.TextArea data-testid="acc-decline-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} autoSize={{ minRows: 2, maxRows: 4 }} placeholder="写一句为什么不给（会留痕）" />
@@ -142,7 +143,7 @@ export default function Access() {
           <>
             <div className="wm-acc-sec"><h3>待你核准</h3><span className="wm-acc-n">{pending.length}</span></div>
             <div className="wm-acc-asks">{pending.map((g) => (
-              <PendingCard key={g.id} g={g} who={principalName(g.principal_id, people)} kind={kindLabel(people.get(g.principal_id)?.kind)} role={roleName(g.role, roles)} by={byLabel(g.created_by)} scope={scopeText(g.scope)} onDone={reload} />
+              <PendingCard key={g.id} g={g} who={principalName(g.principal_id, people)} kind={kindLabel(people.get(g.principal_id)?.kind)} role={roleName(g.role, roles)} by={byLabel(g.created_by)} scope={scopeText(g.scope)} approval={approvalText(g.role, roles)} onDone={reload} />
             ))}</div>
           </>
         )}
@@ -167,6 +168,7 @@ export default function Access() {
           <button key={r.id} type="button" className={r.id === selected?.id ? 'wm-acc-role on' : 'wm-acc-role'} data-testid="acc-role" data-id={r.id} onClick={() => setRoleSel(r.id)}>
             <span className="wm-acc-role-head"><b>{r.name}</b><span className="wm-acc-kind">{r.preset ? '内置' : '自定义'}</span></span>
             <span className="wm-acc-role-use">{usage.get(r.id) ?? 0} 条授予在用</span>
+            {approvalText(r.id, roles) && <span className="wm-acc-role-approval" data-testid="acc-role-approval">{approvalText(r.id, roles)}</span>}
           </button>
         ))}</div>
         {selected && (
