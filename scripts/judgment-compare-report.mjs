@@ -54,7 +54,8 @@ for (const { path, source } of inputs) {
 }
 const domainOf = (l) => (l.action ? l.action.split('.')[0] : (String(l.route).split(' ')[1] ?? '').split('/').filter(Boolean).slice(0, 2).join('/'));
 const count = (pred) => lines.filter(pred).length;
-const OUTCOMES = ['agree', 'mismatch', 'uncertain', 'skip-404', 'unregistered', 'not-verdict', 'integrity-blocked', 'enforced-deny', 'error'];
+// surface-blocked：被面门（路由声明的 surfaceGate）拦下，旧结论拒绝，不比；和 integrity-blocked 分开列
+const OUTCOMES = ['agree', 'mismatch', 'uncertain', 'skip-404', 'unregistered', 'not-verdict', 'integrity-blocked', 'surface-blocked', 'enforced-deny', 'error'];
 const totals = Object.fromEntries(OUTCOMES.map((o) => [o, count((l) => l.outcome === o)]));
 // 按域：每个域各种结果各多少次（清单外的结果记进「其他」）
 const byDomain = new Map();
