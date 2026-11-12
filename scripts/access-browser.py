@@ -1,0 +1,109 @@
+"""「谁能做什么」（照原型 3fbfd0b 重做的 /access）浏览器回归；由 scripts/sider-menu-browser.mjs 起合成实例后调用，参数为配置 JSON 路径。
+授予和主体两份列表用合成的应答（经 page.route 截下）；角色和矩阵用实例真的。核准、不给两个写请求也截下，核对发了什么。
+  · 没有口令：授予读不到，说「只给管理员看」，不弹口令框；
+  · 有口令：两个页签（没有「以某人的身份看」）；待核准卡片、按人排的表（状态最左），范围不是全部的生效中授予标「范围尚未生效」；
+  · 核准发对了请求；不给要写理由，理由空着确认按钮不能点，写了才发、带着理由；被拒时说服务端给的说法；
+  · 角色预设：每个角色一张卡、选中的角色有七块 × 四类的矩阵，格子是「全部 / 范围内 / 部分 / 只限自己 / 不能 / —」之一。"""
+import json, sys, urllib.request
+from playwright.sync_api import sync_playwright
+cfg = json.load(open(sys.argv[1]))
+M, TOK = cfg['base'], cfg['token']
+ok = fail = 0
+def check(n, c, x=''):
+    global ok, fail
+    if c: ok += 1; print('  ✓', n)
+    else: fail += 1; print('  ✗', n, x)
+
+SETTLED = """(sel) => { const e = document.querySelector(sel); if (!e) return false; const r = e.getBoundingClientRect();
+  const host = e.closest('.ant-popover, .ant-dropdown'); if (!host || r.width === 0 || r.height === 0) return false;
+  return ![...host.classList].some(c => /-(appear|enter|leave)(-|$)/.test(c)) && !host.classList.contains('ant-popover-hidden') && !host.classList.contains('ant-dropdown-hidden'); }"""
+def settled(pg, sel, timeout=10000): pg.wait_for_function(SETTLED, arg=sel, timeout=timeout)
+def set_token(pg):
+    pg.locator('[data-testid=wm-me]').click()
+    pg.locator('[data-testid=wm-me][aria-expanded=true]').wait_for(); settled(pg, '.wm-me-pop')
+    pg.locator('.wm-me-pop button', has_text='口令').click()
+    pg.locator('.ant-popover input[type=password]').last.wait_for(); settled(pg, '.ant-popover input[type=password]')
+    pg.locator('.ant-popover input[type=password]').last.fill(TOK)
+    pg.locator('.ant-popover button', has_text='保').last.click()
+    pg.wait_for_selector('[data-testid=nav-admin]', timeout=10000)
+    pg.keyboard.press('Escape'); pg.mouse.click(800, 26); pg.wait_for_timeout(300)
+
+NOW = 1_800_000_000_000
+PRINCIPALS = {'principals': [
+    {'id': 'user:jia', 'kind': 'person', 'display_name': '甲经理', 'owner': '', 'status': 'active', 'identities': [{'provider': 'odoo', 'external_id': 'jia'}]},
+    {'id': 'user:bing', 'kind': 'person', 'display_name': '丙', 'owner': '', 'status': 'active', 'identities': []},
+    {'id': 'seat:xiaosuan', 'kind': 'seat', 'display_name': '小算', 'owner': 'user:jia', 'status': 'active', 'identities': []},
+]}
+def grant(i, pid, role, scope, status, by='odoo:jia', appr=None, exp=None, reason='合成'):
+    return {'id': i, 'principal_id': pid, 'role': role, 'scope': scope, 'expires_at': exp, 'reason': reason, 'status': status, 'created_by': by, 'approved_by': appr, 'created_at': NOW - i, 'updated_at': NOW - i, 'source': 'manual'}
+GRANTS = {'grants': [
+    grant(1, 'user:jia', 'owner', '*', 'active', by='cli', appr='cli'),
+    grant(2, 'seat:xiaosuan', 'ai-staff', 'bench:3', 'active', appr='odoo:jia'),
+    grant(3, 'user:bing', 'member', '*', 'pending', reason='新入职，先给只读'),
+    grant(4, 'user:bing', 'management', '*', 'pending', reason='临时代管'),
+]}
+posted = []
+def fake(route, body, status=200):
+    route.fulfill(status=status, content_type='application/json', body=json.dumps(body))
+
+with sync_playwright() as p:
+    b = p.chromium.launch()
+    pg = b.new_page(viewport={'width': 1440, 'height': 900}); pg.set_default_timeout(10000)
+    pg.goto(M + '/access'); pg.wait_for_selector('.wm-acc-tabs')
+    pg.wait_for_selector('.ant-alert', timeout=10000)
+    check('没有口令：授予读不到，说只给管理员看；不弹口令框', pg.locator('.ant-alert', has_text='只给管理员看').count() == 1 and pg.locator('.ant-modal').count() == 0)
+    tabs = [t.strip() for t in pg.locator('.wm-acc-tab').all_inner_texts()]
+    check('两个页签：人和权限、角色预设（以某人的身份看还没有）', tabs == ['人和权限', '角色预设'], tabs)
+    check('顶栏标题是导航名「谁能做什么」', pg.locator('.wm-top-title').inner_text().strip() == '谁能做什么')
+
+    pg.route('**/api/grants', lambda r: fake(r, GRANTS))
+    pg.route('**/api/principals', lambda r: fake(r, PRINCIPALS))
+    def on_approve(r):
+        posted.append(('approve', r.request.url.split('/api/grants/')[1], r.request.post_data))
+        if '/api/grants/4/' in r.request.url: fake(r, {'error': 'owner_required', 'message': '角色 management 是管理员级的，只有属主能放行'}, 403)
+        else: fake(r, {'grant': {}})
+    def on_revoke(r):
+        posted.append(('revoke', r.request.url.split('/api/grants/')[1], r.request.post_data)); fake(r, {'grant': {}})
+    pg.route('**/api/grants/*/approve', on_approve)
+    pg.route('**/api/grants/*/revoke', on_revoke)
+    pg.goto(M + '/access'); pg.wait_for_selector('[data-testid=acc-pending]')
+    set_token(pg)  # 口令只存在本页：设在加载之后（整页刷新会清掉），设了页面会重新取数
+    pg.wait_for_selector('[data-testid=acc-pending]')
+    cards = pg.locator('[data-testid=acc-pending]')
+    check('待核准：两张卡，先提交的在前', cards.count() == 2 and cards.nth(0).get_attribute('data-id') == '4', [cards.nth(i).get_attribute('data-id') for i in range(cards.count())])
+    check('卡片标题：管理员登录对到人，用名字（甲经理 想给 丙 加一项权限）', '甲经理 想给 丙 加一项权限' in cards.nth(1).inner_text())
+    heads = [t.strip() for t in pg.locator('.wm-acc-table thead th').all_inner_texts() if t.strip()]
+    check('表：状态最左、谁第二', heads[:2] == ['状态', '谁'], heads)
+    body = pg.locator('.wm-acc-table tbody').inner_text()
+    check('表：AI 员工按工作台给的权限标「范围尚未生效」，全部范围的不标', body.count('范围尚未生效') == 1 and '工作台 3' in body, body)
+    check('表：负责人——AI 员工写它挂在谁名下', '甲经理' in pg.locator('.wm-acc-table tbody tr', has_text='小算').inner_text())
+
+    # 核准：管理员级的被拒，说服务端的说法
+    cards.nth(0).locator('[data-testid=acc-approve]').click(); pg.wait_for_timeout(500)
+    check('核准被拒（管理员级只有属主能放行）：卡片上说服务端的说法', '只有属主能放行' in cards.nth(0).inner_text() and posted and posted[-1][0] == 'approve', posted)
+    # 不给：理由空着不能确认；写了才发、带理由
+    cards.nth(1).locator('[data-testid=acc-decline]').click()
+    confirm = cards.nth(1).locator('[data-testid=acc-decline-confirm]')
+    check('不给：理由空着，确认按钮不能点', confirm.is_disabled())
+    cards.nth(1).locator('[data-testid=acc-decline-reason]').fill('  还没定岗  ')
+    confirm.click(); pg.wait_for_timeout(500)
+    last = posted[-1] if posted else None
+    check('不给：发的是撤销这条授予，带着去掉空白的理由', last and last[0] == 'revoke' and last[1].startswith('3/') and json.loads(last[2] or '{}').get('reason') == '还没定岗', last)
+
+    # 角色预设：用实例真的角色和矩阵
+    pg.locator('[data-testid=acc-tab-roles]').click(); pg.wait_for_selector('[data-testid=acc-matrix]')
+    check('切到角色预设：地址带 ?tab=roles', 'tab=roles' in pg.url, pg.url)
+    with urllib.request.urlopen(urllib.request.Request(M + '/api/roles/matrix', headers={'x-admin-token': TOK})) as r: mx = json.load(r)
+    check('每个角色一张卡', pg.locator('[data-testid=acc-role]').count() == len(mx['roles']), (pg.locator('[data-testid=acc-role]').count(), len(mx['roles'])))
+    rows = pg.locator('[data-testid=acc-matrix] tbody tr')
+    check('矩阵：七大块一行一块、四类一列一类', rows.count() == len(mx['blocks']) == 7 and pg.locator('[data-testid=acc-matrix] thead th').count() == 1 + len(mx['kinds']))
+    pg.locator('[data-testid=acc-role][data-id=dept-lead]').click(); pg.wait_for_timeout(200)
+    cells = set(t.strip() for t in pg.locator('[data-testid=acc-matrix] tbody .wm-acc-cell').all_inner_texts())
+    check('选部门负责人：格子都在说法里，有「范围内」', cells <= {'全部', '范围内', '部分', '只限自己', '不能', '—'} and '范围内' in cells, cells)
+    want = mx['roles'][[r['id'] for r in mx['roles']].index('dept-lead')]['cells']['work']['read']
+    shown = pg.locator('[data-testid=acc-matrix] tbody tr', has_text='事项与对话').locator('.wm-acc-cell').first.inner_text().strip()
+    check('格子和接口算的一致（部门负责人 · 事项与对话 · 看）', {'all': '全部', 'scoped': '范围内', 'some': '部分', 'self': '只限自己', 'none': '不能', 'na': '—'}[want] == shown, (want, shown))
+    b.close()
+
+print(f'access-browser: {ok} 过 / {fail} 败')
+sys.exit(1 if fail else 0)
