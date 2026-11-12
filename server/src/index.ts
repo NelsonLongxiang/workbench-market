@@ -2656,7 +2656,7 @@ const wbById = (id: number): ReturnType<typeof rowToWorkbench> | null => {
 };
 
 import { MCP_TOOLS, type McpToolDef, type McpToolCategory } from './mcp-tools.ts';
-import { evalCandidates } from './eval.ts'; // #178 评估模型客户端
+import { evalCandidates, evalConfigured } from './eval.ts'; // #178 评估模型客户端
 
 import { renderSopRunner as renderSopRunnerRaw } from './sop-runner.ts';
 import { loadTokensCss } from './design-tokens-css.ts';
@@ -2687,7 +2687,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       if (typeof args?.q === 'string' && args.q) { const k = args.q.toLowerCase(); rows = rows.filter((r) => `${r.name} ${r.description}`.toLowerCase().includes(k)); }
       return rows.slice(0, 200).map((r) => {
       const led = (S.ledgerActive() as any[]).find((l: any) => l.skill_id === r.id && l.status === 'installed');
-      return { slug: r.slug, short_name: skillShortName(r.slug), name: r.name, layer: r.layer, layer_name: r.layer_name, family_parent: r.family_parent, legacy: r.legacy === 1, versions: (S.versionsBySkill(r.id) as any[]).length, active_version: SkillService.currentOf(r, S.versionsBySkill(r.id) as any[])?.version ?? null, is_installed: !!led, current_version: led ? (S.versionsBySkill(r.id) as any[]).find((v) => v.id === led.version_id)?.version ?? null : null }; // #132 P1⑤ MCP
+      return { slug: r.slug, short_name: skillShortName(r.slug), name: r.name, description: String(r.description ?? ''), layer: r.layer, layer_name: r.layer_name, family_parent: r.family_parent, legacy: r.legacy === 1, versions: (S.versionsBySkill(r.id) as any[]).length, active_version: SkillService.currentOf(r, S.versionsBySkill(r.id) as any[])?.version ?? null, is_installed: !!led, current_version: led ? (S.versionsBySkill(r.id) as any[]).find((v) => v.id === led.version_id)?.version ?? null : null }; // #132 P1⑤ MCP
     });
     }
     case 'skill_versions': {
@@ -2735,14 +2735,28 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       // 库是空的（或这一层没有）：不调评估模型，直说还没有导入技能——和「有技能但没有够格的」分开，免得新人以为是自己描述得不好
       if (alive.length === 0) return { need_digest: createHash('sha256').update(need, 'utf8').digest('hex').slice(0, 12), candidates_total: 0, top_n: Math.max(1, Math.floor(Number((args as any)?.top_n ?? 30)) || 30), items: [],
         note: layerFilter >= 1 && layerFilter <= 5 ? `这一层（layer ${layerFilter}）还没有技能；去掉 layer 再搜，或用 skills_list 看全部` : '这个实例还没有导入技能（技能库是空的），搜不到不是描述的问题；照 access_info 的目录（带参数表）直接用或申请工具' };
-      const tokens = need.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 2);
+      // 词：按非字母数字切开；连着写的中文再拆成两字一组（「怎么申请工具」→ 怎么、么申、申请、请工、工具），不然整句只算一个词
+      const words = need.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 2);
+      const tokens = [...new Set(words.flatMap((w) => (/\p{Script=Han}/u.test(w) && w.length > 2 ? [...w].slice(0, -1).map((c, i) => c + [...w][i + 1]) : [w])))];
       const scored = alive.map((s) => {
-        const hay = (String(s.name ?? '') + ' ' + String(s.description ?? '') + ' ' + String(s.argument_hint ?? '')).toLowerCase();
+        const hay = (String(s.name ?? '') + ' ' + skillShortName(String(s.slug ?? '')) + ' ' + String(s.description ?? '') + ' ' + String(s.argument_hint ?? '')).toLowerCase();
         let sc = 0;
         for (const t of tokens) { if (!t) continue; if (hay.includes(t)) sc += 1; if (String(s.name ?? '').toLowerCase().includes(t)) sc += 2; }
         return { s, sc };
       });
       scored.sort((a, b) => b.sc - a.sc);
+      // 实例上没配评估模型：退回关键词匹配（标题、短名字、描述），注明不是置信度；配了模型但调不通照旧报错不降级（#178）
+      if (!evalConfigured()) {
+        const hits = scored.filter((x) => x.sc > 0).slice(0, 3).map(({ s, sc }) => {
+          const vs = SS.versionsBySkill(s.id) as any[];
+          const cur = SkillService.currentOf(s, vs)?.version ?? null;
+          return { slug: s.slug, short_name: skillShortName(s.slug), name: s.name, layer: s.layer, description: String(s.description ?? ''), keyword_hits: sc, version: cur, install_plan: { slug: s.slug, version: cur } };
+        });
+        return { need_digest: createHash('sha256').update(need, 'utf8').digest('hex').slice(0, 12), candidates_total: scored.length, match: 'keyword', items: hits,
+          note: hits.length
+            ? '这个实例没有配置评估模型，这是关键词匹配（按标题、短名字、描述里出现的词，命中多的在前），不是置信度；拿不准时用 skill_read 读正文核对'
+            : `这个实例没有配置评估模型，这是关键词匹配：库里 ${scored.length} 个技能都没命中这些词；换几个词再搜，或用 skills_list 看全部（每项带描述）` };
+      }
       // #178 Q2 + S10 回归裁（监督席 direct-25d8fdcd）：**守属主 30 上限** 同时保留「不臆截」精神——
       // ≤30 全量不截断；>30 且可排序取前 30；词法全 0/全并列=无从排序 → 不砍（全量分批交模型）
       // 总工决策 #007（C 案·30/45 冲突裁）：无硬上限 + top-N 参数（缺省 30·沿现值）+ 候选总量披露
@@ -3223,7 +3237,7 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
       catalog: catalog.map((t) => ({ name: t.name, description: t.description, category: t.category, granted: granted(t), input_schema: t.inputSchema, ...(t.benchScoped ? { bench_scoped: true, scope: '必须限定到台', granted_benches: benchGrants.get(t.name) ?? [] } : {}), ...(scopeOf(t) ? { granted_workbenches: scopeOf(t) } : {}), ...(MCP_SCOPED_TOOLS.has(t.name) ? { scopable: true } : {}), ...(t.exempt ? { always_allowed: true } : {}) })),
       requests: sess ? (svc<McpService>('mcp').accessRequestsBySession(sess.id) as AccessRequestRow[]).map(accessRequestForSession) : [],
       ...(BENCH_VIEWS.on ? { bench_requests: sess ? benchRequestsOf(sess.id).map(benchRequestForSession) : [], how_to_request_bench: 'access_request {tools: [工具名@bench:台的标识], reason: 用途}：数据视图的工具必须限定到台，读也一样；一次只申请一个台；由台的管理层批准，不经 MCP 网关页' } : {}),
-      how_to_request: `access_request {tools: [工具名], reason: 用途}；只要一张台时写 工具@台id（目前 ${[...MCP_SCOPED_TOOLS].join(' / ')} 支持）；管理员在「MCP 网关」页「权限申请」批准后立即生效（并入现有授权）`,
+      how_to_request: `access_request {tools: [工具名], reason: 用途}；只要一张台时写 工具@台号（数字台号，workbench_list 里的 id；自产台、SOP 台也可以写台的标识，服务端换成台号；目前 ${[...MCP_SCOPED_TOOLS].join(' / ')} 支持）；管理员在「MCP 网关」页「权限申请」批准后立即生效（并入现有授权）`,
       ...mcpRestInfo(origin),
     };
   }
@@ -3248,16 +3262,27 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
     // 台存不存在照旧不核（没有授予的会话看不出台存不存在，docs/data-views.md 第十节 3b）：写清写错了会怎样、拿什么去核对
     return { ...made, request, note: `台的管理层批准之后生效。台的标识只核写法、不核存不存在：写错了不会有人批——拿不准时把申请编号 ${request.ref} 和标识「${benches[0]}」交给给你任务的人核对。`, next: accessNext(request.ref) };
   }
+  // 工具@台 的「台」也可以写自产台、SOP 台的标识（工具@<slug>）：服务端换成台号再记；换不到和数字台号不存在同一句
+  const asked: string[] = [];
   for (const t of raw) {
+    const bySlug = typeof t === 'string' ? /^(.+)@([a-z0-9][a-z0-9-]{0,63})$/.exec(t) : null;
+    if (bySlug && !/^\d+$/.test(bySlug[2]) && known.has(bySlug[1])) {
+      if (!MCP_SCOPED_TOOLS.has(bySlug[1])) bad(`${bySlug[1]} 暂不支持按台申请（目前只有 ${[...MCP_SCOPED_TOOLS].join(' / ')}）`);
+      const wid = wmWorkbenchIdFor(`/apps/${bySlug[2]}/`) ?? wmWorkbenchIdFor(`/sop/${bySlug[2]}/`);
+      if (wid === null) bad(`台不存在: ${bySlug[2]}`);
+      asked.push(`${bySlug[1]}@${wid}`);
+      continue;
+    }
     const p = typeof t === 'string' ? parseGrant(t) : null;
     if (!p || !known.has(p.tool)) bad(`不在工具目录里: ${JSON.stringify(t)}（先调 access_info 查目录）`);
     if (p!.wid !== null) {
       if (!MCP_SCOPED_TOOLS.has(p!.tool)) bad(`${p!.tool} 暂不支持按台申请（目前只有 ${[...MCP_SCOPED_TOOLS].join(' / ')}）`);
       if (!svc<WorkbenchService>('workbench').exists(p!.wid)) bad(`台不存在: ${p!.wid}`);
     }
+    asked.push(t as string);
   }
   // 已有全局授权的工具，再申请它的 工具@台 也算已可用
-  const wanted = [...new Set(raw as string[])].filter((t) => !MCP_EXEMPT_TOOLS.has(t) && !s.grants.includes(t) && !s.grants.includes(parseGrant(t).tool)).sort();
+  const wanted = [...new Set(asked)].filter((t) => !MCP_EXEMPT_TOOLS.has(t) && !s.grants.includes(t) && !s.grants.includes(parseGrant(t).tool)).sort();
   if (!wanted.length) bad('申请的工具本会话都已可用，无需申请');
   const reason = typeof args?.reason === 'string' ? args.reason.trim() : '';
   if (!reason) bad('reason 必填：写清要用这些工具做什么');

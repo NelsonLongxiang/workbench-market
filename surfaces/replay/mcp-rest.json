@@ -1556,7 +1556,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "25316", "etag": "W/\"62e4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "25429", "etag": "W/\"6355-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "gateway": "on",
               "session": "replay-none",
@@ -1984,7 +1984,7 @@
                 }
               ],
               "requests": [],
-              "how_to_request": "access_request {tools: [工具名], reason: 用途}；只要一张台时写 工具@台id（目前 workbench_vars_get / workbench_vars_set / app_data_list / app_files_list 支持）；管理员在「MCP 网关」页「权限申请」批准后立即生效（并入现有授权）",
+              "how_to_request": "access_request {tools: [工具名], reason: 用途}；只要一张台时写 工具@台号（数字台号，workbench_list 里的 id；自产台、SOP 台也可以写台的标识，服务端换成台号；目前 workbench_vars_get / workbench_vars_set / app_data_list / app_files_list 支持）；管理员在「MCP 网关」页「权限申请」批准后立即生效（并入现有授权）",
               "openapi_url": "https://market.example/openapi.json",
               "rest_base": "https://market.example/api/mcp-rest",
               "rest_hint": "同一个会话令牌（Authorization: Bearer）可按 REST 调用：大文件上传 PUT {rest_base}/apps/<slug>/files/<文件名>（请求体为原始字节），下载 GET {rest_base}/apps/<slug>/files/<id>（支持 Range）；完整接口见 openapi_url"

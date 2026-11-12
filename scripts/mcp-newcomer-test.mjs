@@ -155,9 +155,18 @@ try {
 
   // ---------- 三（后半）、有技能但没有够格的 ----------
   r = await tool(bare.token, 'skill_search', { need: '查一个工作台里的合成数据并按区域统计' });
-  ok('有技能时：skill_search 不再说「还没有导入技能」（评估模型不可用时照旧报错不降级）', !/还没有导入技能/.test(r.text), r.text.slice(0, 200));
+  ok('有技能时：skill_search 不再说「还没有导入技能」', !/还没有导入技能/.test(r.text), r.text.slice(0, 200));
+  // 这个实例没配评估模型（没有 AI_GATEWAY_API_KEY）：退回关键词匹配（标题、描述、短名字），应答注明不是置信度
+  r = await tool(bare.token, 'skill_search', { need: '新来的席位想知道怎么申请工具' });
+  ok('没配评估模型：skill_search 退回关键词匹配，搜得到（描述里的词），应答注明是关键词匹配', !r.isError && r.payload?.match === 'keyword' && (r.payload?.items ?? []).some((x) => x.slug === 'newcomer-guide') && /关键词匹配/.test(r.payload?.note ?? ''), r.text.slice(0, 300));
+  ok('关键词匹配的每项不带 confidence（不是模型打的分），带命中的词数和短名字', (r.payload?.items ?? []).every((x) => x.confidence === undefined && Number.isInteger(x.keyword_hits) && x.keyword_hits > 0 && typeof x.short_name === 'string'), J(r.payload?.items));
+  r = await tool(bare.token, 'skill_search', { need: 'newcomer-short' });
+  ok('关键词匹配：按短名字也搜得到', (r.payload?.items ?? []).some((x) => x.slug === 'agents:newcomer-short'), J(r.payload?.items));
+  r = await tool(bare.token, 'skill_search', { need: '完全不相干的词语组合xyzzy' });
+  ok('关键词匹配一个都没命中：空列表，说清是关键词没命中、可以用 skills_list 看全部', !r.isError && (r.payload?.items ?? []).length === 0 && /关键词/.test(r.payload?.note ?? '') && /skills_list/.test(r.payload?.note ?? ''), r.text.slice(0, 200));
   r = await tool(bare.token, 'skills_list', {});
   ok('有技能时：零授权 skills_list 列得出', !r.isError && (r.payload ?? []).some((s) => s.slug === 'newcomer-guide'), r.text.slice(0, 120));
+  ok('skills_list 每项带一句描述（SKILL.md frontmatter 的 description）', (r.payload ?? []).find((s) => s.slug === 'newcomer-guide')?.description === '合成的入门技能，给新来的席位看怎么申请工具', J((r.payload ?? []).find((s) => s.slug === 'newcomer-guide')));
 
   // ---------- 四、申请 ----------
   const a1 = await tool(bare.token, 'access_request', { tools: ['workbench_summary'], reason: '合成：看总览' });
@@ -172,6 +181,18 @@ try {
     !b1.isError && /只核写法/.test(b1.payload?.note ?? '') && (b1.payload?.note ?? '').includes(qb?.ref ?? '#') && /access_info/.test(b1.payload?.next ?? ''), b1.text.slice(0, 300));
   const b2 = await tool(other.token, 'access_request', { tools: ['dataset_list@bench:missing-bench-zz'], reason: '合成' });
   ok('台申请：不存在的台和存在的台应答一样（不泄露存在性）', !b2.isError && b2.payload?.note?.replace(b2.payload.request.ref, 'R').replace('missing-bench-zz', 'B') === b1.payload?.note?.replace(qb.ref, 'R').replace('newcomer-bench', 'B'), b2.text.slice(0, 200));
+
+  // 按台限定的工具写成 工具@台的标识（slug）：服务端换成台号；换不到和数字台号不存在同一句；不支持按台的工具说清不支持，不说「不在目录」
+  const wbs = (await call('GET', '/api/workbenches', null, AT)).body ?? [];
+  const tc = wbs.find((w) => /\/(sop|apps)\/task-center\/$/.test(String(w.url)));
+  const s1 = await tool(other.token, 'access_request', { tools: ['workbench_vars_get@task-center'], reason: '合成：读任务中心的变量' });
+  ok('工具@台的标识：服务端换成台号记进申请（不再报「不在工具目录里」）', !!tc && !s1.isError && J(s1.payload?.request?.tools) === J([`workbench_vars_get@${tc.id}`]), J([tc, s1.text.slice(0, 200)]));
+  const s2 = await tool(other.token, 'access_request', { tools: ['workbench_vars_get@no-such-bench-zz'], reason: '合成' });
+  const s3 = await tool(other.token, 'access_request', { tools: ['workbench_vars_get@999999'], reason: '合成' });
+  ok('工具@不存在的台的标识：和数字台号不存在同一句', s2.isError && s3.isError && s2.text.replace('no-such-bench-zz', 'X') === s3.text.replace('999999', 'X'), J([s2.text, s3.text]));
+  const s4 = await tool(other.token, 'access_request', { tools: ['workbench_summary@task-center'], reason: '合成' });
+  ok('不支持按台的工具写了 @台的标识：说这个工具暂不支持按台申请，不说不在目录', s4.isError && /暂不支持按台申请/.test(s4.text) && !/不在工具目录/.test(s4.text), s4.text.slice(0, 160));
+  ok('access_info 的申请写法说清：数字台号，自产台、SOP 台也可以写台的标识', /数字台号/.test(info.payload?.how_to_request ?? '') && /台的标识/.test(info.payload?.how_to_request ?? ''), info.payload?.how_to_request);
 
   r = await tool(bare.token, 'access_info', { ref: q1.ref });
   ok('access_info {ref}：只回这一条（自己的通用申请）', J(r.payload?.request?.ref) === J(q1.ref) && r.payload?.request?.status === 'pending' && r.payload?.catalog === undefined, r.text.slice(0, 200));
