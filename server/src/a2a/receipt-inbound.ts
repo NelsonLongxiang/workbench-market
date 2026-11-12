@@ -19,7 +19,7 @@ import { createHash, createPublicKey, verify as edVerify } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import { parseA2aReceipt } from '../a2a.ts';
 import { audiencesOf, bodyDigest, originOf, SIG_SKEW_MS } from '../a2a-direct-sig.ts';
-import { claimQuestion, claimReceipt, claimSignatureOnce, inReceiptTx, progressSteps, questionRecorded, receiptRecorded, sentTask, sentTaskForFollowup, untrustedReceiptCount, type SentTask } from '../services/a2a-receipts.ts';
+import { claimQuestion, claimReceipt, claimSignatureOnce, inReceiptTx, knownPeerRoot, progressSteps, questionRecorded, receiptRecorded, sentTask, sentTaskForFollowup, untrustedReceiptCount, type SentTask } from '../services/a2a-receipts.ts';
 import { followupOf, followupsOfDelivery, followupsOfPeerSince, recordFollowup } from '../services/a2a-followups.ts';
 import { deliveryTarget, queueReply } from '../services/a2a-replies.ts';
 import { kickWorkbenchEvents, logDeliveryFact } from '../workbench-events.ts';
@@ -48,6 +48,31 @@ function verifies(publicKey: string, canonical: string, sig: string): boolean {
   } catch { return false; }
 }
 
+/** Sig3 签的那串：标签、签名方、来源、时间、受众、方法、路径、正文摘要 */
+function sig3Canonical(req: Req, raw: Buffer): string {
+  let path = '';
+  try { path = new URL(String(req.originalUrl ?? req.url ?? ''), 'http://x').pathname; } catch { path = ''; }
+  return JSON.stringify([ORIGIN_CLAIM_BODY_TAG, header(req, 'x-a2a-caller'), header(req, 'x-a2a-caller-url'), Number(header(req, 'x-a2a-caller-ts')), header(req, 'x-a2a-caller-aud'), String(req.method ?? '').toUpperCase(), path, bodyDigest(raw)]);
+}
+
+/**
+ * 只看请求本身、不查库也不取卡的那几条：带 Sig3、签名方句柄与来源地址成形、时间戳在窗内、受众是我们、
+ * 正文摘要等于实际收到的字节。来信分流先过这一关再按 context 查投递，挡掉不成形的请求、少一次查库。
+ * 它不是身份防线——这些形状谁都造得出来。不让时序泄露「这个 context 投给过谁」的，是后面那条：
+ * 取卡只看请求自己声称的来源、只对投递过的根地址取，而且照验签的样子取（先缓存、验不过强制重取），
+ * 与查不查得到投递无关。之后的 verifyReceiptSigner 会把这些再核一遍。
+ */
+export function sig3Shaped(req: Req, raw: Buffer, audiences: string[], now = Date.now()): boolean {
+  const sig3 = header(req, 'x-a2a-caller-sig3');
+  const callerUrl = header(req, 'x-a2a-caller-url');
+  const ts = Number(header(req, 'x-a2a-caller-ts'));
+  if (sig3 === '' || !/^[A-Za-z0-9+/_=-]{16,256}$/.test(sig3)) return false;
+  if (!CALLER_SHAPE.test(header(req, 'x-a2a-caller')) || originOf(callerUrl) === '') return false;
+  if (!Number.isFinite(ts) || ts <= 0 || Math.abs(now - ts) > SIG_SKEW_MS) return false;
+  if (!audiencesOf(req, audiences).has(originOf(header(req, 'x-a2a-caller-aud')))) return false;
+  return header(req, 'x-a2a-body-sha256') === bodyDigest(raw);
+}
+
 /** 签名方是不是当初投递到的那台宿主 */
 export async function verifyReceiptSigner(req: Req, raw: Buffer, sent: SentTask, audiences: string[], now = Date.now()): Promise<{ ok: true; publicKey: string } | { ok: false; reason: ReceiptRefusal; genuine?: boolean }> {
   if (sent.peer_zone === '' || sent.peer_root === '') return { ok: false, reason: 'no-peer-recorded' };
@@ -65,13 +90,10 @@ export async function verifyReceiptSigner(req: Req, raw: Buffer, sent: SentTask,
   if (!audiencesOf(req, audiences).has(originOf(audience))) return { ok: false, reason: 'wrong-audience' };
   if (caller !== sent.peer_zone) return { ok: false, reason: 'wrong-signer' };
   if (originOf(callerUrl) !== sent.peer_root) return { ok: false, reason: 'wrong-origin' };
-  const method = String(req.method ?? '').toUpperCase();
-  let path = '';
-  try { path = new URL(String(req.originalUrl ?? req.url ?? ''), 'http://x').pathname; } catch { path = ''; }
   // 摘要必须等于实际收到的字节
   const digest = bodyDigest(raw);
   if (sig3 === '' || header(req, 'x-a2a-body-sha256') !== digest) return { ok: false, reason: 'body-mismatch' };
-  const canonical = JSON.stringify([ORIGIN_CLAIM_BODY_TAG, caller, callerUrl, ts, audience, method, path, digest]);
+  const canonical = sig3Canonical(req, raw);
   const sig = sig3;
   let sawCard = false;
   for (const fresh of [false, true]) {
@@ -316,9 +338,19 @@ async function handleFollowup(req: Req, body: Record<string, unknown>, message: 
   const inboundTask = typeof body.task_id === 'string' ? body.task_id : '';
   const zone = header(req, 'x-a2a-caller');
   if (contextId === '' || contextId.length > 256 || inboundTask === '' || inboundTask.length > 128 || zone === '') return null;
+  const now = deps.now?.() ?? Date.now();
+  // 先验格式再查库：签名字段不齐、不成形的，不按 context 查投递，直接照原路走
+  const raw = req.rawBody ?? Buffer.alloc(0);
+  if (!sig3Shaped(req, raw, deps.audiences(), now)) return null;
+  // 取卡挪到查库之前、按请求自己声称的来源做：声称的来源是我们投递过的对端，就照验签的样子取一次（缓存、验不过再强制重取，受冷却约束）。
+  // 这样对外的网络行为只取决于请求自己声称了什么，不取决于这个 context 投没投给过它；后面真正验签时名片已在缓存、重取在冷却里，不再出网
+  const claimedRoot = originOf(header(req, 'x-a2a-caller-url'));
+  if (knownPeerRoot(claimedRoot)) {
+    const card = await peerCard(claimedRoot, false, now);
+    if (!card || !verifies(card.publicKey, sig3Canonical(req, raw), header(req, 'x-a2a-caller-sig3'))) await peerCard(claimedRoot, true, now);
+  }
   const sent = sentTaskForFollowup(contextId, zone);
   if (!sent) return null;
-  const now = deps.now?.() ?? Date.now();
   const verdict = await verifyReceiptSigner(req, req.rawBody ?? Buffer.alloc(0), sent, deps.audiences(), now);
   const reply = (extra: Record<string, unknown> = {}) => ({ status: 200, body: { routed: true, delivered: true, team: typeof body.team === 'string' ? body.team.slice(0, 128) : '', task_id: inboundTask, context_id: contextId, task_status: 'TASK_STATE_DELIVERED', followup: 'recorded', ...extra } });
   if (!verdict.ok) {

@@ -32,9 +32,10 @@ mkdirSync(DATA, { recursive: true });
 async function peer(zone, reuseKey) {
   const key = reuseKey ?? generateKeyPairSync('ed25519').privateKey;
   const p = await port();
-  const peerObj = { zone, key, url: `http://127.0.0.1:${p}`, got: [], fail: false };
+  const peerObj = { zone, key, url: `http://127.0.0.1:${p}`, got: [], fail: false, cardHits: 0 };
   peerObj.server = createServer((req, res) => {
     if (req.url === '/.well-known/agent-card.json') {
+      peerObj.cardHits++;
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify(signCard({ capabilities: {}, expiresAt: Date.now() + 3600_000, name: zone, session: zone, team: zone }, key)));
     }
@@ -94,6 +95,7 @@ function seedEvent({ dispatch = 1, zone = 'lab', root = lab.url } = {}) {
   } finally { d.close(); }
 }
 const state = (ev) => q('SELECT state, open_asks FROM work_items WHERE id = ?', `wi_${ev}`)[0] ?? null;
+const noRecProbe = (inbound) => { const d = new DatabaseSync(join(DATA, 'workbench-market.db')); try { d.exec('PRAGMA busy_timeout = 5000'); return d.prepare('SELECT COUNT(*) AS c FROM workbench_event_followups WHERE inbound_task = ?').get(inbound).c === 0; } finally { d.close(); } };
 const seatAsks = async () => ((await api('GET', '/api/attention')).body?.items ?? []).filter((x) => x.source === 'seat-asks');
 const answer = async (deliveryId, text) => { const r = await api('POST', '/api/attention/answer', { source: 'seat-asks', source_id: String(deliveryId), answer: 'answer', input: { text } }); return { status: r.status, body: r.body?.result ?? r.body }; };
 async function waitFor(fn, ms = 8000) { const end = Date.now() + ms; while (Date.now() < end) { if (await fn()) return true; await sleep(150); } return false; }
@@ -276,6 +278,71 @@ try {
     r = await receipt(C.task, '步', { idempotencyKey: C.task, disposition: 'progress', progress: { n: 201, state: 'working', at: '2026-11-11T08:00:00.000Z' } }, C.ctx, { inbound: `progress-${C.task}-201` });
     ok('同一任务第 201 步 → 照常应答、不记，公开计数 progress:over-cap +1', r.status === 200 && r.text.includes('"receipt":"over-cap"') && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE delivery_id = ? AND action = 'receipt:progress'", C.delivery)[0].c === 200
       && ((await (await fetch(BASE + '/api/health')).json()).a2a?.refused?.counts?.['progress:over-cap'] ?? 0) === capBefore + 1, r.text.slice(0, 160));
+  }
+
+  console.log('二之四、来信分流先验格式再查库');
+  {
+    const T = seedEvent();
+    const raw = JSON.stringify({ team: 'market/12345678', message: '分流探测', caller_session: 'lab/canvas/ops', context_id: T.ctx, wait: false, task_id: 'a2a-probe0001' });
+    const good = signed(lab, raw);
+    const shapes = [
+      ['只有 zone、没有签名', { 'X-A2A-Caller': 'lab' }],
+      ['Sig3 不成形', { ...good, 'X-A2A-Caller-Sig3': 'x' }],
+      ['时间戳过期', { ...good, 'X-A2A-Caller-Ts': String(Date.now() - 10 * 60_000) }],
+      ['受众不是我们', { ...good, 'X-A2A-Caller-Aud': 'http://elsewhere.example' }],
+      ['正文摘要对不上', { ...good, 'X-A2A-Body-Sha256': 'AAAA' }],
+      ['来源地址不成形', { ...good, 'X-A2A-Caller-Url': 'not a url' }],
+      ['成形但来源不是投递的对端根地址', { ...signed({ ...evil, zone: 'lab' }, raw) }],
+    ];
+    for (const [label, h] of shapes) {
+      lab.cardHits = 0; evil.cardHits = 0;
+      const rr = await post(raw, h);
+      ok(`分流·${label} → 不收、不回执、不去取任何名片`, !rr.text.includes('"followup":"recorded"') && lab.cardHits === 0 && evil.cardHits === 0 && noRecProbe('a2a-probe0001'), `${rr.status} lab=${lab.cardHits} evil=${evil.cardHits}`);
+    }
+    // 知道对端根地址、声称就是它、签名是坏的：查得到投递和查不到，出网取卡的次数要一样（两个冷缓存的对端各测一种）
+    {
+      const pa = await peer('pa'), pb = await peer('pb');
+      seedEvent({ zone: 'pa', root: pa.url });              // pa 是投递过的对端，但下面用一个它没收过的 context
+      const B = seedEvent({ zone: 'pb', root: pb.url });     // pb 收过 B 的投递
+      const rawA = JSON.stringify({ team: 'market/12345678', message: '探', caller_session: 'pa/canvas/ops', context_id: 'wb:task-center:888888', wait: false, task_id: 'a2a-probe-a' });
+      const rawB = JSON.stringify({ team: 'market/12345678', message: '探', caller_session: 'pb/canvas/ops', context_id: B.ctx, wait: false, task_id: 'a2a-probe-b' });
+      const ra = await post(rawA, signed({ ...evil, zone: 'pa', url: pa.url }, rawA));
+      const rb = await post(rawB, signed({ ...evil, zone: 'pb', url: pb.url }, rawB));
+      ok('知道根地址的探测：查不到投递与查到投递，取卡次数相同（时序只取决于请求自己声称的来源）', !ra.text.includes('"followup":"recorded"') && !rb.text.includes('"followup":"recorded"') && pa.cardHits === pb.cardHits && pa.cardHits >= 1, `查不到=${pa.cardHits} 查到=${pb.cardHits}`);
+      const rawC = JSON.stringify({ team: 'market/12345678', message: '探', caller_session: 'x/canvas/ops', context_id: 'wb:task-center:777777', wait: false, task_id: 'a2a-probe-c' });
+      const stranger = await peer('stranger');
+      await post(rawC, signed({ ...evil, zone: 'stranger', url: stranger.url }, rawC));
+      ok('……声称的来源不是投递过的对端 → 不去取它的名片（不做开放的取卡代理）', stranger.cardHits === 0, String(stranger.cardHits));
+      // G3：声称的来源是投递过的对端、但签名不成形 → 连预取都不做
+      const pe = await peer('pe');
+      seedEvent({ zone: 'pe', root: pe.url });
+      const rawE = JSON.stringify({ team: 'market/12345678', message: '探', caller_session: 'pe/canvas/ops', context_id: 'wb:task-center:666666', wait: false, task_id: 'a2a-probe-e' });
+      await post(rawE, { ...signed({ ...evil, zone: 'pe', url: pe.url }, rawE), 'X-A2A-Caller-Sig3': 'x' });
+      ok('G3：声称的来源投递过、签名不成形 → 不取卡（格式关在取卡之前）', pe.cardHits === 0, String(pe.cardHits));
+      // G4：名片已在缓存、冷却已过，再比「查不到投递」与「查到投递」——两边都要照验签的样子强制重取一次
+      const pc = await peer('pc'), pd = await peer('pd');
+      seedEvent({ zone: 'pc', root: pc.url });
+      const D = seedEvent({ zone: 'pd', root: pd.url });
+      const rawC0 = JSON.stringify({ team: 'market/12345678', message: '暖', caller_session: 'pc/canvas/ops', context_id: 'wb:task-center:555555', wait: false, task_id: 'a2a-warm-c' });
+      const rawD0 = JSON.stringify({ team: 'market/12345678', message: '暖', caller_session: 'pd/canvas/ops', context_id: 'wb:task-center:555556', wait: false, task_id: 'a2a-warm-d' });
+      await post(rawC0, signed({ ...evil, zone: 'pc', url: pc.url }, rawC0));
+      await post(rawD0, signed({ ...evil, zone: 'pd', url: pd.url }, rawD0));
+      ok('G4 准备：两张名片都进了缓存', pc.cardHits === 1 && pd.cardHits === 1, `${pc.cardHits} ${pd.cardHits}`);
+      await sleep(31_000); // 过取卡冷却（peer-card.ts 30 秒）
+      pc.cardHits = 0; pd.cardHits = 0;
+      const rawG4c = JSON.stringify({ team: 'market/12345678', message: '探', caller_session: 'pc/canvas/ops', context_id: 'wb:task-center:444444', wait: false, task_id: 'a2a-probe-g4c' });
+      const rawG4d = JSON.stringify({ team: 'market/12345678', message: '探', caller_session: 'pd/canvas/ops', context_id: D.ctx, wait: false, task_id: 'a2a-probe-g4d' });
+      await post(rawG4c, signed({ ...evil, zone: 'pc', url: pc.url }, rawG4c));
+      await post(rawG4d, signed({ ...evil, zone: 'pd', url: pd.url }, rawG4d));
+      ok('G4：名片在缓存、冷却已过，签名坏——查不到投递与查到投递都强制重取一次（取卡次数相同）', pc.cardHits === pd.cardHits && pc.cardHits === 1, `查不到=${pc.cardHits} 查到=${pd.cardHits}`);
+      for (const x of [pa, pb, stranger, pe, pc, pd]) x.server.close();
+    }
+    // 时序（只打印、不断言）：查不到投递 vs 查到了但签名不成形 vs 查到了、成形、来源不对
+    const med = (xs) => { const a = [...xs].sort((x, y) => x - y); return a[Math.floor(a.length / 2)]; };
+    const time = async (rawX, h) => { const xs = []; for (let k = 0; k < 60; k++) { const t0 = performance.now(); await post(rawX, typeof h === 'function' ? h() : h); xs.push(performance.now() - t0); } return med(xs).toFixed(2); };
+    const rawMiss = raw.replace(T.ctx, 'wb:task-center:999999');
+    console.log(`    时序中位数（ms）：查不到投递·无签名 ${await time(rawMiss, { 'X-A2A-Caller': 'lab' })}；查到投递·无签名 ${await time(raw, { 'X-A2A-Caller': 'lab' })}；`
+      + `查不到投递·成形签名 ${await time(rawMiss, () => signed({ ...evil, zone: 'lab' }, rawMiss))}；查到投递·成形签名·来源不对 ${await time(raw, () => signed({ ...evil, zone: 'lab' }, raw))}`);
   }
 
   console.log('二之五、团队名册（[A2A roster]）');

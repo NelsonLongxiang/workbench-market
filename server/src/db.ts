@@ -261,6 +261,7 @@ CREATE TABLE IF NOT EXISTS a2a_sent_tasks (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_a2a_sent_tasks_delivery ON a2a_sent_tasks (delivery_id);
+CREATE INDEX IF NOT EXISTS idx_a2a_sent_tasks_peer_root ON a2a_sent_tasks (peer_root);
 -- 收到并采信的回执：同一任务号的接单回执（acknowledged）一条、终局回执（attention / result）一条，按 idempotencyKey 去重
 -- 阶段七 R2：席位发来的跟进（同 context 的普通 A2A 任务，任务号 a2a-…）。签名方是我们投递到的那台宿主、context 是我们发出的，才收下。
 -- 落成事项对话里的席位消息（open=未读、acknowledged=看过、replied=已回复），不进「关注」；超过每次投递的上限的照存、不算未读（status=over-cap）；超过对端限频的不存正文（status=rate-limited），两种都照常回执。时间由代码生成后写入。
