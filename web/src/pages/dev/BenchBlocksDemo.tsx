@@ -90,6 +90,11 @@ export default function BenchBlocksDemo() {
         </DashGrid>
       </div>
 
+      <Typography.Paragraph type="secondary" className="wm-bb-demo-gap">三之二、整份视图拼进面板：不带外框、表格紧凑、不画自己的筛选栏（筛选由外面管）。</Typography.Paragraph>
+      <div className="wm-bb-demo-panel" data-testid="bb-embed">
+        <BenchView result={result} onParams={setParams} onSubmit={() => Promise.resolve()} frame="none" dense hideFilters formDisabledReason="这里只看，不提报。" />
+      </div>
+
       <Typography.Paragraph type="secondary" className="wm-bb-demo-gap">四、四种状态：读取中、出错、空、数据不全。</Typography.Paragraph>
       <DashGrid>
         <StatBlock title="读取中" value="v" loading />
