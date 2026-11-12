@@ -3,12 +3,14 @@
  * 技能 wm-data-views 里的例子都是真的：把 SKILL.md 和 references 里标了用途的 JSON 代码块逐个拿出来，
  * 用台库的真实现跑一遍——建数据集、写数据、查询、保存视图描述、取数——都要成。上限表里的数字和代码里的常量对得上。
  * 代码改了、技能没跟上，这里会红。
- * 代码块的标记：```json dataset、```json rows:<数据集名>、```json query、```json view-doc
+ * 代码块的标记：```json dataset（同名再出现是改列）、```json rows:<数据集名>（整份替换）、```json upsert:<名>、```json append:<名>、
+ * ```json delete:<名>、```json query、```json view-doc。按文件里出现的先后逐块执行。入口开之前，建台的人也用它先验自己的 JSON（技能里写了）。
  * 用法：node scripts/skill-data-views-examples-test.mjs
  */
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 
+mkdirSync(resolve('tmp'), { recursive: true }); // 新检出没有 tmp/
 const DATA = mkdtempSync(resolve('tmp/skill-data-views-'));
 process.env.DATA_DIR = DATA;
 const { BenchHost } = await import('../server/src/services/bench-store-core.ts');
@@ -34,21 +36,32 @@ try {
   ok('技能里有例子可验', blocks.length >= 10 && ['dataset', 'query', 'view-doc'].every((k) => blocks.some((b) => b.kind === k)) && blocks.some((b) => b.kind.startsWith('rows:')), blocks.map((b) => b.kind));
   const parsed = blocks.map((b) => { try { return { ...b, json: JSON.parse(b.body) }; } catch (e) { ok(`${say(b)}：是合法的 JSON`, false, e.message); return null; } }).filter(Boolean);
   const s = await host.store('skill');
-  // 先建数据集、写数据，后面的查询和视图才有东西可引用
-  for (const b of parsed.filter((x) => x.kind === 'dataset')) { const r = await tryIt(() => s.defineDataset(b.json, ctx())); ok(`${say(b)}：数据集建得出来`, !r.error, r.error); }
-  for (const b of parsed.filter((x) => x.kind.startsWith('rows:'))) { const name = b.kind.slice(5); const r = await tryIt(() => s.replace(name, b.json, ctx())); ok(`${say(b)}：这些行写得进 ${name}`, !r.error && r.value.row_count === b.json.length, r.error ?? r.value); }
-  for (const b of parsed.filter((x) => x.kind === 'query')) { const r = await tryIt(() => s.query(b.json, { month: '2026-01' })); ok(`${say(b)}：查询跑得通`, !r.error, r.error); }
-  for (const b of parsed.filter((x) => x.kind === 'view-doc')) {
-    const base = (await s.getView())?.version ?? 0;
-    const r = await tryIt(() => s.putView(b.json, ctx({ base, note: say(b) })));
-    ok(`${say(b)}：视图描述保存得了`, !r.error, r.error);
-    if (r.error) continue;
-    for (const v of b.json.views) {
-      const out = await tryIt(() => s.renderView({ view: v.key, params: { month: '2026-01' } }));
-      const bad = out.value?.blocks.filter((x) => x.error) ?? [];
-      ok(`${say(b)}：视图 ${v.key} 取数时每个组件都有数、没有出错的`, !out.error && bad.length === 0, out.error ?? bad.map((x) => ({ type: x.type, error: x.error })));
-    }
+  // 按文件里出现的先后逐块执行
+  const seen = new Set();
+  for (const b of parsed) {
+    const [kind, name] = b.kind.split(':');
+    seen.add(kind);
+    if (kind === 'dataset') { const r = await tryIt(() => s.defineDataset(b.json, ctx())); ok(`${say(b)}：数据集定义收得下`, !r.error, r.error); }
+    else if (kind === 'rows') { const r = await tryIt(() => s.replace(name, b.json, ctx())); ok(`${say(b)}：整份替换进 ${name}`, !r.error && r.value.row_count === b.json.length, r.error ?? r.value); }
+    else if (kind === 'upsert') { const r = await tryIt(() => s.upsert(name, b.json, ctx())); ok(`${say(b)}：按主键更新进 ${name}`, !r.error && r.value.inserted + r.value.updated === b.json.length, r.error ?? r.value); }
+    else if (kind === 'append') { const r = await tryIt(() => s.append(name, b.json, ctx())); ok(`${say(b)}：追加进 ${name}`, !r.error && r.value.inserted === b.json.length, r.error ?? r.value); }
+    else if (kind === 'delete') { const r = await tryIt(() => s.deleteRows(name, b.json, ctx())); ok(`${say(b)}：按主键从 ${name} 删行，给的主键都对得上`, !r.error && r.value.deleted === b.json.length, r.error ?? r.value); }
+    else if (kind === 'query') { const r = await tryIt(() => s.query(b.json, { month: '2026-01' })); ok(`${say(b)}：查询跑得通`, !r.error, r.error); }
+    else if (kind === 'view-doc') {
+      const base = (await s.getView())?.version ?? 0;
+      const r = await tryIt(() => s.putView(b.json, ctx({ base, note: say(b) })));
+      ok(`${say(b)}：视图描述保存得了`, !r.error, r.error);
+      if (r.error) continue;
+      for (const v of b.json.views) {
+        const out = await tryIt(() => s.renderView({ view: v.key, params: { month: '2026-01' } }));
+        const bad = out.value?.blocks.filter((x) => x.error) ?? [];
+        ok(`${say(b)}：视图 ${v.key} 取数时每个组件都有数、没有出错的`, !out.error && bad.length === 0, out.error ?? bad.map((x) => ({ type: x.type, error: x.error })));
+      }
+    } else ok(`${say(b)}：标记认得`, false, `不认识的标记 ${b.kind}`);
   }
+  ok('七种标记技能里都有例子', ['dataset', 'rows', 'upsert', 'append', 'delete', 'query', 'view-doc'].every((k) => seen.has(k)), [...seen]);
+  const sk = readFileSync(join(DIR, 'SKILL.md'), 'utf8');
+  ok('技能里写了入口开之前怎么先验：脚本名和七种标记', sk.includes('scripts/skill-data-views-examples-test.mjs') && ['json dataset', 'json rows:', 'json upsert:', 'json append:', 'json delete:', 'json query', 'json view-doc'].every((m) => sk.includes('`' + m)));
   // 上限表里的数字和代码里的常量对得上
   const limits = readFileSync(join(DIR, 'references/limits.md'), 'utf8'), skill = readFileSync(join(DIR, 'SKILL.md'), 'utf8');
   const L = BENCH_LIMITS, has = (t) => limits.includes(t);

@@ -11,7 +11,7 @@
   { "id": 2, "day": "2026-01-31", "region": "西区", "status": "hold", "amount": 75.5 } ]
 ```
 
-替换错了：`dataset_list` 找到这个数据集，看快照，退回到替换前的那一份。
+替换错了：`dataset_snapshots` 看这个数据集的快照（或者用替换那次结果里带的 `snapshot_id`），`dataset_restore` 退回到替换前的那一份。
 
 ## 一张看板：筛选栏 + 四个数 + 一张图 + 明细
 
@@ -25,8 +25,8 @@
   { "type": "stat", "title": "超期", "unit": "单", "value": "v",
     "query": { "dataset": "orders", "filter": [ { "col": "day", "op": "prefix", "value": "$month" }, { "col": "status", "op": "=", "value": "late" } ], "measures": [ { "as": "v", "fn": "count" } ] },
     "tone_rules": [ { "col": "v", "op": ">", "value": 0, "tone": "danger" } ] },
-  { "type": "progress", "title": "完成", "value": "done", "total": "total",
-    "query": { "dataset": "orders", "filter": [ { "col": "day", "op": "prefix", "value": "$month" } ], "measures": [ { "as": "total", "fn": "count" }, { "as": "done", "fn": "count", "col": "amount" } ] } },
+  { "type": "progress", "title": "金额 / 月目标", "value": "got", "total": 10000,
+    "query": { "dataset": "orders", "filter": [ { "col": "day", "op": "prefix", "value": "$month" } ], "measures": [ { "as": "got", "fn": "sum", "col": "amount" } ] } },
   { "type": "line", "title": "每天的金额", "x": "day", "y": "amount",
     "query": { "dataset": "orders", "filter": [ { "col": "day", "op": "prefix", "value": "$month" } ], "group": ["day"], "measures": [ { "as": "amount", "fn": "sum", "col": "amount", "label": "金额" } ], "sort": [ { "col": "day" } ] } },
   { "type": "pie", "title": "各区占比", "label": "region", "value": "amount", "donut": true,
@@ -36,6 +36,12 @@
     "value_labels": { "status": { "done": { "text": "已完成", "tone": "success" }, "late": { "text": "已超期", "tone": "danger" }, "hold": "暂缓" } } }
 ] } ] }
 ```
+
+看板里几处的讲究：
+
+- 进度条的总数这里是写死的月目标。总数也可以取查询的另一个输出列（`"total": "列名"`）。
+- 一个查询里**不能**分别数「全部」和「满足某个条件的」（没有按条件计数）。要「完成率」这样的数：在写入的时候算好放进数据集，或者像上面「超期」那张统计卡一样，用带筛选的查询单独数一个数。
+- `count` 带 `col` 数的是「这一列不空的行」，不是「这一列等于某个值的行」。
 
 ## 给人填的提报页
 

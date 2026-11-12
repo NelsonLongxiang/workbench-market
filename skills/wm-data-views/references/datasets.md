@@ -17,6 +17,7 @@
 | `boolean` | `true` / `false` | `true` | `1`、`"true"` |
 
 - 空就写 `null`，或者干脆不给这一列。必填列不能空。
+- **必填**：列定义里写 `"required": true`（`{ "name": "region", "type": "text", "required": true }`）。不写就是可空。
 - 多出来的列（数据集里没有的列名）会被拒。先 `dataset_define` 加列，再写。
 - 时间存下来统一成 UTC（`2026-01-31T00:00:00.000Z`），读回来是这个写法。
 
@@ -39,15 +40,37 @@
 
 列定义每改一次是一个新版本，留最近 100 版。
 
+例：给 `orders` 加一列可空的备注（给的是完整的新定义，原来的列一个不少）。
+
+```json dataset
+{ "name": "orders", "title": "订单", "key": ["id"],
+  "columns": [
+    { "name": "id", "type": "integer", "label": "单号" },
+    { "name": "day", "type": "date", "label": "日期", "required": true },
+    { "name": "region", "type": "text", "label": "区" },
+    { "name": "status", "type": "text", "label": "状态" },
+    { "name": "amount", "type": "decimal", "label": "金额" },
+    { "name": "memo", "type": "text", "label": "备注" }
+  ] }
+```
+
 ## 快照与退回
 
 - 自动留快照的时候：整份替换之前（上一代）、按主键删到了行之前、删列之前、退回之前。也可以手工留。
 - 每个数据集最多留 5 份，旧的先清。**最近一次整份替换留下的上一代不会被清**，直到下一次整份替换——替换之后又删了多少次行，替换前的数据都退得回去。
 - 内容和最近一份一样的不再存（不改变数据的操作不占名额）。
-- 退回：给快照编号。退回之前会把当时的数据也留一份，退错了能再退回来。快照里有、现在已经删掉的列会被丢掉，结果里写明。
+- 退回之前会把当时的数据也留一份，退错了能再退回来。快照里有、现在已经删掉的列会被丢掉，结果里写明。
+
+| 工具 | 做什么 | 要给的 |
+|---|---|---|
+| `dataset_snapshots` | 列出一个数据集现有的快照：编号、为什么留的（整份替换 / 删行之前 / 删列之前 / 退回之前 / 手工）、多少行、谁、什么时候 | `bench`、`dataset` |
+| `dataset_snapshot` | 手工留一份 | `bench`、`dataset`、`note` |
+| `dataset_restore` | 退回到某一份 | `bench`、`snapshot_id`（从 `dataset_snapshots` 拿）、`note` |
+
+每次写入的结果里也带着这次自动留的快照编号（`snapshot_id`），记下来最省事。
 - `append` 和 `upsert` 不自动留快照。要保险，写之前手工留一份。
 
 ## 读
 
-- `dataset_list`：这个台有哪些数据集、列定义、行数、占多少字节、上次谁在什么时候改的。
+- `dataset_list`：这个台有哪些数据集、列定义、行数、占多少字节、上次谁在什么时候改的。不含快照，快照用 `dataset_snapshots` 看。
 - `dataset_query`：按查询描述读，见 `query.md`。
