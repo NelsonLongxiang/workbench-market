@@ -281,21 +281,22 @@ try {
   const r6 = await answer(member, `other:${att1}`, 'approve');
   const r7 = await answer(staff, `other:${att1}`, 'approve');
   check(r.status === 403 && r.json?.error === 'bench_views_admin_token_denied' && r6.status === 403 && r7.status === 403 && db.prepare("SELECT COUNT(*) AS n FROM bench_mcp_grants WHERE bench = 'other'").get().n === 0, '他们来答：和直接调那条路由一样被拒（管理口令 403、没有拍板 403），没有产生授予', { token: r.text.slice(0, 60), member: r6.status, staff: r7.status });
-  // 答复入口 /api/attention/answer 在写请求总门后面（远程的写要管理员才过得了门）。有拍板权限、又过得了门的人（这里是身份来源认的管理员，另有管理层授予）走它；
-  // 过不了门的管理层直接调台上的那条路由（条目的 detail.answer_via 写着），两条路是同一处判断
+  // 答复入口 /api/attention/answer 对登录的人放开了（L20）：过不过得了不看是不是管理员，由条目的来源判——这里就是台上那条路由的判断。
+  // 所以管理层（不是管理员）经它答和直接调台上的路由（条目的 detail.answer_via 写着）是同一处判断，两条路都通；下面批的那一步就用这个人。
   await activate({ principal: 'user:root-admin', role: 'management' });
   const boss = who(SESSIONS.admin);
-  r = await answer(mgr, `other:${att1}`, 'approve');
-  check(r.status === 403 && db.prepare("SELECT COUNT(*) AS n FROM bench_mcp_grants WHERE bench = 'other'").get().n === 0, '过不了写请求总门的管理层经答复入口答：门上就拒了（走台上的路由，见下）', r.status);
+  r = await answer(mgr, `other:${att1}`, 'reject', {});
+  check(r.status === 400 && r.json?.result?.error === 'reason_required' && db.prepare('SELECT status FROM bench_mcp_requests WHERE id = ?').get(att1).status === 'pending' && db.prepare("SELECT COUNT(*) AS n FROM bench_mcp_grants WHERE bench = 'other'").get().n === 0,
+    '管理层（不是管理员）经答复入口答：进得来，由台上那条路由判——不批不写理由照样被拒，申请还在', r.text.slice(0, 120));
   r = await answer(boss, `other:${att2}`, 'reject', {});
   check(r.status === 400 && r.json?.result?.error === 'reason_required' && db.prepare('SELECT status FROM bench_mcp_requests WHERE id = ?').get(att2).status === 'pending', '不批不写理由：拒，申请还在', r.text.slice(0, 120));
   const wrong = [];
-  for (const bad of ['other', `other:${att1}:x`, `../other:${att1}`, `OTHER:${att1}`, 'other:0', `demo:${att1}`]) { const x = await answer(boss, bad, 'approve'); if (x.status < 400) wrong.push(bad); }
+  for (const bad of ['other', `other:${att1}:x`, `../other:${att1}`, `OTHER:${att1}`, 'other:0', `demo:${att1}`]) { const x = await answer(mgr, bad, 'approve'); if (x.status < 400) wrong.push(bad); }
   check(wrong.length === 0 && db.prepare('SELECT COUNT(*) AS n FROM bench_mcp_grants WHERE request_id IN (?, ?)').get(att1, att2).n === 0, '条目 id 写错、写成别的台：都被拒，没批成', wrong);
-  r = await answer(boss, `other:${att1}`, 'approve', { note: '可以', approve: false, session: 'seat-b' });
+  r = await answer(mgr, `other:${att1}`, 'approve', { note: '可以', approve: false, session: 'seat-b' });
   check(r.status === 200 && r.json?.result?.status === 'approved' && r.json.duplicate === false && db.prepare("SELECT COUNT(*) AS n FROM bench_mcp_grants WHERE bench = 'other' AND session_id = ?").get(A.id).n === 2
-    && db.prepare("SELECT actor FROM bench_mcp_audit WHERE request_id = ? AND action = 'approve'").get(att1)?.actor === 'user:root-admin', '经答复入口批：生效，留痕记的是这个人；多带的字段不算数', r.text.slice(0, 160));
-  r = await answer(boss, `other:${att1}`, 'approve');
+    && db.prepare("SELECT actor FROM bench_mcp_audit WHERE request_id = ? AND action = 'approve'").get(att1)?.actor === 'user:alpha', '管理层（不是管理员）经答复入口批：生效，留痕记的是这个人；多带的字段不算数', r.text.slice(0, 160));
+  r = await answer(mgr, `other:${att1}`, 'approve');
   check(r.status === 200 && r.json?.duplicate === true && db.prepare('SELECT COUNT(*) AS n FROM bench_mcp_audit WHERE request_id = ?').get(att1).n === 1, '同一条再答一次：认得是答过的，不再生效', r.text.slice(0, 100));
   // 照条目的 answer_via 拼请求：固定的字段加上填的那一项
   const via = mine(await attention(mgr)).find((x) => x.source_id === `other:${att2}`).answer_via;
