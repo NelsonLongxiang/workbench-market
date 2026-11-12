@@ -274,16 +274,13 @@
           "id": "status-fresh",
           "route": "GET /api/vault/status",
           "class": "normal",
-          "what": "新实例：库还不存在、锁着；路径每个实例不同（只比形状）",
-          "vary": { "path": "random" },
+          "what": "新实例：库还不存在、锁着；路径每个实例不同（只比形状）（库文件路径随检出目录变，只比路径是字符串，其余字段逐项比）",
+          "compare": ["upstream", "shared_with_dsh", "exists", "unlocked", "env_password", "password_source", "idle_lock_minutes", "count", "weak_master", "weak_reasons", "master_policy", "control_only", "path.constructor.name"],
           "request": { "method": "GET", "path": "/api/vault/status", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
           "response": {
             "status": 200,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "426", "etag": "W/\"1aa-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": {
+            "picked": {
               "upstream": "dsh-vault@1.10.75",
-              "path": "<每个实例随机·string·159>",
               "shared_with_dsh": false,
               "exists": false,
               "unlocked": false,
@@ -293,7 +290,8 @@
               "count": null,
               "weak_master": null,
               "weak_reasons": [],
-              "master_policy": { "min_length": 12, "common_list": 10005 }
+              "master_policy": { "min_length": 12, "common_list": 10005 },
+              "path.constructor.name": "String"
             }
           }
         },
@@ -340,16 +338,13 @@
           "id": "status-still-none",
           "route": "GET /api/vault/status",
           "class": "normal",
-          "what": "弱主密码被拒之后库还是不存在",
-          "vary": { "path": "random" },
+          "what": "弱主密码被拒之后库还是不存在（库文件路径随检出目录变，只比路径是字符串，其余字段逐项比）",
+          "compare": ["upstream", "shared_with_dsh", "exists", "unlocked", "env_password", "password_source", "idle_lock_minutes", "count", "weak_master", "weak_reasons", "master_policy", "control_only", "path.constructor.name"],
           "request": { "method": "GET", "path": "/api/vault/status", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
           "response": {
             "status": 200,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "426", "etag": "W/\"1aa-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": {
+            "picked": {
               "upstream": "dsh-vault@1.10.75",
-              "path": "<每个实例随机·string·159>",
               "shared_with_dsh": false,
               "exists": false,
               "unlocked": false,
@@ -359,7 +354,8 @@
               "count": null,
               "weak_master": null,
               "weak_reasons": [],
-              "master_policy": { "min_length": 12, "common_list": 10005 }
+              "master_policy": { "min_length": 12, "common_list": 10005 },
+              "path.constructor.name": "String"
             }
           }
         },
@@ -915,16 +911,13 @@
           "id": "status-unlocked",
           "route": "GET /api/vault/status",
           "class": "normal",
-          "what": "解锁中：库存在、1 条",
-          "vary": { "path": "random" },
+          "what": "解锁中：库存在、1 条（库文件路径随检出目录变，只比路径是字符串，其余字段逐项比）",
+          "compare": ["upstream", "shared_with_dsh", "exists", "unlocked", "env_password", "password_source", "idle_lock_minutes", "count", "weak_master", "weak_reasons", "master_policy", "control_only", "path.constructor.name"],
           "request": { "method": "GET", "path": "/api/vault/status", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
           "response": {
             "status": 200,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "422", "etag": "W/\"1a6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": {
+            "picked": {
               "upstream": "dsh-vault@1.10.75",
-              "path": "<每个实例随机·string·159>",
               "shared_with_dsh": false,
               "exists": true,
               "unlocked": true,
@@ -934,7 +927,8 @@
               "count": 1,
               "weak_master": false,
               "weak_reasons": [],
-              "master_policy": { "min_length": 12, "common_list": 10005 }
+              "master_policy": { "min_length": 12, "common_list": 10005 },
+              "path.constructor.name": "String"
             }
           }
         },
@@ -1233,16 +1227,13 @@
           "id": "vh-status",
           "route": "GET /api/vault/status",
           "class": "normal",
-          "what": "专用域名查状态：库还不存在，主密码来自环境",
-          "vary": { "path": "random" },
+          "what": "专用域名查状态：库还不存在，主密码来自环境（库文件路径随检出目录变，只比路径是字符串，其余字段逐项比）",
+          "compare": ["upstream", "shared_with_dsh", "exists", "unlocked", "env_password", "password_source", "idle_lock_minutes", "count", "weak_master", "weak_reasons", "master_policy", "control_only", "path.constructor.name"],
           "request": { "method": "GET", "path": "/api/vault/status", "raw": true, "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "host": "vault.example" } },
           "response": {
             "status": 200,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "439", "content-security-policy": "frame-ancestors 'none'; frame-src 'none'", "etag": "W/\"1b7-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
-            "body": {
+            "picked": {
               "upstream": "dsh-vault@1.10.75",
-              "path": "<每个实例随机·string·170>",
               "shared_with_dsh": false,
               "exists": false,
               "unlocked": false,
@@ -1252,7 +1243,8 @@
               "count": null,
               "weak_master": null,
               "weak_reasons": [],
-              "master_policy": { "min_length": 12, "common_list": 10005 }
+              "master_policy": { "min_length": 12, "common_list": 10005 },
+              "path.constructor.name": "String"
             }
           }
         },
@@ -1360,16 +1352,13 @@
           "id": "vh-mainport-status-host-upper",
           "route": "GET /api/vault/status",
           "class": "normal",
-          "what": "Host 大写也认作专用域名（不分大小写、不看端口）",
-          "vary": { "path": "random" },
+          "what": "Host 大写也认作专用域名（不分大小写、不看端口）（库文件路径随检出目录变，只比路径是字符串，其余字段逐项比）",
+          "compare": ["upstream", "shared_with_dsh", "exists", "unlocked", "env_password", "password_source", "idle_lock_minutes", "count", "weak_master", "weak_reasons", "master_policy", "control_only", "path.constructor.name"],
           "request": { "method": "GET", "path": "/api/vault/status", "raw": true, "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "host": "VAULT.Example:8443" } },
           "response": {
             "status": 200,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "435", "content-security-policy": "frame-ancestors 'none'; frame-src 'none'", "etag": "W/\"1b3-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
-            "body": {
+            "picked": {
               "upstream": "dsh-vault@1.10.75",
-              "path": "<每个实例随机·string·170>",
               "shared_with_dsh": false,
               "exists": true,
               "unlocked": true,
@@ -1379,7 +1368,8 @@
               "count": 1,
               "weak_master": false,
               "weak_reasons": [],
-              "master_policy": { "min_length": 12, "common_list": 10005 }
+              "master_policy": { "min_length": 12, "common_list": 10005 },
+              "path.constructor.name": "String"
             }
           }
         }
