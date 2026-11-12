@@ -15,7 +15,7 @@ import WmPage from '../../components/WmPage';
 import { addTeamLead, claimTeam, getTeamDepartments, getTeamPeople, getTeams, putDepartment } from '../../api';
 import { subscribeAdminToken } from '../../admin-token';
 import {
-  actionProblem, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, sourceProblem,
+  actionProblem, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterStaleText, sourceProblem,
   teamCounts, teamStatusLabel, teamTitle, teamsOf,
 } from '../../team-view';
 import type { Department, Member, SourceResult, Team as TeamT, Tone } from '../../team-view';
@@ -53,6 +53,7 @@ function TeamBlock({ t }: { t: TeamT }) {
   const s = teamStatusLabel(t.status);
   const leads = leadsOf(t);
   const n = teamCounts(t);
+  const stale = rosterStaleText(t, Date.now());
   return (
     <div className="wm-team-team" data-testid="team-team">
       <div className="wm-team-head">
@@ -62,6 +63,7 @@ function TeamBlock({ t }: { t: TeamT }) {
           <span>总工：{t.router ? memberLabel(t.router) : '名册里没有总工'}</span>
           <span>{n.members} 个成员 · 在办 {n.active} 件</span>
         </div>
+        {stale && <div className="wm-team-stale" data-testid="team-roster-stale">{stale}</div>}
       </div>
       {t.router && <MemberCard m={t.router} chief />}
       {t.members.map((m) => <MemberCard key={`${m.seat}-${m.seat_id}`} m={m} />)}

@@ -20,6 +20,8 @@ export interface Team {
   host: string; team: string; name: string; status: TeamStatus | string; in_roster: boolean;
   /** 节点的名字（服务端给了才有）；节点的标识（host）是内部代号，页面不显示 */
   node_name?: string;
+  /** 最近一次收下这个节点名册的时刻（毫秒）；服务端给的是 ISO 时刻或毫秒数的字符串，整形时统一成毫秒，没有就不带 */
+  roster_at?: number;
   department: { id: string; name: string } | null; leads: Lead[]; router: Member | null; members: Member[];
 }
 export interface DeptBlock { id: string; name: string; lead: Person | null; teams: Team[] }
@@ -41,12 +43,20 @@ function memberOf(v: unknown): Member | null {
     active_items: typeof m.active_items === 'number' && Number.isFinite(m.active_items) && m.active_items > 0 ? Math.floor(m.active_items) : 0,
   };
 }
+/** 名册收到的时刻：ISO 时刻，或者毫秒数（数字或数字串）；都不是返回 null */
+function rosterAt(v: unknown): number | null {
+  if (typeof v === 'number') return Number.isFinite(v) && v > 0 ? v : null;
+  if (typeof v !== 'string' || !v.trim()) return null;
+  const s = v.trim();
+  const ms = /^\d{10,}$/.test(s) ? Number(s) : Date.parse(s);
+  return Number.isFinite(ms) && ms > 0 ? ms : null;
+}
 function teamOf(v: unknown): Team | null {
   const t = obj(v);
   if (!t || typeof t.host !== 'string' || typeof t.team !== 'string') return null;
   const d = obj(t.department);
   return {
-    host: t.host, team: t.team, name: typeof t.name === 'string' ? t.name : '', ...(typeof t.node_name === 'string' && t.node_name.trim() ? { node_name: t.node_name.trim() } : {}), status: typeof t.status === 'string' ? t.status : '', in_roster: t.in_roster !== false,
+    host: t.host, team: t.team, name: typeof t.name === 'string' ? t.name : '', ...(typeof t.node_name === 'string' && t.node_name.trim() ? { node_name: t.node_name.trim() } : {}), ...(rosterAt(t.roster_received_at) !== null ? { roster_at: rosterAt(t.roster_received_at)! } : {}), status: typeof t.status === 'string' ? t.status : '', in_roster: t.in_roster !== false,
     department: d && typeof d.id === 'string' ? { id: d.id, name: typeof d.name === 'string' ? d.name : d.id } : null,
     leads: arr<unknown>(t.leads).map(obj).filter((l): l is Record<string, unknown> => !!l && typeof l.principal === 'string')
       .map((l) => ({ principal: l.principal as string, display_name: typeof l.display_name === 'string' ? l.display_name : '', source: typeof l.source === 'string' ? l.source : '' })),
@@ -140,6 +150,17 @@ export function teamCounts(t: Pick<Team, 'members' | 'router'>): { members: numb
 /** 团队下面没有成员时怎么说：不在名册的说已经不在名册了，别的说名册里还没有成员 */
 export function memberlessText(t: Pick<Team, 'status' | 'in_roster'>): string {
   return t.status === 'off-roster' || !t.in_roster ? '这个团队已经不在节点的名册里，看不到它的成员了。' : '名册里这个团队还没有成员。';
+}
+
+/** 名册多久没更新算「没更新」：先按 15 分钟（以后由服务端给） */
+export const ROSTER_STALE_MIN = 15;
+/** 名册超过阈值没更新时的一句提醒；没超过、没有收到时刻的返回 null。时间按分钟写，两小时以上按小时、两天以上按天 */
+export function rosterStaleText(t: Pick<Team, 'roster_at'>, now: number, staleMin = ROSTER_STALE_MIN): string | null {
+  if (typeof t.roster_at !== 'number') return null;
+  const min = Math.floor((now - t.roster_at) / 60_000);
+  if (min < staleMin) return null;
+  const span = min >= 2 * 24 * 60 ? `${Math.floor(min / (24 * 60))} 天` : min >= 120 ? `${Math.floor(min / 60)} 小时` : `${min} 分钟`;
+  return `名册已 ${span}没更新`;
 }
 
 /** 页面整体是空的时候怎么说 */

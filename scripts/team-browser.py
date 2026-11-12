@@ -40,7 +40,7 @@ ROUTER = seat('ops/a1b2c3d4', '合成总工', role='router', active=2)
 UNCLAIMED = {'host': HOST, 'team': 'ops/canvas/合成运营', 'name': '合成运营', 'status': 'unclaimed', 'in_roster': True, 'department': None, 'leads': [], 'router': ROUTER,
              'members': [seat('ops/00000001', '小算', active=3), seat('ops/00000002', '小审')]}
 def claimed(dept_name):
-    return {**UNCLAIMED, 'status': 'active', 'department': {'id': 'synthetic-ops', 'name': dept_name},
+    return {**UNCLAIMED, 'status': 'active', 'node_name': '合成节点', 'roster_received_at': '2020-01-01T00:00:00Z', 'department': {'id': 'synthetic-ops', 'name': dept_name},
             'leads': [{'principal': 'user:jia', 'display_name': '甲经理', 'source': 'department'}, {'principal': 'user:yi', 'display_name': '乙主管', 'source': 'explicit'}],
             'members': [seat('ops/00000001', '小算', active=3, to={'principal': 'user:bing', 'display_name': '丙'}), seat('ops/00000002', '小审', online=False)]}
 state = {'teams': {'departments': [], 'unclaimed': [UNCLAIMED]}}
@@ -98,6 +98,7 @@ with sync_playwright() as p:
     m1, m2 = mems.nth(0).inner_text(), mems.nth(1).inner_text()
     check('成员卡：名字（不带句柄）、在办几件、分配给谁 / 团队公用', mems.count() == 2 and m1.split('\n')[0].strip() == '小算' and '在办 3 件' in m1 and '分配给 丙' in m1 and '团队公用' in m2 and '手上没有在办的' in m2, [m1, m2])
     check('总工单独一张卡，写「只对负责人」', '只对负责人' in pg.locator('[data-testid=team-router]').inner_text())
+    check('名册很久没更新：头卡上用提醒色写一句（合成的收到时刻在很久以前）', '名册已' in pg.locator('[data-testid=team-roster-stale]').inner_text() and '没更新' in pg.locator('[data-testid=team-roster-stale]').inner_text())
     check('在线、不在线用点区分', mems.nth(0).locator('.wm-team-dot.on').count() == 1 and mems.nth(1).locator('.wm-team-dot.on').count() == 0)
     check('待认领清空了就不显示这一块', pg.locator('.wm-team-unclaimed').count() == 0)
     check('整页不露代号：节点标识、团队和席位句柄都不出现', not any(x in pg.locator('body').inner_text() for x in [HOST, 'ops/', '/canvas/']), pg.locator('body').inner_text()[:300])
