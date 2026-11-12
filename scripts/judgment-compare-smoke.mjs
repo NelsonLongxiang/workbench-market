@@ -16,7 +16,7 @@
  *   node scripts/judgment-compare-smoke.mjs --root DIR   测另一棵目录树（变异测试用）
  */
 import { createServer } from 'node:net';
-import { mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from './owned-script-fixture.mjs';
@@ -50,6 +50,9 @@ async function boot(name, extraEnv = {}, { expectFail = false, fault = false } =
   const port = await freePort();
   const data = join(OUT, name, 'data'), home = join(OUT, name, 'home'), ext = join(OUT, name, 'ext');
   for (const d of [data, home, ext]) mkdirSync(d, { recursive: true });
+  // 核心路由都报了动作（阶段三搬完），「没报动作的不比」用一个扩展直接挂在 ctx.app 上的路由来演示（扩展的路由默认只警告，不拒绝启动）
+  mkdirSync(join(ext, 'legacy-probe'), { recursive: true });
+  writeFileSync(join(ext, 'legacy-probe', 'server.mjs'), "export function register(ctx) { ctx.app.get('/legacy-probe/ping', (_req, res) => { res.json({ ok: true }); }); }\n");
   const env = {};
   for (const k of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP']) if (process.env[k]) env[k] = process.env[k];
   Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN, REDIS_URL: '', IDENTITY_SEAM_ROOT: ROOT, WM_EXTENSIONS_DIR: ext, ...extraEnv });
@@ -131,14 +134,14 @@ try {
     await srv.call('GET', '/api/auth/viewer', { headers: REMOTE }); // 声明了状态码不代表授权
     await srv.call('POST', '/api/grants', { body: { role: 'member', scope: '*' } }); // 400：不确定
     await srv.call('GET', '/api/grants/987654', { headers: token }); // 404：不判
-    await srv.call('GET', '/api/vault/status', { headers: token }); // 凭据库的存量路由：没报动作
+    await srv.call('GET', '/legacy-probe/ping', { headers: token }); // 扩展直接挂的路由：没报动作
     const rep = await srv.report();
     check(rep.on === true && rep.mismatches.length === 0
       && tallyOf(rep, 'GET /api/grants', 'agree') >= 1 && tallyOf(rep, 'GET /api/principals', 'agree') >= 1
       && tallyOf(rep, 'GET /api/types', 'agree') === 1 && tallyOf(rep, 'GET /api/export', 'agree') === 2
       && tallyOf(rep, 'GET /api/principals', 'integrity-blocked') === 1 && tallyOf(rep, 'GET /api/auth/viewer', 'not-verdict') === 1
       && tallyOf(rep, 'POST /api/grants', 'uncertain') === 1 && tallyOf(rep, 'GET /api/grants/:id', 'skip-404') === 1
-      && tallyOf(rep, 'GET /api/vault/status', 'unregistered') === 1,
+      && tallyOf(rep, 'GET /legacy-probe/ping', 'unregistered') === 1,
       '各类结果：本机命令行、管理口令、匿名按登记的清单一致；导出按 reveal 细分后两种都一致；带口令的跨站记「被完整性门拦下」；声明的路由记「状态码不代表授权」；400 不确定；404 不判；没报动作的不比',
       show(rep.tally));
   }
