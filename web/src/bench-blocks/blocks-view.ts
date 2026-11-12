@@ -136,6 +136,30 @@ export function errorText(e: BlockError): string {
   return '读不到这块数据，稍后再试。';
 }
 
+export type ValueLabel = { text: string; tone?: 'success' | 'warning' | 'danger' | 'default' };
+/**
+ * 视图描述里表格的「取值 → 说法」对照（value_labels：列名 → 取值 → 说法，说法可以只写文字，也可以带颜色）。
+ * 返回这个取值该怎么说；没给对照的返回 null（表格把它显示成灰色的原文，不报错）。只认对照自己带的键。
+ */
+export function valueLabel(labels: unknown, column: string, value: unknown): ValueLabel | null {
+  if (!labels || typeof labels !== 'object' || !Object.hasOwn(labels, column)) return null;
+  const map = (labels as Record<string, unknown>)[column], key = String(value);
+  if (!map || typeof map !== 'object' || !Object.hasOwn(map, key)) return null;
+  const hit = (map as Record<string, unknown>)[key];
+  if (typeof hit === 'string' && hit) return { text: hit };
+  if (hit && typeof hit === 'object' && typeof (hit as ValueLabel).text === 'string' && (hit as ValueLabel).text) {
+    const tone = (hit as ValueLabel).tone;
+    return { text: (hit as ValueLabel).text, tone: tone === 'success' || tone === 'warning' || tone === 'danger' ? tone : 'default' };
+  }
+  return null;
+}
+/** 有对照的列按「状态」画（标签），别的列不动 */
+export function withLabelColumns(data: BlockData | null | undefined, labels: unknown): BlockData | null {
+  if (!data) return null;
+  if (!labels || typeof labels !== 'object') return data;
+  return { ...data, columns: data.columns.map((c) => (Object.hasOwn(labels, c.name) && !c.display ? { ...c, display: 'status' as const } : c)) };
+}
+
 /** 一个块是不是「空」：没有数据，或者一行也没有 */
 export const isEmptyData = (data: BlockData | null | undefined): boolean => !data || !Array.isArray(data.rows) || data.rows.length === 0;
 

@@ -9,7 +9,7 @@ import { FormBlock, type FormField } from './Form';
 import { ProgressBlock } from './Progress';
 import { StatBlock } from './Stat';
 import { TableBlock } from './Table';
-import { snapSpan, type BlockData, type BlockError } from './blocks-view';
+import { snapSpan, valueLabel, withLabelColumns, type BlockData, type BlockError } from './blocks-view';
 
 type Block = { type: string; title?: string; span?: number; data?: BlockData; error?: BlockError; [k: string]: unknown };
 export type ViewResult = { title: string; version: number; view: { key: string; title: string }; params: Record<string, string>; blocks: Block[] };
@@ -34,7 +34,7 @@ export function BenchView({ result, loading, onParams, onSubmit, formDisabledRea
         if (b.type === 'form') return <FormBlock key={i} title={b.title} span={common.span} error={b.error ?? null} fields={(b.columns as FormField[]) ?? []} submitLabel={str(b.submit_label) || undefined} onSubmit={(v) => onSubmit(i, v)} disabledReason={formDisabledReason} />;
         if (b.type === 'stat') return <StatBlock key={i} {...common} value={str(b.value)} unit={str(b.unit) || undefined} />;
         if (b.type === 'progress') return <ProgressBlock key={i} {...common} value={str(b.value)} total={typeof b.total === 'number' ? b.total : str(b.total)} />;
-        if (b.type === 'table') return <TableBlock key={i} {...common} columns={Array.isArray(b.columns) ? (b.columns as string[]) : undefined} pageSize={typeof b.page_size === 'number' ? b.page_size : undefined} />;
+        if (b.type === 'table') return <TableBlock key={i} {...common} data={withLabelColumns(common.data, b.value_labels)} statusText={(v, col) => valueLabel(b.value_labels, col, v)} columns={Array.isArray(b.columns) ? (b.columns as string[]) : undefined} pageSize={typeof b.page_size === 'number' ? b.page_size : undefined} />;
         if (b.type === 'bar') return <BarBlock key={i} {...common} x={str(b.x)} y={(b.y as string | string[]) ?? []} series={str(b.series) || undefined} stacked={b.stacked === true} horizontal={b.horizontal === true} />;
         if (b.type === 'line') return <LineBlock key={i} {...common} x={str(b.x)} y={(b.y as string | string[]) ?? []} series={str(b.series) || undefined} area={b.area === true} />;
         if (b.type === 'pie') return <PieBlock key={i} {...common} label={str(b.label)} value={str(b.value)} donut={b.donut === true} />;

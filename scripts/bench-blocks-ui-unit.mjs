@@ -51,6 +51,16 @@ const said = ['timeout', 'limit', 'invalid', 'not_found', 'busy', 'forbidden', '
 ok('出错的说法：每种都是一句人话，不带服务端的原话和代号', said.every((s) => s.length > 8 && !/SQLITE|c_x|ds_y|timeout|limit|invalid|internal/.test(s)) && new Set(said).size === 7, said);
 ok('宽度落到 3 / 4 / 6 / 12；不给时按类型', [1, 3, 4, 5, 6, 7, 12].map((s) => v.snapSpan(s, 'bar')).join() === '3,3,4,6,6,12,12' && v.snapSpan(undefined, 'stat') === 3 && v.snapSpan(undefined, 'table') === 12 && v.snapSpan(undefined, 'pie') === 6 && v.snapSpan('6', 'filter-bar') === 12);
 
+console.log('取值 → 说法');
+const L = { status: { done: { text: '已完成', tone: 'success' }, doing: '进行中', odd: { text: '怪', tone: 'purple' }, bad: { tone: 'danger' }, empty: '' } };
+ok('对照里有的：给说法和颜色；只写文字的没有颜色', JSON.stringify(v.valueLabel(L, 'status', 'done')) === '{"text":"已完成","tone":"success"}' && JSON.stringify(v.valueLabel(L, 'status', 'doing')) === '{"text":"进行中"}');
+ok('对照里没有的取值、没有对照的列：不给说法（表格显示灰色原文）', v.valueLabel(L, 'status', 'late') === null && v.valueLabel(L, 'other', 'done') === null && v.valueLabel(null, 'status', 'done') === null && v.valueLabel('x', 'status', 'done') === null);
+ok('不认识的颜色当成缺省；没有文字的不算', v.valueLabel(L, 'status', 'odd').tone === 'default' && v.valueLabel(L, 'status', 'bad') === null && v.valueLabel(L, 'status', 'empty') === null);
+ok('取值和列名撞上对象原型上的名字：不当成有对照', v.valueLabel(L, 'status', 'constructor') === null && v.valueLabel(L, 'toString', 'done') === null && v.valueLabel(L, '__proto__', 'x') === null);
+ok('数字、布尔的取值按文本对', v.valueLabel({ n: { 1: '一', true: '是' } }, 'n', 1).text === '一' && v.valueLabel({ n: { 1: '一', true: '是' } }, 'n', true).text === '是');
+const wl = v.withLabelColumns({ columns: [col('status', 'text'), col('n', 'integer'), { ...col('who', 'text'), display: 'person' }], rows: [] }, { status: {}, who: {} });
+ok('有对照的列按状态画；已经指定了画法的不改；别的列不动', wl.columns[0].display === 'status' && wl.columns[1].display === undefined && wl.columns[2].display === 'person' && v.withLabelColumns(null, L) === null);
+
 console.log('图表配置只取 token');
 const T = { series: ['#111111', '#222222', '#333333', '#444444', '#555555'], muted: '#999999', text: '#000001', textSecondary: '#000002', border: '#000003', surface: '#000004', fontFamily: 'F', fontSize: 12 };
 const hexes = (o) => [...new Set(JSON.stringify(o).match(/#[0-9a-fA-F]{3,8}\b/g) ?? [])];

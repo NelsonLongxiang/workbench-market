@@ -19,7 +19,7 @@ export interface TableBlockProps extends BlockFrameProps {
   /** 每行的操作：内容由调用方给，这里把它放在最右一列并固定。直接露出的不超过 2 个，多的由调用方收进「更多」（components/RowActions.tsx） */
   rowActions?: (row: Row) => ReactNode;
   /** 状态列的值怎么说、用什么颜色；没给的值原样显示成灰标签。不要把服务端的状态代号直接给人看 */
-  statusText?: (value: unknown) => { text: string; tone?: 'success' | 'warning' | 'danger' | 'default' } | null;
+  statusText?: (value: unknown, column: string) => { text: string; tone?: 'success' | 'warning' | 'danger' | 'default' } | null;
 }
 
 const TONE: Record<string, string> = { success: 'success', warning: 'warning', danger: 'error', default: 'default' };
@@ -40,7 +40,7 @@ export function TableBlock({ columns, pageSize = 10, onRowClick, rowActions, sta
         if (kind === 'seat') return seatLabel(who(v)) || '-';
         if (kind === 'status') {
           if (v === null || v === undefined || v === '') return '-';
-          const s = statusText?.(v);
+          const s = statusText?.(v, c.name);
           return <Tag color={TONE[s?.tone ?? 'default']}>{s?.text ?? String(v)}</Tag>;
         }
         return cellText(v, kind);

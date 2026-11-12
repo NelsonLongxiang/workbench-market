@@ -5,6 +5,7 @@
 import { useMemo, useState } from 'react';
 import { Button, Typography } from 'antd';
 import { DashGrid } from '../../components/Dash';
+import WmPage from '../../components/WmPage';
 import {
   BarBlock, BenchView, FormBlock, LineBlock, PieBlock, ProgressBlock, StatBlock, TableBlock,
   type BlockData, type ViewResult,
@@ -42,7 +43,7 @@ function render(params: Record<string, string>): ViewResult {
       { type: 'pie', title: '各区单数', label: 'region', value: 'n', donut: true, span: 4, data: byRegion },
       { type: 'bar', title: '各区单数（横向）', x: 'region', y: 'n', horizontal: true, span: 4, data: byRegion },
       { type: 'form', title: '补一条备注', span: 4, columns: [{ name: 'title', type: 'text', label: '标题', required: true }, { name: 'amount', type: 'decimal', label: '金额' }, { name: 'day', type: 'date', label: '日期' }, { name: 'urgent', type: 'boolean', label: '加急' }] },
-      { type: 'table', title: '明细', page_size: 8, columns: ['status', 'id', 'day', 'region', 'owner', 'qty', 'amount', 'updated_at'], data: {
+      { type: 'table', title: '明细', page_size: 8, value_labels: { status: { done: { text: '已完成', tone: 'success' }, doing: '进行中' } }, columns: ['status', 'id', 'day', 'region', 'owner', 'qty', 'amount', 'updated_at'], data: {
         columns: [col('id', 'integer', '单号', 'text'), col('day', 'date', '日期'), col('region', 'text', '区'), col('owner', 'text', '负责人', 'person'), col('qty', 'integer', '件数'), col('amount', 'decimal', '金额'), col('status', 'text', '状态', 'status'), col('updated_at', 'datetime', '更新')],
         rows: rows.slice(0, 40), truncated: rows.length > 40,
       } },
@@ -59,8 +60,7 @@ export default function BenchBlocksDemo() {
   const [picked, setPicked] = useState('');
   const result = useMemo(() => render(params), [params]);
   return (
-    <div className="wm-bb-demo">
-      <Typography.Title level={4}>数据视图组件（开发演示，合成数据）</Typography.Title>
+    <WmPage title="数据视图组件" subTitle="开发演示，合成数据">
       <Typography.Paragraph type="secondary">一、照一份视图取数的结果排出来的一页。改筛选栏，下面的块跟着变。</Typography.Paragraph>
       <BenchView result={result} onParams={setParams} onSubmit={() => new Promise((ok) => setTimeout(ok, 400))} />
 
@@ -91,6 +91,6 @@ export default function BenchBlocksDemo() {
         <FormBlock title="不能提交" span={6} fields={[{ name: 'title', type: 'text', label: '标题', required: true }]} onSubmit={() => Promise.resolve()} disabledReason="你的账号现在不能往这个台提报。" />
         <FormBlock title="提交被拒" span={6} fields={[{ name: 'title', type: 'text', label: '标题', required: true }]} onSubmit={() => Promise.reject({ code: 'invalid', message: '第 1 行 列 title：文本超过 10000 个字符' })} />
       </DashGrid>
-    </div>
+    </WmPage>
   );
 }

@@ -528,5 +528,4 @@ body { background: var(--wm-color-page); }
 .wm-bb-form-msg { margin-bottom: var(--wm-space-3); }
 .wm-bb-form-foot { display: flex; align-items: center; gap: var(--wm-space-3); }
 .wm-bb-form-why { font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); }
-.wm-bb-demo { max-width: 1280px; }
 .wm-bb-demo-gap { margin-top: var(--wm-space-6); }
