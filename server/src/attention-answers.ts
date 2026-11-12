@@ -63,7 +63,7 @@ const NUM = /^[1-9]\d{0,15}$/;
 const bjToday = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
 
 /** 谁在答：管理员落到人（口令是 admin-token，会话登录的是 odoo:<登录名>，本机命令行是 cli）；不是管理员的用登录的人 */
-async function actorOf(req: Req): Promise<string> {
+export async function actorOf(req: Req): Promise<string> {
   if (principalsAdmin) { const a = await principalsAdmin(req, capturing().res); if (a) return a; }
   const cookie = String(req.headers.cookie ?? '');
   if (cookie) { const who = await identity().resolveViewer(cookie); if (who.ok) return who.viewer.sub; }
@@ -279,6 +279,14 @@ export function withAnswers(p: AttentionProvider<Req>, deps: AnswerDeps): Attent
     deny: (req) => denial(p.source, req, deps),
     key: (sourceId) => keyOf(p.source, sourceId),
     answer: async (req, sourceId, answer, input) => {
+      // 事项的验收、退回直接改事项状态：不是管理员的人（写请求总门放开之后进得来，L20）只能答自己建的那件，
+      // 和事项自己的决定入口（POST /api/work-items/:id/decision）同一个函数 creatorAnswer；看得到不等于能答
+      if (p.source === 'work-items' && (CREATOR_ANSWERS as readonly string[]).includes(answer) && !(principalsAdmin && await principalsAdmin(req, capturing().res))) {
+        const cookie = String(req.headers.cookie ?? '');
+        const who = cookie ? await identity().resolveViewer(cookie) : null;
+        if (!who || !who.ok) return { status: 401, body: { error: 'work_items_auth_required' } };
+        return creatorAnswer(sourceId, who.viewer.sub, answer, input);
+      }
       const actor = await actorOf(req);
       return attention().once(p.source, keyOf(p.source, sourceId), answer, actor, async () => {
         const direct = directs?.[answer];

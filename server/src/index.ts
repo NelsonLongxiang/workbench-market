@@ -428,7 +428,8 @@ app.use((req, res, next) => {
 // 其余 /api/* 写操作要 X-Admin-Token（本机 REST 面维持内网信任模型不变；此中间件只拦远程写）。
 // 主人裁定 A（2026-10-23）：自产台数据/文件面对远程浏览器开放——应用层写，与发布面同口径；
 // 控制面（/api/mcp/*、/api/sops/*/bindings 等）照旧收口。没有这条，远程节点浏览器提交表单会 403。
-const REMOTE_ALLOW_EXACT = new Set(['/mcp', '/.well-known/agent-card.json', '/a2a/direct', '/api/auth/login', '/api/auth/logout']); // 登录/登出自带同源门与限频
+// 「关注」的答复入口（L20）：管理层、负责人看得到卡片也要能答。路由内核同源，能不能答由条目的来源判（转给原路由的照样再过这道门）
+const REMOTE_ALLOW_EXACT = new Set(['/mcp', '/.well-known/agent-card.json', '/a2a/direct', '/api/auth/login', '/api/auth/logout', '/api/attention/answer']); // 登录/登出自带同源门与限频
 // ---------- 端点命中计数（总工程师 B 类单：采纳监测 instrumentation）----------
 // 必须挂在所有业务路由之前（Express 按注册序匹配，路由先响应则后续 use 不再执行）
 app.use(endpointStatsMiddleware());
