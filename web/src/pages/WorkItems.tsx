@@ -10,13 +10,13 @@ import RelTime from '../components/RelTime';
 import { api, getLifecycleNameSources, getRosterTeams } from '../api';
 import { adminActive, subscribeAdminToken } from '../admin-token';
 import { STATE } from './WorkItem';
-import { STATE_GROUPS, appendPage, byObject, byState, groupCount, objectName, phaseName, rowLine, rowTime, viewsFor, avatarChar, speakerName, lifecycleNames, rosterNames, seatNameOnly, NO_NAMES, type Names, type Who, type WorkItemListRow } from '../work-items-view';
-import { actorLabel } from '../people';
+import { STATE_GROUPS, appendPage, byObject, byState, groupCount, objectName, phaseName, rowLine, rowTime, viewsFor, avatarChar, lifecycleNames, NO_NAMES, type Names, type Who, type WorkItemListRow } from '../work-items-view';
+import { rosterNames, seatNameOnly, speakerName } from '../people';
 
 /** 列表行里「谁」只写名字（句柄在详情里才带）：席位查名册；来源标记 receiver:<区> 用承接席位顶上，别的去前缀 */
 const whoFor = (roster: Record<string, string>): Who => ({
   seat: (x) => seatNameOnly(x, roster),
-  actor: (x, seat) => speakerName(x, seat, roster, (v) => actorLabel(v, '')),
+  actor: (x, seat) => speakerName(x, seat, roster),
 });
 
 type Mode = 'state' | 'object';

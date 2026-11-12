@@ -133,32 +133,6 @@ export function viewsFor(seesAll: boolean, total: number): View[] {
   return [seesAll ? { key: 'all', label: '全部', count: total } : { key: 'mine', label: '我安排的', count: total }];
 }
 
-/** 节点报的名字有时自带「 (0a1b2c3d)」这样的句柄后缀：列表里只要名字，去掉 */
-export const cleanSeatName = (name: string): string => (name || '').replace(/\s*[（(][0-9a-f]{6,}[)）]\s*$/i, '').trim();
-
-/** 名册（GET /api/a2a/teams）拍平成「句柄 → 名字」；形状不对的项跳过，没有名字的不收 */
-export function rosterNames(teams: unknown): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (!Array.isArray(teams)) return out;
-  for (const t of teams) {
-    const seats = t && typeof t === 'object' && Array.isArray((t as { seats?: unknown }).seats) ? (t as { seats: unknown[] }).seats : [];
-    for (const x of seats) {
-      const o = x as { seat?: unknown; name?: unknown } | null;
-      if (o && typeof o.seat === 'string' && typeof o.name === 'string' && cleanSeatName(o.name)) out[o.seat] = cleanSeatName(o.name);
-    }
-  }
-  return out;
-}
-
-/** 列表行里的席位只写名字（句柄在详情里才带）：事项上是「名字 · 句柄」取名字；只有句柄时查名册，查不到才显示句柄 */
-export function seatNameOnly(seat: string, roster: Record<string, string> = {}): string {
-  const s = (seat || '').trim();
-  if (!s || s === '-') return '';
-  const k = s.lastIndexOf(' · ');
-  if (k > 0) return s.slice(0, k);
-  return Object.hasOwn(roster, s) ? roster[s] : s;
-}
-
 /** 行首圆标里的那个字：名字的第一个字 */
 export function avatarChar(name: string): string {
   const s = (name || '').trim();
@@ -177,16 +151,4 @@ export function lastSaid(lp: { fact?: string; text?: string }): string {
   if (!word) return body;
   // 正文就是这件事的名字（「验收通过」）时不重复
   return body && body !== word ? `${word}：${body}` : word;
-}
-
-/** 列表行里的「谁」（说话人）：来源标记 receiver:<区> 有承接席位就是它，没有就不写；
- *  画布团队（<区>/canvas/<名字>）只写团队名；席位查名册只写名字；别的去掉来源前缀。
- *  plain：页面给的去前缀函数（people.ts 的 actorLabel，这个文件只能引类型） */
-export function speakerName(actor: string, seat: string, roster: Record<string, string>, plain: (s: string) => string = (s) => s): string {
-  const a = (actor || '').trim();
-  if (!a) return '';
-  if (/^receiver:/.test(a)) return seat ? seatNameOnly(seat, roster) : '';
-  const p = plain(a);
-  const team = /^[^/\s]+\/canvas\/(.+)$/.exec(p);
-  return team ? team[1] : seatNameOnly(p, roster);
 }
