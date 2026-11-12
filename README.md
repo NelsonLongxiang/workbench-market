@@ -38,7 +38,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `MARKET_TEAM`（A2A team 默认 `market`；名片的 team、会话句柄 `<MARKET_TEAM>/<node8>` 和工作台事件出站的 caller_session 都用它）
 - `MARKET_PUBLIC_URL`（对外基址·A2A 卡片与 MCP `skill_download` 下载链接用；生产建议设成 https 地址——没设时下载链接取请求主机，主机名不规范就不签发）
 - `A2A_API_KEY`/`A2A_STATE_URL`（A2A 外部面）
-- `WM_BENCH_VIEWS`（数据视图的入口·缺省 `off`：`/api/bench-views` 下的每条路由都直接回 404；`on`=读和写都只开放给有管理层授予（范围「全部」）的登录账号，普通员工读也不行，管理口令看不了台里的数据；其它值拒绝启动；见 [docs/data-views.md](docs/data-views.md)）
+- `WM_BENCH_VIEWS`（数据视图的入口·缺省 `off`：`/api/bench-views` 下的每条路由都直接回 404；`on`=开放给有管理层授予（范围「全部」）的登录账号，和在台所绑的部门上有已放行授予的人；只有普通员工授予的人读也不行，管理口令看不了台里的数据；其它值拒绝启动；见 [docs/data-views.md](docs/data-views.md)）
 - `WM_OUTBOUND`（对外断开·预发用·缺省 `on`；`off`=这个进程一个字节都不往外发：TCP、TLS、DNS、UDP 在发出前被拦下并计数，不许起子进程和 Worker，工作台事件投递和回执 outbox 整轮跳过（在途的保持 pending、不加 attempts、不判死），启动时的豁免面变更通知不发，库里的巡检间隔、MCP 上游、沙箱桥一律按关处理，check-all 拒绝探活；只放行本进程自己在听的回环端口。启动自检多一行「对外已断开」，`/api/health` 和 `/api/health/ready` 带 `outbound`，页面顶上有横幅。只能经环境变量打开；其它值拒绝启动。拿生产数据的副本做预发时用，见下方「预发：对外断开」）
 - `WM_A2A_DIRECT_SIG`（`POST /a2a/direct` 入站签名·缺省 `accept`=签名可选：带了 OriginClaim Sig2 就验，取卡或验签这一步验不过（没登记取卡地址、取不到卡、卡上身份不对、签名对不上卡）按未签名走绑定准入——不比不带签名更宽也不更严，格式、时间戳、受众、身份不符、重放照旧 401；`require`=没签名或验不过一律 401；`off`=不验；`WM_LOGIN_GATE=enforce` 时强制 `require`；其它值拒绝启动。公钥只从调用方绑定上登记的 `notify_url` 取卡，不跟随重定向）
 - `WM_A2A_DIRECT_SIG_BODY`（缺省 `accept`；`require`=只认同时签了 body 摘要的 `X-WM-Body-Sha256`/`X-WM-Body-Sig`，现有 DSH 节点只发 Sig2，打开前对端要先升级；其它值拒绝启动）
@@ -208,7 +208,7 @@ GET              /api/mcp-rest/apps/:slug/files        列文件（分页 + quot
 GET              /api/mcp-rest/apps/:slug/files/:id    二进制下载（Range / ETag=sha256；需 app_files_list）
 GET              /api/mcp-rest/apps/:slug/data         读台数据（分页；需 app_data_list）
 GET              /api/mcp-rest/sop/runs/:id[/files[/:fileId]]  SOP run 元数据 / 附件列表 / 附件下载（需 sop_run_get；附件另需 run 读授权）
-POST             /api/apps/:slug/data            自产台数据写入（JSON ≤1MB；按台的 data-contract.json 校验（必填/枚举/格式/条件规则 when 可带 require·equals·pattern/数组对象 items 可带自己的 when），违约 400+violations；契约规则合计 ≤500 条，超出时发布/同步即拒；{data, idempotency_key} 信封或 Idempotency-Key 头幂等——沙箱台页（源为 null）预检只放行 content-type、x-app-token，只能用信封；台页 iframe 同源 fetch 直通）
+POST             /api/apps/:slug/data            自产台数据写入（JSON ≤1MB；按台的 data-contract.json 校验（必填/枚举/格式/条件规则 when 可带 require·equals·pattern/数组对象 items 可带自己的 when），违约 400+violations；契约规则合计 ≤500 条，超出时发布/同步即拒；{data, idempotency_key} 信封或 Idempotency-Key 头幂等（键按提交方隔开：台页面的提交是一方，每个 MCP 会话各是一方；页面里认不出是谁的匿名提交，重复和 409 时不回那条的编号和时间）——沙箱台页（源为 null）预检只放行 content-type、x-app-token，只能用信封；台页 iframe 同源 fetch 直通）
 GET              /api/mcp/access-requests        MCP 权限申请列表（?status=pending|approved|rejected；管理员）
 POST             /api/mcp/access-requests/:id/approve  批准：工具并入会话 grants（并集）+ 审计，同一事务；已吊销会话 409（管理员）
 POST             /api/mcp/access-requests/:id/reject   驳回：grants 不变，记审计（管理员）
@@ -385,6 +385,8 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   sop-state-checkpoints.ts（#337 热写检查点：逐 run 串行与 SQLite 落盘期限）
   sop-types.ts（SOP 类型）
   sso-ticket-store.ts（门户 SSO 回调一次性票据的 SQLite 存储：重启不丢、多实例原子取出）
+  startup-gate-hold.ts（服务进程最先引入：拉上启动闸）
+  startup-gate.ts（启动闸：后台任务——事项回填——等启动自检通过再开始；没拉闸的进程照旧马上开始）
   startup-security-self-probe.ts（#326 启动匿名安全面自检与门闩）
   submitter-ticket.ts  提交人票据：出台页面 HTML 时给认得出的启用的人一张票据（服务端密钥签名，绑主体、台、两小时，不续期），台页面提交时放在信封的 submitter_ticket 里带回，验过才在这个台的提交上记下这个人；别的入口一律不认；启动自检失败就关掉（不出、不认）
   surfaces.ts（#292 M1 业务面/控制面多端口监听·按 localPort 判面·浏览器标记与回环判定）
@@ -410,7 +412,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   a2a-stats.ts（A2A 出站积压的聚合读数：两张出站表按状态计数、最老待发、最近回执时长）
   attention-sources.ts（「关注」要用、来源里还没有现成函数的只读查询：席位未答的提问）
   bench-mcp.ts（数据视图的 MCP 工具：授予按「会话 × 台 × 工具」记在自己的表里，不放进会话的 grants·申请由会话提、台的管理层批·读也按台限定·执行时把台库的方法对到工具名上）
-  bench-registry.ts（视图台的登记：主库里只记有这个台、叫什么、谁建的·登记过的台才有库，没登记的标识一律当作不存在）
+  bench-registry.ts（视图台的登记：主库里只记有这个台、叫什么、谁建的、绑到哪个部门和团队·登记过的台才有库，没登记的标识一律当作不存在·改绑留痕）
   bench-store.ts（台库对市场进程的接口：读写不在市场进程里跑，这里只排队、转发给工作线程、看时限、线程出事时收拾·读 3 秒写 15 秒，时限加宽限过了还不停才强行终止线程并另起·排队有上限·接口全异步·还没有对外入口，不判权限）
   bench-store-core.ts（台库的逻辑本体，在工作线程里跑：每个视图台一份自己的库，在数据目录 `bench-stores/` 下·数据集与列定义的版本·整份替换、追加、按主键更新和删行（逐行校验、幂等键、上限）·快照与退回·视图描述的版本、生效指针、并发保存不覆盖、回退只移指针·变更与写入记录只存摘要·视图取数（一次取齐各组件的数据）和表单提交·三道数据量上限·时间由调用方给、一个台的读写排成一队·到时限自己停下并回滚·运行时不引用 `db.ts`，建表语句由调用方递进来）
   bench-store-worker.ts（台库的工作线程入口：一次做一件事，只认登记过的操作名和消息格式，回话带上这件事提交了的变更）
@@ -421,6 +423,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   department.ts（部门：Cordis 服务 `departments`·部门清单、负责人、成员归属、职能代号·部门标识即授予范围 dept:<标识>·还有没结束的部门授予时不能删）
   team.ts（团队与分配：Cordis 服务 `teams`·团队登记（认领、挂部门）、负责人（另外指定的加所挂部门的负责人）、成员分配（起止时间、同一席位只有一条生效、按时间点查那时归谁）·键和节点名册一致·状态读的时候推·每步留痕 team_events）
   relation-proposal.ts（关系的提议：Cordis 服务 `relationProposals`·部门负责人、团队负责人只有属主能确认，团队认领到部门要管理层或接收部门的负责人确认·提议期间关系不存在、不带来权限·确认接口和页面的 can_approve 共用 confirmRefusal）
+  dept-lead-grant.ts（部门负责人的字段和授予一起落：属主确认、属主直接指定时同一事务里写负责人字段、发这个部门范围的 dept-lead 授予并记进 dept_lead_grants；换人、移除只收回记着的那条；字段单独不带来权力，只有字段的是「待属主放行」，启动时补记一条负责人提议给属主）
   setup-wizard.ts（首次安装向导：Cordis 服务 `setupWizard`·按形态（small / standard）生成一批草稿授予、可重复跑、属主一次放行·「向导建的」记在 setup_wizard_runs / setup_wizard_grants，读的时候推出来源 wizard）
   grant.ts（授予：Cordis 服务 `grants`·草稿→待核→生效→撤销或过期只能往前走·不能给自己授予·管理员级只有属主能放行·决定类只给人·到期自动失效·每步留痕）
   judgment-compare.ts（判定比对的记账：Cordis 服务 `judgmentCompare`·按路由计数·不一致合并计数、有上限）
@@ -475,11 +478,11 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   summary.ts（首页总览 /api/summary）
   task-center.ts（任务中心 /api/task-center：录入发布、任务、总开关、模板、任务锁、撤回、派发开关；录入发布：事项的建立人是提需求的人——建录入时经身份服务认出、记在录入上的那个，没有就空着；发布的人认得出就只留痕）
   tasks.ts（统一待办 /api/tasks 与 ygl 项目读授权的授予、撤销）
-  bench-views.ts（数据视图的入口 /api/bench-views：台的登记、数据集、四种写入、查询、快照、视图描述与版本、取数、表单·在 `WM_BENCH_VIEWS` 开关后面，缺省关·先拒管理口令再问判定，读写都按「能不能写」问判定，只有管理层（范围「全部」）放行）
+  bench-views.ts（数据视图的入口 /api/bench-views：台的登记、数据集、四种写入、查询、快照、视图描述与版本、取数、表单·在 `WM_BENCH_VIEWS` 开关后面，缺省关·先拒管理口令再问判定，放行两档：管理层（范围「全部」，读写都按「能不能写」问判定）；或者台绑了部门、这个人在这个部门上有已放行的授予（scopedVerdict，关系只收窄不放行））
   types.ts（类型管理 /api/types）
   relations.ts（关系的提议 /api/relations/proposals：列表（每条带 can_approve）、确认、驳回；确认人大多不是管理员，写请求总门放行这两条，路由内认人）
   a2a-roster.ts（团队名册的读 GET /api/a2a/teams：登录即可读，只有席位信息（团队、席位名、角色、在岗、在办件数从事项现算），不含事项内容；名册只当信息，判定一律不看它）
-  work-items.ts（「安排一件事」POST /api/work-items：会话登录的启用的人直接建一件事项，建立人是本人，派给绑在任务中心上的团队（GET /api/work-items/teams 列出），缺省先过目，幂等键按人，限流和员工直派开关在设置里（arrange_rate_per_minute、arrange_rate_per_day、staff_direct_dispatch），规则在 task-center.ts 的 arrangeTask。事项列表 /api/work-items：按 state、object、phase 筛，按更新时间倒序游标翻页，带可见范围里按状态的计数和每件的最后一条进展；可见范围和详情同一个判断，看不到的不出现也不计数。事项的读 /api/work-items/:id：事项和它的日志，事项页的时间线照着渲染；管理员看全部、登录的人只看自己建立的。建立人验收、退回 POST /api/work-items/:id/decision：不经管理门（写请求总门只对这一条子路径放行），经身份服务认人、主体须是启用的人、同源，事项服务判是不是建立人和能不能由建立人答，只收验收、退回，只对等验收的事项；建立人只认事项上的建立人主体，空着的只有管理员能看、能处理）
+  work-items.ts（「安排一件事」POST /api/work-items：会话登录的启用的人直接建一件事项，建立人是本人，可带 cockpit_id 记下是从哪个驾驶舱安排的（只在安排那一刻记，之后不改，只是标签不给权限；列表 ?cockpit=<id> 在视角里收窄，不存在的驾驶舱回空列表），派给绑在任务中心上的团队（GET /api/work-items/teams 列出），缺省先过目，幂等键按人，限流和员工直派开关在设置里（arrange_rate_per_minute、arrange_rate_per_day、staff_direct_dispatch），规则在 task-center.ts 的 arrangeTask。事项列表 /api/work-items：按 state、object、phase 筛，按更新时间倒序游标翻页，带可见范围里按状态的计数和每件的最后一条进展；可见范围和详情同一个判断，看不到的不出现也不计数。事项的读 /api/work-items/:id：事项和它的日志，事项页的时间线照着渲染；管理员看全部、登录的人只看自己建立的。建立人验收、退回 POST /api/work-items/:id/decision：不经管理门（写请求总门只对这一条子路径放行），经身份服务认人、主体须是启用的人、同源，事项服务判是不是建立人和能不能由建立人答，只收验收、退回，只对等验收的事项；建立人只认事项上的建立人主体，空着的只有管理员能看、能处理）
   workbenches.ts（工作台 /api/workbenches、/api/check-all）
 web/src/        pages/（Dashboard/Market/Sops/Types/Settings/UseWorkbench/Cockpit/McpGateways/Tasks/Skills/SopSpace/SopRunDetail/Vault/Reviews/OwnerPending/Attention/WorkItem/NotYet/Home/WorkItems） work-items-view.ts（事项列表的分组、计数、行说明，纯函数） home-view.ts（全景首页的行、格子、总结句，纯函数） work-item-view.ts（事项详情页的提示、进展、结果解析，纯函数） NotYet.tsx（还没有数据来源的入口：说清要显示什么、在等哪项接口） components/（Shell.tsx 外壳：侧栏与主区卡片；WmPage.tsx 页面骨架：顶栏与内容区） admin-token.ts（统一口令注入）
 deploy/         Dockerfile.market（多阶段·非 root·HEALTHCHECK） docker-compose.yml（回环默认·profiles 隔离） layerfs-svc.mjs

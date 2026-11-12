@@ -13,6 +13,7 @@
 import { randomUUID } from 'node:crypto';
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
+import { afterStartup } from '../startup-gate.ts';
 
 export const STATES = ['draft', 'held', 'delivered', 'accepted', 'progress', 'waiting', 'ready', 'blocked', 'done', 'failed', 'dropped', 'cancelled'] as const;
 export type WorkItemState = typeof STATES[number];
@@ -170,12 +171,14 @@ export type NewWorkItem = {
   context?: Record<string, unknown>; event_id?: number | null; target_team?: string; seat?: string; object?: string; phase?: string;
   /** 规范 14 第 2 步：交给方式、等谁过目、指名的席位（seatId） */
   handoff?: Handoff; review_by?: ReviewBy; directed_seat_id?: string;
+  /** 从哪个驾驶舱安排的：只在建的时候记，之后不改 */
+  cockpit_id?: number | null;
 };
 
 export type WorkItemRow = {
   id: string; title: string; created_at: string; created_by: string; creator_principal: string | null; source_kind: SourceKind; source_ref: string; context: string;
   event_id: number | null; task_ids: string; target_team: string; seat: string; eval: string; eval_reason: string; state: WorkItemState;
-  handoff: Handoff; review_by: ReviewBy; directed_seat_id: string; seat_id: string; seat_at: string;
+  handoff: Handoff; review_by: ReviewBy; directed_seat_id: string; seat_id: string; seat_at: string; cockpit_id: number | null;
   progress_summary: string; progress_at: string; open_asks: string; receipt_outcome: string; receipt_at: string;
   outputs: string; evidence: string; object: string; phase: string; updated_at: string;
 };
@@ -248,6 +251,12 @@ export const REVIEW_BY = ['', 'lead', 'requester'] as const;
 export type ReviewBy = (typeof REVIEW_BY)[number];
 const SEAT_ID = /^seat-[0-9a-f]{8}$/;
 /** 从 recorded 那一行的 detail 里取交给方式（只在新建时取）；取值不认得的一律当没写：交给团队、不过目、没有指名 */
+/** 驾驶舱的 id：正整数才认，别的（坏的 detail、没有）当没有 */
+export const COCKPIT_ID_MAX = 2_147_483_647;
+function cockpitOf(v: unknown): number | null {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= COCKPIT_ID_MAX ? v : null;
+}
+
 function handoffOf(rec: { handoff?: unknown; review_by?: unknown; directed_seat_id?: unknown }): { handoff: Handoff; review_by: ReviewBy; directed_seat_id: string } {
   const handoff = (HANDOFFS as readonly unknown[]).includes(rec.handoff) ? rec.handoff as Handoff : 'team';
   const review_by = (REVIEW_BY as readonly unknown[]).includes(rec.review_by) ? rec.review_by as ReviewBy : '';
@@ -411,8 +420,10 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
 export const BACKFILL_VERSION = 6; // 2：阶段七 R2 加了跟进、回复、看过的映射（#546）；3：进展回执的映射（PR-A）；4：回执的 by 记成承接席位；5：承接只取成员、重复事实补写承接（4 已被试联实例用过），终态事项承接空着的也补；6：承接只存句柄、进展只取在做的子项、回填按顺序最后一条为准
 /** 后台回填每一片最多占用事件循环的时长（毫秒），之后让出，好让请求得到应答 */
 const BACKFILL_SLICE_MS = 25;
-/** 每次取的行数（一片里可以取好几次） */
+/** 每次取的行数（取出来的一批跨片接着用，用完再取） */
 const BACKFILL_FETCH = 50;
+/** 进度记账（游标）最多隔多久写一次库：第一片之后记一次，之后按时间节流，跑完照记。进程中途被杀，重启最多重核最后这 1 秒处理过的事件，事实按（来源、id）去重，终态不变 */
+const BACKFILL_MARK_MS = 1000;
 
 export type BackfillStatus = {
   /** pending = 还没开始；running = 在跑；done = 跑完（全量或增量）；failed = 这一轮出错停下（下次启动接着跑） */
@@ -444,11 +455,12 @@ export class WorkItemService extends Service {
     super(ctx, 'workItems');
     // 8b：workbench-events 每写一行事件日志就发一个事件（在它自己的事务里）。随插件卸载自动撤销。
     ctx.on('workbench-event/logged', (row: { event_id: string; action: string }) => this.onLogged(row));
-    // 回填不挡启动：在后台分批跑（每一片让出事件循环），期间事项照常可读、随回填逐步补齐。随插件卸载停下
+    // 回填不挡启动：在后台分批跑（每一片让出事件循环），期间事项照常可读、随回填逐步补齐。随插件卸载停下。
+    // 服务进程里等启动自检通过再开始（startup-gate.ts）：不和自检的请求抢事件循环；自检没过不开始
     ctx.effect(() => {
       let stopped = false;
       // 后台回填出任何错都不能拖垮服务：记下、停在这里，下次启动接着跑
-      const timer = setImmediate(() => {
+      const cancel = afterStartup(() => {
         if (stopped) return;
         // 存量事项补标题和派给：出错只记下，不挡回填
         try { const n = this.fillDerivedAll(); if (n) console.log(`[work-items] 补了 ${n} 件存量事项的标题或派给`); } catch (e) {
@@ -459,7 +471,7 @@ export class WorkItemService extends Service {
           console.error(`[work-items] 后台回填没能开始（不影响服务，下次启动再试，或手动 backfill()）：${(e as Error)?.message ?? e}`);
         }
       });
-      return () => { stopped = true; clearImmediate(timer); };
+      return () => { stopped = true; cancel(); };
     }, 'workItems.backfill');
   }
 
@@ -515,26 +527,37 @@ export class WorkItemService extends Service {
     this.saveBackfillMark({ status: 'running', phase, cursor, batches, events, log_mark: logMark });
     const from = cursor;
     this.progress = { state: 'running', version: BACKFILL_VERSION, phase, cursor, batches, events, from };
+    // 取出来的一批跨片接着用（不每片重取）；增量阶段这一轮核过的事件跨片记着：一个事件的日志行切在两片里也只核一次。
+    // 核一个事件时它在库里的事实都会追上，之后新来的由监听器实时应用，所以这一轮里不用再核第二遍
+    // seen 的上界：这一轮有新日志行的事件数（全量阶段不用它）；进程重启后这一轮从记下的游标重新开始，seen 也从空开始
+    let queue: { id: number; event_id: string }[] = [];
+    let qi = 0;
+    const seen = new Set<string>();
+    let lastMark = 0;
+    // 回填自己这一段从第一片开始算（不含启动、不含等自检），跑完时写进完成那一行日志，量吞吐用
+    const startedAt = Date.now();
     const slice = () => {
       if (stopped()) return;
       try {
         const t0 = Date.now();
+        // 每处理一个事件看一次表：一片最多超出时间表一个事件的工夫
+        const overtime = () => Date.now() - t0 >= BACKFILL_SLICE_MS;
         let finished = false;
         do {
-          // 新库上事件表可能还没建（任务中心初始化时才建）：那就没有可回填的
-          if (!this.hasEvents()) { finished = true; break; }
-          if (phase === 'full') {
-            const ids = db.prepare('SELECT id, event_id FROM workbench_events WHERE id > ? ORDER BY id LIMIT ?').all(cursor, BACKFILL_FETCH) as { id: number; event_id: string }[];
-            if (ids.length === 0) { finished = true; break; }
-            for (const { id, event_id } of ids) { this.syncEvent(event_id); cursor = id; events++; }
-          } else {
-            const rows = db.prepare('SELECT id, event_id FROM workbench_event_log WHERE id > ? ORDER BY id LIMIT ?').all(cursor, BACKFILL_FETCH) as { id: number; event_id: string }[];
-            if (rows.length === 0) { finished = true; break; }
-            const seen = new Set<string>();
-            for (const { event_id } of rows) if (!seen.has(event_id)) { seen.add(event_id); this.syncEvent(event_id); events++; }
-            cursor = rows[rows.length - 1].id;
+          if (qi >= queue.length) {
+            // 新库上事件表可能还没建（任务中心初始化时才建）：那就没有可回填的
+            if (!this.hasEvents()) { finished = true; break; }
+            queue = (phase === 'full'
+              ? db.prepare('SELECT id, event_id FROM workbench_events WHERE id > ? ORDER BY id LIMIT ?')
+              : db.prepare('SELECT id, event_id FROM workbench_event_log WHERE id > ? ORDER BY id LIMIT ?')).all(cursor, BACKFILL_FETCH) as { id: number; event_id: string }[];
+            qi = 0;
+            if (queue.length === 0) { finished = true; break; }
           }
-        } while (Date.now() - t0 < BACKFILL_SLICE_MS);
+          const { id, event_id } = queue[qi++];
+          if (phase === 'full') { this.syncEvent(event_id); events++; }
+          else if (!seen.has(event_id)) { seen.add(event_id); this.syncEvent(event_id); events++; }
+          cursor = id;
+        } while (!overtime());
         batches++;
         if (finished) {
           const dirty = Boolean(this.readBackfillMark()?.dirty);
@@ -542,10 +565,11 @@ export class WorkItemService extends Service {
           this.saveBackfillMark({ status: dirty ? 'stale' : 'done', phase, cursor, batches, events, log_mark: high });
           if (dirty) this.setDirty(true); // saveBackfillMark 不动 dirty；这里显式留着，下次启动从头全量核
           this.progress = { state: 'done', version: BACKFILL_VERSION, phase, cursor, batches, events, from };
-          console.log(`[work-items] 后台回填完成（${phase === 'full' ? '全量' : '增量'}）：核对 ${events} 个事件，${batches} 批${dirty ? '；期间监听器漏过事实，下次启动从头全量核' : ''}`);
+          console.log(`[work-items] 后台回填完成（${phase === 'full' ? '全量' : '增量'}）：核对 ${events} 个事件，${batches} 批，用时 ${Date.now() - startedAt} 毫秒（从第一片到跑完）${dirty ? '；期间监听器漏过事实，下次启动从头全量核' : ''}`);
           return;
         }
-        this.saveBackfillMark({ status: 'running', phase, cursor, batches, events, log_mark: logMark });
+        // 进度记账节流：第一片之后记一次，之后最多隔 BACKFILL_MARK_MS 记一次（每片写一次库的固定开销在慢盘上会拖慢回填）
+        if (lastMark === 0 || Date.now() - lastMark >= BACKFILL_MARK_MS) { this.saveBackfillMark({ status: 'running', phase, cursor, batches, events, log_mark: logMark }); lastMark = Date.now(); }
         this.progress = { state: 'running', version: BACKFILL_VERSION, phase, cursor, batches, events, from };
         setImmediate(slice);
       } catch (e) {
@@ -642,12 +666,12 @@ export class WorkItemService extends Service {
       const createdBy = creator ?? (event.submitter_kind !== 'unverified' && /^[^:\s]+:\S/.test(who) ? who : `${event.submitter_kind}:${who || 'unknown'}`);
       const derived = derivedOf(event);
       // 「安排一件事」：挂在哪条线、哪一步，记在 recorded 那一行里（只在新建时取，存量没有这两项）
-      let rec: { object?: unknown; phase?: unknown; handoff?: unknown; review_by?: unknown; directed_seat_id?: unknown } = {};
+      let rec: { object?: unknown; phase?: unknown; handoff?: unknown; review_by?: unknown; directed_seat_id?: unknown; cockpit_id?: unknown } = {};
       try { rec = JSON.parse(recorded.detail || '{}'); } catch { /* 坏的 detail 当没有 */ }
       const tag = (v: unknown) => (typeof v === 'string' ? v.trim().slice(0, 200) : '');
       this.insertItem(itemId, {
         title: derived.title, target_team: derived.target_team, created_by: createdBy, creator_principal: creator, object: tag(rec.object), phase: tag(rec.phase),
-        ...handoffOf(rec),
+        ...handoffOf(rec), cockpit_id: cockpitOf(rec.cockpit_id),
         source_kind: event.source as SourceKind, source_ref: event.event_id, event_id: event.id,
         context: { workbench: event.workbench, item: event.item, context_id: event.context_id, submitter_kind: event.submitter_kind, ...(creator && event.submitter_kind === 'unverified' ? { submitter_via: 'ticket' } : {}) },
       }, { source: EVENT_FACT_SOURCE, id: String(recorded.id) }, event.created_at);
@@ -686,11 +710,11 @@ export class WorkItemService extends Service {
   }
 
   private insertItem(id: string, input: NewWorkItem, by: { source: string; id: string }, createdAt?: string): void {
-    db.prepare(`INSERT INTO work_items (id, title, created_by, creator_principal, source_kind, source_ref, context, event_id, target_team, seat, object, phase, handoff, review_by, directed_seat_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))`).run(
+    db.prepare(`INSERT INTO work_items (id, title, created_by, creator_principal, source_kind, source_ref, context, event_id, target_team, seat, object, phase, handoff, review_by, directed_seat_id, cockpit_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))`).run(
       id, input.title, input.created_by, input.creator_principal ?? null, input.source_kind, input.source_ref ?? '', JSON.stringify(input.context ?? {}),
       input.event_id ?? null, input.target_team ?? '', input.seat ?? '', input.object ?? '', input.phase ?? '',
-      input.handoff ?? 'team', input.review_by ?? '', input.directed_seat_id ?? '', createdAt ?? null, createdAt ?? null);
+      input.handoff ?? 'team', input.review_by ?? '', input.directed_seat_id ?? '', input.cockpit_id ?? null, createdAt ?? null, createdAt ?? null);
     db.prepare(`INSERT INTO work_item_log (item_id, fact, fact_source, fact_id, from_state, to_state, actor, detail)
       VALUES (?, 'create', ?, ?, 'draft', 'draft', ?, '{}')`).run(id, by.source, by.id, input.created_by);
   }
@@ -797,17 +821,19 @@ export class WorkItemService extends Service {
    * 列表一页（给事项列表的读接口）：按 updated_at、id 倒序，游标翻页；同时给这个视角里按状态的计数。
    * 范围由 scope 定（scopeWhere）；看不到的不出现，也不计数。每行带最后一条事项日志（谁、做了什么、什么时候）。
    */
-  page(opts: { scope: ViewScope; state?: WorkItemState; object?: string; phase?: string; seat?: string; limit: number; after?: { updated_at: string; id: string } }): {
+  page(opts: { scope: ViewScope; state?: WorkItemState; object?: string; phase?: string; seat?: string; cockpit?: number; limit: number; after?: { updated_at: string; id: string } }): {
     items: (WorkItemRow & { last_log: { actor: string; fact: string; text: string; at: string } | null })[];
     counts: Record<WorkItemState, number>; total: number; next: { updated_at: string; id: string } | null;
   } {
     const counts = Object.fromEntries(STATES.map((st) => [st, 0])) as Record<WorkItemState, number>;
     const sc = this.scopeWhere(opts.scope);
     const filt: string[] = [sc.where], filtArgs: (string | number)[] = [...sc.args];
-    const extra: string[] = [], extraArgs: string[] = [];
+    const extra: string[] = [], extraArgs: (string | number)[] = [];
     for (const k of ['object', 'phase'] as const) if (typeof opts[k] === 'string') { extra.push(`${k} = ?`); extraArgs.push(opts[k]!); }
     // 按席位筛：给的是 seatId 就按 seat_id，否则按句柄（seat_id 为空的旧席位）
     if (typeof opts.seat === 'string') { extra.push("(seat_id = ? OR (seat_id = '' AND seat = ?))"); extraArgs.push(opts.seat, opts.seat); }
+    // 按驾驶舱筛：只在视角里面收窄；驾驶舱不存在就是没有命中，不报错
+    if (typeof opts.cockpit === 'number') { extra.push('cockpit_id = ?'); extraArgs.push(opts.cockpit); }
     // 计数：这个视角里、按 object、phase 筛过（不按 state 筛）之后按状态分组
     for (const r of db.prepare(`SELECT state, COUNT(*) AS n FROM work_items WHERE ${[...filt, ...extra].join(' AND ')} GROUP BY state`).all(...filtArgs, ...extraArgs) as { state: WorkItemState; n: number }[]) {
       if (r.state in counts) counts[r.state] = Number(r.n);

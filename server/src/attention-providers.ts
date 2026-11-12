@@ -138,8 +138,17 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
       // 有「拍板」的人（现在是管理层）；系统管理员和管理口令看不到——台里是业务数据
       source: 'bench-mcp', label: '台的 MCP 授予申请',
       list: async (req) => {
-        if (!benchMcpDecider || !(await benchMcpDecider(req, silentRes()))) return null;
-        return pendingBenchRequests().map((r) => item({
+        if (!benchMcpDecider) return null;
+        // 管理层看得到全部；别的人只看得到自己有拍板授予的部门的台上的申请。一条都轮不到、又不是管理层的，整个来源不可见
+        const all = await benchMcpDecider(req, silentRes(), null) !== null;
+        const seen = new Map<string, boolean>();
+        const rows: ReturnType<typeof pendingBenchRequests> = [];
+        for (const r of pendingBenchRequests()) {
+          if (!all && !seen.has(r.bench)) seen.set(r.bench, await benchMcpDecider(req, silentRes(), r.bench) !== null);
+          if (all || seen.get(r.bench)) rows.push(r);
+        }
+        if (!all && !rows.length) return null;
+        return rows.map((r) => item({
           source: 'bench-mcp', source_id: `${r.bench}:${r.id}`, category: 'grant', kind: 'bench-mcp',
           title: `MCP 会话 ${r.session || '（已删）'} 申请在「${r.bench_title}」上用 ${r.tools.length} 个工具${r.tools.some((t) => t.category === 'write') ? '（含写）' : '（只读）'}`,
           waiting_for: r.session ? `mcp:${r.session}` : '', since: new Date(r.created_at).toISOString(), answers: ['approve', 'reject'], link: '',
@@ -168,7 +177,7 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
             waiting_for: a.ask_kind === 'receipt' ? (a.asked_by || a.target_team) : a.asked_by ? `receiver:${a.asked_by}` : a.target_team, since: a.asked_at, answers: ['answer'],
             link: `/work-items/wi_${a.event_id}`,
             // 提问轮到的是建立人：管理员在这里是代办（除非他就是建立人）
-            mine: !!w && turnOf(w, viewer).answer, creator: w ? creatorOf(w) : null,
+            mine: !!w && turnOf(w, viewer).answer, creator: w ? creatorOf(w) : null, cockpit_id: w?.cockpit_id ?? null,
           });
         });
       },
@@ -264,11 +273,11 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           if (!canSee(w, viewer)) continue;
           // 答法只给答得了的人：管理员，和轮到的建立人。看得到但答不了的（管理层看别人建的）只列不给答法，免得点下去被拒
           out.push(item({ source: 'work-items', source_id: w.id, category: 'accept', title: w.title, waiting_for: w.target_team || w.seat || w.created_by, since: w.updated_at, answers: admin || turnOf(w, viewer).verify ? ['verify', 'return'] : [], link: `/work-items/${w.id}`, object: w.object, phase: w.phase,
-            mine: turnOf(w, viewer).verify, creator: creatorOf(w) }));
+            mine: turnOf(w, viewer).verify, creator: creatorOf(w), cockpit_id: w.cockpit_id }));
         }
         if (admin) for (const w of items.list({ state: 'held' })) {
           out.push(item({ source: 'work-items', source_id: w.id, category: 'glance', title: w.title, waiting_for: w.created_by, since: w.created_at, answers: ['release', 'withdraw'], link: `/work-items/${w.id}`, object: w.object, phase: w.phase,
-            mine: turnOf(w, viewer).release, creator: creatorOf(w) }));
+            mine: turnOf(w, viewer).release, creator: creatorOf(w), cockpit_id: w.cockpit_id }));
         }
         return out;
       },

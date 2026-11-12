@@ -1,6 +1,6 @@
-/** 「谁」的显示规则（全站共用一处）。席位有两种画法：
- *    · 短的 seatNameOnly——只写名字，列表、卡片这类一眼扫过的地方用；查不到名字才显示句柄；
- *    · 全的 seatLabel——「名字（句柄）」，事项详情这类要对上是哪个席位的地方用；没有名字显示句柄。
+/** 「谁」的显示规则（全站共用一处）。席位只有一种画法（协调 2026-11-12：卡片头、时间线、列表、详情都一样）：
+ *    名字——事项上的「名字 · 句柄」取名字；只有句柄时查名册；名册里也没有就写「一位 AI 员工」。句柄（<区>/<编号>）不露给人。
+ *    seatLabel 和 seatNameOnly 是同一个函数的两个名字（老调用点不用改）。
  *  去掉 receiver: / human: / user: / seat: 这类来源前缀；系统来源说人话；团队显示团队名。纯函数，不碰 React。 */
 
 /** 对端给的「谁」：可能是字符串，也可能是 { seat, name, team, role } 这样的对象。取名字，没有名字取席位，都没有给空串；永远返回字符串，不把对象交给页面 */
@@ -14,11 +14,14 @@ export function who(v: unknown): string {
   return '';
 }
 
-/** 席位：服务端给「名字 · 句柄」或只有句柄；显示成「名字（句柄）」 */
-export function seatLabel(seat: string): string {
-  const s = (seat || '').trim();
-  const k = s.lastIndexOf(' · ');
-  return k > 0 ? `${s.slice(0, k)}（${s.slice(k + 3)}）` : s;
+/** 名册里也查不到名字的席位怎么说（不露句柄） */
+export const UNNAMED_SEAT = '一位 AI 员工';
+/** 像不像一个席位句柄（<区>/<编号>，例如 dsh/98b94be9）：像的不直接给人看。画布团队（<区>/canvas/<名字>）有三段，不算 */
+export const looksLikeHandle = (s: string): boolean => /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test((s || '').trim());
+
+/** 席位：服务端给「名字 · 句柄」或只有句柄；只写名字（见文件头）。roster：句柄 → 名字（rosterNames 给的） */
+export function seatLabel(seat: string, roster: Record<string, string> = {}): string {
+  return seatNameOnly(seat, roster);
 }
 
 /** 日志行的「谁」：去掉 receiver:/human:/user:/seat: 这类前缀；receiver:<区> 是对端席位，有承接就用承接的名字；系统来源换成人话 */
@@ -26,9 +29,11 @@ const SOURCE: Record<string, string> = { market: '市场', attention: '关注', 
 export function actorLabel(raw: unknown, seat: string): string {
   const s = who(raw);
   if (!s) return '';
-  if (/^receiver:/.test(s)) return seat ? seatLabel(seat) : s.replace(/^receiver:/, '');
+  if (/^receiver:/.test(s)) return seat ? seatLabel(seat) : UNNAMED_SEAT;
   if (SOURCE[s]) return SOURCE[s];
-  return s.replace(/^(human|user|seat|mcp):/, '');
+  const bare = s.replace(/^(human|user|seat|mcp):/, '');
+  // 句柄（席位、对端节点）不露给人
+  return looksLikeHandle(bare) ? UNNAMED_SEAT : bare;
 }
 
 /** 团队：画布团队（<区>/canvas/<名字>）显示名字；进程团队（<区>/<编号>）没有名字，显示句柄 */
@@ -60,13 +65,14 @@ export function rosterNames(teams: unknown): Record<string, string> {
   return out;
 }
 
-/** 席位的短画法——只写名字（列表、卡片用；句柄在详情里才带，那里用 seatLabel）：事项上是「名字 · 句柄」取名字；只有句柄时查名册，查不到才显示句柄 */
+/** 席位只写名字：事项上是「名字 · 句柄」取名字；只有句柄时查名册；查不到就写「一位 AI 员工」，不露句柄 */
 export function seatNameOnly(seat: string, roster: Record<string, string> = {}): string {
   const s = (seat || '').trim();
   if (!s || s === '-') return '';
   const k = s.lastIndexOf(' · ');
-  if (k > 0) return s.slice(0, k);
-  return Object.hasOwn(roster, s) ? roster[s] : s;
+  if (k > 0) return s.slice(0, k).trim() || UNNAMED_SEAT;
+  if (Object.hasOwn(roster, s) && roster[s]) return roster[s];
+  return looksLikeHandle(s) ? UNNAMED_SEAT : s;
 }
 
 /** 列表行里的「谁」（说话人）：来源标记 receiver:<区> 有承接席位就是它，没有就不写；
@@ -75,7 +81,29 @@ export function speakerName(actor: string, seat: string, roster: Record<string, 
   const a = (actor || '').trim();
   if (!a) return '';
   if (/^receiver:/.test(a)) return seat ? seatNameOnly(seat, roster) : '';
+  // 句柄先查名册（查到了写名字），查不到再按 actorLabel 说成「一位 AI 员工」
+  const bare = a.replace(/^(human|user|seat|mcp):/, '');
+  if (Object.hasOwn(roster, bare) && roster[bare]) return roster[bare];
   const p = actorLabel(a, '');
   const team = /^[^/\s]+\/canvas\/(.+)$/.exec(p);
   return team ? team[1] : seatNameOnly(p, roster);
+}
+
+/** 人的名字：有显示名用显示名，没有就去掉标识的前缀（user:zhang → zhang）。用户卡、建立人、审核人都用它 */
+export function personLabel(p: { principal?: unknown; display_name?: unknown } | null | undefined): string {
+  if (!p) return '';
+  const name = typeof p.display_name === 'string' ? p.display_name.trim() : '';
+  return name || (typeof p.principal === 'string' ? p.principal.replace(/^[a-z]+:/, '') : '');
+}
+
+/** 几个成员的说法：按不同的席位数人（不是按名字——两个查不到名字的成员是两个人）；有名字的列名字，没名字的合成「N 位 AI 员工」。
+ *  返回 { n, text }：n 是不同席位的个数，text 是「小采、一位 AI 员工」这样；全都没名字时 text 是空串（只说几个成员） */
+export function membersText(seats: string[], label: (s: string) => string = (s) => seatNameOnly(s)): { n: number; text: string } {
+  const distinct = [...new Set(seats.map((s) => (s || '').trim()).filter((s) => s && s !== '-'))];
+  const labels = distinct.map(label);
+  const named = [...new Set(labels.filter((l) => l && l !== UNNAMED_SEAT))];
+  const unnamed = labels.filter((l) => !l || l === UNNAMED_SEAT).length;
+  if (!named.length) return { n: distinct.length, text: '' };
+  const parts = [...named, ...(unnamed === 1 ? [UNNAMED_SEAT] : unnamed > 1 ? [`${unnamed} 位 AI 员工`] : [])];
+  return { n: distinct.length, text: parts.join('、') };
 }

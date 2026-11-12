@@ -1,5 +1,8 @@
 // 对外断开（WM_OUTBOUND=off）的闸必须最先装上：之后引入的模块一开套接字就要经过它
 import { outboundOff, noteBlocked, outboundStatus, verifyOutboundGate } from './outbound-gate.ts';
+// 启动闸也要赶在装服务（context.ts）之前拉上：后台任务（事项回填）等启动自检通过再开始
+import './startup-gate-hold.ts';
+import { startupPassed } from './startup-gate.ts';
 import express from 'express';
 import { createStartupSecurityProbe, isStartupProbeRequest, TEST_ENV_WAITS } from './startup-security-self-probe.ts';
 import { createLoginGate, loginGateMode, trustedProxies } from './login-gate.ts';
@@ -1384,20 +1387,38 @@ function appDataContract(a: AppRow): DataContract | null {
 }
 
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9_.:-]{1,128}$/;
+/**
+ * 幂等键按提交方隔开：同一个键，只在同一个提交方的提交之间算「重复」。提交方——
+ *   page           台页面的提交（REST），带不带提交人票据都是这一方：一个台的页面靠固定的键拦并发首次登记（409），照旧拦得住；
+ *   mcp:<会话名>   经 MCP 会话的工具调用，每个会话各是一方；
+ *   anon           没有会话的工具调用。
+ * 页面和会话之间不串。存的时候键前面加上提交方和一个换行（键本身不许有换行，拼起来不会撞），不动表、不动索引；上线之前存的键没有前缀，按不存在处理。
+ * 应答：重复（200 duplicate）和 409 带不带那条记录的 id、时间——会话照旧带；页面这一方里票据认得出是谁的（登录了的人）照旧带，
+ * 认不出是谁的匿名提交不带，只说「重复」或「这个键已用在另一份内容上」：知道键的外人最多知道内容是否相同。
+ */
+function idemScope(channel: 'app-data.rest' | 'app-data.tool', subject: string | undefined): string {
+  if (channel === 'app-data.rest') return 'page';
+  return subject && subject.startsWith('mcp:') ? subject : 'anon';
+}
 /** 台数据写入核心：REST POST /api/apps/:slug/data 与 MCP app_data_submit 共用——1MB 上限、数据契约、幂等键、写入后推事件。
  *  违约不抛错，回 status 400 + violations，由两个入口各自原样交出去。 */
-function submitAppData(a: AppRow, input: { data: unknown; createdBy?: unknown; idempotencyKey?: unknown; submitterTicket?: unknown; channel: { name: 'app-data.rest' | 'app-data.tool'; hasCredential: boolean } }): { status: number; body: Record<string, unknown> } {
+function submitAppData(a: AppRow, input: { data: unknown; createdBy?: unknown; idempotencyKey?: unknown; submitterTicket?: unknown; subject?: string; channel: { name: 'app-data.rest' | 'app-data.tool'; hasCredential: boolean } }): { status: number; body: Record<string, unknown> } {
   const data = input.data;
   const json = JSON.stringify(data);
   if (json === undefined) bad('data 必填');
   if (Buffer.byteLength(json, 'utf8') > 1024 * 1024) bad('data 超 1MB 上限');
   const key = input.idempotencyKey === undefined || input.idempotencyKey === null || input.idempotencyKey === '' ? '' : String(input.idempotencyKey);
   if (key && !IDEMPOTENCY_KEY_RE.test(key)) bad('idempotency_key 只能是 1–128 个字母/数字/_ . : -');
+  // 8f-2：台页面在信封里带回的提交人票据。验得过、主体仍启用才记下这个人；验不过当没带（照样收、留空），不把原因回给调用方
+  const submitter = input.channel.name === 'app-data.rest' ? submitterFromTicket(input.submitterTicket, a.slug) : null;
+  const scope = idemScope(input.channel.name, input.subject);
+  const storedKey = key ? `${scope}\n${key}` : '';
   if (key) {
-    const prev = svc<AppDataService>('appData').dataByIdempotencyKey(a.slug, key) as { id: number; data: string; created_at: string } | undefined;
+    const prev = svc<AppDataService>('appData').dataByIdempotencyKey(a.slug, storedKey) as { id: number; data: string; created_at: string } | undefined;
     if (prev) {
-      if (prev.data !== json) throw new HttpError(409, 'idempotency_key 已用于另一份内容', { id: prev.id });
-      return { status: 200, body: { ok: true, id: prev.id, slug: a.slug, created_at: prev.created_at, duplicate: true } };
+      const known = scope === 'page' ? submitter !== null : scope !== 'anon';
+      if (prev.data !== json) throw new HttpError(409, 'idempotency_key 已用于另一份内容', known ? { id: prev.id } : undefined);
+      return { status: 200, body: known ? { ok: true, id: prev.id, slug: a.slug, created_at: prev.created_at, duplicate: true } : { ok: true, slug: a.slug, duplicate: true } };
     }
   }
   const contract = appDataContract(a);
@@ -1406,10 +1427,8 @@ function submitAppData(a: AppRow, input: { data: unknown; createdBy?: unknown; i
     if (violations.length) return { status: 400, body: { error: '提交不符合本台数据契约', violations } };
   }
   const created_by = typeof input.createdBy === 'string' ? input.createdBy.trim().slice(0, 128) : '';
-  // 8f-2：台页面在信封里带回的提交人票据。验得过、主体仍启用才记下这个人；验不过当没带（照样收、留空），不把原因回给调用方
-  const submitter = input.channel.name === 'app-data.rest' ? submitterFromTicket(input.submitterTicket, a.slug) : null;
   const r = svc<AppDataService>('appData').dataInsertStmt()
-    .run(a.slug, json, created_by, key, submitter) as unknown as { lastInsertRowid: number | bigint };
+    .run(a.slug, json, created_by, storedKey, submitter) as unknown as { lastInsertRowid: number | bigint };
   const itemId = Number(r.lastInsertRowid);
   const createdAt = new Date().toISOString();
   // 属主裁 C（2026-10-26）：提交即推送——绑定 agent 异步收通知（不阻塞 201）。
@@ -2472,7 +2491,7 @@ function healthBase(req?: express.Request): Record<string, unknown> {
   const outbound = outboundStatus(Boolean(req && adminTokenCheck(req.headers['x-admin-token'] as string | undefined)));
   return { ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, ...(outbound ? { outbound } : {}), self_probe: startupSecurity.snapshot(), work_items_backfill: backfill };
 }
-registerHealthRoutes(http, { healthBase, layerfsProbeCached, layerfsReadiness, A2A_DIRECT_SIG, A2A_DIRECT_SIG_BODY });
+registerHealthRoutes(http, { healthBase, layerfsProbeCached, layerfsReadiness, A2A_DIRECT_SIG, A2A_DIRECT_SIG_BODY, adminRead: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined) });
 registerLoginGateRoutes(http, loginGate.routeDeps); // /login、/api/auth/login|logout|me（解析器之后、SPA 回落之前）
 registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionTtlMs: SESSION_TTL_MIN * 60_000 });
 registerLoginEventRoutes(http); // /login/<方式>/events：离职、停用的失效通知；每天一次对账 // /login/<方式>、/login/<方式>/callback：飞书等发市场会话的登录
@@ -2879,7 +2898,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       const a = getApp(String(args?.slug ?? ''));
       if (args?.data === undefined || args?.data === null) bad('data 必填');
       // 工具调用凭的是会话令牌（席位、agent），不看 cookie
-      const out = submitAppData(a, { data: args.data, createdBy: args?.created_by ?? subject, idempotencyKey: args?.idempotency_key, channel: { name: 'app-data.tool', hasCredential: false } });
+      const out = submitAppData(a, { data: args.data, createdBy: args?.created_by ?? subject, idempotencyKey: args?.idempotency_key, subject, channel: { name: 'app-data.tool', hasCredential: false } });
       if (out.status >= 400) throw new HttpError(out.status, String(out.body.error), { violations: out.body.violations });
       return { ...out.body, status: out.status };
     }
@@ -3655,6 +3674,7 @@ if (contentCfg && contentRuntime) listenContentSurface(app, contentCfg, contentR
 
 void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, benchViews: BENCH_VIEWS.on, outbound: outboundOff() ? verifyOutboundGate : undefined }).then((result) => {
   if (!result.passed) return refuseUnsafeStartup();
+  startupPassed(); // 放开启动闸：事项回填这类后台任务从这里开始（自检没过不开始）
   startRedis();
   armPatrol();
   svc<SettingService>('setting').put('patrol_armed_at', new Date().toISOString());

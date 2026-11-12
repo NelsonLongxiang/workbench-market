@@ -73,13 +73,13 @@ export class SopService extends Service {
     return db.prepare(`UPDATE sop_runs SET status = 'finished', data = ?, finished_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(data, id);
   }
   runsDispatchedAll(ids?: readonly number[]) {
-    return db.prepare('SELECT r.* FROM sop_runs r JOIN a2a_run_ctx c ON c.run_id = r.id' + (ids ? ' WHERE r.id IN (SELECT value FROM json_each(?))' : '') + ' GROUP BY r.id ORDER BY r.updated_at DESC').all(...(ids ? [JSON.stringify(ids)] : [])).map(runMetadata);
+    return db.prepare('SELECT r.* FROM sop_runs r JOIN a2a_run_ctx c ON c.run_id = r.id' + (ids ? ' WHERE r.id IN (SELECT value FROM json_each(?))' : '') + ' GROUP BY r.id ORDER BY r.updated_at DESC, r.id DESC').all(...(ids ? [JSON.stringify(ids)] : [])).map(runMetadata);
   }
   runsDispatched() {
-    return db.prepare("SELECT r.* FROM sop_runs r JOIN a2a_run_ctx c ON c.run_id = r.id WHERE r.status = 'running' GROUP BY r.id ORDER BY r.updated_at DESC").all().map(runMetadata);
+    return db.prepare("SELECT r.* FROM sop_runs r JOIN a2a_run_ctx c ON c.run_id = r.id WHERE r.status = 'running' GROUP BY r.id ORDER BY r.updated_at DESC, r.id DESC").all().map(runMetadata);
   }
   runsRunning(ids?: readonly number[]) {
-    return db.prepare("SELECT * FROM sop_runs WHERE status = 'running'" + (ids ? ' AND id IN (SELECT value FROM json_each(?))' : '') + ' ORDER BY updated_at DESC').all(...(ids ? [JSON.stringify(ids)] : [])).map(runMetadata);
+    return db.prepare("SELECT * FROM sop_runs WHERE status = 'running'" + (ids ? ' AND id IN (SELECT value FROM json_each(?))' : '') + ' ORDER BY updated_at DESC, id DESC').all(...(ids ? [JSON.stringify(ids)] : [])).map(runMetadata);
   }
   activeBindingCount() {
     return db.prepare("SELECT COUNT(*) AS n FROM bindings WHERE target_type = 'sop' AND revoked_at = ''").get();
@@ -102,13 +102,14 @@ export class SopService extends Service {
   runsQuery(sql: string, args: unknown[]) {
     return db.prepare(sql).all(...(args as never[])).map(runMetadata);
   }
-  /** run 列表按 SOP、状态过滤（空串即不过滤），按更新时间倒序最多 200 条（SQL 原文自 GET /api/sop/runs 搬入，阶段三第十六批） */
+  /** run 列表按 SOP、状态过滤（空串即不过滤），按更新时间倒序最多 200 条（SQL 原文自 GET /api/sop/runs 搬入，阶段三第十六批）。
+   *  更新时间只到秒，同一秒的两条按 id 倒序定先后（不加第二排序键时顺序不定，录制回放会偶发对调） */
   runsFiltered(slug: string, status: string) {
     const where: string[] = [];
     const args: unknown[] = [];
     if (slug) { where.push('sop_slug = ?'); args.push(slug); }
     if (status) { where.push('status = ?'); args.push(status); }
-    const sql = `SELECT * FROM sop_runs ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY updated_at DESC LIMIT 200`;
+    const sql = `SELECT * FROM sop_runs ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY updated_at DESC, id DESC LIMIT 200`;
     return this.runsQuery(sql, args);
   }
   // ---- P4 交付物（product/run-delivery F1-F4） ----
