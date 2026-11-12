@@ -190,8 +190,8 @@
           "response": {
             "status": 403,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "100", "etag": "W/\"64-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "reject_not_allowed", "message": "只有能确认的人、提议的人或管理员能驳回" }
+            "headers": { "cache-control": "private, no-store", "content-length": "112", "etag": "W/\"70-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "reject_not_allowed", "message": "只有能确认的人能驳回；提议的人只能撤回自己提的" }
           }
         },
         {

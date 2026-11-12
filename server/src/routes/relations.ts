@@ -4,7 +4,7 @@
  *   GET  /api/relations/proposals              待确认的提议（和最近处理过的），每条带 can_approve / approve_denied_text / can_reject。登录的人、管理员
  *                                               另带 mine（是不是看的人提的）和显示名（团队、节点、部门、被提名的人、提议人、处理人），页面不露代号
  *   POST /api/relations/proposals/:id/approve  确认：负责人只有属主；团队认领要管理层或接收部门的负责人
- *   POST /api/relations/proposals/:id/reject   驳回或撤回 { reason }：能确认的人、提议的人、管理员
+ *   POST /api/relations/proposals/:id/reject   驳回或撤回 { reason }：驳回只归能确认的人，提议的人撤回自己提的（系统管理员不替业务驳回）
  *
  * 确认的人大多不是管理员（管理层、部门负责人），所以这两条写不经管理员门：写请求总门对它们放行（index.ts 的 REMOTE_ALLOW_PREFIX），
  * 认人、同源在这里判，能不能确认由服务的 confirmRefusal 判（和页面的 can_approve 同一处）。路由声明「状态码不代表授权」。
@@ -78,10 +78,10 @@ export function registerRelationRoutes(app: HttpService, deps: RelationRouteDeps
   };
   const shape = (p: ProposalRow, w: { actor: ProposalActor; admin: boolean }) => {
     const no = proposals().confirmRefusal(p, w.actor);
-    const mine = p.proposed_by === w.actor.by || (!!w.actor.principal && p.proposed_by_principal === w.actor.principal);
+    const mine = proposals().isMine(p, w.actor);
     return {
       ...p, confirm_by_text: CONFIRM_BY[p.kind], can_approve: !no, approve_denied: no?.code ?? null, approve_denied_text: no ? (CONFIRM_TEXT[no.code] ?? no.message) : null,
-      can_reject: p.status === 'pending' && (w.admin || mine || !no),
+      can_reject: proposals().rejectRefusal(p, w.actor) === null, // 和驳回接口同一处：自己提的撤回、能确认的驳回
       // 只增：是不是看的人提的（和 can_reject 用的同一个）；显示名（不是管理员的确认人读不到团队页、人名表，这里给齐）
       mine,
       team_name: p.team ? teamName(p.team) || null : null,
@@ -98,8 +98,11 @@ export function registerRelationRoutes(app: HttpService, deps: RelationRouteDeps
   app.get('/api/relations/proposals', { action: 'relation.proposal-list', kind: 'read' }, route(async (req, res) => {
     const w = await who(req, res);
     if (!w) return;
-    // 不是管理员的人只看到自己能确认的、自己提的
-    const rows = proposals().list().map((p) => shape(p, w)).filter((p) => w.admin || p.can_approve || p.proposed_by_principal === w.actor.principal);
+    // 按看的人裁剪（管理员也一样，不替业务看别人提的）：待确认的，看自己能确认、能驳回的和自己提的；
+    // 处理过的，看自己提的、自己处理的；属主什么都能确认，全看
+    const decidedByMe = (p: ProposalRow) => p.decided_by === w.actor.by || (!!w.actor.principal && p.decided_by_principal === w.actor.principal);
+    const rows = proposals().list().filter((p) => w.actor.owner || (p.status === 'pending' ? true : decidedByMe(p) || proposals().isMine(p, w.actor)))
+      .map((p) => shape(p, w)).filter((p) => w.actor.owner || p.status !== 'pending' || p.can_approve || p.can_reject || p.mine);
     res.json({ proposals: rows });
   }));
 
@@ -117,7 +120,7 @@ export function registerRelationRoutes(app: HttpService, deps: RelationRouteDeps
     if (!w) return;
     const b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body as Record<string, unknown> : {};
     const reason = typeof b.reason === 'string' ? b.reason : '';
-    const r = proposals().reject(idOf(req), w.actor, w.admin, reason, Date.now());
+    const r = proposals().reject(idOf(req), w.actor, reason, Date.now());
     if (!r.ok) return void res.status(r.http).json({ error: r.code, message: r.message });
     logged('reject', r.proposal, w.actor.by);
     res.json({ proposal: shape(r.proposal, w) });
