@@ -409,9 +409,16 @@
           "route": "POST /api/grants",
           "class": "normal",
           "what": "本机命令行起草：给 synthetic-a 成员角色，全部范围",
-          "compare": "status",
+          "vary": { "grant.created_at": 60000, "grant.updated_at": 60000 },
           "request": { "method": "POST", "path": "/api/grants", "json": { "principal": "user:synthetic-a", "role": "member", "scope": "*", "reason": "合成：回放" } },
-          "response": { "status": 201 }
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "309", "etag": "W/\"135-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grant": { "id": 1, "principal_id": "user:synthetic-a", "role": "member", "scope": "*", "expires_at": null, "reason": "合成：回放", "status": "draft", "created_by": "cli", "created_by_principal": null, "approved_by": null, "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+            }
+          }
         },
         {
           "id": "get-remote-anon",
@@ -447,9 +454,32 @@
           "route": "GET /api/grants/:id",
           "class": "normal",
           "what": "看一条：带留痕",
-          "compare": "status",
+          "vary": { "grant.created_at": 60000, "grant.updated_at": 60000, "grant.events.0.at": 60000 },
           "request": { "method": "GET", "path": "/api/grants/1" },
-          "response": { "status": 200 }
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "481", "etag": "W/\"1e1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grant": {
+                "id": 1,
+                "principal_id": "user:synthetic-a",
+                "role": "member",
+                "scope": "*",
+                "expires_at": null,
+                "reason": "合成：回放",
+                "status": "draft",
+                "created_by": "cli",
+                "created_by_principal": null,
+                "approved_by": null,
+                "approved_by_principal": null,
+                "created_at": 1893456000000,
+                "updated_at": 1893456000000,
+                "source": "manual",
+                "events": [{ "seq": 1, "grant_id": 1, "event": "draft", "from_status": null, "to_status": "draft", "actor": "cli", "actor_principal": null, "reason": "合成：回放", "at": 1893456000000 }]
+              }
+            }
+          }
         },
         {
           "id": "submit-remote-anon",
@@ -495,9 +525,16 @@
           "route": "POST /api/grants/:id/submit",
           "class": "normal",
           "what": "提交待核",
-          "compare": "status",
+          "vary": { "grant.created_at": 60000, "grant.updated_at": 60000 },
           "request": { "method": "POST", "path": "/api/grants/1/submit" },
-          "response": { "status": 200 }
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "311", "etag": "W/\"137-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grant": { "id": 1, "principal_id": "user:synthetic-a", "role": "member", "scope": "*", "expires_at": null, "reason": "合成：回放", "status": "pending", "created_by": "cli", "created_by_principal": null, "approved_by": null, "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+            }
+          }
         },
         {
           "id": "submit-again",
@@ -543,9 +580,16 @@
           "route": "POST /api/grants/:id/approve",
           "class": "normal",
           "what": "本机命令行（属主）放行",
-          "compare": "status",
+          "vary": { "grant.created_at": 60000, "grant.updated_at": 60000 },
           "request": { "method": "POST", "path": "/api/grants/1/approve" },
-          "response": { "status": 200 }
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "311", "etag": "W/\"137-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grant": { "id": 1, "principal_id": "user:synthetic-a", "role": "member", "scope": "*", "expires_at": null, "reason": "合成：回放", "status": "active", "created_by": "cli", "created_by_principal": null, "approved_by": "cli", "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+            }
+          }
         },
         {
           "id": "revoke-remote-anon",
@@ -573,9 +617,16 @@
           "route": "POST /api/grants/:id/revoke",
           "class": "normal",
           "what": "撤销生效的授予",
-          "compare": "status",
+          "vary": { "grant.created_at": 60000, "grant.updated_at": 60000 },
           "request": { "method": "POST", "path": "/api/grants/1/revoke", "json": { "reason": "合成：收回" } },
-          "response": { "status": 200 }
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "312", "etag": "W/\"138-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grant": { "id": 1, "principal_id": "user:synthetic-a", "role": "member", "scope": "*", "expires_at": null, "reason": "合成：回放", "status": "revoked", "created_by": "cli", "created_by_principal": null, "approved_by": "cli", "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+            }
+          }
         },
         {
           "id": "revoke-again",
@@ -595,9 +646,18 @@
           "route": "GET /api/grants",
           "class": "normal",
           "what": "列出：一条，已撤销",
-          "compare": "status",
+          "vary": { "grants.0.created_at": 60000, "grants.0.updated_at": 60000 },
           "request": { "method": "GET", "path": "/api/grants?principal=user:synthetic-a&status=revoked" },
-          "response": { "status": 200 }
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "315", "etag": "W/\"13b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grants": [
+                { "id": 1, "principal_id": "user:synthetic-a", "role": "member", "scope": "*", "expires_at": null, "reason": "合成：回放", "status": "revoked", "created_by": "cli", "created_by_principal": null, "approved_by": "cli", "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+              ]
+            }
+          }
         },
         {
           "id": "revoke-migration-remote-anon",
