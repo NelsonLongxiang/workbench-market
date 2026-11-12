@@ -55,7 +55,7 @@ export type Fact = {
   question?: string;
   ask_id?: string;
   answer?: string;
-  note?: 'unrouted' | 'untrusted' | 'undispatched' | 'followup' | 'followup-reply' | 'followup-read' | 'progress';
+  note?: 'unrouted' | 'untrusted' | 'undispatched' | 'followup' | 'followup-reply' | 'progress';
   /** 阶段七 R2：note=followup 时席位发来的跟进原文（前 500 字），只用于显示，不参与任何判断 */
   text?: string;
   others_alive?: boolean;
@@ -141,7 +141,7 @@ export const RECORDS: readonly { from: readonly WorkItemState[]; fact: Fact['kin
   // 阶段七 R2：席位在回执之后发来的自由文本跟进——只记录；终态之后对方也可能再说明一句，一并收下
   // 阶段七 PR-A：席位的进展回执（progress-<task>-<n>）——不结清、不推状态，只记录；终态之后到的拒（标晚到）
   { from: NON_TERMINAL, fact: 'note', when: (f) => f.note === 'progress', note: '席位的进展（只记录）' },
-  { from: [...NON_TERMINAL, ...TERMINAL], fact: 'note', when: (f) => f.note === 'followup' || f.note === 'followup-reply' || f.note === 'followup-read', note: '席位发来的消息、人的回复、人看过（只记录）' },
+  { from: [...NON_TERMINAL, ...TERMINAL], fact: 'note', when: (f) => f.note === 'followup' || f.note === 'followup-reply', note: '席位发来的消息、人的回复（只记录）；「看过」只留在事件日志和消息状态里，不进事项时间线' },
 ];
 
 export type ApplyResult =
@@ -310,7 +310,6 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
   else if (row.action === 'receipt:progress') fact = { ...base, kind: 'note', note: 'progress', text: typeof detail.summary === 'string' ? detail.summary : '' };
   else if (row.action === 'followup') fact = { ...base, kind: 'note', note: 'followup', text: typeof detail.text === 'string' ? detail.text : '' };
   else if (row.action === 'followup-replied') fact = { ...base, kind: 'note', note: 'followup-reply', text: typeof detail.text === 'string' ? detail.text : '' };
-  else if (row.action === 'followup-read') fact = { ...base, kind: 'note', note: 'followup-read' };
   else if (row.action === 'receipt:attention') fact = { ...base, kind: 'ask', question: typeof detail.summary === 'string' ? detail.summary : '' };
   else if (row.action === 'dead' || row.action.startsWith('decision:') || row.action === 'receipt:acknowledged' || RECEIPT_OUTCOME_ACTIONS.includes(row.action)) {
     const status = new Map<number, DeliveryStatus>();
@@ -584,7 +583,11 @@ export class WorkItemService extends Service {
       // 一个投递在事件层只有一栏决定：再问一次、或作出决定，它先前的提问就不再等答复（事件层也不再算）。
       // 先把这个投递之前的提问都记一行答复合上，再应用这一条。已经合上的，答复按「答过」返回、不再写
       if ((fact.kind === 'eval' || fact.kind === 'ask' || (fact.kind === 'receipt' && rows[i].action.startsWith('receipt:'))) && rows[i].delivery_id !== null) {
+        const state = this.get(itemId)?.state;
         for (const asked of rows.slice(0, i).filter((r) => r.delivery_id === rows[i].delivery_id && (r.action === 'decision:ask' || r.action === 'receipt:attention'))) {
+          // 只合上那时还开着的：事项已经结束（合上也只会被拒，每条晚到的回执各留一行）、或这条提问已经有过答复（答过、合上过、被拒过）的，跳过
+          if (state === undefined || TERMINAL.includes(state)) break;
+          if (db.prepare("SELECT 1 FROM work_item_log WHERE item_id = ? AND fact = 'answer' AND json_extract(detail, '$.ask_id') = ? LIMIT 1").get(itemId, String(asked.id))) continue;
           this.applyLocked(itemId, {
             kind: 'answer', source: EVENT_FACT_SOURCE, id: `${rows[i].id}:closes-ask:${asked.id}`, ask_id: String(asked.id), actor: rows[i].actor,
             answer: fact.kind === 'ask' ? '（同一个接单节点又问了一次，这条提问换成新的那条）' : fact.kind === 'receipt' ? '（同一个接单节点随后发来了结果回执，这条提问不再等答复）' : '（同一个接单节点随后作出了决定，这条提问不再等答复）',
