@@ -11,7 +11,7 @@ import { Link } from 'react-router-dom';
 import { App, Button, Input, Popconfirm, Radio, Space, Tag, Typography } from 'antd';
 import { apiFetch } from '../admin-token';
 import { attentionChanged, postCreatorDecision } from '../api';
-import { answerChoices, answerRoute, answerViaOf, viaBody, viaError, viaInput, waited, type AttentionItem } from '../attention-view';
+import { answerChoices, answerRoute, answerViaOf, viaBody, viaError, viaInput, viaPath, waited, type AttentionItem } from '../attention-view';
 import { cardWording, splitAskTitle } from '../home-view';
 import { cleanWho, seatLabel, teamLabel } from '../people';
 import { REVIEW_NEEDS, changeCard, changeDetailOf, confirmText, grantCard, grantDetailOf, reviewAnswerLabel, runCard, runDetailOf, taskKindLabel } from '../review-view';
@@ -67,8 +67,8 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
   const gc = grant ? grantCard(grant) : null;
   const via = answerViaOf(item);
   /** 这个答法要先填的一项：条目自带答复入口的照它说的（可以是选填），其余按来源的表 */
-  const needOf = (a: string): { key: string; label: string; max?: number; optional?: boolean } | null => {
-    if (via) { const i = viaInput(via, a); return i ? { key: i.to, label: i.required ? '写一句理由（必填）' : '留一句（可不填）', max: i.max, optional: !i.required } : null; }
+  const needOf = (a: string): { key: string; label: string; max?: number; optional?: boolean; options?: string[] } | null => {
+    if (via) { const i = viaInput(via, a); return i ? { key: i.to, label: i.required ? '写一句理由（必填）' : '留一句（可不填）', max: i.max, optional: !i.required, options: i.options } : null; }
     return NEEDS[item.source]?.[a] ?? null;
   };
   const isAsk = item.source === 'seat-asks';
@@ -95,7 +95,7 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
     try {
       const route = answerRoute(admin, item);
       if (route === 'via' && via) {
-        const r = await apiFetch(via.path, { method: via.method, body: JSON.stringify(viaBody(via, answer, Object.values(input)[0] ?? '')) });
+        const r = await apiFetch(viaPath(via, answer), { method: via.method, body: JSON.stringify(viaBody(via, answer, Object.values(input)[0] ?? '')) });
         if (!r.ok) throw Error(viaError(r.status, await r.json().catch(() => null)));
       } else if (route === 'ask') {
         // 建立人答自己事项上的席位提问：选了选项发 answer，否则发自由文本
@@ -149,7 +149,9 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
         {item.link && !item.link.startsWith('/api/') && <Link to={item.link} className="wm-decision-more">自己写一句 →</Link>}
       </Space>
     </>}
-    {open && <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} maxLength={needOf(open)?.max ?? 4000} showCount={!!needOf(open)?.max} placeholder={needOf(open)?.label} value={text} onChange={(e) => setText(e.target.value)} />}
+    {open && !!needOf(open)?.options?.length && <Radio.Group value={text} onChange={(e) => setText(String(e.target.value))} optionType="button" data-testid="decision-via-options"
+      options={(needOf(open)?.options ?? []).map((o) => ({ label: o, value: o }))} />}
+    {open && !needOf(open)?.options?.length && <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} maxLength={needOf(open)?.max ?? 4000} showCount={!!needOf(open)?.max} placeholder={needOf(open)?.label} value={text} onChange={(e) => setText(e.target.value)} />}
     {!(isAsk && options.length > 0 && choices.includes('answer')) && <Space wrap size={8} className="wm-decision-actions">
       {choices.map((a, i) => {
         const need = needOf(a);

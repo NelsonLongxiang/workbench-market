@@ -97,16 +97,18 @@ export function groupCards(items: AttentionItem[], choicesOf: (x: AttentionItem)
  *  卡片照着发，不按来源逐个写死地址。单测在 scripts/answer-via-unit.mjs。
  *
  *    answer_via: { method: 'POST' | 'PUT', path: '/api/…',
- *      answers: { <答法>: { body: {…}, input?: { <填写项>: { to: '<请求体的键>', required?: true, max?: N } } } } }
+ *      answers: { <答法>: { path?: '/api/…', body: {…}, input?: { <填写项>: { to: '<请求体的键>', required?: true, max?: N, options?: [...] } } } } }
  *
  *  · 请求体 = { ...body, [to]: 填的值 }；没填的选填项不带。
+ *  · 答法自己带 path 的另调那个地址（放行和撤回是两条路由），没带用顶层的；方法只有顶层一个。
+ *  · 填写项带 options 的是从里面选一个，没带是自由文本。
  *  · 没带 answer_via 的条目照旧发 /api/attention/answer。
  *  · 应答是那个地址自己的：2xx 算办成；4xx 是 { error, message? }，有 message 原样给人看。
- *  · 地址只认同源、以 /api/ 开头的相对路径；别的一律当没带，并在控制台留一条告警。
+ *  · 地址只认同源、以 /api/ 开头的相对路径；别的一律当没带，并在控制台留一条告警（答法自己的地址不能用，就不给这个答法——不退回顶层地址，免得发错路由）。
  *  · 卡片上只有一个输入框：一个答法最多认一个填写项；多出来的选填项不填，必填项超过一个的答法不在卡片上给。 */
 
-export type ViaInput = { name: string; to: string; required: boolean; max: number };
-export type ViaAnswer = { body: Record<string, unknown>; input: ViaInput | null };
+export type ViaInput = { name: string; to: string; required: boolean; max: number; options: string[] };
+export type ViaAnswer = { path: string; body: Record<string, unknown>; input: ViaInput | null };
 export type AnswerVia = { method: 'POST' | 'PUT'; path: string; answers: Record<string, ViaAnswer> };
 
 const DEFAULT_MAX = 4000;
@@ -128,7 +130,8 @@ function inputsOf(v: unknown): ViaInput[] {
     const i = obj(raw);
     if (!i || typeof i.to !== 'string' || !i.to) return [];
     const max = typeof i.max === 'number' && Number.isFinite(i.max) && i.max > 0 ? Math.floor(i.max) : DEFAULT_MAX;
-    return [{ name, to: i.to, required: i.required === true, max }];
+    const options = Array.isArray(i.options) ? [...new Set(i.options.filter((o): o is string => typeof o === 'string' && o !== ''))] : [];
+    return [{ name, to: i.to, required: i.required === true, max, options }];
   });
 }
 
@@ -146,10 +149,11 @@ export function answerViaOf(item: { answer_via?: unknown; source?: string; sourc
   for (const [name, raw] of Object.entries(answers)) {
     const a = obj(raw);
     if (!a) continue;
+    if (a.path !== undefined && a.path !== null && !safeApiPath(a.path)) { warn(`[answer_via] ${tag}：答法 ${name} 的地址不是同源的 /api/ 路径，不给这个答法`); continue; }
     const inputs = inputsOf(a.input);
     const required = inputs.filter((i) => i.required);
     if (required.length > 1) { warn(`[answer_via] ${tag}：答法 ${name} 有多个必填项，卡片上办不了`); continue; }
-    out[name] = { body: obj(a.body) ?? {}, input: required[0] ?? inputs[0] ?? null };
+    out[name] = { path: typeof a.path === 'string' ? a.path : v.path, body: obj(a.body) ?? {}, input: required[0] ?? inputs[0] ?? null };
   }
   return { method: v.method, path: v.path, answers: out };
 }
@@ -164,12 +168,19 @@ export function viaInput(via: AnswerVia, answer: string): ViaInput | null {
   return via.answers[answer]?.input ?? null;
 }
 
-/** 请求体：答法自带的 body，加上填的那一项（选填又没填的不带） */
+/** 这个答法发到哪个地址：答法自己带的，没带用顶层的 */
+export function viaPath(via: AnswerVia, answer: string): string {
+  return via.answers[answer]?.path ?? via.path;
+}
+
+/** 请求体：答法自带的 body，加上填的那一项（选填又没填的不带；有选项的只认选项里的值） */
 export function viaBody(via: AnswerVia, answer: string, value = ''): Record<string, unknown> {
   const a = via.answers[answer];
   if (!a) return {};
   const text = value.trim();
-  return a.input && text ? { ...a.body, [a.input.to]: text.slice(0, a.input.max) } : { ...a.body };
+  if (!a.input || !text) return { ...a.body };
+  if (a.input.options.length) return a.input.options.includes(text) ? { ...a.body, [a.input.to]: text } : { ...a.body };
+  return { ...a.body, [a.input.to]: text.slice(0, a.input.max) };
 }
 
 /** 没办成时给人看的话：有 message 原样给，没有就按状态说 */

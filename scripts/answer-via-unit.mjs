@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** 条目自带答复入口（answer_via 约定）的纯函数单测（web/src/attention-view.ts）和 AI 会话申请工具那张卡怎么写（web/src/review-view.ts）。
  *  全是合成值。 */
-import { answerChoices, answerRoute, answerViaOf, decideCount, safeApiPath, viaBody, viaChoices, viaError, viaInput } from '../web/src/attention-view.ts';
+import { answerChoices, answerRoute, answerViaOf, decideCount, safeApiPath, viaBody, viaChoices, viaError, viaInput, viaPath } from '../web/src/attention-view.ts';
 import { grantCard, grantDetailOf } from '../web/src/review-view.ts';
 
 let pass = 0, fail = 0;
@@ -36,6 +36,17 @@ ok('地址只认同源、以 /api/ 开头的相对路径', safeApiPath('/api/x/1
   ok('多个必填项的答法卡片上办不了，不给；一必填一选填认必填的；没写 body、input 的照空的办', two && !('a' in two.answers) && two.answers.b.input.to === 'q' && two.answers.b.input.max === 4000
     && two.answers.c.input === null && JSON.stringify(two.answers.c.body) === '{}' && two.method === 'PUT', JSON.stringify(two));
   ok('填写项没写发到哪个键的不认', answerViaOf(item({ method: 'POST', path: '/api/x', answers: { a: { body: {}, input: { p: { required: true } } } } }), w).answers.a.input === null);
+}
+{
+  const warns = [];
+  const v = answerViaOf(item({ method: 'POST', path: '/api/work-items/demo-1/release', answers: {
+    release: { body: {} },
+    withdraw: { path: '/api/work-items/demo-1/withdraw', body: {}, input: { why: { to: 'reason', required: true, options: ['写错了', '不做了', '写错了', 7, ''] } } },
+    bad: { path: '//evil.invalid/api/x', body: {} } } }, { answers: ['release', 'withdraw', 'bad'] }), (m) => warns.push(m));
+  ok('答法自己带地址的用它，没带用顶层的', viaPath(v, 'release') === '/api/work-items/demo-1/release' && viaPath(v, 'withdraw') === '/api/work-items/demo-1/withdraw');
+  ok('答法自己的地址不能用：不给这个答法（不退回顶层地址），留一条告警', !('bad' in v.answers) && JSON.stringify(viaChoices(v, ['release', 'withdraw', 'bad'])) === '["release","withdraw"]' && warns.length === 1 && warns[0].includes('bad'), JSON.stringify(warns));
+  ok('填写项带选项：去重、只留字符串；请求体只认选项里的值', JSON.stringify(viaInput(v, 'withdraw').options) === '["写错了","不做了"]' && JSON.stringify(viaBody(v, 'withdraw', '不做了')) === '{"reason":"不做了"}' && JSON.stringify(viaBody(v, 'withdraw', '别的')) === '{}');
+  ok('没带选项的是自由文本', viaInput(answerViaOf(item(via), quiet), 'reject').options.length === 0);
 }
 ok('自带答复入口的：不看是不是管理员，都按入口给答法、走 via', JSON.stringify(answerChoices(false, item(via))) === '["approve","reject"]' && JSON.stringify(answerChoices(true, item(via))) === '["approve","reject"]'
   && answerRoute(false, item(via)) === 'via' && answerRoute(true, item(via)) === 'via');
