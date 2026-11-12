@@ -2,7 +2,8 @@
 用合成实例里「旧布局舱」的两个工作台面板：
   · 登记的地址和市场同源、又不在台的路径下（合成实例里登记的是 <市场>/api/health）：不嵌，写「这个台的地址指向市场本身，不能嵌在驾驶舱里」；
   · 地址在台的路径下（截下 /api/workbenches 改成 /apps/…），但 /go/<id>/ 回来的是市场自己的页面（带 wm-surface 标记）：嵌进来以后换成同一句话；
-  · 回来的是别的页面：照常嵌。"""
+  · 回来的是别的页面：照常嵌；
+  · 框读不到（台的页面是沙箱的不透明源）：哪怕带着市场的标记也照常嵌、不报错——防护只在框本来同源可读时生效，不靠改框的 sandbox。"""
 import json, re, sys
 from playwright.sync_api import sync_playwright
 cfg = json.load(open(sys.argv[1]))
@@ -41,6 +42,17 @@ with sync_playwright() as p:
     pg.goto(url); pg.wait_for_selector('.wm-panel'); pg.wait_for_timeout(1500)
     frames = pg.locator('.wm-panel-body iframe').count()
     check('地址在台的路径下、但嵌进来的是市场自己的页面：换成同一句话；另一个照常嵌', len(served) == 2 and pg.locator('[data-testid=go-self]').count() == 1 and TEXT in pg.locator('[data-testid=go-self]').inner_text() and frames == 1, (served, frames, pg.locator('[data-testid=go-self]').count()))
+    # 读不到的框（台的页面是 CSP sandbox 的不透明源，和 /apps/ 一样）：哪怕里面带着市场的标记，也安静放过——照常嵌、不报错、不当成市场
+    errors = []
+    pg.on('pageerror', lambda e: errors.append(str(e)))
+    served.clear()
+    def go_sandboxed(route):
+        route.fulfill(status=200, headers={'content-type': 'text/html', 'content-security-policy': 'sandbox allow-scripts'}, body=market_html)
+    pg.unroute(re.compile(r'/go/\d+/')); pg.route(re.compile(r'/go/\d+/'), go_sandboxed)
+    pg.goto(url); pg.wait_for_selector('.wm-panel'); pg.wait_for_timeout(1500)
+    readable = pg.evaluate("[...document.querySelectorAll('.wm-panel-body iframe')].map(f => { try { return !!f.contentDocument && !!f.contentDocument.querySelector('meta'); } catch { return 'blocked'; } })")
+    check('读不到的框（沙箱的不透明源）：照常嵌，不换成说明、不报错', pg.locator('.wm-panel-body iframe').count() == 2 and pg.locator('[data-testid=go-self]').count() == 0 and not errors and all(r is not True for r in readable), (readable, errors))
+    check('嵌台框没有 sandbox 属性（防护不靠改框的属性）', pg.evaluate("[...document.querySelectorAll('.wm-panel-body iframe')].every(f => !f.hasAttribute('sandbox'))"))
     b.close()
 
 print(f'cockpit-embed-browser: {ok} 过 / {fail} 败')
