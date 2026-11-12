@@ -2,6 +2,10 @@ name: CI
 on:
   pull_request:
     branches: [main]
+# 同一个 PR 推了新提交，旧提交上还在跑的那一轮就取消：旧头的结果没人用，却占着并发名额。
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   odoo-operator-synthetic:
     runs-on: windows-latest
@@ -162,6 +166,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/home-count-browser.mjs
+      - name: 身份服务连不上（#639 的 502 identity_unavailable——整页提示·角标和等你拍板写暂时取不到·不跳登录页·自动重试后提示消失·别的 502 和 401 不算）
+        env:
+          PYTHON: python
+        run: node scripts/identity-down-browser.mjs
       - name: SOP 交付空间浏览器回归（#318：执行记录元数据·单次记录读授权由服务端判·定义不带正文·刷新不丢·附件带口令下载）
         env:
           PYTHON: python
@@ -299,6 +307,8 @@ jobs:
           node scripts/privacy-gate.mjs --selftest
       - name: 台库冒烟（数据视图：数据集与改列·四种写入的校验、幂等、上限·快照与退回·查询描述与注入形态·视图描述的核对、版本、并发保存、回退·排队、隔离、标识不逃出目录）
         run: node scripts/bench-store-smoke.mjs && node --disable-warning=ExperimentalWarning scripts/skill-data-views-examples-test.mjs
+      - name: 库的写锁等待有上限（市场主库、判定比对库：别的进程短暂持写锁时等得到、一直不放时 5 秒前后报错不无限等·台库按这一次的时限取小）
+        run: node scripts/db-busy-timeout-test.mjs
       - name: 事项服务单测（阶段八 8a：第三节状态表含补定的原地行逐行正例、表外迁移逐个反例·只记录的答复与回执·终态之后只收晚到回执·同一条事实只记一次·事项日志改写删除在库这一层被拒；8b：事件日志→事项的映射·正放打乱重复终态相同·监听器漏一次回填补上·未验证来源不推进·回填两遍逐行相同·来源回滚事项也没有）
         run: node scripts/work-item-service-test.mjs && node scripts/work-item-facts-test.mjs && node scripts/work-item-migration-test.mjs
       - name: 事项回填不挡启动（后台分批、每片让出事件循环；启动到能应答不随事件数增长·中途被杀重启接着跑、终态同一次跑完·重跑逐行相同、版本没变跳过·回填期间进来的事实不丢不重复）
@@ -309,6 +319,10 @@ jobs:
         run: node scripts/work-item-handoff-test.mjs
       - name: 事项上看得到的人和列表的视角（放宽访问的对抗：建立人、管理层看得到，别人 404·管理层按拍板类动作认：只授普通员工或系统管理员的看不到别人的、只授管理层的看得到·列表里每一条详情都是 200·视角可用性和件数·不可用的视角 403·「关注」的验收条目和详情同一处判断）
         run: node scripts/work-item-views-test.mjs
+      - name: 成员的主人、负责人和 seats / team 视角（放宽访问的对抗：席位按完整的键，别的节点上 seat_id 相同、名字只多一个字的团队里句柄相同的都不算·换主人那一秒左闭右开、列表和详情同一个口径·负责人看得到本团队的、别的团队的 404·列表里每一条详情都是 200·「关注」负责人看得到本团队的待验收）
+        run: node scripts/work-item-views-team-test.mjs
+      - name: 只认已确认的关系（管理口令指的负责人只是提议、分配成员系统管理员不能代办、认领只是提议：都看不到事项·对照：确认之后看得到）
+        run: node scripts/work-item-relations-trust-test.mjs
       - name: 对端登记表（升级回填建对端行、取不到名片的待登记不挡投递、重跑不变·登记取名片验签钉公钥·公钥变了不自动接受、进「关注」、指纹对得上才换·停用和重新启用·canDeliver 原因分得开·健康从现有表算·对外只给指纹）
         run: node scripts/a2a-peers-test.mjs
       - name: 「安排一件事」（放宽访问的对抗：只认会话登录的启用的人·建立人是本人、自报的不认·只能派给绑在任务中心上的团队·缺省先过目、员工直派要两个开关都开·幂等按人·限流管理员可调·匿名、口令、跨站、停用拒·启动自检一行）
@@ -472,6 +486,12 @@ jobs:
         run: node scripts/access-ui-unit.mjs
       - name: 「团队」页单测（纯函数——团队状态、负责人、成员归谁用、计数、空和读不到的说法、建部门校验；单列一步）
         run: node scripts/team-ui-unit.mjs
+      - name: 身份服务连不上单测（纯函数——认法只认 502 加这个代号·退避重试·连上后清状态并重读·全景的总结句；单列一步）
+        run: node scripts/identity-status-unit.mjs
+      - name: 事项列表单测（纯函数——分组、行文、视角、名字；单列一步）
+        run: node scripts/work-items-ui-unit.mjs
+      - name: 驾驶舱骨架单测（纯函数——三栏尺寸、放大还原、数据视图引用、页签；单列一步）
+        run: node scripts/cockpit-frame-unit.mjs
       - name: 凭据库（融合 dsh-vault：读写要口令·业务面 403·摘要无明文·坏 JSON 不进日志·写锁/重开/闲置上锁/限流）
         run: node scripts/vault-concurrency-test.mjs && node scripts/vault-smoke.mjs
       - name: 条目自带答复入口单测（纯函数——answer_via 的地址、请求体、填写项；核准卡片的写法；单列一步）
@@ -489,7 +509,9 @@ jobs:
       - name: 来源 IP 单测（WM_TRUSTED_PROXIES：可信反代才认 X-Real-IP/XFF·伪造不生效·非法项拒绝启动）
         run: node scripts/client-ip-unit.mjs
       - name: 日志不泄露上游会话 + 登录中继安全头（Set-Cookie 只记名·查询串不进日志·XFO/nosniff/frame-ancestors）
-        run: node scripts/log-secret-relay-headers-smoke.mjs
+        # 这一步只核响应头和日志。Chromium 嵌框那几条在 browser-security 里用钉住版本的 Chromium 跑（PLAYWRIGHT_VERSION）；
+        # 这里清掉 runner 镜像自带的 CHROME_BIN（系统 Google Chrome，版本随镜像漂：镜像 20261111 升到 157，被拦的子框不再出现在主框架树里）
+        run: CHROME_BIN= node scripts/log-secret-relay-headers-smoke.mjs
       - name: 管理员口令止血单测（#292 M4：pagehide 抹口令·变更广播）
         run: node scripts/admin-token-guard-unit.mjs
       - name: 门户剥 Service-Worker-Allowed 冒烟（#292 M5）

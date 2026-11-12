@@ -1,5 +1,7 @@
+import type { WorkItemListPage } from './work-items-view';
 import type { Cockpit, ExportPayload, PanelConfig, SopApp, SopDefinition, SopRun, SopRunDetail, SopRunFile, Summary, Workbench, WorkbenchDraft, WorkbenchType } from './types';
 import { getAdminToken, loginRequired, redirectToLogin } from './admin-token';
+import { IDENTITY_DOWN_TEXT, isIdentityUnavailable } from './identity-status';
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const token = getAdminToken();
@@ -11,6 +13,7 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
   });
   if (loginRequired(res)) { redirectToLogin(); throw new Error('需要登录：正在前往登录页'); }
   const body = await res.json().catch(() => ({}));
+  if (isIdentityUnavailable(res.status, body)) throw new Error(`${IDENTITY_DOWN_TEXT}，稍后再试`);
   if (!res.ok) {
     const b = body as { error?: string; message?: string; row_index?: number; control_url?: string | null };
     // #258 准入错误带具名码 + 中文 message（导入另带 row_index）：两者都显示，不当成缺口令
@@ -71,6 +74,9 @@ export const api = {
   /** 单 run 附件：服务端判读授权，未授权 403（needAdminToken 标记不代表要口令，调用方按「需读授权」处理） */
   listSopRunFiles: (id: number) => req<{ run_id: number; items: SopRunFile[]; count: number }>(`/api/sop/runs/${id}/files`),
   listActiveSopRuns: () => req<SopRun[]>('/api/sop/runs/active'),
+  /** 事项列表：管理员看全部，登录的人只看自己建立的；cursor 翻页，counts 是整个可见范围按状态的计数 */
+  listWorkItems: (params: Record<string, string> = {}) =>
+    req<WorkItemListPage>(`/api/work-items?${new URLSearchParams(params)}`),
 };
 
 export function typeLabel(types: WorkbenchType[], key: string): WorkbenchType | undefined {
@@ -132,16 +138,18 @@ export function shared<T>(key: string, fn: () => Promise<T>): Promise<T> {
 function forgetShared(key: string) { for (const k of [...sharedMemo.keys()]) if (k.startsWith(`${key}|`)) sharedMemo.delete(k); }
 
 /** 「关注」：给这个身份的全部条目和总数。status 0 = 连不上 */
-export type AttentionRead = { status: number; items: AttentionItemLite[]; total: number | null };
+/** identityDown：身份服务连不上（502 identity_unavailable）——这时不是「没有待办」，页面要说「暂时取不到」 */
+export type AttentionRead = { status: number; items: AttentionItemLite[]; total: number | null; identityDown: boolean };
 type AttentionItemLite = { source: string; source_id: string; category: string; [k: string]: unknown };
 export function getAttention(): Promise<AttentionRead> {
   return shared('attention', async () => {
     try {
       const token = getAdminToken();
       const r = await fetch('/api/attention', { headers: token ? { 'X-Admin-Token': token } : {} });
-      const j = (r.ok ? await r.json().catch(() => ({})) : {}) as { items?: AttentionItemLite[]; counts?: { total?: number } };
-      return { status: r.status, items: Array.isArray(j.items) ? j.items : [], total: typeof j.counts?.total === 'number' ? j.counts.total : null };
-    } catch { return { status: 0, items: [], total: null }; }
+      const raw: unknown = await r.json().catch(() => ({}));
+      const j = (r.ok ? raw : {}) as { items?: AttentionItemLite[]; counts?: { total?: number } };
+      return { status: r.status, items: Array.isArray(j.items) ? j.items : [], total: typeof j.counts?.total === 'number' ? j.counts.total : null, identityDown: isIdentityUnavailable(r.status, raw) };
+    } catch { return { status: 0, items: [], total: null, identityDown: false }; }
   });
 }
 /** 办完一件：清掉「关注」的缓存，再广播（侧栏角标、全景都跟着刷新） */
@@ -167,10 +175,12 @@ export function getAuthMe(): Promise<AuthMe | null> {
 }
 
 /** 生命周期只读接口（观测层扩展挂在市场里）：带登录 cookie；扩展没挂上（404）或没配置（503）由页面给空状态，不弹口令 */
-export async function getLifecycle<T>(path: string): Promise<{ status: number; body: T | null }> {
+/** identityDown：身份服务连不上（502 identity_unavailable），页面说「暂时取不到」，不当成没有 */
+export async function getLifecycle<T>(path: string): Promise<{ status: number; body: T | null; identityDown?: boolean }> {
   try {
     const r = await fetch(`/api/lifecycle/${path}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
-    return { status: r.status, body: r.ok ? await r.json() as T : null };
+    const raw: unknown = await r.json().catch(() => null);
+    return { status: r.status, body: r.ok ? raw as T : null, identityDown: isIdentityUnavailable(r.status, raw) };
   } catch { return { status: 0, body: null }; }
 }
 
@@ -258,7 +268,8 @@ export const putDepartment = (id: string, name: string, lead: string | null) => 
 /** 席位名册（阶段七 #581）：登录的人能读，只当显示用（句柄换名字）。读不到给空，页面照旧显示句柄 */
 export async function getRosterTeams(): Promise<unknown[]> {
   try {
-    const r = await fetch('/api/a2a/teams', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    // 名册只用来把句柄换成名字：最多等 8 秒，读不到就显示句柄，不让它拖住页面
+    const r = await fetch('/api/a2a/teams', { credentials: 'same-origin', headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(8000) });
     const j = r.ok ? await r.json() as { teams?: unknown } : null;
     return Array.isArray(j?.teams) ? j.teams : [];
   } catch { return []; }
@@ -286,4 +297,16 @@ export async function getLifecycleNameSources(): Promise<{ types: unknown[]; obj
     }
   }
   return { types, objects };
+}
+
+/** 数据视图的取数入口（驾驶舱按引用取一份视图）：带登录的 cookie，不带管理口令（入口不认口令）。
+ *  返回状态码和 error 代号，让块自己给说法；断网当状态码 0 */
+export async function getBenchView(ref: { bench: string; view: string }, params: Record<string, string> = {}): Promise<{ status: number; body: unknown; error?: string }> {
+  try {
+    const q = new URLSearchParams({ view: ref.view });
+    for (const [k, v] of Object.entries(params)) if (typeof v === 'string' && v !== '') q.set(`p.${k}`, v);
+    const r = await fetch(`/api/bench-views/${encodeURIComponent(ref.bench)}/render?${q}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    const body = await r.json().catch(() => null) as { error?: string } | null;
+    return { status: r.status, body: r.ok ? body : null, error: typeof body?.error === 'string' ? body.error : undefined };
+  } catch { return { status: 0, body: null }; }
 }

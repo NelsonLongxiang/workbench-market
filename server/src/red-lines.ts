@@ -77,7 +77,7 @@ export const RED_LINES: readonly RedLine[] = [
   },
   {
     id: 'relations-need-confirmation', title: '带来权限的关系要属主或业务侧确认',
-    detail: '部门负责人、团队负责人只有属主能定；团队认领到部门要管理层或接收部门的负责人确认；成员分配只有团队负责人或管理层做。只有系统管理员身份的人（和管理口令）只能提议，提议期间关系不存在、不带来权限。部门成员表只是组织信息。',
+    detail: '部门负责人、团队负责人只有属主能定；团队认领到部门要管理层或接收部门的负责人确认；成员分配只有团队负责人或管理层做。只有系统管理员身份的人（和管理口令）只能提议，提议期间关系不存在、不带来权限；驳回只归能确认的人，提议的人只能撤回自己提的，系统管理员不替业务驳回别人提的。部门成员表只是组织信息。',
     enforced_in: 'server/src/services/relation-proposal.ts、server/src/routes/teams.ts、server/src/routes/departments.ts', test: 'scripts/teams-smoke.mjs',
   },
   {
