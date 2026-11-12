@@ -67,7 +67,7 @@ export type AttentionItem = {
   answers: string[];
   object: string;
   phase: string;
-  /** 原件在旧页面上的链接（站内路径） */
+  /** 原件所在的站内页面路径；市场里没有对应页面的是 null（这时要么条目自带 answer_via 当场办，要么在 title 里写清去哪办） */
   link: string | null;
   /** 审核卡片当场办所需的最少内容（变更申请：要动什么、从第几版到第几版、谁为什么申请、删除连带几个版本几个文件、不可恢复） */
   detail?: Record<string, unknown>;
