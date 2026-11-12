@@ -472,6 +472,8 @@ jobs:
         run: node scripts/access-ui-unit.mjs
       - name: 凭据库（融合 dsh-vault：读写要口令·业务面 403·摘要无明文·坏 JSON 不进日志·写锁/重开/闲置上锁/限流）
         run: node scripts/vault-concurrency-test.mjs && node scripts/vault-smoke.mjs
+      - name: 条目自带答复入口单测（纯函数——answer_via 的地址、请求体、填写项；核准卡片的写法；单列一步）
+        run: node scripts/answer-via-unit.mjs
       - name: F5 env-face 判定回归（不启动 Docker）
         run: node scripts/security-env-face-test.mjs
       - name: 扩展挂载点冒烟（WM_EXTENSIONS_DIR：不设不加载·目录/模块/register 出错拒绝启动·路由/待办来源/业务写面）
