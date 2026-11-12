@@ -206,6 +206,23 @@ export const getMarketSops = () => marketGet('/api/sops');
 export const getMarketSkills = () => marketGet('/api/skills');
 export const getMarketRunningSops = () => marketGet('/api/sop/runs/active');
 
+/** 「安排一件事」（#577）：可派的团队。404 = 服务端还没有这个接口，页面给「还没上线」 */
+export async function getAssignableTeams(): Promise<{ status: number; teams: { team: string; name: string }[] }> {
+  try {
+    const r = await fetch('/api/work-items/teams', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    const j = r.ok ? await r.json() as { teams?: { team: string; name: string }[] } : null;
+    return { status: r.status, teams: Array.isArray(j?.teams) ? j.teams : [] };
+  } catch { return { status: 0, teams: [] }; }
+}
+
+/** 建一件事：建立人是登录的本人；带幂等键，重试同一个键不会建两件 */
+export async function postWorkItem(body: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> | null }> {
+  try {
+    const r = await fetch('/api/work-items', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body) });
+    return { status: r.status, body: await r.json().catch(() => null) as Record<string, unknown> | null };
+  } catch { return { status: 0, body: null }; }
+}
+
 /** 席位名册（阶段七 #581）：登录的人能读，只当显示用（句柄换名字）。读不到给空，页面照旧显示句柄 */
 export async function getRosterTeams(): Promise<unknown[]> {
   try {

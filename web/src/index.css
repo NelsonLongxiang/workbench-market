@@ -502,6 +502,11 @@ body { background: var(--wm-color-page); }
 .wm-ended li { display: flex; gap: var(--wm-space-2); align-items: baseline; }
 .wm-ended b { color: var(--wm-color-text); font-weight: var(--wm-font-weight-body); }
 
+/* 安排一件事 */
+.wm-drawer-foot { display: flex; justify-content: flex-end; gap: var(--wm-space-2); }
+.wm-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--wm-space-3); }
+.wm-full { width: 100%; }
+
 /* ---------- 事项列表（#590）：视角一排，分组在右 ---------- */
 .wm-view-row { display: flex; align-items: center; gap: var(--wm-space-2); }
 .wm-view { display: inline-flex; align-items: center; gap: var(--wm-space-2); height: 32px; padding: 0 var(--wm-space-3); border: 1px solid var(--wm-color-border); border-radius: var(--wm-radius-full); color: var(--wm-color-text-secondary); background: var(--wm-color-surface); }
