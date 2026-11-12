@@ -133,6 +133,9 @@ export function viewsFor(seesAll: boolean, total: number): View[] {
   return [seesAll ? { key: 'all', label: '全部', count: total } : { key: 'mine', label: '我安排的', count: total }];
 }
 
+/** 节点报的名字有时自带「 (98b94be9)」这样的句柄后缀：列表里只要名字，去掉 */
+export const cleanSeatName = (name: string): string => (name || '').replace(/\s*[（(][0-9a-f]{6,}[)）]\s*$/i, '').trim();
+
 /** 名册（GET /api/a2a/teams）拍平成「句柄 → 名字」；形状不对的项跳过，没有名字的不收 */
 export function rosterNames(teams: unknown): Record<string, string> {
   const out: Record<string, string> = {};
@@ -141,7 +144,7 @@ export function rosterNames(teams: unknown): Record<string, string> {
     const seats = t && typeof t === 'object' && Array.isArray((t as { seats?: unknown }).seats) ? (t as { seats: unknown[] }).seats : [];
     for (const x of seats) {
       const o = x as { seat?: unknown; name?: unknown } | null;
-      if (o && typeof o.seat === 'string' && typeof o.name === 'string' && o.name.trim()) out[o.seat] = o.name.trim();
+      if (o && typeof o.seat === 'string' && typeof o.name === 'string' && cleanSeatName(o.name)) out[o.seat] = cleanSeatName(o.name);
     }
   }
   return out;
