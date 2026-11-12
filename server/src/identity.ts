@@ -95,7 +95,8 @@ const DEFAULT_DEADLINE_MS = 10_000;
  * 路由自己）只等一次，同一个凭据短时间里也不反复去等。来源回答了「认不出」（401、403）的不留——刚登录的同一个凭据下一次就要认得出；
  * 认得出的也不在这里留（主体那一步每次现查）。
  */
-const NEGATIVE_TTL_MS = 3_000;
+export const SOURCE_DOWN_TTL_MS = 3_000;
+const NEGATIVE_TTL_MS = SOURCE_DOWN_TTL_MS;
 const NEGATIVE_MAX = 1000;
 /** 问身份来源的计数（health 里给运维看：只有计数和最近一次耗时，不带任何凭据和人） */
 export type SourceStats = { asked: number; timeouts: number; failed: number; shared: number; negative_hits: number; last_ms: number | null; last_failed_at: string | null };
