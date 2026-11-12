@@ -29,6 +29,7 @@ import { LoginSessionService } from './services/login-session.ts';
 import { GrantService } from './services/grant.ts';
 import { CustomRoleService } from './services/custom-role.ts';
 import { JudgmentCompareService } from './services/judgment-compare.ts';
+import { DepartmentService } from './services/department.ts';
 import { WorkItemService } from './services/work-item.ts';
 import { AttentionService } from './services/attention.ts';
 import { A2aPeerService } from './services/a2a-peers.ts';
@@ -66,6 +67,7 @@ await Promise.all([
   GrantService,
   CustomRoleService,
   JudgmentCompareService,
+  DepartmentService,
   BindingService,
   ChangeRequestService,
   TaskCenterService,
