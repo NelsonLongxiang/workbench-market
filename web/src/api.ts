@@ -1,6 +1,7 @@
 import type { WorkItemListPage } from './work-items-view';
 import type { Cockpit, ExportPayload, PanelConfig, SopApp, SopDefinition, SopRun, SopRunDetail, SopRunFile, Summary, Workbench, WorkbenchDraft, WorkbenchType } from './types';
 import { getAdminToken, loginRequired, redirectToLogin } from './admin-token';
+import { IDENTITY_DOWN_TEXT, isIdentityUnavailable } from './identity-status';
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const token = getAdminToken();
@@ -12,6 +13,7 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
   });
   if (loginRequired(res)) { redirectToLogin(); throw new Error('需要登录：正在前往登录页'); }
   const body = await res.json().catch(() => ({}));
+  if (isIdentityUnavailable(res.status, body)) throw new Error(`${IDENTITY_DOWN_TEXT}，稍后再试`);
   if (!res.ok) {
     const b = body as { error?: string; message?: string; row_index?: number; control_url?: string | null };
     // #258 准入错误带具名码 + 中文 message（导入另带 row_index）：两者都显示，不当成缺口令
@@ -136,16 +138,18 @@ export function shared<T>(key: string, fn: () => Promise<T>): Promise<T> {
 function forgetShared(key: string) { for (const k of [...sharedMemo.keys()]) if (k.startsWith(`${key}|`)) sharedMemo.delete(k); }
 
 /** 「关注」：给这个身份的全部条目和总数。status 0 = 连不上 */
-export type AttentionRead = { status: number; items: AttentionItemLite[]; total: number | null };
+/** identityDown：身份服务连不上（502 identity_unavailable）——这时不是「没有待办」，页面要说「暂时取不到」 */
+export type AttentionRead = { status: number; items: AttentionItemLite[]; total: number | null; identityDown: boolean };
 type AttentionItemLite = { source: string; source_id: string; category: string; [k: string]: unknown };
 export function getAttention(): Promise<AttentionRead> {
   return shared('attention', async () => {
     try {
       const token = getAdminToken();
       const r = await fetch('/api/attention', { headers: token ? { 'X-Admin-Token': token } : {} });
-      const j = (r.ok ? await r.json().catch(() => ({})) : {}) as { items?: AttentionItemLite[]; counts?: { total?: number } };
-      return { status: r.status, items: Array.isArray(j.items) ? j.items : [], total: typeof j.counts?.total === 'number' ? j.counts.total : null };
-    } catch { return { status: 0, items: [], total: null }; }
+      const raw: unknown = await r.json().catch(() => ({}));
+      const j = (r.ok ? raw : {}) as { items?: AttentionItemLite[]; counts?: { total?: number } };
+      return { status: r.status, items: Array.isArray(j.items) ? j.items : [], total: typeof j.counts?.total === 'number' ? j.counts.total : null, identityDown: isIdentityUnavailable(r.status, raw) };
+    } catch { return { status: 0, items: [], total: null, identityDown: false }; }
   });
 }
 /** 办完一件：清掉「关注」的缓存，再广播（侧栏角标、全景都跟着刷新） */
@@ -171,10 +175,12 @@ export function getAuthMe(): Promise<AuthMe | null> {
 }
 
 /** 生命周期只读接口（观测层扩展挂在市场里）：带登录 cookie；扩展没挂上（404）或没配置（503）由页面给空状态，不弹口令 */
-export async function getLifecycle<T>(path: string): Promise<{ status: number; body: T | null }> {
+/** identityDown：身份服务连不上（502 identity_unavailable），页面说「暂时取不到」，不当成没有 */
+export async function getLifecycle<T>(path: string): Promise<{ status: number; body: T | null; identityDown?: boolean }> {
   try {
     const r = await fetch(`/api/lifecycle/${path}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
-    return { status: r.status, body: r.ok ? await r.json() as T : null };
+    const raw: unknown = await r.json().catch(() => null);
+    return { status: r.status, body: r.ok ? raw as T : null, identityDown: isIdentityUnavailable(r.status, raw) };
   } catch { return { status: 0, body: null }; }
 }
 
