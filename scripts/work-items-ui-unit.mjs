@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 事项列表页的纯函数单测（web/src/work-items-view.ts）：状态归组、组的计数、按对象分组、行的说明、翻页去重。 */
-import { STATE_GROUPS, appendPage, byObject, byState, groupCount, groupOf, rowLine, rowTime, seatOrWaiting, viewsFor, avatarChar, rosterNames, seatNameOnly, lifecycleNames, progressSummary, lastSaid, cleanSeatName, objectName, phaseName } from '../web/src/work-items-view.ts';
+import { STATE_GROUPS, appendPage, byObject, byState, groupCount, groupOf, rowLine, rowTime, seatOrWaiting, viewsFor, avatarChar, rosterNames, seatNameOnly, lifecycleNames, progressSummary, lastSaid, speakerName, cleanSeatName, objectName, phaseName } from '../web/src/work-items-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -52,5 +52,12 @@ ok('视角：只给接口现在给得出的那一个——管理员「全部」�
 }
 ok('最后一条是验收、撤回、打回这类事时说出来；正文只是内部代号时不显示', lastSaid({ fact: 'withdraw', text: '' }) === '撤回了' && lastSaid({ fact: 'verify', text: '' }) === '验收通过' && lastSaid({ fact: 'return', text: '请换一句更短的，不超过十个字。' }) === '打回重做：请换一句更短的，不超过十个字' && lastSaid({ fact: 'note', text: 'followup-read' }) === '' && lastSaid({ fact: 'receipt', text: 'completed' }) === '做完了' && lastSaid({ fact: 'ask', text: '问候语用哪种风格？ 后面还有' }) === '在问：问候语用哪种风格' && lastSaid({ fact: 'submit', text: '' }) === '');
 ok('名册里的名字自带句柄后缀时去掉', cleanSeatName('成员二 (98b94be9)') === '成员二' && cleanSeatName('成员二（98b94be9）') === '成员二' && cleanSeatName('小采 (三组)') === '小采 (三组)' && rosterNames([{ seats: [{ seat: 'z/98b94be9', name: '成员二 (98b94be9)' }] }])['z/98b94be9'] === '成员二');
+{
+  const ro = { 'zone/98b94be9': '小运', constructor: 'x' };
+  const plain = (v) => v.replace(/^(human|user|seat):/, '');
+  ok('说话人：画布团队只写团队名，不露句柄', speakerName('dsh/canvas/team-a', '', {}, plain) === 'team-a' && rowLine({ id: 'a', title: '', state: 'ready', object: '', phase: '', seat: '', last_progress: { actor: 'dsh/canvas/team-a', fact: 'receipt', text: 'completed', at: '' }, updated_at: '' }, 'state', { seat: (x) => x, actor: (x, seat) => speakerName(x, seat, {}, plain) }) === '还没说是哪个席位 · team-a：做完了');
+  ok('说话人：对端来源有承接用承接、没有不写；席位查名册；人去前缀', speakerName('receiver:dsh', '小采 · zone/a1', ro) === '小采' && speakerName('receiver:dsh', '', ro) === '' && speakerName('zone/98b94be9', '', ro) === '小运' && speakerName('human:pm-a', '', ro, plain) === 'pm-a' && speakerName('', '', ro) === '');
+  ok('查表只认自己的键（不认 toString、constructor 这类继承来的）', seatNameOnly('toString', {}) === 'toString' && lastSaid({ fact: 'toString', text: '' }) === '' && lastSaid({ fact: 'constructor', text: '进展' }) === '进展');
+}
 console.log(`\nwork-items-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

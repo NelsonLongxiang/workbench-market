@@ -156,7 +156,7 @@ export function seatNameOnly(seat: string, roster: Record<string, string> = {}):
   if (!s || s === '-') return '';
   const k = s.lastIndexOf(' · ');
   if (k > 0) return s.slice(0, k);
-  return roster[s] ?? s;
+  return Object.hasOwn(roster, s) ? roster[s] : s;
 }
 
 /** 行首圆标里的那个字：名字的第一个字 */
@@ -173,8 +173,20 @@ const FACT_WORD: Record<string, string> = { withdraw: '撤回了', verify: '验�
 export function lastSaid(lp: { fact?: string; text?: string }): string {
   const raw = (lp.text || '').trim();
   const body = /^[a-z][a-z0-9_-]*$/.test(raw) && !RESULT[raw] ? '' : progressSummary(raw);
-  const word = FACT_WORD[lp.fact || ''];
+  const word = Object.hasOwn(FACT_WORD, lp.fact || '') ? FACT_WORD[lp.fact || ''] : undefined;
   if (!word) return body;
   // 正文就是这件事的名字（「验收通过」）时不重复
   return body && body !== word ? `${word}：${body}` : word;
+}
+
+/** 列表行里的「谁」（说话人）：来源标记 receiver:<区> 有承接席位就是它，没有就不写；
+ *  画布团队（<区>/canvas/<名字>）只写团队名；席位查名册只写名字；别的去掉来源前缀。
+ *  plain：页面给的去前缀函数（people.ts 的 actorLabel，这个文件只能引类型） */
+export function speakerName(actor: string, seat: string, roster: Record<string, string>, plain: (s: string) => string = (s) => s): string {
+  const a = (actor || '').trim();
+  if (!a) return '';
+  if (/^receiver:/.test(a)) return seat ? seatNameOnly(seat, roster) : '';
+  const p = plain(a);
+  const team = /^[^/\s]+\/canvas\/(.+)$/.exec(p);
+  return team ? team[1] : seatNameOnly(p, roster);
 }
