@@ -19,7 +19,7 @@ import { browserMarked, rawLoopback } from '../surfaces.ts';
 import { HttpError } from '../errors.ts';
 import { MCP_TOOLS } from '../mcp-tools.ts';
 import { identity } from '../identity.ts';
-import { touchesBusiness, BLOCKS, buildRoles, checkShape, MATRIX_KINDS, matrixSummary, orgRolesFromConfig, PLATFORM_ROLES, roleMatrix, type ActionCatalog, type Kind, type Permission, type RoleDecl } from '../roles.ts';
+import { APPROVAL_TEXT, approvalOf, touchesBusiness, BLOCKS, buildRoles, checkShape, MATRIX_KINDS, matrixSummary, orgRolesFromConfig, PLATFORM_ROLES, roleMatrix, type ActionCatalog, type Kind, type Permission, type RoleDecl } from '../roles.ts';
 import type { CustomRoleService } from '../services/custom-role.ts';
 import { unknownBuiltinActions } from '../judgment-builtins.ts';
 import type { PrincipalService } from '../services/principal.ts';
@@ -143,7 +143,12 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
     if (!(await actorOf(req, res))) return;
     res.json({
       source: rolesSource,
-      roles: grants().roles().map(({ id, name, includes, permissions, platform, custom, adminLevel, decides }) => ({ id, name, includes: includes ?? [], permissions, platform, custom, admin_level: adminLevel, decides })),
+      // approval：这个角色的授予谁能放行（owner / business / admin），approval_text 是给页面原样显示的说法
+      roles: grants().roles().map((v) => {
+        const { id, name, includes, permissions, platform, custom, adminLevel, decides, businessWrite } = v;
+        const approval = approvalOf(v);
+        return { id, name, includes: includes ?? [], permissions, platform, custom, admin_level: adminLevel, decides, business_write: businessWrite, approval, approval_text: APPROVAL_TEXT[approval] };
+      }),
       // 自定义角色全部（含待属主放行的新角色和改动）
       custom: customRoles().list(),
     });

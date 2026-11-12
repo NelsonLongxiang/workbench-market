@@ -31,7 +31,11 @@ export const KINDS: readonly Kind[] = ['read', 'write', 'decide', 'admin'];
 export type Permission = { actions?: string[]; kinds?: Kind[]; domains?: string[]; scope?: string };
 export type RoleDecl = { id: string; name: string; includes?: string[]; permissions: Permission[] };
 /** 一个角色展开 includes 之后的全部权限 */
-export type RoleView = RoleDecl & { platform: boolean; custom: boolean; closure: Permission[]; adminLevel: boolean; decides: boolean };
+export type RoleView = RoleDecl & {
+  platform: boolean; custom: boolean; closure: Permission[]; adminLevel: boolean; decides: boolean;
+  /** 带业务域的写（整类给的写碰业务域，或按动作给了普通员工那几个之外的业务写）：授予要业务侧放行，见 approvalOf */
+  businessWrite: boolean;
+};
 
 const ROLE_ID_RE = /^[a-z][a-z0-9-]{0,47}$/;
 const ACTION_RE = /^[a-z][a-z0-9-]{0,31}\.[a-z][a-z0-9-]{0,47}$|^[a-z][a-z0-9_]{0,63}$/; // <域>.<动词>，或 MCP 工具名
@@ -65,6 +69,32 @@ export function touchesBusiness(perms: readonly Permission[]): boolean {
   return perms.some((p) => (p.actions ?? []).some((a) => !system.has(domainOf(a)))
     || ((p.kinds?.length ?? 0) > 0 && (p.domains === undefined || p.domains.some((d) => !system.has(d)))));
 }
+
+/**
+ * 这组权限带不带业务域的写：整类给的写，没圈域（就是全部域）或圈的域里有业务域；或者按动作给了业务域的写动作，
+ * 普通员工那几个（提需求、补充说明）除外——普通员工、访客这类日常开人的授予不因此多一道放行。
+ */
+export function writesBusiness(perms: readonly Permission[], catalog: ActionCatalog): boolean {
+  const system = new Set(SYSTEM_DOMAINS);
+  return perms.some((p) => ((p.kinds ?? []).includes('write') && (p.domains === undefined || p.domains.some((d) => !system.has(d))))
+    || (p.actions ?? []).some((a) => catalog.get(a) === 'write' && !system.has(domainOf(a)) && !MEMBER_WRITE_ACTIONS.includes(a)));
+}
+
+/**
+ * 业务侧：全公司范围的写和决定都有（权限没圈域、没圈范围）——管理层、属主是；只有系统管理员的不是。按权限认，不按角色名。
+ * 调用方只拿范围是 * 的生效授予的角色来问。
+ */
+export function isBusinessSide(perms: readonly Permission[]): boolean {
+  const open = perms.filter((p) => p.domains === undefined && (p.scope === undefined || p.scope === '*'));
+  return open.some((p) => (p.kinds ?? []).includes('write')) && open.some((p) => (p.kinds ?? []).includes('decide'));
+}
+
+/** 一条授予谁能放行：管理员级的只有属主；带业务写的要业务侧（管理层或属主）；其余管理员即可。说法给页面原样显示 */
+export type Approval = 'owner' | 'business' | 'admin';
+export const APPROVAL_TEXT: Readonly<Record<Approval, string>> = {
+  owner: '只有属主能放行', business: '要管理层或属主放行', admin: '管理员即可放行',
+};
+export const approvalOf = (v: Pick<RoleView, 'adminLevel' | 'businessWrite'>): Approval => (v.adminLevel ? 'owner' : v.businessWrite ? 'business' : 'admin');
 
 export function unclassifiedDomains(actions: Iterable<string>): string[] {
   const known = new Set([...SYSTEM_DOMAINS, ...BUSINESS_DOMAINS]);
@@ -263,7 +293,7 @@ export function buildRoles(orgRaw: readonly unknown[], catalog: ActionCatalog, c
     const closure = expand(r.id, []);
     const kindsIn = new Set<Kind>();
     for (const p of closure) { for (const k of p.kinds ?? []) kindsIn.add(k); for (const a of p.actions ?? []) { const k = catalog.get(a); if (k) kindsIn.add(k); } }
-    views.set(r.id, { ...r, platform: platformIds.has(r.id), custom: customIds.has(r.id), closure, adminLevel: r.id === 'owner' || r.id === 'admin' || kindsIn.has('admin'), decides: kindsIn.has('decide') });
+    views.set(r.id, { ...r, platform: platformIds.has(r.id), custom: customIds.has(r.id), closure, adminLevel: r.id === 'owner' || r.id === 'admin' || kindsIn.has('admin'), decides: kindsIn.has('decide'), businessWrite: writesBusiness(closure, catalog) });
   }
   return views;
 }

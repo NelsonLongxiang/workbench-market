@@ -7,6 +7,8 @@
  * 规则在这里和库里，不靠页面：
  *   · 不能给自己授予：起草、提交、放行的人都不能是被授予的主体（库里有约束）；
  *   · 管理员级的授予（属主、管理员，或者权限里带管理类的角色）只有属主能放行：本机命令行，或持有生效的 owner 授予的主体；
+ *   · 带业务域写的授予（roles.ts 的 writesBusiness）要业务侧放行：属主，或持有范围 * 的、全公司写和决定都有的授予的主体（管理层）；
+ *     只有系统管理员身份的、管理口令放行不了。普通员工、访客不受影响；
  *   · 不是人的主体要有在职的责任人（责任人是启用的人）才能被授予；
  *   · 决定类权限只给人：角色展开 includes 之后带决定类（按类别或按动作）的，不授予给不是人的主体；
  *   · 角色权限里写了范围的，要在授予的范围之内；部门范围（dept:<标识>）的部门要在部门表里；
@@ -17,7 +19,7 @@
  */
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
-import { EXPIRY_REQUIRED_ROLES, NON_PERSON_ONLY_ROLES, scopeOk, scopeWithin, type RoleView } from '../roles.ts';
+import { APPROVAL_TEXT, EXPIRY_REQUIRED_ROLES, NON_PERSON_ONLY_ROLES, isBusinessSide, scopeOk, scopeWithin, type RoleView } from '../roles.ts';
 
 export type GrantStatus = 'draft' | 'pending' | 'active' | 'revoked' | 'expired';
 export type GrantRow = {
@@ -65,6 +67,11 @@ export class GrantService extends Service {
   /** 这个主体现在生效的授予（现比期限，不等周期任务） */
   activeFor(principal: string, now = Date.now()): GrantRow[] {
     return db.prepare("SELECT * FROM grants WHERE principal_id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?) ORDER BY id").all(principal, now) as GrantRow[];
+  }
+
+  /** 这个主体是不是业务侧：持有范围 * 的生效授予，角色全公司的写和决定都有（管理层；属主另由 Actor.owner 认） */
+  isBusinessSide(principal: string | null, now = Date.now()): boolean {
+    return !!principal && this.activeFor(principal, now).some((g) => g.scope === '*' && isBusinessSide(this.roleViews.get(g.role)?.closure ?? []));
   }
 
   /** 这个主体是不是属主：持有生效的 owner 授予 */
@@ -147,13 +154,14 @@ export class GrantService extends Service {
     return this.move(id, ['draft'], 'pending', 'submit', actor, '', now);
   }
 
-  /** 放行：管理员级的只有属主能放行；过了期限的不能生效 */
+  /** 放行：管理员级的只有属主能放行；带业务写的要业务侧；过了期限的不能生效 */
   approve(id: number, actor: Actor, now = Date.now()): Result<{ grant: GrantRow }> {
     const g = db.prepare('SELECT * FROM grants WHERE id = ?').get(id) as GrantRow | undefined;
     if (!g) return refuse(404, 'grant_missing', `授予 ${id} 不存在`);
     const bad = this.check(g, actor);
     if (bad) return bad;
     if (this.roleViews.get(g.role)?.adminLevel && !actor.owner) return refuse(403, 'owner_required', `角色 ${g.role} 是管理员级的，只有属主能放行`);
+    if (this.roleViews.get(g.role)?.businessWrite && !actor.owner && !this.isBusinessSide(actor.principal, now)) return refuse(403, 'business_approval_required', `角色 ${g.role} 带业务的写，${APPROVAL_TEXT.business}`);
     if (g.expires_at !== null && g.expires_at <= now) return refuse(409, 'expired', `授予 ${id} 已经过了期限，不能生效`);
     return this.move(id, ['pending'], 'active', 'approve', actor, '', now, true);
   }

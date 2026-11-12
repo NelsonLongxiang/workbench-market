@@ -66,6 +66,11 @@ export const RED_LINES: readonly RedLine[] = [
     enforced_in: 'server/src/routes/grants.ts、server/src/roles.ts', test: 'scripts/custom-roles-smoke.mjs',
   },
   {
+    id: 'business-grants-business-approval', title: '带业务写的授予要管理层或属主放行',
+    detail: '角色带业务域的写（普通员工那几个提需求的写除外），授给人或席位要业务侧放行：只有系统管理员身份的、管理口令放行不了。普通员工、访客照旧由系统管理员一步完成。',
+    enforced_in: 'server/src/services/grant.ts、server/src/roles.ts', test: 'scripts/grants-smoke.mjs',
+  },
+  {
     id: 'system-admin-no-business', title: '系统管理员缺省看不到业务数据',
     detail: '系统管理员只有系统域的读写管，业务域（事项、工作台数据、关注……）要另外授予。',
     enforced_in: 'server/src/roles.ts', test: 'scripts/role-presets-test.mjs',
