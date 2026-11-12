@@ -3,7 +3,7 @@ import { outboundOff, noteBlocked, outboundStatus, verifyOutboundGate } from './
 import express from 'express';
 import { createStartupSecurityProbe, isStartupProbeRequest, TEST_ENV_WAITS } from './startup-security-self-probe.ts';
 import { createLoginGate, loginGateMode, trustedProxies } from './login-gate.ts';
-import { identity, loginRelay } from './identity.ts';
+import { identity, loginRelay, sourceDown } from './identity.ts';
 import { requestPerson, hasLoginCredential } from './request-person.ts';
 import { countSubmission, countSubmitterTicket } from './services/submission-counts.ts';
 import { serveAppHtml } from './app-html.ts';
@@ -177,7 +177,7 @@ const loginGate = createLoginGate({
   odooViewer: async (cookie, fresh) => {
     if (!identity().configured() && !identity().hasSession(cookie)) return null; // 没配身份来源时，只有市场会话还可能认得出人
     const who = fresh ? await identity().resolveViewer(cookie) : await loginGateViewer(cookie); // 只认内部员工（门户账号 403）
-    if (!who.ok) return who.held ? { held: true as const } : null; // 登录成功、卡在主体那一步：登录门给等待页
+    if (!who.ok) return who.held ? { held: true as const } : sourceDown(who) ? { down: true as const } : null; // 卡在主体那一步：登录门给等待页；身份来源不可达：接口回 502 identity_unavailable
     return { login: who.viewer.login, admin: who.viewer.admin, ...(who.via === 'session' ? { via: 'session' as const } : {}) };
   },
   loginFlows: () => identity().flows(),
