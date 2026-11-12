@@ -239,17 +239,19 @@ snapDb.exec(`CREATE TABLE verifier_text_facts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   path TEXT NOT NULL,
   needle TEXT NOT NULL,
-  present INTEGER NOT NULL
+  present INTEGER NOT NULL,
+  -- 说明：文件不在了（例如页面按旧页面删除清单删了）写 file_missing，present 记 -1，和「文件在、但不含这句」（0）分得开
+  note TEXT
 )`);
-const ins = snapDb.prepare("INSERT INTO verifier_text_facts (path, needle, present) VALUES (?, ?, ?)");
+const ins = snapDb.prepare("INSERT INTO verifier_text_facts (path, needle, present, note) VALUES (?, ?, ?, ?)");
 let hit = 0;
 for (const [p, needle] of TEXT_FACTS) {
   const present = p === PORTAL_CALL_CHAIN_FACT.path && needle === PORTAL_CALL_CHAIN_FACT.needle
     ? readPortalCallChainFact(root).present
-    // 文件不在了（页面删了）记 0，不让整个打包脚本崩；判据由验证器那边按这个 0 判（取证表本身不动）
-    : (existsSync(join(root, p)) && readFileSync(join(root, p), "utf8").includes(needle) ? 1 : 0);
-  hit += present;
-  ins.run(p, needle, present);
+    // 文件不在了（页面删了）：不让整个打包脚本崩；记 -1 并写明 file_missing，验证器那边看得出判据是因为文件没了才不过（取证表本身不动）
+    : !existsSync(join(root, p)) ? -1 : (readFileSync(join(root, p), "utf8").includes(needle) ? 1 : 0);
+  hit += present === 1 ? 1 : 0;
+  ins.run(p, needle, present, present === -1 ? "file_missing" : null);
 }
 // 5) E2E 行为证据提取表：读 evidence/e2e-summary.json（e2e_test.py 每次运行落盘）；
 //    无文件则不插入——E2E 判据 fail-closed（count==1 与 exists 均失败），诚实暴露 E2E 未跑
