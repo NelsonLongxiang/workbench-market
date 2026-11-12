@@ -488,6 +488,7 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
       const reason = typeof detail.reason === 'string' && detail.reason.trim() !== '' ? detail.reason : '未写理由';
       fact = { ...base, kind: 'eval', verdict: 'stop', reason, others_alive };
     } else if (row.action === 'decision:ask') fact = { ...base, kind: 'ask', question: typeof detail.reason === 'string' ? detail.reason : '' };
+    // 打回任务认法和实时同一个约定：答复行的 ref ≤ 0 是打回（-进展序号），> 0 是答复席位提问（提问日志 id），见 replyKindOfTask
     else if (row.action === 'receipt:acknowledged') fact = { ...base, kind: 'eval', verdict: 'accept', others_alive, ...(replyKindOfTask(String(detail.task ?? '')) === 'rework' ? { rework: true } : {}) };
     else if (RECEIPT_OUTCOME_ACTIONS.includes(row.action) && staleAfterReturn(rows, i, detail)) {
       // 打回重做之后（事件日志有 return-sent），只有打回之后发出的任务（reply-sent 记下的任务号）的结束回执才推状态；
