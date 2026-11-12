@@ -12,11 +12,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Empty, Input, Select, Skeleton, Tag } from 'antd';
 import WmPage from '../../components/WmPage';
-import { seatLabel } from '../../people';
 import { addTeamLead, claimTeam, getTeamDepartments, getTeamPeople, getTeams, putDepartment } from '../../api';
 import { subscribeAdminToken } from '../../admin-token';
 import {
-  actionProblem, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, seatRaw, sourceProblem,
+  actionProblem, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, sourceProblem,
   teamCounts, teamStatusLabel, teamTitle, teamsOf,
 } from '../../team-view';
 import type { Department, Member, SourceResult, Team as TeamT, Tone } from '../../team-view';
@@ -39,7 +38,7 @@ function MemberCard({ m, chief }: { m: Member; chief?: boolean }) {
     <div className="wm-team-member" data-testid={chief ? 'team-router' : 'team-member'} data-seat={m.seat}>
       <div className="wm-team-member-head">
         <span className={m.online ? 'wm-team-dot on' : 'wm-team-dot'} title={m.online ? '在线' : '不在线'} />
-        <b className="wm-team-member-name">{seatLabel(seatRaw(m))}</b>
+        <b className="wm-team-member-name">{memberLabel(m)}</b>
         {chief && <span className="wm-team-kind">总工</span>}
       </div>
       <div className="wm-team-member-meta">
@@ -60,7 +59,7 @@ function TeamBlock({ t }: { t: TeamT }) {
         <div className="wm-team-head-top"><b>{teamTitle(t)}</b><Tag color={TAG[s.tone]} className="wm-team-st">{s.text}</Tag></div>
         <div className="wm-team-head-meta">
           <span>负责人：{leads.length ? leads.map((l) => l.name + (l.viaDepartment ? '（部门负责人）' : '')).join('、') : '没有在职的负责人'}</span>
-          <span>总工：{t.router ? seatLabel(seatRaw(t.router)) : '名册里没有总工'}</span>
+          <span>总工：{t.router ? memberLabel(t.router) : '名册里没有总工'}</span>
           <span>{n.members} 个成员 · 在办 {n.active} 件</span>
         </div>
       </div>
@@ -91,8 +90,8 @@ function ClaimCard({ t, depts, people, onDone }: { t: TeamT; depts: Department[]
     <div className="wm-team-claim" data-testid="team-unclaimed" data-team={t.team}>
       <div className="wm-team-head-top"><b>{teamTitle(t)}</b><Tag color="warning" className="wm-team-st">待认领</Tag></div>
       <div className="wm-team-head-meta">
-        <span>总工：{t.router ? seatLabel(seatRaw(t.router)) : '名册里没有总工'}</span>
-        <span>{n.members} 个成员 · 节点 {t.host}</span>
+        <span>总工：{t.router ? memberLabel(t.router) : '名册里没有总工'}</span>
+        <span>{n.members} 个成员 · 来自{nodeLabel(t)}</span>
       </div>
       {depts.length === 0 ? <div className="wm-team-none">先建部门，才能把团队挂上去。</div> : (
         <div className="wm-team-claim-form">

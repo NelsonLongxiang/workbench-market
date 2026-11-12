@@ -67,6 +67,7 @@ with sync_playwright() as p:
     check('管理员、还没有部门：说先建部门，给建部门的入口', '还没有部门' in pg.locator('[data-testid=team-empty]').inner_text() and pg.locator('[data-testid=team-newdept-cta]').count() == 1)
     un = pg.locator('[data-testid=team-unclaimed]')
     check('待认领的团队：管理员看得到；没有部门时说先建部门、没有认领按钮', un.count() == 1 and '先建部门' in un.inner_text() and pg.locator('[data-testid=team-claim]').count() == 0, un.all_inner_texts())
+    check('待认领卡：节点没有名字写「来自一个节点」，节点标识、团队和席位句柄都不出现', '来自一个节点' in un.inner_text() and not any(x in pg.locator('body').inner_text() for x in [HOST, 'ops/', '/canvas/']), un.inner_text())
 
     # 建部门：标识写错不能建；写对了真的建进实例
     pg.locator('[data-testid=team-newdept-cta]').click(); pg.wait_for_selector('[data-testid=team-newdept]')
@@ -92,13 +93,14 @@ with sync_playwright() as p:
     dept = pg.locator('[data-testid=team-dept]')
     head = pg.locator('[data-testid=team-team] .wm-team-head').inner_text()
     check('按部门分块：部门名、部门负责人、几个团队', dept.count() == 1 and '合成运营部' in dept.inner_text() and '负责人 甲经理' in dept.inner_text() and '1 个团队' in dept.inner_text())
-    check('团队头卡：团队名、状态、负责人（部门负责人标出来）、总工、成员数和在办（含总工）', all(s in head for s in ['合成运营', '正常', '甲经理（部门负责人）、乙主管', '总工：合成总工（ops/a1b2c3d4）', '2 个成员 · 在办 5 件']), head)
+    check('团队头卡：团队名、状态、负责人（部门负责人标出来）、总工、成员数和在办（含总工）', all(s in head for s in ['合成运营', '正常', '甲经理（部门负责人）、乙主管', '总工：合成总工', '2 个成员 · 在办 5 件']), head)
     mems = pg.locator('[data-testid=team-member]')
     m1, m2 = mems.nth(0).inner_text(), mems.nth(1).inner_text()
-    check('成员卡：名字（句柄）、在办几件、分配给谁 / 团队公用', mems.count() == 2 and '小算（ops/00000001）' in m1 and '在办 3 件' in m1 and '分配给 丙' in m1 and '团队公用' in m2 and '手上没有在办的' in m2, [m1, m2])
+    check('成员卡：名字（不带句柄）、在办几件、分配给谁 / 团队公用', mems.count() == 2 and m1.split('\n')[0].strip() == '小算' and '在办 3 件' in m1 and '分配给 丙' in m1 and '团队公用' in m2 and '手上没有在办的' in m2, [m1, m2])
     check('总工单独一张卡，写「只对负责人」', '只对负责人' in pg.locator('[data-testid=team-router]').inner_text())
     check('在线、不在线用点区分', mems.nth(0).locator('.wm-team-dot.on').count() == 1 and mems.nth(1).locator('.wm-team-dot.on').count() == 0)
     check('待认领清空了就不显示这一块', pg.locator('.wm-team-unclaimed').count() == 0)
+    check('整页不露代号：节点标识、团队和席位句柄都不出现', not any(x in pg.locator('body').inner_text() for x in [HOST, 'ops/', '/canvas/']), pg.locator('body').inner_text()[:300])
     check('没有放分配、收回（接口还没给能不能做）；没有工作方式、通过率、招 AI 员工', all(pg.locator('body').inner_text().count(s) == 0 for s in ['收回', '分配给…', '工作方式', '通过率', '招一个']))
 
     # 不是管理员的视图：应答里没有待认领这一栏

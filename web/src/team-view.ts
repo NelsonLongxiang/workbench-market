@@ -2,7 +2,8 @@
  * 「团队」页（规范 14 第一、二、五、十节；骨架和密度照产品化原型 3fbfd0b 的 #/team）的判断逻辑：
  * 团队状态、负责人、成员分配给谁怎么说，读不到时怎么说，部门标识的校验。纯函数，不碰 React；页面在 pages/team/Team.tsx。
  *
- * 只能 import type：scripts/team-ui-unit.mjs 用 Node 直接加载这个文件。席位「名字（句柄）」的显示交给 people.ts 的 seatLabel，页面里接上。
+ * 只能 import type：scripts/team-ui-unit.mjs 用 Node 直接加载这个文件。
+ * 不露代号：节点的标识、团队和席位的句柄都不显示；成员有名字只写名字，查不到名字才用句柄。
  *
  * 接口 GET /api/teams 已经按看的人裁好（部门 → 团队 → 成员；待认领的单列，只给管理员），这里只整形、不拼部门和名册、不判谁能做什么。
  */
@@ -17,6 +18,8 @@ export interface Member {
 }
 export interface Team {
   host: string; team: string; name: string; status: TeamStatus | string; in_roster: boolean;
+  /** 节点的名字（服务端给了才有）；节点的标识（host）是内部代号，页面不显示 */
+  node_name?: string;
   department: { id: string; name: string } | null; leads: Lead[]; router: Member | null; members: Member[];
 }
 export interface DeptBlock { id: string; name: string; lead: Person | null; teams: Team[] }
@@ -43,7 +46,7 @@ function teamOf(v: unknown): Team | null {
   if (!t || typeof t.host !== 'string' || typeof t.team !== 'string') return null;
   const d = obj(t.department);
   return {
-    host: t.host, team: t.team, name: typeof t.name === 'string' ? t.name : '', status: typeof t.status === 'string' ? t.status : '', in_roster: t.in_roster !== false,
+    host: t.host, team: t.team, name: typeof t.name === 'string' ? t.name : '', ...(typeof t.node_name === 'string' && t.node_name.trim() ? { node_name: t.node_name.trim() } : {}), status: typeof t.status === 'string' ? t.status : '', in_roster: t.in_roster !== false,
     department: d && typeof d.id === 'string' ? { id: d.id, name: typeof d.name === 'string' ? d.name : d.id } : null,
     leads: arr<unknown>(t.leads).map(obj).filter((l): l is Record<string, unknown> => !!l && typeof l.principal === 'string')
       .map((l) => ({ principal: l.principal as string, display_name: typeof l.display_name === 'string' ? l.display_name : '', source: typeof l.source === 'string' ? l.source : '' })),
@@ -93,15 +96,20 @@ export function personName(p: Person | null | undefined): string {
   return p.display_name?.trim() || String(p.principal ?? '').replace(/^[a-z]+:/, '');
 }
 
-/** 团队名：画布团队用画布名；不在画布上的（团队是空串）说明在哪个节点上 */
-export function teamTitle(t: Pick<Team, 'name' | 'team' | 'host'>): string {
+/** 团队名：画布团队用画布名。没有名字的不露团队的句柄和节点的标识（都是内部代号） */
+export function teamTitle(t: Pick<Team, 'name' | 'team'>): string {
   if (t.name.trim()) return t.name.trim();
-  return t.team ? t.team : `节点 ${t.host} 上不在画布里的成员`;
+  return t.team ? '一个没有名字的团队' : '不在画布里的成员';
 }
 
-/** 席位交给 people.ts 的 seatLabel 显示：有名字传「名字 · 句柄」，没有就只传句柄 */
-export function seatRaw(m: Pick<Member, 'name' | 'seat'>): string {
-  return m.name.trim() ? `${m.name.trim()} · ${m.seat}` : m.seat;
+/** 节点：服务端给了名字就用名字，没有就写「一个节点」；节点的标识不显示 */
+export function nodeLabel(t: Pick<Team, 'node_name'>): string {
+  return t.node_name?.trim() || '一个节点';
+}
+
+/** 成员、总工的名字：有名字只写名字，不带席位句柄；查不到名字时才用句柄（不然几个没名字的成员分不出来） */
+export function memberLabel(m: Pick<Member, 'name' | 'seat'>): string {
+  return m.name.trim() || m.seat;
 }
 
 /** 成员归谁用：分配给某人，或者团队公用（由总工分派） */
