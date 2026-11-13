@@ -376,6 +376,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   owner-pending.ts（待属主看板的判断，服务端那一份：和 web/src/owner-pending.ts 跑同一份用例表 scripts/owner-pending-cases.json）
   outbound-gate.ts（对外断开 WM_OUTBOUND=off 的闸：在 net.Socket.connect、DNS、UDP、子进程这几层拦下一切出站并计数；index.ts 第一个引入它）
   path-inside.ts（路径落点判断，只此一处：规范化后等于根、或以「根加分隔符」开头才算在根里；/apps/ 静态托管、/go/ 转自产台、/sop/ 附件都用它）
+  portal-forward-headers.ts（门户转发前去掉市场自身的认证信息：口令、令牌、凭据头和市场的会话 cookie 的清单，HTTP 与 WebSocket 握手共用，启动自检一行）
   portal-observation.ts（无敏感原文的被动计数）
   portal.ts（/go/ 反代·白屏五层+登录态）
   redis.ts（Redis 连接和 SOP 执行实例的热态：连接只有这一条；SOP 的读写经共用状态层的 sop 句柄，只碰 wm:sop: 开头的键）

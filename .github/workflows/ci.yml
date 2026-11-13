@@ -405,6 +405,8 @@ jobs:
         run: node scripts/vars-store-test.mjs && node scripts/vars-hot-test.mjs && WM_VARS_STORE=shadow node scripts/route-replay-test.mjs workbench-vars && WM_VARS_STORE=bench node scripts/route-replay-test.mjs workbench-vars && node scripts/vars-store-diff-test.mjs
       - name: Startup security self-probe (#326, loopback synthetic only)
         run: node scripts/startup-security-self-probe-test.mjs && node scripts/startup-security-self-probe-http-test.mjs && node scripts/startup-security-self-probe-upgrade-test.mjs
+      - name: 门户转发前去掉市场自身的认证信息（GET、POST、WebSocket 握手里没有市场的口令、令牌、凭据头和市场 cookie；台自己的头和 cookie 照旧；启动自检这一行过了）
+        run: node scripts/portal-forward-strip-test.mjs
       - name: Tasks identity and project/run grant isolation (#324, synthetic only)
         run: node scripts/tasks-read-authority-http-test.mjs
       - name: Redis ready recovery and durable-generation rebound (#351, synthetic only)
