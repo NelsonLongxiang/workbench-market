@@ -477,9 +477,11 @@ export function registerWorkbenchEventRoutes(app: HttpService, guards: { admin: 
     if (ref.length > 300 || (ref !== '' && !/^https?:\/\/\S+$/.test(ref))) return res.status(400).json({ error: 'ref 须为 http(s) 链接，≤300 字' });
     // 凭 token 找到唯一一条投递；找不到与 token 错同答 404（不泄露事件是否存在）
     const hash = Buffer.from(sha256(token), 'hex');
-    const rows = db.prepare("SELECT id, status, decision, reply_token_sha256, (sent_at != '' AND datetime(sent_at, '+' || ? || ' days') > datetime('now')) AS live FROM workbench_event_deliveries WHERE event_id = ? AND reply_token_sha256 != ''").all(REPLY_TTL_DAYS, eventId) as { id: number; status: string; decision: string; reply_token_sha256: string; live: number }[];
+    const rows = db.prepare("SELECT id, status, decision, target_url, reply_token_sha256, (sent_at != '' AND datetime(sent_at, '+' || ? || ' days') > datetime('now')) AS live FROM workbench_event_deliveries WHERE event_id = ? AND reply_token_sha256 != ''").all(REPLY_TTL_DAYS, eventId) as { id: number; status: string; decision: string; target_url: string; reply_token_sha256: string; live: number }[];
     const row = token === '' ? undefined : rows.find((r) => { const h = Buffer.from(r.reply_token_sha256, 'hex'); return h.length === hash.length && timingSafeEqual(h, hash); });
     if (!row) return res.status(404).json({ error: 'event not found' });
+    // 对端登记表里停用、等确认新键的节点：令牌还在有效期内也和不存在一样答，什么都不动（没登记的照旧，同投递）
+    { const can = peerCanDeliver(String(row.target_url ?? '')); if (!can.ok && can.reason !== 'peer_unknown') return res.status(404).json({ error: 'event not found' }); }
     if (row.status !== 'sent') return res.status(409).json({ error: `投递状态为 ${row.status}，只有已送达的投递才能回写决定` });
     if (row.decision === 'accept' || row.decision === 'decline') return res.status(409).json({ error: `已有终态决定：${row.decision}`, decision: row.decision });
     if (row.live !== 1) return res.status(410).json({ error: `reply token 已过期（送达后 ${REPLY_TTL_DAYS} 天）` });
