@@ -1984,7 +1984,7 @@ function odooLoginUrl(req: express.Request, returnPath: string): string | null {
 registerTaskRoutes(http, { wrap, adminGuard, adminHeaderOk, devOriginOk, odooLoginUrl });
 registerBenchViewRoutes(http, { on: BENCH_VIEWS.on, wrap, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), devOriginOk });
 // 经验库（/knowledge 的接口）：只读；条目按看的人的授予逐条判，管理口令拒（services/knowledge.ts、routes/knowledge.ts）
-registerKnowledgeRoutes(http, { wrap, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), adminGuard, devOriginOk });
+registerKnowledgeRoutes(http, { wrap, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), devOriginOk });
 
 // #275 登录探测：弹窗送 Odoo 登录后，前端轮询这里拿 200 即回原页面（Odoo 19 无法跨源回跳，回程在市场源完成）；顶栏用户 chip 同源
 registerAuthViewerRoutes(http, { wrap, odooLoginUrl });

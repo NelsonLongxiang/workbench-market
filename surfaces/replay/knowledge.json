@@ -202,10 +202,10 @@
           "what": "远程、不带口令：被管理门拒",
           "request": { "method": "GET", "path": "/api/knowledge/status", "headers": { "x-forwarded-for": "192.0.2.10" } },
           "response": {
-            "status": 403,
+            "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
           }
         },
         {
@@ -217,7 +217,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "334", "etag": "W/\"14e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "334", "etag": "W/\"14e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "kinds": [
                 { "kind": "claim", "items": 0, "last_ok_at": null, "last_full_at": null, "last_error": "" },

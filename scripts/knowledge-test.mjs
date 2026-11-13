@@ -23,6 +23,7 @@
  */
 import { createServer } from 'node:net';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from './owned-script-fixture.mjs';
@@ -64,6 +65,7 @@ const FIXTURE = {
     'claim:claimSECRET1': { body: '断言正文', evidence: [
       { quote: '原文摘录', note: '解读', stance: 'support', created: T(0), source: { title: '合成来源', url: 'https://example.invalid/a' }, session: 'SECRET-SESSION' },
       { quote: '坏地址', note: '', stance: 'oppose', created: T(0), source: { title: '坏', url: 'javascript:alert(1)' } },
+      { quote: '本机文件', note: '', stance: 'oppose', created: T(0), source: { title: '本机', url: 'file:///etc/hosts' } },
     ] },
   },
 };
@@ -152,9 +154,11 @@ try {
     const anon = await list({ headers: REMOTE });
     const tok = await list({ headers: token });
     const cross = await list({ headers: { ...REMOTE, origin: 'https://elsewhere.example', 'sec-fetch-site': 'cross-site' }, session: SESSIONS.noAdminFlag });
+    // 只带 Sec-Fetch-Site、不带 Origin 的跨站（浏览器的简单 GET 就是这样）：靠 sec-fetch-site 那一支拦
+    const crossSf = await list({ headers: { ...REMOTE, 'sec-fetch-site': 'cross-site' }, session: SESSIONS.noAdminFlag });
     const a = await list(as(SESSIONS.alpha)), b = await list(as(SESSIONS.beta)), r = await list(as(SESSIONS.admin));
-    check(anon.status === 401 && tok.status === 403 && tok.json?.error === 'knowledge_admin_token_denied' && cross.status === 403,
-      '匿名 401；管理口令 403（经验是业务内容）；跨站 403', show({ anon: anon.status, tok: [tok.status, tok.json?.error], cross: cross.status }));
+    check(anon.status === 401 && tok.status === 403 && tok.json?.error === 'knowledge_admin_token_denied' && cross.status === 403 && crossSf.status === 403 && crossSf.json?.error === 'knowledge_cross_origin_denied',
+      '匿名 401；管理口令 403（经验是业务内容）；跨站 403（带 Origin 的、只带 Sec-Fetch-Site 的都拦）', show({ anon: anon.status, tok: [tok.status, tok.json?.error], cross: cross.status, crossSf: crossSf.status }));
     check(show(titles(a)) === show(['合成经验：全公司']) && show(titles(r)) === show(['合成经验：全公司']),
       '普通员工、身份来源的管理员（迁移出的 admin + member）：只看得到全公司的', show({ alpha: titles(a), rootAdmin: titles(r) }));
     check(show(titles(b)) === show(['合成经验：全公司', '合成经验：销售部']),
@@ -180,9 +184,9 @@ try {
     const leaked = SECRET_IDS.filter((id) => texts.some((t) => t.includes(id)));
     const extra = ['SECRET-PATH', 'SECRET-SESSION', 'hits', 'yglhome', srv.ygl].filter((w) => texts.some((t) => t.includes(w)));
     const claim = JSON.parse(texts[2]);
-    check(leaked.length === 0 && extra.length === 0 && claim.evidence?.length === 2 && claim.evidence[0].source?.url === 'https://example.invalid/a' && claim.evidence[1].source?.url === null
+    check(leaked.length === 0 && extra.length === 0 && claim.evidence?.length === 3 && claim.evidence[0].source?.url === 'https://example.invalid/a' && claim.evidence[1].source?.url === null && claim.evidence[2].source?.url === null
       && JSON.parse(texts[1]).body.includes('以后照这样办') && (all.json?.items ?? []).every((i) => /^[A-Za-z0-9_-]{22}$/.test(i.key)),
-      '不露内部标识：列表、详情里没有 ygl-trees 的 id、工作区路径、多余字段；键是不透明的 22 位；证据的 javascript: 地址不给',
+      '不露内部标识：列表、详情里没有 ygl-trees 的 id、工作区路径、多余字段；键是不透明的 22 位；证据的 javascript:、file: 地址不给（只放 http/https）',
       show({ leaked, extra, ev: claim.evidence }));
   }
 
@@ -204,14 +208,29 @@ try {
     check(down.status === 503 && down.json?.error === 'knowledge_unavailable' && gone.status === 404 && !after.includes('合成经验：销售部'),
       '详情现取失败回 503（不当成空）；ygl-trees 说没这一条，回 404 并从目录去掉', show({ down: down.status, gone: gone.status, after }));
     // 六、同步状态只给管理员
-    const stAlpha = await srv.call('GET', '/api/knowledge/status', as(SESSIONS.alpha));
-    const stAnon = await srv.call('GET', '/api/knowledge/status', { headers: REMOTE });
-    check(stAlpha.status === 403 || stAlpha.status === 401, '同步状态只给管理员：普通员工拿不到', show({ alpha: stAlpha.status, anon: stAnon.status }));
+    const stOf = async (o) => (await srv.call('GET', '/api/knowledge/status', o)).status;
+    const stm = { token: await stOf({ headers: token }), rootAdmin: await stOf(as(SESSIONS.admin)), mgmt: await stOf(as(SESSIONS.noAdminFlag)), alpha: await stOf(as(SESSIONS.alpha)),
+      anon: await stOf({ headers: REMOTE }), crossSf: await stOf({ headers: { ...token, 'sec-fetch-site': 'cross-site' } }) };
+    check(show(stm) === show({ token: 200, rootAdmin: 200, mgmt: 403, alpha: 403, anon: 401, crossSf: 403 }),
+      '同步状态按统一判定（管理类）：管理口令、持系统管理员预设的人看得到；管理层、普通员工 403；匿名 401；跨站 403', show(stm));
     await stop();
-    // 重启：同一个库，键不变
-    const again = await boot('main-again', FIXTURE, { data: srv.dataDir });
-    const keyAgain = (await again.call('GET', '/api/knowledge', { headers: { ...REMOTE, origin: `http://${again.host}`, 'sec-fetch-site': 'same-origin' }, session: SESSIONS.noAdminFlag })).json?.items?.find((i) => i.title === '合成经验：全公司')?.key;
+    // 重启：同一个库，键不变；顺带全量对账——ygl-trees 那边删掉了运营部那条，重启后到了全量的时候，目录里要去掉
+    {
+      const kdb = new DatabaseSync(join(srv.dataDir, 'workbench-market.db'), { timeout: 5000 });
+      try { kdb.prepare("UPDATE knowledge_sync SET last_full_at = NULL WHERE kind = 'note'").run(); } finally { kdb.close(); }
+    }
+    const dropped = { ...FIXTURE, items: { ...FIXTURE.items, note: FIXTURE.items.note.filter((n) => n.id !== 'noteSECRETops') } };
+    const again = await boot('main-again', dropped, { data: srv.dataDir });
+    for (const deadline = Date.now() + 30000; Date.now() < deadline;) {
+      const note = ((await again.call('GET', '/api/knowledge/status', { headers: token })).json?.kinds ?? []).find((k) => k.kind === 'note');
+      if (note?.last_full_at) break;
+      await sleep(200);
+    }
+    const againList = (await again.call('GET', '/api/knowledge', { headers: { ...REMOTE, origin: `http://${again.host}`, 'sec-fetch-site': 'same-origin' }, session: SESSIONS.noAdminFlag })).json?.items ?? [];
+    const keyAgain = againList.find((i) => i.title === '合成经验：全公司')?.key;
     check(keyAgain === starKey, '重启后同一个库，同一条的键不变（密钥存在库里）', show({ keyAgain, starKey }));
+    check(!againList.some((i) => i.title === '合成经验：运营部') && againList.some((i) => i.title === '合成经验：只给管理层'),
+      '全量对账：ygl-trees 那边删掉的条目，全量同步后从目录去掉；还在的照留', show(againList.map((i) => i.title)));
     await stop();
   }
   // ---------- 七、没接入：ygl-trees 不在、太旧、契约不对、工作区没设——启动不受影响、自检不红，接口照常回空列表加「未接入」，同一个原因只告警一次 ----------

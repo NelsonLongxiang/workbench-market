@@ -390,7 +390,7 @@ jobs:
       - name: 表结构探查函数（数据库规划第 0 步：迁移里查表、列、索引在不在只经 db.ts 的几个函数；名字不是小写标识符一律抛错不碰库；列名与直接查表结构逐个相同）
         run: node --disable-warning=ExperimentalWarning scripts/db-schema-probe-test.mjs
       - name: 对外断开（WM_OUTBOUND=off：假网络记账，进程层 17 种出站办法一律在发出前被拦、实例层各触发点走一遍假网络收到 0 个连接、投递与回执保持 pending 不判死、自检与健康检查看得见；对照组不开开关必须收到连接；非法值拒绝启动）
-        run: node scripts/outbound-off-test.mjs && node scripts/bench-outbound-off-test.mjs && node scripts/bench-views-entry-test.mjs && node scripts/bench-mcp-test.mjs && node scripts/bench-views-dept-test.mjs && node scripts/knowledge-test.mjs && node scripts/knowledge-lifecycle-test.mjs
+        run: node scripts/outbound-off-test.mjs && node scripts/bench-outbound-off-test.mjs && node scripts/bench-views-entry-test.mjs && node scripts/bench-mcp-test.mjs && node scripts/bench-views-dept-test.mjs && node scripts/knowledge-test.mjs && node scripts/knowledge-lifecycle-test.mjs && node scripts/knowledge-visibility-test.mjs
       - name: HTTP 服务单测（经服务注册与直接注册的路由栈逐行相同·注册可撤销·同一路径只撤一条·随插件卸载·撤销时在途请求不受影响）
         run: node scripts/http-service-test.mjs
       - name: 周期定时器随上下文停（index.ts 之外带周期定时器的模块起来之后都在跑；卸载根上下文之后一个不剩；把 unref 换成空操作，子进程照样自己退出）

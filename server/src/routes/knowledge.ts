@@ -12,13 +12,12 @@ import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import { originIsThisSurface } from '../surfaces.ts';
 import { actorResolver } from '../judgment-compare.ts';
-import type { JudgedActor } from '../judgment.ts';
+import { judge, type JudgedActor } from '../judgment.ts';
 import { KINDS, PAGE_KIND, type KnowledgeService, type YglKind } from '../services/knowledge.ts';
 
 export type KnowledgeRouteDeps = {
   wrap: (fn: (req: express.Request, res: express.Response) => Promise<unknown>) => express.RequestHandler;
   adminTokenOk: (req: express.Request) => boolean;
-  adminGuard: (req: express.Request, res: express.Response) => boolean;
   devOriginOk: (req: express.Request) => boolean;
 };
 
@@ -55,10 +54,17 @@ export function registerKnowledgeRoutes(app: HttpService, deps: KnowledgeRouteDe
     res.json({ items, source: knowledge().sourceState() });
   }));
 
-  // 同步状态：运维信息，不是业务内容，给管理员（口令、身份来源的管理员、本机命令行）
+  // 同步状态：运维信息（不带条目内容）。直接按统一判定判，和判定比对零差异：认管理类（knowledge.sync-status）的授予——
+  // 管理口令、持系统管理员预设的人、属主；普通员工、管理层没有。跨站 403、没登录 401
   app.get('/api/knowledge/status', { action: 'knowledge.sync-status', kind: 'admin' }, wrap(async (req, res) => {
     res.set('Cache-Control', 'private, no-store');
-    if (!deps.adminGuard(req, res)) return;
+    res.vary('Cookie'); res.vary('X-Admin-Token');
+    if (req.headers['sec-fetch-site'] === 'cross-site' || (req.headers.origin && !originIsThisSurface(req) && !deps.devOriginOk(req))) return void res.status(403).json({ error: 'knowledge_cross_origin_denied' });
+    const { actor } = await actorOf(req);
+    if (judge({ actor, action: 'knowledge.sync-status', kind: 'admin', declared: true }).verdict !== 'allow') {
+      if (actor.type === 'builtin' && actor.name === 'anonymous') return void res.status(401).json({ error: 'login_required' });
+      return void res.status(403).json({ error: 'knowledge_status_denied', message: '同步状态给管理员看' });
+    }
     res.json({ kinds: knowledge().status() });
   }));
 
