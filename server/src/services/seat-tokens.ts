@@ -21,8 +21,8 @@
  * 授权挂在席位上、不挂在令牌上：每个席位有一个长期的授权主体（a2a_seat_subjects → mcp_sessions 的一行），
  * 工具授权（grants）、按台批的「工具@台」（bench_mcp_grants，按 session_id 记）都记在这个主体上，换几次令牌都还在。
  * 主体那一行的令牌列写的是一个不会被任何令牌命中的值（不是 64 位十六进制），只能经这里换出来的短期令牌用它。
- * 主体建的时候记下节点公钥的完整指纹（sha256 全长）和根地址；换令牌、每次调用都核这两样和此刻钉住的一致，
- * 对不上就拒（401），不复用这个主体——host 只是指纹前 8 位，主体活得比名册久，不能只凭它认。
+ * 主体按（根地址，节点公钥的完整指纹，seat_id）认，host 只是指纹前 8 位，只拿来显示：根地址或公钥变了就是另一个主体，
+ * 从空授权开始，拿不到原来那个主体上的授权；每次调用也核令牌所属主体的根地址、完整指纹和此刻钉住的一致。
  *
  * SQL 都在这里；时间由代码生成后传进 SQL。
  */
@@ -45,7 +45,7 @@ const ROOT_RE = /^https?:\/\/[^/?#\s]{1,253}$/;
 
 export type SeatTokenRequest = { root: string; host: string; seat_id: string; ts: number; nonce: string; aud: string; sig: string };
 /** 拒的内部原因：只进日志和计数，对外一律同一个 401（不透露节点、席位存不存在） */
-export type SeatTokenRefusal = 'wrong-audience' | 'bad-ts' | 'not-live' | 'bad-sig' | 'replay' | 'subject-revoked' | 'subject-name-taken' | 'subject-mismatch';
+export type SeatTokenRefusal = 'wrong-audience' | 'bad-ts' | 'not-live' | 'bad-sig' | 'replay' | 'subject-revoked' | 'subject-name-taken';
 export type SeatTokenOutcome = { ok: true; token: string; token_ref: string; expires_at: number; session_id: number } | { ok: false; reason: SeatTokenRefusal } | { ok: false; reason: 'rate-limited'; retryAfter: number };
 
 /** 请求体成形吗：字段齐、类型对、长度和字符集在范围里。不成形返回 null（400，不涉及任何存不存在） */
@@ -94,17 +94,15 @@ function verifies(publicKey: string | null, canonical: string, sig: string): boo
 }
 
 /**
- * 席位的授权主体：没有就建（mcp_sessions 一行 + a2a_seat_subjects 一行，同一个保存点），建时记下公钥完整指纹和根地址。
- * 已有的：被吊销返回 revoked；公钥完整指纹或根地址和建时记下的不一样返回 mismatch（不复用）
+ * 席位的授权主体，按（根地址，公钥完整指纹，seat_id）找：没有就建（mcp_sessions 一行 + a2a_seat_subjects 一行，同一个保存点）。
+ * 被吊销的返回 revoked。宿主号相同、根地址或公钥不同的是另一个主体，从空授权开始
  */
-function subjectOf(host: string, seatId: string, keyFp: string, root: string, now: number): { id: number } | 'revoked' | 'name-taken' | 'mismatch' {
-  const hit = db.prepare('SELECT s.session_id AS id, s.key_fp AS key_fp, s.root AS root, m.revoked_at AS revoked FROM a2a_seat_subjects s JOIN mcp_sessions m ON m.id = s.session_id WHERE s.host = ? AND s.seat_id = ?')
-    .get(host, seatId) as { id: number; key_fp: string; root: string; revoked: string } | undefined;
-  if (hit) {
-    if (hit.key_fp !== keyFp || hit.root !== root) return 'mismatch';
-    return hit.revoked === '' ? { id: Number(hit.id) } : 'revoked';
-  }
-  const name = `${SEAT_SUBJECT_PREFIX}${host}-${sha256Hex(seatId).slice(0, 12)}`;
+function subjectOf(host: string, seatId: string, keyFp: string, root: string, now: number): { id: number } | 'revoked' | 'name-taken' {
+  const hit = db.prepare('SELECT s.session_id AS id, m.revoked_at AS revoked FROM a2a_seat_subjects s JOIN mcp_sessions m ON m.id = s.session_id WHERE s.root = ? AND s.key_fp = ? AND s.seat_id = ?')
+    .get(root, keyFp, seatId) as { id: number; revoked: string } | undefined;
+  if (hit) return hit.revoked === '' ? { id: Number(hit.id) } : 'revoked';
+  // 名字：宿主号便于人认，后 12 位由根地址、完整指纹、seat_id 一起算，宿主号相同的不同主体名字也不同
+  const name = `${SEAT_SUBJECT_PREFIX}${host}-${sha256Hex(JSON.stringify([root, keyFp, seatId])).slice(0, 12)}`;
   db.exec('SAVEPOINT seat_subject');
   try {
     if (db.prepare('SELECT 1 FROM mcp_sessions WHERE name = ?').get(name)) { db.exec('RELEASE seat_subject'); return 'name-taken'; }
@@ -131,7 +129,6 @@ export function exchangeSeatToken(r: SeatTokenRequest, audOk: boolean, now = Dat
   const wait = seatQuota();
   if (wait > 0) return { ok: false, reason: 'rate-limited', retryAfter: wait };
   const subject = subjectOf(r.host, r.seat_id, keyFingerprint(live!.publicKey), live!.root, now);
-  if (subject === 'mismatch') return { ok: false, reason: 'subject-mismatch' };
   if (subject === 'revoked') return { ok: false, reason: 'subject-revoked' };
   if (subject === 'name-taken') return { ok: false, reason: 'subject-name-taken' };
   db.prepare('DELETE FROM a2a_seat_tokens WHERE expires_at <= ?').run(now);
@@ -146,7 +143,7 @@ export function exchangeSeatToken(r: SeatTokenRequest, audOk: boolean, now = Dat
 export const tokenRef = (tokenSha256: string): string => tokenSha256.slice(0, 16);
 
 /** 验签这一步之后才拒的原因：host、seat_id 是签名证实过的 */
-const VERIFIED_REFUSALS: ReadonlySet<string> = new Set(['replay', 'subject-revoked', 'subject-name-taken', 'subject-mismatch', 'rate-limited']);
+const VERIFIED_REFUSALS: ReadonlySet<string> = new Set(['replay', 'subject-revoked', 'subject-name-taken', 'rate-limited']);
 const LOG_KEEP_MS = 180 * 24 * 3_600_000;
 const clip = (v: unknown, n: number): string => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, n) : '');
 
@@ -184,7 +181,7 @@ export function seatTokenSession(tokenSha256: string, now = Date.now()): { id: n
   if (!t || Number(t.expires_at) <= now) return null;
   const live = liveSeat(t.host, t.seat_id);
   if (!live) return null;
-  const bound = db.prepare('SELECT key_fp, root FROM a2a_seat_subjects WHERE session_id = ? AND host = ? AND seat_id = ?').get(t.session_id, t.host, t.seat_id) as { key_fp: string; root: string } | undefined;
+  const bound = db.prepare('SELECT key_fp, root FROM a2a_seat_subjects WHERE session_id = ? AND seat_id = ?').get(t.session_id, t.seat_id) as { key_fp: string; root: string } | undefined;
   if (!bound || bound.key_fp !== keyFingerprint(live.publicKey) || bound.root !== live.root) return null;
   const s = db.prepare("SELECT id, name, grants FROM mcp_sessions WHERE id = ? AND revoked_at = ''").get(t.session_id) as { id: number; name: string; grants: string } | undefined;
   if (!s) return null;
