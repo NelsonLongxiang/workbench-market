@@ -76,7 +76,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_APP_DATA_READ`（台数据与附件的读守卫·缺省 `enforce`：`GET /api/apps/<台>/data`、`/files`、`/files/<id>` 要本台的台令牌、管理员（同源）或本机命令行，下载另认本台页面的查看凭证，都不满足 403；`warn`＝上线过渡用，照旧放行，只按路由和调用方类别计数留痕（日志 `source: app-data-read`），过渡完设回 `enforce`；其它值拒绝启动）
 - `WM_SOP_RUN_WRITE`（SOP run 的写守卫·缺省 `enforce`：保存一步 `PUT /api/sop/runs/<id>`、完成 `POST …/finish` 要这个 run 的上传令牌 `X-Run-Upload-Token`（run 还在执行）、管理员（同源）或本机命令行，都不满足 403，不分登录门开没开；`warn`＝上线过渡用，照旧放行，只按路由和调用方类别计数留痕（日志 `source: sop-run-write`），过渡完设回 `enforce`；其它值拒绝启动）
 - `WM_ROLES_FILE`（组织角色的外部声明文件·绝对路径·JSON `{"roles":[…]}`·设了就以它为准，不设用仓库里的通用初始集合·平台内置角色不能被覆盖，同名、循环包含、引用不存在的动作、范围写法不对都拒绝启动）
-- `WM_JUDGMENT_COMPARE`（判定的并行比对·`on` 打开·缺省 `off`·别的值拒绝启动·打开时每个请求应答结束之后算新判定、和旧守卫的结论比，不改应答，并给第一次见到的人迁移 `member`、身份来源说是管理员的迁移 `admin` 和 `management`（来源记 migration）·CI 和出报告用的实例里开；判定切换（6d）的第 0 步起生产也打开观察，见 [docs/judgment-legacy-differences.md](docs/judgment-legacy-differences.md)）
+- `WM_JUDGMENT_COMPARE`（判定的并行比对·`on` 打开·缺省 `off`·别的值拒绝启动·打开时每个请求应答结束之后算新判定、和旧守卫的结论比，不改应答，并给第一次见到的人迁移 `member`、身份来源说是管理员的再迁移 `admin`（来源记 migration；不自动迁 `management`，管理层由属主单独授，见遗留差异 L6）·CI 和出报告用的实例里开；判定切换（6d）的第 0 步起生产也打开观察，见 [docs/judgment-legacy-differences.md](docs/judgment-legacy-differences.md)）
 - `WM_JUDGMENT_COMPARE_OUT`（比对打开时每比一次追加一行 JSON 的文件·绝对路径·可选·给出报告的脚本汇总）
 - `WM_JUDGMENT_ENFORCE`（判定切换的开关·缺省空＝一个域都不切、行为不变·写域名列表（逗号分隔）或 `all`·要和 `WM_JUDGMENT_COMPARE=on` 一起开·写法不对、域没有登记的动作都拒绝启动·切了的域在路由处理之前由新判定说放不放行，拒绝回 403 `judgment_denied`（转提议是 `judgment_ask`），记进比对库的 `judgment_enforced`；放行的照旧交给原来的处理函数，旧守卫再判一遍做反向比对·声明了状态码不代表授权的路由、没报动作的存量路由、「暂不切」清单里的动作不受影响·回退：去掉这个域、重启）
 - `WM_FEISHU_LOGIN`（`on`=打开飞书登录·缺省关）
@@ -127,9 +127,9 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 
 每次上线前跑一遍 `node scripts/upgrade-smoke.mjs`，看「线上那个版本的库，换成这份代码启动」会发生什么。CI 里是单独的一个 job（`upgrade-smoke`）。
 
-- **基线**：缺省是发布分支 `origin/release/prod-hotfix-1`（本地没有就先 fetch）；要换就带 `--base <标签、分支或提交>`。基线的代码解到 `tmp/` 下的临时目录，依赖和本检出相同就共用，不同就在那里另装。
+- **基线**：缺省是发布分支 `origin/release/prod-hotfix-1`（本地没有就先 fetch）；要换就带 `--base <标签、分支或提交>`（完整提交号本地没有时按提交号去取）。CI 跑两条：发布分支（第一次上线的起点）和 `fa89254f`（第二次上线的起点）。基线的代码解到 `tmp/` 下的临时目录，依赖和本检出相同就共用，不同就在那里另装。
 - **数据**：先用基线的代码起一个空实例、经它自己的接口建凭据库，再用它自己的库模块灌一份合成数据（工作台、驾驶舱、自产台和它们的文件、台数据、技能、SOP 录入、任务、各种投递状态的工作台事件、变更申请、MCP 会话、工作台变量）。只写基线库里有的列，换个基线一般不用改灌数据的部分。
-- **查什么**：本检出的代码在这份库上启动两次——能起来、启动自检全过；原有工作台、事件读得出来，凭据库照原主密码解得开；表结构只加不改（不删表、不删列、不改列定义；基线的索引、触发器、视图都还在、定义逐字相同），原有各表行数不变少，原有的行逐行逐列没被改（基线自己每次启动都会改的列先量出来、不算，输出里列出是哪几列）；回填给每个事件建出一个事项；第二次启动表结构逐字节相同、各表行数相同、事项数不变。然后基线的代码在升级后的库上启动：自检全过，能读，能写（新建工作台、提交台数据、开录入），凭据库解得开。最后本检出再启动一次：自检全过，回滚期间基线写进来的事件（它不认识事项）也要建出事项。事项回填若改成后台跑，脚本会等 /api/health 报完成再看库。
+- **查什么**：本检出的代码在这份库上启动两次——能起来、启动自检全过；原有工作台、事件读得出来，凭据库照原主密码解得开；表结构只加不改（不删表、不删列、不改列定义；基线的索引、触发器、视图都还在、定义逐字相同），原有各表行数不变少，原有的行逐行逐列没被改（基线自己每次启动都会改的列先量出来、不算，输出里列出是哪几列；唯一写死的例外是回填版本确实升了时，回填进度表 `work_item_backfill` 的 version、phase、cursor 跟着变，版本没升时这三列变了、别的表的同名列变了照样算改了，`--selftest` 自检这个口径）；回填给每个事件建出一个事项；第二次启动表结构逐字节相同、各表行数相同、事项数不变。然后基线的代码在升级后的库上启动：自检全过，能读，能写（新建工作台、提交台数据、开录入），凭据库解得开。最后本检出再启动一次：自检全过，回滚期间基线写进来的事件（它不认识事项）也要建出事项。事项回填若改成后台跑，脚本会等 /api/health 报完成再看库。
 - **隔离**：实例只听 127.0.0.1 的空闲端口；主目录、临时目录和几个工具的配置目录都指到临时目录；环境变量只给命令搜索路径、端口、数据目录和一个合成的管理员口令，不读本机配置、不连任何外部系统。跑完删掉临时目录（`--keep` 保留，排查用）。
 - **换代码**：`--head <目录>` 把「要验的代码」换成另一个目录（那个目录要装好依赖），比如拿一份故意改坏的拷贝看它是不是真的会红。
 - 每条检查都无条件执行：前提不成立（比如基线上凭据库没建成）就记一条不过，不会悄悄跳过；末尾再核对一遍检查条数。判据只看库里的数和接口的应答，不看日志的写法。
@@ -299,8 +299,8 @@ GET              /api/health/ready              就绪：含 LayerFS 探测（�
     - 不记请求体、查询串、凭据和路径里的 id；
     - 记账攒批，应答之后异步写进单独的库文件 `judgment-compare.db`（不和业务库抢锁），写失败只计数；
     - 判定出错只计数，不影响应答。
-  - 结果看 `GET /api/judgment/compare`。`scripts/judgment-compare-report.mjs` 把回放和 CI 脚本在比对打开时跑一遍，按域×原因出报告，另有按域×结果的汇总；`--from <比对输出.jsonl>` 不跑脚本，只汇总已有的比对输出（生产上 `WM_JUDGMENT_COMPARE_OUT` 的文件）。零不一致的门槛有两道，都在 CI 里：`scripts/judgment-compare-zero-test.mjs` 跑全量回放；`scripts/judgment-compare-sweep-test.mjs` 让六种身份把每条 GET 打一遍、写面挑代表。
-  - 迁移出来的授予来源记 migration：`GET /api/grants?source=migration` 列出，`POST /api/grants/revoke-migration`（只有属主）整批撤销。
+  - 结果看 `GET /api/judgment/compare`。`scripts/judgment-compare-report.mjs` 把回放和 CI 脚本在比对打开时跑一遍，按域×原因出报告，另有按域×结果的汇总；`--from <比对输出.jsonl>` 不跑脚本，只汇总已有的比对输出（`WM_JUDGMENT_COMPARE_OUT` 的文件）；`--snapshot <GET /api/judgment/compare 的应答.json>` 拿接口里攒着的合计出同一张按域的表，再给 `--since <更早的一份>` 就只算两份之间新增的——生产上用这个，不用开 `WM_JUDGMENT_COMPARE_OUT`（那个文件每比一次加一行、不轮转），单测 `scripts/judgment-compare-snapshot-test.mjs` 核两条路出的数相同。零不一致的门槛有两道，都在 CI 里：`scripts/judgment-compare-zero-test.mjs` 跑全量回放；`scripts/judgment-compare-sweep-test.mjs` 让六种身份把每条 GET 打一遍、写面挑代表。
+  - 迁移出来的授予来源记 migration：`GET /api/grants?source=migration` 列出，`POST /api/grants/revoke-migration`（只有属主）整批撤销。迁移只给 `member` 和（身份来源说是管理员的）`admin`，不给 `management`：`scripts/judgment-migration-test.mjs` 守住管理员被迁之后团队分配仍 403、认领仍走提议、数据视图仍进不去。
 - 管不到的：按 run 发的读凭据、自产台查看凭证是不记名的，各有各的期限和吊销，不随主体停用失效；已经建立的 WebSocket 连接不会被掐断，新的请求和新的连接立即拒绝。停用是按登录名对的：身份来源那边把登录名改了，就是另一个人。
 - **读要凭据**：`GET /api/apps/<slug>/data`、`/files`、`/files/<id>` 要本台的台令牌（`X-App-Token`，服务端出台页面时注入）、管理员（口令或管理员登录，同源）或本机命令行；沙箱页的下载链接和图片带不了头，认登录门签给本台页面的查看凭证（`wm_av`）。不满足一律 403，先于查台。远程 agent 读台数据走 MCP（`app_data_list`、`app_files_list`，可按台授权）。设计上，能打开某个台页面的人就能读这个台的数据（台令牌在页面里）；「谁能打开哪个台」和按人读另行设计。
 
@@ -331,6 +331,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   app-data-contract.ts（自产台数据契约：必填/枚举/格式/条件规则（含条件格式）/数组对象逐元素，POST 数据时服务端权威校验）
   app-html.ts（出自产台页面 HTML：注入按台令牌，认得出的人在当前上架版本上再注入提交人票据；出票抛错页面照常不带票据，别的出错回到原样页面并计数）
   seat-messages.ts（事项对话里的席位消息：跟进不进「关注」，在事项页列出、带未读数；看过标已读、回复作为同一 context 的新任务发回）
+  cockpit-access.ts（谁能建、改、删驾驶舱：本机命令行和管理员照旧；登录的人交给判定，管理层的预设点名了 cockpit.create / update / delete；写路由、读应答的 can.edit、/api/auth/me 的 can.create_cockpit 都问这一处）
   attention-answers.ts（「关注」各来源的答法：转给原路由的换算表——路径固定、id 核形状后编码、请求体只取这种答法要的字段；席位提问的答复、事项的验收和退回直接实现）
   attention-forward.ts（进程内把答复转给原路由：全局中间件和原路由的守卫照走，身份头原样、来源地址照抄，应答原样交回）
   attention-names.ts（「关注」条目的显示名 waiting_for_name、creator_name：在汇总那一层统一补，只给看的人本来就看得到的人的名字——管理员、本人、管理层、同部门的；别的给 null，席位、对端这些非人键给 null，MCP 会话给类型加名字）
@@ -372,7 +373,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   path-inside.ts（路径落点判断，只此一处：规范化后等于根、或以「根加分隔符」开头才算在根里；/apps/ 静态托管、/go/ 转自产台、/sop/ 附件都用它）
   portal-observation.ts（无敏感原文的被动计数）
   portal.ts（/go/ 反代·白屏五层+登录态）
-  redis.ts（Redis 连接和 SOP 状态层：连接只有这一条，共用状态层服务也用它）
+  redis.ts（Redis 连接和 SOP 执行实例的热态：连接只有这一条；SOP 的读写经共用状态层的 sop 句柄，只碰 wm:sop: 开头的键）
   request-person.ts  这个请求是哪个人：只经身份服务认请求带的登录凭据（登录提供方的会话或市场会话），主体须是启用的人；认不出就是没有，调用方照常放行（任务中心建录入、发布用）
   roles.ts（角色声明：平台四个内置角色 owner/admin/member/guest，组织角色初始集合 dept-member/dept-lead 或外部声明文件·启动时校验，不合格拒绝启动）
   root-context.ts（全进程唯一的 Cordis 根上下文·不开数据库）
@@ -437,7 +438,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   login-session.ts（市场会话与登录 state：Cordis 服务 `loginSessions`·绝对期限·注销与停用即失效·state 一次性并绑浏览器）
   principal.ts（主体与外部身份：Cordis 服务 `principals`·把登录认出的人对到主体·停用与恢复）
   remote-allow.ts（远程写豁免面的快照）
-  state-layer.ts（共用状态层：Cordis 服务 `state`·Redis 可选、没有就以 SQLite 为准·台的键 `wm:bench:<台 id>:…` 由 benchKey() 拼·删台按前缀清·随根上下文断开）
+  state-layer.ts（共用状态层：Cordis 服务 `state`·Redis 可选、没有就以 SQLite 为准·台的键 `wm:bench:<台 id>:…` 由 benchKey() 拼·删台按前缀清·随根上下文断开·别的域经 stateDomain(<域>) 拿句柄（现在只有 sop），只许碰 wm:<域>: 开头的键）
   submission-counts.ts（「人提需求」的提交计数：只记通道、有没有登录凭据、认没认出人，按天累计次数，不存内容；提交人票据验得过、验不过的次数）
   task-center.ts（任务中心：任务、事件、总开关、状态迁移）
   work-item.ts（事项与事项日志：Cordis 服务 `workItems`·按迁移表推进状态的唯一入口 `apply`·日志只增不改；听 workbench-events 每写一行事件日志发的 `workbench-event/logged`，在来源的事务里用保存点推进事项，出错不影响来源、按事实种类计数；`backfill()` 从事件表和事件日志补建存量事项，可重跑；建事项时记下交给方式（handoff：team / own-seat / lead-directed，存量是 team）、等谁过目（review_by）和指名的席位（directed_seat_id，只认 seatId），都从事件层 recorded 那一行取；建事项时标题取任务中心的任务标题（取不到退到来源坐标）、派给取投递的目标团队，存量里还是自动缺省值的启动时补上；建立人主体 `creator_principal` 只取发布时经身份服务认出、来源已验证的人，认不出就空着，「是不是他的」只认它（`isCreator`），`created_by` 只用于显示（认出提需求人时就是他的主体，认不出才用事件上自填的名字；不拿发布人顶替））
@@ -454,11 +455,11 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   auth-viewer.ts（登录探测 /api/auth/viewer）
   bindings.ts（A2A 人工绑定 /api/bindings 和退役的旧面）
   change-requests.ts（人审变更请求 /api/change-requests：列表、批准、拒绝；批准、拒绝的判断和执行收在 changeRequestReview 一处，「关注」的审核卡片当场批也调它，审核人取认出来的管理员、不通过要写理由）
-  cockpits.ts（驾驶舱 /api/cockpits）
+  cockpits.ts（驾驶舱 /api/cockpits：写不经写请求总门，处理之前问 cockpit-access.ts；读应答带 can.edit，不带建立人）
   content-observation.ts（门户观测状态 /api/content/observation）
   cookies.ts（Cookie 池 /api/cookies）
   departments.ts（部门 /api/departments：登录的人读列表、单个部门的成员、某人属于哪些部门；管理员建改删部门和成员）
-  teams.ts（团队与分配 /api/teams：团队页（部门 → 团队 → 成员，按看的人的可见范围在服务端裁好）、「我的 AI 员工」；管理员认领、退回、指定和移除负责人；负责人分配、收回、改派成员（改派一个事务里收回并分给另一个人；状态码不代表授权））
+  teams.ts（团队与分配 /api/teams：团队页（部门 → 团队 → 成员，按看的人的可见范围在服务端裁好）、「我的 AI 员工」；管理员认领、退回、指定和移除负责人；负责人分配、收回、改派成员（改派一个事务里收回并分给另一个人；状态码不代表授权）；团队的变更记录、某人各段分配的历史（按关系裁：管理员、管理层看全部，负责人看自己的团队，本人看自己的；读不到的按不存在回））
   access.ts（角色预设 ②：以某人的身份看 /api/principals/:id/access（管理员看任何人、登录的人看自己，带 action 给判定结论）、红线清单 /api/access/red-lines、首次安装向导 /api/setup/wizard（管理员跑，属主放行））
   design-tokens.ts（设计 token 固定路径 /design/tokens@<版本>.css）
   export-import.ts（导出与导入 /api/export、/api/import）

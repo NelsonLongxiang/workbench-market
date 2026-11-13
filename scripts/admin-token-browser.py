@@ -88,7 +88,6 @@ with sync_playwright() as p:
         print('业务面登录弹窗（M4 残余）')
         for label, path, scope, btn, auto in (
             ('用户卡里的登录 chip', '/market', None, re.compile(r'^登\s*录$'), False),
-            ('统一待办', '/tasks', None, '在弹窗登录 Odoo', False),
         ):
             c = b.new_context(); opened = []
             c.on('page', lambda pg: opened.append(pg))

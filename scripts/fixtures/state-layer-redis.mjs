@@ -19,6 +19,15 @@ client.scanIterator = async function* ({ MATCH }) {
     use(); yield all.slice(i, i + 2); // 分批给，测分页
   }
 };
+// SOP 句柄用的几种（hash 存成对象、set 存成 Set）
+const hashOf = (k) => { const v = store.get(k); if (v === undefined) { const h = {}; store.set(k, h); return h; } return v; };
+client.hSet = async (k, a, v) => { use(); const h = hashOf(k); if (typeof a === 'object') Object.assign(h, a); else h[a] = v; return 1; };
+client.hGetAll = async (k) => { use(); const v = store.get(k); return v && typeof v === 'object' && !(v instanceof Set) ? { ...v } : {}; };
+const setOf = (k) => { let s = store.get(k); if (!(s instanceof Set)) { s = new Set(); store.set(k, s); } return s; };
+client.sAdd = async (k, m) => { use(); setOf(k).add(m); return 1; };
+client.sRem = async (k, m) => { use(); setOf(k).delete(m); return 1; };
+client.sMembers = async (k) => { use(); return [...setOf(k)]; };
+client.expire = async (k, s) => { use(); ctl.expires = { ...(ctl.expires ?? {}), [k]: s }; return 1; };
 client.destroy = () => { ctl.destroyed++; ctl.online = false; };
 ctl.offline = () => { ctl.online = false; client.emit('error', new Error('synthetic_offline')); client.emit('reconnecting'); };
 ctl.back = () => { ctl.online = true; client.emit('ready'); };
