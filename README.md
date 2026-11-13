@@ -522,7 +522,7 @@ data/           SQLite 数据文件（git 忽略）
 
 `server/src/mcp-stdio-upstream.ts`（#474）：`settings.mcp_upstreams` 里 `kind` 为 `ygl-trees` 的上游不走 HTTP，由市场启动 `ygl-trees mcp`（stdio）子进程，工作区取该项的 `ygl_home`。子进程只拿运行必需的系统变量，不继承市场的口令和令牌；它的 `YGL_SESSION` 由市场设成 `market-<前缀>`。
 
-结构上的约定（新东西该写在哪）见仓库根的 `CONTRIBUTING.md`。`node scripts/tech-route-check.mjs` 把这些约定量成数字，对照 `tech-route.json` 里的基线；CI 每次把体检表写进摘要页。预算档的检查比基线多了、红线档的检查高于目标，CI 就失败；其余只报告。每项现在是哪一档，以 `tech-route.json` 为准。
+结构上的约定（新东西该写在哪）见仓库根的 `CONTRIBUTING.md`。`node scripts/tech-route-check.mjs` 把这些约定量成数字，对照 `tech-route.json` 里的基线；CI 每次把体检表写进摘要页。预算档的检查比基线多了、红线档的检查高于目标，CI 就失败；清单相对 main 放宽了预算档、红线档（基线调大、红线目标放宽、档位调低）而那条规则没写 `loosen_reason`（一句话、带 PR 号），CI 也失败；其余只报告。每项现在是哪一档，以 `tech-route.json` 为准。
 
 路由正在按域从 `server/src/index.ts` 搬进 `server/src/routes/<域>.ts`，终点是 `index.ts` 只做装配。域模块导出一个注册函数，`index.ts` 在这组路由原来的位置调用它，所以挂载顺序不变。注册经 HTTP 服务（`server/src/http.ts`）：路由还是挂在同一个 Express 应用上，处理函数原样传入；每次注册都能撤销，由插件注册的随插件卸载一起撤销（`scripts/http-service-test.mjs`）。搬一个域是纯移动，下面的路由快照和录制回放都必须零差异。
 
