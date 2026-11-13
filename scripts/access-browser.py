@@ -4,7 +4,7 @@
   · 认出了人但不是管理员：「人和权限」显示「你的权限」（取 /api/auth/me 的本人角色），下面一句别人的权限谁能看；四个管理读接口不去问（网络里没有）；
   · 有口令：两个页签（没有「以某人的身份看」）；待核准卡片、按人排的表（状态最左），范围不是全部的生效中授予标「尚未生效」；矩阵里「范围内」的格子同样标；
   · 核准发对了请求；不给要写理由，理由空着确认按钮不能点，写了才发、带着理由；被拒时说服务端给的说法；
-  · 角色预设：每个角色一张卡、选中的角色有七块 × 四类的矩阵，格子是「全部 / 范围内 / 部分 / 只限自己 / 不能 / —」之一。"""
+  · 角色预设：每个角色一张卡、选中的角色有各大块（服务端的 BLOCKS，现在八块）× 四类的矩阵，格子是「全部 / 范围内 / 部分 / 只限自己 / 不能 / —」之一。"""
 import json, re, sys, urllib.request
 from playwright.sync_api import sync_playwright
 cfg = json.load(open(sys.argv[1]))
@@ -168,7 +168,7 @@ with sync_playwright() as p:
     check('没有说法的不标：接口里不带 approval_text 的角色（夹具：访客）卡上没有这一行', 'guest' in ra and served.get('guest') is None and ra['guest'].count() == 0, (served.get('guest'), ra['guest'].count() if 'guest' in ra else None))
     check('每个角色一张卡', pg.locator('[data-testid=acc-role]').count() == len(mx['roles']), (pg.locator('[data-testid=acc-role]').count(), len(mx['roles'])))
     rows = pg.locator('[data-testid=acc-matrix] tbody tr')
-    check('矩阵：七大块一行一块、四类一列一类', rows.count() == len(mx['blocks']) == 7 and pg.locator('[data-testid=acc-matrix] thead th').count() == 1 + len(mx['kinds']))
+    check('矩阵：服务端给几块就几行（含经验库）、四类一列一类', rows.count() == len(mx['blocks']) >= 8 and any(b.get('key') == 'knowledge' for b in mx['blocks']) and pg.locator('[data-testid=acc-matrix] thead th').count() == 1 + len(mx['kinds']), (rows.count(), [b.get('key') for b in mx['blocks']]))
     pg.locator('[data-testid=acc-role][data-id=dept-lead]').click(); pg.wait_for_timeout(200)
     tds = [''.join(t.split()) for t in pg.locator('[data-testid=acc-matrix] tbody td:not(:first-child)').all_inner_texts()]
     check('「范围内」的格子都标尚未生效、别的格子不标', any(tds) and all((t == '范围内尚未生效') == t.startswith('范围内') and (t == '范围内尚未生效' or '尚未生效' not in t) for t in tds), tds)

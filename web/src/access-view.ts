@@ -42,10 +42,10 @@ export function statusLabel(status: unknown): { text: string; tone: Tone } {
   return s ? { text: s.text, tone: s.tone } : { text: String(status ?? ''), tone: 'default' };
 }
 
-/** 七大块的名字：矩阵给了就用矩阵的；读不到矩阵（不是管理员）时用这一份，和 server/src/roles.ts 的 BLOCKS 一致 */
-const BLOCK_NAMES: Record<string, string> = { overview: '全景', work: '事项与对话', attention: '关注', 'bench-data': '工作台数据', team: '团队与 AI 员工', access: '权限与角色', system: '系统与节点' };
+/** 各大块的名字：矩阵给了就用矩阵的；读不到矩阵（不是管理员）时用这一份，和 server/src/roles.ts 的 BLOCKS 一致（role-presets-test 核对） */
+const BLOCK_NAMES: Record<string, string> = { overview: '全景', work: '事项与对话', attention: '关注', 'bench-data': '工作台数据', knowledge: '经验库', team: '团队与 AI 员工', access: '权限与角色', system: '系统与节点' };
 const SCOPE_KIND: Record<string, string> = { domain: '这一块', bench: '工作台', sop: '流程', tool: '工具', object: '对象' };
-/** 范围：* 是全部，self 是只限自己，domain:<块> 用七大块的名字（矩阵给的），其余是「工作台 x」「流程 x」这样。
+/** 范围：* 是全部，self 是只限自己，domain:<块> 用各大块的名字（矩阵给的），其余是「工作台 x」「流程 x」这样。
  *  name：服务端在授予上带的范围显示名（scope_name，身份线加）；有就用它。部门（dept:<标识>）不露标识：没有名字时写「一个部门」 */
 export function scopeLabel(scope: unknown, blocks?: Map<string, string>, name?: unknown): string {
   const s = String(scope ?? '').trim();
