@@ -2,6 +2,7 @@
  * 经验库（/knowledge 页面的接口）：
  *   GET /api/knowledge?kind=claim|kb|skill|verify  这个人看得到的条目（新的在前）。
  *   GET /api/knowledge/status                      同步状态（管理员看：上次成功、上次失败的原因、条数；不带条目内容）。
+ *   GET/PUT /api/knowledge/project-depts           「项目 → 部门」对照（管理层、属主看和改；改了记一行）。
  *   GET /api/knowledge/:key                        一条的详情（正文现取）。看不到的和不存在的回同一个 404。
  *
  * 认人和拒法（和数据视图同一个口径）：跨站 403；管理口令 403（经验是业务内容，系统管理员缺省看不到）；没登录 401；
@@ -66,6 +67,39 @@ export function registerKnowledgeRoutes(app: HttpService, deps: KnowledgeRouteDe
       return void res.status(403).json({ error: 'knowledge_status_denied', message: '同步状态给管理员看' });
     }
     res.json({ kinds: knowledge().status() });
+  }));
+
+  // 「项目 → 部门」对照：改它等于改谁能看，所以看和改都只给能对经验库拍板的人（管理层、属主；系统管理员、管理口令不行）。
+  // 直接按统一判定判（knowledge.project-depts，拍板类）；跨站 403、没登录 401
+  async function decider(req: express.Request, res: express.Response): Promise<JudgedActor | null> {
+    res.set('Cache-Control', 'private, no-store');
+    res.vary('Cookie'); res.vary('X-Admin-Token');
+    if (req.headers['sec-fetch-site'] === 'cross-site' || (req.headers.origin && !originIsThisSurface(req) && !deps.devOriginOk(req))) { res.status(403).json({ error: 'knowledge_cross_origin_denied' }); return null; }
+    const { actor } = await actorOf(req);
+    if (judge({ actor, action: 'knowledge.project-depts', kind: 'decide', declared: true }).verdict !== 'allow') {
+      if (actor.type === 'builtin' && actor.name === 'anonymous') { res.status(401).json({ error: 'login_required' }); return null; }
+      res.status(403).json({ error: 'knowledge_project_depts_denied', message: '项目对到哪个部门决定谁能看，只有管理层和属主能看、能改' });
+      return null;
+    }
+    return actor;
+  }
+
+  app.get('/api/knowledge/project-depts', { action: 'knowledge.project-depts', kind: 'decide' }, wrap(async (req, res) => {
+    if (!(await decider(req, res))) return;
+    res.json(knowledge().projectDepts());
+  }));
+
+  // 设或清：{ project, department }，department 给 null 是清掉（那个项目的条目回到只给管理层）
+  app.put('/api/knowledge/project-depts', { action: 'knowledge.project-depts', kind: 'decide' }, wrap(async (req, res) => {
+    const actor = await decider(req, res);
+    if (!actor) return;
+    const b = req.body as { project?: unknown; department?: unknown } | undefined;
+    if (!b || typeof b !== 'object' || typeof b.project !== 'string' || !(b.department === null || typeof b.department === 'string'))
+      return void res.status(400).json({ error: 'body_invalid', message: '要 { project: 项目名, department: 部门标识或 null }' });
+    const by = actor.type === 'principal' ? actor.id : `builtin:${actor.name}`;
+    const r = knowledge().setProjectDept(b.project, b.department as string | null, by, Date.now());
+    if (!r.ok) return void res.status(r.error === 'department_missing' ? 404 : 400).json({ error: r.error });
+    res.json({ changed: r.changed, ...knowledge().projectDepts() });
   }));
 
   app.get('/api/knowledge/:key', { action: 'knowledge.read', kind: 'read', statusNotVerdict: BY_SCOPE }, wrap(async (req, res) => {
