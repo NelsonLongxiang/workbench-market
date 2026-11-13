@@ -516,6 +516,8 @@ jobs:
         run: node scripts/identity-status-unit.mjs
       - name: 事项列表单测（纯函数——分组、行文、视角、名字；单列一步）
         run: node scripts/work-items-ui-unit.mjs
+      - name: 站内页面路径单测（卡片上只把站内真有的页面做成链接·路由表和 App.tsx 一致；单列一步）
+        run: node scripts/page-paths-unit.mjs
       - name: 驾驶舱骨架单测（纯函数——三栏尺寸、放大还原、数据视图引用、页签；单列一步）
         run: node scripts/cockpit-frame-unit.mjs
       - name: 驾驶舱的 can.edit（读应答里带；和写请求总门对同一个请求的判断一致：逐个身份读一次、改一次）
