@@ -6,6 +6,7 @@ import { ArrowLeftOutlined, ExportOutlined, ReloadOutlined } from '@ant-design/i
 import { api } from '../api';
 import StatusBadge from '../components/StatusBadge';
 import GoFrame from '../components/GoFrame';
+import { USE_SELF_TEXT, pointsAtMarket } from '../embed-guard';
 
 export default function UseWorkbench() {
   const { id } = useParams();
@@ -39,6 +40,10 @@ export default function UseWorkbench() {
   }
 
   const w = req.data;
+  // 登记的地址指向市场自己：不嵌（嵌出来就是市场套市场），说一句、给个回去的按钮
+  if (pointsAtMarket(w.url, window.location.origin)) {
+    return <div data-testid="use-self"><Result status="info" title={USE_SELF_TEXT} extra={<Button onClick={() => nav('/')}>返回总览</Button>} /></div>;
+  }
 
   return (
     <div className="wm-use-wrap">
@@ -93,7 +98,7 @@ export default function UseWorkbench() {
           </a>
         </Space>
       </div>
-      <GoFrame wid={w.id} name={w.name} frameKey={frameKey} className="wm-use-frame" url={w.url} selfText="这个台的地址指向市场本身，在这里打不开；请管理员改一下登记的地址" />
+      <GoFrame wid={w.id} name={w.name} frameKey={frameKey} className="wm-use-frame" />
       <Typography.Paragraph
         type="secondary"
         className="wm-caption" style={{ textAlign: 'center', margin: 'var(--wm-space-2) 0', flex: 'none' }}
