@@ -191,6 +191,9 @@ body {
   color: var(--wm-color-nav-text);
 }
 
+/* 被市场自己嵌在框里时，框里只写这一句（main.tsx、embed-guard.ts 的 framedByMarket） */
+.wm-framed-self { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: var(--wm-space-6); box-sizing: border-box; text-align: center; color: var(--wm-color-text-secondary); font-size: var(--wm-font-size-body); background: var(--wm-color-surface); }
+
 .wm-use-frame {
   flex: 1;
   width: 100%;
