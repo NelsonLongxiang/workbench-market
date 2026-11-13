@@ -25,8 +25,8 @@ import { root } from './root-context.ts';
 import { svc } from './context.ts';
 import type { GrantService, GrantRow } from './services/grant.ts';
 import type { PrincipalService } from './services/principal.ts';
-import { domainOf, type Kind, type Permission } from './roles.ts';
-import { ANONYMOUS_ACTIONS, builtin, narrowed, type BuiltinName } from './judgment-builtins.ts';
+import { permits, type Kind } from './roles.ts';
+import { ANONYMOUS_ACTIONS, builtin, deptKind, narrowed, type BuiltinName } from './judgment-builtins.ts';
 
 /** 做这件事的是谁 */
 export type JudgedActor =
@@ -43,19 +43,6 @@ declare module '@deepseek-ai/cordis' {
 }
 
 const grants = () => svc<GrantService>('grants');
-
-/** 一个角色（展开之后的权限）覆不覆盖这个动作 */
-function permits(closure: Permission[], action: string, kind: Kind): { covers: boolean; scoped: boolean } {
-  let scoped = false;
-  for (const p of closure) {
-    // 按类别给的，写了 domains 就只算这几个域里的动作
-    const hit = ((p.kinds ?? []).includes(kind) && (!p.domains || p.domains.includes(domainOf(action)))) || (p.actions ?? []).includes(action);
-    if (!hit) continue;
-    if (p.scope === undefined || p.scope === '*') return { covers: true, scoped: false };
-    scoped = true;
-  }
-  return { covers: false, scoped };
-}
 
 /** 一个主体有没有覆盖这个动作的生效授予（只有范围是 * 的授予算覆盖） */
 function grantFor(principal: string, action: string, kind: Kind, now: number): { grant: GrantRow | null; scoped: boolean } {
@@ -156,6 +143,8 @@ export function rolesCovering(action: string, kind: Kind): string[] {
 export function scopedVerdict(input: ScopedInput): ScopedResult {
   const now = input.now ?? Date.now();
   if (!DEPT_SCOPE.test(input.scope)) return { verdict: 'deny', rule: 'scope-unsupported', grant: null };
+  // 只认登记过按部门问的动作，类别也要对得上（judgment-builtins.ts 的 ASKED）：矩阵照同一张表推「范围内」，没登记的问不出部门这一档
+  if (deptKind(input.action) !== input.kind) return { verdict: 'deny', rule: 'scope-not-declared', grant: null };
   const p = svc<PrincipalService>('principals').get(input.principal);
   if (!p || p.status !== 'active') return { verdict: 'deny', rule: 'principal-inactive', grant: null };
   if (input.kind === 'decide' && p.kind !== 'person') return { verdict: 'deny', rule: 'decide-non-person', grant: null };
