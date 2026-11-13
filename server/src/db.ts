@@ -354,25 +354,17 @@ CREATE TABLE IF NOT EXISTS a2a_inbound_receipts (
 -- a2a_rosters 每台宿主一行（来源、报的时间）；a2a_roster_seats 每个席位一行，键是「节点（宿主指纹）+ 团队 + 席位句柄」（14 号文档：团队登记、
 -- 负责人、分配建在它上面）；每次全量快照以新替旧（按宿主报的时间）。a2a_roster_changes 记入库时算出的变化（新团队、新成员、成员消失、
 -- 团队消失、换总工），给上层做通知和「等你拍板」。host 是验过签的那把节点公钥的指纹（sha256 前 8 位十六进制，上游 canvasOwnerFingerprint），
--- 正文里报的 host 只拿来核对。名册以（peer_root, key_fingerprint）为键：key_fingerprint 是验过签的节点公钥的完整指纹（写法同
--- a2a_peers.key_fingerprint，sha256:<十六进制全长>）；host 只拿来显示和匹配，不再「谁先报谁绑定」。按 host 匹配一律经视图
--- a2a_rosters_live（见下面，在 a2a_peers 之后建）。needs_review = 1：升级时回填不上完整指纹的存量行，要人确认，不参与匹配。
--- seat_id 是宿主给成员位的稳定 id（上游 B1 起，句柄随会话变、它不变；旧节点不带就是空）。时间由代码生成后写入。
+-- 正文里报的 host 只拿来核对；同一个 host 只认第一次报它的根地址。seat_id 是宿主给成员位的稳定 id（上游 B1 起，句柄随会话变、它不变；旧节点不带就是空）。
+-- 名册已改存 a2a_roster_nodes / a2a_roster_node_seats（以根地址和完整指纹为键，见 a2a_peers 之后）：这两张旧表升级时复制一次之后
+-- 不再读写，只为升级守护（结构只增不改、存量行不变）留着，不删、不改名、不删行。时间由代码生成后写入。
 CREATE TABLE IF NOT EXISTS a2a_rosters (
+  host TEXT PRIMARY KEY,
   peer_root TEXT NOT NULL,
-  key_fingerprint TEXT NOT NULL DEFAULT '',
-  host TEXT NOT NULL,
   peer_zone TEXT NOT NULL,
   reported_at TEXT NOT NULL,
-  received_at TEXT NOT NULL,
-  needs_review INTEGER NOT NULL DEFAULT 0 CHECK (needs_review IN (0, 1)),
-  PRIMARY KEY (peer_root, key_fingerprint),
-  -- 没标要人确认的行必须带成形的完整指纹：空指纹只留给升级时回填不上的存量行
-  CHECK (needs_review = 1 OR (key_fingerprint GLOB 'sha256:*' AND length(key_fingerprint) = 71))
+  received_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS a2a_roster_seats (
-  peer_root TEXT NOT NULL DEFAULT '',
-  key_fingerprint TEXT NOT NULL DEFAULT '',
   host TEXT NOT NULL,
   team TEXT NOT NULL,
   seat TEXT NOT NULL,
@@ -383,7 +375,7 @@ CREATE TABLE IF NOT EXISTS a2a_roster_seats (
   queued INTEGER NOT NULL DEFAULT 0,
   last_active_at TEXT NOT NULL DEFAULT '',
   first_seen_at TEXT NOT NULL,
-  PRIMARY KEY (peer_root, key_fingerprint, team, seat)
+  PRIMARY KEY (host, team, seat)
 );
 CREATE TABLE IF NOT EXISTS a2a_roster_changes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1178,15 +1170,13 @@ CREATE TABLE IF NOT EXISTS a2a_peers (
 CREATE INDEX IF NOT EXISTS idx_a2a_peers_status ON a2a_peers (status);
 CREATE INDEX IF NOT EXISTS idx_a2a_peers_registered_by ON a2a_peers (registered_by);
 `);
-// 阶段七：名册改以（peer_root, key_fingerprint）为键（旧库 a2a_rosters 以 host 为主键、a2a_roster_seats 以 (host, team, seat)）。只做一次：
-//   旧表改名留底，按新结构重建，存量行按 a2a_peers 里钉住的公钥回填完整指纹——对端没登记、没钉住键、指纹前 8 位对不上 host 的，
-//   key_fingerprint 留空、needs_review = 1（要人确认，不参与匹配；同一根地址之后报来新的名册时清掉）。席位跟着名册行走。
-if (!hasColumn('a2a_rosters', 'key_fingerprint')) {
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    db.exec('ALTER TABLE a2a_rosters RENAME TO a2a_rosters_by_host; ALTER TABLE a2a_roster_seats RENAME TO a2a_roster_seats_by_host;');
-    db.exec(`
-CREATE TABLE a2a_rosters (
+// 阶段七：名册以（peer_root, key_fingerprint）为键，存进两张新表（旧的 a2a_rosters / a2a_roster_seats 不动，见上面）。
+//   key_fingerprint 是验过签的节点公钥的完整指纹（写法同 a2a_peers.key_fingerprint，sha256:<十六进制全长>）；host（前 8 位）只拿来显示和匹配，
+//   按 host 匹配一律经视图 a2a_rosters_live。needs_review = 1：升级时回填不上完整指纹的存量行，要人确认，不参与匹配（同一根地址之后报来新名册时清掉）。
+//   表约束：没标 needs_review 的行必须带成形的完整指纹。
+const rosterNodesExisted = hasTable('a2a_roster_nodes');
+db.exec(`
+CREATE TABLE IF NOT EXISTS a2a_roster_nodes (
   peer_root TEXT NOT NULL,
   key_fingerprint TEXT NOT NULL DEFAULT '',
   host TEXT NOT NULL,
@@ -1195,12 +1185,12 @@ CREATE TABLE a2a_rosters (
   received_at TEXT NOT NULL,
   needs_review INTEGER NOT NULL DEFAULT 0 CHECK (needs_review IN (0, 1)),
   PRIMARY KEY (peer_root, key_fingerprint),
-  -- 没标要人确认的行必须带成形的完整指纹：空指纹只留给升级时回填不上的存量行
   CHECK (needs_review = 1 OR (key_fingerprint GLOB 'sha256:*' AND length(key_fingerprint) = 71))
 );
-CREATE TABLE a2a_roster_seats (
-  peer_root TEXT NOT NULL DEFAULT '',
-  key_fingerprint TEXT NOT NULL DEFAULT '',
+CREATE INDEX IF NOT EXISTS idx_a2a_roster_nodes_host ON a2a_roster_nodes (host);
+CREATE TABLE IF NOT EXISTS a2a_roster_node_seats (
+  peer_root TEXT NOT NULL,
+  key_fingerprint TEXT NOT NULL,
   host TEXT NOT NULL,
   team TEXT NOT NULL,
   seat TEXT NOT NULL,
@@ -1213,11 +1203,16 @@ CREATE TABLE a2a_roster_seats (
   first_seen_at TEXT NOT NULL,
   PRIMARY KEY (peer_root, key_fingerprint, team, seat)
 );`);
-    const olds = db.prepare('SELECT host, peer_root, peer_zone, reported_at, received_at FROM a2a_rosters_by_host').all() as { host: string; peer_root: string; peer_zone: string; reported_at: string; received_at: string }[];
+// 新表第一次建出来时，从旧表复制一次：按 a2a_peers 里钉住的公钥回填完整指纹；对端没登记、没钉住键、指纹前 8 位对不上 host 的，
+// 指纹留空、needs_review = 1。旧表一行不动
+if (!rosterNodesExisted) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const olds = db.prepare('SELECT host, peer_root, peer_zone, reported_at, received_at FROM a2a_rosters').all() as { host: string; peer_root: string; peer_zone: string; reported_at: string; received_at: string }[];
     const pinned = db.prepare('SELECT public_key FROM a2a_peers WHERE root_url = ?');
-    const insR = db.prepare('INSERT INTO a2a_rosters (peer_root, key_fingerprint, host, peer_zone, reported_at, received_at, needs_review) VALUES (?, ?, ?, ?, ?, ?, ?)');
-    const insS = db.prepare(`INSERT INTO a2a_roster_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at)
-      SELECT ?, ?, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at FROM a2a_roster_seats_by_host WHERE host = ?`);
+    const insR = db.prepare('INSERT INTO a2a_roster_nodes (peer_root, key_fingerprint, host, peer_zone, reported_at, received_at, needs_review) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const insS = db.prepare(`INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at)
+      SELECT ?, ?, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at FROM a2a_roster_seats WHERE host = ?`);
     for (const o of olds) {
       const pk = (pinned.get(o.peer_root) as { public_key: string } | undefined)?.public_key ?? '';
       const hex = pk ? createHash('sha256').update(Buffer.from(pk, 'base64')).digest('hex') : '';
@@ -1226,7 +1221,6 @@ CREATE TABLE a2a_roster_seats (
       insR.run(o.peer_root, fp, o.host, o.peer_zone, o.reported_at, o.received_at, ok ? 0 : 1);
       insS.run(o.peer_root, fp, o.host);
     }
-    db.exec('DROP TABLE a2a_rosters_by_host; DROP TABLE a2a_roster_seats_by_host;');
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
 }
@@ -1234,13 +1228,13 @@ if (!hasColumn('a2a_roster_changes', 'peer_root')) {
   db.exec("ALTER TABLE a2a_roster_changes ADD COLUMN peer_root TEXT NOT NULL DEFAULT ''");
   db.exec("ALTER TABLE a2a_roster_changes ADD COLUMN key_fingerprint TEXT NOT NULL DEFAULT ''");
 }
-db.exec('CREATE INDEX IF NOT EXISTS idx_a2a_rosters_host ON a2a_rosters (host)');
-// 按 host 匹配只认这个视图里的行：没标 needs_review（表约束保证这样的行都带成形的完整指纹）、对端没停用也不在等确认新键、记下的完整指纹就是此刻钉住的那把（对端还没钉住键、
-// 或者没登记的照旧算），而且同一个 host 下这样的行只有一行——两个节点报了同一个 host（指纹前 8 位撞了），两行都不算，等管理员停用其中一个
+// 按 host 匹配只认这个视图里的行：没标 needs_review（表约束保证这样的行都带成形的完整指纹）、对端没停用也不在等确认新键、
+// 记着的完整指纹就是此刻钉住的那把（对端还没钉住键、或者没登记的照旧算），而且同一个 host 下这样的行只有一行——
+// 两个节点报了同一个 host（指纹前 8 位撞了），两行都不算，等管理员停用其中一个
 db.exec('DROP VIEW IF EXISTS a2a_rosters_live');
 db.exec(`CREATE VIEW a2a_rosters_live AS
 WITH cand AS (
-  SELECT r.peer_root, r.key_fingerprint, r.host, r.peer_zone, r.reported_at, r.received_at FROM a2a_rosters r LEFT JOIN a2a_peers p ON p.root_url = r.peer_root
+  SELECT r.peer_root, r.key_fingerprint, r.host, r.peer_zone, r.reported_at, r.received_at FROM a2a_roster_nodes r LEFT JOIN a2a_peers p ON p.root_url = r.peer_root
   WHERE r.needs_review = 0 AND (p.root_url IS NULL OR (p.status NOT IN ('disabled', 'key_changed') AND (p.key_fingerprint = '' OR p.key_fingerprint = r.key_fingerprint)))
 )
 SELECT c.* FROM cand c WHERE (SELECT COUNT(*) FROM cand d WHERE d.host = c.host) = 1`);

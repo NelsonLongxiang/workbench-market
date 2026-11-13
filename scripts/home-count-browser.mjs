@@ -36,7 +36,7 @@ const seeded = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarni
   const { recordRoster } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/services/a2a-roster.ts')).href)});
   const now = Date.now();
   const seat = (team, n) => ({ team, seat: 'zone/0000000' + n, seat_id: 'seat-0000000' + n, name: '合成总工' + n, role: 'router', online: true, queued: 0, last_active_at: new Date(now).toISOString() });
-  console.log('ROSTER ' + recordRoster({ host: '${HOST}', peerRoot: '${PEER}', peerZone: 'zone', reportedAt: new Date(now).toISOString(), seats: [seat('zone/canvas/team-a', 'a'), seat('zone/canvas/team-b', 'b')], now }));
+  console.log('ROSTER ' + recordRoster({ host: '${HOST}', peerRoot: '${PEER}', keyFingerprint: 'sha256:' + ('${HOST}' + '0'.repeat(64)).slice(0, 64), peerZone: 'zone', reportedAt: new Date(now).toISOString(), seats: [seat('zone/canvas/team-a', 'a'), seat('zone/canvas/team-b', 'b')], now }));
   process.exit(0);`], { env, encoding: 'utf8' });
 if (!/ROSTER recorded/.test(seeded.stdout)) { console.error('名册记不上：' + seeded.stdout + seeded.stderr.slice(-800)); process.exit(1); }
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', pathToFileURL(join(ROOT, 'scripts/identity-fake-preload.mjs')).href, 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });

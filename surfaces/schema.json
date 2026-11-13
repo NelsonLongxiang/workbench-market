@@ -63,9 +63,9 @@
       "peer_root TEXT NOT NULL DEFAULT ''",
       "key_fingerprint TEXT NOT NULL DEFAULT ''"
     ],
-    "a2a_roster_seats": [
-      "peer_root TEXT NOT NULL DEFAULT '' PK",
-      "key_fingerprint TEXT NOT NULL DEFAULT '' PK",
+    "a2a_roster_node_seats": [
+      "peer_root TEXT NOT NULL PK",
+      "key_fingerprint TEXT NOT NULL PK",
       "host TEXT NOT NULL",
       "team TEXT NOT NULL PK",
       "seat TEXT NOT NULL PK",
@@ -77,7 +77,7 @@
       "last_active_at TEXT NOT NULL DEFAULT ''",
       "first_seen_at TEXT NOT NULL"
     ],
-    "a2a_rosters": [
+    "a2a_roster_nodes": [
       "peer_root TEXT NOT NULL PK",
       "key_fingerprint TEXT NOT NULL DEFAULT '' PK",
       "host TEXT NOT NULL",
@@ -85,6 +85,25 @@
       "reported_at TEXT NOT NULL",
       "received_at TEXT NOT NULL",
       "needs_review INTEGER NOT NULL DEFAULT 0"
+    ],
+    "a2a_roster_seats": [
+      "host TEXT NOT NULL PK",
+      "team TEXT NOT NULL PK",
+      "seat TEXT NOT NULL PK",
+      "seat_id TEXT NOT NULL DEFAULT ''",
+      "name TEXT NOT NULL DEFAULT ''",
+      "role TEXT NOT NULL DEFAULT ''",
+      "online INTEGER NOT NULL DEFAULT 0",
+      "queued INTEGER NOT NULL DEFAULT 0",
+      "last_active_at TEXT NOT NULL DEFAULT ''",
+      "first_seen_at TEXT NOT NULL"
+    ],
+    "a2a_rosters": [
+      "host TEXT PK",
+      "peer_root TEXT NOT NULL",
+      "peer_zone TEXT NOT NULL",
+      "reported_at TEXT NOT NULL",
+      "received_at TEXT NOT NULL"
     ],
     "a2a_run_ctx": [
       "id INTEGER PK",
@@ -1007,7 +1026,7 @@
     "idx_a2a_peers_registered_by ON a2a_peers: CREATE INDEX idx_a2a_peers_registered_by ON a2a_peers (registered_by)",
     "idx_a2a_peers_status ON a2a_peers: CREATE INDEX idx_a2a_peers_status ON a2a_peers (status)",
     "idx_a2a_roster_changes_at ON a2a_roster_changes: CREATE INDEX idx_a2a_roster_changes_at ON a2a_roster_changes (id)",
-    "idx_a2a_rosters_host ON a2a_rosters: CREATE INDEX idx_a2a_rosters_host ON a2a_rosters (host)",
+    "idx_a2a_roster_nodes_host ON a2a_roster_nodes: CREATE INDEX idx_a2a_roster_nodes_host ON a2a_roster_nodes (host)",
     "idx_a2a_run_ctx ON a2a_run_ctx: CREATE INDEX idx_a2a_run_ctx ON a2a_run_ctx (context_id)",
     "idx_a2a_sent_tasks_delivery ON a2a_sent_tasks: CREATE INDEX idx_a2a_sent_tasks_delivery ON a2a_sent_tasks (delivery_id)",
     "idx_a2a_sent_tasks_peer_root ON a2a_sent_tasks: CREATE INDEX idx_a2a_sent_tasks_peer_root ON a2a_sent_tasks (peer_root)",
