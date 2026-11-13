@@ -109,6 +109,7 @@ with sync_playwright() as p:
     # 团队负责人在「我的团队的」：三件等验收里只有 1 件是他自己建的、一件等放行（他不是管理员）。
     # 「关注」（和侧栏角标同一份）截下：只有他建的那件 mine 为真
     views = V(mine=1, team=5)
+    views['mine']['decide'] = 1; views['team']['decide'] = 1  # #712：服务端按视角给的「等你拍板」件数（他自己建的那 1 件，两个视角里都有）
     team_rows = [item(1, 'ready'), item(2, 'ready'), item(3, 'ready'), item(4, 'held'), item(5, 'progress')]
     handler, seen = serve(views, {'mine': [item(1, 'ready')], 'team': team_rows}, 'team')
     def acc(i, mine):
@@ -125,6 +126,8 @@ with sync_playwright() as p:
     check('负责人在团队视角：建立人不是他的「等验收」不计入红色数——「等你拍板」只有他自己建的 1 件，红色角标写 1', head == '等你拍板1' and decide.locator('.ant-badge').count() == 1 and decide.locator('[data-testid=work-item-row]').count() == 1, head)
     nav = pg.locator('[data-testid=nav-pending]')
     check('和侧栏角标同一个数（同一份「关注」、同一个判法）', nav.count() == 1 and nav.inner_text().strip() == '1', nav.all_inner_texts())
+    red = {k: pg.locator(f'[data-testid=work-items-view-decide-{k}]') for k in ('mine', 'team')}
+    check('页签上的红数照服务端的 views.<视角>.decide：「我安排的」1、「我的团队的」1；读法是「1 件等你拍板」', all(red[k].count() == 1 and red[k].inner_text().strip() == '1' for k in red) and red['team'].get_attribute('aria-label') == '1 件等你拍板', {k: red[k].all_inner_texts() for k in red})
     others = pg.locator('[data-testid=work-items-group-others]')
     ohead = ''.join(others.locator('.ant-card-head-title').inner_text().split())
     tags = [t.strip() for t in others.locator('[data-testid=work-item-turn]').all_inner_texts()]
@@ -143,6 +146,19 @@ with sync_playwright() as p:
     ohead = ''.join(pg.locator('[data-testid=work-items-group-others] .ant-card-head-title').inner_text().split())
     nav = pg.locator('[data-testid=nav-pending]')
     check('负责人能放行的「等放行」（夹具：mine + answer_via 放行）：进「等你拍板」计红，等别人处理少一件，侧栏角标同一个数', head == '等你拍板2' and decide.locator('[data-testid=work-item-row]').count() == 2 and ohead == '等别人处理2' and nav.count() == 1 and nav.inner_text().strip() == '2', (head, ohead, nav.all_inner_texts()))
+    ctx.close()
+
+    # 统筹在试联上看到的：负责人默认停在「我安排的」（那里 0 件等他），3 件在「我的团队的」里——页签上的红数指出在哪个视角
+    views = V(mine=2, team=30)
+    views['mine']['decide'] = 0; views['team']['decide'] = 3
+    handler, seen = serve(views, {'mine': [item(1, 'progress'), item(2, 'progress')], 'team': team_rows}, 'mine')
+    ctx = b.new_context(viewport={'width': 1440, 'height': 900}); pg = ctx.new_page(); pg.set_default_timeout(10000)
+    pg.route(LIST, handler)
+    pg.route(re.compile(r'/api/attention$'), lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps({'items': [], 'counts': {'total': 0}, 'sources': {}})))
+    pg.goto(M + '/work-items'); wait_view(pg, 'mine')
+    import os
+    if os.environ.get('WM_SHOT_VIEWS'): pg.wait_for_timeout(500); pg.screenshot(path=os.environ['WM_SHOT_VIEWS'])  # 本机看样子用，CI 不设
+    check('默认停在「我安排的」：这个页签没有红数（0 件不出）；「我的团队的」页签上红数 3，指出等他的在哪', pg.locator('[data-testid=work-items-view-decide-mine]').count() == 0 and pg.locator('[data-testid=work-items-view-decide-team]').inner_text().strip() == '3')
     ctx.close()
     b.close()
 

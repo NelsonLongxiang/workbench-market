@@ -142,14 +142,19 @@ export function appendPage(prev: WorkItemListRow[], next: WorkItemListRow[]): Wo
  *  页面只出 available 为真的，按这个先后排；接口没给 views（旧服务端）就一个都不出，不自己猜。 */
 export type ViewKey = 'mine' | 'seats' | 'team' | 'all';
 export const VIEW_LABEL: Record<ViewKey, string> = { mine: '我安排的', seats: '我的 AI 员工手上的', team: '我的团队的', all: '全部' };
-export type View = { key: ViewKey; label: string; count: number };
+/** decide：这个视角里轮到看的人、能当场办的件数（#712，和侧栏角标同一处判法）。服务端没给、给的不是数就是 0，页签上不出红数。
+ *  同一件可能同时在两个视角里，各页签的红数不能相加当总数（总数看侧栏角标） */
+export type View = { key: ViewKey; label: string; count: number; decide: number };
+const nonNeg = (x: unknown): number => (typeof x === 'number' && Number.isFinite(x) && x > 0 ? Math.floor(x) : 0);
 export function viewsFor(views: unknown): View[] {
   if (!views || typeof views !== 'object') return [];
-  const v = views as Record<string, { available?: unknown; count?: unknown } | undefined>;
+  const v = views as Record<string, { available?: unknown; count?: unknown; decide?: unknown } | undefined>;
   return (Object.keys(VIEW_LABEL) as ViewKey[])
     .filter((k) => v[k]?.available === true)
-    .map((k) => ({ key: k, label: VIEW_LABEL[k], count: Math.max(0, Number(v[k]?.count) || 0) }));
+    .map((k) => ({ key: k, label: VIEW_LABEL[k], count: Math.max(0, Number(v[k]?.count) || 0), decide: nonNeg(v[k]?.decide) }));
 }
+/** 页签上红数的读法（屏幕阅读器和悬停）：「N 件等你拍板」 */
+export const decideLabel = (n: number): string => `${n} 件等你拍板`;
 
 /** 一个视角里一件都没有时怎么说：各说各的；按某个 AI 员工筛着时说这个员工手上 */
 export function emptyText(view: ViewKey | null | undefined, seat?: string): string {
