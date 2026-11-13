@@ -6,6 +6,7 @@ import { KeyOutlined } from '@ant-design/icons';
 import { api } from './api';
 import Market from './pages/Market';
 import MarketHome from './pages/market/Market';
+import WorkbenchDetail from './pages/market/WorkbenchDetail';
 import Access from './pages/access/Access';
 import Types from './pages/Types';
 import Settings from './pages/Settings';
@@ -23,6 +24,7 @@ import { WEB_EXTENSIONS } from './extensions';
 import { Alert, Button as AButton, Input as AInput, Popover, Result, Tag } from 'antd';
 import Attention from './pages/Attention';
 import WorkItem from './pages/WorkItem';
+import Knowledge from './pages/knowledge/Knowledge';
 import NotYet, { NOT_YET } from './pages/NotYet';
 import Team from './pages/team/Team';
 import Home from './pages/Home';
@@ -129,11 +131,12 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/team" element={<Team />} />
         <Route path="/access" element={<Access />} />
-        <Route path="/knowledge" element={<NotYet spec={NOT_YET.knowledge} />} />
+        <Route path="/knowledge" element={<Knowledge />} />
         <Route path="/cockpit" element={<Cockpit />} />
         <Route path="/cockpit/:id" element={<Cockpit />} />
         <Route path="/market" element={<MarketHome />} />
         <Route path="/market/manage" element={<Market />} />
+        <Route path="/market/wb/:id" element={<WorkbenchDetail />} />
         <Route path="/sops" element={<Sops />} />
         <Route path="/sops/:slug" element={<SopSpace />} />
         <Route path="/sops/:slug/runs/:id" element={<SopRunDetail />} />

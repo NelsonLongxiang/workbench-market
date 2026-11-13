@@ -211,6 +211,10 @@ async function marketGet(url: string): Promise<{ status: number; body: unknown }
   } catch { return { status: 0, body: null }; }
 }
 export const getMarketWorkbenches = () => marketGet('/api/workbenches');
+/** 市场的连接器（MCP 上游）：只给管理员，页面只在管理员身份下才调 */
+export const getMarketConnectors = () => marketGet('/api/mcp/upstreams');
+/** 单个台的详情页（/market/wb/:id）：带状态码，让页面分「不在了」「没权限」「读不到」 */
+export const getMarketWorkbench = (id: number) => marketGet(`/api/workbenches/${id}`);
 export const getMarketSops = () => marketGet('/api/sops');
 export const getMarketSkills = () => marketGet('/api/skills');
 export const getMarketRunningSops = () => marketGet('/api/sop/runs/active');
