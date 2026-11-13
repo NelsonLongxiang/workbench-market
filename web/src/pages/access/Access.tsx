@@ -112,7 +112,7 @@ export default function Access() {
   const selected = matrix?.roles.find((r) => r.id === roleSel) ?? matrix?.roles[0] ?? null;
   const blocks = useMemo(() => new Map((matrix?.blocks ?? []).map((b) => [b.key, b.name])), [matrix]);
   const byLabel = (raw: unknown) => actorLabel(grantActorRaw(raw, people), '');
-  const scopeText = (s: string) => scopeLabel(s, blocks);
+  const scopeText = (s: string, name?: unknown) => scopeLabel(s, blocks, name);
   const pick = (t: AccessTab) => setParams(t === 'people' ? {} : { tab: t }, { replace: true });
 
   const columns: ColumnsType<Grant> = [
@@ -122,7 +122,7 @@ export default function Access() {
     } },
     { title: '谁', dataIndex: 'principal_id', render: (_v, g) => <span className="wm-acc-who"><b>{principalName(g.principal_id, people)}</b>{kindLabel(people.get(g.principal_id)?.kind) && <span className="wm-acc-kind">{kindLabel(people.get(g.principal_id)?.kind)}</span>}</span> },
     { title: '角色', dataIndex: 'role', render: (_v, g) => roleName(g.role, roles) },
-    { title: '范围', dataIndex: 'scope', render: (_v, g) => scopeText(g.scope) },
+    { title: '范围', dataIndex: 'scope', render: (_v, g) => scopeText(g.scope, g.scope_name) },
     { title: '期限', dataIndex: 'expires_at', render: (_v, g) => termLabel(g.expires_at, Date.now()) },
     { title: '谁给的', dataIndex: 'approved_by', render: (_v, g) => byLabel(g.approved_by ?? g.created_by) },
     { title: '负责人', dataIndex: 'principal_id', key: 'resp', render: (_v, g) => <span className={responsibleOf(g.principal_id, people) === '本人' ? 'wm-acc-muted' : ''}>{responsibleOf(g.principal_id, people)}</span> },
@@ -149,7 +149,7 @@ export default function Access() {
           : <ul className="wm-acc-mine-list">{mine.map((r, i) => (
             <li key={`${r.id}-${r.scope}-${i}`} data-testid="acc-mine-role">
               <b>{r.name}</b>
-              <span>{scopeText(r.scope)}</span>
+              <span>{scopeText(r.scope, r.scope_name)}</span>
               <span>{termLabel(r.expires_at, Date.now())}</span>
               {scopeNotYetEffective({ scope: r.scope, status: 'active' }) && <span className="wm-acc-note" title={SCOPE_PENDING}>尚未生效</span>}
             </li>
@@ -165,7 +165,7 @@ export default function Access() {
           <>
             <div className="wm-acc-sec"><h3>待你核准</h3><span className="wm-acc-n">{pending.length}</span></div>
             <div className="wm-acc-asks">{pending.map((g) => (
-              <PendingCard key={g.id} g={g} who={principalName(g.principal_id, people)} kind={kindLabel(people.get(g.principal_id)?.kind)} role={roleName(g.role, roles)} by={byLabel(g.created_by)} scope={scopeText(g.scope)} approval={approvalText(g.role, roles)} onDone={reload} />
+              <PendingCard key={g.id} g={g} who={principalName(g.principal_id, people)} kind={kindLabel(people.get(g.principal_id)?.kind)} role={roleName(g.role, roles)} by={byLabel(g.created_by)} scope={scopeText(g.scope, g.scope_name)} approval={approvalText(g.role, roles)} onDone={reload} />
             ))}</div>
           </>
         )}
