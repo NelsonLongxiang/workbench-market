@@ -527,13 +527,21 @@ with sync_playwright() as p:
         except Exception as e:
             record('类型管理 + 设置（控制面关闭·本机 CLI）', False, str(e))
 
-    # ---------- 11b. #292 M1 双面：业务面页面的管理写一律拒；控制面页面带口令可写 ----------
+    # ---------- 11b. 管理身份：11-02 起控制面开不开，业务面页面都凭口令管理写（带口令 201、不带口令 403）；控制面开着时核一下控制面地址 ----------
     try:
         page.goto(BASE + '/market', wait_until='domcontentloaded', timeout=30000)
         page.wait_for_load_state('networkidle', timeout=15000)
         if CTRL is None:
             record('M1 双面（单面旧实例，无此约束）', True)
-        elif TOKEN_MODE:
+        else:
+            # 11-02 属主撤销「管理写必须走控制面」以后：控制面开不开，业务面上凭口令都能管理写，不带口令被拒（两种模式同一组断言）
+            if CTRL:
+                # 控制面开着：页面给的控制面地址就是这一轮的控制面（和业务面不是同一个端口；跑器设了 WM_CONTROL_PORT 就核端口）
+                _cp = _os.environ.get('WM_CONTROL_PORT', '').strip()
+                _ctrl_port = CTRL.rsplit(':', 1)[-1]
+                assert _ctrl_port != BASE.rsplit(':', 1)[-1], f'控制面地址不该和业务面同一个端口: {CTRL!r}'
+                if _cp and _cp != '0':
+                    assert _ctrl_port == _cp, f'页面给的控制面地址 {CTRL!r} 应是这一轮的控制面端口 {_cp}'
             st, j = market_write()
             assert st == 201, f'业务面页面带口令管理写应 201: {st} {j}'
             api(page, 'DELETE', f"/api/workbenches/{j['id']}")
@@ -549,11 +557,7 @@ with sync_playwright() as p:
             page.locator('.wm-me-pop').get_by_role('button', name=_re_m1.compile(r'口\s*令')).first.wait_for()
             assert page.locator('.wm-me-pop').get_by_role('button', name=_re_m1.compile(r'口\s*令')).count() >= 1, '用户卡里应有口令入口'
             _me.click(); page.locator('[data-testid=wm-me][aria-expanded=false]').wait_for()  # 收起，免得挡后面的步骤
-            record('管理身份（未开控制面：业务面带口令写 201 / 不带口令 403 / 用户卡口令入口）', True)
-        else:
-            # 业务面给出了非空的控制面地址：11-02 属主撤销「管理写必须走控制面」以后不该再有（服务端已经没有 control_surface_required，
-            # 没设 WM_CONTROL_PORT 时也不开控制面）。原来这里验的是「业务面管理写 403 + 控制面地址」，是死代码，删了；真走到这里就报出来，不悄悄跳过
-            record('M1 双面', False, f'业务面给出了控制面地址 {CTRL!r}：11-02 起只有未开控制面这一种（凭口令在业务面管理），这一支的断言已删')
+            record('管理身份（' + ('控制面开着' if CTRL else '未开控制面') + '：业务面带口令写 201 / 不带口令 403 / 用户卡口令入口' + ('/ 控制面地址是这一轮的控制面端口' if CTRL else '') + '）', True)
     except Exception as e:
         record('M1 双面', False, str(e)); shot('m1-surfaces')
 
