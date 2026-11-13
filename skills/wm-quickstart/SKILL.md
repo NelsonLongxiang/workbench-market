@@ -1,6 +1,6 @@
 ---
 name: wm-quickstart
-version: 1.4.0
+version: 1.4.1
 description: 工作台市场·快速开始构建——builder/agent 视角 15 分钟从零建台：新台默认走数据视图（不写 HTML，见 wm-data-views），登记外部工作台、发布自产台（台的仓库 main + app_sync）、文件/数据双通道、交付空间模式、发布纪律（仓库 PR → main → app_sync）、三闸。当需要「在市场上建一个台」「发布页面/交付物」「自产台怎么上线」时加载。
 ---
 
@@ -88,6 +88,6 @@ fetch('/api/apps/<slug>/data', { headers: { 'X-App-Token': window.WM_APP_TOKEN }
 
 1. **环境注入不分叉源码**：页面读可选 `window.XX_ENV`（根路径/外链/内联资产），仓库内直开用默认值
 2. **内联打包**：样式与脚本按原加载顺序内联进 `index.html`；校验脚本无 `</script`、样式无 `</style`；独立页（弹窗报告）作第二个文件
-3. **本地预跑门禁 → 发布后冒烟**：空文件/div 配对/≤64 文件/≤100MB/路径合法，不通过不发；发布后 CDP 冒烟（数据量/样式/图片/弹窗 postMessage/无脚本异常·`/apps/<slug>/`、`/go/<id>/`、`file://` 各一遍）
+3. **本地预跑门禁 → 发布后冒烟**：空文件/div 配对/≤64 文件/单台合计 ≤100MB/路径合法，不通过不合进 main；发布后 CDP 冒烟（数据量/样式/图片/弹窗 postMessage/无脚本异常·`/apps/<slug>/`、`/go/<id>/`、`file://` 各一遍）
 
-> 发布门禁细节：div 配对按**正则计数整个 .html**（内联 JS 模板串里的 `<div` 也算）；v1 只收 UTF-8 文本——图片用 base64 `data:` URI 内联（体积 ×1.33，计入 2MB）。
+> 发布门禁细节：div 配对按**正则计数整个 .html**（内联 JS 模板串里的 `<div` 也算）；v1 只收 UTF-8 文本——图片用 base64 `data:` URI 内联（体积 ×1.33，计入单台 100MB 总量）。这些门禁在 `app_sync` 从仓库 main 拉内容时照样执行：最多 64 个文件、单台合计 ≤100MB、空文件拒收、HTML 的 div 开闭要配对、比前一版体积骤降一半以上拒收（确是有意精简时带 `force`）。
