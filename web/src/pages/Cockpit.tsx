@@ -13,11 +13,13 @@ import WmPage from '../components/WmPage';
 import CockpitFrame from '../components/cockpit/CockpitFrame';
 import { AttentionPane, ItemsPane, ProcessPane } from '../components/cockpit/SidePanes';
 import ArrangeDrawer from '../components/ArrangeDrawer';
-import BenchViewPanel from '../components/cockpit/BenchViewPanel';
+import BenchViewTab from '../components/cockpit/BenchViewTab';
+import BenchViewManage from '../components/cockpit/BenchViewManage';
 import { benchViewRefs, isBenchViewPanel, itemsTabLabel, mainTabKeys, refsOfTab } from '../cockpit-frame-view';
 
 /** 驾驶舱写（/api/cockpits）是管理写：不是管理员（口令或 Odoo 管理员）时只读，隐藏新建/删除/改名/加移面板，网格不可拖拽 */
 const READ_ONLY_HINT = '编辑驾驶舱需要管理员：在顶栏输入管理员口令，或用 Odoo 管理员账号登录。';
+const NO_PICKS: Record<string, string> = {};
 
 
 function PanelHeadActions(props: { wid: number; url?: string; onRefresh: () => void; onRemove?: () => void }) {
@@ -60,6 +62,10 @@ export default function Cockpit() {
   const [picked, setPicked] = useState<string | null>(null);
   const [rightTab, setRightTab] = useState<string | null>(null);
   const [arrange, setArrange] = useState(false);
+  const [viewsOpen, setViewsOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  // 数据视图那排共用筛选里人选的值：一个驾驶舱一份，「看板」「明细」共用；只在这一页的内存里
+  const [viewPicks, setViewPicks] = useState<Record<number, Record<string, string>>>({});
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const submitRename = async () => {
@@ -282,11 +288,12 @@ export default function Cockpit() {
         >
           加待办卡
         </Button>}
+        {!READ_ONLY && <Button onClick={() => { setEditOpen(false); setViewsOpen(true); }} data-testid="ck-bv-manage">数据视图</Button>}
     </Flex>
   );
   // 顶上右边：「就这个安排一件事」（原型）；管理员另有「编辑」（改名、加面板），不常驻
   const extra = <>
-    {!READ_ONLY && <Popover trigger="click" placement="bottomRight" content={editPanel}>
+    {!READ_ONLY && <Popover trigger="click" placement="bottomRight" content={editPanel} open={editOpen} onOpenChange={setEditOpen}>
       <Button icon={<EditOutlined />} data-testid="ck-edit">编辑</Button>
     </Popover>}
     <Button type="primary" icon={<PlusOutlined />} onClick={() => setArrange(true)} data-testid="ck-arrange">就这个安排一件事</Button>
@@ -357,12 +364,13 @@ export default function Cockpit() {
         left={{ id: 'attention', tabs: [{ key: 'attention', label: '等你拍板', count: attentionCount, content: <AttentionPane onCount={setAttentionCount} picked={picked} onPick={(id) => { setPicked(id); setRightTab('process'); }} /> }] }}
         main={{ id: 'board', tabs: mainTabKeys(refs, panels.length).map((k) => (k === 'benches'
           ? { key: 'benches', label: '工作台', content: board }
-          : { key: k, label: k === 'board' ? '看板' : '明细', content: <>{refsOfTab(refs, k).map((x) => <BenchViewPanel key={x.i} refItem={x} />)}</> })) }}
+          : { key: k, label: k === 'board' ? '看板' : '明细', content: <BenchViewTab key={k} refs={refsOfTab(refs, k)} chosen={viewPicks[active.id] ?? NO_PICKS} onChosen={(next) => setViewPicks((cur) => ({ ...cur, [active.id]: next }))} /> })) }}
         right={{ id: 'items', active: rightTab, onTab: setRightTab, tabs: [
           { key: 'process', label: '办理过程', content: <ProcessPane itemId={picked} /> },
           { key: 'items', label: itemsTabLabel(itemsView, ADMIN), content: <ItemsPane onView={setItemsView} /> },
         ] }} />
       <ArrangeDrawer open={arrange} onClose={() => setArrange(false)} />
+      {!READ_ONLY && <BenchViewManage cockpit={active} open={viewsOpen} onClose={() => setViewsOpen(false)} onSaved={listReq.refresh} />}
     </WmPage>
   );
 }
