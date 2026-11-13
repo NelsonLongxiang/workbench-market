@@ -95,8 +95,9 @@ export class WorkbenchService extends Service {
   typeUsageCount(key: string) {
     return db.prepare('SELECT COUNT(*) AS n FROM workbenches WHERE type = ?').get(key);
   }
-  deleteByAppUrls(appUrl: string, sopUrl: string) {
-    return db.prepare(`DELETE FROM workbenches WHERE (url = ? OR url = ?) AND type = 'market-app'`).run(appUrl, sopUrl);
+  /** 一个台登记的卡片（删台时逐张走删卡片那条路：台库、常量变量、驾驶舱面板一起处理） */
+  idsByAppUrls(appUrl: string, sopUrl: string) {
+    return (db.prepare(`SELECT id FROM workbenches WHERE (url = ? OR url = ?) AND type = 'market-app' ORDER BY id`).all(appUrl, sopUrl) as { id: number }[]).map((r) => r.id);
   }
   setEnabledByUrl(enabled: number, url: string) {
     return db.prepare(`UPDATE workbenches SET enabled = ${enabled}, updated_at = datetime('now') WHERE url = ? AND type = 'market-app'`).run(url);

@@ -12,6 +12,8 @@
  *   五、视图台页面的入口 GET /api/bench-views/:bench/entry：写卡片 id 拿到台名、版本、默认视图、各视图的键和标题；
  *       读不到的、不存在的、卡片没有台的、还没有视图描述的，应答逐字一样（404 bench_not_found）；没登录 401
  *   五之二、取数时表单块带 can_submit：管理层 true；只授了「取数、读视图」的自定义角色 false（这时交表单确实 403）；不是表单的块不带
+ *   四之二、删台（DELETE /api/apps/:slug）也走同一道门、同一条路：台的卡片的台库有数据时，只有管理口令的 409、什么都没删（台、卡片、台库都在）；
+ *       属主不带确认 409、带了确认删成——卡片、台的登记、常量变量、驾驶舱面板一起没了，台库删前备份；台库空的台照旧直接删，卡片的常量变量也一起删（原来留成孤儿）
  *   六、（阶段一复验补的）台库里只有视图描述也算有数据；本机浏览器页面不是属主；同名旧库还在时不许登记；
  *       纯数字标识的旧台：数字写法照旧认到它，同号卡片不许对应别的台（只许对应它自己），启动时报出来
  *
@@ -212,6 +214,40 @@ try {
   const ownerNo = await srv.call('DELETE', `/api/workbenches/${W5}`, {});
   const ownerYes = await srv.call('DELETE', `/api/workbenches/${W5}?confirm_bench_data=true`, {});
   check(ownerNo.status === 409 && ownerNo.json?.code === 'bench_data_confirm_required' && ownerYes.status === 200 && ownerYes.json?.bench?.slug === `wb-${W5}`, '本机命令行（属主）：不带确认 409，查询串带确认删得了', { no: ownerNo.text.slice(0, 120), yes: ownerYes.text.slice(0, 160) });
+  console.log('四之二、删台');
+  // 合成的台：直接往主库写台和它的卡片（不经发布，没有远端项目）
+  const mkApp = (slug) => {
+    db.prepare('INSERT INTO apps (slug, title) VALUES (?, ?)').run(slug, `合成·${slug}`);
+    return Number(db.prepare("INSERT INTO workbenches (name, url, type, enabled) VALUES (?, ?, 'market-app', 1)").run(`合成·${slug}`, `/apps/${slug}/`).lastInsertRowid);
+  };
+  const WA = mkApp('syn-del-a'), WB = mkApp('syn-del-b'), WC = mkApp('syn-del-c');
+  for (const w of [WA, WC]) { await bv(boss, 'POST', '', { workbench_id: w }); await defineDs(w); await rows(boss, w, [{ id: 1, hidden_col: '台里的数据' }]); }
+  for (const w of [WA, WB]) await srv.call('PUT', `/api/workbenches/${w}/vars/k`, { ...token, body: { value: 1 } });
+  const ckA = await srv.call('POST', '/api/cockpits', { ...token, body: { name: '合成·删台驾驶舱', panels: [{ kind: 'bench-view', bench: `wb-${WA}`, view: 'board', tab: 'board' }, { kind: 'bench-view', bench: 'legacy-a', view: 'board', tab: 'board' }] } });
+  const appDel = (opts, slug, q = '') => srv.call('DELETE', `/api/apps/${slug}${q}`, { ...opts, body: { reviewed_by: '合成审核人' } });
+  const left = (slug, w) => ({ app: !!db.prepare('SELECT 1 FROM apps WHERE slug = ?').get(slug), card: !!db.prepare('SELECT 1 FROM workbenches WHERE id = ?').get(w), bench: !!db.prepare('SELECT 1 FROM bench_views WHERE workbench_id = ?').get(w), vars: db.prepare('SELECT COUNT(*) AS n FROM workbench_vars WHERE workbench_id = ?').get(w).n });
+  const byToken = await appDel(token, 'syn-del-a');
+  const afterToken = left('syn-del-a', WA);
+  check(byToken.status === 409 && byToken.json?.code === 'bench_data_needs_management' && afterToken.app && afterToken.card && afterToken.bench && afterToken.vars === 1, '删台：卡片的台库有数据，只有管理口令的 409，什么都没删（台、卡片、台库、常量变量都在）', { status: byToken.status, body: byToken.text.slice(0, 160), afterToken });
+  const appOwnerNo = await appDel({}, 'syn-del-a');
+  const appOwnerYes = await appDel({}, 'syn-del-a', '?confirm_bench_data=true');
+  const afterOwner = left('syn-del-a', WA);
+  const ckPanels = JSON.parse(db.prepare('SELECT layout_config FROM cockpits WHERE id = ?').get(ckA.json?.id)?.layout_config ?? '[]');
+  check(appOwnerNo.status === 409 && appOwnerNo.json?.code === 'bench_data_confirm_required' && appOwnerYes.status === 200 && !afterOwner.app && !afterOwner.card && !afterOwner.bench && afterOwner.vars === 0 && readdirSync(deletedDir).some((f) => f.startsWith(`wb-${WA}--`)) && !existsSync(join(srv.data, 'bench-stores', `wb-${WA}.sqlite`)) && ckPanels.length === 1 && ckPanels[0].bench === 'legacy-a',
+    '删台：属主不带确认 409；带了确认删成——台、卡片、台的登记、常量变量、驾驶舱面板一起没了，台库删前留了备份、库文件删了', { no: appOwnerNo.text.slice(0, 120), yes: appOwnerYes.text.slice(0, 120), afterOwner, ckPanels });
+  const plainDel = await appDel(token, 'syn-del-b');
+  const afterPlain = left('syn-del-b', WB);
+  check(plainDel.status === 200 && !afterPlain.app && !afterPlain.card && afterPlain.vars === 0, '删台：卡片没有台库的照旧直接删（管理口令就行），卡片的常量变量也一起删了（原来留成孤儿）', { status: plainDel.status, afterPlain });
+
+  // 经人审批准删台（变更申请）：同一道门——只有管理口令的批准 409、申请仍待定、什么都没删；属主批准并带确认才删成
+  const crId = Number(db.prepare("INSERT INTO change_requests (kind, slug, op, reason, requested_by) VALUES ('app', 'syn-del-c', 'delete', '合成的申请理由', 'mcp:synthetic')").run().lastInsertRowid);
+  const crToken = await srv.call('POST', `/api/change-requests/${crId}/approve`, { ...token, body: { reviewed_by: '合成审核人' } });
+  const afterCr = { ...left('syn-del-c', WC), status: db.prepare('SELECT status FROM change_requests WHERE id = ?').get(crId).status };
+  const crOwner = await srv.call('POST', `/api/change-requests/${crId}/approve`, { headers: { 'x-admin-token': ADMIN_TOKEN }, body: { reviewed_by: '合成审核人', confirm_bench_data: true } }); // 本机命令行带口令（批准入口要口令）＝属主
+  const afterCrOwner = left('syn-del-c', WC);
+  check(crToken.status === 409 && crToken.json?.code === 'bench_data_needs_management' && afterCr.app && afterCr.card && afterCr.bench && afterCr.status === 'pending' && crOwner.status === 200 && !afterCrOwner.app && !afterCrOwner.card && !afterCrOwner.bench,
+    '经人审批准删台：只有管理口令的批准 409（申请仍待定，什么都没删）；属主批准并带确认删成', { token: crToken.text.slice(0, 160), afterCr, owner: crOwner.text.slice(0, 160), afterCrOwner });
+
   console.log('六、阶段一复验补的');
   const W6 = await mkWb('合成·只有视图', 'w6'), W7 = await mkWb('合成·本机页面删', 'w7'), W8 = await mkWb('合成·同号', 'w8');
   // 只有视图描述、没有数据集
