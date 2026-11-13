@@ -2,6 +2,8 @@
 
 > 派单 direct-8e2d9bc3（总工程师）· 依赖 **dsh-open-a2a-net PR#32**（OPEN，fix-required 轮，未合并）。
 > 本文只读研究产物：不写实现，字段名以 #32 实际 diff 为准；#32 合并后若有微调，本文随改。
+>
+> 补记（2026-11-13）：A2A 源的适配器已在 main 上（`server/src/tasks.ts` 的 `fetchA2aTasks`，配了 `A2A_STATE_URL` 才启用，读权限见 [tasks-read-authority-324.md](tasks-read-authority-324.md)）。下文按 `/tasks` 页写的界面部分已过时：那个页面和驾驶舱的「统一待办」卡在 #664 退役，只剩接口 `GET /api/tasks`。
 
 ## 一、上游 API 形状（PR#32 实测证据）
 
