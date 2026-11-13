@@ -83,12 +83,14 @@ try {
   {
     const db = new DatabaseSync(join(data, 'workbench-market.db'));
     const now = Date.now();
-    db.prepare('INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?)').run(HOST, PEER, 'zone1', new Date(now).toISOString(), new Date(now).toISOString());
+    // 名册存在 a2a_roster_nodes / a2a_roster_node_seats（以根地址和完整指纹为键）；指纹和下面对端登记的一致（合成的，节点号补零到 64 位）
+    const FP = 'sha256:' + (HOST + '0'.repeat(64)).slice(0, 64);
+    db.prepare('INSERT INTO a2a_roster_nodes (host, peer_root, key_fingerprint, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?, ?)').run(HOST, PEER, FP, 'zone1', new Date(now).toISOString(), new Date(now).toISOString());
     // 团队归属绑节点时要对端登记（启用、带指纹，合成的）；没有这条规则的版本上多一行也不碍事
-    db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, key_fingerprint, registered_by, registered_at, updated_at) VALUES ('peer-rem', ?, 'zone1', '', 'active', 'sha256:' || ?, 'seed', '0', '0')").run(PEER, HOST);
-    const seatIns = db.prepare('INSERT INTO a2a_roster_seats (host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)');
-    seatIns.run(HOST, TEAM, 'zone1/0000000a', 'seat-0000000a', '合成总工', 'router', now, now);
-    seatIns.run(HOST, VACANT, 'zone1/0000000d', 'seat-0000000d', '合成别队', 'router', now, now);
+    db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, key_fingerprint, registered_by, registered_at, updated_at) VALUES ('peer-rem', ?, 'zone1', '', 'active', ?, 'seed', '0', '0')").run(PEER, FP);
+    const seatIns = db.prepare('INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES (?7, ?8, ?1, ?2, ?3, ?4, ?5, ?6, 1, 0, ?9, ?10)');
+    seatIns.run(HOST, TEAM, 'zone1/0000000a', 'seat-0000000a', '合成总工', 'router', PEER, FP, now, now);
+    seatIns.run(HOST, VACANT, 'zone1/0000000d', 'seat-0000000d', '合成别队', 'router', PEER, FP, now, now);
     // 十：登录名和主体标识对不上。登录名 no-flag 绑在 user:bob-synth 名下；主体 user:no-flag 另有其人（登录名 truthy-flag）。
     // 账上 odoo:no-flag 答过 v5——答的人是 user:bob-synth，不是 user:no-flag
     const person = db.prepare("INSERT INTO principals (id, id_key, kind, display_name) VALUES (?, ?, 'person', ?)");
