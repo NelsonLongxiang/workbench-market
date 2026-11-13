@@ -76,6 +76,8 @@
       "GET /api/bench-views/:bench/log  -> bench-store.log-list  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "GET /api/knowledge  -> knowledge.list  read  （状态码不代表授权：按条目的范围判：全公司的认业务的看，部门的认这个部门范围的授予，只给管理层的认拍板类；看不到的和不存在的一样回 404）",
       "GET /api/knowledge/status  -> knowledge.sync-status  admin",
+      "GET /api/knowledge/project-depts  -> knowledge.project-depts  decide",
+      "PUT /api/knowledge/project-depts  -> knowledge.project-depts  decide",
       "GET /api/knowledge/:key  -> knowledge.read  read  （状态码不代表授权：按条目的范围判：全公司的认业务的看，部门的认这个部门范围的授予，只给管理层的认拍板类；看不到的和不存在的一样回 404）",
       "GET /api/auth/viewer  -> auth.viewer  read  （状态码不代表授权：回答「你是谁」：没登录 401、门户账号 403，是认人的结果不是授权）",
       "GET /api/principals/pending  -> principal.list-pending  admin",
@@ -408,6 +410,7 @@
           "health.read",
           "health.ready",
           "judgment.report",
+          "knowledge.sync-status",
           "login.begin",
           "login.page",
           "market.export",
@@ -634,6 +637,127 @@
         "action": "sop-run.files",
         "why": "列文件时给还没算过的文件懒补 sha256 并写回"
       }
+    ],
+    "asked": [
+      {
+        "action": "bench-store.bench-bind",
+        "global": "decide",
+        "dept": null
+      },
+      {
+        "action": "bench-store.bench-create",
+        "global": "write",
+        "dept": "decide"
+      },
+      {
+        "action": "bench-store.bench-link",
+        "global": "write",
+        "dept": null
+      },
+      {
+        "action": "bench-store.bench-list",
+        "global": "write",
+        "dept": "write"
+      },
+      {
+        "action": "bench-store.dataset-define",
+        "global": "write",
+        "dept": "write"
+      },
+      {
+        "action": "bench-store.dataset-list",
+        "global": "write",
+        "dept": "write"
+      },
+      {
+        "action": "bench-store.form-submit",
+        "global": "write",
+        "dept": "write"
+      },
+      {
+        "action": "bench-store.log-list",
+        "global": "write",
+        "dept": "write"
+      },
+      {
+        "action": "bench-store.mcp-decide",
+        "global": "decide",
+        "dept": "decide"
+      },
+      {
+        "action": "bench-store.mcp-grant",
+        "global": "decide",
+        "dept": "decide"
+      },
+      {
+        "action": "bench-store.mcp-list",
+        "global": "write",
+        "dept": "write"
+      },
+      {
+        "action": "bench-store.query",
+        "global": "write",
+        "dept": "write"
+      },
+      {
+        "action": "bench-store.render",
+        "global": "write",
+        "dept": "write"
+      },
+      {
+        "action": "bench-store.rows-write",
+        "global": "write",
+        "dept": "write"
+      },
+      {
+        "action": "bench-store.snapshot-list",
+        "global": "write",
+        "dept": "write"
+      },
+      {
+        "action": "bench-store.snapshot-restore",
+        "global": "write",
+        "dept": "write"
+      },
+      {
+        "action": "bench-store.snapshot-take",
+        "global": "write",
+        "dept": "write"
+      },
+      {
+        "action": "bench-store.view-diff",
+        "global": "write",
+        "dept": "write"
+      },
+      {
+        "action": "bench-store.view-get",
+        "global": "write",
+        "dept": "write"
+      },
+      {
+        "action": "bench-store.view-put",
+        "global": "write",
+        "dept": "write"
+      },
+      {
+        "action": "bench-store.view-rollback",
+        "global": "write",
+        "dept": "write"
+      },
+      {
+        "action": "bench-store.view-versions",
+        "global": "write",
+        "dept": "write"
+      },
+      {
+        "action": "knowledge.read",
+        "global": "read",
+        "dept": "read"
+      }
+    ],
+    "selfDecided": [
+      "work-items.accept",
+      "work-items.asks-answer"
     ]
   },
   "domains": {

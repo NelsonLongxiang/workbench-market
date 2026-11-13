@@ -799,6 +799,12 @@ CREATE TABLE IF NOT EXISTS principal_pending (
   PRIMARY KEY (provider, external_id)
 );
 `);
+// 由市场维持的登录提供方会话（用 Odoo 这类身份来源登录的人）：upstream_sealed 是发会话时浏览器带来的提供方会话凭据，加密存放
+//   （AES-256-GCM，密钥是数据目录里的 .wm-login-session.key，不在库里），市场照旧拿它去问提供方这个人还在不在；
+//   不给页面、不进日志；会话注销、到期、主体停用时清空（services/login-session.ts）。普通的市场会话（比如飞书）这一列是空的
+if (!hasColumn('market_sessions', 'upstream_sealed')) db.exec('ALTER TABLE market_sessions ADD COLUMN upstream_sealed TEXT');
+// 来源轮换过几次（市场跟着换了存下的会话号）：诊断用——轮换之后又被来源否掉的，日志里会标出来
+if (!hasColumn('market_sessions', 'upstream_renewals')) db.exec('ALTER TABLE market_sessions ADD COLUMN upstream_renewals INTEGER NOT NULL DEFAULT 0');
 // 阶段六 6b：授予（谁有哪个角色）。角色本身是声明（server/src/roles.ts），这里只放数据。
 //   grants：主体、角色、范围、期限、理由、起草人、放行人、状态。状态只有五种，只能往前走：
 //     draft 草稿 → pending 待核 → active 生效 → revoked 撤销 或 expired 过期；草稿和待核也可以直接撤销（作废、驳回）。
@@ -1358,6 +1364,22 @@ CREATE TABLE IF NOT EXISTS knowledge_sync (
 CREATE TABLE IF NOT EXISTS knowledge_meta (
   k TEXT PRIMARY KEY,
   v TEXT NOT NULL
+);
+-- 经验库的「项目 → 部门」对照：ygl-trees 给了项目、没给范围的条目（比如依据），按这里对到的部门当部门级；对不上的只给管理层。
+--   改它等于改谁能看：只有管理层、属主改（拍板类，系统管理员不行），每次改记一行到 knowledge_project_dept_log。
+CREATE TABLE IF NOT EXISTS knowledge_project_depts (
+  project TEXT PRIMARY KEY,
+  department_id TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS knowledge_project_dept_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project TEXT NOT NULL,
+  old_department TEXT,
+  new_department TEXT,
+  actor TEXT NOT NULL,
+  at INTEGER NOT NULL
 );
 `);
 // 阶段八 8d：待对接清单的「出现序号」。同一条外部身份绑定后又出现在清单里，是新的一轮待决；「关注」的记账按它分轮，

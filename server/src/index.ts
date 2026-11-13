@@ -9,6 +9,7 @@ import { createLoginGate, loginGateMode, trustedProxies } from './login-gate.ts'
 import { identity, loginRelay, sourceDown } from './identity.ts';
 import { requestPerson, hasLoginCredential } from './request-person.ts';
 import { countSubmission, countSubmitterTicket } from './services/submission-counts.ts';
+import { sealSelfCheck } from './services/login-session.ts';
 import { serveAppHtml } from './app-html.ts';
 import { initSubmitterTickets, issueSubmitterTicket, selfCheckSubmitterTickets, submitterFromTicket } from './submitter-ticket.ts';
 import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
@@ -126,6 +127,7 @@ import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, redisConfigured, runStateRestore, runStateRead, runStateRetire, type RunStateRead } from './redis.ts';
 import { createRunCheckpoints } from './sop-state-checkpoints.ts';
 import { duplicateNode8s } from './services/a2a-handles.ts';
+import { adminTokenFromEnv, envAdminTokenFingerprint } from './admin-token-env.ts';
 import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, memberProvenanceMode, setMemberProvenance, progressReceiptsMode, setProgressReceipts, teamRosterMode, setTeamRoster, directedSeatsMode, setDirectedSeats, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
 import type { IncomingMessage } from 'node:http';
 import { a2aHealth } from './a2a/health.ts';
@@ -145,7 +147,7 @@ let judgmentEnforce: EnforceConfig = { domains: null };
 {
   let cfg: ReturnType<typeof compareConfig>;
   try { cfg = compareConfig(); } catch (e) { console.error(`[judgment] 拒绝启动：${(e as Error).message}`); process.exit(1); }
-  const compareDeps = { adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), skip: isStartupProbeRequest, facts: () => ({ adminTokenSet: !!process.env.ADMIN_TOKEN || dbAdminTokenSet() }) };
+  const compareDeps = { adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), skip: isStartupProbeRequest, facts: () => ({ adminTokenSet: adminTokenFromEnv() || dbAdminTokenSet() }) };
   const actorOf = actorResolver(compareDeps);
   mountJudgmentCompare(app, cfg, compareDeps, actorOf);
   // 阶段六 6d：判定切换的开关（WM_JUDGMENT_ENFORCE，缺省空 = 不切）。要在注册任何路由之前装门；写法不对、比对没开：拒绝启动
@@ -197,14 +199,21 @@ const loginGate = createLoginGate({
   mode: LOGIN_GATE_MODE,
   dataDir,
   adminTokenCheck: (t) => adminTokenCheck(t),
-  adminTokenFingerprint: () => process.env.ADMIN_TOKEN
-    ? createHash('sha256').update('env|' + process.env.ADMIN_TOKEN, 'utf8').digest('hex')
+  adminTokenFingerprint: () => adminTokenFromEnv()
+    ? envAdminTokenFingerprint()
     : String((svc<SettingService>('setting').get(ADMIN_TOKEN_KEY) as { value: string } | undefined)?.value ?? ''),
   odooViewer: async (cookie, fresh) => {
     if (!identity().configured() && !identity().hasSession(cookie)) return null; // 没配身份来源时，只有市场会话还可能认得出人
     const who = fresh ? await identity().resolveViewer(cookie) : await loginGateViewer(cookie); // 只认内部员工（门户账号 403）
     if (!who.ok) return who.held ? { held: true as const } : sourceDown(who) ? { down: true as const } : null; // 卡在主体那一步：登录门给等待页；身份来源不可达：接口回 502 identity_unavailable
     return { login: who.viewer.login, admin: who.viewer.admin, ...(who.via === 'session' ? { via: 'session' as const } : {}) };
+  },
+  // Odoo 刚认出来的人：由市场维持会话（期限 WM_SESSION_TTL_MIN）。回答取自上面那份 30 秒缓存，不多问一次 Odoo
+  openSession: async (req) => {
+    const cookie = String(req.headers.cookie ?? '');
+    const who = await loginGateViewer(cookie);
+    if (!who.ok || who.via === 'session') return null;
+    return identity().openSession(cookie, who, SESSION_TTL_MIN * 60_000);
   },
   loginFlows: () => identity().flows(),
   profile: async (req) => {
@@ -507,6 +516,8 @@ const REMOTE_ALLOW_PREFIX = [
   // 数据视图的入口（开关关着时每条都回 404）：路由内自己判——先拒管理口令，再经身份服务认人、问判定，只有管理层和范围是「全部」的授予放行。
   // 这道门要的恰恰是管理口令，而这组路由不认管理口令，所以登记在这里
   /^\/api\/bench-views(\/[a-z0-9][a-z0-9-]{0,63}(\/[a-z0-9_/-]{1,160})?)?$/,
+  // 经验库的「项目 → 部门」对照：管理层、属主改（他们大多不是管理员；系统管理员、管理口令反而不行）。路由内认人、核同源、按拍板类问判定；只此一条路径
+  /^\/api\/knowledge\/project-depts$/,
 ];
 
 // S3 豁免面可观测（评审席裁下批·PR#72 真事故锚）：启动时快照+diff——安全清单变更不再无声
@@ -565,7 +576,7 @@ const ODOO_ADMIN_TTL_MS = 30_000;
 const odooAdminViewer = identity().cachedResolver({ ttlMs: ODOO_ADMIN_TTL_MS, max: 1000 });
 const odooAdminReqs = new WeakMap<express.Request, string>(); // 本次请求经 Odoo 管理员认定 → 登录名
 async function odooAdminOf(cookieHeader: string): Promise<string | null> {
-  if (!identity().credentialOf(cookieHeader)) return null;
+  if (!identity().hasCredential(cookieHeader)) return null; // Odoo 会话，或者由市场维持的会话（管理员标记取 Odoo 这次的回答）
   try {
     // Explicit relay logout revokes Odoo sessions; never reuse a stale admin verdict.
     const who = loginRelay().relayLogin() ? await identity().resolveViewer(cookieHeader) : await odooAdminViewer(cookieHeader);
@@ -576,7 +587,7 @@ async function odooAdminOf(cookieHeader: string): Promise<string | null> {
 async function markOdooAdmin(req: express.Request): Promise<void> {
   if (odooAdminReqs.has(req) || surfaceOf(req) === 'content' || adminTokenCheck(req.headers['x-admin-token'])) return;
   const cookie = String(req.headers.cookie ?? '');
-  if (!identity().credentialOf(cookie)) return;
+  if (!identity().hasCredential(cookie)) return;
   const login = await odooAdminOf(cookie);
   if (login) odooAdminReqs.set(req, login);
 }
@@ -2670,7 +2681,7 @@ function dbAdminTokenOk(provided: string | undefined): boolean {
 }
 /** 口令校验：env 优先（启动环境注入），否则库内 sha256 */
 function adminTokenCheck(provided: string | undefined): boolean {
-  return process.env.ADMIN_TOKEN ? adminTokenOk(provided) : dbAdminTokenOk(provided);
+  return adminTokenFromEnv() ? adminTokenOk(provided) : dbAdminTokenOk(provided);
 }
 
 /** 管理员：有效口令，或本次请求已认定为 Odoo 管理员（见上方预判中间件） */
@@ -3879,7 +3890,7 @@ const goServer = registerSurface(app, 'market', PORT, () => {
 const controlServer = SURFACE_PORTS.control ? registerSurface(app, 'control', SURFACE_PORTS.control) : undefined;
 if (contentCfg && contentRuntime) listenContentSurface(app, contentCfg, contentRuntime, () => startupSecurity.snapshot().passed);
 
-void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, benchViews: BENCH_VIEWS.on, outbound: outboundOff() ? verifyOutboundGate : undefined }).then((result) => {
+void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, benchViews: BENCH_VIEWS.on, outbound: outboundOff() ? verifyOutboundGate : undefined, sessionSeal: sealSelfCheck }).then((result) => {
   if (!result.passed) return refuseUnsafeStartup();
   startupPassed(); // 放开启动闸：事项回填这类后台任务从这里开始（自检没过不开始）
   startRedis();

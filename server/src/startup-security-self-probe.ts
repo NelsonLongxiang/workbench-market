@@ -8,7 +8,7 @@ export const isStartupProbeRequest = (req: IncomingMessage): boolean => internal
 type Row = { id: string; surface: 'market' | 'control'; method: string; path: string; verdict: 'pass' | 'fail' | 'warn' | 'skip'; status: number | null; reason: string | null };
 type State = { passed: boolean; failed: string[]; at: string | null; rows: Row[] };
 type Target = { port: number; surface: 'market' | 'control' };
-type Options = { market: Server; control?: Server; gatewayOn: boolean; nodeEnv?: string; loginGate?: 'enforce' | 'off'; appDataRead?: 'enforce' | 'warn'; sopRunWrite?: 'enforce' | 'warn'; benchViews?: boolean; outbound?: () => Promise<{ ok: boolean; reason: string | null }> };
+type Options = { market: Server; control?: Server; gatewayOn: boolean; nodeEnv?: string; loginGate?: 'enforce' | 'off'; appDataRead?: 'enforce' | 'warn'; sopRunWrite?: 'enforce' | 'warn'; benchViews?: boolean; outbound?: () => Promise<{ ok: boolean; reason: string | null }> ; sessionSeal?: () => { ok: boolean; reason: string | null } };
 /** Login-gate rows impersonate a remote anonymous browser behind a same-host proxy, so the local-CLI exemption cannot apply. */
 const REMOTE_ANON = { 'x-forwarded-for': '192.0.2.1', accept: 'text/html' };
 
@@ -83,7 +83,7 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
     });
   }
 
-  async function execute({ market, control, gatewayOn, nodeEnv, loginGate = 'off', appDataRead = 'enforce', sopRunWrite = 'enforce', benchViews = false, outbound }: Options): Promise<State> {
+  async function execute({ market, control, gatewayOn, nodeEnv, loginGate = 'off', appDataRead = 'enforce', sopRunWrite = 'enforce', benchViews = false, outbound, sessionSeal }: Options): Promise<State> {
     const [m, c] = await Promise.all([listener(market), listener(control)]);
     if (c) c.surface = 'control';
     const table = [
@@ -126,6 +126,8 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       // L19：授予的放行经写请求总门放行、路由内认人，远程匿名来必须 401（能不能放行再由三档规则判）
       // 经验库：远程匿名列不出条目（路由自己认人，登录门开着时登录门先拦，都是 401）
       { id: 'market.knowledge.anonymous-read', target: m, surface: 'market', method: 'GET', path: '/api/knowledge', headers: REMOTE_ANON, status: 401 },
+      // 经验库的「项目 → 部门」对照经写请求总门放行、路由内认人：远程匿名来改必须 401（能不能改再按拍板类问判定）
+      { id: 'market.knowledge.project-depts-anonymous-write', target: m, surface: 'market', method: 'PUT', path: '/api/knowledge/project-depts', body: '{"project":"wm-self-probe","department":null}', origin: true, headers: REMOTE_ANON, status: 401 },
       { id: 'market.grants.approve-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/grants/1/approve', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
       // 团队的改派经写请求总门放行、路由内认人，远程匿名来必须 401（能不能改派再由团队负责人的判法判）。键的写法要合法，否则先回 400
       { id: 'market.teams.reassign-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/teams/reassign', body: '{"host":"00000000","team":"","seat":"selfprobe/00000000","principal":"user:selfprobe"}', origin: true, headers: REMOTE_ANON, status: 401 },
@@ -177,6 +179,14 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
     if (outbound) {
       const g = await outbound();
       const row: Row = { id: 'market.outbound.disconnected', surface: 'market', method: 'CONNECT', path: '192.0.2.1:9', verdict: g.ok ? 'pass' : 'fail', status: null, reason: g.ok ? 'outbound-off' : g.reason };
+      state.rows.push(row);
+      log({ source: 'self-probe', ...row });
+    }
+    // 由市场维持的登录会话存着身份来源的会话号（等同凭据）：加密能往返、密文里看不出原文、改过的解不开、密钥文件权限 600。不过就拒绝启动
+    if (sessionSeal) {
+      let g: { ok: boolean; reason: string | null };
+      try { g = sessionSeal(); } catch { g = { ok: false, reason: 'error' }; }
+      const row: Row = { id: 'market.login-session.upstream-sealed', surface: 'market', method: 'LOCAL', path: 'market_sessions.upstream_sealed', verdict: g.ok ? 'pass' : 'fail', status: null, reason: g.ok ? null : g.reason };
       state.rows.push(row);
       log({ source: 'self-probe', ...row });
     }
