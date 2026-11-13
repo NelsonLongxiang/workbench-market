@@ -256,6 +256,18 @@
           "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "21", "etag": "W/\"15-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "not found" } }
         },
         {
+          "id": "api-unmatched",
+          "what": "/api/ 下没有路由接的、不带扩展名：排除在兜底之外，落到最后的 404 JSON（排除 /api/ 的前缀被拿掉的话这里会变成 200 页面）",
+          "request": { "method": "GET", "path": "/api/no-such-route", "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "21", "etag": "W/\"15-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "not found" } }
+        },
+        {
+          "id": "assets-no-ext",
+          "what": "/assets/ 下不带扩展名的：排除在兜底之外，404 JSON（只靠扩展名判断拦不住它）",
+          "request": { "method": "GET", "path": "/assets/no-ext", "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "21", "etag": "W/\"15-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "not found" } }
+        },
+        {
           "id": "head",
           "what": "HEAD：Express 的 GET 路由也接 HEAD，200 没有正文",
           "vary": { "$location": ["port"] },

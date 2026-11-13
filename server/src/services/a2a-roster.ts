@@ -113,10 +113,18 @@ export function rosterSeatIdOf(host: string, team: string, seat: string): string
   return row?.seat_id ?? '';
 }
 
-export function rosters(): RosterRow[] {
-  const hosts = db.prepare('SELECT host, peer_root, key_fingerprint, peer_zone, reported_at, received_at FROM a2a_rosters_live ORDER BY peer_zone, host').all() as Omit<RosterRow, 'seats'>[];
+/**
+ * 名册（按节点、带席位）。缺省只给视图 a2a_rosters_live 里的（按节点号能认的那些）；
+ * listed = true：给团队页「这个团队还在不在名册上」用——没标 needs_review、同一个号下只有这一个节点的都给，不看对端此刻的状态
+ * （对端停用、等确认新键的节点，它的团队照样在名册上，只是归属核不过、显示「节点换了」）。认人、认归属一律不用它，只经视图
+ */
+export function rosters(opts: { listed?: boolean } = {}): RosterRow[] {
+  const src = opts.listed
+    ? `(SELECT r.* FROM a2a_roster_nodes r WHERE r.needs_review = 0 AND (SELECT COUNT(*) FROM a2a_roster_nodes d WHERE d.host = r.host AND d.needs_review = 0) = 1)`
+    : 'a2a_rosters_live';
+  const hosts = db.prepare(`SELECT host, peer_root, key_fingerprint, peer_zone, reported_at, received_at FROM ${src} ORDER BY peer_zone, host`).all() as Omit<RosterRow, 'seats'>[];
   const seats = db.prepare(`SELECT s.peer_root, s.key_fingerprint, s.team, s.seat, s.seat_id, s.name, s.role, s.online, s.queued, s.last_active_at FROM a2a_roster_node_seats s
-    JOIN a2a_rosters_live r ON r.peer_root = s.peer_root AND r.key_fingerprint = s.key_fingerprint ORDER BY r.host, s.team, s.seat`).all() as { peer_root: string; key_fingerprint: string; team: string; seat: string; seat_id: string; name: string; role: RosterSeat['role']; online: number; queued: number; last_active_at: string }[];
+    JOIN ${src} r ON r.peer_root = s.peer_root AND r.key_fingerprint = s.key_fingerprint ORDER BY r.host, s.team, s.seat`).all() as { peer_root: string; key_fingerprint: string; team: string; seat: string; seat_id: string; name: string; role: RosterSeat['role']; online: number; queued: number; last_active_at: string }[];
   return hosts.map((h) => ({ ...h, seats: seats.filter((s) => s.peer_root === h.peer_root && s.key_fingerprint === h.key_fingerprint).map((s) => ({ seat: s.seat, seat_id: s.seat_id, name: s.name, team: s.team, role: s.role, online: s.online === 1, queued: s.queued, last_active_at: s.last_active_at })) }));
 }
 

@@ -231,7 +231,11 @@ try {
     '改绑留痕：谁、从哪到哪；和现在一样的不记；没写 department、台没登记、部门不存在都拒', { audit, bad, bad2, bad3 });
 
   console.log('七、细到团队的台');
+  // 团队归属绑节点：这个 host 要在名册里、根地址在对端登记里启用、有指纹（合成的）
+  db.prepare("INSERT OR IGNORE INTO a2a_roster_nodes (host, peer_root, key_fingerprint, peer_zone, reported_at, received_at) VALUES ('abcdef01', 'https://node.synthetic.invalid', 'sha256:abcdef0100000000000000000000000000000000000000000000000000000000', 'z', '0', '0')").run();
+  db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, key_fingerprint, registered_by, registered_at, updated_at) SELECT 'peer-tigers', peer_root, 'z', '', 'active', 'sha256:abcdef0100000000000000000000000000000000000000000000000000000000', 'seed', '0', '0' FROM a2a_roster_nodes WHERE host = 'abcdef01' ON CONFLICT(root_url) DO UPDATE SET status = 'active', key_fingerprint = CASE WHEN a2a_peers.key_fingerprint = '' THEN excluded.key_fingerprint ELSE a2a_peers.key_fingerprint END").run();
   db.prepare('INSERT INTO teams (host, team, department_id, claimed, claimed_by, claimed_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?)').run('abcdef01', 'z/canvas/tigers', 'sales', 'admin-token', 1, 1);
+  for (const t of ['teams', 'team_leads', 'seat_assignments']) db.prepare(`UPDATE ${t} SET peer_root = COALESCE((SELECT r.peer_root FROM a2a_roster_nodes r WHERE r.host = ${t}.host), ''), key_fingerprint = COALESCE((SELECT p.key_fingerprint FROM a2a_roster_nodes r JOIN a2a_peers p ON p.root_url = r.peer_root WHERE r.host = ${t}.host), '') WHERE peer_root = ''`).run(); // 种子行按当前名册记下节点
   r = await srv.call('POST', '/api/bench-views', { ...boss, body: { slug: 'team-b', title: '团队台', department: 'ops', team_host: 'abcdef01', team: 'z/canvas/tigers' } });
   check(r.status === 400, '团队没有认领到这个部门：绑不上', r.text.slice(0, 100));
   r = await srv.call('POST', '/api/bench-views', { ...boss, body: { slug: 'team-b', title: '团队台', department: 'sales', team_host: 'abcdef01', team: 'z/canvas/tigers' } });
@@ -239,6 +243,7 @@ try {
   check(r.status === 201 && t1 === 403 && t2 === 403 && t3 === 200, '同部门、不在这个团队里的部门成员：进不来；有部门拍板授予的人进得来', { create: r.status, read: t1, write: t2, lead: t3 });
   db.prepare('INSERT INTO team_leads (host, team, principal_id, added_by, added_at) VALUES (?, ?, ?, ?, ?)').run('abcdef01', 'z/canvas/tigers', 'user:beta', 'admin-token', 1);
   db.prepare('INSERT INTO team_leads (host, team, principal_id, added_by, added_at) VALUES (?, ?, ?, ?, ?)').run('abcdef01', 'z/canvas/tigers', 'user:no-flag', 'admin-token', 1);
+  for (const t of ['teams', 'team_leads', 'seat_assignments']) db.prepare(`UPDATE ${t} SET peer_root = COALESCE((SELECT r.peer_root FROM a2a_roster_nodes r WHERE r.host = ${t}.host), ''), key_fingerprint = COALESCE((SELECT p.key_fingerprint FROM a2a_roster_nodes r JOIN a2a_peers p ON p.root_url = r.peer_root WHERE r.host = ${t}.host), '') WHERE peer_root = ''`).run(); // 种子行按当前名册记下节点
   const t4 = await st(member, 'PUT', '/team-b/datasets/y', COLS), t5 = await st(other, 'PUT', '/team-b/datasets/z', COLS), t6 = await st(other, 'GET', '/team-b/datasets');
   check(t4 === 200 && t5 === 403 && t6 === 403, '设成团队负责人之后：有这个部门授予的人进得来；没有这个部门授予的人（别的部门的）当了团队负责人也进不来', { withGrant: t4, noGrantWrite: t5, noGrantRead: t6 });
   r = await srv.call('GET', '/api/bench-views', member);
@@ -247,8 +252,8 @@ try {
   console.log('七之二、席位不按部门认');
   // 团队已经认领到 sales（上面那一行）。名册里放一个这个团队的席位，再给它一个同名的 MCP 会话：
   // 团队挂在部门下不等于席位能碰这个部门的台——席位没有授予这一层，在「认领要业务侧放行」做完之前只认按台批的授予（3b）
-  db.prepare('INSERT INTO a2a_roster_nodes (host, peer_root, peer_zone, reported_at, received_at, key_fingerprint) VALUES (?1, ?2, ?3, ?4, ?5, char(115, 104, 97, 50, 53, 54, 58) || substr(?1 || hex(zeroblob(32)), 1, 64))').run('abcdef01', 'https://node.synthetic.invalid', 'z', Date.now(), Date.now());
-  db.prepare('INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES ((SELECT peer_root FROM a2a_roster_nodes WHERE host = ?1 ORDER BY rowid LIMIT 1), (SELECT key_fingerprint FROM a2a_roster_nodes WHERE host = ?1 ORDER BY rowid LIMIT 1), ?1, ?2, ?3, ?4, ?5, ?6, 1, 0, ?7, ?8)').run('abcdef01', 'z/canvas/tigers', 'seat-t', 'sid-seat-t', 'seat-t', 'member', Date.now(), Date.now());
+  db.prepare("INSERT INTO a2a_roster_nodes (host, peer_root, key_fingerprint, peer_zone, reported_at, received_at) VALUES ('abcdef01', 'https://node.synthetic.invalid', 'sha256:abcdef0100000000000000000000000000000000000000000000000000000000', 'z', ?, ?) ON CONFLICT(peer_root, key_fingerprint) DO UPDATE SET reported_at = excluded.reported_at, received_at = excluded.received_at").run(Date.now(), Date.now());
+  db.prepare("INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES ('https://node.synthetic.invalid', 'sha256:abcdef0100000000000000000000000000000000000000000000000000000000', 'abcdef01', 'z/canvas/tigers', 'seat-t', 'sid-seat-t', 'seat-t', 'member', 1, 0, ?, ?)").run(Date.now(), Date.now());
   const seatT = (await srv.call('POST', '/api/mcp/sessions', { ...token, body: { name: 'seat-t' } })).json;
   const call = async (tk, name, args) => { const x = await srv.call('POST', '/mcp', { headers: { authorization: `Bearer ${tk}` }, body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } } }); return x.json?.error?.code ?? (x.json?.result?.isError ? 'isError' : 'ok'); };
   const s1 = await call(seatT.token, 'dataset_list', { bench: 'team-b' }), s2 = await call(seatT.token, 'dataset_list', { bench: 'sales-b' }), s3 = await call(seatT.token, 'dataset_query', { bench: 'team-b', query: { dataset: 'x' } });

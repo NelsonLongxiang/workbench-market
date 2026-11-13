@@ -34,6 +34,9 @@ const PEER = 'http://127.0.0.1:1', HOST = 'a1b2c3d4';
 const seeded = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', `
   await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/db.ts')).href)});
   const { recordRoster } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/services/a2a-roster.ts')).href)});
+  // 团队归属绑节点（根地址 + 完整指纹）：这个根地址在对端登记里要启用、有指纹（合成的）
+  const { db } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/db.ts')).href)});
+  db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, key_fingerprint, registered_by, registered_at, updated_at) VALUES ('peer-home', '${PEER}', 'zone', '', 'active', 'sha256:' || '${HOST}', 'seed', '0', '0')").run();
   const now = Date.now();
   const seat = (team, n) => ({ team, seat: 'zone/0000000' + n, seat_id: 'seat-0000000' + n, name: '合成总工' + n, role: 'router', online: true, queued: 0, last_active_at: new Date(now).toISOString() });
   console.log('ROSTER ' + recordRoster({ host: '${HOST}', peerRoot: '${PEER}', keyFingerprint: 'sha256:' + ('${HOST}' + '0'.repeat(64)).slice(0, 64), peerZone: 'zone', reportedAt: new Date(now).toISOString(), seats: [seat('zone/canvas/team-a', 'a'), seat('zone/canvas/team-b', 'b')], now }));

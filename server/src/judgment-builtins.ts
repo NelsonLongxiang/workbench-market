@@ -47,6 +47,7 @@ export const ANONYMOUS_ACTIONS: readonly string[] = [
   'login.page', // 登录页本来就是给还没登录的人看的
   'market.export',
   'market.page', // 页面兜底：谁来都回同一个前端外壳（登录门开着时它在前面先挡）
+  'portal.use', // 门户 /go/：今天谁来都代理（登录门开着时它在前面先挡），台自己的登录和凭据由台和门户的注入管
   'setting.read',
   'skill.list',
   'skill.role-packs',
@@ -160,6 +161,7 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       'login.page',
       'market.export',
       'market.page',
+      'portal.use',
       'principal.bind',
       'principal.bind-batch',
       'principal.disable',
