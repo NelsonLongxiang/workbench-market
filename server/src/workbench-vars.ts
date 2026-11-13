@@ -15,6 +15,7 @@ import { svc } from './context.ts';
 import { HttpError } from './errors.ts';
 import { browserMarked, rawLoopback } from './surfaces.ts';
 import type { WorkbenchService } from './services/workbench.ts';
+import type { SettingService } from './services/setting.ts';
 import type { WorkbenchVarsService, WorkbenchVarRow } from './services/workbench-vars.ts';
 import { BenchError } from './bench-query.ts';
 import { benchOfCard, createBench } from './services/bench-registry.ts';
@@ -314,7 +315,7 @@ async function migratedStore(id: number, create: boolean): Promise<BenchStore | 
   // 上一个进程留下的高频变量（Redis 里还没落盘的）：先原样落进台库（记 dirty），再对同步点——
   // 主库没变就补写回，主库也变了就报分叉；Redis 此刻不通就整张卡片先回 503（可重试），不拿台库里可能旧的值对同步点
   if ((await store.varsSyncGet()).hotPending) {
-    hotPending.add(id);
+    hotPending.add(id); markPendingInMain(id, true);
     if ((await flushHot(id, store, false)) === 'unavailable') throw hotUnavailable(id);
   }
   let r: { action: CardSyncAction; written: number };
@@ -338,6 +339,37 @@ const hotKey = (id: number): string => benchKey(id, 'vars', 'hot');
 const hotOn = (): boolean => storeMode === 'bench' && state().mode() !== 'off';
 /** 这个进程知道的、有待落盘的卡片 */
 const hotPending = new Set<number>();
+/**
+ * 有待落盘的卡片，在主库里也记一份（设置项）：main、shadow 档不看 Redis、也不开台库，靠它知道哪些卡片的高频变量还在 Redis 里——
+ * 这些卡片的高频变量在 main、shadow 档读写回 503，不悄悄读主库里的旧值；启动时报一次。只在进出「有待落盘」时写（很少）
+ */
+const PENDING_SETTING = 'vars_hot_pending_cards';
+let pendingCache: number[] | null = null; // 只有本进程写这一项，读一次记住，写的时候一起更新
+function pendingInMain(): number[] {
+  if (pendingCache) return pendingCache;
+  try { const v = JSON.parse((svc<SettingService>('setting').get(PENDING_SETTING) as { value?: string } | undefined)?.value ?? '[]'); pendingCache = Array.isArray(v) ? v.filter((x) => Number.isSafeInteger(x)) : []; } catch { pendingCache = []; }
+  return pendingCache;
+}
+function markPendingInMain(id: number, on: boolean): void {
+  const cur = new Set(pendingInMain());
+  if (cur.has(id) === on) return;
+  if (on) cur.add(id); else cur.delete(id);
+  pendingCache = [...cur].sort((a, b) => a - b);
+  if (cur.size) svc<SettingService>('setting').put(PENDING_SETTING, JSON.stringify([...cur].sort((a, b) => a - b)));
+  else svc<SettingService>('setting').delete(PENDING_SETTING);
+}
+/** main、shadow 档：这张卡片的高频变量还在 Redis 里没落盘，读写一律 503 */
+function guardStaleHot(id: number, keys: string[]): void {
+  if (!keys.some(isHot) || !pendingInMain().includes(id)) return;
+  throw new HttpError(503, '这张卡片还有高频变量没落盘（在缓存里）：先以 bench 档起服务、等它落完盘再切档', { code: 'vars_hot_unavailable', retryable: true, workbench_id: id });
+}
+/** 启动时（任何一档）报一次还有待落盘的卡片；不是 bench 档时写明怎么处置 */
+export function reportHotPending(): number[] {
+  const ids = pendingInMain();
+  if (ids.length && storeMode !== 'bench') console.error(`[workbench-vars] 注意：卡片 ${ids.join('、')} 还有高频变量（hot. 开头）留在 Redis 里没落盘，现在是 ${storeMode} 档、不看 Redis——这些卡片的高频变量读写会回 503。处置：先以 WM_VARS_STORE=bench 起服务、等它落完盘（或各用一次这些卡片），再切档`);
+  else if (ids.length) console.log(`[workbench-vars] 卡片 ${ids.join('、')} 有上一个进程没落盘的高频变量，第一次用到时先落盘`);
+  return ids;
+}
 type HotEntry = BenchVarRow & { deleted?: boolean };
 const hotUnavailable = (id: number) => new HttpError(503, '这张卡片的高频变量暂时读写不了（缓存不通，还有没落盘的写入），请稍后重试', { code: 'vars_hot_unavailable', retryable: true, workbench_id: id });
 const plainEntry = ({ deleted: _d, ...r }: HotEntry): BenchVarRow => r as BenchVarRow;
@@ -374,7 +406,7 @@ async function listRows(id: number, store: BenchStore, prefix: string): Promise<
 async function hotWrite(id: number, store: BenchStore, entry: HotEntry): Promise<boolean> {
   if (!isHot(entry.key) || !hotOn()) return false;
   if (state().mode() !== 'up') { if (hotPending.has(id)) throw hotUnavailable(id); return false; }
-  if (!hotPending.has(id)) { await store.varsHotPending(true); hotPending.add(id); }
+  if (!hotPending.has(id)) { await store.varsHotPending(true); markPendingInMain(id, true); hotPending.add(id); }
   if (!(await state().hSet(hotKey(id), entry.key, JSON.stringify(entry)))) throw hotUnavailable(id);
   return true;
 }
@@ -392,7 +424,10 @@ async function flushHot(id: number, store: BenchStore, writeBack: boolean): Prom
     const entries = Object.values(r.value).map((v) => JSON.parse(v) as HotEntry);
     if (entries.length) {
       try { await store.varsApplyHot(entries.map((e) => (e.deleted ? { deleted: true as const, key: e.key } : plainEntry(e)))); } catch (e) { return benchHttp(e); }
-      if (writeBack) {
+      // 写回主库用整张卡片换掉（replaceCard），不走 fallbackToMain 那条「同版本、不同值算失败」：
+      // writeBack 只在这个进程已经对过同步点之后（bench 档运行中），这时主库只有本进程在写（写回），台库就是真源，整份照台库写回是对的。
+      // 进程第一次用到卡片时不写回（writeBack=false），交给 syncCard 判断主库有没有被别处改过。
+      if (writeBack && svc<WorkbenchService>('workbench').byId(id)) { // 卡片刚被删了就不写回（查和写之间没有 await）
         const rows = await store.varsList('');
         try { vars().replaceCard(id, rows); await store.varsSynced(varsDigestOf(rows)); } catch { mirrorStats.fallbackFailures++; }
       }
@@ -400,6 +435,7 @@ async function flushHot(id: number, store: BenchStore, writeBack: boolean): Prom
     if (!(await state().del(hotKey(id)))) return 'unavailable';
   }
   try { await store.varsHotPending(false); } catch (e) { return benchHttp(e); }
+  markPendingInMain(id, false);
   hotPending.delete(id);
   return 'clean';
 }
@@ -413,9 +449,10 @@ export async function flushHotVars(): Promise<{ cards: number; unavailable: numb
     out.cards++;
     try {
       await withCard(id, async () => {
-        if (!migrated.has(id)) { if (!(await migratedStore(id, false))) hotPending.delete(id); return; } // 第一次用到时会先落盘、再对同步点
+        const gone = () => { hotPending.delete(id); markPendingInMain(id, false); }; // 卡片已经删了：台库、Redis 的键随删台清掉
+        if (!migrated.has(id)) { if (!(await migratedStore(id, false))) gone(); return; } // 第一次用到时会先落盘、再对同步点
         const store = await cardStore(id, false);
-        if (!store) { hotPending.delete(id); return; }
+        if (!store) { gone(); return; }
         if ((await flushHot(id, store, true)) === 'unavailable') out.unavailable++;
       });
     } catch { out.unavailable++; }
@@ -529,6 +566,7 @@ async function ownerInputBench(scope: Scope, store: BenchStore, key: string, own
  */
 async function fallbackToMain(id: number, store: BenchStore, key: string, row: BenchVarRow | null): Promise<void> {
   try {
+    if (!svc<WorkbenchService>('workbench').byId(id)) return; // 卡片刚被删了：不往主库补孤儿行（查和写之间没有 await，删卡片插不进来）
     const cur = vars().get(id, key) as WorkbenchVarRow | undefined;
     if (!row) vars().force(id, key, null);
     else if (!cur || cur.revision < row.revision) vars().force(id, key, row);
@@ -612,16 +650,23 @@ function withCard<T>(id: number, fn: () => Promise<T>): Promise<T> {
 
 // —— 对外的入口（异步）：按 WM_VARS_STORE 走主库或台库 ——
 // bench 档的读也排进这张卡片的队：进程第一次用到卡片时要对同步点（可能整份重搬），不能和正在写回的写入交错
-export async function listVars(scope: Scope, prefix = '') { if (storeMode === 'bench') return withCard(scope.id, () => listVarsBench(scope, prefix)); return listVarsMain(scope, prefix); }
-export async function getVar(scope: Scope, key: string) { if (storeMode === 'bench') return withCard(scope.id, () => getVarBench(scope, key)); return getVarMain(scope, key); }
+export async function listVars(scope: Scope, prefix = '') {
+  if (storeMode === 'bench') return withCard(scope.id, () => listVarsBench(scope, prefix));
+  const out = listVarsMain(scope, prefix);
+  if ('hot.'.startsWith(prefix) || isHot(prefix)) guardStaleHot(scope.id, ['hot.']); // 列表可能含高频变量（只在 Redis 里的，主库里根本没有）
+  return out;
+}
+export async function getVar(scope: Scope, key: string) { if (storeMode === 'bench') return withCard(scope.id, () => getVarBench(scope, key)); guardStaleHot(scope.id, [key]); return getVarMain(scope, key); }
 export async function setVar(scope: Scope, key: string, input: SetInput, caller: Caller) {
   if (storeMode === 'bench') return withCard(scope.id, () => setVarBench(scope, key, input, caller));
+  guardStaleHot(scope.id, [key]);
   const out = setVarMain(scope, key, input, caller);
   if (storeMode === 'shadow') await shadowMirror(scope.id, key);
   return out;
 }
 export async function deleteVar(scope: Scope, key: string, input: DeleteInput, caller: Caller) {
   if (storeMode === 'bench') return withCard(scope.id, () => deleteVarBench(scope, key, input, caller));
+  guardStaleHot(scope.id, [key]);
   const out = deleteVarMain(scope, key, input, caller);
   if (storeMode === 'shadow') await shadowMirror(scope.id, key);
   return out;

@@ -15,6 +15,9 @@
  *   H10 Redis 整个丢了（有待落盘、hash 没了）：落盘时什么也没有，清掉「有待落盘」，值回到上一次落盘的（最多丢一个周期）
  *   H11 没配 Redis：高频变量就是普通变量（直接写台库和主库），不记待落盘
  *   H12 bench 档写回主库时，主库那行版本一样、值不同：算写回失败，dirty 留着（不静默跳过）
+ *   H13 bench 档退出前没落完盘、以 main / shadow 档起来：启动时报出卡片号；这些卡片的高频变量读写、可能含高频变量的列表回 503，
+ *       不悄悄读主库里的旧值；普通变量照常。回到 bench 档落完盘以后，main 档照常
+ *   H14 删卡片和落盘撞在一起：卡片删了以后落盘，不往主库补孤儿行，待落盘的记录清掉
  *
  *   node scripts/vars-hot-test.mjs
  */
@@ -42,7 +45,7 @@ async function child(mode) {
   const ctl = globalThis.__stateRedis;
   const out = {};
   const CLI = { actor: 'cli', admin: true, cli: true };
-  db.prepare("INSERT INTO workbenches (id, name, url) VALUES (1, '合成甲', 'http://127.0.0.1:9/a'), (2, '合成乙', 'http://127.0.0.1:9/b'), (3, '合成丙', 'http://127.0.0.1:9/c'), (4, '合成丁', 'http://127.0.0.1:9/d'), (5, '合成戊', 'http://127.0.0.1:9/e'), (6, '合成己', 'http://127.0.0.1:9/f')").run();
+  db.prepare("INSERT INTO workbenches (id, name, url) VALUES (1, '合成甲', 'http://127.0.0.1:9/a'), (2, '合成乙', 'http://127.0.0.1:9/b'), (3, '合成丙', 'http://127.0.0.1:9/c'), (4, '合成丁', 'http://127.0.0.1:9/d'), (5, '合成戊', 'http://127.0.0.1:9/e'), (6, '合成己', 'http://127.0.0.1:9/f'), (7, '合成庚', 'http://127.0.0.1:9/g'), (8, '合成辛', 'http://127.0.0.1:9/h')").run();
   const scope = (id) => V.workbenchScope(id);
   const err = (e) => `${e.status}:${e.extra?.code ?? ''}${e.extra?.retryable ? ':retry' : ''}`;
   const tryIt = (p) => p.then((r) => r, (e) => err(e));
@@ -129,6 +132,29 @@ async function child(mode) {
     db.prepare("UPDATE workbench_vars SET revision = 2, value = '99' WHERE workbench_id = 3 AND key = 'k'").run();
     const before = V.varsMirrorStats().fallbackFailures;
     await V.setVar(scope(3), 'k', { value: 7, hasValue: true, expected: 1 }, CLI);
+    // H13：卡片 7 写了高频变量、没落盘（Redis 正好断开），以 main 档、shadow 档起来
+    await V.setVar(scope(7), 'plain', { value: 1, hasValue: true }, CLI);
+    await V.setVar(scope(7), 'hot.v', { value: 1, hasValue: true }, CLI);
+    ctl.offline(); await V.flushHotVars(); ctl.back();
+    const h13 = {};
+    for (const m of ['main', 'shadow']) {
+      V.setVarsStoreMode(m);
+      h13[m] = {
+        report: V.reportHotPending(), get: await tryIt(V.getVar(scope(7), 'hot.v')), list: await tryIt(V.listVars(scope(7))), listHot: await tryIt(V.listVars(scope(7), 'hot.')),
+        listPlain: (await V.listVars(scope(7), 'pl')).count, set: await tryIt(V.setVar(scope(7), 'hot.v', { value: 2, hasValue: true, expected: 1 }, CLI)),
+        plain: (await V.getVar(scope(7), 'plain')).value,
+      };
+    }
+    restart();
+    await V.listVars(scope(7)); // 回到 bench 档：第一次用到先落盘
+    V.setVarsStoreMode('main');
+    h13.after = { report: V.reportHotPending(), get: (await V.getVar(scope(7), 'hot.v')).value };
+    restart();
+    out.h13 = h13;
+    // H14：卡片 8 写了高频变量，落盘之前卡片被删（主库的卡片、常量变量都没了）
+    await V.setVar(scope(8), 'hot.w', { value: 1, hasValue: true }, CLI);
+    db.prepare('DELETE FROM workbenches WHERE id = 8').run(); V.dropWorkbenchVars(8);
+    out.h14 = { flush: await V.flushHotVars(), orphans: db.prepare('SELECT COUNT(*) AS n FROM workbench_vars WHERE workbench_id = 8').get().n, report: V.reportHotPending() };
     out.h12 = { failures: V.varsMirrorStats().fallbackFailures - before, dirty: (await sync(3)).dirty, main: mainRow(3, 'k')?.value };
   }
   await closeBenchStores();
@@ -182,6 +208,14 @@ async function parent() {
   ok('高频变量就是普通变量：直接写台库和主库，不记待落盘', off.h11?.bench === '1' && off.h11.main?.value === '1' && off.h11.pending === false, off.h11);
   console.log('H12 写回主库：同版本、不同值');
   ok('主库那行和台库同版本、值不同：算写回失败（计数 1），dirty 留着，主库那行不动', on.h12?.failures === 1 && on.h12.dirty === true && on.h12.main === '99', on.h12);
+  console.log('H13 没落完盘就切到 main / shadow 档');
+  for (const m of ['main', 'shadow']) {
+    const x = on.h13?.[m];
+    ok(`${m} 档：启动报出卡片 7；高频变量读、写、全列表、hot. 列表回 503（可重试）；普通变量照常`, JSON.stringify(x?.report) === '[7]' && x.get === '503:vars_hot_unavailable:retry' && x.set === '503:vars_hot_unavailable:retry' && x.list === '503:vars_hot_unavailable:retry' && x.listHot === '503:vars_hot_unavailable:retry' && x.listPlain === 1 && x.plain === 1, x);
+  }
+  ok('回到 bench 档落完盘以后，main 档照常（读到落盘的值），不再报', JSON.stringify(on.h13?.after?.report) === '[]' && on.h13.after.get === 1, on.h13?.after);
+  console.log('H14 删卡片和落盘撞在一起');
+  ok('卡片删了以后落盘：主库不补孤儿行，待落盘的记录清掉', on.h14?.orphans === 0 && JSON.stringify(on.h14.report) === '[]', on.h14);
   console.log(`vars-hot-test: ${pass} passed / ${fail} failed`);
   if (fail) process.exitCode = 1;
 }
