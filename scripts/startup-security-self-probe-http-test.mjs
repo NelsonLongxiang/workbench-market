@@ -22,7 +22,7 @@ const preload=String.raw`import net from'node:net';import{registerHooks}from'nod
 const listen=net.Server.prototype.listen;
 net.Server.prototype.listen=function(...a){if(typeof a[0]==='number'){if(typeof a[1]==='string')a[1]='127.0.0.1';else a.splice(1,0,'127.0.0.1')}return listen.apply(this,a)};
 const mutation=process.env.WM_SYNTHETIC_PROBE_MUTATION;
-registerHooks({load(url,ctx,next){const loaded=next(url,ctx);if(!mutation||!url.endsWith(mutation==='handler-error'?'/server/src/routes/workbenches.ts':mutation==='export-reveal'?'/server/src/routes/export-import.ts':mutation==='mcp-timeout'||mutation==='hold-probe'?'/server/src/routes/mcp-protocol.ts':mutation==='a2a-direct-unsigned'?'/server/src/routes/a2a-direct.ts':mutation==='bench-views-anonymous'?'/server/src/routes/bench-views.ts':'/server/src/index.ts'))return loaded;let s=String(loaded.source);
+registerHooks({load(url,ctx,next){const loaded=next(url,ctx);if(!mutation||!url.endsWith(mutation==='handler-error'?'/server/src/routes/workbenches.ts':mutation==='export-reveal'?'/server/src/routes/export-import.ts':mutation==='mcp-timeout'||mutation==='hold-probe'?'/server/src/routes/mcp-protocol.ts':mutation==='a2a-direct-unsigned'?'/server/src/routes/a2a-direct.ts':mutation==='bench-views-anonymous'?'/server/src/routes/bench-views.ts':mutation==='vars-missing'?'/server/src/workbench-vars.ts':'/server/src/index.ts'))return loaded;let s=String(loaded.source);
 const replace=(from,to)=>{if(!s.includes(from))throw Error('mutation anchor missing: '+mutation);s=s.replace(from,to);};
 if(mutation==='login-gate')replace('app.use(loginGate.middleware);','app.use((_q,_s,n)=>n());');
 if(mutation==='login-gate-apps')replace('app.use(loginGate.middleware);',"app.use((q,s,n)=>q.path.startsWith('/apps/')?n():loginGate.middleware(q,s,n));");
@@ -36,6 +36,7 @@ if(mutation==='app-data-read')replace('  cliOk: (req) => !browserMarked(req) && 
 if(mutation==='sop-run-write')replace('adminActor, writeMode: SOP_RUN_WRITE });',"adminActor, writeMode: 'warn' });");
 if(mutation==='unsigned-login-event')replace('registerLoginEventRoutes(http);',"app.post('/login/:flow/events', (_q, s) => s.status(200).json({}));");
 if(mutation==='forged-login-callback')replace('registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionTtlMs: SESSION_TTL_MIN * 60_000 });',"app.get('/login/:flow/callback', (_q, s) => s.redirect(302, '/work-items'));");
+if(mutation==='vars-missing')replace('        const caller = await authorize(req, res, scope, write);','        if (!scope) throw new HttpError(404, "workbench not found");\n        const caller = await authorize(req, res, scope, write);');
 if(mutation==='principals-admin-read')replace('registerPrincipalRoutes(http, { markOdooAdmin, adminGuard, adminActor });','registerPrincipalRoutes(http, { markOdooAdmin, adminGuard: () => true, adminActor });');
 if(mutation==='mcp-timeout'||mutation==='hold-probe'){const a="app.post('/mcp', { action: 'mcp.rpc', kind: 'write', statusNotVerdict: 'MCP 会话令牌与工具授权由网关判，不是登录身份的结论' }, async (req, res) => {";replace(a,a+(mutation==='mcp-timeout'?"if(req.headers['x-wm-self-probe'])return;":"if(req.headers['x-wm-self-probe'])await new Promise(r=>setTimeout(r,500));"));}
 if(mutation==='handler-error'){const a="app.post('/api/workbenches', { action: 'workbench.create', kind: 'admin', statusNotVerdict: 'URL 准入：地址不许登记时回 403，是登记规则不是授权' }, (req, res) => {";replace(a,a+"if(req.headers['x-wm-self-probe'])throw Error(process.env.ADMIN_TOKEN);");}
@@ -77,6 +78,7 @@ async function runCase(label,{off=false,control=false,occupied=false,unset=false
    if(mutation==='grants-admin-read')check(label+' only the two grant rows fail',so.includes('"id":"market.grants.admin-read"')&&so.includes('"id":"market.grants.approve-anonymous"')&&so.split('"verdict":"fail"').length===3);
    if(mutation==='bench-views-anonymous')check(label+' only the two bench-view rows fail',so.includes('"id":"market.bench-views.anonymous-read","surface":"market","method":"GET","path":"/api/bench-views","verdict":"fail"')&&so.includes('"id":"market.bench-views.anonymous-write"')&&so.split('"verdict":"fail"').length===3);
    if(mutation==='app-data-read')check(label+' only the app data read row fails',so.includes('"id":"market.app-data.anonymous-read"')&&so.split('"verdict":"fail"').length===2);
+   if(mutation==='vars-missing')check(label+' only the workbench vars missing-bench row fails',so.includes('"id":"market.workbench-vars.anonymous-read-missing"')&&so.split('"verdict":"fail"').length===2);
    if(mutation==='sop-run-write')check(label+' only the run write row fails',so.includes('"id":"market.sop-run.anonymous-write"')&&so.split('"verdict":"fail"').length===2);
    if(mutation==='unsigned-login-event')check(label+' only the unsigned login event row fails',so.includes('"id":"market.login-flow.unsigned-event"')&&so.split('"verdict":"fail"').length===2);
    if(mutation==='forged-login-callback')check(label+' only the forged login callback row fails',so.includes('"id":"market.login-flow.forged-callback"')&&so.split('"verdict":"fail"').length===2);
@@ -135,6 +137,7 @@ await runCase('bench-views-on-login-gate',{benchViews:'on',gate:'enforce',contro
 await runCase('bench-views-anonymous-regression',{benchViews:'on',mutation:'bench-views-anonymous',expectFailure:true});
 await runCase('app-data-read-regression',{mutation:'app-data-read',expectFailure:true});
 await runCase('sop-run-write-regression',{mutation:'sop-run-write',expectFailure:true});
+await runCase('vars-missing-regression',{mutation:'vars-missing',expectFailure:true});
 await runCase('probe-timeout',{mutation:'mcp-timeout',expectFailure:true});
 await runCase('probe-handler-error',{mutation:'handler-error',expectFailure:true});
 await runCase('login-gate-enforce',{gate:'enforce',control:true});
