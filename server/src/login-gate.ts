@@ -5,6 +5,8 @@
  *    - 有效的 X-Admin-Token 头；
  *    - 登录 cookie（口令登录后签发：HMAC 签名、HttpOnly、SameSite=Lax、12 小时；不含口令，口令轮换即全部失效）；
  *    - Odoo 内部员工会话（现查 get_session_info，只认 is_internal_user；按会话哈希缓存 30 秒）。
+ *      Odoo 认出来以后由市场维持会话：发市场会话 cookie（wm_session，期限 WM_SESSION_TTL_MIN，属性同登录 cookie），存下这次的 Odoo 会话号，
+ *      之后照旧拿它问 Odoo——浏览器里的 Odoo cookie 过期了不掉登录；Odoo 那边注销、停用，市场会话跟着注销（见 identity.ts 的 sessionViewer）。
  *  无身份也放行的（各自有认证或本身公开）：
  *    - /mcp 与 #385 的 /openapi.json、/api/mcp-rest/*：网关自己的 Bearer 会话认证（enforce 时网关强制开）；
  *    - 签名卡片 GET /.well-known/agent-card.json；工作台事件回执（凭投递里的随机 reply token，库存 sha256、有效期）；
@@ -47,6 +49,8 @@ export type LoginGateDeps = {
   /** Odoo 内部员工（未配置 Odoo、门户账号、会话无效一律 null）。登录是成功的、卡在主体那一步（停用了或还没对到主体）回 { held: true }。
    *  fresh=true 每次都问提供方；false 时提供方的回答可以用缓存的（期限由装配方定）。主体停没停用总是现查，这里不再自己缓存 */
   odooViewer: (cookieHeader: string, fresh: boolean) => Promise<{ login: string; admin: boolean; via?: 'session' } | { held: true } | { down: true } | null>;
+  /** Odoo 刚认出来的人（不是从市场会话来的）：发一个由市场维持的会话，返回放进 wm_session 的值和到期时刻；不发返回 null */
+  openSession?: (req: express.Request) => Promise<{ token: string; expiresAt: number } | null>;
   /** /api/auth/me 附带的「我是谁」：主体、显示名、当前生效授予的角色（侧栏用户卡用）。不给就只回原来的几项 */
   profile?: (req: express.Request) => Promise<{ principal: string | null; display_name: string | null; roles: { id: string; name: string; scope: string; preset: boolean; expires_at: number | null; source: 'manual' | 'migration'; approved_by: string | null }[] }>;
   /** /api/auth/me 附带的 can：这个请求能做的、不属于某一个对象的事（比如新建驾驶舱）。不给就不带 */
@@ -318,6 +322,11 @@ export function createLoginGate(deps: LoginGateDeps) {
       }
       if (publicRoute(req, p)) return next();
       const id = await identity(req);
+      // Odoo 刚认出来的人：由市场维持会话（cookie 属性同登录 cookie：HttpOnly、SameSite=Lax、https 时 Secure）
+      if (id && id.via === 'odoo' && deps.openSession) {
+        const s = await deps.openSession(req);
+        if (s) res.cookie(SESSION_COOKIE, s.token, { httpOnly: true, sameSite: 'lax', path: '/', maxAge: Math.max(0, s.expiresAt - Date.now()), secure: secure(req) });
+      }
       if (id) {
         // 已登录的人打开自产台页面：换到带查看凭证的地址，沙箱页的相对子资源才能加载
         const dm = wantsPage(req) && id.via !== 'cli' ? APP_DOC_RE.exec(req.path) : null;

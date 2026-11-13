@@ -33,7 +33,7 @@ import type { BenchReply, BenchRequest, BenchWireError } from './bench-store-wor
 
 export { BENCH_SLUG_RE };
 export type { WriteCtx, WriteResult, DatasetInput, ViewVersion, BenchChange, BenchVarRow } from './bench-store-core.ts';
-export { varsDigestOf } from './bench-store-core.ts';
+export { varsDigestOf, appDigestOf, appDataRowOf, appFileRowOf, type AppDataRow as BenchAppDataRow, type AppFileRow as BenchAppFileRow } from './bench-store-core.ts';
 
 const ROOT = join(dataDir, 'bench-stores');
 /** 删卡片、清扫时台库的备份放这里，留 BENCH_BACKUP_KEEP_MS（bench-card-delete.ts、services/bench-sweep.ts） */
@@ -323,6 +323,19 @@ export class BenchStore {
   varsReplace(...a: Parameters<Core['varsReplace']>): ReturnType<Core['varsReplace']> { return this.rpc('varsReplace', a); }
   varsHotPending(...a: Parameters<Core['varsHotPending']>): ReturnType<Core['varsHotPending']> { return this.rpc('varsHotPending', a); }
   varsApplyHot(...a: Parameters<Core['varsApplyHot']>): ReturnType<Core['varsApplyHot']> { return this.rpc('varsApplyHot', a); }
+  appDigest(): ReturnType<Core['appDigest']> { return this.rpc('appDigest', []); }
+  appCounts(): ReturnType<Core['appCounts']> { return this.rpc('appCounts', []); }
+  appDataPage(...a: Parameters<Core['appDataPage']>): ReturnType<Core['appDataPage']> { return this.rpc('appDataPage', a); }
+  appDataByIdem(...a: Parameters<Core['appDataByIdem']>): ReturnType<Core['appDataByIdem']> { return this.rpc('appDataByIdem', a); }
+  appFileById(...a: Parameters<Core['appFileById']>): ReturnType<Core['appFileById']> { return this.rpc('appFileById', a); }
+  appFileIdsExisting(...a: Parameters<Core['appFileIdsExisting']>): ReturnType<Core['appFileIdsExisting']> { return this.rpc('appFileIdsExisting', a); }
+  appFilePage(...a: Parameters<Core['appFilePage']>): ReturnType<Core['appFilePage']> { return this.rpc('appFilePage', a); }
+  appFileCount(): ReturnType<Core['appFileCount']> { return this.rpc('appFileCount', []); }
+  appDataPut(...a: Parameters<Core['appDataPut']>): ReturnType<Core['appDataPut']> { return this.rpc('appDataPut', a); }
+  appFilePut(...a: Parameters<Core['appFilePut']>): ReturnType<Core['appFilePut']> { return this.rpc('appFilePut', a); }
+  appDataDrop(...a: Parameters<Core['appDataDrop']>): ReturnType<Core['appDataDrop']> { return this.rpc('appDataDrop', a); }
+  appFileDrop(...a: Parameters<Core['appFileDrop']>): ReturnType<Core['appFileDrop']> { return this.rpc('appFileDrop', a); }
+  appReplace(...a: Parameters<Core['appReplace']>): ReturnType<Core['appReplace']> { return this.rpc('appReplace', a); }
 }
 
 // —— 打开、关闭、删除 ——

@@ -844,6 +844,12 @@ CREATE TABLE IF NOT EXISTS principal_pending (
   PRIMARY KEY (provider, external_id)
 );
 `);
+// 由市场维持的登录提供方会话（用 Odoo 这类身份来源登录的人）：upstream_sealed 是发会话时浏览器带来的提供方会话凭据，加密存放
+//   （AES-256-GCM，密钥是数据目录里的 .wm-login-session.key，不在库里），市场照旧拿它去问提供方这个人还在不在；
+//   不给页面、不进日志；会话注销、到期、主体停用时清空（services/login-session.ts）。普通的市场会话（比如飞书）这一列是空的
+if (!hasColumn('market_sessions', 'upstream_sealed')) db.exec('ALTER TABLE market_sessions ADD COLUMN upstream_sealed TEXT');
+// 来源轮换过几次（市场跟着换了存下的会话号）：诊断用——轮换之后又被来源否掉的，日志里会标出来
+if (!hasColumn('market_sessions', 'upstream_renewals')) db.exec('ALTER TABLE market_sessions ADD COLUMN upstream_renewals INTEGER NOT NULL DEFAULT 0');
 // 阶段六 6b：授予（谁有哪个角色）。角色本身是声明（server/src/roles.ts），这里只放数据。
 //   grants：主体、角色、范围、期限、理由、起草人、放行人、状态。状态只有五种，只能往前走：
 //     draft 草稿 → pending 待核 → active 生效 → revoked 撤销 或 expired 过期；草稿和待核也可以直接撤销（作废、驳回）。
@@ -1404,6 +1410,22 @@ CREATE TABLE IF NOT EXISTS knowledge_meta (
   k TEXT PRIMARY KEY,
   v TEXT NOT NULL
 );
+-- 经验库的「项目 → 部门」对照：ygl-trees 给了项目、没给范围的条目（比如依据），按这里对到的部门当部门级；对不上的只给管理层。
+--   改它等于改谁能看：只有管理层、属主改（拍板类，系统管理员不行），每次改记一行到 knowledge_project_dept_log。
+CREATE TABLE IF NOT EXISTS knowledge_project_depts (
+  project TEXT PRIMARY KEY,
+  department_id TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS knowledge_project_dept_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project TEXT NOT NULL,
+  old_department TEXT,
+  new_department TEXT,
+  actor TEXT NOT NULL,
+  at INTEGER NOT NULL
+);
 `);
 // 阶段八 8d：待对接清单的「出现序号」。同一条外部身份绑定后又出现在清单里，是新的一轮待决；「关注」的记账按它分轮，
 //   不靠时间（只到秒，同一秒里又出现就分不开）。每次新插入一行（主体服务是 upsert，只在真的新进清单时插入）取一个全局只增的号：
@@ -1708,6 +1730,22 @@ function benchStoreVarsSchema(): string[] {
       updated_by TEXT NOT NULL, owner TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
   ];
 }
+/**
+ * 附加的表（开库不建，第一次写台的提交、附件时才建；不升版本号，旧代码不认识也不碰它们）：这张卡片对应的台的提交记录和附件的元数据
+ * （数据层第 6 步，docs/data-views.md 第十三节第 6 条）。列和主库的 app_data / app_files 一一对应，只是不带 app_slug；
+ * id 照抄主库的（过渡期 id 一律由主库发），所以不自增。附件字节不进台库，storage_path 原样记
+ */
+function benchStoreAppSchema(): string[] {
+  return [
+    `CREATE TABLE IF NOT EXISTS bs_app_data (
+      id INTEGER PRIMARY KEY, data TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, deleted_at TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL, submitter_principal TEXT)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_bs_app_data_idem ON bs_app_data (idempotency_key) WHERE idempotency_key <> ''`,
+    `CREATE TABLE IF NOT EXISTS bs_app_files (
+      id INTEGER PRIMARY KEY, original_name TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, storage_path TEXT NOT NULL,
+      created_by TEXT NOT NULL, created_at TEXT NOT NULL, note TEXT NOT NULL, sha256 TEXT NOT NULL, deleted_at TEXT NOT NULL)`,
+  ];
+}
 
 /**
  * 台库用到的、属于表结构或随库不同的写法，打成一份纯数据。
@@ -1724,6 +1762,10 @@ export type BenchSqlKit = {
   varsProbes: string[];
   /** bs_vars 在不在（查目录，不试读：PostgreSQL 的事务里一条语句出错整个事务就作废了） */
   varsExists: string;
+  /** 附加的表 bs_app_data、bs_app_files（同 bs_vars：开库不建，第一次写才建）、试读、在不在 */
+  appSchema: string[];
+  appProbes: string[];
+  appExists: string;
   /** 固定的几张表 */
   schema: string[];
   /** 打开库时逐条试一遍：哪条跑不通，就是库文件的结构和这份代码对不上（比如还没定稿时旧代码建的文件），明确拒绝，不静默照用 */
@@ -1757,6 +1799,14 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
     varsExists: d === 'postgres'
       ? "SELECT 1 AS x FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'bs_vars'"
       : "SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'bs_vars'",
+    appSchema: benchStoreAppSchema(),
+    appProbes: [
+      'SELECT id, data, created_by, created_at, deleted_at, idempotency_key, submitter_principal FROM bs_app_data WHERE 1 = 0',
+      'SELECT id, original_name, mime, size, storage_path, created_by, created_at, note, sha256, deleted_at FROM bs_app_files WHERE 1 = 0',
+    ],
+    appExists: d === 'postgres'
+      ? "SELECT 1 AS x FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'bs_app_files'"
+      : "SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'bs_app_files'",
     schema: benchStoreSchema(d),
     probes: [
       'SELECT name, title, version, columns, key_cols, row_count, data_bytes, created_at, updated_at, updated_by FROM bs_datasets WHERE 1 = 0',

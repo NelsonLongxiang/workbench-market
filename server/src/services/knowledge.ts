@@ -46,7 +46,9 @@ const clip = (v: unknown, n: number): string => (typeof v === 'string' ? v.slice
 const SCOPE_RE = /^(\*|restricted|dept:[A-Za-z0-9._-]{1,64}|bench:[A-Za-z0-9._-]{1,64})$/;
 /** 市场的部门标识（和授予范围 dept: 同一个写法）：ygl-trees 那边允许的字符更宽，对不上市场部门写法的不认 */
 const MARKET_DEPT = /^dept:[a-z][a-z0-9-]{0,47}$/;
-const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
+/** 项目名（ygl-trees 给的，同步时截到 128）：对照表只收 1～128 个字、不含控制字符的 */
+const PROJECT_RE = /^[^\u0000-\u001f\u007f]{1,128}$/u;
+const ISO_RE =/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
 
 /** 接不上的原因（还没同步成过时，页面看到的是「未接入」）：本机没有 ygl-trees 命令行或工作区、版本太旧不认 library、契约版本对不上、回的不是 JSON */
 const NOT_CONNECTED = new Set(['no_cli', 'no_home', 'exit', 'not_json', 'contract_unsupported', 'bad_shape']);
@@ -200,16 +202,68 @@ export class KnowledgeService extends Service {
     return st.some((s) => s.last_error) ? 'degraded' : 'ok';
   }
 
+  /** 「项目 → 部门」对照（只含部门还在的）：判范围时用 */
+  private projectMap(): Map<string, string> {
+    const rows = db.prepare(`SELECT p.project, p.department_id FROM knowledge_project_depts p JOIN departments d ON d.id = p.department_id`).all() as { project: string; department_id: string }[];
+    return new Map(rows.map((r) => [r.project, r.department_id]));
+  }
+
+  /**
+   * 对照表给管理层看：已经设了的（部门不在了的标 department_missing），加上条目里出现过、还没设的项目，再加最近 50 条改动。
+   * 项目名只在这里给（看的人是能改对照的人），条目的列表、详情里不给。
+   */
+  projectDepts(): {
+    projects: { project: string; department: { id: string; name: string } | null; department_missing: boolean; items: number; updated_at: number | null }[];
+    log: { project: string; old_department: string | null; old_department_name: string | null; new_department: string | null; new_department_name: string | null; by_name: string | null; at: number }[];
+    departments: { id: string; name: string }[];
+  } {
+    const set = db.prepare(`SELECT p.project, p.department_id, p.updated_at, d.name AS dept_name FROM knowledge_project_depts p LEFT JOIN departments d ON d.id = p.department_id`).all() as { project: string; department_id: string; updated_at: number; dept_name: string | null }[];
+    const counts = new Map((db.prepare(`SELECT project, COUNT(*) AS n FROM knowledge_items WHERE project != '' GROUP BY project`).all() as { project: string; n: number }[]).map((r) => [r.project, Number(r.n)]));
+    const out = new Map<string, { project: string; department: { id: string; name: string } | null; department_missing: boolean; items: number; updated_at: number | null }>();
+    for (const r of set) out.set(r.project, { project: r.project, department: r.dept_name === null ? null : { id: r.department_id, name: r.dept_name }, department_missing: r.dept_name === null, items: counts.get(r.project) ?? 0, updated_at: Number(r.updated_at) });
+    for (const [project, n] of counts) if (!out.has(project)) out.set(project, { project, department: null, department_missing: false, items: n, updated_at: null });
+    // 改动记录给名字（部门名、改的人的显示名；查不到给 null），不给主体标识
+    const log = (db.prepare(`SELECT l.project, l.old_department, od.name AS old_department_name, l.new_department, nd.name AS new_department_name, p.display_name AS by_name, l.at
+      FROM knowledge_project_dept_log l LEFT JOIN departments od ON od.id = l.old_department LEFT JOIN departments nd ON nd.id = l.new_department LEFT JOIN principals p ON p.id = l.actor
+      ORDER BY l.id DESC LIMIT 50`).all() as { project: string; old_department: string | null; old_department_name: string | null; new_department: string | null; new_department_name: string | null; by_name: string | null; at: number }[])
+      .map((r) => ({ ...r, old_department_name: r.old_department_name || null, new_department_name: r.new_department_name || null, by_name: r.by_name || null, at: Number(r.at) }));
+    // 能选的部门：全部现有部门（对照只要求部门在）
+    const departments = db.prepare('SELECT id, name FROM departments ORDER BY id').all() as { id: string; name: string }[];
+    return { projects: [...out.values()].sort((a, b) => (a.project < b.project ? -1 : a.project > b.project ? 1 : 0)), log, departments };
+  }
+
+  /** 设或清一个项目对到的部门（department 为 null 是清掉）。部门要在；每次改都记一行（谁、从哪个到哪个） */
+  setProjectDept(project: string, department: string | null, by: string, now: number): { ok: true; changed: boolean } | { ok: false; error: 'project_invalid' | 'department_invalid' | 'department_missing' } {
+    if (!PROJECT_RE.test(project)) return { ok: false, error: 'project_invalid' };
+    if (department !== null) {
+      if (!/^[a-z][a-z0-9-]{0,47}$/.test(department)) return { ok: false, error: 'department_invalid' };
+      if (!db.prepare('SELECT 1 FROM departments WHERE id = ?').get(department)) return { ok: false, error: 'department_missing' };
+    }
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const old = (db.prepare('SELECT department_id FROM knowledge_project_depts WHERE project = ?').get(project) as { department_id: string } | undefined)?.department_id ?? null;
+      if (old === department) { db.exec('COMMIT'); return { ok: true, changed: false }; }
+      if (department === null) db.prepare('DELETE FROM knowledge_project_depts WHERE project = ?').run(project);
+      else db.prepare(`INSERT INTO knowledge_project_depts (project, department_id, updated_by, updated_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT (project) DO UPDATE SET department_id = excluded.department_id, updated_by = excluded.updated_by, updated_at = excluded.updated_at`).run(project, department, by, now);
+      db.prepare('INSERT INTO knowledge_project_dept_log (project, old_department, new_department, actor, at) VALUES (?, ?, ?, ?, ?)').run(project, old, department, by, now);
+      db.exec('COMMIT');
+      return { ok: true, changed: true };
+    } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务已经不在了 */ } throw e; }
+  }
+
   /** 这个人看得到的条目，新的在前，最多 limit 条；kind 是页面上的四类之一或不给 */
   list(actor: JudgedActor, opts: { kind?: YglKind; limit?: number } = {}): KnowledgeView[] {
     const can = visibility(actor);
+    const projects = this.projectMap();
     const rows = (opts.kind
       ? db.prepare('SELECT * FROM knowledge_items WHERE kind = ? ORDER BY updated DESC, ygl_id').all(opts.kind)
       : db.prepare('SELECT * FROM knowledge_items ORDER BY updated DESC, kind, ygl_id').all()) as Row[];
     const out: KnowledgeView[] = [];
     for (const r of rows) {
-      if (!can(effectiveScope(r))) continue;
-      out.push(view(r));
+      const scope = effectiveScope(r, projects);
+      if (!can(scope)) continue;
+      out.push(view(r, scope));
       if (out.length >= (opts.limit ?? 500)) break;
     }
     return out;
@@ -221,7 +275,8 @@ export class KnowledgeService extends Service {
    */
   async show(actor: JudgedActor, key: string): Promise<null | 'unavailable' | { item: KnowledgeView; body: string; evidence?: unknown[] }> {
     const r = db.prepare('SELECT * FROM knowledge_items WHERE key = ?').get(key) as Row | undefined;
-    if (!r || !visibility(actor)(effectiveScope(r))) return null;
+    const scope = r ? effectiveScope(r, this.projectMap()) : '';
+    if (!r || !visibility(actor)(scope)) return null;
     const res = await execYgl(['library', 'show', `${r.kind}:${r.ygl_id}`, '--json'], { timeoutMs: CALL_TIMEOUT_MS });
     if (!res.ok) {
       const gone = res.error === 'exit' && res.code === 1 && !!res.json && typeof res.json === 'object' && 'error' in (res.json as object);
@@ -238,7 +293,7 @@ export class KnowledgeService extends Service {
         source: e?.source && typeof e.source === 'object' ? { title: clip((e.source as Record<string, unknown>).title, 300), url: safeUrl((e.source as Record<string, unknown>).url) } : null,
       }))
       : undefined;
-    return { item: view(r), body, ...(evidence ? { evidence } : {}) };
+    return { item: view(r, scope), body, ...(evidence ? { evidence } : {}) };
   }
 }
 
@@ -248,21 +303,30 @@ function safeUrl(v: unknown): string | null {
   try { const u = new URL(v); return u.protocol === 'http:' || u.protocol === 'https:' ? u.toString() : null; } catch { return null; }
 }
 
-/** 这一条实际按什么范围判：ygl-trees 给了合规的 scope 就用它；没给、对不上的，一律只给管理层（restricted） */
-export function effectiveScope(r: Pick<Row, 'scope'>): string {
+/**
+ * 这一条实际按什么范围判：
+ *   · ygl-trees 给了 scope 的，就用它（合规的 *、restricted、市场写法的 dept:）；给了别的（bench:、对不上写法的）只给管理层；
+ *   · 没给 scope、有项目的：按「项目 → 部门」对照（projects，只含部门还在的）当那个部门的部门级；
+ *   · 都没有、对不上的：只给管理层（restricted）。
+ */
+export function effectiveScope(r: Pick<Row, 'scope' | 'project'>, projects: ReadonlyMap<string, string> = new Map()): string {
   const s = r.scope;
+  if (s === '') {
+    const d = r.project ? projects.get(r.project) : undefined;
+    return d !== undefined && MARKET_DEPT.test(`dept:${d}`) ? `dept:${d}` : 'restricted';
+  }
   if (s === '*' || s === 'restricted') return s;
   if (MARKET_DEPT.test(s)) return s;
   // bench:<台>：统一判定还不认台范围（scopedVerdict 只认 dept:），先按只给管理层判——宁严勿宽
   return 'restricted';
 }
 
-function view(r: Row): KnowledgeView {
+function view(r: Row, scope: string): KnowledgeView {
   let tags: string[] = [];
   try { const t = JSON.parse(r.tags); if (Array.isArray(t)) tags = t.filter((x) => typeof x === 'string'); } catch { /* 坏了就当没有 */ }
   return {
     key: r.key, kind: PAGE_KIND[r.kind], title: r.title, summary: r.summary, status: r.status || null, tags,
-    created: r.created || null, updated: r.updated || null, scope_label: scopeLabel(effectiveScope(r)),
+    created: r.created || null, updated: r.updated || null, scope_label: scopeLabel(scope),
   };
 }
 

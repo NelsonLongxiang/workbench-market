@@ -16,6 +16,7 @@ import type { CookieService } from './services/cookie.ts';
 import { clientIp } from './login-gate.ts';
 import { loginRelay } from './identity.ts';
 import { isInsideRoot } from './path-inside.ts';
+import { stripOutgoing } from './portal-forward-headers.ts';
 
 
 export const goPrefix = /^\/go\/(\d+)(.*)$/;
@@ -265,6 +266,8 @@ export function installPortal(
         // Cookie 池注入（派单 direct-5fbb2176）：前置中间件解析好的 goCookies（按目标 host
         // 匹配 + 未过期过滤后的 Cookie 头值），**替换**而非追加（确定性语义）
         if (rq.goCookies) proxyReq.setHeader('cookie', rq.goCookies);
+        // 市场自己的口令、令牌、凭据头和会话 cookie 不往台带（清单在 portal-forward-headers.ts，WS 握手在 index.ts 用同一份）
+        stripOutgoing(proxyReq, !!rq.goAuth);
       },
       proxyRes: (proxyRes, req, res) => {
         // 只记台 id、路径长度与 cookie 名：Set-Cookie 的值里有上游会话（如 Odoo session_id）；路径本身也不记——

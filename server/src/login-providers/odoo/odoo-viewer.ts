@@ -26,25 +26,32 @@ export async function resolveOdooViewer(cookieHeader: string, url = odooUrl()): 
   if (!sid) return { ok: false, http: 401, error: '未登录 Odoo（请先经门户 Odoo 单点登录）' };
   if (!/^[A-Za-z0-9_.=-]{16,512}$/.test(sid)) return { ok: false, http: 401, error: 'Odoo 会话格式不对' };
   let j: any;
+  let renewed: string | undefined;
   try {
     const r = await fetch(`${url}/web/session/get_session_info`, {
       method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(5_000),
       headers: { 'Content-Type': 'application/json', Cookie: `session_id=${sid}` },
       body: JSON.stringify({ jsonrpc: '2.0', method: 'call', params: {} }),
     });
-    if (!r.ok) return { ok: false, http: r.status >= 500 ? 502 : 401, error: `Odoo 会话无效（HTTP ${r.status}）` };
+    if (!r.ok) return { ok: false, http: r.status >= 500 ? 502 : 401, error: `Odoo 会话无效（HTTP ${r.status}）`, cause: r.status >= 500 ? 'http-5xx' : 'rejected' };
+    // Odoo 19 的软轮换：会话建了 3 小时以后，这次核验的应答会换一个会话号（Set-Cookie 里的 session_id 变了）。
+    // 交给身份服务：由市场维持的会话当场换成新号（不然旧号宽限期一过就失效）
+    for (const c of r.headers.getSetCookie?.() ?? []) {
+      const m = /^session_id=([A-Za-z0-9_.=-]{16,512})(?:;|$)/.exec(c);
+      if (m && m[1] !== sid) renewed = m[1];
+    }
     j = await r.json();
   } catch (e) {
-    return { ok: false, http: 502, error: `Odoo 不可达：${String((e as Error)?.message ?? e).slice(0, 120)}` };
+    return { ok: false, http: 502, error: `Odoo 不可达：${String((e as Error)?.message ?? e).slice(0, 120)}`, cause: 'network' };
   }
   const info = j?.result;
   const login = typeof info?.username === 'string' ? info.username : '';
-  if (j?.error || !info?.uid || !login) return { ok: false, http: 401, error: 'Odoo 会话已失效，请重新登录' };
+  if (j?.error || !info?.uid || !login) return { ok: false, http: 401, error: 'Odoo 会话已失效，请重新登录', cause: 'rejected' };
   // 只认内部员工：门户/公共用户（res.users.share）也能登 Odoo，但不能看工作台。Odoo 19 session_info 的
   // is_internal_user = user._is_internal()；字段缺失或非 true 一律拒（fail closed），每次现查，Odoo 侧改了即刻生效
-  if (typeof info.is_internal_user !== 'boolean') return { ok: false, http: 403, error: '无法确认是否内部员工（Odoo 会话信息缺 is_internal_user），按无权处理' };
-  if (info.is_internal_user !== true) return { ok: false, http: 403, error: '门户账号不能访问工作台（仅限内部员工的 Odoo 账号）' };
-  if (!loginOk(login)) return { ok: false, http: 401, error: 'Odoo 登录名不可用' };
+  if (typeof info.is_internal_user !== 'boolean') return { ok: false, http: 403, error: '无法确认是否内部员工（Odoo 会话信息缺 is_internal_user），按无权处理', cause: 'bad-answer' };
+  if (info.is_internal_user !== true) return { ok: false, http: 403, error: '门户账号不能访问工作台（仅限内部员工的 Odoo 账号）', cause: 'not-internal' };
+  if (!loginOk(login)) return { ok: false, http: 401, error: 'Odoo 登录名不可用', cause: 'bad-answer' };
   const name = typeof info.name === 'string' && info.name.trim() && !/[\x00-\x1f\x7f]/.test(info.name) ? info.name.trim().slice(0, 128) : null;
-  return { ok: true, viewer: { login, uid: Number(info.uid), sub: `user:${login}`, name, admin: info.is_admin === true } };
+  return { ok: true, viewer: { login, uid: Number(info.uid), sub: `user:${login}`, name, admin: info.is_admin === true }, ...(renewed ? { renewed } : {}) };
 }
