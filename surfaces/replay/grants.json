@@ -54,7 +54,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "2583", "etag": "W/\"a17-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "2592", "etag": "W/\"a20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "source": "initial",
               "roles": [
@@ -98,6 +98,7 @@
                         "login",
                         "market",
                         "mcp",
+                        "portal",
                         "principal",
                         "relation",
                         "remote-allow",
