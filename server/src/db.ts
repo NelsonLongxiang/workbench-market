@@ -684,7 +684,7 @@ CREATE INDEX IF NOT EXISTS idx_mcp_grant_audit_session ON mcp_grant_audit (sessi
 try { const adCols = tableColumns('app_data') as any[]; if (!adCols.some((c) => c.name === 'idempotency_key')) db.exec("ALTER TABLE app_data ADD COLUMN idempotency_key TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_app_data_idem ON app_data (app_slug, idempotency_key) WHERE idempotency_key <> ''");
 // cockpits.created_by：建立人的主体（管理层建的才有；口令、Odoo 管理员、本机命令行建的和老行是 null）。只记下来，不带进读应答
-try { const ckCols = db.prepare('PRAGMA table_info(cockpits)').all() as any[]; if (!ckCols.some((c) => c.name === 'created_by')) db.exec('ALTER TABLE cockpits ADD COLUMN created_by TEXT'); } catch { /* 列已在 */ }
+if (!hasColumn('cockpits', 'created_by')) db.exec('ALTER TABLE cockpits ADD COLUMN created_by TEXT');
 // #336：按工作台隔离的变量与常量（workbench_id 为隔离键；value 存 JSON 原文；revision 乐观锁，每次写 +1）。
 // 审计只记值的 sha256 不记原文；IF NOT EXISTS 幂等，旧库启动即补表。
 db.exec(`
