@@ -37,6 +37,17 @@ export function deliveryTarget(deliveryId: number): { team: string; caller_sessi
 }
 
 /** 排一条；同一（种类、投递、引用）只排一次。返回新行 id，已有返回 null */
+/**
+ * 打回重做发给谁：这个事件最近一条采信的 completed 回执所在的投递和它答的任务号（就是被验收、被打回的那次交付）；
+ * 没有就取这个事件最近一次派工的投递和任务号。都没有返回 null（只通知、没派出去的事件）。
+ */
+export function returnTargetOfEvent(eventId: string): { delivery_id: number; task: string } | null {
+  const done = db.prepare("SELECT delivery_id, json_extract(detail, '$.task') AS task FROM workbench_event_log WHERE event_id = ? AND action = 'receipt:completed' AND delivery_id IS NOT NULL ORDER BY id DESC LIMIT 1").get(eventId) as { delivery_id: number; task: string | null } | undefined;
+  if (done && typeof done.task === 'string' && done.task !== '') return { delivery_id: done.delivery_id, task: done.task };
+  const sent = db.prepare("SELECT delivery_id, task_id AS task FROM a2a_sent_tasks WHERE event_id = ? AND kind = 'delivery' ORDER BY rowid DESC LIMIT 1").get(eventId) as { delivery_id: number; task: string } | undefined;
+  return sent ?? null;
+}
+
 export function queueReply(r: { kind: ReplyKind; eventId: string; deliveryId: number; ref: number; qid?: string; fixedTask?: string; team: string; callerSession: string; contextId: string; targetUrl: string; message: string; now?: number }): number | null {
   const at = sqlTime(r.now);
   const info = db.prepare(`INSERT OR IGNORE INTO workbench_event_replies (kind, event_id, delivery_id, ref, qid, fixed_task, team, caller_session, context_id, target_url, message, next_at, created_at)

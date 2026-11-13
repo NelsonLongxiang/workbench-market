@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 工作台市场页的纯函数单测（web/src/market-view.ts）：三个来源合成卡片、分类计数、读不到和空着时怎么说。数据都是合成的。 */
-import { NO_DESCRIPTION, cardsOf, emptyText, extraTags, healthLabel, initialOf, runningBySlug, skillCards, sopCards, sourceProblem, tabFromQuery, usableIcon, workbenchCards } from '../web/src/market-view.ts';
+import { NO_DESCRIPTION, benchSlugFor, viewTitles, cardTags, connectorCards, detailProblem, manageHref, tabsFor, workbenchIdOf, cardsOf, emptyText, extraTags, healthLabel, initialOf, runningBySlug, skillCards, sopCards, sourceProblem, tabFromQuery, usableIcon, workbenchCards } from '../web/src/market-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -47,7 +47,7 @@ ok('没有说明的卡片写一句中性的话', NO_DESCRIPTION === '还没有�
 // 分类
 const all = [...wbs, ...sops, ...sks];
 ok('分类：全部原样，别的只留那一类', cardsOf(all, '全部').length === 6 && cardsOf(all, '流程').length === 2 && cardsOf(all, '流程').every((c) => c.kind === '流程'));
-ok('地址里的分类：认得的照用，认不出、没写的当全部', tabFromQuery('技能') === '技能' && tabFromQuery('连接器') === '全部' && tabFromQuery(null) === '全部');
+ok('地址里的分类：认得的照用（连接器也认，不是管理员时页面再落「全部」），认不出、没写的当全部', tabFromQuery('技能') === '技能' && tabFromQuery('连接器') === '连接器' && tabFromQuery('乱写') === '全部' && tabFromQuery(null) === '全部');
 ok('卡片的 key 各不相同', new Set(all.map((c) => c.key)).size === all.length);
 
 // 说法
@@ -55,6 +55,25 @@ ok('读不到：401 请先登录、403 不能查看、404 没上线、500 和断
 ok('读到了、还没读：没有说法', sourceProblem('工作台', { status: 200, body: [] }) === null && sourceProblem('工作台', null) === null);
 ok('空着：每一类说为什么空、下一步做什么；工作台对管理员指到「管理工作台」', emptyText('工作台', true).includes('管理工作台') && !emptyText('工作台', false).includes('管理工作台') && emptyText('流程', false).includes('SOP 交付空间') && emptyText('全部', false).length > 0);
 ok('说法里没有开发用语', [emptyText('全部', true), emptyText('工作台', true), emptyText('流程', true), emptyText('技能', true), sourceProblem('工作台', { status: 500 }).text].every((t) => !/接口|字段|暂无数据|待实现|slug/.test(t)));
+
+// 连接器只给管理员；类别标签只在「全部」补；详情页的说法
+ok('分类页签：不是管理员没有「连接器」，管理员有、排最后', tabsFor(false).join() === '全部,工作台,流程,技能' && tabsFor(true).join() === '全部,工作台,流程,技能,连接器');
+ok('卡片标签：「全部」里第一个补类别；某一类的页签里不重复类别（#584）', cardTags({ kind: '工作台', tags: ['财务', '工作台'] }, '全部').join() === '工作台,财务' && cardTags({ kind: '工作台', tags: ['财务', '工作台'] }, '工作台').join() === '财务' && cardTags({ kind: '技能', tags: [] }, '技能').length === 0);
+const conns = connectorCards([{ prefix: 'zz', reachable: false }, { prefix: 'aa', kind: 'ygl-trees', reachable: true, tools: 4, last_checked_at: '2026-11-12 08:00:00' }, { prefix: 'mm', enabled: false, reachable: true, tools: 2 }, { prefix: 'nn' }, { prefix: '' }, null]);
+ok('连接器卡片：按名字排；连得上写几个工具，连不上、停用、还没检查过各说各的；去 MCP 网关管理页', conns.map((c) => `${c.name}:${c.usage}`).join('|') === 'aa:连得上 · 4 个工具|mm:已停用|nn:还没检查过|zz:连不上' && conns.every((c) => c.kind === '连接器' && c.href === '/mcp-gateways') && conns[0].caption === '经验库连接' && conns[0].checkedAt && !conns[1].checkedAt, JSON.stringify(conns.map((c) => [c.name, c.usage])));
+ok('连接器应答形状不对：按空处理', connectorCards(null).length === 0 && connectorCards({ upstreams: [] }).length === 0);
+ok('详情页读不到：不在了 / 请先登录 / 没权限 / 读不到 各说各的；读到了是 null', detailProblem(200) === null && detailProblem(404).kind === 'gone' && detailProblem(401).kind === 'login' && detailProblem(403).kind === 'denied' && detailProblem(500).kind === 'error' && detailProblem(0).kind === 'error');
+ok('地址里的台号：正整数才认', workbenchIdOf('12') === 12 && workbenchIdOf('0') === null && workbenchIdOf('abc') === null && workbenchIdOf('1.5') === null && workbenchIdOf(undefined) === null && workbenchIdOf('-3') === null);
+ok('「编辑」回管理页那一行：?q=台名（编码过）', manageHref('采购 台&x') === '/market/manage?q=' + encodeURIComponent('采购 台&x'));
+
+// 这个台的数据视图（#674 的 workbench_id）：只按台号对，不按名字；取不到都当没有
+{
+  const list = { benches: [{ slug: 'pricing', title: '定价台', workbench_id: 7 }, { slug: 'ops', title: '运营台', workbench_id: null }, { slug: 'same-name', title: '任务中心', workbench_id: 9 }] };
+  ok('数据视图的台：只认 workbench_id 正好是这个台号的那一项', benchSlugFor(200, list, 7) === 'pricing' && benchSlugFor(200, list, 8) === null && benchSlugFor(200, list, 9) === 'same-name');
+  ok('清单没取到（401 / 403 / 404 / 出错）或形状不对：当没有', benchSlugFor(403, list, 7) === null && benchSlugFor(404, { error: 'bench_views_off' }, 7) === null && benchSlugFor(200, { benches: 'x' }, 7) === null && benchSlugFor(200, null, 7) === null && benchSlugFor(200, { benches: [{ slug: 'x', workbench_id: '7' }] }, 7) === null);
+  const doc = { view: { content: { views: [{ key: 'board', title: '利润看板' }, { key: 'rows', title: ' 商品明细 ' }, { key: 'nokey' }] } } };
+  ok('视图的名字：取 view.content.views[].title；没写名字的不拿键顶替；没取到都是空', viewTitles(200, doc).join() === '利润看板,商品明细' && viewTitles(403, doc).length === 0 && viewTitles(200, { view: null }).length === 0);
+}
 
 console.log(`\nmarket-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

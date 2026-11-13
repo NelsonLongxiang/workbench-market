@@ -1,0 +1,18 @@
+/* 驾驶舱左栏「等你拍板」的紧凑行（照原型：一行一条，1440×900 下露出八九条）。只用 tokens.css 的档位；不往 index.css 里加。 */
+.wm-ck-rows { display: flex; flex-direction: column; }
+.wm-ck-rows-scope { display: block; padding: var(--wm-space-2) var(--wm-space-3) var(--wm-space-1); }
+.wm-ck-row {
+  display: flex; align-items: flex-start; gap: var(--wm-space-2); width: 100%; padding: var(--wm-space-2) var(--wm-space-3);
+  border: 0; border-bottom: 1px solid var(--wm-color-border); background: transparent; text-align: left; font: inherit; color: var(--wm-color-text); cursor: pointer;
+  transition: background var(--wm-motion-fast) var(--wm-motion-easing);
+}
+.wm-ck-row:hover { background: var(--wm-color-primary-subtle); }
+.wm-ck-row.on { background: var(--wm-color-primary-subtle); box-shadow: inset 3px 0 0 var(--wm-color-primary); }
+.wm-ck-row:focus-visible { outline: 2px solid var(--wm-color-primary); outline-offset: -2px; }
+.wm-ck-row-main { flex: 1; min-width: 0; }
+.wm-ck-row-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: var(--wm-font-size-body); line-height: 1.4; }
+.wm-ck-row-sub { color: var(--wm-color-text-secondary); font-size: var(--wm-font-size-caption); }
+.wm-ck-row .ant-tag { margin-inline-end: 0; flex: none; }
+/* 右栏：选中的那一条的答法在时间线上面 */
+.wm-ck-picked { display: flex; flex-direction: column; gap: var(--wm-space-3); }
+.wm-ck-picked-top { display: flex; justify-content: flex-end; }

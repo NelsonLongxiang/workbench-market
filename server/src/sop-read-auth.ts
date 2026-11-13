@@ -9,11 +9,16 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { db } from './db.ts';
 import { identity } from './identity.ts';
+import { defineConfig, loadConfig } from './config.ts';
+
+/** run 读能力的有效天数：缺省 30，非数字回落缺省 */
+export const Config = defineConfig((env) => ({ readCapTtlDays: Number(env.SOP_READ_CAP_TTL_DAYS) || 30 }));
+const config = loadConfig(Config);
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
 /** 签发 run 读能力：明文仅创建/重签响应出现一次，库内只存摘要。 */
-export function issueRunReadCap(runId: number, ttlDays = Number(process.env.SOP_READ_CAP_TTL_DAYS) || 30): string {
+export function issueRunReadCap(runId: number, ttlDays = config.readCapTtlDays): string {
   const cap = randomBytes(32).toString('hex');
   const expires = new Date(Date.now() + ttlDays * 86_400_000).toISOString().slice(0, 19).replace('T', ' ');
   db.prepare('INSERT INTO sop_run_read_caps (run_id, cap_sha256, expires_at) VALUES (?, ?, ?)').run(runId, sha256(cap), expires);
