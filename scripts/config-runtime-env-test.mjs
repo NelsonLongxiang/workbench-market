@@ -3,18 +3,21 @@
  * 安全面的配置启动时取一次（对抗组）：进程跑起来之后，有代码改了 process.env（扩展、依赖、注入进来的脚本），
  * 管理口令、凭据库、对外断开的判断都不跟着变——要改就改启动环境并重启。
  *
- *   A 启动环境给了 ADMIN_TOKEN：运行中删掉它，/api/admin-token/state 仍报 env、不可设；PUT、DELETE 仍回 400（页面不能趁机设一个自己的口令）
+ *   A 起真实例（口令校验、登录门、管理口令路由都是真的），由预加载脚本按测试的要求在运行中改 process.env：
+ *     A1 启动环境给了 ADMIN_TOKEN，运行中删掉它：原口令照旧是管理员（whoami）、照旧能换登录会话；/api/admin-token/state 仍报 env、不可设；PUT、DELETE 仍回 400
+ *     A2 启动时没给 ADMIN_TOKEN，运行中塞进一个：拿它不是管理员、换不到登录会话；状态仍报 none
  *   V 启动时没配服务端主密码、库在 A：运行中塞进 DSH_VAULT_PASSWORD、DSH_VAULT_PASSWORD_FILE、把 WM_VAULT_PATH 指到 B，
  *     /api/vault/status 仍报没有服务端主密码、库在 A（不会变成按需自动解锁，也不会被指到别的库文件）
  *   O 启动时 WM_OUTBOUND=off：运行中改成 on，outboundOff() 仍为真
- *   变异：三处任一改回用到时现读 process.env，都必须红（O 原来就是启动时取，守的是以后别改成现读）
+ *   变异：任一处改回用到时现读 process.env，都必须红（O 原来就是启动时取，守的是以后别改成现读）
  *
  * 每组在自己的子进程里跑（凭据库开库、出站闸替换内置模块，互不影响）；只用合成值，不访问外部。
  *   node scripts/config-runtime-env-test.mjs              测本仓库
  *   node scripts/config-runtime-env-test.mjs --root DIR   测另一棵目录树（变异测试用）
  */
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { createServer } from 'node:net';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -42,18 +45,6 @@ const serve = async () => {
 `;
 
 const CASES = {
-  A: { env: { ADMIN_TOKEN: 'synthetic-env-admin-token' }, code: `${SERVE}
-const { registerAdminTokenRoutes } = await import(${src('routes/admin-token.ts')});
-registerAdminTokenRoutes(http, { adminTokenCheck: () => false, odooAdminReqs: new WeakMap(), dbAdminTokenSet: () => false, dbAdminTokenOk: () => false, hashAdminToken: () => 'h', browserSameSite: () => false, devOriginOk: () => false });
-const s = await serve();
-const before = await s.call('GET', '/api/admin-token/state');
-delete process.env.ADMIN_TOKEN;
-const after = await s.call('GET', '/api/admin-token/state');
-const put = await s.call('PUT', '/api/admin-token', { token: 'page-chosen-token' });
-const del = await s.call('DELETE', '/api/admin-token');
-await s.close();
-console.log('RESULT ' + JSON.stringify({ before: before.body, after: after.body, put: put.status, del: del.status }));
-process.exit(0);` },
   V: { env: {}, code: `${SERVE}
 const { mountVault } = await import(${src('vault-api.ts')});
 mountVault(http, () => true);
@@ -75,6 +66,47 @@ process.exit(0);` },
 };
 
 const tmp = mkdtempSync(join(tmpdir(), 'wm-config-runtime-env-'));
+
+/** 预加载：实例照常起；测试在 DATA_DIR 下放 mutate-env.json 时，按它改 process.env（null 是删），改完写 mutate-env.done */
+const MUTATE = join(tmp, 'mutate-env-preload.mjs');
+writeFileSync(MUTATE, `import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+const dir = process.env.DATA_DIR;
+setInterval(() => {
+  const m = join(dir, 'mutate-env.json');
+  if (!existsSync(m)) return;
+  for (const [k, v] of Object.entries(JSON.parse(readFileSync(m, 'utf8')))) { if (v === null) delete process.env[k]; else process.env[k] = v; }
+  rmSync(m); writeFileSync(join(dir, 'mutate-env.done'), '1');
+}, 50).unref();
+`);
+const PRELOAD = pathToFileURL(join(HERE, 'identity-fake-preload.mjs')).href;
+const freePort = () => new Promise((ok) => { const s = createServer(); s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => ok(port)); }); });
+const running = [];
+async function boot(name, extra) {
+  const data = join(tmp, name, 'data'), home = join(tmp, name, 'home'), ext = join(tmp, name, 'ext');
+  for (const d of [data, home, ext]) mkdirSync(d, { recursive: true });
+  const env = {};
+  for (const k of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP']) if (process.env[k]) env[k] = process.env[k];
+  const port = await freePort();
+  Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', REDIS_URL: '', IDENTITY_SEAM_ROOT: ROOT, WM_EXTENSIONS_DIR: ext, ...extra });
+  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, '--import', pathToFileURL(MUTATE).href, 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
+  let log = ''; child.stdout.on('data', (d) => { log += String(d); }); child.stderr.on('data', (d) => { log += String(d); });
+  const stop = async () => { if (child.exitCode !== null || child.signalCode !== null) return; child.kill('SIGTERM'); await new Promise((r) => { const t = setTimeout(r, 3000); child.once('exit', () => { clearTimeout(t); r(); }); }); if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); };
+  running.push(stop);
+  const base = `http://127.0.0.1:${port}`;
+  for (let i = 0, ok = false; !ok; i++) {
+    if (i > 200 || child.exitCode !== null) throw new Error(`实例 ${name} 没起来：${log.slice(-800)}`);
+    try { ok = (await fetch(base + '/api/health')).status === 200; } catch { /* 还没起来 */ }
+    if (!ok) await new Promise((r) => setTimeout(r, 200));
+  }
+  const call = async (method, path, headers = {}, body) => { const r = await fetch(base + path, { method, headers: { ...headers, ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined }); let j = null; try { j = await r.json(); } catch {} return { status: r.status, body: j }; };
+  const mutate = async (ops) => {
+    writeFileSync(join(data, 'mutate-env.json'), JSON.stringify(ops));
+    for (let i = 0; !existsSync(join(data, 'mutate-env.done')); i++) { if (i > 100) throw new Error('预加载没改环境'); await new Promise((r) => setTimeout(r, 50)); }
+    rmSync(join(data, 'mutate-env.done'));
+  };
+  return { call, mutate, stop };
+}
 const run = (name, extra = {}) => {
   const base = {};
   for (const k of ['PATH', 'SystemRoot', 'WINDIR', 'PATHEXT', 'TEMP', 'TMP', 'HOME']) if (process.env[k]) base[k] = process.env[k];
@@ -87,10 +119,28 @@ const show = (o) => JSON.stringify(o);
 
 try {
   {
-    const r = run('A');
-    check(r.before?.source === 'env' && r.before?.settable === false, '启动环境给了 ADMIN_TOKEN：状态报 env、页面不可设', show(r.before));
-    check(r.after?.source === 'env' && r.after?.settable === false, '运行中删掉 process.env.ADMIN_TOKEN：状态仍报 env、不可设', show(r.after));
-    check(r.put === 400 && r.del === 400, `运行中删掉之后，PUT（${r.put}）、DELETE（${r.del}）仍回 400：页面不能趁机设一个自己的口令、也清不掉`, show(r));
+    const T = 'synthetic-startup-admin-token-1', X = 'synthetic-injected-admin-token-2';
+    const a1 = await boot('a1', { ADMIN_TOKEN: T });
+    const pre = await a1.call('GET', '/api/admin/whoami', { 'x-admin-token': T });
+    await a1.mutate({ ADMIN_TOKEN: null });
+    const who = await a1.call('GET', '/api/admin/whoami', { 'x-admin-token': T });
+    const login = await a1.call('POST', '/api/auth/login', {}, { token: T });
+    const state = await a1.call('GET', '/api/admin-token/state');
+    const put = await a1.call('PUT', '/api/admin-token', { 'x-admin-token': T }, { token: 'page-chosen-token' });
+    const del = await a1.call('DELETE', '/api/admin-token', { 'x-admin-token': T });
+    await a1.stop();
+    check(pre.body?.admin === true && who.body?.admin === true && who.body?.via === 'token', '真实例 A1：运行中删掉 process.env.ADMIN_TOKEN，启动时的口令照旧是管理员', JSON.stringify({ pre: pre.body, who: who.body }));
+    check(login.status === 200, `真实例 A1：删掉之后照旧能拿启动时的口令换登录会话（${login.status}，登录门的指纹和口令校验是同一份）`, JSON.stringify(login.body));
+    check(state.body?.source === 'env' && state.body?.settable === false && put.status === 400 && del.status === 400, `真实例 A1：状态仍报 env、不可设；PUT（${put.status}）、DELETE（${del.status}）仍回 400——页面不能趁机设一个自己的口令、也清不掉`, JSON.stringify({ state: state.body, put: put.body, del: del.body }));
+    const a2 = await boot('a2', {});
+    await a2.mutate({ ADMIN_TOKEN: X });
+    const who2 = await a2.call('GET', '/api/admin/whoami', { 'x-admin-token': X });
+    const login2 = await a2.call('POST', '/api/auth/login', {}, { token: X });
+    const state2 = await a2.call('GET', '/api/admin-token/state');
+    await a2.stop();
+    check(who2.body?.admin === false, '真实例 A2：启动时没有口令，运行中塞进一个——拿它不是管理员', JSON.stringify(who2.body));
+    check(login2.status === 401, `真实例 A2：拿塞进来的口令换不到登录会话（${login2.status}）`, JSON.stringify(login2.body));
+    check(state2.body?.source === 'none', '真实例 A2：状态仍报 none（没有凭空多出一个环境口令）', JSON.stringify(state2.body));
   }
   {
     const A = join(tmp, 'V', 'vault-a.json'), B = join(tmp, 'V', 'vault-b.json');
@@ -107,6 +157,7 @@ try {
   fail++;
   console.log(`  ✗ 没跑完：${e?.stack ?? e}`);
 } finally {
+  for (const stop of running) await stop();
   rmSync(tmp, { recursive: true, force: true });
 }
 console.log(`\nconfig-runtime-env-test: ${pass} 过，${fail} 没过`);

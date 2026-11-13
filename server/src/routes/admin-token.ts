@@ -10,11 +10,10 @@ import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import { ADMIN_TOKEN_KEY, type SettingService } from '../services/setting.ts';
 import { browserMarked, originIsThisSurface, rawLoopback } from '../surfaces.ts';
-import { defineConfig, loadConfig } from '../config.ts';
+import { adminTokenFromEnv } from '../admin-token-env.ts';
 
-/** 口令来自启动环境（ADMIN_TOKEN 非空）时页面不能改、不能清。只记有没有，不留口令本身（校验在 index.ts 的 adminTokenCheck） */
-export const Config = defineConfig((env) => ({ fromEnv: !!env.ADMIN_TOKEN }));
-const config = loadConfig(Config);
+/** 口令来自启动环境（ADMIN_TOKEN 非空）时页面不能改、不能清。和口令校验同一份启动时取的值（admin-token-env.ts） */
+const config = { get fromEnv() { return adminTokenFromEnv(); } };
 
 /** 从 index.ts 传进来的：口令的存取与校验、本次请求是不是 Odoo 管理员、同源判断（别的路由和中间件也用）。 */
 export interface AdminTokenDeps {

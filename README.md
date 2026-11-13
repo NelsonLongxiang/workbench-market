@@ -36,6 +36,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `MCP_GATEWAY`（#284 起**缺省开**：未设/空/`on`=会话令牌网关；只有显式 `off` 且 `NODE_ENV=development/test` 才允许关闭并启动告警；生产/未设/空/未知运行模式配 off 由启动自检拒绝，其它网关值也拒绝启动）
 - `REDIS_URL`（共用状态层：SOP 执行实例和台的热数据·可选·缺省读 `DATA_DIR/redis.url`·无则直写 SQLite）
 - `WM_VARS_STORE`（工作台的常量、变量存在哪：`main` 缺省，只用主库；`shadow` 主库是真源、同时写一份卡片的台库；`bench` 卡片的台库是真源、尽力写回主库留作回退。对外应答三档一样。`bench` 档配了 Redis 时，键名以 `hot.` 开头的变量（高频变量）先写 Redis、30 秒落一次台库，起名 `hot.` 就表示接受最多丢 30 秒；Redis 不通而这张卡片还有没落盘的写入时，这类变量回 503 可重试。填错拒绝启动。上线时保持 `main`，另两档等生产演练和属主批准，见 docs/data-views.md 第十三节）
+- `WM_APP_DATA_STORE`（台的提交记录和附件的元数据存在哪：`main` 缺省，只用主库；`shadow` 照旧读主库、写主库之后原样抄一份进卡片的台库；`bench` 读卡片的台库、写照旧先写主库（id 由主库发）再抄进台库。附件字节不搬。对外应答三档一样。填错拒绝启动。上线时保持 `main`，见 docs/data-views.md 第十三节第 6 条）
 - `MARKET_TEAM`（A2A team 默认 `market`；名片的 team、会话句柄 `<MARKET_TEAM>/<node8>` 和工作台事件出站的 caller_session 都用它）
 - `MARKET_PUBLIC_URL`（对外基址·A2A 卡片与 MCP `skill_download` 下载链接用；生产建议设成 https 地址——没设时下载链接取请求主机，主机名不规范就不签发）
 - `A2A_API_KEY`/`A2A_STATE_URL`（A2A 外部面）
@@ -346,6 +347,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   bench-query.ts（数据视图的查询描述：台的作者和 agent 不写 SQL，只给筛选、分组、聚合、排序、行数上限；这里核对并翻成参数化语句·名字只认白名单且必须已定义·值全走参数·见 docs/data-views.md）
   bench-views.ts（数据视图的视图描述：保存前核对组件类型、键、引用的数据集和列、查询、筛选栏参数；两个版本之间的差异·第一批八种组件）
   config.ts（配置的落点：模块自己的 Config，defineConfig 声明认哪些环境变量、怎么解析，启动时取一次；服务类插件写成 static Config，由 Cordis 装插件时校验）
+  admin-token-env.ts（启动环境给的管理口令 ADMIN_TOKEN：启动时取一次、全进程只认这一份；对外只给有没有、常量时间比对、登录门指纹三样，口令本身不出模块。index.ts 的口令校验、a2a.ts、管理口令路由都经它）
   content-access.ts（内容票据与准入）
   content-static.ts（无令牌静态资产读取）
   content-surface.ts（内容面终结分发与到期引导）
@@ -364,7 +366,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   http.ts  HTTP 服务（Cordis 服务 http）：持有 Express 应用；域模块经它注册路由，每条报上动作名和类别，注册可撤销
   identity.ts（身份契约：核心只经它认人·Cordis 服务 `identity` 认人与 whoami、`loginRelay` 业务台登录中继的窄接口·`/api/auth/viewer`·提供方认出的人要对到主体上才算数，主体停用即不认）
   index.ts（REST+静态+巡检装配）
-  judgment-builtins.ts（内置身份：管理口令、本机命令行、本机页面、匿名，权限按动作逐条列出，进快照）
+  judgment-builtins.ts（内置身份：管理口令、本机命令行、本机页面、匿名，权限按动作逐条列出，进快照·问判定用的类别和按部门问的动作（ASKED）、按关系对自己的事拍板的动作（SELF_DECIDED）：路由放行、scopedVerdict、「谁能做什么」的矩阵都照这两张表）
   judgment-compare.ts（判定的并行比对：WM_JUDGMENT_COMPARE 打开时比新旧结论、记不一致）
   team-relation.ts（「这个人或席位，对这个部门、团队、席位是什么关系」：dept-member、dept-lead、team-lead、seat-owner、team-seat、router，另带显示用的名字；过目、安排、事项详情、数据视图「谁能改这个台」共用）
   judgment-enforce.ts（判定切换的开关 WM_JUDGMENT_ENFORCE：读开关、核域、在切了的域里路由处理之前先判；「暂不切」清单在 judgment-builtins.ts）
@@ -377,11 +379,12 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   owner-pending.ts（待属主看板的判断，服务端那一份：和 web/src/owner-pending.ts 跑同一份用例表 scripts/owner-pending-cases.json）
   outbound-gate.ts（对外断开 WM_OUTBOUND=off 的闸：在 net.Socket.connect、DNS、UDP、子进程这几层拦下一切出站并计数；index.ts 第一个引入它）
   path-inside.ts（路径落点判断，只此一处：规范化后等于根、或以「根加分隔符」开头才算在根里；/apps/ 静态托管、/go/ 转自产台、/sop/ 附件都用它）
+  portal-forward-headers.ts（门户转发前去掉市场自身的认证信息：口令、令牌、凭据头和市场的会话 cookie 的清单，HTTP 与 WebSocket 握手共用，启动自检一行）
   portal-observation.ts（无敏感原文的被动计数）
   portal.ts（/go/ 反代·白屏五层+登录态）
   redis.ts（Redis 连接和 SOP 执行实例的热态：连接只有这一条；SOP 的读写经共用状态层的 sop 句柄，只碰 wm:sop: 开头的键）
   request-person.ts  这个请求是哪个人：只经身份服务认请求带的登录凭据（登录提供方的会话或市场会话），主体须是启用的人；认不出就是没有，调用方照常放行（任务中心建录入、发布用）
-  roles.ts（角色声明：平台四个内置角色 owner/admin/member/guest，组织角色初始集合 dept-member/dept-lead 或外部声明文件·启动时校验，不合格拒绝启动）
+  roles.ts（角色声明：平台四个内置角色 owner/admin/member/guest，组织角色初始集合 dept-member/dept-lead 或外部声明文件·启动时校验，不合格拒绝启动·「谁能做什么」的矩阵从统一判定的同一套规则推（permits 和判定共用））
   root-context.ts（全进程唯一的 Cordis 根上下文·不开数据库）
   settings-view.ts（设置读出去的样子：管理员看全部、凭据类的值只说有没有；别人只看巡检参数和开关；导出用管理员那一级）
   sop-field-channel.ts（字段/上传/人工完成通道候选）

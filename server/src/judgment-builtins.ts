@@ -7,6 +7,8 @@
  * → 本机页面（回环直连、带浏览器标记）→ 匿名。
  */
 
+import type { Kind } from './roles.ts';
+
 export type BuiltinName = 'admin-token' | 'local-cli' | 'local-page' | 'anonymous';
 export type BuiltinIdentity = {
   name: BuiltinName;
@@ -260,8 +262,57 @@ export function unknownBuiltinActions(known: (action: string) => boolean): strin
   const out: string[] = [];
   for (const b of BUILTINS) for (const a of [...b.actions, ...b.actsForOwner]) if (!known(a)) out.push(`${b.name}: ${a}`);
   for (const n of NARROWED) if (!known(n.action)) out.push(`narrowed: ${n.action}`);
+  for (const a of Object.keys(ASKED)) if (!known(a)) out.push(`asked: ${a}`);
+  for (const a of SELF_DECIDED) if (!known(a)) out.push(`self-decided: ${a}`);
   return out;
 }
+
+/**
+ * 问统一判定时用的类别，和路由登记的类别不一样的动作；以及哪些动作还按部门问（scopedVerdict）。
+ *   global：问 judge 时用的类别（全公司那一档）；dept：按部门问 scopedVerdict 时用的类别，null 是不按部门问。
+ * 路由（数据视图的台、经验库）放行时照这里取类别；scopedVerdict 只认 dept 不是 null 的动作、而且类别要对得上；
+ * 「谁能做什么」的矩阵也照这里推（roles.ts 的 roleMatrix）——三处用同一份，矩阵和判定不会各说各的。
+ * 不在这里的动作：问 judge 用登记的类别，不按部门问。进快照（surfaces/actions.json 的 builtins.asked），改它要过评审
+ */
+export const ASKED: Readonly<Record<string, { global: Kind; dept: Kind | null }>> = {
+  // 数据视图的台：读和写是同一道门，都按「能不能写」问（普通员工的预设带着全部业务域的「看」，按「看」放行等于全公司可读）；
+  // 登记、批 MCP 授予、批申请按部门问「拍板」；改绑、关联只有全公司那一档
+  'bench-store.bench-list': { global: 'write', dept: 'write' },
+  'bench-store.bench-create': { global: 'write', dept: 'decide' },
+  'bench-store.bench-bind': { global: 'decide', dept: null },
+  'bench-store.bench-link': { global: 'write', dept: null },
+  'bench-store.dataset-define': { global: 'write', dept: 'write' },
+  'bench-store.dataset-list': { global: 'write', dept: 'write' },
+  'bench-store.rows-write': { global: 'write', dept: 'write' },
+  'bench-store.query': { global: 'write', dept: 'write' },
+  'bench-store.form-submit': { global: 'write', dept: 'write' },
+  'bench-store.render': { global: 'write', dept: 'write' },
+  'bench-store.snapshot-list': { global: 'write', dept: 'write' },
+  'bench-store.snapshot-take': { global: 'write', dept: 'write' },
+  'bench-store.snapshot-restore': { global: 'write', dept: 'write' },
+  'bench-store.view-get': { global: 'write', dept: 'write' },
+  'bench-store.view-put': { global: 'write', dept: 'write' },
+  'bench-store.view-versions': { global: 'write', dept: 'write' },
+  'bench-store.view-diff': { global: 'write', dept: 'write' },
+  'bench-store.view-rollback': { global: 'write', dept: 'write' },
+  'bench-store.log-list': { global: 'write', dept: 'write' },
+  'bench-store.mcp-list': { global: 'write', dept: 'write' },
+  'bench-store.mcp-grant': { global: 'decide', dept: 'decide' },
+  'bench-store.mcp-decide': { global: 'decide', dept: 'decide' },
+  // 经验库：部门级的条目按这个部门问「看」（services/knowledge.ts 的 visibility）
+  'knowledge.read': { global: 'read', dept: 'read' },
+};
+/** 问 judge 用的类别：登记了就用登记的，没登记用路由的类别 */
+export const askedKind = (action: string, declared: Kind): Kind => ASKED[action]?.global ?? declared;
+/** 按部门问 scopedVerdict 用的类别；不按部门问的动作是 null */
+export const deptKind = (action: string): Kind | null => ASKED[action]?.dept ?? null;
+
+/**
+ * 按关系对自己的事拍板的动作：不经授予，路由按「是不是建立人、是不是写信的那个人」判（routes/work-items.ts）。
+ * 矩阵里普通员工「拍板·只限自己的」只算这几个（普通员工预设那条范围 self 的决定类权限就是在说它们）；别的动作上那条权限不起作用。
+ * 进快照，改它要过评审
+ */
+export const SELF_DECIDED: readonly string[] = ['work-items.accept', 'work-items.asks-answer'];
 
 /**
  * 「暂不切」（阶段六 6d）：判定切换的开关里写了这个域，这几个动作仍然按旧守卫。每条写原因；
