@@ -407,6 +407,8 @@ jobs:
         run: node scripts/vars-store-test.mjs && node scripts/vars-hot-test.mjs && WM_VARS_STORE=shadow node scripts/route-replay-test.mjs workbench-vars && WM_VARS_STORE=bench node scripts/route-replay-test.mjs workbench-vars && node scripts/vars-store-diff-test.mjs
       - name: Startup security self-probe (#326, loopback synthetic only)
         run: node scripts/startup-security-self-probe-test.mjs && node scripts/startup-security-self-probe-http-test.mjs && node scripts/startup-security-self-probe-upgrade-test.mjs
+      - name: 门户转发前去掉市场自身的认证信息（GET、POST、WebSocket 握手里没有市场的口令、令牌、凭据头和市场 cookie；台自己的头和 cookie 照旧；启动自检这一行过了）
+        run: node scripts/portal-forward-strip-test.mjs
       - name: Tasks identity and project/run grant isolation (#324, synthetic only)
         run: node scripts/tasks-read-authority-http-test.mjs
       - name: Redis ready recovery and durable-generation rebound (#351, synthetic only)
@@ -502,6 +504,8 @@ jobs:
         run: node scripts/app-data-read-guard-smoke.mjs
       - name: 台的提交和附件（数据面、文件面冒烟；同台同幂等键并发只落一行，不出 500）
         run: node scripts/appdata-smoke.mjs && node scripts/appfiles-smoke.mjs
+      - name: 台的提交和附件存进卡片的台库（WM_APP_DATA_STORE 三档；先写主库再照抄、按摘要对齐、迁移能重复跑、只删卡片也删提交；三档录带零差异；main 和 bench 两个实例逐条一样；bench 档同键并发不出 500）
+        run: node scripts/app-data-store-test.mjs && node scripts/app-data-diff-test.mjs && WM_APP_DATA_STORE=bench node scripts/appdata-smoke.mjs && WM_APP_DATA_STORE=shadow node scripts/route-replay-test.mjs app-data && WM_APP_DATA_STORE=bench node scripts/route-replay-test.mjs app-data && WM_APP_DATA_STORE=shadow node scripts/route-replay-test.mjs mcp-rest && WM_APP_DATA_STORE=bench node scripts/route-replay-test.mjs mcp-rest
       - name: 设置的读按角色给（别人只看巡检参数和开关；管理员看全部、凭据类的值只说有没有；导出和改设置的应答不带凭据）
         run: node scripts/settings-read-smoke.mjs
       - name: SOP run 的写守卫（上传令牌、管理员或本机命令行；匿名、别的 run 的令牌、已结束的 run、员工、跨站一律 403 且先于查 run；开建照旧开放；告警模式）

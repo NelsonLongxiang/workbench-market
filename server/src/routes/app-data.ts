@@ -172,9 +172,11 @@ export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void
     const a = getApp(req.params.slug);
     const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 500) : undefined;
     if (note === undefined) bad('note 必填（字符串）');
-    const hit = await svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug);
-    if (!hit) throw new HttpError(404, `file not found: ${req.params.id}`);
-    await svc<AppDataService>('appData').fileUpdateNote(Number(req.params.id), a.slug, note!);
+    await svc<AppDataService>('appData').serialWrites(a.slug, async () => { // 查在不在 → 改，排在这个台的写入队里
+      const hit = await svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug);
+      if (!hit) throw new HttpError(404, `file not found: ${req.params.id}`);
+      await svc<AppDataService>('appData').fileUpdateNote(Number(req.params.id), a.slug, note!);
+    });
     res.json({ ok: true, id: Number(req.params.id), note });
   }));
 
@@ -183,9 +185,12 @@ export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void
     if (!adminGuard(req, res)) return; // #193 F3
     if (!adminGuard(req, res)) return; // #193 F3
     const a = getApp(req.params.slug);
-    const hit = await svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug);
-    if (!hit) throw new HttpError(404, `file not found: ${req.params.id}`);
-    if (!(await svc<AppDataService>('appData').fileSoftDelete(Number(req.params.id), a.slug))) throw new HttpError(404, `file not found: ${req.params.id}`); // #193 F5：幂等假绿修（不存在→404）
+    // 软删附件排在这个台的写入队里：契约「查附件在不在 → 插入提交」中间不会被它插进来（不会写进引用了已删附件的提交）
+    await svc<AppDataService>('appData').serialWrites(a.slug, async () => {
+      const hit = await svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug);
+      if (!hit) throw new HttpError(404, `file not found: ${req.params.id}`);
+      if (!(await svc<AppDataService>('appData').fileSoftDelete(Number(req.params.id), a.slug))) throw new HttpError(404, `file not found: ${req.params.id}`); // #193 F5：幂等假绿修（不存在→404）
+    });
     res.json({ ok: true, id: Number(req.params.id), deleted: 'soft' });
   }));
 
@@ -193,7 +198,7 @@ export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void
     if (!adminGuard(req, res)) return; // #193 F3
     if (!adminGuard(req, res)) return; // #193 F3
     const a = getApp(req.params.slug);
-    if (!(await svc<AppDataService>('appData').dataSoftDelete(Number(req.params.id), a.slug))) throw new HttpError(404, `data not found: ${req.params.id}`); // #193 F5
+    if (!(await svc<AppDataService>('appData').serialWrites(a.slug, () => svc<AppDataService>('appData').dataSoftDelete(Number(req.params.id), a.slug)))) throw new HttpError(404, `data not found: ${req.params.id}`); // #193 F5
     res.json({ ok: true, id: Number(req.params.id), deleted: 'soft' });
   }));
 
