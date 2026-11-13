@@ -890,6 +890,34 @@ function selftest() {
   check(broken({ waivers: [{ rule: RULES[0].id, item: 'a.ts', reason: 'r', by: 'b', until: 'never' }] }), '清单校验：豁免的期限不是日期，报错');
   check(!broken({ waivers: [{ rule: RULES[0].id, item: 'a.ts', reason: 'r', by: 'b', until: '2999-01-01' }] }), '清单校验：五项齐全的豁免，通过');
   check(broken({ tests: { 'a-test.mjs': '' } }), '清单校验：登记的测试没写理由，报错');
+  // --strict 遇到放宽：预算档、红线档的基线调大，红线目标放宽，档位调低，没写原因就失败；计数档按实际重记照旧只报告
+  const L = (rules) => ({ rules, waivers: [], tests: {} });
+  const R = (tier, total, extra = {}) => ({ id: 'x', tier, target: 0, baseline: { total }, ...extra });
+  const blockOf = (main, list) => loosenVerdict(main, list).blocking;
+  check(blockOf(L([R('budget', 2)]), L([R('budget', 3)])).length === 1, '放宽：预算档基线调大、没写原因，失败');
+  check(blockOf(L([R('budget', 2)]), L([R('budget', 3, { loosen_reason: '合并 A 和 B 时搬进来的存量（#999）' })])).length === 0, '放宽：预算档基线调大、写了原因，通过');
+  check(loosenVerdict(L([R('budget', 2)]), L([R('budget', 3, { loosen_reason: '合并 A 和 B 时搬进来的存量（#999）' })])).reported.some((x) => x.includes('#999')), '放宽：写了原因的，「清单变化」里显示原因');
+  check(blockOf(L([R('count', 2)]), L([R('count', 5)])).length === 0, '放宽：计数档按实际重记变大，不算');
+  check(loosenVerdict(L([R('budget', 3)]), L([R('budget', 2)])).reported.length === 0, '收紧：预算档变小，不点名、不失败');
+  check(blockOf(L([R('redline', 0)]), L([R('redline', 0, { target: 1 })])).length === 1, '放宽：红线目标放宽、没写原因，失败');
+  check(blockOf(L([R('budget', 2)]), L([R('count', 2)])).length === 1, '放宽：预算档降为计数档、没写原因，失败');
+  check(blockOf(L([R('redline', 0)]), L([R('budget', 0)])).length === 1, '放宽：红线档降为预算档、没写原因，失败');
+  check(blockOf(L([{ ...R('budget', 2), baseline: { total: 2, files: { 'a.ts': 2 } } }]), L([{ ...R('budget', 2), baseline: { total: 2, files: { 'a.ts': 1, 'b.ts': 1 } } }])).length === 1, '放宽：预算档总数不变、额度挪给新文件，没写原因，失败');
+  const stale = '早先那次放宽的原因（#900）';
+  check(blockOf(L([R('budget', 2, { loosen_reason: stale })]), L([R('budget', 3, { loosen_reason: stale })])).length === 1, '放宽：原因是 main 上早就有的（上次那次的），这次照样失败');
+  check(broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: '没写 PR 号' })) }), '清单校验：放宽原因没带 PR 号，报错');
+  check(broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: '' })) }), '清单校验：放宽原因是空的，报错');
+  check(!broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: '一句话（#1）' })) }), '清单校验：放宽原因一句话带 PR 号，通过');
+  {
+    const dir = mkdtempSync(join(tmpdir(), 'tech-route-tighten-'));
+    try {
+      const first = RULES[0];
+      const prev = { rules: [], deps: {}, tests: {}, waivers: [] };
+      writeList(dir, [{ rule: { ...first, tier: 'budget', baseline: { total: 3 }, loosen_reason: '一句话（#1）' }, m: { total: 3 } }], prev, 'tighten');
+      const written = JSON.parse(readFileSync(join(dir, LIST), 'utf8'));
+      check(!('loosen_reason' in written.rules[0]), '--tighten：放宽原因只管引入它的那一次，收紧时清掉');
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  }
   console.log(failed ? `===== 路线体检自检：${failed} 项失败 =====` : '===== 路线体检自检：全过 =====');
   return failed ? 1 : 0;
 }
