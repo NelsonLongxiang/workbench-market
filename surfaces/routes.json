@@ -120,6 +120,8 @@
       "DELETE /api/departments/:id/members/:principal  <- <anonymous>",
       "GET /api/teams  <- <anonymous>",
       "GET /api/teams/mine  <- <anonymous>",
+      "GET /api/teams/events  <- <anonymous>",
+      "GET /api/teams/assignments  <- <anonymous>",
       "POST /api/teams/claim  <- <anonymous>",
       "POST /api/teams/release  <- <anonymous>",
       "POST /api/teams/leads  <- <anonymous>",

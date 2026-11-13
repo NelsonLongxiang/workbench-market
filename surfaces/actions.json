@@ -107,6 +107,8 @@
       "DELETE /api/departments/:id/members/:principal  -> department.member-remove  admin",
       "GET /api/teams  -> team.list  read",
       "GET /api/teams/mine  -> team.mine  read",
+      "GET /api/teams/events  -> team.events  read  （状态码不代表授权：按关系判：管理员、管理层看全部，团队负责人看自己的团队，本人看自己的分配（按对象的范围，统一判定还不认，L13）；读不到的按不存在回）",
+      "GET /api/teams/assignments  -> team.assignment-history  read  （状态码不代表授权：按关系判：管理员、管理层看全部，团队负责人看自己的团队，本人看自己的分配（按对象的范围，统一判定还不认，L13）；读不到的按不存在回）",
       "POST /api/teams/claim  -> team.claim  admin",
       "POST /api/teams/release  -> team.release  admin",
       "POST /api/teams/leads  -> team.lead-add  admin",
