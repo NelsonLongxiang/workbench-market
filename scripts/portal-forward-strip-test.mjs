@@ -150,6 +150,10 @@ try {
   ok('⑦f WebSocket 握手带市场的 MCP 会话令牌：上游收不到', ws7 !== null && !('authorization' in (ws7?.headers ?? {})), `authorization=${ws7?.headers?.authorization}`);
   const ws7x = await wsHandshake(`/go/${p}/ws`, { authorization: `Bearer ${unknown}` });
   ok('⑦g WebSocket 握手带查不到的 Bearer：照常转给台', ws7x?.headers?.authorization === `Bearer ${unknown}`, `authorization=${ws7x?.headers?.authorization}`);
+  const h7l = (await (await fetch(`${B}/go/${p}/echo`, { headers: { authorization: `bearer ${sess.token}` } })).json()).headers ?? {};
+  ok('⑦h 方案名写成小写 bearer：市场一样认，一样不带', !('authorization' in h7l), `authorization=${h7l.authorization}`);
+  const ws7c = await wsHandshake(`/go/${p}/ws`, { authorization: `Bearer ${sess.token}`, cookie: `pref=1; ${MARKET_COOKIES}` });
+  ok('⑦i WebSocket 握手同时带 cookie 和市场令牌：令牌和市场 cookie 都不带，台的 cookie 留下', ws7c !== null && !('authorization' in (ws7c?.headers ?? {})) && ws7c?.headers?.cookie === 'pref=1', `authorization=${ws7c?.headers?.authorization} cookie=${ws7c?.headers?.cookie}`);
 
   // ⑥ 启动自检有这一行，并且过了
   const health = await (await fetch(`${B}/api/health`)).json();
