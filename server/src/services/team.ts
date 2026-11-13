@@ -158,8 +158,8 @@ export class TeamService extends Service {
       .run(k.host, k.team, kind, extra.seat ?? '', extra.seat_id ?? '', extra.principal ?? '', extra.detail === undefined ? '' : JSON.stringify(extra.detail), actor.by.slice(0, 256), actor.principal, now);
   }
 
-  events(k: TeamKey): { seq: number; kind: string; seat: string; seat_id: string; principal_id: string; detail: string; actor: string; at: number }[] {
-    return db.prepare('SELECT seq, kind, seat, seat_id, principal_id, detail, actor, at FROM team_events WHERE host = ? AND team = ? ORDER BY seq').all(k.host, k.team) as never;
+  events(k: TeamKey): { seq: number; kind: string; seat: string; seat_id: string; principal_id: string; detail: string; actor: string; actor_principal: string | null; at: number }[] {
+    return db.prepare('SELECT seq, kind, seat, seat_id, principal_id, detail, actor, actor_principal, at FROM team_events WHERE host = ? AND team = ? ORDER BY seq').all(k.host, k.team) as never;
   }
 
   /** 一个事务；外面已经开着事务（比如确认关系提议时把核对、改状态、落关系包在一起）就用保存点嵌进去 */
@@ -281,6 +281,36 @@ export class TeamService extends Service {
       db.prepare('UPDATE seat_assignments SET ended_at = ?, ended_by = ? WHERE id = ?').run(now, actor.by.slice(0, 256), cur.id);
       this.event(key, 'unassign', actor, now, { seat: key.seat, seat_id: key.seat_id, principal: cur.principal_id });
       return { ok: true as const, removed: true };
+    });
+  }
+
+  /**
+   * 改派：一个事务里结束这个成员现在的分配、分给 principal（团队页「改派」一步办完，不会停在团队公用）。
+   * 检查和 assign 一样；现在没人分着就等同于分配；改给现在的人回 changed=false、什么都不写。
+   * 留痕照旧是一条 unassign 加一条 assign（team_events.kind 不加新值），两条的 detail 都带 { reassign: true, from, to }。
+   */
+  reassign(k: SeatKey, principal: string, actor: Actor, now: number): { ok: true; changed: boolean; id: number | null; from: string | null } | TeamRefusal {
+    if (!this.registration(k)?.claimed) return refuse(409, 'team_not_claimed', '团队还没认领，不能分配成员');
+    const seat = this.rosterSeat(k);
+    if (!seat) return refuse(404, 'seat_not_in_roster', '名册里这个团队下没有这个席位');
+    if (seat.role === 'router') return refuse(422, 'router_not_assignable', '总工不分配给员工，只对负责人');
+    if (!this.personActive(principal)) return refuse(422, 'assignee_not_person', `只分给启用的人，${principal} 不是`);
+    const key: SeatKey = { host: k.host, team: k.team, seat: seat.seat, seat_id: seat.seat_id };
+    const cur = this.activeAssignment(key);
+    // 生效的分配要属于这个团队：seat_id 按节点认，团队另外核（和 unassign 一样）
+    if (cur && (cur.host !== k.host || cur.team !== k.team)) return refuse(404, 'seat_not_in_team', '这个团队下没有这个席位的分配');
+    if (cur && cur.principal_id === principal) return { ok: true, changed: false, id: cur.id, from: principal };
+    const from = cur ? cur.principal_id : null;
+    const detail = { reassign: true, from, to: principal };
+    return this.tx(() => {
+      if (cur) {
+        db.prepare('UPDATE seat_assignments SET ended_at = ?, ended_by = ? WHERE id = ?').run(now, actor.by.slice(0, 256), cur.id);
+        this.event(key, 'unassign', actor, now, { seat: key.seat, seat_id: key.seat_id, principal: cur.principal_id, detail });
+      }
+      const id = Number(db.prepare('INSERT INTO seat_assignments (host, team, seat, seat_id, principal_id, assigned_by, assigned_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(key.host, key.team, key.seat, key.seat_id, principal, actor.by.slice(0, 256), now).lastInsertRowid);
+      this.event(key, 'assign', actor, now, { seat: key.seat, seat_id: key.seat_id, principal, detail });
+      return { ok: true as const, changed: true, id, from };
     });
   }
 

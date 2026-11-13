@@ -22,9 +22,9 @@ const MAX_KEYS_PER_WORKBENCH = 512;
 const PATH_RE = /^\/api\/workbenches\/(\d{1,12})\/vars(?:\/|$)/i;
 
 export type WorkbenchClass = 'app' | 'sop' | 'external';
-type Scope = { id: number; cls: WorkbenchClass; slug: string | null };
+export type Scope = { id: number; cls: WorkbenchClass; slug: string | null };
 /** 调用方：actor 记入 updated_by / 审计；admin=管理读写面（本机命令行、口令、Odoo 管理员）；cli=部署机本机命令行（常量兜底维护） */
-type Caller = { actor: string; admin: boolean; cli: boolean };
+export type Caller = { actor: string; admin: boolean; cli: boolean };
 /** 能当常量作者的个人身份：MCP 会话或 Odoo 登录人；口令、本机、台令牌都是共享身份 */
 const PERSONAL_RE = /^(mcp|odoo):[^\s]{1,128}$/;
 const personal = (actor: string) => PERSONAL_RE.test(actor) ? actor : '';
@@ -58,7 +58,7 @@ export function workbenchScope(id: number): Scope {
   return m ? { id, cls: m[1] === 'apps' ? 'app' : 'sop', slug: m[2] } : { id, cls: 'external', slug: null };
 }
 
-function checkKey(key: unknown): string {
+export function checkKey(key: unknown): string {
   if (typeof key !== 'string' || !KEY_RE.test(key)) throw new HttpError(400, 'key 规范：字母/数字/下划线开头，字母/数字/_ . : -，≤128 字符');
   return key;
 }
@@ -68,7 +68,7 @@ function view(r: WorkbenchVarRow) {
 }
 
 /** 期望 revision：If-Match（"3" / W/"3" / 3）与 revision 参数二选一；都给且不同 400 */
-function expectedRevision(ifMatch: unknown, param: unknown): number | undefined {
+export function expectedRevision(ifMatch: unknown, param: unknown): number | undefined {
   const parse = (v: unknown, what: string): number | undefined => {
     if (v === undefined || v === null || v === '') return undefined;
     const s = String(v).trim().replace(/^W\//, '').replace(/^"(.*)"$/, '$1');
@@ -81,7 +81,7 @@ function expectedRevision(ifMatch: unknown, param: unknown): number | undefined 
   return a ?? b;
 }
 
-const truthy = (v: unknown) => v === true || v === 1 || v === '1' || v === 'true';
+export const truthy = (v: unknown) => v === true || v === 1 || v === '1' || v === 'true';
 
 function conflict(scope: Scope, key: string, message: string, code: string, status = 409): never {
   const cur = vars().get(scope.id, key) as WorkbenchVarRow | undefined;
@@ -242,6 +242,8 @@ export function createWorkbenchVars(deps: WorkbenchVarsDeps) {
     };
 
   return {
+    /** 路由的外壳：查台、判权（本机命令行、本台令牌、管理员）、no-store，再交给处理函数（路由在 routes/workbench-vars.ts） */
+    handle,
     /** 读门（和 GET /api/workbenches/:id/vars 同一个）：「关注」的待属主看板复用它判可见性 */
     authorizeRead: (req: express.Request, res: express.Response, scope: Scope) => authorize(req, res, scope, false),
     /** 沙箱页面（Origin: null）凭本台令牌跨源读写：预检只回允许头；实际请求令牌对了才发 ACAO */
@@ -267,35 +269,5 @@ export function createWorkbenchVars(deps: WorkbenchVarsDeps) {
       try { return appTokenOk(req, workbenchScope(Number(m[1]))); } catch { return false; }
     },
 
-    mount(app: express.Express): void {
-      app.get('/api/workbenches/:id/vars', handle(false, (req, res, scope) => {
-        res.json(listVars(scope, typeof req.query.prefix === 'string' ? req.query.prefix : ''));
-      }));
-      app.get('/api/workbenches/:id/vars/:key', handle(false, (req, res, scope) => {
-        const out = getVar(scope, req.params.key);
-        res.set('ETag', `"${out.revision}"`).json(out);
-      }));
-      // 审计只给管理员（本机命令行同）
-      app.get('/api/workbenches/:id/vars/:key/audit', handle(false, (req, res, scope, caller) => {
-        if (!caller.admin) return void res.status(403).json({ error: '审计只限管理员' });
-        const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
-        res.json({ workbench_id: scope.id, key: checkKey(req.params.key), items: vars().auditList(scope.id, req.params.key, limit) });
-      }));
-      app.put('/api/workbenches/:id/vars/:key', handle(true, (req, res, scope, caller) => {
-        const b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
-        const out = setVar(scope, req.params.key, {
-          value: b.value, hasValue: Object.prototype.hasOwnProperty.call(b, 'value'), kind: b.kind,
-          expected: expectedRevision(req.headers['if-match'], b.revision ?? req.query.revision),
-          override: truthy(b.override) || truthy(req.query.override), reason: b.reason, owner: b.owner,
-        }, caller);
-        res.status(out.created ? 201 : 200).set('ETag', `"${out.revision}"`).json(out);
-      }));
-      app.delete('/api/workbenches/:id/vars/:key', handle(true, (req, res, scope, caller) => {
-        res.json(deleteVar(scope, req.params.key, {
-          expected: expectedRevision(req.headers['if-match'], req.query.revision),
-          override: truthy(req.query.override), reason: req.query.reason,
-        }, caller));
-      }));
-    },
   };
 }

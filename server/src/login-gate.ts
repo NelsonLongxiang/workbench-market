@@ -49,6 +49,8 @@ export type LoginGateDeps = {
   odooViewer: (cookieHeader: string, fresh: boolean) => Promise<{ login: string; admin: boolean; via?: 'session' } | { held: true } | { down: true } | null>;
   /** /api/auth/me 附带的「我是谁」：主体、显示名、当前生效授予的角色（侧栏用户卡用）。不给就只回原来的几项 */
   profile?: (req: express.Request) => Promise<{ principal: string | null; display_name: string | null; roles: { id: string; name: string; scope: string; preset: boolean; expires_at: number | null; source: 'manual' | 'migration'; approved_by: string | null }[] }>;
+  /** /api/auth/me 附带的 can：这个请求能做的、不属于某一个对象的事（比如新建驾驶舱）。不给就不带 */
+  can?: (req: express.Request) => Promise<Record<string, boolean>>;
   /** 登录页上列出的登录方式（发市场会话的那几种，比如飞书）：名字和按钮上的字 */
   loginFlows?: () => { name: string; label: string }[];
   appToken: (slug: string) => string;

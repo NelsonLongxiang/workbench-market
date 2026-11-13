@@ -45,7 +45,7 @@ try {
   const cfg = join(TMP, 'browser.json');
   writeFileSync(cfg, JSON.stringify({ base, control: `http://127.0.0.1:${PORT + 1}`, token: env.ADMIN_TOKEN, cockpit, cockpit_name: '合成驾驶舱', min_tasks: 25, legacy_cockpit: legacy.id }));
   code = 0;
-  for (const script of ['scripts/sider-menu-browser.py', 'scripts/page-skeleton-browser.py', 'scripts/list-rules-browser.py', 'scripts/dashboard-browser.py', 'scripts/market-browser.py', 'scripts/access-browser.py', 'scripts/team-browser.py', 'scripts/seat-name-browser.py', 'scripts/market-detail-browser.py']) {
+  for (const script of ['scripts/sider-menu-browser.py', 'scripts/page-skeleton-browser.py', 'scripts/list-rules-browser.py', 'scripts/dashboard-browser.py', 'scripts/market-browser.py', 'scripts/access-browser.py', 'scripts/team-browser.py', 'scripts/seat-name-browser.py', 'scripts/market-detail-browser.py', 'scripts/work-items-views-browser.py']) {
     const py = spawn(pythonBin(), [script, cfg], { stdio: 'inherit' });
     code |= await new Promise((x, j) => { py.on('error', j); py.on('exit', x); });
   }

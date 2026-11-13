@@ -673,6 +673,10 @@ body { background: var(--wm-color-page); }
 .wm-view-row { display: flex; align-items: center; gap: var(--wm-space-2); }
 .wm-view { display: inline-flex; align-items: center; gap: var(--wm-space-2); height: 32px; padding: 0 var(--wm-space-3); border: 1px solid var(--wm-color-border); border-radius: var(--wm-radius-full); color: var(--wm-color-text-secondary); background: var(--wm-color-surface); }
 .wm-view.on { border-color: transparent; background: var(--wm-color-primary-subtle); color: var(--wm-color-primary); font-weight: var(--wm-font-weight-body-strong); }
+.wm-view-row[role=tablist] { flex-wrap: wrap; }
+button.wm-view { font: inherit; cursor: pointer; transition: color var(--wm-motion-fast) var(--wm-motion-easing), border-color var(--wm-motion-fast) var(--wm-motion-easing), background var(--wm-motion-fast) var(--wm-motion-easing); }
+button.wm-view:not(.on):hover { color: var(--wm-color-primary); border-color: var(--wm-color-primary); }
+button.wm-view:focus-visible { outline: 2px solid var(--wm-color-primary); outline-offset: 2px; }
 .wm-view i { font-style: normal; font-size: var(--wm-font-size-caption); font-variant-numeric: tabular-nums; }
 .wm-view-group { margin-left: auto; display: inline-flex; align-items: center; gap: var(--wm-space-2); }
 .wm-avatar-none { background: transparent; border: 1px dashed var(--wm-color-border-strong); }
@@ -720,3 +724,12 @@ body { background: var(--wm-color-page); }
 .wm-ck-card.on { outline: 2px solid var(--wm-color-primary); outline-offset: 1px; }
 .wm-ck-card-pick { align-self: flex-end; }
 .wm-ck-process-h { margin-bottom: var(--wm-space-3); }
+/* 驾驶舱「AI 员工」：一行一个成员——首字头像、名字和团队、手上在办几件 */
+.wm-ck-sub { padding: var(--wm-space-2) var(--wm-space-3) var(--wm-space-1); font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); font-weight: var(--wm-font-weight-body-strong); }
+.wm-ck-note { padding-bottom: 0; }
+.wm-ck-staff { display: flex; align-items: center; gap: var(--wm-space-2); color: var(--wm-color-text); min-width: 0; }
+.wm-ck-staff-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.wm-ck-staff-main b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wm-ck-staff-busy { flex: none; }
+/* 「AI 员工」的成员列表：每张卡之间都没有分隔线，组与组之间靠小标题分（原来一组一条、一组没有，看着像两种列表） */
+[data-testid=ck-staff-pane] .wm-ck-list li { border-bottom: 0; padding-top: var(--wm-space-1); padding-bottom: var(--wm-space-1); }
