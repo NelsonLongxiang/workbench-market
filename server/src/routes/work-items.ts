@@ -112,9 +112,15 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       const scopes = viewScopes(viewer);
       const items = svc<WorkItemService>('workItems');
       // decide：这个视角里轮到看的人、能当场办的件数（decidesNow，和「关注」里事项来源的 mine、答法同一处判，侧栏角标数的就是这些）。
-      // 和下面的列表一样，SQL 圈出来的再按 itemRoles 过一遍这个视角对应的那种人；不可用的视角不给 decide
+      // 先只取可能轮到他的候选（他建的、他负责的团队里等过目的），逐件判一次；各视角只和自己的范围求交，
+      // 再按 itemRoles 过一遍这个视角对应的那种人（和下面的列表同一个口径）。不可用的视角不给 decide
       const roleOf: Record<ViewName, ItemRole> = { mine: 'creator', seats: 'owner', team: 'lead', all: 'management' };
-      const decideIn = (v: ViewName) => items.openIn(scopes[v]!).filter((w) => itemRoles(w, viewer).includes(roleOf[v]) && decidesNow(w, viewer)).length;
+      const now = viewer.principal ? items.turnCandidates(viewer.principal, scopes.team).filter((w) => decidesNow(w, viewer)) : [];
+      const decideIn = (v: ViewName) => {
+        if (!now.length) return 0;
+        const inScope = items.idsIn(scopes[v]!, now.map((w) => w.id));
+        return now.filter((w) => inScope.has(w.id) && itemRoles(w, viewer).includes(roleOf[v])).length;
+      };
       const views = Object.fromEntries(VIEWS.map((v) => [v, scopes[v] ? { available: true, count: items.countIn(scopes[v]!), decide: decideIn(v) } : { available: false, count: 0 }])) as Record<ViewName, { available: boolean; count: number; decide?: number }>;
       if (viewRaw !== undefined && !scopes[viewRaw as ViewName]) return void res.status(403).json({ error: 'work_items_view_unavailable', views });
       const view = (viewRaw as ViewName | undefined) ?? VIEWS.find((v) => views[v].available && views[v].count > 0) ?? VIEWS.find((v) => views[v].available);

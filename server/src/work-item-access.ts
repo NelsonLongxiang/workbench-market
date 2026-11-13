@@ -366,7 +366,7 @@ export function turnOf(item: WorkItemRow, viewer: WorkItemViewer): Turn {
  * 这件事是不是「等你拍板」：轮到看的人（turnOf）、而且他能当场办（canOf，出自 itemDecisionVerdict）。
  * 和「关注」里事项来源（验收、过目、席位提问）那几条的 mine 与答法同一个口径，侧栏角标数的就是这些：
  *   验收：轮到建立人，能验收或能退回；过目：轮到负责人或勾了先过目的建立人，能放行；提问：轮到建立人，能答。
- * 事项列表各视角的 decide 用它数，不另写一份
+ * 事项列表各视角的 decide 用它数，不另写一份。turnOf 只会轮到建立人和交给的团队的负责人，列表先按这个在 SQL 里收窄候选（turnCandidates）
  */
 export function decidesNow(item: WorkItemRow, viewer: WorkItemViewer): boolean {
   const t = turnOf(item, viewer);

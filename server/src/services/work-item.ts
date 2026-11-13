@@ -865,10 +865,26 @@ export class WorkItemService extends Service {
     return Number((db.prepare(`SELECT COUNT(*) AS n FROM work_items WHERE ${w.where}`).get(...w.args) as { n: number }).n);
   }
 
-  /** 一个视角里还没结束的事项（数各视角「等你拍板」的件数用；结束了的不会轮到谁办） */
-  openIn(scope: ViewScope): WorkItemRow[] {
-    const w = this.scopeWhere(scope);
-    return db.prepare(`SELECT * FROM work_items WHERE ${w.where} AND state NOT IN (${TERMINAL.map(() => '?').join(', ')}) ORDER BY updated_at DESC, id DESC`).all(...w.args, ...TERMINAL) as WorkItemRow[];
+  /**
+   * 可能轮到这个人的事项（数各视角「等你拍板」用，只是收窄候选，真判在 decidesNow）：
+   * turnOf 只会轮到建立人（验收、答提问、自己过目）和交给的团队的负责人（放行），所以候选就是
+   * 「他建的、还没结束的」加上「他负责的团队里等过目的」（team 是他的「我负责的团队」视角范围；不是负责人就不给）
+   */
+  turnCandidates(principal: string, team?: ViewScope): WorkItemRow[] {
+    const open = `state NOT IN (${TERMINAL.map(() => '?').join(', ')})`;
+    const t = team ? this.scopeWhere(team) : null;
+    const where = t ? `(creator_principal = ? AND ${open}) OR (state = 'held' AND ${t.where})` : `creator_principal = ? AND ${open}`;
+    return db.prepare(`SELECT * FROM work_items WHERE ${where}`).all(principal, ...TERMINAL, ...(t ? t.args : [])) as WorkItemRow[];
+  }
+
+  /** 给定的事项编号里落在这个视角范围里的 */
+  idsIn(scope: ViewScope, ids: readonly string[]): Set<string> {
+    const w = this.scopeWhere(scope), out = new Set<string>();
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      for (const r of db.prepare(`SELECT id FROM work_items WHERE (${w.where}) AND id IN (${chunk.map(() => '?').join(', ')})`).all(...w.args, ...chunk) as { id: string }[]) out.add(r.id);
+    }
+    return out;
   }
 
   /** 事项的事件发往哪些团队（投递的目标团队和投递地址）：认事项属于哪个团队用 */

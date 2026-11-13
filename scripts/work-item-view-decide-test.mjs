@@ -13,6 +13,7 @@
  *   - 件数写死：alpha 3（自己过目、在问、等验收）；beta 我发起的 1、我负责的团队 2、并集 2；管理层 我发起的 1、全部 1（代办的不算轮到他）
  *   - 不可用的视角不给 decide
  *   - 当场办掉一件，decide 跟着少一件
+ *   - 开销：另压 3000 件别人的没结束事项（2000 件等验收、1000 件等过目），管理层看「全部」的中位数不到 250 ms（只判可能轮到他的候选）
  *   变异：判断换成按状态算（held、ready、有提问就算）、只看轮到（不看能不能办）、只看能办（不看轮到）都必须红
  *
  *   node scripts/work-item-view-decide-test.mjs              测本仓库
@@ -34,6 +35,7 @@ const ADMIN_TOKEN = 'view-decide-synthetic-admin';
 const { SESSIONS } = await import('./identity-fake-provider.mjs');
 const HOST = 'a1b2c3d4', PEER = 'http://peer.synthetic.invalid';
 const TEAM = 'zone1/canvas/Team A', VACANT = 'zone1/canvas/Team B';
+const LOAD_READY = 2000, LOAD_HELD = 1000;
 const at = (p) => JSON.stringify(pathToFileURL(join(ROOT, p)).href);
 
 let pass = 0, fail = 0;
@@ -78,6 +80,10 @@ const ready = (title, by) => {
   for (const [k, x] of [['submit', { dispatch_open: true }], ['eval', { verdict: 'accept' }], ['report', { status: 'progress' }], ['report', { status: 'ready' }]]) items.apply(it.id, { kind: k, source: 'seed', id: it.id + ':' + k + ':' + (x.status ?? x.verdict ?? ''), ...x });
   return it.id;
 };
+// 压测用的量，先造：别人建的 2000 件等验收、1000 件交给没有负责人的 Team B 等过目（管理层看得到、能代办，但都不轮到下面三个人，件数断言不受影响）。
+// 先造是因为「关注」的席位提问只看最近 200 个事件（openSeatAsks），下面那件在问的要落在这 200 个里，两边才是同一批（这个窗口和详情的 can 不一致，另报）
+for (let i = 0; i < ${LOAD_READY}; i++) ready('合成压测：等验收 ' + i, 'user:load');
+for (let i = 0; i < ${LOAD_HELD}; i++) held('合成压测：等过目 ' + i, ${JSON.stringify(VACANT)}, 'user:load');
 const out = {
   leadHeld: held('合成：交给有负责人的团队', ${JSON.stringify(TEAM)}, 'user:alpha'),
   vacantHeld: held('合成：交给没有负责人的团队', ${JSON.stringify(VACANT)}, 'user:alpha'),
@@ -86,6 +92,8 @@ const out = {
   ready: ready('合成：等 alpha 验收', 'user:alpha'),
   betaHeld: held('合成：beta 自己建、交给自己的团队', ${JSON.stringify(TEAM)}, 'user:beta'),
   mgmtReady: ready('合成：等管理层自己验收', 'user:root-admin'),
+  // 管理层自己建、交给没有负责人的 Team B 等过目：他能放（代办负责人），但不轮到他
+  mgmtVacantHeld: held('合成：管理层自己建、交给没有负责人的团队', ${JSON.stringify(VACANT)}, 'user:root-admin'),
   // 轮到 alpha（他是建立人、在等验收）、他却办不了：来源未验证的建立人只能由管理员处理
   unverified: ready('合成：来源未验证的建立人', 'user:alpha'),
 };
@@ -123,7 +131,7 @@ try {
   const WHO = { alpha: { ...SAME, cookie: `session_id=${SESSIONS.alpha}` }, beta: { ...SAME, cookie: `session_id=${SESSIONS.beta}` }, 管理层: { ...SAME, cookie: `session_id=${SESSIONS.admin}` } };
   for (const h of Object.values(WHO)) await call('GET', '/api/auth/me', h);
   {
-    const db = new DatabaseSync(join(data, 'workbench-market.db'));
+    const db = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 15000 }); // 实例刚起来、还在写库时等一等，不报 database is locked
     const now = Date.now();
     db.prepare('INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?)').run(HOST, PEER, 'zone1', new Date(now).toISOString(), new Date(now).toISOString());
     const seatIns = db.prepare('INSERT INTO a2a_roster_seats (host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)');
@@ -175,7 +183,17 @@ try {
   const b = await agree('beta', { per: { mine: 1, team: 2 }, union: 2 });
   check([I.leadHeld, I.betaHeld].every((id) => b.has(id)) && !b.has(I.selfHeld) && !b.has(I.asked), 'beta：放行自己团队的两件（其中一件自己建的，两个视角都有、并集只算一次）；建立人自审的、席位问建立人的不算', show([...b]));
   const g2 = await agree('管理层', { per: { mine: 1, all: 1 }, union: 1 });
-  check(g2.has(I.mgmtReady) && !g2.has(I.vacantHeld) && !g2.has(I.ready), '管理层：只有自己建的那件；没有负责人的团队那件是代办（能办、不轮到他），不算', show([...g2]));
+  check(g2.has(I.mgmtReady) && !g2.has(I.vacantHeld) && !g2.has(I.mgmtVacantHeld) && !g2.has(I.ready), '管理层：只有自己建的那件等验收；没有负责人的团队那两件（包括他自己建的）是代办（能办、不轮到他），不算', show([...g2]));
+
+  // 开销：3000 件没结束的事项压着，持管理层授予的人看「全部」。decide 只在可能轮到他的候选上判，列表要和没有 decide 时同一个量级。
+  // 量 7 次取中位数；本机只判候选时 20～60 ms（四个并行跑），逐件判全部时 400～1100 ms；上限 250 ms 留了慢机器的余量，又分得开
+  {
+    const times = [];
+    for (let i = 0; i < 7; i++) { const t0 = performance.now(); const r = await call('GET', '/api/work-items?view=all', WHO.管理层); times.push(Math.round(performance.now() - t0)); if (r.status !== 200) throw new Error(`列表 ${r.status}`); }
+    const med = [...times].sort((x, y) => x - y)[3];
+    console.log(`  · 管理层看「全部」（${LOAD_READY + LOAD_HELD} 件压测事项）：${times.join('、')} ms，中位数 ${med} ms`);
+    check(med < 250, `压着 ${LOAD_READY + LOAD_HELD} 件没结束的事项，管理层看「全部」的列表中位数 ${med} ms，不到 250 ms（不逐件判全部）`, show(times));
+  }
 
   // 当场办掉一件：decide 跟着少
   const r = await call('POST', `/api/work-items/${I.leadHeld}/release`, WHO.beta, {});
