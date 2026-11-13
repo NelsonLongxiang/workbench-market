@@ -9,6 +9,8 @@
  *   三、带了确认：删成；备份进 .deleted/，留痕写明谁删的、备份、到期；台的登记、授予、库文件都没了，没定的申请驳回，
  *       驾驶舱里挂这个台的视图面板摘掉；按卡片 id 和台标识都取不到，MCP 调用和没有这个工具一样
  *   四、台库是空的、或者卡片没有台：和原来一样直接删，不要确认、不留备份；本机命令行（属主）带确认删得了有数据的
+ *   五、视图台页面的入口 GET /api/bench-views/:bench/entry：写卡片 id 拿到台名、版本、默认视图、各视图的键和标题；
+ *       读不到的、不存在的、卡片没有台的、还没有视图描述的，应答逐字一样（404 bench_not_found）；没登录 401
  *
  *   node scripts/bench-card-test.mjs              测本仓库
  *   node scripts/bench-card-test.mjs --root DIR   测另一棵目录树（变异测试用）
@@ -133,6 +135,19 @@ try {
   check(req1.json?.ok && reqRow?.bench === `wb-${W1}` && ok1.status === 200 && callId.json?.datasets?.length === 1 && callSlug.json?.datasets?.length === 1, 'MCP：申请写卡片 id，记成台标识；批了以后调用写卡片 id 或台标识都认', { req: req1.text.slice(0, 100), bench: reqRow?.bench, ok1: ok1.status, callId: callId.text.slice(0, 80) });
   await tool(srv, D.token, 'access_request', { tools: [`dataset_list@bench:wb-${W1}`], reason: '合成：没人批的' });
   const ck = await srv.call('POST', '/api/cockpits', { ...token, body: { name: '合成驾驶舱', panels: [{ kind: 'bench-view', bench: `wb-${W1}`, view: 'board', tab: 'board' }, { kind: 'bench-view', bench: 'legacy-a', view: 'board', tab: 'board' }] } });
+
+  console.log('五、视图台页面的入口');
+  const entry = (opts, ref) => srv.call('GET', `/api/bench-views/${ref}/entry`, opts);
+  const noView = await entry(boss, W2);
+  const doc = { title: '合成·旧台视图', views: [{ key: 'board', title: '看板', blocks: [{ type: 'table', title: '明细', query: { dataset: 'secret_ds', limit: 10 } }] }, { key: 'detail', title: '明细', blocks: [{ type: 'table', query: { dataset: 'secret_ds', limit: 10 } }] }] };
+  await bv(boss, 'PUT', `/legacy-a/datasets/secret_ds`, { key: ['id'], columns: [{ name: 'id', type: 'integer' }, { name: 'hidden_col', type: 'text' }] });
+  const put = await bv(boss, 'PUT', `/${W2}/view`, { doc, base: 0, note: '合成：第一版' });
+  const got = await entry(boss, W2);
+  check(noView.status === 404 && put.status === 200 && got.status === 200 && JSON.stringify(got.json) === JSON.stringify({ bench: { slug: 'legacy-a', title: '旧台', workbench_id: W2 }, version: 1, title: '合成·旧台视图', default_view: 'board', views: [{ key: 'board', title: '看板' }, { key: 'detail', title: '明细' }] }), '写卡片 id：台名、版本、默认视图（第一份）、各视图的键和标题；还没有视图描述时 404', { noView: noView.status, put: put.text.slice(0, 300), got: got.text });
+  const alike = [await entry(member, W2), await entry(boss, W3), await entry(boss, 999999), await entry(member, 999999), await entry(boss, 'ghost-bench'), noView];
+  check(alike.every((x) => x.status === 404 && x.text === alike[0].text), '读不到的（普通员工）、卡片没有台、卡片不存在、台没登记、还没有视图描述：应答逐字一样', alike.map((x) => [x.status, x.text]));
+  const anonE = await srv.call('GET', `/api/bench-views/${W2}/entry`, { headers: REMOTE }), tokE = await entry(token, W2);
+  check(anonE.status === 401 && tokE.status === 403, '没登录 401；管理口令 403（台里是业务数据）', { anon: anonE.status, token: tokE.status });
 
   console.log('二、删卡片的把关（台库里有数据）');
   const tok = await srv.call('DELETE', `/api/workbenches/${W1}`, { ...token, body: { confirm_bench_data: true } });

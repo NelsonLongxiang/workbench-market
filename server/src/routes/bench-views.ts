@@ -244,6 +244,30 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     return s.restore(id, ctxOf(req, actor, req.body?.note));
   }));
 
+  // —— 视图台页面的入口（第十三节第 5 条第 4 步）——
+  // 从市场目录打开一张卡片时先问这一条（路径写卡片 id 或台标识）：给页面菜单要的最少信息——台名、生效的版本、默认视图（第一份）、各视图的键和标题。
+  // 取数照旧走 /render（不给 view 就是第一份），表单照旧走 /form。
+  // 读不到的、不存在的、卡片没开台库的、台还没有视图描述的，一律同一个 404（通则一：读不到按不存在回；页面据此照原来的方式打开卡片）。
+  // 管理口令、跨站、没登录照这组路由的口径先拒（403 / 403 / 401）
+  app.get('/api/bench-views/:bench/entry', { action: 'bench-store.view-get', kind: 'read', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    const actor = await who(req, res);
+    if (!actor) return;
+    const bench = getBench(req.params.bench);
+    const none = () => void res.status(404).json({ error: 'bench_not_found' });
+    if (!bench || !(everywhere(actor, 'bench-store.view-get', 'write') || within(actor, 'bench-store.view-get', 'write', bench))) return none();
+    let view: Awaited<ReturnType<BenchStore['getView']>>;
+    try { view = await (await benchStore(bench.slug)).getView(); } catch (e) { return fail(res, e); }
+    const doc = view?.content as { title?: unknown; views?: { key: string; title: string }[] } | undefined;
+    if (!view || !Array.isArray(doc?.views) || !doc.views.length) return none();
+    res.json({
+      bench: { slug: bench.slug, title: bench.title, workbench_id: bench.workbench_id },
+      version: view.version,
+      title: typeof doc.title === 'string' ? doc.title : bench.title,
+      default_view: doc.views[0].key,
+      views: doc.views.map((v) => ({ key: v.key, title: v.title })),
+    });
+  }));
+
   // —— 视图描述 ——
   app.get('/api/bench-views/:bench/view', { action: 'bench-store.view-get', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.view-get', async (req, _res, s) => ({ view: await s.getView(qint(req.query.version, 'version')) })));
   app.put('/api/bench-views/:bench/view', { action: 'bench-store.view-put', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.view-put', (req, _res, s, actor) => {
