@@ -572,6 +572,9 @@ CREATE TABLE IF NOT EXISTS install_ledger (
 );
 
 `);
+// 跟进按发来的根地址认：限频、找投递都按 peer_root，不按区（同一个区下可以有好几台宿主）。存量行是空串，只是不计进新的限频窗口
+if (!hasColumn('workbench_event_followups', 'peer_root')) db.exec("ALTER TABLE workbench_event_followups ADD COLUMN peer_root TEXT NOT NULL DEFAULT ''");
+db.exec('CREATE INDEX IF NOT EXISTS idx_wbe_followups_root ON workbench_event_followups (peer_root, created_at)');
 
 // A2A P3 回执（评审席判据 network/a2a-receipt E1-E7）
 {
