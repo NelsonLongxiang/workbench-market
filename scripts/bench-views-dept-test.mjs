@@ -147,8 +147,8 @@ try {
   check(r.json?.benches?.map((b) => b.slug).join() === 'ops-b' && o1 === 403 && o2 === 200, '别的部门的人：进不了这个部门的台，进得了自己的', { list: r.text.slice(0, 80), sales: o1, ops: o2 });
 
   console.log('三、拍板');
-  const seat = (await srv.call('POST', '/api/mcp/sessions', { ...token, body: { name: 'seat-d' } })).json;
-  const grantBody = { session: 'seat-d', tools: ['dataset_list'] };
+  const seat = (await srv.call('POST', '/api/mcp/sessions', { ...token, body: { name: 'sess-d' } })).json;
+  const grantBody = { session: 'sess-d', tools: ['dataset_list'] };
   const m1 = await st(member, 'PUT', '/sales-b/mcp-grants', grantBody), m2 = await st(member, 'GET', '/sales-b/mcp-grants');
   check(m1 === 403 && m2 === 200, '部门成员：看得到台上的授予，给不了', { put: m1, get: m2 });
   const l1 = await st(lead, 'PUT', '/sales-b/mcp-grants', grantBody), l2 = await st(lead, 'PUT', '/ops-b/mcp-grants', grantBody);
@@ -189,7 +189,7 @@ try {
   check(rel2.status < 300 && ok1 === 200 && ok2 === 403, '属主放行之后：进得了这个部门的台，别的部门的照样进不了', { approve: rel2.status, sales: ok1, ops: ok2 });
 
   console.log('六、改绑');
-  // 改绑之前：seat-d 在这个台上有部门负责人批的一个工具，另有一条没定的申请
+  // 改绑之前：sess-d 在这个台上有部门负责人批的一个工具，另有一条没定的申请
   const askD = await srv.call('POST', '/mcp', { headers: { authorization: `Bearer ${seat.token}` }, body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'access_request', arguments: { tools: ['dataset_snapshots@bench:sales-b'], reason: '改绑之前提的' } } } });
   const toolD = async () => { const x = await srv.call('POST', '/mcp', { headers: { authorization: `Bearer ${seat.token}` }, body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'dataset_list', arguments: { bench: 'sales-b' } } } }); return x.json?.error?.code ?? 'ok'; };
   const beforeMove = await toolD();
@@ -254,13 +254,13 @@ try {
   // 团队挂在部门下不等于席位能碰这个部门的台——席位没有授予这一层，在「认领要业务侧放行」做完之前只认按台批的授予（3b）
   db.prepare("INSERT INTO a2a_roster_nodes (host, peer_root, key_fingerprint, peer_zone, reported_at, received_at) VALUES ('abcdef01', 'https://node.synthetic.invalid', 'sha256:abcdef0100000000000000000000000000000000000000000000000000000000', 'z', ?, ?) ON CONFLICT(peer_root, key_fingerprint) DO UPDATE SET reported_at = excluded.reported_at, received_at = excluded.received_at").run(Date.now(), Date.now());
   db.prepare("INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES ('https://node.synthetic.invalid', 'sha256:abcdef0100000000000000000000000000000000000000000000000000000000', 'abcdef01', 'z/canvas/tigers', 'seat-t', 'sid-seat-t', 'seat-t', 'member', 1, 0, ?, ?)").run(Date.now(), Date.now());
-  const seatT = (await srv.call('POST', '/api/mcp/sessions', { ...token, body: { name: 'seat-t' } })).json;
+  const seatT = (await srv.call('POST', '/api/mcp/sessions', { ...token, body: { name: 'sess-t' } })).json;
   const call = async (tk, name, args) => { const x = await srv.call('POST', '/mcp', { headers: { authorization: `Bearer ${tk}` }, body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } } }); return x.json?.error?.code ?? (x.json?.result?.isError ? 'isError' : 'ok'); };
   const s1 = await call(seatT.token, 'dataset_list', { bench: 'team-b' }), s2 = await call(seatT.token, 'dataset_list', { bench: 'sales-b' }), s3 = await call(seatT.token, 'dataset_query', { bench: 'team-b', query: { dataset: 'x' } });
   const listed = ((await srv.call('POST', '/mcp', { headers: { authorization: `Bearer ${seatT.token}` }, body: { jsonrpc: '2.0', id: 1, method: 'tools/list' } })).json?.result?.tools ?? []).map((t) => t.name);
   check(typeof seatT?.token === 'string' && s1 === -32601 && s2 === -32601 && s3 === -32601 && !listed.includes('dataset_list') && db.prepare('SELECT COUNT(*) AS n FROM bench_mcp_grants WHERE session_id = ?').get(seatT.id).n === 0,
     '团队认领到部门之后，这个团队的席位仍调不了这个部门的台（细到这个团队的台也不行）：没有按台批的授予就和没有这个工具一样', { team: s1, dept: s2, query: s3 });
-  const g1 = await st(lead, 'PUT', '/team-b/mcp-grants', { session: 'seat-t', tools: ['dataset_list'] });
+  const g1 = await st(lead, 'PUT', '/team-b/mcp-grants', { session: 'sess-t', tools: ['dataset_list'] });
   const s4 = await call(seatT.token, 'dataset_list', { bench: 'team-b' }), s5 = await call(seatT.token, 'dataset_list', { bench: 'sales-b' });
   check(g1 === 200 && s4 === 'ok' && s5 === -32601, '有部门拍板授予的人按台批给它之后：批了的那个台调得了，同部门别的台照样不行', { grant: g1, granted: s4, other: s5 });
 

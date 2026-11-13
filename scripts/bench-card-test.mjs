@@ -140,7 +140,7 @@ try {
   check(noBench.boss.status === 404 && noBench.boss.json?.error === 'bench_not_found' && noBench.member.status === 403 && noBench.memberReal.status === 403 && !existsSync(join(srv.data, 'bench-stores', `${W3}.sqlite`)), '没有台的卡片 id：管理层 404、没权限的人 403（和有台的一样，探不出来）；问一句不会建出库', { boss: noBench.boss.status, member: noBench.member.status, memberReal: noBench.memberReal.status });
   // MCP：申请写卡片 id，记成台标识；调用写卡片 id 或台标识都认
   const mkSess = async (name) => { const x = await srv.call('POST', '/api/mcp/sessions', { ...token, body: { name } }); return { id: x.json?.id, token: x.json?.token }; };
-  const C = await mkSess('seat-card-c'), D = await mkSess('seat-card-d');
+  const C = await mkSess('card-sess-c'), D = await mkSess('card-sess-d');
   const req1 = await tool(srv, C.token, 'access_request', { tools: [`dataset_list@bench:${W1}`], reason: '合成：按卡片 id 申请' });
   const reqRow = db.prepare('SELECT id, bench FROM bench_mcp_requests WHERE session_id = ?').get(C.id);
   const ok1 = await srv.call('POST', `/api/bench-views/${W1}/mcp-requests/${reqRow?.id}`, { ...boss, body: { approve: true } });

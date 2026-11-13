@@ -17,6 +17,7 @@ import type { SettingService } from '../services/setting.ts';
 import { HttpError } from '../errors.ts';
 import { closeYglUpstreams, yglHomeProblem } from '../mcp-stdio-upstream.ts';
 import type { McpToolDef } from '../mcp-tools.ts';
+import { SEAT_SUBJECT_PREFIX } from '../services/seat-tokens.ts';
 
 /** 上游配置（和 index.ts 里的 McpUpstream 同形） */
 type McpUpstream = { prefix: string; url: string; headers?: Record<string, string>; enabled?: boolean; toolCallTimeoutMs?: number; kind?: 'ygl-trees'; ygl_home?: string };
@@ -92,6 +93,8 @@ export function registerMcpRoutes(app: HttpService, deps: McpDeps): void {
     if (!adminGuard(req, res)) return;
     const name = typeof req.body?.name === 'string' ? req.body.name.trim().toLowerCase() : '';
     if (!MCP_SESSION_NAME_RE.test(name)) bad('name 规范：小写字母开头，小写字母/数字/连字符，≤64 字符');
+    // seat- 开头的名字留给席位的授权主体（席位换令牌时自动建，services/seat-tokens.ts），管理员不能建：建了会占住某个席位的主体名
+    if (name.startsWith(SEAT_SUBJECT_PREFIX)) bad(`会话名不能以 ${SEAT_SUBJECT_PREFIX} 开头（留给席位的授权主体）`);
     const dup = svc<McpService>('mcp').sessionByName(name);
     if (dup) bad(`会话名已存在: ${name}`);
     // mcp/ 命名空间独立于 dsh/<id8>（A2A 自报身份不混用；关联靠人登记 a2a_node 字段，仅关联不授权）

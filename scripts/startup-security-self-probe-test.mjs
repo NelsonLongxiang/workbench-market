@@ -10,7 +10,7 @@ const express=require('express');
 const { createStartupSecurityProbe, isStartupProbeRequest }=await import('../server/src/startup-security-self-probe.ts');
 let checks=0;const check=(name,condition)=>{assert.ok(condition,name);checks++;console.log('PASS '+name);};
 const noAuth='DO_NOT_LOG_SYNTHETIC_CREDENTIAL';
-async function fixture({mcpBroken=false,writeBroken=false,principalsBroken=false,callbackBroken=false,eventBroken=false,exportBroken=false,creatorBroken=false,listBroken=false,arrangeBroken=false,uploadBroken=false,dueBroken=false,seatReplyBroken=false,seatAskBroken=false,leadReleaseBroken=false,grantsBroken=false,grantApproveBroken=false,knowledgeBroken=false,knowledgeMapBroken=false,rememberBroken=false,teamReassignBroken=false,attentionBroken=false,appDataBroken=false,varsMissingBroken=false,runWriteBroken=false,hang=false,off=false,control=false,hold=false,noChallenge=false,successWrite=false,nodeEnv='test',cockpitBroken=false}={}){
+async function fixture({seatTokenBroken=false,mcpBroken=false,writeBroken=false,principalsBroken=false,callbackBroken=false,eventBroken=false,exportBroken=false,creatorBroken=false,listBroken=false,arrangeBroken=false,uploadBroken=false,dueBroken=false,seatReplyBroken=false,seatAskBroken=false,leadReleaseBroken=false,grantsBroken=false,grantApproveBroken=false,knowledgeBroken=false,knowledgeMapBroken=false,rememberBroken=false,teamReassignBroken=false,attentionBroken=false,appDataBroken=false,varsMissingBroken=false,runWriteBroken=false,hang=false,off=false,control=false,hold=false,noChallenge=false,successWrite=false,nodeEnv='test',cockpitBroken=false}={}){
  const app=express(),logs=[],db=new DatabaseSync(':memory:');db.exec('CREATE TABLE workbenches(id INTEGER PRIMARY KEY,name TEXT)');let ordinaryHits=0;const requests=[];
  const probe=createStartupSecurityProbe({timeoutMs:hang?50:500,log:row=>logs.push(row)});app.use(probe.middleware);app.use(express.json());let release;const barrier=hold?new Promise(r=>release=r):Promise.resolve();
  const server=createServer(app);await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;
@@ -42,6 +42,7 @@ async function fixture({mcpBroken=false,writeBroken=false,principalsBroken=false
  app.get('/api/principals',(_req,res)=>principalsBroken?res.json({principals:[{id:noAuth}]}):res.status(403).json({error:'denied'}));
  app.get('/login/feishu/callback',(_req,res)=>callbackBroken?res.redirect(302,'/work-items'):res.status(400).end());
  app.post('/login/feishu/events',(_req,res)=>eventBroken?res.status(200).json({}):res.status(401).end());
+ app.post('/api/a2a/seat-token',(_req,res)=>seatTokenBroken?res.status(200).json({token:'0'.repeat(64)}):res.status(401).json({error:'seat_token_refused'}));
  app.get('/api/health',(_req,res)=>res.json({self_probe:probe.snapshot()}));
  app.get('/business',(_req,res)=>res.json({ok:true}));
  return {probe,server,controlServer,port,logs,db,requests,get hits(){return ordinaryHits},release:()=>release?.(),start:()=>probe.run({market:server,control:controlServer,gatewayOn:!off,nodeEnv}),close:async()=>{for(const s of [server,controlServer].filter(Boolean)){s.closeAllConnections();await new Promise(r=>s.close(r));}db.close();}};
@@ -57,6 +58,9 @@ async function fixture({mcpBroken=false,writeBroken=false,principalsBroken=false
 }
 {
  const f=await fixture({writeBroken:true});try{const r=await f.start();check('missing browser-write guard fails even though invalid payload only returns400',!r.passed&&r.failed.includes('market.browser-workbench-write'));check('broken-guard negative case still creates no business objects',f.db.prepare('SELECT COUNT(*) n FROM workbenches').get().n===0);}finally{await f.close();}
+}
+{
+ const f=await fixture({seatTokenBroken:true});try{const r=await f.start();check('seat-token endpoint that issues a token for a forged signature fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.a2a-seat-token.forged');}finally{await f.close();}
 }
 {
  const f=await fixture({eventBroken:true});try{const r=await f.start();check('login event endpoint that accepts an unsigned event fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.login-flow.unsigned-event');}finally{await f.close();}
@@ -138,6 +142,7 @@ for(const nodeEnv of ['development','test']){
  app.put('/api/sop/runs/:id',(_req,res)=>res.status(403).end());
  app.get('/login/feishu/callback',(_req,res)=>res.status(400).end());
  app.post('/login/feishu/events',(_req,res)=>res.status(401).end());
+ app.post('/api/a2a/seat-token',(_req,res)=>res.status(401).end());
  app.get('/api/work-items',(_req,res)=>res.status(401).end());
  app.post('/api/work-items',(_req,res)=>res.status(401).end());
  app.put('/api/cockpits/:id',(_req,res)=>res.status(401).end());

@@ -24,7 +24,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "5511", "etag": "W/\"1587-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "5657", "etag": "W/\"1619-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -62,6 +62,7 @@
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.a2a-seat-token.forged", "surface": "market", "method": "POST", "path": "/api/a2a/seat-token", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null },
                   { "id": "market.portal.forward-strips-market-auth", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
@@ -91,7 +92,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "4966", "etag": "W/\"1366-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "5112", "etag": "W/\"13f8-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -129,6 +130,7 @@
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.a2a-seat-token.forged", "surface": "market", "method": "POST", "path": "/api/a2a/seat-token", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null },
                   { "id": "market.portal.forward-strips-market-auth", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
@@ -149,7 +151,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "5511", "etag": "W/\"1587-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "5657", "etag": "W/\"1619-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -187,6 +189,7 @@
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.a2a-seat-token.forged", "surface": "market", "method": "POST", "path": "/api/a2a/seat-token", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null },
                   { "id": "market.portal.forward-strips-market-auth", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
@@ -216,7 +219,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "5810", "etag": "W/\"16b2-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "5956", "etag": "W/\"1744-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -255,6 +258,7 @@
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.a2a-seat-token.forged", "surface": "market", "method": "POST", "path": "/api/a2a/seat-token", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null },
                   { "id": "market.portal.forward-strips-market-auth", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
@@ -286,7 +290,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "5081", "etag": "W/\"13d9-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "5227", "etag": "W/\"146b-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -325,6 +329,7 @@
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.a2a-seat-token.forged", "surface": "market", "method": "POST", "path": "/api/a2a/seat-token", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null },
                   { "id": "market.portal.forward-strips-market-auth", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
@@ -353,7 +358,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "5511", "etag": "W/\"1587-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "5657", "etag": "W/\"1619-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -391,6 +396,7 @@
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.a2a-seat-token.forged", "surface": "market", "method": "POST", "path": "/api/a2a/seat-token", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null },
                   { "id": "market.portal.forward-strips-market-auth", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
@@ -418,7 +424,7 @@
           "response": {
             "status": 503,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "4989", "etag": "W/\"137d-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "5135", "etag": "W/\"140f-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": false,
               "service": "workbench-market-server",
@@ -456,6 +462,7 @@
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.a2a-seat-token.forged", "surface": "market", "method": "POST", "path": "/api/a2a/seat-token", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null },
                   { "id": "market.portal.forward-strips-market-auth", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
@@ -477,7 +484,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "5533", "etag": "W/\"159d-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "5679", "etag": "W/\"162f-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -515,6 +522,7 @@
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.a2a-seat-token.forged", "surface": "market", "method": "POST", "path": "/api/a2a/seat-token", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null },
                   { "id": "market.portal.forward-strips-market-auth", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
@@ -552,7 +560,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "6012", "etag": "W/\"177c-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "6158", "etag": "W/\"180e-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -590,6 +598,7 @@
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.a2a-seat-token.forged", "surface": "market", "method": "POST", "path": "/api/a2a/seat-token", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null },
                   { "id": "market.login-gate.page", "surface": "market", "method": "GET", "path": "/", "verdict": "pass", "status": 302, "reason": null },
@@ -623,7 +632,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "5452", "etag": "W/\"154c-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "5598", "etag": "W/\"15de-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -661,6 +670,7 @@
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.a2a-seat-token.forged", "surface": "market", "method": "POST", "path": "/api/a2a/seat-token", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null },
                   { "id": "market.login-gate.page", "surface": "market", "method": "GET", "path": "/", "verdict": "pass", "status": 302, "reason": null },

@@ -17,7 +17,7 @@ export class McpService extends Service {
     return db.prepare('INSERT INTO mcp_sessions (name, token_sha256, grants) VALUES (?, ?, ?)');
   }
   callInsertStmt() {
-    return db.prepare('INSERT INTO mcp_calls (session_name, method, tool, ok, error, duration_ms, args_sha256, channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    return db.prepare('INSERT INTO mcp_calls (session_name, method, tool, ok, error, duration_ms, args_sha256, channel, seat, claimed_seat, token_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   }
   sessionCreate(name: string, sha: string, grants: string) {
     return db.prepare('INSERT INTO mcp_sessions (name, token_sha256, grants) VALUES (?, ?, ?)').run(name, sha, grants);

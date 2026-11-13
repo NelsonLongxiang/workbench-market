@@ -148,6 +148,8 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       // 登录回调：拿一个编出来的 state（形状合格、库里没有）来，必须 400、不跳转、不发会话。登录门开不开都一样（回调本来就放行）；
       // 不管配没配登录方式，这条路由都在
       // 失效通知：不带签名的事件必须 401（配没配登录方式都一样），不能停用任何人
+      // 席位换令牌：签名是编出来的（形状合格、时间戳早已过期、节点不在名册）——必须 401、换不出令牌。登录门开不开都一样（路由本来就放行）
+      { id: 'market.a2a-seat-token.forged', target: m, surface: 'market', method: 'POST', path: '/api/a2a/seat-token', body: `{"v":1,"root":"https://wm-self-probe.invalid","host":"00000000","seat_id":"wm-self-probe","ts":1,"nonce":"wm-self-probe-nonce-0000","aud":"https://wm-self-probe.invalid","sig":"${'A'.repeat(86)}=="}`, headers: REMOTE_ANON, status: 401 },
       { id: 'market.login-flow.unsigned-event', target: m, surface: 'market', method: 'POST', path: '/login/feishu/events', body: '{"schema":"2.0"}', headers: REMOTE_ANON, status: 401 },
       { id: 'market.login-flow.forged-callback', target: m, surface: 'market', method: 'GET', path: '/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x', headers: REMOTE_ANON, status: 400 },
       // Login gate (enforce only): fixed synthetic slug, so a bypass shows up as 404/200 instead of the login redirect

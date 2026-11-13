@@ -107,7 +107,7 @@ try {
   await activate({ principal: 'user:beta', role: 'member' });
   const mgr = who(SESSIONS.alpha), member = who(SESSIONS.beta);
   const mk = async (name) => { const r = await srv.call('POST', '/api/mcp/sessions', { ...admin, body: { name } }); return { id: r.json?.id, token: r.json?.token, name }; };
-  const A = await mk('seat-a'), B = await mk('seat-b');
+  const A = await mk('sess-a'), B = await mk('sess-b');
   for (const slug of ['demo', 'other']) await srv.call('POST', '/api/bench-views', { ...mgr, body: { slug, title: slug } });
   await srv.call('PUT', '/api/bench-views/demo/datasets/seed', { ...mgr, body: { key: ['id'], columns: [{ name: 'id', type: 'integer' }, { name: 'secret', type: 'text' }] } });
   await srv.call('POST', '/api/bench-views/demo/datasets/seed/rows?op=replace', { ...mgr, raw: JSON.stringify([{ id: 1, secret: 'bench-only-marker' }]) });
@@ -155,7 +155,7 @@ try {
   check(r.status === 200 && !r.text.includes('dataset_list') && !r.text.includes('读订单做日报'), '管理口令看 MCP 网关页的申请清单：里面没有台的申请');
   r = await srv.call('GET', '/api/bench-views/demo/mcp-grants', admin);
   const dec = await srv.call('POST', `/api/bench-views/demo/mcp-requests/${reqId}`, { ...admin, body: { approve: true } });
-  const put = await srv.call('PUT', '/api/bench-views/demo/mcp-grants', { ...admin, body: { session: 'seat-a', tools: ['dataset_list'] } });
+  const put = await srv.call('PUT', '/api/bench-views/demo/mcp-grants', { ...admin, body: { session: 'sess-a', tools: ['dataset_list'] } });
   check(r.status === 403 && dec.status === 403 && put.status === 403 && db.prepare('SELECT COUNT(*) AS n FROM bench_mcp_grants').get().n === 0, '管理口令到台上看、批、直接给：都是 403，没有产生授予', { list: r.status, decide: dec.status, put: put.status });
   db.prepare('UPDATE mcp_sessions SET grants = ? WHERE id = ?').run(JSON.stringify(['dataset_list', 'dataset_list@bench:demo', 'dataset_query']), B.id);
   r = await tool(srv, B.token, 'dataset_list', { bench: 'demo' });
@@ -175,10 +175,10 @@ try {
   const staff = who(SESSIONS.strasse);
   const sw = await srv.call('PUT', '/api/bench-views/other/datasets/t', { ...staff, body: { columns: [{ name: 'a', type: 'text' }] } });
   const sd = await srv.call('POST', `/api/bench-views/demo/mcp-requests/${reqId}`, { ...staff, body: { approve: true } });
-  const sg = await srv.call('PUT', '/api/bench-views/demo/mcp-grants', { ...staff, body: { session: 'seat-a', tools: ['dataset_list'] } });
+  const sg = await srv.call('PUT', '/api/bench-views/demo/mcp-grants', { ...staff, body: { session: 'sess-a', tools: ['dataset_list'] } });
   check(sw.status === 200 && sd.status === 403 && sg.status === 403 && db.prepare('SELECT COUNT(*) AS n FROM bench_mcp_grants').get().n === 0, '有「做」没有「拍板」的角色：改得了数据，批不了申请、也给不了授予', { grant: gStaff, write: sw.status, decide: sd.status, put: sg.status });
   r = await srv.call('GET', '/api/bench-views/demo/mcp-grants', mgr);
-  check(r.status === 200 && r.json?.requests?.some((x) => x.id === reqId && x.session === 'seat-a' && x.reason === '读订单做日报') && r.json.grants.length === 0, '管理层看得到这条申请：哪个会话、要什么、为什么', r.text.slice(0, 200));
+  check(r.status === 200 && r.json?.requests?.some((x) => x.id === reqId && x.session === 'sess-a' && x.reason === '读订单做日报') && r.json.grants.length === 0, '管理层看得到这条申请：哪个会话、要什么、为什么', r.text.slice(0, 200));
   r = await srv.call('GET', '/api/bench-views/other/mcp-grants', mgr);
   check(r.status === 200 && r.json?.requests?.length === 0, '别的台上看不到这条申请');
   r = await srv.call('POST', `/api/bench-views/other/mcp-requests/${reqId}`, { ...mgr, body: { approve: true } });
@@ -221,12 +221,12 @@ try {
   check(r.status === 200 && rb.status === 403 && !rb.text.includes('seed'), 'REST 渠道同一个口径：批了的 200，没批的 403', { a: r.status, b: rb.status });
 
   console.log('六、写');
-  r = await srv.call('PUT', '/api/bench-views/demo/mcp-grants', { ...member, body: { session: 'seat-a', tools: ['dataset_list'] } });
+  r = await srv.call('PUT', '/api/bench-views/demo/mcp-grants', { ...member, body: { session: 'sess-a', tools: ['dataset_list'] } });
   check(r.status === 403, '普通员工直接给授予：403', r.status);
-  r = await srv.call('PUT', '/api/bench-views/demo/mcp-grants', { ...mgr, body: { session: 'seat-a', tools: ['workbench_list'] } });
+  r = await srv.call('PUT', '/api/bench-views/demo/mcp-grants', { ...mgr, body: { session: 'sess-a', tools: ['workbench_list'] } });
   const r5 = await srv.call('PUT', '/api/bench-views/demo/mcp-grants', { ...mgr, body: { session: 'no-such-seat', tools: ['dataset_list'] } });
   check(r.status === 400 && r5.status === 404, '给的不是数据视图的工具：拒；会话不存在：404', { tool: r.status, session: r5.status });
-  r = await srv.call('PUT', '/api/bench-views/demo/mcp-grants', { ...mgr, body: { session: 'seat-a', tools: ['dataset_list', 'dataset_query', 'dataset_define', 'dataset_replace', 'view_put', 'view_get'], note: '让它维护日报' } });
+  r = await srv.call('PUT', '/api/bench-views/demo/mcp-grants', { ...mgr, body: { session: 'sess-a', tools: ['dataset_list', 'dataset_query', 'dataset_define', 'dataset_replace', 'view_put', 'view_get'], note: '让它维护日报' } });
   check(r.status === 200 && r.json?.added?.join() === 'dataset_define,dataset_replace,view_get,view_put' && r.json.removed.length === 0, '管理层直接改这个会话在台上的工具', r.text.slice(0, 200));
   r = await tool(srv, A.token, 'dataset_define', { bench: 'demo', definition: { name: 'daily', key: ['day'], columns: [{ name: 'day', type: 'date', label: '日期' }, { name: 'n', type: 'integer', label: '件数' }] } });
   check(!r.isError && r.json?.created === true, '会话建数据集', r.text.slice(0, 120));
@@ -241,7 +241,7 @@ try {
   r = await tool(srv, A.token, 'view_put', { bench: 'demo', doc: { title: '日报', views: [{ key: 'main', title: '总览', blocks: [{ type: 'table', query: { dataset: 'daily', group: ['day'], measures: [{ as: 'total', fn: 'sum', col: 'n' }] } }] }] }, base: 1, note: '缺说明名' });
   check(/列 total 没有说明名/.test(r.text) && (await tool(srv, A.token, 'view_get', { bench: 'demo' })).json?.view?.active_version === 1, '会话存视图：表格的列没有说明名就拒，点名是哪一列', r.text.slice(0, 200));
   r = await srv.call('GET', '/api/bench-views/demo/log', mgr);
-  check(r.json?.writes?.some((w) => w.actor === 'mcp:seat-a') && r.json.changes.some((c) => c.actor === 'mcp:seat-a'), '台的留痕里记的是 mcp:<会话名>', r.text.slice(0, 160));
+  check(r.json?.writes?.some((w) => w.actor === 'mcp:sess-a') && r.json.changes.some((c) => c.actor === 'mcp:sess-a'), '台的留痕里记的是 mcp:<会话名>', r.text.slice(0, 160));
   r = await tool(srv, A.token, 'dataset_replace', { bench: 'demo', dataset: 'daily', rows: [{ day: 'not-a-date', n: 'x' }] });
   check(r.isError && /"error":"invalid"/.test(r.text) && /details/.test(r.text) && !/SQLITE|sqlite|INSERT INTO/.test(r.text), '写坏了的行：代号、说明、细目，没有库的报错原文', r.text.slice(0, 200));
   r = await tool(srv, A.token, 'dataset_list', { bench: 'demo', extra: 1 });
@@ -250,7 +250,7 @@ try {
   check(r.isError && /base/.test(r.text), '编号写成文字：拒', r.text.slice(0, 100));
 
   console.log('七、收回');
-  r = await srv.call('PUT', '/api/bench-views/demo/mcp-grants', { ...mgr, body: { session: 'seat-a', tools: [] } });
+  r = await srv.call('PUT', '/api/bench-views/demo/mcp-grants', { ...mgr, body: { session: 'sess-a', tools: [] } });
   const after = await tool(srv, A.token, 'dataset_list', { bench: 'demo' });
   check(r.status === 200 && r.json?.removed?.length === 6 && after.rpcError === -32601, '管理层全收回：下一次调用就不行了', { removed: r.json?.removed?.length, after: after.rpcError });
   check(db.prepare("SELECT COUNT(*) AS n FROM bench_mcp_audit WHERE action = 'revoke' AND actor = 'user:alpha' AND bench = 'demo'").get().n === 1, '收回也留痕');
@@ -260,7 +260,7 @@ try {
   r = await srv.call('POST', `/api/bench-views/demo/mcp-requests/${bReq}`, { ...mgr, body: { approve: true } });
   const dead = await tool(srv, B.token, 'dataset_list', { bench: 'demo' });
   check(r.status === 409 && dead.status === 401 && db.prepare('SELECT COUNT(*) AS n FROM bench_mcp_grants WHERE session_id = ?').get(B.id).n === 0, '会话吊销之后：它的申请批不了，令牌也进不来', { decide: r.status, call: dead.status });
-  r = await srv.call('PUT', '/api/bench-views/demo/mcp-grants', { ...mgr, body: { session: 'seat-b', tools: ['dataset_list'] } });
+  r = await srv.call('PUT', '/api/bench-views/demo/mcp-grants', { ...mgr, body: { session: 'sess-b', tools: ['dataset_list'] } });
   check(r.status === 409, '给吊销了的会话直接授予：拒', r.status);
   console.log('七之二、「等你拍板」里的待批清单');
   r = await tool(srv, A.token, 'access_request', { tools: ['dataset_list@bench:other', 'dataset_append@bench:other'], reason: '往 other 里追加' });
@@ -272,8 +272,8 @@ try {
   const answer = (opts, source_id, ans, input = {}) => srv.call('POST', '/api/attention/answer', { ...opts, body: { source: 'bench-mcp', source_id, answer: ans, input } });
   let v = await attention(mgr);
   const card = mine(v).find((x) => x.source_id === `other:${att1}`);
-  check(mine(v).filter((x) => x.source_id.startsWith('other:')).length === 2 && card?.category === 'grant' && card.kind === 'bench-mcp' && card.mine === true && card.answers.join() === 'approve,reject' && card.waiting_for === 'mcp:seat-a'
-    && card.detail?.bench === 'other' && card.detail.session === 'seat-a' && card.detail.reason === '往 other 里追加' && card.detail.tools.map((t) => `${t.tool}:${t.category}`).join() === 'dataset_append:write,dataset_list:read' && /含写/.test(card.title) && card.answer_via?.method === 'POST' && card.answer_via.path === `/api/bench-views/other/mcp-requests/${att1}` && JSON.stringify(card.answer_via.answers) === JSON.stringify({ approve: { body: { approve: true }, input: { note: { to: 'note', max: 500 } } }, reject: { body: { approve: false }, input: { note: { to: 'note', required: true, max: 500 } } } }) && Object.keys(card.answer_via.answers).join() === card.answers.join(),
+  check(mine(v).filter((x) => x.source_id.startsWith('other:')).length === 2 && card?.category === 'grant' && card.kind === 'bench-mcp' && card.mine === true && card.answers.join() === 'approve,reject' && card.waiting_for === 'mcp:sess-a'
+    && card.detail?.bench === 'other' && card.detail.session === 'sess-a' && card.detail.reason === '往 other 里追加' && card.detail.tools.map((t) => `${t.tool}:${t.category}`).join() === 'dataset_append:write,dataset_list:read' && /含写/.test(card.title) && card.answer_via?.method === 'POST' && card.answer_via.path === `/api/bench-views/other/mcp-requests/${att1}` && JSON.stringify(card.answer_via.answers) === JSON.stringify({ approve: { body: { approve: true }, input: { note: { to: 'note', max: 500 } } }, reject: { body: { approve: false }, input: { note: { to: 'note', required: true, max: 500 } } } }) && Object.keys(card.answer_via.answers).join() === card.answers.join(),
     '管理层的「关注」里有这两条：哪个会话、哪个台、要哪几个工具（读写分开）、为什么', JSON.stringify(mine(v)).slice(0, 300));
   check(!mine(v).some((x) => x.source_id.startsWith('ghost:') || x.source_id.startsWith('cap-')), '台没登记的申请不在清单里（没有人能批它）');
   check(db.prepare("SELECT COUNT(*) AS n FROM bench_mcp_requests WHERE id = ? AND status = 'pending'").get(bReq).n === 1 && !mine(v).some((x) => x.source_id === `demo:${bReq}`) && mine(v).length === 2, '吊销了的会话之前提的申请不在清单里（批不了）；台上的管理页里还看得到', mine(v).map((x) => x.source_id));
@@ -296,7 +296,7 @@ try {
   const wrong = [];
   for (const bad of ['other', `other:${att1}:x`, `../other:${att1}`, `OTHER:${att1}`, 'other:0', `demo:${att1}`]) { const x = await answer(mgr, bad, 'approve'); if (x.status < 400) wrong.push(bad); }
   check(wrong.length === 0 && db.prepare('SELECT COUNT(*) AS n FROM bench_mcp_grants WHERE request_id IN (?, ?)').get(att1, att2).n === 0, '条目 id 写错、写成别的台：都被拒，没批成', wrong);
-  r = await answer(mgr, `other:${att1}`, 'approve', { note: '可以', approve: false, session: 'seat-b' });
+  r = await answer(mgr, `other:${att1}`, 'approve', { note: '可以', approve: false, session: 'sess-b' });
   check(r.status === 200 && r.json?.result?.status === 'approved' && r.json.duplicate === false && db.prepare("SELECT COUNT(*) AS n FROM bench_mcp_grants WHERE bench = 'other' AND session_id = ?").get(A.id).n === 2
     && db.prepare("SELECT actor FROM bench_mcp_audit WHERE request_id = ? AND action = 'approve'").get(att1)?.actor === 'user:alpha', '管理层（不是管理员）经答复入口批：生效，留痕记的是这个人；多带的字段不算数', r.text.slice(0, 160));
   r = await answer(mgr, `other:${att1}`, 'approve');
@@ -311,7 +311,7 @@ try {
   check(!r.isError && Array.isArray(r.json?.datasets), '批了之后会话在那个台上用得了');
 
   console.log('七之三、没人处理的申请到期失效');
-  const E = await mk('seat-e');
+  const E = await mk('sess-e');
   const e1 = await tool(srv, E.token, 'access_request', { tools: ['dataset_list@bench:other'], reason: '到期前没人批' });
   const e2 = await tool(srv, E.token, 'access_request', { tools: ['dataset_list@bench:ghost-two'], reason: '标识写错了' });
   const e3 = await tool(srv, E.token, 'access_request', { tools: ['view_get@bench:other'], reason: '刚提的' });
@@ -327,7 +327,7 @@ try {
     '到期的两条：申请的会话查到「失效：没有人处理」——写错标识的和有台没人管的结局一样；没到期的照旧待批', stE);
   check(!mine(await attention(mgr)).some((x) => x.source_id === `other:${e1.json.request.id}`) && mine(await attention(mgr)).some((x) => x.source_id === `other:${e3.json.request.id}`), '「关注」里到期的那条一起消失，没到期的还在');
   const lateE = await srv.call('POST', `/api/bench-views/other/mcp-requests/${e1.json.request.id}`, { ...mgr, body: { approve: true } });
-  check(lateE.status === 409 && /失效/.test(lateE.json?.message ?? '') && !db.prepare("SELECT 1 FROM bench_mcp_grants g JOIN mcp_sessions s ON s.id = g.session_id WHERE s.name = 'seat-e'").get(), '到期之后再批：409，说已经失效；没有授予', lateE.text.slice(0, 160));
+  check(lateE.status === 409 && /失效/.test(lateE.json?.message ?? '') && !db.prepare("SELECT 1 FROM bench_mcp_grants g JOIN mcp_sessions s ON s.id = g.session_id WHERE s.name = 'sess-e'").get(), '到期之后再批：409，说已经失效；没有授予', lateE.text.slice(0, 160));
   const listedE = await srv.call('GET', '/api/bench-views/other/mcp-grants', mgr);
   const trailE = db.prepare("SELECT actor, note FROM bench_mcp_audit WHERE action = 'expire' AND request_id = ?").get(e1.json.request.id);
   check(listedE.json?.requests?.find((x) => x.id === e1.json.request.id)?.status === 'expired' && trailE?.actor === 'system' && trailE?.note === '失效：没有人处理', '台的管理层那边也看到「失效」；留痕记一行，做的人是 system', { listedE: listedE.json?.requests?.find((x) => x.id === e1.json.request.id)?.status, trail: trailE });
@@ -338,7 +338,7 @@ try {
   check(oneE.json?.request?.status === 'expired' && oneE.json?.request?.note === '失效：没有人处理', '单查一条到期没清的申请：同样说「失效：没有人处理」，不说待批', oneE.text?.slice(0, 160) ?? oneE.json);
 
   // 管理层驳回时备注正好写成「失效：没有人处理」：仍是人驳回，不当成过期
-  const F = await mk('seat-f');
+  const F = await mk('sess-f');
   const f1 = await tool(srv, F.token, 'access_request', { tools: ['dataset_list@bench:other'], reason: '要被人驳回的' });
   const fid = f1.json?.request?.id;
   const fr = await answer(mgr, `other:${fid}`, 'reject', { note: '失效：没有人处理' });
@@ -362,7 +362,7 @@ try {
 
   console.log('八、入口关着、网关关着');
   const off = await boot('entry-off');
-  const C = await (async () => { const x = await off.call('POST', '/api/mcp/sessions', { headers: { ...REMOTE, 'x-admin-token': ADMIN_TOKEN }, body: { name: 'seat-c' } }); return { id: x.json?.id, token: x.json?.token }; })();
+  const C = await (async () => { const x = await off.call('POST', '/api/mcp/sessions', { headers: { ...REMOTE, 'x-admin-token': ADMIN_TOKEN }, body: { name: 'sess-c' } }); return { id: x.json?.id, token: x.json?.token }; })();
   // 入口以前开过：台登记着、授予也在。关了之后照样不行
   off.db().prepare('INSERT INTO bench_views (slug, title, created_by, created_at) VALUES (?, ?, ?, ?)').run('demo', 'demo', 'user:alpha', 1);
   off.db().prepare('INSERT INTO bench_mcp_grants (session_id, bench, tool, granted_by, granted_at) VALUES (?, ?, ?, ?, ?)').run(C.id, 'demo', 'dataset_list', 'user:alpha', 1);
