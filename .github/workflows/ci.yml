@@ -331,6 +331,8 @@ jobs:
         run: node scripts/work-item-views-team-test.mjs
       - name: 只认已确认的关系（管理口令指的负责人只是提议、分配成员系统管理员不能代办、认领只是提议：都看不到事项·对照：确认之后看得到）
         run: node scripts/work-item-relations-trust-test.mjs
+      - name: 停太久的事项进「等你拍板」（过阈值才算、差一分钟不算·等过目、等验收、有提问的不算·冒给负责人、没有负责人冒给管理层，建立人和只授系统管理员的没有·一次最多 50 条按停得最久排、stuck_count 是总数、不算进角标·坏阈值拒绝启动）
+        run: node scripts/work-item-stuck-test.mjs
       - name: 放行归负责人（放宽访问的对抗：负责人放、团队有负责人时管理层和口令管理员 403·没有负责人时管理层代办、留痕记 acting_for·建立人勾了先过目由建立人放·幂等·「关注」的过目只给能放的人、带 answer_via·跨站拒）
         run: node scripts/work-item-lead-release-test.mjs
       - name: 事项记从哪个驾驶舱安排的（安排时记下、坏值和不存在的驾驶舱 400、算进幂等哈希且旧哈希不变·列表按驾驶舱筛只收窄、不存在的回空列表·驾驶舱删了照旧返回·「关注」条目带上·旧库补列、存量 null）
@@ -379,6 +381,8 @@ jobs:
         run: node scripts/tasks-read-authority-http-test.mjs
       - name: Redis ready recovery and durable-generation rebound (#351, synthetic only)
         run: node scripts/redis-ready-state-test.mjs && node scripts/redis-ready-recovery-http-test.mjs && node scripts/redis-ready-fingerprint-mutation.mjs && node scripts/sop-redis-read-503-test.mjs && node scripts/sop-hot-pending-restart-test.mjs
+      - name: 共用状态层（Redis 可选——没配、连着、中途断开、出错、卸载；台的键按台 id 前缀，删台一起清；假 Redis，不连网络）
+        run: node scripts/state-layer-test.mjs
       - name: SOP checkpoint deadlines and active-list completeness (#337, #338; synthetic only)
         run: node scripts/sop-state-checkpoints-test.mjs && node scripts/sop-state-http-test.mjs && node scripts/sop-state-restart-test.mjs
       - name: SOP list privacy and upload-token rotation (#309, synthetic only)

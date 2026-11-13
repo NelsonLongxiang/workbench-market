@@ -8,7 +8,7 @@
 import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
-import type { AttentionService } from '../services/attention.ts';
+import { itemsOf, type AttentionService } from '../services/attention.ts';
 import { installAttentionProviders, type AttentionDeps } from '../attention-providers.ts';
 import { actorOf, answersOf } from '../attention-answers.ts';
 import { identity, IDENTITY_UNAVAILABLE, sourceDown } from '../identity.ts';
@@ -77,7 +77,7 @@ export function registerAttentionRoutes(app: HttpService, deps: AttentionRouteDe
       const provider = attention.provider<express.Request>(source);
       if (!provider) return void res.status(404).json({ error: 'attention_source_unknown' });
       if (!provider.answer || !answersOf(source).includes(answer)) return void res.status(400).json({ error: 'attention_answer_not_offered' });
-      const items = await provider.list(req);
+      const items = itemsOf(await provider.list(req));
       if (items === null) {
         const d = provider.deny ? await provider.deny(req) : { status: 403, body: { error: 'forbidden' } };
         return void res.status(d.status).json(d.body);
