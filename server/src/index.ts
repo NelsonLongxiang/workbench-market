@@ -105,7 +105,7 @@ import type { TaskCenterService } from './services/task-center.ts';
 import type { RemoteAllowService } from './services/remote-allow.ts';
 import { SkillService } from './services/skill.ts';
 import type { AppService } from './services/app.ts';
-import type { AppDataService } from './services/app-data.ts';
+import { Config as AppDataConfig, type AppDataService } from './services/app-data.ts';
 import type { GrantService } from './services/grant.ts';
 import type { DepartmentService } from './services/department.ts';
 import type { CookieService } from './services/cookie.ts';
@@ -167,6 +167,8 @@ setBenchRequestTtlHours((() => { try { return benchRequestTtlConfig(); } catch (
 // 工作台的常量、变量存在哪（WM_VARS_STORE：main / shadow / bench，缺省 main）。不合法拒绝启动；起来时报一次已有的 hot. 开头的键
 setVarsStoreMode((() => { try { return loadConfig(VarsConfig).store; } catch (e) { console.error(`[vars] 拒绝启动：${(e as Error).message}`); process.exit(1); } })());
 reportHotVarKeys();
+// 台的提交记录和附件存在哪（WM_APP_DATA_STORE：main / shadow / bench，缺省 main）。不合法拒绝启动
+svc<AppDataService>('appData').setMode((() => { try { return loadConfig(AppDataConfig).store; } catch (e) { console.error(`[app-data] 拒绝启动：${(e as Error).message}`); process.exit(1); } })());
 reportHotPending(); // 上一个 bench 档进程留在 Redis 里没落盘的高频变量：不是 bench 档时醒目报一次
 startHotVarsFlush(); // 高频变量（hot. 开头的键）每 30 秒落一次台库；只在 bench 档、配了 Redis 时有活
 // 全站登录门（WM_LOGIN_GATE=enforce|off，缺省 off）：紧跟启动自检门，早于内容分发、解析器、静态资源、SPA 回落和各路由。
@@ -786,7 +788,10 @@ function workbenchUpdateCore(id: number, body: any, ctx: WriteCtx = { subject: '
 
 // 删卡片连带它的台库（bench-card-delete.ts）：台库里有数据时要管理层并且确认，删前留备份；卡片本身那一份和台的登记在一个事务里
 async function workbenchDeleteCore(id: number, deleter: CardDeleter = { kind: 'anonymous' }, confirmBenchData = false): Promise<{ ok: boolean; deleted: number }> {
-  return deleteCardWithBench({
+  // 第 6 步（WM_APP_DATA_STORE 不是 main）：台的卡片的台库里有这个台的提交和附件，删卡片就是删它们——先对齐进台库，让下面那道门看得到规模
+  const cardRow = svc<WorkbenchService>('workbench').byId(id) as { url?: unknown } | undefined;
+  const appSlug = cardRow && typeof cardRow.url === 'string' ? await svc<AppDataService>('appData').beforeCardDelete(cardRow.url, id) : null;
+  const out = await deleteCardWithBench({
     id, deleter, confirmBenchData,
     exists: () => !!svc<WorkbenchService>('workbench').byId(id),
     deleteCard: (slug) => {
@@ -805,6 +810,14 @@ async function workbenchDeleteCore(id: number, deleter: CardDeleter = { kind: 'a
       }
     },
   });
+  if (appSlug) {
+    // 门过了、卡片删了（台库删前留了备份）：主库那份和附件字节一起删，不然以后再登记卡片时会按主库重抄回来
+    const files = await svc<AppDataService>('appData').filePaths(appSlug);
+    await svc<AppDataService>('appData').dataDelete(appSlug);
+    for (const f of files) { try { rmSync(join(dataDir, f), { force: true }); } catch { /* 已删 */ } }
+    await svc<AppDataService>('appData').filesDelete(appSlug);
+  }
+  return out;
 }
 
 /** 审计主体：只认已核的管理口令；X-Market-Client 等自报头不算身份 */
@@ -1395,7 +1408,11 @@ async function layerfsPublish(project: string, files: { path: string; content: s
 async function deleteAppCascade(slug: string, card: { deleter: CardDeleter; confirmBenchData: boolean } = { deleter: { kind: 'anonymous' }, confirmBenchData: false }): Promise<void> {
   const a = getApp(slug);
   const cardIds = svc<WorkbenchService>('workbench').idsByAppUrls(`/apps/${a.slug}/`, `/sop/${a.slug}/`);
-  for (const id of cardIds) await checkCardDeletable(id, card.deleter, card.confirmBenchData);
+  for (const id of cardIds) {
+    const row = svc<WorkbenchService>('workbench').byId(id) as { url?: unknown } | undefined;
+    if (row && typeof row.url === 'string') await svc<AppDataService>('appData').beforeCardDelete(row.url, id); // 第 6 步：提交和附件先对齐进台库，门才看得到
+    await checkCardDeletable(id, card.deleter, card.confirmBenchData);
+  }
   // Remove remote state first and retain local state on failure; without LayerFS config, apps never written there stay deletable.
   const versions = svc<AppService>('app').versions(a.id) as any[];
   const hasLayerfsState = Boolean((a as any).layerfs_project) || versions.some(v => String(v.commit_id ?? '') !== '');
@@ -1419,14 +1436,14 @@ async function deleteAppCascade(slug: string, card: { deleter: CardDeleter; conf
   rmSync(join(appsRoot, slug), { recursive: true, force: true });
   svc<AppService>('app').versionsDelete(a.id);
   svc<AppService>('app').delete(a.id);
-  await svc<AppDataService>('appData').dataDelete(slug);
-  const files = await svc<AppDataService>('appData').filePaths(slug);
-  for (const f of files) { try { rmSync(join(dataDir, f), { force: true }); } catch { /* 已删 */ } }
-  await svc<AppDataService>('appData').filesDelete(slug);
   // issue #6：清理应用与 SOP 对应的工作台注册——逐张走删卡片那条路（台库、常量变量、驾驶舱面板一起）
   for (const id of cardIds) {
     try { await workbenchDeleteCore(id, card.deleter, card.confirmBenchData); } catch (e) { if (!(e instanceof HttpError && e.status === 404)) throw e; } // 期间已被删了就算了
   }
+  await svc<AppDataService>('appData').dataDelete(slug);
+  const files = await svc<AppDataService>('appData').filePaths(slug);
+  for (const f of files) { try { rmSync(join(dataDir, f), { force: true }); } catch { /* 已删 */ } }
+  await svc<AppDataService>('appData').filesDelete(slug);
 }
 
 // ---------- 自产台数据提交面（监督席派单 direct-22838fab：台不仅是看板，有交互提交数据） ----------
@@ -1474,21 +1491,9 @@ function idemScope(channel: 'app-data.rest' | 'app-data.tool', subject: string |
 }
 /** 台数据写入核心：REST POST /api/apps/:slug/data 与 MCP app_data_submit 共用——1MB 上限、数据契约、幂等键、写入后推事件。
  *  违约不抛错，回 status 400 + violations，由两个入口各自原样交出去。 */
-/**
- * 同一个台的提交一笔一笔来（进程内排队）：「查幂等键 → 写入」中间有 await，不排队的话同键的两笔并发会都查不到、后一笔撞唯一索引。
- * 原来全是同步调用、天然不会交错；改成异步以后靠这个队保持原来的次序和结果
- */
-const submitQueues = new Map<string, Promise<unknown>>();
-function inSlugQueue<T>(slug: string, fn: () => Promise<T>): Promise<T> {
-  const prev = submitQueues.get(slug) ?? Promise.resolve();
-  const run = prev.then(fn, fn);
-  const tail = run.then(() => undefined, () => undefined);
-  submitQueues.set(slug, tail);
-  void tail.then(() => { if (submitQueues.get(slug) === tail) submitQueues.delete(slug); });
-  return run;
-}
 function submitAppData(a: AppRow, input: Parameters<typeof submitAppDataNow>[1]): ReturnType<typeof submitAppDataNow> {
-  return inSlugQueue(a.slug, () => submitAppDataNow(a, input));
+  // 同一个台的写入排队（services/app-data.ts 的 serialWrites）：查幂等键、契约查附件 → 插入，中间不让别的写入插进来
+  return svc<AppDataService>('appData').serialWrites(a.slug, () => submitAppDataNow(a, input));
 }
 async function submitAppDataNow(a: AppRow, input: { data: unknown; createdBy?: unknown; idempotencyKey?: unknown; submitterTicket?: unknown; subject?: string; channel: { name: 'app-data.rest' | 'app-data.tool'; hasCredential: boolean } }): Promise<{ status: number; body: Record<string, unknown> }> {
   const data = input.data;
@@ -1581,8 +1586,13 @@ async function appFileStoreCore(slug: string, f: { path: string; size: number; n
   const kind = uploadKindOrThrow(f.path, f.size, f.name, f.reportedMime);
   // 存储相对路径（dataDir 内，随数据目录迁移）
   const rel = f.path.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
-  const id = await svc<AppDataService>('appData').fileInsert(slug, f.name, kind.mime, f.size, rel, f.createdBy, f.note, f.sha256 ?? ''); // #132 P0①：note 落库；sha256 有就存（下载 ETag 不再重算）
-  return { ok: true, id, slug, name: f.name, mime: kind.mime, size: f.size, note: f.note, url: `/api/apps/${slug}/files/${id}` };
+  // 查文件数上限 → 插入，排在这个台的写入队里：入口在收文件之前查过一次，这里排到了再核一次（并发的两笔不会一起用掉最后一个名额）
+  return svc<AppDataService>('appData').serialWrites(slug, async () => {
+    const quota = await appFilesQuota(slug);
+    if (quota.files_left <= 0) { rmSync(f.path, { force: true }); throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`, { quota }); }
+    const id = await svc<AppDataService>('appData').fileInsert(slug, f.name, kind.mime, f.size, rel, f.createdBy, f.note, f.sha256 ?? ''); // #132 P0①：note 落库；sha256 有就存（下载 ETag 不再重算）
+    return { ok: true, id, slug, name: f.name, mime: kind.mime, size: f.size, note: f.note, url: `/api/apps/${slug}/files/${id}` };
+  });
 }
 /** 上传落盘位置（multer 与原始字节上传同规则）：uploads/<YYYYMM>/<时间戳>-<随机><原扩展名> */
 function uploadMonthDir(): string {
@@ -3088,22 +3098,25 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       if (buf.length > UPLOAD_MAX) throw new HttpError(413, `文件超 100MB 上限（${buf.length}B）`);
       if (wantSize !== null && buf.length !== wantSize) throw new HttpError(400, `收到 ${buf.length} 字节，声明 ${wantSize} 字节：内容可能在传输中被截断，未保存`);
       if (wantSha !== null && createHash('sha256').update(buf).digest('hex') !== wantSha) throw new HttpError(400, `收到内容的 sha256 与声明不符（收到 ${buf.length} 字节）：内容可能在传输中被截断或改动，未保存`);
-      if ((await appFilesQuota(a.slug)).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`); // #193 F8：全量计数；上限与浏览器上传共用
-      // 与浏览器上传同一套内容类型检查：扩展名与内容不符、或是可执行文件 → 拒收；相符则存规范 MIME
-      const kind = sniff(name, buf.subarray(0, 1024 * 1024), buf.length <= 1024 * 1024, String(args?.mime ?? ''));
-      if (kind.verdict === 'mismatch' || kind.verdict === 'executable') throw new HttpError(415, `文件类型不符：${kind.reason}`);
-      const dir = join(dataDir, 'uploads');
-      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-      const safe = name.replace(/[^\w.\u4e00-\u9fa5-]+/g, '_').slice(0, 80);
-      const fname = `${Date.now().toString(36)}-${safe}`;
-      const abs = join(dir, fname);
-      writeFileSync(abs, buf);
-      const rel = abs.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
-      const createdBy = String(args?.created_by ?? '').trim().slice(0, 128);
-      const note = String(args?.note ?? '').trim().slice(0, 500);
-      const sha256 = createHash('sha256').update(buf).digest('hex');
-      const id = await svc<AppDataService>('appData').fileInsert(a.slug, name, kind.mime, buf.length, rel, createdBy, note, sha256);
-      return { ok: true, id, slug: a.slug, name, mime: kind.mime, size: buf.length, sha256, note, url: `/api/apps/${a.slug}/files/${id}`, ...uploadIntegrity(wantSha, wantSize) };
+      // 查文件数上限 → 落盘 → 插入，排在这个台的写入队里（并发的两笔不会一起用掉最后一个名额）
+      return svc<AppDataService>('appData').serialWrites(a.slug, async () => {
+        if ((await appFilesQuota(a.slug)).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`); // #193 F8：全量计数；上限与浏览器上传共用
+        // 与浏览器上传同一套内容类型检查：扩展名与内容不符、或是可执行文件 → 拒收；相符则存规范 MIME
+        const kind = sniff(name, buf.subarray(0, 1024 * 1024), buf.length <= 1024 * 1024, String(args?.mime ?? ''));
+        if (kind.verdict === 'mismatch' || kind.verdict === 'executable') throw new HttpError(415, `文件类型不符：${kind.reason}`);
+        const dir = join(dataDir, 'uploads');
+        if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+        const safe = name.replace(/[^\w.\u4e00-\u9fa5-]+/g, '_').slice(0, 80);
+        const fname = `${Date.now().toString(36)}-${safe}`;
+        const abs = join(dir, fname);
+        writeFileSync(abs, buf);
+        const rel = abs.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
+        const createdBy = String(args?.created_by ?? '').trim().slice(0, 128);
+        const note = String(args?.note ?? '').trim().slice(0, 500);
+        const sha256 = createHash('sha256').update(buf).digest('hex');
+        const id = await svc<AppDataService>('appData').fileInsert(a.slug, name, kind.mime, buf.length, rel, createdBy, note, sha256);
+        return { ok: true, id, slug: a.slug, name, mime: kind.mime, size: buf.length, sha256, note, url: `/api/apps/${a.slug}/files/${id}`, ...uploadIntegrity(wantSha, wantSize) };
+      });
     }
     default:
       throw new HttpError(400, `未知工具: ${name}`);
@@ -3741,6 +3754,8 @@ async function mcpRestRunReadable(req: express.Request, sess: McpSess | null, ru
 const runIdParam = (v: unknown): number => { if (!/^\d+$/.test(String(v))) throw new HttpError(404, `run not found: ${v}`); return Number(v); };
 registerMcpRestRoutes(http, { wrap, serveMcpOpenApi, mcpGatewaySession, mcpAudit, mcpRegisteredNames, MCP_REST_DENIED_HINT, mcpInvokeTool, mcpPublicOrigin, mcpRestSession, mcpToolAllowsApp, mcpRestRun, bad, getApp, appFilesQuota, APP_FILES_MAX, UPLOAD_MAX, uploadMonthDir, uploadFileName, appFileStoreCore, MCP_REST_BASE, upload, fixFileName, fileSha256, sendStoredFile, restFileItem, mcpRestRunReadable, runIdParam, sopRunRow, runReadCapHeader });
 import { installPortal, goPrefix, moduleProxy } from './portal.ts';
+import { stripIncoming as stripPortalForward, verifyPortalForwardStrip, useMarketTokenCheck } from './portal-forward-headers.ts';
+useMarketTokenCheck((token) => mcpSessionByToken(token) !== null); // 门户转发时认得市场的 MCP 会话令牌，摘掉不往台带
 
 loginRelay().useTicketStore(sqliteSsoTicketStore()); // SSO 回调票据落库：重启不丢、同一 DATA_DIR 的实例共享
 installPortal(app, wbById, { serveApp, readActiveManifest, renderSopRunner, appsRoot });
@@ -3866,7 +3881,7 @@ const goServer = registerSurface(app, 'market', PORT, () => {
 const controlServer = SURFACE_PORTS.control ? registerSurface(app, 'control', SURFACE_PORTS.control) : undefined;
 if (contentCfg && contentRuntime) listenContentSurface(app, contentCfg, contentRuntime, () => startupSecurity.snapshot().passed);
 
-void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, benchViews: BENCH_VIEWS.on, outbound: outboundOff() ? verifyOutboundGate : undefined, sessionSeal: sealSelfCheck }).then((result) => {
+void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, benchViews: BENCH_VIEWS.on, outbound: outboundOff() ? verifyOutboundGate : undefined, sessionSeal: sealSelfCheck, portalForward: verifyPortalForwardStrip }).then((result) => {
   if (!result.passed) return refuseUnsafeStartup();
   startupPassed(); // 放开启动闸：事项回填这类后台任务从这里开始（自检没过不开始）
   startRedis();
@@ -3941,6 +3956,7 @@ goServer.on('upgrade', async (req, socket, head) => {
   // ② Host 改成上游 authority，与 changeOrigin 语义一致；cookie 名是 authority 的 sha256，
   //    Host 不符则上游取不到签名 cookie → 401（实测）
   if (!loginRelay().isSessionTarget(w.url)) loginRelay().stripSession(req.headers); // 同 HTTP 门户：Odoo 会话只转给可信 Odoo 源
+  stripPortalForward(req.headers); // 同 HTTP 门户：市场自己的口令、令牌、凭据头和会话 cookie 不往台带
   const upstreamHost = u.host; // host:port（authority 形态）
   if (req.headers.origin !== undefined) req.headers.origin = u.origin;
   req.headers.host = upstreamHost;
