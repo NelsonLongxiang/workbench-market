@@ -488,6 +488,8 @@ jobs:
         run: node scripts/ygl-upstream-smoke.mjs
       - name: 全站登录门（WM_LOGIN_GATE：enforce 匿名 302/401·口令登录 cookie·限频退避·next 防外跳·台令牌/查看凭证·/mcp 网关·本机命令行·Odoo 替身·off 不变·坏值拒启）
         run: node scripts/login-gate-smoke.mjs
+      - name: Odoo 用户登录后由市场维持会话（浏览器的 Odoo cookie 过期照样认得出·Odoo 注销或停用后会话跟着注销·不可达不注销·换账号·会话号加密存放不外泄）
+        run: node scripts/odoo-market-session-test.mjs
       - name: 登录门上线演练（enforce 隔离实例：MCP/健康/A2A/SOP/台与门户/生命周期/运维/回滚逐类真实请求）
         run: node scripts/login-gate-rollout-check.mjs
       - name: MCP 权限可见与自助申请（access_info 全目录·access_request 去重限频·管理员批准并集/驳回不动 grants/吊销不能批·app_data_submit 与 REST 同核契约校验·匿名 401）
