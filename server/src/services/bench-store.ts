@@ -13,10 +13,16 @@
  *     强行终止挡不住一件事——事务可能正好在终止之前提交了。所以这种超时对写入是「不确定」的，报错里写明，
  *     由调用方带同一个幂等键重试，或者读一次确认。
  *
- * 所有台共用一个工作线程，一次只做一件事：一个台的慢操作会让别的台的读写排队，最长等到时限；市场进程本身不受影响。
- * 线程在第一次用到台库时才起。
+ * 台按标识固定分到几条「道」上，一道一个工作线程、一个队（docs/data-views.md 第十三节第 5 条第 2 步）：
+ *   · 同一个台的读写永远在同一道上，一次一件、按到达的顺序做；一个台的库只被一个线程打开。
+ *   · 不同道上的台同时做：一个台的慢操作只让同一道上的台排队，别的道不受影响。
+ *   · 道数默认见 defaultLanes()；测试可以用 configureBenchRuntime({ lanes }) 在没有活的时候改。
+ *   · 大写入全局一次一件（不论在哪一道）：一份接近数据集上限的写入，进程内存要涨几百 MB；几道同时做会叠起来。
+ *     所以大写入要先拿到唯一的那张「大写入许可」，拿不到就在自己那一道的队头等着（只挡同一道上的台），读和小写入照常并行。
+ * 线程在这一道第一次有活时才起；时限、强行终止、意外退出都按道各管各的。
  */
 import { Worker } from 'node:worker_threads';
+import { availableParallelism } from 'node:os';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { dataDir, benchSqlKit } from '../db.ts';
@@ -35,9 +41,11 @@ let changeListener: ((c: BenchChange) => void) | null = null;
 export function onBenchChange(fn: ((c: BenchChange) => void) | null): void { changeListener = fn; }
 
 // —— 时限 ——
-const limits = { queryMs: BENCH_LIMITS.queryMs as number, writeMs: BENCH_LIMITS.writeMs as number, graceMs: BENCH_LIMITS.killGraceMs as number };
+/** 默认道数：可用的核数减一（给市场进程留一个），至少 1、至多 4 */
+export function defaultLanes(): number { return Math.min(4, Math.max(1, availableParallelism() - 1)); }
+const limits = { queryMs: BENCH_LIMITS.queryMs as number, writeMs: BENCH_LIMITS.writeMs as number, graceMs: BENCH_LIMITS.killGraceMs as number, lanes: defaultLanes() };
 export type BenchRuntimeLimits = typeof limits;
-/** 改时限（毫秒），返回改之前的值。测试用；只影响之后发起的读写 */
+/** 改时限（毫秒）或道数，返回改之前的值。测试用；时限只影响之后发起的读写，道数只能在没有活、没有开着的库的时候改 */
 export function configureBenchRuntime(next: Partial<BenchRuntimeLimits>): BenchRuntimeLimits {
   const prev = { ...limits };
   for (const k of ['queryMs', 'writeMs', 'graceMs'] as const) {
@@ -46,110 +54,166 @@ export function configureBenchRuntime(next: Partial<BenchRuntimeLimits>): BenchR
     if (!Number.isFinite(v) || v < 0) throw new BenchError('invalid', `${k} 须为不小于 0 的毫秒数`);
     limits[k] = v;
   }
+  if (next.lanes !== undefined && next.lanes !== limits.lanes) {
+    if (!Number.isSafeInteger(next.lanes) || next.lanes < 1 || next.lanes > 16) throw new BenchError('invalid', 'lanes 须为 1～16 的整数');
+    if (lanes.some((l) => l.worker || l.current || l.queue.length || l.stopping) || handles.size || removing.size) throw new BenchError('conflict', '台库还有活或开着的库，先 closeBenchStores() 再改道数');
+    limits.lanes = next.lanes;
+    lanes.length = 0;
+  }
   return prev;
 }
 
-// —— 工作线程和它前面的队 ——
+// —— 道：一个工作线程和它前面的队 ——
 type Job = { id: number; slug: string; method: string; args: unknown[]; budgetMs: number; resolve: (v: unknown) => void; reject: (e: unknown) => void };
-const queue: Job[] = [];
-let current: Job | null = null;
-let worker: Worker | null = null;
-/** 正在等一个被强行终止的线程退出；它退出之前不起新的（旧线程手里可能还握着库的写锁） */
-let stopping: Promise<void> | null = null;
-let watchdog: ReturnType<typeof setTimeout> | null = null;
+type Lane = {
+  queue: Job[];
+  current: Job | null;
+  worker: Worker | null;
+  /** 正在等一个被强行终止的线程退出；它退出之前这一道不起新的（旧线程手里可能还握着库的写锁） */
+  stopping: Promise<void> | null;
+  watchdog: ReturnType<typeof setTimeout> | null;
+};
+const lanes: Lane[] = [];
 let seq = 0;
-const stats = { spawns: 0, kills: 0, crashes: 0 };
-/** 线程起过几次、被强行终止过几次、自己意外退出过几次，现在排着几件事 */
-export function benchRuntimeStats(): { spawns: number; kills: number; crashes: number; queued: number } {
-  return { ...stats, queued: queue.length + (current ? 1 : 0) };
+/** 大写入：原始字节超过这个数，或者给的是行数组且超过这么多行。按道数之外再全局一次一件 */
+export const BIG_WRITE = { bytes: 4 * 1024 * 1024, rows: 2000 };
+/** 正拿着大写入许可的那件事（全局只有一件） */
+let bigHolder: Job | null = null;
+function isBig(job: Job): boolean {
+  if (BENCH_METHODS.get(job.method) !== 'write') return false;
+  return job.args.some((a) => (a instanceof Uint8Array && a.byteLength > BIG_WRITE.bytes) || (Array.isArray(a) && a.length > BIG_WRITE.rows));
+}
+const stats = { spawns: 0, kills: 0, crashes: 0, bigWaits: 0, recycles: 0 };
+/** 线程起过几次、被强行终止过几次、自己意外退出过几次、大写入为等许可停过几次、大写入后换过几次线程，现在排着几件事（各道加起来），有几道 */
+export function benchRuntimeStats(): { spawns: number; kills: number; crashes: number; bigWaits: number; recycles: number; queued: number; lanes: number } {
+  const queued = lanes.reduce((n, l) => n + l.queue.length + (l.current ? 1 : 0), 0);
+  return { ...stats, queued, lanes: limits.lanes };
+}
+/** 各道排着的件数（不含正在做的），加起来不超过 BENCH_LIMITS.queue */
+const queuedTotal = (): number => lanes.reduce((n, l) => n + l.queue.length, 0);
+
+/** 台固定落在哪一道：按标识算一个稳定的散列（同一个标识永远同一道） */
+export function benchLaneOf(slug: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < slug.length; i++) { h ^= slug.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0) % limits.lanes;
+}
+function laneOf(slug: string): Lane {
+  const i = benchLaneOf(slug);
+  while (lanes.length < limits.lanes) lanes.push({ queue: [], current: null, worker: null, stopping: null, watchdog: null });
+  return lanes[i] as Lane;
 }
 
-/** 测试用：让工作线程像自己意外退出那样停掉（不走「强行终止」那条路），用来验退出之后的收拾 */
-export function stopBenchWorkerAbruptly(): void { void worker?.terminate(); }
+/** 测试用：让手上有活的道的工作线程像自己意外退出那样停掉（不走「强行终止」那条路），用来验退出之后的收拾 */
+export function stopBenchWorkerAbruptly(): void { for (const l of lanes) if (l.current) void l.worker?.terminate(); }
 
 function fromWire(e: BenchWireError): BenchError {
   const code = CODES.has(e.code) ? (e.code as BenchError['code']) : 'internal';
   return new BenchError(code, String(e.message), Array.isArray(e.details) ? e.details.map(String) : [], e.cause === undefined ? undefined : new Error(e.cause));
 }
 
-function spawn(): Worker {
+function spawn(lane: Lane): Worker {
   const w = new Worker(new URL('./bench-store-worker.ts', import.meta.url), { workerData: { root: ROOT, kit: benchSqlKit('sqlite') } });
   stats.spawns++;
-  w.on('message', (m: BenchReply) => onReply(w, m));
+  w.on('message', (m: BenchReply) => onReply(lane, w, m));
   // 线程里抛了没人接的错（比如内存用尽）会先报错、再退出。只在退出的时候收拾：那时线程已经不在了，不会和新起的线程抢库的锁
   let failure: unknown;
   w.on('error', (e) => { failure = e; });
-  w.on('exit', (code) => onDown(w, failure ?? new Error(`台库的工作线程退出了（退出码 ${code}）`)));
+  w.on('exit', (code) => onDown(lane, w, failure ?? new Error(`台库的工作线程退出了（退出码 ${code}）`)));
   w.unref(); // 闲着的线程不拦着进程退出；有事在做的时候再 ref
   return w;
 }
 
-/** 轮到下一件事：线程空着、没有在等旧线程退出，就发过去并开始计时 */
-function pump(): void {
-  while (!current && !stopping && queue.length) {
-    const job = queue.shift() as Job;
+/** 这一道轮到下一件事：线程空着、没有在等旧线程退出，就发过去并开始计时 */
+function pump(lane: Lane): void {
+  while (!lane.current && !lane.stopping && lane.queue.length) {
+    const head = lane.queue[0] as Job;
+    // 大写入：许可在别人手里就在队头等（同一道上后面的也等，保住同一个台的先后），放回来时会被叫醒
+    if (isBig(head) && bigHolder && bigHolder !== head) { stats.bigWaits++; break; }
+    const job = lane.queue.shift() as Job;
+    if (isBig(job)) bigHolder = job;
     try {
-      worker ??= spawn();
-      worker.ref();
-      worker.postMessage({ id: job.id, slug: job.slug, method: job.method, args: job.args, budgetMs: job.budgetMs } satisfies BenchRequest);
+      lane.worker ??= spawn(lane);
+      lane.worker.ref();
+      lane.worker.postMessage({ id: job.id, slug: job.slug, method: job.method, args: job.args, budgetMs: job.budgetMs } satisfies BenchRequest);
     } catch (e) {
       // 参数里有过不了线程的东西（函数、符号之类），或者线程起不来；这件事失败，接着做下一件
       const uncloneable = (e as Error)?.name === 'DataCloneError';
       job.reject(uncloneable ? new BenchError('invalid', '参数里有不能传给台库的值（函数、符号之类）') : new BenchError('internal', '台库内部错误', [], e));
+      if (bigHolder === job) bigHolder = null; // 没发出去：许可直接收回（这一道接着做，别的道下面统一叫醒）
       continue;
     }
-    current = job;
-    watchdog = setTimeout(() => kill(job), job.budgetMs + limits.graceMs);
+    lane.current = job;
+    lane.watchdog = setTimeout(() => kill(lane, job), job.budgetMs + limits.graceMs);
   }
-  if (!current && worker) worker.unref();
+  if (!lane.current && lane.worker) lane.worker.unref();
+  if (!bigHolder) for (const l of lanes) if (l !== lane && !l.current && !l.stopping && l.queue.length && isBig(l.queue[0] as Job)) { pump(l); if (bigHolder) break; }
 }
 
-function settle(): Job | null {
-  const job = current;
-  current = null;
-  if (watchdog) clearTimeout(watchdog);
-  watchdog = null;
+/** 手上这件事结束了（回话、报错、超时、线程退出都算）：清计时；它要是拿着大写入许可，放回去之前先让本道接着做 */
+function settle(lane: Lane): Job | null {
+  const job = lane.current;
+  lane.current = null;
+  if (lane.watchdog) clearTimeout(lane.watchdog);
+  lane.watchdog = null;
+  if (job && bigHolder === job) bigHolder = null;
   return job;
 }
 
-function onReply(w: Worker, m: BenchReply): void {
+function onReply(lane: Lane, w: Worker, m: BenchReply): void {
   // 已经判了超时、被终止的线程晚到的回话不认
-  if (w !== worker || !current || m.id !== current.id) return;
-  const job = settle() as Job;
+  if (w !== lane.worker || !lane.current || m.id !== lane.current.id) return;
+  const job = settle(lane) as Job;
   if (changeListener) for (const c of m.changes) { try { changeListener(c); } catch { /* 通知失败不影响已提交的写入 */ } }
   if (m.ok) job.resolve(m.value); else job.reject(fromWire(m.error));
-  pump();
+  // 做完一次大写入就换掉这条线程：它的堆里攒着几百 MB 还没回收的东西，几道各攒一份会叠起来。
+  // 线程已经回过话、手上没活，库都关在线程里；等它退出之后这一道再起新的（不和旧线程抢库的锁）
+  if (isBig(job)) recycle(lane);
+  pump(lane);
 }
 
-/** 线程自己退出了（不是我们终止的）：手上那件事失败，下一件事会另起一个线程 */
-function onDown(w: Worker, e: unknown): void {
-  if (w !== worker) return; // 是我们自己终止的那个
-  worker = null;
+/** 换掉空着的线程：先摘下来，等它退出之后这一道再接着做 */
+function recycle(lane: Lane): void {
+  const w = lane.worker;
+  if (!w || lane.current) return;
+  lane.worker = null;
+  stats.recycles++;
+  lane.stopping = w.terminate().then(() => undefined, () => undefined).then(() => { lane.stopping = null; pump(lane); });
+}
+
+/** 线程自己退出了（不是我们终止的）：手上那件事失败，这一道的下一件事会另起一个线程 */
+function onDown(lane: Lane, w: Worker, e: unknown): void {
+  if (w !== lane.worker) return; // 是我们自己终止的那个
+  lane.worker = null;
   stats.crashes++;
-  const job = settle();
+  const job = settle(lane);
   if (job) job.reject(new BenchError('internal', '台库的工作线程意外退出；如果是写入，是否生效不确定：带同一个幂等键重试，或者读一次确认', [], e));
-  pump();
+  pump(lane);
 }
 
-/** 时限加宽限过了还没回话：强行终止线程。等它真的退出之后再做下一件事 */
-function kill(job: Job): void {
-  if (current !== job) return;
-  settle();
+/** 时限加宽限过了还没回话：强行终止这一道的线程。等它真的退出之后这一道再做下一件事；别的道不受影响 */
+function kill(lane: Lane, job: Job): void {
+  if (lane.current !== job) return;
+  settle(lane);
   stats.kills++;
-  const w = worker;
-  worker = null;
+  const w = lane.worker;
+  lane.worker = null;
   job.reject(new BenchError('timeout', `台库操作超过时限（${job.budgetMs} 毫秒）而且没有停下来，已强行中止。如果是写入，是否生效不确定：带同一个幂等键重试，或者读一次确认`));
-  if (!w) { pump(); return; }
-  stopping = w.terminate().then(() => undefined, () => undefined).then(() => { stopping = null; pump(); });
+  if (!w) { pump(lane); return; }
+  lane.stopping = w.terminate().then(() => undefined, () => undefined).then(() => { lane.stopping = null; pump(lane); });
+}
+
+function enqueue(lane: Lane, slug: string, method: string, args: unknown[]): Promise<unknown> {
+  const budgetMs = BENCH_METHODS.get(method) === 'read' ? limits.queryMs : limits.writeMs;
+  return new Promise((resolve, reject) => {
+    lane.queue.push({ id: ++seq, slug, method, args, budgetMs, resolve, reject });
+    pump(lane);
+  });
 }
 
 function call(slug: string, method: string, args: unknown[]): Promise<unknown> {
-  if (queue.length >= BENCH_LIMITS.queue) return Promise.reject(new BenchError('busy', '台库正忙，排着队的读写太多，稍后再试'));
-  const budgetMs = BENCH_METHODS.get(method) === 'read' ? limits.queryMs : limits.writeMs;
-  return new Promise((resolve, reject) => {
-    queue.push({ id: ++seq, slug, method, args, budgetMs, resolve, reject });
-    pump();
-  });
+  if (queuedTotal() >= BENCH_LIMITS.queue) return Promise.reject(new BenchError('busy', '台库正忙，排着队的读写太多，稍后再试'));
+  return enqueue(laneOf(slug), slug, method, args);
 }
 
 // —— 一个台的句柄 ——
@@ -241,12 +305,14 @@ export async function closeBenchStores(): Promise<void> {
   for (const s of live.values()) s.retire();
   live.clear();
   handles.clear();
-  if (!worker && !current && !queue.length && !stopping) return;
-  try { await call('', '@closeAll', []); } catch { /* 关不干净也接着往下走 */ }
-  if (stopping) await stopping;
-  // 这期间又有人排了新的事：线程留着接着做，不在别人做到一半的时候停它
-  if (current || queue.length) return;
-  const w = worker;
-  worker = null;
-  if (w) await w.terminate();
+  await Promise.all(lanes.map(async (lane) => {
+    if (!lane.worker && !lane.current && !lane.queue.length && !lane.stopping) return;
+    try { await enqueue(lane, '', '@closeAll', []); } catch { /* 关不干净也接着往下走 */ }
+    if (lane.stopping) await lane.stopping;
+    // 这期间又有人排了新的事：线程留着接着做，不在别人做到一半的时候停它
+    if (lane.current || lane.queue.length) return;
+    const w = lane.worker;
+    lane.worker = null;
+    if (w) await w.terminate();
+  }));
 }
