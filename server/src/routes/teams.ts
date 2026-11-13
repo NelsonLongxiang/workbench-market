@@ -4,7 +4,7 @@
  *   GET  /api/teams                  团队页：部门 → 团队（状态、负责人、总工）→ 成员（分配给谁、在办几件）；待认领的单列（只给管理员）。
  *                                    按看的人的可见范围在服务端裁好，页面只渲染。名册部分取自节点名册（services/a2a-roster.ts）。
  *   GET  /api/teams/mine             「我的 AI 员工」：分配给我的成员；我是负责人的，加上我的团队和它的总工。
- *   GET  /api/teams/events?host&team 团队的变更记录（认领、换部门、负责人增减、分配、收回），带显示名。管理员、管理层、这个团队的负责人能看；
+ *   GET  /api/teams/events?host&team 团队的变更记录（认领、换部门、负责人增减、分配、收回），带显示名；动手的人的内部标识（actor）只给管理员。管理员、管理层、这个团队的负责人能看；
  *                                    别人（和不存在的团队）一律 404 team_not_found，不说有没有这个团队。
  *   GET  /api/teams/assignments?principal&from&to  某人各段分配（哪个席位、从什么时候到什么时候）。本人、管理员、管理层看全部；
  *                                    团队负责人只看自己负责的团队里的那几段；什么都看不到的（和不存在的人）一律 404 principal_not_found。
@@ -212,7 +212,8 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
       host: k.host, team: k.team, name: teamName(k.team),
       events: teams().events(k).map((e) => ({
         seq: e.seq, kind: e.kind, seat: e.seat, seat_id: e.seat_id, principal: e.principal_id || null, principal_name: nameOrNull(e.principal_id),
-        detail: parse(e.detail), actor: e.actor, actor_name: nameOrNull(e.actor_principal) ?? ACTOR_NAME[e.actor] ?? (e.actor.startsWith('system:') ? '系统' : '管理员'), at: e.at,
+        // 动手的人：给人看的是 actor_name；内部标识（actor：登录名、cli、system:…）只给管理员，页面不出现内部标识
+        detail: parse(e.detail), ...(v.kind === 'admin' ? { actor: e.actor } : {}), actor_name: nameOrNull(e.actor_principal) ?? ACTOR_NAME[e.actor] ?? (e.actor.startsWith('system:') ? '系统' : '管理员'), at: e.at,
       })),
     });
   }));
