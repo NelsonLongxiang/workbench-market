@@ -48,9 +48,22 @@ const SCOPE_RE = /^(\*|restricted|dept:[A-Za-z0-9._-]{1,64}|bench:[A-Za-z0-9._-]
 const MARKET_DEPT = /^dept:[a-z][a-z0-9-]{0,47}$/;
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
 
+/** 接不上的原因（还没同步成过时，页面看到的是「未接入」）：本机没有 ygl-trees 命令行或工作区、版本太旧不认 library、契约版本对不上、回的不是 JSON */
+const NOT_CONNECTED = new Set(['no_cli', 'no_home', 'exit', 'not_json', 'contract_unsupported', 'bad_shape']);
+const REASON_TEXT: Record<string, string> = {
+  no_cli: '本机找不到 ygl-trees 命令行（看 WM_YGL_CLI 或安装位置）', no_home: '没有设 ygl-trees 工作区（YGL_HOME）或目录不在',
+  exit: 'ygl-trees 命令行出错退出（版本可能太旧，还没有 library 出口）', not_json: 'ygl-trees 命令行回的不是 JSON',
+  contract_unsupported: `ygl-trees 的 library 契约版本对不上（要 ${CONTRACT}）`, bad_shape: 'ygl-trees 的 library 应答形状不对',
+  timeout: '调 ygl-trees 命令行超时', too_many_pages: 'library 一次翻页太多，没取完',
+};
+
+export type SourceState = 'ok' | 'not_connected' | 'not_ready' | 'degraded';
+
 export class KnowledgeService extends Service {
   private running = false;
   private secret: string | null = null;
+  /** 已经告警过的原因：同一个原因在这个进程里只告警一次，不刷屏 */
+  private warned = new Set<string>();
 
   constructor(ctx: any) {
     super(ctx, 'knowledge');
@@ -102,6 +115,11 @@ export class KnowledgeService extends Service {
     let cursor: string | null = null, maxUpdated = since, seen = 0;
     const fail = (error: string) => {
       db.prepare('INSERT INTO knowledge_sync (kind, last_error) VALUES (?, ?) ON CONFLICT (kind) DO UPDATE SET last_error = excluded.last_error').run(kind, error);
+      const reason = error.startsWith('store_failed') ? 'store_failed' : error;
+      if (!this.warned.has(reason)) {
+        this.warned.add(reason);
+        console.warn(`[knowledge] 经验库这一轮没同步上：${REASON_TEXT[reason] ?? reason}（同一个原因只提示这一次；同步状态看 GET /api/knowledge/status）`);
+      }
       return { ok: false, error, seen };
     };
     const upsert = db.prepare(`INSERT INTO knowledge_items (kind, ygl_id, key, title, summary, status, project, scope, tags, created, updated, seen_at)
@@ -148,6 +166,19 @@ export class KnowledgeService extends Service {
       const n = (db.prepare('SELECT COUNT(*) AS n FROM knowledge_items WHERE kind = ?').get(kind) as { n: number }).n;
       return { kind, items: Number(n), last_ok_at: st?.last_ok_at ?? null, last_full_at: st?.last_full_at ?? null, last_error: st?.last_error ?? '' };
     });
+  }
+
+  /**
+   * 来源的大致状态（给页面，不带原因）：
+   *   ok：每类都同步成过、最近一轮也成了；
+   *   not_connected：一类都没成过，原因是接不上（没有命令行或工作区、版本太旧、契约对不上、回的不是 JSON）——「未接入」；
+   *   not_ready：一类都没成过，还没跑过或只是超时这类；
+   *   degraded：成过，但最近一轮有类没同步上（列表照常给已有的）。
+   */
+  sourceState(): SourceState {
+    const st = this.status();
+    if (st.every((s) => s.last_ok_at === null)) return st.some((s) => NOT_CONNECTED.has(s.last_error)) ? 'not_connected' : 'not_ready';
+    return st.some((s) => s.last_error) ? 'degraded' : 'ok';
   }
 
   /** 这个人看得到的条目，新的在前，最多 limit 条；kind 是页面上的四类之一或不给 */

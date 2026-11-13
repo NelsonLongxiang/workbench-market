@@ -14,7 +14,9 @@
  *   三、不露内部标识：任何应答里都没有 ygl-trees 的 id、工作区路径和假命令行塞的多余字段；证据里的 javascript: 地址不给
  *   四、范围的说法：全公司、部门名、只给管理层；bench:、空的、对不上写法的一律当只给管理层
  *   五、来源坏了：详情现取失败 503（不当成空）；ygl-trees 说没这一条，回 404 并从目录去掉；
- *       重启后同一个库，键不变；list 失败、契约版本不对：页面拿到 source=not_ready，管理员看得到原因
+ *       重启后同一个库，键不变
+ *   七、没接入（命令行不在、版本太旧不认 library、list 失败、回的不是 JSON、契约版本不对、工作区没设）：启动照常、自检不红；
+ *       接口回空列表和 source=not_connected（不带原因）；管理员看得到原因；同一个原因只告警一次
  *   六、同步状态只给管理员
  *
  *   node scripts/knowledge-test.mjs
@@ -75,7 +77,7 @@ async function freePort() {
 }
 
 let child = null;
-async function boot(name, fixture, { data } = {}) {
+async function boot(name, fixture, { data, env: extraEnv = {}, dropEnv = [] } = {}) {
   const port = await freePort();
   const dir = join(OUT, name), home = join(dir, 'home'), ygl = join(dir, 'ygl');
   const dataDir = data ?? join(dir, 'data');
@@ -84,7 +86,8 @@ async function boot(name, fixture, { data } = {}) {
   const env = {};
   for (const k of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP']) if (process.env[k]) env[k] = process.env[k];
   Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: dataDir, NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN, REDIS_URL: '', IDENTITY_SEAM_ROOT: ROOT,
-    WM_YGL_CLI: FAKE_CLI, YGL_HOME: ygl, WM_KNOWLEDGE_SYNC_MINUTES: '1' });
+    WM_YGL_CLI: FAKE_CLI, YGL_HOME: ygl, WM_KNOWLEDGE_SYNC_MINUTES: '1', ...extraEnv });
+  for (const k of dropEnv) delete env[k];
   child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
   child.stdout.on('data', (d) => { log += String(d); });
@@ -111,7 +114,7 @@ async function boot(name, fixture, { data } = {}) {
     if (st.length === 4 && st.every((k) => k.last_ok_at !== null || k.last_error)) break;
     await sleep(200);
   }
-  return { host: new URL(base).host, call, ygl, dataDir };
+  return { host: new URL(base).host, call, ygl, dataDir, log: () => log };
 }
 async function stop() {
   if (!child || child.exitCode !== null) return;
@@ -211,13 +214,27 @@ try {
     check(keyAgain === starKey, '重启后同一个库，同一条的键不变（密钥存在库里）', show({ keyAgain, starKey }));
     await stop();
   }
-  for (const [mode, fixture, want] of [['exit2', { ...FIXTURE, fail: 'exit2' }, 'exit'], ['notjson', { ...FIXTURE, fail: 'notjson' }, 'not_json'], ['contract', { ...FIXTURE, contract: 'ygl-library/2' }, 'contract_unsupported']]) {
-    const bad = await boot(`bad-${mode}`, fixture);
+  // ---------- 七、没接入：ygl-trees 不在、太旧、契约不对、工作区没设——启动不受影响、自检不红，接口照常回空列表加「未接入」，同一个原因只告警一次 ----------
+  const cases = [
+    ['exit2', { ...FIXTURE, fail: 'exit2' }, {}, [], 'exit'],
+    ['notjson', { ...FIXTURE, fail: 'notjson' }, {}, [], 'not_json'],
+    ['contract', { ...FIXTURE, contract: 'ygl-library/2' }, {}, [], 'contract_unsupported'],
+    ['old-cli', { ...FIXTURE, fail: 'unknowncmd' }, {}, [], 'exit'],
+    ['no-cli', FIXTURE, { WM_YGL_CLI: join(OUT, 'nowhere', 'bin.cjs') }, [], 'no_cli'],
+    ['no-home', FIXTURE, {}, ['YGL_HOME'], 'no_home'],
+  ];
+  for (const [mode, fixture, env, drop, want] of cases) {
+    const bad = await boot(`bad-${mode}`, fixture, { env, dropEnv: drop });
     const sameB = { origin: `http://${bad.host}`, 'sec-fetch-site': 'same-origin' };
+    const health = await bad.call('GET', '/api/health');
     const l = await bad.call('GET', '/api/knowledge', { headers: { ...REMOTE, ...sameB }, session: SESSIONS.noAdminFlag });
     const st = (await bad.call('GET', '/api/knowledge/status', { headers: token })).json?.kinds ?? [];
-    check(l.status === 200 && (l.json?.items ?? []).length === 0 && l.json?.source === 'not_ready' && st.every((k) => k.last_error === want) && !l.text.includes(want),
-      `来源坏了（${mode}）：页面拿到 source=not_ready、不带原因；管理员看得到原因 ${want}`, show({ status: l.status, source: l.json?.source, errors: st.map((k) => k.last_error) }));
+    const warns = bad.log().split('\n').filter((line) => line.includes('[knowledge] 经验库这一轮没同步上'));
+    check(health.status === 200 && !bad.log().includes('startup-refused') && /"id":"market\.knowledge\.anonymous-read"[^}]*"verdict":"pass"/.test(bad.log())
+      && l.status === 200 && (l.json?.items ?? []).length === 0 && l.json?.source === 'not_connected' && !l.text.includes(want)
+      && st.every((k) => k.last_error === want) && warns.length === 1 && !warns[0].includes(bad.ygl),
+      `没接入（${mode}）：启动照常、自检不红；接口回空列表、source=not_connected、不带原因；管理员看得到原因 ${want}；四类同一个原因只告警一次、不带路径`,
+      show({ health: health.status, status: l.status, source: l.json?.source, errors: st.map((k) => k.last_error), warns }));
     await stop();
   }
 } catch (e) {

@@ -4,7 +4,7 @@
  * 数据在 $YGL_HOME/library-fixture.json：
  *   { contract?, page_size?, fail?, show_fail?, items: { claim: [...], note: [...], skill: [...], check: [...] }, bodies: { "<kind>:<id>": { body, evidence?, …多余字段 } } }
  *   · page_size：每页最多几条（比市场要的 limit 小时按它分页，用来测游标）；
- *   · fail：list 怎么坏（exit2 退出 2、timeout 一直不退、notjson 打一段不是 JSON 的字）；show_fail：show 怎么坏（exit2，或 gone = rc 1 加一个 {"error"}）；
+ *   · fail：list 怎么坏（exit2 退出 2、timeout 一直不退、notjson 打一段不是 JSON 的字、unknowncmd 旧版本不认 library）；show_fail：show 怎么坏（exit2，或 gone = rc 1 加一个 {"error"}）；
  *   · contract：故意给错的契约版本。
  * 用法同真的：library list --kind K [--since ISO] [--limit N] [--cursor C] --json；library show <kind>:<id> --json
  */
@@ -18,6 +18,8 @@ const contract = fx.contract ?? 'ygl-library/1';
 const out = (o, code = 0) => { process.stdout.write(JSON.stringify(o)); process.exit(code); };
 
 if (argv[0] !== 'library') out({ error: 'unknown command' }, 2);
+// 旧版本：还没有 library 出口——照旧版本的样子在 stderr 说不认识这个命令、退出 1，stdout 什么都没有
+if (fx.fail === 'unknowncmd') { process.stderr.write("error: unknown command 'library'\n"); process.exit(1); }
 if (argv[1] === 'list') {
   if (fx.fail === 'exit2') out({ error: 'synthetic failure' }, 2);
   if (fx.fail === 'timeout') setInterval(() => {}, 1000);

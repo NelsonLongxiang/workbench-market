@@ -51,10 +51,8 @@ export function registerKnowledgeRoutes(app: HttpService, deps: KnowledgeRouteDe
       if (!kind) return void res.status(400).json({ error: 'kind_invalid', message: 'kind 只能是 claim、kb、skill、verify' });
     }
     const items = knowledge().list(actor, { kind });
-    // 来源的大致状态（不带原因、不带条数）：页面据此说「还没同步过」「暂时读不到最新的」
-    const st = knowledge().status();
-    const source = st.every((s) => s.last_ok_at === null) ? 'not_ready' : st.some((s) => s.last_error) ? 'degraded' : 'ok';
-    res.json({ items, source });
+    // 来源的大致状态（不带原因、不带条数）：not_connected「未接入」、not_ready「还在准备」、degraded「可能不是最新的」、ok
+    res.json({ items, source: knowledge().sourceState() });
   }));
 
   // 同步状态：运维信息，不是业务内容，给管理员（口令、身份来源的管理员、本机命令行）
