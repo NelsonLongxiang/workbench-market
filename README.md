@@ -35,6 +35,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `ADMIN_TOKEN`（控制面口令·可设置页改）
 - `MCP_GATEWAY`（#284 起**缺省开**：未设/空/`on`=会话令牌网关；只有显式 `off` 且 `NODE_ENV=development/test` 才允许关闭并启动告警；生产/未设/空/未知运行模式配 off 由启动自检拒绝，其它网关值也拒绝启动）
 - `REDIS_URL`（共用状态层：SOP 执行实例和台的热数据·可选·缺省读 `DATA_DIR/redis.url`·无则直写 SQLite）
+- `WM_VARS_STORE`（工作台的常量、变量存在哪：`main` 缺省，只用主库；`shadow` 主库是真源、同时写一份卡片的台库；`bench` 卡片的台库是真源、尽力写回主库留作回退。对外应答三档一样。填错拒绝启动。上线时保持 `main`，另两档等生产演练和属主批准，见 docs/data-views.md 第十三节）
 - `MARKET_TEAM`（A2A team 默认 `market`；名片的 team、会话句柄 `<MARKET_TEAM>/<node8>` 和工作台事件出站的 caller_session 都用它）
 - `MARKET_PUBLIC_URL`（对外基址·A2A 卡片与 MCP `skill_download` 下载链接用；生产建议设成 https 地址——没设时下载链接取请求主机，主机名不规范就不签发）
 - `A2A_API_KEY`/`A2A_STATE_URL`（A2A 外部面）

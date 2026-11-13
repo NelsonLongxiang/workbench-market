@@ -36,6 +36,36 @@ export class WorkbenchVarsService extends Service {
   delete(workbenchId: number, key: string, expected: number) {
     return db.prepare('DELETE FROM workbench_vars WHERE workbench_id = ? AND key = ? AND revision = ?').run(workbenchId, key, expected);
   }
+  /**
+   * 照给的行原样落一份（WM_VARS_STORE=bench 时尽力写回主库，留作回退）：主库里没有、或 revision 比给的小才写；
+   * row 为 null 是「这个键已经删了」，主库里有就删
+   */
+  force(workbenchId: number, key: string, row: Omit<WorkbenchVarRow, 'workbench_id'> | null) {
+    if (!row) return db.prepare('DELETE FROM workbench_vars WHERE workbench_id = ? AND key = ?').run(workbenchId, key);
+    const cur = db.prepare('SELECT revision FROM workbench_vars WHERE workbench_id = ? AND key = ?').get(workbenchId, key) as { revision: number } | undefined;
+    if (cur && cur.revision >= row.revision) return { changes: 0 };
+    db.prepare('DELETE FROM workbench_vars WHERE workbench_id = ? AND key = ?').run(workbenchId, key);
+    return db.prepare('INSERT INTO workbench_vars (workbench_id, key, kind, value, revision, updated_by, owner, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(workbenchId, key, row.kind, row.value, row.revision, row.updated_by, row.owner, row.created_at, row.updated_at);
+  }
+  /** 以台库为准：这张卡片的行整份换成给的（原样，revision 也照抄），一个事务（bench 档补写回主库、人工处置分叉时用） */
+  replaceCard(workbenchId: number, rows: Omit<WorkbenchVarRow, 'workbench_id'>[]) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.prepare('DELETE FROM workbench_vars WHERE workbench_id = ?').run(workbenchId);
+      const ins = db.prepare('INSERT INTO workbench_vars (workbench_id, key, kind, value, revision, updated_by, owner, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+      for (const r of rows) ins.run(workbenchId, r.key, r.kind, r.value, r.revision, r.updated_by, r.owner, r.created_at, r.updated_at);
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+  }
+  /** 有常量、变量的卡片（迁移、比对用） */
+  workbenchIds(): number[] {
+    return (db.prepare('SELECT DISTINCT workbench_id FROM workbench_vars ORDER BY workbench_id').all() as { workbench_id: number }[]).map((r) => r.workbench_id);
+  }
+  /** 键名以 prefix 开头的键（报 hot. 开头的键用）：卡片、键 */
+  keysWithPrefix(prefix: string) {
+    return db.prepare('SELECT workbench_id, key FROM workbench_vars WHERE substr(key, 1, ?) = ? ORDER BY workbench_id, key').all(prefix.length, prefix) as { workbench_id: number; key: string }[];
+  }
   /** 删台级联（审计行保留） */
   deleteAll(workbenchId: number) {
     return db.prepare('DELETE FROM workbench_vars WHERE workbench_id = ?').run(workbenchId);

@@ -395,6 +395,8 @@ jobs:
         run: node scripts/config-landing-test.mjs
       - name: 路由录制回放（搬路由之前录下的应答，对同一组请求重放，状态码、响应头、响应体必须零差异；每条路由都有未授权、参数非法、正常三类，按录下来的应答核对；自检先红后绿）
         run: node scripts/route-replay-test.mjs --selftest && node scripts/route-replay-test.mjs
+      - name: 工作台的常量、变量存进台库（WM_VARS_STORE：迁移能重复跑、同步点（bench → main → bench 不丢、并发写不丢、两边都改过报分叉）、shadow 跟写、按摘要比对、写回主库、main 档不动台库结构；同一份录带在 shadow、bench 两档下也零差异；主库和台库两个实例随机操作逐条一样）
+        run: node scripts/vars-store-test.mjs && WM_VARS_STORE=shadow node scripts/route-replay-test.mjs workbench-vars && WM_VARS_STORE=bench node scripts/route-replay-test.mjs workbench-vars && node scripts/vars-store-diff-test.mjs
       - name: Startup security self-probe (#326, loopback synthetic only)
         run: node scripts/startup-security-self-probe-test.mjs && node scripts/startup-security-self-probe-http-test.mjs && node scripts/startup-security-self-probe-upgrade-test.mjs
       - name: Tasks identity and project/run grant isolation (#324, synthetic only)

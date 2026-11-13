@@ -232,7 +232,7 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
         const scope = 'error' in found ? { id: 0, cls: 'external' as const, slug: null } : workbenchScope(found.id);
         if (!(await deps.varsAuthorizeRead(req, silentRes(), scope))) return null;
         if ('error' in found) return [];
-        const vars = listVars(scope).items as BoardVar[];
+        const vars = (await listVars(scope)).items as BoardVar[];
         const config = parseConfig(vars.find((v) => v.key === 'config.owner'));
         if (!config || 'error' in config) return [];
         return buildBoard(vars, config).rows.filter((r) => r.status === 'open').map((r) => item({

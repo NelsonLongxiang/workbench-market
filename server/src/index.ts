@@ -117,7 +117,8 @@ import { HttpError } from './errors.ts';
 import { designStandard } from './design-standard.ts';
 import { mountVault } from './vault-api.ts';
 import { expectedSha256, uploadIntegrity, type UploadIntegrity } from './upload-integrity.ts';
-import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet } from './workbench-vars.ts';
+import { loadConfig } from './config.ts';
+import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet, reportHotVarKeys, setVarsStoreMode, Config as VarsConfig } from './workbench-vars.ts';
 import { registerWorkbenchVarsRoutes } from './routes/workbench-vars.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
@@ -159,6 +160,9 @@ let judgmentEnforce: EnforceConfig = { domains: null };
 const BENCH_VIEWS = (() => { try { return benchViewsConfig(); } catch (e) { console.error(`[bench-views] 拒绝启动：${(e as Error).message}`); process.exit(1); } })();
 // 台的权限申请没人处理的总期限（WM_BENCH_REQUEST_TTL_HOURS，缺省 72，1～720 小时）：启动时读一次，不合法拒绝启动
 setBenchRequestTtlHours((() => { try { return benchRequestTtlConfig(); } catch (e) { console.error(`[bench-views] 拒绝启动：${(e as Error).message}`); process.exit(1); } })());
+// 工作台的常量、变量存在哪（WM_VARS_STORE：main / shadow / bench，缺省 main）。不合法拒绝启动；起来时报一次已有的 hot. 开头的键
+setVarsStoreMode((() => { try { return loadConfig(VarsConfig).store; } catch (e) { console.error(`[vars] 拒绝启动：${(e as Error).message}`); process.exit(1); } })());
+reportHotVarKeys();
 // 全站登录门（WM_LOGIN_GATE=enforce|off，缺省 off）：紧跟启动自检门，早于内容分发、解析器、静态资源、SPA 回落和各路由。
 // 依赖都是函数声明或请求期才取的值（提升/闭包），这里只建不调。值不合法拒绝启动（同 MCP_GATEWAY #284）
 const LOGIN_GATE_MODE = loginGateMode();
@@ -2975,9 +2979,9 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       // MCP 会话不是人：卡片的台库里有数据时一律 409（要管理层来删）
       return await workbenchDeleteCore(Number(args?.id), { kind: 'session', name: String(subject).replace(/^mcp:/, '') });
     case 'workbench_vars_get':
-      return mcpVarsGet(args);
+      return await mcpVarsGet(args);
     case 'workbench_vars_set':
-      return mcpVarsSet(args, subject);
+      return await mcpVarsSet(args, subject);
     case 'app_data_list': {
       const a = getApp(String(args?.slug ?? ''));
       const limit = pageLimit(args?.limit);
