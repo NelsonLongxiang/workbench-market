@@ -16,6 +16,7 @@
 import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { audiencesOf, originOf } from '../a2a-direct-sig.ts';
+import { clientIp } from '../login-gate.ts';
 import { exchangeSeatToken, logSeatTokenExchange, parseSeatTokenRequest, seatTokenLog, SEAT_TOKEN_TTL_MS, type SeatTokenRefusal } from '../services/seat-tokens.ts';
 
 /** 每个来源地址 10 分钟最多来这么多次（不管成不成）；每个席位 1 小时最多发这么多张令牌 */
@@ -60,7 +61,8 @@ export function registerSeatTokenRoutes(app: HttpService, deps: SeatTokenRouteDe
   app.post('/api/a2a/seat-token', { action: 'a2a.seat-token', kind: 'write', statusNotVerdict: '席位签名、钉住的节点公钥和名册判，不是登录身份的结论' }, (req, res) => {
     res.set('Cache-Control', 'no-store');
     const t = now();
-    const source = String(req.socket?.remoteAddress ?? '');
+    // 来源取 clientIp：可信反代后面取它写进来的真实地址，外部自带的转发头不信（和登录门的限频、审计同一处）
+    const source = clientIp(req);
     const log = (e: Omit<Parameters<typeof logSeatTokenExchange>[0], 'at' | 'source' | 'body'>) => logSeatTokenExchange({ at: t, source, body: req.body, ...e });
     const wait = perSource.take(source, t);
     if (wait > 0) { log({ outcome: 'rate-limited', reason: 'per-source' }); res.set('Retry-After', String(wait)); return void res.status(429).json({ error: 'seat_token_rate_limited' }); }
