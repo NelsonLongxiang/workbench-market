@@ -1706,6 +1706,22 @@ function benchStoreVarsSchema(): string[] {
       updated_by TEXT NOT NULL, owner TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
   ];
 }
+/**
+ * 附加的表（开库不建，第一次写台的提交、附件时才建；不升版本号，旧代码不认识也不碰它们）：这张卡片对应的台的提交记录和附件的元数据
+ * （数据层第 6 步，docs/data-views.md 第十三节第 6 条）。列和主库的 app_data / app_files 一一对应，只是不带 app_slug；
+ * id 照抄主库的（过渡期 id 一律由主库发），所以不自增。附件字节不进台库，storage_path 原样记
+ */
+function benchStoreAppSchema(): string[] {
+  return [
+    `CREATE TABLE IF NOT EXISTS bs_app_data (
+      id INTEGER PRIMARY KEY, data TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, deleted_at TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL, submitter_principal TEXT)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_bs_app_data_idem ON bs_app_data (idempotency_key) WHERE idempotency_key <> ''`,
+    `CREATE TABLE IF NOT EXISTS bs_app_files (
+      id INTEGER PRIMARY KEY, original_name TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, storage_path TEXT NOT NULL,
+      created_by TEXT NOT NULL, created_at TEXT NOT NULL, note TEXT NOT NULL, sha256 TEXT NOT NULL, deleted_at TEXT NOT NULL)`,
+  ];
+}
 
 /**
  * 台库用到的、属于表结构或随库不同的写法，打成一份纯数据。
@@ -1722,6 +1738,10 @@ export type BenchSqlKit = {
   varsProbes: string[];
   /** bs_vars 在不在（查目录，不试读：PostgreSQL 的事务里一条语句出错整个事务就作废了） */
   varsExists: string;
+  /** 附加的表 bs_app_data、bs_app_files（同 bs_vars：开库不建，第一次写才建）、试读、在不在 */
+  appSchema: string[];
+  appProbes: string[];
+  appExists: string;
   /** 固定的几张表 */
   schema: string[];
   /** 打开库时逐条试一遍：哪条跑不通，就是库文件的结构和这份代码对不上（比如还没定稿时旧代码建的文件），明确拒绝，不静默照用 */
@@ -1755,6 +1775,14 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
     varsExists: d === 'postgres'
       ? "SELECT 1 AS x FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'bs_vars'"
       : "SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'bs_vars'",
+    appSchema: benchStoreAppSchema(),
+    appProbes: [
+      'SELECT id, data, created_by, created_at, deleted_at, idempotency_key, submitter_principal FROM bs_app_data WHERE 1 = 0',
+      'SELECT id, original_name, mime, size, storage_path, created_by, created_at, note, sha256, deleted_at FROM bs_app_files WHERE 1 = 0',
+    ],
+    appExists: d === 'postgres'
+      ? "SELECT 1 AS x FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'bs_app_files'"
+      : "SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'bs_app_files'",
     schema: benchStoreSchema(d),
     probes: [
       'SELECT name, title, version, columns, key_cols, row_count, data_bytes, created_at, updated_at, updated_by FROM bs_datasets WHERE 1 = 0',
