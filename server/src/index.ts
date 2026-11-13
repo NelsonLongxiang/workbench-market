@@ -115,6 +115,7 @@ import { designStandard } from './design-standard.ts';
 import { mountVault } from './vault-api.ts';
 import { expectedSha256, uploadIntegrity, type UploadIntegrity } from './upload-integrity.ts';
 import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet } from './workbench-vars.ts';
+import { registerWorkbenchVarsRoutes } from './routes/workbench-vars.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, redisConfigured, runStateRestore, runStateRead, runStateRetire, type RunStateRead } from './redis.ts';
@@ -2510,7 +2511,7 @@ function vaultGuard(req: express.Request, res: express.Response): boolean {
   return adminGuard(req, res);
 }
 mountVault(http, vaultGuard, (req) => VAULT_ON_MAIN || surfaceOf(req) === 'control' || onVaultHost(req)); // 服务端持有主密码时只在控制面或凭据库专用域名开放（两者都不承载 /go/、/sop/、/apps/）；属主显式接受同源风险时主域名也开放
-workbenchVars.mount(app); // #336 /api/workbenches/:id/vars
+registerWorkbenchVarsRoutes(http, workbenchVars.handle); // #336 /api/workbenches/:id/vars（路由在 routes/workbench-vars.ts）
 
 // 存活 / 就绪分开：/api/health 是存活（只看本进程，不发外部请求）；/api/health/ready 是就绪（含 LayerFS）。
 // 两者都是公开端点，LayerFS 探测结果缓存 10 秒、同一时刻只发一次，匿名请求打不穿到 LayerFS。

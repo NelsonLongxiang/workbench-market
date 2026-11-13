@@ -267,6 +267,8 @@ export const claimTeam = (host: string, team: string, department: string) => tea
 export const addTeamLead = (host: string, team: string, principal: string) => teamCall('/api/teams/leads', { method: 'POST', body: { host, team, principal } });
 /** 把一个成员分配给某位员工、收回（规范 14 第二节）：席位按 seat 加 seat_id 认；能不能做服务端判（负责人、管理层） */
 export const assignTeamSeat = (host: string, team: string, seat: string, seat_id: string, principal: string) => teamCall('/api/teams/assign', { method: 'POST', body: { host, team, seat, seat_id, principal } });
+/** 一步改派（#682）：一个事务里收回并分给另一个人；200 { ok, changed, id, from }，拒绝的状态码和错误码同分配 */
+export const reassignTeamSeat = (host: string, team: string, seat: string, seat_id: string, principal: string) => teamCall('/api/teams/reassign', { method: 'POST', body: { host, team, seat, seat_id, principal } });
 export const unassignTeamSeat = (host: string, team: string, seat: string, seat_id: string) => teamCall('/api/teams/unassign', { method: 'POST', body: { host, team, seat, seat_id } });
 export const putDepartment = (id: string, name: string, lead: string | null) => teamCall(`/api/departments/${encodeURIComponent(id)}`, { method: 'PUT', body: { name, ...(lead ? { lead } : {}) } });
 
