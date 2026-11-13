@@ -2,7 +2,7 @@
 /** 全景首页的纯函数单测（web/src/home-view.ts）：进全景的类型、列、每格状态与待定件数、终态的线、总结句、问候、点格筛选。
  *  数据形状照生命周期只读接口（/api/lifecycle/stages、objects）；全是合成值。 */
 import { cleanWho, seatLabel, teamLabel, waitingLabel } from '../web/src/people.ts';
-import { answerChoices, decideCount, groupCards, isMine, isStuck, stuckLabel, stuckTotal } from '../web/src/attention-view.ts';
+import { SEAT_ASKS_MORE, answerChoices, decideCount, groupCards, isMine, isStuck, seatAsksMore, stuckLabel, stuckTotal } from '../web/src/attention-view.ts';
 import { cardWording, splitAskTitle, buildRows, splitRows, daysLabel, filterAttention, greeting, objectLabel, panoramaType, stageColumns, summaryLine, decideLine, toggleFocus } from '../web/src/home-view.ts';
 
 let pass = 0, fail = 0;
@@ -89,5 +89,7 @@ ok('服务端给了名字（#657 的 waiting_for_name）就直接用；null、�
   ok('总结句：停太久的另说一句，排在最后', decideLine(2, 1, false, 3, 4) === '有 2 件等你拍板。另有 3 件别人的事你可以代办，1 件要到别处处理，4 件停太久。' && decideLine(0, 0, false, 0, 2) === '眼下没有要你当场拍板的，另有 2 件停太久。' && decideLine(1, 0, false, 0, 0) === '有 1 件等你拍板。');
   ok('全景的总结句也带停太久', summaryLine(buildRows(pd, [obj('a', 'st_1')], []), 1, 0, 0, 5) === '公司现在有 1 条线在走，有 1 件等你拍板。另有 5 件停太久。');
 }
+ok('AI 员工的提问没列全（#720）：只认 sources[\'seat-asks\'].more 严格为 true；没有、不是 true、形状不对都当列全', seatAsksMore({ 'seat-asks': { more: true } }) && !seatAsksMore({ 'seat-asks': { more: 'true' } }) && !seatAsksMore({ 'seat-asks': {} }) && !seatAsksMore({ other: { more: true } }) && !seatAsksMore(null) && !seatAsksMore([]));
+ok('没列全的那句：说清只列了最早的一批、还有更多，不说接口和条数上限', SEAT_ASKS_MORE.includes('还有更多') && !/接口|1000|上限|seat/.test(SEAT_ASKS_MORE));
 console.log(`\nhome-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

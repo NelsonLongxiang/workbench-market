@@ -8,7 +8,7 @@ import { adminActive, subscribeAdminToken } from '../admin-token';
 import WmPage from '../components/WmPage';
 import DecisionCard from '../components/DecisionCard';
 import { ATTENTION_CHANGED, getAttention } from '../api';
-import { answerChoices, groupCards, isStuck, stuckTotal, type AttentionItem, type Category } from '../attention-view';
+import { SEAT_ASKS_MORE, answerChoices, groupCards, isStuck, stuckTotal, type AttentionItem, type Category } from '../attention-view';
 import { decideLine } from '../home-view';
 
 /** 筛的类别和说法（同卡片标签的叫法） */
@@ -22,11 +22,13 @@ export default function Attention() {
   const [status, setStatus] = useState(0);
   const [cat, setCat] = useState<Category | 'all' | 'stuck'>('all');
   const [stuckCount, setStuckCount] = useState<number | null>(null);
+  const [more, setMore] = useState(false);
 
   const load = useCallback(async () => {
     const r = await getAttention();
     setStatus(r.status);
     setStuckCount(r.stuckCount);
+    setMore(r.seatAsksMore);
     setItems(r.status >= 200 && r.status < 300 ? r.items as unknown as AttentionItem[] : []);
   }, []);
   useEffect(() => { void load(); }, [load, admin]);
@@ -52,6 +54,7 @@ export default function Attention() {
       <Typography.Paragraph type="secondary" className="wm-home-sum" data-testid="attention-summary">
         {items === null ? '正在读……' : failed ? (status === 401 ? '请先登录。' : '这会儿读不到等你拍板的事，稍后再试。') : decideLine(all.now.length, all.elsewhere.length, false, all.proxy.length, stuckTotal(stuckCount, all.stuck.length))}
       </Typography.Paragraph>
+      {more && !failed && items !== null && <Typography.Paragraph type="secondary" className="wm-caption" data-testid="attention-more">{SEAT_ASKS_MORE}</Typography.Paragraph>}
       {items !== null && !failed && <Segmented value={cat} onChange={(v) => setCat(v as Category | 'all' | 'stuck')} data-testid="attention-filter"
         options={[{ label: `全部 ${items.length}`, value: 'all' }, ...CATS.filter((c) => n(c.key) > 0).map((c) => ({ label: `${c.label} ${n(c.key)}`, value: c.key })), ...(nStuck > 0 ? [{ label: `停太久 ${nStuck}`, value: 'stuck' }] : [])]} />}
       {items === null && <Skeleton active paragraph={{ rows: 4 }} />}
