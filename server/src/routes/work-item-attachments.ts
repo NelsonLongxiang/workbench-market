@@ -27,6 +27,7 @@ import { itemIdForEvent, type WorkItemService } from '../services/work-item.ts';
 import { addAttachment, attachmentById, deliveryByReplyToken, dropUnboundAttachment, pendingAttachmentBytes, pendingAttachmentCount, PENDING_ATTACHMENTS_PER_PERSON, PENDING_BYTES_PER_PERSON,
   staleUnboundAttachments, UNBOUND_TTL_MS, type AttachmentRow } from '../services/work-item-attachments.ts';
 import { canSee, TERMINAL_STATES, workItemViewer } from '../work-item-access.ts';
+import { peerCanDeliver } from '../services/a2a-peers.ts';
 
 export type AttachmentRouteDeps = {
   markOdooAdmin: (req: express.Request) => Promise<void>;
@@ -154,7 +155,11 @@ export function registerWorkItemAttachmentRoutes(app: HttpService, deps: Attachm
     const eventId = String(req.params.id ?? ''), aid = String(req.params.aid ?? '');
     const token = String(req.headers['x-reply-token'] ?? '');
     const a = AID.test(aid) ? attachmentById(Number(aid)) : undefined;
-    if (!a || a.event_id !== eventId || !deliveryByReplyToken(eventId, token)) return void res.status(404).json({ error: 'attachment_not_found' });
+    const dlv = a && a.event_id === eventId ? deliveryByReplyToken(eventId, token) : null;
+    if (!a || !dlv) return void res.status(404).json({ error: 'attachment_not_found' });
+    // 对端登记表里停用、等确认新键的节点：令牌还在有效期内也和不存在一样答（没登记的照旧，同投递）
+    const can = peerCanDeliver(dlv.target_url);
+    if (!can.ok && can.reason !== 'peer_unknown') return void res.status(404).json({ error: 'attachment_not_found' });
     // 任务已经结束：任务撤回了（releaseBlock，和放行同一处判断）、事项到了终态（完成、失败、放弃、取消）——不再给取，和不存在一样答
     const item = svc<WorkItemService>('workItems').get(itemIdForEvent(eventId));
     if (releaseBlock(eventId) !== null || !item || TERMINAL_STATES.includes(item.state)) return void res.status(404).json({ error: 'attachment_not_found' });

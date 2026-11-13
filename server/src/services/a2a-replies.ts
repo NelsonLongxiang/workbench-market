@@ -56,6 +56,27 @@ export function returnTargetOfEvent(eventId: string): { delivery_id: number; tas
 export const noticeTaskId = (eventId: string, deliveryId: number, replyId: number, attempt: number): string => `${eventId}.d${deliveryId}.n${replyId}.a${attempt}`;
 export const isNoticeTask = (taskId: string): boolean => /^wbe-[0-9a-f]{16}\.d\d+\.n\d+\.a\d+$/.test(taskId);
 
+/**
+ * 市场在同一 context 里发出的新任务（答复、打回、回复席位来信）的任务号：<event>.d<投递>.q<回复行>.a<尝试>。
+ * 它们是这次投递底下的子任务：回执各算各的，不覆盖原投递的结局（事项服务按这个形状认）
+ */
+export const isReplyTask = (taskId: string): boolean => /^wbe-[0-9a-f]{16}\.d\d+\.q\d+\.a\d+$/.test(taskId);
+
+/**
+ * 子任务是哪一类：answer（答复席位提问、截止变更这类消息）、rework（打回：让对方重做）、followup-reply（回复席位来信）；
+ * 不是子任务、查不到返回 null。
+ * 打回和答复同是 kind = answer 的行，靠 ref 分开：打回入口（attention-answers 的 return）写的是负的进展序号（-seq，没有进展时是 0），
+ * 答复席位提问写的是提问那行日志的 id（正数）。正文发出去之后就清空了，不能靠正文认
+ */
+export function replyKindOfTask(taskId: string): 'answer' | 'rework' | 'followup-reply' | null {
+  const m = /^wbe-[0-9a-f]{16}\.d\d+\.q(\d+)\.a\d+$/.exec(taskId);
+  if (!m) return null;
+  const row = db.prepare('SELECT kind, ref FROM workbench_event_replies WHERE id = ?').get(Number(m[1])) as { kind: string; ref: number } | undefined;
+  if (row?.kind === 'followup-reply') return 'followup-reply';
+  if (row?.kind !== 'answer') return null;
+  return Number(row.ref) <= 0 ? 'rework' : 'answer';
+}
+
 /** 一个事件还活着的投递（等过目、排队、已发出）：改截止日期时给每一条排一条变更 */
 export function liveDeliveriesOfEvent(eventId: string): { id: number; status: 'held' | 'pending' | 'sent' }[] {
   return db.prepare("SELECT id, status FROM workbench_event_deliveries WHERE event_id = ? AND status IN ('held','pending','sent') ORDER BY id").all(eventId) as never;
