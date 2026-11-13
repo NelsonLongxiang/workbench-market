@@ -221,8 +221,11 @@ export function writerVerdict(viewer: WorkItemViewer, itemId: string, allowAdmin
 
 export type Can = { release: boolean; answer: boolean; verify: boolean; return: boolean; reply: boolean; due: boolean };
 
-/** 改截止日期认谁（只有这一处，详情的 can.due 和 POST /api/work-items/:id/due 都用）：建立人本人，管理员不代改——截止是建立人对这件事的要求 */
-export const dueWriterOk = (verdict: WriterVerdict): boolean => verdict === 'ok' || verdict === 'not_eligible';
+/**
+ * 改截止日期认谁（只有这一处，详情的 can.due 和 POST /api/work-items/:id/due 都用）：建立人本人，管理员不代改——截止是建立人对这件事的要求。
+ * 只认 ok：未验证来源的事项（creatorCheck 是 not_eligible）只能由管理员处理，改截止会往节点发通知，也是写，同样挡
+ */
+export const dueWriterOk = (verdict: WriterVerdict): boolean => verdict === 'ok';
 export type Turn = { release: boolean; answer: boolean; verify: boolean };
 
 const pendingAsks = (item: WorkItemRow): number => { const ev = eventOfItem(item); return ev ? pendingAsksOfEvent(ev).length : 0; };
