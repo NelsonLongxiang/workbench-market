@@ -502,6 +502,8 @@ jobs:
         run: node scripts/identity-status-unit.mjs
       - name: 事项列表单测（纯函数——分组、行文、视角、名字；单列一步）
         run: node scripts/work-items-ui-unit.mjs
+      - name: 站内页面路径单测（卡片上只把站内真有的页面做成链接·路由表和 App.tsx 一致；单列一步）
+        run: node scripts/page-paths-unit.mjs
       - name: 驾驶舱骨架单测（纯函数——三栏尺寸、放大还原、数据视图引用、页签；单列一步）
         run: node scripts/cockpit-frame-unit.mjs
       - name: 身份变了以后页面重读单测（纯函数——认人只认 /api/auth/me·不通和 502 不算·合并去抖·世代号；单列一步）
