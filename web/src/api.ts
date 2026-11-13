@@ -343,6 +343,13 @@ export const getBenchViewDoc = (bench: string) => benchViewsGet(`/api/bench-view
 /** 视图台页面的入口：ref 写卡片 id 或台标识。200 时 body 是 BenchEntry；读不到的、不存在的、没开台库的、还没有视图描述的都是同一个 404（页面照原来的方式打开卡片）；没登录 401 */
 export type BenchEntry = { bench: { slug: string; title: string; workbench_id: number | null }; version: number; title: string; default_view: string; views: { key: string; title: string }[] };
 export const getBenchEntry = (ref: string | number) => benchViewsGet(`/api/bench-views/${encodeURIComponent(String(ref))}/entry`) as Promise<{ status: number; body: BenchEntry | { error?: string } | null }>;
+/** 视图台页面上交表单：路径写卡片 id。返回状态码和应答体（出错时带 error、message），让表单说原因；断网当状态码 0 */
+export async function submitBenchForm(ref: string | number, req: { view: string; block: number; version: number; values: Record<string, unknown> }): Promise<{ status: number; body: unknown }> {
+  try {
+    const r = await fetch(`/api/bench-views/${encodeURIComponent(String(ref))}/form`, { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(req) });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  } catch { return { status: 0, body: null }; }
+}
 /** 这个人能不能新建驾驶舱（/api/auth/me 的 can.create_cockpit，服务端和建驾驶舱的路由同一处判断）。
  *  带着管理口令问（口令持有人也能建）；不缓存：口令输入、清掉之后页面会再问一次。拿不到当不能 */
 export async function canCreateCockpit(): Promise<boolean> {
