@@ -184,10 +184,15 @@
         {
           "id": "list-missing-wb-anon",
           "route": "GET /api/workbenches/:id/vars",
-          "class": "invalid",
-          "what": "远程匿名问不存在的台：404（台在判权之前查）",
+          "class": "unauthorized",
+          "what": "远程匿名读不存在的台：先判权，和读存在的台同一句 403（不透露台在不在）",
           "request": { "method": "GET", "path": "/api/workbenches/99/vars", "headers": { "x-forwarded-for": "198.51.100.7" } },
-          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench not found: 99" } }
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
         },
         {
           "id": "list-id-zero",
@@ -195,7 +200,7 @@
           "class": "invalid",
           "what": "id 是 0：400",
           "request": { "method": "GET", "path": "/api/workbenches/0/vars", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "43", "etag": "W/\"2b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是正整数" } }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是十进制正整数" } }
         },
         {
           "id": "list-id-neg",
@@ -203,7 +208,7 @@
           "class": "invalid",
           "what": "id 是 -1：400",
           "request": { "method": "GET", "path": "/api/workbenches/-1/vars", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "43", "etag": "W/\"2b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是正整数" } }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是十进制正整数" } }
         },
         {
           "id": "list-id-frac",
@@ -211,7 +216,7 @@
           "class": "invalid",
           "what": "id 是 1.5：400",
           "request": { "method": "GET", "path": "/api/workbenches/1.5/vars", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "43", "etag": "W/\"2b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是正整数" } }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是十进制正整数" } }
         },
         {
           "id": "list-id-word",
@@ -219,7 +224,7 @@
           "class": "invalid",
           "what": "id 不是数：400",
           "request": { "method": "GET", "path": "/api/workbenches/abc/vars", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "43", "etag": "W/\"2b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是正整数" } }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是十进制正整数" } }
         },
         {
           "id": "list-bad-prefix",
@@ -464,50 +469,18 @@
         {
           "id": "list-hex-id",
           "route": "GET /api/workbenches/:id/vars",
-          "class": "normal",
-          "what": "id 写成 0x2：按 2 号台",
+          "class": "invalid",
+          "what": "台号写成 0x2：400（以前按 2 号台）",
           "request": { "method": "GET", "path": "/api/workbenches/0x2/vars", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
-          "response": {
-            "status": 200,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "893", "etag": "W/\"37d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": {
-              "workbench_id": 2,
-              "class": "app",
-              "items": [
-                { "key": "seed.const", "kind": "const", "value": "c", "revision": 1, "updated_by": "mcp:someone", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
-                { "key": "seed.null", "kind": "var", "value": null, "revision": 1, "updated_by": "cli", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
-                { "key": "seed.orphan", "kind": "const", "value": 0, "revision": 1, "updated_by": "admin-token", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
-                { "key": "seed.public", "kind": "const", "value": 1, "revision": 1, "updated_by": "cli", "owner": "*", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
-                { "key": "seed.var", "kind": "var", "value": { "n": 1 }, "revision": 3, "updated_by": "app:replay-vars", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
-              ],
-              "count": 5
-            }
-          }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是十进制正整数" } }
         },
         {
           "id": "list-padded-id",
           "route": "GET /api/workbenches/:id/vars",
-          "class": "normal",
-          "what": "id 写成 02：按 2 号台",
+          "class": "invalid",
+          "what": "台号带前导零 02：400（只认十进制正整数，和写请求总门同一口径）",
           "request": { "method": "GET", "path": "/api/workbenches/02/vars", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
-          "response": {
-            "status": 200,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "893", "etag": "W/\"37d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": {
-              "workbench_id": 2,
-              "class": "app",
-              "items": [
-                { "key": "seed.const", "kind": "const", "value": "c", "revision": 1, "updated_by": "mcp:someone", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
-                { "key": "seed.null", "kind": "var", "value": null, "revision": 1, "updated_by": "cli", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
-                { "key": "seed.orphan", "kind": "const", "value": 0, "revision": 1, "updated_by": "admin-token", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
-                { "key": "seed.public", "kind": "const", "value": 1, "revision": 1, "updated_by": "cli", "owner": "*", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
-                { "key": "seed.var", "kind": "var", "value": { "n": 1 }, "revision": 3, "updated_by": "app:replay-vars", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
-              ],
-              "count": 5
-            }
-          }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是十进制正整数" } }
         },
         {
           "id": "list-ext",
@@ -664,10 +637,15 @@
         {
           "id": "get-missing-wb",
           "route": "GET /api/workbenches/:id/vars/:key",
-          "class": "invalid",
-          "what": "台不存在：404",
+          "class": "unauthorized",
+          "what": "远程匿名读不存在的台的一个键：同一句 403",
           "request": { "method": "GET", "path": "/api/workbenches/99/vars/seed.var", "headers": { "x-forwarded-for": "198.51.100.7" } },
-          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench not found: 99" } }
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
         },
         {
           "id": "get-tok",
@@ -1464,15 +1442,10 @@
         {
           "id": "put-hex-id-adm",
           "route": "PUT /api/workbenches/:id/vars/:key",
-          "class": "normal",
-          "what": "管理口令写 0x2 号台：按 2 号",
+          "class": "invalid",
+          "what": "管理口令写 0x2 号台：400（以前按 2 号写进去）",
           "request": { "method": "PUT", "path": "/api/workbenches/0x2/vars/a.hex", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "value": 1 } },
-          "response": {
-            "status": 201,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "201", "etag": "\"1\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "ok": true, "created": true, "workbench_id": 2, "key": "a.hex", "kind": "var", "value": 1, "revision": 1, "updated_by": "admin-token", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
-          }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是十进制正整数" } }
         },
         {
           "id": "put-cli-const-owner",
@@ -1828,7 +1801,7 @@
               "workbench_id": 2,
               "key": "t.k",
               "items": [
-                { "id": 18, "key": "t.k", "action": "delete", "actor": "app:replay-vars", "kind": "var", "old_revision": 4, "new_revision": null, "old_sha256": "17e7d2b31edd9f05e7b330a13f9bb644babad3b5bce9a7cf5bb4c28c4a02332f", "new_sha256": "", "reason": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 17, "key": "t.k", "action": "delete", "actor": "app:replay-vars", "kind": "var", "old_revision": 4, "new_revision": null, "old_sha256": "17e7d2b31edd9f05e7b330a13f9bb644babad3b5bce9a7cf5bb4c28c4a02332f", "new_sha256": "", "reason": "", "at": "YYYY-MM-DD hh:mm:ss" },
                 { "id": 6, "key": "t.k", "action": "update", "actor": "app:replay-vars", "kind": "var", "old_revision": 3, "new_revision": 4, "old_sha256": "70778ce01ad8d1a82c80a3500bee476f34651238edeb936c4a7b0161b1395169", "new_sha256": "17e7d2b31edd9f05e7b330a13f9bb644babad3b5bce9a7cf5bb4c28c4a02332f", "reason": "", "at": "YYYY-MM-DD hh:mm:ss" },
                 { "id": 5, "key": "t.k", "action": "update", "actor": "app:replay-vars", "kind": "var", "old_revision": 2, "new_revision": 3, "old_sha256": "7e8059f495589fcd981232cc11d00b00da3802c01d688fa1cf1f6bed6e5bb33c", "new_sha256": "70778ce01ad8d1a82c80a3500bee476f34651238edeb936c4a7b0161b1395169", "reason": "", "at": "YYYY-MM-DD hh:mm:ss" },
                 { "id": 4, "key": "t.k", "action": "update", "actor": "app:replay-vars", "kind": "var", "old_revision": 1, "new_revision": 2, "old_sha256": "015abd7f5cc57a2dd94b7590f04ad8084273905ee33ec5cebeae62276a97f862", "new_sha256": "7e8059f495589fcd981232cc11d00b00da3802c01d688fa1cf1f6bed6e5bb33c", "reason": "", "at": "YYYY-MM-DD hh:mm:ss" },
@@ -1851,10 +1824,10 @@
               "workbench_id": 2,
               "key": "o.const",
               "items": [
-                { "id": 21, "key": "o.const", "action": "const_delete", "actor": "odoo:root-admin", "kind": "const", "old_revision": 3, "new_revision": null, "old_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "new_sha256": "", "reason": "done", "at": "YYYY-MM-DD hh:mm:ss" },
-                { "id": 16, "key": "o.const", "action": "make_public", "actor": "odoo:root-admin", "kind": "const", "old_revision": 2, "new_revision": 3, "old_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "new_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "reason": "公开", "at": "YYYY-MM-DD hh:mm:ss" },
-                { "id": 15, "key": "o.const", "action": "const_override", "actor": "odoo:root-admin", "kind": "const", "old_revision": 1, "new_revision": 2, "old_sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b", "new_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "reason": "改", "at": "YYYY-MM-DD hh:mm:ss" },
-                { "id": 14, "key": "o.const", "action": "create", "actor": "odoo:root-admin", "kind": "const", "old_revision": null, "new_revision": 1, "old_sha256": "", "new_sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b", "reason": "", "at": "YYYY-MM-DD hh:mm:ss" }
+                { "id": 20, "key": "o.const", "action": "const_delete", "actor": "odoo:root-admin", "kind": "const", "old_revision": 3, "new_revision": null, "old_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "new_sha256": "", "reason": "done", "at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 15, "key": "o.const", "action": "make_public", "actor": "odoo:root-admin", "kind": "const", "old_revision": 2, "new_revision": 3, "old_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "new_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "reason": "公开", "at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 14, "key": "o.const", "action": "const_override", "actor": "odoo:root-admin", "kind": "const", "old_revision": 1, "new_revision": 2, "old_sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b", "new_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "reason": "改", "at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 13, "key": "o.const", "action": "create", "actor": "odoo:root-admin", "kind": "const", "old_revision": null, "new_revision": 1, "old_sha256": "", "new_sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b", "reason": "", "at": "YYYY-MM-DD hh:mm:ss" }
               ]
             }
           }
@@ -1868,12 +1841,11 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "1216", "etag": "W/\"4c0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "1056", "etag": "W/\"420-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "workbench_id": 2,
               "class": "app",
               "items": [
-                { "key": "a.hex", "kind": "var", "value": 1, "revision": 1, "updated_by": "admin-token", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
                 { "key": "a.k", "kind": "const", "value": "x", "revision": 2, "updated_by": "admin-token", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
                 { "key": "c.owned", "kind": "const", "value": 1, "revision": 2, "updated_by": "cli", "owner": "*", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
                 { "key": "seed.const", "kind": "const", "value": "c", "revision": 1, "updated_by": "mcp:someone", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
@@ -1881,9 +1853,1646 @@
                 { "key": "seed.public", "kind": "const", "value": 3, "revision": 2, "updated_by": "odoo:root-admin", "owner": "*", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
                 { "key": "seed.var", "kind": "var", "value": { "n": 1 }, "revision": 3, "updated_by": "app:replay-vars", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
               ],
-              "count": 7
+              "count": 6
             }
           }
+        },
+        {
+          "id": "z-const-create",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "normal",
+          "what": "本机命令行建常量 z.const（作者 mcp:someone）",
+          "request": { "method": "PUT", "path": "/api/workbenches/2/vars/z.const", "headers": {}, "json": { "value": 1, "kind": "const", "owner": "mcp:someone" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "208", "etag": "\"1\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "created": true, "workbench_id": 2, "key": "z.const", "kind": "const", "value": 1, "revision": 1, "updated_by": "cli", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+          }
+        },
+        {
+          "id": "z-body-override-str0",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "unauthorized",
+          "what": "override 放在请求体里是 \"0\"：不算 override，常量锁着 403",
+          "request": { "method": "PUT", "path": "/api/workbenches/2/vars/z.const", "headers": {}, "json": { "value": 2, "revision": 1, "override": "0", "reason": "r" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "349", "etag": "W/\"15d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "error": "常量写入后不能直接修改（作者本人可带 override 与 reason 修订）",
+              "code": "const_locked",
+              "workbench_id": 2,
+              "key": "z.const",
+              "current_revision": 1,
+              "current": { "key": "z.const", "kind": "const", "value": 1, "revision": 1, "updated_by": "cli", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+            }
+          }
+        },
+        {
+          "id": "z-body-override-num0",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "unauthorized",
+          "what": "override 放在请求体里是 0：不算 override，常量锁着 403",
+          "request": { "method": "PUT", "path": "/api/workbenches/2/vars/z.const", "headers": {}, "json": { "value": 2, "revision": 1, "override": 0, "reason": "r" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "349", "etag": "W/\"15d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "error": "常量写入后不能直接修改（作者本人可带 override 与 reason 修订）",
+              "code": "const_locked",
+              "workbench_id": 2,
+              "key": "z.const",
+              "current_revision": 1,
+              "current": { "key": "z.const", "kind": "const", "value": 1, "revision": 1, "updated_by": "cli", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+            }
+          }
+        },
+        {
+          "id": "z-body-override-false",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "unauthorized",
+          "what": "override 放在请求体里是 false：不算 override，常量锁着 403",
+          "request": { "method": "PUT", "path": "/api/workbenches/2/vars/z.const", "headers": {}, "json": { "value": 2, "revision": 1, "override": false, "reason": "r" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "349", "etag": "W/\"15d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "error": "常量写入后不能直接修改（作者本人可带 override 与 reason 修订）",
+              "code": "const_locked",
+              "workbench_id": 2,
+              "key": "z.const",
+              "current_revision": 1,
+              "current": { "key": "z.const", "kind": "const", "value": 1, "revision": 1, "updated_by": "cli", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+            }
+          }
+        },
+        {
+          "id": "z-body-override-empty",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "unauthorized",
+          "what": "override 放在请求体里是 \"\"：不算 override，常量锁着 403",
+          "request": { "method": "PUT", "path": "/api/workbenches/2/vars/z.const", "headers": {}, "json": { "value": 2, "revision": 1, "override": "", "reason": "r" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "349", "etag": "W/\"15d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "error": "常量写入后不能直接修改（作者本人可带 override 与 reason 修订）",
+              "code": "const_locked",
+              "workbench_id": 2,
+              "key": "z.const",
+              "current_revision": 1,
+              "current": { "key": "z.const", "kind": "const", "value": 1, "revision": 1, "updated_by": "cli", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+            }
+          }
+        },
+        {
+          "id": "z-body-override-strfalse",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "unauthorized",
+          "what": "override 放在请求体里是 \"false\"：不算 override，常量锁着 403",
+          "request": { "method": "PUT", "path": "/api/workbenches/2/vars/z.const", "headers": {}, "json": { "value": 2, "revision": 1, "override": "false", "reason": "r" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "349", "etag": "W/\"15d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "error": "常量写入后不能直接修改（作者本人可带 override 与 reason 修订）",
+              "code": "const_locked",
+              "workbench_id": 2,
+              "key": "z.const",
+              "current_revision": 1,
+              "current": { "key": "z.const", "kind": "const", "value": 1, "revision": 1, "updated_by": "cli", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+            }
+          }
+        },
+        {
+          "id": "z-body-override-yes",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "unauthorized",
+          "what": "override 放在请求体里是 \"yes\"：不算 override，常量锁着 403",
+          "request": { "method": "PUT", "path": "/api/workbenches/2/vars/z.const", "headers": {}, "json": { "value": 2, "revision": 1, "override": "yes", "reason": "r" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "349", "etag": "W/\"15d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "error": "常量写入后不能直接修改（作者本人可带 override 与 reason 修订）",
+              "code": "const_locked",
+              "workbench_id": 2,
+              "key": "z.const",
+              "current_revision": 1,
+              "current": { "key": "z.const", "kind": "const", "value": 1, "revision": 1, "updated_by": "cli", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+            }
+          }
+        },
+        {
+          "id": "z-body-override-TRUE",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "unauthorized",
+          "what": "override 放在请求体里是 \"TRUE\"：不算 override，常量锁着 403",
+          "request": { "method": "PUT", "path": "/api/workbenches/2/vars/z.const", "headers": {}, "json": { "value": 2, "revision": 1, "override": "TRUE", "reason": "r" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "349", "etag": "W/\"15d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "error": "常量写入后不能直接修改（作者本人可带 override 与 reason 修订）",
+              "code": "const_locked",
+              "workbench_id": 2,
+              "key": "z.const",
+              "current_revision": 1,
+              "current": { "key": "z.const", "kind": "const", "value": 1, "revision": 1, "updated_by": "cli", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+            }
+          }
+        },
+        {
+          "id": "z-body-override-num2",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "unauthorized",
+          "what": "override 放在请求体里是 2：不算 override，常量锁着 403",
+          "request": { "method": "PUT", "path": "/api/workbenches/2/vars/z.const", "headers": {}, "json": { "value": 2, "revision": 1, "override": 2, "reason": "r" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "349", "etag": "W/\"15d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "error": "常量写入后不能直接修改（作者本人可带 override 与 reason 修订）",
+              "code": "const_locked",
+              "workbench_id": 2,
+              "key": "z.const",
+              "current_revision": 1,
+              "current": { "key": "z.const", "kind": "const", "value": 1, "revision": 1, "updated_by": "cli", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+            }
+          }
+        },
+        {
+          "id": "z-body-override-null",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "unauthorized",
+          "what": "override 放在请求体里是 null：不算 override，常量锁着 403",
+          "request": { "method": "PUT", "path": "/api/workbenches/2/vars/z.const", "headers": {}, "json": { "value": 2, "revision": 1, "override": null, "reason": "r" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "349", "etag": "W/\"15d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "error": "常量写入后不能直接修改（作者本人可带 override 与 reason 修订）",
+              "code": "const_locked",
+              "workbench_id": 2,
+              "key": "z.const",
+              "current_revision": 1,
+              "current": { "key": "z.const", "kind": "const", "value": 1, "revision": 1, "updated_by": "cli", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+            }
+          }
+        },
+        {
+          "id": "z-query-override-str0",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "unauthorized",
+          "what": "override 放在查询参数里是「0」：不算 override，403",
+          "request": { "method": "PUT", "path": "/api/workbenches/2/vars/z.const?override=0", "headers": {}, "json": { "value": 2, "revision": 1, "reason": "r" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "349", "etag": "W/\"15d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "error": "常量写入后不能直接修改（作者本人可带 override 与 reason 修订）",
+              "code": "const_locked",
+              "workbench_id": 2,
+              "key": "z.const",
+              "current_revision": 1,
+              "current": { "key": "z.const", "kind": "const", "value": 1, "revision": 1, "updated_by": "cli", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+            }
+          }
+        },
+        {
+          "id": "z-query-override-false",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "unauthorized",
+          "what": "override 放在查询参数里是「false」：不算 override，403",
+          "request": { "method": "PUT", "path": "/api/workbenches/2/vars/z.const?override=false", "headers": {}, "json": { "value": 2, "revision": 1, "reason": "r" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "349", "etag": "W/\"15d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "error": "常量写入后不能直接修改（作者本人可带 override 与 reason 修订）",
+              "code": "const_locked",
+              "workbench_id": 2,
+              "key": "z.const",
+              "current_revision": 1,
+              "current": { "key": "z.const", "kind": "const", "value": 1, "revision": 1, "updated_by": "cli", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+            }
+          }
+        },
+        {
+          "id": "z-query-override-empty",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "unauthorized",
+          "what": "override 放在查询参数里是「」：不算 override，403",
+          "request": { "method": "PUT", "path": "/api/workbenches/2/vars/z.const?override=", "headers": {}, "json": { "value": 2, "revision": 1, "reason": "r" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "349", "etag": "W/\"15d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "error": "常量写入后不能直接修改（作者本人可带 override 与 reason 修订）",
+              "code": "const_locked",
+              "workbench_id": 2,
+              "key": "z.const",
+              "current_revision": 1,
+              "current": { "key": "z.const", "kind": "const", "value": 1, "revision": 1, "updated_by": "cli", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+            }
+          }
+        },
+        {
+          "id": "z-query-override-yes",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "unauthorized",
+          "what": "override 放在查询参数里是「yes」：不算 override，403",
+          "request": { "method": "PUT", "path": "/api/workbenches/2/vars/z.const?override=yes", "headers": {}, "json": { "value": 2, "revision": 1, "reason": "r" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "349", "etag": "W/\"15d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "error": "常量写入后不能直接修改（作者本人可带 override 与 reason 修订）",
+              "code": "const_locked",
+              "workbench_id": 2,
+              "key": "z.const",
+              "current_revision": 1,
+              "current": { "key": "z.const", "kind": "const", "value": 1, "revision": 1, "updated_by": "cli", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+            }
+          }
+        },
+        {
+          "id": "z-body-override-strtrue",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "normal",
+          "what": "请求体 override 是 'true'：算，带理由修订",
+          "request": { "method": "PUT", "path": "/api/workbenches/2/vars/z.const", "headers": {}, "json": { "value": 2, "revision": 1, "override": "true", "reason": "r" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "209", "etag": "\"2\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "created": false, "workbench_id": 2, "key": "z.const", "kind": "const", "value": 2, "revision": 2, "updated_by": "cli", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+          }
+        },
+        {
+          "id": "z-body-override-num1",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "normal",
+          "what": "请求体 override 是 1：算",
+          "request": { "method": "PUT", "path": "/api/workbenches/2/vars/z.const", "headers": {}, "json": { "value": 3, "revision": 2, "override": 1, "reason": "r" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "209", "etag": "\"3\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "created": false, "workbench_id": 2, "key": "z.const", "kind": "const", "value": 3, "revision": 3, "updated_by": "cli", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+          }
+        },
+        {
+          "id": "z-query-override-true",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "normal",
+          "what": "查询参数 override=true：算",
+          "request": { "method": "PUT", "path": "/api/workbenches/2/vars/z.const?override=true", "headers": {}, "json": { "value": 4, "revision": 3, "reason": "r" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "209", "etag": "\"4\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "created": false, "workbench_id": 2, "key": "z.const", "kind": "const", "value": 4, "revision": 4, "updated_by": "cli", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+          }
+        },
+        {
+          "id": "z-del-override-str0",
+          "route": "DELETE /api/workbenches/:id/vars/:key",
+          "class": "unauthorized",
+          "what": "删常量，override=「0」：不算，403",
+          "request": { "method": "DELETE", "path": "/api/workbenches/2/vars/z.const?revision=4&override=0&reason=r", "headers": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "340", "etag": "W/\"154-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "error": "常量不能直接删除（作者本人可带 override 与 reason 删除）",
+              "code": "const_locked",
+              "workbench_id": 2,
+              "key": "z.const",
+              "current_revision": 4,
+              "current": { "key": "z.const", "kind": "const", "value": 4, "revision": 4, "updated_by": "cli", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+            }
+          }
+        },
+        {
+          "id": "z-del-override-false",
+          "route": "DELETE /api/workbenches/:id/vars/:key",
+          "class": "unauthorized",
+          "what": "删常量，override=「false」：不算，403",
+          "request": { "method": "DELETE", "path": "/api/workbenches/2/vars/z.const?revision=4&override=false&reason=r", "headers": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "340", "etag": "W/\"154-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "error": "常量不能直接删除（作者本人可带 override 与 reason 删除）",
+              "code": "const_locked",
+              "workbench_id": 2,
+              "key": "z.const",
+              "current_revision": 4,
+              "current": { "key": "z.const", "kind": "const", "value": 4, "revision": 4, "updated_by": "cli", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+            }
+          }
+        },
+        {
+          "id": "z-del-override-empty",
+          "route": "DELETE /api/workbenches/:id/vars/:key",
+          "class": "unauthorized",
+          "what": "删常量，override=「」：不算，403",
+          "request": { "method": "DELETE", "path": "/api/workbenches/2/vars/z.const?revision=4&override=&reason=r", "headers": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "340", "etag": "W/\"154-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "error": "常量不能直接删除（作者本人可带 override 与 reason 删除）",
+              "code": "const_locked",
+              "workbench_id": 2,
+              "key": "z.const",
+              "current_revision": 4,
+              "current": { "key": "z.const", "kind": "const", "value": 4, "revision": 4, "updated_by": "cli", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+            }
+          }
+        },
+        {
+          "id": "z-del-override-1",
+          "route": "DELETE /api/workbenches/:id/vars/:key",
+          "class": "normal",
+          "what": "删常量，override=1：算",
+          "request": { "method": "DELETE", "path": "/api/workbenches/2/vars/z.const?revision=4&override=1&reason=r", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "72", "etag": "W/\"48-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "deleted": true, "workbench_id": 2, "key": "z.const", "revision": 4 }
+          }
+        },
+        {
+          "id": "z-value-0-put",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "normal",
+          "what": "value 是 0：照样存",
+          "request": { "method": "PUT", "path": "/api/workbenches/2/vars/z.v0", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "value": 0 } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "200", "etag": "\"1\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "created": true, "workbench_id": 2, "key": "z.v0", "kind": "var", "value": 0, "revision": 1, "updated_by": "admin-token", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+          }
+        },
+        {
+          "id": "z-value-0-get",
+          "route": "GET /api/workbenches/:id/vars/:key",
+          "class": "normal",
+          "what": "读回 value 0",
+          "request": { "method": "GET", "path": "/api/workbenches/2/vars/z.v0", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "175", "etag": "\"1\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "workbench_id": 2, "key": "z.v0", "kind": "var", "value": 0, "revision": 1, "updated_by": "admin-token", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+          }
+        },
+        {
+          "id": "z-value-empty-put",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "normal",
+          "what": "value 是 \"\"：照样存",
+          "request": { "method": "PUT", "path": "/api/workbenches/2/vars/z.vempty", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "value": "" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "205", "etag": "\"1\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "created": true, "workbench_id": 2, "key": "z.vempty", "kind": "var", "value": "", "revision": 1, "updated_by": "admin-token", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+          }
+        },
+        {
+          "id": "z-value-empty-get",
+          "route": "GET /api/workbenches/:id/vars/:key",
+          "class": "normal",
+          "what": "读回 value \"\"",
+          "request": { "method": "GET", "path": "/api/workbenches/2/vars/z.vempty", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "180", "etag": "\"1\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "workbench_id": 2, "key": "z.vempty", "kind": "var", "value": "", "revision": 1, "updated_by": "admin-token", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+          }
+        },
+        {
+          "id": "z-value-false-put",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "normal",
+          "what": "value 是 false：照样存",
+          "request": { "method": "PUT", "path": "/api/workbenches/2/vars/z.vfalse", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "value": false } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "208", "etag": "\"1\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "created": true, "workbench_id": 2, "key": "z.vfalse", "kind": "var", "value": false, "revision": 1, "updated_by": "admin-token", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+          }
+        },
+        {
+          "id": "z-value-false-get",
+          "route": "GET /api/workbenches/:id/vars/:key",
+          "class": "normal",
+          "what": "读回 value false",
+          "request": { "method": "GET", "path": "/api/workbenches/2/vars/z.vfalse", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "183", "etag": "\"1\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "workbench_id": 2, "key": "z.vfalse", "kind": "var", "value": false, "revision": 1, "updated_by": "admin-token", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+          }
+        },
+        {
+          "id": "z-value-str0-put",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "normal",
+          "what": "value 是 \"0\"：照样存",
+          "request": { "method": "PUT", "path": "/api/workbenches/2/vars/z.vstr0", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "value": "0" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "205", "etag": "\"1\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "created": true, "workbench_id": 2, "key": "z.vstr0", "kind": "var", "value": "0", "revision": 1, "updated_by": "admin-token", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+          }
+        },
+        {
+          "id": "z-value-str0-get",
+          "route": "GET /api/workbenches/:id/vars/:key",
+          "class": "normal",
+          "what": "读回 value \"0\"",
+          "request": { "method": "GET", "path": "/api/workbenches/2/vars/z.vstr0", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "180", "etag": "\"1\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "workbench_id": 2, "key": "z.vstr0", "kind": "var", "value": "0", "revision": 1, "updated_by": "admin-token", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+          }
+        },
+        {
+          "id": "z-value-0-update",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "normal",
+          "what": "已有键改成 value 0（带 revision）",
+          "request": { "method": "PUT", "path": "/api/workbenches/2/vars/z.vempty", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "value": 0, "revision": 1 } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "205", "etag": "\"2\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "created": false, "workbench_id": 2, "key": "z.vempty", "kind": "var", "value": 0, "revision": 2, "updated_by": "admin-token", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+          }
+        },
+        {
+          "id": "z-value-missing",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "invalid",
+          "what": "请求体里没有 value：400",
+          "request": { "method": "PUT", "path": "/api/workbenches/2/vars/z.vnone", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "kind": "var" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "56", "etag": "W/\"38-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "缺 value（任意 JSON 值，null 也算）" }
+          }
+        },
+        {
+          "id": "x-audit-missing-wb-anon",
+          "route": "GET /api/workbenches/:id/vars/:key/audit",
+          "class": "unauthorized",
+          "what": "远程匿名读不存在的台的留痕：403，和存在的台一样",
+          "request": { "method": "GET", "path": "/api/workbenches/99/vars/seed.var/audit", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "x-list-missing-wb-tok",
+          "route": "GET /api/workbenches/:id/vars",
+          "class": "unauthorized",
+          "what": "本台令牌读不存在的台：403 app_token_mismatch，和读别的台一样",
+          "request": { "method": "GET", "path": "/api/workbenches/99/vars", "headers": { "x-forwarded-for": "198.51.100.7", "x-app-token": "{{tok}}" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "130", "etag": "W/\"82-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "按台令牌不属于该工作台（只能读写本台变量；外部台只限管理员）", "code": "app_token_mismatch" }
+          }
+        },
+        {
+          "id": "x-list-other-wb-tok",
+          "route": "GET /api/workbenches/:id/vars",
+          "class": "unauthorized",
+          "what": "本台令牌读别的台（存在）：同一句 403",
+          "request": { "method": "GET", "path": "/api/workbenches/3/vars", "headers": { "x-forwarded-for": "198.51.100.7", "x-app-token": "{{tok}}" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "130", "etag": "W/\"82-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "按台令牌不属于该工作台（只能读写本台变量；外部台只限管理员）", "code": "app_token_mismatch" }
+          }
+        },
+        {
+          "id": "x-get-missing-wb-tok",
+          "route": "GET /api/workbenches/:id/vars/:key",
+          "class": "unauthorized",
+          "what": "本台令牌读不存在的台的一个键：403",
+          "request": { "method": "GET", "path": "/api/workbenches/99/vars/seed.var", "headers": { "x-forwarded-for": "198.51.100.7", "x-app-token": "{{tok}}" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "130", "etag": "W/\"82-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "按台令牌不属于该工作台（只能读写本台变量；外部台只限管理员）", "code": "app_token_mismatch" }
+          }
+        },
+        {
+          "id": "x-list-missing-wb-page",
+          "route": "GET /api/workbenches/:id/vars",
+          "class": "unauthorized",
+          "what": "本机页面（没有管理员）读不存在的台：403",
+          "request": { "method": "GET", "path": "/api/workbenches/99/vars", "headers": { "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "102", "etag": "W/\"66-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（凭据库读写都要管理员）" }
+          }
+        },
+        {
+          "id": "x-list-missing-wb-cli",
+          "route": "GET /api/workbenches/:id/vars",
+          "class": "invalid",
+          "what": "本机命令行读不存在的台：404（过了判权才说台不在）",
+          "request": { "method": "GET", "path": "/api/workbenches/99/vars", "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench not found: 99" } }
+        },
+        {
+          "id": "x-list-missing-wb-adm",
+          "route": "GET /api/workbenches/:id/vars",
+          "class": "invalid",
+          "what": "管理口令读不存在的台：404",
+          "request": { "method": "GET", "path": "/api/workbenches/99/vars", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench not found: 99" } }
+        },
+        {
+          "id": "x-del-missing-wb-cli",
+          "route": "DELETE /api/workbenches/:id/vars/:key",
+          "class": "invalid",
+          "what": "本机命令行删不存在的台的键：404",
+          "request": { "method": "DELETE", "path": "/api/workbenches/99/vars/k?revision=1", "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench not found: 99" } }
+        },
+        {
+          "id": "x-put-padded-adm",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "invalid",
+          "what": "管理口令写 02 号台：400",
+          "request": { "method": "PUT", "path": "/api/workbenches/02/vars/a.pad", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "value": 1 } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是十进制正整数" } }
+        },
+        {
+          "id": "x-put-padded-tok",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "unauthorized",
+          "what": "本台令牌写 02 号台：总门只认十进制，403（和 0x2 一样）",
+          "request": { "method": "PUT", "path": "/api/workbenches/02/vars/w1", "headers": { "x-forwarded-for": "198.51.100.7", "x-app-token": "{{tok}}" }, "json": { "value": 1 } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "x-get-hex-cli",
+          "route": "GET /api/workbenches/:id/vars/:key",
+          "class": "invalid",
+          "what": "本机命令行读 0x2 号台：400",
+          "request": { "method": "GET", "path": "/api/workbenches/0x2/vars/seed.var", "headers": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是十进制正整数" } }
+        },
+        {
+          "id": "x-list-exp-cli",
+          "route": "GET /api/workbenches/:id/vars",
+          "class": "invalid",
+          "what": "台号 2e0：400",
+          "request": { "method": "GET", "path": "/api/workbenches/2e0/vars", "headers": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是十进制正整数" } }
+        },
+        {
+          "id": "x-list-big-cli",
+          "route": "GET /api/workbenches/:id/vars",
+          "class": "invalid",
+          "what": "台号 13 位：400",
+          "request": { "method": "GET", "path": "/api/workbenches/1234567890123/vars", "headers": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是十进制正整数" } }
+        },
+        {
+          "id": "x-list-12digit-cli",
+          "route": "GET /api/workbenches/:id/vars",
+          "class": "invalid",
+          "what": "台号 12 位（写法对、台不存在）：404",
+          "request": { "method": "GET", "path": "/api/workbenches/999999999999/vars", "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "45", "etag": "W/\"2d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench not found: 999999999999" } }
+        },
+        {
+          "id": "x-cors-missing-wb",
+          "route": "GET /api/workbenches/:id/vars",
+          "class": "unauthorized",
+          "what": "Origin: null 带本台令牌读不存在的台：不发 ACAO，403",
+          "request": { "method": "GET", "path": "/api/workbenches/99/vars", "headers": { "x-forwarded-for": "198.51.100.7", "origin": "null", "x-app-token": "{{tok}}" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "130", "etag": "W/\"82-<指纹>\"", "x-powered-by": "Express" },
+            "body": { "error": "按台令牌不属于该工作台（只能读写本台变量；外部台只限管理员）", "code": "app_token_mismatch" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "audit-limit",
+      "what": "留痕 limit 的上限：管理口令由环境给（合成值）；种子里一个外部台（2 号；1 号是启动自带的任务中心台），seed.many 有 205 行留痕（键本身不存在）。只比条数。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "fixtures": ["identity-fake"],
+      "seed": [
+        { "table": "workbenches", "row": { "name": "外部台", "url": "https://example.invalid/", "type": "web" } },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 1, "new_revision": 2, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 2, "new_revision": 3, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 3, "new_revision": 4, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 4, "new_revision": 5, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 5, "new_revision": 6, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 6, "new_revision": 7, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 7, "new_revision": 8, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 8, "new_revision": 9, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 9, "new_revision": 10, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 10, "new_revision": 11, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 11, "new_revision": 12, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 12, "new_revision": 13, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 13, "new_revision": 14, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 14, "new_revision": 15, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 15, "new_revision": 16, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 16, "new_revision": 17, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 17, "new_revision": 18, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 18, "new_revision": 19, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 19, "new_revision": 20, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 20, "new_revision": 21, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 21, "new_revision": 22, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 22, "new_revision": 23, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 23, "new_revision": 24, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 24, "new_revision": 25, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 25, "new_revision": 26, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 26, "new_revision": 27, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 27, "new_revision": 28, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 28, "new_revision": 29, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 29, "new_revision": 30, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 30, "new_revision": 31, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 31, "new_revision": 32, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 32, "new_revision": 33, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 33, "new_revision": 34, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 34, "new_revision": 35, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 35, "new_revision": 36, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 36, "new_revision": 37, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 37, "new_revision": 38, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 38, "new_revision": 39, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 39, "new_revision": 40, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 40, "new_revision": 41, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 41, "new_revision": 42, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 42, "new_revision": 43, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 43, "new_revision": 44, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 44, "new_revision": 45, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 45, "new_revision": 46, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 46, "new_revision": 47, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 47, "new_revision": 48, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 48, "new_revision": 49, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 49, "new_revision": 50, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 50, "new_revision": 51, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 51, "new_revision": 52, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 52, "new_revision": 53, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 53, "new_revision": 54, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 54, "new_revision": 55, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 55, "new_revision": 56, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 56, "new_revision": 57, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 57, "new_revision": 58, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 58, "new_revision": 59, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 59, "new_revision": 60, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 60, "new_revision": 61, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 61, "new_revision": 62, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 62, "new_revision": 63, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 63, "new_revision": 64, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 64, "new_revision": 65, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 65, "new_revision": 66, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 66, "new_revision": 67, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 67, "new_revision": 68, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 68, "new_revision": 69, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 69, "new_revision": 70, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 70, "new_revision": 71, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 71, "new_revision": 72, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 72, "new_revision": 73, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 73, "new_revision": 74, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 74, "new_revision": 75, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 75, "new_revision": 76, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 76, "new_revision": 77, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 77, "new_revision": 78, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 78, "new_revision": 79, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 79, "new_revision": 80, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 80, "new_revision": 81, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 81, "new_revision": 82, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 82, "new_revision": 83, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 83, "new_revision": 84, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 84, "new_revision": 85, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 85, "new_revision": 86, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 86, "new_revision": 87, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 87, "new_revision": 88, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 88, "new_revision": 89, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 89, "new_revision": 90, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 90, "new_revision": 91, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 91, "new_revision": 92, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 92, "new_revision": 93, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 93, "new_revision": 94, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 94, "new_revision": 95, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 95, "new_revision": 96, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 96, "new_revision": 97, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 97, "new_revision": 98, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 98, "new_revision": 99, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 99, "new_revision": 100, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 100, "new_revision": 101, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 101, "new_revision": 102, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 102, "new_revision": 103, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 103, "new_revision": 104, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 104, "new_revision": 105, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 105, "new_revision": 106, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 106, "new_revision": 107, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 107, "new_revision": 108, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 108, "new_revision": 109, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 109, "new_revision": 110, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 110, "new_revision": 111, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 111, "new_revision": 112, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 112, "new_revision": 113, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 113, "new_revision": 114, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 114, "new_revision": 115, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 115, "new_revision": 116, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 116, "new_revision": 117, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 117, "new_revision": 118, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 118, "new_revision": 119, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 119, "new_revision": 120, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 120, "new_revision": 121, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 121, "new_revision": 122, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 122, "new_revision": 123, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 123, "new_revision": 124, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 124, "new_revision": 125, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 125, "new_revision": 126, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 126, "new_revision": 127, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 127, "new_revision": 128, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 128, "new_revision": 129, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 129, "new_revision": 130, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 130, "new_revision": 131, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 131, "new_revision": 132, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 132, "new_revision": 133, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 133, "new_revision": 134, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 134, "new_revision": 135, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 135, "new_revision": 136, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 136, "new_revision": 137, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 137, "new_revision": 138, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 138, "new_revision": 139, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 139, "new_revision": 140, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 140, "new_revision": 141, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 141, "new_revision": 142, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 142, "new_revision": 143, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 143, "new_revision": 144, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 144, "new_revision": 145, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 145, "new_revision": 146, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 146, "new_revision": 147, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 147, "new_revision": 148, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 148, "new_revision": 149, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 149, "new_revision": 150, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 150, "new_revision": 151, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 151, "new_revision": 152, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 152, "new_revision": 153, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 153, "new_revision": 154, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 154, "new_revision": 155, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 155, "new_revision": 156, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 156, "new_revision": 157, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 157, "new_revision": 158, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 158, "new_revision": 159, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 159, "new_revision": 160, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 160, "new_revision": 161, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 161, "new_revision": 162, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 162, "new_revision": 163, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 163, "new_revision": 164, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 164, "new_revision": 165, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 165, "new_revision": 166, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 166, "new_revision": 167, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 167, "new_revision": 168, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 168, "new_revision": 169, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 169, "new_revision": 170, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 170, "new_revision": 171, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 171, "new_revision": 172, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 172, "new_revision": 173, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 173, "new_revision": 174, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 174, "new_revision": 175, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 175, "new_revision": 176, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 176, "new_revision": 177, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 177, "new_revision": 178, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 178, "new_revision": 179, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 179, "new_revision": 180, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 180, "new_revision": 181, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 181, "new_revision": 182, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 182, "new_revision": 183, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 183, "new_revision": 184, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 184, "new_revision": 185, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 185, "new_revision": 186, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 186, "new_revision": 187, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 187, "new_revision": 188, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 188, "new_revision": 189, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 189, "new_revision": 190, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 190, "new_revision": 191, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 191, "new_revision": 192, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 192, "new_revision": 193, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 193, "new_revision": 194, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 194, "new_revision": 195, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 195, "new_revision": 196, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 196, "new_revision": 197, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 197, "new_revision": 198, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 198, "new_revision": 199, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 199, "new_revision": 200, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 200, "new_revision": 201, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 201, "new_revision": 202, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 202, "new_revision": 203, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 203, "new_revision": 204, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 204, "new_revision": 205, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        },
+        {
+          "table": "workbench_var_audit",
+          "row": { "workbench_id": 2, "key": "seed.many", "action": "update", "actor": "cli", "kind": "var", "old_revision": 205, "new_revision": 206, "old_sha256": "m", "new_sha256": "m", "reason": "", "at": "2025-01-02 00:00:00" }
+        }
+      ],
+      "steps": [
+        {
+          "id": "audit-many-none",
+          "route": "GET /api/workbenches/:id/vars/:key/audit",
+          "class": "normal",
+          "what": "205 行留痕，limit=不给 limit：50 条；只比条数",
+          "compare": ["items.length"],
+          "request": { "method": "GET", "path": "/api/workbenches/2/vars/seed.many/audit", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "picked": { "items.length": 50 } }
+        },
+        {
+          "id": "audit-many-99",
+          "route": "GET /api/workbenches/:id/vars/:key/audit",
+          "class": "normal",
+          "what": "205 行留痕，limit=99；只比条数",
+          "compare": ["items.length"],
+          "request": { "method": "GET", "path": "/api/workbenches/2/vars/seed.many/audit?limit=99", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "picked": { "items.length": 99 } }
+        },
+        {
+          "id": "audit-many-100",
+          "route": "GET /api/workbenches/:id/vars/:key/audit",
+          "class": "normal",
+          "what": "205 行留痕，limit=100；只比条数",
+          "compare": ["items.length"],
+          "request": { "method": "GET", "path": "/api/workbenches/2/vars/seed.many/audit?limit=100", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "picked": { "items.length": 100 } }
+        },
+        {
+          "id": "audit-many-101",
+          "route": "GET /api/workbenches/:id/vars/:key/audit",
+          "class": "normal",
+          "what": "205 行留痕，limit=101；只比条数",
+          "compare": ["items.length"],
+          "request": { "method": "GET", "path": "/api/workbenches/2/vars/seed.many/audit?limit=101", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "picked": { "items.length": 101 } }
+        },
+        {
+          "id": "audit-many-150",
+          "route": "GET /api/workbenches/:id/vars/:key/audit",
+          "class": "normal",
+          "what": "205 行留痕，limit=150；只比条数",
+          "compare": ["items.length"],
+          "request": { "method": "GET", "path": "/api/workbenches/2/vars/seed.many/audit?limit=150", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "picked": { "items.length": 150 } }
+        },
+        {
+          "id": "audit-many-199",
+          "route": "GET /api/workbenches/:id/vars/:key/audit",
+          "class": "normal",
+          "what": "205 行留痕，limit=199；只比条数",
+          "compare": ["items.length"],
+          "request": { "method": "GET", "path": "/api/workbenches/2/vars/seed.many/audit?limit=199", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "picked": { "items.length": 199 } }
+        },
+        {
+          "id": "audit-many-0p5",
+          "route": "GET /api/workbenches/:id/vars/:key/audit",
+          "class": "normal",
+          "what": "205 行留痕，limit=0.5：收到 1；只比条数",
+          "compare": ["items.length"],
+          "request": { "method": "GET", "path": "/api/workbenches/2/vars/seed.many/audit?limit=0.5", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "picked": { "items.length": 1 } }
+        },
+        {
+          "id": "audit-many-1p5",
+          "route": "GET /api/workbenches/:id/vars/:key/audit",
+          "class": "normal",
+          "what": "205 行留痕，limit=1.5：取整成 1；只比条数",
+          "compare": ["items.length"],
+          "request": { "method": "GET", "path": "/api/workbenches/2/vars/seed.many/audit?limit=1.5", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "picked": { "items.length": 1 } }
+        },
+        {
+          "id": "audit-many-150p5",
+          "route": "GET /api/workbenches/:id/vars/:key/audit",
+          "class": "normal",
+          "what": "205 行留痕，limit=150.5：小数往下取整成 150（原来 500）；只比条数",
+          "compare": ["items.length"],
+          "request": { "method": "GET", "path": "/api/workbenches/2/vars/seed.many/audit?limit=150.5", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "picked": { "items.length": 150 } }
+        },
+        {
+          "id": "audit-many-200",
+          "route": "GET /api/workbenches/:id/vars/:key/audit",
+          "class": "normal",
+          "what": "205 行留痕，limit=200：上限；只比条数",
+          "compare": ["items.length"],
+          "request": { "method": "GET", "path": "/api/workbenches/2/vars/seed.many/audit?limit=200", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "picked": { "items.length": 200 } }
+        },
+        {
+          "id": "audit-many-201",
+          "route": "GET /api/workbenches/:id/vars/:key/audit",
+          "class": "normal",
+          "what": "205 行留痕，limit=201：收到上限 200；只比条数",
+          "compare": ["items.length"],
+          "request": { "method": "GET", "path": "/api/workbenches/2/vars/seed.many/audit?limit=201", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "picked": { "items.length": 200 } }
+        },
+        {
+          "id": "audit-many-500",
+          "route": "GET /api/workbenches/:id/vars/:key/audit",
+          "class": "normal",
+          "what": "205 行留痕，limit=500：收到上限 200；只比条数",
+          "compare": ["items.length"],
+          "request": { "method": "GET", "path": "/api/workbenches/2/vars/seed.many/audit?limit=500", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "picked": { "items.length": 200 } }
+        },
+        {
+          "id": "audit-many-1e3",
+          "route": "GET /api/workbenches/:id/vars/:key/audit",
+          "class": "normal",
+          "what": "205 行留痕，limit=1e3（1000）：收到上限 200；只比条数",
+          "compare": ["items.length"],
+          "request": { "method": "GET", "path": "/api/workbenches/2/vars/seed.many/audit?limit=1e3", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "picked": { "items.length": 200 } }
+        },
+        {
+          "id": "audit-many-200p5",
+          "route": "GET /api/workbenches/:id/vars/:key/audit",
+          "class": "normal",
+          "what": "205 行留痕，limit=200.5：收到上限；只比条数",
+          "compare": ["items.length"],
+          "request": { "method": "GET", "path": "/api/workbenches/2/vars/seed.many/audit?limit=200.5", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "picked": { "items.length": 200 } }
+        },
+        {
+          "id": "audit-many-sp150",
+          "route": "GET /api/workbenches/:id/vars/:key/audit",
+          "class": "normal",
+          "what": "205 行留痕，limit=前面带空格的 150；只比条数",
+          "compare": ["items.length"],
+          "request": { "method": "GET", "path": "/api/workbenches/2/vars/seed.many/audit?limit=%20150", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "picked": { "items.length": 150 } }
         }
       ]
     }

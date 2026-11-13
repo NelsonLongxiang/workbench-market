@@ -329,15 +329,15 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "671", "etag": "W/\"29f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "622", "etag": "W/\"26e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "host": "a1b2c3d4",
               "team": "zone1/canvas/Sales Team",
               "name": "Sales Team",
               "events": [
-                { "seq": 1, "kind": "claim", "seat": "", "seat_id": "", "principal": null, "principal_name": null, "detail": { "department": "sales", "before": null }, "actor": "cli", "actor_name": "本机命令行", "at": 1893456000000 },
-                { "seq": 2, "kind": "lead-add", "seat": "", "seat_id": "", "principal": "user:alpha", "principal_name": "合成甲", "detail": null, "actor": "cli", "actor_name": "本机命令行", "at": 1893456000000 },
-                { "seq": 3, "kind": "assign", "seat": "zone1/0000000b", "seat_id": "seat-0000000b", "principal": "user:beta", "principal_name": "合成乙", "detail": null, "actor": "user:alpha", "actor_name": "合成甲", "at": 1893456000000 }
+                { "seq": 1, "kind": "claim", "seat": "", "seat_id": "", "principal": null, "principal_name": null, "detail": { "department": "sales", "before": null }, "actor_name": "本机命令行", "at": 1893456000000 },
+                { "seq": 2, "kind": "lead-add", "seat": "", "seat_id": "", "principal": "user:alpha", "principal_name": "合成甲", "detail": null, "actor_name": "本机命令行", "at": 1893456000000 },
+                { "seq": 3, "kind": "assign", "seat": "zone1/0000000b", "seat_id": "seat-0000000b", "principal": "user:beta", "principal_name": "合成乙", "detail": null, "actor_name": "合成甲", "at": 1893456000000 }
               ]
             }
           }

@@ -1,7 +1,7 @@
 /**
  * 工作台变量与常量的五条路由：列表、读一个键、读留痕、写、删（#336）。
- * 原样搬自 workbench-vars.ts 的 mount()，一个字没改，只少了四格缩进、多了报给 HTTP 服务的动作。
- * 查台、判权（本机命令行、本台令牌、管理员）、no-store 在外壳 handle 里，读写的规则（乐观锁、常量的作者、留痕）在 workbench-vars.ts，都经参数和引用传进来。
+ * 搬自 workbench-vars.ts 的 mount()（#678，纯移动）；之后改过一处：留痕的 limit 小数往下取整。
+ * 认台号、判权（本机命令行、本台令牌、管理员）、再看台在不在、no-store 在外壳 handle 里，读写的规则（乐观锁、常量的作者、留痕）在 workbench-vars.ts，都经参数和引用传进来。
  *
  * app 是 HTTP 服务，不是 Express 应用本身：注册的写法和 Express 一样，路由挂在调用那一刻的位置，注册可以撤销。
  * 类别都报 admin：不带台令牌时读也要管理员（和凭据库同一个读门），员工、管理层的预设是不分块的读写，报成 read、write 会放宽。
@@ -26,7 +26,7 @@ export function registerWorkbenchVarsRoutes(app: HttpService, handle: ReturnType
   // 审计只给管理员（本机命令行同）
   app.get('/api/workbenches/:id/vars/:key/audit', { action: 'workbench.vars-audit', kind: 'admin' }, handle(false, (req, res, scope, caller) => {
     if (!caller.admin) return void res.status(403).json({ error: '审计只限管理员' });
-    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const limit = Math.min(Math.max(Math.floor(Number(req.query.limit) || 50), 1), 200); // 小数往下取整（150.5 原来直接进了 SQLite 的 LIMIT，回 500）
     res.json({ workbench_id: scope.id, key: checkKey(req.params.key), items: vars().auditList(scope.id, req.params.key, limit) });
   }));
   app.put('/api/workbenches/:id/vars/:key', { action: 'workbench.vars-set', kind: 'admin', statusNotVerdict: TOKEN }, handle(true, async (req, res, scope, caller) => {

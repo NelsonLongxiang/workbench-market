@@ -11,7 +11,7 @@
  *   VARS_DIFF_ROUNDS=3 node scripts/vars-store-diff-test.mjs
  */
 import { createServer } from 'node:net';
-import { mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from './owned-script-fixture.mjs';
@@ -75,6 +75,14 @@ try {
         const [ra, rb] = await Promise.all([A.call(...req), B.call(...req)]);
         if (ra.status !== rb.status || JSON.stringify(normalize(ra.json)) !== JSON.stringify(normalize(rb.json))) { fixedDiffs++; if (fixedFirst.length < 2) fixedFirst.push({ req: req.slice(0, 2), main: ra.text.slice(0, 200), bench: rb.text.slice(0, 200) }); }
       }
+      // bench 档先判权：没过判权的读写不替卡片代建台库、不对同步点（#698 的次序）。卡片 3 只在 bench 实例上建；写入要是先于判权，PUT 就会替它建出台库
+      await B.call('POST', '/api/workbenches', { headers: tok, body: { name: '合成丙', url: 'http://127.0.0.1:9/c', type: 'web' } });
+      // 带一个不属于这张卡片的按台令牌：穿过外层的门、走到变量接口自己的判权（不带令牌的远程请求在外层就被挡了，碰不到这里）
+      const remote = { 'x-forwarded-for': '192.0.2.72', origin: 'null', 'x-app-token': 'synthetic-not-this-card' };
+      const denied = [];
+      for (const [m, p, body] of [['GET', '/api/workbenches/3/vars'], ['GET', '/api/workbenches/3/vars/k'], ['PUT', '/api/workbenches/3/vars/k', { value: 1 }], ['DELETE', '/api/workbenches/3/vars/k?revision=1']]) denied.push(`${m} ${(await B.call(m, p, { headers: remote, body })).status}`);
+      const store3 = existsSync(join(OUT, `bench-${round}`, 'data', 'bench-stores', 'wb-3.sqlite'));
+      check(denied.every((d) => /\s403$/.test(d)) && !store3, 'bench 档没过判权的读写（别的台的令牌）：403，不替卡片代建台库', { denied, store3 });
       check(fixedDiffs === 0, '固定的几步（指定作者的常量、管理口令改不了、转回变量、再冻结、交给公共、读、审计、删）两边一样', fixedFirst);
       const R = rng(seed), pick = (a) => a[Math.floor(R() * a.length)];
       const KEYS = ['a', 'b', 'c.d', 'c:e', 'hot.x', 'z'];
