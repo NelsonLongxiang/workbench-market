@@ -33,6 +33,14 @@ export const Config = defineConfig((env) => {
 export type AppDataRow = { id: number; data: string; created_by: string; created_at: string };
 export type AppFileRow = Record<string, unknown> & { id: number; storage_path: string };
 
+function queued<T>(queues: Map<string, Promise<unknown>>, slug: string, fn: () => Promise<T>): Promise<T> {
+  const prev = queues.get(slug) ?? Promise.resolve();
+  const run = prev.then(fn, fn);
+  const tail = run.then(() => undefined, () => undefined);
+  queues.set(slug, tail);
+  void tail.then(() => { if (queues.get(slug) === tail) queues.delete(slug); });
+  return run;
+}
 const benchHttp = (e: unknown): never => {
   if (e instanceof BenchError) throw new HttpError(e.http, e.message);
   throw e;
@@ -44,6 +52,8 @@ export class AppDataService extends Service {
   private synced = new Set<string>();
   /** 抄进台库失败的次数（只计数） */
   private mirrorFailures = 0;
+  /** 同一个台「先查、再写」的写入一笔一笔来（serialWrites）；和下面台库这一侧的队分开，互相不嵌套 */
+  private writeQueues = new Map<string, Promise<unknown>>();
   /** 同一个台在台库这一侧的操作一笔一笔来（对摘要、整份重抄、照抄一行），不让「重抄用的主库快照」和「照抄新的一行」交错 */
   private queues = new Map<string, Promise<unknown>>();
 
@@ -55,14 +65,12 @@ export class AppDataService extends Service {
   storeMode(): AppDataStoreMode { return this.mode; }
   stats() { return { mirror_failures: this.mirrorFailures }; }
 
-  private inQueue<T>(slug: string, fn: () => Promise<T>): Promise<T> {
-    const prev = this.queues.get(slug) ?? Promise.resolve();
-    const run = prev.then(fn, fn);
-    const tail = run.then(() => undefined, () => undefined);
-    this.queues.set(slug, tail);
-    void tail.then(() => { if (this.queues.get(slug) === tail) this.queues.delete(slug); });
-    return run;
-  }
+  private inQueue<T>(slug: string, fn: () => Promise<T>): Promise<T> { return queued(this.queues, slug, fn); }
+  /**
+   * 同一个台里「先查、再写」的写入排成一队（进程内）：提交（查幂等键、契约查附件 → 插入）、上传（查文件数上限 → 插入）、软删附件和提交、改备注。
+   * 中间有 await，不排队的话：同键并发会撞唯一索引；契约刚查过的附件被删了，提交照样写进去；上限前的最后一个名额被两笔同时用掉
+   */
+  serialWrites<T>(slug: string, fn: () => Promise<T>): Promise<T> { return queued(this.writeQueues, slug, fn); }
   /** 这个台的卡片（发布时自动登记；台没有卡片给 null） */
   cardOf(slug: string): number | null {
     const ids = svc<WorkbenchService>('workbench').idsByAppUrls(`/apps/${slug}/`, `/sop/${slug}/`);

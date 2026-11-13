@@ -1465,21 +1465,9 @@ function idemScope(channel: 'app-data.rest' | 'app-data.tool', subject: string |
 }
 /** 台数据写入核心：REST POST /api/apps/:slug/data 与 MCP app_data_submit 共用——1MB 上限、数据契约、幂等键、写入后推事件。
  *  违约不抛错，回 status 400 + violations，由两个入口各自原样交出去。 */
-/**
- * 同一个台的提交一笔一笔来（进程内排队）：「查幂等键 → 写入」中间有 await，不排队的话同键的两笔并发会都查不到、后一笔撞唯一索引。
- * 原来全是同步调用、天然不会交错；改成异步以后靠这个队保持原来的次序和结果
- */
-const submitQueues = new Map<string, Promise<unknown>>();
-function inSlugQueue<T>(slug: string, fn: () => Promise<T>): Promise<T> {
-  const prev = submitQueues.get(slug) ?? Promise.resolve();
-  const run = prev.then(fn, fn);
-  const tail = run.then(() => undefined, () => undefined);
-  submitQueues.set(slug, tail);
-  void tail.then(() => { if (submitQueues.get(slug) === tail) submitQueues.delete(slug); });
-  return run;
-}
 function submitAppData(a: AppRow, input: Parameters<typeof submitAppDataNow>[1]): ReturnType<typeof submitAppDataNow> {
-  return inSlugQueue(a.slug, () => submitAppDataNow(a, input));
+  // 同一个台的写入排队（services/app-data.ts 的 serialWrites）：查幂等键、契约查附件 → 插入，中间不让别的写入插进来
+  return svc<AppDataService>('appData').serialWrites(a.slug, () => submitAppDataNow(a, input));
 }
 async function submitAppDataNow(a: AppRow, input: { data: unknown; createdBy?: unknown; idempotencyKey?: unknown; submitterTicket?: unknown; subject?: string; channel: { name: 'app-data.rest' | 'app-data.tool'; hasCredential: boolean } }): Promise<{ status: number; body: Record<string, unknown> }> {
   const data = input.data;
@@ -1572,8 +1560,13 @@ async function appFileStoreCore(slug: string, f: { path: string; size: number; n
   const kind = uploadKindOrThrow(f.path, f.size, f.name, f.reportedMime);
   // 存储相对路径（dataDir 内，随数据目录迁移）
   const rel = f.path.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
-  const id = await svc<AppDataService>('appData').fileInsert(slug, f.name, kind.mime, f.size, rel, f.createdBy, f.note, f.sha256 ?? ''); // #132 P0①：note 落库；sha256 有就存（下载 ETag 不再重算）
-  return { ok: true, id, slug, name: f.name, mime: kind.mime, size: f.size, note: f.note, url: `/api/apps/${slug}/files/${id}` };
+  // 查文件数上限 → 插入，排在这个台的写入队里：入口在收文件之前查过一次，这里排到了再核一次（并发的两笔不会一起用掉最后一个名额）
+  return svc<AppDataService>('appData').serialWrites(slug, async () => {
+    const quota = await appFilesQuota(slug);
+    if (quota.files_left <= 0) { rmSync(f.path, { force: true }); throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`, { quota }); }
+    const id = await svc<AppDataService>('appData').fileInsert(slug, f.name, kind.mime, f.size, rel, f.createdBy, f.note, f.sha256 ?? ''); // #132 P0①：note 落库；sha256 有就存（下载 ETag 不再重算）
+    return { ok: true, id, slug, name: f.name, mime: kind.mime, size: f.size, note: f.note, url: `/api/apps/${slug}/files/${id}` };
+  });
 }
 /** 上传落盘位置（multer 与原始字节上传同规则）：uploads/<YYYYMM>/<时间戳>-<随机><原扩展名> */
 function uploadMonthDir(): string {
@@ -3077,22 +3070,25 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       if (buf.length > UPLOAD_MAX) throw new HttpError(413, `文件超 100MB 上限（${buf.length}B）`);
       if (wantSize !== null && buf.length !== wantSize) throw new HttpError(400, `收到 ${buf.length} 字节，声明 ${wantSize} 字节：内容可能在传输中被截断，未保存`);
       if (wantSha !== null && createHash('sha256').update(buf).digest('hex') !== wantSha) throw new HttpError(400, `收到内容的 sha256 与声明不符（收到 ${buf.length} 字节）：内容可能在传输中被截断或改动，未保存`);
-      if ((await appFilesQuota(a.slug)).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`); // #193 F8：全量计数；上限与浏览器上传共用
-      // 与浏览器上传同一套内容类型检查：扩展名与内容不符、或是可执行文件 → 拒收；相符则存规范 MIME
-      const kind = sniff(name, buf.subarray(0, 1024 * 1024), buf.length <= 1024 * 1024, String(args?.mime ?? ''));
-      if (kind.verdict === 'mismatch' || kind.verdict === 'executable') throw new HttpError(415, `文件类型不符：${kind.reason}`);
-      const dir = join(dataDir, 'uploads');
-      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-      const safe = name.replace(/[^\w.\u4e00-\u9fa5-]+/g, '_').slice(0, 80);
-      const fname = `${Date.now().toString(36)}-${safe}`;
-      const abs = join(dir, fname);
-      writeFileSync(abs, buf);
-      const rel = abs.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
-      const createdBy = String(args?.created_by ?? '').trim().slice(0, 128);
-      const note = String(args?.note ?? '').trim().slice(0, 500);
-      const sha256 = createHash('sha256').update(buf).digest('hex');
-      const id = await svc<AppDataService>('appData').fileInsert(a.slug, name, kind.mime, buf.length, rel, createdBy, note, sha256);
-      return { ok: true, id, slug: a.slug, name, mime: kind.mime, size: buf.length, sha256, note, url: `/api/apps/${a.slug}/files/${id}`, ...uploadIntegrity(wantSha, wantSize) };
+      // 查文件数上限 → 落盘 → 插入，排在这个台的写入队里（并发的两笔不会一起用掉最后一个名额）
+      return svc<AppDataService>('appData').serialWrites(a.slug, async () => {
+        if ((await appFilesQuota(a.slug)).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`); // #193 F8：全量计数；上限与浏览器上传共用
+        // 与浏览器上传同一套内容类型检查：扩展名与内容不符、或是可执行文件 → 拒收；相符则存规范 MIME
+        const kind = sniff(name, buf.subarray(0, 1024 * 1024), buf.length <= 1024 * 1024, String(args?.mime ?? ''));
+        if (kind.verdict === 'mismatch' || kind.verdict === 'executable') throw new HttpError(415, `文件类型不符：${kind.reason}`);
+        const dir = join(dataDir, 'uploads');
+        if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+        const safe = name.replace(/[^\w.\u4e00-\u9fa5-]+/g, '_').slice(0, 80);
+        const fname = `${Date.now().toString(36)}-${safe}`;
+        const abs = join(dir, fname);
+        writeFileSync(abs, buf);
+        const rel = abs.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
+        const createdBy = String(args?.created_by ?? '').trim().slice(0, 128);
+        const note = String(args?.note ?? '').trim().slice(0, 500);
+        const sha256 = createHash('sha256').update(buf).digest('hex');
+        const id = await svc<AppDataService>('appData').fileInsert(a.slug, name, kind.mime, buf.length, rel, createdBy, note, sha256);
+        return { ok: true, id, slug: a.slug, name, mime: kind.mime, size: buf.length, sha256, note, url: `/api/apps/${a.slug}/files/${id}`, ...uploadIntegrity(wantSha, wantSize) };
+      });
     }
     default:
       throw new HttpError(400, `未知工具: ${name}`);

@@ -17,6 +17,7 @@
  *   四之三、main 档（缺省）只删卡片：台的提交记录照旧留在主库（第 6 步的语义变化只在 shadow、bench 档）
  *   七、WM_APP_DATA_STORE=bench：台的提交和附件在卡片的台库里——只删卡片也删它们：只有管理口令的 409（规模里有几条提交、几个附件），
  *       什么都没删；属主带确认删成：台库删前备份，主库里这个台的提交、附件和磁盘上的附件字节一起删了；台本身还在
+ *       上传时最后一个名额：三笔同时到，只进一笔（查上限 → 插入排在这个台的写入队里），其余 413，磁盘上不留它们的文件
  *   六、（阶段一复验补的）台库里只有视图描述也算有数据；本机浏览器页面不是属主；同名旧库还在时不许登记；
  *       纯数字标识的旧台：数字写法照旧认到它，同号卡片不许对应别的台（只许对应它自己），启动时报出来
  *
@@ -298,7 +299,7 @@ try {
   check(/有 2 个旧台的标识是纯数字/.test(srv2.log()) && srv2.log().includes('424242') && srv2.log().includes(String(W8)), '启动时报出纯数字标识的旧台（个数和标识）', srv2.log().split('\n').filter((l) => l.includes('纯数字')).join(' | ').slice(0, 300));
 
   console.log('七、WM_APP_DATA_STORE=bench：只删卡片也删提交和附件');
-  const srv3 = await boot('app-bench', { WM_BENCH_VIEWS: 'on', WM_APP_DATA_STORE: 'bench' });
+  const srv3 = await boot('app-bench', { WM_BENCH_VIEWS: 'on', WM_APP_DATA_STORE: 'bench', WM_APP_FILES_MAX: '3' });
   const db3 = srv3.db();
   db3.prepare('INSERT INTO apps (slug, title) VALUES (?, ?)').run('syn-sub', '合成·有提交的台');
   const WS = Number(db3.prepare("INSERT INTO workbenches (name, url, type, enabled) VALUES (?, ?, 'market-app', 1)").run('合成·有提交的台', '/apps/syn-sub/').lastInsertRowid);
@@ -316,6 +317,16 @@ try {
   const subGone = { data: db3.prepare("SELECT COUNT(*) AS n FROM app_data WHERE app_slug = 'syn-sub'").get().n, files: db3.prepare("SELECT COUNT(*) AS n FROM app_files WHERE app_slug = 'syn-sub'").get().n, bytes: existsSync(join(srv3.data, 'uploads', 'syn', 'f.txt')), app: !!db3.prepare("SELECT 1 FROM apps WHERE slug = 'syn-sub'").get(), backup: readdirSync(join(srv3.data, 'bench-stores', '.deleted')).some((f) => f.startsWith(`wb-${WS}--`)) };
   check(subOwner.status === 200 && subGone.data === 0 && subGone.files === 0 && !subGone.bytes && subGone.app && subGone.backup,
     'bench 档：属主带确认删成——台库删前备份，主库里这个台的提交、附件和磁盘上的附件字节一起删了；台本身还在', { status: subOwner.status, body: subOwner.text.slice(0, 160), subGone });
+  // 最后一个名额：上限 3，已有 2 个附件；三笔上传同时到
+  db3.prepare('INSERT INTO apps (slug, title) VALUES (?, ?)').run('syn-quota', '合成·快满的台');
+  db3.prepare("INSERT INTO workbenches (name, url, type, enabled) VALUES (?, ?, 'market-app', 1)").run('合成·快满的台', '/apps/syn-quota/');
+  for (const n of [1, 2]) db3.prepare("INSERT INTO app_files (app_slug, original_name, mime, size, storage_path, created_by) VALUES ('syn-quota', ?, 'text/plain', 1, ?, 'seed')").run(`q${n}.txt`, `uploads/syn/q${n}.txt`);
+  const upFiles = () => readdirSync(join(srv3.data, 'uploads'), { recursive: true }).filter((f) => /\.txt$/.test(String(f))).length;
+  const filesBefore = upFiles();
+  const up = (i) => { const fd = new FormData(); fd.append('file', new Blob([`内容${i}`], { type: 'text/plain' }), `r${i}.txt`); return fetch(`${srv3.base}/api/apps/syn-quota/files`, { method: 'POST', body: fd }).then((r) => r.status); };
+  const ups = (await Promise.all([1, 2, 3].map(up))).sort().join(',');
+  const quotaRows = db3.prepare("SELECT COUNT(*) AS n FROM app_files WHERE app_slug = 'syn-quota' AND deleted_at = ''").get().n;
+  check(ups === '201,413,413' && quotaRows === 3 && upFiles() === filesBefore + 1, '最后一个名额：三笔上传同时到，只进一笔，其余 413，磁盘上不留它们的文件', { ups, quotaRows, files: upFiles() - filesBefore });
 } catch (e) {
   check(false, `没有中途抛错：${e?.stack ?? e}`);
 } finally {
