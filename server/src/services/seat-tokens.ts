@@ -157,10 +157,13 @@ const clip = (v: unknown, n: number): string => (typeof v === 'string' ? v.repla
  * 每次换令牌记一行，成不成都记（属主 2026-11-13）：节点侧报「有成员读了节点私钥」时，按时间段对上有没有人换过令牌、
  * 换到的令牌拿去调了什么（token_ref 对 mcp_calls.token_ref）。请求体不成形的也记，字段按收到的截短记下（verified = 0）
  */
+const SELF_PROBE_SEAT = 'wm-self-probe', SELF_PROBE_ROOT = 'https://wm-self-probe.invalid';
 export function logSeatTokenExchange(e: { at: number; source: string; body: unknown; outcome: 'issued' | 'refused' | 'rate-limited' | 'bad-request'; reason?: string; session_id?: number; token_ref?: string; expires_at?: number }): void {
   const b = (e.body && typeof e.body === 'object' && !Array.isArray(e.body) ? e.body : {}) as Record<string, unknown>;
   const verified = e.outcome === 'issued' || (e.reason !== undefined && VERIFIED_REFUSALS.has(e.reason));
   db.prepare('DELETE FROM a2a_seat_token_log WHERE at < ?').run(e.at - LOG_KEEP_MS);
+  // 启动自检每次启动都编一次同样的请求：只留最近一行，重启不让表越长越多（升级守护要求重启前后行数相同）
+  if (b.seat_id === SELF_PROBE_SEAT && b.root === SELF_PROBE_ROOT) db.prepare('DELETE FROM a2a_seat_token_log WHERE seat_id = ? AND root = ?').run(SELF_PROBE_SEAT, SELF_PROBE_ROOT);
   db.prepare(`INSERT INTO a2a_seat_token_log (at, host, seat_id, root, source, outcome, reason, verified, session_id, token_ref, expires_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(e.at, clip(b.host, 16), clip(b.seat_id, 64), clip(b.root, 260), clip(e.source, 64), e.outcome, e.reason ?? '',
     verified ? 1 : 0, e.session_id ?? null, e.token_ref ?? '', e.expires_at ?? null);
