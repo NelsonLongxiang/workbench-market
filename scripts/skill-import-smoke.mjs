@@ -4,9 +4,11 @@
  *  ② 幂等：同 digest 重跑不升版（versions 计数不变）
  *  ③ 漂移：改夹具文件重跑 → N+1 新版，旧版不可变（v1 行原样）
  *  ④ 无 frontmatter：跳过并进报告（方案灰度容错）
- *  ⑤ 源隔离：SKILL_SRC_A/B 指空目录 → 0 导入；产快照目录无夹具名（DATA_DIR 对齐证） */
+ *  ⑤ 源隔离：SKILL_SRC_A/B 指空目录 → 0 导入；产快照目录无夹具名（DATA_DIR 对齐证）
+ *  ⑥ 导入试跑报技能自己写的版本号（sourceVersion）：顶层 version、metadata 下的 version 都认，没写是空串，不进身份
+ *  ⑦ 本仓 skills/ 每个技能导入试跑都报得出版本号 */
 import { spawnSync } from 'node:child_process';
-import { rmSync, mkdirSync, writeFileSync, appendFileSync, existsSync, readdirSync } from 'node:fs';
+import { rmSync, mkdirSync, writeFileSync, appendFileSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -63,5 +65,39 @@ ok('③ v1 不可变（digest/快照原样）', vs3[0].tree_digest === vs1[0].tr
 ok('③ v2 快照在隔离区', existsSync(join(DATA, 'skill-snapshots/zz-imp-alpha/v2/SKILL.md')));
 
 db.close();
+
+// ⑥ 导入试跑：版本号写在顶层、写在 metadata 下、没写，三种都要报对
+const SRC_V = join(ROOT, 'tmp/e2e-skimp-srcv');
+rmSync(SRC_V, { recursive: true, force: true });
+for (const d of ['zz-ver-top', 'zz-ver-meta', 'zz-ver-none', 'zz-ver-both']) mkdirSync(join(SRC_V, d), { recursive: true });
+writeFileSync(join(SRC_V, 'zz-ver-top/SKILL.md'), '---\nname: zz-ver-top\nversion: 1.2.3\ndescription: top-level version\n---\n# top\n');
+writeFileSync(join(SRC_V, 'zz-ver-meta/SKILL.md'), '---\nname: zz-ver-meta\ndescription: metadata version\nmetadata:\n  author: synthetic\n  version: "0.4.0"\n---\n# meta\n');
+writeFileSync(join(SRC_V, 'zz-ver-none/SKILL.md'), '---\nname: zz-ver-none\ndescription: no version\n---\n# none\n');
+writeFileSync(join(SRC_V, 'zz-ver-both/SKILL.md'), '---\nname: zz-ver-both\nversion: 9.9.9\nmetadata:\n  version: 2.0.0\ndescription: both\n---\n# both\n');
+const dryRun = (root, srcC) => {
+  const r = spawnSync(process.execPath, ['scripts/skill-import.mjs', '--dry-run', '--target-mode', 'isolated', '--isolated-root', root], {
+    cwd: ROOT, env: { ...process.env, DATA_DIR: DATA, SKILL_SRC_A: SRC_A, SKILL_SRC_B: SRC_B, SKILL_SRC_C: srcC }, encoding: 'utf8', timeout: 60000,
+  });
+  try { return { status: r.status, out: JSON.parse(r.stdout) }; } catch { return { status: r.status, out: null, raw: (r.stdout || '') + (r.stderr || '') }; }
+};
+const d6 = dryRun(join(ROOT, 'tmp'), SRC_V);
+ok('⑥ 导入试跑退出码 0、输出是 JSON', d6.status === 0 && !!d6.out, String(d6.raw ?? '').slice(0, 200));
+const v6 = Object.fromEntries((d6.out?.c ?? []).map((r) => [r.name, r]));
+ok('⑥ 顶层 version 报出来', v6['zz-ver-top']?.sourceVersion === '1.2.3', JSON.stringify(v6['zz-ver-top']));
+ok('⑥ metadata 下的 version 报出来（去掉引号）', v6['zz-ver-meta']?.sourceVersion === '0.4.0', JSON.stringify(v6['zz-ver-meta']));
+ok('⑥ 两处都写时取 metadata 下的', v6['zz-ver-both']?.sourceVersion === '2.0.0', JSON.stringify(v6['zz-ver-both']));
+ok('⑥ 没写版本号是空串', v6['zz-ver-none']?.sourceVersion === '', JSON.stringify(v6['zz-ver-none']));
+ok('⑥ 外源 version 不进身份（行里没有 version 字段）', Object.values(v6).length === 4 && Object.values(v6).every((r) => !('version' in r)));
+
+// ⑦ 本仓 skills/：每个技能都报得出版本号，和 SKILL.md 里写的一致
+const repoSkills = readdirSync(join(ROOT, 'skills'), { withFileTypes: true }).filter((d) => d.isDirectory() && existsSync(join(ROOT, 'skills', d.name, 'SKILL.md'))).map((d) => d.name);
+const d7 = dryRun(ROOT, join(ROOT, 'skills'));
+const v7 = Object.fromEntries((d7.out?.c ?? []).map((r) => [r.dir, r]));
+const declared = (dir) => { const t = readFileSync(join(ROOT, 'skills', dir, 'SKILL.md'), 'utf8'); const m = /^(?:\s+)?version:\s*["']?([^"'\n]+)["']?\s*$/m.exec(t.slice(0, t.indexOf('\n---', 3))); return m ? m[1].trim() : null; };
+ok('⑦ 本仓技能导入试跑退出码 0', d7.status === 0 && !!d7.out, String(d7.raw ?? '').slice(0, 200));
+ok('⑦ 本仓技能至少 4 个、全部扫到', repoSkills.length >= 4 && repoSkills.every((d) => v7[d]?.name), JSON.stringify(repoSkills));
+for (const d of repoSkills) ok(`⑦ ${d} 报出版本号 ${declared(d)}`, !!declared(d) && v7[d]?.sourceVersion === declared(d), JSON.stringify(v7[d]?.sourceVersion));
+rmSync(SRC_V, { recursive: true, force: true });
+
 console.log(`\n===== skill-import 冒烟 ${pass + fail} 项：${pass} 通过 / ${fail} 失败 =====`);
 process.exit(fail ? 1 : 0);

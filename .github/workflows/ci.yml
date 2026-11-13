@@ -392,7 +392,7 @@ jobs:
       - name: 表结构探查函数（数据库规划第 0 步：迁移里查表、列、索引在不在只经 db.ts 的几个函数；名字不是小写标识符一律抛错不碰库；列名与直接查表结构逐个相同）
         run: node --disable-warning=ExperimentalWarning scripts/db-schema-probe-test.mjs
       - name: 对外断开（WM_OUTBOUND=off：假网络记账，进程层 17 种出站办法一律在发出前被拦、实例层各触发点走一遍假网络收到 0 个连接、投递与回执保持 pending 不判死、自检与健康检查看得见；对照组不开开关必须收到连接；非法值拒绝启动）
-        run: node scripts/outbound-off-test.mjs && node scripts/bench-outbound-off-test.mjs && node scripts/bench-views-entry-test.mjs && node scripts/bench-mcp-test.mjs && node scripts/bench-views-dept-test.mjs && node scripts/knowledge-test.mjs && node scripts/knowledge-lifecycle-test.mjs && node scripts/knowledge-visibility-test.mjs
+        run: node scripts/outbound-off-test.mjs && node scripts/bench-outbound-off-test.mjs && node scripts/bench-views-entry-test.mjs && node scripts/bench-mcp-test.mjs && node scripts/bench-views-dept-test.mjs && node scripts/knowledge-test.mjs && node scripts/knowledge-lifecycle-test.mjs && node scripts/knowledge-remember-test.mjs && node scripts/knowledge-visibility-test.mjs
       - name: HTTP 服务单测（经服务注册与直接注册的路由栈逐行相同·注册可撤销·同一路径只撤一条·随插件卸载·撤销时在途请求不受影响）
         run: node scripts/http-service-test.mjs
       - name: 周期定时器随上下文停（index.ts 之外带周期定时器的模块起来之后都在跑；卸载根上下文之后一个不剩；把 unref 换成空操作，子进程照样自己退出）
@@ -534,6 +534,8 @@ jobs:
         run: node scripts/skill-binary-publish-smoke.mjs
       - name: 技能回滚冒烟（回滚=移当前版本指针不新增版本·不撞同指纹唯一索引·回滚后缺省取装/导出/安装计划/校验=目标版本·二进制逐字节一致·MCP 变更申请批准同一执行体·发新版恢复跟随最新·预置孤儿版本目录挪进 .orphans 不混写）
         run: node scripts/skill-rollback-smoke.mjs
+      - name: 技能导入冒烟（隔离库·源 C 导入、同内容不升版、改了升版旧版不变、无 frontmatter 跳过·导入试跑报技能自己写的版本号，顶层和 metadata 下都认，本仓 skills/ 每个都报得出）
+        run: node scripts/skill-import-smoke.mjs
       - name: 驾驶舱布局吸附单测（#320：宽度只取 3/4/6/12·x 越界收回·不丢面板·读时迁移不回写）
         run: node scripts/cockpit-layout-unit.mjs
       - name: 名字的显示规则单测（纯函数——名册、线和步的名字；单列一步）

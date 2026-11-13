@@ -36,8 +36,31 @@ ME = {'member': {'authenticated': True, 'via': 'cookie', 'login': 'synthetic-alp
       'management': {'authenticated': True, 'via': 'cookie', 'login': 'synthetic-boss', 'display_name': '合成管理层', 'principal': 'user:synthetic-boss', 'roles': [{'id': 'management', 'name': '管理层', 'scope': '*', 'preset': True}]}}
 asked = []
 def fake(route, body, status=200): route.fulfill(status=status, content_type='application/json', body=json.dumps(body))
+# 「项目 → 部门」对照（#729）：只给管理层看得到、改得了；员工 403。合成的项目和部门，部门标识只在下拉的值和请求里
+import time
+NOW_MS = int(time.time() * 1000)
+DEPTS = [{'id': 'dept-syn-buy', 'name': '采购部'}, {'id': 'dept-syn-qc', 'name': '品控部'}]
+PD = {'projects': [{'project': 'proj-syn-sample', 'department': {'id': 'dept-syn-buy', 'name': '采购部'}, 'department_missing': False, 'items': 3, 'updated_at': NOW_MS - 3 * 3600_000},
+                   {'project': 'proj-syn-gone', 'department': None, 'department_missing': True, 'items': 1, 'updated_at': NOW_MS - 50 * 3600_000},
+                   {'project': 'proj-syn-new', 'department': None, 'department_missing': False, 'items': 2, 'updated_at': None}],
+      'log': [{'project': 'proj-syn-sample', 'old_department': None, 'old_department_name': None, 'new_department': 'dept-syn-buy', 'new_department_name': '采购部', 'by_name': '合成管理层', 'at': NOW_MS - 3 * 3600_000},
+              {'project': 'proj-syn-gone', 'old_department': 'dept-syn-old', 'old_department_name': None, 'new_department': None, 'new_department_name': None, 'by_name': None, 'at': NOW_MS - 50 * 3600_000}],
+      'departments': DEPTS}
+puts = []
+def on_pd(route):
+    if who['role'] != 'management': return fake(route, {'error': 'knowledge_project_depts_denied', 'message': 'x'}, 403)
+    if route.request.method == 'PUT':
+        b = json.loads(route.request.post_data or '{}'); puts.append(b)
+        if b.get('department') == 'dept-syn-qc' and mode.get('pd') == '404': return fake(route, {'error': 'department_missing'}, 404)
+        for p_ in PD['projects']:
+            if p_['project'] == b['project']:
+                d = next((x for x in DEPTS if x['id'] == b['department']), None)
+                p_['department'] = d; p_['department_missing'] = False; p_['updated_at'] = NOW_MS
+        return fake(route, {'changed': True, **PD})
+    return fake(route, PD)
 def on_kn(route):
     u = urlparse(route.request.url); asked.append(u.path)
+    if u.path == '/api/knowledge/project-depts': return on_pd(route)
     if u.path == '/api/knowledge':
         m = mode['list']
         if m == 'ok': return fake(route, {'items': ITEMS + ([MGMT_ONLY] if who['role'] == 'management' else []), 'source': 'ok'})
@@ -128,7 +151,42 @@ with sync_playwright() as p:
     check('503：说暂时读不到，带再试一次；不当成空', '暂时读不到' in pg.locator('[data-testid=kn-problem]').inner_text() and pg.get_by_role('button', name='再试一次').count() == 1 and pg.locator('[data-testid=kn-empty]').count() == 0)
     mode['list'] = 'ok'; pg.get_by_role('button', name='再试一次').click(); pg.wait_for_selector('[data-testid=kn-list]')
     check('「再试一次」之后列出来了', pg.locator('[data-testid=kn-item]').count() == 3)
-    check('页面只问了经验库的两个读接口', all(a == '/api/knowledge' or a.startswith('/api/knowledge/') for a in asked) and '/api/knowledge' in asked, sorted(set(asked))[:5])
+    check('页面只问了经验库的接口', all(a == '/api/knowledge' or a.startswith('/api/knowledge/') for a in asked) and '/api/knowledge' in asked, sorted(set(asked))[:5])
+
+    print('五、项目对应的部门（只给管理层、属主）')
+    who['role'] = 'member'; pg.goto(M + '/knowledge'); pg.wait_for_selector('[data-testid=kn-list]'); pg.wait_for_timeout(600)
+    check('普通员工：经验库页上没有「项目对应的部门」的入口（那张表回 403）', pg.locator('[data-testid=kn-projects-link]').count() == 0)
+    pg.goto(M + '/knowledge/projects'); pg.wait_for_selector('[data-testid=kp-problem]')
+    check('普通员工直接打开 /knowledge/projects：说只有管理层和属主能看，不出表', '只有管理层和属主' in pg.locator('[data-testid=kp-problem]').inner_text() and pg.locator('[data-testid=kp-table]').count() == 0)
+    who['role'] = 'management'; pg.goto(M + '/knowledge'); pg.wait_for_selector('[data-testid=kn-projects-link]')
+    pg.locator('[data-testid=kn-projects-link]').click(); pg.wait_for_selector('[data-testid=kp-table]')
+    check('管理层：经验库页上有入口，点进 /knowledge/projects', urlparse(pg.url).path == '/knowledge/projects')
+    rows = pg.locator('[data-testid=kp-table] tbody tr')
+    projs = pg.locator('[data-testid=kp-project]').all_inner_texts()
+    check('一行一个项目，项目名原样；条目数照应答', projs == ['proj-syn-sample', 'proj-syn-gone', 'proj-syn-new'] and rows.nth(0).inner_text().count('3') >= 1, projs)
+    check('对到的部门在下拉里写部门名；没对写「不对应部门（只给管理层看）」；部门已不在的那行提示请重设', '采购部' in rows.nth(0).locator('[data-testid=kp-select]').inner_text() and '不对应部门' in rows.nth(2).locator('[data-testid=kp-select]').inner_text() and '部门已不在，请重设' in rows.nth(1).inner_text())
+    logs = pg.locator('[data-testid=kp-log-row]').all_inner_texts()
+    check('改动记录写名字：「合成管理层把…改成「采购部」」；人查不到写「一位同事」、部门删了写「一个已删的部门」', any('合成管理层把「proj-syn-sample」从不对应部门改成「采购部」' in x for x in logs) and any('一位同事把「proj-syn-gone」从一个已删的部门改成不对应部门' in x for x in logs), logs)
+    text = pg.locator('main').inner_text()
+    check('页面的字上没有部门标识（dept-…）', 'dept-' not in text)
+    if SHOT: pg.wait_for_timeout(400); pg.screenshot(path=SHOT.replace('.png', '-项目部门.png'))
+    def pick(label):
+        # 上一个下拉收起来有动画：等它关掉，只在开着的那个下拉里点
+        pg.wait_for_timeout(400)
+        pg.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden):visible .ant-select-item-option', has_text=label).last.click()
+    rows.nth(2).locator('[data-testid=kp-select]').click()
+    pick('品控部')
+    pg.wait_for_function("() => document.querySelectorAll('[data-testid=kp-table] tbody tr')[2]?.textContent.includes('品控部')")
+    check('改一行：发 PUT { project, department: 部门标识 }，表照应答更新', puts[-1:] == [{'project': 'proj-syn-new', 'department': 'dept-syn-qc'}], puts)
+    rows.nth(0).locator('[data-testid=kp-select]').click()
+    pick('不对应部门')
+    pg.wait_for_function("() => document.querySelectorAll('[data-testid=kp-table] tbody tr')[0]?.textContent.includes('不对应部门')")
+    check('清掉：发 department: null，提示这个项目的经验只给管理层看', puts[-1] == {'project': 'proj-syn-sample', 'department': None} and pg.locator('.ant-message', has_text='只给管理层看').count() >= 1, puts[-1:])
+    mode['pd'] = '404'
+    rows.nth(1).locator('[data-testid=kp-select]').click()
+    pick('品控部')
+    pg.locator('.ant-message-notice', has_text='部门已经不在').first.wait_for()
+    check('选的部门已经不在（404）：说刷新再选，不露代号', pg.locator('.ant-message', has_text='department_missing').count() == 0)
     b.close()
 
 print(f'knowledge-browser: {ok} 过 / {fail} 败')
