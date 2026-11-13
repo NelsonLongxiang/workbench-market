@@ -22,6 +22,9 @@
  * 每个团队带 can_assign / assign_denied_text（和分配、收回接口用同一处判断 assignRefusal），
  * can_assign 为真的团队带 assignable：可以分给谁（所挂部门的成员和负责人、这个团队的负责人，启用的人）。
  * 每个团队（含待认领的）带 node_name：节点在对端登记表里的名字，没有为 null；roster_received_at：最近一次收下这个节点名册的时间。
+ * 顶层 roster_stale_minutes 是名册停推的阈值；每个团队带 roster_stale（这个节点的名册停推了没有）、roster_stale_for_minutes（停推时离最近一次收到多少分钟），
+ * 和「等你拍板」的名册停推同一个判断（TeamService 的 staleBy）。
+ * 每个团队带 lead_pending_grant：所挂部门上写着负责人、但他没有这个部门拍板授予的（待属主放行）——他不算负责人，不带任何权力，页面写「负责人（待属主放行权限）」。
  *
  * 分配、收回由「这个人是不是这个团队的负责人」判，是按对象的范围（统一判定还不认，L13），路由声明「状态码不代表授权」；
  * 写请求总门对这两条放行（index.ts 的 REMOTE_ALLOW_PREFIX），认人、同源、负责人在这里判。认领、负责人的增减是管理面，照写请求总门和管理员门。
@@ -37,7 +40,7 @@ import type { PrincipalService } from '../services/principal.ts';
 import type { GrantService } from '../services/grant.ts';
 import type { DepartmentService } from '../services/department.ts';
 import { HOST_RE, SEAT_ID_RE, SEAT_RE, TEAM_RE, type Actor, type SeatKey, type TeamKey, type TeamRefusal, type TeamService, type TeamView } from '../services/team.ts';
-import { teamName } from '../team-relation.ts';
+import { orgWideManagement, teamName, teamVisibleTo } from '../team-relation.ts';
 import { CONFIRM_BY, type RelationProposalService } from '../services/relation-proposal.ts';
 
 export type TeamRouteDeps = {
@@ -92,7 +95,7 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
     if (!bound) { res.status(401).json({ error: 'teams_auth_required' }); return null; }
     const p = principals().get(bound);
     if (!p || p.status !== 'active' || p.kind !== 'person') { res.status(403).json({ error: 'teams_principal_not_active' }); return null; }
-    const management = grants().activeFor(bound).some((g) => (g.role === 'management' || g.role === 'owner') && g.scope === '*');
+    const management = orgWideManagement(bound);
     return { kind: 'person', principal: bound, management };
   }
 
@@ -116,16 +119,7 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
 
   /** 这个人看得到这个团队吗（读） */
   function visible(v: Viewer, t: TeamView): boolean {
-    if (v.kind === 'admin') return true;
-    if (t.status === 'unclaimed') return false;
-    if (v.management) return true;
-    if (t.leads.some((l) => l.principal === v.principal)) return true;
-    if (t.members.some((m) => m.assigned_to?.principal === v.principal)) return true;
-    if (t.department) {
-      const d = t.department.id;
-      if (departments().of(v.principal).some((x) => x.id === d)) return true;
-    }
-    return false;
+    return teamVisibleTo({ admin: v.kind === 'admin', principal: v.principal, management: v.kind === 'person' && v.management }, t);
   }
 
   /** 管理员（同源）或本机命令行；不是就回 403，返回 null */
@@ -171,6 +165,8 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
     const owner = isAdmin && (v.by === 'cli' || grants().isOwner(v.principal));
     const business = owner || grants().isBusinessSide(v.principal);
     res.json({
+      // 名册停推的阈值（分钟，服务端实际生效的 WM_ROSTER_STALE_MINUTES）；每个团队的 roster_stale 和「等你拍板」的名册停推出自同一个判断
+      roster_stale_minutes: teams().rosterStaleMinutes(),
       // claim / add_lead：直接生效；propose_claim / propose_lead：只能提议（确认在 /api/relations/proposals）；release、manage_leads（移除）是收紧，管理员一步完成
       can: {
         claim: isAdmin && business, propose_claim: isAdmin && !business, release: isAdmin,

@@ -1,6 +1,6 @@
 """「谁能做什么」（照原型 3fbfd0b 重做的 /access）浏览器回归；由 scripts/sider-menu-browser.mjs 起合成实例后调用，参数为配置 JSON 路径。
 授予和主体两份列表用合成的应答（经 page.route 截下）；角色和矩阵用实例真的。核准、不给两个写请求也截下，核对发了什么。
-  · 没有口令、没登录：授予读不到，说「现在只有管理员能看」，不弹口令框；
+  · 没有口令、没登录：授予读不到（401），说「请先登录」，不弹口令框；
   · 认出了人但不是管理员：「人和权限」显示「你的权限」（取 /api/auth/me 的本人角色），下面一句别人的权限谁能看；
   · 有口令：两个页签（没有「以某人的身份看」）；待核准卡片、按人排的表（状态最左），范围不是全部的生效中授予标「尚未生效」；矩阵里「范围内」的格子同样标；
   · 核准发对了请求；不给要写理由，理由空着确认按钮不能点，写了才发、带着理由；被拒时说服务端给的说法；
@@ -57,12 +57,12 @@ with sync_playwright() as p:
     pg = b.new_page(viewport={'width': 1440, 'height': 900}); pg.set_default_timeout(10000)
     pg.goto(M + '/access'); pg.wait_for_selector('.wm-acc-tabs')
     pg.wait_for_selector('.ant-alert', timeout=10000)
-    check('没有口令、没登录：授予读不到，说现在只有管理员能看；不弹口令框', pg.locator('.ant-alert', has_text='现在只有管理员能看').count() == 1 and pg.locator('.ant-modal').count() == 0 and pg.locator('[data-testid=acc-mine]').count() == 0)
+    check('没有口令、没登录：授予读不到（401），说请先登录；不弹口令框', pg.locator('.ant-alert', has_text='请先登录').count() == 1 and pg.locator('.ant-modal').count() == 0 and pg.locator('[data-testid=acc-mine]').count() == 0)
     tabs = [t.strip() for t in pg.locator('.wm-acc-tab').all_inner_texts()]
     check('两个页签：人和权限、角色预设（以某人的身份看还没有）', tabs == ['人和权限', '角色预设'], tabs)
     check('顶栏标题是导航名「谁能做什么」', pg.locator('.wm-top-title').inner_text().strip() == '谁能做什么')
 
-    # 认出了人但不是管理员：授予仍是 403（实例真的），/api/auth/me 截下来换成带本人角色的
+    # 认出了人但不是管理员：浏览器没带会话，授予是 401（实例真的），/api/auth/me 截下来换成带本人角色的
     ME = {'gate': 'off', 'authenticated': True, 'via': 'odoo', 'login': 'bing', 'principal': 'user:bing', 'display_name': '丙',
           'roles': [{'id': 'member', 'name': '普通员工', 'scope': '*', 'preset': True, 'expires_at': None, 'source': 'manual', 'approved_by': 'odoo:jia'},
                     {'id': 'dept-lead', 'name': '部门负责人', 'scope': 'domain:work', 'preset': True, 'expires_at': NOW, 'source': 'manual', 'approved_by': 'odoo:jia'}]}

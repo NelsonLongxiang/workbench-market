@@ -13,6 +13,7 @@ import { deliveryTarget, eventDispatched, inReplyTx, queueReply } from './servic
 import { followupById, followupsOfEvent, markFollowupReplied, markFollowupsRead, unreadFollowupsOfEvent, type FollowupRow } from './services/a2a-followups.ts';
 import { itemIdForEvent } from './services/work-item.ts';
 import { latestProgressOfEvent } from './services/a2a-receipts.ts';
+import { asksOfEvent } from './services/attention-sources.ts';
 import { kickWorkbenchEvents, logDeliveryFact } from './workbench-events.ts';
 
 export const SEAT_REPLY_MAX = 4000;
@@ -64,7 +65,8 @@ export function replyableMessages(item: { id: string; source_ref?: string | null
 }
 
 /** 回复一条席位消息：消息必须属于这件事项；超限只记日志的不能回复；已回复过的不再回复；事项结束了不能回复 */
-export function replySeatMessage(item: { id: string; source_ref?: string | null; state?: string }, messageId: number, text: string, actor: string): ReplyOutcome {
+/** actingFor：替谁回的（itemDecisionVerdict 给的；空串是本人），记进投递事实那一行 */
+export function replySeatMessage(item: { id: string; source_ref?: string | null; state?: string }, messageId: number, text: string, actor: string, actingFor = ''): ReplyOutcome {
   const ev = eventOfItem(item);
   const f = Number.isSafeInteger(messageId) && messageId > 0 ? followupById(messageId) : undefined;
   if (!ev || !f || f.event_id !== ev || f.status === 'rate-limited') return { status: 404, body: { error: 'seat_message_not_found' } };
@@ -76,7 +78,7 @@ export function replySeatMessage(item: { id: string; source_ref?: string | null;
     if (!markFollowupReplied(f.id, actor)) return null;
     const q = dispatched && !!target && queueReply({ kind: 'followup-reply', eventId: f.event_id, deliveryId: f.delivery_id, ref: f.id, qid: f.inbound_task,
       team: target.team, callerSession: target.caller_session, contextId: f.context_id, targetUrl: target.target_url, message: JSON.stringify({ text, by: actor }) }) !== null;
-    logDeliveryFact(f.event_id, f.delivery_id, actor, 'followup-replied', { followup: f.id, text: text.slice(0, 500), sent: q });
+    logDeliveryFact(f.event_id, f.delivery_id, actor, 'followup-replied', { followup: f.id, text: text.slice(0, 500), sent: q, ...(actingFor ? { acting_for: actingFor } : {}) });
     return q;
   });
   if (queued === null) return { status: 409, body: { error: 'seat_message_not_open' } };
@@ -84,7 +86,13 @@ export function replySeatMessage(item: { id: string; source_ref?: string | null;
   return { status: 200, body: { ok: true, item_id: item.id, sent: queued, reason: queued ? 'queued' : dispatched ? 'not_queued' : 'event_not_dispatched' } };
 }
 
-export type SeatProgress = { n: number; state: string; summary: string; at: string; ahead?: number; by?: unknown; tickets: unknown[]; received_at: string };
+/**
+ * by：回执信封里的 by 原样（receipt-inbound 洗过）——对象 { seat, name?, team?, role? }，不是字符串；
+ *   seat 是句柄 <zone>/<id8>，name 是对端自报的显示名，role 取 router（总工）/ member（成员）/ observer（观察者），旧节点不带 role。
+ * tickets：[{ id, title, seat?, state, outcome? }]，state 取 queued / working / waiting / blocked / ended。
+ */
+export type SeatBy = { seat: string; name?: string; team?: string; role?: 'router' | 'member' | 'observer' };
+export type SeatProgress = { n: number; state: string; summary: string; at: string; ahead?: number; by?: SeatBy; tickets: { id: string; title: string; seat?: string; state: string; outcome?: string }[]; received_at: string };
 
 /**
  * 阶段七 PR-A：席位最近一步进展（progress-<task>-<n>），给事项页做「正在处理」的轻提示和子项（tickets，以最近一步的全量为准）。
@@ -98,7 +106,34 @@ export function seatProgressOf(item: { id: string; source_ref?: string | null; s
   if (!p || !step || typeof step.n !== 'number' || typeof step.state !== 'string') return null;
   return {
     n: step.n, state: step.state, summary: typeof step.summary === 'string' ? step.summary : '', at: typeof step.at === 'string' ? step.at : '',
-    ...(typeof step.ahead === 'number' ? { ahead: step.ahead } : {}), ...(p.detail.by ? { by: p.detail.by } : {}),
-    tickets: Array.isArray(p.detail.tickets) ? p.detail.tickets : [], received_at: p.at,
+    ...(typeof step.ahead === 'number' ? { ahead: step.ahead } : {}), ...(p.detail.by && typeof p.detail.by === 'object' ? { by: p.detail.by as SeatBy } : {}),
+    tickets: Array.isArray(p.detail.tickets) ? p.detail.tickets as SeatProgress['tickets'] : [], received_at: p.at,
   };
+}
+
+export type ItemAsk = { id: number; question: string; options: string[]; default?: string; status: 'open' | 'answered' | 'closed'; answer?: string; answered_by?: string; answered_at?: string; asked_by: string; at: string };
+
+/**
+ * 事项详情的提问列表（v1 的 decision:ask 和席位回执的提问都在里面，同一条只出现一次，按时间先后）：
+ *   · id：提问那一行事件日志的 id，答复入口 POST /api/work-items/:id/asks/:qid/answer 用它；
+ *   · status：open（投递当前在等它）、answered（事项上记了答复，带 answer、answered_by、answered_at）、
+ *     closed（没答，被后来的提问、接单或结果合上了）；
+ *   · options、default 只在席位回执带了结构化提问时有。可见范围和事项详情一致（在路由里判）。
+ */
+export function seatAsksOf(item: { id: string; source_ref?: string | null }): ItemAsk[] {
+  const ev = eventOfItem(item);
+  if (!ev) return [];
+  return asksOfEvent(ev, item.id).map((r) => {
+    let d: { summary?: unknown; reason?: unknown; question?: { text?: unknown; options?: unknown; default?: unknown } } = {};
+    try { d = JSON.parse(r.detail || '{}'); } catch { /* 坏的 detail 当空 */ }
+    const text = typeof d.question?.text === 'string' ? d.question.text : typeof d.summary === 'string' ? d.summary : typeof d.reason === 'string' ? d.reason : '';
+    const options = Array.isArray(d.question?.options) ? (d.question!.options as unknown[]).filter((o): o is string => typeof o === 'string') : [];
+    const dflt = typeof d.question?.default === 'string' ? d.question.default : undefined;
+    const status: ItemAsk['status'] = r.answer !== null ? 'answered' : r.pending ? 'open' : 'closed';
+    return {
+      id: r.id, question: text, options, ...(dflt !== undefined ? { default: dflt } : {}), status,
+      ...(r.answer !== null ? { answer: String(r.answer), answered_by: r.answered_by ?? '', answered_at: r.answered_at ?? '' } : {}),
+      asked_by: r.actor, at: r.at,
+    };
+  });
 }

@@ -48,8 +48,8 @@ export const BENCH_METHODS = new Map<string, 'read' | 'write'>([
 ]);
 
 export type WriteCtx = { actor: string; at: number; idemKey?: string; note?: string };
-export type WriteResult = { dataset: string; op: string; rows: number; row_count: number; data_bytes?: number; snapshot_id?: number; inserted?: number; updated?: number; deleted?: number; duplicate?: boolean };
-export type DatasetInput = { name: string; title?: string; columns: { name: string; type: string; label?: string; required?: boolean }[]; key?: string[] };
+export type WriteResult = { dataset: string; op: string; rows: number; row_count: number; data_bytes?: number; snapshot_id?: number; inserted?: number; updated?: number; deleted?: number; duplicate?: boolean; ids?: number[] };
+export type DatasetInput = { name: string; title?: string; columns: { name: string; type: string; label?: string; required?: boolean; values?: Record<string, string>; auto?: boolean }[]; key?: string[] };
 export type ViewVersion = { version: number; sha256: string; author: string; note: string; at: number; active: boolean };
 export type BenchChange = { kind: string; bench: string; target: string; from: number; to: number; actor: string; at: number };
 
@@ -163,7 +163,7 @@ function normalizeDataset(input: DatasetInput): { name: string; title: string; c
   const columns = input.columns.map((c, i) => {
     const at = `第 ${i + 1} 列`;
     if (!isObj(c)) throw new BenchError('invalid', `${at} 须为对象`);
-    const ex = Object.keys(c).filter((k) => !['name', 'type', 'label', 'required'].includes(k));
+    const ex = Object.keys(c).filter((k) => !['name', 'type', 'label', 'required', 'values', 'auto'].includes(k));
     if (ex.length) throw new BenchError('invalid', `${at} 有不认识的键：${ex.join('、')}`);
     if (typeof c.name !== 'string' || !NAME_RE.test(c.name)) throw new BenchError('invalid', `${at}：列名须为小写字母开头，只含小写字母、数字、下划线，最多 48 个字符`);
     if (seen.has(c.name)) throw new BenchError('invalid', `列名重复：${c.name}`);
@@ -171,7 +171,18 @@ function normalizeDataset(input: DatasetInput): { name: string; title: string; c
     if (!COLUMN_TYPES.includes(c.type as never)) throw new BenchError('invalid', `${at}（${c.name}）：类型须为 ${COLUMN_TYPES.join(' / ')}`);
     if (c.label !== undefined && (typeof c.label !== 'string' || c.label.length > 64)) throw new BenchError('invalid', `${at}（${c.name}）：显示名须为 64 个字符以内的文本`);
     if (c.required !== undefined && typeof c.required !== 'boolean') throw new BenchError('invalid', `${at}（${c.name}）：required 须为 true 或 false`);
-    return { name: c.name, type: c.type as ColumnDef['type'], label: c.label ?? '', required: c.required === true || key.includes(c.name) };
+    // 取值说明：{ 取值: 意思 }，最多 100 项；取值、意思都是文本（取值最多 200 个字符，意思最多 64 个字符）
+    let values: Record<string, string> | undefined;
+    if (c.values !== undefined) {
+      if (!isObj(c.values)) throw new BenchError('invalid', `${at}（${c.name}）：values 须为对象，写「取值: 意思」，比如 { "bad": "异常" }`);
+      const ents = Object.entries(c.values as Record<string, unknown>);
+      if (ents.length > 100) throw new BenchError('limit', `${at}（${c.name}）：values 最多 100 项`);
+      for (const [v, m] of ents) if (v.length > 200 || typeof m !== 'string' || !m.trim() || m.length > 64) throw new BenchError('invalid', `${at}（${c.name}）：values 里每一项都要写「取值: 意思」，意思是 1～64 个字符的文本`);
+      if (ents.length) values = Object.fromEntries(ents.map(([v, m]) => [v, (m as string).trim()]));
+    }
+    if (c.auto !== undefined && typeof c.auto !== 'boolean') throw new BenchError('invalid', `${at}（${c.name}）：auto 须为 true 或 false`);
+    if (c.auto === true && !(c.type === 'integer' && key.length === 1 && key[0] === c.name)) throw new BenchError('invalid', `${at}（${c.name}）：auto 只用于唯一的整数主键列`);
+    return { name: c.name, type: c.type as ColumnDef['type'], label: c.label ?? '', required: c.required === true || key.includes(c.name), ...(values ? { values } : {}), ...(c.auto === true ? { auto: true as const } : {}) };
   });
   for (const k of key) {
     const c = columns.find((x) => x.name === k);
@@ -420,14 +431,21 @@ export class BenchStoreCore {
   }
 
   // —— 写入 ——
-  /** 幂等和写入记录：同键同内容返回原结果，同键不同内容拒绝；记录只存摘要 */
+  /**
+   * 幂等和写入记录：同一个人、同键同内容返回原结果，同键不同内容拒绝；记录只存摘要。
+   * 键按写的人隔开：别人用过的键，对这个人等于没用过——不会拿到别人那次写入的结果，也不会从「键已用在另一份内容上」看出别人写过什么。
+   * 存进 idem_key 列的是「写的人 + 换行 + 键」（键只收可见 ASCII，不含换行，拼出来不会和别人的撞）。
+   */
   private async logged(ds: DatasetDef, op: string, payload: unknown, ctx: WriteCtx, fn: (c: { actor: string; at: number; note: string }) => Promise<WriteResult>): Promise<WriteResult> {
     const c = checkCtx(ctx), body = sha256(canonical([ds.name, op, payload]));
-    if (ctx.idemKey) {
-      const prev = await this.conn.all('SELECT dataset, op, body_sha256, result FROM bs_writes WHERE idem_key = ?', [ctx.idemKey]);
+    const scopedKey = ctx.idemKey ? `${c.actor}\n${ctx.idemKey}` : null;
+    if (scopedKey) {
+      const prev = await this.conn.all('SELECT dataset, op, body_sha256, result FROM bs_writes WHERE idem_key = ?', [scopedKey]);
       if (prev.length) {
         if (prev[0].body_sha256 !== body) throw new BenchError('conflict', '这个幂等键已经用在另一份内容上');
-        return { ...(JSON.parse(String(prev[0].result)) as WriteResult), duplicate: true };
+        // 重放：什么都没再写。插入、更新、删除的行数都是 0（不能一边说 inserted 1 一边说 duplicate）；第一次分配的主键照旧带回
+        const first = JSON.parse(String(prev[0].result)) as WriteResult;
+        return { ...first, ...(first.inserted !== undefined ? { inserted: 0 } : {}), ...(first.updated !== undefined ? { updated: 0 } : {}), ...(first.deleted !== undefined ? { deleted: 0 } : {}), duplicate: true };
       }
     }
     const res = await fn(c);
@@ -437,7 +455,7 @@ export class BenchStoreCore {
     res.data_bytes = await this.account(ds);
     await this.conn.run('UPDATE bs_datasets SET row_count = ?, data_bytes = ?, updated_at = ?, updated_by = ? WHERE name = ?', [res.row_count, res.data_bytes, c.at, c.actor, ds.name]);
     await this.conn.run('INSERT INTO bs_writes (dataset, op, idem_key, body_sha256, row_count, actor, at, result) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [ds.name, op, ctx.idemKey ?? null, body, res.rows, c.actor, c.at, JSON.stringify(res)]);
+      [ds.name, op, scopedKey, body, res.rows, c.actor, c.at, JSON.stringify(res)]);
     const max = await this.conn.all('SELECT MAX(id) AS m FROM bs_writes');
     await this.conn.run('DELETE FROM bs_writes WHERE id <= ?', [Number(max[0].m ?? 0) - BENCH_LIMITS.writeLog]);
     this.pending.push({ kind: `data.${op}`, bench: this.slug, target: ds.name, from: ds.version, to: ds.version, actor: c.actor, at: c.at });
@@ -528,10 +546,29 @@ export class BenchStoreCore {
   }
   /** 追加的本体；要在事务里调（append 和表单提交共用）。op 是写入记录里记的操作名：表单提交记成 form，和直接追加分得开 */
   private async appendIn(name: string, input: unknown, ctx: WriteCtx, op: 'append' | 'form' = 'append'): Promise<WriteResult> {
-    const ds = await this.need(name), rows = decodeInput(input, this.caps.writeBytes), checked = checkRows(ds, rows, 'full', BENCH_LIMITS.rowsPerWrite, this.caps.writeBytes);
+    const ds = await this.need(name), rows = decodeInput(input, this.caps.writeBytes);
+    // 主键由服务端分配的数据集：没给主键的行，按现有最大值往上数（写入是一个接一个排队做的，两个席位同时追加也不会撞号）。
+    // 幂等核对用的是调用方给的原样（没分配之前的），重放时带回第一次分配的号
+    const auto = ds.columns.find((c) => c.auto);
+    let filled: unknown = rows, ids: number[] | undefined;
+    if (auto && Array.isArray(rows)) {
+      const max = Number((await this.conn.all(`SELECT MAX(${physCol(auto.name)}) AS m FROM ${physTable(ds.name)}`))[0].m ?? 0);
+      // 同一批里手填了的号跳过，免得分到的号正好撞上这批手填的
+      // （表单那条路宽松，号可以写成字符串，也认）
+      const given = new Set(rows.map((r) => { const v = isObj(r) ? r[auto.name] : undefined; return typeof v === 'string' && /^-?\d{1,15}$/.test(v.trim()) ? Number(v.trim()) : v; }).filter((v): v is number => Number.isSafeInteger(v)));
+      let next = max;
+      ids = [];
+      filled = rows.map((r) => {
+        if (!isObj(r) || (Object.prototype.hasOwnProperty.call(r, auto.name) && r[auto.name] !== null)) return r;
+        do next++; while (given.has(next));
+        ids!.push(next);
+        return { ...r, [auto.name]: next };
+      });
+    }
+    const checked = checkRows(ds, filled, 'full', BENCH_LIMITS.rowsPerWrite, this.caps.writeBytes);
     return this.logged(ds, op, rows, ctx, async () => {
       await this.insert(ds, checked);
-      return { dataset: ds.name, op, rows: checked.length, row_count: 0, inserted: checked.length };
+      return { dataset: ds.name, op, rows: checked.length, row_count: 0, inserted: checked.length, ...(ids && ids.length ? { ids } : {}) };
     });
   }
   /** 按主键有则改、无则加；每行给主键列和必填列，其余给了哪些列就改哪些列 */
