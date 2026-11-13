@@ -6,7 +6,8 @@
  *   2. 用本检出的代码指向同一个数据目录启动两次：
  *      · 能起来、启动自检全过；原有数据读得出来（总览、事件、凭据库）；
  *      · 表结构只加不改（不删表、不删列、不改列；基线的索引、触发器、视图都还在，定义逐字相同）；
- *      · 原有的行内容没被改（每张表按基线的列给原有行算摘要；基线自己每次启动都会动的表先量出来、排除）；
+ *      · 原有的行内容没被改（每张表按基线的列给原有行算摘要；基线自己每次启动都会动的表先量出来、排除；
+ *        唯一写死的例外：回填版本确实升了时，回填进度表 work_item_backfill 的 version、phase、cursor 跟着变，见 upgradeExpected）；
  *      · 幂等：第二次启动后表结构逐字节相同、各表行数相同；
  *      · 回填：事项数等于事件数，第二次启动「补建 0 个」。
  *   3. 回滚：再用基线的代码指向升级后的数据目录启动——自检全过，读、写（新建工作台、台数据提交、开录入）、凭据库都正常。
@@ -20,6 +21,7 @@
  *   node scripts/upgrade-smoke.mjs --base <git 引用>        换一个基线（标签、分支、提交都行）
  *   node scripts/upgrade-smoke.mjs --head <目录>            要验的代码换成另一个目录（缺省本检出；那个目录要装好依赖）
  *   node scripts/upgrade-smoke.mjs --keep                  跑完保留临时目录（排查用）
+ *   node scripts/upgrade-smoke.mjs --selftest              只跑「原有行没被改」的比对口径自检（不起实例、不取基线）
  *
  * 每条检查都无条件执行：前提不成立就记 ✗，不会悄悄跳过；末尾再核对一遍条数。
  *
@@ -50,11 +52,64 @@ process.on('exit', () => { for (const s of servers) if (s?.child && s.child.exit
 const die = (msg) => { console.error(`[upgrade-smoke] ${msg}`); cleanup(); process.exit(2); };
 const git = (...a) => spawnSync('git', a, { cwd: ROOT, encoding: 'utf8', maxBuffer: 1 << 30 });
 
+// ---------- 「原有行没被改」的比对口径 ----------
+/**
+ * 升级时预期会变、但基线自己重启量不出来的列。只有这一处，写死：
+ * 回填版本（services/work-item.ts 的 BACKFILL_VERSION）升了，新代码会把回填进度表那一行改成新版本、从头再补一遍，
+ * version、phase、cursor 跟着变。只认这张表、这三列，而且只在 version 确实变大的时候；版本没变时这三列变了照样算改了。
+ */
+const UPGRADE_EXPECTED = { work_item_backfill: { cols: new Set(['version', 'phase', 'cursor']), when: (a, b) => Number.isFinite(Number(a.version)) && Number(b.version) > Number(a.version) } };
+function upgradeExpected(t, a, b) {
+  const e = UPGRADE_EXPECTED[t];
+  return e && e.when(a, b) ? e.cols : null;
+}
+/** 一行里被改了的列：不算基线自己每次启动都会动的（volatile），也不算 upgradeExpected 放行的 */
+function changedCols(t, a, b, volatile) {
+  const expected = upgradeExpected(t, a, b);
+  return Object.keys(a).filter((k) => !volatile?.has(k) && !expected?.has(k) && JSON.stringify(a[k]) !== JSON.stringify(b[k]));
+}
+/** 逐表逐行比：返回第一处改动的说明，没改返回 [] */
+function rowsChangedOf(digestBase, digestAfter, volatileTables, volatileCols) {
+  const out = [];
+  for (const t of Object.keys(digestBase)) {
+    if (volatileTables.includes(t)) continue;
+    const a = digestBase[t], b = digestAfter[t] ?? [];
+    const i = a.findIndex((r, k) => !b[k] || changedCols(t, r, b[k], volatileCols[t]).length > 0);
+    if (i < 0) continue;
+    if (!b[i]) { out.push(`${t} 第 ${i + 1} 行没了`); continue; }
+    out.push(`${t} 第 ${i + 1} 行：` + changedCols(t, a[i], b[i], volatileCols[t]).map((k) => `${k} ${JSON.stringify(a[i][k])} → ${JSON.stringify(b[i][k])}`).join('，'));
+  }
+  return out;
+}
+
+if (argv.includes('--selftest')) {
+  let ok = 0, bad = 0;
+  const t = (label, got, want) => { const pass = (got.length > 0) === want; if (pass) ok++; else bad++; console.log(`  ${pass ? '✓' : '✗'} ${label}${pass ? '' : `（${JSON.stringify(got)}）`}`); };
+  const bf = (o) => ({ id: 1, version: 6, status: 'done', phase: 'incremental', cursor: 74, batches: 3, events: 74, log_mark: 0, dirty: 0, updated_at: 'x', ...o });
+  const vol = { work_item_backfill: new Set(['events', 'updated_at']) };
+  const run = (base, after, extra = {}) => rowsChangedOf({ work_item_backfill: [base], ...extra.base }, { work_item_backfill: [after], ...extra.after }, [], vol);
+  t('回填版本升了（6 → 8），version、phase、cursor 跟着变：放行', run(bf(), bf({ version: 8, phase: 'full', cursor: 24, events: 0, updated_at: 'y' })), false);
+  t('版本没升、cursor 变了：算改了', run(bf(), bf({ cursor: 24 })), true);
+  t('版本没升、phase 变了：算改了', run(bf(), bf({ phase: 'full' })), true);
+  t('版本降了（8 → 6），三列跟着变：算改了', run(bf({ version: 8 }), bf({ version: 6, phase: 'full', cursor: 0 })), true);
+  t('版本升了，但别的列（status）也变了：算改了', run(bf(), bf({ version: 8, phase: 'full', cursor: 24, status: 'running' })), true);
+  t('版本升了，batches 变了：算改了（只放三列）', run(bf(), bf({ version: 8, batches: 0 })), true);
+  t('别的表的同名列（version、phase、cursor）变了：算改了', run(bf(), bf(), { base: { other_progress: [{ id: 1, version: 1, phase: 'a', cursor: 1 }] }, after: { other_progress: [{ id: 1, version: 2, phase: 'b', cursor: 2 }] } }), true);
+  t('原有行没了：算改了', rowsChangedOf({ work_item_backfill: [bf()] }, { work_item_backfill: [] }, [], vol), true);
+  t('什么都没变：不算', run(bf(), bf()), false);
+  console.log(`\nupgrade-smoke 自检：${ok} 过，${bad} 没过`);
+  process.exit(bad ? 1 : 0);
+}
+
 // ---------- 准备：基线代码 ----------
 function resolveBase() {
   let r = git('rev-parse', '--verify', `${BASE_REF}^{commit}`);
   if (r.status !== 0 && BASE_REF.startsWith('origin/')) {
     git('fetch', '--no-tags', '--depth=1', 'origin', `${BASE_REF.slice('origin/'.length)}:refs/remotes/${BASE_REF}`);
+    r = git('rev-parse', '--verify', `${BASE_REF}^{commit}`);
+  } else if (r.status !== 0 && /^[0-9a-f]{40}$/.test(BASE_REF)) {
+    // 完整提交号（CI 是浅检出，本地没有）：按提交号取
+    git('fetch', '--no-tags', '--depth=1', 'origin', BASE_REF);
     r = git('rev-parse', '--verify', `${BASE_REF}^{commit}`);
   }
   if (r.status !== 0) die(`取不到基线 ${BASE_REF}`);
@@ -293,7 +348,6 @@ try {
     a.forEach((r, i) => Object.keys(r).forEach((k) => { if (JSON.stringify(r[k]) !== JSON.stringify(b[i][k])) ks.add(k); }));
     if (ks.size) volatileCols[t] = ks;
   }
-  const project = (t, r) => JSON.stringify(Object.fromEntries(Object.entries(r).filter(([k]) => !volatileCols[t]?.has(k))));
   const volatileNote = [...volatileTables.map((t) => `${t}（整表）`), ...Object.entries(volatileCols).map(([t, ks]) => `${t}.${[...ks].join('/')}`)].join('、') || '无';
 
   // 2. 本检出：启动两次
@@ -320,16 +374,10 @@ try {
   const objChanged = Object.keys(before.named).filter((n) => after1.named[n] !== before.named[n]);
   check(objChanged.length === 0, `基线的索引、触发器、视图都还在、定义逐字相同（${Object.keys(before.named).length} 个）`, objChanged.map((n) => `${n}：${after1.named[n] ? '定义变了' : '没了'}`).join('；'));
   const digestAfter = rowDigests(DB, before.cols, before.counts);
-  const rowsChanged = [];
-  for (const t of Object.keys(digestBase)) {
-    if (volatileTables.includes(t)) continue;
-    const a = digestBase[t], b = digestAfter[t];
-    const i = a.findIndex((r, k) => !b[k] || project(t, r) !== project(t, b[k]));
-    if (i < 0) continue;
-    if (!b[i]) { rowsChanged.push(`${t} 第 ${i + 1} 行没了`); continue; }
-    rowsChanged.push(`${t} 第 ${i + 1} 行：` + Object.keys(a[i]).filter((k) => !volatileCols[t]?.has(k) && JSON.stringify(a[i][k]) !== JSON.stringify(b[i][k])).map((k) => `${k} ${JSON.stringify(a[i][k])} → ${JSON.stringify(b[i][k])}`).join('，'));
-  }
-  check(rowsChanged.length === 0, `原有行的内容没被改（${Object.keys(digestBase).length - volatileTables.length} 张表逐行逐列；基线自己每次启动都会动的不算：${volatileNote}）`, rowsChanged.join('；').slice(0, 1200));
+  const rowsChanged = rowsChangedOf(digestBase, digestAfter, volatileTables, volatileCols);
+  const bfBase = digestBase.work_item_backfill?.[0], bfAfter = digestAfter.work_item_backfill?.[0];
+  const bumped = bfBase && bfAfter && upgradeExpected('work_item_backfill', bfBase, bfAfter) ? `；回填版本 ${bfBase.version} → ${bfAfter.version}，回填进度表的 version/phase/cursor 跟着变` : '';
+  check(rowsChanged.length === 0, `原有行的内容没被改（${Object.keys(digestBase).length - volatileTables.length} 张表逐行逐列；基线自己每次启动都会动的不算：${volatileNote}${bumped}）`, rowsChanged.join('；').slice(0, 1200));
   const lostRows = before.tables.filter((t) => (after1.counts[t] ?? 0) < before.counts[t]);
   check(lostRows.length === 0, '原有各表的行数没有变少', lostRows.map((t) => `${t} ${before.counts[t]} → ${after1.counts[t]}`).join('；'));
   // 判据是表里的数，不看日志的写法
