@@ -93,7 +93,9 @@ with sync_playwright() as p:
     check('「详情」去这张卡片的详情页', pg.locator('[data-testid=bench-page-detail]').get_attribute('href') == f'/market/wb/{CARD}')
     check('没有嵌页面的框', pg.locator('iframe').count() == 0)
     heads = [h.inner_text().strip() for h in pg.locator('[data-bb=table] th').all()]
-    check('表头：有列标题用列标题，没有才退回列名', heads[:3] == ['区域', '次数', 'state'], heads)
+    # 统筹 11-13 后改定（阶段四验收要求）：没配说明名的列，表头写「第 N 列」，悬停也不露键名；夹具里 state 那一列故意没配说明名
+    th_html = pg.locator('[data-bb=table] thead').inner_html()
+    check('表头：有列标题用列标题；没配说明名的那一列写「第 3 列」，表头文字和悬停都不露视图定义里的原始键名', heads[:3] == ['区域', '次数', '第 3 列'] and not any(k in heads for k in ('site', 'n', 'state')) and 'state' not in th_html, (heads, th_html[:200]))
     hs = pg.evaluate("() => ['stat','progress','bar'].map(k => document.querySelector(`[data-bb=${k}]`).getBoundingClientRect().height)")
     check('统计卡、进度按内容的高度，不跟同一行的柱图撑高', hs[0] < hs[2] * 0.6 and hs[1] < hs[2] * 0.6, hs)
 
