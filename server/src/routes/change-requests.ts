@@ -7,6 +7,7 @@
  */
 import type express from 'express';
 import type { HttpService } from '../http.ts';
+import type { CardDeleter } from '../bench-card-delete.ts';
 import { svc } from '../context.ts';
 import type { ChangeRequestService } from '../services/change-request.ts';
 import { HttpError } from '../errors.ts';
@@ -18,7 +19,9 @@ export interface ChangeRequestDeps {
   wrap: (fn: (req: express.Request, res: express.Response) => Promise<unknown>) => express.RequestHandler;
   bad: (msg: string) => never;
   activateAppVersion: (slug: string, vRaw: unknown) => Promise<object>;
-  deleteAppCascade: (slug: string) => Promise<void>;
+  deleteAppCascade: (slug: string, card?: { deleter: CardDeleter; confirmBenchData: boolean }) => Promise<void>;
+  /** 批准删台时删卡片的人（卡片的台库有业务数据时要管理层并且确认，见 bench-card-delete.ts） */
+  cardDeleter: (req: express.Request) => Promise<CardDeleter>;
   executeSkillRollback: (slug: string, targetVersion: number, reviewedBy: string) => Promise<Record<string, unknown>>;
   executeSkillDelete: (slug: string) => void;
 }
@@ -29,7 +32,8 @@ export interface ChangeRequestDeps {
  *   判不过抛 HttpError（和旧入口一样的状态码和说法），调用方照旧交给错误处理或换成应答。
  */
 export type ChangeRequestReview = {
-  approve: (id: number, reviewedBy: string, principal: string) => Promise<Record<string, unknown>>;
+  /** card：批准删台时删卡片的人和确认（不给：认出来的审核人是主体就按主体，否则按管理口令；不确认） */
+  approve: (id: number, reviewedBy: string, principal: string, card?: { deleter: CardDeleter; confirmBenchData: boolean }) => Promise<Record<string, unknown>>;
   reject: (id: number, reviewedBy: string, principal: string, note: string) => Record<string, unknown>;
 };
 export let changeRequestReview: ChangeRequestReview | null = null;
@@ -45,7 +49,7 @@ async function reviewerPrincipal(req: express.Request): Promise<string> {
 export function registerChangeRequestRoutes(app: HttpService, deps: ChangeRequestDeps): void {
   const { adminGuard, wrap, bad, activateAppVersion, deleteAppCascade, executeSkillRollback, executeSkillDelete } = deps;
   const review: ChangeRequestReview = {
-    approve: async (id, reviewedBy, principal) => {
+    approve: async (id, reviewedBy, principal, card) => {
       if (!reviewedBy) bad('批准必填 reviewed_by（K11——人审语义）'); // K11
       const r = svc<ChangeRequestService>('changeRequest').byId(id) as any;
       if (!r) throw new HttpError(404, `change_request not found: ${id}`);
@@ -54,7 +58,7 @@ export function registerChangeRequestRoutes(app: HttpService, deps: ChangeReques
       if (r.kind === 'app' && r.op === 'rollback') {
         await activateAppVersion(r.slug, r.target_version);
       } else if (r.kind === 'app' && r.op === 'delete') {
-        await deleteAppCascade(r.slug);
+        await deleteAppCascade(r.slug, card ?? { deleter: principal ? { kind: 'principal', id: principal } : { kind: 'admin-token' }, confirmBenchData: false });
       } else if (r.kind === 'skill' && r.op === 'rollback') {
         await executeSkillRollback(r.slug, Number(r.target_version), reviewedBy);
       } else if (r.kind === 'skill' && r.op === 'delete') {
@@ -83,7 +87,8 @@ export function registerChangeRequestRoutes(app: HttpService, deps: ChangeReques
   });
   app.post('/api/change-requests/:id/approve', { action: 'change-request.approve', kind: 'decide' }, wrap(async (req, res) => {
     if (!adminGuard(req, res)) return; // K11：口令无效→401（adminGuard 已回）
-    res.json(await review.approve(Number(req.params.id), String(req.body?.reviewed_by ?? '').trim(), await reviewerPrincipal(req)));
+    const confirm = (req.body as { confirm_bench_data?: unknown } | undefined)?.confirm_bench_data === true;
+    res.json(await review.approve(Number(req.params.id), String(req.body?.reviewed_by ?? '').trim(), await reviewerPrincipal(req), { deleter: await deps.cardDeleter(req), confirmBenchData: confirm }));
   }));
   app.post('/api/change-requests/:id/reject', { action: 'change-request.reject', kind: 'decide' }, wrap(async (req, res) => {
     if (!adminGuard(req, res)) return;

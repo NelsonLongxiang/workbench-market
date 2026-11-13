@@ -62,20 +62,31 @@ async function scaleOf(slug: string): Promise<BenchScale | null> {
 }
 
 /**
+ * 删之前的那道门（deleteCardWithBench 和删台都先过它）：卡片的台库里有业务数据时，要持管理层授予的人（或本机命令行）并且确认，否则 409。
+ * 台库空的、卡片没开台库的，直接放过。返回这张卡片的台和规模（给删的那一步接着用）
+ */
+export async function checkCardDeletable(id: number, deleter: CardDeleter, confirmBenchData: boolean): Promise<{ bench: ReturnType<typeof benchOfCard>; scale: BenchScale | null }> {
+  const bench = benchOfCard(id);
+  const scale = bench ? await scaleOf(bench.slug) : null;
+  if (bench && scale) {
+    const may = deleter.kind === 'owner' || (deleter.kind === 'principal' && holdsManagementGrant(deleter.id));
+    if (!may) throw new HttpError(409, '这张卡片的台库里有业务数据，删它要由持有管理层授予的人来做（并且确认）；请联系管理层', { code: 'bench_data_needs_management', bench_data: scale });
+    if (!confirmBenchData) throw new HttpError(409, '这张卡片的台库里有业务数据，删卡片会一起删掉；确认要删，请求里带 confirm_bench_data: true（删之前会留一份备份，30 天后清掉）', { code: 'bench_data_confirm_required', bench_data: scale });
+  }
+  return { bench, scale };
+}
+
+/**
  * 删卡片。deleteCard 在主库的事务里做卡片本身那一份（删卡片、常量变量、驾驶舱面板），拿到的是这张卡片的台标识（没有台是 null）。
  * 卡片不存在由 deleteCard 自己抛 404（事务回滚，台不动）。
  */
 export async function deleteCardWithBench(input: { id: number; deleter: CardDeleter; confirmBenchData: boolean; exists: () => boolean; deleteCard: (slug: string | null) => void }): Promise<{ ok: true; deleted: number; bench?: { slug: string; backup: string; backup_expires_at: string } }> {
   const { id, deleter } = input;
   if (!input.exists()) throw new HttpError(404, `workbench not found: ${id}`);
-  const bench = benchOfCard(id);
-  const scale = bench ? await scaleOf(bench.slug) : null;
+  const { bench, scale } = await checkCardDeletable(id, deleter, input.confirmBenchData);
   const at = Date.now();
   let backup: string | null = null;
   if (bench && scale) {
-    const may = deleter.kind === 'owner' || (deleter.kind === 'principal' && holdsManagementGrant(deleter.id));
-    if (!may) throw new HttpError(409, '这张卡片的台库里有业务数据，删它要由持有管理层授予的人来做（并且确认）；请联系管理层', { code: 'bench_data_needs_management', bench_data: scale });
-    if (!input.confirmBenchData) throw new HttpError(409, '这张卡片的台库里有业务数据，删卡片会一起删掉；确认要删，请求里带 confirm_bench_data: true（删之前会留一份备份，30 天后清掉）', { code: 'bench_data_confirm_required', bench_data: scale });
     mkdirSync(BENCH_DELETED_DIR, { recursive: true });
     backup = benchBackupName(bench.slug, at);
     await (await benchStore(bench.slug)).backupTo(join(BENCH_DELETED_DIR, backup));
