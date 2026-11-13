@@ -190,7 +190,7 @@ export class GrantService extends Service {
     const view = this.roleViews.get(g.role);
     const tier = view ? approvalOf(view) : 'owner';
     if (tier === 'admin' && !actor.owner && actor.admin === false) return refuse(403, 'admin_required', `角色 ${g.role} 由管理员放行`);
-    if (tier === 'owner' && !actor.owner) return refuse(403, 'owner_required', `角色 ${g.role} ${view?.adminLevel ? '是管理员级的' : '带业务的拍板'}，${APPROVAL_TEXT.owner}`);
+    if (tier === 'owner' && !actor.owner) return refuse(403, 'owner_required', `角色 ${g.role} ${view?.businessDecide ? '带业务的拍板' : '是管理员级的'}，${APPROVAL_TEXT.owner}`);
     if (tier === 'business' && !actor.owner && !this.isBusinessSide(actor.principal, now)) return refuse(403, 'business_approval_required', `角色 ${g.role} 带业务的写，${APPROVAL_TEXT.business}`);
     if (tier !== 'admin' && !actor.owner && (g.created_by === actor.by || (!!actor.principal && g.created_by_principal === actor.principal))) {
       return refuse(403, 'drafter_cannot_approve', `授予 ${g.id} 是你起草的，角色 ${g.role} 这一档要另一位放行：${APPROVAL_TEXT[tier]}`);

@@ -109,8 +109,11 @@ export function rolesOf(body: unknown): Map<string, RoleInfo> {
   const list = body && typeof body === 'object' && Array.isArray((body as { roles?: unknown }).roles) ? (body as { roles: RoleInfo[] }).roles : [];
   return new Map(list.filter((r) => r && typeof r.id === 'string').map((r) => [r.id, r]));
 }
+/** 角色的名字：取 /api/roles 的；读不到（没有管理权的人不去问）时内置预设用固定的名字（和 server/src/roles.ts 的 PLATFORM_ROLES 一致），
+ *  别的写「自定义角色」，不露角色标识 */
+export const PRESET_ROLE_NAMES: Record<string, string> = { owner: '属主', admin: '系统管理员', management: '管理层', 'dept-lead': '部门负责人', member: '普通员工', guest: '访客', 'ai-staff': 'AI 员工' };
 export function roleName(id: string, roles: Map<string, RoleInfo>): string {
-  return roles.get(id)?.name || id;
+  return roles.get(id)?.name || (Object.hasOwn(PRESET_ROLE_NAMES, id) ? PRESET_ROLE_NAMES[id] : '自定义角色');
 }
 /** 这个角色的授予要谁放行：服务端（GET /api/roles 的 approval_text）给的说法原样用，页面不自己判谁放行得了；
  *  没有这个字段（服务端还没加）就返回 null，页面照旧不显示 */
@@ -180,6 +183,19 @@ export function myRolesOf(me: unknown): MyRole[] | null {
   if (m.authenticated !== true || typeof m.principal !== 'string' || !m.principal || !Array.isArray(m.roles)) return null;
   return (m.roles as MyRole[]).filter((r) => r && typeof r.id === 'string')
     .map((r) => ({ id: r.id, name: typeof r.name === 'string' && r.name.trim() ? r.name.trim() : r.id, scope: String(r.scope ?? '*'), expires_at: typeof r.expires_at === 'number' ? r.expires_at : null }));
+}
+
+/** 主体、角色、矩阵三个读接口只给能管的人（服务端那边是「管理」类动作）。认出了人、又明知他没有管理权的，页面就不去问，
+ *  免得每次打开都白挨 403。授予不在这里判：L19（#659）起登录的人读得到自己能放行的那些，页面照常问。能管的：页面以管理员身份工作（持口令或 Odoo 管理员），或本人角色里有带「管理」类的内置预设
+ *  （属主、系统管理员，见 server/src/roles.ts 的 PLATFORM_ROLES），或有自定义角色（能不能管页面不知道，照旧去问、由服务端判）。
+ *  没认出人（没登录、本机命令行、/api/auth/me 读不到）也照旧去问：页面不知道，交给服务端。 */
+export const ADMIN_PRESETS: readonly string[] = ['owner', 'admin'];
+export function mayReadAccessAdmin(me: unknown, adminMode: boolean): boolean {
+  if (adminMode) return true;
+  if (!me || typeof me !== 'object') return true;
+  const m = me as { authenticated?: unknown; principal?: unknown; roles?: unknown };
+  if (m.authenticated !== true || typeof m.principal !== 'string' || !m.principal || !Array.isArray(m.roles)) return true;
+  return (m.roles as { id?: unknown; preset?: unknown }[]).some((r) => !!r && (r.preset !== true || ADMIN_PRESETS.includes(String(r.id))));
 }
 
 /** 角色的「能做」一格：服务端的 summary.do 是「能做：…；能管：…」，能管交给矩阵的「管理」一列去说，这一格只留能做 */
