@@ -261,6 +261,7 @@ body {
   grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: var(--wm-space-3);
 }
+.wm-dash-grid-top { align-items: start; }
 .wm-span-3 { grid-column: span 3; }
 .wm-span-4 { grid-column: span 4; }
 .wm-span-6 { grid-column: span 6; }
