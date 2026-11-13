@@ -89,6 +89,8 @@
       "GET /api/bench-views/:bench/log  <- <anonymous>",
       "GET /api/knowledge  <- <anonymous>",
       "GET /api/knowledge/status  <- <anonymous>",
+      "GET /api/knowledge/project-depts  <- <anonymous>",
+      "PUT /api/knowledge/project-depts  <- <anonymous>",
       "GET /api/knowledge/:key  <- <anonymous>",
       "GET /api/auth/viewer  <- <anonymous>",
       "GET /api/principals/pending  <- <anonymous>",
