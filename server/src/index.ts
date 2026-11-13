@@ -126,7 +126,7 @@ import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, redisConfigured, runStateRestore, runStateRead, runStateRetire, type RunStateRead } from './redis.ts';
 import { createRunCheckpoints } from './sop-state-checkpoints.ts';
 import { duplicateNode8s } from './services/a2a-handles.ts';
-import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, memberProvenanceMode, setMemberProvenance, progressReceiptsMode, setProgressReceipts, teamRosterMode, setTeamRoster, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
+import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, memberProvenanceMode, setMemberProvenance, progressReceiptsMode, setProgressReceipts, teamRosterMode, setTeamRoster, directedSeatsMode, setDirectedSeats, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
 import type { IncomingMessage } from 'node:http';
 import { a2aHealth } from './a2a/health.ts';
 import { followupRateLimit } from './a2a/receipt-inbound.ts';
@@ -263,6 +263,14 @@ if (!A2A_TEAM_ROSTER) {
 }
 setTeamRoster(A2A_TEAM_ROSTER === 'on');
 console.log(`[a2a] 名片${A2A_TEAM_ROSTER === 'on' ? '声明' : '不声明'} teamRoster（WM_A2A_TEAM_ROSTER=${A2A_TEAM_ROSTER}）：${A2A_TEAM_ROSTER === 'on' ? '节点推来的团队名册照规矩收' : '入站名册一律不收'}`);
+// 名片是否声明 directedSeats（WM_A2A_DIRECTED_SEATS=on|off，缺省 on）；值不合法拒绝启动
+const A2A_DIRECTED_SEATS = directedSeatsMode();
+if (!A2A_DIRECTED_SEATS) {
+  console.error('[a2a] 拒绝启动：WM_A2A_DIRECTED_SEATS 只接受 on / off / 不设');
+  process.exit(1);
+}
+setDirectedSeats(A2A_DIRECTED_SEATS === 'on');
+console.log(`[a2a] 名片${A2A_DIRECTED_SEATS === 'on' ? '声明' : '不声明'} directedSeats（WM_A2A_DIRECTED_SEATS=${A2A_DIRECTED_SEATS}）：${A2A_DIRECTED_SEATS === 'on' ? '「安排一件事」可以指名团队里的成员' : '不收指名'}`);
 // 名册多久没更新算停推（WM_ROSTER_STALE_MINUTES，缺省 60 分钟）：超过就进管理员的「等你拍板」；值不合法拒绝启动
 const ROSTER_STALE_MINUTES = rosterStaleMinutesFromEnv();
 if (ROSTER_STALE_MINUTES === null) {

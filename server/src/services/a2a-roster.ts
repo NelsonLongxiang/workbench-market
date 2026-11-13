@@ -81,6 +81,24 @@ export function rosterHosts(): { host: string; peer_root: string }[] {
   return db.prepare('SELECT host, peer_root FROM a2a_rosters').all() as { host: string; peer_root: string }[];
 }
 
+/** 这个根地址报过名册的那台宿主的节点键（一个根地址只对一个节点键：同一节点键只认第一次报它的根地址）；没报过是 null */
+export function rosterHostOfRoot(root: string): string | null {
+  const row = db.prepare('SELECT host FROM a2a_rosters WHERE peer_root = ? ORDER BY received_at DESC LIMIT 1').get(root) as { host: string } | undefined;
+  return row?.host ?? null;
+}
+
+/** 名册里（host, team）下 seat_id 是这个值的席位；没有是 null */
+export function rosterSeatById(host: string, team: string, seatId: string): { seat: string; seat_id: string; name: string; role: RosterSeat['role'] } | null {
+  const row = db.prepare('SELECT seat, seat_id, name, role FROM a2a_roster_seats WHERE host = ? AND team = ? AND seat_id = ? LIMIT 1').get(host, team, seatId) as { seat: string; seat_id: string; name: string; role: RosterSeat['role'] } | undefined;
+  return row ?? null;
+}
+
+/** 名册里（host, team）下句柄是这个值的席位的 seat_id（成员换会话以后句柄会变，按收到回执那一刻的名册换）；没有或没带 seat_id 是 '' */
+export function rosterSeatIdOf(host: string, team: string, seat: string): string {
+  const row = db.prepare('SELECT seat_id FROM a2a_roster_seats WHERE host = ? AND team = ? AND seat = ? LIMIT 1').get(host, team, seat) as { seat_id: string } | undefined;
+  return row?.seat_id ?? '';
+}
+
 export function rosters(): RosterRow[] {
   const hosts = db.prepare('SELECT host, peer_root, peer_zone, reported_at, received_at FROM a2a_rosters ORDER BY peer_zone, host').all() as Omit<RosterRow, 'seats'>[];
   const seats = db.prepare('SELECT host, team, seat, seat_id, name, role, online, queued, last_active_at FROM a2a_roster_seats ORDER BY host, team, seat').all() as { host: string; team: string; seat: string; seat_id: string; name: string; role: RosterSeat['role']; online: number; queued: number; last_active_at: string }[];
