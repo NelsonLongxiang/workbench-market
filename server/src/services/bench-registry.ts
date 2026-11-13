@@ -18,7 +18,7 @@ import { db } from '../db.ts';
 import { BenchError } from '../bench-query.ts';
 import { BENCH_SLUG_RE } from './bench-store-core.ts';
 import { benchStoreExists } from './bench-store.ts';
-import { boundSql } from './team.ts';
+import { boundSql } from './team-binding-sql.ts';
 
 export type BenchBinding = { department_id: string; team_host: string; team: string };
 export type BenchEntry = { slug: string; title: string; created_by: string; created_at: number; workbench_id: number | null } & BenchBinding;

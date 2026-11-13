@@ -29,6 +29,7 @@ import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
 import { rosters, activeItemsBySeat, type RosterSeat } from './a2a-roster.ts';
 import { leadGrantActive } from './dept-lead-grant.ts';
+import { boundSql } from './team-binding-sql.ts';
 
 export const HOST_RE = /^[0-9a-f]{8}$/;
 export const TEAM_RE = /^([a-z0-9-]+\/canvas\/[^/]+)?$/; // 空串也是合法的团队（不在任何画布上的席位）
@@ -82,14 +83,8 @@ export function currentNode(host: string): NodeBinding | null {
     WHERE r.host = ? AND r.peer_root <> '' AND p.status = 'active' AND p.key_fingerprint <> ''`).get(host) as NodeBinding | undefined;
   return r ?? null;
 }
-/**
- * SQL 条件：别名 a 那一行记下的节点（host、peer_root、key_fingerprint）就是现在名册和对端登记里的那个（对端启用、指纹不空），
- * 而且这个号在名册里只对应这一个节点（名册以后按根地址和指纹分开存时，一个号可能对应好几个节点：认不清就不算数）。
- * 归属的每一处读都套它；bench-registry.ts 读团队登记时也用
- */
-export const boundSql = (a: string): string => `(EXISTS (SELECT 1 FROM a2a_rosters br JOIN a2a_peers bp ON bp.root_url = br.peer_root
-  WHERE br.host = ${a}.host AND br.peer_root = ${a}.peer_root AND br.peer_root <> '' AND bp.status = 'active' AND bp.key_fingerprint = ${a}.key_fingerprint AND ${a}.key_fingerprint <> '')
-  AND (SELECT COUNT(*) FROM a2a_rosters bn WHERE bn.host = ${a}.host) = 1)`;
+/** SQL 条件：这一行记下的节点就是现在的节点（见 team-binding-sql.ts）。归属的每一处读都套它 */
+export { boundSql };
 /** 节点核不过的统一拒法 */
 const NODE_UNVERIFIED = (): TeamRefusal => refuse(409, 'node_unverified', '这个节点还没核过（名册里的根地址要在对端登记里、启用、有完整指纹），先登记或确认对端再操作');
 /** 停掉记在旧节点上、现在已经不算数的那几行时，记的操作人 */
