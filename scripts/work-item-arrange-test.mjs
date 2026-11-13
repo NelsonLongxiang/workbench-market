@@ -494,6 +494,25 @@ try {
     const mz = await up(ALPHA, 'setup.txt', Buffer.concat([Buffer.from('MZ'), Buffer.alloc(64)]));
     check([elf, mz].every((r) => r.status === 400 && r.body?.error === 'attachment_executable_refused') && filesIn(join(data, 'uploads')) === f0 && rowsNow() === r0,
       '上传：ELF、MZ（改成 .txt 也一样）一律 400 attachment_executable_refused，不落盘、不记录', show({ elf: [elf.status, elf.body], mz: [mz.status, mz.body], files: [f0, filesIn(join(data, 'uploads'))], rows: [r0, rowsNow()] }));
+
+    // 对端登记表里停用、等确认新键的节点：回执令牌还在有效期内也一律当不存在（取件 404、回写决定 404，什么都不动）；恢复之后照常
+    const gated = await armed('对端状态');
+    const peerSet = (status) => dbw("UPDATE a2a_peers SET status = ? WHERE root_url = 'http://127.0.0.1:1'", status);
+    const decide = (decision) => call('POST', `/api/workbench-events/${gated.ev}/decision`, {}, { token: gated.tok, decision, reason: '合成的回写' });
+    const decisionNow = () => { const d = dbr(); try { return d.prepare('SELECT decision FROM workbench_event_deliveries WHERE id = ?').get(gated.delivery)?.decision ?? ''; } finally { d.close(); } };
+    const logN = () => { const d = dbr(); try { return Number(d.prepare("SELECT COUNT(*) AS c FROM workbench_event_log WHERE delivery_id = ? AND action LIKE 'decision:%'").get(gated.delivery).c); } finally { d.close(); } };
+    const g0 = await fetchAs(gated);
+    const before = { decision: decisionNow(), log: logN() };
+    const res = {};
+    for (const st of ['disabled', 'key_changed']) {
+      peerSet(st);
+      res[st] = { fetch: (await fetchAs(gated)).status, decide: (await decide('ask')).status, decision: decisionNow(), log: logN() };
+    }
+    peerSet('active');
+    const restored = { fetch: (await fetchAs(gated)).status, decide: (await decide('ask')).status, decision: decisionNow(), log: logN() };
+    check(g0.status === 200 && ['disabled', 'key_changed'].every((st) => res[st].fetch === 404 && res[st].decide === 404 && res[st].decision === before.decision && res[st].log === before.log),
+      '对端停用、等确认新键：凭有效的回执令牌取件 404、回写决定 404（和不存在一样），决定和事件日志都不动', show({ g0: g0.status, before, res }));
+    check(restored.fetch === 200 && restored.decide === 200 && restored.decision === 'ask' && restored.log === before.log + 1, '……对端恢复 active 之后，取件、回写决定照常', show(restored));
     // 撤回这件任务（管理员经「关注」撤回；投递已发出，事项本身不一定立刻到终态）：之后凭自己的令牌也取不到
     const wd = await call('POST', '/api/attention/answer', ADMIN, { source: 'work-items', source_id: second.body?.item_id, answer: 'withdraw', input: {} });
     const st2 = (await call('GET', `/api/work-items/${second.body?.item_id}`, ALPHA)).body?.item?.state;

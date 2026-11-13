@@ -67,12 +67,12 @@ export function bindAttachments(ids: readonly number[], by: string, eventId: str
  * 凭派工时给的回执令牌（reply.token）认出是哪一次投递：和回写决定同一套（sha256 比对、时间恒定、投递已送达、送达后 REPLY_TTL_DAYS 天内；现在几点由代码给）。
  * 认不出返回 null（调用方一律按「不存在」答，不说事件在不在）。接单节点取附件用。
  */
-export function deliveryByReplyToken(eventId: string, token: string, now = Date.now()): { id: number } | null {
+export function deliveryByReplyToken(eventId: string, token: string, now = Date.now()): { id: number; target_url: string } | null {
   if (!/^wbe-[0-9a-f]{16}$/.test(eventId) || token === '') return null;
   const hash = createHash('sha256').update(token, 'utf8').digest();
-  const rows = db.prepare("SELECT id, status, reply_token_sha256, (sent_at != '' AND datetime(sent_at, '+' || ? || ' days') > datetime(?)) AS live FROM workbench_event_deliveries WHERE event_id = ? AND reply_token_sha256 != ''").all(REPLY_TTL_DAYS, new Date(now).toISOString(), eventId) as { id: number; status: string; reply_token_sha256: string; live: number }[];
+  const rows = db.prepare("SELECT id, status, target_url, reply_token_sha256, (sent_at != '' AND datetime(sent_at, '+' || ? || ' days') > datetime(?)) AS live FROM workbench_event_deliveries WHERE event_id = ? AND reply_token_sha256 != ''").all(REPLY_TTL_DAYS, new Date(now).toISOString(), eventId) as { id: number; status: string; target_url: string; reply_token_sha256: string; live: number }[];
   const row = rows.find((r) => { const h = Buffer.from(r.reply_token_sha256, 'hex'); return h.length === hash.length && timingSafeEqual(h, hash); });
-  return row && row.status === 'sent' && row.live === 1 ? { id: row.id } : null;
+  return row && row.status === 'sent' && row.live === 1 ? { id: row.id, target_url: row.target_url } : null;
 }
 
 export function attachmentsOfEvent(eventId: string): AttachmentRow[] {
