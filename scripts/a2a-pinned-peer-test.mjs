@@ -8,7 +8,7 @@
  *    key_changed（钉住的还是签名这把，但等管理员确认）、disabled → 不采信、不记跟进、不收名册。
  * 二、出站（事件投递、回给团队的消息）投递前过 canDeliver：
  *    disabled、key_changed 的对端：挂起（仍 pending、attempts 不加、不判死、对端什么也没收到），留一行 held；
- *    恢复 active 之后照常发出。
+ *    恢复 active 之后照常发出；连挂几轮只留一行（事件投递的 held、答复的 reply-held 都是），换了原因再记一行。
  * 三、跟进按根地址认（不按区）：同一个区下两台宿主（根地址不同），限频各算各的；同一个 context 投给了两台，跟进按发来的根地址找到自己那次投递。
  * 测试数据都是编的：节点、区、团队都是合成值。
  */
@@ -198,6 +198,28 @@ try {
   run("UPDATE workbench_event_replies SET next_at = '2000-01-01 00:00:00' WHERE delivery_id = ?", re.delivery);
   const rSent = await waitFor(() => q("SELECT status FROM workbench_event_replies WHERE delivery_id = ?", re.delivery)[0]?.status === 'sent');
   ok('……恢复 active 之后照常发出', rSent && rp.got.length >= 1, JSON.stringify({ rSent, got: rp.got.length }));
+
+  // 挂起不刷屏（答复这一侧）：key_changed 的对端连挂几轮只留一行 reply-held；换了原因（改成停用）再记一行；恢复之后发出
+  const rk = await peer('preplykc');
+  register(rk, 'key_changed', keyPair().pk);
+  const rke = seedEvent(rk);
+  run(`INSERT INTO workbench_event_replies (kind, event_id, delivery_id, ref, team, caller_session, context_id, target_url, message, next_at, created_at)
+       VALUES ('answer', ?, ?, 1, 'superagent-team/a1b2c3d4e5f60718', 'market/12345678', ?, ?, ?, ?, ?)`, rke.ev, rke.delivery, rke.ctx, rk.url, JSON.stringify({ text: '合成的答复（挂几轮）', by: 'user:alpha' }), '2000-01-01 00:00:00', t0);
+  const heldLines = () => q("SELECT detail FROM workbench_event_log WHERE delivery_id = ? AND action = 'reply-held'", rke.delivery).map((x) => JSON.parse(x.detail).reason);
+  // 一轮：把下次再看的时间提前到过去，等 worker 再挂一次（next_at 又被推到将来）
+  const oneRound = async () => { run("UPDATE workbench_event_replies SET next_at = '2000-01-01 00:00:00' WHERE delivery_id = ?", rke.delivery); return waitFor(() => (q('SELECT next_at FROM workbench_event_replies WHERE delivery_id = ?', rke.delivery)[0]?.next_at ?? '') > '2001'); };
+  const rounds = [await waitFor(() => heldLines().length >= 1), await oneRound(), await oneRound(), await oneRound()];
+  const afterRounds = heldLines();
+  const rkRow = q('SELECT status, attempts FROM workbench_event_replies WHERE delivery_id = ?', rke.delivery)[0];
+  ok('答复挂在 key_changed 的对端上连挂四轮：只留一行 reply-held（原因 peer_key_changed），仍 pending、attempts 0、对端没收到',
+    rounds.every(Boolean) && JSON.stringify(afterRounds) === JSON.stringify(['peer_key_changed']) && rkRow?.status === 'pending' && rkRow.attempts === 0 && rk.got.length === 0, JSON.stringify({ rounds, afterRounds, rkRow, got: rk.got.length }));
+  run("UPDATE a2a_peers SET status = 'disabled' WHERE root_url = ?", rk.url);
+  const switched = [await oneRound(), await oneRound()];
+  ok('……原因换成停用：再记一行（peer_disabled），之后不再重复', switched.every(Boolean) && JSON.stringify(heldLines()) === JSON.stringify(['peer_key_changed', 'peer_disabled']), JSON.stringify({ switched, lines: heldLines() }));
+  run("UPDATE a2a_peers SET status = 'active' WHERE root_url = ?", rk.url);
+  run("UPDATE workbench_event_replies SET next_at = '2000-01-01 00:00:00' WHERE delivery_id = ?", rke.delivery);
+  const rkSent = await waitFor(() => q('SELECT status FROM workbench_event_replies WHERE delivery_id = ?', rke.delivery)[0]?.status === 'sent');
+  ok('……恢复 active 之后发出，挂起那几轮没有多记', rkSent && rk.got.length >= 1 && heldLines().length === 2, JSON.stringify({ rkSent, got: rk.got.length, lines: heldLines() }));
 
   console.log('三、跟进按根地址认，不按区');
   const s1 = await peer('pshared'), s2 = await peer('pshared'); // 同一个区，两台宿主
