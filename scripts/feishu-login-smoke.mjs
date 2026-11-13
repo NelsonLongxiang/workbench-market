@@ -107,7 +107,7 @@ function browser(srv) {
 }
 
 /** 走一遍飞书登录：发起 → 假飞书授权页 → 回调。返回三步的应答和回调地址 */
-async function feishuLogin(b, fake, person, next = '/tasks') {
+async function feishuLogin(b, fake, person, next = '/work-items') {
   fake.as(person);
   const start = await b.req('GET', `/login/feishu?next=${encodeURIComponent(next)}`);
   if (start.status !== 302 || !start.location.startsWith(fake.url)) return { start };
@@ -143,11 +143,11 @@ try {
   {
     const bound = await ops.req('POST', '/api/principals/bind', { headers: admin, body: { provider: 'feishu', external_id: PEOPLE.alice.union_id, principal: 'user:alpha', reason: '合成：同一个人' } });
     const b = browser(open);
-    const r = await feishuLogin(b, fake, 'alice', '/tasks');
+    const r = await feishuLogin(b, fake, 'alice', '/work-items');
     const viaFeishu = await whoami(b);
     const tasks = await b.req('GET', '/api/tasks');
-    check(bound.status === 200 && r.cb?.status === 302 && r.cb.location === '/tasks' && b.jar.has('wm_session') && viaFeishu.status === 200 && viaFeishu.sub === 'user:alpha' && tasks.status === 200 && odooAlpha.sub === viaFeishu.sub,
-      '飞书登录·管理员把 alice 的飞书身份对到 user:alpha 之后：登录成功、回到 /tasks、发了市场会话；只带市场会话 whoami 是 user:alpha（和 Odoo 登录的是同一个主体），待办 200', show({ bound: bound.status, cb: r.cb?.status, loc: r.cb?.location, viaFeishu, tasks: tasks.status }));
+    check(bound.status === 200 && r.cb?.status === 302 && r.cb.location === '/work-items' && b.jar.has('wm_session') && viaFeishu.status === 200 && viaFeishu.sub === 'user:alpha' && tasks.status === 200 && odooAlpha.sub === viaFeishu.sub,
+      '飞书登录·管理员把 alice 的飞书身份对到 user:alpha 之后：登录成功、回到 /work-items、发了市场会话；只带市场会话 whoami 是 user:alpha（和 Odoo 登录的是同一个主体），待办 200', show({ bound: bound.status, cb: r.cb?.status, loc: r.cb?.location, viaFeishu, tasks: tasks.status }));
     const g = browser(gated);
     const pre = await g.req('GET', '/api/apps');
     const odooFirst = await browser(gated).req('GET', '/api/apps', { cookies: { session_id: SESSIONS.alpha } }); // Odoo 那边先来过一次，建出 user:alpha
@@ -311,7 +311,7 @@ try {
     // 在 A 浏览器发起，把回调链接拿到 B 浏览器里用：B 没有 A 的浏览器半边，不认；A 自己的回调照常
     fake.as('alice');
     const a = browser(open), b = browser(open);
-    const start = await a.req('GET', '/login/feishu?next=/tasks');
+    const start = await a.req('GET', '/login/feishu?next=/work-items');
     const auth = await fetch(start.location, { redirect: 'manual' });
     const callback = auth.headers.get('location');
     await b.req('GET', '/login/feishu?next=/'); // B 自己也发起过一次：手里有一个形状合格、但不是 A 的浏览器半边
@@ -322,13 +322,13 @@ try {
   }
   {
     const outs = [];
-    for (const next of ['//evil.invalid/x', 'https://evil.invalid/', '/\\evil.invalid', 'javascript:alert(1)', '/api/admin-token', '/login', '/tasks?x=1']) {
+    for (const next of ['//evil.invalid/x', 'https://evil.invalid/', '/\\evil.invalid', 'javascript:alert(1)', '/api/admin-token', '/login', '/work-items?x=1']) {
       const b = browser(open);
       const r = await feishuLogin(b, fake, 'alice', next);
       outs.push([next, r.cb?.location]);
     }
-    const want = ['/', '/', '/', '/', '/', '/', '/tasks?x=1'];
-    check(outs.every(([, loc], i) => loc === want[i]), 'next 只收站内路径：外站、协议相对、反斜杠、javascript:、/api/、/login 都回到 /；对照：/tasks?x=1 原样回去', show(outs));
+    const want = ['/', '/', '/', '/', '/', '/', '/work-items?x=1'];
+    check(outs.every(([, loc], i) => loc === want[i]), 'next 只收站内路径：外站、协议相对、反斜杠、javascript:、/api/、/login 都回到 /；对照：/work-items?x=1 原样回去', show(outs));
   }
   {
     const b = browser(open);

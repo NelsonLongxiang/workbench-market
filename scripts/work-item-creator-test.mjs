@@ -127,6 +127,7 @@ try {
   const r0 = await decide(S.mine2, { answer: 'return' });
   const r = await decide(S.mine2, { answer: 'return', reason: '差异没标' });
   check(r0.status === 400 && r.status === 200 && state(S.mine2) === 'progress', '退回要写理由；写了：ready → progress', show({ r0, r }));
+  check(r.body?.result?.sent === false && r.body?.result?.reason === 'not_from_event', 'R2：不是从工作台事件来的事项（没有可发回的团队）被打回：记 return，不发（sent:false）', show(r.body));
   {
     const a1 = await decide(S.again, { answer: 'return', reason: '再看看' });
     const f = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', `
@@ -385,12 +386,10 @@ try {
     // 四种身份分别看：详情的 can.answer、「关注」里给不给答法、事项入口真去答、「关注」入口真去答
     {
       const SADMIN = { ...SAME, cookie: `session_id=${SESSIONS.admin}` };
-      // 身份来源说是管理员的人，第一次见到时迁出系统管理员、管理层两条（judgment-compare 的 migrateOnSight）；撤掉管理层那条，他就是「只过了管理门」的人
+      // 身份来源说是管理员的人，第一次见到时只迁出 member、系统管理员两条，不迁管理层（judgment-compare 的 migrateOnSight，L6）：他就是「只过了管理门」的人
       await call('GET', '/api/auth/viewer', SADMIN); await call('GET', '/api/attention', SADMIN); await call('GET', `/api/work-items/${fourA.item}`, SADMIN);
-      const mg = ((await call('GET', '/api/grants?principal=user:root-admin&status=active', {})).body?.grants ?? []).filter((g) => (g.role ?? g.role_id) === 'management');
-      for (const g of mg) await call('POST', `/api/grants/${g.id}/revoke`, {}, { reason: '合成：只留管理门、不带管理层授予' });
-      const mgLeft = ((await call('GET', '/api/grants?principal=user:root-admin&status=active', {})).body?.grants ?? []).filter((g) => (g.role ?? g.role_id) === 'management').length;
-      check(mg.length >= 1 && mgLeft === 0, '造数据：会话管理员的管理层授予撤掉（系统管理员那条留着，管理门照旧过）', show({ mg: mg.length, mgLeft }));
+      const active = ((await call('GET', '/api/grants?principal=user:root-admin&status=active', {})).body?.grants ?? []).map((g) => g.role ?? g.role_id);
+      check(active.includes('admin') && !active.includes('management'), '造数据：会话管理员被迁了系统管理员、没有管理层授予（管理门照旧过）', show({ active }));
       const canAns = async (a, h) => (await call('GET', `/api/work-items/${a.item}`, h)).body?.can?.answer;
       const listed = async (a, h) => ((await call('GET', '/api/attention', h)).body?.items ?? []).find((x) => x.source === 'seat-asks' && x.source_id === String(a.delivery))?.answers ?? null;
       const viaAttn = (a, h, text) => call('POST', '/api/attention/answer', h, { source: 'seat-asks', source_id: String(a.delivery), answer: 'answer', input: { text } });

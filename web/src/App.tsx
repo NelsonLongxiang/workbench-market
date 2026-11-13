@@ -6,6 +6,7 @@ import { KeyOutlined } from '@ant-design/icons';
 import { api } from './api';
 import Market from './pages/Market';
 import MarketHome from './pages/market/Market';
+import WorkbenchDetail from './pages/market/WorkbenchDetail';
 import Access from './pages/access/Access';
 import Types from './pages/Types';
 import Settings from './pages/Settings';
@@ -134,6 +135,7 @@ export default function App() {
         <Route path="/cockpit/:id" element={<Cockpit />} />
         <Route path="/market" element={<MarketHome />} />
         <Route path="/market/manage" element={<Market />} />
+        <Route path="/market/wb/:id" element={<WorkbenchDetail />} />
         <Route path="/sops" element={<Sops />} />
         <Route path="/sops/:slug" element={<SopSpace />} />
         <Route path="/sops/:slug/runs/:id" element={<SopRunDetail />} />

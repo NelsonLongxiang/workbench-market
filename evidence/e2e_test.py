@@ -31,6 +31,20 @@ BASE = f'http://127.0.0.1:{_port}'
 ADMIN_TOKEN = _os.environ.get('E2E_ADMIN_TOKEN', '')
 RESULTS = []
 
+# 要嵌进页面的测试工作台（使用页、驾驶舱面板）指向这个本机小页面，不指向市场自己：
+# 嵌台防护（web/src/embed-guard.ts）不把市场套进市场，登记成 BASE 的台在使用页、驾驶舱里会被换成一句说明
+import http.server as _hs, socketserver as _ss, threading as _th
+class _EmbedPage(_hs.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = b'<!doctype html><title>E2E embed</title><p>E2E embedded bench</p>'
+        self.send_response(200); self.send_header('Content-Type', 'text/html; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
+    def do_HEAD(self):
+        self.send_response(200); self.send_header('Content-Type', 'text/html; charset=utf-8'); self.end_headers()
+    def log_message(self, *a): pass
+_embed_srv = _ss.TCPServer(('127.0.0.1', 0), _EmbedPage)
+_th.Thread(target=_embed_srv.serve_forever, daemon=True).start()
+EMBED_URL = f'http://127.0.0.1:{_embed_srv.server_address[1]}/'
+
 
 def record(name, ok, err=''):
     RESULTS.append((name, ok, err))
@@ -225,7 +239,7 @@ with sync_playwright() as p:
             assert '必须以 http' in modal.inner_text(), 'URL pattern 校验未出现'
             record('表单校验（必填/URL pattern）', True)
             # 2c. 正常填写提交
-            modal.get_by_label('服务地址').fill(BASE)
+            modal.get_by_label('服务地址').fill(EMBED_URL)
             modal.get_by_label('分类').fill('E2E')
             modal.get_by_label('标签').click()
             page.keyboard.type('e2e')
@@ -316,7 +330,7 @@ with sync_playwright() as p:
             modal.wait_for(state='visible')
             # 预填检查：名称带 (副本)，地址与源一致
             assert modal.get_by_label('名称').input_value() == 'E2E 改名后 (副本)', '副本名称预填错误'
-            assert modal.get_by_label('服务地址').input_value() == BASE, '地址预填错误'
+            assert modal.get_by_label('服务地址').input_value() == EMBED_URL, '地址预填错误'
             modal.get_by_label('名称').fill('E2E 复制件')
             submit_modal(modal)
             page.wait_for_timeout(1200)
@@ -338,7 +352,7 @@ with sync_playwright() as p:
     else:
         # 控制面关闭（WM_CONTROL_PORT=0）：管理写只能走本机 CLI（回环、无浏览器标记）；业务面读面 UI 照旧
         try:
-            r = api(page, 'POST', '/api/workbenches', {'name': 'E2E 测试工作台', 'url': BASE, 'category': 'E2E',
+            r = api(page, 'POST', '/api/workbenches', {'name': 'E2E 测试工作台', 'url': EMBED_URL, 'category': 'E2E',
                                                         'tags': ['e2e'], 'description': '**E2E** 自动化测试条目'})
             assert r.status == 201, f'CLI 新增应 201: {r.status}'
             wid = r.json()['id']
@@ -527,13 +541,21 @@ with sync_playwright() as p:
         except Exception as e:
             record('类型管理 + 设置（控制面关闭·本机 CLI）', False, str(e))
 
-    # ---------- 11b. #292 M1 双面：业务面页面的管理写一律拒；控制面页面带口令可写 ----------
+    # ---------- 11b. 管理身份：11-02 起控制面开不开，业务面页面都凭口令管理写（带口令 201、不带口令 403）；控制面开着时核一下控制面地址 ----------
     try:
         page.goto(BASE + '/market', wait_until='domcontentloaded', timeout=30000)
         page.wait_for_load_state('networkidle', timeout=15000)
         if CTRL is None:
             record('M1 双面（单面旧实例，无此约束）', True)
-        elif TOKEN_MODE:
+        else:
+            # 11-02 属主撤销「管理写必须走控制面」以后：控制面开不开，业务面上凭口令都能管理写，不带口令被拒（两种模式同一组断言）
+            if CTRL:
+                # 控制面开着：页面给的控制面地址就是这一轮的控制面（和业务面不是同一个端口；跑器设了 WM_CONTROL_PORT 就核端口）
+                _cp = _os.environ.get('WM_CONTROL_PORT', '').strip()
+                _ctrl_port = CTRL.rsplit(':', 1)[-1]
+                assert _ctrl_port != BASE.rsplit(':', 1)[-1], f'控制面地址不该和业务面同一个端口: {CTRL!r}'
+                if _cp and _cp != '0':
+                    assert _ctrl_port == _cp, f'页面给的控制面地址 {CTRL!r} 应是这一轮的控制面端口 {_cp}'
             st, j = market_write()
             assert st == 201, f'业务面页面带口令管理写应 201: {st} {j}'
             api(page, 'DELETE', f"/api/workbenches/{j['id']}")
@@ -549,24 +571,7 @@ with sync_playwright() as p:
             page.locator('.wm-me-pop').get_by_role('button', name=_re_m1.compile(r'口\s*令')).first.wait_for()
             assert page.locator('.wm-me-pop').get_by_role('button', name=_re_m1.compile(r'口\s*令')).count() >= 1, '用户卡里应有口令入口'
             _me.click(); page.locator('[data-testid=wm-me][aria-expanded=false]').wait_for()  # 收起，免得挡后面的步骤
-            record('管理身份（未开控制面：业务面带口令写 201 / 不带口令 403 / 用户卡口令入口）', True)
-        else:
-            st, j = market_write()
-            assert st == 403 and j.get('control_surface_required') is True, f'业务面浏览器带对口令管理写也应 403: {st} {j}'
-            assert (j.get('control_url') or '') == CTRL, f'403 应带控制面地址 {CTRL!r}: {j.get("control_url")!r}'
-            st, _ = market_write('/api/settings', 'PUT', {'health_interval_seconds': '31'})
-            assert st == 403, f'业务面浏览器改设置应 403: {st}'
-            if CTRL:
-                link = page.get_by_role('link', name='管理控制面')
-                assert (link.get_attribute('href') or '').startswith(CTRL + '/market'), '页头应给控制面同 path 链接'
-                page.goto(CTRL + '/market'); page.wait_for_load_state('networkidle')
-                st, j = market_write()
-                assert st == 201, f'控制面页面带口令写应 201: {st} {j}'
-                api(page, 'DELETE', f"/api/workbenches/{j['id']}")
-                record('M1 双面（业务面管理写 403 + 控制面地址 / 控制面带口令写 201）', True)
-            else:
-                assert '控制面已关闭' in page.inner_text('body'), '页头应提示控制面已关闭'
-                record('M1 双面（控制面关闭：业务面管理写 403·无控制面地址·页头提示）', True)
+            record('管理身份（' + ('控制面开着' if CTRL else '未开控制面') + '：业务面带口令写 201 / 不带口令 403 / 用户卡口令入口' + ('/ 控制面地址是这一轮的控制面端口' if CTRL else '') + '）', True)
     except Exception as e:
         record('M1 双面', False, str(e)); shot('m1-surfaces')
 
@@ -575,7 +580,7 @@ with sync_playwright() as p:
     # 业务面页面不带口令、没登录的 401（cockpit_auth_required），带口令的照旧改得了、删得了。
     # #302 方案③：业务面隐藏全部编辑入口并提示走命令行；布局由本机 CLI 写，页面只验渲染/持久化（单面旧实例仍走页面改）。
     try:
-        pw = api(page, 'POST', '/api/workbenches', {'name': 'E2E 驾驶舱面板源', 'url': BASE}).json()['id']
+        pw = api(page, 'POST', '/api/workbenches', {'name': 'E2E 驾驶舱面板源', 'url': EMBED_URL}).json()['id']
         page.goto(BASE + '/cockpit')
         page.wait_for_load_state('networkidle')
         if CTRL is None:
@@ -626,17 +631,13 @@ with sync_playwright() as p:
             page.goto(BASE + f'/cockpit/{cid}')
             page.wait_for_load_state('networkidle')
             page.wait_for_timeout(600)
-            st, j = market_write(f'/api/cockpits/{cid}', 'PUT', {'panels': []}, token='' if TOKEN_MODE else None)
-            if TOKEN_MODE:
-                # #673 起驾驶舱的写不经写请求总门，路由自己认人：业务面页面不带口令、没登录 → 401 cockpit_auth_required（和启动自检 market.cockpits.anonymous-write 同一个口径）
-                assert st == 401 and j.get('error') == 'cockpit_auth_required', f'业务面页面不带口令改布局应 401 cockpit_auth_required: {st} {j}'
-            else:
-                assert st == 403 and j.get('control_surface_required') is True, f'业务面页面改布局应 403: {st} {j}'
+            st, j = market_write(f'/api/cockpits/{cid}', 'PUT', {'panels': []}, token='')
+            # #673 起驾驶舱的写不经写请求总门，路由自己认人：业务面页面不带口令、没登录 → 401 cockpit_auth_required（和启动自检 market.cockpits.anonymous-write 同一个口径）
+            assert st == 401 and j.get('error') == 'cockpit_auth_required', f'业务面页面不带口令改布局应 401 cockpit_auth_required: {st} {j}'
             assert len(api(page, 'GET', f'/api/cockpits/{cid}').json()['panels']) == 1, '被拒的布局写不应生效'
-            if TOKEN_MODE:
-                # 对照：同一个业务面页面带上口令就改得了（口令持有人照旧能改驾驶舱）
-                st2, j2 = market_write(f'/api/cockpits/{cid}', 'PUT', {'panels': []})
-                assert st2 == 200, f'业务面页面带口令改布局应 200: {st2} {j2}'
+            # 对照：同一个业务面页面带上口令就改得了（口令持有人照旧能改驾驶舱）
+            st2, j2 = market_write(f'/api/cockpits/{cid}', 'PUT', {'panels': []})
+            assert st2 == 200, f'业务面页面带口令改布局应 200: {st2} {j2}'
             assert api(page, 'PUT', f'/api/cockpits/{cid}', {'panels': []}).status == 200, 'CLI 改布局应 200'
         else:
             page.locator('.wm-panel-actions [aria-label="移除此面板"], .wm-panel-actions .anticon-close').first.click()
@@ -652,17 +653,14 @@ with sync_playwright() as p:
         assert page.get_by_text('E2E 驾驶舱', exact=True).first.is_visible(), '列表中未见 E2E 驾驶舱'
         if CTRL is not None:
             assert page.get_by_role('button', name='删除').count() == 0, '业务面驾驶舱列表不应有删除入口'
-            st, j = market_write(f'/api/cockpits/{cid}', 'DELETE', {}, token='' if TOKEN_MODE else None)
-            if TOKEN_MODE:
-                # #673 起驾驶舱的删也不经写请求总门，路由自己认人：业务面页面不带口令、没登录 → 401 cockpit_auth_required（和改布局同一个口径）
-                assert st == 401 and j.get('error') == 'cockpit_auth_required', f'业务面页面不带口令删驾驶舱应 401 cockpit_auth_required: {st} {j}'
-                assert any(c['id'] == cid for c in api(page, 'GET', '/api/cockpits').json()), '被拒的删除不应生效'
-                # 对照：同一个业务面页面带上口令删得了（删一个专门建的驾驶舱，不动上面这个）
-                tmp = api(page, 'POST', '/api/cockpits', {'name': 'E2E 删除对照', 'panels': []}).json()
-                st3, j3 = market_write(f"/api/cockpits/{tmp['id']}", 'DELETE', {})
-                assert st3 == 200 and not any(c['id'] == tmp['id'] for c in api(page, 'GET', '/api/cockpits').json()), f'业务面页面带口令删驾驶舱应 200 且删掉: {st3} {j3}'
-            else:
-                assert st == 403, f'业务面页面删驾驶舱应 403: {st}'
+            st, j = market_write(f'/api/cockpits/{cid}', 'DELETE', {}, token='')
+            # #673 起驾驶舱的删也不经写请求总门，路由自己认人：业务面页面不带口令、没登录 → 401 cockpit_auth_required（和改布局同一个口径）
+            assert st == 401 and j.get('error') == 'cockpit_auth_required', f'业务面页面不带口令删驾驶舱应 401 cockpit_auth_required: {st} {j}'
+            assert any(c['id'] == cid for c in api(page, 'GET', '/api/cockpits').json()), '被拒的删除不应生效'
+            # 对照：同一个业务面页面带上口令删得了（删一个专门建的驾驶舱，不动上面这个）
+            tmp = api(page, 'POST', '/api/cockpits', {'name': 'E2E 删除对照', 'panels': []}).json()
+            st3, j3 = market_write(f"/api/cockpits/{tmp['id']}", 'DELETE', {})
+            assert st3 == 200 and not any(c['id'] == tmp['id'] for c in api(page, 'GET', '/api/cockpits').json()), f'业务面页面带口令删驾驶舱应 200 且删掉: {st3} {j3}'
         assert api(page, 'DELETE', f'/api/cockpits/{cid}').status == 200
         api(page, 'DELETE', f'/api/workbenches/{pw}')
         leftover = api(page, 'GET', '/api/cockpits').json()

@@ -62,6 +62,7 @@
       "GET /api/bench-views/:bench/datasets/:name/snapshots  -> bench-store.snapshot-list  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "POST /api/bench-views/:bench/datasets/:name/snapshots  -> bench-store.snapshot-take  write  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "POST /api/bench-views/:bench/restore  -> bench-store.snapshot-restore  write  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
+      "GET /api/bench-views/:bench/entry  -> bench-store.view-get  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "GET /api/bench-views/:bench/view  -> bench-store.view-get  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "PUT /api/bench-views/:bench/view  -> bench-store.view-put  write  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "GET /api/bench-views/:bench/view/versions  -> bench-store.view-versions  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
@@ -266,7 +267,7 @@
       "GET /api/mcp-rest/sop/runs/:id  -> mcp-rest.sop-run  read  （状态码不代表授权：MCP 会话令牌与工具授权由网关判，不是登录身份的结论）",
       "GET /api/mcp-rest/sop/runs/:id/files  -> mcp-rest.sop-run-files  read  （状态码不代表授权：MCP 会话令牌与工具授权由网关判，不是登录身份的结论）",
       "GET /api/mcp-rest/sop/runs/:id/files/:fileId  -> mcp-rest.sop-run-file-download  read  （状态码不代表授权：MCP 会话令牌与工具授权由网关判，不是登录身份的结论）",
-      "GET /^(?!\\/api\\/|\\/assets\\/|\\/health).*/  -> （未登记）"
+      "GET /^(?!\\/api\\/|\\/assets\\/|\\/health).*/  -> market.page  read"
     ]
   ],
   "tools": [
@@ -407,6 +408,7 @@
           "login.begin",
           "login.page",
           "market.export",
+          "market.page",
           "principal.bind",
           "principal.bind-batch",
           "principal.disable",
@@ -494,6 +496,7 @@
           "health.ready",
           "login.page",
           "market.export",
+          "market.page",
           "setting.read",
           "skill.list",
           "skill.role-packs",
@@ -542,6 +545,7 @@
           "health.ready",
           "login.page",
           "market.export",
+          "market.page",
           "setting.read",
           "skill.list",
           "skill.role-packs",
