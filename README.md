@@ -484,6 +484,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   mcp-protocol.ts（MCP 协议入口 /mcp（无状态 StreamableHTTP）：POST 收 JSON-RPC（initialize、ping、tools/list、tools/call），GET、DELETE 回 405；认证是 MCP 会话令牌）
   mcp-rest.ts（MCP 内嵌的 REST /api/mcp-rest、/openapi.json：OpenAPI 文档、工具调用、台文件上传（原始字节、multipart）列表下载（Range、ETag）、台数据、SOP run 与附件；认证是 MCP 会话令牌，授权映射到工具 grants）
   mcp.ts（MCP 网关控制面 /api/mcp：上游、会话、授权、工具目录、调用记录、权限申请的批准与驳回）
+  portal.ts（门户 /go/<台号>/…：一条 ALL 正则路由、报动作 portal.use；前置准备和代理两个处理函数在 server/src/portal.ts 的 createPortal，原样）
   principals.ts（主体管理 /api/principals：列出、停用、恢复、对一次外部身份、待对接清单，只有管理员能用）
   principals.ts（主体管理 /api/principals：列出、停用、恢复，只有管理员能用）
   remote-allow.ts（远程写豁免面的变更 /api/remote-allow/diff）
