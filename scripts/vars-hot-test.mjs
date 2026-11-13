@@ -17,7 +17,7 @@
  *   H12 bench 档写回主库时，主库那行版本一样、值不同：算写回失败，dirty 留着（不静默跳过）
  *   H13 bench 档退出前没落完盘、以 main / shadow 档起来：启动时报出卡片号；这些卡片的高频变量读写、可能含高频变量的列表回 503，
  *       不悄悄读主库里的旧值；普通变量照常。回到 bench 档落完盘以后，main 档照常
- *   H14 删卡片和落盘撞在一起：卡片删了以后落盘，不往主库补孤儿行，待落盘的记录清掉
+ *   H14 删卡片和落盘撞在一起：卡片删了以后落盘、落盘读台库的那一刻卡片被删，都不往主库补孤儿行，待落盘的记录清掉
  *
  *   node scripts/vars-hot-test.mjs
  */
@@ -155,6 +155,25 @@ async function child(mode) {
     await V.setVar(scope(8), 'hot.w', { value: 1, hasValue: true }, CLI);
     db.prepare('DELETE FROM workbenches WHERE id = 8').run(); V.dropWorkbenchVars(8);
     out.h14 = { flush: await V.flushHotVars(), orphans: db.prepare('SELECT COUNT(*) AS n FROM workbench_vars WHERE workbench_id = 8').get().n, report: V.reportHotPending() };
+    // H14b：落盘已经开始（Redis 那份落进了台库），读台库准备写回主库的那一刻卡片被删
+    db.prepare("INSERT INTO workbenches (id, name, url) VALUES (9, '合成壬', 'http://127.0.0.1:9/i')").run();
+    await V.setVar(scope(9), 'hot.x', { value: 1, hasValue: true }, CLI);
+    const s9 = await benchStore(benchOfCard(9).slug), realList = s9.varsList.bind(s9);
+    let hit = 0;
+    s9.varsList = async (...a) => { const r = await realList(...a); if (!hit++) { db.prepare('DELETE FROM workbenches WHERE id = 9').run(); V.dropWorkbenchVars(9); } return r; };
+    await V.flushHotVars();
+    s9.varsList = realList;
+    // H14c：对同步点要补写回主库（bench 档的写入没写回），读台库的那一刻卡片被删
+    db.prepare("INSERT INTO workbenches (id, name, url) VALUES (10, '合成癸', 'http://127.0.0.1:9/j')").run();
+    await V.setVar(scope(10), 'k', { value: 1, hasValue: true }, CLI);
+    const s10 = await benchStore(benchOfCard(10).slug), realList10 = s10.varsList.bind(s10);
+    await s10.varUpdate({ key: 'k', expected: 1, kind: 'var', value: '2', by: 'cli', owner: '', at: '2026-11-01 08:00:00' }); // 记 dirty、没写回
+    let hit10 = 0;
+    s10.varsList = async (...a) => { const r = await realList10(...a); if (!hit10++) { db.prepare('DELETE FROM workbenches WHERE id = 10').run(); V.dropWorkbenchVars(10); } return r; };
+    const m10 = await V.migrateVars();
+    s10.varsList = realList10;
+    out.h14c = { hit: hit10, toMain: m10.to_main, orphans: db.prepare('SELECT COUNT(*) AS n FROM workbench_vars WHERE workbench_id = 10').get().n };
+    out.h14b = { hit, orphans: db.prepare('SELECT COUNT(*) AS n FROM workbench_vars WHERE workbench_id = 9').get().n, report: V.reportHotPending() };
     out.h12 = { failures: V.varsMirrorStats().fallbackFailures - before, dirty: (await sync(3)).dirty, main: mainRow(3, 'k')?.value };
   }
   await closeBenchStores();
@@ -216,6 +235,8 @@ async function parent() {
   ok('回到 bench 档落完盘以后，main 档照常（读到落盘的值），不再报', JSON.stringify(on.h13?.after?.report) === '[]' && on.h13.after.get === 1, on.h13?.after);
   console.log('H14 删卡片和落盘撞在一起');
   ok('卡片删了以后落盘：主库不补孤儿行，待落盘的记录清掉', on.h14?.orphans === 0 && JSON.stringify(on.h14.report) === '[]', on.h14);
+  ok('落盘读台库的那一刻卡片被删：不写回主库（没有孤儿行），待落盘的记录清掉', on.h14b?.hit >= 1 && on.h14b.orphans === 0 && JSON.stringify(on.h14b.report) === '[]', on.h14b);
+  ok('对同步点补写回、读台库的那一刻卡片被删：不补写回（没有孤儿行）', on.h14c?.hit >= 1 && on.h14c.toMain === 0 && on.h14c.orphans === 0, on.h14c);
   console.log(`vars-hot-test: ${pass} passed / ${fail} failed`);
   if (fail) process.exitCode = 1;
 }

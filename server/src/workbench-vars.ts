@@ -298,6 +298,8 @@ export async function syncCard(id: number, store: BenchStore, opts: { dryRun?: b
   if (!dirty) return { action: 'from-main', written: opts.dryRun ? mainRows.length : await store.varsReplace(plainRows(mainRows), mainDigest) };
   if (mark === mainDigest) {
     const rows = await store.varsList('');
+    // 查卡片在不在紧挨着写主库（中间没有 await）：上面的 await 期间卡片被删了，就不补写回（不留孤儿行）
+    if (!svc<WorkbenchService>('workbench').byId(id)) return { action: 'in-sync', written: 0 };
     if (!opts.dryRun) { vars().replaceCard(id, rows); await store.varsSynced(varsDigestOf(rows)); }
     return { action: 'to-main', written: rows.length };
   }
@@ -427,9 +429,12 @@ async function flushHot(id: number, store: BenchStore, writeBack: boolean): Prom
       // 写回主库用整张卡片换掉（replaceCard），不走 fallbackToMain 那条「同版本、不同值算失败」：
       // writeBack 只在这个进程已经对过同步点之后（bench 档运行中），这时主库只有本进程在写（写回），台库就是真源，整份照台库写回是对的。
       // 进程第一次用到卡片时不写回（writeBack=false），交给 syncCard 判断主库有没有被别处改过。
-      if (writeBack && svc<WorkbenchService>('workbench').byId(id)) { // 卡片刚被删了就不写回（查和写之间没有 await）
+      if (writeBack) {
         const rows = await store.varsList('');
-        try { vars().replaceCard(id, rows); await store.varsSynced(varsDigestOf(rows)); } catch { mirrorStats.fallbackFailures++; }
+        // 卡片刚被删了就不写回：查卡片在不在要紧挨着写主库，中间不能有 await（上面的 varsList 会让出事件循环，删卡片能插进来）
+        if (svc<WorkbenchService>('workbench').byId(id)) {
+          try { vars().replaceCard(id, rows); await store.varsSynced(varsDigestOf(rows)); } catch { mirrorStats.fallbackFailures++; }
+        }
       }
     }
     if (!(await state().del(hotKey(id)))) return 'unavailable';
@@ -629,7 +634,10 @@ export async function resolveCardVars(id: number, keep: 'main' | 'bench', actor:
     vars().audit({ workbench_id: id, key: k, action: 'resolve', actor, kind: (n ?? o)!.kind, old_revision: o?.revision ?? null, new_revision: n?.revision ?? null, old_sha256: o ? sha(o.value) : '', new_sha256: n ? sha(n.value) : '', reason: `分叉处置：以${keep === 'main' ? '主库' : '台库'}为准` });
   }
   if (keep === 'main') await store.varsReplace(mainRows, varsDigestOf(mainRows));
-  else { vars().replaceCard(id, benchRows); await store.varsSynced(varsDigestOf(benchRows)); }
+  else {
+    if (!svc<WorkbenchService>('workbench').byId(id)) throw new HttpError(404, `workbench not found: ${id}`); // 紧挨着写主库查（中间没有 await）
+    vars().replaceCard(id, benchRows); await store.varsSynced(varsDigestOf(benchRows));
+  }
   migrated.delete(id); divergedReported.delete(id);
   return { id, keep, changed };
 }
