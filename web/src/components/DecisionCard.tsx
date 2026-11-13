@@ -11,7 +11,7 @@ import { Link } from 'react-router-dom';
 import { App, Button, Checkbox, Input, Popconfirm, Radio, Space, Tag, Typography } from 'antd';
 import { apiFetch } from '../admin-token';
 import { attentionChanged, postCreatorDecision } from '../api';
-import { answerChoices, answerRoute, answerViaOf, workItemIdOf, viaBody, viaError, viaInput, viaPath, waited, type AttentionItem } from '../attention-view';
+import { answerChoices, answerRoute, answerViaOf, workItemIdOf, viaBody, viaError, viaInput, viaPath, waited, type AttentionItem, isStuck, stuckLabel } from '../attention-view';
 import { cardWording, splitAskTitle } from '../home-view';
 import { seatLabel, teamLabel, waitingLabel } from '../people';
 import { fallbackPlace, pageLink } from '../page-paths';
@@ -94,6 +94,8 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
   // 建立人的名字：服务端给的 creator_name（#657）优先，没有再看 creator 自带的显示名；都没有就不写名字（不露标识）
   const creatorName = (item.creator_name || '').trim() || (item.creator?.display_name || '').trim();
   const wording = cardWording(item.category, admin, item.mine, creatorName);
+  /** 停太久的事项：标签写停了多久（不写「等你过目」），旁边不再写「等了」 */
+  const stuck = isStuck(item);
   const label = (a: string) => (wording.proxy && PROXY[a]) || reviewAnswerLabel(item.source, a, item) || ANSWER[a] || a;
   const [create, setCreate] = useState(false);
   const send = async (answer: string, input: Record<string, unknown>) => {
@@ -131,8 +133,8 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
   };
   return <div className="wm-decision" data-testid="decision-card">
     <div className="wm-decision-head">
-      <Tag color={taskKind ? 'default' : COLOR[item.category] ?? 'default'}>{taskKind ?? wording.label}</Tag>
-      <Typography.Text type="secondary" className="wm-caption">{[whoLine, item.since && `等了 ${waited(item.since)}`].filter(Boolean).join(' · ')}</Typography.Text>
+      {stuck ? <Tag color="orange" data-testid="decision-stuck">{stuckLabel(item.since)}</Tag> : <Tag color={taskKind ? 'default' : COLOR[item.category] ?? 'default'}>{taskKind ?? wording.label}</Tag>}
+      <Typography.Text type="secondary" className="wm-caption">{[whoLine, !stuck && item.since && `等了 ${waited(item.since)}`].filter(Boolean).join(' · ')}</Typography.Text>
     </div>
     <Typography.Text strong className="wm-decision-title">{cc ? cc.title : rc ? rc.title : gc ? gc.title : parsed.question}</Typography.Text>
     {rc && <div className="wm-decision-lines" data-testid="decision-run">

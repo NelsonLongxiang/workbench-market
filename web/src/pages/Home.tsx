@@ -11,7 +11,7 @@ import DecisionCard from '../components/DecisionCard';
 import ArrangeDrawer from '../components/ArrangeDrawer';
 import { adminActive, subscribeAdminToken } from '../admin-token';
 import { ATTENTION_CHANGED, getAttention, getAuthMe, getLifecycle } from '../api';
-import { answerChoices, groupCards, type AttentionItem } from '../attention-view';
+import { answerChoices, groupCards, stuckTotal, type AttentionItem } from '../attention-view';
 import { buildRows, splitRows, daysLabel, filterAttention, greeting, panoramaType, stageColumns, summaryLine, decideLine, downLine, DECIDE_DOWN, LINES_DOWN, toggleFocus, type Focus, type LcObject, type LcType } from '../home-view';
 
 const MAX_PAGES = 10;
@@ -25,12 +25,15 @@ export default function Home() {
   const [attention, setAttention] = useState<AttentionItem[]>([]);
   /** 身份服务连不上：等你拍板的事取不到，不能当成「没有」 */
   const [attDown, setAttDown] = useState(false);
+  /** 停太久的一共几件（服务端的 counts.stuck_count） */
+  const [stuckCount, setStuckCount] = useState<number | null>(null);
   const [focus, setFocus] = useState<Focus>(null);
   const [arrange, setArrange] = useState(false);
 
   const loadAttention = useCallback(async () => {
     const r = await getAttention();
     setAttDown(r.identityDown);
+    setStuckCount(r.stuckCount);
     setAttention(r.status >= 200 && r.status < 300 ? r.items as AttentionItem[] : []);
   }, []);
   // 别处（侧栏、卡片）办完一件也跟着刷新
@@ -68,7 +71,8 @@ export default function Home() {
   // 总结句按全部条目算（不随点格筛选变）：能当场办的才算「等你拍板」
   const all = groupCards(attention, (x) => answerChoices(admin, x));
   const cards = filterAttention(attention, focus);
-  const { now, proxy, elsewhere } = groupCards(cards, (x) => answerChoices(admin, x));
+  const { now, proxy, stuck, elsewhere } = groupCards(cards, (x) => answerChoices(admin, x));
+  const stuckN = stuckTotal(stuckCount, all.stuck.length);
   const card = (a: AttentionItem) => <DecisionCard key={`${a.source}:${a.source_id}`} item={a} admin={admin} onDone={() => undefined} />;
   const focusRow = focus ? rows.find((r) => r.id === focus.object) : null;
   const focusStage = focus ? cols.find((c) => c.code === focus.stage) : null;
@@ -77,7 +81,7 @@ export default function Home() {
     <div className="wm-home">
       <h1 className="wm-home-hi" data-testid="home-greeting">{greeting(new Date().getHours(), name)}</h1>
       <Typography.Paragraph type="secondary" className="wm-home-sum" data-testid="home-summary">
-        {attDown ? downLine(lcState === 'ok' ? rows : null) : lcState === 'ok' ? summaryLine(rows, all.now.length, all.elsewhere.length, all.proxy.length) : decideLine(all.now.length, all.elsewhere.length, false, all.proxy.length)}
+        {attDown ? downLine(lcState === 'ok' ? rows : null) : lcState === 'ok' ? summaryLine(rows, all.now.length, all.elsewhere.length, all.proxy.length, stuckN) : decideLine(all.now.length, all.elsewhere.length, false, all.proxy.length, stuckN)}
       </Typography.Paragraph>
 
       {lcState === 'loading' && <Skeleton active paragraph={{ rows: 4 }} />}
@@ -127,6 +131,10 @@ export default function Home() {
           {proxy.length > 0 && <>
             <div className="wm-sub-h">别人的事，你可以代办<span className="wm-sec-n">{proxy.length}</span></div>
             <div className="wm-decisions" data-testid="decisions-proxy">{proxy.map(card)}</div>
+          </>}
+          {stuck.length > 0 && <>
+            <div className="wm-sub-h">停太久的<span className="wm-sec-n">{stuck.length}</span></div>
+            <div className="wm-decisions" data-testid="decisions-stuck">{stuck.map(card)}</div>
           </>}
           {elsewhere.length > 0 && <>
             <div className="wm-sub-h">要到别处处理的<span className="wm-sec-n">{elsewhere.length}</span></div>
