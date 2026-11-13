@@ -147,6 +147,11 @@ function grantWithin(principal: string, action: string, kind: Kind, scope: strin
   return null;
 }
 
+/** 哪些角色的闭包覆盖这个动作（数持有人用：先按角色在库里筛主体，再逐个判） */
+export function rolesCovering(action: string, kind: Kind): string[] {
+  return grants().roles().filter((r) => permits(r.closure, action, kind).covers).map((r) => r.id);
+}
+
 export function scopedVerdict(input: ScopedInput): ScopedResult {
   const now = input.now ?? Date.now();
   if (!DEPT_SCOPE.test(input.scope)) return { verdict: 'deny', rule: 'scope-unsupported', grant: null };

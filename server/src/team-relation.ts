@@ -5,8 +5,9 @@
  * 主体：{ principal: 'user:…' }（人），或者 { seat: { host, team, seat, seat_id? } }（AI 团队的席位，按名册认）。
  * 对象：{ department: '<部门标识>' }、{ team: { host, team } }、{ seat: { host, team, seat, seat_id? } }。
  * 关系（可以有几种）：
- *   · dept-member、dept-lead：这个人是部门成员 / 部门负责人（对团队、席位：看团队所挂的部门）；
- *   · team-lead：这个人是团队的负责人（另外指定的，或所挂部门的负责人）；
+ *   · dept-member、dept-lead：这个人是部门成员 / 部门负责人（对团队、席位：看团队所挂的部门）。dept-lead 要部门上写着他、并且他持有
+ *     这个部门的拍板授予；只有字段的报 dept-lead-pending（待属主放行），它不带任何权力，只给页面显示；
+ *   · team-lead：这个人是团队的负责人（另外指定的，或所挂部门的负责人——后者同样要持有部门的拍板授予）；
  *   · seat-owner：这个席位现在分配给了这个人（对团队：这个团队里有分给他的成员）；
  *   · team-seat：这个席位在名册里、属于这个团队（对部门：属于挂在这个部门下的团队）；
  *   · router：这个席位是这个团队的总工；
@@ -19,11 +20,13 @@
  *     接收部门的负责人确认（services/relation-proposal.ts），成员分配只有团队负责人或管理层做。提议期间这些关系不存在，这里查不到。
  */
 import { svc } from './context.ts';
-import { sameSeat, type SeatKey, type TeamKey, type TeamService } from './services/team.ts';
+import { sameSeat, type SeatKey, type TeamKey, type TeamService, type TeamView } from './services/team.ts';
+import type { DepartmentService } from './services/department.ts';
+import type { GrantService } from './services/grant.ts';
 
 export type Subject = { principal: string } | { seat: { host: string; team: string; seat: string; seat_id?: string } };
 export type Target = { department: string } | { team: TeamKey } | { seat: { host: string; team: string; seat: string; seat_id?: string } };
-export type Relation = 'dept-member' | 'dept-lead' | 'team-lead' | 'seat-owner' | 'team-seat' | 'router' | 'same-seat';
+export type Relation = 'dept-member' | 'dept-lead' | 'dept-lead-pending' | 'team-lead' | 'seat-owner' | 'team-seat' | 'router' | 'same-seat';
 export type RelationResult = {
   relations: Relation[];
   display: {
@@ -40,7 +43,7 @@ const seatKey = (s: { host: string; team: string; seat: string; seat_id?: string
 export const teamName = (team: string): string => (team.includes('/canvas/') ? team.slice(team.indexOf('/canvas/') + 8) : '');
 function deptRelations(principal: string, departmentId: string): Relation[] {
   const r = teams().departmentRole(principal, departmentId);
-  return [...(r.member ? ['dept-member' as const] : []), ...(r.lead ? ['dept-lead' as const] : [])];
+  return [...(r.member ? ['dept-member' as const] : []), ...(r.lead ? ['dept-lead' as const] : []), ...(r.leadPending ? ['dept-lead-pending' as const] : [])];
 }
 
 export function relationOf(subject: Subject, target: Target): RelationResult {
@@ -91,4 +94,28 @@ export function relationOf(subject: Subject, target: Target): RelationResult {
     }
   }
   return { relations: [...rel], display };
+}
+
+/** 团队页上的「管理层」：持有全组织范围（scope *）的管理层或属主授予 */
+export function orgWideManagement(principal: string | null): boolean {
+  return !!principal && svc<GrantService>('grants').activeFor(principal).some((g) => (g.role === 'management' || g.role === 'owner') && g.scope === '*');
+}
+
+/**
+ * 这个人看不看得到这个团队（团队页的列表、事项的「等谁放行」里负责人的名字共用这一处）：
+ *   管理员（管理口令、身份来源管理员）看全部；待认领的别人看不到；管理层看全部认领过的；
+ *   其余只看自己是负责人、有成员分给自己、或所挂部门里有自己的团队
+ */
+export function teamVisibleTo(v: { admin: boolean; principal: string | null; management: boolean }, t: TeamView): boolean {
+  if (v.admin) return true;
+  if (t.status === 'unclaimed') return false;
+  if (v.management) return true;
+  if (!v.principal) return false;
+  if (t.leads.some((l) => l.principal === v.principal)) return true;
+  if (t.members.some((m) => m.assigned_to?.principal === v.principal)) return true;
+  if (t.department) {
+    const d = t.department.id;
+    if (svc<DepartmentService>('departments').of(v.principal).some((x) => x.id === d)) return true;
+  }
+  return false;
 }

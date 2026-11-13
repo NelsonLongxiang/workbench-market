@@ -96,6 +96,23 @@ try {
     const badIds = ['1/../../attention/answer', '1?x=1', '0x1', '1 ', '%2e%2e', '-1', ''];
     const through = badIds.filter((id) => { const r = forwardRoute('mcp-access', 'approve', id, {}); return !r || !('error' in r); });
     const ok = forwardRoute('mcp-access', 'reject', '12', { note: ' n ', status: 'approved', path: '/x' });
+    // 台的 MCP 授予申请：条目 id 是「台的标识:申请编号」，两段都先核形状；请求体只有 approve 和 note，不批要有理由
+    const benchBad = ['demo', 'demo:', ':1', 'demo:0', 'demo:1:2', 'Demo:1', '../demo:1', 'demo/..:1', 'demo:1/../../x', 'demo:1?x=1', 'demo:0x1', 'demo: 1', 'a b:1', 'demo:-1', `${'a'.repeat(65)}:1`, 'demo:1#x', 'demo#x:1', 'demo:abc', 'demo:1e3', `demo:${'9'.repeat(10)}`, 'demo:01', 'demo:1:', ':demo:1', 'demo::1', 'demo:1\n', 'demo%2f..:1', 'démo:1'];
+    const benchThrough = benchBad.filter((id) => { const r = forwardRoute('bench-mcp', 'approve', id, {}); return !r || !('error' in r); });
+    const benchOk = forwardRoute('bench-mcp', 'approve', 'sales-1:12', { note: ' 可以 ', approve: false, session: 'x', tools: ['view_put'] });
+    const benchNo = forwardRoute('bench-mcp', 'reject', 'sales-1:12', { reason: ' 不行 ', note: '不取这个' });
+    check(benchThrough.length === 0 && benchOk.path === '/api/bench-views/sales-1/mcp-requests/12' && benchOk.method === 'POST' && show(benchOk.body) === show({ approve: true, note: '可以' })
+      && show(benchNo.body) === show({ approve: false, note: '不行' }) && show(forwardRoute('bench-mcp', 'reject', 'sales-1:12', { note: ' 只写了 note ' }).body) === show({ approve: false, note: '只写了 note' }) && forwardRoute('bench-mcp', 'reject', 'sales-1:12', { note: '  ' }).error?.body?.error === 'reason_required' && forwardRoute('bench-mcp', 'grant', 'sales-1:12', {}) === null,
+      '换算表·台的 MCP 授予申请：坏 id 一律拒；路径固定；请求体只有 approve 和 note（夹带的 approve、session、tools 不进去）；不批没有理由拒；表外的答法没有', show({ benchThrough, benchOk, benchNo }));
+    // 条目自带的答复地址：只收同源的、/api/ 开头的相对路径；每种答法另写的地址同样核
+    const { answerVia } = await import(at('server/src/services/attention.ts'));
+    const throwsOn = (path, answers = { ok: { body: {} } }) => { try { answerVia('POST', path, answers); return false; } catch { return true; } };
+    const viaBad = ['https://elsewhere.example/api/x', '//elsewhere.example/api/x', 'api/x', '/apix', '/api/', '/login/x', '/api/x?y=1', '/api/x#y', '/api/../x', '/api/x/../y', '/api/x//y', '/api/x y', '/api/x\\y', '/API/x'];
+    const viaThrough = viaBad.filter((x) => !throwsOn(x));
+    const viaOk = answerVia('POST', '/api/work-items/wi_1/release', { release: { body: {} }, withdraw: { path: '/api/work-items/wi_1/withdraw', body: {} }, answer: { body: {}, input: { pick: { to: 'answer', required: true, options: ['a', 'b'] } } } });
+    check(viaThrough.length === 0 && throwsOn('/api/x', { a: { path: 'https://elsewhere.example/api/x', body: {} } }) && throwsOn('/api/x', { a: { path: '/api/../x', body: {} } })
+      && viaOk.path === '/api/work-items/wi_1/release' && viaOk.answers.withdraw.path === '/api/work-items/wi_1/withdraw' && viaOk.answers.answer.input.pick.options.join() === 'a,b',
+      '条目自带的答复地址：外部地址、不是 /api/ 开头、带查询串或 ..、双斜杠一律不收（顶层和每种答法另写的都核）；合规的原样带出', show({ viaThrough }));
     const bind = forwardRoute('principal-pending', 'bind', 'synthetic:a/b?c', { principal: 'user:x', create: true, reason: 'r', display_name: 'd', provider: 'evil' });
     check(through.length === 0 && ok.path === '/api/mcp/access-requests/12/reject' && ok.method === 'POST' && show(ok.body) === show({ note: 'n' })
       && bind.path === '/api/principals/bind' && show(Object.keys(bind.body).sort()) === show(['create', 'external_id', 'principal', 'provider', 'reason']) && bind.body.provider === 'synthetic' && bind.body.external_id === 'a/b?c'
@@ -133,6 +150,14 @@ try {
     return { status: r.status, body: json };
   };
   const answer = (source, source_id, ans, input = {}, headers = ADMIN, extra = {}) => call('POST', '/api/attention/answer', headers, { source, source_id: String(source_id), answer: ans, input, ...extra });
+  // 代办放行只认管理层授予（不认管理门）：给会话登录的管理员一份管理层授予（本机命令行即属主，走完起草→提交→放行）
+  {
+    await call('GET', '/api/auth/me', ADMIN);
+    const g = await call('POST', '/api/grants', {}, { principal: 'user:root-admin', role: 'management', scope: '*', reason: '合成：持有管理层授予的人' });
+    await call('POST', `/api/grants/${g.body?.grant?.id}/submit`, {}, {});
+    const ok = await call('POST', `/api/grants/${g.body?.grant?.id}/approve`, {}, {});
+    if (ok.status !== 200) throw new Error(`管理层授予没放成：${JSON.stringify(ok)}`);
+  }
   const db = () => new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true });
   const q = (sql, ...a) => { const c = db(); try { return c.prepare(sql).all(...a); } finally { c.close(); } };
   /** 比较时去掉每一行里必然不同的：自增 id、时间、指向各自那一条的外键 */
@@ -193,14 +218,16 @@ try {
   {
     const itemOf = (ev) => `wi_${ev}`;
     const n = await answer('work-items', itemOf(S.release.new), 'release');
-    const o = await call('POST', `/api/workbench-events/${S.release.old}/release`, ADMIN, {});
+    // 「关注」的放行转给事项的放行入口（团队没有负责人，管理层代办）：和直接调那个入口逐字段相同
+    const o = await call('POST', `/api/work-items/${itemOf(S.release.old)}/release`, ADMIN, {});
     // 放行之后投递 worker 会马上去试发（发不出去会记 retry、改 attempts），那是 worker 的事、先后不定：只比两个入口造成的那几种动作
     const dl = (ev) => strip(q('SELECT target_team, status FROM workbench_event_deliveries WHERE event_id = ?', ev)).map((d) => ({ ...d, status: d.status === 'held' ? 'held' : d.status === 'cancelled' ? 'cancelled' : 'released' }));
     const lg = (ev) => strip(q("SELECT actor, action, detail FROM workbench_event_log WHERE event_id = ? AND action IN ('recorded', 'held', 'queued', 'released', 'cancelled') ORDER BY id", ev));
     const st = (ev) => q('SELECT state FROM work_items WHERE id = ?', itemOf(ev))[0]?.state;
     const norm = (b) => JSON.parse(JSON.stringify(b).replace(/wbe-[0-9a-f]{16}/g, 'wbe-X').replace(/"(id|delivery_id)":\d+/g, '"$1":0'));
-    check(n.status === o.status && n.status === 200 && sameApart(norm(n.body.result), norm(o.body)) && same(dl(S.release.new), dl(S.release.old)) && same(lg(S.release.new), lg(S.release.old)) && st(S.release.new) === 'delivered' && st(S.release.old) === 'delivered',
-      '事项·放行（转给工作台事件的放行）：投递、事件日志（谁放行的）、事项状态、应答逐字段相同', show({ n, o, logs: [lg(S.release.new), lg(S.release.old)] }));
+    const acting = lg(S.release.new).filter((r) => r.action === 'released').map((r) => JSON.parse(r.detail).acting_for);
+    check(n.status === o.status && n.status === 200 && sameApart(norm(n.body.result), norm(o.body)) && same(dl(S.release.new), dl(S.release.old)) && same(lg(S.release.new), lg(S.release.old)) && st(S.release.new) === 'delivered' && st(S.release.old) === 'delivered' && acting.length > 0 && acting.every((a) => a === 'team-lead'),
+      '事项·放行（转给事项的放行入口，管理层代办）：投递、事件日志（谁放行的、代谁办）、事项状态、应答逐字段相同', show({ n, o, logs: [lg(S.release.new), lg(S.release.old)] }));
     const nw = await answer('work-items', itemOf(S.withdraw.new), 'withdraw');
     const ow = await call('POST', `/api/task-center/tasks/${S.withdrawTask.old}/withdraw`, ADMIN, {});
     const task = (id) => strip(q('SELECT status FROM tasks WHERE id = ?', id));
@@ -288,29 +315,39 @@ try {
 
   // ---------- 五、新写的两类 ----------
   {
-    // 席位的提问：旧接口（工作台事件列表）只认口令管理员，这里用口令
+    // 席位的提问：管理门（口令）看得到全部，但答复是替建立人做业务决定（L21）——口令不带答法、答了被拒；持有管理层授予的人（user:no-flag）代办
     const TOKEN = { ...SAME, 'x-admin-token': ADMIN_TOKEN };
+    const MGMT = { ...SAME, cookie: `session_id=${SESSIONS.noAdminFlag}` };
+    await call('GET', '/api/auth/viewer', MGMT);
+    const g = await call('POST', '/api/grants', {}, { principal: 'user:no-flag', role: 'management', scope: '*', reason: '合成：管理层' });
+    await call('POST', `/api/grants/${g.body?.grant?.id}/submit`, {}); await call('POST', `/api/grants/${g.body?.grant?.id}/approve`, {});
     const before = await call('GET', '/api/attention', TOKEN);
-    check(before.body.items.some((x) => x.source === 'seat-asks' && x.source_id === String(S.ask.delivery)), '席位的提问在「关注」里');
-    const a = await answer('seat-asks', S.ask.delivery, 'answer', { text: '店铺 A' }, TOKEN);
+    const tokenRow = before.body.items.find((x) => x.source === 'seat-asks' && x.source_id === String(S.ask.delivery));
+    const byToken = await answer('seat-asks', S.ask.delivery, 'answer', { text: '口令答' }, TOKEN);
+    const stillOpen = JSON.parse(q('SELECT open_asks FROM work_items WHERE id = ?', `wi_${S.ask.event}`)[0].open_asks).length;
+    check(g.status === 201 && tokenRow && tokenRow.answers.length === 0 && [400, 403].includes(byToken.status) && stillOpen === 1,
+      '席位的提问在「关注」里；口令看得到但不带答法，答了被拒（L21：只过了管理门不能替建立人做决定），提问还开着', show({ g: g.status, tokenRow, byToken, stillOpen }));
+    const mrow = (await call('GET', '/api/attention', MGMT)).body?.items?.find((x) => x.source === 'seat-asks' && x.source_id === String(S.ask.delivery));
+    check(JSON.stringify(mrow?.answers) === JSON.stringify(['answer']), '持有管理层授予的人：「关注」里这条带答法', show(mrow));
+    const a = await answer('seat-asks', S.ask.delivery, 'answer', { text: '店铺 A' }, MGMT);
     const it = q('SELECT state, open_asks FROM work_items WHERE id = ?', `wi_${S.ask.event}`)[0];
-    const after = await call('GET', '/api/attention', TOKEN);
+    const after = await call('GET', '/api/attention', ADMIN);
     check(a.status === 200 && a.body.result.sent === false && a.body.result.reason === 'receiver_is_v1' && JSON.parse(it.open_asks).length === 0 && !after.body.items.some((x) => x.source === 'seat-asks'),
       '答席位的提问：记在事项上、合上提问，「关注」里不再有它；对方是 v1，按 06 不发回答事件（sent:false 写明原因）', show({ a, it }));
-    const again = await answer('seat-asks', S.ask.delivery, 'answer', { text: '店铺 B' }, TOKEN);
+    const again = await answer('seat-asks', S.ask.delivery, 'answer', { text: '店铺 B' }, MGMT);
     check(again.status === 200 && again.body.duplicate === true && again.body.result.item_id === a.body.result.item_id, '再答一次：返回第一次的结果');
     const v = await answer('work-items', S.ready.verify, 'verify');
     const r0 = await answer('work-items', S.ready.ret, 'return', {});
     const r = await answer('work-items', S.ready.ret, 'return', { reason: '差异没标' });
     const st = (id) => q('SELECT state FROM work_items WHERE id = ?', id)[0].state;
     const last = q("SELECT fact, actor, detail FROM work_item_log WHERE item_id = ? ORDER BY seq DESC LIMIT 1", S.ready.ret)[0];
-    check(v.status === 200 && st(S.ready.verify) === 'done' && r0.status === 400 && r.status === 200 && st(S.ready.ret) === 'progress' && last.fact === 'return' && last.actor === 'odoo:root-admin' && JSON.parse(last.detail).reason === '差异没标',
-      '事项的验收（ready → done）和退回（要理由，ready → progress；日志记谁、为什么）', show({ v, r0, r, last }));
+    check(v.status === 200 && st(S.ready.verify) === 'done' && r0.status === 400 && r.status === 200 && st(S.ready.ret) === 'progress' && last.fact === 'return' && last.actor === 'odoo:root-admin' && JSON.parse(last.detail).reason === '差异没标' && JSON.parse(last.detail).acting_for === 'creator',
+      '事项的验收（ready → done）和退回（要理由，ready → progress；日志记谁、为什么、代建立人办）', show({ v, r0, r, last }));
   }
 
   // ---------- 六、同一个 id 再次进入待处理；占位的期限；被杀之后重启 ----------
   {
-    const rw = () => { const c = new DatabaseSync(join(data, 'workbench-market.db')); c.exec('PRAGMA busy_timeout = 5000'); return c; };
+    const rw = () => { const c = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 }); c.exec('PRAGMA busy_timeout = 5000'); return c; };
     const facts = (id, list) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', `
       const at = (p) => ${JSON.stringify(pathToFileURL(ROOT).href)} + '/' + p;
       const { root } = await import(at('server/src/root-context.ts'));
@@ -328,7 +365,7 @@ try {
     check(r1.status === 200 && f.stdout.includes('DONE') && listed && v.status === 200 && v.body.duplicate === false && st === 'done',
       '事项退回之后再次进入「等验收」：「关注」又列出它，验收真的生效（不是返回上次退回的结果）', show({ r1: r1.body, f: f.stdout + f.stderr.slice(-200), listed, v: v.body, st }));
     const v2 = await answer('work-items', id, 'verify');
-    check(v2.status === 200 && v2.body.duplicate === true && same(v2.body.result, v.body.result), '这一轮再验收一次：返回这一轮第一次的结果');
+    check(v2.status === 200 && v2.body.duplicate === true && same(v2.body.result, v.body.result), '这一轮再验收一次：返回这一轮第一次的结果', show({ v2, v: v.body }));
 
     // 待对接：绑定 → 解绑、这个人又来登录（又出现在清单里，比上一轮答成的时间晚）→ 能再对接
     const b1 = await answer('principal-pending', 'synthetic:ext-round', 'bind', { principal: 'user:round-1', create: true, reason: '第一次' });

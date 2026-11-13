@@ -14,6 +14,7 @@
 import { Service } from '@deepseek-ai/cordis';
 import { svc } from '../context.ts';
 import { db } from '../db.ts';
+import { linkWizardLeadGrant } from './dept-lead-grant.ts';
 import type { Actor, GrantService } from './grant.ts';
 import type { DepartmentService } from './department.ts';
 
@@ -85,7 +86,11 @@ export class SetupWizardService extends Service {
       const row = grants().get(g.id);
       if (row?.role === 'dept-lead' && row.scope.startsWith('dept:')) {
         const d = svc<DepartmentService>('departments').get(row.scope.slice(5));
-        if (d && !d.lead) svc<DepartmentService>('departments').upsert({ id: d.id, name: d.name, functionCode: d.function_code, lead: row.principal_id }, actor.by, now);
+        if (d && !d.lead) {
+          const set = svc<DepartmentService>('departments').upsert({ id: d.id, name: d.name, functionCode: d.function_code, lead: row.principal_id }, actor.by, now);
+          // 字段和授予一起落（属主在场一次放行）：记下这条是随负责人发的，以后换人、移除时收回它
+          if (set.ok) linkWizardLeadGrant(d.id, g.id, row.principal_id, now);
+        }
       }
     }
     db.prepare('UPDATE setup_wizard_runs SET approved_by = ?, approved_at = ? WHERE id = ?').run(actor.by.slice(0, 256), now, runId);

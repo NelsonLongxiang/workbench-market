@@ -126,6 +126,8 @@ export async function postCreatorDecision(id: string, answer: string, reason: st
  *  键带上管理员口令（口令不同结果不同）；读失败不留缓存。办完一件事用 attentionChanged() 清掉「关注」再广播 */
 const SHARED_TTL = 2000;
 const sharedMemo = new Map<string, { at: number; p: Promise<unknown> }>();
+/** 身份变了：共用的取数缓存全部丢掉（上一个人读到的不能给下一个人用） */
+export function clearShared(): void { sharedMemo.clear(); }
 export function shared<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const k = `${key}|${getAdminToken()}`;
   const hit = sharedMemo.get(k);
