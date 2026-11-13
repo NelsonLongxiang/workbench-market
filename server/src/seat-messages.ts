@@ -12,7 +12,7 @@
 import { deliveryTarget, eventDispatched, inReplyTx, queueReply } from './services/a2a-replies.ts';
 import { followupById, followupsOfEvent, markFollowupReplied, markFollowupsRead, unreadFollowupsOfEvent, type FollowupRow } from './services/a2a-followups.ts';
 import { itemIdForEvent } from './services/work-item.ts';
-import { latestProgressOfEvent } from './services/a2a-receipts.ts';
+import { latestProgressOfEvent, latestTicketsOfEvent } from './services/a2a-receipts.ts';
 import { asksOfEvent } from './services/attention-sources.ts';
 import { kickWorkbenchEvents, logDeliveryFact } from './workbench-events.ts';
 
@@ -136,4 +136,15 @@ export function seatAsksOf(item: { id: string; source_ref?: string | null }): It
       asked_by: r.actor, at: r.at,
     };
   });
+}
+
+/**
+ * 子项（拆单 dsh-open-a2a-net#618）：最近一条带 tickets 的采信回执（结果回执里是各子项的结局，否则是最近一步进展）的全量快照，按子工单列出标题、承接、状态、结局。
+ * 和 progress 不同，事项结束之后照样给——整件「没办成」而正文是「部分完成」时，页面靠它列出哪些子项完成、哪些失败。没有进展时是 []。
+ */
+export function seatSubitemsOf(item: { id: string; source_ref?: string | null }): SeatProgress['tickets'] {
+  const ev = eventOfItem(item);
+  if (!ev) return [];
+  // 最近一条带子项的采信回执：结果回执（各子项的结局）晚于最后一步进展，以它为准
+  return (latestTicketsOfEvent(ev) ?? []) as SeatProgress['tickets'];
 }
