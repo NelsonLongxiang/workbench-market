@@ -74,8 +74,8 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_ODOO_BROWSER_URL`（只给浏览器用的 Odoo 登录地址·可选·须在可信名单内、只写 origin，非法拒启动；仅对源等于 `WM_ODOO_URL` 的 Odoo 台生效，主机名不符或 https 降级回 503；同域中继开着时中继优先·见 [docs/odoo-browser-origin.md](docs/odoo-browser-origin.md)）
 - `WM_ODOO_LOGIN_PROXY`（`1`=市场同域 Odoo 登录中继·上游固定为 `WM_ODOO_URL`·见 [docs/odoo-login-relay.md](docs/odoo-login-relay.md)）
 - `WM_SESSION_TTL_MIN`（市场会话的绝对期限，分钟·缺省 720＝12 小时·范围 15～10080·不续期·不合法拒绝启动）
-- `WM_APP_DATA_READ`（台数据与附件的读守卫·缺省 `enforce`：`GET /api/apps/<台>/data`、`/files`、`/files/<id>` 要本台的台令牌、管理员（同源）或本机命令行，下载另认本台页面的查看凭证，都不满足 403；`warn`＝上线过渡用，照旧放行，只按路由和调用方类别计数留痕（日志 `source: app-data-read`），过渡完设回 `enforce`；其它值拒绝启动）
-- `WM_SOP_RUN_WRITE`（SOP run 的写守卫·缺省 `enforce`：保存一步 `PUT /api/sop/runs/<id>`、完成 `POST …/finish` 要这个 run 的上传令牌 `X-Run-Upload-Token`（run 还在执行）、管理员（同源）或本机命令行，都不满足 403，不分登录门开没开；`warn`＝上线过渡用，照旧放行，只按路由和调用方类别计数留痕（日志 `source: sop-run-write`），过渡完设回 `enforce`；其它值拒绝启动）
+- `WM_APP_DATA_READ`（台数据与附件的读守卫·缺省 `enforce`：`GET /api/apps/<台>/data`、`/files`、`/files/<id>` 要本台的台令牌、管理员（同源）或本机命令行，下载另认本台页面的查看凭证，都不满足 403；`warn`＝上线过渡用，照旧放行，只按路由和调用方类别计数留痕（日志 `source: app-data-read`；进程启动以来的累计次数在带管理口令读 `/api/health` 的 `guard_would_deny.app_data_read` 里，按路由模板 × 调用方类别，不带主体和台名、run 号），过渡完设回 `enforce`；其它值拒绝启动）
+- `WM_SOP_RUN_WRITE`（SOP run 的写守卫·缺省 `enforce`：保存一步 `PUT /api/sop/runs/<id>`、完成 `POST …/finish` 要这个 run 的上传令牌 `X-Run-Upload-Token`（run 还在执行）、管理员（同源）或本机命令行，都不满足 403，不分登录门开没开；`warn`＝上线过渡用，照旧放行，只按路由和调用方类别计数留痕（日志 `source: sop-run-write`；进程启动以来的累计次数在带管理口令读 `/api/health` 的 `guard_would_deny.sop_run_write` 里，按路由模板 × 调用方类别，不带主体和台名、run 号），过渡完设回 `enforce`；其它值拒绝启动）
 - `WM_ROLES_FILE`（组织角色的外部声明文件·绝对路径·JSON `{"roles":[…]}`·设了就以它为准，不设用仓库里的通用初始集合·平台内置角色不能被覆盖，同名、循环包含、引用不存在的动作、范围写法不对都拒绝启动）
 - `WM_JUDGMENT_COMPARE`（判定的并行比对·`on` 打开·缺省 `off`·别的值拒绝启动·打开时每个请求应答结束之后算新判定、和旧守卫的结论比，不改应答，并给第一次见到的人迁移 `member`、身份来源说是管理员的再迁移 `admin`（来源记 migration；不自动迁 `management`，管理层由属主单独授，见遗留差异 L6）·CI 和出报告用的实例里开；判定切换（6d）的第 0 步起生产也打开观察，见 [docs/judgment-legacy-differences.md](docs/judgment-legacy-differences.md)）
 - `WM_JUDGMENT_COMPARE_OUT`（比对打开时每比一次追加一行 JSON 的文件·绝对路径·可选·给出报告的脚本汇总）
