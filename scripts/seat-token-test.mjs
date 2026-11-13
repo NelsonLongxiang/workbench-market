@@ -10,7 +10,7 @@
  *   六、限频：同一席位一小时最多发 12 张；同一来源十分钟最多 60 次。
  *   七、管理员建会话不能用 seat- 开头的名字。
  *   八、每次换令牌单独记一行（成不成都记）：节点、席位、时间、结果、拒的原因；换到的令牌引用对得上调用审计；记录只给管理员看。
- *   九、席位主体绑公钥的完整指纹和根地址：同一宿主号换了根地址、或主体建时记下的完整指纹和此刻钉住的不一样，换不到、旧令牌也失效，拿不到旧主体的授权。
+ *   九、席位主体按（根地址，公钥完整指纹，seat_id）认：同一宿主号换了根地址或换了键来换，是另一个从空授权开始的主体，拿不到旧主体的授权，旧令牌也失效。
  *   限频按真实来源：可信反代（本机回环）后面不同 X-Real-IP 各算各的，记录里的来源也是它。
  * 测试数据都是编的：节点、团队、席位都是合成值。
  */
@@ -177,23 +177,33 @@ try {
   const fBound = (() => { try { return q("SELECT key_fp, root FROM a2a_seat_subjects WHERE session_id = ?", fsid)[0]; } catch { return undefined; } })(); // 旧库没有这两列：判红而不是跑不下去
   await admin('PUT', `/api/mcp/sessions/${fsid}/grants`, { grants: ['sop_run_list'] });
   ok('建主体时记下公钥的完整指纹（sha256 全长）和根地址', rf.status === 200 && fBound?.key_fp === createHash('sha256').update(Buffer.from(F.pk, 'base64')).digest('hex') && fBound?.root === F.root, JSON.stringify(fBound));
-  // 同一宿主号、同一把键，名册和对端登记改到另一个根地址来换：不是建主体时的根地址，不复用
+  const grantsOf = (id) => q('SELECT grants FROM mcp_sessions WHERE id = ?', id)[0]?.grants;
+  // 同一宿主号、同一把键，名册和对端登记改到另一个根地址来换：是另一个主体，从空授权开始；旧主体上已发的令牌失效
   const movedRoot = 'https://zeta-moved.example.test';
   run('UPDATE a2a_peers SET root_url = ? WHERE root_url = ?', movedRoot, F.root);
   run('UPDATE a2a_rosters SET peer_root = ? WHERE host = ?', movedRoot, F.fp);
   const moved = await exchange(req({ ...F, root: movedRoot }, 'seat-f1'));
+  const movedSid = moved.body?.token ? q('SELECT session_id FROM a2a_seat_tokens WHERE token_sha256 = ?', createHash('sha256').update(moved.body.token).digest('hex'))[0]?.session_id : undefined;
+  const movedTools = (await mcp(moved.body?.token, 'tools/list', {})).body?.result?.tools ?? [];
   const movedOld = (await mcp(rf.body?.token, 'tools/list', {})).status;
-  ok('同一宿主号换了根地址来换 → 401；旧主体上已发的令牌也 401', moved.text === REFUSED && movedOld === 401, `${moved.status} ${movedOld}`);
+  ok('同一宿主号换了根地址来换 → 另一个主体（空授权，没有旧主体批的工具）；旧主体上已发的令牌 401',
+    moved.status === 200 && movedSid !== undefined && movedSid !== fsid && grantsOf(movedSid) === '[]' && !movedTools.some((t) => t.name === 'sop_run_list') && grantsOf(fsid) === JSON.stringify(['sop_run_list']) && movedOld === 401,
+    JSON.stringify({ st: moved.status, movedSid, fsid, movedOld }));
   run('UPDATE a2a_peers SET root_url = ? WHERE root_url = ?', F.root, movedRoot);
   run('UPDATE a2a_rosters SET peer_root = ? WHERE host = ?', F.root, F.fp);
-  // 换一把键算出同一个 8 位宿主号要 2^32 量级，测试里造不出来：改成让主体记着的是另一把键的完整指纹（主体当初是别的键建的），
-  // 现在这把键签、宿主号和根地址都对得上，也换不到旧主体，旧令牌也失效
+  // 换一把键算出同一个 8 位宿主号要 2^32 量级，测试里造不出来：改成让旧主体记着的是另一把键的完整指纹（旧主体当初是别的键建的），
+  // 现在这把键签、宿主号和根地址都对得上：也是另一个主体，拿不到旧主体的授权，旧主体的令牌失效
   const backOk = (await mcp(rf.body?.token, 'tools/list', {})).status;
+  // （主体名字里也带着建时的指纹算出的几位：真换了键名字自然不同，这里键没真换，旧主体一并改个名，免得撞名）
   try { run('UPDATE a2a_seat_subjects SET key_fp = ? WHERE session_id = ?', 'f'.repeat(64), fsid); } catch { /* 旧库没有这一列：下面判红 */ }
+  run("UPDATE mcp_sessions SET name = name || '-prev' WHERE id = ?", fsid);
   const otherKey = await exchange(req(F, 'seat-f1'));
+  const okSid = otherKey.body?.token ? q('SELECT session_id FROM a2a_seat_tokens WHERE token_sha256 = ?', createHash('sha256').update(otherKey.body.token).digest('hex'))[0]?.session_id : undefined;
+  const otherKeyTools = (await mcp(otherKey.body?.token, 'tools/list', {})).body?.result?.tools ?? [];
   const otherKeyOld = (await mcp(rf.body?.token, 'tools/list', {})).status;
-  ok('主体记着的完整指纹和此刻钉住的公钥不一样（宿主号相同）→ 换令牌 401，旧令牌 401，拿不到旧主体的授权', backOk === 200 && otherKey.text === REFUSED && otherKeyOld === 401
-    && q("SELECT COUNT(*) AS c FROM a2a_seat_tokens WHERE session_id = ?", fsid)[0].c === 1, `${backOk} ${otherKey.status} ${otherKeyOld}`);
+  ok('旧主体记着的完整指纹和此刻钉住的公钥不一样（宿主号、根地址、seat_id 都相同）→ 另一个空授权的主体；旧主体的令牌 401',
+    backOk === 200 && otherKey.status === 200 && okSid !== undefined && okSid !== fsid && grantsOf(okSid) === '[]' && !otherKeyTools.some((t) => t.name === 'sop_run_list') && otherKeyOld === 401,
+    JSON.stringify({ backOk, st: otherKey.status, okSid, fsid, otherKeyOld }));
 
   console.log('八、换令牌的记录');
   // 启动自检那一次（编出来的 wm-self-probe）也记了一行，这里不算它
@@ -211,7 +221,6 @@ try {
     byReason('bad-sig').length >= 3 && byReason('not-live').length >= 4 && byReason('bad-ts').length === 2 && byReason('wrong-audience').length === 1
       && [...byReason('bad-sig'), ...byReason('not-live'), ...byReason('bad-ts')].every((x) => x.verified === 0 && x.token_ref === ''), JSON.stringify(L.filter((x) => x.outcome === 'refused').map((x) => x.reason)));
   ok('重放记成 refused / replay、verified = 1（签名是真的）；主体被吊销记成 subject-revoked', byReason('replay').length === 1 && byReason('replay')[0].verified === 1 && byReason('subject-revoked').length === 1, JSON.stringify(byReason('replay')));
-  ok('主体绑定对不上记成 subject-mismatch、verified = 1（两次：换了根地址、换了键）', byReason('subject-mismatch').length === 2 && byReason('subject-mismatch').every((x) => x.verified === 1), JSON.stringify(byReason('subject-mismatch')));
   ok('请求体不成形的也记（bad-request），字段按收到的截短；启动自检那次伪造的请求也记了（refused）', L.filter((x) => x.outcome === 'bad-request').length === 5 && L.some((x) => x.host === 'ABCDEFGH')
     && q("SELECT outcome FROM a2a_seat_token_log WHERE seat_id = 'wm-self-probe'")[0]?.outcome === 'refused');
   const anon = await fetch(BASE + '/api/a2a/seat-token/log', { headers: { 'x-forwarded-for': '192.0.2.9' } });
