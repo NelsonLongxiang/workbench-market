@@ -356,6 +356,14 @@ export async function submitBenchForm(ref: string | number, req: { view: string;
  *  返回状态码和应答体，让页面给说法；断网当状态码 0 */
 export const getKnowledge = () => benchViewsGet('/api/knowledge');
 export const getKnowledgeItem = (key: string) => benchViewsGet(`/api/knowledge/${encodeURIComponent(key)}`);
+/** 「项目 → 部门」对照（#729）：读、改一行（department 给 null 是清掉）。返回状态码和应答体，让页面给说法；断网当状态码 0 */
+export const getProjectDepts = () => benchViewsGet('/api/knowledge/project-depts');
+export async function putProjectDept(project: string, department: string | null): Promise<{ status: number; body: unknown }> {
+  try {
+    const r = await fetch('/api/knowledge/project-depts', { method: 'PUT', credentials: 'same-origin', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify({ project, department }) });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  } catch { return { status: 0, body: null }; }
+}
 /** 这个人能不能新建驾驶舱（/api/auth/me 的 can.create_cockpit，服务端和建驾驶舱的路由同一处判断）。
  *  带着管理口令问（口令持有人也能建）；不缓存：口令输入、清掉之后页面会再问一次。拿不到当不能 */
 export async function canCreateCockpit(): Promise<boolean> {
