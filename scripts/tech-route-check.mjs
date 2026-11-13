@@ -625,7 +625,9 @@ function listProblems(list, { allowMissing = false } = {}) {
     seen.add(r.id);
     if (!TIERS.includes(r.tier)) problems.push(`${r.id} 的 tier 是「${r.tier}」，只能是 ${TIERS.join('、')}`);
     if (!allowMissing && typeof r.baseline?.total !== 'number') problems.push(`${r.id} 没有基线`);
-    if (r.loosen_reason !== undefined && (typeof r.loosen_reason !== 'string' || !r.loosen_reason.trim() || !/#\d+/.test(r.loosen_reason))) problems.push(`${r.id} 的 loosen_reason 要写一句话、带 PR 号（比如「……（#123）」）`);
+    // 一句话：去掉 PR 号、空白和标点符号之后至少还剩四个字，光写「#123」不算说明
+    const loosenText = typeof r.loosen_reason === 'string' ? r.loosen_reason.replace(/#\d+/g, '').replace(/[\s\p{P}\p{S}]/gu, '') : '';
+    if (r.loosen_reason !== undefined && (typeof r.loosen_reason !== 'string' || !/#\d+/.test(r.loosen_reason) || [...loosenText].length < 4)) problems.push(`${r.id} 的 loosen_reason 要写一句话说明为什么放宽、带 PR 号（比如「合并 A、B 时搬进来的存量 SQL（#123）」；光写 PR 号不算）`);
   }
   if (!allowMissing) for (const id of known) if (!seen.has(id)) problems.push(`清单里缺规则：${id}`);
   for (const [i, w] of (list.waivers || []).entries()) {
@@ -935,7 +937,7 @@ function selftest() {
   check(blockOf(L([R('budget', 2, { loosen_reason: stale })]), L([R('budget', 3, { loosen_reason: stale })])).length === 1, '放宽：原因是 main 上早就有的（上次那次的），这次照样失败');
   check(broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: '没写 PR 号' })) }), '清单校验：放宽原因没带 PR 号，报错');
   check(broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: '' })) }), '清单校验：放宽原因是空的，报错');
-  check(!broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: '一句话（#1）' })) }), '清单校验：放宽原因一句话带 PR 号，通过');
+  check(!broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: '一句话说明原因（#1）' })) }), '清单校验：放宽原因一句话带 PR 号，通过');
   for (const bare of ['  #1', '（#1）', 'x #1', '#1 #2', '--- #12 ...']) check(broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: bare })) }), `清单校验：放宽原因除了 PR 号几乎没写字（${JSON.stringify(bare)}），报错`);
   check(!broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: '搬 SQL（#12）' })) }), '清单校验：PR 号之外有四个字以上的说明，通过');
   {
