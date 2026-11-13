@@ -2,14 +2,19 @@
  * 工作台市场（照产品化原型 3fbfd0b 的 #/market）的判断逻辑：把工作台、流程、技能三个来源合成一份卡片列表，
  * 分类、计数、每个来源读不到时怎么说。纯函数，不碰 React；页面在 pages/market/Market.tsx。
  *
- * 原型里还有「连接器」一类和「质量评级」：现在没有数据来源，不出现（不放占位）。
+ * 「连接器」只给管理员（MCP 上游的名字、状态、工具数是部署内部信息，GET /api/mcp/upstreams 只给管理员）；别人这一类整个不出现。
+ * 原型里的「质量评级」没有数据来源，不出现（不造字母）。
  * 只能 import type：scripts/market-ui-unit.mjs 用 Node 直接加载这个文件。
  */
 import type { SopApp, SopRun, Workbench } from './types';
 
-export type MarketKind = '工作台' | '流程' | '技能';
-export const MARKET_TABS = ['全部', '工作台', '流程', '技能'] as const;
+export type MarketKind = '工作台' | '流程' | '技能' | '连接器';
+export const MARKET_TABS = ['全部', '工作台', '流程', '技能', '连接器'] as const;
 export type MarketTab = (typeof MARKET_TABS)[number];
+/** 看的人能看到的分类页签：连接器只给管理员 */
+export function tabsFor(admin: boolean): MarketTab[] {
+  return MARKET_TABS.filter((t) => admin || t !== '连接器');
+}
 
 /** /api/skills 的一行（只取卡片用到的） */
 export interface SkillRow {
@@ -146,13 +151,39 @@ export const NO_DESCRIPTION = '还没有说明';
 export function extraTags(c: MarketCard): string[] {
   return c.tags.filter((t) => t !== c.kind);
 }
+/** 卡片上的标签：某一类的页签里不重复类别（#584）；「全部」里几类混排，第一个补上类别，分得清是台、流程还是技能 */
+export function cardTags(c: MarketCard, tab: MarketTab): string[] {
+  return tab === '全部' ? [c.kind, ...extraTags(c)] : extraTags(c);
+}
+
+/** GET /api/mcp/upstreams 的一行（只取卡片用到的） */
+export interface UpstreamRow { prefix: string; kind?: string; enabled?: boolean; reachable?: boolean | null; tools?: number; last_checked_at?: string }
+/** 连接器卡片（只给管理员）：名字是上游的前缀；底部写连得上几个工具 / 连不上 / 还没检查过；停用的写停用。点了去 MCP 网关的管理页 */
+export function connectorCards(list: unknown): MarketCard[] {
+  if (!Array.isArray(list)) return [];
+  return (list as UpstreamRow[])
+    .filter((u) => u && typeof u === 'object' && typeof u.prefix === 'string' && u.prefix.trim() !== '')
+    .sort((a, b) => a.prefix.localeCompare(b.prefix))
+    .map((u) => {
+      const tools = Number.isInteger(u.tools) && (u.tools as number) >= 0 ? (u.tools as number) : 0;
+      const usage = u.enabled === false ? '已停用' : u.reachable === true ? `连得上 · ${tools} 个工具` : u.reachable === false ? '连不上' : '还没检查过';
+      return {
+        key: `conn-${u.prefix}`, kind: '连接器' as const,
+        icon: initialOf(u.prefix), initial: true,
+        name: u.prefix, caption: u.kind === 'ygl-trees' ? '经验库连接' : 'MCP 上游',
+        description: '', tags: [], usage,
+        ...(typeof u.last_checked_at === 'string' && u.last_checked_at.trim() && u.enabled !== false ? { checkedAt: u.last_checked_at.trim() } : {}),
+        href: '/mcp-gateways', action: '查看' as const,
+      };
+    });
+}
 
 /** 地址里的分类（?k=流程）：认不出的当「全部」 */
 export function tabFromQuery(raw: string | null): MarketTab {
   return (MARKET_TABS as readonly string[]).includes(String(raw)) ? (raw as MarketTab) : '全部';
 }
 
-const NOUN: Record<MarketKind, string> = { 工作台: '工作台', 流程: '流程', 技能: '技能' };
+const NOUN: Record<MarketKind, string> = { 工作台: '工作台', 流程: '流程', 技能: '技能', 连接器: '连接器' };
 
 /** 一个来源读不到时怎么说；读到了返回 null。type 对应 antd Alert 的 type */
 export function sourceProblem(kind: MarketKind, r: SourceResult | null): { type: 'warning' | 'info'; text: string } | null {
@@ -170,5 +201,41 @@ export function emptyText(tab: MarketTab, admin: boolean): string {
   if (tab === '工作台') return admin ? '还没有登记的工作台。点右上角「管理」里的「管理工作台」登记第一个。' : '还没有登记的工作台。工作台由管理员登记，登记后会出现在这里。';
   if (tab === '流程') return '还没有发布的流程。流程在 SOP 交付空间发布之后会出现在这里。';
   if (tab === '技能') return '还没有发布的技能。技能发布第一个版本之后会出现在这里。';
+  if (tab === '连接器') return '还没有接上的连接器。在管理菜单的「MCP 网关」里加上游之后会出现在这里。';
   return '市场里还什么都没有。工作台、流程、技能上架之后会出现在这里。';
+}
+
+/** 单个台的详情（/market/wb/:id）：读不到时怎么说。null = 读到了 */
+export function detailProblem(status: number): { kind: 'gone' | 'login' | 'denied' | 'error'; text: string } | null {
+  if (status >= 200 && status < 300) return null;
+  if (status === 404) return { kind: 'gone', text: '这个台不在了，可能已经被删掉。' };
+  if (status === 401) return { kind: 'login', text: '请先登录，登录后才能看这个台。' };
+  if (status === 403) return { kind: 'denied', text: '你的账号现在不能查看这个台。' };
+  return { kind: 'error', text: '读不到这个台，稍后再试。' };
+}
+/** 地址里的台号：正整数才认 */
+export function workbenchIdOf(raw: string | undefined): number | null {
+  return raw && /^[1-9]\d{0,9}$/.test(raw) ? Number(raw) : null;
+}
+/** 「编辑」先回到管理页的那一行：按名字筛出来（管理页读 ?q=） */
+export function manageHref(name: string): string {
+  return `/market/manage?q=${encodeURIComponent(name)}`;
+}
+
+/** 这个登记的台对应哪个数据视图的台（#674：GET /api/bench-views 每一项带 workbench_id）。只认 workbench_id 正好是这个台号的那一项，不按名字配。
+ *  清单没取到（没登录、没权限 403、没开启 404、出错）或者没有对应的，都是 null——详情页这一块就不出现 */
+export function benchSlugFor(status: number, body: unknown, workbenchId: number): string | null {
+  if (status !== 200) return null;
+  const list = (body as { benches?: unknown } | null)?.benches;
+  if (!Array.isArray(list)) return null;
+  const hit = list.find((b) => !!b && typeof b === 'object' && (b as { workbench_id?: unknown }).workbench_id === workbenchId && typeof (b as { slug?: unknown }).slug === 'string');
+  return hit ? (hit as { slug: string }).slug : null;
+}
+/** 一个数据视图的台有哪些视图的名字（GET /api/bench-views/<台>/view 的 view.content.views[]）。没取到、没有视图都是空——这一块不出现。
+ *  名字没写的用不上（不拿视图键顶替：键是代号） */
+export function viewTitles(status: number, body: unknown): string[] {
+  if (status !== 200) return [];
+  const views = (body as { view?: { content?: { views?: unknown } } | null } | null)?.view?.content?.views;
+  if (!Array.isArray(views)) return [];
+  return views.flatMap((v) => (v && typeof v === 'object' && typeof (v as { title?: unknown }).title === 'string' && (v as { title: string }).title.trim() ? [(v as { title: string }).title.trim()] : []));
 }
