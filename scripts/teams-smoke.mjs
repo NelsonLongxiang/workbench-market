@@ -310,7 +310,80 @@ try {
     check(before === 1 && forged.status === 404 && forgedHandle.status === 404 && after === 1 && legacyActive === 1 && evAfter === evBefore,
       '别队的负责人冒用本队席位的 seat_id（或句柄）、报自己的队名去收回：404，本队的分配原样不动，也不记留痕',
       show({ forged: [forged.status, forged.json], forgedHandle: [forgedHandle.status, forgedHandle.json], before, after, legacyActive }));
+    // 改派同样：冒用 seat_id 或句柄 404；席位换了队（名册里成员 e 现在在别队，本队还挂着它的一条旧分配）时，别队负责人也动不了本队那条分配
+    const ins = db.prepare('INSERT INTO seat_assignments (host, team, seat, seat_id, principal_id, assigned_by, assigned_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(HOST, TEAM, 'zone1/0000000e', 'seat-0000000e', 'user:alpha', 'synthetic', Date.now());
+    const evR = Number(db.prepare('SELECT COUNT(*) AS n FROM team_events').get().n);
+    const rForged = await srv.call('POST', '/api/teams/reassign', { ...as(SESSIONS.noAdminFlag), body: { host: HOST, team: OTHER, seat: 'zone1/000000ee', seat_id: MEMBER.seat_id, principal: 'user:no-flag' } });
+    const rForgedHandle = await srv.call('POST', '/api/teams/reassign', { ...as(SESSIONS.noAdminFlag), body: { host: HOST, team: OTHER, seat: LEGACY.seat, seat_id: '', principal: 'user:no-flag' } });
+    const rMoved = await srv.call('POST', '/api/teams/reassign', { ...as(SESSIONS.noAdminFlag), body: { host: HOST, team: OTHER, seat: 'zone1/0000000e', seat_id: 'seat-0000000e', principal: 'user:no-flag' } });
+    const movedRows = db.prepare('SELECT team, principal_id, ended_at FROM seat_assignments WHERE host = ? AND seat_id = ?').all(HOST, 'seat-0000000e');
+    const evR2 = Number(db.prepare('SELECT COUNT(*) AS n FROM team_events').get().n);
+    db.prepare('DELETE FROM seat_assignments WHERE id = ?').run(ins.lastInsertRowid);
+    check(rForged.status === 404 && rForgedHandle.status === 404 && rMoved.status === 404 && rMoved.json?.error === 'seat_not_in_team'
+      && show(movedRows) === show([{ team: TEAM, principal_id: 'user:alpha', ended_at: null }]) && evR2 === evR
+      && Number(db.prepare('SELECT COUNT(*) AS n FROM seat_assignments WHERE ended_at IS NULL AND seat_id = ?').get(MEMBER.seat_id).n) === 1,
+      '改派也一样：别队负责人冒用 seat_id 或句柄 404；席位换了队、本队还挂着旧分配时，别队负责人改派 404 seat_not_in_team，本队那条原样不动、不记留痕',
+      show({ rForged: [rForged.status, rForged.json?.error], rForgedHandle: [rForgedHandle.status, rForgedHandle.json?.error], rMoved: [rMoved.status, rMoved.json?.error], movedRows }));
     await srv.call('POST', '/api/teams/release', { headers: token, body: { host: HOST, team: OTHER } });
+  }
+
+  // ---------- 八之二之二、改派：一个事务里收回并分给另一个人 ----------
+  {
+    // 进来时：成员甲、旧席位都分给 alpha；alpha 是本队负责人，no-flag 有管理层授予（别队冒用的用例在八之二，那时别队还认领着）
+    const body = (s, principal, t = team) => ({ ...t, seat: s.seat, seat_id: s.seat_id, principal });
+    const rowsOf = (s) => db.prepare('SELECT id, principal_id, assigned_at, ended_at FROM seat_assignments WHERE host = ? AND team = ? AND seat = ? AND seat_id = ? ORDER BY id').all(HOST, TEAM, s.seat, s.seat_id);
+    const evCount = () => Number(db.prepare('SELECT COUNT(*) AS n FROM team_events').get().n);
+    const asgCount = () => Number(db.prepare('SELECT COUNT(*) AS n FROM seat_assignments').get().n);
+    // 1) 拦在前面的：一律不写分配、不记留痕
+    const ev0 = evCount(), asg0 = asgCount();
+    const denied = {
+      sysAdmin: await srv.call('POST', '/api/teams/reassign', { ...as(SESSIONS.admin), body: body(MEMBER, 'user:beta') }),
+      token: await srv.call('POST', '/api/teams/reassign', { headers: token, body: body(MEMBER, 'user:beta') }),
+      anon: await srv.call('POST', '/api/teams/reassign', { headers: REMOTE, body: body(MEMBER, 'user:beta') }),
+      cross: await srv.call('POST', '/api/teams/reassign', { headers: { ...REMOTE, 'sec-fetch-site': 'cross-site' }, session: SESSIONS.alpha, body: body(MEMBER, 'user:beta') }),
+      router: await srv.call('POST', '/api/teams/reassign', { ...as(SESSIONS.alpha), body: body(ROUTER, 'user:beta') }),
+      notPerson: await srv.call('POST', '/api/teams/reassign', { ...as(SESSIONS.alpha), body: body(MEMBER, 'seat:x/y') }),
+      nobody: await srv.call('POST', '/api/teams/reassign', { ...as(SESSIONS.alpha), body: body(MEMBER, 'user:nobody') }),
+      ghost: await srv.call('POST', '/api/teams/reassign', { ...as(SESSIONS.alpha), body: { ...team, seat: 'zone1/000000ff', seat_id: '', principal: 'user:beta' } }),
+      badKey: await srv.call('POST', '/api/teams/reassign', { ...as(SESSIONS.alpha), body: { ...team, seat: 'x', principal: 'user:beta' } }),
+      // 别队已经退回待认领：属主（本机命令行）也改派不了它的成员
+      unclaimed: await srv.call('POST', '/api/teams/reassign', { body: { host: HOST, team: OTHER, seat: 'zone1/0000000e', seat_id: 'seat-0000000e', principal: 'user:beta' } }),
+    };
+    const st = Object.fromEntries(Object.entries(denied).map(([k, r]) => [k, `${r.status}${r.json?.error ? ' ' + r.json.error : ''}`]));
+    check(denied.sysAdmin.status === 403 && denied.token.status === 403 && denied.token.json?.error === 'not_team_lead' && denied.anon.status === 401 && denied.cross.status === 403
+      && denied.router.status === 422 && denied.router.json?.error === 'router_not_assignable' && denied.notPerson.status === 422 && denied.nobody.status === 422 && denied.nobody.json?.error === 'assignee_not_person'
+      && denied.ghost.status === 404 && denied.badKey.status === 400 && denied.unclaimed.status === 409 && denied.unclaimed.json?.error === 'team_not_claimed'
+      && evCount() === ev0 && asgCount() === asg0 && rowsOf(MEMBER).filter((r) => r.ended_at === null).map((r) => r.principal_id).join() === 'user:alpha',
+      '改派被拒的：系统管理员、管理口令 403；远程匿名 401；跨站 403；总工、非人、不存在的人 422；名册里没有的席位 404；键写法不对 400；待认领的团队 409——分配和留痕一条不多',
+      show(st));
+    // 2) 负责人把成员甲从 alpha 改派给 beta：旧段结束、新段开始在同一时刻，留痕一条收回加一条分配，都带 { reassign, from, to }
+    const evA = evCount(), seqA = Number(db.prepare('SELECT COALESCE(MAX(seq), 0) AS s FROM team_events').get().s);
+    const r1 = await srv.call('POST', '/api/teams/reassign', { ...as(SESSIONS.alpha), body: body(MEMBER, 'user:beta') });
+    const rows1 = rowsOf(MEMBER), prev = rows1[rows1.length - 2], cur = rows1[rows1.length - 1];
+    const ev1 = db.prepare('SELECT kind, principal_id, detail FROM team_events WHERE seq > ? ORDER BY seq').all(seqA);
+    const want = show({ reassign: true, from: 'user:alpha', to: 'user:beta' });
+    check(r1.status === 200 && r1.json?.changed === true && r1.json?.from === 'user:alpha' && r1.json?.id === cur.id
+      && rows1.filter((r) => r.ended_at === null).length === 1 && cur.principal_id === 'user:beta' && cur.ended_at === null && prev.principal_id === 'user:alpha' && prev.ended_at === cur.assigned_at
+      && evCount() === evA + 2 && ev1.map((e) => `${e.kind}:${e.principal_id}`).join() === 'unassign:user:alpha,assign:user:beta' && ev1.every((e) => show(JSON.parse(e.detail || 'null')) === want),
+      '改派：一步办完，旧段的结束和新段的开始是同一时刻，生效的只有一条；留痕是一条收回（alpha）加一条分配（beta），detail 都带 { reassign, from, to }',
+      show({ r1: [r1.status, r1.json], rows: rows1.slice(-2), ev: ev1 }));
+    // 3) 改给现在的人：200 changed=false，什么都不写
+    const evB = evCount(), asgB = asgCount();
+    const same = await srv.call('POST', '/api/teams/reassign', { ...as(SESSIONS.alpha), body: body(MEMBER, 'user:beta') });
+    check(same.status === 200 && same.json?.changed === false && same.json?.from === 'user:beta' && evCount() === evB && asgCount() === asgB,
+      '改给现在的人：200 changed=false，分配和留痕都不多', show(same.json));
+    // 4) 现在没人分着：等同于分配（from 为 null，只记一条分配）；管理层（不是负责人）也能改派
+    await srv.call('POST', '/api/teams/unassign', { ...as(SESSIONS.alpha), body: body(LEGACY) });
+    const evC = evCount(), seqC = Number(db.prepare('SELECT COALESCE(MAX(seq), 0) AS s FROM team_events').get().s);
+    const fresh = await srv.call('POST', '/api/teams/reassign', { ...as(SESSIONS.noAdminFlag), body: body(LEGACY, 'user:alpha') });
+    const evFresh = db.prepare('SELECT kind, detail FROM team_events WHERE seq > ? ORDER BY seq').all(seqC);
+    check(fresh.status === 200 && fresh.json?.changed === true && fresh.json?.from === null && evCount() === evC + 1
+      && evFresh.length === 1 && evFresh[0].kind === 'assign' && show(JSON.parse(evFresh[0].detail || 'null')) === show({ reassign: true, from: null, to: 'user:alpha' })
+      && rowsOf(LEGACY).filter((r) => r.ended_at === null).map((r) => r.principal_id).join() === 'user:alpha',
+      '现在没人分着：改派等同于分配，from 为 null、只记一条分配；管理层授予的人（不是负责人）也能改派', show({ fresh: [fresh.status, fresh.json], evFresh }));
+    // 收尾：成员甲改回 alpha（后面的段落照「两个都分给 alpha」往下走）
+    const back = await srv.call('POST', '/api/teams/reassign', { body: body(MEMBER, 'user:alpha') }); // 本机命令行（属主）
+    check(back.status === 200 && back.json?.changed === true && back.json?.from === 'user:beta', '收尾：本机命令行把成员甲改派回 alpha', show(back.json));
   }
 
   // ---------- 八之三、关系由谁说了算：只有系统管理员身份的人造不出带来权限的关系 ----------
@@ -712,8 +785,8 @@ try {
   {
     const kinds = db.prepare('SELECT kind, COUNT(*) AS n FROM team_events WHERE host = ? AND team = ? GROUP BY kind ORDER BY kind').all(HOST, TEAM).map((r) => `${r.kind}:${r.n}`);
     const lines = srv.log().split('\n').filter((l) => l.includes('"source":"teams"'));
-    check(show(kinds) === show(['assign:3', 'claim:1', 'lead-add:2', 'lead-remove:1', 'release:1', 'unassign:1']) && lines.length >= 7,
-      '每一步留痕：认领、加负责人两次（第二次是属主确认的提议，八之三）、移除一次、分配三次、收回一次、退回各一行；日志里每步一行', show({ kinds, lines: lines.length }));
+    check(show(kinds) === show(['assign:6', 'claim:1', 'lead-add:2', 'lead-remove:1', 'release:1', 'unassign:4']) && lines.length >= 7,
+      '每一步留痕：认领、加负责人两次（第二次是属主确认的提议，八之三）、移除一次、分配三次加改派三次（改派里两次换人各带一条收回）、收回一次加改派前的一次、退回各一行；日志里每步一行', show({ kinds, lines: lines.length }));
   }
 } catch (e) {
   fail++;

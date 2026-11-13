@@ -11,6 +11,7 @@
  *   POST /api/teams/leads/remove     移除负责人（最后一个不能直接移除，409）。管理员。
  *   POST /api/teams/assign           把成员分配给员工。这个团队的负责人，或者管理层（本机命令行也行）；系统管理员、管理口令不能代办。
  *   POST /api/teams/unassign         收回。同上。
+ *   POST /api/teams/reassign         改派：一个事务里收回并分给另一个人（现在没人分着就等同于分配；改给同一个人回 changed=false）。同上。
  *
  * 谁能看到哪些团队（读）：
  *   · 管理员（口令或管理员登录，同源）、本机命令行：全部，包括待认领的；
@@ -281,5 +282,17 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
     if (!r.ok) return void refused(res, r);
     if (r.removed) logged('unassign', k, { seat: k.seat, seat_id: k.seat_id }, actor.by);
     res.json(r);
+  }));
+
+  app.post('/api/teams/reassign', { action: 'team.reassign', kind: 'write', statusNotVerdict: LEAD_DECIDES }, route(async (req, res) => {
+    const b = bodyOf(req);
+    const k = seatKeyOf(b);
+    const principal = str(b.principal, 'principal', PRINCIPAL_RE, 160);
+    const actor = await leadOrAdmin(req, res, k);
+    if (!actor) return;
+    const r = teams().reassign(k, principal, actor, Date.now());
+    if (!r.ok) return void refused(res, r);
+    if (r.changed) logged('reassign', k, { seat: k.seat, seat_id: k.seat_id, from: r.from, to: principal }, actor.by);
+    res.json({ ok: true, changed: r.changed, id: r.id, from: r.from });
   }));
 }
