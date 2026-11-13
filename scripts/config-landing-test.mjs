@@ -7,7 +7,9 @@
  *   C3 服务类插件的 static Config 经 Cordis 生效：ctx.plugin(P) 不给配置时构造函数拿到启动环境解析出的值；给了就用给的；非法值装不上；
  *      服务容器（context.ts）装上的沙箱服务拿到启动环境里的桥地址
  *   C4 收进 Config 的模块解析口径照旧（逐个对原来的表达式）
- *   C5 收进 Config 的文件里不再直接读 process.env（缺省的 process.env 只在 config.ts 出现）
+ *   C5 收进 Config 的文件里不再直接读 process.env（缺省的 process.env 只在 config.ts 出现）：
+ *      process.env.名字、process.env[变量]（动态读法，体检数不到）、process.env 起别名或解构都算；
+ *      把整个环境原样传给子进程（{ ...process.env, … }）不算读配置
  */
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -23,7 +25,7 @@ process.env.CONFIG_LANDING_PROBE = ' from-env ';
 const dataDir = mkdtempSync(join(tmpdir(), 'wm-config-landing-'));
 process.env.DATA_DIR = dataDir;
 process.env.SANDBOX_BRIDGE_URL = ' http://bridge.invalid ';
-const { defineConfig, loadConfig, str } = await import(src('config.ts'));
+const { defineConfig, loadConfig, passEnv, str } = await import(src('config.ts'));
 const C = defineConfig((env) => {
   if (env.CONFIG_LANDING_BAD) throw new Error('CONFIG_LANDING_BAD 不认');
   return { probe: str(env.CONFIG_LANDING_PROBE) };
@@ -33,6 +35,8 @@ const C = defineConfig((env) => {
 ok('C1 不给配置取启动环境', C['~standard'].validate(undefined).value?.probe === 'from-env');
 ok('C1 loadConfig 缺省取启动环境', loadConfig(C).probe === 'from-env');
 ok('C1 给了同形对象就用给的', C['~standard'].validate({ CONFIG_LANDING_PROBE: 'given' }).value?.probe === 'given' && loadConfig(C, {}).probe === '');
+
+ok('C1 passEnv：只带点名的、非空的；不给就取启动环境', JSON.stringify(passEnv(['A', 'B', 'C'], { A: '1', B: '', D: '4' })) === '{"A":"1"}' && passEnv(['CONFIG_LANDING_PROBE']).CONFIG_LANDING_PROBE === ' from-env ');
 
 // C2
 const bad = C['~standard'].validate({ CONFIG_LANDING_BAD: '1' });
@@ -85,10 +89,32 @@ ok('C4 MCP 上游：服务端工作区去空白', up.Config.read({ YGL_HOME: ' /
 const { SandboxService } = await import(src('services/sandbox.ts'));
 ok('C4 沙箱：没设是 undefined（让库里的 settings 和缺省空串照原样兜底）', SandboxService.Config.read({}).bridgeUrl === undefined && SandboxService.Config.read({ SANDBOX_BRIDGE_TOKEN: 't' }).bridgeToken === 't');
 
+const admin = await import(src('routes/admin-token.ts'));
+ok('C4 管理口令：启动环境里有非空口令才算来自环境，不留口令本身', admin.Config.read({ ADMIN_TOKEN: 'x' }).fromEnv === true && admin.Config.read({ ADMIN_TOKEN: '' }).fromEnv === false && admin.Config.read({}).fromEnv === false
+  && JSON.stringify(admin.Config.read({ ADMIN_TOKEN: 'synthetic-secret' })) === '{"fromEnv":true}');
+const gate = await import(src('outbound-gate.ts'));
+let gateErr = ''; try { gate.Config.read({ WM_OUTBOUND: 'OFF' }); } catch (e) { gateErr = String(e?.message); }
+ok('C4 对外断开：空和 on 是开、去空白的 off 是断开；别的值（大小写不同也算）拒绝启动、报错点名变量', gate.Config.read({}).off === false && gate.Config.read({ WM_OUTBOUND: 'on' }).off === false && gate.Config.read({ WM_OUTBOUND: ' off ' }).off === true
+  && /WM_OUTBOUND 只能是 on 或 off/.test(gateErr) && !!gate.Config['~standard'].validate({ WM_OUTBOUND: 'yes' }).issues, gateErr);
+const vault = await import(src('vault-api.ts'));
+const vr = (e) => vault.Config.read(e);
+ok('C4 凭据库：闲置分钟缺省 15、空串是 0（Number 口径）、负数和非数回落 15、小数照收', vr({}).idleMin === 15 && vr({ WM_VAULT_IDLE_MIN: '' }).idleMin === 0 && vr({ WM_VAULT_IDLE_MIN: '-1' }).idleMin === 15 && vr({ WM_VAULT_IDLE_MIN: 'x' }).idleMin === 15 && vr({ WM_VAULT_IDLE_MIN: '2.5' }).idleMin === 2.5);
+ok('C4 凭据库：库路径去空白、空白算没设；主密码文件去空白；主密码原样（空格保留）', vr({ WM_VAULT_PATH: ' /v.json ' }).path === '/v.json' && vr({ WM_VAULT_PATH: '  ' }).path === '' && vr({ DSH_VAULT_PASSWORD_FILE: ' /pw ' }).passwordFile === '/pw' && vr({ DSH_VAULT_PASSWORD: ' p ' }).password === ' p ' && vr({}).password === '');
+ok('C4 凭据库：没设库路径时用 DATA_DIR 下的缺省库', vault.vaultPath() === join(dataDir, 'vault', 'default.json'), vault.vaultPath());
+const tr = (e) => tasks.Config.read(e);
+ok('C4 tasks：项目数上限缺省 200、去空白、非整数和越界回落', tr({}).yglMaxProjects === 200 && tr({ YGL_MAX_PROJECTS: ' 40 ' }).yglMaxProjects === 40 && ['0', '1.5', '-5', 'abc', '10001'].every((v) => tr({ YGL_MAX_PROJECTS: v }).yglMaxProjects === 200) && tr({ YGL_MAX_PROJECTS: '10000' }).yglMaxProjects === 10000);
+ok('C4 tasks：总预算缺省 8000、500～120000 之外回落', tr({}).yglTotalBudgetMs === 8000 && tr({ YGL_TOTAL_BUDGET_MS: '499' }).yglTotalBudgetMs === 8000 && tr({ YGL_TOTAL_BUDGET_MS: '120000' }).yglTotalBudgetMs === 120000 && tr({ YGL_TOTAL_BUDGET_MS: '120001' }).yglTotalBudgetMs === 8000);
+
 // C5
-const moved = ['eval.ts', 'github-source.ts', 'mcp-stdio-upstream.ts', 'routes/health.ts', 'services/sandbox.ts', 'sop-read-auth.ts', 'tasks.ts'];
-const direct = moved.filter((f) => /\bprocess\.env\.[A-Z0-9_]+/.test(readFileSync(join(ROOT, 'server/src', f), 'utf8')));
-ok('C5 收进 Config 的文件里不再直接读 process.env.名字', direct.length === 0, direct.join(', '));
+/** 读配置的写法：点名字、方括号（动态）、可选链、起别名或解构。整个环境原样传给子进程（展开）不算 */
+const READS = [/\bprocess\.env\s*(?:\?\.)?\.?\s*[A-Za-z_$[]/, /(?:=|\breturn)\s*process\.env\b(?!\s*(?:\?\.|\.|\[))/, /\bin\s+process\.env\b/];
+const reads = (text) => READS.some((re) => re.test(text.replace(/\.\.\.process\.env\b/g, '')));
+ok('C5 量法自检：点名字、方括号、可选链、别名、解构、in 都算；展开传给子进程不算',
+  ['process.env.WM_X', 'process.env[name]', "process.env['WM_X']", 'process.env?.WM_X', 'process.env?.[k]', 'const e = process.env;', 'const { WM_X } = process.env', 'return process.env', "'WM_X' in process.env"].every(reads)
+  && !['env: { ...process.env, A: 1 }', 'spawn(x, [], { env: { ...process.env } })', '// 不读环境'].some(reads));
+const moved = ['eval.ts', 'github-source.ts', 'mcp-stdio-upstream.ts', 'routes/health.ts', 'services/sandbox.ts', 'sop-read-auth.ts', 'tasks.ts', 'routes/admin-token.ts', 'outbound-gate.ts', 'vault-api.ts'];
+const direct = moved.filter((f) => reads(readFileSync(join(ROOT, 'server/src', f), 'utf8')));
+ok('C5 收进 Config 的文件里不再读 process.env（含动态读法）', direct.length === 0, direct.join(', '));
 
 rmSync(dataDir, { recursive: true, force: true });
 console.log(`\nconfig-landing-test: ${pass} 过，${fail} 没过`);

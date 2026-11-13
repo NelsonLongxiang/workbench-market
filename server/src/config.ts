@@ -7,7 +7,7 @@
  * - 还不是插件的域模块，在模块加载时 `loadConfig(Config)` 取一次。
  *
  * 规矩：
- * - 启动时取一次，用到的地方不再读 `process.env`。缺省的 `process.env` 只在这个文件里出现。
+ * - 启动时取一次，用到的地方不再读 `process.env`。缺省的 `process.env` 只在这个文件里出现（给子进程带系统变量用 `passEnv`）。
  * - 解析沿用原来的口径；值不合法要拒绝启动的，在 read 里抛错（Cordis 装插件时报 ValidationError，loadConfig 直接抛）。
  * - 新的配置项写进 README（体检 env-docs 按 `env.名字` 认）。
  * - env 是传进来的：测试可以给自己的一份，不用改全局环境。
@@ -41,6 +41,16 @@ export function defineConfig<T>(read: (env: Env) => T): Config<T> {
 /** 还不是插件的模块在加载时取一次配置 */
 export function loadConfig<T>(config: Config<T>, env: Env = process.env): T {
   return config.read(env);
+}
+
+/**
+ * 起子进程时原样带过去的几个系统变量（PATH、TEMP 之类）：只取点名的、非空的。这不是模块的配置，是给子进程的环境；
+ * 放在这里，是为了模块里不再出现 process.env（每次调用现取，和原来逐个读一样）
+ */
+export function passEnv(keys: readonly string[], env: Env = process.env): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const k of keys) { const v = env[k]; if (v) out[k] = v; }
+  return out;
 }
 
 /** 去掉首尾空白；没设是空串 */

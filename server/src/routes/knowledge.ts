@@ -11,7 +11,7 @@ import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import { originIsThisSurface } from '../surfaces.ts';
-import { actorResolver } from '../judgment-compare.ts';
+import { actorResolver, migrateOnSight } from '../judgment-compare.ts';
 import { judge, type JudgedActor } from '../judgment.ts';
 import { KINDS, PAGE_KIND, type KnowledgeService, type YglKind } from '../services/knowledge.ts';
 
@@ -55,12 +55,14 @@ export function registerKnowledgeRoutes(app: HttpService, deps: KnowledgeRouteDe
   }));
 
   // 同步状态：运维信息（不带条目内容）。直接按统一判定判，和判定比对零差异：认管理类（knowledge.sync-status）的授予——
-  // 管理口令、持系统管理员预设的人、属主；普通员工、管理层没有。跨站 403、没登录 401
+  // 管理口令、本机命令行（属主，judgment-builtins.ts 里逐条列了）、持系统管理员预设的人、属主；普通员工、管理层没有。跨站 403、没登录 401
   app.get('/api/knowledge/status', { action: 'knowledge.sync-status', kind: 'admin' }, wrap(async (req, res) => {
     res.set('Cache-Control', 'private, no-store');
     res.vary('Cookie'); res.vary('X-Admin-Token');
     if (req.headers['sec-fetch-site'] === 'cross-site' || (req.headers.origin && !originIsThisSurface(req) && !deps.devOriginOk(req))) return void res.status(403).json({ error: 'knowledge_cross_origin_denied' });
-    const { actor } = await actorOf(req);
+    const { actor, admin } = await actorOf(req);
+    // 和判定切换的门同一个口径：身份来源说是管理员的人，第一次见到时迁移出系统管理员预设（同一个人只迁一次），再问判定
+    migrateOnSight(actor, admin);
     if (judge({ actor, action: 'knowledge.sync-status', kind: 'admin', declared: true }).verdict !== 'allow') {
       if (actor.type === 'builtin' && actor.name === 'anonymous') return void res.status(401).json({ error: 'login_required' });
       return void res.status(403).json({ error: 'knowledge_status_denied', message: '同步状态给管理员看' });
