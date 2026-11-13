@@ -1,5 +1,6 @@
 /** 工作台域（workbenches ×37 + types ×13）：SQL 原文自 index.ts 搬入（S1）。 */
 import { Service } from '@deepseek-ai/cordis';
+import type { SQLInputValue } from 'node:sqlite';
 import { db } from '../db.ts';
 
 export class WorkbenchService extends Service {
@@ -16,7 +17,7 @@ export class WorkbenchService extends Service {
   listSorted() {
     return db.prepare('SELECT * FROM workbenches ORDER BY sort ASC, id ASC').all();
   }
-  createByNamed(r: Record<string, unknown>) {
+  createByNamed(r: Record<string, SQLInputValue>) {
     return db.prepare(
       `INSERT INTO workbenches (name, url, type, icon, description, category, tags, enabled, health_path, sort, auth_config)
        VALUES (@name, @url, @type, @icon, @description, @category, @tags, @enabled, @health_path, @sort, @auth_config)`
@@ -41,7 +42,7 @@ export class WorkbenchService extends Service {
     return db.prepare('DELETE FROM workbenches WHERE id = ?').run(id);
   }
   /** 全字段更新（REST 编辑路径）——SQL 原文自 index.ts 搬入 */
-  updateAll(r: { name: string; url: string; type: string; icon: string; description: string; category: string; tags: string; enabled: number | boolean; health_path: string; sort: number; auth_config: string; cookie_set_id: number; id: number }) {
+  updateAll(r: { name: string; url: string; type: string; icon: string; description: string; category: string; tags: string; enabled: number; health_path: string; sort: number; auth_config: string; cookie_set_id: number; id: number }) {
     return db.prepare(
       `UPDATE workbenches SET name=@name, url=@url, type=@type, icon=@icon, description=@description,
      category=@category, tags=@tags, enabled=@enabled, health_path=@health_path, sort=@sort,
