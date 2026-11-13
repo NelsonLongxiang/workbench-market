@@ -39,7 +39,10 @@ try {
     const filtered = [], running = [];
     for (let k = 0; k < 5; k++) { filtered.push(sop.runsFiltered('order-probe', '').map((x) => x.id)); running.push(sop.runsRunning().map((x) => x.id)); }
     // 成员分配：同一个人在同一毫秒被分到四个成员
-    const a = db.prepare("INSERT INTO seat_assignments (host, team, seat, seat_id, principal_id, assigned_by, assigned_at) VALUES ('a1b2c3d4', 'zone1/canvas/Team A', ?, ?, 'user:alpha', 'test', 1000)");
+    // 团队归属绑节点：名册和对端登记里要有这个节点（合成的）
+    db.prepare("INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES ('a1b2c3d4', 'https://order.synthetic.invalid', 'zone1', '0', '0')").run();
+    db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, key_fingerprint, registered_by, registered_at, updated_at) VALUES ('peer-order', 'https://order.synthetic.invalid', 'zone1', '', 'active', 'sha256:a1b2c3d4', 'seed', '0', '0')").run();
+    const a = db.prepare("INSERT INTO seat_assignments (host, team, seat, seat_id, principal_id, assigned_by, assigned_at, peer_root, key_fingerprint) VALUES ('a1b2c3d4', 'zone1/canvas/Team A', ?, ?, 'user:alpha', 'test', 1000, 'https://order.synthetic.invalid', 'sha256:a1b2c3d4')");
     for (let i = 0; i < 4; i++) a.run('zone1/0000000' + i, 'seat-0000000' + i);
     const teams = svc('teams');
     const assigned = [];

@@ -523,7 +523,9 @@
       "assigned_by TEXT NOT NULL",
       "assigned_at INTEGER NOT NULL",
       "ended_by TEXT",
-      "ended_at INTEGER"
+      "ended_at INTEGER",
+      "peer_root TEXT NOT NULL DEFAULT ''",
+      "key_fingerprint TEXT NOT NULL DEFAULT ''"
     ],
     "settings": [
       "key TEXT PK",
@@ -752,7 +754,9 @@
       "detail TEXT NOT NULL DEFAULT ''",
       "actor TEXT NOT NULL",
       "actor_principal TEXT",
-      "at INTEGER NOT NULL"
+      "at INTEGER NOT NULL",
+      "peer_root TEXT NOT NULL DEFAULT ''",
+      "key_fingerprint TEXT NOT NULL DEFAULT ''"
     ],
     "team_leads": [
       "id INTEGER PK",
@@ -762,7 +766,9 @@
       "added_by TEXT NOT NULL",
       "added_at INTEGER NOT NULL",
       "ended_by TEXT",
-      "ended_at INTEGER"
+      "ended_at INTEGER",
+      "peer_root TEXT NOT NULL DEFAULT ''",
+      "key_fingerprint TEXT NOT NULL DEFAULT ''"
     ],
     "teams": [
       "host TEXT NOT NULL PK",
@@ -771,7 +777,9 @@
       "claimed INTEGER NOT NULL DEFAULT 0",
       "claimed_by TEXT NOT NULL DEFAULT ''",
       "claimed_at INTEGER",
-      "updated_at INTEGER NOT NULL"
+      "updated_at INTEGER NOT NULL",
+      "peer_root TEXT NOT NULL DEFAULT ''",
+      "key_fingerprint TEXT NOT NULL DEFAULT ''"
     ],
     "types": [
       "id INTEGER PK",

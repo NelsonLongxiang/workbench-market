@@ -18,6 +18,7 @@ import { db } from '../db.ts';
 import { BenchError } from '../bench-query.ts';
 import { BENCH_SLUG_RE } from './bench-store-core.ts';
 import { benchStoreExists } from './bench-store.ts';
+import { boundSql } from './team.ts';
 
 export type BenchBinding = { department_id: string; team_host: string; team: string };
 export type BenchEntry = { slug: string; title: string; created_by: string; created_at: number; workbench_id: number | null } & BenchBinding;
@@ -73,8 +74,9 @@ export function parseBinding(o: Record<string, unknown>): BenchBinding {
   if (team && !dep) throw new BenchError('invalid', '细到团队的台要先绑到部门');
   if (dep && !db.prepare('SELECT 1 FROM departments WHERE id = ?').get(dep)) throw new BenchError('not_found', `没有部门 ${dep}`);
   if (team) {
-    const t = db.prepare('SELECT department_id, claimed FROM teams WHERE host = ? AND team = ?').get(host, team) as { department_id: string; claimed: number } | undefined;
-    if (!t || !t.claimed || t.department_id !== dep) throw new BenchError('invalid', '这个团队没有认领到这个部门');
+    // 认领记在旧节点上的（节点换了）不算认领了
+    const t = db.prepare(`SELECT department_id, claimed, ${boundSql('t')} AS bound FROM teams t WHERE host = ? AND team = ?`).get(host, team) as { department_id: string; claimed: number; bound: number } | undefined;
+    if (!t || !t.claimed || !t.bound || t.department_id !== dep) throw new BenchError('invalid', '这个团队没有认领到这个部门');
   }
   return { department_id: dep, team_host: host, team };
 }

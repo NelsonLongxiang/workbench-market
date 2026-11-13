@@ -1276,6 +1276,27 @@ CREATE TABLE IF NOT EXISTS team_events (
 );
 CREATE INDEX IF NOT EXISTS idx_team_events_team ON team_events (host, team, seq);
 `);
+// 团队归属绑节点本身：认领、负责人、分配、团队事件各记下当时这个 host 对应的节点——名册里的根地址（peer_root）和
+//   对端登记里这个根地址的完整指纹（key_fingerprint）。用的时候和现在的名册、对端登记核对，对不上的不算数（services/team.ts）。
+//   存量只在加列的那一次回填（按当时的名册和启用的对端）；回填不上的留空，一直不算数，要管理层重新认领、指定、分配。
+//   以后的启动不再回填：不然后来报上同一个号的节点会接走这些旧行
+if (!hasColumn('teams', 'peer_root')) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    for (const t of ['teams', 'team_leads', 'seat_assignments', 'team_events']) {
+      db.exec(`ALTER TABLE ${t} ADD COLUMN peer_root TEXT NOT NULL DEFAULT ''`);
+      db.exec(`ALTER TABLE ${t} ADD COLUMN key_fingerprint TEXT NOT NULL DEFAULT ''`);
+    }
+    for (const t of ['teams', 'team_leads', 'seat_assignments']) {
+      db.exec(`UPDATE ${t} SET
+        peer_root = COALESCE((SELECT r.peer_root FROM a2a_rosters r JOIN a2a_peers p ON p.root_url = r.peer_root
+          WHERE r.host = ${t}.host AND r.peer_root <> '' AND p.status = 'active' AND p.key_fingerprint <> ''), ''),
+        key_fingerprint = COALESCE((SELECT p.key_fingerprint FROM a2a_rosters r JOIN a2a_peers p ON p.root_url = r.peer_root
+          WHERE r.host = ${t}.host AND r.peer_root <> '' AND p.status = 'active' AND p.key_fingerprint <> ''), '')`);
+    }
+    db.exec('COMMIT');
+  } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务已经不在了 */ } throw e; }
+}
 
 // 首次安装向导（角色预设 ②）：一次运行按形态生成一批草稿授予。授予本身照常在 grants 里（来源列只认 manual、migration，老库改不了），
 //   「这条是向导建的」记在这两张表里，读的时候推出来源 wizard。属主一次放行这一批。时间由代码给（毫秒）。
