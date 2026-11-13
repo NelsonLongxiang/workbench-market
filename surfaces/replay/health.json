@@ -198,7 +198,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "4757", "etag": "W/\"1295-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "4816", "etag": "W/\"12d0-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -247,7 +247,8 @@
                 "refused": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "counts": {} },
                 "roster": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "outcomes": {}, "sources": { "sources": 0, "stalest_received_at": null, "stale_15m": 0 } }
               },
-              "identity_source": { "asked": 0, "timeouts": 0, "failed": 0, "shared": 0, "negative_hits": 0, "last_ms": null, "last_failed_at": null }
+              "identity_source": { "asked": 0, "timeouts": 0, "failed": 0, "shared": 0, "negative_hits": 0, "last_ms": null, "last_failed_at": null },
+              "guard_would_deny": { "app_data_read": [], "sop_run_write": [] }
             }
           }
         },

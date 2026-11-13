@@ -502,6 +502,8 @@ jobs:
         run: node scripts/settings-read-smoke.mjs
       - name: SOP run 的写守卫（上传令牌、管理员或本机命令行；匿名、别的 run 的令牌、已结束的 run、员工、跨站一律 403 且先于查 run；开建照旧开放；告警模式）
         run: node scripts/sop-run-write-guard-smoke.mjs
+      - name: 两个守卫告警档的计数接进 /api/health（warn 档匿名读、写各一次管理读看到加一·按路由模板和调用方类别·非管理读和口令不对看不到·不带台名、run 号、会话·enforce 档为空）
+        run: node scripts/health-guard-warn-counts-test.mjs
       - name: 工作台变量与常量（#336：三类台隔离·权限·常量保护·并发 409·重启恢复·MCP；常量谁写的谁维护）
         run: node scripts/workbench-vars-smoke.mjs && node scripts/workbench-const-owner-smoke.mjs
       - name: MCP design_standard 只读读取设计标准（模块+实例·网关开关两态）
