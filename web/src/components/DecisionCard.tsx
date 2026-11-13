@@ -49,7 +49,8 @@ async function loadDetail(id: string): Promise<Detail | null> {
   } catch { return null; }
 }
 
-export default function DecisionCard({ item, admin, onDone }: { item: AttentionItem; admin: boolean; onDone: () => void }) {
+/** more：卡片底下要不要放「看详情 / 去处理 →」（驾驶舱右栏顶上已经有一个，那里传 false；缺省放） */
+export default function DecisionCard({ item, admin, onDone, more = true }: { item: AttentionItem; admin: boolean; onDone: () => void; more?: boolean }) {
   const { message } = App.useApp();
   const choices = answerChoices(admin, item);
   const [open, setOpen] = useState<string | null>(null);
@@ -178,7 +179,7 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
         return confirm ? <Popconfirm key={a} title={`确定${label(a)}？`} description={confirm} okText={label(a)} cancelText="再想想" onConfirm={() => click(a)}>{btn}</Popconfirm> : btn;
       })}
       {open && needOf(open) && <Button onClick={() => { setOpen(null); setText(''); setCreate(false); }} data-testid="decision-cancel">取消</Button>}
-      {!open && place.link && !((cc || rc || gc) && choices.length) && <Link to={place.link} className="wm-decision-more">{choices.length ? '看详情' : '去处理'} →</Link>}
+      {more && !open && place.link && !((cc || rc || gc) && choices.length) && <Link to={place.link} className="wm-decision-more">{choices.length ? '看详情' : '去处理'} →</Link>}
       {!open && !place.link && place.text && !choices.length && <Typography.Text type="secondary" className="wm-caption" data-testid="decision-where">{place.text}</Typography.Text>}
     </Space>}
   </div>;

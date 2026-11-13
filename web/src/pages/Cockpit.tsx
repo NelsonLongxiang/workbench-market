@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useRequest } from 'ahooks';
 import { Space, Input, App, Badge, Button, Card, Col, Empty, Flex, Popconfirm, Popover, Select, Spin, Tooltip, Typography } from 'antd';
@@ -15,6 +15,8 @@ import { AttentionPane, ItemsPane, ProcessPane, StaffPane } from '../components/
 import ArrangeDrawer from '../components/ArrangeDrawer';
 import BenchViewTab from '../components/cockpit/BenchViewTab';
 import BenchViewManage from '../components/cockpit/BenchViewManage';
+import type { AttentionItem } from '../attention-view';
+import { rowKey } from '../cockpit-attention';
 import { benchViewRefs, isBenchViewPanel, itemsTabLabel, mainTabKeys, refsOfTab } from '../cockpit-frame-view';
 
 /** 驾驶舱写（/api/cockpits）是管理写：不是管理员（口令或 Odoo 管理员）时只读，隐藏新建/删除/改名/加移面板，网格不可拖拽 */
@@ -67,9 +69,10 @@ export default function Cockpit() {
   // 驾驶舱改名（监督席 direct-3b98f8c2 用户报障：后端 PUT name 一直在，前端无入口）
   const [attentionCount, setAttentionCount] = useState<number | null>(null);
   const [itemsView, setItemsView] = useState<unknown>(undefined);
-  /** 左栏点了「看办理过程」的那件事项；右栏跟着切到「办理过程」 */
-  const [picked, setPicked] = useState<string | null>(null);
+  /** 左栏选中的那一条（「关注」的条目）；右栏跟着切到「办理过程」，上面是它的答法 */
+  const [picked, setPicked] = useState<AttentionItem | null>(null);
   const [rightTab, setRightTab] = useState<string | null>(null);
+  const pick = useCallback((a: AttentionItem | null) => { setPicked(a); if (a) setRightTab('process'); }, []);
   const [arrange, setArrange] = useState(false);
   const [viewsOpen, setViewsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -332,7 +335,7 @@ export default function Cockpit() {
                 </div>
                 <div className="wm-panel-body">
                   {w ? (
-                    <GoFrame wid={w.id} name={w.name} frameKey={fk} />
+                    <GoFrame wid={w.id} name={w.name} frameKey={fk} url={w.url} />
                   ) : (
                     <Empty description={`工作台 #${p.workbenchId} 已不存在`} style={{ marginTop: 32 }} />
                   )}
@@ -347,12 +350,12 @@ export default function Cockpit() {
   return (
     <WmPage detail={active.name} wide>
       <CockpitFrame storageKey={String(active.id)} extra={extra}
-        left={{ id: 'attention', tabs: [{ key: 'attention', label: '等你拍板', count: attentionCount, content: <AttentionPane onCount={setAttentionCount} picked={picked} onPick={(id) => { setPicked(id); setRightTab('process'); }} /> }] }}
+        left={{ id: 'attention', tabs: [{ key: 'attention', label: '等你拍板', count: attentionCount, content: <AttentionPane onCount={setAttentionCount} picked={picked ? rowKey(picked) : null} onPick={pick} /> }] }}
         main={{ id: 'board', tabs: mainTabKeys(refs, panels.length).map((k) => (k === 'benches'
           ? { key: 'benches', label: '工作台', content: board }
           : { key: k, label: k === 'board' ? '看板' : '明细', content: <BenchViewTab key={k} refs={refsOfTab(refs, k)} chosen={viewPicks[active.id] ?? NO_PICKS} onChosen={(next) => setViewPicks((cur) => ({ ...cur, [active.id]: next }))} /> })) }}
         right={{ id: 'items', active: rightTab, onTab: setRightTab, tabs: [
-          { key: 'process', label: '办理过程', content: <ProcessPane itemId={picked} /> },
+          { key: 'process', label: '办理过程', content: <ProcessPane item={picked} /> },
           { key: 'staff', label: 'AI 员工', content: <StaffPane /> },
           { key: 'items', label: itemsTabLabel(itemsView, ADMIN), content: <ItemsPane onView={setItemsView} /> },
         ] }} />
