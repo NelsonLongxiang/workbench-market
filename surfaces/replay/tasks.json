@@ -217,7 +217,7 @@
                 { "id": "ygl-trees:22", "source": "ygl-trees", "title": "replay beta 已完成", "status": "done", "due": null, "link": null, "project": "beta" },
                 { "id": "market:run-12", "source": "market", "title": "SOP replay-other run#12 进行中（未指派）", "status": "doing", "due": null, "link": "/sop/replay-other/?run=12", "project": "replay-other" },
                 { "id": "market:run-11", "source": "market", "title": "SOP replay-sop run#11 进行中（未指派）", "status": "doing", "due": null, "link": "/sop/replay-sop/?run=11", "project": "replay-sop" },
-                { "id": "change-request:1", "source": "market", "title": "人审·台回滚 replay-app（replay 回滚）", "status": "todo", "due": "", "link": "/reviews?request=1", "project": "review-gate" },
+                { "id": "change-request:1", "source": "market", "title": "人审·台回滚 replay-app（replay 回滚）", "status": "todo", "due": "", "link": "/market", "project": "review-gate" },
                 { "id": "a2a:replay-a2a-1", "source": "a2a", "title": "replay 在途任务", "status": "doing", "due": null, "link": null, "project": "replay-team" },
                 { "id": "a2a:replay-a2a-0", "source": "a2a", "title": "replay 已归档任务（receipt）", "status": "done", "due": null, "link": null, "project": "replay-team" },
                 { "id": "replay-ok:1", "source": "replay-ok", "title": "replay 扩展待办", "status": "todo", "due": null, "link": null, "project": null }
@@ -253,7 +253,7 @@
                 { "id": "ygl-trees:22", "source": "ygl-trees", "title": "replay beta 已完成", "status": "done", "due": null, "link": null, "project": "beta" },
                 { "id": "market:run-12", "source": "market", "title": "SOP replay-other run#12 进行中（未指派）", "status": "doing", "due": null, "link": "/sop/replay-other/?run=12", "project": "replay-other" },
                 { "id": "market:run-11", "source": "market", "title": "SOP replay-sop run#11 进行中（未指派）", "status": "doing", "due": null, "link": "/sop/replay-sop/?run=11", "project": "replay-sop" },
-                { "id": "change-request:1", "source": "market", "title": "人审·台回滚 replay-app（replay 回滚）", "status": "todo", "due": "", "link": "/reviews?request=1", "project": "review-gate" },
+                { "id": "change-request:1", "source": "market", "title": "人审·台回滚 replay-app（replay 回滚）", "status": "todo", "due": "", "link": "/market", "project": "review-gate" },
                 { "id": "a2a:replay-a2a-1", "source": "a2a", "title": "replay 在途任务", "status": "doing", "due": null, "link": null, "project": "replay-team" },
                 { "id": "a2a:replay-a2a-0", "source": "a2a", "title": "replay 已归档任务（receipt）", "status": "done", "due": null, "link": null, "project": "replay-team" }
               ],
@@ -768,7 +768,7 @@
               "tasks": [
                 { "id": "market:run-12", "source": "market", "title": "SOP replay-other run#12 进行中（未指派）", "status": "doing", "due": null, "link": "/sop/replay-other/?run=12", "project": "replay-other" },
                 { "id": "market:run-11", "source": "market", "title": "SOP replay-sop run#11 进行中（未指派）", "status": "doing", "due": null, "link": "/sop/replay-sop/?run=11", "project": "replay-sop" },
-                { "id": "change-request:1", "source": "market", "title": "人审·台回滚 replay-app（replay 回滚）", "status": "todo", "due": "", "link": "/reviews?request=1", "project": "review-gate" }
+                { "id": "change-request:1", "source": "market", "title": "人审·台回滚 replay-app（replay 回滚）", "status": "todo", "due": "", "link": "/market", "project": "review-gate" }
               ],
               "sources": { "ygl-trees": { "ok": false, "count": 0, "latency_ms": 0, "error": "ygl_home_required" }, "market": { "ok": true, "count": 3, "latency_ms": 0 } },
               "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"

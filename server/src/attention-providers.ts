@@ -107,7 +107,7 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
         ? (svc<ChangeRequestService>('changeRequest').listByStatus('pending') as { id: number; kind: string; slug: string; op: string; target_version: number | null; reason: string; requested_by: string; created_at: string }[]).map((r) => item({
           source: 'change-requests', source_id: String(r.id), category: 'review',
           title: `${r.kind === 'skill' ? '技能' : '台'}${r.op === 'delete' ? '删除' : '回滚'} ${r.slug}${r.reason ? `（${String(r.reason).slice(0, 60)}）` : ''}`,
-          waiting_for: r.requested_by, since: r.created_at, answers: ['approve', 'reject'], link: `/reviews?request=${r.id}`,
+          waiting_for: r.requested_by, since: r.created_at, answers: ['approve', 'reject'], link: '/market', // 审核页（/reviews）已退役（#664）：变更申请在卡片上答，要看台去市场
           detail: svc<ChangeRequestService>('changeRequest').detailOf(r),
         }))
         : null,
@@ -218,7 +218,7 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           .filter((t) => !accept.has(t.id))
           .map((t) => item({
             source: 'tasks', source_id: t.id, category: 'review', title: t.title, waiting_for: t.source,
-            since: '', answers: [], link: t.link ?? '/tasks', object: t.project ?? '', // 统一待办的信封没有「什么时候开始」
+            since: '', answers: [], link: t.link ?? null, object: t.project ?? '', // 统一待办的信封没有「什么时候开始」；统一待办页已退役（#664），没给链接的就不给
             kind: taskKind(t),
           }));
       },
