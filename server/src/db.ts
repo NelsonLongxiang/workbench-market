@@ -1074,10 +1074,34 @@ for (const [column, ddl] of [
   // 从哪个驾驶舱安排的（驾驶舱的 id）：只在「安排一件事」那一刻记，之后不改；别的路子建的、存量都是 null，不回填。
   //   只是个标签，不给任何权限；驾驶舱删了也照旧留着这个数
   ['cockpit_id', 'cockpit_id INTEGER'],
+  // 截止日期（到日，存那天的 UTC 零点 ISO；空 = 没有）：安排时填、建立人可以改；过了期仍未完成的算 overdue（服务端按同一时钟算）
+  ['due_at', "due_at TEXT NOT NULL DEFAULT ''"],
 ] as const) {
   if (!(tableColumns('work_items') as { name: string }[]).some((c) => c.name === column)) db.exec(`ALTER TABLE work_items ADD COLUMN ${ddl}`);
 }
 db.exec('CREATE INDEX IF NOT EXISTS idx_work_items_cockpit ON work_items (cockpit_id, updated_at)');
+// 「安排一件事」的附件：先由登录的人上传（只存引用：落盘路径、名字、类型、大小、sha256），安排时挂到那一次的事件上。
+//   uploaded_by 是上传的人（主体）；event_id 空 = 还没挂到哪件事上（只有上传的人自己能挂）；挂上之后不再改。
+//   读：看得到这件事项的人经事项读（work-item-access 的 canSee）；接单节点凭那次投递的回执令牌取。时间由代码给。
+db.exec(`
+CREATE TABLE IF NOT EXISTS work_item_attachments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  uploaded_by TEXT NOT NULL CHECK (uploaded_by GLOB 'user:?*'),
+  name TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  size INTEGER NOT NULL CHECK (size >= 0),
+  sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
+  path TEXT NOT NULL,
+  event_id TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  bound_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_wi_attach_event ON work_item_attachments (event_id);
+CREATE INDEX IF NOT EXISTS idx_wi_attach_owner ON work_item_attachments (uploaded_by, event_id);
+CREATE TRIGGER IF NOT EXISTS work_item_attachments_bind_once BEFORE UPDATE OF event_id ON work_item_attachments
+  WHEN OLD.event_id <> '' AND NEW.event_id IS NOT OLD.event_id
+  BEGIN SELECT RAISE(ABORT, '附件挂到事件上之后不再改'); END;
+`);
 db.exec(`
 CREATE TRIGGER IF NOT EXISTS work_items_creator_principal_once BEFORE UPDATE OF creator_principal ON work_items
   WHEN OLD.creator_principal IS NOT NULL AND NEW.creator_principal IS NOT OLD.creator_principal

@@ -113,7 +113,7 @@ try {
     const src = readFileSync(join(ROOT, 'server/src/index.ts'), 'utf8');
     const lit = /const ADMIN_IDENTITY_PATHS = \/(.*?)\/;/.exec(src)?.[1];
     const now = new RegExp(lit);
-    const before = new RegExp(lit.replace('|workbench-events(\\/|$)', ''));
+    const before = new RegExp(lit.replace('|workbench-events(?!\\/[^/]*\\/attachments(\\/|$))(\\/|$)', ''));
     const routes = [...new Set(JSON.parse(readFileSync(join(ROOT, 'surfaces/routes.json'), 'utf8')).apps.flat().flatMap((x) => (typeof x === 'string' ? [x] : x?.routes ?? [])).map((l) => l.split('  <-')[0].trim()).filter((r) => /^(GET|POST|PUT|PATCH|DELETE|ALL) \//.test(r)))];
     const sample = (r) => r.split(' ')[1].replace(/:[A-Za-z_]+/g, 'x1').replace(/\(\.\*\)|\*/g, 'x1').toLowerCase();
     const hit = (re) => routes.filter((r) => r.split(' ')[1].startsWith('/') && re.test(sample(r))).sort();

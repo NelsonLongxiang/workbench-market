@@ -1,0 +1,143 @@
+{
+  "domain": "work-item-attachments",
+  "what": "「安排一件事」的附件：上传（登录的人传原始字节）、人读（跟事项走）、接单节点凭回执令牌取件。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["PUT /api/work-items/attachments/:name", "GET /api/work-items/:id/attachments/:aid", "GET /api/workbench-events/:id/attachments/:aid"],
+  "exempt": [
+    { "route": "GET /api/work-items/:id/attachments/:aid", "class": "normal", "why": "正常读要一件挂了附件的事项和落在磁盘上的文件：seed 只能插表行、造不出文件。正常读、别人读不到由 scripts/work-item-arrange-test.mjs 起实例上传、安排后来测", "shown_by": "open/read-missing" },
+    { "route": "GET /api/workbench-events/:id/attachments/:aid", "class": "normal", "why": "正常取件要一次已送达的投递、它的回执令牌和落在磁盘上的文件：seed 造不出文件，令牌只在派工正文里。由 scripts/work-item-arrange-test.mjs 来测", "shown_by": "open/fetch-no-token" },
+    { "route": "GET /api/workbench-events/:id/attachments/:aid", "class": "unauthorized", "why": "不按身份认：凭回执令牌，认不出一律 404（不说事件、附件在不在）", "shown_by": "open/fetch-no-token" }
+  ],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "登录提供方换成假的：alpha 是启用的人。定了时钟。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "fixtures": ["identity-fake"],
+      "steps": [
+        {
+          "id": "upload-anonymous",
+          "route": "PUT /api/work-items/attachments/:name",
+          "class": "unauthorized",
+          "what": "远程匿名上传：401",
+          "request": { "method": "PUT", "path": "/api/work-items/attachments/a.txt", "headers": { "x-forwarded-for": "198.51.100.7", "content-type": "application/octet-stream" }, "text": "合成" },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "upload-bad-name",
+          "route": "PUT /api/work-items/attachments/:name",
+          "class": "invalid",
+          "what": "文件名里带控制字符（换行）：400",
+          "request": { "method": "PUT", "path": "/api/work-items/attachments/a%0Ab.txt", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "content-type": "application/octet-stream" }, "text": "合成" },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "attachment_name_invalid" }
+          }
+        },
+        {
+          "id": "upload-bad-sha",
+          "route": "PUT /api/work-items/attachments/:name",
+          "class": "invalid",
+          "what": "X-Content-SHA256 不是 64 位十六进制：400",
+          "request": {
+            "method": "PUT",
+            "path": "/api/work-items/attachments/a.txt",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "content-type": "application/octet-stream", "x-content-sha256": "xyz" },
+            "text": "合成"
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "x_content_sha256_invalid" }
+          }
+        },
+        {
+          "id": "upload-alpha",
+          "route": "PUT /api/work-items/attachments/:name",
+          "class": "normal",
+          "what": "alpha 传一个文本：201，回 id、类型、大小、sha256",
+          "request": { "method": "PUT", "path": "/api/work-items/attachments/a.txt", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "content-type": "application/octet-stream" }, "text": "合成附件" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "169", "etag": "W/\"a9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 1, "name": "a.txt", "mime": "text/plain; charset=utf-8", "size": 12, "sha256": "47567b9ebdcddef9f0d3f3ab2187c46989283732b91467381565898bb9fa734c", "integrity": "unverified" }
+          }
+        },
+        {
+          "id": "read-cross-site",
+          "route": "GET /api/work-items/:id/attachments/:aid",
+          "class": "unauthorized",
+          "what": "跨站来读：403",
+          "request": { "method": "GET", "path": "/api/work-items/wi_x/attachments/1", "headers": { "sec-fetch-site": "cross-site", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_cross_origin_denied" }
+          }
+        },
+        {
+          "id": "read-missing",
+          "route": "GET /api/work-items/:id/attachments/:aid",
+          "class": "invalid",
+          "what": "附件还没挂到任何事项上（刚上传的）：404，不说在不在",
+          "request": { "method": "GET", "path": "/api/work-items/wi_x/attachments/1", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "attachment_not_found" }
+          }
+        },
+        {
+          "id": "fetch-no-token",
+          "route": "GET /api/workbench-events/:id/attachments/:aid",
+          "class": "invalid",
+          "what": "没带回执令牌：404",
+          "request": { "method": "GET", "path": "/api/workbench-events/wbe-0000000000000001/attachments/1", "headers": {} },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "attachment_not_found" }
+          }
+        },
+        {
+          "id": "fetch-admin",
+          "route": "GET /api/workbench-events/:id/attachments/:aid",
+          "class": "invalid",
+          "what": "带管理口令、没带回执令牌：照样 404（不按身份认）",
+          "request": { "method": "GET", "path": "/api/workbench-events/wbe-0000000000000001/attachments/1", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "attachment_not_found" }
+          }
+        },
+        {
+          "id": "fetch-person",
+          "route": "GET /api/workbench-events/:id/attachments/:aid",
+          "class": "invalid",
+          "what": "登录的人、没带回执令牌：照样 404",
+          "request": { "method": "GET", "path": "/api/workbench-events/wbe-0000000000000001/attachments/1", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "attachment_not_found" }
+          }
+        }
+      ]
+    }
+  ]
+}

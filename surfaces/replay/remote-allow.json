@@ -20,7 +20,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1134", "etag": "W/\"46e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "1245", "etag": "W/\"4dd-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -38,6 +38,8 @@
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/release$/",
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/messages\\/(read|[1-9]\\d{0,15}\\/reply)$/",
                 "/^\\/api\\/work-items$/",
+                "/^\\/api\\/work-items\\/attachments\\/[^/]{1,255}$/",
+                "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/due$/",
                 "/^\\/api\\/teams\\/(assign|unassign|reassign)$/",
                 "/^\\/api\\/grants\\/[1-9]\\d{0,15}\\/approve$/",
                 "/^\\/api\\/cockpits(\\/[^/]+)?$/",
@@ -61,7 +63,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1134", "etag": "W/\"46e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "1245", "etag": "W/\"4dd-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -79,6 +81,8 @@
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/release$/",
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/messages\\/(read|[1-9]\\d{0,15}\\/reply)$/",
                 "/^\\/api\\/work-items$/",
+                "/^\\/api\\/work-items\\/attachments\\/[^/]{1,255}$/",
+                "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/due$/",
                 "/^\\/api\\/teams\\/(assign|unassign|reassign)$/",
                 "/^\\/api\\/grants\\/[1-9]\\d{0,15}\\/approve$/",
                 "/^\\/api\\/cockpits(\\/[^/]+)?$/",
@@ -170,7 +174,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1134", "etag": "W/\"46e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "1245", "etag": "W/\"4dd-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -188,6 +192,8 @@
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/release$/",
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/messages\\/(read|[1-9]\\d{0,15}\\/reply)$/",
                 "/^\\/api\\/work-items$/",
+                "/^\\/api\\/work-items\\/attachments\\/[^/]{1,255}$/",
+                "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/due$/",
                 "/^\\/api\\/teams\\/(assign|unassign|reassign)$/",
                 "/^\\/api\\/grants\\/[1-9]\\d{0,15}\\/approve$/",
                 "/^\\/api\\/cockpits(\\/[^/]+)?$/",

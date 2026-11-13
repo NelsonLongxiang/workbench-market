@@ -974,6 +974,43 @@ try {
   // 验签不过的仍然不收不回执（那不是我们欠的）——限频不改变这一条
   { const rr = fu(rate.ctx, '伪造', 'a2a-rate-forged'); await post(rr, signed(evil, rr)); ok('限频之下，验签不过的仍不收、不回执', noRec('a2a-rate-forged')); }
   ok('跟进回执的积压在健康块里有数', typeof (await (await fetch(BASE + '/api/health')).json()).a2a?.outbox?.followup_receipts?.pending === 'number');
+  // 截止变更是通知：节点对它的回执（收到、完成、失败、拒绝）只记一行 notice:receipt，不推事项、不改原派工那条投递的结局
+  {
+    lab.fail = false;
+    const N = seedEvent();
+    await receipt(N.task, '接下', { idempotencyKey: N.task, disposition: 'acknowledged' }, N.ctx, { inbound: `ack-${N.task}` });
+    const s0 = state(N.ev)?.state;
+    const notices = [];
+    { const d = db(); try {
+      for (const k of [1, 2, 3]) {
+        const fact = Number(d.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, NULL, 'user:alice', 'due-changed', ?)").run(N.ev, JSON.stringify({ from: '', to: `2099-01-0${k}T00:00:00.000Z` })).lastInsertRowid);
+        notices.push(Number(d.prepare("INSERT INTO workbench_event_replies (kind, event_id, delivery_id, ref, qid, team, caller_session, context_id, target_url, message, next_at, created_at) VALUES ('answer', ?, ?, ?, '', 'superagent-team/a1b2c3d4e5f60718', 'market/12345678', ?, ?, ?, '2000-01-01 00:00:00', '2000-01-01 00:00:00')")
+          .run(N.ev, N.delivery, fact, N.ctx, lab.url, JSON.stringify({ text: `[截止变更] 原事项《合成》的截止日期改为 2099-01-0${k}`, by: 'user:alice', notice: 'due-changed' })).lastInsertRowid));
+      }
+    } finally { d.close(); } }
+    lab.got.length = 0;
+    const gotAll = await waitFor(() => notices.every((id) => lab.got.some((g) => String(g.body.task_id ?? '').startsWith(`${N.ev}.d${N.delivery}.n${id}.a`))), 20000);
+    const taskOf = (id) => lab.got.find((g) => String(g.body.task_id ?? '').startsWith(`${N.ev}.d${N.delivery}.n${id}.a`))?.body;
+    const m0 = taskOf(notices[0]);
+    ok('截止变更：作为同一 context 的新任务发给节点，任务号是通知类的 .n、正文一行「[截止变更]…」', gotAll && m0?.context_id === N.ctx && String(m0?.message ?? '').startsWith('[截止变更]') && !String(m0?.message ?? '').includes('\n'), JSON.stringify(m0 ?? lab.got.map((g) => g.body.task_id)));
+    const facts = () => q("SELECT COUNT(*) AS c FROM work_item_log WHERE item_id = ?", `wi_${N.ev}`)[0].c;
+    const receipts = () => q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE event_id = ? AND action LIKE 'receipt:%'", N.ev)[0].c;
+    const f0 = facts(), r0 = receipts(), dst0 = q('SELECT status, decision FROM workbench_event_deliveries WHERE id = ?', N.delivery)[0];
+    const outs = [['completed', taskOf(notices[0])?.task_id], ['failed', taskOf(notices[1])?.task_id], ['rejected', taskOf(notices[2])?.task_id]];
+    const res = [];
+    for (const [outcome, t] of outs) res.push((await receipt(t, `截止变更${outcome}`, { outcome, idempotencyKey: t, disposition: 'result' }, N.ctx)).status);
+    const ack = await receipt(outs[0][1], '收到', { idempotencyKey: outs[0][1], disposition: 'acknowledged' }, N.ctx, { inbound: `ack-${outs[0][1]}` });
+    const again = await receipt(outs[0][1], '再来一次', { outcome: 'completed', idempotencyKey: outs[0][1], disposition: 'result' }, N.ctx);
+    const logged = q("SELECT json_extract(detail, '$.outcome') AS o, json_extract(detail, '$.disposition') AS d FROM workbench_event_log WHERE event_id = ? AND action = 'notice:receipt' ORDER BY id", N.ev).map((r) => `${r.d}:${r.o ?? ''}`);
+    const dst1 = q('SELECT status, decision FROM workbench_event_deliveries WHERE id = ?', N.delivery)[0];
+    ok('截止变更任务回 completed / failed / rejected / 接单：都只记一行 notice:receipt；事项状态不变、没有新事实，原派工那条投递的状态不变，没有新的 receipt:* 行；同一终局再来 409',
+      res.every((st) => st === 200) && ack.status === 200 && again.status === 409 && state(N.ev)?.state === s0 && facts() === f0 && receipts() === r0
+        && JSON.stringify(dst1) === JSON.stringify(dst0) && JSON.stringify(logged) === JSON.stringify(['result:completed', 'result:failed', 'result:rejected', 'acknowledged:']),
+      JSON.stringify({ res, ack: ack.status, again: again.status, s0, s1: state(N.ev)?.state, f: [f0, facts()], r: [r0, receipts()], dst0, dst1, logged }));
+    // 对照：原派工任务自己的 completed 照常推到等验收（只是通知不推）
+    const orig = await receipt(N.task, '交付', { outcome: 'completed', idempotencyKey: N.task, disposition: 'result' }, N.ctx);
+    ok('对照：原派工任务的 completed 照常推到等验收', orig.status === 200 && state(N.ev)?.state === 'ready', JSON.stringify(state(N.ev)));
+  }
   // 名片不声明 teamRoster（WM_A2A_TEAM_ROSTER=off）：入站名册一律不收（照普通来信走），已有的名册不动
   {
     child.kill(); await new Promise((r) => { if (child.exitCode !== null) r(); else child.once('exit', r); });

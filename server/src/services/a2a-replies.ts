@@ -48,6 +48,25 @@ export function returnTargetOfEvent(eventId: string): { delivery_id: number; tas
   return sent ?? null;
 }
 
+/**
+ * 通知类任务（截止变更）的任务号：<event>.d<投递>.n<回复行>.a<尝试>。和答复的 .q 分开，收回执时认得出它是通知：
+ * 通知只是告诉节点一件事，节点对它的回执（收到、完成、失败、拒绝）只记一行「节点已收到」，不进状态映射。
+ * 任务号是市场自己发、登记在 a2a_sent_tasks 里的，回执要和登记的任务号逐字对上才认，外面拼不出来
+ */
+export const noticeTaskId = (eventId: string, deliveryId: number, replyId: number, attempt: number): string => `${eventId}.d${deliveryId}.n${replyId}.a${attempt}`;
+export const isNoticeTask = (taskId: string): boolean => /^wbe-[0-9a-f]{16}\.d\d+\.n\d+\.a\d+$/.test(taskId);
+
+/** 一个事件还活着的投递（等过目、排队、已发出）：改截止日期时给每一条排一条变更 */
+export function liveDeliveriesOfEvent(eventId: string): { id: number; status: 'held' | 'pending' | 'sent' }[] {
+  return db.prepare("SELECT id, status FROM workbench_event_deliveries WHERE event_id = ? AND status IN ('held','pending','sent') ORDER BY id").all(eventId) as never;
+}
+
+/** 一次投递现在的状态（没有这条返回 null）：变更类消息要等它发出去了再发 */
+export function deliveryStatusOf(deliveryId: number): string | null {
+  const row = db.prepare('SELECT status FROM workbench_event_deliveries WHERE id = ?').get(deliveryId) as { status: string } | undefined;
+  return row?.status ?? null;
+}
+
 export function queueReply(r: { kind: ReplyKind; eventId: string; deliveryId: number; ref: number; qid?: string; fixedTask?: string; team: string; callerSession: string; contextId: string; targetUrl: string; message: string; now?: number }): number | null {
   const at = sqlTime(r.now);
   const info = db.prepare(`INSERT OR IGNORE INTO workbench_event_replies (kind, event_id, delivery_id, ref, qid, fixed_task, team, caller_session, context_id, target_url, message, next_at, created_at)
