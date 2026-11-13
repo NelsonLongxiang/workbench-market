@@ -294,7 +294,7 @@ try {
       { type: 'filter-bar', fields: [{ name: 'month', kind: 'month' }, { name: 'st', kind: 'select', options: { dataset: 'runs', col: 'status' } }] },
       { type: 'stat', title: '完成', query: { dataset: 'runs', measures: [{ as: 'v', fn: 'sum', col: 'done' }] }, value: 'v' },
       { type: 'bar', title: '按状态', query: { dataset: 'runs', filter: [{ col: 'day', op: 'prefix', value: '$month' }], group: ['status'], measures: [{ as: 'n', fn: 'count' }] }, x: 'status', y: 'n' },
-      { type: 'table', query: { dataset: 'runs', limit: 50 }, columns: ['id', 'status', 'done'] },
+      { type: 'table', query: { dataset: 'runs', limit: 50 }, columns: ['id', 'status', 'done'], column_labels: { id: '编号', done: '完成数' } },
     ] },
     { key: 'report', title: '提报', blocks: [{ type: 'form', dataset: 'reports', fields: ['title', 'kind'] }] },
   ] });
@@ -515,7 +515,7 @@ try {
   ok('T9 下一次读写另起线程，照常', await count() === N && benchRuntimeStats().spawns === st.spawns + 1);
 
   // 提交之前看时限：时限短到任何写入都来不及，而这次写入中途没有别的检查点——只有提交前这一道拦得住
-  const bigDoc = { title: '大台', views: [{ key: 'main', title: '总览', blocks: [{ type: 'table', query: { dataset: 'wide', select: ['id', 'grp'], limit: 50 }, columns: ['id', 'grp'] }] }] };
+  const bigDoc = { title: '大台', views: [{ key: 'main', title: '总览', blocks: [{ type: 'table', query: { dataset: 'wide', select: ['id', 'grp'], limit: 50 }, columns: ['id', 'grp'], column_labels: { id: '编号', grp: '分组' } }] }] };
   configureBenchRuntime({ writeMs: 0.01 });
   e = await refused(() => big.putView(bigDoc, ctx({ base: 0, note: '应当超时' })));
   configureBenchRuntime(base);
@@ -556,7 +556,7 @@ try {
       { type: 'filter-bar', fields: [{ name: 'month', kind: 'month', default: '2026-01' }, { name: 'st', kind: 'select', options: { dataset: 'runs', col: 'status' } }, { name: 'fixed', kind: 'select', options: ['甲', '乙'] }] },
       { type: 'stat', title: '完成', query: { dataset: 'runs', filter: [{ col: 'day', op: 'prefix', value: '$month' }], measures: [{ as: 'v', fn: 'sum', col: 'done' }] }, value: 'v' },
       { type: 'bar', title: '按状态', query: { dataset: 'runs', filter: [{ col: 'status', op: '=', value: '$st' }], group: ['status'], measures: [{ as: 'n', fn: 'count' }] }, x: 'status', y: 'n' },
-      { type: 'table', query: { dataset: 'runs', filter: [{ col: 'day', op: '>=', value: '$month' }], limit: 50 }, columns: ['id', 'status'] },
+      { type: 'table', query: { dataset: 'runs', filter: [{ col: 'day', op: '>=', value: '$month' }], limit: 50 }, columns: ['id', 'status'], column_labels: { id: '编号' } },
     ] },
     { key: 'report', title: '提报', blocks: [{ type: 'form', dataset: 'reports', fields: ['title', 'kind'], submit_label: '提交' }] },
   ] };
@@ -610,7 +610,7 @@ try {
   e = await refused(() => (benchStore('page-empty').then((x) => x.renderView())));
   ok('R8 还没有视图的台：说清楚', e?.code === 'not_found' && /还没有视图/.test(e.message), e);
   // 整个视图取回的内容合计有上限：三张各 3 MB 的表，前两张给，第三张带 error
-  await big.putView({ title: '大', views: [{ key: 'm', title: '大', blocks: [1, 2, 3].map(() => ({ type: 'table', query: { dataset: 'wide', select: ['body'], limit: 1600 } })) }] }, ctx({ base: (await big.getView()).version, note: '三张大表' }));
+  await big.putView({ title: '大', views: [{ key: 'm', title: '大', blocks: [1, 2, 3].map(() => ({ type: 'table', query: { dataset: 'wide', select: ['body'], limit: 1600 }, column_labels: { body: '正文' } })) }] }, ctx({ base: (await big.getView()).version, note: '三张大表' }));
   pgr = await big.renderView();
   ok('R9 整个视图取回的内容合计有上限：超出的那个组件带 error', pgr.blocks[0].data.rows.length === 1600 && pgr.blocks[1].data.rows.length === 1600 && pgr.blocks[2].error?.code === 'limit', pgr.blocks.map((b) => b.error ?? b.data.rows.length));
   configureBenchRuntime({ queryMs: 0.01 });
@@ -619,7 +619,7 @@ try {
   ok('R9 取数超时：整个这一次报 timeout，不当成某个组件的错', e?.code === 'timeout', e);
 
   // 表格的「取值 → 说法」对照：保存视图描述时核对
-  const vlDoc = (value_labels) => ({ title: '对照', views: [{ key: 'm', title: '主', blocks: [{ type: 'table', query: { dataset: 'runs', select: ['id', 'day'] }, value_labels }] }] });
+  const vlDoc = (value_labels) => ({ title: '对照', views: [{ key: 'm', title: '主', blocks: [{ type: 'table', query: { dataset: 'runs', select: ['id', 'day'] }, value_labels, column_labels: { id: '编号', day: '日期' } }] }] });
   const vlErrs = (value_labels) => validateViewDoc(vlDoc(value_labels), new Map([['runs', { name: 'runs', columns: [{ name: 'id', type: 'integer', label: '', required: true }, { name: 'day', type: 'date', label: '', required: false }], key: ['id'] }]]));
   ok('R10 对照合格：说法可以是一段文字，也可以带颜色', vlErrs({ day: { '2026-01-05': '开工', '2026-02-02': { text: '收工', tone: 'success' } } }).length === 0, vlErrs({ day: { '2026-01-05': '开工' } }));
   const badLabels = [['x', '不是对象'], [{ nope: { a: 'b' } }, '列不在查询的输出里'], [{ day: {} }, '一个取值都没有'], [{ day: { a: '' } }, '说法是空的'], [{ day: { a: 'x'.repeat(33) } }, '说法太长'], [{ day: { a: { text: 'ok', tone: 'purple' } } }, '颜色不认识'], [{ day: { a: { text: 'ok', html: '<b>' } } }, '说法里多出来的键'], [{ day: { a: 5 } }, '说法是数字'], [{ day: { ['k'.repeat(65)]: 'x' } }, '取值太长'], [{ constructor: { a: 'b' } }, '列名撞原型']];
@@ -635,6 +635,34 @@ try {
   const badRules = [['x', '不是数组'], [[], '一条也没有'], [[...rule({}), ...rule({}), ...rule({})], '超过两条'], [rule({ tone: '#ff0000' }), '给了任意色值'], [rule({ tone: 'primary' }), '不是三种语义色'], [rule({ op: 'like' }), '比较符不认识'], [rule({ op: 'constructor' }), '比较符撞原型'], [rule({ value: '20' }), '值不是数字'], [rule({ value: Infinity }), '值不是有限的数'], [rule({ col: 'status' }), '列不是数值'], [rule({ col: 'nope' }), '列不在输出里'], [rule({ css: 'x' }), '多出来的键']];
   for (const [tr, why] of badRules) ok(`R11 着色规则不合格被指出：${why}`, trErrs(bar1({ tone_rules: tr })).length > 0, trErrs(bar1({ tone_rules: tr })));
   ok('R11 多个系列的柱状图、线图不能带着色规则', trErrs(bar1({ y: ['n', 'n'], tone_rules: rule({}) })).length > 0 && trErrs({ type: 'line', query: barQ, x: 'status', y: 'n', tone_rules: rule({}) }).length > 0);
+
+  // 表格的表头不露键名：保存时每一列都要有说明名；渲染时没配的给空（页面写「第 N 列」）
+  console.log('表格的列说明名');
+  const lblDefs = new Map([['runs', { name: 'runs', columns: [{ name: 'id', type: 'integer', label: '', required: true }, { name: 'status', type: 'text', label: '状态', required: false }, { name: 'done', type: 'integer', label: '', required: false }], key: ['id'] }]]);
+  const lblErrs = (block) => validateViewDoc({ title: '表头', views: [{ key: 'm', title: '主', blocks: [{ type: 'table', ...block }] }] }, lblDefs);
+  const e12 = lblErrs({ query: { dataset: 'runs', select: ['id', 'status', 'done'] } });
+  ok('R12 没配说明名的列被拒，错误点名缺的是哪几列（配了的不点）', e12.length === 1 && e12[0].includes('id、done') && !e12[0].includes('status'), e12);
+  ok('R12 数据集列定义的说明名、column_labels 都算；只核页面上显示的列', lblErrs({ query: { dataset: 'runs', select: ['id', 'status', 'done'] }, column_labels: { id: '编号', done: '完成' } }).length === 0 && lblErrs({ query: { dataset: 'runs', select: ['id', 'status'] }, columns: ['status'] }).length === 0, lblErrs({ query: { dataset: 'runs', select: ['id', 'status'] }, columns: ['status'] }));
+  ok('R12 聚合的列：给了 label 的算，没给的拒', lblErrs({ query: { dataset: 'runs', group: ['status'], measures: [{ as: 'n', fn: 'count', label: '条数' }] } }).length === 0 && lblErrs({ query: { dataset: 'runs', group: ['status'], measures: [{ as: 'n', fn: 'count' }] } }).some((x) => x.includes('列 n ')), lblErrs({ query: { dataset: 'runs', group: ['status'], measures: [{ as: 'n', fn: 'count' }] } }));
+  for (const [cl, why] of [['x', '不是对象'], [{}, '一列也没有'], [{ nope: '甲' }, '列不在输出里'], [{ id: '' }, '说明名是空的'], [{ id: 'x'.repeat(33) }, '说明名太长'], [{ id: 5 }, '说明名是数字'], [{ constructor: '甲', id: '编号', done: '完成' }, '列名撞原型']]) {
+    ok(`R12 column_labels 不合格被指出：${why}`, lblErrs({ query: { dataset: 'runs', select: ['id', 'done'] }, column_labels: cl }).length > 0, lblErrs({ query: { dataset: 'runs', select: ['id', 'done'] }, column_labels: cl }));
+  }
+  // 渲染：存下的版本里 column_labels、数据集的说明名照用；数据集后来去掉了说明名（相当于没配说明名的旧版本）就给空，不给键名
+  const lb = await benchStore('labels');
+  const lbCols = (statusLabel) => [{ name: 'id', type: 'integer' }, { name: 'status', type: 'text', ...(statusLabel ? { label: statusLabel } : {}) }, { name: 'done', type: 'integer' }];
+  await lb.defineDataset({ name: 'runs', columns: lbCols('状态'), key: ['id'] }, ctx());
+  await lb.append('runs', [{ id: 1, status: 'ok', done: 2 }], ctx());
+  const lbDoc = { title: '表头', views: [{ key: 'm', title: '主', blocks: [
+    { type: 'table', query: { dataset: 'runs', select: ['id', 'status', 'done'] }, column_labels: { id: '编号', done: '完成' } },
+    { type: 'bar', query: { dataset: 'runs', group: ['status'], measures: [{ as: 'n', fn: 'sum', col: 'done' }] }, x: 'status', y: 'n' },
+  ] }] };
+  await lb.putView(lbDoc, ctx({ base: 0, note: '表头' }));
+  const heads = async () => (await lb.renderView()).blocks.map((b) => b.data.columns.map((c) => `${c.name}=${c.label}${'labeled' in c ? '!' : ''}`).join(','));
+  const h1 = await heads();
+  ok('R13 渲染：表格的表头用 column_labels、数据集的说明名；别的块的列照旧（没配的退回列名），应答里不带内部标记', h1[0] === 'id=编号,status=状态,done=完成' && h1[1] === 'status=状态,n=n', h1);
+  await lb.defineDataset({ name: 'runs', columns: lbCols(null), key: ['id'] }, ctx({ note: '去掉状态列的说明名' }));
+  const h2 = await heads();
+  ok('R13 渲染：没配说明名的列（旧版本）表头给空，不给键名；查询接口照旧（退回列名，不带内部标记）', h2[0] === 'id=编号,status=,done=完成' && (await lb.query({ dataset: 'runs', select: ['status'] })).columns.map((c) => `${c.name}=${c.label}${'labeled' in c ? '!' : ''}`).join() === 'status=status', { h2, q: (await lb.query({ dataset: 'runs', select: ['status'] })).columns });
 
   // —— L：数据量上限（设计稿第十一节第 2 条）。用小的上限、不经工作线程，直接验逻辑本体 ——
   console.log('L 数据量上限');

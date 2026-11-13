@@ -639,6 +639,8 @@ export function launchPlan(clock, fixtures = []) {
 // 每条请求另带一个 x-replay-step 头（域/场景/请求），比对的输出里就知道是哪条录制里的哪个请求。没设时什么都不变。
 const JUDGMENT_ENV = process.env.WM_JUDGMENT_COMPARE === 'on' && process.env.WM_JUDGMENT_COMPARE_OUT
   ? { WM_JUDGMENT_COMPARE: 'on', WM_JUDGMENT_COMPARE_OUT: process.env.WM_JUDGMENT_COMPARE_OUT, ...(process.env.WM_JUDGMENT_ENFORCE ? { WM_JUDGMENT_ENFORCE: process.env.WM_JUDGMENT_ENFORCE } : {}) } : {};
+// 工作台的常量、变量存在哪（WM_VARS_STORE，docs/data-views.md 第十三节）：设了就带进每个实例，同一份录带在 main / shadow / bench 三档下各跑一遍，应答必须逐字节一样。没设时什么都不变
+const VARS_ENV = ['main', 'shadow', 'bench'].includes(process.env.WM_VARS_STORE ?? '') ? { WM_VARS_STORE: process.env.WM_VARS_STORE } : {};
 async function bootOnce(tag, env, clock, fixtures) {
   const plan = launchPlan(clock, fixtures);
   const port = await freePort();
@@ -648,7 +650,7 @@ async function bootOnce(tag, env, clock, fixtures) {
   mkdirSync(join(root, 'home'), { recursive: true });
   const child = spawn(process.execPath, plan.args, {
     cwd: join(ROOT, 'server'),
-    env: { PATH: process.env.PATH, HOME: join(root, 'home'), MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: join(root, 'data'), ...env, ...plan.env, ...JUDGMENT_ENV },
+    env: { PATH: process.env.PATH, HOME: join(root, 'home'), MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: join(root, 'data'), ...env, ...plan.env, ...JUDGMENT_ENV, ...VARS_ENV },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stderr = '';

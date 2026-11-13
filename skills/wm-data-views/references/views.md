@@ -24,7 +24,7 @@
 | `filter-bar` | 筛选栏 | `fields` |
 | `stat` | 一个大数 | `query`、`value`（取哪个输出列）、`unit`、`tone_rules` |
 | `progress` | 进度条 | `query`、`value`、`total`（一个输出列，或者写死的正数） |
-| `table` | 表格 | `query`、`columns`（显示哪些列、什么次序）、`page_size`（5～200）、`value_labels` |
+| `table` | 表格 | `query`、`columns`（显示哪些列、什么次序）、`page_size`（5～200）、`value_labels`、`column_labels` |
 | `bar` | 柱状图 | `query`、`x`、`y`（一个或几个数值列）、`series`、`stacked`、`horizontal`、`tone_rules` |
 | `line` | 折线图 | `query`、`x`、`y`、`series`、`area` |
 | `pie` | 饼图 | `query`、`label`、`value`、`donut` |
@@ -58,6 +58,28 @@
 | `search` | 人输入的文本 |
 
 `name` 就是查询里 `$名字` 引用的那个名字。`default` 是没选的时候用的值（一段文本）。
+
+## 表格的表头（每一列都要有说明名）
+
+表头不给人看列名（键名）。表格里显示的每一列都要有说明名，取的次序是：
+
+1. 这个组件的 `column_labels`（列名 → 说明名，1～32 个字符）；
+2. 数据集列定义里的 `label`；
+3. 聚合出来的列，`measures` 里那一项的 `label`。
+
+一列都对不上，`view_put` 就拒，错误里点名缺的是哪几列。只核页面上显示的列（给了 `columns` 就只核那几列）。
+
+```json view-doc
+{ "title": "表头", "views": [ { "key": "v", "title": "v", "blocks": [
+  { "type": "table", "title": "各区合计",
+    "query": { "dataset": "orders", "group": ["region"], "measures": [ { "as": "n", "fn": "count" }, { "as": "amount", "fn": "sum", "col": "amount", "label": "金额" } ] },
+    "column_labels": { "n": "单数" } }
+] } ] }
+```
+
+上面这块：`region` 用数据集里的说明名「区」；`amount` 用 `measures` 里的「金额」；`n` 没有说明名，靠 `column_labels` 补上「单数」。
+
+这条规矩之前就存下的旧版本不追改：页面上没有说明名的列，表头写「第 N 列」，不露列名。
 
 ## 表格里的取值怎么说（`value_labels`）
 

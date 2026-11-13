@@ -56,6 +56,17 @@ export class DepartmentService extends Service {
     return r ? view(r) : null;
   }
 
+  /**
+   * 授予范围给人看的名字（scope_name）：范围是 dept:<部门> 的给部门名；部门不在了、或者看的人读不到部门（seesDepartments 为假），给 null，
+   * 页面写「一个部门」，不露部门标识。别的范围（*、bench:、sop:、self …）一律 null，由页面按自己的规矩写。
+   * 现在凡是能调授予接口、/api/auth/me 的人都读得到部门清单（GET /api/departments 认登录的人），seesDepartments 留着给以后收紧时用。
+   */
+  scopeName(scope: unknown, seesDepartments = true): string | null {
+    const m = /^dept:([a-z][a-z0-9-]{0,47})$/.exec(String(scope ?? ''));
+    if (!m || !seesDepartments) return null;
+    return (db.prepare('SELECT name FROM departments WHERE id = ?').get(m[1]) as { name: string } | undefined)?.name || null;
+  }
+
   members(id: string): DepartmentMember[] {
     const lead = (db.prepare('SELECT lead_principal FROM departments WHERE id = ?').get(id) as { lead_principal: string } | undefined)?.lead_principal ?? '';
     return (db.prepare(`SELECT m.principal_id AS principal, COALESCE(p.display_name, '') AS display_name, COALESCE(p.kind, '') AS kind, COALESCE(p.status, '') AS status

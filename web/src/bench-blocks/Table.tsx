@@ -8,7 +8,7 @@ import type { ColumnsType } from 'antd/es/table';
 import RelTime from '../components/RelTime';
 import { seatLabel, who } from '../people';
 import { BlockFrame, type BlockFrameProps } from './Frame';
-import { cellKind, cellText, nowrapWidth, type BlockColumn } from './blocks-view';
+import { cellKind, cellText, nowrapWidth, tableHead, type BlockColumn } from './blocks-view';
 
 type Row = Record<string, unknown>;
 export interface TableBlockProps extends BlockFrameProps {
@@ -33,14 +33,16 @@ export function TableBlock({ columns, pageSize = 10, onRowClick, rowActions, sta
   const ordered = [...picked.filter((c) => cellKind(c) === 'status'), ...picked.filter((c) => cellKind(c) !== 'status')];
   const rows = frame.data?.rows ?? [];
   let fixedSum = 0, flexCount = 0;
-  const cols: ColumnsType<Row> = ordered.map((c) => {
+  const cols: ColumnsType<Row> = ordered.map((c, i) => {
     const kind = cellKind(c);
+    // 表头只用说明名；没配的写「第 N 列」（按页面上的次序），不拿列名（键名）兜底——表头和悬停都不露键名
+    const head = tableHead(c, i);
     // 短值列（数字、日期、时间、是否、状态）不折行：按这一页最长的值给列宽；文本列分剩下的宽度、超长省略
     const shownText = (v: unknown) => (kind === 'status' ? (statusText?.(v, c.name)?.text ?? String(v ?? '')) : cellText(v, kind));
-    const width = nowrapWidth(kind, c.label || c.name, rows.map((r) => shownText(r[c.name])));
+    const width = nowrapWidth(kind, head, rows.map((r) => shownText(r[c.name])));
     if (width) fixedSum += width; else flexCount++;
     return {
-      title: c.label || c.name, dataIndex: c.name, key: c.name, align: kind === 'number' ? 'right' : 'left', ellipsis: kind === 'text',
+      title: head, dataIndex: c.name, key: c.name, align: kind === 'number' ? 'right' : 'left', ellipsis: kind === 'text',
       width, className: [kind === 'number' ? 'wm-num' : '', width ? 'wm-bb-nowrap' : ''].filter(Boolean).join(' ') || undefined,
       render: (v: unknown) => {
         if (kind === 'time') return <RelTime value={typeof v === 'string' ? v : null} />;

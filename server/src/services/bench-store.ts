@@ -32,7 +32,8 @@ import { BENCH_METHODS, BENCH_SLUG_RE, benchFile, type BenchChange, type BenchSt
 import type { BenchReply, BenchRequest, BenchWireError } from './bench-store-worker.ts';
 
 export { BENCH_SLUG_RE };
-export type { WriteCtx, WriteResult, DatasetInput, ViewVersion, BenchChange } from './bench-store-core.ts';
+export type { WriteCtx, WriteResult, DatasetInput, ViewVersion, BenchChange, BenchVarRow } from './bench-store-core.ts';
+export { varsDigestOf } from './bench-store-core.ts';
 
 const ROOT = join(dataDir, 'bench-stores');
 /** 删卡片、清扫时台库的备份放这里，留 BENCH_BACKUP_KEEP_MS（bench-card-delete.ts、services/bench-sweep.ts） */
@@ -308,6 +309,20 @@ export class BenchStore {
   backupTo(...a: Parameters<Core['backupTo']>): ReturnType<Core['backupTo']> { return this.rpc('backupTo', a); }
   renderView(...a: Parameters<Core['renderView']>): ReturnType<Core['renderView']> { return this.rpc('renderView', a); }
   submitForm(...a: Parameters<Core['submitForm']>): ReturnType<Core['submitForm']> { return this.rpc('submitForm', a); }
+  varsList(...a: Parameters<Core['varsList']>): ReturnType<Core['varsList']> { return this.rpc('varsList', a); }
+  varGet(...a: Parameters<Core['varGet']>): ReturnType<Core['varGet']> { return this.rpc('varGet', a); }
+  varCount(): ReturnType<Core['varCount']> { return this.rpc('varCount', []); }
+  varsDigest(): ReturnType<Core['varsDigest']> { return this.rpc('varsDigest', []); }
+  varInsert(...a: Parameters<Core['varInsert']>): ReturnType<Core['varInsert']> { return this.rpc('varInsert', a); }
+  varUpdate(...a: Parameters<Core['varUpdate']>): ReturnType<Core['varUpdate']> { return this.rpc('varUpdate', a); }
+  varDelete(...a: Parameters<Core['varDelete']>): ReturnType<Core['varDelete']> { return this.rpc('varDelete', a); }
+  varForce(...a: Parameters<Core['varForce']>): ReturnType<Core['varForce']> { return this.rpc('varForce', a); }
+  varsImport(...a: Parameters<Core['varsImport']>): ReturnType<Core['varsImport']> { return this.rpc('varsImport', a); }
+  varsSyncGet(): ReturnType<Core['varsSyncGet']> { return this.rpc('varsSyncGet', []); }
+  varsSynced(...a: Parameters<Core['varsSynced']>): ReturnType<Core['varsSynced']> { return this.rpc('varsSynced', a); }
+  varsReplace(...a: Parameters<Core['varsReplace']>): ReturnType<Core['varsReplace']> { return this.rpc('varsReplace', a); }
+  varsHotPending(...a: Parameters<Core['varsHotPending']>): ReturnType<Core['varsHotPending']> { return this.rpc('varsHotPending', a); }
+  varsApplyHot(...a: Parameters<Core['varsApplyHot']>): ReturnType<Core['varsApplyHot']> { return this.rpc('varsApplyHot', a); }
 }
 
 // —— 打开、关闭、删除 ——

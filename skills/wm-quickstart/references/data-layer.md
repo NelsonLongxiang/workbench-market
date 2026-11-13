@@ -29,6 +29,7 @@
 3. 会一条条追加的（事件、记录），放数据面，只追加。
 4. 定稿后不应再改的，放常量。谁写的谁维护：要改，由写它的会话（作者）带 `override` 与 `reason` 修订，修订会留审计；作者缺失时由部署机本机命令行兜底。
 5. 二进制和大文件放文件面，在变量或记录里只引用 `file:<id>`。
+6. 刷得很勤的变量（进度、心跳、计数，几秒一写），键名用 `hot.` 开头，比如 `hot.progress`。**起名 hot. 就表示接受最多丢 30 秒**：部署开了 Redis 时，这类变量先写 Redis，30 秒落一次盘，Redis 整个丢了会丢最近一个周期的写入。不能丢的值不要用 `hot.` 开头；`hot.` 开头的键也不能是常量（会被拒）。
 
 ## 写入方
 
@@ -49,6 +50,8 @@ if (r.status === 404) return showEmpty('还没写入 summary');
 if (!r.ok) return showWarn(`读取失败 HTTP ${r.status}，下面不是「没有数据」`);
 const { value, updated_at } = await r.json();   // 同时显示读取时点
 ```
+
+`hot.` 开头的变量在缓存暂时不通时会回 503（`code: vars_hot_unavailable`，`retryable: true`）：这时不是没有数据，过几秒重读，不要显示成 0 或空。
 
 ## 已有台的迁移
 

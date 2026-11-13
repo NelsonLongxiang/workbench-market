@@ -113,7 +113,7 @@ try {
   check(prep && sysId && [W1, W2, W3, W4, W5].every((x) => Number.isInteger(x)), '（准备）管理层一人；五张卡片', { prep, sysId });
   const bv = (opts, method, path, body) => srv.call(method, `/api/bench-views${path}`, { ...opts, ...(body === undefined ? {} : { body }) });
   const rows = (opts, ref, data) => srv.call('POST', `/api/bench-views/${ref}/datasets/secret_ds/rows?op=replace`, { ...opts, raw: JSON.stringify(data) });
-  const defineDs = (ref) => bv(boss, 'PUT', `/${ref}/datasets/secret_ds`, { key: ['id'], columns: [{ name: 'id', type: 'integer' }, { name: 'hidden_col', type: 'text' }] });
+  const defineDs = (ref) => bv(boss, 'PUT', `/${ref}/datasets/secret_ds`, { key: ['id'], columns: [{ name: 'id', type: 'integer', label: '编号' }, { name: 'hidden_col', type: 'text', label: '备注' }] });
 
   console.log('一、卡片 id 认台');
   let r = await bv(boss, 'POST', '', { workbench_id: W1 });
@@ -143,7 +143,7 @@ try {
   const entry = (opts, ref) => srv.call('GET', `/api/bench-views/${ref}/entry`, opts);
   const noView = await entry(boss, W2);
   const doc = { title: '合成·旧台视图', views: [{ key: 'board', title: '看板', blocks: [{ type: 'table', title: '明细', query: { dataset: 'secret_ds', limit: 10 } }] }, { key: 'detail', title: '明细', blocks: [{ type: 'table', query: { dataset: 'secret_ds', limit: 10 } }, { type: 'form', dataset: 'secret_ds', fields: ['id', 'hidden_col'] }] }] };
-  await bv(boss, 'PUT', `/legacy-a/datasets/secret_ds`, { key: ['id'], columns: [{ name: 'id', type: 'integer' }, { name: 'hidden_col', type: 'text' }] });
+  await bv(boss, 'PUT', `/legacy-a/datasets/secret_ds`, { key: ['id'], columns: [{ name: 'id', type: 'integer', label: '编号' }, { name: 'hidden_col', type: 'text', label: '备注' }] });
   const put = await bv(boss, 'PUT', `/${W2}/view`, { doc, base: 0, note: '合成：第一版' });
   const got = await entry(boss, W2);
   check(noView.status === 404 && put.status === 200 && got.status === 200 && JSON.stringify(got.json) === JSON.stringify({ bench: { slug: 'legacy-a', title: '旧台', workbench_id: W2 }, version: 1, title: '合成·旧台视图', default_view: 'board', views: [{ key: 'board', title: '看板' }, { key: 'detail', title: '明细' }] }), '写卡片 id：台名、版本、默认视图（第一份）、各视图的键和标题；还没有视图描述时 404', { noView: noView.status, put: put.text.slice(0, 300), got: got.text });
@@ -229,7 +229,7 @@ try {
     '本机浏览器页面不是属主：没口令的过不了写入总门；带管理口令、带确认的按管理口令算，409；卡片和库都在', { page: page.status, pageTok: pageTok.text.slice(0, 200) });
   // 同名旧库还在（删台时文件没删掉）：不许用这个标识重新登记
   await bv(boss, 'POST', '', { slug: 'reuse-a', title: '旧台' });
-  await bv(boss, 'PUT', '/reuse-a/datasets/secret_ds', { key: ['id'], columns: [{ name: 'id', type: 'integer' }, { name: 'hidden_col', type: 'text' }] });
+  await bv(boss, 'PUT', '/reuse-a/datasets/secret_ds', { key: ['id'], columns: [{ name: 'id', type: 'integer', label: '编号' }, { name: 'hidden_col', type: 'text', label: '备注' }] });
   await rows(boss, 'reuse-a', [{ id: 1, hidden_col: '旧数据' }]);
   db.prepare("DELETE FROM bench_views WHERE slug = 'reuse-a'").run(); // 模拟：登记删了、库文件没删掉
   const again = await bv(boss, 'POST', '', { slug: 'reuse-a', title: '新台' });
