@@ -89,9 +89,24 @@ export function answerRoute(admin: boolean, item: Pick<AttentionItem, 'source' |
 /** 是不是轮到你：只看条目的 mine（#587）；没带这个字段的旧应答当作轮到你 */
 export const isMine = (x: { mine?: unknown }): boolean => x.mine !== false;
 
-/** 「等你拍板」的件数——侧栏角标、总结句、卡片区的数都用它：轮到你、而且能当场办的 */
+/** 算不算「等你拍板」只有这一个判法：轮到你、而且能当场办。侧栏角标、全景、事项列表都用它 */
+export const isMyDecision = (x: AttentionItem, choicesOf: (x: AttentionItem) => string[]): boolean => isMine(x) && choicesOf(x).length > 0;
+
+/** 「等你拍板」的件数——侧栏角标、总结句、卡片区的数都用它 */
 export function decideCount(items: AttentionItem[], choicesOf: (x: AttentionItem) => string[]): number {
-  return items.filter((x) => isMine(x) && choicesOf(x).length > 0).length;
+  return items.filter((x) => isMyDecision(x, choicesOf)).length;
+}
+
+/** 事项列表用：「关注」里每件事项对应的条目，和其中「等你拍板」的事项编号（和角标同一个判法 isMyDecision） */
+export function workItemTurns(items: AttentionItem[], choicesOf: (x: AttentionItem) => string[]): { mine: Set<string>; byItem: Map<string, AttentionItem> } {
+  const mine = new Set<string>(), byItem = new Map<string, AttentionItem>();
+  for (const x of items) {
+    const id = workItemIdOf(x);
+    if (!id) continue; // 不是事项的条目
+    if (!byItem.has(id) || isMyDecision(x, choicesOf)) byItem.set(id, x);
+    if (isMyDecision(x, choicesOf)) mine.add(id);
+  }
+  return { mine, byItem };
 }
 
 const ORDER: Record<string, number> = { ask: 0, accept: 1, glance: 2, grant: 3, review: 4 };

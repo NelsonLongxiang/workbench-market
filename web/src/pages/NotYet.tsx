@@ -8,7 +8,7 @@ export type NotYetSpec = { title: string; what: string; meanwhile?: { to: string
 export const NOT_YET: Record<string, NotYetSpec> = {
   items: {
     title: '事项', what: '你建立的、经手的每一件事，按状态或按对象分组。',
-    meanwhile: [{ to: '/attention', label: '等你拍板的事' }, { to: '/tasks', label: '统一待办' }],
+    meanwhile: [{ to: '/attention', label: '等你拍板的事' }],
   },
   team: {
     title: '团队', what: '每个部门的负责人和 AI 员工：在办几件、验收通过率、工作方式、会做什么。',

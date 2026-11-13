@@ -1,11 +1,11 @@
 """「谁能做什么」（照原型 3fbfd0b 重做的 /access）浏览器回归；由 scripts/sider-menu-browser.mjs 起合成实例后调用，参数为配置 JSON 路径。
 授予和主体两份列表用合成的应答（经 page.route 截下）；角色和矩阵用实例真的。核准、不给两个写请求也截下，核对发了什么。
   · 没有口令、没登录：授予读不到（401），说「请先登录」，不弹口令框；
-  · 认出了人但不是管理员：「人和权限」显示「你的权限」（取 /api/auth/me 的本人角色），下面一句别人的权限谁能看；
+  · 认出了人但不是管理员：「人和权限」显示「你的权限」（取 /api/auth/me 的本人角色），下面一句别人的权限谁能看；四个管理读接口不去问（网络里没有）；
   · 有口令：两个页签（没有「以某人的身份看」）；待核准卡片、按人排的表（状态最左），范围不是全部的生效中授予标「尚未生效」；矩阵里「范围内」的格子同样标；
   · 核准发对了请求；不给要写理由，理由空着确认按钮不能点，写了才发、带着理由；被拒时说服务端给的说法；
   · 角色预设：每个角色一张卡、选中的角色有七块 × 四类的矩阵，格子是「全部 / 范围内 / 部分 / 只限自己 / 不能 / —」之一。"""
-import json, sys, urllib.request
+import json, re, sys, urllib.request
 from playwright.sync_api import sync_playwright
 cfg = json.load(open(sys.argv[1]))
 M, TOK = cfg['base'], cfg['token']
@@ -67,11 +67,41 @@ with sync_playwright() as p:
           'roles': [{'id': 'member', 'name': '普通员工', 'scope': '*', 'preset': True, 'expires_at': None, 'source': 'manual', 'approved_by': 'odoo:jia'},
                     {'id': 'dept-lead', 'name': '部门负责人', 'scope': 'domain:work', 'preset': True, 'expires_at': NOW, 'source': 'manual', 'approved_by': 'odoo:jia'}]}
     pg.route('**/api/auth/me', lambda r: fake(r, ME))
+    asked = []
+    ADMIN_READS = re.compile(r'/api/(principals|roles|roles/matrix)$')
+    def on_req(req):
+        if ADMIN_READS.search(req.url.split('?')[0]): asked.append(req.url)
+    errors = []
+    pg.on('request', on_req); pg.on('console', lambda m: errors.append(m.text) if m.type == 'error' else None)
+    # 授予：L19（#659）起登录的人读得到自己能放行的那些——这里照它的应答截下：先是空列表
+    grants_seen = []
+    def on_grants_mine(r):
+        grants_seen.append(r.request.url); fake(r, MY_GRANTS)
+    MY_GRANTS = {'grants': []}
+    pg.route('**/api/grants', on_grants_mine)
+    pg.goto(M + '/access'); pg.wait_for_selector('[data-testid=acc-mine]'); pg.wait_for_load_state('networkidle')
+    check('普通员工打开此页：网络里没有主体、角色、矩阵三个请求，控制台没有 403；授予照常问（只拿到自己能放行的）', asked == [] and len(grants_seen) == 1 and not any('403' in e for e in errors), (asked, grants_seen, errors))
+    check('没有能放行的：只有「你的权限」，没有待核准卡片', pg.locator('[data-testid=acc-pending]').count() == 0)
+    pg.locator('[data-testid=acc-tab-roles]').click(); pg.wait_for_timeout(400)
+    check('普通员工切到角色预设：照旧说只有管理员能看，也不发请求', asked == [] and pg.locator('.ant-alert', has_text='只有管理员能看').count() == 1, (asked, pg.locator('.ant-alert').all_inner_texts()))
+    # 管理层那样的人：有一条轮到他放行的（带业务写的第二档），卡片在「你的权限」上面；角色读不到也写名字、不露标识
+    MY_GRANTS = {'grants': [dict(grant(8, 'user:jia', 'management', '*', 'pending', by='odoo:bing', reason='合成'), can_approve=True, approve_denied=None, approve_denied_text=None)]}
+    pg.goto(M + '/access'); pg.wait_for_selector('[data-testid=acc-pending]'); pg.wait_for_load_state('networkidle')
+    card = pg.locator('[data-testid=acc-pending]').inner_text()
+    check('不是管理员但有轮到他放行的：待核准卡片在「你的权限」里、上面；角色写「管理层」不写标识；还是不问那三个', pg.locator('[data-testid=acc-mine] [data-testid=acc-pending]').count() == 1 and '管理层' in card and 'management' not in card and asked == [], (card, asked))
+    pg.unroute('**/api/grants')
+    pg.remove_listener('request', on_req)
     pg.goto(M + '/access'); pg.wait_for_selector('[data-testid=acc-mine]')
     mine = pg.locator('[data-testid=acc-mine]').inner_text()
     roles_shown = [''.join(t.split()) for t in pg.locator('[data-testid=acc-mine-role]').all_inner_texts()]
     check('非管理员：显示你的权限，两项角色、范围用块名、按范围的标尚未生效', len(roles_shown) == 2 and roles_shown[0].startswith('普通员工全部长期') and '「事项与对话」这一块' in roles_shown[1] and roles_shown[1].endswith('尚未生效') and '尚未生效' not in roles_shown[0], roles_shown)
     check('非管理员：下面一句别人的权限现在只有管理员能看', '别人的权限现在只有管理员能看' in mine and pg.locator('.ant-alert').count() == 0, mine)
+    # 部门范围不露标识：服务端没带 scope_name 写「一个部门」，带了写名字
+    DEPT = dict(ME, roles=[dict(ME['roles'][1], scope='dept:syn-dept-1'), dict(ME['roles'][1], id='member', name='普通员工', scope='dept:syn-dept-2', scope_name='合成部')])
+    pg.unroute('**/api/auth/me'); pg.route('**/api/auth/me', lambda r: fake(r, DEPT))
+    pg.goto(M + '/access'); pg.wait_for_selector('[data-testid=acc-mine-role]')
+    dept = [''.join(t.split()) for t in pg.locator('[data-testid=acc-mine-role]').all_inner_texts()]
+    check('部门范围：没有显示名写「一个部门」、有的写名字，不露 dept: 标识', len(dept) == 2 and '一个部门' in dept[0] and '「合成部」这个部门' in dept[1] and not any('dept:' in d or 'syn-dept' in d for d in dept), dept)
     pg.unroute('**/api/auth/me')
 
     pg.route('**/api/grants', lambda r: fake(r, GRANTS))

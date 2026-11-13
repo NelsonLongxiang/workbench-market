@@ -32,6 +32,7 @@ import { svc } from './context.ts';
 import type { HttpService } from './http.ts';
 import { registerTypeRoutes } from './routes/types.ts';
 import { registerCockpitRoutes } from './routes/cockpits.ts';
+import { cockpitAccess } from './cockpit-access.ts';
 import { registerCookieRoutes } from './routes/cookies.ts';
 import { registerStatsRoutes } from './routes/stats.ts';
 import { registerDesignTokenRoutes } from './routes/design-tokens.ts';
@@ -202,6 +203,8 @@ const loginGate = createLoginGate({
     const roles = svc<GrantService>('grants').activeFor(who.viewer.sub).map((g) => ({ id: g.role, name: views.get(g.role)?.name ?? g.role, scope: g.scope, preset: !!views.get(g.role)?.platform, expires_at: g.expires_at, source: g.source, approved_by: g.approved_by }));
     return { principal: who.viewer.sub, display_name: who.viewer.name ?? null, roles };
   },
+  // /api/auth/me 的 can：这个请求能做的、不属于某一个对象的事（只增）。和对应的写路由问同一处
+  can: async (req) => ({ create_cockpit: await cockpits.can(req, 'cockpit.create') }),
   appToken: (slug) => wmAppToken(slug),
   varsAppTokenOk: (req) => workbenchVars.appTokenWrite(req),
   runCapOk: async (kind, runId, presented) => {
@@ -474,6 +477,8 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/teams\/(assign|unassign|reassign)$/,
   // 授予的放行（L19）：管理层、属主多半不是管理员。路由内认人、核同源，三档规则判能不能放行；只此一条子路径
   /^\/api\/grants\/[1-9]\d{0,15}\/approve$/,
+  // 驾驶舱的建、改、删：路由在处理之前自己判（cockpit-access.ts：管理员照旧；登录的人交给判定，管理层预设点名了这三个动作）
+  /^\/api\/cockpits(\/[^/]+)?$/,
   // 关系的提议：确认、驳回由属主、管理层、接收部门的负责人做，他们大多不是管理员（路由内认人、核同源，服务判能不能确认；只此两条）
   /^\/api\/relations\/proposals\/[1-9]\d{0,15}\/(approve|reject)$/,
   // 阶段七：建立人本人回答自己事项上的席位提问（路由内认人：管理员或建立人本人；只此一条子路径）
@@ -839,7 +844,11 @@ registerWorkbenchRoutes(http, { wrap, listWorkbenches, maskForApi, restSubject, 
 
 // ---------- 驾驶舱 CRUD（任务驾驶舱：多工作台分屏组合视图） ----------
 // 驾驶舱的读应答带 can.edit：就是写请求总门对这个请求的判断（本机命令行照旧算属主；其余要有效口令或 Odoo 管理员，且同源）
-registerCockpitRoutes(http, { canEdit: (req) => settingsAdminRead(req) }); // 和设置页的管理员读同一个判断（定义在后面，请求期才调用）
+const cockpits = cockpitAccess({
+  adminOk: (req) => settingsAdminRead(req), // 和设置页的管理员读同一个判断（定义在后面，请求期才调用）
+  crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)),
+});
+registerCockpitRoutes(http, { can: cockpits.can, gate: cockpits.gate });
 
 // ---------- 自产台（台生成器：AI 发布 API + 全版本快照，发布即入册） ----------
 const appsRoot = join(dataDir, 'apps');
