@@ -625,8 +625,8 @@ function listProblems(list, { allowMissing = false } = {}) {
     seen.add(r.id);
     if (!TIERS.includes(r.tier)) problems.push(`${r.id} 的 tier 是「${r.tier}」，只能是 ${TIERS.join('、')}`);
     if (!allowMissing && typeof r.baseline?.total !== 'number') problems.push(`${r.id} 没有基线`);
-    // 一句话：去掉 PR 号、空白和标点符号之后至少还剩四个字，光写「#123」不算说明
-    const loosenText = typeof r.loosen_reason === 'string' ? r.loosen_reason.replace(/#\d+/g, '').replace(/[\s\p{P}\p{S}]/gu, '') : '';
+    // 一句话：去掉 PR 号、空白、标点符号和控制格式字符（零宽字符之类）之后，按字（码位）数至少还剩四个，光写「#123」不算说明
+    const loosenText = typeof r.loosen_reason === 'string' ? r.loosen_reason.replace(/#\d+/g, '').replace(/[\s\p{P}\p{S}\p{C}]/gu, '') : '';
     if (r.loosen_reason !== undefined && (typeof r.loosen_reason !== 'string' || !/#\d+/.test(r.loosen_reason) || [...loosenText].length < 4)) problems.push(`${r.id} 的 loosen_reason 要写一句话说明为什么放宽、带 PR 号（比如「合并 A、B 时搬进来的存量 SQL（#123）」；光写 PR 号不算）`);
   }
   if (!allowMissing) for (const id of known) if (!seen.has(id)) problems.push(`清单里缺规则：${id}`);
