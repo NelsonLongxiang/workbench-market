@@ -1,7 +1,19 @@
 {
   "domain": "teams",
   "what": "团队与分配：/api/teams 的 11 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。人、部门、名册都是合成的。",
-  "routes": ["GET /api/teams", "GET /api/teams/mine", "POST /api/teams/claim", "POST /api/teams/release", "POST /api/teams/leads", "POST /api/teams/leads/remove", "POST /api/teams/assign", "POST /api/teams/unassign", "POST /api/teams/reassign", "GET /api/teams/events", "GET /api/teams/assignments"],
+  "routes": [
+    "GET /api/teams",
+    "GET /api/teams/mine",
+    "POST /api/teams/claim",
+    "POST /api/teams/release",
+    "POST /api/teams/leads",
+    "POST /api/teams/leads/remove",
+    "POST /api/teams/assign",
+    "POST /api/teams/unassign",
+    "POST /api/teams/reassign",
+    "GET /api/teams/events",
+    "GET /api/teams/assignments"
+  ],
   "exempt": [
     { "route": "GET /api/teams", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/list-junk" },
     { "route": "GET /api/teams/mine", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入", "shown_by": "open/mine-junk" }
@@ -21,6 +33,10 @@
         { "table": "departments", "row": { "id": "sales", "name": "合成销售部", "lead_principal": "user:beta", "created_at": 0, "updated_at": 0 } },
         { "table": "department_members", "row": { "department_id": "sales", "principal_id": "user:alpha", "created_at": 0 } },
         { "table": "a2a_rosters", "row": { "host": "a1b2c3d4", "peer_root": "https://node.synthetic.invalid", "peer_zone": "zone1", "reported_at": "2030-01-01T00:00:00Z", "received_at": "2030-01-01T00:00:00Z" } },
+        {
+          "table": "a2a_peers",
+          "row": { "id": "peer-replay", "root_url": "https://node.synthetic.invalid", "zone": "zone1", "name": "", "status": "active", "key_fingerprint": "sha256:a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1", "registered_by": "seed", "registered_at": "2030-01-01T00:00:00Z", "updated_at": "2030-01-01T00:00:00Z" }
+        },
         {
           "table": "a2a_roster_seats",
           "row": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "seat": "zone1/0000000a", "seat_id": "seat-0000000a", "name": "合成总工", "role": "router", "online": 1, "first_seen_at": "2030-01-01T00:00:00Z" }
@@ -47,7 +63,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "935", "etag": "W/\"3a7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "986", "etag": "W/\"3da-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "roster_stale_minutes": 60,
               "can": { "claim": true, "propose_claim": false, "release": true, "add_lead": true, "propose_lead": false, "manage_leads": true, "manage_departments": true },
@@ -69,7 +85,7 @@
                   "node_name": null,
                   "roster_received_at": "YYYY-MM-DDThh:mm:ss.fffZ",
                   "can_assign": false,
-                  "assign_denied_text": "团队还没认领，不能分配成员",
+                  "assign_denied_text": "团队还没认领（或者对应的节点换了，要重新认领），不能分配成员",
                   "pending_claim": null,
                   "pending_leads": []
                 }
@@ -86,7 +102,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "935", "etag": "W/\"3a7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "986", "etag": "W/\"3da-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "roster_stale_minutes": 60,
               "can": { "claim": true, "propose_claim": false, "release": true, "add_lead": true, "propose_lead": false, "manage_leads": true, "manage_departments": true },
@@ -108,7 +124,7 @@
                   "node_name": null,
                   "roster_received_at": "YYYY-MM-DDThh:mm:ss.fffZ",
                   "can_assign": false,
-                  "assign_denied_text": "团队还没认领，不能分配成员",
+                  "assign_denied_text": "团队还没认领（或者对应的节点换了，要重新认领），不能分配成员",
                   "pending_claim": null,
                   "pending_leads": []
                 }

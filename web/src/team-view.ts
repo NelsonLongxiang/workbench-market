@@ -9,7 +9,7 @@
  */
 
 export type Tone = 'success' | 'warning' | 'danger' | 'default';
-export type TeamStatus = 'unclaimed' | 'off-roster' | 'lead-vacant' | 'active';
+export type TeamStatus = 'unclaimed' | 'off-roster' | 'node-changed' | 'lead-vacant' | 'active';
 export interface Person { principal: string; display_name: string }
 export interface Lead extends Person { source: 'explicit' | 'department' | string }
 /** 部门上写着的负责人。pending：只有字段、没有这个部门的拍板授予（服务端 grant='missing'，待属主放行）——他不算负责人，不带任何权力 */
@@ -161,6 +161,7 @@ const STATUS: Record<string, { text: string; tone: Tone }> = {
   active: { text: '正常', tone: 'success' },
   'lead-vacant': { text: '负责人缺位', tone: 'warning' },
   'off-roster': { text: '不在名册', tone: 'default' },
+  'node-changed': { text: '节点换了，要重新认领', tone: 'warning' },
   unclaimed: { text: '待认领', tone: 'warning' },
 };
 /**
@@ -209,7 +210,7 @@ export function assignedText(m: Pick<Member, 'assigned_to'>): string {
  * 没分配的出「分配给…」；已分配的出「改派」「收回」。
  */
 export function assignOps(t: Pick<Team, 'can_assign' | 'status'>, m: Pick<Member, 'router' | 'assigned_to'>, chief = false): { assign: boolean; reassign: boolean; unassign: boolean } {
-  const can = t.can_assign === true && t.status !== 'unclaimed' && !chief && !m.router;
+  const can = t.can_assign === true && t.status !== 'unclaimed' && t.status !== 'node-changed' && !chief && !m.router;
   return { assign: can && !m.assigned_to, reassign: can && !!m.assigned_to, unassign: can && !!m.assigned_to };
 }
 

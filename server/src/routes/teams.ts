@@ -108,7 +108,7 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
 
   /** 这个人能不能分配、收回这个团队的成员：分配接口和团队页的 can_assign 共用这一处。能就返回 null，不能返回说法 */
   function assignRefusal(v: Viewer, t: TeamView | TeamKey): { code: string; message: string } | null {
-    if ('status' in t && t.status === 'unclaimed') return { code: 'team_not_claimed', message: '团队还没认领，不能分配成员' };
+    if ('status' in t && (t.status === 'unclaimed' || t.status === 'node-changed')) return { code: 'team_not_claimed', message: '团队还没认领（或者对应的节点换了，要重新认领），不能分配成员' };
     if (v.kind === 'admin' && v.by === 'cli') return null; // 本机命令行：授予面上算属主（L1）
     if (v.principal && teams().leads(t).some((l) => l.principal === v.principal)) return null;
     if (grants().isBusinessSide(v.principal)) return null; // 管理层（属主也是）
@@ -180,7 +180,8 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
         add_lead: owner, propose_lead: isAdmin && !owner, manage_leads: isAdmin, manage_departments: isAdmin,
       },
       departments: [...depts.values()].sort((a, b) => a.id.localeCompare(b.id)).map((d) => ({ ...d, ...(isAdmin ? { pending_lead: deptPending(d.id) } : {}), teams: d.teams.map(shape) })),
-      ...(v.kind === 'admin' ? { unclaimed: seen.filter((t) => t.status === 'unclaimed').map(shape) } : {}),
+      // 节点换了的团队原来的认领不算数：和待认领的一起列，在这里重新认领
+      ...(v.kind === 'admin' ? { unclaimed: seen.filter((t) => t.status === 'unclaimed' || t.status === 'node-changed').map(shape) } : {}),
     });
   }));
 
@@ -210,7 +211,8 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
     const parse = (d: string): unknown => { if (!d) return null; try { return JSON.parse(d); } catch { return d; } };
     res.json({
       host: k.host, team: k.team, name: teamName(k.team),
-      events: teams().events(k).map((e) => ({
+      // 负责人只看记在现在这个节点上的留痕；管理员、管理层看全部历史
+      events: teams().events(k, !seesAll(v)).map((e) => ({
         seq: e.seq, kind: e.kind, seat: e.seat, seat_id: e.seat_id, principal: e.principal_id || null, principal_name: nameOrNull(e.principal_id),
         // 动手的人：给人看的是 actor_name；内部标识（actor：登录名、cli、system:…）只给管理员，页面不出现内部标识
         detail: parse(e.detail), ...(v.kind === 'admin' ? { actor: e.actor } : {}), actor_name: nameOrNull(e.actor_principal) ?? ACTOR_NAME[e.actor] ?? (e.actor.startsWith('system:') ? '系统' : '管理员'), at: e.at,
