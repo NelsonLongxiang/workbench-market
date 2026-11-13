@@ -339,8 +339,22 @@ try {
       && nm.every((m) => m.notice === 'due-changed' && m.by === 'user:alpha' && m.text.startsWith('[截止变更]') && m.text.includes('2099-01-02') && m.text.includes('2026-01-01') && !m.text.includes('\n'))
       && JSON.parse(body).task?.due === '2026-01-01',
       '改截止日期同步到节点：每条还活着的投递排一条「[截止变更]」（一行字，新旧日期都写），作为同一 context 的新任务；派工正文里的 task.due 原样不改', show({ notified: ch.body?.notified, dlv, notes: nm }));
+    // 来自未验证提交方的事项（建立人主体记着 alpha，context 说 unverified，不是票据认出的）：creatorCheck 是 not_eligible，
+    // 只能由管理员处理。改截止会往节点发通知，也是写，同样挡住：建立人改不了（404，不说有没有这件），详情 can.due 为假
+    const uvSeed = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '-e', `
+      const { DatabaseSync } = require('node:sqlite'); const d = new DatabaseSync(${JSON.stringify(join(data, 'workbench-market.db'))}, { timeout: 5000 });
+      const t = new Date().toISOString();
+      d.prepare("INSERT INTO work_items (id, title, created_by, creator_principal, source_kind, context, state, created_at, updated_at) VALUES ('wi_unverified_due', '未验证来源的事项', 'user:alpha', 'user:alpha', 'agent', ?, 'draft', ?, ?)").run(JSON.stringify({ submitter_kind: 'unverified' }), t, t);
+      console.log('UV');`], { encoding: 'utf8' });
+    const uvDue = await call('POST', '/api/work-items/wi_unverified_due/due', ALPHA, { due: '2099-03-03' });
+    const uvDetail = await call('GET', '/api/work-items/wi_unverified_due', ALPHA);
+    const uvRow = (() => { const d = dbr(); try { return d.prepare("SELECT due_at FROM work_items WHERE id = 'wi_unverified_due'").get(); } finally { d.close(); } })();
+    check(uvSeed.stdout.includes('UV') && uvDue.status === 404 && uvDue.body?.error === 'work_item_not_found' && uvDetail.status === 200 && uvDetail.body?.can?.due === false && uvRow?.due_at === '',
+      '未验证来源的事项（creatorCheck 是 not_eligible）：建立人改截止 404、没改动；详情 can.due 为假', show({ seed: uvSeed.stderr.slice(-200), due: uvDue, st: uvDetail.status, can: uvDetail.body?.can, row: uvRow }));
   }
 
+  // 登录门开着时再验一次接单节点取件（最后另起实例）：要用到的事件、令牌、附件
+  let gateCase = null;
   // ---------- 附件 ----------
   {
     const { createHash } = await import('node:crypto');
@@ -417,6 +431,7 @@ try {
     const crossD = await getRaw(`/api/workbench-events/${ev}/attachments/${a1.body?.id}`, { 'x-reply-token': token2 });
     check(second.status === 201 && token2 !== '' && token2 !== token && own2.status === 200 && own2.buf.equals(bytes4) && [crossA, crossB, crossC, crossD].every((r) => r.status === 404),
       '取件（b）：令牌只取得到它那件任务挂的附件——拿 A 的令牌取 B 的附件（换不换事件号）、拿 B 的令牌取 A 的附件，一律 404', show([own2.status, crossA.status, crossB.status, crossC.status, crossD.status]));
+    gateCase = { ev, token, a1: a1.body?.id, bytes, ev2, token2, a4: a4.body?.id, item };
     // 撤回这件任务（管理员经「关注」撤回；投递已发出，事项本身不一定立刻到终态）：之后凭自己的令牌也取不到
     const wd = await call('POST', '/api/attention/answer', ADMIN, { source: 'work-items', source_id: second.body?.item_id, answer: 'withdraw', input: {} });
     const st2 = (await call('GET', `/api/work-items/${second.body?.item_id}`, ALPHA)).body?.item?.state;
@@ -505,6 +520,41 @@ try {
     const offPlain = await call2('POST', '/api/work-items', ALPHA, form());
     check(offPlain.status === 201 && offPlain.body?.directed === undefined && counts().items === afterSeat.items + 1,
       '……不带 seat_id 照常 201（整队派发）', show(offPlain));
+  }
+
+  // ---------- WM_LOGIN_GATE=enforce：同一份库再起一个实例，接单节点凭回执令牌取件不该被登录门挡住；人读附件仍要登录 ----------
+  {
+    if (child && child.exitCode === null) { child.kill('SIGTERM'); await new Promise((r) => { const t = setTimeout(r, 5000); child.once('exit', () => { clearTimeout(t); r(); }); }); if (child.exitCode === null) child.kill('SIGKILL'); }
+    if (!gateCase) throw new Error('附件那一段没跑到，登录门这一段没有可用的令牌');
+    const port3 = await freePort();
+    let log3 = '';
+    child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], { cwd: join(ROOT, 'server'), env: { ...env, PORT: String(port3), WM_LOGIN_GATE: 'enforce' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.on('data', (d) => { log3 += String(d); }); child.stderr.on('data', (d) => { log3 += String(d); });
+    const base3 = `http://127.0.0.1:${port3}`;
+    for (let i = 0, ok = false; !ok; i++) {
+      if (i > 200 || child.exitCode !== null) throw new Error(`登录门开着的实例没起来：${log3.slice(-800)}`);
+      try { ok = (await fetch(`${base3}/api/health`)).status === 200; } catch { /* 还没起来 */ }
+      if (!ok) await new Promise((r) => setTimeout(r, 200));
+    }
+    // 接单节点从外面来：不带会话，只带回执令牌
+    const REMOTE = { 'x-forwarded-for': '198.51.100.7' };
+    const fetch3 = async (path, headers, method = 'GET') => { const r = await fetch(base3 + path, { method, headers: { ...REMOTE, ...headers } }); return { status: r.status, buf: Buffer.from(await r.arrayBuffer()) }; };
+    const g = gateCase;
+    const gOk = await fetch3(`/api/workbench-events/${g.ev}/attachments/${g.a1}`, { 'x-reply-token': g.token });
+    const gNoTok = await fetch3(`/api/workbench-events/${g.ev}/attachments/${g.a1}`, {});
+    const gBadTok = await fetch3(`/api/workbench-events/${g.ev}/attachments/${g.a1}`, { 'x-reply-token': g.token + 'x' });
+    const gOtherEv = await fetch3(`/api/workbench-events/${g.ev2}/attachments/${g.a1}`, { 'x-reply-token': g.token });
+    const gWithdrawn = await fetch3(`/api/workbench-events/${g.ev2}/attachments/${g.a4}`, { 'x-reply-token': g.token2 });
+    check(gOk.status === 200 && gOk.buf.equals(g.bytes) && [gNoTok, gBadTok, gOtherEv, gWithdrawn].every((r) => r.status === 404),
+      '登录门开着：接单节点凭回执令牌取得到原样字节；没令牌、令牌不对、换了事件、任务已撤回的一律 404（不是登录门的 401）',
+      show([gOk.status, gNoTok.status, gBadTok.status, gOtherEv.status, gWithdrawn.status]));
+    // 放行只放这一条取件路径的 GET：同一路径的写、人读附件、取件路径换形状都仍由登录门挡（401）
+    const gHuman = await fetch3(`/api/work-items/${g.item}/attachments/${g.a1}`, {});
+    const gPost = await fetch3(`/api/workbench-events/${g.ev}/attachments/${g.a1}`, { 'x-reply-token': g.token }, 'POST');
+    const gShape = await fetch3(`/api/workbench-events/${g.ev}/attachments/0${g.a1}`, { 'x-reply-token': g.token });
+    check(gHuman.status === 401 && gPost.status === 401 && gShape.status === 401,
+      '登录门开着：人读附件（/api/work-items/:id/attachments/:aid）远程匿名仍 401；取件路径的 POST、id 带前导 0 的不在放行里，也是 401',
+      show({ human: gHuman.status, post: gPost.status, shape: gShape.status }));
   }
 } catch (e) {
   fail++;
