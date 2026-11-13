@@ -4,7 +4,8 @@
  *
  *   L1 同一个标识永远同一道；只有 1 道时全在第 0 道；道数只能在空闲时改，写法不对的拒
  *   L2 不同道的台互不排队：慢台排着几件事时，另一道上的台先做完；只有 1 道时（对照）它排在最后
- *   L3 大写入全局一次一件：两道上各来一份，第二份等许可；同时第三道上的小读不受影响
+ *   L3 大写入全局一次一件：两道上各来一份，第二份等许可；同时第三道上的小读不受影响。
+ *      「大」按体量估，不按行数：不到一千行的宽行（每行 8 格长文本）照样算大写入
  *   L4 做完大写入就换线程（下一件事在新线程上照常）
  *   L5 一道上强行终止，别的道的线程不受影响
  *   L6 排队上限是各道加起来的
@@ -16,7 +17,7 @@ import { resolve } from 'node:path';
 
 const DATA = mkdtempSync(resolve('tmp/bench-store-lanes-'));
 process.env.DATA_DIR = DATA;
-const { benchStore, closeBenchStores, configureBenchRuntime, benchRuntimeStats, benchLaneOf, BIG_WRITE } = await import('../server/src/services/bench-store.ts');
+const { benchStore, closeBenchStores, configureBenchRuntime, benchRuntimeStats, benchLaneOf } = await import('../server/src/services/bench-store.ts');
 const { BENCH_LIMITS } = await import('../server/src/bench-query.ts');
 
 let pass = 0, fail = 0;
@@ -39,7 +40,7 @@ const wideRows = (n, from = 1) => Array.from({ length: n }, (_, i) => ({ id: fro
 async function slowBench(slug) {
   const s = await benchStore(slug);
   await s.defineDataset({ name: 'wide', columns: [{ name: 'id', type: 'integer' }, { name: 'body', type: 'text' }, { name: 'grp', type: 'integer' }], key: ['id'] }, ctx());
-  for (let b = 0; b < 4; b++) await s.append('wide', wideRows(BIG_WRITE.rows, b * BIG_WRITE.rows + 1), ctx()); // 每批不超过大写入的行数，不触发换线程
+  for (let b = 0; b < 4; b++) await s.append('wide', wideRows(2000, b * 2000 + 1), ctx()); // 每批约 1.2 MB，不到大写入，不触发换线程
   return s;
 }
 const SLOW = { dataset: 'wide', measures: [{ as: 'd', fn: 'count_distinct', col: 'body' }] };
@@ -92,6 +93,18 @@ try {
   ok(`两份大写入（各 ${(big.length / 1048576).toFixed(1)} MB）在不同道上：第二份等了许可，两份都写成`, after.bigWaits > st.bigWaits && (await P.query(COUNT)).rows[0].c === 9000 && (await Q.query(COUNT)).rows[0].c === 9000, { st, after });
   ok('同时第三道上的小读不用等大写入', done.indexOf('small') < 2, done);
 
+  // 宽行：行数远不到 2000，但每行 8 格各 600 字符，一份约 4.8 MB（行数组，不是原始字节）
+  const fat = (n) => Array.from({ length: n }, (_, i) => Object.fromEntries([['id', i + 1], ...Array.from({ length: 8 }, (_, c) => [`c${c}`, `${i}-${c}-` + 'w'.repeat(600)])]));
+  const fatCols = [{ name: 'id', type: 'integer' }, ...Array.from({ length: 8 }, (_, c) => ({ name: `c${c}`, type: 'text' }))];
+  for (const s of [P, Q]) await s.defineDataset({ name: 'fat', columns: fatCols, key: ['id'] }, ctx());
+  const st3 = benchRuntimeStats();
+  await Promise.all([P, Q].map((s) => s.replace('fat', fat(1000), ctx())));
+  const af3 = benchRuntimeStats();
+  ok(`宽行：1000 行、每行 8 格长文本（约 ${(JSON.stringify(fat(1000)).length / 1048576).toFixed(1)} MB，行数组）也算大写入：第二份等许可，两份都换线程`, af3.bigWaits > st3.bigWaits && af3.recycles === st3.recycles + 2 && (await P.query({ dataset: 'fat', measures: [{ as: 'c', fn: 'count' }] })).rows[0].c === 1000, { st3, af3 });
+  const st3b = benchRuntimeStats();
+  await P.replace('fat', fat(100), ctx());
+  ok('窄的整份替换（100 行）不算大写入：不换线程', benchRuntimeStats().recycles === st3b.recycles);
+
   console.log('L4 做完大写入就换线程');
   ok('两份大写入各换一次线程，下一件事在新线程上照常', after.recycles === st.recycles + 2 && (await P.query(COUNT)).rows[0].c === 9000 && benchRuntimeStats().spawns > after.spawns, { after, now: benchRuntimeStats() });
   st = benchRuntimeStats();
@@ -101,7 +114,7 @@ try {
   console.log('L5 一道上强行终止，别的道不受影响');
   st = benchRuntimeStats();
   const base = configureBenchRuntime({ writeMs: 1, graceMs: 1 });
-  const killed = refused(() => P.replace('wide', Buffer.from(JSON.stringify(wideRows(BIG_WRITE.rows))), ctx()));
+  const killed = refused(() => P.replace('wide', Buffer.from(JSON.stringify(wideRows(2000))), ctx()));
   configureBenchRuntime(base);
   const other = await refused(() => R.query(COUNT));
   const e = await killed;

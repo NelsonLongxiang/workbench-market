@@ -18,6 +18,7 @@
  *   · 不同道上的台同时做：一个台的慢操作只让同一道上的台排队，别的道不受影响。
  *   · 道数默认见 defaultLanes()；测试可以用 configureBenchRuntime({ lanes }) 在没有活的时候改。
  *   · 大写入全局一次一件（不论在哪一道）：一份接近数据集上限的写入，进程内存要涨几百 MB；几道同时做会叠起来。
+ *     「大」按体量估（原始字节数，或行数组各格的字符数），不按行数：宽行不到两千行也能到上限。
  *     所以大写入要先拿到唯一的那张「大写入许可」，拿不到就在自己那一道的队头等着（只挡同一道上的台），读和小写入照常并行。
  * 线程在这一道第一次有活时才起；时限、强行终止、意外退出都按道各管各的。
  */
@@ -64,7 +65,7 @@ export function configureBenchRuntime(next: Partial<BenchRuntimeLimits>): BenchR
 }
 
 // —— 道：一个工作线程和它前面的队 ——
-type Job = { id: number; slug: string; method: string; args: unknown[]; budgetMs: number; resolve: (v: unknown) => void; reject: (e: unknown) => void };
+type Job = { id: number; slug: string; method: string; args: unknown[]; budgetMs: number; big: boolean; resolve: (v: unknown) => void; reject: (e: unknown) => void };
 type Lane = {
   queue: Job[];
   current: Job | null;
@@ -75,14 +76,31 @@ type Lane = {
 };
 const lanes: Lane[] = [];
 let seq = 0;
-/** 大写入：原始字节超过这个数，或者给的是行数组且超过这么多行。按道数之外再全局一次一件 */
-export const BIG_WRITE = { bytes: 4 * 1024 * 1024, rows: 2000 };
+/** 大写入：体量超过这个数。原始字节按字节数；行数组按各格估（文本按字符数，别的每格 8）。按道数之外再全局一次一件 */
+export const BIG_WRITE = { bytes: 4 * 1024 * 1024 };
 /** 正拿着大写入许可的那件事（全局只有一件） */
 let bigHolder: Job | null = null;
-function isBig(job: Job): boolean {
-  if (BENCH_METHODS.get(job.method) !== 'write') return false;
-  return job.args.some((a) => (a instanceof Uint8Array && a.byteLength > BIG_WRITE.bytes) || (Array.isArray(a) && a.length > BIG_WRITE.rows));
+/**
+ * 估一份参数的体量，超过 limit 就停（只要知道「大不大」，不必量完：最多看到门槛那么多）。
+ * 行数组不能只看行数：一行可以有 60 列、一格可以有 1 万字符，不到两千行也能到数据集的上限。
+ */
+function sizeOver(a: unknown, limit: number): boolean {
+  if (a instanceof Uint8Array) return a.byteLength > limit;
+  if (!Array.isArray(a)) return false;
+  let n = 0;
+  for (const row of a) {
+    n += 8;
+    if (row && typeof row === 'object') for (const v of Object.values(row as Record<string, unknown>)) n += typeof v === 'string' ? v.length : 8;
+    else if (typeof row === 'string') n += row.length;
+    if (n > limit) return true;
+  }
+  return false;
 }
+/** 在入队时算一次，记在这件事上（队头反复检查时不再量） */
+function bigWrite(method: string, args: unknown[]): boolean {
+  return BENCH_METHODS.get(method) === 'write' && args.some((a) => sizeOver(a, BIG_WRITE.bytes));
+}
+const isBig = (job: Job): boolean => job.big;
 const stats = { spawns: 0, kills: 0, crashes: 0, bigWaits: 0, recycles: 0 };
 /** 线程起过几次、被强行终止过几次、自己意外退出过几次、大写入为等许可停过几次、大写入后换过几次线程，现在排着几件事（各道加起来），有几道 */
 export function benchRuntimeStats(): { spawns: number; kills: number; crashes: number; bigWaits: number; recycles: number; queued: number; lanes: number } {
@@ -147,7 +165,18 @@ function pump(lane: Lane): void {
     lane.watchdog = setTimeout(() => kill(lane, job), job.budgetMs + limits.graceMs);
   }
   if (!lane.current && lane.worker) lane.worker.unref();
-  if (!bigHolder) for (const l of lanes) if (l !== lane && !l.current && !l.stopping && l.queue.length && isBig(l.queue[0] as Job)) { pump(l); if (bigHolder) break; }
+  wakeBig(lane);
+}
+
+/** 许可空出来了：叫醒在别的道队头等着的大写入。从上次叫醒的下一道开始轮，编号大的道不会一直轮不到 */
+let wakeFrom = 0;
+function wakeBig(except: Lane): void {
+  for (let k = 0; k < lanes.length && !bigHolder; k++) {
+    const i = (wakeFrom + k) % lanes.length, l = lanes[i] as Lane;
+    if (l === except || l.current || l.stopping || !l.queue.length || !isBig(l.queue[0] as Job)) continue;
+    pump(l);
+    if (bigHolder) wakeFrom = (i + 1) % lanes.length;
+  }
 }
 
 /** 手上这件事结束了（回话、报错、超时、线程退出都算）：清计时；它要是拿着大写入许可，放回去之前先让本道接着做 */
@@ -201,12 +230,13 @@ function kill(lane: Lane, job: Job): void {
   job.reject(new BenchError('timeout', `台库操作超过时限（${job.budgetMs} 毫秒）而且没有停下来，已强行中止。如果是写入，是否生效不确定：带同一个幂等键重试，或者读一次确认`));
   if (!w) { pump(lane); return; }
   lane.stopping = w.terminate().then(() => undefined, () => undefined).then(() => { lane.stopping = null; pump(lane); });
+  wakeBig(lane); // 许可在 settle 里已经放了：别的道不用等这个旧线程退出
 }
 
 function enqueue(lane: Lane, slug: string, method: string, args: unknown[]): Promise<unknown> {
   const budgetMs = BENCH_METHODS.get(method) === 'read' ? limits.queryMs : limits.writeMs;
   return new Promise((resolve, reject) => {
-    lane.queue.push({ id: ++seq, slug, method, args, budgetMs, resolve, reject });
+    lane.queue.push({ id: ++seq, slug, method, args, budgetMs, big: bigWrite(method, args), resolve, reject });
     pump(lane);
   });
 }
