@@ -48,6 +48,7 @@ def on_bv(route):
         log['entry'] += 1
         if mode['entry'] == '403': return fake(route, {'error': 'bench_views_forbidden'}, 403)
         if mode['entry'] == '500': return fake(route, {'error': 'internal'}, 500)
+        if mode['entry'] == '401': return fake(route, {'error': 'auth_required'}, 401)
         if mode['entry'] == 'one': return fake(route, {**ENTRY, 'views': ENTRY['views'][:1]})
         return fake(route, ENTRY)
     if rest == 'render':
@@ -149,9 +150,13 @@ with sync_playwright() as p:
 
     print('五、入口')
     mode['entry'] = '403'; pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-testid=use-entry-forbidden]')
-    check('入口 403（只带管理口令、跨站）：说要用自己的账号，不取数', '要用你自己的账号' in body_text(pg) and pg.locator('[data-testid=bench-page]').count() == 0)
+    t403 = pg.locator('[data-testid=use-entry-forbidden]').inner_text()
+    check('入口 403（只带管理口令、跨站）：说要用自己的账号，不取数；说法里不提「这个台」、不露台名和标识', '用你自己的账号' in t403 and '这个台' not in t403 and '合成·巡检台' not in t403 and SLUG not in t403 and pg.locator('[data-testid=bench-page]').count() == 0, t403)
+    mode['entry'] = '401'; pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-testid=use-entry-login]')
+    t401 = pg.locator('[data-testid=use-entry-login]').inner_text()
+    check('入口 401（没登录）：说请先登录、给「去登录」，不取数、不嵌页面；说法里不提「这个台」', '请先登录' in t401 and pg.get_by_role('button', name='去登录').count() == 1 and '这个台' not in t401 and pg.locator('[data-testid=bench-page]').count() == 0 and pg.locator('iframe').count() == 0, t401)
     mode['entry'] = '500'; pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-testid=use-entry-error]')
-    check('入口读不到：说读不到，带「再试一次」', '读不到这个台' in body_text(pg))
+    check('入口读不到：说这会儿打不开，带「再试一次」，不提「这个台」', '这会儿打不开' in body_text(pg) and '这个台' not in pg.locator('[data-testid=use-entry-error]').inner_text())
     mode['entry'] = 'ok'; pg.get_by_role('button', name='再试一次').click(); pg.wait_for_selector('[data-testid=bench-page]')
     check('「再试一次」之后进了视图台页面', True)
     pg.unroute('**/api/bench-views/**')

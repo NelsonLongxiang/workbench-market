@@ -76,11 +76,12 @@ export function formError(status: number, body: unknown): { code: string; messag
   return { code: 'invalid', message: '这次没交上去，稍后再试' };
 }
 
+/** 入口没走到页面时的说法：401、403、读不到都不提「这个台」，不让人从说法里猜出这张卡片背后有没有台（403 在认台之前就拒了） */
 export const ENTRY_TEXT = {
   login: '请先登录',
-  loginSub: '登录之后再打开这个台。',
-  forbidden: '这个台要用你自己的账号打开',
-  forbiddenSub: '只带管理口令、或者从别的网站跳过来，都看不到台里的数据。请登录之后从工作台市场打开。',
-  error: '读不到这个台',
-  errorSub: '稍后再试；一直读不到，请找负责这个台的人。',
+  loginSub: '登录之后再从工作台市场打开。',
+  forbidden: '请用你自己的账号打开',
+  forbiddenSub: '只带管理口令、或者从别的网站跳过来，这里打不开。请登录之后从工作台市场打开。',
+  error: '这会儿打不开',
+  errorSub: '稍后再试；一直打不开，请找管理员。',
 } as const;
