@@ -625,8 +625,16 @@ with sync_playwright() as p:
             page.wait_for_load_state('networkidle')
             page.wait_for_timeout(600)
             st, j = market_write(f'/api/cockpits/{cid}', 'PUT', {'panels': []}, token='' if TOKEN_MODE else None)
-            assert st == 403 and (TOKEN_MODE or j.get('control_surface_required') is True), f'业务面页面{"不带口令" if TOKEN_MODE else ""}改布局应 403: {st} {j}'
+            if TOKEN_MODE:
+                # #673 起驾驶舱的写不经写请求总门，路由自己认人：业务面页面不带口令、没登录 → 401 cockpit_auth_required（和启动自检 market.cockpits.anonymous-write 同一个口径）
+                assert st == 401 and j.get('error') == 'cockpit_auth_required', f'业务面页面不带口令改布局应 401 cockpit_auth_required: {st} {j}'
+            else:
+                assert st == 403 and j.get('control_surface_required') is True, f'业务面页面改布局应 403: {st} {j}'
             assert len(api(page, 'GET', f'/api/cockpits/{cid}').json()['panels']) == 1, '被拒的布局写不应生效'
+            if TOKEN_MODE:
+                # 对照：同一个业务面页面带上口令就改得了（口令持有人照旧能改驾驶舱）
+                st2, j2 = market_write(f'/api/cockpits/{cid}', 'PUT', {'panels': []})
+                assert st2 == 200, f'业务面页面带口令改布局应 200: {st2} {j2}'
             assert api(page, 'PUT', f'/api/cockpits/{cid}', {'panels': []}).status == 200, 'CLI 改布局应 200'
         else:
             page.locator('.wm-panel-actions [aria-label="移除此面板"], .wm-panel-actions .anticon-close').first.click()
