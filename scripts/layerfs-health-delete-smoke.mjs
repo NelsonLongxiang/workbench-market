@@ -83,7 +83,13 @@ try {
   lf.deleteStatus = 500;
   const refused = await call('DELETE', '/api/apps/lf-orphan', { reviewed_by: 'layerfs-health-delete-smoke' });
   ok('远端删除失败 → 502', refused.status === 502, `status=${refused.status}`);
-  ok('失败后保留本地台', (await call('GET', '/api/apps/lf-orphan')).status === 200);
+  // 失败后本地台留着、标成「删除中」（等重试）：读按不存在处理（404），库里那一行还在
+  {
+    const { DatabaseSync } = await import('node:sqlite');
+    const d = new DatabaseSync(join(TMP, 'data', 'workbench-market.db'), { timeout: 5000 });
+    const st = d.prepare("SELECT status FROM apps WHERE slug = 'lf-orphan'").get()?.status; d.close();
+    ok('失败后保留本地台（标成删除中，读按不存在处理）', st === 'deleting' && (await call('GET', '/api/apps/lf-orphan')).status === 404, `status=${st}`);
+  }
   lf.deleteStatus = 200;
   const deleted = await call('DELETE', '/api/apps/lf-orphan', { reviewed_by: 'layerfs-health-delete-smoke' });
   ok('重试删台成功', deleted.status === 200, `status=${deleted.status}`);

@@ -20,7 +20,8 @@
  *       一个台两张卡片（/apps/ 和 /sop/ 各一张）：删不存数据的那张，提交不动；删存数据的那张、另一张还在，主库那份留着、剩下的卡片读得到；删最后一张才连主库那份一起删
  *       上传时最后一个名额：三笔同时到，只进一笔（查上限 → 插入排在这个台的写入队里），其余 413，磁盘上不留它们的文件
  *   八、删台的门和删卡片之间不隔着远端调用：删远端项目的那几秒里，有人往台里提交（bench 档下这是卡片台库的第一次写入），
- *       台和卡片照样一起删掉，不会出现「台删了、卡片还在」的半截
+ *       台和卡片照样一起删掉，不会出现「台删了、卡片还在」的半截。
+ *       远端删失败（502）：卡片已删、台标成「删除中」——提交、上传 409，读按不存在 404，列表里没有它，主库、台库都没有新行；重试删台照常删干净
  *   六、（阶段一复验补的）台库里只有视图描述也算有数据；本机浏览器页面不是属主；同名旧库还在时不许登记；
  *       纯数字标识的旧台：数字写法照旧认到它，同号卡片不许对应别的台（只许对应它自己），启动时报出来
  *
@@ -356,8 +357,9 @@ try {
 
   console.log('八、删台的门和删卡片之间不隔着远端调用');
   // LayerFS 替身：收到删项目的请求时，先往这个台提交一笔（bench 档下会是卡片台库的第一次写入），再回 200
-  let srv4 = null, hookStatus = null;
+  let srv4 = null, hookStatus = null, lfFail = false;
   const lfStub = createHttpServer(async (req, res) => {
+    if (req.method === 'DELETE' && lfFail) { res.writeHead(500).end(); return; }
     if (req.method === 'DELETE' && /^\/v1\/projects\//.test(req.url ?? '')) {
       try { hookStatus = (await srv4.call('POST', '/api/apps/syn-window/data', { body: { data: { during: 'remote-delete' } } })).status; } catch { hookStatus = 'err'; }
       res.writeHead(200).end(); return;
@@ -372,8 +374,30 @@ try {
     const WW = Number(db4.prepare("INSERT INTO workbenches (name, url, type, enabled) VALUES (?, ?, 'market-app', 1)").run('合成·删台窗口', '/apps/syn-window/').lastInsertRowid);
     const winDel = await srv4.call('DELETE', '/api/apps/syn-window', { headers: { ...REMOTE, 'x-admin-token': ADMIN_TOKEN }, body: { reviewed_by: '合成审核人' } });
     const winAfter = { app: !!db4.prepare("SELECT 1 FROM apps WHERE slug = 'syn-window'").get(), card: !!db4.prepare('SELECT 1 FROM workbenches WHERE id = ?').get(WW), bench: !!db4.prepare('SELECT 1 FROM bench_views WHERE workbench_id = ?').get(WW), rows: db4.prepare("SELECT COUNT(*) AS n FROM app_data WHERE app_slug = 'syn-window'").get().n };
-    check(hookStatus === 201 && winDel.status === 200 && !winAfter.app && !winAfter.card && !winAfter.bench && winAfter.rows === 0,
-      '删远端项目的那几秒里有人提交（台库第一次写入的时机）：台、卡片一起删掉，不留半截；那笔提交也随台删了', { hookStatus, status: winDel.status, body: winDel.text.slice(0, 160), winAfter });
+    check(hookStatus === 409 && winDel.status === 200 && !winAfter.app && !winAfter.card && !winAfter.bench && winAfter.rows === 0,
+      '删远端项目的那几秒里有人提交：台已标成「删除中」，提交 409；台、卡片一起删掉，不留半截，也没有新行', { hookStatus, status: winDel.status, body: winDel.text.slice(0, 160), winAfter });
+    // 远端删失败：台标成「删除中」，写入 409、读 404；重试删干净
+    db4.prepare('INSERT INTO apps (slug, title) VALUES (?, ?)').run('syn-retry', '合成·远端删失败');
+    const WR = Number(db4.prepare("INSERT INTO workbenches (name, url, type, enabled) VALUES (?, ?, 'market-app', 1)").run('合成·远端删失败', '/apps/syn-retry/').lastInsertRowid);
+    await srv4.call('POST', '/api/apps/syn-retry/data', { body: { data: { n: 1 } } });
+    const retryRows = () => db4.prepare("SELECT COUNT(*) AS n FROM app_data WHERE app_slug = 'syn-retry'").get().n;
+    lfFail = true;
+    const tok4 = { headers: { ...REMOTE, 'x-admin-token': ADMIN_TOKEN } };
+    const failDel = await srv4.call('DELETE', '/api/apps/syn-retry?confirm_bench_data=true', { body: { reviewed_by: '合成审核人' } }); // 本机命令行（属主）带确认
+    const midRows = retryRows();
+    const midSubmit = await srv4.call('POST', '/api/apps/syn-retry/data', { body: { data: { n: 2 } } });
+    const fd = new FormData(); fd.append('file', new Blob(['x'], { type: 'text/plain' }), 'r.txt');
+    const midUpload = (await fetch(`${srv4.base}/api/apps/syn-retry/files`, { method: 'POST', body: fd })).status;
+    const midRead = await srv4.call('GET', '/api/apps/syn-retry/data', tok4);
+    const midDetail = await srv4.call('GET', '/api/apps/syn-retry', tok4);
+    const midList = ((await srv4.call('GET', '/api/apps', tok4)).json ?? []).some((x) => x.slug === 'syn-retry');
+    const mid = { status: db4.prepare("SELECT status FROM apps WHERE slug = 'syn-retry'").get()?.status, card: !!db4.prepare('SELECT 1 FROM workbenches WHERE id = ?').get(WR), bench: !!db4.prepare('SELECT 1 FROM bench_views WHERE workbench_id = ?').get(WR), rows: retryRows(), files: db4.prepare("SELECT COUNT(*) AS n FROM app_files WHERE app_slug = 'syn-retry'").get().n };
+    check(failDel.status === 502 && mid.status === 'deleting' && !mid.card && !mid.bench && midSubmit.status === 409 && midSubmit.json?.code === 'app_deleting' && midUpload === 409 && midRead.status === 404 && midDetail.status === 404 && !midList && mid.rows === midRows && mid.files === 0,
+      '远端删失败：卡片已删、台标成「删除中」——提交和上传 409，读、详情 404，列表里没有它，没有新行', { failDel: failDel.status, mid, submit: midSubmit.status, upload: midUpload, read: midRead.status, detail: midDetail.status, list: midList });
+    lfFail = false;
+    const retryDel = await srv4.call('DELETE', '/api/apps/syn-retry', { ...tok4, body: { reviewed_by: '合成审核人' } }); // 卡片已经没了：门直接放过，只有管理口令也删得了
+    check(retryDel.status === 200 && !db4.prepare("SELECT 1 FROM apps WHERE slug = 'syn-retry'").get() && retryRows() === 0,
+      '重试删台：卡片已经没了，门直接放过（只有管理口令也行），台、提交都删干净', { status: retryDel.status, body: retryDel.text.slice(0, 160), rows: retryRows() });
   } finally { await new Promise((r) => lfStub.close(r)); }
 } catch (e) {
   check(false, `没有中途抛错：${e?.stack ?? e}`);

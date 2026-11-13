@@ -925,11 +925,20 @@ const LAYERFS_SYSTEM_PROJECTS: ReadonlySet<string> = new Set([LAYERFS_SKILLS_PRO
 const MAX_APP_FILES = 64;
 const MAX_APP_TOTAL_BYTES = 100 * 1024 * 1024;
 
-function getApp(slug: string): AppRow {
+/**
+ * 取一个台。正在删除的台（status = deleting：删台已经删了它的卡片、远端或本地还没删完，见 deleteAppCascade）：
+ * 读按不存在处理（和不存在同一个 404）；forWrite（提交、上传、改备注、软删、同步发布）回 409，说明正在删除
+ */
+function getApp(slug: string, forWrite = false): AppRow {
   const row = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
+  if (row && row.status === APP_DELETING) {
+    if (forWrite) throw new HttpError(409, `台 ${slug} 正在删除，不接受写入`, { code: 'app_deleting' });
+    throw new HttpError(404, `app not found: ${slug}`);
+  }
   if (!row) throw new HttpError(404, `app not found: ${slug}`);
   return row;
 }
+const APP_DELETING = 'deleting';
 
 function appDetail(a: AppRow) {
   const versions = (svc<AppService>('app').versions(a.id) as unknown as AppVersionRow[]).map(v => ({ ...v, shadow_status: (v as any).shadow_status ?? (v.commit_id ? 'succeeded' : 'pending'), shadow_error: String((v as any).shadow_error ?? '') }));
@@ -1133,6 +1142,7 @@ function publishAppBody(b: any, source?: { repo: string; path: string; commit: s
     files = validateAppFiles(b.files, kind);
   }
   const existing = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
+  if (existing?.status === APP_DELETING) throw new HttpError(409, `台 ${slug} 正在删除，不接受写入`, { code: 'app_deleting' });
   if (existing && existing.kind !== kind) bad(`slug 已被 ${existing.kind} 类台占用，kind 不可切换`);
 
   // SOP 类发布面：sop.yaml 必在且可解析、changelog 必填（版本化治理）
@@ -1244,6 +1254,7 @@ async function syncAppFromGithub(slug: string, b: any, who: string): Promise<{ s
   if (slug === 'task-center') throw new HttpError(403, 'task-center 内置元台不从仓库同步');
   if (layerfsReservedSlug(slug)) bad('slug 是系统保留名（LayerFS 系统项目），换一个');
   const existing = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
+  if (existing?.status === APP_DELETING) throw new HttpError(409, `台 ${slug} 正在删除，不接受写入`, { code: 'app_deleting' });
   const rebind = b?.source_repo !== undefined;
   if (!existing && !rebind) bad('该台尚未登记来源：首次同步须带 source_repo（owner/repo），可选 source_path');
   let src: { repo: string; path: string };
@@ -1381,7 +1392,9 @@ async function layerfsPublish(project: string, files: { path: string; content: s
  * 现在远端删失败（502，台留着等重试）时卡片已经按确认删了——重新发布会登记新卡片，再删一次台就收尾，不会留下「台没了、卡片和它的数据还在」。
  */
 async function deleteAppCascade(slug: string, card: { deleter: CardDeleter; confirmBenchData: boolean } = { deleter: { kind: 'anonymous' }, confirmBenchData: false }): Promise<void> {
-  const a = getApp(slug);
+  // 正在删除的台也取得到：上一次删到一半（远端删失败）的，重试照常收尾
+  const a = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
+  if (!a) throw new HttpError(404, `app not found: ${slug}`);
   const cardIds = svc<WorkbenchService>('workbench').idsByAppUrls(`/apps/${a.slug}/`, `/sop/${a.slug}/`);
   for (const id of cardIds) {
     const row = svc<WorkbenchService>('workbench').byId(id) as { url?: unknown } | undefined;
@@ -1397,6 +1410,9 @@ async function deleteAppCascade(slug: string, card: { deleter: CardDeleter; conf
   const reserved = layerfsReservedSlug(slug);
   if (reserved) console.warn(`[layerfs] 删台 ${slug}：slug 是系统保留项目名，跳过远端删除`);
   if (hasLayerfsState && !base && !reserved) throw new HttpError(503, 'LayerFS service is required to delete an app with LayerFS data');
+  // 删卡片之前先把台标成「删除中」：从这里起到删完（包括远端删失败、台留着等重试），这个台的写入一律 409、读按不存在处理——
+  // 卡片和台库已经没了，不能再往一个没有卡片的台里写。重试删台照常收尾；要撤销，由管理层从备份恢复卡片（设计稿，暂不做入口）
+  if (a.status !== APP_DELETING) svc<AppService>('app').setStatus(a.id, APP_DELETING);
   // issue #6：清理应用与 SOP 对应的工作台注册——过了门紧接着逐张走删卡片那条路（台库删前备份、常量变量、驾驶舱面板一起），在远端调用之前
   for (const id of cardIds) {
     try { await workbenchDeleteCore(id, card.deleter, card.confirmBenchData); } catch (e) { if (!(e instanceof HttpError && e.status === 404)) throw e; } // 期间已被删了就算了
@@ -3032,7 +3048,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
     }
     case 'app_data_submit': {
       // 与 REST POST /api/apps/:slug/data 同一核心（契约校验、幂等、事件推送）；违约 → 400 + violations 原样
-      const a = getApp(String(args?.slug ?? ''));
+      const a = getApp(String(args?.slug ?? ''), true);
       if (args?.data === undefined || args?.data === null) bad('data 必填');
       // 工具调用凭的是会话令牌（席位、agent），不看 cookie
       const out = await submitAppData(a, { data: args.data, createdBy: args?.created_by ?? subject, idempotencyKey: args?.idempotency_key, subject, channel: { name: 'app-data.tool', hasCredential: false } });
@@ -3055,7 +3071,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       const name = fixFileName(String(args?.name ?? '').trim());
       const b64 = String(args?.content_base64 ?? '');
       if (!slug || !name || !b64) throw new HttpError(400, 'slug/name/content_base64 必填');
-      const a = getApp(slug);
+      const a = getApp(slug, true);
       // 完整性：有的 MCP 客户端会把过长的参数截短（常见截在 64KB）。截在 4 的倍数上的 base64 照样能解码，
       // 不核就会把残缺文件当正常文件存下。所以：base64 严格校验；调用方带了 size / sha256 就逐项对；
       // 恰好 65536 字符又没带 size / sha256 的，按疑似截断拒收（要么带上 size / sha256，要么改用 REST 原始字节上传）。
