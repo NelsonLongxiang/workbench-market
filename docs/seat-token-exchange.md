@@ -68,7 +68,7 @@ JSON.stringify(["wm-seat-token/1", root, host, seat_id, ts, nonce, aud])
 | 200 | `{ token, token_type: "Bearer", expires_at: "<ISO>", expires_in: 3600, seat: { host, seat_id } }` | 换到了 |
 | 400 | `{ "error": "seat_token_bad_request" }` | 请求体不成形：字段缺、类型或字符集不对（根本不是 JSON 的，由全局解析先回 400，正文不同，也不记录） |
 | 401 | `{ "error": "seat_token_refused" }` | 上面任何一条不成立。一律这一句，不说是哪条，不透露节点、席位存不存在 |
-| 429 | `{ "error": "seat_token_rate_limited" }`，带 `Retry-After`（秒） | 同一来源地址 10 分钟超过 60 次（成不成都算），或同一席位 1 小时已发 12 张 |
+| 429 | `{ "error": "seat_token_rate_limited" }`，带 `Retry-After`（秒） | 同一来源地址 10 分钟超过 60 次（成不成都算；来源在可信反代后面取它写进来的真实地址），或同一席位 1 小时已发 12 张 |
 
 市场不往外发任何请求（不取名片），只用钉住的公钥。
 
@@ -83,6 +83,7 @@ JSON.stringify(["wm-seat-token/1", root, host, seat_id, ts, nonce, aud])
 ## 授权
 
 - 每个席位（host + seat_id）在市场有一个长期的授权主体（MCP 网关页能看到，名字是 `seat-<host>-<12 位>`）。
+- 主体建的时候记下节点公钥的完整指纹和根地址。之后换令牌、每次调用都核这两样和登记表此刻钉住的一致；对不上就拒（401），不复用这个主体。节点换了键或根地址，要管理员处理原来的主体。
 - 工具授权、按台批的「工具@台」授予都记在这个主体上，换多少次令牌都保留。
 - 申请照旧：用换来的令牌调 `access_request`，或申请台的授予，批给的是这个席位。
 - 存量不自动放宽：现有长期会话上的授权不并到席位主体上。迁移办法如下：
