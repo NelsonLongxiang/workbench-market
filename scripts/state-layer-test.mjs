@@ -100,6 +100,11 @@ async function child(mode) {
     out.sop = {
       configured: sop.configured(), meta: await ops.hGetAll('wm:sop:run:7:meta'), active: await ops.sMembers('wm:sop:runs:active'), expire: ctl.expires?.['wm:sop:run:7:meta'],
       guards: [guardErr(() => ops.hSet('wm:bench:1:var:x', 'a', 'b')), guardErr(() => ops.hGetAll('wm:sopx:1')), guardErr(() => ops.sMembers('wm:sop:')), guardErr(() => ops.expire('other', 1))],
+      // 六个命令逐个试同一种越界写法（台的键）：每个都当场拒，一个不漏
+      perCommand: Object.fromEntries([
+        ['hSet', () => ops.hSet('wm:bench:1:var:x', { a: 'b' })], ['hSetField', () => ops.hSet('wm:bench:1:var:x', 'a', 'b')], ['hGetAll', () => ops.hGetAll('wm:bench:1:var:x')],
+        ['sAdd', () => ops.sAdd('wm:bench:1:set', 'm')], ['sRem', () => ops.sRem('wm:bench:1:set', 'm')], ['sMembers', () => ops.sMembers('wm:bench:1:set')], ['expire', () => ops.expire('wm:bench:1:var:x', 1)],
+      ].map(([n, fn]) => [n, guardErr(fn)])),
       benchCantTouch: await (async () => { try { await st.get('wm:sop:run:7:meta'); return false; } catch (e) { return e instanceof TypeError; } })(),
     };
     ctl.failNext = true;
@@ -176,6 +181,7 @@ async function parent() {
   console.log('S7 SOP 的句柄');
   ok('连着：hash 整份写、按字段写、读；set 加、删、列；到期——都原样转给连接', r.sop?.configured === true && r.sop.meta?.slug === 's' && r.sop.meta.status === 'finished' && JSON.stringify(r.sop.active) === '["7"]' && r.sop.expire === 3600, r.sop);
   ok('只许碰 wm:sop:：台的键、像前缀的别的键、光有前缀、别的键都当场拒；台的方法也碰不到 SOP 的键；清台不动 SOP 的键', r.sop?.guards?.every(Boolean) && r.sop.benchCantTouch && r.sop.afterClearBench, r.sop);
+  ok('六个命令（hash 整份写、按字段写、读，set 加、删、列，到期）逐个试越界写法：每个都当场拒', r.sop?.perCommand && Object.values(r.sop.perCommand).length === 7 && Object.values(r.sop.perCommand).every(Boolean), r.sop?.perCommand);
   ok('清扫（卡片一张都不在）把台的键清光，SOP 的键一个不碰', typeof r.sop?.swept === 'number' && r.sop.swept > 0 && r.sop.afterSweep === true, r.sop);
   ok('这次出错照样抛给调用方（SOP 自己的兜底照旧）；不通时 ops 是 null、configured 仍是 true', r.sop?.errorThrown && r.sop.down?.ops === null && r.sop.down.configured === true, r.sop);
   console.log('S8 SOP 执行实例的热态（经 sop 句柄）');
