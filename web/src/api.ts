@@ -352,6 +352,10 @@ export async function submitBenchForm(ref: string | number, req: { view: string;
     return { status: r.status, body: await r.json().catch(() => null) };
   } catch { return { status: 0, body: null }; }
 }
+/** 经验库（#717）：列表 GET /api/knowledge（只含这个人看得到的）、一条的详情 GET /api/knowledge/:key。带登录的 cookie，不带管理口令（口令读不了业务内容）。
+ *  返回状态码和应答体，让页面给说法；断网当状态码 0 */
+export const getKnowledge = () => benchViewsGet('/api/knowledge');
+export const getKnowledgeItem = (key: string) => benchViewsGet(`/api/knowledge/${encodeURIComponent(key)}`);
 /** 这个人能不能新建驾驶舱（/api/auth/me 的 can.create_cockpit，服务端和建驾驶舱的路由同一处判断）。
  *  带着管理口令问（口令持有人也能建）；不缓存：口令输入、清掉之后页面会再问一次。拿不到当不能 */
 export async function canCreateCockpit(): Promise<boolean> {
