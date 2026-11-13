@@ -10,6 +10,11 @@ import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import { ADMIN_TOKEN_KEY, type SettingService } from '../services/setting.ts';
 import { browserMarked, originIsThisSurface, rawLoopback } from '../surfaces.ts';
+import { defineConfig, loadConfig } from '../config.ts';
+
+/** 口令来自启动环境（ADMIN_TOKEN 非空）时页面不能改、不能清。只记有没有，不留口令本身（校验在 index.ts 的 adminTokenCheck） */
+export const Config = defineConfig((env) => ({ fromEnv: !!env.ADMIN_TOKEN }));
+const config = loadConfig(Config);
 
 /** 从 index.ts 传进来的：口令的存取与校验、本次请求是不是 Odoo 管理员、同源判断（别的路由和中间件也用）。 */
 export interface AdminTokenDeps {
@@ -41,13 +46,13 @@ export function registerAdminTokenRoutes(app: HttpService, deps: AdminTokenDeps)
 
   app.get('/api/admin-token/state', { action: 'admin-token.state', kind: 'read' }, (req, res) => {
     res.json({
-      source: process.env.ADMIN_TOKEN ? 'env' : (dbAdminTokenSet() ? 'db' : 'none'),
-      settable: !process.env.ADMIN_TOKEN && (dbAdminTokenSet() || isLoopbackReq(req) || odooAdminReqs.has(req)), // env 未设时：已有口令可凭旧口令改；首次由本机或 Odoo 管理员设
+      source: config.fromEnv ? 'env' : (dbAdminTokenSet() ? 'db' : 'none'),
+      settable: !config.fromEnv && (dbAdminTokenSet() || isLoopbackReq(req) || odooAdminReqs.has(req)), // env 未设时：已有口令可凭旧口令改；首次由本机或 Odoo 管理员设
     });
   });
 
   app.put('/api/admin-token', { action: 'admin-token.set', kind: 'admin', refine: [{ action: 'admin-token.first-set', kind: 'admin', why: '还没设过口令时的首次设置（只限本机，见存量差异清单）', when: (_req, facts) => !facts.adminTokenSet }] }, (req, res) => {
-    if (process.env.ADMIN_TOKEN) return res.status(400).json({ error: '口令由启动环境 ADMIN_TOKEN 提供，页面不可改（改环境变量并重启）' });
+    if (config.fromEnv) return res.status(400).json({ error: '口令由启动环境 ADMIN_TOKEN 提供，页面不可改（改环境变量并重启）' });
     const token = typeof req.body?.token === 'string' ? req.body.token : '';
     if (token.length < 4 || token.length > 128) return res.status(400).json({ error: '口令长度 4–128' });
     const hasExisting = dbAdminTokenSet();
@@ -59,7 +64,7 @@ export function registerAdminTokenRoutes(app: HttpService, deps: AdminTokenDeps)
   });
 
   app.delete('/api/admin-token', { action: 'admin-token.clear', kind: 'admin' }, (req, res) => {
-    if (process.env.ADMIN_TOKEN) return res.status(400).json({ error: '口令来自启动环境，需清环境变量并重启' });
+    if (config.fromEnv) return res.status(400).json({ error: '口令来自启动环境，需清环境变量并重启' });
     if (!adminTokenWritable(req, true)) return res.status(403).json({ error: '需当前口令或 Odoo 管理员登录' });
     svc<SettingService>('setting').delete(ADMIN_TOKEN_KEY);
     res.json({ ok: true, source: 'none' });
