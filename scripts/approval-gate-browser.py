@@ -1,6 +1,8 @@
 """核准类请求的门；由 scripts/approval-gate-browser.mjs 起合成实例后调用，参数为配置 JSON 路径。
-(a) 没有核准资格的人（合成员工 alpha）打开全景、「等你拍板」：先用实例真数据看一遍，再把一条变更申请和一条 AI 会话申请工具塞进他的「关注」应答
+(a) 没有核准资格的人（合成员工 alpha）打开全景、「等你拍板」：先用实例真数据看一遍，再把一条不带 answer_via 的变更申请塞进他的「关注」应答
     （模拟服务端多给了）——页面不给答法、不发往核准类接口的读写、不带管理员口令头。
+    带 answer_via 的条目（AI 会话申请工具）只列给办得了的人，由服务端守（scripts/bench-mcp-test.mjs「管理口令、普通员工、有做没有拍板的角色、
+    没有授予的管理员、本机命令行：清单里都没有这类条目」和「他们来答：和直接调那条路由一样被拒」），这里不再塞给没资格的人。
 (b) 有资格的人（合成管理员）在卡片上点：变更申请「通过并回滚」「不通过」（带理由）走统一答复入口 POST /api/attention/answer；
     AI 会话申请工具「批准」「不给」（带理由）按条目的 answer_via 发到它自己的地址。断言每个请求的路径、方法、请求体。"""
 import json, re, sys
@@ -47,7 +49,7 @@ def visit(pg, path):
 with sync_playwright() as p:
     b = p.chromium.launch()
     # (a) 没有核准资格的人
-    for label, items in (('实例真数据', None), ('「关注」里多给了一条变更申请和一条 AI 会话申请', [change('9101'), GRANT])):
+    for label, items in (('实例真数据', None), ('「关注」里多给了一条不带 answer_via 的变更申请', [change('9101')])):
         ctx = ctx_for(b, cfg['alpha_session'], items)
         pg = ctx.new_page(); pg.set_default_timeout(10000); seen = watch(pg)
         for path in ('/', '/attention'): visit(pg, path)

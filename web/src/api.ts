@@ -261,12 +261,16 @@ async function teamCall(url: string, init?: { method: string; body: unknown }): 
   } catch { return { status: 0, body: null }; }
 }
 export const getTeams = () => teamCall('/api/teams');
+/** 分给我的成员、我负责的团队（驾驶舱「AI 员工」用） */
+export const getMyTeams = () => teamCall('/api/teams/mine');
 export const getTeamDepartments = () => teamCall('/api/departments');
 export const getTeamPeople = () => teamCall('/api/principals');
 export const claimTeam = (host: string, team: string, department: string) => teamCall('/api/teams/claim', { method: 'POST', body: { host, team, department } });
 export const addTeamLead = (host: string, team: string, principal: string) => teamCall('/api/teams/leads', { method: 'POST', body: { host, team, principal } });
 /** 把一个成员分配给某位员工、收回（规范 14 第二节）：席位按 seat 加 seat_id 认；能不能做服务端判（负责人、管理层） */
 export const assignTeamSeat = (host: string, team: string, seat: string, seat_id: string, principal: string) => teamCall('/api/teams/assign', { method: 'POST', body: { host, team, seat, seat_id, principal } });
+/** 一步改派（#682）：一个事务里收回并分给另一个人；200 { ok, changed, id, from }，拒绝的状态码和错误码同分配 */
+export const reassignTeamSeat = (host: string, team: string, seat: string, seat_id: string, principal: string) => teamCall('/api/teams/reassign', { method: 'POST', body: { host, team, seat, seat_id, principal } });
 export const unassignTeamSeat = (host: string, team: string, seat: string, seat_id: string) => teamCall('/api/teams/unassign', { method: 'POST', body: { host, team, seat, seat_id } });
 export const putDepartment = (id: string, name: string, lead: string | null) => teamCall(`/api/departments/${encodeURIComponent(id)}`, { method: 'PUT', body: { name, ...(lead ? { lead } : {}) } });
 
@@ -320,3 +324,14 @@ export async function getBenchView(ref: { bench: string; view: string }, params:
     return { status: r.status, body: r.ok ? body : null, error: typeof body?.error === 'string' ? body.error : undefined };
   } catch { return { status: 0, body: null }; }
 }
+
+/** 数据视图的两个只读入口（往驾驶舱里挂视图时选台、选视图用）：带登录的 cookie，不带管理口令。
+ *  返回状态码和应答体（出错时应答体里有 error 代号），让页面给说法；断网当状态码 0 */
+async function benchViewsGet(path: string): Promise<{ status: number; body: unknown }> {
+  try {
+    const r = await fetch(path, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  } catch { return { status: 0, body: null }; }
+}
+export const listBenchViews = () => benchViewsGet('/api/bench-views');
+export const getBenchViewDoc = (bench: string) => benchViewsGet(`/api/bench-views/${encodeURIComponent(bench)}/view`);

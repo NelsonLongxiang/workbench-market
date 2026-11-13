@@ -71,6 +71,8 @@ import { registerTaskRoutes } from './routes/tasks.ts';
 import { benchViewsConfig, registerBenchViewRoutes, BENCH_ROWS_PATH } from './routes/bench-views.ts';
 import { BENCH_TOOL_NAMES, BENCH_GRANT_RE } from './bench-mcp-tools.ts';
 import { benchGrantsOf, benchRequestOfSession, benchRequestTtlConfig, benchRequestsOf, benchToolTarget, requestBenchTools, runBenchTool, setBenchRequestTtlHours } from './services/bench-mcp.ts';
+import { resolveBenchRef } from './services/bench-registry.ts';
+import { deleteCardWithBench, type CardDeleter } from './bench-card-delete.ts';
 import { BenchError } from './bench-query.ts';
 import { registerChangeRequestRoutes } from './routes/change-requests.ts';
 import { registerSopStateRoutes, registerSopSpaceRoutes } from './routes/sops.ts';
@@ -90,7 +92,7 @@ import { registerMcpProtocolRoutes } from './routes/mcp-protocol.ts';
 import { registerSopRunControlRoutes } from './routes/sop-run-control.ts';
 import { registerSopRunAccessRoutes } from './routes/sop-run-access.ts';
 import type { WorkbenchService } from './services/workbench.ts';
-import type { WorkItemService } from './services/work-item.ts';
+import { workItemStuckHoursFromEnv, type WorkItemService } from './services/work-item.ts';
 import type { SopService } from './services/sop.ts';
 import type { McpService } from './services/mcp.ts';
 import type { ChangeRequestService } from './services/change-request.ts';
@@ -113,6 +115,7 @@ import { designStandard } from './design-standard.ts';
 import { mountVault } from './vault-api.ts';
 import { expectedSha256, uploadIntegrity, type UploadIntegrity } from './upload-integrity.ts';
 import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet } from './workbench-vars.ts';
+import { registerWorkbenchVarsRoutes } from './routes/workbench-vars.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, redisConfigured, runStateRestore, runStateRead, runStateRetire, type RunStateRead } from './redis.ts';
@@ -269,6 +272,13 @@ if (PROPOSAL_ROSTER_GONE_HOURS === null) {
   process.exit(1);
 }
 svc<RelationProposalService>('relationProposals').setRosterGoneHours(PROPOSAL_ROSTER_GONE_HOURS);
+// 事项停多久算停太久（WM_WORK_ITEM_STUCK_HOURS，缺省 24 小时）：超过就冒给负责人（没有负责人冒给管理层）的「等你拍板」；值不合法拒绝启动
+const WORK_ITEM_STUCK_HOURS = workItemStuckHoursFromEnv();
+if (WORK_ITEM_STUCK_HOURS === null) {
+  console.error('[work-items] 拒绝启动：WM_WORK_ITEM_STUCK_HOURS 要是 1～720 的整数（小时），或者不设（缺省 24）');
+  process.exit(1);
+}
+svc<WorkItemService>('workItems').setStuckHours(WORK_ITEM_STUCK_HOURS);
 const A2A_DIRECT_SIG_BODY = directSigBodyMode();
 if (!A2A_DIRECT_SIG_RAW || !A2A_DIRECT_SIG_BODY) {
   console.error('[a2a-direct-sig] 拒绝启动：WM_A2A_DIRECT_SIG 只接受 require / accept / off / 不设，WM_A2A_DIRECT_SIG_BODY 只接受 require / accept / 不设');
@@ -460,8 +470,8 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/messages\/(read|[1-9]\d{0,15}\/reply)$/,
   // 「安排一件事」：登录的人直接建事项（路由内经身份服务认人，只认启用的人；只此一条路径，不带子路径）
   /^\/api\/work-items$/,
-  // 团队：成员的分配、收回由团队的负责人做（路由内认人、核同源、判是不是负责人或管理员；只此两条）
-  /^\/api\/teams\/(assign|unassign)$/,
+  // 团队：成员的分配、收回、改派由团队的负责人做（路由内认人、核同源、判是不是负责人或管理员；只此三条）
+  /^\/api\/teams\/(assign|unassign|reassign)$/,
   // 授予的放行（L19）：管理层、属主多半不是管理员。路由内认人、核同源，三档规则判能不能放行；只此一条子路径
   /^\/api\/grants\/[1-9]\d{0,15}\/approve$/,
   // 关系的提议：确认、驳回由属主、管理层、接收部门的负责人做，他们大多不是管理员（路由内认人、核同源，服务判能不能确认；只此两条）
@@ -735,21 +745,27 @@ function workbenchUpdateCore(id: number, body: any, ctx: WriteCtx = { subject: '
   return rowToWorkbench(row);
 }
 
-function workbenchDeleteCore(id: number): { ok: boolean; deleted: number } {
-  const r = svc<WorkbenchService>('workbench').delete(id);
-  if (!r.changes) throw new HttpError(404, `workbench not found: ${id}`);
-  dropWorkbenchVars(id); // #336 变量随台删除
-  // issue #9：删除工作台同步清掉各驾驶舱对它的面板引用——否则悬空面板会让之后每次保存布局 400
-  const cocks = svc<CockpitService>('cockpit').all() as unknown as CockpitRow[];
-  for (const c of cocks) {
-    let panels: PanelConfig[];
-    try { panels = JSON.parse(c.layout_config || '[]'); } catch { continue; }
-    const kept = panels.filter((p) => p.workbenchId !== id);
-    if (kept.length !== panels.length) {
-      svc<CockpitService>('cockpit').setLayout(c.id, JSON.stringify(kept));
-    }
-  }
-  return { ok: true, deleted: id };
+// 删卡片连带它的台库（bench-card-delete.ts）：台库里有数据时要管理层并且确认，删前留备份；卡片本身那一份和台的登记在一个事务里
+async function workbenchDeleteCore(id: number, deleter: CardDeleter = { kind: 'anonymous' }, confirmBenchData = false): Promise<{ ok: boolean; deleted: number }> {
+  return deleteCardWithBench({
+    id, deleter, confirmBenchData,
+    exists: () => !!svc<WorkbenchService>('workbench').byId(id),
+    deleteCard: (slug) => {
+      const r = svc<WorkbenchService>('workbench').delete(id);
+      if (!r.changes) throw new HttpError(404, `workbench not found: ${id}`);
+      dropWorkbenchVars(id); // #336 变量随台删除
+      // issue #9：删除工作台同步清掉各驾驶舱对它的面板引用——否则悬空面板会让之后每次保存布局 400。挂这张卡片的台的视图面板一起摘
+      const cocks = svc<CockpitService>('cockpit').all() as unknown as CockpitRow[];
+      for (const c of cocks) {
+        let panels: PanelConfig[];
+        try { panels = JSON.parse(c.layout_config || '[]'); } catch { continue; }
+        const kept = panels.filter((p) => p.workbenchId !== id && !(slug && p.kind === 'bench-view' && p.bench === slug));
+        if (kept.length !== panels.length) {
+          svc<CockpitService>('cockpit').setLayout(c.id, JSON.stringify(kept));
+        }
+      }
+    },
+  });
 }
 
 /** 审计主体：只认已核的管理口令；X-Market-Client 等自报头不算身份 */
@@ -819,10 +835,11 @@ async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkben
 const EVICT_COOLDOWN_MS = Number(process.env.A2A_EVICT_COOLDOWN_MS) > 0 ? Number(process.env.A2A_EVICT_COOLDOWN_MS) : 24 * 3_600_000; // 测试可加速
 const downSince = new Map<number, number>();
 const lastProbeAt = new Map<number, number>();
-registerWorkbenchRoutes(http, { wrap, listWorkbenches, maskForApi, restSubject, workbenchCreateCore, workbenchUpdateCore, workbenchDeleteCore, checkOne, downSince, lastProbeAt, EVICT_COOLDOWN_MS });
+registerWorkbenchRoutes(http, { wrap, listWorkbenches, maskForApi, restSubject, workbenchCreateCore, workbenchUpdateCore, workbenchDeleteCore, adminTokenOk: (req) => adminHeaderOk(req), checkOne, downSince, lastProbeAt, EVICT_COOLDOWN_MS });
 
 // ---------- 驾驶舱 CRUD（任务驾驶舱：多工作台分屏组合视图） ----------
-registerCockpitRoutes(http);
+// 驾驶舱的读应答带 can.edit：就是写请求总门对这个请求的判断（本机命令行照旧算属主；其余要有效口令或 Odoo 管理员，且同源）
+registerCockpitRoutes(http, { canEdit: (req) => settingsAdminRead(req) }); // 和设置页的管理员读同一个判断（定义在后面，请求期才调用）
 
 // ---------- 自产台（台生成器：AI 发布 API + 全版本快照，发布即入册） ----------
 const appsRoot = join(dataDir, 'apps');
@@ -2494,7 +2511,7 @@ function vaultGuard(req: express.Request, res: express.Response): boolean {
   return adminGuard(req, res);
 }
 mountVault(http, vaultGuard, (req) => VAULT_ON_MAIN || surfaceOf(req) === 'control' || onVaultHost(req)); // 服务端持有主密码时只在控制面或凭据库专用域名开放（两者都不承载 /go/、/sop/、/apps/）；属主显式接受同源风险时主域名也开放
-workbenchVars.mount(app); // #336 /api/workbenches/:id/vars
+registerWorkbenchVarsRoutes(http, workbenchVars.handle); // #336 /api/workbenches/:id/vars（路由在 routes/workbench-vars.ts）
 
 // 存活 / 就绪分开：/api/health 是存活（只看本进程，不发外部请求）；/api/health/ready 是就绪（含 LayerFS）。
 // 两者都是公开端点，LayerFS 探测结果缓存 10 秒、同一时刻只发一次，匿名请求打不穿到 LayerFS。
@@ -2944,7 +2961,8 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       return maskForApi(w);
     }
     case 'workbench_unregister':
-      return workbenchDeleteCore(Number(args?.id));
+      // MCP 会话不是人：卡片的台库里有数据时一律 409（要管理层来删）
+      return await workbenchDeleteCore(Number(args?.id), { kind: 'session', name: String(subject).replace(/^mcp:/, '') });
     case 'workbench_vars_get':
       return mcpVarsGet(args);
     case 'workbench_vars_set':
@@ -3291,7 +3309,7 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
   if (BENCH_VIEWS.on && bare !== undefined) bad(`${bare.split('@')[0]} 是数据视图的工具，必须限定到台：写成 ${bare.split('@')[0]}@bench:<台的标识>（读也一样）`);
   if (BENCH_VIEWS.on && benchAsk.some((m) => m && BENCH_TOOL_NAMES.has(m[1]))) {
     if (!benchAsk.every((m) => m && BENCH_TOOL_NAMES.has(m[1]))) bad('数据视图的工具单独申请，不和别的工具写在同一条里');
-    const benches = [...new Set(benchAsk.map((m) => m![2]))];
+    const benches = [...new Set(benchAsk.map((m) => resolveBenchRef(m![2])))]; // 写卡片 id 也认：申请和授予按台标识记
     if (benches.length !== 1) bad('一条申请只能是一个台的；几个台分开申请');
     let made;
     try { made = requestBenchTools(s.id, benches[0], benchAsk.map((m) => m![1]), args?.reason, Date.now()); } catch (e) { throw benchToolError(e); }
