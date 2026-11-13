@@ -1,7 +1,7 @@
 {
   "domain": "teams",
   "what": "团队与分配：/api/teams 的 8 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。人、部门、名册都是合成的。",
-  "routes": ["GET /api/teams", "GET /api/teams/mine", "POST /api/teams/claim", "POST /api/teams/release", "POST /api/teams/leads", "POST /api/teams/leads/remove", "POST /api/teams/assign", "POST /api/teams/unassign"],
+  "routes": ["GET /api/teams", "GET /api/teams/mine", "POST /api/teams/claim", "POST /api/teams/release", "POST /api/teams/leads", "POST /api/teams/leads/remove", "POST /api/teams/assign", "POST /api/teams/unassign", "POST /api/teams/reassign"],
   "exempt": [
     { "route": "GET /api/teams", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/list-junk" },
     { "route": "GET /api/teams/mine", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入", "shown_by": "open/mine-junk" }
@@ -414,6 +414,78 @@
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "error": "teams_auth_required" }
+          }
+        },
+        {
+          "id": "reassign-remote-anon",
+          "route": "POST /api/teams/reassign",
+          "class": "unauthorized",
+          "what": "远程、没登录：401",
+          "request": {
+            "method": "POST",
+            "path": "/api/teams/reassign",
+            "headers": { "x-forwarded-for": "192.0.2.10" },
+            "json": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "seat": "zone1/0000000b", "seat_id": "seat-0000000b", "principal": "user:alpha" }
+          },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "teams_auth_required" }
+          }
+        },
+        {
+          "id": "reassign-router",
+          "route": "POST /api/teams/reassign",
+          "class": "invalid",
+          "what": "总工不能改派：422",
+          "request": {
+            "method": "POST",
+            "path": "/api/teams/reassign",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "seat": "zone1/0000000a", "seat_id": "seat-0000000a", "principal": "user:alpha" }
+          },
+          "response": {
+            "status": 422,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "88", "etag": "W/\"58-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "router_not_assignable", "message": "总工不分配给员工，只对负责人" }
+          }
+        },
+        {
+          "id": "reassign",
+          "route": "POST /api/teams/reassign",
+          "class": "normal",
+          "what": "负责人 alpha 把成员从 beta 改派给自己：changed=true，from=beta",
+          "request": {
+            "method": "POST",
+            "path": "/api/teams/reassign",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "seat": "zone1/0000000b", "seat_id": "seat-0000000b", "principal": "user:alpha" }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "changed": true, "id": 2, "from": "user:beta" }
+          }
+        },
+        {
+          "id": "reassign-same",
+          "route": "POST /api/teams/reassign",
+          "class": "normal",
+          "what": "改给现在的人：changed=false",
+          "request": {
+            "method": "POST",
+            "path": "/api/teams/reassign",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "seat": "zone1/0000000b", "seat_id": "seat-0000000b", "principal": "user:alpha" }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "changed": false, "id": 2, "from": "user:alpha" }
           }
         },
         {

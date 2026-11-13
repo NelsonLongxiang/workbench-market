@@ -6,6 +6,8 @@ export type AttentionItem = { source: string; source_id: string; category: Categ
   detail?: unknown; kind?: string;
   /** #587：是不是轮到你（验收、提问对代办的人是 false）；事项和提问的条目带建立人 */
   mine?: boolean; creator?: { principal?: string; display_name?: string | null } | null;
+  /** #657：服务端按看的人给的名字（看不到、不是人的给 null）；有就直接显示，null 就退化成「一位同事」这类说法 */
+  waiting_for_name?: string | null; creator_name?: string | null;
   /** 条目自带的答复入口（见文件末尾的 answer_via 约定）；没带的照旧发 /api/attention/answer */
   answer_via?: unknown };
 export type LogRow = { seq: number; fact: string; fact_source: string; fact_id: string; from_state: string; to_state: string; actor: string; detail: string; at: string; rejected: '' | 'not_allowed' | 'terminal' };

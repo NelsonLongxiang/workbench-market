@@ -136,6 +136,6 @@ with sync_playwright() as p:
     check('团队页：alpha 看得到只属于他的部门 → 换成 beta → 这个部门不在页面上了', had and cleared, (had, cleared))
     ctx.close()
     reread('/access', '/api/grants', '谁能做什么')
-    skip('「等你拍板」完整列表（/attention）', '按新外壳重写的那一版在 #656，合进来之后在这里加一条；现在的旧页面同样被整棵重挂')
+    reread('/attention', '/api/attention', '「等你拍板」完整列表（/attention，#656 按新外壳重写的那一版）')
     b.close()
 print(f'session-browser: {ok} passed / {fail} failed'); sys.exit(1 if fail else 0)

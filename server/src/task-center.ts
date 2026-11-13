@@ -2,7 +2,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { db } from './db.ts';
+import { db, tableColumns } from './db.ts';
 import { assignableTeams, initWorkbenchEvents, recordTaskCenterEvent } from './workbench-events.ts';
 import { svc } from './context.ts';
 import type { TaskCenterService } from './services/task-center.ts';
@@ -17,7 +17,7 @@ export const taskCenterSteps = [
 ];
 export function initializeTaskCenter(appsRoot: string) {
   initWorkbenchEvents(); // 发布与工作台事件同事务：任务中心在哪里初始化，事件表就在哪里建
-  const cols = db.prepare('PRAGMA table_info(tasks)').all() as {name:string}[];
+  const cols = tableColumns('tasks') as {name:string}[];
   if (!cols.some(c=>c.name==='intake_run_id')) db.exec('ALTER TABLE tasks ADD COLUMN intake_run_id INTEGER REFERENCES sop_runs(id)');
   if (!cols.some(c=>c.name==='template_version')) db.exec('ALTER TABLE tasks ADD COLUMN template_version INTEGER');
   db.exec('DROP INDEX IF EXISTS idx_tasks_material; CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_intake_run ON tasks(intake_run_id) WHERE intake_run_id IS NOT NULL');
