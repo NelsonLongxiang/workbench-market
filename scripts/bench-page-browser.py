@@ -85,7 +85,7 @@ with sync_playwright() as p:
     check('第一次取数取的是默认那一份，没带筛选', log['render'][:1] == [('vk-board', {})], log['render'])
     check('块都在：筛选栏、统计、进度、柱图、表格、两张表单，带外框', all(pg.locator(f'[data-bb={k}][data-bb-frame=card]').count() == (2 if k == 'form' else 1) for k in ('filter-bar', 'stat', 'progress', 'bar', 'table', 'form')))
     deny = pg.locator('[data-bb=form]').nth(1)
-    check('表单块 can_submit 是 false：那一块按钮不可点、旁边说不能在这个台上填表；另一块照常能交', deny.locator('button[type=submit]').is_disabled() and '你的账号不能在这个台上填表' in deny.inner_text() and not pg.locator('[data-bb=form]').nth(0).locator('button[type=submit]').is_disabled())
+    check('表单块 can_submit 是 false：那一块按钮不可点、旁边说不能填、找管理层开通；另一块照常能交', deny.locator('button[type=submit]').is_disabled() and '你的账号不能在这个台上填表' in deny.inner_text() and '请管理层为你开通' in deny.inner_text() and not pg.locator('[data-bb=form]').nth(0).locator('button[type=submit]').is_disabled())
     t = body_text(pg)
     check('台标识、视图键、卡片背后的编号不写在页面的字上', SLUG not in t and 'vk-' not in t and '4242' not in t)
     check('浏览器标签页标题：视图标题 · 台名', pg.title() == '合成巡检总览 · 合成·巡检台', pg.title())
@@ -134,7 +134,7 @@ with sync_playwright() as p:
     mode['form'] = '403'
     form.locator('textarea').fill('南区'); form.locator('button[type=submit]').click()
     pg.wait_for_function("() => document.querySelector('[data-bb=form] .ant-alert-warning')?.textContent.includes('没交上去：你的账号不能在这个台上填表')")
-    check('不让交（403）：说这个账号不能在这个台上填表，不露代号', 'bench_views' not in form.inner_text())
+    check('不让交（403）：说这个账号不能在这个台上填表、找管理层开通，不露代号', '请管理层为你开通' in form.inner_text() and 'bench_views' not in form.inner_text())
     mode['form'] = 'ok'
 
     print('四、取数没成')
