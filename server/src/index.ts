@@ -116,7 +116,7 @@ import { designStandard } from './design-standard.ts';
 import { mountVault } from './vault-api.ts';
 import { expectedSha256, uploadIntegrity, type UploadIntegrity } from './upload-integrity.ts';
 import { loadConfig } from './config.ts';
-import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet, reportHotVarKeys, setVarsStoreMode, Config as VarsConfig } from './workbench-vars.ts';
+import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet, reportHotVarKeys, setVarsStoreMode, startHotVarsFlush, flushHotVars, Config as VarsConfig } from './workbench-vars.ts';
 import { registerWorkbenchVarsRoutes } from './routes/workbench-vars.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
@@ -161,6 +161,7 @@ setBenchRequestTtlHours((() => { try { return benchRequestTtlConfig(); } catch (
 // 工作台的常量、变量存在哪（WM_VARS_STORE：main / shadow / bench，缺省 main）。不合法拒绝启动；起来时报一次已有的 hot. 开头的键
 setVarsStoreMode((() => { try { return loadConfig(VarsConfig).store; } catch (e) { console.error(`[vars] 拒绝启动：${(e as Error).message}`); process.exit(1); } })());
 reportHotVarKeys();
+startHotVarsFlush(); // 高频变量（hot. 开头的键）每 30 秒落一次台库；只在 bench 档、配了 Redis 时有活
 // 全站登录门（WM_LOGIN_GATE=enforce|off，缺省 off）：紧跟启动自检门，早于内容分发、解析器、静态资源、SPA 回落和各路由。
 // 依赖都是函数声明或请求期才取的值（提升/闭包），这里只建不调。值不合法拒绝启动（同 MCP_GATEWAY #284）
 const LOGIN_GATE_MODE = loginGateMode();
@@ -3848,6 +3849,7 @@ async function shutdown(sig: string): Promise<void> {
   try {
     await Promise.all(allSurfaceServers().map(srv => new Promise<void>(resolve => { srv.close(() => resolve()); })));
     await runCheckpoints.close();
+    try { await flushHotVars(); } catch { console.error('[shutdown] hot_vars_flush_failed'); } // 高频变量退出前落一次（Redis 不通就留给下次起来时落）
     db.close();
     clearTimeout(deadline);
     process.exit(0);
