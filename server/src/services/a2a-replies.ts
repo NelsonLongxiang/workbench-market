@@ -85,6 +85,20 @@ export function markReply(id: number, status: 'sent' | 'dead', attempts: number,
     .run(status, attempts, error.slice(0, 300), status, sqlTime(now), id);
 }
 
+/** 对端此刻不能发（改钥待确认、停用）：挂起到 nextAtMs 再看，attempts 不加、不判死。返回原因是不是第一次记（调用方只在第一次留痕） */
+export function holdReply(id: number, nextAtMs: number, reason: string): boolean {
+  const prev = db.prepare('SELECT last_error FROM workbench_event_replies WHERE id = ?').get(id) as { last_error: string } | undefined;
+  db.prepare("UPDATE workbench_event_replies SET next_at = ?, last_error = ? WHERE id = ? AND status = 'pending'").run(sqlTime(nextAtMs), reason, id);
+  return prev?.last_error !== reason;
+}
+
+/** 事件投递同上：对端此刻不能发，挂起到 nextAtMs 再看，attempts 不加、不判死。返回原因是不是第一次记 */
+export function holdDelivery(id: number, nextAtMs: number, reason: string): boolean {
+  const prev = db.prepare('SELECT last_error FROM workbench_event_deliveries WHERE id = ?').get(id) as { last_error: string } | undefined;
+  db.prepare("UPDATE workbench_event_deliveries SET next_at = ?, last_error = ? WHERE id = ? AND status = 'pending'").run(sqlTime(nextAtMs), reason, id);
+  return prev?.last_error !== reason;
+}
+
 export function retryReply(id: number, attempts: number, nextAtMs: number, error: string): void {
   db.prepare("UPDATE workbench_event_replies SET attempts = ?, next_at = ?, last_error = ? WHERE id = ? AND status = 'pending'").run(attempts, sqlTime(nextAtMs), error.slice(0, 300), id);
 }

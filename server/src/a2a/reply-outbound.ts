@@ -8,7 +8,11 @@
  */
 import { a2aKeyPath, a2aSendOutbound } from '../a2a.ts';
 import { noteBlocked, outboundOff } from '../outbound-gate.ts';
-import { deliveryStatusOf, dueReplies, inReplyTx, markReply, noticeTaskId, retryReply, type ReplyRow } from '../services/a2a-replies.ts';
+import { deliveryStatusOf, dueReplies, holdReply, inReplyTx, markReply, noticeTaskId, retryReply, type ReplyRow } from '../services/a2a-replies.ts';
+import { peerCanDeliver } from '../services/a2a-peers.ts';
+
+/** 对端此刻不能发（改钥待确认、停用）时，隔多久再看一次 */
+export const PEER_HOLD_MS = 60_000;
 import { recordSentTask } from '../services/a2a-receipts.ts';
 import { BACKOFF_MS, MAX_ATTEMPTS, TERMINAL_CODES, backoffScale, logDeliveryFact } from '../workbench-events.ts';
 import { peerCard, peerRoot } from './peer-card.ts';
@@ -54,6 +58,12 @@ export function followupReceiptText(followupTask: string): string {
 }
 
 async function sendOne(row: ReplyRow, now: () => number): Promise<void> {
+  // 发之前问对端登记表：改钥待确认、停用的挂起，不发、不计次数、不判死；原因第一次出现时留一行
+  const can = peerCanDeliver(row.target_url);
+  if (!can.ok && can.reason !== 'peer_unknown') {
+    if (holdReply(row.id, now() + PEER_HOLD_MS, can.reason)) logDeliveryFact(row.event_id, row.delivery_id, 'market', 'reply-held', { reply: row.id, kind: row.kind, reason: can.reason });
+    return;
+  }
   const attempt = row.attempts + 1;
   const isReceipt = row.kind === 'followup-receipt';
   let isNotice = false;
