@@ -11,11 +11,14 @@
     自己提的写「撤回」、不出确认；确认、撤回发对了请求，办完卡片没了，并广播「等你拍板」刷新；
   · 认领之后：按部门分块，团队头卡写状态、负责人（部门负责人标出来）、总工、成员数和在办；成员卡写在办几件、分配给谁或团队公用；
   · 成员分配（规范 14 第二节）：团队上 can_assign 为真时（负责人、管理层），团队公用的成员出「分配给…」，已分配的出「改派」「收回」；
-    总工没有；选人只从 assignable 里选，改派时不列现在的人；分配、改派（先收回再分配）、收回发对了请求，卡片原地更新、不闪骨架；
-    被拒时写服务端的说法、卡片不变；改派收回成了分配没成时说清楚现在是团队公用；回 202 时照提议说；
-    选人和收回的确认在弹窗里，收回照实写后果；办成了是轻提示（antd message），202 是提示色，改派一半是警示色；
+    总工没有；选人只从 assignable 里选，改派时不列现在的人；分配、改派（一步：POST /api/teams/reassign，不再先收回）、收回发对了请求，卡片原地更新、不闪骨架；
+    被拒时写服务端的说法、卡片不变（改派被拒也不变：不会停在团队公用）；回 202 时照提议说；
+    选人和收回的确认在弹窗里，收回照实写后果；办成了是轻提示（antd message），202 是提示色；
     can_assign 不是真（系统管理员、普通员工）：一个按钮都没有；系统管理员的头卡上写一句分配归谁；
-    名册新的标「正常」，过期的标「名册过期」（不同时写「正常」）；看的人由截下的 /api/auth/me 给，左下角不是「未登录」。
+    名册停不停推只照服务端的 roster_stale，停了多久照 roster_stale_for_minutes：停推的标「名册过期」（不同时写「正常」），待认领的卡上也写；
+    收到时刻再旧、服务端说没停推就标「正常」；
+    部门负责人待属主放行（grant=missing）、团队的 lead_pending_grant：写「（待属主放行权限）」，不当成负责人；
+    看的人由截下的 /api/auth/me 给，左下角不是「未登录」。
     环境变量 TEAM_SHOTS 指一个目录时，存 1440 截图（分配前、选人弹窗、分配后、收回确认、普通员工只读）；
   · 不是管理员的视图（应答里没有待认领这一栏）：没有建部门、没有待认领。"""
 import json, os, sys, urllib.request
@@ -97,6 +100,14 @@ with sync_playwright() as p:
     un = pg.locator('[data-testid=team-unclaimed]')
     check('待认领的团队：管理员看得到；没有部门时说先建部门、没有认领按钮', un.count() == 1 and '先建部门' in un.inner_text() and pg.locator('[data-testid=team-claim]').count() == 0, un.all_inner_texts())
     check('待认领卡：节点没有名字就不写「来自」这一项，节点标识、团队和席位句柄都不出现', '来自' not in un.inner_text() and not any(x in pg.locator('body').inner_text() for x in [HOST, 'ops/', '/canvas/']), un.inner_text())
+
+    check('待认领卡：名册没停推不写', un.locator('[data-testid=team-roster-stale]').count() == 0)
+    # 待认领的团队也带名册停推（服务端给的）：卡上照写
+    state['teams']['unclaimed'] = [{**UNCLAIMED, 'roster_stale': True, 'roster_stale_for_minutes': 3000}]
+    pg.reload(); pg.wait_for_selector('[data-testid=team-unclaimed] [data-testid=team-roster-stale]')
+    check('待认领卡：名册停推（服务端说停了 3000 分钟）写「名册已 2 天没更新」', un.locator('[data-testid=team-roster-stale]').inner_text() == '名册已 2 天没更新', un.inner_text())
+    state['teams']['unclaimed'] = [UNCLAIMED]
+    pg.reload(); pg.wait_for_selector('[data-testid=team-empty]')
 
     # 建部门：标识写错不能建；写对了真的建进实例
     pg.locator('[data-testid=team-newdept-cta]').click(); pg.wait_for_selector('[data-testid=team-newdept]')
@@ -216,8 +227,16 @@ with sync_playwright() as p:
         b_ = json.loads(r.request.post_data or '{}'); posted.append(('unassign', b_))
         m_ = member_of(b_['seat']); had = m_['assigned_to'] is not None; m_['assigned_to'] = None
         fake(r, {'ok': True, 'removed': had})
+    reassign = {'next': None}  # 下一次改派要回什么：None 照常 200；或者 (status, body)
+    def on_reassign(r):
+        b_ = json.loads(r.request.post_data or '{}'); posted.append(('reassign', b_))
+        if reassign['next']: st, body_ = reassign['next']; reassign['next'] = None; return fake(r, body_, st)
+        m_ = member_of(b_['seat']); was = m_['assigned_to']
+        m_['assigned_to'] = next(x for x in PEOPLE if x['principal'] == b_['principal'])
+        fake(r, {'ok': True, 'changed': True, 'id': len(posted), 'from': was['principal'] if was else None})
     pg.route('**/api/teams/assign', on_assign)
     pg.route('**/api/teams/unassign', on_unassign)
+    pg.route('**/api/teams/reassign', on_reassign)
     # 看的人：负责人甲经理（/api/auth/me 截下来，左下角写他，不是「未登录」）
     def me(login, name): return {'gate': 'off', 'authenticated': True, 'via': 'odoo', 'login': login, 'principal': f'user:{login}', 'display_name': name, 'roles': []}
     who = {'me': me('jia', '甲经理')}
@@ -258,17 +277,18 @@ with sync_playwright() as p:
     check('分配：成功是轻提示（几秒自动消失的成功消息），不是页面上方的横幅', t_ok.locator('.ant-message-success').count() == 1 and pg.locator('[data-testid=team-notice]').count() == 0)
     check('分配：重读不闪骨架（部门分块一直在）', pg.locator('.ant-skeleton').count() == 0 and pg.locator('[data-testid=team-dept]').count() == 1)
 
-    # 改派：弹窗里写现在归谁，不列现在的人；先收回再分配
+    # 改派：弹窗里写现在归谁，不列现在的人；一步办完（一个请求）
     n0 = len(posted)
     card('小算').locator('[data-testid=team-reassign-open]').click(); modal().wait_for()
-    check('改派：弹窗写现在分给丙、改派是先收回再分', '现在分给 丙' in modal().inner_text() and '先收回' in modal().inner_text(), modal().inner_text())
+    hint = modal().locator('[data-testid=team-reassign-hint]').inner_text()
+    check('改派：弹窗写现在分给丙、改派一步办完、分给丙期间接手的事丙照样看得到；不再说先收回', '现在分给 丙' in hint and '一步办完' in hint and '丙 照样看得到' in hint and '先收回' not in modal().inner_text(), modal().inner_text())
     modal().locator('[data-testid=team-assign-to]').click()
     opts = pg.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option').all_inner_texts()
     check('改派：不列现在归的那个人', sorted(opts) == sorted(['丁', '戊']), opts)
     pg.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option', has_text='戊').first.click()
     modal().locator('[data-testid=team-assign-confirm]').click(); modal_gone()
     pg.wait_for_function("[...document.querySelectorAll('[data-testid=team-member]')].some(e => e.innerText.includes('小算') && e.innerText.includes('分配给 戊'))")
-    check('改派：先收回、再分给戊；卡片当场写「分配给 戊」', [x[0] for x in posted[n0:]] == ['unassign', 'assign'] and posted[n0 + 1][1]['principal'] == 'user:wu' and posted[n0][1]['seat'] == 'ops/00000001', posted[n0:])
+    check('改派：只发一个改派请求（这个席位、分给戊），不发收回、分配；卡片当场写「分配给 戊」', posted[n0:] == [('reassign', {'host': HOST, 'team': 'ops/canvas/合成运营', 'seat': 'ops/00000001', 'seat_id': '', 'principal': 'user:wu'})], posted[n0:])
     toast('「小算」已改派给 戊')
     pg.wait_for_timeout(300); shot('team-lead-after-assign-1440.png')
 
@@ -301,25 +321,15 @@ with sync_playwright() as p:
     t_info = toast('等管理层确认')
     check('分配回 202：提示「已提出，等管理层确认」（提示色，不是成功），卡片仍是团队公用', '「小审」分配给 丙：已提出，等管理层确认' in t_info.inner_text() and t_info.locator('.ant-message-info').count() == 1 and '团队公用' in card('小审').locator('[data-testid=team-assigned]').inner_text())
 
-    # 改派的收回回 202（成了提议）：停下，不接着分配
-    unassign_next = {'v': (202, {'ok': True, 'proposed': True, 'proposal': {'id': 78, 'status': 'pending', 'confirm_by_text': '管理层'}})}
-    def on_unassign_202(r):
-        b_ = json.loads(r.request.post_data or '{}'); posted.append(('unassign', b_)); st, body_ = unassign_next['v']; fake(r, body_, st)
-    pg.unroute('**/api/teams/unassign', on_unassign); pg.route('**/api/teams/unassign', on_unassign_202)
+    # 改派被拒：弹窗里写服务端的说法；一步办完的接口不会停在团队公用，卡片仍写原来的人
     n0 = len(posted)
+    reassign['next'] = (422, {'error': 'assignee_not_person', 'message': '只分给启用的人，user:ding 不是'})
     card('小算').locator('[data-testid=team-reassign-open]').click(); modal().wait_for(); pick_in_modal('丁')
-    modal().locator('[data-testid=team-assign-confirm]').click(); modal_gone()
-    t_held = toast('收回生效之前不改派')
-    check('改派的收回回 202：停下、不接着分配；提示照提议说，归属不变', [x[0] for x in posted[n0:]] == ['unassign'] and '收回「小算」已提出，等管理层确认' in t_held.inner_text() and '分配给 戊' in card('小算').inner_text(), posted[n0:])
-    pg.unroute('**/api/teams/unassign', on_unassign_202); pg.route('**/api/teams/unassign', on_unassign)
-
-    # 改派一半：收回成了、分配没成
-    assign['next'] = (422, {'error': 'assignee_not_person', 'message': '只分给启用的人，user:ding 不是'})
-    card('小算').locator('[data-testid=team-reassign-open]').click(); modal().wait_for(); pick_in_modal('丁')
-    modal().locator('[data-testid=team-assign-confirm]').click(); modal_gone()
-    pg.wait_for_function("[...document.querySelectorAll('[data-testid=team-member]')].some(e => e.innerText.includes('小算') && e.innerText.includes('团队公用'))")
-    t_warn = toast('已收回，但改派给 丁 没办成')
-    check('改派一半：警示说已收回、改派没办成、现在是团队公用；卡片照实写团队公用', '现在是团队公用' in t_warn.inner_text() and t_warn.locator('.ant-message-warning').count() == 1)
+    modal().locator('[data-testid=team-assign-confirm]').click(); modal().locator('[data-testid=team-assign-err]').wait_for()
+    check('改派被拒：弹窗里写服务端的说法；只发了改派、没发收回；归属不变（仍分配给 戊），没有「已收回」的提示',
+          '只分给启用的人' in modal().locator('[data-testid=team-assign-err]').inner_text() and [x[0] for x in posted[n0:]] == ['reassign'] and '分配给 戊' in card('小算').locator('[data-testid=team-assigned]').inner_text()
+          and pg.locator('.ant-message-notice', has_text='已收回').count() == 0, posted[n0:])
+    modal().locator('button', has_text='算了').click(); modal_gone()
 
     # 普通员工（can_assign 不是真）：只读
     who['me'] = me('geng', '庚')
@@ -331,16 +341,32 @@ with sync_playwright() as p:
           pg.locator('.wm-team-member-ops').count() == 0 and pg.locator('[data-testid=team-member] button').count() == 0 and pg.locator('[data-testid=team-assign-by]').count() == 0)
     shot('team-member-readonly-1440.png')
 
-    # 名册过期：三小时前收到的（库里的写法，按 UTC 解析）——标「名册过期」，不再同时写「正常」
-    state['teams']['departments'][0]['teams'][0]['roster_received_at'] = sql_time(timedelta(hours=3, minutes=5))
+    # 名册停推：只照服务端的 roster_stale；停了多久照 roster_stale_for_minutes（收到时刻故意写成三分钟前，看页面不自己算）
+    t0 = state['teams']['departments'][0]['teams'][0]
+    t0.update({'roster_received_at': sql_time(timedelta(minutes=3)), 'roster_stale': True, 'roster_stale_for_minutes': 185})
     pg.reload(); pg.wait_for_selector('[data-testid=team-roster-stale]')
-    check('名册三小时没更新：头卡写「名册已 3 小时没更新」，状态标「名册过期」，不写「正常」（不带时区的时刻按 UTC 解析，不差 8 小时）',
+    check('名册停推（服务端说停了 185 分钟）：头卡写「名册已 3 小时没更新」，状态标「名册过期」，不写「正常」',
           pg.locator('[data-testid=team-roster-stale]').inner_text() == '名册已 3 小时没更新' and pg.locator('.wm-team-st', has_text='名册过期').count() == 1 and pg.locator('.wm-team-st', has_text='正常').count() == 0,
           pg.locator('[data-testid=team-team] .wm-team-head').inner_text())
-    # 接口给了阈值（roster_stale_minutes=240）：三小时前的不算过期，标「正常」
-    state['teams']['roster_stale_minutes'] = 240
+    # 服务端说没停推：收到时刻再旧（三天前）也标「正常」，页面不按阈值自己算
+    t0.update({'roster_received_at': sql_time(timedelta(days=3)), 'roster_stale': False, 'roster_stale_for_minutes': None})
     pg.reload(); pg.wait_for_selector('[data-testid=team-member]')
-    check('接口给了停推阈值（240 分钟）：三小时前的名册不算过期，标「正常」、不写没更新', pg.locator('[data-testid=team-roster-stale]').count() == 0 and pg.locator('.wm-team-st', has_text='正常').count() == 1)
+    check('服务端说没停推：收到时刻三天前也标「正常」、不写没更新', pg.locator('[data-testid=team-roster-stale]').count() == 0 and pg.locator('.wm-team-st', has_text='正常').count() == 1)
+    del t0['roster_stale']; del t0['roster_stale_for_minutes']
+
+    # 部门负责人待属主放行：部门头写「（待属主放行权限）」；团队上 lead_pending_grant 补一句，不当成负责人
+    state['teams']['departments'][0]['lead'] = {'principal': 'user:jia', 'display_name': '甲经理', 'grant': 'missing'}
+    t0.update({'leads': [{'principal': 'user:yi', 'display_name': '乙主管', 'source': 'explicit'}], 'lead_pending_grant': {'principal': 'user:jia', 'display_name': '甲经理'}})
+    pg.reload(); pg.wait_for_selector('[data-testid=team-lead-pending-grant]')
+    head = pg.locator('[data-testid=team-team] .wm-team-head').inner_text()
+    check('部门负责人待属主放行：部门头写「负责人 甲经理（待属主放行权限）」；团队头卡负责人只写乙主管，另补「部门负责人 甲经理（待属主放行权限）」',
+          pg.locator('[data-testid=team-dept-lead]').inner_text() == '负责人 甲经理（待属主放行权限）' and '负责人：乙主管' in head and '甲经理（部门负责人）' not in head
+          and pg.locator('[data-testid=team-lead-pending-grant]').inner_text() == '部门负责人 甲经理（待属主放行权限）', head)
+    shot('team-lead-pending-grant-1440.png')
+    state['teams']['departments'][0]['lead'] = {'principal': 'user:jia', 'display_name': '甲经理', 'grant': 'active'}
+    t0.update({'lead_pending_grant': None})
+    pg.reload(); pg.wait_for_selector('[data-testid=team-member]')
+    check('部门负责人已放行（grant=active）：照常写「负责人 甲经理」，团队上没有待放行那一句', pg.locator('[data-testid=team-dept-lead]').inner_text() == '负责人 甲经理' and pg.locator('[data-testid=team-lead-pending-grant]').count() == 0)
     pg.unroute('**/api/auth/me')
 
     state['teams'] = {'departments': state['teams']['departments']}
