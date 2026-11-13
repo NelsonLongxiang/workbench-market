@@ -3,7 +3,7 @@
  *  · 人和权限：上面是「待你核准的授予」卡片（当场核准，或者不给并写理由），下面是给出去的全部权限，按人排。
  *  · 角色预设：每个角色一张卡（几条生效中的授予在用），选一个看它在七大块上能看、能做、能拍板、能管什么；矩阵由服务端算。
  * 第三个页签「以某人的身份看」、红线清单、AI 员工遇到动作怎么办、全部留痕，等身份线的接口，现在不出现（不放占位）。
- * 谁能看：照接口实际返回的来，页面不自己判。授予、主体、角色、矩阵几个接口只给管理员；别人读不到授予时，「人和权限」改用
+ * 谁能看：照接口实际返回的来。授予、主体、角色、矩阵几个接口只给能管的人；认出了人、明知没有管理权的就不去问（mayReadAccessAdmin）。读不到授予时，「人和权限」改用
  * /api/auth/me 带的本人角色显示「你的权限」，下面一句别人的权限谁能看。
  * 判断逻辑在 web/src/access-view.ts（有单测）。
  */
@@ -14,19 +14,22 @@ import type { ColumnsType } from 'antd/es/table';
 import WmPage from '../../components/WmPage';
 import { actorLabel } from '../../people';
 import { approveAccessGrant, declineAccessGrant, getAccessGrants, getAccessMatrix, getAccessPrincipals, getAccessRoles, getAuthMe } from '../../api';
-import { subscribeAdminToken } from '../../admin-token';
+import { adminActive, subscribeAdminToken } from '../../admin-token';
 import {
   ACCESS_TABS, CELL_LEGEND, actionProblem, cellLabel, declineReasonOk, grantActorRaw, grantRows, grantsOf, indexPrincipals, kindLabel, matrixOf,
   pendingGrants, principalName, responsibleOf, roleName, roleUsage, rolesOf, scopeLabel, scopeNotYetEffective, sourceProblem, statusLabel, tabFromQuery, termLabel, SCOPE_PENDING,
-  OTHERS_ONLY_ADMINS, myRolesOf, summaryDo, approvalText, approveState,
+  OTHERS_ONLY_ADMINS, myRolesOf, mayReadAccessAdmin, summaryDo, approvalText, approveState,
 } from '../../access-view';
 import type { AccessTab, Grant, Principal, RoleInfo, SourceResult, Tone } from '../../access-view';
 
 const TAG: Record<Tone, string> = { success: 'success', warning: 'warning', danger: 'error', default: 'default' };
 const ok = (r: SourceResult | null) => !!r && r.status >= 200 && r.status < 300;
 
-type Sources = { grants: SourceResult | null; principals: SourceResult | null; roles: SourceResult | null; matrix: SourceResult | null; me: unknown };
-const NONE: Sources = { grants: null, principals: null, roles: null, matrix: null, me: null };
+/** limited：认出了人、明知没有管理权（主体、角色、矩阵三个读接口没去问）；授予照常问（L19 起登录的人读得到自己能放行的那些） */
+type Sources = { grants: SourceResult | null; principals: SourceResult | null; roles: SourceResult | null; matrix: SourceResult | null; me: unknown; limited: boolean };
+const NONE: Sources = { grants: null, principals: null, roles: null, matrix: null, me: null, limited: false };
+/** 没去问的管理读接口：按身份已知问了也是 403，页面照 403 的样子说（不是取到的数据） */
+const NOT_ASKED: SourceResult = { status: 403, body: null };
 
 function PendingCard({ g, who, kind, role, by, scope, approval, onDone }: { g: Grant; who: string; kind: string; role: string; by: string; scope: string; approval: string | null; onDone: () => void }) {
   const [declining, setDeclining] = useState(false);
@@ -84,9 +87,16 @@ export default function Access() {
   useEffect(() => {
     let live = true;
     setLoading(true);
-    void Promise.all([getAccessGrants(), getAccessPrincipals(), getAccessRoles(), getAccessMatrix(), getAuthMe()]).then(([grants, principals, roles, matrix, me]) => {
+    // 先认人。授予照常问：管理员看全部，登录的人（L19）只拿到自己能放行的待核授予，没有就是空列表。
+    // 主体、角色、矩阵只给有管理权的：明知没有的（普通员工、负责人、管理层）不去问，当作 403
+    void getAuthMe().then(async (me) => {
+      const limited = !mayReadAccessAdmin(me, adminActive());
+      const [grants, principals, roles, matrix] = await Promise.all([
+        getAccessGrants(),
+        ...(limited ? [NOT_ASKED, NOT_ASKED, NOT_ASKED] : [getAccessPrincipals(), getAccessRoles(), getAccessMatrix()]),
+      ]);
       if (!live) return;
-      setSrc({ grants, principals, roles, matrix, me });
+      setSrc({ grants, principals, roles, matrix, me, limited });
       setLoading(false);
     });
     return () => { live = false; };
@@ -120,9 +130,19 @@ export default function Access() {
 
   const peopleTab = (() => {
     const p = sourceProblem('给出去的权限', src.grants);
-    const mine = src.grants && (src.grants.status === 401 || src.grants.status === 403) ? myRolesOf(src.me) : null;
+    const mine = src.grants && (src.limited || src.grants.status === 401 || src.grants.status === 403) ? myRolesOf(src.me) : null;
+    // 没有管理权、但有轮到你放行的授予（管理层、属主放行带业务的那些）：卡片放在「你的权限」上面
+    const asks = mine && ok(src.grants) && pending.length > 0 ? (
+      <>
+        <div className="wm-acc-sec"><h3>待你核准</h3><span className="wm-acc-n">{pending.length}</span></div>
+        <div className="wm-acc-asks">{pending.map((g) => (
+          <PendingCard key={g.id} g={g} who={principalName(g.principal_id, people)} kind={kindLabel(people.get(g.principal_id)?.kind)} role={roleName(g.role, roles)} by={byLabel(g.created_by)} scope={scopeText(g.scope)} approval={approvalText(g.role, roles)} onDone={reload} />
+        ))}</div>
+      </>
+    ) : null;
     if (mine) return (
       <div className="wm-acc-mine" data-testid="acc-mine">
+        {asks}
         <div className="wm-acc-sec"><h3>你的权限</h3><span className="wm-acc-n">{mine.length}</span><span className="wm-acc-cap">什么角色 · 在什么范围 · 到什么时候</span></div>
         {mine.length === 0
           ? <p className="wm-acc-mine-empty">你现在还没有生效中的角色。需要权限时找你的负责人或管理员，他们起草、核准之后会出现在这里。</p>

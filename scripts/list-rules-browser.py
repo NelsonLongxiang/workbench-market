@@ -1,5 +1,5 @@
 """#319 列表规则浏览器回归；由 scripts/sider-menu-browser.mjs 起合成实例后调用，参数为配置 JSON 路径。
-统一待办：ProTable、记录全部可读（翻页收齐 = 接口条数）、ID 不重复、来源用 tag；
+（统一待办 /tasks 那一段随页面删了：旧页面删除清单第二批）
 工作台市场 / SOP 列表：状态列固定最左、操作列固定最右、每行直接操作 ≤2（其余在「更多」）、时间为相对时间；
 类型管理：数字列右对齐；技能市场 / MCP 网关：ProTable。"""
 import json, re, sys, urllib.request
@@ -39,32 +39,10 @@ def open_more(pg, row, tries=4):
             pg.keyboard.press('Escape'); pg.wait_for_timeout(300)
     return []
 
-# Read task rows as the explicitly privileged synthetic fixture, never anonymously.
-api_tasks = json.load(urllib.request.urlopen(urllib.request.Request(M + '/api/tasks', headers={'X-Admin-Token': cfg['token']})))['tasks']
 with sync_playwright() as p:
     b = p.chromium.launch(); pg = b.new_page(viewport={'width': 1440, 'height': 900}); pg.set_default_timeout(10000)
     # Attach the test-driver credential only to this fixture's task API, not page storage.
     pg.route(M + '/api/tasks', lambda r: r.continue_(headers={**r.request.headers, 'x-admin-token': cfg['token']}))
-    # ── 统一待办 ──
-    pg.goto(M + '/tasks'); pg.wait_for_selector('.wm-tasks-table .ant-table-row')
-    ids = [t['id'] for t in api_tasks]
-    check(f'统一待办接口 ID 不重复（{len(ids)} 条）', len(ids) == len(set(ids)) and len(ids) >= cfg['min_tasks'], len(ids))
-    check('统一待办是 ProTable，列序 状态 → 标题 → 来源 … → 操作', headers(pg, '.wm-tasks-table')[:3] == ['状态', '标题', '来源'] and headers(pg, '.wm-tasks-table')[-1] == '操作', headers(pg, '.wm-tasks-table'))
-    total = pg.locator('.wm-tasks-table .ant-pagination-total-text').inner_text()
-    check('分页总数 = 接口条数', total == f'共 {len(api_tasks)} 条', total)
-    seen = []
-    while True:
-        seen += [r.get_attribute('data-row-key') for r in pg.locator('.wm-tasks-table .ant-table-row').all()]
-        nxt = pg.locator('.wm-tasks-table .ant-pagination-next')
-        if nxt.get_attribute('aria-disabled') == 'true': break
-        nxt.click(); pg.wait_for_timeout(150)
-    check('翻页收齐全部记录（原先截断 200 条）且每条只出现一次', sorted(seen) == sorted(ids), (len(seen), len(ids)))
-    pg.locator('.wm-tasks-table .ant-pagination-item-1').click(); pg.wait_for_timeout(150)
-    src = pg.locator('.wm-tasks-table .ant-table-row').first.locator('td').nth(2).inner_text().strip()
-    check('来源列用 tag 文字标出', src in ('market', 'ygl-trees', 'a2a', '生命周期'), src)
-    pg.locator('.wm-page input[placeholder="搜索标题 / 项目"]').fill('run#1 '); pg.keyboard.press('Enter'); pg.wait_for_timeout(200)
-    rows = pg.locator('.wm-tasks-table .ant-table-row').count()
-    check('关键词筛选生效', 0 < rows < len(api_tasks), rows)
     # ── 工作台管理（原来的工作台市场表格，新市场页之后在 /market/manage） ──
     pg.goto(M + '/market/manage'); pg.wait_for_selector('.ant-table-row')
     h = headers(pg, '.wm-page')
