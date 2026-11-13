@@ -216,7 +216,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "5809", "etag": "W/\"16b1-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "5810", "etag": "W/\"16b2-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -261,7 +261,7 @@
                   { "id": "market.login-session.upstream-sealed", "surface": "market", "method": "LOCAL", "path": "market_sessions.upstream_sealed", "verdict": "pass", "status": null, "reason": null }
                 ]
               },
-              "work_items_backfill": { "state": "done", "version": 9, "phase": "full", "cursor": 0, "batches": 1, "events": 0, "from": 0 },
+              "work_items_backfill": { "state": "done", "version": 10, "phase": "full", "cursor": 0, "batches": 1, "events": 0, "from": 0 },
               "a2a": {
                 "inbound": { "signature": "accept", "body_signature": "accept" },
                 "outbound": { "origin_claim_v1": "on" },
@@ -286,7 +286,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "5080", "etag": "W/\"13d8-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "5081", "etag": "W/\"13d9-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -331,7 +331,7 @@
                   { "id": "market.login-session.upstream-sealed", "surface": "market", "method": "LOCAL", "path": "market_sessions.upstream_sealed", "verdict": "pass", "status": null, "reason": null }
                 ]
               },
-              "work_items_backfill": { "state": "done", "version": 9, "phase": "full", "cursor": 0, "batches": 1, "events": 0, "from": 0 }
+              "work_items_backfill": { "state": "done", "version": 10, "phase": "full", "cursor": 0, "batches": 1, "events": 0, "from": 0 }
             }
           }
         }
