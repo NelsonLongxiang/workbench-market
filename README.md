@@ -90,6 +90,8 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_EXTENSIONS_DIR`（扩展挂载点·绝对路径·缺省不加载任何扩展·见「扩展」）
 - `WM_EXTENSION_ROUTES`（扩展路由没报动作时怎么办·缺省 `warn`：照旧能跑，启动日志逐条点名并计数；`enforce`：有没报动作的扩展路由就拒绝启动，阶段六切换判定时打开；其它值拒绝启动·见「扩展」）
 - `YGL_MAX_PROJECTS`（统一待办读 ygl-trees 的 active 项目数上限·缺省 200·超出部分在 `degraded_projects` 报 cap-exceeded）
+- `WM_YGL_CLI`（ygl-trees 入口文件 `dist/bundle/bin.cjs` 的绝对路径·可选·不设时照旧在 node 同目录、PNPM_HOME、APPDATA/npm 下找·相对路径拒绝启动·统一待办、经验库、MCP 上游都经它找入口）
+- `WM_KNOWLEDGE_SYNC_MINUTES`（经验库从 ygl-trees 同步目录的间隔·分钟·缺省 10·`0` 不同步·不是 0～1440 的整数拒绝启动·同步等启动自检通过才开始）
 - `YGL_TOTAL_BUDGET_MS`（ygl-trees 源总预算·缺省 8000·超预算未读的报 budget-exhausted；两项非整数或越界都回落缺省）。内容面（Draft，默认关闭）：`WM_CONTENT_PORT`（显式内容端口，缺省/0不启）
 - `WM_CONTENT_IP`（显式绑定非通配IP）
 - `WM_CONTENT_MARKET_ORIGIN`（可信市场完整origin）
@@ -404,6 +406,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   tasks.ts（定时任务）
   upload-integrity.ts（上传应答的核对结果：调用方带了期望的 sha256 / size 且对上才会存，应答写明 integrity 与 next，agent 不必下载回读；MCP 上传与 REST 上传共用）
   url-admission.ts（#258 R3 业务 URL 登记准入单核·WM_REGISTER_URL_ALLOWLIST）
+  ygl-cli.ts（调 ygl-trees 的命令行：找入口（WM_YGL_CLI 或几处安装目录）、无 shell 调用、按 --json 契约读结果；统一待办、经验库、MCP 上游共用）
   vault-api.ts（凭据库 REST 面：17 条路由经 HTTP 服务注册，报动作 vault.*（管理类）；除状态外声明面门——服务端持有主密码时只在控制面或凭据库专用域名开放）
   vault/（dsh-vault 存储层引入件·见其 README）
   work-item-access.ts（事项上的四种人 itemRoles（建立人、成员的主人、负责人、管理层，成员的主人按团队服务的分配段和 inSegment（左闭右开，列表 seats 视角同一个口径，席位按（节点, seat_id）或（节点, 团队, 句柄）完整的键认），负责人按 relationOf，管理层按 work-items.view-all 这个拍板类动作认）和看得到的范围 canSee、列表的视角 viewScopes（mine、seats、team、all）；事项上这个人能做什么、是不是轮到他：canOf、turnOf、creatorOf，事项详情和「关注」共用；每一项和对应动作接口同一处判断（放行 canRelease、releaseRole（负责人；团队没有负责人时管理层代办；建立人勾了先过目由建立人放）、对话写入和验收 writerVerdict、回复 replyableMessages、提问 pendingAsksOfEvent））
@@ -437,6 +440,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   setup-wizard.ts（首次安装向导：Cordis 服务 `setupWizard`·按形态（small / standard）生成一批草稿授予、可重复跑、属主一次放行·「向导建的」记在 setup_wizard_runs / setup_wizard_grants，读的时候推出来源 wizard）
   grant.ts（授予：Cordis 服务 `grants`·草稿→待核→生效→撤销或过期只能往前走·不能给自己授予·管理员级只有属主能放行·决定类只给人·到期自动失效·每步留痕）
   judgment-compare.ts（判定比对的记账：Cordis 服务 `judgmentCompare`·按路由计数·不一致合并计数、有上限）
+  knowledge.ts（经验库：Cordis 服务 `knowledge`·从 ygl-trees 的 library 出口（契约 ygl-library/1）按类增量同步目录、每天全量对账·正文按需取·给页面的键是带本库密钥的 HMAC，不露 ygl-trees 的 id·谁能看哪条按授予逐条判）
   login-session.ts（市场会话与登录 state：Cordis 服务 `loginSessions`·绝对期限·注销与停用即失效·state 一次性并绑浏览器）
   principal.ts（主体与外部身份：Cordis 服务 `principals`·把登录认出的人对到主体·停用与恢复）
   remote-allow.ts（远程写豁免面的快照）
@@ -491,6 +495,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   task-center.ts（任务中心 /api/task-center：录入发布、任务、总开关、模板、任务锁、撤回、派发开关；录入发布：事项的建立人是提需求的人——建录入时经身份服务认出、记在录入上的那个，没有就空着；发布的人认得出就只留痕）
   tasks.ts（统一待办 /api/tasks 与 ygl 项目读授权的授予、撤销）
   bench-views.ts（数据视图的入口 /api/bench-views：台的登记、数据集、四种写入、查询、快照、视图描述与版本、取数、表单·在 `WM_BENCH_VIEWS` 开关后面，缺省关·先拒管理口令再问判定，放行两档：管理层（范围「全部」，读写都按「能不能写」问判定）；或者台绑了部门、这个人在这个部门上有已放行的授予（scopedVerdict，关系只收窄不放行））
+  knowledge.ts（经验库 /api/knowledge：列表、详情、同步状态·跨站和管理口令 403、没登录 401·条目按范围判：全公司认业务的看，部门认这个部门范围的授予，其余只给管理层·看不到的和不存在的同一个 404）
   types.ts（类型管理 /api/types）
   relations.ts（关系的提议 /api/relations/proposals：列表（每条带 can_approve）、确认、驳回；确认人大多不是管理员，写请求总门放行这两条，路由内认人）
   a2a-roster.ts（团队名册的读 GET /api/a2a/teams：登录即可读，只有席位信息（团队、席位名、角色、在岗、在办件数从事项现算），不含事项内容；名册只当信息，判定一律不看它）
