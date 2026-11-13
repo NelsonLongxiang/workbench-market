@@ -198,7 +198,7 @@ try {
   // 打回重做：等验收时打回 → 记一笔 return（回到进行中），同时作为同一 context 的新任务发回做这件事的团队；重做的 completed 推回等验收
   {
     lab.got.length = 0;
-    r = await api('POST', '/api/attention/answer', { source: 'work-items', source_id: `wi_${a.ev}`, answer: 'return', input: { reason: '请换一句更短的，不超过十个字。' } });
+    r = await dapi('POST', '/api/attention/answer', { source: 'work-items', source_id: `wi_${a.ev}`, answer: 'return', input: { reason: '请换一句更短的，不超过十个字。' } });
     const rb = r.body?.result ?? r.body;
     ok('打回 → 200，事项回到进行中，sent=true（已排发送）', r.status === 200 && rb?.state === 'progress' && rb?.sent === true && state(a.ev)?.state === 'progress', JSON.stringify(r.body));
     await waitFor(() => lab.got.some((g) => isReturnMsg(g)));
@@ -216,12 +216,12 @@ try {
     ok('……重做的 completed 回执 → 回到等验收', r.status === 200 && state(a.ev)?.state === 'ready', `${r.text} ${JSON.stringify(state(a.ev))}`);
     // 只通知的事件（没派出去）：打回只记在事项上，不发
     const nd2 = seedEvent({ dispatch: 0 });
-    r = await api('POST', '/api/attention/answer', { source: 'work-items', source_id: `wi_${nd2.ev}`, answer: 'return', input: { reason: '理由' } });
+    r = await dapi('POST', '/api/attention/answer', { source: 'work-items', source_id: `wi_${nd2.ev}`, answer: 'return', input: { reason: '理由' } });
     ok('只通知的事件：打回不发回（事项不在等验收时照旧被拒），答复表没有行', q('SELECT COUNT(*) AS c FROM workbench_event_replies WHERE event_id = ?', nd2.ev)[0].c === 0, JSON.stringify(r.body));
   }
   // 打回的细节（R1～R5）与「打回之前派出的任务晚到的结束回执只记录」
   {
-    const retAns = (ev, reason) => api('POST', '/api/attention/answer', { source: 'work-items', source_id: `wi_${ev}`, answer: 'return', input: { reason } });
+    const retAns = (ev, reason) => dapi('POST', '/api/attention/answer', { source: 'work-items', source_id: `wi_${ev}`, answer: 'return', input: { reason } });
     const X = seedEvent();
     await receipt(X.task, '接下', { idempotencyKey: X.task, disposition: 'acknowledged' }, X.ctx, { inbound: `ack-${X.task}` });
     await receipt(X.task, '问', { idempotencyKey: X.task, disposition: 'attention', question: { id: 'x1', text: '用什么颜色？' } }, X.ctx, { inbound: `attention-${X.task}-x1` });
