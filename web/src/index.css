@@ -206,6 +206,8 @@ body {
 .wm-bp-refresh { margin-left: auto; }
 .wm-bp-body { flex: 1; min-height: 0; overflow: auto; padding: var(--wm-space-4) var(--wm-space-6) var(--wm-space-6); }
 .wm-bp-state { margin-top: var(--wm-space-6); }
+/* 统计卡、进度按内容的高度，不跟同一行的图表、表格撑高（单独成页时下半截空着很显眼） */
+.wm-bp-body .wm-bb-stat, .wm-bp-body .wm-bb-progress { align-self: start; }
 
 /* 侧栏折叠按钮贴合深色底；保留以维持移动端抽屉触发器 */
 .wm-sider-collapse {

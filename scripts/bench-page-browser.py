@@ -31,7 +31,7 @@ def view_result(view, params):
               {'type': 'progress', 'title': '完成度', 'value': 'v', 'total': 80, 'span': 3, 'data': {'columns': [{'name': 'v', 'type': 'integer'}], 'rows': [{'v': n}]}}]
     if view == 'vk-board':
         blocks += [{'type': 'bar', 'title': '各区巡检次数', 'x': 'site', 'y': 'n', 'span': 6, 'data': {'columns': [{'name': 'site', 'type': 'text'}, {'name': 'n', 'type': 'integer'}], 'rows': rows}},
-                   {'type': 'table', 'title': '巡检记录', 'span': 6, 'data': {'columns': [{'name': 'site', 'type': 'text'}, {'name': 'n', 'type': 'integer'}, {'name': 'state', 'type': 'text'}], 'rows': rows}}, FORM]
+                   {'type': 'table', 'title': '巡检记录', 'span': 6, 'data': {'columns': [{'name': 'site', 'type': 'text', 'label': '区域'}, {'name': 'n', 'type': 'integer', 'label': '次数'}, {'name': 'state', 'type': 'text'}], 'rows': rows}}, FORM]
     else:
         blocks += [{'type': 'table', 'title': '明细', 'span': 12, 'data': {'columns': [{'name': 'site', 'type': 'text'}, {'name': 'n', 'type': 'integer'}], 'rows': rows}}]
     return {'title': ENTRY['title'], 'version': 5, 'view': {'key': view, 'title': vt}, 'params': params, 'blocks': blocks}
@@ -88,6 +88,10 @@ with sync_playwright() as p:
     check('浏览器标签页标题：视图标题 · 台名', pg.title() == '合成巡检总览 · 合成·巡检台', pg.title())
     check('「详情」去这张卡片的详情页', pg.locator('[data-testid=bench-page-detail]').get_attribute('href') == f'/market/wb/{CARD}')
     check('没有嵌页面的框', pg.locator('iframe').count() == 0)
+    heads = [h.inner_text().strip() for h in pg.locator('[data-bb=table] th').all()]
+    check('表头：有列标题用列标题，没有才退回列名', heads[:3] == ['区域', '次数', 'state'], heads)
+    hs = pg.evaluate("() => ['stat','progress','bar'].map(k => document.querySelector(`[data-bb=${k}]`).getBoundingClientRect().height)")
+    check('统计卡、进度按内容的高度，不跟同一行的柱图撑高', hs[0] < hs[2] * 0.6 and hs[1] < hs[2] * 0.6, hs)
 
     print('二、换视图、改筛选')
     n0 = len(log['render'])
