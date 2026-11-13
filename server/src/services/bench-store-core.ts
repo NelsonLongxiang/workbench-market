@@ -936,13 +936,27 @@ export class BenchStoreCore {
    * 和主库的同步点（workbench-vars.ts 的 syncCard 用）：
    *   mark  上一次两边确认一致时，主库那份行集合的摘要（从没同步过是 null）；
    *   dirty bench 档在台库里写过、还没确认写回主库（varInsert / varUpdate / varDelete 在同一个事务里记上，varsSynced 清掉）
+   *   digest 台库现在的摘要（和上面两样一次读出来，不会读到一半被写入插进来）
    */
-  varsSyncGet(): Promise<{ mark: string | null; dirty: boolean }> {
-    return this.serial(async () => ({ mark: await this.meta('vars_migrated'), dirty: (await this.meta('vars_dirty')) !== null }));
+  varsSyncGet(): Promise<{ mark: string | null; dirty: boolean; digest: string }> {
+    return this.serial(async () => ({
+      mark: await this.meta('vars_migrated'),
+      dirty: (await this.meta('vars_dirty')) !== null,
+      digest: varsDigestOf((!(await this.hasVars()) ? [] : await this.conn.all('SELECT * FROM bs_vars ORDER BY key')).map((r) => this.varRow(r))),
+    }));
   }
-  /** 两边确认一致了：记下主库那份的摘要，清掉 dirty */
-  varsSynced(mark: string): Promise<void> {
-    return this.tx(async () => { await this.ensureVars(); await this.setMeta('vars_migrated', mark); await this.conn.run('DELETE FROM bs_meta WHERE k = ?', ['vars_dirty']); });
+  /**
+   * 写回主库之后：记下主库那份现在的摘要（mark）；台库在同一个事务里算出的摘要也等于它，才清 dirty。
+   * 这样别的写入已经进了台库、还没写回时（交错的两笔），dirty 留着，下次对同步点补写回，不会被当成「以主库为准」丢掉
+   */
+  varsSynced(mark: string): Promise<{ clean: boolean }> {
+    return this.tx(async () => {
+      await this.ensureVars();
+      await this.setMeta('vars_migrated', mark);
+      const clean = varsDigestOf((await this.conn.all('SELECT * FROM bs_vars ORDER BY key')).map((r) => this.varRow(r))) === mark;
+      if (clean) await this.conn.run('DELETE FROM bs_meta WHERE k = ?', ['vars_dirty']);
+      return { clean };
+    });
   }
   /** 以主库为准：整张表换成给的行（原样，revision 也照抄），记同步点、清 dirty，一个事务。返回写了几行 */
   varsReplace(rows: BenchVarRow[], mark: string): Promise<number> {

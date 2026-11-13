@@ -7,7 +7,8 @@
  *   M2 同步点（syncCard）：台库没在 bench 档写过 → 以主库为准；bench 档的写入没写回、主库没变 → 补写回主库；两边都改过 → 报分叉、不动，
  *      --resolve 按 keep 那边整份换掉并写审计；孤儿行（卡片已删）不搬、只报个数；hot. 开头的键报出来
  *   M3 档位 bench → main → bench：main 档期间的修改切回 bench 后看得见，接着写不会出现同一个 revision、不同的值；
- *      bench 档写入没写回（进程中断）→ 下次补写回；两边都改过 → bench 档拒绝服务（503 vars_diverged）
+ *      bench 档写入没写回（进程中断）→ 下次补写回；两边都改过 → bench 档拒绝服务（503 vars_diverged）；
+ *      同一张卡片两笔并发写、后一笔写回主库失败：不丢（dirty 只在两边真一致时清；同一张卡片的写入排队）
  *   M4 shadow 档：主库写成之后台库跟着有一份；比对按摘要——条数一样、值不一样也算不同
  *   M5 bench 档写成之后尽力写回主库一份（留作回退）
  *   M6 回退安全：main 档下台库和原来一样（版本 1、没有 bs_vars，读和比对、迁移 dry-run 都不建表），关了再开还是这样；
@@ -28,7 +29,7 @@ async function child() {
   const src = (p) => pathToFileURL(join(ROOT, 'server/src', p)).href;
   const { DatabaseSync } = await import('node:sqlite');
   const { root } = await import(src('root-context.ts'));
-  await import(src('context.ts'));
+  const { svc } = await import(src('context.ts'));
   const { db, dataDir } = await import(src('db.ts'));
   const V = await import(src('workbench-vars.ts'));
   const { benchStore, closeBenchStores } = await import(src('services/bench-store.ts'));
@@ -36,7 +37,7 @@ async function child() {
   const out = {};
   const CLI = { actor: 'cli', admin: true, cli: true };
   const ins = db.prepare('INSERT INTO workbench_vars (workbench_id, key, kind, value, revision, updated_by, owner, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-  db.prepare("INSERT INTO workbenches (id, name, url) VALUES (1, '合成甲', 'http://127.0.0.1:9/a'), (2, '合成乙', 'http://127.0.0.1:9/b'), (3, '合成丙', 'http://127.0.0.1:9/c'), (4, '合成丁', 'http://127.0.0.1:9/d'), (5, '合成戊', 'http://127.0.0.1:9/e'), (6, '合成己', 'http://127.0.0.1:9/f')").run();
+  db.prepare("INSERT INTO workbenches (id, name, url) VALUES (1, '合成甲', 'http://127.0.0.1:9/a'), (2, '合成乙', 'http://127.0.0.1:9/b'), (3, '合成丙', 'http://127.0.0.1:9/c'), (4, '合成丁', 'http://127.0.0.1:9/d'), (5, '合成戊', 'http://127.0.0.1:9/e'), (6, '合成己', 'http://127.0.0.1:9/f'), (7, '合成庚', 'http://127.0.0.1:9/g')").run();
   const T = '2026-11-01 08:00:00';
   ins.run(1, 'a', 'var', '1', 2, 'cli', '', T, T); ins.run(1, 'b', 'const', '"x"', 1, 'mcp:someone', 'mcp:someone', T, T);
   ins.run(2, 'hot.progress', 'var', '5', 1, 'cli', '', T, T);
@@ -63,6 +64,8 @@ async function child() {
   out.again = await V.migrateVars();
   const s1 = await benchStore(benchOfCard(1).slug);
   out.benchRows1 = (await s1.varsList('')).map((r) => `${r.key}:${r.revision}:${r.value}:${r.updated_by}:${r.created_at}`);
+  const { varsDigestOf } = await import(src('services/bench-store.ts'));
+  const varsDigestOfMain = (id) => varsDigestOf(db.prepare('SELECT * FROM workbench_vars WHERE workbench_id = ? ORDER BY key').all(id));
   const mainRow = (id, key) => db.prepare('SELECT value, revision FROM workbench_vars WHERE workbench_id = ? AND key = ?').get(id, key) ?? null;
   const s2 = await benchStore(benchOfCard(2).slug);
   // M2a：台库被改过但不是 bench 档写的（没有 dirty），主库也变了 → 以主库为准
@@ -95,6 +98,27 @@ async function child() {
   await s3.varUpdate({ key: 'b', expected: 1, kind: 'var', value: '10', by: 'cli', owner: '', at: T });
   V.setVarsStoreMode('bench');
   out.m3crash = { bench: await items3(), main: mainRow(3, 'b') };
+  // 并发两笔（卡片 7，验收给的探针）：a 改成 2、新建 b = 9，b 写回主库时抛错 → 换进程后 b 还在，并补写回主库
+  await V.setVar(scope(7), 'a', { value: 1, hasValue: true }, CLI);
+  const S = svc('workbenchVars'), realForce = S.force.bind(S), realAudit = S.audit.bind(S);
+  const order = [];
+  S.audit = (r) => { if (r.workbench_id === 7) order.push(`audit:${r.key}`); return realAudit(r); };
+  S.force = (id, key, row) => { if (id === 7) order.push(`force:${key}`); if (id === 7 && key === 'b') throw new Error('合成：写回失败'); return realForce(id, key, row); };
+  // a 写进台库之后拖 50 毫秒再往下走：不排队的话，b 会在这段时间里插进来
+  const st7 = await benchStore(benchOfCard(7).slug), realGet = st7.varGet.bind(st7);
+  st7.varGet = async (k) => { const r = await realGet(k); if (k === 'a' && order.includes('audit:a') && !order.includes('force:a')) await new Promise((res) => setTimeout(res, 50)); return r; };
+  const before = V.varsMirrorStats().fallbackFailures;
+  const both = await Promise.allSettled([V.setVar(scope(7), 'a', { value: 2, hasValue: true, expected: 1 }, CLI), V.setVar(scope(7), 'b', { value: 9, hasValue: true }, CLI)]);
+  S.force = realForce; S.audit = realAudit; st7.varGet = realGet;
+  const failures = V.varsMirrorStats().fallbackFailures - before;
+  V.setVarsStoreMode('bench');
+  const items7 = Object.fromEntries((await V.listVars(scope(7))).items.map((i) => [i.key, `${i.revision}:${JSON.stringify(i.value)}`]));
+  out.m3race = { ok: both.map((x) => x.status), failures, order, items: items7, main: mainRow(7, 'b') };
+  // varsSynced 只在台库和给的主库摘要真一致时清 dirty：台库多一笔没写回的，记同步点之后 dirty 还在
+  const s7 = await benchStore(benchOfCard(7).slug);
+  await s7.varInsert({ key: 'c', kind: 'var', value: '1', by: 'cli', owner: '', at: T });
+  const synced = await s7.varsSynced(varsDigestOfMain(7));
+  out.m3clean = { synced, dirty: (await s7.varsSyncGet()).dirty };
   // 两边都改过 → bench 档拒绝服务
   await s3.varUpdate({ key: 'b', expected: 2, kind: 'var', value: '11', by: 'cli', owner: '', at: T });
   db.prepare("UPDATE workbench_vars SET value = '12', revision = 3 WHERE workbench_id = 3 AND key = 'b'").run();
@@ -160,6 +184,9 @@ async function parent() {
   ok('接着在 bench 档按 rev 2 改 a：台库 rev 3、主库也是 rev 3 的同一个值', r.m3write?.bench.a === '3:3' && r.m3write.main?.revision === 3 && r.m3write.main.value === '3', r.m3write);
   ok('bench 档的写入没写回（进程中断）：下一个进程补写回主库', r.m3crash?.bench.b === '2:10' && r.m3crash.main?.value === '10' && r.m3crash.main.revision === 2, r.m3crash);
   ok('两边都改过：bench 档拒绝服务（503 vars_diverged），不静默以哪边为准', r.m3div === '503:vars_diverged', r.m3div);
+  ok('同一张卡片两笔并发写、b 写回主库失败：换进程后 b 还在（rev 1 的 9），并补写回了主库', JSON.stringify(r.m3race?.ok) === '["fulfilled","fulfilled"]' && r.m3race.failures === 1 && r.m3race.items.a === '2:2' && r.m3race.items.b === '1:9' && r.m3race.main?.value === '9', r.m3race);
+  ok('同一张卡片的写入排队：一笔的写台库（审计）、写回主库做完，下一笔才开始', JSON.stringify(r.m3race?.order) === '["audit:a","force:a","audit:b","force:b"]', r.m3race?.order);
+  ok('记同步点时台库还有没写回的：dirty 不清', r.m3clean?.synced?.clean === false && r.m3clean.dirty === true, r.m3clean);
   console.log('M4 shadow 档');
   ok('主库写成之后台库跟着有一份；比对相同', r.m4bench === '"v1"' && r.m4same === true, { bench: r.m4bench, same: r.m4same });
   ok('比对按摘要：条数一样、值不一样也算不同', r.m4diff?.same === false && r.m4diff.countsEqual === true, r.m4diff);

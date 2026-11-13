@@ -266,8 +266,8 @@ export type CardSyncAction = 'in-sync' | 'from-main' | 'to-main' | 'diverged';
 export async function syncCard(id: number, store: BenchStore, opts: { dryRun?: boolean } = {}): Promise<{ action: CardSyncAction; written: number }> {
   const mainRows = vars().list(id, '') as WorkbenchVarRow[];
   const mainDigest = varsDigestOf(mainRows);
-  const [{ mark, dirty }, bench] = await Promise.all([store.varsSyncGet(), store.varsDigest()]);
-  if (bench.sha256 === mainDigest) {
+  const { mark, dirty, digest } = await store.varsSyncGet();
+  if (digest === mainDigest) {
     if (!opts.dryRun && (mark !== mainDigest || dirty)) await store.varsSynced(mainDigest);
     return { action: 'in-sync', written: 0 };
   }
@@ -456,17 +456,32 @@ export async function resolveCardVars(id: number, keep: 'main' | 'bench', actor:
   return { id, keep, changed };
 }
 
+/**
+ * bench 档里同一张卡片的写入在进程内一笔一笔来（写台库 → 写回主库 → 记同步点 整个做完才轮到下一笔）：
+ * 不让两笔交错，记同步点时拿到的主库摘要就不会倒退。varsSynced 自己也只在两边真一致时清 dirty，两道都在
+ */
+const cardQueues = new Map<number, Promise<unknown>>();
+function withCard<T>(id: number, fn: () => Promise<T>): Promise<T> {
+  const prev = cardQueues.get(id) ?? Promise.resolve();
+  const run = prev.then(fn, fn);
+  const tail = run.then(() => undefined, () => undefined);
+  cardQueues.set(id, tail);
+  void tail.then(() => { if (cardQueues.get(id) === tail) cardQueues.delete(id); });
+  return run;
+}
+
 // —— 对外的入口（异步）：按 WM_VARS_STORE 走主库或台库 ——
-export async function listVars(scope: Scope, prefix = '') { if (storeMode === 'bench') return listVarsBench(scope, prefix); return listVarsMain(scope, prefix); }
-export async function getVar(scope: Scope, key: string) { if (storeMode === 'bench') return getVarBench(scope, key); return getVarMain(scope, key); }
+// bench 档的读也排进这张卡片的队：进程第一次用到卡片时要对同步点（可能整份重搬），不能和正在写回的写入交错
+export async function listVars(scope: Scope, prefix = '') { if (storeMode === 'bench') return withCard(scope.id, () => listVarsBench(scope, prefix)); return listVarsMain(scope, prefix); }
+export async function getVar(scope: Scope, key: string) { if (storeMode === 'bench') return withCard(scope.id, () => getVarBench(scope, key)); return getVarMain(scope, key); }
 export async function setVar(scope: Scope, key: string, input: SetInput, caller: Caller) {
-  if (storeMode === 'bench') return setVarBench(scope, key, input, caller);
+  if (storeMode === 'bench') return withCard(scope.id, () => setVarBench(scope, key, input, caller));
   const out = setVarMain(scope, key, input, caller);
   if (storeMode === 'shadow') await shadowMirror(scope.id, key);
   return out;
 }
 export async function deleteVar(scope: Scope, key: string, input: DeleteInput, caller: Caller) {
-  if (storeMode === 'bench') return deleteVarBench(scope, key, input, caller);
+  if (storeMode === 'bench') return withCard(scope.id, () => deleteVarBench(scope, key, input, caller));
   const out = deleteVarMain(scope, key, input, caller);
   if (storeMode === 'shadow') await shadowMirror(scope.id, key);
   return out;

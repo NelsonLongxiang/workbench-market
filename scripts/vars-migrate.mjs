@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * 把工作台的常量、变量从主库搬进各卡片的台库（docs/data-views.md 第十三节第 5 条第 5 步）。只打印数字，不打印任何值。
- * 数据目录照服务一样取 DATA_DIR。可以在服务运行时跑（两边都是 SQLite，靠文件锁）；生产上先在副本上演练（统筹安排，见设计稿）。
+ * 数据目录照服务一样取 DATA_DIR。服务是 main、shadow 档时可以在运行中跑（两边都是 SQLite，靠文件锁）；bench 档服务运行中只跑 --dry-run、--compare，
+ * 正式搬和 --resolve 要先停服务（服务进程里同一张卡片的写入排队、对同步点，脚本是另一个进程，排不进那个队）。生产上先在副本上演练（统筹安排，见设计稿）。
  *
  *   DATA_DIR=<数据目录> node scripts/vars-migrate.mjs --dry-run   只数：要搬几张卡片、几行、要写几行、孤儿几行、hot. 开头的键几个；不写、不建台库
  *   DATA_DIR=<数据目录> node scripts/vars-migrate.mjs             正式搬（能重复跑：两边一致的卡片跳过，第二次跑应当是零写入；规矩见 workbench-vars.ts 的 syncCard）
