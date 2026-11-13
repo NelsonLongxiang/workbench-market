@@ -10,6 +10,7 @@ import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { a2aHealth } from '../a2a/health.ts';
 import { identity } from '../identity.ts';
+import { defineConfig, loadConfig } from '../config.ts';
 
 type ProbeStatus = 'healthy' | 'unhealthy' | 'unreachable';
 
@@ -24,6 +25,10 @@ export interface HealthDeps {
   adminRead: (req: express.Request) => boolean;
 }
 
+/** 配了 LayerFS 才在健康检查里带它的状态 */
+export const Config = defineConfig((env) => ({ layerfs: !!env.LAYERFS_SERVICE_URL }));
+const config = loadConfig(Config);
+
 export function registerHealthRoutes(app: HttpService, deps: HealthDeps): void {
   const { healthBase, layerfsProbeCached, layerfsReadiness, A2A_DIRECT_SIG, A2A_DIRECT_SIG_BODY, adminRead } = deps;
   app.get('/api/health', { action: 'health.read', kind: 'read' }, (req, res) => {
@@ -31,7 +36,7 @@ export function registerHealthRoutes(app: HttpService, deps: HealthDeps): void {
     res.set('Cache-Control', 'private, no-store'); res.vary('X-Admin-Token');
     const result = healthBase(req);
     const probed = layerfsProbeCached();
-    if (process.env.LAYERFS_SERVICE_URL && probed) result.layerfs = probed.status; // 只回缓存的上次结果，不触发探测
+    if (config.layerfs && probed) result.layerfs = probed.status; // 只回缓存的上次结果，不触发探测
     result.a2a = a2aHealth({ directSig: A2A_DIRECT_SIG, directSigBody: A2A_DIRECT_SIG_BODY!, admin: adminRead(req) }); // 阶段七第 5 步：只出开关、计数和时长；名册一块只给管理员
     // 身份来源慢或不通看得出来：问了几次、到点没回答几次、失败几次、合并和认不出缓存挡下几次、最近一次耗时。只有计数，不带凭据和人
     result.identity_source = identity().sourceStats();
@@ -40,7 +45,7 @@ export function registerHealthRoutes(app: HttpService, deps: HealthDeps): void {
   app.get('/api/health/ready', { action: 'health.ready', kind: 'read' }, async (req, res) => {
     res.set('Cache-Control', 'private, no-store'); res.vary('X-Admin-Token'); // 同上：带管理口令时多了回填细节、出站计数
     const result = healthBase(req);
-    if (process.env.LAYERFS_SERVICE_URL) {
+    if (config.layerfs) {
       result.layerfs = await layerfsReadiness();
       if (result.layerfs !== 'healthy') { result.ok = false; return res.status(503).json(result); }
     }

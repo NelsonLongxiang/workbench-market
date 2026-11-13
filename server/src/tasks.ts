@@ -73,9 +73,20 @@ function yglProjectNameOk(name: string): boolean { return name.length >= 1 && na
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, dirname, isAbsolute } from 'node:path';
+import { defineConfig, loadConfig, str } from './config.ts';
+
+/** 统一待办读的工作区、找 ygl-trees 入口的两处目录、A2A 源的地址和密钥 */
+export const Config = defineConfig((env) => ({
+  yglHome: env.YGL_HOME,
+  pnpmHome: env.PNPM_HOME,
+  appData: env.APPDATA,
+  a2aStateUrl: str(env.A2A_STATE_URL),
+  a2aApiKey: str(env.A2A_API_KEY),
+}));
+const config = loadConfig(Config);
 
 export function taskWorkspaceKey(): string | null {
-  const home = process.env.YGL_HOME;
+  const home = config.yglHome;
   if (!home || !isAbsolute(home)) return null;
   try {
     const file = join(home, 'ygl-trees.db');
@@ -84,7 +95,7 @@ export function taskWorkspaceKey(): string | null {
   } catch { return null; }
 }
 export function yglCliEntry(): string | null {
-  for (const base of [dirname(process.execPath), process.env.PNPM_HOME, process.env.APPDATA ? process.env.APPDATA + '\\npm' : null]) {
+  for (const base of [dirname(process.execPath), config.pnpmHome, config.appData ? config.appData + '\\npm' : null]) {
     if (!base) continue;
     const cand = join(base, 'node_modules', 'ygl-trees', 'dist', 'bundle', 'bin.cjs');
     if (existsSync(cand)) return cand;
@@ -114,7 +125,7 @@ function execYglTasks(allowed: 'all' | readonly string[]): Promise<{ ok: boolean
   return (async () => {
     if (allowed !== 'all' && allowed.length === 0) return { ok: false, tasks: [], latencyMs: 0, error: 'source_not_authorized' };
     if (!taskWorkspaceKey()) return { ok: false, tasks: [], latencyMs: 0, error: 'ygl_home_required' };
-    const home = process.env.YGL_HOME!;
+    const home = config.yglHome!;
     // Only admin enumerates workspace projects. Scoped users never query ungranted project metadata.
     let names: string[];
     if (allowed === 'all') {
@@ -235,7 +246,7 @@ function marketTasks(sop: SopServiceLike, scope: TasksReadScope): TaskEnvelope[]
 /** A2A 源（omni-inbox v2 · 设计稿 docs/omni-inbox-a2a-source.md，依赖 dsh-open-a2a-net PR#32）。
  *  鉴权：X-API-Key（不是 X-Market-Client 头族）；字段校准点集中在下方 FIELD 注释，#32 合并后核对。 */
 function a2aEnabled(): boolean {
-  return String(process.env.A2A_STATE_URL ?? '').trim() !== '';
+  return config.a2aStateUrl !== '';
 }
 
 interface A2aStateRow {
@@ -245,8 +256,8 @@ interface A2aStateRow {
 }
 
 async function fetchA2aTasks(): Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs: number }> {
-  const base = String(process.env.A2A_STATE_URL ?? '').trim().replace(/\/+$/, '');
-  const key = String(process.env.A2A_API_KEY ?? '').trim();
+  const base = config.a2aStateUrl.replace(/\/+$/, '');
+  const key = config.a2aApiKey;
   const t0 = Date.now();
   try {
     const r = await fetch(`${base}/__dsh_a2a/state`, {

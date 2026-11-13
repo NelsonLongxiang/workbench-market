@@ -10,6 +10,11 @@ import { createInterface } from 'node:readline';
 import { realpathSync, statSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { yglCliEntry } from './tasks.ts';
+import { defineConfig, loadConfig, str } from './config.ts';
+
+/** 服务端自己的工作区（统一待办读的那份）：上游不许指到它 */
+export const Config = defineConfig((env) => ({ yglHome: str(env.YGL_HOME) }));
+const config = loadConfig(Config);
 
 export interface YglUpstreamCfg { prefix: string; yglHome: string }
 
@@ -25,7 +30,7 @@ export function yglHomeProblem(home: unknown): string | null {
     if (!statSync(home).isDirectory()) return 'ygl_home 不是目录';
     real = realpathSync(home);
   } catch { return 'ygl_home 不存在'; }
-  const own = String(process.env.YGL_HOME ?? '').trim();
+  const own = config.yglHome;
   if (own) { try { if (realpathSync(own) === real) return 'ygl_home 不能是服务端自己的 YGL_HOME（统一待办读的那份工作区）'; } catch { /* 服务端的工作区不存在，不冲突 */ } }
   return null;
 }

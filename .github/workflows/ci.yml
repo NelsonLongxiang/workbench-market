@@ -389,6 +389,8 @@ jobs:
         run: node scripts/http-service-test.mjs
       - name: 周期定时器随上下文停（index.ts 之外带周期定时器的模块起来之后都在跑；卸载根上下文之后一个不剩；把 unref 换成空操作，子进程照样自己退出）
         run: node scripts/timers-unload-test.mjs
+      - name: 配置的落点（模块自己的 Config：不给配置取启动环境、给了用给的、非法值装不上；服务类插件经 Cordis 拿到配置；收进来的模块解析口径照旧、不再直接读环境变量）
+        run: node scripts/config-landing-test.mjs
       - name: 路由录制回放（搬路由之前录下的应答，对同一组请求重放，状态码、响应头、响应体必须零差异；每条路由都有未授权、参数非法、正常三类，按录下来的应答核对；自检先红后绿）
         run: node scripts/route-replay-test.mjs --selftest && node scripts/route-replay-test.mjs
       - name: Startup security self-probe (#326, loopback synthetic only)
