@@ -422,7 +422,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   a2a-receipts.ts（回执入站的登记：我们发出的任务号 → 事件、投递、对端；采信过的回执按任务号去重；签名只认一次）
   a2a-roster.ts（团队名册：每台宿主一行、席位按「节点 + 团队 + 句柄」一行，以新替旧；入库时算出变化（新团队、新成员、成员消失、团队消失、换总工）记进 a2a_roster_changes；在办件数从事项现算；只当信息）
   a2a-replies.ts（市场回给团队的消息的发送状态：答复、来信回复、跟进回执；时间由代码生成后写入）
-  seat-tokens.ts（席位用节点签名换 1 小时的 MCP 令牌：按钉住的节点公钥验签（指纹 = 名册的 host）、核节点 active 和名册里的席位、签名只认一次；令牌只存 sha256、不续期，每次调用复核席位和节点；每个席位一个长期的授权主体（mcp_sessions 一行），grants 和按台批的授予挂在它上面，跨令牌轮换保留）
+  seat-tokens.ts（席位用节点签名换 1 小时的 MCP 令牌（设计和给节点侧的格式见 [docs/seat-token-exchange.md](docs/seat-token-exchange.md)）：按钉住的节点公钥验签（指纹 = 名册的 host）、核节点 active 和名册里的席位、签名只认一次；令牌只存 sha256、不续期，每次调用复核席位和节点；每个席位一个长期的授权主体（mcp_sessions 一行），grants 和按台批的授予挂在它上面，跨令牌轮换保留）
   a2a-stats.ts（A2A 出站积压的聚合读数：两张出站表按状态计数、最老待发、最近回执时长）
   attention-sources.ts（「关注」要用、来源里还没有现成函数的只读查询：席位未答的提问）
   bench-mcp.ts（数据视图的 MCP 工具：授予按「会话 × 台 × 工具」记在自己的表里，不放进会话的 grants·申请由会话提、台的管理层批·读也按台限定·执行时把台库的方法对到工具名上）
