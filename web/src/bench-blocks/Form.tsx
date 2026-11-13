@@ -52,7 +52,7 @@ export function FormBlock({ fields, submitLabel = '提交', onSubmit, disabledRe
                       : <Input.TextArea autoSize={{ minRows: 1, maxRows: 6 }} maxLength={10000} />}
           </Form.Item>
         ))}
-        {err ? <Alert type="warning" showIcon className="wm-bb-form-msg" message={err.code === 'invalid' && err.message ? `没交上去：${err.message}` : err.code === 'conflict' ? '这个页面过期了，刷新之后再提交。' : errorText(err)} /> : null}
+        {err ? <Alert type="warning" showIcon className="wm-bb-form-msg" message={err.code === 'invalid' && err.message ? `没交上去：${err.message}` : err.code === 'conflict' ? '这个页面过期了，刷新之后再提交。' : err.code === 'forbidden' ? '没交上去：你的账号不能在这个台上填表。' : errorText(err)} /> : null}
         {done ? <Alert type="success" showIcon className="wm-bb-form-msg" message="已经交上去了。" /> : null}
         <div className="wm-bb-form-foot">
           <Button type="primary" htmlType="submit" loading={busy}>{submitLabel}</Button>

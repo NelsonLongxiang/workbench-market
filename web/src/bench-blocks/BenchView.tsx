@@ -19,7 +19,7 @@ export interface BenchViewProps {
   loading?: boolean;
   onParams: (params: Record<string, string>) => void;
   onSubmit: (blockIndex: number, values: Record<string, unknown>) => Promise<unknown>;
-  /** 表单现在不能提交的原因；给了，所有表单的按钮都不可点 */
+  /** 表单现在不能提交的原因；给了，所有表单的按钮都不可点（比如驾驶舱里一律不能交）。没给时按块：取数应答里表单块的 can_submit 是 false，那一块不可点、说明原因 */
   formDisabledReason?: string;
   /** 外框：card（缺省，单独成页）/ none（拼进驾驶舱的面板里：每个块都不带外框） */
   frame?: 'card' | 'none';
@@ -30,14 +30,16 @@ export interface BenchViewProps {
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
+/** 表单块的 can_submit 是 false 时的说法 */
+export const FORM_DENIED = '你的账号不能在这个台上填表';
 export function BenchView({ result, loading, onParams, onSubmit, formDisabledReason, frame, dense, hideFilters }: BenchViewProps) {
   const blocks = result?.blocks ?? [];
   return (
-    <DashGrid>
+    <DashGrid top>
       {blocks.map((b, i) => {
         const common = { frame, title: b.title, span: snapSpan(b.span, b.type), loading, error: b.error ?? null, data: b.data ?? null };
         if (b.type === 'filter-bar') return hideFilters ? null : <FilterBar key={i} frame={frame} title={b.title} span={common.span} fields={(b.fields as FilterField[]) ?? []} value={result?.params ?? {}} onChange={onParams} />;
-        if (b.type === 'form') return <FormBlock key={i} frame={frame} title={b.title} span={common.span} error={b.error ?? null} fields={(b.columns as FormField[]) ?? []} submitLabel={str(b.submit_label) || undefined} onSubmit={(v) => onSubmit(i, v)} disabledReason={formDisabledReason} />;
+        if (b.type === 'form') return <FormBlock key={i} frame={frame} title={b.title} span={common.span} error={b.error ?? null} fields={(b.columns as FormField[]) ?? []} submitLabel={str(b.submit_label) || undefined} onSubmit={(v) => onSubmit(i, v)} disabledReason={formDisabledReason ?? (b.can_submit === false ? FORM_DENIED : undefined)} />;
         if (b.type === 'stat') return <StatBlock key={i} {...common} value={str(b.value)} unit={str(b.unit) || undefined} toneRules={b.tone_rules} />;
         if (b.type === 'progress') return <ProgressBlock key={i} {...common} value={str(b.value)} total={typeof b.total === 'number' ? b.total : str(b.total)} />;
         if (b.type === 'table') return <TableBlock key={i} {...common} dense={dense} data={withLabelColumns(common.data, b.value_labels)} statusText={(v, col) => valueLabel(b.value_labels, col, v)} columns={Array.isArray(b.columns) ? (b.columns as string[]) : undefined} pageSize={typeof b.page_size === 'number' ? b.page_size : undefined} />;

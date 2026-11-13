@@ -134,10 +134,17 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
   const forbid = (res: express.Response): null => { res.status(403).json({ error: 'bench_views_forbidden' }); return null; };
   /** 放行返回做这件事的人的标识；不放行已经回了应答，返回 null。bench 是这次要碰的台（没登记是 null：只剩第一档，所以没权限的人看不出台存不存在） */
   async function allow(req: express.Request, res: express.Response, action: string, gate: Gate = 'write', bench: BenchEntry | null = null): Promise<string | null> {
+    const actor = await allowActor(req, res, action, gate, bench);
+    return actor ? idOf(actor) : null;
+  }
+  /** 同 allow，返回的是判过的人本身（还要再问别的动作时用，比如取数时顺带问能不能交表单） */
+  async function allowActor(req: express.Request, res: express.Response, action: string, gate: Gate = 'write', bench: BenchEntry | null = null): Promise<JudgedActor | null> {
     const actor = await who(req, res);
     if (!actor) return null;
-    return everywhere(actor, action, gate) || within(actor, action, gate, bench) ? idOf(actor) : forbid(res);
+    return everywhere(actor, action, gate) || within(actor, action, gate, bench) ? actor : forbid(res);
   }
+  /** 这个人能不能在这个台上做这件事（不回应答，只给真假） */
+  const may = (actor: JudgedActor, action: string, gate: Gate, bench: BenchEntry | null): boolean => everywhere(actor, action, gate) || within(actor, action, gate, bench);
 
   benchMcpDecider = async (req, res, bench) => {
     if (!deps.on) { res.status(404).json({ error: 'bench_views_off' }); return null; }
@@ -289,10 +296,19 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
 
   // —— 取数和表单 ——
   // 筛选栏的值经查询串给：p.<字段名>=值（只收文本；没声明的字段在服务里会被忽略）
-  app.get('/api/bench-views/:bench/render', { action: 'bench-store.render', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.render', (req, _res, s) => {
+  // 表单块各带 can_submit：这个人能不能在这个台上交表单（和 /form 那条路由同一处判断），页面据此先把按钮置灰、说清原因，不用交了才知道
+  app.get('/api/bench-views/:bench/render', { action: 'bench-store.render', kind: 'read', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    const bench = getBench(req.params.bench);
+    const actor = await allowActor(req, res, 'bench-store.render', 'write', bench);
+    if (!actor) return;
+    if (!bench) return res.status(404).json({ error: 'bench_not_found' });
     const params: Record<string, string> = {};
     for (const [k, v] of Object.entries(req.query)) if (k.startsWith('p.') && typeof v === 'string') params[k.slice(2)] = v;
-    return s.renderView({ view: str(req.query.view), params, version: qint(req.query.version, 'version') });
+    try {
+      const out = await (await benchStore(bench.slug)).renderView({ view: str(req.query.view), params, version: qint(req.query.version, 'version') }) as { blocks?: { type?: string }[] };
+      const canSubmit = may(actor, 'bench-store.form-submit', 'write', bench);
+      res.json({ ...out, blocks: (out.blocks ?? []).map((b) => (b?.type === 'form' ? { ...b, can_submit: canSubmit } : b)) });
+    } catch (e) { fail(res, e); }
   }));
   app.post('/api/bench-views/:bench/form', { action: 'bench-store.form-submit', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.form-submit', (req, _res, s, actor) => {
     const b = (req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}) as Record<string, unknown>;

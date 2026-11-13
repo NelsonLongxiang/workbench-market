@@ -11,6 +11,7 @@
  *   四、台库是空的、或者卡片没有台：和原来一样直接删，不要确认、不留备份；本机命令行（属主）带确认删得了有数据的
  *   五、视图台页面的入口 GET /api/bench-views/:bench/entry：写卡片 id 拿到台名、版本、默认视图、各视图的键和标题；
  *       读不到的、不存在的、卡片没有台的、还没有视图描述的，应答逐字一样（404 bench_not_found）；没登录 401
+ *   五之二、取数时表单块带 can_submit：管理层 true；只授了「取数、读视图」的自定义角色 false（这时交表单确实 403）；不是表单的块不带
  *
  *   node scripts/bench-card-test.mjs              测本仓库
  *   node scripts/bench-card-test.mjs --root DIR   测另一棵目录树（变异测试用）
@@ -139,7 +140,7 @@ try {
   console.log('五、视图台页面的入口');
   const entry = (opts, ref) => srv.call('GET', `/api/bench-views/${ref}/entry`, opts);
   const noView = await entry(boss, W2);
-  const doc = { title: '合成·旧台视图', views: [{ key: 'board', title: '看板', blocks: [{ type: 'table', title: '明细', query: { dataset: 'secret_ds', limit: 10 } }] }, { key: 'detail', title: '明细', blocks: [{ type: 'table', query: { dataset: 'secret_ds', limit: 10 } }] }] };
+  const doc = { title: '合成·旧台视图', views: [{ key: 'board', title: '看板', blocks: [{ type: 'table', title: '明细', query: { dataset: 'secret_ds', limit: 10 } }] }, { key: 'detail', title: '明细', blocks: [{ type: 'table', query: { dataset: 'secret_ds', limit: 10 } }, { type: 'form', dataset: 'secret_ds', fields: ['id', 'hidden_col'] }] }] };
   await bv(boss, 'PUT', `/legacy-a/datasets/secret_ds`, { key: ['id'], columns: [{ name: 'id', type: 'integer' }, { name: 'hidden_col', type: 'text' }] });
   const put = await bv(boss, 'PUT', `/${W2}/view`, { doc, base: 0, note: '合成：第一版' });
   const got = await entry(boss, W2);
@@ -148,6 +149,19 @@ try {
   check(alike.every((x) => x.status === 404 && x.text === alike[0].text), '读不到的（普通员工）、卡片没有台、卡片不存在、台没登记、还没有视图描述：应答逐字一样', alike.map((x) => [x.status, x.text]));
   const anonE = await srv.call('GET', `/api/bench-views/${W2}/entry`, { headers: REMOTE }), tokE = await entry(token, W2);
   check(anonE.status === 401 && tokE.status === 403, '没登录 401；管理口令 403（台里是业务数据）', { anon: anonE.status, token: tokE.status });
+
+  console.log('五之二、取数时表单块带 can_submit');
+  // 自定义角色：只点名「取数、读视图」两个动作（属主复制一个预设、改成只有这两个动作、放行），授给普通员工 beta
+  const copied = await srv.call('POST', '/api/roles/guest/copy', { body: { id: 'bv-viewer', name: '合成·只看数据视图' } });
+  const narrowed = await srv.call('PUT', '/api/roles/bv-viewer', { body: { permissions: [{ actions: ['bench-store.render', 'bench-store.view-get'] }] } });
+  await srv.call('POST', '/api/roles/bv-viewer/approve');
+  const viewerOk = await activate({ principal: 'user:beta', role: 'bv-viewer', scope: '*' });
+  const rBoss = await srv.call('GET', `/api/bench-views/${W2}/render?view=detail`, boss), rView = await srv.call('GET', `/api/bench-views/${W2}/render?view=detail`, member);
+  const formOf = (r) => r.json?.blocks?.find((b) => b.type === 'form'), tableOf = (r) => r.json?.blocks?.find((b) => b.type === 'table');
+  const submitDenied = await srv.call('POST', `/api/bench-views/${W2}/form`, { ...member, body: { view: 'detail', block: 1, version: rView.json?.version, values: { id: 9, hidden_col: 'x' } } });
+  check(copied.status === 201 && narrowed.status === 200 && viewerOk, '（准备）只点名取数、读视图的自定义角色，授给普通员工', { copied: copied.text.slice(0, 120), narrowed: narrowed.text.slice(0, 120), viewerOk });
+  check(rBoss.status === 200 && formOf(rBoss)?.can_submit === true && rView.status === 200 && formOf(rView)?.can_submit === false && submitDenied.status === 403 && !('can_submit' in (tableOf(rBoss) ?? {})),
+    '管理层取数：表单块 can_submit 为 true；只能取数的人：false，这时交表单确实 403；表格块不带这个字段', { boss: formOf(rBoss), view: formOf(rView), denied: submitDenied.status, rView: rView.status });
 
   console.log('二、删卡片的把关（台库里有数据）');
   const tok = await srv.call('DELETE', `/api/workbenches/${W1}`, { ...token, body: { confirm_bench_data: true } });
