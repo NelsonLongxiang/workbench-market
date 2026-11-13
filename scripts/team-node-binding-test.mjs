@@ -109,9 +109,12 @@ out.impostor = snap();
 out.impostorAttempt = { lead: teams.addLead(K, 'user:lead2', A, 20).code ?? 'ok', assign: teams.assign(S, 'user:lead2', A, 20).code ?? 'ok' };
 // 管理层重新认领、指定、分配：算数；旧行自动结束
 out.reclaim = teams.claim(K, 'sales', A, 30).changed;
+out.endedAtClaim = db.prepare("SELECT (SELECT COUNT(*) FROM team_leads WHERE ended_by = 'system:node-changed' AND ended_at = 30) AS l, (SELECT COUNT(*) FROM seat_assignments WHERE ended_by = 'system:node-changed' AND ended_at = 30) AS a").get();
 out.relead = teams.addLead(K, 'user:lead1', A, 31).added;
 out.reassign = teams.assign(S, 'user:owner1', A, 32).ok;
 out.after = snap();
+out.eventsLead = teams.events(K, true).map((e) => e.kind);
+out.eventsAll = teams.events(K).map((e) => e.kind);
 out.ended = db.prepare("SELECT (SELECT COUNT(*) FROM team_leads WHERE ended_by = 'system:node-changed') AS l, (SELECT COUNT(*) FROM seat_assignments WHERE ended_by = 'system:node-changed') AS a").get();
 // 三：同一根地址换了钥
 db.prepare("UPDATE a2a_peers SET key_fingerprint = '${F3}' WHERE root_url = '${R2}'").run();
@@ -136,6 +139,10 @@ out.restored = snap();
   check(o.reclaim === true && o.relead === true && o.reassign === true && o.after.status === 'active' && show(o.after.leads) === show(['user:lead1']) && o.after.owner === 'user:owner1' && o.after.stale.length === 0
       && o.ended.l === 1 && o.ended.a === 1,
     '管理层重新认领、指定、分配以后算数（记下现在的节点）；记在旧节点上的那几行自动结束（system:node-changed），待重新确认的清空', show({ after: o.after, ended: o.ended }));
+  check(o.endedAtClaim.l === 1 && o.endedAtClaim.a === 1,
+    '……重新认领的那一刻，旧节点上还挂着的负责人和分配就一起结束（不等重新指定、分配）', show(o.endedAtClaim));
+  check(show(o.eventsLead) === show(['claim', 'lead-add', 'assign']) && show(o.eventsAll) === show(['claim', 'lead-add', 'assign', 'claim', 'lead-add', 'assign']),
+    '团队留痕：负责人口径只给记在现在这个节点上的那几行（看不到旧节点时期的认领、分配和当时分到成员的人）；管理员、管理层口径看全部历史', show({ lead: o.eventsLead, all: o.eventsAll }));
   check(gone(o.rekey), '同一根地址换了钥（指纹变了）：归属同样不算数', show(o.rekey));
   check(gone(o.disabled) && o.restored.status === 'active' && o.restored.owner === 'user:owner1',
     '对端停用：不算数；恢复启用（同一根地址、同一指纹）就又算数', show({ disabled: o.disabled.status, restored: o.restored.status }));
@@ -213,6 +220,14 @@ out.ok = 1;`);
   check(issued.every((s) => s === 200) && mgRows.length === 1 && tkRows.length === 1 && alRows.length === 0 && /1 个成员分配/.test(mgRows[0].title) && /认领/.test(mgRows[0].title)
       && !mgRows[0].title.includes(R1) && !mgRows[0].title.includes(R2) && !mgRows[0].title.includes(F1),
     '「等你拍板」：团队归属要重新确认的，管理层、管理员看得到（认领、几个成员分配），普通员工看不到；标题里不带根地址和指纹', show({ issued, mg: mgRows.map((r) => r.title), al: alRows.length, tk: tkRows.length }));
+  // 团队留痕的口径：本机命令行（属主）重新认领、把 alpha 指定成负责人；alpha 只看得到现在这个节点上的留痕，管理层看全部历史
+  const reclaim = await call('POST', '/api/teams/claim', { body: { host: H, team: TEAM, department: 'sales' } });
+  const lead = await call('POST', '/api/teams/leads', { body: { host: H, team: TEAM, principal: 'user:alpha' } });
+  const q = `/api/teams/events?host=${H}&team=${encodeURIComponent(TEAM)}`;
+  const evAlpha = (await call('GET', q, { session: SESSIONS.alpha, headers: REMOTE })).json?.events?.map((e) => e.kind) ?? null;
+  const evMg = (await call('GET', q, { session: SESSIONS.noAdminFlag, headers: REMOTE })).json?.events?.map((e) => e.kind) ?? null;
+  check(reclaim.status === 200 && lead.status === 201 && show(evAlpha) === show(['claim', 'lead-add']) && show(evMg) === show(['claim', 'assign', 'claim', 'lead-add']),
+    '团队留痕（GET /api/teams/events）：新节点上的负责人只看到现在这个节点上的认领、指定；管理层看全部历史（含旧节点时期的分配）', show({ reclaim: reclaim.status, lead: lead.status, evAlpha, evMg }));
 } catch (e) {
   fail++;
   console.log(`  ✗ 没跑完：${e?.stack ?? e}`);

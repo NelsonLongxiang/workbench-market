@@ -211,7 +211,8 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
     const parse = (d: string): unknown => { if (!d) return null; try { return JSON.parse(d); } catch { return d; } };
     res.json({
       host: k.host, team: k.team, name: teamName(k.team),
-      events: teams().events(k).map((e) => ({
+      // 负责人只看记在现在这个节点上的留痕；管理员、管理层看全部历史
+      events: teams().events(k, !seesAll(v)).map((e) => ({
         seq: e.seq, kind: e.kind, seat: e.seat, seat_id: e.seat_id, principal: e.principal_id || null, principal_name: nameOrNull(e.principal_id),
         // 动手的人：给人看的是 actor_name；内部标识（actor：登录名、cli、system:…）只给管理员，页面不出现内部标识
         detail: parse(e.detail), ...(v.kind === 'admin' ? { actor: e.actor } : {}), actor_name: nameOrNull(e.actor_principal) ?? ACTOR_NAME[e.actor] ?? (e.actor.startsWith('system:') ? '系统' : '管理员'), at: e.at,

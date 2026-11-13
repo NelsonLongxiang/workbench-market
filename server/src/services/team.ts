@@ -192,7 +192,13 @@ export class TeamService extends Service {
       .run(k.host, k.team, kind, extra.seat ?? '', extra.seat_id ?? '', extra.principal ?? '', extra.detail === undefined ? '' : JSON.stringify(extra.detail), actor.by.slice(0, 256), actor.principal, now, node?.peer_root ?? '', node?.key_fingerprint ?? '');
   }
 
-  events(k: TeamKey): { seq: number; kind: string; seat: string; seat_id: string; principal_id: string; detail: string; actor: string; actor_principal: string | null; at: number }[] {
+  /**
+   * 团队的留痕。currentNodeOnly：只给记在现在这个节点上的那几行（团队负责人看的口径——节点换过以后，新节点上的负责人看不到
+   * 旧节点那段时间的认领、分配，里面有当时分到成员的人）；管理员、管理层看全部历史（审计），不传。
+   * 加列之前的存量事件没有记节点：只在看全部历史时给
+   */
+  events(k: TeamKey, currentNodeOnly = false): { seq: number; kind: string; seat: string; seat_id: string; principal_id: string; detail: string; actor: string; actor_principal: string | null; at: number }[] {
+    if (currentNodeOnly) return db.prepare(`SELECT seq, kind, seat, seat_id, principal_id, detail, actor, actor_principal, at FROM team_events e WHERE host = ? AND team = ? AND ${boundSql('e')} ORDER BY seq`).all(k.host, k.team) as never;
     return db.prepare('SELECT seq, kind, seat, seat_id, principal_id, detail, actor, actor_principal, at FROM team_events WHERE host = ? AND team = ? ORDER BY seq').all(k.host, k.team) as never;
   }
 
@@ -233,6 +239,11 @@ export class TeamService extends Service {
     const node = currentNode(k.host)!;
     const fresh = !claimedNow(reg); // 没认领过、退回过、或者认领记在旧节点上：这一次算新的认领
     return this.tx(() => {
+      // 记在旧节点上、还挂着的负责人和分配：一起结束（原节点哪天用同样的根地址和公钥回来，也要重新指定、分配）
+      if (fresh) {
+        db.prepare(`UPDATE team_leads SET ended_at = ?, ended_by = ? WHERE host = ? AND team = ? AND ended_at IS NULL AND NOT ${boundSql('team_leads')}`).run(now, NODE_CHANGED_ACTOR, k.host, k.team);
+        db.prepare(`UPDATE seat_assignments SET ended_at = ?, ended_by = ? WHERE host = ? AND team = ? AND ended_at IS NULL AND NOT ${boundSql('seat_assignments')}`).run(now, NODE_CHANGED_ACTOR, k.host, k.team);
+      }
       db.prepare(`INSERT INTO teams (host, team, department_id, claimed, claimed_by, claimed_at, updated_at, peer_root, key_fingerprint) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)
         ON CONFLICT (host, team) DO UPDATE SET department_id = excluded.department_id, claimed = 1,
           claimed_by = CASE WHEN ? THEN excluded.claimed_by ELSE teams.claimed_by END,
