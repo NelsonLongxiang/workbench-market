@@ -105,11 +105,11 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 
 ## 启动安全自检（#326）
 
-市场/控制面监听后先运行固定匿名回环自检，完成前 HTTP 和 WebSocket 业务入口均关闭；`GET /api/health` 返回 503，`self_probe.passed=false/at=null`。固定行里：
+市场/控制面监听后先运行固定匿名回环自检，完成前 HTTP 和 WebSocket 业务入口均关闭；`GET /api/health` 返回 503，`self_probe.passed=false/at=null`。完整的行以 `server/src/startup-security-self-probe.ts` 里的表为准（事项、驾驶舱、经验库、团队改派、工作台变量、数据视图等远程匿名拒绝行都在那里，每行带注释），下面只摘几行。固定行里：
 - 一行管主体管理面：远程匿名 GET `/api/principals` 必须被拒（登录门关着 403，开着由登录门先拦 401）；
 - 一行管登录回调：远程匿名拿编出来的 state 打 `/login/feishu/callback` 必须 400（不跳转、不发会话）；
 - 一行管失效通知：远程匿名、不带签名向 `/login/feishu/events` 发事件必须 401；
-- 一行管授予管理面：远程匿名 GET `/api/grants` 必须被拒（登录门关着 403，开着由登录门先拦 401）；
+- 一行管授予管理面：远程匿名 GET `/api/grants` 必须 401（L19 起授予的读对登录的人放开，没登录就是 401，登录门开不开都一样）；
 - 一行管台数据的读：远程匿名不带台令牌 GET `/api/apps/<台>/data` 必须被拒（登录门关着 403，开着由登录门先拦 401；`WM_APP_DATA_READ=warn` 时这一行不跑）；
 - 一行管写 run：远程匿名不带 run 的写凭据 PUT `/api/sop/runs/<编出来的号>` 必须被拒（登录门关着 403，开着由登录门先拦 401；`WM_SOP_RUN_WRITE=warn` 时这一行不跑）；
 - 另有一行进程内的自检管设置的出口（`settings.no-secret-values`，不发请求）：启动时拿真实的设置跑一遍两级出口，凭据类的值漏进任何一级就拒绝启动（只记键名）；
@@ -738,10 +738,17 @@ curl -s -X POST "$REST_BASE/tools/workbench_summary" \
 
 ### 快速起
 
+标准栈是市场 + LayerFS 一起起（2026-11-03 `cd64b37` 起 LayerFS 必需，缺配置直接失败、不降级）。起之前要准备两样东西：
+
+1. LayerFS 的源码 context：用 `deploy/build-layerfs.sh <LayerFS 源码检出> <新目录>` 按固定提交导出，下面命令里的 LAYERFS_CONTEXT 指过去；
+2. 服务令牌文件：放在仓库外、只给容器读，内容不少于 32 字节，下面命令里的 LAYERFS_TOKEN_FILE 指过去（Compose 以 secret 挂进两个容器，不走环境变量）。
+
 ```bash
-docker compose -f deploy/docker-compose.yml up -d --build
+LAYERFS_CONTEXT=<上一步的目录> LAYERFS_TOKEN_FILE=<令牌文件> docker compose -f deploy/docker-compose.yml up -d --build
 # 打开 http://127.0.0.1:9800（基文件默认仅回环绑定——安全默认）
 ```
+
+两个变量缺一个，Compose 解析就报错。部署要求与发布前检查见 [docs/docker-layerfs-integrated-deployment.md](docs/docker-layerfs-integrated-deployment.md)。
 
 构建要求：Node 镜像内需要有网（npm registry）。内网/离线请换镜像站：
 ```bash
@@ -750,11 +757,14 @@ docker build -f deploy/Dockerfile.market --build-arg NPM_REGISTRY=https://regist
 
 ### 网络模式（重要）
 
-| 模式 | 容器内如何探本机服务 | 说明 |
+基文件用的是 bridge 网络：market 在缺省网络上发布 `127.0.0.1:9800`，另接一个 `internal` 的 `layerfs-private` 网络和 LayerFS 通信（LayerFS 不发布任何宿主端口）。所以容器里的 `127.0.0.1` 不是宿主：
+
+| 要探的服务 | 容器内怎么写地址 | 说明 |
 |---|---|---|
-| **host（推荐）** | `http://127.0.0.1:PORT` 直连 | 基文件已用 `network_mode: host`（Linux）——市场探测本机台零配置 |
-| bridge | `http://host.docker.internal:PORT` | 需 `extra_hosts: ["host.docker.internal:host-gateway"]`；WSL 下 ufw FORWARD 可能仍阻（建议 host） |
-| 注册表单 | Windows 可达性 | 容器内 127.0.0.1 ≠ 宿主；注册本机台用宿主内网 IP 或 host 模式 |
+| 宿主上的服务 | `http://host.docker.internal:PORT` | 基文件没有配，要在覆盖层里给 market 加 `extra_hosts: ["host.docker.internal:host-gateway"]`；WSL 下 ufw FORWARD 可能仍阻 |
+| 别的机器上的服务 | 宿主能到的内网地址 | 注册表单里填容器能到的地址，不要填 127.0.0.1 |
+
+> 2026-11-03 之前基文件用 `network_mode: host`，那时容器里 `127.0.0.1` 就是宿主；改成必需 LayerFS 和私有网络后不再是。
 
 ### 对外暴露端口（覆盖层 `!override`）
 
@@ -768,7 +778,7 @@ services:
 ```
 > 直接写 `ports:` 会与基文件**合并**（追加两条→address already in use），必须 `!override`。
 
-**管理端口**：缺省只监听 `PORT`（9800），管理写在业务面凭口令或 Odoo 管理员完成，不需要另开端口。显式设 `WM_CONTROL_PORT` 才多开一个独立管理端口（`network_mode: host` 下直接监听宿主；bridge 模式要另映射），绑不上时只告警、业务面照常。
+**管理端口**：缺省只监听 `PORT`（9800），管理写在业务面凭口令或 Odoo 管理员完成，不需要另开端口。显式设 `WM_CONTROL_PORT` 才多开一个独立管理端口，绑不上时只告警、业务面照常。Compose 下用覆盖文件 `deploy/docker-compose.control.yml` 打开：它设 `WM_CONTROL_PORT=9801`、只映射到宿主回环 `127.0.0.1:9801`，并把探活改成两个面一起看。
 
 ### 探活与数据
 
@@ -779,10 +789,9 @@ services:
 - 升级：`git pull && docker compose up -d --build`（数据卷不受影响）
 - 恢复：停容器→替换卷内 db 文件→起（WAL 残留自动回放）
 
-### layerfs 服务（可选·profiles）
+### layerfs 服务（必需）
 
-```bash
-LAYERFS_SERVICE_TOKEN=<强随机> docker compose --profile layerfs up -d --build
-```
-- 不设 token 或设 `change-me` → **拒启**（fail-fast）
-- 该服务挂 `/var/run/docker.sock` = 等同宿主 root 权限——仅可信环境启用
+- 标准栈里 market 依赖 layerfs 健康后才起；layerfs 只在 `internal` 网络上，不发布宿主端口
+- 令牌从 secret 文件读（`LAYERFS_SERVICE_TOKEN_FILE=/run/secrets/layerfs_service_token`），不足 32 字节 → **拒启**（fail-fast）
+- 该服务挂 `/var/run/docker.sock` = 等同宿主 root 权限——仅可信环境启用；market 自己拿不到 Docker socket
+- `layerfs-p0` 是测试用的替身（`--profile layerfs-p0`），只映射到宿主回环 `127.0.0.1:18067`，不要在生产起
