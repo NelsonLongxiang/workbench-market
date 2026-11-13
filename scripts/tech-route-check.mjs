@@ -940,6 +940,15 @@ function selftest() {
   check(!broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: '一句话说明原因（#1）' })) }), '清单校验：放宽原因一句话带 PR 号，通过');
   for (const bare of ['  #1', '（#1）', 'x #1', '#1 #2', '--- #12 ...']) check(broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: bare })) }), `清单校验：放宽原因除了 PR 号几乎没写字（${JSON.stringify(bare)}），报错`);
   check(!broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: '搬 SQL（#12）' })) }), '清单校验：PR 号之外有四个字以上的说明，通过');
+  // 门槛两边各一条，和每一步去掉的东西各一条反例（阶段三验收在 #756 的变异）
+  const reasonOk = (reason) => !broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: reason })) });
+  check(!reasonOk('abc（#1）'), '放宽原因：PR 号之外刚好三个字，报错（门槛是四个字）');
+  check(reasonOk('abcd（#1）'), '放宽原因：PR 号之外刚好四个字，通过');
+  check(!reasonOk('#1234'), '放宽原因：光写一个长 PR 号，报错（PR 号的数字不算字）');
+  check(!reasonOk('#1 #2 #3 #4 #5'), '放宽原因：写一串 PR 号，报错（每个 PR 号都去掉）');
+  check(!reasonOk('+++$ #1'), '放宽原因：除了 PR 号全是符号，报错（符号不算字）');
+  check(!reasonOk('\u{20000}\u{20000} #1'), '放宽原因：两个扩展区汉字（UTF-16 是四个单元），按字数算只有两个，报错');
+  check(!reasonOk('\u200B\u200B\u200B\u200B #1'), '放宽原因：零宽字符凑数，报错（控制和格式字符不算字）');
   {
     const dir = mkdtempSync(join(tmpdir(), 'tech-route-tighten-'));
     try {
