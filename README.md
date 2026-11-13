@@ -299,7 +299,7 @@ GET              /api/health/ready              就绪：含 LayerFS 探测（�
     - 不记请求体、查询串、凭据和路径里的 id；
     - 记账攒批，应答之后异步写进单独的库文件 `judgment-compare.db`（不和业务库抢锁），写失败只计数；
     - 判定出错只计数，不影响应答。
-  - 结果看 `GET /api/judgment/compare`。`scripts/judgment-compare-report.mjs` 把回放和 CI 脚本在比对打开时跑一遍，按域×原因出报告，另有按域×结果的汇总；`--from <比对输出.jsonl>` 不跑脚本，只汇总已有的比对输出（生产上 `WM_JUDGMENT_COMPARE_OUT` 的文件）。零不一致的门槛有两道，都在 CI 里：`scripts/judgment-compare-zero-test.mjs` 跑全量回放；`scripts/judgment-compare-sweep-test.mjs` 让六种身份把每条 GET 打一遍、写面挑代表。
+  - 结果看 `GET /api/judgment/compare`。`scripts/judgment-compare-report.mjs` 把回放和 CI 脚本在比对打开时跑一遍，按域×原因出报告，另有按域×结果的汇总；`--from <比对输出.jsonl>` 不跑脚本，只汇总已有的比对输出（`WM_JUDGMENT_COMPARE_OUT` 的文件）；`--snapshot <GET /api/judgment/compare 的应答.json>` 拿接口里攒着的合计出同一张按域的表，再给 `--since <更早的一份>` 就只算两份之间新增的——生产上用这个，不用开 `WM_JUDGMENT_COMPARE_OUT`（那个文件每比一次加一行、不轮转），单测 `scripts/judgment-compare-snapshot-test.mjs` 核两条路出的数相同。零不一致的门槛有两道，都在 CI 里：`scripts/judgment-compare-zero-test.mjs` 跑全量回放；`scripts/judgment-compare-sweep-test.mjs` 让六种身份把每条 GET 打一遍、写面挑代表。
   - 迁移出来的授予来源记 migration：`GET /api/grants?source=migration` 列出，`POST /api/grants/revoke-migration`（只有属主）整批撤销。
 - 管不到的：按 run 发的读凭据、自产台查看凭证是不记名的，各有各的期限和吊销，不随主体停用失效；已经建立的 WebSocket 连接不会被掐断，新的请求和新的连接立即拒绝。停用是按登录名对的：身份来源那边把登录名改了，就是另一个人。
 - **读要凭据**：`GET /api/apps/<slug>/data`、`/files`、`/files/<id>` 要本台的台令牌（`X-App-Token`，服务端出台页面时注入）、管理员（口令或管理员登录，同源）或本机命令行；沙箱页的下载链接和图片带不了头，认登录门签给本台页面的查看凭证（`wm_av`）。不满足一律 403，先于查台。远程 agent 读台数据走 MCP（`app_data_list`、`app_files_list`，可按台授权）。设计上，能打开某个台页面的人就能读这个台的数据（台令牌在页面里）；「谁能打开哪个台」和按人读另行设计。
@@ -459,7 +459,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   content-observation.ts（门户观测状态 /api/content/observation）
   cookies.ts（Cookie 池 /api/cookies）
   departments.ts（部门 /api/departments：登录的人读列表、单个部门的成员、某人属于哪些部门；管理员建改删部门和成员）
-  teams.ts（团队与分配 /api/teams：团队页（部门 → 团队 → 成员，按看的人的可见范围在服务端裁好）、「我的 AI 员工」；管理员认领、退回、指定和移除负责人；负责人分配、收回、改派成员（改派一个事务里收回并分给另一个人；状态码不代表授权））
+  teams.ts（团队与分配 /api/teams：团队页（部门 → 团队 → 成员，按看的人的可见范围在服务端裁好）、「我的 AI 员工」；管理员认领、退回、指定和移除负责人；负责人分配、收回、改派成员（改派一个事务里收回并分给另一个人；状态码不代表授权）；团队的变更记录、某人各段分配的历史（按关系裁：管理员、管理层看全部，负责人看自己的团队，本人看自己的；读不到的按不存在回））
   access.ts（角色预设 ②：以某人的身份看 /api/principals/:id/access（管理员看任何人、登录的人看自己，带 action 给判定结论）、红线清单 /api/access/red-lines、首次安装向导 /api/setup/wizard（管理员跑，属主放行））
   design-tokens.ts（设计 token 固定路径 /design/tokens@<版本>.css）
   export-import.ts（导出与导入 /api/export、/api/import）
