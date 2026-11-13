@@ -67,6 +67,8 @@ const FIXTURES = {
   'tasks-fake': { preload: join(HERE, 'tasks-fake-preload.mjs'), env: {} },
   // 经验库的来源换成假的 ygl-trees 命令行，后台同步关掉（目录由场景 seed 写进库）（scripts/knowledge-fake-preload.mjs）
   'knowledge-fake': { preload: join(HERE, 'knowledge-fake-preload.mjs'), env: {} },
+  // 给市场配上内容面（随配置才挂的启动页和迁移跳转）：端口现找、市场入口 http://market.replay.test、两个目标（scripts/content-surface-fake-preload.mjs）
+  'content-surface-fake': { preload: join(HERE, 'content-surface-fake-preload.mjs'), env: {} },
   // 前端构建目录（web/dist）换成占位，内容每次都一样，不看本机有没有真的构建（scripts/web-dist-stub-preload.mjs）
   'web-dist-stub': { preload: join(HERE, 'web-dist-stub-preload.mjs'), env: { WM_REPLAY_ROOT: ROOT } },
 };
