@@ -1,0 +1,559 @@
+{
+  "domain": "odoo-login-proxy",
+  "what": "Odoo 同域登录中继（WM_ODOO_LOGIN_PROXY=1 才放行）：登录页、二次验证页、登录页用到的静态资源和翻译转给部署配置的 Odoo，提交登录只收同源的表单。2 条路由（读、写各一）。上游是 odoo-login-fake 夹具起的假 Odoo，应答固定。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /^\\/(?:web\\/|website\\/translations$|[a-z]{2}(?:_[A-Z]{2})?\\/website\\/translations$)/", "POST /^\\/web\\/login(?:\\/totp)?$/"],
+  "exempt": [{ "route": "GET /^\\/(?:web\\/|website\\/translations$|[a-z]{2}(?:_[A-Z]{2})?\\/website\\/translations$)/", "class": "unauthorized", "why": "登录页本来就是给还没登录的人看的，中继不认人", "shown_by": "on/page" }],
+  "scenarios": [
+    {
+      "name": "on",
+      "what": "开了中继，Odoo 源指到假 Odoo，前端占位。登录门关。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin", "WM_ODOO_LOGIN_PROXY": "1", "WM_ODOO_URL": "http://odoo.replay.test" },
+      "fixtures": ["odoo-login-fake", "web-dist-stub"],
+      "steps": [
+        {
+          "id": "page",
+          "route": "GET /^\\/(?:web\\/|website\\/translations$|[a-z]{2}(?:_[A-Z]{2})?\\/website\\/translations$)/",
+          "class": "normal",
+          "what": "登录页：转给 Odoo；只留 session_id 一个 cookie（Path=/、HttpOnly、SameSite=Lax，去掉 Domain），不转 frontend_lang；上游 CSP 原样再加一条 frame-ancestors；no-store；去掉 Service-Worker-Allowed",
+          "request": { "method": "GET", "path": "/web/login", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-security-policy": "default-src 'self', frame-ancestors 'self'",
+              "referrer-policy": "strict-origin",
+              "set-cookie": ["session_id=replay-odoo-session-0001; HttpOnly; Path=/; SameSite=Lax"],
+              "transfer-encoding": "chunked",
+              "x-content-type-options": "nosniff",
+              "x-frame-options": "SAMEORIGIN",
+              "x-powered-by": "Express"
+            },
+            "body": "<!doctype html><form method=\"post\" action=\"/web/login\"><input name=\"login\"></form>"
+          }
+        },
+        {
+          "id": "page-echo",
+          "route": "GET /^\\/(?:web\\/|website\\/translations$|[a-z]{2}(?:_[A-Z]{2})?\\/website\\/translations$)/",
+          "class": "normal",
+          "what": "转给 Odoo 的请求头只留白名单那几样；cookie 只转形状对的 session_id；Authorization、管理口令、市场会话都不转；Origin 换成 Odoo 源；identity",
+          "request": {
+            "method": "GET",
+            "path": "/web/login?case=echo&x=1",
+            "headers": { "cookie": "session_id=browser-odoo-sid-0001; wm_session=market-session; other=1", "authorization": "Bearer browser", "x-admin-token": "replay-synthetic-admin", "accept-language": "zh-CN" }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json",
+            "headers": { "cache-control": "no-store", "content-security-policy": "frame-ancestors 'self'", "referrer-policy": "strict-origin", "transfer-encoding": "chunked", "x-content-type-options": "nosniff", "x-frame-options": "SAMEORIGIN", "x-powered-by": "Express" },
+            "body": { "method": "GET", "url": "/web/login?case=echo&x=1", "headers": { "cookie": "session_id=browser-odoo-sid-0001", "origin": "http://odoo.replay.test", "host": "odoo.replay.test", "accept-encoding": "identity" } }
+          }
+        },
+        {
+          "id": "page-bad-sid",
+          "route": "GET /^\\/(?:web\\/|website\\/translations$|[a-z]{2}(?:_[A-Z]{2})?\\/website\\/translations$)/",
+          "class": "normal",
+          "what": "session_id 形状不对（太短）：不转 cookie",
+          "request": { "method": "GET", "path": "/web/login?case=echo", "headers": { "cookie": "session_id=short" } },
+          "response": {
+            "status": 200,
+            "type": "application/json",
+            "headers": { "cache-control": "no-store", "content-security-policy": "frame-ancestors 'self'", "referrer-policy": "strict-origin", "transfer-encoding": "chunked", "x-content-type-options": "nosniff", "x-frame-options": "SAMEORIGIN", "x-powered-by": "Express" },
+            "body": { "method": "GET", "url": "/web/login?case=echo", "headers": { "origin": "http://odoo.replay.test", "host": "odoo.replay.test", "accept-encoding": "identity" } }
+          }
+        },
+        {
+          "id": "page-redirect-unsafe",
+          "route": "GET /^\\/(?:web\\/|website\\/translations$|[a-z]{2}(?:_[A-Z]{2})?\\/website\\/translations$)/",
+          "class": "normal",
+          "what": "redirect 不在白名单：从查询串里去掉",
+          "request": { "method": "GET", "path": "/web/login?case=echo&redirect=%2Fodoo%2Fevil", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json",
+            "headers": { "cache-control": "no-store", "content-security-policy": "frame-ancestors 'self'", "referrer-policy": "strict-origin", "transfer-encoding": "chunked", "x-content-type-options": "nosniff", "x-frame-options": "SAMEORIGIN", "x-powered-by": "Express" },
+            "body": { "method": "GET", "url": "/web/login?case=echo", "headers": { "origin": "http://odoo.replay.test", "host": "odoo.replay.test", "accept-encoding": "identity" } }
+          }
+        },
+        {
+          "id": "page-redirect-safe",
+          "route": "GET /^\\/(?:web\\/|website\\/translations$|[a-z]{2}(?:_[A-Z]{2})?\\/website\\/translations$)/",
+          "class": "normal",
+          "what": "redirect 在白名单（/）：留着",
+          "request": { "method": "GET", "path": "/web/login?case=echo&redirect=%2F", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json",
+            "headers": { "cache-control": "no-store", "content-security-policy": "frame-ancestors 'self'", "referrer-policy": "strict-origin", "transfer-encoding": "chunked", "x-content-type-options": "nosniff", "x-frame-options": "SAMEORIGIN", "x-powered-by": "Express" },
+            "body": { "method": "GET", "url": "/web/login?case=echo&redirect=%2F", "headers": { "origin": "http://odoo.replay.test", "host": "odoo.replay.test", "accept-encoding": "identity" } }
+          }
+        },
+        {
+          "id": "page-to-odoo",
+          "what": "Odoo 跳到市场不认的去处（/odoo）：502，不带 Location",
+          "request": { "method": "GET", "path": "/web/login?case=to-odoo", "headers": {} },
+          "response": {
+            "status": 502,
+            "type": "text/plain",
+            "headers": { "cache-control": "no-store", "content-security-policy": "frame-ancestors 'self'", "referrer-policy": "strict-origin", "transfer-encoding": "chunked", "x-content-type-options": "nosniff", "x-frame-options": "SAMEORIGIN", "x-powered-by": "Express" },
+            "body": "see other"
+          }
+        },
+        {
+          "id": "page-to-login",
+          "route": "GET /^\\/(?:web\\/|website\\/translations$|[a-z]{2}(?:_[A-Z]{2})?\\/website\\/translations$)/",
+          "class": "normal",
+          "what": "Odoo 跳回登录页、带不安全的 redirect：Location 改成 /web/login（去掉 redirect）",
+          "request": { "method": "GET", "path": "/web/login?case=to-login", "headers": {} },
+          "response": {
+            "status": 303,
+            "type": "text/plain",
+            "headers": { "cache-control": "no-store", "content-security-policy": "frame-ancestors 'self'", "location": "/web/login", "referrer-policy": "strict-origin", "transfer-encoding": "chunked", "x-content-type-options": "nosniff", "x-frame-options": "SAMEORIGIN", "x-powered-by": "Express" },
+            "body": "see other"
+          }
+        },
+        {
+          "id": "page-to-ext",
+          "what": "Odoo 跳到跨源地址：502",
+          "request": { "method": "GET", "path": "/web/login?case=to-ext", "headers": {} },
+          "response": {
+            "status": 502,
+            "type": "text/plain",
+            "headers": { "cache-control": "no-store", "content-security-policy": "frame-ancestors 'self'", "referrer-policy": "strict-origin", "transfer-encoding": "chunked", "x-content-type-options": "nosniff", "x-frame-options": "SAMEORIGIN", "x-powered-by": "Express" },
+            "body": "see other"
+          }
+        },
+        {
+          "id": "page-deny",
+          "route": "GET /^\\/(?:web\\/|website\\/translations$|[a-z]{2}(?:_[A-Z]{2})?\\/website\\/translations$)/",
+          "class": "normal",
+          "what": "上游 X-Frame-Options DENY：保留 DENY，追加 frame-ancestors none",
+          "request": { "method": "GET", "path": "/web/login?case=deny", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-security-policy": "frame-ancestors 'none'", "referrer-policy": "strict-origin", "transfer-encoding": "chunked", "x-content-type-options": "nosniff", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<form>deny</form>"
+          }
+        },
+        {
+          "id": "totp",
+          "route": "GET /^\\/(?:web\\/|website\\/translations$|[a-z]{2}(?:_[A-Z]{2})?\\/website\\/translations$)/",
+          "class": "normal",
+          "what": "二次验证页：转给 Odoo",
+          "request": { "method": "GET", "path": "/web/login/totp", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-security-policy": "frame-ancestors 'none'", "referrer-policy": "strict-origin", "transfer-encoding": "chunked", "x-content-type-options": "nosniff", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<form>totp</form>"
+          }
+        },
+        {
+          "id": "asset",
+          "route": "GET /^\\/(?:web\\/|website\\/translations$|[a-z]{2}(?:_[A-Z]{2})?\\/website\\/translations$)/",
+          "class": "normal",
+          "what": "静态资源：转给 Odoo，不发 cookie",
+          "request": { "method": "GET", "path": "/web/assets/app.js", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/javascript",
+            "headers": { "cache-control": "no-store", "content-security-policy": "frame-ancestors 'self'", "referrer-policy": "strict-origin", "transfer-encoding": "chunked", "x-content-type-options": "nosniff", "x-frame-options": "SAMEORIGIN", "x-powered-by": "Express" },
+            "body": "console.log(\"odoo\");"
+          }
+        },
+        {
+          "id": "static",
+          "route": "GET /^\\/(?:web\\/|website\\/translations$|[a-z]{2}(?:_[A-Z]{2})?\\/website\\/translations$)/",
+          "class": "normal",
+          "what": "静态图片：转给 Odoo",
+          "request": { "method": "GET", "path": "/web/static/logo.png", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "image/png",
+            "headers": { "cache-control": "no-store", "content-security-policy": "frame-ancestors 'self'", "referrer-policy": "strict-origin", "transfer-encoding": "chunked", "x-content-type-options": "nosniff", "x-frame-options": "SAMEORIGIN", "x-powered-by": "Express" },
+            "body": "PNG"
+          }
+        },
+        {
+          "id": "company-logo",
+          "route": "GET /^\\/(?:web\\/|website\\/translations$|[a-z]{2}(?:_[A-Z]{2})?\\/website\\/translations$)/",
+          "class": "normal",
+          "what": "公司 logo：转给 Odoo",
+          "request": { "method": "GET", "path": "/web/binary/company_logo", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "image/png",
+            "headers": { "cache-control": "no-store", "content-security-policy": "frame-ancestors 'self'", "referrer-policy": "strict-origin", "transfer-encoding": "chunked", "x-content-type-options": "nosniff", "x-frame-options": "SAMEORIGIN", "x-powered-by": "Express" },
+            "body": "LOGO"
+          }
+        },
+        {
+          "id": "static-missing",
+          "route": "GET /^\\/(?:web\\/|website\\/translations$|[a-z]{2}(?:_[A-Z]{2})?\\/website\\/translations$)/",
+          "class": "invalid",
+          "what": "Odoo 没有的静态文件：Odoo 的 404 原样",
+          "request": { "method": "GET", "path": "/web/static/missing.png", "headers": {} },
+          "response": {
+            "status": 404,
+            "type": "text/plain",
+            "headers": { "cache-control": "no-store", "content-security-policy": "frame-ancestors 'self'", "referrer-policy": "strict-origin", "transfer-encoding": "chunked", "x-content-type-options": "nosniff", "x-frame-options": "SAMEORIGIN", "x-powered-by": "Express" },
+            "body": "odoo: no such path\n"
+          }
+        },
+        {
+          "id": "translations",
+          "route": "GET /^\\/(?:web\\/|website\\/translations$|[a-z]{2}(?:_[A-Z]{2})?\\/website\\/translations$)/",
+          "class": "normal",
+          "what": "翻译：Odoo 303 去带语言前缀的地址，这个跳转照转",
+          "request": { "method": "GET", "path": "/website/translations", "headers": {} },
+          "response": {
+            "status": 303,
+            "type": "text/plain",
+            "headers": { "cache-control": "no-store", "content-security-policy": "frame-ancestors 'self'", "location": "/zh_CN/website/translations", "referrer-policy": "strict-origin", "transfer-encoding": "chunked", "x-content-type-options": "nosniff", "x-frame-options": "SAMEORIGIN", "x-powered-by": "Express" },
+            "body": "see other"
+          }
+        },
+        {
+          "id": "translations-lang",
+          "route": "GET /^\\/(?:web\\/|website\\/translations$|[a-z]{2}(?:_[A-Z]{2})?\\/website\\/translations$)/",
+          "class": "normal",
+          "what": "带语言前缀的翻译：转给 Odoo",
+          "request": { "method": "GET", "path": "/zh_CN/website/translations", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json",
+            "headers": { "cache-control": "no-store", "content-security-policy": "frame-ancestors 'self'", "referrer-policy": "strict-origin", "transfer-encoding": "chunked", "x-content-type-options": "nosniff", "x-frame-options": "SAMEORIGIN", "x-powered-by": "Express" },
+            "body": { "lang": "zh_CN" }
+          }
+        },
+        {
+          "id": "head",
+          "what": "HEAD 登录页：GET 路由也接 HEAD，转给 Odoo",
+          "request": { "method": "HEAD", "path": "/web/login", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-security-policy": "default-src 'self', frame-ancestors 'self'",
+              "referrer-policy": "strict-origin",
+              "set-cookie": ["session_id=replay-odoo-session-0001; HttpOnly; Path=/; SameSite=Lax"],
+              "x-content-type-options": "nosniff",
+              "x-frame-options": "SAMEORIGIN",
+              "x-powered-by": "Express"
+            },
+            "body": ""
+          }
+        },
+        {
+          "id": "dotdot",
+          "route": "GET /^\\/(?:web\\/|website\\/translations$|[a-z]{2}(?:_[A-Z]{2})?\\/website\\/translations$)/",
+          "class": "invalid",
+          "what": "路径带 ..：中继不接；带扩展名，页面兜底也不接，最后的 404",
+          "request": { "method": "GET", "path": "/web/assets/a/../b.js", "raw": true, "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "21", "etag": "W/\"15-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "not found" } }
+        },
+        {
+          "id": "encoded",
+          "route": "GET /^\\/(?:web\\/|website\\/translations$|[a-z]{2}(?:_[A-Z]{2})?\\/website\\/translations$)/",
+          "class": "invalid",
+          "what": "路径带 %：中继不接；带扩展名，最后的 404",
+          "request": { "method": "GET", "path": "/web/assets/a%2Fb.js", "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "21", "etag": "W/\"15-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "not found" } }
+        },
+        {
+          "id": "trailing",
+          "route": "GET /^\\/(?:web\\/|website\\/translations$|[a-z]{2}(?:_[A-Z]{2})?\\/website\\/translations$)/",
+          "class": "normal",
+          "what": "结尾带斜杠：中继不接，落到页面兜底",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/web/login/", "headers": {} },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "other-web",
+          "route": "GET /^\\/(?:web\\/|website\\/translations$|[a-z]{2}(?:_[A-Z]{2})?\\/website\\/translations$)/",
+          "class": "normal",
+          "what": "/web 下别的路径：中继不接，落到页面兜底",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/web/database/manager", "headers": {} },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "upper",
+          "what": "大写 /WEB：不接，落到页面兜底",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/WEB/login", "headers": {} },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "submit",
+          "route": "POST /^\\/web\\/login(?:\\/totp)?$/",
+          "class": "normal",
+          "what": "提交登录：同源（Origin 的主机等于 Host）、表单正文原样转给 Odoo，redirect 不在白名单就从正文里去掉；只发 session_id",
+          "request": {
+            "method": "POST",
+            "path": "/web/login",
+            "raw": true,
+            "headers": { "host": "market.replay.test", "content-type": "application/x-www-form-urlencoded", "origin": "http://market.replay.test", "sec-fetch-site": "same-origin" },
+            "text": "login=alice&password=synthetic&redirect=%2Fodoo%2Fevil&csrf_token=t1"
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json",
+            "headers": {
+              "cache-control": "no-store",
+              "content-security-policy": "frame-ancestors 'self'",
+              "referrer-policy": "strict-origin",
+              "set-cookie": ["session_id=replay-odoo-session-0001-new; HttpOnly; Path=/; SameSite=Lax"],
+              "transfer-encoding": "chunked",
+              "x-content-type-options": "nosniff",
+              "x-frame-options": "SAMEORIGIN",
+              "x-powered-by": "Express"
+            },
+            "body": {
+              "method": "POST",
+              "url": "/web/login",
+              "headers": { "origin": "http://odoo.replay.test", "host": "odoo.replay.test", "accept-encoding": "identity", "content-type": "application/x-www-form-urlencoded" },
+              "body": "login=alice&password=synthetic&csrf_token=t1"
+            }
+          }
+        },
+        {
+          "id": "submit-safe-redirect",
+          "route": "POST /^\\/web\\/login(?:\\/totp)?$/",
+          "class": "normal",
+          "what": "提交登录、redirect 在白名单（/）：留着",
+          "request": {
+            "method": "POST",
+            "path": "/web/login",
+            "raw": true,
+            "headers": { "host": "market.replay.test", "content-type": "application/x-www-form-urlencoded", "origin": "http://market.replay.test" },
+            "text": "login=alice&password=synthetic&redirect=%2F"
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json",
+            "headers": {
+              "cache-control": "no-store",
+              "content-security-policy": "frame-ancestors 'self'",
+              "referrer-policy": "strict-origin",
+              "set-cookie": ["session_id=replay-odoo-session-0001-new; HttpOnly; Path=/; SameSite=Lax"],
+              "transfer-encoding": "chunked",
+              "x-content-type-options": "nosniff",
+              "x-frame-options": "SAMEORIGIN",
+              "x-powered-by": "Express"
+            },
+            "body": {
+              "method": "POST",
+              "url": "/web/login",
+              "headers": { "origin": "http://odoo.replay.test", "host": "odoo.replay.test", "accept-encoding": "identity", "content-type": "application/x-www-form-urlencoded" },
+              "body": "login=alice&password=synthetic&redirect=%2F"
+            }
+          }
+        },
+        {
+          "id": "submit-no-origin",
+          "route": "POST /^\\/web\\/login(?:\\/totp)?$/",
+          "class": "normal",
+          "what": "没带 Origin、sec-fetch-site none：放行",
+          "request": { "method": "POST", "path": "/web/login", "raw": true, "headers": { "host": "market.replay.test", "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "none" }, "text": "login=alice" },
+          "response": {
+            "status": 200,
+            "type": "application/json",
+            "headers": {
+              "cache-control": "no-store",
+              "content-security-policy": "frame-ancestors 'self'",
+              "referrer-policy": "strict-origin",
+              "set-cookie": ["session_id=replay-odoo-session-0001-new; HttpOnly; Path=/; SameSite=Lax"],
+              "transfer-encoding": "chunked",
+              "x-content-type-options": "nosniff",
+              "x-frame-options": "SAMEORIGIN",
+              "x-powered-by": "Express"
+            },
+            "body": { "method": "POST", "url": "/web/login", "headers": { "origin": "http://odoo.replay.test", "host": "odoo.replay.test", "accept-encoding": "identity", "content-type": "application/x-www-form-urlencoded" }, "body": "login=alice" }
+          }
+        },
+        {
+          "id": "submit-totp",
+          "route": "POST /^\\/web\\/login(?:\\/totp)?$/",
+          "class": "normal",
+          "what": "二次验证提交：一样转给 Odoo",
+          "request": { "method": "POST", "path": "/web/login/totp", "raw": true, "headers": { "host": "market.replay.test", "content-type": "application/x-www-form-urlencoded", "origin": "http://market.replay.test" }, "text": "totp_token=123456" },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-security-policy": "frame-ancestors 'none'", "referrer-policy": "strict-origin", "transfer-encoding": "chunked", "x-content-type-options": "nosniff", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<form>totp</form>"
+          }
+        },
+        {
+          "id": "submit-cross-site",
+          "route": "POST /^\\/web\\/login(?:\\/totp)?$/",
+          "class": "unauthorized",
+          "what": "sec-fetch-site cross-site：403（同源门，不是授权结论）",
+          "request": { "method": "POST", "path": "/web/login", "raw": true, "headers": { "host": "market.replay.test", "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "cross-site" }, "text": "login=alice" },
+          "response": { "status": 403, "type": "", "headers": { "content-length": "0", "x-powered-by": "Express" }, "body": "" }
+        },
+        {
+          "id": "submit-origin-mismatch",
+          "route": "POST /^\\/web\\/login(?:\\/totp)?$/",
+          "class": "unauthorized",
+          "what": "Origin 的主机不是 Host：403",
+          "request": { "method": "POST", "path": "/web/login", "raw": true, "headers": { "host": "market.replay.test", "content-type": "application/x-www-form-urlencoded", "origin": "http://elsewhere.example" }, "text": "login=alice" },
+          "response": { "status": 403, "type": "", "headers": { "content-length": "0", "x-powered-by": "Express" }, "body": "" }
+        },
+        {
+          "id": "submit-origin-null",
+          "route": "POST /^\\/web\\/login(?:\\/totp)?$/",
+          "class": "unauthorized",
+          "what": "Origin 是 null：解析不了，403",
+          "request": { "method": "POST", "path": "/web/login", "raw": true, "headers": { "host": "market.replay.test", "content-type": "application/x-www-form-urlencoded", "origin": "null" }, "text": "login=alice" },
+          "response": { "status": 403, "type": "", "headers": { "content-length": "0", "x-powered-by": "Express" }, "body": "" }
+        },
+        {
+          "id": "submit-json",
+          "route": "POST /^\\/web\\/login(?:\\/totp)?$/",
+          "class": "invalid",
+          "what": "正文不是表单：415",
+          "request": { "method": "POST", "path": "/web/login", "raw": true, "headers": { "host": "market.replay.test", "content-type": "application/json", "origin": "http://market.replay.test" }, "text": "{\"login\":\"alice\"}" },
+          "response": { "status": 415, "type": "", "headers": { "content-length": "0", "x-powered-by": "Express" }, "body": "" }
+        },
+        {
+          "id": "submit-too-big",
+          "route": "POST /^\\/web\\/login(?:\\/totp)?$/",
+          "class": "invalid",
+          "what": "正文超过 16kb：413",
+          "request": {
+            "method": "POST",
+            "path": "/web/login",
+            "raw": true,
+            "headers": { "host": "market.replay.test", "content-type": "application/x-www-form-urlencoded" },
+            "text": "login=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "response": { "status": 413, "type": "text/plain; charset=utf-8", "headers": { "content-length": "21", "etag": "W/\"15-<指纹>\"", "x-powered-by": "Express" }, "body": "Invalid login request" }
+        },
+        {
+          "id": "submit-too-many",
+          "route": "POST /^\\/web\\/login(?:\\/totp)?$/",
+          "class": "invalid",
+          "what": "参数超过 24 个：413",
+          "request": {
+            "method": "POST",
+            "path": "/web/login",
+            "raw": true,
+            "headers": { "host": "market.replay.test", "content-type": "application/x-www-form-urlencoded" },
+            "text": "k0=v&k1=v&k2=v&k3=v&k4=v&k5=v&k6=v&k7=v&k8=v&k9=v&k10=v&k11=v&k12=v&k13=v&k14=v&k15=v&k16=v&k17=v&k18=v&k19=v&k20=v&k21=v&k22=v&k23=v&k24=v&k25=v&k26=v&k27=v&k28=v&k29=v"
+          },
+          "response": { "status": 413, "type": "text/plain; charset=utf-8", "headers": { "content-length": "21", "etag": "W/\"15-<指纹>\"", "x-powered-by": "Express" }, "body": "Invalid login request" }
+        },
+        {
+          "id": "submit-other-path",
+          "what": "POST /web 下别的路径：中继不接，落到最后的 404",
+          "request": { "method": "POST", "path": "/web/database/manager", "raw": true, "headers": { "host": "market.replay.test", "content-type": "application/x-www-form-urlencoded" }, "text": "x=1" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "21", "etag": "W/\"15-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "not found" } }
+        }
+      ]
+    },
+    {
+      "name": "off",
+      "what": "没开中继：两层放过。前端占位。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin", "WM_ODOO_URL": "http://odoo.replay.test" },
+      "fixtures": ["odoo-login-fake", "web-dist-stub"],
+      "steps": [
+        {
+          "id": "off-page",
+          "route": "GET /^\\/(?:web\\/|website\\/translations$|[a-z]{2}(?:_[A-Z]{2})?\\/website\\/translations$)/",
+          "class": "normal",
+          "what": "没开中继：这一层放过，落到页面兜底",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/web/login", "headers": {} },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "off-submit",
+          "route": "POST /^\\/web\\/login(?:\\/totp)?$/",
+          "class": "invalid",
+          "what": "没开中继、POST：放过，落到最后的 404",
+          "request": { "method": "POST", "path": "/web/login", "headers": { "content-type": "application/x-www-form-urlencoded" }, "text": "login=alice" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "21", "etag": "W/\"15-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "not found" } }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "开了中继、登录门开（enforce）。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin", "WM_ODOO_LOGIN_PROXY": "1", "WM_ODOO_URL": "http://odoo.replay.test", "WM_LOGIN_GATE": "enforce" },
+      "fixtures": ["odoo-login-fake"],
+      "steps": [
+        {
+          "id": "gated-page",
+          "route": "GET /^\\/(?:web\\/|website\\/translations$|[a-z]{2}(?:_[A-Z]{2})?\\/website\\/translations$)/",
+          "class": "normal",
+          "what": "登录门开、远程匿名：登录页本来就不用登录，照转给 Odoo",
+          "request": { "method": "GET", "path": "/web/login", "headers": { "x-forwarded-for": "198.51.100.7", "accept": "text/html" } },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-security-policy": "default-src 'self', frame-ancestors 'self'",
+              "referrer-policy": "strict-origin",
+              "set-cookie": ["session_id=replay-odoo-session-0001; HttpOnly; Path=/; SameSite=Lax"],
+              "transfer-encoding": "chunked",
+              "x-content-type-options": "nosniff",
+              "x-frame-options": "SAMEORIGIN",
+              "x-powered-by": "Express"
+            },
+            "body": "<!doctype html><form method=\"post\" action=\"/web/login\"><input name=\"login\"></form>"
+          }
+        },
+        {
+          "id": "gated-submit",
+          "route": "POST /^\\/web\\/login(?:\\/totp)?$/",
+          "class": "normal",
+          "what": "登录门开、远程匿名提交登录：照转",
+          "request": {
+            "method": "POST",
+            "path": "/web/login",
+            "raw": true,
+            "headers": { "x-forwarded-for": "198.51.100.7", "host": "market.replay.test", "content-type": "application/x-www-form-urlencoded", "origin": "http://market.replay.test" },
+            "text": "login=alice&password=synthetic"
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json",
+            "headers": {
+              "cache-control": "no-store",
+              "content-security-policy": "frame-ancestors 'self'",
+              "referrer-policy": "strict-origin",
+              "set-cookie": ["session_id=replay-odoo-session-0001-new; HttpOnly; Path=/; SameSite=Lax"],
+              "transfer-encoding": "chunked",
+              "x-content-type-options": "nosniff",
+              "x-frame-options": "SAMEORIGIN",
+              "x-powered-by": "Express"
+            },
+            "body": {
+              "method": "POST",
+              "url": "/web/login",
+              "headers": { "origin": "http://odoo.replay.test", "host": "odoo.replay.test", "accept-encoding": "identity", "content-type": "application/x-www-form-urlencoded" },
+              "body": "login=alice&password=synthetic"
+            }
+          }
+        },
+        {
+          "id": "gated-other",
+          "what": "登录门开、远程匿名、中继不接的 /web 路径：登录门先挡",
+          "request": { "method": "GET", "path": "/web/database/manager", "headers": { "x-forwarded-for": "198.51.100.7", "accept": "text/html" } },
+          "response": {
+            "status": 302,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "68", "location": "/login?next=%2Fweb%2Fdatabase%2Fmanager", "vary": "Accept", "x-powered-by": "Express" },
+            "body": "<p>Found. Redirecting to /login?next=%2Fweb%2Fdatabase%2Fmanager</p>"
+          }
+        }
+      ]
+    }
+  ]
+}
