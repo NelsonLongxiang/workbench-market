@@ -148,17 +148,26 @@ with sync_playwright() as p:
     check('负责人能放行的「等放行」（夹具：mine + answer_via 放行）：进「等你拍板」计红，等别人处理少一件，侧栏角标同一个数', head == '等你拍板2' and decide.locator('[data-testid=work-item-row]').count() == 2 and ohead == '等别人处理2' and nav.count() == 1 and nav.inner_text().strip() == '2', (head, ohead, nav.all_inner_texts()))
     ctx.close()
 
-    # 统筹在试联上看到的：负责人默认停在「我安排的」（那里 0 件等他），3 件在「我的团队的」里——页签上的红数指出在哪个视角
+    # 统筹在试联上看到的：负责人默认停在「我安排的」（那里 0 件等他），3 件在「我的团队的」里——页签上的红数指出在哪个视角。
+    # 夹具照真实的样子给全：登录着的合成负责人（/api/auth/me），「关注」里正好是这 3 件轮到他、能当场办的验收（和 decide 同一个判法）
     views = V(mine=2, team=30)
     views['mine']['decide'] = 0; views['team']['decide'] = 3
     handler, seen = serve(views, {'mine': [item(1, 'progress'), item(2, 'progress')], 'team': team_rows}, 'mine')
+    ME = {'authenticated': True, 'via': 'cookie', 'login': 'synthetic-lead', 'display_name': '合成负责人', 'principal': 'user:synthetic-lead', 'roles': []}
+    LEAD_ATT = {'items': [acc(i, True) for i in (1, 2, 3)], 'counts': {'total': 3, 'by_category': {'ask': 0, 'review': 0, 'accept': 3, 'glance': 0, 'grant': 0}, 'stuck_count': 0}, 'sources': {}}
     ctx = b.new_context(viewport={'width': 1440, 'height': 900}); pg = ctx.new_page(); pg.set_default_timeout(10000)
     pg.route(LIST, handler)
-    pg.route(re.compile(r'/api/attention$'), lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps({'items': [], 'counts': {'total': 0}, 'sources': {}})))
+    pg.route(re.compile(r'/api/attention$'), lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps(LEAD_ATT)))
+    pg.route(re.compile(r'/api/auth/me$'), lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps(ME)))
     pg.goto(M + '/work-items'); wait_view(pg, 'mine')
+    pg.wait_for_function("() => document.querySelector('[data-testid=wm-me-name]')?.textContent.trim().length > 0")
+    pg.wait_for_selector('[data-testid=nav-pending]')
     import os
     if os.environ.get('WM_SHOT_VIEWS'): pg.wait_for_timeout(500); pg.screenshot(path=os.environ['WM_SHOT_VIEWS'])  # 本机看样子用，CI 不设
     check('默认停在「我安排的」：这个页签没有红数（0 件不出）；「我的团队的」页签上红数 3，指出等他的在哪', pg.locator('[data-testid=work-items-view-decide-mine]').count() == 0 and pg.locator('[data-testid=work-items-view-decide-team]').inner_text().strip() == '3')
+    reds = [int(x) for x in pg.locator('[data-testid^=work-items-view-decide-]').all_inner_texts()]
+    nav = pg.locator('[data-testid=nav-pending]').inner_text().strip()
+    check('同一个计数：侧栏角标 3，等于各视角红数里的那 3 件（这里只有一个视角有，去重后就是它）；左下角是登录着的人', nav == '3' and max(reds) == 3 and pg.locator('[data-testid=wm-me-name]').inner_text().strip() == '合成负责人', (nav, reds))
     ctx.close()
     b.close()
 
