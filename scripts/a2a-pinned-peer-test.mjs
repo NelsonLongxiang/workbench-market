@@ -221,6 +221,31 @@ try {
   const rkSent = await waitFor(() => q('SELECT status FROM workbench_event_replies WHERE delivery_id = ?', rke.delivery)[0]?.status === 'sent');
   ok('……恢复 active 之后发出，挂起那几轮没有多记', rkSent && rk.got.length >= 1 && heldLines().length === 2, JSON.stringify({ rkSent, got: rk.got.length, lines: heldLines() }));
 
+  // 截止变更的通知（同 context 的新任务，.n 任务号）也过 canDeliver：对端在通知发出之前变成 key_changed → 挂起（一行 reply-held、仍 pending、attempts 0、
+  // 对端没收到）；恢复之后用 .n 任务号发出，原投递的结局不变
+  const dn = await peer('pdue');
+  register(dn);
+  const de = seedEvent(dn); // 原投递已发出
+  const dlv0 = q('SELECT status, attempts FROM workbench_event_deliveries WHERE id = ?', de.delivery)[0];
+  run("UPDATE a2a_peers SET status = 'key_changed', pending_public_key = ?, pending_fingerprint = ? WHERE root_url = ?", keyPair().pk, 'sha256:' + '9'.repeat(64), dn.url);
+  run(`INSERT INTO workbench_event_replies (kind, event_id, delivery_id, ref, team, caller_session, context_id, target_url, message, next_at, created_at)
+       VALUES ('answer', ?, ?, 1, 'superagent-team/a1b2c3d4e5f60718', 'market/12345678', ?, ?, ?, ?, ?)`, de.ev, de.delivery, de.ctx, dn.url,
+    JSON.stringify({ text: '[截止变更] 截止从 2099-01-01 改成 2099-01-02', by: 'user:alpha', notice: 'due-changed' }), '2000-01-01 00:00:00', t0);
+  const noticeHeld = () => q("SELECT detail FROM workbench_event_log WHERE delivery_id = ? AND action = 'reply-held'", de.delivery).map((x) => JSON.parse(x.detail).reason);
+  const firstHold = await waitFor(() => noticeHeld().length >= 1);
+  run("UPDATE workbench_event_replies SET next_at = '2000-01-01 00:00:00' WHERE delivery_id = ?", de.delivery);
+  await waitFor(() => (q('SELECT next_at FROM workbench_event_replies WHERE delivery_id = ?', de.delivery)[0]?.next_at ?? '') > '2001');
+  const nRow = q('SELECT status, attempts FROM workbench_event_replies WHERE delivery_id = ?', de.delivery)[0];
+  ok('截止变更通知：对端在发出之前变成 key_changed → 挂起（只一行 reply-held、仍 pending、attempts 0、对端没收到），不判死',
+    firstHold && JSON.stringify(noticeHeld()) === JSON.stringify(['peer_key_changed']) && nRow?.status === 'pending' && nRow.attempts === 0 && dn.got.length === 0, JSON.stringify({ firstHold, held: noticeHeld(), nRow, got: dn.got.length }));
+  run("UPDATE a2a_peers SET status = 'active', pending_public_key = '', pending_fingerprint = '' WHERE root_url = ?", dn.url);
+  run("UPDATE workbench_event_replies SET next_at = '2000-01-01 00:00:00' WHERE delivery_id = ?", de.delivery);
+  const nSent = await waitFor(() => q('SELECT status FROM workbench_event_replies WHERE delivery_id = ?', de.delivery)[0]?.status === 'sent');
+  const sentTask = String(dn.got.at(-1)?.task_id ?? '');
+  const dlv1 = q('SELECT status, attempts FROM workbench_event_deliveries WHERE id = ?', de.delivery)[0];
+  ok('……恢复之后用 .n 任务号发出（同一 context），原投递的结局不变', nSent && new RegExp(`^${de.ev}\\.d${de.delivery}\\.n\\d+\\.a1$`).test(sentTask) && dn.got.at(-1)?.context_id === de.ctx
+    && JSON.stringify(dlv1) === JSON.stringify(dlv0), JSON.stringify({ nSent, sentTask, ctx: dn.got.at(-1)?.context_id, dlv0, dlv1 }));
+
   console.log('三、跟进按根地址认，不按区');
   const s1 = await peer('pshared'), s2 = await peer('pshared'); // 同一个区，两台宿主
   register(s1); run("UPDATE a2a_peers SET id = 'peer_s1' WHERE root_url = ?", s1.url);

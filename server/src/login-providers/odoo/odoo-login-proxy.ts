@@ -3,6 +3,7 @@ import express from 'express';
 import { createProxyMiddleware, fixRequestBody } from 'http-proxy-middleware';
 import { configuredOdooUrl, odooSessionOf, safeLoginRedirect } from './odoo-session.ts';
 import { surfaceOf } from '../../surfaces.ts';
+import type { HttpService } from '../../http.ts';
 
 const ASSET = /^\/web\/(?:assets|static)\/[A-Za-z0-9_./~-]+$/;
 const LANG_TRANSLATIONS = /^\/[a-z]{2}(?:_[A-Z]{2})?\/website\/translations$/;
@@ -48,9 +49,24 @@ export async function revokeOdooSession(sid: string): Promise<boolean> {
   } catch { return false; }
 }
 
-/** Install the narrowly scoped same-origin login routes. */
-export function installOdooLoginProxy(app: express.Express): void {
-  if (process.env.WM_ODOO_LOGIN_PROXY !== '1') return;
+/**
+ * 同域登录中继的两条路由，经 HTTP 服务注册、报动作（阶段三）。由 index.ts 在任何请求体解析之前调用（中继要原样转发表单正文），
+ * 所以两条路由挂在原来那层中间件的位置。不管开没开中继都注册：没开时直接 next()，和原来「没挂」一样，路由一直在快照里。
+ *   · 读：GET（Express 的 GET 路由也接 HEAD）登录页、二次验证页、静态资源、公司 logo、翻译——路径正则是 odooLoginProxyRoute 放行范围的超集；
+ *   · 写：POST /web/login、/web/login/totp。
+ * 进来以后照旧按 odooLoginProxyRoute 逐条再判（和登录门用的是同一个判断），判不过的 next()。别的方法本来就不放行，走不进这两条路由，结果一样。
+ * 同源门的 403、不是市场面的 404、正文的 415/413/400、上游跳转不认的 502 都不是「谁能做什么」的结论。
+ */
+export function installOdooLoginProxy(http: HttpService): void {
+  const relay = process.env.WM_ODOO_LOGIN_PROXY === '1' ? createOdooLoginRelay() : null; // 开着而配置不对：照旧在这里抛错、拒绝启动
+  const pass = (req: express.Request, res: express.Response, next: express.NextFunction) => { if (!relay) return next(); relay(req, res, next); };
+  const statusNotVerdict = '同源门的 403、不是市场面的 404、正文不对、上游跳转不认的 502 都不是授权结论；登录页本来就给没登录的人';
+  http.get(/^\/(?:web\/|website\/translations$|[a-z]{2}(?:_[A-Z]{2})?\/website\/translations$)/, { action: 'login.odoo-proxy-page', kind: 'read', statusNotVerdict }, pass);
+  http.post(/^\/web\/login(?:\/totp)?$/, { action: 'login.odoo-proxy-submit', kind: 'write', statusNotVerdict }, pass);
+}
+
+/** The narrowly scoped same-origin login relay handler (body unchanged from the former global middleware). */
+function createOdooLoginRelay(): express.RequestHandler {
   const origin = configuredOdooOrigin();
   const proxy = createProxyMiddleware({
     target: origin, changeOrigin: true, xfwd: false,
@@ -126,7 +142,7 @@ export function installOdooLoginProxy(app: express.Express): void {
       },
     },
   });
-  app.use((req, res, next) => {
+  return (req, res, next) => {
     const rawPath = String(req.url ?? '').split('?')[0];
     if (!odooLoginProxyRoute(req.method, rawPath)) return next();
     if (surfaceOf(req) !== 'market') return res.status(404).end();
@@ -154,5 +170,5 @@ export function installOdooLoginProxy(app: express.Express): void {
       }
       forward();
     });
-  });
+  };
 }
