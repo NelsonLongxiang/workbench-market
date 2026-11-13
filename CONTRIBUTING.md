@@ -24,7 +24,7 @@
 | 表、列 | `server/src/db.ts`（幂等迁移） | 在别的文件里建表、改表 |
 | SQL 里要用的当前时间 | 代码生成（`new Date().toISOString()` 或毫秒数），作为参数传进 SQL | 在 SQL 里写 `datetime('now')`、`CURRENT_TIMESTAMP` 这类取时间的写法 |
 | SQL 写法 | 两种库（SQLite、PostgreSQL）都认的写法：`ON CONFLICT … DO UPDATE / DO NOTHING`、`RETURNING id`、`COALESCE` | 新增 SQLite 特有的写法（`INSERT OR REPLACE / IGNORE`、`lastInsertRowid`、`rowid`、`json_*` 函数等，清单见 `tech-route.json` 里 `sql-dialect` 的说明） |
-| 环境变量 | 启动时读一次并校验，同时写进 README | 在用到的地方直接读 `process.env` |
+| 环境变量 | 所属模块自己的 Config（`server/src/config.ts` 的 `defineConfig`；服务类插件写成 `static Config`），启动时取一次并校验，同时写进 README | 在用到的地方直接读 `process.env` |
 | 周期任务 | 能随所属模块一起停掉的定时器 | 裸的 `setInterval` |
 | 会往外发的周期任务或发送 | 发之前先问 `outboundOff()`（`server/src/outbound-gate.ts`），关着就整轮跳过、不记失败，并在 `scripts/outbound-off-test.mjs` 里加一个触发点 | 只靠底层的闸：发送会被当成失败，按退避重试、最后判死 |
 | 认人 | 经身份服务：`server/src/identity.ts` 的 `identity()`、`loginRelay()` | 引用 `server/src/login-providers/` 里面的文件 |

@@ -165,7 +165,7 @@ export function buildAgentCard(keyPath: string): Record<string, unknown> {
     if (Array.isArray(parsed)) peers = parsed.filter((x) => typeof x === 'string');
   } catch { /* 配置坏值忽略 */ }
   const core = {
-    capabilities: { sop: true, bindings: 'human-only', stage: 'P1-readonly', ...(memberProvenance ? { canvasMemberProvenance: true } : {}), ...(progressReceipts ? { progressReceipts: true } : {}), ...(teamRoster ? { teamRoster: true } : {}) },
+    capabilities: { sop: true, bindings: 'human-only', stage: 'P1-readonly', reworkReturns: true, ...(memberProvenance ? { canvasMemberProvenance: true } : {}), ...(progressReceipts ? { progressReceipts: true } : {}), ...(teamRoster ? { teamRoster: true } : {}) },
     expiresAt: now + CARD_TTL_MS,
     name: 'workbench-market',
     session: MARKET_TEAM,

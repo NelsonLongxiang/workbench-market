@@ -154,6 +154,7 @@ const ROUTES = [
   ['A2A 出站管理面（/api/a2a/send，#594 注册到兜底之前后才走得到）', (l) => /^POST \/a2a\/direct @127\.0\.0\.1:/.test(l)],
   ['回执 outbox', (l) => l.startsWith('POST /outbox/')],
   ['人的答复发回', (l) => l.startsWith('POST /reply/')],
+  ['打回重做发回（#576）', (l) => l.startsWith('POST /sendback/')],
   ['探活（巡检、check-all）', (l) => /^GET \/ @127\.0\.0\.1:/.test(l)],
   ['/go/ 反代', (l) => l.startsWith('GET /wb/')],
   ['Odoo 认人', (l) => l.startsWith('POST /web/session/get_session_info ')],
@@ -183,6 +184,8 @@ ins('workbench_event_deliveries', { event_id: 'wbe-0000000000000001', target_tea
 ins('a2a_outbox', { run_id: 1, task_id: 't', context_id: 'c', target_url: U + '/outbox', payload: '{}', status: 'pending', attempts: 0, next_at: '2000-01-01 00:00:00' });
 // 人的答复发回席位（阶段七 R2）：一条到期的答复，目标是假网络
 ins('workbench_event_replies', { kind: 'answer', event_id: 'wbe-0000000000000001', delivery_id: 1, ref: 1, qid: 'q1', team: 'syn/1a2b3c4d', caller_session: 'market/synthetic', context_id: 'ctx-1', target_url: U + '/reply', message: JSON.stringify({ text: '合成答复', by: 'user:alpha' }), status: 'pending', attempts: 0, next_at: '2000-01-01 00:00:00', created_at: '2000-01-01 00:00:00' });
+// 打回重做发回（#576）：同一张回复表，kind=answer、ref 为负、正文带 return；到期就会被 replyTick 发
+ins('workbench_event_replies', { kind: 'answer', event_id: 'wbe-0000000000000001', delivery_id: 1, ref: -1, qid: '', team: 'syn/1a2b3c4d', caller_session: 'market/synthetic', context_id: 'ctx-1', target_url: U + '/sendback', message: JSON.stringify({ text: '合成打回理由', by: 'user:alpha', return: { of: 'wbe-0000000000000001.d1.a1', title: '合成事项' } }), status: 'pending', attempts: 0, next_at: '2000-01-01 00:00:00', created_at: '2000-01-01 00:00:00' });
 for (const [k, v] of [['health_interval_seconds', '10'], ['mcp_upstreams', JSON.stringify([{ prefix: 'syn', url: U + '/mcp', enabled: true }])], ['sandbox_bridge_url', U + '/sandbox']]) db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(k, v);
 db.prepare('INSERT INTO remote_allow_state (snapshot) VALUES (?)').run('[]');
 // 对端登记表（#553）：一个已登记的对端（刷新要去取它的名片），再一条通知绑定指向另一个根地址（localhost:端口，升级回填会去取卡）
@@ -332,7 +335,7 @@ try {
     check(off.wb.last_status !== 'down' && off.wb.last_checked_at === '' && off.hits.checkOne === 503 && off.hits.mcpCheck !== 'ok' && off.hits.mcpCheckAll !== 'ok',
       '外部台的状态一直没动：启动后那次巡检、单个检测（503）、MCP 的检测（一个和全部）都不探，不把副本里的台记成离线', show({ wb: off.wb, checkOne: off.hits.checkOne, mcpCheck: off.hits.mcpCheck, mcpCheckAll: off.hits.mcpCheckAll }));
     check(off.peers.length === 1 && off.peers[0].card_error === '' && off.peers[0].card_fetched_at === '', '对端登记表：启动回填不取卡、不建行；已登记的那一行不被改（没写 card_error）', show(off.peers));
-    check(off.replies.length === 1 && off.replies.every((o) => o.status === 'pending' && o.attempts === 0), '人的答复发回席位（阶段七 R2）仍是 pending、attempts 0', show(off.replies));
+    check(off.replies.length === 2 && off.replies.every((o) => o.status === 'pending' && o.attempts === 0), '人的答复、打回重做发回席位（阶段七 R2、#576）都仍是 pending、attempts 0', show(off.replies));
     check(show(off.anon?.outbound) === '{"mode":"off"}' && show(off.ready?.outbound) === '{"mode":"off"}', '健康检查、就绪检查匿名都能看到 outbound: off（不给计数）', show([off.anon?.outbound, off.ready?.outbound]));
     const row = off.anon?.self_probe?.rows?.find((r) => r.id === 'market.outbound.disconnected');
     check(row?.verdict === 'pass' && off.anon?.self_probe?.passed === true, '启动自检里有「对外已断开」这一行，并且通过', show(row));

@@ -256,7 +256,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: 身份接缝与主体（契约单测·主体服务单测·主体标识规范化（NFKC_Casefold）全部码位对照 Unicode 属性、成批过主体服务·飞书登录与市场会话对抗组（本机假飞书：state 伪造与重放、next 外跳、换令牌失败、用户标识缺失或被篡改、停用注销过期即失效）·离职即时失效对抗组（通讯录事件验签与重放、对账补漏）·假提供方对抗组：缺省/登录门/登录中继/中继加登录门四个实例上的拒绝例与合法对照，停用一个主体各入口立即不认、恢复立即照常·部门读写（登录的人读、管理员写、dept:<部门标识> 只认部门表里有的）·夹具只在测试环境可用·变异测试逐个改坏必须变红；不访问任何外部系统）
         run: |
-          ( node scripts/identity-contract-test.mjs && node scripts/principal-service-test.mjs && node scripts/principal-fold-test.mjs && node scripts/identity-seam-smoke.mjs && node scripts/identity-source-timeout-test.mjs && node scripts/feishu-login-smoke.mjs && node scripts/feishu-offboard-smoke.mjs && node scripts/export-reveal-smoke.mjs && node scripts/grants-smoke.mjs && node scripts/departments-smoke.mjs && node scripts/access-smoke.mjs && node scripts/red-lines-test.mjs && node scripts/teams-smoke.mjs && node scripts/judgment-compare-smoke.mjs && node scripts/judgment-compare-snapshot-test.mjs && node scripts/judgment-compare-zero-test.mjs && node scripts/judgment-compare-sweep-test.mjs && node scripts/judgment-enforce-test.mjs && node scripts/role-presets-test.mjs && node scripts/custom-roles-smoke.mjs ) > identity-suites.log 2>&1 &
+          ( node scripts/identity-contract-test.mjs && node scripts/principal-service-test.mjs && node scripts/principal-fold-test.mjs && node scripts/identity-seam-smoke.mjs && node scripts/identity-source-timeout-test.mjs && node scripts/feishu-login-smoke.mjs && node scripts/feishu-offboard-smoke.mjs && node scripts/export-reveal-smoke.mjs && node scripts/grants-smoke.mjs && node scripts/departments-smoke.mjs && node scripts/access-smoke.mjs && node scripts/red-lines-test.mjs && node scripts/teams-smoke.mjs && node scripts/judgment-compare-smoke.mjs && node scripts/judgment-compare-snapshot-test.mjs && node scripts/judgment-migration-test.mjs && node scripts/judgment-compare-zero-test.mjs && node scripts/judgment-compare-sweep-test.mjs && node scripts/judgment-enforce-test.mjs && node scripts/role-presets-test.mjs && node scripts/custom-roles-smoke.mjs ) > identity-suites.log 2>&1 &
           suites=$!
           set +e
           node scripts/identity-seam-mutation.mjs --jobs 2
@@ -281,8 +281,12 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: 升级冒烟的比对口径自检（只有回填版本升了时才放回填进度表的 version、phase、cursor；版本没升、别的表、别的列一律算改了）
+        run: node scripts/upgrade-smoke.mjs --selftest
       - name: 升级冒烟（基线 origin/release/prod-hotfix-1 → 本 PR）
         run: node scripts/upgrade-smoke.mjs
+      - name: 升级冒烟（基线 fa89254f，第二次上线的起点 → 本 PR）
+        run: node scripts/upgrade-smoke.mjs --base fa89254fe1f4027363df240914d1c8c6e9d02ed2
   tsc-and-syntax:
     runs-on: ubuntu-latest
     steps:
@@ -385,6 +389,8 @@ jobs:
         run: node scripts/http-service-test.mjs
       - name: 周期定时器随上下文停（index.ts 之外带周期定时器的模块起来之后都在跑；卸载根上下文之后一个不剩；把 unref 换成空操作，子进程照样自己退出）
         run: node scripts/timers-unload-test.mjs
+      - name: 配置的落点（模块自己的 Config：不给配置取启动环境、给了用给的、非法值装不上；服务类插件经 Cordis 拿到配置；收进来的模块解析口径照旧、不再直接读环境变量）
+        run: node scripts/config-landing-test.mjs
       - name: 路由录制回放（搬路由之前录下的应答，对同一组请求重放，状态码、响应头、响应体必须零差异；每条路由都有未授权、参数非法、正常三类，按录下来的应答核对；自检先红后绿）
         run: node scripts/route-replay-test.mjs --selftest && node scripts/route-replay-test.mjs
       - name: Startup security self-probe (#326, loopback synthetic only)
@@ -514,6 +520,10 @@ jobs:
         run: node scripts/bench-blocks-ui-unit.mjs
       - name: 「谁能做什么」页单测（纯函数——授予的状态、范围、期限，待核准，按人排的表，矩阵格子；单列一步）
         run: node scripts/access-ui-unit.mjs
+      - name: 驾驶舱左栏紧凑行单测（纯函数——一条的键、标签怎么说、选中的那条还在不在；单列一步）
+        run: node scripts/cockpit-attention-unit.mjs
+      - name: 嵌台防护单测（纯函数——登记的地址指不指向市场自己、框里是不是市场自己的页面；单列一步）
+        run: node scripts/embed-guard-unit.mjs
       - name: 「团队」页单测（纯函数——团队状态、负责人、成员归谁用、计数、空和读不到的说法、建部门校验；单列一步）
         run: node scripts/team-ui-unit.mjs
       - name: 身份服务连不上单测（纯函数——认法只认 502 加这个代号·退避重试·连上后清状态并重读·全景的总结句；单列一步）

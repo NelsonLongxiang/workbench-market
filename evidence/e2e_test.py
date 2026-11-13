@@ -31,6 +31,20 @@ BASE = f'http://127.0.0.1:{_port}'
 ADMIN_TOKEN = _os.environ.get('E2E_ADMIN_TOKEN', '')
 RESULTS = []
 
+# 要嵌进页面的测试工作台（使用页、驾驶舱面板）指向这个本机小页面，不指向市场自己：
+# 嵌台防护（web/src/embed-guard.ts）不把市场套进市场，登记成 BASE 的台在使用页、驾驶舱里会被换成一句说明
+import http.server as _hs, socketserver as _ss, threading as _th
+class _EmbedPage(_hs.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = b'<!doctype html><title>E2E embed</title><p>E2E embedded bench</p>'
+        self.send_response(200); self.send_header('Content-Type', 'text/html; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
+    def do_HEAD(self):
+        self.send_response(200); self.send_header('Content-Type', 'text/html; charset=utf-8'); self.end_headers()
+    def log_message(self, *a): pass
+_embed_srv = _ss.TCPServer(('127.0.0.1', 0), _EmbedPage)
+_th.Thread(target=_embed_srv.serve_forever, daemon=True).start()
+EMBED_URL = f'http://127.0.0.1:{_embed_srv.server_address[1]}/'
+
 
 def record(name, ok, err=''):
     RESULTS.append((name, ok, err))
@@ -225,7 +239,7 @@ with sync_playwright() as p:
             assert '必须以 http' in modal.inner_text(), 'URL pattern 校验未出现'
             record('表单校验（必填/URL pattern）', True)
             # 2c. 正常填写提交
-            modal.get_by_label('服务地址').fill(BASE)
+            modal.get_by_label('服务地址').fill(EMBED_URL)
             modal.get_by_label('分类').fill('E2E')
             modal.get_by_label('标签').click()
             page.keyboard.type('e2e')
@@ -316,7 +330,7 @@ with sync_playwright() as p:
             modal.wait_for(state='visible')
             # 预填检查：名称带 (副本)，地址与源一致
             assert modal.get_by_label('名称').input_value() == 'E2E 改名后 (副本)', '副本名称预填错误'
-            assert modal.get_by_label('服务地址').input_value() == BASE, '地址预填错误'
+            assert modal.get_by_label('服务地址').input_value() == EMBED_URL, '地址预填错误'
             modal.get_by_label('名称').fill('E2E 复制件')
             submit_modal(modal)
             page.wait_for_timeout(1200)
@@ -338,7 +352,7 @@ with sync_playwright() as p:
     else:
         # 控制面关闭（WM_CONTROL_PORT=0）：管理写只能走本机 CLI（回环、无浏览器标记）；业务面读面 UI 照旧
         try:
-            r = api(page, 'POST', '/api/workbenches', {'name': 'E2E 测试工作台', 'url': BASE, 'category': 'E2E',
+            r = api(page, 'POST', '/api/workbenches', {'name': 'E2E 测试工作台', 'url': EMBED_URL, 'category': 'E2E',
                                                         'tags': ['e2e'], 'description': '**E2E** 自动化测试条目'})
             assert r.status == 201, f'CLI 新增应 201: {r.status}'
             wid = r.json()['id']
@@ -575,7 +589,7 @@ with sync_playwright() as p:
     # 业务面页面不带口令、没登录的 401（cockpit_auth_required），带口令的照旧改得了、删得了。
     # #302 方案③：业务面隐藏全部编辑入口并提示走命令行；布局由本机 CLI 写，页面只验渲染/持久化（单面旧实例仍走页面改）。
     try:
-        pw = api(page, 'POST', '/api/workbenches', {'name': 'E2E 驾驶舱面板源', 'url': BASE}).json()['id']
+        pw = api(page, 'POST', '/api/workbenches', {'name': 'E2E 驾驶舱面板源', 'url': EMBED_URL}).json()['id']
         page.goto(BASE + '/cockpit')
         page.wait_for_load_state('networkidle')
         if CTRL is None:

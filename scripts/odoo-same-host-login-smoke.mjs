@@ -20,15 +20,15 @@ const up = createServer((req, res) => {
     }
     if (p.pathname === '/web/login' && req.method === 'POST') {
       const fields = new URLSearchParams(body);
-      if (fields.get('login') === 'fixture-totp') { res.writeHead(302, {'location':'/web/login/totp?redirect=%2Ftasks'}); return res.end(); }
+      if (fields.get('login') === 'fixture-totp') { res.writeHead(302, {'location':'/web/login/totp?redirect=%2F'}); return res.end(); }
       if (fields.get('login') === 'fixture-foreign') { res.writeHead(302, {'location':'https://evil.invalid'}); return res.end(); }
       if (fields.get('login') === 'fixture' && fields.get('password') === 'fixture-password' && String(req.headers.cookie).includes(SID0)) {
-        res.writeHead(303, {'location':fields.get('redirect') || '/tasks', 'set-cookie': ['session_id='+SID1+'; Path=/; HttpOnly']});
+        res.writeHead(303, {'location':fields.get('redirect') || '/', 'set-cookie': ['session_id='+SID1+'; Path=/; HttpOnly']});
       } else res.writeHead(200, {'content-type':'text/html'});
       return res.end();
     }
     if (p.pathname === '/web/login/totp') {
-      if (req.method === 'POST') res.writeHead(303, {'location':'/tasks','set-cookie':['session_id='+SID1+'; Path=/; HttpOnly']});
+      if (req.method === 'POST') res.writeHead(303, {'location':'/','set-cookie':['session_id='+SID1+'; Path=/; HttpOnly']});
       else res.writeHead(200, {'content-type':'text/html'});
       return res.end('synthetic-totp');
     }
@@ -68,7 +68,7 @@ async function browserLogin(wid) {
       const send=(method,params={})=>new Promise((ok,no)=>{const n=++id;pending.set(n,{resolve:ok,reject:no});ws.send(JSON.stringify({id:n,method,params}));});
       const evaluate=async expression=>(await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true})).result.value;
       await send('Page.enable');await send('Runtime.enable');await send('Network.enable');
-      await send('Page.navigate',{url:'http://'+host+':'+port+'/go/'+wid+'/?return=%2Ftasks'});
+      await send('Page.navigate',{url:'http://'+host+':'+port+'/go/'+wid+'/?return=%2F'});
       let login=false;
       for(let n=0;n<80;n++){try{login=!!(await evaluate("location.pathname==='/web/login' && !!document.querySelector('input[name=login]')"));}catch{}if(login)break;await new Promise(q=>setTimeout(q,100));}
       check(host+' browser follows same-host relay',login);
@@ -81,7 +81,10 @@ async function browserLogin(wid) {
         const browserPost=seen.slice(seenAtStart).some(x=>x.method==='POST' && x.path.split('?')[0]==='/web/login' && new URLSearchParams(x.body).get('login')==='fixture' && String(x.headers.cookie).includes(SID0));
         check(host+' browser form reaches Odoo and shares session with whoami',who && browserPost);
         let landed=false;
-        for(let n=0;n<80;n++){try{landed=!!(await evaluate("location.hostname === '"+host+"' && location.pathname === '/tasks'"));}catch{}if(landed)break;await new Promise(q=>setTimeout(q,100));}
+        // 落点要稳：回到首页 /，并且连着几次看都还在那里（不靠赶上跳转中途的一瞬）
+        let steady=0;
+        for(let n=0;n<120 && steady<5;n++){let at=false;try{at=!!(await evaluate("location.hostname === '"+host+"' && location.pathname === '/' && document.readyState === 'complete'"));}catch{}steady=at?steady+1:0;await new Promise(q=>setTimeout(q,100));}
+        landed=steady>=5;
         if(!landed) { const nav=await evaluate("JSON.stringify({path:location.pathname,document:performance.getEntriesByType('navigation')[0]?.name})"); console.log('    browser navigation:',nav); const last=seen.filter(x=>x.method==='POST' && x.path.startsWith('/web/login')).at(-1); console.log('    submitted fixture:',last ? {redirect:new URLSearchParams(last.body).get('redirect'),loginOk:new URLSearchParams(last.body).get('login')==='fixture',passwordOk:new URLSearchParams(last.body).get('password')==='fixture-password',cookieOk:String(last.headers.cookie).includes(SID0)} : 'no POST', 'navigation:', JSON.stringify(navEvents),'upstream:',JSON.stringify(seen.slice(seenAtStart).map(x=>({method:x.method,path:x.path.split('?')[0],sid0:String(x.headers.cookie).includes(SID0),sid1:String(x.headers.cookie).includes(SID1)})))); }
         check(host+' browser login returns to market host',landed);
       }
@@ -95,21 +98,21 @@ try {
   if(!ready)throw Error('fixture server not ready: '+errors.slice(-800));
   // 中继开着、库里还没有任何 Odoo 台：登录入口照样给出（直接是本机 /web/login），部署方不用插假工作台
   const bare=await http('GET','/api/auth/viewer',{host:'192.0.2.88:9800'});
-  check('relay login entry without any registered Odoo workbench',bare.status===401 && JSON.parse(bare.text).login_url==='/web/login?redirect=%2Ftasks');
+  check('relay login entry without any registered Odoo workbench',bare.status===401 && JSON.parse(bare.text).login_url==='/web/login?redirect=%2F');
   const reg=await http('POST','/api/workbenches',{'content-type':'application/json'},JSON.stringify({name:'fixture Odoo',url:env.WM_ODOO_URL+'/web',type:'web'}));
   const wid=JSON.parse(reg.text).id; if(!wid)throw Error('fixture registration failed');
   for (const [label,host,https] of [['LAN','192.0.2.88:9800',false],['public','market.example.test',true]]) {
     const h={host,...(https?{'x-forwarded-proto':'https'}:{})};
     let anon=await http('GET','/api/auth/viewer',h); let login=JSON.parse(anon.text).login_url;
-    check(label+' anonymous viewer probe returns relative login URL',anon.status===401 && login==='/web/login?redirect=%2Ftasks');
-    let relay=await http('GET','/go/'+wid+'/?return=%2Ftasks',h);
-    check(label+' relay stays on current host',relay.status===200 && relay.text.includes('/web/login?redirect=%2Ftasks') && !relay.text.includes(env.WM_ODOO_URL));
-    let page=await http('GET','/web/login?redirect=%2Ftasks',h);
+    check(label+' anonymous viewer probe returns relative login URL',anon.status===401 && login==='/web/login?redirect=%2F');
+    let relay=await http('GET','/go/'+wid+'/?return=%2F',h);
+    check(label+' relay stays on current host',relay.status===200 && relay.text.includes('/web/login?redirect=%2F') && !relay.text.includes(env.WM_ODOO_URL));
+    let page=await http('GET','/web/login?redirect=%2F',h);
     const ck=page.headers['set-cookie']||[];
     check(label+' login proxied and cookie scoped correctly',page.status===200 && page.text.includes('csrf_token') && ck.length===1 && ck[0].includes('Path=/') && ck[0].includes('HttpOnly') && ck[0].includes('SameSite=Lax') && (https ? ck[0].includes('Secure') : !ck[0].includes('Secure')));
-    const payload=new URLSearchParams({csrf_token:'fixture-csrf',login:'fixture',password:'fixture-password',redirect:'/tasks'}).toString();
+    const payload=new URLSearchParams({csrf_token:'fixture-csrf',login:'fixture',password:'fixture-password',redirect:'/'}).toString();
     let post=await http('POST','/web/login', {...h,origin:(https?'https://':'http://')+host, 'sec-fetch-site':'same-origin','content-type':'application/x-www-form-urlencoded',cookie:'session_id='+SID0+'; wm_login=private', 'x-admin-token':'private-token',authorization:'Bearer private-token','x-app-token':'private-app-token'},payload);
-    check(label+' login POST succeeds without leaking market credentials',post.status===303 && post.headers.location==='/tasks' && post.headers['set-cookie']?.[0]?.includes(SID1) && seen.at(-1).headers.cookie==='session_id='+SID0 && !seen.at(-1).headers['x-admin-token'] && !seen.at(-1).headers.authorization && !seen.at(-1).headers['x-app-token']);
+    check(label+' login POST succeeds without leaking market credentials',post.status===303 && post.headers.location==='/' && post.headers['set-cookie']?.[0]?.includes(SID1) && seen.at(-1).headers.cookie==='session_id='+SID0 && !seen.at(-1).headers['x-admin-token'] && !seen.at(-1).headers.authorization && !seen.at(-1).headers['x-app-token']);
     let who=await http('GET','/api/auth/viewer',{...h,cookie:'session_id='+SID1});
     check(label+' logged-in whoami succeeds',who.status===200 && JSON.parse(who.text).viewer?.login==='fixture');
   }
@@ -202,11 +205,11 @@ try {
   r=await http('POST','/web/login',{host:'market.example.test','content-type':'application/x-www-form-urlencoded',cookie:'session_id='+SID0},new URLSearchParams({login:'fixture',password:'fixture-password',redirect:'//evil.invalid'}).toString());
   check('untrusted form return removed',!r.headers.location?.includes('evil.invalid') && !seen.at(-1).body.includes('evil.invalid'));
   r=await http('POST','/web/login',{host:'market.example.test','content-type':'application/x-www-form-urlencoded'},'login=fixture-totp');
-  check('TOTP challenge stays on current host',r.status===302 && r.headers.location==='/web/login/totp?redirect=%2Ftasks');
+  check('TOTP challenge stays on current host',r.status===302 && r.headers.location==='/web/login/totp?redirect=%2F');
   r=await http('GET',r.headers.location,{host:'market.example.test'});
   check('TOTP form reaches fixed Odoo',r.status===200 && r.text==='synthetic-totp');
   r=await http('POST','/web/login/totp',{host:'market.example.test','content-type':'application/x-www-form-urlencoded'},'totp_token=123456');
-  check('TOTP completes with Odoo session',r.status===303 && r.headers.location==='/tasks' && r.headers['set-cookie']?.[0]?.includes(SID1));
+  check('TOTP completes with Odoo session',r.status===303 && r.headers.location==='/' && r.headers['set-cookie']?.[0]?.includes(SID1));
   r=await http('POST','/web/login',{host:'market.example.test','content-type':'application/x-www-form-urlencoded'},'login=fixture-foreign');
   check('foreign upstream redirect rejected',r.status===502 && !r.headers.location);
   r=await http('POST','/web/login',{host:'market.example.test','content-type':'application/x-www-form-urlencoded'},'x='+('a'.repeat(17000)));
