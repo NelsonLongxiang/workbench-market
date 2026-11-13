@@ -31,7 +31,7 @@ import { listVars, workbenchScope } from './workbench-vars.ts';
 import { principalsAdmin } from './routes/principals.ts';
 import { sopRunAcceptance } from './routes/sop-run-lifecycle.ts';
 import { buildBoard, findBoardWorkbench, parseConfig, BOARD_PATH, type BoardVar } from './owner-pending.ts';
-import { openSeatAsks } from './services/attention-sources.ts';
+import { openSeatAsks, SEAT_ASK_BATCH, SEAT_ASK_LIMIT } from './services/attention-sources.ts';
 import { benchMcpDecider, benchViewsConfig } from './routes/bench-views.ts';
 import { pendingBenchRequests } from './services/bench-mcp.ts';
 
@@ -164,19 +164,32 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
         const viewer = await requestViewer(req, admin);
         if (!admin && !viewer.principal) return null;
         const items = svc<WorkItemService>('workItems');
-        return openSeatAsks().flatMap((a) => {
-          const w = items.get(`wi_${a.event_id}`);
-          if (!w || !canSee(w, viewer)) return [];
-          return [item({
-            source: 'seat-asks', source_id: String(a.delivery_id), category: 'ask',
-            title: `${a.target_team} 问：${a.question || '（没写问题）'}${optionsHint(a.options)}`,
-            waiting_for: a.ask_kind === 'receipt' ? (a.asked_by || a.target_team) : a.asked_by ? `receiver:${a.asked_by}` : a.target_team, since: a.asked_at,
-            answers: itemDecisionVerdict(w, viewer, 'answer').ok ? ['answer'] : [],
-            link: `/work-items/wi_${a.event_id}`,
-            // 提问轮到的是建立人：代办的人（管理层）在这里 mine 为假
-            mine: turnOf(w, viewer).answer, creator: creatorOf(w), cockpit_id: w.cockpit_id ?? null,
-          })];
-        });
+        // 全库还没答的提问（不按最近多少个事件截断），按提问先后分批往后取，每批按可见性过滤后累加：
+        // 凑满这个人看得到的上限后，再往后看还有没有他看得到的，有才标 more。more 只反映他看得到的那些——
+        // 一条都看不到的人，应答和全库没有提问时一样
+        const list: AttentionItem[] = [];
+        let more = false;
+        for (let after: { asked_at: string; delivery_id: number } | null = null; ;) {
+          const batch = openSeatAsks(after, SEAT_ASK_BATCH);
+          for (const a of batch) {
+            const w = items.get(`wi_${a.event_id}`);
+            if (!w || !canSee(w, viewer)) continue;
+            if (list.length >= SEAT_ASK_LIMIT) { more = true; break; }
+            list.push(item({
+              source: 'seat-asks', source_id: String(a.delivery_id), category: 'ask',
+              title: `${a.target_team} 问：${a.question || '（没写问题）'}${optionsHint(a.options)}`,
+              waiting_for: a.ask_kind === 'receipt' ? (a.asked_by || a.target_team) : a.asked_by ? `receiver:${a.asked_by}` : a.target_team, since: a.asked_at,
+              answers: itemDecisionVerdict(w, viewer, 'answer').ok ? ['answer'] : [],
+              link: `/work-items/wi_${a.event_id}`,
+              // 提问轮到的是建立人：代办的人（管理层）在这里 mine 为假
+              mine: turnOf(w, viewer).answer, creator: creatorOf(w), cockpit_id: w.cockpit_id ?? null,
+            }));
+          }
+          if (more || batch.length < SEAT_ASK_BATCH) break;
+          const last = batch[batch.length - 1]!;
+          after = { asked_at: last.asked_at, delivery_id: Number(last.delivery_id) };
+        }
+        return more ? { items: list, total: list.length, more } : list;
       },
     }),
     provide({

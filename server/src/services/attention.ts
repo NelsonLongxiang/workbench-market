@@ -104,15 +104,19 @@ export type AttentionProvider<R = unknown> = {
 };
 
 export type AnswerOutcome = { status: number; body: unknown; duplicate?: boolean };
-/** 提供方给的条目：一个数组；或者条目有上限时，给出来的那几条和这个人一共有几条（total ≥ items.length） */
-export type AttentionList = AttentionItem[] | { items: AttentionItem[]; total: number };
+/**
+ * 提供方给的条目：一个数组；或者条目有上限时，给出来的那几条和这个人一共有几条（total ≥ items.length）。
+ * 数不出一共几条、只知道超了上限的，给 more: true（来源的 sources 里带 more，前端说一句「还有更多」）
+ */
+export type AttentionList = AttentionItem[] | { items: AttentionItem[]; total: number; more?: boolean };
 /** 提供方给的条目（两种形状统一成数组） */
 export const itemsOf = (l: AttentionList | null): AttentionItem[] | null => (l === null ? null : Array.isArray(l) ? l : l.items);
 
 /** 答复占位的期限：转给原路由一次用不了这么久；过了还没收尾的就是卡死或被杀了 */
 export const PENDING_TTL_SECONDS = 120;
 
-export type AttentionSourceMeta = { label: string; visible: boolean; count: number; error?: string };
+/** more：这个来源超过了一次能列的上限，后面还有没列出来的（只在为真时出现） */
+export type AttentionSourceMeta = { label: string; visible: boolean; count: number; more?: true; error?: string };
 export type AttentionView = {
   items: AttentionItem[];
   /** stuck_count：「卡住的事」这个人一共有几件（各卡住来源的总数，含超出上限没给出来的）。和角标分开，前端在总结句里另说一句 */
@@ -209,7 +213,7 @@ export class AttentionService extends Service {
         const raw = await (p as AttentionProvider<R>).list(req);
         const got = itemsOf(raw);
         const total = raw === null ? 0 : Array.isArray(raw) ? raw.length : Math.max(raw.total, raw.items.length);
-        sources[p.source] = { label: p.label, visible: got !== null, count: total };
+        sources[p.source] = { label: p.label, visible: got !== null, count: total, ...(raw !== null && !Array.isArray(raw) && raw.more ? { more: true as const } : {}) };
         if (got) items.push(...got);
         if (p.stuck) stuck += total;
       } catch (e) {
