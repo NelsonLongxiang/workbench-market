@@ -59,7 +59,7 @@ try {
     await call(i.base, 'PUT', `/api/mcp/sessions/${r.body?.id}/grants`, ADM, { grants: ['workbench_vars_get', 'workbench_vars_set'] });
     return r.body?.token;
   };
-  const alice = await mk('seat-alice'), bob = await mk('seat-bob');
+  const alice = await mk('sess-alice'), bob = await mk('sess-bob');
   ok('两个会话（两个席位）', typeof alice === 'string' && typeof bob === 'string');
   const rpc = async (token, args) => {
     const r = await fetch(i.base + '/mcp', { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'workbench_vars_set', arguments: args } }) });
@@ -71,7 +71,7 @@ try {
 
   console.log('▶ O1 作者');
   let m = await rpc(alice, { id: W, key: 'rules', value: { v: 1 }, kind: 'const' });
-  ok('会话 seat-alice 新建常量 → 作者 mcp:seat-alice', !m.isError && m.out?.owner === 'mcp:seat-alice' && m.out?.kind === 'const', m.text.slice(0, 200));
+  ok('会话 sess-alice 新建常量 → 作者 mcp:sess-alice', !m.isError && m.out?.owner === 'mcp:sess-alice' && m.out?.kind === 'const', m.text.slice(0, 200));
 
   console.log('▶ O2 作者本人维护');
   m = await rpc(bob, { id: W, key: 'rules', value: { v: 2 }, revision: 1, override: true, reason: 'bob tries' });
@@ -81,9 +81,9 @@ try {
   m = await rpc(alice, { id: W, key: 'rules', value: { v: 2 }, revision: 1, override: true });
   ok('作者带 override 不写 reason → reason_required', m.isError && /reason/.test(m.text), m.text.slice(0, 200));
   m = await rpc(alice, { id: W, key: 'rules', value: { v: 2 }, revision: 1, override: true, reason: '口径更新' });
-  ok('作者带 override 与 reason 修订 → revision=2，仍是常量，作者不变', !m.isError && m.out?.revision === 2 && m.out?.kind === 'const' && m.out?.owner === 'mcp:seat-alice' && m.out?.value?.v === 2, m.text.slice(0, 200));
+  ok('作者带 override 与 reason 修订 → revision=2，仍是常量，作者不变', !m.isError && m.out?.revision === 2 && m.out?.kind === 'const' && m.out?.owner === 'mcp:sess-alice' && m.out?.value?.v === 2, m.text.slice(0, 200));
   let r = await call(i.base, 'GET', vpath(W, 'rules') + '/audit', CLI);
-  ok('审计记作者本人与理由', r.body?.items?.[0]?.action === 'const_override' && r.body?.items?.[0]?.actor === 'mcp:seat-alice' && r.body?.items?.[0]?.reason === '口径更新', JSON.stringify(r.body?.items?.[0]));
+  ok('审计记作者本人与理由', r.body?.items?.[0]?.action === 'const_override' && r.body?.items?.[0]?.actor === 'mcp:sess-alice' && r.body?.items?.[0]?.reason === '口径更新', JSON.stringify(r.body?.items?.[0]));
 
   console.log('▶ O3 管理员与台令牌');
   r = await call(i.base, 'PUT', vpath(W, 'rules'), ADM, { value: { v: 9 }, revision: 2, override: true, reason: 'admin' });
@@ -92,20 +92,20 @@ try {
   ok('口令管理员新建常量 → 作者留空（共享身份）', r.status === 201 && r.body?.owner === '', JSON.stringify(r.body));
 
   console.log('▶ O4 本机兜底与移交');
-  r = await call(i.base, 'PUT', vpath(W, 'rules'), ADM, { value: { v: 2 }, revision: 2, override: true, reason: 'x', owner: 'mcp:seat-bob' });
+  r = await call(i.base, 'PUT', vpath(W, 'rules'), ADM, { value: { v: 2 }, revision: 2, override: true, reason: 'x', owner: 'mcp:sess-bob' });
   ok('非本机移交作者 → 403', r.status === 403, JSON.stringify(r.body));
   r = await call(i.base, 'PUT', vpath(W, 'rules'), CLI, { value: { v: 2 }, revision: 2, override: true, reason: 'seat handover', owner: 'admin-token' });
   ok('移交给共享身份 → 400', r.status === 400, JSON.stringify(r.body));
-  r = await call(i.base, 'PUT', vpath(W, 'rules'), CLI, { value: { v: 2 }, revision: 2, override: true, reason: 'seat handover', owner: 'mcp:seat-bob' });
-  ok('本机命令行移交作者给 mcp:seat-bob → 200', r.status === 200 && r.body?.owner === 'mcp:seat-bob' && r.body?.revision === 3, JSON.stringify(r.body));
+  r = await call(i.base, 'PUT', vpath(W, 'rules'), CLI, { value: { v: 2 }, revision: 2, override: true, reason: 'seat handover', owner: 'mcp:sess-bob' });
+  ok('本机命令行移交作者给 mcp:sess-bob → 200', r.status === 200 && r.body?.owner === 'mcp:sess-bob' && r.body?.revision === 3, JSON.stringify(r.body));
   m = await rpc(alice, { id: W, key: 'rules', value: { v: 4 }, revision: 3, override: true, reason: 'old owner' });
   ok('移交后旧作者改不了', m.isError, m.text.slice(0, 200));
   m = await rpc(bob, { id: W, key: 'rules', value: { v: 4 }, revision: 3, override: true, reason: '接手后更新' });
-  ok('移交后新作者能改', !m.isError && m.out?.revision === 4 && m.out?.owner === 'mcp:seat-bob', m.text.slice(0, 200));
+  ok('移交后新作者能改', !m.isError && m.out?.revision === 4 && m.out?.owner === 'mcp:sess-bob', m.text.slice(0, 200));
 
   console.log('▶ O7 公共常量');
   m = await rpc(alice, { id: W, key: 'shared', value: 'v1', kind: 'const' });
-  ok('seat-alice 新建常量 shared', !m.isError && m.out?.owner === 'mcp:seat-alice', m.text.slice(0, 200));
+  ok('sess-alice 新建常量 shared', !m.isError && m.out?.owner === 'mcp:sess-alice', m.text.slice(0, 200));
   m = await rpc(bob, { id: W, key: 'shared', value: 'v1', revision: 1, override: true, reason: 'bob', owner: '*' });
   ok('别的会话设不了公共 → 拒绝', m.isError && /const_override_forbidden|只能由/.test(m.text), m.text.slice(0, 200));
   m = await rpc(alice, { id: W, key: 'shared', value: 'v1', revision: 1, override: true, owner: '*' });
@@ -113,21 +113,21 @@ try {
   m = await rpc(alice, { id: W, key: 'shared', value: 'v1', revision: 1, override: true, reason: '部门公共，大家按需维护', owner: '*' });
   ok('作者带 override、reason、owner=* → 仍是常量，owner=*', !m.isError && m.out?.kind === 'const' && m.out?.owner === '*' && m.out?.revision === 2, m.text.slice(0, 200));
   r = await call(i.base, 'GET', vpath(W, 'shared') + '/audit', CLI);
-  ok('审计记 make_public、作者与理由', r.body?.items?.[0]?.action === 'make_public' && r.body?.items?.[0]?.actor === 'mcp:seat-alice' && r.body?.items?.[0]?.reason === '部门公共，大家按需维护', JSON.stringify(r.body?.items?.[0]));
+  ok('审计记 make_public、作者与理由', r.body?.items?.[0]?.action === 'make_public' && r.body?.items?.[0]?.actor === 'mcp:sess-alice' && r.body?.items?.[0]?.reason === '部门公共，大家按需维护', JSON.stringify(r.body?.items?.[0]));
   m = await rpc(bob, { id: W, key: 'shared', value: 'v2', revision: 2 });
   ok('公共常量不带 override 改 → const_locked', m.isError && /const_locked|不能直接修改/.test(m.text), m.text.slice(0, 200));
   m = await rpc(bob, { id: W, key: 'shared', value: 'v2', revision: 2, override: true });
   ok('公共常量不写 reason → reason_required', m.isError && /reason/.test(m.text), m.text.slice(0, 200));
-  m = await rpc(bob, { id: W, key: 'shared', value: 'v2', revision: 2, override: true, reason: 'seat-bob：补一条' });
+  m = await rpc(bob, { id: W, key: 'shared', value: 'v2', revision: 2, override: true, reason: 'sess-bob：补一条' });
   ok('别的会话带 override 与 reason 修订公共常量 → 200，owner 仍是 *', !m.isError && m.out?.revision === 3 && m.out?.owner === '*' && m.out?.value === 'v2', m.text.slice(0, 200));
   r = await call(i.base, 'PUT', vpath(W, 'shared'), ADM, { value: 'v3', revision: 3, override: true, reason: 'admin' });
   ok('管理员口令改公共常量 → 403（共享身份）', r.status === 403 && r.body?.code === 'const_override_forbidden', JSON.stringify(r.body));
-  m = await rpc(bob, { id: W, key: 'shared', value: 'v2', revision: 3, override: true, reason: 'take', owner: 'mcp:seat-bob' });
+  m = await rpc(bob, { id: W, key: 'shared', value: 'v2', revision: 3, override: true, reason: 'take', owner: 'mcp:sess-bob' });
   ok('会话把公共常量收归自己 → owner_change_forbidden', m.isError && /owner_change_forbidden|只限部署机/.test(m.text), m.text.slice(0, 200));
   m = await rpc(bob, { id: W, key: 'shared', value: 'v2', kind: 'var', revision: 3, override: true, reason: 'unlock' });
   ok('会话把公共常量转成变量 → kind_change_forbidden', m.isError && /kind_change_forbidden|只限管理员/.test(m.text), m.text.slice(0, 200));
-  r = await call(i.base, 'PUT', vpath(W, 'shared'), CLI, { value: 'v2', revision: 3, override: true, reason: 'handover', owner: 'mcp:seat-alice' });
-  ok('本机命令行可把公共常量移交回个人作者', r.status === 200 && r.body?.owner === 'mcp:seat-alice', JSON.stringify(r.body));
+  r = await call(i.base, 'PUT', vpath(W, 'shared'), CLI, { value: 'v2', revision: 3, override: true, reason: 'handover', owner: 'mcp:sess-alice' });
+  ok('本机命令行可把公共常量移交回个人作者', r.status === 200 && r.body?.owner === 'mcp:sess-alice', JSON.stringify(r.body));
 
   console.log('▶ O5 删除');
   r = await call(i.base, 'DELETE', vpath(W, 'rules') + '?revision=4&override=1&reason=retired', ADM);
