@@ -281,8 +281,12 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: 升级冒烟的比对口径自检（只有回填版本升了时才放回填进度表的 version、phase、cursor；版本没升、别的表、别的列一律算改了）
+        run: node scripts/upgrade-smoke.mjs --selftest
       - name: 升级冒烟（基线 origin/release/prod-hotfix-1 → 本 PR）
         run: node scripts/upgrade-smoke.mjs
+      - name: 升级冒烟（基线 fa89254f，第二次上线的起点 → 本 PR）
+        run: node scripts/upgrade-smoke.mjs --base fa89254fe1f4027363df240914d1c8c6e9d02ed2
   tsc-and-syntax:
     runs-on: ubuntu-latest
     steps:
