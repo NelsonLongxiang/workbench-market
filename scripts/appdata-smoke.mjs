@@ -69,6 +69,12 @@ try {
   r = await call('GET', `/api/apps/appdata-smoke/data?limit=3&before_id=${bid}`);
   ok('游标翻页', r.body.items.length === 3 && r.body.items[0].id < bid);
   // ⑤ 未知 slug 404
+  // 同一个台、同一个幂等键的提交同时到：只落一行，其余认成重复（200 duplicate），不撞唯一索引出 500（提交在进程内按台排队）
+  {
+    const same = await Promise.all(Array.from({ length: 6 }, () => call('POST', '/api/apps/appdata-smoke/data', { data: { race: 1 }, idempotency_key: 'race-key-0001' })));
+    const codes = same.map((x) => x.status).sort().join(',');
+    ok('同键并发六笔：一笔 201，五笔 200 重复，没有 500', codes === '200,200,200,200,200,201' && same.filter((x) => x.body?.duplicate === true).length === 5, codes);
+  }
   r = await call('POST', '/api/apps/no-such/data', { x: 1 });
   ok('未知 slug 404', r.status === 404);
   // ⑤b 分页参数校验（评审 #22：limit=1.5 曾 500、limit=-1 曾绕过上限）
