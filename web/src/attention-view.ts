@@ -231,3 +231,10 @@ export function viaError(status: number, body: unknown): string {
   if (status === 409) return '这一条已经有人办过了，刷新看看';
   return '没办成';
 }
+
+/** AI 员工的提问太多、没列全（#720：sources['seat-asks'].more 只在这个人看得到的提问超过上限时才是 true，只列了按提问先后最早的一批）。
+ *  只认严格的 true；没有这一项、不是 true 都当列全了 */
+export const seatAsksMore = (sources: unknown): boolean =>
+  !!sources && typeof sources === 'object' && (sources as Record<string, { more?: unknown } | undefined>)['seat-asks']?.more === true;
+/** 没列全时那一句（中性的提示，不用警示色）：件数照列出来的算，这句话告诉人这些数不全 */
+export const SEAT_ASKS_MORE = 'AI 员工的提问太多，这里只列了最早的一批，还有更多没列出来。';

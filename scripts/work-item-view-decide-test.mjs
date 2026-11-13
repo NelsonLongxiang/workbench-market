@@ -81,7 +81,7 @@ const ready = (title, by) => {
   return it.id;
 };
 // 压测用的量，先造：别人建的 2000 件等验收、1000 件交给没有负责人的 Team B 等过目（管理层看得到、能代办，但都不轮到下面三个人，件数断言不受影响）。
-// 先造是因为「关注」的席位提问只看最近 200 个事件（openSeatAsks），下面那件在问的要落在这 200 个里，两边才是同一批（这个窗口和详情的 can 不一致，另报）
+// （「关注」的席位提问原先只看最近 200 个事件，这里曾因此先造量；现在全库直接查，见 attention-seat-asks-full-test）
 for (let i = 0; i < ${LOAD_READY}; i++) ready('合成压测：等验收 ' + i, 'user:load');
 for (let i = 0; i < ${LOAD_HELD}; i++) held('合成压测：等过目 ' + i, ${JSON.stringify(VACANT)}, 'user:load');
 const out = {

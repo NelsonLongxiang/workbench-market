@@ -5,7 +5,7 @@
   三、交表单：请求带视图、第几块、版本、填的值；交上去之后整页重新取数；版本变了、不让交，各说一句；
   四、取数没成：看不到、数据视图没开、只有一份视图（不出页签）；
   五、入口：没有台的卡片照原来嵌页面、不存在的卡片照原来说不存在（都走实例里真的入口）；入口 403、读不到（再试一次）。"""
-import json, os, sys
+import json, os, re, sys
 from urllib.parse import urlparse, parse_qs
 from playwright.sync_api import sync_playwright
 cfg = json.load(open(sys.argv[1]))
@@ -101,7 +101,15 @@ with sync_playwright() as p:
 
     print('二、换视图、改筛选')
     n0 = len(log['render'])
+    # 换视图时先回骨架：把下一次取数扣住，看新数据回来之前正文不是上一份视图的
+    held = []
+    pg.route(re.compile(r'/api/bench-views/[^/]+/render'), lambda r: held.append(r))
     pg.locator('[data-testid=bench-page-tab]', has_text='巡检明细').click()
+    pg.wait_for_selector('[data-testid=bench-page-loading]')
+    check('换视图：新数据回来之前正文是骨架，不留着上一份视图的块', pg.locator('[data-bb]').count() == 0 and pg.locator('[data-testid=bench-page-loading]').count() == 1)
+    pg.unroute(re.compile(r'/api/bench-views/[^/]+/render'))
+    for r in held: on_bv(r)
+
     pg.wait_for_function("() => document.querySelector('[data-testid=bench-page-tab][aria-selected=true]')?.textContent === '巡检明细'")
     pg.wait_for_selector('[data-bb=table] >> text=明细')
     check('换到「巡检明细」：地址带 v，按它取数', q_of(pg).get('v') == 'vk-rows' and log['render'][n0:][-1:] == [('vk-rows', {})], (pg.url, log['render'][n0:]))

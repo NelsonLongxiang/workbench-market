@@ -165,6 +165,15 @@ try {
     const att = await inst.call('GET', '/api/attention');
     const it = (att.body?.items ?? []).find((x) => x.source === 'a2a-peers' && x.source_id === b.id);
     check(it && it.category === 'grant' && it.title.includes(B.root) && it.title.includes(oldFp.slice(0, 19)) && it.title.includes(newFp.slice(0, 19)), '进「关注」：管理员看得到哪个对端、旧指纹、新指纹', show(it));
+    // 市场里没有对端登记表的页面：link 是 null（不是一个不存在的路径）；当场能办——answer_via 指向对端登记表的确认、停用接口，确认要填完整新指纹
+    const SPA = /^\/(overview|work-items|team|access|knowledge|cockpit|market|sops|tasks|attention|reviews|owner-pending|mcp-gateways|vault|types|skills|settings)(\/|\?|$)/;
+    const via = it?.answer_via;
+    check((it?.link === null || SPA.test(String(it?.link))) && it?.link === null && JSON.stringify(it?.answers) === '["confirm-key","disable"]'
+      && via?.method === 'POST' && via?.path === `/api/a2a/peers/${b.id}/confirm-key` && via?.answers?.['confirm-key']?.input?.fingerprint?.to === 'fingerprint' && via?.answers?.['confirm-key']?.input?.fingerprint?.required === true
+      && via?.answers?.disable?.path === `/api/a2a/peers/${b.id}/disable` && via?.answers?.disable?.input?.reason?.required === true,
+      '「关注」条目：link 是 null（市场里没有对端登记表的页面），答法走 answer_via——确认新公钥要填完整指纹、停用要写理由', show({ link: it?.link, answers: it?.answers, via }));
+    const viaWrong = await inst.call('POST', via?.path ?? '/api/none', { fingerprint: 'sha256:' + '1'.repeat(64) });
+    check(viaWrong.status === 409 && viaWrong.body?.reason === 'fingerprint_mismatch', '照 answer_via 发、填的指纹不对：409，不换公钥', show(viaWrong));
     const anonAtt = await inst.call('GET', '/api/attention', undefined, {});
     check(!(anonAtt.body?.items ?? []).some((x) => x.source === 'a2a-peers'), '匿名的「关注」里没有这一条');
     const wrong = await inst.call('POST', `/api/a2a/peers/${b.id}/confirm-key`, { fingerprint: 'sha256:' + '0'.repeat(64) });

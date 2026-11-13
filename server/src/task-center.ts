@@ -9,6 +9,10 @@ import type { TaskCenterService } from './services/task-center.ts';
 import type { SettingService } from './services/setting.ts';
 import { COCKPIT_ID_MAX, itemIdForEvent, type WorkItemService } from './services/work-item.ts';
 import type { CockpitService } from './services/cockpit.ts';
+import { directedSeatsDeclared } from './a2a.ts';
+import { peerRootOf, type A2aPeerService } from './services/a2a-peers.ts';
+import { rosterHostOfRoot, rosterSeatById } from './services/a2a-roster.ts';
+import { relationOf } from './team-relation.ts';
 
 export const taskCenterSteps = [
   { key: 'title', title: '任务标题' }, { key: 'intent', title: '任务意图' },
@@ -105,6 +109,12 @@ export function publishTaskIntake(body: any, opts: { publisherPrincipal?: string
  *     否则照样 held，应答带原因 review_required_by_policy
  *   · 幂等：同一个人同一个 idempotency_key 再发回第一次的结果；键相同、请求体不同 409
  *   · 限流：每人每分钟 arrange_rate_per_minute（缺省 5）件、每天 arrange_rate_per_day（缺省 50）件，管理员在设置里调
+ *   · 指名（规范 14 第 3 步，可选 seat_id = 名册里的 seatId）：带了才是指名，不带就是交给团队（总工分派），服务端不默认指名。
+ *     只能指名派给的那个画布团队（team 是 <区>/canvas/<名>）里 role=member 的席位；团队和名册按（宿主节点键, 团队地址）对，
+ *     节点键由这条通知绑定的根地址到名册里查。谁能指名谁用 team-relation 的 relationOf：成员的主人指名分给自己的席位（own-seat，
+ *     缺省不过目，review:true 时由本人过目）；团队负责人指名本团队任何成员（lead-directed，不过目）；别人 403。总工不能被指名。
+ *     对端宿主名片没声明 directedSeats：退回整队派发（不写指名），交给方式和过目都按没带 seat_id 算（handoff=team、review 缺省 true），
+ *     recorded 里记下 directed_fallback 留痕。
  * 调用方（路由）已经认过人：requester 是经身份服务认出来的、启用的人。
  */
 export type ArrangeOutcome = { status: number; body: Record<string, unknown> };
@@ -119,6 +129,31 @@ function settingInt(key: string, fallback: number): number {
 export function arrangeLimits(): { perMinute: number; perDay: number; staffDirect: boolean } {
   const direct = (svc<SettingService>('setting').get('staff_direct_dispatch') as { value?: unknown } | undefined)?.value;
   return { perMinute: settingInt('arrange_rate_per_minute', 5), perDay: settingInt('arrange_rate_per_day', 50), staffDirect: direct === 'on' };
+}
+
+const SEAT_ID = /^seat-[0-9a-f]{8}$/;
+const CANVAS_TEAM = /^([a-z0-9-]+)\/canvas\/([^/]+)$/i;
+
+/**
+ * 「安排一件事」带了 seat_id：核这个席位能不能被这个人指名，返回交给方式；不行返回 400 / 403。
+ * fallback=true：对端宿主名片没声明 directedSeats，退回整队派发（调用方不写指名、留痕）。
+ */
+function directedSeat(team: string, notifyUrl: string, seatId: string, requester: string): { handoff: 'own-seat' | 'lead-directed'; fallback: boolean } | ArrangeOutcome {
+  const no = (status: number, error: string): ArrangeOutcome => ({ status, body: { error } });
+  if (!directedSeatsDeclared()) return no(400, 'directed_seats_off');
+  const m = CANVAS_TEAM.exec(team);
+  if (!m) return no(400, 'team_not_canvas');
+  const teamKey = `${m[1].toLowerCase()}/canvas/${m[2]}`;
+  const host = rosterHostOfRoot(peerRootOf(notifyUrl));
+  if (!host) return no(400, 'roster_unavailable');
+  const seat = rosterSeatById(host, teamKey, seatId);
+  if (!seat) return no(400, 'seat_not_in_team');
+  if (seat.role === 'router') return no(400, 'seat_is_router');
+  if (seat.role !== 'member') return no(400, 'seat_not_member');
+  const rel = relationOf({ principal: requester }, { seat: { host, team: teamKey, seat: seat.seat, seat_id: seatId } }).relations;
+  const handoff = rel.includes('seat-owner') ? 'own-seat' as const : rel.includes('team-lead') ? 'lead-directed' as const : null;
+  if (!handoff) return no(403, 'seat_not_directable');
+  return { handoff, fallback: !svc<A2aPeerService>('a2aPeers').declares(notifyUrl, 'directedSeats') };
 }
 
 export function arrangeTask(raw: unknown, requester: string, now: Date = new Date()): ArrangeOutcome {
@@ -153,7 +188,9 @@ export function arrangeTask(raw: unknown, requester: string, now: Date = new Dat
     if (!svc<CockpitService>('cockpit').byId(b.cockpit_id)) return bad('cockpit_not_found');
     cockpitId = b.cockpit_id;
   }
-  const payload = JSON.stringify({ title: v.title, intent: v.intent, deliverable: v.deliverable, team, object: v.object, phase: v.phase, due, review, ...(cockpitId ? { cockpit_id: cockpitId } : {}) });
+  const seatId = str('seat_id');
+  if (seatId === null || (seatId !== '' && !SEAT_ID.test(seatId))) return bad('seat_id_invalid');
+  const payload = JSON.stringify({ title: v.title, intent: v.intent, deliverable: v.deliverable, team, object: v.object, phase: v.phase, due, review, ...(cockpitId ? { cockpit_id: cockpitId } : {}), ...(seatId ? { seat_id: seatId } : {}) });
   const sha = createHash('sha256').update(payload, 'utf8').digest('hex');
   const tasks = svc<TaskCenterService>('taskCenter');
   const items = svc<WorkItemService>('workItems');
@@ -172,20 +209,30 @@ export function arrangeTask(raw: unknown, requester: string, now: Date = new Dat
     const limits = arrangeLimits();
     if (tasks.arrangeCountSince(requester, sqlTime(new Date(now.getTime() - 60_000))) >= limits.perMinute) { tasks.arrangeRollback(); return { status: 429, body: { error: 'rate_limited', window: 'minute', limit: limits.perMinute } }; }
     if (tasks.arrangeCountSince(requester, sqlTime(new Date(now.getTime() - 86_400_000))) >= limits.perDay) { tasks.arrangeRollback(); return { status: 429, body: { error: 'rate_limited', window: 'day', limit: limits.perDay } }; }
-    if (!assignableTeams().some((t) => t.agent_node === team)) { tasks.arrangeRollback(); return bad('team_not_assignable'); }
+    const target = assignableTeams().find((t) => t.agent_node === team);
+    if (!target) { tasks.arrangeRollback(); return bad('team_not_assignable'); }
+    const directed = seatId ? directedSeat(team, target.notify_url, seatId, requester) : null;
+    if (directed && 'status' in directed) { tasks.arrangeRollback(); return directed; }
+    // 真指名（对端声明了 directedSeats）：指名自己的席位缺省不过目（review:true 才由本人过目）；负责人指名不过目。
+    // 退回整队派发（对端没声明）就是交给团队、总工分派：交给方式、过目、等谁过目一律按没带 seat_id 算（缺省先过目），
+    // 只在 recorded 里留 directed_fallback、应答带 directed:'fallback_team'
+    const pinned = directed && !directed.fallback ? directed : null;
+    const reviewNow = pinned ? (pinned.handoff === 'own-seat' ? b.review === true : false) : review;
     const centerOn = taskCenterPolicy().agent_dispatch_enabled;
-    const direct = !review && centerOn && limits.staffDirect;
+    const direct = !reviewNow && centerOn && limits.staffDirect;
     const at = sqlTime(now);
     const taskId = tasks.insertArranged({ title: v.title, payload, sha256: sha, requester, dispatch: direct, at });
     const fields: Record<string, unknown> = { title: v.title, intent: v.intent, references: '', deliverable: v.deliverable, target: team, due };
     const eventId = recordTaskCenterEvent({
       id: taskId, data: fields, stepValue: (k) => fields[k], publishedBy: requester, requesterPrincipal: requester, publisherPrincipal: requester,
       templateVersion: null, materialSha256: sha, agentDispatch: direct, centerOn,
-      arranged: { team, submitter: requester, ...(v.object ? { object: v.object } : {}), ...(v.phase ? { phase: v.phase } : {}), ...(cockpitId ? { cockpitId } : {}) },
+      arranged: { team, submitter: requester, ...(v.object ? { object: v.object } : {}), ...(v.phase ? { phase: v.phase } : {}), ...(cockpitId ? { cockpitId } : {}),
+        ...(pinned ? { handoff: pinned.handoff, reviewBy: pinned.handoff === 'own-seat' && reviewNow ? 'requester' as const : '' as const, directedSeatId: seatId } : {}),
+        ...(directed?.fallback ? { directedFallback: { seat_id: seatId, reason: 'peer_not_declared' } } : {}) },
     });
     tasks.insertArrangeRequest({ requester, key, sha256: sha, taskId, eventId, at });
     tasks.arrangeCommit();
-    return { status: 201, body: view(taskId, eventId, false, !review && !direct ? { reason: 'review_required_by_policy' } : {}) };
+    return { status: 201, body: view(taskId, eventId, false, { ...(!reviewNow && !direct ? { reason: 'review_required_by_policy' } : {}), ...(directed ? { handoff: pinned ? pinned.handoff : 'team', directed: pinned ? 'seat' : 'fallback_team' } : {}) }) };
   } catch (e) {
     try { tasks.arrangeRollback(); } catch { /* 已经回滚 */ }
     throw e;

@@ -71,6 +71,7 @@ import { registerSopPageRoutes } from './routes/sop-page.ts';
 import { registerLoginEventRoutes } from './routes/login-events.ts';
 import { registerTaskRoutes } from './routes/tasks.ts';
 import { benchViewsConfig, registerBenchViewRoutes, BENCH_ROWS_PATH } from './routes/bench-views.ts';
+import { registerKnowledgeRoutes } from './routes/knowledge.ts';
 import { BENCH_TOOL_NAMES, BENCH_GRANT_RE } from './bench-mcp-tools.ts';
 import { benchGrantsOf, benchRequestOfSession, benchRequestTtlConfig, benchRequestsOf, benchToolTarget, requestBenchTools, runBenchTool, setBenchRequestTtlHours } from './services/bench-mcp.ts';
 import { resolveBenchRef } from './services/bench-registry.ts';
@@ -125,7 +126,7 @@ import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, redisConfigured, runStateRestore, runStateRead, runStateRetire, type RunStateRead } from './redis.ts';
 import { createRunCheckpoints } from './sop-state-checkpoints.ts';
 import { duplicateNode8s } from './services/a2a-handles.ts';
-import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, memberProvenanceMode, setMemberProvenance, progressReceiptsMode, setProgressReceipts, teamRosterMode, setTeamRoster, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
+import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, memberProvenanceMode, setMemberProvenance, progressReceiptsMode, setProgressReceipts, teamRosterMode, setTeamRoster, directedSeatsMode, setDirectedSeats, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
 import type { IncomingMessage } from 'node:http';
 import { a2aHealth } from './a2a/health.ts';
 import { followupRateLimit } from './a2a/receipt-inbound.ts';
@@ -264,6 +265,14 @@ if (!A2A_TEAM_ROSTER) {
 }
 setTeamRoster(A2A_TEAM_ROSTER === 'on');
 console.log(`[a2a] 名片${A2A_TEAM_ROSTER === 'on' ? '声明' : '不声明'} teamRoster（WM_A2A_TEAM_ROSTER=${A2A_TEAM_ROSTER}）：${A2A_TEAM_ROSTER === 'on' ? '节点推来的团队名册照规矩收' : '入站名册一律不收'}`);
+// 名片是否声明 directedSeats（WM_A2A_DIRECTED_SEATS=on|off，缺省 on）；值不合法拒绝启动
+const A2A_DIRECTED_SEATS = directedSeatsMode();
+if (!A2A_DIRECTED_SEATS) {
+  console.error('[a2a] 拒绝启动：WM_A2A_DIRECTED_SEATS 只接受 on / off / 不设');
+  process.exit(1);
+}
+setDirectedSeats(A2A_DIRECTED_SEATS === 'on');
+console.log(`[a2a] 名片${A2A_DIRECTED_SEATS === 'on' ? '声明' : '不声明'} directedSeats（WM_A2A_DIRECTED_SEATS=${A2A_DIRECTED_SEATS}）：${A2A_DIRECTED_SEATS === 'on' ? '「安排一件事」可以指名团队里的成员' : '不收指名'}`);
 // 名册多久没更新算停推（WM_ROSTER_STALE_MINUTES，缺省 60 分钟）：超过就进管理员的「等你拍板」；值不合法拒绝启动
 const ROSTER_STALE_MINUTES = rosterStaleMinutesFromEnv();
 if (ROSTER_STALE_MINUTES === null) {
@@ -2025,6 +2034,8 @@ function odooLoginUrl(req: express.Request, returnPath: string): string | null {
 // ---------- 统一待办（omni-inbox · 总工程师设计 9c5557c1c0）：只读聚合；路由在域模块里 ----------
 registerTaskRoutes(http, { wrap, adminGuard, adminHeaderOk, devOriginOk, odooLoginUrl });
 registerBenchViewRoutes(http, { on: BENCH_VIEWS.on, wrap, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), devOriginOk });
+// 经验库（/knowledge 的接口）：只读；条目按看的人的授予逐条判，管理口令拒（services/knowledge.ts、routes/knowledge.ts）
+registerKnowledgeRoutes(http, { wrap, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), devOriginOk });
 
 // #275 登录探测：弹窗送 Odoo 登录后，前端轮询这里拿 200 即回原页面（Odoo 19 无法跨源回跳，回程在市场源完成）；顶栏用户 chip 同源
 registerAuthViewerRoutes(http, { wrap, odooLoginUrl });

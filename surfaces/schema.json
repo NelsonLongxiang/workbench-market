@@ -359,6 +359,31 @@
       "installed_by TEXT NOT NULL DEFAULT ''",
       "status TEXT NOT NULL DEFAULT 'installed'"
     ],
+    "knowledge_items": [
+      "kind TEXT NOT NULL PK",
+      "ygl_id TEXT NOT NULL PK",
+      "key TEXT NOT NULL",
+      "title TEXT NOT NULL DEFAULT ''",
+      "summary TEXT NOT NULL DEFAULT ''",
+      "status TEXT NOT NULL DEFAULT ''",
+      "project TEXT NOT NULL DEFAULT ''",
+      "scope TEXT NOT NULL DEFAULT ''",
+      "tags TEXT NOT NULL DEFAULT '[]'",
+      "created TEXT NOT NULL DEFAULT ''",
+      "updated TEXT NOT NULL DEFAULT ''",
+      "seen_at INTEGER NOT NULL"
+    ],
+    "knowledge_meta": [
+      "k TEXT PK",
+      "v TEXT NOT NULL"
+    ],
+    "knowledge_sync": [
+      "kind TEXT PK",
+      "since TEXT NOT NULL DEFAULT ''",
+      "last_ok_at INTEGER",
+      "last_full_at INTEGER",
+      "last_error TEXT NOT NULL DEFAULT ''"
+    ],
     "login_events_seen": [
       "flow TEXT NOT NULL PK",
       "event_id TEXT NOT NULL PK",
@@ -981,6 +1006,7 @@
     "idx_departments_function_code ON departments: CREATE UNIQUE INDEX idx_departments_function_code ON departments (function_code) WHERE function_code <> ''",
     "idx_grant_events_grant ON grant_events: CREATE INDEX idx_grant_events_grant ON grant_events (grant_id, seq)",
     "idx_grants_principal ON grants: CREATE INDEX idx_grants_principal ON grants (principal_id, status)",
+    "idx_knowledge_items_updated ON knowledge_items: CREATE INDEX idx_knowledge_items_updated ON knowledge_items (updated, kind)",
     "idx_login_states_expires ON login_states: CREATE INDEX idx_login_states_expires ON login_states (expires_at)",
     "idx_market_sessions_principal ON market_sessions: CREATE INDEX idx_market_sessions_principal ON market_sessions (principal_id, expires_at)",
     "idx_mcp_access_requests_session ON mcp_access_requests: CREATE INDEX idx_mcp_access_requests_session ON mcp_access_requests (session_id, created_at)",
