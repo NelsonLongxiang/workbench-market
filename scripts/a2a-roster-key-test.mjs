@@ -2,7 +2,8 @@
 /**
  * 阶段七：名册以（peer_root, key_fingerprint）为键，按 host 匹配只经视图 a2a_rosters_live（server/src/db.ts）。
  *
- * 一、升级：旧库（a2a_rosters 以 host 为主键、a2a_roster_seats 以 (host, team, seat)）打开时重建一次：
+ * 一、升级：旧库（a2a_rosters 以 host 为主键、a2a_roster_seats 以 (host, team, seat)）打开时，名册复制进新表 a2a_roster_nodes /
+ *    a2a_roster_node_seats 一次（旧表一行不动、结构不变，只为升级守护留着）：
  *    对端登记表里钉住了公钥、指纹前 8 位就是 host 的 → 回填完整指纹、参与匹配，席位跟着走；
  *    对端没登记、没钉住键、指纹前 8 位对不上 host 的 → 指纹留空、needs_review = 1，不参与匹配（席位也不出现）；
  *    a2a_roster_changes 补两列，原有的变化记录还在；再打开一次不重做。
@@ -35,6 +36,7 @@ function key() {
 }
 const K1 = key(), K2 = key(), K3 = key();
 const t = '2026-11-13 00:00:00';
+const OLD = {};
 
 // ---------- 旧库：名册两张表按旧结构建，对端登记表照 db.ts 里的建表语句建 ----------
 {
@@ -61,6 +63,8 @@ ${peers}`);
   const s = d.prepare("INSERT INTO a2a_roster_seats (host, team, seat, seat_id, name, role, first_seen_at) VALUES (?, 'z/canvas/t', ?, ?, '合成', 'member', ?)");
   s.run(K1.host, 'z/0000000a', 'seat-a', t); s.run(K2.host, 'z/0000000b', 'seat-b', t); s.run('0badf00d', 'z/0000000c', 'seat-c', t); s.run('5ca1ab1e', 'z/0000000d', 'seat-d', t);
   d.prepare("INSERT INTO a2a_roster_changes (host, kind, team, at) VALUES (?, 'team-added', 'z/canvas/t', ?)").run(K1.host, t);
+  OLD.rosters = JSON.stringify(d.prepare('SELECT * FROM a2a_rosters ORDER BY host').all());
+  OLD.seats = JSON.stringify(d.prepare('SELECT * FROM a2a_roster_seats ORDER BY host, seat').all());
   d.close();
 }
 
@@ -70,8 +74,11 @@ function open(then = '') {
     const { db } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/db.ts')).href)});
     ${then}
     const out = {
-      rosters: db.prepare('SELECT peer_root, key_fingerprint, host, needs_review FROM a2a_rosters ORDER BY peer_root').all(),
-      seats: db.prepare('SELECT peer_root, key_fingerprint, host, seat FROM a2a_roster_seats ORDER BY seat').all(),
+      rosters: db.prepare('SELECT peer_root, key_fingerprint, host, needs_review FROM a2a_roster_nodes ORDER BY peer_root').all(),
+      seats: db.prepare('SELECT peer_root, key_fingerprint, host, seat FROM a2a_roster_node_seats ORDER BY seat').all(),
+      oldRosters: db.prepare('SELECT * FROM a2a_rosters ORDER BY host').all(),
+      oldSeats: db.prepare('SELECT * FROM a2a_roster_seats ORDER BY host, seat').all(),
+      oldCols: db.prepare('PRAGMA table_info(a2a_rosters)').all().map((c) => c.name + ':' + c.pk),
       live: db.prepare('SELECT host, peer_root FROM a2a_rosters_live ORDER BY peer_root').all().map((x) => x.peer_root),
       liveHosts: db.prepare('SELECT host FROM a2a_rosters_live ORDER BY host').all().map((x) => x.host),
       changes: db.prepare('SELECT host, peer_root, key_fingerprint, kind FROM a2a_roster_changes').all(),
@@ -90,12 +97,13 @@ try {
   ok('钉住的不是 host 那把、还没钉住键、没登记 → 指纹留空、needs_review = 1，都不参与匹配',
     ['https://mismatch.synthetic.invalid', 'https://pending.synthetic.invalid', 'https://unregistered.synthetic.invalid'].every((u) => row(u)?.key_fingerprint === '' && row(u)?.needs_review === 1 && !a.live.includes(u)), JSON.stringify({ rosters: a.rosters, live: a.live }));
   ok('席位跟着名册行走（带上根地址和指纹）', a.seats.length === 4 && a.seats.find((x) => x.seat === 'z/0000000a')?.key_fingerprint === K1.fp && a.seats.every((x) => x.peer_root !== ''), JSON.stringify(a.seats));
+  ok('旧表一行不动、结构不变（只为升级守护留着）：行、列、主键位置都和升级前一样', JSON.stringify(a.oldRosters) === OLD.rosters && JSON.stringify(a.oldSeats) === OLD.seats && JSON.stringify(a.oldCols) === JSON.stringify(['host:1', 'peer_root:0', 'peer_zone:0', 'reported_at:0', 'received_at:0']), JSON.stringify({ oldCols: a.oldCols, n: a.oldRosters.length }));
   ok('原有的变化记录还在，补了两列', a.changes.length === 1 && a.changes[0].host === K1.host && a.changes[0].peer_root === '' && a.changes[0].key_fingerprint === '', JSON.stringify(a.changes));
   const again = open();
   ok('再打开一次不重做（行和指纹不变）', JSON.stringify(again.rosters) === JSON.stringify(a.rosters) && JSON.stringify(again.seats) === JSON.stringify(a.seats), JSON.stringify(again.rosters));
 
   console.log('二、匹配：同号两个节点都不算；换键后的旧行、停用的不算');
-  const add = (root, fp, host) => `db.prepare("INSERT INTO a2a_rosters (peer_root, key_fingerprint, host, peer_zone, reported_at, received_at) VALUES ('${root}', '${fp}', '${host}', 'z', '${t}', '${t}')").run();`;
+  const add = (root, fp, host) => `db.prepare("INSERT INTO a2a_roster_nodes (peer_root, key_fingerprint, host, peer_zone, reported_at, received_at) VALUES ('${root}', '${fp}', '${host}', 'z', '${t}', '${t}')").run();`;
   // 撞号抢注：另一个根地址、另一把键，报同一个 host
   const squat = open(add('https://squatter.synthetic.invalid', 'sha256:' + 'e'.repeat(64), K1.host));
   ok('撞号抢注：同一个 host 下来了第二个节点 → 原来的和新来的都不参与匹配（不是先来的赢，也不是后来的覆盖）',
@@ -118,9 +126,9 @@ try {
   console.log('三、表约束');
   const bad = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', `
     const { db } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/db.ts')).href)});
-    try { db.prepare("INSERT INTO a2a_rosters (peer_root, key_fingerprint, host, peer_zone, reported_at, received_at, needs_review) VALUES ('https://empty.synthetic.invalid', '', 'dddddddd', 'z', '${t}', '${t}', 0)").run(); console.log('INSERTED'); }
+    try { db.prepare("INSERT INTO a2a_roster_nodes (peer_root, key_fingerprint, host, peer_zone, reported_at, received_at, needs_review) VALUES ('https://empty.synthetic.invalid', '', 'dddddddd', 'z', '${t}', '${t}', 0)").run(); console.log('INSERTED'); }
     catch (e) { console.log('REFUSED ' + String(e?.message ?? e).slice(0, 80)); }
-    try { db.prepare("INSERT INTO a2a_rosters (peer_root, key_fingerprint, host, peer_zone, reported_at, received_at, needs_review) VALUES ('https://empty2.synthetic.invalid', '', 'eeeeeeee', 'z', '${t}', '${t}', 1)").run(); console.log('REVIEW-OK'); }
+    try { db.prepare("INSERT INTO a2a_roster_nodes (peer_root, key_fingerprint, host, peer_zone, reported_at, received_at, needs_review) VALUES ('https://empty2.synthetic.invalid', '', 'eeeeeeee', 'z', '${t}', '${t}', 1)").run(); console.log('REVIEW-OK'); }
     catch (e) { console.log('REVIEW-REFUSED ' + String(e?.message ?? e).slice(0, 80)); }`], { env: { ...process.env, DATA_DIR: DATA, NODE_ENV: 'test' }, encoding: 'utf8' });
   ok('没标 needs_review、指纹为空的行写不进去（表约束）；标了 needs_review 的空指纹行可以（升级回填不上的就是这种）', bad.stdout.includes('REFUSED') && !bad.stdout.includes('INSERTED') && bad.stdout.includes('REVIEW-OK'), bad.stdout + bad.stderr.slice(-300));
 } catch (e) {
