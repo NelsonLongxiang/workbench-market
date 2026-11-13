@@ -282,6 +282,19 @@ try {
       const fbDirect = await call('POST', '/api/work-items', ALPHA, form({ team: 'dsh/canvas/team-c', seat_id: 'seat-0000000e', review: false }));
       check(fbDirect.status === 201 && fbDirect.body.held === false && itemRow(fbDirect.body?.item_id).handoff === 'team',
         '对照：退回整队、本人 review:false、直派开着 → 直接派出，handoff=team', show(fbDirect.body));
+      // 撞号：另一个根地址也报了节点号 a1b2c3d4（对端停用，视图里不算），它的名册里 team-a 有一个本节点没有的成员席位。
+      // 指名按节点号找席位只经 a2a_rosters_live：这个席位找不到，不指名、不派
+      { const w = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 });
+        try {
+          const t1 = new Date().toISOString(), SQ = 'http://squat.synthetic.invalid', FP = 'sha256:' + 'e'.repeat(64);
+          w.prepare("INSERT INTO a2a_roster_nodes (peer_root, key_fingerprint, host, peer_zone, reported_at, received_at) VALUES (?, ?, 'a1b2c3d4', 'dsh', ?, ?)").run(SQ, FP, t1, t1);
+          w.prepare("INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, first_seen_at) VALUES (?, ?, 'a1b2c3d4', 'dsh/canvas/team-a', 'dsh/0000005a', 'seat-0000005a', '撞号节点上的成员', 'member', ?)").run(SQ, FP, t1);
+          w.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, registered_by, registered_at, updated_at) VALUES ('peer-squat', ?, 'dsh', '撞号的', 'disabled', 'seed', ?, ?)").run(SQ, t1, t1);
+        } finally { w.close(); } }
+      const sqCount = () => { const d = dbr(); try { return Number(d.prepare("SELECT COUNT(*) AS c FROM work_items WHERE directed_seat_id = 'seat-0000005a'").get().c) + Number(d.prepare("SELECT COUNT(*) AS c FROM workbench_event_deliveries WHERE message LIKE '%seat-0000005a%'").get().c); } finally { d.close(); } };
+      const sq = await call('POST', '/api/work-items', BETA, form({ seat_id: 'seat-0000005a' }));
+      check(sq.status === 400 && sq.body?.error === 'seat_not_in_team' && sqCount() === 0,
+        '撞号：同一节点号下另一个根地址（对端停用）名册里的席位，负责人指名它 → 400 seat_not_in_team，不指名、不派', show({ st: sq.status, body: sq.body, n: sqCount() }));
     } finally {
       await call('PUT', '/api/settings', ADMIN, { staff_direct_dispatch: 'off' });
       await call('PUT', '/api/task-center/policy', ADMIN, { agent_dispatch_enabled: false });
