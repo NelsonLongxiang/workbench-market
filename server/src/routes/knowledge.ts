@@ -12,7 +12,7 @@ import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import { originIsThisSurface } from '../surfaces.ts';
-import { actorResolver } from '../judgment-compare.ts';
+import { actorResolver, migrateOnSight } from '../judgment-compare.ts';
 import { judge, type JudgedActor } from '../judgment.ts';
 import { KINDS, PAGE_KIND, type KnowledgeService, type YglKind } from '../services/knowledge.ts';
 
@@ -24,6 +24,8 @@ export type KnowledgeRouteDeps = {
 
 const BY_SCOPE = '按条目的范围判：全公司的认业务的看，部门的认这个部门范围的授予，只给管理层的认拍板类；看不到的和不存在的一样回 404';
 const KEY_RE = /^[A-Za-z0-9_-]{22}$/;
+/** 判定出错（判定服务抛错）：安全地拒——回 503，不冒成 500，更不放行 */
+const JUDGMENT_DOWN = { error: 'knowledge_judgment_unavailable', message: '暂时判不了谁能看，稍后再试' };
 const knowledge = () => svc<KnowledgeService>('knowledge');
 
 export function registerKnowledgeRoutes(app: HttpService, deps: KnowledgeRouteDeps): void {
@@ -50,22 +52,28 @@ export function registerKnowledgeRoutes(app: HttpService, deps: KnowledgeRouteDe
       kind = KINDS.find((k) => PAGE_KIND[k] === raw);
       if (!kind) return void res.status(400).json({ error: 'kind_invalid', message: 'kind 只能是 claim、kb、skill、verify' });
     }
-    const items = knowledge().list(actor, { kind });
+    let items;
+    try { items = knowledge().list(actor, { kind }); } catch { return void res.status(503).json(JUDGMENT_DOWN); }
     // 来源的大致状态（不带原因、不带条数）：not_connected「未接入」、not_ready「还在准备」、degraded「可能不是最新的」、ok
     res.json({ items, source: knowledge().sourceState() });
   }));
 
   // 同步状态：运维信息（不带条目内容）。直接按统一判定判，和判定比对零差异：认管理类（knowledge.sync-status）的授予——
-  // 管理口令、持系统管理员预设的人、属主；普通员工、管理层没有。跨站 403、没登录 401
+  // 管理口令、本机命令行（属主，judgment-builtins.ts 里逐条列了）、持系统管理员预设的人、属主；普通员工、管理层没有。跨站 403、没登录 401
   app.get('/api/knowledge/status', { action: 'knowledge.sync-status', kind: 'admin' }, wrap(async (req, res) => {
     res.set('Cache-Control', 'private, no-store');
     res.vary('Cookie'); res.vary('X-Admin-Token');
     if (req.headers['sec-fetch-site'] === 'cross-site' || (req.headers.origin && !originIsThisSurface(req) && !deps.devOriginOk(req))) return void res.status(403).json({ error: 'knowledge_cross_origin_denied' });
-    const { actor } = await actorOf(req);
-    if (judge({ actor, action: 'knowledge.sync-status', kind: 'admin', declared: true }).verdict !== 'allow') {
-      if (actor.type === 'builtin' && actor.name === 'anonymous') return void res.status(401).json({ error: 'login_required' });
-      return void res.status(403).json({ error: 'knowledge_status_denied', message: '同步状态给管理员看' });
-    }
+    const { actor, admin } = await actorOf(req);
+    // 没登录：直接 401，不进判定（判定出错时匿名也照样是 401）
+    if (actor.type === 'builtin' && actor.name === 'anonymous') return void res.status(401).json({ error: 'login_required' });
+    let allowed: boolean;
+    try {
+      // 和判定切换的门同一个口径：身份来源说是管理员的人，第一次见到时迁移出系统管理员预设（同一个人只迁一次），再问判定
+      migrateOnSight(actor, admin);
+      allowed = judge({ actor, action: 'knowledge.sync-status', kind: 'admin', declared: true }).verdict === 'allow';
+    } catch { return void res.status(503).json(JUDGMENT_DOWN); }
+    if (!allowed) return void res.status(403).json({ error: 'knowledge_status_denied', message: '同步状态给管理员看' });
     res.json({ kinds: knowledge().status() });
   }));
 
@@ -114,7 +122,8 @@ export function registerKnowledgeRoutes(app: HttpService, deps: KnowledgeRouteDe
     const key = String(req.params.key ?? '');
     const missing = () => res.status(404).json({ error: 'knowledge_missing', message: '没有这一条' });
     if (!KEY_RE.test(key)) return void missing();
-    const r = await knowledge().show(actor, key);
+    let r: Awaited<ReturnType<KnowledgeService['show']>>;
+    try { r = await knowledge().show(actor, key); } catch { return void res.status(503).json(JUDGMENT_DOWN); }
     if (r === null) return void missing();
     if (r === 'unavailable') return void res.status(503).json({ error: 'knowledge_unavailable', message: '暂时读不到这一条，稍后再试' });
     res.json(r);

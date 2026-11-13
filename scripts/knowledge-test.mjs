@@ -20,7 +20,7 @@
  *       重启后同一个库，键不变
  *   七、没接入（命令行不在、版本太旧不认 library、list 失败、回的不是 JSON、契约版本不对、工作区没设）：启动照常、自检不红；
  *       接口回空列表和 source=not_connected（不带原因）；管理员看得到原因；同一个原因只告警一次
- *   六、同步状态只给管理员
+ *   六、同步状态只给管理员：管理口令、本机命令行（属主）、系统管理员预设（身份来源的管理员第一次来就迁移出来）看得到；管理层、普通员工 403
  *
  *   node scripts/knowledge-test.mjs
  */
@@ -36,6 +36,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
 const OUT = join(ROOT, 'tmp', `knowledge-test-${process.pid}-${Date.now().toString(36)}`);
 const PRELOAD = pathToFileURL(join(HERE, 'identity-fake-preload.mjs')).href;
+const FAULT = pathToFileURL(join(HERE, 'judgment-fault-preload.mjs')).href;
 const FAKE_CLI = join(HERE, 'fixtures', 'ygl-library-fake.mjs');
 const ADMIN_TOKEN = 'synthetic-knowledge-admin';
 const REMOTE = { 'x-forwarded-for': '192.0.2.64' };
@@ -82,7 +83,7 @@ async function freePort() {
 }
 
 let child = null;
-async function boot(name, fixture, { data, env: extraEnv = {}, dropEnv = [] } = {}) {
+async function boot(name, fixture, { data, env: extraEnv = {}, dropEnv = [], fault = false } = {}) {
   const port = await freePort();
   const dir = join(OUT, name), home = join(dir, 'home'), ygl = join(dir, 'ygl');
   const dataDir = data ?? join(dir, 'data');
@@ -93,7 +94,7 @@ async function boot(name, fixture, { data, env: extraEnv = {}, dropEnv = [] } = 
   Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: dataDir, NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN, REDIS_URL: '', IDENTITY_SEAM_ROOT: ROOT,
     WM_YGL_CLI: FAKE_CLI, YGL_HOME: ygl, WM_KNOWLEDGE_SYNC_MINUTES: '1', ...extraEnv });
   for (const k of dropEnv) delete env[k];
-  child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
+  child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, ...(fault ? ['--import', FAULT] : []), 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
   child.stdout.on('data', (d) => { log += String(d); });
   child.stderr.on('data', (d) => { log += String(d); });
@@ -114,7 +115,7 @@ async function boot(name, fixture, { data, env: extraEnv = {}, dropEnv = [] } = 
     return { status: res.status, text, json };
   };
   // 等第一轮同步做完（启动自检通过后开始）：管理员看同步状态，四类都成过一次，或者都有失败原因
-  for (const deadline = Date.now() + 30000; Date.now() < deadline;) {
+  for (const deadline = Date.now() + 30000; !fault && Date.now() < deadline;) {
     const st = (await call('GET', '/api/knowledge/status', { headers: token })).json?.kinds ?? [];
     if (st.length === 4 && st.every((k) => k.last_ok_at !== null || k.last_error)) break;
     await sleep(200);
@@ -267,10 +268,10 @@ try {
       '详情现取失败回 503（不当成空）；ygl-trees 说没这一条，回 404 并从目录去掉', show({ down: down.status, gone: gone.status, after }));
     // 六、同步状态只给管理员
     const stOf = async (o) => (await srv.call('GET', '/api/knowledge/status', o)).status;
-    const stm = { token: await stOf({ headers: token }), rootAdmin: await stOf(as(SESSIONS.admin)), mgmt: await stOf(as(SESSIONS.noAdminFlag)), alpha: await stOf(as(SESSIONS.alpha)),
+    const stm = { token: await stOf({ headers: token }), localCli: await stOf({}), rootAdmin: await stOf(as(SESSIONS.admin)), mgmt: await stOf(as(SESSIONS.noAdminFlag)), alpha: await stOf(as(SESSIONS.alpha)),
       anon: await stOf({ headers: REMOTE }), crossSf: await stOf({ headers: { ...token, 'sec-fetch-site': 'cross-site' } }) };
-    check(show(stm) === show({ token: 200, rootAdmin: 200, mgmt: 403, alpha: 403, anon: 401, crossSf: 403 }),
-      '同步状态按统一判定（管理类）：管理口令、持系统管理员预设的人看得到；管理层、普通员工 403；匿名 401；跨站 403', show(stm));
+    check(show(stm) === show({ token: 200, localCli: 200, rootAdmin: 200, mgmt: 403, alpha: 403, anon: 401, crossSf: 403 }),
+      '同步状态按统一判定（管理类）：管理口令、本机命令行（属主）、持系统管理员预设的人看得到；管理层、普通员工 403；匿名 401；跨站 403', show(stm));
     await stop();
     // 重启：同一个库，键不变；顺带全量对账——ygl-trees 那边删掉了运营部那条，重启后到了全量的时候，目录里要去掉
     {
@@ -291,6 +292,31 @@ try {
       '全量对账：ygl-trees 那边删掉的条目，全量同步后从目录去掉；还在的照留', show(againList.map((i) => i.title)));
     await stop();
   }
+  // ---------- 九、判定出错：安全地拒（503），不冒成 500、不放行；没登录照样 401（不进判定） ----------
+  {
+    const bad = await boot('judgment-fault', FIXTURE, { fault: true });
+    const sameF = { origin: `http://${bad.host}`, 'sec-fetch-site': 'same-origin' };
+    await bad.call('GET', '/api/auth/viewer', { session: SESSIONS.alpha });
+    let anyKey = '';
+    for (const deadline = Date.now() + 30000; !anyKey && Date.now() < deadline;) {
+      try { const kdb = new DatabaseSync(join(bad.dataDir, 'workbench-market.db'), { timeout: 5000 }); try { anyKey = kdb.prepare("SELECT key FROM knowledge_items WHERE scope = '*' LIMIT 1").get()?.key ?? ''; } finally { kdb.close(); } } catch { /* 表还没建 */ }
+      if (!anyKey) await sleep(200);
+    }
+    const m = {
+      statusAnon: (await bad.call('GET', '/api/knowledge/status', { headers: REMOTE })).status,
+      statusToken: (await bad.call('GET', '/api/knowledge/status', { headers: token })).status,
+      listAnon: (await bad.call('GET', '/api/knowledge', { headers: REMOTE })).status,
+      listAlpha: (await bad.call('GET', '/api/knowledge', { headers: { ...REMOTE, ...sameF }, session: SESSIONS.alpha })).status,
+      detailAlpha: (await bad.call('GET', `/api/knowledge/${anyKey}`, { headers: { ...REMOTE, ...sameF }, session: SESSIONS.alpha })).status,
+      mapAnon: (await bad.call('GET', '/api/knowledge/project-depts', { headers: REMOTE })).status,
+      mapPutAnon: (await bad.call('PUT', '/api/knowledge/project-depts', { headers: { ...REMOTE, origin: `http://${bad.host}` }, body: { project: 'x', department: null } })).status,
+      mapAlpha: (await bad.call('GET', '/api/knowledge/project-depts', { headers: { ...REMOTE, ...sameF }, session: SESSIONS.alpha })).status,
+    };
+    check(anyKey && show(m) === show({ statusAnon: 401, statusToken: 503, listAnon: 401, listAlpha: 503, detailAlpha: 503, mapAnon: 401, mapPutAnon: 401, mapAlpha: 503 }),
+      '判定出错：同步状态、列表、详情、对照表都回 503（不冒成 500、不放行）；没登录照样 401，不进判定（启动自检那一行也过得了）', show({ m, anyKey: !!anyKey }));
+    await stop();
+  }
+
   // ---------- 七、没接入：ygl-trees 不在、太旧、契约不对、工作区没设——启动不受影响、自检不红，接口照常回空列表加「未接入」，同一个原因只告警一次 ----------
   const cases = [
     ['exit2', { ...FIXTURE, fail: 'exit2' }, {}, [], 'exit'],
@@ -312,6 +338,15 @@ try {
       && st.every((k) => k.last_error === want) && warns.length === 1 && !warns[0].includes(bad.ygl),
       `没接入（${mode}）：启动照常、自检不红；接口回空列表、source=not_connected、不带原因；管理员看得到原因 ${want}；四类同一个原因只告警一次、不带路径`,
       show({ health: health.status, status: l.status, source: l.json?.source, errors: st.map((k) => k.last_error), warns }));
+    if (mode === 'exit2') {
+      // 全新的库、谁都没发过授予：同步状态（没接入时管理员要靠它看原因）三种管理身份都看得到——
+      // 本机命令行（属主）；身份来源说是管理员的人（第一次见到时迁移出 admin 预设，不用等别处先触发迁移）；管理口令。普通员工照样 403
+      const stOf = async (o) => (await bad.call('GET', '/api/knowledge/status', o)).status;
+      const fresh = { localCli: await stOf({}), odooAdmin: await stOf({ headers: { ...REMOTE, ...sameB }, session: SESSIONS.admin }), token: await stOf({ headers: token }),
+        alpha: await stOf({ headers: { ...REMOTE, ...sameB }, session: SESSIONS.alpha }) };
+      check(show(fresh) === show({ localCli: 200, odooAdmin: 200, token: 200, alpha: 403 }),
+        '全新的库：本机命令行、身份来源的管理员（当场迁移出系统管理员预设）、管理口令都看得到同步状态；普通员工 403', show(fresh));
+    }
     await stop();
   }
 } catch (e) {

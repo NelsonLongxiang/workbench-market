@@ -42,12 +42,12 @@ export interface McpRestDeps {
   mcpRestRun: (sess: McpSess | null, tool: string, op: string, auditArgs: unknown, fn: () => Promise<void> | void) => Promise<void>;
   bad: (msg: string) => never;
   getApp: (slug: string) => AppRow;
-  appFilesQuota: (slug: string) => object & { files_left: number };
+  appFilesQuota: (slug: string) => Promise<object & { files_left: number }>;
   APP_FILES_MAX: number;
   UPLOAD_MAX: number;
   uploadMonthDir: () => string;
   uploadFileName: (originalName: string) => string;
-  appFileStoreCore: (slug: string, f: AppFileInput) => { id: number; url: string } & Record<string, unknown>;
+  appFileStoreCore: (slug: string, f: AppFileInput) => Promise<{ id: number; url: string } & Record<string, unknown>>;
   MCP_REST_BASE: string;
   upload: multer.Multer;
   fixFileName: (s: string) => string;
@@ -107,7 +107,7 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
       const wantSha = expectedSha256(req.headers['x-content-sha256']);
       if (wantSha === 'bad') bad('X-Content-SHA256 须为 64 位十六进制');
       const a = getApp(req.params.slug);
-      if (appFilesQuota(a.slug).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`, { quota: appFilesQuota(a.slug) });
+      { const quota = await appFilesQuota(a.slug); if (quota.files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`, { quota }); }
       const declared = Number(req.headers['content-length']);
       if (Number.isFinite(declared) && declared > UPLOAD_MAX) throw new HttpError(413, '文件超 100MB 上限');
       const abs = join(uploadMonthDir(), uploadFileName(name));
@@ -132,7 +132,7 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
       const reported = String(req.headers['content-type'] ?? '').split(';')[0].trim();
       const sha256 = h.digest('hex');
       if (wantSha !== null && sha256 !== wantSha) { rmSync(abs, { force: true }); bad(`收到内容的 sha256 与 X-Content-SHA256 不符（收到 ${size} 字节）：内容可能在传输中被截断或改动，未保存`); }
-      const out = appFileStoreCore(a.slug, { path: abs, size, name, reportedMime: reported === 'application/octet-stream' ? '' : reported, createdBy, note, sha256 });
+      const out = await appFileStoreCore(a.slug, { path: abs, size, name, reportedMime: reported === 'application/octet-stream' ? '' : reported, createdBy, note, sha256 });
       res.status(201).json({ ...out, sha256, url: `${MCP_REST_BASE}/apps/${a.slug}/files/${out.id}`, download_url: out.url, ...uploadIntegrity(wantSha as string | null, null) });
     });
   }));
@@ -143,7 +143,7 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
     if (sess === undefined) return;
     await mcpRestRun(sess, 'app_files_upload', 'file_upload', { slug: req.params.slug }, async () => {
       const a = getApp(req.params.slug);
-      if (appFilesQuota(a.slug).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`, { quota: appFilesQuota(a.slug) });
+      { const quota = await appFilesQuota(a.slug); if (quota.files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`, { quota }); }
       await new Promise<void>((resolve, reject) => upload.single('file')(req, res, (err: any) => {
         if (!err) return resolve();
         reject(err.code === 'LIMIT_FILE_SIZE' ? new HttpError(413, '文件超 100MB 上限') : new HttpError(400, `上传失败：${err.message}`));
@@ -161,7 +161,7 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
       const wantSha = (fromHeader ?? fromField) as string | null;
       const sha256 = await fileSha256(file.path);
       if (wantSha !== null && sha256 !== wantSha) { rmSync(file.path, { force: true }); bad(`收到内容的 sha256 与声明不符（收到 ${file.size} 字节）：内容可能在传输中被截断或改动，未保存`); }
-      const out = appFileStoreCore(a.slug, { path: file.path, size: file.size, name: fixFileName(file.originalname), reportedMime: file.mimetype || '', createdBy, note, sha256 });
+      const out = await appFileStoreCore(a.slug, { path: file.path, size: file.size, name: fixFileName(file.originalname), reportedMime: file.mimetype || '', createdBy, note, sha256 });
       res.status(201).json({ ...out, sha256, url: `${MCP_REST_BASE}/apps/${a.slug}/files/${out.id}`, download_url: out.url, ...uploadIntegrity(wantSha, null) });
     });
   }));
@@ -185,10 +185,10 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
     }
     await mcpRestRun(sess, 'app_files_list', 'file_download', { slug: req.params.slug, id: req.params.id }, async () => {
       const a = getApp(req.params.slug);
-      const row = /^\d+$/.test(String(req.params.id)) ? svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug) as any : null;
+      const row = /^\d+$/.test(String(req.params.id)) ? await svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug) as any : null;
       if (!row) throw new HttpError(404, `file not found: ${req.params.id}`);
       await sendStoredFile(req, res, { abs: join(dataDir, row.storage_path), size: row.size, mime: row.mime, name: row.original_name, sha256: row.sha256,
-        onSha: (sha) => svc<AppDataService>('appData').fileSetSha256(row.id, a.slug, sha) });
+        onSha: (sha) => { void svc<AppDataService>('appData').fileSetSha256(row.id, a.slug, sha).catch(() => { /* 回写失败只影响下次的 ETag 要重算 */ }); } });
     });
   }));
   // 读台数据（倒序游标分页）：与 app_data_list 工具同一结果

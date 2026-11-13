@@ -17,6 +17,7 @@
  *   H12 bench 档写回主库时，主库那行版本一样、值不同：算写回失败，dirty 留着（不静默跳过）
  *   H13 bench 档退出前没落完盘、以 main / shadow 档起来：启动时报出卡片号；这些卡片的高频变量读写、可能含高频变量的列表回 503，
  *       不悄悄读主库里的旧值；普通变量照常。回到 bench 档落完盘以后，main 档照常
+ *   H15 落盘时 Redis 那份落进了台库、删 Redis 那份却失败：「有待落盘」不清（下次再落一遍），不当成落完了
  *   H14 删卡片和落盘撞在一起：卡片删了以后落盘、落盘读台库的那一刻卡片被删，都不往主库补孤儿行，待落盘的记录清掉
  *
  *   node scripts/vars-hot-test.mjs
@@ -174,6 +175,14 @@ async function child(mode) {
     s10.varsList = realList10;
     out.h14c = { hit: hit10, toMain: m10.to_main, orphans: db.prepare('SELECT COUNT(*) AS n FROM workbench_vars WHERE workbench_id = 10').get().n };
     out.h14b = { hit, orphans: db.prepare('SELECT COUNT(*) AS n FROM workbench_vars WHERE workbench_id = 9').get().n, report: V.reportHotPending() };
+    // H15：卡片 2 再写一笔高频变量；落盘时删 Redis 那份失败一次
+    await V.setVar(scope(2), 'hot.y', { value: 1, hasValue: true }, CLI);
+    const st15 = svc('state'), realDel = st15.del.bind(st15);
+    st15.del = async () => { st15.del = realDel; return false; };
+    const f15 = await V.flushHotVars();
+    const mid15 = { pending: (await sync(2)).hotPending, report: V.reportHotPending(), bench: (await benchRow(2, 'hot.y'))?.value, redis: Object.keys(hotHash(2) ?? {}) };
+    await V.flushHotVars();
+    out.h15 = { f15, mid: mid15, after: { pending: (await sync(2)).hotPending, redis: hotHash(2) ?? null } };
     out.h12 = { failures: V.varsMirrorStats().fallbackFailures - before, dirty: (await sync(3)).dirty, main: mainRow(3, 'k')?.value };
   }
   await closeBenchStores();
@@ -233,6 +242,8 @@ async function parent() {
     ok(`${m} 档：启动报出卡片 7；高频变量读、写、全列表、hot. 列表回 503（可重试）；普通变量照常`, JSON.stringify(x?.report) === '[7]' && x.get === '503:vars_hot_unavailable:retry' && x.set === '503:vars_hot_unavailable:retry' && x.list === '503:vars_hot_unavailable:retry' && x.listHot === '503:vars_hot_unavailable:retry' && x.listPlain === 1 && x.plain === 1, x);
   }
   ok('回到 bench 档落完盘以后，main 档照常（读到落盘的值），不再报', JSON.stringify(on.h13?.after?.report) === '[]' && on.h13.after.get === 1, on.h13?.after);
+  console.log('H15 删 Redis 那份失败');
+  ok('落进了台库、删 Redis 那份失败：「有待落盘」不清、照旧报出来，下一次落盘清掉', on.h15?.f15?.unavailable >= 1 && on.h15.mid.pending === true && on.h15.mid.report.includes(2) && on.h15.mid.bench === '1' && on.h15.mid.redis.includes('hot.y') && on.h15.after.pending === false && on.h15.after.redis === null, on.h15);
   console.log('H14 删卡片和落盘撞在一起');
   ok('卡片删了以后落盘：主库不补孤儿行，待落盘的记录清掉', on.h14?.orphans === 0 && JSON.stringify(on.h14.report) === '[]', on.h14);
   ok('落盘读台库的那一刻卡片被删：不写回主库（没有孤儿行），待落盘的记录清掉', on.h14b?.hit >= 1 && on.h14b.orphans === 0 && JSON.stringify(on.h14b.report) === '[]', on.h14b);
