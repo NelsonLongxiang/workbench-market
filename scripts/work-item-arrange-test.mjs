@@ -306,6 +306,37 @@ try {
 
   // ---------- 启动自检 ----------
   check(/"id":"market\.work-items\.arrange-anonymous"[^}]*"verdict":"pass"/.test(log), '启动自检有一行：远程匿名打「安排一件事」必须 401，而且过了');
+
+  // ---------- WM_A2A_DIRECTED_SEATS=off：同一份库另起一个实例，安排这一侧不收指名 ----------
+  {
+    if (child && child.exitCode === null) { child.kill('SIGTERM'); await new Promise((r) => { const t = setTimeout(r, 5000); child.once('exit', () => { clearTimeout(t); r(); }); }); if (child.exitCode === null) child.kill('SIGKILL'); }
+    const port2 = await freePort();
+    let log2 = '';
+    child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], { cwd: join(ROOT, 'server'), env: { ...env, PORT: String(port2), WM_A2A_DIRECTED_SEATS: 'off' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.on('data', (d) => { log2 += String(d); }); child.stderr.on('data', (d) => { log2 += String(d); });
+    const base2 = `http://127.0.0.1:${port2}`;
+    for (let i = 0, ok = false; !ok; i++) {
+      if (i > 200 || child.exitCode !== null) throw new Error(`directedSeats=off 的实例没起来：${log2.slice(-800)}`);
+      try { ok = (await fetch(`${base2}/api/health`)).status === 200; } catch { /* 还没起来 */ }
+      if (!ok) await new Promise((r) => setTimeout(r, 200));
+    }
+    const call2 = async (method, path, headers, json) => {
+      const r = await fetch(base2 + path, { method, headers: { ...headers, ...(json !== undefined ? { 'content-type': 'application/json' } : {}) }, body: json !== undefined ? JSON.stringify(json) : undefined });
+      let body = null; try { body = await r.json(); } catch { /* 不是 JSON */ }
+      return { status: r.status, body };
+    };
+    const counts = () => { const d = dbr(); try { return { items: Number(d.prepare('SELECT COUNT(*) AS c FROM work_items').get().c), deliveries: Number(d.prepare('SELECT COUNT(*) AS c FROM workbench_event_deliveries').get().c), events: Number(d.prepare('SELECT COUNT(*) AS c FROM workbench_events').get().c) }; } finally { d.close(); } };
+    const before = counts();
+    // seat-0000000a 是 alpha 分到的席位，team-a 的对端名片声明了 directedSeats：开着时这一件会真指名（上面「指名」一节）
+    const offSeat = await call2('POST', '/api/work-items', ALPHA, form({ seat_id: 'seat-0000000a' }));
+    const afterSeat = counts();
+    check(/不声明 directedSeats/.test(log2) && offSeat.status === 400 && offSeat.body?.error === 'directed_seats_off'
+      && afterSeat.items === before.items && afterSeat.deliveries === before.deliveries && afterSeat.events === before.events,
+      'WM_A2A_DIRECTED_SEATS=off：带合法 seat_id 安排 → 400 directed_seats_off，没建事项、没记事件、没有投递', show({ r: offSeat, before, afterSeat }));
+    const offPlain = await call2('POST', '/api/work-items', ALPHA, form());
+    check(offPlain.status === 201 && offPlain.body?.directed === undefined && counts().items === afterSeat.items + 1,
+      '……不带 seat_id 照常 201（整队派发）', show(offPlain));
+  }
 } catch (e) {
   fail++;
   console.log(`  ✗ 跑不下去：${e?.stack ?? e}`);
