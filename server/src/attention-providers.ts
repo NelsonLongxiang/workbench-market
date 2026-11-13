@@ -31,7 +31,7 @@ import { listVars, workbenchScope } from './workbench-vars.ts';
 import { principalsAdmin } from './routes/principals.ts';
 import { sopRunAcceptance } from './routes/sop-run-lifecycle.ts';
 import { buildBoard, findBoardWorkbench, parseConfig, BOARD_PATH, type BoardVar } from './owner-pending.ts';
-import { openSeatAsks } from './services/attention-sources.ts';
+import { openSeatAsks, SEAT_ASK_BATCH, SEAT_ASK_LIMIT } from './services/attention-sources.ts';
 import { benchMcpDecider, benchViewsConfig } from './routes/bench-views.ts';
 import { pendingBenchRequests } from './services/bench-mcp.ts';
 
@@ -164,19 +164,32 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
         const viewer = await requestViewer(req, admin);
         if (!admin && !viewer.principal) return null;
         const items = svc<WorkItemService>('workItems');
-        return openSeatAsks().flatMap((a) => {
-          const w = items.get(`wi_${a.event_id}`);
-          if (!w || !canSee(w, viewer)) return [];
-          return [item({
-            source: 'seat-asks', source_id: String(a.delivery_id), category: 'ask',
-            title: `${a.target_team} 问：${a.question || '（没写问题）'}${optionsHint(a.options)}`,
-            waiting_for: a.ask_kind === 'receipt' ? (a.asked_by || a.target_team) : a.asked_by ? `receiver:${a.asked_by}` : a.target_team, since: a.asked_at,
-            answers: itemDecisionVerdict(w, viewer, 'answer').ok ? ['answer'] : [],
-            link: `/work-items/wi_${a.event_id}`,
-            // 提问轮到的是建立人：代办的人（管理层）在这里 mine 为假
-            mine: turnOf(w, viewer).answer, creator: creatorOf(w), cockpit_id: w.cockpit_id ?? null,
-          })];
-        });
+        // 全库还没答的提问（不按最近多少个事件截断），按提问先后分批往后取，每批按可见性过滤后累加：
+        // 凑满这个人看得到的上限后，再往后看还有没有他看得到的，有才标 more。more 只反映他看得到的那些——
+        // 一条都看不到的人，应答和全库没有提问时一样
+        const list: AttentionItem[] = [];
+        let more = false;
+        for (let after: { asked_at: string; delivery_id: number } | null = null; ;) {
+          const batch = openSeatAsks(after, SEAT_ASK_BATCH);
+          for (const a of batch) {
+            const w = items.get(`wi_${a.event_id}`);
+            if (!w || !canSee(w, viewer)) continue;
+            if (list.length >= SEAT_ASK_LIMIT) { more = true; break; }
+            list.push(item({
+              source: 'seat-asks', source_id: String(a.delivery_id), category: 'ask',
+              title: `${a.target_team} 问：${a.question || '（没写问题）'}${optionsHint(a.options)}`,
+              waiting_for: a.ask_kind === 'receipt' ? (a.asked_by || a.target_team) : a.asked_by ? `receiver:${a.asked_by}` : a.target_team, since: a.asked_at,
+              answers: itemDecisionVerdict(w, viewer, 'answer').ok ? ['answer'] : [],
+              link: `/work-items/wi_${a.event_id}`,
+              // 提问轮到的是建立人：代办的人（管理层）在这里 mine 为假
+              mine: turnOf(w, viewer).answer, creator: creatorOf(w), cockpit_id: w.cockpit_id ?? null,
+            }));
+          }
+          if (more || batch.length < SEAT_ASK_BATCH) break;
+          const last = batch[batch.length - 1]!;
+          after = { asked_at: last.asked_at, delivery_id: Number(last.delivery_id) };
+        }
+        return more ? { items: list, total: list.length, more } : list;
       },
     }),
     provide({
@@ -324,8 +337,14 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
       list: (req) => passes(deps.adminGuard, req)
         ? svc<A2aPeerService>('a2aPeers').list({ status: 'key_changed' }).map((p) => item({
           source: 'a2a-peers', source_id: p.id, category: 'grant',
-          title: `对端 ${p.root_url}（${p.zone || '未知域'}）的名片公钥变了：旧 ${p.key_fingerprint.slice(0, 19)}… → 新 ${p.pending_fingerprint.slice(0, 19)}…，核对指纹后确认`,
-          waiting_for: p.root_url, since: p.updated_at, answers: [], link: `/a2a-peers?peer=${p.id}`,
+          title: `对端 ${p.root_url}（${p.zone || '未知域'}）的名片公钥变了：旧 ${p.key_fingerprint.slice(0, 19)}… → 新 ${p.pending_fingerprint.slice(0, 19)}…，向对端核对新指纹后，在这里填入完整指纹确认，或者停用这个对端`,
+          // 市场里没有对端登记表的页面：不给链接，当场办——确认新公钥（要填完整的新指纹，和对端核对过才填得出）、停用（要写理由）。
+          // 两个答法直接调对端登记表的接口，那边照旧只认管理员、核指纹
+          waiting_for: p.root_url, since: p.updated_at, answers: ['confirm-key', 'disable'], link: null,
+          answer_via: { method: 'POST', path: `/api/a2a/peers/${encodeURIComponent(p.id)}/confirm-key`, answers: {
+            'confirm-key': { body: {}, input: { fingerprint: { to: 'fingerprint', required: true, max: 71 } } },
+            disable: { path: `/api/a2a/peers/${encodeURIComponent(p.id)}/disable`, body: {}, input: { reason: { to: 'reason', required: true, max: 500 } } },
+          } },
         }))
         : null,
     }),

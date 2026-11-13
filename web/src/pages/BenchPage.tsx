@@ -36,7 +36,16 @@ export default function BenchPage({ cardId, entry }: { cardId: string; entry: Be
   // key 是视图和筛选值的指纹
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardId, key]);
-  useEffect(() => { setS((cur) => (cur.phase === 'ok' ? cur : { phase: 'loading' })); setRefreshing(true); void load(); }, [load]);
+  // 换了视图：先回骨架，免得新数据回来前正文还是上一份视图的、看错；只改筛选（同一份视图）时留着现在的数据，刷新按钮转着
+  const shownView = useRef(view);
+  useEffect(() => {
+    const switched = shownView.current !== view;
+    shownView.current = view;
+    setS((cur) => (cur.phase === 'ok' && !switched ? cur : { phase: 'loading' }));
+    setRefreshing(true); void load();
+  // view 已经在 load 的 key 里，换视图一定会走到这里
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [load]);
 
   const go = (v: string, p: Record<string, string>) => setQ(new URLSearchParams(toQuery(entry, v, p)), { replace: false });
   const submit = async (block: number, values: Record<string, unknown>) => {
