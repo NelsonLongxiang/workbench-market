@@ -141,6 +141,14 @@ export function itemRoles(item: WorkItemRow, viewer: WorkItemViewer): ItemRole[]
   if (viewer.management) roles.push('management');
   return roles;
 }
+/**
+ * 卡住的事冒给谁（规范 14 第九节）：和放行同一个负责人判法（teamLeadRole）——事项交给的团队的负责人；
+ * 这些团队都没有负责人时，持有管理层授予的人（不认管理门：管理口令、没有授予的身份来源管理员都不冒，他们只看得到、不归他们管）。
+ * 建立人、成员的主人不冒（他们在自己的列表里看得到状态）
+ */
+export function stuckGoesTo(item: WorkItemRow, viewer: WorkItemViewer): boolean {
+  return teamLeadRole(item, viewer) !== null;
+}
 /** 看得到这件事项：建立人、成员的主人、负责人、管理层之一 */
 export const canSee = (item: WorkItemRow, viewer: WorkItemViewer): boolean => itemRoles(item, viewer).length > 0;
 
@@ -229,6 +237,15 @@ export const canRelease = (item: WorkItemRow, viewer: WorkItemViewer): boolean =
 export function releaseRole(item: WorkItemRow, viewer: WorkItemViewer): { acting_for: '' | 'team-lead' } | null {
   const p = viewer.principal;
   if (item.review_by === 'requester') return p && viewer.person && isCreator(item, p) ? { acting_for: '' } : null;
+  return teamLeadRole(item, viewer);
+}
+
+/**
+ * 负责人这一层（放行和「停太久冒给谁」共用，只有这一处）：事项交给的团队的负责人本人（acting_for 为空串）；
+ * 这些团队都没有在职负责人（包括名册里还换不出团队的）时，持有管理层授予的人代办（acting_for 记 team-lead）。不认管理门。返回 null 是不归他
+ */
+export function teamLeadRole(item: WorkItemRow, viewer: WorkItemViewer): { acting_for: '' | 'team-lead' } | null {
+  const p = viewer.principal;
   const teams = itemTeams(item);
   if (p && viewer.person && teams.some((t) => relationOf({ principal: p }, { team: t }).relations.includes('team-lead'))) return { acting_for: '' };
   const vacant = teams.every((t) => svc<TeamService>('teams').leads(t).length === 0);

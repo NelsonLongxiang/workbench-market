@@ -22,7 +22,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1858", "etag": "W/\"742-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1949", "etag": "W/\"79d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -55,7 +55,7 @@
                   "waiting_for_name": null
                 }
               ],
-              "counts": { "total": 2, "by_category": { "ask": 0, "review": 1, "accept": 0, "glance": 0, "grant": 1 }, "by_source": { "change-requests": 1, "principal-pending": 1 } },
+              "counts": { "total": 2, "by_category": { "ask": 0, "review": 1, "accept": 0, "glance": 0, "grant": 1 }, "by_source": { "change-requests": 1, "principal-pending": 1 }, "stuck_count": 0 },
               "sources": {
                 "change-requests": { "label": "变更申请", "visible": true, "count": 1 },
                 "mcp-access": { "label": "MCP 权限申请", "visible": true, "count": 0 },
@@ -65,6 +65,7 @@
                 "owner-pending": { "label": "待属主看板", "visible": true, "count": 0 },
                 "principal-pending": { "label": "待对接清单", "visible": true, "count": 1 },
                 "work-items": { "label": "事项的验收和过目", "visible": true, "count": 0 },
+                "work-items-stuck": { "label": "停太久的事项", "visible": true, "count": 0 },
                 "a2a-peers": { "label": "对端公钥待确认", "visible": true, "count": 0 },
                 "team-health": { "label": "团队与名册", "visible": true, "count": 0 },
                 "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 }
@@ -82,7 +83,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1858", "etag": "W/\"742-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1949", "etag": "W/\"79d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -115,7 +116,7 @@
                   "waiting_for_name": null
                 }
               ],
-              "counts": { "total": 2, "by_category": { "ask": 0, "review": 1, "accept": 0, "glance": 0, "grant": 1 }, "by_source": { "change-requests": 1, "principal-pending": 1 } },
+              "counts": { "total": 2, "by_category": { "ask": 0, "review": 1, "accept": 0, "glance": 0, "grant": 1 }, "by_source": { "change-requests": 1, "principal-pending": 1 }, "stuck_count": 0 },
               "sources": {
                 "change-requests": { "label": "变更申请", "visible": true, "count": 1 },
                 "mcp-access": { "label": "MCP 权限申请", "visible": true, "count": 0 },
@@ -125,6 +126,7 @@
                 "owner-pending": { "label": "待属主看板", "visible": true, "count": 0 },
                 "principal-pending": { "label": "待对接清单", "visible": true, "count": 1 },
                 "work-items": { "label": "事项的验收和过目", "visible": true, "count": 0 },
+                "work-items-stuck": { "label": "停太久的事项", "visible": true, "count": 0 },
                 "a2a-peers": { "label": "对端公钥待确认", "visible": true, "count": 0 },
                 "team-health": { "label": "团队与名册", "visible": true, "count": 0 },
                 "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 }
@@ -142,7 +144,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1288", "etag": "W/\"508-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1380", "etag": "W/\"564-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -160,7 +162,7 @@
                   "waiting_for_name": null
                 }
               ],
-              "counts": { "total": 1, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 1 }, "by_source": { "principal-pending": 1 } },
+              "counts": { "total": 1, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 1 }, "by_source": { "principal-pending": 1 }, "stuck_count": 0 },
               "sources": {
                 "change-requests": { "label": "变更申请", "visible": false, "count": 0 },
                 "mcp-access": { "label": "MCP 权限申请", "visible": false, "count": 0 },
@@ -170,6 +172,7 @@
                 "owner-pending": { "label": "待属主看板", "visible": true, "count": 0 },
                 "principal-pending": { "label": "待对接清单", "visible": true, "count": 1 },
                 "work-items": { "label": "事项的验收和过目", "visible": false, "count": 0 },
+                "work-items-stuck": { "label": "停太久的事项", "visible": false, "count": 0 },
                 "a2a-peers": { "label": "对端公钥待确认", "visible": false, "count": 0 },
                 "team-health": { "label": "团队与名册", "visible": false, "count": 0 },
                 "relation-proposals": { "label": "关系的提议", "visible": true, "count": 0 }
@@ -187,10 +190,10 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "964", "etag": "W/\"3c4-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1056", "etag": "W/\"420-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [],
-              "counts": { "total": 0, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 0 }, "by_source": {} },
+              "counts": { "total": 0, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 0 }, "by_source": {}, "stuck_count": 0 },
               "sources": {
                 "change-requests": { "label": "变更申请", "visible": false, "count": 0 },
                 "mcp-access": { "label": "MCP 权限申请", "visible": false, "count": 0 },
@@ -200,6 +203,7 @@
                 "owner-pending": { "label": "待属主看板", "visible": false, "count": 0 },
                 "principal-pending": { "label": "待对接清单", "visible": false, "count": 0 },
                 "work-items": { "label": "事项的验收和过目", "visible": false, "count": 0 },
+                "work-items-stuck": { "label": "停太久的事项", "visible": false, "count": 0 },
                 "a2a-peers": { "label": "对端公钥待确认", "visible": false, "count": 0 },
                 "team-health": { "label": "团队与名册", "visible": false, "count": 0 },
                 "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 }
@@ -217,10 +221,10 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "964", "etag": "W/\"3c4-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1056", "etag": "W/\"420-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [],
-              "counts": { "total": 0, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 0 }, "by_source": {} },
+              "counts": { "total": 0, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 0 }, "by_source": {}, "stuck_count": 0 },
               "sources": {
                 "change-requests": { "label": "变更申请", "visible": false, "count": 0 },
                 "mcp-access": { "label": "MCP 权限申请", "visible": false, "count": 0 },
@@ -230,6 +234,7 @@
                 "owner-pending": { "label": "待属主看板", "visible": false, "count": 0 },
                 "principal-pending": { "label": "待对接清单", "visible": false, "count": 0 },
                 "work-items": { "label": "事项的验收和过目", "visible": false, "count": 0 },
+                "work-items-stuck": { "label": "停太久的事项", "visible": false, "count": 0 },
                 "a2a-peers": { "label": "对端公钥待确认", "visible": false, "count": 0 },
                 "team-health": { "label": "团队与名册", "visible": false, "count": 0 },
                 "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 }
