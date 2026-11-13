@@ -216,10 +216,13 @@ try {
     const kinds = (cli.json?.events ?? []).map((e) => e.kind);
     const assignEv = (cli.json?.events ?? []).find((e) => e.kind === 'assign' && e.principal === 'user:beta');
     check(cli.status === 200 && ['claim', 'lead-add', 'assign', 'unassign'].every((k) => kinds.includes(k)) && assignEv?.principal_name && assignEv.actor_name && assignEv.actor_name !== assignEv.actor
-      && byLead.status === 200 && byDeptLead.status === 200 && show(byLead.json) === show(cli.json)
+      && byLead.status === 200 && byDeptLead.status === 200
+      && show(byLead.json) === show({ ...cli.json, events: cli.json.events.map(({ actor, ...rest }) => rest) })
+      && cli.json.events.every((e) => typeof e.actor === 'string') && [byLead, byDeptLead].every((r) => r.json.events.length > 0 && r.json.events.every((e) => !('actor' in e) && typeof e.actor_name === 'string'))
+      && !byLead.text.includes('"cli"') && !byLead.text.includes('admin-token')
       && stranger.status === 404 && show(stranger) === show(strangerGhost) && unclaimed.status === 404 && show(unclaimed) === show(alphaGhost)
       && anon.status === 401 && cross.status === 403 && badHost.status === 400 && !cli.text.includes('CANARY-TEAM-ITEM-TITLE'),
-      '团队的变更记录：管理员、另外指定的负责人、经部门的负责人看得到（认领、负责人、分配、收回都在，带显示名）；不相干的人、负责人看待认领的别队，和不存在的团队一模一样 404；远程匿名 401；跨站 403；写法不对 400；不带事项内容',
+      '团队的变更记录：管理员、另外指定的负责人、经部门的负责人看得到（认领、负责人、分配、收回都在，带显示名；动手的人的内部标识只给管理员，负责人那里只有 actor_name，别的逐字相同）；不相干的人、负责人看待认领的别队，和不存在的团队一模一样 404；远程匿名 401；跨站 403；写法不对 400；不带事项内容',
       show({ kinds, assignEv, byLead: byLead.status, byDeptLead: byDeptLead.status, stranger, strangerGhost, unclaimed, anon: anon.status, cross: cross.status, badHost: badHost.status }));
 
     const self = await srv.call('GET', asq('user:beta'), as(SESSIONS.beta));

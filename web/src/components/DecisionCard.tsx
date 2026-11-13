@@ -109,15 +109,15 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
         const r = await apiFetch(`/api/work-items/${encodeURIComponent(wid)}/asks/${encodeURIComponent(detail.askId)}/answer`, { method: 'POST', body: JSON.stringify(choice && input.text === choice ? { answer: choice } : { text: input.text ?? '' }) });
         const body = await r.json().catch(() => ({}));
         if (r.status === 401) throw Error('请先登录');
-        if (!r.ok) throw Error(body?.result?.error || body?.error || '没办成');
+        if (!r.ok) throw Error(body?.message || body?.result?.message || body?.result?.error || body?.error || '没办成');
       } else if (route === 'creator') {
         const { status, body } = await postCreatorDecision(item.source_id, answer, String(input.reason ?? ''));
         if (status === 401) throw Error('请先登录');
-        if (status < 200 || status >= 300) throw Error(body?.result?.error || body?.error || '没办成');
+        if (status < 200 || status >= 300) throw Error(body?.message || body?.result?.message || body?.result?.error || body?.error || '没办成');
       } else {
         const r = await apiFetch('/api/attention/answer', { method: 'POST', body: JSON.stringify({ source: item.source, source_id: item.source_id, answer, input }) });
         const body = await r.json().catch(() => ({}));
-        if (!r.ok) throw Error(body?.result?.error || body?.error || '没办成');
+        if (!r.ok) throw Error(body?.message || body?.result?.message || body?.result?.error || body?.error || '没办成');
       }
       void message.success('办好了');
       setOpen(null); setText(''); setChoice('');
