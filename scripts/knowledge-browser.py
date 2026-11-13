@@ -39,6 +39,7 @@ def on_kn(route):
         if m == 'ok': return fake(route, {'items': ITEMS, 'source': 'ok'})
         if m == 'degraded': return fake(route, {'items': ITEMS[:2], 'source': 'degraded'})
         if m == 'not_ready': return fake(route, {'items': [], 'source': 'not_ready'})
+        if m == 'not_connected': return fake(route, {'items': [], 'source': 'not_connected'})
         if m == 'empty': return fake(route, {'items': [], 'source': 'ok'})
         if m == '403': return fake(route, {'error': 'admin_token_not_business'}, 403)
         if m == '503': return fake(route, {'error': 'knowledge_unavailable'}, 503)
@@ -100,6 +101,9 @@ with sync_playwright() as p:
     check('最近一轮没同步上：列表照常，上面轻提示可能不是最新的', pg.locator('[data-testid=kn-degraded]').count() == 1 and '可能不是最新的' in pg.locator('[data-testid=kn-degraded]').inner_text() and pg.locator('[data-testid=kn-item]').count() == 2)
     mode['list'] = 'not_ready'; pg.goto(M + '/knowledge'); pg.wait_for_selector('[data-testid=kn-not-ready]')
     check('还没同步成过：整页说「经验库还在准备」，下面说清四类；不是「没有内容」', '还在准备' in pg.locator('[data-testid=kn-not-ready]').inner_text() and pg.locator('[data-testid=kn-kind]').count() == 4 and '还没有内容' not in pg.locator('main').inner_text())
+    mode['list'] = 'not_connected'; pg.goto(M + '/knowledge'); pg.wait_for_selector('[data-testid=kn-not-connected]')
+    nc = pg.locator('[data-testid=kn-not-connected]').inner_text()
+    check('没接上经验库：中性地说「经验库未接入」，下面说清四类；不是出错、不给再试、不说还在准备', '经验库未接入' in nc and pg.locator('[data-testid=kn-kind]').count() == 4 and pg.locator('.ant-alert').count() == 0 and pg.get_by_role('button', name='再试一次').count() == 0 and '还在准备' not in pg.locator('main').inner_text())
     mode['list'] = 'empty'; pg.goto(M + '/knowledge'); pg.wait_for_selector('[data-testid=kn-empty]')
     kinds = [pg.locator('[data-testid=kn-kind]').nth(i).locator('.ant-list-item-meta-title').inner_text().strip() for i in range(pg.locator('[data-testid=kn-kind]').count())]
     check('一条都没有：说还没有内容、以后从事项里来，下面四类照原型：依据、经验、方法、检查', '还没有内容' in pg.locator('[data-testid=kn-empty]').inner_text() and kinds == ['依据', '经验', '方法', '检查'], kinds)

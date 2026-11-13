@@ -24,7 +24,7 @@ export function kindLabel(kind: unknown): string {
 
 /** 列表里的一条（#717）。key 是不透明的编号，只用在地址里，不写在页面的字上 */
 export type KnowledgeItem = { key: string; kind: KnowledgeKind | string; title: string; summary: string; status: string | null; tags: string[]; created: string; updated: string; scope_label: string };
-export type KnowledgeSource = 'ok' | 'not_ready' | 'degraded';
+export type KnowledgeSource = 'ok' | 'not_ready' | 'degraded' | 'not_connected';
 export type KnowledgeEvidence = { quote: string; note: string; stance: string; created: string; source: { title: string; url: string | null } | null };
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -40,7 +40,7 @@ export function asItem(v: unknown): KnowledgeItem | null {
 export function asList(body: unknown): { items: KnowledgeItem[]; source: KnowledgeSource } {
   const b = (body && typeof body === 'object' ? body : {}) as { items?: unknown; source?: unknown };
   const items = Array.isArray(b.items) ? b.items.map(asItem).filter((x): x is KnowledgeItem => x !== null) : [];
-  const source: KnowledgeSource = b.source === 'not_ready' || b.source === 'degraded' ? b.source : 'ok';
+  const source: KnowledgeSource = b.source === 'not_ready' || b.source === 'degraded' || b.source === 'not_connected' ? b.source : 'ok';
   return { items, source };
 }
 
@@ -79,7 +79,8 @@ export function problemOf(status: number, where: 'list' | 'detail'): { text: str
   if (status === 0) return { text: '连不上服务器，稍后再试。', retry: true };
   return { text: '读不到经验库，稍后再试。', retry: true };
 }
-/** 来源的说法：还没同步成过——整页说「还在准备」；最近一轮没同步上——列表照常，轻提示 */
+/** 来源的说法：没接上（这个实例没接经验库的来源）——中性地说未接入，不当成出错；还没同步成过——整页说「还在准备」；最近一轮没同步上——列表照常，轻提示 */
+export const SOURCE_NOT_CONNECTED = '经验库未接入。接上以后，从事项里沉淀下来的东西会按这四类出现在这里：';
 export const SOURCE_NOT_READY = '经验库还在准备，过一会儿再来看。';
 export const SOURCE_DEGRADED = '经验库最近一次没更新上，这里的内容可能不是最新的。';
 /** 某一类空着时 */

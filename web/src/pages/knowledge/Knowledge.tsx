@@ -1,6 +1,6 @@
 /** 经验库（照产品化原型 3fbfd0b 的 #/knowledge）：从事项里沉淀下来的依据、经验、方法、检查。
  *  数据来自 GET /api/knowledge（#717，只含这个人看得到的，新的在前）。顶上那一句照原型；下面按四类筛（地址带 ?k=），一条一行，点了看详情。
- *  经验库还没同步成过：整页说「还在准备」；最近一轮没同步上：列表照常，上面轻提示可能不是最新的。读不到按状态码说（knowledge-view.ts 的 problemOf）。
+ *  这个实例没接上经验库的来源：中性地说「经验库未接入」；经验库还没同步成过：整页说「还在准备」；最近一轮没同步上：列表照常，上面轻提示可能不是最新的。读不到按状态码说（knowledge-view.ts 的 problemOf）。
  *  条目的编号只用在地址里，不写在页面的字上。 */
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -10,7 +10,7 @@ import WmPage from '../../components/WmPage';
 import RelTime from '../../components/RelTime';
 import { getKnowledge } from '../../api';
 import {
-  KNOWLEDGE_EMPTY, KNOWLEDGE_INTRO, KNOWLEDGE_KINDS, SOURCE_DEGRADED, SOURCE_NOT_READY, asList, countsOf, emptyKindText, itemsOf, kindLabel, problemOf, statusOf, tabFromQuery,
+  KNOWLEDGE_EMPTY, KNOWLEDGE_INTRO, KNOWLEDGE_KINDS, SOURCE_DEGRADED, SOURCE_NOT_CONNECTED, SOURCE_NOT_READY, asList, countsOf, emptyKindText, itemsOf, kindLabel, problemOf, statusOf, tabFromQuery,
   type KnowledgeItem, type KnowledgeKind, type KnowledgeSource, type KnowledgeTab,
 } from '../../knowledge-view';
 
@@ -50,6 +50,9 @@ export default function Knowledge() {
   else if (s.phase === 'error') {
     const p = problemOf(s.status, 'list')!;
     body = <Alert type={p.retry ? 'warning' : 'info'} showIcon data-testid="kn-problem" message={p.text} action={p.retry ? <Button size="small" onClick={() => void load()}>再试一次</Button> : undefined} />;
+  } else if (s.source === 'not_connected') {
+    // 没接上不是出错：中性的空态，不用警示色、不给「再试一次」
+    body = <Card data-testid="kn-not-connected"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={SOURCE_NOT_CONNECTED} />{kinds}</Card>;
   } else if (s.source === 'not_ready') {
     body = <Card data-testid="kn-not-ready"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={SOURCE_NOT_READY} />{kinds}</Card>;
   } else if (s.items.length === 0) {
