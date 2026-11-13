@@ -10,6 +10,8 @@
  *   六、限频：同一席位一小时最多发 12 张；同一来源十分钟最多 60 次。
  *   七、管理员建会话不能用 seat- 开头的名字。
  *   八、每次换令牌单独记一行（成不成都记）：节点、席位、时间、结果、拒的原因；换到的令牌引用对得上调用审计；记录只给管理员看。
+ *   九、席位主体绑公钥的完整指纹和根地址：同一宿主号换了根地址、或主体建时记下的完整指纹和此刻钉住的不一样，换不到、旧令牌也失效，拿不到旧主体的授权。
+ *   限频按真实来源：可信反代（本机回环）后面不同 X-Real-IP 各算各的，记录里的来源也是它。
  * 测试数据都是编的：节点、团队、席位都是合成值。
  */
 import { spawn } from './owned-script-fixture.mjs';
@@ -71,7 +73,7 @@ const exchange = async (body, headers = {}) => { if (typeof body !== 'string') e
 const mcp = async (token, method, params, headers = {}) => { const r = await fetch(BASE + '/mcp', { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) }); let j = null; try { j = await r.json(); } catch {} return { status: r.status, body: j }; };
 const REFUSED = JSON.stringify({ error: 'seat_token_refused' });
 
-const A = host('alpha-node'), B = host('beta-node'), C = host('gamma-node'), D = host('delta-node'), E = host('eps-node');
+const A = host('alpha-node'), B = host('beta-node'), C = host('gamma-node'), D = host('delta-node'), E = host('eps-node'), F = host('zeta-node');
 try {
   if (!(await ready())) throw new Error('实例未就绪：' + out.slice(-600));
   seedHost(A, [{ seat: 'alpha-node/a0000001', id: 'seat-a1' }, { seat: 'alpha-node/a0000002', id: 'seat-a2' }, { seat: 'alpha-node/a0000003', id: 'seat-a3' }]);
@@ -168,6 +170,31 @@ try {
   const del = await admin('DELETE', `/api/mcp/sessions/${sid}`);
   ok('吊销主体 → 这个席位已发的令牌 401，也换不出新的', del.status === 200 && (await mcp(before, 'tools/list', {})).status === 401 && (await exchange(req(A, 'seat-a3'))).text === REFUSED, String(del.status));
 
+  console.log('九、席位主体绑完整指纹和根地址');
+  seedHost(F, [{ seat: 'zeta-node/f0000001', id: 'seat-f1' }]);
+  const rf = await exchange(req(F, 'seat-f1'));
+  const fsid = q("SELECT session_id FROM a2a_seat_subjects WHERE host = ? AND seat_id = 'seat-f1'", F.fp)[0]?.session_id;
+  const fBound = (() => { try { return q("SELECT key_fp, root FROM a2a_seat_subjects WHERE session_id = ?", fsid)[0]; } catch { return undefined; } })(); // 旧库没有这两列：判红而不是跑不下去
+  await admin('PUT', `/api/mcp/sessions/${fsid}/grants`, { grants: ['sop_run_list'] });
+  ok('建主体时记下公钥的完整指纹（sha256 全长）和根地址', rf.status === 200 && fBound?.key_fp === createHash('sha256').update(Buffer.from(F.pk, 'base64')).digest('hex') && fBound?.root === F.root, JSON.stringify(fBound));
+  // 同一宿主号、同一把键，名册和对端登记改到另一个根地址来换：不是建主体时的根地址，不复用
+  const movedRoot = 'https://zeta-moved.example.test';
+  run('UPDATE a2a_peers SET root_url = ? WHERE root_url = ?', movedRoot, F.root);
+  run('UPDATE a2a_rosters SET peer_root = ? WHERE host = ?', movedRoot, F.fp);
+  const moved = await exchange(req({ ...F, root: movedRoot }, 'seat-f1'));
+  const movedOld = (await mcp(rf.body?.token, 'tools/list', {})).status;
+  ok('同一宿主号换了根地址来换 → 401；旧主体上已发的令牌也 401', moved.text === REFUSED && movedOld === 401, `${moved.status} ${movedOld}`);
+  run('UPDATE a2a_peers SET root_url = ? WHERE root_url = ?', F.root, movedRoot);
+  run('UPDATE a2a_rosters SET peer_root = ? WHERE host = ?', F.root, F.fp);
+  // 换一把键算出同一个 8 位宿主号要 2^32 量级，测试里造不出来：改成让主体记着的是另一把键的完整指纹（主体当初是别的键建的），
+  // 现在这把键签、宿主号和根地址都对得上，也换不到旧主体，旧令牌也失效
+  const backOk = (await mcp(rf.body?.token, 'tools/list', {})).status;
+  try { run('UPDATE a2a_seat_subjects SET key_fp = ? WHERE session_id = ?', 'f'.repeat(64), fsid); } catch { /* 旧库没有这一列：下面判红 */ }
+  const otherKey = await exchange(req(F, 'seat-f1'));
+  const otherKeyOld = (await mcp(rf.body?.token, 'tools/list', {})).status;
+  ok('主体记着的完整指纹和此刻钉住的公钥不一样（宿主号相同）→ 换令牌 401，旧令牌 401，拿不到旧主体的授权', backOk === 200 && otherKey.text === REFUSED && otherKeyOld === 401
+    && q("SELECT COUNT(*) AS c FROM a2a_seat_tokens WHERE session_id = ?", fsid)[0].c === 1, `${backOk} ${otherKey.status} ${otherKeyOld}`);
+
   console.log('八、换令牌的记录');
   // 启动自检那一次（编出来的 wm-self-probe）也记了一行，这里不算它
   const logRows = () => q("SELECT * FROM a2a_seat_token_log WHERE seat_id <> 'wm-self-probe' ORDER BY id");
@@ -184,6 +211,7 @@ try {
     byReason('bad-sig').length >= 3 && byReason('not-live').length >= 4 && byReason('bad-ts').length === 2 && byReason('wrong-audience').length === 1
       && [...byReason('bad-sig'), ...byReason('not-live'), ...byReason('bad-ts')].every((x) => x.verified === 0 && x.token_ref === ''), JSON.stringify(L.filter((x) => x.outcome === 'refused').map((x) => x.reason)));
   ok('重放记成 refused / replay、verified = 1（签名是真的）；主体被吊销记成 subject-revoked', byReason('replay').length === 1 && byReason('replay')[0].verified === 1 && byReason('subject-revoked').length === 1, JSON.stringify(byReason('replay')));
+  ok('主体绑定对不上记成 subject-mismatch、verified = 1（两次：换了根地址、换了键）', byReason('subject-mismatch').length === 2 && byReason('subject-mismatch').every((x) => x.verified === 1), JSON.stringify(byReason('subject-mismatch')));
   ok('请求体不成形的也记（bad-request），字段按收到的截短；启动自检那次伪造的请求也记了（refused）', L.filter((x) => x.outcome === 'bad-request').length === 5 && L.some((x) => x.host === 'ABCDEFGH')
     && q("SELECT outcome FROM a2a_seat_token_log WHERE seat_id = 'wm-self-probe'")[0]?.outcome === 'refused');
   const anon = await fetch(BASE + '/api/a2a/seat-token/log', { headers: { 'x-forwarded-for': '192.0.2.9' } });
@@ -203,6 +231,15 @@ try {
   ok('同一来源十分钟内超过 60 次 → 429（不管成不成）', last === 429 && n <= 61, `${n} ${last}`);
   const rl = q("SELECT reason, COUNT(*) AS c FROM a2a_seat_token_log WHERE outcome = 'rate-limited' GROUP BY reason ORDER BY reason");
   ok('限频拒掉的也记（按席位 rate-limited、按来源 per-source），总行数仍 = 请求次数', JSON.stringify(rl) === JSON.stringify([{ reason: 'per-source', c: 1 }, { reason: 'rate-limited', c: 1 }]) && q("SELECT COUNT(*) AS c FROM a2a_seat_token_log WHERE seat_id <> 'wm-self-probe'")[0].c === exchanges, JSON.stringify(rl));
+  // 可信反代（本机回环）后面：按反代写进来的 X-Real-IP 算来源，不同来源各算各的；记录里的来源也是它
+  const viaProxy = (ip) => exchange({ v: 9 }, { 'x-real-ip': ip });
+  const p1 = await viaProxy('203.0.113.5');
+  let pn = 0, plast = 0;
+  while (pn < 80) { pn++; plast = (await viaProxy('203.0.113.6')).status; if (plast === 429) break; }
+  const p1again = await viaProxy('203.0.113.5');
+  ok('可信反代后面按真实来源限频：本机回环那个来源已到上限，X-Real-IP 不同的来源照常；一个来源打满了不影响另一个', p1.status === 400 && plast === 429 && pn <= 61 && p1again.status === 400, `${p1.status} ${pn} ${plast} ${p1again.status}`);
+  const srcs = q("SELECT source, COUNT(*) AS c FROM a2a_seat_token_log WHERE source IN ('203.0.113.5', '203.0.113.6') GROUP BY source ORDER BY source");
+  ok('……换令牌记录里的来源是真实来源（X-Real-IP），不是反代自己', srcs.length === 2 && srcs[0].c === 2 && srcs[1].c === pn, JSON.stringify(srcs));
 } catch (e) {
   ok('运行', false, String(e?.stack ?? e));
 } finally {
