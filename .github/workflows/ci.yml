@@ -518,6 +518,10 @@ jobs:
         run: node scripts/bench-blocks-ui-unit.mjs
       - name: 「谁能做什么」页单测（纯函数——授予的状态、范围、期限，待核准，按人排的表，矩阵格子；单列一步）
         run: node scripts/access-ui-unit.mjs
+      - name: 驾驶舱左栏紧凑行单测（纯函数——一条的键、标签怎么说、选中的那条还在不在；单列一步）
+        run: node scripts/cockpit-attention-unit.mjs
+      - name: 嵌台防护单测（纯函数——登记的地址指不指向市场自己、框里是不是市场自己的页面；单列一步）
+        run: node scripts/embed-guard-unit.mjs
       - name: 「团队」页单测（纯函数——团队状态、负责人、成员归谁用、计数、空和读不到的说法、建部门校验；单列一步）
         run: node scripts/team-ui-unit.mjs
       - name: 身份服务连不上单测（纯函数——认法只认 502 加这个代号·退避重试·连上后清状态并重读·全景的总结句；单列一步）
