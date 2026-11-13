@@ -9,6 +9,7 @@
  * 二、出站（事件投递、回给团队的消息）投递前过 canDeliver：
  *    disabled、key_changed 的对端：挂起（仍 pending、attempts 不加、不判死、对端什么也没收到），留一行 held；
  *    恢复 active 之后照常发出。
+ * 三、跟进按根地址认（不按区）：同一个区下两台宿主（根地址不同），限频各算各的；同一个 context 投给了两台，跟进按发来的根地址找到自己那次投递。
  * 测试数据都是编的：节点、区、团队都是合成值。
  */
 import { spawn } from './owned-script-fixture.mjs';
@@ -68,7 +69,7 @@ const post = async (raw, headers) => { const r = await fetch(BASE + '/a2a/direct
 
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server',
-  env: { ...process.env, DATA_DIR: DATA, PORT: String(PM), WM_CONTROL_PORT: '0', NODE_ENV: 'test', MCP_GATEWAY: 'off', ADMIN_TOKEN: 'pin-admin', MARKET_PUBLIC_URL: BASE, WM_A2A_DIRECT_SIG: '', WM_LOGIN_GATE: '', WM_OUTBOUND: '' },
+  env: { ...process.env, DATA_DIR: DATA, PORT: String(PM), WM_CONTROL_PORT: '0', NODE_ENV: 'test', MCP_GATEWAY: 'off', ADMIN_TOKEN: 'pin-admin', MARKET_PUBLIC_URL: BASE, WM_A2A_DIRECT_SIG: '', WM_LOGIN_GATE: '', WM_OUTBOUND: '', WM_A2A_FOLLOWUP_RATE_10MIN: '3' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let out = '';
@@ -197,6 +198,24 @@ try {
   run("UPDATE workbench_event_replies SET next_at = '2000-01-01 00:00:00' WHERE delivery_id = ?", re.delivery);
   const rSent = await waitFor(() => q("SELECT status FROM workbench_event_replies WHERE delivery_id = ?", re.delivery)[0]?.status === 'sent');
   ok('……恢复 active 之后照常发出', rSent && rp.got.length >= 1, JSON.stringify({ rSent, got: rp.got.length }));
+
+  console.log('三、跟进按根地址认，不按区');
+  const s1 = await peer('pshared'), s2 = await peer('pshared'); // 同一个区，两台宿主
+  register(s1); run("UPDATE a2a_peers SET id = 'peer_s1' WHERE root_url = ?", s1.url);
+  run(`INSERT INTO a2a_peers (id, root_url, zone, name, public_key, key_fingerprint, status, registered_by, registered_at, updated_at) VALUES ('peer_s2', ?, 'pshared', 'pshared', ?, ?, 'active', 'test', ?, ?)`, s2.url, s2.pk, fpOf(s2.pk), t0, t0);
+  // 限频（这个实例设成 10 分钟 3 条）：s1 发满 3 条、第 4 条限频；s2 是另一台宿主，照常记正文
+  const fs1 = [];
+  for (let i = 0; i < 4; i++) { const e = seedEvent(s1); await followup(s1, e, `fu-s1-${i}`); fs1.push(q('SELECT status FROM workbench_event_followups WHERE delivery_id = ?', e.delivery)[0]?.status); }
+  const e2 = seedEvent(s2); await followup(s2, e2, 'fu-s2-0');
+  const s2Status = q('SELECT status FROM workbench_event_followups WHERE delivery_id = ?', e2.delivery)[0]?.status;
+  ok('限频按根地址：同一个区下 s1 发满 3 条后第 4 条限频，另一台 s2 的照常记正文', JSON.stringify(fs1) === JSON.stringify(['open', 'open', 'open', 'rate-limited']) && s2Status === 'open', JSON.stringify({ fs1, s2Status }));
+  // 同一个 context 先投给 s1、后投给 s2：s1 发来的跟进按它的根地址找到投给它的那次，不被后投的 s2 那次挡住
+  const shared = seedEvent(s1);
+  const d2 = Number(run(`INSERT INTO workbench_event_deliveries (event_id, target_team, target_url, caller_session, message, status, sent_at) VALUES (?, 'superagent-team/b1b2c3d4e5f60718', ?, 'market/12345678', '{}', 'sent', datetime('now'))`, shared.ev, s2.url).lastInsertRowid);
+  run("UPDATE a2a_sent_tasks SET created_at = '2000-01-01 00:00:00' WHERE task_id = ?", shared.task);
+  run('INSERT INTO a2a_sent_tasks (task_id, kind, event_id, delivery_id, peer_root, peer_zone) VALUES (?, ?, ?, ?, ?, ?)', `${shared.ev}.d${d2}.a1`, 'delivery', shared.ev, d2, s2.url, 'pshared');
+  const fromS1 = await followup(s1, shared, 'fu-shared-s1');
+  ok('同一个 context 投给了同区的两台：s1 发来的跟进记在投给 s1 的那次投递上', followups(shared.delivery) === 1 && followups(d2) === 0, JSON.stringify({ st: fromS1.status, s1: followups(shared.delivery), s2: followups(d2) }));
 } catch (e) {
   ok('运行', false, String(e?.stack ?? e));
 } finally {
