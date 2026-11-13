@@ -514,6 +514,8 @@ jobs:
         run: node scripts/work-items-ui-unit.mjs
       - name: 驾驶舱骨架单测（纯函数——三栏尺寸、放大还原、数据视图引用、页签；单列一步）
         run: node scripts/cockpit-frame-unit.mjs
+      - name: 驾驶舱的 can.edit（读应答里带；和写请求总门对同一个请求的判断一致：逐个身份读一次、改一次）
+        run: node scripts/cockpit-can-test.mjs
       - name: 驾驶舱里的数据视图（共用的筛选、挂视图、取不到时的说法）
         run: node scripts/cockpit-bench-view-unit.mjs
       - name: 身份变了以后页面重读单测（纯函数——认人只认 /api/auth/me·不通和 502 不算·合并去抖·世代号；单列一步）
