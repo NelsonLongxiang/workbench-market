@@ -907,6 +907,44 @@ try {
     await waitFor(() => logCount(G.ev, 'reply-sent') >= 2, 20000);
     const rejGone = !rejOf(await attentionAs(SESSIONS.alpha)) && !rejOf(await attentionAs(SESSIONS.noAdminFlag));
     ok('……同一次投递之后又发出子任务（这里是打回）：「关注」里那条不再列', rejGone);
+    {
+      const rejFor = (E) => (items) => items.find((x) => x.source === 'reply-rejected' && x.link === `/work-items/wi_${E.ev}`);
+      // 来自未验证提交方的事项（建立人主体记着、context 说 unverified、不是票据）：建立人对它是 not_eligible，「没收下的答复」不给他看（持授予的人照常）
+      const U = seedEvent({ requester: 'user:alpha' });
+      const uTask = await askAndAnswer(U, 'u1', 'C 方案');
+      { const d = db(); try { d.prepare("UPDATE work_items SET context = json_set(context, '$.submitter_kind', 'unverified') WHERE id = ?").run(`wi_${U.ev}`); } finally { d.close(); } }
+      await receipt(uTask, '不收这条', { outcome: 'rejected', idempotencyKey: uTask, disposition: 'result' }, U.ctx);
+      const uByCreator = rejFor(U)(await attentionAs(SESSIONS.alpha)), uByGrant = rejFor(U)(await attentionAs(SESSIONS.noAdminFlag));
+      ok('未验证来源的事项（建立人是 not_eligible）：「没收下的答复」不给建立人看，持管理层授予的人照常看得到', !uByCreator && !!uByGrant && logCount(U.ev, 'reply:rejected') === 1,
+        JSON.stringify({ creator: !!uByCreator, grant: !!uByGrant }));
+      // 事项到了终态：那条不再列
+      const V = seedEvent({ requester: 'user:alpha' });
+      const vTask = await askAndAnswer(V, 'v1', 'D 方案');
+      await receipt(vTask, '不收这条', { outcome: 'rejected', idempotencyKey: vTask, disposition: 'result' }, V.ctx);
+      const vBefore = !!rejFor(V)(await attentionAs(SESSIONS.alpha));
+      await receipt(V.task, '交付', { outcome: 'completed', idempotencyKey: V.task, disposition: 'result' }, V.ctx);
+      const vr = await dapi('POST', '/api/attention/answer', { source: 'work-items', source_id: `wi_${V.ev}`, answer: 'verify', input: {} });
+      const vAfter = !!rejFor(V)(await attentionAs(SESSIONS.alpha)) || !!rejFor(V)(await attentionAs(SESSIONS.noAdminFlag));
+      ok('「没收下的答复」：事项验收完（到了终态）就不再列', vBefore && vr.status === 200 && state(V.ev)?.state === 'done' && !vAfter, JSON.stringify({ vBefore, vr: vr.status, st: state(V.ev), vAfter }));
+      // 打回任务的 ref 是负的进展序号；进展序号是 0（打回时还没有进展）的那种也算打回：接单推到已接手
+      const W = seedEvent({ requester: 'user:alpha' });
+      await receipt(W.task, '接下', { idempotencyKey: W.task, disposition: 'acknowledged' }, W.ctx, { inbound: `ack-${W.task}` });
+      await receipt(W.task, '交付', { outcome: 'completed', idempotencyKey: W.task, disposition: 'result' }, W.ctx);
+      await dapi('POST', '/api/attention/answer', { source: 'work-items', source_id: `wi_${W.ev}`, answer: 'return', input: { reason: '再改改' } });
+      const w0 = state(W.ev)?.state;
+      let zTask = '';
+      { const d = db(); try {
+        const rid = Number(d.prepare("INSERT INTO workbench_event_replies (kind, event_id, delivery_id, ref, qid, team, caller_session, context_id, target_url, message, status, next_at, created_at) VALUES ('answer', ?, ?, 0, ?, 'superagent-team/a1b2c3d4e5f60718', 'market/12345678', ?, ?, ?, 'sent', '2026-01-01 00:00:00', '2026-01-01 00:00:00')")
+          .run(W.ev, W.delivery, W.task, W.ctx, lab.url, JSON.stringify({ text: '再改改', by: 'user:alpha', return: { of: W.task, title: 'x' } })).lastInsertRowid);
+        zTask = `${W.ev}.d${W.delivery}.q${rid}.a1`;
+        d.prepare("INSERT INTO a2a_sent_tasks (task_id, kind, event_id, delivery_id, peer_root, peer_zone) VALUES (?, 'answer', ?, ?, ?, 'lab')").run(zTask, W.ev, W.delivery, lab.url);
+      } finally { d.close(); } }
+      r = await receipt(zTask, '接下重做', { idempotencyKey: zTask, disposition: 'acknowledged' }, W.ctx, { inbound: `ack-${zTask}` });
+      ok('打回任务的 ref 是 0（打回时还没有进展）：对方接单照样算重新接手，事项推到已接手、记 receipt:acknowledged',
+        r.status === 200 && w0 === 'progress' && state(W.ev)?.state === 'accepted'
+          && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE event_id = ? AND action = 'receipt:acknowledged' AND json_extract(detail, '$.task') = ?", W.ev, zTask)[0].c === 1,
+        `${String(r.text ?? '').slice(0, 80)} ${JSON.stringify({ w0, st: state(W.ev) })}`);
+    }
     // 答复任务回 failed：工作在这一步做不下去，照 R2 推事项
     const H = seedEvent();
     const hTask = await askAndAnswer(H, 'f1', 'B 方案');
