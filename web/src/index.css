@@ -692,6 +692,8 @@ button.wm-view { font: inherit; cursor: pointer; transition: color var(--wm-moti
 button.wm-view:not(.on):hover { color: var(--wm-color-primary); border-color: var(--wm-color-primary); }
 button.wm-view:focus-visible { outline: 2px solid var(--wm-color-primary); outline-offset: 2px; }
 .wm-view i { font-style: normal; font-size: var(--wm-font-size-caption); font-variant-numeric: tabular-nums; }
+/* 页签上「等你拍板」的红数：和驾驶舱页签、侧栏角标同一种红点 */
+.wm-view-decide { min-width: 16px; padding: 0 4px; border-radius: var(--wm-radius-full); background: var(--wm-color-danger); color: var(--wm-color-on-primary); font-size: var(--wm-font-size-caption); font-weight: var(--wm-font-weight-body-strong); line-height: 16px; text-align: center; font-variant-numeric: tabular-nums; }
 .wm-view-group { margin-left: auto; display: inline-flex; align-items: center; gap: var(--wm-space-2); }
 .wm-avatar-none { background: transparent; border: 1px dashed var(--wm-color-border-strong); }
 
