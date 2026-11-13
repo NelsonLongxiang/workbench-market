@@ -1,5 +1,7 @@
 # #309 第二段：run/task 私有读收口设计（Draft）
 
+> 补记（2026-11-13）：本段已于 2026-11-01 经 PR #312（`bea546f`）合入 main，代码在 `server/src/sop-read-auth.ts`、`server/src/sop-run-access.ts`。下文保留设计时的原文；生产是否已部署以运维记录为准。
+
 基线 main e9aa745（#310 列表收口＋#296 内容底座已合）。本段覆盖：单 run 字段（GET /api/sop/runs/:id）、附件（list／download／HEAD）、任务中心详情 /:id（含 events 载荷副本）。不塞 #311 现行热修 head；生产部署与维护窗口另行批准。
 
 ## 判据（先红）
