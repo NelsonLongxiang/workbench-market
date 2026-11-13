@@ -8,6 +8,8 @@
  *   S3 删台时按前缀清：只清这个台的（台 1 不碰台 10），SOP 的键不碰，分批扫也清干净；清完按前缀一个都找不到
  *   S4 中途断开：mode down；读 down（不是 miss）、写 false、清台 null；恢复后照常
  *   S5 这次出错：读 error、写 false
+ *   S3b 清台扫到第二批时 Redis 下线：返回 null（不是已清的个数），没清完的键还在
+ *   S3c 清扫：卡片已经不在的台的键清掉，还在的不碰；不通时返回 null
  *   S7 别的域的句柄（SOP）：没配是 null、连着时命令原样转给连接、不通是 null；只许碰 wm:sop:，碰台的键当场拒；台的方法也碰不到它的键
  *   S6 卸载根上下文：连接断开，之后 mode off
  *
@@ -60,6 +62,20 @@ async function child(mode) {
     await st.set(k10, 'ten');
     ctl.store.set('wm:sop:run:1:data', 'sop');
     out.clear = { n: await st.clearBench(1), left1: [...ctl.store.keys()].filter((k) => k.startsWith('wm:bench:1:')), ten: await st.get(k10), sop: ctl.store.get('wm:sop:run:1:data') };
+    // S3b：清台扫到第二批时下线（台 3 有 4 个键，两个一批）
+    for (const p of ['a', 'b', 'c', 'd']) await st.set(benchKey(3, 'var', p), p);
+    ctl.offlineAfterBatches = 1;
+    const mid = await st.clearBench(3);
+    const left3 = [...ctl.store.keys()].filter((k) => k.startsWith('wm:bench:3:')).length;
+    ctl.back();
+    out.midScan = { result: mid, left3 };
+    // S3c：清扫。卡片 3、10 还在，5、6 已经不在
+    for (const [id, p] of [[5, 'x'], [6, 'y'], [3, 'z']]) await st.set(benchKey(id, 'var', p), p);
+    const swept = await st.sweepBenches(new Set([3, 10]));
+    out.sweep = { swept, gone: ['wm:bench:5:var:x', 'wm:bench:6:var:y'].every((k) => !ctl.store.has(k)), kept: ctl.store.has('wm:bench:3:var:z') && ctl.store.has('wm:bench:10:var:progress'), sop: ctl.store.get('wm:sop:run:1:data') };
+    ctl.offline();
+    out.sweep.down = await st.sweepBenches(new Set());
+    ctl.back();
     // S4：中途断开
     await st.set(k10, 'ten');
     ctl.offline();
@@ -87,6 +103,9 @@ async function child(mode) {
     out.sop.errorThrown = await ops.hGetAll('wm:sop:run:7:meta').then(() => false, () => true);
     await st.clearBench(7);
     out.sop.afterClearBench = ctl.store.has('wm:sop:run:7:meta');
+    // 清扫：扫的是 wm:bench:*，卡片一张都不在也碰不到 SOP 的键
+    out.sop.swept = await st.sweepBenches(new Set());
+    out.sop.afterSweep = ctl.store.has('wm:sop:run:7:meta') && ctl.store.has('wm:sop:runs:active') && ![...ctl.store.keys()].some((k) => k.startsWith('wm:bench:'));
     ctl.offline();
     out.sop.down = { ops: sop.ops(), configured: sop.configured() };
     ctl.back();
@@ -132,6 +151,8 @@ async function parent() {
   console.log('S3 删台时按前缀清');
   ok('台 1 的 5 个键分批扫、全清掉；按这个台的前缀一个都找不到', r.clear?.n === 5 && r.clear.left1?.length === 0, r.clear);
   ok('台 10 的键不碰（前缀不会把 1 当成 10 的开头），SOP 的键不碰', r.clear?.ten?.kind === 'hit' && r.clear.sop === 'sop', r.clear);
+  ok('S3b 清台扫到第二批时下线：返回 null（不是已清的个数），没清完的键还在', r.midScan?.result === null && r.midScan.left3 === 2, r.midScan);
+  ok('S3c 清扫：卡片已经不在的台的键清掉（2 个），还在的、SOP 的不碰；不通时返回 null', r.sweep?.swept === 2 && r.sweep.gone && r.sweep.kept && r.sweep.sop === 'sop' && r.sweep.down === null, r.sweep);
   console.log('S4 中途断开');
   ok('mode down；读 down（不是 miss）、写 false、删 false、清台 null；Redis 里原有的不动', r.down?.mode === 'down' && r.down.get?.kind === 'down' && r.down.set === false && r.down.del === false && r.down.clear === null && r.down.kept === 'ten', r.down);
   ok('恢复之后 mode up，照常读到', r.back?.mode === 'up' && r.back.get?.kind === 'hit' && r.back.get.value === 'ten', r.back);
@@ -140,6 +161,7 @@ async function parent() {
   console.log('S7 SOP 的句柄');
   ok('连着：hash 整份写、按字段写、读；set 加、删、列；到期——都原样转给连接', r.sop?.configured === true && r.sop.meta?.slug === 's' && r.sop.meta.status === 'finished' && JSON.stringify(r.sop.active) === '["7"]' && r.sop.expire === 3600, r.sop);
   ok('只许碰 wm:sop:：台的键、像前缀的别的键、光有前缀、别的键都当场拒；台的方法也碰不到 SOP 的键；清台不动 SOP 的键', r.sop?.guards?.every(Boolean) && r.sop.benchCantTouch && r.sop.afterClearBench, r.sop);
+  ok('清扫（卡片一张都不在）把台的键清光，SOP 的键一个不碰', typeof r.sop?.swept === 'number' && r.sop.swept > 0 && r.sop.afterSweep === true, r.sop);
   ok('这次出错照样抛给调用方（SOP 自己的兜底照旧）；不通时 ops 是 null、configured 仍是 true', r.sop?.errorThrown && r.sop.down?.ops === null && r.sop.down.configured === true, r.sop);
   console.log('S6 卸载根上下文');
   ok('连接断开一次，之后 mode off', r.dispose?.destroyed === 1 && r.dispose.mode === 'off', r.dispose);

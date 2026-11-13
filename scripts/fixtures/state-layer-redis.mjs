@@ -1,7 +1,7 @@
 /** 只给 state-layer-test 用的假 Redis：进程内的键值表，测试经 globalThis.__stateRedis 控制在线、出错、看表、看有没有断开 */
 import { EventEmitter } from 'node:events';
 const store = new Map();
-const ctl = { online: true, failNext: false, destroyed: 0, lastSetOpts: null, store };
+const ctl = { online: true, failNext: false, destroyed: 0, lastSetOpts: null, store, offlineAfterBatches: null };
 globalThis.__stateRedis = ctl;
 const client = new EventEmitter();
 Object.defineProperty(client, 'isReady', { get: () => ctl.online });
@@ -14,7 +14,10 @@ client.scanIterator = async function* ({ MATCH }) {
   use();
   const prefix = MATCH.endsWith('*') ? MATCH.slice(0, -1) : MATCH;
   const all = [...store.keys()].filter((k) => (MATCH.endsWith('*') ? k.startsWith(prefix) : k === MATCH));
-  for (let i = 0; i < all.length; i += 2) { use(); yield all.slice(i, i + 2); } // 分批给，测分页
+  for (let i = 0, b = 0; i < all.length; i += 2, b++) {
+    if (ctl.offlineAfterBatches !== null && b >= ctl.offlineAfterBatches) { ctl.offlineAfterBatches = null; ctl.offline(); }
+    use(); yield all.slice(i, i + 2); // 分批给，测分页
+  }
 };
 // SOP 句柄用的几种（hash 存成对象、set 存成 Set）
 const hashOf = (k) => { const v = store.get(k); if (v === undefined) { const h = {}; store.set(k, h); return h; } return v; };
