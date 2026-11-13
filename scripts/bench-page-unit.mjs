@@ -26,8 +26,8 @@ ok('标签页标题：视图标题和台名不同时带台名', pageTitle(E) ===
 // 表单
 ok('版本变了（409）：表单说页面过期', formError(409, { error: 'conflict', message: 'x' }).code === 'conflict');
 ok('服务端说填得不对：原样带它的原因', J(formError(400, { error: 'invalid', message: '「件数」要是整数' })) === J({ code: 'invalid', message: '「件数」要是整数' }));
-ok('没登录、不让交、断网、别的：各一句人话', formError(401, null).message === '请先登录' && formError(403, { error: 'forbidden' }).message === '你的账号不能在这个台上填表' && formError(0, null).message.includes('连不上') && formError(500, { error: 'internal', message: 'SQLITE_BUSY' }).message === '这次没交上去，稍后再试');
-ok('说法里没有开发用语、不露代号', [...Object.values(ENTRY_TEXT), ...[401, 403, 0, 500, 413].map((s) => formError(s, { error: 'limit', message: 'raw' }).message)].every((t) => !/接口|字段|slug|bench|error|SQLITE|raw/i.test(t)));
+ok('不让交（403）给 forbidden，由表单块说；没登录、断网、别的：各一句人话', formError(401, null).message === '请先登录' && J(formError(403, { error: 'forbidden' })) === '{"code":"forbidden"}' && formError(0, null).message.includes('连不上') && formError(500, { error: 'internal', message: 'SQLITE_BUSY' }).message === '这次没交上去，稍后再试');
+ok('说法里没有开发用语、不露代号', [...Object.values(ENTRY_TEXT), ...[401, 0, 500, 413].map((s) => formError(s, { error: 'limit', message: 'raw' }).message)].every((t) => !/接口|字段|slug|bench|error|SQLITE|raw/i.test(t)));
 
 console.log(`\nbench-page-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

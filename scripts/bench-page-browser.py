@@ -31,7 +31,8 @@ def view_result(view, params):
               {'type': 'progress', 'title': '完成度', 'value': 'v', 'total': 80, 'span': 3, 'data': {'columns': [{'name': 'v', 'type': 'integer'}], 'rows': [{'v': n}]}}]
     if view == 'vk-board':
         blocks += [{'type': 'bar', 'title': '各区巡检次数', 'x': 'site', 'y': 'n', 'span': 6, 'data': {'columns': [{'name': 'site', 'type': 'text'}, {'name': 'n', 'type': 'integer'}], 'rows': rows}},
-                   {'type': 'table', 'title': '巡检记录', 'span': 6, 'data': {'columns': [{'name': 'site', 'type': 'text', 'label': '区域'}, {'name': 'n', 'type': 'integer', 'label': '次数'}, {'name': 'state', 'type': 'text'}], 'rows': rows}}, FORM]
+                   {'type': 'table', 'title': '巡检记录', 'span': 6, 'data': {'columns': [{'name': 'site', 'type': 'text', 'label': '区域'}, {'name': 'n', 'type': 'integer', 'label': '次数'}, {'name': 'state', 'type': 'text'}], 'rows': rows}}, {**FORM, 'can_submit': True},
+                   {**FORM, 'title': '改巡检计划', 'can_submit': False, 'span': 12}]
     else:
         blocks += [{'type': 'table', 'title': '明细', 'span': 12, 'data': {'columns': [{'name': 'site', 'type': 'text'}, {'name': 'n', 'type': 'integer'}], 'rows': rows}}]
     return {'title': ENTRY['title'], 'version': 5, 'view': {'key': view, 'title': vt}, 'params': params, 'blocks': blocks}
@@ -82,7 +83,9 @@ with sync_playwright() as p:
     check('进的是数据视图页：顶栏台名「合成·巡检台」，标题「合成巡检总览」', pg.locator('[data-testid=bench-page-name]').inner_text() == '合成·巡检台' and pg.locator('[data-testid=bench-page-title]').inner_text() == '合成巡检总览')
     check('两个视图页签，按入口的次序；默认那一份选中', tabs == ['巡检看板', '巡检明细'] and pg.locator('[data-testid=bench-page-tab][aria-selected=true]').inner_text() == '巡检看板', tabs)
     check('第一次取数取的是默认那一份，没带筛选', log['render'][:1] == [('vk-board', {})], log['render'])
-    check('块都在：筛选栏、统计、进度、柱图、表格、表单，带外框', all(pg.locator(f'[data-bb={k}][data-bb-frame=card]').count() == 1 for k in ('filter-bar', 'stat', 'progress', 'bar', 'table', 'form')))
+    check('块都在：筛选栏、统计、进度、柱图、表格、两张表单，带外框', all(pg.locator(f'[data-bb={k}][data-bb-frame=card]').count() == (2 if k == 'form' else 1) for k in ('filter-bar', 'stat', 'progress', 'bar', 'table', 'form')))
+    deny = pg.locator('[data-bb=form]').nth(1)
+    check('表单块 can_submit 是 false：那一块按钮不可点、旁边说不能在这个台上填表；另一块照常能交', deny.locator('button[type=submit]').is_disabled() and '你的账号不能在这个台上填表' in deny.inner_text() and not pg.locator('[data-bb=form]').nth(0).locator('button[type=submit]').is_disabled())
     t = body_text(pg)
     check('台标识、视图键、卡片背后的编号不写在页面的字上', SLUG not in t and 'vk-' not in t and '4242' not in t)
     check('浏览器标签页标题：视图标题 · 台名', pg.title() == '合成巡检总览 · 合成·巡检台', pg.title())
@@ -116,7 +119,7 @@ with sync_playwright() as p:
     check('后退两次回到默认那一份（换视图、改筛选各记一步）', pg.locator('[data-testid=bench-page-tab][aria-selected=true]').inner_text() == '巡检看板')
 
     print('三、交表单')
-    form = pg.locator('[data-bb=form]')
+    form = pg.locator('[data-bb=form]').first
     form.locator('textarea').fill('南区'); form.locator('input').first.fill('3')
     n2 = len(log['render'])
     form.locator('button[type=submit]').click()
@@ -130,7 +133,7 @@ with sync_playwright() as p:
     check('版本变了（409）：说页面过期了', '这个页面过期了' in form.inner_text(), form.inner_text())
     mode['form'] = '403'
     form.locator('textarea').fill('南区'); form.locator('button[type=submit]').click()
-    pg.wait_for_function("() => document.querySelector('[data-bb=form] .ant-alert-warning')?.textContent.includes('不能在这个台上填表')")
+    pg.wait_for_function("() => document.querySelector('[data-bb=form] .ant-alert-warning')?.textContent.includes('没交上去：你的账号不能在这个台上填表')")
     check('不让交（403）：说这个账号不能在这个台上填表，不露代号', 'bench_views' not in form.inner_text())
     mode['form'] = 'ok'
 

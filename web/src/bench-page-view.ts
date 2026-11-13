@@ -62,15 +62,15 @@ export function pageTitle(entry: BenchEntry): string {
   return entry.title === entry.bench.title ? entry.title : `${entry.title} · ${entry.bench.title}`;
 }
 
-/** 表单没交上去：换成表单块认的 { code, message }（Form.tsx：invalid 带原因写「没交上去：原因」，conflict 写「这个页面过期了」）。
- *  服务端的 invalid、conflict 照原样；没登录、不让交、断网、别的都给一句人话，不露代号 */
+/** 表单没交上去：换成表单块认的 { code, message }（Form.tsx：invalid 带原因写「没交上去：原因」，conflict 写「这个页面过期了」，forbidden 写不能在这个台上填表）。
+ *  服务端的 invalid、conflict 照原样；不让交给 forbidden；没登录、断网、别的都给一句人话，不露代号 */
 export function formError(status: number, body: unknown): { code: string; message?: string } {
   const b = (body && typeof body === 'object' ? body : {}) as { error?: unknown; message?: unknown };
   const code = typeof b.error === 'string' ? b.error : '';
   const message = typeof b.message === 'string' && b.message ? b.message : undefined;
   if (status === 409 || code === 'conflict') return { code: 'conflict' };
   if (status === 401) return { code: 'invalid', message: '请先登录' };
-  if (status === 403) return { code: 'invalid', message: '你的账号不能在这个台上填表' };
+  if (status === 403) return { code: 'forbidden' };
   if (status === 400 && code === 'invalid') return { code: 'invalid', message: message ?? '有的内容填得不对' };
   if (status === 0) return { code: 'invalid', message: '连不上服务器，稍后再交' };
   return { code: 'invalid', message: '这次没交上去，稍后再试' };
