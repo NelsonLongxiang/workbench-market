@@ -1,7 +1,7 @@
 {
   "domain": "teams",
-  "what": "团队与分配：/api/teams 的 8 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。人、部门、名册都是合成的。",
-  "routes": ["GET /api/teams", "GET /api/teams/mine", "POST /api/teams/claim", "POST /api/teams/release", "POST /api/teams/leads", "POST /api/teams/leads/remove", "POST /api/teams/assign", "POST /api/teams/unassign", "POST /api/teams/reassign"],
+  "what": "团队与分配：/api/teams 的 11 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。人、部门、名册都是合成的。",
+  "routes": ["GET /api/teams", "GET /api/teams/mine", "POST /api/teams/claim", "POST /api/teams/release", "POST /api/teams/leads", "POST /api/teams/leads/remove", "POST /api/teams/assign", "POST /api/teams/unassign", "POST /api/teams/reassign", "GET /api/teams/events", "GET /api/teams/assignments"],
   "exempt": [
     { "route": "GET /api/teams", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/list-junk" },
     { "route": "GET /api/teams/mine", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入", "shown_by": "open/mine-junk" }
@@ -11,6 +11,7 @@
       "name": "open",
       "what": "缺省配置：登录门关，没设管理口令。本机命令行算管理员；假登录提供方认出 alpha、beta（都不是管理员）。库里预先放好部门 sales（负责人 beta、成员 alpha）和一个节点的名册（一个团队：总工和一个成员）。",
       "env": {},
+      "clock": "2030-01-01T00:00:00Z",
       "fixtures": ["identity-fake"],
       "seed": [
         { "table": "principals", "row": { "id": "user:alpha", "id_key": "user:alpha", "kind": "person", "display_name": "合成甲" } },
@@ -277,6 +278,112 @@
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "18", "etag": "W/\"12-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "ok": true, "id": 1 }
+          }
+        },
+        {
+          "id": "events-remote-anon",
+          "route": "GET /api/teams/events",
+          "class": "unauthorized",
+          "what": "远程匿名看团队的变更记录：401",
+          "request": { "method": "GET", "path": "/api/teams/events?host=a1b2c3d4&team=zone1%2Fcanvas%2FSales%20Team", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "teams_auth_required" }
+          }
+        },
+        {
+          "id": "events-bad-host",
+          "route": "GET /api/teams/events",
+          "class": "invalid",
+          "what": "节点标识写法不对：400",
+          "request": { "method": "GET", "path": "/api/teams/events?host=A1B2C3D4&team=zone1%2Fcanvas%2FSales%20Team" },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "host 写法不对", "code": "host_invalid" }
+          }
+        },
+        {
+          "id": "events-ghost",
+          "route": "GET /api/teams/events",
+          "class": "invalid",
+          "what": "没有这个团队：404（读不到的团队也是这个应答）",
+          "request": { "method": "GET", "path": "/api/teams/events?host=a1b2c3d4&team=zone1%2Fcanvas%2FGhost" },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "57", "etag": "W/\"39-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "team_not_found", "message": "没有这个团队" }
+          }
+        },
+        {
+          "id": "events-lead",
+          "route": "GET /api/teams/events",
+          "class": "normal",
+          "what": "负责人 alpha 看自己团队的变更记录：认领、指定负责人、分配",
+          "vary": { "events.0.at": 60000, "events.1.at": 60000, "events.2.at": 60000, "events.3.at": 60000 },
+          "request": { "method": "GET", "path": "/api/teams/events?host=a1b2c3d4&team=zone1%2Fcanvas%2FSales%20Team", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "671", "etag": "W/\"29f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "host": "a1b2c3d4",
+              "team": "zone1/canvas/Sales Team",
+              "name": "Sales Team",
+              "events": [
+                { "seq": 1, "kind": "claim", "seat": "", "seat_id": "", "principal": null, "principal_name": null, "detail": { "department": "sales", "before": null }, "actor": "cli", "actor_name": "本机命令行", "at": 1893456000000 },
+                { "seq": 2, "kind": "lead-add", "seat": "", "seat_id": "", "principal": "user:alpha", "principal_name": "合成甲", "detail": null, "actor": "cli", "actor_name": "本机命令行", "at": 1893456000000 },
+                { "seq": 3, "kind": "assign", "seat": "zone1/0000000b", "seat_id": "seat-0000000b", "principal": "user:beta", "principal_name": "合成乙", "detail": null, "actor": "user:alpha", "actor_name": "合成甲", "at": 1893456000000 }
+              ]
+            }
+          }
+        },
+        {
+          "id": "assignments-remote-anon",
+          "route": "GET /api/teams/assignments",
+          "class": "unauthorized",
+          "what": "远程匿名看分配的历史：401",
+          "request": { "method": "GET", "path": "/api/teams/assignments?principal=user%3Abeta", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "teams_auth_required" }
+          }
+        },
+        {
+          "id": "assignments-bad-principal",
+          "route": "GET /api/teams/assignments",
+          "class": "invalid",
+          "what": "主体标识写法不对：400",
+          "request": { "method": "GET", "path": "/api/teams/assignments?principal=beta", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "61", "etag": "W/\"3d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "principal 写法不对", "code": "principal_invalid" }
+          }
+        },
+        {
+          "id": "assignments-self",
+          "route": "GET /api/teams/assignments",
+          "class": "normal",
+          "what": "beta 看自己的分配：刚分到的那一段，止时间为空",
+          "vary": { "assignments.0.from": 60000 },
+          "request": { "method": "GET", "path": "/api/teams/assignments?principal=user%3Abeta", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "229", "etag": "W/\"e5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "principal": "user:beta",
+              "principal_name": "合成乙",
+              "assignments": [{ "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "team_name": "Sales Team", "seat": "zone1/0000000b", "seat_id": "seat-0000000b", "from": 1893456000000, "to": null }]
+            }
           }
         },
         {
