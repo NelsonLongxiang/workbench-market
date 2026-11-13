@@ -111,6 +111,8 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       { id: 'market.work-items.arrange-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/work-items', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
       // 建立人回答席位提问的入口同样经写请求总门放行、路由内认人，远程匿名来必须 401
       { id: 'market.work-items.seat-ask-answer-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/work-items/wi_selfprobe/asks/1/answer', body: '{"text":"selfprobe"}', origin: true, headers: REMOTE_ANON, status: 401 },
+      // 驾驶舱的写（不经写请求总门，路由自己判）：远程匿名改一个不存在的驾驶舱必须 401——认人在找驾驶舱之前，所以门坏了会回 404，也不会改到任何东西
+      { id: 'market.cockpits.anonymous-write', target: m, surface: 'market', method: 'PUT', path: '/api/cockpits/999999999', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
       { id: 'market.export.reveal-anonymous', target: m, surface: 'market', method: 'GET', path: '/api/export?reveal=1', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 },
       // 数据视图的入口（WM_BENCH_VIEWS=on 才有这两行；关着时整组路由回 404，由 scripts/bench-views-entry-test.mjs 看）：
       // 远程匿名读不到台的清单、也登记不了台（登录门开不开都是 401：登录门先拦，或者路由自己认不出人）
@@ -128,6 +130,9 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       // 台数据：远程匿名不带台令牌读不到任何台的数据（守卫先于查台，台不存在也是 403；登录门开着时登录门先拦 401）。
       // WM_APP_DATA_READ=warn 是上线过渡，读照旧放行，这一行不跑
       ...(appDataRead === 'warn' ? [] : [{ id: 'market.app-data.anonymous-read', target: m, surface: 'market' as const, method: 'GET', path: '/api/apps/wm-self-probe/data', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 }]),
+      // 工作台变量：判权在查台之前。远程匿名读一个不存在的台（号是编出来的）也必须 403，和存在的台同一句——回 404 就是先查了台、透露了台在不在
+      // （登录门开着时登录门先拦 401）
+      { id: 'market.workbench-vars.anonymous-read-missing', target: m, surface: 'market', method: 'GET', path: '/api/workbenches/999999999999/vars', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 },
       // 写 run：远程匿名不带 run 的写凭据，按 run 号保存一步必须被拒（守卫先于查 run，run 不存在也是 403；登录门开着时登录门先拦 401）。
       // 不碰任何真实的 run：号是编出来的。WM_SOP_RUN_WRITE=warn 是上线过渡，这一行不跑
       ...(sopRunWrite === 'warn' ? [] : [{ id: 'market.sop-run.anonymous-write', target: m, surface: 'market' as const, method: 'PUT', path: '/api/sop/runs/999999999', body: '{"stepKey":"wm-self-probe","value":null}', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 }]),

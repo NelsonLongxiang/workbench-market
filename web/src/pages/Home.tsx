@@ -27,6 +27,8 @@ export default function Home() {
   const [attDown, setAttDown] = useState(false);
   /** 停太久的一共几件（服务端的 counts.stuck_count） */
   const [stuckCount, setStuckCount] = useState<number | null>(null);
+  /** 「关注」第一次读回来之前：总结句和卡片区都不写字（不先说「眼下没有要你拍板的」），用骨架 */
+  const [attLoaded, setAttLoaded] = useState(false);
   const [focus, setFocus] = useState<Focus>(null);
   const [arrange, setArrange] = useState(false);
 
@@ -34,6 +36,7 @@ export default function Home() {
     const r = await getAttention();
     setAttDown(r.identityDown);
     setStuckCount(r.stuckCount);
+    setAttLoaded(true);
     setAttention(r.status >= 200 && r.status < 300 ? r.items as AttentionItem[] : []);
   }, []);
   // 别处（侧栏、卡片）办完一件也跟着刷新
@@ -80,8 +83,8 @@ export default function Home() {
   return <WmPage extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setArrange(true)} data-testid="arrange-open">安排一件事</Button>}>
     <div className="wm-home">
       <h1 className="wm-home-hi" data-testid="home-greeting">{greeting(new Date().getHours(), name)}</h1>
-      <Typography.Paragraph type="secondary" className="wm-home-sum" data-testid="home-summary">
-        {attDown ? downLine(lcState === 'ok' ? rows : null) : lcState === 'ok' ? summaryLine(rows, all.now.length, all.elsewhere.length, all.proxy.length, stuckN) : decideLine(all.now.length, all.elsewhere.length, false, all.proxy.length, stuckN)}
+      <Typography.Paragraph type="secondary" className="wm-home-sum" data-testid="home-summary" aria-busy={!attLoaded}>
+        {!attLoaded ? null : attDown ? downLine(lcState === 'ok' ? rows : null) : lcState === 'ok' ? summaryLine(rows, all.now.length, all.elsewhere.length, all.proxy.length, stuckN) : decideLine(all.now.length, all.elsewhere.length, false, all.proxy.length, stuckN)}
       </Typography.Paragraph>
 
       {lcState === 'loading' && <Skeleton active paragraph={{ rows: 4 }} />}
@@ -121,7 +124,9 @@ export default function Home() {
         {focus && <Typography.Text type="secondary" className="wm-caption">只看 {focusRow?.label ?? focus.object} · {focusStage?.name ?? focus.stage}（<a onClick={() => setFocus(null)}>看全部</a> · <a onClick={() => setArrange(true)}>就这一步安排一件事</a>）</Typography.Text>}
         <Link to="/attention" className="wm-sec-more">全部 →</Link>
       </div>
-      {attDown
+      {!attLoaded
+        ? <div className="wm-home-box" data-testid="home-decide-loading"><Skeleton active paragraph={{ rows: 3 }} /></div>
+        : attDown
         // 不用空态的图（那是「没有」的意思），写清是取不到
         ? <div className="wm-home-box wm-home-down" data-testid="home-decide-down"><DisconnectOutlined /><span>{DECIDE_DOWN}</span></div>
         : cards.length === 0

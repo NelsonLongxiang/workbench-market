@@ -26,7 +26,7 @@ import { browserMarked, originIsThisSurface, rawLoopback } from '../surfaces.ts'
 import { judge, scopedVerdict, type JudgedActor } from '../judgment.ts';
 import { BENCH_LIMITS, BenchError } from '../bench-query.ts';
 import { benchStore, type BenchStore } from '../services/bench-store.ts';
-import { bindBench, linkWorkbench, createBench, getBench, listBenches, type BenchEntry } from '../services/bench-registry.ts';
+import { bindBench, linkWorkbench, createBench, getBench, listBenches, resolveBenchRef, type BenchEntry } from '../services/bench-registry.ts';
 import { relationOf } from '../team-relation.ts';
 import { decideBenchRequest, listBenchMcp, setBenchGrants } from '../services/bench-mcp.ts';
 
@@ -66,7 +66,12 @@ export let benchMcpDecider: ((req: express.Request, res: express.Response, bench
 export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDeps): void {
   const { wrap: wrapInner, adminTokenOk, devOriginOk } = deps;
   // 开关关着：在一切之前回 404
-  const wrap: BenchViewRouteDeps['wrap'] = (fn) => wrapInner(async (req, res) => (deps.on ? fn(req, res) : res.status(404).json({ error: 'bench_views_off' })));
+  // 路径里的台可以写卡片 id（纯数字）或台标识：一进来就换成台标识，下面一律按台标识认（docs/data-views.md 第十三节）
+  const wrap: BenchViewRouteDeps['wrap'] = (fn) => wrapInner(async (req, res) => {
+    if (!deps.on) return res.status(404).json({ error: 'bench_views_off' });
+    if (typeof req.params?.bench === 'string') req.params.bench = resolveBenchRef(req.params.bench);
+    return fn(req, res);
+  });
   const principals = () => svc<PrincipalService>('principals');
   const resolve = identity().cachedResolver({ ttlMs: 60_000, max: 1000 });
 
@@ -129,10 +134,17 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
   const forbid = (res: express.Response): null => { res.status(403).json({ error: 'bench_views_forbidden' }); return null; };
   /** 放行返回做这件事的人的标识；不放行已经回了应答，返回 null。bench 是这次要碰的台（没登记是 null：只剩第一档，所以没权限的人看不出台存不存在） */
   async function allow(req: express.Request, res: express.Response, action: string, gate: Gate = 'write', bench: BenchEntry | null = null): Promise<string | null> {
+    const actor = await allowActor(req, res, action, gate, bench);
+    return actor ? idOf(actor) : null;
+  }
+  /** 同 allow，返回的是判过的人本身（还要再问别的动作时用，比如取数时顺带问能不能交表单） */
+  async function allowActor(req: express.Request, res: express.Response, action: string, gate: Gate = 'write', bench: BenchEntry | null = null): Promise<JudgedActor | null> {
     const actor = await who(req, res);
     if (!actor) return null;
-    return everywhere(actor, action, gate) || within(actor, action, gate, bench) ? idOf(actor) : forbid(res);
+    return everywhere(actor, action, gate) || within(actor, action, gate, bench) ? actor : forbid(res);
   }
+  /** 这个人能不能在这个台上做这件事（不回应答，只给真假） */
+  const may = (actor: JudgedActor, action: string, gate: Gate, bench: BenchEntry | null): boolean => everywhere(actor, action, gate) || within(actor, action, gate, bench);
 
   benchMcpDecider = async (req, res, bench) => {
     if (!deps.on) { res.status(404).json({ error: 'bench_views_off' }); return null; }
@@ -181,7 +193,8 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     res.json({ benches: mine });
   }));
   app.post('/api/bench-views', { action: 'bench-store.bench-create', kind: 'write', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
-    // 管理层可以登记到任何部门（或者先不绑）；别的人只能登记到自己有拍板授予的部门，而且必须绑
+    // 管理层可以登记到任何部门（或者先不绑）；别的人只能登记到自己有拍板授予的部门，而且必须绑。
+    // 给一张卡片开台库：只给 workbench_id，标识定成 wb-<卡片 id>、名字用卡片的（只有管理层，见下）
     const actor = await who(req, res);
     if (!actor) return;
     const body = req.body as { department?: unknown; workbench_id?: unknown } | undefined;
@@ -238,6 +251,30 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     return s.restore(id, ctxOf(req, actor, req.body?.note));
   }));
 
+  // —— 视图台页面的入口（第十三节第 5 条第 4 步）——
+  // 从市场目录打开一张卡片时先问这一条（路径写卡片 id 或台标识）：给页面菜单要的最少信息——台名、生效的版本、默认视图（第一份）、各视图的键和标题。
+  // 取数照旧走 /render（不给 view 就是第一份），表单照旧走 /form。
+  // 读不到的、不存在的、卡片没开台库的、台还没有视图描述的，一律同一个 404（通则一：读不到按不存在回；页面据此照原来的方式打开卡片）。
+  // 管理口令、跨站、没登录照这组路由的口径先拒（403 / 403 / 401）
+  app.get('/api/bench-views/:bench/entry', { action: 'bench-store.view-get', kind: 'read', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    const actor = await who(req, res);
+    if (!actor) return;
+    const bench = getBench(req.params.bench);
+    const none = () => void res.status(404).json({ error: 'bench_not_found' });
+    if (!bench || !(everywhere(actor, 'bench-store.view-get', 'write') || within(actor, 'bench-store.view-get', 'write', bench))) return none();
+    let view: Awaited<ReturnType<BenchStore['getView']>>;
+    try { view = await (await benchStore(bench.slug)).getView(); } catch (e) { return fail(res, e); }
+    const doc = view?.content as { title?: unknown; views?: { key: string; title: string }[] } | undefined;
+    if (!view || !Array.isArray(doc?.views) || !doc.views.length) return none();
+    res.json({
+      bench: { slug: bench.slug, title: bench.title, workbench_id: bench.workbench_id },
+      version: view.version,
+      title: typeof doc.title === 'string' ? doc.title : bench.title,
+      default_view: doc.views[0].key,
+      views: doc.views.map((v) => ({ key: v.key, title: v.title })),
+    });
+  }));
+
   // —— 视图描述 ——
   app.get('/api/bench-views/:bench/view', { action: 'bench-store.view-get', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.view-get', async (req, _res, s) => ({ view: await s.getView(qint(req.query.version, 'version')) })));
   app.put('/api/bench-views/:bench/view', { action: 'bench-store.view-put', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.view-put', (req, _res, s, actor) => {
@@ -259,10 +296,19 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
 
   // —— 取数和表单 ——
   // 筛选栏的值经查询串给：p.<字段名>=值（只收文本；没声明的字段在服务里会被忽略）
-  app.get('/api/bench-views/:bench/render', { action: 'bench-store.render', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.render', (req, _res, s) => {
+  // 表单块各带 can_submit：这个人能不能在这个台上交表单（和 /form 那条路由同一处判断），页面据此先把按钮置灰、说清原因，不用交了才知道
+  app.get('/api/bench-views/:bench/render', { action: 'bench-store.render', kind: 'read', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    const bench = getBench(req.params.bench);
+    const actor = await allowActor(req, res, 'bench-store.render', 'write', bench);
+    if (!actor) return;
+    if (!bench) return res.status(404).json({ error: 'bench_not_found' });
     const params: Record<string, string> = {};
     for (const [k, v] of Object.entries(req.query)) if (k.startsWith('p.') && typeof v === 'string') params[k.slice(2)] = v;
-    return s.renderView({ view: str(req.query.view), params, version: qint(req.query.version, 'version') });
+    try {
+      const out = await (await benchStore(bench.slug)).renderView({ view: str(req.query.view), params, version: qint(req.query.version, 'version') }) as { blocks?: { type?: string }[] };
+      const canSubmit = may(actor, 'bench-store.form-submit', 'write', bench);
+      res.json({ ...out, blocks: (out.blocks ?? []).map((b) => (b?.type === 'form' ? { ...b, can_submit: canSubmit } : b)) });
+    } catch (e) { fail(res, e); }
   }));
   app.post('/api/bench-views/:bench/form', { action: 'bench-store.form-submit', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.form-submit', (req, _res, s, actor) => {
     const b = (req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}) as Record<string, unknown>;

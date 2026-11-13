@@ -12,6 +12,8 @@ export interface Grant {
   created_by: string; approved_by: string | null; created_at: number; updated_at: number; source?: 'manual' | 'migration';
   /** 当前看的人能不能放行这一条（服务端算好的，身份线 #618）；不能时的代码和短说法 */
   can_approve?: boolean; approve_denied?: string | null; approve_denied_text?: string | null;
+  /** 范围的显示名（身份线在授予的应答里带上；没带时页面不露部门标识） */
+  scope_name?: string | null;
 }
 export type PrincipalKind = 'person' | 'seat' | 'app' | 'system' | 'node';
 export interface Principal { id: string; kind: PrincipalKind; display_name: string; owner: string; status: 'active' | 'disabled' | string; identities?: { provider: string; external_id: string }[] }
@@ -43,12 +45,17 @@ export function statusLabel(status: unknown): { text: string; tone: Tone } {
 /** 七大块的名字：矩阵给了就用矩阵的；读不到矩阵（不是管理员）时用这一份，和 server/src/roles.ts 的 BLOCKS 一致 */
 const BLOCK_NAMES: Record<string, string> = { overview: '全景', work: '事项与对话', attention: '关注', 'bench-data': '工作台数据', team: '团队与 AI 员工', access: '权限与角色', system: '系统与节点' };
 const SCOPE_KIND: Record<string, string> = { domain: '这一块', bench: '工作台', sop: '流程', tool: '工具', object: '对象' };
-/** 范围：* 是全部，self 是只限自己，domain:<块> 用七大块的名字（矩阵给的），其余是「工作台 x」「流程 x」这样 */
-export function scopeLabel(scope: unknown, blocks?: Map<string, string>): string {
+/** 范围：* 是全部，self 是只限自己，domain:<块> 用七大块的名字（矩阵给的），其余是「工作台 x」「流程 x」这样。
+ *  name：服务端在授予上带的范围显示名（scope_name，身份线加）；有就用它。部门（dept:<标识>）不露标识：没有名字时写「一个部门」 */
+export function scopeLabel(scope: unknown, blocks?: Map<string, string>, name?: unknown): string {
   const s = String(scope ?? '').trim();
   if (s === '*' || s === '') return '全部';
   if (s === 'self') return '只限自己';
   const k = s.indexOf(':');
+  const kind = k > 0 ? s.slice(0, k) : '';
+  const given = typeof name === 'string' ? name.trim() : '';
+  if (kind === 'dept') return given ? `「${given}」这个部门` : '一个部门';
+  if (given) return kind === 'domain' ? `「${given}」这一块` : Object.hasOwn(SCOPE_KIND, kind) ? `${SCOPE_KIND[kind]}「${given}」` : given;
   if (k > 0 && s.slice(0, k) === 'domain') {
     const key = s.slice(k + 1), name = blocks?.get(key) ?? (Object.hasOwn(BLOCK_NAMES, key) ? BLOCK_NAMES[key] : '');
     if (name) return `「${name}」这一块`;
@@ -109,8 +116,11 @@ export function rolesOf(body: unknown): Map<string, RoleInfo> {
   const list = body && typeof body === 'object' && Array.isArray((body as { roles?: unknown }).roles) ? (body as { roles: RoleInfo[] }).roles : [];
   return new Map(list.filter((r) => r && typeof r.id === 'string').map((r) => [r.id, r]));
 }
+/** 角色的名字：取 /api/roles 的；读不到（没有管理权的人不去问）时内置预设用固定的名字（和 server/src/roles.ts 的 PLATFORM_ROLES 一致），
+ *  别的写「自定义角色」，不露角色标识 */
+export const PRESET_ROLE_NAMES: Record<string, string> = { owner: '属主', admin: '系统管理员', management: '管理层', 'dept-lead': '部门负责人', member: '普通员工', guest: '访客', 'ai-staff': 'AI 员工' };
 export function roleName(id: string, roles: Map<string, RoleInfo>): string {
-  return roles.get(id)?.name || id;
+  return roles.get(id)?.name || (Object.hasOwn(PRESET_ROLE_NAMES, id) ? PRESET_ROLE_NAMES[id] : '自定义角色');
 }
 /** 这个角色的授予要谁放行：服务端（GET /api/roles 的 approval_text）给的说法原样用，页面不自己判谁放行得了；
  *  没有这个字段（服务端还没加）就返回 null，页面照旧不显示 */
@@ -173,13 +183,27 @@ export const OTHERS_ONLY_ADMINS = '别人的权限现在只有管理员能看。
 
 /** 「你的权限」：/api/auth/me 带本人生效中的角色（{ id, name, scope, preset, expires_at, ... }）。
  *  认出了人（有 principal）才返回列表，可以是空的；没登录、只有口令、读不到都返回 null */
-export interface MyRole { id: string; name: string; scope: string; expires_at: number | null }
+export interface MyRole { id: string; name: string; scope: string; expires_at: number | null; /** 范围的显示名（服务端带了才有） */ scope_name?: string }
 export function myRolesOf(me: unknown): MyRole[] | null {
   if (!me || typeof me !== 'object') return null;
   const m = me as { authenticated?: unknown; principal?: unknown; roles?: unknown };
   if (m.authenticated !== true || typeof m.principal !== 'string' || !m.principal || !Array.isArray(m.roles)) return null;
   return (m.roles as MyRole[]).filter((r) => r && typeof r.id === 'string')
-    .map((r) => ({ id: r.id, name: typeof r.name === 'string' && r.name.trim() ? r.name.trim() : r.id, scope: String(r.scope ?? '*'), expires_at: typeof r.expires_at === 'number' ? r.expires_at : null }));
+    .map((r) => ({ id: r.id, name: typeof r.name === 'string' && r.name.trim() ? r.name.trim() : r.id, scope: String(r.scope ?? '*'), expires_at: typeof r.expires_at === 'number' ? r.expires_at : null,
+      ...(typeof r.scope_name === 'string' && r.scope_name.trim() ? { scope_name: r.scope_name.trim() } : {}) }));
+}
+
+/** 主体、角色、矩阵三个读接口只给能管的人（服务端那边是「管理」类动作）。认出了人、又明知他没有管理权的，页面就不去问，
+ *  免得每次打开都白挨 403。授予不在这里判：L19（#659）起登录的人读得到自己能放行的那些，页面照常问。能管的：页面以管理员身份工作（持口令或 Odoo 管理员），或本人角色里有带「管理」类的内置预设
+ *  （属主、系统管理员，见 server/src/roles.ts 的 PLATFORM_ROLES），或有自定义角色（能不能管页面不知道，照旧去问、由服务端判）。
+ *  没认出人（没登录、本机命令行、/api/auth/me 读不到）也照旧去问：页面不知道，交给服务端。 */
+export const ADMIN_PRESETS: readonly string[] = ['owner', 'admin'];
+export function mayReadAccessAdmin(me: unknown, adminMode: boolean): boolean {
+  if (adminMode) return true;
+  if (!me || typeof me !== 'object') return true;
+  const m = me as { authenticated?: unknown; principal?: unknown; roles?: unknown };
+  if (m.authenticated !== true || typeof m.principal !== 'string' || !m.principal || !Array.isArray(m.roles)) return true;
+  return (m.roles as { id?: unknown; preset?: unknown }[]).some((r) => !!r && (r.preset !== true || ADMIN_PRESETS.includes(String(r.id))));
 }
 
 /** 角色的「能做」一格：服务端的 summary.do 是「能做：…；能管：…」，能管交给矩阵的「管理」一列去说，这一格只留能做 */

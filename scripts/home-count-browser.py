@@ -156,6 +156,31 @@ with sync_playwright() as p:
     pg.goto(M + '/'); pg.wait_for_selector('[data-testid=decisions-stuck]'); pg.wait_for_timeout(400)
     check('全景：停太久的也单独一组，总结句带「5 件停太久」，不算等你拍板', pg.locator('[data-testid=decisions-stuck] [data-testid=decision-card]').count() == 2 and '5 件停太久' in pg.locator('[data-testid=home-summary]').inner_text() and pg.locator('[data-testid=decisions-now]').count() == 0, pg.locator('[data-testid=home-summary]').inner_text())
     ctx.close()
+    # 加载中不先说否定的话：身份、「关注」、事项列表都还没回来时，侧栏底部不写「未登录」，全景不写「没有要你拍板的」、不写 0，事项页不留白也不说「没有」
+    ctx = b.new_context(viewport={'width': 1440, 'height': 900}); ctx.add_cookies([{'name': 'session_id', 'value': cfg['lead_session'], 'url': M}])
+    held = []
+    ctx.route(re.compile(r'.*/api/(auth/me|attention|work-items)(\?.*)?$'), lambda r: held.append(r))
+    pg = ctx.new_page(); pg.set_default_timeout(10000); pg.goto(M + '/')
+    pg.wait_for_selector('[data-testid=home-decide-loading]'); pg.wait_for_timeout(800)  # 名字那一格这时是空的（不可见），等的是卡片区的骨架
+    side = pg.locator('[data-testid=wm-side]').inner_text(); summ = pg.locator('[data-testid=home-summary]').inner_text()
+    check('全景加载中：侧栏底部不写「未登录」，总结句不写「没有要你拍板的」，卡片区是骨架', '未登录' not in side and '没有要你拍板' not in pg.locator('main').inner_text() and summ.strip() == '' and pg.locator('[data-testid=home-decide-loading]').count() == 1, (side[-40:], summ))
+    for r in list(held): r.continue_()
+    held.clear(); ctx.unroute(re.compile(r'.*/api/(auth/me|attention|work-items)(\?.*)?$'))
+    pg.wait_for_function("() => document.querySelector('[data-testid=wm-me-name]')?.textContent.trim().length > 0")
+    pg.wait_for_function("() => document.querySelector('[data-testid=home-summary]')?.textContent.trim().length > 0")
+    check('回来以后：侧栏写出人名，总结句写出来，骨架没了', '未登录' not in pg.locator('[data-testid=wm-me-name]').inner_text() and pg.locator('[data-testid=home-decide-loading]').count() == 0)
+    ctx.route(re.compile(r'.*/api/(attention|work-items)(\?.*)?$'), lambda r: held.append(r))
+    pg.goto(M + '/work-items'); pg.wait_for_selector('[data-testid=work-items-loading]'); pg.wait_for_timeout(500)
+    check('事项页加载中：是骨架，不留白、不说「没有」', pg.locator('[data-testid=work-items-loading]').count() == 1 and '没有' not in pg.locator('main').inner_text(), pg.locator('main').inner_text()[:80])
+    # 列表先回来、「关注」还没回来：「等你拍板」那一组是骨架，不先按状态数出一个数
+    for r in [r for r in held if '/api/work-items' in r.request.url]: r.continue_()
+    pg.wait_for_selector('[data-testid=work-items-group-decide-loading]')
+    check('列表回来、「关注」没回来：「等你拍板」那组是骨架，不出「等拍板」和件数', pg.locator('[data-testid=work-items-group-decide]').count() == 0)
+    for r in [r for r in held if '/api/attention' in r.request.url]: r.continue_()
+    ctx.unroute(re.compile(r'.*/api/(attention|work-items)(\?.*)?$'))
+    pg.wait_for_selector('[data-testid=work-items-group-decide]')
+    check('「关注」回来以后：「等你拍板」那组出来', pg.locator('[data-testid=work-items-group-decide-loading]').count() == 0)
+    ctx.close()
     # 本机看样子用（CI 不设 WM_SHOT）：三组都有内容、按类别筛过、「不给」展开理由，各截一张 1440
     import os
     shot = os.environ.get('WM_SHOT')

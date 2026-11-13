@@ -1,24 +1,28 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useRequest } from 'ahooks';
-import { Space, Input, App, Alert, Badge, Button, Card, Col, Empty, Flex, Popconfirm, Popover, Select, Spin, Tooltip, Typography } from 'antd';
+import { Space, Input, App, Badge, Button, Card, Col, Empty, Flex, Popconfirm, Popover, Select, Spin, Tooltip, Typography } from 'antd';
 import { EditOutlined, ExportOutlined, PlusOutlined, ReloadOutlined, CloseOutlined } from '@ant-design/icons';
 import 'react-resizable/css/styles.css';
-import { api } from '../api';
+import { api, canCreateCockpit } from '../api';
 import GoFrame from '../components/GoFrame';
 import type { Cockpit as CockpitT, PanelConfig, Workbench } from '../types';
 import { useSyncExternalStore } from 'react';
 import { adminActive, subscribeAdminToken } from '../admin-token';
 import WmPage from '../components/WmPage';
 import CockpitFrame from '../components/cockpit/CockpitFrame';
-import { AttentionPane, ItemsPane, ProcessPane } from '../components/cockpit/SidePanes';
+import { AttentionPane, ItemsPane, ProcessPane, StaffPane } from '../components/cockpit/SidePanes';
 import ArrangeDrawer from '../components/ArrangeDrawer';
 import BenchViewTab from '../components/cockpit/BenchViewTab';
 import BenchViewManage from '../components/cockpit/BenchViewManage';
+import type { AttentionItem } from '../attention-view';
+import { rowKey } from '../cockpit-attention';
 import { benchViewRefs, isBenchViewPanel, itemsTabLabel, mainTabKeys, refsOfTab } from '../cockpit-frame-view';
 
 /** 驾驶舱写（/api/cockpits）是管理写：不是管理员（口令或 Odoo 管理员）时只读，隐藏新建/删除/改名/加移面板，网格不可拖拽 */
-const READ_ONLY_HINT = '编辑驾驶舱需要管理员：在顶栏输入管理员口令，或用 Odoo 管理员账号登录。';
+/** 只能看的人的一行说明：只说只能看、谁来调，不教人去拿口令。谁能建、能改由服务端判（#673：管理层授予或管理员） */
+const READ_ONLY_LIST = '驾驶舱你只能看，新建和调整由管理层或管理员来。';
+const READ_ONLY_HINT = '这个驾驶舱你只能看，布局由管理层或管理员调整。';
 const NO_PICKS: Record<string, string> = {};
 
 
@@ -44,12 +48,19 @@ function PanelHeadActions(props: { wid: number; url?: string; onRefresh: () => v
   );
 }
 
-import { TasksView } from './Tasks';
 
 export default function Cockpit() {
-  // 管理身份（口令或 Odoo 管理员）：只用在不属于某一个驾驶舱的地方——新建驾驶舱、右栏事项的标签。
-  // 改某一个驾驶舱（改名、加面板、删除……）照服务端在这个驾驶舱上给的 can.edit
+  // 管理身份（口令或 Odoo 管理员）：只用在右栏事项的标签上，和驾驶舱无关。
+  // 改某一个驾驶舱（改名、加面板、删除……）照服务端在这个驾驶舱上给的 can.edit；新建照 /api/auth/me 的 can.create_cockpit
   const ADMIN = useSyncExternalStore(subscribeAdminToken, adminActive);
+  const [canCreate, setCanCreate] = useState(false);
+  useEffect(() => {
+    let live = true;
+    const ask = () => { void canCreateCockpit().then((v) => { if (live) setCanCreate(v); }); };
+    ask();
+    const off = subscribeAdminToken(ask);
+    return () => { live = false; off(); };
+  }, []);
   const { id } = useParams();
   const nav = useNavigate();
   const { message } = App.useApp();
@@ -58,9 +69,10 @@ export default function Cockpit() {
   // 驾驶舱改名（监督席 direct-3b98f8c2 用户报障：后端 PUT name 一直在，前端无入口）
   const [attentionCount, setAttentionCount] = useState<number | null>(null);
   const [itemsView, setItemsView] = useState<unknown>(undefined);
-  /** 左栏点了「看办理过程」的那件事项；右栏跟着切到「办理过程」 */
-  const [picked, setPicked] = useState<string | null>(null);
+  /** 左栏选中的那一条（「关注」的条目）；右栏跟着切到「办理过程」，上面是它的答法 */
+  const [picked, setPicked] = useState<AttentionItem | null>(null);
   const [rightTab, setRightTab] = useState<string | null>(null);
+  const pick = useCallback((a: AttentionItem | null) => { setPicked(a); if (a) setRightTab('process'); }, []);
   const [arrange, setArrange] = useState(false);
   const [viewsOpen, setViewsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -154,7 +166,7 @@ export default function Cockpit() {
     return (
       <WmPage
         subTitle="一屏看住一条线或一个工作台：中间是它的看板和明细，左边是等你拍板的，右边是办理过程"
-        extra={ADMIN && <Button
+        extra={canCreate && <Button
             type="primary"
             icon={<PlusOutlined />}
             onClick={async () => {
@@ -171,7 +183,7 @@ export default function Cockpit() {
           </Button>}
       >
       <Flex vertical gap={16} className="wm-w-full" align="start">
-        {!ADMIN && <Alert type="info" showIcon className="wm-cockpit-readonly" message="驾驶舱在这里只能查看" description={READ_ONLY_HINT} />}
+        {!canCreate && <Typography.Text type="secondary" className="wm-cockpit-readonly wm-caption">{READ_ONLY_LIST}</Typography.Text>}
         {listReq.data?.length ? (
           <Flex gap={16} wrap="wrap" className="wm-w-full" style={{ rowGap: 16 }}>
             {listReq.data.map((c) => (
@@ -208,8 +220,8 @@ export default function Cockpit() {
             ))}
           </Flex>
         ) : (
-          <Empty description={!ADMIN ? '还没有驾驶舱' : '还没有驾驶舱。建一个，就能一屏看住一条线或一个工作台的看板、等你拍板的事和办理过程'} style={{ marginTop: 48 }}>
-            {ADMIN && <Button
+          <Empty description={!canCreate ? '还没有驾驶舱' : '还没有驾驶舱。建一个，就能一屏看住一条线或一个工作台的看板、等你拍板的事和办理过程'} style={{ marginTop: 48 }}>
+            {canCreate && <Button
               type="primary"
               onClick={() => api.createCockpit({ name: '我的驾驶舱' }).then((c) => nav(`/cockpit/${c.id}`))}
             >
@@ -236,7 +248,7 @@ export default function Cockpit() {
   // 骨架照原型的驾驶舱：左「等你拍板」；中间的页签——「看板」「明细」留给数据视图的块（这个驾驶舱配了才出现），
   // 内嵌的工作台单独放「工作台」页签，按栏宽单列排、一个台占满栏宽（要并排看的用放大）；右「事项」
   // 顶上一排照原型：左边留给「看的是 …」（现在没有筛选来源，不放）；右边是操作。
-  // 改名、加面板、加待办卡不常驻，收进「编辑」；切换驾驶舱在侧栏「我的驾驶舱」里，顶上不再放下拉。
+  // 改名、加面板不常驻，收进「编辑」；切换驾驶舱在侧栏「我的驾驶舱」里，顶上不再放下拉。
   const editPanel = (
     <Flex vertical gap={8} className="wm-ck-edit" data-testid="ck-edit-panel">
       <Flex align="center" gap={8}>
@@ -279,15 +291,6 @@ export default function Cockpit() {
               label: `${w.icon || '▢'} ${w.name}（${w.last_status === 'up' ? '在线' : w.last_status === 'down' ? '离线' : '未探测'}）`,
             }))}
         />}
-        {!READ_ONLY && <Button
-          disabled={panels.some((p) => p.kind === 'tasks')}
-          onClick={() => {
-            const maxY = panels.reduce((m, p) => Math.max(m, p.y + p.h), 0);
-            persist([...panels, { i: 'tasks', workbenchId: 0, kind: 'tasks' as const, x: 0, y: maxY, w: 6, h: 12 }], true);
-          }}
-        >
-          加待办卡
-        </Button>}
         {!READ_ONLY && <Button onClick={() => { setEditOpen(false); setViewsOpen(true); }} data-testid="ck-bv-manage">数据视图</Button>}
     </Flex>
   );
@@ -301,29 +304,15 @@ export default function Cockpit() {
   const refs = benchViewRefs(active.panels);
   const board = (
     <Flex vertical gap={12} className="wm-w-full wm-ck-pad" align="start">
-      {READ_ONLY && <Alert type="info" showIcon className="wm-cockpit-readonly wm-w-full" message="驾驶舱在这里只能查看" description={READ_ONLY_HINT} />}
+      {READ_ONLY && <Typography.Text type="secondary" className="wm-cockpit-readonly wm-caption">{READ_ONLY_HINT}</Typography.Text>}
 
-      {panels.length === 0 ? (
+      {panels.filter((p) => p.kind !== 'tasks').length === 0 ? (
         <Empty description={READ_ONLY ? '这个驾驶舱里还没有要看的东西' : '这个驾驶舱里还没有要看的东西——点右上角「编辑」，加一个工作台进来'} style={{ marginTop: 48 }} />
       ) : (
         <div className="wm-ck-benches" data-testid="ck-benches">
           {[...panels].sort((a, b) => a.y - b.y || a.x - b.x).map((p) => {
-            if (p.kind === 'tasks') {
-              return (
-                <div key={p.i} className="wm-panel">
-                  <div className="wm-panel-head">
-                      <Badge status="processing" text={<Typography.Text strong className="wm-text-body">统一待办</Typography.Text>} />
-                    <span className="wm-panel-actions">
-                      <Link to="/tasks" className="wm-caption" style={{ marginRight: 8 }}>全部</Link>
-                      {!READ_ONLY && <Button size="small" type="text" onClick={() => persist(panels.filter((q) => q.i !== 'tasks'), true)}>移除</Button>}
-                    </span>
-                  </div>
-                  <div className="wm-panel-body" style={{ overflow: 'auto' }}>
-                    <TasksView compact />
-                  </div>
-                </div>
-              );
-            }
+            // 「统一待办」卡随 /tasks 一起退役（旧页面删除清单第二批）：存着的面板数据不动，页面不再画它；要看事项去右栏「事项」
+            if (p.kind === 'tasks') return null;
             const w = wbById.get(p.workbenchId);
             const fk = frameKeys[p.workbenchId] ?? 0;
             return (
@@ -346,7 +335,7 @@ export default function Cockpit() {
                 </div>
                 <div className="wm-panel-body">
                   {w ? (
-                    <GoFrame wid={w.id} name={w.name} frameKey={fk} />
+                    <GoFrame wid={w.id} name={w.name} frameKey={fk} url={w.url} />
                   ) : (
                     <Empty description={`工作台 #${p.workbenchId} 已不存在`} style={{ marginTop: 32 }} />
                   )}
@@ -361,12 +350,13 @@ export default function Cockpit() {
   return (
     <WmPage detail={active.name} wide>
       <CockpitFrame storageKey={String(active.id)} extra={extra}
-        left={{ id: 'attention', tabs: [{ key: 'attention', label: '等你拍板', count: attentionCount, content: <AttentionPane onCount={setAttentionCount} picked={picked} onPick={(id) => { setPicked(id); setRightTab('process'); }} /> }] }}
+        left={{ id: 'attention', tabs: [{ key: 'attention', label: '等你拍板', count: attentionCount, content: <AttentionPane onCount={setAttentionCount} picked={picked ? rowKey(picked) : null} onPick={pick} /> }] }}
         main={{ id: 'board', tabs: mainTabKeys(refs, panels.length).map((k) => (k === 'benches'
           ? { key: 'benches', label: '工作台', content: board }
           : { key: k, label: k === 'board' ? '看板' : '明细', content: <BenchViewTab key={k} refs={refsOfTab(refs, k)} chosen={viewPicks[active.id] ?? NO_PICKS} onChosen={(next) => setViewPicks((cur) => ({ ...cur, [active.id]: next }))} /> })) }}
         right={{ id: 'items', active: rightTab, onTab: setRightTab, tabs: [
-          { key: 'process', label: '办理过程', content: <ProcessPane itemId={picked} /> },
+          { key: 'process', label: '办理过程', content: <ProcessPane item={picked} /> },
+          { key: 'staff', label: 'AI 员工', content: <StaffPane /> },
           { key: 'items', label: itemsTabLabel(itemsView, ADMIN), content: <ItemsPane onView={setItemsView} /> },
         ] }} />
       <ArrangeDrawer open={arrange} onClose={() => setArrange(false)} />

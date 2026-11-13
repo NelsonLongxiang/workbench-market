@@ -15,6 +15,7 @@ import { createClient } from 'redis';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { dataDir } from './db.ts';
+import { stateDomain } from './services/state-layer.ts';
 
 function resolveUrl(): string | null {
   // PR#45 TEST 红修复：空串/纯空白一律归入「未设」（评审席干净环境 '' 挂死；本机 6379 兜底掩盖）
@@ -88,6 +89,8 @@ export interface RunMeta {
   slug: string; version: number; status: string; started_by: string; updated_at: number;
 }
 
+// SOP 执行实例的热态经共用状态层的 sop 句柄（services/state-layer.ts）：只碰 wm:sop: 开头的键。连接和健康状态仍在本文件
+const sop = () => stateDomain('sop');
 const kData = (id: number) => `wm:sop:run:${id}:data`;
 const kMeta = (id: number) => `wm:sop:run:${id}:meta`;
 const kActive = 'wm:sop:runs:active';
@@ -100,9 +103,9 @@ export async function runStateSave(id: number, meta: RunMeta, stepKey: string, v
 
 /** One atomic field binds the whole hot snapshot to its durable SQLite generation. */
 export async function runStateRestore(id: number, meta: RunMeta, data: Record<string, unknown>, checkpoint: string): Promise<boolean> {
-  if (!redisHealthy() || !client || typeof checkpoint !== 'string' || checkpoint.length !== 64) return false;
+  const c = sop().ops(); // 不通、没配都是 null
+  if (!c || typeof checkpoint !== 'string' || checkpoint.length !== 64) return false;
   try {
-    const c = client as unknown as { hSet: (k: string, a: string | Record<string, string>, v?: string) => Promise<unknown>; sAdd: (k: string, m: string) => Promise<unknown> };
     await c.hSet(kMeta(id), { slug: meta.slug, version: String(meta.version), status: meta.status, started_by: meta.started_by, updated_at: String(meta.updated_at) });
     // Never refresh a base marker separately from its data: a later HSET failure could bless old fields.
     if (meta.status === 'running') await c.sAdd(kActive, String(id));
@@ -121,12 +124,13 @@ export type RunStateRead =
   | { kind: 'off' | 'down' | 'error' | 'miss' }
   | { kind: 'hit'; meta: RunMeta; data: Record<string, unknown> };
 export async function runStateRead(id: number, checkpoint: string): Promise<RunStateRead> {
-  if (!client) return { kind: 'off' };
-  if (!redisHealthy()) return { kind: 'down' };
+  if (!sop().configured()) return { kind: 'off' };
+  const c = sop().ops();
+  if (!c) return { kind: 'down' };
   if (typeof checkpoint !== 'string' || checkpoint.length !== 64) return { kind: 'miss' };
   let d: Record<string, string>;
   try {
-    d = await (client as unknown as { hGetAll: (k: string) => Promise<Record<string, string>> }).hGetAll(kData(id));
+    d = await c.hGetAll(kData(id));
   } catch { return { kind: 'error' }; }
   let snapshot: { format?: unknown; checkpoint?: unknown; meta?: RunMeta; data?: unknown } | null;
   try { snapshot = JSON.parse(d.__wm_snapshot_v2 ?? 'null'); } catch { return { kind: 'miss' }; }
@@ -136,13 +140,9 @@ export async function runStateRead(id: number, checkpoint: string): Promise<RunS
 
 /** finish/abandon：退出活跃索引 + 热态 status 同步为最终态 + 条目 1h 平滑淘汰（SQLite 已是真源；热态必须同步最终态，否则 TTL 窗口内热读拿到过期 running） */
 export async function runStateRetire(id: number, finalStatus = 'finished'): Promise<boolean> {
-  if (!redisHealthy() || !client) return false;
+  const c = sop().ops();
+  if (!c) return false;
   try {
-    const c = client as unknown as {
-      sRem: (k: string, m: string) => Promise<unknown>;
-      expire: (k: string, s: number) => Promise<unknown>;
-      hSet: (k: string, f: string, v: string) => Promise<unknown>;
-    };
     await c.sRem(kActive, String(id));
     await c.hSet(kMeta(id), 'status', finalStatus);
     await c.expire(kMeta(id), 3600);
@@ -155,9 +155,9 @@ export async function runStateRetire(id: number, finalStatus = 'finished'): Prom
 
 /** 活跃 run 索引（驾驶舱「我的进行中」热路径） */
 export async function runActiveIds(): Promise<number[]> {
-  if (!redisHealthy() || !client) return [];
+  const c = sop().ops();
+  if (!c) return [];
   try {
-    const c = client as unknown as { sMembers: (k: string) => Promise<string[]> };
     const ids = await c.sMembers(kActive);
     return ids.map(Number).filter((n) => Number.isFinite(n));
   } catch {
