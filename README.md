@@ -464,6 +464,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   bindings.ts（A2A 人工绑定 /api/bindings 和退役的旧面）
   change-requests.ts（人审变更请求 /api/change-requests：列表、批准、拒绝；批准、拒绝的判断和执行收在 changeRequestReview 一处，「关注」的审核卡片当场批也调它，审核人取认出来的管理员、不通过要写理由）
   cockpits.ts（驾驶舱 /api/cockpits：写不经写请求总门，处理之前问 cockpit-access.ts；读应答带 can.edit，不带建立人）
+  content-open.ts（市场面上内容面的两层：启动页 /content/open/<目标号>、开了迁移的目标的 /go/ 顶层导航送去启动页；处理函数在 server/src/content-surface.ts，原样；没配内容面时放过）
   content-observation.ts（门户观测状态 /api/content/observation）
   cookies.ts（Cookie 池 /api/cookies）
   departments.ts（部门 /api/departments：登录的人读列表、单个部门的成员、某人属于哪些部门；管理员建改删部门和成员）

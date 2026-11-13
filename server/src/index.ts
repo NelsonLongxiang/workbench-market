@@ -68,6 +68,7 @@ import { registerLoginFlowRoutes } from './routes/login-flows.ts';
 import { registerLoginGateRoutes } from './routes/login-gate.ts';
 import { registerWorkbenchRoutes } from './routes/workbenches.ts';
 import { registerSpaFallbackRoute } from './routes/spa-fallback.ts';
+import { registerContentOpenRoutes } from './routes/content-open.ts';
 import { registerSopPageRoutes } from './routes/sop-page.ts';
 import { registerLoginEventRoutes } from './routes/login-events.ts';
 import { registerTaskRoutes } from './routes/tasks.ts';
@@ -365,18 +366,8 @@ const contentRuntime = contentCfg ? createContentSurface(contentCfg, {
     return { url: w.url, authorization: w.auth?.type === 'bearer' ? 'Bearer ' + w.auth.value : w.auth?.type === 'basic' ? 'Basic ' + Buffer.from(w.auth.value, 'utf8').toString('base64') : undefined };
   },
 }) : null;
-if (contentRuntime) {
-  mountContentSurface(app, contentRuntime); // TERMINAL content dispatch before every shared parser/route/SPA
-  app.use((req, res, next) => {
-    if (!req.url.startsWith('/content/open/')) return next();
-    if (surfaceOf(req) !== 'market') return res.status(404).end();
-    contentRuntime.launch(req, res, next);
-  });
-  app.use((req, res, next) => {
-    if (surfaceOf(req) !== 'market') return next();
-    contentRuntime.migrate(req, res, next);
-  });
-}
+if (contentRuntime) mountContentSurface(app, contentRuntime); // TERMINAL content dispatch before every shared parser/route/SPA
+registerContentOpenRoutes(http, contentRuntime); // 市场面上的启动页与迁移跳转（路由在 routes/content-open.ts；没配内容面时放过）
 // issue #1：CORS 从全开放收紧为白名单——生产形态（web/dist 由本服务同源托管）不需要跨源；
 // 仅 web dev（vite 5173，其 /api 代理是同源转发、但直连调试场景保留）放行本机回环源。
 // /mcp 为 StreamableHTTP POST（非浏览器 fetch 场景不受 CORS 约束；浏览器 MCP 客户端经同源门户）。

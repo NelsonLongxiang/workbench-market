@@ -38,6 +38,8 @@ export const ANONYMOUS_ACTIONS: readonly string[] = [
   'auth.me', // 回答「你是谁」：没认出也是 200（登录门四条，阶段三搬进 routes/login-gate.ts）
   'cockpit.list',
   'cockpit.read',
+  'content.launch', // 市场面上的内容面启动页：认人在页里（没认出 401），谁来都进得了这一层
+  'content.migrate', // 迁移跳转：只把浏览器送到可信入口，不认人
   'cookie.list',
   'design-token.read',
   'health.read',
@@ -114,6 +116,8 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       'cockpit.list',
       'cockpit.read',
       'cockpit.update',
+      'content.launch',
+      'content.migrate',
       'cookie.create',
       'cookie.delete',
       'cookie.list',
