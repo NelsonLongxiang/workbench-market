@@ -221,6 +221,19 @@ try {
     ok('撞号：同一节点号下来了另一个节点（对端启用）→ 换令牌 401；停用撞号那台之后照常换得到、调得通', before.text === REFUSED && beforeCall === -1 && after.status === 200 && afterCall === 200, `${before.status} ${after.status} ${afterCall}`);
   }
 
+  console.log('九之三、名册记的完整指纹和钉住的公钥对不上（前 8 位相同）');
+  {
+    // 对端钉住了公钥 X，但指纹列留空（视图只能拿名册的指纹和列比，比不出来）；名册那一行前 8 位就是 X 的，后面不同——不是这把键报的名册。
+    // 用 X 签名也换不到：liveSeat 要用钉住的公钥现算完整指纹，和名册那一行比
+    const G = host('eta-node');
+    const FORGED = 'sha256:' + G.fp + 'a'.repeat(56);
+    run(`INSERT INTO a2a_peers (id, root_url, zone, public_key, key_fingerprint, status, registered_by, registered_at, updated_at) VALUES (?, ?, ?, ?, '', 'active', 'test', ?, ?)`, `peer_${G.fp}`, G.root, G.name, G.pk, t0, t0);
+    run('INSERT INTO a2a_roster_nodes (host, peer_root, key_fingerprint, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?, ?)', G.fp, G.root, FORGED, G.name, t0, t0);
+    run('INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', G.root, FORGED, G.fp, `${G.name}/canvas/demo`, 'g1', 'seat-g1', 'g1', 'member', t0);
+    const r = await exchange(req(G, 'seat-g1'));
+    ok('钉住的公钥算出来的完整指纹 ≠ 名册那一行记的（前 8 位相同）→ 用钉住的键签也换不到令牌（401）', r.text === REFUSED, `${r.status} ${r.text}`);
+  }
+
   console.log('八、换令牌的记录');
   // 启动自检那一次（编出来的 wm-self-probe）也记了一行，这里不算它
   const logRows = () => q("SELECT * FROM a2a_seat_token_log WHERE seat_id <> 'wm-self-probe' ORDER BY id");
