@@ -10,6 +10,7 @@
  *   S5 这次出错：读 error、写 false
  *   S3b 清台扫到第二批时 Redis 下线：返回 null（不是已清的个数），没清完的键还在
  *   S3c 清扫：卡片已经不在的台的键清掉，还在的不碰；不通时返回 null
+ *   S7 别的域的句柄（SOP）：没配是 null、连着时命令原样转给连接、不通是 null；只许碰 wm:sop:，碰台的键当场拒；台的方法也碰不到它的键
  *   S6 卸载根上下文：连接断开，之后 mode off
  *
  *   node scripts/state-layer-test.mjs
@@ -31,7 +32,7 @@ async function child(mode) {
   const { root } = await import(src('root-context.ts'));
   const { svc } = await import(src('context.ts'));
   const { startRedis } = await import(src('redis.ts'));
-  const { benchKey } = await import(src('services/state-layer.ts'));
+  const { benchKey, stateDomain } = await import(src('services/state-layer.ts'));
   const st = svc('state');
   const out = {};
   const throws = (fn) => { try { fn(); return false; } catch (e) { return e instanceof TypeError; } };
@@ -40,7 +41,7 @@ async function child(mode) {
   await new Promise((r) => setImmediate(r));
   if (mode === 'off') {
     const k = benchKey(1, 'var', 'x');
-    out.off = { mode: st.mode(), get: await st.get(k), set: await st.set(k, 'v'), del: await st.del(k), clear: await st.clearBench(1) };
+    out.off = { mode: st.mode(), get: await st.get(k), set: await st.set(k, 'v'), del: await st.del(k), clear: await st.clearBench(1), sopConfigured: stateDomain('sop').configured(), sopOps: stateDomain('sop').ops() };
   } else {
     const ctl = globalThis.__stateRedis;
     const k1 = benchKey(1, 'var', 'progress'), k2 = benchKey(1, 'const', 'limit'), k10 = benchKey(10, 'var', 'progress');
@@ -85,6 +86,29 @@ async function child(mode) {
     ctl.failNext = true; const e1 = await st.get(k10);
     ctl.failNext = true; const e2 = await st.set(k10, 'y');
     out.error = { get: e1, set: e2, after: await st.get(k10) };
+    // S7：SOP 句柄
+    const sop = st.domain('sop');
+    const ops = sop.ops();
+    await ops.hSet('wm:sop:run:7:meta', { slug: 's', status: 'running' });
+    await ops.hSet('wm:sop:run:7:meta', 'status', 'finished');
+    await ops.sAdd('wm:sop:runs:active', '7'); await ops.sAdd('wm:sop:runs:active', '8'); await ops.sRem('wm:sop:runs:active', '8');
+    await ops.expire('wm:sop:run:7:meta', 3600);
+    const guardErr = (fn) => { try { fn(); return false; } catch (e) { return e instanceof TypeError; } };
+    out.sop = {
+      configured: sop.configured(), meta: await ops.hGetAll('wm:sop:run:7:meta'), active: await ops.sMembers('wm:sop:runs:active'), expire: ctl.expires?.['wm:sop:run:7:meta'],
+      guards: [guardErr(() => ops.hSet('wm:bench:1:var:x', 'a', 'b')), guardErr(() => ops.hGetAll('wm:sopx:1')), guardErr(() => ops.sMembers('wm:sop:')), guardErr(() => ops.expire('other', 1))],
+      benchCantTouch: await (async () => { try { await st.get('wm:sop:run:7:meta'); return false; } catch (e) { return e instanceof TypeError; } })(),
+    };
+    ctl.failNext = true;
+    out.sop.errorThrown = await ops.hGetAll('wm:sop:run:7:meta').then(() => false, () => true);
+    await st.clearBench(7);
+    out.sop.afterClearBench = ctl.store.has('wm:sop:run:7:meta');
+    // 清扫：扫的是 wm:bench:*，卡片一张都不在也碰不到 SOP 的键
+    out.sop.swept = await st.sweepBenches(new Set());
+    out.sop.afterSweep = ctl.store.has('wm:sop:run:7:meta') && ctl.store.has('wm:sop:runs:active') && ![...ctl.store.keys()].some((k) => k.startsWith('wm:bench:'));
+    ctl.offline();
+    out.sop.down = { ops: sop.ops(), configured: sop.configured() };
+    ctl.back();
     // S6：卸载根上下文
     await root.fiber.dispose();
     out.dispose = { destroyed: ctl.destroyed, mode: st.mode() };
@@ -116,6 +140,7 @@ async function parent() {
   console.log('S1 没配 Redis');
   const a = (await run('off')).off;
   ok('mode off；读 off、写 false、删 false、清台 0：调用方直接用 SQLite', a?.mode === 'off' && a.get?.kind === 'off' && a.set === false && a.del === false && a.clear === 0, a);
+  ok('S7 没配：SOP 句柄 configured 为 false、ops 为 null（SOP 回落 SQLite）', a?.sopConfigured === false && a.sopOps === null, a);
 
   const r = await run('on');
   console.log('S2 配了、连着');
@@ -133,6 +158,11 @@ async function parent() {
   ok('恢复之后 mode up，照常读到', r.back?.mode === 'up' && r.back.get?.kind === 'hit' && r.back.get.value === 'ten', r.back);
   console.log('S5 这次出错');
   ok('读 error（不是 miss）、写 false；下一次照常', r.error?.get?.kind === 'error' && r.error.set === false && r.error.after?.kind === 'hit' && r.error.after.value === 'ten', r.error);
+  console.log('S7 SOP 的句柄');
+  ok('连着：hash 整份写、按字段写、读；set 加、删、列；到期——都原样转给连接', r.sop?.configured === true && r.sop.meta?.slug === 's' && r.sop.meta.status === 'finished' && JSON.stringify(r.sop.active) === '["7"]' && r.sop.expire === 3600, r.sop);
+  ok('只许碰 wm:sop:：台的键、像前缀的别的键、光有前缀、别的键都当场拒；台的方法也碰不到 SOP 的键；清台不动 SOP 的键', r.sop?.guards?.every(Boolean) && r.sop.benchCantTouch && r.sop.afterClearBench, r.sop);
+  ok('清扫（卡片一张都不在）把台的键清光，SOP 的键一个不碰', typeof r.sop?.swept === 'number' && r.sop.swept > 0 && r.sop.afterSweep === true, r.sop);
+  ok('这次出错照样抛给调用方（SOP 自己的兜底照旧）；不通时 ops 是 null、configured 仍是 true', r.sop?.errorThrown && r.sop.down?.ops === null && r.sop.down.configured === true, r.sop);
   console.log('S6 卸载根上下文');
   ok('连接断开一次，之后 mode off', r.dispose?.destroyed === 1 && r.dispose.mode === 'off', r.dispose);
 
