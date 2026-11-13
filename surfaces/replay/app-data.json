@@ -283,22 +283,22 @@
           "id": "post-envelope-again",
           "route": "POST /api/apps/:slug/data",
           "class": "normal",
-          "what": "同一个幂等键、同一份内容：200 duplicate，回第一次的 id",
+          "what": "同一个幂等键、同一份内容：200 duplicate。提交方都是匿名，所以不回那条的 id 和时间",
           "request": { "method": "POST", "path": "/api/apps/replay-data/data", "headers": {}, "json": { "data": { "n": 6 }, "created_by": "agent", "idempotency_key": "k1" } },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "91", "etag": "W/\"5b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "ok": true, "id": 8, "slug": "replay-data", "created_at": "YYYY-MM-DD hh:mm:ss", "duplicate": true }
+            "headers": { "content-length": "49", "etag": "W/\"31-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "slug": "replay-data", "duplicate": true }
           }
         },
         {
           "id": "post-envelope-conflict",
           "route": "POST /api/apps/:slug/data",
           "class": "invalid",
-          "what": "同一个幂等键、另一份内容：409",
+          "what": "同一个幂等键、另一份内容：409（匿名之间，不带那条的 id）",
           "request": { "method": "POST", "path": "/api/apps/replay-data/data", "headers": {}, "json": { "data": { "n": 7 }, "idempotency_key": "k1" } },
-          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "59", "etag": "W/\"3b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "idempotency_key 已用于另一份内容", "id": 8 } }
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "idempotency_key 已用于另一份内容" } }
         },
         {
           "id": "post-header-key",
@@ -322,8 +322,8 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "91", "etag": "W/\"5b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "ok": true, "id": 9, "slug": "replay-data", "created_at": "YYYY-MM-DD hh:mm:ss", "duplicate": true }
+            "headers": { "content-length": "49", "etag": "W/\"31-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "slug": "replay-data", "duplicate": true }
           }
         },
         {
@@ -335,8 +335,8 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "91", "etag": "W/\"5b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "ok": true, "id": 8, "slug": "replay-data", "created_at": "YYYY-MM-DD hh:mm:ss", "duplicate": true }
+            "headers": { "content-length": "49", "etag": "W/\"31-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "slug": "replay-data", "duplicate": true }
           }
         },
         {

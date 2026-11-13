@@ -9,6 +9,8 @@ import App from './App';
 import { installAdminTokenLeaveGuard } from './admin-token';
 import { attentionChanged } from './api';
 import { installIdentityWatch } from './identity-status';
+import { installSessionWatch } from './session-watch';
+import { clearShared } from './api';
 import { DESIGN_TOKENS as T } from './design-tokens';
 import './tokens.css';
 import './index.css';
@@ -16,12 +18,15 @@ import './index.css';
 dayjs.locale('zh-cn');
 installAdminTokenLeaveGuard(); // #292 M4
 installIdentityWatch(attentionChanged); // #639：身份服务连不上时挂提示、自动重试，连上后页面重读
+installSessionWatch(clearShared); // 身份变了（没登录了、换了人）：清共用缓存，外壳按世代号重挂页面
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter>
       <ConfigProvider
         locale={zhCN}
+        // 两个字的按钮不在字中间插空格（「核准」不写成「核 准」）：全站一处设，页面里不再逐个关
+        button={{ autoInsertSpace: false }}
         theme={{
           // #315：取值来自 DESIGN.md（经 scripts/gen-design-tokens.mjs 生成），这里只做 antd 名字映射
           token: {

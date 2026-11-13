@@ -122,7 +122,7 @@ try {
   // ---------- 二、各类结果 ----------
   {
     const cross = { origin: 'https://elsewhere.example', 'sec-fetch-site': 'cross-site' };
-    await srv.call('GET', '/api/grants'); // 本机命令行读授予：清单里列了，一致
+    await srv.call('GET', '/api/grants'); // 本机命令行读授予：L19 起登录的人按对象裁剪，路由声明了状态码不代表授权
     await srv.call('GET', '/api/principals', { headers: token }); // 管理口令读管理面：一致
     await srv.call('GET', '/api/types?secret=synthetic-query-secret', { headers: REMOTE }); // 匿名读开放面：清单里列了，一致
     await srv.call('GET', '/api/export', { headers: REMOTE }); // 匿名拿掩码导出：一致
@@ -130,16 +130,17 @@ try {
     await srv.call('GET', '/api/principals', { headers: { ...token, ...cross } }); // 带有效口令的跨站：被完整性门拦下
     await srv.call('GET', '/api/auth/viewer', { headers: REMOTE }); // 声明了状态码不代表授权
     await srv.call('POST', '/api/grants', { body: { role: 'member', scope: '*' } }); // 400：不确定
-    await srv.call('GET', '/api/grants/987654', { headers: token }); // 404：不判
-    await srv.call('GET', '/api/vault/status', { headers: token }); // 凭据库的存量路由：没报动作
+    await srv.call('GET', '/api/grants/987654', { headers: token }); // 授予单条：同样声明了状态码不代表授权
+    await srv.call('GET', '/api/departments/no-such-dept-987654', { headers: token }); // 404：不判
+    await srv.call('GET', '/api/workbenches/1/vars', { headers: token }); // 工作台变量的存量路由：没报动作（新库自带任务中心这个台，id 1）
     const rep = await srv.report();
     check(rep.on === true && rep.mismatches.length === 0
-      && tallyOf(rep, 'GET /api/grants', 'agree') >= 1 && tallyOf(rep, 'GET /api/principals', 'agree') >= 1
+      && tallyOf(rep, 'GET /api/grants', 'not-verdict') === 1 && tallyOf(rep, 'GET /api/grants/:id', 'not-verdict') === 1 && tallyOf(rep, 'GET /api/principals', 'agree') >= 1
       && tallyOf(rep, 'GET /api/types', 'agree') === 1 && tallyOf(rep, 'GET /api/export', 'agree') === 2
       && tallyOf(rep, 'GET /api/principals', 'integrity-blocked') === 1 && tallyOf(rep, 'GET /api/auth/viewer', 'not-verdict') === 1
-      && tallyOf(rep, 'POST /api/grants', 'uncertain') === 1 && tallyOf(rep, 'GET /api/grants/:id', 'skip-404') === 1
-      && tallyOf(rep, 'GET /api/vault/status', 'unregistered') === 1,
-      '各类结果：本机命令行、管理口令、匿名按登记的清单一致；导出按 reveal 细分后两种都一致；带口令的跨站记「被完整性门拦下」；声明的路由记「状态码不代表授权」；400 不确定；404 不判；没报动作的不比',
+      && tallyOf(rep, 'POST /api/grants', 'uncertain') === 1 && tallyOf(rep, 'GET /api/departments/:id', 'skip-404') === 1
+      && tallyOf(rep, 'GET /api/workbenches/:id/vars', 'unregistered') === 1,
+      '各类结果：管理口令、匿名按登记的清单一致；授予的读（按对象裁剪）记「状态码不代表授权」；导出按 reveal 细分后两种都一致；带口令的跨站记「被完整性门拦下」；声明的路由记「状态码不代表授权」；400 不确定；404 不判；没报动作的不比',
       show(rep.tally));
   }
 

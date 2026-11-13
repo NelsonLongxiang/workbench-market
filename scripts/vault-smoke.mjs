@@ -81,6 +81,10 @@ const MASTER = 'synthetic-master-pass-42';
 const SECRET_PW = 'Synthetic-Pw-Do-Not-Leak-7731';
 const SECRET_KEY = 'sk-synthetic-apikey-0099887766';
 const OTP = 'JBSWY3DPEHPK3PXP';
+// 状态接口的键集合：多吐一个字段（比如透露主密码或路径的提示）也要看得出来。完整的（锁着、解锁都一样）和走错面时只报的三个
+const STATUS_KEYS = ['count', 'env_password', 'exists', 'idle_lock_minutes', 'master_policy', 'password_source', 'path', 'shared_with_dsh', 'unlocked', 'upstream', 'weak_master', 'weak_reasons'];
+const STATUS_KEYS_CONTROL_ONLY = ['control_only', 'password_source', 'upstream'];
+const keysAre = (body, want) => !!body && typeof body === 'object' && JSON.stringify(Object.keys(body).sort()) === JSON.stringify(want);
 
 try {
   const vaultFile = join(TMP, 'vault', 'default.json');
@@ -114,6 +118,7 @@ try {
   ok('控制面跨站 GET（无 Origin）→ 403', r.status === 403, `${r.status}`);
   r = await get('/api/vault/status');
   ok('控制面同源 GET 带口令 → 200，库文件尚不存在、未解锁', r.status === 200 && r.body.exists === false && r.body.unlocked === false, `${r.status} ${r.text.slice(0, 160)}`);
+  ok('状态的键正好是那一组（锁着）：不多不少', keysAre(r.body, STATUS_KEYS), JSON.stringify(Object.keys(r.body ?? {})));
 
   r = await http(A.port, 'POST', '/api/vault/unlock', { 'content-type': 'application/json' }, `{"password": "${MASTER}"`);
   ok('坏 JSON（含主密码）→ 400 固定文案，响应不回显', r.status === 400 && !r.text.includes(MASTER), `${r.status} ${r.text.slice(0, 120)}`);
@@ -143,6 +148,8 @@ try {
   const s = (m, p, b) => http(B.control, m, p, cwB, b === undefined ? undefined : JSON.stringify(b));
   r = await s('POST', '/api/vault/unlock', { password: MASTER });
   ok('同一主密码重开已有库', r.status === 200 && r.body?.count === 0, `${r.status} ${r.text.slice(0, 160)}`);
+  r = await g('/api/vault/status');
+  ok('状态的键正好是那一组（解锁之后）：不多不少', r.status === 200 && r.body?.unlocked === true && keysAre(r.body, STATUS_KEYS), JSON.stringify(Object.keys(r.body ?? {})));
 
   section('③ 数据面');
   r = await s('POST', '/api/vault/entries', { title: 'GitHub 合成', kind: 'login', username: 'syn-user', password: SECRET_PW, url: 'http://github.example.test/login', otpSecret: OTP, tags: ['dev'] });
@@ -251,6 +258,7 @@ try {
   ok('服务端持有主密码时业务面一律 403（vault_control_only）', r.status === 403 && r.body?.code === 'vault_control_only', `${r.status} ${r.text.slice(0, 120)}`);
   r = await http(D.port, 'GET', '/api/vault/status', { 'x-admin-token': TOK });
   ok('业务面状态只报 control_only，不给库信息', r.status === 200 && r.body?.control_only === true && r.body?.path === undefined && r.body?.count === undefined, JSON.stringify(r.body).slice(0, 120));
+  ok('走错面的状态键正好是三个（control_only、password_source、upstream）：不多不少', keysAre(r.body, STATUS_KEYS_CONTROL_ONLY), JSON.stringify(Object.keys(r.body ?? {})));
   await stop(D);
 
   section('⑤b 主密码文件（DSH_VAULT_PASSWORD_FILE）：管理员免输入');

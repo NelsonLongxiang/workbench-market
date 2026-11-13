@@ -122,8 +122,8 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "183", "etag": "W/\"b7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "department": { "id": "sales", "name": "合成销售部", "function_code": "dp_sales", "lead": { "principal": "user:synthetic-a", "display_name": "合成甲" }, "member_count": 0, "source": "manual" } }
+            "headers": { "content-length": "200", "etag": "W/\"c8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "department": { "id": "sales", "name": "合成销售部", "function_code": "dp_sales", "lead": { "principal": "user:synthetic-a", "display_name": "合成甲", "grant": "active" }, "member_count": 0, "source": "manual" } }
           }
         },
         {
@@ -135,8 +135,8 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "186", "etag": "W/\"ba-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "department": { "id": "sales", "name": "合成销售中心", "function_code": "dp_sales", "lead": { "principal": "user:synthetic-a", "display_name": "合成甲" }, "member_count": 0, "source": "manual" } }
+            "headers": { "content-length": "203", "etag": "W/\"cb-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "department": { "id": "sales", "name": "合成销售中心", "function_code": "dp_sales", "lead": { "principal": "user:synthetic-a", "display_name": "合成甲", "grant": "active" }, "member_count": 0, "source": "manual" } }
           }
         },
         {
@@ -239,8 +239,8 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "189", "etag": "W/\"bd-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "departments": [{ "id": "sales", "name": "合成销售中心", "function_code": "dp_sales", "lead": { "principal": "user:synthetic-a", "display_name": "合成甲" }, "member_count": 2, "source": "manual" }] }
+            "headers": { "cache-control": "private, no-store", "content-length": "206", "etag": "W/\"ce-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "departments": [{ "id": "sales", "name": "合成销售中心", "function_code": "dp_sales", "lead": { "principal": "user:synthetic-a", "display_name": "合成甲", "grant": "active" }, "member_count": 2, "source": "manual" }] }
           }
         },
         {
@@ -252,12 +252,12 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "420", "etag": "W/\"1a4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "479", "etag": "W/\"1df-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "department": { "id": "sales", "name": "合成销售中心", "function_code": "dp_sales", "lead": { "principal": "user:synthetic-a", "display_name": "合成甲" }, "member_count": 2, "source": "manual" },
+              "department": { "id": "sales", "name": "合成销售中心", "function_code": "dp_sales", "lead": { "principal": "user:synthetic-a", "display_name": "合成甲", "grant": "active" }, "member_count": 2, "source": "manual" },
               "members": [
-                { "principal": "seat:synthetic-bot", "display_name": "合成席位", "kind": "seat", "status": "active", "is_lead": false },
-                { "principal": "user:synthetic-a", "display_name": "合成甲", "kind": "person", "status": "active", "is_lead": true }
+                { "principal": "seat:synthetic-bot", "display_name": "合成席位", "kind": "seat", "status": "active", "is_lead": false, "lead_pending": false },
+                { "principal": "user:synthetic-a", "display_name": "合成甲", "kind": "person", "status": "active", "is_lead": true, "lead_pending": false }
               ]
             }
           }
@@ -310,8 +310,8 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "150", "etag": "W/\"96-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "principal": "user:synthetic-a", "departments": [{ "id": "sales", "name": "合成销售中心", "function_code": "dp_sales", "is_lead": true, "is_member": true }] }
+            "headers": { "cache-control": "private, no-store", "content-length": "171", "etag": "W/\"ab-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "principal": "user:synthetic-a", "departments": [{ "id": "sales", "name": "合成销售中心", "function_code": "dp_sales", "is_lead": true, "is_member": true, "lead_pending": false }] }
           }
         },
         {
