@@ -84,12 +84,13 @@ import { registerSopRunFileRoutes } from './routes/sop-run-files.ts';
 import { registerSopRunLifecycleRoutes, sopRunWriteMode, type SopRunWriteMode } from './routes/sop-run-lifecycle.ts';
 import { registerMcpRestRoutes } from './routes/mcp-rest.ts';
 import { registerAppsStaticRoutes } from './routes/apps-static.ts';
+import { managementGrantHolders } from './work-item-access.ts';
 import { registerHealthRoutes } from './routes/health.ts';
 import { registerMcpProtocolRoutes } from './routes/mcp-protocol.ts';
 import { registerSopRunControlRoutes } from './routes/sop-run-control.ts';
 import { registerSopRunAccessRoutes } from './routes/sop-run-access.ts';
 import type { WorkbenchService } from './services/workbench.ts';
-import type { WorkItemService } from './services/work-item.ts';
+import { workItemStuckHoursFromEnv, type WorkItemService } from './services/work-item.ts';
 import type { SopService } from './services/sop.ts';
 import type { McpService } from './services/mcp.ts';
 import type { ChangeRequestService } from './services/change-request.ts';
@@ -112,6 +113,7 @@ import { designStandard } from './design-standard.ts';
 import { mountVault } from './vault-api.ts';
 import { expectedSha256, uploadIntegrity, type UploadIntegrity } from './upload-integrity.ts';
 import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet } from './workbench-vars.ts';
+import { registerWorkbenchVarsRoutes } from './routes/workbench-vars.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, redisConfigured, runStateRestore, runStateRead, runStateRetire, type RunStateRead } from './redis.ts';
@@ -268,6 +270,13 @@ if (PROPOSAL_ROSTER_GONE_HOURS === null) {
   process.exit(1);
 }
 svc<RelationProposalService>('relationProposals').setRosterGoneHours(PROPOSAL_ROSTER_GONE_HOURS);
+// 事项停多久算停太久（WM_WORK_ITEM_STUCK_HOURS，缺省 24 小时）：超过就冒给负责人（没有负责人冒给管理层）的「等你拍板」；值不合法拒绝启动
+const WORK_ITEM_STUCK_HOURS = workItemStuckHoursFromEnv();
+if (WORK_ITEM_STUCK_HOURS === null) {
+  console.error('[work-items] 拒绝启动：WM_WORK_ITEM_STUCK_HOURS 要是 1～720 的整数（小时），或者不设（缺省 24）');
+  process.exit(1);
+}
+svc<WorkItemService>('workItems').setStuckHours(WORK_ITEM_STUCK_HOURS);
 const A2A_DIRECT_SIG_BODY = directSigBodyMode();
 if (!A2A_DIRECT_SIG_RAW || !A2A_DIRECT_SIG_BODY) {
   console.error('[a2a-direct-sig] 拒绝启动：WM_A2A_DIRECT_SIG 只接受 require / accept / off / 不设，WM_A2A_DIRECT_SIG_BODY 只接受 require / accept / 不设');
@@ -453,12 +462,16 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/workbench-events\/wbe-[0-9a-f]{16}\/decision$/,
   // 阶段八 8e：建立人本人验收、退回自己的事项（路由内经身份服务认人、事项服务判是不是建立人；只此一条子路径）
   /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/decision$/,
+  // 规范 14：负责人放行（路由内认人、判是不是负责人或代办的管理层；只此一条子路径）
+  /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/release$/,
   // 阶段七 R2：事项对话里的席位消息——看过、回复（路由内认人：管理员或建立人本人；只此两条子路径）
   /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/messages\/(read|[1-9]\d{0,15}\/reply)$/,
   // 「安排一件事」：登录的人直接建事项（路由内经身份服务认人，只认启用的人；只此一条路径，不带子路径）
   /^\/api\/work-items$/,
-  // 团队：成员的分配、收回由团队的负责人做（路由内认人、核同源、判是不是负责人或管理员；只此两条）
-  /^\/api\/teams\/(assign|unassign)$/,
+  // 团队：成员的分配、收回、改派由团队的负责人做（路由内认人、核同源、判是不是负责人或管理员；只此三条）
+  /^\/api\/teams\/(assign|unassign|reassign)$/,
+  // 授予的放行（L19）：管理层、属主多半不是管理员。路由内认人、核同源，三档规则判能不能放行；只此一条子路径
+  /^\/api\/grants\/[1-9]\d{0,15}\/approve$/,
   // 关系的提议：确认、驳回由属主、管理层、接收部门的负责人做，他们大多不是管理员（路由内认人、核同源，服务判能不能确认；只此两条）
   /^\/api\/relations\/proposals\/[1-9]\d{0,15}\/(approve|reject)$/,
   // 阶段七：建立人本人回答自己事项上的席位提问（路由内认人：管理员或建立人本人；只此一条子路径）
@@ -817,7 +830,8 @@ const lastProbeAt = new Map<number, number>();
 registerWorkbenchRoutes(http, { wrap, listWorkbenches, maskForApi, restSubject, workbenchCreateCore, workbenchUpdateCore, workbenchDeleteCore, checkOne, downSince, lastProbeAt, EVICT_COOLDOWN_MS });
 
 // ---------- 驾驶舱 CRUD（任务驾驶舱：多工作台分屏组合视图） ----------
-registerCockpitRoutes(http);
+// 驾驶舱的读应答带 can.edit：就是写请求总门对这个请求的判断（本机命令行照旧算属主；其余要有效口令或 Odoo 管理员，且同源）
+registerCockpitRoutes(http, { canEdit: (req) => settingsAdminRead(req) }); // 和设置页的管理员读同一个判断（定义在后面，请求期才调用）
 
 // ---------- 自产台（台生成器：AI 发布 API + 全版本快照，发布即入册） ----------
 const appsRoot = join(dataDir, 'apps');
@@ -1940,7 +1954,7 @@ registerAuthViewerRoutes(http, { wrap, odooLoginUrl });
 
 // ---------- 主体管理（列出、停用、恢复）：路由在域模块里 ----------
 registerPrincipalRoutes(http, { markOdooAdmin, adminGuard, adminActor });
-registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor }); // 阶段六 6b：角色声明与授予（只建结构，不接判定）
+registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor, adminHeaderOk, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段六 6b：角色声明与授予（只建结构，不接判定）
 registerDepartmentRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 部门：登录的人读、管理员写
 registerTeamRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 团队与分配（规范 14 第 1 步）：登录的人按可见范围读；认领、负责人是管理员，分配是负责人
 registerRelationRoutes(http, { markOdooAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 关系的提议（规范 14「关系由谁说了算」）：负责人、团队认领要属主或业务侧确认
@@ -2489,7 +2503,7 @@ function vaultGuard(req: express.Request, res: express.Response): boolean {
   return adminGuard(req, res);
 }
 mountVault(http, vaultGuard, (req) => VAULT_ON_MAIN || surfaceOf(req) === 'control' || onVaultHost(req)); // 服务端持有主密码时只在控制面或凭据库专用域名开放（两者都不承载 /go/、/sop/、/apps/）；属主显式接受同源风险时主域名也开放
-workbenchVars.mount(app); // #336 /api/workbenches/:id/vars
+registerWorkbenchVarsRoutes(http, workbenchVars.handle); // #336 /api/workbenches/:id/vars（路由在 routes/workbench-vars.ts）
 
 // 存活 / 就绪分开：/api/health 是存活（只看本进程，不发外部请求）；/api/health/ready 是就绪（含 LayerFS）。
 // 两者都是公开端点，LayerFS 探测结果缓存 10 秒、同一时刻只发一次，匿名请求打不穿到 LayerFS。
@@ -2520,11 +2534,20 @@ function healthBase(req?: express.Request): Record<string, unknown> {
     const b = svc<WorkItemService>('workItems').backfillStatus();
     backfill = req && adminTokenCheck(req.headers['x-admin-token'] as string | undefined) ? b : { state: b.state };
   } catch { /* 事项服务没装上 */ }
+  // 持有管理层授予的主体个数（只给管理口令，只给个数）：0 时团队没有负责人的事项没人能代办放行（存量差异清单 L21）
+  let workItems: Record<string, unknown> | null = null;
+  if (req && adminTokenCheck(req.headers['x-admin-token'] as string | undefined)) {
+    try { workItems = { management_grant_holders: managementGrantHolders() }; } catch { /* 授予服务没装上 */ }
+  }
   // 对外断开时健康检查和就绪检查都带上 outbound（匿名只给开关，管理员再给计数）：免得把预发实例当成正常实例
   const outbound = outboundStatus(Boolean(req && adminTokenCheck(req.headers['x-admin-token'] as string | undefined)));
-  return { ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, ...(outbound ? { outbound } : {}), self_probe: startupSecurity.snapshot(), work_items_backfill: backfill };
+  return { ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, ...(workItems ? { work_items: workItems } : {}), ...(outbound ? { outbound } : {}), self_probe: startupSecurity.snapshot(), work_items_backfill: backfill };
 }
 registerHealthRoutes(http, { healthBase, layerfsProbeCached, layerfsReadiness, A2A_DIRECT_SIG, A2A_DIRECT_SIG_BODY, adminRead: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined) });
+// 没有任何主体持有管理层授予：团队没有负责人时，等过目的事项没人能代办放行。只告警、不拒绝启动（存量差异清单 L21）
+try {
+  if (managementGrantHolders() === 0) console.warn('[work-items] 注意：当前没有任何主体持有管理层授予；团队没有负责人时，等过目的事项没人能代办放行。上线前确认至少一人有管理层授予');
+} catch { /* 授予服务没装上 */ }
 registerLoginGateRoutes(http, loginGate.routeDeps); // /login、/api/auth/login|logout|me（解析器之后、SPA 回落之前）
 registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionTtlMs: SESSION_TTL_MIN * 60_000 });
 registerLoginEventRoutes(http); // /login/<方式>/events：离职、停用的失效通知；每天一次对账 // /login/<方式>、/login/<方式>/callback：飞书等发市场会话的登录

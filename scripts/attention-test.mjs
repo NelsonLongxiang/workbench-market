@@ -168,7 +168,7 @@ try {
     const wrong = [];
     for (const [src, old] of Object.entries(OLD)) {
       const n = await old(h), meta = r.body.sources[src];
-      // 例外（阶段七 #567）：席位的提问，旧接口只给管理员；「关注」里登录的人也可见，只列他是建立人的事项上的提问。
+      // 例外（阶段七 #567）：席位的提问，旧接口只给管理员；「关注」里登录的人也可见，只列他看得到的事项上的提问（itemDecisionVerdict 判答法，遗留差异 L21）。
       // 这里造的提问挂在没有建立人主体的事项上，所以登录的员工可见、0 条；远程匿名照旧不可见
       if (src === 'seat-asks' && n === null) {
         const expectVisible = who !== '远程匿名';

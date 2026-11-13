@@ -279,6 +279,28 @@ function settle(row: DeliveryRow, status: 'sent' | 'dead' | 'cancelled', error =
  * （「有没有 held 的投递」接口在事务里数；事项那边看事项状态是不是 held，两者同进同退）。
  * 能放行返回 null；不能返回旧接口的应答。
  */
+/**
+ * 放行（只有这一处）：把这个事件 held 的投递转成待发，每条记一行 released。管理员的旧入口和负责人的新入口（POST /api/work-items/:id/release）都调它。
+ *   actor 记放行的人；actingFor 是代谁办（团队没有负责人时管理层代办记 team-lead），记进那一行的 detail，事项时间线照它写「代某某办」
+ */
+export function releaseCore(eventId: string, actor: string, actingFor = ''): { status: number; body: Record<string, unknown> } {
+  const blocked = releaseBlock(eventId);
+  if (blocked) return blocked;
+  db.exec('BEGIN IMMEDIATE');
+  let released: { id: number }[] = [];
+  try {
+    released = db.prepare("SELECT id FROM workbench_event_deliveries WHERE event_id = ? AND status = 'held'").all(eventId) as { id: number }[];
+    for (const r of released) {
+      db.prepare("UPDATE workbench_event_deliveries SET status = 'pending', next_at = datetime('now') WHERE id = ?").run(r.id);
+      log(eventId, r.id, actor, 'released', actingFor ? { acting_for: actingFor } : undefined);
+    }
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  if (released.length === 0) return { status: 409, body: { error: '该事件没有待确认（held）的投递', event_id: eventId } };
+  kickWorkbenchEvents();
+  return { status: 200, body: { ok: true, event_id: eventId, released: released.length, ...(actingFor ? { acting_for: actingFor } : {}) } };
+}
+
 export function releaseBlock(eventId: string): { status: number; body: Record<string, unknown> } | null {
   const ev = db.prepare('SELECT source, item FROM workbench_events WHERE event_id = ?').get(eventId) as { source: string; item: string } | undefined;
   if (!ev) return { status: 404, body: { error: 'event not found' } };
@@ -399,22 +421,8 @@ export function registerWorkbenchEventRoutes(app: HttpService, guards: { admin: 
     if (!guards.sameOrigin(req)) return res.status(403).json({ error: '跨源拒绝' });
     if (!guards.admin(req, res)) return;
     const eventId = req.params.eventId;
-    const blocked = releaseBlock(eventId);
-    if (blocked) return res.status(blocked.status).json(blocked.body);
-    const who = guards.actor(req);
-    db.exec('BEGIN IMMEDIATE');
-    let released: { id: number }[] = [];
-    try {
-      released = db.prepare("SELECT id FROM workbench_event_deliveries WHERE event_id = ? AND status = 'held'").all(eventId) as { id: number }[];
-      for (const r of released) {
-        db.prepare("UPDATE workbench_event_deliveries SET status = 'pending', next_at = datetime('now') WHERE id = ?").run(r.id);
-        log(eventId, r.id, who, 'released');
-      }
-      db.exec('COMMIT');
-    } catch (e) { db.exec('ROLLBACK'); throw e; }
-    if (released.length === 0) return res.status(409).json({ error: '该事件没有待确认（held）的投递', event_id: eventId });
-    kickWorkbenchEvents();
-    res.json({ ok: true, event_id: eventId, released: released.length });
+    const out = releaseCore(eventId, guards.actor(req));
+    res.status(out.status).json(out.body);
   });
   // 决定：接单节点凭投递里的 reply token 回写。ask 可再改；accept/decline 是终态。
   app.post('/api/workbench-events/:eventId/decision', { action: 'workbench-event.decision', kind: 'write', statusNotVerdict: '接单节点凭投递里的 reply token 回写，不是登录身份的结论' }, (req, res) => {

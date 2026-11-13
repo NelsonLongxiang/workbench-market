@@ -5,7 +5,7 @@
  *     阶段七 R2 起也包括席位 A2A 回执里的提问（receipt:attention），旧接口只显示前者
  * 等阶段三把工作台事件这个域搬完，查询挪回它的服务（另排）。
  */
-import { db } from '../db.ts';
+import { db, hasTable } from '../db.ts';
 
 export type OpenSeatAsk = {
   delivery_id: number; event_id: string; target_team: string;
@@ -17,7 +17,7 @@ export type OpenSeatAsk = {
   source: string; workbench: string; item: string;
 };
 
-const tableExists = (name: string) => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name));
+const tableExists = (name: string) => hasTable(name);
 
 /**
  * 一个投递当前的提问：它最近一条提问日志（decision:ask 或 receipt:attention），之后同一投递上没有「合上提问」的日志
@@ -70,9 +70,9 @@ export function pendingAsksOfEvent(eventId: string): number[] {
 /**
  * 一个投递当前这一轮提问（答没答过都算）：「关注」记账分轮用——答完之后键不变，重复答才认得出；再问一次是新的一轮。
  */
-export function currentAskOfDelivery(deliveryId: number): { ask_log_id: number } | null {
+export function currentAskOfDelivery(deliveryId: number): { ask_log_id: number; event_id: string } | null {
   if (!tableExists('workbench_events')) return null;
-  const row = db.prepare(`SELECT o.ask_log_id FROM (${OPEN_ASK_SQL}) o WHERE o.delivery_id = ?`).get(deliveryId) as { ask_log_id: number } | undefined;
+  const row = db.prepare(`SELECT o.ask_log_id, o.event_id FROM (${OPEN_ASK_SQL}) o WHERE o.delivery_id = ?`).get(deliveryId) as { ask_log_id: number; event_id: string } | undefined;
   return row ?? null;
 }
 

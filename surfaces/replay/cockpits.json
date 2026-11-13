@@ -476,7 +476,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "583", "etag": "W/\"247-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "603", "etag": "W/\"25b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 2,
               "name": "回放·面板齐全",
@@ -484,7 +484,8 @@
               "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":6,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":0,\"y\":10,\"w\":12,\"h\":12}]",
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
-              "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-3", "workbenchId": 3, "x": 6, "y": 0, "w": 6, "h": 10 }, { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 10, "w": 12, "h": 12 }]
+              "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-3", "workbenchId": 3, "x": 6, "y": 0, "w": 6, "h": 10 }, { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 10, "w": 12, "h": 12 }],
+              "can": { "edit": true }
             }
           }
         },
@@ -492,12 +493,12 @@
           "id": "get-remote-anonymous",
           "route": "GET /api/cockpits/:id",
           "class": "normal",
-          "what": "带转发头的匿名读：登录门关着时读面开放（要身份的情形见 gated 场景）",
+          "what": "带转发头的匿名读：登录门关着时读面开放（要身份的情形见 gated 场景）；can.edit 是 false",
           "request": { "method": "GET", "path": "/api/cockpits/{{c2}}", "headers": { "x-forwarded-for": "198.51.100.7" } },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "583", "etag": "W/\"247-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "604", "etag": "W/\"25c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 2,
               "name": "回放·面板齐全",
@@ -505,7 +506,101 @@
               "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":6,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":0,\"y\":10,\"w\":12,\"h\":12}]",
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
-              "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-3", "workbenchId": 3, "x": 6, "y": 0, "w": 6, "h": 10 }, { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 10, "w": 12, "h": 12 }]
+              "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-3", "workbenchId": 3, "x": 6, "y": 0, "w": 6, "h": 10 }, { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 10, "w": 12, "h": 12 }],
+              "can": { "edit": false }
+            }
+          }
+        },
+        {
+          "id": "list-remote-anonymous",
+          "route": "GET /api/cockpits",
+          "class": "normal",
+          "what": "带转发头的匿名读清单：读得到；每一项的 can.edit 是 false（它过不了写请求总门）",
+          "request": { "method": "GET", "path": "/api/cockpits", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2822", "etag": "W/\"b06-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 7,
+                "name": "回放·两个都给",
+                "description": "",
+                "layout_config": "[{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":0,\"y\":0,\"w\":6,\"h\":10}]",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "panels": [{ "i": "wb-3", "workbenchId": 3, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }],
+                "can": { "edit": false }
+              },
+              {
+                "id": 6,
+                "name": "回放·小数",
+                "description": "",
+                "layout_config": "[{\"i\":\"wb-1\",\"workbenchId\":1,\"x\":1.5,\"y\":0.5,\"w\":2.5,\"h\":4.5}]",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "panels": [{ "i": "wb-1", "workbenchId": 1, "x": 1.5, "y": 0.5, "w": 2.5, "h": 4.5 }],
+                "can": { "edit": false }
+              },
+              { "id": 5, "name": "回放·空值", "description": "", "layout_config": "[]", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "panels": [], "can": { "edit": false } },
+              {
+                "id": 4,
+                "name": "x",
+                "description": "42",
+                "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":2,\"y\":3,\"w\":6,\"h\":7},{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":0,\"y\":0,\"w\":1,\"h\":4}]",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 2, "y": 3, "w": 6, "h": 7 }, { "i": "wb-3", "workbenchId": 3, "x": 0, "y": 0, "w": 1, "h": 4 }],
+                "can": { "edit": false }
+              },
+              {
+                "id": 3,
+                "name": "回放·钳位",
+                "description": "0",
+                "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":6,\"y\":0,\"w\":6,\"h\":40},{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":0,\"y\":7.5,\"w\":12,\"h\":4},{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":9,\"y\":0,\"w\":3,\"h\":6},{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":0,\"y\":0,\"w\":12,\"h\":40}]",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "panels": [
+                  { "i": "wb-2", "workbenchId": 2, "x": 6, "y": 0, "w": 6, "h": 40 },
+                  { "i": "wb-3", "workbenchId": 3, "x": 0, "y": 7.5, "w": 12, "h": 4 },
+                  { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 9, "y": 0, "w": 3, "h": 6 },
+                  { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 0, "w": 12, "h": 40 }
+                ],
+                "can": { "edit": false }
+              },
+              {
+                "id": 2,
+                "name": "回放·面板齐全",
+                "description": "两个台加待办卡",
+                "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":6,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":0,\"y\":10,\"w\":12,\"h\":12}]",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-3", "workbenchId": 3, "x": 6, "y": 0, "w": 6, "h": 10 }, { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 10, "w": 12, "h": 12 }],
+                "can": { "edit": false }
+              },
+              { "id": 1, "name": "回放·最少", "description": "", "layout_config": "[]", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "panels": [], "can": { "edit": false } }
+            ]
+          }
+        },
+        {
+          "id": "get-browser-cross-site",
+          "route": "GET /api/cockpits/:id",
+          "class": "normal",
+          "what": "本机但浏览器从别的站点发来：读得到，不算命令行，can.edit 是 false",
+          "request": { "method": "GET", "path": "/api/cockpits/{{c2}}", "headers": { "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "604", "etag": "W/\"25c-<指纹>\"", "x-powered-by": "Express" },
+            "body": {
+              "id": 2,
+              "name": "回放·面板齐全",
+              "description": "两个台加待办卡",
+              "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":6,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":0,\"y\":10,\"w\":12,\"h\":12}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-3", "workbenchId": 3, "x": 6, "y": 0, "w": 6, "h": 10 }, { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 10, "w": 12, "h": 12 }],
+              "can": { "edit": false }
             }
           }
         },
@@ -534,7 +629,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "583", "etag": "W/\"247-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "603", "etag": "W/\"25b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 2,
               "name": "回放·面板齐全",
@@ -542,7 +637,8 @@
               "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":6,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":0,\"y\":10,\"w\":12,\"h\":12}]",
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
-              "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-3", "workbenchId": 3, "x": 6, "y": 0, "w": 6, "h": 10 }, { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 10, "w": 12, "h": 12 }]
+              "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-3", "workbenchId": 3, "x": 6, "y": 0, "w": 6, "h": 10 }, { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 10, "w": 12, "h": 12 }],
+              "can": { "edit": true }
             }
           }
         },
@@ -571,7 +667,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "2675", "etag": "W/\"a73-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "2815", "etag": "W/\"aff-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               {
                 "id": 7,
@@ -580,7 +676,8 @@
                 "layout_config": "[{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":0,\"y\":0,\"w\":6,\"h\":10}]",
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
-                "panels": [{ "i": "wb-3", "workbenchId": 3, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }]
+                "panels": [{ "i": "wb-3", "workbenchId": 3, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }],
+                "can": { "edit": true }
               },
               {
                 "id": 6,
@@ -589,9 +686,10 @@
                 "layout_config": "[{\"i\":\"wb-1\",\"workbenchId\":1,\"x\":1.5,\"y\":0.5,\"w\":2.5,\"h\":4.5}]",
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
-                "panels": [{ "i": "wb-1", "workbenchId": 1, "x": 1.5, "y": 0.5, "w": 2.5, "h": 4.5 }]
+                "panels": [{ "i": "wb-1", "workbenchId": 1, "x": 1.5, "y": 0.5, "w": 2.5, "h": 4.5 }],
+                "can": { "edit": true }
               },
-              { "id": 5, "name": "回放·空值", "description": "", "layout_config": "[]", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "panels": [] },
+              { "id": 5, "name": "回放·空值", "description": "", "layout_config": "[]", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "panels": [], "can": { "edit": true } },
               {
                 "id": 4,
                 "name": "x",
@@ -599,7 +697,8 @@
                 "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":2,\"y\":3,\"w\":6,\"h\":7},{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":0,\"y\":0,\"w\":1,\"h\":4}]",
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
-                "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 2, "y": 3, "w": 6, "h": 7 }, { "i": "wb-3", "workbenchId": 3, "x": 0, "y": 0, "w": 1, "h": 4 }]
+                "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 2, "y": 3, "w": 6, "h": 7 }, { "i": "wb-3", "workbenchId": 3, "x": 0, "y": 0, "w": 1, "h": 4 }],
+                "can": { "edit": true }
               },
               {
                 "id": 3,
@@ -613,7 +712,8 @@
                   { "i": "wb-3", "workbenchId": 3, "x": 0, "y": 7.5, "w": 12, "h": 4 },
                   { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 9, "y": 0, "w": 3, "h": 6 },
                   { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 0, "w": 12, "h": 40 }
-                ]
+                ],
+                "can": { "edit": true }
               },
               {
                 "id": 2,
@@ -622,9 +722,10 @@
                 "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":6,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":0,\"y\":10,\"w\":12,\"h\":12}]",
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
-                "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-3", "workbenchId": 3, "x": 6, "y": 0, "w": 6, "h": 10 }, { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 10, "w": 12, "h": 12 }]
+                "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-3", "workbenchId": 3, "x": 6, "y": 0, "w": 6, "h": 10 }, { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 10, "w": 12, "h": 12 }],
+                "can": { "edit": true }
               },
-              { "id": 1, "name": "回放·最少", "description": "", "layout_config": "[]", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "panels": [] }
+              { "id": 1, "name": "回放·最少", "description": "", "layout_config": "[]", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "panels": [], "can": { "edit": true } }
             ]
           }
         },
@@ -736,7 +837,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "273", "etag": "W/\"111-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "293", "etag": "W/\"125-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 8,
               "name": "给 PUT 用",
@@ -744,7 +845,8 @@
               "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":1,\"y\":2,\"w\":3,\"h\":5}]",
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
-              "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 1, "y": 2, "w": 3, "h": 5 }]
+              "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 1, "y": 2, "w": 3, "h": 5 }],
+              "can": { "edit": true }
             }
           }
         },
@@ -1028,7 +1130,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "2203", "etag": "W/\"89b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "2323", "etag": "W/\"913-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               {
                 "id": 8,
@@ -1037,7 +1139,8 @@
                 "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":0,\"y\":0,\"w\":4,\"h\":8},{\"i\":\"wb-1\",\"workbenchId\":1,\"x\":4,\"y\":0,\"w\":4,\"h\":8}]",
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
-                "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 4, "h": 8 }, { "i": "wb-1", "workbenchId": 1, "x": 4, "y": 0, "w": 4, "h": 8 }]
+                "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 4, "h": 8 }, { "i": "wb-1", "workbenchId": 1, "x": 4, "y": 0, "w": 4, "h": 8 }],
+                "can": { "edit": true }
               },
               {
                 "id": 7,
@@ -1046,7 +1149,8 @@
                 "layout_config": "[{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":0,\"y\":0,\"w\":6,\"h\":10}]",
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
-                "panels": [{ "i": "wb-3", "workbenchId": 3, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }]
+                "panels": [{ "i": "wb-3", "workbenchId": 3, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }],
+                "can": { "edit": true }
               },
               {
                 "id": 6,
@@ -1055,9 +1159,10 @@
                 "layout_config": "[{\"i\":\"wb-1\",\"workbenchId\":1,\"x\":1.5,\"y\":0.5,\"w\":2.5,\"h\":4.5}]",
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
-                "panels": [{ "i": "wb-1", "workbenchId": 1, "x": 1.5, "y": 0.5, "w": 2.5, "h": 4.5 }]
+                "panels": [{ "i": "wb-1", "workbenchId": 1, "x": 1.5, "y": 0.5, "w": 2.5, "h": 4.5 }],
+                "can": { "edit": true }
               },
-              { "id": 5, "name": "回放·空值", "description": "", "layout_config": "[]", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "panels": [] },
+              { "id": 5, "name": "回放·空值", "description": "", "layout_config": "[]", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "panels": [], "can": { "edit": true } },
               {
                 "id": 4,
                 "name": "x",
@@ -1065,7 +1170,8 @@
                 "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":2,\"y\":3,\"w\":6,\"h\":7},{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":0,\"y\":0,\"w\":1,\"h\":4}]",
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
-                "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 2, "y": 3, "w": 6, "h": 7 }, { "i": "wb-3", "workbenchId": 3, "x": 0, "y": 0, "w": 1, "h": 4 }]
+                "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 2, "y": 3, "w": 6, "h": 7 }, { "i": "wb-3", "workbenchId": 3, "x": 0, "y": 0, "w": 1, "h": 4 }],
+                "can": { "edit": true }
               },
               {
                 "id": 2,
@@ -1074,7 +1180,8 @@
                 "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":6,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":0,\"y\":10,\"w\":12,\"h\":12}]",
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
-                "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-3", "workbenchId": 3, "x": 6, "y": 0, "w": 6, "h": 10 }, { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 10, "w": 12, "h": 12 }]
+                "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-3", "workbenchId": 3, "x": 6, "y": 0, "w": 6, "h": 10 }, { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 10, "w": 12, "h": 12 }],
+                "can": { "edit": true }
               }
             ]
           }
@@ -1408,7 +1515,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "472", "etag": "W/\"1d8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "492", "etag": "W/\"1ec-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 9,
               "name": "回放·视图面板",
@@ -1416,7 +1523,8 @@
               "layout_config": "[{\"i\":\"bv-sales-detail\",\"workbenchId\":0,\"kind\":\"bench-view\",\"bench\":\"sales\",\"view\":\"detail\",\"tab\":\"detail\",\"order\":1,\"x\":0,\"y\":0,\"w\":6,\"h\":10}]",
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
-              "panels": [{ "i": "bv-sales-detail", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "detail", "tab": "detail", "order": 1, "x": 0, "y": 0, "w": 6, "h": 10 }]
+              "panels": [{ "i": "bv-sales-detail", "workbenchId": 0, "kind": "bench-view", "bench": "sales", "view": "detail", "tab": "detail", "order": 1, "x": 0, "y": 0, "w": 6, "h": 10 }],
+              "can": { "edit": true }
             }
           }
         }
@@ -1573,7 +1681,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "315", "etag": "W/\"13b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "335", "etag": "W/\"14f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 1,
               "name": "登录门后面建的",
@@ -1581,7 +1689,8 @@
               "layout_config": "[{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":0,\"y\":0,\"w\":6,\"h\":12}]",
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
-              "panels": [{ "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 0, "w": 6, "h": 12 }]
+              "panels": [{ "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 0, "w": 6, "h": 12 }],
+              "can": { "edit": true }
             }
           }
         },

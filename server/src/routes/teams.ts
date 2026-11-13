@@ -11,6 +11,7 @@
  *   POST /api/teams/leads/remove     移除负责人（最后一个不能直接移除，409）。管理员。
  *   POST /api/teams/assign           把成员分配给员工。这个团队的负责人，或者管理层（本机命令行也行）；系统管理员、管理口令不能代办。
  *   POST /api/teams/unassign         收回。同上。
+ *   POST /api/teams/reassign         改派：一个事务里收回并分给另一个人（现在没人分着就等同于分配；改给同一个人回 changed=false）。同上。
  *
  * 谁能看到哪些团队（读）：
  *   · 管理员（口令或管理员登录，同源）、本机命令行：全部，包括待认领的；
@@ -40,7 +41,7 @@ import type { PrincipalService } from '../services/principal.ts';
 import type { GrantService } from '../services/grant.ts';
 import type { DepartmentService } from '../services/department.ts';
 import { HOST_RE, SEAT_ID_RE, SEAT_RE, TEAM_RE, type Actor, type SeatKey, type TeamKey, type TeamRefusal, type TeamService, type TeamView } from '../services/team.ts';
-import { teamName } from '../team-relation.ts';
+import { orgWideManagement, teamName, teamVisibleTo } from '../team-relation.ts';
 import { CONFIRM_BY, type RelationProposalService } from '../services/relation-proposal.ts';
 
 export type TeamRouteDeps = {
@@ -95,7 +96,7 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
     if (!bound) { res.status(401).json({ error: 'teams_auth_required' }); return null; }
     const p = principals().get(bound);
     if (!p || p.status !== 'active' || p.kind !== 'person') { res.status(403).json({ error: 'teams_principal_not_active' }); return null; }
-    const management = grants().activeFor(bound).some((g) => (g.role === 'management' || g.role === 'owner') && g.scope === '*');
+    const management = orgWideManagement(bound);
     return { kind: 'person', principal: bound, management };
   }
 
@@ -119,16 +120,7 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
 
   /** 这个人看得到这个团队吗（读） */
   function visible(v: Viewer, t: TeamView): boolean {
-    if (v.kind === 'admin') return true;
-    if (t.status === 'unclaimed') return false;
-    if (v.management) return true;
-    if (t.leads.some((l) => l.principal === v.principal)) return true;
-    if (t.members.some((m) => m.assigned_to?.principal === v.principal)) return true;
-    if (t.department) {
-      const d = t.department.id;
-      if (departments().of(v.principal).some((x) => x.id === d)) return true;
-    }
-    return false;
+    return teamVisibleTo({ admin: v.kind === 'admin', principal: v.principal, management: v.kind === 'person' && v.management }, t);
   }
 
   /** 管理员（同源）或本机命令行；不是就回 403，返回 null */
@@ -290,5 +282,17 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
     if (!r.ok) return void refused(res, r);
     if (r.removed) logged('unassign', k, { seat: k.seat, seat_id: k.seat_id }, actor.by);
     res.json(r);
+  }));
+
+  app.post('/api/teams/reassign', { action: 'team.reassign', kind: 'write', statusNotVerdict: LEAD_DECIDES }, route(async (req, res) => {
+    const b = bodyOf(req);
+    const k = seatKeyOf(b);
+    const principal = str(b.principal, 'principal', PRINCIPAL_RE, 160);
+    const actor = await leadOrAdmin(req, res, k);
+    if (!actor) return;
+    const r = teams().reassign(k, principal, actor, Date.now());
+    if (!r.ok) return void refused(res, r);
+    if (r.changed) logged('reassign', k, { seat: k.seat, seat_id: k.seat_id, from: r.from, to: principal }, actor.by);
+    res.json({ ok: true, changed: r.changed, id: r.id, from: r.from });
   }));
 }

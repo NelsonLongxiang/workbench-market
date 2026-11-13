@@ -31,7 +31,7 @@ if(mutation==='mcp-auth')replace('  if (!MCP_GATEWAY_ON) return null;','  if (tr
 if(mutation==='browser-write')replace("  if (p.startsWith('/api/')) {","  if (false && p.startsWith('/api/')) {");
 if(mutation==='export-reveal')replace("      if (!adminGuard(req, res)) return;\n      res.set('Cache-Control', 'no-store');","      res.set('Cache-Control', 'no-store');");
 if(mutation==='bench-views-anonymous')replace("if (actor.type === 'builtin' && actor.name === 'anonymous') { res.status(401).json({ error: 'login_required' }); return null; }","");
-if(mutation==='grants-admin-read')replace("registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor });","registerGrantRoutes(http, { markOdooAdmin, adminGuard: () => true, adminActor });");
+if(mutation==='grants-admin-read')replace("registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor, adminHeaderOk,","registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor, adminHeaderOk: () => true,");
 if(mutation==='app-data-read')replace('  cliOk: (req) => !browserMarked(req) && rawLoopback(req),','  cliOk: () => true,');
 if(mutation==='sop-run-write')replace('adminActor, writeMode: SOP_RUN_WRITE });',"adminActor, writeMode: 'warn' });");
 if(mutation==='unsigned-login-event')replace('registerLoginEventRoutes(http);',"app.post('/login/:flow/events', (_q, s) => s.status(200).json({}));");
@@ -73,7 +73,8 @@ async function runCase(label,{off=false,control=false,occupied=false,unset=false
    if(mutation==='login-gate')check(label+' every login-gate row is named failed',['page','app','api'].every(k=>so.includes('"id":"market.login-gate.'+k+'","surface":"market","method":"GET","path":"'+({page:'/',app:'/apps/wm-self-probe/',api:'/api/apps'})[k]+'","verdict":"fail"')));
    if(mutation==='login-gate-apps')check(label+' only the leaking /apps row fails',so.includes('"id":"market.login-gate.app","surface":"market","method":"GET","path":"/apps/wm-self-probe/","verdict":"fail"')&&so.includes('"id":"market.login-gate.page","surface":"market","method":"GET","path":"/","verdict":"pass"'));
    if(mutation==='export-reveal')check(label+' only the export reveal row fails',so.includes('"id":"market.export.reveal-anonymous"')&&so.split('"verdict":"fail"').length===2);
-   if(mutation==='grants-admin-read')check(label+' only the grant list row fails',so.includes('"id":"market.grants.admin-read"')&&so.split('"verdict":"fail"').length===2);
+   // 授予读和放行入口认管理员是同一处（L19）：把它放开，读授予和匿名放行两行一起失败，别的行不动
+   if(mutation==='grants-admin-read')check(label+' only the two grant rows fail',so.includes('"id":"market.grants.admin-read"')&&so.includes('"id":"market.grants.approve-anonymous"')&&so.split('"verdict":"fail"').length===3);
    if(mutation==='bench-views-anonymous')check(label+' only the two bench-view rows fail',so.includes('"id":"market.bench-views.anonymous-read","surface":"market","method":"GET","path":"/api/bench-views","verdict":"fail"')&&so.includes('"id":"market.bench-views.anonymous-write"')&&so.split('"verdict":"fail"').length===3);
    if(mutation==='app-data-read')check(label+' only the app data read row fails',so.includes('"id":"market.app-data.anonymous-read"')&&so.split('"verdict":"fail"').length===2);
    if(mutation==='sop-run-write')check(label+' only the run write row fails',so.includes('"id":"market.sop-run.anonymous-write"')&&so.split('"verdict":"fail"').length===2);

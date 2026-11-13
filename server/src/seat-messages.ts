@@ -65,7 +65,8 @@ export function replyableMessages(item: { id: string; source_ref?: string | null
 }
 
 /** 回复一条席位消息：消息必须属于这件事项；超限只记日志的不能回复；已回复过的不再回复；事项结束了不能回复 */
-export function replySeatMessage(item: { id: string; source_ref?: string | null; state?: string }, messageId: number, text: string, actor: string): ReplyOutcome {
+/** actingFor：替谁回的（itemDecisionVerdict 给的；空串是本人），记进投递事实那一行 */
+export function replySeatMessage(item: { id: string; source_ref?: string | null; state?: string }, messageId: number, text: string, actor: string, actingFor = ''): ReplyOutcome {
   const ev = eventOfItem(item);
   const f = Number.isSafeInteger(messageId) && messageId > 0 ? followupById(messageId) : undefined;
   if (!ev || !f || f.event_id !== ev || f.status === 'rate-limited') return { status: 404, body: { error: 'seat_message_not_found' } };
@@ -77,7 +78,7 @@ export function replySeatMessage(item: { id: string; source_ref?: string | null;
     if (!markFollowupReplied(f.id, actor)) return null;
     const q = dispatched && !!target && queueReply({ kind: 'followup-reply', eventId: f.event_id, deliveryId: f.delivery_id, ref: f.id, qid: f.inbound_task,
       team: target.team, callerSession: target.caller_session, contextId: f.context_id, targetUrl: target.target_url, message: JSON.stringify({ text, by: actor }) }) !== null;
-    logDeliveryFact(f.event_id, f.delivery_id, actor, 'followup-replied', { followup: f.id, text: text.slice(0, 500), sent: q });
+    logDeliveryFact(f.event_id, f.delivery_id, actor, 'followup-replied', { followup: f.id, text: text.slice(0, 500), sent: q, ...(actingFor ? { acting_for: actingFor } : {}) });
     return q;
   });
   if (queued === null) return { status: 409, body: { error: 'seat_message_not_open' } };

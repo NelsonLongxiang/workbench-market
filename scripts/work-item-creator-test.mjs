@@ -4,7 +4,7 @@
  * 起一个隔离实例（假的登录提供方，NODE_ENV=test）：
  *
  *   正例：建立人本人（登录、同源、主体没停用）验收 ready 的自己的事项 → done；退回（要理由）→ progress；
- *         退回之后再进 ready 能再验收；同一轮再答返回第一次的结果；管理员照旧经「关注」的答复入口验收
+ *         退回之后再进 ready 能再验收；同一轮再答返回第一次的结果；只有管理口令的经「关注」验收被拒，持管理层授予的人代办（acting_for = creator）
  *   对抗：别人的事项、冒用显示名（事项建立人写成显示名、请求里夹带建立人）、被停用的建立人、跨站、不在「等验收」、
  *         未登录、拿这个入口送别的事实（release、withdraw、report……）、建立人不是人（席位）、来源未验证——全部被拒、事项不动
  *   建立人主体（「是不是他的」只认它）：
@@ -105,6 +105,7 @@ try {
   const state = (id) => { const c = db(); try { return c.prepare('SELECT state FROM work_items WHERE id = ?').get(id)?.state; } finally { c.close(); } };
   const logs = (id) => { const c = db(); try { return c.prepare('SELECT COUNT(*) AS n FROM work_item_log WHERE item_id = ?').get(id).n; } finally { c.close(); } };
   const untouched = (id, before) => state(id) === 'ready' && logs(id) === before;
+  const q = (sql, ...a) => { const c = db(); try { return c.prepare(sql).all(...a).map((r) => ({ ...r })); } finally { c.close(); } };
 
   // 先让 alpha、beta 各登录一次，主体建出来（停用 beta 要用）
   await call('GET', '/api/attention', ALPHA); await call('GET', '/api/attention', BETA);
@@ -141,7 +142,7 @@ try {
   {
     const n = logs(S.adminOne);
     const a = await call('POST', '/api/attention/answer', { ...SAME, 'x-admin-token': ADMIN_TOKEN }, { source: 'work-items', source_id: S.adminOne, answer: 'verify', input: {} });
-    check(a.status === 200 && state(S.adminOne) === 'done' && logs(S.adminOne) === n + 1, '管理员照旧经「关注」的答复入口验收', show(a));
+    check(a.status === 400 && a.body?.error === 'attention_answer_not_offered' && state(S.adminOne) === 'ready' && logs(S.adminOne) === n, '只有管理口令（没有管理层授予）：经「关注」的答复入口验收被拒（400，答法不在条目上），事项不动', show(a));
   }
 
   // ---------- 对抗 ----------
@@ -190,20 +191,20 @@ try {
     const mgmtItem = ((await call('GET', '/api/attention', MGMT)).body?.items ?? []).find((x) => x.source === 'work-items' && x.source_id === S.viaAttnMgmt);
     const mgmtSees = !!mgmtItem;
     const ownItem = ((await call('GET', '/api/attention', ALPHA)).body?.items ?? []).find((x) => x.source === 'work-items' && x.source_id === S.viaAttnMgmt);
-    check(mgmtSees && mgmtItem.answers.length === 0 && mgmtItem.mine === false && ownItem && JSON.stringify(ownItem.answers) === JSON.stringify(['verify', 'return']),
-      '「关注」列表的答法只给答得了的人：管理层看得到别人建的待验收，但不带验收、退回；建立人自己的带', JSON.stringify({ mgmtItem, ownItem }));
+    check(mgmtSees && JSON.stringify(mgmtItem.answers) === JSON.stringify(['verify', 'return']) && mgmtItem.mine === false && ownItem && JSON.stringify(ownItem.answers) === JSON.stringify(['verify', 'return']),
+      '「关注」列表的答法只给答得了的人：持管理层授予的人看得到别人建的待验收，带验收、退回（代办，mine:false）；建立人自己的带', JSON.stringify({ mgmtItem, ownItem }));
     const n = logs(S.viaAttnMgmt);
+    const anon = await viaAttn(S.viaAttnMgmt, { ...SAME, 'x-forwarded-for': '198.51.100.7' });
+    const down = await viaAttn(S.viaAttnMgmt, { ...SAME, cookie: `session_id=${SESSIONS.hangs}` });
+    const stillReady = untouched(S.viaAttnMgmt, n) && state(S.viaAttnMgmt) === 'ready';
     const byMgmt = await viaAttn(S.viaAttnMgmt, MGMT);
-    const mgmtUntouched = untouched(S.viaAttnMgmt, n) && state(S.viaAttnMgmt) === 'ready';
+    const mgmtFact = q("SELECT actor, detail FROM work_item_log WHERE item_id = ? ORDER BY seq DESC LIMIT 1", S.viaAttnMgmt)[0];
     const own = await viaAttn(S.viaAttn, ALPHA);
     const ownDone = state(S.viaAttn) === 'done';
-    const anon = await viaAttn(S.viaAttnMgmt, { ...SAME, 'x-forwarded-for': '198.51.100.7' });
     const adminSource = await viaAttn('1', ALPHA, 'change-requests', 'approve');
-    const down = await viaAttn(S.viaAttnMgmt, { ...SAME, cookie: `session_id=${SESSIONS.hangs}` });
-    check(g.status === 201 && mgmtSees && byMgmt.status === 400 && byMgmt.body?.error === 'attention_answer_not_offered' && mgmtUntouched
-      && own.status === 200 && ownDone && anon.status === 401 && adminSource.status === 403 && down.status === 502 && down.body?.error === 'identity_unavailable' && untouched(S.viaAttnMgmt, n),
-      '「关注」的答复入口对登录的人放开：建立人从这里验收自己的事项 200；管理层看得到别人的事项、但这一条没给他答法，从这里验收被拒（400，事项不动）；远程匿名 401；不是管理员答管理员的来源 403；身份来源不可达 502 identity_unavailable',
-      show({ mgmtSees, byMgmt: [byMgmt.status, byMgmt.body?.result?.error ?? byMgmt.body?.error], own: [own.status, ownDone], anon: anon.status, adminSource: adminSource.status, down: [down.status, down.body?.error] }));
+    check(g.status === 201 && mgmtSees && stillReady && byMgmt.status === 200 && state(S.viaAttnMgmt) === 'done' && mgmtFact?.actor === 'user:no-flag' && JSON.parse(mgmtFact.detail).acting_for === 'creator'
+      && own.status === 200 && ownDone && anon.status === 401 && adminSource.status === 403 && down.status === 502 && down.body?.error === 'identity_unavailable',
+      '「关注」的答复入口对登录的人放开：建立人从这里验收自己的事项 200；持管理层授予的人代办验收 200（留痕记本人、acting_for = creator）；远程匿名 401；不是管理员答管理员的来源 403；身份来源不可达 502 identity_unavailable', JSON.stringify({ mgmtSees, stillReady, byMgmt: [byMgmt.status, byMgmt.body?.error], mgmtFact, own: [own.status, ownDone], anon: anon.status, adminSource: adminSource.status, down: [down.status, down.body?.error] }));
   }
 
   // ---------- 重放答过的一条：先过和第一次同样的判权，再认重复；无权的、换答法的拿到的和这一条不存在时一模一样 ----------
@@ -217,7 +218,7 @@ try {
     const bReplay = await viaAttn(S.replay, BETA), bGhost = await viaAttn(ghost, BETA);
     const mReplay = await viaAttn(S.replay, MGMT), mGhost = await viaAttn(ghost, MGMT);
     check(first.status === 200 && !first.body.duplicate && same(strip(bReplay), strip(bGhost)) && same(strip(mReplay), strip(mGhost)) && mReplay.status === 404 && !mReplay.body.result && !bReplay.body.result,
-      '无权的人（被停用的同事、看得到全部事项的管理层）重放一条已验收的：状态码、正文和这一条不存在时一模一样，不带 duplicate、不带上一次的结果',
+      '不是答这一条的人（被停用的同事、持管理层授予的人）重放一条已验收的：状态码、正文和这一条不存在时一模一样，不带 duplicate、不带上一次的结果',
       show({ first: first.status, bReplay, bGhost, mReplay, mGhost }));
     const aReplay = await viaAttn(S.replay, ALPHA);
     check(aReplay.status === 200 && aReplay.body.duplicate === true && same(aReplay.body.result, first.body.result), '建立人本人用同一种答法重放：照旧返回 duplicate 和第一次的结果', show(aReplay));

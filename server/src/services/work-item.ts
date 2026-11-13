@@ -12,12 +12,25 @@
  */
 import { randomUUID } from 'node:crypto';
 import { Service } from '@deepseek-ai/cordis';
-import { db } from '../db.ts';
+import { db, hasTable } from '../db.ts';
 import { afterStartup } from '../startup-gate.ts';
 
 export const STATES = ['draft', 'held', 'delivered', 'accepted', 'progress', 'waiting', 'ready', 'blocked', 'done', 'failed', 'dropped', 'cancelled'] as const;
 export type WorkItemState = typeof STATES[number];
 export const TERMINAL: readonly WorkItemState[] = ['done', 'failed', 'dropped', 'cancelled'];
+/**
+ * 会「停太久」的状态：已经交出去、还在往下走的。draft、held（有过目条目）、ready（有验收条目）和终态不算；
+ * 有在等答复的提问的另有席位提问条目，由「关注」那边再剔掉
+ */
+export const STUCK_STATES: readonly WorkItemState[] = ['delivered', 'accepted', 'progress', 'waiting', 'blocked'];
+/** 停多久算停太久（小时）：WM_WORK_ITEM_STUCK_HOURS，缺省 24，1～720 的整数；别的值返回 null（启动时拒绝）。只按自然时间算 */
+export function workItemStuckHoursFromEnv(env: NodeJS.ProcessEnv = process.env): number | null {
+  const raw = String(env.WM_WORK_ITEM_STUCK_HOURS ?? '');
+  if (raw === '') return 24;
+  if (!/^[1-9][0-9]{0,2}$/.test(raw)) return null;
+  const n = Number(raw);
+  return n <= 720 ? n : null;
+}
 const NON_TERMINAL = STATES.filter((s) => !TERMINAL.includes(s));
 
 export const SOURCE_KINDS = ['task-center', 'app-data', 'agent', 'cockpit'] as const;
@@ -399,12 +412,14 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
   // 事实 id 和原来那条 submit 相同：存量里已经应用过的照旧按（来源、id）跳过，回填重跑结果不变
   if ((row.action === 'held' || row.action === 'queued') && Number(event.dispatch) === 0) return { ...base, kind: 'note', note: 'undispatched' };
   if (row.action === 'held' || row.action === 'queued') fact = { ...base, kind: 'submit', dispatch_open: row.action === 'queued' };
-  else if (row.action === 'released') fact = { ...base, kind: 'release' };
+  // 代办放行（团队没有负责人时管理层代办）：事件日志那一行的 detail 记着 acting_for，原样带进事项日志，时间线照它写「代某某办」
+  else if (row.action === 'released') fact = { ...base, kind: 'release', ...(typeof detail.acting_for === 'string' && detail.acting_for ? { acting_for: detail.acting_for.slice(0, 64) } : {}) };
   else if (row.action === 'cancelled') fact = { ...base, kind: 'withdraw', none_sent: !rows.slice(0, i + 1).some((r) => r.action === 'sent' || r.action === 'sent-after-withdraw') };
   else if (row.action === 'receipt:untrusted' || row.action === 'receipt:unaccepted') fact = { ...base, kind: 'note', note: 'untrusted' };
   else if (row.action === 'receipt:progress') fact = { ...base, kind: 'note', note: 'progress', text: typeof detail.summary === 'string' ? detail.summary : '' };
   else if (row.action === 'followup') fact = { ...base, kind: 'note', note: 'followup', text: typeof detail.text === 'string' ? detail.text : '' };
-  else if (row.action === 'followup-replied') fact = { ...base, kind: 'note', note: 'followup-reply', text: typeof detail.text === 'string' ? detail.text : '' };
+  // 代建立人回复（持管理层授予的人）：同放行，acting_for 原样带进事项日志
+  else if (row.action === 'followup-replied') fact = { ...base, kind: 'note', note: 'followup-reply', text: typeof detail.text === 'string' ? detail.text : '', ...(typeof detail.acting_for === 'string' && detail.acting_for ? { acting_for: detail.acting_for.slice(0, 64) } : {}) };
   else if (row.action === 'receipt:attention') fact = { ...base, kind: 'ask', question: typeof detail.summary === 'string' ? detail.summary : '' };
   else if (row.action === 'dead' || row.action.startsWith('decision:') || row.action === 'receipt:acknowledged' || RECEIPT_OUTCOME_ACTIONS.includes(row.action)) {
     const status = new Map<number, DeliveryStatus>();
@@ -514,7 +529,7 @@ export class WorkItemService extends Service {
     db.prepare('UPDATE work_item_backfill SET dirty = ?, updated_at = ? WHERE id = 1').run(on ? 1 : 0, new Date().toISOString());
   }
   private hasEvents(): boolean {
-    return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workbench_events'").get());
+    return hasTable('workbench_events');
   }
   /** 事件日志现在的最大行号（水位） */
   private logHigh(): number {
@@ -627,7 +642,7 @@ export class WorkItemService extends Service {
    *  跑完记下「这个版本全量跑完过」和事件日志的水位（之后启动从水位往后增量核）。 */
   backfill(): { events: number; created: number } {
     // 新库上事件表可能还没建（任务中心初始化时才建）：那就没有可回填的
-    if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workbench_events'").get()) return { events: 0, created: 0 };
+    if (!hasTable('workbench_events')) return { events: 0, created: 0 };
     const count = () => (db.prepare('SELECT COUNT(*) AS n FROM work_items').get() as { n: number }).n;
     const before = count();
     const ids = db.prepare('SELECT event_id FROM workbench_events ORDER BY id').all() as { event_id: string }[];
@@ -811,6 +826,21 @@ export class WorkItemService extends Service {
   }
 
   /** 一个视角里有几件（不按状态、对象筛）：列表应答的 views 用 */
+  private stuckHours = 24;
+  setStuckHours(h: number): void { this.stuckHours = h; }
+  /** 停多久算停太久（小时，启动时由 WM_WORK_ITEM_STUCK_HOURS 设） */
+  stuckThresholdHours(): number { return this.stuckHours; }
+
+  /**
+   * 停在某一步太久的候选：在 STUCK_STATES 里、最后一次变动（updated_at，每应用一条事实都会更新）早于 now 减阈值。
+   * 按停得最久的排，最多 limit 条。走 (state, updated_at) 那个索引（idx_work_items_state），不全表扫；时间在代码里算
+   */
+  stuckCandidates(now: number, limit: number): WorkItemRow[] {
+    const cutoff = new Date(now - this.stuckHours * 3_600_000).toISOString().replace('T', ' ').slice(0, 19);
+    return db.prepare(`SELECT * FROM work_items WHERE state IN (${STUCK_STATES.map(() => '?').join(', ')}) AND updated_at < ? ORDER BY updated_at, id LIMIT ?`)
+      .all(...STUCK_STATES, cutoff, limit) as WorkItemRow[];
+  }
+
   countIn(scope: ViewScope): number {
     const w = this.scopeWhere(scope);
     return Number((db.prepare(`SELECT COUNT(*) AS n FROM work_items WHERE ${w.where}`).get(...w.args) as { n: number }).n);
