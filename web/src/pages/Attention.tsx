@@ -1,126 +1,69 @@
-/** 「关注」页（阶段八 8d）：等你处理的条目从各来源汇到一处，一次处理一条。
- *  数据来自 GET /api/attention（每个来源用它旧接口自己的守卫：你在旧页面看不到的，这里也没有）。
- *  答复走 POST /api/attention/answer，分发回来源自己的处理；答复入口还没上线时（404），提示去原页面处理。 */
+/** 「等你拍板」的完整列表（全景「等你拍板」的「全部 →」链过来）：按新外壳和原型重写——
+ *  和全景同一张卡（DecisionCard，当场能办）、同一个计数函数（groupCards / decideCount，侧栏角标、全景的总结句也用它），
+ *  分三组：轮到你能当场办的、别人的事你可以代办的、要到别处处理的。上面一排按类别筛（在问、等验收、等过目、待核准、等审核），
+ *  筛只影响下面的卡，总结句照全部算。数据来自 GET /api/attention；别处办完一件（卡片会广播）这里跟着重读。 */
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { Alert, App, Button, Card, Checkbox, Descriptions, Empty, Input, Segmented, Space, Tag, Typography } from 'antd';
-import { LeftOutlined, RightOutlined, ReloadOutlined } from '@ant-design/icons';
-import { adminActive, apiFetch, subscribeAdminToken } from '../admin-token';
+import { Empty, Segmented, Skeleton, Typography } from 'antd';
+import { adminActive, subscribeAdminToken } from '../admin-token';
 import WmPage from '../components/WmPage';
-import { answerChoices, answerRoute, byWaited, waited, type AttentionItem, type Category } from '../attention-view';
-import { postCreatorDecision } from '../api';
+import DecisionCard from '../components/DecisionCard';
+import { ATTENTION_CHANGED, getAttention } from '../api';
+import { answerChoices, groupCards, type AttentionItem, type Category } from '../attention-view';
+import { decideLine } from '../home-view';
 
-type Item = AttentionItem;
-type SourceMeta = { label: string; visible: boolean; count: number; error?: string };
-type View = { items: Item[]; counts: { total: number; by_category: Record<Category, number> }; sources: Record<string, SourceMeta> };
-
-const CATEGORY: Record<Category, string> = { ask: '提问', review: '审核', accept: '验收', glance: '过目', grant: '授权' };
-const CATEGORY_COLOR: Record<Category, string> = { ask: 'gold', review: 'blue', accept: 'green', glance: 'default', grant: 'purple' };
-const ANSWER: Record<string, string> = { approve: '批准', reject: '拒绝', answer: '答复', bind: '对接', verify: '验收通过', return: '退回', release: '放行', withdraw: '撤回', reply: '回复', ack: '知道了' };
-/** 每种答法要填的东西（和来源旧页面要的一样；入口把它们原样交给来源） */
-type Field = { key: string; label: string; kind?: 'text' | 'textarea' | 'check'; required?: boolean };
-const FIELDS: Record<string, Record<string, Field[]>> = {
-  'change-requests': { approve: [{ key: 'reviewed_by', label: '审核人', required: true }], reject: [{ key: 'reviewed_by', label: '审核人', required: true }] },
-  'mcp-access': { approve: [{ key: 'note', label: '备注' }], reject: [{ key: 'note', label: '拒绝理由' }] },
-  'seat-asks': { answer: [{ key: 'text', label: '答复', kind: 'textarea', required: true }] },
-  'owner-pending': { answer: [{ key: 'summary', label: '答复', kind: 'textarea', required: true }] },
-  'principal-pending': { bind: [{ key: 'principal', label: '对到哪个主体（user:<名>）', required: true }, { key: 'create', label: '这个主体还没有，就新建', kind: 'check' }, { key: 'reason', label: '理由', required: true }] },
-  'work-items': { return: [{ key: 'reason', label: '退回理由', kind: 'textarea', required: true }] },
-};
+/** 筛的类别和说法（同卡片标签的叫法） */
+const CATS: { key: Category; label: string }[] = [
+  { key: 'ask', label: '在问' }, { key: 'accept', label: '等验收' }, { key: 'glance', label: '等过目' }, { key: 'grant', label: '待核准' }, { key: 'review', label: '等审核' },
+];
 
 export default function Attention() {
-  const { message } = App.useApp();
-  const [view, setView] = useState<View | null>(null);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [filter, setFilter] = useState<Category | 'all'>('all');
-  const [index, setIndex] = useState(0);
-  const [answer, setAnswer] = useState('');
-  const [input, setInput] = useState<Record<string, string | boolean>>({});
-  const [busy, setBusy] = useState(false);
-  const [notLive, setNotLive] = useState(false);
   const admin = useSyncExternalStore(subscribeAdminToken, adminActive);
+  const [items, setItems] = useState<AttentionItem[] | null>(null);
+  const [status, setStatus] = useState(0);
+  const [cat, setCat] = useState<Category | 'all'>('all');
 
   const load = useCallback(async () => {
-    setLoading(true); setError('');
-    try {
-      const r = await apiFetch('/api/attention');
-      const body = await r.json();
-      if (!r.ok) throw Error(body?.error || '读取失败');
-      setView(body);
-    } catch (e) { setView(null); setError(e instanceof Error ? e.message : '读取失败'); }
-    finally { setLoading(false); }
+    const r = await getAttention();
+    setStatus(r.status);
+    setItems(r.status >= 200 && r.status < 300 ? r.items as unknown as AttentionItem[] : []);
   }, []);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); }, [load, admin]);
+  useEffect(() => {
+    const on = () => { void load(); };
+    window.addEventListener(ATTENTION_CHANGED, on);
+    return () => window.removeEventListener(ATTENTION_CHANGED, on);
+  }, [load]);
 
-  const list = useMemo(() => byWaited((view?.items ?? []).filter((x) => filter === 'all' || x.category === filter)), [view, filter]);
-  const at = Math.min(index, Math.max(0, list.length - 1));
-  const cur = list[at];
-  useEffect(() => { setAnswer(''); setInput({}); }, [cur?.source, cur?.source_id]);
+  const choicesOf = useCallback((x: AttentionItem) => answerChoices(admin, x), [admin]);
+  // 总结句照全部算；下面的卡按选的类别筛
+  const all = useMemo(() => groupCards(items ?? [], choicesOf), [items, choicesOf]);
+  const shown = useMemo(() => groupCards((items ?? []).filter((x) => cat === 'all' || x.category === cat), choicesOf), [items, cat, choicesOf]);
+  const n = (c: Category) => (items ?? []).filter((x) => x.category === c).length;
+  const card = (a: AttentionItem) => <DecisionCard key={`${a.source}:${a.source_id}`} item={a} admin={admin} onDone={() => undefined} />;
+  const failed = items !== null && (status < 200 || status >= 300);
+  const empty = shown.now.length + shown.proxy.length + shown.elsewhere.length === 0;
 
-  // 建立人答席位提问走事项的提问入口（全景卡片、事项页）；这一页只给「在原页面处理」
-  // 条目自带答复入口的（answer_via）在全景的卡片上办，这一页不给按钮
-  const choices = cur && !['ask', 'via'].includes(answerRoute(admin, cur)) ? answerChoices(admin, cur) : [];
-  const fields = cur && answer ? FIELDS[cur.source]?.[answer] ?? [] : [];
-  const missing = fields.some((f) => f.required && !String(input[f.key] ?? '').trim());
-  const submit = async () => {
-    if (!cur || !answer) return;
-    setBusy(true);
-    try {
-      if (answerRoute(admin, cur) === 'creator') {
-        const { status, body } = await postCreatorDecision(cur.source_id, answer, String(input.reason ?? ''));
-        if (status === 401) throw Error('请先登录');
-        if (status < 200 || status >= 300) throw Error(body?.result?.error || body?.error || '处理失败');
-        void message.success(body?.duplicate ? '这一条已经处理过了' : '已处理');
-        await load();
-        return;
-      }
-      const r = await apiFetch('/api/attention/answer', { method: 'POST', body: JSON.stringify({ source: cur.source, source_id: cur.source_id, answer, input }) });
-      const body = await r.json().catch(() => ({}));
-      // 答复入口自己的 404 带错误码（这一条不在列表里了、来源不认识）；没有错误码的 404 才是入口还没上线
-      if (r.status === 404 && !body?.error) { setNotLive(true); return; }
-      if (!r.ok) throw Error(body?.result?.error || body?.error || '处理失败');
-      void message.success(body?.duplicate ? '这一条已经处理过了' : '已处理');
-      await load();
-    } catch (e) { void message.error(e instanceof Error ? e.message : '处理失败'); }
-    finally { setBusy(false); }
-  };
-
-  const visible = view ? Object.values(view.sources).filter((s) => s.visible).map((s) => s.label) : [];
-  const segments = [{ label: `全部 ${view?.counts.total ?? 0}`, value: 'all' }, ...(Object.keys(CATEGORY) as Category[]).map((c) => ({ label: `${CATEGORY[c]} ${view?.counts.by_category[c] ?? 0}`, value: c }))];
-  return <WmPage title="关注" extra={<Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>刷新</Button>}>
-    <Space direction="vertical" size="middle" className="wm-reading">
-      <Typography.Paragraph type="secondary" className="wm-m-0">
-        各处等你处理的事都在这里，一次处理一条。原来的页面照常能用。{visible.length > 0 && <>你能看到的来源：{visible.join('、')}。</>}
+  return <WmPage title="等你拍板">
+    <div className="wm-home">
+      <Typography.Paragraph type="secondary" className="wm-home-sum" data-testid="attention-summary">
+        {items === null ? '正在读……' : failed ? (status === 401 ? '请先登录。' : '这会儿读不到等你拍板的事，稍后再试。') : decideLine(all.now.length, all.elsewhere.length, false, all.proxy.length)}
       </Typography.Paragraph>
-      {error && <Alert type="error" showIcon message={error} />}
-      {notLive && <Alert type="info" showIcon closable onClose={() => setNotLive(false)} message="这里还不能直接答复" description="答复入口还没上线：请点「在原页面处理」。" />}
-      <Segmented value={filter} options={segments} onChange={(v) => { setFilter(v as Category | 'all'); setIndex(0); }} />
-      {!loading && view && list.length === 0 && <Empty description="没有等你处理的事" />}
-      {cur && <Card
-        title={<Space wrap><Tag color={CATEGORY_COLOR[cur.category]}>{CATEGORY[cur.category]}</Tag><span>{cur.title}</span></Space>}
-        extra={<Space><Typography.Text type="secondary">{at + 1} / {list.length}</Typography.Text>
-          <Button aria-label="上一条" icon={<LeftOutlined />} disabled={at === 0} onClick={() => setIndex(at - 1)} />
-          <Button aria-label="下一条" icon={<RightOutlined />} disabled={at >= list.length - 1} onClick={() => setIndex(at + 1)} /></Space>}
-      >
-        <Descriptions column={2} size="small" items={[
-          { key: 'source', label: '来源', children: view?.sources[cur.source]?.label ?? cur.source },
-          { key: 'waiting', label: '谁在等', children: cur.waiting_for || '—' },
-          { key: 'since', label: '等了多久', children: waited(cur.since) },
-          { key: 'obj', label: '对象 / 阶段', children: [cur.object, cur.phase].filter(Boolean).join(' / ') || '—' },
-        ]} />
-        <Space direction="vertical" className="wm-w-full wm-mt-3">
-          {choices.length > 0 && <Segmented value={answer} options={choices.map((a) => ({ label: ANSWER[a] ?? a, value: a }))} onChange={(v) => setAnswer(String(v))} />}
-          {fields.map((f) => f.kind === 'check'
-            ? <Checkbox key={f.key} checked={input[f.key] === true} onChange={(e) => setInput({ ...input, [f.key]: e.target.checked })}>{f.label}</Checkbox>
-            : f.kind === 'textarea'
-              ? <Input.TextArea key={f.key} aria-label={f.label} placeholder={f.label} autoSize={{ minRows: 2, maxRows: 6 }} value={String(input[f.key] ?? '')} onChange={(e) => setInput({ ...input, [f.key]: e.target.value })} />
-              : <Input key={f.key} aria-label={f.label} placeholder={f.label} value={String(input[f.key] ?? '')} onChange={(e) => setInput({ ...input, [f.key]: e.target.value })} />)}
-          <Space>
-            {choices.length > 0 && <Button type="primary" disabled={!answer || missing} loading={busy} onClick={() => void submit()}>{answer ? ANSWER[answer] ?? answer : '选一种答法'}</Button>}
-            {cur.link && !cur.link.startsWith('/api/') && <Typography.Link href={cur.link}>在原页面处理</Typography.Link>}
-          </Space>
-        </Space>
-      </Card>}
-    </Space>
+      {items !== null && !failed && <Segmented value={cat} onChange={(v) => setCat(v as Category | 'all')} data-testid="attention-filter"
+        options={[{ label: `全部 ${items.length}`, value: 'all' }, ...CATS.filter((c) => n(c.key) > 0).map((c) => ({ label: `${c.label} ${n(c.key)}`, value: c.key }))]} />}
+      {items === null && <Skeleton active paragraph={{ rows: 4 }} />}
+      {items !== null && !failed && empty && <div className="wm-home-box"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={cat === 'all' ? '眼下没有要你拍板的。' : '这一类没有要你拍板的。'} /></div>}
+      {shown.now.length > 0 && <>
+        <div className="wm-sec-h"><h3>等你拍板</h3><span className="wm-sec-n" data-testid="attention-now-n">{shown.now.length}</span></div>
+        <div className="wm-decisions" data-testid="attention-now">{shown.now.map(card)}</div>
+      </>}
+      {shown.proxy.length > 0 && <>
+        <div className="wm-sub-h">别人的事，你可以代办<span className="wm-sec-n">{shown.proxy.length}</span></div>
+        <div className="wm-decisions" data-testid="attention-proxy">{shown.proxy.map(card)}</div>
+      </>}
+      {shown.elsewhere.length > 0 && <>
+        <div className="wm-sub-h">要到别处处理的<span className="wm-sec-n">{shown.elsewhere.length}</span></div>
+        <div className="wm-decisions" data-testid="attention-elsewhere">{shown.elsewhere.map(card)}</div>
+      </>}
+    </div>
   </WmPage>;
 }
