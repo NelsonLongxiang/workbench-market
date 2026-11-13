@@ -377,6 +377,20 @@
       "k TEXT PK",
       "v TEXT NOT NULL"
     ],
+    "knowledge_project_dept_log": [
+      "id INTEGER PK",
+      "project TEXT NOT NULL",
+      "old_department TEXT",
+      "new_department TEXT",
+      "actor TEXT NOT NULL",
+      "at INTEGER NOT NULL"
+    ],
+    "knowledge_project_depts": [
+      "project TEXT PK",
+      "department_id TEXT NOT NULL",
+      "updated_by TEXT NOT NULL",
+      "updated_at INTEGER NOT NULL"
+    ],
     "knowledge_sync": [
       "kind TEXT PK",
       "since TEXT NOT NULL DEFAULT ''",

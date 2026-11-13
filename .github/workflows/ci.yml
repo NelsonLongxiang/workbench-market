@@ -586,6 +586,8 @@ jobs:
         run: CHROME_BIN= node scripts/log-secret-relay-headers-smoke.mjs
       - name: 管理员口令止血单测（#292 M4：pagehide 抹口令·变更广播）
         run: node scripts/admin-token-guard-unit.mjs
+      - name: 门户改写冒烟（白屏三层与外链护栏、JS/CSS 的 /api/ 前缀、同源绝对链接、Referer 只到目标源、自产台 CSP sandbox、cookie 的 Secure 与 __Host- 处理、泛化根路径）
+        run: node scripts/portal-rewrite-smoke.mjs && node scripts/portal-p6711-smoke.mjs && node scripts/portal-p13-smoke.mjs
       - name: 门户剥 Service-Worker-Allowed 冒烟（#292 M5）
         run: node scripts/portal-sw-header-smoke.mjs
       - name: 门户台地址带路径的跳转映射冒烟（base 外跳转拦成 502、base 内去 base）
