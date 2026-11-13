@@ -17,7 +17,7 @@
  *       重启后同一个库，键不变
  *   七、没接入（命令行不在、版本太旧不认 library、list 失败、回的不是 JSON、契约版本不对、工作区没设）：启动照常、自检不红；
  *       接口回空列表和 source=not_connected（不带原因）；管理员看得到原因；同一个原因只告警一次
- *   六、同步状态只给管理员
+ *   六、同步状态只给管理员：管理口令、本机命令行（属主）、系统管理员预设（身份来源的管理员第一次来就迁移出来）看得到；管理层、普通员工 403
  *
  *   node scripts/knowledge-test.mjs
  */
@@ -209,10 +209,10 @@ try {
       '详情现取失败回 503（不当成空）；ygl-trees 说没这一条，回 404 并从目录去掉', show({ down: down.status, gone: gone.status, after }));
     // 六、同步状态只给管理员
     const stOf = async (o) => (await srv.call('GET', '/api/knowledge/status', o)).status;
-    const stm = { token: await stOf({ headers: token }), rootAdmin: await stOf(as(SESSIONS.admin)), mgmt: await stOf(as(SESSIONS.noAdminFlag)), alpha: await stOf(as(SESSIONS.alpha)),
+    const stm = { token: await stOf({ headers: token }), localCli: await stOf({}), rootAdmin: await stOf(as(SESSIONS.admin)), mgmt: await stOf(as(SESSIONS.noAdminFlag)), alpha: await stOf(as(SESSIONS.alpha)),
       anon: await stOf({ headers: REMOTE }), crossSf: await stOf({ headers: { ...token, 'sec-fetch-site': 'cross-site' } }) };
-    check(show(stm) === show({ token: 200, rootAdmin: 200, mgmt: 403, alpha: 403, anon: 401, crossSf: 403 }),
-      '同步状态按统一判定（管理类）：管理口令、持系统管理员预设的人看得到；管理层、普通员工 403；匿名 401；跨站 403', show(stm));
+    check(show(stm) === show({ token: 200, localCli: 200, rootAdmin: 200, mgmt: 403, alpha: 403, anon: 401, crossSf: 403 }),
+      '同步状态按统一判定（管理类）：管理口令、本机命令行（属主）、持系统管理员预设的人看得到；管理层、普通员工 403；匿名 401；跨站 403', show(stm));
     await stop();
     // 重启：同一个库，键不变；顺带全量对账——ygl-trees 那边删掉了运营部那条，重启后到了全量的时候，目录里要去掉
     {
@@ -254,6 +254,15 @@ try {
       && st.every((k) => k.last_error === want) && warns.length === 1 && !warns[0].includes(bad.ygl),
       `没接入（${mode}）：启动照常、自检不红；接口回空列表、source=not_connected、不带原因；管理员看得到原因 ${want}；四类同一个原因只告警一次、不带路径`,
       show({ health: health.status, status: l.status, source: l.json?.source, errors: st.map((k) => k.last_error), warns }));
+    if (mode === 'exit2') {
+      // 全新的库、谁都没发过授予：同步状态（没接入时管理员要靠它看原因）三种管理身份都看得到——
+      // 本机命令行（属主）；身份来源说是管理员的人（第一次见到时迁移出 admin 预设，不用等别处先触发迁移）；管理口令。普通员工照样 403
+      const stOf = async (o) => (await bad.call('GET', '/api/knowledge/status', o)).status;
+      const fresh = { localCli: await stOf({}), odooAdmin: await stOf({ headers: { ...REMOTE, ...sameB }, session: SESSIONS.admin }), token: await stOf({ headers: token }),
+        alpha: await stOf({ headers: { ...REMOTE, ...sameB }, session: SESSIONS.alpha }) };
+      check(show(fresh) === show({ localCli: 200, odooAdmin: 200, token: 200, alpha: 403 }),
+        '全新的库：本机命令行、身份来源的管理员（当场迁移出系统管理员预设）、管理口令都看得到同步状态；普通员工 403', show(fresh));
+    }
     await stop();
   }
 } catch (e) {
