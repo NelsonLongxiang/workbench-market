@@ -3,9 +3,11 @@
  * 工作台的常量、变量存进卡片的台库（workbench-vars.ts 的 WM_VARS_STORE 三档；docs/data-views.md 第十三节第 5 条第 5 步）。
  * 子进程里装上服务容器（临时数据目录），直接调存法和迁移的函数：
  *
- *   M1 迁移 dry-run 只数、不写、不建台库；正式跑搬完；再跑一次是零写入（指纹没变整张卡片跳过）
- *   M2 只看 key + revision：台库里更新的值不会被主库的旧值盖回去；孤儿行（卡片已删）不搬、只报个数；hot. 开头的键报出来
- *   M3 bench 档：卡片第一次用到时搬一次、记指纹；搬过以后，主库里留着的旧行不会补回台库里已经删掉的键
+ *   M1 迁移 dry-run 只数、不写、不建台库；正式跑搬完；再跑一次是零写入（两边一致的卡片跳过）
+ *   M2 同步点（syncCard）：台库没在 bench 档写过 → 以主库为准；bench 档的写入没写回、主库没变 → 补写回主库；两边都改过 → 报分叉、不动，
+ *      --resolve 按 keep 那边整份换掉并写审计；孤儿行（卡片已删）不搬、只报个数；hot. 开头的键报出来
+ *   M3 档位 bench → main → bench：main 档期间的修改切回 bench 后看得见，接着写不会出现同一个 revision、不同的值；
+ *      bench 档写入没写回（进程中断）→ 下次补写回；两边都改过 → bench 档拒绝服务（503 vars_diverged）
  *   M4 shadow 档：主库写成之后台库跟着有一份；比对按摘要——条数一样、值不一样也算不同
  *   M5 bench 档写成之后尽力写回主库一份（留作回退）
  *   M6 回退安全：main 档下台库和原来一样（版本 1、没有 bs_vars，读和比对、迁移 dry-run 都不建表），关了再开还是这样；
@@ -61,20 +63,43 @@ async function child() {
   out.again = await V.migrateVars();
   const s1 = await benchStore(benchOfCard(1).slug);
   out.benchRows1 = (await s1.varsList('')).map((r) => `${r.key}:${r.revision}:${r.value}:${r.updated_by}:${r.created_at}`);
-  // M2：台库里更新的不被盖回；主库改了 a 的 revision 更小的旧值 → 不动
+  const mainRow = (id, key) => db.prepare('SELECT value, revision FROM workbench_vars WHERE workbench_id = ? AND key = ?').get(id, key) ?? null;
+  const s2 = await benchStore(benchOfCard(2).slug);
+  // M2a：台库被改过但不是 bench 档写的（没有 dirty），主库也变了 → 以主库为准
   await s1.varForce('a', { key: 'a', kind: 'var', value: '9', revision: 5, updated_by: 'cli', owner: '', created_at: T, updated_at: T });
-  db.prepare("UPDATE workbench_vars SET value = '7', revision = 3 WHERE workbench_id = 1 AND key = 'a'").run(); // 主库变了（指纹变了），但 revision 3 < 台库的 5
+  db.prepare("UPDATE workbench_vars SET value = '7', revision = 3 WHERE workbench_id = 1 AND key = 'a'").run();
   out.m2 = await V.migrateVars();
-  out.m2a = (await s1.varGet('a'))?.value;
-  // M3：bench 档，卡片 3 主库里有行、台库还没有
-  ins.run(3, 'k', 'var', '"m"', 1, 'cli', '', T, T); ins.run(3, 'old', 'var', '"z"', 1, 'cli', '', T, T);
+  out.m2a = await s1.varGet('a').then((r) => `${r?.revision}:${r?.value}`);
+  // M2b：bench 档写过（dirty）、没写回，主库没变 → 补写回主库
+  await s2.varUpdate({ key: 'hot.progress', expected: 1, kind: 'var', value: '6', by: 'cli', owner: '', at: T });
+  out.m2b = { run: await V.migrateVars(), main: mainRow(2, 'hot.progress') };
+  // M2c：bench 档写过（dirty）、主库也改了 → 分叉，不动；--resolve 以台库为准
+  await s1.varUpdate({ key: 'b', expected: 1, kind: 'const', value: '"bench"', by: 'mcp:someone', owner: 'mcp:someone', at: T });
+  db.prepare("UPDATE workbench_vars SET value = '\"main\"', revision = 2 WHERE workbench_id = 1 AND key = 'b'").run();
+  out.m2c = { run: await V.migrateVars(), main: mainRow(1, 'b'), bench: await s1.varGet('b').then((r) => r?.value) };
+  out.m2c.resolve = await V.resolveCardVars(1, 'bench', 'builtin:local-cli');
+  out.m2c.after = { main: mainRow(1, 'b'), audit: db.prepare("SELECT action, reason FROM workbench_var_audit WHERE workbench_id = 1 AND key = 'b' ORDER BY id DESC").get(), again: await V.migrateVars() };
+  // M3：档位 bench → main → bench（验收复现的那一串），卡片 3
   V.setVarsStoreMode('bench');
-  out.m3first = (await V.listVars(scope(3))).items.map((i) => i.key);
-  const r3 = await V.deleteVar(scope(3), 'old', { expected: 1 }, CLI); // 台库里删了；写回主库也删了
-  ins.run(3, 'old', 'var', '"z"', 1, 'cli', '', T, T); // 模拟写回主库失败：主库里还留着旧行
-  V.setVarsStoreMode('bench'); // 换个「进程」（清掉进程内的已搬记录）
-  out.m3after = (await V.listVars(scope(3))).items.map((i) => i.key);
-  out.m3del = r3.deleted;
+  await V.setVar(scope(3), 'a', { value: 1, hasValue: true }, CLI);
+  V.setVarsStoreMode('main');
+  await V.setVar(scope(3), 'a', { value: 2, hasValue: true, expected: 1 }, CLI);
+  await V.setVar(scope(3), 'b', { value: 9, hasValue: true }, CLI);
+  V.setVarsStoreMode('bench');
+  const items3 = async () => Object.fromEntries((await V.listVars(scope(3))).items.map((i) => [i.key, `${i.revision}:${JSON.stringify(i.value)}`]));
+  out.m3back = await items3();
+  await V.setVar(scope(3), 'a', { value: 3, hasValue: true, expected: 2 }, CLI);
+  out.m3write = { bench: await items3(), main: mainRow(3, 'a') };
+  // bench 档的写入没写回（进程在写回之前中断）→ 下一个进程补写回
+  const s3 = await benchStore(benchOfCard(3).slug);
+  await s3.varUpdate({ key: 'b', expected: 1, kind: 'var', value: '10', by: 'cli', owner: '', at: T });
+  V.setVarsStoreMode('bench');
+  out.m3crash = { bench: await items3(), main: mainRow(3, 'b') };
+  // 两边都改过 → bench 档拒绝服务
+  await s3.varUpdate({ key: 'b', expected: 2, kind: 'var', value: '11', by: 'cli', owner: '', at: T });
+  db.prepare("UPDATE workbench_vars SET value = '12', revision = 3 WHERE workbench_id = 3 AND key = 'b'").run();
+  V.setVarsStoreMode('bench');
+  out.m3div = await V.listVars(scope(3)).then(() => 'served', (e) => `${e.status}:${e.extra?.code ?? e.details?.code ?? e.code}`);
   // M5：bench 档写成之后写回主库
   await V.setVar(scope(4), 'w', { value: { n: 1 }, hasValue: true }, CLI);
   out.m5main = db.prepare("SELECT value, revision FROM workbench_vars WHERE workbench_id = 4 AND key = 'w'").get();
@@ -123,13 +148,18 @@ async function parent() {
   console.log('M1 迁移');
   ok('dry-run 只数：两张卡片、3 行、要写 3 行；孤儿 1 行；不建台库', r.dry?.cards === 2 && r.dry.rows === 3 && r.dry.written === 3 && r.dry.orphans === 1 && r.dryStores?.every((x) => x === false), { dry: r.dry, stores: r.dryStores });
   ok('正式跑：搬了 3 行，原样（值、revision、写的人、时间文本）', r.real?.written === 3 && JSON.stringify(r.benchRows1) === JSON.stringify(['a:2:1:cli:2026-11-01 08:00:00', 'b:1:"x":mcp:someone:2026-11-01 08:00:00']), { real: r.real, rows: r.benchRows1 });
-  ok('再跑一次：零写入，两张卡片都按指纹跳过', r.again?.written === 0 && r.again.skipped === 2, r.again);
-  console.log('M2 只看 key + revision');
-  ok('主库的值变了但 revision 更小：台库里更新的值不被盖回去', r.m2?.written === 0 && r.m2a === '9', { m2: r.m2, a: r.m2a });
+  ok('再跑一次：零写入，两张卡片都一致、跳过', r.again?.written === 0 && r.again.skipped === 2, r.again);
+  console.log('M2 同步点');
+  ok('台库被改过但不是 bench 档写的：以主库为准（a 回到主库的 rev 3、值 7）', r.m2?.written === 2 && r.m2a === '3:7', { m2: r.m2, a: r.m2a });
+  ok('bench 档写过、没写回、主库没变：补写回主库', r.m2b?.run.to_main === 1 && r.m2b.main?.value === '6' && r.m2b.main.revision === 2, r.m2b);
+  ok('bench 档写过、主库也改了：报分叉，两边都不动', JSON.stringify(r.m2c?.run.diverged) === '[1]' && r.m2c.main?.value === '"main"' && r.m2c.bench === '"bench"', r.m2c);
+  ok('--resolve 以台库为准：主库换成台库那份，按键写审计，之后再跑跳过', r.m2c?.resolve?.changed === 1 && r.m2c.after?.main?.value === '"bench"' && r.m2c.after.audit?.action === 'resolve' && r.m2c.after.again?.diverged.length === 0 && r.m2c.after.again.written === 0, { resolve: r.m2c?.resolve, after: r.m2c?.after });
   ok('hot. 开头的键报出来（卡片 2 的 hot.progress）', JSON.stringify(r.hot) === JSON.stringify([{ workbench_id: 2, key: 'hot.progress' }]) && r.real?.hot === 1, r.hot);
-  console.log('M3 bench 档第一次用到时搬');
-  ok('卡片第一次用到：主库里的两行都搬进来', JSON.stringify(r.m3first) === '["k","old"]', r.m3first);
-  ok('搬过以后：台库里删了的键，就算主库里还留着旧行，也不补回来', r.m3del === true && JSON.stringify(r.m3after) === '["k"]', r.m3after);
+  console.log('M3 档位 bench → main → bench');
+  ok('切回 bench：main 档期间的修改看得见（a 是 rev 2 的 2，b 是 9）', JSON.stringify(r.m3back) === '{"a":"2:2","b":"1:9"}', r.m3back);
+  ok('接着在 bench 档按 rev 2 改 a：台库 rev 3、主库也是 rev 3 的同一个值', r.m3write?.bench.a === '3:3' && r.m3write.main?.revision === 3 && r.m3write.main.value === '3', r.m3write);
+  ok('bench 档的写入没写回（进程中断）：下一个进程补写回主库', r.m3crash?.bench.b === '2:10' && r.m3crash.main?.value === '10' && r.m3crash.main.revision === 2, r.m3crash);
+  ok('两边都改过：bench 档拒绝服务（503 vars_diverged），不静默以哪边为准', r.m3div === '503:vars_diverged', r.m3div);
   console.log('M4 shadow 档');
   ok('主库写成之后台库跟着有一份；比对相同', r.m4bench === '"v1"' && r.m4same === true, { bench: r.m4bench, same: r.m4same });
   ok('比对按摘要：条数一样、值不一样也算不同', r.m4diff?.same === false && r.m4diff.countsEqual === true, r.m4diff);

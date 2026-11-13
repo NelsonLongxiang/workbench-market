@@ -223,7 +223,7 @@ export function varsStoreConfig(env: NodeJS.ProcessEnv = process.env): VarsStore
   throw new Error(`WM_VARS_STORE 只接受 main、shadow、bench，现在是 ${JSON.stringify(raw)}`);
 }
 let storeMode: VarsStoreMode = 'main';
-export function setVarsStoreMode(m: VarsStoreMode): void { storeMode = m; migrated.clear(); }
+export function setVarsStoreMode(m: VarsStoreMode): void { storeMode = m; migrated.clear(); divergedReported.clear(); }
 export const varsStoreMode = (): VarsStoreMode => storeMode;
 /** shadow 档跟写失败、bench 档写回主库失败的次数（只计数，不给值） */
 const mirrorStats = { shadowFailures: 0, fallbackFailures: 0 };
@@ -248,24 +248,53 @@ async function cardStore(id: number, create: boolean): Promise<BenchStore | null
 }
 const asRow = (id: number, r: BenchVarRow): WorkbenchVarRow => ({ workbench_id: id, ...r });
 const plainRows = (rows: WorkbenchVarRow[]): BenchVarRow[] => rows.map(({ workbench_id: _w, ...r }) => r as BenchVarRow);
-/** bench 档里已经确认搬过的卡片（进程内记一下，免得每次都问台库） */
+/** bench 档里这个进程已经对过同步点的卡片（换档要重启，进程内对一次就够） */
 const migrated = new Set<number>();
+/** 主库那份分叉、拒绝以 bench 档服务的卡片（每张只报一次） */
+const divergedReported = new Set<number>();
+
+export type CardSyncAction = 'in-sync' | 'from-main' | 'to-main' | 'diverged';
 /**
- * bench 档里拿一张卡片的台库之前先确认它搬过：没搬过（台库里没有指纹），就把主库里这张卡片的行搬进来、记下指纹，一张卡片只搬一次。
- * 搬过的以台库为准：之后主库里就算有旧行（bench 档写回主库失败留下的），也不会拿来补回台库里已经删掉的键。
- * 主库里有行而台库还没登记的卡片，在这里由系统代建台库；两边都没有、又只是读，给 null（不建）
+ * 对一张卡片的同步点（台库里记着：上次两边一致时主库那份的摘要 mark，和「bench 档写过、还没确认写回」的 dirty）：
+ *   · 两边摘要一样：一致，补记同步点；
+ *   · 没有 dirty（包括从没同步过）：台库从没在 bench 档写过、或写过的都已经写回——之后的不同只能来自主库那边
+ *     （main、shadow 档期间的修改，或者 shadow 跟写失败），以主库为准，台库整份换成主库那份；
+ *   · 有 dirty、主库从同步点以来没变（摘要等于 mark）：bench 档最后的写入没来得及写回，以台库为准，整份补写回主库；
+ *   · 有 dirty、主库也变了：两边都改过，谁都不能静默为准——diverged，交给人处置（vars-migrate.mjs --resolve）。
+ * dryRun 只判断不写。返回做了什么、写了几行
+ */
+export async function syncCard(id: number, store: BenchStore, opts: { dryRun?: boolean } = {}): Promise<{ action: CardSyncAction; written: number }> {
+  const mainRows = vars().list(id, '') as WorkbenchVarRow[];
+  const mainDigest = varsDigestOf(mainRows);
+  const [{ mark, dirty }, bench] = await Promise.all([store.varsSyncGet(), store.varsDigest()]);
+  if (bench.sha256 === mainDigest) {
+    if (!opts.dryRun && (mark !== mainDigest || dirty)) await store.varsSynced(mainDigest);
+    return { action: 'in-sync', written: 0 };
+  }
+  if (!dirty) return { action: 'from-main', written: opts.dryRun ? mainRows.length : await store.varsReplace(plainRows(mainRows), mainDigest) };
+  if (mark === mainDigest) {
+    const rows = await store.varsList('');
+    if (!opts.dryRun) { vars().replaceCard(id, rows); await store.varsSynced(varsDigestOf(rows)); }
+    return { action: 'to-main', written: rows.length };
+  }
+  return { action: 'diverged', written: 0 };
+}
+
+/**
+ * bench 档里拿一张卡片的台库之前先对同步点（syncCard）：主库那边变过就以主库为准重搬，bench 档最后的写入没写回就补写回；
+ * 两边都改过就拒绝服务（503，报一次警），不静默以哪边为准。主库里有行而台库还没登记的卡片，在这里由系统代建台库；两边都没有、又只是读，给 null（不建）
  */
 async function migratedStore(id: number, create: boolean): Promise<BenchStore | null> {
   if (migrated.has(id)) return cardStore(id, create);
-  const rows = vars().list(id, '') as WorkbenchVarRow[];
-  const store = await cardStore(id, create || rows.length > 0);
+  const store = await cardStore(id, create || (vars().list(id, '') as WorkbenchVarRow[]).length > 0);
   if (!store) return null;
-  try {
-    if ((await store.varsMarkGet()) === null) {
-      if (rows.length) await store.varsImport(plainRows(rows));
-      await store.varsMarkSet(varsDigestOf(rows));
-    }
-  } catch (e) { return benchHttp(e); }
+  let r: { action: CardSyncAction; written: number };
+  try { r = await syncCard(id, store); } catch (e) { return benchHttp(e); }
+  if (r.action === 'diverged') {
+    if (!divergedReported.has(id)) { divergedReported.add(id); console.error(`[workbench-vars] 卡片 ${id} 的常量、变量在主库和台库两边都改过（bench 档的写入没写回之后，主库又变了），不以哪边为准；处置：node scripts/vars-migrate.mjs --resolve ${id} --keep main|bench`); }
+    throw new HttpError(503, '这张卡片的常量、变量在两处存的不一致，已经报给管理员处置，请稍后再试', { code: 'vars_diverged', workbench_id: id });
+  }
+  if (r.action !== 'in-sync') console.log(`[workbench-vars] 卡片 ${id}：${r.action === 'from-main' ? `主库那边改过，台库按主库重搬 ${r.written} 行` : `bench 档的写入补写回主库 ${r.written} 行`}`);
   migrated.add(id);
   return store;
 }
@@ -312,7 +341,7 @@ async function setVarBench(scope: Scope, key: string, input: SetInput, caller: C
     if (!(await store.varInsert({ key, kind, value: json, by: caller.actor, owner, at }))) return conflictBench(scope, store, key, '并发创建：键已被写入', 'revision_conflict');
     S.audit({ workbench_id: scope.id, key, action: 'create', actor: caller.actor, kind, old_revision: null, new_revision: 1, old_sha256: '', new_sha256: sha(json), reason });
     const now = (await store.varGet(key)) as BenchVarRow;
-    fallbackToMain(scope.id, key, now);
+    await fallbackToMain(scope.id, store, key, now);
     return { ok: true, created: true, workbench_id: scope.id, ...view(asRow(scope.id, now)) };
   }
   if (cur.kind === 'const') {
@@ -330,7 +359,7 @@ async function setVarBench(scope: Scope, key: string, input: SetInput, caller: C
   const action = cur.kind === 'const' ? (owner === PUBLIC_OWNER && cur.owner !== PUBLIC_OWNER ? 'make_public' : 'const_override') : kind === 'const' ? 'freeze' : 'update';
   S.audit({ workbench_id: scope.id, key, action, actor: caller.actor, kind, old_revision: cur.revision, new_revision: cur.revision + 1, old_sha256: sha(cur.value), new_sha256: sha(json), reason });
   const now = (await store.varGet(key)) as BenchVarRow;
-  fallbackToMain(scope.id, key, now);
+  await fallbackToMain(scope.id, store, key, now);
   return { ok: true, created: false, workbench_id: scope.id, ...view(asRow(scope.id, now)) };
 }
 async function deleteVarBench(scope: Scope, key: string, input: DeleteInput, caller: Caller) {
@@ -346,7 +375,7 @@ async function deleteVarBench(scope: Scope, key: string, input: DeleteInput, cal
   if (input.expected === undefined) return conflictBench(scope, store, key, '删除必须带期望 revision（If-Match 或 revision）', 'revision_required', 428);
   if (input.expected !== cur.revision || !(await store.varDelete(key, cur.revision))) return conflictBench(scope, store, key, `revision 冲突：期望 ${input.expected}，当前 ${cur.revision}`, 'revision_conflict');
   vars().audit({ workbench_id: scope.id, key, action: cur.kind === 'const' ? 'const_delete' : 'delete', actor: caller.actor, kind: cur.kind, old_revision: cur.revision, new_revision: null, old_sha256: sha(cur.value), new_sha256: '', reason });
-  fallbackToMain(scope.id, key, null);
+  await fallbackToMain(scope.id, store, key, null);
   return { ok: true, deleted: true, workbench_id: scope.id, key, revision: cur.revision };
 }
 async function maintainConstBench(scope: Scope, store: BenchStore, key: string, cur: BenchVarRow, caller: Caller, reason: string, what: string): Promise<void> {
@@ -355,10 +384,18 @@ async function maintainConstBench(scope: Scope, store: BenchStore, key: string, 
 async function ownerInputBench(scope: Scope, store: BenchStore, key: string, owner: unknown, caller: Caller, cur?: BenchVarRow): Promise<string | undefined> {
   try { return ownerInputCheck(owner, caller, cur); } catch (e) { if (e instanceof ConstRefusal) await conflictBench(scope, store, key, e.message, e.code, e.status); throw e; }
 }
-/** bench 档：尽力原样写回主库一份（留作回退）；失败只计数 */
-function fallbackToMain(id: number, key: string, row: BenchVarRow | null): void {
-  if (storeMode !== 'bench') return;
-  try { vars().force(id, key, row); } catch { mirrorStats.fallbackFailures++; }
+/**
+ * bench 档：原样写回主库一份（留作回退），写成了就记同步点、清 dirty。
+ * 失败只计数：dirty 留着，下次对同步点时（syncCard）主库没变就补写回，主库也变了就报分叉
+ */
+async function fallbackToMain(id: number, store: BenchStore, key: string, row: BenchVarRow | null): Promise<void> {
+  try {
+    const cur = vars().get(id, key) as WorkbenchVarRow | undefined;
+    if (!row) vars().force(id, key, null);
+    else if (!cur || cur.revision < row.revision) vars().force(id, key, row);
+    else if (cur.revision !== row.revision || cur.value !== row.value || cur.kind !== row.kind || cur.owner !== row.owner) throw new Error('主库那行比台库新或不同');
+    await store.varsSynced(varsDigestOf(vars().list(id, '') as WorkbenchVarRow[]));
+  } catch { mirrorStats.fallbackFailures++; }
 }
 /** shadow 档：主库写成之后，把主库里这一行（或「已删」）原样落一份进卡片的台库；失败只计数 */
 async function shadowMirror(id: number, key: string): Promise<void> {
@@ -371,33 +408,52 @@ async function shadowMirror(id: number, key: string): Promise<void> {
 }
 
 /**
- * 把主库里的常量、变量搬进各卡片的台库（迁移脚本 scripts/vars-migrate.mjs、bench 档起来时都用这个）。能重复跑：
- *   · 只看 (key, revision)：台库里没有、或台库的 revision 更小才写，不会把台库里更新的值盖回去；
- *   · 每张卡片搬完记一个指纹（主库那份行集合的摘要），重跑时指纹没变整张卡片跳过——第二次跑是零写入；
- *   · onlyUnmarked：只搬从没搬过的卡片（bench 档起来时用：搬过的卡片以台库为准，不拿主库的旧行补回台库里已经删掉的键）；
- *   · dryRun：只数，不写、不建台库。
- * 主库里卡片已经不在的行（孤儿）不搬，只报个数。不碰值以外的东西，审计照旧在主库
+ * 把主库里的常量、变量搬进各卡片的台库（迁移脚本 scripts/vars-migrate.mjs 用）。每张卡片照 syncCard 的规矩对一次同步点，能重复跑：
+ *   · 两边一致的卡片跳过——第二次跑是零写入；
+ *   · 台库没在 bench 档写过的（包括从没搬过的），以主库为准整份搬（written 是搬了几行）；
+ *   · bench 档最后的写入没写回、主库没变的，补写回主库（to_main）；两边都改过的不动，只报卡片号（diverged），由 --resolve 处置。
+ * dryRun：只数，不写、不建台库。主库里卡片已经不在的行（孤儿）不搬，只报个数。审计照旧在主库
  */
-export async function migrateVars(opts: { dryRun?: boolean; onlyUnmarked?: boolean } = {}): Promise<{ cards: number; rows: number; written: number; skipped: number; orphans: number; hot: number }> {
-  const out = { cards: 0, rows: 0, written: 0, skipped: 0, orphans: 0, hot: hotVarKeys().length };
+export async function migrateVars(opts: { dryRun?: boolean } = {}): Promise<{ cards: number; rows: number; written: number; skipped: number; to_main: number; diverged: number[]; orphans: number; hot: number }> {
+  const out = { cards: 0, rows: 0, written: 0, skipped: 0, to_main: 0, diverged: [] as number[], orphans: 0, hot: hotVarKeys().length };
   for (const id of vars().workbenchIds()) {
     const rows = vars().list(id, '') as WorkbenchVarRow[];
     if (!svc<WorkbenchService>('workbench').byId(id)) { out.orphans += rows.length; continue; }
     out.cards++; out.rows += rows.length;
-    const digest = varsDigestOf(rows);
     const store = await cardStore(id, !opts.dryRun);
-    const mark = store ? await store.varsMarkGet() : null;
-    if (mark === digest || (opts.onlyUnmarked && mark !== null)) { out.skipped++; continue; }
-    const plain = rows.map(({ workbench_id: _w, ...r }) => r as BenchVarRow);
-    if (opts.dryRun) {
-      const have = new Map((store ? await store.varsList('') : []).map((r) => [r.key, r.revision]));
-      out.written += plain.filter((r) => (have.get(r.key) ?? 0) < r.revision).length;
-      continue;
-    }
-    out.written += await store!.varsImport(plain);
-    await store!.varsMarkSet(digest);
+    if (!store) { out.written += rows.length; continue; } // dry-run、还没有台库：要整份搬
+    const r = await syncCard(id, store, { dryRun: opts.dryRun });
+    if (r.action === 'in-sync') out.skipped++;
+    else if (r.action === 'from-main') out.written += r.written;
+    else if (r.action === 'to-main') out.to_main++;
+    else out.diverged.push(id);
   }
   return out;
+}
+
+/**
+ * 处置分叉的卡片（vars-migrate.mjs --resolve <卡片> --keep main|bench）：keep 那一边为准，另一边整份换掉、记同步点。
+ * 换掉的那一边按键写审计（action 'resolve'），只记摘要
+ */
+export async function resolveCardVars(id: number, keep: 'main' | 'bench', actor: string): Promise<{ id: number; keep: string; changed: number }> {
+  if (!svc<WorkbenchService>('workbench').byId(id)) throw new HttpError(404, `workbench not found: ${id}`);
+  const store = await cardStore(id, true) as BenchStore;
+  const mainRows = plainRows(vars().list(id, '') as WorkbenchVarRow[]);
+  const benchRows = await store.varsList('');
+  const [from, to] = keep === 'main' ? [mainRows, benchRows] : [benchRows, mainRows];
+  const before = new Map(to.map((r) => [r.key, r]));
+  const after = new Map(from.map((r) => [r.key, r]));
+  let changed = 0;
+  for (const k of new Set([...before.keys(), ...after.keys()])) {
+    const o = before.get(k), n = after.get(k);
+    if (o && n && o.revision === n.revision && o.value === n.value && o.kind === n.kind && o.owner === n.owner) continue;
+    changed++;
+    vars().audit({ workbench_id: id, key: k, action: 'resolve', actor, kind: (n ?? o)!.kind, old_revision: o?.revision ?? null, new_revision: n?.revision ?? null, old_sha256: o ? sha(o.value) : '', new_sha256: n ? sha(n.value) : '', reason: `分叉处置：以${keep === 'main' ? '主库' : '台库'}为准` });
+  }
+  if (keep === 'main') await store.varsReplace(mainRows, varsDigestOf(mainRows));
+  else { vars().replaceCard(id, benchRows); await store.varsSynced(varsDigestOf(benchRows)); }
+  migrated.delete(id); divergedReported.delete(id);
+  return { id, keep, changed };
 }
 
 // —— 对外的入口（异步）：按 WM_VARS_STORE 走主库或台库 ——

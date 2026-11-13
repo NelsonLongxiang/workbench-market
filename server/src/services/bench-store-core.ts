@@ -46,8 +46,8 @@ export const BENCH_METHODS = new Map<string, 'read' | 'write'>([
   ['defineDataset', 'write'], ['replace', 'write'], ['append', 'write'], ['upsert', 'write'], ['deleteRows', 'write'],
   ['snapshot', 'write'], ['restore', 'write'], ['putView', 'write'], ['rollbackView', 'write'], ['backupTo', 'write'], ['submitForm', 'write'],
   ['varsList', 'read'], ['varGet', 'read'], ['varCount', 'read'], ['varsDigest', 'read'],
-  ['varsMarkGet', 'read'],
-  ['varInsert', 'write'], ['varUpdate', 'write'], ['varDelete', 'write'], ['varsImport', 'write'], ['varForce', 'write'], ['varsMarkSet', 'write'],
+  ['varsSyncGet', 'read'],
+  ['varInsert', 'write'], ['varUpdate', 'write'], ['varDelete', 'write'], ['varsImport', 'write'], ['varForce', 'write'], ['varsSynced', 'write'], ['varsReplace', 'write'],
 ]);
 
 /** 卡片的一个常量或变量（和主库 workbench_vars 的一行同形，只是不带 workbench_id） */
@@ -901,14 +901,14 @@ export class BenchStoreCore {
   }
   /** 没有才建（revision 1）；已经有了返回 false（并发创建撞键） */
   varInsert(r: { key: string; kind: string; value: string; by: string; owner: string; at: string }): Promise<boolean> {
-    return this.tx(async () => { await this.ensureVars(); return !!(await this.conn.run('INSERT INTO bs_vars (key, kind, value, revision, updated_by, owner, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?, ?) ON CONFLICT (key) DO NOTHING', [r.key, r.kind, r.value, r.by, r.owner, r.at, r.at])); });
+    return this.tx(async () => { await this.ensureVars(); await this.setMeta('vars_dirty', '1'); return !!(await this.conn.run('INSERT INTO bs_vars (key, kind, value, revision, updated_by, owner, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?, ?) ON CONFLICT (key) DO NOTHING', [r.key, r.kind, r.value, r.by, r.owner, r.at, r.at])); });
   }
   /** 比较并写：当前 revision 是 expected 才写，revision + 1；不是返回 false */
   varUpdate(r: { key: string; expected: number; kind: string; value: string; by: string; owner: string; at: string }): Promise<boolean> {
-    return this.tx(async () => { await this.ensureVars(); return !!(await this.conn.run('UPDATE bs_vars SET kind = ?, value = ?, revision = revision + 1, updated_by = ?, owner = ?, updated_at = ? WHERE key = ? AND revision = ?', [r.kind, r.value, r.by, r.owner, r.at, r.key, r.expected])); });
+    return this.tx(async () => { await this.ensureVars(); await this.setMeta('vars_dirty', '1'); return !!(await this.conn.run('UPDATE bs_vars SET kind = ?, value = ?, revision = revision + 1, updated_by = ?, owner = ?, updated_at = ? WHERE key = ? AND revision = ?', [r.kind, r.value, r.by, r.owner, r.at, r.key, r.expected])); });
   }
   varDelete(key: string, expected: number): Promise<boolean> {
-    return this.tx(async () => { await this.ensureVars(); return !!(await this.conn.run('DELETE FROM bs_vars WHERE key = ? AND revision = ?', [key, expected])); });
+    return this.tx(async () => { await this.ensureVars(); await this.setMeta('vars_dirty', '1'); return !!(await this.conn.run('DELETE FROM bs_vars WHERE key = ? AND revision = ?', [key, expected])); });
   }
   /**
    * 照给的行原样落一份（shadow 档跟写、迁移用）：台库里没有，或台库的 revision 比给的小，才写；一样或更新的不动。
@@ -932,9 +932,29 @@ export class BenchStoreCore {
     await this.conn.run('INSERT INTO bs_vars (key, kind, value, revision, updated_by, owner, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [r.key, r.kind, r.value, r.revision, r.updated_by, r.owner, r.created_at, r.updated_at]);
     return 1;
   }
-  /** 迁移的指纹：上次从主库搬过来时，主库那份行集合的摘要（没搬过是 null） */
-  varsMarkGet(): Promise<string | null> { return this.serial(() => this.meta('vars_migrated')); }
-  varsMarkSet(sha256: string): Promise<void> { return this.tx(async () => { await this.ensureVars(); await this.setMeta('vars_migrated', sha256); }); }
+  /**
+   * 和主库的同步点（workbench-vars.ts 的 syncCard 用）：
+   *   mark  上一次两边确认一致时，主库那份行集合的摘要（从没同步过是 null）；
+   *   dirty bench 档在台库里写过、还没确认写回主库（varInsert / varUpdate / varDelete 在同一个事务里记上，varsSynced 清掉）
+   */
+  varsSyncGet(): Promise<{ mark: string | null; dirty: boolean }> {
+    return this.serial(async () => ({ mark: await this.meta('vars_migrated'), dirty: (await this.meta('vars_dirty')) !== null }));
+  }
+  /** 两边确认一致了：记下主库那份的摘要，清掉 dirty */
+  varsSynced(mark: string): Promise<void> {
+    return this.tx(async () => { await this.ensureVars(); await this.setMeta('vars_migrated', mark); await this.conn.run('DELETE FROM bs_meta WHERE k = ?', ['vars_dirty']); });
+  }
+  /** 以主库为准：整张表换成给的行（原样，revision 也照抄），记同步点、清 dirty，一个事务。返回写了几行 */
+  varsReplace(rows: BenchVarRow[], mark: string): Promise<number> {
+    return this.tx(async () => {
+      await this.ensureVars();
+      await this.conn.run('DELETE FROM bs_vars');
+      for (const r of rows) await this.conn.run('INSERT INTO bs_vars (key, kind, value, revision, updated_by, owner, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [r.key, r.kind, r.value, r.revision, r.updated_by, r.owner, r.created_at, r.updated_at]);
+      await this.setMeta('vars_migrated', mark);
+      await this.conn.run('DELETE FROM bs_meta WHERE k = ?', ['vars_dirty']);
+      return rows.length;
+    });
+  }
   /** 全部键的摘要：每个键的 kind、revision、owner、值的 sha256 按键排好再整体取 sha256（shadow 档比对、迁移的指纹用；不给值本身） */
   varsDigest(): Promise<{ count: number; sha256: string }> {
     return this.serial(async () => {

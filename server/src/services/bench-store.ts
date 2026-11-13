@@ -318,8 +318,9 @@ export class BenchStore {
   varDelete(...a: Parameters<Core['varDelete']>): ReturnType<Core['varDelete']> { return this.rpc('varDelete', a); }
   varForce(...a: Parameters<Core['varForce']>): ReturnType<Core['varForce']> { return this.rpc('varForce', a); }
   varsImport(...a: Parameters<Core['varsImport']>): ReturnType<Core['varsImport']> { return this.rpc('varsImport', a); }
-  varsMarkGet(): ReturnType<Core['varsMarkGet']> { return this.rpc('varsMarkGet', []); }
-  varsMarkSet(...a: Parameters<Core['varsMarkSet']>): ReturnType<Core['varsMarkSet']> { return this.rpc('varsMarkSet', a); }
+  varsSyncGet(): ReturnType<Core['varsSyncGet']> { return this.rpc('varsSyncGet', []); }
+  varsSynced(...a: Parameters<Core['varsSynced']>): ReturnType<Core['varsSynced']> { return this.rpc('varsSynced', a); }
+  varsReplace(...a: Parameters<Core['varsReplace']>): ReturnType<Core['varsReplace']> { return this.rpc('varsReplace', a); }
 }
 
 // —— 打开、关闭、删除 ——

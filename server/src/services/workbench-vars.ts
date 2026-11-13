@@ -48,6 +48,16 @@ export class WorkbenchVarsService extends Service {
     return db.prepare('INSERT INTO workbench_vars (workbench_id, key, kind, value, revision, updated_by, owner, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(workbenchId, key, row.kind, row.value, row.revision, row.updated_by, row.owner, row.created_at, row.updated_at);
   }
+  /** 以台库为准：这张卡片的行整份换成给的（原样，revision 也照抄），一个事务（bench 档补写回主库、人工处置分叉时用） */
+  replaceCard(workbenchId: number, rows: Omit<WorkbenchVarRow, 'workbench_id'>[]) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.prepare('DELETE FROM workbench_vars WHERE workbench_id = ?').run(workbenchId);
+      const ins = db.prepare('INSERT INTO workbench_vars (workbench_id, key, kind, value, revision, updated_by, owner, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+      for (const r of rows) ins.run(workbenchId, r.key, r.kind, r.value, r.revision, r.updated_by, r.owner, r.created_at, r.updated_at);
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+  }
   /** 有常量、变量的卡片（迁移、比对用） */
   workbenchIds(): number[] {
     return (db.prepare('SELECT DISTINCT workbench_id FROM workbench_vars ORDER BY workbench_id').all() as { workbench_id: number }[]).map((r) => r.workbench_id);
