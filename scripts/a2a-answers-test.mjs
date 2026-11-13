@@ -411,6 +411,62 @@ try {
     ok('别的团队「说不干了」（rejected，只记录）→ 承接仍是接手的团队', r.status === 200 && state(M2.ev)?.state === 'accepted' && seatOf(M2.ev) === 'lab/aaaaaaaa', `${seatOf(M2.ev)} ${JSON.stringify(state(M2.ev))}`);
   }
 
+  console.log('二之三之四、拆单（dsh-open-a2a-net#618）：承接与子项');
+  {
+    const seatOf = (ev) => q('SELECT seat FROM work_items WHERE id = ?', `wi_${ev}`)[0]?.seat;
+    const SP = seedEvent();
+    await receipt(SP.task, '接下', { idempotencyKey: SP.task, disposition: 'acknowledged', by: { seat: 'lab/00000000', name: '总工', role: 'router' } }, SP.ctx, { inbound: `ack-${SP.task}` });
+    await receipt(SP.task, '一张子工单在做', { idempotencyKey: SP.task, disposition: 'progress', progress: { n: 1, state: 'working', at: '2026-11-11T08:00:00.000Z' },
+      tickets: [{ id: 's1', title: '子项一', seat: 'lab/a1a1a1a1', state: 'working' }, { id: 's2', title: '子项二', state: 'queued' }] }, SP.ctx, { inbound: `progress-${SP.task}-1` });
+    ok('拆单：只有一张子工单在做 → 承接取它', seatOf(SP.ev) === 'lab/a1a1a1a1', seatOf(SP.ev));
+    await receipt(SP.task, '两张都在做', { idempotencyKey: SP.task, disposition: 'progress', progress: { n: 2, state: 'working', at: '2026-11-11T08:01:00.000Z' },
+      tickets: [{ id: 's1', title: '子项一', seat: 'lab/a1a1a1a1', state: 'working' }, { id: 's2', title: '子项二', seat: 'lab/b2b2b2b2', state: 'working' }] }, SP.ctx, { inbound: `progress-${SP.task}-2` });
+    ok('拆单：两张子工单由不同成员在做 → 主事项承接清空（不显示单个成员）', seatOf(SP.ev) === '', JSON.stringify(seatOf(SP.ev)));
+    // 结果回执带各子项的结局（最后一步进展里子项二还是 working，实际是放弃）
+    r = await receipt(SP.task, '部分完成（有子项未完成）：子项一完成，子项二放弃', { outcome: 'failed', idempotencyKey: SP.task, disposition: 'result', by: { seat: 'lab/00000000', name: '总工', role: 'router' },
+      tickets: [{ id: 's1', title: '子项一', seat: 'lab/a1a1a1a1', state: 'ended', outcome: 'completed' }, { id: 's2', title: '子项二', seat: 'lab/b2b2b2b2', state: 'ended', outcome: 'abandoned' }, { id: '', state: 'ended' }] }, SP.ctx);
+    const it = (await api('GET', `/api/work-items/wi_${SP.ev}`)).body ?? {};
+    ok('拆单整件 failed（总工汇总、正文部分完成）→ 事项没办成；总工不回填成承接', r.status === 200 && it.item?.state === 'failed' && it.item?.seat === '', JSON.stringify({ st: it.item?.state, seat: it.item?.seat }));
+    ok('……终态后 progress 为空，subitems 以结果回执里的子项为准（各子项结局，坏的丢掉）', it.progress === null && JSON.stringify((it.subitems ?? []).map((x) => [x.id, x.title, x.seat, x.state, x.outcome])) === JSON.stringify([['s1', '子项一', 'lab/a1a1a1a1', 'ended', 'completed'], ['s2', '子项二', 'lab/b2b2b2b2', 'ended', 'abandoned']]), JSON.stringify(it.subitems));
+    // 进展里带过子项（排队中），之后同一任务的结果回执没带子项、事项回到等验收：进展和子项都不再给旧状态（试联第九件）
+    {
+      const Z = seedEvent();
+      await receipt(Z.task, '接下', { idempotencyKey: Z.task, disposition: 'acknowledged' }, Z.ctx, { inbound: `ack-${Z.task}` });
+      await receipt(Z.task, '排队', { idempotencyKey: Z.task, disposition: 'progress', progress: { n: 1, state: 'queued', at: '2026-11-11T08:00:00.000Z', ahead: 1 },
+        tickets: [{ id: 'z1', title: '重做那一件', seat: 'lab/a9a9a9a9', state: 'queued' }] }, Z.ctx, { inbound: `progress-${Z.task}-1` });
+      const mid = (await api('GET', `/api/work-items/wi_${Z.ev}`)).body ?? {};
+      ok('（对照）任务还没结束：进展和子项照常给', mid.progress?.state === 'queued' && (mid.subitems ?? []).length === 1, JSON.stringify({ p: mid.progress, s: mid.subitems }));
+      r = await receipt(Z.task, '做完了', { outcome: 'completed', idempotencyKey: Z.task, disposition: 'result' }, Z.ctx);
+      const zi = (await api('GET', `/api/work-items/wi_${Z.ev}`)).body ?? {};
+      ok('同一任务的结果回执没带子项、事项回到等验收 → 进展为空，子项不再列出「排队中」的旧状态', state(Z.ev)?.state === 'ready' && zi.progress === null && (zi.subitems ?? []).length === 0, JSON.stringify({ s: state(Z.ev), p: zi.progress, sub: zi.subitems }));
+    }
+    // 对照 P5：进展之后同一任务来的是提问回执（不是结果）：任务还在做，进展和子项照常给
+    {
+      const Y = seedEvent();
+      await receipt(Y.task, '接下', { idempotencyKey: Y.task, disposition: 'acknowledged' }, Y.ctx, { inbound: `ack-${Y.task}` });
+      await receipt(Y.task, '在做', { idempotencyKey: Y.task, disposition: 'progress', progress: { n: 1, state: 'working', at: '2026-11-11T08:00:00.000Z' },
+        tickets: [{ id: 'y1', title: '拆出的一件', seat: 'lab/a1b2c3d4', state: 'working' }] }, Y.ctx, { inbound: `progress-${Y.task}-1` });
+      r = await receipt(Y.task, '问一句', { idempotencyKey: Y.task, disposition: 'attention', question: { id: 'yq', text: '要哪种？' } }, Y.ctx, { inbound: `attention-${Y.task}-yq` });
+      const yi = (await api('GET', `/api/work-items/wi_${Y.ev}`)).body ?? {};
+      ok('对照：进展之后同一任务来的是提问回执（不是结果）→ 进展和子项照常给', r.status === 200 && yi.progress?.state === 'working' && (yi.subitems ?? []).length === 1, JSON.stringify({ p: yi.progress, sub: yi.subitems }));
+    }
+    // 对照 P6：同一事件派过两个任务（原派工 + 人的答复），新任务在做；旧任务的结果回执晚到 → 新任务的进展和子项照常给
+    {
+      const X2 = seedEvent();
+      await receipt(X2.task, '接下', { idempotencyKey: X2.task, disposition: 'acknowledged' }, X2.ctx, { inbound: `ack-${X2.task}` });
+      await receipt(X2.task, '问', { idempotencyKey: X2.task, disposition: 'attention', question: { id: 'x2q', text: '用哪个？' } }, X2.ctx, { inbound: `attention-${X2.task}-x2q` });
+      lab.got.length = 0;
+      await answer(X2.delivery, '用第一个');
+      await waitFor(() => lab.got.some((g) => String(g.body.task_id ?? '').startsWith(`${X2.ev}.d${X2.delivery}.q`)));
+      const A1 = lab.got.find((g) => String(g.body.task_id ?? '').startsWith(`${X2.ev}.d${X2.delivery}.q`))?.body?.task_id ?? '';
+      await receipt(A1, '在做', { idempotencyKey: A1, disposition: 'progress', progress: { n: 1, state: 'working', at: '2026-11-11T08:00:00.000Z' },
+        tickets: [{ id: 'a1', title: '按答复做的一件', seat: 'lab/a1b2c3d4', state: 'working' }] }, X2.ctx, { inbound: `progress-${A1}-1` });
+      r = await receipt(X2.task, '旧任务的结果', { outcome: 'completed', idempotencyKey: X2.task, disposition: 'result' }, X2.ctx);
+      const xi = (await api('GET', `/api/work-items/wi_${X2.ev}`)).body ?? {};
+      ok('对照：同一事件另一个（旧）任务的结果回执晚到 → 新任务的进展和子项照常给', A1 !== '' && r.status === 200 && xi.progress?.state === 'working' && (xi.subitems ?? []).length === 1, JSON.stringify({ A1, p: xi.progress, sub: xi.subitems, s: state(X2.ev) }));
+    }
+  }
+
   console.log('二之三之三、回执的产物并进事项的 outputs');
   {
     const outs = (ev) => { const v = JSON.parse(q('SELECT outputs FROM work_items WHERE id = ?', `wi_${ev}`)[0]?.outputs ?? '[]'); return Array.isArray(v) ? v : []; };

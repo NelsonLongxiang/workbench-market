@@ -293,8 +293,9 @@ try {
     '登记台甲已经对应了别的视图台：409；台号写成文字、0、不存在、没给、多给键：拒；没登记的视图台：404；运营台的对应没变', badLink);
   r = await srv.call('POST', '/api/bench-views', { ...boss, body: { slug: 'wb-born', title: '登记时就对应', workbench_id: wbB } });
   check(r.status === 201 && r.json?.bench?.workbench_id === wbB && (await benchOf(boss, 'wb-born'))?.workbench_id === wbB, '管理层登记新台时带台号：直接对应上', r.text.slice(0, 160));
-  await srv.call('DELETE', `/api/workbenches/${wbB}`, token);
-  check((await benchOf(boss, 'wb-born'))?.workbench_id === null, '登记台乙删掉之后：这个视图台按没有对应（null）');
+  r = await srv.call('DELETE', `/api/workbenches/${wbB}`, token);
+  // 第 3 步起删卡片连带删它的台（台库是空的：不用确认、不留备份）。原来是「台留着、对应读作 null」
+  check(r.status === 200 && !(await benchOf(boss, 'wb-born')), '登记台乙删掉之后：对应的视图台一起删了（台库是空的，不用确认）', r.text.slice(0, 160));
   r = await srv.call('PUT', '/api/bench-views/sales-b/workbench', { ...boss, body: { workbench_id: null } });
   const againLink = await srv.call('PUT', '/api/bench-views/sales-b/workbench', { ...boss, body: { workbench_id: null } });
   const trailLink = db.prepare("SELECT before, after, actor FROM bench_bind_audit WHERE slug = 'sales-b' AND action = 'workbench' ORDER BY id").all();

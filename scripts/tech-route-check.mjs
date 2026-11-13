@@ -82,6 +82,24 @@ const RE = {
   create: /CREATE (?:VIRTUAL )?TABLE(?: IF NOT EXISTS)?\s+[A-Za-z0-9_]+/g,
   alter: /ALTER TABLE\s+[A-Za-z0-9_]+/g,
   env: /\bprocess\.env\.[A-Z0-9_]+/g,
+  // —— 数据库方言（docs/productization/13-database-plan.md 第 0 步）。只数 server/src；规则说明见 SQL_DIALECT_NOTE ——
+  // 在 SQL 里取当前时间：日期函数读 'now'（或 'subsec'、或不带参数），以及 CURRENT_TIMESTAMP / CURRENT_DATE / CURRENT_TIME
+  sqlClock: /\b(?:datetime|date|time|julianday|unixepoch|strftime)\s*\(\s*(?:'[^'\n]*'\s*,\s*)?['"](?:now|subsec)['"]|\b(?:datetime|julianday|unixepoch)\s*\(\s*\)|\bCURRENT_(?:TIMESTAMP|DATE|TIME)\b/gi,
+  // SQLite 特有、PostgreSQL 不认的写法（每一种为什么算，见 SQL_DIALECT_NOTE）
+  sqlDialect: new RegExp([
+    String.raw`\bINSERT\s+OR\s+(?:REPLACE|IGNORE|ABORT|FAIL|ROLLBACK)\b`, String.raw`\bREPLACE\s+INTO\b`,
+    String.raw`\bPRAGMA\s+\w`,
+    String.raw`\blastInsertRowid\b`, String.raw`\blast_insert_rowid\s*\(`,
+    String.raw`\b_?rowid_?\b`,
+    String.raw`\bsqlite_(?:master|schema|sequence|temp_master)\b`,
+    String.raw`\bjson_(?:extract|each|tree|set|insert|replace|remove|object|array|group_array|group_object|valid|type|patch|quote)\s*\(`,
+    // 日期函数：不读当前时间的那些（读当前时间的已经在 sqlClock 里数过，这里不重复数）
+    String.raw`\b(?:datetime|julianday|unixepoch|strftime)\s*\((?!\s*(?:'[^'\n]*'\s*,\s*)?['"](?:now|subsec)['"])(?!\s*\))`,
+    String.raw`\bifnull\s*\(`, String.raw`\bgroup_concat\s*\(`, String.raw`\binstr\s*\(`,
+    String.raw`\sGLOB\s`, String.raw`\bCOLLATE\s+NOCASE\b`,
+  ].join('|'), 'gi'),
+  // 直接打开库文件：node:sqlite 的 DatabaseSync、better-sqlite3、Python 的 sqlite3.connect、sqlite3 命令行，或者引入服务端的库模块 db.ts
+  openDb: /\bnew\s+DatabaseSync\s*\(|['"]better-sqlite3['"]|\bsqlite3\.connect\s*\(|(?:^|[\s;|&(])sqlite3\s+(?!-version)\S|\bimport\s*\([^)\n]*?['"`][^'"`\n]*\bdb\.ts['"`]|\bfrom\s+['"][^'"\n]*\/db\.ts['"]/m,
   fetch: /\bfetch\(/g,
   express: /from\s+['"]express['"]/,
   a2a: /from\s+['"]@nelsonlongxiang\/dsh-open-a2a-net[^'"]*['"]/,
@@ -384,6 +402,64 @@ const RULES = [
       { label: '别的函数名里的、成员调用不算，globalThis 上的算', expect: 1, files: { 'server/src/foo.ts': 'mySetInterval(f, 1);\nctx.timer.setInterval(f, 1);\nglobalThis.setInterval(f, 1);\n' } },
       { label: '正则字面量里的引号不打乱扫描', expect: 1, files: { 'server/src/foo.ts': "const q = /['\"`]/g;\nsetInterval(f, 1000);\n" } },
     ],
+  },
+  {
+    id: 'sql-clock', what: '在 SQL 里取当前时间的处数（datetime(\'now\')、CURRENT_TIMESTAMP 等）', target: 0, proposed: 'budget',
+    // 时间一律由代码生成、作为参数传进 SQL：两种库都认，也不会只精确到秒（同一秒内的先后分不清，咬过我们两次）
+    measure: (repo) => { const files = repo.perFile(repo.server(), RE.sqlClock); return { total: sum(files), files, note: `${Object.keys(files).length} 个文件` }; },
+    sample: {
+      clean: { 'server/src/services/a.ts': "db.prepare('UPDATE t SET at = ? WHERE id = ?').run(new Date().toISOString(), id);\nconst d = date(x); time(y);\n" },
+      dirty: { 'server/src/services/a.ts': "db.exec(`CREATE TABLE t (at TEXT DEFAULT (datetime('now')))`);\ndb.prepare(\"SELECT strftime('%s','now'), unixepoch('subsec'), julianday() , CURRENT_TIMESTAMP\");\n" }, expect: 5,
+    },
+    cases: [
+      { label: "带修饰的 datetime('now', '-1 day') 算一处", files: { 'server/src/a.ts': "db.prepare(\"SELECT 1 WHERE at > datetime('now', '-1 day')\");\n" }, expect: 1 },
+      { label: '按列算日期（不读当前时间）不算', files: { 'server/src/a.ts': "db.prepare(\"SELECT julianday(sent_at) - julianday(created_at) FROM t\");\n" }, expect: 0 },
+      { label: 'scripts/ 里的不算（只数运行时代码）', files: { 'scripts/a.mjs': "db.exec(\"SELECT datetime('now')\");\n" }, expect: 0 },
+    ],
+  },
+  {
+    id: 'sql-dialect', what: 'SQLite 特有、PostgreSQL 不认的 SQL 写法', target: 0, proposed: 'budget',
+    measure: (repo) => { const files = repo.perFile(repo.server(), RE.sqlDialect); return { total: sum(files), files, note: `${Object.keys(files).length} 个文件；算哪些、不算哪些见 tech-route.json 里这一项的 note` }; },
+    sample: {
+      clean: { 'server/src/services/a.ts': [
+        "db.prepare('INSERT INTO t (k, v) VALUES (?, ?) ON CONFLICT (k) DO UPDATE SET v = excluded.v').run(k, v);",
+        "db.prepare('INSERT INTO t (k) VALUES (?) ON CONFLICT (k) DO NOTHING RETURNING id').get(k);",
+        "db.prepare('SELECT COALESCE(a, b), substr(c, 1, 2), a || b FROM t ORDER BY id LIMIT ? OFFSET ?');",
+        "db.exec('CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT)'); db.exec('BEGIN IMMEDIATE'); db.exec('SAVEPOINT s'); db.exec('RELEASE s');",
+        "res.json({ ok: true }); const r = JSON.parse(x); const rows = info.changes;", '',
+      ].join('\n') },
+      dirty: { 'server/src/services/a.ts': [
+        "db.prepare('INSERT OR REPLACE INTO t (k) VALUES (?)'); db.prepare('INSERT OR IGNORE INTO t (k) VALUES (?)'); db.prepare('REPLACE INTO t (k) VALUES (?)');",
+        "db.prepare('PRAGMA table_info(t)'); const id = Number(r.lastInsertRowid); db.prepare('SELECT last_insert_rowid()');",
+        "db.prepare('SELECT * FROM t ORDER BY rowid'); db.prepare(\"SELECT name FROM sqlite_master WHERE type = 'table'\");",
+        "db.prepare(\"SELECT json_extract(d, '$.a') FROM t, json_each(t.l)\"); db.prepare('SELECT julianday(a) - julianday(b), strftime(\\'%Y\\', at) FROM t');",
+        "db.prepare('SELECT ifnull(a, 0), group_concat(b), instr(c, d) FROM t WHERE e GLOB ? ORDER BY f COLLATE NOCASE');", '',
+      ].join('\n') }, expect: 18,
+    },
+    cases: [
+      { label: "读当前时间的 datetime('now') 只在 sql-clock 里数，这里不重复", files: { 'server/src/a.ts': "db.prepare(\"SELECT datetime('now'), unixepoch()\");\n" }, expect: 0 },
+      { label: '小写的 insert or ignore 也算', files: { 'server/src/a.ts': "db.prepare('insert or ignore into t (k) values (?)');\n" }, expect: 1 },
+    ],
+  },
+  {
+    id: 'scripts-open-db', what: 'scripts/ 下直接打开库文件的脚本数', target: 0, proposed: 'budget',
+    measure: (repo) => {
+      // 一个脚本记一处（数的是「有多少个脚本」）；体检脚本自己的样本字符串里有这些写法，不算它
+      const files = keep(Object.fromEntries(repo.walk('scripts').filter((f) => f !== 'scripts/tech-route-check.mjs' && /\.(?:mjs|cjs|js|ts|py|sh)$/.test(f))
+        .map((f) => [f, RE.openDb.test(repo.read(f)) ? 1 : 0])));
+      return { total: sum(files), files };
+    },
+    sample: {
+      clean: { 'scripts/a-test.mjs': "const r = await fetch(base + '/api/x');\nconst DB = 'server/src/db.ts'; // 只是提到文件名\n" },
+      dirty: {
+        'scripts/a-test.mjs': "import { DatabaseSync } from 'node:sqlite';\nconst db = new DatabaseSync(file);\nconst db2 = new DatabaseSync(other);\n",
+        'scripts/b-test.mjs': "const { db } = await import(pathToFileURL(resolve('server/src/db.ts')).href);\n",
+        'scripts/c.mjs': "import { db } from '../server/src/db.ts';\n",
+        // 只放 sqlite3.connect(...)：带上 import sqlite3 的话，命令行那一支也会数到，去掉 Python 这一支自检照样过
+        'scripts/d.py': "con = sqlite3.connect(path)\n",
+        'scripts/e.sh': "sqlite3 \"$DB\" 'SELECT 1'\n",
+      }, expect: 5,
+    },
   },
   {
     id: 'identity-in-core', what: '核心里直接引用身份具体实现的文件', target: 0, proposed: 'budget',

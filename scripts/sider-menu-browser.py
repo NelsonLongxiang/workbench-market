@@ -47,7 +47,7 @@ with sync_playwright() as p:
     b = p.chromium.launch(); pg = b.new_page(viewport={'width': 1440, 'height': 900})
     slow(pg)
     # 旧路由、新路由直接打开都还在（不被重定向到 /），外壳都在
-    for path in ['/', '/work-items', '/cockpit', '/team', '/access', '/market', '/knowledge', '/attention', '/tasks', '/sops', '/skills', '/reviews', '/mcp-gateways', '/types', '/settings']:
+    for path in ['/', '/work-items', '/cockpit', '/team', '/access', '/market', '/knowledge', '/attention', '/sops', '/skills', '/mcp-gateways', '/types', '/settings']:
         pg.goto(M + path); pg.wait_for_selector(SIDE)
         check(f'业务面 {path} 直接打开可用（未被重定向到 /）', pg.evaluate('location.pathname') == path, pg.evaluate('location.pathname'))
     pg.goto(M + '/'); pg.wait_for_selector(SIDE)
