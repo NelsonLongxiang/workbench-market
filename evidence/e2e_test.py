@@ -551,22 +551,9 @@ with sync_playwright() as p:
             _me.click(); page.locator('[data-testid=wm-me][aria-expanded=false]').wait_for()  # 收起，免得挡后面的步骤
             record('管理身份（未开控制面：业务面带口令写 201 / 不带口令 403 / 用户卡口令入口）', True)
         else:
-            st, j = market_write()
-            assert st == 403 and j.get('control_surface_required') is True, f'业务面浏览器带对口令管理写也应 403: {st} {j}'
-            assert (j.get('control_url') or '') == CTRL, f'403 应带控制面地址 {CTRL!r}: {j.get("control_url")!r}'
-            st, _ = market_write('/api/settings', 'PUT', {'health_interval_seconds': '31'})
-            assert st == 403, f'业务面浏览器改设置应 403: {st}'
-            if CTRL:
-                link = page.get_by_role('link', name='管理控制面')
-                assert (link.get_attribute('href') or '').startswith(CTRL + '/market'), '页头应给控制面同 path 链接'
-                page.goto(CTRL + '/market'); page.wait_for_load_state('networkidle')
-                st, j = market_write()
-                assert st == 201, f'控制面页面带口令写应 201: {st} {j}'
-                api(page, 'DELETE', f"/api/workbenches/{j['id']}")
-                record('M1 双面（业务面管理写 403 + 控制面地址 / 控制面带口令写 201）', True)
-            else:
-                assert '控制面已关闭' in page.inner_text('body'), '页头应提示控制面已关闭'
-                record('M1 双面（控制面关闭：业务面管理写 403·无控制面地址·页头提示）', True)
+            # 业务面给出了非空的控制面地址：11-02 属主撤销「管理写必须走控制面」以后不该再有（服务端已经没有 control_surface_required，
+            # 没设 WM_CONTROL_PORT 时也不开控制面）。原来这里验的是「业务面管理写 403 + 控制面地址」，是死代码，删了；真走到这里就报出来，不悄悄跳过
+            record('M1 双面', False, f'业务面给出了控制面地址 {CTRL!r}：11-02 起只有未开控制面这一种（凭口令在业务面管理），这一支的断言已删')
     except Exception as e:
         record('M1 双面', False, str(e)); shot('m1-surfaces')
 
@@ -625,17 +612,13 @@ with sync_playwright() as p:
             page.goto(BASE + f'/cockpit/{cid}')
             page.wait_for_load_state('networkidle')
             page.wait_for_timeout(600)
-            st, j = market_write(f'/api/cockpits/{cid}', 'PUT', {'panels': []}, token='' if TOKEN_MODE else None)
-            if TOKEN_MODE:
-                # #673 起驾驶舱的写不经写请求总门，路由自己认人：业务面页面不带口令、没登录 → 401 cockpit_auth_required（和启动自检 market.cockpits.anonymous-write 同一个口径）
-                assert st == 401 and j.get('error') == 'cockpit_auth_required', f'业务面页面不带口令改布局应 401 cockpit_auth_required: {st} {j}'
-            else:
-                assert st == 403 and j.get('control_surface_required') is True, f'业务面页面改布局应 403: {st} {j}'
+            st, j = market_write(f'/api/cockpits/{cid}', 'PUT', {'panels': []}, token='')
+            # #673 起驾驶舱的写不经写请求总门，路由自己认人：业务面页面不带口令、没登录 → 401 cockpit_auth_required（和启动自检 market.cockpits.anonymous-write 同一个口径）
+            assert st == 401 and j.get('error') == 'cockpit_auth_required', f'业务面页面不带口令改布局应 401 cockpit_auth_required: {st} {j}'
             assert len(api(page, 'GET', f'/api/cockpits/{cid}').json()['panels']) == 1, '被拒的布局写不应生效'
-            if TOKEN_MODE:
-                # 对照：同一个业务面页面带上口令就改得了（口令持有人照旧能改驾驶舱）
-                st2, j2 = market_write(f'/api/cockpits/{cid}', 'PUT', {'panels': []})
-                assert st2 == 200, f'业务面页面带口令改布局应 200: {st2} {j2}'
+            # 对照：同一个业务面页面带上口令就改得了（口令持有人照旧能改驾驶舱）
+            st2, j2 = market_write(f'/api/cockpits/{cid}', 'PUT', {'panels': []})
+            assert st2 == 200, f'业务面页面带口令改布局应 200: {st2} {j2}'
             assert api(page, 'PUT', f'/api/cockpits/{cid}', {'panels': []}).status == 200, 'CLI 改布局应 200'
         else:
             page.locator('.wm-panel-actions [aria-label="移除此面板"], .wm-panel-actions .anticon-close').first.click()
@@ -651,17 +634,14 @@ with sync_playwright() as p:
         assert page.get_by_text('E2E 驾驶舱', exact=True).first.is_visible(), '列表中未见 E2E 驾驶舱'
         if CTRL is not None:
             assert page.get_by_role('button', name='删除').count() == 0, '业务面驾驶舱列表不应有删除入口'
-            st, j = market_write(f'/api/cockpits/{cid}', 'DELETE', {}, token='' if TOKEN_MODE else None)
-            if TOKEN_MODE:
-                # #673 起驾驶舱的删也不经写请求总门，路由自己认人：业务面页面不带口令、没登录 → 401 cockpit_auth_required（和改布局同一个口径）
-                assert st == 401 and j.get('error') == 'cockpit_auth_required', f'业务面页面不带口令删驾驶舱应 401 cockpit_auth_required: {st} {j}'
-                assert any(c['id'] == cid for c in api(page, 'GET', '/api/cockpits').json()), '被拒的删除不应生效'
-                # 对照：同一个业务面页面带上口令删得了（删一个专门建的驾驶舱，不动上面这个）
-                tmp = api(page, 'POST', '/api/cockpits', {'name': 'E2E 删除对照', 'panels': []}).json()
-                st3, j3 = market_write(f"/api/cockpits/{tmp['id']}", 'DELETE', {})
-                assert st3 == 200 and not any(c['id'] == tmp['id'] for c in api(page, 'GET', '/api/cockpits').json()), f'业务面页面带口令删驾驶舱应 200 且删掉: {st3} {j3}'
-            else:
-                assert st == 403, f'业务面页面删驾驶舱应 403: {st}'
+            st, j = market_write(f'/api/cockpits/{cid}', 'DELETE', {}, token='')
+            # #673 起驾驶舱的删也不经写请求总门，路由自己认人：业务面页面不带口令、没登录 → 401 cockpit_auth_required（和改布局同一个口径）
+            assert st == 401 and j.get('error') == 'cockpit_auth_required', f'业务面页面不带口令删驾驶舱应 401 cockpit_auth_required: {st} {j}'
+            assert any(c['id'] == cid for c in api(page, 'GET', '/api/cockpits').json()), '被拒的删除不应生效'
+            # 对照：同一个业务面页面带上口令删得了（删一个专门建的驾驶舱，不动上面这个）
+            tmp = api(page, 'POST', '/api/cockpits', {'name': 'E2E 删除对照', 'panels': []}).json()
+            st3, j3 = market_write(f"/api/cockpits/{tmp['id']}", 'DELETE', {})
+            assert st3 == 200 and not any(c['id'] == tmp['id'] for c in api(page, 'GET', '/api/cockpits').json()), f'业务面页面带口令删驾驶舱应 200 且删掉: {st3} {j3}'
         assert api(page, 'DELETE', f'/api/cockpits/{cid}').status == 200
         api(page, 'DELETE', f'/api/workbenches/{pw}')
         leftover = api(page, 'GET', '/api/cockpits').json()
