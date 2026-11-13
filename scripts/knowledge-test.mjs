@@ -249,8 +249,10 @@ try {
     const bAfter = await list(who.beta);
     const log = clear.json?.log ?? [];
     check(clear.status === 200 && clear.json?.changed === true && !titles(bAfter).includes(claimTitle) && log.length === 3
-      && show(log.map((l) => [l.old_department, l.new_department])) === show([['syn-gone', null], ['sales', 'syn-gone'], [null, 'sales']]) && !show(log).includes('user:'),
-      '清掉：依据回到只给管理层；改动记录三行、新的在前（谁改的不露内部标识），被拒的、写坏了的、没变的都没记', show({ clear: clear.status, beta: titles(bAfter), log }));
+      && show(log.map((l) => [l.old_department, l.new_department])) === show([['syn-gone', null], ['sales', 'syn-gone'], [null, 'sales']]) && !show(log).includes('user:')
+      && show(log.map((l) => [l.old_department_name, l.new_department_name])) === show([[null, null], ['合成销售部', null], [null, '合成销售部']]) && log.every((l) => l.by_name === 'Synthetic no-flag')
+      && show((clear.json?.departments ?? []).map((d) => d.id)) === show(['ops', 'sales']) && clear.json.departments.find((d) => d.id === 'sales')?.name === '合成销售部',
+      '清掉：依据回到只给管理层；改动记录三行、新的在前，带部门名和改的人的名字（部门删了给 null，不露主体标识），被拒的、写坏了的、没变的都没记；能选的部门列全', show({ clear: clear.status, beta: titles(bAfter), log }));
   }
 
   // ---------- 五、来源坏了 ----------

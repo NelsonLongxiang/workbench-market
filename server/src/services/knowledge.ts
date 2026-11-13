@@ -212,15 +212,24 @@ export class KnowledgeService extends Service {
    * 对照表给管理层看：已经设了的（部门不在了的标 department_missing），加上条目里出现过、还没设的项目，再加最近 50 条改动。
    * 项目名只在这里给（看的人是能改对照的人），条目的列表、详情里不给。
    */
-  projectDepts(): { projects: { project: string; department: { id: string; name: string } | null; department_missing: boolean; items: number; updated_at: number | null }[]; log: { project: string; old_department: string | null; new_department: string | null; at: number }[] } {
+  projectDepts(): {
+    projects: { project: string; department: { id: string; name: string } | null; department_missing: boolean; items: number; updated_at: number | null }[];
+    log: { project: string; old_department: string | null; old_department_name: string | null; new_department: string | null; new_department_name: string | null; by_name: string | null; at: number }[];
+    departments: { id: string; name: string }[];
+  } {
     const set = db.prepare(`SELECT p.project, p.department_id, p.updated_at, d.name AS dept_name FROM knowledge_project_depts p LEFT JOIN departments d ON d.id = p.department_id`).all() as { project: string; department_id: string; updated_at: number; dept_name: string | null }[];
     const counts = new Map((db.prepare(`SELECT project, COUNT(*) AS n FROM knowledge_items WHERE project != '' GROUP BY project`).all() as { project: string; n: number }[]).map((r) => [r.project, Number(r.n)]));
     const out = new Map<string, { project: string; department: { id: string; name: string } | null; department_missing: boolean; items: number; updated_at: number | null }>();
     for (const r of set) out.set(r.project, { project: r.project, department: r.dept_name === null ? null : { id: r.department_id, name: r.dept_name }, department_missing: r.dept_name === null, items: counts.get(r.project) ?? 0, updated_at: Number(r.updated_at) });
     for (const [project, n] of counts) if (!out.has(project)) out.set(project, { project, department: null, department_missing: false, items: n, updated_at: null });
-    const log = (db.prepare('SELECT project, old_department, new_department, at FROM knowledge_project_dept_log ORDER BY id DESC LIMIT 50').all() as { project: string; old_department: string | null; new_department: string | null; at: number }[])
-      .map((r) => ({ ...r, at: Number(r.at) }));
-    return { projects: [...out.values()].sort((a, b) => (a.project < b.project ? -1 : a.project > b.project ? 1 : 0)), log };
+    // 改动记录给名字（部门名、改的人的显示名；查不到给 null），不给主体标识
+    const log = (db.prepare(`SELECT l.project, l.old_department, od.name AS old_department_name, l.new_department, nd.name AS new_department_name, p.display_name AS by_name, l.at
+      FROM knowledge_project_dept_log l LEFT JOIN departments od ON od.id = l.old_department LEFT JOIN departments nd ON nd.id = l.new_department LEFT JOIN principals p ON p.id = l.actor
+      ORDER BY l.id DESC LIMIT 50`).all() as { project: string; old_department: string | null; old_department_name: string | null; new_department: string | null; new_department_name: string | null; by_name: string | null; at: number }[])
+      .map((r) => ({ ...r, old_department_name: r.old_department_name || null, new_department_name: r.new_department_name || null, by_name: r.by_name || null, at: Number(r.at) }));
+    // 能选的部门：全部现有部门（对照只要求部门在）
+    const departments = db.prepare('SELECT id, name FROM departments ORDER BY id').all() as { id: string; name: string }[];
+    return { projects: [...out.values()].sort((a, b) => (a.project < b.project ? -1 : a.project > b.project ? 1 : 0)), log, departments };
   }
 
   /** 设或清一个项目对到的部门（department 为 null 是清掉）。部门要在；每次改都记一行（谁、从哪个到哪个） */

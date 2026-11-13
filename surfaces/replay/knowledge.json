@@ -286,11 +286,12 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "272", "etag": "W/\"110-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "425", "etag": "W/\"1a9-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "changed": true,
               "projects": [{ "project": "replay-proj", "department": { "id": "sales", "name": "合成销售部" }, "department_missing": false, "items": 0, "updated_at": 1893456000000 }],
-              "log": [{ "project": "replay-proj", "old_department": null, "new_department": "sales", "at": 1893456000000 }]
+              "log": [{ "project": "replay-proj", "old_department": null, "old_department_name": null, "new_department": "sales", "new_department_name": "合成销售部", "by_name": "Synthetic no-flag", "at": 1893456000000 }],
+              "departments": [{ "id": "sales", "name": "合成销售部" }]
             }
           }
         },
@@ -304,10 +305,11 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "257", "etag": "W/\"101-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "410", "etag": "W/\"19a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "projects": [{ "project": "replay-proj", "department": { "id": "sales", "name": "合成销售部" }, "department_missing": false, "items": 0, "updated_at": 1893456000000 }],
-              "log": [{ "project": "replay-proj", "old_department": null, "new_department": "sales", "at": 1893456000000 }]
+              "log": [{ "project": "replay-proj", "old_department": null, "old_department_name": null, "new_department": "sales", "new_department_name": "合成销售部", "by_name": "Synthetic no-flag", "at": 1893456000000 }],
+              "departments": [{ "id": "sales", "name": "合成销售部" }]
             }
           }
         },
