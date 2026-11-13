@@ -9,6 +9,7 @@
  *   五、X-Team-Seat 不认作身份：只带它没有令牌 401；带着别的席位名调用，审计里的席位仍是令牌认出来的，自报的只进 claimed_seat。
  *   六、限频：同一席位一小时最多发 12 张；同一来源十分钟最多 60 次。
  *   七、管理员建会话不能用 seat- 开头的名字。
+ *   八、每次换令牌单独记一行（成不成都记）：节点、席位、时间、结果、拒的原因；换到的令牌引用对得上调用审计；记录只给管理员看。
  * 测试数据都是编的：节点、团队、席位都是合成值。
  */
 import { spawn } from './owned-script-fixture.mjs';
@@ -64,7 +65,9 @@ function req(h, seatId, over = {}) {
   const sig = edSign(undefined, Buffer.from(text, 'utf8'), over.key ?? h.key).toString('base64');
   return { ...b, sig, ...(over.after ?? {}) };
 }
-const exchange = async (body, headers = {}) => { const r = await fetch(BASE + '/api/a2a/seat-token', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: typeof body === 'string' ? body : JSON.stringify(body) }); let j = null; try { j = await r.json(); } catch {} return { status: r.status, body: j, text: JSON.stringify(j) }; };
+// 计数换令牌的请求：不是 JSON 的正文在全局解析那一步就 400 了，到不了路由，不计也不记（它也没有节点、席位可记）
+let exchanges = 0;
+const exchange = async (body, headers = {}) => { if (typeof body !== 'string') exchanges++; const r = await fetch(BASE + '/api/a2a/seat-token', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: typeof body === 'string' ? body : JSON.stringify(body) }); let j = null; try { j = await r.json(); } catch {} return { status: r.status, body: j, text: JSON.stringify(j) }; };
 const mcp = async (token, method, params, headers = {}) => { const r = await fetch(BASE + '/mcp', { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) }); let j = null; try { j = await r.json(); } catch {} return { status: r.status, body: j }; };
 const REFUSED = JSON.stringify({ error: 'seat_token_refused' });
 
@@ -165,6 +168,28 @@ try {
   const del = await admin('DELETE', `/api/mcp/sessions/${sid}`);
   ok('吊销主体 → 这个席位已发的令牌 401，也换不出新的', del.status === 200 && (await mcp(before, 'tools/list', {})).status === 401 && (await exchange(req(A, 'seat-a3'))).text === REFUSED, String(del.status));
 
+  console.log('八、换令牌的记录');
+  // 启动自检那一次（编出来的 wm-self-probe）也记了一行，这里不算它
+  const logRows = () => q("SELECT * FROM a2a_seat_token_log WHERE seat_id <> 'wm-self-probe' ORDER BY id");
+  const L = logRows();
+  ok('每次换令牌都单独记了一行（到这里为止，请求次数 = 记录行数）', L.length === exchanges, `${L.length} vs ${exchanges}`);
+  const tok1Ref = createHash('sha256').update(tok1).digest('hex').slice(0, 16);
+  const issued1 = L.find((x) => x.token_ref === tok1Ref);
+  ok('换到的那次：outcome = issued、verified = 1、节点和席位、到期时间、主体都记下', issued1?.outcome === 'issued' && issued1.verified === 1 && issued1.host === A.fp && issued1.seat_id === 'seat-a1' && issued1.root === A.root
+    && issued1.expires_at > issued1.at && issued1.session_id > 0, JSON.stringify(issued1));
+  const calls = q('SELECT DISTINCT token_ref, seat FROM mcp_calls WHERE token_ref = ?', tok1Ref);
+  ok('……它的 token_ref 对得上调用审计（这张令牌拿去调了什么）', calls.length === 1 && calls[0].seat === `${A.fp}:seat-a1`, JSON.stringify(calls));
+  const byReason = (reason) => L.filter((x) => x.outcome === 'refused' && x.reason === reason);
+  ok('拒的记下原因：别的键签 bad-sig、席位不在名册 / 节点停用 not-live、时间窗 bad-ts、受众 wrong-audience，这些 verified = 0（host、席位只是自称）',
+    byReason('bad-sig').length >= 3 && byReason('not-live').length >= 4 && byReason('bad-ts').length === 2 && byReason('wrong-audience').length === 1
+      && [...byReason('bad-sig'), ...byReason('not-live'), ...byReason('bad-ts')].every((x) => x.verified === 0 && x.token_ref === ''), JSON.stringify(L.filter((x) => x.outcome === 'refused').map((x) => x.reason)));
+  ok('重放记成 refused / replay、verified = 1（签名是真的）；主体被吊销记成 subject-revoked', byReason('replay').length === 1 && byReason('replay')[0].verified === 1 && byReason('subject-revoked').length === 1, JSON.stringify(byReason('replay')));
+  ok('请求体不成形的也记（bad-request），字段按收到的截短；启动自检那次伪造的请求也记了（refused）', L.filter((x) => x.outcome === 'bad-request').length === 5 && L.some((x) => x.host === 'ABCDEFGH')
+    && q("SELECT outcome FROM a2a_seat_token_log WHERE seat_id = 'wm-self-probe'")[0]?.outcome === 'refused');
+  const anon = await fetch(BASE + '/api/a2a/seat-token/log', { headers: { 'x-forwarded-for': '192.0.2.9' } });
+  const viaAdmin = await admin('GET', `/api/a2a/seat-token/log?host=${A.fp}&seat_id=seat-a1&limit=500`);
+  ok('记录只给管理员看：远程匿名读不到；管理员按节点、席位筛', anon.status === 403 && viaAdmin.status === 200 && viaAdmin.body.entries.length > 0 && viaAdmin.body.entries.every((x) => x.host === A.fp && x.seat_id === 'seat-a1'), `${anon.status} ${viaAdmin.status}`);
+
   console.log('七、会话名');
   const bad = await admin('POST', '/api/mcp/sessions', { name: 'seat-squatter' });
   ok('管理员建 seat- 开头的会话 → 400', bad.status === 400, JSON.stringify(bad.body));
@@ -176,6 +201,8 @@ try {
   let last = 0, n = 0;
   while (n < 80) { n++; last = (await exchange({ v: 9 })).status; if (last === 429) break; }
   ok('同一来源十分钟内超过 60 次 → 429（不管成不成）', last === 429 && n <= 61, `${n} ${last}`);
+  const rl = q("SELECT reason, COUNT(*) AS c FROM a2a_seat_token_log WHERE outcome = 'rate-limited' GROUP BY reason ORDER BY reason");
+  ok('限频拒掉的也记（按席位 rate-limited、按来源 per-source），总行数仍 = 请求次数', JSON.stringify(rl) === JSON.stringify([{ reason: 'per-source', c: 1 }, { reason: 'rate-limited', c: 1 }]) && q("SELECT COUNT(*) AS c FROM a2a_seat_token_log WHERE seat_id <> 'wm-self-probe'")[0].c === exchanges, JSON.stringify(rl));
 } catch (e) {
   ok('运行', false, String(e?.stack ?? e));
 } finally {

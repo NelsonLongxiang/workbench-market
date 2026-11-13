@@ -651,7 +651,7 @@ try {
 try { const shaCols = tableColumns('app_files') as any[]; if (!shaCols.some((c) => c.name === 'sha256')) db.exec("ALTER TABLE app_files ADD COLUMN sha256 TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 try { const mcCols = tableColumns('mcp_calls') as any[]; if (!mcCols.some((c) => c.name === 'channel')) db.exec("ALTER TABLE mcp_calls ADD COLUMN channel TEXT NOT NULL DEFAULT 'mcp'"); } catch { /* 列已在 */ }
 // 阶段七：席位换来的令牌调用时记下席位（seat = <host>:<seat_id>，从令牌认出来）；claimed_seat 是请求头 X-Team-Seat 自报的，只拿来对账，不认作身份或授权
-try { const mcCols = tableColumns('mcp_calls') as any[]; if (!mcCols.some((c) => c.name === 'seat')) db.exec("ALTER TABLE mcp_calls ADD COLUMN seat TEXT NOT NULL DEFAULT ''"); if (!mcCols.some((c) => c.name === 'claimed_seat')) db.exec("ALTER TABLE mcp_calls ADD COLUMN claimed_seat TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { const mcCols = tableColumns('mcp_calls') as any[]; if (!mcCols.some((c) => c.name === 'seat')) db.exec("ALTER TABLE mcp_calls ADD COLUMN seat TEXT NOT NULL DEFAULT ''"); if (!mcCols.some((c) => c.name === 'claimed_seat')) db.exec("ALTER TABLE mcp_calls ADD COLUMN claimed_seat TEXT NOT NULL DEFAULT ''"); if (!mcCols.some((c) => c.name === 'token_ref')) db.exec("ALTER TABLE mcp_calls ADD COLUMN token_ref TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 // 阶段七：席位用签名换短期 MCP 令牌（services/seat-tokens.ts）。
 //   a2a_seat_subjects：每个席位（host, seat_id）一个长期的授权主体，挂 mcp_sessions 的一行；grants、按台批的授予都记在它上面，跨令牌轮换保留。
 //   a2a_seat_tokens：换出去的令牌只存 sha256；1 小时到期、不续期。时间由代码给（毫秒）。
@@ -672,6 +672,24 @@ CREATE TABLE IF NOT EXISTS a2a_seat_tokens (
   expires_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_a2a_seat_tokens_expires ON a2a_seat_tokens (expires_at);
+-- 每次换令牌一行（成不成都记）：哪个节点、哪个席位、什么时候、结果、拒的原因。verified = 1 表示签名验过了（host、seat_id 是证实的），
+-- 0 是请求里自称的。token_ref 是令牌 sha256 的前 16 位，mcp_calls 里同名一列，用来对上「这张令牌拿去调了什么」。保留 180 天。
+CREATE TABLE IF NOT EXISTS a2a_seat_token_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at INTEGER NOT NULL,
+  host TEXT NOT NULL DEFAULT '',
+  seat_id TEXT NOT NULL DEFAULT '',
+  root TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT '',
+  outcome TEXT NOT NULL CHECK (outcome IN ('issued', 'refused', 'rate-limited', 'bad-request')),
+  reason TEXT NOT NULL DEFAULT '',
+  verified INTEGER NOT NULL DEFAULT 0,
+  session_id INTEGER,
+  token_ref TEXT NOT NULL DEFAULT '',
+  expires_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_a2a_seat_token_log_at ON a2a_seat_token_log (at);
+CREATE INDEX IF NOT EXISTS idx_a2a_seat_token_log_seat ON a2a_seat_token_log (host, seat_id, at);
 `);
 try { const afCols = tableColumns('app_files') as any[]; if (!afCols.some((c) => c.name === 'note')) db.exec("ALTER TABLE app_files ADD COLUMN note TEXT NOT NULL DEFAULT ''"); if (!afCols.some((c) => c.name === 'deleted_at')) db.exec("ALTER TABLE app_files ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 try { const adCols = tableColumns('app_data') as any[]; if (!adCols.some((c) => c.name === 'deleted_at')) db.exec("ALTER TABLE app_data ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }

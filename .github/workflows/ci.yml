@@ -466,6 +466,8 @@ jobs:
         run: node scripts/a2a-outbound-sig3-test.mjs
       - name: 席位提问进「关注」、答复作为同 context 新任务发回、跟进记事项日志（两边条数一致·v1 与回执提问混排只列最新·只通知的事件不发·退避 5 次 dead·跟进只认同一对端的 Sig3）
         run: node scripts/a2a-answers-test.mjs
+      - name: 席位用节点签名换短期 MCP 令牌（钉住的公钥验签·名册里的席位·别的宿主冒名/停用/待确认/时间窗/受众/重放一律同一个 401·每次调用复核·授权挂在席位主体上跨令牌保留·X-Team-Seat 只对账·限频）
+        run: node scripts/seat-token-test.mjs
       - name: 工作台事件层 v1（人提交→事件→团队接单：held/release·自动派发·退避重试/dead·决定端点·unrouted·表单 unverified·只增日志；对端上游裁判按关窗验）
         env:
           A2A_ORIGIN_SRC: ${{ github.workspace }}/dsh-open-a2a-net/src/origin-claim.ts

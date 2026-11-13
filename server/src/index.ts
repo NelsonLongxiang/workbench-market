@@ -582,7 +582,7 @@ async function markOdooAdmin(req: express.Request): Promise<void> {
   if (login) odooAdminReqs.set(req, login);
 }
 // 管理读面（GET 也走 adminGuard/vaultGuard 的）与口令/身份端点：进路由前先认定
-const ADMIN_IDENTITY_PATHS = /^\/api\/(admin\/whoami|admin-token(\/|$)|mcp\/(sessions|upstreams|tools|calls|access-requests)(\/|$)|change-requests(\/|$)|bindings(\/|$)|a2a\/(peers|state)(\/|$)|remote-allow\/diff|vault\/|tasks(\/|$)|workbench-events(\/|$))/; // a2a/peers：对端登记表的管理接口，会话登录的管理员也算管理员（和绑定同口径）；tasks：统一待办读面同样认 Odoo 管理员（与口令管理员同为全量）；workbench-events：工作台事件的列表、详情也认（「关注」的席位提问同口径）
+const ADMIN_IDENTITY_PATHS = /^\/api\/(admin\/whoami|admin-token(\/|$)|mcp\/(sessions|upstreams|tools|calls|access-requests)(\/|$)|change-requests(\/|$)|bindings(\/|$)|a2a\/(peers|state|seat-token\/log)(\/|$)|remote-allow\/diff|vault\/|tasks(\/|$)|workbench-events(\/|$))/; // a2a/peers：对端登记表的管理接口，会话登录的管理员也算管理员（和绑定同口径）；a2a/seat-token/log：换令牌的记录同口径；tasks：统一待办读面同样认 Odoo 管理员（与口令管理员同为全量）；workbench-events：工作台事件的列表、详情也认（「关注」的席位提问同口径）
 app.use(async (req, _res, next) => {
   if (ADMIN_IDENTITY_PATHS.test(req.path.toLowerCase())) await markOdooAdmin(req);
   next();
@@ -2739,7 +2739,7 @@ registerA2aOutboundRoutes(http, {
 // /a2a/direct（P2）：准入开放——有效绑定 + 同 context 续 run + 上游幂等族 + 512KiB + DELIVERED 形状。
 // 查无 SOP 仍 404 不泄露；无绑定/draft/mode 不足 → 200 TASK_STATE_FAILED -32000（对齐上游 admission 形状）。
 // ADMIN_TOKEN 未设置时绑定面休眠（主人裁定：内网信任模型）——direct 对无绑定的 SOP 自然全拒。
-registerSeatTokenRoutes(http, { audiences: () => [marketPublicUrl()] }); // 阶段七：席位用节点签名换 1 小时的 MCP 令牌
+registerSeatTokenRoutes(http, { audiences: () => [marketPublicUrl()], adminGuard }); // 阶段七：席位用节点签名换 1 小时的 MCP 令牌
 registerA2aDirectRoutes(http, { A2A_DIRECT_SIG, A2A_FOLLOWUP_RATE, FETCH_STEP_REFUSALS, directSig, sopRunStartCore, runCheckpoints, sopRunRow, storedRunData, runLiveData, runStateRestore, runCacheCheckpoint });
 
 // ---------- 统一门户：/go/:id/* 反向代理到对应工作台 ----------
@@ -3198,7 +3198,7 @@ function sha256Hex(s: string): string {
   return createHash('sha256').update(s, 'utf8').digest('hex');
 }
 
-function mcpSessionByToken(token: string): { id: number; name: string; grants: string[]; seat?: string } | null {
+function mcpSessionByToken(token: string): { id: number; name: string; grants: string[]; seat?: string; tokenRef?: string } | null {
   const row = svc<McpService>('mcp').sessionByToken(sha256Hex(token)) as { id: number; name: string; grants: string } | undefined;
   // 不是管理员发的会话令牌：再看是不是席位换来的短期令牌（每次都复核席位和节点仍有效，见 services/seat-tokens.ts）
   if (!row) return seatTokenSession(sha256Hex(token));
@@ -3269,7 +3269,7 @@ const ACCESS_REQUEST_HOURLY_MAX = 10;
 const ACCESS_REASON_MAX = 500;
 const ACCESS_STATUSES = ['pending', 'approved', 'rejected'];
 /** seat：席位换来的令牌认出来的席位（<host>:<seat_id>）；claimed：请求头 X-Team-Seat 自报的，只进审计对账，不认作身份或授权 */
-type McpSess = { id: number; name: string; grants: string[]; seat?: string; claimed?: string };
+type McpSess = { id: number; name: string; grants: string[]; seat?: string; tokenRef?: string; claimed?: string };
 type AccessRequestRow = { id: number; session_id: number; tools: string; reason: string; status: string; decided_by: string; decided_at: string; note: string; created_at: string };
 function parseToolList(raw: string): string[] {
   try { const v = JSON.parse(raw || '[]'); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []; } catch { return []; }
@@ -3439,7 +3439,7 @@ function mcpGatewaySession(req: express.Request, res: express.Response): McpSess
 function mcpAudit(sess: McpSess | null, channel: McpChannel, method: string, tool: string, ok: boolean, error: string, durationMs: number, args: unknown): void {
   if (!MCP_GATEWAY_ON || !sess) return;
   svc<McpService>('mcp').callInsertStmt()
-    .run(sess.name, method, tool, ok ? 1 : 0, error, durationMs, sha256Hex(JSON.stringify(args ?? {})), channel, sess.seat ?? '', sess.claimed ?? ''); // 不存参数原文
+    .run(sess.name, method, tool, ok ? 1 : 0, error, durationMs, sha256Hex(JSON.stringify(args ?? {})), channel, sess.seat ?? '', sess.claimed ?? '', sess.tokenRef ?? ''); // 不存参数原文
 }
 /** 会话对某工具的授权范围（#452）：'all'＝免授权/全局授权/网关关；台 id 集合＝只授权了 工具@台；null＝无权 */
 function mcpToolScope(sess: McpSess | null, toolName: string): 'all' | Set<number> | null {

@@ -44,7 +44,7 @@ const ROOT_RE = /^https?:\/\/[^/?#\s]{1,253}$/;
 export type SeatTokenRequest = { root: string; host: string; seat_id: string; ts: number; nonce: string; aud: string; sig: string };
 /** 拒的内部原因：只进日志和计数，对外一律同一个 401（不透露节点、席位存不存在） */
 export type SeatTokenRefusal = 'wrong-audience' | 'bad-ts' | 'not-live' | 'bad-sig' | 'replay' | 'subject-revoked' | 'subject-name-taken';
-export type SeatTokenOutcome = { ok: true; token: string; expires_at: number; session_id: number } | { ok: false; reason: SeatTokenRefusal } | { ok: false; reason: 'rate-limited'; retryAfter: number };
+export type SeatTokenOutcome = { ok: true; token: string; token_ref: string; expires_at: number; session_id: number } | { ok: false; reason: SeatTokenRefusal } | { ok: false; reason: 'rate-limited'; retryAfter: number };
 
 /** 请求体成形吗：字段齐、类型对、长度和字符集在范围里。不成形返回 null（400，不涉及任何存不存在） */
 export function parseSeatTokenRequest(body: unknown): SeatTokenRequest | null {
@@ -128,14 +128,46 @@ export function exchangeSeatToken(r: SeatTokenRequest, audOk: boolean, now = Dat
   const expiresAt = now + SEAT_TOKEN_TTL_MS;
   db.prepare('INSERT INTO a2a_seat_tokens (token_sha256, host, seat_id, session_id, issued_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
     .run(sha256Hex(token), r.host, r.seat_id, subject.id, now, expiresAt);
-  return { ok: true, token, expires_at: expiresAt, session_id: subject.id };
+  return { ok: true, token, token_ref: tokenRef(sha256Hex(token)), expires_at: expiresAt, session_id: subject.id };
+}
+
+/** 令牌的引用：sha256 的前 16 位。换令牌的记录和调用审计都记它，对得上又不留能用的东西 */
+export const tokenRef = (tokenSha256: string): string => tokenSha256.slice(0, 16);
+
+/** 验签这一步之后才拒的原因：host、seat_id 是签名证实过的 */
+const VERIFIED_REFUSALS: ReadonlySet<string> = new Set(['replay', 'subject-revoked', 'subject-name-taken', 'rate-limited']);
+const LOG_KEEP_MS = 180 * 24 * 3_600_000;
+const clip = (v: unknown, n: number): string => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, n) : '');
+
+/**
+ * 每次换令牌记一行，成不成都记（属主 2026-11-13）：节点侧报「有成员读了节点私钥」时，按时间段对上有没有人换过令牌、
+ * 换到的令牌拿去调了什么（token_ref 对 mcp_calls.token_ref）。请求体不成形的也记，字段按收到的截短记下（verified = 0）
+ */
+export function logSeatTokenExchange(e: { at: number; source: string; body: unknown; outcome: 'issued' | 'refused' | 'rate-limited' | 'bad-request'; reason?: string; session_id?: number; token_ref?: string; expires_at?: number }): void {
+  const b = (e.body && typeof e.body === 'object' && !Array.isArray(e.body) ? e.body : {}) as Record<string, unknown>;
+  const verified = e.outcome === 'issued' || (e.reason !== undefined && VERIFIED_REFUSALS.has(e.reason));
+  db.prepare('DELETE FROM a2a_seat_token_log WHERE at < ?').run(e.at - LOG_KEEP_MS);
+  db.prepare(`INSERT INTO a2a_seat_token_log (at, host, seat_id, root, source, outcome, reason, verified, session_id, token_ref, expires_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(e.at, clip(b.host, 16), clip(b.seat_id, 64), clip(b.root, 260), clip(e.source, 64), e.outcome, e.reason ?? '',
+    verified ? 1 : 0, e.session_id ?? null, e.token_ref ?? '', e.expires_at ?? null);
+}
+
+/** 换令牌的记录（管理员看）：按时间倒序，可按节点、席位、起止时间筛 */
+export function seatTokenLog(f: { host?: string; seat_id?: string; since?: number; until?: number; limit: number }): Record<string, unknown>[] {
+  const where: string[] = [], args: (string | number)[] = [];
+  if (f.host) { where.push('host = ?'); args.push(f.host); }
+  if (f.seat_id) { where.push('seat_id = ?'); args.push(f.seat_id); }
+  if (f.since !== undefined) { where.push('at >= ?'); args.push(f.since); }
+  if (f.until !== undefined) { where.push('at < ?'); args.push(f.until); }
+  return db.prepare(`SELECT id, at, host, seat_id, root, source, outcome, reason, verified, session_id, token_ref, expires_at FROM a2a_seat_token_log
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY id DESC LIMIT ?`).all(...args, f.limit) as Record<string, unknown>[];
 }
 
 /**
  * MCP 网关认令牌时调：是换来的席位令牌、没到期、席位和节点此刻仍有效、主体没被吊销，返回主体会话（带上席位）；否则 null。
  * 每次调用都走一遍，名册撤掉席位、停用节点、公钥变了待确认、吊销主体，下一次调用就失效。
  */
-export function seatTokenSession(tokenSha256: string, now = Date.now()): { id: number; name: string; grants: string[]; seat: string } | null {
+export function seatTokenSession(tokenSha256: string, now = Date.now()): { id: number; name: string; grants: string[]; seat: string; tokenRef: string } | null {
   const t = db.prepare('SELECT host, seat_id, session_id, expires_at FROM a2a_seat_tokens WHERE token_sha256 = ?').get(tokenSha256) as { host: string; seat_id: string; session_id: number; expires_at: number } | undefined;
   if (!t || Number(t.expires_at) <= now) return null;
   if (!liveSeat(t.host, t.seat_id)) return null;
@@ -143,7 +175,7 @@ export function seatTokenSession(tokenSha256: string, now = Date.now()): { id: n
   if (!s) return null;
   let grants: string[] = [];
   try { const g = JSON.parse(s.grants || '[]'); if (Array.isArray(g)) grants = g.filter((x) => typeof x === 'string'); } catch { grants = []; }
-  return { id: Number(s.id), name: s.name, grants, seat: `${t.host}:${t.seat_id}` };
+  return { id: Number(s.id), name: s.name, grants, seat: `${t.host}:${t.seat_id}`, tokenRef: tokenRef(tokenSha256) };
 }
 
 /** 这个会话是不是席位的授权主体（管理员页、审计用） */
