@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /** e2e-full-run 隔离机械回归（#301 监督席复核 6539090560）：宿主 YGL_HOME 设成不可读诱饵目录时，
  *  跑器交给 server、种子脚本、E2E 三类子进程的 YGL_HOME 仍是 TMP 下的专属 home，诱饵路径不出现、宿主会话不透传。
- *  只跑 --dry-env（不起实例）；完整 E2E 的 CI 步骤同样带诱饵 YGL_HOME 实跑。 */
+ *  只跑 --dry-env（不起实例）；完整 E2E 的 CI 步骤同样带诱饵 YGL_HOME 实跑。
+ *  另核两轮的控制面开关是显式设的（缺省那一轮 WM_CONTROL_PORT=业务端口+1，--control-off 那一轮为 0），不会退化成同一种模式。 */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
@@ -19,6 +20,9 @@ try {
     });
     assert.equal(r.status, 0, r.stderr);
     const out = JSON.parse(r.stdout.trim().split('\n').at(-1));
+    // 控制面：服务端没设 WM_CONTROL_PORT 就不开，所以两轮都要显式设——开的那一轮是业务端口 + 1（带合成的凭据库域名），关的那一轮是 0
+    if (mode.length === 0) { assert.equal(out.control.WM_CONTROL_PORT, String(out.port + 1), '控制面开的那一轮要显式设 WM_CONTROL_PORT=业务端口+1'); assert.ok(out.control.WM_VAULT_HOST, '控制面开的那一轮要设合成的凭据库域名'); }
+    else { assert.equal(out.control.WM_CONTROL_PORT, '0'); assert.equal(out.control.WM_VAULT_HOST, null); }
     assert.ok(out.tmp.startsWith(resolve('tmp') + sep + 'e2e-full-'), out.tmp);
     for (const who of ['server', 'seed', 'e2e']) {
       const e = out[who];
