@@ -1,7 +1,10 @@
 /** 统一门户 /go/:id/* 反向代理（S3 抽离，注册顺序与逻辑逐行不变）。
  *
+ * 阶段三：这里只造两个处理函数（前置准备、代理），路由由 routes/portal.ts 经 HTTP 服务注册（ALL 加正则、报动作 portal.use）。
+ * 处理函数的内容一个字没改；原来是两层全局中间件，现在是同一条路由上的两个处理函数，前后紧挨着，次序不变。
+ *
  * 关键约束（原注释原样保留）：
- * - 必须全局挂载（不能 app.use('/go', ...)——Express 会剥 req.url 前缀，pathFilter 失配）
+ * - 必须全局挂载（不能 app.use('/go', ...)——Express 会剥 req.url 前缀，pathFilter 失配）。经 HTTP 服务注册的正则路由不剥前缀
  * - HPM 4.x 的 pathFilter 不支持 RegExp（静默漏到 SPA fallback），用函数形式
  * - upgrade 事件不流经 Express 中间件链，必须重做同一套准备（见 handlePortalUpgrade）
  */
@@ -16,15 +19,18 @@ import type { CookieService } from './services/cookie.ts';
 import { clientIp } from './login-gate.ts';
 import { loginRelay } from './identity.ts';
 import { isInsideRoot } from './path-inside.ts';
+import { stripOutgoing } from './portal-forward-headers.ts';
 
 
 export const goPrefix = /^\/go\/(\d+)(.*)$/;
 
-/** /go/ 代理实例（installPortal 装配；upgrade 段与其它模块共用） */
+/** 门户的处理函数：同 Express（返回值不用） */
+export type PortalHandler = (req: express.Request, res: express.Response, next: express.NextFunction) => unknown;
+
+/** /go/ 代理实例（createPortal 装配；upgrade 段与其它模块共用） */
 export let moduleProxy: any = null;
 
-export function installPortal(
-  app: express.Express,
+export function createPortal(
   wbById: (id: number) => any | null,
   deps: {
     serveApp: (req: express.Request, res: express.Response) => any;
@@ -32,7 +38,7 @@ export function installPortal(
     renderSopRunner: (manifest: any, app: any) => string;
     appsRoot: string;
   },
-): void {
+): { prepare: PortalHandler; proxy: PortalHandler } {
   const { serveApp, readActiveManifest, renderSopRunner, appsRoot } = deps;
   // SSO 回调票据核对时按注册表现查台地址（已停用的台不算）
   loginRelay().useTargetLookup((id) => { const w = wbById(id); return w && w.enabled !== false && w.enabled !== 0 && typeof w.url === 'string' ? w.url : null; });
@@ -42,7 +48,7 @@ export function installPortal(
   // id 校验 + 404（在代理前拦截，避免 router 内抛错变 500）
   // 注意：必须全局挂载（不能用 app.use('/go', ...) 前缀挂载——Express 会剥掉
   // req.url 的挂载前缀，goPrefix 与 http-proxy-middleware 的 pathFilter 都会失配）
-  app.use((req, res, next) => {
+  const prepare: PortalHandler = (req, res, next) => {
     if (!goPrefix.test(req.url ?? '')) return next();
     const m = goPrefix.exec(req.url ?? '')!;
     let origin = '', basePath = '', goQuery = '', goAuth = '';
@@ -202,7 +208,7 @@ export function installPortal(
     // 写回上游路径（goPrefix 失配，改写从不生效）；在此备份原始 id 供 proxyRes 使用。
     (req as express.Request & { goWid?: string }).goWid = m[1];
     next();
-  });
+  };
 
   // 每个 URL 从第一个 ? 或 %（任何百分号编码，含 %3F、%253F 这类多重编码的查询串）起到空白或 ] 为止一律换成 …；
   // 对象参数（如错误对象）只取 message 再抹，不把整个对象（可能带 url/headers）打出来
@@ -265,6 +271,8 @@ export function installPortal(
         // Cookie 池注入（派单 direct-5fbb2176）：前置中间件解析好的 goCookies（按目标 host
         // 匹配 + 未过期过滤后的 Cookie 头值），**替换**而非追加（确定性语义）
         if (rq.goCookies) proxyReq.setHeader('cookie', rq.goCookies);
+        // 市场自己的口令、令牌、凭据头和会话 cookie 不往台带（清单在 portal-forward-headers.ts，WS 握手在 index.ts 用同一份）
+        stripOutgoing(proxyReq, !!rq.goAuth);
       },
       proxyRes: (proxyRes, req, res) => {
         // 只记台 id、路径长度与 cookie 名：Set-Cookie 的值里有上游会话（如 Odoo session_id）；路径本身也不记——
@@ -434,5 +442,5 @@ export function installPortal(
       },
     },
   });
-  app.use(moduleProxy);
+  return { prepare, proxy: moduleProxy };
 }

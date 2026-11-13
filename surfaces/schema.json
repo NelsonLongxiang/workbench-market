@@ -398,6 +398,21 @@
       "last_full_at INTEGER",
       "last_error TEXT NOT NULL DEFAULT ''"
     ],
+    "knowledge_writes": [
+      "id INTEGER PK",
+      "answer_key TEXT NOT NULL",
+      "principal_id TEXT NOT NULL",
+      "scope TEXT NOT NULL",
+      "title TEXT NOT NULL",
+      "body TEXT NOT NULL DEFAULT ''",
+      "status TEXT NOT NULL",
+      "attempts INTEGER NOT NULL DEFAULT 0",
+      "next_at INTEGER NOT NULL",
+      "last_error TEXT NOT NULL DEFAULT ''",
+      "ygl_id TEXT NOT NULL DEFAULT ''",
+      "created_at INTEGER NOT NULL",
+      "written_at INTEGER"
+    ],
     "login_events_seen": [
       "flow TEXT NOT NULL PK",
       "event_id TEXT NOT NULL PK",
@@ -539,7 +554,9 @@
       "assigned_by TEXT NOT NULL",
       "assigned_at INTEGER NOT NULL",
       "ended_by TEXT",
-      "ended_at INTEGER"
+      "ended_at INTEGER",
+      "peer_root TEXT NOT NULL DEFAULT ''",
+      "key_fingerprint TEXT NOT NULL DEFAULT ''"
     ],
     "settings": [
       "key TEXT PK",
@@ -768,7 +785,9 @@
       "detail TEXT NOT NULL DEFAULT ''",
       "actor TEXT NOT NULL",
       "actor_principal TEXT",
-      "at INTEGER NOT NULL"
+      "at INTEGER NOT NULL",
+      "peer_root TEXT NOT NULL DEFAULT ''",
+      "key_fingerprint TEXT NOT NULL DEFAULT ''"
     ],
     "team_leads": [
       "id INTEGER PK",
@@ -778,7 +797,9 @@
       "added_by TEXT NOT NULL",
       "added_at INTEGER NOT NULL",
       "ended_by TEXT",
-      "ended_at INTEGER"
+      "ended_at INTEGER",
+      "peer_root TEXT NOT NULL DEFAULT ''",
+      "key_fingerprint TEXT NOT NULL DEFAULT ''"
     ],
     "teams": [
       "host TEXT NOT NULL PK",
@@ -787,7 +808,9 @@
       "claimed INTEGER NOT NULL DEFAULT 0",
       "claimed_by TEXT NOT NULL DEFAULT ''",
       "claimed_at INTEGER",
-      "updated_at INTEGER NOT NULL"
+      "updated_at INTEGER NOT NULL",
+      "peer_root TEXT NOT NULL DEFAULT ''",
+      "key_fingerprint TEXT NOT NULL DEFAULT ''"
     ],
     "types": [
       "id INTEGER PK",
@@ -900,7 +923,8 @@
       "status TEXT NOT NULL",
       "handled_by TEXT NOT NULL DEFAULT ''",
       "handled_at TEXT NOT NULL DEFAULT ''",
-      "created_at TEXT NOT NULL"
+      "created_at TEXT NOT NULL",
+      "peer_root TEXT NOT NULL DEFAULT ''"
     ],
     "workbench_event_log": [
       "id INTEGER PK",
@@ -1023,6 +1047,8 @@
     "idx_grant_events_grant ON grant_events: CREATE INDEX idx_grant_events_grant ON grant_events (grant_id, seq)",
     "idx_grants_principal ON grants: CREATE INDEX idx_grants_principal ON grants (principal_id, status)",
     "idx_knowledge_items_updated ON knowledge_items: CREATE INDEX idx_knowledge_items_updated ON knowledge_items (updated, kind)",
+    "idx_knowledge_writes_due ON knowledge_writes: CREATE INDEX idx_knowledge_writes_due ON knowledge_writes (status, next_at)",
+    "idx_knowledge_writes_ygl ON knowledge_writes: CREATE INDEX idx_knowledge_writes_ygl ON knowledge_writes (ygl_id)",
     "idx_login_states_expires ON login_states: CREATE INDEX idx_login_states_expires ON login_states (expires_at)",
     "idx_market_sessions_principal ON market_sessions: CREATE INDEX idx_market_sessions_principal ON market_sessions (principal_id, expires_at)",
     "idx_mcp_access_requests_session ON mcp_access_requests: CREATE INDEX idx_mcp_access_requests_session ON mcp_access_requests (session_id, created_at)",
@@ -1055,6 +1081,7 @@
     "idx_team_events_team ON team_events: CREATE INDEX idx_team_events_team ON team_events (host, team, seq)",
     "idx_team_leads_active ON team_leads: CREATE UNIQUE INDEX idx_team_leads_active ON team_leads (host, team, principal_id) WHERE ended_at IS NULL",
     "idx_wbe_deliveries_due ON workbench_event_deliveries: CREATE INDEX idx_wbe_deliveries_due ON workbench_event_deliveries(status, next_at)",
+    "idx_wbe_followups_root ON workbench_event_followups: CREATE INDEX idx_wbe_followups_root ON workbench_event_followups (peer_root, created_at)",
     "idx_wbe_followups_status ON workbench_event_followups: CREATE INDEX idx_wbe_followups_status ON workbench_event_followups (status, id)",
     "idx_wbe_followups_zone ON workbench_event_followups: CREATE INDEX idx_wbe_followups_zone ON workbench_event_followups (peer_zone, created_at)",
     "idx_wbe_replies_due ON workbench_event_replies: CREATE INDEX idx_wbe_replies_due ON workbench_event_replies (status, next_at)",

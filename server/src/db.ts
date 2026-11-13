@@ -572,6 +572,9 @@ CREATE TABLE IF NOT EXISTS install_ledger (
 );
 
 `);
+// 跟进按发来的根地址认：限频、找投递都按 peer_root，不按区（同一个区下可以有好几台宿主）。存量行是空串，只是不计进新的限频窗口
+if (!hasColumn('workbench_event_followups', 'peer_root')) db.exec("ALTER TABLE workbench_event_followups ADD COLUMN peer_root TEXT NOT NULL DEFAULT ''");
+db.exec('CREATE INDEX IF NOT EXISTS idx_wbe_followups_root ON workbench_event_followups (peer_root, created_at)');
 
 // A2A P3 回执（评审席判据 network/a2a-receipt E1-E7）
 {
@@ -1282,6 +1285,27 @@ CREATE TABLE IF NOT EXISTS team_events (
 );
 CREATE INDEX IF NOT EXISTS idx_team_events_team ON team_events (host, team, seq);
 `);
+// 团队归属绑节点本身：认领、负责人、分配、团队事件各记下当时这个 host 对应的节点——名册里的根地址（peer_root）和
+//   对端登记里这个根地址的完整指纹（key_fingerprint）。用的时候和现在的名册、对端登记核对，对不上的不算数（services/team.ts）。
+//   存量只在加列的那一次回填（按当时的名册和启用的对端）；回填不上的留空，一直不算数，要管理层重新认领、指定、分配。
+//   以后的启动不再回填：不然后来报上同一个号的节点会接走这些旧行
+if (!hasColumn('teams', 'peer_root')) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    for (const t of ['teams', 'team_leads', 'seat_assignments', 'team_events']) {
+      db.exec(`ALTER TABLE ${t} ADD COLUMN peer_root TEXT NOT NULL DEFAULT ''`);
+      db.exec(`ALTER TABLE ${t} ADD COLUMN key_fingerprint TEXT NOT NULL DEFAULT ''`);
+    }
+    for (const t of ['teams', 'team_leads', 'seat_assignments']) {
+      db.exec(`UPDATE ${t} SET
+        peer_root = COALESCE((SELECT r.peer_root FROM a2a_rosters r JOIN a2a_peers p ON p.root_url = r.peer_root
+          WHERE r.host = ${t}.host AND r.peer_root <> '' AND p.status = 'active' AND p.key_fingerprint <> ''), ''),
+        key_fingerprint = COALESCE((SELECT p.key_fingerprint FROM a2a_rosters r JOIN a2a_peers p ON p.root_url = r.peer_root
+          WHERE r.host = ${t}.host AND r.peer_root <> '' AND p.status = 'active' AND p.key_fingerprint <> ''), '')`);
+    }
+    db.exec('COMMIT');
+  } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务已经不在了 */ } throw e; }
+}
 
 // 首次安装向导（角色预设 ②）：一次运行按形态生成一批草稿授予。授予本身照常在 grants 里（来源列只认 manual、migration，老库改不了），
 //   「这条是向导建的」记在这两张表里，读的时候推出来源 wizard。属主一次放行这一批。时间由代码给（毫秒）。
@@ -1365,6 +1389,27 @@ CREATE TABLE IF NOT EXISTS knowledge_meta (
   k TEXT PRIMARY KEY,
   v TEXT NOT NULL
 );
+-- 经验库第 2 步：拍板时「记成经验」，回写 ygl-trees 的 kb（kb add），市场只留指针和留痕，内容以 ygl-trees 为准。
+--   answer_key：哪一次答复（来源、那一轮的键、谁答的；一次答复只记一条，幂等）；principal_id：拍板的人（给 decided_by_name 用）；
+--   scope：dept:<部门> | restricted | *；title、body：要写的内容，写成以后清空 body；status：pending 待写（含重试）、written 写成、failed 放弃（参数被拒或重试到头）；
+--   ygl_id：写成以后 ygl-trees 给的条目 id（内部用，不给页面）。时间都是毫秒，由代码给
+CREATE TABLE IF NOT EXISTS knowledge_writes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  answer_key TEXT NOT NULL UNIQUE,
+  principal_id TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL CHECK (status IN ('pending', 'written', 'failed')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_at INTEGER NOT NULL,
+  last_error TEXT NOT NULL DEFAULT '',
+  ygl_id TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  written_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_writes_due ON knowledge_writes (status, next_at);
+CREATE INDEX IF NOT EXISTS idx_knowledge_writes_ygl ON knowledge_writes (ygl_id);
 -- 经验库的「项目 → 部门」对照：ygl-trees 给了项目、没给范围的条目（比如依据），按这里对到的部门当部门级；对不上的只给管理层。
 --   改它等于改谁能看：只有管理层、属主改（拍板类，系统管理员不行），每次改记一行到 knowledge_project_dept_log。
 CREATE TABLE IF NOT EXISTS knowledge_project_depts (
@@ -1685,6 +1730,22 @@ function benchStoreVarsSchema(): string[] {
       updated_by TEXT NOT NULL, owner TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
   ];
 }
+/**
+ * 附加的表（开库不建，第一次写台的提交、附件时才建；不升版本号，旧代码不认识也不碰它们）：这张卡片对应的台的提交记录和附件的元数据
+ * （数据层第 6 步，docs/data-views.md 第十三节第 6 条）。列和主库的 app_data / app_files 一一对应，只是不带 app_slug；
+ * id 照抄主库的（过渡期 id 一律由主库发），所以不自增。附件字节不进台库，storage_path 原样记
+ */
+function benchStoreAppSchema(): string[] {
+  return [
+    `CREATE TABLE IF NOT EXISTS bs_app_data (
+      id INTEGER PRIMARY KEY, data TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, deleted_at TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL, submitter_principal TEXT)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_bs_app_data_idem ON bs_app_data (idempotency_key) WHERE idempotency_key <> ''`,
+    `CREATE TABLE IF NOT EXISTS bs_app_files (
+      id INTEGER PRIMARY KEY, original_name TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, storage_path TEXT NOT NULL,
+      created_by TEXT NOT NULL, created_at TEXT NOT NULL, note TEXT NOT NULL, sha256 TEXT NOT NULL, deleted_at TEXT NOT NULL)`,
+  ];
+}
 
 /**
  * 台库用到的、属于表结构或随库不同的写法，打成一份纯数据。
@@ -1701,6 +1762,10 @@ export type BenchSqlKit = {
   varsProbes: string[];
   /** bs_vars 在不在（查目录，不试读：PostgreSQL 的事务里一条语句出错整个事务就作废了） */
   varsExists: string;
+  /** 附加的表 bs_app_data、bs_app_files（同 bs_vars：开库不建，第一次写才建）、试读、在不在 */
+  appSchema: string[];
+  appProbes: string[];
+  appExists: string;
   /** 固定的几张表 */
   schema: string[];
   /** 打开库时逐条试一遍：哪条跑不通，就是库文件的结构和这份代码对不上（比如还没定稿时旧代码建的文件），明确拒绝，不静默照用 */
@@ -1734,6 +1799,14 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
     varsExists: d === 'postgres'
       ? "SELECT 1 AS x FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'bs_vars'"
       : "SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'bs_vars'",
+    appSchema: benchStoreAppSchema(),
+    appProbes: [
+      'SELECT id, data, created_by, created_at, deleted_at, idempotency_key, submitter_principal FROM bs_app_data WHERE 1 = 0',
+      'SELECT id, original_name, mime, size, storage_path, created_by, created_at, note, sha256, deleted_at FROM bs_app_files WHERE 1 = 0',
+    ],
+    appExists: d === 'postgres'
+      ? "SELECT 1 AS x FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'bs_app_files'"
+      : "SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'bs_app_files'",
     schema: benchStoreSchema(d),
     probes: [
       'SELECT name, title, version, columns, key_cols, row_count, data_bytes, created_at, updated_at, updated_by FROM bs_datasets WHERE 1 = 0',

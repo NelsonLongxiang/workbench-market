@@ -354,7 +354,7 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
       list: (req) => {
         if (!passes(deps.adminGuard, req)) return null;
         const t = svc<TeamService>('teams');
-        const what = { unclaimed: '待认领', 'off-roster': '不在节点名册里了', 'lead-vacant': '没有负责人' } as const;
+        const what = { unclaimed: '待认领', 'off-roster': '不在节点名册里了', 'node-changed': '对应的节点换了，原来的认领不算数了', 'lead-vacant': '没有负责人' } as const;
         const teamsOut = t.needingAttention().map((x) => {
           const node = t.nodeInfo(x.host);
           return item({
@@ -369,6 +369,26 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           waiting_for: r.node_name ?? '', since: r.roster_received_at, link: '/team', phase: 'roster-stale',
         }));
         return [...stale, ...teamsOut];
+      },
+    }),
+    provide({
+      // 团队归属记在旧节点上、现在不算数的（名册被清后别的节点报了同一个号、换了钥、对端停用，或者存量回填不上）：给管理员和管理层列出来，
+      // 在团队页重新认领、指定负责人、分配成员（重新做时旧的那几行自动结束）。只给数，不给节点标识
+      source: 'team-binding', label: '团队归属要重新确认',
+      list: async (req) => {
+        const admin = passes(deps.adminGuard, req);
+        const viewer = await requestViewer(req, admin);
+        if (!admin && !viewer.management) return null;
+        const t = svc<TeamService>('teams');
+        return t.staleBindings().map((x) => {
+          const node = t.nodeInfo(x.host);
+          const parts = [x.claim ? '认领' : '', x.leads ? `${x.leads} 个负责人` : '', x.assignments ? `${x.assignments} 个成员分配` : ''].filter(Boolean).join('、');
+          return item({
+            source: 'team-binding', source_id: `${x.host}:${x.team}`, category: 'glance',
+            title: `团队 ${teamName(x.team) || '（没有名字）'}${node.node_name ? `（来自 ${node.node_name}）` : ''}的${parts}记在原来的节点上，节点已经变了，这些不算数了，请重新确认`,
+            waiting_for: node.node_name ?? '', since: node.roster_received_at ?? '', link: '/team', object: x.team, phase: 'node-changed',
+          });
+        });
       },
     }),
     provide({

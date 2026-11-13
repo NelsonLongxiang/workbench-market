@@ -56,7 +56,8 @@ type AppFileInput = { path: string; size: number; name: string; reportedMime: st
 
 /** 从 index.ts 传进来的：台的查找、数据写入核心（MCP app_data_submit 也用）、分页参数、文件容量、上传中间件、文件名修复、文件入库核心（MCP 上传也用）、守卫。 */
 export interface AppDataDeps {
-  getApp: (slug: string) => AppRow;
+  /** forWrite：正在删除的台写入回 409（读按不存在 404） */
+  getApp: (slug: string, forWrite?: boolean) => AppRow;
   submitAppData: (a: AppRow, input: { data: unknown; createdBy?: unknown; idempotencyKey?: unknown; submitterTicket?: unknown; subject?: string; channel: { name: 'app-data.rest' | 'app-data.tool'; hasCredential: boolean } }) => Promise<{ status: number; body: Record<string, unknown> }>;
   pageLimit: (v: unknown, def?: number, max?: number) => number;
   pageBeforeId: (v: unknown) => number;
@@ -107,7 +108,7 @@ export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void
     readAllowed(req, res, route, download).then((ok) => { if (ok) run(fn, req, res, next); }, next);
   };
   app.post('/api/apps/:slug/data', { action: 'app-data.submit', kind: 'write' }, aw(async (req, res) => {
-    const a = getApp(req.params.slug);
+    const a = getApp(req.params.slug, true);
     const b = req.body ?? {};
     // 兼容 {data: {...}} 或直接 {...} 两种形态；幂等键只认信封字段或 Idempotency-Key 头（直接形态的字段都算数据）
     const envelope = b.data !== undefined && b.data !== null;
@@ -137,7 +138,7 @@ export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void
   }));
 
   app.post('/api/apps/:slug/files', { action: 'app-data.upload', kind: 'write' }, aw(async (req, res, next) => {
-    getApp(req.params.slug);
+    getApp(req.params.slug, true);
     // 先查文件数再收文件，满了不落盘
     const quota = await appFilesQuota(req.params.slug);
     if (quota.files_left <= 0) return res.status(413).json({ error: `该台文件数已达上限（${APP_FILES_MAX}）`, quota });
@@ -146,7 +147,7 @@ export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void
         if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: '文件超 100MB 上限' });
         return res.status(400).json({ error: `上传失败：${err.message}` });
       }
-      const a = getApp(req.params.slug);
+      const a = getApp(req.params.slug, true);
       if (!req.file) bad('缺少 file 字段（multipart/form-data）');
       const created_by = typeof req.body?.created_by === 'string' ? req.body.created_by.trim().slice(0, 128) : '';
       const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 500) : '';
@@ -169,12 +170,14 @@ export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void
   app.patch('/api/apps/:slug/files/:id', { action: 'app-data.file-note', kind: 'admin' }, aw(async (req, res) => {
     if (!adminGuard(req, res)) return; // #193 F3：写面人审（读开放·写删人审）
     if (!adminGuard(req, res)) return; // #193 F3：写面人审（读开放·写删人审）
-    const a = getApp(req.params.slug);
+    const a = getApp(req.params.slug, true);
     const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 500) : undefined;
     if (note === undefined) bad('note 必填（字符串）');
-    const hit = await svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug);
-    if (!hit) throw new HttpError(404, `file not found: ${req.params.id}`);
-    await svc<AppDataService>('appData').fileUpdateNote(Number(req.params.id), a.slug, note!);
+    await svc<AppDataService>('appData').serialWrites(a.slug, async () => { // 查在不在 → 改，排在这个台的写入队里
+      const hit = await svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug);
+      if (!hit) throw new HttpError(404, `file not found: ${req.params.id}`);
+      await svc<AppDataService>('appData').fileUpdateNote(Number(req.params.id), a.slug, note!);
+    });
     res.json({ ok: true, id: Number(req.params.id), note });
   }));
 
@@ -182,18 +185,21 @@ export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void
   app.delete('/api/apps/:slug/files/:id', { action: 'app-data.file-delete', kind: 'admin' }, aw(async (req, res) => {
     if (!adminGuard(req, res)) return; // #193 F3
     if (!adminGuard(req, res)) return; // #193 F3
-    const a = getApp(req.params.slug);
-    const hit = await svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug);
-    if (!hit) throw new HttpError(404, `file not found: ${req.params.id}`);
-    if (!(await svc<AppDataService>('appData').fileSoftDelete(Number(req.params.id), a.slug))) throw new HttpError(404, `file not found: ${req.params.id}`); // #193 F5：幂等假绿修（不存在→404）
+    const a = getApp(req.params.slug, true);
+    // 软删附件排在这个台的写入队里：契约「查附件在不在 → 插入提交」中间不会被它插进来（不会写进引用了已删附件的提交）
+    await svc<AppDataService>('appData').serialWrites(a.slug, async () => {
+      const hit = await svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug);
+      if (!hit) throw new HttpError(404, `file not found: ${req.params.id}`);
+      if (!(await svc<AppDataService>('appData').fileSoftDelete(Number(req.params.id), a.slug))) throw new HttpError(404, `file not found: ${req.params.id}`); // #193 F5：幂等假绿修（不存在→404）
+    });
     res.json({ ok: true, id: Number(req.params.id), deleted: 'soft' });
   }));
 
   app.delete('/api/apps/:slug/data/:id', { action: 'app-data.delete', kind: 'admin' }, aw(async (req, res) => {
     if (!adminGuard(req, res)) return; // #193 F3
     if (!adminGuard(req, res)) return; // #193 F3
-    const a = getApp(req.params.slug);
-    if (!(await svc<AppDataService>('appData').dataSoftDelete(Number(req.params.id), a.slug))) throw new HttpError(404, `data not found: ${req.params.id}`); // #193 F5
+    const a = getApp(req.params.slug, true);
+    if (!(await svc<AppDataService>('appData').serialWrites(a.slug, () => svc<AppDataService>('appData').dataSoftDelete(Number(req.params.id), a.slug)))) throw new HttpError(404, `data not found: ${req.params.id}`); // #193 F5
     res.json({ ok: true, id: Number(req.params.id), deleted: 'soft' });
   }));
 

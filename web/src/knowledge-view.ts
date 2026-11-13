@@ -87,3 +87,65 @@ export const SOURCE_DEGRADED = '经验库最近一次没更新上，这里的内
 export const emptyKindText = (tab: KnowledgeTab): string => (tab === 'all' ? KNOWLEDGE_EMPTY : `「${kindLabel(tab)}」这一类还没有内容。`);
 /** 依据原文的出处链接：只认 http / https，别的不做成链接 */
 export const safeUrl = (u: unknown): string | null => (typeof u === 'string' && /^https?:\/\//i.test(u) ? u : null);
+
+/** 「项目 → 部门」对照（#729，GET/PUT /api/knowledge/project-depts，只有管理层和属主看得到、改得了）。
+ *  经验库里有项目、没给范围的条目，按这张表当那个部门的部门级；对不上部门的只给管理层看。
+ *  部门的标识只当下拉的值、在 PUT 里回传，不写在页面的字上；项目名照 ygl-trees 原样显示。 */
+export type ProjectDept = { project: string; department: { id: string; name: string } | null; department_missing: boolean; items: number; updated_at: number | null };
+export type ProjectDeptLog = { project: string; old_department: string | null; old_department_name: string | null; new_department: string | null; new_department_name: string | null; by_name: string | null; at: number };
+export type ProjectDepts = { projects: ProjectDept[]; log: ProjectDeptLog[]; departments: { id: string; name: string }[] };
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const nameOrNull = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
+const deptOf = (v: unknown): { id: string; name: string } | null => {
+  if (!v || typeof v !== 'object') return null;
+  const d = v as Record<string, unknown>;
+  return typeof d.id === 'string' && d.id && typeof d.name === 'string' ? { id: d.id, name: d.name } : null;
+};
+/** 应答整形：形状不对的行丢掉，不让页面在非数组上崩 */
+export function asProjectDepts(body: unknown): ProjectDepts {
+  const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+  const projects = (Array.isArray(b.projects) ? b.projects : []).flatMap((v): ProjectDept[] => {
+    if (!v || typeof v !== 'object') return [];
+    const x = v as Record<string, unknown>;
+    if (typeof x.project !== 'string' || !x.project) return [];
+    return [{ project: x.project, department: deptOf(x.department), department_missing: x.department_missing === true, items: Math.max(0, num(x.items) ?? 0), updated_at: num(x.updated_at) }];
+  });
+  const log = (Array.isArray(b.log) ? b.log : []).flatMap((v): ProjectDeptLog[] => {
+    if (!v || typeof v !== 'object') return [];
+    const x = v as Record<string, unknown>;
+    if (typeof x.project !== 'string' || num(x.at) === null) return [];
+    return [{ project: x.project, old_department: nameOrNull(x.old_department), old_department_name: nameOrNull(x.old_department_name), new_department: nameOrNull(x.new_department), new_department_name: nameOrNull(x.new_department_name), by_name: nameOrNull(x.by_name), at: num(x.at)! }];
+  });
+  const departments = (Array.isArray(b.departments) ? b.departments : []).map(deptOf).filter((d): d is { id: string; name: string } => d !== null);
+  return { projects, log, departments };
+}
+/** 这个项目现在归谁看：对到部门写部门名；对到的部门已经删了提示重设；没对写只给管理层 */
+export const NO_DEPT = '不对应部门（只给管理层看）';
+export function projectDeptText(p: Pick<ProjectDept, 'department' | 'department_missing'>): { text: string; warn: boolean } {
+  if (p.department_missing) return { text: '部门已不在，请重设', warn: true };
+  if (p.department) return { text: p.department.name, warn: false };
+  return { text: NO_DEPT, warn: false };
+}
+/** 改动记录的一句：谁把哪个项目从哪个部门改到哪个部门。名字查不到时不露标识：人写「一位同事」，部门写「一个已删的部门」；没对部门写「不对应部门」 */
+const logDept = (id: string | null, name: string | null): string => (id === null ? '不对应部门' : name ? `「${name}」` : '一个已删的部门');
+export function projectDeptLogLine(l: ProjectDeptLog): string {
+  return `${l.by_name ?? '一位同事'}把「${l.project}」从${logDept(l.old_department, l.old_department_name)}改成${logDept(l.new_department, l.new_department_name)}`;
+}
+/** 改没改成：401 请先登录；403 没有这个权限；404 选的部门已经不在了；400 别的不对；断网、别的稍后再试。不露代号 */
+export function projectDeptSaveError(status: number, body: unknown): string {
+  const code = body && typeof body === 'object' ? (body as { error?: unknown }).error : undefined;
+  if (status === 401) return '请先登录。';
+  if (status === 403) return '只有管理层和属主能改这张表。';
+  if (status === 404 || code === 'department_missing') return '选的部门已经不在了，刷新一下再选。';
+  if (status === 400) return '这一项改不了，刷新一下再试。';
+  if (status === 0) return '连不上服务器，没改成，稍后再试。';
+  return '没改成，稍后再试。';
+}
+/** 打开这张表读不到时怎么说 */
+export function projectDeptsProblem(status: number): { text: string; retry: boolean } | null {
+  if (status >= 200 && status < 300) return null;
+  if (status === 401) return { text: '请先登录。', retry: false };
+  if (status === 403) return { text: '项目对应哪个部门决定谁能看哪些经验，只有管理层和属主能看、能改这张表。', retry: false };
+  if (status === 0) return { text: '连不上服务器，稍后再试。', retry: true };
+  return { text: '读不到这张表，稍后再试。', retry: true };
+}

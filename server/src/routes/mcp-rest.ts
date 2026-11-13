@@ -41,7 +41,8 @@ export interface McpRestDeps {
   mcpToolAllowsApp: (sess: McpSess | null, toolName: string, slug: string) => boolean;
   mcpRestRun: (sess: McpSess | null, tool: string, op: string, auditArgs: unknown, fn: () => Promise<void> | void) => Promise<void>;
   bad: (msg: string) => never;
-  getApp: (slug: string) => AppRow;
+  /** forWrite：正在删除的台写入回 409 */
+  getApp: (slug: string, forWrite?: boolean) => AppRow;
   appFilesQuota: (slug: string) => Promise<object & { files_left: number }>;
   APP_FILES_MAX: number;
   UPLOAD_MAX: number;
@@ -106,7 +107,7 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
       // 期望的 sha256（请求头 X-Content-SHA256，可选）：带了就在落库前核对，不符拒收、不保存
       const wantSha = expectedSha256(req.headers['x-content-sha256']);
       if (wantSha === 'bad') bad('X-Content-SHA256 须为 64 位十六进制');
-      const a = getApp(req.params.slug);
+      const a = getApp(req.params.slug, true); // 正在删除的台：上传 409
       { const quota = await appFilesQuota(a.slug); if (quota.files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`, { quota }); }
       const declared = Number(req.headers['content-length']);
       if (Number.isFinite(declared) && declared > UPLOAD_MAX) throw new HttpError(413, '文件超 100MB 上限');
@@ -142,7 +143,7 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
     const sess = mcpRestSession(req, res, 'app_files_upload', 'file_upload');
     if (sess === undefined) return;
     await mcpRestRun(sess, 'app_files_upload', 'file_upload', { slug: req.params.slug }, async () => {
-      const a = getApp(req.params.slug);
+      const a = getApp(req.params.slug, true); // 正在删除的台：上传 409
       { const quota = await appFilesQuota(a.slug); if (quota.files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`, { quota }); }
       await new Promise<void>((resolve, reject) => upload.single('file')(req, res, (err: any) => {
         if (!err) return resolve();

@@ -46,6 +46,7 @@ import { registerPrincipalRoutes } from './routes/principals.ts';
 import { loadRoleDeclarations, registerGrantRoutes } from './routes/grants.ts';
 import { installBuiltinJudge } from './judgment.ts';
 import { actorResolver, compareConfig, mountJudgmentCompare } from './judgment-compare.ts';
+import { rememberRefusal } from './knowledge-remember.ts';
 import { checkEnforce, enforceConfig, enforceGate, type EnforceConfig } from './judgment-enforce.ts';
 import { registerAttentionRoutes } from './routes/attention.ts';
 import { registerWorkItemRoutes } from './routes/work-items.ts';
@@ -68,6 +69,7 @@ import { registerLoginFlowRoutes } from './routes/login-flows.ts';
 import { registerLoginGateRoutes } from './routes/login-gate.ts';
 import { registerWorkbenchRoutes } from './routes/workbenches.ts';
 import { registerSpaFallbackRoute } from './routes/spa-fallback.ts';
+import { registerContentOpenRoutes } from './routes/content-open.ts';
 import { registerSopPageRoutes } from './routes/sop-page.ts';
 import { registerLoginEventRoutes } from './routes/login-events.ts';
 import { registerTaskRoutes } from './routes/tasks.ts';
@@ -104,7 +106,7 @@ import type { TaskCenterService } from './services/task-center.ts';
 import type { RemoteAllowService } from './services/remote-allow.ts';
 import { SkillService } from './services/skill.ts';
 import type { AppService } from './services/app.ts';
-import type { AppDataService } from './services/app-data.ts';
+import { Config as AppDataConfig, type AppDataService } from './services/app-data.ts';
 import type { GrantService } from './services/grant.ts';
 import type { DepartmentService } from './services/department.ts';
 import type { CookieService } from './services/cookie.ts';
@@ -166,6 +168,8 @@ setBenchRequestTtlHours((() => { try { return benchRequestTtlConfig(); } catch (
 // 工作台的常量、变量存在哪（WM_VARS_STORE：main / shadow / bench，缺省 main）。不合法拒绝启动；起来时报一次已有的 hot. 开头的键
 setVarsStoreMode((() => { try { return loadConfig(VarsConfig).store; } catch (e) { console.error(`[vars] 拒绝启动：${(e as Error).message}`); process.exit(1); } })());
 reportHotVarKeys();
+// 台的提交记录和附件存在哪（WM_APP_DATA_STORE：main / shadow / bench，缺省 main）。不合法拒绝启动
+svc<AppDataService>('appData').setMode((() => { try { return loadConfig(AppDataConfig).store; } catch (e) { console.error(`[app-data] 拒绝启动：${(e as Error).message}`); process.exit(1); } })());
 reportHotPending(); // 上一个 bench 档进程留在 Redis 里没落盘的高频变量：不是 bench 档时醒目报一次
 startHotVarsFlush(); // 高频变量（hot. 开头的键）每 30 秒落一次台库；只在 bench 档、配了 Redis 时有活
 // 全站登录门（WM_LOGIN_GATE=enforce|off，缺省 off）：紧跟启动自检门，早于内容分发、解析器、静态资源、SPA 回落和各路由。
@@ -192,6 +196,8 @@ const SESSION_TTL_MIN = (() => {
   if (!Number.isInteger(n) || n < 15 || n > 10080) { console.error('[session] 拒绝启动：WM_SESSION_TTL_MIN 只接受 15～10080 的整数（分钟）'); process.exit(1); }
   return n;
 })();
+/** 记成经验那几处认人用（管理口令认成内置身份，不能记） */
+const rememberActorOf = actorResolver({ adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined) });
 const loginGateViewer = identity().cachedResolver({ ttlMs: 30_000, max: 2000 }); // 提供方的回答最多留 30 秒；主体停没停用每次现查
 const loginGate = createLoginGate({
   mode: LOGIN_GATE_MODE,
@@ -222,7 +228,8 @@ const loginGate = createLoginGate({
     return { principal: who.viewer.sub, display_name: who.viewer.name ?? null, roles };
   },
   // /api/auth/me 的 can：这个请求能做的、不属于某一个对象的事（只增）。和对应的写路由问同一处
-  can: async (req) => ({ create_cockpit: await cockpits.can(req, 'cockpit.create') }),
+  // remember_knowledge：能不能把拍板记成经验（和 POST /api/knowledge/remember、「关注」答复里的 remember 同一处判断，knowledge-remember.ts 的 rememberRefusal）
+  can: async (req) => ({ create_cockpit: await cockpits.can(req, 'cockpit.create'), remember_knowledge: rememberRefusal((await rememberActorOf(req)).actor) === null }),
   appToken: (slug) => wmAppToken(slug),
   varsAppTokenOk: (req) => workbenchVars.appTokenWrite(req),
   runCapOk: async (kind, runId, presented) => {
@@ -366,18 +373,8 @@ const contentRuntime = contentCfg ? createContentSurface(contentCfg, {
     return { url: w.url, authorization: w.auth?.type === 'bearer' ? 'Bearer ' + w.auth.value : w.auth?.type === 'basic' ? 'Basic ' + Buffer.from(w.auth.value, 'utf8').toString('base64') : undefined };
   },
 }) : null;
-if (contentRuntime) {
-  mountContentSurface(app, contentRuntime); // TERMINAL content dispatch before every shared parser/route/SPA
-  app.use((req, res, next) => {
-    if (!req.url.startsWith('/content/open/')) return next();
-    if (surfaceOf(req) !== 'market') return res.status(404).end();
-    contentRuntime.launch(req, res, next);
-  });
-  app.use((req, res, next) => {
-    if (surfaceOf(req) !== 'market') return next();
-    contentRuntime.migrate(req, res, next);
-  });
-}
+if (contentRuntime) mountContentSurface(app, contentRuntime); // TERMINAL content dispatch before every shared parser/route/SPA
+registerContentOpenRoutes(http, contentRuntime); // 市场面上的启动页与迁移跳转（路由在 routes/content-open.ts；没配内容面时放过）
 // issue #1：CORS 从全开放收紧为白名单——生产形态（web/dist 由本服务同源托管）不需要跨源；
 // 仅 web dev（vite 5173，其 /api 代理是同源转发、但直连调试场景保留）放行本机回环源。
 // /mcp 为 StreamableHTTP POST（非浏览器 fetch 场景不受 CORS 约束；浏览器 MCP 客户端经同源门户）。
@@ -514,6 +511,8 @@ const REMOTE_ALLOW_PREFIX = [
   // 数据视图的入口（开关关着时每条都回 404）：路由内自己判——先拒管理口令，再经身份服务认人、问判定，只有管理层和范围是「全部」的授予放行。
   // 这道门要的恰恰是管理口令，而这组路由不认管理口令，所以登记在这里
   /^\/api\/bench-views(\/[a-z0-9][a-z0-9-]{0,63}(\/[a-z0-9_/-]{1,160})?)?$/,
+  // 经验库「记成经验」：管理层、属主拍板之后补记（他们大多不是管理员）。路由内认人、核同源、按拍板类问判定、核这个人答过这一条；只此一条路径
+  /^\/api\/knowledge\/remember$/,
   // 经验库的「项目 → 部门」对照：管理层、属主改（他们大多不是管理员；系统管理员、管理口令反而不行）。路由内认人、核同源、按拍板类问判定；只此一条路径
   /^\/api\/knowledge\/project-depts$/,
 ];
@@ -780,7 +779,10 @@ function workbenchUpdateCore(id: number, body: any, ctx: WriteCtx = { subject: '
 
 // 删卡片连带它的台库（bench-card-delete.ts）：台库里有数据时要管理层并且确认，删前留备份；卡片本身那一份和台的登记在一个事务里
 async function workbenchDeleteCore(id: number, deleter: CardDeleter = { kind: 'anonymous' }, confirmBenchData = false): Promise<{ ok: boolean; deleted: number }> {
-  return deleteCardWithBench({
+  // 第 6 步（WM_APP_DATA_STORE 不是 main）：台的卡片的台库里有这个台的提交和附件，删卡片就是删它们——先对齐进台库，让下面那道门看得到规模
+  const cardRow = svc<WorkbenchService>('workbench').byId(id) as { url?: unknown } | undefined;
+  const appSlug = cardRow && typeof cardRow.url === 'string' ? await svc<AppDataService>('appData').beforeCardDelete(cardRow.url, id) : null;
+  const out = await deleteCardWithBench({
     id, deleter, confirmBenchData,
     exists: () => !!svc<WorkbenchService>('workbench').byId(id),
     deleteCard: (slug) => {
@@ -799,6 +801,14 @@ async function workbenchDeleteCore(id: number, deleter: CardDeleter = { kind: 'a
       }
     },
   });
+  if (appSlug) {
+    // 门过了、卡片删了（台库删前留了备份）：主库那份和附件字节一起删，不然以后再登记卡片时会按主库重抄回来
+    const files = await svc<AppDataService>('appData').filePaths(appSlug);
+    await svc<AppDataService>('appData').dataDelete(appSlug);
+    for (const f of files) { try { rmSync(join(dataDir, f), { force: true }); } catch { /* 已删 */ } }
+    await svc<AppDataService>('appData').filesDelete(appSlug);
+  }
+  return out;
 }
 
 /** 审计主体：只认已核的管理口令；X-Market-Client 等自报头不算身份 */
@@ -932,11 +942,20 @@ const LAYERFS_SYSTEM_PROJECTS: ReadonlySet<string> = new Set([LAYERFS_SKILLS_PRO
 const MAX_APP_FILES = 64;
 const MAX_APP_TOTAL_BYTES = 100 * 1024 * 1024;
 
-function getApp(slug: string): AppRow {
+/**
+ * 取一个台。正在删除的台（status = deleting：删台已经删了它的卡片、远端或本地还没删完，见 deleteAppCascade）：
+ * 读按不存在处理（和不存在同一个 404）；forWrite（提交、上传、改备注、软删、同步发布）回 409，说明正在删除
+ */
+function getApp(slug: string, forWrite = false): AppRow {
   const row = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
+  if (row && row.status === APP_DELETING) {
+    if (forWrite) throw new HttpError(409, `台 ${slug} 正在删除，不接受写入`, { code: 'app_deleting' });
+    throw new HttpError(404, `app not found: ${slug}`);
+  }
   if (!row) throw new HttpError(404, `app not found: ${slug}`);
   return row;
 }
+const APP_DELETING = 'deleting';
 
 function appDetail(a: AppRow) {
   const versions = (svc<AppService>('app').versions(a.id) as unknown as AppVersionRow[]).map(v => ({ ...v, shadow_status: (v as any).shadow_status ?? (v.commit_id ? 'succeeded' : 'pending'), shadow_error: String((v as any).shadow_error ?? '') }));
@@ -1140,6 +1159,7 @@ function publishAppBody(b: any, source?: { repo: string; path: string; commit: s
     files = validateAppFiles(b.files, kind);
   }
   const existing = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
+  if (existing?.status === APP_DELETING) throw new HttpError(409, `台 ${slug} 正在删除，不接受写入`, { code: 'app_deleting' });
   if (existing && existing.kind !== kind) bad(`slug 已被 ${existing.kind} 类台占用，kind 不可切换`);
 
   // SOP 类发布面：sop.yaml 必在且可解析、changelog 必填（版本化治理）
@@ -1251,6 +1271,7 @@ async function syncAppFromGithub(slug: string, b: any, who: string): Promise<{ s
   if (slug === 'task-center') throw new HttpError(403, 'task-center 内置元台不从仓库同步');
   if (layerfsReservedSlug(slug)) bad('slug 是系统保留名（LayerFS 系统项目），换一个');
   const existing = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
+  if (existing?.status === APP_DELETING) throw new HttpError(409, `台 ${slug} 正在删除，不接受写入`, { code: 'app_deleting' });
   const rebind = b?.source_repo !== undefined;
   if (!existing && !rebind) bad('该台尚未登记来源：首次同步须带 source_repo（owner/repo），可选 source_path');
   let src: { repo: string; path: string };
@@ -1383,13 +1404,20 @@ async function layerfsPublish(project: string, files: { path: string; content: s
 
 /**
  * 删台。card：删这个台的卡片的人、是否确认删台库里的业务数据（卡片的台库有数据时要管理层并且确认，见 bench-card-delete.ts）。
- * 这道门在任何删除之前先过（远端项目删了就回不来）；过了之后卡片逐张走删卡片那条路——台库（删前备份）、常量变量、驾驶舱面板一起处理，
- * 不再直接删卡片行（原来那样台库会留成孤儿，常量变量和驾驶舱面板也悬着）
+ * 这道门在任何删除之前先过；过了之后**紧接着**删卡片（逐张走删卡片那条路——台库删前备份、常量变量、驾驶舱面板一起处理），然后才删远端项目和台本身。
+ * 门和删卡片之间不隔着远端调用（要几秒）：原来先删远端、最后才删卡片，这几秒里某张卡片的台库第一次写进数据，第二次过门就 409，台删了、卡片还在（半截）。
+ * 现在远端删失败（502）时卡片已经按确认删了，台标成「删除中」（写入 409、读按不存在、发布也 409）——重试删台就收尾，不会留下「台没了、卡片和它的数据还在」。
  */
 async function deleteAppCascade(slug: string, card: { deleter: CardDeleter; confirmBenchData: boolean } = { deleter: { kind: 'anonymous' }, confirmBenchData: false }): Promise<void> {
-  const a = getApp(slug);
+  // 正在删除的台也取得到：上一次删到一半（远端删失败）的，重试照常收尾
+  const a = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
+  if (!a) throw new HttpError(404, `app not found: ${slug}`);
   const cardIds = svc<WorkbenchService>('workbench').idsByAppUrls(`/apps/${a.slug}/`, `/sop/${a.slug}/`);
-  for (const id of cardIds) await checkCardDeletable(id, card.deleter, card.confirmBenchData);
+  for (const id of cardIds) {
+    const row = svc<WorkbenchService>('workbench').byId(id) as { url?: unknown } | undefined;
+    if (row && typeof row.url === 'string') await svc<AppDataService>('appData').beforeCardDelete(row.url, id); // 第 6 步：提交和附件先对齐进台库，门才看得到
+    await checkCardDeletable(id, card.deleter, card.confirmBenchData);
+  }
   // Remove remote state first and retain local state on failure; without LayerFS config, apps never written there stay deletable.
   const versions = svc<AppService>('app').versions(a.id) as any[];
   const hasLayerfsState = Boolean((a as any).layerfs_project) || versions.some(v => String(v.commit_id ?? '') !== '');
@@ -1399,6 +1427,13 @@ async function deleteAppCascade(slug: string, card: { deleter: CardDeleter; conf
   const reserved = layerfsReservedSlug(slug);
   if (reserved) console.warn(`[layerfs] 删台 ${slug}：slug 是系统保留项目名，跳过远端删除`);
   if (hasLayerfsState && !base && !reserved) throw new HttpError(503, 'LayerFS service is required to delete an app with LayerFS data');
+  // 删卡片之前先把台标成「删除中」：从这里起到删完（包括远端删失败、台留着等重试），这个台的写入一律 409、读按不存在处理——
+  // 卡片和台库已经没了，不能再往一个没有卡片的台里写。重试删台照常收尾；要撤销，由管理层从备份恢复卡片（设计稿，暂不做入口）
+  if (a.status !== APP_DELETING) svc<AppService>('app').setStatus(a.id, APP_DELETING);
+  // issue #6：清理应用与 SOP 对应的工作台注册——过了门紧接着逐张走删卡片那条路（台库删前备份、常量变量、驾驶舱面板一起），在远端调用之前
+  for (const id of cardIds) {
+    try { await workbenchDeleteCore(id, card.deleter, card.confirmBenchData); } catch (e) { if (!(e instanceof HttpError && e.status === 404)) throw e; } // 期间已被删了就算了
+  }
   if (base && !reserved) {
     let remote: Response;
     try {
@@ -1417,10 +1452,6 @@ async function deleteAppCascade(slug: string, card: { deleter: CardDeleter; conf
   const files = await svc<AppDataService>('appData').filePaths(slug);
   for (const f of files) { try { rmSync(join(dataDir, f), { force: true }); } catch { /* 已删 */ } }
   await svc<AppDataService>('appData').filesDelete(slug);
-  // issue #6：清理应用与 SOP 对应的工作台注册——逐张走删卡片那条路（台库、常量变量、驾驶舱面板一起）
-  for (const id of cardIds) {
-    try { await workbenchDeleteCore(id, card.deleter, card.confirmBenchData); } catch (e) { if (!(e instanceof HttpError && e.status === 404)) throw e; } // 期间已被删了就算了
-  }
 }
 
 // ---------- 自产台数据提交面（监督席派单 direct-22838fab：台不仅是看板，有交互提交数据） ----------
@@ -1468,21 +1499,9 @@ function idemScope(channel: 'app-data.rest' | 'app-data.tool', subject: string |
 }
 /** 台数据写入核心：REST POST /api/apps/:slug/data 与 MCP app_data_submit 共用——1MB 上限、数据契约、幂等键、写入后推事件。
  *  违约不抛错，回 status 400 + violations，由两个入口各自原样交出去。 */
-/**
- * 同一个台的提交一笔一笔来（进程内排队）：「查幂等键 → 写入」中间有 await，不排队的话同键的两笔并发会都查不到、后一笔撞唯一索引。
- * 原来全是同步调用、天然不会交错；改成异步以后靠这个队保持原来的次序和结果
- */
-const submitQueues = new Map<string, Promise<unknown>>();
-function inSlugQueue<T>(slug: string, fn: () => Promise<T>): Promise<T> {
-  const prev = submitQueues.get(slug) ?? Promise.resolve();
-  const run = prev.then(fn, fn);
-  const tail = run.then(() => undefined, () => undefined);
-  submitQueues.set(slug, tail);
-  void tail.then(() => { if (submitQueues.get(slug) === tail) submitQueues.delete(slug); });
-  return run;
-}
 function submitAppData(a: AppRow, input: Parameters<typeof submitAppDataNow>[1]): ReturnType<typeof submitAppDataNow> {
-  return inSlugQueue(a.slug, () => submitAppDataNow(a, input));
+  // 同一个台的写入排队（services/app-data.ts 的 serialWrites）：查幂等键、契约查附件 → 插入，中间不让别的写入插进来
+  return svc<AppDataService>('appData').serialWrites(a.slug, () => submitAppDataNow(a, input));
 }
 async function submitAppDataNow(a: AppRow, input: { data: unknown; createdBy?: unknown; idempotencyKey?: unknown; submitterTicket?: unknown; subject?: string; channel: { name: 'app-data.rest' | 'app-data.tool'; hasCredential: boolean } }): Promise<{ status: number; body: Record<string, unknown> }> {
   const data = input.data;
@@ -1575,8 +1594,13 @@ async function appFileStoreCore(slug: string, f: { path: string; size: number; n
   const kind = uploadKindOrThrow(f.path, f.size, f.name, f.reportedMime);
   // 存储相对路径（dataDir 内，随数据目录迁移）
   const rel = f.path.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
-  const id = await svc<AppDataService>('appData').fileInsert(slug, f.name, kind.mime, f.size, rel, f.createdBy, f.note, f.sha256 ?? ''); // #132 P0①：note 落库；sha256 有就存（下载 ETag 不再重算）
-  return { ok: true, id, slug, name: f.name, mime: kind.mime, size: f.size, note: f.note, url: `/api/apps/${slug}/files/${id}` };
+  // 查文件数上限 → 插入，排在这个台的写入队里：入口在收文件之前查过一次，这里排到了再核一次（并发的两笔不会一起用掉最后一个名额）
+  return svc<AppDataService>('appData').serialWrites(slug, async () => {
+    const quota = await appFilesQuota(slug);
+    if (quota.files_left <= 0) { rmSync(f.path, { force: true }); throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`, { quota }); }
+    const id = await svc<AppDataService>('appData').fileInsert(slug, f.name, kind.mime, f.size, rel, f.createdBy, f.note, f.sha256 ?? ''); // #132 P0①：note 落库；sha256 有就存（下载 ETag 不再重算）
+    return { ok: true, id, slug, name: f.name, mime: kind.mime, size: f.size, note: f.note, url: `/api/apps/${slug}/files/${id}` };
+  });
 }
 /** 上传落盘位置（multer 与原始字节上传同规则）：uploads/<YYYYMM>/<时间戳>-<随机><原扩展名> */
 function uploadMonthDir(): string {
@@ -2031,7 +2055,7 @@ registerDepartmentRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, admin
 registerTeamRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 团队与分配（规范 14 第 1 步）：登录的人按可见范围读；认领、负责人是管理员，分配是负责人
 registerRelationRoutes(http, { markOdooAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 关系的提议（规范 14「关系由谁说了算」）：负责人、团队认领要属主或业务侧确认
 registerAccessRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 角色预设 ②：以某人的身份看、红线清单、首次安装向导
-registerAttentionRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
+registerAttentionRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
 registerWorkItemRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8d：事项页的时间线
 registerRosterRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段七：团队名册的读（登录即可读，只有席位信息）
 
@@ -3043,7 +3067,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
     }
     case 'app_data_submit': {
       // 与 REST POST /api/apps/:slug/data 同一核心（契约校验、幂等、事件推送）；违约 → 400 + violations 原样
-      const a = getApp(String(args?.slug ?? ''));
+      const a = getApp(String(args?.slug ?? ''), true);
       if (args?.data === undefined || args?.data === null) bad('data 必填');
       // 工具调用凭的是会话令牌（席位、agent），不看 cookie
       const out = await submitAppData(a, { data: args.data, createdBy: args?.created_by ?? subject, idempotencyKey: args?.idempotency_key, subject, channel: { name: 'app-data.tool', hasCredential: false } });
@@ -3066,7 +3090,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       const name = fixFileName(String(args?.name ?? '').trim());
       const b64 = String(args?.content_base64 ?? '');
       if (!slug || !name || !b64) throw new HttpError(400, 'slug/name/content_base64 必填');
-      const a = getApp(slug);
+      const a = getApp(slug, true);
       // 完整性：有的 MCP 客户端会把过长的参数截短（常见截在 64KB）。截在 4 的倍数上的 base64 照样能解码，
       // 不核就会把残缺文件当正常文件存下。所以：base64 严格校验；调用方带了 size / sha256 就逐项对；
       // 恰好 65536 字符又没带 size / sha256 的，按疑似截断拒收（要么带上 size / sha256，要么改用 REST 原始字节上传）。
@@ -3082,22 +3106,25 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       if (buf.length > UPLOAD_MAX) throw new HttpError(413, `文件超 100MB 上限（${buf.length}B）`);
       if (wantSize !== null && buf.length !== wantSize) throw new HttpError(400, `收到 ${buf.length} 字节，声明 ${wantSize} 字节：内容可能在传输中被截断，未保存`);
       if (wantSha !== null && createHash('sha256').update(buf).digest('hex') !== wantSha) throw new HttpError(400, `收到内容的 sha256 与声明不符（收到 ${buf.length} 字节）：内容可能在传输中被截断或改动，未保存`);
-      if ((await appFilesQuota(a.slug)).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`); // #193 F8：全量计数；上限与浏览器上传共用
-      // 与浏览器上传同一套内容类型检查：扩展名与内容不符、或是可执行文件 → 拒收；相符则存规范 MIME
-      const kind = sniff(name, buf.subarray(0, 1024 * 1024), buf.length <= 1024 * 1024, String(args?.mime ?? ''));
-      if (kind.verdict === 'mismatch' || kind.verdict === 'executable') throw new HttpError(415, `文件类型不符：${kind.reason}`);
-      const dir = join(dataDir, 'uploads');
-      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-      const safe = name.replace(/[^\w.\u4e00-\u9fa5-]+/g, '_').slice(0, 80);
-      const fname = `${Date.now().toString(36)}-${safe}`;
-      const abs = join(dir, fname);
-      writeFileSync(abs, buf);
-      const rel = abs.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
-      const createdBy = String(args?.created_by ?? '').trim().slice(0, 128);
-      const note = String(args?.note ?? '').trim().slice(0, 500);
-      const sha256 = createHash('sha256').update(buf).digest('hex');
-      const id = await svc<AppDataService>('appData').fileInsert(a.slug, name, kind.mime, buf.length, rel, createdBy, note, sha256);
-      return { ok: true, id, slug: a.slug, name, mime: kind.mime, size: buf.length, sha256, note, url: `/api/apps/${a.slug}/files/${id}`, ...uploadIntegrity(wantSha, wantSize) };
+      // 查文件数上限 → 落盘 → 插入，排在这个台的写入队里（并发的两笔不会一起用掉最后一个名额）
+      return svc<AppDataService>('appData').serialWrites(a.slug, async () => {
+        if ((await appFilesQuota(a.slug)).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`); // #193 F8：全量计数；上限与浏览器上传共用
+        // 与浏览器上传同一套内容类型检查：扩展名与内容不符、或是可执行文件 → 拒收；相符则存规范 MIME
+        const kind = sniff(name, buf.subarray(0, 1024 * 1024), buf.length <= 1024 * 1024, String(args?.mime ?? ''));
+        if (kind.verdict === 'mismatch' || kind.verdict === 'executable') throw new HttpError(415, `文件类型不符：${kind.reason}`);
+        const dir = join(dataDir, 'uploads');
+        if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+        const safe = name.replace(/[^\w.\u4e00-\u9fa5-]+/g, '_').slice(0, 80);
+        const fname = `${Date.now().toString(36)}-${safe}`;
+        const abs = join(dir, fname);
+        writeFileSync(abs, buf);
+        const rel = abs.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
+        const createdBy = String(args?.created_by ?? '').trim().slice(0, 128);
+        const note = String(args?.note ?? '').trim().slice(0, 500);
+        const sha256 = createHash('sha256').update(buf).digest('hex');
+        const id = await svc<AppDataService>('appData').fileInsert(a.slug, name, kind.mime, buf.length, rel, createdBy, note, sha256);
+        return { ok: true, id, slug: a.slug, name, mime: kind.mime, size: buf.length, sha256, note, url: `/api/apps/${a.slug}/files/${id}`, ...uploadIntegrity(wantSha, wantSize) };
+      });
     }
     default:
       throw new HttpError(400, `未知工具: ${name}`);
@@ -3734,10 +3761,13 @@ async function mcpRestRunReadable(req: express.Request, sess: McpSess | null, ru
 }
 const runIdParam = (v: unknown): number => { if (!/^\d+$/.test(String(v))) throw new HttpError(404, `run not found: ${v}`); return Number(v); };
 registerMcpRestRoutes(http, { wrap, serveMcpOpenApi, mcpGatewaySession, mcpAudit, mcpRegisteredNames, MCP_REST_DENIED_HINT, mcpInvokeTool, mcpPublicOrigin, mcpRestSession, mcpToolAllowsApp, mcpRestRun, bad, getApp, appFilesQuota, APP_FILES_MAX, UPLOAD_MAX, uploadMonthDir, uploadFileName, appFileStoreCore, MCP_REST_BASE, upload, fixFileName, fileSha256, sendStoredFile, restFileItem, mcpRestRunReadable, runIdParam, sopRunRow, runReadCapHeader });
-import { installPortal, goPrefix, moduleProxy } from './portal.ts';
+import { goPrefix, moduleProxy } from './portal.ts';
+import { registerPortalRoutes } from './routes/portal.ts';
+import { stripIncoming as stripPortalForward, verifyPortalForwardStrip, useMarketTokenCheck } from './portal-forward-headers.ts';
+useMarketTokenCheck((token) => mcpSessionByToken(token) !== null); // 门户转发时认得市场的 MCP 会话令牌，摘掉不往台带
 
 loginRelay().useTicketStore(sqliteSsoTicketStore()); // SSO 回调票据落库：重启不丢、同一 DATA_DIR 的实例共享
-installPortal(app, wbById, { serveApp, readActiveManifest, renderSopRunner, appsRoot });
+registerPortalRoutes(http, wbById, { serveApp, readActiveManifest, renderSopRunner, appsRoot }); // 门户 /go/（路由在 routes/portal.ts），挂在原来两层中间件的位置
 
 // ---------- 静态托管前端（生产形态：单端口） ----------
 const webDist = join(here, '..', '..', 'web', 'dist');
@@ -3860,7 +3890,7 @@ const goServer = registerSurface(app, 'market', PORT, () => {
 const controlServer = SURFACE_PORTS.control ? registerSurface(app, 'control', SURFACE_PORTS.control) : undefined;
 if (contentCfg && contentRuntime) listenContentSurface(app, contentCfg, contentRuntime, () => startupSecurity.snapshot().passed);
 
-void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, benchViews: BENCH_VIEWS.on, outbound: outboundOff() ? verifyOutboundGate : undefined, sessionSeal: sealSelfCheck }).then((result) => {
+void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, benchViews: BENCH_VIEWS.on, outbound: outboundOff() ? verifyOutboundGate : undefined, sessionSeal: sealSelfCheck, portalForward: verifyPortalForwardStrip }).then((result) => {
   if (!result.passed) return refuseUnsafeStartup();
   startupPassed(); // 放开启动闸：事项回填这类后台任务从这里开始（自检没过不开始）
   startRedis();
@@ -3935,6 +3965,7 @@ goServer.on('upgrade', async (req, socket, head) => {
   // ② Host 改成上游 authority，与 changeOrigin 语义一致；cookie 名是 authority 的 sha256，
   //    Host 不符则上游取不到签名 cookie → 401（实测）
   if (!loginRelay().isSessionTarget(w.url)) loginRelay().stripSession(req.headers); // 同 HTTP 门户：Odoo 会话只转给可信 Odoo 源
+  stripPortalForward(req.headers); // 同 HTTP 门户：市场自己的口令、令牌、凭据头和会话 cookie 不往台带
   const upstreamHost = u.host; // host:port（authority 形态）
   if (req.headers.origin !== undefined) req.headers.origin = u.origin;
   req.headers.host = upstreamHost;

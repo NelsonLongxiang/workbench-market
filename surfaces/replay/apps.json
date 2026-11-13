@@ -3136,36 +3136,10 @@
         {
           "id": "lfs-get-after-refused",
           "route": "GET /api/apps/:slug",
-          "class": "normal",
-          "what": "远端失败之后台还在，活跃版本仍是 v2，v2 的 shadow 是 failed",
+          "class": "invalid",
+          "what": "远端失败之后台留着等重试，但已经标成「删除中」（卡片先删了）：读按不存在处理，404",
           "request": { "method": "GET", "path": "/api/apps/replay-lfs-fail", "headers": {} },
-          "response": {
-            "status": 200,
-            "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "845", "etag": "W/\"34d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": {
-              "id": 3,
-              "slug": "replay-lfs-fail",
-              "title": "远端会失败",
-              "description": "回放预置",
-              "created_by": "seed",
-              "active_version": 2,
-              "status": "active",
-              "created_at": "YYYY-MM-DD hh:mm:ss",
-              "updated_at": "YYYY-MM-DD hh:mm:ss",
-              "layerfs_project": "",
-              "source_repo": "",
-              "source_path": "",
-              "kind": "app",
-              "code": "",
-              "a2a_node8": "",
-              "versions": [
-                { "id": 7, "app_id": 3, "version": 2, "file_count": 1, "total_bytes": 100, "created_by": "seed", "changelog": "种子 v2", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "failed", "shadow_error": "LayerFS publish failed; retry migrate-layerfs", "commit_id": "", "source_commit": "" },
-                { "id": 6, "app_id": 3, "version": 1, "file_count": 1, "total_bytes": 100, "created_by": "seed", "changelog": "种子 v1", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "pending", "shadow_error": "", "commit_id": "cfa1100000000001", "source_commit": "" }
-              ],
-              "workbench_id": null
-            }
-          }
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "app not found: replay-lfs-fail" } }
         },
         {
           "id": "lfs-delete-reserved",

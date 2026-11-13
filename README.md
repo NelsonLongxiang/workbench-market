@@ -36,6 +36,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `MCP_GATEWAY`（#284 起**缺省开**：未设/空/`on`=会话令牌网关；只有显式 `off` 且 `NODE_ENV=development/test` 才允许关闭并启动告警；生产/未设/空/未知运行模式配 off 由启动自检拒绝，其它网关值也拒绝启动）
 - `REDIS_URL`（共用状态层：SOP 执行实例和台的热数据·可选·缺省读 `DATA_DIR/redis.url`·无则直写 SQLite）
 - `WM_VARS_STORE`（工作台的常量、变量存在哪：`main` 缺省，只用主库；`shadow` 主库是真源、同时写一份卡片的台库；`bench` 卡片的台库是真源、尽力写回主库留作回退。对外应答三档一样。`bench` 档配了 Redis 时，键名以 `hot.` 开头的变量（高频变量）先写 Redis、30 秒落一次台库，起名 `hot.` 就表示接受最多丢 30 秒；Redis 不通而这张卡片还有没落盘的写入时，这类变量回 503 可重试。填错拒绝启动。上线时保持 `main`，另两档等生产演练和属主批准，见 docs/data-views.md 第十三节）
+- `WM_APP_DATA_STORE`（台的提交记录和附件的元数据存在哪：`main` 缺省，只用主库；`shadow` 照旧读主库、写主库之后原样抄一份进卡片的台库；`bench` 读卡片的台库、写照旧先写主库（id 由主库发）再抄进台库。附件字节不搬。对外应答三档一样。填错拒绝启动。上线时保持 `main`，见 docs/data-views.md 第十三节第 6 条）
 - `MARKET_TEAM`（A2A team 默认 `market`；名片的 team、会话句柄 `<MARKET_TEAM>/<node8>` 和工作台事件出站的 caller_session 都用它）
 - `MARKET_PUBLIC_URL`（对外基址·A2A 卡片与 MCP `skill_download` 下载链接用；生产建议设成 https 地址——没设时下载链接取请求主机，主机名不规范就不签发）
 - `A2A_API_KEY`/`A2A_STATE_URL`（A2A 外部面）
@@ -93,6 +94,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `YGL_MAX_PROJECTS`（统一待办读 ygl-trees 的 active 项目数上限·缺省 200·超出部分在 `degraded_projects` 报 cap-exceeded）
 - `WM_YGL_CLI`（ygl-trees 入口文件 `dist/bundle/bin.cjs` 的绝对路径·可选·不设时照旧在 node 同目录、PNPM_HOME、APPDATA/npm 下找·相对路径拒绝启动·统一待办、经验库、MCP 上游都经它找入口）
 - `WM_KNOWLEDGE_SYNC_MINUTES`（经验库从 ygl-trees 同步目录的间隔·分钟·缺省 10·`0` 不同步·不是 0～1440 的整数拒绝启动·同步等启动自检通过才开始）
+- `WM_KNOWLEDGE_WRITE_RETRY_SECONDS`（「记成经验」写 ygl-trees 没写上时的重试间隔·秒·缺省 60·按次数翻倍、封顶 6 小时·`0` 不自动重试·不是 0～3600 的整数拒绝启动）
 - `YGL_TOTAL_BUDGET_MS`（ygl-trees 源总预算·缺省 8000·超预算未读的报 budget-exhausted；两项非整数或越界都回落缺省）。内容面（Draft，默认关闭）：`WM_CONTENT_PORT`（显式内容端口，缺省/0不启）
 - `WM_CONTENT_IP`（显式绑定非通配IP）
 - `WM_CONTENT_MARKET_ORIGIN`（可信市场完整origin）
@@ -366,6 +368,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   identity.ts（身份契约：核心只经它认人·Cordis 服务 `identity` 认人与 whoami、`loginRelay` 业务台登录中继的窄接口·`/api/auth/viewer`·提供方认出的人要对到主体上才算数，主体停用即不认）
   index.ts（REST+静态+巡检装配）
   judgment-builtins.ts（内置身份：管理口令、本机命令行、本机页面、匿名，权限按动作逐条列出，进快照·问判定用的类别和按部门问的动作（ASKED）、按关系对自己的事拍板的动作（SELF_DECIDED）：路由放行、scopedVerdict、「谁能做什么」的矩阵都照这两张表）
+  knowledge-remember.ts（经验库第 2 步「记成经验」：「关注」的答复带 remember、POST /api/knowledge/remember 都走这一处·只有答这一条的人、持有对经验库拍板的授予才能记·范围缺省取事项所在团队的部门，推不出只给管理层·回写 ygl-trees 的 kb，写不上进待写队列后台重试，不挡答复）
   judgment-compare.ts（判定的并行比对：WM_JUDGMENT_COMPARE 打开时比新旧结论、记不一致）
   team-relation.ts（「这个人或席位，对这个部门、团队、席位是什么关系」：dept-member、dept-lead、team-lead、seat-owner、team-seat、router，另带显示用的名字；过目、安排、事项详情、数据视图「谁能改这个台」共用）
   judgment-enforce.ts（判定切换的开关 WM_JUDGMENT_ENFORCE：读开关、核域、在切了的域里路由处理之前先判；「暂不切」清单在 judgment-builtins.ts）
@@ -378,6 +381,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   owner-pending.ts（待属主看板的判断，服务端那一份：和 web/src/owner-pending.ts 跑同一份用例表 scripts/owner-pending-cases.json）
   outbound-gate.ts（对外断开 WM_OUTBOUND=off 的闸：在 net.Socket.connect、DNS、UDP、子进程这几层拦下一切出站并计数；index.ts 第一个引入它）
   path-inside.ts（路径落点判断，只此一处：规范化后等于根、或以「根加分隔符」开头才算在根里；/apps/ 静态托管、/go/ 转自产台、/sop/ 附件都用它）
+  portal-forward-headers.ts（门户转发前去掉市场自身的认证信息：口令、令牌、凭据头和市场的会话 cookie 的清单，HTTP 与 WebSocket 握手共用，启动自检一行）
   portal-observation.ts（无敏感原文的被动计数）
   portal.ts（/go/ 反代·白屏五层+登录态）
   redis.ts（Redis 连接和 SOP 执行实例的热态：连接只有这一条；SOP 的读写经共用状态层的 sop 句柄，只碰 wm:sop: 开头的键）
@@ -437,7 +441,8 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   change-request.ts（人审变更请求；detailOf 给审核卡片看内容所需的最少字段：版本从几到几、目标版本说明、删除连带几个版本几个文件、不可恢复）
   custom-role.ts（自定义角色：Cordis 服务 `customRoles`·从内置预设复制、改、删、属主放行、导出·每步留痕·带来管理类或决定类权限的要属主放行）
   department.ts（部门：Cordis 服务 `departments`·部门清单、负责人、成员归属、职能代号·部门标识即授予范围 dept:<标识>·还有没结束的部门授予时不能删）
-  team.ts（团队与分配：Cordis 服务 `teams`·团队登记（认领、挂部门）、负责人（另外指定的加所挂部门的负责人）、成员分配（起止时间、同一席位只有一条生效、按时间点查那时归谁）·键和节点名册一致·状态读的时候推·每步留痕 team_events）
+  team.ts（团队与分配：Cordis 服务 `teams`·团队登记（认领、挂部门）、负责人（另外指定的加所挂部门的负责人）、成员分配（起止时间、同一席位只有一条生效、按时间点查那时归谁）·键和节点名册一致·认领、负责人、分配记下节点的根地址和完整指纹（peer_root、key_fingerprint），用时和名册、对端登记核对，对不上的不算数（状态 node-changed，「等你拍板」的团队归属给管理层列出来）·状态读的时候推·每步留痕 team_events）
+  team-binding-sql.ts（团队归属绑节点的核对条件 boundSql：只有 SQL 文本、不引任何服务，team.ts 和 bench-registry.ts 共用）
   relation-proposal.ts（关系的提议：Cordis 服务 `relationProposals`·部门负责人、团队负责人只有属主能确认，团队认领到部门要管理层或接收部门的负责人确认·提议期间关系不存在、不带来权限·确认接口和页面的 can_approve 共用 confirmRefusal）
   dept-lead-grant.ts（部门负责人的字段和授予一起落：属主确认、属主直接指定时同一事务里写负责人字段、发这个部门范围的 dept-lead 授予并记进 dept_lead_grants；换人、移除只收回记着的那条；字段单独不带来权力，只有字段的是「待属主放行」，启动时补记一条负责人提议给属主）
   setup-wizard.ts（首次安装向导：Cordis 服务 `setupWizard`·按形态（small / standard）生成一批草稿授予、可重复跑、属主一次放行·「向导建的」记在 setup_wizard_runs / setup_wizard_grants，读的时候推出来源 wizard）
@@ -465,6 +470,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   bindings.ts（A2A 人工绑定 /api/bindings 和退役的旧面）
   change-requests.ts（人审变更请求 /api/change-requests：列表、批准、拒绝；批准、拒绝的判断和执行收在 changeRequestReview 一处，「关注」的审核卡片当场批也调它，审核人取认出来的管理员、不通过要写理由）
   cockpits.ts（驾驶舱 /api/cockpits：写不经写请求总门，处理之前问 cockpit-access.ts；读应答带 can.edit，不带建立人）
+  content-open.ts（市场面上内容面的两层：启动页 /content/open/<目标号>、开了迁移的目标的 /go/ 顶层导航送去启动页；处理函数在 server/src/content-surface.ts，原样；没配内容面时放过）
   content-observation.ts（门户观测状态 /api/content/observation）
   cookies.ts（Cookie 池 /api/cookies）
   departments.ts（部门 /api/departments：登录的人读列表、单个部门的成员、某人属于哪些部门；管理员建改删部门和成员）
@@ -480,6 +486,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   mcp-protocol.ts（MCP 协议入口 /mcp（无状态 StreamableHTTP）：POST 收 JSON-RPC（initialize、ping、tools/list、tools/call），GET、DELETE 回 405；认证是 MCP 会话令牌）
   mcp-rest.ts（MCP 内嵌的 REST /api/mcp-rest、/openapi.json：OpenAPI 文档、工具调用、台文件上传（原始字节、multipart）列表下载（Range、ETag）、台数据、SOP run 与附件；认证是 MCP 会话令牌，授权映射到工具 grants）
   mcp.ts（MCP 网关控制面 /api/mcp：上游、会话、授权、工具目录、调用记录、权限申请的批准与驳回）
+  portal.ts（门户 /go/<台号>/…：一条 ALL 正则路由、报动作 portal.use；前置准备和代理两个处理函数在 server/src/portal.ts 的 createPortal，原样）
   principals.ts（主体管理 /api/principals：列出、停用、恢复、对一次外部身份、待对接清单，只有管理员能用）
   principals.ts（主体管理 /api/principals：列出、停用、恢复，只有管理员能用）
   remote-allow.ts（远程写豁免面的变更 /api/remote-allow/diff）
@@ -498,7 +505,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   task-center.ts（任务中心 /api/task-center：录入发布、任务、总开关、模板、任务锁、撤回、派发开关；录入发布：事项的建立人是提需求的人——建录入时经身份服务认出、记在录入上的那个，没有就空着；发布的人认得出就只留痕）
   tasks.ts（统一待办 /api/tasks 与 ygl 项目读授权的授予、撤销）
   bench-views.ts（数据视图的入口 /api/bench-views：台的登记、数据集、四种写入、查询、快照、视图描述与版本、取数、表单·在 `WM_BENCH_VIEWS` 开关后面，缺省关·先拒管理口令再问判定，放行两档：管理层（范围「全部」，读写都按「能不能写」问判定）；或者台绑了部门、这个人在这个部门上有已放行的授予（scopedVerdict，关系只收窄不放行））
-  knowledge.ts（经验库 /api/knowledge：列表、详情、同步状态·跨站和管理口令 403、没登录 401·条目按范围判：全公司认业务的看，部门认这个部门范围的授予，其余只给管理层·看不到的和不存在的同一个 404·「项目 → 部门」对照 /api/knowledge/project-depts 只有管理层、属主看和改，每次改记一行）
+  knowledge.ts（经验库 /api/knowledge：列表、详情、同步状态（含记成经验的待写、放弃条数）、补记成经验 POST /api/knowledge/remember·跨站和管理口令 403、没登录 401·条目按范围判：全公司认业务的看，部门认这个部门范围的授予，其余只给管理层·看不到的和不存在的同一个 404·「项目 → 部门」对照 /api/knowledge/project-depts 只有管理层、属主看和改，每次改记一行）
   types.ts（类型管理 /api/types）
   relations.ts（关系的提议 /api/relations/proposals：列表（每条带 can_approve）、确认、驳回；确认人大多不是管理员，写请求总门放行这两条，路由内认人）
   a2a-roster.ts（团队名册的读 GET /api/a2a/teams：登录即可读，只有席位信息（团队、席位名、角色、在岗、在办件数从事项现算），不含事项内容；名册只当信息，判定一律不看它）
