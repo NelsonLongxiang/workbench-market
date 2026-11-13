@@ -81,6 +81,9 @@ try {
   ok('W3 追加撞主键被拒', e?.code === 'conflict', e);
   e = await refused(() => s.append('runs', [row(7, 'a', 1), row(7, 'b', 2)], ctx()));
   ok('W3 同一批里主键重复被拒', e?.code === 'invalid' && e.details.some((d) => d.includes('重复')));
+  const before3 = (await s.query({ dataset: 'runs' })).rows.length;
+  const nested = [await refused(() => s.append('runs', [row(30, 'ok', 1), { ...row(31, 'ok', 1), status: { x: 1 } }], ctx())), await refused(() => s.upsert('runs', [{ id: 1, done: [1, 2] }], ctx()))];
+  ok('W3b 行里有对象或数组的格：在递给线程之前就拒，说明第几行哪一列，整批没写', nested.every((x) => x?.code === 'invalid') && /第 2 行的 status 列不是单个值/.test(nested[0].message) && /第 1 行的 done 列/.test(nested[1].message) && (await s.query({ dataset: 'runs' })).rows.length === before3, nested);
   r = await s.append('runs', [row(4, 'c', 2)], ctx({ idemKey: 'idem-key-0001' }));
   const again = await s.append('runs', [row(4, 'c', 2)], ctx({ idemKey: 'idem-key-0001' }));
   ok('W4 同幂等键同内容：返回原结果，不重复写', r.row_count === 4 && again.duplicate === true && again.row_count === 4 && (await s.query({ dataset: 'runs' })).rows.length === 4);

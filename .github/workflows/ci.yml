@@ -166,6 +166,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/home-count-browser.mjs
+      - name: 驾驶舱「AI 员工」（普通员工和负责人两种身份·卡上写手上在办 N 件·点进去按席位筛·普通员工不读全部团队）
+        env:
+          PYTHON: python
+        run: node scripts/ai-staff-browser.mjs
       - name: 驾驶舱里的数据视图（能改的人才有入口·选台只列有权限的台·挂上后出现小标题·共用筛选改一次两份都重取·看不到的不露代号；数据视图接口截成合成的）
         env:
           PYTHON: python
@@ -254,7 +258,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: 身份接缝与主体（契约单测·主体服务单测·主体标识规范化（NFKC_Casefold）全部码位对照 Unicode 属性、成批过主体服务·飞书登录与市场会话对抗组（本机假飞书：state 伪造与重放、next 外跳、换令牌失败、用户标识缺失或被篡改、停用注销过期即失效）·离职即时失效对抗组（通讯录事件验签与重放、对账补漏）·假提供方对抗组：缺省/登录门/登录中继/中继加登录门四个实例上的拒绝例与合法对照，停用一个主体各入口立即不认、恢复立即照常·部门读写（登录的人读、管理员写、dept:<部门标识> 只认部门表里有的）·夹具只在测试环境可用·变异测试逐个改坏必须变红；不访问任何外部系统）
         run: |
-          ( node scripts/identity-contract-test.mjs && node scripts/principal-service-test.mjs && node scripts/principal-fold-test.mjs && node scripts/identity-seam-smoke.mjs && node scripts/identity-source-timeout-test.mjs && node scripts/feishu-login-smoke.mjs && node scripts/feishu-offboard-smoke.mjs && node scripts/export-reveal-smoke.mjs && node scripts/grants-smoke.mjs && node scripts/departments-smoke.mjs && node scripts/access-smoke.mjs && node scripts/red-lines-test.mjs && node scripts/teams-smoke.mjs && node scripts/judgment-compare-smoke.mjs && node scripts/judgment-compare-zero-test.mjs && node scripts/judgment-compare-sweep-test.mjs && node scripts/judgment-enforce-test.mjs && node scripts/role-presets-test.mjs && node scripts/custom-roles-smoke.mjs ) > identity-suites.log 2>&1 &
+          ( node scripts/identity-contract-test.mjs && node scripts/principal-service-test.mjs && node scripts/principal-fold-test.mjs && node scripts/identity-seam-smoke.mjs && node scripts/identity-source-timeout-test.mjs && node scripts/feishu-login-smoke.mjs && node scripts/feishu-offboard-smoke.mjs && node scripts/export-reveal-smoke.mjs && node scripts/grants-smoke.mjs && node scripts/departments-smoke.mjs && node scripts/access-smoke.mjs && node scripts/red-lines-test.mjs && node scripts/teams-smoke.mjs && node scripts/judgment-compare-smoke.mjs && node scripts/judgment-compare-snapshot-test.mjs && node scripts/judgment-compare-zero-test.mjs && node scripts/judgment-compare-sweep-test.mjs && node scripts/judgment-enforce-test.mjs && node scripts/role-presets-test.mjs && node scripts/custom-roles-smoke.mjs ) > identity-suites.log 2>&1 &
           suites=$!
           set +e
           node scripts/identity-seam-mutation.mjs --jobs 2
@@ -317,6 +321,8 @@ jobs:
         run: node scripts/bench-store-smoke.mjs && node --disable-warning=ExperimentalWarning scripts/skill-data-views-examples-test.mjs
       - name: 台库分道（同一个台固定一道·不同道互不排队·大写入全局一次一件且做完换线程·一道终止不碍别的道·排队上限按各道合计）
         run: node scripts/bench-store-lanes-test.mjs
+      - name: 台库按卡片 id 开放（卡片 id 和台标识都认·删卡片要管理层并确认、409 只给规模·删前备份·连带清登记、授予、库文件、驾驶舱面板）与清扫（孤儿库、过期备份、Redis 孤儿键）
+        run: node scripts/bench-card-test.mjs && node scripts/bench-sweep-test.mjs
       - name: 库的写锁等待有上限（市场主库、判定比对库：别的进程短暂持写锁时等得到、一直不放时 5 秒前后报错不无限等·台库按这一次的时限取小）
         run: node scripts/db-busy-timeout-test.mjs
       - name: 按时间排序的列表在时间相同时次序固定（SOP 运行列表同一秒的按 id 倒序·成员分配同一毫秒的按 id 正序·反复取次序不变）
@@ -520,6 +526,8 @@ jobs:
         run: node scripts/page-paths-unit.mjs
       - name: 驾驶舱骨架单测（纯函数——三栏尺寸、放大还原、数据视图引用、页签；单列一步）
         run: node scripts/cockpit-frame-unit.mjs
+      - name: 驾驶舱「AI 员工」单测（纯函数——分给我的成员·我负责的团队不重复·忙闲说法·点进去的地址；单列一步）
+        run: node scripts/ai-staff-ui-unit.mjs
       - name: 驾驶舱的 can.edit（读应答里带；和写请求总门对同一个请求的判断一致：逐个身份读一次、改一次）
         run: node scripts/cockpit-can-test.mjs
       - name: 驾驶舱里的数据视图（共用的筛选、挂视图、取不到时的说法）

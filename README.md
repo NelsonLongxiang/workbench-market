@@ -299,7 +299,7 @@ GET              /api/health/ready              就绪：含 LayerFS 探测（�
     - 不记请求体、查询串、凭据和路径里的 id；
     - 记账攒批，应答之后异步写进单独的库文件 `judgment-compare.db`（不和业务库抢锁），写失败只计数；
     - 判定出错只计数，不影响应答。
-  - 结果看 `GET /api/judgment/compare`。`scripts/judgment-compare-report.mjs` 把回放和 CI 脚本在比对打开时跑一遍，按域×原因出报告，另有按域×结果的汇总；`--from <比对输出.jsonl>` 不跑脚本，只汇总已有的比对输出（生产上 `WM_JUDGMENT_COMPARE_OUT` 的文件）。零不一致的门槛有两道，都在 CI 里：`scripts/judgment-compare-zero-test.mjs` 跑全量回放；`scripts/judgment-compare-sweep-test.mjs` 让六种身份把每条 GET 打一遍、写面挑代表。
+  - 结果看 `GET /api/judgment/compare`。`scripts/judgment-compare-report.mjs` 把回放和 CI 脚本在比对打开时跑一遍，按域×原因出报告，另有按域×结果的汇总；`--from <比对输出.jsonl>` 不跑脚本，只汇总已有的比对输出（`WM_JUDGMENT_COMPARE_OUT` 的文件）；`--snapshot <GET /api/judgment/compare 的应答.json>` 拿接口里攒着的合计出同一张按域的表，再给 `--since <更早的一份>` 就只算两份之间新增的——生产上用这个，不用开 `WM_JUDGMENT_COMPARE_OUT`（那个文件每比一次加一行、不轮转），单测 `scripts/judgment-compare-snapshot-test.mjs` 核两条路出的数相同。零不一致的门槛有两道，都在 CI 里：`scripts/judgment-compare-zero-test.mjs` 跑全量回放；`scripts/judgment-compare-sweep-test.mjs` 让六种身份把每条 GET 打一遍、写面挑代表。
   - 迁移出来的授予来源记 migration：`GET /api/grants?source=migration` 列出，`POST /api/grants/revoke-migration`（只有属主）整批撤销。
 - 管不到的：按 run 发的读凭据、自产台查看凭证是不记名的，各有各的期限和吊销，不随主体停用失效；已经建立的 WebSocket 连接不会被掐断，新的请求和新的连接立即拒绝。停用是按登录名对的：身份来源那边把登录名改了，就是另一个人。
 - **读要凭据**：`GET /api/apps/<slug>/data`、`/files`、`/files/<id>` 要本台的台令牌（`X-App-Token`，服务端出台页面时注入）、管理员（口令或管理员登录，同源）或本机命令行；沙箱页的下载链接和图片带不了头，认登录门签给本台页面的查看凭证（`wm_av`）。不满足一律 403，先于查台。远程 agent 读台数据走 MCP（`app_data_list`、`app_files_list`，可按台授权）。设计上，能打开某个台页面的人就能读这个台的数据（台令牌在页面里）；「谁能打开哪个台」和按人读另行设计。
@@ -335,6 +335,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   attention-forward.ts（进程内把答复转给原路由：全局中间件和原路由的守卫照走，身份头原样、来源地址照抄，应答原样交回）
   attention-names.ts（「关注」条目的显示名 waiting_for_name、creator_name：在汇总那一层统一补，只给看的人本来就看得到的人的名字——管理员、本人、管理层、同部门的；别的给 null，席位、对端这些非人键给 null，MCP 会话给类型加名字）
   attention-providers.ts（「关注」的七个提供方：各来源用旧接口自己的守卫判可见性，只读地取数；阶段三搬完再挪回各域）
+  bench-card-delete.ts（删一张卡片时连带它的台库：台库里有数据时要持管理层授予（或本机命令行）并带 confirm_bench_data，只有管理口令、系统管理员身份、MCP 会话的一律 409，409 只给规模·删前备份进 bench-stores/.deleted/ 留 30 天·台的登记、授予、卡片在一个事务里删，之后删库文件、清 Redis 键，清不掉的由清扫补）
   bench-mcp-tools.ts（数据视图的 MCP 工具定义：纯数据，十五个工具的名字、说明、类别和参数；都必须限定到台，授予和执行在 services/bench-mcp.ts）
   bench-query.ts（数据视图的查询描述：台的作者和 agent 不写 SQL，只给筛选、分组、聚合、排序、行数上限；这里核对并翻成参数化语句·名字只认白名单且必须已定义·值全走参数·见 docs/data-views.md）
   bench-views.ts（数据视图的视图描述：保存前核对组件类型、键、引用的数据集和列、查询、筛选栏参数；两个版本之间的差异·第一批八种组件）
@@ -417,10 +418,11 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   a2a-stats.ts（A2A 出站积压的聚合读数：两张出站表按状态计数、最老待发、最近回执时长）
   attention-sources.ts（「关注」要用、来源里还没有现成函数的只读查询：席位未答的提问）
   bench-mcp.ts（数据视图的 MCP 工具：授予按「会话 × 台 × 工具」记在自己的表里，不放进会话的 grants·申请由会话提、台的管理层批·读也按台限定·执行时把台库的方法对到工具名上）
-  bench-registry.ts（视图台的登记：主库里只记有这个台、叫什么、谁建的、绑到哪个部门和团队·登记过的台才有库，没登记的标识一律当作不存在·改绑留痕）
+  bench-registry.ts（视图台的登记：主库里只记有这个台、叫什么、谁建的、绑到哪个部门和团队·登记过的台才有库，没登记的标识一律当作不存在·改绑留痕·卡片 id 为主、台标识为别名：入口写卡片 id 或台标识都认（resolveBenchRef），只给 workbench_id 就开出 wb-<卡片 id>·纯数字标识不许登记·删卡片时登记和授予一起删（removeCardBench））
   bench-store.ts（台库对市场进程的接口：读写不在市场进程里跑，这里只排队、转发给工作线程、看时限、线程出事时收拾·台按标识固定分到几条道上（一道一个线程，默认核数减一、至多 4）·大写入（按体量估，不按行数）全局一次一件、做完换线程·读 3 秒写 15 秒，时限加宽限过了还不停才强行终止线程并另起·排队有上限·接口全异步·还没有对外入口，不判权限）
   bench-store-core.ts（台库的逻辑本体，在工作线程里跑：每个视图台一份自己的库，在数据目录 `bench-stores/` 下·数据集与列定义的版本·整份替换、追加、按主键更新和删行（逐行校验、幂等键、上限）·快照与退回·视图描述的版本、生效指针、并发保存不覆盖、回退只移指针·变更与写入记录只存摘要·视图取数（一次取齐各组件的数据）和表单提交·三道数据量上限·时间由调用方给、一个台的读写排成一队·到时限自己停下并回滚·运行时不引用 `db.ts`，建表语句由调用方递进来）
   bench-store-worker.ts（台库的工作线程入口：一次做一件事，只认登记过的操作名和消息格式，回话带上这件事提交了的变更）
+  bench-sweep.ts（台库的清扫：Cordis 服务 `benchSweep`·起来 1 分钟后一次、之后每天一次、随根上下文停·没有登记的库文件先备份再删·.deleted/ 里过了 30 天的备份删掉·Redis 里卡片已不在的台的键清掉）
   attention.ts（「关注」：Cordis 服务 `attention`·各来源注册提供方、可撤销·汇总当前这个人的条目和各类条数）
   binding.ts（A2A 人工绑定）
   change-request.ts（人审变更请求；detailOf 给审核卡片看内容所需的最少字段：版本从几到几、目标版本说明、删除连带几个版本几个文件、不可恢复）
@@ -456,7 +458,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   content-observation.ts（门户观测状态 /api/content/observation）
   cookies.ts（Cookie 池 /api/cookies）
   departments.ts（部门 /api/departments：登录的人读列表、单个部门的成员、某人属于哪些部门；管理员建改删部门和成员）
-  teams.ts（团队与分配 /api/teams：团队页（部门 → 团队 → 成员，按看的人的可见范围在服务端裁好）、「我的 AI 员工」；管理员认领、退回、指定和移除负责人；负责人分配、收回、改派成员（改派一个事务里收回并分给另一个人；状态码不代表授权））
+  teams.ts（团队与分配 /api/teams：团队页（部门 → 团队 → 成员，按看的人的可见范围在服务端裁好）、「我的 AI 员工」；管理员认领、退回、指定和移除负责人；负责人分配、收回、改派成员（改派一个事务里收回并分给另一个人；状态码不代表授权）；团队的变更记录、某人各段分配的历史（按关系裁：管理员、管理层看全部，负责人看自己的团队，本人看自己的；读不到的按不存在回））
   access.ts（角色预设 ②：以某人的身份看 /api/principals/:id/access（管理员看任何人、登录的人看自己，带 action 给判定结论）、红线清单 /api/access/red-lines、首次安装向导 /api/setup/wizard（管理员跑，属主放行））
   design-tokens.ts（设计 token 固定路径 /design/tokens@<版本>.css）
   export-import.ts（导出与导入 /api/export、/api/import）
