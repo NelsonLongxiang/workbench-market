@@ -22,6 +22,8 @@
 | 登录方式 | `server/src/login-providers/` 下的一个插件，登记进那里的清单 | 改核心 |
 | SQL | `server/src/services/` 里对应域的服务 | 写在路由处理函数或别的模块里 |
 | 表、列 | `server/src/db.ts`（幂等迁移） | 在别的文件里建表、改表 |
+| SQL 里要用的当前时间 | 代码生成（`new Date().toISOString()` 或毫秒数），作为参数传进 SQL | 在 SQL 里写 `datetime('now')`、`CURRENT_TIMESTAMP` 这类取时间的写法 |
+| SQL 写法 | 两种库（SQLite、PostgreSQL）都认的写法：`ON CONFLICT … DO UPDATE / DO NOTHING`、`RETURNING id`、`COALESCE` | 新增 SQLite 特有的写法（`INSERT OR REPLACE / IGNORE`、`lastInsertRowid`、`rowid`、`json_*` 函数等，清单见 `tech-route.json` 里 `sql-dialect` 的说明） |
 | 环境变量 | 启动时读一次并校验，同时写进 README | 在用到的地方直接读 `process.env` |
 | 周期任务 | 能随所属模块一起停掉的定时器 | 裸的 `setInterval` |
 | 会往外发的周期任务或发送 | 发之前先问 `outboundOff()`（`server/src/outbound-gate.ts`），关着就整轮跳过、不记失败，并在 `scripts/outbound-off-test.mjs` 里加一个触发点 | 只靠底层的闸：发送会被当成失败，按退避重试、最后判死 |
@@ -29,6 +31,7 @@
 | 缓存认人的结果 | 用 `identity().cachedResolver()`：缓存的只有登录提供方的回答，主体停没停用每次现查 | 自己把 `resolveViewer()` 的结果存起来（停用和恢复就不是立即生效了） |
 | 测试脚本 | 接进 CI；确实进不了的，在 `tech-route.json` 的 `tests` 里写明理由 | 写了不跑 |
 | 测试里起隔离实例 | `NODE_ENV=test`，起不来时用 `scripts/lib/self-probe-env.mjs` 的 `instanceStartError` 打标、`startWithEnvironmentRetry` 有限次重试环境问题；并行起实例要限并发 | 把自检超时当成被测行为失败；开满核数并行起实例 |
+| 测试脚本读写库 | 经统一入口（还没有：暂时照旧直接开库，但新脚本尽量经接口造数据、核对结果，确需开库的在 PR 里说明） | 不说明就新增直接开库的脚本 |
 | 运行时依赖 | 先登记进 `tech-route.json` 的 `deps` | 顺手加 |
 
 存量里有不少不符合上表的地方。那是欠账，只减不增：改到哪个域，顺手把那个域收一点。
@@ -44,7 +47,7 @@ pnpm check                           # web 类型检查 + server 语法检查
 
 - **红线**，高于目标就失败：不可擦除的语法、领域服务引用 express、没登记的运行时依赖、环境变量没写进 README、改动里有隐私命中、对外的面和快照不一致、没报动作的路由数和动作快照对不上。
 - **预算**，比基线多就失败：`index.ts` 里的路由、没报动作的路由、`services/` 之外的 SQL、`db.ts` 之外的建表改表、没登记的测试脚本、类型错误、README 没提到的文件和已失效的路径、核心直接引用身份的具体实现。
-- **计数**，只报告：其余各项。其中两项的落点还没建好（配置、定时器），建好之后转预算。
+- **计数**，只报告：其余各项。其中两项的落点还没建好（配置、定时器），建好之后转预算。数据库的三项（SQL 里取当前时间、SQLite 特有写法、直接开库的测试脚本）为换库止住新增，先计数，什么时候转预算写在各自的 note 里；计数期间评审照「本次变化」一行拦新增。
 
 被拦住的时候：
 

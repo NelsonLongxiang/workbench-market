@@ -4,7 +4,11 @@
  *
  * app 是 HTTP 服务，不是 Express 应用本身：注册的写法和 Express 一样，路由挂在调用那一刻的位置，注册可以撤销。
  * 这一组路由没有自己的守卫：写请求由 index.ts 里的写请求总门把关，读开放。
+ * 读的应答里带 can：{ edit } 说这个请求能不能改驾驶舱（改名、加面板、删除），页面照它显示编辑入口。
+ * 判法由 index.ts 传进来，就是写请求总门对这一个请求的判断（本机命令行，或有效口令、Odoo 管理员且同源）——
+ * 「谁能改」从页面挪到服务端算，规则一字不变。
  */
+import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import type { CockpitService } from '../services/cockpit.ts';
@@ -70,11 +74,21 @@ function validatePanels(raw: unknown): PanelConfig[] {
   });
 }
 
-export function registerCockpitRoutes(app: HttpService): void {
-  app.get('/api/cockpits', { action: 'cockpit.list', kind: 'read' }, (_req, res) => {
+/** 异步的处理函数：出错（包括取不到驾驶舱的 404）交给错误中间件，和同步的处理函数一样 */
+const wrap = (fn: (req: express.Request, res: express.Response) => Promise<unknown>) =>
+  (req: express.Request, res: express.Response, next: express.NextFunction) => { fn(req, res).catch(next); };
+
+/** 从 index.ts 传进来的：这个请求过不过得了写请求总门（就是「能不能改驾驶舱」） */
+export interface CockpitDeps {
+  canEdit: (req: express.Request) => Promise<boolean>;
+}
+
+export function registerCockpitRoutes(app: HttpService, deps: CockpitDeps): void {
+  app.get('/api/cockpits', { action: 'cockpit.list', kind: 'read' }, wrap(async (req, res) => {
     const rows = svc<CockpitService>('cockpit').list() as unknown as CockpitRow[];
-    res.json(rows.map(rowToCockpit));
-  });
+    const can = { edit: await deps.canEdit(req) };
+    res.json(rows.map((r) => ({ ...rowToCockpit(r), can })));
+  }));
 
   app.post('/api/cockpits', { action: 'cockpit.create', kind: 'admin' }, (req, res) => {
     const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
@@ -85,9 +99,10 @@ export function registerCockpitRoutes(app: HttpService): void {
     res.status(201).json(rowToCockpit(getCockpit(Number(r.lastInsertRowid))));
   });
 
-  app.get('/api/cockpits/:id', { action: 'cockpit.read', kind: 'read' }, (req, res) => {
-    res.json(rowToCockpit(getCockpit(Number(req.params.id))));
-  });
+  app.get('/api/cockpits/:id', { action: 'cockpit.read', kind: 'read' }, wrap(async (req, res) => {
+    const row = getCockpit(Number(req.params.id));
+    res.json({ ...rowToCockpit(row), can: { edit: await deps.canEdit(req) } });
+  }));
 
   app.put('/api/cockpits/:id', { action: 'cockpit.update', kind: 'admin' }, (req, res) => {
     const cur = getCockpit(Number(req.params.id));

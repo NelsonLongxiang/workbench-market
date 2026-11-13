@@ -830,7 +830,8 @@ const lastProbeAt = new Map<number, number>();
 registerWorkbenchRoutes(http, { wrap, listWorkbenches, maskForApi, restSubject, workbenchCreateCore, workbenchUpdateCore, workbenchDeleteCore, checkOne, downSince, lastProbeAt, EVICT_COOLDOWN_MS });
 
 // ---------- 驾驶舱 CRUD（任务驾驶舱：多工作台分屏组合视图） ----------
-registerCockpitRoutes(http);
+// 驾驶舱的读应答带 can.edit：就是写请求总门对这个请求的判断（本机命令行照旧算属主；其余要有效口令或 Odoo 管理员，且同源）
+registerCockpitRoutes(http, { canEdit: (req) => settingsAdminRead(req) }); // 和设置页的管理员读同一个判断（定义在后面，请求期才调用）
 
 // ---------- 自产台（台生成器：AI 发布 API + 全版本快照，发布即入册） ----------
 const appsRoot = join(dataDir, 'apps');
