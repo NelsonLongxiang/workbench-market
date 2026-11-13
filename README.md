@@ -364,7 +364,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   http.ts  HTTP 服务（Cordis 服务 http）：持有 Express 应用；域模块经它注册路由，每条报上动作名和类别，注册可撤销
   identity.ts（身份契约：核心只经它认人·Cordis 服务 `identity` 认人与 whoami、`loginRelay` 业务台登录中继的窄接口·`/api/auth/viewer`·提供方认出的人要对到主体上才算数，主体停用即不认）
   index.ts（REST+静态+巡检装配）
-  judgment-builtins.ts（内置身份：管理口令、本机命令行、本机页面、匿名，权限按动作逐条列出，进快照）
+  judgment-builtins.ts（内置身份：管理口令、本机命令行、本机页面、匿名，权限按动作逐条列出，进快照·问判定用的类别和按部门问的动作（ASKED）、按关系对自己的事拍板的动作（SELF_DECIDED）：路由放行、scopedVerdict、「谁能做什么」的矩阵都照这两张表）
   judgment-compare.ts（判定的并行比对：WM_JUDGMENT_COMPARE 打开时比新旧结论、记不一致）
   team-relation.ts（「这个人或席位，对这个部门、团队、席位是什么关系」：dept-member、dept-lead、team-lead、seat-owner、team-seat、router，另带显示用的名字；过目、安排、事项详情、数据视图「谁能改这个台」共用）
   judgment-enforce.ts（判定切换的开关 WM_JUDGMENT_ENFORCE：读开关、核域、在切了的域里路由处理之前先判；「暂不切」清单在 judgment-builtins.ts）
@@ -381,7 +381,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   portal.ts（/go/ 反代·白屏五层+登录态）
   redis.ts（Redis 连接和 SOP 执行实例的热态：连接只有这一条；SOP 的读写经共用状态层的 sop 句柄，只碰 wm:sop: 开头的键）
   request-person.ts  这个请求是哪个人：只经身份服务认请求带的登录凭据（登录提供方的会话或市场会话），主体须是启用的人；认不出就是没有，调用方照常放行（任务中心建录入、发布用）
-  roles.ts（角色声明：平台四个内置角色 owner/admin/member/guest，组织角色初始集合 dept-member/dept-lead 或外部声明文件·启动时校验，不合格拒绝启动）
+  roles.ts（角色声明：平台四个内置角色 owner/admin/member/guest，组织角色初始集合 dept-member/dept-lead 或外部声明文件·启动时校验，不合格拒绝启动·「谁能做什么」的矩阵从统一判定的同一套规则推（permits 和判定共用））
   root-context.ts（全进程唯一的 Cordis 根上下文·不开数据库）
   settings-view.ts（设置读出去的样子：管理员看全部、凭据类的值只说有没有；别人只看巡检参数和开关；导出用管理员那一级）
   sop-field-channel.ts（字段/上传/人工完成通道候选）
