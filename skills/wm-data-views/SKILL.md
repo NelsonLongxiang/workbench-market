@@ -1,6 +1,6 @@
 ---
 name: wm-data-views
-version: 0.2.0
+version: 0.2.1
 description: 工作台市场·数据视图——不写 HTML 做一个工作台：把数据放进台自己的数据集，写一份视图描述，页面由市场的组件（统计卡、表格、柱线饼、进度、筛选栏、表单）画出来。当需要「建一个看数据的台」「更新台里的数据」「给台加一张图或一张表」「改台的页面」「台里的数据写不进去、图不出来」时使用。
 ---
 
@@ -133,7 +133,7 @@ access_request { "tools": ["dataset_list@bench:12", "dataset_query@bench:12"], "
 
 - **整批成、整批败**。有一行不合格，一行都不会写进去，报错里逐条写明第几行哪一列为什么不行。照着改了重发。
 - **带幂等键**（8～128 个可见 ASCII 字符，一次写入一个）。网络断了、超时了，带同一个键重发：写过了就返回原来的结果，不会写两遍。
-- 大的写入不要塞进 MCP 的消息体（一条消息连同别的参数最多 4 MB 左右）：分批 `dataset_upsert` / `dataset_append`，或者请有登录账号的人走 REST 把 `rows` 的 JSON 文本原样当请求体发，地址和写法见 `references/rest.md`。
+- 写入的大小以台库的上限为准：一次 `append` / `upsert` / `delete_rows` 最多 5000 行、16 MB，`replace` 到数据集的上限（见 `references/limits.md`）。超过 4 MB 的写入算「大写入」，全局排队一次一件，会慢一些。再大的，分批 `dataset_upsert` / `dataset_append`（每批一个幂等键），或者请有登录账号的人走 REST 把 `rows` 的 JSON 文本原样当请求体发，地址和写法见 `references/rest.md`。
 
 ## 改页面
 
@@ -173,6 +173,7 @@ access_request { "tools": ["dataset_list@bench:12", "dataset_query@bench:12"], "
 | 没有这个东西（not_found） | 数据集、视图、版本、快照不存在 | 先 `dataset_list` / `view_versions` 看有什么 |
 | 冲突（conflict） | 主键重复；幂等键用在了别的内容上；视图被别人改过 | 主键和幂等键检查自己的数据；视图重新读了再改 |
 | 超限（limit） | 行数、大小、一次取回的内容超了 | 见 `references/limits.md`，缩小或分批 |
+| 不支持（unsupported） | 改列的类型；台库的结构比服务认识的新、或对不上 | 改类型：新建一列，由写入方重写数据；台库结构的问题报给负责市场的人 |
 | 超时（timeout） | 读超过 3 秒、写超过 15 秒 | 写着「没有生效」的是确定没写进去，缩小范围重来；写着「不确定」的带**同一个幂等键**重发 |
 | 正忙（busy） | 排队的读写太多 | 等一会儿重试 |
 | 内部错误（internal） | 服务这边的问题 | 重试一次；还不行就报给负责市场的人，别反复重发 |
