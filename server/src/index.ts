@@ -55,6 +55,8 @@ import { registerAdminTokenRoutes } from './routes/admin-token.ts';
 import { registerBindingRoutes } from './routes/bindings.ts';
 import { registerA2aPeerRoutes } from './routes/a2a-peers.ts';
 import { registerA2aDirectRoutes } from './routes/a2a-direct.ts';
+import { registerSeatTokenRoutes } from './routes/seat-token.ts';
+import { seatTokenSession } from './services/seat-tokens.ts';
 import { registerA2aOutboundRoutes } from './routes/a2a-outbound.ts';
 import { registerExportImportRoutes } from './routes/export-import.ts';
 import { registerDepartmentRoutes } from './routes/departments.ts';
@@ -469,7 +471,8 @@ app.use((req, res, next) => {
 // 主人裁定 A（2026-10-23）：自产台数据/文件面对远程浏览器开放——应用层写，与发布面同口径；
 // 控制面（/api/mcp/*、/api/sops/*/bindings 等）照旧收口。没有这条，远程节点浏览器提交表单会 403。
 // 「关注」的答复入口（L20）：管理层、负责人看得到卡片也要能答。路由内核同源，能不能答由条目的来源判（转给原路由的照样再过这道门）
-const REMOTE_ALLOW_EXACT = new Set(['/mcp', '/.well-known/agent-card.json', '/a2a/direct', '/api/auth/login', '/api/auth/logout', '/api/attention/answer']); // 登录/登出自带同源门与限频
+// 阶段七：节点宿主来换席位令牌（/api/a2a/seat-token）是远程来的写，路由内按钉住的节点公钥验签、核名册、限频，不认口令
+const REMOTE_ALLOW_EXACT = new Set(['/mcp', '/.well-known/agent-card.json', '/a2a/direct', '/api/auth/login', '/api/auth/logout', '/api/attention/answer', '/api/a2a/seat-token']); // 登录/登出自带同源门与限频
 // ---------- 端点命中计数（总工程师 B 类单：采纳监测 instrumentation）----------
 // 必须挂在所有业务路由之前（Express 按注册序匹配，路由先响应则后续 use 不再执行）
 app.use(endpointStatsMiddleware());
@@ -2736,6 +2739,7 @@ registerA2aOutboundRoutes(http, {
 // /a2a/direct（P2）：准入开放——有效绑定 + 同 context 续 run + 上游幂等族 + 512KiB + DELIVERED 形状。
 // 查无 SOP 仍 404 不泄露；无绑定/draft/mode 不足 → 200 TASK_STATE_FAILED -32000（对齐上游 admission 形状）。
 // ADMIN_TOKEN 未设置时绑定面休眠（主人裁定：内网信任模型）——direct 对无绑定的 SOP 自然全拒。
+registerSeatTokenRoutes(http, { audiences: () => [marketPublicUrl()] }); // 阶段七：席位用节点签名换 1 小时的 MCP 令牌
 registerA2aDirectRoutes(http, { A2A_DIRECT_SIG, A2A_FOLLOWUP_RATE, FETCH_STEP_REFUSALS, directSig, sopRunStartCore, runCheckpoints, sopRunRow, storedRunData, runLiveData, runStateRestore, runCacheCheckpoint });
 
 // ---------- 统一门户：/go/:id/* 反向代理到对应工作台 ----------
@@ -3194,9 +3198,10 @@ function sha256Hex(s: string): string {
   return createHash('sha256').update(s, 'utf8').digest('hex');
 }
 
-function mcpSessionByToken(token: string): { id: number; name: string; grants: string[] } | null {
+function mcpSessionByToken(token: string): { id: number; name: string; grants: string[]; seat?: string } | null {
   const row = svc<McpService>('mcp').sessionByToken(sha256Hex(token)) as { id: number; name: string; grants: string } | undefined;
-  if (!row) return null;
+  // 不是管理员发的会话令牌：再看是不是席位换来的短期令牌（每次都复核席位和节点仍有效，见 services/seat-tokens.ts）
+  if (!row) return seatTokenSession(sha256Hex(token));
   let grants: string[] = [];
   try { grants = JSON.parse(row.grants || '[]'); } catch { grants = []; }
   return { id: row.id, name: row.name, grants };
@@ -3263,7 +3268,8 @@ function parseGrant(g: string): { tool: string; wid: number | null } {
 const ACCESS_REQUEST_HOURLY_MAX = 10;
 const ACCESS_REASON_MAX = 500;
 const ACCESS_STATUSES = ['pending', 'approved', 'rejected'];
-type McpSess = { id: number; name: string; grants: string[] };
+/** seat：席位换来的令牌认出来的席位（<host>:<seat_id>）；claimed：请求头 X-Team-Seat 自报的，只进审计对账，不认作身份或授权 */
+type McpSess = { id: number; name: string; grants: string[]; seat?: string; claimed?: string };
 type AccessRequestRow = { id: number; session_id: number; tools: string; reason: string; status: string; decided_by: string; decided_at: string; note: string; created_at: string };
 function parseToolList(raw: string): string[] {
   try { const v = JSON.parse(raw || '[]'); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []; } catch { return []; }
@@ -3427,12 +3433,13 @@ function mcpGatewaySession(req: express.Request, res: express.Response): McpSess
     return undefined;
   }
   svc<McpService>('mcp').sessionTouched(sess.id);
-  return sess;
+  const claimed = req.headers['x-team-seat'];
+  return typeof claimed === 'string' && claimed !== '' ? { ...sess, claimed: claimed.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 128) } : sess;
 }
 function mcpAudit(sess: McpSess | null, channel: McpChannel, method: string, tool: string, ok: boolean, error: string, durationMs: number, args: unknown): void {
   if (!MCP_GATEWAY_ON || !sess) return;
   svc<McpService>('mcp').callInsertStmt()
-    .run(sess.name, method, tool, ok ? 1 : 0, error, durationMs, sha256Hex(JSON.stringify(args ?? {})), channel); // 不存参数原文
+    .run(sess.name, method, tool, ok ? 1 : 0, error, durationMs, sha256Hex(JSON.stringify(args ?? {})), channel, sess.seat ?? '', sess.claimed ?? ''); // 不存参数原文
 }
 /** 会话对某工具的授权范围（#452）：'all'＝免授权/全局授权/网关关；台 id 集合＝只授权了 工具@台；null＝无权 */
 function mcpToolScope(sess: McpSess | null, toolName: string): 'all' | Set<number> | null {

@@ -264,6 +264,7 @@ export function createLoginGate(deps: LoginGateDeps) {
     if (get && /^\/login\/[a-z0-9][a-z0-9-]{0,31}(\/callback)?$/.test(p)) return true; // 登录方式的发起和回调（还没有身份才要登录）；路由里核 state
     if (m === 'POST' && /^\/login\/[a-z0-9][a-z0-9-]{0,31}\/events$/.test(p)) return true; // 失效通知：路由里由插件验签，验不过 401
     if (m === 'POST' && p === '/a2a/direct') return true; // 路由内验签（a2a-direct-sig.ts），enforce 下无签名 401
+    if (m === 'POST' && p === '/api/a2a/seat-token') return true; // 席位换令牌：路由内按钉住的节点公钥验签、核名册，验不过 401
     if (m === 'POST' && /^\/api\/workbench-events\/wbe-[0-9a-f]{16}\/decision$/.test(p)) return true; // reply token 认证
     if (get && /^\/design\/tokens@[0-9.]+\.css$/.test(p)) return true;
     if (get && /^\/api\/skills\/dl\/[0-9a-f]{64}$/.test(p)) return true; // 技能包下载票据：路由内查票（10 分钟有效、单票至多 5 次），无效 404
