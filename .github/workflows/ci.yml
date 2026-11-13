@@ -164,6 +164,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/approval-gate-browser.mjs
+      - name: 驾驶舱「AI 员工」（普通员工和负责人两种身份·卡上写手上在办 N 件·点进去按席位筛·普通员工不读全部团队）
+        env:
+          PYTHON: python
+        run: node scripts/ai-staff-browser.mjs
       - name: 身份变了以后页面重读（401 且确认没登录或换了人才清·502 不清挂横幅·旧身份在路上的应答不写回·后退恢复的页面也确认）
         env:
           PYTHON: python
@@ -506,6 +510,8 @@ jobs:
         run: node scripts/page-paths-unit.mjs
       - name: 驾驶舱骨架单测（纯函数——三栏尺寸、放大还原、数据视图引用、页签；单列一步）
         run: node scripts/cockpit-frame-unit.mjs
+      - name: 驾驶舱「AI 员工」单测（纯函数——分给我的成员·我负责的团队不重复·忙闲说法·点进去的地址；单列一步）
+        run: node scripts/ai-staff-ui-unit.mjs
       - name: 身份变了以后页面重读单测（纯函数——认人只认 /api/auth/me·不通和 502 不算·合并去抖·世代号；单列一步）
         run: node scripts/session-watch-unit.mjs
       - name: 技能正文里写到的 MCP 工具名都在工具目录里（对照 surfaces/mcp-tools.json）
