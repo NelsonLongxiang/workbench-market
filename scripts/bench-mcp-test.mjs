@@ -228,7 +228,7 @@ try {
   check(r.status === 400 && r5.status === 404, '给的不是数据视图的工具：拒；会话不存在：404', { tool: r.status, session: r5.status });
   r = await srv.call('PUT', '/api/bench-views/demo/mcp-grants', { ...mgr, body: { session: 'seat-a', tools: ['dataset_list', 'dataset_query', 'dataset_define', 'dataset_replace', 'view_put', 'view_get'], note: '让它维护日报' } });
   check(r.status === 200 && r.json?.added?.join() === 'dataset_define,dataset_replace,view_get,view_put' && r.json.removed.length === 0, '管理层直接改这个会话在台上的工具', r.text.slice(0, 200));
-  r = await tool(srv, A.token, 'dataset_define', { bench: 'demo', definition: { name: 'daily', key: ['day'], columns: [{ name: 'day', type: 'date' }, { name: 'n', type: 'integer' }] } });
+  r = await tool(srv, A.token, 'dataset_define', { bench: 'demo', definition: { name: 'daily', key: ['day'], columns: [{ name: 'day', type: 'date', label: '日期' }, { name: 'n', type: 'integer', label: '件数' }] } });
   check(!r.isError && r.json?.created === true, '会话建数据集', r.text.slice(0, 120));
   const rows = [{ day: '2026-01-01', n: 3 }, { day: '2026-01-02', n: 5 }];
   r = await tool(srv, A.token, 'dataset_replace', { bench: 'demo', dataset: 'daily', rows, idempotency_key: 'mcp-replace-0001', note: '日报' });
@@ -237,6 +237,9 @@ try {
   r = await tool(srv, A.token, 'view_put', { bench: 'demo', doc: { title: '日报', views: [{ key: 'main', title: '总览', blocks: [{ type: 'table', query: { dataset: 'daily', sort: [{ col: 'day' }] } }] }] }, base: 0, note: '首版' });
   const vg = await tool(srv, A.token, 'view_get', { bench: 'demo' });
   check(r.json?.version === 1 && vg.json?.view?.active_version === 1, '会话存视图、读回来');
+  // 表格的列都要有说明名：聚合出来的列没给 label，会话存也拒，点名缺的是哪一列；不产生新版本
+  r = await tool(srv, A.token, 'view_put', { bench: 'demo', doc: { title: '日报', views: [{ key: 'main', title: '总览', blocks: [{ type: 'table', query: { dataset: 'daily', group: ['day'], measures: [{ as: 'total', fn: 'sum', col: 'n' }] } }] }] }, base: 1, note: '缺说明名' });
+  check(/列 total 没有说明名/.test(r.text) && (await tool(srv, A.token, 'view_get', { bench: 'demo' })).json?.view?.active_version === 1, '会话存视图：表格的列没有说明名就拒，点名是哪一列', r.text.slice(0, 200));
   r = await srv.call('GET', '/api/bench-views/demo/log', mgr);
   check(r.json?.writes?.some((w) => w.actor === 'mcp:seat-a') && r.json.changes.some((c) => c.actor === 'mcp:seat-a'), '台的留痕里记的是 mcp:<会话名>', r.text.slice(0, 160));
   r = await tool(srv, A.token, 'dataset_replace', { bench: 'demo', dataset: 'daily', rows: [{ day: 'not-a-date', n: 'x' }] });

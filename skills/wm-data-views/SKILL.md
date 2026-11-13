@@ -60,6 +60,8 @@ access_request { "tools": ["dataset_list@bench:sales", "dataset_query@bench:sale
   ] }
 ```
 
+**每一列都写 `label`**（给人看的说明名）：页面上表格的表头用它，不用列名。表格里要显示的列没有说明名，`view_put` 会拒，并点名缺的是哪一列。
+
 列上再写 `"required": true` 就是必填（主键列自动必填，不用写）。`values` 是取值说明：每个取值是什么业务意思（「超期」对应 `late`），接手的人靠它知道口径，有这类列就写上。主键想让服务端分配就写 `"auto": true`（见 references/datasets.md）。
 
 **② 写数据**：四种写法，按数据的性质选一种（见下表）。下面这批用整份替换写进去。

@@ -41,7 +41,10 @@ export type DatasetDef = {
   name: string; title: string; version: number; columns: ColumnDef[]; key: string[];
   row_count: number; data_bytes: number; created_at: number; updated_at: number; updated_by: string;
 };
-export type OutColumn = { name: string; type: BenchColumnType; label: string; role: 'dimension' | 'measure' };
+/** labeled：这一列有人起过说明名（数据集列定义的 label、聚合的 label）；没有时 label 退回列名。只在服务端内部用，不进应答 */
+export type OutColumn = { name: string; type: BenchColumnType; label: string; role: 'dimension' | 'measure'; labeled?: boolean };
+/** 应答里的列：去掉内部用的 labeled */
+export const publicColumn = ({ labeled: _l, ...c }: OutColumn): OutColumn => c;
 export type QueryPlan = { dataset: string; columns: OutColumn[]; params: string[]; sql: string; args: unknown[]; limit: number };
 
 export class BenchError extends Error {
@@ -217,7 +220,7 @@ export function planQuery(spec: unknown, datasets: Map<string, DatasetDef>, opts
   const aggregate = group.length > 0 || measures.length > 0;
   if (aggregate) {
     if (q.select !== undefined) invalid('有 group 或 measures 时不能再写 select');
-    for (const g of group) { columns.push({ name: g.name, type: g.type, label: g.label || g.name, role: 'dimension' }); selects.push(`${physCol(g.name)} AS ${quoted(g.name)}`); }
+    for (const g of group) { columns.push({ name: g.name, type: g.type, label: g.label || g.name, role: 'dimension', labeled: !!g.label }); selects.push(`${physCol(g.name)} AS ${quoted(g.name)}`); }
     measures.forEach((m, i) => {
       const at = `measures 第 ${i + 1} 项`;
       if (!isObj(m)) invalid(`${at} 须为对象`);
@@ -227,22 +230,22 @@ export function planQuery(spec: unknown, datasets: Map<string, DatasetDef>, opts
       if (columns.some((c) => c.name === mo.as)) invalid(`${at}：别名 ${String(mo.as)} 和别的输出列重名`);
       if (typeof mo.fn !== 'string' || !FNS.includes(mo.fn)) invalid(`${at}：fn 须为 ${FNS.join(' / ')}`);
       if (mo.label !== undefined && (typeof mo.label !== 'string' || mo.label.length > 64)) invalid(`${at}：label 须为 64 个字符以内的文本`);
-      const fn = mo.fn as string, label = (mo.label as string) || (mo.as as string);
-      if (fn === 'count' && mo.col === undefined) { selects.push(`COUNT(*) AS ${quoted(mo.as as string)}`); columns.push({ name: mo.as as string, type: 'integer', label, role: 'measure' }); return; }
+      const fn = mo.fn as string, label = (mo.label as string) || (mo.as as string), labeled = !!mo.label;
+      if (fn === 'count' && mo.col === undefined) { selects.push(`COUNT(*) AS ${quoted(mo.as as string)}`); columns.push({ name: mo.as as string, type: 'integer', label, role: 'measure', labeled }); return; }
       const c = colOf(mo.col, at), col = physCol(c.name);
       if ((fn === 'sum' || fn === 'avg') && c.type !== 'integer' && c.type !== 'decimal') invalid(`${at}：${fn} 只用于整数列和小数列`);
       if ((fn === 'min' || fn === 'max') && c.type === 'boolean') invalid(`${at}：${fn} 不用于布尔列`);
       const expr = fn === 'count' ? `COUNT(${col})` : fn === 'count_distinct' ? `COUNT(DISTINCT ${col})` : `${fn.toUpperCase()}(${col})`;
       const type: BenchColumnType = fn === 'count' || fn === 'count_distinct' ? 'integer' : fn === 'avg' ? 'decimal' : c.type;
       selects.push(`${expr} AS ${quoted(mo.as as string)}`);
-      columns.push({ name: mo.as as string, type, label, role: 'measure' });
+      columns.push({ name: mo.as as string, type, label, role: 'measure', labeled });
     });
   } else {
     const picked = q.select === undefined ? ds.columns : strList(q.select, 'select', BENCH_LIMITS.columns).map((s) => colOf(s, 'select'));
     if (!picked.length) invalid('select 不能为空');
     if (new Set(picked.map((c) => c.name)).size !== picked.length) invalid('select 里有重复的列');
     for (const c of picked) {
-      columns.push({ name: c.name, type: c.type, label: c.label || c.name, role: (c.type === 'integer' || c.type === 'decimal') && !ds.key.includes(c.name) ? 'measure' : 'dimension' });
+      columns.push({ name: c.name, type: c.type, label: c.label || c.name, role: (c.type === 'integer' || c.type === 'decimal') && !ds.key.includes(c.name) ? 'measure' : 'dimension', labeled: !!c.label });
       selects.push(`${physCol(c.name)} AS ${quoted(c.name)}`);
     }
   }

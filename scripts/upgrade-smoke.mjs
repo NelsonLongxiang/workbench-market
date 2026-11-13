@@ -271,7 +271,7 @@ const ctx = (note) => ({ actor: 'user:upgrade-smoke', at: 1767225600000, note })
 if (${JSON.stringify(mode)} === 'seed') {
   createBench({ slug: 'syn-bench', title: '合成台' }, 'user:upgrade-smoke', 1767225600000);
   const s = await benchStore('syn-bench');
-  await s.defineDataset({ name: 'orders', title: '订单', key: ['id'], columns: [{ name: 'id', type: 'integer' }, { name: 'region', type: 'text' }, { name: 'amount', type: 'decimal' }] }, ctx());
+  await s.defineDataset({ name: 'orders', title: '订单', key: ['id'], columns: [{ name: 'id', type: 'integer', label: '编号' }, { name: 'region', type: 'text', label: '地区' }, { name: 'amount', type: 'decimal', label: '金额' }] }, ctx());
   await s.replace('orders', [{ id: 1, region: '东区', amount: 12.5 }, { id: 2, region: '南区', amount: 8 }, { id: 3, region: '东区', amount: 1 }], ctx());
   await s.snapshot('orders', ctx('升级冒烟留的'));
   await s.putView({ title: '合成台', views: [{ key: 'main', title: '总览', blocks: [{ type: 'table', query: { dataset: 'orders', sort: [{ col: 'id' }] } }] }] }, { ...ctx('首版'), base: 0 });
