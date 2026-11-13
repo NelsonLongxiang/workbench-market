@@ -31,7 +31,7 @@ export interface BenchViewProps {
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 /** 表单块的 can_submit 是 false 时的说法 */
-export const FORM_DENIED = '你的账号不能在这个台上填表';
+export const FORM_DENIED = '你的账号不能在这个台上填表。要填的话，请管理层为你开通这个台的权限。';
 export function BenchView({ result, loading, onParams, onSubmit, formDisabledReason, frame, dense, hideFilters }: BenchViewProps) {
   const blocks = result?.blocks ?? [];
   return (
