@@ -184,11 +184,10 @@
       "what": "server 的类型错误（带空值检查，其余宽松）",
       "target": 0,
       "baseline": {
-        "total": 37,
+        "total": 35,
         "files": {
           "server/src/index.ts": 33,
-          "server/src/portal.ts": 2,
-          "server/src/services/workbench.ts": 2
+          "server/src/portal.ts": 2
         }
       }
     },

@@ -76,7 +76,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_APP_DATA_READ`（台数据与附件的读守卫·缺省 `enforce`：`GET /api/apps/<台>/data`、`/files`、`/files/<id>` 要本台的台令牌、管理员（同源）或本机命令行，下载另认本台页面的查看凭证，都不满足 403；`warn`＝上线过渡用，照旧放行，只按路由和调用方类别计数留痕（日志 `source: app-data-read`），过渡完设回 `enforce`；其它值拒绝启动）
 - `WM_SOP_RUN_WRITE`（SOP run 的写守卫·缺省 `enforce`：保存一步 `PUT /api/sop/runs/<id>`、完成 `POST …/finish` 要这个 run 的上传令牌 `X-Run-Upload-Token`（run 还在执行）、管理员（同源）或本机命令行，都不满足 403，不分登录门开没开；`warn`＝上线过渡用，照旧放行，只按路由和调用方类别计数留痕（日志 `source: sop-run-write`），过渡完设回 `enforce`；其它值拒绝启动）
 - `WM_ROLES_FILE`（组织角色的外部声明文件·绝对路径·JSON `{"roles":[…]}`·设了就以它为准，不设用仓库里的通用初始集合·平台内置角色不能被覆盖，同名、循环包含、引用不存在的动作、范围写法不对都拒绝启动）
-- `WM_JUDGMENT_COMPARE`（判定的并行比对·`on` 打开·缺省 `off`·别的值拒绝启动·打开时每个请求应答结束之后算新判定、和旧守卫的结论比，不改应答，并给第一次见到的人迁移 `member`、身份来源说是管理员的迁移 `admin` 和 `management`（来源记 migration）·CI 和出报告用的实例里开；判定切换（6d）的第 0 步起生产也打开观察，见 [docs/judgment-legacy-differences.md](docs/judgment-legacy-differences.md)）
+- `WM_JUDGMENT_COMPARE`（判定的并行比对·`on` 打开·缺省 `off`·别的值拒绝启动·打开时每个请求应答结束之后算新判定、和旧守卫的结论比，不改应答，并给第一次见到的人迁移 `member`、身份来源说是管理员的再迁移 `admin`（来源记 migration；不自动迁 `management`，管理层由属主单独授，见遗留差异 L6）·CI 和出报告用的实例里开；判定切换（6d）的第 0 步起生产也打开观察，见 [docs/judgment-legacy-differences.md](docs/judgment-legacy-differences.md)）
 - `WM_JUDGMENT_COMPARE_OUT`（比对打开时每比一次追加一行 JSON 的文件·绝对路径·可选·给出报告的脚本汇总）
 - `WM_JUDGMENT_ENFORCE`（判定切换的开关·缺省空＝一个域都不切、行为不变·写域名列表（逗号分隔）或 `all`·要和 `WM_JUDGMENT_COMPARE=on` 一起开·写法不对、域没有登记的动作都拒绝启动·切了的域在路由处理之前由新判定说放不放行，拒绝回 403 `judgment_denied`（转提议是 `judgment_ask`），记进比对库的 `judgment_enforced`；放行的照旧交给原来的处理函数，旧守卫再判一遍做反向比对·声明了状态码不代表授权的路由、没报动作的存量路由、「暂不切」清单里的动作不受影响·回退：去掉这个域、重启）
 - `WM_FEISHU_LOGIN`（`on`=打开飞书登录·缺省关）
@@ -127,9 +127,9 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 
 每次上线前跑一遍 `node scripts/upgrade-smoke.mjs`，看「线上那个版本的库，换成这份代码启动」会发生什么。CI 里是单独的一个 job（`upgrade-smoke`）。
 
-- **基线**：缺省是发布分支 `origin/release/prod-hotfix-1`（本地没有就先 fetch）；要换就带 `--base <标签、分支或提交>`。基线的代码解到 `tmp/` 下的临时目录，依赖和本检出相同就共用，不同就在那里另装。
+- **基线**：缺省是发布分支 `origin/release/prod-hotfix-1`（本地没有就先 fetch）；要换就带 `--base <标签、分支或提交>`（完整提交号本地没有时按提交号去取）。CI 跑两条：发布分支（第一次上线的起点）和 `fa89254f`（第二次上线的起点）。基线的代码解到 `tmp/` 下的临时目录，依赖和本检出相同就共用，不同就在那里另装。
 - **数据**：先用基线的代码起一个空实例、经它自己的接口建凭据库，再用它自己的库模块灌一份合成数据（工作台、驾驶舱、自产台和它们的文件、台数据、技能、SOP 录入、任务、各种投递状态的工作台事件、变更申请、MCP 会话、工作台变量）。只写基线库里有的列，换个基线一般不用改灌数据的部分。
-- **查什么**：本检出的代码在这份库上启动两次——能起来、启动自检全过；原有工作台、事件读得出来，凭据库照原主密码解得开；表结构只加不改（不删表、不删列、不改列定义；基线的索引、触发器、视图都还在、定义逐字相同），原有各表行数不变少，原有的行逐行逐列没被改（基线自己每次启动都会改的列先量出来、不算，输出里列出是哪几列）；回填给每个事件建出一个事项；第二次启动表结构逐字节相同、各表行数相同、事项数不变。然后基线的代码在升级后的库上启动：自检全过，能读，能写（新建工作台、提交台数据、开录入），凭据库解得开。最后本检出再启动一次：自检全过，回滚期间基线写进来的事件（它不认识事项）也要建出事项。事项回填若改成后台跑，脚本会等 /api/health 报完成再看库。
+- **查什么**：本检出的代码在这份库上启动两次——能起来、启动自检全过；原有工作台、事件读得出来，凭据库照原主密码解得开；表结构只加不改（不删表、不删列、不改列定义；基线的索引、触发器、视图都还在、定义逐字相同），原有各表行数不变少，原有的行逐行逐列没被改（基线自己每次启动都会改的列先量出来、不算，输出里列出是哪几列；唯一写死的例外是回填版本确实升了时，回填进度表 `work_item_backfill` 的 version、phase、cursor 跟着变，版本没升时这三列变了、别的表的同名列变了照样算改了，`--selftest` 自检这个口径）；回填给每个事件建出一个事项；第二次启动表结构逐字节相同、各表行数相同、事项数不变。然后基线的代码在升级后的库上启动：自检全过，能读，能写（新建工作台、提交台数据、开录入），凭据库解得开。最后本检出再启动一次：自检全过，回滚期间基线写进来的事件（它不认识事项）也要建出事项。事项回填若改成后台跑，脚本会等 /api/health 报完成再看库。
 - **隔离**：实例只听 127.0.0.1 的空闲端口；主目录、临时目录和几个工具的配置目录都指到临时目录；环境变量只给命令搜索路径、端口、数据目录和一个合成的管理员口令，不读本机配置、不连任何外部系统。跑完删掉临时目录（`--keep` 保留，排查用）。
 - **换代码**：`--head <目录>` 把「要验的代码」换成另一个目录（那个目录要装好依赖），比如拿一份故意改坏的拷贝看它是不是真的会红。
 - 每条检查都无条件执行：前提不成立（比如基线上凭据库没建成）就记一条不过，不会悄悄跳过；末尾再核对一遍检查条数。判据只看库里的数和接口的应答，不看日志的写法。
@@ -300,7 +300,7 @@ GET              /api/health/ready              就绪：含 LayerFS 探测（�
     - 记账攒批，应答之后异步写进单独的库文件 `judgment-compare.db`（不和业务库抢锁），写失败只计数；
     - 判定出错只计数，不影响应答。
   - 结果看 `GET /api/judgment/compare`。`scripts/judgment-compare-report.mjs` 把回放和 CI 脚本在比对打开时跑一遍，按域×原因出报告，另有按域×结果的汇总；`--from <比对输出.jsonl>` 不跑脚本，只汇总已有的比对输出（`WM_JUDGMENT_COMPARE_OUT` 的文件）；`--snapshot <GET /api/judgment/compare 的应答.json>` 拿接口里攒着的合计出同一张按域的表，再给 `--since <更早的一份>` 就只算两份之间新增的——生产上用这个，不用开 `WM_JUDGMENT_COMPARE_OUT`（那个文件每比一次加一行、不轮转），单测 `scripts/judgment-compare-snapshot-test.mjs` 核两条路出的数相同。零不一致的门槛有两道，都在 CI 里：`scripts/judgment-compare-zero-test.mjs` 跑全量回放；`scripts/judgment-compare-sweep-test.mjs` 让六种身份把每条 GET 打一遍、写面挑代表。
-  - 迁移出来的授予来源记 migration：`GET /api/grants?source=migration` 列出，`POST /api/grants/revoke-migration`（只有属主）整批撤销。
+  - 迁移出来的授予来源记 migration：`GET /api/grants?source=migration` 列出，`POST /api/grants/revoke-migration`（只有属主）整批撤销。迁移只给 `member` 和（身份来源说是管理员的）`admin`，不给 `management`：`scripts/judgment-migration-test.mjs` 守住管理员被迁之后团队分配仍 403、认领仍走提议、数据视图仍进不去。
 - 管不到的：按 run 发的读凭据、自产台查看凭证是不记名的，各有各的期限和吊销，不随主体停用失效；已经建立的 WebSocket 连接不会被掐断，新的请求和新的连接立即拒绝。停用是按登录名对的：身份来源那边把登录名改了，就是另一个人。
 - **读要凭据**：`GET /api/apps/<slug>/data`、`/files`、`/files/<id>` 要本台的台令牌（`X-App-Token`，服务端出台页面时注入）、管理员（口令或管理员登录，同源）或本机命令行；沙箱页的下载链接和图片带不了头，认登录门签给本台页面的查看凭证（`wm_av`）。不满足一律 403，先于查台。远程 agent 读台数据走 MCP（`app_data_list`、`app_files_list`，可按台授权）。设计上，能打开某个台页面的人就能读这个台的数据（台令牌在页面里）；「谁能打开哪个台」和按人读另行设计。
 

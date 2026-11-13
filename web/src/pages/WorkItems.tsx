@@ -4,7 +4,7 @@
  *  各组角标用服务端给的按状态计数（覆盖整个可见范围），已取回的行不够时组底注明「已加载 x / 共 n」，页底「加载更多」。 */
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Alert, Badge, Button, Card, Collapse, Empty, Flex, List, Segmented, Space, Tag, Typography } from 'antd';
+import { Alert, Badge, Button, Card, Collapse, Empty, Flex, List, Segmented, Skeleton, Space, Tag, Typography } from 'antd';
 import { ReloadOutlined, RobotOutlined } from '@ant-design/icons';
 import WmPage from '../components/WmPage';
 import RelTime from '../components/RelTime';
@@ -76,7 +76,8 @@ export default function WorkItems() {
   const [names, setNames] = useState<Names>(NO_NAMES);
   // 哪些事项轮到你：和侧栏角标、全景同一份「关注」、同一个判法（isMyDecision）；读不到是 null，这时不标红
   const admin = useSyncExternalStore(subscribeAdminToken, adminActive);
-  const [items, setItems] = useState<AttentionItem[] | null>(null);
+  // undefined = 还在读（「等你拍板」那一组先用骨架，不先按状态数出一个数再改）；null = 读不到
+  const [items, setItems] = useState<AttentionItem[] | null | undefined>(undefined);
   useEffect(() => {
     let live = true;
     const read = () => { void getAttention().then((a) => { if (live) setItems(a.status >= 200 && a.status < 300 ? a.items as unknown as AttentionItem[] : null); }); };
@@ -135,10 +136,13 @@ export default function WorkItems() {
         </span>
       </div>
       {error && <Alert type="error" showIcon message={error} />}
+      {/* 第一页回来之前：骨架，不留白、也不先说「没有」 */}
+      {!loaded && !error ? <Card data-testid="work-items-loading"><Skeleton active paragraph={{ rows: 5 }} /></Card> : null}
       {loaded && total === 0 && !error ? <Card data-testid="work-items-empty"><Empty description={emptyText(view, filter.seat)} /></Card> : null}
       {loaded && total > 0 && mode === 'state' ? STATE_GROUPS.flatMap((g) => {
         const n = groupCount(counts, g.key);
         if (g.key === 'decide') {
+          if (items === undefined) return [<Card key="decide" size="small" data-testid="work-items-group-decide-loading" title={g.title}><Skeleton active title={false} paragraph={{ rows: 2 }} /></Card>];
           // 「等你拍板」只放轮到你、能当场办的，红色数就是它；别人的另成「等别人处理」，写清等谁，中性色。
           // 读不到「关注」时分不出来：整组叫「等拍板」，不标红
           if (!turns) return [<Card key="decide" size="small" data-testid="work-items-group-decide" title={<Space size={6}><span>等拍板</span><Count n={n} /></Space>}>

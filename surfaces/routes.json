@@ -75,6 +75,7 @@
       "GET /api/bench-views/:bench/datasets/:name/snapshots  <- <anonymous>",
       "POST /api/bench-views/:bench/datasets/:name/snapshots  <- <anonymous>",
       "POST /api/bench-views/:bench/restore  <- <anonymous>",
+      "GET /api/bench-views/:bench/entry  <- <anonymous>",
       "GET /api/bench-views/:bench/view  <- <anonymous>",
       "PUT /api/bench-views/:bench/view  <- <anonymous>",
       "GET /api/bench-views/:bench/view/versions  <- <anonymous>",
