@@ -30,6 +30,8 @@ import { createHash, createPublicKey, generateKeyPairSync, randomBytes, verify a
 import { db } from '../db.ts';
 import { sqlTime } from './a2a-replies.ts';
 import { claimSignatureOnce } from './a2a-receipts.ts';
+// 公钥完整指纹和对端登记表（a2a_peers.key_fingerprint）同一个算法、同一个写法（sha256:<十六进制全长>）
+import { keyFingerprint } from './a2a-peers.ts';
 
 export const SEAT_TOKEN_TAG = 'wm-seat-token/1';
 export const SEAT_TOKEN_TTL_MS = 60 * 60_000;
@@ -67,8 +69,6 @@ export function seatTokenCanonical(r: Omit<SeatTokenRequest, 'sig'>): string {
 const sha256Hex = (s: string | Buffer) => createHash('sha256').update(s).digest('hex');
 /** 公钥（base64 SPKI DER）的指纹前 8 位，和名册的 host、上游 canvasOwnerFingerprint 同一个算法 */
 export const hostOfKey = (publicKey: string): string => sha256Hex(Buffer.from(publicKey, 'base64')).slice(0, 8);
-/** 公钥的完整指纹（sha256 全长十六进制）：席位主体绑它，不只绑前 8 位 */
-export const keyFingerprint = (publicKey: string): string => sha256Hex(Buffer.from(publicKey, 'base64'));
 
 /**
  * 节点和席位现在都还有效吗：名册里有这台宿主、宿主的根地址登记成了对端且 active、钉住的公钥指纹就是 host、
@@ -98,7 +98,7 @@ function verifies(publicKey: string | null, canonical: string, sig: string): boo
  * 被吊销的返回 revoked。宿主号相同、根地址或公钥不同的是另一个主体，从空授权开始
  */
 function subjectOf(host: string, seatId: string, keyFp: string, root: string, now: number): { id: number } | 'revoked' | 'name-taken' {
-  const hit = db.prepare('SELECT s.session_id AS id, m.revoked_at AS revoked FROM a2a_seat_subjects s JOIN mcp_sessions m ON m.id = s.session_id WHERE s.root = ? AND s.key_fp = ? AND s.seat_id = ?')
+  const hit = db.prepare('SELECT s.session_id AS id, m.revoked_at AS revoked FROM a2a_seat_subjects s JOIN mcp_sessions m ON m.id = s.session_id WHERE s.peer_root = ? AND s.key_fingerprint = ? AND s.seat_id = ?')
     .get(root, keyFp, seatId) as { id: number; revoked: string } | undefined;
   if (hit) return hit.revoked === '' ? { id: Number(hit.id) } : 'revoked';
   // 名字：宿主号便于人认，后 12 位由根地址、完整指纹、seat_id 一起算，宿主号相同的不同主体名字也不同
@@ -110,7 +110,7 @@ function subjectOf(host: string, seatId: string, keyFp: string, root: string, no
     const info = db.prepare('INSERT INTO mcp_sessions (name, token_sha256, grants, created_at) VALUES (?, ?, ?, ?)')
       .run(name, `seat-subject:${randomBytes(16).toString('hex')}`, '[]', sqlTime(now));
     const id = Number(info.lastInsertRowid);
-    db.prepare('INSERT INTO a2a_seat_subjects (host, seat_id, key_fp, root, session_id, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(host, seatId, keyFp, root, id, now);
+    db.prepare('INSERT INTO a2a_seat_subjects (host, seat_id, key_fingerprint, peer_root, session_id, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(host, seatId, keyFp, root, id, now);
     db.exec('RELEASE seat_subject');
     return { id };
   } catch (e) { db.exec('ROLLBACK TO seat_subject'); db.exec('RELEASE seat_subject'); throw e; }
@@ -181,8 +181,8 @@ export function seatTokenSession(tokenSha256: string, now = Date.now()): { id: n
   if (!t || Number(t.expires_at) <= now) return null;
   const live = liveSeat(t.host, t.seat_id);
   if (!live) return null;
-  const bound = db.prepare('SELECT key_fp, root FROM a2a_seat_subjects WHERE session_id = ? AND seat_id = ?').get(t.session_id, t.seat_id) as { key_fp: string; root: string } | undefined;
-  if (!bound || bound.key_fp !== keyFingerprint(live.publicKey) || bound.root !== live.root) return null;
+  const bound = db.prepare('SELECT key_fingerprint, peer_root FROM a2a_seat_subjects WHERE session_id = ? AND seat_id = ?').get(t.session_id, t.seat_id) as { key_fingerprint: string; peer_root: string } | undefined;
+  if (!bound || bound.key_fingerprint !== keyFingerprint(live.publicKey) || bound.peer_root !== live.root) return null;
   const s = db.prepare("SELECT id, name, grants FROM mcp_sessions WHERE id = ? AND revoked_at = ''").get(t.session_id) as { id: number; name: string; grants: string } | undefined;
   if (!s) return null;
   let grants: string[] = [];

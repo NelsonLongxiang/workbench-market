@@ -654,17 +654,18 @@ try { const mcCols = tableColumns('mcp_calls') as any[]; if (!mcCols.some((c) =>
 try { const mcCols = tableColumns('mcp_calls') as any[]; if (!mcCols.some((c) => c.name === 'seat')) db.exec("ALTER TABLE mcp_calls ADD COLUMN seat TEXT NOT NULL DEFAULT ''"); if (!mcCols.some((c) => c.name === 'claimed_seat')) db.exec("ALTER TABLE mcp_calls ADD COLUMN claimed_seat TEXT NOT NULL DEFAULT ''"); if (!mcCols.some((c) => c.name === 'token_ref')) db.exec("ALTER TABLE mcp_calls ADD COLUMN token_ref TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 // 阶段七：席位用签名换短期 MCP 令牌（services/seat-tokens.ts）。
 //   a2a_seat_subjects：每个席位（host, seat_id）一个长期的授权主体，挂 mcp_sessions 的一行；grants、按台批的授予都记在它上面，跨令牌轮换保留。
-//     按（root, key_fp, seat_id）认：key_fp 是节点公钥的完整指纹（sha256 全长），root 是根地址；host 只是指纹前 8 位，只拿来显示。
+//     按（peer_root, key_fingerprint, seat_id）认：key_fingerprint 是节点公钥的完整指纹，写法同 a2a_peers.key_fingerprint（sha256:<十六进制全长>），
+//     peer_root 是根地址（同 a2a_rosters.peer_root）；host 只是指纹前 8 位，只拿来显示。
 //   a2a_seat_tokens：换出去的令牌只存 sha256；1 小时到期、不续期。时间由代码给（毫秒）。
 db.exec(`
 CREATE TABLE IF NOT EXISTS a2a_seat_subjects (
-  root TEXT NOT NULL CHECK (root <> ''),
-  key_fp TEXT NOT NULL CHECK (length(key_fp) = 64),
+  peer_root TEXT NOT NULL CHECK (peer_root <> ''),
+  key_fingerprint TEXT NOT NULL CHECK (key_fingerprint GLOB 'sha256:*' AND length(key_fingerprint) = 71),
   seat_id TEXT NOT NULL,
   host TEXT NOT NULL,
   session_id INTEGER NOT NULL UNIQUE,
   created_at INTEGER NOT NULL,
-  PRIMARY KEY (root, key_fp, seat_id)
+  PRIMARY KEY (peer_root, key_fingerprint, seat_id)
 );
 CREATE TABLE IF NOT EXISTS a2a_seat_tokens (
   token_sha256 TEXT PRIMARY KEY,

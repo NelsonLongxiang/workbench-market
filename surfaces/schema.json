@@ -92,8 +92,8 @@
       "callback_url TEXT NOT NULL DEFAULT ''"
     ],
     "a2a_seat_subjects": [
-      "root TEXT NOT NULL PK",
-      "key_fp TEXT NOT NULL PK",
+      "peer_root TEXT NOT NULL PK",
+      "key_fingerprint TEXT NOT NULL PK",
       "seat_id TEXT NOT NULL PK",
       "host TEXT NOT NULL",
       "session_id INTEGER NOT NULL",

@@ -174,9 +174,9 @@ try {
   seedHost(F, [{ seat: 'zeta-node/f0000001', id: 'seat-f1' }]);
   const rf = await exchange(req(F, 'seat-f1'));
   const fsid = q("SELECT session_id FROM a2a_seat_subjects WHERE host = ? AND seat_id = 'seat-f1'", F.fp)[0]?.session_id;
-  const fBound = (() => { try { return q("SELECT key_fp, root FROM a2a_seat_subjects WHERE session_id = ?", fsid)[0]; } catch { return undefined; } })(); // 旧库没有这两列：判红而不是跑不下去
+  const fBound = (() => { try { return q("SELECT key_fingerprint, peer_root FROM a2a_seat_subjects WHERE session_id = ?", fsid)[0]; } catch { return undefined; } })(); // 旧库没有这两列：判红而不是跑不下去
   await admin('PUT', `/api/mcp/sessions/${fsid}/grants`, { grants: ['sop_run_list'] });
-  ok('建主体时记下公钥的完整指纹（sha256 全长）和根地址', rf.status === 200 && fBound?.key_fp === createHash('sha256').update(Buffer.from(F.pk, 'base64')).digest('hex') && fBound?.root === F.root, JSON.stringify(fBound));
+  ok('建主体时记下公钥的完整指纹（sha256 全长）和根地址', rf.status === 200 && fBound?.key_fingerprint === 'sha256:' + createHash('sha256').update(Buffer.from(F.pk, 'base64')).digest('hex') && fBound?.peer_root === F.root, JSON.stringify(fBound));
   const grantsOf = (id) => q('SELECT grants FROM mcp_sessions WHERE id = ?', id)[0]?.grants;
   // 同一宿主号、同一把键，名册和对端登记改到另一个根地址来换：是另一个主体，从空授权开始；旧主体上已发的令牌失效
   const movedRoot = 'https://zeta-moved.example.test';
@@ -195,7 +195,7 @@ try {
   // 现在这把键签、宿主号和根地址都对得上：也是另一个主体，拿不到旧主体的授权，旧主体的令牌失效
   const backOk = (await mcp(rf.body?.token, 'tools/list', {})).status;
   // （主体名字里也带着建时的指纹算出的几位：真换了键名字自然不同，这里键没真换，旧主体一并改个名，免得撞名）
-  try { run('UPDATE a2a_seat_subjects SET key_fp = ? WHERE session_id = ?', 'f'.repeat(64), fsid); } catch { /* 旧库没有这一列：下面判红 */ }
+  try { run('UPDATE a2a_seat_subjects SET key_fingerprint = ? WHERE session_id = ?', 'sha256:' + 'f'.repeat(64), fsid); } catch { /* 旧库没有这一列：下面判红 */ }
   run("UPDATE mcp_sessions SET name = name || '-prev' WHERE id = ?", fsid);
   const otherKey = await exchange(req(F, 'seat-f1'));
   const okSid = otherKey.body?.token ? q('SELECT session_id FROM a2a_seat_tokens WHERE token_sha256 = ?', createHash('sha256').update(otherKey.body.token).digest('hex'))[0]?.session_id : undefined;
