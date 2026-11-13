@@ -1327,6 +1327,38 @@ CREATE TABLE IF NOT EXISTS dept_lead_grants (
   principal_id TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
+-- 经验库（/knowledge）：从 ygl-trees 的 library 出口（同机 CLI）同步来的目录，只存列表要的几样，不存正文（正文按需取）。
+--   kind：claim 依据、note 经验、skill 方法、check 检查。key 是给页面的不透明键（不露 ygl-trees 的 id）。
+--   scope 照 ygl-trees 给的原样存（dept:<部门>、bench:<台>、*、restricted；没给是空串）；谁能看由路由按授予判，不在这里判。
+CREATE TABLE IF NOT EXISTS knowledge_items (
+  kind TEXT NOT NULL CHECK (kind IN ('claim', 'note', 'skill', 'check')),
+  ygl_id TEXT NOT NULL,
+  key TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL DEFAULT '',
+  summary TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT '',
+  project TEXT NOT NULL DEFAULT '',
+  scope TEXT NOT NULL DEFAULT '',
+  tags TEXT NOT NULL DEFAULT '[]',
+  created TEXT NOT NULL DEFAULT '',
+  updated TEXT NOT NULL DEFAULT '',
+  seen_at INTEGER NOT NULL,
+  PRIMARY KEY (kind, ygl_id)
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_items_updated ON knowledge_items (updated, kind);
+-- 每一类同步到哪了：增量的起点（拉到的最大 updated）、上次成功、上次全量对账、上次失败的原因（给管理员看，不给页面）
+CREATE TABLE IF NOT EXISTS knowledge_sync (
+  kind TEXT PRIMARY KEY,
+  since TEXT NOT NULL DEFAULT '',
+  last_ok_at INTEGER,
+  last_full_at INTEGER,
+  last_error TEXT NOT NULL DEFAULT ''
+);
+-- 经验库自己的几样设置：给页面的不透明键用的密钥（第一次用时随机生成，存下来，键才稳定）
+CREATE TABLE IF NOT EXISTS knowledge_meta (
+  k TEXT PRIMARY KEY,
+  v TEXT NOT NULL
+);
 `);
 // 阶段八 8d：待对接清单的「出现序号」。同一条外部身份绑定后又出现在清单里，是新的一轮待决；「关注」的记账按它分轮，
 //   不靠时间（只到秒，同一秒里又出现就分不开）。每次新插入一行（主体服务是 upsert，只在真的新进清单时插入）取一个全局只增的号：

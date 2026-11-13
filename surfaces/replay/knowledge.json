@@ -1,0 +1,234 @@
+{
+  "domain": "knowledge",
+  "what": "经验库：/api/knowledge 的 3 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。条目、人、部门都是合成的。",
+  "routes": ["GET /api/knowledge", "GET /api/knowledge/status", "GET /api/knowledge/:key"],
+  "exempt": [{ "route": "GET /api/knowledge/status", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入", "shown_by": "open/status-admin" }],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "设了管理口令（合成）、登录门关。假登录提供方认出 alpha（普通员工）、no-flag（管理层），第一次登录时建主体。经验库的目录由 seed 直接写进库（后台同步关着），详情现调假的 ygl-trees 命令行。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "fixtures": ["identity-fake", "knowledge-fake"],
+      "seed": [
+        { "table": "knowledge_meta", "row": { "k": "key-secret", "v": "replay-knowledge-key-secret-0001" } },
+        {
+          "table": "knowledge_items",
+          "row": { "kind": "note", "ygl_id": "replay-star", "key": "soQK0oqPgPYRLWrIFXiIV3", "title": "回放经验：全公司", "summary": "人人可见", "status": "", "project": "", "scope": "*", "tags": "[]", "created": "2030-01-01T00:00:00Z", "updated": "2030-01-01T00:00:00Z", "seen_at": 1893456000000 }
+        },
+        {
+          "table": "knowledge_items",
+          "row": { "kind": "note", "ygl_id": "replay-sales", "key": "CBchfsqJCtNjOGrLlzOiZP", "title": "回放经验：销售部", "summary": "销售部可见", "status": "", "project": "", "scope": "dept:sales", "tags": "[]", "created": "2030-01-01T00:00:00Z", "updated": "2030-01-01T00:00:00Z", "seen_at": 1893456000000 }
+        },
+        {
+          "table": "knowledge_items",
+          "row": { "kind": "note", "ygl_id": "replay-restricted", "key": "rJ7308I0D9-eXSJ_zeCgc-", "title": "回放经验：只给管理层", "summary": "", "status": "", "project": "", "scope": "restricted", "tags": "[]", "created": "2030-01-01T00:00:00Z", "updated": "2030-01-01T00:00:00Z", "seen_at": 1893456000000 }
+        }
+      ],
+      "steps": [
+        {
+          "id": "dept-sales",
+          "what": "布置现场：属主（本机命令行）建部门 sales（借部门的路由，只比状态码）",
+          "compare": "status",
+          "request": { "method": "PUT", "path": "/api/departments/sales", "json": { "name": "合成销售部" } },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "viewer-alpha",
+          "what": "布置现场：alpha 登录一次",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "viewer-mg",
+          "what": "布置现场：no-flag 登录一次",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-admin-flag-missing1" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "grant-g1",
+          "what": "布置现场：属主给 user:alpha 起草一条 member（借授予的路由，只比状态码）",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants", "json": { "principal": "user:alpha", "role": "member", "scope": "*", "reason": "合成：回放" } },
+          "save": { "g1": "grant.id" },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "grant-g1-submit",
+          "what": "布置现场：提交",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/{{g1}}/submit" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "grant-g1-approve",
+          "what": "布置现场：放行",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/{{g1}}/approve" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "grant-g2",
+          "what": "布置现场：属主给 user:no-flag 起草一条 management（借授予的路由，只比状态码）",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants", "json": { "principal": "user:no-flag", "role": "management", "scope": "*", "reason": "合成：回放" } },
+          "save": { "g2": "grant.id" },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "grant-g2-submit",
+          "what": "布置现场：提交",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/{{g2}}/submit" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "grant-g2-approve",
+          "what": "布置现场：放行",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/{{g2}}/approve" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "list-remote-anon",
+          "route": "GET /api/knowledge",
+          "class": "unauthorized",
+          "what": "远程、没登录：401",
+          "request": { "method": "GET", "path": "/api/knowledge", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "list-bad-kind",
+          "route": "GET /api/knowledge",
+          "class": "invalid",
+          "what": "类别不是页面的四类之一：400",
+          "request": { "method": "GET", "path": "/api/knowledge?kind=note", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-admin-flag-missing1" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "79", "etag": "W/\"4f-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "kind_invalid", "message": "kind 只能是 claim、kb、skill、verify" }
+          }
+        },
+        {
+          "id": "list-management",
+          "route": "GET /api/knowledge",
+          "class": "normal",
+          "what": "管理层：三条都看得到",
+          "request": { "method": "GET", "path": "/api/knowledge", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-admin-flag-missing1" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "704", "etag": "W/\"2c0-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "items": [
+                { "key": "rJ7308I0D9-eXSJ_zeCgc-", "kind": "kb", "title": "回放经验：只给管理层", "summary": "", "status": null, "tags": [], "created": "YYYY-MM-DDThh:mm:ssZ", "updated": "YYYY-MM-DDThh:mm:ssZ", "scope_label": "只给管理层" },
+                { "key": "CBchfsqJCtNjOGrLlzOiZP", "kind": "kb", "title": "回放经验：销售部", "summary": "销售部可见", "status": null, "tags": [], "created": "YYYY-MM-DDThh:mm:ssZ", "updated": "YYYY-MM-DDThh:mm:ssZ", "scope_label": "合成销售部" },
+                { "key": "soQK0oqPgPYRLWrIFXiIV3", "kind": "kb", "title": "回放经验：全公司", "summary": "人人可见", "status": null, "tags": [], "created": "YYYY-MM-DDThh:mm:ssZ", "updated": "YYYY-MM-DDThh:mm:ssZ", "scope_label": "全公司" }
+              ],
+              "source": "not_ready"
+            }
+          }
+        },
+        {
+          "id": "list-member",
+          "route": "GET /api/knowledge",
+          "class": "normal",
+          "what": "普通员工：只看得到全公司的那条",
+          "request": { "method": "GET", "path": "/api/knowledge", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "253", "etag": "W/\"fd-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "items": [{ "key": "soQK0oqPgPYRLWrIFXiIV3", "kind": "kb", "title": "回放经验：全公司", "summary": "人人可见", "status": null, "tags": [], "created": "YYYY-MM-DDThh:mm:ssZ", "updated": "YYYY-MM-DDThh:mm:ssZ", "scope_label": "全公司" }],
+              "source": "not_ready"
+            }
+          }
+        },
+        {
+          "id": "detail-remote-anon",
+          "route": "GET /api/knowledge/:key",
+          "class": "unauthorized",
+          "what": "远程、没登录：401",
+          "request": { "method": "GET", "path": "/api/knowledge/soQK0oqPgPYRLWrIFXiIV3", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "detail-missing",
+          "route": "GET /api/knowledge/:key",
+          "class": "invalid",
+          "what": "不存在的键：404（看不到的也是这个应答）",
+          "request": { "method": "GET", "path": "/api/knowledge/AAAAAAAAAAAAAAAAAAAAAA", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "57", "etag": "W/\"39-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "knowledge_missing", "message": "没有这一条" }
+          }
+        },
+        {
+          "id": "detail-member",
+          "route": "GET /api/knowledge/:key",
+          "class": "normal",
+          "what": "普通员工看全公司那条的详情：正文现取",
+          "request": { "method": "GET", "path": "/api/knowledge/soQK0oqPgPYRLWrIFXiIV3", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "276", "etag": "W/\"114-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "item": { "key": "soQK0oqPgPYRLWrIFXiIV3", "kind": "kb", "title": "回放经验：全公司", "summary": "人人可见", "status": null, "tags": [], "created": "YYYY-MM-DDThh:mm:ssZ", "updated": "YYYY-MM-DDThh:mm:ssZ", "scope_label": "全公司" },
+              "body": "# 回放正文\n以后照这样办。"
+            }
+          }
+        },
+        {
+          "id": "status-remote-anon",
+          "route": "GET /api/knowledge/status",
+          "class": "unauthorized",
+          "what": "远程、不带口令：被管理门拒",
+          "request": { "method": "GET", "path": "/api/knowledge/status", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "status-admin",
+          "route": "GET /api/knowledge/status",
+          "class": "normal",
+          "what": "管理口令：每类的条数和同步状态（后台同步关着，没同步过）",
+          "request": { "method": "GET", "path": "/api/knowledge/status", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "334", "etag": "W/\"14e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "kinds": [
+                { "kind": "claim", "items": 0, "last_ok_at": null, "last_full_at": null, "last_error": "" },
+                { "kind": "note", "items": 3, "last_ok_at": null, "last_full_at": null, "last_error": "" },
+                { "kind": "skill", "items": 0, "last_ok_at": null, "last_full_at": null, "last_error": "" },
+                { "kind": "check", "items": 0, "last_ok_at": null, "last_full_at": null, "last_error": "" }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
