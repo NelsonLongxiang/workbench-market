@@ -92,10 +92,11 @@ try {
   const as = (s) => ({ headers: { ...REMOTE, ...same }, session: s });
   for (const s of [SESSIONS.admin, SESSIONS.alpha, SESSIONS.beta, SESSIONS.noAdminFlag]) await srv.call('GET', '/api/auth/viewer', { session: s });
   const now = new Date().toISOString();
-  db.prepare('INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?)').run(HOST, 'https://node.synthetic.invalid', 'zone1', now, now);
+  // 指纹和下面对端登记里钉住的一致（名册视图要求名册记的指纹就是钉住的那把）
+  db.prepare('INSERT INTO a2a_roster_nodes (host, peer_root, peer_zone, reported_at, received_at, key_fingerprint) VALUES (?, ?, ?, ?, ?, ?)').run(HOST, 'https://node.synthetic.invalid', 'zone1', now, now, 'sha256:a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1');
   // 对端登记表里这个节点的名字（团队页显示「来自 某节点」，不显示节点标识）
-  db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, registered_by, registered_at, updated_at) VALUES ('peer-syn', 'https://node.synthetic.invalid', 'zone1', '合成节点', 'active', 'cli', ?, ?)").run(String(now), String(now));
-  const seatIns = db.prepare('INSERT INTO a2a_roster_seats (host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)');
+  db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, key_fingerprint, registered_by, registered_at, updated_at) VALUES ('peer-syn', 'https://node.synthetic.invalid', 'zone1', '合成节点', 'active', 'sha256:a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1', 'cli', ?, ?)").run(String(now), String(now));
+  const seatIns = db.prepare('INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES ((SELECT peer_root FROM a2a_roster_nodes WHERE host = ?1 ORDER BY rowid LIMIT 1), (SELECT key_fingerprint FROM a2a_roster_nodes WHERE host = ?1 ORDER BY rowid LIMIT 1), ?1, ?2, ?3, ?4, ?5, ?6, 1, 0, ?7, ?8)');
   seatIns.run(HOST, TEAM, ROUTER.seat, ROUTER.seat_id, '合成总工', 'router', now, now);
   seatIns.run(HOST, TEAM, MEMBER.seat, MEMBER.seat_id, '合成成员甲', 'member', now, now);
   seatIns.run(HOST, TEAM, LEGACY.seat, '', '合成成员乙', 'member', now, now);
@@ -384,6 +385,7 @@ try {
       show({ forged: [forged.status, forged.json], forgedHandle: [forgedHandle.status, forgedHandle.json], before, after, legacyActive }));
     // 改派同样：冒用 seat_id 或句柄 404；席位换了队（名册里成员 e 现在在别队，本队还挂着它的一条旧分配）时，别队负责人也动不了本队那条分配
     const ins = db.prepare('INSERT INTO seat_assignments (host, team, seat, seat_id, principal_id, assigned_by, assigned_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(HOST, TEAM, 'zone1/0000000e', 'seat-0000000e', 'user:alpha', 'synthetic', Date.now());
+    for (const t of ['teams', 'team_leads', 'seat_assignments']) db.prepare(`UPDATE ${t} SET peer_root = COALESCE((SELECT r.peer_root FROM a2a_roster_nodes r WHERE r.host = ${t}.host), ''), key_fingerprint = COALESCE((SELECT p.key_fingerprint FROM a2a_roster_nodes r JOIN a2a_peers p ON p.root_url = r.peer_root WHERE r.host = ${t}.host), '') WHERE peer_root = ''`).run(); // 种子行按当前名册记下节点
     const evR = Number(db.prepare('SELECT COUNT(*) AS n FROM team_events').get().n);
     const rForged = await srv.call('POST', '/api/teams/reassign', { ...as(SESSIONS.noAdminFlag), body: { host: HOST, team: OTHER, seat: 'zone1/000000ee', seat_id: MEMBER.seat_id, principal: 'user:no-flag' } });
     const rForgedHandle = await srv.call('POST', '/api/teams/reassign', { ...as(SESSIONS.noAdminFlag), body: { host: HOST, team: OTHER, seat: LEGACY.seat, seat_id: '', principal: 'user:no-flag' } });
@@ -637,11 +639,11 @@ try {
   // ---------- 八之四、名册停推进「等你拍板」 ----------
   {
     const fresh = await srv.call('GET', '/api/attention', { headers: token });
-    db.prepare("UPDATE a2a_rosters SET received_at = '2000-01-01 00:00:00' WHERE host = ?").run(HOST); // 生产上的写法（SQLite 时刻）
+    db.prepare("UPDATE a2a_roster_nodes SET received_at = '2000-01-01 00:00:00' WHERE host = ?").run(HOST); // 生产上的写法（SQLite 时刻）
     const asListed = (await srv.call('GET', '/api/teams')).json?.unclaimed?.[0]?.roster_received_at;
     const stale = await srv.call('GET', '/api/attention', { headers: token });
     const staff = await srv.call('GET', '/api/attention', as(SESSIONS.alpha));
-    db.prepare('UPDATE a2a_rosters SET received_at = ? WHERE host = ?').run(now, HOST);
+    db.prepare('UPDATE a2a_roster_nodes SET received_at = ? WHERE host = ?').run(now, HOST);
     const item = (r) => (r.json?.items ?? []).find((i) => i.source === 'team-health' && i.phase === 'roster-stale');
     check(asListed === '2000-01-01T00:00:00.000Z' && item(stale)?.link === '/team' && !item(fresh) && item(stale)?.title?.includes('合成节点') && item(stale)?.title?.includes('60 分钟') && !item(stale)?.title?.includes(HOST) && !item(staff),
       '名册超过阈值（缺省 60 分钟）没更新：进管理员的「等你拍板」，写节点名不写节点标识；新鲜的不列；员工看不到；库里的 SQLite 时刻给出去统一成 ISO',
@@ -692,13 +694,13 @@ try {
     // 团队不在名册要「持续」才算：节点照常在报、这个团队连续不在超过 24 小时；短暂掉出又回来的不收；节点整个停推的只走总期限
     const sqlAt = (ms) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
     const change = db.prepare('INSERT INTO a2a_roster_changes (host, kind, team, seat, detail, at) VALUES (?, ?, ?, \'\', \'{}\', ?)');
-    const otherSeat = db.prepare('SELECT * FROM a2a_roster_seats WHERE host = ? AND team = ?').all(HOST, OTHER);
-    const dropOther = () => db.prepare('DELETE FROM a2a_roster_seats WHERE host = ? AND team = ?').run(HOST, OTHER);
-    const restoreOther = () => { for (const r of otherSeat) db.prepare(`INSERT OR REPLACE INTO a2a_roster_seats (${Object.keys(r).join(', ')}) VALUES (${Object.keys(r).map(() => '?').join(', ')})`).run(...Object.values(r)); };
+    const otherSeat = db.prepare('SELECT * FROM a2a_roster_node_seats WHERE host = ? AND team = ?').all(HOST, OTHER);
+    const dropOther = () => db.prepare('DELETE FROM a2a_roster_node_seats WHERE host = ? AND team = ?').run(HOST, OTHER);
+    const restoreOther = () => { for (const r of otherSeat) db.prepare(`INSERT OR REPLACE INTO a2a_roster_node_seats (${Object.keys(r).join(', ')}) VALUES (${Object.keys(r).map(() => '?').join(', ')})`).run(...Object.values(r)); };
     const stateOf = (id) => db.prepare('SELECT status, reason FROM relation_proposals WHERE id = ?').get(id);
     const expire = () => inproc('return svc("relationProposals").expireStale(Date.now());');
     const t = Date.now();
-    db.prepare('UPDATE a2a_rosters SET received_at = ? WHERE host = ?').run(sqlAt(t), HOST); // 节点照常在报
+    db.prepare('UPDATE a2a_roster_nodes SET received_at = ? WHERE host = ?').run(sqlAt(t), HOST); // 节点照常在报
     dropOther(); change.run(HOST, 'team-removed', OTHER, sqlAt(t - 3600_000));
     expire(); const shortGone = stateOf(pLive).status;
     change.run(HOST, 'team-removed', OTHER, sqlAt(t - 30 * 3600_000)); change.run(HOST, 'team-added', OTHER, sqlAt(t - 3600_000)); restoreOther();
@@ -707,13 +709,13 @@ try {
     expire(); const longGone = stateOf(pLive);
     restoreOther(); change.run(HOST, 'team-added', OTHER, sqlAt(t));
     // 节点整个停推：另一个节点，名册很久没报，它名下的团队 48 小时前就不在了
-    db.prepare("INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES ('b1b2b3b4', 'https://node-b.synthetic.invalid', 'zone2', '2000-01-01 00:00:00', '2000-01-01 00:00:00')").run();
+    db.prepare("INSERT INTO a2a_roster_nodes (host, peer_root, peer_zone, reported_at, received_at, key_fingerprint) VALUES ('b1b2b3b4', 'https://node-b.synthetic.invalid', 'zone2', '2000-01-01 00:00:00', '2000-01-01 00:00:00', 'sha256:b1b2b3b400000000000000000000000000000000000000000000000000000000')").run();
     change.run('b1b2b3b4', 'team-removed', 'zone2/canvas/Gone', sqlAt(t - 48 * 3600_000));
     const pNode = Number(db.prepare("INSERT INTO relation_proposals (kind, host, team, department_id, proposed_by, proposed_at) VALUES ('team-claim', 'b1b2b3b4', 'zone2/canvas/Gone', 'ops', 'admin-token', ?)").run(t).lastInsertRowid);
     expire(); const nodeStale = stateOf(pNode).status;
     db.prepare('UPDATE relation_proposals SET proposed_at = ? WHERE id = ?').run(t - 20 * 86_400_000, pNode);
     expire(); const nodeStaleOld = stateOf(pNode);
-    db.prepare("DELETE FROM a2a_rosters WHERE host = 'b1b2b3b4'").run();
+    db.prepare("DELETE FROM a2a_roster_nodes WHERE host = 'b1b2b3b4'").run();
     check(shortGone === 'pending' && cameBack === 'pending' && longGone.status === 'rejected' && longGone.reason === '团队已经不在节点名册里超过 24 小时'
       && nodeStale === 'pending' && nodeStaleOld.status === 'rejected' && nodeStaleOld.reason === '超过 14 天没人处理',
       '团队不在名册要持续才算：掉出一小时提议还在；掉出过 30 小时又回来提议还在；连续不在 25 小时失效；节点整个停推的，团队不在 48 小时也不收，只走 14 天的总期限',

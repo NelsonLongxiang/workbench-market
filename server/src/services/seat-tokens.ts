@@ -3,7 +3,7 @@
  *
  * 用哪把私钥签：节点私钥（宿主的 Ed25519 节点键，名片上的那把）。理由：
  *   · 上游（dsh-open-a2a-net）每个宿主只有这一把键，团队、席位都没有自己的键；名册里也只有它能把席位绑到宿主——
- *     a2a_roster_seats 的 host 就是这把公钥的指纹（sha256 前 8 位十六进制），名册入站时由这把键验过签。
+ *     名册（a2a_roster_nodes）的 host 就是这把公钥的指纹前 8 位、key_fingerprint 是它的完整指纹，名册入站时由这把键验过签。
  *   · 市场这边钉住的也只有它（a2a_peers.public_key，管理员确认过的那把）。验签只用钉住的公钥，不取名片、不往外发请求。
  *   · 换令牌时核：签名方的公钥指纹 = 请求里的 host，名册里这台宿主的根地址 = 节点登记的根地址，seat_id 在这台宿主的名册里。
  *     所以一个宿主换不出别的宿主上的席位；同一宿主上的几个团队本来就在同一个进程里、共用这把键（成员也是宿主代着跑），
@@ -71,15 +71,16 @@ const sha256Hex = (s: string | Buffer) => createHash('sha256').update(s).digest(
 export const hostOfKey = (publicKey: string): string => sha256Hex(Buffer.from(publicKey, 'base64')).slice(0, 8);
 
 /**
- * 节点和席位现在都还有效吗：名册里有这台宿主、宿主的根地址登记成了对端且 active、钉住的公钥指纹就是 host、
- * 这个 seat_id 在这台宿主的名册里。给了 root 的还要等于名册记下的根地址。有效时返回钉住的公钥和根地址
+ * 节点和席位现在都还有效吗：按节点号只经名册视图 a2a_rosters_live 找（同一个号下两个节点就都不算），宿主的根地址登记成了对端且 active、
+ * 钉住的公钥前 8 位就是 host、完整指纹就是名册这一行记的那把，这个 seat_id 在这一行（根地址 + 完整指纹）的名册里。
+ * 给了 root 的还要等于名册记下的根地址。有效时返回钉住的公钥和根地址
  */
 function liveSeat(host: string, seatId: string, root?: string): { publicKey: string; root: string } | null {
-  const row = db.prepare(`SELECT r.peer_root AS root, p.public_key AS pk, p.status AS status FROM a2a_rosters r
-    JOIN a2a_roster_seats s ON s.host = r.host AND s.seat_id = ?
+  const row = db.prepare(`SELECT r.peer_root AS root, r.key_fingerprint AS fp, p.public_key AS pk, p.status AS status FROM a2a_rosters_live r
+    JOIN a2a_roster_node_seats s ON s.peer_root = r.peer_root AND s.key_fingerprint = r.key_fingerprint AND s.seat_id = ?
     JOIN a2a_peers p ON p.root_url = r.peer_root
-    WHERE r.host = ? LIMIT 1`).get(seatId, host) as { root: string; pk: string; status: string } | undefined;
-  if (!row || row.status !== 'active' || row.pk === '' || hostOfKey(row.pk) !== host) return null;
+    WHERE r.host = ? LIMIT 1`).get(seatId, host) as { root: string; fp: string; pk: string; status: string } | undefined;
+  if (!row || row.status !== 'active' || row.pk === '' || hostOfKey(row.pk) !== host || keyFingerprint(row.pk) !== row.fp) return null;
   if (root !== undefined && row.root !== root) return null;
   return { publicKey: row.pk, root: row.root };
 }

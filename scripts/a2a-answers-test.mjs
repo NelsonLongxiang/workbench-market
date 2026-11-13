@@ -736,7 +736,7 @@ try {
     raw = rosterRaw(LABFP, at3, { host: LABFP, at: at3, seats: [{ seat: 'lab/d6d6d6d6', name: '另一个团队的', team: 'lab/canvas/other', role: 'router', online: true }] }, 'roster-abcdef01-5');
     await post(raw, signed(lab, raw));
     ok('名册变化：整个团队不在了 → 三条 seat-removed、一条 team-removed', JSON.stringify(changes().slice(9).map((c) => c.kind)) === JSON.stringify(['seat-removed', 'seat-removed', 'seat-removed', 'team-removed']), JSON.stringify(changes().slice(9)));
-    ok('席位的键是「节点 + 团队 + 句柄」：表里按这三项一行', q('SELECT COUNT(*) AS c FROM a2a_roster_seats WHERE host = ?', LABFP)[0].c === 1);
+    ok('席位的键是「节点 + 团队 + 句柄」：表里按这三项一行', q('SELECT COUNT(*) AS c FROM a2a_roster_node_seats WHERE host = ?', LABFP)[0].c === 1);
     // 键只有一种写法：节点、句柄、团队的区和 canvas 段转小写再存（画布名原样）；只差大小写的两个席位算同一个
     const at4 = '2026-11-11T10:30:00.000Z';
     raw = rosterRaw(LABFP, at4, { host: LABFP.toUpperCase(), at: at4, seats: [
@@ -745,10 +745,10 @@ try {
       { seat: 'Lab/E7E7E7E7', name: '画布名带大写', team: 'Lab/CANVAS/MixedName', role: 'member', online: true },
     ] }, 'roster-abcdef01-6');
     r = await post(raw, signed(lab, raw));
-    const lower = q('SELECT host, team, seat FROM a2a_roster_seats WHERE lower(host) = ? ORDER BY team, seat', LABFP);
+    const lower = q('SELECT host, team, seat FROM a2a_roster_node_seats WHERE lower(host) = ? ORDER BY team, seat', LABFP);
     ok('名册的键统一小写：host、句柄、团队的区和 canvas 段转小写（画布名原样），只差大小写的席位并成一行', r.text.includes('"roster":"recorded"')
       && JSON.stringify(lower) === JSON.stringify([{ host: LABFP, team: 'lab/canvas/MixedName', seat: 'lab/e7e7e7e7' }, { host: LABFP, team: 'lab/canvas/other', seat: 'lab/d6d6d6d6' }])
-      && q('SELECT COUNT(*) AS c FROM a2a_rosters WHERE host <> lower(host)')[0].c === 0, `${r.text.slice(0, 120)} ${JSON.stringify(lower)}`);
+      && q('SELECT COUNT(*) AS c FROM a2a_roster_nodes WHERE host <> lower(host)')[0].c === 0, `${r.text.slice(0, 120)} ${JSON.stringify(lower)}`);
     raw = rosterRaw('99999999', at1, { host: LABFP, at: at1, seats }, 'roster-99999999-1');
     r = await post(raw, signed(lab, raw));
     ok('首行指纹和 JSON 的 host 对不上 → 不采信', r.text.includes('"roster":"not-accepted"'), r.text);
@@ -765,8 +765,8 @@ try {
       stranger.server.close(); }
     // 对抗：节点键只认验过签的那把公钥
     {
-      const labRow = () => q('SELECT peer_zone, peer_root, reported_at FROM a2a_rosters WHERE host = ?', LABFP)[0];
-      const labSeats = () => JSON.stringify(q('SELECT team, seat FROM a2a_roster_seats WHERE host = ? ORDER BY team, seat', LABFP));
+      const labRow = () => q('SELECT peer_zone, peer_root, reported_at FROM a2a_roster_nodes WHERE host = ? AND peer_root = ?', LABFP, lab.url)[0];
+      const labSeats = () => JSON.stringify(q('SELECT team, seat FROM a2a_roster_node_seats WHERE host = ? AND peer_root = ? ORDER BY team, seat', LABFP, lab.url));
       const changeCount = () => q('SELECT COUNT(*) AS c FROM a2a_roster_changes WHERE host = ?', LABFP)[0].c;
       const [row0, seats0, ch0] = [JSON.stringify(labRow()), labSeats(), changeCount()];
       seedEvent({ zone: 'evil', root: evil.url });
@@ -787,19 +787,29 @@ try {
       const other = 'f0e1d2c3';
       rr = rosterRaw(other, at5, { host: other, at: at5, seats: [{ seat: 'evil/e8e8e8e8', name: '抢占的', team: 'evil/canvas/t', role: 'router', online: true }] }, 'roster-evil-2');
       r = await post(rr, signed(evil, rr));
-      ok('对抗：签名方报一个不是自己公钥指纹、表里还没有的节点键 → 不收，表里不多出这一行', r.text.includes('"roster":"not-accepted"') && q('SELECT COUNT(*) AS c FROM a2a_rosters WHERE host = ?', other)[0].c === 0 && other !== fpOf(evil.key), r.text.slice(0, 120));
+      ok('对抗：签名方报一个不是自己公钥指纹、表里还没有的节点键 → 不收，表里不多出这一行', r.text.includes('"roster":"not-accepted"') && q('SELECT COUNT(*) AS c FROM a2a_roster_nodes WHERE host = ?', other)[0].c === 0 && other !== fpOf(evil.key), r.text.slice(0, 120));
       // 上限是收到时间加签名时间窗（5 分钟）：现在 + 10 分钟也不收
       const soon = new Date(Date.now() + 10 * 60_000).toISOString();
       rr = rosterRaw(LABFP, soon, { host: LABFP, at: soon, seats: [{ seat: 'lab/f9f9f9f9', name: '十分钟后', team: 'lab/canvas/team', role: 'member', online: true }] }, 'roster-lab-soon');
       r = await post(rr, signed(lab, rr));
       ok('对抗：报的时间是现在 + 10 分钟（超过签名时间窗）→ 不收', r.text.includes('"roster":"not-accepted"') && labRow()?.reported_at === at5, `${r.text.slice(0, 120)} ${JSON.stringify(labRow())}`);
-      // 凑出指纹相同的公钥、换个根地址来报（这里直接用同一把钥匙模拟撞键）→ 这个节点键已经由别的根地址报过，不收
+      // 凑出指纹前 8 位相同的公钥、换个根地址来报（这里直接用同一把钥匙模拟撞键）：名册以（根地址，完整指纹）为键，两份各记各的，
+      // 谁先报都不绑定这个节点键——同一个节点键下有两个节点时两个都不参与匹配，等管理员停用其中一个
+      const labTeams = async () => ((await api('GET', '/api/a2a/teams')).body?.teams ?? []).filter((t) => t.host === LABFP).map((t) => t.team).sort();
+      const teams0 = await labTeams();
       const twin = await peer('twin', lab.key);
       seedEvent({ zone: 'twin', root: twin.url });
       const at6 = new Date(Date.now() + 1000).toISOString();
       rr = rosterRaw(LABFP, at6, { host: LABFP, at: at6, seats: [{ seat: 'twin/a9a9a9a9', name: '撞键的', team: 'twin/canvas/t', role: 'router', online: true }] }, 'roster-twin-1');
       r = await post(rr, signed(twin, rr));
-      ok('对抗：指纹相同、根地址不同的宿主来报 → host-conflict，不覆盖', r.text.includes('"roster":"host-conflict"') && labRow()?.peer_root === lab.url && labRow()?.peer_zone === 'lab' && !labSeats().includes('twin/'), `${r.text.slice(0, 120)} ${JSON.stringify(labRow())}`);
+      const twinRow = q('SELECT peer_root, key_fingerprint FROM a2a_roster_nodes WHERE host = ? AND peer_root = ?', LABFP, twin.url)[0];
+      ok('对抗：节点键相同、根地址不同的宿主来报 → 另记一份（host-shared），lab 那份不被覆盖、席位不混', r.text.includes('"roster":"host-shared"') && labRow()?.peer_root === lab.url && labRow()?.peer_zone === 'lab' && !labSeats().includes('twin/') && twinRow?.key_fingerprint?.startsWith('sha256:'), `${r.text.slice(0, 120)} ${JSON.stringify(twinRow)}`);
+      const teamsShared = await labTeams();
+      ok('……同一个节点键下有两个节点：两个都不参与匹配（团队列表里这个节点键的团队一个都不出现，不是先报的那台赢）', teams0.length > 0 && teamsShared.length === 0, JSON.stringify({ teams0, teamsShared }));
+      // 管理员停用撞键的那个对端之后，lab 那份恢复匹配
+      { const d = db(); try { d.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, registered_by, registered_at, updated_at) VALUES ('peer_twin', ?, 'twin', 'twin', 'disabled', 'test', ?, ?)").run(twin.url, new Date().toISOString(), new Date().toISOString()); } finally { d.close(); } }
+      const teamsBack = await labTeams();
+      ok('……管理员停用撞键的那台之后，lab 那份恢复匹配', JSON.stringify(teamsBack) === JSON.stringify(teams0), JSON.stringify({ teams0, teamsBack }));
       twin.server.close();
     }
     // health 的 a2a.roster：各种结果都计数、带最近一次的时间；匿名可读，所以不带任何对端标识
@@ -974,6 +984,43 @@ try {
   // 验签不过的仍然不收不回执（那不是我们欠的）——限频不改变这一条
   { const rr = fu(rate.ctx, '伪造', 'a2a-rate-forged'); await post(rr, signed(evil, rr)); ok('限频之下，验签不过的仍不收、不回执', noRec('a2a-rate-forged')); }
   ok('跟进回执的积压在健康块里有数', typeof (await (await fetch(BASE + '/api/health')).json()).a2a?.outbox?.followup_receipts?.pending === 'number');
+  // 截止变更是通知：节点对它的回执（收到、完成、失败、拒绝）只记一行 notice:receipt，不推事项、不改原派工那条投递的结局
+  {
+    lab.fail = false;
+    const N = seedEvent();
+    await receipt(N.task, '接下', { idempotencyKey: N.task, disposition: 'acknowledged' }, N.ctx, { inbound: `ack-${N.task}` });
+    const s0 = state(N.ev)?.state;
+    const notices = [];
+    { const d = db(); try {
+      for (const k of [1, 2, 3]) {
+        const fact = Number(d.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, NULL, 'user:alice', 'due-changed', ?)").run(N.ev, JSON.stringify({ from: '', to: `2099-01-0${k}T00:00:00.000Z` })).lastInsertRowid);
+        notices.push(Number(d.prepare("INSERT INTO workbench_event_replies (kind, event_id, delivery_id, ref, qid, team, caller_session, context_id, target_url, message, next_at, created_at) VALUES ('answer', ?, ?, ?, '', 'superagent-team/a1b2c3d4e5f60718', 'market/12345678', ?, ?, ?, '2000-01-01 00:00:00', '2000-01-01 00:00:00')")
+          .run(N.ev, N.delivery, fact, N.ctx, lab.url, JSON.stringify({ text: `[截止变更] 原事项《合成》的截止日期改为 2099-01-0${k}`, by: 'user:alice', notice: 'due-changed' })).lastInsertRowid));
+      }
+    } finally { d.close(); } }
+    lab.got.length = 0;
+    const gotAll = await waitFor(() => notices.every((id) => lab.got.some((g) => String(g.body.task_id ?? '').startsWith(`${N.ev}.d${N.delivery}.n${id}.a`))), 20000);
+    const taskOf = (id) => lab.got.find((g) => String(g.body.task_id ?? '').startsWith(`${N.ev}.d${N.delivery}.n${id}.a`))?.body;
+    const m0 = taskOf(notices[0]);
+    ok('截止变更：作为同一 context 的新任务发给节点，任务号是通知类的 .n、正文一行「[截止变更]…」', gotAll && m0?.context_id === N.ctx && String(m0?.message ?? '').startsWith('[截止变更]') && !String(m0?.message ?? '').includes('\n'), JSON.stringify(m0 ?? lab.got.map((g) => g.body.task_id)));
+    const facts = () => q("SELECT COUNT(*) AS c FROM work_item_log WHERE item_id = ?", `wi_${N.ev}`)[0].c;
+    const receipts = () => q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE event_id = ? AND action LIKE 'receipt:%'", N.ev)[0].c;
+    const f0 = facts(), r0 = receipts(), dst0 = q('SELECT status, decision FROM workbench_event_deliveries WHERE id = ?', N.delivery)[0];
+    const outs = [['completed', taskOf(notices[0])?.task_id], ['failed', taskOf(notices[1])?.task_id], ['rejected', taskOf(notices[2])?.task_id]];
+    const res = [];
+    for (const [outcome, t] of outs) res.push((await receipt(t, `截止变更${outcome}`, { outcome, idempotencyKey: t, disposition: 'result' }, N.ctx)).status);
+    const ack = await receipt(outs[0][1], '收到', { idempotencyKey: outs[0][1], disposition: 'acknowledged' }, N.ctx, { inbound: `ack-${outs[0][1]}` });
+    const again = await receipt(outs[0][1], '再来一次', { outcome: 'completed', idempotencyKey: outs[0][1], disposition: 'result' }, N.ctx);
+    const logged = q("SELECT json_extract(detail, '$.outcome') AS o, json_extract(detail, '$.disposition') AS d FROM workbench_event_log WHERE event_id = ? AND action = 'notice:receipt' ORDER BY id", N.ev).map((r) => `${r.d}:${r.o ?? ''}`);
+    const dst1 = q('SELECT status, decision FROM workbench_event_deliveries WHERE id = ?', N.delivery)[0];
+    ok('截止变更任务回 completed / failed / rejected / 接单：都只记一行 notice:receipt；事项状态不变、没有新事实，原派工那条投递的状态不变，没有新的 receipt:* 行；同一终局再来 409',
+      res.every((st) => st === 200) && ack.status === 200 && again.status === 409 && state(N.ev)?.state === s0 && facts() === f0 && receipts() === r0
+        && JSON.stringify(dst1) === JSON.stringify(dst0) && JSON.stringify(logged) === JSON.stringify(['result:completed', 'result:failed', 'result:rejected', 'acknowledged:']),
+      JSON.stringify({ res, ack: ack.status, again: again.status, s0, s1: state(N.ev)?.state, f: [f0, facts()], r: [r0, receipts()], dst0, dst1, logged }));
+    // 对照：原派工任务自己的 completed 照常推到等验收（只是通知不推）
+    const orig = await receipt(N.task, '交付', { outcome: 'completed', idempotencyKey: N.task, disposition: 'result' }, N.ctx);
+    ok('对照：原派工任务的 completed 照常推到等验收', orig.status === 200 && state(N.ev)?.state === 'ready', JSON.stringify(state(N.ev)));
+  }
   // 名片不声明 teamRoster（WM_A2A_TEAM_ROSTER=off）：入站名册一律不收（照普通来信走），已有的名册不动
   {
     child.kill(); await new Promise((r) => { if (child.exitCode !== null) r(); else child.once('exit', r); });
@@ -984,12 +1031,12 @@ try {
       const card = await (await fetch(BASE + '/.well-known/agent-card.json')).json();
       ok('off：名片不声明 teamRoster', card?.capabilities && !('teamRoster' in card.capabilities), JSON.stringify(card?.capabilities));
       const fp = createHash('sha256').update(createPublicKey(lab.key).export({ type: 'spki', format: 'der' })).digest('hex').slice(0, 8);
-      const before = JSON.stringify(q('SELECT host, reported_at FROM a2a_rosters ORDER BY host'));
+      const before = JSON.stringify(q('SELECT host, reported_at FROM a2a_roster_nodes ORDER BY host'));
       const at = new Date().toISOString();
       const raw = JSON.stringify({ team: 'market/12345678', message: `[A2A roster] ${fp} ${at}\n${JSON.stringify({ host: fp, at, seats: [{ seat: 'lab/f1f1f1f1', name: '没声明时推来的', team: 'lab/canvas/team', role: 'member', online: true }] })}`, caller_session: 'dsh-host-1a2b', context_id: '', wait: false, task_id: 'roster-off-1' });
       const rr = await post(raw, signed(lab, raw));
-      ok('off：投递过的宿主、Sig3 签的名册也不收（应答里没有 roster），名册表不变', !rr.text.includes('"roster":') && JSON.stringify(q('SELECT host, reported_at FROM a2a_rosters ORDER BY host')) === before
-        && q("SELECT COUNT(*) AS c FROM a2a_roster_seats WHERE seat = 'lab/f1f1f1f1'")[0].c === 0, rr.text.slice(0, 160));
+      ok('off：投递过的宿主、Sig3 签的名册也不收（应答里没有 roster），名册表不变', !rr.text.includes('"roster":') && JSON.stringify(q('SELECT host, reported_at FROM a2a_roster_nodes ORDER BY host')) === before
+        && q("SELECT COUNT(*) AS c FROM a2a_roster_node_seats WHERE seat = 'lab/f1f1f1f1'")[0].c === 0, rr.text.slice(0, 160));
       const offRoster = (await (await fetch(BASE + '/api/health', { headers: { 'x-admin-token': 'ans-admin' } })).json()).a2a?.roster ?? {};
       ok('off：health 记一次 not_declared（名片没声明，推来的名册照普通来信走）', offRoster.outcomes?.not_declared?.count === 1, JSON.stringify(offRoster.outcomes));
     } finally { off.kill(); await new Promise((r) => { if (off.exitCode !== null) r(); else off.once('exit', r); }); }

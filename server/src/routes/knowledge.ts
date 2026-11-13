@@ -15,6 +15,7 @@ import { originIsThisSurface } from '../surfaces.ts';
 import { actorResolver, migrateOnSight } from '../judgment-compare.ts';
 import { judge, type JudgedActor } from '../judgment.ts';
 import { KINDS, PAGE_KIND, type KnowledgeService, type YglKind } from '../services/knowledge.ts';
+import { defaultVisibility, parseRemember, recentAnswers, rememberAnswer, rememberRefusal } from '../knowledge-remember.ts';
 
 export type KnowledgeRouteDeps = {
   wrap: (fn: (req: express.Request, res: express.Response) => Promise<unknown>) => express.RequestHandler;
@@ -74,7 +75,7 @@ export function registerKnowledgeRoutes(app: HttpService, deps: KnowledgeRouteDe
       allowed = judge({ actor, action: 'knowledge.sync-status', kind: 'admin', declared: true }).verdict === 'allow';
     } catch { return void res.status(503).json(JUDGMENT_DOWN); }
     if (!allowed) return void res.status(403).json({ error: 'knowledge_status_denied', message: '同步状态给管理员看' });
-    res.json({ kinds: knowledge().status() });
+    res.json({ kinds: knowledge().status(), writes: knowledge().writeStatus() });
   }));
 
   // 「项目 → 部门」对照：改它等于改谁能看，所以看和改都只给能对经验库拍板的人（管理层、属主；系统管理员、管理口令不行）。
@@ -114,6 +115,41 @@ export function registerKnowledgeRoutes(app: HttpService, deps: KnowledgeRouteDe
     const r = knowledge().setProjectDept(b.project, b.department as string | null, by, Date.now());
     if (!r.ok) return void res.status(r.error === 'department_missing' ? 404 : 400).json({ error: r.error });
     res.json({ changed: r.changed, ...knowledge().projectDepts() });
+  }));
+
+  // 答完以后补记成经验（「我处理过的」里那个入口）：{ source, source_id, lesson, cue?, visibility? }。
+  // 跨站 403、管理口令 403、没登录 401；没有对经验库拍板的授予 403；这个人 48 小时内没答过这一条 404（别人答的、没答过的一样）
+  app.post('/api/knowledge/remember', { action: 'knowledge.remember', kind: 'decide' }, wrap(async (req, res) => {
+    const actor = await who(req, res);
+    if (!actor) return;
+    const b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body as Record<string, unknown> : {};
+    const source = typeof b.source === 'string' ? b.source : '', sourceId = typeof b.source_id === 'string' ? b.source_id : '';
+    if (!source || source.length > 64 || !sourceId || sourceId.length > 300) return void res.status(400).json({ error: 'remember_invalid', message: '要有 source、source_id' });
+    const parsed = parseRemember({ lesson: b.lesson, ...(b.cue !== undefined ? { cue: b.cue } : {}), ...(b.visibility !== undefined ? { visibility: b.visibility } : {}) });
+    if (!parsed.ok) return void res.status(400).json({ error: 'remember_invalid', message: parsed.message });
+    const r = await rememberAnswer(actor, { source, sourceId, ...parsed.value });
+    if (!r.ok) return void res.status(r.http).json({ error: r.error, message: r.message });
+    res.status(r.outcome.duplicate ? 200 : 201).json({ status: r.outcome.status, duplicate: r.outcome.duplicate, scope_label: r.scope_label });
+  }));
+
+  // 「我处理过的」：这个人 48 小时内答过的条目（补记成经验的入口）。只给能记成经验的人（管理层、属主），别人 403
+  app.get('/api/knowledge/remember/recent', { action: 'knowledge.remember-list', kind: 'decide' }, wrap(async (req, res) => {
+    const actor = await who(req, res);
+    if (!actor) return;
+    const refused = rememberRefusal(actor);
+    if (refused) return void res.status(403).json(refused);
+    res.json({ items: recentAnswers(actor) });
+  }));
+
+  // 勾选「记成经验」时先问：不选范围会记成哪一档（推得出部门给部门名）。只给能记成经验的人
+  app.get('/api/knowledge/remember/defaults', { action: 'knowledge.remember-defaults', kind: 'decide' }, wrap(async (req, res) => {
+    const actor = await who(req, res);
+    if (!actor) return;
+    const refused = rememberRefusal(actor);
+    if (refused) return void res.status(403).json(refused);
+    const source = typeof req.query.source === 'string' ? req.query.source : '', sourceId = typeof req.query.source_id === 'string' ? req.query.source_id : '';
+    if (!source || source.length > 64 || !sourceId || sourceId.length > 300) return void res.status(400).json({ error: 'remember_invalid', message: '要有 source、source_id' });
+    res.json(defaultVisibility(source, sourceId));
   }));
 
   app.get('/api/knowledge/:key', { action: 'knowledge.read', kind: 'read', statusNotVerdict: BY_SCOPE }, wrap(async (req, res) => {

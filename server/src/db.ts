@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -354,7 +355,8 @@ CREATE TABLE IF NOT EXISTS a2a_inbound_receipts (
 -- 负责人、分配建在它上面）；每次全量快照以新替旧（按宿主报的时间）。a2a_roster_changes 记入库时算出的变化（新团队、新成员、成员消失、
 -- 团队消失、换总工），给上层做通知和「等你拍板」。host 是验过签的那把节点公钥的指纹（sha256 前 8 位十六进制，上游 canvasOwnerFingerprint），
 -- 正文里报的 host 只拿来核对；同一个 host 只认第一次报它的根地址。seat_id 是宿主给成员位的稳定 id（上游 B1 起，句柄随会话变、它不变；旧节点不带就是空）。
--- 时间由代码生成后写入。
+-- 名册已改存 a2a_roster_nodes / a2a_roster_node_seats（以根地址和完整指纹为键，见 a2a_peers 之后）：这两张旧表升级时复制一次之后
+-- 不再读写，只为升级守护（结构只增不改、存量行不变）留着，不删、不改名、不删行。时间由代码生成后写入。
 CREATE TABLE IF NOT EXISTS a2a_rosters (
   host TEXT PRIMARY KEY,
   peer_root TEXT NOT NULL,
@@ -572,6 +574,9 @@ CREATE TABLE IF NOT EXISTS install_ledger (
 );
 
 `);
+// 跟进按发来的根地址认：限频、找投递都按 peer_root，不按区（同一个区下可以有好几台宿主）。存量行是空串，只是不计进新的限频窗口
+if (!hasColumn('workbench_event_followups', 'peer_root')) db.exec("ALTER TABLE workbench_event_followups ADD COLUMN peer_root TEXT NOT NULL DEFAULT ''");
+db.exec('CREATE INDEX IF NOT EXISTS idx_wbe_followups_root ON workbench_event_followups (peer_root, created_at)');
 
 // A2A P3 回执（评审席判据 network/a2a-receipt E1-E7）
 {
@@ -1116,10 +1121,34 @@ for (const [column, ddl] of [
   // 从哪个驾驶舱安排的（驾驶舱的 id）：只在「安排一件事」那一刻记，之后不改；别的路子建的、存量都是 null，不回填。
   //   只是个标签，不给任何权限；驾驶舱删了也照旧留着这个数
   ['cockpit_id', 'cockpit_id INTEGER'],
+  // 截止日期（到日，存那天的 UTC 零点 ISO；空 = 没有）：安排时填、建立人可以改；过了期仍未完成的算 overdue（服务端按同一时钟算）
+  ['due_at', "due_at TEXT NOT NULL DEFAULT ''"],
 ] as const) {
   if (!(tableColumns('work_items') as { name: string }[]).some((c) => c.name === column)) db.exec(`ALTER TABLE work_items ADD COLUMN ${ddl}`);
 }
 db.exec('CREATE INDEX IF NOT EXISTS idx_work_items_cockpit ON work_items (cockpit_id, updated_at)');
+// 「安排一件事」的附件：先由登录的人上传（只存引用：落盘路径、名字、类型、大小、sha256），安排时挂到那一次的事件上。
+//   uploaded_by 是上传的人（主体）；event_id 空 = 还没挂到哪件事上（只有上传的人自己能挂）；挂上之后不再改。
+//   读：看得到这件事项的人经事项读（work-item-access 的 canSee）；接单节点凭那次投递的回执令牌取。时间由代码给。
+db.exec(`
+CREATE TABLE IF NOT EXISTS work_item_attachments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  uploaded_by TEXT NOT NULL CHECK (uploaded_by GLOB 'user:?*'),
+  name TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  size INTEGER NOT NULL CHECK (size >= 0),
+  sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
+  path TEXT NOT NULL,
+  event_id TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  bound_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_wi_attach_event ON work_item_attachments (event_id);
+CREATE INDEX IF NOT EXISTS idx_wi_attach_owner ON work_item_attachments (uploaded_by, event_id);
+CREATE TRIGGER IF NOT EXISTS work_item_attachments_bind_once BEFORE UPDATE OF event_id ON work_item_attachments
+  WHEN OLD.event_id <> '' AND NEW.event_id IS NOT OLD.event_id
+  BEGIN SELECT RAISE(ABORT, '附件挂到事件上之后不再改'); END;
+`);
 db.exec(`
 CREATE TRIGGER IF NOT EXISTS work_items_creator_principal_once BEFORE UPDATE OF creator_principal ON work_items
   WHEN OLD.creator_principal IS NOT NULL AND NEW.creator_principal IS NOT OLD.creator_principal
@@ -1213,6 +1242,77 @@ CREATE TABLE IF NOT EXISTS a2a_peers (
 CREATE INDEX IF NOT EXISTS idx_a2a_peers_status ON a2a_peers (status);
 CREATE INDEX IF NOT EXISTS idx_a2a_peers_registered_by ON a2a_peers (registered_by);
 `);
+// 阶段七：名册以（peer_root, key_fingerprint）为键，存进两张新表（旧的 a2a_rosters / a2a_roster_seats 不动，见上面）。
+//   key_fingerprint 是验过签的节点公钥的完整指纹（写法同 a2a_peers.key_fingerprint，sha256:<十六进制全长>）；host（前 8 位）只拿来显示和匹配，
+//   按 host 匹配一律经视图 a2a_rosters_live。needs_review = 1：升级时回填不上完整指纹的存量行（指纹是占位的 legacy:<host>），要人确认，不参与匹配（同一根地址之后报来新名册时清掉）。
+//   表约束：没标 needs_review 的行必须带成形的完整指纹。
+const rosterNodesExisted = hasTable('a2a_roster_nodes');
+db.exec(`
+CREATE TABLE IF NOT EXISTS a2a_roster_nodes (
+  peer_root TEXT NOT NULL,
+  key_fingerprint TEXT NOT NULL DEFAULT '',
+  host TEXT NOT NULL,
+  peer_zone TEXT NOT NULL,
+  reported_at TEXT NOT NULL,
+  received_at TEXT NOT NULL,
+  needs_review INTEGER NOT NULL DEFAULT 0 CHECK (needs_review IN (0, 1)),
+  PRIMARY KEY (peer_root, key_fingerprint),
+  CHECK (needs_review = 1 OR (key_fingerprint GLOB 'sha256:*' AND length(key_fingerprint) = 71))
+);
+CREATE INDEX IF NOT EXISTS idx_a2a_roster_nodes_host ON a2a_roster_nodes (host);
+CREATE TABLE IF NOT EXISTS a2a_roster_node_seats (
+  peer_root TEXT NOT NULL,
+  key_fingerprint TEXT NOT NULL,
+  host TEXT NOT NULL,
+  team TEXT NOT NULL,
+  seat TEXT NOT NULL,
+  seat_id TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL DEFAULT '',
+  role TEXT NOT NULL DEFAULT '' CHECK (role IN ('', 'router', 'member', 'observer')),
+  online INTEGER NOT NULL DEFAULT 0,
+  queued INTEGER NOT NULL DEFAULT 0,
+  last_active_at TEXT NOT NULL DEFAULT '',
+  first_seen_at TEXT NOT NULL,
+  PRIMARY KEY (peer_root, key_fingerprint, team, seat)
+);`);
+// 新表第一次建出来时，从旧表复制一次：按 a2a_peers 里钉住的公钥回填完整指纹；对端没登记、没钉住键、指纹前 8 位对不上 host 的，
+// 指纹记成占位的 legacy:<host>、needs_review = 1。旧表一行不动
+if (!rosterNodesExisted) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const olds = db.prepare('SELECT host, peer_root, peer_zone, reported_at, received_at FROM a2a_rosters').all() as { host: string; peer_root: string; peer_zone: string; reported_at: string; received_at: string }[];
+    const pinned = db.prepare('SELECT public_key FROM a2a_peers WHERE root_url = ?');
+    const insR = db.prepare('INSERT INTO a2a_roster_nodes (peer_root, key_fingerprint, host, peer_zone, reported_at, received_at, needs_review) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const insS = db.prepare(`INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at)
+      SELECT ?, ?, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at FROM a2a_roster_seats WHERE host = ?`);
+    for (const o of olds) {
+      const pk = (pinned.get(o.peer_root) as { public_key: string } | undefined)?.public_key ?? '';
+      const hex = pk ? createHash('sha256').update(Buffer.from(pk, 'base64')).digest('hex') : '';
+      const ok = hex !== '' && hex.slice(0, 8) === o.host;
+      // 回填不上的用占位指纹 legacy:<host>：旧表主键只有 host，同一根地址下可能有好几行，空串会撞新表的主键（启动失败）；
+      // 占位指纹只出现在 needs_review = 1 的行上，不参与匹配
+      const fp = ok ? `sha256:${hex}` : `legacy:${o.host}`;
+      insR.run(o.peer_root, fp, o.host, o.peer_zone, o.reported_at, o.received_at, ok ? 0 : 1);
+      insS.run(o.peer_root, fp, o.host);
+    }
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+}
+if (!hasColumn('a2a_roster_changes', 'peer_root')) {
+  db.exec("ALTER TABLE a2a_roster_changes ADD COLUMN peer_root TEXT NOT NULL DEFAULT ''");
+  db.exec("ALTER TABLE a2a_roster_changes ADD COLUMN key_fingerprint TEXT NOT NULL DEFAULT ''");
+}
+// 按 host 匹配只认这个视图里的行：没标 needs_review（表约束保证这样的行都带成形的完整指纹）、对端没停用也不在等确认新键、
+// 记着的完整指纹就是此刻钉住的那把（对端还没钉住键、或者没登记的照旧算），而且同一个 host 下这样的行只有一行——
+// 两个节点报了同一个 host（指纹前 8 位撞了），两行都不算，等管理员停用其中一个
+db.exec('DROP VIEW IF EXISTS a2a_rosters_live');
+db.exec(`CREATE VIEW a2a_rosters_live AS
+WITH cand AS (
+  SELECT r.peer_root, r.key_fingerprint, r.host, r.peer_zone, r.reported_at, r.received_at FROM a2a_roster_nodes r LEFT JOIN a2a_peers p ON p.root_url = r.peer_root
+  WHERE r.needs_review = 0 AND (p.root_url IS NULL OR (p.status NOT IN ('disabled', 'key_changed') AND (p.key_fingerprint = '' OR p.key_fingerprint = r.key_fingerprint)))
+)
+SELECT c.* FROM cand c WHERE (SELECT COUNT(*) FROM cand d WHERE d.host = c.host) = 1`);
+
 // 「安排一件事」（POST /api/work-items）的请求记账：一个人（requester）的一个幂等键一行。同一个人同一个键再发，回第一次的结果；
 //   键相同、请求体不同（body_sha256 对不上）拒。限流也按这张表数（每人最近一分钟、一天各几行）。时间、id 都由代码生成后传进来。
 db.exec(`
@@ -1327,6 +1427,27 @@ CREATE TABLE IF NOT EXISTS team_events (
 );
 CREATE INDEX IF NOT EXISTS idx_team_events_team ON team_events (host, team, seq);
 `);
+// 团队归属绑节点本身：认领、负责人、分配、团队事件各记下当时这个 host 对应的节点——名册里的根地址（peer_root）和
+//   对端登记里这个根地址的完整指纹（key_fingerprint）。用的时候和现在的名册、对端登记核对，对不上的不算数（services/team.ts）。
+//   存量只在加列的那一次回填（按当时的名册和启用的对端）；回填不上的留空，一直不算数，要管理层重新认领、指定、分配。
+//   以后的启动不再回填：不然后来报上同一个号的节点会接走这些旧行
+if (!hasColumn('teams', 'peer_root')) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    for (const t of ['teams', 'team_leads', 'seat_assignments', 'team_events']) {
+      db.exec(`ALTER TABLE ${t} ADD COLUMN peer_root TEXT NOT NULL DEFAULT ''`);
+      db.exec(`ALTER TABLE ${t} ADD COLUMN key_fingerprint TEXT NOT NULL DEFAULT ''`);
+    }
+    for (const t of ['teams', 'team_leads', 'seat_assignments']) {
+      db.exec(`UPDATE ${t} SET
+        peer_root = COALESCE((SELECT r.peer_root FROM a2a_rosters_live r JOIN a2a_peers p ON p.root_url = r.peer_root
+          WHERE r.host = ${t}.host AND r.peer_root <> '' AND p.status = 'active' AND p.key_fingerprint <> '' AND p.key_fingerprint = r.key_fingerprint), ''),
+        key_fingerprint = COALESCE((SELECT p.key_fingerprint FROM a2a_rosters_live r JOIN a2a_peers p ON p.root_url = r.peer_root
+          WHERE r.host = ${t}.host AND r.peer_root <> '' AND p.status = 'active' AND p.key_fingerprint <> '' AND p.key_fingerprint = r.key_fingerprint), '')`);
+    }
+    db.exec('COMMIT');
+  } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务已经不在了 */ } throw e; }
+}
 
 // 首次安装向导（角色预设 ②）：一次运行按形态生成一批草稿授予。授予本身照常在 grants 里（来源列只认 manual、migration，老库改不了），
 //   「这条是向导建的」记在这两张表里，读的时候推出来源 wizard。属主一次放行这一批。时间由代码给（毫秒）。
@@ -1410,6 +1531,27 @@ CREATE TABLE IF NOT EXISTS knowledge_meta (
   k TEXT PRIMARY KEY,
   v TEXT NOT NULL
 );
+-- 经验库第 2 步：拍板时「记成经验」，回写 ygl-trees 的 kb（kb add），市场只留指针和留痕，内容以 ygl-trees 为准。
+--   answer_key：哪一次答复（来源、那一轮的键、谁答的；一次答复只记一条，幂等）；principal_id：拍板的人（给 decided_by_name 用）；
+--   scope：dept:<部门> | restricted | *；title、body：要写的内容，写成以后清空 body；status：pending 待写（含重试）、written 写成、failed 放弃（参数被拒或重试到头）；
+--   ygl_id：写成以后 ygl-trees 给的条目 id（内部用，不给页面）。时间都是毫秒，由代码给
+CREATE TABLE IF NOT EXISTS knowledge_writes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  answer_key TEXT NOT NULL UNIQUE,
+  principal_id TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL CHECK (status IN ('pending', 'written', 'failed')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_at INTEGER NOT NULL,
+  last_error TEXT NOT NULL DEFAULT '',
+  ygl_id TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  written_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_writes_due ON knowledge_writes (status, next_at);
+CREATE INDEX IF NOT EXISTS idx_knowledge_writes_ygl ON knowledge_writes (ygl_id);
 -- 经验库的「项目 → 部门」对照：ygl-trees 给了项目、没给范围的条目（比如依据），按这里对到的部门当部门级；对不上的只给管理层。
 --   改它等于改谁能看：只有管理层、属主改（拍板类，系统管理员不行），每次改记一行到 knowledge_project_dept_log。
 CREATE TABLE IF NOT EXISTS knowledge_project_depts (

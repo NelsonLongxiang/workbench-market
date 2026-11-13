@@ -21,20 +21,21 @@ import { parseA2aReceipt, teamRosterDeclared } from '../a2a.ts';
 import { audiencesOf, bodyDigest, originOf, SIG_SKEW_MS } from '../a2a-direct-sig.ts';
 import { claimQuestion, claimReceipt, claimSignatureOnce, inReceiptTx, knownPeerRoot, progressSteps, questionRecorded, receiptRecorded, sentTask, sentTaskForFollowup, untrustedReceiptCount, type SentTask } from '../services/a2a-receipts.ts';
 import { followupOf, followupsOfDelivery, followupsOfPeerSince, recordFollowup } from '../services/a2a-followups.ts';
-import { deliveryTarget, queueReply } from '../services/a2a-replies.ts';
+import { deliveryTarget, isNoticeTask, queueReply } from '../services/a2a-replies.ts';
 import { kickWorkbenchEvents, logDeliveryFact } from '../workbench-events.ts';
 import { noteA2aError } from './errors.ts';
 import { deliveredPeerZone, recordRoster, type RosterSeat } from '../services/a2a-roster.ts';
 import { noteRoster } from './roster-stats.ts';
 import { cleanArtifacts } from '../services/work-item.ts';
 import { peerCard } from './peer-card.ts';
+import { keyFingerprint, pinnedVerdict } from '../services/a2a-peers.ts';
 
 export const ORIGIN_CLAIM_BODY_TAG = 'a2a-origin-claim/3';
 export const RESULT_OUTCOMES = ['completed', 'failed', 'rejected', 'abandoned'] as const;
 const UNTRUSTED_CAP = 20;
 const CALLER_SHAPE = /^[a-z0-9-]+$/i;
 
-export type ReceiptRefusal = 'no-peer-recorded' | 'absent' | 'not-body-bound' | 'bad-shape' | 'bad-ts' | 'wrong-audience' | 'wrong-signer' | 'wrong-origin' | 'body-mismatch' | 'no-card' | 'bad-sig' | 'replay';
+export type ReceiptRefusal = 'no-peer-recorded' | 'absent' | 'not-body-bound' | 'bad-shape' | 'bad-ts' | 'wrong-audience' | 'wrong-signer' | 'wrong-origin' | 'body-mismatch' | 'no-card' | 'bad-sig' | 'replay' | 'peer-blocked' | 'key-not-pinned';
 
 type Req = IncomingMessage & { body?: unknown; originalUrl?: string; rawBody?: Buffer };
 
@@ -104,6 +105,10 @@ export async function verifyReceiptSigner(req: Req, raw: Buffer, sent: SentTask,
     sawCard = true;
     if (card.team !== sent.peer_zone) return { ok: false, reason: 'wrong-signer' };
     if (verifies(card.publicKey, canonical, sig)) {
+      // 对端登记表里钉住的公钥：active 的只认钉住那把；改钥待确认、停用的不收（不占用这个签名，也不推进任何状态）
+      const pin = pinnedVerdict(sent.peer_root, card.publicKey);
+      if (pin === 'blocked') return { ok: false, reason: 'peer-blocked' };
+      if (pin === 'mismatch') return { ok: false, reason: 'key-not-pinned' };
       // 已用记录落库（a2a_sig_seen），保留到时间窗结束之后（ts + 5 分钟 + 1 分钟余量），重启不丢
       const keepUntil = ts + SIG_SKEW_MS + 60_000;
       if (!claimSignatureOnce(sig, keepUntil, now)) return { ok: false, reason: 'replay', genuine: true };
@@ -279,6 +284,24 @@ export async function handleInboundReceipt(req: Req, deps: { audiences: () => st
   const summary = question ? cleanSummary(question.text) : progress ? progress.summary : cleanSummary(parsed.summary ?? '');
   const attribution = attributionOf(envelope);
   const inboundTask = typeof body.task_id === 'string' ? body.task_id.slice(0, 128) : '';
+  // 通知类任务（截止变更）：节点的回执只说明它收到了。收到、完成、失败、拒绝都只记一行 notice:receipt（「节点已收到截止变更」），
+  // 不进状态映射——不推事项、不改原派工那条投递的结局（notice:receipt 不是 receipt:*，事项服务、投递结局、合上提问都不认它）。
+  // 通知上不收提问和进展（照不采信的记）；同一任务的接单 / 终局各认一次，重复的照常 409
+  if (isNoticeTask(sent.task_id) && action !== 'receipt:unaccepted' && cls !== 'question') {
+    const kept = inReceiptTx(() => {
+      if (!claimReceipt(sent.task_id, cls, disposition.slice(0, 32), outcome.slice(0, 32))) return false;
+      logDeliveryFact(sent.event_id, sent.delivery_id, `receiver:${sent.peer_zone}`, 'notice:receipt', {
+        summary, disposition: disposition.slice(0, 32), ...(outcome !== '' ? { outcome: outcome.slice(0, 32) } : {}), task: sent.task_id,
+      });
+      return true;
+    });
+    if (!kept) {
+      noteA2aError('receipt:replay');
+      return { status: 409, body: { error: 'duplicate receipt for this task', code: -32003, task_id: inboundTask, replay: true } };
+    }
+    return { status: 200, body: { routed: true, delivered: true, team: typeof body.team === 'string' ? body.team.slice(0, 128) : '', task_id: inboundTask, context_id: typeof body.context_id === 'string' ? body.context_id.slice(0, 256) : '', task_status: 'TASK_STATE_DELIVERED', receipt: 'notice-recorded' } };
+  }
+  if (isNoticeTask(sent.task_id)) action = 'receipt:unaccepted';
   if (action === 'receipt:unaccepted') {
     // 不采信的回执不占接单 / 终局的槽：之后真的回执照常认。只记录（每次投递最多 20 行），不改状态
     noteA2aError('receipt:unaccepted');
@@ -303,7 +326,7 @@ export async function handleInboundReceipt(req: Req, deps: { audiences: () => st
     // 状态仍按映射表走（上面那一行事件日志）；这里只多存一份正文给人看，不回执（它本身就是回执）
     if (sent.kind === 'answer' && cls === 'final' && disposition === 'result') {
       const reply = replyTextOf(message, parsed.taskId, parsed.summary ?? '');
-      recordFollowup({ eventId: sent.event_id, deliveryId: sent.delivery_id, peerZone: sent.peer_zone, inboundTask, contextId: typeof body.context_id === 'string' ? body.context_id.slice(0, 256) : '',
+      recordFollowup({ eventId: sent.event_id, deliveryId: sent.delivery_id, peerZone: sent.peer_zone, peerRoot: sent.peer_root, inboundTask, contextId: typeof body.context_id === 'string' ? body.context_id.slice(0, 256) : '',
         sender: attribution.by?.name || attribution.by?.seat || (typeof body.caller_session === 'string' ? body.caller_session.slice(0, 200) : '') || sent.peer_zone,
         text: reply.text, truncated: reply.truncated, status: 'open', now });
     }
@@ -322,7 +345,7 @@ export async function handleInboundReceipt(req: Req, deps: { audiences: () => st
 /** 跟进正文最多留这么多字（超长截断并标记）；每次投递最多这么多条算未读 */
 export const FOLLOWUP_TEXT_MAX = 4000;
 export const FOLLOWUP_PER_DELIVERY = 50;
-/** 每个对端 10 分钟内存正文的跟进条数上限，缺省 300；可配（WM_A2A_FOLLOWUP_RATE_10MIN） */
+/** 每台宿主（按根地址）10 分钟内存正文的跟进条数上限，缺省 300；可配（WM_A2A_FOLLOWUP_RATE_10MIN） */
 export const FOLLOWUP_RATE_DEFAULT = 300;
 
 /** 限频阈值；不设为 300，只收 1～100000 的整数，否则返回 null（调用方拒绝启动） */
@@ -340,7 +363,7 @@ export function followupRateLimit(env: NodeJS.ProcessEnv = process.env): number 
  * 签名方就是那次投递的宿主（同回执：只认 Sig3、callerUrl 源等于投递根地址、验过的签名只认一次）。任何一条不成立返回 null，照原路走。
  * 收下后只做三件事：记进事项（事件日志一行 followup，事项只记录不改状态）、落成事项对话里的一条未读席位消息
  * （不进「关注」；人在事项页看、回复）、排一条结清它的回执（只用跟进的任务号）。绝不触发执行、派发或状态迁移。
- * 正文截到 4000 字并标记；每次投递超过 50 条的照存、但不算未读（over-cap）并计数；同一对端 10 分钟超过限频（缺省 300）的
+ * 正文截到 4000 字并标记；每次投递超过 50 条的照存、但不算未读（over-cap）并计数；同一台宿主（按根地址）10 分钟超过限频（缺省 300）的
  * 不存正文、只计数并记一行 rate-limited。两种都照常回执：对端是验过签名的宿主，每条跟进都欠着一条回执、出站槽只有几个，
  * 不回执会把它的出站占死，后面的回执和提问都发不出来。验签不过、context 不是我们的仍然不收不回执（那不是我们欠的）。
  * 同一条（对方的任务号）只收一次。
@@ -361,7 +384,7 @@ async function handleFollowup(req: Req, body: Record<string, unknown>, message: 
     const card = await peerCard(claimedRoot, false, now);
     if (!card || !verifies(card.publicKey, sig3Canonical(req, raw), header(req, 'x-a2a-caller-sig3'))) await peerCard(claimedRoot, true, now);
   }
-  const sent = sentTaskForFollowup(contextId, zone);
+  const sent = sentTaskForFollowup(contextId, zone, claimedRoot);
   if (!sent) return null;
   const verdict = await verifyReceiptSigner(req, req.rawBody ?? Buffer.alloc(0), sent, deps.audiences(), now);
   const reply = (extra: Record<string, unknown> = {}) => ({ status: 200, body: { routed: true, delivered: true, team: typeof body.team === 'string' ? body.team.slice(0, 128) : '', task_id: inboundTask, context_id: contextId, task_status: 'TASK_STATE_DELIVERED', followup: 'recorded', ...extra } });
@@ -371,7 +394,7 @@ async function handleFollowup(req: Req, body: Record<string, unknown>, message: 
     return null;
   }
   if (followupOf(sent.delivery_id, inboundTask)) return reply();
-  const limited = followupsOfPeerSince(sent.peer_zone, now - 10 * 60_000) >= (deps.followupRate ?? FOLLOWUP_RATE_DEFAULT);
+  const limited = followupsOfPeerSince(sent.peer_root, now - 10 * 60_000) >= (deps.followupRate ?? FOLLOWUP_RATE_DEFAULT);
   const truncated = !limited && message.length > FOLLOWUP_TEXT_MAX;
   const text = limited ? '' : message.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ').slice(0, FOLLOWUP_TEXT_MAX);
   const overCap = !limited && followupsOfDelivery(sent.delivery_id) >= FOLLOWUP_PER_DELIVERY;
@@ -379,7 +402,7 @@ async function handleFollowup(req: Req, body: Record<string, unknown>, message: 
   const sender = typeof body.caller_session === 'string' && body.caller_session !== '' ? body.caller_session.slice(0, 200) : '';
   const target = deliveryTarget(sent.delivery_id);
   inReceiptTx(() => {
-    const id = recordFollowup({ eventId: sent.event_id, deliveryId: sent.delivery_id, peerZone: sent.peer_zone, inboundTask, contextId, sender, text, truncated, status, now });
+    const id = recordFollowup({ eventId: sent.event_id, deliveryId: sent.delivery_id, peerZone: sent.peer_zone, peerRoot: sent.peer_root, inboundTask, contextId, sender, text, truncated, status, now });
     if (id === null) return;
     logDeliveryFact(sent.event_id, sent.delivery_id, `receiver:${sent.peer_zone}`, limited ? 'followup-rate-limited' : 'followup', limited
       ? { inbound: inboundTask, followup: id }
@@ -438,7 +461,8 @@ async function handleRoster(req: Req, message: string, deps: { audiences: () => 
       online: x.online === true, queued: int(x.queued), last_active_at: typeof x.lastActiveAt === 'string' && !Number.isNaN(Date.parse(x.lastActiveAt)) ? new Date(Date.parse(x.lastActiveAt)).toISOString() : '' }))
     .filter((x) => /^[a-z0-9-]+\/[0-9a-f]{8}$/.test(x.seat) && x.seat.split('/')[0] === lzone && (x.team === '' || (x.team.split('/')[0] === lzone && /^[a-z0-9-]+\/canvas\/[^/]+$/.test(x.team))))
     .slice(0, ROSTER_SEATS_MAX);
-  const outcome = recordRoster({ host, peerRoot: root, peerZone: lzone, reportedAt: at, seats, now });
-  noteRoster(outcome === 'host-conflict' ? 'host_conflict' : outcome, now);
+  // 名册的键是（根地址，验过签的那把公钥的完整指纹）；host 只拿来显示和匹配
+  const outcome = recordRoster({ host, peerRoot: root, keyFingerprint: keyFingerprint(verdict.publicKey), peerZone: lzone, reportedAt: at, seats, now });
+  noteRoster(outcome === 'host-shared' ? 'host_conflict' : outcome, now);
   return { status: 200, body: { routed: true, delivered: true, task_status: 'TASK_STATE_DELIVERED', roster: outcome, seats: seats.length } };
 }

@@ -59,7 +59,32 @@
       "team TEXT NOT NULL",
       "seat TEXT NOT NULL DEFAULT ''",
       "detail TEXT NOT NULL DEFAULT '{}'",
-      "at TEXT NOT NULL"
+      "at TEXT NOT NULL",
+      "peer_root TEXT NOT NULL DEFAULT ''",
+      "key_fingerprint TEXT NOT NULL DEFAULT ''"
+    ],
+    "a2a_roster_node_seats": [
+      "peer_root TEXT NOT NULL PK",
+      "key_fingerprint TEXT NOT NULL PK",
+      "host TEXT NOT NULL",
+      "team TEXT NOT NULL PK",
+      "seat TEXT NOT NULL PK",
+      "seat_id TEXT NOT NULL DEFAULT ''",
+      "name TEXT NOT NULL DEFAULT ''",
+      "role TEXT NOT NULL DEFAULT ''",
+      "online INTEGER NOT NULL DEFAULT 0",
+      "queued INTEGER NOT NULL DEFAULT 0",
+      "last_active_at TEXT NOT NULL DEFAULT ''",
+      "first_seen_at TEXT NOT NULL"
+    ],
+    "a2a_roster_nodes": [
+      "peer_root TEXT NOT NULL PK",
+      "key_fingerprint TEXT NOT NULL DEFAULT '' PK",
+      "host TEXT NOT NULL",
+      "peer_zone TEXT NOT NULL",
+      "reported_at TEXT NOT NULL",
+      "received_at TEXT NOT NULL",
+      "needs_review INTEGER NOT NULL DEFAULT 0"
     ],
     "a2a_roster_seats": [
       "host TEXT NOT NULL PK",
@@ -428,6 +453,21 @@
       "last_full_at INTEGER",
       "last_error TEXT NOT NULL DEFAULT ''"
     ],
+    "knowledge_writes": [
+      "id INTEGER PK",
+      "answer_key TEXT NOT NULL",
+      "principal_id TEXT NOT NULL",
+      "scope TEXT NOT NULL",
+      "title TEXT NOT NULL",
+      "body TEXT NOT NULL DEFAULT ''",
+      "status TEXT NOT NULL",
+      "attempts INTEGER NOT NULL DEFAULT 0",
+      "next_at INTEGER NOT NULL",
+      "last_error TEXT NOT NULL DEFAULT ''",
+      "ygl_id TEXT NOT NULL DEFAULT ''",
+      "created_at INTEGER NOT NULL",
+      "written_at INTEGER"
+    ],
     "login_events_seen": [
       "flow TEXT NOT NULL PK",
       "event_id TEXT NOT NULL PK",
@@ -572,7 +612,9 @@
       "assigned_by TEXT NOT NULL",
       "assigned_at INTEGER NOT NULL",
       "ended_by TEXT",
-      "ended_at INTEGER"
+      "ended_at INTEGER",
+      "peer_root TEXT NOT NULL DEFAULT ''",
+      "key_fingerprint TEXT NOT NULL DEFAULT ''"
     ],
     "settings": [
       "key TEXT PK",
@@ -801,7 +843,9 @@
       "detail TEXT NOT NULL DEFAULT ''",
       "actor TEXT NOT NULL",
       "actor_principal TEXT",
-      "at INTEGER NOT NULL"
+      "at INTEGER NOT NULL",
+      "peer_root TEXT NOT NULL DEFAULT ''",
+      "key_fingerprint TEXT NOT NULL DEFAULT ''"
     ],
     "team_leads": [
       "id INTEGER PK",
@@ -811,7 +855,9 @@
       "added_by TEXT NOT NULL",
       "added_at INTEGER NOT NULL",
       "ended_by TEXT",
-      "ended_at INTEGER"
+      "ended_at INTEGER",
+      "peer_root TEXT NOT NULL DEFAULT ''",
+      "key_fingerprint TEXT NOT NULL DEFAULT ''"
     ],
     "teams": [
       "host TEXT NOT NULL PK",
@@ -820,7 +866,9 @@
       "claimed INTEGER NOT NULL DEFAULT 0",
       "claimed_by TEXT NOT NULL DEFAULT ''",
       "claimed_at INTEGER",
-      "updated_at INTEGER NOT NULL"
+      "updated_at INTEGER NOT NULL",
+      "peer_root TEXT NOT NULL DEFAULT ''",
+      "key_fingerprint TEXT NOT NULL DEFAULT ''"
     ],
     "types": [
       "id INTEGER PK",
@@ -833,6 +881,18 @@
       "expect_status INTEGER",
       "description TEXT DEFAULT ''",
       "created_at TEXT NOT NULL DEFAULT datetime('now')"
+    ],
+    "work_item_attachments": [
+      "id INTEGER PK",
+      "uploaded_by TEXT NOT NULL",
+      "name TEXT NOT NULL",
+      "mime TEXT NOT NULL",
+      "size INTEGER NOT NULL",
+      "sha256 TEXT NOT NULL",
+      "path TEXT NOT NULL",
+      "event_id TEXT NOT NULL DEFAULT ''",
+      "created_at TEXT NOT NULL",
+      "bound_at TEXT NOT NULL DEFAULT ''"
     ],
     "work_item_backfill": [
       "id INTEGER PK",
@@ -898,7 +958,8 @@
       "directed_seat_id TEXT NOT NULL DEFAULT ''",
       "seat_id TEXT NOT NULL DEFAULT ''",
       "seat_at TEXT NOT NULL DEFAULT ''",
-      "cockpit_id INTEGER"
+      "cockpit_id INTEGER",
+      "due_at TEXT NOT NULL DEFAULT ''"
     ],
     "workbench_event_deliveries": [
       "id INTEGER PK",
@@ -933,7 +994,8 @@
       "status TEXT NOT NULL",
       "handled_by TEXT NOT NULL DEFAULT ''",
       "handled_at TEXT NOT NULL DEFAULT ''",
-      "created_at TEXT NOT NULL"
+      "created_at TEXT NOT NULL",
+      "peer_root TEXT NOT NULL DEFAULT ''"
     ],
     "workbench_event_log": [
       "id INTEGER PK",
@@ -1034,6 +1096,7 @@
     "idx_a2a_peers_registered_by ON a2a_peers: CREATE INDEX idx_a2a_peers_registered_by ON a2a_peers (registered_by)",
     "idx_a2a_peers_status ON a2a_peers: CREATE INDEX idx_a2a_peers_status ON a2a_peers (status)",
     "idx_a2a_roster_changes_at ON a2a_roster_changes: CREATE INDEX idx_a2a_roster_changes_at ON a2a_roster_changes (id)",
+    "idx_a2a_roster_nodes_host ON a2a_roster_nodes: CREATE INDEX idx_a2a_roster_nodes_host ON a2a_roster_nodes (host)",
     "idx_a2a_run_ctx ON a2a_run_ctx: CREATE INDEX idx_a2a_run_ctx ON a2a_run_ctx (context_id)",
     "idx_a2a_seat_token_log_at ON a2a_seat_token_log: CREATE INDEX idx_a2a_seat_token_log_at ON a2a_seat_token_log (at)",
     "idx_a2a_seat_token_log_seat ON a2a_seat_token_log: CREATE INDEX idx_a2a_seat_token_log_seat ON a2a_seat_token_log (host, seat_id, at)",
@@ -1059,6 +1122,8 @@
     "idx_grant_events_grant ON grant_events: CREATE INDEX idx_grant_events_grant ON grant_events (grant_id, seq)",
     "idx_grants_principal ON grants: CREATE INDEX idx_grants_principal ON grants (principal_id, status)",
     "idx_knowledge_items_updated ON knowledge_items: CREATE INDEX idx_knowledge_items_updated ON knowledge_items (updated, kind)",
+    "idx_knowledge_writes_due ON knowledge_writes: CREATE INDEX idx_knowledge_writes_due ON knowledge_writes (status, next_at)",
+    "idx_knowledge_writes_ygl ON knowledge_writes: CREATE INDEX idx_knowledge_writes_ygl ON knowledge_writes (ygl_id)",
     "idx_login_states_expires ON login_states: CREATE INDEX idx_login_states_expires ON login_states (expires_at)",
     "idx_market_sessions_principal ON market_sessions: CREATE INDEX idx_market_sessions_principal ON market_sessions (principal_id, expires_at)",
     "idx_mcp_access_requests_session ON mcp_access_requests: CREATE INDEX idx_mcp_access_requests_session ON mcp_access_requests (session_id, created_at)",
@@ -1091,9 +1156,12 @@
     "idx_team_events_team ON team_events: CREATE INDEX idx_team_events_team ON team_events (host, team, seq)",
     "idx_team_leads_active ON team_leads: CREATE UNIQUE INDEX idx_team_leads_active ON team_leads (host, team, principal_id) WHERE ended_at IS NULL",
     "idx_wbe_deliveries_due ON workbench_event_deliveries: CREATE INDEX idx_wbe_deliveries_due ON workbench_event_deliveries(status, next_at)",
+    "idx_wbe_followups_root ON workbench_event_followups: CREATE INDEX idx_wbe_followups_root ON workbench_event_followups (peer_root, created_at)",
     "idx_wbe_followups_status ON workbench_event_followups: CREATE INDEX idx_wbe_followups_status ON workbench_event_followups (status, id)",
     "idx_wbe_followups_zone ON workbench_event_followups: CREATE INDEX idx_wbe_followups_zone ON workbench_event_followups (peer_zone, created_at)",
     "idx_wbe_replies_due ON workbench_event_replies: CREATE INDEX idx_wbe_replies_due ON workbench_event_replies (status, next_at)",
+    "idx_wi_attach_event ON work_item_attachments: CREATE INDEX idx_wi_attach_event ON work_item_attachments (event_id)",
+    "idx_wi_attach_owner ON work_item_attachments: CREATE INDEX idx_wi_attach_owner ON work_item_attachments (uploaded_by, event_id)",
     "idx_work_item_log_item ON work_item_log: CREATE INDEX idx_work_item_log_item ON work_item_log (item_id, seq)",
     "idx_work_item_requests_time ON work_item_requests: CREATE INDEX idx_work_item_requests_time ON work_item_requests(requester, created_at)",
     "idx_work_items_cockpit ON work_items: CREATE INDEX idx_work_items_cockpit ON work_items (cockpit_id, updated_at)",
@@ -1125,6 +1193,7 @@
     "wbe_events_no_delete ON workbench_events: CREATE TRIGGER wbe_events_no_delete BEFORE DELETE ON workbench_events BEGIN SELECT RAISE(ABORT,'workbench events are never deleted'); END",
     "wbe_log_no_delete ON workbench_event_log: CREATE TRIGGER wbe_log_no_delete BEFORE DELETE ON workbench_event_log BEGIN SELECT RAISE(ABORT,'workbench event log append only'); END",
     "wbe_log_no_update ON workbench_event_log: CREATE TRIGGER wbe_log_no_update BEFORE UPDATE ON workbench_event_log BEGIN SELECT RAISE(ABORT,'workbench event log append only'); END",
+    "work_item_attachments_bind_once ON work_item_attachments: CREATE TRIGGER work_item_attachments_bind_once BEFORE UPDATE OF event_id ON work_item_attachments WHEN OLD.event_id <> '' AND NEW.event_id IS NOT OLD.event_id BEGIN SELECT RAISE(ABORT, '附件挂到事件上之后不再改'); END",
     "work_item_log_no_delete ON work_item_log: CREATE TRIGGER work_item_log_no_delete BEFORE DELETE ON work_item_log BEGIN SELECT RAISE(ABORT, 'work_item_log 只增不改'); END",
     "work_item_log_no_replace ON work_item_log: CREATE TRIGGER work_item_log_no_replace BEFORE INSERT ON work_item_log WHEN EXISTS (SELECT 1 FROM work_item_log WHERE seq = NEW.seq) OR EXISTS (SELECT 1 FROM work_item_log WHERE item_id = NEW.item_id AND fact_source = NEW.fact_source AND fact_id = NEW.fact_id) BEGIN SELECT RAISE(ABORT, 'work_item_log 只增不改'); END",
     "work_item_log_no_update ON work_item_log: CREATE TRIGGER work_item_log_no_update BEFORE UPDATE ON work_item_log BEGIN SELECT RAISE(ABORT, 'work_item_log 只增不改'); END",

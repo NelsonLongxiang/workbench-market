@@ -94,6 +94,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `YGL_MAX_PROJECTS`（统一待办读 ygl-trees 的 active 项目数上限·缺省 200·超出部分在 `degraded_projects` 报 cap-exceeded）
 - `WM_YGL_CLI`（ygl-trees 入口文件 `dist/bundle/bin.cjs` 的绝对路径·可选·不设时照旧在 node 同目录、PNPM_HOME、APPDATA/npm 下找·相对路径拒绝启动·统一待办、经验库、MCP 上游都经它找入口）
 - `WM_KNOWLEDGE_SYNC_MINUTES`（经验库从 ygl-trees 同步目录的间隔·分钟·缺省 10·`0` 不同步·不是 0～1440 的整数拒绝启动·同步等启动自检通过才开始）
+- `WM_KNOWLEDGE_WRITE_RETRY_SECONDS`（「记成经验」写 ygl-trees 没写上时的重试间隔·秒·缺省 60·按次数翻倍、封顶 6 小时·`0` 不自动重试·不是 0～3600 的整数拒绝启动）
 - `YGL_TOTAL_BUDGET_MS`（ygl-trees 源总预算·缺省 8000·超预算未读的报 budget-exhausted；两项非整数或越界都回落缺省）。内容面（Draft，默认关闭）：`WM_CONTENT_PORT`（显式内容端口，缺省/0不启）
 - `WM_CONTENT_IP`（显式绑定非通配IP）
 - `WM_CONTENT_MARKET_ORIGIN`（可信市场完整origin）
@@ -367,6 +368,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   identity.ts（身份契约：核心只经它认人·Cordis 服务 `identity` 认人与 whoami、`loginRelay` 业务台登录中继的窄接口·`/api/auth/viewer`·提供方认出的人要对到主体上才算数，主体停用即不认）
   index.ts（REST+静态+巡检装配）
   judgment-builtins.ts（内置身份：管理口令、本机命令行、本机页面、匿名，权限按动作逐条列出，进快照·问判定用的类别和按部门问的动作（ASKED）、按关系对自己的事拍板的动作（SELF_DECIDED）：路由放行、scopedVerdict、「谁能做什么」的矩阵都照这两张表）
+  knowledge-remember.ts（经验库第 2 步「记成经验」：「关注」的答复带 remember、POST /api/knowledge/remember 都走这一处·只有答这一条的人、持有对经验库拍板的授予才能记·范围缺省取事项所在团队的部门，推不出只给管理层·回写 ygl-trees 的 kb，写不上进待写队列后台重试，不挡答复）
   judgment-compare.ts（判定的并行比对：WM_JUDGMENT_COMPARE 打开时比新旧结论、记不一致）
   team-relation.ts（「这个人或席位，对这个部门、团队、席位是什么关系」：dept-member、dept-lead、team-lead、seat-owner、team-seat、router，另带显示用的名字；过目、安排、事项详情、数据视图「谁能改这个台」共用）
   judgment-enforce.ts（判定切换的开关 WM_JUDGMENT_ENFORCE：读开关、核域、在切了的域里路由处理之前先判；「暂不切」清单在 judgment-builtins.ts）
@@ -417,7 +419,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   work-item-access.ts（事项上的四种人 itemRoles（建立人、成员的主人、负责人、管理层，成员的主人按团队服务的分配段和 inSegment（左闭右开，列表 seats 视角同一个口径，席位按（节点, seat_id）或（节点, 团队, 句柄）完整的键认），负责人按 relationOf，管理层按 work-items.view-all 这个拍板类动作认）和看得到的范围 canSee、列表的视角 viewScopes（mine、seats、team、all）；事项上这个人能做什么、是不是轮到他：canOf、turnOf、creatorOf，事项详情和「关注」共用；每一项和对应动作接口同一处判断（放行 canRelease、releaseRole（负责人；团队没有负责人时管理层代办；建立人勾了先过目由建立人放）、对话写入和验收 writerVerdict、回复 replyableMessages、提问 pendingAsksOfEvent））
   workbench-events.ts（工作台事件层 v1：人提交→事件→团队接单→决定回写）
   workbench-vars.ts（#336 工作台变量与常量：按台隔离、revision 乐观锁、常量保护）
-server/src/login-providers/  登录提供方插件（身份的具体实现只放这里，核心不引用）：index.ts（清单：这个部署装哪些提供方） feishu/index.ts（飞书登录方式：授权码流程，向 `identity` 登记一个登录方式，凭证从凭据库取） odoo/index.ts（Odoo 提供方的插件入口：向 `identity` 登记、提供 `loginRelay`） odoo/odoo-viewer.ts（Odoo 查看人现查） odoo/odoo-session.ts（门户 Odoo 会话可信源判定与剥除、登录回调票据） odoo/odoo-login-proxy.ts（可选同源 Odoo 登录中继 WM_ODOO_LOGIN_PROXY：只放行登录面，不代理 Odoo 应用） odoo/odoo-browser-origin.ts（只给浏览器用的 Odoo 登录地址 WM_ODOO_BROWSER_URL：登录一跳送到可信内网地址，身份与代理目标不变）
+server/src/login-providers/  登录提供方插件（身份的具体实现只放这里，核心不引用）：index.ts（清单：这个部署装哪些提供方） feishu/index.ts（飞书登录方式：授权码流程，向 `identity` 登记一个登录方式，凭证从凭据库取） odoo/index.ts（Odoo 提供方的插件入口：向 `identity` 登记、提供 `loginRelay`） odoo/odoo-viewer.ts（Odoo 查看人现查） odoo/odoo-session.ts（门户 Odoo 会话可信源判定与剥除、登录回调票据） odoo/odoo-login-proxy.ts（可选同源 Odoo 登录中继 WM_ODOO_LOGIN_PROXY：只放行登录面，不代理 Odoo 应用；读、写两条路由经 HTTP 服务注册，报动作 login.odoo-proxy-page、login.odoo-proxy-submit，没开中继时放过） odoo/odoo-browser-origin.ts（只给浏览器用的 Odoo 登录地址 WM_ODOO_BROWSER_URL：登录一跳送到可信内网地址，身份与代理目标不变）
 server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·cookie·setting·mcp（域服务）；其余一个文件一行，按文件名排序：
   a2a-followups.ts（席位发来的消息（跟进）的登记：收下、按投递与对端计数、事项对话里的未读、看过、回复）
   a2a-handles.ts（市场 A2A 会话句柄 `market/<node8>` 的唯一性：生成时避开已占用的，存量撞车的不上卡、入站失败关闭）
@@ -440,7 +442,8 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   change-request.ts（人审变更请求；detailOf 给审核卡片看内容所需的最少字段：版本从几到几、目标版本说明、删除连带几个版本几个文件、不可恢复）
   custom-role.ts（自定义角色：Cordis 服务 `customRoles`·从内置预设复制、改、删、属主放行、导出·每步留痕·带来管理类或决定类权限的要属主放行）
   department.ts（部门：Cordis 服务 `departments`·部门清单、负责人、成员归属、职能代号·部门标识即授予范围 dept:<标识>·还有没结束的部门授予时不能删）
-  team.ts（团队与分配：Cordis 服务 `teams`·团队登记（认领、挂部门）、负责人（另外指定的加所挂部门的负责人）、成员分配（起止时间、同一席位只有一条生效、按时间点查那时归谁）·键和节点名册一致·状态读的时候推·每步留痕 team_events）
+  team.ts（团队与分配：Cordis 服务 `teams`·团队登记（认领、挂部门）、负责人（另外指定的加所挂部门的负责人）、成员分配（起止时间、同一席位只有一条生效、按时间点查那时归谁）·键和节点名册一致·认领、负责人、分配记下节点的根地址和完整指纹（peer_root、key_fingerprint），用时和名册、对端登记核对，对不上的不算数（状态 node-changed，「等你拍板」的团队归属给管理层列出来）·状态读的时候推·每步留痕 team_events）
+  team-binding-sql.ts（团队归属绑节点的核对条件 boundSql：只有 SQL 文本、不引任何服务，team.ts 和 bench-registry.ts 共用）
   relation-proposal.ts（关系的提议：Cordis 服务 `relationProposals`·部门负责人、团队负责人只有属主能确认，团队认领到部门要管理层或接收部门的负责人确认·提议期间关系不存在、不带来权限·确认接口和页面的 can_approve 共用 confirmRefusal）
   dept-lead-grant.ts（部门负责人的字段和授予一起落：属主确认、属主直接指定时同一事务里写负责人字段、发这个部门范围的 dept-lead 授予并记进 dept_lead_grants；换人、移除只收回记着的那条；字段单独不带来权力，只有字段的是「待属主放行」，启动时补记一条负责人提议给属主）
   setup-wizard.ts（首次安装向导：Cordis 服务 `setupWizard`·按形态（small / standard）生成一批草稿授予、可重复跑、属主一次放行·「向导建的」记在 setup_wizard_runs / setup_wizard_grants，读的时候推出来源 wizard）
@@ -454,6 +457,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   submission-counts.ts（「人提需求」的提交计数：只记通道、有没有登录凭据、认没认出人，按天累计次数，不存内容；提交人票据验得过、验不过的次数）
   task-center.ts（任务中心：任务、事件、总开关、状态迁移）
   work-item.ts（事项与事项日志：Cordis 服务 `workItems`·按迁移表推进状态的唯一入口 `apply`·日志只增不改；听 workbench-events 每写一行事件日志发的 `workbench-event/logged`，在来源的事务里用保存点推进事项，出错不影响来源、按事实种类计数；`backfill()` 从事件表和事件日志补建存量事项，可重跑；建事项时记下交给方式（handoff：team / own-seat / lead-directed，存量是 team）、等谁过目（review_by）和指名的席位（directed_seat_id，只认 seatId），都从事件层 recorded 那一行取；建事项时标题取任务中心的任务标题（取不到退到来源坐标）、派给取投递的目标团队，存量里还是自动缺省值的启动时补上；建立人主体 `creator_principal` 只取发布时经身份服务认出、来源已验证的人，认不出就空着，「是不是他的」只认它（`isCreator`），`created_by` 只用于显示（认出提需求人时就是他的主体，认不出才用事件上自填的名字；不拿发布人顶替））
+  work-item-attachments.ts（「安排一件事」的附件：只存引用（名字、类型、大小、sha256、落盘路径）；上传、挂到那一次的事件上（只能挂本人上传、还没挂出去的，每件最多 5 个）、按事件列出）
 server/src/routes/    按域分的路由模块，各带一个注册函数（一个文件一行，按文件名排序）：
   a2a-direct.ts（A2A 入站 /a2a/direct：POST 收对端投递（回执分流、入站签名、绑定准入），GET 一律 404）
   a2a-outbound.ts（A2A 出站的两条管理面：/api/a2a/state 本节点 A2A 身份概况、/api/a2a/send 以市场身份发一条消息；都只给管理员，send 只发给对端登记表里 active 的对端，发往登记的根地址）
@@ -468,6 +472,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   bindings.ts（A2A 人工绑定 /api/bindings 和退役的旧面）
   change-requests.ts（人审变更请求 /api/change-requests：列表、批准、拒绝；批准、拒绝的判断和执行收在 changeRequestReview 一处，「关注」的审核卡片当场批也调它，审核人取认出来的管理员、不通过要写理由）
   cockpits.ts（驾驶舱 /api/cockpits：写不经写请求总门，处理之前问 cockpit-access.ts；读应答带 can.edit，不带建立人）
+  content-open.ts（市场面上内容面的两层：启动页 /content/open/<目标号>、开了迁移的目标的 /go/ 顶层导航送去启动页；处理函数在 server/src/content-surface.ts，原样；没配内容面时放过）
   content-observation.ts（门户观测状态 /api/content/observation）
   cookies.ts（Cookie 池 /api/cookies）
   departments.ts（部门 /api/departments：登录的人读列表、单个部门的成员、某人属于哪些部门；管理员建改删部门和成员）
@@ -483,6 +488,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   mcp-protocol.ts（MCP 协议入口 /mcp（无状态 StreamableHTTP）：POST 收 JSON-RPC（initialize、ping、tools/list、tools/call），GET、DELETE 回 405；认证是 MCP 会话令牌）
   mcp-rest.ts（MCP 内嵌的 REST /api/mcp-rest、/openapi.json：OpenAPI 文档、工具调用、台文件上传（原始字节、multipart）列表下载（Range、ETag）、台数据、SOP run 与附件；认证是 MCP 会话令牌，授权映射到工具 grants）
   mcp.ts（MCP 网关控制面 /api/mcp：上游、会话、授权、工具目录、调用记录、权限申请的批准与驳回）
+  portal.ts（门户 /go/<台号>/…：一条 ALL 正则路由、报动作 portal.use；前置准备和代理两个处理函数在 server/src/portal.ts 的 createPortal，原样）
   principals.ts（主体管理 /api/principals：列出、停用、恢复、对一次外部身份、待对接清单，只有管理员能用）
   principals.ts（主体管理 /api/principals：列出、停用、恢复，只有管理员能用）
   remote-allow.ts（远程写豁免面的变更 /api/remote-allow/diff）
@@ -501,12 +507,13 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   task-center.ts（任务中心 /api/task-center：录入发布、任务、总开关、模板、任务锁、撤回、派发开关；录入发布：事项的建立人是提需求的人——建录入时经身份服务认出、记在录入上的那个，没有就空着；发布的人认得出就只留痕）
   tasks.ts（统一待办 /api/tasks 与 ygl 项目读授权的授予、撤销）
   bench-views.ts（数据视图的入口 /api/bench-views：台的登记、数据集、四种写入、查询、快照、视图描述与版本、取数、表单·在 `WM_BENCH_VIEWS` 开关后面，缺省关·先拒管理口令再问判定，放行两档：管理层（范围「全部」，读写都按「能不能写」问判定）；或者台绑了部门、这个人在这个部门上有已放行的授予（scopedVerdict，关系只收窄不放行））
-  knowledge.ts（经验库 /api/knowledge：列表、详情、同步状态·跨站和管理口令 403、没登录 401·条目按范围判：全公司认业务的看，部门认这个部门范围的授予，其余只给管理层·看不到的和不存在的同一个 404·「项目 → 部门」对照 /api/knowledge/project-depts 只有管理层、属主看和改，每次改记一行）
+  knowledge.ts（经验库 /api/knowledge：列表、详情、同步状态（含记成经验的待写、放弃条数）、补记成经验 POST /api/knowledge/remember·跨站和管理口令 403、没登录 401·条目按范围判：全公司认业务的看，部门认这个部门范围的授予，其余只给管理层·看不到的和不存在的同一个 404·「项目 → 部门」对照 /api/knowledge/project-depts 只有管理层、属主看和改，每次改记一行）
   types.ts（类型管理 /api/types）
   relations.ts（关系的提议 /api/relations/proposals：列表（每条带 can_approve）、确认、驳回；确认人大多不是管理员，写请求总门放行这两条，路由内认人）
   seat-token.ts（席位换令牌 POST /api/a2a/seat-token：节点宿主用节点私钥签，换一张 1 小时的 MCP 令牌，只放宿主内存、代成员调用；拒的一律同一个 401，按来源和按席位限频；不往外发请求，不认 X-Team-Seat）
   a2a-roster.ts（团队名册的读 GET /api/a2a/teams：登录即可读，只有席位信息（团队、席位名、角色、在岗、在办件数从事项现算），不含事项内容；名册只当信息，判定一律不看它）
   work-items.ts（「安排一件事」POST /api/work-items：会话登录的启用的人直接建一件事项，建立人是本人，可带 cockpit_id 记下是从哪个驾驶舱安排的（只在安排那一刻记，之后不改，只是标签不给权限；列表 ?cockpit=<id> 在视角里收窄，不存在的驾驶舱回空列表），派给绑在任务中心上的团队（GET /api/work-items/teams 列出），缺省先过目，幂等键按人，限流和员工直派开关在设置里（arrange_rate_per_minute、arrange_rate_per_day、staff_direct_dispatch），规则在 task-center.ts 的 arrangeTask。事项列表 /api/work-items：按 state、object、phase 筛，按更新时间倒序游标翻页，带可见范围里按状态的计数和每件的最后一条进展；可见范围和详情同一个判断，看不到的不出现也不计数。各视角 views.<视角> 带 available、count，可用的视角另带 decide：这个视角里轮到看的人、能当场办的件数（work-item-access.ts 的 decidesNow，和「关注」里事项来源的 mine、答法同一处判，侧栏角标数的就是这些）。事项的读 /api/work-items/:id：事项和它的日志，事项页的时间线照着渲染；管理员看全部、登录的人只看自己建立的。建立人验收、退回 POST /api/work-items/:id/decision：不经管理门（写请求总门只对这一条子路径放行），经身份服务认人、主体须是启用的人、同源，事项服务判是不是建立人和能不能由建立人答，只收验收、退回，只对等验收的事项；建立人只认事项上的建立人主体，空着的只有管理员能看、能处理。放行 POST /api/work-items/:id/release：同样不经管理门（写请求总门只对这一条子路径放行），由事项交给的团队的负责人放，团队没有负责人时管理层代办（事件日志、事项日志记 acting_for = team-lead），建立人勾了先过目的由建立人本人放；放过的再来一次回 duplicate，不再放；「关注」里过目条目的 answer_via 指向它。管理员的 POST /api/workbench-events/:id/release 不变）
+  work-item-attachments.ts（「安排一件事」的附件：PUT /api/work-items/attachments/:name 登录的人传原始字节（X-Content-SHA256 核对、100MB 上限）；GET /api/work-items/:id/attachments/:aid 看得到这件事项的人才拿得到；GET /api/workbench-events/:id/attachments/:aid 接单节点凭回执令牌取件；读不到的一律 404）
   workbenches.ts（工作台 /api/workbenches、/api/check-all）
   workbench-vars.ts（工作台变量与常量的五条路由 /api/workbenches/:id/vars：列表、读、留痕、写、删；查台和判权的外壳、读写规则留在 server/src/workbench-vars.ts，经参数传进来）
 web/src/        pages/（Dashboard/Market/Sops/Types/Settings/UseWorkbench/Cockpit/McpGateways/Tasks/Skills/SopSpace/SopRunDetail/Vault/Reviews/OwnerPending/Attention/WorkItem/NotYet/Home/WorkItems） work-items-view.ts（事项列表的分组、计数、行说明，纯函数） home-view.ts（全景首页的行、格子、总结句，纯函数） work-item-view.ts（事项详情页的提示、进展、结果解析，纯函数） NotYet.tsx（还没有数据来源的入口：说清要显示什么、在等哪项接口） components/（Shell.tsx 外壳：侧栏与主区卡片；WmPage.tsx 页面骨架：顶栏与内容区） admin-token.ts（统一口令注入）
@@ -517,7 +524,7 @@ data/           SQLite 数据文件（git 忽略）
 
 `server/src/mcp-stdio-upstream.ts`（#474）：`settings.mcp_upstreams` 里 `kind` 为 `ygl-trees` 的上游不走 HTTP，由市场启动 `ygl-trees mcp`（stdio）子进程，工作区取该项的 `ygl_home`。子进程只拿运行必需的系统变量，不继承市场的口令和令牌；它的 `YGL_SESSION` 由市场设成 `market-<前缀>`。
 
-结构上的约定（新东西该写在哪）见仓库根的 `CONTRIBUTING.md`。`node scripts/tech-route-check.mjs` 把这些约定量成数字，对照 `tech-route.json` 里的基线；CI 每次把体检表写进摘要页。预算档的检查比基线多了、红线档的检查高于目标，CI 就失败；其余只报告。每项现在是哪一档，以 `tech-route.json` 为准。
+结构上的约定（新东西该写在哪）见仓库根的 `CONTRIBUTING.md`。`node scripts/tech-route-check.mjs` 把这些约定量成数字，对照 `tech-route.json` 里的基线；CI 每次把体检表写进摘要页。预算档的检查比基线多了、红线档的检查高于目标，CI 就失败；清单相对 main 放宽了预算档、红线档（基线调大、红线目标放宽、档位调低）而那条规则没写 `loosen_reason`（一句话、带 PR 号），CI 也失败；其余只报告。每项现在是哪一档，以 `tech-route.json` 为准。
 
 路由正在按域从 `server/src/index.ts` 搬进 `server/src/routes/<域>.ts`，终点是 `index.ts` 只做装配。域模块导出一个注册函数，`index.ts` 在这组路由原来的位置调用它，所以挂载顺序不变。注册经 HTTP 服务（`server/src/http.ts`）：路由还是挂在同一个 Express 应用上，处理函数原样传入；每次注册都能撤销，由插件注册的随插件卸载一起撤销（`scripts/http-service-test.mjs`）。搬一个域是纯移动，下面的路由快照和录制回放都必须零差异。
 

@@ -155,6 +155,7 @@ const ROUTES = [
   ['回执 outbox', (l) => l.startsWith('POST /outbox/')],
   ['人的答复发回', (l) => l.startsWith('POST /reply/')],
   ['打回重做发回（#576）', (l) => l.startsWith('POST /sendback/')],
+  ['截止变更发给节点（改截止日期）', (l) => l.startsWith('POST /duenotice/')],
   ['探活（巡检、check-all）', (l) => /^GET \/ @127\.0\.0\.1:/.test(l)],
   ['/go/ 反代', (l) => l.startsWith('GET /wb/')],
   ['Odoo 认人', (l) => l.startsWith('POST /web/session/get_session_info ')],
@@ -186,6 +187,9 @@ ins('a2a_outbox', { run_id: 1, task_id: 't', context_id: 'c', target_url: U + '/
 ins('workbench_event_replies', { kind: 'answer', event_id: 'wbe-0000000000000001', delivery_id: 1, ref: 1, qid: 'q1', team: 'syn/1a2b3c4d', caller_session: 'market/synthetic', context_id: 'ctx-1', target_url: U + '/reply', message: JSON.stringify({ text: '合成答复', by: 'user:alpha' }), status: 'pending', attempts: 0, next_at: '2000-01-01 00:00:00', created_at: '2000-01-01 00:00:00' });
 // 打回重做发回（#576）：同一张回复表，kind=answer、ref 为负、正文带 return；到期就会被 replyTick 发
 ins('workbench_event_replies', { kind: 'answer', event_id: 'wbe-0000000000000001', delivery_id: 1, ref: -1, qid: '', team: 'syn/1a2b3c4d', caller_session: 'market/synthetic', context_id: 'ctx-1', target_url: U + '/sendback', message: JSON.stringify({ text: '合成打回理由', by: 'user:alpha', return: { of: 'wbe-0000000000000001.d1.a1', title: '合成事项' } }), status: 'pending', attempts: 0, next_at: '2000-01-01 00:00:00', created_at: '2000-01-01 00:00:00' });
+// 截止变更（改截止日期给节点排的通知）：同一张回复表，kind=answer、正文带 notice；要等对应的投递发出去了才发，所以挂在一条已发出的投递（2）上
+const sentDel = ins('workbench_event_deliveries', { event_id: 'wbe-0000000000000001', target_team: 'syn/2b3c4d5e', target_url: U + '/deliver', caller_session: 'market/synthetic', status: 'sent', message: '{"seed":"sent"}', attempts: 1, next_at: '2000-01-01 00:00:00' });
+ins('workbench_event_replies', { kind: 'answer', event_id: 'wbe-0000000000000001', delivery_id: sentDel, ref: 2, qid: '', team: 'syn/2b3c4d5e', caller_session: 'market/synthetic', context_id: 'ctx-1', target_url: U + '/duenotice', message: JSON.stringify({ text: '[截止变更] 原事项《合成事项》的截止日期改为 2099-01-02（原来是 2026-01-01）', by: 'user:alpha', notice: 'due-changed' }), status: 'pending', attempts: 0, next_at: '2000-01-01 00:00:00', created_at: '2000-01-01 00:00:00' });
 for (const [k, v] of [['health_interval_seconds', '10'], ['mcp_upstreams', JSON.stringify([{ prefix: 'syn', url: U + '/mcp', enabled: true }])], ['sandbox_bridge_url', U + '/sandbox']]) db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(k, v);
 db.prepare('INSERT INTO remote_allow_state (snapshot) VALUES (?)').run('[]');
 // 对端登记表（#553）：一个已登记的对端（刷新要去取它的名片），再一条通知绑定指向另一个根地址（localhost:端口，升级回填会去取卡）
@@ -291,7 +295,8 @@ async function instanceLayer(dir, off) {
   await net.close();
   const { DatabaseSync } = await import('node:sqlite');
   const db = new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true });
-  const deliveries = db.prepare('SELECT status, attempts FROM workbench_event_deliveries ORDER BY id').all();
+  // 种下的那条「已发出」投递（只给截止变更挂靠）不算：它本来就不是 pending
+  const deliveries = db.prepare(`SELECT status, attempts FROM workbench_event_deliveries WHERE message != '{"seed":"sent"}' ORDER BY id`).all();
   const wb = { ...db.prepare('SELECT last_status, last_checked_at FROM workbenches WHERE id = ?').get(wid) };
   const outbox = db.prepare('SELECT status, attempts FROM a2a_outbox ORDER BY id').all();
   const replies = db.prepare('SELECT status, attempts FROM workbench_event_replies ORDER BY id').all();
@@ -335,7 +340,7 @@ try {
     check(off.wb.last_status !== 'down' && off.wb.last_checked_at === '' && off.hits.checkOne === 503 && off.hits.mcpCheck !== 'ok' && off.hits.mcpCheckAll !== 'ok',
       '外部台的状态一直没动：启动后那次巡检、单个检测（503）、MCP 的检测（一个和全部）都不探，不把副本里的台记成离线', show({ wb: off.wb, checkOne: off.hits.checkOne, mcpCheck: off.hits.mcpCheck, mcpCheckAll: off.hits.mcpCheckAll }));
     check(off.peers.length === 1 && off.peers[0].card_error === '' && off.peers[0].card_fetched_at === '', '对端登记表：启动回填不取卡、不建行；已登记的那一行不被改（没写 card_error）', show(off.peers));
-    check(off.replies.length === 2 && off.replies.every((o) => o.status === 'pending' && o.attempts === 0), '人的答复、打回重做发回席位（阶段七 R2、#576）都仍是 pending、attempts 0', show(off.replies));
+    check(off.replies.length === 3 && off.replies.every((o) => o.status === 'pending' && o.attempts === 0), '人的答复、打回重做、截止变更发回席位（阶段七 R2、#576、改截止日期）都仍是 pending、attempts 0', show(off.replies));
     check(show(off.anon?.outbound) === '{"mode":"off"}' && show(off.ready?.outbound) === '{"mode":"off"}', '健康检查、就绪检查匿名都能看到 outbound: off（不给计数）', show([off.anon?.outbound, off.ready?.outbound]));
     const row = off.anon?.self_probe?.rows?.find((r) => r.id === 'market.outbound.disconnected');
     check(row?.verdict === 'pass' && off.anon?.self_probe?.passed === true, '启动自检里有「对外已断开」这一行，并且通过', show(row));

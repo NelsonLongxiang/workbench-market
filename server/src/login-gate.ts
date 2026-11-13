@@ -270,6 +270,8 @@ export function createLoginGate(deps: LoginGateDeps) {
     if (m === 'POST' && p === '/a2a/direct') return true; // 路由内验签（a2a-direct-sig.ts），enforce 下无签名 401
     if (m === 'POST' && p === '/api/a2a/seat-token') return true; // 席位换令牌：路由内按钉住的节点公钥验签、核名册，验不过 401
     if (m === 'POST' && /^\/api\/workbench-events\/wbe-[0-9a-f]{16}\/decision$/.test(p)) return true; // reply token 认证
+    // 接单节点取附件：同一个 reply token（请求头 X-Reply-Token），路由内认，认不出一律 404；只放 GET，形状和路由一致
+    if (m === 'GET' && /^\/api\/workbench-events\/wbe-[0-9a-f]{16}\/attachments\/[1-9]\d{0,15}$/.test(p)) return true;
     if (get && /^\/design\/tokens@[0-9.]+\.css$/.test(p)) return true;
     if (get && /^\/api\/skills\/dl\/[0-9a-f]{64}$/.test(p)) return true; // 技能包下载票据：路由内查票（10 分钟有效、单票至多 5 次），无效 404
     // 沙箱页对本台数据面/变量面的预检：只回允许头，不带数据（实际请求再凭令牌）

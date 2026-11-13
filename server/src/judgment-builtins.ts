@@ -40,13 +40,18 @@ export const ANONYMOUS_ACTIONS: readonly string[] = [
   'auth.me', // 回答「你是谁」：没认出也是 200（登录门四条，阶段三搬进 routes/login-gate.ts）
   'cockpit.list',
   'cockpit.read',
+  'content.launch', // 市场面上的内容面启动页：认人在页里（没认出 401），谁来都进得了这一层
+  'content.migrate', // 迁移跳转：只把浏览器送到可信入口，不认人
   'cookie.list',
   'design-token.read',
   'health.read',
   'health.ready',
   'login.page', // 登录页本来就是给还没登录的人看的
+  'login.odoo-proxy-page', // Odoo 同域登录中继的登录页、静态资源、翻译：给还没登录的人看（没开中继时放过）
+  'login.odoo-proxy-submit', // Odoo 同域登录中继的提交登录：同源门之外不认人
   'market.export',
   'market.page', // 页面兜底：谁来都回同一个前端外壳（登录门开着时它在前面先挡）
+  'portal.use', // 门户 /go/：今天谁来都代理（登录门开着时它在前面先挡），台自己的登录和凭据由台和门户的注入管
   'setting.read',
   'skill.list',
   'skill.role-packs',
@@ -116,6 +121,8 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       'cockpit.list',
       'cockpit.read',
       'cockpit.update',
+      'content.launch',
+      'content.migrate',
       'cookie.create',
       'cookie.delete',
       'cookie.list',
@@ -157,9 +164,12 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       // 经验库的同步状态：运维信息、不带条目内容，属主在本机看（没接入时原因只在这里）
       'knowledge.sync-status',
       'login.begin',
+      'login.odoo-proxy-page',
+      'login.odoo-proxy-submit',
       'login.page',
       'market.export',
       'market.page',
+      'portal.use',
       'principal.bind',
       'principal.bind-batch',
       'principal.disable',

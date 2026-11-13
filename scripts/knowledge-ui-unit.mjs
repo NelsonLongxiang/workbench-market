@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 经验库页（web/src/knowledge-view.ts）的纯函数单测：四类的先后和说法、认不出的类别不露代号；读接口（#717）的应答怎么读、状态和读不到怎么说。数据都是合成的。 */
-import { KNOWLEDGE_EMPTY, KNOWLEDGE_FORBIDDEN, KNOWLEDGE_INTRO, KNOWLEDGE_KINDS, SOURCE_DEGRADED, SOURCE_NOT_CONNECTED, SOURCE_NOT_READY, asItem, asList, countsOf, emptyKindText, itemsOf, kindLabel, problemOf, safeUrl, stanceLabel, statusOf, tabFromQuery } from '../web/src/knowledge-view.ts';
+import { KNOWLEDGE_EMPTY, KNOWLEDGE_FORBIDDEN, KNOWLEDGE_INTRO, KNOWLEDGE_KINDS, SOURCE_DEGRADED, SOURCE_NOT_CONNECTED, SOURCE_NOT_READY, asItem, asList, countsOf, emptyKindText, itemsOf, kindLabel, problemOf, safeUrl, stanceLabel, statusOf, tabFromQuery, NO_DEPT, asProjectDepts, projectDeptLogLine, projectDeptSaveError, projectDeptText, projectDeptsProblem } from '../web/src/knowledge-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -30,5 +30,23 @@ ok('空着：全部用四类的说明；某一类说这一类还没有', emptyKi
 ok('出处链接只认 http / https', safeUrl('https://a.example/x') === 'https://a.example/x' && safeUrl('http://a.example') !== null && safeUrl('javascript:alert(1)') === null && safeUrl('/api/x') === null && safeUrl(null) === null);
 ok('说法里没有开发用语、不露代号', [SOURCE_NOT_CONNECTED, SOURCE_NOT_READY, SOURCE_DEGRADED, KNOWLEDGE_FORBIDDEN, ...[401, 403, 503, 0, 500].map((x) => problemOf(x, 'detail').text)].every((t) => !/接口|字段|ygl|dept:|not_ready|degraded|null/i.test(t)));
 
+
+// 「项目 → 部门」对照（#729）
+const PD = asProjectDepts({ projects: [
+  { project: 'proj-a', department: { id: 'dept-buy', name: '采购部' }, department_missing: false, items: 3, updated_at: 1763000000000 },
+  { project: 'proj-b', department: null, department_missing: true, items: 1, updated_at: null },
+  { project: 'proj-c', department: null, department_missing: false, items: 'x' },
+  { project: '' }, null,
+], log: [{ project: 'proj-a', old_department: null, old_department_name: null, new_department: 'dept-buy', new_department_name: '采购部', by_name: '合成管理层', at: 1763000000000 }, { project: 'x' }],
+  departments: [{ id: 'dept-buy', name: '采购部' }, { id: 7, name: 'bad' }] });
+ok('对照整形：形状不对的行丢掉；条数不是数当 0；部门清单只留形状对的', PD.projects.map((p) => p.project).join() === 'proj-a,proj-b,proj-c' && PD.projects[2].items === 0 && PD.log.length === 1 && PD.departments.length === 1 && asProjectDepts(null).projects.length === 0);
+ok('这个项目归谁看：部门名；部门已不在提示重设；没对写只给管理层', projectDeptText(PD.projects[0]).text === '采购部' && projectDeptText(PD.projects[1]).warn && projectDeptText(PD.projects[1]).text.includes('请重设') && projectDeptText(PD.projects[2]).text === NO_DEPT);
+const line = (o) => projectDeptLogLine({ project: 'proj-a', old_department: null, old_department_name: null, new_department: null, new_department_name: null, by_name: null, at: 1, ...o });
+ok('改动记录：写名字，不露部门标识和人的标识；人查不到写「一位同事」，部门删了写「一个已删的部门」，没对写「不对应部门」',
+  line({ new_department: 'dept-buy', new_department_name: '采购部', by_name: '合成管理层' }) === '合成管理层把「proj-a」从不对应部门改成「采购部」'
+  && line({ old_department: 'dept-gone', new_department: null }) === '一位同事把「proj-a」从一个已删的部门改成不对应部门'
+  && !line({ old_department: 'dept-gone', new_department: 'dept-x' }).includes('dept-'));
+ok('没改成的说法：401、403、部门不在了、别的；不露代号', projectDeptSaveError(401, null) === '请先登录。' && projectDeptSaveError(403, null).includes('管理层和属主') && projectDeptSaveError(404, { error: 'department_missing' }).includes('部门已经不在') && projectDeptSaveError(400, { error: 'project_invalid' }).includes('改不了') && projectDeptSaveError(0, null).includes('连不上') && ![401, 403, 404, 400, 0, 500].some((x) => /project_|department_|body_/.test(projectDeptSaveError(x, { error: 'department_missing' }))));
+ok('读不到这张表：403 说只有管理层和属主能看、不给再试；别的给再试', projectDeptsProblem(403).text.includes('只有管理层和属主') && !projectDeptsProblem(403).retry && projectDeptsProblem(500).retry && projectDeptsProblem(200) === null);
 console.log(`\nknowledge-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

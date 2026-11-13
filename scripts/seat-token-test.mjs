@@ -52,11 +52,13 @@ function host(name) {
   return { name, key: privateKey, pk, fp: createHash('sha256').update(Buffer.from(pk, 'base64')).digest('hex').slice(0, 8), root: `https://${name}.example.test` };
 }
 const t0 = new Date().toISOString();
+/** 公钥的完整指纹（写法同 a2a_peers.key_fingerprint）：对端登记钉住的和名册记的是同一把 */
+const fullFp = (pk) => 'sha256:' + createHash('sha256').update(Buffer.from(pk, 'base64')).digest('hex');
 function seedHost(h, seats, status = 'active') {
   run(`INSERT INTO a2a_peers (id, root_url, zone, public_key, key_fingerprint, status, registered_by, registered_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'test', ?, ?)`,
-    `peer_${h.fp}`, h.root, h.name, h.pk, 'sha256:x', status, t0, t0);
-  run('INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?)', h.fp, h.root, h.name, t0, t0);
-  for (const s of seats) run('INSERT INTO a2a_roster_seats (host, team, seat, seat_id, name, role, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?)', h.fp, `${h.name}/canvas/demo`, s.seat, s.id, 'x', 'member', t0);
+    `peer_${h.fp}`, h.root, h.name, h.pk, fullFp(h.pk), status, t0, t0);
+  run('INSERT INTO a2a_roster_nodes (host, peer_root, key_fingerprint, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?, ?)', h.fp, h.root, fullFp(h.pk), h.name, t0, t0);
+  for (const s of seats) run('INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', h.root, fullFp(h.pk), h.fp, `${h.name}/canvas/demo`, s.seat, s.id, 'x', 'member', t0);
 }
 let nonceN = 0;
 const nonce = () => `n${String(++nonceN).padStart(15, '0')}`;
@@ -126,12 +128,12 @@ try {
   ok('拒掉的都没发出令牌（库里只有成功的两张）', q('SELECT COUNT(*) AS c FROM a2a_seat_tokens')[0].c === 2, String(q('SELECT COUNT(*) AS c FROM a2a_seat_tokens')[0].c));
 
   console.log('三、每次调用复核');
-  run("DELETE FROM a2a_roster_seats WHERE host = ? AND seat_id = 'seat-a1'", A.fp);
+  run("DELETE FROM a2a_roster_node_seats WHERE host = ? AND seat_id = 'seat-a1'", A.fp);
   m = await mcp(tok1, 'tools/list', {});
   ok('名册撤掉席位 → 已发的令牌下一次调用 401', m.status === 401, String(m.status));
   r = await exchange(req(A, 'seat-a1'));
   ok('……也换不出新令牌', r.status === 401 && r.text === REFUSED, r.text);
-  run('INSERT INTO a2a_roster_seats (host, team, seat, seat_id, name, role, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?)', A.fp, 'alpha-node/canvas/demo', 'alpha-node/a0000001', 'seat-a1', 'x', 'member', t0);
+  run('INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', A.root, fullFp(A.pk), A.fp, 'alpha-node/canvas/demo', 'alpha-node/a0000001', 'seat-a1', 'x', 'member', t0);
   m = await mcp(tok1, 'tools/list', {});
   ok('名册恢复这个席位 → 没到期的令牌照常', m.status === 200, String(m.status));
   run("UPDATE a2a_peers SET status = 'disabled' WHERE root_url = ?", A.root);
@@ -181,7 +183,7 @@ try {
   // 同一宿主号、同一把键，名册和对端登记改到另一个根地址来换：是另一个主体，从空授权开始；旧主体上已发的令牌失效
   const movedRoot = 'https://zeta-moved.example.test';
   run('UPDATE a2a_peers SET root_url = ? WHERE root_url = ?', movedRoot, F.root);
-  run('UPDATE a2a_rosters SET peer_root = ? WHERE host = ?', movedRoot, F.fp);
+  run('UPDATE a2a_roster_nodes SET peer_root = ? WHERE host = ?', movedRoot, F.fp); run('UPDATE a2a_roster_node_seats SET peer_root = ? WHERE host = ?', movedRoot, F.fp);
   const moved = await exchange(req({ ...F, root: movedRoot }, 'seat-f1'));
   const movedSid = moved.body?.token ? q('SELECT session_id FROM a2a_seat_tokens WHERE token_sha256 = ?', createHash('sha256').update(moved.body.token).digest('hex'))[0]?.session_id : undefined;
   const movedTools = (await mcp(moved.body?.token, 'tools/list', {})).body?.result?.tools ?? [];
@@ -190,7 +192,7 @@ try {
     moved.status === 200 && movedSid !== undefined && movedSid !== fsid && grantsOf(movedSid) === '[]' && !movedTools.some((t) => t.name === 'sop_run_list') && grantsOf(fsid) === JSON.stringify(['sop_run_list']) && movedOld === 401,
     JSON.stringify({ st: moved.status, movedSid, fsid, movedOld }));
   run('UPDATE a2a_peers SET root_url = ? WHERE root_url = ?', F.root, movedRoot);
-  run('UPDATE a2a_rosters SET peer_root = ? WHERE host = ?', F.root, F.fp);
+  run('UPDATE a2a_roster_nodes SET peer_root = ? WHERE host = ?', F.root, F.fp); run('UPDATE a2a_roster_node_seats SET peer_root = ? WHERE host = ?', F.root, F.fp);
   // 换一把键算出同一个 8 位宿主号要 2^32 量级，测试里造不出来：改成让旧主体记着的是另一把键的完整指纹（旧主体当初是别的键建的），
   // 现在这把键签、宿主号和根地址都对得上：也是另一个主体，拿不到旧主体的授权，旧主体的令牌失效
   const backOk = (await mcp(rf.body?.token, 'tools/list', {})).status;
@@ -204,6 +206,20 @@ try {
   ok('旧主体记着的完整指纹和此刻钉住的公钥不一样（宿主号、根地址、seat_id 都相同）→ 另一个空授权的主体；旧主体的令牌 401',
     backOk === 200 && otherKey.status === 200 && okSid !== undefined && okSid !== fsid && grantsOf(okSid) === '[]' && !otherKeyTools.some((t) => t.name === 'sop_run_list') && otherKeyOld === 401,
     JSON.stringify({ backOk, st: otherKey.status, okSid, fsid, otherKeyOld }));
+
+  console.log('九之二、同一个节点号下两个节点（撞号）');
+  {
+    // 另一个根地址、另一把键也报了 A 的节点号（对端启用）：按节点号认不出是哪一台，两个都不算——换不到令牌，A 已发的令牌也失效；停用撞号那台后恢复
+    const SQ = 'https://squatter.example.test', SQFP = 'sha256:' + 'e'.repeat(64);
+    run('INSERT INTO a2a_roster_nodes (host, peer_root, key_fingerprint, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?, ?)', A.fp, SQ, SQFP, 'squatter', t0, t0);
+    run(`INSERT INTO a2a_peers (id, root_url, zone, public_key, key_fingerprint, status, registered_by, registered_at, updated_at) VALUES ('peer_squat', ?, 'squatter', ?, ?, 'active', 'test', ?, ?)`, SQ, B.pk, SQFP, t0, t0);
+    const before = await exchange(req(A, 'seat-a1'));
+    const beforeCall = before.body?.token ? 0 : -1;
+    run("UPDATE a2a_peers SET status = 'disabled' WHERE root_url = ?", SQ);
+    const after = await exchange(req(A, 'seat-a1'));
+    const afterCall = after.status === 200 ? (await mcp(after.body?.token, 'tools/list', {})).status : 0;
+    ok('撞号：同一节点号下来了另一个节点（对端启用）→ 换令牌 401；停用撞号那台之后照常换得到、调得通', before.text === REFUSED && beforeCall === -1 && after.status === 200 && afterCall === 200, `${before.status} ${after.status} ${afterCall}`);
+  }
 
   console.log('八、换令牌的记录');
   // 启动自检那一次（编出来的 wm-self-probe）也记了一行，这里不算它

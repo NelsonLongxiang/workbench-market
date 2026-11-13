@@ -97,7 +97,7 @@ export class RelationProposalService extends Service {
   /** 团队连续不在名册多久了（毫秒）：节点照常在报、名册变化里最后一条是这个团队「消失」才算；节点停推、没有记录、又回来了都是 null */
   private absentFor(host: string, team: string, now: number): number | null {
     if (teams().staleRosters(now).some((r) => r.host === host)) return null; // 节点整个停推：不按「团队不在」算
-    if (!db.prepare('SELECT 1 FROM a2a_rosters WHERE host = ?').get(host)) return null;
+    if (!db.prepare('SELECT 1 FROM a2a_rosters_live WHERE host = ?').get(host)) return null;
     const last = db.prepare('SELECT kind, at FROM a2a_roster_changes WHERE host = ? AND team = ? AND kind IN (\'team-added\', \'team-removed\') ORDER BY id DESC LIMIT 1').get(host, team) as { kind: string; at: string } | undefined;
     if (last?.kind !== 'team-removed') return null;
     const at = Date.parse(isoTime(last.at));

@@ -177,12 +177,14 @@ export type NewWorkItem = {
   handoff?: Handoff; review_by?: ReviewBy; directed_seat_id?: string;
   /** 从哪个驾驶舱安排的：只在建的时候记，之后不改 */
   cockpit_id?: number | null;
+  /** 截止日期：那天的 UTC 零点（YYYY-MM-DDT00:00:00.000Z）；空 = 没有 */
+  due_at?: string;
 };
 
 export type WorkItemRow = {
   id: string; title: string; created_at: string; created_by: string; creator_principal: string | null; source_kind: SourceKind; source_ref: string; context: string;
   event_id: number | null; task_ids: string; target_team: string; seat: string; eval: string; eval_reason: string; state: WorkItemState;
-  handoff: Handoff; review_by: ReviewBy; directed_seat_id: string; seat_id: string; seat_at: string; cockpit_id: number | null;
+  handoff: Handoff; review_by: ReviewBy; directed_seat_id: string; seat_id: string; seat_at: string; cockpit_id: number | null; due_at: string;
   progress_summary: string; progress_at: string; open_asks: string; receipt_outcome: string; receipt_at: string;
   outputs: string; evidence: string; object: string; phase: string; updated_at: string;
 };
@@ -259,6 +261,20 @@ const SEAT_ID = /^seat-[0-9a-f]{8}$/;
 export const COCKPIT_ID_MAX = 2_147_483_647;
 function cockpitOf(v: unknown): number | null {
   return typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= COCKPIT_ID_MAX ? v : null;
+}
+
+/** 截止日期 YYYY-MM-DD → 那天的 UTC 零点 ISO；不是合法日期的一律空（不猜） */
+export function dueAtOf(v: unknown): string {
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return '';
+  const t = Date.parse(`${v}T00:00:00.000Z`);
+  return Number.isNaN(t) || new Date(t).toISOString().slice(0, 10) !== v ? '' : new Date(t).toISOString();
+}
+
+/** 过了期仍未完成：有截止日期、事项不在终态、现在已经过了截止那天（截止日当天结束之后）。服务端按同一时钟算 */
+export function overdueOf(item: Pick<WorkItemRow, 'due_at' | 'state'>, now = Date.now()): boolean {
+  if (!item.due_at || TERMINAL.includes(item.state)) return false;
+  const t = Date.parse(item.due_at);
+  return !Number.isNaN(t) && now >= t + 86_400_000;
 }
 
 function handoffOf(rec: { handoff?: unknown; review_by?: unknown; directed_seat_id?: unknown }): { handoff: Handoff; review_by: ReviewBy; directed_seat_id: string } {
@@ -719,12 +735,12 @@ export class WorkItemService extends Service {
       const createdBy = creator ?? (event.submitter_kind !== 'unverified' && /^[^:\s]+:\S/.test(who) ? who : `${event.submitter_kind}:${who || 'unknown'}`);
       const derived = derivedOf(event);
       // 「安排一件事」：挂在哪条线、哪一步，记在 recorded 那一行里（只在新建时取，存量没有这两项）
-      let rec: { object?: unknown; phase?: unknown; handoff?: unknown; review_by?: unknown; directed_seat_id?: unknown; cockpit_id?: unknown } = {};
+      let rec: { object?: unknown; phase?: unknown; handoff?: unknown; review_by?: unknown; directed_seat_id?: unknown; cockpit_id?: unknown; due?: unknown } = {};
       try { rec = JSON.parse(recorded.detail || '{}'); } catch { /* 坏的 detail 当没有 */ }
       const tag = (v: unknown) => (typeof v === 'string' ? v.trim().slice(0, 200) : '');
       this.insertItem(itemId, {
         title: derived.title, target_team: derived.target_team, created_by: createdBy, creator_principal: creator, object: tag(rec.object), phase: tag(rec.phase),
-        ...handoffOf(rec), cockpit_id: cockpitOf(rec.cockpit_id),
+        ...handoffOf(rec), cockpit_id: cockpitOf(rec.cockpit_id), due_at: dueAtOf(rec.due),
         source_kind: event.source as SourceKind, source_ref: event.event_id, event_id: event.id,
         context: { workbench: event.workbench, item: event.item, context_id: event.context_id, submitter_kind: event.submitter_kind, ...(creator && event.submitter_kind === 'unverified' ? { submitter_via: 'ticket' } : {}) },
       }, { source: EVENT_FACT_SOURCE, id: String(recorded.id) }, event.created_at);
@@ -763,13 +779,18 @@ export class WorkItemService extends Service {
   }
 
   private insertItem(id: string, input: NewWorkItem, by: { source: string; id: string }, createdAt?: string): void {
-    db.prepare(`INSERT INTO work_items (id, title, created_by, creator_principal, source_kind, source_ref, context, event_id, target_team, seat, object, phase, handoff, review_by, directed_seat_id, cockpit_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))`).run(
+    db.prepare(`INSERT INTO work_items (id, title, created_by, creator_principal, source_kind, source_ref, context, event_id, target_team, seat, object, phase, handoff, review_by, directed_seat_id, cockpit_id, due_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))`).run(
       id, input.title, input.created_by, input.creator_principal ?? null, input.source_kind, input.source_ref ?? '', JSON.stringify(input.context ?? {}),
       input.event_id ?? null, input.target_team ?? '', input.seat ?? '', input.object ?? '', input.phase ?? '',
-      input.handoff ?? 'team', input.review_by ?? '', input.directed_seat_id ?? '', input.cockpit_id ?? null, createdAt ?? null, createdAt ?? null);
+      input.handoff ?? 'team', input.review_by ?? '', input.directed_seat_id ?? '', input.cockpit_id ?? null, input.due_at ?? '', createdAt ?? null, createdAt ?? null);
     db.prepare(`INSERT INTO work_item_log (item_id, fact, fact_source, fact_id, from_state, to_state, actor, detail)
       VALUES (?, 'create', ?, ?, 'draft', 'draft', ?, '{}')`).run(id, by.source, by.id, input.created_by);
+  }
+
+  /** 改截止日期（dueAt 是 UTC 零点 ISO 或 '' 清掉）；终态的不改。at 由调用方给（代码生成的时间）。返回改没改 */
+  setDue(id: string, dueAt: string, at: string): boolean {
+    return Number(db.prepare(`UPDATE work_items SET due_at = ?, updated_at = ? WHERE id = ? AND state NOT IN (${TERMINAL.map(() => '?').join(', ')})`).run(dueAt, at, id, ...TERMINAL).changes) === 1;
   }
 
   get(id: string): WorkItemRow | undefined {
