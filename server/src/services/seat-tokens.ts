@@ -159,7 +159,7 @@ export function seatTokenLog(f: { host?: string; seat_id?: string; since?: numbe
   if (f.seat_id) { where.push('seat_id = ?'); args.push(f.seat_id); }
   if (f.since !== undefined) { where.push('at >= ?'); args.push(f.since); }
   if (f.until !== undefined) { where.push('at < ?'); args.push(f.until); }
-  return db.prepare(`SELECT id, at, host, seat_id, root, source, outcome, reason, verified, session_id, token_ref, expires_at FROM a2a_seat_token_log
+  return db.prepare(`SELECT at, host, seat_id, root, source, outcome, reason, verified, session_id, token_ref, expires_at FROM a2a_seat_token_log
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY id DESC LIMIT ?`).all(...args, f.limit) as Record<string, unknown>[];
 }
 

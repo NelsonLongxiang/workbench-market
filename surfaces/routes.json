@@ -256,6 +256,8 @@
       "POST /api/a2a/peers/:id/enable  <- <anonymous>",
       "GET /api/a2a/state  <- <anonymous>",
       "POST /api/a2a/send  <- <anonymous>",
+      "POST /api/a2a/seat-token  <- <anonymous>",
+      "GET /api/a2a/seat-token/log  <- <anonymous>",
       "POST /a2a/direct  <- jsonParser, <anonymous>",
       "GET /a2a/direct  <- <anonymous>",
       "GET /api/mcp/upstreams  <- <anonymous>",
