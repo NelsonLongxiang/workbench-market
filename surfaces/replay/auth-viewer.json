@@ -250,8 +250,8 @@
           "response": {
             "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "111", "etag": "W/\"6f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "ok": false, "error": "没有会话（合成）", "auth_required": true, "login_url": "/web/login?redirect=%2Ftasks" }
+            "headers": { "cache-control": "private, no-store", "content-length": "106", "etag": "W/\"6a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "没有会话（合成）", "auth_required": true, "login_url": "/web/login?redirect=%2F" }
           }
         },
         {
@@ -263,8 +263,8 @@
           "response": {
             "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "111", "etag": "W/\"6f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "ok": false, "error": "会话无效（合成）", "auth_required": true, "login_url": "/web/login?redirect=%2Ftasks" }
+            "headers": { "cache-control": "private, no-store", "content-length": "106", "etag": "W/\"6a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "会话无效（合成）", "auth_required": true, "login_url": "/web/login?redirect=%2F" }
           }
         },
         {

@@ -34,7 +34,7 @@ async function fixture({mcpBroken=false,writeBroken=false,principalsBroken=false
  app.get('/api/apps/:slug/data',(_req,res)=>appDataBroken?res.json({items:[]}):res.status(403).json({error:'app_read_denied'}));
  app.put('/api/sop/runs/:id',(_req,res)=>runWriteBroken?res.status(404).json({error:'run not found'}):res.status(403).json({error:'run_write_denied'}));
  app.get('/api/principals',(_req,res)=>principalsBroken?res.json({principals:[{id:noAuth}]}):res.status(403).json({error:'denied'}));
- app.get('/login/feishu/callback',(_req,res)=>callbackBroken?res.redirect(302,'/tasks'):res.status(400).end());
+ app.get('/login/feishu/callback',(_req,res)=>callbackBroken?res.redirect(302,'/work-items'):res.status(400).end());
  app.post('/login/feishu/events',(_req,res)=>eventBroken?res.status(200).json({}):res.status(401).end());
  app.get('/api/health',(_req,res)=>res.json({self_probe:probe.snapshot()}));
  app.get('/business',(_req,res)=>res.json({ok:true}));
