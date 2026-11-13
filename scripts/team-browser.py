@@ -104,10 +104,10 @@ with sync_playwright() as p:
     check('待认领卡：名册没停推不写', un.locator('[data-testid=team-roster-stale]').count() == 0)
     # 待认领的团队也带名册停推（服务端给的）：卡上照写
     state['teams']['unclaimed'] = [{**UNCLAIMED, 'roster_stale': True, 'roster_stale_for_minutes': 3000}]
-    pg.reload(); pg.wait_for_selector('[data-testid=team-unclaimed] [data-testid=team-roster-stale]')
+    pg.reload(); set_token(pg); pg.wait_for_selector('[data-testid=team-unclaimed] [data-testid=team-roster-stale]')  # 口令只在内存里，重载后再输一次
     check('待认领卡：名册停推（服务端说停了 3000 分钟）写「名册已 2 天没更新」', un.locator('[data-testid=team-roster-stale]').inner_text() == '名册已 2 天没更新', un.inner_text())
     state['teams']['unclaimed'] = [UNCLAIMED]
-    pg.reload(); pg.wait_for_selector('[data-testid=team-empty]')
+    pg.reload(); set_token(pg); pg.wait_for_selector('[data-testid=team-empty]')
 
     # 建部门：标识写错不能建；写对了真的建进实例
     pg.locator('[data-testid=team-newdept-cta]').click(); pg.wait_for_selector('[data-testid=team-newdept]')
