@@ -102,4 +102,21 @@ export class StateLayerService extends Service {
       return n;
     } catch { return null; }
   }
+
+  /**
+   * 清扫用：扫一遍全部台的键，卡片已经不在的（live 里没有的台 id）清掉。返回清掉的个数；没配 Redis 返回 0，不通或出错返回 null
+   */
+  async sweepBenches(live: ReadonlySet<number>): Promise<number | null> {
+    if (!redisConfigured()) return 0;
+    const c = this.client();
+    if (!c) return null;
+    let n = 0;
+    try {
+      for await (const batch of c.scanIterator({ MATCH: `${BENCH_PREFIX}*`, COUNT: 200 })) {
+        const keys = (Array.isArray(batch) ? batch : [batch]).filter((k) => ownKey(k) && !live.has(Number(k.slice(BENCH_PREFIX.length).split(':')[0])));
+        if (keys.length) n += await c.del(keys);
+      }
+      return n;
+    } catch { return null; }
+  }
 }

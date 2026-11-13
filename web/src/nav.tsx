@@ -34,7 +34,7 @@ const BASE_GROUPS: NavGroup[] = [
     { path: '/knowledge', name: '经验库', icon: <BookOutlined /> },
   ] },
   { key: '/g/legacy', name: '旧入口', hidden: true, pages: [
-    { path: '/attention', name: '关注', icon: null },
+    { path: '/attention', name: '等你拍板', icon: null },
     { path: '/tasks', name: '统一待办', icon: null },
     { path: '/sops', name: 'SOP 交付空间', icon: null },
     { path: '/skills', name: '技能市场', icon: null },
