@@ -127,6 +127,11 @@ out.rekey = snap();
 // 四：对端停用、恢复
 db.prepare("UPDATE a2a_peers SET key_fingerprint = '${F2}', status = 'disabled' WHERE root_url = '${R2}'").run();
 out.disabled = snap();
+// 对端停用时团队显示「节点换了」：节点名字、名册停推的提示照样给（属主要靠它去找那台机器），只是展示，不认人
+out.disabledNode = teams.nodeInfo('${H}');
+db.prepare("UPDATE a2a_roster_nodes SET received_at = '2000-01-01 00:00:00' WHERE host = '${H}'").run();
+out.disabledStale = { one: teams.rosterStaleness('${H}', Date.parse('2026-11-13T00:00:00Z')).roster_stale, list: teams.staleRosters(Date.parse('2026-11-13T00:00:00Z')).some((r) => r.host === '${H}' && r.node_name === '合成节点') };
+db.prepare("UPDATE a2a_roster_nodes SET received_at = '0' WHERE host = '${H}'").run();
 db.prepare("UPDATE a2a_peers SET status = 'active' WHERE root_url = '${R2}'").run();
 out.restored = snap();
 // 撞号：另一个根地址、另一把键也报了这个号（对端启用）——同一个号下两个节点，两个都不算：现在的归属不算数；停用撞号的那台后恢复
@@ -159,6 +164,8 @@ out.resolvedNode = (await import(${at('server/src/services/team.ts')})).currentN
   check(gone(o.rekey), '同一根地址换了钥（指纹变了）：归属同样不算数', show(o.rekey));
   check(gone(o.disabled) && o.restored.status === 'active' && o.restored.owner === 'user:owner1',
     '对端停用：不算数；恢复启用（同一根地址、同一指纹）就又算数', show({ disabled: o.disabled.status, restored: o.restored.status }));
+  check(o.disabledNode?.node_name === '合成节点' && o.disabledStale.one === true && o.disabledStale.list === true,
+    '……对端停用、团队显示「节点换了」时，节点名字和名册停推的提示照样给（只是展示）', show({ node: o.disabledNode, stale: o.disabledStale }));
   check(o.collide.leads.length === 0 && o.collide.owner === null && o.collide.assignedTo === 0 && o.collide.leadOf === 0 && o.collide.member === null && o.collide.bench !== 'ok'
       && o.collideNode === null && o.collideResolved.status === 'active' && o.collideResolved.owner === 'user:owner1' && show(o.collideResolved.leads) === show(['user:lead1'])
       && show(o.resolvedNode) === show({ peer_root: R2, key_fingerprint: F2 }),
