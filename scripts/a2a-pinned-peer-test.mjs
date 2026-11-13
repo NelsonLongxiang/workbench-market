@@ -123,7 +123,7 @@ const roster = async (p, at = new Date().toISOString()) => {
   const raw = bodyOf(msg, 'roster', `roster-${n}-${Date.now()}`);
   return post(raw, signed(p, raw));
 };
-const rosterOf = (p) => q('SELECT host FROM a2a_rosters WHERE peer_root = ?', p.url).length;
+const rosterOf = (p) => q('SELECT host FROM a2a_roster_nodes WHERE peer_root = ?', p.url).length;
 
 try {
   if (!(await ready())) throw new Error('实例未就绪：' + out.slice(-600));

@@ -126,10 +126,10 @@ try {
   {
     const db = new DatabaseSync(join(data, 'workbench-market.db'));
     const now = Date.now();
-    db.prepare('INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?)').run(HOST, PEER, 'zone1', new Date(now).toISOString(), new Date(now).toISOString());
+    db.prepare('INSERT INTO a2a_roster_nodes (host, peer_root, peer_zone, reported_at, received_at, key_fingerprint) VALUES (?1, ?2, ?3, ?4, ?5, char(115, 104, 97, 50, 53, 54, 58) || substr(?1 || hex(zeroblob(32)), 1, 64))').run(HOST, PEER, 'zone1', new Date(now).toISOString(), new Date(now).toISOString());
     // 团队归属绑节点（根地址 + 完整指纹）：这个根地址要在对端登记里、启用、有指纹（合成的）
     db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, key_fingerprint, registered_by, registered_at, updated_at) VALUES (?, ?, 'zone1', '', 'active', ?, 'seed', '0', '0') ON CONFLICT(root_url) DO UPDATE SET status = 'active', key_fingerprint = CASE WHEN a2a_peers.key_fingerprint = '' THEN excluded.key_fingerprint ELSE a2a_peers.key_fingerprint END").run(`peer-${HOST}`, PEER, `sha256:${String(HOST).padEnd(64, '0')}`);
-    const seatIns = db.prepare('INSERT INTO a2a_roster_seats (host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)');
+    const seatIns = db.prepare('INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES ((SELECT peer_root FROM a2a_roster_nodes WHERE host = ?1 ORDER BY rowid LIMIT 1), (SELECT key_fingerprint FROM a2a_roster_nodes WHERE host = ?1 ORDER BY rowid LIMIT 1), ?1, ?2, ?3, ?4, ?5, ?6, 1, 0, ?7, ?8)');
     seatIns.run(HOST, TEAM, 'zone1/0000000a', 'seat-0000000a', '合成总工', 'router', now, now);
     seatIns.run(HOST, VACANT, 'zone1/0000000d', 'seat-0000000d', '合成别队总工', 'router', now, now);
     // 最后一次变动的时间：停太久的 25～30 小时前（越靠前越久），差一分钟到阈值的、刚动过的

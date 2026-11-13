@@ -43,10 +43,14 @@ const { svc } = await import(${at('server/src/context.ts')});
 const { parseBinding } = await import(${at('server/src/services/bench-registry.ts')});
 const teams = svc('teams');
 const seedNode = (host, root, fp, status = 'active') => {
-  db.prepare("INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, ?, 'zsyn', '0', '0') ON CONFLICT(host) DO UPDATE SET peer_root = excluded.peer_root").run(host, root);
+  // 名册以（根地址，完整指纹）为键：这个号原来的名册连席位一起换成这一份（指纹就是这台节点签名用的那把）
+  db.prepare('DELETE FROM a2a_roster_nodes WHERE host = ?').run(host);
+  db.prepare("INSERT INTO a2a_roster_nodes (host, peer_root, key_fingerprint, peer_zone, reported_at, received_at) VALUES (?, ?, ?, 'zsyn', '0', '0')").run(host, root, fp);
+  // 这个号原来报的席位，现在由这台节点报（同一份席位）
+  db.prepare('UPDATE a2a_roster_node_seats SET peer_root = ?, key_fingerprint = ? WHERE host = ?').run(root, fp, host);
   db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, key_fingerprint, registered_by, registered_at, updated_at) VALUES (?, ?, 'zsyn', '合成节点', ?, ?, 'seed', '0', '0') ON CONFLICT(root_url) DO UPDATE SET status = excluded.status, key_fingerprint = excluded.key_fingerprint").run('peer-' + root.length + '-' + Math.random().toString(36).slice(2), root, status, fp);
 };
-const seats = (host, team, list) => { const ins = db.prepare("INSERT INTO a2a_roster_seats (host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, 1, 0, '', '0')"); db.prepare('DELETE FROM a2a_roster_seats WHERE host = ?').run(host); for (const s of list) ins.run(host, team, s.seat, s.seat_id, s.seat, s.role ?? 'member'); };
+const seats = (host, team, list) => { const ins = db.prepare("INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES ((SELECT peer_root FROM a2a_roster_nodes WHERE host = ?1 ORDER BY rowid LIMIT 1), (SELECT key_fingerprint FROM a2a_roster_nodes WHERE host = ?1 ORDER BY rowid LIMIT 1), ?1, ?2, ?3, ?4, ?5, ?6, 1, 0, '', '0')"); db.prepare('DELETE FROM a2a_roster_node_seats WHERE host = ?').run(host); for (const s of list) ins.run(host, team, s.seat, s.seat_id, s.seat, s.role ?? 'member'); };
 const person = (id) => db.prepare("INSERT INTO principals (id, id_key, kind, display_name, status) VALUES (?, ?, 'person', ?, 'active') ON CONFLICT(id) DO NOTHING").run(id, id, 'Synthetic ' + id);
 const dept = (id) => { const r = svc('departments').upsert({ id, name: '合成' + id, functionCode: null, lead: null }, 'test', 1); if (!r.ok) throw new Error('部门建不起来：' + JSON.stringify(r)); };
 const A = { by: 'test-management', principal: null };
@@ -65,6 +69,7 @@ const H = 'a1b2c3d4', TEAM = 'zsyn/canvas/alpha-team';
 const R1 = 'https://node-one.synthetic.invalid', F1 = 'sha256:' + '1'.repeat(64);
 const R2 = 'https://node-impostor.synthetic.invalid', F2 = 'sha256:' + '2'.repeat(64);
 const F3 = 'sha256:' + '3'.repeat(64);
+const R4 = 'https://node-squatter.synthetic.invalid', F4 = 'sha256:' + '4'.repeat(64);
 const SEAT = { seat: 'zsyn/0000000a', seat_id: 'seat-0000000a' };
 
 rmSync(OUT, { recursive: true, force: true });
@@ -79,8 +84,8 @@ for (const p of ['user:lead1', 'user:owner1', 'user:lead2']) person(p);
 dept('sales');
 // 五：节点没核过——名册里没有 / 对端没登记 / 没指纹 / 停用：都拒、不写
 const refused = {};
+db.prepare("INSERT INTO a2a_roster_nodes (host, peer_root, key_fingerprint, peer_zone, reported_at, received_at) VALUES ('${H}', '${R1}', '${F1}', 'zsyn', '0', '0')").run();
 seats('${H}', '${TEAM}', [${JSON.stringify(SEAT)}]);
-db.prepare("INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES ('${H}', '${R1}', 'zsyn', '0', '0')").run();
 refused.noPeer = teams.claim(K, 'sales', A, 1).code ?? 'ok';
 db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, key_fingerprint, registered_by, registered_at, updated_at) VALUES ('p1', '${R1}', 'zsyn', '合成节点', 'active', '', 'seed', '0', '0')").run();
 refused.noFp = teams.claim(K, 'sales', A, 1).code ?? 'ok';
@@ -102,7 +107,7 @@ const snap = () => ({
 out.normal = snap();
 out.stamped = db.prepare("SELECT (SELECT peer_root || '|' || key_fingerprint FROM teams) AS t, (SELECT peer_root || '|' || key_fingerprint FROM team_leads) AS l, (SELECT peer_root || '|' || key_fingerprint FROM seat_assignments) AS a, (SELECT COUNT(*) FROM team_events WHERE peer_root = '${R1}' AND key_fingerprint = '${F1}') AS ev").get();
 // 二：名册被清，别的节点报了同一个号
-db.prepare("DELETE FROM a2a_rosters WHERE host = '${H}'").run();
+db.prepare("DELETE FROM a2a_roster_nodes WHERE host = '${H}'").run();
 seedNode('${H}', '${R2}', '${F2}');
 seats('${H}', '${TEAM}', [${JSON.stringify(SEAT)}]);
 out.impostor = snap();
@@ -122,8 +127,35 @@ out.rekey = snap();
 // 四：对端停用、恢复
 db.prepare("UPDATE a2a_peers SET key_fingerprint = '${F2}', status = 'disabled' WHERE root_url = '${R2}'").run();
 out.disabled = snap();
+// 对端停用时团队显示「节点换了」：节点名字、名册停推的提示照样给（属主要靠它去找那台机器），只是展示，不认人
+out.disabledNode = teams.nodeInfo('${H}');
+const seatRel = async () => (await import(${at('server/src/team-relation.ts')})).relationOf({ seat: S }, { seat: S }).relations.sort();
+// 席位作主体：对端停用时这个席位不算在团队里（不给 team-seat、router、same-seat）
+out.seatRelDisabled = await seatRel();
+db.prepare("UPDATE a2a_roster_nodes SET received_at = '2000-01-01 00:00:00' WHERE host = '${H}'").run();
+out.disabledStale = { one: teams.rosterStaleness('${H}', Date.parse('2026-11-13T00:00:00Z')).roster_stale, list: teams.staleRosters(Date.parse('2026-11-13T00:00:00Z')).some((r) => r.host === '${H}' && r.node_name === '合成节点') };
+db.prepare("UPDATE a2a_roster_nodes SET received_at = '0' WHERE host = '${H}'").run();
 db.prepare("UPDATE a2a_peers SET status = 'active' WHERE root_url = '${R2}'").run();
 out.restored = snap();
+out.seatRelRestored = await seatRel();
+// 撞号：另一个根地址、另一把键也报了这个号（对端启用）——同一个号下两个节点，两个都不算：现在的归属不算数；停用撞号的那台后恢复
+db.prepare("INSERT INTO a2a_roster_nodes (host, peer_root, key_fingerprint, peer_zone, reported_at, received_at) VALUES ('${H}', '${R4}', '${F4}', 'zsyn', '0', '0')").run();
+db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, key_fingerprint, registered_by, registered_at, updated_at) VALUES ('p-squat', '${R4}', 'zsyn', '撞号的', 'active', '${F4}', 'seed', '0', '0')").run();
+// 撞号那台的名册里，同一个团队下还有一个原来那台没有的席位
+db.prepare("INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES ('${R4}', '${F4}', '${H}', '${TEAM}', 'zsyn/0000004a', 'seat-squat-only', '撞号节点上的成员', 'member', 1, 0, '', '0')").run();
+out.collide = snap();
+out.collideNode = (await import(${at('server/src/services/team.ts')})).currentNode('${H}');
+db.prepare("UPDATE a2a_peers SET status = 'disabled' WHERE root_url = '${R4}'").run();
+out.collideResolved = snap();
+// 停用撞号那台之后：只在它名册里的席位不认（分配、改派都 404 seat_not_in_roster，什么都不写）；原来那台的席位照常能分
+{
+  const SQ = { ...K, seat: 'zsyn/0000004a', seat_id: 'seat-squat-only' };
+  const n0 = db.prepare("SELECT COUNT(*) AS n FROM seat_assignments WHERE seat_id = 'seat-squat-only'").get().n;
+  out.squatSeat = { assign: teams.assign(SQ, 'user:lead2', A, 50).code ?? 'ok', reassign: teams.reassign(SQ, 'user:lead2', A, 51).code ?? 'ok',
+    written: db.prepare("SELECT COUNT(*) AS n FROM seat_assignments WHERE seat_id = 'seat-squat-only'").get().n - n0,
+    legit: teams.reassign(S, 'user:lead2', A, 52).ok === true };
+}
+out.resolvedNode = (await import(${at('server/src/services/team.ts')})).currentNode('${H}');
 `);
   check(show(o.refused) === show({ noPeer: 'node_unverified', noFp: 'node_unverified', disabled: 'node_unverified', rows: 0 }),
     '节点没核过（对端没登记、没有指纹、停用）：认领拒（409 node_unverified），什么都不写', show(o.refused));
@@ -146,6 +178,16 @@ out.restored = snap();
   check(gone(o.rekey), '同一根地址换了钥（指纹变了）：归属同样不算数', show(o.rekey));
   check(gone(o.disabled) && o.restored.status === 'active' && o.restored.owner === 'user:owner1',
     '对端停用：不算数；恢复启用（同一根地址、同一指纹）就又算数', show({ disabled: o.disabled.status, restored: o.restored.status }));
+  check(o.seatRelDisabled.length === 0 && o.seatRelRestored.includes('team-seat') && o.seatRelRestored.includes('same-seat'),
+    '席位作主体（relationOf）：对端停用时不给 team-seat、same-seat（节点核不过就不认这个席位）；恢复后照常', show({ disabled: o.seatRelDisabled, restored: o.seatRelRestored }));
+  check(o.disabledNode?.node_name === '合成节点' && o.disabledStale.one === true && o.disabledStale.list === true,
+    '……对端停用、团队显示「节点换了」时，节点名字和名册停推的提示照样给（只是展示）', show({ node: o.disabledNode, stale: o.disabledStale }));
+  check(o.squatSeat.assign === 'seat_not_in_roster' && o.squatSeat.reassign === 'seat_not_in_roster' && o.squatSeat.written === 0 && o.squatSeat.legit,
+    '撞号那台停用之后：只在它名册里的席位不认——分配、改派都 404 seat_not_in_roster、什么都不写；原来那台的席位照常能改派', show(o.squatSeat));
+  check(o.collide.leads.length === 0 && o.collide.owner === null && o.collide.assignedTo === 0 && o.collide.leadOf === 0 && o.collide.member === null && o.collide.bench !== 'ok'
+      && o.collideNode === null && o.collideResolved.status === 'active' && o.collideResolved.owner === 'user:owner1' && show(o.collideResolved.leads) === show(['user:lead1'])
+      && show(o.resolvedNode) === show({ peer_root: R2, key_fingerprint: F2 }),
+    '撞号：另一个节点也报了这个号（对端启用）——两个都不算，负责人、成员的主人、「我分到的」「我负责的」、细到团队的台都不算数；停用撞号那台后恢复', show({ collide: o.collide, node: o.collideNode, resolved: o.collideResolved.status, resolvedNode: o.resolvedNode }));
 
   // ---------- 六、存量回填只做一次 ----------
   const d6 = join(OUT, 'data-6');
@@ -155,8 +197,8 @@ out.restored = snap();
     const db = new DatabaseSync(join(d6, 'workbench-market.db'));
     try {
       for (const t of ['teams', 'team_leads', 'seat_assignments', 'team_events']) { db.exec(`ALTER TABLE ${t} DROP COLUMN peer_root`); db.exec(`ALTER TABLE ${t} DROP COLUMN key_fingerprint`); }
-      db.prepare("INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES ('aaaa0001', 'https://legacy-a.synthetic.invalid', 'zsyn', '0', '0')").run();
-      db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, key_fingerprint, registered_by, registered_at, updated_at) VALUES ('pa', 'https://legacy-a.synthetic.invalid', 'zsyn', '', 'active', 'sha256:aaaa', 'seed', '0', '0')").run();
+      db.prepare("INSERT INTO a2a_roster_nodes (host, peer_root, key_fingerprint, peer_zone, reported_at, received_at) VALUES ('aaaa0001', 'https://legacy-a.synthetic.invalid', 'sha256:aaaa000100000000000000000000000000000000000000000000000000000000', 'zsyn', '0', '0')").run();
+      db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, key_fingerprint, registered_by, registered_at, updated_at) VALUES ('pa', 'https://legacy-a.synthetic.invalid', 'zsyn', '', 'active', 'sha256:aaaa000100000000000000000000000000000000000000000000000000000000', 'seed', '0', '0')").run();
       for (const h of ['aaaa0001', 'bbbb0002']) {
         db.prepare("INSERT INTO teams (host, team, department_id, claimed, claimed_by, claimed_at, updated_at) VALUES (?, 'zsyn/canvas/t', '', 0, '', NULL, 1)").run(h);
         db.prepare("INSERT INTO team_leads (host, team, principal_id, added_by, added_at) VALUES (?, 'zsyn/canvas/t', 'user:x', 'seed', 1)").run(h);
@@ -169,13 +211,13 @@ out.restored = snap();
     const db = new DatabaseSync(join(d6, 'workbench-market.db'));
     try {
       // B 这个号后来有了名册和启用的对端（可能是任何节点）
-      db.prepare("INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES ('bbbb0002', 'https://latecomer.synthetic.invalid', 'zsyn', '0', '0')").run();
-      db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, key_fingerprint, registered_by, registered_at, updated_at) VALUES ('pb', 'https://latecomer.synthetic.invalid', 'zsyn', '', 'active', 'sha256:bbbb', 'seed', '0', '0')").run();
+      db.prepare("INSERT INTO a2a_roster_nodes (host, peer_root, key_fingerprint, peer_zone, reported_at, received_at) VALUES ('bbbb0002', 'https://latecomer.synthetic.invalid', 'sha256:bbbb000200000000000000000000000000000000000000000000000000000000', 'zsyn', '0', '0')").run();
+      db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, key_fingerprint, registered_by, registered_at, updated_at) VALUES ('pb', 'https://latecomer.synthetic.invalid', 'zsyn', '', 'active', 'sha256:bbbb000200000000000000000000000000000000000000000000000000000000', 'seed', '0', '0')").run();
     } finally { db.close(); }
   }
   const m2 = inProc('restart', d6, `out.b = db.prepare("SELECT peer_root, key_fingerprint FROM team_leads WHERE host = 'bbbb0002'").get(); out.leadOfX = teams.explicitLeadOf('user:x').map((k) => k.host);`);
   const byHost = (t, h) => m1.rows.find((r) => r.t === t && r.host === h);
-  check(['leads', 'asg', 'team'].every((t) => byHost(t, 'aaaa0001')?.peer_root === 'https://legacy-a.synthetic.invalid' && byHost(t, 'aaaa0001')?.key_fingerprint === 'sha256:aaaa' && byHost(t, 'bbbb0002')?.peer_root === '' && byHost(t, 'bbbb0002')?.key_fingerprint === ''),
+  check(['leads', 'asg', 'team'].every((t) => byHost(t, 'aaaa0001')?.peer_root === 'https://legacy-a.synthetic.invalid' && byHost(t, 'aaaa0001')?.key_fingerprint === 'sha256:aaaa000100000000000000000000000000000000000000000000000000000000' && byHost(t, 'bbbb0002')?.peer_root === '' && byHost(t, 'bbbb0002')?.key_fingerprint === ''),
     '存量回填：加列那一次按当时的名册和启用的对端回填；回填不上的留空', show(m1.rows));
   check(m2.b?.peer_root === '' && m2.b?.key_fingerprint === '' && show(m2.leadOfX) === show(['aaaa0001']),
     '……之后再启动、那个号后来有了名册和对端，也不回填：后来的节点接不走旧的负责人', show(m2));
@@ -189,7 +231,7 @@ seedNode('${H}', '${R1}', '${F1}');
 seats('${H}', '${TEAM}', [${JSON.stringify(SEAT)}]);
 teams.claim({ host: '${H}', team: '${TEAM}' }, 'sales', A, 1);
 teams.assign({ host: '${H}', team: '${TEAM}', ...${JSON.stringify(SEAT)} }, 'user:seed-owner', A, 2);
-db.prepare("DELETE FROM a2a_rosters WHERE host = '${H}'").run();
+db.prepare("DELETE FROM a2a_roster_nodes WHERE host = '${H}'").run();
 seedNode('${H}', '${R2}', '${F2}');
 out.ok = 1;`);
   const port = await new Promise((r) => { const s = createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });

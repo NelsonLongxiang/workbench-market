@@ -27,7 +27,7 @@
  */
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
-import { rosters, activeItemsBySeat, type RosterSeat } from './a2a-roster.ts';
+import { rosters, activeItemsBySeat, LISTED_ROSTERS_SQL, type RosterSeat } from './a2a-roster.ts';
 import { leadGrantActive } from './dept-lead-grant.ts';
 import { boundSql } from './team-binding-sql.ts';
 
@@ -77,10 +77,10 @@ const refuse = (http: TeamRefusal['http'], code: string, message: string): TeamR
 export type NodeBinding = { peer_root: string; key_fingerprint: string };
 /** 这个 host 现在对应的节点：名册里有、根地址在对端登记里是启用的、指纹不空；任何一样不成立为 null（不能认领、指定、分配） */
 export function currentNode(host: string): NodeBinding | null {
-  // 一个号在名册里要正好只对应一个节点：对应好几个（认不清是哪一个）也当没核过，失败关闭
-  if (Number((db.prepare('SELECT COUNT(*) AS n FROM a2a_rosters WHERE host = ?').get(host) as { n: number }).n) !== 1) return null;
-  const r = db.prepare(`SELECT r.peer_root AS peer_root, p.key_fingerprint AS key_fingerprint FROM a2a_rosters r JOIN a2a_peers p ON p.root_url = r.peer_root
-    WHERE r.host = ? AND r.peer_root <> '' AND p.status = 'active' AND p.key_fingerprint <> ''`).get(host) as NodeBinding | undefined;
+  // 按号认节点只经名册视图 a2a_rosters_live：一个号最多一行（两个节点报了同一个号就两个都不算，失败关闭）；
+  // 对端登记启用、钉住的指纹不空，并且就是名册这一行记的那把
+  const r = db.prepare(`SELECT r.peer_root AS peer_root, r.key_fingerprint AS key_fingerprint FROM a2a_rosters_live r JOIN a2a_peers p ON p.root_url = r.peer_root
+    WHERE r.host = ? AND r.peer_root <> '' AND p.status = 'active' AND p.key_fingerprint <> '' AND p.key_fingerprint = r.key_fingerprint`).get(host) as NodeBinding | undefined;
   return r ?? null;
 }
 /** SQL 条件：这一行记下的节点就是现在的节点（见 team-binding-sql.ts）。归属的每一处读都套它 */
@@ -107,10 +107,10 @@ export class TeamService extends Service {
 
   // ---------- 名册（只读） ----------
 
-  /** 名册里的团队：(host, team) → 席位 */
+  /** 名册里的团队：(host, team) → 席位。看「在不在名册上」：对端停用、等确认新键的节点的团队也算在（归属另由 boundSql 核，核不过是「节点换了」） */
   rosterTeams(): Map<string, { host: string; team: string; seats: RosterSeat[] }> {
     const out = new Map<string, { host: string; team: string; seats: RosterSeat[] }>();
-    for (const h of rosters()) {
+    for (const h of rosters({ listed: true })) {
       for (const s of h.seats) {
         const k = tkey(h.host, s.team);
         const t = out.get(k) ?? { host: h.host, team: s.team, seats: [] };
@@ -378,10 +378,10 @@ export class TeamService extends Service {
 
   /**
    * 节点的两样：名字（名册报上来的节点根地址，对到对端登记表里登记的名字；没登记、没名字为 null，页面不显示节点标识），
-   * 和最近一次成功收下这个节点名册的时间（a2a_rosters.received_at，和 GET /api/a2a/teams 同一个来源，统一成 ISO 时刻；没收过为 null）
+   * 和最近一次成功收下这个节点名册的时间（a2a_roster_nodes.received_at，和 GET /api/a2a/teams 同一个来源，统一成 ISO 时刻；没收过为 null）
    */
   nodeInfo(host: string): { node_name: string | null; roster_received_at: string | null } {
-    const r = db.prepare("SELECT r.received_at AS received_at, COALESCE(p.name, '') AS name FROM a2a_rosters r LEFT JOIN a2a_peers p ON p.root_url = r.peer_root WHERE r.host = ?").get(host) as { received_at: string; name: string } | undefined;
+    const r = db.prepare(`SELECT r.received_at AS received_at, COALESCE(p.name, '') AS name FROM ${LISTED_ROSTERS_SQL} r LEFT JOIN a2a_peers p ON p.root_url = r.peer_root WHERE r.host = ?`).get(host) as { received_at: string; name: string } | undefined;
     return { node_name: r?.name ? r.name : null, roster_received_at: r?.received_at ? isoTime(r.received_at) : null };
   }
 
@@ -499,14 +499,14 @@ export class TeamService extends Service {
 
   /** 一个节点的名册停推了没有、停了多少分钟（从最近一次收到算起）；没收过名册的节点不算停推 */
   rosterStaleness(host: string, now = Date.now()): { roster_stale: boolean; roster_stale_for_minutes: number | null } {
-    const r = db.prepare('SELECT received_at FROM a2a_rosters WHERE host = ?').get(host) as { received_at: string } | undefined;
+    const r = db.prepare(`SELECT received_at FROM ${LISTED_ROSTERS_SQL} r WHERE host = ?`).get(host) as { received_at: string } | undefined;
     const m = r ? this.staleBy(r.received_at, now) : null;
     return { roster_stale: m !== null, roster_stale_for_minutes: m };
   }
 
   /** 超过阈值没更新名册的节点：节点标识、名字、最近收到的时间（页面不显示节点标识，用名字） */
   staleRosters(now = Date.now()): { host: string; node_name: string | null; roster_received_at: string }[] {
-    return (db.prepare('SELECT host, received_at FROM a2a_rosters ORDER BY host').all() as { host: string; received_at: string }[])
+    return (db.prepare(`SELECT host, received_at FROM ${LISTED_ROSTERS_SQL} r ORDER BY host`).all() as { host: string; received_at: string }[])
       .filter((r) => this.staleBy(r.received_at, now) !== null)
       .map((r) => ({ host: r.host, node_name: this.nodeInfo(r.host).node_name, roster_received_at: isoTime(r.received_at) }));
   }

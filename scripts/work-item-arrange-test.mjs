@@ -195,15 +195,15 @@ try {
       const now = '2026-11-12 00:00:00', ms = Date.now() - 60000;
       const b = d.prepare("INSERT INTO bindings (target_type, target_slug, agent_node, direction, mode, notify_url, created_by, revoked_at) VALUES ('sop', 'task-center', ?, 'notify', 'read', ?, 'seed', '')");
       b.run('dsh/canvas/team-c', 'http://127.0.0.1:2'); b.run('dsh/1a2b3c4d', 'http://127.0.0.1:1'); b.run('dsh/canvas/team-d', 'http://127.0.0.1:3');
-      const r = d.prepare('INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?)');
+      const r = d.prepare('INSERT INTO a2a_roster_nodes (host, peer_root, peer_zone, reported_at, received_at, key_fingerprint) VALUES (?1, ?2, ?3, ?4, ?5, char(115, 104, 97, 50, 53, 54, 58) || substr(?1 || hex(zeroblob(32)), 1, 64))');
       r.run('a1b2c3d4', 'http://127.0.0.1:1', 'dsh', now, now); r.run('c3c3c3c3', 'http://127.0.0.1:2', 'dsh', now, now);
-      const st = d.prepare('INSERT INTO a2a_roster_seats (host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)');
+      const st = d.prepare('INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES ((SELECT peer_root FROM a2a_roster_nodes WHERE host = ?1 ORDER BY rowid LIMIT 1), (SELECT key_fingerprint FROM a2a_roster_nodes WHERE host = ?1 ORDER BY rowid LIMIT 1), ?1, ?2, ?3, ?4, ?5, ?6, 1, 0, ?7, ?8)');
       st.run('a1b2c3d4', 'dsh/canvas/team-a', 'dsh/00000001', 'seat-00000001', '合成总工', 'router', now, now);
       st.run('a1b2c3d4', 'dsh/canvas/team-a', 'dsh/0000000a', 'seat-0000000a', '合成成员甲', 'member', now, now);
       st.run('a1b2c3d4', 'dsh/canvas/team-a', 'dsh/0000000b', 'seat-0000000b', '合成成员乙', 'member', now, now);
       st.run('a1b2c3d4', 'dsh/canvas/team-a', 'dsh/0000000c', 'seat-0000000c', '合成观察者', 'observer', now, now);
       st.run('c3c3c3c3', 'dsh/canvas/team-c', 'dsh/0000000e', 'seat-0000000e', '合成成员丙', 'member', now, now);
-      const p = d.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, registered_by, registered_at, updated_at, card_capabilities, key_fingerprint) VALUES (?, ?, 'dsh', ?, 'active', 'seed', ?, ?, ?, 'sha256:' || lower(hex(?))) ON CONFLICT(root_url) DO UPDATE SET status = 'active', zone = excluded.zone, name = excluded.name, card_capabilities = excluded.card_capabilities, key_fingerprint = excluded.key_fingerprint");
+      const p = d.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, registered_by, registered_at, updated_at, card_capabilities, key_fingerprint) VALUES (?1, ?2, 'dsh', ?3, 'active', 'seed', ?4, ?5, ?6, CASE WHEN ?7 IS NULL THEN '' ELSE COALESCE((SELECT key_fingerprint FROM a2a_roster_nodes WHERE peer_root = ?2 ORDER BY rowid LIMIT 1), '') END) ON CONFLICT(root_url) DO UPDATE SET status = 'active', zone = excluded.zone, name = excluded.name, card_capabilities = excluded.card_capabilities, key_fingerprint = excluded.key_fingerprint");
       p.run('peer-syn-a', 'http://127.0.0.1:1', '合成节点甲', now, now, JSON.stringify({ directedSeats: true, reworkReturns: true }), 'peer-syn-a');
       p.run('peer-syn-c', 'http://127.0.0.1:2', '合成节点丙', now, now, JSON.stringify({}), 'peer-syn-c');
       const a = d.prepare("INSERT INTO seat_assignments (host, team, seat, seat_id, principal_id, assigned_by, assigned_at) VALUES (?, ?, ?, ?, ?, 'seed', ?)");
@@ -211,7 +211,7 @@ try {
       a.run('c3c3c3c3', 'dsh/canvas/team-c', 'dsh/0000000e', 'seat-0000000e', 'user:alpha', ms);
       d.prepare("INSERT INTO team_leads (host, team, principal_id, added_by, added_at) VALUES ('a1b2c3d4', 'dsh/canvas/team-a', 'user:beta', 'seed', ?)").run(ms);
       d.prepare("INSERT INTO team_leads (host, team, principal_id, added_by, added_at) VALUES ('c3c3c3c3', 'dsh/canvas/team-c', 'user:beta', 'seed', ?)").run(ms);
-      for (const t of ['teams', 'team_leads', 'seat_assignments']) d.prepare(\`UPDATE \${t} SET peer_root = COALESCE((SELECT r.peer_root FROM a2a_rosters r WHERE r.host = \${t}.host), ''), key_fingerprint = COALESCE((SELECT p.key_fingerprint FROM a2a_rosters r JOIN a2a_peers p ON p.root_url = r.peer_root WHERE r.host = \${t}.host), '') WHERE peer_root = ''\`).run(); // 种子行按当前名册记下节点
+      for (const t of ['teams', 'team_leads', 'seat_assignments']) d.prepare(\`UPDATE \${t} SET peer_root = COALESCE((SELECT r.peer_root FROM a2a_roster_nodes r WHERE r.host = \${t}.host), ''), key_fingerprint = COALESCE((SELECT p.key_fingerprint FROM a2a_roster_nodes r JOIN a2a_peers p ON p.root_url = r.peer_root WHERE r.host = \${t}.host), '') WHERE peer_root = ''\`).run(); // 种子行按当前名册记下节点
       console.log('SEEDED');`], { encoding: 'utf8' });
     if (!seeded.stdout.includes('SEEDED')) throw new Error(`造指名数据失败：${seeded.stderr.slice(-600)}`);
     const msg = (eventId) => { const d = dbr(); try { return d.prepare('SELECT message FROM workbench_event_deliveries WHERE event_id = ? ORDER BY id').all(eventId).map((r) => r.message); } finally { d.close(); } };
@@ -286,6 +286,19 @@ try {
       const fbDirect = await call('POST', '/api/work-items', ALPHA, form({ team: 'dsh/canvas/team-c', seat_id: 'seat-0000000e', review: false }));
       check(fbDirect.status === 201 && fbDirect.body.held === false && itemRow(fbDirect.body?.item_id).handoff === 'team',
         '对照：退回整队、本人 review:false、直派开着 → 直接派出，handoff=team', show(fbDirect.body));
+      // 撞号：另一个根地址也报了节点号 a1b2c3d4（对端停用，视图里不算），它的名册里 team-a 有一个本节点没有的成员席位。
+      // 指名按节点号找席位只经 a2a_rosters_live：这个席位找不到，不指名、不派
+      { const w = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 });
+        try {
+          const t1 = new Date().toISOString(), SQ = 'http://squat.synthetic.invalid', FP = 'sha256:' + 'e'.repeat(64);
+          w.prepare("INSERT INTO a2a_roster_nodes (peer_root, key_fingerprint, host, peer_zone, reported_at, received_at) VALUES (?, ?, 'a1b2c3d4', 'dsh', ?, ?)").run(SQ, FP, t1, t1);
+          w.prepare("INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, first_seen_at) VALUES (?, ?, 'a1b2c3d4', 'dsh/canvas/team-a', 'dsh/0000005a', 'seat-0000005a', '撞号节点上的成员', 'member', ?)").run(SQ, FP, t1);
+          w.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, registered_by, registered_at, updated_at) VALUES ('peer-squat', ?, 'dsh', '撞号的', 'disabled', 'seed', ?, ?)").run(SQ, t1, t1);
+        } finally { w.close(); } }
+      const sqCount = () => { const d = dbr(); try { return Number(d.prepare("SELECT COUNT(*) AS c FROM work_items WHERE directed_seat_id = 'seat-0000005a'").get().c) + Number(d.prepare("SELECT COUNT(*) AS c FROM workbench_event_deliveries WHERE message LIKE '%seat-0000005a%'").get().c); } finally { d.close(); } };
+      const sq = await call('POST', '/api/work-items', BETA, form({ seat_id: 'seat-0000005a' }));
+      check(sq.status === 400 && sq.body?.error === 'seat_not_in_team' && sqCount() === 0,
+        '撞号：同一节点号下另一个根地址（对端停用）名册里的席位，负责人指名它 → 400 seat_not_in_team，不指名、不派', show({ st: sq.status, body: sq.body, n: sqCount() }));
     } finally {
       await call('PUT', '/api/settings', ADMIN, { staff_direct_dispatch: 'off' });
       await call('PUT', '/api/task-center/policy', ADMIN, { agent_dispatch_enabled: false });

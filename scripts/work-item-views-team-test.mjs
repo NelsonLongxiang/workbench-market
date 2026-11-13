@@ -109,13 +109,13 @@ try {
   for (const h of Object.values(WHO)) await call('GET', '/api/auth/me', h);
   const db = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 });
   const now = Date.now();
-  db.prepare('INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?)').run(HOST, PEER, 'zone1', new Date(now).toISOString(), new Date(now).toISOString());
+  db.prepare('INSERT INTO a2a_roster_nodes (host, peer_root, peer_zone, reported_at, received_at, key_fingerprint) VALUES (?1, ?2, ?3, ?4, ?5, char(115, 104, 97, 50, 53, 54, 58) || substr(?1 || hex(zeroblob(32)), 1, 64))').run(HOST, PEER, 'zone1', new Date(now).toISOString(), new Date(now).toISOString());
   // 团队归属绑节点（根地址 + 完整指纹）：这个根地址要在对端登记里、启用、有指纹（合成的）
   db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, key_fingerprint, registered_by, registered_at, updated_at) VALUES (?, ?, 'zone1', '', 'active', ?, 'seed', '0', '0') ON CONFLICT(root_url) DO UPDATE SET status = 'active', key_fingerprint = CASE WHEN a2a_peers.key_fingerprint = '' THEN excluded.key_fingerprint ELSE a2a_peers.key_fingerprint END").run(`peer-${HOST}`, PEER, `sha256:${String(HOST).padEnd(64, '0')}`);
-  db.prepare('INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?)').run(HOST2, PEER2, 'zone1', new Date(now).toISOString(), new Date(now).toISOString());
+  db.prepare('INSERT INTO a2a_roster_nodes (host, peer_root, peer_zone, reported_at, received_at, key_fingerprint) VALUES (?1, ?2, ?3, ?4, ?5, char(115, 104, 97, 50, 53, 54, 58) || substr(?1 || hex(zeroblob(32)), 1, 64))').run(HOST2, PEER2, 'zone1', new Date(now).toISOString(), new Date(now).toISOString());
   // 团队归属绑节点（根地址 + 完整指纹）：这个根地址要在对端登记里、启用、有指纹（合成的）
   db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, key_fingerprint, registered_by, registered_at, updated_at) VALUES (?, ?, 'zone1', '', 'active', ?, 'seed', '0', '0') ON CONFLICT(root_url) DO UPDATE SET status = 'active', key_fingerprint = CASE WHEN a2a_peers.key_fingerprint = '' THEN excluded.key_fingerprint ELSE a2a_peers.key_fingerprint END").run(`peer-${HOST2}`, PEER2, `sha256:${String(HOST2).padEnd(64, '0')}`);
-  const seatIns = db.prepare('INSERT INTO a2a_roster_seats (host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)');
+  const seatIns = db.prepare('INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES ((SELECT peer_root FROM a2a_roster_nodes WHERE host = ?1 ORDER BY rowid LIMIT 1), (SELECT key_fingerprint FROM a2a_roster_nodes WHERE host = ?1 ORDER BY rowid LIMIT 1), ?1, ?2, ?3, ?4, ?5, ?6, 1, 0, ?7, ?8)');
   seatIns.run(HOST, TEAM, 'zone1/0000000a', 'seat-0000000a', '合成总工', 'router', now, now);
   seatIns.run(HOST, TEAM, MEMBER.seat, MEMBER.seat_id, '合成成员甲', 'member', now, now);
   seatIns.run(HOST, TEAM, LEGACY.seat, '', '合成成员乙', 'member', now, now);
@@ -240,6 +240,28 @@ try {
       }
     }
     check(bad.length === 0, '每个人、每个可用的视角：列表里的每一条，详情都是 200', show(bad));
+  }
+  // ---------- 名册里同一个节点号下别的节点（撞号）：按节点号认团队只经 a2a_rosters_live ----------
+  {
+    // 另一个根地址报了同一个节点号 HOST（指纹前 8 位撞了）；对端登记成停用，视图里不算它。rd 这件改投到它那里
+    const w = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 });
+    const SQ = 'http://squat.synthetic.invalid', t0 = new Date(now).toISOString();
+    w.prepare("INSERT INTO a2a_roster_nodes (peer_root, key_fingerprint, host, peer_zone, reported_at, received_at) VALUES (?, ?, ?, 'zone1', ?, ?)").run(SQ, 'sha256:' + 'f'.repeat(64), HOST, t0, t0);
+    w.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, registered_by, registered_at, updated_at) VALUES ('peer-squat', ?, 'zone1', '撞号的', 'disabled', 'test', ?, ?)").run(SQ, t0, t0);
+    w.prepare('UPDATE workbench_event_deliveries SET target_url = ? WHERE event_id = ?').run(SQ, I.rd.slice(3));
+    const teamIds = async () => ids(await list(WHO.负责人, '?view=team'));
+    const a = await teamIds(), ra = await call('GET', `/api/work-items/${I.rd}`, WHO.负责人);
+    check(!a.includes(I.rd) && ra.status === 404 && a.includes(I.before),
+      '撞号：投到另一个根地址（同一节点号、对端停用、视图里不算）的事项，不算进这个节点号下团队 A 的——负责人列表里没有、详情 404；本节点的照常', show({ has: a.includes(I.rd), st: ra.status }));
+    // 撞号的那台恢复成可用：同一节点号下两个都算，两个都不认——本节点团队 A 的也认不出来了
+    w.prepare("UPDATE a2a_peers SET status = 'active' WHERE root_url = ?").run(SQ);
+    const b = await teamIds(), bb = await call('GET', `/api/work-items/${I.before}`, WHO.负责人);
+    check(!b.includes(I.before) && !b.includes(I.rd) && bb.status === 404, '撞号的两台都可用：两个都不认，负责人「我团队的」里本节点的也没了（不是先报的那台赢）', show({ ids: b, st: bb.status }));
+    // 管理员停用撞号的那台：本节点的恢复，投到撞号那台的仍然不算
+    w.prepare("UPDATE a2a_peers SET status = 'disabled' WHERE root_url = ?").run(SQ);
+    const c = await teamIds();
+    check(c.includes(I.before) && !c.includes(I.rd), '……停用撞号的那台之后，本节点团队 A 的恢复；投到撞号那台的仍不算', show({ ids: c }));
+    w.close();
   }
 } catch (e) {
   fail++;

@@ -31,15 +31,17 @@ const env = { ...process.env, NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: jo
 for (const k of ['WM_ODOO_URL', 'WM_ODOO_ORIGINS']) delete env[k];
 // 名册：节点签名报上来的，没有 HTTP 入口；起实例前经名册服务记一份（team-a 有一个总工席位，team-b 也在这台宿主上）
 const PEER = 'http://127.0.0.1:1', HOST = 'a1b2c3d4';
+// 节点公钥的完整指纹（合成的）：对端登记钉住的和名册记的是同一把，名册视图才认这台节点
+const FP = 'sha256:' + (HOST + '0'.repeat(64)).slice(0, 64);
 const seeded = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', `
   await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/db.ts')).href)});
   const { recordRoster } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/services/a2a-roster.ts')).href)});
   // 团队归属绑节点（根地址 + 完整指纹）：这个根地址在对端登记里要启用、有指纹（合成的）
   const { db } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/db.ts')).href)});
-  db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, key_fingerprint, registered_by, registered_at, updated_at) VALUES ('peer-home', '${PEER}', 'zone', '', 'active', 'sha256:' || '${HOST}', 'seed', '0', '0')").run();
+  db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, key_fingerprint, registered_by, registered_at, updated_at) VALUES ('peer-home', '${PEER}', 'zone', '', 'active', '${FP}', 'seed', '0', '0')").run();
   const now = Date.now();
   const seat = (team, n) => ({ team, seat: 'zone/0000000' + n, seat_id: 'seat-0000000' + n, name: '合成总工' + n, role: 'router', online: true, queued: 0, last_active_at: new Date(now).toISOString() });
-  console.log('ROSTER ' + recordRoster({ host: '${HOST}', peerRoot: '${PEER}', peerZone: 'zone', reportedAt: new Date(now).toISOString(), seats: [seat('zone/canvas/team-a', 'a'), seat('zone/canvas/team-b', 'b')], now }));
+  console.log('ROSTER ' + recordRoster({ host: '${HOST}', peerRoot: '${PEER}', keyFingerprint: '${FP}', peerZone: 'zone', reportedAt: new Date(now).toISOString(), seats: [seat('zone/canvas/team-a', 'a'), seat('zone/canvas/team-b', 'b')], now }));
   process.exit(0);`], { env, encoding: 'utf8' });
 if (!/ROSTER recorded/.test(seeded.stdout)) { console.error('名册记不上：' + seeded.stdout + seeded.stderr.slice(-800)); process.exit(1); }
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', pathToFileURL(join(ROOT, 'scripts/identity-fake-preload.mjs')).href, 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });
