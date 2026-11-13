@@ -76,8 +76,14 @@ export function registerKnowledgeRoutes(app: HttpService, deps: KnowledgeRouteDe
     res.vary('Cookie'); res.vary('X-Admin-Token');
     if (req.headers['sec-fetch-site'] === 'cross-site' || (req.headers.origin && !originIsThisSurface(req) && !deps.devOriginOk(req))) { res.status(403).json({ error: 'knowledge_cross_origin_denied' }); return null; }
     const { actor } = await actorOf(req);
-    if (judge({ actor, action: 'knowledge.project-depts', kind: 'decide', declared: true }).verdict !== 'allow') {
-      if (actor.type === 'builtin' && actor.name === 'anonymous') { res.status(401).json({ error: 'login_required' }); return null; }
+    // 没登录：直接 401，不进判定（判定出错时匿名也照样是 401）
+    if (actor.type === 'builtin' && actor.name === 'anonymous') { res.status(401).json({ error: 'login_required' }); return null; }
+    let allowed: boolean;
+    // 判定出错：安全地拒——回 503，不冒成 500，更不放行
+    try { allowed = judge({ actor, action: 'knowledge.project-depts', kind: 'decide', declared: true }).verdict === 'allow'; } catch {
+      res.status(503).json({ error: 'knowledge_judgment_unavailable', message: '暂时判不了谁能看，稍后再试' }); return null;
+    }
+    if (!allowed) {
       res.status(403).json({ error: 'knowledge_project_depts_denied', message: '项目对到哪个部门决定谁能看，只有管理层和属主能看、能改' });
       return null;
     }
