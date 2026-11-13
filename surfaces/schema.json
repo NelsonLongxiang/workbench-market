@@ -423,6 +423,21 @@
       "last_full_at INTEGER",
       "last_error TEXT NOT NULL DEFAULT ''"
     ],
+    "knowledge_writes": [
+      "id INTEGER PK",
+      "answer_key TEXT NOT NULL",
+      "principal_id TEXT NOT NULL",
+      "scope TEXT NOT NULL",
+      "title TEXT NOT NULL",
+      "body TEXT NOT NULL DEFAULT ''",
+      "status TEXT NOT NULL",
+      "attempts INTEGER NOT NULL DEFAULT 0",
+      "next_at INTEGER NOT NULL",
+      "last_error TEXT NOT NULL DEFAULT ''",
+      "ygl_id TEXT NOT NULL DEFAULT ''",
+      "created_at INTEGER NOT NULL",
+      "written_at INTEGER"
+    ],
     "login_events_seen": [
       "flow TEXT NOT NULL PK",
       "event_id TEXT NOT NULL PK",
@@ -1050,6 +1065,8 @@
     "idx_grant_events_grant ON grant_events: CREATE INDEX idx_grant_events_grant ON grant_events (grant_id, seq)",
     "idx_grants_principal ON grants: CREATE INDEX idx_grants_principal ON grants (principal_id, status)",
     "idx_knowledge_items_updated ON knowledge_items: CREATE INDEX idx_knowledge_items_updated ON knowledge_items (updated, kind)",
+    "idx_knowledge_writes_due ON knowledge_writes: CREATE INDEX idx_knowledge_writes_due ON knowledge_writes (status, next_at)",
+    "idx_knowledge_writes_ygl ON knowledge_writes: CREATE INDEX idx_knowledge_writes_ygl ON knowledge_writes (ygl_id)",
     "idx_login_states_expires ON login_states: CREATE INDEX idx_login_states_expires ON login_states (expires_at)",
     "idx_market_sessions_principal ON market_sessions: CREATE INDEX idx_market_sessions_principal ON market_sessions (principal_id, expires_at)",
     "idx_mcp_access_requests_session ON mcp_access_requests: CREATE INDEX idx_mcp_access_requests_session ON mcp_access_requests (session_id, created_at)",

@@ -8,7 +8,7 @@ import { Alert, Button, Card, Empty, List, Segmented, Skeleton, Space, Tag, them
 import { BookOutlined, BulbOutlined, CheckOutlined, SafetyOutlined } from '@ant-design/icons';
 import WmPage from '../../components/WmPage';
 import RelTime from '../../components/RelTime';
-import { getKnowledge } from '../../api';
+import { getKnowledge, getProjectDepts } from '../../api';
 import {
   KNOWLEDGE_EMPTY, KNOWLEDGE_INTRO, KNOWLEDGE_KINDS, SOURCE_DEGRADED, SOURCE_NOT_CONNECTED, SOURCE_NOT_READY, asList, countsOf, emptyKindText, itemsOf, kindLabel, problemOf, statusOf, tabFromQuery,
   type KnowledgeItem, type KnowledgeKind, type KnowledgeSource, type KnowledgeTab,
@@ -35,6 +35,9 @@ export default function Knowledge() {
     setS(r.status === 200 ? { phase: 'ok', ...asList(r.body) } : { phase: 'error', status: r.status });
   }, []);
   useEffect(() => { void load(); }, [load]);
+  // 「项目对应的部门」的入口：只给读得了那张表的人（接口回 200 的，管理层和属主），别人连入口都没有
+  const [canProjects, setCanProjects] = useState(false);
+  useEffect(() => { let live = true; void getProjectDepts().then((r) => { if (live) setCanProjects(r.status === 200); }); return () => { live = false; }; }, []);
 
   const kinds = <List size="small" dataSource={KNOWLEDGE_KINDS} rowKey="key" renderItem={(k) => (
     <List.Item data-testid="kn-kind" data-kind={k.key}>
@@ -83,7 +86,7 @@ export default function Knowledge() {
     </Space>;
   }
 
-  return <WmPage>
+  return <WmPage extra={canProjects ? <Link to="/knowledge/projects" data-testid="kn-projects-link"><Button type="text" size="small">项目对应的部门</Button></Link> : undefined}>
     <div className="wm-reading">
       <Typography.Paragraph className="wm-page-intro" data-testid="kn-intro">{KNOWLEDGE_INTRO}</Typography.Paragraph>
       {body}

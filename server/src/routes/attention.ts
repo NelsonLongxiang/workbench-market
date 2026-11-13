@@ -14,12 +14,16 @@ import { actorOf, answersOf } from '../attention-answers.ts';
 import { identity, IDENTITY_UNAVAILABLE, sourceDown } from '../identity.ts';
 import { browserMarked, rawLoopback } from '../surfaces.ts';
 import { nameResolver } from '../attention-names.ts';
+import { actorResolver } from '../judgment-compare.ts';
+import { parseRemember, rememberAnswer } from '../knowledge-remember.ts';
 
 export type AttentionRouteDeps = AttentionDeps & {
   /** 按需认定管理员登录（会话登录的管理员）：汇总之前认定一次，每个来源的守卫看到的是同一个结论，和提供方的先后无关 */
   markOdooAdmin: (req: express.Request) => Promise<void>;
   /** 跨站或别的站的页面来的请求：拒（index.ts 里和 /api/tasks 同一个判断） */
   crossOriginDenied: (req: express.Request) => boolean;
+  /** 带的是有效的管理口令吗（记成经验时认人：管理口令不能记） */
+  adminTokenOk: (req: express.Request) => boolean;
 };
 
 /** 「关注」的答复入口：状态码不代表授权——能不能答由条目的来源判（看列表、转给原路由再过守卫、直接实现的各自核） */
@@ -27,6 +31,7 @@ const ANSWER_BY_SOURCE = '能不能答由条目的来源判：先看这个人的
 
 export function registerAttentionRoutes(app: HttpService, deps: AttentionRouteDeps): void {
   installAttentionProviders(svc<AttentionService>('attention'), deps);
+  const rememberActorOf = actorResolver({ adminTokenOk: deps.adminTokenOk });
   app.get('/api/attention', { action: 'attention.read', kind: 'read' }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     res.vary('Cookie'); res.vary('X-Admin-Token');
@@ -66,6 +71,9 @@ export function registerAttentionRoutes(app: HttpService, deps: AttentionRouteDe
     const source = typeof b.source === 'string' ? b.source : '', sourceId = typeof b.source_id === 'string' ? b.source_id : '', answer = typeof b.answer === 'string' ? b.answer : '';
     const input = b.input && typeof b.input === 'object' && !Array.isArray(b.input) ? b.input as Record<string, unknown> : {};
     if (!source || !sourceId || sourceId.length > 300 || !answer) return void res.status(400).json({ error: 'attention_answer_invalid', message: '要有 source、source_id、answer' });
+    // 可选的「把这次的取舍记成经验」：形状不对在答复之前就拒（答复不生效）；记不记得上不挡答复（见 knowledge-remember.ts）
+    const remember = b.remember === undefined ? null : parseRemember(b.remember);
+    if (remember && !remember.ok) return void res.status(400).json({ error: 'remember_invalid', message: remember.message });
     (async () => {
       await deps.markOdooAdmin(req);
       // 带了 cookie、不是管理员、身份来源不可达：502 和固定代号（和「关注」列表、事项接口同一个口径）
@@ -88,7 +96,12 @@ export function registerAttentionRoutes(app: HttpService, deps: AttentionRouteDe
       // 回的和这一条不存在时一模一样，不靠「重复」透露它存在过、上一次怎么答的
       if (!hit && !attention.answered(source, provider.key ? await provider.key(sourceId) : sourceId, await actorOf(req), answer)) return void res.status(404).json({ error: 'attention_item_not_found' });
       const out = await provider.answer(req, sourceId, answer, input);
-      res.status(out.status).json({ source, source_id: sourceId, answer, duplicate: out.duplicate === true, result: out.body });
+      let remembered: Record<string, unknown> | undefined;
+      if (remember?.ok && out.status >= 200 && out.status < 300) {
+        const r = await rememberAnswer((await rememberActorOf(req)).actor, { source, sourceId, ...remember.value }, hit?.title ?? '');
+        remembered = r.ok ? { status: r.outcome.status, duplicate: r.outcome.duplicate, scope_label: r.scope_label } : { status: 'refused', error: r.error, message: r.message };
+      }
+      res.status(out.status).json({ source, source_id: sourceId, answer, duplicate: out.duplicate === true, result: out.body, ...(remembered ? { remember: remembered } : {}) });
     })().catch(next);
   });
 }

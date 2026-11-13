@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /** 技能市场双源导入器（P0-a-3 · 方案 PR#57 §3）：
  *  源 A ~/.agents/skills：SKILL.md frontmatter（name/description/argument-hint/metadata{author,version}）
+ *  技能自己写的版本号：metadata 下的 version 和顶层 version 都认（本仓 skills/ 写在顶层），报成 sourceVersion，只用来显示；
+ *  市场的版本号仍由导入器按 digest 递增，外源 version 不进身份。
  *  源 B jf-tech：.agents/skills 主 + .agents/role-*.json 角色束收编（遗产只登记不快照）
  *  幂等：by (source,name) 已存在→比树 digest，同 skip / 异报 diff 待发布门（不自动升版）
  *  判据先红：--selftest 跑导入判据族（导入器未实现时红）。 */
@@ -52,6 +54,12 @@ function parseFrontmatter(textRaw) {
   }
   return out;
 }
+/** 技能自己写的版本号：metadata.version 优先，没有就取顶层 version；都没有是空串。只显示，不进身份。 */
+function sourceVersionOf(fm) {
+  const meta = fm.metadata && typeof fm.metadata === 'object' ? fm.metadata.version : undefined;
+  const v = typeof meta === 'string' && meta !== '' ? meta : fm.version;
+  return typeof v === 'string' ? v : '';
+}
 function treeDigest(dir) {
   const files = [];
   (function walk(d) {
@@ -81,7 +89,7 @@ function scanAgentsSkills() {
     if (!existsSync(sk)) continue;
     const fm = parseFrontmatter(readFileSync(sk, 'utf8'));
     if (!fm || !fm.name) { rows.push({ dir: d.name, skipped: 'no-frontmatter' }); continue; }
-    rows.push({ dir: d.name, name: fm.name, description: String(fm.description ?? ''), argumentHint: fm['argument-hint'] ?? '', author: fm.metadata?.author ?? '' });
+    rows.push({ dir: d.name, name: fm.name, description: String(fm.description ?? ''), argumentHint: fm['argument-hint'] ?? '', author: fm.metadata?.author ?? '', sourceVersion: sourceVersionOf(fm) });
   }
   return rows;
 }
@@ -96,7 +104,7 @@ function scanDshSkills() {
     if (!existsSync(sk)) continue;
     const fm = parseFrontmatter(readFileSync(sk, 'utf8'));
     if (!fm || !fm.name) { rows.push({ dir: d.name, skipped: 'no-frontmatter' }); continue; }
-    rows.push({ dir: d.name, name: fm.name, description: String(fm.description ?? ''), argumentHint: fm['argument-hint'] ?? '', author: fm.metadata?.author ?? '' });
+    rows.push({ dir: d.name, name: fm.name, description: String(fm.description ?? ''), argumentHint: fm['argument-hint'] ?? '', author: fm.metadata?.author ?? '', sourceVersion: sourceVersionOf(fm) });
   }
   return rows;
 }
@@ -111,7 +119,7 @@ function scanJfSkills() {
     if (!existsSync(sk)) continue;
     const fm = parseFrontmatter(readFileSync(sk, 'utf8'));
     if (!fm || !fm.name) { rows.push({ dir: d.name, skipped: 'no-frontmatter' }); continue; }
-    rows.push({ dir: d.name, name: fm.name, description: String(fm.description ?? ''), argumentHint: fm['argument-hint'] ?? '', author: fm.metadata?.author ?? '' });
+    rows.push({ dir: d.name, name: fm.name, description: String(fm.description ?? ''), argumentHint: fm['argument-hint'] ?? '', author: fm.metadata?.author ?? '', sourceVersion: sourceVersionOf(fm) });
   }
   return rows;
 }

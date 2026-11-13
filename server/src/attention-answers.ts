@@ -298,7 +298,7 @@ export async function decideItemAnswer(id: string, actor: string, answer: string
 }
 
 /** 席位提问对应的事项（在等的、或者最近那一轮已经答过的）：判谁能答用 */
-function itemOfAsk(deliveryId: string): WorkItemRow | undefined {
+export function itemOfAsk(deliveryId: string): WorkItemRow | undefined {
   if (!/^[1-9]\d{0,15}$/.test(deliveryId)) return undefined;
   const ask = pendingAskOfDelivery(Number(deliveryId)) ?? currentAskOfDelivery(Number(deliveryId));
   return ask ? svc<WorkItemService>('workItems').get(itemIdForEvent(ask.event_id)) : undefined;

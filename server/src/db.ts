@@ -1441,6 +1441,27 @@ CREATE TABLE IF NOT EXISTS knowledge_meta (
   k TEXT PRIMARY KEY,
   v TEXT NOT NULL
 );
+-- 经验库第 2 步：拍板时「记成经验」，回写 ygl-trees 的 kb（kb add），市场只留指针和留痕，内容以 ygl-trees 为准。
+--   answer_key：哪一次答复（来源、那一轮的键、谁答的；一次答复只记一条，幂等）；principal_id：拍板的人（给 decided_by_name 用）；
+--   scope：dept:<部门> | restricted | *；title、body：要写的内容，写成以后清空 body；status：pending 待写（含重试）、written 写成、failed 放弃（参数被拒或重试到头）；
+--   ygl_id：写成以后 ygl-trees 给的条目 id（内部用，不给页面）。时间都是毫秒，由代码给
+CREATE TABLE IF NOT EXISTS knowledge_writes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  answer_key TEXT NOT NULL UNIQUE,
+  principal_id TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL CHECK (status IN ('pending', 'written', 'failed')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_at INTEGER NOT NULL,
+  last_error TEXT NOT NULL DEFAULT '',
+  ygl_id TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  written_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_writes_due ON knowledge_writes (status, next_at);
+CREATE INDEX IF NOT EXISTS idx_knowledge_writes_ygl ON knowledge_writes (ygl_id);
 -- 经验库的「项目 → 部门」对照：ygl-trees 给了项目、没给范围的条目（比如依据），按这里对到的部门当部门级；对不上的只给管理层。
 --   改它等于改谁能看：只有管理层、属主改（拍板类，系统管理员不行），每次改记一行到 knowledge_project_dept_log。
 CREATE TABLE IF NOT EXISTS knowledge_project_depts (
