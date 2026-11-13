@@ -128,6 +128,9 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       // 台数据：远程匿名不带台令牌读不到任何台的数据（守卫先于查台，台不存在也是 403；登录门开着时登录门先拦 401）。
       // WM_APP_DATA_READ=warn 是上线过渡，读照旧放行，这一行不跑
       ...(appDataRead === 'warn' ? [] : [{ id: 'market.app-data.anonymous-read', target: m, surface: 'market' as const, method: 'GET', path: '/api/apps/wm-self-probe/data', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 }]),
+      // 工作台变量：判权在查台之前。远程匿名读一个不存在的台（号是编出来的）也必须 403，和存在的台同一句——回 404 就是先查了台、透露了台在不在
+      // （登录门开着时登录门先拦 401）
+      { id: 'market.workbench-vars.anonymous-read-missing', target: m, surface: 'market', method: 'GET', path: '/api/workbenches/999999999999/vars', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 },
       // 写 run：远程匿名不带 run 的写凭据，按 run 号保存一步必须被拒（守卫先于查 run，run 不存在也是 403；登录门开着时登录门先拦 401）。
       // 不碰任何真实的 run：号是编出来的。WM_SOP_RUN_WRITE=warn 是上线过渡，这一行不跑
       ...(sopRunWrite === 'warn' ? [] : [{ id: 'market.sop-run.anonymous-write', target: m, surface: 'market' as const, method: 'PUT', path: '/api/sop/runs/999999999', body: '{"stepKey":"wm-self-probe","value":null}', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 }]),

@@ -24,7 +24,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "4047", "etag": "W/\"fcf-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "4223", "etag": "W/\"107f-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -54,6 +54,7 @@
                   { "id": "market.grants.approve-anonymous", "surface": "market", "method": "POST", "path": "/api/grants/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.teams.reassign-anonymous", "surface": "market", "method": "POST", "path": "/api/teams/reassign", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null }
@@ -82,7 +83,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "3502", "etag": "W/\"dae-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "3678", "etag": "W/\"e5e-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -112,6 +113,7 @@
                   { "id": "market.grants.approve-anonymous", "surface": "market", "method": "POST", "path": "/api/grants/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.teams.reassign-anonymous", "surface": "market", "method": "POST", "path": "/api/teams/reassign", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null }
@@ -131,7 +133,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "4047", "etag": "W/\"fcf-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "4223", "etag": "W/\"107f-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -161,6 +163,7 @@
                   { "id": "market.grants.approve-anonymous", "surface": "market", "method": "POST", "path": "/api/grants/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.teams.reassign-anonymous", "surface": "market", "method": "POST", "path": "/api/teams/reassign", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null }
@@ -189,7 +192,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "4286", "etag": "W/\"10be-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "4462", "etag": "W/\"116e-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -220,6 +223,7 @@
                   { "id": "market.grants.approve-anonymous", "surface": "market", "method": "POST", "path": "/api/grants/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.teams.reassign-anonymous", "surface": "market", "method": "POST", "path": "/api/teams/reassign", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null }
@@ -249,7 +253,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "3616", "etag": "W/\"e20-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "3792", "etag": "W/\"ed0-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -280,6 +284,7 @@
                   { "id": "market.grants.approve-anonymous", "surface": "market", "method": "POST", "path": "/api/grants/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.teams.reassign-anonymous", "surface": "market", "method": "POST", "path": "/api/teams/reassign", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null }
@@ -307,7 +312,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "4047", "etag": "W/\"fcf-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "4223", "etag": "W/\"107f-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -337,6 +342,7 @@
                   { "id": "market.grants.approve-anonymous", "surface": "market", "method": "POST", "path": "/api/grants/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.teams.reassign-anonymous", "surface": "market", "method": "POST", "path": "/api/teams/reassign", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null }
@@ -363,7 +369,7 @@
           "response": {
             "status": 503,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "3525", "etag": "W/\"dc5-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "3701", "etag": "W/\"e75-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": false,
               "service": "workbench-market-server",
@@ -393,6 +399,7 @@
                   { "id": "market.grants.approve-anonymous", "surface": "market", "method": "POST", "path": "/api/grants/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.teams.reassign-anonymous", "surface": "market", "method": "POST", "path": "/api/teams/reassign", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null }
@@ -413,7 +420,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "4069", "etag": "W/\"fe5-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "4245", "etag": "W/\"1095-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -443,6 +450,7 @@
                   { "id": "market.grants.approve-anonymous", "surface": "market", "method": "POST", "path": "/api/grants/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.teams.reassign-anonymous", "surface": "market", "method": "POST", "path": "/api/teams/reassign", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null }
@@ -479,7 +487,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "4548", "etag": "W/\"11c4-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "4724", "etag": "W/\"1274-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -509,6 +517,7 @@
                   { "id": "market.grants.approve-anonymous", "surface": "market", "method": "POST", "path": "/api/grants/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.teams.reassign-anonymous", "surface": "market", "method": "POST", "path": "/api/teams/reassign", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null },
@@ -541,7 +550,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "3988", "etag": "W/\"f94-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "4164", "etag": "W/\"1044-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -571,6 +580,7 @@
                   { "id": "market.grants.approve-anonymous", "surface": "market", "method": "POST", "path": "/api/grants/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.teams.reassign-anonymous", "surface": "market", "method": "POST", "path": "/api/teams/reassign", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null },

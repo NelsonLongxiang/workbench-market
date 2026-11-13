@@ -16,6 +16,7 @@ app.get('/api/work-items',(_q,r)=>r.status(401).end());app.post('/api/work-items
 app.post('/api/work-items/:id/release',(_q,r)=>r.status(401).end());
 app.get('/api/grants',(_q,r)=>r.status(401).end());app.post('/api/grants/:id/approve',(_q,r)=>r.status(401).end());app.post('/api/teams/reassign',(_q,r)=>r.status(401).end());app.post('/api/attention/answer',(_q,r)=>r.status(403).end());
 app.get('/api/apps/:slug/data',(_q,r)=>r.status(403).end());
+app.get('/api/workbenches/:id/vars',(_q,r)=>r.status(403).end());
 app.put('/api/sop/runs/:id',(_q,r)=>r.status(403).end());
 app.get('/login/feishu/callback',(_q,r)=>r.status(400).end());
 app.post('/login/feishu/events',(_q,r)=>r.status(401).end());

@@ -184,10 +184,15 @@
         {
           "id": "list-missing-wb-anon",
           "route": "GET /api/workbenches/:id/vars",
-          "class": "invalid",
-          "what": "远程匿名问不存在的台：404（台在判权之前查）",
+          "class": "unauthorized",
+          "what": "远程匿名读不存在的台：先判权，和读存在的台同一句 403（不透露台在不在）",
           "request": { "method": "GET", "path": "/api/workbenches/99/vars", "headers": { "x-forwarded-for": "198.51.100.7" } },
-          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench not found: 99" } }
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
         },
         {
           "id": "list-id-zero",
@@ -195,7 +200,7 @@
           "class": "invalid",
           "what": "id 是 0：400",
           "request": { "method": "GET", "path": "/api/workbenches/0/vars", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "43", "etag": "W/\"2b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是正整数" } }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是十进制正整数" } }
         },
         {
           "id": "list-id-neg",
@@ -203,7 +208,7 @@
           "class": "invalid",
           "what": "id 是 -1：400",
           "request": { "method": "GET", "path": "/api/workbenches/-1/vars", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "43", "etag": "W/\"2b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是正整数" } }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是十进制正整数" } }
         },
         {
           "id": "list-id-frac",
@@ -211,7 +216,7 @@
           "class": "invalid",
           "what": "id 是 1.5：400",
           "request": { "method": "GET", "path": "/api/workbenches/1.5/vars", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "43", "etag": "W/\"2b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是正整数" } }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是十进制正整数" } }
         },
         {
           "id": "list-id-word",
@@ -219,7 +224,7 @@
           "class": "invalid",
           "what": "id 不是数：400",
           "request": { "method": "GET", "path": "/api/workbenches/abc/vars", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "43", "etag": "W/\"2b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是正整数" } }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是十进制正整数" } }
         },
         {
           "id": "list-bad-prefix",
@@ -464,50 +469,18 @@
         {
           "id": "list-hex-id",
           "route": "GET /api/workbenches/:id/vars",
-          "class": "normal",
-          "what": "id 写成 0x2：按 2 号台",
+          "class": "invalid",
+          "what": "台号写成 0x2：400（以前按 2 号台）",
           "request": { "method": "GET", "path": "/api/workbenches/0x2/vars", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
-          "response": {
-            "status": 200,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "893", "etag": "W/\"37d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": {
-              "workbench_id": 2,
-              "class": "app",
-              "items": [
-                { "key": "seed.const", "kind": "const", "value": "c", "revision": 1, "updated_by": "mcp:someone", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
-                { "key": "seed.null", "kind": "var", "value": null, "revision": 1, "updated_by": "cli", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
-                { "key": "seed.orphan", "kind": "const", "value": 0, "revision": 1, "updated_by": "admin-token", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
-                { "key": "seed.public", "kind": "const", "value": 1, "revision": 1, "updated_by": "cli", "owner": "*", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
-                { "key": "seed.var", "kind": "var", "value": { "n": 1 }, "revision": 3, "updated_by": "app:replay-vars", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
-              ],
-              "count": 5
-            }
-          }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是十进制正整数" } }
         },
         {
           "id": "list-padded-id",
           "route": "GET /api/workbenches/:id/vars",
-          "class": "normal",
-          "what": "id 写成 02：按 2 号台",
+          "class": "invalid",
+          "what": "台号带前导零 02：400（只认十进制正整数，和写请求总门同一口径）",
           "request": { "method": "GET", "path": "/api/workbenches/02/vars", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
-          "response": {
-            "status": 200,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "893", "etag": "W/\"37d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": {
-              "workbench_id": 2,
-              "class": "app",
-              "items": [
-                { "key": "seed.const", "kind": "const", "value": "c", "revision": 1, "updated_by": "mcp:someone", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
-                { "key": "seed.null", "kind": "var", "value": null, "revision": 1, "updated_by": "cli", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
-                { "key": "seed.orphan", "kind": "const", "value": 0, "revision": 1, "updated_by": "admin-token", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
-                { "key": "seed.public", "kind": "const", "value": 1, "revision": 1, "updated_by": "cli", "owner": "*", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
-                { "key": "seed.var", "kind": "var", "value": { "n": 1 }, "revision": 3, "updated_by": "app:replay-vars", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
-              ],
-              "count": 5
-            }
-          }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是十进制正整数" } }
         },
         {
           "id": "list-ext",
@@ -664,10 +637,15 @@
         {
           "id": "get-missing-wb",
           "route": "GET /api/workbenches/:id/vars/:key",
-          "class": "invalid",
-          "what": "台不存在：404",
+          "class": "unauthorized",
+          "what": "远程匿名读不存在的台的一个键：同一句 403",
           "request": { "method": "GET", "path": "/api/workbenches/99/vars/seed.var", "headers": { "x-forwarded-for": "198.51.100.7" } },
-          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench not found: 99" } }
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
         },
         {
           "id": "get-tok",
@@ -1464,15 +1442,10 @@
         {
           "id": "put-hex-id-adm",
           "route": "PUT /api/workbenches/:id/vars/:key",
-          "class": "normal",
-          "what": "管理口令写 0x2 号台：按 2 号",
+          "class": "invalid",
+          "what": "管理口令写 0x2 号台：400（以前按 2 号写进去）",
           "request": { "method": "PUT", "path": "/api/workbenches/0x2/vars/a.hex", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "value": 1 } },
-          "response": {
-            "status": 201,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "201", "etag": "\"1\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "ok": true, "created": true, "workbench_id": 2, "key": "a.hex", "kind": "var", "value": 1, "revision": 1, "updated_by": "admin-token", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
-          }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是十进制正整数" } }
         },
         {
           "id": "put-cli-const-owner",
@@ -1828,7 +1801,7 @@
               "workbench_id": 2,
               "key": "t.k",
               "items": [
-                { "id": 18, "key": "t.k", "action": "delete", "actor": "app:replay-vars", "kind": "var", "old_revision": 4, "new_revision": null, "old_sha256": "17e7d2b31edd9f05e7b330a13f9bb644babad3b5bce9a7cf5bb4c28c4a02332f", "new_sha256": "", "reason": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 17, "key": "t.k", "action": "delete", "actor": "app:replay-vars", "kind": "var", "old_revision": 4, "new_revision": null, "old_sha256": "17e7d2b31edd9f05e7b330a13f9bb644babad3b5bce9a7cf5bb4c28c4a02332f", "new_sha256": "", "reason": "", "at": "YYYY-MM-DD hh:mm:ss" },
                 { "id": 6, "key": "t.k", "action": "update", "actor": "app:replay-vars", "kind": "var", "old_revision": 3, "new_revision": 4, "old_sha256": "70778ce01ad8d1a82c80a3500bee476f34651238edeb936c4a7b0161b1395169", "new_sha256": "17e7d2b31edd9f05e7b330a13f9bb644babad3b5bce9a7cf5bb4c28c4a02332f", "reason": "", "at": "YYYY-MM-DD hh:mm:ss" },
                 { "id": 5, "key": "t.k", "action": "update", "actor": "app:replay-vars", "kind": "var", "old_revision": 2, "new_revision": 3, "old_sha256": "7e8059f495589fcd981232cc11d00b00da3802c01d688fa1cf1f6bed6e5bb33c", "new_sha256": "70778ce01ad8d1a82c80a3500bee476f34651238edeb936c4a7b0161b1395169", "reason": "", "at": "YYYY-MM-DD hh:mm:ss" },
                 { "id": 4, "key": "t.k", "action": "update", "actor": "app:replay-vars", "kind": "var", "old_revision": 1, "new_revision": 2, "old_sha256": "015abd7f5cc57a2dd94b7590f04ad8084273905ee33ec5cebeae62276a97f862", "new_sha256": "7e8059f495589fcd981232cc11d00b00da3802c01d688fa1cf1f6bed6e5bb33c", "reason": "", "at": "YYYY-MM-DD hh:mm:ss" },
@@ -1851,10 +1824,10 @@
               "workbench_id": 2,
               "key": "o.const",
               "items": [
-                { "id": 21, "key": "o.const", "action": "const_delete", "actor": "odoo:root-admin", "kind": "const", "old_revision": 3, "new_revision": null, "old_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "new_sha256": "", "reason": "done", "at": "YYYY-MM-DD hh:mm:ss" },
-                { "id": 16, "key": "o.const", "action": "make_public", "actor": "odoo:root-admin", "kind": "const", "old_revision": 2, "new_revision": 3, "old_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "new_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "reason": "公开", "at": "YYYY-MM-DD hh:mm:ss" },
-                { "id": 15, "key": "o.const", "action": "const_override", "actor": "odoo:root-admin", "kind": "const", "old_revision": 1, "new_revision": 2, "old_sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b", "new_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "reason": "改", "at": "YYYY-MM-DD hh:mm:ss" },
-                { "id": 14, "key": "o.const", "action": "create", "actor": "odoo:root-admin", "kind": "const", "old_revision": null, "new_revision": 1, "old_sha256": "", "new_sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b", "reason": "", "at": "YYYY-MM-DD hh:mm:ss" }
+                { "id": 20, "key": "o.const", "action": "const_delete", "actor": "odoo:root-admin", "kind": "const", "old_revision": 3, "new_revision": null, "old_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "new_sha256": "", "reason": "done", "at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 15, "key": "o.const", "action": "make_public", "actor": "odoo:root-admin", "kind": "const", "old_revision": 2, "new_revision": 3, "old_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "new_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "reason": "公开", "at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 14, "key": "o.const", "action": "const_override", "actor": "odoo:root-admin", "kind": "const", "old_revision": 1, "new_revision": 2, "old_sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b", "new_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "reason": "改", "at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 13, "key": "o.const", "action": "create", "actor": "odoo:root-admin", "kind": "const", "old_revision": null, "new_revision": 1, "old_sha256": "", "new_sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b", "reason": "", "at": "YYYY-MM-DD hh:mm:ss" }
               ]
             }
           }
@@ -1868,12 +1841,11 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "1216", "etag": "W/\"4c0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "1056", "etag": "W/\"420-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "workbench_id": 2,
               "class": "app",
               "items": [
-                { "key": "a.hex", "kind": "var", "value": 1, "revision": 1, "updated_by": "admin-token", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
                 { "key": "a.k", "kind": "const", "value": "x", "revision": 2, "updated_by": "admin-token", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
                 { "key": "c.owned", "kind": "const", "value": 1, "revision": 2, "updated_by": "cli", "owner": "*", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
                 { "key": "seed.const", "kind": "const", "value": "c", "revision": 1, "updated_by": "mcp:someone", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
@@ -1881,7 +1853,7 @@
                 { "key": "seed.public", "kind": "const", "value": 3, "revision": 2, "updated_by": "odoo:root-admin", "owner": "*", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
                 { "key": "seed.var", "kind": "var", "value": { "n": 1 }, "revision": 3, "updated_by": "app:replay-vars", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
               ],
-              "count": 7
+              "count": 6
             }
           }
         },
@@ -2398,6 +2370,161 @@
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "no-store", "content-length": "56", "etag": "W/\"38-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "error": "缺 value（任意 JSON 值，null 也算）" }
+          }
+        },
+        {
+          "id": "x-audit-missing-wb-anon",
+          "route": "GET /api/workbenches/:id/vars/:key/audit",
+          "class": "unauthorized",
+          "what": "远程匿名读不存在的台的留痕：403，和存在的台一样",
+          "request": { "method": "GET", "path": "/api/workbenches/99/vars/seed.var/audit", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "x-list-missing-wb-tok",
+          "route": "GET /api/workbenches/:id/vars",
+          "class": "unauthorized",
+          "what": "本台令牌读不存在的台：403 app_token_mismatch，和读别的台一样",
+          "request": { "method": "GET", "path": "/api/workbenches/99/vars", "headers": { "x-forwarded-for": "198.51.100.7", "x-app-token": "{{tok}}" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "130", "etag": "W/\"82-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "按台令牌不属于该工作台（只能读写本台变量；外部台只限管理员）", "code": "app_token_mismatch" }
+          }
+        },
+        {
+          "id": "x-list-other-wb-tok",
+          "route": "GET /api/workbenches/:id/vars",
+          "class": "unauthorized",
+          "what": "本台令牌读别的台（存在）：同一句 403",
+          "request": { "method": "GET", "path": "/api/workbenches/3/vars", "headers": { "x-forwarded-for": "198.51.100.7", "x-app-token": "{{tok}}" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "130", "etag": "W/\"82-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "按台令牌不属于该工作台（只能读写本台变量；外部台只限管理员）", "code": "app_token_mismatch" }
+          }
+        },
+        {
+          "id": "x-get-missing-wb-tok",
+          "route": "GET /api/workbenches/:id/vars/:key",
+          "class": "unauthorized",
+          "what": "本台令牌读不存在的台的一个键：403",
+          "request": { "method": "GET", "path": "/api/workbenches/99/vars/seed.var", "headers": { "x-forwarded-for": "198.51.100.7", "x-app-token": "{{tok}}" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "130", "etag": "W/\"82-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "按台令牌不属于该工作台（只能读写本台变量；外部台只限管理员）", "code": "app_token_mismatch" }
+          }
+        },
+        {
+          "id": "x-list-missing-wb-page",
+          "route": "GET /api/workbenches/:id/vars",
+          "class": "unauthorized",
+          "what": "本机页面（没有管理员）读不存在的台：403",
+          "request": { "method": "GET", "path": "/api/workbenches/99/vars", "headers": { "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "102", "etag": "W/\"66-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（凭据库读写都要管理员）" }
+          }
+        },
+        {
+          "id": "x-list-missing-wb-cli",
+          "route": "GET /api/workbenches/:id/vars",
+          "class": "invalid",
+          "what": "本机命令行读不存在的台：404（过了判权才说台不在）",
+          "request": { "method": "GET", "path": "/api/workbenches/99/vars", "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench not found: 99" } }
+        },
+        {
+          "id": "x-list-missing-wb-adm",
+          "route": "GET /api/workbenches/:id/vars",
+          "class": "invalid",
+          "what": "管理口令读不存在的台：404",
+          "request": { "method": "GET", "path": "/api/workbenches/99/vars", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench not found: 99" } }
+        },
+        {
+          "id": "x-del-missing-wb-cli",
+          "route": "DELETE /api/workbenches/:id/vars/:key",
+          "class": "invalid",
+          "what": "本机命令行删不存在的台的键：404",
+          "request": { "method": "DELETE", "path": "/api/workbenches/99/vars/k?revision=1", "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench not found: 99" } }
+        },
+        {
+          "id": "x-put-padded-adm",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "invalid",
+          "what": "管理口令写 02 号台：400",
+          "request": { "method": "PUT", "path": "/api/workbenches/02/vars/a.pad", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "value": 1 } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是十进制正整数" } }
+        },
+        {
+          "id": "x-put-padded-tok",
+          "route": "PUT /api/workbenches/:id/vars/:key",
+          "class": "unauthorized",
+          "what": "本台令牌写 02 号台：总门只认十进制，403（和 0x2 一样）",
+          "request": { "method": "PUT", "path": "/api/workbenches/02/vars/w1", "headers": { "x-forwarded-for": "198.51.100.7", "x-app-token": "{{tok}}" }, "json": { "value": 1 } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "x-get-hex-cli",
+          "route": "GET /api/workbenches/:id/vars/:key",
+          "class": "invalid",
+          "what": "本机命令行读 0x2 号台：400",
+          "request": { "method": "GET", "path": "/api/workbenches/0x2/vars/seed.var", "headers": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是十进制正整数" } }
+        },
+        {
+          "id": "x-list-exp-cli",
+          "route": "GET /api/workbenches/:id/vars",
+          "class": "invalid",
+          "what": "台号 2e0：400",
+          "request": { "method": "GET", "path": "/api/workbenches/2e0/vars", "headers": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是十进制正整数" } }
+        },
+        {
+          "id": "x-list-big-cli",
+          "route": "GET /api/workbenches/:id/vars",
+          "class": "invalid",
+          "what": "台号 13 位：400",
+          "request": { "method": "GET", "path": "/api/workbenches/1234567890123/vars", "headers": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench id 必须是十进制正整数" } }
+        },
+        {
+          "id": "x-list-12digit-cli",
+          "route": "GET /api/workbenches/:id/vars",
+          "class": "invalid",
+          "what": "台号 12 位（写法对、台不存在）：404",
+          "request": { "method": "GET", "path": "/api/workbenches/999999999999/vars", "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "45", "etag": "W/\"2d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench not found: 999999999999" } }
+        },
+        {
+          "id": "x-cors-missing-wb",
+          "route": "GET /api/workbenches/:id/vars",
+          "class": "unauthorized",
+          "what": "Origin: null 带本台令牌读不存在的台：不发 ACAO，403",
+          "request": { "method": "GET", "path": "/api/workbenches/99/vars", "headers": { "x-forwarded-for": "198.51.100.7", "origin": "null", "x-app-token": "{{tok}}" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "130", "etag": "W/\"82-<指纹>\"", "x-powered-by": "Express" },
+            "body": { "error": "按台令牌不属于该工作台（只能读写本台变量；外部台只限管理员）", "code": "app_token_mismatch" }
           }
         }
       ]
@@ -3285,6 +3412,33 @@
           "compare": ["items.length"],
           "request": { "method": "GET", "path": "/api/workbenches/2/vars/seed.many/audit?limit=199", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
           "response": { "status": 200, "picked": { "items.length": 199 } }
+        },
+        {
+          "id": "audit-many-0p5",
+          "route": "GET /api/workbenches/:id/vars/:key/audit",
+          "class": "normal",
+          "what": "205 行留痕，limit=0.5：收到 1；只比条数",
+          "compare": ["items.length"],
+          "request": { "method": "GET", "path": "/api/workbenches/2/vars/seed.many/audit?limit=0.5", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "picked": { "items.length": 1 } }
+        },
+        {
+          "id": "audit-many-1p5",
+          "route": "GET /api/workbenches/:id/vars/:key/audit",
+          "class": "normal",
+          "what": "205 行留痕，limit=1.5：取整成 1；只比条数",
+          "compare": ["items.length"],
+          "request": { "method": "GET", "path": "/api/workbenches/2/vars/seed.many/audit?limit=1.5", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "picked": { "items.length": 1 } }
+        },
+        {
+          "id": "audit-many-150p5",
+          "route": "GET /api/workbenches/:id/vars/:key/audit",
+          "class": "normal",
+          "what": "205 行留痕，limit=150.5：小数往下取整成 150（原来 500）；只比条数",
+          "compare": ["items.length"],
+          "request": { "method": "GET", "path": "/api/workbenches/2/vars/seed.many/audit?limit=150.5", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "picked": { "items.length": 150 } }
         },
         {
           "id": "audit-many-200",
