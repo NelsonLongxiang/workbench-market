@@ -39,6 +39,8 @@ token 取值见仓库根 [`DESIGN.md`](../../DESIGN.md)。本文件规定**菜�
 - 每个页面一个专属图标，不复用；图标统一 antd `*Outlined`。
 - 改名：「SOP 台」→「SOP 交付空间」，「工作台」→「工作台市场」，与页面标题一致。
 
+> 补记（2026-11-13）：上面的分组是 11-01 的定稿。现在的菜单以 `web/src/nav.tsx` 为准：「工作」组是全景 `/`、事项 `/work-items`、驾驶舱、团队 `/team`、谁能做什么 `/access`、工作台市场、经验库 `/knowledge`；「等你拍板」、SOP 交付空间、技能市场收进不显示的「旧入口」组（路由还在）；「管理」组另有待属主看板 `/owner-pending` 和凭据库 `/vault`。统一待办 `/tasks` 已在 #664 退役。现在「工作」组是 7 项，超出了上面「每组最多 6 项」的约定。
+
 ### 2.2 目录（路由）规则
 
 - 列表在 `/<资源>`，详情在 `/<资源>/:id`，子视图在 `/<资源>/:id/<视图>`，例如 `/sops/demo-rack-sop/runs/42`。
@@ -48,6 +50,8 @@ token 取值见仓库根 [`DESIGN.md`](../../DESIGN.md)。本文件规定**菜�
 ### 2.3 侧栏样式
 
 侧栏用深色（与内容区浅色区分），新增 token：`nav-bg #0F172A`、`nav-text #CBD5E1`、`nav-text-active #FFFFFF`、`nav-item-active-bg #1E3A5F`，不再在 `App.tsx` 里写死。
+
+> 补记（2026-11-13）：之后按产品化原型 `3fbfd0b` 改成了浅色侧栏，现在的取值以 `DESIGN.md` 为准（`nav-bg #F6F7F9`、`nav-text #5A6577`、`nav-text-active #1E3A5F`、`nav-item-active-bg #EEF2F7`）。「不在 `App.tsx` 里写死」这一条照旧。
 
 ## 3. 页面骨架（所有页面一致）
 
