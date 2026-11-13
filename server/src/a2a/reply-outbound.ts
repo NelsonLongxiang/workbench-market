@@ -1,6 +1,6 @@
 /**
  * 阶段七 R2：市场回给团队的消息——在事件投递的同一个 worker 里发，复用 a2aSendOutbound（OriginClaim Sig2 + Sig3）、退避常量与终止码。
- *   answer / followup-reply：人的答复作为同一 context 的新任务发回那个团队（superagent：答复是同 context 的新任务，回执里的正文它不读）。
+ *   answer / followup-reply：人的答复（以及打回重做：消息里带 return）作为同一 context 的新任务发回那个团队（superagent：答复是同 context 的新任务，回执里的正文它不读）。
  *     每次尝试一个任务号 <event>.d<投递>.q<行>.a<尝试>，发出前登记进 a2a_sent_tasks（kind=answer，记下对端），对方对它的回执照 R3 回到同一事项。
  *   followup-receipt：收下跟进后结清它的回执。任务号固定为 receipt-<跟进任务号>——只用跟进的任务号，绝不用原任务号（那会被当成结清原工单）；
  *     信封 {"outcome":"completed","idempotencyKey":"<跟进任务号>","disposition":"result"}，正文一行「已转给人」。对方节点上未结清的跟进
@@ -20,6 +20,20 @@ export function answerEnvelope(row: Pick<ReplyRow, 'event_id' | 'context_id' | '
   return JSON.stringify({ type: 'workbench-event', v: ANSWER_ENVELOPE_VERSION, kind: 'answer', event_id: row.event_id, context_id: row.context_id, answer: { qid: row.qid, text: answer.text, by: answer.by } });
 }
 
+/**
+ * 打回重做的正文（上游 dsh-open-a2a-net#627 N1、N5）：
+ *   第一行签名派工行 `[A2A dispatch] {"rework":{"of":"<原任务号>"}}`——宿主认它（Sig3 + 钉住公钥的远端成员 + 名片声明 reworkReturns）
+ *     就不经总工、直接开一张新工单「打回重做：<原单标题>」，交给上次做原单的成员；范围是去掉派工行之后的正文。
+ *   第二行给人和总工看的「[打回重做] 原事项《标题》（原任务 <task>）：理由」——不认派工行的宿主把整段当普通请求，总工照这一行判。
+ * 理由和标题都压成一行：人写的字只能落在第二行，拼不出派工行、回执头或第三行。
+ * 不再带市场自己的 JSON 信封：宿主把派工行之后的正文整段当范围，信封只会混进范围里。
+ */
+export function returnMessage(r: { text: string; return: { of: string; title: string } }): string {
+  const dispatch = `[A2A dispatch] ${JSON.stringify({ rework: { of: r.return.of } })}`;
+  const line = `[打回重做] 原事项《${String(r.return.title).replace(/\s+/g, ' ').slice(0, 200)}》（原任务 ${r.return.of}）：${r.text.replace(/\s+/g, ' ')}`;
+  return `${dispatch}\n${line}`;
+}
+
 /** 结清一条跟进的回执正文：只用跟进的任务号 */
 export function followupReceiptText(followupTask: string): string {
   return `[A2A receipt] task ${followupTask} 已转给人\n${JSON.stringify({ outcome: 'completed', idempotencyKey: followupTask, disposition: 'result' })}`;
@@ -32,13 +46,14 @@ async function sendOne(row: ReplyRow, now: () => number): Promise<void> {
   let message = '';
   if (isReceipt) message = followupReceiptText(row.qid);
   else {
-    let answer: { text: string; by: string } = { text: '', by: '' };
+    let answer: { text: string; by: string; return?: { of: string; title: string } } = { text: '', by: '' };
     try { answer = JSON.parse(row.message); } catch { /* 坏行按空答复，下面判 dead */ }
     if (answer.text === '') {
       inReplyTx(() => { markReply(row.id, 'dead', attempt, 'empty answer', now()); logDeliveryFact(row.event_id, row.delivery_id, 'market', 'reply-dead', { reply: row.id, kind: row.kind, error: 'empty answer' }); });
       return;
     }
-    message = answerEnvelope(row, answer);
+    // 打回重做和答复走同一条路（同 context 的新任务），正文不同
+    message = answer.return && typeof answer.return.of === 'string' ? returnMessage(answer as { text: string; return: { of: string; title: string } }) : answerEnvelope(row, answer);
     const peer = await peerCard(row.target_url).catch(() => null);
     recordSentTask({ taskId, kind: 'answer', eventId: row.event_id, deliveryId: row.delivery_id, peerRoot: peerRoot(row.target_url), peerZone: peer?.team ?? '' });
   }

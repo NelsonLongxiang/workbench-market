@@ -184,11 +184,10 @@
       "what": "server 的类型错误（带空值检查，其余宽松）",
       "target": 0,
       "baseline": {
-        "total": 37,
+        "total": 35,
         "files": {
           "server/src/index.ts": 33,
-          "server/src/portal.ts": 2,
-          "server/src/services/workbench.ts": 2
+          "server/src/portal.ts": 2
         }
       }
     },
@@ -234,32 +233,25 @@
     },
     {
       "id": "env-via-config",
-      "tier": "count",
+      "tier": "budget",
       "proposed": "budget",
       "what": "直接读环境变量的地方",
       "target": 0,
-      "note": "落点还没建好：配置改成插件 Config 之后开预算档",
+      "note": "落点是模块自己的 Config（server/src/config.ts 的 defineConfig；服务类插件写成 static Config）：启动时取一次，用到的地方读 config。剩下的在 index.ts、Odoo 登录、数据层、阶段七在改的文件里，随各自那条线收",
       "baseline": {
-        "total": 86,
+        "total": 68,
         "files": {
           "server/src/a2a.ts": 5,
           "server/src/db.ts": 2,
-          "server/src/eval.ts": 2,
-          "server/src/github-source.ts": 2,
           "server/src/index.ts": 33,
           "server/src/login-gate.ts": 2,
           "server/src/login-providers/odoo/index.ts": 2,
           "server/src/login-providers/odoo/odoo-browser-origin.ts": 2,
           "server/src/login-providers/odoo/odoo-login-proxy.ts": 2,
           "server/src/login-providers/odoo/odoo-session.ts": 5,
-          "server/src/mcp-stdio-upstream.ts": 1,
           "server/src/outbound-gate.ts": 1,
           "server/src/redis.ts": 2,
           "server/src/routes/admin-token.ts": 4,
-          "server/src/routes/health.ts": 2,
-          "server/src/services/sandbox.ts": 2,
-          "server/src/sop-read-auth.ts": 1,
-          "server/src/tasks.ts": 8,
           "server/src/vault-api.ts": 6,
           "server/src/workbench-events.ts": 2
         }

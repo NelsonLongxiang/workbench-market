@@ -191,6 +191,9 @@ body {
   color: var(--wm-color-nav-text);
 }
 
+/* 被市场自己嵌在框里时，框里只写这一句（main.tsx、embed-guard.ts 的 framedByMarket） */
+.wm-framed-self { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: var(--wm-space-6); box-sizing: border-box; text-align: center; color: var(--wm-color-text-secondary); font-size: var(--wm-font-size-body); background: var(--wm-color-surface); }
+
 .wm-use-frame {
   flex: 1;
   width: 100%;
@@ -261,6 +264,7 @@ body {
   grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: var(--wm-space-3);
 }
+.wm-dash-grid-top { align-items: start; }
 .wm-span-3 { grid-column: span 3; }
 .wm-span-4 { grid-column: span 4; }
 .wm-span-6 { grid-column: span 6; }
@@ -647,6 +651,7 @@ body { background: var(--wm-color-page); }
 .wm-bb-progress-nums { display: flex; align-items: baseline; gap: var(--wm-space-1); }
 .wm-bb-row-click { cursor: pointer; }
 .wm-bb-actions { white-space: nowrap; }
+.wm-bb-nowrap { white-space: nowrap; }
 .wm-bb-table .ant-table { font-size: var(--wm-font-size-body); }
 .wm-bb-table .ant-table-thead > tr > th { font-size: var(--wm-font-size-caption); font-weight: 600; color: var(--wm-color-text-secondary); background: var(--wm-color-surface); }
 .wm-bb-filter-bar { box-shadow: none; }

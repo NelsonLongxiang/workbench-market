@@ -3,6 +3,7 @@
  *  - 市场主动拉：commits/main 取头 sha → git/trees 递归列文件 → git/blobs 取内容；版本记下 commit sha。
  *  - WM_GITHUB_TOKEN（可选）读私有仓库；WM_GITHUB_API 只给测试指向本机替身，缺省 https://api.github.com。 */
 import { posix } from 'node:path';
+import { defineConfig, loadConfig } from './config.ts';
 
 export const SOURCE_BRANCH = 'main';
 const REPO_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
@@ -26,12 +27,19 @@ export function normalizeSource(repo: unknown, path: unknown): { repo: string; p
   return { repo: r, path: p };
 }
 
+/** GitHub API 地址（测试换成假的）和读私有仓库用的令牌 */
+export const Config = defineConfig((env) => ({
+  apiBase: (env.WM_GITHUB_API || 'https://api.github.com').replace(/\/+$/, ''),
+  token: env.WM_GITHUB_TOKEN || '',
+}));
+const config = loadConfig(Config);
+
 function apiBase(): string {
-  return (process.env.WM_GITHUB_API || 'https://api.github.com').replace(/\/+$/, '');
+  return config.apiBase;
 }
 
 async function gh(url: string, timeoutMs = 15000): Promise<any> {
-  const token = process.env.WM_GITHUB_TOKEN || '';
+  const token = config.token;
   let res: Response;
   try {
     res = await fetch(apiBase() + url, {
