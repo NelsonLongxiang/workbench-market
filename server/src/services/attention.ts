@@ -183,6 +183,15 @@ export class AttentionService extends Service {
     return row ?? null;
   }
 
+  /** 这个人（bys 里任一写法）最近 hours 小时内答成过的全部条目（2xx），新的在前，最多 limit 条：来源、那一轮的键、答法、什么时候（SQLite 时刻，UTC） */
+  answersBy(bys: readonly string[], hours: number, limit = 200): { source: string; key: string; answer: string; at: string }[] {
+    if (!bys.length) return [];
+    const marks = bys.map(() => '?').join(', ');
+    return db.prepare(`SELECT source, source_id AS key, answer, at FROM attention_answers
+      WHERE state = 'done' AND status BETWEEN 200 AND 299 AND answered_by IN (${marks}) AND at >= datetime('now', ?)
+      ORDER BY at DESC, source, source_id LIMIT ?`).all(...bys, `-${Math.max(1, Math.floor(hours))} hours`, limit) as { source: string; key: string; answer: string; at: string }[];
+  }
+
   answered(source: string, sourceId: string, by: string, answer: string): boolean {
     return Boolean(db.prepare("SELECT 1 FROM attention_answers WHERE source = ? AND source_id = ? AND state = 'done' AND answered_by = ? AND answer = ?").get(source, sourceId, by, answer));
   }

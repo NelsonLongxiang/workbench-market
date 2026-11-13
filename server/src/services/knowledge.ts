@@ -394,6 +394,14 @@ export class KnowledgeService extends Service {
     return due.length;
   }
 
+  /** 这几次答复（answer_key）各自记成经验的情况：没记过的不在结果里 */
+  rememberedOf(keys: readonly string[]): Map<string, RememberOutcome['status']> {
+    const out = new Map<string, RememberOutcome['status']>();
+    const q = db.prepare('SELECT status FROM knowledge_writes WHERE answer_key = ?');
+    for (const k of keys) { const r = q.get(k) as { status: RememberOutcome['status'] } | undefined; if (r) out.set(k, r.status); }
+    return out;
+  }
+
   /** 记成经验的写入情况（给管理员的同步状态）：待写几条、放弃几条 */
   writeStatus(): { pending: number; failed: number } {
     const r = db.prepare("SELECT SUM(status = 'pending') AS pending, SUM(status = 'failed') AS failed FROM knowledge_writes").get() as { pending: number | null; failed: number | null };

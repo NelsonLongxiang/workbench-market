@@ -14,6 +14,7 @@
  *   六、谁不能记：部门负责人（拍板授予只在部门范围）答复照常生效、记成经验被拒（refused）；管理口令补记 403；匿名 401；跨站 403
  *   七、没答过、别人答的：补记 404（和不存在一样）
  *   八、明确选「全公司」：写成 *，普通员工也看得到
+ *   九、给前端的三样：/api/auth/me 的 can.remember_knowledge；我处理过的（48 小时内答过的条目，带标题、答法、时间、记没记、缺省范围）；缺省会记成哪一档
  *
  *   node scripts/knowledge-remember-test.mjs
  */
@@ -198,6 +199,26 @@ try {
   const al8 = (await kbList(WHO.普通员工)).find((x) => x.title === '合成：合同待放行');
   check(a8.status === 200 && r8.status === 201 && r8.body?.status === 'written' && r8.body.scope_label === '全公司' && note8?.scope === '*' && al8?.scope_label === '全公司' && al8.decided_by_name === 'Synthetic root-admin',
     '八、答完以后补记、明确选「全公司」：写成 *，普通员工也看得到（带拍板人的名字）；没给 cue 时用事项的标题', show({ a8: a8.status, r8: [r8.status, r8.body], note8: note8?.scope, al8 }));
+  // ---------- 九、给前端的三样：能不能记（auth/me 的 can）、我处理过的（48 小时内答过的条目）、缺省会记成哪一档 ----------
+  {
+    const me = async (h) => (await call('GET', '/api/auth/me', h)).body?.can?.remember_knowledge;
+    const can = { 管理层: await me(WHO.管理层), 负责人: await me(WHO.负责人), 普通员工: await me(WHO.普通员工) };
+    const recent = await call('GET', '/api/knowledge/remember/recent', WHO.管理层);
+    const rows = Object.fromEntries((recent.body?.items ?? []).map((x) => [x.source_id, x]));
+    const def = await call('GET', `/api/knowledge/remember/defaults?source=work-items&source_id=${encodeURIComponent(I.v1)}`, WHO.管理层);
+    const defLead = await call('GET', `/api/knowledge/remember/defaults?source=work-items&source_id=${encodeURIComponent(I.lead)}`, WHO.管理层);
+    const deny = { recent: (await call('GET', '/api/knowledge/remember/recent', WHO.普通员工)).status, defaults: (await call('GET', `/api/knowledge/remember/defaults?source=work-items&source_id=${encodeURIComponent(I.v1)}`, WHO.负责人)).status,
+      anon: (await call('GET', '/api/knowledge/remember/recent', { 'x-forwarded-for': '192.0.2.83' })).status, token: (await call('GET', '/api/knowledge/remember/recent', ADMIN)).status };
+    check(show(can) === show({ 管理层: true, 负责人: false, 普通员工: false }),
+      '九、/api/auth/me 的 can.remember_knowledge：管理层 true；部门负责人、普通员工 false（和记成经验同一处判断）', show(can));
+    check(recent.status === 200 && Object.keys(rows).length === 4 && rows[I.v1]?.title === '合成：样品批次待放行' && rows[I.v1].answer === 'release' && rows[I.v1].answer_text === '放行'
+        && rows[I.v1].remembered === 'written' && rows[I.v3]?.remembered === 'failed' && rows[I.v4]?.remembered === 'written' && rows[I.v2]?.remembered === 'written'
+        && rows[I.v1].default_visibility === 'department' && rows[I.v1].department_name === '合成运营部' && !rows[I.lead] && /^\d{4}-\d{2}-\d{2}T/.test(rows[I.v1].answered_at),
+      '九、我处理过的：这个人 48 小时内答过的四条（别人答的不在），带标题、答法和说法、答的时间、记成经验了没有、缺省会记成哪一档（部门名）', show(recent.body));
+    check(def.status === 200 && show(def.body) === show({ default_visibility: 'department', department_name: '合成运营部' }) && defLead.status === 200 && defLead.body?.default_visibility === 'department'
+        && show(deny) === show({ recent: 403, defaults: 403, anon: 401, token: 403 }),
+      '九、缺省会记成哪一档：推得出部门给部门名；只给能记成经验的人（普通员工、部门负责人 403，匿名 401，管理口令 403）', show({ def: def.body, defLead: defLead.body, deny }));
+  }
 } catch (e) {
   fail++;
   console.log(`  ✗ 没跑完：${e?.stack ?? e}`);

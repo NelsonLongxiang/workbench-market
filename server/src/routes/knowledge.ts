@@ -15,7 +15,7 @@ import { originIsThisSurface } from '../surfaces.ts';
 import { actorResolver, migrateOnSight } from '../judgment-compare.ts';
 import { judge, type JudgedActor } from '../judgment.ts';
 import { KINDS, PAGE_KIND, type KnowledgeService, type YglKind } from '../services/knowledge.ts';
-import { parseRemember, rememberAnswer } from '../knowledge-remember.ts';
+import { defaultVisibility, parseRemember, recentAnswers, rememberAnswer, rememberRefusal } from '../knowledge-remember.ts';
 
 export type KnowledgeRouteDeps = {
   wrap: (fn: (req: express.Request, res: express.Response) => Promise<unknown>) => express.RequestHandler;
@@ -130,6 +130,26 @@ export function registerKnowledgeRoutes(app: HttpService, deps: KnowledgeRouteDe
     const r = await rememberAnswer(actor, { source, sourceId, ...parsed.value });
     if (!r.ok) return void res.status(r.http).json({ error: r.error, message: r.message });
     res.status(r.outcome.duplicate ? 200 : 201).json({ status: r.outcome.status, duplicate: r.outcome.duplicate, scope_label: r.scope_label });
+  }));
+
+  // 「我处理过的」：这个人 48 小时内答过的条目（补记成经验的入口）。只给能记成经验的人（管理层、属主），别人 403
+  app.get('/api/knowledge/remember/recent', { action: 'knowledge.remember-list', kind: 'decide' }, wrap(async (req, res) => {
+    const actor = await who(req, res);
+    if (!actor) return;
+    const refused = rememberRefusal(actor);
+    if (refused) return void res.status(403).json(refused);
+    res.json({ items: recentAnswers(actor) });
+  }));
+
+  // 勾选「记成经验」时先问：不选范围会记成哪一档（推得出部门给部门名）。只给能记成经验的人
+  app.get('/api/knowledge/remember/defaults', { action: 'knowledge.remember-defaults', kind: 'decide' }, wrap(async (req, res) => {
+    const actor = await who(req, res);
+    if (!actor) return;
+    const refused = rememberRefusal(actor);
+    if (refused) return void res.status(403).json(refused);
+    const source = typeof req.query.source === 'string' ? req.query.source : '', sourceId = typeof req.query.source_id === 'string' ? req.query.source_id : '';
+    if (!source || source.length > 64 || !sourceId || sourceId.length > 300) return void res.status(400).json({ error: 'remember_invalid', message: '要有 source、source_id' });
+    res.json(defaultVisibility(source, sourceId));
   }));
 
   app.get('/api/knowledge/:key', { action: 'knowledge.read', kind: 'read', statusNotVerdict: BY_SCOPE }, wrap(async (req, res) => {

@@ -1,10 +1,20 @@
 {
   "domain": "knowledge",
-  "what": "经验库：/api/knowledge 的 6 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。条目、人、部门都是合成的。",
-  "routes": ["GET /api/knowledge", "GET /api/knowledge/status", "GET /api/knowledge/project-depts", "PUT /api/knowledge/project-depts", "POST /api/knowledge/remember", "GET /api/knowledge/:key"],
+  "what": "经验库：/api/knowledge 的 8 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。条目、人、部门都是合成的。",
+  "routes": [
+    "GET /api/knowledge",
+    "GET /api/knowledge/status",
+    "GET /api/knowledge/project-depts",
+    "PUT /api/knowledge/project-depts",
+    "POST /api/knowledge/remember",
+    "GET /api/knowledge/remember/recent",
+    "GET /api/knowledge/remember/defaults",
+    "GET /api/knowledge/:key"
+  ],
   "exempt": [
     { "route": "GET /api/knowledge/status", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入", "shown_by": "open/status-admin" },
-    { "route": "GET /api/knowledge/project-depts", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入", "shown_by": "open/pd-list-management" }
+    { "route": "GET /api/knowledge/project-depts", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入", "shown_by": "open/pd-list-management" },
+    { "route": "GET /api/knowledge/remember/recent", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入", "shown_by": "open/recent-management" }
   ],
   "scenarios": [
     {
@@ -491,6 +501,89 @@
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "69", "etag": "W/\"45-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": { "status": "written", "duplicate": true, "scope_label": "只给管理层" }
+          }
+        },
+        {
+          "id": "recent-anon",
+          "route": "GET /api/knowledge/remember/recent",
+          "class": "unauthorized",
+          "what": "远程、没登录：401",
+          "request": { "method": "GET", "path": "/api/knowledge/remember/recent", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "recent-member",
+          "route": "GET /api/knowledge/remember/recent",
+          "class": "unauthorized",
+          "what": "普通员工：403",
+          "request": { "method": "GET", "path": "/api/knowledge/remember/recent", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "114", "etag": "W/\"72-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "remember_not_allowed", "message": "记成经验要有对经验库拍板的授予（管理层、属主）" }
+          }
+        },
+        {
+          "id": "recent-management",
+          "route": "GET /api/knowledge/remember/recent",
+          "class": "normal",
+          "what": "管理层：自己 48 小时内答过的条目",
+          "vary": { "items.0.answered_at": "random" },
+          "request": { "method": "GET", "path": "/api/knowledge/remember/recent", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-admin-flag-missing1" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "235", "etag": "W/\"eb-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "items": [
+                { "source": "work-items", "source_id": "wi_replay", "title": null, "answer": "release", "answer_text": "放行", "answered_at": "<每个实例随机·string·24>", "remembered": "written", "default_visibility": "restricted", "department_name": null }
+              ]
+            }
+          }
+        },
+        {
+          "id": "defaults-anon",
+          "route": "GET /api/knowledge/remember/defaults",
+          "class": "unauthorized",
+          "what": "远程、没登录：401",
+          "request": { "method": "GET", "path": "/api/knowledge/remember/defaults?source=work-items&source_id=wi_replay", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "defaults-bad",
+          "route": "GET /api/knowledge/remember/defaults",
+          "class": "invalid",
+          "what": "缺 source_id：400",
+          "request": { "method": "GET", "path": "/api/knowledge/remember/defaults?source=work-items", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-admin-flag-missing1" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "66", "etag": "W/\"42-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "remember_invalid", "message": "要有 source、source_id" }
+          }
+        },
+        {
+          "id": "defaults-management",
+          "route": "GET /api/knowledge/remember/defaults",
+          "class": "normal",
+          "what": "推不出部门：只给管理层",
+          "request": { "method": "GET", "path": "/api/knowledge/remember/defaults?source=work-items&source_id=wi_replay", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-admin-flag-missing1" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "default_visibility": "restricted", "department_name": null }
           }
         }
       ]

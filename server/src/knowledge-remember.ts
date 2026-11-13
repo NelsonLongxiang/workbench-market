@@ -15,6 +15,7 @@ import type { KnowledgeService, RememberOutcome } from './services/knowledge.ts'
 import { REMEMBER_WINDOW_HOURS } from './services/knowledge.ts';
 import type { WorkItemService, WorkItemRow } from './services/work-item.ts';
 import type { TeamService } from './services/team.ts';
+import type { DepartmentService } from './services/department.ts';
 import { itemTeams } from './work-item-access.ts';
 import { itemOfAsk } from './attention-answers.ts';
 
@@ -53,15 +54,55 @@ function departmentOf(source: string, sourceId: string): string | null {
 
 const SCOPE_LABEL = (scope: string): string => (scope === '*' ? '全公司' : scope === 'restricted' ? '只给管理层' : '部门');
 
+/** 能不能记成经验（不看是哪一条）：登录的、启用的人，并且统一判定说他能对经验库拍板。/api/auth/me 的 can.remember_knowledge 和记成经验用的都是这一处 */
+export function rememberRefusal(actor: JudgedActor): { error: string; message: string } | null {
+  if (actor.type !== 'principal' || actor.kind !== 'person' || actor.status !== 'active') return { error: 'remember_not_allowed', message: '只有登录的人能记成经验（管理口令、本机命令行不能）' };
+  if (judge({ actor, action: 'knowledge.remember', kind: 'decide', declared: true }).verdict !== 'allow') return { error: 'remember_not_allowed', message: '记成经验要有对经验库拍板的授予（管理层、属主）' };
+  return null;
+}
+/** 账上答这一条的人可能的几种写法：会话登录的管理员记成 odoo:<登录名>，别的记成主体标识 */
+const answerersOf = (id: string): string[] => [id, ...(id.startsWith('user:') ? [`odoo:${id.slice(5)}`] : [])];
+
+/** 答法给人看的说法（「关注」各来源的答法）；没列的原样 */
+const ANSWER_TEXT: Record<string, string> = { release: '放行', withdraw: '撤回', verify: '验收', return: '退回', approve: '批准', reject: '驳回', answer: '答复', bind: '对接' };
+/** 账上的键去掉「:那一轮」「@出现序号」的后缀，得到条目的 id（和「关注」里的 source_id 同一个） */
+function baseIdOf(source: string, key: string): string {
+  if (source === 'principal-pending') { const at = key.lastIndexOf('@'); return at > 0 ? key.slice(0, at) : key; }
+  if (source === 'work-items' || source === 'seat-asks' || source === 'owner-pending') { const c = key.indexOf(':'); return c > 0 ? key.slice(0, c) : key; }
+  return key;
+}
+
+/**
+ * 这个人 48 小时内答过的条目（「我处理过的」，补记成经验的入口）：来源、条目 id、标题（对得到事项的给事项标题，别的 null）、答法和它的说法、
+ * 什么时候答的（ISO）、记成经验了没有（没记 null，记了给状态）、缺省会记成哪一档范围
+ */
+export function recentAnswers(actor: JudgedActor): { source: string; source_id: string; title: string | null; answer: string; answer_text: string; answered_at: string; remembered: RememberOutcome['status'] | null; default_visibility: 'department' | 'restricted'; department_name: string | null }[] {
+  if (actor.type !== 'principal') return [];
+  const rows = svc<AttentionService>('attention').answersBy(answerersOf(actor.id), REMEMBER_WINDOW_HOURS);
+  const keyOf = (r: { source: string; key: string }) => `${r.source}\u0000${r.key}\u0000${actor.id}`;
+  const done = svc<KnowledgeService>('knowledge').rememberedOf(rows.map(keyOf));
+  return rows.map((r) => {
+    const id = baseIdOf(r.source, r.key);
+    const d = defaultVisibility(r.source, id);
+    return {
+      source: r.source, source_id: id, title: itemOf(r.source, id)?.title ?? null, answer: r.answer, answer_text: ANSWER_TEXT[r.answer] ?? r.answer,
+      answered_at: new Date(`${r.at.replace(' ', 'T')}Z`).toISOString(), remembered: done.get(keyOf(r)) ?? null, ...d,
+    };
+  });
+}
+
+/** 不选范围时会记成哪一档：推得出部门是「部门」（给部门名），推不出「只给管理层」 */
+export function defaultVisibility(source: string, sourceId: string): { default_visibility: 'department' | 'restricted'; department_name: string | null } {
+  const d = departmentOf(source, sourceId);
+  if (!d) return { default_visibility: 'restricted', department_name: null };
+  return { default_visibility: 'department', department_name: svc<DepartmentService>('departments').get(d)?.name ?? null };
+}
+
 export async function rememberAnswer(actor: JudgedActor, req: RememberRequest, fallbackCue = ''): Promise<RememberResult> {
-  if (actor.type !== 'principal' || actor.kind !== 'person' || actor.status !== 'active') {
-    return { ok: false, http: 403, error: 'remember_not_allowed', message: '只有登录的人能记成经验（管理口令、本机命令行不能）' };
-  }
-  if (judge({ actor, action: 'knowledge.remember', kind: 'decide', declared: true }).verdict !== 'allow') {
-    return { ok: false, http: 403, error: 'remember_not_allowed', message: '记成经验要有对经验库拍板的授予（管理层、属主）' };
-  }
-  // 账上答这一条的人：会话登录的管理员记成 odoo:<登录名>，别的记成主体标识
-  const bys = [actor.id, ...(actor.id.startsWith('user:') ? [`odoo:${actor.id.slice(5)}`] : [])];
+  const refused = rememberRefusal(actor);
+  if (refused) return { ok: false, http: 403, ...refused };
+  if (actor.type !== 'principal') return { ok: false, http: 403, error: 'remember_not_allowed', message: '只有登录的人能记成经验' };
+  const bys = answerersOf(actor.id);
   const hit = svc<AttentionService>('attention').answeredRecently(req.source, req.sourceId, bys, REMEMBER_WINDOW_HOURS);
   if (!hit) return { ok: false, http: 404, error: 'remember_answer_not_found', message: `没有找到这个人 ${REMEMBER_WINDOW_HOURS} 小时内答过的这一条` };
   let scope: string;
