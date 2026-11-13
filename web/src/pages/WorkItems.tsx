@@ -12,7 +12,7 @@ import { ATTENTION_CHANGED, api, getAttention, getLifecycleNameSources, getRoste
 import { adminActive, subscribeAdminToken } from '../admin-token';
 import { answerChoices, workItemTurns, type AttentionItem } from '../attention-view';
 import { STATE } from './WorkItem';
-import { STATE_GROUPS, appendPage, byObject, byState, groupCount, objectName, phaseName, rowLine, rowTime, viewsFor, emptyText, OTHERS_GROUP, othersTurnLabel, splitDecide, avatarChar, lifecycleNames, urlFilter, NO_NAMES, type Names, type View, type ViewKey, type Who, type WorkItemListRow } from '../work-items-view';
+import { STATE_GROUPS, appendPage, byObject, byState, groupCount, objectName, phaseName, rowLine, rowTime, viewsFor, decideLabel, emptyText, OTHERS_GROUP, othersTurnLabel, splitDecide, avatarChar, lifecycleNames, urlFilter, NO_NAMES, type Names, type View, type ViewKey, type Who, type WorkItemListRow } from '../work-items-view';
 import { rosterNames, seatNameOnly, speakerName } from '../people';
 
 /** 列表行里「谁」只写名字（句柄在详情里才带）：席位查名册；来源标记 receiver:<区> 用承接席位顶上，别的去前缀 */
@@ -128,7 +128,9 @@ export default function WorkItems() {
       {/* 只出能用的视角；切换改地址（去掉按席位的筛选），件数是这个视角的全部 */}
       <div className="wm-view-row" role="tablist" aria-label="视角" data-testid="work-items-views">
         {views.map((v) => <button type="button" role="tab" key={v.key} aria-selected={v.key === view} className={v.key === view ? 'wm-view on' : 'wm-view'} data-testid={`work-items-view-${v.key}`}
-          onClick={() => { if (v.key !== view || filter.seat) navigate(`/work-items?view=${v.key}`); }}>{v.label}<i>{v.count}</i></button>)}
+          onClick={() => { if (v.key !== view || filter.seat) navigate(`/work-items?view=${v.key}`); }}>{v.label}<i>{v.count}</i>
+          {/* 这个视角里有几件等你拍板：只在大于 0 时出红数（侧栏角标是总数，各页签不相加） */}
+          {v.decide > 0 && <span className="wm-view-decide" data-testid={`work-items-view-decide-${v.key}`} aria-label={decideLabel(v.decide)} title={decideLabel(v.decide)}>{v.decide}</span>}</button>)}
         <span className="wm-view-group">
           <Typography.Text type="secondary" className="wm-caption">分组</Typography.Text>
           <Segmented<Mode> size="small" value={mode} onChange={changeMode} data-testid="work-items-mode"
