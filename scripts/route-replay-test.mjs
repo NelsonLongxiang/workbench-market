@@ -63,6 +63,8 @@ const FIXTURES = {
   'layerfs-fake': { preload: join(HERE, 'layerfs-fake-preload.mjs'), env: {} },
   // 统一待办的三个假来源：ygl-trees（截下命令行调用）、A2A 状态端点、两个扩展来源（scripts/tasks-fake-preload.mjs）
   'tasks-fake': { preload: join(HERE, 'tasks-fake-preload.mjs'), env: {} },
+  // Odoo 同域登录中继后面的假 Odoo：固定主机名 odoo.replay.test 在进程里连到本机假 Odoo（scripts/odoo-login-fake-preload.mjs）
+  'odoo-login-fake': { preload: join(HERE, 'odoo-login-fake-preload.mjs'), env: {} },
   // 经验库的来源换成假的 ygl-trees 命令行，后台同步关掉（目录由场景 seed 写进库）（scripts/knowledge-fake-preload.mjs）
   'knowledge-fake': { preload: join(HERE, 'knowledge-fake-preload.mjs'), env: {} },
   // 前端构建目录（web/dist）换成占位，内容每次都一样，不看本机有没有真的构建（scripts/web-dist-stub-preload.mjs）
