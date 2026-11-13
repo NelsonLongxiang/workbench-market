@@ -346,6 +346,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   bench-query.ts（数据视图的查询描述：台的作者和 agent 不写 SQL，只给筛选、分组、聚合、排序、行数上限；这里核对并翻成参数化语句·名字只认白名单且必须已定义·值全走参数·见 docs/data-views.md）
   bench-views.ts（数据视图的视图描述：保存前核对组件类型、键、引用的数据集和列、查询、筛选栏参数；两个版本之间的差异·第一批八种组件）
   config.ts（配置的落点：模块自己的 Config，defineConfig 声明认哪些环境变量、怎么解析，启动时取一次；服务类插件写成 static Config，由 Cordis 装插件时校验）
+  admin-token-env.ts（启动环境给的管理口令 ADMIN_TOKEN：启动时取一次、全进程只认这一份；对外只给有没有、常量时间比对、登录门指纹三样，口令本身不出模块。index.ts 的口令校验、a2a.ts、管理口令路由都经它）
   content-access.ts（内容票据与准入）
   content-static.ts（无令牌静态资产读取）
   content-surface.ts（内容面终结分发与到期引导）

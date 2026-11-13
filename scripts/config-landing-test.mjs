@@ -89,9 +89,9 @@ ok('C4 MCP 上游：服务端工作区去空白', up.Config.read({ YGL_HOME: ' /
 const { SandboxService } = await import(src('services/sandbox.ts'));
 ok('C4 沙箱：没设是 undefined（让库里的 settings 和缺省空串照原样兜底）', SandboxService.Config.read({}).bridgeUrl === undefined && SandboxService.Config.read({ SANDBOX_BRIDGE_TOKEN: 't' }).bridgeToken === 't');
 
-const admin = await import(src('routes/admin-token.ts'));
-ok('C4 管理口令：启动环境里有非空口令才算来自环境，不留口令本身', admin.Config.read({ ADMIN_TOKEN: 'x' }).fromEnv === true && admin.Config.read({ ADMIN_TOKEN: '' }).fromEnv === false && admin.Config.read({}).fromEnv === false
-  && JSON.stringify(admin.Config.read({ ADMIN_TOKEN: 'synthetic-secret' })) === '{"fromEnv":true}');
+const adminEnv = await import(src('admin-token-env.ts'));
+ok('C4 管理口令：原样取（不去空白，和原来现读的口径一样）、没设是空串；本进程没设时三样都是「没有」', adminEnv.Config.read({ ADMIN_TOKEN: ' x ' }).token === ' x ' && adminEnv.Config.read({}).token === ''
+  && adminEnv.adminTokenFromEnv() === false && adminEnv.envAdminTokenOk('') === false && adminEnv.envAdminTokenFingerprint() === '');
 const gate = await import(src('outbound-gate.ts'));
 let gateErr = ''; try { gate.Config.read({ WM_OUTBOUND: 'OFF' }); } catch (e) { gateErr = String(e?.message); }
 ok('C4 对外断开：空和 on 是开、去空白的 off 是断开；别的值（大小写不同也算）拒绝启动、报错点名变量', gate.Config.read({}).off === false && gate.Config.read({ WM_OUTBOUND: 'on' }).off === false && gate.Config.read({ WM_OUTBOUND: ' off ' }).off === true
@@ -112,9 +112,16 @@ const reads = (text) => READS.some((re) => re.test(text.replace(/\.\.\.process\.
 ok('C5 量法自检：点名字、方括号、可选链、别名、解构、in 都算；展开传给子进程不算',
   ['process.env.WM_X', 'process.env[name]', "process.env['WM_X']", 'process.env?.WM_X', 'process.env?.[k]', 'const e = process.env;', 'const { WM_X } = process.env', 'return process.env', "'WM_X' in process.env"].every(reads)
   && !['env: { ...process.env, A: 1 }', 'spawn(x, [], { env: { ...process.env } })', '// 不读环境'].some(reads));
-const moved = ['eval.ts', 'github-source.ts', 'mcp-stdio-upstream.ts', 'routes/health.ts', 'services/sandbox.ts', 'sop-read-auth.ts', 'tasks.ts', 'routes/admin-token.ts', 'outbound-gate.ts', 'vault-api.ts'];
+const moved = ['eval.ts', 'github-source.ts', 'mcp-stdio-upstream.ts', 'routes/health.ts', 'services/sandbox.ts', 'sop-read-auth.ts', 'tasks.ts', 'routes/admin-token.ts', 'outbound-gate.ts', 'vault-api.ts', 'admin-token-env.ts'];
 const direct = moved.filter((f) => reads(readFileSync(join(ROOT, 'server/src', f), 'utf8')));
 ok('C5 收进 Config 的文件里不再读 process.env（含动态读法）', direct.length === 0, direct.join(', '));
+{
+  // 管理口令全进程只认 admin-token-env.ts 启动时取的那一份：server/src 下任何文件都不再自己读 ADMIN_TOKEN
+  const { readdirSync, statSync } = await import('node:fs');
+  const walk = (d) => readdirSync(d).flatMap((n) => { const p = join(d, n); return statSync(p).isDirectory() ? walk(p) : /\.(ts|mjs|js)$/.test(n) ? [p] : []; });
+  const hits = walk(join(ROOT, 'server/src')).filter((f) => /process\.env\s*(?:\?\.)?\s*(?:\.\s*ADMIN_TOKEN\b|\[\s*['"`]ADMIN_TOKEN['"`]\s*\])/.test(readFileSync(f, 'utf8')));
+  ok('C5 管理口令只在 admin-token-env.ts 启动时取一次：别处不再读 process.env.ADMIN_TOKEN', hits.length === 0, hits.join(', '));
+}
 
 rmSync(dataDir, { recursive: true, force: true });
 console.log(`\nconfig-landing-test: ${pass} 过，${fail} 没过`);
