@@ -52,6 +52,7 @@ try {
     'scripts/list-rules-browser.py',
     'scripts/dashboard-browser.py',
     'scripts/market-browser.py',
+    'scripts/knowledge-browser.py',
     'scripts/access-browser.py',
     'scripts/team-browser.py',
     'scripts/cockpit-attention-browser.py',

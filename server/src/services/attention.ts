@@ -100,7 +100,7 @@ export type AttentionProvider<R = unknown> = {
   /** 这个人在这个来源看不到任何东西时，旧入口会怎么拒（状态码和正文）。不提供就回 403 */
   deny?: (req: R) => Promise<AnswerOutcome> | AnswerOutcome;
   /** 记账用的键：缺省就是条目 id。同一个 id 先后可能是不同的待决（席位在同一个投递上又问了一次）时，键要能分开它们 */
-  key?: (sourceId: string) => string;
+  key?: (sourceId: string) => string | Promise<string>;
 };
 
 export type AnswerOutcome = { status: number; body: unknown; duplicate?: boolean };
