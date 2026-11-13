@@ -9,7 +9,7 @@ import MarketHome from './pages/market/Market';
 import Access from './pages/access/Access';
 import Types from './pages/Types';
 import Settings from './pages/Settings';
-import UseWorkbench from './pages/UseWorkbench';
+import UseEntry from './pages/UseEntry';
 import Cockpit from './pages/Cockpit';
 import Sops from './pages/Sops';
 import SopSpace from './pages/SopSpace';
@@ -118,7 +118,7 @@ export default function App() {
       <React.Fragment key={gen}>
         <OutboundBanner />
         <Routes>
-          <Route path="/use/:id" element={<UseWorkbench />} />
+          <Route path="/use/:id" element={<UseEntry />} />
         </Routes>
       </React.Fragment>
     );
