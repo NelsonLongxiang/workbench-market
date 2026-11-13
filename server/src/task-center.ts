@@ -113,7 +113,8 @@ export function publishTaskIntake(body: any, opts: { publisherPrincipal?: string
  *     只能指名派给的那个画布团队（team 是 <区>/canvas/<名>）里 role=member 的席位；团队和名册按（宿主节点键, 团队地址）对，
  *     节点键由这条通知绑定的根地址到名册里查。谁能指名谁用 team-relation 的 relationOf：成员的主人指名分给自己的席位（own-seat，
  *     缺省不过目，review:true 时由本人过目）；团队负责人指名本团队任何成员（lead-directed，不过目）；别人 403。总工不能被指名。
- *     对端宿主名片没声明 directedSeats：退回整队派发（不写指名），recorded 里记下 directed_fallback 留痕。
+ *     对端宿主名片没声明 directedSeats：退回整队派发（不写指名），交给方式和过目都按没带 seat_id 算（handoff=team、review 缺省 true），
+ *     recorded 里记下 directed_fallback 留痕。
  * 调用方（路由）已经认过人：requester 是经身份服务认出来的、启用的人。
  */
 export type ArrangeOutcome = { status: number; body: Record<string, unknown> };
@@ -212,8 +213,11 @@ export function arrangeTask(raw: unknown, requester: string, now: Date = new Dat
     if (!target) { tasks.arrangeRollback(); return bad('team_not_assignable'); }
     const directed = seatId ? directedSeat(team, target.notify_url, seatId, requester) : null;
     if (directed && 'status' in directed) { tasks.arrangeRollback(); return directed; }
-    // 指名自己的席位缺省不过目（review:true 才由本人过目）；负责人指名不过目；交给团队照旧（缺省先过目）
-    const reviewNow = directed ? (directed.handoff === 'own-seat' ? b.review === true : false) : review;
+    // 真指名（对端声明了 directedSeats）：指名自己的席位缺省不过目（review:true 才由本人过目）；负责人指名不过目。
+    // 退回整队派发（对端没声明）就是交给团队、总工分派：交给方式、过目、等谁过目一律按没带 seat_id 算（缺省先过目），
+    // 只在 recorded 里留 directed_fallback、应答带 directed:'fallback_team'
+    const pinned = directed && !directed.fallback ? directed : null;
+    const reviewNow = pinned ? (pinned.handoff === 'own-seat' ? b.review === true : false) : review;
     const centerOn = taskCenterPolicy().agent_dispatch_enabled;
     const direct = !reviewNow && centerOn && limits.staffDirect;
     const at = sqlTime(now);
@@ -223,12 +227,12 @@ export function arrangeTask(raw: unknown, requester: string, now: Date = new Dat
       id: taskId, data: fields, stepValue: (k) => fields[k], publishedBy: requester, requesterPrincipal: requester, publisherPrincipal: requester,
       templateVersion: null, materialSha256: sha, agentDispatch: direct, centerOn,
       arranged: { team, submitter: requester, ...(v.object ? { object: v.object } : {}), ...(v.phase ? { phase: v.phase } : {}), ...(cockpitId ? { cockpitId } : {}),
-        ...(directed ? { handoff: directed.handoff, reviewBy: directed.handoff === 'own-seat' && reviewNow ? 'requester' as const : '' as const,
-          ...(directed.fallback ? { directedFallback: { seat_id: seatId, reason: 'peer_not_declared' } } : { directedSeatId: seatId }) } : {}) },
+        ...(pinned ? { handoff: pinned.handoff, reviewBy: pinned.handoff === 'own-seat' && reviewNow ? 'requester' as const : '' as const, directedSeatId: seatId } : {}),
+        ...(directed?.fallback ? { directedFallback: { seat_id: seatId, reason: 'peer_not_declared' } } : {}) },
     });
     tasks.insertArrangeRequest({ requester, key, sha256: sha, taskId, eventId, at });
     tasks.arrangeCommit();
-    return { status: 201, body: view(taskId, eventId, false, { ...(!reviewNow && !direct ? { reason: 'review_required_by_policy' } : {}), ...(directed ? { handoff: directed.handoff, directed: directed.fallback ? 'fallback_team' : 'seat' } : {}) }) };
+    return { status: 201, body: view(taskId, eventId, false, { ...(!reviewNow && !direct ? { reason: 'review_required_by_policy' } : {}), ...(directed ? { handoff: pinned ? pinned.handoff : 'team', directed: pinned ? 'seat' : 'fallback_team' } : {}) }) };
   } catch (e) {
     try { tasks.arrangeRollback(); } catch { /* 已经回滚 */ }
     throw e;

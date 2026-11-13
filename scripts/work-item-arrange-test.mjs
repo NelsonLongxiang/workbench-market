@@ -207,6 +207,7 @@ try {
       a.run('a1b2c3d4', 'dsh/canvas/team-a', 'dsh/0000000a', 'seat-0000000a', 'user:alpha', ms);
       a.run('c3c3c3c3', 'dsh/canvas/team-c', 'dsh/0000000e', 'seat-0000000e', 'user:alpha', ms);
       d.prepare("INSERT INTO team_leads (host, team, principal_id, added_by, added_at) VALUES ('a1b2c3d4', 'dsh/canvas/team-a', 'user:beta', 'seed', ?)").run(ms);
+      d.prepare("INSERT INTO team_leads (host, team, principal_id, added_by, added_at) VALUES ('c3c3c3c3', 'dsh/canvas/team-c', 'user:beta', 'seed', ?)").run(ms);
       console.log('SEEDED');`], { encoding: 'utf8' });
     if (!seeded.stdout.includes('SEEDED')) throw new Error(`造指名数据失败：${seeded.stderr.slice(-600)}`);
     const msg = (eventId) => { const d = dbr(); try { return d.prepare('SELECT message FROM workbench_event_deliveries WHERE event_id = ? ORDER BY id').all(eventId).map((r) => r.message); } finally { d.close(); } };
@@ -260,6 +261,31 @@ try {
     check(fb.status === 201 && fb.body.directed === 'fallback_team' && !msg(fb.body?.event_id)[0].startsWith('[A2A dispatch]') && itemRow(fb.body?.item_id).directed_seat_id === ''
       && fbRec.directed_fallback?.seat_id === 'seat-0000000e' && fbRec.directed_fallback?.reason === 'peer_not_declared' && fbRec.directed_seat_id === undefined,
       '对端名片没声明 directedSeats：退回整队派发（不写派工行、事项不记指名），recorded 里留 directed_fallback（哪个席位、为什么）', show({ b: fb.body, rec: fbRec }));
+    // 退回整队派发就按没带 seat_id 的整队派发算：交给方式记 team，过目用整队的缺省（不传 review 就先过目、held），
+    // 应答不说成指名。主人指名、负责人指名退回时都一样。开着中心总开关和员工直派：指名自己的席位缺省不过目会直接派出，
+    // 退回整队后必须照整队的缺省先 held
+    await call('PUT', '/api/task-center/policy', ADMIN, { agent_dispatch_enabled: true });
+    await call('PUT', '/api/settings', ADMIN, { staff_direct_dispatch: 'on' });
+    try {
+      const fbItem = itemRow(fb.body?.item_id);
+      const fbOwn = await call('POST', '/api/work-items', ALPHA, form({ team: 'dsh/canvas/team-c', seat_id: 'seat-0000000e' }));
+      const fbOwnItem = itemRow(fbOwn.body?.item_id);
+      check(fbItem.handoff === 'team' && fbOwn.status === 201 && fbOwn.body.directed === 'fallback_team' && fbOwnItem.handoff === 'team' && fbOwn.body.held === true
+        && fbOwn.body.handoff !== 'own-seat' && recorded(fbOwn.body?.event_id).handoff === 'team',
+        '主人指名退回整队：事项 handoff=team；直派开着时不传 review 也先过目（held），和整队的缺省一样；应答不带 own-seat', show({ b: fbOwn.body, item: fbOwnItem, first: fbItem }));
+      const fbLead = await call('POST', '/api/work-items', BETA, form({ team: 'dsh/canvas/team-c', seat_id: 'seat-0000000e' }));
+      const fbLeadItem = itemRow(fbLead.body?.item_id);
+      check(fbLead.status === 201 && fbLead.body.directed === 'fallback_team' && fbLeadItem.handoff === 'team' && fbLead.body.held === true && fbLead.body.handoff !== 'lead-directed'
+        && recorded(fbLead.body?.event_id).directed_fallback?.seat_id === 'seat-0000000e',
+        '负责人指名退回整队：同样 handoff=team、先过目（held）、应答不带 lead-directed，recorded 照留 directed_fallback', show({ b: fbLead.body, item: fbLeadItem }));
+      // 对照：同样开着直派，退回整队时本人明说 review:false 照样直接派出（和整队派发一样，不比整队更严）
+      const fbDirect = await call('POST', '/api/work-items', ALPHA, form({ team: 'dsh/canvas/team-c', seat_id: 'seat-0000000e', review: false }));
+      check(fbDirect.status === 201 && fbDirect.body.held === false && itemRow(fbDirect.body?.item_id).handoff === 'team',
+        '对照：退回整队、本人 review:false、直派开着 → 直接派出，handoff=team', show(fbDirect.body));
+    } finally {
+      await call('PUT', '/api/settings', ADMIN, { staff_direct_dispatch: 'off' });
+      await call('PUT', '/api/task-center/policy', ADMIN, { agent_dispatch_enabled: false });
+    }
   }
 
   // ---------- 拒绝 ----------
