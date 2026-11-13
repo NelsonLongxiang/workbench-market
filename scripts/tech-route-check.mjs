@@ -936,6 +936,8 @@ function selftest() {
   check(broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: '没写 PR 号' })) }), '清单校验：放宽原因没带 PR 号，报错');
   check(broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: '' })) }), '清单校验：放宽原因是空的，报错');
   check(!broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: '一句话（#1）' })) }), '清单校验：放宽原因一句话带 PR 号，通过');
+  for (const bare of ['  #1', '（#1）', 'x #1', '#1 #2', '--- #12 ...']) check(broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: bare })) }), `清单校验：放宽原因除了 PR 号几乎没写字（${JSON.stringify(bare)}），报错`);
+  check(!broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: '搬 SQL（#12）' })) }), '清单校验：PR 号之外有四个字以上的说明，通过');
   {
     const dir = mkdtempSync(join(tmpdir(), 'tech-route-tighten-'));
     try {
