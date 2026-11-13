@@ -119,3 +119,26 @@ export function teamVisibleTo(v: { admin: boolean; principal: string | null; man
   }
   return false;
 }
+
+/**
+ * 一个人身上的团队这层关系（「谁能做什么」页用）：在哪些部门（成员、负责人）、是哪些团队的负责人（另外指定的、经部门推出来的）、
+ * 手上分到了哪些成员。只有关系本身，不带事项内容。和 relationOf 一样只反映已确认的关系（提议期间的不在这里）。
+ * 注意 dept-member 只是组织信息，不能拿来放行（见文件头）。
+ */
+export type RelationsSummary = {
+  /** lead：已放行的负责人（有这个部门的拍板授予）；lead_pending：部门上写着他、还没有授予（待属主放行，不带权力） */
+  departments: { id: string; name: string; member: boolean; lead: boolean; lead_pending: boolean }[];
+  teams_led: { host: string; team: string; name: string; department: { id: string; name: string } | null; source: 'explicit' | 'department' }[];
+  members: { host: string; team: string; team_name: string; seat: string; seat_id: string; since: number }[];
+};
+export function relationsSummaryOf(principal: string): RelationsSummary {
+  const departments = svc<DepartmentService>('departments').of(principal)
+    .map((d) => ({ id: d.id, name: d.name, member: d.is_member, lead: d.is_lead, lead_pending: !!d.lead_pending }));
+  const teams_led = teams().allViews().flatMap((t) => {
+    const l = t.leads.find((x) => x.principal === principal);
+    return l ? [{ host: t.host, team: t.team, name: teamName(t.team), department: t.department, source: l.source }] : [];
+  });
+  const members = teams().assignedTo(principal)
+    .map((a) => ({ host: a.host, team: a.team, team_name: teamName(a.team), seat: a.seat, seat_id: a.seat_id, since: a.assigned_at }));
+  return { departments, teams_led, members };
+}

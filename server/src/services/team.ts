@@ -158,8 +158,8 @@ export class TeamService extends Service {
       .run(k.host, k.team, kind, extra.seat ?? '', extra.seat_id ?? '', extra.principal ?? '', extra.detail === undefined ? '' : JSON.stringify(extra.detail), actor.by.slice(0, 256), actor.principal, now);
   }
 
-  events(k: TeamKey): { seq: number; kind: string; seat: string; seat_id: string; principal_id: string; detail: string; actor: string; at: number }[] {
-    return db.prepare('SELECT seq, kind, seat, seat_id, principal_id, detail, actor, at FROM team_events WHERE host = ? AND team = ? ORDER BY seq').all(k.host, k.team) as never;
+  events(k: TeamKey): { seq: number; kind: string; seat: string; seat_id: string; principal_id: string; detail: string; actor: string; actor_principal: string | null; at: number }[] {
+    return db.prepare('SELECT seq, kind, seat, seat_id, principal_id, detail, actor, actor_principal, at FROM team_events WHERE host = ? AND team = ? ORDER BY seq').all(k.host, k.team) as never;
   }
 
   /** 一个事务；外面已经开着事务（比如确认关系提议时把核对、改状态、落关系包在一起）就用保存点嵌进去 */
