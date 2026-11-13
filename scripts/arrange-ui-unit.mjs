@@ -39,5 +39,11 @@ ok('失败：429 分分钟和天', errorText(429, { window: 'minute', limit: 5 }
 ok('失败：断网说明重试不会重复', errorText(0, null).includes('不会重复'));
 ok('读团队：没上线（旧路由答 400 或 404）、未登录、无权限、其他', teamsBlockedText(400).text.includes('还没上线') && teamsBlockedText(404).type === 'info' && teamsBlockedText(401).text === '请先登录' && teamsBlockedText(403).text.includes('不能安排') && teamsBlockedText(500).text.includes('读不到'));
 
+{
+  const good2 = { ...EMPTY_FORM, title: 't', intent: 'i', deliverable: 'd', team: 'x/canvas/y' };
+  ok('附件：传上的 id 安排时带 attachments；没有就不带这个键', JSON.stringify(buildBody({ ...good2, attachments: ['a1', 'a2'] }, 'k'.repeat(20)).attachments) === '["a1","a2"]' && !('attachments' in buildBody(good2, 'k'.repeat(20))));
+  ok('附件不对（attachments_invalid）有说法', errorText(400, { error: 'attachments_invalid' }).includes('附件'));
+}
+
 console.log(`\narrange-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

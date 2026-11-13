@@ -500,6 +500,8 @@ jobs:
         run: node scripts/bench-blocks-ui-unit.mjs
       - name: 「谁能做什么」页单测（纯函数——授予的状态、范围、期限，待核准，按人排的表，矩阵格子；单列一步）
         run: node scripts/access-ui-unit.mjs
+      - name: 事项的期限和附件单测（纯函数——字段没到不画、链接只认本站 /api/、大小怎么说；单列一步）
+        run: node scripts/work-item-extras-unit.mjs
       - name: 「团队」页单测（纯函数——团队状态、负责人、成员归谁用、计数、空和读不到的说法、建部门校验；单列一步）
         run: node scripts/team-ui-unit.mjs
       - name: 身份服务连不上单测（纯函数——认法只认 502 加这个代号·退避重试·连上后清状态并重读·全景的总结句；单列一步）

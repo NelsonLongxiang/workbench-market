@@ -249,6 +249,26 @@ export async function postWorkItem(body: Record<string, unknown>): Promise<{ sta
   } catch { return { status: 0, body: null }; }
 }
 
+/** 「安排一件事」传附件：PUT /api/work-items/attachments/<文件名>，请求体是文件的原始字节，带 X-Content-SHA256 让服务端核对。
+ *  返回状态码和应答体（成功 201 { id, name, size, … }，失败带 error 代号）；断网当状态码 0 */
+export async function uploadArrangeAttachment(file: File, sha256: string): Promise<{ status: number; body: Record<string, unknown> | null }> {
+  try {
+    const r = await fetch(`/api/work-items/attachments/${encodeURIComponent(file.name)}`, {
+      method: 'PUT', credentials: 'same-origin', body: file,
+      // 算不出摘要（不安全的来源里没有 crypto.subtle）就不带核对头，服务端照样收
+      headers: { 'Content-Type': file.type || 'application/octet-stream', ...(sha256 ? { 'X-Content-SHA256': sha256 } : {}), Accept: 'application/json' },
+    });
+    return { status: r.status, body: await r.json().catch(() => null) as Record<string, unknown> | null };
+  } catch { return { status: 0, body: null }; }
+}
+/** 改一件事项的期限（只有建立人）：POST /api/work-items/<id>/due { due: 'YYYY-MM-DD' | null }；null 是清掉 */
+export async function setWorkItemDue(id: string, due: string | null): Promise<{ status: number; body: Record<string, unknown> | null }> {
+  try {
+    const r = await fetch(`/api/work-items/${encodeURIComponent(id)}/due`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ due }) });
+    return { status: r.status, body: await r.json().catch(() => null) as Record<string, unknown> | null };
+  } catch { return { status: 0, body: null }; }
+}
+
 /** 「团队」页（规范 14）：团队、部门、人各读各的，返回状态码让页面给说法；认领、指定负责人、建部门也一样。
  *  不走 apiFetch（被拒时不弹管理员口令，页面自己说）。带上口令头：管理员用口令时能看到待认领的团队。断网当状态码 0 */
 async function teamCall(url: string, init?: { method: string; body: unknown }): Promise<{ status: number; body: unknown }> {

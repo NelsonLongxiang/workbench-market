@@ -2,8 +2,9 @@
  *  接口：GET /api/work-items/teams（可派的团队）、POST /api/work-items（建一件事，#577）。 */
 
 export type Team = { team: string; name: string };
-export type ArrangeForm = { title: string; intent: string; deliverable: string; team: string; object: string; phase: string; review: boolean; due: string };
-export const EMPTY_FORM: ArrangeForm = { title: '', intent: '', deliverable: '', team: '', object: '', phase: '', review: true, due: '' };
+/** attachments：已经传上去的附件的 id（PUT /api/work-items/attachments/<名字> 回的），安排时一起带上 */
+export type ArrangeForm = { title: string; intent: string; deliverable: string; team: string; object: string; phase: string; review: boolean; due: string; attachments: string[] };
+export const EMPTY_FORM: ArrangeForm = { title: '', intent: '', deliverable: '', team: '', object: '', phase: '', review: true, due: '', attachments: [] };
 export const LIMITS = { title: 200, intent: 4000, deliverable: 2000, object: 200, phase: 200 } as const;
 
 /** 团队怎么显示：有名字就写名字；名册落地前 name 就等于 team，这时按 people.ts 的 teamLabel 同一规则：
@@ -34,6 +35,7 @@ export function buildBody(f: ArrangeForm, key: string): Record<string, unknown> 
   if (f.object.trim()) b.object = f.object.trim();
   if (f.phase.trim()) b.phase = f.phase.trim();
   if (f.due) b.due = f.due;
+  if (f.attachments.length) b.attachments = [...f.attachments];
   return b;
 }
 
@@ -61,7 +63,7 @@ export function resultText(r: Created): string {
 const ERR: Record<string, string> = {
   title_required: '写一个标题', title_too_long: `标题最多 ${LIMITS.title} 字`, intent_required: '写一下要做什么', deliverable_required: '写一下要交什么',
   team_required: '选一个团队', team_not_assignable: '这个团队现在不能派，换一个', object_invalid: '「挂在哪条线」写得不对', phase_invalid: '「哪一步」写得不对',
-  due_invalid: '期限的日期不对', review_invalid: '「先过目再派出去」的值不对', idempotency_key_invalid: '页面出了点问题，刷新后再试',
+  due_invalid: '期限的日期不对', attachments_invalid: '附件不对：只能挂你自己刚传、还没挂出去的，最多 5 个；重新传一遍再安排', review_invalid: '「先过目再派出去」的值不对', idempotency_key_invalid: '页面出了点问题，刷新后再试',
 };
 export function errorText(status: number, body: { error?: string; window?: string; limit?: number } | null): string {
   if (status === 0) return '连不上服务器，检查网络后再点一次（不会重复安排）';
