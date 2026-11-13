@@ -102,7 +102,7 @@ import type { TaskCenterService } from './services/task-center.ts';
 import type { RemoteAllowService } from './services/remote-allow.ts';
 import { SkillService } from './services/skill.ts';
 import type { AppService } from './services/app.ts';
-import type { AppDataService } from './services/app-data.ts';
+import { Config as AppDataConfig, type AppDataService } from './services/app-data.ts';
 import type { GrantService } from './services/grant.ts';
 import type { DepartmentService } from './services/department.ts';
 import type { CookieService } from './services/cookie.ts';
@@ -163,6 +163,8 @@ setBenchRequestTtlHours((() => { try { return benchRequestTtlConfig(); } catch (
 // 工作台的常量、变量存在哪（WM_VARS_STORE：main / shadow / bench，缺省 main）。不合法拒绝启动；起来时报一次已有的 hot. 开头的键
 setVarsStoreMode((() => { try { return loadConfig(VarsConfig).store; } catch (e) { console.error(`[vars] 拒绝启动：${(e as Error).message}`); process.exit(1); } })());
 reportHotVarKeys();
+// 台的提交记录和附件存在哪（WM_APP_DATA_STORE：main / shadow / bench，缺省 main）。不合法拒绝启动
+svc<AppDataService>('appData').setMode((() => { try { return loadConfig(AppDataConfig).store; } catch (e) { console.error(`[app-data] 拒绝启动：${(e as Error).message}`); process.exit(1); } })());
 reportHotPending(); // 上一个 bench 档进程留在 Redis 里没落盘的高频变量：不是 bench 档时醒目报一次
 startHotVarsFlush(); // 高频变量（hot. 开头的键）每 30 秒落一次台库；只在 bench 档、配了 Redis 时有活
 // 全站登录门（WM_LOGIN_GATE=enforce|off，缺省 off）：紧跟启动自检门，早于内容分发、解析器、静态资源、SPA 回落和各路由。
@@ -760,7 +762,10 @@ function workbenchUpdateCore(id: number, body: any, ctx: WriteCtx = { subject: '
 
 // 删卡片连带它的台库（bench-card-delete.ts）：台库里有数据时要管理层并且确认，删前留备份；卡片本身那一份和台的登记在一个事务里
 async function workbenchDeleteCore(id: number, deleter: CardDeleter = { kind: 'anonymous' }, confirmBenchData = false): Promise<{ ok: boolean; deleted: number }> {
-  return deleteCardWithBench({
+  // 第 6 步（WM_APP_DATA_STORE 不是 main）：台的卡片的台库里有这个台的提交和附件，删卡片就是删它们——先对齐进台库，让下面那道门看得到规模
+  const cardRow = svc<WorkbenchService>('workbench').byId(id) as { url?: unknown } | undefined;
+  const appSlug = cardRow && typeof cardRow.url === 'string' ? await svc<AppDataService>('appData').beforeCardDelete(cardRow.url) : null;
+  const out = await deleteCardWithBench({
     id, deleter, confirmBenchData,
     exists: () => !!svc<WorkbenchService>('workbench').byId(id),
     deleteCard: (slug) => {
@@ -779,6 +784,14 @@ async function workbenchDeleteCore(id: number, deleter: CardDeleter = { kind: 'a
       }
     },
   });
+  if (appSlug) {
+    // 门过了、卡片删了（台库删前留了备份）：主库那份和附件字节一起删，不然以后再登记卡片时会按主库重抄回来
+    const files = await svc<AppDataService>('appData').filePaths(appSlug);
+    await svc<AppDataService>('appData').dataDelete(appSlug);
+    for (const f of files) { try { rmSync(join(dataDir, f), { force: true }); } catch { /* 已删 */ } }
+    await svc<AppDataService>('appData').filesDelete(appSlug);
+  }
+  return out;
 }
 
 /** 审计主体：只认已核的管理口令；X-Market-Client 等自报头不算身份 */
@@ -1369,7 +1382,11 @@ async function layerfsPublish(project: string, files: { path: string; content: s
 async function deleteAppCascade(slug: string, card: { deleter: CardDeleter; confirmBenchData: boolean } = { deleter: { kind: 'anonymous' }, confirmBenchData: false }): Promise<void> {
   const a = getApp(slug);
   const cardIds = svc<WorkbenchService>('workbench').idsByAppUrls(`/apps/${a.slug}/`, `/sop/${a.slug}/`);
-  for (const id of cardIds) await checkCardDeletable(id, card.deleter, card.confirmBenchData);
+  for (const id of cardIds) {
+    const row = svc<WorkbenchService>('workbench').byId(id) as { url?: unknown } | undefined;
+    if (row && typeof row.url === 'string') await svc<AppDataService>('appData').beforeCardDelete(row.url); // 第 6 步：提交和附件先对齐进台库，门才看得到
+    await checkCardDeletable(id, card.deleter, card.confirmBenchData);
+  }
   // Remove remote state first and retain local state on failure; without LayerFS config, apps never written there stay deletable.
   const versions = svc<AppService>('app').versions(a.id) as any[];
   const hasLayerfsState = Boolean((a as any).layerfs_project) || versions.some(v => String(v.commit_id ?? '') !== '');
@@ -1393,14 +1410,14 @@ async function deleteAppCascade(slug: string, card: { deleter: CardDeleter; conf
   rmSync(join(appsRoot, slug), { recursive: true, force: true });
   svc<AppService>('app').versionsDelete(a.id);
   svc<AppService>('app').delete(a.id);
-  await svc<AppDataService>('appData').dataDelete(slug);
-  const files = await svc<AppDataService>('appData').filePaths(slug);
-  for (const f of files) { try { rmSync(join(dataDir, f), { force: true }); } catch { /* 已删 */ } }
-  await svc<AppDataService>('appData').filesDelete(slug);
   // issue #6：清理应用与 SOP 对应的工作台注册——逐张走删卡片那条路（台库、常量变量、驾驶舱面板一起）
   for (const id of cardIds) {
     try { await workbenchDeleteCore(id, card.deleter, card.confirmBenchData); } catch (e) { if (!(e instanceof HttpError && e.status === 404)) throw e; } // 期间已被删了就算了
   }
+  await svc<AppDataService>('appData').dataDelete(slug);
+  const files = await svc<AppDataService>('appData').filePaths(slug);
+  for (const f of files) { try { rmSync(join(dataDir, f), { force: true }); } catch { /* 已删 */ } }
+  await svc<AppDataService>('appData').filesDelete(slug);
 }
 
 // ---------- 自产台数据提交面（监督席派单 direct-22838fab：台不仅是看板，有交互提交数据） ----------

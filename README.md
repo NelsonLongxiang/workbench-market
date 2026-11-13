@@ -36,6 +36,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `MCP_GATEWAY`（#284 起**缺省开**：未设/空/`on`=会话令牌网关；只有显式 `off` 且 `NODE_ENV=development/test` 才允许关闭并启动告警；生产/未设/空/未知运行模式配 off 由启动自检拒绝，其它网关值也拒绝启动）
 - `REDIS_URL`（共用状态层：SOP 执行实例和台的热数据·可选·缺省读 `DATA_DIR/redis.url`·无则直写 SQLite）
 - `WM_VARS_STORE`（工作台的常量、变量存在哪：`main` 缺省，只用主库；`shadow` 主库是真源、同时写一份卡片的台库；`bench` 卡片的台库是真源、尽力写回主库留作回退。对外应答三档一样。`bench` 档配了 Redis 时，键名以 `hot.` 开头的变量（高频变量）先写 Redis、30 秒落一次台库，起名 `hot.` 就表示接受最多丢 30 秒；Redis 不通而这张卡片还有没落盘的写入时，这类变量回 503 可重试。填错拒绝启动。上线时保持 `main`，另两档等生产演练和属主批准，见 docs/data-views.md 第十三节）
+- `WM_APP_DATA_STORE`（台的提交记录和附件的元数据存在哪：`main` 缺省，只用主库；`shadow` 照旧读主库、写主库之后原样抄一份进卡片的台库；`bench` 读卡片的台库、写照旧先写主库（id 由主库发）再抄进台库。附件字节不搬。对外应答三档一样。填错拒绝启动。上线时保持 `main`，见 docs/data-views.md 第十三节第 6 条）
 - `MARKET_TEAM`（A2A team 默认 `market`；名片的 team、会话句柄 `<MARKET_TEAM>/<node8>` 和工作台事件出站的 caller_session 都用它）
 - `MARKET_PUBLIC_URL`（对外基址·A2A 卡片与 MCP `skill_download` 下载链接用；生产建议设成 https 地址——没设时下载链接取请求主机，主机名不规范就不签发）
 - `A2A_API_KEY`/`A2A_STATE_URL`（A2A 外部面）

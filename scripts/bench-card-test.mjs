@@ -14,6 +14,9 @@
  *   五之二、取数时表单块带 can_submit：管理层 true；只授了「取数、读视图」的自定义角色 false（这时交表单确实 403）；不是表单的块不带
  *   四之二、删台（DELETE /api/apps/:slug）也走同一道门、同一条路：台的卡片的台库有数据时，只有管理口令的 409、什么都没删（台、卡片、台库都在）；
  *       属主不带确认 409、带了确认删成——卡片、台的登记、常量变量、驾驶舱面板一起没了，台库删前备份；台库空的台照旧直接删，卡片的常量变量也一起删（原来留成孤儿）
+ *   四之三、main 档（缺省）只删卡片：台的提交记录照旧留在主库（第 6 步的语义变化只在 shadow、bench 档）
+ *   七、WM_APP_DATA_STORE=bench：台的提交和附件在卡片的台库里——只删卡片也删它们：只有管理口令的 409（规模里有几条提交、几个附件），
+ *       什么都没删；属主带确认删成：台库删前备份，主库里这个台的提交、附件和磁盘上的附件字节一起删了；台本身还在
  *   六、（阶段一复验补的）台库里只有视图描述也算有数据；本机浏览器页面不是属主；同名旧库还在时不许登记；
  *       纯数字标识的旧台：数字写法照旧认到它，同号卡片不许对应别的台（只许对应它自己），启动时报出来
  *
@@ -248,6 +251,12 @@ try {
   check(crToken.status === 409 && crToken.json?.code === 'bench_data_needs_management' && afterCr.app && afterCr.card && afterCr.bench && afterCr.status === 'pending' && crOwner.status === 200 && !afterCrOwner.app && !afterCrOwner.card && !afterCrOwner.bench,
     '经人审批准删台：只有管理口令的批准 409（申请仍待定，什么都没删）；属主批准并带确认删成', { token: crToken.text.slice(0, 160), afterCr, owner: crOwner.text.slice(0, 160), afterCrOwner });
 
+  console.log('四之三、main 档只删卡片');
+  const WM = mkApp('syn-del-m');
+  await srv.call('POST', '/api/apps/syn-del-m/data', { body: { data: { n: 1 } } });
+  const mDel = await srv.call('DELETE', `/api/workbenches/${WM}`, token);
+  check(mDel.status === 200 && db.prepare("SELECT COUNT(*) AS n FROM app_data WHERE app_slug = 'syn-del-m'").get().n === 1, 'main 档只删卡片：台的提交记录照旧留在主库', { status: mDel.status, body: mDel.text.slice(0, 160) });
+
   console.log('六、阶段一复验补的');
   const W6 = await mkWb('合成·只有视图', 'w6'), W7 = await mkWb('合成·本机页面删', 'w7'), W8 = await mkWb('合成·同号', 'w8');
   // 只有视图描述、没有数据集
@@ -287,6 +296,26 @@ try {
   const srv2 = await boot('on', { WM_BENCH_VIEWS: 'on' });
   await sleep(500);
   check(/有 2 个旧台的标识是纯数字/.test(srv2.log()) && srv2.log().includes('424242') && srv2.log().includes(String(W8)), '启动时报出纯数字标识的旧台（个数和标识）', srv2.log().split('\n').filter((l) => l.includes('纯数字')).join(' | ').slice(0, 300));
+
+  console.log('七、WM_APP_DATA_STORE=bench：只删卡片也删提交和附件');
+  const srv3 = await boot('app-bench', { WM_BENCH_VIEWS: 'on', WM_APP_DATA_STORE: 'bench' });
+  const db3 = srv3.db();
+  db3.prepare('INSERT INTO apps (slug, title) VALUES (?, ?)').run('syn-sub', '合成·有提交的台');
+  const WS = Number(db3.prepare("INSERT INTO workbenches (name, url, type, enabled) VALUES (?, ?, 'market-app', 1)").run('合成·有提交的台', '/apps/syn-sub/').lastInsertRowid);
+  for (const n of [1, 2]) await srv3.call('POST', '/api/apps/syn-sub/data', { body: { data: { n } } });
+  mkdirSync(join(srv3.data, 'uploads', 'syn'), { recursive: true });
+  const { writeFileSync } = await import('node:fs');
+  writeFileSync(join(srv3.data, 'uploads', 'syn', 'f.txt'), 'abc');
+  db3.prepare("INSERT INTO app_files (app_slug, original_name, mime, size, storage_path, created_by) VALUES ('syn-sub', 'f.txt', 'text/plain', 3, 'uploads/syn/f.txt', 'seed')").run();
+  const token3 = { headers: { ...REMOTE, 'x-admin-token': ADMIN_TOKEN } };
+  const subTok = await srv3.call('DELETE', `/api/workbenches/${WS}`, token3);
+  const kept = { data: db3.prepare("SELECT COUNT(*) AS n FROM app_data WHERE app_slug = 'syn-sub'").get().n, files: db3.prepare("SELECT COUNT(*) AS n FROM app_files WHERE app_slug = 'syn-sub'").get().n, card: !!db3.prepare('SELECT 1 FROM workbenches WHERE id = ?').get(WS) };
+  check(subTok.status === 409 && subTok.json?.code === 'bench_data_needs_management' && subTok.json?.bench_data?.submissions === 2 && subTok.json.bench_data.files === 1 && kept.data === 2 && kept.files === 1 && kept.card && !/abc|f\.txt|"n"/.test(subTok.text),
+    'bench 档：只有管理口令删有提交的卡片 409，规模里有 2 条提交、1 个附件（不出现内容和文件名），什么都没删', { status: subTok.status, body: subTok.text.slice(0, 220), kept });
+  const subOwner = await srv3.call('DELETE', `/api/workbenches/${WS}?confirm_bench_data=true`, {});
+  const subGone = { data: db3.prepare("SELECT COUNT(*) AS n FROM app_data WHERE app_slug = 'syn-sub'").get().n, files: db3.prepare("SELECT COUNT(*) AS n FROM app_files WHERE app_slug = 'syn-sub'").get().n, bytes: existsSync(join(srv3.data, 'uploads', 'syn', 'f.txt')), app: !!db3.prepare("SELECT 1 FROM apps WHERE slug = 'syn-sub'").get(), backup: readdirSync(join(srv3.data, 'bench-stores', '.deleted')).some((f) => f.startsWith(`wb-${WS}--`)) };
+  check(subOwner.status === 200 && subGone.data === 0 && subGone.files === 0 && !subGone.bytes && subGone.app && subGone.backup,
+    'bench 档：属主带确认删成——台库删前备份，主库里这个台的提交、附件和磁盘上的附件字节一起删了；台本身还在', { status: subOwner.status, body: subOwner.text.slice(0, 160), subGone });
 } catch (e) {
   check(false, `没有中途抛错：${e?.stack ?? e}`);
 } finally {

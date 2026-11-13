@@ -640,7 +640,11 @@ export function launchPlan(clock, fixtures = []) {
 const JUDGMENT_ENV = process.env.WM_JUDGMENT_COMPARE === 'on' && process.env.WM_JUDGMENT_COMPARE_OUT
   ? { WM_JUDGMENT_COMPARE: 'on', WM_JUDGMENT_COMPARE_OUT: process.env.WM_JUDGMENT_COMPARE_OUT, ...(process.env.WM_JUDGMENT_ENFORCE ? { WM_JUDGMENT_ENFORCE: process.env.WM_JUDGMENT_ENFORCE } : {}) } : {};
 // 工作台的常量、变量存在哪（WM_VARS_STORE，docs/data-views.md 第十三节）：设了就带进每个实例，同一份录带在 main / shadow / bench 三档下各跑一遍，应答必须逐字节一样。没设时什么都不变
-const VARS_ENV = ['main', 'shadow', 'bench'].includes(process.env.WM_VARS_STORE ?? '') ? { WM_VARS_STORE: process.env.WM_VARS_STORE } : {};
+const VARS_ENV = {
+  ...(['main', 'shadow', 'bench'].includes(process.env.WM_VARS_STORE ?? '') ? { WM_VARS_STORE: process.env.WM_VARS_STORE } : {}),
+  // 台的提交记录和附件存在哪（WM_APP_DATA_STORE，第十三节第 6 条）：同上，设了就带进每个实例
+  ...(['main', 'shadow', 'bench'].includes(process.env.WM_APP_DATA_STORE ?? '') ? { WM_APP_DATA_STORE: process.env.WM_APP_DATA_STORE } : {}),
+};
 async function bootOnce(tag, env, clock, fixtures) {
   const plan = launchPlan(clock, fixtures);
   const port = await freePort();
