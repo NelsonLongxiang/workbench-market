@@ -108,7 +108,7 @@ try {
   // A recorded LayerFS association must not fall back to local-only deletion.
   const pub1 = await ghPublish(BASE, gh, { slug: 'layerfsprobe', title: 'LF', files: [{ path: 'index.html', content: '<h1>lf</h1>' }] });
   ok('第二个合成台发布用于关联保护测试', pub1.status === 201, `status=${pub1.status}`);
-  const stateDb = new DatabaseSync(`${DATA}/workbench-market.db`);
+  const stateDb = new DatabaseSync(`${DATA}/workbench-market.db`, { timeout: 5000 });
   const appRow = stateDb.prepare("SELECT id FROM apps WHERE slug = 'layerfsprobe'").get();
   stateDb.prepare("UPDATE apps SET layerfs_project = 'layerfsprobe' WHERE id = ?").run(appRow.id);
   const refused = await call('DELETE', '/api/apps/layerfsprobe', { reviewed_by: 'appfiles-smoke' });

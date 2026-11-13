@@ -86,7 +86,7 @@ try {
   const WHO = { 被指成负责人的: { ...SAME, cookie: `session_id=${SESSIONS.beta}` }, 被分到成员的: { ...SAME, cookie: `session_id=${SESSIONS.noAdminFlag}` }, 部门负责人: { ...SAME, cookie: `session_id=${SESSIONS.alpha}` } };
   for (const h of Object.values(WHO)) await call('GET', '/api/auth/me', h);
   {
-    const db = new DatabaseSync(join(data, 'workbench-market.db'));
+    const db = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 });
     const now = Date.now();
     db.prepare('INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?)').run(HOST, PEER, 'zone1', new Date(now).toISOString(), new Date(now).toISOString());
     const seatIns = db.prepare('INSERT INTO a2a_roster_seats (host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)');
@@ -104,7 +104,7 @@ try {
   check(dept.status === 201 && claim.status === 200 && lead.status === 202 && lead.body?.proposed === true && assign.status === 403,
     '管理口令指负责人只记成提议（202，待确认）；分配成员系统管理员不能代办（403）', show({ dept: dept.status, claim: claim.status, lead: [lead.status, lead.body?.proposal?.status], assign: assign.status }));
   {
-    const db = new DatabaseSync(join(data, 'workbench-market.db'));
+    const db = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 });
     db.prepare('UPDATE work_items SET seat = ?, seat_id = ?, seat_at = ? WHERE id = ?').run(MEMBER.seat, MEMBER.seat_id, sqlTime(Date.now() + 2000), I.item);
     db.close();
   }

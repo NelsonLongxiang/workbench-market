@@ -177,11 +177,56 @@
       "answered_by TEXT NOT NULL DEFAULT ''",
       "at TEXT NOT NULL DEFAULT datetime('now')"
     ],
+    "bench_bind_audit": [
+      "id INTEGER PK",
+      "slug TEXT NOT NULL",
+      "action TEXT NOT NULL",
+      "before TEXT NOT NULL DEFAULT ''",
+      "after TEXT NOT NULL DEFAULT ''",
+      "actor TEXT NOT NULL",
+      "note TEXT NOT NULL DEFAULT ''",
+      "at INTEGER NOT NULL"
+    ],
+    "bench_mcp_audit": [
+      "id INTEGER PK",
+      "bench TEXT NOT NULL",
+      "session_id INTEGER NOT NULL",
+      "action TEXT NOT NULL",
+      "tools TEXT NOT NULL DEFAULT '[]'",
+      "actor TEXT NOT NULL",
+      "request_id INTEGER",
+      "note TEXT NOT NULL DEFAULT ''",
+      "at INTEGER NOT NULL"
+    ],
+    "bench_mcp_grants": [
+      "session_id INTEGER NOT NULL PK",
+      "bench TEXT NOT NULL PK",
+      "tool TEXT NOT NULL PK",
+      "granted_by TEXT NOT NULL",
+      "granted_at INTEGER NOT NULL",
+      "request_id INTEGER"
+    ],
+    "bench_mcp_requests": [
+      "id INTEGER PK",
+      "session_id INTEGER NOT NULL",
+      "bench TEXT NOT NULL",
+      "tools TEXT NOT NULL",
+      "reason TEXT NOT NULL",
+      "status TEXT NOT NULL DEFAULT 'pending'",
+      "decided_by TEXT NOT NULL DEFAULT ''",
+      "decided_at INTEGER",
+      "note TEXT NOT NULL DEFAULT ''",
+      "created_at INTEGER NOT NULL"
+    ],
     "bench_views": [
       "slug TEXT PK",
       "title TEXT NOT NULL",
       "created_by TEXT NOT NULL",
-      "created_at INTEGER NOT NULL"
+      "created_at INTEGER NOT NULL",
+      "department_id TEXT NOT NULL DEFAULT ''",
+      "team_host TEXT NOT NULL DEFAULT ''",
+      "team TEXT NOT NULL DEFAULT ''",
+      "workbench_id INTEGER"
     ],
     "bindings": [
       "id INTEGER PK",
@@ -218,7 +263,8 @@
       "description TEXT DEFAULT ''",
       "layout_config TEXT NOT NULL DEFAULT '[]'",
       "created_at TEXT NOT NULL DEFAULT datetime('now')",
-      "updated_at TEXT NOT NULL DEFAULT datetime('now')"
+      "updated_at TEXT NOT NULL DEFAULT datetime('now')",
+      "created_by TEXT"
     ],
     "cookie_sets": [
       "id INTEGER PK",
@@ -264,6 +310,12 @@
       "created_at INTEGER NOT NULL",
       "updated_at INTEGER NOT NULL",
       "updated_by TEXT NOT NULL DEFAULT ''"
+    ],
+    "dept_lead_grants": [
+      "department_id TEXT PK",
+      "grant_id INTEGER NOT NULL",
+      "principal_id TEXT NOT NULL",
+      "created_at INTEGER NOT NULL"
     ],
     "endpoint_stats": [
       "endpoint TEXT NOT NULL PK",
@@ -771,7 +823,8 @@
       "review_by TEXT NOT NULL DEFAULT ''",
       "directed_seat_id TEXT NOT NULL DEFAULT ''",
       "seat_id TEXT NOT NULL DEFAULT ''",
-      "seat_at TEXT NOT NULL DEFAULT ''"
+      "seat_at TEXT NOT NULL DEFAULT ''",
+      "cockpit_id INTEGER"
     ],
     "workbench_event_deliveries": [
       "id INTEGER PK",
@@ -915,6 +968,12 @@
     "idx_app_data_idem ON app_data: CREATE UNIQUE INDEX idx_app_data_idem ON app_data (app_slug, idempotency_key) WHERE idempotency_key <> ''",
     "idx_app_data_slug ON app_data: CREATE INDEX idx_app_data_slug ON app_data(app_slug, created_at)",
     "idx_app_files_slug ON app_files: CREATE INDEX idx_app_files_slug ON app_files(app_slug, created_at)",
+    "idx_bench_bind_audit_slug ON bench_bind_audit: CREATE INDEX idx_bench_bind_audit_slug ON bench_bind_audit (slug, id)",
+    "idx_bench_mcp_audit_bench ON bench_mcp_audit: CREATE INDEX idx_bench_mcp_audit_bench ON bench_mcp_audit (bench, id)",
+    "idx_bench_mcp_grants_bench ON bench_mcp_grants: CREATE INDEX idx_bench_mcp_grants_bench ON bench_mcp_grants (bench, session_id)",
+    "idx_bench_mcp_requests_bench ON bench_mcp_requests: CREATE INDEX idx_bench_mcp_requests_bench ON bench_mcp_requests (bench, id)",
+    "idx_bench_mcp_requests_session ON bench_mcp_requests: CREATE INDEX idx_bench_mcp_requests_session ON bench_mcp_requests (session_id, created_at)",
+    "idx_bench_views_workbench ON bench_views: CREATE UNIQUE INDEX idx_bench_views_workbench ON bench_views (workbench_id) WHERE workbench_id IS NOT NULL",
     "idx_bindings_node ON bindings: CREATE INDEX idx_bindings_node ON bindings (agent_node, revoked_at)",
     "idx_bindings_target ON bindings: CREATE INDEX idx_bindings_target ON bindings (target_type, target_slug, revoked_at)",
     "idx_change_requests_status ON change_requests: CREATE INDEX idx_change_requests_status ON change_requests (status, created_at)",
@@ -959,6 +1018,7 @@
     "idx_wbe_replies_due ON workbench_event_replies: CREATE INDEX idx_wbe_replies_due ON workbench_event_replies (status, next_at)",
     "idx_work_item_log_item ON work_item_log: CREATE INDEX idx_work_item_log_item ON work_item_log (item_id, seq)",
     "idx_work_item_requests_time ON work_item_requests: CREATE INDEX idx_work_item_requests_time ON work_item_requests(requester, created_at)",
+    "idx_work_items_cockpit ON work_items: CREATE INDEX idx_work_items_cockpit ON work_items (cockpit_id, updated_at)",
     "idx_work_items_object ON work_items: CREATE INDEX idx_work_items_object ON work_items (object, phase)",
     "idx_work_items_source ON work_items: CREATE INDEX idx_work_items_source ON work_items (source_kind, source_ref)",
     "idx_work_items_state ON work_items: CREATE INDEX idx_work_items_state ON work_items (state, updated_at)",

@@ -1,5 +1,5 @@
 /** 事项列表页的纯函数：不碰 React，scripts/work-items-ui-unit.mjs 直接测。
- *  数据来自 GET /api/work-items（可见范围同详情：管理员看全部，别人只看自己建立的）。 */
+ *  数据来自 GET /api/work-items：按视角给（我安排的 / 我的 AI 员工手上的 / 我的团队的 / 全部），哪些能用由服务端按身份定。 */
 
 export type WorkItemListRow = {
   id: string; title: string; state: string; object: string | null; phase: string | null; seat: string | null;
@@ -8,7 +8,11 @@ export type WorkItemListRow = {
   /** 未读的席位消息数；服务端还没给时缺省，当 0 */
   unread?: number;
 };
-export type WorkItemListPage = { items: WorkItemListRow[]; counts: Record<string, number>; total: number; next_cursor: string | null };
+export type WorkItemListPage = {
+  items: WorkItemListRow[]; counts: Record<string, number>; total: number; next_cursor: string | null;
+  /** 这一页是哪个视角（不带 view 时服务端挑第一个有内容的）、各视角能不能用和件数；旧服务端没有这两个字段 */
+  view?: ViewKey | null; views?: Record<ViewKey, { available: boolean; count: number }>;
+};
 
 /** 按状态分的四组。「未派发」是只通知、没有目标团队的事件建出来的草稿，不是待办，缺省折叠。 */
 export const STATE_GROUPS: { key: string; title: string; states: string[]; collapsed?: boolean; empty: string }[] = [
@@ -23,6 +27,27 @@ export function groupOf(state: string): string {
   return STATE_GROUPS.find((g) => g.states.includes(state))?.key ?? 'doing';
 }
 
+/** 「等拍板」那几种状态（等放行、在问、等验收）里不轮到你的，另成一组「等别人处理」，中性色；
+ *  每一行写清等谁（拿不到名字就不说是谁，不猜）。轮到不轮到你由页面传进来（「关注」里的同一个判法，见 attention-view 的 workItemTurns），这里不判 */
+export const OTHERS_GROUP = { key: 'others', title: '等别人处理', empty: '没有在等别人处理的事项' };
+export const isDecideState = (state: string): boolean => groupOf(state) === 'decide';
+/** 不能当场办时这一行等的是谁：name 是建立人的显示名（「关注」条目带的），等验收没有名字就说「建立人」，不露标识 */
+export function othersTurnLabel(state: string, name = ''): string {
+  const who = name.trim();
+  if (state === 'ready') return who ? `等 ${who} 验收` : '等建立人验收';
+  // 在问：不知道问的是谁（「关注」里没有这一条，可能问的正是你、只是不能在这里答）就不说是谁
+  if (state === 'blocked') return who ? `在等 ${who} 答复` : '在等答复';
+  // 等放行：谁放行由服务端判（负责人、没有负责人时管理层、或勾了先过目的建立人），页面拿不到放行人的名字，不猜
+  if (state === 'held') return '等放行';
+  return '';
+}
+/** 把「等拍板」状态的行分成轮到你的、等别人的；件数：轮到你的数已取回的行，等别人的 = 服务端这几种状态的总数减去它（总数覆盖整个视角） */
+export function splitDecide(rows: WorkItemListRow[], mine: ReadonlySet<string>, decideTotal: number): { mine: WorkItemListRow[]; others: WorkItemListRow[]; mineCount: number; othersCount: number } {
+  const m = rows.filter((r) => isDecideState(r.state) && mine.has(r.id));
+  const o = rows.filter((r) => isDecideState(r.state) && !mine.has(r.id));
+  return { mine: m, others: o, mineCount: m.length, othersCount: Math.max(0, decideTotal - m.length) };
+}
+
 /** 一组的总数：取服务端给的按状态计数（覆盖整个可见范围），不靠已取回的行来数 */
 export function groupCount(counts: Record<string, number>, key: string): number {
   const g = STATE_GROUPS.find((x) => x.key === key);
@@ -31,22 +56,9 @@ export function groupCount(counts: Record<string, number>, key: string): number 
 
 /** 对象（哪条线）、阶段的显示名：从生命周期读接口取（和全景同一处）。代号不露给人：
  *  线没有名字写「未命名的线」；阶段查不到名字就不写这一格 */
-export type Names = { objects: Record<string, string>; stages: Record<string, string> };
-export const NO_NAMES: Names = { objects: {}, stages: {} };
-export const UNNAMED_LINE = '未命名的线';
-export const objectName = (id: string | null | undefined, names: Names = NO_NAMES): string => (id ? names.objects[id] || UNNAMED_LINE : '');
-export const phaseName = (code: string | null | undefined, names: Names = NO_NAMES): string => (code ? names.stages[code] || '' : '');
-
-/** 把生命周期的阶段码表和对象列表拍平成名字表；形状不对的项跳过，没有名字的不收 */
-export function lifecycleNames(types: unknown, objects: unknown): Names {
-  const out: Names = { objects: {}, stages: {} };
-  for (const t of Array.isArray(types) ? types : []) {
-    const st = t && typeof t === 'object' && Array.isArray((t as { stages?: unknown }).stages) ? (t as { stages: unknown[] }).stages : [];
-    for (const x of st) { const o = x as { code?: unknown; name?: unknown } | null; if (o && typeof o.code === 'string' && typeof o.name === 'string' && o.name.trim()) out.stages[o.code] = o.name.trim(); }
-  }
-  for (const x of Array.isArray(objects) ? objects : []) { const o = x as { id?: unknown; name?: unknown } | null; if (o && typeof o.id === 'string' && typeof o.name === 'string' && o.name.trim()) out.objects[o.id] = o.name.trim(); }
-  return out;
-}
+// 线和阶段的名字只在 names.ts 一处；列表页一直叫 objectName / phaseName，这里转一下名字
+import { NO_NAMES, UNNAMED_LINE, lifecycleNames, lineName as objectName, stageName as phaseName, type Names } from './names.ts';
+export { NO_NAMES, UNNAMED_LINE, lifecycleNames, objectName, phaseName, type Names };
 
 /** 最后一条进展怎么写成一句人话。节点给的原文像「completed：工单「…」已结束（completed）：【…结果回执】正文…」：
  *  开头的结局代号换成中文（做完了、没办成……），去掉节点自带的套话和代号，只留正文的头一句；清不出正文就只写结局。 */
@@ -126,11 +138,29 @@ export function appendPage(prev: WorkItemListRow[], next: WorkItemListRow[]): Wo
   return [...prev.filter((r) => !seen.has(r.id)), ...next];
 }
 
-/** 视角（规范 14 第九节）：我安排的 / 我的 AI 员工手上的 / 我团队的 / 全部。哪些可用、各几件以后由服务端按身份给；
- *  现在的列表接口只有一个可见范围——管理员看全部，别人只看自己建立的——所以只给得出这一个，不放还不能用的视角。 */
-export type View = { key: 'mine' | 'all'; label: string; count: number };
-export function viewsFor(seesAll: boolean, total: number): View[] {
-  return [seesAll ? { key: 'all', label: '全部', count: total } : { key: 'mine', label: '我安排的', count: total }];
+/** 视角（规范 14 第九节）：我安排的 / 我的 AI 员工手上的 / 我的团队的 / 全部。哪些能用、各几件由列表接口按身份给（views，#626）；
+ *  页面只出 available 为真的，按这个先后排；接口没给 views（旧服务端）就一个都不出，不自己猜。 */
+export type ViewKey = 'mine' | 'seats' | 'team' | 'all';
+export const VIEW_LABEL: Record<ViewKey, string> = { mine: '我安排的', seats: '我的 AI 员工手上的', team: '我的团队的', all: '全部' };
+export type View = { key: ViewKey; label: string; count: number };
+export function viewsFor(views: unknown): View[] {
+  if (!views || typeof views !== 'object') return [];
+  const v = views as Record<string, { available?: unknown; count?: unknown } | undefined>;
+  return (Object.keys(VIEW_LABEL) as ViewKey[])
+    .filter((k) => v[k]?.available === true)
+    .map((k) => ({ key: k, label: VIEW_LABEL[k], count: Math.max(0, Number(v[k]?.count) || 0) }));
+}
+
+/** 一个视角里一件都没有时怎么说：各说各的；按某个 AI 员工筛着时说这个员工手上 */
+export function emptyText(view: ViewKey | null | undefined, seat?: string): string {
+  if (seat) return '这个 AI 员工手上现在没有事项';
+  switch (view) {
+    case 'mine': return '你还没有安排过事项';
+    case 'seats': return '你的 AI 员工手上现在没有事项';
+    case 'team': return '你的团队现在没有事项';
+    case 'all': return '还没有事项';
+    default: return '你现在没有能看的事项';
+  }
 }
 
 /** 行首圆标里的那个字：名字的第一个字 */
@@ -151,4 +181,14 @@ export function lastSaid(lp: { fact?: string; text?: string }): string {
   if (!word) return body;
   // 正文就是这件事的名字（「验收通过」）时不重复
   return body && body !== word ? `${word}：${body}` : word;
+}
+
+/** 地址里带的视角和席位（驾驶舱「AI 员工」点卡跳过来是 ?view=seats&seat=…）：只认四个视角名、席位不超过 200 字；认不出的当没带。
+ *  返回给列表接口的参数（GET /api/work-items?view=&seat=，#626） */
+export const VIEW_NAMES = ['mine', 'seats', 'team', 'all'] as const;
+export function urlFilter(search: string): { view?: string; seat?: string } {
+  const q = new URLSearchParams(search);
+  const view = q.get('view') ?? '';
+  const seat = (q.get('seat') ?? '').trim();
+  return { ...((VIEW_NAMES as readonly string[]).includes(view) ? { view } : {}), ...(seat && seat.length <= 200 && !/[\u0000-\u001f]/.test(seat) ? { seat } : {}) };
 }

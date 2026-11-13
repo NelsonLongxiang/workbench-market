@@ -1,6 +1,7 @@
 #!/usr/bin/env node
+import { answerChoices, decideCount, workItemTurns } from '../web/src/attention-view.ts';
 /** 事项列表页的纯函数单测（web/src/work-items-view.ts）：状态归组、组的计数、按对象分组、行的说明、翻页去重。 */
-import { STATE_GROUPS, appendPage, byObject, byState, groupCount, groupOf, rowLine, rowTime, seatOrWaiting, viewsFor, avatarChar, lifecycleNames, progressSummary, lastSaid, objectName, phaseName } from '../web/src/work-items-view.ts';
+import { STATE_GROUPS, appendPage, byObject, byState, groupCount, groupOf, rowLine, rowTime, seatOrWaiting, viewsFor, emptyText, splitDecide, othersTurnLabel, OTHERS_GROUP, avatarChar, urlFilter, lifecycleNames, progressSummary, lastSaid, objectName, phaseName } from '../web/src/work-items-view.ts';
 import { cleanSeatName, rosterNames, seatNameOnly, speakerName } from '../web/src/people.ts';
 
 let pass = 0, fail = 0;
@@ -37,11 +38,17 @@ ok('翻页去重：同一行只留一份，用后到的', merged.map((x) => `${x
   ok('说话的不是承接席位时写上是谁', rowLine({ id: 'a', title: '', state: 'done', object: '', phase: '', seat: 'zone/a1', last_progress: { actor: 'human:pm-a', fact: 'verify', text: '验收通过', at: '' }, updated_at: '' }, 'state', who) === 'zone/a1 · pm-a：验收通过');
   ok('行的时间：进展时间是空串时用更新时间', rowTime({ last_progress: { actor: '', fact: '', text: '', at: '' }, updated_at: 'U' }) === 'U' && rowTime({ last_progress: { actor: '', fact: '', text: '', at: 'A' }, updated_at: 'U' }) === 'A' && rowTime({ last_progress: null, updated_at: 'U' }) === 'U');
 }
-ok('视角：只给接口现在给得出的那一个——管理员「全部」，别人「我安排的」，件数是可见范围的总数', viewsFor(true, 22).map((v) => `${v.key}:${v.label}:${v.count}`).join() === 'all:全部:22' && viewsFor(false, 3).map((v) => `${v.key}:${v.label}:${v.count}`).join() === 'mine:我安排的:3');
+ok('视角：按接口的 views 只出能用的，先后是我安排的 / 我的 AI 员工手上的 / 我的团队的 / 全部，件数照接口', viewsFor({ all: { available: false, count: 0 }, team: { available: true, count: 29 }, seats: { available: false, count: 0 }, mine: { available: true, count: 6 } }).map((v) => `${v.key}:${v.label}:${v.count}`).join() === 'mine:我安排的:6,team:我的团队的:29');
+ok('视角：四个都能用时四个都出；件数是 0 的照出', viewsFor({ mine: { available: true, count: 0 }, seats: { available: true, count: 2 }, team: { available: true, count: 3 }, all: { available: true, count: 9 } }).map((v) => v.label).join('/') === '我安排的/我的 AI 员工手上的/我的团队的/全部');
+ok('视角：接口没给 views（旧服务端）或形状不对就一个都不出；available 不是 true 的不出；件数不是数当 0', viewsFor(undefined).length === 0 && viewsFor('x').length === 0
+  && viewsFor({ mine: { available: 'true', count: 3 } }).length === 0 && viewsFor({ mine: { available: true, count: 'abc' } })[0].count === 0 && viewsFor({ zzz: { available: true, count: 1 } }).length === 0);
+ok('空态：每个视角各说各的；按 AI 员工筛着时说这个员工手上；没有能用的视角另说', emptyText('mine') === '你还没有安排过事项' && emptyText('seats') === '你的 AI 员工手上现在没有事项'
+  && emptyText('team') === '你的团队现在没有事项' && emptyText('all') === '还没有事项' && emptyText('seats', 's-1') === '这个 AI 员工手上现在没有事项' && emptyText(null) === '你现在没有能看的事项'
+  && new Set(['mine', 'seats', 'team', 'all'].map((k) => emptyText(k))).size === 4);
 {
   const roster = rosterNames([{ team: 'zone/canvas/t', seats: [{ seat: 'zone/0a1b2c3d', name: '小运' }, { seat: 'zone/00', name: '' }, null, { name: 'x' }] }, 'bad']);
   ok('名册拍平成句柄 → 名字；没名字、形状不对的不收', roster['zone/0a1b2c3d'] === '小运' && Object.keys(roster).length === 1 && Object.keys(rosterNames(null)).length === 0);
-  ok('列表里的席位只写名字：带名字的取名字，只有句柄查名册，查不到显示句柄', seatNameOnly('小采 · zone/a1', roster) === '小采' && seatNameOnly('zone/0a1b2c3d', roster) === '小运' && seatNameOnly('zone/ffff', roster) === 'zone/ffff' && seatNameOnly('-', roster) === '' && seatNameOnly('') === '');
+  ok('列表里的席位只写名字：带名字的取名字，只有句柄查名册，查不到写「一位 AI 员工」', seatNameOnly('小采 · zone/a1', roster) === '小采' && seatNameOnly('zone/0a1b2c3d', roster) === '小运' && seatNameOnly('zone/ffff', roster) === '一位 AI 员工' && seatNameOnly('-', roster) === '' && seatNameOnly('') === '');
   ok('圆标的字：名字第一个字；只有句柄不放字符（页面放席位图标）；没有席位为空', avatarChar('小采') === '小' && avatarChar('zone/0a1b2c3d') === '' && avatarChar('alpha') === 'A' && avatarChar('') === '');
 }
 {
@@ -59,5 +66,28 @@ ok('名册里的名字自带句柄后缀时去掉', cleanSeatName('成员二 (0a
   ok('说话人：对端来源有承接用承接、没有不写；席位查名册；人去前缀', speakerName('receiver:zone', '小采 · zone/a1', ro) === '小采' && speakerName('receiver:zone', '', ro) === '' && speakerName('zone/0a1b2c3d', '', ro) === '小运' && speakerName('human:pm-a', '', ro) === 'pm-a' && speakerName('', '', ro) === '');
   ok('查表只认自己的键（不认 toString、constructor 这类继承来的）', seatNameOnly('toString', {}) === 'toString' && lastSaid({ fact: 'toString', text: '' }) === '' && lastSaid({ fact: 'constructor', text: '进展' }) === '进展');
 }
+ok('地址里的视角和席位：只认四个视角名、席位不超过 200 字、去掉空白；认不出的当没带', JSON.stringify(urlFilter('?view=seats&seat=s-1')) === '{"view":"seats","seat":"s-1"}'
+  && JSON.stringify(urlFilter('?view=bogus&seat=')) === '{}' && JSON.stringify(urlFilter('')) === '{}' && JSON.stringify(urlFilter('?seat=%20zone%2F0a1b2c3d%20')) === '{"seat":"zone/0a1b2c3d"}'
+  && JSON.stringify(urlFilter('?seat=' + 'x'.repeat(201))) === '{}' && JSON.stringify(urlFilter('?view=all')) === '{"view":"all"}');
+
+// 「等你拍板」只放轮到你、能当场办的（和侧栏角标同一个判法）；别人的另成「等别人处理」
+{
+  const att = (id, category, mine, extra = {}) => ({ source: 'work-items', source_id: id, category, title: id, waiting_for: '', since: '', answers: category === 'accept' ? ['verify', 'return'] : ['release', 'withdraw'], object: '', phase: '', link: `/work-items/${id}`, mine, creator: { principal: 'user:c', display_name: '合成建立人' }, ...extra });
+  const ask = (id) => ({ source: 'seat-asks', source_id: 'q1', category: 'ask', title: '问', waiting_for: '', since: '', answers: ['answer'], object: '', phase: '', link: `/work-items/${id}`, mine: true });
+  const items = [att('wi-a', 'accept', true), att('wi-b', 'accept', false), att('wi-c', 'accept', false), ask('wi-d'), { ...att('wi-z', 'grant', true), source: 'a2a-peers', link: '/team' }];
+  const choices = (x) => answerChoices(false, x);
+  const t = workItemTurns(items, choices);
+  ok('轮到谁：和侧栏角标同一个判法——轮到你的事项数 = decideCount 里事项的那几条', [...t.mine].sort().join() === 'wi-a,wi-d' && t.mine.size === decideCount(items.filter((x) => x.link.startsWith('/work-items/')), choices), [...t.mine]);
+  const row = (id, state) => ({ id, title: id, state, object: null, phase: null, seat: null, last_progress: null, updated_at: '' });
+  // 团队负责人在团队视角：三件等验收里只有 wi-a 是他自己建的；wi-d 在问他；wi-h 等放行（不是管理员，轮不到）
+  const rows = [row('wi-a', 'ready'), row('wi-b', 'ready'), row('wi-c', 'ready'), row('wi-d', 'blocked'), row('wi-h', 'held'), row('wi-x', 'progress')];
+  const sp = splitDecide(rows, t.mine, 5);
+  ok('负责人在团队视角：建立人不是他的「等验收」不计入红色数，进「等别人处理」', sp.mineCount === 2 && sp.mine.map((r) => r.id).join() === 'wi-a,wi-d' && sp.others.map((r) => r.id).join() === 'wi-b,wi-c,wi-h' && sp.othersCount === 3, sp);
+  ok('「等别人处理」的件数 = 这几种状态的总数减去轮到你的（总数覆盖整个视角）；不出负数', splitDecide(rows, t.mine, 9).othersCount === 7 && splitDecide(rows, t.mine, 1).othersCount === 0 && OTHERS_GROUP.title === '等别人处理');
+  ok('读不到「关注」（空集合）：一件都不算轮到你', splitDecide(rows, new Set(), 5).mineCount === 0);
+  ok('等谁写清：有建立人名字写名字；等验收没有名字写「建立人」，在问没有名字不说是谁；等放行不猜是谁、不写管理员；不露标识', othersTurnLabel('ready', '合成建立人') === '等 合成建立人 验收' && othersTurnLabel('ready') === '等建立人验收'
+    && othersTurnLabel('blocked', '甲') === '在等 甲 答复' && othersTurnLabel('blocked', '  ') === '在等答复' && othersTurnLabel('held', '甲') === '等放行' && !othersTurnLabel('held').includes('管理员') && othersTurnLabel('progress') === '');
+}
+
 console.log(`\nwork-items-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

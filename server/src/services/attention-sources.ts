@@ -5,7 +5,7 @@
  *     阶段七 R2 起也包括席位 A2A 回执里的提问（receipt:attention），旧接口只显示前者
  * 等阶段三把工作台事件这个域搬完，查询挪回它的服务（另排）。
  */
-import { db } from '../db.ts';
+import { db, hasTable } from '../db.ts';
 
 export type OpenSeatAsk = {
   delivery_id: number; event_id: string; target_team: string;
@@ -17,7 +17,7 @@ export type OpenSeatAsk = {
   source: string; workbench: string; item: string;
 };
 
-const tableExists = (name: string) => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name));
+const tableExists = (name: string) => hasTable(name);
 
 /**
  * 一个投递当前的提问：它最近一条提问日志（decision:ask 或 receipt:attention），之后同一投递上没有「合上提问」的日志
@@ -70,10 +70,35 @@ export function pendingAsksOfEvent(eventId: string): number[] {
 /**
  * 一个投递当前这一轮提问（答没答过都算）：「关注」记账分轮用——答完之后键不变，重复答才认得出；再问一次是新的一轮。
  */
-export function currentAskOfDelivery(deliveryId: number): { ask_log_id: number } | null {
+export function currentAskOfDelivery(deliveryId: number): { ask_log_id: number; event_id: string } | null {
   if (!tableExists('workbench_events')) return null;
-  const row = db.prepare(`SELECT o.ask_log_id FROM (${OPEN_ASK_SQL}) o WHERE o.delivery_id = ?`).get(deliveryId) as { ask_log_id: number } | undefined;
+  const row = db.prepare(`SELECT o.ask_log_id, o.event_id FROM (${OPEN_ASK_SQL}) o WHERE o.delivery_id = ?`).get(deliveryId) as { ask_log_id: number; event_id: string } | undefined;
   return row ?? null;
+}
+
+/** 一行提问日志（decision:ask 或 receipt:attention）：它属于哪个事件、哪次投递 */
+export function askLogRow(askLogId: number): { id: number; event_id: string; delivery_id: number; action: string; detail: string; actor: string; at: string } | null {
+  if (!tableExists('workbench_events')) return null;
+  const row = db.prepare("SELECT id, event_id, delivery_id, action, detail, actor, at FROM workbench_event_log WHERE id = ? AND action IN ('decision:ask','receipt:attention') AND delivery_id IS NOT NULL").get(askLogId) as { id: number; event_id: string; delivery_id: number; action: string; detail: string; actor: string; at: string } | undefined;
+  return row ?? null;
+}
+
+/**
+ * 事项详情的提问列表：这个事件上的每一条提问日志（v1 的 decision:ask、席位回执的 receipt:attention），按时间先后；
+ * 带上人对它的答复（work_item_log 里 ask_id 等于这行日志 id、来源是 attention 的那条 answer——「关注」和事项入口记的都是这个来源；
+ * 同一投递又问一次时事项服务替旧提问记的那条合上不算）和它是不是投递当前在等的那一条。
+ */
+export function asksOfEvent(eventId: string, itemId: string): { id: number; delivery_id: number; action: string; detail: string; actor: string; at: string; pending: number; answer: string | null; answered_by: string | null; answered_at: string | null }[] {
+  if (!tableExists('workbench_events')) return [];
+  return db.prepare(`SELECT g.id, g.delivery_id, g.action, g.detail, g.actor, g.at,
+      EXISTS (SELECT 1 FROM (${OPEN_ASK_SQL}${NOT_ANSWERED}) o WHERE o.ask_log_id = g.id) AS pending,
+      (SELECT json_extract(l.detail, '$.answer') FROM work_item_log l WHERE l.item_id = ? AND l.fact = 'answer' AND l.rejected = '' AND l.fact_source = 'attention' AND json_extract(l.detail, '$.ask_id') = CAST(g.id AS TEXT) ORDER BY l.seq LIMIT 1) AS answer,
+      (SELECT l.actor FROM work_item_log l WHERE l.item_id = ? AND l.fact = 'answer' AND l.rejected = '' AND l.fact_source = 'attention' AND json_extract(l.detail, '$.ask_id') = CAST(g.id AS TEXT) ORDER BY l.seq LIMIT 1) AS answered_by,
+      (SELECT l.at FROM work_item_log l WHERE l.item_id = ? AND l.fact = 'answer' AND l.rejected = '' AND l.fact_source = 'attention' AND json_extract(l.detail, '$.ask_id') = CAST(g.id AS TEXT) ORDER BY l.seq LIMIT 1) AS answered_at
+    FROM workbench_event_log g
+    WHERE g.event_id = ? AND g.action IN ('decision:ask','receipt:attention') AND g.delivery_id IS NOT NULL
+      AND EXISTS (SELECT 1 FROM work_item_log k WHERE k.item_id = ? AND k.fact = 'ask' AND k.fact_id = CAST(g.id AS TEXT) AND k.rejected = '')
+    ORDER BY g.id LIMIT 200`).all(itemId, itemId, itemId, eventId, itemId) as never;
 }
 
 /** 待对接清单里这条外部身份这一次出现的序号（全局只增）；不在清单里返回 null（「关注」记账分轮用） */

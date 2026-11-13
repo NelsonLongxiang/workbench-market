@@ -50,7 +50,7 @@ const SCOPE_RE = /^(\*|self|(domain|bench|sop|tool):[\x21-\x7e]{1,128}|dept:[a-z
 export const SYSTEM_DOMAINS: readonly string[] = [
   'a2a', 'a2a-peer', 'access', 'admin', 'admin-token', 'agent-card', 'app', 'auth', 'binding', 'content', 'cookie', 'department',
   'design-token', 'grant', 'health', 'judgment', 'login', 'market', 'mcp', 'principal', 'relation', 'remote-allow', 'role', 'setting', 'setup',
-  'skill', 'sso', 'stats', 'team', 'type', 'workbench',
+  'skill', 'sso', 'stats', 'team', 'type', 'vault', 'workbench',
 ];
 /** 明确算业务的域。和 SYSTEM_DOMAINS 一起要盖住全部已登记动作的域（扩展的动作另算，都是业务） */
 export const BUSINESS_DOMAINS: readonly string[] = [
@@ -133,7 +133,7 @@ export const BLOCKS: readonly { key: string; name: string; domains: readonly str
   { key: 'bench-data', name: '工作台数据', domains: ['app-data', 'bench-store', 'mcp-rest', 'mcp-tool'] },
   { key: 'team', name: '团队与 AI 员工', domains: ['binding', 'department', 'principal', 'relation', 'team'] },
   { key: 'access', name: '权限与角色', domains: ['access', 'admin', 'admin-token', 'grant', 'judgment', 'role', 'setup'] },
-  { key: 'system', name: '系统与节点', domains: ['a2a', 'a2a-peer', 'agent-card', 'app', 'auth', 'content', 'cookie', 'design-token', 'health', 'login', 'market', 'mcp', 'remote-allow', 'setting', 'skill', 'sso', 'stats', 'type', 'workbench'] },
+  { key: 'system', name: '系统与节点', domains: ['a2a', 'a2a-peer', 'agent-card', 'app', 'auth', 'content', 'cookie', 'design-token', 'health', 'login', 'market', 'mcp', 'remote-allow', 'setting', 'skill', 'sso', 'stats', 'type', 'vault', 'workbench'] },
 ];
 export const MATRIX_KINDS: readonly { key: Kind; name: string }[] = [
   { key: 'read', name: '看' }, { key: 'write', name: '做' }, { key: 'decide', name: '拍板' }, { key: 'admin', name: '管理' },
@@ -203,7 +203,8 @@ export const PLATFORM_ROLES: readonly RoleDecl[] = [
   // 系统管理员：系统域的读写管；各处的「管理」类动作（台的切版本、删数据这类）也给；业务数据的读写没有；不拍业务的板
   { id: 'admin', name: '系统管理员', permissions: [{ kinds: ['read', 'write', 'admin'], domains: [...SYSTEM_DOMAINS] }, { kinds: ['admin'] }] },
   // 管理层：全公司的读、写、决定；不管系统
-  { id: 'management', name: '管理层', permissions: [{ kinds: ['read', 'write', 'decide'] }] },
+  // 驾驶舱的建、改、删是「管理」类（别的读写角色不会顺带拿到），只在这里点名给管理层（统筹 2026-11-12；cockpit-access.ts）
+  { id: 'management', name: '管理层', permissions: [{ kinds: ['read', 'write', 'decide'] }, { actions: ['cockpit.create', 'cockpit.update', 'cockpit.delete'] }] },
   // 部门负责人：读、写、决定，部门是哪个由授予的范围（dept:<部门标识>）给，标识是部门表里的
   { id: 'dept-lead', name: '部门负责人', permissions: [{ kinds: ['read', 'write', 'decide'] }] },
   // 普通员工：看；写只给提需求、补充说明那几个；决定只给自己的事（验收、答复自己提的）

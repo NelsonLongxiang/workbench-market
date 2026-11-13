@@ -95,7 +95,7 @@ try {
   const resv = await ghPublish(base, gh, { slug: 'wm-skills', title: '撞名台', files: [{ path: 'index.html', content: '<!doctype html><p>x</p>' }] }, { 'x-admin-token': ADMIN });
   ok('同步保留名 wm-skills 被拒（400）', resv.status === 400, `status=${resv.status}`);
   const { DatabaseSync } = await import('node:sqlite');
-  const db = new DatabaseSync(join(TMP, 'data', 'workbench-market.db'));
+  const db = new DatabaseSync(join(TMP, 'data', 'workbench-market.db'), { timeout: 5000 });
   db.prepare("INSERT INTO apps (slug, title, layerfs_project) VALUES ('wm-skills', '历史遗留撞名台', 'wm-skills') ON CONFLICT(slug) DO UPDATE SET layerfs_project = 'wm-skills'").run();
   db.close();
   const delsBefore = lf.deletes.length;

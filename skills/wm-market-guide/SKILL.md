@@ -1,7 +1,7 @@
 ---
 name: wm-market-guide
-version: 1.2.0
-description: 工作台市场（workbench-market）使用指南——agent 经 MCP 面板操作市场（27 工具）与可视化界面（驾驶舱/门户/交付空间/技能市场）的完整实践：工具选型、UI/UX token 规范、可视化组件模式、常见坑。当需要通过 MCP 操作工作台、发布自产台、跑 SOP、管技能、搭驾驶舱或排查门户 iframe/代理问题时加载。
+version: 1.3.0
+description: 工作台市场（workbench-market）使用指南——agent 经 MCP 面板操作市场与可视化界面（驾驶舱/门户/交付空间/技能市场）的完整实践：工具选型、UI/UX token 规范、可视化组件模式、常见坑。当需要通过 MCP 操作工作台、发布自产台、跑 SOP、管技能、搭驾驶舱或排查门户 iframe/代理问题时加载。
 ---
 
 # 工作台市场使用指南（MCP 面板 × 可视化）
@@ -17,11 +17,11 @@ description: 工作台市场（workbench-market）使用指南——agent 经 MC
 
 鉴权边界（踩坑过）：远程（非回环）写面走 adminGuard（X-Admin-Token）；loopback 免。本地开发用 127.0.0.1 即免口令；远程调用需带令牌。MCP 工具没有能直接删除/回滚的——那两类走 change_requests 人审门（见 §四）。
 
-## 二、MCP 工具地图（25 个·按用途分）
+## 二、MCP 工具地图（按用途分；实际有哪些以 `access_info` 的目录为准）
 
 看：workbench_summary（全局统计）/ workbench_list（列表+状态）/ workbench_check（探活·单个或 all）/ use_url（取门户/直连地址）/ skills_list / skill_versions / app_data_list / app_files_list / sop_run_list / sop_run_get / change_requests
 
-建/改：workbench_register（登记外部服务）/ workbench_update / workbench_unregister / app_publish（自产台发布·版本自动快照）/ app_draft_open|edit|submit（P3 草稿三分支·按差异改·提交走发布门禁）/ sop_publish（发布 SOP 台）/ skills_list→skill_install_plan（技能钉装计划）
+建/改：workbench_register（登记外部服务）/ workbench_update / workbench_unregister / app_sync（自产台、SOP 台从仓库 main 同步出新版本·管理类）/ sop_publish（发布 SOP 台）/ skills_list→skill_install_plan（技能钉装计划）。自产台没有「直接发布」的工具：内容只从台的仓库 main 来
 
 跑：sop_run_start（建 run）→ sop_run_step_save（步数据·Redis 热态+30s checkpoint）→ sop_run_sandbox（VM 沙箱执行·commit_hash 交付物）→ sop_run_finish（终态）
 
@@ -36,7 +36,7 @@ agent 交付件的标准组合（在自产台上实测）：
 2. 数据通道：app_data_list（表单/登记记录）·三态说明（缺口/留空/待确认）
 3. 变量通道：看板值与定稿常量走 `/api/workbenches/:id/vars`（MCP `workbench_vars_get/set`）——**可视化数据不得写死在页面里**，见 wm-quickstart 的 references/data-layer.md。读写一个台之前先读它的常量 `AGENTS.md`（本台的读写约定，见 wm-quickstart 的 references/workbench-agents.md）
 4. 资源路径：页面图/文件引用加 base href="/go/<id>/" 或全用 /go/<id>/ 前缀（门户 iframe 内的相对路径坑）
-5. 回铃：表单提交→绑定 agent 推送（app_bindings notify 向）——不再轮询
+5. 回铃：表单提交→绑定的 agent 收推送（绑定在 /api/bindings 上，方向 notify；由管理员配）——不再轮询
 
 ## 四、发布纪律（血泪）
 
@@ -75,7 +75,7 @@ UX 硬规（ui-ux-pro-max 检索实证）：表格移动端 overflow-x-auto 包�
 ## 八、快速上手（三条）
 
 1. 看市场：workbench_summary → workbench_list → use_url（取门户地址）
-2. 建台：app_publish（首发）→ 后续 app_draft_open/edit/submit（按差异改）→ 人批准发布
+2. 建台：在台的仓库里改、合进 main → 管理员 app_sync 出新版本；看数类的台先读 `wm-data-views`，不用写页面
 3. 跑 SOP：sop_run_start → step_save ×N → sandbox（真执行）→ finish
 
 ## 九、品味闭环（taste__* 五工具，2026-10-30 起）
@@ -87,3 +87,11 @@ UX 硬规（ui-ux-pro-max 检索实证）：表格移动端 overflow-x-auto 包�
 - 背书他人提案：**只看 blind 视图**（勿先看非盲 list，会污染独立性）；不认同就回绝，不凑数
 - 通道区分：品味判断走 taste__record（记进 ygl-trees kb 不算品味登记）；纯 HTTP 自报身份不能提案/背书
 - 详细指南（本地 DSH 会话可载入技能 `taste-loop-guide`；远程 agent 直接读 `taste__update` 工具描述，已内嵌完整工作流）
+
+## 十、数据视图（看数类的台不用写页面）
+
+看数、对数、报表、看板、明细表、简单提报这类台，有一条不写 HTML 的路：数据进台自己的数据集，页面由一份视图描述驱动，市场的组件来画，可以挂进驾驶舱。
+
+- 全部用法在技能 `wm-data-views`：建数据集、四种写入怎么选、查询描述、八种组件、上限、出错怎么办，以及现在做到哪一步、权限怎么拿。
+- 和自产台（第三节）怎么选：只是把数摆出来、让人筛一筛、填一行，用数据视图；页面有自己的交互和流程，才写自产台。
+- 数据视图的入口由部署方的开关控制，缺省关着；关着时这条路用不了，技能里写了入口没开时怎么先把数据集和视图描述验对。
