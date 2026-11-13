@@ -137,6 +137,7 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       'team.lead-remove',
       'team.list',
       'team.mine',
+      'team.reassign',
       'team.release',
       'team.unassign',
       'design-token.read',

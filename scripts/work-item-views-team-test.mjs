@@ -107,7 +107,7 @@ try {
   const ADMIN = { ...SAME, 'x-admin-token': ADMIN_TOKEN };
   const WHO = { 建立人: { ...SAME, cookie: `session_id=${SESSIONS.alpha}` }, 负责人: { ...SAME, cookie: `session_id=${SESSIONS.beta}` }, 成员的主人: { ...SAME, cookie: `session_id=${SESSIONS.noAdminFlag}` } };
   for (const h of Object.values(WHO)) await call('GET', '/api/auth/me', h);
-  const db = new DatabaseSync(join(data, 'workbench-market.db'));
+  const db = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 });
   const now = Date.now();
   db.prepare('INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?)').run(HOST, PEER, 'zone1', new Date(now).toISOString(), new Date(now).toISOString());
   db.prepare('INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?)').run(HOST2, PEER2, 'zone1', new Date(now).toISOString(), new Date(now).toISOString());

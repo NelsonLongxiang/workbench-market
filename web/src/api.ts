@@ -126,6 +126,8 @@ export async function postCreatorDecision(id: string, answer: string, reason: st
  *  键带上管理员口令（口令不同结果不同）；读失败不留缓存。办完一件事用 attentionChanged() 清掉「关注」再广播 */
 const SHARED_TTL = 2000;
 const sharedMemo = new Map<string, { at: number; p: Promise<unknown> }>();
+/** 身份变了：共用的取数缓存全部丢掉（上一个人读到的不能给下一个人用） */
+export function clearShared(): void { sharedMemo.clear(); }
 export function shared<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const k = `${key}|${getAdminToken()}`;
   const hit = sharedMemo.get(k);
@@ -319,6 +321,16 @@ export async function getBenchView(ref: { bench: string; view: string }, params:
   } catch { return { status: 0, body: null }; }
 }
 
+/** 数据视图的两个只读入口（往驾驶舱里挂视图时选台、选视图用）：带登录的 cookie，不带管理口令。
+ *  返回状态码和应答体（出错时应答体里有 error 代号），让页面给说法；断网当状态码 0 */
+async function benchViewsGet(path: string): Promise<{ status: number; body: unknown }> {
+  try {
+    const r = await fetch(path, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  } catch { return { status: 0, body: null }; }
+}
+export const listBenchViews = () => benchViewsGet('/api/bench-views');
+export const getBenchViewDoc = (bench: string) => benchViewsGet(`/api/bench-views/${encodeURIComponent(bench)}/view`);
 /** 这个人能不能新建驾驶舱（/api/auth/me 的 can.create_cockpit，服务端和建驾驶舱的路由同一处判断）。
  *  带着管理口令问（口令持有人也能建）；不缓存：口令输入、清掉之后页面会再问一次。拿不到当不能 */
 export async function canCreateCockpit(): Promise<boolean> {

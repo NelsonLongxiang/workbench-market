@@ -4,7 +4,7 @@
  *   · 名片有效期、幂等窗口与存储；
  *   · 出站积压：两张出站表按状态的计数、最老一条待发多久、最近 50 条回执从入队到发出的时长；
  *   · 拒收计数：按 errors.ts 的公开桶计（对外同答的原因并成一个桶），进程内、重启清零。
- *   · 团队名册：入站名册各种结果的次数和最近一次的时间（roster-stats.ts），来源个数、最久没收下的那个的时间、超过 15 分钟没收下的个数。
+ *   · 团队名册（只给管理员，匿名和普通登录的人连键都看不到）：入站名册各种结果的次数和最近一次的时间（roster-stats.ts），来源个数、最久没收下的那个的时间、超过 15 分钟没收下的个数。
  * 不出团队名、地址、task_id、内容。读数缓存 5 秒：匿名请求打不穿到数据库聚合。
  */
 import { CARD_TTL_MS, originClaimV1Enabled } from '../a2a.ts';
@@ -24,6 +24,8 @@ export interface A2aHealthConfig {
   /** 生效的入站签名模式（登录门 enforce 时已强制成 require） */
   directSig: string;
   directSigBody: string;
+  /** 带有效管理口令：名册一块只给管理员 */
+  admin?: boolean;
 }
 
 const CACHE_MS = 5000;
@@ -55,7 +57,7 @@ export function a2aHealth(cfg: A2aHealthConfig, now = Date.now()): Record<string
       idempotency: { store: 'sqlite', window_s: Math.round(A2A_IDEM_TTL_MS / 1000) },
       outbox: outbox(now),
       refused: a2aErrorCounts(),
-      roster: { ...rosterOutcomeCounts(), sources: rosterSources(now) },
+      ...(cfg.admin ? { roster: { ...rosterOutcomeCounts(), sources: rosterSources(now) } } : {}),
     };
   } catch {
     return { error: 'unavailable' }; // 健康检查本身不因 a2a 读数出错而 500

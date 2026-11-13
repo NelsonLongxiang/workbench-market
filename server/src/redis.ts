@@ -1,5 +1,6 @@
 /**
  * SOP 执行数据分层治理——状态层（Redis）客户端。
+ * 这条连接也给别的域用：经共用状态层服务 `state`（services/state-layer.ts）取，键带各自的域前缀。
  *
  * 分层语义（用户定案）：
  *   - 状态层（Redis，生产 <REDIS_HOST>:<PORT>）：进行中 run 的热数据（防抖写、亚毫秒读）、
@@ -66,6 +67,19 @@ export function redisConfigured(): boolean {
 
 export function redisHealthy(): boolean {
   return !degraded && client !== null && client.isReady;
+}
+
+/** 共用状态层（services/state-layer.ts）取这条连接：连着时给，降级态给 null。SOP 执行实例和别的域用的是同一条 */
+export function redisClient(): unknown {
+  return redisHealthy() ? client : null;
+}
+
+/** 随根上下文停：断开这条连接，之后一律降级（读写回落 SQLite）。没配 Redis 时什么都不做 */
+export function stopRedis(): void {
+  const c = client as unknown as { destroy?: () => void } | null;
+  client = null;
+  degraded = true;
+  try { c?.destroy?.(); } catch { /* 断开失败也当已停：之后不再用这条连接 */ }
 }
 
 // —— 领域函数：降级态一律 no-op / 返回空，调用方据此回落 SQLite ——
