@@ -168,6 +168,21 @@ export class AttentionService extends Service {
    * 这个人用这种答法答成过这一条（答完它就不在列表里了，重复答时用它认出来）。键里带答的人和答法：
    * 别人答的、换了答法的都不算，入口对它们回「没有这一条」，和这一条从没存在过一样
    */
+  /**
+   * 这个人（bys：他在答复账上可能的几种写法）最近 hours 小时内答成过的这一条（2xx）：那一轮的键和答法；没有为 null。
+   * 账上的键可能带「:那一轮」「@出现序号」的后缀（见 attention-answers.ts 的 keyOf），按前缀认，取最近的一次
+   */
+  answeredRecently(source: string, sourceId: string, bys: readonly string[], hours: number): { key: string; answer: string } | null {
+    if (!bys.length || !sourceId) return null;
+    const marks = bys.map(() => '?').join(', ');
+    const row = db.prepare(`SELECT source_id AS key, answer FROM attention_answers
+      WHERE source = ? AND state = 'done' AND status BETWEEN 200 AND 299 AND answered_by IN (${marks})
+        AND (source_id = ? OR substr(source_id, 1, ?) IN (? || ':', ? || '@'))
+        AND at >= datetime('now', ?)
+      ORDER BY at DESC LIMIT 1`).get(source, ...bys, sourceId, sourceId.length + 1, sourceId, sourceId, `-${Math.max(1, Math.floor(hours))} hours`) as { key: string; answer: string } | undefined;
+    return row ?? null;
+  }
+
   answered(source: string, sourceId: string, by: string, answer: string): boolean {
     return Boolean(db.prepare("SELECT 1 FROM attention_answers WHERE source = ? AND source_id = ? AND state = 'done' AND answered_by = ? AND answer = ?").get(source, sourceId, by, answer));
   }

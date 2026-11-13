@@ -24,8 +24,22 @@ export const Config = defineConfig((env) => {
   const raw = str(env.WM_KNOWLEDGE_SYNC_MINUTES);
   const minutes = raw === '' ? 10 : Number(raw);
   if (!Number.isInteger(minutes) || minutes < 0 || minutes > 1440) throw new Error('WM_KNOWLEDGE_SYNC_MINUTES 要是 0～1440 的整数（分钟，0 = 不同步）');
-  return { syncMinutes: minutes };
+  // 记成经验没写上（ygl-trees 暂时不通）时，多久重试一次（秒）：缺省 60；0 = 不自动重试；别的值拒绝启动。重试间隔按次数翻倍，封顶 6 小时
+  const rawRetry = str(env.WM_KNOWLEDGE_WRITE_RETRY_SECONDS);
+  const retry = rawRetry === '' ? 60 : Number(rawRetry);
+  if (!Number.isInteger(retry) || retry < 0 || retry > 3600) throw new Error('WM_KNOWLEDGE_WRITE_RETRY_SECONDS 要是 0～3600 的整数（秒，0 = 不自动重试）');
+  return { syncMinutes: minutes, writeRetrySeconds: retry };
 });
+
+/** 记成经验的写入：最多试这么多次（第一次加重试），之后放弃（status = failed，给管理员看） */
+const WRITE_MAX_ATTEMPTS = 12;
+const WRITE_BACKOFF_CAP_MS = 6 * 3600_000;
+/** 一轮重试最多处理几条 */
+const WRITE_BATCH = 20;
+/** 答完以后多久之内还能补记成经验（小时） */
+export const REMEMBER_WINDOW_HOURS = 48;
+export type RememberInput = { answerKey: string; principal: string; scope: string; cue: string; lesson: string; evidence: string };
+export type RememberOutcome = { status: 'written' | 'pending' | 'failed'; duplicate: boolean };
 
 export const KINDS = ['claim', 'note', 'skill', 'check'] as const;
 export type YglKind = (typeof KINDS)[number];
@@ -39,7 +53,9 @@ const MAX_PAGES = 200;
 const FULL_EVERY_MS = 24 * 3600_000;
 
 type Row = { kind: YglKind; ygl_id: string; key: string; title: string; summary: string; status: string; project: string; scope: string; tags: string; created: string; updated: string };
-export type KnowledgeView = { key: string; kind: 'claim' | 'kb' | 'skill' | 'verify'; title: string; summary: string; status: string | null; tags: string[]; created: string | null; updated: string | null; scope_label: string };
+export type KnowledgeView = { key: string; kind: 'claim' | 'kb' | 'skill' | 'verify'; title: string; summary: string; status: string | null; tags: string[]; created: string | null; updated: string | null; scope_label: string;
+  /** 经验（kb）才有：这条是市场里谁拍板时记下的（那个人现在的显示名）；不是经市场记的一律 null，不猜 */
+  decided_by_name?: string | null };
 
 const clip = (v: unknown, n: number): string => (typeof v === 'string' ? v.slice(0, n) : '');
 /** ygl-trees 给的 scope：只认这几种写法，别的一律当空（空就是「只给管理层」） */
@@ -69,9 +85,27 @@ export class KnowledgeService extends Service {
   /** 插件卸载了：排着的、跑到一半的同步都不再碰库 */
   private stopped = false;
 
+  /** 写入重试停了（插件卸载） */
+  private writesStopped = false;
+
   constructor(ctx: any) {
     super(ctx, 'knowledge');
-    const minutes = loadConfig(Config).syncMinutes;
+    const { syncMinutes: minutes, writeRetrySeconds } = loadConfig(Config);
+    // 记成经验的重试：等启动自检通过再开始；随插件卸载停下；只调本机 ygl-trees，不往外发
+    if (writeRetrySeconds > 0) {
+      ctx.effect(() => {
+        this.writesStopped = false;
+        let timer: ReturnType<typeof setInterval> | null = null;
+        const round = () => { if (!this.writesStopped) this.retryWrites().catch(() => { /* 一轮出错：下一轮再试 */ }); };
+        const cancel = afterStartup(() => {
+          if (this.writesStopped) return;
+          round();
+          timer = setInterval(round, writeRetrySeconds * 1000);
+          timer.unref?.();
+        });
+        return () => { this.writesStopped = true; cancel(); if (timer) clearInterval(timer); };
+      }, 'knowledge.write-retry');
+    }
     if (minutes === 0) return;
     // 后台同步：等启动自检通过再开始；只读本机的 ygl-trees，不往外发；随插件卸载停下，不拦进程退出。
     // 每一轮都兜住错误（比如库已经关了）：记一行、下一轮再试，不把进程带崩
@@ -260,10 +294,11 @@ export class KnowledgeService extends Service {
       ? db.prepare('SELECT * FROM knowledge_items WHERE kind = ? ORDER BY updated DESC, ygl_id').all(opts.kind)
       : db.prepare('SELECT * FROM knowledge_items ORDER BY updated DESC, kind, ygl_id').all()) as Row[];
     const out: KnowledgeView[] = [];
+    const deciders = this.deciders();
     for (const r of rows) {
       const scope = effectiveScope(r, projects);
       if (!can(scope)) continue;
-      out.push(view(r, scope));
+      out.push(withDecider(view(r, scope), r, deciders));
       if (out.length >= (opts.limit ?? 500)) break;
     }
     return out;
@@ -293,8 +328,94 @@ export class KnowledgeService extends Service {
         source: e?.source && typeof e.source === 'object' ? { title: clip((e.source as Record<string, unknown>).title, 300), url: safeUrl((e.source as Record<string, unknown>).url) } : null,
       }))
       : undefined;
-    return { item: view(r, scope), body, ...(evidence ? { evidence } : {}) };
+    return { item: withDecider(view(r, scope), r, this.deciders()), body, ...(evidence ? { evidence } : {}) };
   }
+
+  /** 经市场记下、已经写进 ygl-trees 的经验：ygl-trees 的 id → 拍板人现在的显示名（停用了也照给名字；没有显示名给 null） */
+  private deciders(): Map<string, string | null> {
+    const rows = db.prepare(`SELECT w.ygl_id AS id, p.display_name AS name FROM knowledge_writes w LEFT JOIN principals p ON p.id = w.principal_id
+      WHERE w.status = 'written' AND w.ygl_id <> ''`).all() as { id: string; name: string | null }[];
+    return new Map(rows.map((r) => [r.id, r.name || null]));
+  }
+
+  // ---------- 第 2 步：拍板时记成经验，回写 ygl-trees 的 kb ----------
+
+  /** 给 ygl-trees 的依据引用：不透明（对「来源、那一轮、谁答的」做带本库密钥的 HMAC），不露市场的内部编号 */
+  evidenceRef(answerKey: string): string {
+    this.keyOf('note', 'x'); // 确保密钥已经有了
+    return 'market:answer/' + createHmac('sha256', this.secret!).update(`answer:${answerKey}`).digest('base64url').slice(0, 22);
+  }
+
+  /**
+   * 记成经验：同一次答复只记一条（answerKey 幂等，第二次回 duplicate 和第一次的状态）。先落一行待写，再试着写一次；
+   * 写不上不挡调用方（答复照常生效），留在待写里由后台重试。参数被 ygl-trees 拒（rc 2）就放弃，不重试
+   */
+  async remember(input: RememberInput, now = Date.now()): Promise<RememberOutcome> {
+    const prior = db.prepare('SELECT status FROM knowledge_writes WHERE answer_key = ?').get(input.answerKey) as { status: RememberOutcome['status'] } | undefined;
+    if (prior) return { status: prior.status, duplicate: true };
+    const { title, body } = noteOf(input);
+    const ins = db.prepare(`INSERT INTO knowledge_writes (answer_key, principal_id, scope, title, body, status, attempts, next_at, created_at)
+      VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?) ON CONFLICT (answer_key) DO NOTHING`).run(input.answerKey, input.principal, input.scope, title, body, now, now);
+    if (ins.changes !== 1) {
+      const again = db.prepare('SELECT status FROM knowledge_writes WHERE answer_key = ?').get(input.answerKey) as { status: RememberOutcome['status'] };
+      return { status: again.status, duplicate: true };
+    }
+    const id = Number(ins.lastInsertRowid);
+    return { status: await this.attemptWrite(id, now), duplicate: false };
+  }
+
+  /** 试写一条待写的：成了记下 ygl-trees 的 id、清掉正文、顺手同步一轮经验目录；没成按次数排下一次（rc 2 或试到头就放弃） */
+  private async attemptWrite(id: number, now = Date.now()): Promise<RememberOutcome['status']> {
+    const w = db.prepare("SELECT id, scope, title, body, attempts FROM knowledge_writes WHERE id = ? AND status = 'pending'").get(id) as { id: number; scope: string; title: string; body: string; attempts: number } | undefined;
+    if (!w) return (db.prepare('SELECT status FROM knowledge_writes WHERE id = ?').get(id) as { status: RememberOutcome['status'] } | undefined)?.status ?? 'failed';
+    const res = await execYgl(['kb', 'add', '--title', w.title, '--body', w.body, '--tags', 'market,decision', '--scope', w.scope, '--json'], { timeoutMs: CALL_TIMEOUT_MS });
+    const attempts = w.attempts + 1;
+    const j = res.ok ? res.json as Record<string, unknown> : null;
+    const yglId = j && typeof j.id === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(j.id) ? j.id : '';
+    if (res.ok && yglId) {
+      db.prepare("UPDATE knowledge_writes SET status = 'written', attempts = ?, ygl_id = ?, body = '', last_error = '', written_at = ? WHERE id = ?").run(attempts, yglId, now, id);
+      // 新写的经验尽快出现在 /knowledge：同步一轮经验（增量）；出错不影响这次写
+      if (!this.stopped) this.syncKind('note', false).catch(() => { /* 下一轮同步照样会带上 */ });
+      return 'written';
+    }
+    const reason = res.ok ? 'bad_shape' : res.error === 'exit' && res.code === 2 ? 'rejected' : res.error;
+    const giveUp = reason === 'rejected' || attempts >= WRITE_MAX_ATTEMPTS;
+    const delay = Math.min(loadConfig(Config).writeRetrySeconds * 1000 * 2 ** (attempts - 1), WRITE_BACKOFF_CAP_MS);
+    db.prepare('UPDATE knowledge_writes SET status = ?, attempts = ?, next_at = ?, last_error = ? WHERE id = ?').run(giveUp ? 'failed' : 'pending', attempts, now + Math.max(delay, 1000), reason, id);
+    // 诊断一行：原因类别，不带内容和人
+    console.warn(JSON.stringify({ source: 'knowledge', event: giveUp ? 'remember-gave-up' : 'remember-retry-later', cause: reason, attempts, at: new Date(now).toISOString() }));
+    return giveUp ? 'failed' : 'pending';
+  }
+
+  /** 后台的一轮重试：到点的待写各试一次 */
+  async retryWrites(now = Date.now()): Promise<number> {
+    const due = db.prepare("SELECT id FROM knowledge_writes WHERE status = 'pending' AND next_at <= ? ORDER BY next_at, id LIMIT ?").all(now, WRITE_BATCH) as { id: number }[];
+    for (const d of due) { if (this.writesStopped) break; await this.attemptWrite(d.id, now); }
+    return due.length;
+  }
+
+  /** 记成经验的写入情况（给管理员的同步状态）：待写几条、放弃几条 */
+  writeStatus(): { pending: number; failed: number } {
+    const r = db.prepare("SELECT SUM(status = 'pending') AS pending, SUM(status = 'failed') AS failed FROM knowledge_writes").get() as { pending: number | null; failed: number | null };
+    return { pending: Number(r.pending ?? 0), failed: Number(r.failed ?? 0) };
+  }
+}
+
+/**
+ * 写进 ygl-trees 的那一条：正文开头是 frontmatter（cue 这件事是什么情况、lesson 取舍、evidence 市场里这次答复的不透明引用），
+ * 这样以后能直接 promote 成方法；正文按中性写法（「遇到……时：……」），模板里不出现「你」。值都用 JSON 字符串写（合法的 YAML），换行压成空格
+ */
+export function noteOf(input: Pick<RememberInput, 'cue' | 'lesson' | 'evidence'>): { title: string; body: string } {
+  const one = (v: string, n: number) => v.replace(/\s+/g, ' ').trim().slice(0, n);
+  const cue = one(input.cue, 200), lesson = one(input.lesson, 500);
+  const title = cue.slice(0, 100);
+  const body = `---\ncue: ${JSON.stringify(cue)}\nlesson: ${JSON.stringify(lesson)}\nevidence: ${JSON.stringify(input.evidence)}\n---\n遇到「${cue}」时：${lesson}\n`;
+  return { title, body };
+}
+
+/** 经验（kb）条目带上拍板人：经市场记下的给名字，别的给 null */
+function withDecider(v: KnowledgeView, r: Pick<Row, 'kind' | 'ygl_id'>, deciders: Map<string, string | null>): KnowledgeView {
+  return r.kind === 'note' ? { ...v, decided_by_name: deciders.get(r.ygl_id) ?? null } : v;
 }
 
 /** 来源的地址：只给 http/https 的绝对地址，别的（javascript:、本机路径）不给 */

@@ -91,6 +91,7 @@
       "GET /api/knowledge/status  <- <anonymous>",
       "GET /api/knowledge/project-depts  <- <anonymous>",
       "PUT /api/knowledge/project-depts  <- <anonymous>",
+      "POST /api/knowledge/remember  <- <anonymous>",
       "GET /api/knowledge/:key  <- <anonymous>",
       "GET /api/auth/viewer  <- <anonymous>",
       "GET /api/principals/pending  <- <anonymous>",
