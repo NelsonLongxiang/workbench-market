@@ -1172,7 +1172,7 @@ CREATE INDEX IF NOT EXISTS idx_a2a_peers_registered_by ON a2a_peers (registered_
 `);
 // 阶段七：名册以（peer_root, key_fingerprint）为键，存进两张新表（旧的 a2a_rosters / a2a_roster_seats 不动，见上面）。
 //   key_fingerprint 是验过签的节点公钥的完整指纹（写法同 a2a_peers.key_fingerprint，sha256:<十六进制全长>）；host（前 8 位）只拿来显示和匹配，
-//   按 host 匹配一律经视图 a2a_rosters_live。needs_review = 1：升级时回填不上完整指纹的存量行，要人确认，不参与匹配（同一根地址之后报来新名册时清掉）。
+//   按 host 匹配一律经视图 a2a_rosters_live。needs_review = 1：升级时回填不上完整指纹的存量行（指纹是占位的 legacy:<host>），要人确认，不参与匹配（同一根地址之后报来新名册时清掉）。
 //   表约束：没标 needs_review 的行必须带成形的完整指纹。
 const rosterNodesExisted = hasTable('a2a_roster_nodes');
 db.exec(`
@@ -1204,7 +1204,7 @@ CREATE TABLE IF NOT EXISTS a2a_roster_node_seats (
   PRIMARY KEY (peer_root, key_fingerprint, team, seat)
 );`);
 // 新表第一次建出来时，从旧表复制一次：按 a2a_peers 里钉住的公钥回填完整指纹；对端没登记、没钉住键、指纹前 8 位对不上 host 的，
-// 指纹留空、needs_review = 1。旧表一行不动
+// 指纹记成占位的 legacy:<host>、needs_review = 1。旧表一行不动
 if (!rosterNodesExisted) {
   db.exec('BEGIN IMMEDIATE');
   try {
@@ -1217,7 +1217,9 @@ if (!rosterNodesExisted) {
       const pk = (pinned.get(o.peer_root) as { public_key: string } | undefined)?.public_key ?? '';
       const hex = pk ? createHash('sha256').update(Buffer.from(pk, 'base64')).digest('hex') : '';
       const ok = hex !== '' && hex.slice(0, 8) === o.host;
-      const fp = ok ? `sha256:${hex}` : '';
+      // 回填不上的用占位指纹 legacy:<host>：旧表主键只有 host，同一根地址下可能有好几行，空串会撞新表的主键（启动失败）；
+      // 占位指纹只出现在 needs_review = 1 的行上，不参与匹配
+      const fp = ok ? `sha256:${hex}` : `legacy:${o.host}`;
       insR.run(o.peer_root, fp, o.host, o.peer_zone, o.reported_at, o.received_at, ok ? 0 : 1);
       insS.run(o.peer_root, fp, o.host);
     }

@@ -33,7 +33,7 @@ const routerOf = (rows: readonly SeatRow[], team: string) => rows.filter((r) => 
 /**
  * 记下一台宿主的名册（键是根地址 + 节点公钥完整指纹）：比已有的新才替换（宿主报的时间），替换时算出变化。
  * 返回 'recorded'、'stale'；收下了但同一个 host 下还有别的节点（指纹前 8 位撞了，两个都不参与匹配）返回 'host-shared'。
- * 同一根地址、同一 host 下升级时回填不上指纹（needs_review）的旧行，收到新名册时清掉。
+ * 同一根地址下升级时回填不上指纹（needs_review）的旧行，收到这个根地址的新名册时清掉。
  */
 export function recordRoster(r: { host: string; peerRoot: string; keyFingerprint: string; peerZone: string; reportedAt: string; seats: RosterSeat[]; now?: number }): 'recorded' | 'stale' | 'host-shared' {
   const at = sqlTime(r.now);
@@ -41,7 +41,8 @@ export function recordRoster(r: { host: string; peerRoot: string; keyFingerprint
   try {
     const prev = db.prepare('SELECT reported_at FROM a2a_roster_nodes WHERE peer_root = ? AND key_fingerprint = ?').get(r.peerRoot, r.keyFingerprint) as { reported_at: string } | undefined;
     if (prev && !(r.reportedAt > prev.reported_at)) { db.exec('RELEASE a2a_roster'); return 'stale'; }
-    const legacy = db.prepare('SELECT key_fingerprint FROM a2a_roster_nodes WHERE peer_root = ? AND host = ? AND needs_review = 1').all(r.peerRoot, r.host) as { key_fingerprint: string }[];
+    // 这个根地址升级时回填不上的旧行（不管当时是哪个 host）：它现在报来了验过签的名册，旧行连席位一起清掉
+    const legacy = db.prepare('SELECT key_fingerprint FROM a2a_roster_nodes WHERE peer_root = ? AND needs_review = 1').all(r.peerRoot) as { key_fingerprint: string }[];
     for (const l of legacy) {
       db.prepare('DELETE FROM a2a_roster_node_seats WHERE peer_root = ? AND key_fingerprint = ?').run(r.peerRoot, l.key_fingerprint);
       db.prepare('DELETE FROM a2a_roster_nodes WHERE peer_root = ? AND key_fingerprint = ?').run(r.peerRoot, l.key_fingerprint);
