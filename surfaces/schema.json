@@ -785,6 +785,18 @@
       "description TEXT DEFAULT ''",
       "created_at TEXT NOT NULL DEFAULT datetime('now')"
     ],
+    "work_item_attachments": [
+      "id INTEGER PK",
+      "uploaded_by TEXT NOT NULL",
+      "name TEXT NOT NULL",
+      "mime TEXT NOT NULL",
+      "size INTEGER NOT NULL",
+      "sha256 TEXT NOT NULL",
+      "path TEXT NOT NULL",
+      "event_id TEXT NOT NULL DEFAULT ''",
+      "created_at TEXT NOT NULL",
+      "bound_at TEXT NOT NULL DEFAULT ''"
+    ],
     "work_item_backfill": [
       "id INTEGER PK",
       "version INTEGER NOT NULL",
@@ -849,7 +861,8 @@
       "directed_seat_id TEXT NOT NULL DEFAULT ''",
       "seat_id TEXT NOT NULL DEFAULT ''",
       "seat_at TEXT NOT NULL DEFAULT ''",
-      "cockpit_id INTEGER"
+      "cockpit_id INTEGER",
+      "due_at TEXT NOT NULL DEFAULT ''"
     ],
     "workbench_event_deliveries": [
       "id INTEGER PK",
@@ -1042,6 +1055,8 @@
     "idx_wbe_followups_status ON workbench_event_followups: CREATE INDEX idx_wbe_followups_status ON workbench_event_followups (status, id)",
     "idx_wbe_followups_zone ON workbench_event_followups: CREATE INDEX idx_wbe_followups_zone ON workbench_event_followups (peer_zone, created_at)",
     "idx_wbe_replies_due ON workbench_event_replies: CREATE INDEX idx_wbe_replies_due ON workbench_event_replies (status, next_at)",
+    "idx_wi_attach_event ON work_item_attachments: CREATE INDEX idx_wi_attach_event ON work_item_attachments (event_id)",
+    "idx_wi_attach_owner ON work_item_attachments: CREATE INDEX idx_wi_attach_owner ON work_item_attachments (uploaded_by, event_id)",
     "idx_work_item_log_item ON work_item_log: CREATE INDEX idx_work_item_log_item ON work_item_log (item_id, seq)",
     "idx_work_item_requests_time ON work_item_requests: CREATE INDEX idx_work_item_requests_time ON work_item_requests(requester, created_at)",
     "idx_work_items_cockpit ON work_items: CREATE INDEX idx_work_items_cockpit ON work_items (cockpit_id, updated_at)",
@@ -1073,6 +1088,7 @@
     "wbe_events_no_delete ON workbench_events: CREATE TRIGGER wbe_events_no_delete BEFORE DELETE ON workbench_events BEGIN SELECT RAISE(ABORT,'workbench events are never deleted'); END",
     "wbe_log_no_delete ON workbench_event_log: CREATE TRIGGER wbe_log_no_delete BEFORE DELETE ON workbench_event_log BEGIN SELECT RAISE(ABORT,'workbench event log append only'); END",
     "wbe_log_no_update ON workbench_event_log: CREATE TRIGGER wbe_log_no_update BEFORE UPDATE ON workbench_event_log BEGIN SELECT RAISE(ABORT,'workbench event log append only'); END",
+    "work_item_attachments_bind_once ON work_item_attachments: CREATE TRIGGER work_item_attachments_bind_once BEFORE UPDATE OF event_id ON work_item_attachments WHEN OLD.event_id <> '' AND NEW.event_id IS NOT OLD.event_id BEGIN SELECT RAISE(ABORT, '附件挂到事件上之后不再改'); END",
     "work_item_log_no_delete ON work_item_log: CREATE TRIGGER work_item_log_no_delete BEFORE DELETE ON work_item_log BEGIN SELECT RAISE(ABORT, 'work_item_log 只增不改'); END",
     "work_item_log_no_replace ON work_item_log: CREATE TRIGGER work_item_log_no_replace BEFORE INSERT ON work_item_log WHEN EXISTS (SELECT 1 FROM work_item_log WHERE seq = NEW.seq) OR EXISTS (SELECT 1 FROM work_item_log WHERE item_id = NEW.item_id AND fact_source = NEW.fact_source AND fact_id = NEW.fact_id) BEGIN SELECT RAISE(ABORT, 'work_item_log 只增不改'); END",
     "work_item_log_no_update ON work_item_log: CREATE TRIGGER work_item_log_no_update BEFORE UPDATE ON work_item_log BEGIN SELECT RAISE(ABORT, 'work_item_log 只增不改'); END",
