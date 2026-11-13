@@ -126,6 +126,7 @@ import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, redisConfigured, runStateRestore, runStateRead, runStateRetire, type RunStateRead } from './redis.ts';
 import { createRunCheckpoints } from './sop-state-checkpoints.ts';
 import { duplicateNode8s } from './services/a2a-handles.ts';
+import { adminTokenFromEnv, envAdminTokenFingerprint } from './admin-token-env.ts';
 import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, memberProvenanceMode, setMemberProvenance, progressReceiptsMode, setProgressReceipts, teamRosterMode, setTeamRoster, directedSeatsMode, setDirectedSeats, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
 import type { IncomingMessage } from 'node:http';
 import { a2aHealth } from './a2a/health.ts';
@@ -145,7 +146,7 @@ let judgmentEnforce: EnforceConfig = { domains: null };
 {
   let cfg: ReturnType<typeof compareConfig>;
   try { cfg = compareConfig(); } catch (e) { console.error(`[judgment] 拒绝启动：${(e as Error).message}`); process.exit(1); }
-  const compareDeps = { adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), skip: isStartupProbeRequest, facts: () => ({ adminTokenSet: !!process.env.ADMIN_TOKEN || dbAdminTokenSet() }) };
+  const compareDeps = { adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), skip: isStartupProbeRequest, facts: () => ({ adminTokenSet: adminTokenFromEnv() || dbAdminTokenSet() }) };
   const actorOf = actorResolver(compareDeps);
   mountJudgmentCompare(app, cfg, compareDeps, actorOf);
   // 阶段六 6d：判定切换的开关（WM_JUDGMENT_ENFORCE，缺省空 = 不切）。要在注册任何路由之前装门；写法不对、比对没开：拒绝启动
@@ -195,8 +196,8 @@ const loginGate = createLoginGate({
   mode: LOGIN_GATE_MODE,
   dataDir,
   adminTokenCheck: (t) => adminTokenCheck(t),
-  adminTokenFingerprint: () => process.env.ADMIN_TOKEN
-    ? createHash('sha256').update('env|' + process.env.ADMIN_TOKEN, 'utf8').digest('hex')
+  adminTokenFingerprint: () => adminTokenFromEnv()
+    ? envAdminTokenFingerprint()
     : String((svc<SettingService>('setting').get(ADMIN_TOKEN_KEY) as { value: string } | undefined)?.value ?? ''),
   odooViewer: async (cookie, fresh) => {
     if (!identity().configured() && !identity().hasSession(cookie)) return null; // 没配身份来源时，只有市场会话还可能认得出人
@@ -2645,7 +2646,7 @@ function dbAdminTokenOk(provided: string | undefined): boolean {
 }
 /** 口令校验：env 优先（启动环境注入），否则库内 sha256 */
 function adminTokenCheck(provided: string | undefined): boolean {
-  return process.env.ADMIN_TOKEN ? adminTokenOk(provided) : dbAdminTokenOk(provided);
+  return adminTokenFromEnv() ? adminTokenOk(provided) : dbAdminTokenOk(provided);
 }
 
 /** 管理员：有效口令，或本次请求已认定为 Odoo 管理员（见上方预判中间件） */
