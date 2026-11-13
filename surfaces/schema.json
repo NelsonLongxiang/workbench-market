@@ -900,7 +900,8 @@
       "status TEXT NOT NULL",
       "handled_by TEXT NOT NULL DEFAULT ''",
       "handled_at TEXT NOT NULL DEFAULT ''",
-      "created_at TEXT NOT NULL"
+      "created_at TEXT NOT NULL",
+      "peer_root TEXT NOT NULL DEFAULT ''"
     ],
     "workbench_event_log": [
       "id INTEGER PK",
@@ -1055,6 +1056,7 @@
     "idx_team_events_team ON team_events: CREATE INDEX idx_team_events_team ON team_events (host, team, seq)",
     "idx_team_leads_active ON team_leads: CREATE UNIQUE INDEX idx_team_leads_active ON team_leads (host, team, principal_id) WHERE ended_at IS NULL",
     "idx_wbe_deliveries_due ON workbench_event_deliveries: CREATE INDEX idx_wbe_deliveries_due ON workbench_event_deliveries(status, next_at)",
+    "idx_wbe_followups_root ON workbench_event_followups: CREATE INDEX idx_wbe_followups_root ON workbench_event_followups (peer_root, created_at)",
     "idx_wbe_followups_status ON workbench_event_followups: CREATE INDEX idx_wbe_followups_status ON workbench_event_followups (status, id)",
     "idx_wbe_followups_zone ON workbench_event_followups: CREATE INDEX idx_wbe_followups_zone ON workbench_event_followups (peer_zone, created_at)",
     "idx_wbe_replies_due ON workbench_event_replies: CREATE INDEX idx_wbe_replies_due ON workbench_event_replies (status, next_at)",

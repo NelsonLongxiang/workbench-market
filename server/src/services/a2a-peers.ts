@@ -3,8 +3,9 @@
  *
  *   · 登记：取一次名片（不跟随重定向、5 秒超时、64 KiB 上限）、用上游 verifyCard 验签，钉住完整公钥和指纹。
  *   · 名片上的公钥变了（noteCardSeen / 管理员刷新）：不自动接受。状态改成 key_changed、新公钥记进 pending_*，等管理员确认；
- *     canDeliver 对它答「不能发」；停用的也一样。注意：目前这里只提供登记表、canDeliver 和管理接口，投递、入站都还没有调用方来查——
- *     投递前问 canDeliver（挂起不判死）、入站只认钉住的公钥，由阶段七在后续改动里接上；接上之前，状态对投递和入站没有效果。
+ *     canDeliver 对它答「不能发」；停用的也一样。投递（事件投递、回给团队的消息）发之前问 peerCanDeliver，不能发的挂起不判死；
+ *     入站（回执、跟进、名册）验过签之后问 pinnedVerdict：active 的只认钉住的那把公钥，key_changed、disabled 的一律不收。
+ *     没登记、待登记（pending_registration，还没有钉住的键）的照旧（不挡），等登记了再按钉住的认。
  *   · 停用是粘住的：只有管理员显式 enable 才回到 active（或按情况回到 key_changed、pending_registration）；
  *     刷新、再登记、升级回填、绑定时就地登记等自动路径都不会把停用的行改回去。
  *   · 升级回填：从现有绑定和投递用到的根地址建对端行（registered_by = system:migration）。取得到名片的钉住公钥、active；
@@ -68,6 +69,33 @@ async function defaultFetchCard(root: string): Promise<string> {
 }
 
 /**
+ * 发之前问（事件投递、回给团队的消息）：active、pending_registration 能发；key_changed、disabled 不能（调用方挂起、不判死、不计次数）；
+ * 没登记的答 peer_unknown——调用方照旧发（登记表是后加的，存量的投递地址由升级回填登记，就地登记也在绑定时做）。不经服务容器，直接读表
+ */
+export function peerCanDeliver(url: string): CanDeliver {
+  const root = peerRootOf(url);
+  const p = root ? db.prepare('SELECT status FROM a2a_peers WHERE root_url = ?').get(root) as { status: PeerStatus } | undefined : undefined;
+  if (!p) return { ok: false, reason: 'peer_unknown' };
+  if (p.status === 'active' || p.status === 'pending_registration') return { ok: true };
+  return { ok: false, reason: p.status === 'key_changed' ? 'peer_key_changed' : 'peer_disabled' };
+}
+
+/**
+ * 入站验过签之后问：签名用的这把公钥认不认（回执、跟进、名册都经 verifyReceiptSigner 走到这里）。
+ *   ok         对端 active，签名用的就是钉住的那把
+ *   unpinned   没登记、待登记（还没有钉住的键）：照旧收
+ *   blocked    key_changed（名片换了键，等管理员确认）、disabled：不收、不推进任何状态
+ *   mismatch   对端 active，但签名用的不是钉住的那把（名片换了键还没经管理员确认，或者别的键）：不收
+ */
+export function pinnedVerdict(url: string, publicKey: string): 'ok' | 'unpinned' | 'blocked' | 'mismatch' {
+  const root = peerRootOf(url);
+  const p = root ? db.prepare('SELECT status, public_key FROM a2a_peers WHERE root_url = ?').get(root) as { status: PeerStatus; public_key: string } | undefined : undefined;
+  if (!p || p.status === 'pending_registration') return 'unpinned';
+  if (p.status !== 'active') return 'blocked';
+  return p.public_key !== '' && p.public_key === publicKey ? 'ok' : 'mismatch';
+}
+
+/**
  * 对端名片上（登记表里钉住、验过签的那份）是否声明了某个能力位：capabilities[name] === true。
  * 没登记、不是 active、名片还没取到或没声明，都是 false——调用方按「对端不支持」处理。不经服务容器，直接读表（发送路径上用）。
  */
@@ -120,19 +148,14 @@ export class A2aPeerService extends Service {
     return db.prepare('SELECT * FROM a2a_peers WHERE root_url = ?').get(root) as PeerRow | undefined;
   }
 
-  /** 投递前问：对这个根地址能不能发。active、pending_registration 能；key_changed、disabled、没登记的不能（投递那边应挂起，不判死；调用方由阶段七接上） */
+  /** 投递前问：对这个根地址能不能发（见 peerCanDeliver） */
   /**
    * 对端名片上（登记表里钉住、验过签的那份）是否声明了某个能力位：capabilities[name] === true。
    * 没登记、名片还没取到、不是 active、或者没声明，都是 false——调用方按「对端不支持」处理（指名、打回派工行退回旧写法并留痕）。
    */
   declares(url: string, name: string): boolean { return peerDeclares(url, name); }
 
-  canDeliver(url: string): CanDeliver {
-    const p = this.byRoot(url);
-    if (!p) return { ok: false, reason: 'peer_unknown' };
-    if (p.status === 'active' || p.status === 'pending_registration') return { ok: true };
-    return { ok: false, reason: p.status === 'key_changed' ? 'peer_key_changed' : 'peer_disabled' };
-  }
+  canDeliver(url: string): CanDeliver { return peerCanDeliver(url); }
 
   /** 取一次名片、验签。失败抛 PeerRegisterError（不分细节地说清是取不到还是验不过） */
   async fetchVerifiedCard(root: string): Promise<SeenCard> {

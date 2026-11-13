@@ -13,7 +13,9 @@ import { root } from './root-context.ts';
 import type { HttpService } from './http.ts';
 import { recordSentTask } from './services/a2a-receipts.ts';
 import { peerCard, peerRoot } from './a2a/peer-card.ts';
-import { replyTick } from './a2a/reply-outbound.ts';
+import { PEER_HOLD_MS, replyTick } from './a2a/reply-outbound.ts';
+import { peerCanDeliver } from './services/a2a-peers.ts';
+import { holdDelivery } from './services/a2a-replies.ts';
 
 /** 8b：每写一行事件日志，在同一个事务里多发一个事件（事项服务听它）。这张表和它的写法都不变。 */
 export type WorkbenchEventLogged = { id: number; event_id: string; delivery_id: number | null; action: string };
@@ -349,6 +351,12 @@ async function deliver(row: DeliveryRow): Promise<void> {
   try { await attemptDelivery(row); } finally { inFlight.delete(row.id); }
 }
 async function attemptDelivery(row: DeliveryRow): Promise<void> {
+  // 发之前问对端登记表：改钥待确认、停用的挂起，不发、不计次数、不判死（恢复之后照常发）；原因第一次出现时留一行 held
+  const can = peerCanDeliver(row.target_url);
+  if (!can.ok && can.reason !== 'peer_unknown') {
+    if (holdDelivery(row.id, Date.now() + PEER_HOLD_MS, can.reason)) log(row.event_id, row.id, 'market', 'held', { reason: can.reason });
+    return;
+  }
   const attempt = row.attempts + 1;
   // 每次尝试一个 task_id：对端幂等键按 task_id 全机唯一，且登记在「判定能否投递」之前——
   // 同一 task_id 重试拿到的 -32003 不能证明上次送到了；同机多团队共用一个 id 会撞 -32002。
