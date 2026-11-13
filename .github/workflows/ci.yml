@@ -166,6 +166,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/home-count-browser.mjs
+      - name: 驾驶舱里的数据视图（能改的人才有入口·选台只列有权限的台·挂上后出现小标题·共用筛选改一次两份都重取·看不到的不露代号；数据视图接口截成合成的）
+        env:
+          PYTHON: python
+        run: node scripts/cockpit-bench-view-browser.mjs
       - name: 身份变了以后页面重读（401 且确认没登录或换了人才清·502 不清挂横幅·旧身份在路上的应答不写回·后退恢复的页面也确认）
         env:
           PYTHON: python
@@ -510,6 +514,8 @@ jobs:
         run: node scripts/work-items-ui-unit.mjs
       - name: 驾驶舱骨架单测（纯函数——三栏尺寸、放大还原、数据视图引用、页签；单列一步）
         run: node scripts/cockpit-frame-unit.mjs
+      - name: 驾驶舱里的数据视图（共用的筛选、挂视图、取不到时的说法）
+        run: node scripts/cockpit-bench-view-unit.mjs
       - name: 身份变了以后页面重读单测（纯函数——认人只认 /api/auth/me·不通和 502 不算·合并去抖·世代号；单列一步）
         run: node scripts/session-watch-unit.mjs
       - name: 技能正文里写到的 MCP 工具名都在工具目录里（对照 surfaces/mcp-tools.json）
