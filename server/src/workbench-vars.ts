@@ -93,13 +93,14 @@ function tx<T>(fn: () => T): T {
   try { const out = fn(); db.exec('COMMIT'); return out; } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 已回滚 */ } throw e; }
 }
 
-export function listVars(scope: Scope, prefix = '') {
+/** 主库这一种存法（缺省）：整段同步，事务里不让出事件循环。对外的 listVars 等是异步的，存法换成台库时也是这几个入口 */
+function listVarsMain(scope: Scope, prefix = '') {
   if (prefix && (prefix.length > 128 || !/^[A-Za-z0-9_.:-]+$/.test(prefix))) throw new HttpError(400, 'prefix 只能含字母/数字/_ . : -');
   const items = (vars().list(scope.id, prefix) as WorkbenchVarRow[]).map(view);
   return { workbench_id: scope.id, class: scope.cls, items, count: items.length };
 }
 
-export function getVar(scope: Scope, key: string) {
+function getVarMain(scope: Scope, key: string) {
   const r = vars().get(scope.id, checkKey(key)) as WorkbenchVarRow | undefined;
   if (!r) throw new HttpError(404, `var not found: ${key}`, { code: 'not_found', workbench_id: scope.id, key, current_revision: 0 });
   return { workbench_id: scope.id, ...view(r) };
@@ -129,7 +130,8 @@ function ownerInput(scope: Scope, key: string, owner: unknown, caller: Caller, c
   return o;
 }
 
-export function setVar(scope: Scope, key: string, input: { value?: unknown; hasValue: boolean; kind?: unknown; expected?: number; override?: boolean; reason?: unknown; owner?: unknown }, caller: Caller) {
+type SetInput = { value?: unknown; hasValue: boolean; kind?: unknown; expected?: number; override?: boolean; reason?: unknown; owner?: unknown };
+function setVarMain(scope: Scope, key: string, input: SetInput, caller: Caller) {
   checkKey(key);
   if (!input.hasValue) throw new HttpError(400, '缺 value（任意 JSON 值，null 也算）');
   if (input.kind !== undefined && input.kind !== 'var' && input.kind !== 'const') throw new HttpError(400, "kind 只能是 'var' 或 'const'");
@@ -173,7 +175,8 @@ export function setVar(scope: Scope, key: string, input: { value?: unknown; hasV
   });
 }
 
-export function deleteVar(scope: Scope, key: string, input: { expected?: number; override?: boolean; reason?: unknown }, caller: Caller) {
+type DeleteInput = { expected?: number; override?: boolean; reason?: unknown };
+function deleteVarMain(scope: Scope, key: string, input: DeleteInput, caller: Caller) {
   checkKey(key);
   const reason = typeof input.reason === 'string' ? input.reason.trim().slice(0, 200) : '';
   const S = vars();
@@ -191,18 +194,24 @@ export function deleteVar(scope: Scope, key: string, input: { expected?: number;
   });
 }
 
+// —— 对外的入口（异步）：现在只有主库这一种存法；台库那一种见数据层第 5 步（docs/data-views.md 第十三节） ——
+export async function listVars(scope: Scope, prefix = '') { return listVarsMain(scope, prefix); }
+export async function getVar(scope: Scope, key: string) { return getVarMain(scope, key); }
+export async function setVar(scope: Scope, key: string, input: SetInput, caller: Caller) { return setVarMain(scope, key, input, caller); }
+export async function deleteVar(scope: Scope, key: string, input: DeleteInput, caller: Caller) { return deleteVarMain(scope, key, input, caller); }
+
 /** 删台级联：变量随台删除，审计行保留 */
 export function dropWorkbenchVars(workbenchId: number): void {
   vars().deleteAll(workbenchId);
 }
 
 // ---------- MCP（workbench_vars_get / workbench_vars_set）：会话授权由 /mcp 网关管；常量 override 只对作者本人的会话生效 ----------
-export function mcpVarsGet(args: any) {
+export async function mcpVarsGet(args: any) {
   const scope = workbenchScope(Number(args?.id));
   return args?.key === undefined ? listVars(scope, typeof args?.prefix === 'string' ? args.prefix : '') : getVar(scope, String(args.key));
 }
 
-export function mcpVarsSet(args: any, subject: string) {
+export async function mcpVarsSet(args: any, subject: string) {
   const scope = workbenchScope(Number(args?.id));
   return setVar(scope, String(args?.key ?? ''), {
     value: args?.value, hasValue: args != null && Object.prototype.hasOwnProperty.call(args, 'value'),
@@ -230,14 +239,14 @@ export function createWorkbenchVars(deps: WorkbenchVarsDeps) {
     return { actor: deps.adminActor(req), admin: true, cli: false };
   }
 
-  const handle = (write: boolean, fn: (req: express.Request, res: express.Response, scope: Scope, caller: Caller) => void) =>
+  const handle = (write: boolean, fn: (req: express.Request, res: express.Response, scope: Scope, caller: Caller) => void | Promise<void>) =>
     (req: express.Request, res: express.Response, next: express.NextFunction) => {
       (async () => {
         const scope = workbenchScope(Number(req.params.id));
         const caller = await authorize(req, res, scope, write);
         if (!caller) return;
         res.set('Cache-Control', 'no-store');
-        fn(req, res, scope, caller);
+        await fn(req, res, scope, caller);
       })().catch(next);
     };
 

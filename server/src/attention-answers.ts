@@ -233,7 +233,7 @@ function applied(id: string, fact: Parameters<WorkItemService['apply']>[1]): Ans
  *     （不靠时间分轮：时间只到秒，同一秒里又出现就分不开）
  *   · 变更申请、MCP 权限申请：每次申请都是新的一行、新的 id，不会再次进入待处理，键就是 id
  */
-function keyOf(source: string, sourceId: string): string {
+async function keyOf(source: string, sourceId: string): Promise<string> {
   if (source === 'seat-asks' && /^[1-9]\d{0,15}$/.test(sourceId)) {
     const ask = currentAskOfDelivery(Number(sourceId));
     return ask ? `${sourceId}:${ask.ask_log_id}` : sourceId;
@@ -246,7 +246,7 @@ function keyOf(source: string, sourceId: string): string {
     const list = (svc<WorkbenchService>('workbench').all() as { id: number; url: string }[]).map((w) => ({ id: w.id, url: w.url }));
     const found = findBoardWorkbench(list, 'http://localhost');
     if ('error' in found) return sourceId;
-    const v = (listVars(workbenchScope(found.id), `item.${sourceId}`).items as { key: string; revision: number }[]).find((x) => x.key === `item.${sourceId}`);
+    const v = ((await listVars(workbenchScope(found.id), `item.${sourceId}`)).items as { key: string; revision: number }[]).find((x) => x.key === `item.${sourceId}`);
     return v ? `${sourceId}:${v.revision}` : sourceId;
   }
   if (source === 'principal-pending') {
@@ -267,7 +267,7 @@ function keyOf(source: string, sourceId: string): string {
 export const CREATOR_ANSWERS = ['verify', 'return'] as const;
 export async function decideItemAnswer(id: string, actor: string, answer: string, input: Input, actingFor: string): Promise<AnswerOutcome> {
   if (!(CREATOR_ANSWERS as readonly string[]).includes(answer)) return { status: 400, body: { error: 'creator_answer_not_allowed', allowed: CREATOR_ANSWERS } };
-  return svc<AttentionService>('attention').once('work-items', keyOf('work-items', id), answer, actor, async () => {
+  return svc<AttentionService>('attention').once('work-items', await keyOf('work-items', id), answer, actor, async () => {
     const st = svc<WorkItemService>('workItems').get(id)?.state;
     if (st !== 'ready') return { status: 409, body: { error: 'work_item_not_ready', state: st ?? null } };
     return DIRECT['work-items'][answer](undefined as unknown as Req, id, input, actor, actingFor);
@@ -338,10 +338,10 @@ export function withAnswers(p: AttentionProvider<Req>, deps: AnswerDeps): Attent
         // 记账和留痕的人和答复入口认「答过没有」用的同一个（actorOf）：会话登录的管理员记成身份来源的那个名字，别人记主体
         const who = await actorOf(req);
         if (decision !== 'answer') return decideItemAnswer(sourceId, who, answer, input, v.acting_for);
-        return attention().once(p.source, keyOf(p.source, sourceId), answer, who, async () => DIRECT['seat-asks'].answer(req, sourceId, input, who, v.acting_for));
+        return attention().once(p.source, await keyOf(p.source, sourceId), answer, who, async () => DIRECT['seat-asks'].answer(req, sourceId, input, who, v.acting_for));
       }
       const actor = await actorOf(req);
-      return attention().once(p.source, keyOf(p.source, sourceId), answer, actor, async () => {
+      return attention().once(p.source, await keyOf(p.source, sourceId), answer, actor, async () => {
         const direct = directs?.[answer];
         if (direct) return direct(req, sourceId, input, actor);
         const make = forwards?.[answer];

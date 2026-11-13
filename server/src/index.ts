@@ -2973,9 +2973,9 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       // MCP 会话不是人：卡片的台库里有数据时一律 409（要管理层来删）
       return await workbenchDeleteCore(Number(args?.id), { kind: 'session', name: String(subject).replace(/^mcp:/, '') });
     case 'workbench_vars_get':
-      return mcpVarsGet(args);
+      return await mcpVarsGet(args);
     case 'workbench_vars_set':
-      return mcpVarsSet(args, subject);
+      return await mcpVarsSet(args, subject);
     case 'app_data_list': {
       const a = getApp(String(args?.slug ?? ''));
       const limit = pageLimit(args?.limit);

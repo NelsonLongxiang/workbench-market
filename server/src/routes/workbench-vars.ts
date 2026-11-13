@@ -16,11 +16,11 @@ const vars = () => svc<WorkbenchVarsService>('workbenchVars');
 const TOKEN = '自产台、SOP 台的页面凭本台令牌读写本台变量：200 还是 403 看令牌对不对，不是授权的结论';
 
 export function registerWorkbenchVarsRoutes(app: HttpService, handle: ReturnType<typeof createWorkbenchVars>['handle']): void {
-  app.get('/api/workbenches/:id/vars', { action: 'workbench.vars-list', kind: 'admin', statusNotVerdict: TOKEN }, handle(false, (req, res, scope) => {
-    res.json(listVars(scope, typeof req.query.prefix === 'string' ? req.query.prefix : ''));
+  app.get('/api/workbenches/:id/vars', { action: 'workbench.vars-list', kind: 'admin', statusNotVerdict: TOKEN }, handle(false, async (req, res, scope) => {
+    res.json(await listVars(scope, typeof req.query.prefix === 'string' ? req.query.prefix : ''));
   }));
-  app.get('/api/workbenches/:id/vars/:key', { action: 'workbench.vars-read', kind: 'admin', statusNotVerdict: TOKEN }, handle(false, (req, res, scope) => {
-    const out = getVar(scope, req.params.key);
+  app.get('/api/workbenches/:id/vars/:key', { action: 'workbench.vars-read', kind: 'admin', statusNotVerdict: TOKEN }, handle(false, async (req, res, scope) => {
+    const out = await getVar(scope, req.params.key);
     res.set('ETag', `"${out.revision}"`).json(out);
   }));
   // 审计只给管理员（本机命令行同）
@@ -29,17 +29,17 @@ export function registerWorkbenchVarsRoutes(app: HttpService, handle: ReturnType
     const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
     res.json({ workbench_id: scope.id, key: checkKey(req.params.key), items: vars().auditList(scope.id, req.params.key, limit) });
   }));
-  app.put('/api/workbenches/:id/vars/:key', { action: 'workbench.vars-set', kind: 'admin', statusNotVerdict: TOKEN }, handle(true, (req, res, scope, caller) => {
+  app.put('/api/workbenches/:id/vars/:key', { action: 'workbench.vars-set', kind: 'admin', statusNotVerdict: TOKEN }, handle(true, async (req, res, scope, caller) => {
     const b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
-    const out = setVar(scope, req.params.key, {
+    const out = await setVar(scope, req.params.key, {
       value: b.value, hasValue: Object.prototype.hasOwnProperty.call(b, 'value'), kind: b.kind,
       expected: expectedRevision(req.headers['if-match'], b.revision ?? req.query.revision),
       override: truthy(b.override) || truthy(req.query.override), reason: b.reason, owner: b.owner,
     }, caller);
     res.status(out.created ? 201 : 200).set('ETag', `"${out.revision}"`).json(out);
   }));
-  app.delete('/api/workbenches/:id/vars/:key', { action: 'workbench.vars-delete', kind: 'admin', statusNotVerdict: TOKEN }, handle(true, (req, res, scope, caller) => {
-    res.json(deleteVar(scope, req.params.key, {
+  app.delete('/api/workbenches/:id/vars/:key', { action: 'workbench.vars-delete', kind: 'admin', statusNotVerdict: TOKEN }, handle(true, async (req, res, scope, caller) => {
+    res.json(await deleteVar(scope, req.params.key, {
       expected: expectedRevision(req.headers['if-match'], req.query.revision),
       override: truthy(req.query.override), reason: req.query.reason,
     }, caller));
