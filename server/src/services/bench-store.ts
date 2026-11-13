@@ -35,6 +35,12 @@ export { BENCH_SLUG_RE };
 export type { WriteCtx, WriteResult, DatasetInput, ViewVersion, BenchChange } from './bench-store-core.ts';
 
 const ROOT = join(dataDir, 'bench-stores');
+/** 删卡片、清扫时台库的备份放这里，留 BENCH_BACKUP_KEEP_MS（bench-card-delete.ts、services/bench-sweep.ts） */
+export const BENCH_DELETED_DIR = join(ROOT, '.deleted');
+export const BENCH_BACKUP_KEEP_MS = 30 * 86_400_000;
+/** 备份文件名：<台标识>--<删的时刻（毫秒）>.sqlite；清扫按名字里的时刻算到期 */
+export const benchBackupName = (slug: string, at: number): string => `${slug}--${at}.sqlite`;
+export const BENCH_BACKUP_NAME_RE = /^([a-z0-9][a-z0-9-]{0,63})--(\d{13})\.sqlite$/;
 const CODES = new Set(['invalid', 'not_found', 'conflict', 'limit', 'unsupported', 'internal', 'timeout', 'busy']);
 
 let changeListener: ((c: BenchChange) => void) | null = null;
@@ -241,8 +247,29 @@ function enqueue(lane: Lane, slug: string, method: string, args: unknown[]): Pro
   });
 }
 
+/**
+ * 写入的行数组里，格只能是单个值（文本、数字、布尔、空）。有对象或数组的格，在递给线程之前就拒：
+ * 线程里的校验也会拒，但复制给线程时内存已经占了；而且大写入按体量估时这样的格只按 8 记，会低估。说明是第几行哪一列
+ */
+function nonScalarCell(method: string, args: unknown[]): BenchError | null {
+  if (BENCH_METHODS.get(method) !== 'write') return null;
+  for (const a of args) {
+    if (!Array.isArray(a)) continue;
+    for (let i = 0; i < a.length; i++) {
+      const r = a[i];
+      if (!r || typeof r !== 'object' || Array.isArray(r)) continue;
+      for (const [k, v] of Object.entries(r as Record<string, unknown>)) {
+        if (v !== null && typeof v === 'object') return new BenchError('invalid', `第 ${i + 1} 行的 ${k.slice(0, 40)} 列不是单个值（是对象或数组），整批未写入`);
+      }
+    }
+  }
+  return null;
+}
+
 function call(slug: string, method: string, args: unknown[]): Promise<unknown> {
   if (queuedTotal() >= BENCH_LIMITS.queue) return Promise.reject(new BenchError('busy', '台库正忙，排着队的读写太多，稍后再试'));
+  const cell = nonScalarCell(method, args);
+  if (cell) return Promise.reject(cell);
   return enqueue(laneOf(slug), slug, method, args);
 }
 

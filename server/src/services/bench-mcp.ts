@@ -12,7 +12,7 @@ import { db } from '../db.ts';
 import { BenchError } from '../bench-query.ts';
 import { BENCH_SLUG_RE } from './bench-store-core.ts';
 import { benchStore, type BenchStore } from './bench-store.ts';
-import { getBench } from './bench-registry.ts';
+import { getBench, resolveBenchRef } from './bench-registry.ts';
 import { BENCH_TOOL_DEFS, BENCH_TOOL_NAMES } from '../bench-mcp-tools.ts';
 
 export const BENCH_REQUEST_HOURLY_MAX = 10;
@@ -206,8 +206,9 @@ const KEYS = new Map<string, readonly string[]>(BENCH_TOOL_DEFS.map((t) => [t.na
  */
 export async function benchToolTarget(on: boolean, sessionId: number | null, toolName: string, args: unknown): Promise<BenchStore | null> {
   if (!on || sessionId === null || !BENCH_TOOL_NAMES.has(toolName)) return null;
-  const bench = (args && typeof args === 'object' && !Array.isArray(args) ? (args as Row).bench : undefined);
-  if (typeof bench !== 'string' || !BENCH_SLUG_RE.test(bench)) return null;
+  const ref = (args && typeof args === 'object' && !Array.isArray(args) ? (args as Row).bench : undefined);
+  if (typeof ref !== 'string' || !BENCH_SLUG_RE.test(ref)) return null;
+  const bench = resolveBenchRef(ref); // 写卡片 id 也认：授予按台标识记
   if (!hasBenchGrant(sessionId, bench, toolName)) return null;
   if (!getBench(bench)) return null;
   return benchStore(bench);

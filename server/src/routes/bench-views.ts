@@ -26,7 +26,7 @@ import { browserMarked, originIsThisSurface, rawLoopback } from '../surfaces.ts'
 import { judge, scopedVerdict, type JudgedActor } from '../judgment.ts';
 import { BENCH_LIMITS, BenchError } from '../bench-query.ts';
 import { benchStore, type BenchStore } from '../services/bench-store.ts';
-import { bindBench, linkWorkbench, createBench, getBench, listBenches, type BenchEntry } from '../services/bench-registry.ts';
+import { bindBench, linkWorkbench, createBench, getBench, listBenches, resolveBenchRef, type BenchEntry } from '../services/bench-registry.ts';
 import { relationOf } from '../team-relation.ts';
 import { decideBenchRequest, listBenchMcp, setBenchGrants } from '../services/bench-mcp.ts';
 
@@ -66,7 +66,12 @@ export let benchMcpDecider: ((req: express.Request, res: express.Response, bench
 export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDeps): void {
   const { wrap: wrapInner, adminTokenOk, devOriginOk } = deps;
   // 开关关着：在一切之前回 404
-  const wrap: BenchViewRouteDeps['wrap'] = (fn) => wrapInner(async (req, res) => (deps.on ? fn(req, res) : res.status(404).json({ error: 'bench_views_off' })));
+  // 路径里的台可以写卡片 id（纯数字）或台标识：一进来就换成台标识，下面一律按台标识认（docs/data-views.md 第十三节）
+  const wrap: BenchViewRouteDeps['wrap'] = (fn) => wrapInner(async (req, res) => {
+    if (!deps.on) return res.status(404).json({ error: 'bench_views_off' });
+    if (typeof req.params?.bench === 'string') req.params.bench = resolveBenchRef(req.params.bench);
+    return fn(req, res);
+  });
   const principals = () => svc<PrincipalService>('principals');
   const resolve = identity().cachedResolver({ ttlMs: 60_000, max: 1000 });
 
@@ -181,7 +186,8 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     res.json({ benches: mine });
   }));
   app.post('/api/bench-views', { action: 'bench-store.bench-create', kind: 'write', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
-    // 管理层可以登记到任何部门（或者先不绑）；别的人只能登记到自己有拍板授予的部门，而且必须绑
+    // 管理层可以登记到任何部门（或者先不绑）；别的人只能登记到自己有拍板授予的部门，而且必须绑。
+    // 给一张卡片开台库：只给 workbench_id，标识定成 wb-<卡片 id>、名字用卡片的（只有管理层，见下）
     const actor = await who(req, res);
     if (!actor) return;
     const body = req.body as { department?: unknown; workbench_id?: unknown } | undefined;
