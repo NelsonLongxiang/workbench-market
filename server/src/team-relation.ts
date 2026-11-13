@@ -126,13 +126,14 @@ export function teamVisibleTo(v: { admin: boolean; principal: string | null; man
  * 注意 dept-member 只是组织信息，不能拿来放行（见文件头）。
  */
 export type RelationsSummary = {
-  departments: { id: string; name: string; member: boolean; lead: boolean }[];
+  /** lead：已放行的负责人（有这个部门的拍板授予）；lead_pending：部门上写着他、还没有授予（待属主放行，不带权力） */
+  departments: { id: string; name: string; member: boolean; lead: boolean; lead_pending: boolean }[];
   teams_led: { host: string; team: string; name: string; department: { id: string; name: string } | null; source: 'explicit' | 'department' }[];
   members: { host: string; team: string; team_name: string; seat: string; seat_id: string; since: number }[];
 };
 export function relationsSummaryOf(principal: string): RelationsSummary {
   const departments = svc<DepartmentService>('departments').of(principal)
-    .map((d) => ({ id: d.id, name: d.name, member: d.is_member, lead: d.is_lead }));
+    .map((d) => ({ id: d.id, name: d.name, member: d.is_member, lead: d.is_lead, lead_pending: !!d.lead_pending }));
   const teams_led = teams().allViews().flatMap((t) => {
     const l = t.leads.find((x) => x.principal === principal);
     return l ? [{ host: t.host, team: t.team, name: teamName(t.team), department: t.department, source: l.source }] : [];

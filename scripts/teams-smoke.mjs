@@ -257,9 +257,9 @@ try {
     const accA = await srv.call('GET', '/api/principals/user:alpha/access', as(SESSIONS.alpha));
     const accB = await srv.call('GET', '/api/principals/user:beta/access', { headers: token });
     const ra = accA.json?.relations, rb = accB.json?.relations;
-    check(accA.status === 200 && show(ra?.departments) === show([{ id: 'sales', name: '合成销售部', member: true, lead: false }])
+    check(accA.status === 200 && show(ra?.departments) === show([{ id: 'sales', name: '合成销售部', member: true, lead: false, lead_pending: false }])
       && show(ra?.teams_led?.map((t) => [t.team, t.source, t.department?.id])) === show([[TEAM, 'explicit', 'sales']]) && ra?.members?.length === 2 && ra.members.every((m) => m.team === TEAM && m.team_name === 'Sales Team')
-      && accB.status === 200 && rb?.departments?.[0]?.lead === true && show(rb?.teams_led?.map((t) => t.source)) === show(['department']) && rb?.members?.length === 0
+      && accB.status === 200 && rb?.departments?.[0]?.lead === true && rb.departments[0].lead_pending === false && show(rb?.teams_led?.map((t) => t.source)) === show(['department']) && rb?.members?.length === 0
       && !accA.text.includes('CANARY-TEAM-ITEM-TITLE') && !accB.text.includes('CANARY-TEAM-ITEM-TITLE'),
       '「谁能做什么」带上团队关系：alpha 是销售部成员、另外指定的负责人、手上两个成员；beta（管理员看）是部门负责人、经部门的负责人、手上没有成员（收回了）；不带事项内容',
       show({ ra, rb }));
@@ -821,9 +821,11 @@ try {
     await srv.call('PUT', '/api/departments/eng/members/user:alpha', { headers: token });
     const mem = (await srv.call('GET', '/api/departments/eng', { headers: token })).json?.members?.find((m) => m.principal === 'user:alpha');
     const ofAlpha = (await srv.call('GET', '/api/departments/of/user:alpha', as(SESSIONS.alpha))).json?.departments?.find((d) => d.id === 'eng');
+    const relAccess = (await srv.call('GET', '/api/principals/user:alpha/access', as(SESSIONS.alpha))).json?.relations?.departments?.find((d) => d.id === 'eng');
     await srv.call('DELETE', '/api/departments/eng/members/user:alpha', { headers: token });
-    check(mem?.is_lead === false && mem?.lead_pending === true && ofAlpha?.is_lead === false && ofAlpha?.is_member === true && ofAlpha?.lead_pending === true,
-      '只有字段的负责人又是成员：成员列表、部门归属里都不算负责人（is_lead 假），标 lead_pending', show({ mem, ofAlpha }));
+    check(mem?.is_lead === false && mem?.lead_pending === true && ofAlpha?.is_lead === false && ofAlpha?.is_member === true && ofAlpha?.lead_pending === true
+      && relAccess?.lead === false && relAccess?.member === true && relAccess?.lead_pending === true,
+      '只有字段的负责人又是成员：成员列表、部门归属、「谁能做什么」的关系摘要里都不算负责人（lead 假），标 lead_pending', show({ mem, ofAlpha, relAccess }));
     sidecar('return svc("relationProposals").proposeMissingLeadGrants(Date.now());');
     const again = ((await srv.call('GET', '/api/relations/proposals')).json?.proposals ?? []).find((p) => p.kind === 'dept-lead' && p.department_id === 'eng' && p.status === 'pending');
     const rj = await srv.call('POST', `/api/relations/proposals/${again?.id}/reject`, { body: { reason: '合成：不认这个字段' } });
