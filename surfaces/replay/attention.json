@@ -22,7 +22,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "2018", "etag": "W/\"7e2-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "2098", "etag": "W/\"832-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -60,6 +60,7 @@
                 "change-requests": { "label": "变更申请", "visible": true, "count": 1 },
                 "mcp-access": { "label": "MCP 权限申请", "visible": true, "count": 0 },
                 "seat-asks": { "label": "席位的提问", "visible": true, "count": 0 },
+                "reply-rejected": { "label": "节点没收下的答复", "visible": false, "count": 0 },
                 "sop-runs": { "label": "待验收的派单执行", "visible": true, "count": 0 },
                 "tasks": { "label": "任务中心收件（统一待办）", "visible": true, "count": 0 },
                 "owner-pending": { "label": "待属主看板", "visible": true, "count": 0 },
@@ -84,7 +85,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "2018", "etag": "W/\"7e2-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "2098", "etag": "W/\"832-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -122,6 +123,7 @@
                 "change-requests": { "label": "变更申请", "visible": true, "count": 1 },
                 "mcp-access": { "label": "MCP 权限申请", "visible": true, "count": 0 },
                 "seat-asks": { "label": "席位的提问", "visible": true, "count": 0 },
+                "reply-rejected": { "label": "节点没收下的答复", "visible": false, "count": 0 },
                 "sop-runs": { "label": "待验收的派单执行", "visible": true, "count": 0 },
                 "tasks": { "label": "任务中心收件（统一待办）", "visible": true, "count": 0 },
                 "owner-pending": { "label": "待属主看板", "visible": true, "count": 0 },
@@ -146,7 +148,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1461", "etag": "W/\"5b5-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1541", "etag": "W/\"605-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -169,6 +171,7 @@
                 "change-requests": { "label": "变更申请", "visible": false, "count": 0 },
                 "mcp-access": { "label": "MCP 权限申请", "visible": false, "count": 0 },
                 "seat-asks": { "label": "席位的提问", "visible": false, "count": 0 },
+                "reply-rejected": { "label": "节点没收下的答复", "visible": false, "count": 0 },
                 "sop-runs": { "label": "待验收的派单执行", "visible": true, "count": 0 },
                 "tasks": { "label": "任务中心收件（统一待办）", "visible": false, "count": 0 },
                 "owner-pending": { "label": "待属主看板", "visible": true, "count": 0 },
@@ -193,7 +196,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1137", "etag": "W/\"471-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1217", "etag": "W/\"4c1-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [],
               "counts": { "total": 0, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 0 }, "by_source": {}, "stuck_count": 0 },
@@ -201,6 +204,7 @@
                 "change-requests": { "label": "变更申请", "visible": false, "count": 0 },
                 "mcp-access": { "label": "MCP 权限申请", "visible": false, "count": 0 },
                 "seat-asks": { "label": "席位的提问", "visible": false, "count": 0 },
+                "reply-rejected": { "label": "节点没收下的答复", "visible": false, "count": 0 },
                 "sop-runs": { "label": "待验收的派单执行", "visible": false, "count": 0 },
                 "tasks": { "label": "任务中心收件（统一待办）", "visible": false, "count": 0 },
                 "owner-pending": { "label": "待属主看板", "visible": false, "count": 0 },
@@ -225,7 +229,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1137", "etag": "W/\"471-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1217", "etag": "W/\"4c1-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [],
               "counts": { "total": 0, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 0 }, "by_source": {}, "stuck_count": 0 },
@@ -233,6 +237,7 @@
                 "change-requests": { "label": "变更申请", "visible": false, "count": 0 },
                 "mcp-access": { "label": "MCP 权限申请", "visible": false, "count": 0 },
                 "seat-asks": { "label": "席位的提问", "visible": false, "count": 0 },
+                "reply-rejected": { "label": "节点没收下的答复", "visible": false, "count": 0 },
                 "sop-runs": { "label": "待验收的派单执行", "visible": false, "count": 0 },
                 "tasks": { "label": "任务中心收件（统一待办）", "visible": false, "count": 0 },
                 "owner-pending": { "label": "待属主看板", "visible": false, "count": 0 },

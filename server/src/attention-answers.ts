@@ -162,6 +162,7 @@ const DIRECT: Record<string, Record<string, (req: Req, id: string, input: Input,
         const to = returnTargetOfEvent(ev);
         const target = to ? deliveryTarget(to.delivery_id) : undefined;
         if (!to || !target) return { out, queued: false };
+        // ref 写负的进展序号（没有进展时是 0）：同一步进展只打回一次，也让回执认得出这是打回任务（a2a-replies 的 replyKindOfTask）
         const seq = items.lastEntrySeq(id, ['progress']) ?? 0;
         const queued = queueReply({ kind: 'answer', eventId: ev, deliveryId: to.delivery_id, ref: -seq, qid: to.task, team: target.team, callerSession: target.caller_session,
           contextId: target.context_id, targetUrl: target.target_url, message: JSON.stringify({ text: reason, by: actor, return: { of: to.task, title: it!.title } }) }) !== null;
