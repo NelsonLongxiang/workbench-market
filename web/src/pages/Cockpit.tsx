@@ -4,7 +4,7 @@ import { useRequest } from 'ahooks';
 import { Space, Input, App, Badge, Button, Card, Col, Empty, Flex, Popconfirm, Popover, Select, Spin, Tooltip, Typography } from 'antd';
 import { EditOutlined, ExportOutlined, PlusOutlined, ReloadOutlined, CloseOutlined } from '@ant-design/icons';
 import 'react-resizable/css/styles.css';
-import { api } from '../api';
+import { api, canCreateCockpit } from '../api';
 import GoFrame from '../components/GoFrame';
 import type { Cockpit as CockpitT, PanelConfig, Workbench } from '../types';
 import { useSyncExternalStore } from 'react';
@@ -13,15 +13,17 @@ import WmPage from '../components/WmPage';
 import CockpitFrame from '../components/cockpit/CockpitFrame';
 import { AttentionPane, ItemsPane, ProcessPane, StaffPane } from '../components/cockpit/SidePanes';
 import ArrangeDrawer from '../components/ArrangeDrawer';
-import BenchViewPanel from '../components/cockpit/BenchViewPanel';
+import BenchViewTab from '../components/cockpit/BenchViewTab';
+import BenchViewManage from '../components/cockpit/BenchViewManage';
 import type { AttentionItem } from '../attention-view';
 import { rowKey } from '../cockpit-attention';
 import { benchViewRefs, isBenchViewPanel, itemsTabLabel, mainTabKeys, refsOfTab } from '../cockpit-frame-view';
 
 /** 驾驶舱写（/api/cockpits）是管理写：不是管理员（口令或 Odoo 管理员）时只读，隐藏新建/删除/改名/加移面板，网格不可拖拽 */
-/** 不是管理员时的一行说明：只说只能看、谁来调，不教人去拿口令（新外壳也没有顶栏口令入口） */
-const READ_ONLY_LIST = '驾驶舱你只能看，新建和调整由管理员来。';
-const READ_ONLY_HINT = '这个驾驶舱你只能看，布局由管理员调整。';
+/** 只能看的人的一行说明：只说只能看、谁来调，不教人去拿口令。谁能建、能改由服务端判（#673：管理层授予或管理员） */
+const READ_ONLY_LIST = '驾驶舱你只能看，新建和调整由管理层或管理员来。';
+const READ_ONLY_HINT = '这个驾驶舱你只能看，布局由管理层或管理员调整。';
+const NO_PICKS: Record<string, string> = {};
 
 
 function PanelHeadActions(props: { wid: number; url?: string; onRefresh: () => void; onRemove?: () => void }) {
@@ -48,7 +50,17 @@ function PanelHeadActions(props: { wid: number; url?: string; onRefresh: () => v
 
 
 export default function Cockpit() {
-  const READ_ONLY = !useSyncExternalStore(subscribeAdminToken, adminActive);
+  // 管理身份（口令或 Odoo 管理员）：只用在右栏事项的标签上，和驾驶舱无关。
+  // 改某一个驾驶舱（改名、加面板、删除……）照服务端在这个驾驶舱上给的 can.edit；新建照 /api/auth/me 的 can.create_cockpit
+  const ADMIN = useSyncExternalStore(subscribeAdminToken, adminActive);
+  const [canCreate, setCanCreate] = useState(false);
+  useEffect(() => {
+    let live = true;
+    const ask = () => { void canCreateCockpit().then((v) => { if (live) setCanCreate(v); }); };
+    ask();
+    const off = subscribeAdminToken(ask);
+    return () => { live = false; off(); };
+  }, []);
   const { id } = useParams();
   const nav = useNavigate();
   const { message } = App.useApp();
@@ -62,6 +74,10 @@ export default function Cockpit() {
   const [rightTab, setRightTab] = useState<string | null>(null);
   const pick = useCallback((a: AttentionItem | null) => { setPicked(a); if (a) setRightTab('process'); }, []);
   const [arrange, setArrange] = useState(false);
+  const [viewsOpen, setViewsOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  // 数据视图那排共用筛选里人选的值：一个驾驶舱一份，「看板」「明细」共用；只在这一页的内存里
+  const [viewPicks, setViewPicks] = useState<Record<number, Record<string, string>>>({});
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const submitRename = async () => {
@@ -89,6 +105,9 @@ export default function Cockpit() {
     () => listReq.data?.find((c) => String(c.id) === id),
     [listReq.data, id]
   );
+  const READ_ONLY = active?.can?.edit !== true;
+  // 口令输入、清掉、换了 Odoo 管理员之后，服务端算的 can 会变：重读一次
+  useEffect(() => subscribeAdminToken(() => listReq.refresh()), [listReq.refresh]);
 
   // 切换驾驶舱时装载其面板布局
   const loadedId = useRef<number | null>(null);
@@ -147,7 +166,7 @@ export default function Cockpit() {
     return (
       <WmPage
         subTitle="一屏看住一条线或一个工作台：中间是它的看板和明细，左边是等你拍板的，右边是办理过程"
-        extra={!READ_ONLY && <Button
+        extra={canCreate && <Button
             type="primary"
             icon={<PlusOutlined />}
             onClick={async () => {
@@ -164,7 +183,7 @@ export default function Cockpit() {
           </Button>}
       >
       <Flex vertical gap={16} className="wm-w-full" align="start">
-        {READ_ONLY && <Typography.Text type="secondary" className="wm-cockpit-readonly wm-caption">{READ_ONLY_LIST}</Typography.Text>}
+        {!canCreate && <Typography.Text type="secondary" className="wm-cockpit-readonly wm-caption">{READ_ONLY_LIST}</Typography.Text>}
         {listReq.data?.length ? (
           <Flex gap={16} wrap="wrap" className="wm-w-full" style={{ rowGap: 16 }}>
             {listReq.data.map((c) => (
@@ -177,7 +196,7 @@ export default function Cockpit() {
                         {c.panels.length} 个面板 · {c.updated_at.slice(0, 16).replace('T', ' ')}
                       </Typography.Text>
                     </Flex>
-                    {!READ_ONLY && <Popconfirm
+                    {c.can?.edit === true && <Popconfirm
                       title={`删除「${c.name}」？`}
                       onConfirm={async (e) => {
                         e?.stopPropagation();
@@ -201,8 +220,8 @@ export default function Cockpit() {
             ))}
           </Flex>
         ) : (
-          <Empty description={READ_ONLY ? '还没有驾驶舱' : '还没有驾驶舱。建一个，就能一屏看住一条线或一个工作台的看板、等你拍板的事和办理过程'} style={{ marginTop: 48 }}>
-            {!READ_ONLY && <Button
+          <Empty description={!canCreate ? '还没有驾驶舱' : '还没有驾驶舱。建一个，就能一屏看住一条线或一个工作台的看板、等你拍板的事和办理过程'} style={{ marginTop: 48 }}>
+            {canCreate && <Button
               type="primary"
               onClick={() => api.createCockpit({ name: '我的驾驶舱' }).then((c) => nav(`/cockpit/${c.id}`))}
             >
@@ -272,11 +291,12 @@ export default function Cockpit() {
               label: `${w.icon || '▢'} ${w.name}（${w.last_status === 'up' ? '在线' : w.last_status === 'down' ? '离线' : '未探测'}）`,
             }))}
         />}
+        {!READ_ONLY && <Button onClick={() => { setEditOpen(false); setViewsOpen(true); }} data-testid="ck-bv-manage">数据视图</Button>}
     </Flex>
   );
   // 顶上右边：「就这个安排一件事」（原型）；管理员另有「编辑」（改名、加面板），不常驻
   const extra = <>
-    {!READ_ONLY && <Popover trigger="click" placement="bottomRight" content={editPanel}>
+    {!READ_ONLY && <Popover trigger="click" placement="bottomRight" content={editPanel} open={editOpen} onOpenChange={setEditOpen}>
       <Button icon={<EditOutlined />} data-testid="ck-edit">编辑</Button>
     </Popover>}
     <Button type="primary" icon={<PlusOutlined />} onClick={() => setArrange(true)} data-testid="ck-arrange">就这个安排一件事</Button>
@@ -333,13 +353,14 @@ export default function Cockpit() {
         left={{ id: 'attention', tabs: [{ key: 'attention', label: '等你拍板', count: attentionCount, content: <AttentionPane onCount={setAttentionCount} picked={picked ? rowKey(picked) : null} onPick={pick} /> }] }}
         main={{ id: 'board', tabs: mainTabKeys(refs, panels.length).map((k) => (k === 'benches'
           ? { key: 'benches', label: '工作台', content: board }
-          : { key: k, label: k === 'board' ? '看板' : '明细', content: <>{refsOfTab(refs, k).map((x) => <BenchViewPanel key={x.i} refItem={x} />)}</> })) }}
+          : { key: k, label: k === 'board' ? '看板' : '明细', content: <BenchViewTab key={k} refs={refsOfTab(refs, k)} chosen={viewPicks[active.id] ?? NO_PICKS} onChosen={(next) => setViewPicks((cur) => ({ ...cur, [active.id]: next }))} /> })) }}
         right={{ id: 'items', active: rightTab, onTab: setRightTab, tabs: [
           { key: 'process', label: '办理过程', content: <ProcessPane item={picked} /> },
           { key: 'staff', label: 'AI 员工', content: <StaffPane /> },
-          { key: 'items', label: itemsTabLabel(itemsView, !READ_ONLY), content: <ItemsPane onView={setItemsView} /> },
+          { key: 'items', label: itemsTabLabel(itemsView, ADMIN), content: <ItemsPane onView={setItemsView} /> },
         ] }} />
       <ArrangeDrawer open={arrange} onClose={() => setArrange(false)} />
+      {!READ_ONLY && <BenchViewManage cockpit={active} open={viewsOpen} onClose={() => setViewsOpen(false)} onSaved={listReq.refresh} />}
     </WmPage>
   );
 }

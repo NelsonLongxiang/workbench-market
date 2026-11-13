@@ -12,12 +12,25 @@
  */
 import { randomUUID } from 'node:crypto';
 import { Service } from '@deepseek-ai/cordis';
-import { db } from '../db.ts';
+import { db, hasTable } from '../db.ts';
 import { afterStartup } from '../startup-gate.ts';
 
 export const STATES = ['draft', 'held', 'delivered', 'accepted', 'progress', 'waiting', 'ready', 'blocked', 'done', 'failed', 'dropped', 'cancelled'] as const;
 export type WorkItemState = typeof STATES[number];
 export const TERMINAL: readonly WorkItemState[] = ['done', 'failed', 'dropped', 'cancelled'];
+/**
+ * 会「停太久」的状态：已经交出去、还在往下走的。draft、held（有过目条目）、ready（有验收条目）和终态不算；
+ * 有在等答复的提问的另有席位提问条目，由「关注」那边再剔掉
+ */
+export const STUCK_STATES: readonly WorkItemState[] = ['delivered', 'accepted', 'progress', 'waiting', 'blocked'];
+/** 停多久算停太久（小时）：WM_WORK_ITEM_STUCK_HOURS，缺省 24，1～720 的整数；别的值返回 null（启动时拒绝）。只按自然时间算 */
+export function workItemStuckHoursFromEnv(env: NodeJS.ProcessEnv = process.env): number | null {
+  const raw = String(env.WM_WORK_ITEM_STUCK_HOURS ?? '');
+  if (raw === '') return 24;
+  if (!/^[1-9][0-9]{0,2}$/.test(raw)) return null;
+  const n = Number(raw);
+  return n <= 720 ? n : null;
+}
 const NON_TERMINAL = STATES.filter((s) => !TERMINAL.includes(s));
 
 export const SOURCE_KINDS = ['task-center', 'app-data', 'agent', 'cockpit'] as const;
@@ -378,11 +391,16 @@ export function seatOfReceipt(action: string, detail: Record<string, unknown>): 
   if (action === 'receipt:attention' || action === 'receipt:completed') return show(by?.seat, by?.name);
   return action === 'receipt:progress' ? ticketSeat(detail) : '';
 }
+/** 承接清空的标记（句柄都带「/」，不会撞）：拆单后几张子工单由不同成员在做，主事项不显示单个成员 */
+export const SEAT_NONE = '-';
 function ticketSeat(detail: Record<string, unknown>): string {
-  // 只取在做的子项（working / waiting / blocked）：queued 时还没派给成员，seat 可能是总工；ended 的已经不在做
-  const t = Array.isArray(detail.tickets) ? (detail.tickets as { seat?: unknown; state?: unknown }[]).find((x) => x && ['working', 'waiting', 'blocked'].includes(String(x.state)) && typeof x.seat === 'string' && x.seat !== '') : undefined;
-  return typeof t?.seat === 'string' ? t.seat.slice(0, 200) : '';
+  // 只取在做的子项（working / waiting / blocked）：queued 时还没派给成员，seat 可能是总工；ended 的已经不在做。
+  // 拆单（dsh-open-a2a-net#618）：在做的子项里不止一个席位 → 主事项承接清空，各子项在详情的 subitems 里各显示自己的承接
+  const seats = Array.isArray(detail.tickets) ? [...new Set((detail.tickets as { seat?: unknown; state?: unknown }[])
+    .filter((x) => x && ['working', 'waiting', 'blocked'].includes(String(x.state)) && typeof x.seat === 'string' && x.seat !== '').map((x) => String(x.seat).slice(0, 200)))] : [];
+  return seats.length === 1 ? seats[0] : seats.length > 1 ? SEAT_NONE : '';
 }
+const seatValue = (seat: string) => (seat === SEAT_NONE ? '' : seat);
 
 export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], i: number): Fact | null {
   const row = rows[i];
@@ -433,7 +451,7 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
  * 版本没变时每次启动只做增量：从上次记下的事件日志水位往后核（没装事项服务的进程——比如回滚到旧版本期间——
  * 写进来的事件和事实，靠它补回来）。监听器漏过事实（dirty）也从头全量核。
  */
-export const BACKFILL_VERSION = 7; // 2：阶段七 R2 加了跟进、回复、看过的映射（#546）；3：进展回执的映射（PR-A）；4：回执的 by 记成承接席位；5：承接只取成员、重复事实补写承接（4 已被试联实例用过），终态事项承接空着的也补；6：承接只存句柄、进展只取在做的子项、回填按顺序最后一条为准；7：回执的 artifacts 并进 outputs
+export const BACKFILL_VERSION = 8; // 2：阶段七 R2 加了跟进、回复、看过的映射（#546）；3：进展回执的映射（PR-A）；4：回执的 by 记成承接席位；5：承接只取成员、重复事实补写承接（4 已被试联实例用过），终态事项承接空着的也补；6：承接只存句柄、进展只取在做的子项、回填按顺序最后一条为准；7：回执的 artifacts 并进 outputs；8：拆单后多个成员在做时承接清空
 /** 后台回填每一片最多占用事件循环的时长（毫秒），之后让出，好让请求得到应答 */
 const BACKFILL_SLICE_MS = 25;
 /** 每次取的行数（取出来的一批跨片接着用，用完再取） */
@@ -511,7 +529,7 @@ export class WorkItemService extends Service {
     db.prepare('UPDATE work_item_backfill SET dirty = ?, updated_at = ? WHERE id = 1').run(on ? 1 : 0, new Date().toISOString());
   }
   private hasEvents(): boolean {
-    return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workbench_events'").get());
+    return hasTable('workbench_events');
   }
   /** 事件日志现在的最大行号（水位） */
   private logHigh(): number {
@@ -624,7 +642,7 @@ export class WorkItemService extends Service {
    *  跑完记下「这个版本全量跑完过」和事件日志的水位（之后启动从水位往后增量核）。 */
   backfill(): { events: number; created: number } {
     // 新库上事件表可能还没建（任务中心初始化时才建）：那就没有可回填的
-    if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workbench_events'").get()) return { events: 0, created: 0 };
+    if (!hasTable('workbench_events')) return { events: 0, created: 0 };
     const count = () => (db.prepare('SELECT COUNT(*) AS n FROM work_items').get() as { n: number }).n;
     const before = count();
     const ids = db.prepare('SELECT event_id FROM workbench_events ORDER BY id').all() as { event_id: string }[];
@@ -808,6 +826,21 @@ export class WorkItemService extends Service {
   }
 
   /** 一个视角里有几件（不按状态、对象筛）：列表应答的 views 用 */
+  private stuckHours = 24;
+  setStuckHours(h: number): void { this.stuckHours = h; }
+  /** 停多久算停太久（小时，启动时由 WM_WORK_ITEM_STUCK_HOURS 设） */
+  stuckThresholdHours(): number { return this.stuckHours; }
+
+  /**
+   * 停在某一步太久的候选：在 STUCK_STATES 里、最后一次变动（updated_at，每应用一条事实都会更新）早于 now 减阈值。
+   * 按停得最久的排，最多 limit 条。走 (state, updated_at) 那个索引（idx_work_items_state），不全表扫；时间在代码里算
+   */
+  stuckCandidates(now: number, limit: number): WorkItemRow[] {
+    const cutoff = new Date(now - this.stuckHours * 3_600_000).toISOString().replace('T', ' ').slice(0, 19);
+    return db.prepare(`SELECT * FROM work_items WHERE state IN (${STUCK_STATES.map(() => '?').join(', ')}) AND updated_at < ? ORDER BY updated_at, id LIMIT ?`)
+      .all(...STUCK_STATES, cutoff, limit) as WorkItemRow[];
+  }
+
   countIn(scope: ViewScope): number {
     const w = this.scopeWhere(scope);
     return Number((db.prepare(`SELECT COUNT(*) AS n FROM work_items WHERE ${w.where}`).get(...w.args) as { n: number }).n);
@@ -893,7 +926,7 @@ export class WorkItemService extends Service {
       // 不先写先占；终态之后才到的新回执走的是只记录那条路，那里照旧不改承接——所以第一次应用时事项已经是终态的（from_state 是终态），
       // 重放时也不改承接，和实时一致
       const seatChanged = typeof fact.seat === 'string' && fact.seat !== '' && !TERMINAL.includes(seen.from_state)
-        && Number(db.prepare('UPDATE work_items SET seat = ? WHERE id = ? AND seat <> ?').run(fact.seat, itemId, fact.seat).changes) === 1;
+        && Number(db.prepare('UPDATE work_items SET seat = ? WHERE id = ? AND seat <> ?').run(seatValue(fact.seat), itemId, seatValue(fact.seat)).changes) === 1;
       // 产物也一样：后来才从事实里取的，回填再核时补上（终态之后也补：产物是事实）
       const outputsChanged = this.mergeOutputs(itemId, fact.artifacts);
       const seatFilled = seatChanged || outputsChanged;
@@ -911,7 +944,7 @@ export class WorkItemService extends Service {
     this.writeLog(itemId, fact, item.state, to, detail);
     const set: string[] = ['state = ?', "updated_at = datetime('now')"], args: (string | number | null)[] = [to];
     if (kind === 'eval') { set.push('eval = ?', 'eval_reason = ?'); args.push(fact.verdict ?? '', fact.reason ?? ''); }
-    if (typeof fact.seat === 'string' && fact.seat !== '') { set.push('seat = ?'); args.push(fact.seat); }
+    if (typeof fact.seat === 'string' && fact.seat !== '') { set.push('seat = ?'); args.push(seatValue(fact.seat)); }
     this.mergeOutputs(itemId, fact.artifacts);
     if (kind === 'report' && typeof fact.summary === 'string') { set.push('progress_summary = ?', "progress_at = datetime('now')"); args.push(fact.summary); }
     if (kind === 'ask') { const asks = JSON.parse(item.open_asks || '[]'); asks.push({ id, source, question: fact.question ?? '' }); set.push('open_asks = ?'); args.push(JSON.stringify(asks)); }
@@ -973,7 +1006,7 @@ export class WorkItemService extends Service {
     // 摘要只在原来没有回执时填：晚到的回执不覆盖终态时记下的那一份（全量在日志里）
     db.prepare("UPDATE work_items SET receipt_outcome = ?, receipt_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND receipt_outcome = ''").run(fact.outcome ?? '', itemId);
     // 承接席位：进展、只记录的回执带了 by 也更新（成员换人时）；终态之后晚到的不改
-    if (!late && typeof fact.seat === 'string' && fact.seat !== '') db.prepare('UPDATE work_items SET seat = ? WHERE id = ?').run(fact.seat, itemId);
+    if (!late && typeof fact.seat === 'string' && fact.seat !== '') db.prepare('UPDATE work_items SET seat = ? WHERE id = ?').run(seatValue(fact.seat), itemId);
     this.mergeOutputs(itemId, fact.artifacts);
     return { ok: true, state: item.state, from: item.state, duplicate: false, recorded: true, late };
   }
