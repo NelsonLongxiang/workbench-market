@@ -177,6 +177,9 @@ export function valueLabel(labels: unknown, column: string, value: unknown): Val
   }
   return null;
 }
+/** 表格的表头：只用说明名；没配的写「第 N 列」（i 是页面上的次序，从 0 起），不拿列名（键名）兜底 */
+export const tableHead = (c: BlockColumn, i: number): string => (typeof c.label === 'string' && c.label.trim() ? c.label : `第 ${i + 1} 列`);
+
 /** 有对照的列按「状态」画（标签），别的列不动 */
 export function withLabelColumns(data: BlockData | null | undefined, labels: unknown): BlockData | null {
   if (!data) return null;

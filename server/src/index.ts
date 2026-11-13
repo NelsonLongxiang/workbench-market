@@ -75,7 +75,7 @@ import { registerKnowledgeRoutes } from './routes/knowledge.ts';
 import { BENCH_TOOL_NAMES, BENCH_GRANT_RE } from './bench-mcp-tools.ts';
 import { benchGrantsOf, benchRequestOfSession, benchRequestTtlConfig, benchRequestsOf, benchToolTarget, requestBenchTools, runBenchTool, setBenchRequestTtlHours } from './services/bench-mcp.ts';
 import { resolveBenchRef } from './services/bench-registry.ts';
-import { deleteCardWithBench, type CardDeleter } from './bench-card-delete.ts';
+import { cardDeleterOf, checkCardDeletable, deleteCardWithBench, type CardDeleter } from './bench-card-delete.ts';
 import { BenchError } from './bench-query.ts';
 import { registerChangeRequestRoutes } from './routes/change-requests.ts';
 import { registerSopStateRoutes, registerSopSpaceRoutes } from './routes/sops.ts';
@@ -119,7 +119,7 @@ import { designStandard } from './design-standard.ts';
 import { mountVault } from './vault-api.ts';
 import { expectedSha256, uploadIntegrity, type UploadIntegrity } from './upload-integrity.ts';
 import { loadConfig } from './config.ts';
-import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet, reportHotVarKeys, setVarsStoreMode, Config as VarsConfig } from './workbench-vars.ts';
+import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet, reportHotVarKeys, reportHotPending, setVarsStoreMode, startHotVarsFlush, flushHotVars, Config as VarsConfig } from './workbench-vars.ts';
 import { registerWorkbenchVarsRoutes } from './routes/workbench-vars.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
@@ -164,6 +164,8 @@ setBenchRequestTtlHours((() => { try { return benchRequestTtlConfig(); } catch (
 // 工作台的常量、变量存在哪（WM_VARS_STORE：main / shadow / bench，缺省 main）。不合法拒绝启动；起来时报一次已有的 hot. 开头的键
 setVarsStoreMode((() => { try { return loadConfig(VarsConfig).store; } catch (e) { console.error(`[vars] 拒绝启动：${(e as Error).message}`); process.exit(1); } })());
 reportHotVarKeys();
+reportHotPending(); // 上一个 bench 档进程留在 Redis 里没落盘的高频变量：不是 bench 档时醒目报一次
+startHotVarsFlush(); // 高频变量（hot. 开头的键）每 30 秒落一次台库；只在 bench 档、配了 Redis 时有活
 // 全站登录门（WM_LOGIN_GATE=enforce|off，缺省 off）：紧跟启动自检门，早于内容分发、解析器、静态资源、SPA 回落和各路由。
 // 依赖都是函数声明或请求期才取的值（提升/闭包），这里只建不调。值不合法拒绝启动（同 MCP_GATEWAY #284）
 const LOGIN_GATE_MODE = loginGateMode();
@@ -1311,9 +1313,9 @@ function executeSkillDelete(slug: string): void {
   db.prepare('DELETE FROM skill_versions WHERE skill_id = ?').run(row.id);
   db.prepare('DELETE FROM skills WHERE id = ?').run(row.id);
 }
-registerChangeRequestRoutes(http, { adminGuard, wrap, bad, activateAppVersion, deleteAppCascade, executeSkillRollback, executeSkillDelete });
+registerChangeRequestRoutes(http, { adminGuard, wrap, bad, activateAppVersion, deleteAppCascade, executeSkillRollback, executeSkillDelete, cardDeleter: (req) => cardDeleterOf(req, (r) => adminHeaderOk(r)) });
 
-registerAppLifecycleRoutes(http, { sameOriginGuard, adminGuard, wrap, bad, activateAppVersion, deleteAppCascade });
+registerAppLifecycleRoutes(http, { sameOriginGuard, adminGuard, wrap, bad, activateAppVersion, deleteAppCascade, cardDeleter: (req) => cardDeleterOf(req, (r) => adminHeaderOk(r)) });
 
 /** #94 v3 S1：台删除级联体（一步式 REST 与人审批准共用一个执行体——单一事实源） */
 /** #94 P1 影子双写：经 layerfs 服务发布 Commit（契约 v0 §2.1·Bearer）——失败不阻（warn·commit_id 留空） */
@@ -1360,8 +1362,15 @@ async function layerfsPublish(project: string, files: { path: string; content: s
   }
 }
 
-async function deleteAppCascade(slug: string): Promise<void> {
+/**
+ * 删台。card：删这个台的卡片的人、是否确认删台库里的业务数据（卡片的台库有数据时要管理层并且确认，见 bench-card-delete.ts）。
+ * 这道门在任何删除之前先过（远端项目删了就回不来）；过了之后卡片逐张走删卡片那条路——台库（删前备份）、常量变量、驾驶舱面板一起处理，
+ * 不再直接删卡片行（原来那样台库会留成孤儿，常量变量和驾驶舱面板也悬着）
+ */
+async function deleteAppCascade(slug: string, card: { deleter: CardDeleter; confirmBenchData: boolean } = { deleter: { kind: 'anonymous' }, confirmBenchData: false }): Promise<void> {
   const a = getApp(slug);
+  const cardIds = svc<WorkbenchService>('workbench').idsByAppUrls(`/apps/${a.slug}/`, `/sop/${a.slug}/`);
+  for (const id of cardIds) await checkCardDeletable(id, card.deleter, card.confirmBenchData);
   // Remove remote state first and retain local state on failure; without LayerFS config, apps never written there stay deletable.
   const versions = svc<AppService>('app').versions(a.id) as any[];
   const hasLayerfsState = Boolean((a as any).layerfs_project) || versions.some(v => String(v.commit_id ?? '') !== '');
@@ -1389,8 +1398,10 @@ async function deleteAppCascade(slug: string): Promise<void> {
   const files = svc<AppDataService>('appData').filePaths(slug) as { storage_path: string }[];
   for (const f of files) { try { rmSync(join(dataDir, f.storage_path), { force: true }); } catch { /* 已删 */ } }
   svc<AppDataService>('appData').filesDelete(slug);
-  // issue #6：清理应用与 SOP 对应的工作台注册。
-  svc<WorkbenchService>('workbench').deleteByAppUrls(`/apps/${slug}/`, `/sop/${a.slug}/`);
+  // issue #6：清理应用与 SOP 对应的工作台注册——逐张走删卡片那条路（台库、常量变量、驾驶舱面板一起）
+  for (const id of cardIds) {
+    try { await workbenchDeleteCore(id, card.deleter, card.confirmBenchData); } catch (e) { if (!(e instanceof HttpError && e.status === 404)) throw e; } // 期间已被删了就算了
+  }
 }
 
 // ---------- 自产台数据提交面（监督席派单 direct-22838fab：台不仅是看板，有交互提交数据） ----------
@@ -3848,6 +3859,7 @@ async function shutdown(sig: string): Promise<void> {
   try {
     await Promise.all(allSurfaceServers().map(srv => new Promise<void>(resolve => { srv.close(() => resolve()); })));
     await runCheckpoints.close();
+    try { await flushHotVars(); } catch { console.error('[shutdown] hot_vars_flush_failed'); } // 高频变量退出前落一次（Redis 不通就留给下次起来时落）
     db.close();
     clearTimeout(deadline);
     process.exit(0);

@@ -30,7 +30,7 @@ import { join } from 'node:path';
 import type { BenchDialect, BenchSqlKit } from '../db.ts';
 import { isInsideRoot } from '../path-inside.ts';
 import {
-  BENCH_LIMITS, BenchError, COLUMN_TYPES, NAME_RE, coerceValue, decodeValue, physCol, physTable, planQuery,
+  BENCH_LIMITS, BenchError, COLUMN_TYPES, NAME_RE, coerceValue, decodeValue, physCol, physTable, planQuery, publicColumn,
   type ColumnDef, type DatasetDef, type OutColumn,
 } from '../bench-query.ts';
 import { diffJson, validateViewDoc, type JsonDiff } from '../bench-views.ts';
@@ -47,7 +47,7 @@ export const BENCH_METHODS = new Map<string, 'read' | 'write'>([
   ['snapshot', 'write'], ['restore', 'write'], ['putView', 'write'], ['rollbackView', 'write'], ['backupTo', 'write'], ['submitForm', 'write'],
   ['varsList', 'read'], ['varGet', 'read'], ['varCount', 'read'], ['varsDigest', 'read'],
   ['varsSyncGet', 'read'],
-  ['varInsert', 'write'], ['varUpdate', 'write'], ['varDelete', 'write'], ['varsImport', 'write'], ['varForce', 'write'], ['varsSynced', 'write'], ['varsReplace', 'write'],
+  ['varInsert', 'write'], ['varUpdate', 'write'], ['varDelete', 'write'], ['varsImport', 'write'], ['varForce', 'write'], ['varsSynced', 'write'], ['varsReplace', 'write'], ['varsHotPending', 'write'], ['varsApplyHot', 'write'],
 ]);
 
 /** 卡片的一个常量或变量（和主库 workbench_vars 的一行同形，只是不带 workbench_id） */
@@ -694,7 +694,7 @@ export class BenchStoreCore {
   query(spec: unknown, params: Record<string, unknown> = {}) {
     return this.serial(async () => {
       const { chars: _chars, ...out } = await this.runQuery(await this.load(), spec, params, BENCH_LIMITS.resultChars);
-      return out;
+      return { ...out, columns: out.columns.map(publicColumn) };
     });
   }
   /** 查询的本体；要在排着队的那一格里调。room 是还能取回多少个字符，chars 是这次取了多少 */
@@ -780,7 +780,14 @@ export class BenchStoreCore {
           const ds = defs.get(String(b.dataset));
           const cols = ds ? (b.fields as string[]).map((n) => ds.columns.find((c) => c.name === n)).filter((c): c is ColumnDef => !!c) : [];
           blocks.push(ds && cols.length === (b.fields as string[]).length ? { ...b, columns: cols } : { ...b, columns: [], error: { code: 'invalid', message: '表单引用的数据集或列现在已经不在了' } });
-        } else { const r = await run(b.query); blocks.push(r.data ? { ...b, data: r.data } : { ...b, error: r.error }); }
+        } else {
+          const r = await run(b.query);
+          if (!r.data) { blocks.push({ ...b, error: r.error }); continue; }
+          // 表格的表头：视图里给的 column_labels，其次是数据集、聚合里起的说明名；都没有就给空，由页面写「第 N 列」——不拿列名（键名）当表头
+          const given = b.type === 'table' && isObj(b.column_labels) ? b.column_labels as Record<string, string> : {};
+          const columns = r.data.columns.map((c) => (b.type === 'table' ? publicColumn({ ...c, label: Object.hasOwn(given, c.name) ? given[c.name] : c.labeled ? c.label : '' }) : publicColumn(c)));
+          blocks.push({ ...b, data: { ...r.data, columns } });
+        }
       }
       return { title: doc.title, version, active_version: active, views: doc.views.map((x) => ({ key: x.key, title: x.title })), view: { key: view.key, title: view.title }, filters, params, blocks };
     });
@@ -938,10 +945,11 @@ export class BenchStoreCore {
    *   dirty bench 档在台库里写过、还没确认写回主库（varInsert / varUpdate / varDelete 在同一个事务里记上，varsSynced 清掉）
    *   digest 台库现在的摘要（和上面两样一次读出来，不会读到一半被写入插进来）
    */
-  varsSyncGet(): Promise<{ mark: string | null; dirty: boolean; digest: string }> {
+  varsSyncGet(): Promise<{ mark: string | null; dirty: boolean; digest: string; hotPending: boolean }> {
     return this.serial(async () => ({
       mark: await this.meta('vars_migrated'),
       dirty: (await this.meta('vars_dirty')) !== null,
+      hotPending: (await this.meta('vars_hot_pending')) !== null,
       digest: varsDigestOf((!(await this.hasVars()) ? [] : await this.conn.all('SELECT * FROM bs_vars ORDER BY key')).map((r) => this.varRow(r))),
     }));
   }
@@ -956,6 +964,28 @@ export class BenchStoreCore {
       const clean = varsDigestOf((await this.conn.all('SELECT * FROM bs_vars ORDER BY key')).map((r) => this.varRow(r))) === mark;
       if (clean) await this.conn.run('DELETE FROM bs_meta WHERE k = ?', ['vars_dirty']);
       return { clean };
+    });
+  }
+  /** 高频变量「有待落盘」（Redis 里有这张卡片还没落进台库的写入）：写进 Redis 之前记上，落盘、清掉 Redis 那份之后清 */
+  varsHotPending(on: boolean): Promise<void> {
+    return this.tx(async () => {
+      if (on) await this.setMeta('vars_hot_pending', '1');
+      else await this.conn.run('DELETE FROM bs_meta WHERE k = ?', ['vars_hot_pending']);
+    });
+  }
+  /**
+   * 高频变量落盘：Redis 里的那份以它为准，原样落进台库（行整行换掉；deleted 的删掉），记 dirty（之后由调用方写回主库、记同步点），一个事务。
+   * 落盘期间这些键只在 Redis 里改（同一张卡片的读写排队），所以不用比 revision。返回落了几个键
+   */
+  varsApplyHot(entries: ({ deleted: true; key: string } | (BenchVarRow & { deleted?: false }))[]): Promise<number> {
+    return this.tx(async () => {
+      await this.ensureVars();
+      await this.setMeta('vars_dirty', '1');
+      for (const e of entries) {
+        await this.conn.run('DELETE FROM bs_vars WHERE key = ?', [e.key]);
+        if (!e.deleted) await this.conn.run('INSERT INTO bs_vars (key, kind, value, revision, updated_by, owner, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [e.key, e.kind, e.value, e.revision, e.updated_by, e.owner, e.created_at, e.updated_at]);
+      }
+      return entries.length;
     });
   }
   /** 以主库为准：整张表换成给的行（原样，revision 也照抄），记同步点、清 dirty，一个事务。返回写了几行 */

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { answerChoices, decideCount, workItemTurns } from '../web/src/attention-view.ts';
 /** 事项列表页的纯函数单测（web/src/work-items-view.ts）：状态归组、组的计数、按对象分组、行的说明、翻页去重。 */
-import { STATE_GROUPS, appendPage, byObject, byState, groupCount, groupOf, rowLine, rowTime, seatOrWaiting, viewsFor, emptyText, splitDecide, othersTurnLabel, OTHERS_GROUP, avatarChar, urlFilter, lifecycleNames, progressSummary, lastSaid, objectName, phaseName } from '../web/src/work-items-view.ts';
+import { STATE_GROUPS, appendPage, byObject, byState, groupCount, groupOf, rowLine, rowTime, seatOrWaiting, viewsFor, decideLabel, emptyText, splitDecide, othersTurnLabel, OTHERS_GROUP, avatarChar, urlFilter, lifecycleNames, progressSummary, lastSaid, objectName, phaseName } from '../web/src/work-items-view.ts';
 import { cleanSeatName, rosterNames, seatNameOnly, speakerName } from '../web/src/people.ts';
 
 let pass = 0, fail = 0;
@@ -40,6 +40,9 @@ ok('翻页去重：同一行只留一份，用后到的', merged.map((x) => `${x
 }
 ok('视角：按接口的 views 只出能用的，先后是我安排的 / 我的 AI 员工手上的 / 我的团队的 / 全部，件数照接口', viewsFor({ all: { available: false, count: 0 }, team: { available: true, count: 29 }, seats: { available: false, count: 0 }, mine: { available: true, count: 6 } }).map((v) => `${v.key}:${v.label}:${v.count}`).join() === 'mine:我安排的:6,team:我的团队的:29');
 ok('视角：四个都能用时四个都出；件数是 0 的照出', viewsFor({ mine: { available: true, count: 0 }, seats: { available: true, count: 2 }, team: { available: true, count: 3 }, all: { available: true, count: 9 } }).map((v) => v.label).join('/') === '我安排的/我的 AI 员工手上的/我的团队的/全部');
+ok('视角的红数：用接口给的 decide（#712）；没给、不是数、负数都当 0（页签不出红数）', JSON.stringify(viewsFor({ mine: { available: true, count: 6, decide: 0 }, team: { available: true, count: 30, decide: 3 }, all: { available: true, count: 40 } }).map((v) => [v.key, v.decide])) === '[["mine",0],["team",3],["all",0]]'
+  && viewsFor({ mine: { available: true, count: 1, decide: '2' } })[0].decide === 0 && viewsFor({ mine: { available: true, count: 1, decide: -1 } })[0].decide === 0 && viewsFor({ mine: { available: true, count: 1, decide: NaN } })[0].decide === 0 && viewsFor({ mine: { available: true, count: 1, decide: 2.7 } })[0].decide === 2);
+ok('视角的红数：不可用的视角不出（连 decide 也不看）；读法是「N 件等你拍板」', viewsFor({ team: { available: false, count: 0, decide: 5 } }).length === 0 && decideLabel(3) === '3 件等你拍板');
 ok('视角：接口没给 views（旧服务端）或形状不对就一个都不出；available 不是 true 的不出；件数不是数当 0', viewsFor(undefined).length === 0 && viewsFor('x').length === 0
   && viewsFor({ mine: { available: 'true', count: 3 } }).length === 0 && viewsFor({ mine: { available: true, count: 'abc' } })[0].count === 0 && viewsFor({ zzz: { available: true, count: 1 } }).length === 0);
 ok('空态：每个视角各说各的；按 AI 员工筛着时说这个员工手上；没有能用的视角另说', emptyText('mine') === '你还没有安排过事项' && emptyText('seats') === '你的 AI 员工手上现在没有事项'
