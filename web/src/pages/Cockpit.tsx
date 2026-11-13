@@ -46,7 +46,6 @@ function PanelHeadActions(props: { wid: number; url?: string; onRefresh: () => v
   );
 }
 
-import { TasksView } from './Tasks';
 
 export default function Cockpit() {
   // 管理身份（口令或 Odoo 管理员）：只用在右栏事项的标签上，和驾驶舱无关。
@@ -246,7 +245,7 @@ export default function Cockpit() {
   // 骨架照原型的驾驶舱：左「等你拍板」；中间的页签——「看板」「明细」留给数据视图的块（这个驾驶舱配了才出现），
   // 内嵌的工作台单独放「工作台」页签，按栏宽单列排、一个台占满栏宽（要并排看的用放大）；右「事项」
   // 顶上一排照原型：左边留给「看的是 …」（现在没有筛选来源，不放）；右边是操作。
-  // 改名、加面板、加待办卡不常驻，收进「编辑」；切换驾驶舱在侧栏「我的驾驶舱」里，顶上不再放下拉。
+  // 改名、加面板不常驻，收进「编辑」；切换驾驶舱在侧栏「我的驾驶舱」里，顶上不再放下拉。
   const editPanel = (
     <Flex vertical gap={8} className="wm-ck-edit" data-testid="ck-edit-panel">
       <Flex align="center" gap={8}>
@@ -289,15 +288,6 @@ export default function Cockpit() {
               label: `${w.icon || '▢'} ${w.name}（${w.last_status === 'up' ? '在线' : w.last_status === 'down' ? '离线' : '未探测'}）`,
             }))}
         />}
-        {!READ_ONLY && <Button
-          disabled={panels.some((p) => p.kind === 'tasks')}
-          onClick={() => {
-            const maxY = panels.reduce((m, p) => Math.max(m, p.y + p.h), 0);
-            persist([...panels, { i: 'tasks', workbenchId: 0, kind: 'tasks' as const, x: 0, y: maxY, w: 6, h: 12 }], true);
-          }}
-        >
-          加待办卡
-        </Button>}
         {!READ_ONLY && <Button onClick={() => { setEditOpen(false); setViewsOpen(true); }} data-testid="ck-bv-manage">数据视图</Button>}
     </Flex>
   );
@@ -313,27 +303,13 @@ export default function Cockpit() {
     <Flex vertical gap={12} className="wm-w-full wm-ck-pad" align="start">
       {READ_ONLY && <Typography.Text type="secondary" className="wm-cockpit-readonly wm-caption">{READ_ONLY_HINT}</Typography.Text>}
 
-      {panels.length === 0 ? (
+      {panels.filter((p) => p.kind !== 'tasks').length === 0 ? (
         <Empty description={READ_ONLY ? '这个驾驶舱里还没有要看的东西' : '这个驾驶舱里还没有要看的东西——点右上角「编辑」，加一个工作台进来'} style={{ marginTop: 48 }} />
       ) : (
         <div className="wm-ck-benches" data-testid="ck-benches">
           {[...panels].sort((a, b) => a.y - b.y || a.x - b.x).map((p) => {
-            if (p.kind === 'tasks') {
-              return (
-                <div key={p.i} className="wm-panel">
-                  <div className="wm-panel-head">
-                      <Badge status="processing" text={<Typography.Text strong className="wm-text-body">统一待办</Typography.Text>} />
-                    <span className="wm-panel-actions">
-                      <Link to="/tasks" className="wm-caption" style={{ marginRight: 8 }}>全部</Link>
-                      {!READ_ONLY && <Button size="small" type="text" onClick={() => persist(panels.filter((q) => q.i !== 'tasks'), true)}>移除</Button>}
-                    </span>
-                  </div>
-                  <div className="wm-panel-body" style={{ overflow: 'auto' }}>
-                    <TasksView compact />
-                  </div>
-                </div>
-              );
-            }
+            // 「统一待办」卡随 /tasks 一起退役（旧页面删除清单第二批）：存着的面板数据不动，页面不再画它；要看事项去右栏「事项」
+            if (p.kind === 'tasks') return null;
             const w = wbById.get(p.workbenchId);
             const fk = frameKeys[p.workbenchId] ?? 0;
             return (
