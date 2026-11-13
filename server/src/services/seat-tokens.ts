@@ -139,6 +139,11 @@ export function exchangeSeatToken(r: SeatTokenRequest, audOk: boolean, now = Dat
   return { ok: true, token, token_ref: tokenRef(sha256Hex(token)), expires_at: expiresAt, session_id: subject.id };
 }
 
+/** 这是不是市场换出去的席位令牌（按 sha256 查，到没到期都算）：门户转发前认出来摘掉，不往台带 */
+export function isSeatToken(token: string): boolean {
+  return /^[0-9a-f]{64}$/.test(token) && db.prepare('SELECT 1 FROM a2a_seat_tokens WHERE token_sha256 = ?').get(sha256Hex(token)) !== undefined;
+}
+
 /** 令牌的引用：sha256 的前 16 位。换令牌的记录和调用审计都记它，对得上又不留能用的东西 */
 export const tokenRef = (tokenSha256: string): string => tokenSha256.slice(0, 16);
 

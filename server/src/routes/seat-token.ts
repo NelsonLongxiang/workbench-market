@@ -17,7 +17,8 @@ import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { audiencesOf, originOf } from '../a2a-direct-sig.ts';
 import { clientIp } from '../login-gate.ts';
-import { exchangeSeatToken, logSeatTokenExchange, parseSeatTokenRequest, seatTokenLog, SEAT_TOKEN_TTL_MS, type SeatTokenRefusal } from '../services/seat-tokens.ts';
+import { useMarketTokenCheck } from '../portal-forward-headers.ts';
+import { exchangeSeatToken, isSeatToken, logSeatTokenExchange, parseSeatTokenRequest, seatTokenLog, SEAT_TOKEN_TTL_MS, type SeatTokenRefusal } from '../services/seat-tokens.ts';
 
 /** 每个来源地址 10 分钟最多来这么多次（不管成不成）；每个席位 1 小时最多发这么多张令牌 */
 export const SEAT_TOKEN_PER_SOURCE_10MIN = 60;
@@ -55,6 +56,8 @@ const refusals = new Map<SeatTokenRefusal, number>();
 export function seatTokenRefusalCounts(): Record<string, number> { return Object.fromEntries(refusals); }
 
 export function registerSeatTokenRoutes(app: HttpService, deps: SeatTokenRouteDeps): void {
+  // 门户转发（/go/<台号>/…）前认得席位令牌、摘掉不往台带：在发令牌的地方登记一次查法（同 MCP 会话令牌）
+  useMarketTokenCheck(isSeatToken);
   const perSource = windowCounter(WINDOW_SOURCE_MS, SEAT_TOKEN_PER_SOURCE_10MIN);
   const perSeat = windowCounter(WINDOW_SEAT_MS, SEAT_TOKEN_PER_SEAT_HOUR);
   const now = deps.now ?? Date.now;
