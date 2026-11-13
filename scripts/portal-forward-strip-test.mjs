@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 门户转发前去掉市场自身的认证信息（对抗组）：经 /go/<台号>/… 转给台的请求里，不能有市场的管理口令、台令牌、
+ * 门户转发前去掉市场自身的认证信息（对抗组）：经 /go/<台号>/… 转给台的请求里，不能有市场的管理口令、市场发的令牌（Authorization: Bearer 的 MCP 会话令牌）、台令牌、
  * SOP run 的凭据、x-wm-/x-a2a- 头，也不能有市场会话、登录门等市场自己的 cookie；台自己的头和 cookie 原样留下。
  * HTTP（GET、POST）和 WebSocket 握手（普通台、Odoo 台）都看。
  *
@@ -131,6 +131,25 @@ try {
   ok('⑤d Odoo 台的 WebSocket 握手经门户到了上游', wsO !== null, '');
   ok('⑤e Odoo 台的握手里上游收不到市场的头', wsO !== null && Object.keys(MARKET_HEADERS).every((k) => !(k in h5o)), JSON.stringify(Object.keys(h5o)));
   ok('⑤f Odoo 台的握手的 Cookie 里没有市场自己的 cookie，session_id 和台的 cookie 留下', wsO !== null && leaked(h5o).length === 0 && /(^|; )session_id=odoo-sid(;|$)/.test(String(h5o.cookie ?? '')) && /(^|; )pref=1(;|$)/.test(String(h5o.cookie ?? '')), `cookie=${h5o.cookie}`);
+
+  // ⑦ Authorization 是市场的 MCP 会话令牌：不往台带（HTTP、WebSocket 握手都看）；查不到的 Bearer、Basic 照常转给台
+  const sess = await (await fetch(`${B}/api/mcp/sessions`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-admin-token': ADMIN }, body: JSON.stringify({ name: 'pfs-agent' }) })).json();
+  ok('⑦ 布置：建了一个 MCP 会话、拿到 64 位令牌', /^[0-9a-f]{64}$/.test(String(sess.token ?? '')), JSON.stringify(sess).slice(0, 80));
+  const h7 = (await (await fetch(`${B}/go/${p}/echo`, { headers: { authorization: `Bearer ${sess.token}` } })).json()).headers ?? {};
+  ok('⑦a 带市场的 MCP 会话令牌访问门户：上游收不到这个 Authorization', !('authorization' in h7), `authorization=${h7.authorization}`);
+  const h7u = (await (await fetch(`${B}/go/${p}/echo`, { headers: { authorization: `Bearer ${String(sess.token).toUpperCase()}` } })).json()).headers ?? {};
+  ok('⑦b 令牌写成大写十六进制：一样认得、一样不带', !('authorization' in h7u), `authorization=${h7u.authorization}`);
+  const unknown = 'ab'.repeat(32);
+  const h7x = (await (await fetch(`${B}/go/${p}/echo`, { headers: { authorization: `Bearer ${unknown}` } })).json()).headers ?? {};
+  ok('⑦c 形状一样、市场查不到的 Bearer：照常转给台', h7x.authorization === `Bearer ${unknown}`, `authorization=${h7x.authorization}`);
+  const h7b = (await (await fetch(`${B}/go/${p}/echo`, { headers: { authorization: 'Basic dTpw' } })).json()).headers ?? {};
+  ok('⑦d 浏览器带的 Basic：照常转给台', h7b.authorization === 'Basic dTpw', `authorization=${h7b.authorization}`);
+  const h7c = (await (await fetch(`${B}/go/${bearer}/echo`, { headers: { authorization: `Bearer ${sess.token}` } })).json()).headers ?? {};
+  ok('⑦e 配了凭据的台：照旧换成台的凭据', h7c.authorization === 'Bearer bench-secret', `authorization=${h7c.authorization}`);
+  const ws7 = await wsHandshake(`/go/${p}/ws`, { authorization: `Bearer ${sess.token}` });
+  ok('⑦f WebSocket 握手带市场的 MCP 会话令牌：上游收不到', ws7 !== null && !('authorization' in (ws7?.headers ?? {})), `authorization=${ws7?.headers?.authorization}`);
+  const ws7x = await wsHandshake(`/go/${p}/ws`, { authorization: `Bearer ${unknown}` });
+  ok('⑦g WebSocket 握手带查不到的 Bearer：照常转给台', ws7x?.headers?.authorization === `Bearer ${unknown}`, `authorization=${ws7x?.headers?.authorization}`);
 
   // ⑥ 启动自检有这一行，并且过了
   const health = await (await fetch(`${B}/api/health`)).json();
