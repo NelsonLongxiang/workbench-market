@@ -317,6 +317,8 @@ jobs:
         run: node scripts/bench-store-smoke.mjs && node --disable-warning=ExperimentalWarning scripts/skill-data-views-examples-test.mjs
       - name: 台库分道（同一个台固定一道·不同道互不排队·大写入全局一次一件且做完换线程·一道终止不碍别的道·排队上限按各道合计）
         run: node scripts/bench-store-lanes-test.mjs
+      - name: 台库按卡片 id 开放（卡片 id 和台标识都认·删卡片要管理层并确认、409 只给规模·删前备份·连带清登记、授予、库文件、驾驶舱面板）与清扫（孤儿库、过期备份、Redis 孤儿键）
+        run: node scripts/bench-card-test.mjs && node scripts/bench-sweep-test.mjs
       - name: 库的写锁等待有上限（市场主库、判定比对库：别的进程短暂持写锁时等得到、一直不放时 5 秒前后报错不无限等·台库按这一次的时限取小）
         run: node scripts/db-busy-timeout-test.mjs
       - name: 按时间排序的列表在时间相同时次序固定（SOP 运行列表同一秒的按 id 倒序·成员分配同一毫秒的按 id 正序·反复取次序不变）

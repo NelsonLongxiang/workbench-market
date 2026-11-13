@@ -8,16 +8,27 @@
  *
  * 台可以绑到一个部门（必要时细到这个部门下的一个团队）：绑了，这个部门里有已放行授予的人才进得来（判断在路由里，问 scopedVerdict）；
  * 没绑，只有管理层。绑定的改动都留痕。
+ *
+ * 卡片 id 为主、台标识为别名（docs/data-views.md 第十三节第 5 条第 3 步）：台对应市场上的哪张卡片记在 workbench_id。
+ * 对外的入口写卡片 id（纯数字）或台标识都认，先经 resolveBenchRef 换成台标识；台库文件、授予照旧按台标识记，不改名、不搬数据。
+ * 给一张卡片开台库时不用起名字：标识由服务端定成 wb-<卡片 id>。纯数字的标识不许登记（会和卡片 id 混）。
+ * 删卡片时这里的登记、授予一起删（removeCardBench），台库文件和 Redis 键由删卡片的那一处接着清。
  */
 import { db } from '../db.ts';
 import { BenchError } from '../bench-query.ts';
 import { BENCH_SLUG_RE } from './bench-store-core.ts';
+import { benchStoreExists } from './bench-store.ts';
 
 export type BenchBinding = { department_id: string; team_host: string; team: string };
 export type BenchEntry = { slug: string; title: string; created_by: string; created_at: number; workbench_id: number | null } & BenchBinding;
 /** 登记的台最多这么多：每个台的在用数据有上限，台数也要有界 */
 export const MAX_BENCHES = 500;
 const DEPARTMENT_ID_RE = /^[a-z][a-z0-9-]{0,47}$/;
+/** 写成卡片 id 的台的引用 */
+const CARD_REF_RE = /^[1-9]\d{0,15}$/;
+/** 服务端给卡片定的台标识 */
+const CARD_SLUG_RE = /^wb-([1-9]\d{0,15})$/;
+export const cardSlug = (workbenchId: number): string => `wb-${workbenchId}`;
 // workbench_id：对应的登记台还在才给，删了按没有对应（null）
 const COLS = 'slug, title, created_by, created_at, department_id, team_host, team, (SELECT w.id FROM workbenches w WHERE w.id = bench_views.workbench_id) AS workbench_id';
 
@@ -26,6 +37,21 @@ const bindingText = (b: BenchBinding): string => (b.department_id ? `${b.departm
 
 export function listBenches(): BenchEntry[] {
   return (db.prepare(`SELECT ${COLS} FROM bench_views ORDER BY slug`).all() as Record<string, unknown>[]).map(row);
+}
+
+/**
+ * 把对外写的台的引用换成台标识：纯数字是卡片 id（换成对应的台；这张卡片没有台、或卡片已删时原样返回，按台标识找也找不到），
+ * 别的原样。只换写法，不核权限、不核存不存在
+ */
+export function resolveBenchRef(ref: string): string {
+  if (!CARD_REF_RE.test(ref)) return ref;
+  const r = db.prepare('SELECT b.slug FROM bench_views b JOIN workbenches w ON w.id = b.workbench_id WHERE b.workbench_id = ?').get(Number(ref)) as { slug: string } | undefined;
+  return r ? r.slug : ref;
+}
+/** 这张卡片对应的台（没有是 null） */
+export function benchOfCard(workbenchId: number): BenchEntry | null {
+  const r = db.prepare(`SELECT ${COLS} FROM bench_views WHERE workbench_id = ?`).get(workbenchId) as Record<string, unknown> | undefined;
+  return r ? row(r) : null;
 }
 
 export function getBench(slug: unknown): BenchEntry | null {
@@ -67,11 +93,19 @@ export function createBench(input: unknown, actor: string, at: number): BenchEnt
   const o = (input && typeof input === 'object' && !Array.isArray(input) ? input : {}) as Record<string, unknown>;
   const extra = Object.keys(o).filter((k) => !['slug', 'title', 'department', 'team_host', 'team', 'workbench_id'].includes(k));
   if (extra.length) throw new BenchError('invalid', `登记台时有不认识的键：${extra.map((k) => k.slice(0, 40)).join('、')}`);
+  const wb = o.workbench_id === undefined ? null : parseWorkbenchId(o.workbench_id);
+  // 给卡片开台库：不给标识就是 wb-<卡片 id>，不给名字就用卡片的名字
+  if (o.slug === undefined && wb !== null) o.slug = cardSlug(wb);
+  if (o.title === undefined && wb !== null) o.title = String((db.prepare('SELECT name FROM workbenches WHERE id = ?').get(wb) as { name: string }).name).trim().slice(0, 64) || `台 ${wb}`;
   if (typeof o.slug !== 'string' || !BENCH_SLUG_RE.test(o.slug)) throw new BenchError('invalid', '台的标识须为小写字母或数字开头，只含小写字母、数字、连字符，最多 64 个字符');
+  if (/^\d+$/.test(o.slug)) throw new BenchError('invalid', '台的标识不能全是数字（全是数字的写法留给卡片 id）');
+  const own = CARD_SLUG_RE.exec(o.slug);
+  if (own && Number(own[1]) !== wb) throw new BenchError('invalid', `标识 ${o.slug} 留给卡片 ${own[1]}：要用它，workbench_id 写 ${own[1]}`);
   if (typeof o.title !== 'string' || !o.title.trim() || o.title.length > 64) throw new BenchError('invalid', '台的名字须为 1～64 个字符');
   const b = parseBinding(o);
-  const wb = o.workbench_id === undefined ? null : parseWorkbenchId(o.workbench_id);
   if (getBench(o.slug)) throw new BenchError('conflict', `已经有标识是 ${o.slug} 的台`);
+  // 以前删过的同名台，库文件还没清掉（清扫会补上）：不能让新台接着用旧数据
+  if (benchStoreExists(o.slug)) throw new BenchError('conflict', `标识 ${o.slug} 以前用过，它的库还在清理，稍后再登记或换一个标识`);
   if (wb !== null && workbenchTaken(wb, o.slug)) throw new BenchError('conflict', `登记的台 ${wb} 已经对应了别的视图台`);
   const n = Number((db.prepare('SELECT COUNT(*) AS n FROM bench_views').get() as { n: number }).n);
   if (n >= MAX_BENCHES) throw new BenchError('limit', `登记的台已经到上限 ${MAX_BENCHES} 个`);
@@ -151,3 +185,42 @@ export function linkWorkbench(slug: string, input: unknown, actor: string, at: n
     return { bench: getBench(slug)!, changed };
   } catch (e) { db.exec('ROLLBACK'); throw e; }
 }
+
+/**
+ * 删卡片时用：在一个事务里删掉这张卡片对应的台的登记、收回台上的全部 MCP 授予、驳回没定的申请（各留一行痕），
+ * 再调 deleteCard（删卡片本身和它在主库里的别的东西），一起提交。返回被删的台的标识（没有台是 null）。
+ * 台库文件和 Redis 键不在事务里，由调用方在提交之后清（清不掉的由清扫补上）。
+ */
+export function removeCardBench(workbenchId: number, actor: string, at: number, note: string, deleteCard: (slug: string | null) => void): string | null {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const cur = benchOfCard(workbenchId);
+    const slug = cur?.slug ?? null;
+    if (slug) {
+      const why = `卡片 ${workbenchId} 已删${note ? `：${note}` : ''}`;
+      const held = db.prepare('SELECT session_id, tool FROM bench_mcp_grants WHERE bench = ? ORDER BY session_id, tool').all(slug) as { session_id: number; tool: string }[];
+      const bySession = new Map<number, string[]>();
+      for (const g of held) bySession.set(g.session_id, [...(bySession.get(g.session_id) ?? []), g.tool]);
+      for (const [sessionId, tools] of bySession) db.prepare('INSERT INTO bench_mcp_audit (bench, session_id, action, tools, actor, note, at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(slug, sessionId, 'revoke', JSON.stringify(tools), actor, why, at);
+      db.prepare('DELETE FROM bench_mcp_grants WHERE bench = ?').run(slug);
+      for (const q of db.prepare("SELECT id, session_id, tools FROM bench_mcp_requests WHERE bench = ? AND status = 'pending' ORDER BY id").all(slug) as { id: number; session_id: number; tools: string }[]) {
+        db.prepare("UPDATE bench_mcp_requests SET status = 'rejected', decided_by = ?, decided_at = ?, note = ? WHERE id = ? AND status = 'pending'").run(actor, at, '卡片已删', q.id);
+        db.prepare('INSERT INTO bench_mcp_audit (bench, session_id, action, tools, actor, request_id, note, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(slug, q.session_id, 'reject', q.tools, actor, q.id, why, at);
+      }
+      db.prepare('DELETE FROM bench_views WHERE slug = ?').run(slug);
+      db.prepare('INSERT INTO bench_bind_audit (slug, action, before, after, actor, note, at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(slug, 'delete', String(workbenchId), '', actor, note.slice(0, 500), at);
+    }
+    deleteCard(slug);
+    db.exec('COMMIT');
+    return slug;
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+}
+
+/** 清扫用：登记着的台的标识，和还在的卡片 id */
+export function registeredSlugs(): Set<string> {
+  return new Set((db.prepare('SELECT slug FROM bench_views').all() as { slug: string }[]).map((r) => r.slug));
+}
+export function liveCardIds(): Set<number> {
+  return new Set((db.prepare('SELECT id FROM workbenches').all() as { id: number }[]).map((r) => Number(r.id)));
+}
+
