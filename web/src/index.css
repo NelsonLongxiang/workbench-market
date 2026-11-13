@@ -426,6 +426,11 @@ body { background: var(--wm-color-page); }
 /* 宽度含内边距（border-box）：内容宽 1040 / 1280，加左右各 32 的内边距；主区不够宽时跟着主区收窄，不向右溢出 */
 .wm-page-body { box-sizing: border-box; width: 100%; max-width: 1104px; margin: 0 auto; padding: var(--wm-space-8) var(--wm-space-8) var(--wm-space-12); }
 .wm-page-body-wide { max-width: 1344px; }
+/* 经验库一条的正文（markdown）和依据的原文 */
+.wm-kn-body { margin-top: var(--wm-space-4); line-height: 1.75; }
+.wm-kn-body h1, .wm-kn-body h2, .wm-kn-body h3 { font-size: var(--wm-font-size-subtitle); margin: var(--wm-space-4) 0 var(--wm-space-2); }
+.wm-kn-body pre { padding: var(--wm-space-3); background: var(--wm-color-page); border-radius: var(--wm-radius-md); overflow-x: auto; }
+.wm-kn-quote { margin: 0; padding: var(--wm-space-1) var(--wm-space-3); border-left: 3px solid var(--wm-color-border-strong); color: var(--wm-color-text); }
 .wm-page-intro { margin-bottom: var(--wm-space-6); color: var(--wm-color-text-secondary); }
 .wm-page-spin { display: block; margin: var(--wm-space-12) auto; }
 /* ---------- 工作台市场（照原型 3fbfd0b 的 #/market：分类胶囊、三列卡片） ---------- */
