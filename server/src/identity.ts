@@ -17,7 +17,7 @@
  */
 import { createHash } from 'node:crypto';
 import { Service, type Context } from '@deepseek-ai/cordis';
-import type { Express } from 'express';
+import type { HttpService } from './http.ts';
 import { root } from './root-context.ts';
 import { loginProviders } from './login-providers/index.ts';
 
@@ -781,8 +781,8 @@ export interface LoginRelay {
   /** 登录这一跳把浏览器送到哪个源；null 表示送不了（主机名对不上，或者要从 https 降到 http） */
   browserLoginOrigin(target: string, authority: string, configured: BrowserLoginOrigin | null, secure?: boolean): string | null;
 
-  /** 装上同域登录中继的路由；没开就什么都不装 */
-  install(app: Express): void;
+  /** 经 HTTP 服务注册同域登录中继的路由（不管开没开都注册，没开就放过）；要在任何请求体解析之前调 */
+  install(http: HttpService): void;
   /** 这个请求是不是中继放行的登录面（不要身份也能访问） */
   publicRoute(method: string, pathname: string): boolean;
   /** 到上游注销这一个会话；确认注销了才返回 true */

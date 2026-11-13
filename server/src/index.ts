@@ -331,7 +331,7 @@ if (A2A_FOLLOWUP_RATE === null) {
 const FETCH_STEP_REFUSALS: ReadonlySet<string> = new Set(['unregistered', 'no-card', 'not-derivable', 'bad-sig']);
 const directSig = createDirectSigVerifier({ audiences: () => [marketPublicUrl()], bodyMode: A2A_DIRECT_SIG_BODY, refreshCooldownMs: A2A_CARD_COOLDOWN_MS });
 app.use(loginGate.middleware);
-loginRelay().install(app); // narrow same-origin Odoo login, before any body parser
+loginRelay().install(http); // narrow same-origin Odoo login, before any body parser（路由在登录方式插件里，经 HTTP 服务注册）
 // Explicit opt-in only; no default content listener, no live configuration writes.
 const contentCfg = contentConfig(process.env);
 const portalObserver = process.env.WM_PORTAL_OBSERVE === '1' ? createPortalObservation(db, id => !!svc<WorkbenchService>('workbench').exists(id)) : null;

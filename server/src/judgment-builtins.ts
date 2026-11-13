@@ -45,6 +45,8 @@ export const ANONYMOUS_ACTIONS: readonly string[] = [
   'health.read',
   'health.ready',
   'login.page', // 登录页本来就是给还没登录的人看的
+  'login.odoo-proxy-page', // Odoo 同域登录中继的登录页、静态资源、翻译：给还没登录的人看（没开中继时放过）
+  'login.odoo-proxy-submit', // Odoo 同域登录中继的提交登录：同源门之外不认人
   'market.export',
   'market.page', // 页面兜底：谁来都回同一个前端外壳（登录门开着时它在前面先挡）
   'setting.read',
@@ -157,6 +159,8 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       // 经验库的同步状态：运维信息、不带条目内容，属主在本机看（没接入时原因只在这里）
       'knowledge.sync-status',
       'login.begin',
+      'login.odoo-proxy-page',
+      'login.odoo-proxy-submit',
       'login.page',
       'market.export',
       'market.page',

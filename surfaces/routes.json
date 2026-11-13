@@ -6,6 +6,8 @@
       "USE /  <- expressInit",
       "USE /  <- middleware",
       "USE /  <- middleware",
+      "GET /^\\/(?:web\\/|website\\/translations$|[a-z]{2}(?:_[A-Z]{2})?\\/website\\/translations$)/  <- pass",
+      "POST /^\\/web\\/login(?:\\/totp)?$/  <- pass",
       "USE /  <- <anonymous>",
       "USE /  <- corsMiddleware",
       "USE /  <- <anonymous>",
