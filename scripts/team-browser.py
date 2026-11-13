@@ -322,13 +322,18 @@ with sync_playwright() as p:
     check('分配回 202：提示「已提出，等管理层确认」（提示色，不是成功），卡片仍是团队公用', '「小审」分配给 丙：已提出，等管理层确认' in t_info.inner_text() and t_info.locator('.ant-message-info').count() == 1 and '团队公用' in card('小审').locator('[data-testid=team-assigned]').inner_text())
 
     # 改派被拒：弹窗里写服务端的说法；一步办完的接口不会停在团队公用，卡片仍写原来的人
+    # 前面收回「小审」的轻提示（「已收回」，3 秒）可能还在：等它消失，下面只数这次操作之后出现的
+    pg.wait_for_function("![...document.querySelectorAll('.ant-message-notice')].some(e => e.innerText.includes('已收回'))", timeout=10000)
     n0 = len(posted)
     reassign['next'] = (422, {'error': 'assignee_not_person', 'message': '只分给启用的人，user:ding 不是'})
     card('小算').locator('[data-testid=team-reassign-open]').click(); modal().wait_for(); pick_in_modal('丁')
     modal().locator('[data-testid=team-assign-confirm]').click(); modal().locator('[data-testid=team-assign-err]').wait_for()
+    pg.wait_for_timeout(400)  # 若页面误发了提示，给它出现的时间
+    rej = {'err': modal().locator('[data-testid=team-assign-err]').inner_text(), 'card': card('小算').locator('[data-testid=team-assigned]').inner_text(),
+           'notices': pg.locator('.ant-message-notice').all_inner_texts(), 'posted': posted[n0:]}
     check('改派被拒：弹窗里写服务端的说法；只发了改派、没发收回；归属不变（仍分配给 戊），没有「已收回」的提示',
-          '只分给启用的人' in modal().locator('[data-testid=team-assign-err]').inner_text() and [x[0] for x in posted[n0:]] == ['reassign'] and '分配给 戊' in card('小算').locator('[data-testid=team-assigned]').inner_text()
-          and pg.locator('.ant-message-notice', has_text='已收回').count() == 0, posted[n0:])
+          '只分给启用的人' in rej['err'] and [x[0] for x in rej['posted']] == ['reassign'] and '分配给 戊' in rej['card']
+          and not any('已收回' in t for t in rej['notices']), rej)
     modal().locator('button', has_text='算了').click(); modal_gone()
 
     # 普通员工（can_assign 不是真）：只读
