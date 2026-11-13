@@ -52,10 +52,10 @@
           "what": "带转发头、没有口令的写",
           "request": { "method": "POST", "path": "/api/cockpits", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "name": "不该建出来" } },
           "response": {
-            "status": 403,
+            "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "headers": { "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "cockpit_auth_required", "message": "要先登录" }
           }
         },
         {
@@ -64,12 +64,7 @@
           "class": "unauthorized",
           "what": "浏览器从别的站点发来的写",
           "request": { "method": "POST", "path": "/api/cockpits", "headers": { "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": { "name": "不该建出来" } },
-          "response": {
-            "status": 403,
-            "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
-          }
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "76", "etag": "W/\"4c-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "cockpit_cross_origin_denied", "message": "跨站来的改动不收" } }
         },
         {
           "id": "create-no-name",
@@ -758,10 +753,10 @@
           "what": "带转发头、没有口令的写",
           "request": { "method": "PUT", "path": "/api/cockpits/{{cput}}", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "name": "不该改成" } },
           "response": {
-            "status": 403,
+            "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "headers": { "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "cockpit_auth_required", "message": "要先登录" }
           }
         },
         {
@@ -1051,10 +1046,10 @@
           "what": "带转发头、没有口令的写",
           "request": { "method": "DELETE", "path": "/api/cockpits/{{c1}}", "headers": { "x-forwarded-for": "198.51.100.7" } },
           "response": {
-            "status": 403,
+            "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "headers": { "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "cockpit_auth_required", "message": "要先登录" }
           }
         },
         {
@@ -1619,7 +1614,7 @@
             "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" },
             "json": { "name": "不该建出来" }
           },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "76", "etag": "W/\"4c-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "cockpit_cross_origin_denied", "message": "跨站来的改动不收" } }
         },
         {
           "id": "create-with-token-no-name",
@@ -1718,7 +1713,7 @@
             "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" },
             "json": { "name": "不该改成" }
           },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "76", "etag": "W/\"4c-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "cockpit_cross_origin_denied", "message": "跨站来的改动不收" } }
         },
         {
           "id": "update-with-token-missing",

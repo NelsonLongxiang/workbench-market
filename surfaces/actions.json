@@ -10,10 +10,10 @@
       "POST /api/workbenches/:id/check  -> workbench.check  write",
       "POST /api/check-all  -> workbench.check-all  write",
       "GET /api/cockpits  -> cockpit.list  read",
-      "POST /api/cockpits  -> cockpit.create  admin",
+      "POST /api/cockpits  -> cockpit.create  admin  （状态码不代表授权：驾驶舱的写由驾驶舱域判：管理员，或判定放行（管理层预设点名了建、改、删））",
       "GET /api/cockpits/:id  -> cockpit.read  read",
-      "PUT /api/cockpits/:id  -> cockpit.update  admin",
-      "DELETE /api/cockpits/:id  -> cockpit.delete  admin",
+      "PUT /api/cockpits/:id  -> cockpit.update  admin  （状态码不代表授权：驾驶舱的写由驾驶舱域判：管理员，或判定放行（管理层预设点名了建、改、删））",
+      "DELETE /api/cockpits/:id  -> cockpit.delete  admin  （状态码不代表授权：驾驶舱的写由驾驶舱域判：管理员，或判定放行（管理层预设点名了建、改、删））",
       "GET /api/apps  -> app.list  read",
       "POST /api/apps  -> app.publish  admin",
       "POST /api/apps/:slug/sync  -> app.sync  admin  （状态码不代表授权：任务中心元台不从仓库同步时回 403，是台的规则不是授权）",
@@ -758,6 +758,13 @@
             "read",
             "write",
             "decide"
+          ]
+        },
+        {
+          "actions": [
+            "cockpit.create",
+            "cockpit.update",
+            "cockpit.delete"
           ]
         }
       ]

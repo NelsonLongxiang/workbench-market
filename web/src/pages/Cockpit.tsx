@@ -4,7 +4,7 @@ import { useRequest } from 'ahooks';
 import { Space, Input, App, Badge, Button, Card, Col, Empty, Flex, Popconfirm, Popover, Select, Spin, Tooltip, Typography } from 'antd';
 import { EditOutlined, ExportOutlined, PlusOutlined, ReloadOutlined, CloseOutlined } from '@ant-design/icons';
 import 'react-resizable/css/styles.css';
-import { api } from '../api';
+import { api, canCreateCockpit } from '../api';
 import GoFrame from '../components/GoFrame';
 import type { Cockpit as CockpitT, PanelConfig, Workbench } from '../types';
 import { useSyncExternalStore } from 'react';
@@ -18,9 +18,9 @@ import BenchViewManage from '../components/cockpit/BenchViewManage';
 import { benchViewRefs, isBenchViewPanel, itemsTabLabel, mainTabKeys, refsOfTab } from '../cockpit-frame-view';
 
 /** 驾驶舱写（/api/cockpits）是管理写：不是管理员（口令或 Odoo 管理员）时只读，隐藏新建/删除/改名/加移面板，网格不可拖拽 */
-/** 不是管理员时的一行说明：只说只能看、谁来调，不教人去拿口令（新外壳也没有顶栏口令入口） */
-const READ_ONLY_LIST = '驾驶舱你只能看，新建和调整由管理员来。';
-const READ_ONLY_HINT = '这个驾驶舱你只能看，布局由管理员调整。';
+/** 只能看的人的一行说明：只说只能看、谁来调，不教人去拿口令。谁能建、能改由服务端判（#673：管理层授予或管理员） */
+const READ_ONLY_LIST = '驾驶舱你只能看，新建和调整由管理层或管理员来。';
+const READ_ONLY_HINT = '这个驾驶舱你只能看，布局由管理层或管理员调整。';
 const NO_PICKS: Record<string, string> = {};
 
 
@@ -49,9 +49,17 @@ function PanelHeadActions(props: { wid: number; url?: string; onRefresh: () => v
 import { TasksView } from './Tasks';
 
 export default function Cockpit() {
-  // 管理身份（口令或 Odoo 管理员）：只用在不属于某一个驾驶舱的地方——新建驾驶舱、右栏事项的标签。
-  // 改某一个驾驶舱（改名、加面板、删除……）照服务端在这个驾驶舱上给的 can.edit
+  // 管理身份（口令或 Odoo 管理员）：只用在右栏事项的标签上，和驾驶舱无关。
+  // 改某一个驾驶舱（改名、加面板、删除……）照服务端在这个驾驶舱上给的 can.edit；新建照 /api/auth/me 的 can.create_cockpit
   const ADMIN = useSyncExternalStore(subscribeAdminToken, adminActive);
+  const [canCreate, setCanCreate] = useState(false);
+  useEffect(() => {
+    let live = true;
+    const ask = () => { void canCreateCockpit().then((v) => { if (live) setCanCreate(v); }); };
+    ask();
+    const off = subscribeAdminToken(ask);
+    return () => { live = false; off(); };
+  }, []);
   const { id } = useParams();
   const nav = useNavigate();
   const { message } = App.useApp();
@@ -156,7 +164,7 @@ export default function Cockpit() {
     return (
       <WmPage
         subTitle="一屏看住一条线或一个工作台：中间是它的看板和明细，左边是等你拍板的，右边是办理过程"
-        extra={ADMIN && <Button
+        extra={canCreate && <Button
             type="primary"
             icon={<PlusOutlined />}
             onClick={async () => {
@@ -173,7 +181,7 @@ export default function Cockpit() {
           </Button>}
       >
       <Flex vertical gap={16} className="wm-w-full" align="start">
-        {!ADMIN && <Typography.Text type="secondary" className="wm-cockpit-readonly wm-caption">{READ_ONLY_LIST}</Typography.Text>}
+        {!canCreate && <Typography.Text type="secondary" className="wm-cockpit-readonly wm-caption">{READ_ONLY_LIST}</Typography.Text>}
         {listReq.data?.length ? (
           <Flex gap={16} wrap="wrap" className="wm-w-full" style={{ rowGap: 16 }}>
             {listReq.data.map((c) => (
@@ -210,8 +218,8 @@ export default function Cockpit() {
             ))}
           </Flex>
         ) : (
-          <Empty description={!ADMIN ? '还没有驾驶舱' : '还没有驾驶舱。建一个，就能一屏看住一条线或一个工作台的看板、等你拍板的事和办理过程'} style={{ marginTop: 48 }}>
-            {ADMIN && <Button
+          <Empty description={!canCreate ? '还没有驾驶舱' : '还没有驾驶舱。建一个，就能一屏看住一条线或一个工作台的看板、等你拍板的事和办理过程'} style={{ marginTop: 48 }}>
+            {canCreate && <Button
               type="primary"
               onClick={() => api.createCockpit({ name: '我的驾驶舱' }).then((c) => nav(`/cockpit/${c.id}`))}
             >
