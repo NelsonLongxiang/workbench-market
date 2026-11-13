@@ -407,6 +407,8 @@ jobs:
         run: node scripts/vars-store-test.mjs && node scripts/vars-hot-test.mjs && WM_VARS_STORE=shadow node scripts/route-replay-test.mjs workbench-vars && WM_VARS_STORE=bench node scripts/route-replay-test.mjs workbench-vars && node scripts/vars-store-diff-test.mjs
       - name: Startup security self-probe (#326, loopback synthetic only)
         run: node scripts/startup-security-self-probe-test.mjs && node scripts/startup-security-self-probe-http-test.mjs && node scripts/startup-security-self-probe-upgrade-test.mjs
+      - name: 门户转发前去掉市场自身的认证信息（GET、POST、WebSocket 握手里没有市场的口令、令牌、凭据头和市场 cookie；台自己的头和 cookie 照旧；启动自检这一行过了）
+        run: node scripts/portal-forward-strip-test.mjs
       - name: Tasks identity and project/run grant isolation (#324, synthetic only)
         run: node scripts/tasks-read-authority-http-test.mjs
       - name: Redis ready recovery and durable-generation rebound (#351, synthetic only)
@@ -462,6 +464,8 @@ jobs:
         run: node scripts/a2a-member-provenance-test.mjs
       - name: 席位 A2A 回执进事项（签名方 = 当初投递到的宿主·Sig3 不降级·别人的任务号照原路逐字节相同·别的团队签/没签名/重放/词表外/夹带指令/未采信上限·日志无签名材料）
         run: node scripts/a2a-receipt-inbound-test.mjs
+      - name: 对端钉住的公钥接上入站与出站（回执、跟进、名册只认钉住的那把，改钥待确认、停用的不收·投递和回给团队的消息过 canDeliver，不能发的挂起不判死）
+        run: node scripts/a2a-pinned-peer-test.mjs
       - name: 名册以根地址和完整指纹为键（升级回填·回填不上的要人确认·同号两个节点都不匹配·换键后的旧行、停用、等确认新键的不匹配）
         run: node scripts/a2a-roster-key-test.mjs
       - name: 市场出站补 body 绑定签名 Sig3（a2aSendOutbound 与回执 outbox 都带 Sig2+Sig3·上游新版 verifyOriginClaim 判 bodyBound·改正文被拒·无正文只带 Sig2）

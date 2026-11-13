@@ -58,7 +58,7 @@ export function registerAppRoutes(app: HttpService, deps: AppDeps): void {
   const { appDetail, getApp, DIRECT_PUBLISH_CLOSED, sameOriginGuard, adminGuard, adminTokenCheck, publishLockGuard, publishAppBody, wrap, isAdmin, syncAppFromGithub, appsRoot, layerfsReservedSlug, layerfsPublish, layerfsProjectName, layerfsServiceBase } = deps;
   app.get('/api/apps', { action: 'app.list', kind: 'read' }, (_req, res) => {
     // /api/apps = 全部台（app+sop）；/api/sops 才是 kind='sop' 过滤——S2 批量替换期间两口径装反过一次
-    const rows = svc<AppService>('app').all() as unknown as AppRow[];
+    const rows = (svc<AppService>('app').all() as unknown as AppRow[]).filter((a) => a.status !== 'deleting'); // 正在删除的台按不存在处理
     res.json(rows.map(appDetail));
   });
 

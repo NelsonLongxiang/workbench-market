@@ -945,11 +945,20 @@ const LAYERFS_SYSTEM_PROJECTS: ReadonlySet<string> = new Set([LAYERFS_SKILLS_PRO
 const MAX_APP_FILES = 64;
 const MAX_APP_TOTAL_BYTES = 100 * 1024 * 1024;
 
-function getApp(slug: string): AppRow {
+/**
+ * 取一个台。正在删除的台（status = deleting：删台已经删了它的卡片、远端或本地还没删完，见 deleteAppCascade）：
+ * 读按不存在处理（和不存在同一个 404）；forWrite（提交、上传、改备注、软删、同步发布）回 409，说明正在删除
+ */
+function getApp(slug: string, forWrite = false): AppRow {
   const row = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
+  if (row && row.status === APP_DELETING) {
+    if (forWrite) throw new HttpError(409, `台 ${slug} 正在删除，不接受写入`, { code: 'app_deleting' });
+    throw new HttpError(404, `app not found: ${slug}`);
+  }
   if (!row) throw new HttpError(404, `app not found: ${slug}`);
   return row;
 }
+const APP_DELETING = 'deleting';
 
 function appDetail(a: AppRow) {
   const versions = (svc<AppService>('app').versions(a.id) as unknown as AppVersionRow[]).map(v => ({ ...v, shadow_status: (v as any).shadow_status ?? (v.commit_id ? 'succeeded' : 'pending'), shadow_error: String((v as any).shadow_error ?? '') }));
@@ -1153,6 +1162,7 @@ function publishAppBody(b: any, source?: { repo: string; path: string; commit: s
     files = validateAppFiles(b.files, kind);
   }
   const existing = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
+  if (existing?.status === APP_DELETING) throw new HttpError(409, `台 ${slug} 正在删除，不接受写入`, { code: 'app_deleting' });
   if (existing && existing.kind !== kind) bad(`slug 已被 ${existing.kind} 类台占用，kind 不可切换`);
 
   // SOP 类发布面：sop.yaml 必在且可解析、changelog 必填（版本化治理）
@@ -1264,6 +1274,7 @@ async function syncAppFromGithub(slug: string, b: any, who: string): Promise<{ s
   if (slug === 'task-center') throw new HttpError(403, 'task-center 内置元台不从仓库同步');
   if (layerfsReservedSlug(slug)) bad('slug 是系统保留名（LayerFS 系统项目），换一个');
   const existing = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
+  if (existing?.status === APP_DELETING) throw new HttpError(409, `台 ${slug} 正在删除，不接受写入`, { code: 'app_deleting' });
   const rebind = b?.source_repo !== undefined;
   if (!existing && !rebind) bad('该台尚未登记来源：首次同步须带 source_repo（owner/repo），可选 source_path');
   let src: { repo: string; path: string };
@@ -1396,11 +1407,14 @@ async function layerfsPublish(project: string, files: { path: string; content: s
 
 /**
  * 删台。card：删这个台的卡片的人、是否确认删台库里的业务数据（卡片的台库有数据时要管理层并且确认，见 bench-card-delete.ts）。
- * 这道门在任何删除之前先过（远端项目删了就回不来）；过了之后卡片逐张走删卡片那条路——台库（删前备份）、常量变量、驾驶舱面板一起处理，
- * 不再直接删卡片行（原来那样台库会留成孤儿，常量变量和驾驶舱面板也悬着）
+ * 这道门在任何删除之前先过；过了之后**紧接着**删卡片（逐张走删卡片那条路——台库删前备份、常量变量、驾驶舱面板一起处理），然后才删远端项目和台本身。
+ * 门和删卡片之间不隔着远端调用（要几秒）：原来先删远端、最后才删卡片，这几秒里某张卡片的台库第一次写进数据，第二次过门就 409，台删了、卡片还在（半截）。
+ * 现在远端删失败（502）时卡片已经按确认删了，台标成「删除中」（写入 409、读按不存在、发布也 409）——重试删台就收尾，不会留下「台没了、卡片和它的数据还在」。
  */
 async function deleteAppCascade(slug: string, card: { deleter: CardDeleter; confirmBenchData: boolean } = { deleter: { kind: 'anonymous' }, confirmBenchData: false }): Promise<void> {
-  const a = getApp(slug);
+  // 正在删除的台也取得到：上一次删到一半（远端删失败）的，重试照常收尾
+  const a = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
+  if (!a) throw new HttpError(404, `app not found: ${slug}`);
   const cardIds = svc<WorkbenchService>('workbench').idsByAppUrls(`/apps/${a.slug}/`, `/sop/${a.slug}/`);
   for (const id of cardIds) {
     const row = svc<WorkbenchService>('workbench').byId(id) as { url?: unknown } | undefined;
@@ -1416,6 +1430,13 @@ async function deleteAppCascade(slug: string, card: { deleter: CardDeleter; conf
   const reserved = layerfsReservedSlug(slug);
   if (reserved) console.warn(`[layerfs] 删台 ${slug}：slug 是系统保留项目名，跳过远端删除`);
   if (hasLayerfsState && !base && !reserved) throw new HttpError(503, 'LayerFS service is required to delete an app with LayerFS data');
+  // 删卡片之前先把台标成「删除中」：从这里起到删完（包括远端删失败、台留着等重试），这个台的写入一律 409、读按不存在处理——
+  // 卡片和台库已经没了，不能再往一个没有卡片的台里写。重试删台照常收尾；要撤销，由管理层从备份恢复卡片（设计稿，暂不做入口）
+  if (a.status !== APP_DELETING) svc<AppService>('app').setStatus(a.id, APP_DELETING);
+  // issue #6：清理应用与 SOP 对应的工作台注册——过了门紧接着逐张走删卡片那条路（台库删前备份、常量变量、驾驶舱面板一起），在远端调用之前
+  for (const id of cardIds) {
+    try { await workbenchDeleteCore(id, card.deleter, card.confirmBenchData); } catch (e) { if (!(e instanceof HttpError && e.status === 404)) throw e; } // 期间已被删了就算了
+  }
   if (base && !reserved) {
     let remote: Response;
     try {
@@ -1430,10 +1451,6 @@ async function deleteAppCascade(slug: string, card: { deleter: CardDeleter; conf
   rmSync(join(appsRoot, slug), { recursive: true, force: true });
   svc<AppService>('app').versionsDelete(a.id);
   svc<AppService>('app').delete(a.id);
-  // issue #6：清理应用与 SOP 对应的工作台注册——逐张走删卡片那条路（台库、常量变量、驾驶舱面板一起）
-  for (const id of cardIds) {
-    try { await workbenchDeleteCore(id, card.deleter, card.confirmBenchData); } catch (e) { if (!(e instanceof HttpError && e.status === 404)) throw e; } // 期间已被删了就算了
-  }
   await svc<AppDataService>('appData').dataDelete(slug);
   const files = await svc<AppDataService>('appData').filePaths(slug);
   for (const f of files) { try { rmSync(join(dataDir, f), { force: true }); } catch { /* 已删 */ } }
@@ -3053,7 +3070,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
     }
     case 'app_data_submit': {
       // 与 REST POST /api/apps/:slug/data 同一核心（契约校验、幂等、事件推送）；违约 → 400 + violations 原样
-      const a = getApp(String(args?.slug ?? ''));
+      const a = getApp(String(args?.slug ?? ''), true);
       if (args?.data === undefined || args?.data === null) bad('data 必填');
       // 工具调用凭的是会话令牌（席位、agent），不看 cookie
       const out = await submitAppData(a, { data: args.data, createdBy: args?.created_by ?? subject, idempotencyKey: args?.idempotency_key, subject, channel: { name: 'app-data.tool', hasCredential: false } });
@@ -3076,7 +3093,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       const name = fixFileName(String(args?.name ?? '').trim());
       const b64 = String(args?.content_base64 ?? '');
       if (!slug || !name || !b64) throw new HttpError(400, 'slug/name/content_base64 必填');
-      const a = getApp(slug);
+      const a = getApp(slug, true);
       // 完整性：有的 MCP 客户端会把过长的参数截短（常见截在 64KB）。截在 4 的倍数上的 base64 照样能解码，
       // 不核就会把残缺文件当正常文件存下。所以：base64 严格校验；调用方带了 size / sha256 就逐项对；
       // 恰好 65536 字符又没带 size / sha256 的，按疑似截断拒收（要么带上 size / sha256，要么改用 REST 原始字节上传）。
@@ -3748,6 +3765,8 @@ async function mcpRestRunReadable(req: express.Request, sess: McpSess | null, ru
 const runIdParam = (v: unknown): number => { if (!/^\d+$/.test(String(v))) throw new HttpError(404, `run not found: ${v}`); return Number(v); };
 registerMcpRestRoutes(http, { wrap, serveMcpOpenApi, mcpGatewaySession, mcpAudit, mcpRegisteredNames, MCP_REST_DENIED_HINT, mcpInvokeTool, mcpPublicOrigin, mcpRestSession, mcpToolAllowsApp, mcpRestRun, bad, getApp, appFilesQuota, APP_FILES_MAX, UPLOAD_MAX, uploadMonthDir, uploadFileName, appFileStoreCore, MCP_REST_BASE, upload, fixFileName, fileSha256, sendStoredFile, restFileItem, mcpRestRunReadable, runIdParam, sopRunRow, runReadCapHeader });
 import { installPortal, goPrefix, moduleProxy } from './portal.ts';
+import { stripIncoming as stripPortalForward, verifyPortalForwardStrip, useMarketTokenCheck } from './portal-forward-headers.ts';
+useMarketTokenCheck((token) => mcpSessionByToken(token) !== null); // 门户转发时认得市场的 MCP 会话令牌，摘掉不往台带
 
 loginRelay().useTicketStore(sqliteSsoTicketStore()); // SSO 回调票据落库：重启不丢、同一 DATA_DIR 的实例共享
 installPortal(app, wbById, { serveApp, readActiveManifest, renderSopRunner, appsRoot });
@@ -3873,7 +3892,7 @@ const goServer = registerSurface(app, 'market', PORT, () => {
 const controlServer = SURFACE_PORTS.control ? registerSurface(app, 'control', SURFACE_PORTS.control) : undefined;
 if (contentCfg && contentRuntime) listenContentSurface(app, contentCfg, contentRuntime, () => startupSecurity.snapshot().passed);
 
-void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, benchViews: BENCH_VIEWS.on, outbound: outboundOff() ? verifyOutboundGate : undefined, sessionSeal: sealSelfCheck }).then((result) => {
+void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, benchViews: BENCH_VIEWS.on, outbound: outboundOff() ? verifyOutboundGate : undefined, sessionSeal: sealSelfCheck, portalForward: verifyPortalForwardStrip }).then((result) => {
   if (!result.passed) return refuseUnsafeStartup();
   startupPassed(); // 放开启动闸：事项回填这类后台任务从这里开始（自检没过不开始）
   startRedis();
@@ -3948,6 +3967,7 @@ goServer.on('upgrade', async (req, socket, head) => {
   // ② Host 改成上游 authority，与 changeOrigin 语义一致；cookie 名是 authority 的 sha256，
   //    Host 不符则上游取不到签名 cookie → 401（实测）
   if (!loginRelay().isSessionTarget(w.url)) loginRelay().stripSession(req.headers); // 同 HTTP 门户：Odoo 会话只转给可信 Odoo 源
+  stripPortalForward(req.headers); // 同 HTTP 门户：市场自己的口令、令牌、凭据头和会话 cookie 不往台带
   const upstreamHost = u.host; // host:port（authority 形态）
   if (req.headers.origin !== undefined) req.headers.origin = u.origin;
   req.headers.host = upstreamHost;
