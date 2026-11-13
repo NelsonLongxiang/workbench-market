@@ -9,6 +9,8 @@
  *   三、带了确认：删成；备份进 .deleted/，留痕写明谁删的、备份、到期；台的登记、授予、库文件都没了，没定的申请驳回，
  *       驾驶舱里挂这个台的视图面板摘掉；按卡片 id 和台标识都取不到，MCP 调用和没有这个工具一样
  *   四、台库是空的、或者卡片没有台：和原来一样直接删，不要确认、不留备份；本机命令行（属主）带确认删得了有数据的
+ *   六、（阶段一复验补的）台库里只有视图描述也算有数据；本机浏览器页面不是属主；同名旧库还在时不许登记；
+ *       纯数字标识的旧台：数字写法照旧认到它，同号卡片不许对应别的台（只许对应它自己），启动时报出来
  *
  *   node scripts/bench-card-test.mjs              测本仓库
  *   node scripts/bench-card-test.mjs --root DIR   测另一棵目录树（变异测试用）
@@ -181,7 +183,45 @@ try {
   const ownerNo = await srv.call('DELETE', `/api/workbenches/${W5}`, {});
   const ownerYes = await srv.call('DELETE', `/api/workbenches/${W5}?confirm_bench_data=true`, {});
   check(ownerNo.status === 409 && ownerNo.json?.code === 'bench_data_confirm_required' && ownerYes.status === 200 && ownerYes.json?.bench?.slug === `wb-${W5}`, '本机命令行（属主）：不带确认 409，查询串带确认删得了', { no: ownerNo.text.slice(0, 120), yes: ownerYes.text.slice(0, 160) });
+  console.log('六、阶段一复验补的');
+  const W6 = await mkWb('合成·只有视图', 'w6'), W7 = await mkWb('合成·本机页面删', 'w7'), W8 = await mkWb('合成·同号', 'w8');
+  // 只有视图描述、没有数据集
+  await bv(boss, 'POST', '', { workbench_id: W6 });
+  const onlyView = await bv(boss, 'PUT', `/${W6}/view`, { doc: { title: '只有筛选栏', views: [{ key: 'a', title: '甲', blocks: [{ type: 'filter-bar', fields: [{ name: 'm', kind: 'month' }] }] }] }, base: 0, note: '合成' });
+  const v6 = await srv.call('DELETE', `/api/workbenches/${W6}`, token);
+  check(onlyView.status === 200 && v6.status === 409 && v6.json?.code === 'bench_data_needs_management' && v6.json?.bench_data?.datasets === 0 && v6.json.bench_data.view_versions === 1 && db.prepare('SELECT 1 FROM workbenches WHERE id = ?').get(W6), '台库里只有视图描述（没有数据集）也算有数据：管理口令删 409，卡片还在', { onlyView: onlyView.text.slice(0, 120), v6: v6.text.slice(0, 200) });
+  // 本机浏览器页面（回环、带浏览器标记、没登录、没口令）不是属主
+  await bv(boss, 'POST', '', { workbench_id: W7 });
+  await defineDs(W7); await rows(boss, W7, [{ id: 1, hidden_col: 'x' }]);
+  const page = await srv.call('DELETE', `/api/workbenches/${W7}`, { headers: { origin: srv.base, 'sec-fetch-site': 'same-origin' }, body: { confirm_bench_data: true } });
+  // 本机浏览器页面带着管理口令（过得了写入总门）：按「只有管理口令」算，409，不当属主
+  const pageTok = await srv.call('DELETE', `/api/workbenches/${W7}`, { headers: { origin: srv.base, 'sec-fetch-site': 'same-origin', 'x-admin-token': ADMIN_TOKEN }, body: { confirm_bench_data: true } });
+  check(page.status !== 200 && pageTok.status === 409 && pageTok.json?.code === 'bench_data_needs_management' && db.prepare('SELECT 1 FROM workbenches WHERE id = ?').get(W7) && existsSync(join(srv.data, 'bench-stores', `wb-${W7}.sqlite`)),
+    '本机浏览器页面不是属主：没口令的过不了写入总门；带管理口令、带确认的按管理口令算，409；卡片和库都在', { page: page.status, pageTok: pageTok.text.slice(0, 200) });
+  // 同名旧库还在（删台时文件没删掉）：不许用这个标识重新登记
+  await bv(boss, 'POST', '', { slug: 'reuse-a', title: '旧台' });
+  await bv(boss, 'PUT', '/reuse-a/datasets/secret_ds', { key: ['id'], columns: [{ name: 'id', type: 'integer' }, { name: 'hidden_col', type: 'text' }] });
+  await rows(boss, 'reuse-a', [{ id: 1, hidden_col: '旧数据' }]);
+  db.prepare("DELETE FROM bench_views WHERE slug = 'reuse-a'").run(); // 模拟：登记删了、库文件没删掉
+  const again = await bv(boss, 'POST', '', { slug: 'reuse-a', title: '新台' });
+  check(again.status === 409 && !db.prepare("SELECT 1 FROM bench_views WHERE slug = 'reuse-a'").get(), '同名旧库还在：用这个标识重新登记 409，没登记出来（不接手旧数据）', again.text.slice(0, 200));
+  // 纯数字标识的旧台（以前许登记）：写数字照旧认到它；同号卡片不许对应别的台
+  db.prepare('INSERT INTO bench_views (slug, title, created_by, created_at) VALUES (?, ?, ?, ?)').run(String(W8), '纯数字旧台', 'synthetic', Date.now());
+  const legacyRead = await bv(boss, 'GET', `/${W8}/datasets`);
+  const openOther = await bv(boss, 'POST', '', { workbench_id: W8 });
+  const linkOther = await bv(boss, 'PUT', '/legacy-a/workbench', { workbench_id: W8 });
+  const stillLegacy = await bv(boss, 'GET', `/${W8}/datasets`);
+  const linkSelf = await bv(boss, 'PUT', `/${W8}/workbench`, { workbench_id: W8 });
+  check(legacyRead.status === 200 && openOther.status === 409 && linkOther.status === 409 && stillLegacy.status === 200 && !db.prepare('SELECT 1 FROM bench_views WHERE slug = ?').get(`wb-${W8}`),
+    '纯数字旧台：写数字照旧认到它；同号卡片开台库、把别的台对应过去都 409（旧台不会被遮住）', { legacyRead: legacyRead.status, openOther: openOther.text.slice(0, 160), linkOther: linkOther.status, stillLegacy: stillLegacy.status });
+  check(linkSelf.status === 200 && linkSelf.json?.bench?.workbench_id === W8, '把旧台对应到同号的卡片本身：许（歧义消除）', linkSelf.text.slice(0, 160));
+  // 启动时报出来：重启实例看日志
+  db.prepare('INSERT INTO bench_views (slug, title, created_by, created_at) VALUES (?, ?, ?, ?)').run('424242', '另一个纯数字旧台', 'synthetic', Date.now());
   db.close();
+  await srv.stop();
+  const srv2 = await boot('on', { WM_BENCH_VIEWS: 'on' });
+  await sleep(500);
+  check(/有 2 个旧台的标识是纯数字/.test(srv2.log()) && srv2.log().includes('424242') && srv2.log().includes(String(W8)), '启动时报出纯数字标识的旧台（个数和标识）', srv2.log().split('\n').filter((l) => l.includes('纯数字')).join(' | ').slice(0, 300));
 } catch (e) {
   check(false, `没有中途抛错：${e?.stack ?? e}`);
 } finally {

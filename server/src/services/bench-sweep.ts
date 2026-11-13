@@ -4,13 +4,14 @@
  *   1. 台库目录里没有登记的库文件（删卡片时删文件失败留下的）：先备份进 .deleted/（和删卡片时同一个样子），再删掉。
  *   2. .deleted/ 里过了 30 天的备份：删掉。
  *   3. Redis 里卡片已经不在的台的键：清掉。
+ * 另外，起来时报一次纯数字标识的旧台（bench-registry.ts 的 numericSlugs）。
  * 没有登记的库文件读不到（入口都先核登记），台 id 不复用，所以这些都只是占地方；挪走之前留备份，误删能救回来。
  */
 import { Service, type Context } from '@deepseek-ai/cordis';
 import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { dataDir } from '../db.ts';
-import { registeredSlugs, liveCardIds } from './bench-registry.ts';
+import { registeredSlugs, liveCardIds, numericSlugs } from './bench-registry.ts';
 import { BENCH_BACKUP_KEEP_MS, BENCH_BACKUP_NAME_RE, BENCH_DELETED_DIR, benchBackupName, benchStore, removeBenchStore } from './bench-store.ts';
 import type { StateLayerService } from './state-layer.ts';
 
@@ -23,6 +24,11 @@ export type SweepResult = { orphan_stores: number; expired_backups: number; redi
 export class BenchSweepService extends Service {
   constructor(ctx: Context) {
     super(ctx, 'benchSweep');
+    // 启动时报一次：纯数字标识的旧台（写成数字时会被当成卡片 id）。只报个数和标识，不碰数据
+    try {
+      const odd = numericSlugs();
+      if (odd.length) console.warn(`[bench-views] 有 ${odd.length} 个旧台的标识是纯数字（${odd.slice(0, 20).join('、')}${odd.length > 20 ? ' 等' : ''}）：路径和 MCP 里写成数字会先当卡片 id。请管理层把每个旧台对应到同号的卡片，或者另登记一个台把数据搬过去；在那之前，同号的卡片不能对应别的台`);
+    } catch { /* 主库还没有这张表（极老的库）：不报 */ }
     ctx.effect(() => {
       let timer: ReturnType<typeof setTimeout> | null = null;
       const tick = (ms: number) => {

@@ -87,6 +87,18 @@ export function parseWorkbenchId(v: unknown): number | null {
   return v;
 }
 const workbenchTaken = (id: number, slug: string): boolean => !!db.prepare('SELECT 1 FROM bench_views WHERE workbench_id = ? AND slug <> ?').get(id, slug);
+/**
+ * 以前登记过纯数字标识的旧台（那时还许）：卡片 n 一旦对应了别的台，写 n 就认成那个台，旧台「n」用数字的写法再也取不到。
+ * 所以要给卡片 n 对应一个台时，已经有标识正好是「n」的旧台，就拒绝——除非对应的就是这个旧台本身（这正好消除了歧义）
+ */
+function shadowCheck(workbenchId: number, slug: string): void {
+  const legacy = String(workbenchId);
+  if (slug !== legacy && getBench(legacy)) throw new BenchError('conflict', `已经有一个标识是 ${legacy} 的旧台：卡片 ${workbenchId} 对应别的台以后，写 ${legacy} 就再也取不到那个旧台。先把旧台 ${legacy} 对应到卡片 ${workbenchId}，或者给它另登记一个台`);
+}
+/** 纯数字标识的旧台（现在不许登记，以前登记过的还在）：启动时报出来，由管理层处理 */
+export function numericSlugs(): string[] {
+  return (db.prepare('SELECT slug FROM bench_views ORDER BY slug').all() as { slug: string }[]).map((r) => r.slug).filter((x) => /^\d+$/.test(x));
+}
 
 /** 登记一个新台。标识：小写字母或数字开头，只含小写字母、数字、连字符，最多 64 个字符；已有的拒绝。可以同时绑到部门 */
 export function createBench(input: unknown, actor: string, at: number): BenchEntry {
@@ -107,6 +119,7 @@ export function createBench(input: unknown, actor: string, at: number): BenchEnt
   // 以前删过的同名台，库文件还没清掉（清扫会补上）：不能让新台接着用旧数据
   if (benchStoreExists(o.slug)) throw new BenchError('conflict', `标识 ${o.slug} 以前用过，它的库还在清理，稍后再登记或换一个标识`);
   if (wb !== null && workbenchTaken(wb, o.slug)) throw new BenchError('conflict', `登记的台 ${wb} 已经对应了别的视图台`);
+  if (wb !== null) shadowCheck(wb, o.slug);
   const n = Number((db.prepare('SELECT COUNT(*) AS n FROM bench_views').get() as { n: number }).n);
   if (n >= MAX_BENCHES) throw new BenchError('limit', `登记的台已经到上限 ${MAX_BENCHES} 个`);
   db.exec('BEGIN IMMEDIATE');
@@ -176,6 +189,7 @@ export function linkWorkbench(slug: string, input: unknown, actor: string, at: n
     const cur = getBench(slug);
     if (!cur) throw new BenchError('not_found', '没有这个台');
     if (wb !== null && workbenchTaken(wb, slug)) throw new BenchError('conflict', `登记的台 ${wb} 已经对应了别的视图台`);
+    if (wb !== null) shadowCheck(wb, slug);
     const changed = cur.workbench_id !== wb;
     if (changed) {
       db.prepare('UPDATE bench_views SET workbench_id = ? WHERE slug = ?').run(wb, slug);
