@@ -13,6 +13,9 @@
  *       看不到的详情和不存在的逐字相同（404）
  *   三、不露内部标识：任何应答里都没有 ygl-trees 的 id、工作区路径和假命令行塞的多余字段；证据里的 javascript: 地址不给
  *   四、范围的说法：全公司、部门名、只给管理层；bench:、空的、对不上写法的一律当只给管理层
+ *   八、「项目 → 部门」对照：只有管理层、属主看和改（管理口令、系统管理员、部门负责人、普通员工 403，匿名 401，跨站 403）；
+ *       设了以后，有项目、没给范围的条目（依据）当那个部门的部门级；条目自己给了范围的（restricted）不受对照影响；清掉就回到只给管理层；
+ *       每次改记一行，没改成的不记
  *   五、来源坏了：详情现取失败 503（不当成空）；ygl-trees 说没这一条，回 404 并从目录去掉；
  *       重启后同一个库，键不变
  *   七、没接入（命令行不在、版本太旧不认 library、list 失败、回的不是 JSON、契约版本不对、工作区没设）：启动照常、自检不红；
@@ -33,6 +36,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
 const OUT = join(ROOT, 'tmp', `knowledge-test-${process.pid}-${Date.now().toString(36)}`);
 const PRELOAD = pathToFileURL(join(HERE, 'identity-fake-preload.mjs')).href;
+const FAULT = pathToFileURL(join(HERE, 'judgment-fault-preload.mjs')).href;
 const FAKE_CLI = join(HERE, 'fixtures', 'ygl-library-fake.mjs');
 const ADMIN_TOKEN = 'synthetic-knowledge-admin';
 const REMOTE = { 'x-forwarded-for': '192.0.2.64' };
@@ -53,7 +57,7 @@ const FIXTURE = {
       { kind: 'note', id: 'noteSECRETstar', title: '合成经验：全公司', summary: '人人可见', scope: '*', tags: ['market'], created: T(0), updated: T(2) },
       { kind: 'note', id: 'noteSECRETsales', title: '合成经验：销售部', summary: '销售部可见', scope: 'dept:sales', created: T(0), updated: T(3) },
       { kind: 'note', id: 'noteSECRETops', title: '合成经验：运营部', summary: '运营部可见', scope: 'dept:ops', created: T(0), updated: T(4) },
-      { kind: 'note', id: 'noteSECRETrestr', title: '合成经验：只给管理层', summary: '', scope: 'restricted', created: T(0), updated: T(5) },
+      { kind: 'note', id: 'noteSECRETrestr', title: '合成经验：只给管理层', summary: '', scope: 'restricted', project: 'syn-project', created: T(0), updated: T(5) },
       { kind: 'note', id: 'noteSECRETempty', title: '合成经验：没有范围', summary: '', created: T(0), updated: T(6) },
       { kind: 'note', id: 'noteSECRETweird', title: '合成经验：怪范围', summary: '', scope: 'team:x', created: T(0), updated: T(7) },
     ],
@@ -79,7 +83,7 @@ async function freePort() {
 }
 
 let child = null;
-async function boot(name, fixture, { data, env: extraEnv = {}, dropEnv = [] } = {}) {
+async function boot(name, fixture, { data, env: extraEnv = {}, dropEnv = [], fault = false } = {}) {
   const port = await freePort();
   const dir = join(OUT, name), home = join(dir, 'home'), ygl = join(dir, 'ygl');
   const dataDir = data ?? join(dir, 'data');
@@ -90,7 +94,7 @@ async function boot(name, fixture, { data, env: extraEnv = {}, dropEnv = [] } = 
   Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: dataDir, NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN, REDIS_URL: '', IDENTITY_SEAM_ROOT: ROOT,
     WM_YGL_CLI: FAKE_CLI, YGL_HOME: ygl, WM_KNOWLEDGE_SYNC_MINUTES: '1', ...extraEnv });
   for (const k of dropEnv) delete env[k];
-  child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
+  child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, ...(fault ? ['--import', FAULT] : []), 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
   child.stdout.on('data', (d) => { log += String(d); });
   child.stderr.on('data', (d) => { log += String(d); });
@@ -111,7 +115,7 @@ async function boot(name, fixture, { data, env: extraEnv = {}, dropEnv = [] } = 
     return { status: res.status, text, json };
   };
   // 等第一轮同步做完（启动自检通过后开始）：管理员看同步状态，四类都成过一次，或者都有失败原因
-  for (const deadline = Date.now() + 30000; Date.now() < deadline;) {
+  for (const deadline = Date.now() + 30000; !fault && Date.now() < deadline;) {
     const st = (await call('GET', '/api/knowledge/status', { headers: token })).json?.kinds ?? [];
     if (st.length === 4 && st.every((k) => k.last_ok_at !== null || k.last_error)) break;
     await sleep(200);
@@ -197,6 +201,61 @@ try {
       '范围的说法：全公司、部门名（不露 dept:）；没给范围的、bench:、对不上写法的、依据和检查（没有范围）一律只给管理层', show(label));
   }
 
+  // ---------- 八、「项目 → 部门」对照 ----------
+  {
+    const P = '/api/knowledge/project-depts';
+    const who = { token: { headers: token }, rootAdmin: as(SESSIONS.admin), alpha: as(SESSIONS.alpha), beta: as(SESSIONS.beta), mgmt: as(SESSIONS.noAdminFlag),
+      anon: { headers: REMOTE }, crossSf: { headers: { ...REMOTE, 'sec-fetch-site': 'cross-site' }, session: SESSIONS.noAdminFlag } };
+    const getM = {}, putM = {};
+    for (const [k, o] of Object.entries(who)) {
+      getM[k] = (await srv.call('GET', P, o)).status;
+      if (k !== 'mgmt') putM[k] = (await srv.call('PUT', P, { ...o, body: { project: 'syn-project', department: 'sales' } })).status;
+    }
+    check(show(getM) === show({ token: 403, rootAdmin: 403, alpha: 403, beta: 403, mgmt: 200, anon: 401, crossSf: 403 }) && show(putM) === show({ token: 403, rootAdmin: 403, alpha: 403, beta: 403, anon: 401, crossSf: 403 }),
+      '对照表：只有管理层看得到、改得了；管理口令、系统管理员、部门负责人、普通员工 403；匿名 401；跨站 403', show({ getM, putM }));
+    const before = (await srv.call('GET', P, who.mgmt)).json;
+    const sp = before?.projects?.find((p) => p.project === 'syn-project');
+    const claimTitle = '合成依据：样品要复检';
+    const betaBefore = titles(await list(who.beta));
+    check(sp && sp.department === null && sp.items === 2 && (before.log ?? []).length === 0 && !betaBefore.includes(claimTitle),
+      '还没设：条目里出现过的项目列出来（没对到部门、两条），没有改动记录（上面被拒的都没记）；依据只给管理层', show({ before, betaBefore }));
+    const set = await srv.call('PUT', P, { ...who.mgmt, body: { project: 'syn-project', department: 'sales' } });
+    const again = await srv.call('PUT', P, { ...who.mgmt, body: { project: 'syn-project', department: 'sales' } });
+    const bL = await list(who.beta), aL = await list(who.alpha);
+    const claimKey = keyOf(claimTitle);
+    const bD = await srv.call('GET', `/api/knowledge/${claimKey}`, who.beta), aD = await srv.call('GET', `/api/knowledge/${claimKey}`, who.alpha);
+    check(set.status === 200 && set.json?.changed === true && again.json?.changed === false && (again.json?.log ?? []).length === 1
+      && titles(bL).includes(claimTitle) && !titles(bL).includes('合成经验：只给管理层') && bL.json.items.find((i) => i.title === claimTitle)?.scope_label === '合成销售部'
+      && !titles(aL).includes(claimTitle) && bD.status === 200 && aD.status === 404,
+      '设成销售部：销售部负责人看得到依据（列表、详情，说法是部门名）；普通员工还是看不到；自己给了 restricted 的那条不受对照影响；同样再设一次不记',
+      show({ set: set.status, again: again.json?.changed, beta: titles(bL), alpha: titles(aL), bD: bD.status, aD: aD.status }));
+    const bad = {
+      missingDept: (await srv.call('PUT', P, { ...who.mgmt, body: { project: 'syn-project', department: 'nope' } })).status,
+      badDept: (await srv.call('PUT', P, { ...who.mgmt, body: { project: 'syn-project', department: 'dept:sales' } })).status,
+      emptyProject: (await srv.call('PUT', P, { ...who.mgmt, body: { project: '', department: 'sales' } })).status,
+      ctrlProject: (await srv.call('PUT', P, { ...who.mgmt, body: { project: 'a\nb', department: 'sales' } })).status,
+      noBody: (await srv.call('PUT', P, { ...who.mgmt, body: { project: 'syn-project' } })).status,
+    };
+    check(show(bad) === show({ missingDept: 404, badDept: 400, emptyProject: 400, ctrlProject: 400, noBody: 400 }), '对照的写法：部门不存在 404；部门写成 dept:、空项目名、带控制字符、缺 department 都 400', show(bad));
+    // 对到的部门删掉了：对照不再生效（回到只给管理层），对照表上标出部门不在了
+    await srv.call('PUT', '/api/departments/syn-gone', { body: { name: '合成临时部' } });
+    const toGone = await srv.call('PUT', P, { ...who.mgmt, body: { project: 'syn-project', department: 'syn-gone' } });
+    const goneLabelBefore = (await list(who.mgmt)).json?.items?.find((i) => i.title === claimTitle)?.scope_label;
+    const del = await srv.call('DELETE', '/api/departments/syn-gone');
+    const goneLabel = (await list(who.mgmt)).json?.items?.find((i) => i.title === claimTitle)?.scope_label;
+    const goneRow = (await srv.call('GET', P, who.mgmt)).json?.projects?.find((p) => p.project === 'syn-project');
+    check(toGone.status === 200 && goneLabelBefore === '合成临时部' && del.status === 200 && goneLabel === '只给管理层' && goneRow?.department === null && goneRow?.department_missing === true,
+      '对到的部门删掉了：对照不再生效，依据回到只给管理层；对照表上标出部门不在了', show({ toGone: toGone.status, goneLabelBefore, del: del.status, goneLabel, goneRow }));
+    const clear = await srv.call('PUT', P, { ...who.mgmt, body: { project: 'syn-project', department: null } });
+    const bAfter = await list(who.beta);
+    const log = clear.json?.log ?? [];
+    check(clear.status === 200 && clear.json?.changed === true && !titles(bAfter).includes(claimTitle) && log.length === 3
+      && show(log.map((l) => [l.old_department, l.new_department])) === show([['syn-gone', null], ['sales', 'syn-gone'], [null, 'sales']]) && !show(log).includes('user:')
+      && show(log.map((l) => [l.old_department_name, l.new_department_name])) === show([[null, null], ['合成销售部', null], [null, '合成销售部']]) && log.every((l) => l.by_name === 'Synthetic no-flag')
+      && show((clear.json?.departments ?? []).map((d) => d.id)) === show(['ops', 'sales']) && clear.json.departments.find((d) => d.id === 'sales')?.name === '合成销售部',
+      '清掉：依据回到只给管理层；改动记录三行、新的在前，带部门名和改的人的名字（部门删了给 null，不露主体标识），被拒的、写坏了的、没变的都没记；能选的部门列全', show({ clear: clear.status, beta: titles(bAfter), log }));
+  }
+
   // ---------- 五、来源坏了 ----------
   {
     const starKey = keyOf('合成经验：全公司'), salesKey = keyOf('合成经验：销售部');
@@ -233,6 +292,31 @@ try {
       '全量对账：ygl-trees 那边删掉的条目，全量同步后从目录去掉；还在的照留', show(againList.map((i) => i.title)));
     await stop();
   }
+  // ---------- 九、判定出错：安全地拒（503），不冒成 500、不放行；没登录照样 401（不进判定） ----------
+  {
+    const bad = await boot('judgment-fault', FIXTURE, { fault: true });
+    const sameF = { origin: `http://${bad.host}`, 'sec-fetch-site': 'same-origin' };
+    await bad.call('GET', '/api/auth/viewer', { session: SESSIONS.alpha });
+    let anyKey = '';
+    for (const deadline = Date.now() + 30000; !anyKey && Date.now() < deadline;) {
+      try { const kdb = new DatabaseSync(join(bad.dataDir, 'workbench-market.db'), { timeout: 5000 }); try { anyKey = kdb.prepare("SELECT key FROM knowledge_items WHERE scope = '*' LIMIT 1").get()?.key ?? ''; } finally { kdb.close(); } } catch { /* 表还没建 */ }
+      if (!anyKey) await sleep(200);
+    }
+    const m = {
+      statusAnon: (await bad.call('GET', '/api/knowledge/status', { headers: REMOTE })).status,
+      statusToken: (await bad.call('GET', '/api/knowledge/status', { headers: token })).status,
+      listAnon: (await bad.call('GET', '/api/knowledge', { headers: REMOTE })).status,
+      listAlpha: (await bad.call('GET', '/api/knowledge', { headers: { ...REMOTE, ...sameF }, session: SESSIONS.alpha })).status,
+      detailAlpha: (await bad.call('GET', `/api/knowledge/${anyKey}`, { headers: { ...REMOTE, ...sameF }, session: SESSIONS.alpha })).status,
+      mapAnon: (await bad.call('GET', '/api/knowledge/project-depts', { headers: REMOTE })).status,
+      mapPutAnon: (await bad.call('PUT', '/api/knowledge/project-depts', { headers: { ...REMOTE, origin: `http://${bad.host}` }, body: { project: 'x', department: null } })).status,
+      mapAlpha: (await bad.call('GET', '/api/knowledge/project-depts', { headers: { ...REMOTE, ...sameF }, session: SESSIONS.alpha })).status,
+    };
+    check(anyKey && show(m) === show({ statusAnon: 401, statusToken: 503, listAnon: 401, listAlpha: 503, detailAlpha: 503, mapAnon: 401, mapPutAnon: 401, mapAlpha: 503 }),
+      '判定出错：同步状态、列表、详情、对照表都回 503（不冒成 500、不放行）；没登录照样 401，不进判定（启动自检那一行也过得了）', show({ m, anyKey: !!anyKey }));
+    await stop();
+  }
+
   // ---------- 七、没接入：ygl-trees 不在、太旧、契约不对、工作区没设——启动不受影响、自检不红，接口照常回空列表加「未接入」，同一个原因只告警一次 ----------
   const cases = [
     ['exit2', { ...FIXTURE, fail: 'exit2' }, {}, [], 'exit'],
