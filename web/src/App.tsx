@@ -25,6 +25,7 @@ import { Alert, Button as AButton, Input as AInput, Popover, Result, Tag } from 
 import Attention from './pages/Attention';
 import WorkItem from './pages/WorkItem';
 import Knowledge from './pages/knowledge/Knowledge';
+import KnowledgeItem from './pages/knowledge/KnowledgeItem';
 import NotYet, { NOT_YET } from './pages/NotYet';
 import Team from './pages/team/Team';
 import Home from './pages/Home';
@@ -132,6 +133,7 @@ export default function App() {
         <Route path="/team" element={<Team />} />
         <Route path="/access" element={<Access />} />
         <Route path="/knowledge" element={<Knowledge />} />
+        <Route path="/knowledge/:key" element={<KnowledgeItem />} />
         <Route path="/cockpit" element={<Cockpit />} />
         <Route path="/cockpit/:id" element={<Cockpit />} />
         <Route path="/market" element={<MarketHome />} />

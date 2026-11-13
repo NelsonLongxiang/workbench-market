@@ -152,6 +152,8 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       'health.read',
       'health.ready',
       'judgment.report',
+      // 经验库的同步状态：运维信息、不带条目内容，属主在本机看（没接入时原因只在这里）
+      'knowledge.sync-status',
       'login.begin',
       'login.page',
       'market.export',

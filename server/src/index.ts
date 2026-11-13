@@ -1405,10 +1405,10 @@ async function deleteAppCascade(slug: string, card: { deleter: CardDeleter; conf
   rmSync(join(appsRoot, slug), { recursive: true, force: true });
   svc<AppService>('app').versionsDelete(a.id);
   svc<AppService>('app').delete(a.id);
-  svc<AppDataService>('appData').dataDelete(slug);
-  const files = svc<AppDataService>('appData').filePaths(slug) as { storage_path: string }[];
-  for (const f of files) { try { rmSync(join(dataDir, f.storage_path), { force: true }); } catch { /* 已删 */ } }
-  svc<AppDataService>('appData').filesDelete(slug);
+  await svc<AppDataService>('appData').dataDelete(slug);
+  const files = await svc<AppDataService>('appData').filePaths(slug);
+  for (const f of files) { try { rmSync(join(dataDir, f), { force: true }); } catch { /* 已删 */ } }
+  await svc<AppDataService>('appData').filesDelete(slug);
   // issue #6：清理应用与 SOP 对应的工作台注册——逐张走删卡片那条路（台库、常量变量、驾驶舱面板一起）
   for (const id of cardIds) {
     try { await workbenchDeleteCore(id, card.deleter, card.confirmBenchData); } catch (e) { if (!(e instanceof HttpError && e.status === 404)) throw e; } // 期间已被删了就算了
@@ -1460,7 +1460,23 @@ function idemScope(channel: 'app-data.rest' | 'app-data.tool', subject: string |
 }
 /** 台数据写入核心：REST POST /api/apps/:slug/data 与 MCP app_data_submit 共用——1MB 上限、数据契约、幂等键、写入后推事件。
  *  违约不抛错，回 status 400 + violations，由两个入口各自原样交出去。 */
-function submitAppData(a: AppRow, input: { data: unknown; createdBy?: unknown; idempotencyKey?: unknown; submitterTicket?: unknown; subject?: string; channel: { name: 'app-data.rest' | 'app-data.tool'; hasCredential: boolean } }): { status: number; body: Record<string, unknown> } {
+/**
+ * 同一个台的提交一笔一笔来（进程内排队）：「查幂等键 → 写入」中间有 await，不排队的话同键的两笔并发会都查不到、后一笔撞唯一索引。
+ * 原来全是同步调用、天然不会交错；改成异步以后靠这个队保持原来的次序和结果
+ */
+const submitQueues = new Map<string, Promise<unknown>>();
+function inSlugQueue<T>(slug: string, fn: () => Promise<T>): Promise<T> {
+  const prev = submitQueues.get(slug) ?? Promise.resolve();
+  const run = prev.then(fn, fn);
+  const tail = run.then(() => undefined, () => undefined);
+  submitQueues.set(slug, tail);
+  void tail.then(() => { if (submitQueues.get(slug) === tail) submitQueues.delete(slug); });
+  return run;
+}
+function submitAppData(a: AppRow, input: Parameters<typeof submitAppDataNow>[1]): ReturnType<typeof submitAppDataNow> {
+  return inSlugQueue(a.slug, () => submitAppDataNow(a, input));
+}
+async function submitAppDataNow(a: AppRow, input: { data: unknown; createdBy?: unknown; idempotencyKey?: unknown; submitterTicket?: unknown; subject?: string; channel: { name: 'app-data.rest' | 'app-data.tool'; hasCredential: boolean } }): Promise<{ status: number; body: Record<string, unknown> }> {
   const data = input.data;
   const json = JSON.stringify(data);
   if (json === undefined) bad('data 必填');
@@ -1472,7 +1488,7 @@ function submitAppData(a: AppRow, input: { data: unknown; createdBy?: unknown; i
   const scope = idemScope(input.channel.name, input.subject);
   const storedKey = key ? `${scope}\n${key}` : '';
   if (key) {
-    const prev = svc<AppDataService>('appData').dataByIdempotencyKey(a.slug, storedKey) as { id: number; data: string; created_at: string } | undefined;
+    const prev = await svc<AppDataService>('appData').dataByIdempotencyKey(a.slug, storedKey);
     if (prev) {
       const known = scope === 'page' ? submitter !== null : scope !== 'anon';
       if (prev.data !== json) throw new HttpError(409, 'idempotency_key 已用于另一份内容', known ? { id: prev.id } : undefined);
@@ -1481,13 +1497,14 @@ function submitAppData(a: AppRow, input: { data: unknown; createdBy?: unknown; i
   }
   const contract = appDataContract(a);
   if (contract) {
-    const violations = checkRecord(contract, data, (id) => !!svc<AppDataService>('appData').fileById(id, a.slug));
+    // 契约校验是同步的：引用到的附件先一次查出来（只查 file_ids 里给的那些）
+    const refs = data && typeof data === 'object' && Array.isArray((data as { file_ids?: unknown }).file_ids) ? ((data as { file_ids: unknown[] }).file_ids.filter((x) => Number.isSafeInteger(x) && (x as number) > 0) as number[]) : [];
+    const existing = refs.length ? await svc<AppDataService>('appData').fileIdsExisting(a.slug, refs) : new Set<number>();
+    const violations = checkRecord(contract, data, (id) => existing.has(id));
     if (violations.length) return { status: 400, body: { error: '提交不符合本台数据契约', violations } };
   }
   const created_by = typeof input.createdBy === 'string' ? input.createdBy.trim().slice(0, 128) : '';
-  const r = svc<AppDataService>('appData').dataInsertStmt()
-    .run(a.slug, json, created_by, storedKey, submitter) as unknown as { lastInsertRowid: number | bigint };
-  const itemId = Number(r.lastInsertRowid);
+  const itemId = await svc<AppDataService>('appData').dataInsert(a.slug, json, created_by, storedKey, submitter);
   const createdAt = new Date().toISOString();
   // 属主裁 C（2026-10-26）：提交即推送——绑定 agent 异步收通知（不阻塞 201）。
   // 工作台事件 v1：推送改走事件投递队列（退避重试、终态 sent/dead 可查），信封带 event_id 与 submitter_kind。
@@ -1508,8 +1525,8 @@ const UPLOAD_MAX = 100 * 1024 * 1024; // 属主 2026-11-03：单文件放宽到 
 // 每台文件数上限：浏览器上传与 MCP 上传共用；部署可用 WM_APP_FILES_MAX 调整（存量迁移台已有数百个文件）
 const APP_FILES_MAX = Math.max(1, Number(process.env.WM_APP_FILES_MAX) || 2000);
 /** 台的文件容量（上传前可查）：已用/上限文件数、单文件上限、MCP base64 上限 */
-function appFilesQuota(slug: string) {
-  const used = Number(svc<AppDataService>('appData').fileCount(slug)) || 0;
+async function appFilesQuota(slug: string) {
+  const used = Number(await svc<AppDataService>('appData').fileCount(slug)) || 0;
   return { files_used: used, files_max: APP_FILES_MAX, files_left: Math.max(0, APP_FILES_MAX - used), max_file_bytes: UPLOAD_MAX, mcp_max_base64_chars: Math.ceil(UPLOAD_MAX / 3) * 4 };
 }
 const uploadRoot = join(dataDir, 'uploads');
@@ -1546,12 +1563,11 @@ function uploadKindOrThrow(path: string, size: number, name: string, reported: s
   return kind;
 }
 /** 自产台文件入库核心：浏览器 multipart 与 MCP REST（原始字节 PUT / multipart）共用——已落盘的文件按内容核类型（不符删盘 415）后写 app_files */
-function appFileStoreCore(slug: string, f: { path: string; size: number; name: string; reportedMime: string; createdBy: string; note: string; sha256?: string }) {
+async function appFileStoreCore(slug: string, f: { path: string; size: number; name: string; reportedMime: string; createdBy: string; note: string; sha256?: string }) {
   const kind = uploadKindOrThrow(f.path, f.size, f.name, f.reportedMime);
   // 存储相对路径（dataDir 内，随数据目录迁移）
   const rel = f.path.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
-  const r = svc<AppDataService>('appData').fileInsert(slug, f.name, kind.mime, f.size, rel, f.createdBy, f.note, f.sha256 ?? '') as unknown as { lastInsertRowid: number | bigint }; // #132 P0①：note 落库；sha256 有就存（下载 ETag 不再重算）
-  const id = Number(r.lastInsertRowid);
+  const id = await svc<AppDataService>('appData').fileInsert(slug, f.name, kind.mime, f.size, rel, f.createdBy, f.note, f.sha256 ?? ''); // #132 P0①：note 落库；sha256 有就存（下载 ETag 不再重算）
   return { ok: true, id, slug, name: f.name, mime: kind.mime, size: f.size, note: f.note, url: `/api/apps/${slug}/files/${id}` };
 }
 /** 上传落盘位置（multer 与原始字节上传同规则）：uploads/<YYYYMM>/<时间戳>-<随机><原扩展名> */
@@ -3013,8 +3029,8 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       const limit = pageLimit(args?.limit);
       const beforeId = pageBeforeId(args?.before_id);
       const rows = beforeId > 0
-        ? svc<AppDataService>('appData').dataPage(a.slug, beforeId, limit)
-        : svc<AppDataService>('appData').dataPage(a.slug, 0, limit);
+        ? await svc<AppDataService>('appData').dataPage(a.slug, beforeId, limit)
+        : await svc<AppDataService>('appData').dataPage(a.slug, 0, limit);
       const items = (rows as any[]).map((r) => ({ id: r.id, data: JSON.parse(r.data || '{}'), created_by: r.created_by, created_at: r.created_at }));
       return { slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null };
     }
@@ -3023,7 +3039,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       const a = getApp(String(args?.slug ?? ''));
       if (args?.data === undefined || args?.data === null) bad('data 必填');
       // 工具调用凭的是会话令牌（席位、agent），不看 cookie
-      const out = submitAppData(a, { data: args.data, createdBy: args?.created_by ?? subject, idempotencyKey: args?.idempotency_key, subject, channel: { name: 'app-data.tool', hasCredential: false } });
+      const out = await submitAppData(a, { data: args.data, createdBy: args?.created_by ?? subject, idempotencyKey: args?.idempotency_key, subject, channel: { name: 'app-data.tool', hasCredential: false } });
       if (out.status >= 400) throw new HttpError(out.status, String(out.body.error), { violations: out.body.violations });
       return { ...out.body, status: out.status };
     }
@@ -3032,10 +3048,10 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       const limit = pageLimit(args?.limit);
       const beforeId = pageBeforeId(args?.before_id);
       const rows = beforeId > 0
-        ? svc<AppDataService>('appData').filePage(a.slug, beforeId, limit)
-        : svc<AppDataService>('appData').filePage(a.slug, 0, limit);
+        ? await svc<AppDataService>('appData').filePage(a.slug, beforeId, limit)
+        : await svc<AppDataService>('appData').filePage(a.slug, 0, limit);
       const items = (rows as any[]).map((r) => ({ ...r, url: `/api/apps/${a.slug}/files/${r.id}` }));
-      return { slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null, quota: appFilesQuota(a.slug) };
+      return { slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null, quota: await appFilesQuota(a.slug) };
     }
     case 'app_files_upload': {
       // #164 P1②（批派令）：MCP 侧上传——base64 入 app_files（与 REST multipart 同表同链）
@@ -3059,7 +3075,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       if (buf.length > UPLOAD_MAX) throw new HttpError(413, `文件超 100MB 上限（${buf.length}B）`);
       if (wantSize !== null && buf.length !== wantSize) throw new HttpError(400, `收到 ${buf.length} 字节，声明 ${wantSize} 字节：内容可能在传输中被截断，未保存`);
       if (wantSha !== null && createHash('sha256').update(buf).digest('hex') !== wantSha) throw new HttpError(400, `收到内容的 sha256 与声明不符（收到 ${buf.length} 字节）：内容可能在传输中被截断或改动，未保存`);
-      if (appFilesQuota(a.slug).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`); // #193 F8：全量计数；上限与浏览器上传共用
+      if ((await appFilesQuota(a.slug)).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`); // #193 F8：全量计数；上限与浏览器上传共用
       // 与浏览器上传同一套内容类型检查：扩展名与内容不符、或是可执行文件 → 拒收；相符则存规范 MIME
       const kind = sniff(name, buf.subarray(0, 1024 * 1024), buf.length <= 1024 * 1024, String(args?.mime ?? ''));
       if (kind.verdict === 'mismatch' || kind.verdict === 'executable') throw new HttpError(415, `文件类型不符：${kind.reason}`);
@@ -3073,8 +3089,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       const createdBy = String(args?.created_by ?? '').trim().slice(0, 128);
       const note = String(args?.note ?? '').trim().slice(0, 500);
       const sha256 = createHash('sha256').update(buf).digest('hex');
-      const r = svc<AppDataService>('appData').fileInsert(a.slug, name, kind.mime, buf.length, rel, createdBy, note, sha256) as unknown as { lastInsertRowid: number | bigint };
-      const id = Number(r.lastInsertRowid);
+      const id = await svc<AppDataService>('appData').fileInsert(a.slug, name, kind.mime, buf.length, rel, createdBy, note, sha256);
       return { ok: true, id, slug: a.slug, name, mime: kind.mime, size: buf.length, sha256, note, url: `/api/apps/${a.slug}/files/${id}`, ...uploadIntegrity(wantSha, wantSize) };
     }
     default:
