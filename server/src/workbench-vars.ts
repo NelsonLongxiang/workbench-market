@@ -10,6 +10,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type express from 'express';
 import { db } from './db.ts';
+import { defineConfig, str } from './config.ts';
 import { svc } from './context.ts';
 import { HttpError } from './errors.ts';
 import { browserMarked, rawLoopback } from './surfaces.ts';
@@ -230,13 +231,15 @@ function deleteVarMain(scope: Scope, key: string, input: DeleteInput, caller: Ca
 //   bench：卡片的台库是真源（值在台库，审计照旧在主库）；写成之后尽力原样写回主库一份，留作回退。
 // 对外的应答在三档下逐字节一样（字段、时间的文本格式都不变），由录制回放和 scripts/vars-store-diff-test.mjs 守。
 export type VarsStoreMode = 'main' | 'shadow' | 'bench';
-/** 启动时读一次：WM_VARS_STORE（main / shadow / bench，缺省 main）。不合法拒绝启动 */
-export function varsStoreConfig(env: NodeJS.ProcessEnv = process.env): VarsStoreMode {
-  const raw = String(env.WM_VARS_STORE ?? '').trim();
-  if (raw === '') return 'main';
-  if (raw === 'main' || raw === 'shadow' || raw === 'bench') return raw;
-  throw new Error(`WM_VARS_STORE 只接受 main、shadow、bench，现在是 ${JSON.stringify(raw)}`);
-}
+/**
+ * 这个模块的配置（config.ts 的约定）：WM_VARS_STORE（main / shadow / bench，缺省 main）。值不合法在 read 里抛错，
+ * 启动时由 index.ts 取一次（loadConfig）、拒绝启动；测试可以给自己的一份 env
+ */
+export const Config = defineConfig((env) => {
+  const raw = str(env.WM_VARS_STORE);
+  if (raw !== '' && raw !== 'main' && raw !== 'shadow' && raw !== 'bench') throw new Error(`WM_VARS_STORE 只接受 main、shadow、bench，现在是 ${JSON.stringify(raw)}`);
+  return { store: (raw || 'main') as VarsStoreMode };
+});
 let storeMode: VarsStoreMode = 'main';
 export function setVarsStoreMode(m: VarsStoreMode): void { storeMode = m; migrated.clear(); divergedReported.clear(); }
 export const varsStoreMode = (): VarsStoreMode => storeMode;
