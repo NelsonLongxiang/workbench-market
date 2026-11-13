@@ -125,6 +125,7 @@
       "POST /api/teams/leads/remove  <- <anonymous>",
       "POST /api/teams/assign  <- <anonymous>",
       "POST /api/teams/unassign  <- <anonymous>",
+      "POST /api/teams/reassign  <- <anonymous>",
       "GET /api/relations/proposals  <- <anonymous>",
       "POST /api/relations/proposals/:id/approve  <- <anonymous>",
       "POST /api/relations/proposals/:id/reject  <- <anonymous>",

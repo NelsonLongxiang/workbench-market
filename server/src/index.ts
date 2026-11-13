@@ -90,7 +90,7 @@ import { registerMcpProtocolRoutes } from './routes/mcp-protocol.ts';
 import { registerSopRunControlRoutes } from './routes/sop-run-control.ts';
 import { registerSopRunAccessRoutes } from './routes/sop-run-access.ts';
 import type { WorkbenchService } from './services/workbench.ts';
-import type { WorkItemService } from './services/work-item.ts';
+import { workItemStuckHoursFromEnv, type WorkItemService } from './services/work-item.ts';
 import type { SopService } from './services/sop.ts';
 import type { McpService } from './services/mcp.ts';
 import type { ChangeRequestService } from './services/change-request.ts';
@@ -113,6 +113,7 @@ import { designStandard } from './design-standard.ts';
 import { mountVault } from './vault-api.ts';
 import { expectedSha256, uploadIntegrity, type UploadIntegrity } from './upload-integrity.ts';
 import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet } from './workbench-vars.ts';
+import { registerWorkbenchVarsRoutes } from './routes/workbench-vars.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, redisConfigured, runStateRestore, runStateRead, runStateRetire, type RunStateRead } from './redis.ts';
@@ -269,6 +270,13 @@ if (PROPOSAL_ROSTER_GONE_HOURS === null) {
   process.exit(1);
 }
 svc<RelationProposalService>('relationProposals').setRosterGoneHours(PROPOSAL_ROSTER_GONE_HOURS);
+// 事项停多久算停太久（WM_WORK_ITEM_STUCK_HOURS，缺省 24 小时）：超过就冒给负责人（没有负责人冒给管理层）的「等你拍板」；值不合法拒绝启动
+const WORK_ITEM_STUCK_HOURS = workItemStuckHoursFromEnv();
+if (WORK_ITEM_STUCK_HOURS === null) {
+  console.error('[work-items] 拒绝启动：WM_WORK_ITEM_STUCK_HOURS 要是 1～720 的整数（小时），或者不设（缺省 24）');
+  process.exit(1);
+}
+svc<WorkItemService>('workItems').setStuckHours(WORK_ITEM_STUCK_HOURS);
 const A2A_DIRECT_SIG_BODY = directSigBodyMode();
 if (!A2A_DIRECT_SIG_RAW || !A2A_DIRECT_SIG_BODY) {
   console.error('[a2a-direct-sig] 拒绝启动：WM_A2A_DIRECT_SIG 只接受 require / accept / off / 不设，WM_A2A_DIRECT_SIG_BODY 只接受 require / accept / 不设');
@@ -460,8 +468,8 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/messages\/(read|[1-9]\d{0,15}\/reply)$/,
   // 「安排一件事」：登录的人直接建事项（路由内经身份服务认人，只认启用的人；只此一条路径，不带子路径）
   /^\/api\/work-items$/,
-  // 团队：成员的分配、收回由团队的负责人做（路由内认人、核同源、判是不是负责人或管理员；只此两条）
-  /^\/api\/teams\/(assign|unassign)$/,
+  // 团队：成员的分配、收回、改派由团队的负责人做（路由内认人、核同源、判是不是负责人或管理员；只此三条）
+  /^\/api\/teams\/(assign|unassign|reassign)$/,
   // 授予的放行（L19）：管理层、属主多半不是管理员。路由内认人、核同源，三档规则判能不能放行；只此一条子路径
   /^\/api\/grants\/[1-9]\d{0,15}\/approve$/,
   // 关系的提议：确认、驳回由属主、管理层、接收部门的负责人做，他们大多不是管理员（路由内认人、核同源，服务判能不能确认；只此两条）
@@ -822,7 +830,8 @@ const lastProbeAt = new Map<number, number>();
 registerWorkbenchRoutes(http, { wrap, listWorkbenches, maskForApi, restSubject, workbenchCreateCore, workbenchUpdateCore, workbenchDeleteCore, checkOne, downSince, lastProbeAt, EVICT_COOLDOWN_MS });
 
 // ---------- 驾驶舱 CRUD（任务驾驶舱：多工作台分屏组合视图） ----------
-registerCockpitRoutes(http);
+// 驾驶舱的读应答带 can.edit：就是写请求总门对这个请求的判断（本机命令行照旧算属主；其余要有效口令或 Odoo 管理员，且同源）
+registerCockpitRoutes(http, { canEdit: (req) => settingsAdminRead(req) }); // 和设置页的管理员读同一个判断（定义在后面，请求期才调用）
 
 // ---------- 自产台（台生成器：AI 发布 API + 全版本快照，发布即入册） ----------
 const appsRoot = join(dataDir, 'apps');
@@ -2494,7 +2503,7 @@ function vaultGuard(req: express.Request, res: express.Response): boolean {
   return adminGuard(req, res);
 }
 mountVault(http, vaultGuard, (req) => VAULT_ON_MAIN || surfaceOf(req) === 'control' || onVaultHost(req)); // 服务端持有主密码时只在控制面或凭据库专用域名开放（两者都不承载 /go/、/sop/、/apps/）；属主显式接受同源风险时主域名也开放
-workbenchVars.mount(app); // #336 /api/workbenches/:id/vars
+registerWorkbenchVarsRoutes(http, workbenchVars.handle); // #336 /api/workbenches/:id/vars（路由在 routes/workbench-vars.ts）
 
 // 存活 / 就绪分开：/api/health 是存活（只看本进程，不发外部请求）；/api/health/ready 是就绪（含 LayerFS）。
 // 两者都是公开端点，LayerFS 探测结果缓存 10 秒、同一时刻只发一次，匿名请求打不穿到 LayerFS。

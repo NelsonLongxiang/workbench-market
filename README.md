@@ -34,7 +34,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `DATA_DIR`（SQLite 数据目录·默认 `server/data`）
 - `ADMIN_TOKEN`（控制面口令·可设置页改）
 - `MCP_GATEWAY`（#284 起**缺省开**：未设/空/`on`=会话令牌网关；只有显式 `off` 且 `NODE_ENV=development/test` 才允许关闭并启动告警；生产/未设/空/未知运行模式配 off 由启动自检拒绝，其它网关值也拒绝启动）
-- `REDIS_URL`（SOP 状态层·缺省读 `DATA_DIR/redis.url`·无则降级 SQLite）
+- `REDIS_URL`（共用状态层：SOP 执行实例和台的热数据·可选·缺省读 `DATA_DIR/redis.url`·无则直写 SQLite）
 - `MARKET_TEAM`（A2A team 默认 `market`；名片的 team、会话句柄 `<MARKET_TEAM>/<node8>` 和工作台事件出站的 caller_session 都用它）
 - `MARKET_PUBLIC_URL`（对外基址·A2A 卡片与 MCP `skill_download` 下载链接用；生产建议设成 https 地址——没设时下载链接取请求主机，主机名不规范就不签发）
 - `A2A_API_KEY`/`A2A_STATE_URL`（A2A 外部面）
@@ -52,6 +52,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_PROPOSAL_ROSTER_GONE_HOURS`（缺省 `24`：关系的提议指向的团队，在节点照常报名册的情况下连续不在名册超过这么多小时，提议才失效；短暂掉出又回来的不收，节点整个停推的只走总期限；1～720 的整数，别的值拒绝启动）
 - `WM_PROPOSAL_TTL_DAYS`（缺省 `14`：关系的提议（部门负责人、团队负责人、团队认领）超过这么多天没人处理就失效，目标不在了的也失效；每小时收一轮，失效的在提议人那里留 7 天；1～365 的整数，别的值拒绝启动）
 - `WM_ROSTER_STALE_MINUTES`（缺省 `60`：某个节点的团队名册超过这么多分钟没更新，就在管理员的「等你拍板」里列出来；1～10080 的整数，别的值拒绝启动）
+- `WM_WORK_ITEM_STUCK_HOURS`（缺省 `24`：一件事项在已转交、已接单、在做、在等、卡住这几步里，最后一次变动超过这么多小时，就冒给事项交给的团队的负责人，团队没有负责人时冒给管理层，进「等你拍板」的「停太久的事项」；只按自然时间算；不算进角标，`/api/attention` 的 `counts.stuck_count` 单独数；1～720 的整数，别的值拒绝启动）
 - `LAYERFS_SERVICE_URL`/`LAYERFS_SERVICE_TOKEN`（LayerFS·缺一即禁用）
 - `LAYERFS_SERVICE_TOKEN_FILE`（LayerFS 令牌文件·设了就以文件为准，不回落到库里或环境变量里的令牌；内容不足 32 字节拒绝启动）
 - `AI_GATEWAY_API_KEY`（`skill_search` 评估模型令牌·缺=工具报错不降级）
@@ -370,7 +371,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   path-inside.ts（路径落点判断，只此一处：规范化后等于根、或以「根加分隔符」开头才算在根里；/apps/ 静态托管、/go/ 转自产台、/sop/ 附件都用它）
   portal-observation.ts（无敏感原文的被动计数）
   portal.ts（/go/ 反代·白屏五层+登录态）
-  redis.ts（SOP 状态层）
+  redis.ts（Redis 连接和 SOP 状态层：连接只有这一条，共用状态层服务也用它）
   request-person.ts  这个请求是哪个人：只经身份服务认请求带的登录凭据（登录提供方的会话或市场会话），主体须是启用的人；认不出就是没有，调用方照常放行（任务中心建录入、发布用）
   roles.ts（角色声明：平台四个内置角色 owner/admin/member/guest，组织角色初始集合 dept-member/dept-lead 或外部声明文件·启动时校验，不合格拒绝启动）
   root-context.ts（全进程唯一的 Cordis 根上下文·不开数据库）
@@ -417,7 +418,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   attention-sources.ts（「关注」要用、来源里还没有现成函数的只读查询：席位未答的提问）
   bench-mcp.ts（数据视图的 MCP 工具：授予按「会话 × 台 × 工具」记在自己的表里，不放进会话的 grants·申请由会话提、台的管理层批·读也按台限定·执行时把台库的方法对到工具名上）
   bench-registry.ts（视图台的登记：主库里只记有这个台、叫什么、谁建的、绑到哪个部门和团队·登记过的台才有库，没登记的标识一律当作不存在·改绑留痕）
-  bench-store.ts（台库对市场进程的接口：读写不在市场进程里跑，这里只排队、转发给工作线程、看时限、线程出事时收拾·读 3 秒写 15 秒，时限加宽限过了还不停才强行终止线程并另起·排队有上限·接口全异步·还没有对外入口，不判权限）
+  bench-store.ts（台库对市场进程的接口：读写不在市场进程里跑，这里只排队、转发给工作线程、看时限、线程出事时收拾·台按标识固定分到几条道上（一道一个线程，默认核数减一、至多 4）·大写入（按体量估，不按行数）全局一次一件、做完换线程·读 3 秒写 15 秒，时限加宽限过了还不停才强行终止线程并另起·排队有上限·接口全异步·还没有对外入口，不判权限）
   bench-store-core.ts（台库的逻辑本体，在工作线程里跑：每个视图台一份自己的库，在数据目录 `bench-stores/` 下·数据集与列定义的版本·整份替换、追加、按主键更新和删行（逐行校验、幂等键、上限）·快照与退回·视图描述的版本、生效指针、并发保存不覆盖、回退只移指针·变更与写入记录只存摘要·视图取数（一次取齐各组件的数据）和表单提交·三道数据量上限·时间由调用方给、一个台的读写排成一队·到时限自己停下并回滚·运行时不引用 `db.ts`，建表语句由调用方递进来）
   bench-store-worker.ts（台库的工作线程入口：一次做一件事，只认登记过的操作名和消息格式，回话带上这件事提交了的变更）
   attention.ts（「关注」：Cordis 服务 `attention`·各来源注册提供方、可撤销·汇总当前这个人的条目和各类条数）
@@ -434,6 +435,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   login-session.ts（市场会话与登录 state：Cordis 服务 `loginSessions`·绝对期限·注销与停用即失效·state 一次性并绑浏览器）
   principal.ts（主体与外部身份：Cordis 服务 `principals`·把登录认出的人对到主体·停用与恢复）
   remote-allow.ts（远程写豁免面的快照）
+  state-layer.ts（共用状态层：Cordis 服务 `state`·Redis 可选、没有就以 SQLite 为准·台的键 `wm:bench:<台 id>:…` 由 benchKey() 拼·删台按前缀清·随根上下文断开）
   submission-counts.ts（「人提需求」的提交计数：只记通道、有没有登录凭据、认没认出人，按天累计次数，不存内容；提交人票据验得过、验不过的次数）
   task-center.ts（任务中心：任务、事件、总开关、状态迁移）
   work-item.ts（事项与事项日志：Cordis 服务 `workItems`·按迁移表推进状态的唯一入口 `apply`·日志只增不改；听 workbench-events 每写一行事件日志发的 `workbench-event/logged`，在来源的事务里用保存点推进事项，出错不影响来源、按事实种类计数；`backfill()` 从事件表和事件日志补建存量事项，可重跑；建事项时记下交给方式（handoff：team / own-seat / lead-directed，存量是 team）、等谁过目（review_by）和指名的席位（directed_seat_id，只认 seatId），都从事件层 recorded 那一行取；建事项时标题取任务中心的任务标题（取不到退到来源坐标）、派给取投递的目标团队，存量里还是自动缺省值的启动时补上；建立人主体 `creator_principal` 只取发布时经身份服务认出、来源已验证的人，认不出就空着，「是不是他的」只认它（`isCreator`），`created_by` 只用于显示（认出提需求人时就是他的主体，认不出才用事件上自填的名字；不拿发布人顶替））
@@ -454,7 +456,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   content-observation.ts（门户观测状态 /api/content/observation）
   cookies.ts（Cookie 池 /api/cookies）
   departments.ts（部门 /api/departments：登录的人读列表、单个部门的成员、某人属于哪些部门；管理员建改删部门和成员）
-  teams.ts（团队与分配 /api/teams：团队页（部门 → 团队 → 成员，按看的人的可见范围在服务端裁好）、「我的 AI 员工」；管理员认领、退回、指定和移除负责人；负责人分配、收回成员（状态码不代表授权））
+  teams.ts（团队与分配 /api/teams：团队页（部门 → 团队 → 成员，按看的人的可见范围在服务端裁好）、「我的 AI 员工」；管理员认领、退回、指定和移除负责人；负责人分配、收回、改派成员（改派一个事务里收回并分给另一个人；状态码不代表授权））
   access.ts（角色预设 ②：以某人的身份看 /api/principals/:id/access（管理员看任何人、登录的人看自己，带 action 给判定结论）、红线清单 /api/access/red-lines、首次安装向导 /api/setup/wizard（管理员跑，属主放行））
   design-tokens.ts（设计 token 固定路径 /design/tokens@<版本>.css）
   export-import.ts（导出与导入 /api/export、/api/import）
@@ -488,6 +490,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   a2a-roster.ts（团队名册的读 GET /api/a2a/teams：登录即可读，只有席位信息（团队、席位名、角色、在岗、在办件数从事项现算），不含事项内容；名册只当信息，判定一律不看它）
   work-items.ts（「安排一件事」POST /api/work-items：会话登录的启用的人直接建一件事项，建立人是本人，可带 cockpit_id 记下是从哪个驾驶舱安排的（只在安排那一刻记，之后不改，只是标签不给权限；列表 ?cockpit=<id> 在视角里收窄，不存在的驾驶舱回空列表），派给绑在任务中心上的团队（GET /api/work-items/teams 列出），缺省先过目，幂等键按人，限流和员工直派开关在设置里（arrange_rate_per_minute、arrange_rate_per_day、staff_direct_dispatch），规则在 task-center.ts 的 arrangeTask。事项列表 /api/work-items：按 state、object、phase 筛，按更新时间倒序游标翻页，带可见范围里按状态的计数和每件的最后一条进展；可见范围和详情同一个判断，看不到的不出现也不计数。事项的读 /api/work-items/:id：事项和它的日志，事项页的时间线照着渲染；管理员看全部、登录的人只看自己建立的。建立人验收、退回 POST /api/work-items/:id/decision：不经管理门（写请求总门只对这一条子路径放行），经身份服务认人、主体须是启用的人、同源，事项服务判是不是建立人和能不能由建立人答，只收验收、退回，只对等验收的事项；建立人只认事项上的建立人主体，空着的只有管理员能看、能处理。放行 POST /api/work-items/:id/release：同样不经管理门（写请求总门只对这一条子路径放行），由事项交给的团队的负责人放，团队没有负责人时管理层代办（事件日志、事项日志记 acting_for = team-lead），建立人勾了先过目的由建立人本人放；放过的再来一次回 duplicate，不再放；「关注」里过目条目的 answer_via 指向它。管理员的 POST /api/workbench-events/:id/release 不变）
   workbenches.ts（工作台 /api/workbenches、/api/check-all）
+  workbench-vars.ts（工作台变量与常量的五条路由 /api/workbenches/:id/vars：列表、读、留痕、写、删；查台和判权的外壳、读写规则留在 server/src/workbench-vars.ts，经参数传进来）
 web/src/        pages/（Dashboard/Market/Sops/Types/Settings/UseWorkbench/Cockpit/McpGateways/Tasks/Skills/SopSpace/SopRunDetail/Vault/Reviews/OwnerPending/Attention/WorkItem/NotYet/Home/WorkItems） work-items-view.ts（事项列表的分组、计数、行说明，纯函数） home-view.ts（全景首页的行、格子、总结句，纯函数） work-item-view.ts（事项详情页的提示、进展、结果解析，纯函数） NotYet.tsx（还没有数据来源的入口：说清要显示什么、在等哪项接口） components/（Shell.tsx 外壳：侧栏与主区卡片；WmPage.tsx 页面骨架：顶栏与内容区） admin-token.ts（统一口令注入）
 deploy/         Dockerfile.market（多阶段·非 root·HEALTHCHECK） docker-compose.yml（回环默认·profiles 隔离） layerfs-svc.mjs
 docs/           layerfs-service-contract-v0/v1.md（LayerFS 服务契约） data-views.md（数据视图设计稿：模块化渲染组件、每台一份数据、经 MCP 更新；未开工）

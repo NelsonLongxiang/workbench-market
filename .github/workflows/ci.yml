@@ -170,6 +170,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/ai-staff-browser.mjs
+      - name: 驾驶舱里的数据视图（能改的人才有入口·选台只列有权限的台·挂上后出现小标题·共用筛选改一次两份都重取·看不到的不露代号；数据视图接口截成合成的）
+        env:
+          PYTHON: python
+        run: node scripts/cockpit-bench-view-browser.mjs
       - name: 身份变了以后页面重读（401 且确认没登录或换了人才清·502 不清挂横幅·旧身份在路上的应答不写回·后退恢复的页面也确认）
         env:
           PYTHON: python
@@ -315,6 +319,8 @@ jobs:
           node scripts/privacy-gate.mjs --selftest
       - name: 台库冒烟（数据视图：数据集与改列·四种写入的校验、幂等、上限·快照与退回·查询描述与注入形态·视图描述的核对、版本、并发保存、回退·排队、隔离、标识不逃出目录）
         run: node scripts/bench-store-smoke.mjs && node --disable-warning=ExperimentalWarning scripts/skill-data-views-examples-test.mjs
+      - name: 台库分道（同一个台固定一道·不同道互不排队·大写入全局一次一件且做完换线程·一道终止不碍别的道·排队上限按各道合计）
+        run: node scripts/bench-store-lanes-test.mjs
       - name: 库的写锁等待有上限（市场主库、判定比对库：别的进程短暂持写锁时等得到、一直不放时 5 秒前后报错不无限等·台库按这一次的时限取小）
         run: node scripts/db-busy-timeout-test.mjs
       - name: 按时间排序的列表在时间相同时次序固定（SOP 运行列表同一秒的按 id 倒序·成员分配同一毫秒的按 id 正序·反复取次序不变）
@@ -335,6 +341,8 @@ jobs:
         run: node scripts/work-item-views-team-test.mjs
       - name: 只认已确认的关系（管理口令指的负责人只是提议、分配成员系统管理员不能代办、认领只是提议：都看不到事项·对照：确认之后看得到）
         run: node scripts/work-item-relations-trust-test.mjs
+      - name: 停太久的事项进「等你拍板」（过阈值才算、差一分钟不算·等过目、等验收、有提问的不算·冒给负责人、没有负责人冒给管理层，建立人和只授系统管理员的没有·一次最多 50 条按停得最久排、stuck_count 是总数、不算进角标·坏阈值拒绝启动）
+        run: node scripts/work-item-stuck-test.mjs
       - name: 放行归负责人（放宽访问的对抗：负责人放、团队有负责人时管理层和口令管理员 403·没有负责人时管理层代办、留痕记 acting_for·建立人勾了先过目由建立人放·幂等·「关注」的过目只给能放的人、带 answer_via·跨站拒）
         run: node scripts/work-item-lead-release-test.mjs
       - name: 事项记从哪个驾驶舱安排的（安排时记下、坏值和不存在的驾驶舱 400、算进幂等哈希且旧哈希不变·列表按驾驶舱筛只收窄、不存在的回空列表·驾驶舱删了照旧返回·「关注」条目带上·旧库补列、存量 null）
@@ -369,6 +377,8 @@ jobs:
         run: node scripts/sop-page-path-defense-test.mjs
       - name: 出自产台页面的单测（阶段八 8f-2：出票抛错页面照常不带票据·认人抛错当认不出·拼页面抛错回到原样页面并计数·历史版本不出票）
         run: node --disable-warning=ExperimentalWarning scripts/app-html-unit.mjs
+      - name: 表结构探查函数（数据库规划第 0 步：迁移里查表、列、索引在不在只经 db.ts 的几个函数；名字不是小写标识符一律抛错不碰库；列名与直接查表结构逐个相同）
+        run: node --disable-warning=ExperimentalWarning scripts/db-schema-probe-test.mjs
       - name: 对外断开（WM_OUTBOUND=off：假网络记账，进程层 17 种出站办法一律在发出前被拦、实例层各触发点走一遍假网络收到 0 个连接、投递与回执保持 pending 不判死、自检与健康检查看得见；对照组不开开关必须收到连接；非法值拒绝启动）
         run: node scripts/outbound-off-test.mjs && node scripts/bench-outbound-off-test.mjs && node scripts/bench-views-entry-test.mjs && node scripts/bench-mcp-test.mjs && node scripts/bench-views-dept-test.mjs
       - name: HTTP 服务单测（经服务注册与直接注册的路由栈逐行相同·注册可撤销·同一路径只撤一条·随插件卸载·撤销时在途请求不受影响）
@@ -383,6 +393,8 @@ jobs:
         run: node scripts/tasks-read-authority-http-test.mjs
       - name: Redis ready recovery and durable-generation rebound (#351, synthetic only)
         run: node scripts/redis-ready-state-test.mjs && node scripts/redis-ready-recovery-http-test.mjs && node scripts/redis-ready-fingerprint-mutation.mjs && node scripts/sop-redis-read-503-test.mjs && node scripts/sop-hot-pending-restart-test.mjs
+      - name: 共用状态层（Redis 可选——没配、连着、中途断开、出错、卸载；台的键按台 id 前缀，删台一起清；假 Redis，不连网络）
+        run: node scripts/state-layer-test.mjs
       - name: SOP checkpoint deadlines and active-list completeness (#337, #338; synthetic only)
         run: node scripts/sop-state-checkpoints-test.mjs && node scripts/sop-state-http-test.mjs && node scripts/sop-state-restart-test.mjs
       - name: SOP list privacy and upload-token rotation (#309, synthetic only)
@@ -508,10 +520,16 @@ jobs:
         run: node scripts/identity-status-unit.mjs
       - name: 事项列表单测（纯函数——分组、行文、视角、名字；单列一步）
         run: node scripts/work-items-ui-unit.mjs
+      - name: 站内页面路径单测（卡片上只把站内真有的页面做成链接·路由表和 App.tsx 一致；单列一步）
+        run: node scripts/page-paths-unit.mjs
       - name: 驾驶舱骨架单测（纯函数——三栏尺寸、放大还原、数据视图引用、页签；单列一步）
         run: node scripts/cockpit-frame-unit.mjs
       - name: 驾驶舱「AI 员工」单测（纯函数——分给我的成员·我负责的团队不重复·忙闲说法·点进去的地址；单列一步）
         run: node scripts/ai-staff-ui-unit.mjs
+      - name: 驾驶舱的 can.edit（读应答里带；和写请求总门对同一个请求的判断一致：逐个身份读一次、改一次）
+        run: node scripts/cockpit-can-test.mjs
+      - name: 驾驶舱里的数据视图（共用的筛选、挂视图、取不到时的说法）
+        run: node scripts/cockpit-bench-view-unit.mjs
       - name: 身份变了以后页面重读单测（纯函数——认人只认 /api/auth/me·不通和 502 不算·合并去抖·世代号；单列一步）
         run: node scripts/session-watch-unit.mjs
       - name: 技能正文里写到的 MCP 工具名都在工具目录里（对照 surfaces/mcp-tools.json）
