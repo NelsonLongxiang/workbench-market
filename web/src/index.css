@@ -198,6 +198,15 @@ body {
   background: var(--wm-color-surface);
 }
 
+/* 视图台页面（/use/<卡片 id> 是视图台时）：顶栏同嵌入使用页；下面一行标题和视图页签，正文是 12 列栅格的数据视图 */
+.wm-bp-bar-extra { margin-left: auto; display: flex; align-items: center; gap: var(--wm-space-2); }
+.wm-bp-head { display: flex; align-items: center; gap: var(--wm-space-4); padding: var(--wm-space-3) var(--wm-space-6); background: var(--wm-color-surface); border-bottom: 1px solid var(--wm-color-border); flex: none; flex-wrap: wrap; }
+.wm-bp-title { margin: 0; font-size: var(--wm-font-size-title); font-weight: var(--wm-font-weight-subtitle); color: var(--wm-color-text); }
+.wm-bp-tabs { display: flex; align-items: center; gap: var(--wm-space-1); flex-wrap: wrap; }
+.wm-bp-refresh { margin-left: auto; }
+.wm-bp-body { flex: 1; min-height: 0; overflow: auto; padding: var(--wm-space-4) var(--wm-space-6) var(--wm-space-6); }
+.wm-bp-state { margin-top: var(--wm-space-6); }
+
 /* 侧栏折叠按钮贴合深色底；保留以维持移动端抽屉触发器 */
 .wm-sider-collapse {
   display: flex;
