@@ -109,12 +109,27 @@ export function workItemTurns(items: AttentionItem[], choicesOf: (x: AttentionIt
   return { mine, byItem };
 }
 
+/** 停太久的事项（服务端来源 work-items-stuck，#649）：没有当场的答法，到事项页去催。单独成一组，不算进「要到别处处理」，也不算进角标 */
+export const STUCK_SOURCE = 'work-items-stuck';
+export const isStuck = (x: { source: string }): boolean => x.source === STUCK_SOURCE;
+/** 停太久的卡片标签：「停了 N 小时」，满两天写天；认不出时间就只写「停太久」 */
+export function stuckLabel(since: string, now = Date.now()): string {
+  const t = sinceMs(since);
+  if (!since || isNaN(t)) return '停太久';
+  const h = Math.max(0, Math.floor((now - t) / 3_600_000));
+  return h >= 48 ? `停了 ${Math.floor(h / 24)} 天` : `停了 ${h} 小时`;
+}
+/** 停太久的一共几件：服务端的 counts.stuck_count 含超出上限没给出来的；没给（旧的应答）或比列出来的少，就按列出来的数 */
+export const stuckTotal = (serverCount: number | null | undefined, listed: number): number =>
+  typeof serverCount === 'number' && Number.isFinite(serverCount) ? Math.max(serverCount, listed) : listed;
+
 const ORDER: Record<string, number> = { ask: 0, accept: 1, glance: 2, grant: 3, review: 4 };
-export function groupCards(items: AttentionItem[], choicesOf: (x: AttentionItem) => string[]): { now: AttentionItem[]; proxy: AttentionItem[]; elsewhere: AttentionItem[] } {
+export function groupCards(items: AttentionItem[], choicesOf: (x: AttentionItem) => string[]): { now: AttentionItem[]; proxy: AttentionItem[]; stuck: AttentionItem[]; elsewhere: AttentionItem[] } {
   const sorted = byWaited(items).map((x, i) => ({ x, i })).sort((a, b) => (ORDER[a.x.category] ?? 9) - (ORDER[b.x.category] ?? 9) || a.i - b.i).map((e) => e.x);
-  // 三组：轮到你、能当场办的（这才是「等你拍板」）；别人的事、你能代办的（条目的 mine 为假）；要到别处处理的（没有当场的答法）
+  // 四组：轮到你、能当场办的（这才是「等你拍板」）；别人的事、你能代办的（条目的 mine 为假）；停太久的；要到别处处理的（没有当场的答法）
   const can = sorted.filter((x) => choicesOf(x).length > 0);
-  return { now: can.filter(isMine), proxy: can.filter((x) => !isMine(x)), elsewhere: sorted.filter((x) => choicesOf(x).length === 0) };
+  const rest = sorted.filter((x) => choicesOf(x).length === 0);
+  return { now: can.filter(isMine), proxy: can.filter((x) => !isMine(x)), stuck: rest.filter(isStuck), elsewhere: rest.filter((x) => !isStuck(x)) };
 }
 
 /** 「等你拍板」条目自带的答复入口（answer_via 约定）：条目说清用什么方法、发到哪个地址、每个答法的请求体和要填的东西，

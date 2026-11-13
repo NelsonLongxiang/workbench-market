@@ -141,7 +141,8 @@ function forgetShared(key: string) { for (const k of [...sharedMemo.keys()]) if 
 
 /** 「关注」：给这个身份的全部条目和总数。status 0 = 连不上 */
 /** identityDown：身份服务连不上（502 identity_unavailable）——这时不是「没有待办」，页面要说「暂时取不到」 */
-export type AttentionRead = { status: number; items: AttentionItemLite[]; total: number | null; identityDown: boolean };
+/** stuckCount：停太久的一共几件（counts.stuck_count，含超出上限没列出来的）；旧的应答没有就是 null */
+export type AttentionRead = { status: number; items: AttentionItemLite[]; total: number | null; identityDown: boolean; stuckCount: number | null };
 type AttentionItemLite = { source: string; source_id: string; category: string; [k: string]: unknown };
 export function getAttention(): Promise<AttentionRead> {
   return shared('attention', async () => {
@@ -149,9 +150,9 @@ export function getAttention(): Promise<AttentionRead> {
       const token = getAdminToken();
       const r = await fetch('/api/attention', { headers: token ? { 'X-Admin-Token': token } : {} });
       const raw: unknown = await r.json().catch(() => ({}));
-      const j = (r.ok ? raw : {}) as { items?: AttentionItemLite[]; counts?: { total?: number } };
-      return { status: r.status, items: Array.isArray(j.items) ? j.items : [], total: typeof j.counts?.total === 'number' ? j.counts.total : null, identityDown: isIdentityUnavailable(r.status, raw) };
-    } catch { return { status: 0, items: [], total: null, identityDown: false }; }
+      const j = (r.ok ? raw : {}) as { items?: AttentionItemLite[]; counts?: { total?: number; stuck_count?: number } };
+      return { status: r.status, items: Array.isArray(j.items) ? j.items : [], total: typeof j.counts?.total === 'number' ? j.counts.total : null, identityDown: isIdentityUnavailable(r.status, raw), stuckCount: typeof j.counts?.stuck_count === 'number' ? j.counts.stuck_count : null };
+    } catch { return { status: 0, items: [], total: null, identityDown: false, stuckCount: null }; }
   });
 }
 /** 办完一件：清掉「关注」的缓存，再广播（侧栏角标、全景都跟着刷新） */

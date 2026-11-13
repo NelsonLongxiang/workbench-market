@@ -133,6 +133,29 @@ with sync_playwright() as p:
     pg.get_by_role('button', name='新建并对接').click(); pg.wait_for_timeout(500)
     check('确认之后发：对到的主体、create 为真', any(x.get('source') == 'principal-pending' and x.get('input', {}).get('principal') == 'user:synthetic-new' and x.get('input', {}).get('create') is True for x in sent), sent)
     ctx.close()
+    # 停太久的事项（#649，来源 work-items-stuck，类别 glance、没有答法）：单独一组「停太久的」，标签写停了多久；
+    # 不在「要到别处处理」、不算等你拍板；总结句另说一句，件数用服务端的 stuck_count（含超出上限没列出来的）
+    import datetime
+    ago = lambda h: (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=h)).strftime('%Y-%m-%d %H:%M:%S')
+    stuck = [
+        {'source': 'work-items-stuck', 'source_id': 'wi-synthetic-stuck-1', 'category': 'glance', 'title': '合成：比价表在「在办」停了 30 小时（超过 24 小时算停太久）', 'waiting_for': 'zone/canvas/team-a', 'since': ago(30), 'answers': [], 'object': '', 'phase': '', 'link': '/work-items/wi-synthetic-stuck-1', 'mine': True},
+        {'source': 'work-items-stuck', 'source_id': 'wi-synthetic-stuck-2', 'category': 'glance', 'title': '合成：到货核对在「等派出」停了 72 小时（超过 24 小时算停太久）', 'waiting_for': 'zone/canvas/team-a', 'since': ago(72), 'answers': [], 'object': '', 'phase': '', 'link': '/work-items/wi-synthetic-stuck-2', 'mine': True},
+        {'source': 'relation-proposals', 'source_id': '9001', 'category': 'grant', 'title': '合成：关系的提议', 'waiting_for': 'person:x', 'since': '2026-11-12T00:00:00Z', 'answers': [], 'object': '', 'phase': '', 'link': '/team', 'mine': True},
+    ]
+    ctx = b.new_context(viewport={'width': 1440, 'height': 900}); ctx.add_cookies([{'name': 'session_id', 'value': cfg['lead_session'], 'url': M}])
+    ctx.route('**/api/attention', lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps({'items': stuck, 'counts': {'total': len(stuck), 'stuck_count': 5}, 'sources': {}})))
+    pg = ctx.new_page(); pg.set_default_timeout(10000); pg.goto(M + '/attention'); pg.wait_for_selector('[data-testid=attention-stuck]'); pg.wait_for_timeout(400)
+    st_cards = pg.locator('[data-testid=attention-stuck] [data-testid=decision-card]')
+    tags = pg.locator('[data-testid=attention-stuck] [data-testid=decision-stuck]').all_inner_texts()
+    check('/attention：停太久的单独一组，按停得最久的排；要到别处处理的只剩那条提议', st_cards.count() == 2 and '到货核对' in st_cards.nth(0).inner_text() and pg.locator('[data-testid=attention-elsewhere] [data-testid=decision-card]').count() == 1, (st_cards.count(), tags))
+    check('/attention：标签写停了多久（不写「等你过目」），旁边不写「等了」', tags == ['停了 3 天', '停了 30 小时'] and '等你过目' not in pg.locator('[data-testid=attention-stuck]').inner_text() and '等了' not in pg.locator('[data-testid=attention-stuck]').inner_text(), tags)
+    check('/attention：卡片去事项页', st_cards.nth(1).locator('a.wm-decision-more').get_attribute('href') == '/work-items/wi-synthetic-stuck-1')
+    check('/attention：总结句另说停太久的，件数用服务端的 5（列出来的只有 2）', pg.locator('[data-testid=attention-summary]').inner_text() == '眼下没有要你当场拍板的，另有 1 件要到别处处理，5 件停太久。', pg.locator('[data-testid=attention-summary]').inner_text())
+    opts = pg.locator('[data-testid=attention-filter]').inner_text()
+    check('/attention：筛选里有「停太久 2」，「等过目」不把它们算进去', '停太久 2' in opts and '等过目' not in opts, opts)
+    pg.goto(M + '/'); pg.wait_for_selector('[data-testid=decisions-stuck]'); pg.wait_for_timeout(400)
+    check('全景：停太久的也单独一组，总结句带「5 件停太久」，不算等你拍板', pg.locator('[data-testid=decisions-stuck] [data-testid=decision-card]').count() == 2 and '5 件停太久' in pg.locator('[data-testid=home-summary]').inner_text() and pg.locator('[data-testid=decisions-now]').count() == 0, pg.locator('[data-testid=home-summary]').inner_text())
+    ctx.close()
     # 加载中不先说否定的话：身份、「关注」、事项列表都还没回来时，侧栏底部不写「未登录」，全景不写「没有要你拍板的」、不写 0，事项页不留白也不说「没有」
     ctx = b.new_context(viewport={'width': 1440, 'height': 900}); ctx.add_cookies([{'name': 'session_id', 'value': cfg['lead_session'], 'url': M}])
     held = []

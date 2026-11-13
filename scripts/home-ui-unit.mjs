@@ -2,7 +2,7 @@
 /** 全景首页的纯函数单测（web/src/home-view.ts）：进全景的类型、列、每格状态与待定件数、终态的线、总结句、问候、点格筛选。
  *  数据形状照生命周期只读接口（/api/lifecycle/stages、objects）；全是合成值。 */
 import { cleanWho, seatLabel, teamLabel, waitingLabel } from '../web/src/people.ts';
-import { answerChoices, decideCount, groupCards, isMine } from '../web/src/attention-view.ts';
+import { answerChoices, decideCount, groupCards, isMine, isStuck, stuckLabel, stuckTotal } from '../web/src/attention-view.ts';
 import { cardWording, splitAskTitle, buildRows, splitRows, daysLabel, filterAttention, greeting, objectLabel, panoramaType, stageColumns, summaryLine, decideLine, toggleFocus } from '../web/src/home-view.ts';
 
 let pass = 0, fail = 0;
@@ -77,5 +77,17 @@ ok('卡片说法只看条目的 mine：轮到你不算代办（管理员也是�
 ok('服务端给了名字（#657 的 waiting_for_name）就直接用；null、空串才退化', waitingLabel('person:x', { name: '合成同事甲' }) === '合成同事甲' && waitingLabel('person:x', { name: null }) === '一位同事'
   && waitingLabel('person:x', { name: '  ' }) === '一位同事' && waitingLabel('mcp:s1', { name: 'MCP 会话 s1' }) === 'MCP 会话 s1');
 
+{
+  // 停太久的事项（#649）：单独一组，不算进「要到别处处理」、不算进等你拍板；总结句另说一句，件数用服务端的 stuck_count
+  const NOW = Date.parse('2026-11-13T12:00:00Z');
+  const st = (id, since) => ({ source: 'work-items-stuck', source_id: id, category: 'glance', title: '合成事项停住了', waiting_for: '', since, answers: [], object: '', phase: '', link: `/work-items/${id}` });
+  const other = { source: 'workbench-events', source_id: 'e1', category: 'glance', title: '', waiting_for: '', since: '', answers: [], object: '', phase: '', link: '' };
+  const g = groupCards([st('s1', '2026-11-13 02:00:00'), other, st('s2', '2026-11-12 00:00:00')], (x) => x.answers);
+  ok('停太久的单独一组，按停得最久的排；不在「要到别处处理」、不算等你拍板', g.stuck.map((x) => x.source_id).join() === 's2,s1' && g.elsewhere.map((x) => x.source_id).join() === 'e1' && g.now.length === 0 && decideCount([st('s1', '')], (x) => x.answers) === 0 && isStuck({ source: 'work-items-stuck' }) && !isStuck(other), JSON.stringify(g.stuck.map((x) => x.source_id)));
+  ok('标签：停了 N 小时；满两天写天；认不出时间只写停太久', stuckLabel('2026-11-13 02:00:00', NOW) === '停了 10 小时' && stuckLabel('2026-11-10 12:00:00', NOW) === '停了 3 天' && stuckLabel('2026-11-11 13:00:00', NOW) === '停了 47 小时' && stuckLabel('', NOW) === '停太久' && stuckLabel('不是时间', NOW) === '停太久');
+  ok('件数：服务端给的（含超出上限没列的）为准；没给或比列出来的少按列出来的', stuckTotal(12, 3) === 12 && stuckTotal(null, 3) === 3 && stuckTotal(undefined, 2) === 2 && stuckTotal(1, 3) === 3 && stuckTotal(NaN, 1) === 1);
+  ok('总结句：停太久的另说一句，排在最后', decideLine(2, 1, false, 3, 4) === '有 2 件等你拍板。另有 3 件别人的事你可以代办，1 件要到别处处理，4 件停太久。' && decideLine(0, 0, false, 0, 2) === '眼下没有要你当场拍板的，另有 2 件停太久。' && decideLine(1, 0, false, 0, 0) === '有 1 件等你拍板。');
+  ok('全景的总结句也带停太久', summaryLine(buildRows(pd, [obj('a', 'st_1')], []), 1, 0, 0, 5) === '公司现在有 1 条线在走，有 1 件等你拍板。另有 5 件停太久。');
+}
 console.log(`\nhome-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);
