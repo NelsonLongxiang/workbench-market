@@ -94,6 +94,8 @@
     "a2a_seat_subjects": [
       "host TEXT NOT NULL PK",
       "seat_id TEXT NOT NULL PK",
+      "key_fp TEXT NOT NULL",
+      "root TEXT NOT NULL",
       "session_id INTEGER NOT NULL",
       "created_at INTEGER NOT NULL"
     ],
