@@ -38,8 +38,13 @@ with sync_playwright() as p:
     pg = b.new_page(viewport={'width': 1440, 'height': 900}); pg.set_default_timeout(10000)
     # 从市场卡片的「详情」入口进
     pg.goto(M + '/market'); pg.wait_for_selector('[data-testid=mkt-detail]')
+    cell = pg.locator('.wm-mkt-cell', has=pg.locator(f'[data-testid=mkt-detail][href="/market/wb/{W["id"]}"]')).first
+    box = cell.bounding_box(); d = cell.locator('[data-testid=mkt-detail]').bounding_box(); go = cell.locator('.wm-mkt-go').bounding_box()
+    check('「详情」在卡片右下角、「打开 →」右边同一行，是两个字的文字链接（右上角是质量评级那一格，不放东西）',
+          d['y'] > box['y'] + box['height'] / 2 and d['x'] + d['width'] > box['x'] + box['width'] * 0.8 and d['x'] >= go['x'] + go['width'] and abs((d['y'] + d['height'] / 2) - (go['y'] + go['height'] / 2)) < 6
+          and cell.locator('[data-testid=mkt-detail]').inner_text().strip() == '详情', (box, d, go))
     pg.locator(f'[data-testid=mkt-detail][href="/market/wb/{W["id"]}"]').click(); pg.wait_for_selector('[data-testid=wbd-main]')
-    check('从卡片右上角的「详情」进来：地址是 /market/wb/<id>，名字对', pg.url.endswith(f'/market/wb/{W["id"]}') and pg.locator('[data-testid=wbd-name]').inner_text().strip() == W['name'], pg.url)
+    check('从卡片右下角的「详情」进来：地址是 /market/wb/<id>，名字对', pg.url.endswith(f'/market/wb/{W["id"]}') and pg.locator('[data-testid=wbd-name]').inner_text().strip() == W['name'], pg.url)
     crumb = pg.locator('.wm-top-crumb').inner_text().replace('\n', ' ')
     check('顶栏「工作台市场 / 台名」', '工作台市场' in crumb and W['name'] in crumb, crumb)
     check('头部有在线状态；说明区有字（没有说明写「还没有说明」）', pg.locator('[data-testid=wbd-status]').count() == 1 and pg.locator('[data-testid=wbd-desc]').inner_text().strip() != '')

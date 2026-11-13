@@ -1,7 +1,7 @@
 /**
  * 工作台市场（照产品化原型 3fbfd0b 的 #/market）：一个入口里按「工作台 / 流程 / 技能 / 连接器」分类浏览，卡片三列。
  * 原来分散的三页并进来：/market 的工作台、/sops 的已发布流程、/skills 的技能；「连接器」（MCP 上游）只给管理员。原型里的「质量评级」没有数据来源，不出现。
- * 卡片点了照原型直接「打开」；工作台卡片右上角另有一个次要的「详情」入口，去 /market/wb/:id。
+ * 卡片点了照原型直接「打开」；工作台卡片右下「打开 →」旁边另有一个次要的「详情」入口，去 /market/wb/:id（右上角是原型里质量评级那一格，不放东西）。
  * 管理（只对管理员露出）：工作台的登记、停用、删除、检测在 /market/manage（原来的表格）；流程的发布、停用、绑定在 /sops，技能的版本链在 /skills（原来的页面）。
  * 判断逻辑在 web/src/market-view.ts（有单测）。
  */
@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import './market.css';
 import { Alert, Button, Dropdown, Empty, Skeleton } from 'antd';
-import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { DownOutlined } from '@ant-design/icons';
 import RelTime from '../../components/RelTime';
 import WmPage from '../../components/WmPage';
 import { getMarketConnectors, getMarketRunningSops, getMarketSkills, getMarketSops, getMarketWorkbenches } from '../../api';
@@ -44,7 +44,7 @@ function Card({ c, tab }: { c: MarketCard; tab: MarketTab }) {
         <span className="wm-mkt-go">{c.action} →</span>
       </div>
     </Link>
-    {detail && <Link to={detail} className="wm-mkt-detail" aria-label={`${c.name}的详情`} title="详情" data-testid="mkt-detail"><InfoCircleOutlined /></Link>}
+    {detail && <Link to={detail} className="wm-mkt-detail" aria-label={`${c.name}的详情`} data-testid="mkt-detail">详情</Link>}
     </div>
   );
 }
