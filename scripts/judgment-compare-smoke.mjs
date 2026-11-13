@@ -5,7 +5,7 @@
  *
  *   一、开关：缺省关（报告是空的、不记任何东西）；值不合法拒绝启动（进程自己以非 0 退出）
  *   二、各类结果落对地方：内置身份按清单一致、细分的动作、被完整性门拦下、状态码不代表授权、不确定、404 不判、没报动作不比
- *   三、迁移：第一次见到的人给 member，身份来源说是管理员的给 admin，来源记 migration；重复见不重复迁
+ *   三、迁移：第一次见到的人给 member，身份来源说是管理员的给 admin（不给 management），来源记 migration；重复见不重复迁
  *   四、故意撤一条授予：比对里出现对应的不一致；迁移不会把它补回来
  *   五、迁移出来的授予：一条命令列出、一条命令整批撤销（只有属主能）
  *   六、记录里没有查询串、路径里的 id、口令和 cookie
@@ -156,10 +156,10 @@ try {
     const rep = await srv.report();
     const migrated = (await srv.call('GET', '/api/grants?source=migration')).json?.grants ?? [];
     const pairs = migrated.map((g) => `${g.principal_id}:${g.role}:${g.status}`).sort();
-    check(a1.status === 200 && show(pairs) === show(['user:alpha:member:active', 'user:root-admin:admin:active', 'user:root-admin:management:active', 'user:root-admin:member:active'])
+    check(a1.status === 200 && show(pairs) === show(['user:alpha:member:active', 'user:root-admin:admin:active', 'user:root-admin:member:active'])
       && migrated.every((g) => g.source === 'migration' && g.approved_by === 'system:migration')
       && !mismatch(rep, 'GET /api/principals') && tallyOf(rep, 'GET /api/types', 'agree') >= 1,
-      '迁移：第一次见到的人给 member、身份来源说是管理员的给 admin 和 management 两条（等于今天的原样，能分别撤；不经三档放行，L6），来源 migration、放行人 system:migration；再见不重复迁；迁完之后管理员读管理面、成员读开放面、成员读管理面（两边都拒）都一致', show({ pairs, tally: rep.tally.filter((t) => t.route === 'GET /api/principals') }));
+      '迁移：第一次见到的人给 member、身份来源说是管理员的再给 admin，不自动给 management（管理层由属主单独授，L6）；来源 migration、放行人 system:migration；再见不重复迁；迁完之后管理员读管理面、成员读开放面、成员读管理面（两边都拒）都一致', show({ pairs, tally: rep.tally.filter((t) => t.route === 'GET /api/principals') }));
   }
 
   // ---------- 四、故意撤一条授予 ----------
@@ -183,8 +183,8 @@ try {
     const byCli = await srv.call('POST', '/api/grants/revoke-migration', { body: { reason: '合成：整批撤销' } });
     const left = ((await srv.call('GET', '/api/grants?source=migration&status=active')).json?.grants ?? []).length;
     const manual = (await srv.call('GET', '/api/grants?source=manual')).json?.grants ?? [];
-    check(byToken.status === 403 && noReason.status === 400 && byCli.status === 200 && byCli.json?.revoked === 3 && left === 0 && manual.length === 0,
-      '迁移出来的授予整批撤销：口令管理员 403（只有属主能）、不写理由 400；本机命令行撤了剩下的 3 条，之后一条生效的都没有', show({ byToken: byToken.status, noReason: noReason.status, byCli: byCli.json, left }));
+    check(byToken.status === 403 && noReason.status === 400 && byCli.status === 200 && byCli.json?.revoked === 2 && left === 0 && manual.length === 0,
+      '迁移出来的授予整批撤销：口令管理员 403（只有属主能）、不写理由 400；本机命令行撤了剩下的 2 条（两个人的 member），之后一条生效的都没有', show({ byToken: byToken.status, noReason: noReason.status, byCli: byCli.json, left }));
   }
 
   // ---------- 六、记录里没有不该有的 ----------
