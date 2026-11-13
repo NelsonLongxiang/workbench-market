@@ -69,6 +69,7 @@ const H = 'a1b2c3d4', TEAM = 'zsyn/canvas/alpha-team';
 const R1 = 'https://node-one.synthetic.invalid', F1 = 'sha256:' + '1'.repeat(64);
 const R2 = 'https://node-impostor.synthetic.invalid', F2 = 'sha256:' + '2'.repeat(64);
 const F3 = 'sha256:' + '3'.repeat(64);
+const R4 = 'https://node-squatter.synthetic.invalid', F4 = 'sha256:' + '4'.repeat(64);
 const SEAT = { seat: 'zsyn/0000000a', seat_id: 'seat-0000000a' };
 
 rmSync(OUT, { recursive: true, force: true });
@@ -128,6 +129,14 @@ db.prepare("UPDATE a2a_peers SET key_fingerprint = '${F2}', status = 'disabled' 
 out.disabled = snap();
 db.prepare("UPDATE a2a_peers SET status = 'active' WHERE root_url = '${R2}'").run();
 out.restored = snap();
+// 撞号：另一个根地址、另一把键也报了这个号（对端启用）——同一个号下两个节点，两个都不算：现在的归属不算数；停用撞号的那台后恢复
+db.prepare("INSERT INTO a2a_roster_nodes (host, peer_root, key_fingerprint, peer_zone, reported_at, received_at) VALUES ('${H}', '${R4}', '${F4}', 'zsyn', '0', '0')").run();
+db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, key_fingerprint, registered_by, registered_at, updated_at) VALUES ('p-squat', '${R4}', 'zsyn', '撞号的', 'active', '${F4}', 'seed', '0', '0')").run();
+out.collide = snap();
+out.collideNode = (await import(${at('server/src/services/team.ts')})).currentNode('${H}');
+db.prepare("UPDATE a2a_peers SET status = 'disabled' WHERE root_url = '${R4}'").run();
+out.collideResolved = snap();
+out.resolvedNode = (await import(${at('server/src/services/team.ts')})).currentNode('${H}');
 `);
   check(show(o.refused) === show({ noPeer: 'node_unverified', noFp: 'node_unverified', disabled: 'node_unverified', rows: 0 }),
     '节点没核过（对端没登记、没有指纹、停用）：认领拒（409 node_unverified），什么都不写', show(o.refused));
@@ -150,6 +159,10 @@ out.restored = snap();
   check(gone(o.rekey), '同一根地址换了钥（指纹变了）：归属同样不算数', show(o.rekey));
   check(gone(o.disabled) && o.restored.status === 'active' && o.restored.owner === 'user:owner1',
     '对端停用：不算数；恢复启用（同一根地址、同一指纹）就又算数', show({ disabled: o.disabled.status, restored: o.restored.status }));
+  check(o.collide.leads.length === 0 && o.collide.owner === null && o.collide.assignedTo === 0 && o.collide.leadOf === 0 && o.collide.member === null && o.collide.bench !== 'ok'
+      && o.collideNode === null && o.collideResolved.status === 'active' && o.collideResolved.owner === 'user:owner1' && show(o.collideResolved.leads) === show(['user:lead1'])
+      && show(o.resolvedNode) === show({ peer_root: R2, key_fingerprint: F2 }),
+    '撞号：另一个节点也报了这个号（对端启用）——两个都不算，负责人、成员的主人、「我分到的」「我负责的」、细到团队的台都不算数；停用撞号那台后恢复', show({ collide: o.collide, node: o.collideNode, resolved: o.collideResolved.status, resolvedNode: o.resolvedNode }));
 
   // ---------- 六、存量回填只做一次 ----------
   const d6 = join(OUT, 'data-6');
