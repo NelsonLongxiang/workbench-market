@@ -8,7 +8,8 @@
  *   M3 bench 档：卡片第一次用到时搬一次、记指纹；搬过以后，主库里留着的旧行不会补回台库里已经删掉的键
  *   M4 shadow 档：主库写成之后台库跟着有一份；比对按摘要——条数一样、值不一样也算不同
  *   M5 bench 档写成之后尽力写回主库一份（留作回退）
- *   M6 旧的第 1 版台库：打开时补上 bs_vars、版本号升到 2；比代码新的照旧拒绝打开
+ *   M6 回退安全：main 档下台库和原来一样（版本 1、没有 bs_vars，读和比对、迁移 dry-run 都不建表），关了再开还是这样；
+ *      切到 shadow 第一次写才建 bs_vars，版本号仍是 1（旧代码照样能开）；没有 bs_vars 的旧库照常打开；比代码新的照旧拒绝打开
  *
  *   node scripts/vars-store-test.mjs
  */
@@ -29,16 +30,29 @@ async function child() {
   const { db, dataDir } = await import(src('db.ts'));
   const V = await import(src('workbench-vars.ts'));
   const { benchStore, closeBenchStores } = await import(src('services/bench-store.ts'));
-  const { benchOfCard } = await import(src('services/bench-registry.ts'));
+  const { benchOfCard, createBench } = await import(src('services/bench-registry.ts'));
   const out = {};
   const CLI = { actor: 'cli', admin: true, cli: true };
   const ins = db.prepare('INSERT INTO workbench_vars (workbench_id, key, kind, value, revision, updated_by, owner, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-  db.prepare("INSERT INTO workbenches (id, name, url) VALUES (1, '合成甲', 'http://127.0.0.1:9/a'), (2, '合成乙', 'http://127.0.0.1:9/b'), (3, '合成丙', 'http://127.0.0.1:9/c'), (4, '合成丁', 'http://127.0.0.1:9/d'), (5, '合成戊', 'http://127.0.0.1:9/e')").run();
+  db.prepare("INSERT INTO workbenches (id, name, url) VALUES (1, '合成甲', 'http://127.0.0.1:9/a'), (2, '合成乙', 'http://127.0.0.1:9/b'), (3, '合成丙', 'http://127.0.0.1:9/c'), (4, '合成丁', 'http://127.0.0.1:9/d'), (5, '合成戊', 'http://127.0.0.1:9/e'), (6, '合成己', 'http://127.0.0.1:9/f')").run();
   const T = '2026-11-01 08:00:00';
   ins.run(1, 'a', 'var', '1', 2, 'cli', '', T, T); ins.run(1, 'b', 'const', '"x"', 1, 'mcp:someone', 'mcp:someone', T, T);
   ins.run(2, 'hot.progress', 'var', '5', 1, 'cli', '', T, T);
   ins.run(99, 'gone', 'var', '0', 1, 'cli', '', T, T); // 孤儿：卡片 99 不存在
   const scope = (id) => V.workbenchScope(id);
+  const raw = async (slug, fn) => { await closeBenchStores(); const f = new DatabaseSync(join(dataDir, 'bench-stores', `${slug}.sqlite`)); try { return fn(f); } finally { f.close(); } };
+  const shape = (f) => ({ version: f.prepare("SELECT v FROM bs_meta WHERE k = 'schema_version'").get().v, tables: f.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map((r) => r.name).join(',') });
+
+  // M6（先做，main 档）：卡片 6 开了台库；main 档下写变量、读台库里的变量、比对、迁移 dry-run，都不动台库的结构
+  const slug6 = createBench({ workbench_id: 6 }, 'vars-store-test', Date.now()).slug;
+  const s6 = await benchStore(slug6);
+  await V.setVar(scope(6), 'm', { value: 'v', hasValue: true }, CLI);
+  out.m6main = { list: (await s6.varsList('')).length, get: await s6.varGet('m'), count: await s6.varCount(), digest: (await s6.varsDigest()).count, same: (await V.compareCardVars(6)).same };
+  await V.migrateVars({ dryRun: true });
+  out.m6main.shape = await raw(slug6, shape);
+  await benchStore(slug6).then((s) => s.datasets()); // 关了再开
+  out.m6main.reopen = await raw(slug6, shape);
+  db.prepare('DELETE FROM workbench_vars WHERE workbench_id = 6').run(); // 不影响下面 M1 的计数
 
   // M1
   out.dry = await V.migrateVars({ dryRun: true });
@@ -76,17 +90,16 @@ async function child() {
   const c = await V.compareCardVars(5);
   out.m4diff = { same: c.same, countsEqual: c.main.count === c.bench?.count };
   out.hot = V.hotVarKeys();
-  // M6：把卡片 1 的台库改成第 1 版（删 bs_vars、版本号写 1），关掉再开
+  // M6（接着）：现在是 shadow 档，卡片 6 第一次写：建 bs_vars，版本号仍是 1
+  await V.setVar(scope(6), 'n', { value: 'w', hasValue: true }, CLI);
+  out.m6shadow = { ...(await raw(slug6, shape)), value: await benchStore(slug6).then((s) => s.varGet('n')).then((r) => r?.value) };
+  // 没有 bs_vars 的旧库（旧代码或 main 档建的）：照常打开、读成空；写一次就建上
   const slug1 = benchOfCard(1).slug;
-  await closeBenchStores();
-  const f = new DatabaseSync(join(dataDir, 'bench-stores', `${slug1}.sqlite`));
-  f.exec("DROP TABLE bs_vars; UPDATE bs_meta SET v = '1' WHERE k = 'schema_version'"); f.close();
+  await raw(slug1, (f) => f.exec('DROP TABLE bs_vars'));
   const re = await benchStore(slug1);
-  out.m6 = { rows: (await re.varsList('')).length };
-  await closeBenchStores();
-  const f2 = new DatabaseSync(join(dataDir, 'bench-stores', `${slug1}.sqlite`));
-  out.m6.version = f2.prepare("SELECT v FROM bs_meta WHERE k = 'schema_version'").get().v;
-  f2.exec("UPDATE bs_meta SET v = '3' WHERE k = 'schema_version'"); f2.close();
+  out.m6 = { rows: (await re.varsList('')).length, put: await re.varsImport([{ key: 'z', kind: 'var', value: '1', revision: 1, updated_by: 'cli', owner: '', created_at: T, updated_at: T }]) };
+  out.m6.after = await raw(slug1, shape);
+  await raw(slug1, (f) => f.exec("UPDATE bs_meta SET v = '3' WHERE k = 'schema_version'"));
   out.m6.newer = await benchStore(slug1).then(async (s) => { try { await s.varsList(''); return 'opened'; } catch (e) { return e.code; } }, (e) => e.code);
   await closeBenchStores();
   await root.fiber.dispose();
@@ -122,8 +135,14 @@ async function parent() {
   ok('比对按摘要：条数一样、值不一样也算不同', r.m4diff?.same === false && r.m4diff.countsEqual === true, r.m4diff);
   console.log('M5 bench 档写回主库');
   ok('写成之后主库里有一份一样的（值、revision），审计照旧记在主库', r.m5main?.value === '{"n":1}' && r.m5main.revision === 1 && r.m5audit === 'create', { main: r.m5main, audit: r.m5audit });
-  console.log('M6 台库结构版本');
-  ok('第 1 版的台库：打开时补上 bs_vars、版本号升到 2', r.m6?.rows === 0 && r.m6.version === '2', r.m6);
+  console.log('M6 回退安全（台库结构）');
+  // 第 1 版台库的表（main 上的代码建出来的那一套）
+  const V1 = 'bs_changes,bs_dataset_versions,bs_datasets,bs_meta,bs_snapshot_rows,bs_snapshots,bs_view_versions,bs_writes,sqlite_sequence';
+  const m = r.m6main;
+  ok('main 档：写变量、读台库里的变量、比对、迁移 dry-run 都不建 bs_vars，版本号是 1，表和原来一样', m?.list === 0 && m.get === null && m.count === 0 && m.digest === 0 && m.shape?.version === '1' && m.shape.tables === V1, m);
+  ok('main 档：关了再开还是版本 1、没有 bs_vars', m?.reopen?.version === '1' && m.reopen.tables === V1, m?.reopen);
+  ok('切到 shadow 第一次写：建了 bs_vars、值写进去了，版本号仍是 1（旧代码照样能开）', r.m6shadow?.version === '1' && r.m6shadow.tables === [...V1.split(','), 'bs_vars'].sort().join(',') && r.m6shadow.value === '"w"', r.m6shadow);
+  ok('没有 bs_vars 的旧库：照常打开、读成空；写一次就建上，版本号不变', r.m6?.rows === 0 && r.m6.put === 1 && r.m6.after?.version === '1' && r.m6.after.tables.includes('bs_vars'), r.m6);
   ok('比代码新的（第 3 版）照旧拒绝打开', r.m6?.newer === 'unsupported', r.m6);
   console.log(`vars-store-test: ${pass} passed / ${fail} failed`);
   if (fail) process.exitCode = 1;

@@ -1577,8 +1577,13 @@ CREATE INDEX IF NOT EXISTS idx_bench_mcp_audit_bench ON bench_mcp_audit (bench, 
 // ---------- 台库（数据视图，docs/data-views.md）----------
 // 每个视图台一份自己的库，和上面的主库分开。表结构照约定登记在这里；语句由 services/bench-store.ts 在台自己的库上执行，不在主库上跑。
 // 只用两种库都认的写法；随库不同的只有类型名和自增主键，收在下面两个小函数里。时间一律由调用方给（毫秒整数），不在语句里取。
-/** 台库固定表的结构版本。第 2 版（11-13）加了 bs_vars（工作台的常量、变量搬进台库，docs/data-views.md 第十三节第 5 条第 5 步） */
-export const BENCH_STORE_SCHEMA_VERSION = 2;
+/**
+ * 台库固定表的结构版本（比这份代码新的台库不打开）。
+ * bs_vars（工作台的常量、变量，docs/data-views.md 第十三节第 5 条第 5 步）是附加的表，不升版本：开库不建它；
+ * 第一次写常量、变量（只有 WM_VARS_STORE 是 shadow、bench 时才会写）才建。旧代码只认识第 1 版的表、不碰多出来的表，
+ * 所以 main 档下台库和原来逐字一样，切过 shadow、bench 以后回退到旧代码也照样能开
+ */
+export const BENCH_STORE_SCHEMA_VERSION = 1;
 export type BenchDialect = 'sqlite' | 'postgres';
 export type BenchColumnType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'boolean';
 
@@ -1616,7 +1621,11 @@ function benchStoreSchema(d: BenchDialect): string[] {
     `CREATE INDEX IF NOT EXISTS idx_bs_snapshots_dataset ON bs_snapshots (dataset, id)`,
     // 快照的行：一行数据一条，row 是按留快照时的列次序排的 JSON 数组。bs_snapshots.content 只放列定义和主键
     `CREATE TABLE IF NOT EXISTS bs_snapshot_rows (snapshot_id ${big} NOT NULL, seq ${big} NOT NULL, row TEXT NOT NULL, PRIMARY KEY (snapshot_id, seq))`,
-    // 第 2 版：这张卡片的常量、变量（列和主库的 workbench_vars 一一对应，只是不带 workbench_id；时间是 'YYYY-MM-DD HH:MM:SS' 的文本，由代码生成后当参数传）
+  ];
+}
+/** 附加的表（开库不建，第一次写常量、变量时才建）：这张卡片的常量、变量（列和主库的 workbench_vars 一一对应，只是不带 workbench_id；时间是 'YYYY-MM-DD HH:MM:SS' 的文本，由代码生成后当参数传） */
+function benchStoreVarsSchema(): string[] {
+  return [
     `CREATE TABLE IF NOT EXISTS bs_vars (
       key TEXT PRIMARY KEY, kind TEXT NOT NULL, value TEXT NOT NULL, revision INTEGER NOT NULL,
       updated_by TEXT NOT NULL, owner TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
@@ -1633,6 +1642,11 @@ function benchStoreSchema(d: BenchDialect): string[] {
 export type BenchSqlKit = {
   dialect: BenchDialect;
   schemaVersion: number;
+  /** 附加的表 bs_vars 和它的试读（开库不建、不试；第一次写常量、变量时才建，见 BENCH_STORE_SCHEMA_VERSION） */
+  varsSchema: string[];
+  varsProbes: string[];
+  /** bs_vars 在不在（查目录，不试读：PostgreSQL 的事务里一条语句出错整个事务就作废了） */
+  varsExists: string;
   /** 固定的几张表 */
   schema: string[];
   /** 打开库时逐条试一遍：哪条跑不通，就是库文件的结构和这份代码对不上（比如还没定稿时旧代码建的文件），明确拒绝，不静默照用 */
@@ -1661,6 +1675,11 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
   return {
     dialect: d,
     schemaVersion: BENCH_STORE_SCHEMA_VERSION,
+    varsSchema: benchStoreVarsSchema(),
+    varsProbes: ['SELECT key, kind, value, revision, updated_by, owner, created_at, updated_at FROM bs_vars WHERE 1 = 0'],
+    varsExists: d === 'postgres'
+      ? "SELECT 1 AS x FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'bs_vars'"
+      : "SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'bs_vars'",
     schema: benchStoreSchema(d),
     probes: [
       'SELECT name, title, version, columns, key_cols, row_count, data_bytes, created_at, updated_at, updated_by FROM bs_datasets WHERE 1 = 0',
@@ -1670,7 +1689,6 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
       'SELECT id, dataset, op, idem_key, body_sha256, row_count, actor, at, result FROM bs_writes WHERE 1 = 0',
       'SELECT id, kind, target, from_version, to_version, actor, note, at FROM bs_changes WHERE 1 = 0',
       'SELECT snapshot_id, seq, row FROM bs_snapshot_rows WHERE 1 = 0',
-      'SELECT key, kind, value, revision, updated_by, owner, created_at, updated_at FROM bs_vars WHERE 1 = 0',
     ],
     types: types.map((t) => [t, benchSqlType(d, t)]),
     createTable: `CREATE TABLE {table} (rid ${benchAutoId(d)}{columns})`,
