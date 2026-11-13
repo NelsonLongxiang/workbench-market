@@ -72,6 +72,7 @@ try {
   check(defaults.status === 201, '缺省限流下能建（每分钟 5 件）', show(defaults));
   await call('PUT', '/api/settings', ADMIN, { arrange_rate_per_minute: '100' }); // 下面几节一个人要建好多件；限流单独一节测
   const dbr = () => new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true });
+  const dbw = (sql, ...a) => { const d = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 }); try { return d.prepare(sql).run(...a); } finally { d.close(); } };
   const deliveries = (eventId) => { const d = dbr(); try { return d.prepare('SELECT target_team, status FROM workbench_event_deliveries WHERE event_id = ? ORDER BY id').all(eventId).map((r) => ({ ...r })); } finally { d.close(); } };
   const past0 = () => { const d = dbr(); try { return d.prepare("SELECT id FROM work_items WHERE id LIKE 'wi_wbe-%' ORDER BY rowid LIMIT 1").get()?.id; } finally { d.close(); } };
   const past0Event = () => { const d = dbr(); try { return d.prepare("SELECT event_id FROM workbench_events ORDER BY rowid LIMIT 1").get()?.event_id; } finally { d.close(); } };
@@ -339,6 +340,15 @@ try {
       && nm.every((m) => m.notice === 'due-changed' && m.by === 'user:alpha' && m.text.startsWith('[截止变更]') && m.text.includes('2099-01-02') && m.text.includes('2026-01-01') && !m.text.includes('\n'))
       && JSON.parse(body).task?.due === '2026-01-01',
       '改截止日期同步到节点：每条还活着的投递排一条「[截止变更]」（一行字，新旧日期都写），作为同一 context 的新任务；派工正文里的 task.due 原样不改', show({ notified: ch.body?.notified, dlv, notes: nm }));
+    // 管理员不代改截止：会话登录的管理员改 alpha 的事项 → 404（不说有没有这件），不改动；只带管理口令的不是人，401；管理员看详情 can.due 为假
+    const dueBefore = (() => { const d = dbr(); try { return d.prepare('SELECT due_at FROM work_items WHERE id = ?').get(past.body?.item_id)?.due_at; } finally { d.close(); } })();
+    const SESSION_ADMIN = { ...SAME, cookie: `session_id=${SESSIONS.admin}` };
+    const byAdmin = await call('POST', `/api/work-items/${past.body?.item_id}/due`, SESSION_ADMIN, { due: '2099-05-05' });
+    const byToken = await call('POST', `/api/work-items/${past.body?.item_id}/due`, ADMIN, { due: '2099-05-06' });
+    const dueAfter = (() => { const d = dbr(); try { return d.prepare('SELECT due_at FROM work_items WHERE id = ?').get(past.body?.item_id)?.due_at; } finally { d.close(); } })();
+    const adminView = await call('GET', `/api/work-items/${past.body?.item_id}`, SESSION_ADMIN);
+    check(byAdmin.status === 404 && byToken.status === 401 && dueAfter === dueBefore && adminView.status === 200 && adminView.body?.can?.due === false,
+      '管理员不代改截止：会话登录的管理员改 → 404、只带管理口令 → 401，都没改动；管理员看详情 can.due 为假', show({ st: byAdmin.status, token: byToken.status, dueBefore, dueAfter, can: adminView.body?.can }));
     // 来自未验证提交方的事项（建立人主体记着 alpha，context 说 unverified，不是票据认出的）：creatorCheck 是 not_eligible，
     // 只能由管理员处理。改截止会往节点发通知，也是写，同样挡住：建立人改不了（404，不说有没有这件），详情 can.due 为假
     const uvSeed = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '-e', `
@@ -432,6 +442,44 @@ try {
     check(second.status === 201 && token2 !== '' && token2 !== token && own2.status === 200 && own2.buf.equals(bytes4) && [crossA, crossB, crossC, crossD].every((r) => r.status === 404),
       '取件（b）：令牌只取得到它那件任务挂的附件——拿 A 的令牌取 B 的附件（换不换事件号）、拿 B 的令牌取 A 的附件，一律 404', show([own2.status, crossA.status, crossB.status, crossC.status, crossD.status]));
     gateCase = { ev, token, a1: a1.body?.id, bytes, ev2, token2, a4: a4.body?.id, item };
+
+    // 人读：看得到 X 也看得到 Y 的人，用 X 的地址读 Y 挂的附件 → 404（附件要属于地址里的这件事项）
+    const crossItem = await getRaw(`/api/work-items/${item}/attachments/${a4.body?.id}`, ALPHA);
+    const ownY = await getRaw(`/api/work-items/${second.body?.item_id}/attachments/${a4.body?.id}`, ALPHA);
+    check(ownY.status === 200 && crossItem.status === 404, '人读附件：同一个人看得到两件事项，拿 X 的地址读 Y 的附件 → 404（Y 的地址读得到）', show({ ownY: ownY.status, cross: crossItem.status }));
+
+    // 接单节点取件的三种「令牌还在、但不该再给」：事项到了终态、投递没在已发出（比如判死了）、送达超过 7 天
+    const armed = async (label) => {
+      const up1 = await up(ALPHA, `${label}.txt`, Buffer.from(label));
+      const arr = await call('POST', '/api/work-items', ALPHA, form({ attachments: [up1.body?.id] }));
+      const ev3 = arr.body?.event_id;
+      const d5 = dbr(); let r5; try { r5 = d5.prepare('SELECT id, message FROM workbench_event_deliveries WHERE event_id = ?').get(ev3); } finally { d5.close(); }
+      dbw("UPDATE workbench_event_deliveries SET status = 'sent', sent_at = datetime('now') WHERE id = ?", r5?.id);
+      return { ev: ev3, item: arr.body?.item_id, aid: up1.body?.id, delivery: r5?.id, tok: JSON.parse(r5?.message ?? '{}').reply?.token ?? '' };
+    };
+    const fetchAs = (x) => getRaw(`/api/workbench-events/${x.ev}/attachments/${x.aid}`, { 'x-reply-token': x.tok });
+    const term = await armed('终态'), dead = await armed('判死'), old = await armed('过期');
+    const ctl = await Promise.all([term, dead, old].map(fetchAs));
+    const lastTo = (() => { const d = dbr(); try { return d.prepare('SELECT to_state FROM work_item_log WHERE item_id = ? ORDER BY seq DESC LIMIT 1').get(term.item)?.to_state; } finally { d.close(); } })();
+    dbw("INSERT INTO work_item_log (item_id, fact, fact_source, fact_id, from_state, to_state, actor, detail) VALUES (?, 'failed', 'test', 'n2', ?, 'failed', 'test', '{}')", term.item, lastTo ?? 'draft');
+    dbw("UPDATE work_items SET state = 'failed' WHERE id = ?", term.item);
+    dbw("UPDATE workbench_event_deliveries SET status = 'dead' WHERE id = ?", dead.delivery);
+    dbw("UPDATE workbench_event_deliveries SET sent_at = datetime('now', '-8 days') WHERE id = ?", old.delivery);
+    const [fTerm, fDead, fOld] = await Promise.all([term, dead, old].map(fetchAs));
+    check(ctl.every((r) => r.status === 200), '对照：三件都送达、令牌对，先都取得到', show(ctl.map((r) => r.status)));
+    check(fTerm.status === 404, '取件：事项到了终态（这里是没办成）、令牌还在 → 404', show(fTerm.status));
+    check(fDead.status === 404, '取件：投递不在已发出（判死了）、令牌还在 → 404', show(fDead.status));
+    check(fOld.status === 404, '取件：送达超过 7 天、令牌还在 → 404', show(fOld.status));
+
+    // 上传可执行文件：ELF、MZ 头一律 400 attachment_executable_refused，不落盘、不记录
+    const { readdirSync } = await import('node:fs');
+    const filesIn = (dir) => { try { return readdirSync(dir, { recursive: true, withFileTypes: true }).filter((e) => e.isFile()).length; } catch { return 0; } };
+    const rowsNow = () => { const d = dbr(); try { return d.prepare('SELECT COUNT(*) AS c FROM work_item_attachments').get().c; } finally { d.close(); } };
+    const f0 = filesIn(join(data, 'uploads')), r0 = rowsNow();
+    const elf = await up(ALPHA, 'tool.bin', Buffer.concat([Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0]), Buffer.alloc(64)]));
+    const mz = await up(ALPHA, 'setup.txt', Buffer.concat([Buffer.from('MZ'), Buffer.alloc(64)]));
+    check([elf, mz].every((r) => r.status === 400 && r.body?.error === 'attachment_executable_refused') && filesIn(join(data, 'uploads')) === f0 && rowsNow() === r0,
+      '上传：ELF、MZ（改成 .txt 也一样）一律 400 attachment_executable_refused，不落盘、不记录', show({ elf: [elf.status, elf.body], mz: [mz.status, mz.body], files: [f0, filesIn(join(data, 'uploads'))], rows: [r0, rowsNow()] }));
     // 撤回这件任务（管理员经「关注」撤回；投递已发出，事项本身不一定立刻到终态）：之后凭自己的令牌也取不到
     const wd = await call('POST', '/api/attention/answer', ADMIN, { source: 'work-items', source_id: second.body?.item_id, answer: 'withdraw', input: {} });
     const st2 = (await call('GET', `/api/work-items/${second.body?.item_id}`, ALPHA)).body?.item?.state;
