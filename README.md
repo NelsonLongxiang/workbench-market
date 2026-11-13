@@ -373,7 +373,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   path-inside.ts（路径落点判断，只此一处：规范化后等于根、或以「根加分隔符」开头才算在根里；/apps/ 静态托管、/go/ 转自产台、/sop/ 附件都用它）
   portal-observation.ts（无敏感原文的被动计数）
   portal.ts（/go/ 反代·白屏五层+登录态）
-  redis.ts（Redis 连接和 SOP 状态层：连接只有这一条，共用状态层服务也用它）
+  redis.ts（Redis 连接和 SOP 执行实例的热态：连接只有这一条；SOP 的读写经共用状态层的 sop 句柄，只碰 wm:sop: 开头的键）
   request-person.ts  这个请求是哪个人：只经身份服务认请求带的登录凭据（登录提供方的会话或市场会话），主体须是启用的人；认不出就是没有，调用方照常放行（任务中心建录入、发布用）
   roles.ts（角色声明：平台四个内置角色 owner/admin/member/guest，组织角色初始集合 dept-member/dept-lead 或外部声明文件·启动时校验，不合格拒绝启动）
   root-context.ts（全进程唯一的 Cordis 根上下文·不开数据库）
@@ -438,7 +438,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   login-session.ts（市场会话与登录 state：Cordis 服务 `loginSessions`·绝对期限·注销与停用即失效·state 一次性并绑浏览器）
   principal.ts（主体与外部身份：Cordis 服务 `principals`·把登录认出的人对到主体·停用与恢复）
   remote-allow.ts（远程写豁免面的快照）
-  state-layer.ts（共用状态层：Cordis 服务 `state`·Redis 可选、没有就以 SQLite 为准·台的键 `wm:bench:<台 id>:…` 由 benchKey() 拼·删台按前缀清·随根上下文断开）
+  state-layer.ts（共用状态层：Cordis 服务 `state`·Redis 可选、没有就以 SQLite 为准·台的键 `wm:bench:<台 id>:…` 由 benchKey() 拼·删台按前缀清·随根上下文断开·别的域经 stateDomain(<域>) 拿句柄（现在只有 sop），只许碰 wm:<域>: 开头的键）
   submission-counts.ts（「人提需求」的提交计数：只记通道、有没有登录凭据、认没认出人，按天累计次数，不存内容；提交人票据验得过、验不过的次数）
   task-center.ts（任务中心：任务、事件、总开关、状态迁移）
   work-item.ts（事项与事项日志：Cordis 服务 `workItems`·按迁移表推进状态的唯一入口 `apply`·日志只增不改；听 workbench-events 每写一行事件日志发的 `workbench-event/logged`，在来源的事务里用保存点推进事项，出错不影响来源、按事实种类计数；`backfill()` 从事件表和事件日志补建存量事项，可重跑；建事项时记下交给方式（handoff：team / own-seat / lead-directed，存量是 team）、等谁过目（review_by）和指名的席位（directed_seat_id，只认 seatId），都从事件层 recorded 那一行取；建事项时标题取任务中心的任务标题（取不到退到来源坐标）、派给取投递的目标团队，存量里还是自动缺省值的启动时补上；建立人主体 `creator_principal` 只取发布时经身份服务认出、来源已验证的人，认不出就空着，「是不是他的」只认它（`isCreator`），`created_by` 只用于显示（认出提需求人时就是他的主体，认不出才用事件上自填的名字；不拿发布人顶替））
