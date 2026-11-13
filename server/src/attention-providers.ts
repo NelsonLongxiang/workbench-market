@@ -337,8 +337,14 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
       list: (req) => passes(deps.adminGuard, req)
         ? svc<A2aPeerService>('a2aPeers').list({ status: 'key_changed' }).map((p) => item({
           source: 'a2a-peers', source_id: p.id, category: 'grant',
-          title: `对端 ${p.root_url}（${p.zone || '未知域'}）的名片公钥变了：旧 ${p.key_fingerprint.slice(0, 19)}… → 新 ${p.pending_fingerprint.slice(0, 19)}…，核对指纹后确认`,
-          waiting_for: p.root_url, since: p.updated_at, answers: [], link: `/a2a-peers?peer=${p.id}`,
+          title: `对端 ${p.root_url}（${p.zone || '未知域'}）的名片公钥变了：旧 ${p.key_fingerprint.slice(0, 19)}… → 新 ${p.pending_fingerprint.slice(0, 19)}…，向对端核对新指纹后，在这里填入完整指纹确认，或者停用这个对端`,
+          // 市场里没有对端登记表的页面：不给链接，当场办——确认新公钥（要填完整的新指纹，和对端核对过才填得出）、停用（要写理由）。
+          // 两个答法直接调对端登记表的接口，那边照旧只认管理员、核指纹
+          waiting_for: p.root_url, since: p.updated_at, answers: ['confirm-key', 'disable'], link: null,
+          answer_via: { method: 'POST', path: `/api/a2a/peers/${encodeURIComponent(p.id)}/confirm-key`, answers: {
+            'confirm-key': { body: {}, input: { fingerprint: { to: 'fingerprint', required: true, max: 71 } } },
+            disable: { path: `/api/a2a/peers/${encodeURIComponent(p.id)}/disable`, body: {}, input: { reason: { to: 'reason', required: true, max: 500 } } },
+          } },
         }))
         : null,
     }),

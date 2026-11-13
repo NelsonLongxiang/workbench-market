@@ -11,7 +11,7 @@ import DecisionCard from '../components/DecisionCard';
 import ArrangeDrawer from '../components/ArrangeDrawer';
 import { adminActive, subscribeAdminToken } from '../admin-token';
 import { ATTENTION_CHANGED, getAttention, getAuthMe, getLifecycle } from '../api';
-import { answerChoices, groupCards, stuckTotal, type AttentionItem } from '../attention-view';
+import { SEAT_ASKS_MORE, answerChoices, groupCards, stuckTotal, type AttentionItem } from '../attention-view';
 import { buildRows, splitRows, daysLabel, filterAttention, greeting, panoramaType, stageColumns, summaryLine, decideLine, downLine, DECIDE_DOWN, LINES_DOWN, toggleFocus, type Focus, type LcObject, type LcType } from '../home-view';
 
 const MAX_PAGES = 10;
@@ -27,6 +27,7 @@ export default function Home() {
   const [attDown, setAttDown] = useState(false);
   /** 停太久的一共几件（服务端的 counts.stuck_count） */
   const [stuckCount, setStuckCount] = useState<number | null>(null);
+  const [more, setMore] = useState(false);
   /** 「关注」第一次读回来之前：总结句和卡片区都不写字（不先说「眼下没有要你拍板的」），用骨架 */
   const [attLoaded, setAttLoaded] = useState(false);
   const [focus, setFocus] = useState<Focus>(null);
@@ -36,6 +37,7 @@ export default function Home() {
     const r = await getAttention();
     setAttDown(r.identityDown);
     setStuckCount(r.stuckCount);
+    setMore(r.seatAsksMore);
     setAttLoaded(true);
     setAttention(r.status >= 200 && r.status < 300 ? r.items as AttentionItem[] : []);
   }, []);
@@ -86,6 +88,7 @@ export default function Home() {
       <Typography.Paragraph type="secondary" className="wm-home-sum" data-testid="home-summary" aria-busy={!attLoaded}>
         {!attLoaded ? null : attDown ? downLine(lcState === 'ok' ? rows : null) : lcState === 'ok' ? summaryLine(rows, all.now.length, all.elsewhere.length, all.proxy.length, stuckN) : decideLine(all.now.length, all.elsewhere.length, false, all.proxy.length, stuckN)}
       </Typography.Paragraph>
+      {attLoaded && !attDown && more && <Typography.Paragraph type="secondary" className="wm-caption" data-testid="home-more">{SEAT_ASKS_MORE}</Typography.Paragraph>}
 
       {lcState === 'loading' && <Skeleton active paragraph={{ rows: 4 }} />}
       {lcState === 'down' && <div className="wm-home-box wm-home-down" data-testid="home-lines-down"><DisconnectOutlined /><span>{LINES_DOWN}</span></div>}

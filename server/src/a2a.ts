@@ -68,6 +68,21 @@ export function teamRosterMode(env: NodeJS.ProcessEnv = process.env): 'on' | 'of
 export function setTeamRoster(on: boolean): void { teamRoster = on; }
 export function teamRosterDeclared(): boolean { return teamRoster; }
 
+/**
+ * 名片是否声明 directedSeats（a2a-net #627：宿主只认声明了它的远端成员发来的指名派工行 `[A2A dispatch] {"for":"<seatId>"}`）。
+ * 声明了，「安排一件事」带 seat_id 时派工正文第一行写指名（对端宿主也声明了才写，否则退回整队派发并留痕）；
+ * 不声明，带 seat_id 的安排一律 400（不悄悄当成没指名）。
+ * 开关 WM_A2A_DIRECTED_SEATS（缺省 on；off 时名片不声明、不收指名），启动时由 index.ts 读一次并设进来。
+ */
+let directedSeats = true;
+export function directedSeatsMode(env: NodeJS.ProcessEnv = process.env): 'on' | 'off' | null {
+  const raw = String(env.WM_A2A_DIRECTED_SEATS ?? '');
+  if (raw === '' || raw === 'on') return 'on';
+  return raw === 'off' ? 'off' : null;
+}
+export function setDirectedSeats(on: boolean): void { directedSeats = on; }
+export function directedSeatsDeclared(): boolean { return directedSeats; }
+
 let cachedKey: KeyObject | null = null;
 
 /** 首启生成 Ed25519 并存 DATA_DIR/a2a-key.pem（0600）；之后加载。 */
@@ -165,7 +180,7 @@ export function buildAgentCard(keyPath: string): Record<string, unknown> {
     if (Array.isArray(parsed)) peers = parsed.filter((x) => typeof x === 'string');
   } catch { /* 配置坏值忽略 */ }
   const core = {
-    capabilities: { sop: true, bindings: 'human-only', stage: 'P1-readonly', reworkReturns: true, ...(memberProvenance ? { canvasMemberProvenance: true } : {}), ...(progressReceipts ? { progressReceipts: true } : {}), ...(teamRoster ? { teamRoster: true } : {}) },
+    capabilities: { sop: true, bindings: 'human-only', stage: 'P1-readonly', reworkReturns: true, ...(memberProvenance ? { canvasMemberProvenance: true } : {}), ...(progressReceipts ? { progressReceipts: true } : {}), ...(teamRoster ? { teamRoster: true } : {}), ...(directedSeats ? { directedSeats: true } : {}) },
     expiresAt: now + CARD_TTL_MS,
     name: 'workbench-market',
     session: MARKET_TEAM,

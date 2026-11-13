@@ -34,7 +34,7 @@ rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 
 // 对端：提供签名名片；收市场发来的 /a2a/direct（答复新任务），可设成一直失败
-async function peer(zone, reuseKey) {
+async function peer(zone, reuseKey, caps = {}) {
   const key = reuseKey ?? generateKeyPairSync('ed25519').privateKey;
   const p = await port();
   const peerObj = { zone, key, url: `http://127.0.0.1:${p}`, got: [], fail: false, cardHits: 0 };
@@ -42,7 +42,7 @@ async function peer(zone, reuseKey) {
     if (req.url === '/.well-known/agent-card.json') {
       peerObj.cardHits++;
       res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify(signCard({ capabilities: {}, expiresAt: Date.now() + 3600_000, name: zone, session: zone, team: zone }, key)));
+      return res.end(JSON.stringify(signCard({ capabilities: caps, expiresAt: Date.now() + 3600_000, name: zone, session: zone, team: zone }, key)));
     }
     let b = ''; req.on('data', (c) => { b += c; }); req.on('end', () => {
       let j = {}; try { j = JSON.parse(b); } catch {}
@@ -54,7 +54,7 @@ async function peer(zone, reuseKey) {
   await new Promise((r) => peerObj.server.listen(p, '127.0.0.1', r));
   return peerObj;
 }
-const lab = await peer('lab');
+const lab = await peer('lab', undefined, { reworkReturns: true, directedSeats: true }); // 宿主名片声明了打回派工行和指名
 const evil = await peer('evil');
 
 const PM = await port();
@@ -112,6 +112,8 @@ async function waitFor(fn, ms = 8000) { const end = Date.now() + ms; while (Date
 
 try {
   if (!(await ready())) throw new Error('实例未就绪：' + out.slice(-600));
+  // 把 lab 登记进对端登记表（取名片、钉公钥）：派工行只写给名片声明了对应能力的对端
+  { const reg = await api('POST', '/api/a2a/peers', { root_url: lab.url }); if (![200, 201].includes(reg.status)) throw new Error('登记 lab 失败：' + JSON.stringify(reg.body)); }
   for (let i = 0; i < 40; i++) { if (q("SELECT 1 FROM sqlite_master WHERE name = 'workbench_events'").length) break; await sleep(250); }
   {
     await dapi('GET', '/api/auth/me');
@@ -282,6 +284,23 @@ try {
         && q("SELECT COUNT(*) AS c FROM work_item_log WHERE item_id = ? AND fact = 'note' AND json_extract(detail, '$.note') = 'late-result'", `wi_${Y.ev}`)[0].c === 1, `${r.text.slice(0, 80)} ${JSON.stringify(state(Y.ev))}`);
       r = await receipt(T2, '再改好了', { outcome: 'completed', idempotencyKey: T2, disposition: 'result' }, Y.ctx);
       ok('……第二次打回后的重做 T2 completed → 回到等验收', r.status === 200 && state(Y.ev)?.state === 'ready', `${r.text.slice(0, 80)} ${JSON.stringify(state(Y.ev))}`);
+    }
+    // 对端宿主名片没声明 reworkReturns：不写派工行，只发「[打回重做]…」这一行；事件日志留一行 rework-fallback
+    {
+      const plain = await peer('plain');
+      const reg = await api('POST', '/api/a2a/peers', { root_url: plain.url });
+      const P = seedEvent({ zone: 'plain', root: plain.url });
+      { const d = db(); try { d.prepare('UPDATE workbench_event_deliveries SET target_url = ? WHERE id = ?').run(plain.url, P.delivery); } finally { d.close(); } }
+      await receipt(P.task, '接下', { idempotencyKey: P.task, disposition: 'acknowledged' }, P.ctx, { inbound: `ack-${P.task}`, signer: plain });
+      await receipt(P.task, '交付', { outcome: 'completed', idempotencyKey: P.task, disposition: 'result' }, P.ctx, { signer: plain });
+      await retAns(P.ev, '没声明能力的对端');
+      await waitFor(() => plain.got.some((g) => String(g.body.message ?? '').includes('[打回重做]')));
+      const pm = String(plain.got.find((g) => String(g.body.message ?? '').includes('[打回重做]'))?.body?.message ?? '');
+      ok('对端名片没声明 reworkReturns：只发「[打回重做]…」一行，不写派工行；事件日志留 rework-fallback',
+        [200, 201].includes(reg.status) && state(P.ev)?.state === 'progress' && pm.startsWith('[打回重做]') && !pm.includes('[A2A dispatch]') && pm.split('\n').length === 1
+          && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE event_id = ? AND action = 'rework-fallback' AND json_extract(detail, '$.reason') = 'peer_not_declared'", P.ev)[0].c === 1,
+        JSON.stringify({ reg: reg.status, pm, s: state(P.ev) }));
+      plain.server.close();
     }
     // R4：没有 completed、派过两次 → 取最近一次派工（直接查发给谁的函数）
     const R4 = seedEvent();

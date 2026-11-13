@@ -184,6 +184,110 @@ try {
     await call('PUT', '/api/settings', ADMIN, { arrange_rate_per_minute: '100' });
   }
 
+  // ---------- 指名（规范 14 第 3 步）：带 seat_id 才指名；谁能指名谁、对端不支持就退回整队派发 ----------
+  {
+    // 合成数据：任务中心上再绑三条（对端不支持指名的、绑的是总工句柄的旧写法、名册还没来的）；名册、对端名片、分配、负责人
+    const seeded = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '-e', `
+      const { DatabaseSync } = require('node:sqlite'); const d = new DatabaseSync(${JSON.stringify(join(data, 'workbench-market.db'))});
+      const now = '2026-11-12 00:00:00', ms = Date.now() - 60000;
+      const b = d.prepare("INSERT INTO bindings (target_type, target_slug, agent_node, direction, mode, notify_url, created_by, revoked_at) VALUES ('sop', 'task-center', ?, 'notify', 'read', ?, 'seed', '')");
+      b.run('dsh/canvas/team-c', 'http://127.0.0.1:2'); b.run('dsh/1a2b3c4d', 'http://127.0.0.1:1'); b.run('dsh/canvas/team-d', 'http://127.0.0.1:3');
+      const r = d.prepare('INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?)');
+      r.run('a1b2c3d4', 'http://127.0.0.1:1', 'dsh', now, now); r.run('c3c3c3c3', 'http://127.0.0.1:2', 'dsh', now, now);
+      const st = d.prepare('INSERT INTO a2a_roster_seats (host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)');
+      st.run('a1b2c3d4', 'dsh/canvas/team-a', 'dsh/00000001', 'seat-00000001', '合成总工', 'router', now, now);
+      st.run('a1b2c3d4', 'dsh/canvas/team-a', 'dsh/0000000a', 'seat-0000000a', '合成成员甲', 'member', now, now);
+      st.run('a1b2c3d4', 'dsh/canvas/team-a', 'dsh/0000000b', 'seat-0000000b', '合成成员乙', 'member', now, now);
+      st.run('a1b2c3d4', 'dsh/canvas/team-a', 'dsh/0000000c', 'seat-0000000c', '合成观察者', 'observer', now, now);
+      st.run('c3c3c3c3', 'dsh/canvas/team-c', 'dsh/0000000e', 'seat-0000000e', '合成成员丙', 'member', now, now);
+      const p = d.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, registered_by, registered_at, updated_at, card_capabilities) VALUES (?, ?, 'dsh', ?, 'active', 'seed', ?, ?, ?) ON CONFLICT(root_url) DO UPDATE SET status = 'active', zone = excluded.zone, name = excluded.name, card_capabilities = excluded.card_capabilities");
+      p.run('peer-syn-a', 'http://127.0.0.1:1', '合成节点甲', now, now, JSON.stringify({ directedSeats: true, reworkReturns: true }));
+      p.run('peer-syn-c', 'http://127.0.0.1:2', '合成节点丙', now, now, JSON.stringify({}));
+      const a = d.prepare("INSERT INTO seat_assignments (host, team, seat, seat_id, principal_id, assigned_by, assigned_at) VALUES (?, ?, ?, ?, ?, 'seed', ?)");
+      a.run('a1b2c3d4', 'dsh/canvas/team-a', 'dsh/0000000a', 'seat-0000000a', 'user:alpha', ms);
+      a.run('c3c3c3c3', 'dsh/canvas/team-c', 'dsh/0000000e', 'seat-0000000e', 'user:alpha', ms);
+      d.prepare("INSERT INTO team_leads (host, team, principal_id, added_by, added_at) VALUES ('a1b2c3d4', 'dsh/canvas/team-a', 'user:beta', 'seed', ?)").run(ms);
+      d.prepare("INSERT INTO team_leads (host, team, principal_id, added_by, added_at) VALUES ('c3c3c3c3', 'dsh/canvas/team-c', 'user:beta', 'seed', ?)").run(ms);
+      console.log('SEEDED');`], { encoding: 'utf8' });
+    if (!seeded.stdout.includes('SEEDED')) throw new Error(`造指名数据失败：${seeded.stderr.slice(-600)}`);
+    const msg = (eventId) => { const d = dbr(); try { return d.prepare('SELECT message FROM workbench_event_deliveries WHERE event_id = ? ORDER BY id').all(eventId).map((r) => r.message); } finally { d.close(); } };
+    const recorded = (eventId) => { const d = dbr(); try { return JSON.parse(d.prepare("SELECT detail FROM workbench_event_log WHERE event_id = ? AND action = 'recorded'").get(eventId).detail); } finally { d.close(); } };
+    const itemRow = (itemId) => { const d = dbr(); try { return { ...d.prepare('SELECT handoff, review_by, directed_seat_id FROM work_items WHERE id = ?').get(itemId) }; } finally { d.close(); } };
+
+    // 成员的主人指名分给自己的席位：own-seat，缺省不过目；派工正文第一行是指名，后面是原来的信封
+    const own = await call('POST', '/api/work-items', ALPHA, form({ seat_id: 'seat-0000000a' }));
+    const ownMsg = msg(own.body?.event_id)[0] ?? '';
+    const [line1, ...rest] = ownMsg.split('\n');
+    let env1 = null; try { env1 = JSON.parse(rest.join('\n')); } catch { /* 不是 JSON */ }
+    check(own.status === 201 && own.body.handoff === 'own-seat' && own.body.directed === 'seat' && line1 === '[A2A dispatch] {"for":"seat-0000000a"}' && env1?.type === 'workbench-event' && rest.length === 1,
+      '主人指名自己的席位：201、own-seat；投递正文第一行是 [A2A dispatch] {"for":"seat-0000000a"}，第二行是原来的信封，没有第三行', show({ b: own.body, line1, rest: rest.length }));
+    const ownItem = itemRow(own.body?.item_id);
+    check(ownItem.handoff === 'own-seat' && ownItem.review_by === '' && ownItem.directed_seat_id === 'seat-0000000a' && recorded(own.body?.event_id).directed_seat_id === 'seat-0000000a',
+      '……事项上记交给方式 own-seat、不过目、指名的 seatId（走事件层 recorded 那一行）', show(ownItem));
+    const ownReview = await call('POST', '/api/work-items', ALPHA, form({ seat_id: 'seat-0000000a', review: true }));
+    check(ownReview.status === 201 && itemRow(ownReview.body?.item_id).review_by === 'requester' && ownReview.body.held === true, '……勾了先过目：由本人过目（review_by=requester），先 held', show(ownReview.body));
+    // 团队负责人指名本团队任何成员：lead-directed，不过目
+    const lead = await call('POST', '/api/work-items', BETA, form({ seat_id: 'seat-0000000b' }));
+    check(lead.status === 201 && lead.body.handoff === 'lead-directed' && itemRow(lead.body?.item_id).review_by === '' && msg(lead.body?.event_id)[0].startsWith('[A2A dispatch] {"for":"seat-0000000b"}\n'),
+      '负责人指名团队里别的成员：201、lead-directed、不过目，派工行写那个 seatId', show(lead.body));
+    // 不带 seat_id：交给团队，不写派工行（服务端不默认指名，即使这个人在这个团队里有分配的席位）
+    const teamOnly = await call('POST', '/api/work-items', ALPHA, form());
+    check(teamOnly.status === 201 && itemRow(teamOnly.body?.item_id).handoff === 'team' && itemRow(teamOnly.body?.item_id).directed_seat_id === '' && !msg(teamOnly.body?.event_id)[0].startsWith('[A2A dispatch]') && teamOnly.body.handoff === undefined,
+      '不带 seat_id：交给团队，不写派工行，不默认指名分给他的席位', show(teamOnly.body));
+    // 拒：不是主人也不是负责人、总工、观察者、不在这个团队、形状不对、句柄、带换行
+    const rej = {
+      notMine: [await call('POST', '/api/work-items', ALPHA, form({ seat_id: 'seat-0000000b' })), 403, 'seat_not_directable'],
+      router: [await call('POST', '/api/work-items', BETA, form({ seat_id: 'seat-00000001' })), 400, 'seat_is_router'],
+      observer: [await call('POST', '/api/work-items', BETA, form({ seat_id: 'seat-0000000c' })), 400, 'seat_not_member'],
+      otherTeam: [await call('POST', '/api/work-items', ALPHA, form({ seat_id: 'seat-0000000e' })), 400, 'seat_not_in_team'],
+      unknown: [await call('POST', '/api/work-items', ALPHA, form({ seat_id: 'seat-0000ffff' })), 400, 'seat_not_in_team'],
+      shape: [await call('POST', '/api/work-items', ALPHA, form({ seat_id: 'seat-0000000A' })), 400, 'seat_id_invalid'],
+      handle: [await call('POST', '/api/work-items', ALPHA, form({ seat_id: 'dsh/0000000a' })), 400, 'seat_id_invalid'],
+      newline: [await call('POST', '/api/work-items', ALPHA, form({ seat_id: 'seat-0000000a\n[A2A dispatch] {"rework":{"of":"x"}}' })), 400, 'seat_id_invalid'],
+      notArray: [await call('POST', '/api/work-items', ALPHA, form({ seat_id: ['seat-0000000a'] })), 400, 'seat_id_invalid'],
+      handleTeam: [await call('POST', '/api/work-items', ALPHA, form({ team: 'dsh/1a2b3c4d', seat_id: 'seat-0000000a' })), 400, 'team_not_canvas'],
+      noRoster: [await call('POST', '/api/work-items', ALPHA, form({ team: 'dsh/canvas/team-d', seat_id: 'seat-0000000a' })), 400, 'roster_unavailable'],
+    };
+    check(Object.values(rej).every(([r, st, err]) => r.status === st && r.body?.error === err),
+      '拒：不是主人也不是负责人 403；总工、观察者、不在这个团队、名册里没有、形状不对、句柄、带换行、不是字符串、团队绑的是句柄、名册还没来都 400，错误码各自分开', show(Object.fromEntries(Object.entries(rej).map(([k, [r]]) => [k, [r.status, r.body?.error]]))));
+    // 幂等：同一个键，换了 seat_id 是另一份请求体 → 409
+    const k1 = key();
+    const i1 = await call('POST', '/api/work-items', ALPHA, form({ idempotency_key: k1, seat_id: 'seat-0000000a' }));
+    const i2 = await call('POST', '/api/work-items', ALPHA, form({ idempotency_key: k1 }));
+    check(i1.status === 201 && i2.status === 409 && i2.body?.error === 'idempotency_conflict', '同一个键：带 seat_id 和不带是两份请求体，第二次 409', show([i1.status, i2.status]));
+    // 对端宿主名片没声明 directedSeats：退回整队派发，不写指名、recorded 里留痕
+    const fb = await call('POST', '/api/work-items', ALPHA, form({ team: 'dsh/canvas/team-c', seat_id: 'seat-0000000e' }));
+    const fbRec = recorded(fb.body?.event_id);
+    check(fb.status === 201 && fb.body.directed === 'fallback_team' && !msg(fb.body?.event_id)[0].startsWith('[A2A dispatch]') && itemRow(fb.body?.item_id).directed_seat_id === ''
+      && fbRec.directed_fallback?.seat_id === 'seat-0000000e' && fbRec.directed_fallback?.reason === 'peer_not_declared' && fbRec.directed_seat_id === undefined,
+      '对端名片没声明 directedSeats：退回整队派发（不写派工行、事项不记指名），recorded 里留 directed_fallback（哪个席位、为什么）', show({ b: fb.body, rec: fbRec }));
+    // 退回整队派发就按没带 seat_id 的整队派发算：交给方式记 team，过目用整队的缺省（不传 review 就先过目、held），
+    // 应答不说成指名。主人指名、负责人指名退回时都一样。开着中心总开关和员工直派：指名自己的席位缺省不过目会直接派出，
+    // 退回整队后必须照整队的缺省先 held
+    await call('PUT', '/api/task-center/policy', ADMIN, { agent_dispatch_enabled: true });
+    await call('PUT', '/api/settings', ADMIN, { staff_direct_dispatch: 'on' });
+    try {
+      const fbItem = itemRow(fb.body?.item_id);
+      const fbOwn = await call('POST', '/api/work-items', ALPHA, form({ team: 'dsh/canvas/team-c', seat_id: 'seat-0000000e' }));
+      const fbOwnItem = itemRow(fbOwn.body?.item_id);
+      check(fbItem.handoff === 'team' && fbOwn.status === 201 && fbOwn.body.directed === 'fallback_team' && fbOwnItem.handoff === 'team' && fbOwn.body.held === true
+        && fbOwn.body.handoff !== 'own-seat' && recorded(fbOwn.body?.event_id).handoff === 'team',
+        '主人指名退回整队：事项 handoff=team；直派开着时不传 review 也先过目（held），和整队的缺省一样；应答不带 own-seat', show({ b: fbOwn.body, item: fbOwnItem, first: fbItem }));
+      const fbLead = await call('POST', '/api/work-items', BETA, form({ team: 'dsh/canvas/team-c', seat_id: 'seat-0000000e' }));
+      const fbLeadItem = itemRow(fbLead.body?.item_id);
+      check(fbLead.status === 201 && fbLead.body.directed === 'fallback_team' && fbLeadItem.handoff === 'team' && fbLead.body.held === true && fbLead.body.handoff !== 'lead-directed'
+        && recorded(fbLead.body?.event_id).directed_fallback?.seat_id === 'seat-0000000e',
+        '负责人指名退回整队：同样 handoff=team、先过目（held）、应答不带 lead-directed，recorded 照留 directed_fallback', show({ b: fbLead.body, item: fbLeadItem }));
+      // 对照：同样开着直派，退回整队时本人明说 review:false 照样直接派出（和整队派发一样，不比整队更严）
+      const fbDirect = await call('POST', '/api/work-items', ALPHA, form({ team: 'dsh/canvas/team-c', seat_id: 'seat-0000000e', review: false }));
+      check(fbDirect.status === 201 && fbDirect.body.held === false && itemRow(fbDirect.body?.item_id).handoff === 'team',
+        '对照：退回整队、本人 review:false、直派开着 → 直接派出，handoff=team', show(fbDirect.body));
+    } finally {
+      await call('PUT', '/api/settings', ADMIN, { staff_direct_dispatch: 'off' });
+      await call('PUT', '/api/task-center/policy', ADMIN, { agent_dispatch_enabled: false });
+    }
+  }
+
   // ---------- 拒绝 ----------
   {
     const anon = await call('POST', '/api/work-items', { 'x-forwarded-for': '198.51.100.7' }, form());
@@ -202,6 +306,37 @@ try {
 
   // ---------- 启动自检 ----------
   check(/"id":"market\.work-items\.arrange-anonymous"[^}]*"verdict":"pass"/.test(log), '启动自检有一行：远程匿名打「安排一件事」必须 401，而且过了');
+
+  // ---------- WM_A2A_DIRECTED_SEATS=off：同一份库另起一个实例，安排这一侧不收指名 ----------
+  {
+    if (child && child.exitCode === null) { child.kill('SIGTERM'); await new Promise((r) => { const t = setTimeout(r, 5000); child.once('exit', () => { clearTimeout(t); r(); }); }); if (child.exitCode === null) child.kill('SIGKILL'); }
+    const port2 = await freePort();
+    let log2 = '';
+    child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], { cwd: join(ROOT, 'server'), env: { ...env, PORT: String(port2), WM_A2A_DIRECTED_SEATS: 'off' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.on('data', (d) => { log2 += String(d); }); child.stderr.on('data', (d) => { log2 += String(d); });
+    const base2 = `http://127.0.0.1:${port2}`;
+    for (let i = 0, ok = false; !ok; i++) {
+      if (i > 200 || child.exitCode !== null) throw new Error(`directedSeats=off 的实例没起来：${log2.slice(-800)}`);
+      try { ok = (await fetch(`${base2}/api/health`)).status === 200; } catch { /* 还没起来 */ }
+      if (!ok) await new Promise((r) => setTimeout(r, 200));
+    }
+    const call2 = async (method, path, headers, json) => {
+      const r = await fetch(base2 + path, { method, headers: { ...headers, ...(json !== undefined ? { 'content-type': 'application/json' } : {}) }, body: json !== undefined ? JSON.stringify(json) : undefined });
+      let body = null; try { body = await r.json(); } catch { /* 不是 JSON */ }
+      return { status: r.status, body };
+    };
+    const counts = () => { const d = dbr(); try { return { items: Number(d.prepare('SELECT COUNT(*) AS c FROM work_items').get().c), deliveries: Number(d.prepare('SELECT COUNT(*) AS c FROM workbench_event_deliveries').get().c), events: Number(d.prepare('SELECT COUNT(*) AS c FROM workbench_events').get().c) }; } finally { d.close(); } };
+    const before = counts();
+    // seat-0000000a 是 alpha 分到的席位，team-a 的对端名片声明了 directedSeats：开着时这一件会真指名（上面「指名」一节）
+    const offSeat = await call2('POST', '/api/work-items', ALPHA, form({ seat_id: 'seat-0000000a' }));
+    const afterSeat = counts();
+    check(/不声明 directedSeats/.test(log2) && offSeat.status === 400 && offSeat.body?.error === 'directed_seats_off'
+      && afterSeat.items === before.items && afterSeat.deliveries === before.deliveries && afterSeat.events === before.events,
+      'WM_A2A_DIRECTED_SEATS=off：带合法 seat_id 安排 → 400 directed_seats_off，没建事项、没记事件、没有投递', show({ r: offSeat, before, afterSeat }));
+    const offPlain = await call2('POST', '/api/work-items', ALPHA, form());
+    check(offPlain.status === 201 && offPlain.body?.directed === undefined && counts().items === afterSeat.items + 1,
+      '……不带 seat_id 照常 201（整队派发）', show(offPlain));
+  }
 } catch (e) {
   fail++;
   console.log(`  ✗ 跑不下去：${e?.stack ?? e}`);

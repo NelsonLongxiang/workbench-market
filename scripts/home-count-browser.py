@@ -181,6 +181,23 @@ with sync_playwright() as p:
     pg.wait_for_selector('[data-testid=work-items-group-decide]')
     check('「关注」回来以后：「等你拍板」那组出来', pg.locator('[data-testid=work-items-group-decide-loading]').count() == 0)
     ctx.close()
+    # AI 员工的提问没列全（#720：sources['seat-asks'].more 为 true）：/attention 和全景的总结句下面各写一句「还有更多」；件数照列出来的算。没有这一项就不写
+    def open_with_sources(src):
+        c = b.new_context(viewport={'width': 1440, 'height': 900}); c.add_cookies([{'name': 'session_id', 'value': cfg['lead_session'], 'url': M}])
+        c.route('**/api/attention', lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps({'items': syn[:1], 'counts': {'total': 1}, 'sources': src})))
+        p_ = c.new_page(); p_.set_default_timeout(10000); return c, p_
+    ctx, pg = open_with_sources({'seat-asks': {'more': True}})
+    pg.goto(M + '/attention'); pg.wait_for_selector('[data-testid=attention-more]')
+    check('AI 员工的提问没列全：/attention 总结句下面写一句「还有更多没列出来」，不用警示色', '还有更多没列出来' in pg.locator('[data-testid=attention-more]').inner_text() and pg.locator('.ant-alert-warning, .ant-alert-error').count() == 0)
+    pg.goto(M + '/'); pg.wait_for_selector('[data-testid=home-more]')
+    check('全景：总结句下面也写这一句', '还有更多没列出来' in pg.locator('[data-testid=home-more]').inner_text())
+    ctx.close()
+    ctx, pg = open_with_sources({'seat-asks': {}})
+    pg.goto(M + '/attention'); pg.wait_for_function("() => document.querySelector('[data-testid=attention-summary]')?.textContent.trim().length > 0 && !document.querySelector('[data-testid=attention-summary]').textContent.includes('正在读')"); pg.wait_for_timeout(300)
+    a_more = pg.locator('[data-testid=attention-more]').count()
+    pg.goto(M + '/'); pg.wait_for_function("() => document.querySelector('[data-testid=home-summary]')?.textContent.trim().length > 0"); pg.wait_for_timeout(300)
+    check('列全了（没有 more）：两处都不写这一句', a_more == 0 and pg.locator('[data-testid=home-more]').count() == 0)
+    ctx.close()
     # 本机看样子用（CI 不设 WM_SHOT）：三组都有内容、按类别筛过、「不给」展开理由，各截一张 1440
     import os
     shot = os.environ.get('WM_SHOT')

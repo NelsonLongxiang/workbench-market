@@ -157,6 +157,19 @@ interface EventCore {
   directedSeatId?: string;
   /** 「安排一件事」从哪个驾驶舱安排的（驾驶舱的 id）。只记在 recorded 那一行，事项建出来时取 */
   cockpitId?: number;
+  /** 指名退回整队派发的留痕（对端宿主名片没声明 directedSeats）：想指名哪个席位、为什么没指名。只记在 recorded 那一行 */
+  directedFallback?: { seat_id: string; reason: string };
+}
+
+/**
+ * 投递的正文：信封 JSON；指名派发时第一行是签名派工行 `[A2A dispatch] {"for":"<seatId>"}`（a2a-net #627 N1），信封接在后面。
+ * 落库就是这一份（重试发的也是它），所以投递行就是对外发了什么的证据。seatId 进来前已过 `seat-<8hex>` 的形状校验，
+ * 这里再核一次：拼不出第二行、拼不出 rework。
+ */
+function dispatchText(core: EventCore, message: Record<string, unknown>): string {
+  const body = JSON.stringify(message);
+  if (!core.dispatch || !core.directedSeatId || !/^seat-[0-9a-f]{8}$/.test(core.directedSeatId)) return body;
+  return `[A2A dispatch] ${JSON.stringify({ for: core.directedSeatId })}\n${body}`;
 }
 
 /** 写事件行 + 每个目标一行投递。调用方负责事务。返回 event_id。 */
@@ -166,7 +179,7 @@ function recordEvent(core: EventCore, targets: Target[], routed: 'target' | 'def
   db.prepare('INSERT INTO workbench_events (event_id, source, workbench, item, context_id, submitter_kind, submitter, form_version, data_sha256, dispatch, routed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(eventId, core.source, core.workbench, core.item, core.contextId, core.submitterKind, core.submitter, core.formVersion, core.dataSha256, core.dispatch ? 1 : 0, routed);
   log(eventId, null, 'market', 'recorded', { source: core.source, routed, submitter_kind: core.submitterKind, targets: targets.length, ...(core.requester ? { requester: core.requester } : {}), ...(core.via ? { via: core.via } : {}), ...(core.publisher ? { publisher: core.publisher } : {}), ...(core.object ? { object: core.object } : {}), ...(core.phase ? { phase: core.phase } : {}),
-    ...(core.handoff ? { handoff: core.handoff, review_by: core.reviewBy ?? (held ? 'lead' : '') } : {}), ...(core.directedSeatId ? { directed_seat_id: core.directedSeatId } : {}), ...(core.cockpitId ? { cockpit_id: core.cockpitId } : {}) });
+    ...(core.handoff ? { handoff: core.handoff, review_by: core.reviewBy ?? (held ? 'lead' : '') } : {}), ...(core.directedSeatId ? { directed_seat_id: core.directedSeatId } : {}), ...(core.cockpitId ? { cockpit_id: core.cockpitId } : {}), ...(core.directedFallback ? { directed_fallback: core.directedFallback } : {}) });
   const envelope = envelopeOf(eventId, createdAt);
   for (const t of targets) {
     let token = '';
@@ -176,7 +189,7 @@ function recordEvent(core: EventCore, targets: Target[], routed: 'target' | 'def
       message = { ...envelope, reply: { url: `${marketPublicUrl()}/api/workbench-events/${eventId}/decision`, token, decisions: [...DECISIONS] } };
     }
     const info = db.prepare('INSERT INTO workbench_event_deliveries (event_id, target_team, target_url, caller_session, status, message, reply_token_sha256) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(eventId, t.agent_node, t.notify_url, callerSession, held ? 'held' : 'pending', JSON.stringify(message), token === '' ? '' : sha256(token));
+      .run(eventId, t.agent_node, t.notify_url, callerSession, held ? 'held' : 'pending', dispatchText(core, message), token === '' ? '' : sha256(token));
     log(eventId, Number(info.lastInsertRowid), 'market', held ? 'held' : 'queued', { target_team: t.agent_node });
   }
   return eventId;
@@ -190,7 +203,7 @@ export function recordTaskCenterEvent(task: { id: number; data: Record<string, u
   /** 「安排一件事」：直接指定派给的团队（必须是 assignableTeams 之一），不按「目标 SOP 台」解析；submitter 用本人主体；object、phase 记进 recorded */
   arranged?: { team: string; submitter: string; object?: string; phase?: string;
     /** 规范 14：交给方式、等谁过目、指名的席位（seatId）。阶段七的指名派工经这里写；不给就是交给团队、按 held 推等谁过目 */
-    handoff?: 'team' | 'own-seat' | 'lead-directed'; reviewBy?: '' | 'lead' | 'requester'; directedSeatId?: string;
+    handoff?: 'team' | 'own-seat' | 'lead-directed'; reviewBy?: '' | 'lead' | 'requester'; directedSeatId?: string; directedFallback?: { seat_id: string; reason: string };
     /** 从哪个驾驶舱安排的（调用方已经核过驾驶舱存在） */
     cockpitId?: number } }): string {
   let targetSop = '';
@@ -214,6 +227,7 @@ export function recordTaskCenterEvent(task: { id: number; data: Record<string, u
     handoff: task.arranged?.handoff ?? 'team', ...(task.arranged?.reviewBy !== undefined ? { reviewBy: task.arranged.reviewBy } : {}),
     ...(task.arranged?.directedSeatId ? { directedSeatId: task.arranged.directedSeatId } : {}),
     ...(task.arranged?.cockpitId ? { cockpitId: task.arranged.cockpitId } : {}),
+    ...(task.arranged?.directedFallback ? { directedFallback: task.arranged.directedFallback } : {}),
   };
   const fields: Record<string, unknown> = { id: task.id };
   for (const key of ['title', 'intent', 'references', 'deliverable', 'target', 'due']) fields[key] = task.stepValue(key) ?? '';
