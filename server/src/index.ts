@@ -72,6 +72,8 @@ import { registerTaskRoutes } from './routes/tasks.ts';
 import { benchViewsConfig, registerBenchViewRoutes, BENCH_ROWS_PATH } from './routes/bench-views.ts';
 import { BENCH_TOOL_NAMES, BENCH_GRANT_RE } from './bench-mcp-tools.ts';
 import { benchGrantsOf, benchRequestOfSession, benchRequestTtlConfig, benchRequestsOf, benchToolTarget, requestBenchTools, runBenchTool, setBenchRequestTtlHours } from './services/bench-mcp.ts';
+import { resolveBenchRef } from './services/bench-registry.ts';
+import { deleteCardWithBench, type CardDeleter } from './bench-card-delete.ts';
 import { BenchError } from './bench-query.ts';
 import { registerChangeRequestRoutes } from './routes/change-requests.ts';
 import { registerSopStateRoutes, registerSopSpaceRoutes } from './routes/sops.ts';
@@ -748,21 +750,27 @@ function workbenchUpdateCore(id: number, body: any, ctx: WriteCtx = { subject: '
   return rowToWorkbench(row);
 }
 
-function workbenchDeleteCore(id: number): { ok: boolean; deleted: number } {
-  const r = svc<WorkbenchService>('workbench').delete(id);
-  if (!r.changes) throw new HttpError(404, `workbench not found: ${id}`);
-  dropWorkbenchVars(id); // #336 变量随台删除
-  // issue #9：删除工作台同步清掉各驾驶舱对它的面板引用——否则悬空面板会让之后每次保存布局 400
-  const cocks = svc<CockpitService>('cockpit').all() as unknown as CockpitRow[];
-  for (const c of cocks) {
-    let panels: PanelConfig[];
-    try { panels = JSON.parse(c.layout_config || '[]'); } catch { continue; }
-    const kept = panels.filter((p) => p.workbenchId !== id);
-    if (kept.length !== panels.length) {
-      svc<CockpitService>('cockpit').setLayout(c.id, JSON.stringify(kept));
-    }
-  }
-  return { ok: true, deleted: id };
+// 删卡片连带它的台库（bench-card-delete.ts）：台库里有数据时要管理层并且确认，删前留备份；卡片本身那一份和台的登记在一个事务里
+async function workbenchDeleteCore(id: number, deleter: CardDeleter = { kind: 'anonymous' }, confirmBenchData = false): Promise<{ ok: boolean; deleted: number }> {
+  return deleteCardWithBench({
+    id, deleter, confirmBenchData,
+    exists: () => !!svc<WorkbenchService>('workbench').byId(id),
+    deleteCard: (slug) => {
+      const r = svc<WorkbenchService>('workbench').delete(id);
+      if (!r.changes) throw new HttpError(404, `workbench not found: ${id}`);
+      dropWorkbenchVars(id); // #336 变量随台删除
+      // issue #9：删除工作台同步清掉各驾驶舱对它的面板引用——否则悬空面板会让之后每次保存布局 400。挂这张卡片的台的视图面板一起摘
+      const cocks = svc<CockpitService>('cockpit').all() as unknown as CockpitRow[];
+      for (const c of cocks) {
+        let panels: PanelConfig[];
+        try { panels = JSON.parse(c.layout_config || '[]'); } catch { continue; }
+        const kept = panels.filter((p) => p.workbenchId !== id && !(slug && p.kind === 'bench-view' && p.bench === slug));
+        if (kept.length !== panels.length) {
+          svc<CockpitService>('cockpit').setLayout(c.id, JSON.stringify(kept));
+        }
+      }
+    },
+  });
 }
 
 /** 审计主体：只认已核的管理口令；X-Market-Client 等自报头不算身份 */
@@ -832,7 +840,7 @@ async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkben
 const EVICT_COOLDOWN_MS = Number(process.env.A2A_EVICT_COOLDOWN_MS) > 0 ? Number(process.env.A2A_EVICT_COOLDOWN_MS) : 24 * 3_600_000; // 测试可加速
 const downSince = new Map<number, number>();
 const lastProbeAt = new Map<number, number>();
-registerWorkbenchRoutes(http, { wrap, listWorkbenches, maskForApi, restSubject, workbenchCreateCore, workbenchUpdateCore, workbenchDeleteCore, checkOne, downSince, lastProbeAt, EVICT_COOLDOWN_MS });
+registerWorkbenchRoutes(http, { wrap, listWorkbenches, maskForApi, restSubject, workbenchCreateCore, workbenchUpdateCore, workbenchDeleteCore, adminTokenOk: (req) => adminHeaderOk(req), checkOne, downSince, lastProbeAt, EVICT_COOLDOWN_MS });
 
 // ---------- 驾驶舱 CRUD（任务驾驶舱：多工作台分屏组合视图） ----------
 // 驾驶舱的读应答带 can.edit：就是写请求总门对这个请求的判断（本机命令行照旧算属主；其余要有效口令或 Odoo 管理员，且同源）
@@ -2962,7 +2970,8 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       return maskForApi(w);
     }
     case 'workbench_unregister':
-      return workbenchDeleteCore(Number(args?.id));
+      // MCP 会话不是人：卡片的台库里有数据时一律 409（要管理层来删）
+      return await workbenchDeleteCore(Number(args?.id), { kind: 'session', name: String(subject).replace(/^mcp:/, '') });
     case 'workbench_vars_get':
       return mcpVarsGet(args);
     case 'workbench_vars_set':
@@ -3309,7 +3318,7 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
   if (BENCH_VIEWS.on && bare !== undefined) bad(`${bare.split('@')[0]} 是数据视图的工具，必须限定到台：写成 ${bare.split('@')[0]}@bench:<台的标识>（读也一样）`);
   if (BENCH_VIEWS.on && benchAsk.some((m) => m && BENCH_TOOL_NAMES.has(m[1]))) {
     if (!benchAsk.every((m) => m && BENCH_TOOL_NAMES.has(m[1]))) bad('数据视图的工具单独申请，不和别的工具写在同一条里');
-    const benches = [...new Set(benchAsk.map((m) => m![2]))];
+    const benches = [...new Set(benchAsk.map((m) => resolveBenchRef(m![2])))]; // 写卡片 id 也认：申请和授予按台标识记
     if (benches.length !== 1) bad('一条申请只能是一个台的；几个台分开申请');
     let made;
     try { made = requestBenchTools(s.id, benches[0], benchAsk.map((m) => m![1]), args?.reason, Date.now()); } catch (e) { throw benchToolError(e); }
