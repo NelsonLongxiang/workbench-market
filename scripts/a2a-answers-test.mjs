@@ -765,8 +765,8 @@ try {
       stranger.server.close(); }
     // 对抗：节点键只认验过签的那把公钥
     {
-      const labRow = () => q('SELECT peer_zone, peer_root, reported_at FROM a2a_rosters WHERE host = ?', LABFP)[0];
-      const labSeats = () => JSON.stringify(q('SELECT team, seat FROM a2a_roster_seats WHERE host = ? ORDER BY team, seat', LABFP));
+      const labRow = () => q('SELECT peer_zone, peer_root, reported_at FROM a2a_rosters WHERE host = ? AND peer_root = ?', LABFP, lab.url)[0];
+      const labSeats = () => JSON.stringify(q('SELECT team, seat FROM a2a_roster_seats WHERE host = ? AND peer_root = ? ORDER BY team, seat', LABFP, lab.url));
       const changeCount = () => q('SELECT COUNT(*) AS c FROM a2a_roster_changes WHERE host = ?', LABFP)[0].c;
       const [row0, seats0, ch0] = [JSON.stringify(labRow()), labSeats(), changeCount()];
       seedEvent({ zone: 'evil', root: evil.url });
@@ -793,13 +793,23 @@ try {
       rr = rosterRaw(LABFP, soon, { host: LABFP, at: soon, seats: [{ seat: 'lab/f9f9f9f9', name: '十分钟后', team: 'lab/canvas/team', role: 'member', online: true }] }, 'roster-lab-soon');
       r = await post(rr, signed(lab, rr));
       ok('对抗：报的时间是现在 + 10 分钟（超过签名时间窗）→ 不收', r.text.includes('"roster":"not-accepted"') && labRow()?.reported_at === at5, `${r.text.slice(0, 120)} ${JSON.stringify(labRow())}`);
-      // 凑出指纹相同的公钥、换个根地址来报（这里直接用同一把钥匙模拟撞键）→ 这个节点键已经由别的根地址报过，不收
+      // 凑出指纹前 8 位相同的公钥、换个根地址来报（这里直接用同一把钥匙模拟撞键）：名册以（根地址，完整指纹）为键，两份各记各的，
+      // 谁先报都不绑定这个节点键——同一个节点键下有两个节点时两个都不参与匹配，等管理员停用其中一个
+      const labTeams = async () => ((await api('GET', '/api/a2a/teams')).body?.teams ?? []).filter((t) => t.host === LABFP).map((t) => t.team).sort();
+      const teams0 = await labTeams();
       const twin = await peer('twin', lab.key);
       seedEvent({ zone: 'twin', root: twin.url });
       const at6 = new Date(Date.now() + 1000).toISOString();
       rr = rosterRaw(LABFP, at6, { host: LABFP, at: at6, seats: [{ seat: 'twin/a9a9a9a9', name: '撞键的', team: 'twin/canvas/t', role: 'router', online: true }] }, 'roster-twin-1');
       r = await post(rr, signed(twin, rr));
-      ok('对抗：指纹相同、根地址不同的宿主来报 → host-conflict，不覆盖', r.text.includes('"roster":"host-conflict"') && labRow()?.peer_root === lab.url && labRow()?.peer_zone === 'lab' && !labSeats().includes('twin/'), `${r.text.slice(0, 120)} ${JSON.stringify(labRow())}`);
+      const twinRow = q('SELECT peer_root, key_fingerprint FROM a2a_rosters WHERE host = ? AND peer_root = ?', LABFP, twin.url)[0];
+      ok('对抗：节点键相同、根地址不同的宿主来报 → 另记一份（host-shared），lab 那份不被覆盖、席位不混', r.text.includes('"roster":"host-shared"') && labRow()?.peer_root === lab.url && labRow()?.peer_zone === 'lab' && !labSeats().includes('twin/') && twinRow?.key_fingerprint?.startsWith('sha256:'), `${r.text.slice(0, 120)} ${JSON.stringify(twinRow)}`);
+      const teamsShared = await labTeams();
+      ok('……同一个节点键下有两个节点：两个都不参与匹配（团队列表里这个节点键的团队一个都不出现，不是先报的那台赢）', teams0.length > 0 && teamsShared.length === 0, JSON.stringify({ teams0, teamsShared }));
+      // 管理员停用撞键的那个对端之后，lab 那份恢复匹配
+      { const d = db(); try { d.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, registered_by, registered_at, updated_at) VALUES ('peer_twin', ?, 'twin', 'twin', 'disabled', 'test', ?, ?)").run(twin.url, new Date().toISOString(), new Date().toISOString()); } finally { d.close(); } }
+      const teamsBack = await labTeams();
+      ok('……管理员停用撞键的那台之后，lab 那份恢复匹配', JSON.stringify(teamsBack) === JSON.stringify(teams0), JSON.stringify({ teams0, teamsBack }));
       twin.server.close();
     }
     // health 的 a2a.roster：各种结果都计数、带最近一次的时间；匿名可读，所以不带任何对端标识
