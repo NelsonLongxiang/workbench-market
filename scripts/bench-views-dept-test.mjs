@@ -247,8 +247,8 @@ try {
   console.log('七之二、席位不按部门认');
   // 团队已经认领到 sales（上面那一行）。名册里放一个这个团队的席位，再给它一个同名的 MCP 会话：
   // 团队挂在部门下不等于席位能碰这个部门的台——席位没有授予这一层，在「认领要业务侧放行」做完之前只认按台批的授予（3b）
-  db.prepare('INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?)').run('abcdef01', 'https://node.synthetic.invalid', 'z', Date.now(), Date.now());
-  db.prepare('INSERT INTO a2a_roster_seats (peer_root, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES ((SELECT peer_root FROM a2a_rosters WHERE host = ?1 ORDER BY rowid LIMIT 1), ?1, ?2, ?3, ?4, ?5, ?6, 1, 0, ?7, ?8)').run('abcdef01', 'z/canvas/tigers', 'seat-t', 'sid-seat-t', 'seat-t', 'member', Date.now(), Date.now());
+  db.prepare('INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at, key_fingerprint) VALUES (?1, ?2, ?3, ?4, ?5, char(115, 104, 97, 50, 53, 54, 58) || substr(?1 || hex(zeroblob(32)), 1, 64))').run('abcdef01', 'https://node.synthetic.invalid', 'z', Date.now(), Date.now());
+  db.prepare('INSERT INTO a2a_roster_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES ((SELECT peer_root FROM a2a_rosters WHERE host = ?1 ORDER BY rowid LIMIT 1), (SELECT key_fingerprint FROM a2a_rosters WHERE host = ?1 ORDER BY rowid LIMIT 1), ?1, ?2, ?3, ?4, ?5, ?6, 1, 0, ?7, ?8)').run('abcdef01', 'z/canvas/tigers', 'seat-t', 'sid-seat-t', 'seat-t', 'member', Date.now(), Date.now());
   const seatT = (await srv.call('POST', '/api/mcp/sessions', { ...token, body: { name: 'seat-t' } })).json;
   const call = async (tk, name, args) => { const x = await srv.call('POST', '/mcp', { headers: { authorization: `Bearer ${tk}` }, body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } } }); return x.json?.error?.code ?? (x.json?.result?.isError ? 'isError' : 'ok'); };
   const s1 = await call(seatT.token, 'dataset_list', { bench: 'team-b' }), s2 = await call(seatT.token, 'dataset_list', { bench: 'sales-b' }), s3 = await call(seatT.token, 'dataset_query', { bench: 'team-b', query: { dataset: 'x' } });

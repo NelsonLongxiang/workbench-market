@@ -366,7 +366,9 @@ CREATE TABLE IF NOT EXISTS a2a_rosters (
   reported_at TEXT NOT NULL,
   received_at TEXT NOT NULL,
   needs_review INTEGER NOT NULL DEFAULT 0 CHECK (needs_review IN (0, 1)),
-  PRIMARY KEY (peer_root, key_fingerprint)
+  PRIMARY KEY (peer_root, key_fingerprint),
+  -- 没标要人确认的行必须带成形的完整指纹：空指纹只留给升级时回填不上的存量行
+  CHECK (needs_review = 1 OR (key_fingerprint GLOB 'sha256:*' AND length(key_fingerprint) = 71))
 );
 CREATE TABLE IF NOT EXISTS a2a_roster_seats (
   peer_root TEXT NOT NULL DEFAULT '',
@@ -1192,7 +1194,9 @@ CREATE TABLE a2a_rosters (
   reported_at TEXT NOT NULL,
   received_at TEXT NOT NULL,
   needs_review INTEGER NOT NULL DEFAULT 0 CHECK (needs_review IN (0, 1)),
-  PRIMARY KEY (peer_root, key_fingerprint)
+  PRIMARY KEY (peer_root, key_fingerprint),
+  -- 没标要人确认的行必须带成形的完整指纹：空指纹只留给升级时回填不上的存量行
+  CHECK (needs_review = 1 OR (key_fingerprint GLOB 'sha256:*' AND length(key_fingerprint) = 71))
 );
 CREATE TABLE a2a_roster_seats (
   peer_root TEXT NOT NULL DEFAULT '',
@@ -1231,13 +1235,13 @@ if (!hasColumn('a2a_roster_changes', 'peer_root')) {
   db.exec("ALTER TABLE a2a_roster_changes ADD COLUMN key_fingerprint TEXT NOT NULL DEFAULT ''");
 }
 db.exec('CREATE INDEX IF NOT EXISTS idx_a2a_rosters_host ON a2a_rosters (host)');
-// 按 host 匹配只认这个视图里的行：没标 needs_review、对端没停用也不在等确认新键、记下的完整指纹就是此刻钉住的那把（对端还没钉住键、
+// 按 host 匹配只认这个视图里的行：没标 needs_review（表约束保证这样的行都带成形的完整指纹）、对端没停用也不在等确认新键、记下的完整指纹就是此刻钉住的那把（对端还没钉住键、
 // 或者没登记的照旧算），而且同一个 host 下这样的行只有一行——两个节点报了同一个 host（指纹前 8 位撞了），两行都不算，等管理员停用其中一个
 db.exec('DROP VIEW IF EXISTS a2a_rosters_live');
 db.exec(`CREATE VIEW a2a_rosters_live AS
 WITH cand AS (
   SELECT r.peer_root, r.key_fingerprint, r.host, r.peer_zone, r.reported_at, r.received_at FROM a2a_rosters r LEFT JOIN a2a_peers p ON p.root_url = r.peer_root
-  WHERE r.needs_review = 0 AND (p.root_url IS NULL OR (p.status NOT IN ('disabled', 'key_changed') AND (p.key_fingerprint = '' OR r.key_fingerprint = '' OR p.key_fingerprint = r.key_fingerprint)))
+  WHERE r.needs_review = 0 AND (p.root_url IS NULL OR (p.status NOT IN ('disabled', 'key_changed') AND (p.key_fingerprint = '' OR p.key_fingerprint = r.key_fingerprint)))
 )
 SELECT c.* FROM cand c WHERE (SELECT COUNT(*) FROM cand d WHERE d.host = c.host) = 1`);
 

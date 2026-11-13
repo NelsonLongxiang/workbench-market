@@ -92,10 +92,10 @@ try {
   const as = (s) => ({ headers: { ...REMOTE, ...same }, session: s });
   for (const s of [SESSIONS.admin, SESSIONS.alpha, SESSIONS.beta, SESSIONS.noAdminFlag]) await srv.call('GET', '/api/auth/viewer', { session: s });
   const now = new Date().toISOString();
-  db.prepare('INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?)').run(HOST, 'https://node.synthetic.invalid', 'zone1', now, now);
+  db.prepare('INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at, key_fingerprint) VALUES (?1, ?2, ?3, ?4, ?5, char(115, 104, 97, 50, 53, 54, 58) || substr(?1 || hex(zeroblob(32)), 1, 64))').run(HOST, 'https://node.synthetic.invalid', 'zone1', now, now);
   // 对端登记表里这个节点的名字（团队页显示「来自 某节点」，不显示节点标识）
   db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, registered_by, registered_at, updated_at) VALUES ('peer-syn', 'https://node.synthetic.invalid', 'zone1', '合成节点', 'active', 'cli', ?, ?)").run(String(now), String(now));
-  const seatIns = db.prepare('INSERT INTO a2a_roster_seats (peer_root, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES ((SELECT peer_root FROM a2a_rosters WHERE host = ?1 ORDER BY rowid LIMIT 1), ?1, ?2, ?3, ?4, ?5, ?6, 1, 0, ?7, ?8)');
+  const seatIns = db.prepare('INSERT INTO a2a_roster_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES ((SELECT peer_root FROM a2a_rosters WHERE host = ?1 ORDER BY rowid LIMIT 1), (SELECT key_fingerprint FROM a2a_rosters WHERE host = ?1 ORDER BY rowid LIMIT 1), ?1, ?2, ?3, ?4, ?5, ?6, 1, 0, ?7, ?8)');
   seatIns.run(HOST, TEAM, ROUTER.seat, ROUTER.seat_id, '合成总工', 'router', now, now);
   seatIns.run(HOST, TEAM, MEMBER.seat, MEMBER.seat_id, '合成成员甲', 'member', now, now);
   seatIns.run(HOST, TEAM, LEGACY.seat, '', '合成成员乙', 'member', now, now);
@@ -707,7 +707,7 @@ try {
     expire(); const longGone = stateOf(pLive);
     restoreOther(); change.run(HOST, 'team-added', OTHER, sqlAt(t));
     // 节点整个停推：另一个节点，名册很久没报，它名下的团队 48 小时前就不在了
-    db.prepare("INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES ('b1b2b3b4', 'https://node-b.synthetic.invalid', 'zone2', '2000-01-01 00:00:00', '2000-01-01 00:00:00')").run();
+    db.prepare("INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at, key_fingerprint) VALUES ('b1b2b3b4', 'https://node-b.synthetic.invalid', 'zone2', '2000-01-01 00:00:00', '2000-01-01 00:00:00', 'sha256:b1b2b3b400000000000000000000000000000000000000000000000000000000')").run();
     change.run('b1b2b3b4', 'team-removed', 'zone2/canvas/Gone', sqlAt(t - 48 * 3600_000));
     const pNode = Number(db.prepare("INSERT INTO relation_proposals (kind, host, team, department_id, proposed_by, proposed_at) VALUES ('team-claim', 'b1b2b3b4', 'zone2/canvas/Gone', 'ops', 'admin-token', ?)").run(t).lastInsertRowid);
     expire(); const nodeStale = stateOf(pNode).status;
