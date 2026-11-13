@@ -1577,7 +1577,8 @@ CREATE INDEX IF NOT EXISTS idx_bench_mcp_audit_bench ON bench_mcp_audit (bench, 
 // ---------- 台库（数据视图，docs/data-views.md）----------
 // 每个视图台一份自己的库，和上面的主库分开。表结构照约定登记在这里；语句由 services/bench-store.ts 在台自己的库上执行，不在主库上跑。
 // 只用两种库都认的写法；随库不同的只有类型名和自增主键，收在下面两个小函数里。时间一律由调用方给（毫秒整数），不在语句里取。
-export const BENCH_STORE_SCHEMA_VERSION = 1;
+/** 台库固定表的结构版本。第 2 版（11-13）加了 bs_vars（工作台的常量、变量搬进台库，docs/data-views.md 第十三节第 5 条第 5 步） */
+export const BENCH_STORE_SCHEMA_VERSION = 2;
 export type BenchDialect = 'sqlite' | 'postgres';
 export type BenchColumnType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'boolean';
 
@@ -1615,6 +1616,10 @@ function benchStoreSchema(d: BenchDialect): string[] {
     `CREATE INDEX IF NOT EXISTS idx_bs_snapshots_dataset ON bs_snapshots (dataset, id)`,
     // 快照的行：一行数据一条，row 是按留快照时的列次序排的 JSON 数组。bs_snapshots.content 只放列定义和主键
     `CREATE TABLE IF NOT EXISTS bs_snapshot_rows (snapshot_id ${big} NOT NULL, seq ${big} NOT NULL, row TEXT NOT NULL, PRIMARY KEY (snapshot_id, seq))`,
+    // 第 2 版：这张卡片的常量、变量（列和主库的 workbench_vars 一一对应，只是不带 workbench_id；时间是 'YYYY-MM-DD HH:MM:SS' 的文本，由代码生成后当参数传）
+    `CREATE TABLE IF NOT EXISTS bs_vars (
+      key TEXT PRIMARY KEY, kind TEXT NOT NULL, value TEXT NOT NULL, revision INTEGER NOT NULL,
+      updated_by TEXT NOT NULL, owner TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
   ];
 }
 
@@ -1665,6 +1670,7 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
       'SELECT id, dataset, op, idem_key, body_sha256, row_count, actor, at, result FROM bs_writes WHERE 1 = 0',
       'SELECT id, kind, target, from_version, to_version, actor, note, at FROM bs_changes WHERE 1 = 0',
       'SELECT snapshot_id, seq, row FROM bs_snapshot_rows WHERE 1 = 0',
+      'SELECT key, kind, value, revision, updated_by, owner, created_at, updated_at FROM bs_vars WHERE 1 = 0',
     ],
     types: types.map((t) => [t, benchSqlType(d, t)]),
     createTable: `CREATE TABLE {table} (rid ${benchAutoId(d)}{columns})`,

@@ -15,6 +15,9 @@ import { HttpError } from './errors.ts';
 import { browserMarked, rawLoopback } from './surfaces.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { WorkbenchVarsService, WorkbenchVarRow } from './services/workbench-vars.ts';
+import { BenchError } from './bench-query.ts';
+import { benchOfCard, createBench } from './services/bench-registry.ts';
+import { benchStore, varsDigestOf, type BenchStore, type BenchVarRow } from './services/bench-store.ts';
 
 const KEY_RE = /^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$/;
 const MAX_VALUE_BYTES = 64 * 1024;
@@ -108,26 +111,38 @@ function getVarMain(scope: Scope, key: string) {
 
 /** 公共常量：owner 为 * 时，任何个人身份（mcp:/odoo:）都能带 override 与 reason 修订；台令牌、管理员口令这类共享身份不行 */
 const PUBLIC_OWNER = '*';
+/** 常量的规矩没过：主库那一种存法换成 conflict()（带当前行），台库那一种换成 conflictBench() */
+class ConstRefusal extends Error {
+  code: string;
+  status: number;
+  constructor(message: string, code: string, status: number) { super(message); this.code = code; this.status = status; }
+}
 /** 常量维护权：作者本人、公共常量的任一个人身份，或部署机本机命令行 */
-function maintainConst(scope: Scope, key: string, cur: WorkbenchVarRow, caller: Caller, reason: string, what: string): void {
+function maintainConstCheck(cur: { owner: string }, caller: Caller, reason: string, what: string): void {
   const may = caller.cli || (cur.owner === PUBLIC_OWNER ? PERSONAL_RE.test(caller.actor) : !!cur.owner && caller.actor === cur.owner);
   if (!may) {
     const who = cur.owner === PUBLIC_OWNER ? '个人身份（MCP 会话或 Odoo 登录）' : `作者（${cur.owner || '未登记作者'}）`;
-    conflict(scope, key, `常量只能由${who}或部署机本机命令行${what}`, 'const_override_forbidden', 403);
+    throw new ConstRefusal(`常量只能由${who}或部署机本机命令行${what}`, 'const_override_forbidden', 403);
   }
-  if (!reason) conflict(scope, key, `${what}常量要写 reason（记入审计）`, 'reason_required', 400);
+  if (!reason) throw new ConstRefusal(`${what}常量要写 reason（记入审计）`, 'reason_required', 400);
+}
+function maintainConst(scope: Scope, key: string, cur: WorkbenchVarRow, caller: Caller, reason: string, what: string): void {
+  try { maintainConstCheck(cur, caller, reason, what); } catch (e) { if (e instanceof ConstRefusal) conflict(scope, key, e.message, e.code, e.status); throw e; }
 }
 /**
  * 指定作者：本机命令行可新建时指定或移交给个人身份或 *；
  * 作者本人修订时只能把自己的常量设成公共（*），之后收回或另指作者只能走本机命令行。
  */
-function ownerInput(scope: Scope, key: string, owner: unknown, caller: Caller, cur?: WorkbenchVarRow): string | undefined {
+function ownerInputCheck(owner: unknown, caller: Caller, cur?: { kind: string; owner: string }): string | undefined {
   if (owner === undefined) return undefined;
   const o = typeof owner === 'string' ? owner.trim() : '';
   const toPublic = o === PUBLIC_OWNER && cur?.kind === 'const' && !!cur.owner && cur.owner !== PUBLIC_OWNER && caller.actor === cur.owner;
-  if (!caller.cli && !toPublic) conflict(scope, key, '指定或移交常量作者只限部署机本机命令行（作者本人可把自己的常量设成公共：owner="*"）', 'owner_change_forbidden', 403);
+  if (!caller.cli && !toPublic) throw new ConstRefusal('指定或移交常量作者只限部署机本机命令行（作者本人可把自己的常量设成公共：owner="*"）', 'owner_change_forbidden', 403);
   if (o !== '' && o !== PUBLIC_OWNER && !PERSONAL_RE.test(o)) throw new HttpError(400, 'owner 只能是 mcp:<会话名>、odoo:<登录名> 或 *（公共）；空串=无作者');
   return o;
+}
+function ownerInput(scope: Scope, key: string, owner: unknown, caller: Caller, cur?: WorkbenchVarRow): string | undefined {
+  try { return ownerInputCheck(owner, caller, cur); } catch (e) { if (e instanceof ConstRefusal) conflict(scope, key, e.message, e.code, e.status); throw e; }
 }
 
 type SetInput = { value?: unknown; hasValue: boolean; kind?: unknown; expected?: number; override?: boolean; reason?: unknown; owner?: unknown };
@@ -194,11 +209,237 @@ function deleteVarMain(scope: Scope, key: string, input: DeleteInput, caller: Ca
   });
 }
 
-// —— 对外的入口（异步）：现在只有主库这一种存法；台库那一种见数据层第 5 步（docs/data-views.md 第十三节） ——
-export async function listVars(scope: Scope, prefix = '') { return listVarsMain(scope, prefix); }
-export async function getVar(scope: Scope, key: string) { return getVarMain(scope, key); }
-export async function setVar(scope: Scope, key: string, input: SetInput, caller: Caller) { return setVarMain(scope, key, input, caller); }
-export async function deleteVar(scope: Scope, key: string, input: DeleteInput, caller: Caller) { return deleteVarMain(scope, key, input, caller); }
+// —— 存法：WM_VARS_STORE（docs/data-views.md 第十三节第 5 条第 5 步）——
+//   main（缺省）：只用主库，和原来一样。
+//   shadow：主库是真源；主库写成之后，把这一行原样落一份进卡片的台库（失败只计数，不报错）。读照旧读主库。
+//   bench：卡片的台库是真源（值在台库，审计照旧在主库）；写成之后尽力原样写回主库一份，留作回退。
+// 对外的应答在三档下逐字节一样（字段、时间的文本格式都不变），由录制回放和 scripts/vars-store-diff-test.mjs 守。
+export type VarsStoreMode = 'main' | 'shadow' | 'bench';
+/** 启动时读一次：WM_VARS_STORE（main / shadow / bench，缺省 main）。不合法拒绝启动 */
+export function varsStoreConfig(env: NodeJS.ProcessEnv = process.env): VarsStoreMode {
+  const raw = String(env.WM_VARS_STORE ?? '').trim();
+  if (raw === '') return 'main';
+  if (raw === 'main' || raw === 'shadow' || raw === 'bench') return raw;
+  throw new Error(`WM_VARS_STORE 只接受 main、shadow、bench，现在是 ${JSON.stringify(raw)}`);
+}
+let storeMode: VarsStoreMode = 'main';
+export function setVarsStoreMode(m: VarsStoreMode): void { storeMode = m; migrated.clear(); }
+export const varsStoreMode = (): VarsStoreMode => storeMode;
+/** shadow 档跟写失败、bench 档写回主库失败的次数（只计数，不给值） */
+const mirrorStats = { shadowFailures: 0, fallbackFailures: 0 };
+export const varsMirrorStats = () => ({ ...mirrorStats });
+
+/** 和主库里这两列原来的写法一样：UTC，'YYYY-MM-DD HH:MM:SS'（时间由代码生成后当参数传，两种库都认） */
+const nowText = (): string => new Date().toISOString().slice(0, 19).replace('T', ' ');
+const benchHttp = (e: unknown): never => {
+  if (e instanceof BenchError) throw new HttpError(e.http, e.message);
+  throw e;
+};
+/** 卡片的台库：没有登记时，写的时候由系统代建（不绑部门，只有管理层进得来）；读的时候不建，给 null */
+async function cardStore(id: number, create: boolean): Promise<BenchStore | null> {
+  try {
+    let b = benchOfCard(id);
+    if (!b) {
+      if (!create) return null;
+      b = createBench({ workbench_id: id }, 'system:vars', Date.now());
+    }
+    return await benchStore(b.slug);
+  } catch (e) { return benchHttp(e); }
+}
+const asRow = (id: number, r: BenchVarRow): WorkbenchVarRow => ({ workbench_id: id, ...r });
+const plainRows = (rows: WorkbenchVarRow[]): BenchVarRow[] => rows.map(({ workbench_id: _w, ...r }) => r as BenchVarRow);
+/** bench 档里已经确认搬过的卡片（进程内记一下，免得每次都问台库） */
+const migrated = new Set<number>();
+/**
+ * bench 档里拿一张卡片的台库之前先确认它搬过：没搬过（台库里没有指纹），就把主库里这张卡片的行搬进来、记下指纹，一张卡片只搬一次。
+ * 搬过的以台库为准：之后主库里就算有旧行（bench 档写回主库失败留下的），也不会拿来补回台库里已经删掉的键。
+ * 主库里有行而台库还没登记的卡片，在这里由系统代建台库；两边都没有、又只是读，给 null（不建）
+ */
+async function migratedStore(id: number, create: boolean): Promise<BenchStore | null> {
+  if (migrated.has(id)) return cardStore(id, create);
+  const rows = vars().list(id, '') as WorkbenchVarRow[];
+  const store = await cardStore(id, create || rows.length > 0);
+  if (!store) return null;
+  try {
+    if ((await store.varsMarkGet()) === null) {
+      if (rows.length) await store.varsImport(plainRows(rows));
+      await store.varsMarkSet(varsDigestOf(rows));
+    }
+  } catch (e) { return benchHttp(e); }
+  migrated.add(id);
+  return store;
+}
+
+async function conflictBench(scope: Scope, store: BenchStore | null, key: string, message: string, code: string, status = 409): Promise<never> {
+  const cur = store ? await store.varGet(key) : null;
+  throw new HttpError(status, message, { code, workbench_id: scope.id, key, current_revision: cur?.revision ?? 0, current: cur ? view(asRow(scope.id, cur)) : null });
+}
+
+async function listVarsBench(scope: Scope, prefix = '') {
+  if (prefix && (prefix.length > 128 || !/^[A-Za-z0-9_.:-]+$/.test(prefix))) throw new HttpError(400, 'prefix 只能含字母/数字/_ . : -');
+  const store = await migratedStore(scope.id, false);
+  const items = (store ? await store.varsList(prefix) : []).map((r) => view(asRow(scope.id, r)));
+  return { workbench_id: scope.id, class: scope.cls, items, count: items.length };
+}
+async function getVarBench(scope: Scope, key: string) {
+  checkKey(key);
+  const store = await migratedStore(scope.id, false);
+  const r = store ? await store.varGet(key) : null;
+  if (!r) throw new HttpError(404, `var not found: ${key}`, { code: 'not_found', workbench_id: scope.id, key, current_revision: 0 });
+  return { workbench_id: scope.id, ...view(asRow(scope.id, r)) };
+}
+/** 规矩和 setVarMain 一字一句对应（常量的作者、乐观锁、kind 的变更、上限），只是读写在台库、审计在主库 */
+async function setVarBench(scope: Scope, key: string, input: SetInput, caller: Caller) {
+  checkKey(key);
+  if (!input.hasValue) throw new HttpError(400, '缺 value（任意 JSON 值，null 也算）');
+  if (input.kind !== undefined && input.kind !== 'var' && input.kind !== 'const') throw new HttpError(400, "kind 只能是 'var' 或 'const'");
+  const json = JSON.stringify(input.value);
+  if (json === undefined) throw new HttpError(400, 'value 不是合法 JSON 值');
+  if (Buffer.byteLength(json, 'utf8') > MAX_VALUE_BYTES) throw new HttpError(400, `value 超 ${MAX_VALUE_BYTES / 1024}KB 上限`);
+  const reason = typeof input.reason === 'string' ? input.reason.trim().slice(0, 200) : '';
+  const store = (await migratedStore(scope.id, true)) as BenchStore;
+  const S = vars();
+  const cur = await store.varGet(key);
+  const at = nowText();
+  if (!cur) {
+    if (input.expected !== undefined && input.expected !== 0) return conflictBench(scope, store, key, `键不存在，期望 revision ${input.expected} 不成立`, 'revision_conflict');
+    if (await store.varCount() >= MAX_KEYS_PER_WORKBENCH) throw new HttpError(400, `每台最多 ${MAX_KEYS_PER_WORKBENCH} 个键`);
+    const kind = (input.kind as string | undefined) ?? 'var';
+    if (kind === 'const' && caller.actor.startsWith('app:')) return conflictBench(scope, store, key, '按台令牌不能新建常量：常量要有作者，请用 MCP 会话或 Odoo 登录写', 'const_create_forbidden', 403);
+    const asked = await ownerInputBench(scope, store, key, input.owner, caller);
+    if (asked !== undefined && kind !== 'const') throw new HttpError(400, 'owner 只用于常量');
+    const owner = kind === 'const' ? (asked ?? personal(caller.actor)) : '';
+    if (!(await store.varInsert({ key, kind, value: json, by: caller.actor, owner, at }))) return conflictBench(scope, store, key, '并发创建：键已被写入', 'revision_conflict');
+    S.audit({ workbench_id: scope.id, key, action: 'create', actor: caller.actor, kind, old_revision: null, new_revision: 1, old_sha256: '', new_sha256: sha(json), reason });
+    const now = (await store.varGet(key)) as BenchVarRow;
+    fallbackToMain(scope.id, key, now);
+    return { ok: true, created: true, workbench_id: scope.id, ...view(asRow(scope.id, now)) };
+  }
+  if (cur.kind === 'const') {
+    if (!input.override) return conflictBench(scope, store, key, '常量写入后不能直接修改（作者本人可带 override 与 reason 修订）', 'const_locked', 403);
+    await maintainConstBench(scope, store, key, cur, caller, reason, '修订');
+  }
+  const asked = await ownerInputBench(scope, store, key, input.owner, caller, cur);
+  if (input.expected === undefined) return conflictBench(scope, store, key, '改已存在的键必须带期望 revision（If-Match 或 revision）', 'revision_required', 428);
+  if (input.expected !== cur.revision) return conflictBench(scope, store, key, `revision 冲突：期望 ${input.expected}，当前 ${cur.revision}`, 'revision_conflict');
+  const kind = (input.kind as string | undefined) ?? cur.kind;
+  if (kind !== cur.kind && !caller.admin) return conflictBench(scope, store, key, '改已存在键的 kind 只限管理员或本机命令行', 'kind_change_forbidden', 403);
+  if (asked !== undefined && kind !== 'const') throw new HttpError(400, 'owner 只用于常量');
+  const owner = kind !== 'const' ? '' : asked ?? (cur.kind === 'const' ? cur.owner : personal(caller.actor));
+  if (!(await store.varUpdate({ key, expected: cur.revision, kind, value: json, by: caller.actor, owner, at }))) return conflictBench(scope, store, key, 'revision 冲突：已被并发修改', 'revision_conflict');
+  const action = cur.kind === 'const' ? (owner === PUBLIC_OWNER && cur.owner !== PUBLIC_OWNER ? 'make_public' : 'const_override') : kind === 'const' ? 'freeze' : 'update';
+  S.audit({ workbench_id: scope.id, key, action, actor: caller.actor, kind, old_revision: cur.revision, new_revision: cur.revision + 1, old_sha256: sha(cur.value), new_sha256: sha(json), reason });
+  const now = (await store.varGet(key)) as BenchVarRow;
+  fallbackToMain(scope.id, key, now);
+  return { ok: true, created: false, workbench_id: scope.id, ...view(asRow(scope.id, now)) };
+}
+async function deleteVarBench(scope: Scope, key: string, input: DeleteInput, caller: Caller) {
+  checkKey(key);
+  const reason = typeof input.reason === 'string' ? input.reason.trim().slice(0, 200) : '';
+  const store = await migratedStore(scope.id, false);
+  const cur = store ? await store.varGet(key) : null;
+  if (!store || !cur) throw new HttpError(404, `var not found: ${key}`, { code: 'not_found', workbench_id: scope.id, key, current_revision: 0 });
+  if (cur.kind === 'const') {
+    if (!input.override) return conflictBench(scope, store, key, '常量不能直接删除（作者本人可带 override 与 reason 删除）', 'const_locked', 403);
+    await maintainConstBench(scope, store, key, cur, caller, reason, '删除');
+  }
+  if (input.expected === undefined) return conflictBench(scope, store, key, '删除必须带期望 revision（If-Match 或 revision）', 'revision_required', 428);
+  if (input.expected !== cur.revision || !(await store.varDelete(key, cur.revision))) return conflictBench(scope, store, key, `revision 冲突：期望 ${input.expected}，当前 ${cur.revision}`, 'revision_conflict');
+  vars().audit({ workbench_id: scope.id, key, action: cur.kind === 'const' ? 'const_delete' : 'delete', actor: caller.actor, kind: cur.kind, old_revision: cur.revision, new_revision: null, old_sha256: sha(cur.value), new_sha256: '', reason });
+  fallbackToMain(scope.id, key, null);
+  return { ok: true, deleted: true, workbench_id: scope.id, key, revision: cur.revision };
+}
+async function maintainConstBench(scope: Scope, store: BenchStore, key: string, cur: BenchVarRow, caller: Caller, reason: string, what: string): Promise<void> {
+  try { maintainConstCheck(cur, caller, reason, what); } catch (e) { if (e instanceof ConstRefusal) await conflictBench(scope, store, key, e.message, e.code, e.status); throw e; }
+}
+async function ownerInputBench(scope: Scope, store: BenchStore, key: string, owner: unknown, caller: Caller, cur?: BenchVarRow): Promise<string | undefined> {
+  try { return ownerInputCheck(owner, caller, cur); } catch (e) { if (e instanceof ConstRefusal) await conflictBench(scope, store, key, e.message, e.code, e.status); throw e; }
+}
+/** bench 档：尽力原样写回主库一份（留作回退）；失败只计数 */
+function fallbackToMain(id: number, key: string, row: BenchVarRow | null): void {
+  if (storeMode !== 'bench') return;
+  try { vars().force(id, key, row); } catch { mirrorStats.fallbackFailures++; }
+}
+/** shadow 档：主库写成之后，把主库里这一行（或「已删」）原样落一份进卡片的台库；失败只计数 */
+async function shadowMirror(id: number, key: string): Promise<void> {
+  try {
+    const r = vars().get(id, key) as WorkbenchVarRow | undefined;
+    const store = await cardStore(id, true);
+    const { workbench_id: _w, ...row } = r ?? ({} as WorkbenchVarRow);
+    await store!.varForce(key, r ? (row as BenchVarRow) : null);
+  } catch { mirrorStats.shadowFailures++; }
+}
+
+/**
+ * 把主库里的常量、变量搬进各卡片的台库（迁移脚本 scripts/vars-migrate.mjs、bench 档起来时都用这个）。能重复跑：
+ *   · 只看 (key, revision)：台库里没有、或台库的 revision 更小才写，不会把台库里更新的值盖回去；
+ *   · 每张卡片搬完记一个指纹（主库那份行集合的摘要），重跑时指纹没变整张卡片跳过——第二次跑是零写入；
+ *   · onlyUnmarked：只搬从没搬过的卡片（bench 档起来时用：搬过的卡片以台库为准，不拿主库的旧行补回台库里已经删掉的键）；
+ *   · dryRun：只数，不写、不建台库。
+ * 主库里卡片已经不在的行（孤儿）不搬，只报个数。不碰值以外的东西，审计照旧在主库
+ */
+export async function migrateVars(opts: { dryRun?: boolean; onlyUnmarked?: boolean } = {}): Promise<{ cards: number; rows: number; written: number; skipped: number; orphans: number; hot: number }> {
+  const out = { cards: 0, rows: 0, written: 0, skipped: 0, orphans: 0, hot: hotVarKeys().length };
+  for (const id of vars().workbenchIds()) {
+    const rows = vars().list(id, '') as WorkbenchVarRow[];
+    if (!svc<WorkbenchService>('workbench').byId(id)) { out.orphans += rows.length; continue; }
+    out.cards++; out.rows += rows.length;
+    const digest = varsDigestOf(rows);
+    const store = await cardStore(id, !opts.dryRun);
+    const mark = store ? await store.varsMarkGet() : null;
+    if (mark === digest || (opts.onlyUnmarked && mark !== null)) { out.skipped++; continue; }
+    const plain = rows.map(({ workbench_id: _w, ...r }) => r as BenchVarRow);
+    if (opts.dryRun) {
+      const have = new Map((store ? await store.varsList('') : []).map((r) => [r.key, r.revision]));
+      out.written += plain.filter((r) => (have.get(r.key) ?? 0) < r.revision).length;
+      continue;
+    }
+    out.written += await store!.varsImport(plain);
+    await store!.varsMarkSet(digest);
+  }
+  return out;
+}
+
+// —— 对外的入口（异步）：按 WM_VARS_STORE 走主库或台库 ——
+export async function listVars(scope: Scope, prefix = '') { if (storeMode === 'bench') return listVarsBench(scope, prefix); return listVarsMain(scope, prefix); }
+export async function getVar(scope: Scope, key: string) { if (storeMode === 'bench') return getVarBench(scope, key); return getVarMain(scope, key); }
+export async function setVar(scope: Scope, key: string, input: SetInput, caller: Caller) {
+  if (storeMode === 'bench') return setVarBench(scope, key, input, caller);
+  const out = setVarMain(scope, key, input, caller);
+  if (storeMode === 'shadow') await shadowMirror(scope.id, key);
+  return out;
+}
+export async function deleteVar(scope: Scope, key: string, input: DeleteInput, caller: Caller) {
+  if (storeMode === 'bench') return deleteVarBench(scope, key, input, caller);
+  const out = deleteVarMain(scope, key, input, caller);
+  if (storeMode === 'shadow') await shadowMirror(scope.id, key);
+  return out;
+}
+
+/**
+ * 报一次已有的 hot. 开头的键（启动时、迁移的 dry-run 时）：第 5 步以后键名以 hot. 开头的变量是高频变量，可能丢最近 30 秒的写入；
+ * 这些键原来不丢写入，切过去以后会变成可能丢，要先让写的人知道。只报卡片和键名，不报值
+ */
+export function hotVarKeys(): { workbench_id: number; key: string }[] {
+  return vars().keysWithPrefix('hot.');
+}
+export function reportHotVarKeys(): void {
+  try {
+    const hot = hotVarKeys();
+    if (hot.length) console.warn(`[vars] 有 ${hot.length} 个键以 hot. 开头（${hot.slice(0, 20).map((h) => `卡片 ${h.workbench_id} 的 ${h.key}`).join('、')}${hot.length > 20 ? ' 等' : ''}）：高频变量上线以后，这些键会变成「可能丢最近 30 秒的写入」。不想这样的，改个不以 hot. 开头的名字`);
+  } catch { /* 主库还没有这张表：不报 */ }
+}
+
+/**
+ * 比对一张卡片：主库那份和台库那份，每个键的 kind、revision、owner、值的摘要都比（不比条数了事）。「零差异」以摘要为准
+ */
+export async function compareCardVars(id: number): Promise<{ id: number; main: { count: number; sha256: string }; bench: { count: number; sha256: string } | null; same: boolean }> {
+  const rows = vars().list(id, '') as WorkbenchVarRow[];
+  const main = { count: rows.length, sha256: varsDigestOf(rows) };
+  const store = await cardStore(id, false);
+  const bench = store ? await store.varsDigest() : null;
+  return { id, main, bench, same: bench ? bench.sha256 === main.sha256 : rows.length === 0 };
+}
 
 /** 删台级联：变量随台删除，审计行保留 */
 export function dropWorkbenchVars(workbenchId: number): void {

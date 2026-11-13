@@ -45,7 +45,19 @@ export const BENCH_METHODS = new Map<string, 'read' | 'write'>([
   ['viewVersions', 'read'], ['diffViews', 'read'], ['changes', 'read'], ['writes', 'read'], ['renderView', 'read'],
   ['defineDataset', 'write'], ['replace', 'write'], ['append', 'write'], ['upsert', 'write'], ['deleteRows', 'write'],
   ['snapshot', 'write'], ['restore', 'write'], ['putView', 'write'], ['rollbackView', 'write'], ['backupTo', 'write'], ['submitForm', 'write'],
+  ['varsList', 'read'], ['varGet', 'read'], ['varCount', 'read'], ['varsDigest', 'read'],
+  ['varsMarkGet', 'read'],
+  ['varInsert', 'write'], ['varUpdate', 'write'], ['varDelete', 'write'], ['varsImport', 'write'], ['varForce', 'write'], ['varsMarkSet', 'write'],
 ]);
+
+/** 卡片的一个常量或变量（和主库 workbench_vars 的一行同形，只是不带 workbench_id） */
+/** 一组常量、变量行的摘要（主库和台库算法一样，才比得上） */
+export function varsDigestOf(rows: { key: string; kind: string; value: string; revision: number; owner: string }[]): string {
+  const h = createHash('sha256');
+  for (const r of [...rows].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))) h.update(`${r.key}\u0000${r.kind}\u0000${r.revision}\u0000${r.owner}\u0000${createHash('sha256').update(r.value).digest('hex')}\n`);
+  return h.digest('hex');
+}
+export type BenchVarRow = { key: string; kind: 'var' | 'const'; value: string; revision: number; updated_by: string; owner: string; created_at: string; updated_at: string };
 
 export type WriteCtx = { actor: string; at: number; idemKey?: string; note?: string };
 export type WriteResult = { dataset: string; op: string; rows: number; row_count: number; data_bytes?: number; snapshot_id?: number; inserted?: number; updated?: number; deleted?: number; duplicate?: boolean; ids?: number[] };
@@ -322,6 +334,8 @@ export class BenchStoreCore {
       const v = await this.meta('schema_version');
       if (v === null) await this.setMeta('schema_version', String(mine));
       else if (Number(v) > mine) throw new BenchError('unsupported', `台库 ${this.slug} 的结构是第 ${v} 版，比这份代码认识的第 ${mine} 版新，不打开`);
+      // 旧版本的库：上面的建表语句都是「没有才建」，新加的表已经补上了；版本号跟着升（第 1 版 → 第 2 版只加了 bs_vars）
+      else if (Number(v) < mine) await this.setMeta('schema_version', String(mine));
       // 版本号对得上，结构也要对得上：固定的几张表各试读一遍该有的列
       for (const probe of this.kit.probes) {
         try { await this.conn.all(probe); } catch (e) { throw new BenchError('unsupported', `台库 ${this.slug} 的结构和这份代码不符，不打开`, [], e); }
@@ -848,6 +862,68 @@ export class BenchStoreCore {
       return { active_version: to, unchanged: false };
     });
   }
+  // —— 卡片的常量、变量（第 5 步：从主库 workbench_vars 搬过来）——
+  // 规矩（乐观锁、常量的作者、审计）在 workbench-vars.ts；这里只做按 revision 条件的读写，写入一律带期望 revision 或「没有才建」
+  private varRow(r: Record<string, unknown>): BenchVarRow {
+    return { key: String(r.key), kind: String(r.kind) === 'const' ? 'const' : 'var', value: String(r.value), revision: Number(r.revision), updated_by: String(r.updated_by), owner: String(r.owner), created_at: String(r.created_at), updated_at: String(r.updated_at) };
+  }
+  varsList(prefix: string): Promise<BenchVarRow[]> {
+    return this.serial(async () => {
+      const rows = prefix
+        ? await this.conn.all('SELECT * FROM bs_vars WHERE substr(key, 1, ?) = ? ORDER BY key', [prefix.length, prefix])
+        : await this.conn.all('SELECT * FROM bs_vars ORDER BY key');
+      return rows.map((r) => this.varRow(r));
+    });
+  }
+  varGet(key: string): Promise<BenchVarRow | null> {
+    return this.serial(async () => { const r = await this.conn.all('SELECT * FROM bs_vars WHERE key = ?', [key]); return r.length ? this.varRow(r[0] as Record<string, unknown>) : null; });
+  }
+  varCount(): Promise<number> {
+    return this.serial(async () => Number((await this.conn.all('SELECT COUNT(*) AS n FROM bs_vars'))[0].n));
+  }
+  /** 没有才建（revision 1）；已经有了返回 false（并发创建撞键） */
+  varInsert(r: { key: string; kind: string; value: string; by: string; owner: string; at: string }): Promise<boolean> {
+    return this.tx(async () => !!(await this.conn.run('INSERT INTO bs_vars (key, kind, value, revision, updated_by, owner, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?, ?) ON CONFLICT (key) DO NOTHING', [r.key, r.kind, r.value, r.by, r.owner, r.at, r.at])));
+  }
+  /** 比较并写：当前 revision 是 expected 才写，revision + 1；不是返回 false */
+  varUpdate(r: { key: string; expected: number; kind: string; value: string; by: string; owner: string; at: string }): Promise<boolean> {
+    return this.tx(async () => !!(await this.conn.run('UPDATE bs_vars SET kind = ?, value = ?, revision = revision + 1, updated_by = ?, owner = ?, updated_at = ? WHERE key = ? AND revision = ?', [r.kind, r.value, r.by, r.owner, r.at, r.key, r.expected])));
+  }
+  varDelete(key: string, expected: number): Promise<boolean> {
+    return this.tx(async () => !!(await this.conn.run('DELETE FROM bs_vars WHERE key = ? AND revision = ?', [key, expected])));
+  }
+  /**
+   * 照给的行原样落一份（shadow 档跟写、迁移用）：台库里没有，或台库的 revision 比给的小，才写；一样或更新的不动。
+   * row 为 null 是「主库里这个键已经删了」：台库里有就删。返回实际写了几行
+   */
+  varForce(key: string, row: BenchVarRow | null): Promise<number> {
+    return this.tx(async () => {
+      if (!row) return Number(await this.conn.run('DELETE FROM bs_vars WHERE key = ?', [key]));
+      return this.putVarRow(row);
+    });
+  }
+  /** 迁移：一批行照 varForce 的规矩落进来，一个事务。返回实际写了几行 */
+  varsImport(rows: BenchVarRow[]): Promise<number> {
+    return this.tx(async () => { let n = 0; for (const r of rows) n += await this.putVarRow(r); return n; });
+  }
+  private async putVarRow(r: BenchVarRow): Promise<number> {
+    const cur = await this.conn.all('SELECT revision FROM bs_vars WHERE key = ?', [r.key]);
+    if (cur.length && Number(cur[0].revision) >= r.revision) return 0;
+    if (cur.length) await this.conn.run('DELETE FROM bs_vars WHERE key = ?', [r.key]);
+    await this.conn.run('INSERT INTO bs_vars (key, kind, value, revision, updated_by, owner, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [r.key, r.kind, r.value, r.revision, r.updated_by, r.owner, r.created_at, r.updated_at]);
+    return 1;
+  }
+  /** 迁移的指纹：上次从主库搬过来时，主库那份行集合的摘要（没搬过是 null） */
+  varsMarkGet(): Promise<string | null> { return this.serial(() => this.meta('vars_migrated')); }
+  varsMarkSet(sha256: string): Promise<void> { return this.tx(() => this.setMeta('vars_migrated', sha256)); }
+  /** 全部键的摘要：每个键的 kind、revision、owner、值的 sha256 按键排好再整体取 sha256（shadow 档比对、迁移的指纹用；不给值本身） */
+  varsDigest(): Promise<{ count: number; sha256: string }> {
+    return this.serial(async () => {
+      const rows = (await this.conn.all('SELECT * FROM bs_vars ORDER BY key')).map((r) => this.varRow(r));
+      return { count: rows.length, sha256: varsDigestOf(rows) };
+    });
+  }
+
   viewVersions(): Promise<ViewVersion[]> {
     return this.serial(async () => {
       const active = await this.activeVersion();
