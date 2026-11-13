@@ -865,6 +865,12 @@ export class WorkItemService extends Service {
     return Number((db.prepare(`SELECT COUNT(*) AS n FROM work_items WHERE ${w.where}`).get(...w.args) as { n: number }).n);
   }
 
+  /** 一个视角里还没结束的事项（数各视角「等你拍板」的件数用；结束了的不会轮到谁办） */
+  openIn(scope: ViewScope): WorkItemRow[] {
+    const w = this.scopeWhere(scope);
+    return db.prepare(`SELECT * FROM work_items WHERE ${w.where} AND state NOT IN (${TERMINAL.map(() => '?').join(', ')}) ORDER BY updated_at DESC, id DESC`).all(...w.args, ...TERMINAL) as WorkItemRow[];
+  }
+
   /** 事项的事件发往哪些团队（投递的目标团队和投递地址）：认事项属于哪个团队用 */
   deliveryTargets(eventId: string): { team: string; url: string }[] {
     return db.prepare('SELECT target_team AS team, target_url AS url FROM workbench_event_deliveries WHERE event_id = ? ORDER BY id').all(eventId) as { team: string; url: string }[];

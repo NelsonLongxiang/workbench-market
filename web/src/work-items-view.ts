@@ -11,7 +11,7 @@ export type WorkItemListRow = {
 export type WorkItemListPage = {
   items: WorkItemListRow[]; counts: Record<string, number>; total: number; next_cursor: string | null;
   /** 这一页是哪个视角（不带 view 时服务端挑第一个有内容的）、各视角能不能用和件数；旧服务端没有这两个字段 */
-  view?: ViewKey | null; views?: Record<ViewKey, { available: boolean; count: number }>;
+  view?: ViewKey | null; views?: Record<ViewKey, { available: boolean; count: number; decide?: number }>;
 };
 
 /** 按状态分的四组。「未派发」是只通知、没有目标团队的事件建出来的草稿，不是待办，缺省折叠。 */

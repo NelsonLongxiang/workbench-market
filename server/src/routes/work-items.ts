@@ -44,7 +44,7 @@ import type { TeamService } from '../services/team.ts';
 import { answerItemAsk, CREATOR_ANSWERS, decideItemAnswer } from '../attention-answers.ts';
 import { markSeatMessagesRead, replySeatMessage, seatAsksOf, seatMessagesOf, seatProgressOf, seatSubitemsOf, SEAT_REPLY_MAX } from '../seat-messages.ts';
 import { principalsAdmin } from './principals.ts';
-import { canOf, canSee, creatorOf, itemDecisionVerdict, itemRoles, releaseBy, turnOf, VIEW_ALL_ACTION, VIEW_ALL_KIND, VIEWS, viewScopes, workItemViewer, writerVerdict, type ItemRole, type ViewName } from '../work-item-access.ts';
+import { canOf, canSee, creatorOf, decidesNow, itemDecisionVerdict, itemRoles, releaseBy, turnOf, VIEW_ALL_ACTION, VIEW_ALL_KIND, VIEWS, viewScopes, workItemViewer, writerVerdict, type ItemRole, type ViewName } from '../work-item-access.ts';
 import { arrangeTask } from '../task-center.ts';
 import { assignableTeams, kickWorkbenchEvents, releaseCore } from '../workbench-events.ts';
 import { eventOfItem } from '../seat-messages.ts';
@@ -111,14 +111,17 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       // 视角（规范 14 第九节第 4 条）：服务端按身份给出哪些视角可用、各几件；不带 view 时落在第一个有内容的（都没有就第一个可用的）
       const scopes = viewScopes(viewer);
       const items = svc<WorkItemService>('workItems');
-      const views = Object.fromEntries(VIEWS.map((v) => [v, scopes[v] ? { available: true, count: items.countIn(scopes[v]!) } : { available: false, count: 0 }])) as Record<ViewName, { available: boolean; count: number }>;
+      // decide：这个视角里轮到看的人、能当场办的件数（decidesNow，和「关注」里事项来源的 mine、答法同一处判，侧栏角标数的就是这些）。
+      // 和下面的列表一样，SQL 圈出来的再按 itemRoles 过一遍这个视角对应的那种人；不可用的视角不给 decide
+      const roleOf: Record<ViewName, ItemRole> = { mine: 'creator', seats: 'owner', team: 'lead', all: 'management' };
+      const decideIn = (v: ViewName) => items.openIn(scopes[v]!).filter((w) => itemRoles(w, viewer).includes(roleOf[v]) && decidesNow(w, viewer)).length;
+      const views = Object.fromEntries(VIEWS.map((v) => [v, scopes[v] ? { available: true, count: items.countIn(scopes[v]!), decide: decideIn(v) } : { available: false, count: 0 }])) as Record<ViewName, { available: boolean; count: number; decide?: number }>;
       if (viewRaw !== undefined && !scopes[viewRaw as ViewName]) return void res.status(403).json({ error: 'work_items_view_unavailable', views });
       const view = (viewRaw as ViewName | undefined) ?? VIEWS.find((v) => views[v].available && views[v].count > 0) ?? VIEWS.find((v) => views[v].available);
       if (!view) return void res.json({ view: null, views, items: [], counts: Object.fromEntries(STATES.map((st) => [st, 0])), total: 0, next_cursor: null });
       const page = items.page({ scope: scopes[view]!, state: state as WorkItemState | undefined, object: str('object'), phase: str('phase'), seat, cockpit, limit, after });
       // 视角的 SQL 只是加速：筛出来的每一条再按 itemRoles 过一遍，这个视角对应的那种人不成立的不给（列表里有、详情 404 的情况不允许出现）。
       // SQL 和 itemRoles 同一个口径时这里一条都不会少；计数照 SQL，测试守「列表里每一条详情都是 200」和件数一致
-      const roleOf: Record<ViewName, ItemRole> = { mine: 'creator', seats: 'owner', team: 'lead', all: 'management' };
       const shown = page.items.filter((w) => itemRoles(w, viewer).includes(roleOf[view]));
       // 等谁放行：这一页有 held 的才取一次全部团队视图（负责人名字按看的人裁）
       const teamViews = shown.some((w) => w.state === 'held') ? svc<TeamService>('teams').allViews() : [];
