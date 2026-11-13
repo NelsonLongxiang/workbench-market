@@ -12,7 +12,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { Service } from '@deepseek-ai/cordis';
-import { db } from '../db.ts';
+import { db, hasTable } from '../db.ts';
 import { afterStartup } from '../startup-gate.ts';
 
 export const STATES = ['draft', 'held', 'delivered', 'accepted', 'progress', 'waiting', 'ready', 'blocked', 'done', 'failed', 'dropped', 'cancelled'] as const;
@@ -524,7 +524,7 @@ export class WorkItemService extends Service {
     db.prepare('UPDATE work_item_backfill SET dirty = ?, updated_at = ? WHERE id = 1').run(on ? 1 : 0, new Date().toISOString());
   }
   private hasEvents(): boolean {
-    return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workbench_events'").get());
+    return hasTable('workbench_events');
   }
   /** 事件日志现在的最大行号（水位） */
   private logHigh(): number {
@@ -637,7 +637,7 @@ export class WorkItemService extends Service {
    *  跑完记下「这个版本全量跑完过」和事件日志的水位（之后启动从水位往后增量核）。 */
   backfill(): { events: number; created: number } {
     // 新库上事件表可能还没建（任务中心初始化时才建）：那就没有可回填的
-    if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workbench_events'").get()) return { events: 0, created: 0 };
+    if (!hasTable('workbench_events')) return { events: 0, created: 0 };
     const count = () => (db.prepare('SELECT COUNT(*) AS n FROM work_items').get() as { n: number }).n;
     const before = count();
     const ids = db.prepare('SELECT event_id FROM workbench_events ORDER BY id').all() as { event_id: string }[];
