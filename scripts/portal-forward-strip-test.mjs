@@ -2,7 +2,7 @@
 /**
  * 门户转发前去掉市场自身的认证信息（对抗组）：经 /go/<台号>/… 转给台的请求里，不能有市场的管理口令、台令牌、
  * SOP run 的凭据、x-wm-/x-a2a- 头，也不能有市场会话、登录门等市场自己的 cookie；台自己的头和 cookie 原样留下。
- * HTTP（GET、POST）和 WebSocket 握手都看。
+ * HTTP（GET、POST）和 WebSocket 握手（普通台、Odoo 台）都看。
  *
  * 隔离：空的 DATA_DIR（tmp/ 下现建、跑完删），本机起两个假上游（普通台、Odoo 台），不读任何真实数据、不连外网。
  *   node scripts/portal-forward-strip-test.mjs
@@ -125,6 +125,12 @@ try {
   for (const k of Object.keys(MARKET_HEADERS)) ok(`⑤a 握手里上游收不到 ${k}`, ws !== null && !(k in h5), `${k}=${h5[k]}`);
   ok('⑤b 握手的 Cookie 里没有市场自己的 cookie，台的留下', ws !== null && leaked(h5).length === 0 && h5.cookie === 'pref=1', `cookie=${h5.cookie}`);
   ok('⑤c 握手里台自己的头原样留下', h5['x-bench-custom'] === 'keep', '');
+  // ⑤d Odoo 台的握手：session_id 走 Odoo 的规则（照转），市场自己的头和 cookie 一样不带
+  const wsO = await wsHandshake(`/go/${o}/ws`, { ...MARKET_HEADERS, cookie: `session_id=odoo-sid; wm_sso_ok_${o}=1; ${MARKET_COOKIES}; pref=1` });
+  const h5o = wsO?.headers ?? {};
+  ok('⑤d Odoo 台的 WebSocket 握手经门户到了上游', wsO !== null, '');
+  ok('⑤e Odoo 台的握手里上游收不到市场的头', wsO !== null && Object.keys(MARKET_HEADERS).every((k) => !(k in h5o)), JSON.stringify(Object.keys(h5o)));
+  ok('⑤f Odoo 台的握手的 Cookie 里没有市场自己的 cookie，session_id 和台的 cookie 留下', wsO !== null && leaked(h5o).length === 0 && /(^|; )session_id=odoo-sid(;|$)/.test(String(h5o.cookie ?? '')) && /(^|; )pref=1(;|$)/.test(String(h5o.cookie ?? '')), `cookie=${h5o.cookie}`);
 
   // ⑥ 启动自检有这一行，并且过了
   const health = await (await fetch(`${B}/api/health`)).json();
