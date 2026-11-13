@@ -20,23 +20,27 @@ KEYS = {'claim': 'k0000000000000000claim1', 'kb': 'k000000000000000000kb01', 'kb
 def it(key, kind, title, **more):
     return {'key': key, 'kind': kind, 'title': title, 'summary': more.pop('summary', ''), 'status': more.pop('status', None), 'tags': more.pop('tags', []),
             'created': '2026-11-12 08:00:00', 'updated': '2026-11-13 02:00:00', 'scope_label': more.pop('scope', '全公司'), **more}
+# 夹具按身份给（和 #717 的判法一致）：员工只拿得到全公司的和他有部门授予的（采购部）；管理层另外拿得到「只给管理层」的。页面只照应答画，不自己补
+MGMT_ONLY = it('k000000000000000000kb02', 'kb', '合成：月底对账只看已到货的', scope='只给管理层')
 ITEMS = [
     it(KEYS['claim'], 'claim', '合成：三家报价里最低的一家交期最稳', status='supported', summary='对比了近三个月的到货记录，最低价那家准时率最高。', tags=['采购', '报价'], scope='采购部'),
-    it(KEYS['kb'], 'kb', '合成：样品检验不过时先退回供应商，不直接换供应商', summary='你拍过板：第一次不过先退回整改。', tags=['检验']),
-    it(KEYS['kb2'], 'kb', '合成：月底对账只看已到货的', scope='只给管理层'),
+    it(KEYS['kb'], 'kb', '合成：样品检验不过时先退回供应商，不直接换供应商', summary='第一次不过先退回整改，不直接换供应商。', tags=['检验']),
     it(KEYS['verify'], 'verify', '合成：到货数量和订单对得上', status='FAIL', summary='有 2 张单子少了。'),
 ]
 DETAIL = {'item': ITEMS[0], 'body': '## 结论\n\n最低价那家 **准时率最高**。\n\n<script>window.__xss=1</script>\n\n- 近三个月 12 批\n- 11 批准时',
           'evidence': [{'quote': '第三季度到货记录：12 批中 11 批准时。', 'note': '看的是到货单', 'stance': 'supports', 'created': '2026-11-12 08:00:00', 'source': {'title': '合成到货台账', 'url': 'https://records.example/q3'}},
                        {'quote': '有一批晚了两天。', 'note': '', 'stance': 'refutes', 'created': '2026-11-12 08:00:00', 'source': {'title': '合成异常记录', 'url': 'javascript:alert(1)'}}]}
 mode = {'list': 'ok', 'detail': 'ok'}
+who = {'role': 'member'}
+ME = {'member': {'authenticated': True, 'via': 'cookie', 'login': 'synthetic-alpha', 'display_name': '合成员工甲', 'principal': 'user:synthetic-alpha', 'roles': [{'id': 'member', 'name': '普通员工', 'scope': '*', 'preset': True}]},
+      'management': {'authenticated': True, 'via': 'cookie', 'login': 'synthetic-boss', 'display_name': '合成管理层', 'principal': 'user:synthetic-boss', 'roles': [{'id': 'management', 'name': '管理层', 'scope': '*', 'preset': True}]}}
 asked = []
 def fake(route, body, status=200): route.fulfill(status=status, content_type='application/json', body=json.dumps(body))
 def on_kn(route):
     u = urlparse(route.request.url); asked.append(u.path)
     if u.path == '/api/knowledge':
         m = mode['list']
-        if m == 'ok': return fake(route, {'items': ITEMS, 'source': 'ok'})
+        if m == 'ok': return fake(route, {'items': ITEMS + ([MGMT_ONLY] if who['role'] == 'management' else []), 'source': 'ok'})
         if m == 'degraded': return fake(route, {'items': ITEMS[:2], 'source': 'degraded'})
         if m == 'not_ready': return fake(route, {'items': [], 'source': 'not_ready'})
         if m == 'not_connected': return fake(route, {'items': [], 'source': 'not_connected'})
@@ -54,23 +58,32 @@ with sync_playwright() as p:
     pg = b.new_page(viewport={'width': 1440, 'height': 900}); pg.set_default_timeout(10000)
     pg.route(re.compile(r'/api/knowledge(/[^?]*)?(\?.*)?$'), on_kn)
     # 登录着的合成员工（左下角写名字；经验库是业务内容，真实环境里要登录）
-    pg.route(re.compile(r'/api/auth/me$'), lambda r: fake(r, {'authenticated': True, 'via': 'cookie', 'login': 'synthetic-alpha', 'display_name': '合成员工甲', 'principal': 'user:synthetic-alpha', 'roles': []}))
+    pg.route(re.compile(r'/api/auth/me$'), lambda r: fake(r, ME[who['role']]))
 
     print('一、有内容')
     pg.goto(M + '/knowledge'); pg.wait_for_selector('[data-testid=kn-list]')
     check('顶栏标题是导航名「经验库」；顶上那一句照原型', pg.locator('.wm-top-title').inner_text().strip() == '经验库' and pg.locator('[data-testid=kn-intro]').inner_text().startswith('公司越用越聪明'))
     tabs = pg.locator('[data-testid=kn-tabs] .ant-segmented-item-label').all_inner_texts()
-    check('筛的一排：全部 4、依据 1、经验 2、方法 0、检查 1，先后照原型', tabs == ['全部 4', '依据 1', '经验 2', '方法 0', '检查 1'], tabs)
+    check('普通员工：筛的一排照应答数——全部 3、依据 1、经验 1、方法 0、检查 1，先后照原型', tabs == ['全部 3', '依据 1', '经验 1', '方法 0', '检查 1'], tabs)
+    check('普通员工：页面只照应答画，没有「只给管理层」的条目，也不自己补', '只给管理层' not in pg.locator('main').inner_text() and '月底对账' not in pg.locator('main').inner_text())
     rows = pg.locator('[data-testid=kn-item]')
     first = rows.nth(0).inner_text()
-    check('一条一行：类别、标题、状态、谁能看（原样）', rows.count() == 4 and '依据' in first and '三家报价' in first and '有依据支持' in first and '采购部' in first, first)
-    check('检查的结论「没通过」；经验没有状态就不写', '没通过' in rows.nth(3).inner_text() and rows.nth(1).locator('[data-testid=kn-item-status]').count() == 0)
+    check('一条一行：类别、标题、状态、谁能看（原样）', rows.count() == 3 and '依据' in first and '三家报价' in first and '有依据支持' in first and '采购部' in first, first)
+    check('检查的结论「没通过」；经验没有状态就不写', '没通过' in rows.nth(2).inner_text() and rows.nth(1).locator('[data-testid=kn-item-status]').count() == 0)
+    check('条目的摘要照服务端原样写，不加「你拍过板」这类针对看的人的说法（顶上那一句是原型的介绍，不算）', '你拍过板' not in pg.locator('[data-testid=kn-list]').inner_text())
     text = pg.locator('main').inner_text()
     check('条目编号不写在页面的字上（只在地址里）', not any(k in text for k in KEYS.values()))
     if SHOT: pg.wait_for_timeout(500); pg.screenshot(path=SHOT.replace('.png', '-列表.png'))
-    pg.locator('[data-testid=kn-tabs]').get_by_text('经验 2').click()
+    pg.locator('[data-testid=kn-tabs]').get_by_text('经验 1').click()
     pg.wait_for_function("() => new URLSearchParams(location.search).get('k') === 'kb'")
-    check('点「经验」：地址带 ?k=kb，只剩两条经验', rows.count() == 2 and all('经验' in rows.nth(i).locator('[data-testid=kn-item-kind]').inner_text() for i in range(2)))
+    check('点「经验」：地址带 ?k=kb，只剩那一条经验', rows.count() == 1 and '经验' in rows.nth(0).locator('[data-testid=kn-item-kind]').inner_text())
+    # 换成管理层：应答里多了「只给管理层」的那条，页面照着多画一条
+    who['role'] = 'management'; pg.goto(M + '/knowledge'); pg.wait_for_selector('[data-testid=kn-list]')
+    pg.wait_for_function("() => document.querySelector('[data-testid=wm-me-name]')?.textContent.trim() === '合成管理层'")
+    tabs = pg.locator('[data-testid=kn-tabs] .ant-segmented-item-label').all_inner_texts()
+    check('管理层：应答里多了「只给管理层」的那条——全部 4、经验 2，谁能看写「只给管理层」', tabs[:3] == ['全部 4', '依据 1', '经验 2'] and '只给管理层' in pg.locator('main').inner_text(), tabs)
+    if SHOT: pg.wait_for_timeout(400); pg.screenshot(path=SHOT.replace('.png', '-管理层.png'))
+    who['role'] = 'member'
     pg.locator('[data-testid=kn-tabs]').get_by_text('方法 0').click(); pg.wait_for_selector('[data-testid=kn-kind-empty]')
     check('某一类空着：说「「方法」这一类还没有内容。」', '「方法」这一类还没有内容' in pg.locator('[data-testid=kn-kind-empty]').inner_text())
     pg.goto(M + '/knowledge?k=claim'); pg.wait_for_selector('[data-testid=kn-list]')
@@ -114,7 +127,7 @@ with sync_playwright() as p:
     mode['list'] = '503'; pg.goto(M + '/knowledge'); pg.wait_for_selector('[data-testid=kn-problem]')
     check('503：说暂时读不到，带再试一次；不当成空', '暂时读不到' in pg.locator('[data-testid=kn-problem]').inner_text() and pg.get_by_role('button', name='再试一次').count() == 1 and pg.locator('[data-testid=kn-empty]').count() == 0)
     mode['list'] = 'ok'; pg.get_by_role('button', name='再试一次').click(); pg.wait_for_selector('[data-testid=kn-list]')
-    check('「再试一次」之后列出来了', pg.locator('[data-testid=kn-item]').count() == 4)
+    check('「再试一次」之后列出来了', pg.locator('[data-testid=kn-item]').count() == 3)
     check('页面只问了经验库的两个读接口', all(a == '/api/knowledge' or a.startswith('/api/knowledge/') for a in asked) and '/api/knowledge' in asked, sorted(set(asked))[:5])
     b.close()
 
