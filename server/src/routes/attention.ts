@@ -58,7 +58,7 @@ export function registerAttentionRoutes(app: HttpService, deps: AttentionRouteDe
    */
   // 动作类别是「决定」：替人拍板的入口（批准、拒绝、验收、对接……），不是普通的写
   // 写请求总门对这条放行（L20，index.ts 的 REMOTE_ALLOW_EXACT）：能不能答由条目的来源判——先看这个人的「关注」列表里有没有这一条，
-  // 转给原路由的照样再过一遍写请求总门和原路由的守卫；直接实现的各自核（事项的验收、退回只给建立人和管理员）
+  // 转给原路由的照样再过一遍写请求总门和原路由的守卫；直接实现的各自核（事项的验收、退回由 itemDecisionVerdict 判：建立人本人、退回时还有负责人、持有管理层授予的人代办，见 L21）
   app.post('/api/attention/answer', { action: 'attention.answer', kind: 'decide', statusNotVerdict: ANSWER_BY_SOURCE }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'attention_cross_origin_denied' });
