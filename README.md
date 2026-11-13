@@ -245,21 +245,37 @@ GET              /api/health/ready              就绪：含 LayerFS 探测（�
 派单 run 完成时向**绑定上人填的 `callback_url`** 投递回执（`[A2A receipt] task <id>` + 上游 `receipt.ts` 信封，outcome=completed、幂等键 `run-<id>-finished`）；
 自报 callback 与绑定不一致 → 不投递且 `receipt=rejected:callback-mismatch`；人自己开的 run 不回执。outbox 退避 1m/5m/15m/1h、5 次后 dead（`A2A_OUTBOX_BACKOFF_SCALE` 可加速）；`GET /api/sop/runs/:id` 返回 `receipt`（none/pending/sent/dead/rejected:*）。
 
-### A2A peer 宿主（上游实现承载，2026-10-23 主人裁定）
+### A2A 节点（单进程，经上游官方子路径）
 
-市场**不自己实现 A2A 协议**：`PEER=on` 时市场进程启动上游 `dsh-open-a2a-net` 插件宿主（`scripts/a2a-peer.mjs`，真实 Cordis 宿主 + WebServer），
-签名卡片、`/a2a/direct` 入站、幂等、回执、账本全部由上游实现承担；市场只做三件事：
+市场自己就是 A2A 网上的一个节点，跑在同一个进程、同一个端口（9800）里，不另起宿主。
+协议的线格式不在市场里重写，全部调上游 `@nelsonlongxiang/dsh-open-a2a-net` 的官方子路径（版本以 `package.json` 为准）：
 
-| 职责 | 位置 |
+| 子路径 | 用来做什么 |
 |---|---|
-| 生命周期 | `server/src/index.ts`（`PEER=on` 拉起、退出 5s 重启、`GET /api/a2a/peer` 状态） |
-| 业务桥接 | `scripts/a2a-peer.mjs` 的桥接 agent：入站派单 → 市场 REST 开 SOP run；自由文本 → 收件确认 |
-| 出站发件 | `POST /api/a2a/peer/send` → peer 控制面 `/__bridge/send` → 上游 `a2a_route` 工具 |
+| `/card` | 名片签名与验签（`signCard`/`verifyCard`），入站验签和对端登记表也用它 |
+| `/receipt` | 回执信封的编解码（`formatReceipt`/`parseReceipt`） |
+| `/transport-caps` | 单条消息的大小上限（`MAX_ROUTE_BODY_BYTES`） |
+| `/a2a-client` | 出站：`A2aClient` 取对端名片、带 OriginClaim 信封投递 |
 
-环境变量：`PEER=on`（启用）· `PEER_PORT`（默认 9900）· `PEER_CTL_PORT`（默认 9901）· `PEER_HOME`（密钥与 peers.json）·
-`PEER_PEERS`（种子对端）· `PEER_TEAMS`（队声明，精确队名，写入上游 `teamJoinAllowlist` 并由桥接代 join）。
+市场这边的面：
 
-冒烟：`node --import ./scripts/a2a-peer-loader.mjs scripts/a2a-peer-smoke.mjs`（双 peer 真实 HTTP，11 项）。
+| 面 | 位置 |
+|---|---|
+| 名片 `/.well-known/agent-card.json` | `server/src/routes/agent-card.ts`；密钥首启生成在 `DATA_DIR/a2a-key.pem`，团队名取 `MARKET_TEAM`，句柄 `<MARKET_TEAM>/<node8>` |
+| 入站 `POST /a2a/direct` | `server/src/routes/a2a-direct.ts`：回执分流、入站签名（`WM_A2A_DIRECT_SIG`）、绑定准入、幂等 |
+| 出站管理面 `GET /api/a2a/state`、`POST /api/a2a/send` | `server/src/routes/a2a-outbound.ts`，只给管理员；send 只发给对端登记表里状态为 active 的对端 |
+| 对端登记表 `/api/a2a/peers` | `server/src/routes/a2a-peers.ts`，登记时验签并钉住公钥 |
+| 团队名册 `GET /api/a2a/teams` | `server/src/routes/a2a-roster.ts` |
+
+名片上声明的能力（`canvasMemberProvenance`、`progressReceipts`、`teamRoster`、`directedSeats`）各有一个开关，见上方环境变量。
+要让 superagent 团队接市场派的工，节点侧怎么配（把市场加成团队画布的远端成员等）以上游的
+[superagent-market-team.md](https://github.com/NelsonLongxiang/dsh-open-a2a-net/blob/main/docs/ops/superagent-market-team.md) 为准。
+
+冒烟：`node scripts/a2a-smoke.mjs`（裁判是上游的 `verifyCard`，取上游检出的 `src/card.ts`，缺省找同级目录的 dsh-open-a2a-net，CI 里钉了提交）；
+契约联调见上方「快速开始」里的 `contract-upstream-test.mjs`。
+
+> 沿革：2026-10-23 曾有一版「peer 宿主」（打开开关时另起一个上游 Cordis 宿主、经桥接脚本收发，另占两个端口），
+> 同日由 `b41fff7` 改成现在的单进程官方子路径做法，那一版的桥接脚本、`/api/a2a/peer*` 路由和相关环境变量都已删除。
 
 ### 信任模型与远程写面（主人裁定 A，2026-10-23）
 
