@@ -1,15 +1,15 @@
-# 完整例子：设备巡检台（从零到能打开页面）
+# 完整例子：合成·设备巡检台（从零到能打开页面）
 
 一个真跑过的例子，数据全部是合成的。照着做一遍，就知道一个视图台从申请权限到交付要走哪几步。下面每一块 JSON 都由 `scripts/skill-data-views-examples-test.mjs` 用真实现跑过。
 
-**任务**：派任务的人说：「卡片 12 是设备巡检台。把巡检记录放上去，管理层要看本月巡检了几次、有几次异常、各区域分布，还要能翻明细。异常就是 `bad`。」
+**任务**：派任务的人说：「卡片 12 是合成·设备巡检台。把巡检记录放上去，管理层要看本月巡检了几次、有几次异常、各区域分布，还要能翻明细。异常就是 `bad`。」
 
 ## 第 0 步：拿到权限
 
 台写卡片编号就行。一次把要用的工具都申请了，写清用途：
 
 ```text
-access_request { "tools": ["dataset_define@bench:12", "dataset_replace@bench:12", "dataset_list@bench:12", "dataset_query@bench:12", "view_get@bench:12", "view_put@bench:12"], "reason": "建设备巡检台：两份数据集、一份视图描述" }
+access_request { "tools": ["dataset_define@bench:12", "dataset_replace@bench:12", "dataset_list@bench:12", "dataset_query@bench:12", "view_get@bench:12", "view_put@bench:12"], "reason": "建合成·设备巡检台：两份数据集、一份视图描述" }
 ```
 
 等管理层批（`access_info` 的 `bench_requests` 里看进度）。批之前调这些工具，结果和「没有这个工具」一样。
@@ -19,7 +19,7 @@ access_request { "tools": ["dataset_define@bench:12", "dataset_replace@bench:12"
 每一列都写 `label`（页面上表格的表头只用它，没有就保存不了视图）；口径（「异常就是 bad」）写进列的 `values`。
 
 ```json dataset
-{ "name": "patrol_devices", "title": "设备", "key": ["id"],
+{ "name": "patrol_devices", "title": "合成·设备", "key": ["id"],
   "columns": [
     { "name": "id", "type": "integer", "label": "编号" },
     { "name": "name", "type": "text", "label": "名字" },
@@ -29,7 +29,7 @@ access_request { "tools": ["dataset_define@bench:12", "dataset_replace@bench:12"
 ```
 
 ```json dataset
-{ "name": "patrol_records", "title": "巡检记录", "key": ["id"],
+{ "name": "patrol_records", "title": "合成·巡检记录", "key": ["id"],
   "columns": [
     { "name": "id", "type": "integer", "label": "编号" },
     { "name": "day", "type": "date", "label": "日期", "required": true },
@@ -46,20 +46,20 @@ access_request { "tools": ["dataset_define@bench:12", "dataset_replace@bench:12"
 这两份都是「每次给全量」的数据，用整份替换（`dataset_replace`），带一个幂等键，重发不会写两遍。
 
 ```json rows:patrol_devices
-[ { "id": 1, "name": "设备-01", "region": "东区", "status": "在用" },
-  { "id": 2, "name": "设备-02", "region": "南区", "status": "在用" },
-  { "id": 3, "name": "设备-03", "region": "西区", "status": "在用" },
-  { "id": 4, "name": "设备-04", "region": "北区", "status": "停用" } ]
+[ { "id": 1, "name": "合成设备-01", "region": "东区", "status": "在用" },
+  { "id": 2, "name": "合成设备-02", "region": "南区", "status": "在用" },
+  { "id": 3, "name": "合成设备-03", "region": "西区", "status": "在用" },
+  { "id": 4, "name": "合成设备-04", "region": "北区", "status": "停用" } ]
 ```
 
 ```json rows:patrol_records
-[ { "id": 1, "day": "2026-01-05", "device": "设备-01", "region": "东区", "who": "甲", "result": "ok", "minutes": 13 },
-  { "id": 2, "day": "2026-01-05", "device": "设备-02", "region": "南区", "who": "乙", "result": "ok", "minutes": 16 },
-  { "id": 3, "day": "2026-01-05", "device": "设备-03", "region": "西区", "who": "丙", "result": "bad", "minutes": 22 },
-  { "id": 4, "day": "2026-01-15", "device": "设备-01", "region": "东区", "who": "乙", "result": "ok", "minutes": 10 },
-  { "id": 5, "day": "2026-01-15", "device": "设备-02", "region": "南区", "who": "丙", "result": "ok", "minutes": 19 },
-  { "id": 6, "day": "2026-01-15", "device": "设备-03", "region": "西区", "who": "甲", "result": "ok", "minutes": 13 },
-  { "id": 7, "day": "2026-02-05", "device": "设备-01", "region": "东区", "who": "丙", "result": "bad", "minutes": 16 } ]
+[ { "id": 1, "day": "2026-01-05", "device": "合成设备-01", "region": "东区", "who": "甲", "result": "ok", "minutes": 13 },
+  { "id": 2, "day": "2026-01-05", "device": "合成设备-02", "region": "南区", "who": "乙", "result": "ok", "minutes": 16 },
+  { "id": 3, "day": "2026-01-05", "device": "合成设备-03", "region": "西区", "who": "丙", "result": "bad", "minutes": 22 },
+  { "id": 4, "day": "2026-01-15", "device": "合成设备-01", "region": "东区", "who": "乙", "result": "ok", "minutes": 10 },
+  { "id": 5, "day": "2026-01-15", "device": "合成设备-02", "region": "南区", "who": "丙", "result": "ok", "minutes": 19 },
+  { "id": 6, "day": "2026-01-15", "device": "合成设备-03", "region": "西区", "who": "甲", "result": "ok", "minutes": 13 },
+  { "id": 7, "day": "2026-02-05", "device": "合成设备-01", "region": "东区", "who": "丙", "result": "bad", "minutes": 16 } ]
 ```
 
 ## 第 3 步：先查一下，确认数对
@@ -76,7 +76,7 @@ access_request { "tools": ["dataset_define@bench:12", "dataset_replace@bench:12"
 两份视图：看板（四个数和一张图）、明细（一张表）。两份都有同一个月份筛选栏。
 
 ```json view-doc
-{ "title": "设备巡检", "views": [
+{ "title": "合成·设备巡检", "views": [
   { "key": "board", "title": "看板", "blocks": [
     { "type": "filter-bar", "fields": [ { "name": "month", "kind": "month", "label": "月份", "default": "2026-01" } ] },
     { "type": "stat", "title": "本月巡检", "unit": "次", "value": "v",

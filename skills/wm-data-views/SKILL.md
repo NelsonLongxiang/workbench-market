@@ -206,4 +206,4 @@ access_request { "tools": ["dataset_list@bench:12", "dataset_query@bench:12"], "
 - `references/views.md`：八种组件各自的键、筛选栏、表单、取值的说法、按值着色、宽度
 - `references/limits.md`：全部上限和时限
 - `references/recipes.md`：几个常见的台照着抄
-- `references/example-inspection.md`：一个完整的例子，从建数据集到能打开页面（设备巡检台，合成数据）
+- `references/example-inspection.md`：一个完整的例子，从建数据集到能打开页面（合成·设备巡检台，数据全是合成的）
