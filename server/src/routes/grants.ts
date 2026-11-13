@@ -194,7 +194,7 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
       blocks: BLOCKS.map(({ key, name }) => ({ key, name })),
       kinds: MATRIX_KINDS,
       roles: [...roles].sort((a, b) => order(a) - order(b)).map((r) => {
-        const cells = roleMatrix(r.id, r.closure, catalogAtLoad);
+        const cells = roleMatrix(r, catalogAtLoad);
         return { id: r.id, name: r.name, preset: r.platform, custom: r.custom, cells, summary: matrixSummary(cells) };
       }),
     });

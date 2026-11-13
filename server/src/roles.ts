@@ -25,6 +25,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
+import { ANONYMOUS_ACTIONS, askedKind, deptKind, narrowed, SELF_DECIDED } from './judgment-builtins.ts';
 
 export type Kind = 'read' | 'write' | 'decide' | 'admin';
 export const KINDS: readonly Kind[] = ['read', 'write', 'decide', 'admin'];
@@ -143,32 +144,58 @@ export const MATRIX_KINDS: readonly { key: Kind; name: string }[] = [
 ];
 /** 格子：all 全部；scoped 范围内（范围由授予给）；some 部分动作；self 只限自己的；none 不能；na 这一块没有这一类动作 */
 export type Cell = 'all' | 'scoped' | 'some' | 'self' | 'none' | 'na';
-const RANK: Record<Cell, number> = { na: -1, none: 0, self: 1, some: 2, scoped: 3, all: 4 };
 /** 范围由授予给的预设：部门负责人、AI 员工、访客（矩阵里显示「范围内」） */
 export const SCOPED_PRESETS: readonly string[] = ['dept-lead', 'ai-staff', 'guest'];
 
-/** 一个角色（展开之后的权限）在七大块 × 四类上的格子 */
-export function roleMatrix(roleId: string, closure: readonly Permission[], catalog: ActionCatalog): Record<string, Record<Kind, Cell>> {
+/** 一个角色（展开之后的权限）覆不覆盖这个动作：统一判定（judgment.ts）和矩阵共用这一处。只有范围不写或 * 的权限算覆盖 */
+export function permits(closure: readonly Permission[], action: string, kind: Kind): { covers: boolean; scoped: boolean } {
+  let scoped = false;
+  for (const p of closure) {
+    // 按类别给的，写了 domains 就只算这几个域里的动作
+    const hit = ((p.kinds ?? []).includes(kind) && (!p.domains || p.domains.includes(domainOf(action)))) || (p.actions ?? []).includes(action);
+    if (!hit) continue;
+    if (p.scope === undefined || p.scope === '*') return { covers: true, scoped: false };
+    scoped = true;
+  }
+  return { covers: false, scoped };
+}
+
+/**
+ * 一个角色在七大块 × 四类上的格子。从统一判定的同一套规则推，不另写一份（只管角色带来的能力）：
+ *   · 每一格看这一块里登记成这一类的动作，逐个问「这个角色的授予能不能让判定放行」：
+ *       问判定用的类别照 judgment-builtins.ts 的 ASKED（数据视图的台读也按「写」问）；覆盖与否用 permits（和 judge 同一处）；
+ *   · 授予的范围由部门给的角色（部门负责人、AI 员工、访客这几个预设，和组织角色）：judge 只认范围「全部」的授予，
+ *     所以只在按部门问的动作（ASKED 里 dept 不是 null）上算「范围内」，别的动作上不算；
+ *   · 「只限自己的」：范围 self 的权限 judge 不认，只在按关系对自己的事拍板的那几个动作（SELF_DECIDED）上算；
+ *   · 匿名也能做的底（ANONYMOUS_ACTIONS）：判定里登录的人都能做，每个角色都算放行；
+ *     只认「是人」的收窄动作：任何启用的人都能做，能授予人的角色都算放行（只授予非人的 AI 员工不算）；只认属主的收窄动作只在属主那一行算。
+ * 格子：全部动作都放行 all；部分 some；只在部门范围内 scoped；只限自己的 self；都不行 none；这一块没有这一类（计入的）动作 na
+ */
+export function roleMatrix(role: { id: string; closure: readonly Permission[]; platform?: boolean; custom?: boolean }, catalog: ActionCatalog): Record<string, Record<Kind, Cell>> {
+  const byDept = SCOPED_PRESETS.includes(role.id) || (role.platform === false && role.custom === false);
+  const selfPerm = (kind: Kind, action: string) => role.closure.some((p) => p.scope === 'self' && (p.kinds ?? []).includes(kind) && (!p.domains || p.domains.includes(domainOf(action))));
   const out: Record<string, Record<Kind, Cell>> = {};
   for (const b of BLOCKS) {
-    const row = { read: 'none', write: 'none', decide: 'none', admin: 'none' } as Record<Kind, Cell>;
-    // 这一块里有哪几类动作（按动作清单）：没有的那一类格子是 na，不说能不能
-    const present = new Set<Kind>();
-    for (const [a, k] of catalog) if (b.domains.includes(domainOf(a))) present.add(k);
-    for (const p of closure) {
-      const wide: Cell = p.scope === 'self' ? 'self' : (p.scope !== undefined && p.scope !== '*') || SCOPED_PRESETS.includes(roleId) ? 'scoped' : 'all';
-      for (const k of p.kinds ?? []) {
-        if (p.domains && !p.domains.some((d) => b.domains.includes(d))) continue;
-        if (RANK[wide] > RANK[row[k]]) row[k] = wide;
+    const row = {} as Record<Kind, Cell>;
+    for (const k of KINDS) {
+      let n = 0, full = 0, scoped = 0, self = 0;
+      for (const [a, declared] of catalog) {
+        if (declared !== k || !b.domains.includes(domainOf(a))) continue;
+        n++;
+        const narrow = narrowed(a);
+        if (narrow) { if ((narrow.only.includes('person') && !NON_PERSON_ONLY_ROLES.includes(role.id)) || (narrow.only.includes('owner') && role.id === 'owner')) full++; continue; }
+        if (ANONYMOUS_ACTIONS.includes(a)) { full++; continue; }
+        if (byDept) {
+          const dk = deptKind(a);
+          if (dk && permits(role.closure, a, dk).covers) scoped++;
+          continue;
+        }
+        const ak = askedKind(a, k);
+        if (permits(role.closure, a, ak).covers) full++;
+        else if (SELF_DECIDED.includes(a) && selfPerm(ak, a)) self++;
       }
-      for (const a of p.actions ?? []) {
-        const k = catalog.get(a);
-        if (!k || !b.domains.includes(domainOf(a))) continue;
-        const cell: Cell = wide === 'all' ? 'some' : wide;
-        if (RANK[cell] > RANK[row[k]]) row[k] = cell;
-      }
+      row[k] = n === 0 ? 'na' : full === n ? 'all' : full > 0 ? 'some' : scoped > 0 ? 'scoped' : self > 0 ? 'self' : 'none';
     }
-    for (const k of KINDS) if (!present.has(k)) row[k] = 'na';
     out[b.key] = row;
   }
   return out;
