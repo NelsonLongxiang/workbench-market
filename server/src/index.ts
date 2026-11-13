@@ -9,6 +9,7 @@ import { createLoginGate, loginGateMode, trustedProxies } from './login-gate.ts'
 import { identity, loginRelay, sourceDown } from './identity.ts';
 import { requestPerson, hasLoginCredential } from './request-person.ts';
 import { countSubmission, countSubmitterTicket } from './services/submission-counts.ts';
+import { sealSelfCheck } from './services/login-session.ts';
 import { serveAppHtml } from './app-html.ts';
 import { initSubmitterTickets, issueSubmitterTicket, selfCheckSubmitterTickets, submitterFromTicket } from './submitter-ticket.ts';
 import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
@@ -203,6 +204,13 @@ const loginGate = createLoginGate({
     const who = fresh ? await identity().resolveViewer(cookie) : await loginGateViewer(cookie); // 只认内部员工（门户账号 403）
     if (!who.ok) return who.held ? { held: true as const } : sourceDown(who) ? { down: true as const } : null; // 卡在主体那一步：登录门给等待页；身份来源不可达：接口回 502 identity_unavailable
     return { login: who.viewer.login, admin: who.viewer.admin, ...(who.via === 'session' ? { via: 'session' as const } : {}) };
+  },
+  // Odoo 刚认出来的人：由市场维持会话（期限 WM_SESSION_TTL_MIN）。回答取自上面那份 30 秒缓存，不多问一次 Odoo
+  openSession: async (req) => {
+    const cookie = String(req.headers.cookie ?? '');
+    const who = await loginGateViewer(cookie);
+    if (!who.ok || who.via === 'session') return null;
+    return identity().openSession(cookie, who, SESSION_TTL_MIN * 60_000);
   },
   loginFlows: () => identity().flows(),
   profile: async (req) => {
@@ -565,7 +573,7 @@ const ODOO_ADMIN_TTL_MS = 30_000;
 const odooAdminViewer = identity().cachedResolver({ ttlMs: ODOO_ADMIN_TTL_MS, max: 1000 });
 const odooAdminReqs = new WeakMap<express.Request, string>(); // 本次请求经 Odoo 管理员认定 → 登录名
 async function odooAdminOf(cookieHeader: string): Promise<string | null> {
-  if (!identity().credentialOf(cookieHeader)) return null;
+  if (!identity().hasCredential(cookieHeader)) return null; // Odoo 会话，或者由市场维持的会话（管理员标记取 Odoo 这次的回答）
   try {
     // Explicit relay logout revokes Odoo sessions; never reuse a stale admin verdict.
     const who = loginRelay().relayLogin() ? await identity().resolveViewer(cookieHeader) : await odooAdminViewer(cookieHeader);
@@ -576,7 +584,7 @@ async function odooAdminOf(cookieHeader: string): Promise<string | null> {
 async function markOdooAdmin(req: express.Request): Promise<void> {
   if (odooAdminReqs.has(req) || surfaceOf(req) === 'content' || adminTokenCheck(req.headers['x-admin-token'])) return;
   const cookie = String(req.headers.cookie ?? '');
-  if (!identity().credentialOf(cookie)) return;
+  if (!identity().hasCredential(cookie)) return;
   const login = await odooAdminOf(cookie);
   if (login) odooAdminReqs.set(req, login);
 }
@@ -3851,7 +3859,7 @@ const goServer = registerSurface(app, 'market', PORT, () => {
 const controlServer = SURFACE_PORTS.control ? registerSurface(app, 'control', SURFACE_PORTS.control) : undefined;
 if (contentCfg && contentRuntime) listenContentSurface(app, contentCfg, contentRuntime, () => startupSecurity.snapshot().passed);
 
-void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, benchViews: BENCH_VIEWS.on, outbound: outboundOff() ? verifyOutboundGate : undefined }).then((result) => {
+void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, benchViews: BENCH_VIEWS.on, outbound: outboundOff() ? verifyOutboundGate : undefined, sessionSeal: sealSelfCheck }).then((result) => {
   if (!result.passed) return refuseUnsafeStartup();
   startupPassed(); // 放开启动闸：事项回填这类后台任务从这里开始（自检没过不开始）
   startRedis();
