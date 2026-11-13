@@ -35,7 +35,7 @@ if(mutation==='grants-admin-read')replace("registerGrantRoutes(http, { markOdooA
 if(mutation==='app-data-read')replace('  cliOk: (req) => !browserMarked(req) && rawLoopback(req),','  cliOk: () => true,');
 if(mutation==='sop-run-write')replace('adminActor, writeMode: SOP_RUN_WRITE });',"adminActor, writeMode: 'warn' });");
 if(mutation==='unsigned-login-event')replace('registerLoginEventRoutes(http);',"app.post('/login/:flow/events', (_q, s) => s.status(200).json({}));");
-if(mutation==='forged-login-callback')replace('registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionTtlMs: SESSION_TTL_MIN * 60_000 });',"app.get('/login/:flow/callback', (_q, s) => s.redirect(302, '/tasks'));");
+if(mutation==='forged-login-callback')replace('registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionTtlMs: SESSION_TTL_MIN * 60_000 });',"app.get('/login/:flow/callback', (_q, s) => s.redirect(302, '/work-items'));");
 if(mutation==='vars-missing')replace('        const caller = await authorize(req, res, scope, write);','        if (!scope) throw new HttpError(404, "workbench not found");\n        const caller = await authorize(req, res, scope, write);');
 if(mutation==='principals-admin-read')replace('registerPrincipalRoutes(http, { markOdooAdmin, adminGuard, adminActor });','registerPrincipalRoutes(http, { markOdooAdmin, adminGuard: () => true, adminActor });');
 if(mutation==='mcp-timeout'||mutation==='hold-probe'){const a="app.post('/mcp', { action: 'mcp.rpc', kind: 'write', statusNotVerdict: 'MCP 会话令牌与工具授权由网关判，不是登录身份的结论' }, async (req, res) => {";replace(a,a+(mutation==='mcp-timeout'?"if(req.headers['x-wm-self-probe'])return;":"if(req.headers['x-wm-self-probe'])await new Promise(r=>setTimeout(r,500));"));}

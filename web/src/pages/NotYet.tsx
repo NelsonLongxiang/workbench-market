@@ -17,9 +17,6 @@ export const NOT_YET: Record<string, NotYetSpec> = {
     title: '谁能做什么', what: '人和权限、角色预设、以某人的身份看；待你核准的授予。',
     meanwhile: [{ to: '/attention', label: '等你拍板的事' }],
   },
-  knowledge: {
-    title: '经验库', what: '从事项里沉淀下来的依据、经验、方法和检查。',
-  },
 };
 
 export default function NotYet({ spec }: { spec: NotYetSpec }) {

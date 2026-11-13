@@ -206,9 +206,9 @@ try {
   r = await req('POST', '/api/apps/rc-app/data', T(newTok), { x: 1 });
   row('台', '新台令牌写数据（沙箱页）', '放行（非 401）', st(r), r.status !== 401 && r.status < 500);
 
-  console.log('\n— 统一待办、Odoo 身份、任务中心、Odoo 登录回跳');
-  r = await req('GET', '/tasks', PAGE);
-  row('统一待办', '远程匿名打开 /tasks', '302 /login?next=%2Ftasks', st(r), r.status === 302 && r.h.get('location') === '/login?next=%2Ftasks');
+  console.log('\n— 事项页、Odoo 身份、任务中心、Odoo 登录回跳');
+  r = await req('GET', '/work-items', PAGE);
+  row('事项页', '远程匿名打开 /work-items', '302 /login?next=%2Fwork-items', st(r), r.status === 302 && r.h.get('location') === '/login?next=%2Fwork-items');
   r = await req('GET', '/api/auth/viewer', ODOO_IN);
   row('Odoo 身份', 'Odoo 内部员工 /api/auth/viewer', '过登录门', st(r), !gate401(r));
   r = await req('GET', '/api/auth/viewer', { ...REMOTE, cookie: 'session_id=portalsession00000000001' });
