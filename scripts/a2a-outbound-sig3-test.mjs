@@ -86,7 +86,7 @@ try {
 
   // 二之二、回执 outbox 那一路（postReceipt）：放一行到期的回执，等 worker 真投出去
   seen.length = 0;
-  { const d = new DatabaseSync(resolve(DATA, 'workbench-market.db')); d.exec('PRAGMA busy_timeout = 5000');
+  { const d = new DatabaseSync(resolve(DATA, 'workbench-market.db'), { timeout: 5000 }); d.exec('PRAGMA busy_timeout = 5000');
     d.prepare("INSERT INTO a2a_outbox (run_id, task_id, context_id, target_url, payload, next_at) VALUES (?, ?, ?, ?, ?, datetime('now', '-1 minute'))")
       .run(424242, 'direct-0123456789ab', 'wb:sig3:1', RECV, '[A2A receipt] task direct-0123456789ab\n{"outcome":"completed","idempotencyKey":"direct-0123456789ab","disposition":"result"}');
     d.close(); }

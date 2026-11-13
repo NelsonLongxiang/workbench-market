@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** 全景首页的纯函数单测（web/src/home-view.ts）：进全景的类型、列、每格状态与待定件数、终态的线、总结句、问候、点格筛选。
  *  数据形状照生命周期只读接口（/api/lifecycle/stages、objects）；全是合成值。 */
-import { cleanWho, seatLabel, teamLabel } from '../web/src/people.ts';
+import { cleanWho, seatLabel, teamLabel, waitingLabel } from '../web/src/people.ts';
 import { answerChoices, decideCount, groupCards, isMine } from '../web/src/attention-view.ts';
 import { cardWording, splitAskTitle, buildRows, splitRows, daysLabel, filterAttention, greeting, objectLabel, panoramaType, stageColumns, summaryLine, decideLine, toggleFocus } from '../web/src/home-view.ts';
 
@@ -30,7 +30,7 @@ ok('天数：null 显示未知', daysLabel(null) === '天数未知' && daysLabel
 ok('总结：只数进行中的线，件数按「关注」给你的条数，有红格时指一句', summaryLine(rows, 3) === '公司现在有 2 条线在走，有 3 件等你拍板——红色标出来的格子就是。', summaryLine(rows, 3));
 ok('总结：有待办但对不上格子时不提红格', summaryLine(buildRows(pd, [obj('a', 'st_1')], []), 5) === '公司现在有 1 条线在走，有 5 件等你拍板。');
 ok('总结：没有待办换一句', summaryLine(buildRows(pd, [obj('a', 'st_1')], []), 0) === '公司现在有 1 条线在走，眼下没有要你拍板的。');
-ok('卡片的谁：去前缀、系统来源说人话', cleanWho('receiver:zone') === 'zone' && cleanWho('human:root-admin') === 'root-admin' && cleanWho('market') === '市场' && cleanWho('mcp:s1') === 's1');
+ok('卡片的谁：去前缀、系统来源说人话；对端来源没有承接写「一位 AI 员工」（不露区名）', cleanWho('receiver:zone') === '一位 AI 员工' && cleanWho('human:root-admin') === 'root-admin' && cleanWho('market') === '市场' && cleanWho('mcp:s1') === 's1');
 ok('卡片说法：非管理员看到的是自己的；管理员替建立人代办', cardWording('accept', false).label === '等你验收' && !cardWording('accept', false).proxy && cardWording('accept', true).label === '等建立人验收' && cardWording('accept', true).proxy && cardWording('ask', true).label === '在问建立人' && cardWording('glance', true).label === '等你过目' && !cardWording('glance', true).proxy);
 ok('问候按时段，有名字带名字', greeting(9, 'alpha') === '早上好，alpha。' && greeting(15, null) === '下午好。' && greeting(21, 'b') === '晚上好，b。');
 const f1 = toggleFocus(null, { object: 'a', stage: 'st_2' });
@@ -38,7 +38,7 @@ ok('点格筛选：点一格只看这一格，再点同一格回到全部', f1?.
 ok('筛选：按 object + phase', filterAttention([att('a', 'st_2'), att('b', 'st_1')], f1).length === 1 && filterAttention([att('a', 'st_2')], null).length === 1);
 
 ok('团队名：画布团队显示名字，进程团队没名字显示句柄', teamLabel('zone/canvas/team-a') === 'team-a' && teamLabel('zone/0a1b2c3d') === 'zone/0a1b2c3d');
-ok('卡片的谁：receiver:<区> 有承接时显示承接席位「名字（句柄）」', cleanWho('receiver:zone', '小采 · zone/0a1b2c3d') === '小采（zone/0a1b2c3d）' && cleanWho('zone/canvas/team-a') === 'team-a' && seatLabel('zone/0a1b2c3d') === 'zone/0a1b2c3d');
+ok('卡片的谁：receiver:<区> 有承接时只写承接席位的名字；只有句柄写「一位 AI 员工」；画布团队写团队名', cleanWho('receiver:zone', '小采 · zone/0a1b2c3d') === '小采' && cleanWho('zone/canvas/team-a') === 'team-a' && seatLabel('zone/0a1b2c3d') === '一位 AI 员工' && cleanWho('seat:zone/0a1b2c3d') === '一位 AI 员工');
 {
   const s = splitAskTitle('zone/canvas/team-a 问：用什么语气（可选：正式 / 口语 / 俏皮）');
   ok('提问标题：去掉「<团队> 问：」，拆出选项', s.question === '用什么语气' && s.options.join('|') === '正式|口语|俏皮', JSON.stringify(s));
@@ -65,5 +65,17 @@ ok('卡片说法只看条目的 mine：轮到你不算代办（管理员也是�
   ok('总结句：代办的、别处处理的各说一句，不算进等你拍板', decideLine(2, 1, false, 3) === '有 2 件等你拍板。另有 3 件别人的事你可以代办，1 件要到别处处理。' && decideLine(0, 0, false, 2) === '眼下没有要你当场拍板的，另有 2 件别人的事你可以代办。' && decideLine(1, 2) === '有 1 件等你拍板。另有 2 件要到别处处理。');
   ok('代办的卡片写出在等谁：有建立人名字写名字，没有写「建立人」', cardWording('accept', true, false, 'alpha').label === '等 alpha 验收' && cardWording('ask', true, false, 'alpha').label === '在问 alpha' && cardWording('accept', true, false, '').label === '等建立人验收' && cardWording('accept', false, true, 'alpha').label === '等你验收');
 }
+{
+  const people = [{ principal: 'person:synthetic-beta', display_name: 'Synthetic beta' }];
+  const cases = [['person:synthetic-beta', 'Synthetic beta'], ['person:x', '一位同事'], ['user:pm-a', '一位同事'], ['synthetic:ext-1', '一个外部账号'], ['odoo:42', '一个外部账号'],
+    ['mcp:合成会话', 'AI 会话「合成会话」'], ['task-center', '任务中心'], ['https://peer.invalid', '一个对端节点'], ['zone/canvas/team-a', 'team-a'], ['小采 · zone/0a1b2c3d', '小采'], ['zone/0a1b2c3d', '一位 AI 员工'], ['', '']];
+  const got = cases.map(([raw]) => waitingLabel(raw, { people }));
+  ok('卡片第一行的「谁」不露主体键、外部身份和来源代号：认得的人写显示名，别的说人话', JSON.stringify(got) === JSON.stringify(cases.map((c) => c[1])), JSON.stringify(got));
+  ok('对端来源（receiver:）有承接席位写它的名字，没有写「对方团队」', waitingLabel('receiver:zone', { seat: '小运 · zone/11111111' }) === '小运' && waitingLabel('receiver:zone') === '对方团队');
+}
+
+ok('服务端给了名字（#657 的 waiting_for_name）就直接用；null、空串才退化', waitingLabel('person:x', { name: '合成同事甲' }) === '合成同事甲' && waitingLabel('person:x', { name: null }) === '一位同事'
+  && waitingLabel('person:x', { name: '  ' }) === '一位同事' && waitingLabel('mcp:s1', { name: 'MCP 会话 s1' }) === 'MCP 会话 s1');
+
 console.log(`\nhome-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

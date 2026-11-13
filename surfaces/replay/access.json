@@ -29,8 +29,8 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "principal": { "id": "user:alpha", "kind": "person", "status": "active", "display_name": "合成甲" }, "active": [], "inactive": [] }
+            "headers": { "cache-control": "private, no-store", "content-length": "179", "etag": "W/\"b3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "principal": { "id": "user:alpha", "kind": "person", "status": "active", "display_name": "合成甲" }, "active": [], "inactive": [], "relations": { "departments": [], "teams_led": [], "members": [] } }
           }
         },
         {
@@ -107,7 +107,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "5099", "etag": "W/\"13eb-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "5823", "etag": "W/\"16bf-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "red_lines": [
                 { "id": "no-self-grant", "title": "不能给自己授予", "detail": "起草、提交、放行的人都不能是被授予的主体；库里也有约束。", "enforced_in": "server/src/services/grant.ts、server/src/db.ts", "test": "scripts/grants-smoke.mjs" },
@@ -122,6 +122,7 @@
                 { "id": "business-grants-business-approval", "title": "带业务写的授予要管理层或属主放行", "detail": "角色带业务域的写、不带业务拍板（部门成员、AI 员工这类），授给人或席位要管理层或属主放行；管理口令、只有系统管理员身份的放行不了，起草的人也不能自己放行。普通员工、访客照旧由系统管理员一步完成。", "enforced_in": "server/src/services/grant.ts、server/src/roles.ts", "test": "scripts/grants-smoke.mjs" },
                 { "id": "business-decide-grants-owner-approval", "title": "带业务拍板的授予只有属主能放行", "detail": "管理层、部门负责人这类带业务拍板的角色，不论范围，授予只有属主能放行：管理层不能自己再造管理层，管理口令也不行。", "enforced_in": "server/src/services/grant.ts、server/src/roles.ts", "test": "scripts/grants-smoke.mjs" },
                 { "id": "relations-need-confirmation", "title": "带来权限的关系要属主或业务侧确认", "detail": "部门负责人、团队负责人只有属主能定；团队认领到部门要管理层或接收部门的负责人确认；成员分配只有团队负责人或管理层做。只有系统管理员身份的人（和管理口令）只能提议，提议期间关系不存在、不带来权限；驳回只归能确认的人，提议的人只能撤回自己提的，系统管理员不替业务驳回别人提的。部门成员表只是组织信息。", "enforced_in": "server/src/services/relation-proposal.ts、server/src/routes/teams.ts、server/src/routes/departments.ts", "test": "scripts/teams-smoke.mjs" },
+                { "id": "dept-lead-field-no-power", "title": "部门负责人字段单独不带来权力", "detail": "部门负责人的权力只来自这个部门范围的拍板授予。属主确认（或直接指定）部门负责人时，同一事务里落字段、发授予；字段从别的来源写进来（存量、导入、同步、直接写库）只是「待属主放行」：不算团队负责人、分不了成员、放不了行、确认不了认领，启动时补记一条负责人提议给属主。撤掉授予权力当场就没；换人、移除时收回随负责人发的那条。", "enforced_in": "server/src/services/dept-lead-grant.ts、server/src/services/team.ts、server/src/team-relation.ts", "test": "scripts/teams-smoke.mjs" },
                 { "id": "system-admin-no-business", "title": "系统管理员缺省看不到业务数据", "detail": "系统管理员只有系统域的读写管，业务域（事项、工作台数据、关注……）要另外授予。", "enforced_in": "server/src/roles.ts", "test": "scripts/role-presets-test.mjs" },
                 { "id": "settings-no-secret-values", "title": "设置的出口不带凭据类的值", "detail": "设置读、导出、改设置的应答里，令牌、密码、密钥只说有没有；启动时自检，漏了拒绝启动。", "enforced_in": "server/src/settings-view.ts、server/src/index.ts", "test": "scripts/settings-read-smoke.mjs" },
                 { "id": "export-reveal-admin-only", "title": "导出真值只给管理员", "detail": "带 reveal 的导出要管理口令或管理员登录（浏览器来的要同源）；不满足 403，不降级成掩码。", "enforced_in": "server/src/routes/export-import.ts", "test": "scripts/export-reveal-smoke.mjs" }
@@ -138,7 +139,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "5099", "etag": "W/\"13eb-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "5823", "etag": "W/\"16bf-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "red_lines": [
                 { "id": "no-self-grant", "title": "不能给自己授予", "detail": "起草、提交、放行的人都不能是被授予的主体；库里也有约束。", "enforced_in": "server/src/services/grant.ts、server/src/db.ts", "test": "scripts/grants-smoke.mjs" },
@@ -153,6 +154,7 @@
                 { "id": "business-grants-business-approval", "title": "带业务写的授予要管理层或属主放行", "detail": "角色带业务域的写、不带业务拍板（部门成员、AI 员工这类），授给人或席位要管理层或属主放行；管理口令、只有系统管理员身份的放行不了，起草的人也不能自己放行。普通员工、访客照旧由系统管理员一步完成。", "enforced_in": "server/src/services/grant.ts、server/src/roles.ts", "test": "scripts/grants-smoke.mjs" },
                 { "id": "business-decide-grants-owner-approval", "title": "带业务拍板的授予只有属主能放行", "detail": "管理层、部门负责人这类带业务拍板的角色，不论范围，授予只有属主能放行：管理层不能自己再造管理层，管理口令也不行。", "enforced_in": "server/src/services/grant.ts、server/src/roles.ts", "test": "scripts/grants-smoke.mjs" },
                 { "id": "relations-need-confirmation", "title": "带来权限的关系要属主或业务侧确认", "detail": "部门负责人、团队负责人只有属主能定；团队认领到部门要管理层或接收部门的负责人确认；成员分配只有团队负责人或管理层做。只有系统管理员身份的人（和管理口令）只能提议，提议期间关系不存在、不带来权限；驳回只归能确认的人，提议的人只能撤回自己提的，系统管理员不替业务驳回别人提的。部门成员表只是组织信息。", "enforced_in": "server/src/services/relation-proposal.ts、server/src/routes/teams.ts、server/src/routes/departments.ts", "test": "scripts/teams-smoke.mjs" },
+                { "id": "dept-lead-field-no-power", "title": "部门负责人字段单独不带来权力", "detail": "部门负责人的权力只来自这个部门范围的拍板授予。属主确认（或直接指定）部门负责人时，同一事务里落字段、发授予；字段从别的来源写进来（存量、导入、同步、直接写库）只是「待属主放行」：不算团队负责人、分不了成员、放不了行、确认不了认领，启动时补记一条负责人提议给属主。撤掉授予权力当场就没；换人、移除时收回随负责人发的那条。", "enforced_in": "server/src/services/dept-lead-grant.ts、server/src/services/team.ts、server/src/team-relation.ts", "test": "scripts/teams-smoke.mjs" },
                 { "id": "system-admin-no-business", "title": "系统管理员缺省看不到业务数据", "detail": "系统管理员只有系统域的读写管，业务域（事项、工作台数据、关注……）要另外授予。", "enforced_in": "server/src/roles.ts", "test": "scripts/role-presets-test.mjs" },
                 { "id": "settings-no-secret-values", "title": "设置的出口不带凭据类的值", "detail": "设置读、导出、改设置的应答里，令牌、密码、密钥只说有没有；启动时自检，漏了拒绝启动。", "enforced_in": "server/src/settings-view.ts、server/src/index.ts", "test": "scripts/settings-read-smoke.mjs" },
                 { "id": "export-reveal-admin-only", "title": "导出真值只给管理员", "detail": "带 reveal 的导出要管理口令或管理员登录（浏览器来的要同源）；不满足 403，不降级成掩码。", "enforced_in": "server/src/routes/export-import.ts", "test": "scripts/export-reveal-smoke.mjs" }
@@ -297,36 +299,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "467", "etag": "W/\"1d3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": {
-              "principal": { "id": "user:alpha", "kind": "person", "status": "active", "display_name": "合成甲" },
-              "active": [
-                {
-                  "id": 1,
-                  "role": "member",
-                  "role_name": "普通员工",
-                  "permissions": [{ "kinds": ["read"] }, { "actions": ["app-data.submit", "app-data.upload", "sop-run.file-refs", "sop-run.file-upload", "sop-run.finish", "sop-run.save", "sop-run.start"] }, { "kinds": ["decide"], "scope": "self" }],
-                  "scope": "*",
-                  "effective": true,
-                  "expires_at": null,
-                  "approved_by": "cli",
-                  "source": "wizard"
-                }
-              ],
-              "inactive": []
-            }
-          }
-        },
-        {
-          "id": "access-self",
-          "route": "GET /api/principals/:id/access",
-          "class": "normal",
-          "what": "alpha 看自己，带 action：能读台列表",
-          "request": { "method": "GET", "path": "/api/principals/user:alpha/access?action=workbench.list", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
-          "response": {
-            "status": 200,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "563", "etag": "W/\"233-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "526", "etag": "W/\"20e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "principal": { "id": "user:alpha", "kind": "person", "status": "active", "display_name": "合成甲" },
               "active": [
@@ -343,6 +316,37 @@
                 }
               ],
               "inactive": [],
+              "relations": { "departments": [], "teams_led": [], "members": [] }
+            }
+          }
+        },
+        {
+          "id": "access-self",
+          "route": "GET /api/principals/:id/access",
+          "class": "normal",
+          "what": "alpha 看自己，带 action：能读台列表",
+          "request": { "method": "GET", "path": "/api/principals/user:alpha/access?action=workbench.list", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "622", "etag": "W/\"26e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "principal": { "id": "user:alpha", "kind": "person", "status": "active", "display_name": "合成甲" },
+              "active": [
+                {
+                  "id": 1,
+                  "role": "member",
+                  "role_name": "普通员工",
+                  "permissions": [{ "kinds": ["read"] }, { "actions": ["app-data.submit", "app-data.upload", "sop-run.file-refs", "sop-run.file-upload", "sop-run.finish", "sop-run.save", "sop-run.start"] }, { "kinds": ["decide"], "scope": "self" }],
+                  "scope": "*",
+                  "effective": true,
+                  "expires_at": null,
+                  "approved_by": "cli",
+                  "source": "wizard"
+                }
+              ],
+              "inactive": [],
+              "relations": { "departments": [], "teams_led": [], "members": [] },
               "decision": { "action": "workbench.list", "kind": "read", "verdict": "allow", "rule": "grant", "grant": 1 }
             }
           }

@@ -28,6 +28,9 @@
  * 每一项是 { table, row }：表名、列名只收小写字母、数字和下划线（不以数字开头）；不收任意 SQL。
  * 场景还可以带 seed_files：同一时刻往实例的数据目录里放几个文件（比如自产台已经物化好的版本目录，经 HTTP 只能靠外部服务建出来）。
  * 每一项是 { path, content }：path 是数据目录下的相对路径，每一段只收小写字母、数字、点、下划线和连字符，且不以点开头；content 是文本。
+ *
+ * 请求可以带 save：把应答里的一个值存成变量，后面的请求用 {{名字}} 引用。JSON 应答写字段路径（带点往里取）；
+ * 文本应答（比如台页面里注入的按台令牌）写 { text: 正则 }，正则恰好一个捕获组，取第一处匹配的那一组。
  */
 import { spawn } from './owned-script-fixture.mjs';
 import { createServer, request as httpRequest } from 'node:http';
@@ -157,6 +160,7 @@ export function checkCassette(cassette, known, moduleRouteCount = null, answered
       if (step.request.raw !== undefined && step.request.raw !== true) { problems.push(`${where}：request.raw 只能写 true（路径原样发出去）`); continue; }
       if (step.verify !== undefined && !(step.verify in VERIFIERS)) { problems.push(`${where}：verify 只能是 ${Object.keys(VERIFIERS).join('、')}`); continue; }
       if (step.vary !== undefined && !(step.vary && typeof step.vary === 'object' && !Array.isArray(step.vary) && Object.keys(step.vary).length > 0 && Object.entries(step.vary).every(([k, h]) => (k === '$text' ? h === 'hex64' : k.startsWith('$header:') ? /^\$header:[a-z0-9-]+$/.test(k) && h === 'random' : k === '$location' ? locationVaryOk(h) : k === '$cookies' ? cookieVaryOk(h) : h === 'random' || (typeof h === 'number' && h > 0))))) { problems.push(`${where}：vary 要写成 { 字段路径: 'random' 或一个正数 }，文本应答体写 { $text: 'hex64' }，响应头写 { '$header:小写头名': 'random' }，跳转地址写 { $location: ['port', 'query:名'] }，cookie 写 { $cookies: { 名字: ['value', 'max-age'] } }`); continue; }
+      if (step.save !== undefined && !(step.save && typeof step.save === 'object' && !Array.isArray(step.save) && Object.entries(step.save).every(([name, spec]) => /^[A-Za-z0-9_]+$/.test(name) && saveSpecOk(spec)))) { problems.push(`${where}：save 要写成 { 变量名: 字段路径 或 { text: 恰好一个捕获组的正则 } }`); continue; }
       if (step.compare !== undefined && step.compare !== 'status' && !(Array.isArray(step.compare) && step.compare.length > 0 && step.compare.every((x) => typeof x === 'string' && x))) { problems.push(`${where}：compare 只能是 'status'，或者一组字段的路径`); continue; }
       if (step.route === undefined) continue;
       if (!covered.has(step.route)) { problems.push(`${where}：route 不在 routes 里：${step.route}`); continue; }
@@ -293,6 +297,14 @@ export function steadyResponse(raw) {
 }
 
 const pick = (value, path) => String(path).split('.').reduce((v, key) => (v == null ? undefined : v[key]), value);
+/** save 的一项：字段路径，或 { text: 恰好一个捕获组的正则 }（从文本应答里取） */
+const saveSpecOk = (spec) => (typeof spec === 'string' && spec.length > 0)
+  || (spec && typeof spec === 'object' && !Array.isArray(spec) && Object.keys(spec).join() === 'text' && typeof spec.text === 'string' && captureGroups(spec.text) === 1);
+function captureGroups(source) { try { return new RegExp(`${source}|`).exec('').length - 1; } catch { return -1; } }
+export function pickSaved(body, spec) {
+  if (spec && typeof spec === 'object') return typeof body === 'string' ? new RegExp(spec.text).exec(body)?.[1] : undefined;
+  return pick(body, spec);
+}
 
 /**
  * 路径原样发出去：request 上写 raw: true。fetch（WHATWG URL）发之前会把路径里的 .、..（连 %2e%2e 也算）规范掉，
@@ -552,7 +564,7 @@ export async function runSteps(steps, sendRequest, record = false, stepTag = nul
       const tagged = stepTag && JUDGMENT_ENV.WM_JUDGMENT_COMPARE ? { ...step.request, headers: { ...(step.request.headers ?? {}), 'x-replay-step': `${stepTag}/${step.id}` } } : step.request;
       const raw = await sendRequest(tagged, vars);
       for (const [name, path] of Object.entries(step.save ?? {})) {
-        const value = pick(raw.body, path);
+        const value = pickSaved(raw.body, path);
         if (value !== undefined && value !== null) vars[name] = value;
         else if (record) throw new Error(`应答里取不到要存的 ${path}`);
       }
@@ -664,7 +676,7 @@ async function bootOnce(tag, env, clock, fixtures) {
 /** 场景的 seed：往实例的库里写几行。checkCassette 已经核过形状，这里表名、列名都只会是小写字母和下划线 */
 function seedInstance(dataDir, seed) {
   if (!seed?.length) return;
-  const db = new DatabaseSync(join(dataDir, 'workbench-market.db'));
+  const db = new DatabaseSync(join(dataDir, 'workbench-market.db'), { timeout: 5000 });
   try {
     db.exec('PRAGMA busy_timeout=5000');
     for (const { table, row } of seed) {
@@ -966,6 +978,18 @@ async function selftest() {
   check(lost[1].diffs.join().includes('没存过的变量') && lost[2].diffs.length === 0, '回放：前一条没给出要存的值，用到它的那条算差异，后面的照跑');
   let refused = ''; try { await runSteps(steps(), fake({}), true); } catch (e) { refused = e.message; }
   check(refused.includes('create') && refused.includes('取不到'), '录制：要存的值没取到，直接报错，不写出半份录制');
+  // 从文本应答里取值（台页面注入的令牌）：恰好一个捕获组，取第一处
+  const page = async (request, vars) => request.method === 'GET' && request.path === '/page'
+    ? { status: 200, type: 'text/html', body: '<script>T="ab12";T="cd34";</script>' }
+    : { status: 200, type: 'application/json', body: { got: fill(request.headers?.t ?? '', vars) } };
+  const textTape = [{ id: 'page', request: { method: 'GET', path: '/page' }, save: { tok: { text: 'T="([0-9a-f]+)"' } } }, { id: 'use', request: { method: 'GET', path: '/use', headers: { t: '{{tok}}' } } }];
+  await runSteps(textTape, page, true);
+  check(textTape[1].response.body.got === 'ab12', '存值：文本应答按正则取第一处的捕获组，后面的请求用得上');
+  const jsonOnly = [{ id: 'j', request: { method: 'GET', path: '/use' }, save: { tok: { text: '"(x)"' } } }];
+  let textRefused = ''; try { await runSteps(jsonOnly, page, true); } catch (e) { textRefused = e.message; }
+  check(textRefused.includes('取不到'), '存值：JSON 应答上写文本正则取不到，录制直接报错');
+  const saveShape = (save) => checkCassette({ ...full, scenarios: [{ ...full.scenarios[0], steps: [{ ...full.scenarios[0].steps[0], save }] }] }, known, 1).some((p) => p.includes('save 要写成'));
+  check(!saveShape({ a: 'id' }) && !saveShape({ a: { text: 'x(y)' } }) && saveShape({ a: { text: 'xy' } }) && saveShape({ a: { text: '(x)(y)' } }) && saveShape({ a: { text: '(' } }) && saveShape({ a: { text: 'x(y)', more: 1 } }) && saveShape({ 'a-b': 'id' }) && saveShape([]), '请求集：save 的正则恰好一个捕获组、写得对，变量名只收字母数字下划线');
   // 起实例时端口被占
   const starter = (failures, busy) => { let calls = 0; return Object.assign(async () => { calls++; if (calls <= failures) throw Object.assign(new Error('没起来'), { portBusy: busy }); return 'up'; }, { calls: () => calls }); };
   const notes = [];

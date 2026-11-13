@@ -22,6 +22,7 @@
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
 import { rosters, activeItemsBySeat, type RosterSeat } from './a2a-roster.ts';
+import { leadGrantActive } from './dept-lead-grant.ts';
 
 export const HOST_RE = /^[0-9a-f]{8}$/;
 export const TEAM_RE = /^([a-z0-9-]+\/canvas\/[^/]+)?$/; // 空串也是合法的团队（不在任何画布上的席位）
@@ -57,6 +58,10 @@ export type TeamView = {
   host: string; team: string; status: TeamStatus; in_roster: boolean;
   department: { id: string; name: string } | null;
   leads: Lead[]; router: Member | null; members: Member[];
+  /** 所挂部门上写着的负责人，但他没有这个部门的拍板授予（待属主放行）：不算负责人、不带任何权力，只给页面显示；没有为 null */
+  lead_pending_grant: { principal: string; display_name: string } | null;
+  /** 这个节点的名册停推了没有（和「等你拍板」的名册停推同一个判断 staleBy）；roster_stale_for_minutes 是离最近一次收到多少分钟，没停推为 null */
+  roster_stale: boolean; roster_stale_for_minutes: number | null;
 };
 
 const refuse = (http: TeamRefusal['http'], code: string, message: string): TeamRefusal => ({ ok: false, http, code, message });
@@ -111,7 +116,10 @@ export class TeamService extends Service {
     return (db.prepare('SELECT display_name FROM principals WHERE id = ?').get(id) as { display_name: string } | undefined)?.display_name ?? '';
   }
 
-  /** 在职的负责人：另外指定的（没结束、人还启用）+ 所挂部门的负责人（启用的人） */
+  /**
+   * 在职的负责人：另外指定的（没结束、人还启用）+ 所挂部门的负责人（启用的人，并且持有这个部门的拍板授予）。
+   * 部门上的负责人字段单独不算：字段可能来自存量、导入或将来的同步，不经属主；只有字段的是「待属主放行」（deptLeadPending）。
+   */
   leads(k: TeamKey): Lead[] {
     const out: Lead[] = [];
     for (const r of db.prepare('SELECT principal_id FROM team_leads WHERE host = ? AND team = ? AND ended_at IS NULL ORDER BY id').all(k.host, k.team) as { principal_id: string }[]) {
@@ -122,9 +130,20 @@ export class TeamService extends Service {
     if (reg?.claimed && reg.department_id) {
       const d = db.prepare('SELECT lead_principal FROM departments WHERE id = ?').get(reg.department_id) as { lead_principal: string } | undefined;
       const p = d?.lead_principal ? this.personActive(d.lead_principal) : null;
-      if (d?.lead_principal && p && !out.some((l) => l.principal === d.lead_principal)) out.push({ principal: d.lead_principal, display_name: p.display_name, source: 'department' });
+      if (d?.lead_principal && p && !out.some((l) => l.principal === d.lead_principal) && leadGrantActive(d.lead_principal, reg.department_id)) out.push({ principal: d.lead_principal, display_name: p.display_name, source: 'department' });
     }
     return out;
+  }
+
+  /** 所挂部门上写着负责人、但他没有这个部门拍板授予的（启用的人）：待属主放行，不算负责人 */
+  deptLeadPending(k: TeamKey): { principal: string; display_name: string } | null {
+    const reg = this.registration(k);
+    if (!reg?.claimed || !reg.department_id) return null;
+    const d = db.prepare('SELECT lead_principal FROM departments WHERE id = ?').get(reg.department_id) as { lead_principal: string } | undefined;
+    const p = d?.lead_principal ? this.personActive(d.lead_principal) : null;
+    if (!d?.lead_principal || !p || leadGrantActive(d.lead_principal, reg.department_id)) return null;
+    if (this.leads(k).some((l) => l.principal === d.lead_principal)) return null; // 另外被指定为这个团队的负责人
+    return { principal: d.lead_principal, display_name: p.display_name };
   }
 
   status(k: TeamKey, inRoster = this.rosterTeams().has(tkey(k.host, k.team))): TeamStatus {
@@ -139,8 +158,8 @@ export class TeamService extends Service {
       .run(k.host, k.team, kind, extra.seat ?? '', extra.seat_id ?? '', extra.principal ?? '', extra.detail === undefined ? '' : JSON.stringify(extra.detail), actor.by.slice(0, 256), actor.principal, now);
   }
 
-  events(k: TeamKey): { seq: number; kind: string; seat: string; seat_id: string; principal_id: string; detail: string; actor: string; at: number }[] {
-    return db.prepare('SELECT seq, kind, seat, seat_id, principal_id, detail, actor, at FROM team_events WHERE host = ? AND team = ? ORDER BY seq').all(k.host, k.team) as never;
+  events(k: TeamKey): { seq: number; kind: string; seat: string; seat_id: string; principal_id: string; detail: string; actor: string; actor_principal: string | null; at: number }[] {
+    return db.prepare('SELECT seq, kind, seat, seat_id, principal_id, detail, actor, actor_principal, at FROM team_events WHERE host = ? AND team = ? ORDER BY seq').all(k.host, k.team) as never;
   }
 
   /** 一个事务；外面已经开着事务（比如确认关系提议时把核对、改状态、落关系包在一起）就用保存点嵌进去 */
@@ -266,6 +285,36 @@ export class TeamService extends Service {
   }
 
   /**
+   * 改派：一个事务里结束这个成员现在的分配、分给 principal（团队页「改派」一步办完，不会停在团队公用）。
+   * 检查和 assign 一样；现在没人分着就等同于分配；改给现在的人回 changed=false、什么都不写。
+   * 留痕照旧是一条 unassign 加一条 assign（team_events.kind 不加新值），两条的 detail 都带 { reassign: true, from, to }。
+   */
+  reassign(k: SeatKey, principal: string, actor: Actor, now: number): { ok: true; changed: boolean; id: number | null; from: string | null } | TeamRefusal {
+    if (!this.registration(k)?.claimed) return refuse(409, 'team_not_claimed', '团队还没认领，不能分配成员');
+    const seat = this.rosterSeat(k);
+    if (!seat) return refuse(404, 'seat_not_in_roster', '名册里这个团队下没有这个席位');
+    if (seat.role === 'router') return refuse(422, 'router_not_assignable', '总工不分配给员工，只对负责人');
+    if (!this.personActive(principal)) return refuse(422, 'assignee_not_person', `只分给启用的人，${principal} 不是`);
+    const key: SeatKey = { host: k.host, team: k.team, seat: seat.seat, seat_id: seat.seat_id };
+    const cur = this.activeAssignment(key);
+    // 生效的分配要属于这个团队：seat_id 按节点认，团队另外核（和 unassign 一样）
+    if (cur && (cur.host !== k.host || cur.team !== k.team)) return refuse(404, 'seat_not_in_team', '这个团队下没有这个席位的分配');
+    if (cur && cur.principal_id === principal) return { ok: true, changed: false, id: cur.id, from: principal };
+    const from = cur ? cur.principal_id : null;
+    const detail = { reassign: true, from, to: principal };
+    return this.tx(() => {
+      if (cur) {
+        db.prepare('UPDATE seat_assignments SET ended_at = ?, ended_by = ? WHERE id = ?').run(now, actor.by.slice(0, 256), cur.id);
+        this.event(key, 'unassign', actor, now, { seat: key.seat, seat_id: key.seat_id, principal: cur.principal_id, detail });
+      }
+      const id = Number(db.prepare('INSERT INTO seat_assignments (host, team, seat, seat_id, principal_id, assigned_by, assigned_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(key.host, key.team, key.seat, key.seat_id, principal, actor.by.slice(0, 256), now).lastInsertRowid);
+      this.event(key, 'assign', actor, now, { seat: key.seat, seat_id: key.seat_id, principal, detail });
+      return { ok: true as const, changed: true, id, from };
+    });
+  }
+
+  /**
    * 节点的两样：名字（名册报上来的节点根地址，对到对端登记表里登记的名字；没登记、没名字为 null，页面不显示节点标识），
    * 和最近一次成功收下这个节点名册的时间（a2a_rosters.received_at，和 GET /api/a2a/teams 同一个来源，统一成 ISO 时刻；没收过为 null）
    */
@@ -277,8 +326,8 @@ export class TeamService extends Service {
   /** 那时这个成员归谁（at 毫秒，含起点、不含终点）；没分配为 null */
   ownerAt(k: SeatKey, at: number): string | null {
     const r = (k.seat_id
-      ? db.prepare('SELECT principal_id FROM seat_assignments WHERE host = ? AND seat_id = ? AND assigned_at <= ? AND (ended_at IS NULL OR ended_at > ?) ORDER BY assigned_at DESC LIMIT 1').get(k.host, k.seat_id, at, at)
-      : db.prepare("SELECT principal_id FROM seat_assignments WHERE host = ? AND team = ? AND seat = ? AND seat_id = '' AND assigned_at <= ? AND (ended_at IS NULL OR ended_at > ?) ORDER BY assigned_at DESC LIMIT 1").get(k.host, k.team, k.seat, at, at)) as { principal_id: string } | undefined;
+      ? db.prepare('SELECT principal_id FROM seat_assignments WHERE host = ? AND seat_id = ? AND assigned_at <= ? AND (ended_at IS NULL OR ended_at > ?) ORDER BY assigned_at DESC, id DESC LIMIT 1').get(k.host, k.seat_id, at, at)
+      : db.prepare("SELECT principal_id FROM seat_assignments WHERE host = ? AND team = ? AND seat = ? AND seat_id = '' AND assigned_at <= ? AND (ended_at IS NULL OR ended_at > ?) ORDER BY assigned_at DESC, id DESC LIMIT 1").get(k.host, k.team, k.seat, at, at)) as { principal_id: string } | undefined;
     return r?.principal_id ?? null;
   }
 
@@ -291,7 +340,7 @@ export class TeamService extends Service {
     if (!points.length) return [];
     const hosts = [...new Set(points.map((p) => p.key.host))];
     const rows: AssignRow[] = [];
-    const q = db.prepare('SELECT * FROM seat_assignments WHERE host = ? ORDER BY assigned_at DESC');
+    const q = db.prepare('SELECT * FROM seat_assignments WHERE host = ? ORDER BY assigned_at DESC, id DESC');
     for (const h of hosts) rows.push(...(q.all(h) as AssignRow[]));
     return points.map(({ key, at }) => {
       const hit = rows.find((r) => sameSeat(r, key) && r.assigned_at <= at && (r.ended_at === null || r.ended_at > at));
@@ -311,7 +360,7 @@ export class TeamService extends Service {
 
   /** 这个人现在被分到的成员 */
   assignedTo(principal: string): AssignRow[] {
-    return db.prepare('SELECT * FROM seat_assignments WHERE principal_id = ? AND ended_at IS NULL ORDER BY assigned_at').all(principal) as AssignRow[];
+    return db.prepare('SELECT * FROM seat_assignments WHERE principal_id = ? AND ended_at IS NULL ORDER BY assigned_at, id').all(principal) as AssignRow[];
   }
 
   /** 这个人另外被指定为负责人的团队（不含经部门推出来的） */
@@ -325,11 +374,13 @@ export class TeamService extends Service {
   department(id: string): { id: string; name: string } | null {
     return (db.prepare('SELECT id, name FROM departments WHERE id = ?').get(id) as { id: string; name: string } | undefined) ?? null;
   }
-  /** 这个人对这个部门：是不是成员、是不是负责人（部门不存在两样都是 false） */
-  departmentRole(principal: string, departmentId: string): { member: boolean; lead: boolean } {
+  /** 这个人对这个部门：是不是成员、是不是负责人（字段写着他、并且持有这个部门的拍板授予）、是不是只有字段（待属主放行）。部门不存在都是 false */
+  departmentRole(principal: string, departmentId: string): { member: boolean; lead: boolean; leadPending: boolean } {
     const d = db.prepare('SELECT lead_principal FROM departments WHERE id = ?').get(departmentId) as { lead_principal: string } | undefined;
-    if (!d) return { member: false, lead: false };
-    return { member: !!db.prepare('SELECT 1 FROM department_members WHERE department_id = ? AND principal_id = ?').get(departmentId, principal), lead: d.lead_principal === principal };
+    if (!d) return { member: false, lead: false, leadPending: false };
+    const field = d.lead_principal === principal;
+    const granted = field && leadGrantActive(principal, departmentId);
+    return { member: !!db.prepare('SELECT 1 FROM department_members WHERE department_id = ? AND principal_id = ?').get(departmentId, principal), lead: granted, leadPending: field && !granted };
   }
   /** 主体的显示名（没有为空串） */
   nameOf(principal: string): string {
@@ -363,6 +414,7 @@ export class TeamService extends Service {
         host: key.host, team: key.team, status: this.status(key, !!rt), in_roster: !!rt,
         department: reg?.claimed && reg.department_id ? { id: reg.department_id, name: deptName.get(reg.department_id) ?? '' } : null,
         leads: this.leads(key), router: members.find((m) => m.router) ?? null, members: members.filter((m) => !m.router),
+        lead_pending_grant: this.deptLeadPending(key), ...this.rosterStaleness(key.host),
       });
     }
     return out.sort((a, b) => (a.host + a.team).localeCompare(b.host + b.team));
@@ -377,10 +429,23 @@ export class TeamService extends Service {
   setRosterStaleMs(ms: number): void { this.rosterStaleMs = ms; }
   rosterStaleMinutes(): number { return Math.round(this.rosterStaleMs / 60_000); }
 
+  /** 名册停推的判断（只这一处）：最近一次收到的时间超过阈值。团队页的 roster_stale 和「等你拍板」的名册停推都用它 */
+  private staleBy(receivedAt: string, now: number): number | null {
+    const t = Date.parse(isoTime(receivedAt));
+    return Number.isFinite(t) && now - t > this.rosterStaleMs ? Math.floor((now - t) / 60_000) : null;
+  }
+
+  /** 一个节点的名册停推了没有、停了多少分钟（从最近一次收到算起）；没收过名册的节点不算停推 */
+  rosterStaleness(host: string, now = Date.now()): { roster_stale: boolean; roster_stale_for_minutes: number | null } {
+    const r = db.prepare('SELECT received_at FROM a2a_rosters WHERE host = ?').get(host) as { received_at: string } | undefined;
+    const m = r ? this.staleBy(r.received_at, now) : null;
+    return { roster_stale: m !== null, roster_stale_for_minutes: m };
+  }
+
   /** 超过阈值没更新名册的节点：节点标识、名字、最近收到的时间（页面不显示节点标识，用名字） */
   staleRosters(now = Date.now()): { host: string; node_name: string | null; roster_received_at: string }[] {
     return (db.prepare('SELECT host, received_at FROM a2a_rosters ORDER BY host').all() as { host: string; received_at: string }[])
-      .filter((r) => { const t = Date.parse(isoTime(r.received_at)); return Number.isFinite(t) && now - t > this.rosterStaleMs; })
+      .filter((r) => this.staleBy(r.received_at, now) !== null)
       .map((r) => ({ host: r.host, node_name: this.nodeInfo(r.host).node_name, roster_received_at: isoTime(r.received_at) }));
   }
 

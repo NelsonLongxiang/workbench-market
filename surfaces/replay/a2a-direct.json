@@ -391,17 +391,6 @@
             "headers": { "content-length": "403", "etag": "W/\"193-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               {
-                "id": 1,
-                "sop_slug": "replay-sop",
-                "sop_version": 1,
-                "status": "running",
-                "started_by": "replay-zone/caller01",
-                "started_at": "YYYY-MM-DD hh:mm:ss",
-                "updated_at": "YYYY-MM-DD hh:mm:ss",
-                "finished_at": "",
-                "steps": 1
-              },
-              {
                 "id": 2,
                 "sop_slug": "replay-sop",
                 "sop_version": 1,
@@ -411,6 +400,17 @@
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "finished_at": "",
                 "steps": 0
+              },
+              {
+                "id": 1,
+                "sop_slug": "replay-sop",
+                "sop_version": 1,
+                "status": "running",
+                "started_by": "replay-zone/caller01",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "",
+                "steps": 1
               }
             ]
           }

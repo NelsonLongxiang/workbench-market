@@ -4,13 +4,18 @@
  *
  * app 是 HTTP 服务，不是 Express 应用本身：注册的写法和 Express 一样，路由挂在调用那一刻的位置，注册可以撤销。
  * 这一组路由没有自己的守卫：写请求由 index.ts 里的写请求总门把关，读开放。
+ * 读的应答里带 can：{ edit } 说这个请求能不能改驾驶舱（改名、加面板、删除），页面照它显示编辑入口。
+ * 判法由 index.ts 传进来，就是写请求总门对这一个请求的判断（本机命令行，或有效口令、Odoo 管理员且同源）——
+ * 「谁能改」从页面挪到服务端算，规则一字不变。
  */
+import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import type { CockpitService } from '../services/cockpit.ts';
 import type { WorkbenchService } from '../services/workbench.ts';
 import { rowToCockpit, type CockpitRow, type PanelConfig } from '../db.ts';
 import { HttpError, bad } from '../errors.ts';
+import type { CockpitAction } from '../cockpit-access.ts';
 
 function getCockpit(id: number): CockpitRow {
   const row = svc<CockpitService>('cockpit').byId(id) as unknown as CockpitRow | undefined;
@@ -70,38 +75,58 @@ function validatePanels(raw: unknown): PanelConfig[] {
   });
 }
 
-export function registerCockpitRoutes(app: HttpService): void {
-  app.get('/api/cockpits', { action: 'cockpit.list', kind: 'read' }, (_req, res) => {
-    const rows = svc<CockpitService>('cockpit').list() as unknown as CockpitRow[];
-    res.json(rows.map(rowToCockpit));
-  });
+/** 异步的处理函数：出错（包括取不到驾驶舱的 404）交给错误中间件，和同步的处理函数一样 */
+const wrap = (fn: (req: express.Request, res: express.Response) => Promise<unknown>) =>
+  (req: express.Request, res: express.Response, next: express.NextFunction) => { fn(req, res).catch(next); };
 
-  app.post('/api/cockpits', { action: 'cockpit.create', kind: 'admin' }, (req, res) => {
+/** 从 index.ts 传进来的：cockpit-access.ts 的判断（能不能做这件事；不能就写好应答） */
+export interface CockpitDeps {
+  can: (req: express.Request, action: CockpitAction) => Promise<boolean>;
+  gate: (req: express.Request, res: express.Response, action: CockpitAction) => Promise<{ principal: string | null } | null>;
+}
+/** 写由驾驶舱域自己判：路由声明这一条，判定比对不拿状态码当旧结论 */
+const WRITE_DECIDES = '驾驶舱的写由驾驶舱域判：管理员，或判定放行（管理层预设点名了建、改、删）';
+/** 应答里不带建立人（主体键） */
+const view = (r: CockpitRow) => { const { created_by: _c, ...rest } = rowToCockpit(r) as ReturnType<typeof rowToCockpit> & { created_by?: unknown }; return rest; };
+
+export function registerCockpitRoutes(app: HttpService, deps: CockpitDeps): void {
+  app.get('/api/cockpits', { action: 'cockpit.list', kind: 'read' }, wrap(async (req, res) => {
+    const rows = svc<CockpitService>('cockpit').list() as unknown as CockpitRow[];
+    const can = { edit: await deps.can(req, 'cockpit.update') };
+    res.json(rows.map((r) => ({ ...view(r), can })));
+  }));
+
+  app.post('/api/cockpits', { action: 'cockpit.create', kind: 'admin', statusNotVerdict: WRITE_DECIDES }, wrap(async (req, res) => {
+    const who = await deps.gate(req, res, 'cockpit.create');
+    if (!who) return;
     const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
     if (!name) bad('name 不能为空');
     const description = String(req.body?.description ?? '');
     const panels = validatePanels(req.body?.panels ?? []);
-    const r = svc<CockpitService>('cockpit').create(name, description, JSON.stringify(panels)) as unknown as { lastInsertRowid: number | bigint };
-    res.status(201).json(rowToCockpit(getCockpit(Number(r.lastInsertRowid))));
-  });
+    const r = svc<CockpitService>('cockpit').create(name, description, JSON.stringify(panels), who.principal) as unknown as { lastInsertRowid: number | bigint };
+    res.status(201).json(view(getCockpit(Number(r.lastInsertRowid))));
+  }));
 
-  app.get('/api/cockpits/:id', { action: 'cockpit.read', kind: 'read' }, (req, res) => {
-    res.json(rowToCockpit(getCockpit(Number(req.params.id))));
-  });
+  app.get('/api/cockpits/:id', { action: 'cockpit.read', kind: 'read' }, wrap(async (req, res) => {
+    const row = getCockpit(Number(req.params.id));
+    res.json({ ...view(row), can: { edit: await deps.can(req, 'cockpit.update') } });
+  }));
 
-  app.put('/api/cockpits/:id', { action: 'cockpit.update', kind: 'admin' }, (req, res) => {
+  app.put('/api/cockpits/:id', { action: 'cockpit.update', kind: 'admin', statusNotVerdict: WRITE_DECIDES }, wrap(async (req, res) => {
+    if (!(await deps.gate(req, res, 'cockpit.update'))) return;
     const cur = getCockpit(Number(req.params.id));
     const name = req.body?.name !== undefined ? String(req.body.name).trim() : cur.name;
     if (!name) bad('name 不能为空');
     const description = req.body?.description !== undefined ? String(req.body.description) : cur.description;
     const panels = req.body?.panels !== undefined ? validatePanels(req.body.panels) : JSON.parse(cur.layout_config || '[]');
     svc<CockpitService>('cockpit').update(cur.id, name, description, JSON.stringify(panels));
-    res.json(rowToCockpit(getCockpit(cur.id)));
-  });
+    res.json(view(getCockpit(cur.id)));
+  }));
 
-  app.delete('/api/cockpits/:id', { action: 'cockpit.delete', kind: 'admin' }, (req, res) => {
+  app.delete('/api/cockpits/:id', { action: 'cockpit.delete', kind: 'admin', statusNotVerdict: WRITE_DECIDES }, wrap(async (req, res) => {
+    if (!(await deps.gate(req, res, 'cockpit.delete'))) return;
     const cur = getCockpit(Number(req.params.id));
     svc<CockpitService>('cockpit').delete(cur.id);
     res.json({ ok: true });
-  });
+  }));
 }

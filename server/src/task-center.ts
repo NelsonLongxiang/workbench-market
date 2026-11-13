@@ -2,12 +2,13 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { db } from './db.ts';
+import { db, tableColumns } from './db.ts';
 import { assignableTeams, initWorkbenchEvents, recordTaskCenterEvent } from './workbench-events.ts';
 import { svc } from './context.ts';
 import type { TaskCenterService } from './services/task-center.ts';
 import type { SettingService } from './services/setting.ts';
-import { itemIdForEvent, type WorkItemService } from './services/work-item.ts';
+import { COCKPIT_ID_MAX, itemIdForEvent, type WorkItemService } from './services/work-item.ts';
+import type { CockpitService } from './services/cockpit.ts';
 
 export const taskCenterSteps = [
   { key: 'title', title: '任务标题' }, { key: 'intent', title: '任务意图' },
@@ -16,7 +17,7 @@ export const taskCenterSteps = [
 ];
 export function initializeTaskCenter(appsRoot: string) {
   initWorkbenchEvents(); // 发布与工作台事件同事务：任务中心在哪里初始化，事件表就在哪里建
-  const cols = db.prepare('PRAGMA table_info(tasks)').all() as {name:string}[];
+  const cols = tableColumns('tasks') as {name:string}[];
   if (!cols.some(c=>c.name==='intake_run_id')) db.exec('ALTER TABLE tasks ADD COLUMN intake_run_id INTEGER REFERENCES sop_runs(id)');
   if (!cols.some(c=>c.name==='template_version')) db.exec('ALTER TABLE tasks ADD COLUMN template_version INTEGER');
   db.exec('DROP INDEX IF EXISTS idx_tasks_material; CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_intake_run ON tasks(intake_run_id) WHERE intake_run_id IS NOT NULL');
@@ -145,7 +146,14 @@ export function arrangeTask(raw: unknown, requester: string, now: Date = new Dat
   if (!ARRANGE_KEY.test(key)) return bad('idempotency_key_invalid');
   const team = str('team');
   if (team === null || team === '') return bad('team_required');
-  const payload = JSON.stringify({ title: v.title, intent: v.intent, deliverable: v.deliverable, team, object: v.object, phase: v.phase, due, review });
+  // 从哪个驾驶舱安排的（可选，驾驶舱的 id）：形状不对、驾驶舱不存在都 400。算进幂等的请求体哈希（没给时不进，旧的哈希不变）
+  let cockpitId: number | undefined;
+  if (b.cockpit_id !== undefined && b.cockpit_id !== null) {
+    if (typeof b.cockpit_id !== 'number' || !Number.isInteger(b.cockpit_id) || b.cockpit_id < 1 || b.cockpit_id > COCKPIT_ID_MAX) return bad('cockpit_id_invalid');
+    if (!svc<CockpitService>('cockpit').byId(b.cockpit_id)) return bad('cockpit_not_found');
+    cockpitId = b.cockpit_id;
+  }
+  const payload = JSON.stringify({ title: v.title, intent: v.intent, deliverable: v.deliverable, team, object: v.object, phase: v.phase, due, review, ...(cockpitId ? { cockpit_id: cockpitId } : {}) });
   const sha = createHash('sha256').update(payload, 'utf8').digest('hex');
   const tasks = svc<TaskCenterService>('taskCenter');
   const items = svc<WorkItemService>('workItems');
@@ -173,7 +181,7 @@ export function arrangeTask(raw: unknown, requester: string, now: Date = new Dat
     const eventId = recordTaskCenterEvent({
       id: taskId, data: fields, stepValue: (k) => fields[k], publishedBy: requester, requesterPrincipal: requester, publisherPrincipal: requester,
       templateVersion: null, materialSha256: sha, agentDispatch: direct, centerOn,
-      arranged: { team, submitter: requester, ...(v.object ? { object: v.object } : {}), ...(v.phase ? { phase: v.phase } : {}) },
+      arranged: { team, submitter: requester, ...(v.object ? { object: v.object } : {}), ...(v.phase ? { phase: v.phase } : {}), ...(cockpitId ? { cockpitId } : {}) },
     });
     tasks.insertArrangeRequest({ requester, key, sha256: sha, taskId, eventId, at });
     tasks.arrangeCommit();

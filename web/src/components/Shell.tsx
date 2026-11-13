@@ -10,6 +10,7 @@ import { ATTENTION_CHANGED, getAttention, getAuthMe, listCockpitsShared } from '
 import { answerChoices, decideCount, type AttentionItem } from '../attention-view';
 import type { Cockpit } from '../types';
 import { IDENTITY_DOWN_TEXT, identityDown, retryIdentityNow, subscribeIdentity } from '../identity-status';
+import { personLabel } from '../people';
 
 /** 角标：数字；身份服务连不上时是一个中性灰的「—」，悬停说明暂时取不到（不能写 0 或不显示——那会让人以为没有待办；四个字放不下） */
 export type Pending = number | 'down' | null;
@@ -29,6 +30,7 @@ export default function Shell({ admin, footer, children }: { admin: boolean; foo
   const [pending, setPending] = useState<Pending>(null);
   const down = useSyncExternalStore(subscribeIdentity, identityDown);
   const [cockpits, setCockpits] = useState<Cockpit[] | null>(null);
+  /** 用户卡上的名字：有显示名用显示名，没有再退登录名（people.ts 同一个取名函数） */
   const [login, setLogin] = useState<string | null>(null);
   const [meOpen, setMeOpen] = useState(false);
   // 角标随换页、换身份刷新；驾驶舱和登录身份只在进来时读一次
@@ -44,7 +46,7 @@ export default function Shell({ admin, footer, children }: { admin: boolean; foo
   }, [pathname, admin]);
   // 接口给的不是数组（出错、被拦、形状不对）就不显示这一块，别让侧栏把整页带崩
   useEffect(() => { listCockpitsShared().then((x) => setCockpits(Array.isArray(x) ? x : null), () => setCockpits(null)); }, [admin]);
-  useEffect(() => { void getAuthMe().then((m) => setLogin(m?.authenticated ? m.login ?? null : null)); }, []);
+  useEffect(() => { void getAuthMe().then((m) => setLogin(m?.authenticated ? personLabel({ principal: m.login ?? '', display_name: m.display_name }) || null : null)); }, []);
 
   const groups = NAV_GROUPS.filter((g) => !g.admin && !g.hidden);
   const adminPages = NAV_GROUPS.filter((g) => g.admin).flatMap((g) => g.pages);
@@ -70,8 +72,8 @@ export default function Shell({ admin, footer, children }: { admin: boolean; foo
           </Dropdown>}
           <Popover placement="topLeft" trigger="click" open={meOpen} onOpenChange={setMeOpen} content={<div className="wm-me-pop">{footer}</div>}>
             <button type="button" className="wm-me" data-testid="wm-me" aria-haspopup="dialog" aria-expanded={meOpen}>
-              <span className="wm-avatar">{(login ?? '?').slice(0, 1).toUpperCase()}</span>
-              <span className="wm-me-name">{login ?? '未登录'}</span>
+              <span className="wm-avatar" data-testid="wm-me-avatar">{(Array.from(login ?? '?')[0] ?? '?').toUpperCase()}</span>
+              <span className="wm-me-name" data-testid="wm-me-name">{login ?? '未登录'}</span>
             </button>
           </Popover>
         </div>

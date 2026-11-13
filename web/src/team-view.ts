@@ -12,6 +12,8 @@ export type Tone = 'success' | 'warning' | 'danger' | 'default';
 export type TeamStatus = 'unclaimed' | 'off-roster' | 'lead-vacant' | 'active';
 export interface Person { principal: string; display_name: string }
 export interface Lead extends Person { source: 'explicit' | 'department' | string }
+/** 部门上写着的负责人。pending：只有字段、没有这个部门的拍板授予（服务端 grant='missing'，待属主放行）——他不算负责人，不带任何权力 */
+export interface DeptLead extends Person { pending: boolean }
 export interface Member {
   seat: string; seat_id: string; name: string; role: string; online: boolean; router: boolean;
   assigned_to: Person | null; active_items: number;
@@ -22,17 +24,29 @@ export interface Team {
   node_name?: string;
   /** 最近一次收下这个节点名册的时刻（毫秒）；服务端给的是 ISO 时刻或毫秒数的字符串，整形时统一成毫秒，没有就不带 */
   roster_at?: number;
+  /** 服务端判好的「名册停推了没有」（和「等你拍板」的名册停推同一个判断）；页面只照它，不自己按阈值算 */
+  roster_stale: boolean;
+  /** 停推时离最近一次收到名册过了多少分钟（服务端给的）；没停推、没给为 null */
+  roster_stale_for: number | null;
+  /** 所挂部门上写着负责人、但他还没有这个部门的拍板授予（待属主放行）：不在 leads 里，不算负责人 */
+  lead_pending_grant: Person | null;
   department: { id: string; name: string } | null; leads: Lead[]; router: Member | null; members: Member[];
   /** 待确认的提议（关系确认制，只在管理员的视图里有）：认领到哪个部门、指定谁做负责人，等谁确认 */
   pending_claim?: Pending | null; pending_leads?: Pending[];
+  /** 看的人能不能在这个团队里分配、收回成员（服务端判好：团队的负责人、管理层能；系统管理员、管理口令不代办）。没给按不能 */
+  can_assign: boolean;
+  /** 不能分配时服务端给的说法（页面不用它出按钮，只在要解释时用） */
+  assign_denied_text: string | null;
+  /** 可以分给谁（服务端按部门成员、负责人裁好，只在 can_assign 时给） */
+  assignable: Person[];
 }
 /** 一条待确认的提议：服务端给「等谁确认」的说法，页面原样写 */
 export interface Pending { id: number; principal: string | null; department: string | null; confirm_by_text: string }
-export interface DeptBlock { id: string; name: string; lead: Person | null; teams: Team[]; pending_lead?: Pending | null }
+export interface DeptBlock { id: string; name: string; lead: DeptLead | null; teams: Team[]; pending_lead?: Pending | null }
 /** 看的人能做什么（服务端判好）：claim / add_lead 直接生效，propose_claim / propose_lead 只能提议 */
 export interface TeamsCan { claim: boolean; propose_claim: boolean; add_lead: boolean; propose_lead: boolean; manage_departments: boolean }
 export interface Teams { departments: DeptBlock[]; unclaimed: Team[] | null; can: TeamsCan | null }
-export interface Department { id: string; name: string; lead: Person | null; member_count: number }
+export interface Department { id: string; name: string; lead: DeptLead | null; member_count: number }
 export interface SourceResult { status: number; body: unknown }
 
 const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
@@ -60,12 +74,13 @@ export function rosterAt(v: unknown): number | null {
   const ms = /^\d{10,}$/.test(s) ? Number(s) : naive ? Date.parse(`${naive[1]}T${naive[2]}Z`) : Date.parse(s);
   return Number.isFinite(ms) && ms > 0 ? ms : null;
 }
+const wholeMinutes = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : null);
 function teamOf(v: unknown): Team | null {
   const t = obj(v);
   if (!t || typeof t.host !== 'string' || typeof t.team !== 'string') return null;
   const d = obj(t.department);
   return {
-    host: t.host, team: t.team, name: typeof t.name === 'string' ? t.name : '', ...(typeof t.node_name === 'string' && t.node_name.trim() ? { node_name: t.node_name.trim() } : {}), ...(rosterAt(t.roster_received_at) !== null ? { roster_at: rosterAt(t.roster_received_at)! } : {}), status: typeof t.status === 'string' ? t.status : '', in_roster: t.in_roster !== false,
+    host: t.host, team: t.team, name: typeof t.name === 'string' ? t.name : '', ...(typeof t.node_name === 'string' && t.node_name.trim() ? { node_name: t.node_name.trim() } : {}), ...(rosterAt(t.roster_received_at) !== null ? { roster_at: rosterAt(t.roster_received_at)! } : {}), roster_stale: t.roster_stale === true, roster_stale_for: t.roster_stale === true ? wholeMinutes(t.roster_stale_for_minutes) : null, lead_pending_grant: personOf(t.lead_pending_grant), status: typeof t.status === 'string' ? t.status : '', in_roster: t.in_roster !== false,
     department: d && typeof d.id === 'string' ? { id: d.id, name: typeof d.name === 'string' ? d.name : d.id } : null,
     leads: arr<unknown>(t.leads).map(obj).filter((l): l is Record<string, unknown> => !!l && typeof l.principal === 'string')
       .map((l) => ({ principal: l.principal as string, display_name: typeof l.display_name === 'string' ? l.display_name : '', source: typeof l.source === 'string' ? l.source : '' })),
@@ -73,6 +88,9 @@ function teamOf(v: unknown): Team | null {
     members: arr<unknown>(t.members).map(memberOf).filter((m): m is Member => !!m),
     ...('pending_claim' in t ? { pending_claim: pendingOf(t.pending_claim) } : {}),
     ...(Array.isArray(t.pending_leads) ? { pending_leads: (t.pending_leads as unknown[]).map(pendingOf).filter((p): p is Pending => !!p) } : {}),
+    can_assign: t.can_assign === true,
+    assign_denied_text: typeof t.assign_denied_text === 'string' && t.assign_denied_text.trim() ? t.assign_denied_text.trim() : null,
+    assignable: t.can_assign === true ? arr<unknown>(t.assignable).map(personOf).filter((p): p is Person => !!p) : [],
   };
 }
 function pendingOf(v: unknown): Pending | null {
@@ -102,19 +120,33 @@ function personOf(v: unknown): Person | null {
   const p = obj(v);
   return p && typeof p.principal === 'string' ? { principal: p.principal, display_name: typeof p.display_name === 'string' ? p.display_name : '' } : null;
 }
+/** 部门的负责人：grant 是 'missing' 的标 pending（待属主放行）；没给 grant 的按已放行（旧应答） */
+function deptLeadOf(v: unknown): DeptLead | null {
+  const p = personOf(v);
+  return p ? { ...p, pending: obj(v)?.grant === 'missing' } : null;
+}
+/** 部门负责人怎么写：待属主放行的写明，不当成负责人 */
+export function deptLeadText(lead: DeptLead | null): string {
+  if (!lead) return '部门还没有负责人';
+  return lead.pending ? `负责人 ${personName(lead)}（待属主放行权限）` : `负责人 ${personName(lead)}`;
+}
+/** 团队头卡上，所挂部门的负责人还在等属主放行时补的一句；没有返回 null */
+export function leadPendingGrantText(t: Pick<Team, 'lead_pending_grant'>): string | null {
+  return t.lead_pending_grant ? `部门负责人 ${personName(t.lead_pending_grant)}（待属主放行权限）` : null;
+}
 
 /** GET /api/teams 的应答整形：形状不对的部分按空，不让页面在非数组上崩。unclaimed 只有管理员的应答里有，没有就是 null */
 export function teamsOf(body: unknown): Teams {
   const b = obj(body);
   const departments = arr<unknown>(b?.departments).map(obj).filter((d): d is Record<string, unknown> => !!d && typeof d.id === 'string')
-    .map((d) => ({ id: d.id as string, name: typeof d.name === 'string' && d.name.trim() ? d.name : (d.id as string), lead: personOf(d.lead), teams: arr<unknown>(d.teams).map(teamOf).filter((t): t is Team => !!t),
+    .map((d) => ({ id: d.id as string, name: typeof d.name === 'string' && d.name.trim() ? d.name : (d.id as string), lead: deptLeadOf(d.lead), teams: arr<unknown>(d.teams).map(teamOf).filter((t): t is Team => !!t),
       ...('pending_lead' in d ? { pending_lead: pendingOf(d.pending_lead) } : {}) }));
   return { departments, unclaimed: Array.isArray(b?.unclaimed) ? (b!.unclaimed as unknown[]).map(teamOf).filter((t): t is Team => !!t) : null, can: canOf(b?.can) };
 }
 /** GET /api/departments：部门列表（认领时选、判断「还没有部门」） */
 export function departmentsOf(body: unknown): Department[] {
   return arr<unknown>(obj(body)?.departments).map(obj).filter((d): d is Record<string, unknown> => !!d && typeof d.id === 'string')
-    .map((d) => ({ id: d.id as string, name: typeof d.name === 'string' && d.name.trim() ? d.name : (d.id as string), lead: personOf(d.lead), member_count: typeof d.member_count === 'number' ? d.member_count : 0 }));
+    .map((d) => ({ id: d.id as string, name: typeof d.name === 'string' && d.name.trim() ? d.name : (d.id as string), lead: deptLeadOf(d.lead), member_count: typeof d.member_count === 'number' ? d.member_count : 0 }));
 }
 
 /**
@@ -131,9 +163,17 @@ const STATUS: Record<string, { text: string; tone: Tone }> = {
   'off-roster': { text: '不在名册', tone: 'default' },
   unclaimed: { text: '待认领', tone: 'warning' },
 };
-export function teamStatusLabel(status: unknown): { text: string; tone: Tone } {
+/**
+ * 团队状态的标签。服务端的 status 不看名册新不新（认领了、在名册里、有负责人就是 active）；名册停推是另一个字段 roster_stale。
+ * 两样都写时不能一边「正常」一边「名册已 N 天没更新」：名册过期（stale 为真）时 active 改标「名册过期」，提醒色
+ */
+export function teamStatusLabel(status: unknown, stale = false): { text: string; tone: Tone } {
+  if (stale && status === 'active') return { text: '名册过期', tone: 'warning' };
   return Object.hasOwn(STATUS, String(status)) ? STATUS[String(status)] : { text: '状态未知', tone: 'default' };
 }
+
+/** 系统管理员（只过了管理门）看团队页：团队上 can_assign 为假，头卡上说一句分配归谁 */
+export const ASSIGN_BY_TEXT = '成员分配由团队负责人或管理层做';
 
 /** 人的名字：有显示名用显示名，没有就去掉标识的前缀（user:zhang → zhang） */
 export function personName(p: Person | null | undefined): string {
@@ -164,6 +204,57 @@ export function assignedText(m: Pick<Member, 'assigned_to'>): string {
   return m.assigned_to ? `分配给 ${personName(m.assigned_to)}` : '团队公用';
 }
 
+/**
+ * 成员卡上的分配操作（规范 14 第二节）。能不能做只看服务端的 can_assign，页面不自己判；总工不分配（只对负责人）。
+ * 没分配的出「分配给…」；已分配的出「改派」「收回」。
+ */
+export function assignOps(t: Pick<Team, 'can_assign' | 'status'>, m: Pick<Member, 'router' | 'assigned_to'>, chief = false): { assign: boolean; reassign: boolean; unassign: boolean } {
+  const can = t.can_assign === true && t.status !== 'unclaimed' && !chief && !m.router;
+  return { assign: can && !m.assigned_to, reassign: can && !!m.assigned_to, unassign: can && !!m.assigned_to };
+}
+
+/** 分给谁的选项：服务端给的 assignable（去重），改派时去掉现在归的那个人；按名字排 */
+export function assigneeOptions(t: Pick<Team, 'assignable'>, m: Pick<Member, 'assigned_to'>): { value: string; label: string }[] {
+  const seen = new Set<string>();
+  const out: { value: string; label: string }[] = [];
+  for (const p of t.assignable) {
+    if (seen.has(p.principal) || p.principal === m.assigned_to?.principal) continue;
+    seen.add(p.principal);
+    out.push({ value: p.principal, label: personName(p) });
+  }
+  return out.sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
+}
+
+/**
+ * 分配、改派、收回办成之后的一句话和轻重：生效了是 success（页面用几秒自动消失的轻提示）；
+ * 服务端回的是提议（202）时照「已提出，等〈谁〉确认」说，是 info，不当成已生效；收回时本来就没分配、改派时本来就分给这个人，也是 info。
+ * 改派是一步（POST /api/teams/reassign，一个事务里收回并分给新的人）：changed=false 是本来就分给他；from=null 是原来没人分着，等同于分配
+ */
+export function assignDoneText(op: 'assign' | 'reassign' | 'unassign', member: string, to: string, r: SourceResult): { kind: 'success' | 'info'; text: string } {
+  const proposed = proposedText(r);
+  const b = obj(r.body);
+  if (op === 'unassign') {
+    if (proposed) return { kind: 'info', text: `收回「${member}」${proposed}。` };
+    return b?.removed === false ? { kind: 'info', text: `「${member}」本来就是团队公用。` } : { kind: 'success', text: `「${member}」已收回，现在是团队公用，由总工分派。` };
+  }
+  if (op === 'reassign' && !proposed && b?.changed === false) return { kind: 'info', text: `「${member}」本来就分给 ${to}。` };
+  const verb = op === 'reassign' && b?.from !== null ? '改派给' : '分配给';
+  return proposed ? { kind: 'info', text: `「${member}」${verb} ${to}：${proposed}。` } : { kind: 'success', text: `「${member}」已${verb} ${to}。` };
+}
+
+/**
+ * 收回之前的确认：照实说后果。事项上的「成员的主人」按承接那一刻的分配算（服务端 work-item-access 的 owner）：
+ * 分给这个人期间接手的事，这个人照样看得到；收回之后接的事不再算他的
+ */
+export function unassignConfirmText(member: string, assignee: string): string {
+  return `收回后「${member}」变成团队公用，由总工分派。它分给 ${assignee} 期间接手的事，${assignee} 照样看得到；收回之后再接的事，不再算 ${assignee} 的。`;
+}
+
+/** 改派前的说明：一步办完，不会停在团队公用；事项的归属和收回同一个口径（按承接那一刻的分配算） */
+export function reassignHintText(holder: string): string {
+  return `现在分给 ${holder}。改派一步办完：分给 ${holder} 期间接手的事，${holder} 照样看得到；改派之后再接的事，算新的人的。`;
+}
+
 /** 负责人：去重，按出现先后；挂部门带来的标「部门负责人」 */
 export function leadsOf(t: Pick<Team, 'leads'>): { name: string; viaDepartment: boolean }[] {
   const seen = new Set<string>();
@@ -187,13 +278,15 @@ export function memberlessText(t: Pick<Team, 'status' | 'in_roster'>): string {
   return t.status === 'off-roster' || !t.in_roster ? '这个团队已经不在节点的名册里，看不到它的成员了。' : '名册里这个团队还没有成员。';
 }
 
-/** 名册多久没更新算「没更新」：先按 15 分钟（以后由服务端给） */
-export const ROSTER_STALE_MIN = 15;
-/** 名册超过阈值没更新时的一句提醒；没超过、没有收到时刻的返回 null。时间按分钟写，两小时以上按小时、两天以上按天 */
-export function rosterStaleText(t: Pick<Team, 'roster_at'>, now: number, staleMin = ROSTER_STALE_MIN): string | null {
-  if (typeof t.roster_at !== 'number') return null;
-  const min = Math.floor((now - t.roster_at) / 60_000);
-  if (min < staleMin) return null;
+/**
+ * 名册停推时的一句提醒；没停推返回 null。停不停推只照服务端的 roster_stale（和「等你拍板」的名册停推同一个判断），页面不按阈值自己算。
+ * 停了多久用服务端给的 roster_stale_for_minutes；没给时按收到名册的时刻算；两样都没有就只说停推了。
+ * 时间按分钟写，两小时以上按小时、两天以上按天
+ */
+export function rosterStaleText(t: Pick<Team, 'roster_at' | 'roster_stale' | 'roster_stale_for'>, now: number): string | null {
+  if (t.roster_stale !== true) return null;
+  const min = t.roster_stale_for ?? (typeof t.roster_at === 'number' ? Math.max(0, Math.floor((now - t.roster_at) / 60_000)) : null);
+  if (min === null) return '节点的名册停推了';
   const span = min >= 2 * 24 * 60 ? `${Math.floor(min / (24 * 60))} 天` : min >= 120 ? `${Math.floor(min / 60)} 小时` : `${min} 分钟`;
   return `名册已 ${span}没更新`;
 }

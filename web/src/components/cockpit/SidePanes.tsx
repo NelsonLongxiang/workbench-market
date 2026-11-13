@@ -6,7 +6,8 @@ import { Link } from 'react-router-dom';
 import { Button, Empty, Skeleton, Tag, Typography } from 'antd';
 import { adminActive, apiFetch, subscribeAdminToken } from '../../admin-token';
 import { answerChoices, groupCards, workItemIdOf, type AttentionItem, type LogRow } from '../../attention-view';
-import { ATTENTION_CHANGED, getRosterTeams, getWorkItem } from '../../api';
+import { ATTENTION_CHANGED, getMyTeams, getRosterTeams, getTeams, getWorkItem } from '../../api';
+import { busyText, ledTeams, myStaff, staffLink, type LedTeam, type StaffCard } from '../../ai-staff-view';
 import DecisionCard from '../DecisionCard';
 import WorkItemTimeline from '../WorkItemTimeline';
 import { rosterNames, withRoster } from '../../names';
@@ -114,4 +115,46 @@ export function ItemsPane({ onView }: { onView?: (view: unknown) => void }) {
     <Link to={`/work-items/${encodeURIComponent(r.id)}`}>{r.title || '（没写标题）'}</Link>
     <span><Tag>{stateLabel(r.state)}</Tag><RelTime value={r.updated_at} /></span>
   </li>)}</ul>;
+}
+
+/** AI 员工：分给我的成员（首字头像、名字、团队、在不在线、手上在办几件）；负责人多一组「我负责的团队的成员」。
+ *  点一个去事项列表「我的 AI 员工手上的」视角按它筛。本周办结、通过率没有数，不放 */
+export function StaffPane() {
+  const [s, setS] = useState<{ state: 'loading' } | { state: 'ok'; mine: StaffCard[]; led: LedTeam[] } | { state: 'error'; status: number }>({ state: 'loading' });
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      const m = await getMyTeams();
+      if (!live) return;
+      if (m.status < 200 || m.status >= 300) { setS({ state: 'error', status: m.status }); return; }
+      const mine = myStaff(m.body);
+      const me = typeof (m.body as { principal?: unknown } | null)?.principal === 'string' ? (m.body as { principal: string }).principal : '';
+      const leads = Array.isArray((m.body as { teams?: unknown } | null)?.teams) && ((m.body as { teams: unknown[] }).teams.length > 0);
+      // 只有负责团队的人才去读 /api/teams：普通员工用不上
+      const t = leads ? await getTeams() : null;
+      if (!live) return;
+      setS({ state: 'ok', mine, led: t && t.status >= 200 && t.status < 300 ? ledTeams(t.body, me, new Set(mine.map((c) => c.key))) : [] });
+    })();
+    return () => { live = false; };
+  }, []);
+  if (s.state === 'loading') return <div className="wm-ck-pad"><Skeleton active paragraph={{ rows: 3 }} /></div>;
+  if (s.state === 'error') return <div className="wm-ck-pad"><Typography.Text type="secondary">{sayError(s.status, 'AI 员工')}</Typography.Text></div>;
+  const card = (c: StaffCard) => <li key={c.key} data-testid="ck-staff">
+    <Link to={staffLink(c)} className="wm-ck-staff">
+      <span className="wm-avatar" aria-hidden>{c.initial}</span>
+      <span className="wm-ck-staff-main"><b>{c.name}</b><Typography.Text type="secondary" className="wm-caption">{[c.team, c.online ? '在线' : '不在线'].filter(Boolean).join(' · ')}</Typography.Text></span>
+      <Typography.Text type="secondary" className="wm-caption wm-ck-staff-busy">{busyText(c.active)}</Typography.Text>
+    </Link>
+  </li>;
+  return <div data-testid="ck-staff-pane">
+    <div className="wm-ck-pad wm-ck-note"><Typography.Text type="secondary" className="wm-caption">列的是全部，还没按这个驾驶舱筛</Typography.Text></div>
+    <div className="wm-ck-sub">分给你的 AI 员工</div>
+    {s.mine.length
+      ? <ul className="wm-ck-list" data-testid="ck-staff-mine">{s.mine.map(card)}</ul>
+      : <div className="wm-ck-pad" data-testid="ck-staff-none"><Typography.Text type="secondary">还没有分给你的 AI 员工。</Typography.Text> <Link to="/team">去团队页看看 →</Link></div>}
+    {s.led.map((t) => <div key={t.key} data-testid="ck-staff-led">
+      <div className="wm-ck-sub">我负责的团队：{t.name}</div>
+      {t.members.length ? <ul className="wm-ck-list">{t.members.map(card)}</ul> : <div className="wm-ck-pad"><Typography.Text type="secondary">这个团队还没有别的成员。</Typography.Text></div>}
+    </div>)}
+  </div>;
 }
