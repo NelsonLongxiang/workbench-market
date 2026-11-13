@@ -76,16 +76,20 @@ const refuse = (http: TeamRefusal['http'], code: string, message: string): TeamR
 export type NodeBinding = { peer_root: string; key_fingerprint: string };
 /** 这个 host 现在对应的节点：名册里有、根地址在对端登记里是启用的、指纹不空；任何一样不成立为 null（不能认领、指定、分配） */
 export function currentNode(host: string): NodeBinding | null {
+  // 一个号在名册里要正好只对应一个节点：对应好几个（认不清是哪一个）也当没核过，失败关闭
+  if (Number((db.prepare('SELECT COUNT(*) AS n FROM a2a_rosters WHERE host = ?').get(host) as { n: number }).n) !== 1) return null;
   const r = db.prepare(`SELECT r.peer_root AS peer_root, p.key_fingerprint AS key_fingerprint FROM a2a_rosters r JOIN a2a_peers p ON p.root_url = r.peer_root
     WHERE r.host = ? AND r.peer_root <> '' AND p.status = 'active' AND p.key_fingerprint <> ''`).get(host) as NodeBinding | undefined;
   return r ?? null;
 }
 /**
- * SQL 条件：别名 a 那一行记下的节点（host、peer_root、key_fingerprint）就是现在名册和对端登记里的那个（对端启用、指纹不空）。
+ * SQL 条件：别名 a 那一行记下的节点（host、peer_root、key_fingerprint）就是现在名册和对端登记里的那个（对端启用、指纹不空），
+ * 而且这个号在名册里只对应这一个节点（名册以后按根地址和指纹分开存时，一个号可能对应好几个节点：认不清就不算数）。
  * 归属的每一处读都套它；bench-registry.ts 读团队登记时也用
  */
-export const boundSql = (a: string): string => `EXISTS (SELECT 1 FROM a2a_rosters br JOIN a2a_peers bp ON bp.root_url = br.peer_root
-  WHERE br.host = ${a}.host AND br.peer_root = ${a}.peer_root AND br.peer_root <> '' AND bp.status = 'active' AND bp.key_fingerprint = ${a}.key_fingerprint AND ${a}.key_fingerprint <> '')`;
+export const boundSql = (a: string): string => `(EXISTS (SELECT 1 FROM a2a_rosters br JOIN a2a_peers bp ON bp.root_url = br.peer_root
+  WHERE br.host = ${a}.host AND br.peer_root = ${a}.peer_root AND br.peer_root <> '' AND bp.status = 'active' AND bp.key_fingerprint = ${a}.key_fingerprint AND ${a}.key_fingerprint <> '')
+  AND (SELECT COUNT(*) FROM a2a_rosters bn WHERE bn.host = ${a}.host) = 1)`;
 /** 节点核不过的统一拒法 */
 const NODE_UNVERIFIED = (): TeamRefusal => refuse(409, 'node_unverified', '这个节点还没核过（名册里的根地址要在对端登记里、启用、有完整指纹），先登记或确认对端再操作');
 /** 停掉记在旧节点上、现在已经不算数的那几行时，记的操作人 */
