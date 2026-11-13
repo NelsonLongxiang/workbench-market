@@ -108,5 +108,12 @@ ok('短值列（日期、数字、状态）按最长的值给宽度，日期「2
 ok('列标题比值长时按标题算（表头也不折行）；中日韩字符按两个单位', v.nowrapWidth('number', '本月应巡检次数', ['9']) > v.nowrapWidth('number', 'n', ['9']));
 ok('文本、人、席位列不给宽度（分剩下的、超长省略）；宽度有上限', v.nowrapWidth('text', '名字', ['x']) === undefined && v.nowrapWidth('person', '人', ['x']) === undefined && v.nowrapWidth('seat', '席位', ['x']) === undefined && v.nowrapWidth('number', 'n', ['9'.repeat(200)]) === 240);
 
+console.log('表格的表头');
+ok('有说明名用说明名；没有（空、空白、没给）写「第 N 列」，按页面上的次序，不露列名', v.tableHead(col('qty', 'integer', '件数'), 0) === '件数' && v.tableHead(col('qty', 'integer', ''), 2) === '第 3 列' && v.tableHead(col('qty', 'integer', '  '), 0) === '第 1 列' && v.tableHead(col('qty', 'integer'), 1) === '第 2 列');
+
+// 表格组件本身（React，这里不渲染）：表头和列宽都经 tableHead，源码里不再有拿列名兜底的写法（页面上的真实表头由前端的浏览器回归核）
+const tableSrc = (await import('node:fs')).readFileSync(new URL('../web/src/bench-blocks/Table.tsx', import.meta.url), 'utf8');
+ok('表格组件的表头经 tableHead，没有「label || name」的兜底', /title: head\b/.test(tableSrc) && /const head = tableHead\(c, i\)/.test(tableSrc) && !/label \|\| c\.name/.test(tableSrc));
+
 console.log(`\nbench-blocks-ui-unit: ${pass} passed / ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -1595,7 +1595,7 @@
                     "blocks": [
                       { "type": "filter-bar", "fields": [{ "name": "month", "kind": "month" }] },
                       { "type": "stat", "title": "金额", "query": { "dataset": "orders", "filter": [{ "col": "day", "op": "prefix", "value": "$month" }], "measures": [{ "as": "v", "fn": "sum", "col": "amount" }] }, "value": "v" },
-                      { "type": "table", "query": { "dataset": "orders", "sort": [{ "col": "id" }] } }
+                      { "type": "table", "query": { "dataset": "orders", "sort": [{ "col": "id" }] }, "column_labels": { "id": "编号", "day": "日期", "region": "地区", "amount": "金额" } }
                     ]
                   },
                   { "key": "entry", "title": "补录", "blocks": [{ "type": "form", "dataset": "orders", "fields": ["id", "day", "region", "amount"] }] }
@@ -1679,7 +1679,7 @@
                     "blocks": [
                       { "type": "filter-bar", "fields": [{ "name": "month", "kind": "month" }] },
                       { "type": "stat", "title": "金额", "query": { "dataset": "orders", "filter": [{ "col": "day", "op": "prefix", "value": "$month" }], "measures": [{ "as": "v", "fn": "sum", "col": "amount" }] }, "value": "v" },
-                      { "type": "table", "query": { "dataset": "orders", "sort": [{ "col": "id" }] } }
+                      { "type": "table", "query": { "dataset": "orders", "sort": [{ "col": "id" }] }, "column_labels": { "id": "编号", "day": "日期", "region": "地区", "amount": "金额" } }
                     ]
                   },
                   { "key": "entry", "title": "补录", "blocks": [{ "type": "form", "dataset": "orders", "fields": ["id", "day", "region", "amount"] }] }
@@ -1693,7 +1693,7 @@
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "126", "etag": "W/\"7e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
-            "body": { "version": 1, "active_version": 1, "unchanged": false, "sha256": "c189a3f8a73418d8caa3e4edbe5f9a4b914dc76fa4985fe2effba860b54ecfae" }
+            "body": { "version": 1, "active_version": 1, "unchanged": false, "sha256": "8e4f9b070a345aaad6043bb7fba3e170ab06c7841e2ce1483f96df498d73e6ce" }
           }
         },
         {
@@ -1715,7 +1715,7 @@
                     "blocks": [
                       { "type": "filter-bar", "fields": [{ "name": "month", "kind": "month" }] },
                       { "type": "stat", "title": "金额", "query": { "dataset": "orders", "filter": [{ "col": "day", "op": "prefix", "value": "$month" }], "measures": [{ "as": "v", "fn": "sum", "col": "amount" }] }, "value": "v" },
-                      { "type": "table", "query": { "dataset": "orders", "sort": [{ "col": "id" }] } }
+                      { "type": "table", "query": { "dataset": "orders", "sort": [{ "col": "id" }] }, "column_labels": { "id": "编号", "day": "日期", "region": "地区", "amount": "金额" } }
                     ]
                   },
                   { "key": "entry", "title": "补录", "blocks": [{ "type": "form", "dataset": "orders", "fields": ["id", "day", "region", "amount"] }] }
@@ -1750,7 +1750,7 @@
                     "blocks": [
                       { "type": "filter-bar", "fields": [{ "name": "month", "kind": "month" }] },
                       { "type": "stat", "title": "金额", "query": { "dataset": "orders", "filter": [{ "col": "day", "op": "prefix", "value": "$month" }], "measures": [{ "as": "v", "fn": "sum", "col": "amount" }] }, "value": "v" },
-                      { "type": "table", "query": { "dataset": "orders", "sort": [{ "col": "id" }] } }
+                      { "type": "table", "query": { "dataset": "orders", "sort": [{ "col": "id" }] }, "column_labels": { "id": "编号", "day": "日期", "region": "地区", "amount": "金额" } }
                     ]
                   },
                   { "key": "entry", "title": "补录", "blocks": [{ "type": "form", "dataset": "orders", "fields": ["id", "day", "region", "amount"] }] }
@@ -1785,7 +1785,7 @@
                     "blocks": [
                       { "type": "filter-bar", "fields": [{ "name": "month", "kind": "month" }] },
                       { "type": "stat", "title": "金额", "query": { "dataset": "orders", "filter": [{ "col": "day", "op": "prefix", "value": "$month" }], "measures": [{ "as": "v", "fn": "sum", "col": "amount" }] }, "value": "v" },
-                      { "type": "table", "query": { "dataset": "orders", "sort": [{ "col": "id" }] } }
+                      { "type": "table", "query": { "dataset": "orders", "sort": [{ "col": "id" }] }, "column_labels": { "id": "编号", "day": "日期", "region": "地区", "amount": "金额" } }
                     ]
                   },
                   { "key": "entry", "title": "补录", "blocks": [{ "type": "form", "dataset": "orders", "fields": ["id", "day", "region", "amount"] }] }
@@ -1821,7 +1821,7 @@
                     "blocks": [
                       { "type": "filter-bar", "fields": [{ "name": "month", "kind": "month" }] },
                       { "type": "stat", "title": "金额", "query": { "dataset": "orders", "filter": [{ "col": "day", "op": "prefix", "value": "$month" }], "measures": [{ "as": "v", "fn": "sum", "col": "amount" }] }, "value": "v" },
-                      { "type": "table", "query": { "dataset": "orders", "sort": [{ "col": "id" }] } }
+                      { "type": "table", "query": { "dataset": "orders", "sort": [{ "col": "id" }] }, "column_labels": { "id": "编号", "day": "日期", "region": "地区", "amount": "金额" } }
                     ]
                   },
                   { "key": "entry", "title": "补录", "blocks": [{ "type": "form", "dataset": "orders", "fields": ["id", "day", "region", "amount"] }] }
@@ -1835,7 +1835,7 @@
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "126", "etag": "W/\"7e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
-            "body": { "version": 2, "active_version": 2, "unchanged": false, "sha256": "6768f6cb855175c37101920cb148f3428f86bdcaf5a57b9b7560243ebc1e804e" }
+            "body": { "version": 2, "active_version": 2, "unchanged": false, "sha256": "ce5380bed5260e33669833bff630ec3a584ee37a8518dc3777052b2da77fcf49" }
           }
         },
         {
@@ -1848,7 +1848,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "704", "etag": "W/\"2c0-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "787", "etag": "W/\"313-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": {
                 "version": 2,
@@ -1860,7 +1860,7 @@
                       "blocks": [
                         { "fields": [{ "kind": "month", "name": "month" }], "type": "filter-bar" },
                         { "query": { "dataset": "orders", "filter": [{ "col": "day", "op": "prefix", "value": "$month" }], "measures": [{ "as": "v", "col": "amount", "fn": "sum" }] }, "title": "金额", "type": "stat", "value": "v" },
-                        { "query": { "dataset": "orders", "sort": [{ "col": "id" }] }, "type": "table" }
+                        { "column_labels": { "amount": "金额", "day": "日期", "id": "编号", "region": "地区" }, "query": { "dataset": "orders", "sort": [{ "col": "id" }] }, "type": "table" }
                       ],
                       "key": "overview",
                       "title": "总览"
@@ -1868,7 +1868,7 @@
                     { "blocks": [{ "dataset": "orders", "fields": ["id", "day", "region", "amount"], "type": "form" }], "key": "entry", "title": "补录" }
                   ]
                 },
-                "sha256": "6768f6cb855175c37101920cb148f3428f86bdcaf5a57b9b7560243ebc1e804e",
+                "sha256": "ce5380bed5260e33669833bff630ec3a584ee37a8518dc3777052b2da77fcf49",
                 "author": "user:alpha",
                 "note": "改标题",
                 "at": 1893456000000
@@ -1886,7 +1886,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "695", "etag": "W/\"2b7-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "778", "etag": "W/\"30a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": {
                 "version": 1,
@@ -1898,7 +1898,7 @@
                       "blocks": [
                         { "fields": [{ "kind": "month", "name": "month" }], "type": "filter-bar" },
                         { "query": { "dataset": "orders", "filter": [{ "col": "day", "op": "prefix", "value": "$month" }], "measures": [{ "as": "v", "col": "amount", "fn": "sum" }] }, "title": "金额", "type": "stat", "value": "v" },
-                        { "query": { "dataset": "orders", "sort": [{ "col": "id" }] }, "type": "table" }
+                        { "column_labels": { "amount": "金额", "day": "日期", "id": "编号", "region": "地区" }, "query": { "dataset": "orders", "sort": [{ "col": "id" }] }, "type": "table" }
                       ],
                       "key": "overview",
                       "title": "总览"
@@ -1906,7 +1906,7 @@
                     { "blocks": [{ "dataset": "orders", "fields": ["id", "day", "region", "amount"], "type": "form" }], "key": "entry", "title": "补录" }
                   ]
                 },
-                "sha256": "c189a3f8a73418d8caa3e4edbe5f9a4b914dc76fa4985fe2effba860b54ecfae",
+                "sha256": "8e4f9b070a345aaad6043bb7fba3e170ab06c7841e2ce1483f96df498d73e6ce",
                 "author": "user:alpha",
                 "note": "首版",
                 "at": 1893456000000
@@ -1979,8 +1979,8 @@
             "headers": { "cache-control": "private, no-store", "content-length": "340", "etag": "W/\"154-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "versions": [
-                { "version": 2, "sha256": "6768f6cb855175c37101920cb148f3428f86bdcaf5a57b9b7560243ebc1e804e", "author": "user:alpha", "note": "改标题", "at": 1893456000000, "active": true },
-                { "version": 1, "sha256": "c189a3f8a73418d8caa3e4edbe5f9a4b914dc76fa4985fe2effba860b54ecfae", "author": "user:alpha", "note": "首版", "at": 1893456000000, "active": false }
+                { "version": 2, "sha256": "ce5380bed5260e33669833bff630ec3a584ee37a8518dc3777052b2da77fcf49", "author": "user:alpha", "note": "改标题", "at": 1893456000000, "active": true },
+                { "version": 1, "sha256": "8e4f9b070a345aaad6043bb7fba3e170ab06c7841e2ce1483f96df498d73e6ce", "author": "user:alpha", "note": "首版", "at": 1893456000000, "active": false }
               ]
             }
           }
@@ -2144,7 +2144,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1271", "etag": "W/\"4f7-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1361", "etag": "W/\"551-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "title": "订单台",
               "version": 1,
@@ -2163,14 +2163,15 @@
                   "data": { "columns": [{ "name": "v", "type": "decimal", "label": "v", "role": "measure" }], "truncated": false, "rows": [{ "v": 2100.5 }] }
                 },
                 {
+                  "column_labels": { "amount": "金额", "day": "日期", "id": "编号", "region": "地区" },
                   "query": { "dataset": "orders", "sort": [{ "col": "id" }] },
                   "type": "table",
                   "data": {
                     "columns": [
-                      { "name": "id", "type": "integer", "label": "id", "role": "dimension" },
-                      { "name": "day", "type": "date", "label": "day", "role": "dimension" },
-                      { "name": "region", "type": "text", "label": "region", "role": "dimension" },
-                      { "name": "amount", "type": "decimal", "label": "amount", "role": "measure" }
+                      { "name": "id", "type": "integer", "label": "编号", "role": "dimension" },
+                      { "name": "day", "type": "date", "label": "日期", "role": "dimension" },
+                      { "name": "region", "type": "text", "label": "地区", "role": "dimension" },
+                      { "name": "amount", "type": "decimal", "label": "金额", "role": "measure" }
                     ],
                     "truncated": false,
                     "rows": [
@@ -2194,7 +2195,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1247", "etag": "W/\"4df-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1337", "etag": "W/\"539-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "title": "订单台",
               "version": 1,
@@ -2213,14 +2214,15 @@
                   "data": { "columns": [{ "name": "v", "type": "decimal", "label": "v", "role": "measure" }], "truncated": false, "rows": [{ "v": 2120.5 }] }
                 },
                 {
+                  "column_labels": { "amount": "金额", "day": "日期", "id": "编号", "region": "地区" },
                   "query": { "dataset": "orders", "sort": [{ "col": "id" }] },
                   "type": "table",
                   "data": {
                     "columns": [
-                      { "name": "id", "type": "integer", "label": "id", "role": "dimension" },
-                      { "name": "day", "type": "date", "label": "day", "role": "dimension" },
-                      { "name": "region", "type": "text", "label": "region", "role": "dimension" },
-                      { "name": "amount", "type": "decimal", "label": "amount", "role": "measure" }
+                      { "name": "id", "type": "integer", "label": "编号", "role": "dimension" },
+                      { "name": "day", "type": "date", "label": "日期", "role": "dimension" },
+                      { "name": "region", "type": "text", "label": "地区", "role": "dimension" },
+                      { "name": "amount", "type": "decimal", "label": "金额", "role": "measure" }
                     ],
                     "truncated": false,
                     "rows": [
@@ -2283,7 +2285,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1277", "etag": "W/\"4fd-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1367", "etag": "W/\"557-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "title": "订单台",
               "version": 1,
@@ -2302,14 +2304,15 @@
                   "data": { "columns": [{ "name": "v", "type": "decimal", "label": "v", "role": "measure" }], "truncated": false, "rows": [{ "v": null }] }
                 },
                 {
+                  "column_labels": { "amount": "金额", "day": "日期", "id": "编号", "region": "地区" },
                   "query": { "dataset": "orders", "sort": [{ "col": "id" }] },
                   "type": "table",
                   "data": {
                     "columns": [
-                      { "name": "id", "type": "integer", "label": "id", "role": "dimension" },
-                      { "name": "day", "type": "date", "label": "day", "role": "dimension" },
-                      { "name": "region", "type": "text", "label": "region", "role": "dimension" },
-                      { "name": "amount", "type": "decimal", "label": "amount", "role": "measure" }
+                      { "name": "id", "type": "integer", "label": "编号", "role": "dimension" },
+                      { "name": "day", "type": "date", "label": "日期", "role": "dimension" },
+                      { "name": "region", "type": "text", "label": "地区", "role": "dimension" },
+                      { "name": "amount", "type": "decimal", "label": "金额", "role": "measure" }
                     ],
                     "truncated": false,
                     "rows": [

@@ -30,7 +30,7 @@ import { join } from 'node:path';
 import type { BenchDialect, BenchSqlKit } from '../db.ts';
 import { isInsideRoot } from '../path-inside.ts';
 import {
-  BENCH_LIMITS, BenchError, COLUMN_TYPES, NAME_RE, coerceValue, decodeValue, physCol, physTable, planQuery,
+  BENCH_LIMITS, BenchError, COLUMN_TYPES, NAME_RE, coerceValue, decodeValue, physCol, physTable, planQuery, publicColumn,
   type ColumnDef, type DatasetDef, type OutColumn,
 } from '../bench-query.ts';
 import { diffJson, validateViewDoc, type JsonDiff } from '../bench-views.ts';
@@ -681,7 +681,7 @@ export class BenchStoreCore {
   query(spec: unknown, params: Record<string, unknown> = {}) {
     return this.serial(async () => {
       const { chars: _chars, ...out } = await this.runQuery(await this.load(), spec, params, BENCH_LIMITS.resultChars);
-      return out;
+      return { ...out, columns: out.columns.map(publicColumn) };
     });
   }
   /** 查询的本体；要在排着队的那一格里调。room 是还能取回多少个字符，chars 是这次取了多少 */
@@ -767,7 +767,14 @@ export class BenchStoreCore {
           const ds = defs.get(String(b.dataset));
           const cols = ds ? (b.fields as string[]).map((n) => ds.columns.find((c) => c.name === n)).filter((c): c is ColumnDef => !!c) : [];
           blocks.push(ds && cols.length === (b.fields as string[]).length ? { ...b, columns: cols } : { ...b, columns: [], error: { code: 'invalid', message: '表单引用的数据集或列现在已经不在了' } });
-        } else { const r = await run(b.query); blocks.push(r.data ? { ...b, data: r.data } : { ...b, error: r.error }); }
+        } else {
+          const r = await run(b.query);
+          if (!r.data) { blocks.push({ ...b, error: r.error }); continue; }
+          // 表格的表头：视图里给的 column_labels，其次是数据集、聚合里起的说明名；都没有就给空，由页面写「第 N 列」——不拿列名（键名）当表头
+          const given = b.type === 'table' && isObj(b.column_labels) ? b.column_labels as Record<string, string> : {};
+          const columns = r.data.columns.map((c) => (b.type === 'table' ? publicColumn({ ...c, label: Object.hasOwn(given, c.name) ? given[c.name] : c.labeled ? c.label : '' }) : publicColumn(c)));
+          blocks.push({ ...b, data: { ...r.data, columns } });
+        }
       }
       return { title: doc.title, version, active_version: active, views: doc.views.map((x) => ({ key: x.key, title: x.title })), view: { key: view.key, title: view.title }, filters, params, blocks };
     });
