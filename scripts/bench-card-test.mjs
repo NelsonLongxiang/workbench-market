@@ -19,6 +19,8 @@
  *       什么都没删；属主带确认删成：台库删前备份，主库里这个台的提交、附件和磁盘上的附件字节一起删了；台本身还在
  *       一个台两张卡片（/apps/ 和 /sop/ 各一张）：删不存数据的那张，提交不动；删存数据的那张、另一张还在，主库那份留着、剩下的卡片读得到；删最后一张才连主库那份一起删
  *       上传时最后一个名额：三笔同时到，只进一笔（查上限 → 插入排在这个台的写入队里），其余 413，磁盘上不留它们的文件
+ *   八、删台的门和删卡片之间不隔着远端调用：删远端项目的那几秒里，有人往台里提交（bench 档下这是卡片台库的第一次写入），
+ *       台和卡片照样一起删掉，不会出现「台删了、卡片还在」的半截
  *   六、（阶段一复验补的）台库里只有视图描述也算有数据；本机浏览器页面不是属主；同名旧库还在时不许登记；
  *       纯数字标识的旧台：数字写法照旧认到它，同号卡片不许对应别的台（只许对应它自己），启动时报出来
  *
@@ -26,7 +28,7 @@
  *   node scripts/bench-card-test.mjs --root DIR   测另一棵目录树（变异测试用）
  */
 import { createServer } from 'node:net';
-import { request as httpRequest } from 'node:http';
+import { request as httpRequest, createServer as createHttpServer } from 'node:http';
 import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -351,6 +353,28 @@ try {
   const ups = (await Promise.all([1, 2, 3].map(up))).sort().join(',');
   const quotaRows = db3.prepare("SELECT COUNT(*) AS n FROM app_files WHERE app_slug = 'syn-quota' AND deleted_at = ''").get().n;
   check(ups === '201,413,413' && quotaRows === 3 && upFiles() === filesBefore + 1, '最后一个名额：三笔上传同时到，只进一笔，其余 413，磁盘上不留它们的文件', { ups, quotaRows, files: upFiles() - filesBefore });
+
+  console.log('八、删台的门和删卡片之间不隔着远端调用');
+  // LayerFS 替身：收到删项目的请求时，先往这个台提交一笔（bench 档下会是卡片台库的第一次写入），再回 200
+  let srv4 = null, hookStatus = null;
+  const lfStub = createHttpServer(async (req, res) => {
+    if (req.method === 'DELETE' && /^\/v1\/projects\//.test(req.url ?? '')) {
+      try { hookStatus = (await srv4.call('POST', '/api/apps/syn-window/data', { body: { data: { during: 'remote-delete' } } })).status; } catch { hookStatus = 'err'; }
+      res.writeHead(200).end(); return;
+    }
+    res.writeHead(404).end();
+  });
+  await new Promise((r) => lfStub.listen(0, '127.0.0.1', r));
+  try {
+    srv4 = await boot('window', { WM_BENCH_VIEWS: 'on', WM_APP_DATA_STORE: 'bench', LAYERFS_SERVICE_URL: `http://127.0.0.1:${lfStub.address().port}`, LAYERFS_SERVICE_TOKEN: 'synthetic-layerfs-token-0123456789abcdef' });
+    const db4 = srv4.db();
+    db4.prepare('INSERT INTO apps (slug, title) VALUES (?, ?)').run('syn-window', '合成·删台窗口');
+    const WW = Number(db4.prepare("INSERT INTO workbenches (name, url, type, enabled) VALUES (?, ?, 'market-app', 1)").run('合成·删台窗口', '/apps/syn-window/').lastInsertRowid);
+    const winDel = await srv4.call('DELETE', '/api/apps/syn-window', { headers: { ...REMOTE, 'x-admin-token': ADMIN_TOKEN }, body: { reviewed_by: '合成审核人' } });
+    const winAfter = { app: !!db4.prepare("SELECT 1 FROM apps WHERE slug = 'syn-window'").get(), card: !!db4.prepare('SELECT 1 FROM workbenches WHERE id = ?').get(WW), bench: !!db4.prepare('SELECT 1 FROM bench_views WHERE workbench_id = ?').get(WW), rows: db4.prepare("SELECT COUNT(*) AS n FROM app_data WHERE app_slug = 'syn-window'").get().n };
+    check(hookStatus === 201 && winDel.status === 200 && !winAfter.app && !winAfter.card && !winAfter.bench && winAfter.rows === 0,
+      '删远端项目的那几秒里有人提交（台库第一次写入的时机）：台、卡片一起删掉，不留半截；那笔提交也随台删了', { hookStatus, status: winDel.status, body: winDel.text.slice(0, 160), winAfter });
+  } finally { await new Promise((r) => lfStub.close(r)); }
 } catch (e) {
   check(false, `没有中途抛错：${e?.stack ?? e}`);
 } finally {
