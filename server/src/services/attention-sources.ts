@@ -1,8 +1,8 @@
 /**
  * 「关注」的提供方要用、来源里还没有现成函数的查询（阶段八 8c）。只读。
  * 口径照旧接口的写法，条数才对得上：
- *   · 席位的提问：GET /api/workbench-events 列表（最近 200 个事件，接口允许的最大窗口）里，投递的决定还是 ask 的；
- *     阶段七 R2 起也包括席位 A2A 回执里的提问（receipt:attention），旧接口只显示前者
+ *   · 席位的提问：投递的决定还是 ask 的；阶段七 R2 起也包括席位 A2A 回执里的提问（receipt:attention）。
+ *     原先照旧接口只看最近 200 个事件，早一点的提问会从「关注」漏掉、和事项的 can/turn 对不上；现在全库直接查，设上限（SEAT_ASK_LIMIT）
  * 等阶段三把工作台事件这个域搬完，查询挪回它的服务（另排）。
  */
 import { db, hasTable } from '../db.ts';
@@ -45,13 +45,20 @@ const NOT_ANSWERED = `
      AND NOT EXISTS (SELECT 1 FROM work_item_log l WHERE l.item_id = 'wi_' || d.event_id AND l.fact = 'answer' AND l.rejected = ''
        AND json_extract(l.detail, '$.ask_id') = CAST(a.id AS TEXT))`;
 
-/** 事件表在任务中心初始化时才建：新库上还没有，就是没有提问。窗口同旧接口：最近 200 个事件 */
-export function openSeatAsks(): OpenSeatAsk[] {
-  if (!tableExists('workbench_events')) return [];
-  return db.prepare(`SELECT o.*, e.source, e.workbench, e.item
-    FROM (SELECT event_id, source, workbench, item, id FROM workbench_events ORDER BY id DESC LIMIT 200) e
-    JOIN (${OPEN_ASK_SQL}${NOT_ANSWERED}) o ON o.event_id = e.event_id
-    ORDER BY o.asked_at, o.delivery_id`).all() as OpenSeatAsk[];
+/** 「关注」一次最多列这么多条席位提问（远大于实际待答数）：超过时按提问时间先后取最早的这些，提供方标 more */
+export const SEAT_ASK_LIMIT = 1000;
+
+/**
+ * 还没答的席位提问，全库直接查（不按最近多少个事件截断：早一点的提问一样等人答，和事项详情的 can/turn、事项列表的 decide 同一个口径）。
+ * 按提问时间先后排，最多 limit 条；more 为真表示超过了上限、后面还有没列出来的。
+ * 事件表在任务中心初始化时才建：新库上还没有，就是没有提问
+ */
+export function openSeatAsks(limit = SEAT_ASK_LIMIT): { asks: OpenSeatAsk[]; more: boolean } {
+  if (!tableExists('workbench_events')) return { asks: [], more: false };
+  const rows = db.prepare(`SELECT o.*, e.source, e.workbench, e.item
+    FROM (${OPEN_ASK_SQL}${NOT_ANSWERED}) o JOIN workbench_events e ON e.event_id = o.event_id
+    ORDER BY o.asked_at, o.delivery_id LIMIT ?`).all(limit + 1) as OpenSeatAsk[];
+  return { asks: rows.slice(0, limit), more: rows.length > limit };
 }
 
 /** 一个投递正在等答复的那次提问：它所在的事件、提问那一行日志的 id（事项上的提问就是按它记的）、是哪一种提问 */

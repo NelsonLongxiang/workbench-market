@@ -164,7 +164,10 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
         const viewer = await requestViewer(req, admin);
         if (!admin && !viewer.principal) return null;
         const items = svc<WorkItemService>('workItems');
-        return openSeatAsks().flatMap((a) => {
+        // 全库还没答的提问（不按最近多少个事件截断），超过上限时按提问先后取最早的、标 more。
+        // 上限在可见性过滤之前：只看得到其中一部分的人，more 为真时列出来的会少于上限
+        const { asks, more } = openSeatAsks();
+        const list = asks.flatMap((a) => {
           const w = items.get(`wi_${a.event_id}`);
           if (!w || !canSee(w, viewer)) return [];
           return [item({
@@ -177,6 +180,7 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
             mine: turnOf(w, viewer).answer, creator: creatorOf(w), cockpit_id: w.cockpit_id ?? null,
           })];
         });
+        return more ? { items: list, total: list.length, more } : list;
       },
     }),
     provide({
