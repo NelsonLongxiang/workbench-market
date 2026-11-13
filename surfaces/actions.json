@@ -408,6 +408,7 @@
           "health.read",
           "health.ready",
           "judgment.report",
+          "knowledge.sync-status",
           "login.begin",
           "login.page",
           "market.export",
