@@ -261,6 +261,8 @@ async function teamCall(url: string, init?: { method: string; body: unknown }): 
   } catch { return { status: 0, body: null }; }
 }
 export const getTeams = () => teamCall('/api/teams');
+/** 分给我的成员、我负责的团队（驾驶舱「AI 员工」用） */
+export const getMyTeams = () => teamCall('/api/teams/mine');
 export const getTeamDepartments = () => teamCall('/api/departments');
 export const getTeamPeople = () => teamCall('/api/principals');
 export const claimTeam = (host: string, team: string, department: string) => teamCall('/api/teams/claim', { method: 'POST', body: { host, team, department } });
@@ -333,3 +335,13 @@ async function benchViewsGet(path: string): Promise<{ status: number; body: unkn
 }
 export const listBenchViews = () => benchViewsGet('/api/bench-views');
 export const getBenchViewDoc = (bench: string) => benchViewsGet(`/api/bench-views/${encodeURIComponent(bench)}/view`);
+/** 这个人能不能新建驾驶舱（/api/auth/me 的 can.create_cockpit，服务端和建驾驶舱的路由同一处判断）。
+ *  带着管理口令问（口令持有人也能建）；不缓存：口令输入、清掉之后页面会再问一次。拿不到当不能 */
+export async function canCreateCockpit(): Promise<boolean> {
+  try {
+    const token = getAdminToken();
+    const r = await fetch('/api/auth/me', { cache: 'no-store', credentials: 'same-origin', headers: token ? { 'X-Admin-Token': token } : {} });
+    const b = r.ok ? await r.json() as { can?: { create_cockpit?: unknown } } : null;
+    return b?.can?.create_cockpit === true;
+  } catch { return false; }
+}

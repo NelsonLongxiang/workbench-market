@@ -13,6 +13,7 @@ import { svc } from '../context.ts';
 import type { WorkbenchService } from '../services/workbench.ts';
 import { getSettings, rowToWorkbench, type WorkbenchRow } from '../db.ts';
 import { HttpError } from '../errors.ts';
+import { cardDeleterOf, type CardDeleter } from '../bench-card-delete.ts';
 
 type WorkbenchView = ReturnType<typeof rowToWorkbench>;
 /** 增删改核心的调用上下文（和 index.ts 里的 WriteCtx 同形）：subject 只放已核认证标识；auditOk=false 时回 X-WM-Audit-State: degraded */
@@ -26,7 +27,9 @@ export interface WorkbenchDeps {
   restSubject: (req: express.Request) => string;
   workbenchCreateCore: (body: any, ctx?: WriteCtx) => WorkbenchView;
   workbenchUpdateCore: (id: number, body: any, ctx?: WriteCtx) => WorkbenchView;
-  workbenchDeleteCore: (id: number) => { ok: boolean; deleted: number };
+  workbenchDeleteCore: (id: number, deleter?: CardDeleter, confirmBenchData?: boolean) => Promise<{ ok: boolean; deleted: number }>;
+  /** 请求带的管理口令有效（删卡片时认人用：只带口令的人删不了有台库数据的卡片） */
+  adminTokenOk: (req: express.Request) => boolean;
   checkOne: (w: WorkbenchRow) => Promise<WorkbenchView>;
   downSince: Map<number, number>;
   lastProbeAt: Map<number, number>;
@@ -68,9 +71,11 @@ export function registerWorkbenchRoutes(app: HttpService, deps: WorkbenchDeps): 
     res.json(w);
   });
 
-  app.delete('/api/workbenches/:id', { action: 'workbench.delete', kind: 'admin' }, (req, res) => {
-    res.json(workbenchDeleteCore(Number(req.params.id)));
-  });
+  // 卡片的台库里有数据时：要持管理层授予的人（或本机命令行）并且带 confirm_bench_data: true（请求体或查询串），否则 409（bench-card-delete.ts）
+  app.delete('/api/workbenches/:id', { action: 'workbench.delete', kind: 'admin' }, wrap(async (req, res) => {
+    const confirm = (req.body as { confirm_bench_data?: unknown } | undefined)?.confirm_bench_data === true || req.query.confirm_bench_data === 'true';
+    res.json(await workbenchDeleteCore(Number(req.params.id), await cardDeleterOf(req, deps.adminTokenOk), confirm));
+  }));
 
   app.post('/api/workbenches/:id/check', { action: 'workbench.check', kind: 'write' }, wrap(async (req, res) => {
     const row = svc<WorkbenchService>('workbench').byId(Number(req.params.id)) as unknown as WorkbenchRow | undefined;

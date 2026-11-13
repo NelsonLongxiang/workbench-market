@@ -372,7 +372,7 @@ const MUTANTS = [
   { id: 'sysadmin-sees-business', what: '系统管理员的读写不圈在系统域里（默认看得到业务数据）', file: ROLES, suites: [PRESETS],
     find: "permissions: [{ kinds: ['read', 'write', 'admin'], domains: [...SYSTEM_DOMAINS] }, { kinds: ['admin'] }] },", replace: "permissions: [{ kinds: ['read', 'write', 'admin'] }] }," },
   { id: 'management-has-admin', what: '管理层也有管理类', file: ROLES, suites: [PRESETS],
-    find: "{ id: 'management', name: '管理层', permissions: [{ kinds: ['read', 'write', 'decide'] }] },", replace: "{ id: 'management', name: '管理层', permissions: [{ kinds: ['read', 'write', 'decide', 'admin'] }] }," },
+    find: "{ id: 'management', name: '管理层', permissions: [{ kinds: ['read', 'write', 'decide'] }, { actions: ['cockpit.create', 'cockpit.update', 'cockpit.delete'] }] },", replace: "{ id: 'management', name: '管理层', permissions: [{ kinds: ['read', 'write', 'decide', 'admin'] }, { actions: ['cockpit.create', 'cockpit.update', 'cockpit.delete'] }] }," },
   { id: 'token-sysadmin-only', what: '管理口令只照系统管理员算（今天口令能看的业务数据，新判定拒绝）', file: BUILTINS_FILE, suites: [PRESETS, SWEEP],
     find: "roles: ['admin', 'management'],", replace: "roles: ['admin']," },
   { id: 'migration-sysadmin-only', what: '现有管理员只迁成系统管理员（今天看得到的业务数据，新判定拒绝）', file: COMPARE, suites: [JUDGE],

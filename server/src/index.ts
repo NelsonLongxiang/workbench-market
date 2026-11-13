@@ -32,6 +32,7 @@ import { svc } from './context.ts';
 import type { HttpService } from './http.ts';
 import { registerTypeRoutes } from './routes/types.ts';
 import { registerCockpitRoutes } from './routes/cockpits.ts';
+import { cockpitAccess } from './cockpit-access.ts';
 import { registerCookieRoutes } from './routes/cookies.ts';
 import { registerStatsRoutes } from './routes/stats.ts';
 import { registerDesignTokenRoutes } from './routes/design-tokens.ts';
@@ -71,6 +72,8 @@ import { registerTaskRoutes } from './routes/tasks.ts';
 import { benchViewsConfig, registerBenchViewRoutes, BENCH_ROWS_PATH } from './routes/bench-views.ts';
 import { BENCH_TOOL_NAMES, BENCH_GRANT_RE } from './bench-mcp-tools.ts';
 import { benchGrantsOf, benchRequestOfSession, benchRequestTtlConfig, benchRequestsOf, benchToolTarget, requestBenchTools, runBenchTool, setBenchRequestTtlHours } from './services/bench-mcp.ts';
+import { resolveBenchRef } from './services/bench-registry.ts';
+import { deleteCardWithBench, type CardDeleter } from './bench-card-delete.ts';
 import { BenchError } from './bench-query.ts';
 import { registerChangeRequestRoutes } from './routes/change-requests.ts';
 import { registerSopStateRoutes, registerSopSpaceRoutes } from './routes/sops.ts';
@@ -200,6 +203,8 @@ const loginGate = createLoginGate({
     const roles = svc<GrantService>('grants').activeFor(who.viewer.sub).map((g) => ({ id: g.role, name: views.get(g.role)?.name ?? g.role, scope: g.scope, preset: !!views.get(g.role)?.platform, expires_at: g.expires_at, source: g.source, approved_by: g.approved_by }));
     return { principal: who.viewer.sub, display_name: who.viewer.name ?? null, roles };
   },
+  // /api/auth/me 的 can：这个请求能做的、不属于某一个对象的事（只增）。和对应的写路由问同一处
+  can: async (req) => ({ create_cockpit: await cockpits.can(req, 'cockpit.create') }),
   appToken: (slug) => wmAppToken(slug),
   varsAppTokenOk: (req) => workbenchVars.appTokenWrite(req),
   runCapOk: async (kind, runId, presented) => {
@@ -472,6 +477,8 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/teams\/(assign|unassign|reassign)$/,
   // 授予的放行（L19）：管理层、属主多半不是管理员。路由内认人、核同源，三档规则判能不能放行；只此一条子路径
   /^\/api\/grants\/[1-9]\d{0,15}\/approve$/,
+  // 驾驶舱的建、改、删：路由在处理之前自己判（cockpit-access.ts：管理员照旧；登录的人交给判定，管理层预设点名了这三个动作）
+  /^\/api\/cockpits(\/[^/]+)?$/,
   // 关系的提议：确认、驳回由属主、管理层、接收部门的负责人做，他们大多不是管理员（路由内认人、核同源，服务判能不能确认；只此两条）
   /^\/api\/relations\/proposals\/[1-9]\d{0,15}\/(approve|reject)$/,
   // 阶段七：建立人本人回答自己事项上的席位提问（路由内认人：管理员或建立人本人；只此一条子路径）
@@ -743,21 +750,27 @@ function workbenchUpdateCore(id: number, body: any, ctx: WriteCtx = { subject: '
   return rowToWorkbench(row);
 }
 
-function workbenchDeleteCore(id: number): { ok: boolean; deleted: number } {
-  const r = svc<WorkbenchService>('workbench').delete(id);
-  if (!r.changes) throw new HttpError(404, `workbench not found: ${id}`);
-  dropWorkbenchVars(id); // #336 变量随台删除
-  // issue #9：删除工作台同步清掉各驾驶舱对它的面板引用——否则悬空面板会让之后每次保存布局 400
-  const cocks = svc<CockpitService>('cockpit').all() as unknown as CockpitRow[];
-  for (const c of cocks) {
-    let panels: PanelConfig[];
-    try { panels = JSON.parse(c.layout_config || '[]'); } catch { continue; }
-    const kept = panels.filter((p) => p.workbenchId !== id);
-    if (kept.length !== panels.length) {
-      svc<CockpitService>('cockpit').setLayout(c.id, JSON.stringify(kept));
-    }
-  }
-  return { ok: true, deleted: id };
+// 删卡片连带它的台库（bench-card-delete.ts）：台库里有数据时要管理层并且确认，删前留备份；卡片本身那一份和台的登记在一个事务里
+async function workbenchDeleteCore(id: number, deleter: CardDeleter = { kind: 'anonymous' }, confirmBenchData = false): Promise<{ ok: boolean; deleted: number }> {
+  return deleteCardWithBench({
+    id, deleter, confirmBenchData,
+    exists: () => !!svc<WorkbenchService>('workbench').byId(id),
+    deleteCard: (slug) => {
+      const r = svc<WorkbenchService>('workbench').delete(id);
+      if (!r.changes) throw new HttpError(404, `workbench not found: ${id}`);
+      dropWorkbenchVars(id); // #336 变量随台删除
+      // issue #9：删除工作台同步清掉各驾驶舱对它的面板引用——否则悬空面板会让之后每次保存布局 400。挂这张卡片的台的视图面板一起摘
+      const cocks = svc<CockpitService>('cockpit').all() as unknown as CockpitRow[];
+      for (const c of cocks) {
+        let panels: PanelConfig[];
+        try { panels = JSON.parse(c.layout_config || '[]'); } catch { continue; }
+        const kept = panels.filter((p) => p.workbenchId !== id && !(slug && p.kind === 'bench-view' && p.bench === slug));
+        if (kept.length !== panels.length) {
+          svc<CockpitService>('cockpit').setLayout(c.id, JSON.stringify(kept));
+        }
+      }
+    },
+  });
 }
 
 /** 审计主体：只认已核的管理口令；X-Market-Client 等自报头不算身份 */
@@ -827,11 +840,15 @@ async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkben
 const EVICT_COOLDOWN_MS = Number(process.env.A2A_EVICT_COOLDOWN_MS) > 0 ? Number(process.env.A2A_EVICT_COOLDOWN_MS) : 24 * 3_600_000; // 测试可加速
 const downSince = new Map<number, number>();
 const lastProbeAt = new Map<number, number>();
-registerWorkbenchRoutes(http, { wrap, listWorkbenches, maskForApi, restSubject, workbenchCreateCore, workbenchUpdateCore, workbenchDeleteCore, checkOne, downSince, lastProbeAt, EVICT_COOLDOWN_MS });
+registerWorkbenchRoutes(http, { wrap, listWorkbenches, maskForApi, restSubject, workbenchCreateCore, workbenchUpdateCore, workbenchDeleteCore, adminTokenOk: (req) => adminHeaderOk(req), checkOne, downSince, lastProbeAt, EVICT_COOLDOWN_MS });
 
 // ---------- 驾驶舱 CRUD（任务驾驶舱：多工作台分屏组合视图） ----------
 // 驾驶舱的读应答带 can.edit：就是写请求总门对这个请求的判断（本机命令行照旧算属主；其余要有效口令或 Odoo 管理员，且同源）
-registerCockpitRoutes(http, { canEdit: (req) => settingsAdminRead(req) }); // 和设置页的管理员读同一个判断（定义在后面，请求期才调用）
+const cockpits = cockpitAccess({
+  adminOk: (req) => settingsAdminRead(req), // 和设置页的管理员读同一个判断（定义在后面，请求期才调用）
+  crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)),
+});
+registerCockpitRoutes(http, { can: cockpits.can, gate: cockpits.gate });
 
 // ---------- 自产台（台生成器：AI 发布 API + 全版本快照，发布即入册） ----------
 const appsRoot = join(dataDir, 'apps');
@@ -2953,7 +2970,8 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       return maskForApi(w);
     }
     case 'workbench_unregister':
-      return workbenchDeleteCore(Number(args?.id));
+      // MCP 会话不是人：卡片的台库里有数据时一律 409（要管理层来删）
+      return await workbenchDeleteCore(Number(args?.id), { kind: 'session', name: String(subject).replace(/^mcp:/, '') });
     case 'workbench_vars_get':
       return mcpVarsGet(args);
     case 'workbench_vars_set':
@@ -3300,7 +3318,7 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
   if (BENCH_VIEWS.on && bare !== undefined) bad(`${bare.split('@')[0]} 是数据视图的工具，必须限定到台：写成 ${bare.split('@')[0]}@bench:<台的标识>（读也一样）`);
   if (BENCH_VIEWS.on && benchAsk.some((m) => m && BENCH_TOOL_NAMES.has(m[1]))) {
     if (!benchAsk.every((m) => m && BENCH_TOOL_NAMES.has(m[1]))) bad('数据视图的工具单独申请，不和别的工具写在同一条里');
-    const benches = [...new Set(benchAsk.map((m) => m![2]))];
+    const benches = [...new Set(benchAsk.map((m) => resolveBenchRef(m![2])))]; // 写卡片 id 也认：申请和授予按台标识记
     if (benches.length !== 1) bad('一条申请只能是一个台的；几个台分开申请');
     let made;
     try { made = requestBenchTools(s.id, benches[0], benchAsk.map((m) => m![1]), args?.reason, Date.now()); } catch (e) { throw benchToolError(e); }

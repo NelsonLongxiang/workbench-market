@@ -37,6 +37,7 @@ import { WorkItemService } from './services/work-item.ts';
 import { AttentionService } from './services/attention.ts';
 import { A2aPeerService } from './services/a2a-peers.ts';
 import { StateLayerService } from './services/state-layer.ts';
+import { BenchSweepService } from './services/bench-sweep.ts';
 import { HttpService } from './http.ts';
 
 /** 数据库连接服务：唯一持有 db 的地方（其余服务经注入取用）。 */
@@ -83,6 +84,7 @@ await Promise.all([
   AttentionService,
   A2aPeerService,
   StateLayerService,
+  BenchSweepService,
   HttpService
 ].map((P) => ctx.plugin(P)));
 
