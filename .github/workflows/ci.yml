@@ -462,6 +462,8 @@ jobs:
         run: node scripts/a2a-member-provenance-test.mjs
       - name: 席位 A2A 回执进事项（签名方 = 当初投递到的宿主·Sig3 不降级·别人的任务号照原路逐字节相同·别的团队签/没签名/重放/词表外/夹带指令/未采信上限·日志无签名材料）
         run: node scripts/a2a-receipt-inbound-test.mjs
+      - name: 对端钉住的公钥接上入站与出站（回执、跟进、名册只认钉住的那把，改钥待确认、停用的不收·投递和回给团队的消息过 canDeliver，不能发的挂起不判死）
+        run: node scripts/a2a-pinned-peer-test.mjs
       - name: 市场出站补 body 绑定签名 Sig3（a2aSendOutbound 与回执 outbox 都带 Sig2+Sig3·上游新版 verifyOriginClaim 判 bodyBound·改正文被拒·无正文只带 Sig2）
         env:
           A2A_ORIGIN_V3_SRC: ${{ github.workspace }}/dsh-open-a2a-net-provenance/src/origin-claim.ts
