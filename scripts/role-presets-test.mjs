@@ -68,17 +68,17 @@ try {
     const webNames = Object.fromEntries([...lit.matchAll(/'?([\w-]+)'?\s*:\s*'([^']*)'/g)].map((m) => [m[1], m[2]]));
     const serverNames = Object.fromEntries(roles.BLOCKS.map((b) => [b.key, b.name]));
     check(JSON.stringify(Object.entries(webNames).sort()) === JSON.stringify(Object.entries(serverNames).sort()), '前端兜底的块名和服务端 BLOCKS 逐块一致', show({ webNames, serverNames }));
-    const cell = (id) => { const r = grants.roles().find((x) => x.id === id); return roles.roleMatrix(id, r.closure, catalog); };
+    const cell = (id) => { const r = grants.roles().find((x) => x.id === id); return roles.roleMatrix(r, catalog); };
     const admin = cell('admin'), mgmt = cell('management'), emp = cell('member'), lead = cell('dept-lead'), ai = cell('ai-staff'), owner = cell('owner');
     const picks = {
       adminBenchRead: admin['bench-data'].read, adminSystemRead: admin.system.read, adminBenchAdmin: admin['bench-data'].admin, adminWorkDecide: admin.work.decide,
       mgmtAccessAdmin: mgmt.access.admin, mgmtWorkDecide: mgmt.work.decide, empWorkWrite: emp.work.write, empWorkDecide: emp.work.decide, empSystemWrite: emp.system.write,
-      leadWorkRead: lead.work.read, aiDecideAny: roles.BLOCKS.some((b) => !['none', 'na'].includes(ai[b.key].decide)), ownerAll: roles.BLOCKS.every((b) => Object.values(owner[b.key]).every((c) => c === 'all' || c === 'na')), overviewDecide: owner.overview.decide,
+      leadWorkRead: lead.work.read, leadBenchRead: lead['bench-data'].read, leadKnowledgeDecide: lead.knowledge.decide, empKnowledgeDecide: emp.knowledge.decide, aiDecideAny: roles.BLOCKS.some((b) => !['none', 'na'].includes(ai[b.key].decide)), ownerAll: roles.BLOCKS.every((b) => Object.values(owner[b.key]).every((c) => c !== 'none')), overviewDecide: owner.overview.decide,
     };
     check(picks.adminBenchRead === 'none' && picks.adminSystemRead === 'all' && picks.adminBenchAdmin === 'all' && picks.adminWorkDecide === 'none'
-      && picks.mgmtAccessAdmin === 'none' && picks.mgmtWorkDecide === 'all' && picks.empWorkWrite === 'some' && picks.empWorkDecide === 'self' && picks.empSystemWrite === 'none'
-      && picks.leadWorkRead === 'scoped' && picks.aiDecideAny === false && picks.ownerAll === true && picks.overviewDecide === 'na',
-      '矩阵（服务端从定义算）：系统管理员看不到工作台数据、系统全部、各处能管、不拍业务的板；管理层不管权限；普通员工事项只能做部分、拍板只限自己的；部门负责人范围内；AI 员工哪里都不能拍板；属主全部；这一块没有这一类动作的格子是 na（全景没有可拍板的） [red-line:system-admin-no-business]', show(picks));
+      && picks.mgmtAccessAdmin === 'none' && picks.mgmtWorkDecide === 'all' && picks.empWorkWrite === 'some' && picks.empWorkDecide === 'self' && picks.empSystemWrite !== 'all'
+      && picks.leadWorkRead !== 'scoped' && picks.leadBenchRead === 'scoped' && picks.leadKnowledgeDecide === 'none' && picks.empKnowledgeDecide === 'none' && picks.aiDecideAny === false && picks.ownerAll === true && picks.overviewDecide === 'na',
+      '矩阵（服务端从定义算）：系统管理员看不到工作台数据、系统全部、各处能管、不拍业务的板；管理层不管权限；普通员工事项只能做部分、拍板只限自己的（经验库的拍板不算）；部门负责人只在按部门判的台、经验库上范围内（事项、经验库的拍板都不算）；AI 员工哪里都不能拍板；属主全部；这一块没有这一类动作的格子是 na（全景没有可拍板的） [red-line:system-admin-no-business]', show(picks));
     const sum = roles.matrixSummary(admin);
     check(/工作台数据/.test(sum.cannot) === false && /能看：/.test(sum.see) && !/工作台数据/.test(sum.see), '卡片的四句白话从格子生成：系统管理员的「能看」里没有工作台数据', show(sum));
   }
@@ -156,7 +156,8 @@ try {
     deps.addMember('sales', 'user:rel', 'cli', now);
     deps.upsert({ id: 'sales', name: '合成 sales', functionCode: null, lead: 'user:rel' }, 'cli', now);
     const v = (principal, action, kind, scope = 'dept:sales', at = now) => scopedVerdict({ principal, action, kind, scope, now: at }).verdict;
-    const W = ['sop-run.assign', 'write'], R = ['sop-run.read', 'read'], D = ['change-request.approve', 'decide'];
+    // 只认登记过按部门问的动作（judgment-builtins.ts 的 ASKED）：写用台的写数据，读用经验库的看，拍板用台的批 MCP 授予
+    const W = ['bench-store.rows-write', 'write'], R = ['knowledge.read', 'read'], D = ['bench-store.mcp-grant', 'decide'];
     const got = {
       memberWrite: v('user:dm', ...W), memberRead: v('user:dm', ...R), memberDecide: v('user:dm', ...D), memberOtherDept: v('user:dm', ...W, 'dept:ops'),
       leadDecide: v('user:dl', ...D), mgmtAnyDept: v('user:mg', ...W, 'dept:ops'), sysAdminWrite: v('user:sa', ...W), sysAdminRead: v('user:sa', ...R),
@@ -176,16 +177,19 @@ try {
     const gid = Number(db.prepare("INSERT INTO grants (principal_id, role, scope, reason, created_by, created_at, updated_at) VALUES ('seat:decide-bot', 'management', 'dept:sales', '合成：绕过授予服务', 'cli', ?, ?)").run(now, now).lastInsertRowid);
     db.prepare("UPDATE grants SET status = 'pending' WHERE id = ?").run(gid);
     db.prepare("UPDATE grants SET status = 'active', approved_by = 'cli' WHERE id = ?").run(gid);
-    const seatDec = scopedVerdict({ principal: 'seat:decide-bot', action: 'change-request.approve', kind: 'decide', scope: 'dept:sales', now });
-    const seatWr = scopedVerdict({ principal: 'seat:decide-bot', action: 'sop-run.assign', kind: 'write', scope: 'dept:sales', now });
+    const seatDec = scopedVerdict({ principal: 'seat:decide-bot', action: 'bench-store.mcp-grant', kind: 'decide', scope: 'dept:sales', now });
+    const seatWr = scopedVerdict({ principal: 'seat:decide-bot', action: 'bench-store.rows-write', kind: 'write', scope: 'dept:sales', now });
     check(seatDec.verdict === 'deny' && seatDec.rule === 'decide-non-person' && seatWr.verdict === 'allow',
       '部门范围的判定：库里硬种的「管理层给席位」（责任人也有这项权限），拍板照样拒（decide-non-person）；对照：同一条授予的写能过',
       show({ seatDec, seatWr }));
     // 范围写法：只收 dept:<部门标识>。持 * 授予的人，别的写法一律拒（scope-unsupported），不能因为 * 授予就放行
     const odd = ['*', 'dept:', 'DEPT:x', 'dept:X', 'team:x', '', 'dept:sales/x'];
-    const oddGot = odd.map((sc) => { const r = scopedVerdict({ principal: 'user:mg', action: 'sop-run.read', kind: 'read', scope: sc, now }); return `${sc}=${r.verdict}:${r.rule}`; });
-    check(oddGot.every((x) => x.endsWith('=deny:scope-unsupported')) && scopedVerdict({ principal: 'user:mg', action: 'sop-run.read', kind: 'read', scope: 'dept:sales', now }).verdict === 'allow',
-      '部门范围的判定：范围只收 dept:<部门标识>；* 、空、大写、别的前缀、带斜杠的一律拒（scope-unsupported），持 * 授予的管理层也一样；对照：dept:sales 能过',
+    const oddGot = odd.map((sc) => { const r = scopedVerdict({ principal: 'user:mg', action: 'knowledge.read', kind: 'read', scope: sc, now }); return `${sc}=${r.verdict}:${r.rule}`; });
+    check(oddGot.every((x) => x.endsWith('=deny:scope-unsupported')) && scopedVerdict({ principal: 'user:mg', action: 'knowledge.read', kind: 'read', scope: 'dept:sales', now }).verdict === 'allow'
+      // 没登记按部门问的动作、或者类别对不上：一律拒（scope-not-declared），持 * 授予的管理层也一样
+      && scopedVerdict({ principal: 'user:mg', action: 'sop-run.read', kind: 'read', scope: 'dept:sales', now }).rule === 'scope-not-declared'
+      && scopedVerdict({ principal: 'user:mg', action: 'bench-store.rows-write', kind: 'read', scope: 'dept:sales', now }).rule === 'scope-not-declared',
+      '部门范围的判定：范围只收 dept:<部门标识>；* 、空、大写、别的前缀、带斜杠的一律拒（scope-unsupported），持 * 授予的管理层也一样；对照：dept:sales 能过；没登记按部门问的动作、类别对不上的都拒（scope-not-declared）',
       show(oddGot));
     // 「关注」条目上的显示名（attention-names.ts）：只给看的人本来就看得到的人的名字
     for (const [id, n] of [['user:rel', '合成·关系人'], ['user:dm', '合成·部门成员'], ['user:pend', '合成·没部门的'], ['user:gone', '合成·停用的']]) db.prepare('UPDATE principals SET display_name = ? WHERE id = ?').run(n, id);
