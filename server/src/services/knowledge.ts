@@ -64,21 +64,38 @@ export class KnowledgeService extends Service {
   private secret: string | null = null;
   /** 已经告警过的原因：同一个原因在这个进程里只告警一次，不刷屏 */
   private warned = new Set<string>();
+  /** 插件卸载了：排着的、跑到一半的同步都不再碰库 */
+  private stopped = false;
 
   constructor(ctx: any) {
     super(ctx, 'knowledge');
     const minutes = loadConfig(Config).syncMinutes;
     if (minutes === 0) return;
-    // 后台同步：等启动自检通过再开始；只读本机的 ygl-trees，不往外发；随插件卸载停下，不拦进程退出
+    // 后台同步：等启动自检通过再开始；只读本机的 ygl-trees，不往外发；随插件卸载停下，不拦进程退出。
+    // 每一轮都兜住错误（比如库已经关了）：记一行、下一轮再试，不把进程带崩
     ctx.effect(() => {
+      this.stopped = false;
       let timer: ReturnType<typeof setInterval> | null = null;
       const cancel = afterStartup(() => {
-        void this.syncAll();
-        timer = setInterval(() => { void this.syncAll(); }, minutes * 60_000);
+        if (this.stopped) return;
+        this.backgroundRound();
+        timer = setInterval(() => this.backgroundRound(), minutes * 60_000);
         timer.unref?.();
       });
-      return () => { cancel(); if (timer) clearInterval(timer); };
+      return () => { this.stopped = true; cancel(); if (timer) clearInterval(timer); };
     }, 'knowledge.sync');
+  }
+
+  /** 后台的一轮：停了就不跑；出错只记一行（同一个说法只记一次、去掉路径），下一轮再试 */
+  private backgroundRound(): void {
+    if (this.stopped) return;
+    this.syncAll().catch((e) => {
+      if (this.stopped) return;
+      const msg = String((e as Error)?.message ?? e).replace(/(?:[A-Za-z]:)?[\\/][^\s'"`]+/g, '<路径>').slice(0, 200);
+      if (this.warned.has(`crash:${msg}`)) return;
+      this.warned.add(`crash:${msg}`);
+      console.error(`[knowledge] 经验库后台同步出错（下一轮再试；同一个说法只提示这一次）：${msg}`);
+    });
   }
 
   /** 给页面的不透明键：本库自己的密钥（第一次用时随机生成并存下）对 kind:id 做 HMAC，截 22 位 */
@@ -101,6 +118,7 @@ export class KnowledgeService extends Service {
     this.running = true;
     try {
       for (const kind of KINDS) {
+        if (this.stopped) return;
         const st = db.prepare('SELECT last_full_at FROM knowledge_sync WHERE kind = ?').get(kind) as { last_full_at: number | null } | undefined;
         const full = !st?.last_full_at || now - st.last_full_at >= FULL_EVERY_MS;
         await this.syncKind(kind, full, now);
@@ -129,6 +147,7 @@ export class KnowledgeService extends Service {
     for (let page = 0; page < MAX_PAGES; page++) {
       const args = ['library', 'list', '--kind', kind, '--limit', String(PAGE_LIMIT), ...(since ? ['--since', since] : []), ...(cursor ? ['--cursor', cursor] : []), '--json'];
       const r = await execYgl(args, { timeoutMs: CALL_TIMEOUT_MS });
+      if (this.stopped) return { ok: false, error: 'stopped', seen };
       if (!r.ok) return fail(r.error);
       const j = r.json as { contract?: unknown; items?: unknown; next_cursor?: unknown };
       if (!j || typeof j !== 'object' || j.contract !== CONTRACT) return fail('contract_unsupported');

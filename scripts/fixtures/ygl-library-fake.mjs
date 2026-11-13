@@ -5,10 +5,11 @@
  *   { contract?, page_size?, fail?, show_fail?, items: { claim: [...], note: [...], skill: [...], check: [...] }, bodies: { "<kind>:<id>": { body, evidence?, …多余字段 } } }
  *   · page_size：每页最多几条（比市场要的 limit 小时按它分页，用来测游标）；
  *   · fail：list 怎么坏（exit2 退出 2、timeout 一直不退、notjson 打一段不是 JSON 的字、unknowncmd 旧版本不认 library）；show_fail：show 怎么坏（exit2，或 gone = rc 1 加一个 {"error"}）；
- *   · contract：故意给错的契约版本。
+ *   · contract：故意给错的契约版本；
+ *   · delay_ms：每次调用先等这么久再应答（测「跑到一半停下」）；每次调用都在 $YGL_HOME/calls.log 追加一行参数（测「停了以后不再调」）。
  * 用法同真的：library list --kind K [--since ISO] [--limit N] [--cursor C] --json；library show <kind>:<id> --json
  */
-import { readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const fx = JSON.parse(readFileSync(join(process.env.YGL_HOME ?? '.', 'library-fixture.json'), 'utf8'));
@@ -16,6 +17,8 @@ const argv = process.argv.slice(2);
 const opt = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : undefined; };
 const contract = fx.contract ?? 'ygl-library/1';
 const out = (o, code = 0) => { process.stdout.write(JSON.stringify(o)); process.exit(code); };
+appendFileSync(join(process.env.YGL_HOME ?? '.', 'calls.log'), `${argv.join(' ')}\n`);
+if (fx.delay_ms) await new Promise((r) => setTimeout(r, fx.delay_ms));
 
 if (argv[0] !== 'library') out({ error: 'unknown command' }, 2);
 // 旧版本：还没有 library 出口——照旧版本的样子在 stderr 说不认识这个命令、退出 1，stdout 什么都没有
