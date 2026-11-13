@@ -12,6 +12,7 @@ import { dueReplies, inReplyTx, markReply, retryReply, type ReplyRow } from '../
 import { recordSentTask } from '../services/a2a-receipts.ts';
 import { BACKOFF_MS, MAX_ATTEMPTS, TERMINAL_CODES, backoffScale, logDeliveryFact } from '../workbench-events.ts';
 import { peerCard, peerRoot } from './peer-card.ts';
+import { peerDeclares } from '../services/a2a-peers.ts';
 
 export const ANSWER_ENVELOPE_VERSION = 2;
 
@@ -28,9 +29,11 @@ export function answerEnvelope(row: Pick<ReplyRow, 'event_id' | 'context_id' | '
  * 理由和标题都压成一行：人写的字只能落在第二行，拼不出派工行、回执头或第三行。
  * 不再带市场自己的 JSON 信封：宿主把派工行之后的正文整段当范围，信封只会混进范围里。
  */
-export function returnMessage(r: { text: string; return: { of: string; title: string } }): string {
-  const dispatch = `[A2A dispatch] ${JSON.stringify({ rework: { of: r.return.of } })}`;
+export function returnMessage(r: { text: string; return: { of: string; title: string } }, opts: { dispatchLine?: boolean } = {}): string {
   const line = `[打回重做] 原事项《${String(r.return.title).replace(/\s+/g, ' ').slice(0, 200)}》（原任务 ${r.return.of}）：${r.text.replace(/\s+/g, ' ')}`;
+  // 对端宿主名片没声明 reworkReturns：不写派工行，只发「[打回重做]…」这一行（总工照旧按正文判，和派工行出现之前一样）
+  if (opts.dispatchLine === false) return line;
+  const dispatch = `[A2A dispatch] ${JSON.stringify({ rework: { of: r.return.of } })}`;
   return `${dispatch}\n${line}`;
 }
 
@@ -53,7 +56,12 @@ async function sendOne(row: ReplyRow, now: () => number): Promise<void> {
       return;
     }
     // 打回重做和答复走同一条路（同 context 的新任务），正文不同
-    message = answer.return && typeof answer.return.of === 'string' ? returnMessage(answer as { text: string; return: { of: string; title: string } }) : answerEnvelope(row, answer);
+    if (answer.return && typeof answer.return.of === 'string') {
+      // 派工行只写给名片（登记表里钉住的那份）声明了 reworkReturns 的对端；没声明退回旧写法，第一次发时在事件日志留痕
+      const declared = peerDeclares(row.target_url, 'reworkReturns');
+      if (!declared && row.attempts === 0) logDeliveryFact(row.event_id, row.delivery_id, 'market', 'rework-fallback', { reply: row.id, reason: 'peer_not_declared' });
+      message = returnMessage(answer as { text: string; return: { of: string; title: string } }, { dispatchLine: declared });
+    } else message = answerEnvelope(row, answer);
     const peer = await peerCard(row.target_url).catch(() => null);
     recordSentTask({ taskId, kind: 'answer', eventId: row.event_id, deliveryId: row.delivery_id, peerRoot: peerRoot(row.target_url), peerZone: peer?.team ?? '' });
   }

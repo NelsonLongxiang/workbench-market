@@ -54,14 +54,20 @@ try {
   check(loose.length === 0 && both.length === 0, '每个已登记动作的域都归了类（系统或业务），没有两边都算的', show({ loose, both }));
   check(roles.domainOf('app-data.list') === 'app-data' && roles.domainOf('app_data_list') === 'mcp-tool', '动作的域：点号前面那段；MCP 工具都算 mcp-tool（业务）');
 
-  // ---------- 一之二、七大块的矩阵 ----------
+  // ---------- 一之二、各大块的矩阵 ----------
   {
     const all = [...roles.SYSTEM_DOMAINS, ...roles.BUSINESS_DOMAINS];
     const owners = Object.fromEntries(all.map((d) => [d, roles.BLOCKS.filter((b) => b.domains.includes(d)).map((b) => b.key)]));
     const bad = Object.entries(owners).filter(([, bs]) => bs.length !== 1);
     const stray = roles.BLOCKS.flatMap((b) => b.domains.filter((d) => !all.includes(d)));
     const mixed = roles.BLOCKS.filter((b) => !(b.domains.every((d) => roles.SYSTEM_DOMAINS.includes(d)) || b.domains.every((d) => roles.BUSINESS_DOMAINS.includes(d)))).map((b) => b.key);
-    check(bad.length === 0 && stray.length === 0 && mixed.length === 0, '七大块：每个动作的域归且只归一块；每块要么全是系统的、要么全是业务的', show({ bad, stray, mixed }));
+    check(bad.length === 0 && stray.length === 0 && mixed.length === 0, '各大块：每个动作的域归且只归一块；每块要么全是系统的、要么全是业务的', show({ bad, stray, mixed }));
+    // 前端读不到矩阵时用的兜底名单（web/src/access-view.ts 的 BLOCK_NAMES）要和 BLOCKS 逐块一致：加块时两边一起加
+    const webSrc = readFileSync(join(ROOT, 'web/src/access-view.ts'), 'utf8');
+    const lit = /const BLOCK_NAMES[^=]*=\s*\{([^}]*)\}/.exec(webSrc)?.[1] ?? '';
+    const webNames = Object.fromEntries([...lit.matchAll(/'?([\w-]+)'?\s*:\s*'([^']*)'/g)].map((m) => [m[1], m[2]]));
+    const serverNames = Object.fromEntries(roles.BLOCKS.map((b) => [b.key, b.name]));
+    check(JSON.stringify(Object.entries(webNames).sort()) === JSON.stringify(Object.entries(serverNames).sort()), '前端兜底的块名和服务端 BLOCKS 逐块一致', show({ webNames, serverNames }));
     const cell = (id) => { const r = grants.roles().find((x) => x.id === id); return roles.roleMatrix(id, r.closure, catalog); };
     const admin = cell('admin'), mgmt = cell('management'), emp = cell('member'), lead = cell('dept-lead'), ai = cell('ai-staff'), owner = cell('owner');
     const picks = {

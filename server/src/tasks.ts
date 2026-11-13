@@ -70,16 +70,15 @@ function yglProjectNameOk(name: string): boolean { return name.length >= 1 && na
 
 /** 无 shell 调 ygl-trees：node + 包内真实入口 dist/bundle/bin.cjs（Windows shim 不再经 shell:true）。
  *  入口解析边界：①node同目录node_modules ②PNPM_HOME ③APPDATA/npm。Linux全局PATH可达但非node同级布局不在支持内（降级ok=false），不引大解析系统。 */
-import { existsSync, realpathSync, statSync } from 'node:fs';
+import { realpathSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { join, dirname, isAbsolute } from 'node:path';
+import { join, isAbsolute } from 'node:path';
 import { defineConfig, loadConfig, str } from './config.ts';
+import { yglCliEntry } from './ygl-cli.ts';
 
-/** 统一待办读的工作区、找 ygl-trees 入口的两处目录、A2A 源的地址和密钥 */
+/** 统一待办读的工作区、A2A 源的地址和密钥（找 ygl-trees 入口的几处目录在 ygl-cli.ts） */
 export const Config = defineConfig((env) => ({
   yglHome: env.YGL_HOME,
-  pnpmHome: env.PNPM_HOME,
-  appData: env.APPDATA,
   a2aStateUrl: str(env.A2A_STATE_URL),
   a2aApiKey: str(env.A2A_API_KEY),
 }));
@@ -94,14 +93,8 @@ export function taskWorkspaceKey(): string | null {
     return createHash('sha256').update(realpathSync(file)).digest('hex');
   } catch { return null; }
 }
-export function yglCliEntry(): string | null {
-  for (const base of [dirname(process.execPath), config.pnpmHome, config.appData ? config.appData + '\\npm' : null]) {
-    if (!base) continue;
-    const cand = join(base, 'node_modules', 'ygl-trees', 'dist', 'bundle', 'bin.cjs');
-    if (existsSync(cand)) return cand;
-  }
-  return null;
-}
+// 找 ygl-trees 入口统一在 ygl-cli.ts（经验库、MCP 上游也用它）；这里转出去，原来的引用不用改
+export { yglCliEntry } from './ygl-cli.ts';
 
 function execYglJson(args: string[], timeoutMs: number, home: string): Promise<{ ok: boolean; parsed: unknown }> {
   return new Promise((resolve) => {

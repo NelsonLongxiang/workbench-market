@@ -17,7 +17,8 @@ await new Promise(r=>odoo.listen(0,'127.0.0.1',r));
 let a2aCalls=0;const a2a=httpServer((_q,r)=>{a2aCalls++;r.setHeader('content-type','application/json');r.end(JSON.stringify({tasks:[{taskId:'synthetic-a2a',brief:'A2A_ADMIN_ONLY',team:'synthetic-team'}]}));});await new Promise(r=>a2a.listen(0,'127.0.0.1',r));
 const reserve=createServer();await new Promise(r=>reserve.listen(0,'127.0.0.1',r));const port=reserve.address().port;await new Promise(r=>reserve.close(r));assert(![3080,9800,9801].includes(port));
 const env={};for(const k of['SystemRoot','WINDIR','PATH','PATHEXT','TEMP','TMP'])if(process.env[k])env[k]=process.env[k];
-Object.assign(env,{PORT:String(port),WM_CONTROL_PORT:'0',DATA_DIR:data,YGL_HOME:home,PNPM_HOME:out,A2A_STATE_URL:'http://127.0.0.1:'+a2a.address().port,NODE_ENV:'test',MCP_GATEWAY:'on',ADMIN_TOKEN:'synthetic-tasks-admin',REDIS_URL:'',WM_ODOO_URL:'http://127.0.0.1:'+odoo.address().port,WM_TASK_TEST_CALLS:join(out,'cli-calls.jsonl'),WM_TASK_TEST_FAILURE:join(out,'cli-fail')});
+// 经验库的后台同步也读 YGL_HOME 下的 ygl-trees：这里只核统一待办的调用，关掉它（WM_KNOWLEDGE_SYNC_MINUTES=0），免得把同步的调用算进来
+Object.assign(env,{WM_KNOWLEDGE_SYNC_MINUTES:'0',PORT:String(port),WM_CONTROL_PORT:'0',DATA_DIR:data,YGL_HOME:home,PNPM_HOME:out,A2A_STATE_URL:'http://127.0.0.1:'+a2a.address().port,NODE_ENV:'test',MCP_GATEWAY:'on',ADMIN_TOKEN:'synthetic-tasks-admin',REDIS_URL:'',WM_ODOO_URL:'http://127.0.0.1:'+odoo.address().port,WM_TASK_TEST_CALLS:join(out,'cli-calls.jsonl'),WM_TASK_TEST_FAILURE:join(out,'cli-fail')});
 for(const [k,v]of Object.entries(env))process.env[k]=v;
 const {db}=await import(pathToFileURL(join(root,'server/src/db.ts')).href);
 // The test writes grants while the real server checkpoints; wait for short SQLite write locks.

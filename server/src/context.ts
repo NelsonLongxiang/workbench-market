@@ -33,6 +33,7 @@ import { DepartmentService } from './services/department.ts';
 import { TeamService } from './services/team.ts';
 import { SetupWizardService } from './services/setup-wizard.ts';
 import { RelationProposalService } from './services/relation-proposal.ts';
+import { KnowledgeService } from './services/knowledge.ts';
 import { WorkItemService } from './services/work-item.ts';
 import { AttentionService } from './services/attention.ts';
 import { A2aPeerService } from './services/a2a-peers.ts';
@@ -76,6 +77,7 @@ await Promise.all([
   TeamService,
   SetupWizardService,
   RelationProposalService,
+  KnowledgeService,
   BindingService,
   ChangeRequestService,
   TaskCenterService,
