@@ -7,7 +7,8 @@
  * 修订 3 落实：卡片不发布 teamMemberships（绑定图不出门）；id8 每 SOP 随机生成持久化
  * （禁 slug 推导防抢注）；ADMIN_TOKEN 只经启动环境。
  */
-import { createHash, createPrivateKey, generateKeyPairSync, randomBytes, sign as edSign, timingSafeEqual, type KeyObject } from 'node:crypto';
+import { createHash, createPrivateKey, generateKeyPairSync, randomBytes, sign as edSign, type KeyObject } from 'node:crypto';
+import { envAdminTokenOk } from './admin-token-env.ts';
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { signCard, verifyCard } from '@nelsonlongxiang/dsh-open-a2a-net/card';
@@ -143,12 +144,9 @@ export function sopNode8(slug: string, gen: () => string = () => randomBytes(4).
   return id8;
 }
 
-/** ADMIN_TOKEN 常量时间比较（两侧 sha256 定长再比；未设置一律拒绝）。 */
+/** ADMIN_TOKEN 常量时间比较（两侧 sha256 定长再比；未设置一律拒绝）。口令启动时取一次，见 admin-token-env.ts */
 export function adminTokenOk(provided: string | undefined): boolean {
-  const expect = process.env.ADMIN_TOKEN;
-  if (!expect) return false;
-  const h = (s: string) => createHash('sha256').update(s, 'utf8').digest();
-  return timingSafeEqual(h(String(provided ?? '')), h(expect));
+  return envAdminTokenOk(provided);
 }
 
 /**
