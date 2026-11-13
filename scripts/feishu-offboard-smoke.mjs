@@ -203,7 +203,7 @@ try {
   {
     // 停用这一步出错（用触发器在库里故意让「停用 carol」失败）：只回固定的 503，内部原因不回给对方；
     // 事件号和停用一起撤回——飞书重推同一个事件时照常处理，不会被当成重复跳过
-    const side = new DatabaseSync(join(open.data, 'workbench-market.db'));
+    const side = new DatabaseSync(join(open.data, 'workbench-market.db'), { timeout: 5000 });
     side.exec("CREATE TRIGGER smoke_fail_disable BEFORE UPDATE OF status ON principals WHEN NEW.id = 'user:carol' AND NEW.status = 'disabled' BEGIN SELECT RAISE(ABORT, 'synthetic-injected-failure'); END");
     const failed = await post(open, signedEvent(contactEvent('contact.user.deleted_v3', 'carol', { eventId: 'evt-retry-after-failure' })));
     const during = await statusOf(open, 'user:carol');

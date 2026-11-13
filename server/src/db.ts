@@ -1031,9 +1031,13 @@ for (const [column, ddl] of [
   ['directed_seat_id', "directed_seat_id TEXT NOT NULL DEFAULT ''"],
   ['seat_id', "seat_id TEXT NOT NULL DEFAULT ''"],
   ['seat_at', "seat_at TEXT NOT NULL DEFAULT ''"],
+  // 从哪个驾驶舱安排的（驾驶舱的 id）：只在「安排一件事」那一刻记，之后不改；别的路子建的、存量都是 null，不回填。
+  //   只是个标签，不给任何权限；驾驶舱删了也照旧留着这个数
+  ['cockpit_id', 'cockpit_id INTEGER'],
 ] as const) {
   if (!(db.prepare('PRAGMA table_info(work_items)').all() as { name: string }[]).some((c) => c.name === column)) db.exec(`ALTER TABLE work_items ADD COLUMN ${ddl}`);
 }
+db.exec('CREATE INDEX IF NOT EXISTS idx_work_items_cockpit ON work_items (cockpit_id, updated_at)');
 db.exec(`
 CREATE TRIGGER IF NOT EXISTS work_items_creator_principal_once BEFORE UPDATE OF creator_principal ON work_items
   WHEN OLD.creator_principal IS NOT NULL AND NEW.creator_principal IS NOT OLD.creator_principal
@@ -1479,6 +1483,13 @@ try {
   const bvCols = db.prepare('PRAGMA table_info(bench_views)').all() as { name: string }[];
   for (const c of ['department_id', 'team_host', 'team']) if (!bvCols.some((x) => x.name === c)) db.exec(`ALTER TABLE bench_views ADD COLUMN ${c} TEXT NOT NULL DEFAULT ''`);
 } catch (e) { console.error(`[db] bench_views 加绑定列失败：${(e as Error).message}`); throw e; }
+// 台对应市场登记的哪个台（workbenches.id）：一个登记的台最多对应一个视图台，反过来也一样。对应关系只记在这里（真来源只有这一份）；
+// 登记的台删了，读的时候按没有对应处理（不跟着删这一列）
+try {
+  const bvCols2 = db.prepare('PRAGMA table_info(bench_views)').all() as { name: string }[];
+  if (!bvCols2.some((x) => x.name === 'workbench_id')) db.exec('ALTER TABLE bench_views ADD COLUMN workbench_id INTEGER');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_bench_views_workbench ON bench_views (workbench_id) WHERE workbench_id IS NOT NULL');
+} catch (e) { console.error(`[db] bench_views 加对应台号列失败：${(e as Error).message}`); throw e; }
 db.exec(`CREATE TABLE IF NOT EXISTS bench_bind_audit (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   slug TEXT NOT NULL,

@@ -106,7 +106,7 @@ try {
   {
     // 旧的录入发布路径建出来的任务（kind 是「录入」）：照旧在统一待办里
     const old = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '-e', `
-      const { DatabaseSync } = require('node:sqlite'); const d = new DatabaseSync(${JSON.stringify(join(data, 'workbench-market.db'))});
+      const { DatabaseSync } = require('node:sqlite'); const d = new DatabaseSync(${JSON.stringify(join(data, 'workbench-market.db'))}, { timeout: 5000 });
       console.log('OLD ' + d.prepare("INSERT INTO tasks (title, kind, status, published_at, published_by) VALUES ('旧路径的任务', '录入', 'published', '2026-01-01 00:00:00', 'x')").run().lastInsertRowid);`], { encoding: 'utf8' });
     const oldId = /OLD (\d+)/.exec(old.stdout)?.[1];
     const att = (await call('GET', '/api/attention', ADMIN)).body?.items ?? [];
@@ -194,7 +194,7 @@ try {
     check(anon.status === 401 && local.status === 401 && forged.status === 401 && tokenOnly.status === 401 && cross.status === 403,
       '远程匿名、本机页面没登录、提供方不认的会话、只带管理口令（不是人）：401；跨站：403', show({ anon: anon.status, local: local.status, forged: forged.status, token: tokenOnly.status, cross: cross.status }));
     const off = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '-e', `
-      const { DatabaseSync } = require('node:sqlite'); const d = new DatabaseSync(${JSON.stringify(join(data, 'workbench-market.db'))});
+      const { DatabaseSync } = require('node:sqlite'); const d = new DatabaseSync(${JSON.stringify(join(data, 'workbench-market.db'))}, { timeout: 5000 });
       d.prepare("UPDATE principals SET status = 'disabled' WHERE id = 'user:beta'").run(); console.log('OFF');`], { encoding: 'utf8' });
     const disabled = await call('POST', '/api/work-items', BETA, form());
     check(off.stdout.includes('OFF') && [401, 403].includes(disabled.status) && disabled.body?.error !== undefined, '主体停用了：拒绝（身份服务每次现查主体，不用缓存）', show({ off: off.stderr.slice(-200), d: disabled }));

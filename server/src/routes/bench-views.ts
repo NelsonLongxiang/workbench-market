@@ -26,7 +26,7 @@ import { browserMarked, originIsThisSurface, rawLoopback } from '../surfaces.ts'
 import { judge, scopedVerdict, type JudgedActor } from '../judgment.ts';
 import { BENCH_LIMITS, BenchError } from '../bench-query.ts';
 import { benchStore, type BenchStore } from '../services/bench-store.ts';
-import { bindBench, createBench, getBench, listBenches, type BenchEntry } from '../services/bench-registry.ts';
+import { bindBench, linkWorkbench, createBench, getBench, listBenches, type BenchEntry } from '../services/bench-registry.ts';
 import { relationOf } from '../team-relation.ts';
 import { decideBenchRequest, listBenchMcp, setBenchGrants } from '../services/bench-mcp.ts';
 
@@ -184,10 +184,12 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     // 管理层可以登记到任何部门（或者先不绑）；别的人只能登记到自己有拍板授予的部门，而且必须绑
     const actor = await who(req, res);
     if (!actor) return;
-    const dep = (req.body as { department?: unknown } | undefined)?.department;
-    const ok = everywhere(actor, 'bench-store.bench-create', 'write')
-      || (typeof dep === 'string' && /^[a-z][a-z0-9-]{0,47}$/.test(dep) && inDept(actor, 'bench-store.bench-create', 'decide', dep));
-    if (!ok) return void forbid(res);
+    const body = req.body as { department?: unknown; workbench_id?: unknown } | undefined;
+    const dep = body?.department;
+    const all = everywhere(actor, 'bench-store.bench-create', 'write');
+    const ok = all || (typeof dep === 'string' && /^[a-z][a-z0-9-]{0,47}$/.test(dep) && inDept(actor, 'bench-store.bench-create', 'decide', dep));
+    // 对应市场登记的台号只有管理层设（和改绑一样不交给部门自己）
+    if (!ok || (body?.workbench_id !== undefined && !all)) return void forbid(res);
     try { res.status(201).json({ bench: createBench(req.body, idOf(actor), Date.now()) }); } catch (e) { fail(res, e); }
   }));
   // 改绑、解绑：只有管理层。绑到哪个部门决定了谁进得来，不交给部门自己
@@ -197,6 +199,15 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     if (!everywhere(actor, 'bench-store.bench-bind', 'decide')) return void forbid(res);
     if (!getBench(req.params.bench)) return void res.status(404).json({ error: 'bench_not_found' });
     try { res.json(bindBench(req.params.bench, req.body, idOf(actor), Date.now())); } catch (e) { fail(res, e); }
+  }));
+
+  // 对应市场登记的哪个台：只有管理层。清单里每个台带 workbench_id，市场的台详情页靠它找这个台的视图（清单本来就按看的人裁剪）
+  app.put('/api/bench-views/:bench/workbench', { action: 'bench-store.bench-link', kind: 'write', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    const actor = await who(req, res);
+    if (!actor) return;
+    if (!everywhere(actor, 'bench-store.bench-link', 'write')) return void forbid(res);
+    if (!getBench(req.params.bench)) return void res.status(404).json({ error: 'bench_not_found' });
+    try { res.json(linkWorkbench(req.params.bench, req.body, idOf(actor), Date.now())); } catch (e) { fail(res, e); }
   }));
 
   // —— 数据集 ——
