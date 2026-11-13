@@ -24,7 +24,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "4664", "etag": "W/\"1238-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "4836", "etag": "W/\"12e4-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -53,6 +53,7 @@
                   { "id": "market.export.reveal-anonymous", "surface": "market", "method": "GET", "path": "/api/export?reveal=1", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.knowledge.project-depts-anonymous-write", "surface": "market", "method": "PUT", "path": "/api/knowledge/project-depts", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.approve-anonymous", "surface": "market", "method": "POST", "path": "/api/grants/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.teams.reassign-anonymous", "surface": "market", "method": "POST", "path": "/api/teams/reassign", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
@@ -86,7 +87,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "4119", "etag": "W/\"1017-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "4291", "etag": "W/\"10c3-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -115,6 +116,7 @@
                   { "id": "market.export.reveal-anonymous", "surface": "market", "method": "GET", "path": "/api/export?reveal=1", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.knowledge.project-depts-anonymous-write", "surface": "market", "method": "PUT", "path": "/api/knowledge/project-depts", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.approve-anonymous", "surface": "market", "method": "POST", "path": "/api/grants/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.teams.reassign-anonymous", "surface": "market", "method": "POST", "path": "/api/teams/reassign", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
@@ -139,7 +141,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "4664", "etag": "W/\"1238-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "4836", "etag": "W/\"12e4-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -168,6 +170,7 @@
                   { "id": "market.export.reveal-anonymous", "surface": "market", "method": "GET", "path": "/api/export?reveal=1", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.knowledge.project-depts-anonymous-write", "surface": "market", "method": "PUT", "path": "/api/knowledge/project-depts", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.approve-anonymous", "surface": "market", "method": "POST", "path": "/api/grants/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.teams.reassign-anonymous", "surface": "market", "method": "POST", "path": "/api/teams/reassign", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
@@ -201,7 +204,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "4962", "etag": "W/\"1362-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "5134", "etag": "W/\"140e-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -231,6 +234,7 @@
                   { "id": "market.export.reveal-anonymous", "surface": "market", "method": "GET", "path": "/api/export?reveal=1", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.knowledge.project-depts-anonymous-write", "surface": "market", "method": "PUT", "path": "/api/knowledge/project-depts", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.approve-anonymous", "surface": "market", "method": "POST", "path": "/api/grants/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.teams.reassign-anonymous", "surface": "market", "method": "POST", "path": "/api/teams/reassign", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
@@ -266,7 +270,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "4233", "etag": "W/\"1089-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "4405", "etag": "W/\"1135-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -296,6 +300,7 @@
                   { "id": "market.export.reveal-anonymous", "surface": "market", "method": "GET", "path": "/api/export?reveal=1", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.knowledge.project-depts-anonymous-write", "surface": "market", "method": "PUT", "path": "/api/knowledge/project-depts", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.approve-anonymous", "surface": "market", "method": "POST", "path": "/api/grants/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.teams.reassign-anonymous", "surface": "market", "method": "POST", "path": "/api/teams/reassign", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
@@ -328,7 +333,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "4664", "etag": "W/\"1238-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "4836", "etag": "W/\"12e4-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -357,6 +362,7 @@
                   { "id": "market.export.reveal-anonymous", "surface": "market", "method": "GET", "path": "/api/export?reveal=1", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.knowledge.project-depts-anonymous-write", "surface": "market", "method": "PUT", "path": "/api/knowledge/project-depts", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.approve-anonymous", "surface": "market", "method": "POST", "path": "/api/grants/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.teams.reassign-anonymous", "surface": "market", "method": "POST", "path": "/api/teams/reassign", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
@@ -388,7 +394,7 @@
           "response": {
             "status": 503,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "4142", "etag": "W/\"102e-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "4314", "etag": "W/\"10da-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": false,
               "service": "workbench-market-server",
@@ -417,6 +423,7 @@
                   { "id": "market.export.reveal-anonymous", "surface": "market", "method": "GET", "path": "/api/export?reveal=1", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.knowledge.project-depts-anonymous-write", "surface": "market", "method": "PUT", "path": "/api/knowledge/project-depts", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.approve-anonymous", "surface": "market", "method": "POST", "path": "/api/grants/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.teams.reassign-anonymous", "surface": "market", "method": "POST", "path": "/api/teams/reassign", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
@@ -442,7 +449,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "4686", "etag": "W/\"124e-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "4858", "etag": "W/\"12fa-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -471,6 +478,7 @@
                   { "id": "market.export.reveal-anonymous", "surface": "market", "method": "GET", "path": "/api/export?reveal=1", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.knowledge.project-depts-anonymous-write", "surface": "market", "method": "PUT", "path": "/api/knowledge/project-depts", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.approve-anonymous", "surface": "market", "method": "POST", "path": "/api/grants/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.teams.reassign-anonymous", "surface": "market", "method": "POST", "path": "/api/teams/reassign", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
@@ -512,7 +520,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "5165", "etag": "W/\"142d-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "5337", "etag": "W/\"14d9-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -541,6 +549,7 @@
                   { "id": "market.export.reveal-anonymous", "surface": "market", "method": "GET", "path": "/api/export?reveal=1", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.knowledge.project-depts-anonymous-write", "surface": "market", "method": "PUT", "path": "/api/knowledge/project-depts", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.approve-anonymous", "surface": "market", "method": "POST", "path": "/api/grants/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.teams.reassign-anonymous", "surface": "market", "method": "POST", "path": "/api/teams/reassign", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 401, "reason": null },
@@ -578,7 +587,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "4605", "etag": "W/\"11fd-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "4777", "etag": "W/\"12a9-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -607,6 +616,7 @@
                   { "id": "market.export.reveal-anonymous", "surface": "market", "method": "GET", "path": "/api/export?reveal=1", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.knowledge.project-depts-anonymous-write", "surface": "market", "method": "PUT", "path": "/api/knowledge/project-depts", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.approve-anonymous", "surface": "market", "method": "POST", "path": "/api/grants/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.teams.reassign-anonymous", "surface": "market", "method": "POST", "path": "/api/teams/reassign", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 401, "reason": null },

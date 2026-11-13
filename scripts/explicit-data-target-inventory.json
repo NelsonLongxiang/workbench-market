@@ -16,10 +16,7 @@
     "scripts/p0-upload-auth-smoke.mjs",
     "scripts/portal-cookie-smoke.mjs",
     "scripts/portal-gzip-smoke.mjs",
-    "scripts/portal-p6711-smoke.mjs",
     "scripts/portal-sso-p8910-smoke.mjs",
-    "scripts/portal-p13-smoke.mjs",
-    "scripts/portal-rewrite-smoke.mjs",
     "scripts/portal-sso-smoke.mjs",
     "scripts/publish-lock-smoke.mjs",
     "scripts/r9-project-name-smoke.mjs",
@@ -33,7 +30,6 @@
     "scripts/skills-s0-smoke.mjs",
     "scripts/skills-s0b-smoke.mjs",
     "scripts/sop-remote-write-smoke.mjs",
-    "scripts/spa-asset-rewrite-smoke.mjs",
     "scripts/sso-callback-smoke.mjs",
     "scripts/sso-gateway-smoke.mjs",
     "scripts/unified-bindings-smoke.mjs"

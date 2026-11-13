@@ -399,6 +399,8 @@ jobs:
         run: node scripts/timers-unload-test.mjs
       - name: 配置的落点（模块自己的 Config：不给配置取启动环境、给了用给的、非法值装不上；服务类插件经 Cordis 拿到配置；收进来的模块解析口径照旧、不再直接读环境变量）
         run: node scripts/config-landing-test.mjs
+      - name: 安全面的配置启动时取一次（运行中改 process.env：环境口令仍不可由页面设或清·凭据库不会变成服务端主密码自动解锁、不会被指到别的库文件·对外断开不会被打开）
+        run: node scripts/config-runtime-env-test.mjs
       - name: 路由录制回放（搬路由之前录下的应答，对同一组请求重放，状态码、响应头、响应体必须零差异；每条路由都有未授权、参数非法、正常三类，按录下来的应答核对；自检先红后绿）
         run: node scripts/route-replay-test.mjs --selftest && node scripts/route-replay-test.mjs
       - name: 工作台的常量、变量存进台库（WM_VARS_STORE：迁移能重复跑、同步点（bench → main → bench 不丢、并发写不丢、两边都改过报分叉）、shadow 跟写、按摘要比对、写回主库、main 档不动台库结构；高频变量 hot. 先写 Redis、30 秒落盘、Redis 不通有待落盘回 503；同一份录带在 shadow、bench 两档下也零差异；主库和台库两个实例随机操作逐条一样）
@@ -586,10 +588,14 @@ jobs:
         run: CHROME_BIN= node scripts/log-secret-relay-headers-smoke.mjs
       - name: 管理员口令止血单测（#292 M4：pagehide 抹口令·变更广播）
         run: node scripts/admin-token-guard-unit.mjs
+      - name: 门户改写冒烟（白屏三层与外链护栏、JS/CSS 的 /api/ 前缀、同源绝对链接、Referer 只到目标源、自产台 CSP sandbox、cookie 的 Secure 与 __Host- 处理、泛化根路径）
+        run: node scripts/portal-rewrite-smoke.mjs && node scripts/portal-p6711-smoke.mjs && node scripts/portal-p13-smoke.mjs
       - name: 门户剥 Service-Worker-Allowed 冒烟（#292 M5）
         run: node scripts/portal-sw-header-smoke.mjs
       - name: 门户台地址带路径的跳转映射冒烟（base 外跳转拦成 502、base 内去 base）
         run: node scripts/portal-base-redirect-smoke.mjs
+      - name: 门户 SPA 资产前缀改写冒烟（HTML 的 src/href、JS 与 CSS 里的 /assets/ 都加 /go/<id>/ 前缀并真取到；外链、协议相对、data 不动）
+        run: node scripts/spa-asset-rewrite-smoke.mjs
       - name: 控制面冒烟（#292 M1：浏览器管理写只认控制面·本机 CLI 保留·反代按远程·控制面围栏）
         run: node scripts/control-surface-smoke.mjs
       - name: 远程写总门大小写一致性（/API/… 不能绕过口令）
