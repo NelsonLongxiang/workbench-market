@@ -74,7 +74,7 @@ try {
       return itemIdForEvent(e);
     };
     const out = { v1: mk('合成：样品批次待放行', ${JSON.stringify(VACANT)}), v2: mk('合成：报价单待放行', ${JSON.stringify(VACANT)}), v3: mk('合成：发货单待放行', ${JSON.stringify(VACANT)}),
-      v4: mk('合成：合同待放行', ${JSON.stringify(VACANT)}), lead: mk('合成：交给有负责人的团队', ${JSON.stringify(TEAM)}) };
+      v4: mk('合成：合同待放行', ${JSON.stringify(VACANT)}), lead: mk('合成：交给有负责人的团队', ${JSON.stringify(TEAM)}), v5: mk('合成：留样待定', ${JSON.stringify(VACANT)}) };
     console.log('SEEDED ' + JSON.stringify(out));
     process.exit(0);`], { env, encoding: 'utf8' });
   const m = /SEEDED (.*)/.exec(seed.stdout);
@@ -89,6 +89,13 @@ try {
     const seatIns = db.prepare('INSERT INTO a2a_roster_seats (host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)');
     seatIns.run(HOST, TEAM, 'zone1/0000000a', 'seat-0000000a', '合成总工', 'router', now, now);
     seatIns.run(HOST, VACANT, 'zone1/0000000d', 'seat-0000000d', '合成别队', 'router', now, now);
+    // 十：登录名和主体标识对不上。登录名 no-flag 绑在 user:bob-synth 名下；主体 user:no-flag 另有其人（登录名 truthy-flag）。
+    // 账上 odoo:no-flag 答过 v5——答的人是 user:bob-synth，不是 user:no-flag
+    const person = db.prepare("INSERT INTO principals (id, id_key, kind, display_name) VALUES (?, ?, 'person', ?)");
+    const ident = db.prepare("INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES ('fake', ?, ?, ?)"); // 合成的登录提供方叫 fake
+    person.run('user:no-flag', 'user:no-flag', '合成甲'); ident.run('truthy-flag', 'truthy-flag', 'user:no-flag');
+    person.run('user:bob-synth', 'user:bob-synth', '合成乙'); ident.run('no-flag', 'no-flag', 'user:bob-synth');
+    db.prepare("INSERT INTO attention_answers (source, source_id, answer, state, status, answered_by) VALUES ('work-items', ?, 'release', 'done', 200, 'odoo:no-flag')").run(`${I.v5}:1`);
     db.close();
   }
   const port = await freePort();
@@ -108,6 +115,8 @@ try {
   const SAME = { 'sec-fetch-site': 'same-origin', 'x-forwarded-for': '192.0.2.81' };
   const ADMIN = { ...SAME, 'x-admin-token': ADMIN_TOKEN };
   const WHO = { 管理层: { ...SAME, cookie: `session_id=${SESSIONS.admin}` }, 负责人: { ...SAME, cookie: `session_id=${SESSIONS.beta}` }, 普通员工: { ...SAME, cookie: `session_id=${SESSIONS.alpha}` } };
+  // 十用的两个人：甲是主体 user:no-flag（登录名 truthy-flag），乙是主体 user:bob-synth（登录名 no-flag）
+  const 甲 = { ...SAME, cookie: `session_id=${SESSIONS.truthyAdmin}` }, 乙 = { ...SAME, cookie: `session_id=${SESSIONS.noAdminFlag}` };
   for (const h of Object.values(WHO)) await call('GET', '/api/auth/me', h);
   const cli = (method, path, body) => call(method, path, {}, body);
   const grant = async (principal, role) => { const d = await cli('POST', '/api/grants', { principal, role, scope: '*', reason: '合成：记成经验' }); await cli('POST', `/api/grants/${d.body?.grant?.id}/submit`, {}); return (await cli('POST', `/api/grants/${d.body?.grant?.id}/approve`, {})).status; };
@@ -116,7 +125,7 @@ try {
     (await cli('PUT', '/api/departments/ops', { name: '合成运营部' })).status,
     (await cli('POST', '/api/teams/claim', { host: HOST, team: TEAM, department: 'sales' })).status,
     (await cli('POST', '/api/teams/claim', { host: HOST, team: VACANT, department: 'ops' })).status,
-    await grant('user:root-admin', 'management'), await grant('user:alpha', 'member'),
+    await grant('user:root-admin', 'management'), await grant('user:alpha', 'member'), await grant('user:no-flag', 'management'), await grant('user:bob-synth', 'management'),
   ];
   if (!setup.every((s) => s >= 200 && s < 300)) throw new Error(`现场搭不起来：${show(setup)}`);
   const answer = (h, id, remember) => call('POST', '/api/attention/answer', h, { source: 'work-items', source_id: id, answer: 'release', ...(remember !== undefined ? { remember } : {}) });
@@ -218,6 +227,24 @@ try {
     check(def.status === 200 && show(def.body) === show({ default_visibility: 'department', department_name: '合成运营部' }) && defLead.status === 200 && defLead.body?.default_visibility === 'department'
         && show(deny) === show({ recent: 403, defaults: 403, anon: 401, token: 403 }),
       '九、缺省会记成哪一档：推得出部门给部门名；只给能记成经验的人（普通员工、部门负责人 403，匿名 401，管理口令 403）', show({ def: def.body, defLead: defLead.body, deny }));
+  }
+  // ---------- 十、认「本人」按绑定查，不按主体标识拼登录名 ----------
+  {
+    const who = { 甲: (await call('GET', '/api/auth/me', 甲)).body, 乙: (await call('GET', '/api/auth/me', 乙)).body };
+    const mine = async (h) => ((await call('GET', '/api/knowledge/remember/recent', h)).body?.items ?? []).map((x) => x.source_id);
+    const r甲 = { recent: await mine(甲), rem: await later(甲, { source_id: I.v5, lesson: '冒用别人的答复' }) };
+    const ghost = await later(甲, { source_id: 'wi_doesnotexist', lesson: '不存在' });
+    check(r甲.rem.status === 404 && r甲.rem.text === ghost.text && !r甲.recent.includes(I.v5),
+      '十、Odoo 登录名 no-flag 绑在 user:bob-synth 名下：主体 user:no-flag 记不了 odoo:no-flag 答过的那一条（404，和没答过逐字一样），「我处理过的」里也没有',
+      show({ who: [who.甲?.principal ?? who.甲?.sub, who.乙?.principal ?? who.乙?.sub], 甲: [r甲.rem.status, r甲.rem.text], ghost: ghost.text, recent: r甲.recent }));
+    // 乙能记；cue、lesson 写成选项的样子（「--scope *」），写进去的范围仍是选的那一档（不被当成参数）
+    const r乙 = { recent: await mine(乙), rem: await later(乙, { source_id: I.v5, cue: '--scope *', lesson: '--scope=* --tags evil', visibility: 'restricted' }) };
+    await sleep(300);
+    const note = lastNote();
+    check(r乙.recent.includes(I.v5) && r乙.rem.status === 201 && r乙.rem.body?.status === 'written' && note?.scope === 'restricted' && note.title === '--scope *'
+        && note.body.includes('--scope=* --tags evil') && show(note.tags) === show(['market', 'decision']),
+      '十、user:bob-synth 能记；cue 是「--scope *」、lesson 带「--tags」时，写进 ygl-trees 的范围仍是「只给管理层」、标签不变，标题、正文原样（等号写法，不被当成参数）',
+      show({ recent: r乙.recent, rem: [r乙.rem.status, r乙.rem.body], note }));
   }
 } catch (e) {
   fail++;

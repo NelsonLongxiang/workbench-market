@@ -9,6 +9,7 @@
  *   · 写到哪：回写 ygl-trees 的 kb（KnowledgeService.remember），市场只留指针和留痕；写不上不挡答复，进待写队列后台重试。
  */
 import { svc } from './context.ts';
+import { identity } from './identity.ts';
 import { judge, type JudgedActor } from './judgment.ts';
 import type { AttentionService } from './services/attention.ts';
 import type { KnowledgeService, RememberOutcome } from './services/knowledge.ts';
@@ -16,6 +17,7 @@ import { REMEMBER_WINDOW_HOURS } from './services/knowledge.ts';
 import type { WorkItemService, WorkItemRow } from './services/work-item.ts';
 import type { TeamService } from './services/team.ts';
 import type { DepartmentService } from './services/department.ts';
+import type { PrincipalService } from './services/principal.ts';
 import { itemTeams } from './work-item-access.ts';
 import { itemOfAsk } from './attention-answers.ts';
 
@@ -60,8 +62,15 @@ export function rememberRefusal(actor: JudgedActor): { error: string; message: s
   if (judge({ actor, action: 'knowledge.remember', kind: 'decide', declared: true }).verdict !== 'allow') return { error: 'remember_not_allowed', message: '记成经验要有对经验库拍板的授予（管理层、属主）' };
   return null;
 }
-/** 账上答这一条的人可能的几种写法：会话登录的管理员记成 odoo:<登录名>，别的记成主体标识 */
-const answerersOf = (id: string): string[] => [id, ...(id.startsWith('user:') ? [`odoo:${id.slice(5)}`] : [])];
+/**
+ * 账上答这一条的人可能的几种写法：会话登录的管理员记成 odoo:<登录名>（登录名是现在登记的登录提供方认出来的），别的记成主体标识。
+ * 登录名只取实际绑在这个主体名下、这个提供方的外部身份（principal_identities），不从主体标识拼：
+ * 登录名 alice 绑在 user:bob 名下时，odoo:alice 答的是 user:bob，不是 user:alice。没有登记提供方时只认主体标识
+ */
+const answerersOf = (id: string): string[] => {
+  const provider = identity().providerName();
+  return [id, ...(provider ? svc<PrincipalService>('principals').externalIdsOf(id, provider).map((login) => `odoo:${login}`) : [])];
+};
 
 /** 答法给人看的说法（「关注」各来源的答法）；没列的原样 */
 const ANSWER_TEXT: Record<string, string> = { release: '放行', withdraw: '撤回', verify: '验收', return: '退回', approve: '批准', reject: '驳回', answer: '答复', bind: '对接' };

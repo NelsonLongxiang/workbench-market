@@ -368,7 +368,7 @@ export class KnowledgeService extends Service {
   private async attemptWrite(id: number, now = Date.now()): Promise<RememberOutcome['status']> {
     const w = db.prepare("SELECT id, scope, title, body, attempts FROM knowledge_writes WHERE id = ? AND status = 'pending'").get(id) as { id: number; scope: string; title: string; body: string; attempts: number } | undefined;
     if (!w) return (db.prepare('SELECT status FROM knowledge_writes WHERE id = ?').get(id) as { status: RememberOutcome['status'] } | undefined)?.status ?? 'failed';
-    const res = await execYgl(['kb', 'add', '--title', w.title, '--body', w.body, '--tags', 'market,decision', '--scope', w.scope, '--json'], { timeoutMs: CALL_TIMEOUT_MS });
+    const res = await execYgl(['kb', 'add', `--title=${w.title}`, `--body=${w.body}`, '--tags=market,decision', `--scope=${w.scope}`, '--json'], { timeoutMs: CALL_TIMEOUT_MS });
     const attempts = w.attempts + 1;
     const j = res.ok ? res.json as Record<string, unknown> : null;
     const yglId = j && typeof j.id === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(j.id) ? j.id : '';

@@ -169,6 +169,11 @@ export class PrincipalService extends Service implements PrincipalDirectory {
     }
   }
 
+  /** 这个主体名下、某个提供方的外部身份（external_id），按字面排序。用来认「账上记成 <提供方>:<外部身份> 的是不是他」：只认实际绑在他名下的，不从主体标识推 */
+  externalIdsOf(principal: string, provider: string): string[] {
+    return (db.prepare('SELECT external_id FROM principal_identities WHERE principal_id = ? AND provider = ? ORDER BY external_id').all(principal, provider) as { external_id: string }[]).map((r) => r.external_id);
+  }
+
   get(id: string): PrincipalView | null {
     const row = db.prepare(`SELECT ${COLUMNS} FROM principals WHERE id = ?`).get(id) as PrincipalRow | undefined;
     if (!row) return null;

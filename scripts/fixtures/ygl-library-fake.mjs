@@ -17,7 +17,15 @@ import { join } from 'node:path';
 
 const fx = JSON.parse(readFileSync(join(process.env.YGL_HOME ?? '.', 'library-fixture.json'), 'utf8'));
 const argv = process.argv.slice(2);
-const opt = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : undefined; };
+// 和真的 CLI 一样认两种写法：--名=值、--名 值。后一种的值以「-」开头时被当成下一个参数，这个参数就缺值（真的 CLI 回 rc 2）
+const MISSING = Symbol('missing');
+const opt = (n) => {
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i].startsWith(`${n}=`)) return argv[i].slice(n.length + 1);
+    if (argv[i] === n) return argv[i + 1] === undefined || argv[i + 1].startsWith('-') ? MISSING : argv[i + 1];
+  }
+  return undefined;
+};
 const contract = fx.contract ?? 'ygl-library/1';
 const out = (o, code = 0) => { process.stdout.write(JSON.stringify(o)); process.exit(code); };
 appendFileSync(join(process.env.YGL_HOME ?? '.', 'calls.log'), `${argv.join(' ')}\n`);
@@ -28,6 +36,7 @@ if (argv[0] === 'kb' && argv[1] === 'add') {
   if (fx.kb_add_fail === 'exit2') out({ error: 'synthetic: bad scope' }, 2);
   if (fx.kb_add_fail === 'timeout') await new Promise(() => { setInterval(() => {}, 1000); }); // 一直不退
   {
+    if ([opt('--title'), opt('--body'), opt('--scope'), opt('--tags')].includes(MISSING)) out({ error: 'option requires a value' }, 2);
     const title = opt('--title') ?? '', body = opt('--body') ?? '', scope = opt('--scope') ?? '', tags = (opt('--tags') ?? '').split(',').filter(Boolean);
     if (!title || !body) out({ error: 'title and body required' }, 2);
     fx.items = fx.items ?? {}; fx.items.note = fx.items.note ?? []; fx.bodies = fx.bodies ?? {};
