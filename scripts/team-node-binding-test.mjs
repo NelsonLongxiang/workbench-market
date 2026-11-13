@@ -141,10 +141,20 @@ out.seatRelRestored = await seatRel();
 // 撞号：另一个根地址、另一把键也报了这个号（对端启用）——同一个号下两个节点，两个都不算：现在的归属不算数；停用撞号的那台后恢复
 db.prepare("INSERT INTO a2a_roster_nodes (host, peer_root, key_fingerprint, peer_zone, reported_at, received_at) VALUES ('${H}', '${R4}', '${F4}', 'zsyn', '0', '0')").run();
 db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, key_fingerprint, registered_by, registered_at, updated_at) VALUES ('p-squat', '${R4}', 'zsyn', '撞号的', 'active', '${F4}', 'seed', '0', '0')").run();
+// 撞号那台的名册里，同一个团队下还有一个原来那台没有的席位
+db.prepare("INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES ('${R4}', '${F4}', '${H}', '${TEAM}', 'zsyn/0000004a', 'seat-squat-only', '撞号节点上的成员', 'member', 1, 0, '', '0')").run();
 out.collide = snap();
 out.collideNode = (await import(${at('server/src/services/team.ts')})).currentNode('${H}');
 db.prepare("UPDATE a2a_peers SET status = 'disabled' WHERE root_url = '${R4}'").run();
 out.collideResolved = snap();
+// 停用撞号那台之后：只在它名册里的席位不认（分配、改派都 404 seat_not_in_roster，什么都不写）；原来那台的席位照常能分
+{
+  const SQ = { ...K, seat: 'zsyn/0000004a', seat_id: 'seat-squat-only' };
+  const n0 = db.prepare("SELECT COUNT(*) AS n FROM seat_assignments WHERE seat_id = 'seat-squat-only'").get().n;
+  out.squatSeat = { assign: teams.assign(SQ, 'user:lead2', A, 50).code ?? 'ok', reassign: teams.reassign(SQ, 'user:lead2', A, 51).code ?? 'ok',
+    written: db.prepare("SELECT COUNT(*) AS n FROM seat_assignments WHERE seat_id = 'seat-squat-only'").get().n - n0,
+    legit: teams.reassign(S, 'user:lead2', A, 52).ok === true };
+}
 out.resolvedNode = (await import(${at('server/src/services/team.ts')})).currentNode('${H}');
 `);
   check(show(o.refused) === show({ noPeer: 'node_unverified', noFp: 'node_unverified', disabled: 'node_unverified', rows: 0 }),
@@ -172,6 +182,8 @@ out.resolvedNode = (await import(${at('server/src/services/team.ts')})).currentN
     '席位作主体（relationOf）：对端停用时不给 team-seat、same-seat（节点核不过就不认这个席位）；恢复后照常', show({ disabled: o.seatRelDisabled, restored: o.seatRelRestored }));
   check(o.disabledNode?.node_name === '合成节点' && o.disabledStale.one === true && o.disabledStale.list === true,
     '……对端停用、团队显示「节点换了」时，节点名字和名册停推的提示照样给（只是展示）', show({ node: o.disabledNode, stale: o.disabledStale }));
+  check(o.squatSeat.assign === 'seat_not_in_roster' && o.squatSeat.reassign === 'seat_not_in_roster' && o.squatSeat.written === 0 && o.squatSeat.legit,
+    '撞号那台停用之后：只在它名册里的席位不认——分配、改派都 404 seat_not_in_roster、什么都不写；原来那台的席位照常能改派', show(o.squatSeat));
   check(o.collide.leads.length === 0 && o.collide.owner === null && o.collide.assignedTo === 0 && o.collide.leadOf === 0 && o.collide.member === null && o.collide.bench !== 'ok'
       && o.collideNode === null && o.collideResolved.status === 'active' && o.collideResolved.owner === 'user:owner1' && show(o.collideResolved.leads) === show(['user:lead1'])
       && show(o.resolvedNode) === show({ peer_root: R2, key_fingerprint: F2 }),
