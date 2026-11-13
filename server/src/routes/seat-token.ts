@@ -18,6 +18,7 @@ import type { HttpService } from '../http.ts';
 import { audiencesOf, originOf } from '../a2a-direct-sig.ts';
 import { clientIp } from '../login-gate.ts';
 import { useMarketTokenCheck } from '../portal-forward-headers.ts';
+import { isStartupProbeRequest } from '../startup-security-self-probe.ts';
 import { exchangeSeatToken, isSeatToken, logSeatTokenExchange, parseSeatTokenRequest, seatTokenLog, SEAT_TOKEN_TTL_MS, type SeatTokenRefusal } from '../services/seat-tokens.ts';
 
 /** 每个来源地址 10 分钟最多来这么多次（不管成不成）；每个席位 1 小时最多发这么多张令牌 */
@@ -66,8 +67,10 @@ export function registerSeatTokenRoutes(app: HttpService, deps: SeatTokenRouteDe
     const t = now();
     // 来源取 clientIp：可信反代后面取它写进来的真实地址，外部自带的转发头不信（和登录门的限频、审计同一处）
     const source = clientIp(req);
-    const log = (e: Omit<Parameters<typeof logSeatTokenExchange>[0], 'at' | 'source' | 'body'>) => logSeatTokenExchange({ at: t, source, body: req.body, ...e });
-    const wait = perSource.take(source, t);
+    // 启动自检编的那次请求由服务端认（进程内登记，外部伪造不了）：不写换令牌记录、不占来源额度，重启也不让记录越来越多
+    const probe = isStartupProbeRequest(req);
+    const log = (e: Omit<Parameters<typeof logSeatTokenExchange>[0], 'at' | 'source' | 'body'>) => { if (!probe) logSeatTokenExchange({ at: t, source, body: req.body, ...e }); };
+    const wait = probe ? 0 : perSource.take(source, t);
     if (wait > 0) { log({ outcome: 'rate-limited', reason: 'per-source' }); res.set('Retry-After', String(wait)); return void res.status(429).json({ error: 'seat_token_rate_limited' }); }
     const r = parseSeatTokenRequest(req.body);
     if (!r) { log({ outcome: 'bad-request' }); return void res.status(400).json({ error: 'seat_token_bad_request' }); }
