@@ -17,6 +17,7 @@
  *   四之三、main 档（缺省）只删卡片：台的提交记录照旧留在主库（第 6 步的语义变化只在 shadow、bench 档）
  *   七、WM_APP_DATA_STORE=bench：台的提交和附件在卡片的台库里——只删卡片也删它们：只有管理口令的 409（规模里有几条提交、几个附件），
  *       什么都没删；属主带确认删成：台库删前备份，主库里这个台的提交、附件和磁盘上的附件字节一起删了；台本身还在
+ *       一个台两张卡片（/apps/ 和 /sop/ 各一张）：删不存数据的那张，提交不动；删存数据的那张、另一张还在，主库那份留着、剩下的卡片读得到；删最后一张才连主库那份一起删
  *       上传时最后一个名额：三笔同时到，只进一笔（查上限 → 插入排在这个台的写入队里），其余 413，磁盘上不留它们的文件
  *   六、（阶段一复验补的）台库里只有视图描述也算有数据；本机浏览器页面不是属主；同名旧库还在时不许登记；
  *       纯数字标识的旧台：数字写法照旧认到它，同号卡片不许对应别的台（只许对应它自己），启动时报出来
@@ -317,6 +318,29 @@ try {
   const subGone = { data: db3.prepare("SELECT COUNT(*) AS n FROM app_data WHERE app_slug = 'syn-sub'").get().n, files: db3.prepare("SELECT COUNT(*) AS n FROM app_files WHERE app_slug = 'syn-sub'").get().n, bytes: existsSync(join(srv3.data, 'uploads', 'syn', 'f.txt')), app: !!db3.prepare("SELECT 1 FROM apps WHERE slug = 'syn-sub'").get(), backup: readdirSync(join(srv3.data, 'bench-stores', '.deleted')).some((f) => f.startsWith(`wb-${WS}--`)) };
   check(subOwner.status === 200 && subGone.data === 0 && subGone.files === 0 && !subGone.bytes && subGone.app && subGone.backup,
     'bench 档：属主带确认删成——台库删前备份，主库里这个台的提交、附件和磁盘上的附件字节一起删了；台本身还在', { status: subOwner.status, body: subOwner.text.slice(0, 160), subGone });
+  // 一个台两张卡片
+  db3.prepare('INSERT INTO apps (slug, title) VALUES (?, ?)').run('syn-two', '合成·两张卡片的台');
+  const T1 = Number(db3.prepare("INSERT INTO workbenches (name, url, type, enabled) VALUES (?, ?, 'market-app', 1)").run('合成·两张一', '/apps/syn-two/').lastInsertRowid);
+  const T2 = Number(db3.prepare("INSERT INTO workbenches (name, url, type, enabled) VALUES (?, ?, 'market-app', 1)").run('合成·两张二', '/sop/syn-two/').lastInsertRowid);
+  for (const n of [1, 2]) await srv3.call('POST', '/api/apps/syn-two/data', { body: { data: { n } } });
+  const twoRows = () => db3.prepare("SELECT COUNT(*) AS n FROM app_data WHERE app_slug = 'syn-two'").get().n;
+  const delOther = await srv3.call('DELETE', `/api/workbenches/${T2}`, token3); // 不存数据的那张（数据在 id 小的那张）
+  const afterOther = twoRows();
+  const delData = await srv3.call('DELETE', `/api/workbenches/${T1}?confirm_bench_data=true`, {}); // 存数据的那张，但台还有…… 先把另一张补回来再删
+  check(delOther.status === 200 && afterOther === 2, '一个台两张卡片：删不存数据的那张，提交不动（不要确认）', { status: delOther.status, body: delOther.text.slice(0, 160), afterOther });
+  // 再造一次：存数据的那张先删、另一张还在
+  db3.prepare('INSERT INTO apps (slug, title) VALUES (?, ?)').run('syn-two2', '合成·两张卡片的台二');
+  const U1 = Number(db3.prepare("INSERT INTO workbenches (name, url, type, enabled) VALUES (?, ?, 'market-app', 1)").run('合成·二一', '/apps/syn-two2/').lastInsertRowid);
+  const U2 = Number(db3.prepare("INSERT INTO workbenches (name, url, type, enabled) VALUES (?, ?, 'market-app', 1)").run('合成·二二', '/sop/syn-two2/').lastInsertRowid);
+  for (const n of [1, 2]) await srv3.call('POST', '/api/apps/syn-two2/data', { body: { data: { n } } });
+  const rows2 = () => db3.prepare("SELECT COUNT(*) AS n FROM app_data WHERE app_slug = 'syn-two2'").get().n;
+  const delFirst = await srv3.call('DELETE', `/api/workbenches/${U1}?confirm_bench_data=true`, {});
+  const keptMain = rows2();
+  const readOther = await srv3.call('GET', '/api/apps/syn-two2/data', { headers: { 'x-admin-token': ADMIN_TOKEN } });
+  const delLast = await srv3.call('DELETE', `/api/workbenches/${U2}?confirm_bench_data=true`, {});
+  check(delData.status === 200 && delFirst.status === 200 && keptMain === 2 && readOther.json?.count === 2 && delLast.status === 200 && rows2() === 0,
+    '一个台两张卡片：删存数据的那张、另一张还在——主库那份留着，剩下的卡片读得到；删最后一张才连主库那份一起删', { delFirst: delFirst.status, keptMain, readOther: readOther.json?.count, delLast: delLast.status, after: rows2() });
+
   // 最后一个名额：上限 3，已有 2 个附件；三笔上传同时到
   db3.prepare('INSERT INTO apps (slug, title) VALUES (?, ?)').run('syn-quota', '合成·快满的台');
   db3.prepare("INSERT INTO workbenches (name, url, type, enabled) VALUES (?, ?, 'market-app', 1)").run('合成·快满的台', '/apps/syn-quota/');

@@ -164,19 +164,24 @@ export class AppDataService extends Service {
   }
   /**
    * 删卡片之前（WM_APP_DATA_STORE 不是 main 时）：这张卡片对应的台的提交、附件在台库里，删卡片就是删它们。
-   * 先把主库那份对齐进台库（让删卡片那道门看得到规模，有就要管理层并确认），返回台的 slug；main 档、或者不是台的卡片给 null
+   * 先把主库那份对齐进台库（让删卡片那道门看得到规模，有就要管理层并确认）。
+   * 返回要连主库那份一起删的台的 slug：只有删的正是存这个台数据的那张卡片、并且是这个台最后一张卡片时才给；
+   * 这个台还有别的卡片（/apps/ 和 /sop/ 各一张这类存量），就只删这张卡片里的副本，主库那份留着，剩下的卡片下次用到时按主库抄过去。
+   * main 档、不是台的卡片、数据不在这张卡片里，给 null
    */
-  async beforeCardDelete(url: string): Promise<string | null> {
+  async beforeCardDelete(url: string, cardId: number): Promise<string | null> {
     if (this.mode === 'main') return null;
     const m = /^\/(?:apps|sop)\/([a-z0-9][a-z0-9-]{0,63})\/$/.exec(url);
     if (!m) return null;
     const slug = m[1];
-    if (this.cardOf(slug) === null) return null;
+    if (this.cardOf(slug) !== cardId) return null;
+    const last = svc<WorkbenchService>('workbench').idsByAppUrls(`/apps/${slug}/`, `/sop/${slug}/`).length === 1;
     await this.inQueue(slug, async () => {
       const store = await this.benchOf(slug, (db.prepare('SELECT 1 AS x FROM app_data WHERE app_slug = ? UNION SELECT 1 FROM app_files WHERE app_slug = ? LIMIT 1').get(slug, slug)) !== undefined);
       if (store) { try { await this.syncSlug(slug, store); } catch (e) { return benchHttp(e); } this.synced.add(slug); }
     });
-    return slug;
+    if (!last) this.synced.delete(slug); // 删完以后存数据的换成剩下那张卡片：下次用到时对齐
+    return last ? slug : null;
   }
 
   /** shadow、bench 档写成主库之后：把主库那一行原样抄进台库。失败只计数、记下这个台要重抄（主库那一笔已经写成了，不让请求失败） */

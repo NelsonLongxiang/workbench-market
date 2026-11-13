@@ -764,7 +764,7 @@ function workbenchUpdateCore(id: number, body: any, ctx: WriteCtx = { subject: '
 async function workbenchDeleteCore(id: number, deleter: CardDeleter = { kind: 'anonymous' }, confirmBenchData = false): Promise<{ ok: boolean; deleted: number }> {
   // 第 6 步（WM_APP_DATA_STORE 不是 main）：台的卡片的台库里有这个台的提交和附件，删卡片就是删它们——先对齐进台库，让下面那道门看得到规模
   const cardRow = svc<WorkbenchService>('workbench').byId(id) as { url?: unknown } | undefined;
-  const appSlug = cardRow && typeof cardRow.url === 'string' ? await svc<AppDataService>('appData').beforeCardDelete(cardRow.url) : null;
+  const appSlug = cardRow && typeof cardRow.url === 'string' ? await svc<AppDataService>('appData').beforeCardDelete(cardRow.url, id) : null;
   const out = await deleteCardWithBench({
     id, deleter, confirmBenchData,
     exists: () => !!svc<WorkbenchService>('workbench').byId(id),
@@ -1384,7 +1384,7 @@ async function deleteAppCascade(slug: string, card: { deleter: CardDeleter; conf
   const cardIds = svc<WorkbenchService>('workbench').idsByAppUrls(`/apps/${a.slug}/`, `/sop/${a.slug}/`);
   for (const id of cardIds) {
     const row = svc<WorkbenchService>('workbench').byId(id) as { url?: unknown } | undefined;
-    if (row && typeof row.url === 'string') await svc<AppDataService>('appData').beforeCardDelete(row.url); // 第 6 步：提交和附件先对齐进台库，门才看得到
+    if (row && typeof row.url === 'string') await svc<AppDataService>('appData').beforeCardDelete(row.url, id); // 第 6 步：提交和附件先对齐进台库，门才看得到
     await checkCardDeletable(id, card.deleter, card.confirmBenchData);
   }
   // Remove remote state first and retain local state on failure; without LayerFS config, apps never written there stay deletable.
