@@ -6,6 +6,8 @@
  * - Redis 没配、没连上、这次出错：读返回 off / down / error，写和清返回 false / null；调用方回落 SQLite，功能不丢。
  *   down、error 时 Redis 里可能还有没落盘的东西，调用方不能把它当成「没有」。
  * - 台 id 是自增、不复用的：删台时 Redis 正好不通、键没清掉，也不会被以后的台读到。
+ * - 别的域（现在只有 SOP 执行实例）经 stateDomain(<域>) 拿一个句柄：只许碰 wm:<域>: 开头的键，碰不到台的键，台的方法也碰不到它的键。
+ *   句柄只是在同一条连接上加了键的界，命令原样转给连接（出错照样抛给调用方，降级时给 null），调用方原来的判断和兜底不变。
  */
 import { Service, type Context } from '@deepseek-ai/cordis';
 import { redisClient, redisConfigured, stopRedis } from '../redis.ts';
@@ -19,6 +21,48 @@ type Client = {
 };
 
 export type StateRead = { kind: 'off' | 'down' | 'error' | 'miss' } | { kind: 'hit'; value: string };
+
+/** 按域的句柄能用的命令（SOP 执行实例用到的那几种） */
+export type DomainOps = {
+  hSet(key: string, fieldOrMap: string | Record<string, string>, value?: string): Promise<unknown>;
+  hGetAll(key: string): Promise<Record<string, string>>;
+  sAdd(key: string, member: string): Promise<unknown>;
+  sRem(key: string, member: string): Promise<unknown>;
+  sMembers(key: string): Promise<string[]>;
+  expire(key: string, seconds: number): Promise<unknown>;
+};
+const DOMAIN_PREFIX = { sop: 'wm:sop:' } as const;
+export type StateDomainName = keyof typeof DOMAIN_PREFIX;
+export type StateDomain = {
+  /** 配了 Redis（不论此刻连没连上） */
+  configured(): boolean;
+  /** 连着时给本域的命令；没配、不通都是 null */
+  ops(): DomainOps | null;
+};
+/** 一个域的句柄：只许碰 wm:<域>: 开头的键（写错了是代码的错，当场抛 TypeError，不发出去） */
+export function stateDomain(name: StateDomainName): StateDomain {
+  const prefix = DOMAIN_PREFIX[name];
+  const guard = (key: string): string => {
+    if (typeof key !== 'string' || !key.startsWith(prefix) || key.length === prefix.length) throw new TypeError(`${name} 域只能碰 ${prefix} 开头的键`);
+    return key;
+  };
+  return {
+    configured: () => redisConfigured(),
+    ops(): DomainOps | null {
+      const c = redisClient() as Record<string, (...a: unknown[]) => Promise<unknown>> | null;
+      if (!c) return null;
+      return {
+        // 和原来一样：给了 value 是「字段、值」两段，没给是整份对象
+        hSet: (key, fieldOrMap, value) => (value === undefined ? c.hSet(guard(key), fieldOrMap) : c.hSet(guard(key), fieldOrMap, value)),
+        hGetAll: (key) => c.hGetAll(guard(key)) as Promise<Record<string, string>>,
+        sAdd: (key, member) => c.sAdd(guard(key), member),
+        sRem: (key, member) => c.sRem(guard(key), member),
+        sMembers: (key) => c.sMembers(guard(key)) as Promise<string[]>,
+        expire: (key, seconds) => c.expire(guard(key), seconds),
+      };
+    },
+  };
+}
 
 /** 键的每一段：字母、数字和 _ . -。不许有冒号（分段用）和通配符（清的时候按前缀匹配） */
 const PART = /^[A-Za-z0-9_.-]{1,128}$/;
@@ -44,6 +88,9 @@ export class StateLayerService extends Service {
     // 随根上下文停：断开连接（进程能自己退出）
     ctx.effect(() => () => stopRedis(), 'state.stopRedis');
   }
+
+  /** 别的域的句柄（见 stateDomain） */
+  domain(name: StateDomainName): StateDomain { return stateDomain(name); }
 
   /** off：没配 Redis；down：配了但此刻不通；up：可用 */
   mode(): 'off' | 'down' | 'up' {

@@ -5,7 +5,7 @@
  *
  *   一、开关：缺省关（报告是空的、不记任何东西）；值不合法拒绝启动（进程自己以非 0 退出）
  *   二、各类结果落对地方：内置身份按清单一致、细分的动作、被完整性门拦下、状态码不代表授权、不确定、404 不判、没报动作不比
- *   三、迁移：第一次见到的人给 member，身份来源说是管理员的给 admin，来源记 migration；重复见不重复迁
+ *   三、迁移：第一次见到的人给 member，身份来源说是管理员的给 admin（不给 management），来源记 migration；重复见不重复迁
  *   四、故意撤一条授予：比对里出现对应的不一致；迁移不会把它补回来
  *   五、迁移出来的授予：一条命令列出、一条命令整批撤销（只有属主能）
  *   六、记录里没有查询串、路径里的 id、口令和 cookie
@@ -16,7 +16,7 @@
  *   node scripts/judgment-compare-smoke.mjs --root DIR   测另一棵目录树（变异测试用）
  */
 import { createServer } from 'node:net';
-import { mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from './owned-script-fixture.mjs';
@@ -50,6 +50,9 @@ async function boot(name, extraEnv = {}, { expectFail = false, fault = false } =
   const port = await freePort();
   const data = join(OUT, name, 'data'), home = join(OUT, name, 'home'), ext = join(OUT, name, 'ext');
   for (const d of [data, home, ext]) mkdirSync(d, { recursive: true });
+  // 核心路由都报了动作（阶段三搬完），「没报动作的不比」用一个扩展直接挂在 ctx.app 上的路由来演示（扩展的路由默认只警告，不拒绝启动）
+  mkdirSync(join(ext, 'legacy-probe'), { recursive: true });
+  writeFileSync(join(ext, 'legacy-probe', 'server.mjs'), "export function register(ctx) { ctx.app.get('/legacy-probe/ping', (_req, res) => { res.json({ ok: true }); }); }\n");
   const env = {};
   for (const k of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP']) if (process.env[k]) env[k] = process.env[k];
   Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN, REDIS_URL: '', IDENTITY_SEAM_ROOT: ROOT, WM_EXTENSIONS_DIR: ext, ...extraEnv });
@@ -132,15 +135,15 @@ try {
     await srv.call('POST', '/api/grants', { body: { role: 'member', scope: '*' } }); // 400：不确定
     await srv.call('GET', '/api/grants/987654', { headers: token }); // 授予单条：同样声明了状态码不代表授权
     await srv.call('GET', '/api/departments/no-such-dept-987654', { headers: token }); // 404：不判
-    await srv.call('GET', '/api/workbenches/1/vars', { headers: token }); // 工作台变量的存量路由：没报动作（新库自带任务中心这个台，id 1）
+    await srv.call('GET', '/legacy-probe/ping', { headers: token }); // 扩展直接挂的路由：没报动作
     const rep = await srv.report();
     check(rep.on === true && rep.mismatches.length === 0
       && tallyOf(rep, 'GET /api/grants', 'not-verdict') === 1 && tallyOf(rep, 'GET /api/grants/:id', 'not-verdict') === 1 && tallyOf(rep, 'GET /api/principals', 'agree') >= 1
       && tallyOf(rep, 'GET /api/types', 'agree') === 1 && tallyOf(rep, 'GET /api/export', 'agree') === 2
       && tallyOf(rep, 'GET /api/principals', 'integrity-blocked') === 1 && tallyOf(rep, 'GET /api/auth/viewer', 'not-verdict') === 1
       && tallyOf(rep, 'POST /api/grants', 'uncertain') === 1 && tallyOf(rep, 'GET /api/departments/:id', 'skip-404') === 1
-      && tallyOf(rep, 'GET /api/workbenches/:id/vars', 'unregistered') === 1,
-      '各类结果：管理口令、匿名按登记的清单一致；授予的读（按对象裁剪）记「状态码不代表授权」；导出按 reveal 细分后两种都一致；带口令的跨站记「被完整性门拦下」；声明的路由记「状态码不代表授权」；400 不确定；404 不判；没报动作的不比',
+      && tallyOf(rep, 'GET /legacy-probe/ping', 'unregistered') === 1,
+      '各类结果：本机命令行、管理口令、匿名按登记的清单一致；授予的读（按对象裁剪）记「状态码不代表授权」；导出按 reveal 细分后两种都一致；带口令的跨站记「被完整性门拦下」；声明的路由记「状态码不代表授权」；400 不确定；404 不判；没报动作的不比',
       show(rep.tally));
   }
 
@@ -153,10 +156,10 @@ try {
     const rep = await srv.report();
     const migrated = (await srv.call('GET', '/api/grants?source=migration')).json?.grants ?? [];
     const pairs = migrated.map((g) => `${g.principal_id}:${g.role}:${g.status}`).sort();
-    check(a1.status === 200 && show(pairs) === show(['user:alpha:member:active', 'user:root-admin:admin:active', 'user:root-admin:management:active', 'user:root-admin:member:active'])
+    check(a1.status === 200 && show(pairs) === show(['user:alpha:member:active', 'user:root-admin:admin:active', 'user:root-admin:member:active'])
       && migrated.every((g) => g.source === 'migration' && g.approved_by === 'system:migration')
       && !mismatch(rep, 'GET /api/principals') && tallyOf(rep, 'GET /api/types', 'agree') >= 1,
-      '迁移：第一次见到的人给 member、身份来源说是管理员的给 admin 和 management 两条（等于今天的原样，能分别撤；不经三档放行，L6），来源 migration、放行人 system:migration；再见不重复迁；迁完之后管理员读管理面、成员读开放面、成员读管理面（两边都拒）都一致', show({ pairs, tally: rep.tally.filter((t) => t.route === 'GET /api/principals') }));
+      '迁移：第一次见到的人给 member、身份来源说是管理员的再给 admin，不自动给 management（管理层由属主单独授，L6）；来源 migration、放行人 system:migration；再见不重复迁；迁完之后管理员读管理面、成员读开放面、成员读管理面（两边都拒）都一致', show({ pairs, tally: rep.tally.filter((t) => t.route === 'GET /api/principals') }));
   }
 
   // ---------- 四、故意撤一条授予 ----------
@@ -180,8 +183,8 @@ try {
     const byCli = await srv.call('POST', '/api/grants/revoke-migration', { body: { reason: '合成：整批撤销' } });
     const left = ((await srv.call('GET', '/api/grants?source=migration&status=active')).json?.grants ?? []).length;
     const manual = (await srv.call('GET', '/api/grants?source=manual')).json?.grants ?? [];
-    check(byToken.status === 403 && noReason.status === 400 && byCli.status === 200 && byCli.json?.revoked === 3 && left === 0 && manual.length === 0,
-      '迁移出来的授予整批撤销：口令管理员 403（只有属主能）、不写理由 400；本机命令行撤了剩下的 3 条，之后一条生效的都没有', show({ byToken: byToken.status, noReason: noReason.status, byCli: byCli.json, left }));
+    check(byToken.status === 403 && noReason.status === 400 && byCli.status === 200 && byCli.json?.revoked === 2 && left === 0 && manual.length === 0,
+      '迁移出来的授予整批撤销：口令管理员 403（只有属主能）、不写理由 400；本机命令行撤了剩下的 2 条（两个人的 member），之后一条生效的都没有', show({ byToken: byToken.status, noReason: noReason.status, byCli: byCli.json, left }));
   }
 
   // ---------- 六、记录里没有不该有的 ----------

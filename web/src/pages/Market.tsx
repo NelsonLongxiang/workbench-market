@@ -36,7 +36,8 @@ export default function Market() {
   const [filters, setFilters] = useState(() => {
     const sp = searchParams.get('status');
     return {
-      q: '',
+      // 详情页的「编辑」带 ?q=<台名> 过来：先按名字筛出那一行
+      q: (searchParams.get('q') ?? '').slice(0, 100),
       type: 'all',
       category: 'all',
       status: sp === 'up' || sp === 'down' || sp === 'unknown' ? sp : 'all',
@@ -251,6 +252,7 @@ export default function Market() {
             key="q"
             allowClear
             placeholder="搜索名称 / 地址 / 描述"
+            defaultValue={filters.q}
             style={{ width: 240 }}
             onSearch={(v) => setFilters((f) => ({ ...f, q: v }))}
           />,

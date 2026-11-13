@@ -455,7 +455,8 @@ const RULES = [
         'scripts/a-test.mjs': "import { DatabaseSync } from 'node:sqlite';\nconst db = new DatabaseSync(file);\nconst db2 = new DatabaseSync(other);\n",
         'scripts/b-test.mjs': "const { db } = await import(pathToFileURL(resolve('server/src/db.ts')).href);\n",
         'scripts/c.mjs': "import { db } from '../server/src/db.ts';\n",
-        'scripts/d.py': "import sqlite3\ncon = sqlite3.connect(path)\n",
+        // 只放 sqlite3.connect(...)：带上 import sqlite3 的话，命令行那一支也会数到，去掉 Python 这一支自检照样过
+        'scripts/d.py': "con = sqlite3.connect(path)\n",
         'scripts/e.sh': "sqlite3 \"$DB\" 'SELECT 1'\n",
       }, expect: 5,
     },

@@ -19,12 +19,13 @@ import type { WorkbenchVarsService, WorkbenchVarRow } from './services/workbench
 const KEY_RE = /^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$/;
 const MAX_VALUE_BYTES = 64 * 1024;
 const MAX_KEYS_PER_WORKBENCH = 512;
-const PATH_RE = /^\/api\/workbenches\/(\d{1,12})\/vars(?:\/|$)/i;
+// 台号只认十进制正整数、不带前导零（和 workbenchIdOf 同一口径）：写请求总门的令牌豁免和路由认的是同一个台
+const PATH_RE = /^\/api\/workbenches\/([1-9]\d{0,11})\/vars(?:\/|$)/i;
 
 export type WorkbenchClass = 'app' | 'sop' | 'external';
-type Scope = { id: number; cls: WorkbenchClass; slug: string | null };
+export type Scope = { id: number; cls: WorkbenchClass; slug: string | null };
 /** 调用方：actor 记入 updated_by / 审计；admin=管理读写面（本机命令行、口令、Odoo 管理员）；cli=部署机本机命令行（常量兜底维护） */
-type Caller = { actor: string; admin: boolean; cli: boolean };
+export type Caller = { actor: string; admin: boolean; cli: boolean };
 /** 能当常量作者的个人身份：MCP 会话或 Odoo 登录人；口令、本机、台令牌都是共享身份 */
 const PERSONAL_RE = /^(mcp|odoo):[^\s]{1,128}$/;
 const personal = (actor: string) => PERSONAL_RE.test(actor) ? actor : '';
@@ -49,16 +50,30 @@ function tokenEq(a: string, b: string): boolean {
   return a.length > 0 && a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
 
-/** 台分类：market-app 的 /apps/<slug>/ 是自产台、/sop/<slug>/ 是 SOP 台；其余（Web、Odoo 等）都是外部台 */
-export function workbenchScope(id: number): Scope {
-  if (!Number.isInteger(id) || id <= 0) throw new HttpError(400, 'workbench id 必须是正整数');
+/**
+ * 台号：十进制正整数。数字照收（MCP 的参数）；字符串只收不带符号、不带前导零的十进制写法（路径里的 :id）。
+ * 0x2、02、2.0、1e1、空都回 400——以前路由用 Number()，0x2 会落到 2 号台，而写请求总门只认十进制，两处口径不一
+ */
+export function workbenchIdOf(v: unknown): number {
+  const ok = typeof v === 'number' ? Number.isSafeInteger(v) && v > 0 : typeof v === 'string' && /^[1-9]\d{0,11}$/.test(v);
+  if (!ok) throw new HttpError(400, 'workbench id 必须是十进制正整数');
+  return Number(v);
+}
+/** 台分类：market-app 的 /apps/<slug>/ 是自产台、/sop/<slug>/ 是 SOP 台；其余（Web、Odoo 等）都是外部台。台不存在返回 null */
+function scopeLookup(id: number): Scope | null {
   const row = svc<WorkbenchService>('workbench').byId(id) as { id: number; url: string; type: string } | undefined;
-  if (!row) throw new HttpError(404, `workbench not found: ${id}`);
+  if (!row) return null;
   const m = row.type === 'market-app' ? /^\/(apps|sop)\/([a-z0-9][a-z0-9-]{0,63})\/$/.exec(row.url) : null;
   return m ? { id, cls: m[1] === 'apps' ? 'app' : 'sop', slug: m[2] } : { id, cls: 'external', slug: null };
 }
+/** 台分类；台不存在 404。给已经判过权的调用方用（MCP 网关、「关注」） */
+export function workbenchScope(id: number): Scope {
+  const scope = scopeLookup(workbenchIdOf(id));
+  if (!scope) throw new HttpError(404, `workbench not found: ${id}`);
+  return scope;
+}
 
-function checkKey(key: unknown): string {
+export function checkKey(key: unknown): string {
   if (typeof key !== 'string' || !KEY_RE.test(key)) throw new HttpError(400, 'key 规范：字母/数字/下划线开头，字母/数字/_ . : -，≤128 字符');
   return key;
 }
@@ -68,7 +83,7 @@ function view(r: WorkbenchVarRow) {
 }
 
 /** 期望 revision：If-Match（"3" / W/"3" / 3）与 revision 参数二选一；都给且不同 400 */
-function expectedRevision(ifMatch: unknown, param: unknown): number | undefined {
+export function expectedRevision(ifMatch: unknown, param: unknown): number | undefined {
   const parse = (v: unknown, what: string): number | undefined => {
     if (v === undefined || v === null || v === '') return undefined;
     const s = String(v).trim().replace(/^W\//, '').replace(/^"(.*)"$/, '$1');
@@ -81,7 +96,7 @@ function expectedRevision(ifMatch: unknown, param: unknown): number | undefined 
   return a ?? b;
 }
 
-const truthy = (v: unknown) => v === true || v === 1 || v === '1' || v === 'true';
+export const truthy = (v: unknown) => v === true || v === 1 || v === '1' || v === 'true';
 
 function conflict(scope: Scope, key: string, message: string, code: string, status = 409): never {
   const cur = vars().get(scope.id, key) as WorkbenchVarRow | undefined;
@@ -198,12 +213,12 @@ export function dropWorkbenchVars(workbenchId: number): void {
 
 // ---------- MCP（workbench_vars_get / workbench_vars_set）：会话授权由 /mcp 网关管；常量 override 只对作者本人的会话生效 ----------
 export function mcpVarsGet(args: any) {
-  const scope = workbenchScope(Number(args?.id));
+  const scope = workbenchScope(workbenchIdOf(args?.id));
   return args?.key === undefined ? listVars(scope, typeof args?.prefix === 'string' ? args.prefix : '') : getVar(scope, String(args.key));
 }
 
 export function mcpVarsSet(args: any, subject: string) {
-  const scope = workbenchScope(Number(args?.id));
+  const scope = workbenchScope(workbenchIdOf(args?.id));
   return setVar(scope, String(args?.key ?? ''), {
     value: args?.value, hasValue: args != null && Object.prototype.hasOwnProperty.call(args, 'value'),
     kind: args?.kind, expected: expectedRevision(undefined, args?.revision), reason: args?.reason, override: truthy(args?.override), owner: args?.owner,
@@ -212,16 +227,20 @@ export function mcpVarsSet(args: any, subject: string) {
 
 // ---------- REST ----------
 export function createWorkbenchVars(deps: WorkbenchVarsDeps) {
-  /** 本台令牌是否有效（只有自产台 / SOP 台有令牌） */
-  function appTokenOk(req: express.Request, scope: Scope): boolean {
+  /** 本台令牌是否有效（只有自产台 / SOP 台有令牌；台不存在的不算） */
+  function appTokenOk(req: express.Request, scope: Scope | null): boolean {
     const presented = String(req.headers['x-app-token'] ?? '').trim();
-    return !!scope.slug && tokenEq(presented, deps.appToken(scope.slug));
+    return !!scope?.slug && tokenEq(presented, deps.appToken(scope.slug));
   }
 
-  async function authorize(req: express.Request, res: express.Response, scope: Scope, write: boolean): Promise<Caller | null> {
+  /**
+   * 判权在查台之前（规则一：拒绝的应答不看资源在不在）：台不存在时 scope 为 null。
+   * 令牌对不上不存在的台，和对不上别的台同一句 403；管理门照常判。过了的人（本机命令行、管理员）才由外壳回 404
+   */
+  async function authorize(req: express.Request, res: express.Response, scope: Scope | null, write: boolean): Promise<Caller | null> {
     if (!browserMarked(req) && rawLoopback(req)) return { actor: 'cli', admin: true, cli: true }; // 本机命令行
     if (req.headers['x-app-token'] !== undefined) {
-      if (appTokenOk(req, scope)) return { actor: `app:${scope.slug}`, admin: false, cli: false };
+      if (scope && appTokenOk(req, scope)) return { actor: `app:${scope.slug}`, admin: false, cli: false };
       res.status(403).json({ error: '按台令牌不属于该工作台（只能读写本台变量；外部台只限管理员）', code: 'app_token_mismatch' });
       return null;
     }
@@ -233,15 +252,19 @@ export function createWorkbenchVars(deps: WorkbenchVarsDeps) {
   const handle = (write: boolean, fn: (req: express.Request, res: express.Response, scope: Scope, caller: Caller) => void) =>
     (req: express.Request, res: express.Response, next: express.NextFunction) => {
       (async () => {
-        const scope = workbenchScope(Number(req.params.id));
+        const id = workbenchIdOf(req.params.id); // 写法不对的台号 400：只看请求本身，不透露台在不在
+        const scope = scopeLookup(id);
         const caller = await authorize(req, res, scope, write);
         if (!caller) return;
+        if (!scope) throw new HttpError(404, `workbench not found: ${id}`); // 只有过了判权的人看得到台在不在
         res.set('Cache-Control', 'no-store');
         fn(req, res, scope, caller);
       })().catch(next);
     };
 
   return {
+    /** 路由的外壳：认台号、判权（本机命令行、本台令牌、管理员）、再看台在不在、no-store，再交给处理函数（路由在 routes/workbench-vars.ts） */
+    handle,
     /** 读门（和 GET /api/workbenches/:id/vars 同一个）：「关注」的待属主看板复用它判可见性 */
     authorizeRead: (req: express.Request, res: express.Response, scope: Scope) => authorize(req, res, scope, false),
     /** 沙箱页面（Origin: null）凭本台令牌跨源读写：预检只回允许头；实际请求令牌对了才发 ACAO */
@@ -256,7 +279,7 @@ export function createWorkbenchVars(deps: WorkbenchVarsDeps) {
         res.setHeader('access-control-max-age', '600');
       };
       if (req.method === 'OPTIONS') { setAcao(); return res.status(204).end(); }
-      try { if (appTokenOk(req, workbenchScope(Number(m[1])))) setAcao(); } catch { /* 台不存在：不发 ACAO，路由回 404 */ }
+      if (appTokenOk(req, scopeLookup(Number(m[1])))) setAcao(); // 台不存在、令牌不对：不发 ACAO
       return next();
     },
 
@@ -264,38 +287,8 @@ export function createWorkbenchVars(deps: WorkbenchVarsDeps) {
     appTokenWrite(req: express.Request): boolean {
       const m = PATH_RE.exec(req.path);
       if (!m || req.headers['x-app-token'] === undefined) return false;
-      try { return appTokenOk(req, workbenchScope(Number(m[1]))); } catch { return false; }
+      return appTokenOk(req, scopeLookup(Number(m[1])));
     },
 
-    mount(app: express.Express): void {
-      app.get('/api/workbenches/:id/vars', handle(false, (req, res, scope) => {
-        res.json(listVars(scope, typeof req.query.prefix === 'string' ? req.query.prefix : ''));
-      }));
-      app.get('/api/workbenches/:id/vars/:key', handle(false, (req, res, scope) => {
-        const out = getVar(scope, req.params.key);
-        res.set('ETag', `"${out.revision}"`).json(out);
-      }));
-      // 审计只给管理员（本机命令行同）
-      app.get('/api/workbenches/:id/vars/:key/audit', handle(false, (req, res, scope, caller) => {
-        if (!caller.admin) return void res.status(403).json({ error: '审计只限管理员' });
-        const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
-        res.json({ workbench_id: scope.id, key: checkKey(req.params.key), items: vars().auditList(scope.id, req.params.key, limit) });
-      }));
-      app.put('/api/workbenches/:id/vars/:key', handle(true, (req, res, scope, caller) => {
-        const b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
-        const out = setVar(scope, req.params.key, {
-          value: b.value, hasValue: Object.prototype.hasOwnProperty.call(b, 'value'), kind: b.kind,
-          expected: expectedRevision(req.headers['if-match'], b.revision ?? req.query.revision),
-          override: truthy(b.override) || truthy(req.query.override), reason: b.reason, owner: b.owner,
-        }, caller);
-        res.status(out.created ? 201 : 200).set('ETag', `"${out.revision}"`).json(out);
-      }));
-      app.delete('/api/workbenches/:id/vars/:key', handle(true, (req, res, scope, caller) => {
-        res.json(deleteVar(scope, req.params.key, {
-          expected: expectedRevision(req.headers['if-match'], req.query.revision),
-          override: truthy(req.query.override), reason: req.query.reason,
-        }, caller));
-      }));
-    },
   };
 }

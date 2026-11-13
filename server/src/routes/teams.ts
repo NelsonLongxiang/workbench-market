@@ -4,6 +4,10 @@
  *   GET  /api/teams                  团队页：部门 → 团队（状态、负责人、总工）→ 成员（分配给谁、在办几件）；待认领的单列（只给管理员）。
  *                                    按看的人的可见范围在服务端裁好，页面只渲染。名册部分取自节点名册（services/a2a-roster.ts）。
  *   GET  /api/teams/mine             「我的 AI 员工」：分配给我的成员；我是负责人的，加上我的团队和它的总工。
+ *   GET  /api/teams/events?host&team 团队的变更记录（认领、换部门、负责人增减、分配、收回），带显示名；动手的人的内部标识（actor）只给管理员。管理员、管理层、这个团队的负责人能看；
+ *                                    别人（和不存在的团队）一律 404 team_not_found，不说有没有这个团队。
+ *   GET  /api/teams/assignments?principal&from&to  某人各段分配（哪个席位、从什么时候到什么时候）。本人、管理员、管理层看全部；
+ *                                    团队负责人只看自己负责的团队里的那几段；什么都看不到的（和不存在的人）一律 404 principal_not_found。
  *   POST /api/teams/claim            认领团队并挂部门（已认领的就是换部门）。管理员发起；属主、管理层直接生效，
  *                                    别的管理员只记成提议（202，规范 14「关系由谁说了算」），由管理层或接收部门的负责人在 /api/relations 确认。
  *   POST /api/teams/release          退回待认领。管理员。
@@ -59,6 +63,8 @@ const departments = () => svc<DepartmentService>('departments');
 const proposals = () => svc<RelationProposalService>('relationProposals');
 const PRINCIPAL_RE = /^[a-z]+:[\x21-\x7e]{1,150}$/;
 const LEAD_DECIDES = '按团队的负责人判：负责人是按对象的范围，统一判定还不认（L13），由团队这个域自己判';
+const HISTORY_BY_RELATION = '按关系判：管理员、管理层看全部，团队负责人看自己的团队，本人看自己的分配（按对象的范围，统一判定还不认，L13）；读不到的按不存在回';
+const ACTOR_NAME: Record<string, string> = { cli: '本机命令行', 'admin-token': '管理员（口令）' };
 
 type Viewer = { kind: 'admin'; by: string; principal: string | null } | { kind: 'person'; principal: string; management: boolean };
 
@@ -187,6 +193,56 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
     const members = all.flatMap((t) => t.members.filter((m) => m.assigned_to?.principal === me).map((m) => ({ host: t.host, team: t.team, team_name: teamName(t.team), status: t.status, ...m })));
     const led = all.filter((t) => t.leads.some((l) => l.principal === me)).map((t) => ({ host: t.host, team: t.team, name: teamName(t.team), status: t.status, router: t.router }));
     res.json({ principal: me, members, teams: led });
+  }));
+
+  /** 读历史的人能看全部吗：管理员、管理层 */
+  const seesAll = (v: Viewer): boolean => v.kind === 'admin' || v.management;
+  const nameOrNull = (principal: string | null | undefined): string | null => (principal ? teams().nameOf(principal) || null : null);
+
+  app.get('/api/teams/events', { action: 'team.events', kind: 'read', statusNotVerdict: HISTORY_BY_RELATION }, route(async (req, res) => {
+    const v = await viewer(req, res);
+    if (!v) return;
+    const k = teamKeyOf({ host: req.query.host, team: req.query.team ?? '' });
+    const t = teams().allViews().find((x) => x.host === k.host && x.team === k.team);
+    // 管理层看认领了的；负责人看自己的；管理员全看。别的（含不存在的）一样回 404
+    const can = !!t && (v.kind === 'admin' || (t.status !== 'unclaimed' && (v.management || t.leads.some((l) => l.principal === v.principal))));
+    if (!can) return void res.status(404).json({ error: 'team_not_found', message: '没有这个团队' });
+    const parse = (d: string): unknown => { if (!d) return null; try { return JSON.parse(d); } catch { return d; } };
+    res.json({
+      host: k.host, team: k.team, name: teamName(k.team),
+      events: teams().events(k).map((e) => ({
+        seq: e.seq, kind: e.kind, seat: e.seat, seat_id: e.seat_id, principal: e.principal_id || null, principal_name: nameOrNull(e.principal_id),
+        // 动手的人：给人看的是 actor_name；内部标识（actor：登录名、cli、system:…）只给管理员，页面不出现内部标识
+        detail: parse(e.detail), ...(v.kind === 'admin' ? { actor: e.actor } : {}), actor_name: nameOrNull(e.actor_principal) ?? ACTOR_NAME[e.actor] ?? (e.actor.startsWith('system:') ? '系统' : '管理员'), at: e.at,
+      })),
+    });
+  }));
+
+  app.get('/api/teams/assignments', { action: 'team.assignment-history', kind: 'read', statusNotVerdict: HISTORY_BY_RELATION }, route(async (req, res) => {
+    const v = await viewer(req, res);
+    if (!v) return;
+    const who = str(req.query.principal, 'principal', PRINCIPAL_RE, 160);
+    const ms = (raw: unknown, name: string): number | undefined => {
+      if (raw === undefined) return undefined;
+      if (typeof raw !== 'string' || !/^\d{1,16}$/.test(raw) || !Number.isSafeInteger(Number(raw))) throw new HttpError(400, `${name} 要是毫秒时刻`, { code: `${name}_invalid` });
+      return Number(raw);
+    };
+    const from = ms(req.query.from, 'from'), to = ms(req.query.to, 'to');
+    if (from !== undefined && to !== undefined && from >= to) throw new HttpError(400, 'from 要早于 to', { code: 'range_invalid' });
+    const exists = !!principals().get(who);
+    const all = exists ? teams().assignmentHistory(who, { from, to }) : [];
+    let rows = all;
+    if (!(seesAll(v) || v.principal === who)) {
+      // 团队负责人：只看自己负责的团队里的那几段
+      const led = new Set(teams().allViews().filter((t) => t.leads.some((l) => l.principal === v.principal)).map((t) => `${t.host}\u0000${t.team}`));
+      const ledAny = exists && teams().assignmentHistory(who).some((r) => led.has(`${r.host}\u0000${r.team}`));
+      if (!ledAny) return void res.status(404).json({ error: 'principal_not_found', message: '没有这个人' });
+      rows = all.filter((r) => led.has(`${r.host}\u0000${r.team}`));
+    } else if (!exists) return void res.status(404).json({ error: 'principal_not_found', message: '没有这个人' });
+    res.json({
+      principal: who, principal_name: nameOrNull(who),
+      assignments: rows.map((r) => ({ host: r.host, team: r.team, team_name: teamName(r.team), seat: r.seat, seat_id: r.seat_id, from: r.from, to: r.to })),
+    });
   }));
 
   app.post('/api/teams/claim', { action: 'team.claim', kind: 'admin' }, route(async (req, res) => {

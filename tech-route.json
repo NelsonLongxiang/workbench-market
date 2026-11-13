@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "as_of": "2026-11-12",
+  "as_of": "2026-11-13",
   "doc": "路线清单：规则、档位、基线、豁免。由 scripts/tech-route-check.mjs 读写，约定见 CONTRIBUTING.md。tier 是现在生效的档位（count 只报告，budget 超过基线失败，redline 超过目标失败）；proposed 是建议档位。属主 2026-11-10 裁定按建议档位开；落点还没建好的检查先留在 count，rule.note 写明什么时候开。deps 是登记过的运行时依赖；tests 登记不进 CI 的测试脚本和理由；waivers 是豁免：{rule, item, reason, by, until} 五项都要写，until 是 YYYY-MM-DD，过期不算。",
   "rules": [
     {
@@ -48,7 +48,7 @@
       "what": "services/ 与 db.ts 之外的 SQL 调用点",
       "target": 0,
       "baseline": {
-        "total": 157,
+        "total": 156,
         "files": {
           "server/src/a2a-direct-sig.ts": 3,
           "server/src/a2a.ts": 6,
@@ -59,7 +59,7 @@
           "server/src/sop-read-auth.ts": 6,
           "server/src/sop-run-access.ts": 36,
           "server/src/sso-ticket-store.ts": 7,
-          "server/src/task-center.ts": 20,
+          "server/src/task-center.ts": 19,
           "server/src/tasks-read-access.ts": 4,
           "server/src/workbench-events.ts": 30,
           "server/src/workbench-vars.ts": 3
@@ -90,7 +90,7 @@
       "what": "不在 CI、也没登记理由的测试脚本",
       "target": 0,
       "baseline": {
-        "total": 83,
+        "total": 82,
         "items": [
           "a2a-smoke.mjs",
           "app-data-contract-smoke.mjs",
@@ -184,11 +184,10 @@
       "what": "server 的类型错误（带空值检查，其余宽松）",
       "target": 0,
       "baseline": {
-        "total": 42,
+        "total": 35,
         "files": {
-          "server/src/index.ts": 38,
-          "server/src/portal.ts": 2,
-          "server/src/services/workbench.ts": 2
+          "server/src/index.ts": 33,
+          "server/src/portal.ts": 2
         }
       }
     },
@@ -234,32 +233,25 @@
     },
     {
       "id": "env-via-config",
-      "tier": "count",
+      "tier": "budget",
       "proposed": "budget",
       "what": "直接读环境变量的地方",
       "target": 0,
-      "note": "落点还没建好：配置改成插件 Config 之后开预算档",
+      "note": "落点是模块自己的 Config（server/src/config.ts 的 defineConfig；服务类插件写成 static Config）：启动时取一次，用到的地方读 config。剩下的在 index.ts、Odoo 登录、数据层、阶段七在改的文件里，随各自那条线收",
       "baseline": {
-        "total": 86,
+        "total": 68,
         "files": {
           "server/src/a2a.ts": 5,
           "server/src/db.ts": 2,
-          "server/src/eval.ts": 2,
-          "server/src/github-source.ts": 2,
           "server/src/index.ts": 33,
           "server/src/login-gate.ts": 2,
           "server/src/login-providers/odoo/index.ts": 2,
           "server/src/login-providers/odoo/odoo-browser-origin.ts": 2,
           "server/src/login-providers/odoo/odoo-login-proxy.ts": 2,
           "server/src/login-providers/odoo/odoo-session.ts": 5,
-          "server/src/mcp-stdio-upstream.ts": 1,
           "server/src/outbound-gate.ts": 1,
           "server/src/redis.ts": 2,
           "server/src/routes/admin-token.ts": 4,
-          "server/src/routes/health.ts": 2,
-          "server/src/services/sandbox.ts": 2,
-          "server/src/sop-read-auth.ts": 1,
-          "server/src/tasks.ts": 8,
           "server/src/vault-api.ts": 6,
           "server/src/workbench-events.ts": 2
         }
@@ -321,10 +313,10 @@
       "target": 0,
       "note": "数据库规划第 0 步：只数 server/src；读当前时间的写法只在 sql-clock 里数，这里不重复。算（括号里是两边都认的写法）：INSERT OR REPLACE / IGNORE / ABORT / FAIL / ROLLBACK 和 REPLACE INTO（ON CONFLICT … DO UPDATE / DO NOTHING）；PRAGMA（加列迁移暂时没有替代，见下）；lastInsertRowid、last_insert_rowid()（INSERT … RETURNING id）；rowid（用表自己的主键）；sqlite_master / sqlite_schema / sqlite_sequence（等数据访问服务提供）；json_extract、json_each 等 json_* 函数（先在代码里解析）；datetime / julianday / unixepoch / strftime 按列算日期（在代码里算）；ifnull（COALESCE）、group_concat、instr、GLOB、COLLATE NOCASE。不算：两边都认的 ON CONFLICT … DO UPDATE / DO NOTHING、RETURNING、COALESCE、substr、||、LIMIT / OFFSET、CAST、SAVEPOINT / RELEASE；AUTOINCREMENT（建表语句以后按中立写法两边各生成一份；去掉它反而会让行号可以复用，事件日志的水位就靠行号不复用）；BEGIN IMMEDIATE / EXCLUSIVE（事务入口还没有，没有替代写法）；typeof、hex、printf 这类名字太常见、按文本数会误报的。转预算档：先在 db.ts 放查表、列、索引在不在的函数（否则每次加列迁移都多一处 PRAGMA table_info，会被拦），迁移改成经它们之后，单独一个 PR 重记基线、把 tier 改成 budget。",
       "baseline": {
-        "total": 156,
+        "total": 122,
         "files": {
           "server/src/a2a-direct-sig.ts": 1,
-          "server/src/db.ts": 64,
+          "server/src/db.ts": 33,
           "server/src/index.ts": 19,
           "server/src/routes/bindings.ts": 2,
           "server/src/routes/cockpits.ts": 2,
@@ -338,7 +330,7 @@
           "server/src/services/a2a-replies.ts": 4,
           "server/src/services/a2a-roster.ts": 1,
           "server/src/services/a2a-stats.ts": 2,
-          "server/src/services/attention-sources.ts": 9,
+          "server/src/services/attention-sources.ts": 8,
           "server/src/services/attention.ts": 1,
           "server/src/services/bench-mcp.ts": 2,
           "server/src/services/bench-store-core.ts": 2,
@@ -349,12 +341,12 @@
           "server/src/services/setup-wizard.ts": 1,
           "server/src/services/sop.ts": 3,
           "server/src/services/task-center.ts": 1,
-          "server/src/services/team.ts": 1,
-          "server/src/services/work-item.ts": 4,
+          "server/src/services/team.ts": 2,
+          "server/src/services/work-item.ts": 2,
           "server/src/services/workbench.ts": 1,
           "server/src/sop-run-access.ts": 3,
           "server/src/sso-ticket-store.ts": 1,
-          "server/src/task-center.ts": 3,
+          "server/src/task-center.ts": 2,
           "server/src/tasks-read-access.ts": 1,
           "server/src/tasks.ts": 1,
           "server/src/workbench-events.ts": 3
@@ -369,7 +361,7 @@
       "target": 0,
       "note": "数据库规划第 0 步：一个脚本记一处。算：new DatabaseSync(…)、better-sqlite3、Python 的 sqlite3.connect、sqlite3 命令行、引入服务端的库模块 db.ts（静态 from …/db.ts，或 import(…db.ts…)）。不算：只在字符串或注释里提到 db.ts 这个文件名；经别的服务端模块间接打开的（按文本数不到）；体检脚本自己。统一入口（测试读写库都经过的一个模块，换库时只改它）还没有：在它建好之前保持计数档，新脚本照旧可以开库，但要在 PR 里说明为什么不能经接口造数据、核对结果；入口建好后转预算档。",
       "baseline": {
-        "total": 154,
+        "total": 156,
         "files": {
           "scripts/a2a-answers-test.mjs": 1,
           "scripts/a2a-bound-redirect-test.mjs": 1,
@@ -398,6 +390,7 @@
           "scripts/contract/market-superagent.spec.ts": 1,
           "scripts/custom-roles-smoke.mjs": 1,
           "scripts/db-busy-timeout-test.mjs": 1,
+          "scripts/db-schema-probe-test.mjs": 1,
           "scripts/departments-smoke.mjs": 1,
           "scripts/dispatch-sort-smoke.mjs": 1,
           "scripts/feishu-login-smoke.mjs": 1,
@@ -518,6 +511,7 @@
           "scripts/work-item-migration-test.mjs": 1,
           "scripts/work-item-relations-trust-test.mjs": 1,
           "scripts/work-item-service-test.mjs": 1,
+          "scripts/work-item-stuck-test.mjs": 1,
           "scripts/work-item-title-team-test.mjs": 1,
           "scripts/work-item-views-team-test.mjs": 1,
           "scripts/workbench-const-owner-smoke.mjs": 1,
@@ -639,7 +633,7 @@
       "what": "内联样式",
       "target": null,
       "baseline": {
-        "total": 127
+        "total": 119
       }
     },
     {

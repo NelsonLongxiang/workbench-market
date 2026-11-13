@@ -22,7 +22,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1949", "etag": "W/\"79d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1938", "etag": "W/\"792-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -36,7 +36,7 @@
                   "title": "台回滚 replay-app（回放用）",
                   "waiting_for": "mcp:replay",
                   "since": "YYYY-MM-DD hh:mm:ss",
-                  "link": "/reviews?request=1",
+                  "link": "/market",
                   "detail": { "kind": "app", "op": "rollback", "slug": "replay-app", "title": "", "exists": false, "current_version": null, "target_version": 1, "target_changelog": "", "requested_by": "mcp:replay", "reason": "回放用", "created_at": "YYYY-MM-DD hh:mm:ss", "irreversible": false },
                   "waiting_for_name": "MCP 会话 replay"
                 },
@@ -83,7 +83,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1949", "etag": "W/\"79d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1938", "etag": "W/\"792-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -97,7 +97,7 @@
                   "title": "台回滚 replay-app（回放用）",
                   "waiting_for": "mcp:replay",
                   "since": "YYYY-MM-DD hh:mm:ss",
-                  "link": "/reviews?request=1",
+                  "link": "/market",
                   "detail": { "kind": "app", "op": "rollback", "slug": "replay-app", "title": "", "exists": false, "current_version": null, "target_version": 1, "target_changelog": "", "requested_by": "mcp:replay", "reason": "回放用", "created_at": "YYYY-MM-DD hh:mm:ss", "irreversible": false },
                   "waiting_for_name": "MCP 会话 replay"
                 },

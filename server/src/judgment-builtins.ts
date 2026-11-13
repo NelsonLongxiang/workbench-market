@@ -44,6 +44,7 @@ export const ANONYMOUS_ACTIONS: readonly string[] = [
   'health.ready',
   'login.page', // 登录页本来就是给还没登录的人看的
   'market.export',
+  'market.page', // 页面兜底：谁来都回同一个前端外壳（登录门开着时它在前面先挡）
   'setting.read',
   'skill.list',
   'skill.role-packs',
@@ -154,6 +155,7 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       'login.begin',
       'login.page',
       'market.export',
+      'market.page',
       'principal.bind',
       'principal.bind-batch',
       'principal.disable',
@@ -210,6 +212,12 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       'workbench.delete',
       'workbench.list',
       'workbench.read',
+      // 工作台变量：本机命令行五条都能做（读写任意台、看留痕，常量的兜底维护也只认它）
+      'workbench.vars-audit',
+      'workbench.vars-delete',
+      'workbench.vars-list',
+      'workbench.vars-read',
+      'workbench.vars-set',
     ],
     actsForOwner: [],
   },

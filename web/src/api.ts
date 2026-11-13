@@ -117,7 +117,7 @@ export async function postSeatMessageReply(id: string, messageId: number, text: 
 }
 
 /** 建立人本人验收、退回自己的事项（阶段八 8e）。不走 apiFetch：没登录、被拒由页面自己说，不弹管理员口令 */
-export async function postCreatorDecision(id: string, answer: string, reason: string): Promise<{ status: number; body: { duplicate?: boolean; result?: { error?: string }; error?: string } }> {
+export async function postCreatorDecision(id: string, answer: string, reason: string): Promise<{ status: number; body: { duplicate?: boolean; result?: { error?: string; message?: string }; error?: string; message?: string } }> {
   const res = await fetch(`/api/work-items/${encodeURIComponent(id)}/decision`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answer, reason }) });
   return { status: res.status, body: await res.json().catch(() => ({})) };
 }
@@ -210,6 +210,10 @@ async function marketGet(url: string): Promise<{ status: number; body: unknown }
   } catch { return { status: 0, body: null }; }
 }
 export const getMarketWorkbenches = () => marketGet('/api/workbenches');
+/** 市场的连接器（MCP 上游）：只给管理员，页面只在管理员身份下才调 */
+export const getMarketConnectors = () => marketGet('/api/mcp/upstreams');
+/** 单个台的详情页（/market/wb/:id）：带状态码，让页面分「不在了」「没权限」「读不到」 */
+export const getMarketWorkbench = (id: number) => marketGet(`/api/workbenches/${id}`);
 export const getMarketSops = () => marketGet('/api/sops');
 export const getMarketSkills = () => marketGet('/api/skills');
 export const getMarketRunningSops = () => marketGet('/api/sop/runs/active');
@@ -261,12 +265,16 @@ async function teamCall(url: string, init?: { method: string; body: unknown }): 
   } catch { return { status: 0, body: null }; }
 }
 export const getTeams = () => teamCall('/api/teams');
+/** 分给我的成员、我负责的团队（驾驶舱「AI 员工」用） */
+export const getMyTeams = () => teamCall('/api/teams/mine');
 export const getTeamDepartments = () => teamCall('/api/departments');
 export const getTeamPeople = () => teamCall('/api/principals');
 export const claimTeam = (host: string, team: string, department: string) => teamCall('/api/teams/claim', { method: 'POST', body: { host, team, department } });
 export const addTeamLead = (host: string, team: string, principal: string) => teamCall('/api/teams/leads', { method: 'POST', body: { host, team, principal } });
 /** 把一个成员分配给某位员工、收回（规范 14 第二节）：席位按 seat 加 seat_id 认；能不能做服务端判（负责人、管理层） */
 export const assignTeamSeat = (host: string, team: string, seat: string, seat_id: string, principal: string) => teamCall('/api/teams/assign', { method: 'POST', body: { host, team, seat, seat_id, principal } });
+/** 一步改派（#682）：一个事务里收回并分给另一个人；200 { ok, changed, id, from }，拒绝的状态码和错误码同分配 */
+export const reassignTeamSeat = (host: string, team: string, seat: string, seat_id: string, principal: string) => teamCall('/api/teams/reassign', { method: 'POST', body: { host, team, seat, seat_id, principal } });
 export const unassignTeamSeat = (host: string, team: string, seat: string, seat_id: string) => teamCall('/api/teams/unassign', { method: 'POST', body: { host, team, seat, seat_id } });
 export const putDepartment = (id: string, name: string, lead: string | null) => teamCall(`/api/departments/${encodeURIComponent(id)}`, { method: 'PUT', body: { name, ...(lead ? { lead } : {}) } });
 
@@ -340,4 +348,14 @@ export async function submitBenchForm(ref: string | number, req: { view: string;
     const r = await fetch(`/api/bench-views/${encodeURIComponent(String(ref))}/form`, { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(req) });
     return { status: r.status, body: await r.json().catch(() => null) };
   } catch { return { status: 0, body: null }; }
+}
+/** 这个人能不能新建驾驶舱（/api/auth/me 的 can.create_cockpit，服务端和建驾驶舱的路由同一处判断）。
+ *  带着管理口令问（口令持有人也能建）；不缓存：口令输入、清掉之后页面会再问一次。拿不到当不能 */
+export async function canCreateCockpit(): Promise<boolean> {
+  try {
+    const token = getAdminToken();
+    const r = await fetch('/api/auth/me', { cache: 'no-store', credentials: 'same-origin', headers: token ? { 'X-Admin-Token': token } : {} });
+    const b = r.ok ? await r.json() as { can?: { create_cockpit?: unknown } } : null;
+    return b?.can?.create_cockpit === true;
+  } catch { return false; }
 }
