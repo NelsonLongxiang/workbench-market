@@ -52,6 +52,8 @@ with sync_playwright() as p:
     b = p.chromium.launch()
     pg = b.new_page(viewport={'width': 1440, 'height': 900}); pg.set_default_timeout(10000)
     pg.route(re.compile(r'/api/knowledge(/[^?]*)?(\?.*)?$'), on_kn)
+    # 登录着的合成员工（左下角写名字；经验库是业务内容，真实环境里要登录）
+    pg.route(re.compile(r'/api/auth/me$'), lambda r: fake(r, {'authenticated': True, 'via': 'cookie', 'login': 'synthetic-alpha', 'display_name': '合成员工甲', 'principal': 'user:synthetic-alpha', 'roles': []}))
 
     print('一、有内容')
     pg.goto(M + '/knowledge'); pg.wait_for_selector('[data-testid=kn-list]')
@@ -80,7 +82,7 @@ with sync_playwright() as p:
     check('标题、类别、状态、谁能看', pg.locator('[data-testid=kn-detail-title]').inner_text().startswith('合成：三家报价') and '依据' in d.inner_text() and '有依据支持' in d.inner_text() and '谁能看：采购部' in d.inner_text())
     body = pg.locator('[data-testid=kn-detail-body]')
     check('正文按 markdown 画：小标题、加粗、列表', body.locator('h2').inner_text() == '结论' and body.locator('strong').inner_text() == '准时率最高' and body.locator('li').count() == 2)
-    check('正文里的原始 HTML 不执行、不插进页面', pg.evaluate('window.__xss') is None and body.locator('script').count() == 0)
+    check('正文里的原始 HTML 整段丢掉：不执行、不插进页面、也不当成字显示出来', pg.evaluate('window.__xss') is None and body.locator('script').count() == 0 and 'script' not in body.inner_text())
     ev = pg.locator('[data-testid=kn-evidence-row]')
     check('依据的原文两条：支持、反驳各标出来', ev.count() == 2 and '支持' in ev.nth(0).inner_text() and '反驳' in ev.nth(1).inner_text())
     check('出处只认 http/https：第一条是新标签页打开的链接，第二条（javascript:）不是链接', ev.nth(0).locator('a').get_attribute('href') == 'https://records.example/q3' and ev.nth(0).locator('a').get_attribute('target') == '_blank' and 'noopener' in ev.nth(0).locator('a').get_attribute('rel') and ev.nth(1).locator('a').count() == 0)

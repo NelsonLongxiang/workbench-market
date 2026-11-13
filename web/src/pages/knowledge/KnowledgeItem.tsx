@@ -1,6 +1,6 @@
 /** 经验库的一条（/knowledge/:key）：GET /api/knowledge/:key（#717）给 { item, body（markdown）, evidence?（只有依据有） }。
  *  看不到的和不存在的同一个 404，一律写「没有这一条」；503 是暂时读不到，不当成空。条目编号只在地址里。
- *  正文用 react-markdown（不渲染原始 HTML）；依据的原文出处只认 http / https 的链接，在新标签页打开。 */
+ *  正文用 react-markdown，原始 HTML 整段丢掉（skipHtml，既不执行也不当字显示）；依据的原文出处只认 http / https 的链接，在新标签页打开。 */
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import Markdown from 'react-markdown';
@@ -50,7 +50,7 @@ export default function KnowledgeItem() {
             <Typography.Text type="secondary" className="wm-caption">更新于 <RelTime value={item.updated || item.created} /></Typography.Text>
           </Space>
           {body
-            ? <div className="wm-kn-body" data-testid="kn-detail-body"><Markdown>{body}</Markdown></div>
+            ? <div className="wm-kn-body" data-testid="kn-detail-body"><Markdown skipHtml>{body}</Markdown></div>
             : item.summary ? <Typography.Paragraph style={{ marginTop: 12 }} data-testid="kn-detail-body">{item.summary}</Typography.Paragraph> : null}
         </Card>
         {evidence.length > 0 && <Card size="small" title={`依据的原文 ${evidence.length}`} data-testid="kn-evidence">

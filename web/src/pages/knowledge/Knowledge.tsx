@@ -17,7 +17,8 @@ import {
 export const KIND_ICON: Record<KnowledgeKind, ReactNode> = { claim: <SafetyOutlined />, kb: <BookOutlined />, skill: <BulbOutlined />, verify: <CheckOutlined /> };
 const KIND_COLOR: Record<string, string> = { claim: 'green', kb: 'blue', skill: 'purple', verify: 'cyan' };
 export const kindTag = (kind: string) => <Tag color={KIND_COLOR[kind] ?? 'default'} data-testid="kn-item-kind">{kindLabel(kind)}</Tag>;
-export const statusTag = (status: string | null) => { const s = statusOf(status); return s ? <Tag color={s.tone === 'default' ? undefined : s.tone} data-testid="kn-item-status">{s.text}</Tag> : null; };
+const TONE_COLOR: Record<string, string | undefined> = { success: 'green', error: 'red', warning: 'orange', default: undefined };
+export const statusTag = (status: string | null) => { const s = statusOf(status); return s ? <Tag color={TONE_COLOR[s.tone]} data-testid="kn-item-status">{s.text}</Tag> : null; };
 
 type State = { phase: 'loading' } | { phase: 'ok'; items: KnowledgeItem[]; source: KnowledgeSource } | { phase: 'error'; status: number };
 
