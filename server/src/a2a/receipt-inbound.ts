@@ -28,13 +28,14 @@ import { deliveredPeerZone, recordRoster, type RosterSeat } from '../services/a2
 import { noteRoster } from './roster-stats.ts';
 import { cleanArtifacts } from '../services/work-item.ts';
 import { peerCard } from './peer-card.ts';
+import { pinnedVerdict } from '../services/a2a-peers.ts';
 
 export const ORIGIN_CLAIM_BODY_TAG = 'a2a-origin-claim/3';
 export const RESULT_OUTCOMES = ['completed', 'failed', 'rejected', 'abandoned'] as const;
 const UNTRUSTED_CAP = 20;
 const CALLER_SHAPE = /^[a-z0-9-]+$/i;
 
-export type ReceiptRefusal = 'no-peer-recorded' | 'absent' | 'not-body-bound' | 'bad-shape' | 'bad-ts' | 'wrong-audience' | 'wrong-signer' | 'wrong-origin' | 'body-mismatch' | 'no-card' | 'bad-sig' | 'replay';
+export type ReceiptRefusal = 'no-peer-recorded' | 'absent' | 'not-body-bound' | 'bad-shape' | 'bad-ts' | 'wrong-audience' | 'wrong-signer' | 'wrong-origin' | 'body-mismatch' | 'no-card' | 'bad-sig' | 'replay' | 'peer-blocked' | 'key-not-pinned';
 
 type Req = IncomingMessage & { body?: unknown; originalUrl?: string; rawBody?: Buffer };
 
@@ -104,6 +105,10 @@ export async function verifyReceiptSigner(req: Req, raw: Buffer, sent: SentTask,
     sawCard = true;
     if (card.team !== sent.peer_zone) return { ok: false, reason: 'wrong-signer' };
     if (verifies(card.publicKey, canonical, sig)) {
+      // 对端登记表里钉住的公钥：active 的只认钉住那把；改钥待确认、停用的不收（不占用这个签名，也不推进任何状态）
+      const pin = pinnedVerdict(sent.peer_root, card.publicKey);
+      if (pin === 'blocked') return { ok: false, reason: 'peer-blocked' };
+      if (pin === 'mismatch') return { ok: false, reason: 'key-not-pinned' };
       // 已用记录落库（a2a_sig_seen），保留到时间窗结束之后（ts + 5 分钟 + 1 分钟余量），重启不丢
       const keepUntil = ts + SIG_SKEW_MS + 60_000;
       if (!claimSignatureOnce(sig, keepUntil, now)) return { ok: false, reason: 'replay', genuine: true };
