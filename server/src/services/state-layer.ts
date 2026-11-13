@@ -17,6 +17,9 @@ type Client = {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, opts?: { EX: number }): Promise<unknown>;
   del(keys: string[]): Promise<number>;
+  hGet(key: string, field: string): Promise<string | null>;
+  hGetAll(key: string): Promise<Record<string, string>>;
+  hSet(key: string, field: string, value: string): Promise<unknown>;
   scanIterator(opts: { MATCH: string; COUNT?: number }): AsyncIterable<string[] | string>;
 };
 
@@ -129,6 +132,56 @@ export class StateLayerService extends Service {
     const c = this.client();
     if (!c) return false;
     try { await c.del(keys); return true; } catch { return false; }
+  }
+
+  /** hash 的一个字段（高频变量用：一张卡片一个 hash，字段是变量的键）。读的四种结果同 get */
+  async hGet(key: string, field: string): Promise<StateRead> {
+    if (!ownKey(key)) throw new TypeError('键须用 benchKey() 拼');
+    if (!redisConfigured()) return { kind: 'off' };
+    const c = this.client();
+    if (!c) return { kind: 'down' };
+    try {
+      const v = await c.hGet(key, field);
+      return v === null || v === undefined ? { kind: 'miss' } : { kind: 'hit', value: v };
+    } catch { return { kind: 'error' }; }
+  }
+  /** 整个 hash。没有这个键是空对象（hit）；off / down / error 同 get */
+  async hGetAll(key: string): Promise<{ kind: 'off' | 'down' | 'error' } | { kind: 'hit'; value: Record<string, string> }> {
+    if (!ownKey(key)) throw new TypeError('键须用 benchKey() 拼');
+    if (!redisConfigured()) return { kind: 'off' };
+    const c = this.client();
+    if (!c) return { kind: 'down' };
+    try { return { kind: 'hit', value: { ...(await c.hGetAll(key)) } }; } catch { return { kind: 'error' }; }
+  }
+  /** 写 hash 的一个字段。不可用时返回 false */
+  async hSet(key: string, field: string, value: string): Promise<boolean> {
+    if (!ownKey(key)) throw new TypeError('键须用 benchKey() 拼');
+    if (typeof field !== 'string' || !field || typeof value !== 'string') throw new TypeError('字段和值须为非空字符串');
+    const c = this.client();
+    if (!c) return false;
+    try { await c.hSet(key, field, value); return true; } catch { return false; }
+  }
+  /**
+   * 有某个键的台：扫 wm:bench:*:<parts> 这个形状（高频变量的落盘找「Redis 里还有没落盘的卡片」用）。
+   * 返回台 id；没配 Redis 是 []，不通或出错是 null
+   */
+  async benchIdsWith(...parts: string[]): Promise<number[] | null> {
+    benchKey(1, ...parts); // 段的写法同 benchKey
+    if (!redisConfigured()) return [];
+    const c = this.client();
+    if (!c) return null;
+    const tail = `:${parts.join(':')}`;
+    const ids = new Set<number>();
+    try {
+      for await (const batch of c.scanIterator({ MATCH: `${BENCH_PREFIX}*${tail}`, COUNT: 200 })) {
+        for (const k of Array.isArray(batch) ? batch : [batch]) {
+          if (!ownKey(k) || !k.endsWith(tail)) continue;
+          const rest = k.slice(BENCH_PREFIX.length, k.length - tail.length);
+          if (/^[1-9]\d{0,15}$/.test(rest)) ids.add(Number(rest));
+        }
+      }
+      return [...ids].sort((a, b) => a - b);
+    } catch { return null; }
   }
 
   /**

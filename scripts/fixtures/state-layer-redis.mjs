@@ -12,8 +12,8 @@ client.set = async (k, v, opts) => { use(); ctl.lastSetOpts = opts ?? null; stor
 client.del = async (keys) => { use(); let n = 0; for (const k of keys) if (store.delete(k)) n++; return n; };
 client.scanIterator = async function* ({ MATCH }) {
   use();
-  const prefix = MATCH.endsWith('*') ? MATCH.slice(0, -1) : MATCH;
-  const all = [...store.keys()].filter((k) => (MATCH.endsWith('*') ? k.startsWith(prefix) : k === MATCH));
+  const re = new RegExp(`^${MATCH.split('*').map((p) => p.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
+  const all = [...store.keys()].filter((k) => re.test(k));
   for (let i = 0, b = 0; i < all.length; i += 2, b++) {
     if (ctl.offlineAfterBatches !== null && b >= ctl.offlineAfterBatches) { ctl.offlineAfterBatches = null; ctl.offline(); }
     use(); yield all.slice(i, i + 2); // 分批给，测分页
@@ -22,6 +22,7 @@ client.scanIterator = async function* ({ MATCH }) {
 // SOP 句柄用的几种（hash 存成对象、set 存成 Set）
 const hashOf = (k) => { const v = store.get(k); if (v === undefined) { const h = {}; store.set(k, h); return h; } return v; };
 client.hSet = async (k, a, v) => { use(); const h = hashOf(k); if (typeof a === 'object') Object.assign(h, a); else h[a] = v; return 1; };
+client.hGet = async (k, f) => { use(); const v = store.get(k); return v && typeof v === 'object' && !(v instanceof Set) && Object.hasOwn(v, f) ? v[f] : null; };
 client.hGetAll = async (k) => { use(); const v = store.get(k); return v && typeof v === 'object' && !(v instanceof Set) ? { ...v } : {}; };
 const setOf = (k) => { let s = store.get(k); if (!(s instanceof Set)) { s = new Set(); store.set(k, s); } return s; };
 client.sAdd = async (k, m) => { use(); setOf(k).add(m); return 1; };

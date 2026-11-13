@@ -321,6 +321,8 @@ export class BenchStore {
   varsSyncGet(): ReturnType<Core['varsSyncGet']> { return this.rpc('varsSyncGet', []); }
   varsSynced(...a: Parameters<Core['varsSynced']>): ReturnType<Core['varsSynced']> { return this.rpc('varsSynced', a); }
   varsReplace(...a: Parameters<Core['varsReplace']>): ReturnType<Core['varsReplace']> { return this.rpc('varsReplace', a); }
+  varsHotPending(...a: Parameters<Core['varsHotPending']>): ReturnType<Core['varsHotPending']> { return this.rpc('varsHotPending', a); }
+  varsApplyHot(...a: Parameters<Core['varsApplyHot']>): ReturnType<Core['varsApplyHot']> { return this.rpc('varsApplyHot', a); }
 }
 
 // —— 打开、关闭、删除 ——
