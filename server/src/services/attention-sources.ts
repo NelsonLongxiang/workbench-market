@@ -45,20 +45,22 @@ const NOT_ANSWERED = `
      AND NOT EXISTS (SELECT 1 FROM work_item_log l WHERE l.item_id = 'wi_' || d.event_id AND l.fact = 'answer' AND l.rejected = ''
        AND json_extract(l.detail, '$.ask_id') = CAST(a.id AS TEXT))`;
 
-/** 「关注」一次最多列这么多条席位提问（远大于实际待答数）：超过时按提问时间先后取最早的这些，提供方标 more */
+/** 「关注」一次最多给一个人列这么多条席位提问（远大于实际待答数）：超过时按提问时间先后取他看得到的最早这些，提供方标 more */
 export const SEAT_ASK_LIMIT = 1000;
+/** 往后取一批的条数：正常量下一批就取完 */
+export const SEAT_ASK_BATCH = 500;
 
 /**
  * 还没答的席位提问，全库直接查（不按最近多少个事件截断：早一点的提问一样等人答，和事项详情的 can/turn、事项列表的 decide 同一个口径）。
- * 按提问时间先后排，最多 limit 条；more 为真表示超过了上限、后面还有没列出来的。
+ * 按 (提问时间, 投递) 先后排，从 after 之后取至多 n 条；调用方按可见性过滤、分批往后取。
  * 事件表在任务中心初始化时才建：新库上还没有，就是没有提问
  */
-export function openSeatAsks(limit = SEAT_ASK_LIMIT): { asks: OpenSeatAsk[]; more: boolean } {
-  if (!tableExists('workbench_events')) return { asks: [], more: false };
-  const rows = db.prepare(`SELECT o.*, e.source, e.workbench, e.item
+export function openSeatAsks(after: { asked_at: string; delivery_id: number } | null, n: number): OpenSeatAsk[] {
+  if (!tableExists('workbench_events')) return [];
+  return db.prepare(`SELECT o.*, e.source, e.workbench, e.item
     FROM (${OPEN_ASK_SQL}${NOT_ANSWERED}) o JOIN workbench_events e ON e.event_id = o.event_id
-    ORDER BY o.asked_at, o.delivery_id LIMIT ?`).all(limit + 1) as OpenSeatAsk[];
-  return { asks: rows.slice(0, limit), more: rows.length > limit };
+    WHERE ? IS NULL OR o.asked_at > ? OR (o.asked_at = ? AND o.delivery_id > ?)
+    ORDER BY o.asked_at, o.delivery_id LIMIT ?`).all(after?.asked_at ?? null, after?.asked_at ?? null, after?.asked_at ?? null, after?.delivery_id ?? 0, n) as OpenSeatAsk[];
 }
 
 /** 一个投递正在等答复的那次提问：它所在的事件、提问那一行日志的 id（事项上的提问就是按它记的）、是哪一种提问 */

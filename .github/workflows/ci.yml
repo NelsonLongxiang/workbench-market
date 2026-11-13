@@ -351,7 +351,7 @@ jobs:
         run: node scripts/work-item-lead-release-test.mjs
       - name: 事项列表各视角的「等你拍板」件数（views.<视角>.decide 和侧栏角标同一个判法·各视角去重并集等于「关注」里事项来源轮到他的·alpha、负责人、管理层三种身份·代办的、轮到却办不了的不算·不可用的视角不给·办掉一件跟着少）
         run: node scripts/work-item-view-decide-test.mjs
-      - name: 「关注」的席位提问全库直接查（最近 200 个事件之外的提问照样列·和 decide 同一批同数·合上的不列·超上限按最早的取、sources 带 more）
+      - name: 「关注」的席位提问全库直接查（最近 200 个事件之外的提问照样列·和 decide 同一批同数·合上的不列·more 按看得到的算·看得到的超上限按最早的取、sources 带 more）
         run: node scripts/attention-seat-asks-full-test.mjs
       - name: 事项记从哪个驾驶舱安排的（安排时记下、坏值和不存在的驾驶舱 400、算进幂等哈希且旧哈希不变·列表按驾驶舱筛只收窄、不存在的回空列表·驾驶舱删了照旧返回·「关注」条目带上·旧库补列、存量 null）
         run: node scripts/work-item-cockpit-test.mjs
