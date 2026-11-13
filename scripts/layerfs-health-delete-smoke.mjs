@@ -81,14 +81,19 @@ try {
   ok('本地未留 commit_id、影子记失败', list.length > 0 && list.every((v) => !v.commit_id && v.shadow_status === 'failed') && !(list[0]?.layerfs_project), JSON.stringify(list).slice(0, 200));
 
   lf.deleteStatus = 500;
+  const verBefore = (await call('GET', '/api/apps/lf-orphan')).body?.active_version;
   const refused = await call('DELETE', '/api/apps/lf-orphan', { reviewed_by: 'layerfs-health-delete-smoke' });
   ok('远端删除失败 → 502', refused.status === 502, `status=${refused.status}`);
   // 失败后本地台留着、标成「删除中」（等重试）：读按不存在处理（404），库里那一行还在
   {
     const { DatabaseSync } = await import('node:sqlite');
     const d = new DatabaseSync(join(TMP, 'data', 'workbench-market.db'), { timeout: 5000 });
-    const st = d.prepare("SELECT status FROM apps WHERE slug = 'lf-orphan'").get()?.status; d.close();
-    ok('失败后保留本地台（标成删除中，读按不存在处理）', st === 'deleting' && (await call('GET', '/api/apps/lf-orphan')).status === 404, `status=${st}`);
+    const app = d.prepare("SELECT id, status, active_version FROM apps WHERE slug = 'lf-orphan'").get();
+    const ver = app ? d.prepare('SELECT shadow_status, commit_id FROM app_versions WHERE app_id = ? AND version = ?').get(app.id, app.active_version) : undefined;
+    d.close();
+    ok('失败后保留本地台（标成删除中，读按不存在处理）', app?.status === 'deleting' && (await call('GET', '/api/apps/lf-orphan')).status === 404, `status=${app?.status}`);
+    // 原来经 GET 核的那两项（读不到了，改从库里核）：活跃版本没变，那个版本的影子仍是 failed、没有 commit_id
+    ok('失败后活跃版本没变，那个版本的影子仍是 failed（从库里核）', Number.isInteger(verBefore) && app?.active_version === verBefore && ver?.shadow_status === 'failed' && !ver.commit_id, JSON.stringify({ verBefore, app, ver }));
   }
   lf.deleteStatus = 200;
   const deleted = await call('DELETE', '/api/apps/lf-orphan', { reviewed_by: 'layerfs-health-delete-smoke' });
