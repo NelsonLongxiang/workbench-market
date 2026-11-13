@@ -28,6 +28,7 @@ import { deliveredPeerZone, recordRoster, type RosterSeat } from '../services/a2
 import { noteRoster } from './roster-stats.ts';
 import { cleanArtifacts } from '../services/work-item.ts';
 import { peerCard } from './peer-card.ts';
+import { keyFingerprint } from '../services/a2a-peers.ts';
 
 export const ORIGIN_CLAIM_BODY_TAG = 'a2a-origin-claim/3';
 export const RESULT_OUTCOMES = ['completed', 'failed', 'rejected', 'abandoned'] as const;
@@ -438,7 +439,8 @@ async function handleRoster(req: Req, message: string, deps: { audiences: () => 
       online: x.online === true, queued: int(x.queued), last_active_at: typeof x.lastActiveAt === 'string' && !Number.isNaN(Date.parse(x.lastActiveAt)) ? new Date(Date.parse(x.lastActiveAt)).toISOString() : '' }))
     .filter((x) => /^[a-z0-9-]+\/[0-9a-f]{8}$/.test(x.seat) && x.seat.split('/')[0] === lzone && (x.team === '' || (x.team.split('/')[0] === lzone && /^[a-z0-9-]+\/canvas\/[^/]+$/.test(x.team))))
     .slice(0, ROSTER_SEATS_MAX);
-  const outcome = recordRoster({ host, peerRoot: root, peerZone: lzone, reportedAt: at, seats, now });
-  noteRoster(outcome === 'host-conflict' ? 'host_conflict' : outcome, now);
+  // 名册的键是（根地址，验过签的那把公钥的完整指纹）；host 只拿来显示和匹配
+  const outcome = recordRoster({ host, peerRoot: root, keyFingerprint: keyFingerprint(verdict.publicKey), peerZone: lzone, reportedAt: at, seats, now });
+  noteRoster(outcome === 'host-shared' ? 'host_conflict' : outcome, now);
   return { status: 200, body: { routed: true, delivered: true, task_status: 'TASK_STATE_DELIVERED', roster: outcome, seats: seats.length } };
 }

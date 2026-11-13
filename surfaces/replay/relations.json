@@ -19,7 +19,7 @@
         { "table": "a2a_rosters", "row": { "host": "a1b2c3d4", "peer_root": "https://node.synthetic.invalid", "peer_zone": "zone1", "reported_at": "2030-01-01T00:00:00Z", "received_at": "2030-01-01T00:00:00Z" } },
         {
           "table": "a2a_roster_seats",
-          "row": { "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "seat": "zone1/0000000a", "seat_id": "seat-0000000a", "name": "合成总工", "role": "router", "online": 1, "first_seen_at": "2030-01-01T00:00:00Z" }
+          "row": { "peer_root": "https://node.synthetic.invalid", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "seat": "zone1/0000000a", "seat_id": "seat-0000000a", "name": "合成总工", "role": "router", "online": 1, "first_seen_at": "2030-01-01T00:00:00Z" }
         },
         { "table": "relation_proposals", "row": { "id": 1, "kind": "team-claim", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "department_id": "sales", "proposed_by": "admin-token", "proposed_at": 0 } },
         { "table": "relation_proposals", "row": { "id": 2, "kind": "dept-lead", "department_id": "sales", "principal_id": "user:beta", "proposed_by": "admin-token", "proposed_at": 0 } }

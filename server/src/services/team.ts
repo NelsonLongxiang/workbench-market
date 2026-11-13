@@ -319,7 +319,7 @@ export class TeamService extends Service {
    * 和最近一次成功收下这个节点名册的时间（a2a_rosters.received_at，和 GET /api/a2a/teams 同一个来源，统一成 ISO 时刻；没收过为 null）
    */
   nodeInfo(host: string): { node_name: string | null; roster_received_at: string | null } {
-    const r = db.prepare("SELECT r.received_at AS received_at, COALESCE(p.name, '') AS name FROM a2a_rosters r LEFT JOIN a2a_peers p ON p.root_url = r.peer_root WHERE r.host = ?").get(host) as { received_at: string; name: string } | undefined;
+    const r = db.prepare("SELECT r.received_at AS received_at, COALESCE(p.name, '') AS name FROM a2a_rosters_live r LEFT JOIN a2a_peers p ON p.root_url = r.peer_root WHERE r.host = ?").get(host) as { received_at: string; name: string } | undefined;
     return { node_name: r?.name ? r.name : null, roster_received_at: r?.received_at ? isoTime(r.received_at) : null };
   }
 
@@ -437,14 +437,14 @@ export class TeamService extends Service {
 
   /** 一个节点的名册停推了没有、停了多少分钟（从最近一次收到算起）；没收过名册的节点不算停推 */
   rosterStaleness(host: string, now = Date.now()): { roster_stale: boolean; roster_stale_for_minutes: number | null } {
-    const r = db.prepare('SELECT received_at FROM a2a_rosters WHERE host = ?').get(host) as { received_at: string } | undefined;
+    const r = db.prepare('SELECT received_at FROM a2a_rosters_live WHERE host = ?').get(host) as { received_at: string } | undefined;
     const m = r ? this.staleBy(r.received_at, now) : null;
     return { roster_stale: m !== null, roster_stale_for_minutes: m };
   }
 
   /** 超过阈值没更新名册的节点：节点标识、名字、最近收到的时间（页面不显示节点标识，用名字） */
   staleRosters(now = Date.now()): { host: string; node_name: string | null; roster_received_at: string }[] {
-    return (db.prepare('SELECT host, received_at FROM a2a_rosters ORDER BY host').all() as { host: string; received_at: string }[])
+    return (db.prepare('SELECT host, received_at FROM a2a_rosters_live ORDER BY host').all() as { host: string; received_at: string }[])
       .filter((r) => this.staleBy(r.received_at, now) !== null)
       .map((r) => ({ host: r.host, node_name: this.nodeInfo(r.host).node_name, roster_received_at: isoTime(r.received_at) }));
   }

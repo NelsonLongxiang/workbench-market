@@ -84,7 +84,7 @@ try {
   const asRoot = { headers: { ...REMOTE, ...same }, session: SESSIONS.admin }; // 身份来源说是管理员的人
   const now = new Date().toISOString();
   db.prepare('INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?)').run(HOST, 'https://node-mig.synthetic.invalid', 'zone1', now, now);
-  const seatIns = db.prepare('INSERT INTO a2a_roster_seats (host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)');
+  const seatIns = db.prepare('INSERT INTO a2a_roster_seats (peer_root, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES ((SELECT peer_root FROM a2a_rosters WHERE host = ?1 ORDER BY rowid LIMIT 1), ?1, ?2, ?3, ?4, ?5, ?6, 1, 0, ?7, ?8)');
   seatIns.run(HOST, TEAM, 'zone1/0000001a', 'seat-0000001a', '合成总工', 'router', now, now);
   seatIns.run(HOST, TEAM, MEMBER.seat, MEMBER.seat_id, '合成成员', 'member', now, now);
   seatIns.run(HOST, OTHER, 'zone1/0000001c', 'seat-0000001c', '合成别队总工', 'router', now, now);

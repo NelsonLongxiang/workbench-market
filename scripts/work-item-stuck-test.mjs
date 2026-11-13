@@ -127,7 +127,7 @@ try {
     const db = new DatabaseSync(join(data, 'workbench-market.db'));
     const now = Date.now();
     db.prepare('INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?)').run(HOST, PEER, 'zone1', new Date(now).toISOString(), new Date(now).toISOString());
-    const seatIns = db.prepare('INSERT INTO a2a_roster_seats (host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)');
+    const seatIns = db.prepare('INSERT INTO a2a_roster_seats (peer_root, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES ((SELECT peer_root FROM a2a_rosters WHERE host = ?1 ORDER BY rowid LIMIT 1), ?1, ?2, ?3, ?4, ?5, ?6, 1, 0, ?7, ?8)');
     seatIns.run(HOST, TEAM, 'zone1/0000000a', 'seat-0000000a', '合成总工', 'router', now, now);
     seatIns.run(HOST, VACANT, 'zone1/0000000d', 'seat-0000000d', '合成别队总工', 'router', now, now);
     // 最后一次变动的时间：停太久的 25～30 小时前（越靠前越久），差一分钟到阈值的、刚动过的

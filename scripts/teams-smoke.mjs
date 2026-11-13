@@ -95,7 +95,7 @@ try {
   db.prepare('INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?)').run(HOST, 'https://node.synthetic.invalid', 'zone1', now, now);
   // 对端登记表里这个节点的名字（团队页显示「来自 某节点」，不显示节点标识）
   db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, registered_by, registered_at, updated_at) VALUES ('peer-syn', 'https://node.synthetic.invalid', 'zone1', '合成节点', 'active', 'cli', ?, ?)").run(String(now), String(now));
-  const seatIns = db.prepare('INSERT INTO a2a_roster_seats (host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)');
+  const seatIns = db.prepare('INSERT INTO a2a_roster_seats (peer_root, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES ((SELECT peer_root FROM a2a_rosters WHERE host = ?1 ORDER BY rowid LIMIT 1), ?1, ?2, ?3, ?4, ?5, ?6, 1, 0, ?7, ?8)');
   seatIns.run(HOST, TEAM, ROUTER.seat, ROUTER.seat_id, '合成总工', 'router', now, now);
   seatIns.run(HOST, TEAM, MEMBER.seat, MEMBER.seat_id, '合成成员甲', 'member', now, now);
   seatIns.run(HOST, TEAM, LEGACY.seat, '', '合成成员乙', 'member', now, now);
