@@ -8,7 +8,9 @@
  *    a2a_roster_changes 补两列，原有的变化记录还在；再打开一次不重做。
  * 二、匹配（视图）：
  *    同一个 host 下两个节点（撞号抢注）→ 两个都不算，不是先来的赢；停用其中一个之后另一个恢复；
- *    对端换了键（管理员确认了新键）之后，记着旧指纹的那行不算；对端停用、等确认新键的不算。
+ *    对端换了键（管理员确认了新键）之后，记着旧指纹的那行不算；对端停用、等确认新键的不算；
+ *    对端钉住了键、这一行记的指纹不是钉住的那把 → 不算。
+ * 三、表约束：没标 needs_review 的行必须带成形的完整指纹（空指纹、needs_review = 0 的行写不进去）。
  * 测试数据都是编的。
  */
 import { spawnSync } from 'node:child_process';
@@ -71,6 +73,7 @@ function open(then = '') {
       rosters: db.prepare('SELECT peer_root, key_fingerprint, host, needs_review FROM a2a_rosters ORDER BY peer_root').all(),
       seats: db.prepare('SELECT peer_root, key_fingerprint, host, seat FROM a2a_roster_seats ORDER BY seat').all(),
       live: db.prepare('SELECT host, peer_root FROM a2a_rosters_live ORDER BY peer_root').all().map((x) => x.peer_root),
+      liveHosts: db.prepare('SELECT host FROM a2a_rosters_live ORDER BY host').all().map((x) => x.host),
       changes: db.prepare('SELECT host, peer_root, key_fingerprint, kind FROM a2a_roster_changes').all(),
     };
     console.log('OUT ' + JSON.stringify(out));`], { env: { ...process.env, DATA_DIR: DATA, NODE_ENV: 'test' }, encoding: 'utf8' });
@@ -108,6 +111,18 @@ try {
   ok('对端停用 → 不参与匹配', !off.live.includes('https://good.synthetic.invalid'), JSON.stringify(off.live));
   const on = open(`db.prepare("UPDATE a2a_peers SET status = 'active' WHERE root_url = 'https://good.synthetic.invalid'").run();`);
   ok('对照：恢复 active、钉住的就是记着的那把 → 又参与匹配', on.live.includes('https://good.synthetic.invalid'), JSON.stringify(on.live));
+  // 对端钉住了键（K1）：同一根地址下又记了一行指纹不是钉住那把的（host 不同，不撞号）→ 这一行不算，钉住那把的照常
+  const stray = open(add('https://good.synthetic.invalid', 'sha256:' + 'c'.repeat(64), 'cccccccc'));
+  ok('对端钉住了键，这一行记的指纹不是钉住的那把 → 不参与匹配；记着钉住那把的照常', JSON.stringify(stray.liveHosts.filter((h) => h === 'cccccccc' || h === K1.host)) === JSON.stringify([K1.host]), JSON.stringify(stray.liveHosts));
+
+  console.log('三、表约束');
+  const bad = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', `
+    const { db } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/db.ts')).href)});
+    try { db.prepare("INSERT INTO a2a_rosters (peer_root, key_fingerprint, host, peer_zone, reported_at, received_at, needs_review) VALUES ('https://empty.synthetic.invalid', '', 'dddddddd', 'z', '${t}', '${t}', 0)").run(); console.log('INSERTED'); }
+    catch (e) { console.log('REFUSED ' + String(e?.message ?? e).slice(0, 80)); }
+    try { db.prepare("INSERT INTO a2a_rosters (peer_root, key_fingerprint, host, peer_zone, reported_at, received_at, needs_review) VALUES ('https://empty2.synthetic.invalid', '', 'eeeeeeee', 'z', '${t}', '${t}', 1)").run(); console.log('REVIEW-OK'); }
+    catch (e) { console.log('REVIEW-REFUSED ' + String(e?.message ?? e).slice(0, 80)); }`], { env: { ...process.env, DATA_DIR: DATA, NODE_ENV: 'test' }, encoding: 'utf8' });
+  ok('没标 needs_review、指纹为空的行写不进去（表约束）；标了 needs_review 的空指纹行可以（升级回填不上的就是这种）', bad.stdout.includes('REFUSED') && !bad.stdout.includes('INSERTED') && bad.stdout.includes('REVIEW-OK'), bad.stdout + bad.stderr.slice(-300));
 } catch (e) {
   ok('运行', false, String(e?.stack ?? e));
 }
