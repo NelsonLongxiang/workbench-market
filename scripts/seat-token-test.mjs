@@ -237,8 +237,19 @@ try {
     byReason('bad-sig').length >= 3 && byReason('not-live').length >= 4 && byReason('bad-ts').length === 2 && byReason('wrong-audience').length === 1
       && [...byReason('bad-sig'), ...byReason('not-live'), ...byReason('bad-ts')].every((x) => x.verified === 0 && x.token_ref === ''), JSON.stringify(L.filter((x) => x.outcome === 'refused').map((x) => x.reason)));
   ok('重放记成 refused / replay、verified = 1（签名是真的）；主体被吊销记成 subject-revoked', byReason('replay').length === 1 && byReason('replay')[0].verified === 1 && byReason('subject-revoked').length === 1, JSON.stringify(byReason('replay')));
-  ok('请求体不成形的也记（bad-request），字段按收到的截短；启动自检那次伪造的请求也记了（refused）', L.filter((x) => x.outcome === 'bad-request').length === 5 && L.some((x) => x.host === 'ABCDEFGH')
-    && q("SELECT outcome FROM a2a_seat_token_log WHERE seat_id = 'wm-self-probe'")[0]?.outcome === 'refused');
+  ok('请求体不成形的也记（bad-request），字段按收到的截短', L.filter((x) => x.outcome === 'bad-request').length === 5 && L.some((x) => x.host === 'ABCDEFGH'));
+  ok('启动自检编的那次换令牌不写进换令牌记录（服务端认自检请求，不看请求体）', q("SELECT COUNT(*) AS c FROM a2a_seat_token_log WHERE seat_id = 'wm-self-probe'")[0].c === 0);
+  {
+    // 外部匿名请求带上和自检一模一样的请求体：照常记一行，删不掉记录里的任何一行
+    const PROBE_BODY = JSON.stringify({ v: 1, root: 'https://wm-self-probe.invalid', host: '00000000', seat_id: 'wm-self-probe', ts: 1, nonce: 'wm-self-probe-nonce-0000', aud: 'https://wm-self-probe.invalid', sig: 'A'.repeat(86) + '==' });
+    const idsBefore = q('SELECT id FROM a2a_seat_token_log ORDER BY id').map((r) => r.id);
+    const f1 = await exchange(PROBE_BODY, { 'x-real-ip': '198.51.100.7' });
+    const f2 = await exchange(PROBE_BODY, { 'x-real-ip': '198.51.100.7' });
+    const idsAfter = new Set(q('SELECT id FROM a2a_seat_token_log ORDER BY id').map((r) => r.id));
+    const mine = q("SELECT COUNT(*) AS c FROM a2a_seat_token_log WHERE seat_id = 'wm-self-probe' AND source = '198.51.100.7' AND outcome = 'refused'")[0].c;
+    ok('外部匿名请求冒用自检的请求体两次 → 两次都 401、记录多两行，之前的行一行不少', f1.status === 401 && f2.status === 401 && idsAfter.size === idsBefore.length + 2 && idsBefore.every((id) => idsAfter.has(id)) && mine === 2,
+      `${f1.status} ${f2.status} ${idsBefore.length}→${idsAfter.size} ${mine}`);
+  }
   const anon = await fetch(BASE + '/api/a2a/seat-token/log', { headers: { 'x-forwarded-for': '192.0.2.9' } });
   const viaAdmin = await admin('GET', `/api/a2a/seat-token/log?host=${A.fp}&seat_id=seat-a1&limit=500`);
   ok('记录只给管理员看：远程匿名读不到；管理员按节点、席位筛', anon.status === 403 && viaAdmin.status === 200 && viaAdmin.body.entries.length > 0 && viaAdmin.body.entries.every((x) => x.host === A.fp && x.seat_id === 'seat-a1'), `${anon.status} ${viaAdmin.status}`);
@@ -265,6 +276,10 @@ try {
   ok('可信反代后面按真实来源限频：本机回环那个来源已到上限，X-Real-IP 不同的来源照常；一个来源打满了不影响另一个', p1.status === 400 && plast === 429 && pn <= 61 && p1again.status === 400, `${p1.status} ${pn} ${plast} ${p1again.status}`);
   const srcs = q("SELECT source, COUNT(*) AS c FROM a2a_seat_token_log WHERE source IN ('203.0.113.5', '203.0.113.6') GROUP BY source ORDER BY source");
   ok('……换令牌记录里的来源是真实来源（X-Real-IP），不是反代自己', srcs.length === 2 && srcs[0].c === 2 && srcs[1].c === pn, JSON.stringify(srcs));
+  // 启动自检的那次请求以 192.0.2.1 为来源（远程匿名的样子）：它不该占这个来源的额度，这个来源照样能发满 60 次
+  let qn = 0, qlast = 0;
+  while (qn < 80) { qn++; qlast = (await exchange('{}', { 'x-real-ip': '192.0.2.1' })).status; if (qlast === 429) break; }
+  ok('启动自检那次不占来源额度：自检用的来源十分钟内照样发满 60 次，第 61 次才 429', qlast === 429 && qn === 61, `${qn} ${qlast}`);
 } catch (e) {
   ok('运行', false, String(e?.stack ?? e));
 } finally {
