@@ -77,6 +77,7 @@ ok('「编辑」回管理页那一行：?q=台名（编码过）', manageHref('�
 
 // 技能自己的页面（/market/skill/<标识>；上一版的 /skills 总表删了）
 ok('技能卡片的「查看」去这个技能自己的页面；标识编码进地址', skillHref('dsh:a b') === '/market/skill/dsh%3Aa%20b' && skillCards([skill('s-1')])[0].href === '/market/skill/s-1');
+ok('按标识找技能是整串相等：列表有 s-10，找 s-1 找不到；只有前缀、只有后缀都不算', skillOf([skill('s-10')], 's-1') === null && skillOf([skill('xs-1')], 's-1') === null && skillOf([skill('s-10'), skill('s-1')], 's-1').slug === 's-1');
 ok('按标识在技能列表里找一条：数组、{ items } 都认；找不到给 null', skillOf([skill('s-1'), skill('s-2')], 's-2').slug === 's-2' && skillOf({ items: [skill('s-1')] }, 's-1') !== null && skillOf([skill('s-1')], 'x') === null && skillOf(null, 's-1') === null);
 const VS = skillVersionsOf({ versions: [
   { version: 1, changelog: ' 首版 ', breaking: 0, active: false, file_count: 3, total_bytes: 2048, reviewed_by: '合成审阅人', created_at: '2026-11-10 08:00:00', tree_digest: 'sha256:abc', snapshot_path: 'skill-snapshots/x/v1' },
