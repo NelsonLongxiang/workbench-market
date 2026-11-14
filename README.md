@@ -359,6 +359,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   attention-forward.ts（进程内把答复转给原路由：全局中间件和原路由的守卫照走，身份头原样、来源地址照抄，应答原样交回）
   attention-names.ts（「关注」条目的显示名 waiting_for_name、creator_name：在汇总那一层统一补，只给看的人本来就看得到的人的名字——管理员、本人、管理层、同部门的；别的给 null，席位、对端这些非人键给 null，MCP 会话给类型加名字）
   attention-providers.ts（「关注」的七个提供方：各来源用旧接口自己的守卫判可见性，只读地取数；阶段三搬完再挪回各域）
+  attention-via.ts（「关注」卡片经 answer_via 直接调来源路由时也记进「关注」的答复账：请求体带 from_attention、这一条此刻在这个人的「关注」里、动作成功才补记一行，记不上只告警不回滚；同样接受 remember，判定和写入与答复入口同一处·别处直接调的照旧不记账）
   bench-card-delete.ts（删一张卡片时连带它的台库：台库里有数据时要持管理层授予（或本机命令行）并带 confirm_bench_data，只有管理口令、系统管理员身份、MCP 会话的一律 409，409 只给规模·删前备份进 bench-stores/.deleted/ 留 30 天·台的登记、授予、卡片在一个事务里删，之后删库文件、清 Redis 键，清不掉的由清扫补）
   bench-mcp-tools.ts（数据视图的 MCP 工具定义：纯数据，十五个工具的名字、说明、类别和参数；都必须限定到台，授予和执行在 services/bench-mcp.ts）
   bench-query.ts（数据视图的查询描述：台的作者和 agent 不写 SQL，只给筛选、分组、聚合、排序、行数上限；这里核对并翻成参数化语句·名字只认白名单且必须已定义·值全走参数·见 docs/data-views.md）

@@ -2060,7 +2060,7 @@ registerTeamRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor,
 registerRelationRoutes(http, { markOdooAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 关系的提议（规范 14「关系由谁说了算」）：负责人、团队认领要属主或业务侧确认
 registerAccessRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 角色预设 ②：以某人的身份看、红线清单、首次安装向导
 registerAttentionRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
-registerWorkItemRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8d：事项页的时间线
+registerWorkItemRoutes(http, { markOdooAdmin, adminGuard, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8d：事项页的时间线
 registerWorkItemAttachmentRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 「安排一件事」的附件：上传、人读（跟事项走）、接单节点凭回执令牌取
 registerRosterRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段七：团队名册的读（登录即可读，只有席位信息）
 
@@ -2772,7 +2772,7 @@ registerRemoteAllowRoutes(http, { adminGuard, lastAllowDiff });
 registerSopSpaceRoutes(http, { getApp, adminHeaderOk, bad, appsRoot, parseSopManifest });
 
 registerBindingRoutes(http, { adminGuard, getApp });
-registerA2aPeerRoutes(http, { adminGuard, adminActor }); // 对端登记表：只给管理员
+registerA2aPeerRoutes(http, { adminGuard, adminActor, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined) }); // 对端登记表：只给管理员
 registerA2aOutboundRoutes(http, {
   adminGuard,
   state: () => {

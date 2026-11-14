@@ -42,7 +42,11 @@ function itemOf(source: string, sourceId: string): WorkItemRow | undefined {
   return undefined;
 }
 
-/** 这件事所在团队的部门（事项、席位提问对到的团队，团队认领了的那个部门）；推不出、对到好几个部门都是 null */
+/**
+ * 这件事所在团队的部门（事项、席位提问对到的团队，团队认领了的那个部门）；推不出、对到好几个部门都是 null。
+ * 部门号要对得到一个现存的部门（有记录、有名字）：映射指着的部门已经删了、取不到名字的也是 null——
+ * 缺省范围和写入都落「只给管理层」，不会按一个不存在的部门写，更不会落到全公司
+ */
 function departmentOf(source: string, sourceId: string): string | null {
   const item = itemOf(source, sourceId);
   if (!item) return null;
@@ -51,7 +55,9 @@ function departmentOf(source: string, sourceId: string): string | null {
     const reg = svc<TeamService>('teams').registration(k);
     if (reg?.claimed && reg.department_id && svc<TeamService>('teams').status(k) !== 'unclaimed') depts.add(reg.department_id);
   }
-  return depts.size === 1 ? [...depts][0] : null;
+  if (depts.size !== 1) return null;
+  const d = [...depts][0];
+  return svc<DepartmentService>('departments').get(d)?.name ? d : null;
 }
 
 const SCOPE_LABEL = (scope: string): string => (scope === '*' ? '全公司' : scope === 'restricted' ? '只给管理层' : '部门');
@@ -104,7 +110,7 @@ export function recentAnswers(actor: JudgedActor): { source: string; source_id: 
 export function defaultVisibility(source: string, sourceId: string): { default_visibility: 'department' | 'restricted'; department_name: string | null } {
   const d = departmentOf(source, sourceId);
   if (!d) return { default_visibility: 'restricted', department_name: null };
-  return { default_visibility: 'department', department_name: svc<DepartmentService>('departments').get(d)?.name ?? null };
+  return { default_visibility: 'department', department_name: svc<DepartmentService>('departments').get(d)!.name };
 }
 
 export async function rememberAnswer(actor: JudgedActor, req: RememberRequest, fallbackCue = ''): Promise<RememberResult> {
