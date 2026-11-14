@@ -230,6 +230,13 @@ try {
       '……事项上记交给方式 own-seat、不过目、指名的 seatId（走事件层 recorded 那一行）', show(ownItem));
     const ownReview = await call('POST', '/api/work-items', ALPHA, form({ seat_id: 'seat-0000000a', review: true }));
     check(ownReview.status === 201 && itemRow(ownReview.body?.item_id).review_by === 'requester' && ownReview.body.held === true, '……勾了先过目：由本人过目（review_by=requester），先 held', show(ownReview.body));
+    // 指名派发的投递在等放行时改截止：正文第一行签名派工行原样保留，后面信封里的 task.due 换成新的
+    const ownDue = await call('POST', `/api/work-items/${ownReview.body?.item_id}/due`, ALPHA, { due: '2099-03-03' });
+    const [dl1, ...drest] = (msg(ownReview.body?.event_id)[0] ?? '').split('\n');
+    let denv = null; try { denv = JSON.parse(drest.join('\n')); } catch { /* 不是 JSON */ }
+    check(ownDue.status === 200 && ownDue.body?.notified === 0 && ownDue.body.pending_release === true && dl1 === '[A2A dispatch] {"for":"seat-0000000a"}' && drest.length === 1
+      && denv?.type === 'workbench-event' && denv.task?.due === '2099-03-03',
+      '指名派发、等放行时改截止：第一行 [A2A dispatch] 原样保留，后面信封的 task.due 换成新的', show({ b: ownDue.body, dl1, n: drest.length, due: denv?.task?.due }));
     // 团队负责人指名本团队任何成员：lead-directed，不过目
     const lead = await call('POST', '/api/work-items', BETA, form({ seat_id: 'seat-0000000b' }));
     check(lead.status === 201 && lead.body.handoff === 'lead-directed' && itemRow(lead.body?.item_id).review_by === '' && msg(lead.body?.event_id)[0].startsWith('[A2A dispatch] {"for":"seat-0000000b"}\n'),
@@ -378,6 +385,13 @@ try {
     const kcSent = await call('POST', `/api/work-items/${s1?.item_id}/due`, ALPHA, { due: '2099-02-04' });
     const gatedNotes = notesOf(s1?.event_id).length;
     peerSet('active');
+    // 已送达、投递地址在对端登记表里没有登记（peer_unknown，照旧能发）：算进 notified
+    const s3 = await sentItem();
+    dbw("UPDATE workbench_event_deliveries SET target_url = 'http://unregistered-node.invalid' WHERE event_id = ?", s3?.event_id);
+    const unkSent = await call('POST', `/api/work-items/${s3?.item_id}/due`, ALPHA, { due: '2099-02-06' });
+    const unkReg = (() => { const d = dbr(); try { return d.prepare("SELECT COUNT(*) AS c FROM a2a_peers WHERE root_url LIKE '%unregistered-node.invalid%'").get().c; } finally { d.close(); } })();
+    check(unkReg === 0 && unkSent.body?.notified === 1 && unkSent.body.pending_release === false && notesOf(s3?.event_id).length === 1,
+      '已送达、投递地址没登记（照旧能发）：notified 1，排一条变更', show({ b: unkSent.body, reg: unkReg, notes: notesOf(s3?.event_id).length }));
     const s2 = await sentItem();
     dbw("UPDATE workbench_event_deliveries SET status = 'dead' WHERE event_id = ?", s2?.event_id);
     const deadSent = await call('POST', `/api/work-items/${s2?.item_id}/due`, ALPHA, { due: '2099-02-05' });
