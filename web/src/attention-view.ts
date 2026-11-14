@@ -212,6 +212,24 @@ export function viaPath(via: AnswerVia, answer: string): string {
   return via.answers[answer]?.path ?? via.path;
 }
 
+/** 答法按钮上的字：一律写中文，不露答法代号（confirm-key、disable 这类）。
+ *  对端公钥那张卡片：标题说「填入完整指纹确认，或者停用这个对端」，按钮照这个写。认不出的答法写「办这一步」，也不露代号 */
+export const ANSWER_LABEL: Readonly<Record<string, string>> = {
+  approve: '批准', reject: '不给', answer: '答复', bind: '对接', verify: '验收通过', return: '打回重做', release: '派出去', withdraw: '撤回', reply: '回复', ack: '知道了',
+  finish: '验收通过', 'confirm-key': '确认新公钥', disable: '停用这个对端',
+};
+export const answerLabel = (answer: string): string => (Object.prototype.hasOwnProperty.call(ANSWER_LABEL, answer) ? ANSWER_LABEL[answer] : '办这一步');
+/** 填完以后那个确定按钮：「确定」接答法说法（确定不给、确定对接）；说法本身已经是「确认…」的不再叠一个（不写「确定确认新公钥」） */
+export const confirmButtonText = (label: string): string => (label.startsWith('确') ? label : `确定${label}`);
+/** 看着像代号（全是小写英文、数字、短横线、下划线）的答法说法：服务端给的说法是这种时，换成页面自己的说法 */
+export const looksLikeCode = (text: string): boolean => /^[a-z][a-z0-9_-]*$/.test(text.trim());
+
+/** 答法要先填的那一项，输入框里提示写什么：对端公钥的确认要填完整的新指纹（和对端核对过的）；别的必填写理由，选填留一句 */
+export function viaInputLabel(input: Pick<ViaInput, 'to' | 'required'>): string {
+  if (input.to === 'fingerprint') return '填对端的完整新指纹（和对端核对过的，必填）';
+  return input.required ? '写一句理由（必填）' : '留一句（可不填）';
+}
+
 /** 请求体：答法自带的 body，加上填的那一项（选填又没填的不带；有选项的只认选项里的值） */
 export function viaBody(via: AnswerVia, answer: string, value = ''): Record<string, unknown> {
   const a = via.answers[answer];
@@ -238,3 +256,11 @@ export const seatAsksMore = (sources: unknown): boolean =>
   !!sources && typeof sources === 'object' && (sources as Record<string, { more?: unknown } | undefined>)['seat-asks']?.more === true;
 /** 没列全时那一句（中性的提示，不用警示色）：件数照列出来的算，这句话告诉人这些数不全 */
 export const SEAT_ASKS_MORE = 'AI 员工的提问太多，这里只列了最早的一批，还有更多没列出来。';
+
+/** 条目自带的答复入口收不收「记成经验」（#767）：服务端在三类入口（事项放行、台的 MCP 授予申请、对端公钥确认和停用）每种答法的 body 里带 from_attention: true，
+ *  这些入口会把答复记进「关注」的答复账、也收 remember。没带这个标记的入口照旧不收，不给勾选 */
+export function viaTakesRemember(via: AnswerVia | null): boolean {
+  if (!via) return false;
+  const answers = Object.values(via.answers);
+  return answers.length > 0 && answers.every((a) => a.body?.from_attention === true);
+}

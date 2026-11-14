@@ -31,6 +31,7 @@
 | 登记一个台 | `POST /api/bench-views`，`{ slug, title, department?, team_host?, team? }`（管理层可以不绑；别的人只能登记到自己有拍板授予的部门） | — |
 | 改绑、解绑 | `PUT /api/bench-views/<台>/binding`，`{ department, team_host?, team?, note? }`（`department` 给空串是解绑；只有管理层。部门变了，这个台上批给 MCP 会话的授予会全部收回、没定的申请驳回，应答里给出各有几条） | — |
 | 对应市场登记的台 | `PUT /api/bench-views/<台>/workbench`，`{ workbench_id, note? }`（`workbench_id` 是登记的台号，给 `null` 是去掉对应；只有管理层。一个登记的台最多对应一个视图台，已被占的回 409。登记新台时 `POST /api/bench-views` 也可以带 `workbench_id`）。清单里每个台带 `workbench_id`，没对应的是 `null` | — |
+| 视图台页面的入口（页面菜单用） | `GET /api/bench-views/<台>/entry`（`<台>` 也可以写卡片编号）：回 `{ bench, version, title, default_view, views:[{key, title}] }`；读不到、不存在、没有视图描述的一律同一个 404 | — |
 | 列出数据集 | `GET /api/bench-views/<台>/datasets` | `dataset_list` |
 | 建、改数据集 | `PUT /api/bench-views/<台>/datasets/<集>`，请求体是定义（不用再写 `name`） | `dataset_define` |
 | 写行 | `POST /api/bench-views/<台>/datasets/<集>/rows?op=replace`（或 `upsert`、`append`、`delete`），**请求体就是行的数组**（`delete` 时是主键的数组） | `dataset_replace` 等四个 |

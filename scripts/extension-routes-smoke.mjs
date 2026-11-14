@@ -160,6 +160,9 @@ try {
     const retired = listOf('RETIRED_PAGE_SEGMENTS');
     check(JSON.stringify(pages) === JSON.stringify(listed), '扩展名的保留名单里的前端页面首段和 web/src/App.tsx 一致（页面加了、名单没跟上就红）', show({ pages, listed }));
     check(retired.every((s) => !pages.includes(s)) && !retired.some((s) => listed.includes(s)), '退役的页面首段（页面删了、路径照样保留）不在现有页面里、也不和现有页面那份重复：保留 = 页面 ∪ 退役', show({ pages, retired }));
+    // 删掉过的页面首段不能悄悄丢出保留集：丢了，扩展就能占用旧书签的地址。以后再删页面，把它加进这张表
+    const MUST_RETIRE = ['overview', 'tasks', 'reviews', 'skills'];
+    check(MUST_RETIRE.every((s) => retired.includes(s)), '退役清单至少有删掉过的页面首段（overview、tasks、reviews、skills）：一个都不能悄悄丢', show({ retired, missing: MUST_RETIRE.filter((s) => !retired.includes(s)) }));
   }
   // ---------- 四、快照 --extensions：单独一节，不写 surfaces/ ----------
   {

@@ -105,6 +105,11 @@ with sync_playwright() as p:
         {'source': 'relation-proposals', 'source_id': '9003', 'category': 'grant', 'title': '合成：另一条关系的提议（新形状）', 'waiting_for': 'person:synthetic-beta', 'since': '2026-11-12T00:00:00Z', 'answers': [], 'object': '', 'phase': 'team-lead', 'link': '/team', 'mine': True, 'creator': {'principal': 'person:synthetic-beta', 'display_name': 'Synthetic beta'}},
         {'source': 'principal-pending', 'source_id': 'synthetic:ext-1', 'category': 'grant', 'title': '合成账号等对接到主体', 'waiting_for': 'synthetic:ext-1', 'since': '2026-11-12T00:00:00Z', 'answers': ['bind'], 'object': '', 'phase': '', 'link': '/api/principals/pending', 'mine': True},
         {'source': 'mcp-access', 'source_id': '9002', 'category': 'grant', 'title': 'MCP 会话 合成会话 申请工具：list_rows', 'waiting_for': 'mcp:合成会话', 'since': '2026-11-12T00:00:00Z', 'answers': ['approve', 'reject'], 'object': '', 'phase': '', 'link': '/mcp-gateways?access_request=9002', 'mine': True},
+        # 对端公钥待确认（和服务端 a2a-peers 来源同形）：两个答法走条目自带的答复入口
+        {'source': 'a2a-peers', 'source_id': 'peer-syn-1', 'category': 'grant', 'title': '合成对端的名片公钥变了，向对端核对新指纹后，在这里填入完整指纹确认，或者停用这个对端', 'waiting_for': 'https://peer.example.invalid', 'since': '2026-11-12T00:00:00Z', 'answers': ['confirm-key', 'disable'], 'object': '', 'phase': '', 'link': None, 'mine': True,
+         'answer_via': {'method': 'POST', 'path': '/api/a2a/peers/peer-syn-1/confirm-key', 'answers': {
+             'confirm-key': {'body': {'from_attention': True}, 'input': {'fingerprint': {'to': 'fingerprint', 'required': True, 'max': 71}}},
+             'disable': {'path': '/api/a2a/peers/peer-syn-1/disable', 'body': {'from_attention': True}, 'input': {'reason': {'to': 'reason', 'required': True, 'max': 500}}}}}},
     ]
     ctx = b.new_context(viewport={'width': 1440, 'height': 900}); ctx.add_cookies([{'name': 'session_id', 'value': cfg['lead_session'], 'url': M}])
     ctx.route('**/api/attention', lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps({'items': syn, 'counts': {'total': len(syn)}, 'sources': {}})))
@@ -126,6 +131,15 @@ with sync_playwright() as p:
     mc.get_by_role('button', name=re.compile('不\\s*给')).click(); pg.wait_for_timeout(300)
     mc.locator('textarea').fill('先不开'); mc.get_by_role('button', name=re.compile('确定')).click(); pg.wait_for_timeout(500)
     check('理由带在请求里', any(x.get('source') == 'mcp-access' and x.get('answer') == 'reject' and x.get('input', {}).get('note') == '先不开' for x in sent), sent)
+    kc = card('合成对端的名片公钥变了')
+    kbtn = [t.strip() for t in kc.locator('.wm-decision-actions button').all_inner_texts()]
+    check('对端公钥卡片：两个按钮写「确认新公钥」「停用这个对端」，不露 confirm-key、disable 这类代号', kbtn == ['确认新公钥', '停用这个对端'] and not any(re.search('[A-Za-z]', t) for t in kbtn), kbtn)
+    kc.get_by_role('button', name='确认新公钥').click(); pg.wait_for_timeout(300)
+    ph = kc.locator('textarea').get_attribute('placeholder') or ''
+    check('点「确认新公钥」：输入框提示填完整的新指纹，不说「理由」；确定按钮就写「确认新公钥」（不叠成「确定确认新公钥」）', '指纹' in ph and '理由' not in ph and kc.locator('[data-testid=decision-confirm]').inner_text().replace(' ', '') == '确认新公钥', (ph, kc.locator('[data-testid=decision-confirm]').inner_text()))
+    kc.locator('[data-testid=decision-cancel]').click(); pg.wait_for_timeout(200)
+    allbtn = ' '.join(pg.locator('[data-testid=decision-card] button').all_inner_texts())
+    check('「关注」里所有卡片的按钮都不露答法代号', not re.search(r'\b(confirm-key|disable|approve|reject|release|withdraw|finish|bind|verify)\b', allbtn), allbtn)
     pc = card('合成账号'); pc.get_by_role('button', name=re.compile('对\\s*接')).click(); pg.wait_for_timeout(300)
     pc.locator('textarea').fill('user:synthetic-new'); pc.locator('[data-testid=decision-bind-create]').click()
     pc.locator('[data-testid=decision-confirm]').click(); pg.wait_for_timeout(300)

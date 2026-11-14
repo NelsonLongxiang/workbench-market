@@ -172,12 +172,25 @@ export const listCockpitsShared = (): Promise<Cockpit[]> => shared('cockpits', (
 
 /** 当前登录身份（登录门的 /api/auth/me）：外壳的用户卡、全景的问候语用。拿不到就是 null，不弹口令。
  *  叫 getAuthMe 不叫 getMe：事项详情那条线（#565）在这里也加了一个 getMe，两边先后合进 main 时不撞名；都合了以后收成一份。 */
-export type AuthMe = { authenticated?: boolean; login?: string | null; via?: string | null; display_name?: string | null };
+/** can：服务端按这个人算好的能做什么（create_cockpit 建驾驶舱，remember_knowledge 把拍板记成经验，#745） */
+export type AuthMe = { authenticated?: boolean; login?: string | null; via?: string | null; display_name?: string | null; can?: { create_cockpit?: boolean; remember_knowledge?: boolean } };
 export function getAuthMe(): Promise<AuthMe | null> {
   return shared('auth-me', async () => {
     try { const r = await fetch('/api/auth/me', { cache: 'no-store', credentials: 'same-origin' }); return r.ok ? await r.json() as AuthMe : null; } catch { return null; }
   });
 }
+/** 能不能把拍板记成经验（/api/auth/me 的 can.remember_knowledge，和记的时候同一处判断）：拿不到当不能 */
+export const canRememberKnowledge = (): Promise<boolean> => getAuthMe().then((m) => m?.can?.remember_knowledge === true);
+/** 「记成经验」的三个口子（#745）：缺省档、「我处理过的」、补记。带登录的 cookie；返回状态码和应答体，让页面给说法；断网当 0 */
+async function rememberCall(path: string, init?: RequestInit): Promise<{ status: number; body: unknown }> {
+  try {
+    const r = await fetch(path, { credentials: 'same-origin', ...init, headers: { Accept: 'application/json', ...(init?.body ? { 'Content-Type': 'application/json' } : {}) } });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  } catch { return { status: 0, body: null }; }
+}
+export const getRememberDefaults = (source: string, sourceId: string) => rememberCall(`/api/knowledge/remember/defaults?${new URLSearchParams({ source, source_id: sourceId })}`);
+export const getRecentAnswers = () => rememberCall('/api/knowledge/remember/recent');
+export const postRememberLater = (req: { source: string; source_id: string; lesson: string; cue?: string; visibility?: string }) => rememberCall('/api/knowledge/remember', { method: 'POST', body: JSON.stringify(req) });
 
 /** 生命周期只读接口（观测层扩展挂在市场里）：带登录 cookie；扩展没挂上（404）或没配置（503）由页面给空状态，不弹口令 */
 /** identityDown：身份服务连不上（502 identity_unavailable），页面说「暂时取不到」，不当成没有 */
@@ -219,6 +232,7 @@ export const getMarketConnectors = () => marketGet('/api/mcp/upstreams');
 export const getMarketWorkbench = (id: number) => marketGet(`/api/workbenches/${id}`);
 export const getMarketSops = () => marketGet('/api/sops');
 export const getMarketSkills = () => marketGet('/api/skills');
+export const getMarketSkillVersions = (slug: string) => marketGet(`/api/skills/${encodeURIComponent(slug)}/versions`);
 export const getMarketRunningSops = () => marketGet('/api/sop/runs/active');
 
 /** 「谁能做什么」（照原型重做的 /access）：授予、主体、角色、角色矩阵各读各的，返回状态码让页面给说法；核准、不给（撤销待核的授予）也一样。
@@ -252,6 +266,27 @@ export async function getAssignableTeams(): Promise<{ status: number; teams: { t
 export async function postWorkItem(body: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> | null }> {
   try {
     const r = await fetch('/api/work-items', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body) });
+    return { status: r.status, body: await r.json().catch(() => null) as Record<string, unknown> | null };
+  } catch { return { status: 0, body: null }; }
+}
+
+/** 「安排一件事」传附件：PUT /api/work-items/attachments/<文件名>，请求体是文件的原始字节，带 X-Content-SHA256 让服务端核对。
+ *  返回状态码和应答体（成功 201 { id, name, size, … }，失败带 error 代号）；断网当状态码 0 */
+export async function uploadArrangeAttachment(file: File, sha256: string): Promise<{ status: number; body: Record<string, unknown> | null }> {
+  try {
+    const r = await fetch(`/api/work-items/attachments/${encodeURIComponent(file.name)}`, {
+      method: 'PUT', credentials: 'same-origin', body: file,
+      // 一律按原始字节发（application/octet-stream）：照文件自己的类型发，.json、表单类的文件会先被服务端的解析器读走，回 415（#733）。
+      // 文件的真实类型服务端自己嗅。算不出摘要（不安全的来源里没有 crypto.subtle）就不带核对头，服务端照样收
+      headers: { 'Content-Type': 'application/octet-stream', ...(sha256 ? { 'X-Content-SHA256': sha256 } : {}), Accept: 'application/json' },
+    });
+    return { status: r.status, body: await r.json().catch(() => null) as Record<string, unknown> | null };
+  } catch { return { status: 0, body: null }; }
+}
+/** 改一件事项的期限（只有建立人）：POST /api/work-items/<id>/due { due: 'YYYY-MM-DD' | null }；null 是清掉 */
+export async function setWorkItemDue(id: string, due: string | null): Promise<{ status: number; body: Record<string, unknown> | null }> {
+  try {
+    const r = await fetch(`/api/work-items/${encodeURIComponent(id)}/due`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ due }) });
     return { status: r.status, body: await r.json().catch(() => null) as Record<string, unknown> | null };
   } catch { return { status: 0, body: null }; }
 }

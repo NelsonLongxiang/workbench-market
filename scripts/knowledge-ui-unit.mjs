@@ -48,5 +48,6 @@ ok('改动记录：写名字，不露部门标识和人的标识；人查不到�
   && !line({ old_department: 'dept-gone', new_department: 'dept-x' }).includes('dept-'));
 ok('没改成的说法：401、403、部门不在了、别的；不露代号', projectDeptSaveError(401, null) === '请先登录。' && projectDeptSaveError(403, null).includes('管理层和属主') && projectDeptSaveError(404, { error: 'department_missing' }).includes('部门已经不在') && projectDeptSaveError(400, { error: 'project_invalid' }).includes('改不了') && projectDeptSaveError(0, null).includes('连不上') && ![401, 403, 404, 400, 0, 500].some((x) => /project_|department_|body_/.test(projectDeptSaveError(x, { error: 'department_missing' }))));
 ok('读不到这张表：403 说只有管理层和属主能看、不给再试；别的给再试', projectDeptsProblem(403).text.includes('只有管理层和属主') && !projectDeptsProblem(403).retry && projectDeptsProblem(500).retry && projectDeptsProblem(200) === null);
+ok('经验条目的拍板人（#745）：有名字留着（去空格），没有、空串、不是文字都是 null', asItem({ key: 'k', title: 't', decided_by_name: ' 合成管理层 ' }).decided_by_name === '合成管理层' && asItem({ key: 'k', title: 't', decided_by_name: null }).decided_by_name === null && asItem({ key: 'k', title: 't', decided_by_name: '  ' }).decided_by_name === null && asItem({ key: 'k', title: 't', decided_by_name: 3 }).decided_by_name === null && asItem({ key: 'k', title: 't' }).decided_by_name === null);
 console.log(`\nknowledge-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

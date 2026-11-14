@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** 站内页面路径的单测（web/src/page-paths.ts）：卡片上只把站内真有的页面做成链接；路由表和 App.tsx 一致。全是合成值。 */
 import { readFileSync } from 'node:fs';
-import { PAGE_SEGMENTS, fallbackPlace, pageLink } from '../web/src/page-paths.ts';
+import { PAGE_SEGMENTS, RETIRED_REDIRECTS, fallbackPlace, pageLink, retiredRedirect } from '../web/src/page-paths.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -19,5 +19,7 @@ ok('不是站内路径的不给：外链、//主机、相对路径、空、不�
 ok('没给可用链接时的缺省去处：关系提议、团队状态去团队页；没有页面的写一句；认不出的来源什么都不给', fallbackPlace('relation-proposals').link === '/team' && fallbackPlace('team-health').link === '/team'
   && fallbackPlace('a2a-peers').link === '' && fallbackPlace('a2a-peers').text.length > 0 && fallbackPlace('bogus').link === '' && fallbackPlace('bogus').text === '');
 
+ok('删掉的页面有去处：/skills（和它下面的地址、带参数的）跳到市场的「技能」分类；别的地址不归它管', retiredRedirect('/skills') === '/market?k=技能' && retiredRedirect('/skills/x') === '/market?k=技能' && retiredRedirect('/skills?layer=2') === '/market?k=技能' && retiredRedirect('/skillsx') === null && retiredRedirect('/market') === null && retiredRedirect('/toString') === null);
+ok('删掉的页面不在页面清单里（不再是页面），去处都是站内真有的页面', Object.keys(RETIRED_REDIRECTS).every((k) => !PAGE_SEGMENTS.includes(k)) && Object.values(RETIRED_REDIRECTS).every((to) => pageLink(to) === to));
 console.log(`\npage-paths-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

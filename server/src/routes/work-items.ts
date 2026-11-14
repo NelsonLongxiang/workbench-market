@@ -42,6 +42,8 @@ import { COCKPIT_ID_MAX, dueAtOf, isCreator, overdueOf, STATES, type WorkItemSer
 import type { PrincipalService } from '../services/principal.ts';
 import type { TeamService } from '../services/team.ts';
 import { answerItemAsk, CREATOR_ANSWERS, decideItemAnswer } from '../attention-answers.ts';
+import { viaBegin, viaSettle } from '../attention-via.ts';
+import { actorResolver } from '../judgment-compare.ts';
 import { markSeatMessagesRead, replySeatMessage, seatAsksOf, seatMessagesOf, seatProgressOf, seatSubitemsOf, SEAT_REPLY_MAX } from '../seat-messages.ts';
 import { principalsAdmin } from './principals.ts';
 import { canOf, canSee, creatorOf, dueWriterOk, decidesNow, itemDecisionVerdict, itemRoles, releaseBy, turnOf, VIEW_ALL_ACTION, VIEW_ALL_KIND, VIEWS, viewScopes, workItemViewer, writerVerdict, type ItemRole, type ViewName } from '../work-item-access.ts';
@@ -49,12 +51,15 @@ import { arrangeTask } from '../task-center.ts';
 import { assignableTeams, kickWorkbenchEvents, logEventFact, releaseCore } from '../workbench-events.ts';
 import { eventOfItem } from '../seat-messages.ts';
 import { attachmentsOfEvent } from '../services/work-item-attachments.ts';
-import { deliveryTarget, eventDispatched, inReplyTx, liveDeliveriesOfEvent, queueReply } from '../services/a2a-replies.ts';
+import { deliveryTarget, eventDispatched, inReplyTx, liveDeliveriesOfEvent, queueReply, setHeldDeliveriesDue } from '../services/a2a-replies.ts';
+import { peerCanDeliver } from '../services/a2a-peers.ts';
 
 export type WorkItemRouteDeps = {
   markOdooAdmin: (req: express.Request) => Promise<void>;
   adminGuard: (req: express.Request, res: express.Response) => boolean;
   crossOriginDenied: (req: express.Request) => boolean;
+  /** 管理口令对不对（「关注」卡片带 remember 时认人用，和答复入口同一个 actorResolver） */
+  adminTokenOk: (req: express.Request) => boolean;
 };
 
 const ITEM_ID = /^wi_[A-Za-z0-9_-]{1,96}$/;
@@ -76,6 +81,7 @@ const ITEM_REPLY_DECIDES = '按事项判：建立人本人回复；持有管理�
 const LEAD_RELEASES = '按事项交给的团队判：负责人放行，团队没有负责人时持有管理层授予的人代办，是事项上的规则不是角色授权';
 
 export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps): void {
+  const rememberActor = actorResolver({ adminTokenOk: deps.adminTokenOk });
   // 列表：GET /api/work-items?state=&object=&phase=&limit=&cursor=。可见范围和详情同一个判断（管理员看全部，别人只看自己是建立人的），
   // 看不到的不出现也不计数。按 updated_at、id 倒序，游标翻页（limit 缺省 100、上限 200）；另带可见范围里按状态的计数
   app.get('/api/work-items', { action: 'work-items.list', kind: 'read', unauthenticated: 401, refine: [{ action: VIEW_ALL_ACTION, kind: VIEW_ALL_KIND, why: '「全部」视角只给管理层（按动作认，不按角色名；类别见 VIEW_ALL_KIND）', when: (req) => req.query.view === 'all' }] }, (req, res, next) => {
@@ -311,6 +317,9 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       if (!item || !canSee(item, viewer)) return void res.status(404).json({ error: 'work_item_not_found' });
       const role = itemDecisionVerdict(item, viewer, 'release');
       if (!role.ok) return void res.status(403).json({ error: 'work_item_release_not_yours' });
+      // 「关注」过目卡片照 answer_via 调这里：带来的（from_attention）放成了记进「关注」的答复账，可以顺带记成经验（attention-via.ts）
+      const via = await viaBegin(req, 'work-items', id, 'release');
+      if (!via.ok) return void res.status(via.status).json(via.body);
       if (item.state !== 'held') {
         if (items.log(id).some((l) => l.fact === 'release' && !l.rejected)) return void res.json({ ok: true, item_id: id, duplicate: true, released: 0 });
         return void res.status(409).json({ error: 'work_item_not_held', state: item.state });
@@ -319,16 +328,21 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       if (!ev) return void res.status(409).json({ error: 'work_item_not_from_event' });
       const actor = viewer.principal ?? ((principalsAdmin ? await principalsAdmin(req, silentRes()) : null) || 'admin');
       const out = releaseCore(ev, actor, role.acting_for);
-      res.status(out.status).json({ item_id: id, duplicate: false, ...out.body });
+      const body = { item_id: id, duplicate: false, ...out.body };
+      const remembered = await viaSettle(req, via.plan, out.status, body, rememberActor);
+      res.status(out.status).json({ ...body, ...(remembered ? { remember: remembered } : {}) });
     })().catch(next);
   });
 
   // 动作类别是「决定」：建立人替自己的事项拍板
   // 改截止日期（安排时填的，建立人可以改）：只有建立人本人（writerVerdict 为 ok），管理员也不行——截止是建立人对这件事的要求。
   // 请求体只读 due：'YYYY-MM-DD' 或 null（清掉）；事项结束了不能改（409）。事件日志记一行 due-changed（从几号改成几号、谁改的）
-  // 同步到节点：派工正文里的 due 不改（那是发出去了什么的证据），改为给这个事件每一条还活着的投递排一条「[截止变更]」，
-  // 作为同一 context 的新任务发给接这件事的团队；投递还在等过目、排队时，等它发出去了再发；投递撤回、判死了就不发；出站关着整轮不发。
-  // 应答多带 notified：排了几条
+  // 同步到节点：
+  //   还在等放行（held）的投递：没发出去，直接把正文里的 task.due 换成新的，放行派出时带的就是最新的期限，不另排变更；
+  //   已放行、排队待发的和已发出的：正文不改（发出去了什么要留证据，在途的可能已经带着旧的发出去了），给它排一条「[截止变更]」，
+  //   作为同一 context 的新任务发给接这件事的团队，等那次投递发出去了才发；投递撤回、判死了就不发；出站关着整轮不发。
+  // 应答多带 notified：只算已送达、对端此刻还能发（没停用、不在等确认新键）的在办投递——前端据此说「已告诉在办的席位」；
+  //   pending_release：还有没发出去的投递（等放行或排队），新期限会随派工或派出之后的变更带上
   app.post('/api/work-items/:id/due', { action: 'work-items.due-set', kind: 'write', statusNotVerdict: CREATOR_DECIDES }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
@@ -354,25 +368,30 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       const out = inReplyTx(() => {
         if (!items.setDue(id, dueAt, at.replace('T', ' ').slice(0, 19))) return null;
         const ev = /^wbe-[0-9a-f]{16}$/.test(item.source_ref) ? item.source_ref : '';
-        if (!ev) return { notified: 0 };
+        if (!ev) return { notified: 0, pending: false, queued: 0 };
         const factId = logEventFact(ev, actor, 'due-changed', { from: item.due_at, to: dueAt });
-        if (!eventDispatched(ev)) return { notified: 0 };
-        // 同步到节点：正文里的 due 已经随派工发出去了（或者等放行时照原样发），所以给这个事件每一条还活着的投递排一条变更，
-        // 作为同一 context 的新任务发给那个团队；等那次投递真的发出去了才发，出站关着就不发（reply-outbound 的闸）
+        if (!eventDispatched(ev)) return { notified: 0, pending: false, queued: 0 };
+        setHeldDeliveriesDue(ev, dueAt ? dueAt.slice(0, 10) : '');
         const text = `[截止变更] 原事项《${item.title.replace(/\s+/g, ' ').slice(0, 200)}》的截止日期${dueAt ? `改为 ${dueAt.slice(0, 10)}` : '取消了'}（原来是 ${item.due_at ? item.due_at.slice(0, 10) : '没有截止'}）`;
-        let n = 0;
+        let notified = 0, queued = 0, pending = false;
         for (const d of liveDeliveriesOfEvent(ev)) {
+          if (d.status !== 'sent') pending = true;
+          if (d.status === 'held') continue; // 正文已换成新期限
           const target = deliveryTarget(d.id);
           if (!target) continue;
           if (queueReply({ kind: 'answer', eventId: ev, deliveryId: d.id, ref: factId, team: target.team, callerSession: target.caller_session, contextId: target.context_id, targetUrl: target.target_url,
-            message: JSON.stringify({ text, by: actor, notice: 'due-changed' }) }) !== null) n++;
+            message: JSON.stringify({ text, by: actor, notice: 'due-changed' }) }) === null) continue;
+          queued++;
+          if (d.status !== 'sent') continue;
+          const can = peerCanDeliver(target.target_url);
+          if (can.ok || can.reason === 'peer_unknown') notified++;
         }
-        return { notified: n };
+        return { notified, pending, queued };
       });
       if (!out) return void res.status(409).json({ error: 'work_item_ended', state: item.state });
-      if (out.notified > 0) kickWorkbenchEvents();
+      if (out.queued > 0) kickWorkbenchEvents();
       const after = items.get(id)!;
-      res.json({ item_id: id, due: after.due_at ? after.due_at.slice(0, 10) : null, overdue: overdueOf(after), notified: out.notified });
+      res.json({ item_id: id, due: after.due_at ? after.due_at.slice(0, 10) : null, overdue: overdueOf(after), notified: out.notified, pending_release: out.pending });
     })().catch(next);
   });
 

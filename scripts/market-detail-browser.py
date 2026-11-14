@@ -3,8 +3,12 @@
   · 头部：名字、类别、在线状态；说明（没有写「还没有说明」）；「打开」去 /use/<id>；
   · 不是管理员：没有「管理」那一栏，写一句由管理员来；
   · 不在了（404、台号不对）/ 没权限（403）/ 读不到（500，能再试一次）各说各的；停用的台对不是管理员的人只说已停用、没有「打开」；
-  · 管理员：立即检测发 POST /check；编辑回到管理页那一行（?q=台名，表里只剩这一行）；停用先确认，「再想想」不发请求，确认才发 PUT {enabled:false}。"""
+  · 管理员：立即检测发 POST /check；编辑回到管理页那一行（?q=台名，表里只剩这一行）；停用先确认，「再想想」不发请求，确认才发 PUT {enabled:false}。
+  · 技能（/market/skill/<标识>，2026-11-14 属主定了删掉上一版的 /skills 总表）：点技能卡片的「查看」进这个技能自己的页面；
+    名字、层、现在第几版、说明、历次版本（不兼容的标出来）；标识、摘要、快照路径、像标识的审阅人都不写在页面的字上；没有这个技能说没有；/skills 不再是页面。
+    合成实例里没有技能：/api/skills 和版本接口用 page.route 截成合成的应答。"""
 import json, re, sys, urllib.request
+from urllib.parse import parse_qs, urlparse
 from playwright.sync_api import sync_playwright
 cfg = json.load(open(sys.argv[1]))
 M, TOK = cfg['base'], cfg['token']
@@ -107,6 +111,36 @@ with sync_playwright() as p:
     pg.wait_for_timeout(600)
     rows = pg.locator('.ant-table-row')
     check('「编辑」回到管理页那一行：地址带 ?q=台名，表里只剩这一行', '/market/manage?q=' in pg.url and rows.count() == 1 and W['name'] in rows.first.inner_text(), (pg.url, rows.count()))
+    pg.close()
+
+    # 技能自己的页面
+    SK = [{'slug': 'dsh:syn-skill-a', 'name': '合成技能甲', 'layer': 2, 'layer_name': '开发运维', 'family_parent': '合成族', 'description': '把合成数据整理成表。', 'legacy': False, 'versions': 2, 'active_version': 2},
+          {'slug': 'dsh:syn-skill-b', 'name': '合成技能乙', 'layer': 1, 'layer_name': '业务角色', 'family_parent': '', 'description': '', 'legacy': True, 'versions': 1, 'active_version': 1}]
+    VS = {'slug': 'dsh:syn-skill-a', 'active_version': 2, 'versions': [
+        {'version': 1, 'changelog': '首版', 'breaking': 0, 'active': False, 'file_count': 3, 'total_bytes': 2048, 'reviewed_by': '合成审阅人', 'created_at': '2026-11-10 08:00:00', 'tree_digest': 'sha256:feedfacecafe', 'snapshot_path': 'skill-snapshots/dsh%3Asyn-skill-a/v1'},
+        {'version': 2, 'changelog': '改了表头', 'breaking': 1, 'active': True, 'file_count': 4, 'total_bytes': 4096, 'reviewed_by': 'user:syn-reviewer', 'created_at': '2026-11-12 08:00:00', 'tree_digest': 'sha256:0badf00d', 'snapshot_path': 'skill-snapshots/dsh%3Asyn-skill-a/v2'}]}
+    pg = b.new_page(viewport={'width': 1440, 'height': 900}); pg.set_default_timeout(10000)
+    pg.route(re.compile(r'/api/skills(\?.*)?$'), lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps(SK)))
+    pg.route(re.compile(r'/api/skills/[^/]+/versions'), lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps(VS)) if 'syn-skill-a' in r.request.url else r.fulfill(status=404, content_type='application/json', body='{"error":"not_found"}'))
+    pg.goto(M + '/market?k=技能'); pg.wait_for_selector('[data-testid=mkt-card][data-kind=技能]')
+    card = pg.locator('[data-testid=mkt-card][data-kind=技能]', has_text='合成技能甲').first
+    check('技能卡片的「查看」去这个技能自己的页面（不是上一版的技能市场总表）', card.get_attribute('href') == '/market/skill/dsh%3Asyn-skill-a', card.get_attribute('href'))
+    card.click(); pg.wait_for_selector('[data-testid=skd-main]'); pg.wait_for_selector('[data-testid=skd-version]')
+    top = pg.locator('.wm-top').first.inner_text() if pg.locator('.wm-top').count() else ''
+    check('技能页的外壳：顶栏是「工作台市场」接技能名（替原来 /skills 页的外壳那条）', '工作台市场' in top and '合成技能甲' in top and pg.locator('[data-testid=wm-side]').count() == 1, top)
+    main = pg.locator('[data-testid=skd-main]').inner_text()
+    check('技能页：名字、层、现在第几版、说明、族', pg.locator('[data-testid=skd-name]').inner_text() == '合成技能甲' and '开发运维' in main and '现在是第 2 版' in main and '把合成数据整理成表' in main and '合成族' in main, main)
+    vers = pg.locator('[data-testid=skd-version]').all_inner_texts()
+    check('历次版本：新的在前；现在用的、不兼容的标出来；改了什么、几个文件', len(vers) == 2 and vers[0].startswith('第 2 版') and '现在用的' in vers[0] and '和上一版不兼容' in vers[0] and '改了表头' in vers[0] and '首版' in vers[1] and '3 个文件' in vers[1], vers)
+    check('审阅人写名字；像标识的（user:…）不写', '合成审阅人 审过' in vers[1] and 'syn-reviewer' not in vers[0])
+    text = pg.locator('main').inner_text()
+    check('技能的标识、摘要、快照路径不写在页面的字上', not any(x in text for x in ('dsh:', 'syn-skill-a', 'sha256', 'feedface', 'skill-snapshots')), text[:120])
+    pg.goto(M + '/market/skill/dsh%3Anope'); pg.wait_for_selector('[data-testid=skd-problem]')
+    check('没有这个技能：说没有，给回市场的链接', '没有这个技能' in pg.locator('[data-testid=skd-problem]').inner_text() and pg.locator('[data-testid=skd-problem] a', has_text='回到工作台市场').count() == 1)
+    for old in ('/skills', '/skills?layer=2'):
+        pg.goto(M + old); pg.wait_for_function("() => location.pathname === '/market'"); pg.wait_for_selector('[data-testid=mkt-card][data-kind=技能]')
+        check(f'旧链接 {old}：不落到首页、不白屏，跳到市场的「技能」分类（地址带 k=技能），不出上一版那张按层分类的总表',
+              parse_qs(urlparse(pg.url).query).get('k') == ['技能'] and pg.locator('.ant-pro-table').count() == 0 and '五层治理' not in pg.locator('body').inner_text(), pg.url)
     b.close()
 
 print(f'market-detail-browser: {ok} 过 / {fail} 败')

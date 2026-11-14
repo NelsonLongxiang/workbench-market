@@ -3,7 +3,7 @@
  *  卡片上只把站内真有的页面做成链接，别的一律不显示，免得点出一个空白页或一段 JSON。 */
 
 /** App.tsx 里路由的首段（「/」本身另算）。加删页面时跟着改，单测会对 */
-export const PAGE_SEGMENTS: readonly string[] = ['access', 'attention', 'cockpit', 'dev', 'knowledge', 'market', 'mcp-gateways', 'owner-pending', 'settings', 'skills', 'sops', 'team', 'types', 'use', 'vault', 'work-items'];
+export const PAGE_SEGMENTS: readonly string[] = ['access', 'attention', 'cockpit', 'dev', 'knowledge', 'market', 'mcp-gateways', 'owner-pending', 'settings', 'sops', 'team', 'types', 'use', 'vault', 'work-items'];
 
 /** 是站内页面就原样返回，不是就返回 null：要以单个「/」开头、不是 /api/、首段在路由表里（「/」本身也算） */
 export function pageLink(link: unknown): string | null {
@@ -27,4 +27,14 @@ export function fallbackPlace(source: string): { link: string; text: string } {
   const f = Object.hasOwn(FALLBACK, source) ? FALLBACK[source] : {};
   const link = f.link ? pageLink(f.link) : null;
   return { link: link ?? '', text: f.text ?? '' };
+}
+
+/** 删掉的页面，旧链接、书签来了去哪：不落到兜底的首页，跳到现在管这件事的地方。键是旧地址的首段 */
+export const RETIRED_REDIRECTS: Readonly<Record<string, string>> = {
+  skills: '/market?k=技能', // 2026-11-14 上一版的「技能市场」总表删了（属主：demo，没有用于生产）；技能在市场的「技能」分类里，一个技能一页
+};
+/** 一个地址是不是删掉的页面：是就给新去处，不是给 null */
+export function retiredRedirect(pathname: string): string | null {
+  const seg = pathname.replace(/^\/+/, '').split(/[/?#]/)[0];
+  return Object.hasOwn(RETIRED_REDIRECTS, seg) ? RETIRED_REDIRECTS[seg] : null;
 }

@@ -31,6 +31,7 @@ import { benchStore, type BenchStore } from '../services/bench-store.ts';
 import { bindBench, linkWorkbench, createBench, getBench, listBenches, resolveBenchRef, type BenchEntry } from '../services/bench-registry.ts';
 import { relationOf } from '../team-relation.ts';
 import { decideBenchRequest, listBenchMcp, setBenchGrants } from '../services/bench-mcp.ts';
+import { viaBegin, viaSettle } from '../attention-via.ts';
 
 export type BenchViewsConfig = { on: boolean };
 /** 启动时读一次：WM_BENCH_VIEWS（on / off，缺省 off）。不合法拒绝启动 */
@@ -326,10 +327,25 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
   // —— MCP 工具的授予（3b）：按「会话 × 台 × 工具」记，由能改这个台的人批；管理口令在上面已经拒了 ——
   app.get('/api/bench-views/:bench/mcp-grants', { action: 'bench-store.mcp-list', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.mcp-list', async (req) => listBenchMcp(req.params.bench)));
   app.put('/api/bench-views/:bench/mcp-grants', { action: 'bench-store.mcp-grant', kind: 'decide', statusNotVerdict: NOT_VERDICT }, on('bench-store.mcp-grant', async (req, _res, _s, actor) => setBenchGrants(req.params.bench, req.body, actor, Date.now())));
-  app.post('/api/bench-views/:bench/mcp-requests/:id', { action: 'bench-store.mcp-decide', kind: 'decide', statusNotVerdict: NOT_VERDICT }, on('bench-store.mcp-decide', async (req, _res, _s, actor) => {
-    const id = /^\d{1,9}$/.test(req.params.id) ? Number(req.params.id) : NaN;
-    if (!Number.isInteger(id) || id < 1) throw new BenchError('not_found', '没有这条申请');
-    return decideBenchRequest(req.params.bench, id, req.body?.approve, actor, req.body?.note, Date.now());
+  // 「关注」里「台的 MCP 授予申请」卡片照 answer_via 调这里：带来的（from_attention）批成了记进「关注」的答复账，可以顺带记成经验（attention-via.ts）；
+  // remember 写得不对在批之前就拒（400，申请不动）。别处直接调的照旧
+  // 先后和 on() 一样（判权限、核台登记过），只是 remember 写得不对要回和答复入口同一个 400 remember_invalid
+  app.post('/api/bench-views/:bench/mcp-requests/:id', { action: 'bench-store.mcp-decide', kind: 'decide', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    const bench = getBench(req.params.bench);
+    const actor = await allow(req, res, 'bench-store.mcp-decide', bench);
+    if (!actor) return;
+    if (!bench) return res.status(404).json({ error: 'bench_not_found' });
+    try {
+      await benchStore(req.params.bench);
+      const id = /^\d{1,9}$/.test(req.params.id) ? Number(req.params.id) : NaN;
+      if (!Number.isInteger(id) || id < 1) throw new BenchError('not_found', '没有这条申请');
+      const answer = req.body?.approve === true ? 'approve' : req.body?.approve === false ? 'reject' : '';
+      const via = answer ? await viaBegin(req, 'bench-mcp', `${req.params.bench}:${id}`, answer) : { ok: true as const, plan: null };
+      if (!via.ok) return void res.status(via.status).json(via.body);
+      const out = await decideBenchRequest(req.params.bench, id, req.body?.approve, actor, req.body?.note, Date.now());
+      const remembered = await viaSettle(req, via.plan, 200, out, async (r) => ({ actor: await actorOf(r) }));
+      res.json(remembered ? { ...(out as object), remember: remembered } : out);
+    } catch (e) { fail(res, e); }
   }));
 
   // —— 留痕 ——

@@ -45,6 +45,8 @@ export type AnswerVia = {
   path: string;
   answers: Record<string, { path?: string; body: Record<string, unknown>; input?: Record<string, { to: string; required?: boolean; max?: number; options?: string[] }> }>;
 };
+/** answer_via 请求体里卡片固定带的标记：来源路由凭它把这次答复记进「关注」的答复账（见 attention-via.ts）。别处直接调接口的不带 */
+export const VIA_MARK = 'from_attention';
 const ANSWER_VIA_PATH = /^\/api\/[A-Za-z0-9][A-Za-z0-9._~:@/-]{0,300}$/;
 /** 拼一个 answer_via：地址不合规（不是 /api/ 开头的同源相对路径、带 ..、带查询串）直接抛错，不交给前端 */
 export function answerVia(method: AnswerVia['method'], path: string, answers: AnswerVia['answers']): AnswerVia {
@@ -194,6 +196,15 @@ export class AttentionService extends Service {
 
   answered(source: string, sourceId: string, by: string, answer: string): boolean {
     return Boolean(db.prepare("SELECT 1 FROM attention_answers WHERE source = ? AND source_id = ? AND state = 'done' AND answered_by = ? AND answer = ?").get(source, sourceId, by, answer));
+  }
+
+  /**
+   * 来源自己的路由已经答成了（「关注」卡片经 answer_via 直接调的，见 attention-via.ts）：补记一行已答的账。
+   * 这一条已经有账（经答复入口答过、或者重复调）的不动；只在原动作成功之后调，记不上由调用方告警，不回滚原动作
+   */
+  recordAnswered(source: string, sourceId: string, answer: string, by: string, status: number, body: unknown): void {
+    db.prepare("INSERT OR IGNORE INTO attention_answers (source, source_id, answer, state, status, body, answered_by) VALUES (?, ?, ?, 'done', ?, ?, ?)")
+      .run(source, sourceId, answer, status, JSON.stringify(body ?? null), by);
   }
 
   /**

@@ -53,6 +53,7 @@ try {
     'scripts/dashboard-browser.py',
     'scripts/market-browser.py',
     'scripts/knowledge-browser.py',
+    'scripts/remember-browser.py',
     'scripts/access-browser.py',
     'scripts/team-browser.py',
     'scripts/cockpit-attention-browser.py',
@@ -60,6 +61,7 @@ try {
     'scripts/seat-name-browser.py',
     'scripts/work-items-views-browser.py',
     'scripts/market-detail-browser.py',
+    'scripts/work-item-extras-browser.py',
   ]) {
     const py = spawn(pythonBin(), [script, cfg], { stdio: 'inherit' });
     code |= await new Promise((x, j) => { py.on('error', j); py.on('exit', x); });

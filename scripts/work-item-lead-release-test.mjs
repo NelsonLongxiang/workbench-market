@@ -186,7 +186,7 @@ try {
   {
     const lead = await glances(WHO.负责人), mgmt = await glances(WHO.管理层), creator = await glances(WHO.建立人);
     const g = lead.find((x) => x.source_id === I.lead.item);
-    check(g && g.mine === true && show(g.answers) === show(['release']) && show(g.answer_via) === show({ method: 'POST', path: `/api/work-items/${I.lead.item}/release`, answers: { release: { body: {} } } }),
+    check(g && g.mine === true && show(g.answers) === show(['release']) && show(g.answer_via) === show({ method: 'POST', path: `/api/work-items/${I.lead.item}/release`, answers: { release: { body: { from_attention: true } } } }),
       '负责人的「关注」：过目条目轮到他（mine）、只有 release、answer_via 指向事项的放行入口', show(g));
     check(!lead.some((x) => x.source_id === I.vacant.item) && !lead.some((x) => x.source_id === I.requester.item), '负责人看不到别的团队、建立人自己过目的那件');
     const v = mgmt.find((x) => x.source_id === I.vacant.item);

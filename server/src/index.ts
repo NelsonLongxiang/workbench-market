@@ -125,7 +125,7 @@ import { designStandard } from './design-standard.ts';
 import { mountVault } from './vault-api.ts';
 import { expectedSha256, uploadIntegrity, type UploadIntegrity } from './upload-integrity.ts';
 import { loadConfig } from './config.ts';
-import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet, reportHotVarKeys, reportHotPending, setVarsStoreMode, startHotVarsFlush, flushHotVars, Config as VarsConfig } from './workbench-vars.ts';
+import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet, workbenchIdOf, reportHotVarKeys, reportHotPending, setVarsStoreMode, startHotVarsFlush, flushHotVars, Config as VarsConfig } from './workbench-vars.ts';
 import { registerWorkbenchVarsRoutes } from './routes/workbench-vars.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
@@ -2063,7 +2063,7 @@ registerTeamRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor,
 registerRelationRoutes(http, { markOdooAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 关系的提议（规范 14「关系由谁说了算」）：负责人、团队认领要属主或业务侧确认
 registerAccessRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 角色预设 ②：以某人的身份看、红线清单、首次安装向导
 registerAttentionRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
-registerWorkItemRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8d：事项页的时间线
+registerWorkItemRoutes(http, { markOdooAdmin, adminGuard, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8d：事项页的时间线
 registerWorkItemAttachmentRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 「安排一件事」的附件：上传、人读（跟事项走）、接单节点凭回执令牌取
 registerRosterRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段七：团队名册的读（登录即可读，只有席位信息）
 
@@ -2424,7 +2424,7 @@ function ustarTar(files: { path: string; content: string | Buffer }[], opts: { p
 }
 
 
-registerSkillRoutes(http, { adminGuard, wrap, bad, resolveSnap, skillPublishCore, skillTicketKey, skillVersionDir, skillPackage, skillPkgDir, SKILL_DL_MAX, executeSkillRollback, executeSkillDelete, layerfsPublish, LAYERFS_SKILLS_PROJECT, layerfsServiceBase, rebuildWmSkills, ustarTar });
+registerSkillRoutes(http, { adminGuard, adminRead: (req) => settingsAdminRead(req), wrap, bad, resolveSnap, skillPublishCore, skillTicketKey, skillVersionDir, skillPackage, skillPkgDir, SKILL_DL_MAX, executeSkillRollback, executeSkillDelete, layerfsPublish, LAYERFS_SKILLS_PROJECT, layerfsServiceBase, rebuildWmSkills, ustarTar });
 
 // ---------- #437③ 进行中的 run 升级到当前 SOP 版本（预检 + 人确认 + 审计） ----------
 /** 每步的 data-field 名（含没有规则的字段），用来列出升级后新增、失效的字段 */
@@ -2775,7 +2775,7 @@ registerRemoteAllowRoutes(http, { adminGuard, lastAllowDiff });
 registerSopSpaceRoutes(http, { getApp, adminHeaderOk, bad, appsRoot, parseSopManifest });
 
 registerBindingRoutes(http, { adminGuard, getApp });
-registerA2aPeerRoutes(http, { adminGuard, adminActor }); // 对端登记表：只给管理员
+registerA2aPeerRoutes(http, { adminGuard, adminActor, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined) }); // 对端登记表：只给管理员
 registerA2aOutboundRoutes(http, {
   adminGuard,
   state: () => {
@@ -2845,17 +2845,19 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       const S = svc<SkillService>('skill');
       const row = S.skillBySlug(String(args?.slug ?? ''));
       if (!row) return { error: `skill not found: ${args?.slug}` };
-      // #94 S0⑤（K8）：MCP 面同规则——snapshot_path 相对化
+      // 快照路径是服务端的内部文件路径，只给管理员；MCP 会话是代理、不是管理员，一律不带（摘要 tree_digest 照给，核对完整性用）
       const vs = S.versionsBySkill(row.id) as any[];
       const activeV = SkillService.currentOf(row, vs)?.version ?? null;
-      return vs.map((v) => ({ ...v, active: v.version === activeV, snapshot_path: v.snapshot_path ? `skill-snapshots/${encodeURIComponent(row.slug)}/v${v.version}` : v.snapshot_path }));
+      return vs.map((v) => { const { snapshot_path: _snap, ...rest } = v; return { ...rest, active: v.version === activeV }; });
     }
     // 技能传输面：一次只传一个文件，不收也不发压缩包
     case 'skill_file_put':
       return skillStagePut(args?.content, args?.encoding, args?.sha256);
-    case 'skill_publish':
-      // 审计人恒为调用会话（不收 agent 自报的 reviewed_by）
-      return skillPublishCore(args?.slug, args?.files, args?.changelog, subject, { refsOnly: true });
+    case 'skill_publish': {
+      // 审计人恒为调用会话（不收 agent 自报的 reviewed_by）；快照路径只给管理员，MCP 会话的应答里不带（REST 发布要管理口令，照旧带）
+      const { snapshot_path: _snap, ...published } = await skillPublishCore(args?.slug, args?.files, args?.changelog, subject, { refsOnly: true });
+      return published;
+    }
     case 'skill_download':
       return skillDownloadIssue(resolveMcpSkillSlug(args?.slug), args?.version, subject, origin);
     case 'skill_read':
@@ -2868,10 +2870,11 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       if (vs.length === 0) return { error: `无版本：${args?.slug}` };
       const target = typeof args?.version === 'number' ? vs.find((v) => v.version === args.version) : SkillService.currentOf(row, vs); // 缺省当前版本
       if (!target) return { error: `版本不存在：v${args?.version}` };
+      // 快照路径是服务端的内部文件路径，只给管理员；MCP 会话是代理、不是管理员，不带。安装提示指向导出包地址
       return {
-        slug: row.slug, version: target.version, tree_digest: target.tree_digest, snapshot_path: `skill-snapshots/${encodeURIComponent(row.slug)}/v${target.version}`, // K8 相对化
+        slug: row.slug, version: target.version, tree_digest: target.tree_digest,
         expected_sha256: target.tree_digest,
-        install_hint: `薄分发（手工落盘）：复制 skill-snapshots/${encodeURIComponent(row.slug)}/v${target.version} → 目标技能目录；以 expected_sha256 钉装校验`,
+        install_hint: '薄分发（手工落盘）：从 export_url 取这一版的导出包（tar），解到目标技能目录；以 expected_sha256 钉装校验',
         export_url: `/api/skills/${encodeURIComponent(row.slug)}/export?version=${target.version}`, // #94 S3②：导出包面（薄分发）
       };
     }
@@ -3305,10 +3308,12 @@ const MCP_ACCESS_TOOLS: ReadonlySet<string> = new Set(['access_info', 'access_re
 const MCP_SCOPED_TOOLS: ReadonlySet<string> = new Set(['workbench_vars_get', 'workbench_vars_set', 'app_data_list', 'app_files_list']);
 /** 按 slug 限定到台的工具：授权里的台 id 对的是这个自产台的市场卡片 */
 const MCP_APP_SCOPED_TOOLS: ReadonlySet<string> = new Set(['app_data_list', 'app_files_list']);
-/** 一次调用落在哪张台上：按 slug 的取自产台卡片的编号（没登记卡片的台为 null，只有全局授权能读），其余按 id 参数 */
+/** 一次调用落在哪张台上：按 slug 的取自产台卡片的编号（没登记卡片的台为 null，只有全局授权能读），其余按 id 参数。
+ *  id 和工具自己同一口径（workbenchIdOf：十进制正整数、不带前导零）；写法不对的不算任何一张台（null，按台外拒绝）——
+ *  不能像 Number() 那样把 '0x2'、'02'、'2.0' 认成台 2 */
 function mcpScopeTarget(toolName: string, args: any): number | null {
   if (MCP_APP_SCOPED_TOOLS.has(toolName)) return wmWorkbenchIdFor(`/apps/${String(args?.slug ?? '')}/`);
-  return Number(args?.id);
+  try { return workbenchIdOf(args?.id); } catch { return null; }
 }
 /** 会话能不能对这个台用这个工具（MCP 内嵌 REST 的下载不走工具分发，在这里核） */
 function mcpToolAllowsApp(sess: McpSess | null, toolName: string, slug: string): boolean {
@@ -3542,7 +3547,7 @@ async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, 
     }
   }
   const scope = mcpToolScope(sess, toolName);
-  // 限定到台的授权在分发前核对：按 id 参数（与工具自身同样 Number(args.id) 解析），读台数据和附件的按 slug 找卡片；台外按未授权处理并记审计
+  // 限定到台的授权在分发前核对：按 id 参数（与工具自身同样用 workbenchIdOf 解析，写法不对的算台外），读台数据和附件的按 slug 找卡片；台外按未授权处理并记审计
   const target = scope !== null && scope !== 'all' ? mcpScopeTarget(toolName, args) : null;
   if (scope === null || (scope !== 'all' && (target === null || !scope.has(target)))) {
     mcpAudit(sess, channel, 'tools/call', toolName, false, scope === null ? 'not granted' : 'not granted: workbench scope', Date.now() - t0, args);

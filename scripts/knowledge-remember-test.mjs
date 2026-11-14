@@ -39,6 +39,8 @@ let pass = 0, fail = 0;
 const check = (ok, label, detail = '') => { if (ok) pass++; else fail++; console.log(`  ${ok ? '✓' : '✗'} ${label}${ok || !detail ? '' : `（${detail}）`}`); };
 const show = (v) => JSON.stringify(v);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// 测试自己开的库连接都带忙等：服务端同时在写，不等就会偶发 database is locked
+const BUSY_MS = 10_000;
 const freePort = () => new Promise((ok) => { const s = createServer(); s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => ok(port)); }); });
 
 rmSync(OUT, { recursive: true, force: true });
@@ -81,7 +83,7 @@ try {
   if (!m) throw new Error(`造数据失败：${seed.stderr.slice(-800)}`);
   const I = JSON.parse(m[1]);
   {
-    const db = new DatabaseSync(join(data, 'workbench-market.db'));
+    const db = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: BUSY_MS });
     const now = Date.now();
     // 名册存在 a2a_roster_nodes / a2a_roster_node_seats（以根地址和完整指纹为键）；指纹和下面对端登记的一致（合成的，节点号补零到 64 位）
     const FP = 'sha256:' + (HOST + '0'.repeat(64)).slice(0, 64);
@@ -133,7 +135,7 @@ try {
   const answer = (h, id, remember) => call('POST', '/api/attention/answer', h, { source: 'work-items', source_id: id, answer: 'release', ...(remember !== undefined ? { remember } : {}) });
   const later = (h, body) => call('POST', '/api/knowledge/remember', h, { source: 'work-items', ...body });
   const kbList = async (h) => ((await call('GET', '/api/knowledge?kind=kb', h)).body?.items ?? []);
-  const released = (id) => { const d = new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true }); try { return Number(d.prepare("SELECT COUNT(*) AS n FROM work_item_log WHERE item_id = ? AND fact = 'release'").get(id).n); } finally { d.close(); } };
+  const released = (id) => { const d = new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true, timeout: BUSY_MS }); try { return Number(d.prepare("SELECT COUNT(*) AS n FROM work_item_log WHERE item_id = ? AND fact = 'release'").get(id).n); } finally { d.close(); } };
   const status = async () => (await call('GET', '/api/knowledge/status', { 'x-admin-token': ADMIN_TOKEN })).body?.writes;
   const lastNote = () => { const f = JSON.parse(readFileSync(FX, 'utf8')); const n = f.items.note.at(-1); return n ? { ...n, body: f.bodies[`note:${n.id}`]?.body } : null; };
 

@@ -392,7 +392,7 @@ jobs:
       - name: 表结构探查函数（数据库规划第 0 步：迁移里查表、列、索引在不在只经 db.ts 的几个函数；名字不是小写标识符一律抛错不碰库；列名与直接查表结构逐个相同）
         run: node --disable-warning=ExperimentalWarning scripts/db-schema-probe-test.mjs
       - name: 对外断开（WM_OUTBOUND=off：假网络记账，进程层 17 种出站办法一律在发出前被拦、实例层各触发点走一遍假网络收到 0 个连接、投递与回执保持 pending 不判死、自检与健康检查看得见；对照组不开开关必须收到连接；非法值拒绝启动）
-        run: node scripts/outbound-off-test.mjs && node scripts/bench-outbound-off-test.mjs && node scripts/bench-views-entry-test.mjs && node scripts/bench-mcp-test.mjs && node scripts/bench-views-dept-test.mjs && node scripts/knowledge-test.mjs && node scripts/knowledge-lifecycle-test.mjs && node scripts/knowledge-remember-test.mjs && node scripts/knowledge-visibility-test.mjs
+        run: node scripts/outbound-off-test.mjs && node scripts/bench-outbound-off-test.mjs && node scripts/bench-views-entry-test.mjs && node scripts/bench-mcp-test.mjs && node scripts/bench-views-dept-test.mjs && node scripts/knowledge-test.mjs && node scripts/knowledge-lifecycle-test.mjs && node scripts/knowledge-remember-test.mjs && node scripts/attention-via-ledger-test.mjs && node scripts/answer-text-test.mjs && node scripts/knowledge-visibility-test.mjs
       - name: HTTP 服务单测（经服务注册与直接注册的路由栈逐行相同·注册可撤销·同一路径只撤一条·随插件卸载·撤销时在途请求不受影响）
         run: node scripts/http-service-test.mjs
       - name: 周期定时器随上下文停（index.ts 之外带周期定时器的模块起来之后都在跑；卸载根上下文之后一个不剩；把 unref 换成空操作，子进程照样自己退出）
@@ -504,6 +504,8 @@ jobs:
         run: node scripts/login-gate-rollout-check.mjs
       - name: MCP 权限可见与自助申请（access_info 全目录·access_request 去重限频·管理员批准并集/驳回不动 grants/吊销不能批·app_data_submit 与 REST 同核契约校验·匿名 401）
         run: node scripts/mcp-access-smoke.mjs && node scripts/mcp-grant-scope-smoke.mjs && node scripts/mcp-newcomer-test.mjs
+      - name: 技能版本链的快照路径只给管理员（远程匿名、本机页面、MCP 会话都拿不到；管理口令、本机命令行拿得到；摘要照给）
+        run: node scripts/skill-versions-path-test.mjs
       - name: MCP 内嵌 REST / OpenAPI（文件：99MB 流式上传 sha256 一致·Range/ETag 下载·415·403/401；资源：列文件/读数据/SOP 附件；工具映射与 /mcp 同链·审计 channel=rest·匿名 5MB 413）
         run: node scripts/mcp-rest-smoke.mjs && node scripts/mcp-rest-smoke.mjs --login-gate
       - name: 台数据与附件的读守卫（台令牌、管理员或本机命令行；匿名、跨站、员工、别台令牌、换过的令牌一律 403 且先于查台；查看凭证只认下载；告警模式；MCP 按台授权）
@@ -552,10 +554,16 @@ jobs:
         run: node scripts/access-ui-unit.mjs
       - name: 「经验库」页单测（纯数据——四类的先后和说法、认不出的类别不露代号；单列一步）
         run: node scripts/knowledge-ui-unit.mjs
+      - name: 「记成经验」单测（纯函数——缺省档不落全公司·要交什么·能不能交·办完的说法·我处理过的·拍板人；单列一步）
+        run: node scripts/remember-ui-unit.mjs
+      - name: 答法按钮的说法单测（「关注」各来源的答法都有中文说法、不露代号——从服务端来源读答法；单列一步）
+        run: node scripts/answer-label-unit.mjs
       - name: 驾驶舱左栏紧凑行单测（纯函数——一条的键、标签怎么说、选中的那条还在不在；单列一步）
         run: node scripts/cockpit-attention-unit.mjs
       - name: 嵌台防护单测（纯函数——登记的地址指不指向市场自己、框里是不是市场自己的页面；单列一步）
         run: node scripts/embed-guard-unit.mjs
+      - name: 事项的期限和附件单测（纯函数——字段没到不画、链接只认本站 /api/、大小怎么说；单列一步）
+        run: node scripts/work-item-extras-unit.mjs
       - name: 「团队」页单测（纯函数——团队状态、负责人、成员归谁用、计数、空和读不到的说法、建部门校验；单列一步）
         run: node scripts/team-ui-unit.mjs
       - name: 身份服务连不上单测（纯函数——认法只认 502 加这个代号·退避重试·连上后清状态并重读·全景的总结句；单列一步）

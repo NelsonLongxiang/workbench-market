@@ -42,7 +42,11 @@ function itemOf(source: string, sourceId: string): WorkItemRow | undefined {
   return undefined;
 }
 
-/** 这件事所在团队的部门（事项、席位提问对到的团队，团队认领了的那个部门）；推不出、对到好几个部门都是 null */
+/**
+ * 这件事所在团队的部门（事项、席位提问对到的团队，团队认领了的那个部门）；推不出、对到好几个部门都是 null。
+ * 部门号要对得到一个现存的部门（有记录、有名字）：映射指着的部门已经删了、取不到名字的也是 null——
+ * 缺省范围和写入都落「只给管理层」，不会按一个不存在的部门写，更不会落到全公司
+ */
 function departmentOf(source: string, sourceId: string): string | null {
   const item = itemOf(source, sourceId);
   if (!item) return null;
@@ -51,7 +55,9 @@ function departmentOf(source: string, sourceId: string): string | null {
     const reg = svc<TeamService>('teams').registration(k);
     if (reg?.claimed && reg.department_id && svc<TeamService>('teams').status(k) !== 'unclaimed') depts.add(reg.department_id);
   }
-  return depts.size === 1 ? [...depts][0] : null;
+  if (depts.size !== 1) return null;
+  const d = [...depts][0];
+  return svc<DepartmentService>('departments').get(d)?.name ? d : null;
 }
 
 const SCOPE_LABEL = (scope: string): string => (scope === '*' ? '全公司' : scope === 'restricted' ? '只给管理层' : '部门');
@@ -72,8 +78,14 @@ const answerersOf = (id: string): string[] => {
   return [id, ...(provider ? svc<PrincipalService>('principals').externalIdsOf(id, provider).map((login) => `odoo:${login}`) : [])];
 };
 
-/** 答法给人看的说法（「关注」各来源的答法）；没列的原样 */
-const ANSWER_TEXT: Record<string, string> = { release: '放行', withdraw: '撤回', verify: '验收', return: '退回', approve: '批准', reject: '驳回', answer: '答复', bind: '对接' };
+/**
+ * 答法给人看的说法：「关注」各来源的全部答法（答复入口的转发表、直接实现的，和条目自带的 answer_via 答法），和卡片按钮上的说法一致。
+ * 新加答法要在这里补一句，scripts/answer-text-test.mjs 会核对；没列的原样给代号
+ */
+export const ANSWER_TEXT: Record<string, string> = {
+  release: '放行', withdraw: '撤回', verify: '验收', return: '退回', approve: '批准', reject: '驳回', answer: '答复', bind: '对接',
+  finish: '验收通过', 'confirm-key': '确认新公钥', disable: '停用这个对端',
+};
 /** 账上的键去掉「:那一轮」「@出现序号」的后缀，得到条目的 id（和「关注」里的 source_id 同一个） */
 function baseIdOf(source: string, key: string): string {
   if (source === 'principal-pending') { const at = key.lastIndexOf('@'); return at > 0 ? key.slice(0, at) : key; }
@@ -104,7 +116,7 @@ export function recentAnswers(actor: JudgedActor): { source: string; source_id: 
 export function defaultVisibility(source: string, sourceId: string): { default_visibility: 'department' | 'restricted'; department_name: string | null } {
   const d = departmentOf(source, sourceId);
   if (!d) return { default_visibility: 'restricted', department_name: null };
-  return { default_visibility: 'department', department_name: svc<DepartmentService>('departments').get(d)?.name ?? null };
+  return { default_visibility: 'department', department_name: svc<DepartmentService>('departments').get(d)!.name };
 }
 
 export async function rememberAnswer(actor: JudgedActor, req: RememberRequest, fallbackCue = ''): Promise<RememberResult> {
