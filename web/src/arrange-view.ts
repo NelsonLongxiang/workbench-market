@@ -2,8 +2,8 @@
  *  接口：GET /api/work-items/teams（可派的团队）、POST /api/work-items（建一件事，#577）。 */
 
 export type Team = { team: string; name: string };
-/** attachments：已经传上去的附件的 id（PUT /api/work-items/attachments/<名字> 回的），安排时一起带上 */
-export type ArrangeForm = { title: string; intent: string; deliverable: string; team: string; object: string; phase: string; review: boolean; due: string; attachments: string[] };
+/** attachments：已经传上去的附件的 id（PUT /api/work-items/attachments/<名字> 回的正整数，#733），安排时一起带上 */
+export type ArrangeForm = { title: string; intent: string; deliverable: string; team: string; object: string; phase: string; review: boolean; due: string; attachments: number[] };
 export const EMPTY_FORM: ArrangeForm = { title: '', intent: '', deliverable: '', team: '', object: '', phase: '', review: true, due: '', attachments: [] };
 export const LIMITS = { title: 200, intent: 4000, deliverable: 2000, object: 200, phase: 200 } as const;
 

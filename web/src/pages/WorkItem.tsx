@@ -29,7 +29,9 @@ import { actorLabel, seatLabel, askerLabel, textOf, who, PROGRESS_STATE, TERMINA
 type Item = { id: string; title: string; state: string; created_by: string; creator_principal?: string | null; created_at: string; updated_at: string; source_kind: string; source_ref: string; target_team: string; seat: string; eval: string; eval_reason: string; progress_summary: string; receipt_outcome: string; object: string; phase: string; open_asks: string; outputs: string; evidence: string };
 
 type SeatMessage = { id: number; sender: string; peer: string; text: string; truncated: boolean; at: string; status: 'unread' | 'read' | 'replied' | 'over-cap' };
-type Data = { item: Item; log: LogRow[]; messages?: SeatMessage[]; unread?: number; progress?: SeatProgress | null; asks?: SeatAsk[]; subitems?: unknown; can?: unknown; turn?: unknown; creator?: unknown };
+type Data = { item: Item; log: LogRow[]; messages?: SeatMessage[]; unread?: number; progress?: SeatProgress | null; asks?: SeatAsk[]; subitems?: unknown; can?: unknown; turn?: unknown; creator?: unknown;
+  /** #733：期限、过期、附件在最外层，和 item 平级（旧服务端没有这几个键） */
+  due?: string | null; overdue?: boolean; attachments?: unknown };
 const MSG_STATUS: Record<SeatMessage['status'], { label: string; color: string }> = {
   unread: { label: '未读', color: 'blue' }, read: { label: '看过', color: 'default' }, replied: { label: '已回复', color: 'green' }, 'over-cap': { label: '超出上限', color: 'default' },
 };
@@ -288,8 +290,9 @@ export default function WorkItem() {
                 { key: 'obj', label: '哪条线 / 哪一步', children: [lineName(item.object, names), stageName(item.phase, names)].filter(Boolean).join(' / ') || '—' },
                 { key: 'eval', label: '接单判断', children: item.eval ? `${VERDICT[item.eval] ?? item.eval}${item.eval_reason ? `（${item.eval_reason}）` : ''}` : '—' },
                 { key: 'at', label: '最近变化', children: <RelTime value={item.updated_at} /> },
-                // 期限：服务端给了这个字段才显示（旧服务端没有这个键，不写「不限」，可能其实有期限）；建立人、事项没结束时能改
-                ...(hasDueField(data?.item) || dueOf(item) ? [{ key: 'due', label: '期限', children: <DueLine itemId={item.id} due={dueOf(item)} overdue={overdueOf(data?.item)}
+                // 期限：服务端给了这个字段才显示（旧服务端没有这个键，不写「不限」，可能其实有期限）；建立人、事项没结束时能改。
+                // due / overdue / attachments 在详情应答的最外层，和 item 平级（#733），不在 item 里面
+                ...(hasDueField(data) || dueOf(data) ? [{ key: 'due', label: '期限', children: <DueLine itemId={item.id} due={dueOf(data)} overdue={overdueOf(data)}
                   editable={dueEditable(data)} onSaved={() => void load()} /> }] : []),
               ]} />
             </Flex>
@@ -343,8 +346,8 @@ export default function WorkItem() {
           </Card>
           </SectionBoundary>
           <SectionBoundary name="附件">
-          {attachmentsOf(item).length > 0 && <Card size="small" title={`附件 ${attachmentsOf(item).length}`} data-testid="work-item-attachments">
-            <List size="small" dataSource={attachmentsOf(item)} rowKey={(a) => a.url} renderItem={(a) => (
+          {attachmentsOf(data).length > 0 && <Card size="small" title={`附件 ${attachmentsOf(data).length}`} data-testid="work-item-attachments">
+            <List size="small" dataSource={attachmentsOf(data)} rowKey={(a) => a.url} renderItem={(a) => (
               <List.Item extra={<Typography.Text type="secondary" className="wm-num">{sizeLabel(a.size)}</Typography.Text>}>
                 <Typography.Link href={a.url} download={a.name} ellipsis>{a.name}</Typography.Link>
               </List.Item>

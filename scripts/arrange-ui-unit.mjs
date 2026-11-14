@@ -41,7 +41,7 @@ ok('读团队：没上线（旧路由答 400 或 404）、未登录、无权限�
 
 {
   const good2 = { ...EMPTY_FORM, title: 't', intent: 'i', deliverable: 'd', team: 'x/canvas/y' };
-  ok('附件：传上的 id 安排时带 attachments；没有就不带这个键', JSON.stringify(buildBody({ ...good2, attachments: ['a1', 'a2'] }, 'k'.repeat(20)).attachments) === '["a1","a2"]' && !('attachments' in buildBody(good2, 'k'.repeat(20))));
+  ok('附件：传上的 id 安排时带 attachments；没有就不带这个键', JSON.stringify(buildBody({ ...good2, attachments: [11, 12] }, 'k'.repeat(20)).attachments) === '[11,12]' && !('attachments' in buildBody(good2, 'k'.repeat(20))));
   ok('附件不对（attachments_invalid）有说法', errorText(400, { error: 'attachments_invalid' }).includes('附件'));
 }
 

@@ -8,7 +8,7 @@ import './attachments.css';
 import { Alert, App, Button, DatePicker, Drawer, Empty, Form, Input, Select, Skeleton, Switch, Typography, Upload } from 'antd';
 import { CheckCircleFilled, CloseOutlined, LoadingOutlined, PaperClipOutlined } from '@ant-design/icons';
 import { getAssignableTeams, postWorkItem, uploadArrangeAttachment } from '../api';
-import { ATTACH_MAX_FILES, attachProblem, sizeLabel, uploadErrorText } from '../work-item-extras';
+import { ATTACH_MAX_FILES, attachProblem, sizeLabel, uploadedId, uploadErrorText } from '../work-item-extras';
 import { EMPTY_FORM, LIMITS, buildBody, errorText, keyFor, resultText, teamOption, teamsBlockedText, validate, type ArrangeForm, type Created, type Team } from '../arrange-view';
 
 export type LineOption = { id: string; label: string };
@@ -27,7 +27,7 @@ export default function ArrangeDrawer({ open, onClose, lines = [], stages = [], 
   const [busy, setBusy] = useState(false);
   const attempt = useRef<{ body: string; key: string } | null>(null);
   /** 选了的附件：正在传 / 传上了（有 id）/ 没传上（写原因）。去掉一个只是不带它，服务端 24 小时后自己清掉没挂出去的 */
-  type Up = { uid: string; name: string; size: number; state: 'uploading' | 'done' | 'error'; id?: string; error?: string };
+  type Up = { uid: string; name: string; size: number; state: 'uploading' | 'done' | 'error'; id?: number; error?: string };
   const [ups, setUps] = useState<Up[]>([]);
   const kept = ups.filter((u) => u.state !== 'error');
   const pickFile = async (file: File) => {
@@ -41,7 +41,7 @@ export default function ArrangeDrawer({ open, onClose, lines = [], stages = [], 
       sha = [...new Uint8Array(d)].map((n) => n.toString(16).padStart(2, '0')).join('');
     } catch { sha = ''; }
     const r = await uploadArrangeAttachment(file, sha);
-    const id = r.body && typeof r.body.id === 'string' ? r.body.id : '';
+    const id = uploadedId(r.body);
     setUps((x) => x.map((u) => (u.uid !== uid ? u : (r.status === 201 || r.status === 200) && id
       ? { ...u, state: 'done', id }
       : { ...u, state: 'error', error: uploadErrorText(r.status, typeof r.body?.error === 'string' ? r.body.error : undefined) })));

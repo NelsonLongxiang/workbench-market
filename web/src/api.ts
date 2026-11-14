@@ -276,8 +276,9 @@ export async function uploadArrangeAttachment(file: File, sha256: string): Promi
   try {
     const r = await fetch(`/api/work-items/attachments/${encodeURIComponent(file.name)}`, {
       method: 'PUT', credentials: 'same-origin', body: file,
-      // 算不出摘要（不安全的来源里没有 crypto.subtle）就不带核对头，服务端照样收
-      headers: { 'Content-Type': file.type || 'application/octet-stream', ...(sha256 ? { 'X-Content-SHA256': sha256 } : {}), Accept: 'application/json' },
+      // 一律按原始字节发（application/octet-stream）：照文件自己的类型发，.json、表单类的文件会先被服务端的解析器读走，回 415（#733）。
+      // 文件的真实类型服务端自己嗅。算不出摘要（不安全的来源里没有 crypto.subtle）就不带核对头，服务端照样收
+      headers: { 'Content-Type': 'application/octet-stream', ...(sha256 ? { 'X-Content-SHA256': sha256 } : {}), Accept: 'application/json' },
     });
     return { status: r.status, body: await r.json().catch(() => null) as Record<string, unknown> | null };
   } catch { return { status: 0, body: null }; }

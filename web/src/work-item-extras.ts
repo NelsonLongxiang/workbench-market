@@ -1,8 +1,9 @@
 /** 事项的期限和附件（「安排一件事」填的，详情里看的、建立人能改的）：纯函数，不引别的文件，scripts/work-item-extras-unit.mjs 直接测。
- *  接口（阶段七 claude/stage7-arrange-due-attach）：
- *    · 列表每行、详情都带 due（YYYY-MM-DD 或 null）和 overdue（有期限、没到终态、过了那天）；没有 due 这个键的是旧服务端——什么都不画，不写「不限」；
+ *  接口（#733，已在 main）：
+ *    · 列表每行、详情都带 due（YYYY-MM-DD 或 null）和 overdue（有期限、没到终态、过了那天）；详情里这两个和 attachments 在应答最外层、和 item 平级（item 里只有 due_at）；
+ *      没有 due 这个键的是旧服务端——什么都不画，不写「不限」；
  *    · 改期限 POST /api/work-items/<id>/due { due | null }，只有建立人；
- *    · 附件先传 PUT /api/work-items/attachments/<文件名>（原始字节），拿回 id，安排时带 attachments:[id…]（≤5）；
+ *    · 附件先传 PUT /api/work-items/attachments/<文件名>（原始字节），拿回 id（正整数），安排时带 attachments:[id…]（≤5）；
  *      详情 attachments:[{ id, name, size, mime, sha256, url }]，url 是 /api/work-items/<事项>/attachments/<附件>。 */
 
 export type Attachment = { name: string; size: number | null; url: string };
@@ -72,16 +73,23 @@ export function attachProblem(size: number, already: number): string | null {
   if (size === 0) return '这个文件是空的';
   return null;
 }
-/** 传附件没传成时怎么说（状态码 + 服务端的 error 代号） */
+/** 传上去以后服务端回的 id：正整数才认（安排时服务端只收正整数），别的当没传上 */
+export function uploadedId(body: unknown): number | null {
+  const id = body && typeof body === 'object' ? (body as { id?: unknown }).id : undefined;
+  return typeof id === 'number' && Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+/** 传附件没传成时怎么说（状态码 + 服务端的 error 代号，#733） */
 export function uploadErrorText(status: number, code?: string): string {
   if (status === 0) return '连不上服务器，没传上';
   if (status === 401) return '请先登录';
+  if (status === 403) return '你的账号现在不能传附件';
   if (status === 404) return '附件的服务还没上线';
   if (status === 413) return '单个附件不能超过 100 MB';
-  if (status === 415) return '这个文件的类型传不了';
+  if (status === 415) return '没传上，刷新页面后再试';
   if (status === 429) return code === 'attachments_pending_bytes_limit' ? '你还没挂出去的附件太大了（合计不能超过 500 MB），先把这件事安排出去' : '你还没挂出去的附件太多了（最多 20 个），先把这件事安排出去';
-  if (code === 'sha256_mismatch') return '文件在路上出了问题，请重传';
-  if (status === 400) return '这种文件不能传（例如可执行文件）';
+  if (code === 'sha256_mismatch' || code === 'attachment_upload_interrupted' || code === 'x_content_sha256_invalid') return '文件在路上出了问题，请重传';
+  if (code === 'attachment_name_invalid') return '文件名不能用（太长，或者带斜杠），改个名字再传';
+  if (code === 'attachment_executable_refused') return '这种文件不能传（例如可执行文件）';
   return '没传上，稍后再试';
 }
 /** 改期限没改成时怎么说 */

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 事项的期限和附件（web/src/work-item-extras.ts）：字段没到不画、格式不对当没有、链接只认本站 /api/、大小怎么说。 */
-import { attachmentsOf, attachProblem, dueEditable, dueErrorText, dueLabel, dueOf, hasDueField, overdueOf, safeFileUrl, sizeLabel, uploadErrorText, ATTACH_MAX_BYTES } from '../web/src/work-item-extras.ts';
+import { attachmentsOf, attachProblem, uploadedId, dueEditable, dueErrorText, dueLabel, dueOf, hasDueField, overdueOf, safeFileUrl, sizeLabel, uploadErrorText, ATTACH_MAX_BYTES } from '../web/src/work-item-extras.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -26,8 +26,10 @@ ok('大小：B / KB / MB / GB，一位小数；不知道写空', sizeLabel(512) 
 ok('服务端给没给期限字段：有 due 键（哪怕 null）才算给了；过期照服务端的 overdue', hasDueField({ due: null }) && !hasDueField({}) && !hasDueField(null) && overdueOf({ overdue: true }) && !overdueOf({ overdue: 'true' }) && !overdueOf({}));
 ok('详情里服务端给的附件链接 /api/work-items/<事项>/attachments/<附件> 认得', attachmentsOf({ attachments: [{ id: 'a1', name: 'x.pdf', size: 3, mime: 'application/pdf', sha256: 'ab', url: '/api/work-items/wi-1/attachments/a1' }] }).length === 1);
 ok('传之前先挡：超过 5 个、超过 100 MB、空文件', attachProblem(10, 5) === '最多挂 5 个附件' && attachProblem(ATTACH_MAX_BYTES + 1, 0).includes('100 MB') && attachProblem(0, 0) === '这个文件是空的' && attachProblem(ATTACH_MAX_BYTES, 4) === null);
-ok('传附件没传成的说法：413 太大、415 类型、429 两种上限、摘要不符、可执行文件、断网', uploadErrorText(413).includes('100 MB') && uploadErrorText(415).includes('类型') && uploadErrorText(429, 'attachments_pending_bytes_limit').includes('500 MB') && uploadErrorText(429, 'attachments_pending_limit').includes('20 个')
-  && uploadErrorText(400, 'sha256_mismatch').includes('重传') && uploadErrorText(400, 'x').includes('可执行') && uploadErrorText(0).includes('连不上'));
+ok('传附件没传成的说法（照 #733 的代号）：413 太大、429 两种上限、摘要不符 / 传一半断了重传、文件名不能用、可执行文件、账号不能传、断网；认不出的代号不说成「可执行文件」', uploadErrorText(413, 'attachment_too_large').includes('100 MB') && uploadErrorText(429, 'attachments_pending_bytes_limit').includes('500 MB') && uploadErrorText(429, 'attachments_pending_limit').includes('20 个')
+  && uploadErrorText(400, 'sha256_mismatch').includes('重传') && uploadErrorText(400, 'attachment_upload_interrupted').includes('重传') && uploadErrorText(400, 'attachment_name_invalid').includes('文件名') && uploadErrorText(400, 'attachment_executable_refused').includes('可执行')
+  && !uploadErrorText(400, 'x').includes('可执行') && uploadErrorText(403, 'work_items_principal_not_active').includes('账号') && !uploadErrorText(415, 'attachment_raw_body_required').includes('类型') && uploadErrorText(0).includes('连不上'));
+ok('传上以后的 id：正整数才认（安排时服务端只收正整数）；字符串、0、小数、没给都当没传上', uploadedId({ id: 7 }) === 7 && uploadedId({ id: '7' }) === null && uploadedId({ id: 0 }) === null && uploadedId({ id: 1.5 }) === null && uploadedId({}) === null && uploadedId(null) === null);
 ok('改期限没改成的说法：别人改 404、结束了 409、日期不对', dueErrorText(404).includes('建立人') && dueErrorText(409, 'work_item_ended').includes('结束') && dueErrorText(400, 'due_invalid') === '日期不对');
 ok('期限能不能改：只照服务端的 can.due（建立人本人、没到终态；管理员不能代改）；没给 can.due 不给改', dueEditable({ can: { due: true } }) && !dueEditable({ can: { due: false } }) && !dueEditable({ can: {} }) && !dueEditable({ can: { due: 'true' } }) && !dueEditable(null));
 
