@@ -1,0 +1,6 @@
+/* 「安排一件事」里选了的附件那几行（文件名、大小或原因、去掉）。只用 tokens.css 的档位；不往 index.css 里加。 */
+.wm-attach-list { list-style: none; margin: var(--wm-space-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--wm-space-1); }
+.wm-attach-list li { display: flex; align-items: center; gap: var(--wm-space-2); min-width: 0; }
+.wm-attach-name { flex: 1; min-width: 0; }
+.wm-attach-ok { color: var(--wm-color-success); }
+.wm-attach-bad { color: var(--wm-color-danger); }
