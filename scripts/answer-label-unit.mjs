@@ -4,7 +4,7 @@
  *  ② 认不出的答法、「我处理过的」里服务端原样给的代号，也换成中文，不露出来。全是合成值。 */
 import { readFileSync } from 'node:fs';
 import { ANSWER_LABEL, answerLabel, confirmButtonText, looksLikeCode, viaInputLabel } from '../web/src/attention-view.ts';
-import { recentOf } from '../web/src/remember-view.ts';
+import { recentOf, recentTitle } from '../web/src/remember-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -33,6 +33,12 @@ const rec = recentOf({ items: [
 ] });
 ok('「我处理过的」：服务端给的是代号或没给，换成按钮上的说法；给了中文照用', rec[0].answer_text === '确认新公钥' && rec[1].answer_text === '停用这个对端' && rec[2].answer_text === '放行', JSON.stringify(rec.map((r) => r.answer_text)));
 ok('像代号的判断：小写英文、短横线算；中文不算', looksLikeCode('confirm-key') && looksLikeCode('ack') && !looksLikeCode('放行') && !looksLikeCode(''));
+
+// ③ 「我处理过的」里没有标题的条目写来源名：「关注」各来源（从服务端读出来）都要有中文名，不落到「一件事」
+const sources = [...src.matchAll(/source: '([a-z0-9-]+)', label:/g)].map((m) => m[1]);
+const unnamed = sources.filter((s) => recentTitle({ title: null, source: s }) === '一件事' || looksLikeCode(recentTitle({ title: null, source: s })) || recentTitle({ title: null, source: s }).includes(s));
+ok('从服务端读出了「关注」的来源（读法失灵时先红）', sources.length >= 10 && sources.includes('a2a-peers'), sources.join(','));
+ok('「关注」各来源在「我处理过的」里都有中文名（对端公钥那一行没标题时写「对端公钥」）', unnamed.length === 0 && recentTitle({ title: null, source: 'a2a-peers' }) === '对端公钥', unnamed.join(','));
 
 function J(x) { return JSON.stringify(x); }
 console.log(`\nanswer-label-unit: ${pass} 过 / ${fail} 败`);

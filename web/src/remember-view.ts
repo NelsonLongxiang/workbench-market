@@ -98,7 +98,9 @@ export function recentOf(body: unknown): RecentAnswer[] {
   });
 }
 /** 来源名（没有标题的条目用它代替）：认不出的写「一件事」，不露代号 */
-const SOURCE_NAME: Record<string, string> = { 'work-items': '事项', 'change-requests': '变更申请', 'mcp-access': 'AI 会话申请工具', 'seat-asks': 'AI 员工的提问', 'relation-proposals': '关系的提议', 'principal-pending': '外部账号对接', 'grant-requests': '授予申请', 'workbench-events': '工作台的事件', 'owner-pending': '待属主看' };
+const SOURCE_NAME: Record<string, string> = { 'work-items': '事项', 'change-requests': '变更申请', 'mcp-access': 'AI 会话申请工具', 'seat-asks': 'AI 员工的提问', 'relation-proposals': '关系的提议', 'principal-pending': '外部账号对接', 'grant-requests': '授予申请', 'workbench-events': '工作台的事件', 'owner-pending': '待属主看',
+  'a2a-peers': '对端公钥', 'bench-mcp': '台的 MCP 授予申请', 'sop-runs': '派单执行的验收', 'reply-rejected': '节点没收下的答复', 'tasks': '任务中心收件',
+  'team-health': '团队与名册', 'team-binding': '团队归属', 'work-items-stuck': '停太久的事项' };
 export const recentTitle = (r: Pick<RecentAnswer, 'title' | 'source'>): string => r.title ?? SOURCE_NAME[r.source] ?? '一件事';
 /** 记没记过：已记成经验 / 稍后会自动重试 / 没记上；null 是还没记 */
 export function rememberedLabel(s: RememberStatus | null): { text: string; tone: 'success' | 'warning' | 'error' } | null {
