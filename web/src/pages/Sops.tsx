@@ -359,7 +359,7 @@ export default function Sops() {
             { title: '方向', dataIndex: 'direction', width: 80, render: (v: string) => v === 'admits' ? '入站准入' : v === 'notify' ? '出站推送' : '双向' },
           { title: '模式', dataIndex: 'mode', width: 70 },
             { title: 'Key', dataIndex: 'remote_api_key', width: 70, render: (v: string) => (v ? <Tag>已存（掩码）</Tag> : <Typography.Text type="secondary">-</Typography.Text>) },
-            { title: '状态', dataIndex: 'revoked_at', width: 80, render: (v: string) => (v ? <Tag color="red">已撤销</Tag> : <Tag color="green">有效</Tag>) },
+            { title: '状态', dataIndex: 'revoked_at', width: 80, render: (v: string) => (v ? <Tag color="error">已撤销</Tag> : <Tag color="success">有效</Tag>) },
             {
               title: '操作', width: 80,
               render: (_: unknown, r: { id: number; revoked_at: string }) =>

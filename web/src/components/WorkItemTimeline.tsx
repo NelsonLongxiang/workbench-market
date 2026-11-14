@@ -7,8 +7,8 @@ import { VIEWER_NONE, askIdOf, groupTimeline, stateLabel, timelineLabel, type Vi
 
 /** 状态的颜色和中性叫法（不带「你」；列表页也用它）。详情页按看的人能做什么另取叫法：stateLabel */
 const STATE_COLOR: Record<string, string> = {
-  draft: 'default', held: 'default', delivered: 'blue', accepted: 'cyan', progress: 'geekblue', waiting: 'orange',
-  blocked: 'gold', ready: 'green', done: 'success', failed: 'error', dropped: 'default', cancelled: 'default',
+  draft: 'default', held: 'default', delivered: 'blue', accepted: 'cyan', progress: 'geekblue', waiting: 'warning',
+  blocked: 'warning', ready: 'success', done: 'success', failed: 'error', dropped: 'default', cancelled: 'default',
 };
 export const STATE: Record<string, { label: string; color: string }> = Object.fromEntries(Object.entries(STATE_COLOR).map(([k, color]) => [k, { label: stateLabel(k), color }]));
 

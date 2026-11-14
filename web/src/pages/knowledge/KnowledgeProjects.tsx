@@ -62,7 +62,7 @@ export default function KnowledgeProjects() {
                 <Select<string> className="wm-w-full" data-testid="kp-select" aria-label={`「${p.project}」对应的部门`}
                   value={p.department_missing ? undefined : p.department?.id ?? CLEAR} placeholder="选一个部门"
                   options={options} loading={saving === p.project} disabled={saving !== null} onChange={(v) => void change(p, v)} />
-                {t.warn && <Tag color="orange" data-testid="kp-missing">{t.text}</Tag>}
+                {t.warn && <Tag color="warning" data-testid="kp-missing">{t.text}</Tag>}
               </Space>;
             } },
             { title: '条目', dataIndex: 'items', width: 80, align: 'right', render: (n: number) => <span className="wm-num">{n}</span> },

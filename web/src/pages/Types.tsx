@@ -60,7 +60,7 @@ export default function Types() {
           <Typography.Text code className="wm-num">
             {t.health_path}
           </Typography.Text>
-          <Tag color={t.expect_status == null ? 'default' : 'green'}>
+          <Tag color={t.expect_status == null ? 'default' : 'processing'}>
             {t.expect_status == null ? '任意响应即在线' : `期望 ${t.expect_status}`}
           </Tag>
         </Space>

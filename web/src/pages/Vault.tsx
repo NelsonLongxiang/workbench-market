@@ -179,7 +179,7 @@ function UnlockedView({ status, onLocked, onError }: { status: VaultStatus; onLo
     { title: '账号', key: 'who', width: 160, render: (_, r) => r.username || r.email || r.phone || r.cardHolder || <Typography.Text type="secondary">—</Typography.Text> },
     { title: '地址', key: 'where', width: 220, ellipsis: true, render: (_, r) => (r.host ? <Typography.Text className="wm-mono">{r.host}{r.port ? `:${r.port}` : ''}</Typography.Text> : r.url ? <Typography.Text className="wm-mono" ellipsis={{ tooltip: r.url }}>{r.url}</Typography.Text> : <Typography.Text type="secondary">—</Typography.Text>) },
     { title: '标签', dataIndex: 'tags', render: (_, r) => (r.tags?.length ? <Space size={2} wrap>{r.tags.map((x) => <Tag key={x}>{x}</Tag>)}</Space> : null) },
-    { title: '2FA', dataIndex: 'hasOtp', width: 64, render: (_, r) => (r.hasOtp ? <Tag color="green">TOTP</Tag> : null) },
+    { title: '2FA', dataIndex: 'hasOtp', width: 64, render: (_, r) => (r.hasOtp ? <Tag color="success">TOTP</Tag> : null) },
     { title: '更新时间', dataIndex: 'updatedAt', width: 120, render: (_, r) => rel(r.updatedAt) },
     {
       title: '操作', key: 'op', width: 110, fixed: 'right',
@@ -289,7 +289,7 @@ function EntryDrawer({ id, onClose, onEdit, onError }: { id: string | null; onCl
     <Drawer open={!!id} onClose={onClose} width={560} title={entry?.title ?? '凭据'} destroyOnClose extra={entry ? <Button icon={<EditOutlined />} onClick={() => onEdit(entry)}>编辑</Button> : null}>
       {!entry ? <Spin /> : (
         <Descriptions column={1} size="small" bordered labelStyle={{ width: 130 }}>
-          <Descriptions.Item label="类型"><Tag color={KIND_COLOR[entry.kind ?? 'login']}>{KIND_LABEL[entry.kind ?? 'login']}</Tag>{entry.sensitivity === 'high' ? <Tag color="red">高敏感</Tag> : null}</Descriptions.Item>
+          <Descriptions.Item label="类型"><Tag color={KIND_COLOR[entry.kind ?? 'login']}>{KIND_LABEL[entry.kind ?? 'login']}</Tag>{entry.sensitivity === 'high' ? <Tag color="error">高敏感</Tag> : null}</Descriptions.Item>
           {entry.otpSecret ? <Descriptions.Item label="动态验证码"><TotpCode id={entry.id} onError={onError} /></Descriptions.Item> : null}
           {fields.map((k) => (
             <Descriptions.Item key={k} label={FIELD_LABEL[k]}>
@@ -447,7 +447,7 @@ function HealthTab({ onError, onOpen }: { onError: (e: unknown) => void; onOpen:
       {list('未启用两步验证', h.no2fa, '有密码但没存 TOTP')}
       {list('不安全网址', h.httpSites, 'http:// 明文站点')}
       <Card size="small" title={`到期 / 待轮换（${h.rotation.length}）`}>
-        {h.rotation.length === 0 ? <Typography.Text type="secondary">无</Typography.Text> : <Space wrap>{h.rotation.map((e) => <Tag key={e.id} color={e.due === 'expired' ? 'red' : e.due === 'due' ? 'orange' : 'gold'} style={{ cursor: 'pointer' }} onClick={() => onOpen(e.id)}>{e.title} · {e.due === 'expired' ? '已过期' : e.due === 'due' ? '该轮换' : `${e.daysLeft} 天内`}</Tag>)}</Space>}
+        {h.rotation.length === 0 ? <Typography.Text type="secondary">无</Typography.Text> : <Space wrap>{h.rotation.map((e) => <Tag key={e.id} color={e.due === 'expired' ? 'error' : e.due === 'due' ? 'warning' : 'processing'} style={{ cursor: 'pointer' }} onClick={() => onOpen(e.id)}>{e.title} · {e.due === 'expired' ? '已过期' : e.due === 'due' ? '该轮换' : `${e.daysLeft} 天内`}</Tag>)}</Space>}
       </Card>
     </Space>
   );

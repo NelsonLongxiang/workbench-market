@@ -350,7 +350,7 @@ export default function Market() {
                   label: '凭据',
                   children: detail.auth ? (
                     <Tooltip title={`类型 ${detail.auth.type}；值仅脱敏展示，经 /go/ 门户访问时自动注入 Authorization 头`}>
-                      <Tag color="gold">
+                      <Tag color="warning">
                         含凭据（{detail.auth.type}：{detail.auth.value.length <= 4 ? '****' : `${detail.auth.value.slice(0, 2)}…${detail.auth.value.slice(-2)}`}）
                       </Tag>
                     </Tooltip>

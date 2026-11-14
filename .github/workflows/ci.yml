@@ -556,6 +556,8 @@ jobs:
         run: node scripts/remember-ui-unit.mjs
       - name: 答法按钮的说法单测（「关注」各来源的答法都有中文说法、不露代号——从服务端来源读答法；单列一步）
         run: node scripts/answer-label-unit.mjs
+      - name: 状态标签不手写预设色（orange / green / red / gold 这类不走主题；类别色白名单放行，每条写理由；单列一步）
+        run: node scripts/tag-status-color-unit.mjs
       - name: 驾驶舱左栏紧凑行单测（纯函数——一条的键、标签怎么说、选中的那条还在不在；单列一步）
         run: node scripts/cockpit-attention-unit.mjs
       - name: 嵌台防护单测（纯函数——登记的地址指不指向市场自己、框里是不是市场自己的页面；单列一步）

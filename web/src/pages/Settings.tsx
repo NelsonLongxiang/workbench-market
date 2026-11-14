@@ -190,8 +190,8 @@ export default function Settings() {
         styles={{ body: { paddingTop: 12 } }}
         extra={tokenState ? (
           tokenState.source === 'env' ? <Tag color="blue">启动环境提供</Tag>
-            : tokenState.source === 'db' ? <Tag color="green">已在页面设置</Tag>
-            : <Tag color="orange">未设置 · 控制面休眠</Tag>
+            : tokenState.source === 'db' ? <Tag color="success">已在页面设置</Tag>
+            : <Tag color="warning">未设置 · 控制面休眠</Tag>
         ) : null}
       >
         <Typography.Paragraph type="secondary" className="wm-caption">
