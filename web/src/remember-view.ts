@@ -3,6 +3,8 @@
  *  经验库条目上的「拍板：名字」（decided_by_name）。只给 /api/auth/me 的 can.remember_knowledge 为真的人（管理层、属主）。
  *  统筹 11-14 定：「谁能看」缺省按服务端推的那一档，「全公司」永远不当缺省（推不出部门时落在「只给管理层」）；经验没记上不拖住答复。 */
 
+import { answerLabel, looksLikeCode } from './attention-view.ts';
+
 export type Visibility = 'department' | 'company' | 'restricted';
 export type RememberDefaults = { default_visibility: 'department' | 'restricted'; department_name: string | null };
 export type RememberStatus = 'written' | 'pending' | 'failed';
@@ -74,6 +76,13 @@ export function rememberLaterResult(status: number, body: unknown): { ok: boolea
   return { ok: false, status: null, text: '没记上，稍后再试' };
 }
 
+/** 「我处理过的」里答的是什么：服务端给的说法；没给或者给的是代号（服务端的表里没有的答法会原样给代号，如 confirm-key），换成卡片按钮上的同一个说法 */
+function answerTextOf(x: Record<string, unknown>): string {
+  const t = typeof x.answer_text === 'string' ? x.answer_text.trim() : '';
+  if (t && !looksLikeCode(t)) return t;
+  const a = typeof x.answer === 'string' ? x.answer : t;
+  return a ? answerLabel(a) : '';
+}
 /** 「我处理过的」一条（GET /api/knowledge/remember/recent） */
 export type RecentAnswer = { source: string; source_id: string; title: string | null; answer_text: string; answered_at: string; remembered: RememberStatus | null; defaults: RememberDefaults };
 export function recentOf(body: unknown): RecentAnswer[] {
@@ -84,7 +93,7 @@ export function recentOf(body: unknown): RecentAnswer[] {
     if (typeof x.source !== 'string' || !x.source || typeof x.source_id !== 'string' || !x.source_id) return [];
     const rem = x.remembered === 'written' || x.remembered === 'pending' || x.remembered === 'failed' ? x.remembered : null;
     return [{ source: x.source, source_id: x.source_id, title: typeof x.title === 'string' && x.title.trim() ? x.title.trim() : null,
-      answer_text: typeof x.answer_text === 'string' ? x.answer_text : '', answered_at: typeof x.answered_at === 'string' ? x.answered_at : '', remembered: rem, defaults: defaultsOf(x) }];
+      answer_text: answerTextOf(x), answered_at: typeof x.answered_at === 'string' ? x.answered_at : '', remembered: rem, defaults: defaultsOf(x) }];
   });
 }
 /** 来源名（没有标题的条目用它代替）：认不出的写「一件事」，不露代号 */
