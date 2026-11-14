@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 事项的期限和附件（web/src/work-item-extras.ts）：字段没到不画、格式不对当没有、链接只认本站 /api/、大小怎么说。 */
-import { listDueTag, attachmentsOf, attachProblem, uploadedId, dueEditable, dueErrorText, dueLabel, dueOf, hasDueField, overdueOf, safeFileUrl, sizeLabel, uploadErrorText, ATTACH_MAX_BYTES } from '../web/src/work-item-extras.ts';
+import { dueSavedText, listDueTag, attachmentsOf, attachProblem, uploadedId, dueEditable, dueErrorText, dueLabel, dueOf, hasDueField, overdueOf, safeFileUrl, sizeLabel, uploadErrorText, ATTACH_MAX_BYTES } from '../web/src/work-item-extras.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -41,5 +41,12 @@ ok('列表的期限标签：不限期 / 旧服务端没给不显示；过期照 
 ok('列表的期限标签：已经结束的只写日期、不提醒；服务端说过期但本地日期还没过（时区差）照样标过期', JSON.stringify(listDueTag({ due: '2026-11-01', overdue: false }, T, true)) === JSON.stringify({ text: '期限 2026-11-01', tone: null })
   && JSON.stringify(listDueTag({ due: '2026-11-14', overdue: true }, T, false)) === JSON.stringify({ text: '2026-11-14 · 已过期', tone: 'error' }));
 ok('列表的期限标签：本地日期已经过了、服务端还没算过期（overdue=false，服务端按 UTC 日期算，北京时间零点到八点之间会这样）照样标「已过期 1 天」，不写「还剩 -1 天」', JSON.stringify(listDueTag({ due: '2026-11-13', overdue: false }, T, false)) === JSON.stringify({ text: '2026-11-13 · 已过期 1 天', tone: 'error' }));
+ok('改期限改成了的说法（#773）：告诉了在办的席位 / 还没派出的派出时带上 / 两个都有合成一句 / 都没有不提同步', dueSavedText('2026-12-01', { notified: 2, pending_release: false }) === '期限改成 2026-12-01，已告诉在办的席位'
+  && dueSavedText('2026-12-01', { notified: 0, pending_release: true }) === '期限改成 2026-12-01，派出时会带上新期限'
+  && dueSavedText('2026-12-01', { notified: 1, pending_release: true }) === '期限改成 2026-12-01；已告诉在办的席位，还没派出的派出时会带上新期限'
+  && dueSavedText('2026-12-01', { notified: 0, pending_release: false }) === '期限改成 2026-12-01');
+ok('清掉期限也照这个规矩说；不再写「已告诉在办的席位」除非 notified>0；pending_release 只认严格的 true、notified 只认正整数；旧服务端（没这两个键）不提同步', dueSavedText(null, { notified: 0, pending_release: true }) === '期限清掉了，派出时按不限期发'
+  && dueSavedText(null, { notified: 3, pending_release: true }) === '期限清掉了；已告诉在办的席位，还没派出的派出时按不限期发' && dueSavedText(null, { notified: 1 }) === '期限清掉了，已告诉在办的席位'
+  && dueSavedText('2026-12-01', { notified: '2', pending_release: 'true' }) === '期限改成 2026-12-01' && dueSavedText('2026-12-01', null) === '期限改成 2026-12-01');
 console.log(`\nwork-item-extras-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

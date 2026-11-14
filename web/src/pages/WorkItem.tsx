@@ -21,7 +21,7 @@ import WorkItemTimeline, { STATE, stateTag } from '../components/WorkItemTimelin
 export { STATE };
 import { choicesFor, routeFor, viewerOf, type Can, seatLine, showProgress, subitemsOf, ticketStateLabel } from '../work-item-view';
 import { teamLabel } from '../people';
-import { attachmentsOf, dueEditable, dueErrorText, dueLabel, dueOf, hasDueField, overdueOf, sizeLabel } from '../work-item-extras';
+import { attachmentsOf, dueEditable, dueErrorText, dueSavedText, dueLabel, dueOf, hasDueField, overdueOf, sizeLabel } from '../work-item-extras';
 import { setWorkItemDue } from '../api';
 import { NO_NAMES, cleanSeatName, lifecycleNames, lineName, rosterNames, stageName, withRoster, type Names } from '../names';
 import { actorLabel, seatLabel, askerLabel, textOf, who, PROGRESS_STATE, TERMINAL, creatorLabel, hiddenInTimeline, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
@@ -197,8 +197,7 @@ function DueLine({ itemId, due, overdue, editable, onSaved }: { itemId: string; 
     setBusy(false);
     if (r.status >= 200 && r.status < 300) {
       setOpen(false);
-      const n = Number(r.body?.notified) || 0;
-      void message.success(v ? `期限改成 ${v}${n ? '，已告诉在办的席位' : ''}` : `期限清掉了${n ? '，已告诉在办的席位' : ''}`);
+      void message.success(dueSavedText(v, r.body));
       onSaved();
     } else void message.error(dueErrorText(r.status, typeof r.body?.error === 'string' ? r.body.error : undefined));
   };

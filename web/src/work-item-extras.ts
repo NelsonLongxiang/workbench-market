@@ -92,6 +92,20 @@ export function uploadErrorText(status: number, code?: string): string {
   if (code === 'attachment_executable_refused') return '这种文件不能传（例如可执行文件）';
   return '没传上，稍后再试';
 }
+/** 改期限改成了怎么说（#773）：notified 是已经告诉了几个在办的席位（已送达、对端此刻能收的）；
+ *  pending_release 为真是还有没派出去的（等放行，或者已放行、排队还没发出），派出时会带上新期限。
+ *  两个都有就合成一句；都没有就不提同步的事。只认 notified 是正整数、pending_release 严格为 true */
+export function dueSavedText(due: string | null, body: unknown): string {
+  const b = body && typeof body === 'object' ? body as { notified?: unknown; pending_release?: unknown } : {};
+  const told = typeof b.notified === 'number' && Number.isInteger(b.notified) && b.notified > 0;
+  const later = b.pending_release === true;
+  const head = due ? `期限改成 ${due}` : '期限清掉了';
+  const atSend = due ? '派出时会带上新期限' : '派出时按不限期发';
+  if (told && later) return `${head}；已告诉在办的席位，还没派出的${atSend}`;
+  if (told) return `${head}，已告诉在办的席位`;
+  if (later) return `${head}，${atSend}`;
+  return head;
+}
 /** 改期限没改成时怎么说 */
 export function dueErrorText(status: number, code?: string): string {
   if (status === 0) return '连不上服务器，没改成';
