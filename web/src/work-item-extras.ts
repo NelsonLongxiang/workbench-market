@@ -92,6 +92,20 @@ export function uploadErrorText(status: number, code?: string): string {
   if (code === 'attachment_executable_refused') return '这种文件不能传（例如可执行文件）';
   return '没传上，稍后再试';
 }
+/** 改期限改成了怎么说（#773）：notified 是已经告诉了几个在办的席位（已送达、对端此刻能收的）；
+ *  pending_release 为真是还有没派出去的（等放行，或者已放行、排队还没发出），派出时会带上新期限。
+ *  两个都有就合成一句；都没有就不提同步的事。只认 notified 是正整数、pending_release 严格为 true */
+export function dueSavedText(due: string | null, body: unknown): string {
+  const b = body && typeof body === 'object' ? body as { notified?: unknown; pending_release?: unknown } : {};
+  const told = typeof b.notified === 'number' && Number.isInteger(b.notified) && b.notified > 0;
+  const later = b.pending_release === true;
+  const head = due ? `期限改成 ${due}` : '期限清掉了';
+  const atSend = due ? '派出时会带上新期限' : '派出时按不限期发';
+  if (told && later) return `${head}；已告诉在办的席位，还没派出的${atSend}`;
+  if (told) return `${head}，已告诉在办的席位`;
+  if (later) return `${head}，${atSend}`;
+  return head;
+}
 /** 改期限没改成时怎么说 */
 export function dueErrorText(status: number, code?: string): string {
   if (status === 0) return '连不上服务器，没改成';
@@ -107,4 +121,20 @@ export function dueErrorText(status: number, code?: string): string {
 export function dueEditable(d: { can?: unknown } | null | undefined): boolean {
   const c = d?.can && typeof d.can === 'object' ? (d.can as Record<string, unknown>).due : undefined;
   return c === true;
+}
+
+/** 期限快到了：还剩几天以内算（含今天） */
+export const DUE_SOON_DAYS = 3;
+/** 事项列表一行上的期限标签：不限期的（没有 due）不显示，返回 null。
+ *  文字是「日期 · 还剩 n 天 / 今天到期 / 已过期 n 天」；颜色只用现有的提醒色：过期（服务端的 overdue，或者本地日期已经过了那天——服务端按 UTC 日期算，北京时间零点到八点会晚几个小时）error，快到了（还剩 ≤ DUE_SOON_DAYS 天、没结束）warning，其余不上色。
+ *  已经结束的事项只写日期：过没过期不再提醒（服务端在终态给 overdue=false）。today 是本地日期 YYYY-MM-DD（页面传进来，测试好钉） */
+export function listDueTag(row: unknown, today: string, ended: boolean): { text: string; tone: 'error' | 'warning' | null } | null {
+  const due = dueOf(row);
+  if (!due) return null;
+  if (ended) return { text: `期限 ${due}`, tone: null };
+  const days = Math.round((Date.parse(`${due}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
+  if (!Number.isFinite(days)) return { text: `期限 ${due}`, tone: null };
+  if (overdueOf(row) || days < 0) return { text: `${due} · 已过期${days < 0 ? ` ${-days} 天` : ''}`, tone: 'error' };
+  if (days === 0) return { text: `${due} · 今天到期`, tone: 'warning' };
+  return { text: `${due} · 还剩 ${days} 天`, tone: days <= DUE_SOON_DAYS ? 'warning' : null };
 }

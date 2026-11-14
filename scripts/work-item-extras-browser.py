@@ -30,11 +30,13 @@ DETAILS = {'1': item(1, due='2099-12-31', overdue=False, attachments=ATT), '2': 
            '4': item(4, due=None, overdue=False), '5': item(5, state='done', due='2026-01-02', overdue=False), '6': item(6, can_due=False, due='2099-12-31', overdue=False)}
 DETAIL = re.compile(r'/api/work-items/wi-syn-(\d+)$')
 due_posts = []
+# 改期限的应答（#773）：notified 是告诉了几个在办的席位，pending_release 是还有没派出去的（等放行或排队）
+DUE_REPLY = {'notified': 1, 'pending_release': False}
 def on_due(route):
     body = json.loads(route.request.post_data or '{}'); due_posts.append(body)
     if DETAIL.search(route.request.url.replace('/due', '')) and route.request.url.endswith('wi-syn-4/due'):
         return route.fulfill(status=404, content_type='application/json', body=json.dumps({'error': 'work_item_not_found'}))
-    route.fulfill(status=200, content_type='application/json', body=json.dumps({'item_id': 'wi-syn-1', 'due': body.get('due'), 'overdue': False, 'notified': 1}))
+    route.fulfill(status=200, content_type='application/json', body=json.dumps({'item_id': 'wi-syn-1', 'due': body.get('due'), 'overdue': False, **DUE_REPLY}))
 
 with sync_playwright() as p:
     b = p.chromium.launch()
@@ -57,8 +59,19 @@ with sync_playwright() as p:
     inp = pg.locator('[data-testid=work-item-due-editor] input'); inp.click(); inp.fill('2099-12-01'); inp.press('Enter'); pg.wait_for_timeout(200)
     pg.locator('[data-testid=work-item-due-save]').click(); pg.wait_for_timeout(500)
     check('保存：发 POST /due { due: 新日期 }，提示里说已告诉在办的席位', due_posts[-1:] == [{'due': '2099-12-01'}] and pg.locator('.ant-message-notice', has_text='已告诉在办的席位').count() >= 1, due_posts)
+    # 等放行（或已放行、排队还没发出）时改：notified 0、pending_release 真——不说「已告诉」，说派出时带上
+    DUE_REPLY.update(notified=0, pending_release=True)
     edit.click(); pg.wait_for_selector('[data-testid=work-item-due-clear]'); pg.locator('[data-testid=work-item-due-clear]').click(); pg.wait_for_timeout(500)
     check('清掉期限：发 { due: null }', due_posts[-1:] == [{'due': None}], due_posts)
+    msgs = pg.locator('.ant-message-notice').all_inner_texts()
+    check('还没派出（pending_release 真、notified 0）：提示「期限清掉了，派出时按不限期发」，不说「已告诉在办的席位」', any(m.strip() == '期限清掉了，派出时按不限期发' for m in msgs) and not any(m.startswith('期限清掉了') and '已告诉' in m for m in msgs), msgs)
+    DUE_REPLY.update(notified=2, pending_release=True)
+    edit.click(); pg.wait_for_selector('[data-testid=work-item-due-editor]')
+    inp = pg.locator('[data-testid=work-item-due-editor] input'); inp.click(); inp.fill('2099-11-30'); inp.press('Enter'); pg.wait_for_timeout(200)
+    pg.locator('[data-testid=work-item-due-save]').click(); pg.wait_for_timeout(500)
+    msgs = pg.locator('.ant-message-notice').all_inner_texts()
+    check('一部分已告诉、一部分还没派出（两个都有）：合成一句说清', any(m.strip() == '期限改成 2099-11-30；已告诉在办的席位，还没派出的派出时会带上新期限' for m in msgs), msgs)
+    DUE_REPLY.update(notified=1, pending_release=False)
     open_item(3)
     check('过期了：照服务端的 overdue 标「已过期」', pg.locator('[data-testid=work-item-overdue]').inner_text().strip() == '已过期')
     open_item(4)

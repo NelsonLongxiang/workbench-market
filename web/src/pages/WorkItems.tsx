@@ -11,7 +11,10 @@ import RelTime from '../components/RelTime';
 import { ATTENTION_CHANGED, api, getAttention, getLifecycleNameSources, getRosterTeams } from '../api';
 import { adminActive, subscribeAdminToken } from '../admin-token';
 import { answerChoices, workItemTurns, type AttentionItem } from '../attention-view';
+import dayjs from 'dayjs';
 import { STATE } from './WorkItem';
+import { listDueTag } from '../work-item-extras';
+import { TERMINAL } from '../work-item-view';
 import { STATE_GROUPS, appendPage, byObject, byState, groupCount, objectName, phaseName, rowLine, rowTime, viewsFor, decideLabel, emptyText, OTHERS_GROUP, othersTurnLabel, splitDecide, avatarChar, lifecycleNames, urlFilter, NO_NAMES, type Names, type View, type ViewKey, type Who, type WorkItemListRow } from '../work-items-view';
 import { rosterNames, seatNameOnly, speakerName } from '../people';
 
@@ -30,8 +33,11 @@ function Row({ r, mode, who, names, turn }: { r: WorkItemListRow; mode: Mode; wh
   const seat = who.seat(r.seat ?? '');
   const st = STATE[r.state];
   const unread = Number(r.unread) || 0;
+  // 期限：不限期的不显示；快到了、过期了用现有的提醒色（warning / error），不新加颜色
+  const due = listDueTag(r, dayjs().format('YYYY-MM-DD'), TERMINAL.includes(r.state));
   return <List.Item data-testid="work-item-row"
     extra={<Space size="middle" align="center">
+      {due ? <Tag color={due.tone ?? 'default'} data-testid="work-item-row-due" data-tone={due.tone ?? ''}>{due.text}</Tag> : null}
       {mode === 'object' && phaseName(r.phase, names) ? <Tag>{phaseName(r.phase, names)}</Tag> : null}
       {turn ? <Tag data-testid="work-item-turn">{turn}</Tag> : <Tag color={st?.color ?? 'default'}>{st?.label ?? r.state}</Tag>}
       <RelTime value={rowTime(r)} />

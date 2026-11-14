@@ -7,6 +7,8 @@ export type WorkItemListRow = {
   updated_at: string;
   /** 未读的席位消息数；服务端还没给时缺省，当 0 */
   unread?: number;
+  /** 期限 YYYY-MM-DD（不限期是 null）和过没过期（#733）；旧服务端没有这两个键 */
+  due?: string | null; overdue?: boolean;
 };
 export type WorkItemListPage = {
   items: WorkItemListRow[]; counts: Record<string, number>; total: number; next_cursor: string | null;
