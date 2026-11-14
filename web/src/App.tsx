@@ -1,6 +1,7 @@
 import { sessionGeneration, subscribeSession } from './session-watch';
 import React from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { retiredRedirect } from './page-paths';
 import Shell from './components/Shell';
 import { KeyOutlined } from '@ant-design/icons';
 import { api } from './api';
@@ -156,7 +157,7 @@ export default function App() {
         <Route path="/settings" element={<Settings />} />
         {/* 数据视图组件的演示页：只在开发时有（合成数据），正式构建里没有这一行，也不进侧栏 */}
         {BenchBlocksDemo ? <Route path="/dev/bench-blocks" element={<React.Suspense fallback={null}><BenchBlocksDemo /></React.Suspense>} /> : null}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to={retiredRedirect(location.pathname) ?? '/'} replace />} />
       </Routes>
     </Shell>
   );

@@ -8,6 +8,7 @@
     名字、层、现在第几版、说明、历次版本（不兼容的标出来）；标识、摘要、快照路径、像标识的审阅人都不写在页面的字上；没有这个技能说没有；/skills 不再是页面。
     合成实例里没有技能：/api/skills 和版本接口用 page.route 截成合成的应答。"""
 import json, re, sys, urllib.request
+from urllib.parse import parse_qs, urlparse
 from playwright.sync_api import sync_playwright
 cfg = json.load(open(sys.argv[1]))
 M, TOK = cfg['base'], cfg['token']
@@ -125,6 +126,8 @@ with sync_playwright() as p:
     card = pg.locator('[data-testid=mkt-card][data-kind=技能]', has_text='合成技能甲').first
     check('技能卡片的「查看」去这个技能自己的页面（不是上一版的技能市场总表）', card.get_attribute('href') == '/market/skill/dsh%3Asyn-skill-a', card.get_attribute('href'))
     card.click(); pg.wait_for_selector('[data-testid=skd-main]'); pg.wait_for_selector('[data-testid=skd-version]')
+    top = pg.locator('.wm-top').first.inner_text() if pg.locator('.wm-top').count() else ''
+    check('技能页的外壳：顶栏是「工作台市场」接技能名（替原来 /skills 页的外壳那条）', '工作台市场' in top and '合成技能甲' in top and pg.locator('[data-testid=wm-side]').count() == 1, top)
     main = pg.locator('[data-testid=skd-main]').inner_text()
     check('技能页：名字、层、现在第几版、说明、族', pg.locator('[data-testid=skd-name]').inner_text() == '合成技能甲' and '开发运维' in main and '现在是第 2 版' in main and '把合成数据整理成表' in main and '合成族' in main, main)
     vers = pg.locator('[data-testid=skd-version]').all_inner_texts()
@@ -134,8 +137,10 @@ with sync_playwright() as p:
     check('技能的标识、摘要、快照路径不写在页面的字上', not any(x in text for x in ('dsh:', 'syn-skill-a', 'sha256', 'feedface', 'skill-snapshots')), text[:120])
     pg.goto(M + '/market/skill/dsh%3Anope'); pg.wait_for_selector('[data-testid=skd-problem]')
     check('没有这个技能：说没有，给回市场的链接', '没有这个技能' in pg.locator('[data-testid=skd-problem]').inner_text() and pg.locator('[data-testid=skd-problem] a', has_text='回到工作台市场').count() == 1)
-    pg.goto(M + '/skills'); pg.wait_for_timeout(800)
-    check('上一版的 /skills 不再是页面：不出那张按层分类的总表', pg.locator('.ant-pro-table').count() == 0 and '五层治理' not in pg.locator('body').inner_text() and pg.locator('.ant-segmented', has_text='业务角色').count() == 0)
+    for old in ('/skills', '/skills?layer=2'):
+        pg.goto(M + old); pg.wait_for_function("() => location.pathname === '/market'"); pg.wait_for_selector('[data-testid=mkt-card][data-kind=技能]')
+        check(f'旧链接 {old}：不落到首页、不白屏，跳到市场的「技能」分类（地址带 k=技能），不出上一版那张按层分类的总表',
+              parse_qs(urlparse(pg.url).query).get('k') == ['技能'] and pg.locator('.ant-pro-table').count() == 0 and '五层治理' not in pg.locator('body').inner_text(), pg.url)
     b.close()
 
 print(f'market-detail-browser: {ok} 过 / {fail} 败')

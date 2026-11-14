@@ -1,7 +1,7 @@
 """#319 列表规则浏览器回归；由 scripts/sider-menu-browser.mjs 起合成实例后调用，参数为配置 JSON 路径。
 （统一待办 /tasks 那一段随页面删了：旧页面删除清单第二批）
 工作台市场 / SOP 列表：状态列固定最左、操作列固定最右、每行直接操作 ≤2（其余在「更多」）、时间为相对时间；
-类型管理：数字列右对齐；技能市场 / MCP 网关：ProTable。"""
+类型管理：数字列右对齐；MCP 网关：ProTable（上一版的技能市场总表 /skills 2026-11-14 删了）。"""
 import json, re, sys, urllib.request
 from playwright.sync_api import sync_playwright
 cfg = json.load(open(sys.argv[1]))

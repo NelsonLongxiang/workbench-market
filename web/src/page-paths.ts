@@ -28,3 +28,13 @@ export function fallbackPlace(source: string): { link: string; text: string } {
   const link = f.link ? pageLink(f.link) : null;
   return { link: link ?? '', text: f.text ?? '' };
 }
+
+/** 删掉的页面，旧链接、书签来了去哪：不落到兜底的首页，跳到现在管这件事的地方。键是旧地址的首段 */
+export const RETIRED_REDIRECTS: Readonly<Record<string, string>> = {
+  skills: '/market?k=技能', // 2026-11-14 上一版的「技能市场」总表删了（属主：demo，没有用于生产）；技能在市场的「技能」分类里，一个技能一页
+};
+/** 一个地址是不是删掉的页面：是就给新去处，不是给 null */
+export function retiredRedirect(pathname: string): string | null {
+  const seg = pathname.replace(/^\/+/, '').split(/[/?#]/)[0];
+  return Object.hasOwn(RETIRED_REDIRECTS, seg) ? RETIRED_REDIRECTS[seg] : null;
+}
