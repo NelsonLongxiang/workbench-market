@@ -550,6 +550,8 @@ jobs:
         run: node scripts/access-ui-unit.mjs
       - name: 「经验库」页单测（纯数据——四类的先后和说法、认不出的类别不露代号；单列一步）
         run: node scripts/knowledge-ui-unit.mjs
+      - name: 「记成经验」单测（纯函数——缺省档不落全公司·要交什么·能不能交·办完的说法·我处理过的·拍板人；单列一步）
+        run: node scripts/remember-ui-unit.mjs
       - name: 驾驶舱左栏紧凑行单测（纯函数——一条的键、标签怎么说、选中的那条还在不在；单列一步）
         run: node scripts/cockpit-attention-unit.mjs
       - name: 嵌台防护单测（纯函数——登记的地址指不指向市场自己、框里是不是市场自己的页面；单列一步）

@@ -24,7 +24,7 @@ def it(key, kind, title, **more):
 MGMT_ONLY = it('k000000000000000000kb02', 'kb', '合成：月底对账只看已到货的', scope='只给管理层')
 ITEMS = [
     it(KEYS['claim'], 'claim', '合成：三家报价里最低的一家交期最稳', status='supported', summary='对比了近三个月的到货记录，最低价那家准时率最高。', tags=['采购', '报价'], scope='采购部'),
-    it(KEYS['kb'], 'kb', '合成：样品检验不过时先退回供应商，不直接换供应商', summary='第一次不过先退回整改，不直接换供应商。', tags=['检验']),
+    it(KEYS['kb'], 'kb', '合成：样品检验不过时先退回供应商，不直接换供应商', summary='第一次不过先退回整改，不直接换供应商。', tags=['检验'], decided_by_name='合成管理层'),
     it(KEYS['verify'], 'verify', '合成：到货数量和订单对得上', status='FAIL', summary='有 2 张单子少了。'),
 ]
 DETAIL = {'item': ITEMS[0], 'body': '## 结论\n\n最低价那家 **准时率最高**。\n\n<script>window.__xss=1</script>\n\n- 近三个月 12 批\n- 11 批准时',
@@ -93,6 +93,7 @@ with sync_playwright() as p:
     first = rows.nth(0).inner_text()
     check('一条一行：类别、标题、状态、谁能看（原样）', rows.count() == 3 and '依据' in first and '三家报价' in first and '有依据支持' in first and '采购部' in first, first)
     check('检查的结论「没通过」；经验没有状态就不写', '没通过' in rows.nth(2).inner_text() and rows.nth(1).locator('[data-testid=kn-item-status]').count() == 0)
+    check('经验条目有拍板人时写「拍板：名字」；没有的（依据、检查）不写', '拍板：合成管理层' in rows.nth(1).inner_text() and rows.nth(1).locator('[data-testid=kn-item-decider]').count() == 1 and rows.nth(0).locator('[data-testid=kn-item-decider]').count() == 0 and rows.nth(2).locator('[data-testid=kn-item-decider]').count() == 0)
     check('条目的摘要照服务端原样写，不加「你拍过板」这类针对看的人的说法（顶上那一句是原型的介绍，不算）', '你拍过板' not in pg.locator('[data-testid=kn-list]').inner_text())
     text = pg.locator('main').inner_text()
     check('条目编号不写在页面的字上（只在地址里）', not any(k in text for k in KEYS.values()))
