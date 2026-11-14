@@ -11,7 +11,7 @@ def check(n, c, x=''):
     if c: ok += 1; print('  ✓', n)
     else: fail += 1; print('  ✗', n, x)
 PAGES = [('/', '全景'), ('/work-items', '事项'), ('/cockpit', '驾驶舱'), ('/team', '团队'), ('/access', '谁能做什么'), ('/market', '工作台市场'), ('/knowledge', '经验库'),
-         ('/attention', '等你拍板'), ('/sops', 'SOP 交付空间'), ('/skills', '技能市场'),
+         ('/attention', '等你拍板'), ('/sops', 'SOP 交付空间'),
          ('/owner-pending', '待属主看板'), ('/mcp-gateways', 'MCP 网关'), ('/vault', '凭据库'), ('/types', '类型管理'), ('/settings', '设置')]
 with sync_playwright() as p:
     b = p.chromium.launch(); pg = b.new_page(viewport={'width': 1440, 'height': 900})
@@ -41,5 +41,13 @@ with sync_playwright() as p:
     pg.locator('.wm-top-crumb a', has_text='驾驶舱').click()
     pg.wait_for_url(M + '/cockpit')
     check('点「驾驶舱」回到列表', pg.evaluate('location.pathname') == '/cockpit')
+    # 技能自己的页面（替原来 /skills 那条外壳断言；上一版的技能市场总表 2026-11-14 删了）：合成实例里没有技能，这页说没有这个技能，外壳照样要对
+    pg.goto(M + '/market/skill/syn-none'); pg.wait_for_selector('.wm-page [data-testid=wm-top]'); pg.wait_for_selector('[data-testid=skd-problem]')
+    top = pg.locator('.wm-page [data-testid=wm-top]').first
+    h = round(top.bounding_box()['height'])
+    crumb = top.inner_text().replace('\n', '').replace(' ', '')
+    old = pg.locator('.ant-page-header, .ant-pro-page-container .ant-breadcrumb').count()
+    over = pg.evaluate("(() => { const b = document.querySelector('.wm-page-body'), m = document.querySelector('.wm-main'); if (!b || !m) return 0; return Math.round(b.getBoundingClientRect().right - m.getBoundingClientRect().right); })()")
+    check('/market/skill/<标识> 顶栏：从「工作台市场」进来 · 高 52 · 无旧面包屑大标题 · 内容区不溢出', crumb.startswith('工作台市场') and h == 52 and old == 0 and over <= 0, (crumb, h, old, over))
     b.close()
 print(f'page-skeleton-browser: {ok} passed / {fail} failed'); sys.exit(1 if fail else 0)

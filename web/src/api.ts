@@ -219,6 +219,7 @@ export const getMarketConnectors = () => marketGet('/api/mcp/upstreams');
 export const getMarketWorkbench = (id: number) => marketGet(`/api/workbenches/${id}`);
 export const getMarketSops = () => marketGet('/api/sops');
 export const getMarketSkills = () => marketGet('/api/skills');
+export const getMarketSkillVersions = (slug: string) => marketGet(`/api/skills/${encodeURIComponent(slug)}/versions`);
 export const getMarketRunningSops = () => marketGet('/api/sop/runs/active');
 
 /** 「谁能做什么」（照原型重做的 /access）：授予、主体、角色、角色矩阵各读各的，返回状态码让页面给说法；核准、不给（撤销待核的授予）也一样。

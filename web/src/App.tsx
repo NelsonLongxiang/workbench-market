@@ -1,12 +1,14 @@
 import { sessionGeneration, subscribeSession } from './session-watch';
 import React from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { retiredRedirect } from './page-paths';
 import Shell from './components/Shell';
 import { KeyOutlined } from '@ant-design/icons';
 import { api } from './api';
 import Market from './pages/Market';
 import MarketHome from './pages/market/Market';
 import WorkbenchDetail from './pages/market/WorkbenchDetail';
+import SkillDetail from './pages/market/SkillDetail';
 import Access from './pages/access/Access';
 import Types from './pages/Types';
 import Settings from './pages/Settings';
@@ -32,7 +34,6 @@ import Team from './pages/team/Team';
 import Home from './pages/Home';
 
 import WorkItems from './pages/WorkItems';
-import SkillsPage from './pages/Skills';
 import ViewerChip from './components/ViewerChip';
 import LoginChip from './components/LoginChip';
 // import.meta.hot 只在 vite dev 时有；正式构建里它是 undefined，这一行连同演示页整个被摇掉
@@ -141,6 +142,7 @@ export default function App() {
         <Route path="/market" element={<MarketHome />} />
         <Route path="/market/manage" element={<Market />} />
         <Route path="/market/wb/:id" element={<WorkbenchDetail />} />
+        <Route path="/market/skill/:slug" element={<SkillDetail />} />
         <Route path="/sops" element={<Sops />} />
         <Route path="/sops/:slug" element={<SopSpace />} />
         <Route path="/sops/:slug/runs/:id" element={<SopRunDetail />} />
@@ -152,11 +154,10 @@ export default function App() {
         <Route path="/mcp-gateways" element={<McpGateways />} />
         <Route path="/vault" element={<Vault />} />
         <Route path="/types" element={<Types />} />
-        <Route path="/skills" element={<SkillsPage />} />
         <Route path="/settings" element={<Settings />} />
         {/* 数据视图组件的演示页：只在开发时有（合成数据），正式构建里没有这一行，也不进侧栏 */}
         {BenchBlocksDemo ? <Route path="/dev/bench-blocks" element={<React.Suspense fallback={null}><BenchBlocksDemo /></React.Suspense>} /> : null}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to={retiredRedirect(location.pathname) ?? '/'} replace />} />
       </Routes>
     </Shell>
   );
