@@ -1880,7 +1880,7 @@
                 },
                 {
                   "name": "skill_versions",
-                  "description": "查某技能版本链（newest-first）：version/changelog/breaking/tree_digest/snapshot_path/reviewed_by——版本不可变审计面；active=true 的是市场当前版本（active_version，回滚指针；回滚只移这个指针，不新增版本）。",
+                  "description": "查某技能版本链（newest-first）：version/changelog/breaking/tree_digest/reviewed_by——版本不可变审计面；active=true 的是市场当前版本（active_version，回滚指针；回滚只移这个指针，不新增版本）。",
                   "category": "read",
                   "granted": false,
                   "input_schema": { "type": "object", "properties": { "slug": { "type": "string", "description": "技能 slug（如 agents:brand）" } }, "required": ["slug"] }
@@ -1951,7 +1951,7 @@
                 },
                 {
                   "name": "skill_install_plan",
-                  "description": "生成安装计划（薄分发：不自动落盘）——返回目标版本 digest（expected sha256 钉装锚）+ 快照路径 + 手工安装指引。",
+                  "description": "生成安装计划（薄分发：不自动落盘）——返回目标版本 digest（expected sha256 钉装锚）+ 导出包地址 export_url + 手工安装指引。",
                   "category": "read",
                   "granted": false,
                   "input_schema": { "type": "object", "properties": { "slug": { "type": "string" }, "version": { "type": "number", "description": "缺省市场当前版本 active_version（回滚指针，未回滚即最新版）" } }, "required": ["slug"] }
@@ -3068,7 +3068,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "63170", "etag": "W/\"f6c2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "63188", "etag": "W/\"f6d4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -4099,8 +4099,8 @@
                   "post": {
                     "tags": ["tools"],
                     "operationId": "skill_versions",
-                    "summary": "查某技能版本链（newest-first）：version/changelog/breaking/tree_digest/snapshot_path/reviewed_by——版本不可变审计面；active=true 的是市场当前版本（ac",
-                    "description": "查某技能版本链（newest-first）：version/changelog/breaking/tree_digest/snapshot_path/reviewed_by——版本不可变审计面；active=true 的是市场当前版本（active_version，回滚指针；回滚只移这个指针，不新增版本）。",
+                    "summary": "查某技能版本链（newest-first）：version/changelog/breaking/tree_digest/reviewed_by——版本不可变审计面；active=true 的是市场当前版本（active_version，回",
+                    "description": "查某技能版本链（newest-first）：version/changelog/breaking/tree_digest/reviewed_by——版本不可变审计面；active=true 的是市场当前版本（active_version，回滚指针；回滚只移这个指针，不新增版本）。",
                     "x-category": "read",
                     "x-granted": true,
                     "requestBody": { "required": false, "content": { "application/json": { "schema": { "type": "object", "properties": { "slug": { "type": "string", "description": "技能 slug（如 agents:brand）" } }, "required": ["slug"] } } } },
@@ -4253,8 +4253,8 @@
                   "post": {
                     "tags": ["tools"],
                     "operationId": "skill_install_plan",
-                    "summary": "生成安装计划（薄分发：不自动落盘）——返回目标版本 digest（expected sha256 钉装锚）+ 快照路径 + 手工安装指引。",
-                    "description": "生成安装计划（薄分发：不自动落盘）——返回目标版本 digest（expected sha256 钉装锚）+ 快照路径 + 手工安装指引。",
+                    "summary": "生成安装计划（薄分发：不自动落盘）——返回目标版本 digest（expected sha256 钉装锚）+ 导出包地址 export_url + 手工安装指引。",
+                    "description": "生成安装计划（薄分发：不自动落盘）——返回目标版本 digest（expected sha256 钉装锚）+ 导出包地址 export_url + 手工安装指引。",
                     "x-category": "read",
                     "x-granted": true,
                     "requestBody": {
