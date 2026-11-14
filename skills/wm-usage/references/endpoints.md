@@ -2,11 +2,13 @@
 
 | 动作 | 端点 |
 |---|---|
-| 首页/市场 | / |
+| 首页（全景） | / |
+| 工作台市场 | /market |
 | 使用台 | /use/<id> |
 | 统一门户 | /go/<id>/ |
 | 驾驶舱 | /cockpit |
-| 技能市场 | /skills |
+| 技能（市场里的分类） | /market?k=技能 |
+| 单个技能 | /market/skill/<标识> |
 | 表单提交 | POST /api/apps/<slug>/data |
 | 文件上传 | POST /api/apps/<slug>/files (multipart: file+note) |
 | 文件列表 | GET /api/apps/<slug>/files |
