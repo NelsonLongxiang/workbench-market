@@ -352,7 +352,7 @@ export const MCP_TOOLS: McpToolDef[] = [
   {
     name: 'skill_install_plan',
     category: 'read',
-    description: '生成安装计划（薄分发：不自动落盘）——返回目标版本 digest（expected sha256 钉装锚）+ 快照路径 + 手工安装指引。',
+    description: '生成安装计划（薄分发：不自动落盘）——返回目标版本 digest（expected sha256 钉装锚）+ 导出包地址 export_url + 手工安装指引。',
     inputSchema: { type: 'object', properties: { slug: { type: 'string' }, version: { type: 'number', description: '缺省市场当前版本 active_version（回滚指针，未回滚即最新版）' } }, required: ['slug'] },
   },
   {
