@@ -82,6 +82,26 @@ export function liveDeliveriesOfEvent(eventId: string): { id: number; status: 'h
   return db.prepare("SELECT id, status FROM workbench_event_deliveries WHERE event_id = ? AND status IN ('held','pending','sent') ORDER BY id").all(eventId) as never;
 }
 
+/**
+ * 还在等放行（held）的投递：派工正文里的 task.due 换成新的（'YYYY-MM-DD'，清掉是 ''），放行派出时带的就是最新的期限。
+ * 正文可能有第一行签名派工行，信封是后面那段 JSON；没有 task 的不动。已发出、排队待发的不碰（发出去了什么要留证据，在途的另排变更）。返回改了几条
+ */
+export function setHeldDeliveriesDue(eventId: string, due: string): number {
+  const rows = db.prepare("SELECT id, message FROM workbench_event_deliveries WHERE event_id = ? AND status = 'held'").all(eventId) as { id: number; message: string }[];
+  let n = 0;
+  for (const r of rows) {
+    const nl = r.message.startsWith('[A2A dispatch] ') ? r.message.indexOf('\n') : -1;
+    const head = nl >= 0 ? r.message.slice(0, nl + 1) : '';
+    let env: Record<string, unknown>;
+    try { env = JSON.parse(r.message.slice(head.length)) as Record<string, unknown>; } catch { continue; }
+    const task = env.task;
+    if (!task || typeof task !== 'object' || Array.isArray(task)) continue;
+    const next = head + JSON.stringify({ ...env, task: { ...(task as Record<string, unknown>), due } });
+    n += Number(db.prepare("UPDATE workbench_event_deliveries SET message = ? WHERE id = ? AND status = 'held'").run(next, r.id).changes);
+  }
+  return n;
+}
+
 /** 一次投递现在的状态（没有这条返回 null）：变更类消息要等它发出去了再发 */
 export function deliveryStatusOf(deliveryId: number): string | null {
   const row = db.prepare('SELECT status FROM workbench_event_deliveries WHERE id = ?').get(deliveryId) as { status: string } | undefined;
