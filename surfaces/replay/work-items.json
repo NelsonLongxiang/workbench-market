@@ -747,8 +747,8 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "77", "etag": "W/\"4d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "item_id": "wi_replay_alpha", "due": "2099-01-02", "overdue": false, "notified": 0 }
+            "headers": { "cache-control": "private, no-store", "content-length": "101", "etag": "W/\"65-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "item_id": "wi_replay_alpha", "due": "2099-01-02", "overdue": false, "notified": 0, "pending_release": false }
           }
         }
       ]
