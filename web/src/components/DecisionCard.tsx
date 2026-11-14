@@ -13,7 +13,7 @@ import { apiFetch } from '../admin-token';
 import { attentionChanged, canRememberKnowledge, getRememberDefaults, postCreatorDecision, postRememberLater } from '../api';
 import RememberFields from './RememberFields';
 import { REMEMBER_LABEL, answeredWithRemember, defaultsOf, rememberLaterResult, rememberPayload, rememberProblem, type RememberDefaults, type Visibility } from '../remember-view';
-import { answerChoices, answerRoute, answerViaOf, viaTakesRemember, workItemIdOf, viaBody, viaError, viaInput, viaPath, waited, type AttentionItem, isStuck, stuckLabel } from '../attention-view';
+import { answerChoices, answerLabel, confirmButtonText, answerRoute, answerViaOf, viaInputLabel, viaTakesRemember, workItemIdOf, viaBody, viaError, viaInput, viaPath, waited, type AttentionItem, isStuck, stuckLabel } from '../attention-view';
 import { cardWording, splitAskTitle } from '../home-view';
 import { seatLabel, teamLabel, waitingLabel } from '../people';
 import { fallbackPlace, pageLink } from '../page-paths';
@@ -23,7 +23,6 @@ import { REVIEW_NEEDS, changeCard, changeDetailOf, confirmText, grantCard, grant
 const COLOR: Record<string, string> = { ask: 'gold', accept: 'green', glance: 'default', review: 'blue', grant: 'purple' };
 /** 替建立人办的答法 */
 const PROXY: Record<string, string> = { answer: '代答', verify: '代为验收', return: '代为打回' };
-const ANSWER: Record<string, string> = { approve: '批准', reject: '不给', answer: '答复', bind: '对接', verify: '验收通过', return: '打回重做', release: '派出去', withdraw: '撤回', reply: '回复', ack: '知道了' };
 /** 要先填一句的答法：键是来源 → 答法 → 要填的字段 */
 const NEEDS: Record<string, Record<string, { key: string; label: string; max?: number; optional?: boolean }>> = {
   'seat-asks': { answer: { key: 'text', label: '你的答复' } },
@@ -89,7 +88,7 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
   const via = answerViaOf(item);
   /** 这个答法要先填的一项：条目自带答复入口的照它说的（可以是选填），其余按来源的表 */
   const needOf = (a: string): { key: string; label: string; max?: number; optional?: boolean; options?: string[] } | null => {
-    if (via) { const i = viaInput(via, a); return i ? { key: i.to, label: i.required ? '写一句理由（必填）' : '留一句（可不填）', max: i.max, optional: !i.required, options: i.options } : null; }
+    if (via) { const i = viaInput(via, a); return i ? { key: i.to, label: viaInputLabel(i), max: i.max, optional: !i.required, options: i.options } : null; }
     return NEEDS[item.source]?.[a] ?? null;
   };
   const isAsk = item.source === 'seat-asks';
@@ -113,7 +112,7 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
   const wording = cardWording(item.category, admin, item.mine, creatorName);
   /** 停太久的事项：标签写停了多久（不写「等你过目」），旁边不再写「等了」 */
   const stuck = isStuck(item);
-  const label = (a: string) => (wording.proxy && PROXY[a]) || reviewAnswerLabel(item.source, a, item) || ANSWER[a] || a;
+  const label = (a: string) => (wording.proxy && PROXY[a]) || reviewAnswerLabel(item.source, a, item) || answerLabel(a);
   const [create, setCreate] = useState(false);
   const rememberHere = canRemember && choices.length > 0 && (answerRoute(admin, item) !== 'via' || viaTakesRemember(via));
   const rememberOn = rememberHere && remOn;
@@ -220,7 +219,7 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
         const need = needOf(a);
         if (open === a && need) {
           const go = () => void send(a, { [need.key]: text.trim(), ...(BIND_CREATE(item.source, a) && create ? { create: true } : {}) });
-          const ok = <Button key={a} type="primary" loading={busy} disabled={(!need.optional && !text.trim()) || !!remBlock} onClick={BIND_CREATE(item.source, a) && create ? undefined : go} data-testid="decision-confirm">确定{label(a)}</Button>;
+          const ok = <Button key={a} type="primary" loading={busy} disabled={(!need.optional && !text.trim()) || !!remBlock} onClick={BIND_CREATE(item.source, a) && create ? undefined : go} data-testid="decision-confirm">{confirmButtonText(label(a))}</Button>;
           // 勾了「新建主体」：建了就多一个人，再确认一次
           return BIND_CREATE(item.source, a) && create
             ? <Popconfirm key={a} title="会新建一个主体" description={`建了就多一个人「${text.trim() || '（没写名字）'}」，确定新建并对接？`} okText="新建并对接" cancelText="再想想" onConfirm={go}>{ok}</Popconfirm>
