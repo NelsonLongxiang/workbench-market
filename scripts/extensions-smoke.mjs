@@ -141,7 +141,10 @@ try {
   await new Promise((x) => odoo.close(x));
 
   const { addOdooReturnPath, safeReturnPath } = await import('../server/src/login-providers/odoo/odoo-session.ts');
-  ok('登录回跳白名单默认不含扩展页', safeReturnPath('/demo-page') === null && safeReturnPath('/tasks') === '/tasks');
+  // 回跳白名单收首页 /（统一待办 /tasks 已退役，不再收）；/ 收进来以后，协议相对、点段、反斜杠这些照样不收
+  ok('登录回跳收首页、不收已退役的 /tasks；/ 收进来以后外站写法照样不收', safeReturnPath('/') === '/' && safeReturnPath('/?x=1') === '/?x=1' && safeReturnPath('/tasks') === null
+    && ['//evil.example/', '/.//evil.example', '/%2e//evil.example', '/\\evil.example', 'http://evil.example/', '/\t/evil.example'].every((v) => safeReturnPath(v) === null));
+  ok('登录回跳白名单默认不含扩展页', safeReturnPath('/demo-page') === null);
   addOdooReturnPath('/demo-page');
   ok('ctx.odoo.addReturnPath 登记后可回跳（含 query）', safeReturnPath('/demo-page?x=1') === '/demo-page?x=1');
   threw = ''; try { addOdooReturnPath('//evil.example'); } catch (e) { threw = String(e.message); }

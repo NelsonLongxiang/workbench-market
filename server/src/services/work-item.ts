@@ -12,8 +12,9 @@
  */
 import { randomUUID } from 'node:crypto';
 import { Service } from '@deepseek-ai/cordis';
-import { db } from '../db.ts';
+import { db, hasTable } from '../db.ts';
 import { afterStartup } from '../startup-gate.ts';
+import { replyKindOfTask } from './a2a-replies.ts';
 
 export const STATES = ['draft', 'held', 'delivered', 'accepted', 'progress', 'waiting', 'ready', 'blocked', 'done', 'failed', 'dropped', 'cancelled'] as const;
 export type WorkItemState = typeof STATES[number];
@@ -69,7 +70,7 @@ export type Fact = {
   question?: string;
   ask_id?: string;
   answer?: string;
-  note?: 'unrouted' | 'untrusted' | 'undispatched' | 'followup' | 'followup-reply' | 'progress';
+  note?: 'unrouted' | 'untrusted' | 'undispatched' | 'followup' | 'followup-reply' | 'progress' | 'late-result';
   /** 阶段七 R2：note=followup 时席位发来的跟进原文（前 500 字），只用于显示，不参与任何判断 */
   text?: string;
   others_alive?: boolean;
@@ -77,6 +78,8 @@ export type Fact = {
   others_engaged?: boolean;
   none_sent?: boolean;
   action?: string;
+  /** 打回（rework）任务上的接单：对方接了重做，事项从「在办」回到「已接手」 */
+  rework?: boolean;
   /** 阶段七：回执信封里的 by（谁在做）——「名字 · 句柄」或句柄；带了就更新事项的 seat（承接席位），只用于显示 */
   seat?: string;
   /** 阶段七：回执信封里的 artifacts（cleanArtifacts 洗过）；带了就并进事项的 outputs */
@@ -113,6 +116,9 @@ export const TRANSITIONS: readonly Row[] = [
   { from: ['progress', 'waiting', 'blocked'], fact: 'report', when: is('status', 'ready'), to: 'ready', note: '席位 report：ready（做完，等验收）' },
   { from: ['ready'], fact: 'verify', when: () => true, to: 'done', note: '人在关注队列里验收' },
   { from: ['ready'], fact: 'return', when: () => true, to: 'progress', note: '人退回' },
+  // 协调方 2026-11-13：打回之后，对方对打回任务接单 = 重新接手这件工作，状态推到「已接手」（普通答复的接单只记一行，见 messageOnlyReceipt）。
+  // RECORDS 先查：那里「已有团队接手之后，别的团队再来接或拒」的 progress 一行把它让出来了
+  { from: ['progress'], fact: 'eval', when: (f) => f.verdict === 'accept' && f.rework === true, to: 'accepted', note: '打回之后对方接了重做' },
   // 补定（规格附录 8a）：原地重复的上报算合法——状态不变，记一行日志，更新进展摘要
   { from: ['progress'], fact: 'report', when: is('status', 'progress'), to: 'progress', note: '原地：progress 时又报 progress' },
   { from: ['waiting'], fact: 'report', when: is('status', 'waiting'), to: 'waiting', note: '原地：waiting 时又报 waiting' },
@@ -148,7 +154,9 @@ export const RECORDS: readonly { from: readonly WorkItemState[]; fact: Fact['kin
   { from: NON_TERMINAL, fact: 'answer', when: (f) => typeof f.ask_id === 'string' && f.ask_id !== '', note: '人答了席位的提问' },
   { from: ['ready', ...TERMINAL], fact: 'receipt', when: (f) => typeof f.outcome === 'string' && f.outcome !== '' && f.outcome !== 'failed', note: '回执（outcome 不是 failed）' },
   // 8b：一个事件投给多个团队
-  { from: ['accepted', 'progress', 'waiting', 'ready'], fact: 'eval', when: (f) => ['accept', 'stop', 'ignore', 'unavailable'].includes(f.verdict ?? ''), note: '已有团队接手之后，别的团队再来接或拒' },
+  { from: ['accepted', 'waiting', 'ready'], fact: 'eval', when: (f) => ['accept', 'stop', 'ignore', 'unavailable'].includes(f.verdict ?? ''), note: '已有团队接手之后，别的团队再来接或拒' },
+  // 在办时打回任务的接单不在这里：它走 TRANSITIONS 推到「已接手」
+  { from: ['progress'], fact: 'eval', when: (f) => ['accept', 'stop', 'ignore', 'unavailable'].includes(f.verdict ?? '') && !(f.verdict === 'accept' && f.rework === true), note: '已有团队接手之后，别的团队再来接或拒' },
   { from: ['delivered', 'blocked'], fact: 'eval', when: (f) => ['stop', 'ignore', 'unavailable'].includes(f.verdict ?? '') && f.others_alive === true, note: '一个团队拒接，还有别的投递活着' },
   { from: ['delivered'], fact: 'delivery', when: (f) => f.outcome === 'dead' && f.others_alive === true, note: '一个投递 dead，还有别的投递活着' },
   // 阶段七 R3：一个团队说不干了（回执 failed / rejected / abandoned），别的投递还活着或已接手——只记录
@@ -160,6 +168,8 @@ export const RECORDS: readonly { from: readonly WorkItemState[]; fact: Fact['kin
   // 阶段七 PR-A：席位的进展回执（progress-<task>-<n>）——不结清、不推状态，只记录；终态之后到的拒（标晚到）
   { from: NON_TERMINAL, fact: 'note', when: (f) => f.note === 'progress', note: '席位的进展（只记录）' },
   { from: [...NON_TERMINAL, ...TERMINAL], fact: 'note', when: (f) => f.note === 'followup' || f.note === 'followup-reply', note: '席位发来的消息、人的回复（只记录）；「看过」只留在事件日志和消息状态里，不进事项时间线' },
+  // 打回重做之后，打回之前派出的任务晚到的结束回执：只记录（旧结果不能把事项提前推回等验收）
+  { from: [...NON_TERMINAL, ...TERMINAL], fact: 'note', when: (f) => f.note === 'late-result', note: '打回之前派出的任务晚到的结束回执（只记录，不推状态）' },
 ];
 
 export type ApplyResult =
@@ -175,12 +185,14 @@ export type NewWorkItem = {
   handoff?: Handoff; review_by?: ReviewBy; directed_seat_id?: string;
   /** 从哪个驾驶舱安排的：只在建的时候记，之后不改 */
   cockpit_id?: number | null;
+  /** 截止日期：那天的 UTC 零点（YYYY-MM-DDT00:00:00.000Z）；空 = 没有 */
+  due_at?: string;
 };
 
 export type WorkItemRow = {
   id: string; title: string; created_at: string; created_by: string; creator_principal: string | null; source_kind: SourceKind; source_ref: string; context: string;
   event_id: number | null; task_ids: string; target_team: string; seat: string; eval: string; eval_reason: string; state: WorkItemState;
-  handoff: Handoff; review_by: ReviewBy; directed_seat_id: string; seat_id: string; seat_at: string; cockpit_id: number | null;
+  handoff: Handoff; review_by: ReviewBy; directed_seat_id: string; seat_id: string; seat_at: string; cockpit_id: number | null; due_at: string;
   progress_summary: string; progress_at: string; open_asks: string; receipt_outcome: string; receipt_at: string;
   outputs: string; evidence: string; object: string; phase: string; updated_at: string;
 };
@@ -257,6 +269,20 @@ const SEAT_ID = /^seat-[0-9a-f]{8}$/;
 export const COCKPIT_ID_MAX = 2_147_483_647;
 function cockpitOf(v: unknown): number | null {
   return typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= COCKPIT_ID_MAX ? v : null;
+}
+
+/** 截止日期 YYYY-MM-DD → 那天的 UTC 零点 ISO；不是合法日期的一律空（不猜） */
+export function dueAtOf(v: unknown): string {
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return '';
+  const t = Date.parse(`${v}T00:00:00.000Z`);
+  return Number.isNaN(t) || new Date(t).toISOString().slice(0, 10) !== v ? '' : new Date(t).toISOString();
+}
+
+/** 过了期仍未完成：有截止日期、事项不在终态、现在已经过了截止那天（截止日当天结束之后）。服务端按同一时钟算 */
+export function overdueOf(item: Pick<WorkItemRow, 'due_at' | 'state'>, now = Date.now()): boolean {
+  if (!item.due_at || TERMINAL.includes(item.state)) return false;
+  const t = Date.parse(item.due_at);
+  return !Number.isNaN(t) && now >= t + 86_400_000;
 }
 
 function handoffOf(rec: { handoff?: unknown; review_by?: unknown; directed_seat_id?: unknown }): { handoff: Handoff; review_by: ReviewBy; directed_seat_id: string } {
@@ -391,10 +417,43 @@ export function seatOfReceipt(action: string, detail: Record<string, unknown>): 
   if (action === 'receipt:attention' || action === 'receipt:completed') return show(by?.seat, by?.name);
   return action === 'receipt:progress' ? ticketSeat(detail) : '';
 }
+/** 承接清空的标记（句柄都带「/」，不会撞）：拆单后几张子工单由不同成员在做，主事项不显示单个成员 */
+export const SEAT_NONE = '-';
 function ticketSeat(detail: Record<string, unknown>): string {
-  // 只取在做的子项（working / waiting / blocked）：queued 时还没派给成员，seat 可能是总工；ended 的已经不在做
-  const t = Array.isArray(detail.tickets) ? (detail.tickets as { seat?: unknown; state?: unknown }[]).find((x) => x && ['working', 'waiting', 'blocked'].includes(String(x.state)) && typeof x.seat === 'string' && x.seat !== '') : undefined;
-  return typeof t?.seat === 'string' ? t.seat.slice(0, 200) : '';
+  // 只取在做的子项（working / waiting / blocked）：queued 时还没派给成员，seat 可能是总工；ended 的已经不在做。
+  // 拆单（dsh-open-a2a-net#618）：在做的子项里不止一个席位 → 主事项承接清空，各子项在详情的 subitems 里各显示自己的承接
+  const seats = Array.isArray(detail.tickets) ? [...new Set((detail.tickets as { seat?: unknown; state?: unknown }[])
+    .filter((x) => x && ['working', 'waiting', 'blocked'].includes(String(x.state)) && typeof x.seat === 'string' && x.seat !== '').map((x) => String(x.seat).slice(0, 200)))] : [];
+  return seats.length === 1 ? seats[0] : seats.length > 1 ? SEAT_NONE : '';
+}
+const seatValue = (seat: string) => (seat === SEAT_NONE ? '' : seat);
+/** 这条结束回执是不是「打回之前派出的任务」晚到的：最近一次 return-sent 之后，它的任务号没在 reply-sent 里出现过 */
+/**
+ * 子任务（市场在同一 context 发出的答复、打回、回复来信，任务号 <event>.d<投递>.q<行>.a<尝试>）上「只说明这条消息」的回执：
+ * 回复来信（followup-reply）的任何回执；答复的接单（acknowledged）和拒收（rejected）；打回的拒收（打回被接单是重新接手，照常推）。
+ * 它们不推事项、不改原投递的结局、不进 others_alive / others_engaged。答复、打回的完成、失败、放弃是工作层面的终局，照常算。
+ * 现在收回执时已经把这些记成 reply:*（receipt-inbound），这里是给旧的事件日志（回填）同一个结果
+ */
+function messageOnlyReceipt(row: Pick<EventLogRow, 'action' | 'detail'>): boolean {
+  if (!row.action.startsWith('receipt:') || row.action === 'receipt:attention' || row.action === 'receipt:progress') return false;
+  let task = '';
+  try { task = String((JSON.parse(row.detail || '{}') as { task?: unknown }).task ?? ''); } catch { return false; }
+  const kind = replyKindOfTask(task);
+  if (kind === 'followup-reply') return true;
+  if (kind === 'rework') return row.action === 'receipt:rejected';
+  return kind === 'answer' && (row.action === 'receipt:acknowledged' || row.action === 'receipt:rejected');
+}
+
+function staleAfterReturn(rows: readonly EventLogRow[], i: number, detail: Record<string, unknown>): boolean {
+  let lastReturn = -1;
+  for (let k = i - 1; k >= 0; k--) if (rows[k].action === 'return-sent') { lastReturn = k; break; }
+  if (lastReturn < 0) return false;
+  const task = typeof detail.task === 'string' ? detail.task : '';
+  for (let k = lastReturn + 1; k < i; k++) {
+    if (rows[k].action !== 'reply-sent') continue;
+    try { if ((JSON.parse(rows[k].detail || '{}') as { task?: unknown }).task === task) return false; } catch { /* 坏行跳过 */ }
+  }
+  return true;
 }
 
 export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], i: number): Fact | null {
@@ -402,6 +461,7 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
   const detail = (() => { try { return JSON.parse(row.detail || '{}') as Record<string, unknown>; } catch { return {}; } })();
   const base = { source: EVENT_FACT_SOURCE, id: String(row.id), actor: row.actor, action: row.action };
   let fact: Fact | null = null;
+  if (messageOnlyReceipt(row)) return null;
   const seat = seatOfReceipt(row.action, detail);
   // 8f-2：dispatch:false 的事件（只通知、不派发）没有回写通道，排上的投递不映射成「已转交」：停在草稿，日志记一行「未派发」。
   // 事实 id 和原来那条 submit 相同：存量里已经应用过的照旧按（来源、id）跳过，回填重跑结果不变
@@ -418,7 +478,8 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
   else if (row.action === 'receipt:attention') fact = { ...base, kind: 'ask', question: typeof detail.summary === 'string' ? detail.summary : '' };
   else if (row.action === 'dead' || row.action.startsWith('decision:') || row.action === 'receipt:acknowledged' || RECEIPT_OUTCOME_ACTIONS.includes(row.action)) {
     const status = new Map<number, DeliveryStatus>();
-    for (const r of rows.slice(0, i)) if (r.delivery_id !== null && DELIVERY_AFTER[r.action]) status.set(r.delivery_id, DELIVERY_AFTER[r.action]);
+    // 子任务上只说明这条消息的回执（messageOnlyReceipt）不覆盖原投递的结局，也不进 others_alive / others_engaged 的计算
+    for (const r of rows.slice(0, i)) if (r.delivery_id !== null && DELIVERY_AFTER[r.action] && !messageOnlyReceipt(r)) status.set(r.delivery_id, DELIVERY_AFTER[r.action]);
     const others_alive = [...status].some(([d, st]) => d !== row.delivery_id && ALIVE.includes(st));
     const others_engaged = [...status].some(([d, st]) => d !== row.delivery_id && (ALIVE.includes(st) || st === 'accepted'));
     if (row.action === 'dead') fact = { ...base, kind: 'delivery', outcome: 'dead', others_alive };
@@ -427,7 +488,13 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
       const reason = typeof detail.reason === 'string' && detail.reason.trim() !== '' ? detail.reason : '未写理由';
       fact = { ...base, kind: 'eval', verdict: 'stop', reason, others_alive };
     } else if (row.action === 'decision:ask') fact = { ...base, kind: 'ask', question: typeof detail.reason === 'string' ? detail.reason : '' };
-    else if (row.action === 'receipt:acknowledged') fact = { ...base, kind: 'eval', verdict: 'accept', others_alive };
+    // 打回任务认法和实时同一个约定：答复行的 ref ≤ 0 是打回（-进展序号），> 0 是答复席位提问（提问日志 id），见 replyKindOfTask
+    else if (row.action === 'receipt:acknowledged') fact = { ...base, kind: 'eval', verdict: 'accept', others_alive, ...(replyKindOfTask(String(detail.task ?? '')) === 'rework' ? { rework: true } : {}) };
+    else if (RECEIPT_OUTCOME_ACTIONS.includes(row.action) && staleAfterReturn(rows, i, detail)) {
+      // 打回重做之后（事件日志有 return-sent），只有打回之后发出的任务（reply-sent 记下的任务号）的结束回执才推状态；
+      // 打回之前派出的任务晚到的结束回执只记录——否则旧结果会把事项提前推回等验收
+      fact = { ...base, kind: 'note', note: 'late-result', text: `${row.action.slice('receipt:'.length)}：${typeof detail.summary === 'string' ? detail.summary : ''}`.slice(0, 500) };
+    }
     else if (RECEIPT_OUTCOME_ACTIONS.includes(row.action)) {
       const outcome = row.action.slice('receipt:'.length);
       fact = { ...base, kind: 'receipt', outcome, others_alive, others_engaged, ...(outcome === 'rejected' ? { reason: '对方拒绝' } : {}) };
@@ -446,7 +513,7 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
  * 版本没变时每次启动只做增量：从上次记下的事件日志水位往后核（没装事项服务的进程——比如回滚到旧版本期间——
  * 写进来的事件和事实，靠它补回来）。监听器漏过事实（dirty）也从头全量核。
  */
-export const BACKFILL_VERSION = 7; // 2：阶段七 R2 加了跟进、回复、看过的映射（#546）；3：进展回执的映射（PR-A）；4：回执的 by 记成承接席位；5：承接只取成员、重复事实补写承接（4 已被试联实例用过），终态事项承接空着的也补；6：承接只存句柄、进展只取在做的子项、回填按顺序最后一条为准；7：回执的 artifacts 并进 outputs
+export const BACKFILL_VERSION = 10; // 2：阶段七 R2 加了跟进、回复、看过的映射（#546）；3：进展回执的映射（PR-A）；4：回执的 by 记成承接席位；5：承接只取成员、重复事实补写承接（4 已被试联实例用过），终态事项承接空着的也补；6：承接只存句柄、进展只取在做的子项、回填按顺序最后一条为准；7、8 由 #567、#575 占用；9：打回之后旧任务晚到的结束回执只记录；10：子任务上只说明这条消息的回执（回复来信的、答复和打回的接单与拒收）不推事项、不覆盖原投递的结局
 /** 后台回填每一片最多占用事件循环的时长（毫秒），之后让出，好让请求得到应答 */
 const BACKFILL_SLICE_MS = 25;
 /** 每次取的行数（取出来的一批跨片接着用，用完再取） */
@@ -524,7 +591,7 @@ export class WorkItemService extends Service {
     db.prepare('UPDATE work_item_backfill SET dirty = ?, updated_at = ? WHERE id = 1').run(on ? 1 : 0, new Date().toISOString());
   }
   private hasEvents(): boolean {
-    return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workbench_events'").get());
+    return hasTable('workbench_events');
   }
   /** 事件日志现在的最大行号（水位） */
   private logHigh(): number {
@@ -637,7 +704,7 @@ export class WorkItemService extends Service {
    *  跑完记下「这个版本全量跑完过」和事件日志的水位（之后启动从水位往后增量核）。 */
   backfill(): { events: number; created: number } {
     // 新库上事件表可能还没建（任务中心初始化时才建）：那就没有可回填的
-    if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workbench_events'").get()) return { events: 0, created: 0 };
+    if (!hasTable('workbench_events')) return { events: 0, created: 0 };
     const count = () => (db.prepare('SELECT COUNT(*) AS n FROM work_items').get() as { n: number }).n;
     const before = count();
     const ids = db.prepare('SELECT event_id FROM workbench_events ORDER BY id').all() as { event_id: string }[];
@@ -695,12 +762,12 @@ export class WorkItemService extends Service {
       const createdBy = creator ?? (event.submitter_kind !== 'unverified' && /^[^:\s]+:\S/.test(who) ? who : `${event.submitter_kind}:${who || 'unknown'}`);
       const derived = derivedOf(event);
       // 「安排一件事」：挂在哪条线、哪一步，记在 recorded 那一行里（只在新建时取，存量没有这两项）
-      let rec: { object?: unknown; phase?: unknown; handoff?: unknown; review_by?: unknown; directed_seat_id?: unknown; cockpit_id?: unknown } = {};
+      let rec: { object?: unknown; phase?: unknown; handoff?: unknown; review_by?: unknown; directed_seat_id?: unknown; cockpit_id?: unknown; due?: unknown } = {};
       try { rec = JSON.parse(recorded.detail || '{}'); } catch { /* 坏的 detail 当没有 */ }
       const tag = (v: unknown) => (typeof v === 'string' ? v.trim().slice(0, 200) : '');
       this.insertItem(itemId, {
         title: derived.title, target_team: derived.target_team, created_by: createdBy, creator_principal: creator, object: tag(rec.object), phase: tag(rec.phase),
-        ...handoffOf(rec), cockpit_id: cockpitOf(rec.cockpit_id),
+        ...handoffOf(rec), cockpit_id: cockpitOf(rec.cockpit_id), due_at: dueAtOf(rec.due),
         source_kind: event.source as SourceKind, source_ref: event.event_id, event_id: event.id,
         context: { workbench: event.workbench, item: event.item, context_id: event.context_id, submitter_kind: event.submitter_kind, ...(creator && event.submitter_kind === 'unverified' ? { submitter_via: 'ticket' } : {}) },
       }, { source: EVENT_FACT_SOURCE, id: String(recorded.id) }, event.created_at);
@@ -739,13 +806,18 @@ export class WorkItemService extends Service {
   }
 
   private insertItem(id: string, input: NewWorkItem, by: { source: string; id: string }, createdAt?: string): void {
-    db.prepare(`INSERT INTO work_items (id, title, created_by, creator_principal, source_kind, source_ref, context, event_id, target_team, seat, object, phase, handoff, review_by, directed_seat_id, cockpit_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))`).run(
+    db.prepare(`INSERT INTO work_items (id, title, created_by, creator_principal, source_kind, source_ref, context, event_id, target_team, seat, object, phase, handoff, review_by, directed_seat_id, cockpit_id, due_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))`).run(
       id, input.title, input.created_by, input.creator_principal ?? null, input.source_kind, input.source_ref ?? '', JSON.stringify(input.context ?? {}),
       input.event_id ?? null, input.target_team ?? '', input.seat ?? '', input.object ?? '', input.phase ?? '',
-      input.handoff ?? 'team', input.review_by ?? '', input.directed_seat_id ?? '', input.cockpit_id ?? null, createdAt ?? null, createdAt ?? null);
+      input.handoff ?? 'team', input.review_by ?? '', input.directed_seat_id ?? '', input.cockpit_id ?? null, input.due_at ?? '', createdAt ?? null, createdAt ?? null);
     db.prepare(`INSERT INTO work_item_log (item_id, fact, fact_source, fact_id, from_state, to_state, actor, detail)
       VALUES (?, 'create', ?, ?, 'draft', 'draft', ?, '{}')`).run(id, by.source, by.id, input.created_by);
+  }
+
+  /** 改截止日期（dueAt 是 UTC 零点 ISO 或 '' 清掉）；终态的不改。at 由调用方给（代码生成的时间）。返回改没改 */
+  setDue(id: string, dueAt: string, at: string): boolean {
+    return Number(db.prepare(`UPDATE work_items SET due_at = ?, updated_at = ? WHERE id = ? AND state NOT IN (${TERMINAL.map(() => '?').join(', ')})`).run(dueAt, at, id, ...TERMINAL).changes) === 1;
   }
 
   get(id: string): WorkItemRow | undefined {
@@ -841,6 +913,28 @@ export class WorkItemService extends Service {
     return Number((db.prepare(`SELECT COUNT(*) AS n FROM work_items WHERE ${w.where}`).get(...w.args) as { n: number }).n);
   }
 
+  /**
+   * 可能轮到这个人的事项（数各视角「等你拍板」用，只是收窄候选，真判在 decidesNow）：
+   * turnOf 只会轮到建立人（验收、答提问、自己过目）和交给的团队的负责人（放行），所以候选就是
+   * 「他建的、还没结束的」加上「他负责的团队里等过目的」（team 是他的「我负责的团队」视角范围；不是负责人就不给）
+   */
+  turnCandidates(principal: string, team?: ViewScope): WorkItemRow[] {
+    const open = `state NOT IN (${TERMINAL.map(() => '?').join(', ')})`;
+    const t = team ? this.scopeWhere(team) : null;
+    const where = t ? `(creator_principal = ? AND ${open}) OR (state = 'held' AND ${t.where})` : `creator_principal = ? AND ${open}`;
+    return db.prepare(`SELECT * FROM work_items WHERE ${where}`).all(principal, ...TERMINAL, ...(t ? t.args : [])) as WorkItemRow[];
+  }
+
+  /** 给定的事项编号里落在这个视角范围里的 */
+  idsIn(scope: ViewScope, ids: readonly string[]): Set<string> {
+    const w = this.scopeWhere(scope), out = new Set<string>();
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      for (const r of db.prepare(`SELECT id FROM work_items WHERE (${w.where}) AND id IN (${chunk.map(() => '?').join(', ')})`).all(...w.args, ...chunk) as { id: string }[]) out.add(r.id);
+    }
+    return out;
+  }
+
   /** 事项的事件发往哪些团队（投递的目标团队和投递地址）：认事项属于哪个团队用 */
   deliveryTargets(eventId: string): { team: string; url: string }[] {
     return db.prepare('SELECT target_team AS team, target_url AS url FROM workbench_event_deliveries WHERE event_id = ? ORDER BY id').all(eventId) as { team: string; url: string }[];
@@ -921,7 +1015,7 @@ export class WorkItemService extends Service {
       // 不先写先占；终态之后才到的新回执走的是只记录那条路，那里照旧不改承接——所以第一次应用时事项已经是终态的（from_state 是终态），
       // 重放时也不改承接，和实时一致
       const seatChanged = typeof fact.seat === 'string' && fact.seat !== '' && !TERMINAL.includes(seen.from_state)
-        && Number(db.prepare('UPDATE work_items SET seat = ? WHERE id = ? AND seat <> ?').run(fact.seat, itemId, fact.seat).changes) === 1;
+        && Number(db.prepare('UPDATE work_items SET seat = ? WHERE id = ? AND seat <> ?').run(seatValue(fact.seat), itemId, seatValue(fact.seat)).changes) === 1;
       // 产物也一样：后来才从事实里取的，回填再核时补上（终态之后也补：产物是事实）
       const outputsChanged = this.mergeOutputs(itemId, fact.artifacts);
       const seatFilled = seatChanged || outputsChanged;
@@ -939,7 +1033,7 @@ export class WorkItemService extends Service {
     this.writeLog(itemId, fact, item.state, to, detail);
     const set: string[] = ['state = ?', "updated_at = datetime('now')"], args: (string | number | null)[] = [to];
     if (kind === 'eval') { set.push('eval = ?', 'eval_reason = ?'); args.push(fact.verdict ?? '', fact.reason ?? ''); }
-    if (typeof fact.seat === 'string' && fact.seat !== '') { set.push('seat = ?'); args.push(fact.seat); }
+    if (typeof fact.seat === 'string' && fact.seat !== '') { set.push('seat = ?'); args.push(seatValue(fact.seat)); }
     this.mergeOutputs(itemId, fact.artifacts);
     if (kind === 'report' && typeof fact.summary === 'string') { set.push('progress_summary = ?', "progress_at = datetime('now')"); args.push(fact.summary); }
     if (kind === 'ask') { const asks = JSON.parse(item.open_asks || '[]'); asks.push({ id, source, question: fact.question ?? '' }); set.push('open_asks = ?'); args.push(JSON.stringify(asks)); }
@@ -1001,7 +1095,7 @@ export class WorkItemService extends Service {
     // 摘要只在原来没有回执时填：晚到的回执不覆盖终态时记下的那一份（全量在日志里）
     db.prepare("UPDATE work_items SET receipt_outcome = ?, receipt_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND receipt_outcome = ''").run(fact.outcome ?? '', itemId);
     // 承接席位：进展、只记录的回执带了 by 也更新（成员换人时）；终态之后晚到的不改
-    if (!late && typeof fact.seat === 'string' && fact.seat !== '') db.prepare('UPDATE work_items SET seat = ? WHERE id = ?').run(fact.seat, itemId);
+    if (!late && typeof fact.seat === 'string' && fact.seat !== '') db.prepare('UPDATE work_items SET seat = ? WHERE id = ?').run(seatValue(fact.seat), itemId);
     this.mergeOutputs(itemId, fact.artifacts);
     return { ok: true, state: item.state, from: item.state, duplicate: false, recorded: true, late };
   }

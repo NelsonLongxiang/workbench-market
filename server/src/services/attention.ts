@@ -45,6 +45,8 @@ export type AnswerVia = {
   path: string;
   answers: Record<string, { path?: string; body: Record<string, unknown>; input?: Record<string, { to: string; required?: boolean; max?: number; options?: string[] }> }>;
 };
+/** answer_via 请求体里卡片固定带的标记：来源路由凭它把这次答复记进「关注」的答复账（见 attention-via.ts）。别处直接调接口的不带 */
+export const VIA_MARK = 'from_attention';
 const ANSWER_VIA_PATH = /^\/api\/[A-Za-z0-9][A-Za-z0-9._~:@/-]{0,300}$/;
 /** 拼一个 answer_via：地址不合规（不是 /api/ 开头的同源相对路径、带 ..、带查询串）直接抛错，不交给前端 */
 export function answerVia(method: AnswerVia['method'], path: string, answers: AnswerVia['answers']): AnswerVia {
@@ -67,7 +69,7 @@ export type AttentionItem = {
   answers: string[];
   object: string;
   phase: string;
-  /** 原件在旧页面上的链接（站内路径） */
+  /** 原件所在的站内页面路径；市场里没有对应页面的是 null（这时要么条目自带 answer_via 当场办，要么在 title 里写清去哪办） */
   link: string | null;
   /** 审核卡片当场办所需的最少内容（变更申请：要动什么、从第几版到第几版、谁为什么申请、删除连带几个版本几个文件、不可恢复） */
   detail?: Record<string, unknown>;
@@ -100,19 +102,23 @@ export type AttentionProvider<R = unknown> = {
   /** 这个人在这个来源看不到任何东西时，旧入口会怎么拒（状态码和正文）。不提供就回 403 */
   deny?: (req: R) => Promise<AnswerOutcome> | AnswerOutcome;
   /** 记账用的键：缺省就是条目 id。同一个 id 先后可能是不同的待决（席位在同一个投递上又问了一次）时，键要能分开它们 */
-  key?: (sourceId: string) => string;
+  key?: (sourceId: string) => string | Promise<string>;
 };
 
 export type AnswerOutcome = { status: number; body: unknown; duplicate?: boolean };
-/** 提供方给的条目：一个数组；或者条目有上限时，给出来的那几条和这个人一共有几条（total ≥ items.length） */
-export type AttentionList = AttentionItem[] | { items: AttentionItem[]; total: number };
+/**
+ * 提供方给的条目：一个数组；或者条目有上限时，给出来的那几条和这个人一共有几条（total ≥ items.length）。
+ * 数不出一共几条、只知道超了上限的，给 more: true（来源的 sources 里带 more，前端说一句「还有更多」）
+ */
+export type AttentionList = AttentionItem[] | { items: AttentionItem[]; total: number; more?: boolean };
 /** 提供方给的条目（两种形状统一成数组） */
 export const itemsOf = (l: AttentionList | null): AttentionItem[] | null => (l === null ? null : Array.isArray(l) ? l : l.items);
 
 /** 答复占位的期限：转给原路由一次用不了这么久；过了还没收尾的就是卡死或被杀了 */
 export const PENDING_TTL_SECONDS = 120;
 
-export type AttentionSourceMeta = { label: string; visible: boolean; count: number; error?: string };
+/** more：这个来源超过了一次能列的上限，后面还有没列出来的（只在为真时出现） */
+export type AttentionSourceMeta = { label: string; visible: boolean; count: number; more?: true; error?: string };
 export type AttentionView = {
   items: AttentionItem[];
   /** stuck_count：「卡住的事」这个人一共有几件（各卡住来源的总数，含超出上限没给出来的）。和角标分开，前端在总结句里另说一句 */
@@ -164,8 +170,41 @@ export class AttentionService extends Service {
    * 这个人用这种答法答成过这一条（答完它就不在列表里了，重复答时用它认出来）。键里带答的人和答法：
    * 别人答的、换了答法的都不算，入口对它们回「没有这一条」，和这一条从没存在过一样
    */
+  /**
+   * 这个人（bys：他在答复账上可能的几种写法）最近 hours 小时内答成过的这一条（2xx）：那一轮的键和答法；没有为 null。
+   * 账上的键可能带「:那一轮」「@出现序号」的后缀（见 attention-answers.ts 的 keyOf），按前缀认，取最近的一次
+   */
+  answeredRecently(source: string, sourceId: string, bys: readonly string[], hours: number): { key: string; answer: string } | null {
+    if (!bys.length || !sourceId) return null;
+    const marks = bys.map(() => '?').join(', ');
+    const row = db.prepare(`SELECT source_id AS key, answer FROM attention_answers
+      WHERE source = ? AND state = 'done' AND status BETWEEN 200 AND 299 AND answered_by IN (${marks})
+        AND (source_id = ? OR substr(source_id, 1, ?) IN (? || ':', ? || '@'))
+        AND at >= datetime('now', ?)
+      ORDER BY at DESC LIMIT 1`).get(source, ...bys, sourceId, sourceId.length + 1, sourceId, sourceId, `-${Math.max(1, Math.floor(hours))} hours`) as { key: string; answer: string } | undefined;
+    return row ?? null;
+  }
+
+  /** 这个人（bys 里任一写法）最近 hours 小时内答成过的全部条目（2xx），新的在前，最多 limit 条：来源、那一轮的键、答法、什么时候（SQLite 时刻，UTC） */
+  answersBy(bys: readonly string[], hours: number, limit = 200): { source: string; key: string; answer: string; at: string }[] {
+    if (!bys.length) return [];
+    const marks = bys.map(() => '?').join(', ');
+    return db.prepare(`SELECT source, source_id AS key, answer, at FROM attention_answers
+      WHERE state = 'done' AND status BETWEEN 200 AND 299 AND answered_by IN (${marks}) AND at >= datetime('now', ?)
+      ORDER BY at DESC, source, source_id LIMIT ?`).all(...bys, `-${Math.max(1, Math.floor(hours))} hours`, limit) as { source: string; key: string; answer: string; at: string }[];
+  }
+
   answered(source: string, sourceId: string, by: string, answer: string): boolean {
     return Boolean(db.prepare("SELECT 1 FROM attention_answers WHERE source = ? AND source_id = ? AND state = 'done' AND answered_by = ? AND answer = ?").get(source, sourceId, by, answer));
+  }
+
+  /**
+   * 来源自己的路由已经答成了（「关注」卡片经 answer_via 直接调的，见 attention-via.ts）：补记一行已答的账。
+   * 这一条已经有账（经答复入口答过、或者重复调）的不动；只在原动作成功之后调，记不上由调用方告警，不回滚原动作
+   */
+  recordAnswered(source: string, sourceId: string, answer: string, by: string, status: number, body: unknown): void {
+    db.prepare("INSERT OR IGNORE INTO attention_answers (source, source_id, answer, state, status, body, answered_by) VALUES (?, ?, ?, 'done', ?, ?, ?)")
+      .run(source, sourceId, answer, status, JSON.stringify(body ?? null), by);
   }
 
   /**
@@ -209,7 +248,7 @@ export class AttentionService extends Service {
         const raw = await (p as AttentionProvider<R>).list(req);
         const got = itemsOf(raw);
         const total = raw === null ? 0 : Array.isArray(raw) ? raw.length : Math.max(raw.total, raw.items.length);
-        sources[p.source] = { label: p.label, visible: got !== null, count: total };
+        sources[p.source] = { label: p.label, visible: got !== null, count: total, ...(raw !== null && !Array.isArray(raw) && raw.more ? { more: true as const } : {}) };
         if (got) items.push(...got);
         if (p.stuck) stuck += total;
       } catch (e) {

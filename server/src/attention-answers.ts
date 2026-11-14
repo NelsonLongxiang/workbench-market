@@ -26,7 +26,7 @@ import { benchMcpDecider } from './routes/bench-views.ts';
 import { sopRunAcceptance } from './routes/sop-run-lifecycle.ts';
 import { HttpError } from './errors.ts';
 import { askLogRow, currentAskOfDelivery, pendingAskOfDelivery, pendingPrincipalAppearance } from './services/attention-sources.ts';
-import { askTaskOf, deliveryTarget, eventDispatched, inReplyTx, queueReply } from './services/a2a-replies.ts';
+import { askTaskOf, deliveryTarget, eventDispatched, inReplyTx, queueReply, returnTargetOfEvent } from './services/a2a-replies.ts';
 import { kickWorkbenchEvents, logDeliveryFact } from './workbench-events.ts';
 import { listVars, workbenchScope } from './workbench-vars.ts';
 import type { AnswerOutcome, AttentionProvider, AttentionService } from './services/attention.ts';
@@ -144,10 +144,34 @@ const DIRECT: Record<string, Record<string, (req: Req, id: string, input: Input,
   },
   'work-items': {
     verify: async (_req, id, _input, actor, actingFor) => applied(id, { kind: 'verify', source: 'attention', id: randomUUID(), actor, ...(actingFor ? { acting_for: actingFor } : {}) }),
+    /**
+     * 打回重做：在事项上记一笔 return（ready → progress），同一个保存点里把打回作为同一 context 的新任务发回做这件事的团队
+     * （和答复一个办法；只对派出去的事件发）。正文第一行是签名派工行 [A2A dispatch] {"rework":{"of":"<原任务号>"}}（上游 #627：
+     * 名片声明 reworkReturns 的远端成员发的，宿主直接开新工单交给上次做的成员），第二行「[打回重做] 原事项《…》（原任务 <task>）：理由」给总工看。
+     * 重做的回执照常回到这件事项：新任务的 ack、进展、completed（推回等验收）。
+     */
     return: async (_req, id, input, actor, actingFor) => {
       const reason = text(input.reason, 500);
       if (!reason) return { status: 400, body: { error: 'reason_required' } };
-      return applied(id, { kind: 'return', source: 'attention', id: randomUUID(), actor, reason, ...(actingFor ? { acting_for: actingFor } : {}) });
+      const items = svc<WorkItemService>('workItems');
+      const it = items.get(id);
+      const ev = it && /^wbe-[0-9a-f]{16}$/.test(it.source_ref) && itemIdForEvent(it.source_ref) === id ? it.source_ref : null;
+      const result = inReplyTx(() => {
+        const out = items.apply(id, { kind: 'return', source: 'attention', id: randomUUID(), actor, reason, ...(actingFor ? { acting_for: actingFor } : {}) });
+        if (!out.ok || !ev || !eventDispatched(ev)) return { out, queued: false };
+        const to = returnTargetOfEvent(ev);
+        const target = to ? deliveryTarget(to.delivery_id) : undefined;
+        if (!to || !target) return { out, queued: false };
+        // ref 写负的进展序号（没有进展时是 0）：同一步进展只打回一次，也让回执认得出这是打回任务（a2a-replies 的 replyKindOfTask）
+        const seq = items.lastEntrySeq(id, ['progress']) ?? 0;
+        const queued = queueReply({ kind: 'answer', eventId: ev, deliveryId: to.delivery_id, ref: -seq, qid: to.task, team: target.team, callerSession: target.caller_session,
+          contextId: target.context_id, targetUrl: target.target_url, message: JSON.stringify({ text: reason, by: actor, return: { of: to.task, title: it!.title } }) }) !== null;
+        if (queued) logDeliveryFact(ev, to.delivery_id, actor, 'return-sent', { of: to.task, reason: reason.slice(0, 500) });
+        return { out, queued };
+      });
+      if (!result.out.ok) return { status: 409, body: { error: `work_item_${result.out.reason}`, state: result.out.state ?? null } };
+      if (result.queued) kickWorkbenchEvents();
+      return { status: 200, body: { ok: true, item_id: id, state: result.out.state, sent: result.queued, reason: result.queued ? 'queued' : ev ? 'not_queued' : 'not_from_event' } };
     },
   },
   'sop-runs': {
@@ -233,7 +257,7 @@ function applied(id: string, fact: Parameters<WorkItemService['apply']>[1]): Ans
  *     （不靠时间分轮：时间只到秒，同一秒里又出现就分不开）
  *   · 变更申请、MCP 权限申请：每次申请都是新的一行、新的 id，不会再次进入待处理，键就是 id
  */
-function keyOf(source: string, sourceId: string): string {
+async function keyOf(source: string, sourceId: string): Promise<string> {
   if (source === 'seat-asks' && /^[1-9]\d{0,15}$/.test(sourceId)) {
     const ask = currentAskOfDelivery(Number(sourceId));
     return ask ? `${sourceId}:${ask.ask_log_id}` : sourceId;
@@ -246,7 +270,7 @@ function keyOf(source: string, sourceId: string): string {
     const list = (svc<WorkbenchService>('workbench').all() as { id: number; url: string }[]).map((w) => ({ id: w.id, url: w.url }));
     const found = findBoardWorkbench(list, 'http://localhost');
     if ('error' in found) return sourceId;
-    const v = (listVars(workbenchScope(found.id), `item.${sourceId}`).items as { key: string; revision: number }[]).find((x) => x.key === `item.${sourceId}`);
+    const v = ((await listVars(workbenchScope(found.id), `item.${sourceId}`)).items as { key: string; revision: number }[]).find((x) => x.key === `item.${sourceId}`);
     return v ? `${sourceId}:${v.revision}` : sourceId;
   }
   if (source === 'principal-pending') {
@@ -267,7 +291,7 @@ function keyOf(source: string, sourceId: string): string {
 export const CREATOR_ANSWERS = ['verify', 'return'] as const;
 export async function decideItemAnswer(id: string, actor: string, answer: string, input: Input, actingFor: string): Promise<AnswerOutcome> {
   if (!(CREATOR_ANSWERS as readonly string[]).includes(answer)) return { status: 400, body: { error: 'creator_answer_not_allowed', allowed: CREATOR_ANSWERS } };
-  return svc<AttentionService>('attention').once('work-items', keyOf('work-items', id), answer, actor, async () => {
+  return svc<AttentionService>('attention').once('work-items', await keyOf('work-items', id), answer, actor, async () => {
     const st = svc<WorkItemService>('workItems').get(id)?.state;
     if (st !== 'ready') return { status: 409, body: { error: 'work_item_not_ready', state: st ?? null } };
     return DIRECT['work-items'][answer](undefined as unknown as Req, id, input, actor, actingFor);
@@ -275,7 +299,7 @@ export async function decideItemAnswer(id: string, actor: string, answer: string
 }
 
 /** 席位提问对应的事项（在等的、或者最近那一轮已经答过的）：判谁能答用 */
-function itemOfAsk(deliveryId: string): WorkItemRow | undefined {
+export function itemOfAsk(deliveryId: string): WorkItemRow | undefined {
   if (!/^[1-9]\d{0,15}$/.test(deliveryId)) return undefined;
   const ask = pendingAskOfDelivery(Number(deliveryId)) ?? currentAskOfDelivery(Number(deliveryId));
   return ask ? svc<WorkItemService>('workItems').get(itemIdForEvent(ask.event_id)) : undefined;
@@ -338,10 +362,10 @@ export function withAnswers(p: AttentionProvider<Req>, deps: AnswerDeps): Attent
         // 记账和留痕的人和答复入口认「答过没有」用的同一个（actorOf）：会话登录的管理员记成身份来源的那个名字，别人记主体
         const who = await actorOf(req);
         if (decision !== 'answer') return decideItemAnswer(sourceId, who, answer, input, v.acting_for);
-        return attention().once(p.source, keyOf(p.source, sourceId), answer, who, async () => DIRECT['seat-asks'].answer(req, sourceId, input, who, v.acting_for));
+        return attention().once(p.source, await keyOf(p.source, sourceId), answer, who, async () => DIRECT['seat-asks'].answer(req, sourceId, input, who, v.acting_for));
       }
       const actor = await actorOf(req);
-      return attention().once(p.source, keyOf(p.source, sourceId), answer, actor, async () => {
+      return attention().once(p.source, await keyOf(p.source, sourceId), answer, actor, async () => {
         const direct = directs?.[answer];
         if (direct) return direct(req, sourceId, input, actor);
         const make = forwards?.[answer];

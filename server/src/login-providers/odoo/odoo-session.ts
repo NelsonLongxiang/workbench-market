@@ -56,7 +56,9 @@ export function isOdooSessionTarget(url: string): boolean {
 }
 
 /** #275 登录回跳只回需要身份的市场页（白名单）；其余本站路径一律不收，免得把刚登录的人送到同源的用户产出页 */
-const RETURN_PATHS = ['/tasks', '/login']; // /login：登录门的「用 Odoo 登录」
+// /：首页（全景，要登录）；/login：登录门的「用 Odoo 登录」。统一待办（/tasks）已退役（#664），不再是回跳页——
+// 回到退役页，页面还要再跳一次，落点就不稳了
+const RETURN_PATHS = ['/', '/login'];
 
 /** 扩展登记自己需要身份的页面（ctx.odoo.addReturnPath）：只收 /小写段[/小写段]，重复登记无副作用 */
 export function addOdooReturnPath(p: string): void {

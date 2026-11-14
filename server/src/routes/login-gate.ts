@@ -90,7 +90,8 @@ export function registerLoginGateRoutes(app: HttpService, routeDeps: LoginGateRo
       // 只有认出了人（Odoo、市场会话）才有主体和角色；口令、本机命令行、没登录：principal 为 null、roles 为空
       const person = id && (id.via === 'odoo' || id.via === 'session');
       const extra = person && deps.profile ? await deps.profile(req) : { principal: null, display_name: null, roles: [] };
-      res.json({ gate: deps.mode, authenticated: !!id, via: id?.via ?? null, login: id?.login ?? null, ...extra });
+      const can = deps.can ? await deps.can(req) : undefined;
+      res.json({ gate: deps.mode, authenticated: !!id, via: id?.via ?? null, login: id?.login ?? null, ...extra, ...(can ? { can } : {}) });
     } catch (e) { next(e); }
   });
 }

@@ -12,7 +12,7 @@ import { ReloadOutlined } from '@ant-design/icons';
 import WmPage from '../components/WmPage';
 import RelTime from '../components/RelTime';
 import { apiFetch } from '../admin-token';
-import { OUTCOME, VERDICT, type AttentionItem, type LogRow } from '../attention-view';
+import { OUTCOME, VERDICT, answerLabel, type AttentionItem, type LogRow } from '../attention-view';
 import { getLifecycleNameSources, getRosterTeams, getWorkItem, postAskAnswer, postCreatorDecision, postSeatMessageReply, postSeatMessagesRead } from '../api';
 import dayjs from 'dayjs';
 import SectionBoundary from '../components/SectionBoundary';
@@ -38,7 +38,6 @@ const REPLY_ERROR: Record<string, string> = { text_required: '先写点什么', 
 
 /** 等你处理的：答法、要填的东西和「关注」页一致（各来源自己定，入口原样转交） */
 const CATEGORY: Record<string, { label: string; color: string }> = { ask: { label: '席位提问', color: 'gold' }, accept: { label: '等验收', color: 'green' }, glance: { label: '过目', color: 'default' }, review: { label: '审核', color: 'blue' }, grant: { label: '授权', color: 'purple' } };
-const ANSWER: Record<string, string> = { answer: '答复', verify: '验收通过', return: '打回重做', release: '派出去', withdraw: '撤回' };
 const FIELDS: Record<string, Record<string, { key: string; label: string; required: boolean }>> = {
   'seat-asks': { answer: { key: 'text', label: '你的答复（会发回提问的席位）', required: true } },
   'work-items': { return: { key: 'reason', label: '打回的理由（席位会照这个改）', required: true } },
@@ -47,7 +46,7 @@ const FIELDS: Record<string, Record<string, { key: string; label: string; requir
 /** 替建立人办的答法：管理员代答、代为验收、代为打回 */
 const PROXY: Record<string, string> = { answer: '代答', verify: '代为验收', return: '代为打回' };
 function PendingAction({ item, can, proxy, onDone }: { item: AttentionItem; can: Can; proxy: boolean; onDone: () => void }) {
-  const label = (a: string) => (proxy && PROXY[a]) || ANSWER[a] || a;
+  const label = (a: string) => (proxy && PROXY[a]) || answerLabel(a);
   const { message } = App.useApp();
   const choices = choicesFor(item, can);
   const [answer, setAnswer] = useState(choices.length === 1 ? choices[0] : '');

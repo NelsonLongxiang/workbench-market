@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,6 +11,35 @@ mkdirSync(dataDir, { recursive: true });
 
 // 别的连接锁着写时最多等 DB_BUSY_TIMEOUT_MS（见 db-busy.ts）：短暂重叠不直接失败，超过上限照样报错
 export const db = new DatabaseSync(join(dataDir, 'workbench-market.db'), { timeout: DB_BUSY_TIMEOUT_MS });
+
+// ---------- 表结构探查（数据库规划第 0 步：方言只留这一处）----------
+// 迁移里「这张表 / 这一列 / 这个索引在不在」都经这几个函数，不在别处直接写 PRAGMA 或查 sqlite_master。
+// 以后换成 PostgreSQL，只改这几个函数的里面（information_schema / pg_indexes）。
+// 表名、列名只接受小写字母、数字、下划线的标识符：PRAGMA 不能用参数绑定，名字是拼进去的，所以先校验，校验不过直接抛错，
+// 不让它变成能拼 SQL 的口子。hasTable、hasIndex 的名字照样走参数绑定。
+const SCHEMA_IDENT = /^[a-z_][a-z0-9_]*$/;
+function schemaIdent(name: string): string {
+  if (typeof name !== 'string' || !SCHEMA_IDENT.test(name)) throw new Error(`[db] 不是合法的表名或列名：${JSON.stringify(name)}`);
+  return name;
+}
+/** 一张表现有的列（表不存在时为空数组）。每列带 name（和原来查表结构的行同名），迁移代码可以照旧 .some((c) => c.name === …) */
+export function tableColumns(table: string): { name: string }[] {
+  return (db.prepare(`PRAGMA table_info(${schemaIdent(table)})`).all() as { name: string }[]).map((c) => ({ name: c.name }));
+}
+/** 这张表有没有这一列（表不存在也算没有） */
+export function hasColumn(table: string, column: string): boolean {
+  schemaIdent(column);
+  return tableColumns(table).some((c) => c.name === column);
+}
+/** 有没有这张表 */
+export function hasTable(table: string): boolean {
+  return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(schemaIdent(table)));
+}
+/** 有没有这个索引 */
+export function hasIndex(index: string): boolean {
+  return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?").get(schemaIdent(index)));
+}
+
 
 db.exec(`
 PRAGMA journal_mode = WAL;
@@ -325,7 +355,8 @@ CREATE TABLE IF NOT EXISTS a2a_inbound_receipts (
 -- 负责人、分配建在它上面）；每次全量快照以新替旧（按宿主报的时间）。a2a_roster_changes 记入库时算出的变化（新团队、新成员、成员消失、
 -- 团队消失、换总工），给上层做通知和「等你拍板」。host 是验过签的那把节点公钥的指纹（sha256 前 8 位十六进制，上游 canvasOwnerFingerprint），
 -- 正文里报的 host 只拿来核对；同一个 host 只认第一次报它的根地址。seat_id 是宿主给成员位的稳定 id（上游 B1 起，句柄随会话变、它不变；旧节点不带就是空）。
--- 时间由代码生成后写入。
+-- 名册已改存 a2a_roster_nodes / a2a_roster_node_seats（以根地址和完整指纹为键，见 a2a_peers 之后）：这两张旧表升级时复制一次之后
+-- 不再读写，只为升级守护（结构只增不改、存量行不变）留着，不删、不改名、不删行。时间由代码生成后写入。
 CREATE TABLE IF NOT EXISTS a2a_rosters (
   host TEXT PRIMARY KEY,
   peer_root TEXT NOT NULL,
@@ -543,35 +574,38 @@ CREATE TABLE IF NOT EXISTS install_ledger (
 );
 
 `);
+// 跟进按发来的根地址认：限频、找投递都按 peer_root，不按区（同一个区下可以有好几台宿主）。存量行是空串，只是不计进新的限频窗口
+if (!hasColumn('workbench_event_followups', 'peer_root')) db.exec("ALTER TABLE workbench_event_followups ADD COLUMN peer_root TEXT NOT NULL DEFAULT ''");
+db.exec('CREATE INDEX IF NOT EXISTS idx_wbe_followups_root ON workbench_event_followups (peer_root, created_at)');
 
 // A2A P3 回执（评审席判据 network/a2a-receipt E1-E7）
 {
 // #94 S2：skill_versions.commit_id（技能入 LayerFS·wm-skills 项目 skill/<slug> 分支）
-try { const svCols = db.prepare('PRAGMA table_info(skill_versions)').all() as any[]; if (!svCols.some((c) => c.name === 'commit_id')) db.exec("ALTER TABLE skill_versions ADD COLUMN commit_id TEXT NOT NULL DEFAULT ''"); if (!svCols.some((c) => c.name === 'shadow_status')) db.exec("ALTER TABLE skill_versions ADD COLUMN shadow_status TEXT NOT NULL DEFAULT 'pending'"); if (!svCols.some((c) => c.name === 'shadow_error')) db.exec("ALTER TABLE skill_versions ADD COLUMN shadow_error TEXT NOT NULL DEFAULT ''"); db.exec("UPDATE skill_versions SET shadow_status='succeeded', shadow_error='' WHERE commit_id <> '' AND shadow_status='pending'"); } catch { /* 列已在 */ }
+try { const svCols = tableColumns('skill_versions') as any[]; if (!svCols.some((c) => c.name === 'commit_id')) db.exec("ALTER TABLE skill_versions ADD COLUMN commit_id TEXT NOT NULL DEFAULT ''"); if (!svCols.some((c) => c.name === 'shadow_status')) db.exec("ALTER TABLE skill_versions ADD COLUMN shadow_status TEXT NOT NULL DEFAULT 'pending'"); if (!svCols.some((c) => c.name === 'shadow_error')) db.exec("ALTER TABLE skill_versions ADD COLUMN shadow_error TEXT NOT NULL DEFAULT ''"); db.exec("UPDATE skill_versions SET shadow_status='succeeded', shadow_error='' WHERE commit_id <> '' AND shadow_status='pending'"); } catch { /* 列已在 */ }
 // 技能回滚=移「当前版本」指针（skills.active_version，NULL=跟随最新版）：版本链只增、同技能同指纹唯一（K9）都不动，回滚不再复制出同指纹的新版本撞唯一索引
-try { const dlCols = db.prepare('PRAGMA table_info(skill_download_tickets)').all() as any[]; if (!dlCols.some((c) => c.name === 'denied')) db.exec('ALTER TABLE skill_download_tickets ADD COLUMN denied INTEGER NOT NULL DEFAULT 0'); } catch { /* 列已在 */ } // #462：旧库补拒绝计数（旧明文票按哈希查不到，自然失效）
-try { const skCols = db.prepare('PRAGMA table_info(skills)').all() as any[]; if (!skCols.some((c) => c.name === 'active_version')) db.exec('ALTER TABLE skills ADD COLUMN active_version INTEGER'); if (!skCols.some((c) => c.name === 'active_by')) db.exec("ALTER TABLE skills ADD COLUMN active_by TEXT NOT NULL DEFAULT ''"); if (!skCols.some((c) => c.name === 'active_at')) db.exec("ALTER TABLE skills ADD COLUMN active_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { const dlCols = tableColumns('skill_download_tickets') as any[]; if (!dlCols.some((c) => c.name === 'denied')) db.exec('ALTER TABLE skill_download_tickets ADD COLUMN denied INTEGER NOT NULL DEFAULT 0'); } catch { /* 列已在 */ } // #462：旧库补拒绝计数（旧明文票按哈希查不到，自然失效）
+try { const skCols = tableColumns('skills') as any[]; if (!skCols.some((c) => c.name === 'active_version')) db.exec('ALTER TABLE skills ADD COLUMN active_version INTEGER'); if (!skCols.some((c) => c.name === 'active_by')) db.exec("ALTER TABLE skills ADD COLUMN active_by TEXT NOT NULL DEFAULT ''"); if (!skCols.some((c) => c.name === 'active_at')) db.exec("ALTER TABLE skills ADD COLUMN active_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 // #94 P1 影子双写：apps.layerfs_project + app_versions.commit_id（幂等 ALTER）
-try { const appCols = db.prepare('PRAGMA table_info(apps)').all() as any[]; if (!appCols.some((c) => c.name === 'layerfs_project')) db.exec("ALTER TABLE apps ADD COLUMN layerfs_project TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
-try { const avCols = db.prepare('PRAGMA table_info(app_versions)').all() as any[]; if (!avCols.some((c) => c.name === 'commit_id')) db.exec("ALTER TABLE app_versions ADD COLUMN commit_id TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { const appCols = tableColumns('apps') as any[]; if (!appCols.some((c) => c.name === 'layerfs_project')) db.exec("ALTER TABLE apps ADD COLUMN layerfs_project TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { const avCols = tableColumns('app_versions') as any[]; if (!avCols.some((c) => c.name === 'commit_id')) db.exec("ALTER TABLE app_versions ADD COLUMN commit_id TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 // 属主 2026-11-02 来源收敛：自产台/SOP 台只接受 GitHub 仓库 main——apps 记来源仓库与子目录，app_versions 记拉取的 commit sha（幂等 ALTER）
-try { const appCols = db.prepare('PRAGMA table_info(apps)').all() as any[]; if (!appCols.some((c) => c.name === 'source_repo')) db.exec("ALTER TABLE apps ADD COLUMN source_repo TEXT NOT NULL DEFAULT ''"); if (!appCols.some((c) => c.name === 'source_path')) db.exec("ALTER TABLE apps ADD COLUMN source_path TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
-try { const avCols = db.prepare('PRAGMA table_info(app_versions)').all() as any[]; if (!avCols.some((c) => c.name === 'source_commit')) db.exec("ALTER TABLE app_versions ADD COLUMN source_commit TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
-try { const avCols = db.prepare('PRAGMA table_info(app_versions)').all() as any[]; if (!avCols.some((c) => c.name === 'commit_id')) db.exec("ALTER TABLE app_versions ADD COLUMN commit_id TEXT NOT NULL DEFAULT ''"); if (!avCols.some((c) => c.name === 'shadow_status')) db.exec("ALTER TABLE app_versions ADD COLUMN shadow_status TEXT NOT NULL DEFAULT 'pending'"); if (!avCols.some((c) => c.name === 'shadow_error')) db.exec("ALTER TABLE app_versions ADD COLUMN shadow_error TEXT NOT NULL DEFAULT ''"); db.exec("UPDATE app_versions SET shadow_status='succeeded', shadow_error='' WHERE commit_id <> '' AND shadow_status='pending'"); } catch { /* 列已在 */ }
+try { const appCols = tableColumns('apps') as any[]; if (!appCols.some((c) => c.name === 'source_repo')) db.exec("ALTER TABLE apps ADD COLUMN source_repo TEXT NOT NULL DEFAULT ''"); if (!appCols.some((c) => c.name === 'source_path')) db.exec("ALTER TABLE apps ADD COLUMN source_path TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { const avCols = tableColumns('app_versions') as any[]; if (!avCols.some((c) => c.name === 'source_commit')) db.exec("ALTER TABLE app_versions ADD COLUMN source_commit TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { const avCols = tableColumns('app_versions') as any[]; if (!avCols.some((c) => c.name === 'commit_id')) db.exec("ALTER TABLE app_versions ADD COLUMN commit_id TEXT NOT NULL DEFAULT ''"); if (!avCols.some((c) => c.name === 'shadow_status')) db.exec("ALTER TABLE app_versions ADD COLUMN shadow_status TEXT NOT NULL DEFAULT 'pending'"); if (!avCols.some((c) => c.name === 'shadow_error')) db.exec("ALTER TABLE app_versions ADD COLUMN shadow_error TEXT NOT NULL DEFAULT ''"); db.exec("UPDATE app_versions SET shadow_status='succeeded', shadow_error='' WHERE commit_id <> '' AND shadow_status='pending'"); } catch { /* 列已在 */ }
 // S1 表形状迁移（PR#103 旧形状 kind=app_rollback… → v3 契约 kind×op·表新落地零产数据直接重建）
-try { const crCols = db.prepare("PRAGMA table_info(change_requests)").all() as any[]; if (crCols.length > 0 && !crCols.some((c) => c.name === 'op')) { db.exec('DROP TABLE change_requests'); db.exec("CREATE TABLE change_requests (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  kind TEXT NOT NULL CHECK (kind IN ('app','skill')),\n  slug TEXT NOT NULL,\n  op TEXT NOT NULL CHECK (op IN ('rollback','delete')),\n  target_version INTEGER,\n  reason TEXT NOT NULL DEFAULT '',\n  source TEXT NOT NULL DEFAULT 'mcp',\n  requested_by TEXT NOT NULL DEFAULT '',\n  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),\n  reviewed_by TEXT NOT NULL DEFAULT '',\n  reviewed_at TEXT NOT NULL DEFAULT '',\n  created_at TEXT NOT NULL DEFAULT (datetime('now'))\n)"); } } catch { /* 无表 */ }
+try { const crCols = tableColumns('change_requests') as any[]; if (crCols.length > 0 && !crCols.some((c) => c.name === 'op')) { db.exec('DROP TABLE change_requests'); db.exec("CREATE TABLE change_requests (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  kind TEXT NOT NULL CHECK (kind IN ('app','skill')),\n  slug TEXT NOT NULL,\n  op TEXT NOT NULL CHECK (op IN ('rollback','delete')),\n  target_version INTEGER,\n  reason TEXT NOT NULL DEFAULT '',\n  source TEXT NOT NULL DEFAULT 'mcp',\n  requested_by TEXT NOT NULL DEFAULT '',\n  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),\n  reviewed_by TEXT NOT NULL DEFAULT '',\n  reviewed_at TEXT NOT NULL DEFAULT '',\n  created_at TEXT NOT NULL DEFAULT (datetime('now'))\n)"); } } catch { /* 无表 */ }
 // 审核进「关注」：不通过的理由（review_note）、经身份认出来的审核人（reviewed_by_principal，reviewed_by 是旧入口自填的名字，只做显示）。幂等补列
 for (const [column, ddl] of [
   ['review_note', "review_note TEXT NOT NULL DEFAULT ''"],
   ['reviewed_by_principal', "reviewed_by_principal TEXT NOT NULL DEFAULT ''"],
 ] as const) {
-  const cols = db.prepare('PRAGMA table_info(change_requests)').all() as { name: string }[];
+  const cols = tableColumns('change_requests') as { name: string }[];
   if (cols.length > 0 && !cols.some((c) => c.name === column)) db.exec(`ALTER TABLE change_requests ADD COLUMN ${ddl}`);
 }
 // #94 S0⑥（K9）幂等迁移：拆全局 digest 唯一索引（域级复合索引由 DDL 建）
 try { db.exec('DROP INDEX IF EXISTS idx_skill_versions_digest'); } catch { /* 旧库无此索引 */ }
 
-  const ctxCols = db.prepare('PRAGMA table_info(a2a_run_ctx)').all() as { name: string }[];
+  const ctxCols = tableColumns('a2a_run_ctx') as { name: string }[];
   if (!ctxCols.some((c) => c.name === 'task_id')) {
     db.exec("ALTER TABLE a2a_run_ctx ADD COLUMN task_id TEXT NOT NULL DEFAULT ''");
   }
@@ -594,7 +628,7 @@ try {
   db.exec(`INSERT OR REPLACE INTO bindings (target_type,target_slug,agent_node,direction,mode,notify_url,created_by,created_at,revoked_at)
     SELECT 'app', app_slug, node, 'notify', 'read', base_url, created_by, created_at, revoked_at FROM app_bindings`);
 } catch { /* 首启表未建等情形由外层建表先行——此处静默重试下次启动 */ }
-const bindCols = db.prepare('PRAGMA table_info(sop_bindings)').all() as { name: string }[];
+const bindCols = tableColumns('sop_bindings') as { name: string }[];
   if (!bindCols.some((c) => c.name === 'callback_url')) {
     db.exec("ALTER TABLE sop_bindings ADD COLUMN callback_url TEXT NOT NULL DEFAULT ''");
   }
@@ -619,10 +653,10 @@ try {
 // #132 P0：app_files.note+deleted_at·app_data.deleted_at（幂等 ALTER·软删原行留审计）
 // MCP 工具 REST 开放：调用审计区分渠道（mcp = /mcp JSON-RPC，rest = /api/mcp-rest/tools/*）
 // MCP 内嵌 REST：文件 sha256 入库时存下，下载 ETag 不再整份重算（存量行首次下载时回写）
-try { const shaCols = db.prepare('PRAGMA table_info(app_files)').all() as any[]; if (!shaCols.some((c) => c.name === 'sha256')) db.exec("ALTER TABLE app_files ADD COLUMN sha256 TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
-try { const mcCols = db.prepare('PRAGMA table_info(mcp_calls)').all() as any[]; if (!mcCols.some((c) => c.name === 'channel')) db.exec("ALTER TABLE mcp_calls ADD COLUMN channel TEXT NOT NULL DEFAULT 'mcp'"); } catch { /* 列已在 */ }
-try { const afCols = db.prepare('PRAGMA table_info(app_files)').all() as any[]; if (!afCols.some((c) => c.name === 'note')) db.exec("ALTER TABLE app_files ADD COLUMN note TEXT NOT NULL DEFAULT ''"); if (!afCols.some((c) => c.name === 'deleted_at')) db.exec("ALTER TABLE app_files ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
-try { const adCols = db.prepare('PRAGMA table_info(app_data)').all() as any[]; if (!adCols.some((c) => c.name === 'deleted_at')) db.exec("ALTER TABLE app_data ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { const shaCols = tableColumns('app_files') as any[]; if (!shaCols.some((c) => c.name === 'sha256')) db.exec("ALTER TABLE app_files ADD COLUMN sha256 TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { const mcCols = tableColumns('mcp_calls') as any[]; if (!mcCols.some((c) => c.name === 'channel')) db.exec("ALTER TABLE mcp_calls ADD COLUMN channel TEXT NOT NULL DEFAULT 'mcp'"); } catch { /* 列已在 */ }
+try { const afCols = tableColumns('app_files') as any[]; if (!afCols.some((c) => c.name === 'note')) db.exec("ALTER TABLE app_files ADD COLUMN note TEXT NOT NULL DEFAULT ''"); if (!afCols.some((c) => c.name === 'deleted_at')) db.exec("ALTER TABLE app_files ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { const adCols = tableColumns('app_data') as any[]; if (!adCols.some((c) => c.name === 'deleted_at')) db.exec("ALTER TABLE app_data ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 // MCP 权限自助申请：会话经 access_request 提、管理员批/驳；批准把 tools 并入会话 grants，与审计行同一事务。
 // app_data.idempotency_key：app_data_submit / REST 提交带幂等键时同台同键只落一行（空串不参与唯一）。IF NOT EXISTS / 补列幂等。
 db.exec(`
@@ -652,8 +686,10 @@ CREATE TABLE IF NOT EXISTS mcp_grant_audit (
 );
 CREATE INDEX IF NOT EXISTS idx_mcp_grant_audit_session ON mcp_grant_audit (session_id, id);
 `);
-try { const adCols = db.prepare('PRAGMA table_info(app_data)').all() as any[]; if (!adCols.some((c) => c.name === 'idempotency_key')) db.exec("ALTER TABLE app_data ADD COLUMN idempotency_key TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { const adCols = tableColumns('app_data') as any[]; if (!adCols.some((c) => c.name === 'idempotency_key')) db.exec("ALTER TABLE app_data ADD COLUMN idempotency_key TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_app_data_idem ON app_data (app_slug, idempotency_key) WHERE idempotency_key <> ''");
+// cockpits.created_by：建立人的主体（管理层建的才有；口令、Odoo 管理员、本机命令行建的和老行是 null）。只记下来，不带进读应答
+if (!hasColumn('cockpits', 'created_by')) db.exec('ALTER TABLE cockpits ADD COLUMN created_by TEXT');
 // #336：按工作台隔离的变量与常量（workbench_id 为隔离键；value 存 JSON 原文；revision 乐观锁，每次写 +1）。
 // 审计只记值的 sha256 不记原文；IF NOT EXISTS 幂等，旧库启动即补表。
 db.exec(`
@@ -685,7 +721,7 @@ CREATE TABLE IF NOT EXISTS workbench_var_audit (
 CREATE INDEX IF NOT EXISTS idx_workbench_var_audit_wb ON workbench_var_audit(workbench_id, key, id);
 `);
 // 常量作者（谁写的谁维护）：只记个人身份 mcp:<会话名> / odoo:<登录名>；旧常量按最后写入者回填，共享身份（口令、本机、台令牌）留空=只有本机命令行能修订
-try { const wvCols = db.prepare('PRAGMA table_info(workbench_vars)').all() as any[]; if (!wvCols.some((c) => c.name === 'owner')) db.exec("ALTER TABLE workbench_vars ADD COLUMN owner TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { const wvCols = tableColumns('workbench_vars') as any[]; if (!wvCols.some((c) => c.name === 'owner')) db.exec("ALTER TABLE workbench_vars ADD COLUMN owner TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 // 回填每次启动都跑（幂等）：补列后中途退出也不会漏。作者为空的常量只可能由共享身份最后写过，所以按个人身份回填不会改掉兜底移交的结果
 db.exec("UPDATE workbench_vars SET owner = updated_by WHERE kind = 'const' AND owner = '' AND (updated_by LIKE 'mcp:%' OR updated_by LIKE 'odoo:%')");
 // 阶段五：主体与外部身份。主体是「谁」的那一张表，五类（人、席位、台、系统、外部节点）；
@@ -768,6 +804,12 @@ CREATE TABLE IF NOT EXISTS principal_pending (
   PRIMARY KEY (provider, external_id)
 );
 `);
+// 由市场维持的登录提供方会话（用 Odoo 这类身份来源登录的人）：upstream_sealed 是发会话时浏览器带来的提供方会话凭据，加密存放
+//   （AES-256-GCM，密钥是数据目录里的 .wm-login-session.key，不在库里），市场照旧拿它去问提供方这个人还在不在；
+//   不给页面、不进日志；会话注销、到期、主体停用时清空（services/login-session.ts）。普通的市场会话（比如飞书）这一列是空的
+if (!hasColumn('market_sessions', 'upstream_sealed')) db.exec('ALTER TABLE market_sessions ADD COLUMN upstream_sealed TEXT');
+// 来源轮换过几次（市场跟着换了存下的会话号）：诊断用——轮换之后又被来源否掉的，日志里会标出来
+if (!hasColumn('market_sessions', 'upstream_renewals')) db.exec('ALTER TABLE market_sessions ADD COLUMN upstream_renewals INTEGER NOT NULL DEFAULT 0');
 // 阶段六 6b：授予（谁有哪个角色）。角色本身是声明（server/src/roles.ts），这里只放数据。
 //   grants：主体、角色、范围、期限、理由、起草人、放行人、状态。状态只有五种，只能往前走：
 //     draft 草稿 → pending 待核 → active 生效 → revoked 撤销 或 expired 过期；草稿和待核也可以直接撤销（作废、驳回）。
@@ -865,7 +907,7 @@ CREATE TRIGGER IF NOT EXISTS grant_events_no_replace BEFORE INSERT ON grant_even
   BEGIN SELECT RAISE(ABORT, 'grant_events 只增不改'); END;
 `);
 // 阶段六 6c：授予的来源（manual 人起草的；migration 迁移出来的，能整批列出、整批撤销）。建好不能改
-try { const gCols = db.prepare('PRAGMA table_info(grants)').all() as { name: string }[]; if (!gCols.some((c) => c.name === 'source')) db.exec("ALTER TABLE grants ADD COLUMN source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual','migration'))"); } catch (e) { console.warn('[db] grants 补 source 列失败：', (e as Error).message); }
+try { const gCols = tableColumns('grants') as { name: string }[]; if (!gCols.some((c) => c.name === 'source')) db.exec("ALTER TABLE grants ADD COLUMN source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual','migration'))"); } catch (e) { console.warn('[db] grants 补 source 列失败：', (e as Error).message); }
 db.exec(`
 CREATE TRIGGER IF NOT EXISTS grants_source_fixed BEFORE UPDATE OF source ON grants WHEN NEW.source IS NOT OLD.source
   BEGIN SELECT RAISE(ABORT, '授予的来源建好就不能改'); END;
@@ -921,7 +963,7 @@ CREATE TABLE IF NOT EXISTS judgment_enforced (
 // 这两张表只在本分支的早先版本里有过没有规范化列的形状（从没发布过）。碰上就拒绝启动，说清楚怎么办：
 // 带着它跑，新来的人一律认不出（503），不如一开始就停下
 for (const [table, column] of [['principals', 'id_key'], ['principal_identities', 'external_key']]) {
-  if (!(db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column)) {
+  if (!(tableColumns(table) as { name: string }[]).some((c) => c.name === column)) {
     throw new Error(`[db] 拒绝启动：${table} 表缺 ${column} 列（是开发分支早先版本建的，从没发布过）。删掉 principals、principal_identities 两张表再启动`);
   }
 }
@@ -1001,7 +1043,7 @@ CREATE TRIGGER IF NOT EXISTS work_items_start_draft BEFORE INSERT ON work_items 
 // 阶段八 8c 前：被拒的事实（f8d07a9）原因记在 work_item_log 单独的 rejected 列，不再放调用方能写的 detail 里。
 //   旧库补列，并把 8b 写在 detail.rejected 里的原因搬过来（那时只有事项服务自己写日志，detail.rejected 都是真的）。
 //   日志只增不改：搬的这一次在同一个事务里先拿掉改写触发器、改完立刻装回；补列之后不会再走这段。
-if (!(db.prepare('PRAGMA table_info(work_item_log)').all() as { name: string }[]).some((c) => c.name === 'rejected')) {
+if (!(tableColumns('work_item_log') as { name: string }[]).some((c) => c.name === 'rejected')) {
   db.exec('BEGIN IMMEDIATE');
   try {
     db.exec(`ALTER TABLE work_item_log ADD COLUMN rejected TEXT NOT NULL DEFAULT '' CHECK (rejected IN ('', 'not_allowed', 'terminal'));
@@ -1017,7 +1059,7 @@ CREATE TRIGGER work_item_log_no_update BEFORE UPDATE ON work_item_log
 //   只在建立事项时由事项服务从事件里取：提交请求经身份服务认出了人、且事件的提交方是已验证的，才有值；否则留空。
 //   留空的事项没有「建立人」，只有管理员能看、能处理。不猜、不按名字去对主体表。
 //   一经记下不再改（空的可以补成有值：回填按事件确定了已验证主体时）。
-if (!(db.prepare('PRAGMA table_info(work_items)').all() as { name: string }[]).some((c) => c.name === 'creator_principal')) {
+if (!(tableColumns('work_items') as { name: string }[]).some((c) => c.name === 'creator_principal')) {
   db.exec("ALTER TABLE work_items ADD COLUMN creator_principal TEXT CHECK (creator_principal IS NULL OR creator_principal GLOB 'user:?*')");
 }
 // 规范 14 第 2 步：事项是怎么交出去的（建的时候记下，之后分配变了也不改）。
@@ -1034,10 +1076,34 @@ for (const [column, ddl] of [
   // 从哪个驾驶舱安排的（驾驶舱的 id）：只在「安排一件事」那一刻记，之后不改；别的路子建的、存量都是 null，不回填。
   //   只是个标签，不给任何权限；驾驶舱删了也照旧留着这个数
   ['cockpit_id', 'cockpit_id INTEGER'],
+  // 截止日期（到日，存那天的 UTC 零点 ISO；空 = 没有）：安排时填、建立人可以改；过了期仍未完成的算 overdue（服务端按同一时钟算）
+  ['due_at', "due_at TEXT NOT NULL DEFAULT ''"],
 ] as const) {
-  if (!(db.prepare('PRAGMA table_info(work_items)').all() as { name: string }[]).some((c) => c.name === column)) db.exec(`ALTER TABLE work_items ADD COLUMN ${ddl}`);
+  if (!(tableColumns('work_items') as { name: string }[]).some((c) => c.name === column)) db.exec(`ALTER TABLE work_items ADD COLUMN ${ddl}`);
 }
 db.exec('CREATE INDEX IF NOT EXISTS idx_work_items_cockpit ON work_items (cockpit_id, updated_at)');
+// 「安排一件事」的附件：先由登录的人上传（只存引用：落盘路径、名字、类型、大小、sha256），安排时挂到那一次的事件上。
+//   uploaded_by 是上传的人（主体）；event_id 空 = 还没挂到哪件事上（只有上传的人自己能挂）；挂上之后不再改。
+//   读：看得到这件事项的人经事项读（work-item-access 的 canSee）；接单节点凭那次投递的回执令牌取。时间由代码给。
+db.exec(`
+CREATE TABLE IF NOT EXISTS work_item_attachments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  uploaded_by TEXT NOT NULL CHECK (uploaded_by GLOB 'user:?*'),
+  name TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  size INTEGER NOT NULL CHECK (size >= 0),
+  sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
+  path TEXT NOT NULL,
+  event_id TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  bound_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_wi_attach_event ON work_item_attachments (event_id);
+CREATE INDEX IF NOT EXISTS idx_wi_attach_owner ON work_item_attachments (uploaded_by, event_id);
+CREATE TRIGGER IF NOT EXISTS work_item_attachments_bind_once BEFORE UPDATE OF event_id ON work_item_attachments
+  WHEN OLD.event_id <> '' AND NEW.event_id IS NOT OLD.event_id
+  BEGIN SELECT RAISE(ABORT, '附件挂到事件上之后不再改'); END;
+`);
 db.exec(`
 CREATE TRIGGER IF NOT EXISTS work_items_creator_principal_once BEFORE UPDATE OF creator_principal ON work_items
   WHEN OLD.creator_principal IS NOT NULL AND NEW.creator_principal IS NOT OLD.creator_principal
@@ -1045,7 +1111,7 @@ CREATE TRIGGER IF NOT EXISTS work_items_creator_principal_once BEFORE UPDATE OF 
 `);
 // 阶段八 8f：提需求的人。建录入（task-center 的 run）时经身份服务认出的主体记在 run 上，发布时事项的建立人主体取它；
 //   认不出就空着，不拿发布的人顶替。一经记下不再改。
-if (!(db.prepare('PRAGMA table_info(sop_runs)').all() as { name: string }[]).some((c) => c.name === 'requester_principal')) {
+if (!(tableColumns('sop_runs') as { name: string }[]).some((c) => c.name === 'requester_principal')) {
   db.exec("ALTER TABLE sop_runs ADD COLUMN requester_principal TEXT CHECK (requester_principal IS NULL OR requester_principal GLOB 'user:?*')");
 }
 // 阶段八 8f：「人提需求」的提交计数。只有通道、有没有登录凭据、认没认出人三个维度和次数，按天（UTC）累计；不存任何提交内容。
@@ -1064,7 +1130,7 @@ CREATE TABLE IF NOT EXISTS submission_counts (
 );
 `);
 // 阶段八 8f-2：台的提交带了有效的提交人票据时，记下提交人（主体标识，可空）。读数据的接口都按列名取，不带出这一列。
-if (!(db.prepare('PRAGMA table_info(app_data)').all() as { name: string }[]).some((c) => c.name === 'submitter_principal')) {
+if (!(tableColumns('app_data') as { name: string }[]).some((c) => c.name === 'submitter_principal')) {
   db.exec("ALTER TABLE app_data ADD COLUMN submitter_principal TEXT CHECK (submitter_principal IS NULL OR submitter_principal GLOB 'user:?*')");
 }
 // 阶段八 8f-2：提交人票据验得过、验不过的次数，出台页面回落到原样页面的次数，按天累计。不记票据、不记原因、不记是谁
@@ -1100,7 +1166,7 @@ for (const [column, ddl] of [
   ['log_mark', 'log_mark INTEGER NOT NULL DEFAULT 0 CHECK (log_mark >= 0)'],
   ['dirty', 'dirty INTEGER NOT NULL DEFAULT 0 CHECK (dirty IN (0, 1))'],
 ] as const) {
-  if (!(db.prepare('PRAGMA table_info(work_item_backfill)').all() as { name: string }[]).some((c) => c.name === column)) db.exec(`ALTER TABLE work_item_backfill ADD COLUMN ${ddl}`);
+  if (!(tableColumns('work_item_backfill') as { name: string }[]).some((c) => c.name === column)) db.exec(`ALTER TABLE work_item_backfill ADD COLUMN ${ddl}`);
 }
 // 对端登记表：一个节点（DSH 实例，经 a2a 插件接入）一行。登记时取一次名片、验签，钉住完整公钥；名片上的公钥变了不自动接受，
 //   状态改成 key_changed、新公钥记在 pending_*，等管理员确认。status：active = 正常；pending_registration = 升级回填时取不到名片
@@ -1131,6 +1197,77 @@ CREATE TABLE IF NOT EXISTS a2a_peers (
 CREATE INDEX IF NOT EXISTS idx_a2a_peers_status ON a2a_peers (status);
 CREATE INDEX IF NOT EXISTS idx_a2a_peers_registered_by ON a2a_peers (registered_by);
 `);
+// 阶段七：名册以（peer_root, key_fingerprint）为键，存进两张新表（旧的 a2a_rosters / a2a_roster_seats 不动，见上面）。
+//   key_fingerprint 是验过签的节点公钥的完整指纹（写法同 a2a_peers.key_fingerprint，sha256:<十六进制全长>）；host（前 8 位）只拿来显示和匹配，
+//   按 host 匹配一律经视图 a2a_rosters_live。needs_review = 1：升级时回填不上完整指纹的存量行（指纹是占位的 legacy:<host>），要人确认，不参与匹配（同一根地址之后报来新名册时清掉）。
+//   表约束：没标 needs_review 的行必须带成形的完整指纹。
+const rosterNodesExisted = hasTable('a2a_roster_nodes');
+db.exec(`
+CREATE TABLE IF NOT EXISTS a2a_roster_nodes (
+  peer_root TEXT NOT NULL,
+  key_fingerprint TEXT NOT NULL DEFAULT '',
+  host TEXT NOT NULL,
+  peer_zone TEXT NOT NULL,
+  reported_at TEXT NOT NULL,
+  received_at TEXT NOT NULL,
+  needs_review INTEGER NOT NULL DEFAULT 0 CHECK (needs_review IN (0, 1)),
+  PRIMARY KEY (peer_root, key_fingerprint),
+  CHECK (needs_review = 1 OR (key_fingerprint GLOB 'sha256:*' AND length(key_fingerprint) = 71))
+);
+CREATE INDEX IF NOT EXISTS idx_a2a_roster_nodes_host ON a2a_roster_nodes (host);
+CREATE TABLE IF NOT EXISTS a2a_roster_node_seats (
+  peer_root TEXT NOT NULL,
+  key_fingerprint TEXT NOT NULL,
+  host TEXT NOT NULL,
+  team TEXT NOT NULL,
+  seat TEXT NOT NULL,
+  seat_id TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL DEFAULT '',
+  role TEXT NOT NULL DEFAULT '' CHECK (role IN ('', 'router', 'member', 'observer')),
+  online INTEGER NOT NULL DEFAULT 0,
+  queued INTEGER NOT NULL DEFAULT 0,
+  last_active_at TEXT NOT NULL DEFAULT '',
+  first_seen_at TEXT NOT NULL,
+  PRIMARY KEY (peer_root, key_fingerprint, team, seat)
+);`);
+// 新表第一次建出来时，从旧表复制一次：按 a2a_peers 里钉住的公钥回填完整指纹；对端没登记、没钉住键、指纹前 8 位对不上 host 的，
+// 指纹记成占位的 legacy:<host>、needs_review = 1。旧表一行不动
+if (!rosterNodesExisted) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const olds = db.prepare('SELECT host, peer_root, peer_zone, reported_at, received_at FROM a2a_rosters').all() as { host: string; peer_root: string; peer_zone: string; reported_at: string; received_at: string }[];
+    const pinned = db.prepare('SELECT public_key FROM a2a_peers WHERE root_url = ?');
+    const insR = db.prepare('INSERT INTO a2a_roster_nodes (peer_root, key_fingerprint, host, peer_zone, reported_at, received_at, needs_review) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const insS = db.prepare(`INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at)
+      SELECT ?, ?, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at FROM a2a_roster_seats WHERE host = ?`);
+    for (const o of olds) {
+      const pk = (pinned.get(o.peer_root) as { public_key: string } | undefined)?.public_key ?? '';
+      const hex = pk ? createHash('sha256').update(Buffer.from(pk, 'base64')).digest('hex') : '';
+      const ok = hex !== '' && hex.slice(0, 8) === o.host;
+      // 回填不上的用占位指纹 legacy:<host>：旧表主键只有 host，同一根地址下可能有好几行，空串会撞新表的主键（启动失败）；
+      // 占位指纹只出现在 needs_review = 1 的行上，不参与匹配
+      const fp = ok ? `sha256:${hex}` : `legacy:${o.host}`;
+      insR.run(o.peer_root, fp, o.host, o.peer_zone, o.reported_at, o.received_at, ok ? 0 : 1);
+      insS.run(o.peer_root, fp, o.host);
+    }
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+}
+if (!hasColumn('a2a_roster_changes', 'peer_root')) {
+  db.exec("ALTER TABLE a2a_roster_changes ADD COLUMN peer_root TEXT NOT NULL DEFAULT ''");
+  db.exec("ALTER TABLE a2a_roster_changes ADD COLUMN key_fingerprint TEXT NOT NULL DEFAULT ''");
+}
+// 按 host 匹配只认这个视图里的行：没标 needs_review（表约束保证这样的行都带成形的完整指纹）、对端没停用也不在等确认新键、
+// 记着的完整指纹就是此刻钉住的那把（对端还没钉住键、或者没登记的照旧算），而且同一个 host 下这样的行只有一行——
+// 两个节点报了同一个 host（指纹前 8 位撞了），两行都不算，等管理员停用其中一个
+db.exec('DROP VIEW IF EXISTS a2a_rosters_live');
+db.exec(`CREATE VIEW a2a_rosters_live AS
+WITH cand AS (
+  SELECT r.peer_root, r.key_fingerprint, r.host, r.peer_zone, r.reported_at, r.received_at FROM a2a_roster_nodes r LEFT JOIN a2a_peers p ON p.root_url = r.peer_root
+  WHERE r.needs_review = 0 AND (p.root_url IS NULL OR (p.status NOT IN ('disabled', 'key_changed') AND (p.key_fingerprint = '' OR p.key_fingerprint = r.key_fingerprint)))
+)
+SELECT c.* FROM cand c WHERE (SELECT COUNT(*) FROM cand d WHERE d.host = c.host) = 1`);
+
 // 「安排一件事」（POST /api/work-items）的请求记账：一个人（requester）的一个幂等键一行。同一个人同一个键再发，回第一次的结果；
 //   键相同、请求体不同（body_sha256 对不上）拒。限流也按这张表数（每人最近一分钟、一天各几行）。时间、id 都由代码生成后传进来。
 db.exec(`
@@ -1245,6 +1382,27 @@ CREATE TABLE IF NOT EXISTS team_events (
 );
 CREATE INDEX IF NOT EXISTS idx_team_events_team ON team_events (host, team, seq);
 `);
+// 团队归属绑节点本身：认领、负责人、分配、团队事件各记下当时这个 host 对应的节点——名册里的根地址（peer_root）和
+//   对端登记里这个根地址的完整指纹（key_fingerprint）。用的时候和现在的名册、对端登记核对，对不上的不算数（services/team.ts）。
+//   存量只在加列的那一次回填（按当时的名册和启用的对端）；回填不上的留空，一直不算数，要管理层重新认领、指定、分配。
+//   以后的启动不再回填：不然后来报上同一个号的节点会接走这些旧行
+if (!hasColumn('teams', 'peer_root')) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    for (const t of ['teams', 'team_leads', 'seat_assignments', 'team_events']) {
+      db.exec(`ALTER TABLE ${t} ADD COLUMN peer_root TEXT NOT NULL DEFAULT ''`);
+      db.exec(`ALTER TABLE ${t} ADD COLUMN key_fingerprint TEXT NOT NULL DEFAULT ''`);
+    }
+    for (const t of ['teams', 'team_leads', 'seat_assignments']) {
+      db.exec(`UPDATE ${t} SET
+        peer_root = COALESCE((SELECT r.peer_root FROM a2a_rosters_live r JOIN a2a_peers p ON p.root_url = r.peer_root
+          WHERE r.host = ${t}.host AND r.peer_root <> '' AND p.status = 'active' AND p.key_fingerprint <> '' AND p.key_fingerprint = r.key_fingerprint), ''),
+        key_fingerprint = COALESCE((SELECT p.key_fingerprint FROM a2a_rosters_live r JOIN a2a_peers p ON p.root_url = r.peer_root
+          WHERE r.host = ${t}.host AND r.peer_root <> '' AND p.status = 'active' AND p.key_fingerprint <> '' AND p.key_fingerprint = r.key_fingerprint), '')`);
+    }
+    db.exec('COMMIT');
+  } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务已经不在了 */ } throw e; }
+}
 
 // 首次安装向导（角色预设 ②）：一次运行按形态生成一批草稿授予。授予本身照常在 grants 里（来源列只认 manual、migration，老库改不了），
 //   「这条是向导建的」记在这两张表里，读的时候推出来源 wizard。属主一次放行这一批。时间由代码给（毫秒）。
@@ -1296,11 +1454,80 @@ CREATE TABLE IF NOT EXISTS dept_lead_grants (
   principal_id TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
+-- 经验库（/knowledge）：从 ygl-trees 的 library 出口（同机 CLI）同步来的目录，只存列表要的几样，不存正文（正文按需取）。
+--   kind：claim 依据、note 经验、skill 方法、check 检查。key 是给页面的不透明键（不露 ygl-trees 的 id）。
+--   scope 照 ygl-trees 给的原样存（dept:<部门>、bench:<台>、*、restricted；没给是空串）；谁能看由路由按授予判，不在这里判。
+CREATE TABLE IF NOT EXISTS knowledge_items (
+  kind TEXT NOT NULL CHECK (kind IN ('claim', 'note', 'skill', 'check')),
+  ygl_id TEXT NOT NULL,
+  key TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL DEFAULT '',
+  summary TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT '',
+  project TEXT NOT NULL DEFAULT '',
+  scope TEXT NOT NULL DEFAULT '',
+  tags TEXT NOT NULL DEFAULT '[]',
+  created TEXT NOT NULL DEFAULT '',
+  updated TEXT NOT NULL DEFAULT '',
+  seen_at INTEGER NOT NULL,
+  PRIMARY KEY (kind, ygl_id)
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_items_updated ON knowledge_items (updated, kind);
+-- 每一类同步到哪了：增量的起点（拉到的最大 updated）、上次成功、上次全量对账、上次失败的原因（给管理员看，不给页面）
+CREATE TABLE IF NOT EXISTS knowledge_sync (
+  kind TEXT PRIMARY KEY,
+  since TEXT NOT NULL DEFAULT '',
+  last_ok_at INTEGER,
+  last_full_at INTEGER,
+  last_error TEXT NOT NULL DEFAULT ''
+);
+-- 经验库自己的几样设置：给页面的不透明键用的密钥（第一次用时随机生成，存下来，键才稳定）
+CREATE TABLE IF NOT EXISTS knowledge_meta (
+  k TEXT PRIMARY KEY,
+  v TEXT NOT NULL
+);
+-- 经验库第 2 步：拍板时「记成经验」，回写 ygl-trees 的 kb（kb add），市场只留指针和留痕，内容以 ygl-trees 为准。
+--   answer_key：哪一次答复（来源、那一轮的键、谁答的；一次答复只记一条，幂等）；principal_id：拍板的人（给 decided_by_name 用）；
+--   scope：dept:<部门> | restricted | *；title、body：要写的内容，写成以后清空 body；status：pending 待写（含重试）、written 写成、failed 放弃（参数被拒或重试到头）；
+--   ygl_id：写成以后 ygl-trees 给的条目 id（内部用，不给页面）。时间都是毫秒，由代码给
+CREATE TABLE IF NOT EXISTS knowledge_writes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  answer_key TEXT NOT NULL UNIQUE,
+  principal_id TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL CHECK (status IN ('pending', 'written', 'failed')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_at INTEGER NOT NULL,
+  last_error TEXT NOT NULL DEFAULT '',
+  ygl_id TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  written_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_writes_due ON knowledge_writes (status, next_at);
+CREATE INDEX IF NOT EXISTS idx_knowledge_writes_ygl ON knowledge_writes (ygl_id);
+-- 经验库的「项目 → 部门」对照：ygl-trees 给了项目、没给范围的条目（比如依据），按这里对到的部门当部门级；对不上的只给管理层。
+--   改它等于改谁能看：只有管理层、属主改（拍板类，系统管理员不行），每次改记一行到 knowledge_project_dept_log。
+CREATE TABLE IF NOT EXISTS knowledge_project_depts (
+  project TEXT PRIMARY KEY,
+  department_id TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS knowledge_project_dept_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project TEXT NOT NULL,
+  old_department TEXT,
+  new_department TEXT,
+  actor TEXT NOT NULL,
+  at INTEGER NOT NULL
+);
 `);
 // 阶段八 8d：待对接清单的「出现序号」。同一条外部身份绑定后又出现在清单里，是新的一轮待决；「关注」的记账按它分轮，
 //   不靠时间（只到秒，同一秒里又出现就分不开）。每次新插入一行（主体服务是 upsert，只在真的新进清单时插入）取一个全局只增的号：
 //   号来自一张 AUTOINCREMENT 表，删掉旧号不会回退。只加这一列和取号，清单本身的写法不变。
-if (!(db.prepare('PRAGMA table_info(principal_pending)').all() as { name: string }[]).some((c) => c.name === 'appearance')) {
+if (!(tableColumns('principal_pending') as { name: string }[]).some((c) => c.name === 'appearance')) {
   db.exec('ALTER TABLE principal_pending ADD COLUMN appearance INTEGER NOT NULL DEFAULT 0');
 }
 // 待对接清单的原因：unbound（认出来了，等价写法撞上已有的、对不到主体）；bound-to-non-person（这条外部身份绑在席位、节点这类非人主体上，
@@ -1320,7 +1547,7 @@ CREATE TRIGGER IF NOT EXISTS principal_pending_appearance AFTER INSERT ON princi
 `);
 // #337: a durable monotonic generation invalidates stale Redis snapshots, including same-value writes.
 {
-  const cols = db.prepare('PRAGMA table_info(sop_runs)').all() as { name: string }[];
+  const cols = tableColumns('sop_runs') as { name: string }[];
   if (!cols.some(c => c.name === 'cache_revision')) db.exec('ALTER TABLE sop_runs ADD COLUMN cache_revision INTEGER NOT NULL DEFAULT 0');
   db.exec(`CREATE TRIGGER IF NOT EXISTS sop_runs_cache_revision AFTER UPDATE OF data, status ON sop_runs
     BEGIN UPDATE sop_runs SET cache_revision = OLD.cache_revision + 1 WHERE id = NEW.id; END;`);
@@ -1333,12 +1560,12 @@ CREATE TRIGGER IF NOT EXISTS principal_pending_appearance AFTER INSERT ON princi
     BEGIN UPDATE sop_runs SET hot_pending = 0 WHERE id = NEW.id; END;`);
 }
 // P0：sop_runs.upload_token（run-scoped 上传令牌·启动签发——总工 direct-c2b55f91）
-try { const srtCols = db.prepare('PRAGMA table_info(sop_runs)').all() as any[]; if (!srtCols.some((c) => c.name === 'upload_token')) db.exec("ALTER TABLE sop_runs ADD COLUMN upload_token TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { const srtCols = tableColumns('sop_runs') as any[]; if (!srtCols.some((c) => c.name === 'upload_token')) db.exec("ALTER TABLE sop_runs ADD COLUMN upload_token TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 // #437② run 文件记 sha256（上传时算）；引用已有文件的行记 ref_of=源文件 id（同一份存储，不另占上传配额）
-try { const rfCols = db.prepare('PRAGMA table_info(sop_run_files)').all() as any[]; if (!rfCols.some((c) => c.name === 'sha256')) db.exec("ALTER TABLE sop_run_files ADD COLUMN sha256 TEXT NOT NULL DEFAULT ''"); if (!rfCols.some((c) => c.name === 'ref_of')) db.exec('ALTER TABLE sop_run_files ADD COLUMN ref_of INTEGER NOT NULL DEFAULT 0'); } catch { /* 列已在 */ }
+try { const rfCols = tableColumns('sop_run_files') as any[]; if (!rfCols.some((c) => c.name === 'sha256')) db.exec("ALTER TABLE sop_run_files ADD COLUMN sha256 TEXT NOT NULL DEFAULT ''"); if (!rfCols.some((c) => c.name === 'ref_of')) db.exec('ALTER TABLE sop_run_files ADD COLUMN ref_of INTEGER NOT NULL DEFAULT 0'); } catch { /* 列已在 */ }
 db.exec("CREATE INDEX IF NOT EXISTS idx_sop_run_files_sha ON sop_run_files(sha256) WHERE sha256 <> ''");
 {
-  const cols = db.prepare('PRAGMA table_info(workbenches)').all() as { name: string }[];
+  const cols = tableColumns('workbenches') as { name: string }[];
   if (!cols.some((c) => c.name === 'auth_config')) {
     db.exec("ALTER TABLE workbenches ADD COLUMN auth_config TEXT NOT NULL DEFAULT ''");
   }
@@ -1347,7 +1574,7 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_sop_run_files_sha ON sop_run_files(sha25
   }
 }
 {
-  const cols = db.prepare('PRAGMA table_info(apps)').all() as { name: string }[];
+  const cols = tableColumns('apps') as { name: string }[];
   if (!cols.some((c) => c.name === 'kind')) {
     db.exec("ALTER TABLE apps ADD COLUMN kind TEXT NOT NULL DEFAULT 'app'");
   }
@@ -1360,7 +1587,7 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_sop_run_files_sha ON sop_run_files(sha25
   }
 }
 {
-  const cols = db.prepare('PRAGMA table_info(app_versions)').all() as { name: string }[];
+  const cols = tableColumns('app_versions') as { name: string }[];
   if (!cols.some((c) => c.name === 'changelog')) {
     db.exec("ALTER TABLE app_versions ADD COLUMN changelog TEXT NOT NULL DEFAULT ''");
   }
@@ -1441,6 +1668,8 @@ export interface SopRunRow {
 export interface CockpitRow {
   id: number; name: string; description: string; layout_config: string;
   created_at: string; updated_at: string;
+  /** 建立人的主体（可能是 null）；不进读应答 */
+  created_by?: string | null;
 }
 
 /** 驾驶舱面板配置：workbenchId 指向 workbenches.id，x/y/w/h 为网格布局 */
@@ -1480,13 +1709,13 @@ db.exec(`CREATE TABLE IF NOT EXISTS bench_views (
 // 台绑到哪个部门（必要时细到这个部门下的一个团队）。空串是没绑：只有管理层进得来。
 // 谁能读写一个绑了部门的台，看的是「已放行的、范围是这个部门的授予」（judgment.ts 的 scopedVerdict），不看部门成员表。
 try {
-  const bvCols = db.prepare('PRAGMA table_info(bench_views)').all() as { name: string }[];
+  const bvCols = tableColumns('bench_views') as { name: string }[];
   for (const c of ['department_id', 'team_host', 'team']) if (!bvCols.some((x) => x.name === c)) db.exec(`ALTER TABLE bench_views ADD COLUMN ${c} TEXT NOT NULL DEFAULT ''`);
 } catch (e) { console.error(`[db] bench_views 加绑定列失败：${(e as Error).message}`); throw e; }
 // 台对应市场登记的哪个台（workbenches.id）：一个登记的台最多对应一个视图台，反过来也一样。对应关系只记在这里（真来源只有这一份）；
 // 登记的台删了，读的时候按没有对应处理（不跟着删这一列）
 try {
-  const bvCols2 = db.prepare('PRAGMA table_info(bench_views)').all() as { name: string }[];
+  const bvCols2 = tableColumns('bench_views') as { name: string }[];
   if (!bvCols2.some((x) => x.name === 'workbench_id')) db.exec('ALTER TABLE bench_views ADD COLUMN workbench_id INTEGER');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_bench_views_workbench ON bench_views (workbench_id) WHERE workbench_id IS NOT NULL');
 } catch (e) { console.error(`[db] bench_views 加对应台号列失败：${(e as Error).message}`); throw e; }
@@ -1544,6 +1773,12 @@ CREATE INDEX IF NOT EXISTS idx_bench_mcp_audit_bench ON bench_mcp_audit (bench, 
 // ---------- 台库（数据视图，docs/data-views.md）----------
 // 每个视图台一份自己的库，和上面的主库分开。表结构照约定登记在这里；语句由 services/bench-store.ts 在台自己的库上执行，不在主库上跑。
 // 只用两种库都认的写法；随库不同的只有类型名和自增主键，收在下面两个小函数里。时间一律由调用方给（毫秒整数），不在语句里取。
+/**
+ * 台库固定表的结构版本（比这份代码新的台库不打开）。
+ * bs_vars（工作台的常量、变量，docs/data-views.md 第十三节第 5 条第 5 步）是附加的表，不升版本：开库不建它；
+ * 第一次写常量、变量（只有 WM_VARS_STORE 是 shadow、bench 时才会写）才建。旧代码只认识第 1 版的表、不碰多出来的表，
+ * 所以 main 档下台库和原来逐字一样，切过 shadow、bench 以后回退到旧代码也照样能开
+ */
 export const BENCH_STORE_SCHEMA_VERSION = 1;
 export type BenchDialect = 'sqlite' | 'postgres';
 export type BenchColumnType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'boolean';
@@ -1584,6 +1819,30 @@ function benchStoreSchema(d: BenchDialect): string[] {
     `CREATE TABLE IF NOT EXISTS bs_snapshot_rows (snapshot_id ${big} NOT NULL, seq ${big} NOT NULL, row TEXT NOT NULL, PRIMARY KEY (snapshot_id, seq))`,
   ];
 }
+/** 附加的表（开库不建，第一次写常量、变量时才建）：这张卡片的常量、变量（列和主库的 workbench_vars 一一对应，只是不带 workbench_id；时间是 'YYYY-MM-DD HH:MM:SS' 的文本，由代码生成后当参数传） */
+function benchStoreVarsSchema(): string[] {
+  return [
+    `CREATE TABLE IF NOT EXISTS bs_vars (
+      key TEXT PRIMARY KEY, kind TEXT NOT NULL, value TEXT NOT NULL, revision INTEGER NOT NULL,
+      updated_by TEXT NOT NULL, owner TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+  ];
+}
+/**
+ * 附加的表（开库不建，第一次写台的提交、附件时才建；不升版本号，旧代码不认识也不碰它们）：这张卡片对应的台的提交记录和附件的元数据
+ * （数据层第 6 步，docs/data-views.md 第十三节第 6 条）。列和主库的 app_data / app_files 一一对应，只是不带 app_slug；
+ * id 照抄主库的（过渡期 id 一律由主库发），所以不自增。附件字节不进台库，storage_path 原样记
+ */
+function benchStoreAppSchema(): string[] {
+  return [
+    `CREATE TABLE IF NOT EXISTS bs_app_data (
+      id INTEGER PRIMARY KEY, data TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, deleted_at TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL, submitter_principal TEXT)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_bs_app_data_idem ON bs_app_data (idempotency_key) WHERE idempotency_key <> ''`,
+    `CREATE TABLE IF NOT EXISTS bs_app_files (
+      id INTEGER PRIMARY KEY, original_name TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, storage_path TEXT NOT NULL,
+      created_by TEXT NOT NULL, created_at TEXT NOT NULL, note TEXT NOT NULL, sha256 TEXT NOT NULL, deleted_at TEXT NOT NULL)`,
+  ];
+}
 
 /**
  * 台库用到的、属于表结构或随库不同的写法，打成一份纯数据。
@@ -1595,6 +1854,15 @@ function benchStoreSchema(d: BenchDialect): string[] {
 export type BenchSqlKit = {
   dialect: BenchDialect;
   schemaVersion: number;
+  /** 附加的表 bs_vars 和它的试读（开库不建、不试；第一次写常量、变量时才建，见 BENCH_STORE_SCHEMA_VERSION） */
+  varsSchema: string[];
+  varsProbes: string[];
+  /** bs_vars 在不在（查目录，不试读：PostgreSQL 的事务里一条语句出错整个事务就作废了） */
+  varsExists: string;
+  /** 附加的表 bs_app_data、bs_app_files（同 bs_vars：开库不建，第一次写才建）、试读、在不在 */
+  appSchema: string[];
+  appProbes: string[];
+  appExists: string;
   /** 固定的几张表 */
   schema: string[];
   /** 打开库时逐条试一遍：哪条跑不通，就是库文件的结构和这份代码对不上（比如还没定稿时旧代码建的文件），明确拒绝，不静默照用 */
@@ -1623,6 +1891,19 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
   return {
     dialect: d,
     schemaVersion: BENCH_STORE_SCHEMA_VERSION,
+    varsSchema: benchStoreVarsSchema(),
+    varsProbes: ['SELECT key, kind, value, revision, updated_by, owner, created_at, updated_at FROM bs_vars WHERE 1 = 0'],
+    varsExists: d === 'postgres'
+      ? "SELECT 1 AS x FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'bs_vars'"
+      : "SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'bs_vars'",
+    appSchema: benchStoreAppSchema(),
+    appProbes: [
+      'SELECT id, data, created_by, created_at, deleted_at, idempotency_key, submitter_principal FROM bs_app_data WHERE 1 = 0',
+      'SELECT id, original_name, mime, size, storage_path, created_by, created_at, note, sha256, deleted_at FROM bs_app_files WHERE 1 = 0',
+    ],
+    appExists: d === 'postgres'
+      ? "SELECT 1 AS x FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'bs_app_files'"
+      : "SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'bs_app_files'",
     schema: benchStoreSchema(d),
     probes: [
       'SELECT name, title, version, columns, key_cols, row_count, data_bytes, created_at, updated_at, updated_by FROM bs_datasets WHERE 1 = 0',

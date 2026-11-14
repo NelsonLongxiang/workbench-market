@@ -1,0 +1,12 @@
+/* 驾驶舱「看板」「明细」页签里的数据视图：顶上一排共用的筛选，每份视图上面一行小标题；配置入口的清单 */
+.wm-ck-bv-filters { padding: var(--wm-space-3) var(--wm-space-3) 0; }
+.wm-ck-bv-head { padding: var(--wm-space-3) var(--wm-space-3) 0; font-size: var(--wm-font-size-caption); line-height: var(--wm-line-height-caption); color: var(--wm-color-text-secondary); }
+.wm-ck-bv-head + .wm-ck-pad { padding-top: var(--wm-space-2); }
+.wm-ck-bv-list { display: flex; flex-direction: column; gap: var(--wm-space-2); }
+.wm-ck-bv-row { display: flex; align-items: center; gap: var(--wm-space-2); padding: var(--wm-space-2) var(--wm-space-3); border: 1px solid var(--wm-color-border); border-radius: var(--wm-radius-lg); }
+.wm-ck-bv-row-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wm-ck-bv-add { display: flex; flex-wrap: wrap; align-items: center; gap: var(--wm-space-2); }
+.wm-ck-bv-add .ant-select { min-width: 200px; }
+.wm-ck-bv-group { margin-bottom: var(--wm-space-4); }
+.wm-ck-bv-group .wm-ck-bv-list, .wm-ck-bv-addwrap { margin-top: var(--wm-space-2); }
+.wm-ck-bv-none { margin-top: var(--wm-space-1); color: var(--wm-color-text-secondary); }

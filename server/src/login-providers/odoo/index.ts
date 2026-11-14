@@ -16,16 +16,25 @@ import {
 import { installOdooLoginProxy, odooLoginProxyRoute, revokeOdooSession } from './odoo-login-proxy.ts';
 import { browserLoginOrigin, odooBrowserOrigin } from './odoo-browser-origin.ts';
 
+/** Odoo 的会话 cookie 名，和它的值能是什么样子（只用于严格入口的形状检查） */
+const SESSION_COOKIE = 'session_id';
+const SESSION_VALUE = /^[A-Za-z0-9_.=-]{16,512}$/;
+/** Odoo 会话号里轮换时保持不变的前缀长度（Odoo 19 http.py 的 STORED_SESSION_BYTES） */
+const SAME_SESSION_PREFIX = 42;
+
 const provider: LoginProvider = {
   name: 'odoo',
   configured: () => odooUrl() !== '',
   credentialOf: odooSessionOf,
   resolveViewer: (cookieHeader, source) => resolveOdooViewer(cookieHeader, source),
+  // 登录之后由市场维持会话：市场存下这次的 Odoo 会话号，之后照旧拿它问 Odoo（浏览器里的 Odoo cookie 过期了也不掉登录）
+  credentialHeader: (sid) => {
+    if (!SESSION_VALUE.test(sid)) throw new Error('Odoo 会话号形状不对');
+    return `${SESSION_COOKIE}=${sid}`;
+  },
+  // Odoo 软轮换前后的两个号前 42 个字符相同（STORED_SESSION_BYTES），后半段换掉；前缀相同就是同一个会话
+  sameSession: (a, b) => a.length > SAME_SESSION_PREFIX && b.length > SAME_SESSION_PREFIX && a.slice(0, SAME_SESSION_PREFIX) === b.slice(0, SAME_SESSION_PREFIX),
 };
-
-/** Odoo 的会话 cookie 名，和它的值能是什么样子（只用于严格入口的形状检查） */
-const SESSION_COOKIE = 'session_id';
-const SESSION_VALUE = /^[A-Za-z0-9_.=-]{16,512}$/;
 const sessionEntries = (cookieHeader: string): string[] => String(cookieHeader ?? '').split(';').map((s) => s.trim()).filter((s) => s.startsWith(`${SESSION_COOKIE}=`));
 
 const relay: LoginRelay = {

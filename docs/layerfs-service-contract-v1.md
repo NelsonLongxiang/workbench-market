@@ -20,6 +20,9 @@
 - `POST …/branches/{b}/rename` 体 `{to}` → `{renamed}`（技能 slug 改名随动）
 - `POST …/branches/{b}/merge` 体 `{into: "release"}` → `{commit_id}`；同路径冲突 `409 {kind:"Conflict", conflicts}`（草稿合并目标分支）
 - `GET …/branches/{b}/commits/{id}/export` → 导出包面（**S3 预留**——v1 只占位）
+- `DELETE /v1/projects/{project}` → 删整个项目（语义同 v0 §2.4：项目、Store 卷与全部备份一起删）。补记（2026-11-13）：市场删台、清技能库时调用这一条，原清单漏写。
+
+> 补记（2026-11-13）：市场现在实际调用的是 `publish`、`commits/{id}/files` 和项目级 `DELETE`。`merge` 原本给草稿工作区（P3）用，草稿三工具已随 2026-11-02 来源收敛下线；`rename`、`export` 市场目前没有调用。
 
 ## 3. 接入/鉴权/错误面
 

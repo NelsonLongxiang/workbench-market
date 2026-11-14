@@ -9,6 +9,7 @@ import { createLoginGate, loginGateMode, trustedProxies } from './login-gate.ts'
 import { identity, loginRelay, sourceDown } from './identity.ts';
 import { requestPerson, hasLoginCredential } from './request-person.ts';
 import { countSubmission, countSubmitterTicket } from './services/submission-counts.ts';
+import { sealSelfCheck } from './services/login-session.ts';
 import { serveAppHtml } from './app-html.ts';
 import { initSubmitterTickets, issueSubmitterTicket, selfCheckSubmitterTickets, submitterFromTicket } from './submitter-ticket.ts';
 import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
@@ -32,6 +33,7 @@ import { svc } from './context.ts';
 import type { HttpService } from './http.ts';
 import { registerTypeRoutes } from './routes/types.ts';
 import { registerCockpitRoutes } from './routes/cockpits.ts';
+import { cockpitAccess } from './cockpit-access.ts';
 import { registerCookieRoutes } from './routes/cookies.ts';
 import { registerStatsRoutes } from './routes/stats.ts';
 import { registerDesignTokenRoutes } from './routes/design-tokens.ts';
@@ -44,9 +46,11 @@ import { registerPrincipalRoutes } from './routes/principals.ts';
 import { loadRoleDeclarations, registerGrantRoutes } from './routes/grants.ts';
 import { installBuiltinJudge } from './judgment.ts';
 import { actorResolver, compareConfig, mountJudgmentCompare } from './judgment-compare.ts';
+import { rememberRefusal } from './knowledge-remember.ts';
 import { checkEnforce, enforceConfig, enforceGate, type EnforceConfig } from './judgment-enforce.ts';
 import { registerAttentionRoutes } from './routes/attention.ts';
 import { registerWorkItemRoutes } from './routes/work-items.ts';
+import { registerWorkItemAttachmentRoutes } from './routes/work-item-attachments.ts';
 import { registerRosterRoutes } from './routes/a2a-roster.ts';
 import { registerSettingsRoutes } from './routes/settings.ts';
 import { settingsViewsLeak } from './settings-view.ts';
@@ -65,12 +69,17 @@ import { registerAccessRoutes } from './routes/access.ts';
 import { registerLoginFlowRoutes } from './routes/login-flows.ts';
 import { registerLoginGateRoutes } from './routes/login-gate.ts';
 import { registerWorkbenchRoutes } from './routes/workbenches.ts';
+import { registerSpaFallbackRoute } from './routes/spa-fallback.ts';
+import { registerContentOpenRoutes } from './routes/content-open.ts';
 import { registerSopPageRoutes } from './routes/sop-page.ts';
 import { registerLoginEventRoutes } from './routes/login-events.ts';
 import { registerTaskRoutes } from './routes/tasks.ts';
 import { benchViewsConfig, registerBenchViewRoutes, BENCH_ROWS_PATH } from './routes/bench-views.ts';
+import { registerKnowledgeRoutes } from './routes/knowledge.ts';
 import { BENCH_TOOL_NAMES, BENCH_GRANT_RE } from './bench-mcp-tools.ts';
 import { benchGrantsOf, benchRequestOfSession, benchRequestTtlConfig, benchRequestsOf, benchToolTarget, requestBenchTools, runBenchTool, setBenchRequestTtlHours } from './services/bench-mcp.ts';
+import { resolveBenchRef } from './services/bench-registry.ts';
+import { cardDeleterOf, checkCardDeletable, deleteCardWithBench, type CardDeleter } from './bench-card-delete.ts';
 import { BenchError } from './bench-query.ts';
 import { registerChangeRequestRoutes } from './routes/change-requests.ts';
 import { registerSopStateRoutes, registerSopSpaceRoutes } from './routes/sops.ts';
@@ -98,8 +107,9 @@ import type { TaskCenterService } from './services/task-center.ts';
 import type { RemoteAllowService } from './services/remote-allow.ts';
 import { SkillService } from './services/skill.ts';
 import type { AppService } from './services/app.ts';
-import type { AppDataService } from './services/app-data.ts';
+import { Config as AppDataConfig, type AppDataService } from './services/app-data.ts';
 import type { GrantService } from './services/grant.ts';
+import type { DepartmentService } from './services/department.ts';
 import type { CookieService } from './services/cookie.ts';
 import type { CockpitService } from './services/cockpit.ts';
 import { ADMIN_TOKEN_KEY, type SettingService } from './services/setting.ts';
@@ -112,13 +122,16 @@ import { HttpError } from './errors.ts';
 import { designStandard } from './design-standard.ts';
 import { mountVault } from './vault-api.ts';
 import { expectedSha256, uploadIntegrity, type UploadIntegrity } from './upload-integrity.ts';
-import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet } from './workbench-vars.ts';
+import { loadConfig } from './config.ts';
+import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet, workbenchIdOf, reportHotVarKeys, reportHotPending, setVarsStoreMode, startHotVarsFlush, flushHotVars, Config as VarsConfig } from './workbench-vars.ts';
+import { registerWorkbenchVarsRoutes } from './routes/workbench-vars.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, redisConfigured, runStateRestore, runStateRead, runStateRetire, type RunStateRead } from './redis.ts';
 import { createRunCheckpoints } from './sop-state-checkpoints.ts';
 import { duplicateNode8s } from './services/a2a-handles.ts';
-import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, memberProvenanceMode, setMemberProvenance, progressReceiptsMode, setProgressReceipts, teamRosterMode, setTeamRoster, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
+import { adminTokenFromEnv, envAdminTokenFingerprint } from './admin-token-env.ts';
+import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, memberProvenanceMode, setMemberProvenance, progressReceiptsMode, setProgressReceipts, teamRosterMode, setTeamRoster, directedSeatsMode, setDirectedSeats, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
 import type { IncomingMessage } from 'node:http';
 import { a2aHealth } from './a2a/health.ts';
 import { followupRateLimit } from './a2a/receipt-inbound.ts';
@@ -137,7 +150,7 @@ let judgmentEnforce: EnforceConfig = { domains: null };
 {
   let cfg: ReturnType<typeof compareConfig>;
   try { cfg = compareConfig(); } catch (e) { console.error(`[judgment] 拒绝启动：${(e as Error).message}`); process.exit(1); }
-  const compareDeps = { adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), skip: isStartupProbeRequest, facts: () => ({ adminTokenSet: !!process.env.ADMIN_TOKEN || dbAdminTokenSet() }) };
+  const compareDeps = { adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), skip: isStartupProbeRequest, facts: () => ({ adminTokenSet: adminTokenFromEnv() || dbAdminTokenSet() }) };
   const actorOf = actorResolver(compareDeps);
   mountJudgmentCompare(app, cfg, compareDeps, actorOf);
   // 阶段六 6d：判定切换的开关（WM_JUDGMENT_ENFORCE，缺省空 = 不切）。要在注册任何路由之前装门；写法不对、比对没开：拒绝启动
@@ -153,6 +166,13 @@ let judgmentEnforce: EnforceConfig = { domains: null };
 const BENCH_VIEWS = (() => { try { return benchViewsConfig(); } catch (e) { console.error(`[bench-views] 拒绝启动：${(e as Error).message}`); process.exit(1); } })();
 // 台的权限申请没人处理的总期限（WM_BENCH_REQUEST_TTL_HOURS，缺省 72，1～720 小时）：启动时读一次，不合法拒绝启动
 setBenchRequestTtlHours((() => { try { return benchRequestTtlConfig(); } catch (e) { console.error(`[bench-views] 拒绝启动：${(e as Error).message}`); process.exit(1); } })());
+// 工作台的常量、变量存在哪（WM_VARS_STORE：main / shadow / bench，缺省 main）。不合法拒绝启动；起来时报一次已有的 hot. 开头的键
+setVarsStoreMode((() => { try { return loadConfig(VarsConfig).store; } catch (e) { console.error(`[vars] 拒绝启动：${(e as Error).message}`); process.exit(1); } })());
+reportHotVarKeys();
+// 台的提交记录和附件存在哪（WM_APP_DATA_STORE：main / shadow / bench，缺省 main）。不合法拒绝启动
+svc<AppDataService>('appData').setMode((() => { try { return loadConfig(AppDataConfig).store; } catch (e) { console.error(`[app-data] 拒绝启动：${(e as Error).message}`); process.exit(1); } })());
+reportHotPending(); // 上一个 bench 档进程留在 Redis 里没落盘的高频变量：不是 bench 档时醒目报一次
+startHotVarsFlush(); // 高频变量（hot. 开头的键）每 30 秒落一次台库；只在 bench 档、配了 Redis 时有活
 // 全站登录门（WM_LOGIN_GATE=enforce|off，缺省 off）：紧跟启动自检门，早于内容分发、解析器、静态资源、SPA 回落和各路由。
 // 依赖都是函数声明或请求期才取的值（提升/闭包），这里只建不调。值不合法拒绝启动（同 MCP_GATEWAY #284）
 const LOGIN_GATE_MODE = loginGateMode();
@@ -177,13 +197,15 @@ const SESSION_TTL_MIN = (() => {
   if (!Number.isInteger(n) || n < 15 || n > 10080) { console.error('[session] 拒绝启动：WM_SESSION_TTL_MIN 只接受 15～10080 的整数（分钟）'); process.exit(1); }
   return n;
 })();
+/** 记成经验那几处认人用（管理口令认成内置身份，不能记） */
+const rememberActorOf = actorResolver({ adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined) });
 const loginGateViewer = identity().cachedResolver({ ttlMs: 30_000, max: 2000 }); // 提供方的回答最多留 30 秒；主体停没停用每次现查
 const loginGate = createLoginGate({
   mode: LOGIN_GATE_MODE,
   dataDir,
   adminTokenCheck: (t) => adminTokenCheck(t),
-  adminTokenFingerprint: () => process.env.ADMIN_TOKEN
-    ? createHash('sha256').update('env|' + process.env.ADMIN_TOKEN, 'utf8').digest('hex')
+  adminTokenFingerprint: () => adminTokenFromEnv()
+    ? envAdminTokenFingerprint()
     : String((svc<SettingService>('setting').get(ADMIN_TOKEN_KEY) as { value: string } | undefined)?.value ?? ''),
   odooViewer: async (cookie, fresh) => {
     if (!identity().configured() && !identity().hasSession(cookie)) return null; // 没配身份来源时，只有市场会话还可能认得出人
@@ -191,14 +213,24 @@ const loginGate = createLoginGate({
     if (!who.ok) return who.held ? { held: true as const } : sourceDown(who) ? { down: true as const } : null; // 卡在主体那一步：登录门给等待页；身份来源不可达：接口回 502 identity_unavailable
     return { login: who.viewer.login, admin: who.viewer.admin, ...(who.via === 'session' ? { via: 'session' as const } : {}) };
   },
+  // Odoo 刚认出来的人：由市场维持会话（期限 WM_SESSION_TTL_MIN）。回答取自上面那份 30 秒缓存，不多问一次 Odoo
+  openSession: async (req) => {
+    const cookie = String(req.headers.cookie ?? '');
+    const who = await loginGateViewer(cookie);
+    if (!who.ok || who.via === 'session') return null;
+    return identity().openSession(cookie, who, SESSION_TTL_MIN * 60_000);
+  },
   loginFlows: () => identity().flows(),
   profile: async (req) => {
     const who = await loginGateViewer(String(req.headers.cookie ?? ''));
     if (!who.ok) return { principal: null, display_name: null, roles: [] };
     const views = new Map(svc<GrantService>('grants').roles().map((r) => [r.id, r]));
-    const roles = svc<GrantService>('grants').activeFor(who.viewer.sub).map((g) => ({ id: g.role, name: views.get(g.role)?.name ?? g.role, scope: g.scope, preset: !!views.get(g.role)?.platform, expires_at: g.expires_at, source: g.source, approved_by: g.approved_by }));
+    const roles = svc<GrantService>('grants').activeFor(who.viewer.sub).map((g) => ({ id: g.role, name: views.get(g.role)?.name ?? g.role, scope: g.scope, scope_name: svc<DepartmentService>('departments').scopeName(g.scope), preset: !!views.get(g.role)?.platform, expires_at: g.expires_at, source: g.source, approved_by: g.approved_by }));
     return { principal: who.viewer.sub, display_name: who.viewer.name ?? null, roles };
   },
+  // /api/auth/me 的 can：这个请求能做的、不属于某一个对象的事（只增）。和对应的写路由问同一处
+  // remember_knowledge：能不能把拍板记成经验（和 POST /api/knowledge/remember、「关注」答复里的 remember 同一处判断，knowledge-remember.ts 的 rememberRefusal）
+  can: async (req) => ({ create_cockpit: await cockpits.can(req, 'cockpit.create'), remember_knowledge: rememberRefusal((await rememberActorOf(req)).actor) === null }),
   appToken: (slug) => wmAppToken(slug),
   varsAppTokenOk: (req) => workbenchVars.appTokenWrite(req),
   runCapOk: async (kind, runId, presented) => {
@@ -248,6 +280,14 @@ if (!A2A_TEAM_ROSTER) {
 }
 setTeamRoster(A2A_TEAM_ROSTER === 'on');
 console.log(`[a2a] 名片${A2A_TEAM_ROSTER === 'on' ? '声明' : '不声明'} teamRoster（WM_A2A_TEAM_ROSTER=${A2A_TEAM_ROSTER}）：${A2A_TEAM_ROSTER === 'on' ? '节点推来的团队名册照规矩收' : '入站名册一律不收'}`);
+// 名片是否声明 directedSeats（WM_A2A_DIRECTED_SEATS=on|off，缺省 on）；值不合法拒绝启动
+const A2A_DIRECTED_SEATS = directedSeatsMode();
+if (!A2A_DIRECTED_SEATS) {
+  console.error('[a2a] 拒绝启动：WM_A2A_DIRECTED_SEATS 只接受 on / off / 不设');
+  process.exit(1);
+}
+setDirectedSeats(A2A_DIRECTED_SEATS === 'on');
+console.log(`[a2a] 名片${A2A_DIRECTED_SEATS === 'on' ? '声明' : '不声明'} directedSeats（WM_A2A_DIRECTED_SEATS=${A2A_DIRECTED_SEATS}）：${A2A_DIRECTED_SEATS === 'on' ? '「安排一件事」可以指名团队里的成员' : '不收指名'}`);
 // 名册多久没更新算停推（WM_ROSTER_STALE_MINUTES，缺省 60 分钟）：超过就进管理员的「等你拍板」；值不合法拒绝启动
 const ROSTER_STALE_MINUTES = rosterStaleMinutesFromEnv();
 if (ROSTER_STALE_MINUTES === null) {
@@ -299,7 +339,7 @@ if (A2A_FOLLOWUP_RATE === null) {
 const FETCH_STEP_REFUSALS: ReadonlySet<string> = new Set(['unregistered', 'no-card', 'not-derivable', 'bad-sig']);
 const directSig = createDirectSigVerifier({ audiences: () => [marketPublicUrl()], bodyMode: A2A_DIRECT_SIG_BODY, refreshCooldownMs: A2A_CARD_COOLDOWN_MS });
 app.use(loginGate.middleware);
-loginRelay().install(app); // narrow same-origin Odoo login, before any body parser
+loginRelay().install(http); // narrow same-origin Odoo login, before any body parser（路由在登录方式插件里，经 HTTP 服务注册）
 // Explicit opt-in only; no default content listener, no live configuration writes.
 const contentCfg = contentConfig(process.env);
 const portalObserver = process.env.WM_PORTAL_OBSERVE === '1' ? createPortalObservation(db, id => !!svc<WorkbenchService>('workbench').exists(id)) : null;
@@ -334,18 +374,8 @@ const contentRuntime = contentCfg ? createContentSurface(contentCfg, {
     return { url: w.url, authorization: w.auth?.type === 'bearer' ? 'Bearer ' + w.auth.value : w.auth?.type === 'basic' ? 'Basic ' + Buffer.from(w.auth.value, 'utf8').toString('base64') : undefined };
   },
 }) : null;
-if (contentRuntime) {
-  mountContentSurface(app, contentRuntime); // TERMINAL content dispatch before every shared parser/route/SPA
-  app.use((req, res, next) => {
-    if (!req.url.startsWith('/content/open/')) return next();
-    if (surfaceOf(req) !== 'market') return res.status(404).end();
-    contentRuntime.launch(req, res, next);
-  });
-  app.use((req, res, next) => {
-    if (surfaceOf(req) !== 'market') return next();
-    contentRuntime.migrate(req, res, next);
-  });
-}
+if (contentRuntime) mountContentSurface(app, contentRuntime); // TERMINAL content dispatch before every shared parser/route/SPA
+registerContentOpenRoutes(http, contentRuntime); // 市场面上的启动页与迁移跳转（路由在 routes/content-open.ts；没配内容面时放过）
 // issue #1：CORS 从全开放收紧为白名单——生产形态（web/dist 由本服务同源托管）不需要跨源；
 // 仅 web dev（vite 5173，其 /api 代理是同源转发、但直连调试场景保留）放行本机回环源。
 // /mcp 为 StreamableHTTP POST（非浏览器 fetch 场景不受 CORS 约束；浏览器 MCP 客户端经同源门户）。
@@ -467,10 +497,15 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/messages\/(read|[1-9]\d{0,15}\/reply)$/,
   // 「安排一件事」：登录的人直接建事项（路由内经身份服务认人，只认启用的人；只此一条路径，不带子路径）
   /^\/api\/work-items$/,
-  // 团队：成员的分配、收回由团队的负责人做（路由内认人、核同源、判是不是负责人或管理员；只此两条）
-  /^\/api\/teams\/(assign|unassign)$/,
+  // 「安排一件事」的附件上传、建立人改截止日期：路由内经身份服务认人（上传的是启用的人本人；改截止只认建立人本人）；只此两条
+  /^\/api\/work-items\/attachments\/[^/]{1,255}$/,
+  /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/due$/,
+  // 团队：成员的分配、收回、改派由团队的负责人做（路由内认人、核同源、判是不是负责人或管理员；只此三条）
+  /^\/api\/teams\/(assign|unassign|reassign)$/,
   // 授予的放行（L19）：管理层、属主多半不是管理员。路由内认人、核同源，三档规则判能不能放行；只此一条子路径
   /^\/api\/grants\/[1-9]\d{0,15}\/approve$/,
+  // 驾驶舱的建、改、删：路由在处理之前自己判（cockpit-access.ts：管理员照旧；登录的人交给判定，管理层预设点名了这三个动作）
+  /^\/api\/cockpits(\/[^/]+)?$/,
   // 关系的提议：确认、驳回由属主、管理层、接收部门的负责人做，他们大多不是管理员（路由内认人、核同源，服务判能不能确认；只此两条）
   /^\/api\/relations\/proposals\/[1-9]\d{0,15}\/(approve|reject)$/,
   // 阶段七：建立人本人回答自己事项上的席位提问（路由内认人：管理员或建立人本人；只此一条子路径）
@@ -480,6 +515,10 @@ const REMOTE_ALLOW_PREFIX = [
   // 数据视图的入口（开关关着时每条都回 404）：路由内自己判——先拒管理口令，再经身份服务认人、问判定，只有管理层和范围是「全部」的授予放行。
   // 这道门要的恰恰是管理口令，而这组路由不认管理口令，所以登记在这里
   /^\/api\/bench-views(\/[a-z0-9][a-z0-9-]{0,63}(\/[a-z0-9_/-]{1,160})?)?$/,
+  // 经验库「记成经验」：管理层、属主拍板之后补记（他们大多不是管理员）。路由内认人、核同源、按拍板类问判定、核这个人答过这一条；只此一条路径
+  /^\/api\/knowledge\/remember$/,
+  // 经验库的「项目 → 部门」对照：管理层、属主改（他们大多不是管理员；系统管理员、管理口令反而不行）。路由内认人、核同源、按拍板类问判定；只此一条路径
+  /^\/api\/knowledge\/project-depts$/,
 ];
 
 // S3 豁免面可观测（评审席裁下批·PR#72 真事故锚）：启动时快照+diff——安全清单变更不再无声
@@ -538,7 +577,7 @@ const ODOO_ADMIN_TTL_MS = 30_000;
 const odooAdminViewer = identity().cachedResolver({ ttlMs: ODOO_ADMIN_TTL_MS, max: 1000 });
 const odooAdminReqs = new WeakMap<express.Request, string>(); // 本次请求经 Odoo 管理员认定 → 登录名
 async function odooAdminOf(cookieHeader: string): Promise<string | null> {
-  if (!identity().credentialOf(cookieHeader)) return null;
+  if (!identity().hasCredential(cookieHeader)) return null; // Odoo 会话，或者由市场维持的会话（管理员标记取 Odoo 这次的回答）
   try {
     // Explicit relay logout revokes Odoo sessions; never reuse a stale admin verdict.
     const who = loginRelay().relayLogin() ? await identity().resolveViewer(cookieHeader) : await odooAdminViewer(cookieHeader);
@@ -549,12 +588,12 @@ async function odooAdminOf(cookieHeader: string): Promise<string | null> {
 async function markOdooAdmin(req: express.Request): Promise<void> {
   if (odooAdminReqs.has(req) || surfaceOf(req) === 'content' || adminTokenCheck(req.headers['x-admin-token'])) return;
   const cookie = String(req.headers.cookie ?? '');
-  if (!identity().credentialOf(cookie)) return;
+  if (!identity().hasCredential(cookie)) return;
   const login = await odooAdminOf(cookie);
   if (login) odooAdminReqs.set(req, login);
 }
 // 管理读面（GET 也走 adminGuard/vaultGuard 的）与口令/身份端点：进路由前先认定
-const ADMIN_IDENTITY_PATHS = /^\/api\/(admin\/whoami|admin-token(\/|$)|mcp\/(sessions|upstreams|tools|calls|access-requests)(\/|$)|change-requests(\/|$)|bindings(\/|$)|a2a\/(peers|state)(\/|$)|remote-allow\/diff|vault\/|tasks(\/|$)|workbench-events(\/|$))/; // a2a/peers：对端登记表的管理接口，会话登录的管理员也算管理员（和绑定同口径）；tasks：统一待办读面同样认 Odoo 管理员（与口令管理员同为全量）；workbench-events：工作台事件的列表、详情也认（「关注」的席位提问同口径）
+const ADMIN_IDENTITY_PATHS = /^\/api\/(admin\/whoami|admin-token(\/|$)|mcp\/(sessions|upstreams|tools|calls|access-requests)(\/|$)|change-requests(\/|$)|bindings(\/|$)|a2a\/(peers|state)(\/|$)|remote-allow\/diff|vault\/|tasks(\/|$)|workbench-events(?!\/[^/]*\/attachments(\/|$))(\/|$))/; // a2a/peers：对端登记表的管理接口，会话登录的管理员也算管理员（和绑定同口径）；tasks：统一待办读面同样认 Odoo 管理员（与口令管理员同为全量）；workbench-events：工作台事件的列表、详情也认（「关注」的席位提问同口径）；接单节点取附件（…/:id/attachments/…）只认回执令牌、不看管理员，不在这里
 app.use(async (req, _res, next) => {
   if (ADMIN_IDENTITY_PATHS.test(req.path.toLowerCase())) await markOdooAdmin(req);
   next();
@@ -742,21 +781,38 @@ function workbenchUpdateCore(id: number, body: any, ctx: WriteCtx = { subject: '
   return rowToWorkbench(row);
 }
 
-function workbenchDeleteCore(id: number): { ok: boolean; deleted: number } {
-  const r = svc<WorkbenchService>('workbench').delete(id);
-  if (!r.changes) throw new HttpError(404, `workbench not found: ${id}`);
-  dropWorkbenchVars(id); // #336 变量随台删除
-  // issue #9：删除工作台同步清掉各驾驶舱对它的面板引用——否则悬空面板会让之后每次保存布局 400
-  const cocks = svc<CockpitService>('cockpit').all() as unknown as CockpitRow[];
-  for (const c of cocks) {
-    let panels: PanelConfig[];
-    try { panels = JSON.parse(c.layout_config || '[]'); } catch { continue; }
-    const kept = panels.filter((p) => p.workbenchId !== id);
-    if (kept.length !== panels.length) {
-      svc<CockpitService>('cockpit').setLayout(c.id, JSON.stringify(kept));
-    }
+// 删卡片连带它的台库（bench-card-delete.ts）：台库里有数据时要管理层并且确认，删前留备份；卡片本身那一份和台的登记在一个事务里
+async function workbenchDeleteCore(id: number, deleter: CardDeleter = { kind: 'anonymous' }, confirmBenchData = false): Promise<{ ok: boolean; deleted: number }> {
+  // 第 6 步（WM_APP_DATA_STORE 不是 main）：台的卡片的台库里有这个台的提交和附件，删卡片就是删它们——先对齐进台库，让下面那道门看得到规模
+  const cardRow = svc<WorkbenchService>('workbench').byId(id) as { url?: unknown } | undefined;
+  const appSlug = cardRow && typeof cardRow.url === 'string' ? await svc<AppDataService>('appData').beforeCardDelete(cardRow.url, id) : null;
+  const out = await deleteCardWithBench({
+    id, deleter, confirmBenchData,
+    exists: () => !!svc<WorkbenchService>('workbench').byId(id),
+    deleteCard: (slug) => {
+      const r = svc<WorkbenchService>('workbench').delete(id);
+      if (!r.changes) throw new HttpError(404, `workbench not found: ${id}`);
+      dropWorkbenchVars(id); // #336 变量随台删除
+      // issue #9：删除工作台同步清掉各驾驶舱对它的面板引用——否则悬空面板会让之后每次保存布局 400。挂这张卡片的台的视图面板一起摘
+      const cocks = svc<CockpitService>('cockpit').all() as unknown as CockpitRow[];
+      for (const c of cocks) {
+        let panels: PanelConfig[];
+        try { panels = JSON.parse(c.layout_config || '[]'); } catch { continue; }
+        const kept = panels.filter((p) => p.workbenchId !== id && !(slug && p.kind === 'bench-view' && p.bench === slug));
+        if (kept.length !== panels.length) {
+          svc<CockpitService>('cockpit').setLayout(c.id, JSON.stringify(kept));
+        }
+      }
+    },
+  });
+  if (appSlug) {
+    // 门过了、卡片删了（台库删前留了备份）：主库那份和附件字节一起删，不然以后再登记卡片时会按主库重抄回来
+    const files = await svc<AppDataService>('appData').filePaths(appSlug);
+    await svc<AppDataService>('appData').dataDelete(appSlug);
+    for (const f of files) { try { rmSync(join(dataDir, f), { force: true }); } catch { /* 已删 */ } }
+    await svc<AppDataService>('appData').filesDelete(appSlug);
   }
-  return { ok: true, deleted: id };
+  return out;
 }
 
 /** 审计主体：只认已核的管理口令；X-Market-Client 等自报头不算身份 */
@@ -826,10 +882,15 @@ async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkben
 const EVICT_COOLDOWN_MS = Number(process.env.A2A_EVICT_COOLDOWN_MS) > 0 ? Number(process.env.A2A_EVICT_COOLDOWN_MS) : 24 * 3_600_000; // 测试可加速
 const downSince = new Map<number, number>();
 const lastProbeAt = new Map<number, number>();
-registerWorkbenchRoutes(http, { wrap, listWorkbenches, maskForApi, restSubject, workbenchCreateCore, workbenchUpdateCore, workbenchDeleteCore, checkOne, downSince, lastProbeAt, EVICT_COOLDOWN_MS });
+registerWorkbenchRoutes(http, { wrap, listWorkbenches, maskForApi, restSubject, workbenchCreateCore, workbenchUpdateCore, workbenchDeleteCore, adminTokenOk: (req) => adminHeaderOk(req), checkOne, downSince, lastProbeAt, EVICT_COOLDOWN_MS });
 
 // ---------- 驾驶舱 CRUD（任务驾驶舱：多工作台分屏组合视图） ----------
-registerCockpitRoutes(http);
+// 驾驶舱的读应答带 can.edit：就是写请求总门对这个请求的判断（本机命令行照旧算属主；其余要有效口令或 Odoo 管理员，且同源）
+const cockpits = cockpitAccess({
+  adminOk: (req) => settingsAdminRead(req), // 和设置页的管理员读同一个判断（定义在后面，请求期才调用）
+  crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)),
+});
+registerCockpitRoutes(http, { can: cockpits.can, gate: cockpits.gate });
 
 // ---------- 自产台（台生成器：AI 发布 API + 全版本快照，发布即入册） ----------
 const appsRoot = join(dataDir, 'apps');
@@ -885,11 +946,20 @@ const LAYERFS_SYSTEM_PROJECTS: ReadonlySet<string> = new Set([LAYERFS_SKILLS_PRO
 const MAX_APP_FILES = 64;
 const MAX_APP_TOTAL_BYTES = 100 * 1024 * 1024;
 
-function getApp(slug: string): AppRow {
+/**
+ * 取一个台。正在删除的台（status = deleting：删台已经删了它的卡片、远端或本地还没删完，见 deleteAppCascade）：
+ * 读按不存在处理（和不存在同一个 404）；forWrite（提交、上传、改备注、软删、同步发布）回 409，说明正在删除
+ */
+function getApp(slug: string, forWrite = false): AppRow {
   const row = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
+  if (row && row.status === APP_DELETING) {
+    if (forWrite) throw new HttpError(409, `台 ${slug} 正在删除，不接受写入`, { code: 'app_deleting' });
+    throw new HttpError(404, `app not found: ${slug}`);
+  }
   if (!row) throw new HttpError(404, `app not found: ${slug}`);
   return row;
 }
+const APP_DELETING = 'deleting';
 
 function appDetail(a: AppRow) {
   const versions = (svc<AppService>('app').versions(a.id) as unknown as AppVersionRow[]).map(v => ({ ...v, shadow_status: (v as any).shadow_status ?? (v.commit_id ? 'succeeded' : 'pending'), shadow_error: String((v as any).shadow_error ?? '') }));
@@ -1093,6 +1163,7 @@ function publishAppBody(b: any, source?: { repo: string; path: string; commit: s
     files = validateAppFiles(b.files, kind);
   }
   const existing = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
+  if (existing?.status === APP_DELETING) throw new HttpError(409, `台 ${slug} 正在删除，不接受写入`, { code: 'app_deleting' });
   if (existing && existing.kind !== kind) bad(`slug 已被 ${existing.kind} 类台占用，kind 不可切换`);
 
   // SOP 类发布面：sop.yaml 必在且可解析、changelog 必填（版本化治理）
@@ -1204,6 +1275,7 @@ async function syncAppFromGithub(slug: string, b: any, who: string): Promise<{ s
   if (slug === 'task-center') throw new HttpError(403, 'task-center 内置元台不从仓库同步');
   if (layerfsReservedSlug(slug)) bad('slug 是系统保留名（LayerFS 系统项目），换一个');
   const existing = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
+  if (existing?.status === APP_DELETING) throw new HttpError(409, `台 ${slug} 正在删除，不接受写入`, { code: 'app_deleting' });
   const rebind = b?.source_repo !== undefined;
   if (!existing && !rebind) bad('该台尚未登记来源：首次同步须带 source_repo（owner/repo），可选 source_path');
   let src: { repo: string; path: string };
@@ -1285,9 +1357,9 @@ function executeSkillDelete(slug: string): void {
   db.prepare('DELETE FROM skill_versions WHERE skill_id = ?').run(row.id);
   db.prepare('DELETE FROM skills WHERE id = ?').run(row.id);
 }
-registerChangeRequestRoutes(http, { adminGuard, wrap, bad, activateAppVersion, deleteAppCascade, executeSkillRollback, executeSkillDelete });
+registerChangeRequestRoutes(http, { adminGuard, wrap, bad, activateAppVersion, deleteAppCascade, executeSkillRollback, executeSkillDelete, cardDeleter: (req) => cardDeleterOf(req, (r) => adminHeaderOk(r)) });
 
-registerAppLifecycleRoutes(http, { sameOriginGuard, adminGuard, wrap, bad, activateAppVersion, deleteAppCascade });
+registerAppLifecycleRoutes(http, { sameOriginGuard, adminGuard, wrap, bad, activateAppVersion, deleteAppCascade, cardDeleter: (req) => cardDeleterOf(req, (r) => adminHeaderOk(r)) });
 
 /** #94 v3 S1：台删除级联体（一步式 REST 与人审批准共用一个执行体——单一事实源） */
 /** #94 P1 影子双写：经 layerfs 服务发布 Commit（契约 v0 §2.1·Bearer）——失败不阻（warn·commit_id 留空） */
@@ -1334,8 +1406,22 @@ async function layerfsPublish(project: string, files: { path: string; content: s
   }
 }
 
-async function deleteAppCascade(slug: string): Promise<void> {
-  const a = getApp(slug);
+/**
+ * 删台。card：删这个台的卡片的人、是否确认删台库里的业务数据（卡片的台库有数据时要管理层并且确认，见 bench-card-delete.ts）。
+ * 这道门在任何删除之前先过；过了之后**紧接着**删卡片（逐张走删卡片那条路——台库删前备份、常量变量、驾驶舱面板一起处理），然后才删远端项目和台本身。
+ * 门和删卡片之间不隔着远端调用（要几秒）：原来先删远端、最后才删卡片，这几秒里某张卡片的台库第一次写进数据，第二次过门就 409，台删了、卡片还在（半截）。
+ * 现在远端删失败（502）时卡片已经按确认删了，台标成「删除中」（写入 409、读按不存在、发布也 409）——重试删台就收尾，不会留下「台没了、卡片和它的数据还在」。
+ */
+async function deleteAppCascade(slug: string, card: { deleter: CardDeleter; confirmBenchData: boolean } = { deleter: { kind: 'anonymous' }, confirmBenchData: false }): Promise<void> {
+  // 正在删除的台也取得到：上一次删到一半（远端删失败）的，重试照常收尾
+  const a = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
+  if (!a) throw new HttpError(404, `app not found: ${slug}`);
+  const cardIds = svc<WorkbenchService>('workbench').idsByAppUrls(`/apps/${a.slug}/`, `/sop/${a.slug}/`);
+  for (const id of cardIds) {
+    const row = svc<WorkbenchService>('workbench').byId(id) as { url?: unknown } | undefined;
+    if (row && typeof row.url === 'string') await svc<AppDataService>('appData').beforeCardDelete(row.url, id); // 第 6 步：提交和附件先对齐进台库，门才看得到
+    await checkCardDeletable(id, card.deleter, card.confirmBenchData);
+  }
   // Remove remote state first and retain local state on failure; without LayerFS config, apps never written there stay deletable.
   const versions = svc<AppService>('app').versions(a.id) as any[];
   const hasLayerfsState = Boolean((a as any).layerfs_project) || versions.some(v => String(v.commit_id ?? '') !== '');
@@ -1345,6 +1431,13 @@ async function deleteAppCascade(slug: string): Promise<void> {
   const reserved = layerfsReservedSlug(slug);
   if (reserved) console.warn(`[layerfs] 删台 ${slug}：slug 是系统保留项目名，跳过远端删除`);
   if (hasLayerfsState && !base && !reserved) throw new HttpError(503, 'LayerFS service is required to delete an app with LayerFS data');
+  // 删卡片之前先把台标成「删除中」：从这里起到删完（包括远端删失败、台留着等重试），这个台的写入一律 409、读按不存在处理——
+  // 卡片和台库已经没了，不能再往一个没有卡片的台里写。重试删台照常收尾；要撤销，由管理层从备份恢复卡片（设计稿，暂不做入口）
+  if (a.status !== APP_DELETING) svc<AppService>('app').setStatus(a.id, APP_DELETING);
+  // issue #6：清理应用与 SOP 对应的工作台注册——过了门紧接着逐张走删卡片那条路（台库删前备份、常量变量、驾驶舱面板一起），在远端调用之前
+  for (const id of cardIds) {
+    try { await workbenchDeleteCore(id, card.deleter, card.confirmBenchData); } catch (e) { if (!(e instanceof HttpError && e.status === 404)) throw e; } // 期间已被删了就算了
+  }
   if (base && !reserved) {
     let remote: Response;
     try {
@@ -1359,12 +1452,10 @@ async function deleteAppCascade(slug: string): Promise<void> {
   rmSync(join(appsRoot, slug), { recursive: true, force: true });
   svc<AppService>('app').versionsDelete(a.id);
   svc<AppService>('app').delete(a.id);
-  svc<AppDataService>('appData').dataDelete(slug);
-  const files = svc<AppDataService>('appData').filePaths(slug) as { storage_path: string }[];
-  for (const f of files) { try { rmSync(join(dataDir, f.storage_path), { force: true }); } catch { /* 已删 */ } }
-  svc<AppDataService>('appData').filesDelete(slug);
-  // issue #6：清理应用与 SOP 对应的工作台注册。
-  svc<WorkbenchService>('workbench').deleteByAppUrls(`/apps/${slug}/`, `/sop/${a.slug}/`);
+  await svc<AppDataService>('appData').dataDelete(slug);
+  const files = await svc<AppDataService>('appData').filePaths(slug);
+  for (const f of files) { try { rmSync(join(dataDir, f), { force: true }); } catch { /* 已删 */ } }
+  await svc<AppDataService>('appData').filesDelete(slug);
 }
 
 // ---------- 自产台数据提交面（监督席派单 direct-22838fab：台不仅是看板，有交互提交数据） ----------
@@ -1412,7 +1503,11 @@ function idemScope(channel: 'app-data.rest' | 'app-data.tool', subject: string |
 }
 /** 台数据写入核心：REST POST /api/apps/:slug/data 与 MCP app_data_submit 共用——1MB 上限、数据契约、幂等键、写入后推事件。
  *  违约不抛错，回 status 400 + violations，由两个入口各自原样交出去。 */
-function submitAppData(a: AppRow, input: { data: unknown; createdBy?: unknown; idempotencyKey?: unknown; submitterTicket?: unknown; subject?: string; channel: { name: 'app-data.rest' | 'app-data.tool'; hasCredential: boolean } }): { status: number; body: Record<string, unknown> } {
+function submitAppData(a: AppRow, input: Parameters<typeof submitAppDataNow>[1]): ReturnType<typeof submitAppDataNow> {
+  // 同一个台的写入排队（services/app-data.ts 的 serialWrites）：查幂等键、契约查附件 → 插入，中间不让别的写入插进来
+  return svc<AppDataService>('appData').serialWrites(a.slug, () => submitAppDataNow(a, input));
+}
+async function submitAppDataNow(a: AppRow, input: { data: unknown; createdBy?: unknown; idempotencyKey?: unknown; submitterTicket?: unknown; subject?: string; channel: { name: 'app-data.rest' | 'app-data.tool'; hasCredential: boolean } }): Promise<{ status: number; body: Record<string, unknown> }> {
   const data = input.data;
   const json = JSON.stringify(data);
   if (json === undefined) bad('data 必填');
@@ -1424,7 +1519,7 @@ function submitAppData(a: AppRow, input: { data: unknown; createdBy?: unknown; i
   const scope = idemScope(input.channel.name, input.subject);
   const storedKey = key ? `${scope}\n${key}` : '';
   if (key) {
-    const prev = svc<AppDataService>('appData').dataByIdempotencyKey(a.slug, storedKey) as { id: number; data: string; created_at: string } | undefined;
+    const prev = await svc<AppDataService>('appData').dataByIdempotencyKey(a.slug, storedKey);
     if (prev) {
       const known = scope === 'page' ? submitter !== null : scope !== 'anon';
       if (prev.data !== json) throw new HttpError(409, 'idempotency_key 已用于另一份内容', known ? { id: prev.id } : undefined);
@@ -1433,13 +1528,14 @@ function submitAppData(a: AppRow, input: { data: unknown; createdBy?: unknown; i
   }
   const contract = appDataContract(a);
   if (contract) {
-    const violations = checkRecord(contract, data, (id) => !!svc<AppDataService>('appData').fileById(id, a.slug));
+    // 契约校验是同步的：引用到的附件先一次查出来（只查 file_ids 里给的那些）
+    const refs = data && typeof data === 'object' && Array.isArray((data as { file_ids?: unknown }).file_ids) ? ((data as { file_ids: unknown[] }).file_ids.filter((x) => Number.isSafeInteger(x) && (x as number) > 0) as number[]) : [];
+    const existing = refs.length ? await svc<AppDataService>('appData').fileIdsExisting(a.slug, refs) : new Set<number>();
+    const violations = checkRecord(contract, data, (id) => existing.has(id));
     if (violations.length) return { status: 400, body: { error: '提交不符合本台数据契约', violations } };
   }
   const created_by = typeof input.createdBy === 'string' ? input.createdBy.trim().slice(0, 128) : '';
-  const r = svc<AppDataService>('appData').dataInsertStmt()
-    .run(a.slug, json, created_by, storedKey, submitter) as unknown as { lastInsertRowid: number | bigint };
-  const itemId = Number(r.lastInsertRowid);
+  const itemId = await svc<AppDataService>('appData').dataInsert(a.slug, json, created_by, storedKey, submitter);
   const createdAt = new Date().toISOString();
   // 属主裁 C（2026-10-26）：提交即推送——绑定 agent 异步收通知（不阻塞 201）。
   // 工作台事件 v1：推送改走事件投递队列（退避重试、终态 sent/dead 可查），信封带 event_id 与 submitter_kind。
@@ -1460,8 +1556,8 @@ const UPLOAD_MAX = 100 * 1024 * 1024; // 属主 2026-11-03：单文件放宽到 
 // 每台文件数上限：浏览器上传与 MCP 上传共用；部署可用 WM_APP_FILES_MAX 调整（存量迁移台已有数百个文件）
 const APP_FILES_MAX = Math.max(1, Number(process.env.WM_APP_FILES_MAX) || 2000);
 /** 台的文件容量（上传前可查）：已用/上限文件数、单文件上限、MCP base64 上限 */
-function appFilesQuota(slug: string) {
-  const used = Number(svc<AppDataService>('appData').fileCount(slug)) || 0;
+async function appFilesQuota(slug: string) {
+  const used = Number(await svc<AppDataService>('appData').fileCount(slug)) || 0;
   return { files_used: used, files_max: APP_FILES_MAX, files_left: Math.max(0, APP_FILES_MAX - used), max_file_bytes: UPLOAD_MAX, mcp_max_base64_chars: Math.ceil(UPLOAD_MAX / 3) * 4 };
 }
 const uploadRoot = join(dataDir, 'uploads');
@@ -1498,13 +1594,17 @@ function uploadKindOrThrow(path: string, size: number, name: string, reported: s
   return kind;
 }
 /** 自产台文件入库核心：浏览器 multipart 与 MCP REST（原始字节 PUT / multipart）共用——已落盘的文件按内容核类型（不符删盘 415）后写 app_files */
-function appFileStoreCore(slug: string, f: { path: string; size: number; name: string; reportedMime: string; createdBy: string; note: string; sha256?: string }) {
+async function appFileStoreCore(slug: string, f: { path: string; size: number; name: string; reportedMime: string; createdBy: string; note: string; sha256?: string }) {
   const kind = uploadKindOrThrow(f.path, f.size, f.name, f.reportedMime);
   // 存储相对路径（dataDir 内，随数据目录迁移）
   const rel = f.path.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
-  const r = svc<AppDataService>('appData').fileInsert(slug, f.name, kind.mime, f.size, rel, f.createdBy, f.note, f.sha256 ?? '') as unknown as { lastInsertRowid: number | bigint }; // #132 P0①：note 落库；sha256 有就存（下载 ETag 不再重算）
-  const id = Number(r.lastInsertRowid);
-  return { ok: true, id, slug, name: f.name, mime: kind.mime, size: f.size, note: f.note, url: `/api/apps/${slug}/files/${id}` };
+  // 查文件数上限 → 插入，排在这个台的写入队里：入口在收文件之前查过一次，这里排到了再核一次（并发的两笔不会一起用掉最后一个名额）
+  return svc<AppDataService>('appData').serialWrites(slug, async () => {
+    const quota = await appFilesQuota(slug);
+    if (quota.files_left <= 0) { rmSync(f.path, { force: true }); throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`, { quota }); }
+    const id = await svc<AppDataService>('appData').fileInsert(slug, f.name, kind.mime, f.size, rel, f.createdBy, f.note, f.sha256 ?? ''); // #132 P0①：note 落库；sha256 有就存（下载 ETag 不再重算）
+    return { ok: true, id, slug, name: f.name, mime: kind.mime, size: f.size, note: f.note, url: `/api/apps/${slug}/files/${id}` };
+  });
 }
 /** 上传落盘位置（multer 与原始字节上传同规则）：uploads/<YYYYMM>/<时间戳>-<随机><原扩展名> */
 function uploadMonthDir(): string {
@@ -1946,6 +2046,8 @@ function odooLoginUrl(req: express.Request, returnPath: string): string | null {
 // ---------- 统一待办（omni-inbox · 总工程师设计 9c5557c1c0）：只读聚合；路由在域模块里 ----------
 registerTaskRoutes(http, { wrap, adminGuard, adminHeaderOk, devOriginOk, odooLoginUrl });
 registerBenchViewRoutes(http, { on: BENCH_VIEWS.on, wrap, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), devOriginOk });
+// 经验库（/knowledge 的接口）：只读；条目按看的人的授予逐条判，管理口令拒（services/knowledge.ts、routes/knowledge.ts）
+registerKnowledgeRoutes(http, { wrap, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), devOriginOk });
 
 // #275 登录探测：弹窗送 Odoo 登录后，前端轮询这里拿 200 即回原页面（Odoo 19 无法跨源回跳，回程在市场源完成）；顶栏用户 chip 同源
 registerAuthViewerRoutes(http, { wrap, odooLoginUrl });
@@ -1957,8 +2059,9 @@ registerDepartmentRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, admin
 registerTeamRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 团队与分配（规范 14 第 1 步）：登录的人按可见范围读；认领、负责人是管理员，分配是负责人
 registerRelationRoutes(http, { markOdooAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 关系的提议（规范 14「关系由谁说了算」）：负责人、团队认领要属主或业务侧确认
 registerAccessRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 角色预设 ②：以某人的身份看、红线清单、首次安装向导
-registerAttentionRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
-registerWorkItemRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8d：事项页的时间线
+registerAttentionRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
+registerWorkItemRoutes(http, { markOdooAdmin, adminGuard, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8d：事项页的时间线
+registerWorkItemAttachmentRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 「安排一件事」的附件：上传、人读（跟事项走）、接单节点凭回执令牌取
 registerRosterRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段七：团队名册的读（登录即可读，只有席位信息）
 
 // ---------- 扩展（WM_EXTENSIONS_DIR）：挂在身份/写门之后、SPA 回落之前；加载失败拒绝启动 ----------
@@ -2318,7 +2421,7 @@ function ustarTar(files: { path: string; content: string | Buffer }[], opts: { p
 }
 
 
-registerSkillRoutes(http, { adminGuard, wrap, bad, resolveSnap, skillPublishCore, skillTicketKey, skillVersionDir, skillPackage, skillPkgDir, SKILL_DL_MAX, executeSkillRollback, executeSkillDelete, layerfsPublish, LAYERFS_SKILLS_PROJECT, layerfsServiceBase, rebuildWmSkills, ustarTar });
+registerSkillRoutes(http, { adminGuard, adminRead: (req) => settingsAdminRead(req), wrap, bad, resolveSnap, skillPublishCore, skillTicketKey, skillVersionDir, skillPackage, skillPkgDir, SKILL_DL_MAX, executeSkillRollback, executeSkillDelete, layerfsPublish, LAYERFS_SKILLS_PROJECT, layerfsServiceBase, rebuildWmSkills, ustarTar });
 
 // ---------- #437③ 进行中的 run 升级到当前 SOP 版本（预检 + 人确认 + 审计） ----------
 /** 每步的 data-field 名（含没有规则的字段），用来列出升级后新增、失效的字段 */
@@ -2501,7 +2604,7 @@ function vaultGuard(req: express.Request, res: express.Response): boolean {
   return adminGuard(req, res);
 }
 mountVault(http, vaultGuard, (req) => VAULT_ON_MAIN || surfaceOf(req) === 'control' || onVaultHost(req)); // 服务端持有主密码时只在控制面或凭据库专用域名开放（两者都不承载 /go/、/sop/、/apps/）；属主显式接受同源风险时主域名也开放
-workbenchVars.mount(app); // #336 /api/workbenches/:id/vars
+registerWorkbenchVarsRoutes(http, workbenchVars.handle); // #336 /api/workbenches/:id/vars（路由在 routes/workbench-vars.ts）
 
 // 存活 / 就绪分开：/api/health 是存活（只看本进程，不发外部请求）；/api/health/ready 是就绪（含 LayerFS）。
 // 两者都是公开端点，LayerFS 探测结果缓存 10 秒、同一时刻只发一次，匿名请求打不穿到 LayerFS。
@@ -2580,7 +2683,7 @@ function dbAdminTokenOk(provided: string | undefined): boolean {
 }
 /** 口令校验：env 优先（启动环境注入），否则库内 sha256 */
 function adminTokenCheck(provided: string | undefined): boolean {
-  return process.env.ADMIN_TOKEN ? adminTokenOk(provided) : dbAdminTokenOk(provided);
+  return adminTokenFromEnv() ? adminTokenOk(provided) : dbAdminTokenOk(provided);
 }
 
 /** 管理员：有效口令，或本次请求已认定为 Odoo 管理员（见上方预判中间件） */
@@ -2669,7 +2772,7 @@ registerRemoteAllowRoutes(http, { adminGuard, lastAllowDiff });
 registerSopSpaceRoutes(http, { getApp, adminHeaderOk, bad, appsRoot, parseSopManifest });
 
 registerBindingRoutes(http, { adminGuard, getApp });
-registerA2aPeerRoutes(http, { adminGuard, adminActor }); // 对端登记表：只给管理员
+registerA2aPeerRoutes(http, { adminGuard, adminActor, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined) }); // 对端登记表：只给管理员
 registerA2aOutboundRoutes(http, {
   adminGuard,
   state: () => {
@@ -2738,17 +2841,19 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       const S = svc<SkillService>('skill');
       const row = S.skillBySlug(String(args?.slug ?? ''));
       if (!row) return { error: `skill not found: ${args?.slug}` };
-      // #94 S0⑤（K8）：MCP 面同规则——snapshot_path 相对化
+      // 快照路径是服务端的内部文件路径，只给管理员；MCP 会话是代理、不是管理员，一律不带（摘要 tree_digest 照给，核对完整性用）
       const vs = S.versionsBySkill(row.id) as any[];
       const activeV = SkillService.currentOf(row, vs)?.version ?? null;
-      return vs.map((v) => ({ ...v, active: v.version === activeV, snapshot_path: v.snapshot_path ? `skill-snapshots/${encodeURIComponent(row.slug)}/v${v.version}` : v.snapshot_path }));
+      return vs.map((v) => { const { snapshot_path: _snap, ...rest } = v; return { ...rest, active: v.version === activeV }; });
     }
     // 技能传输面：一次只传一个文件，不收也不发压缩包
     case 'skill_file_put':
       return skillStagePut(args?.content, args?.encoding, args?.sha256);
-    case 'skill_publish':
-      // 审计人恒为调用会话（不收 agent 自报的 reviewed_by）
-      return skillPublishCore(args?.slug, args?.files, args?.changelog, subject, { refsOnly: true });
+    case 'skill_publish': {
+      // 审计人恒为调用会话（不收 agent 自报的 reviewed_by）；快照路径只给管理员，MCP 会话的应答里不带（REST 发布要管理口令，照旧带）
+      const { snapshot_path: _snap, ...published } = await skillPublishCore(args?.slug, args?.files, args?.changelog, subject, { refsOnly: true });
+      return published;
+    }
     case 'skill_download':
       return skillDownloadIssue(resolveMcpSkillSlug(args?.slug), args?.version, subject, origin);
     case 'skill_read':
@@ -2761,10 +2866,11 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       if (vs.length === 0) return { error: `无版本：${args?.slug}` };
       const target = typeof args?.version === 'number' ? vs.find((v) => v.version === args.version) : SkillService.currentOf(row, vs); // 缺省当前版本
       if (!target) return { error: `版本不存在：v${args?.version}` };
+      // 快照路径是服务端的内部文件路径，只给管理员；MCP 会话是代理、不是管理员，不带。安装提示指向导出包地址
       return {
-        slug: row.slug, version: target.version, tree_digest: target.tree_digest, snapshot_path: `skill-snapshots/${encodeURIComponent(row.slug)}/v${target.version}`, // K8 相对化
+        slug: row.slug, version: target.version, tree_digest: target.tree_digest,
         expected_sha256: target.tree_digest,
-        install_hint: `薄分发（手工落盘）：复制 skill-snapshots/${encodeURIComponent(row.slug)}/v${target.version} → 目标技能目录；以 expected_sha256 钉装校验`,
+        install_hint: '薄分发（手工落盘）：从 export_url 取这一版的导出包（tar），解到目标技能目录；以 expected_sha256 钉装校验',
         export_url: `/api/skills/${encodeURIComponent(row.slug)}/export?version=${target.version}`, // #94 S3②：导出包面（薄分发）
       };
     }
@@ -2951,27 +3057,28 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       return maskForApi(w);
     }
     case 'workbench_unregister':
-      return workbenchDeleteCore(Number(args?.id));
+      // MCP 会话不是人：卡片的台库里有数据时一律 409（要管理层来删）
+      return await workbenchDeleteCore(Number(args?.id), { kind: 'session', name: String(subject).replace(/^mcp:/, '') });
     case 'workbench_vars_get':
-      return mcpVarsGet(args);
+      return await mcpVarsGet(args);
     case 'workbench_vars_set':
-      return mcpVarsSet(args, subject);
+      return await mcpVarsSet(args, subject);
     case 'app_data_list': {
       const a = getApp(String(args?.slug ?? ''));
       const limit = pageLimit(args?.limit);
       const beforeId = pageBeforeId(args?.before_id);
       const rows = beforeId > 0
-        ? svc<AppDataService>('appData').dataPage(a.slug, beforeId, limit)
-        : svc<AppDataService>('appData').dataPage(a.slug, 0, limit);
+        ? await svc<AppDataService>('appData').dataPage(a.slug, beforeId, limit)
+        : await svc<AppDataService>('appData').dataPage(a.slug, 0, limit);
       const items = (rows as any[]).map((r) => ({ id: r.id, data: JSON.parse(r.data || '{}'), created_by: r.created_by, created_at: r.created_at }));
       return { slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null };
     }
     case 'app_data_submit': {
       // 与 REST POST /api/apps/:slug/data 同一核心（契约校验、幂等、事件推送）；违约 → 400 + violations 原样
-      const a = getApp(String(args?.slug ?? ''));
+      const a = getApp(String(args?.slug ?? ''), true);
       if (args?.data === undefined || args?.data === null) bad('data 必填');
       // 工具调用凭的是会话令牌（席位、agent），不看 cookie
-      const out = submitAppData(a, { data: args.data, createdBy: args?.created_by ?? subject, idempotencyKey: args?.idempotency_key, subject, channel: { name: 'app-data.tool', hasCredential: false } });
+      const out = await submitAppData(a, { data: args.data, createdBy: args?.created_by ?? subject, idempotencyKey: args?.idempotency_key, subject, channel: { name: 'app-data.tool', hasCredential: false } });
       if (out.status >= 400) throw new HttpError(out.status, String(out.body.error), { violations: out.body.violations });
       return { ...out.body, status: out.status };
     }
@@ -2980,10 +3087,10 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       const limit = pageLimit(args?.limit);
       const beforeId = pageBeforeId(args?.before_id);
       const rows = beforeId > 0
-        ? svc<AppDataService>('appData').filePage(a.slug, beforeId, limit)
-        : svc<AppDataService>('appData').filePage(a.slug, 0, limit);
+        ? await svc<AppDataService>('appData').filePage(a.slug, beforeId, limit)
+        : await svc<AppDataService>('appData').filePage(a.slug, 0, limit);
       const items = (rows as any[]).map((r) => ({ ...r, url: `/api/apps/${a.slug}/files/${r.id}` }));
-      return { slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null, quota: appFilesQuota(a.slug) };
+      return { slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null, quota: await appFilesQuota(a.slug) };
     }
     case 'app_files_upload': {
       // #164 P1②（批派令）：MCP 侧上传——base64 入 app_files（与 REST multipart 同表同链）
@@ -2991,7 +3098,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       const name = fixFileName(String(args?.name ?? '').trim());
       const b64 = String(args?.content_base64 ?? '');
       if (!slug || !name || !b64) throw new HttpError(400, 'slug/name/content_base64 必填');
-      const a = getApp(slug);
+      const a = getApp(slug, true);
       // 完整性：有的 MCP 客户端会把过长的参数截短（常见截在 64KB）。截在 4 的倍数上的 base64 照样能解码，
       // 不核就会把残缺文件当正常文件存下。所以：base64 严格校验；调用方带了 size / sha256 就逐项对；
       // 恰好 65536 字符又没带 size / sha256 的，按疑似截断拒收（要么带上 size / sha256，要么改用 REST 原始字节上传）。
@@ -3007,23 +3114,25 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       if (buf.length > UPLOAD_MAX) throw new HttpError(413, `文件超 100MB 上限（${buf.length}B）`);
       if (wantSize !== null && buf.length !== wantSize) throw new HttpError(400, `收到 ${buf.length} 字节，声明 ${wantSize} 字节：内容可能在传输中被截断，未保存`);
       if (wantSha !== null && createHash('sha256').update(buf).digest('hex') !== wantSha) throw new HttpError(400, `收到内容的 sha256 与声明不符（收到 ${buf.length} 字节）：内容可能在传输中被截断或改动，未保存`);
-      if (appFilesQuota(a.slug).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`); // #193 F8：全量计数；上限与浏览器上传共用
-      // 与浏览器上传同一套内容类型检查：扩展名与内容不符、或是可执行文件 → 拒收；相符则存规范 MIME
-      const kind = sniff(name, buf.subarray(0, 1024 * 1024), buf.length <= 1024 * 1024, String(args?.mime ?? ''));
-      if (kind.verdict === 'mismatch' || kind.verdict === 'executable') throw new HttpError(415, `文件类型不符：${kind.reason}`);
-      const dir = join(dataDir, 'uploads');
-      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-      const safe = name.replace(/[^\w.\u4e00-\u9fa5-]+/g, '_').slice(0, 80);
-      const fname = `${Date.now().toString(36)}-${safe}`;
-      const abs = join(dir, fname);
-      writeFileSync(abs, buf);
-      const rel = abs.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
-      const createdBy = String(args?.created_by ?? '').trim().slice(0, 128);
-      const note = String(args?.note ?? '').trim().slice(0, 500);
-      const sha256 = createHash('sha256').update(buf).digest('hex');
-      const r = svc<AppDataService>('appData').fileInsert(a.slug, name, kind.mime, buf.length, rel, createdBy, note, sha256) as unknown as { lastInsertRowid: number | bigint };
-      const id = Number(r.lastInsertRowid);
-      return { ok: true, id, slug: a.slug, name, mime: kind.mime, size: buf.length, sha256, note, url: `/api/apps/${a.slug}/files/${id}`, ...uploadIntegrity(wantSha, wantSize) };
+      // 查文件数上限 → 落盘 → 插入，排在这个台的写入队里（并发的两笔不会一起用掉最后一个名额）
+      return svc<AppDataService>('appData').serialWrites(a.slug, async () => {
+        if ((await appFilesQuota(a.slug)).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`); // #193 F8：全量计数；上限与浏览器上传共用
+        // 与浏览器上传同一套内容类型检查：扩展名与内容不符、或是可执行文件 → 拒收；相符则存规范 MIME
+        const kind = sniff(name, buf.subarray(0, 1024 * 1024), buf.length <= 1024 * 1024, String(args?.mime ?? ''));
+        if (kind.verdict === 'mismatch' || kind.verdict === 'executable') throw new HttpError(415, `文件类型不符：${kind.reason}`);
+        const dir = join(dataDir, 'uploads');
+        if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+        const safe = name.replace(/[^\w.\u4e00-\u9fa5-]+/g, '_').slice(0, 80);
+        const fname = `${Date.now().toString(36)}-${safe}`;
+        const abs = join(dir, fname);
+        writeFileSync(abs, buf);
+        const rel = abs.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
+        const createdBy = String(args?.created_by ?? '').trim().slice(0, 128);
+        const note = String(args?.note ?? '').trim().slice(0, 500);
+        const sha256 = createHash('sha256').update(buf).digest('hex');
+        const id = await svc<AppDataService>('appData').fileInsert(a.slug, name, kind.mime, buf.length, rel, createdBy, note, sha256);
+        return { ok: true, id, slug: a.slug, name, mime: kind.mime, size: buf.length, sha256, note, url: `/api/apps/${a.slug}/files/${id}`, ...uploadIntegrity(wantSha, wantSize) };
+      });
     }
     default:
       throw new HttpError(400, `未知工具: ${name}`);
@@ -3194,10 +3303,12 @@ const MCP_ACCESS_TOOLS: ReadonlySet<string> = new Set(['access_info', 'access_re
 const MCP_SCOPED_TOOLS: ReadonlySet<string> = new Set(['workbench_vars_get', 'workbench_vars_set', 'app_data_list', 'app_files_list']);
 /** 按 slug 限定到台的工具：授权里的台 id 对的是这个自产台的市场卡片 */
 const MCP_APP_SCOPED_TOOLS: ReadonlySet<string> = new Set(['app_data_list', 'app_files_list']);
-/** 一次调用落在哪张台上：按 slug 的取自产台卡片的编号（没登记卡片的台为 null，只有全局授权能读），其余按 id 参数 */
+/** 一次调用落在哪张台上：按 slug 的取自产台卡片的编号（没登记卡片的台为 null，只有全局授权能读），其余按 id 参数。
+ *  id 和工具自己同一口径（workbenchIdOf：十进制正整数、不带前导零）；写法不对的不算任何一张台（null，按台外拒绝）——
+ *  不能像 Number() 那样把 '0x2'、'02'、'2.0' 认成台 2 */
 function mcpScopeTarget(toolName: string, args: any): number | null {
   if (MCP_APP_SCOPED_TOOLS.has(toolName)) return wmWorkbenchIdFor(`/apps/${String(args?.slug ?? '')}/`);
-  return Number(args?.id);
+  try { return workbenchIdOf(args?.id); } catch { return null; }
 }
 /** 会话能不能对这个台用这个工具（MCP 内嵌 REST 的下载不走工具分发，在这里核） */
 function mcpToolAllowsApp(sess: McpSess | null, toolName: string, slug: string): boolean {
@@ -3298,7 +3409,7 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
   if (BENCH_VIEWS.on && bare !== undefined) bad(`${bare.split('@')[0]} 是数据视图的工具，必须限定到台：写成 ${bare.split('@')[0]}@bench:<台的标识>（读也一样）`);
   if (BENCH_VIEWS.on && benchAsk.some((m) => m && BENCH_TOOL_NAMES.has(m[1]))) {
     if (!benchAsk.every((m) => m && BENCH_TOOL_NAMES.has(m[1]))) bad('数据视图的工具单独申请，不和别的工具写在同一条里');
-    const benches = [...new Set(benchAsk.map((m) => m![2]))];
+    const benches = [...new Set(benchAsk.map((m) => resolveBenchRef(m![2])))]; // 写卡片 id 也认：申请和授予按台标识记
     if (benches.length !== 1) bad('一条申请只能是一个台的；几个台分开申请');
     let made;
     try { made = requestBenchTools(s.id, benches[0], benchAsk.map((m) => m![1]), args?.reason, Date.now()); } catch (e) { throw benchToolError(e); }
@@ -3429,7 +3540,7 @@ async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, 
     }
   }
   const scope = mcpToolScope(sess, toolName);
-  // 限定到台的授权在分发前核对：按 id 参数（与工具自身同样 Number(args.id) 解析），读台数据和附件的按 slug 找卡片；台外按未授权处理并记审计
+  // 限定到台的授权在分发前核对：按 id 参数（与工具自身同样用 workbenchIdOf 解析，写法不对的算台外），读台数据和附件的按 slug 找卡片；台外按未授权处理并记审计
   const target = scope !== null && scope !== 'all' ? mcpScopeTarget(toolName, args) : null;
   if (scope === null || (scope !== 'all' && (target === null || !scope.has(target)))) {
     mcpAudit(sess, channel, 'tools/call', toolName, false, scope === null ? 'not granted' : 'not granted: workbench scope', Date.now() - t0, args);
@@ -3660,10 +3771,13 @@ async function mcpRestRunReadable(req: express.Request, sess: McpSess | null, ru
 }
 const runIdParam = (v: unknown): number => { if (!/^\d+$/.test(String(v))) throw new HttpError(404, `run not found: ${v}`); return Number(v); };
 registerMcpRestRoutes(http, { wrap, serveMcpOpenApi, mcpGatewaySession, mcpAudit, mcpRegisteredNames, MCP_REST_DENIED_HINT, mcpInvokeTool, mcpPublicOrigin, mcpRestSession, mcpToolAllowsApp, mcpRestRun, bad, getApp, appFilesQuota, APP_FILES_MAX, UPLOAD_MAX, uploadMonthDir, uploadFileName, appFileStoreCore, MCP_REST_BASE, upload, fixFileName, fileSha256, sendStoredFile, restFileItem, mcpRestRunReadable, runIdParam, sopRunRow, runReadCapHeader });
-import { installPortal, goPrefix, moduleProxy } from './portal.ts';
+import { goPrefix, moduleProxy } from './portal.ts';
+import { registerPortalRoutes } from './routes/portal.ts';
+import { stripIncoming as stripPortalForward, verifyPortalForwardStrip, useMarketTokenCheck } from './portal-forward-headers.ts';
+useMarketTokenCheck((token) => mcpSessionByToken(token) !== null); // 门户转发时认得市场的 MCP 会话令牌，摘掉不往台带
 
 loginRelay().useTicketStore(sqliteSsoTicketStore()); // SSO 回调票据落库：重启不丢、同一 DATA_DIR 的实例共享
-installPortal(app, wbById, { serveApp, readActiveManifest, renderSopRunner, appsRoot });
+registerPortalRoutes(http, wbById, { serveApp, readActiveManifest, renderSopRunner, appsRoot }); // 门户 /go/（路由在 routes/portal.ts），挂在原来两层中间件的位置
 
 // ---------- 静态托管前端（生产形态：单端口） ----------
 const webDist = join(here, '..', '..', 'web', 'dist');
@@ -3681,12 +3795,7 @@ function sendSurfaceIndex(req: express.Request, res: express.Response): void {
 }
 if (existsSync(webDist)) {
   app.use(express.static(webDist, { index: false })); // index.html 由 sendSurfaceIndex 注入后下发
-  // SPA fallback 只兜「路由路径」：静态资源（/assets/*、带扩展名文件）不存在的直接 404——
-  // 否则旧缓存 index.html 引用的已删 hash 会被回成 200 text/html，前端炸 MIME 错且难定位（实盘踩坑）
-  app.get(/^(?!\/api\/|\/assets\/|\/health).*/, (_req, res, next) => { // P1-4：/health* 不被 SPA 兜底（探活可区分）
-    if (/\.[A-Za-z0-9]+$/.test(_req.path) && _req.path !== '/index.html') return next(); // 带扩展名的文件请求不兜底
-    sendSurfaceIndex(_req, res);
-  });
+  registerSpaFallbackRoute(http, sendSurfaceIndex); // 页面兜底（路由在 routes/spa-fallback.ts），必须在静态托管之后、404 之前
   app.use((_req, res) => res.status(404).json({ error: 'not found' }));
 }
 
@@ -3791,7 +3900,7 @@ const goServer = registerSurface(app, 'market', PORT, () => {
 const controlServer = SURFACE_PORTS.control ? registerSurface(app, 'control', SURFACE_PORTS.control) : undefined;
 if (contentCfg && contentRuntime) listenContentSurface(app, contentCfg, contentRuntime, () => startupSecurity.snapshot().passed);
 
-void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, benchViews: BENCH_VIEWS.on, outbound: outboundOff() ? verifyOutboundGate : undefined }).then((result) => {
+void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, benchViews: BENCH_VIEWS.on, outbound: outboundOff() ? verifyOutboundGate : undefined, sessionSeal: sealSelfCheck, portalForward: verifyPortalForwardStrip }).then((result) => {
   if (!result.passed) return refuseUnsafeStartup();
   startupPassed(); // 放开启动闸：事项回填这类后台任务从这里开始（自检没过不开始）
   startRedis();
@@ -3824,6 +3933,7 @@ async function shutdown(sig: string): Promise<void> {
   try {
     await Promise.all(allSurfaceServers().map(srv => new Promise<void>(resolve => { srv.close(() => resolve()); })));
     await runCheckpoints.close();
+    try { await flushHotVars(); } catch { console.error('[shutdown] hot_vars_flush_failed'); } // 高频变量退出前落一次（Redis 不通就留给下次起来时落）
     db.close();
     clearTimeout(deadline);
     process.exit(0);
@@ -3865,6 +3975,7 @@ goServer.on('upgrade', async (req, socket, head) => {
   // ② Host 改成上游 authority，与 changeOrigin 语义一致；cookie 名是 authority 的 sha256，
   //    Host 不符则上游取不到签名 cookie → 401（实测）
   if (!loginRelay().isSessionTarget(w.url)) loginRelay().stripSession(req.headers); // 同 HTTP 门户：Odoo 会话只转给可信 Odoo 源
+  stripPortalForward(req.headers); // 同 HTTP 门户：市场自己的口令、令牌、凭据头和会话 cookie 不往台带
   const upstreamHost = u.host; // host:port（authority 形态）
   if (req.headers.origin !== undefined) req.headers.origin = u.origin;
   req.headers.host = upstreamHost;

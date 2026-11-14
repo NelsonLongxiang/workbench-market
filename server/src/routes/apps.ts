@@ -16,6 +16,7 @@ import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import type { AppRow } from '../db.ts';
 import type { AppService } from '../services/app.ts';
+import type { CardDeleter } from '../bench-card-delete.ts';
 
 type Guard = (req: express.Request, res: express.Response) => boolean;
 type Wrap = (fn: (req: express.Request, res: express.Response) => Promise<unknown>) => express.RequestHandler;
@@ -48,14 +49,16 @@ export interface AppLifecycleDeps {
   wrap: Wrap;
   bad: (msg: string) => never;
   activateAppVersion: (slug: string, vRaw: unknown) => Promise<object>;
-  deleteAppCascade: (slug: string) => Promise<void>;
+  deleteAppCascade: (slug: string, card?: { deleter: CardDeleter; confirmBenchData: boolean }) => Promise<void>;
+  /** 删台时删卡片的人（卡片的台库有业务数据时要管理层，见 bench-card-delete.ts） */
+  cardDeleter: (req: express.Request) => Promise<CardDeleter>;
 }
 
 export function registerAppRoutes(app: HttpService, deps: AppDeps): void {
   const { appDetail, getApp, DIRECT_PUBLISH_CLOSED, sameOriginGuard, adminGuard, adminTokenCheck, publishLockGuard, publishAppBody, wrap, isAdmin, syncAppFromGithub, appsRoot, layerfsReservedSlug, layerfsPublish, layerfsProjectName, layerfsServiceBase } = deps;
   app.get('/api/apps', { action: 'app.list', kind: 'read' }, (_req, res) => {
     // /api/apps = 全部台（app+sop）；/api/sops 才是 kind='sop' 过滤——S2 批量替换期间两口径装反过一次
-    const rows = svc<AppService>('app').all() as unknown as AppRow[];
+    const rows = (svc<AppService>('app').all() as unknown as AppRow[]).filter((a) => a.status !== 'deleting'); // 正在删除的台按不存在处理
     res.json(rows.map(appDetail));
   });
 
@@ -157,7 +160,9 @@ export function registerAppLifecycleRoutes(app: HttpService, deps: AppLifecycleD
     // #94 v3 S1（L14）：删除经人审——一步式=口令+reviewed_by
     const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
     if (!reviewedBy) bad('删除需 reviewed_by（人审门——一步式直调必填；或经 MCP change_request_create 提请求）');
-    await deleteAppCascade(req.params.slug);
+    // 台的卡片的台库里有业务数据时：要持管理层授予的人（或本机命令行）并且带 confirm_bench_data: true，否则 409，什么都不删
+    const confirm = (req.body as { confirm_bench_data?: unknown } | undefined)?.confirm_bench_data === true || req.query.confirm_bench_data === 'true';
+    await deleteAppCascade(req.params.slug, { deleter: await deps.cardDeleter(req), confirmBenchData: confirm });
     res.json({ ok: true, deleted: req.params.slug, reviewed_by: reviewedBy });
   }));
 }

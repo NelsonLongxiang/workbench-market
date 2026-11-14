@@ -23,7 +23,7 @@ rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const gh = await startFakeGithub(); // 自产台/SOP 台只从 GitHub main 同步：本机替身仓库
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server', env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: `../${DATA}`, WM_GITHUB_API: gh.api }, stdio: ['ignore', 'pipe', 'pipe'],
+  cwd: 'server', env: { ...process.env, ADMIN_TOKEN: 'synthetic-appdata-admin', MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: `../${DATA}`, WM_GITHUB_API: gh.api }, stdio: ['ignore', 'pipe', 'pipe'],
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪（20s 超时）'); process.exit(1); }
 
@@ -69,6 +69,12 @@ try {
   r = await call('GET', `/api/apps/appdata-smoke/data?limit=3&before_id=${bid}`);
   ok('游标翻页', r.body.items.length === 3 && r.body.items[0].id < bid);
   // ⑤ 未知 slug 404
+  // 同一个台、同一个幂等键的提交同时到：只落一行，其余认成重复（200 duplicate），不撞唯一索引出 500（提交在进程内按台排队）
+  {
+    const same = await Promise.all(Array.from({ length: 6 }, () => call('POST', '/api/apps/appdata-smoke/data', { data: { race: 1 }, idempotency_key: 'race-key-0001' })));
+    const codes = same.map((x) => x.status).sort().join(',');
+    ok('同键并发六笔：一笔 201，五笔 200 重复，没有 500', codes === '200,200,200,200,200,201' && same.filter((x) => x.body?.duplicate === true).length === 5, codes);
+  }
   r = await call('POST', '/api/apps/no-such/data', { x: 1 });
   ok('未知 slug 404', r.status === 404);
   // ⑤b 分页参数校验（评审 #22：limit=1.5 曾 500、limit=-1 曾绕过上限）
@@ -106,6 +112,31 @@ try {
     ok('远程 IP 不带台令牌读数据 403（读要台令牌、管理员或本机命令行）', rg.status === 403, `status=${rg.status}`);
   } else {
     console.log(`  · 跳过远程面三项（LAN ${lanIp}:${PORT} 不可达）`);
+  }
+  // 契约要求附件（file_ids）：引用的附件必须是本台的、存在的、没软删的；三种不合格的都拒并点名，真实存在的收下
+  {
+    const contract = { version: 1, type_fields: ['type'], types: { t: { file_ids: true } } };
+    const pubC = await ghPublish(BASE, gh, { slug: 'appdata-con', title: 'C', files: [{ path: 'index.html', content: '<h1>c</h1>' }, { path: 'data-contract.json', content: JSON.stringify(contract) }] });
+    const del = (path) => fetch(BASE + path, { method: 'DELETE', headers: { 'x-admin-token': 'synthetic-appdata-admin' } }).then((r) => ({ status: r.status }));
+    const upload = async (slug, name) => { const fd = new FormData(); fd.append('file', new Blob([`内容-${name}`], { type: 'text/plain' }), name); const r = await fetch(`${BASE}/api/apps/${slug}/files`, { method: 'POST', body: fd }); return (await r.json()).id; };
+    const fileA = await upload('appdata-con', 'a.txt'), fileOther = await upload('appdata-smoke', 'b.txt'), fileGone = await upload('appdata-con', 'c.txt');
+    const delGone = await del(`/api/apps/appdata-con/files/${fileGone}`);
+    const sub = (ids) => call('POST', '/api/apps/appdata-con/data', { data: { type: 't', file_ids: ids } });
+    const missing = await sub([999999]), other = await sub([fileOther]), gone = await sub([fileGone]), good = await sub([fileA]);
+    const named = (r, id) => r.status === 400 && (r.body?.violations ?? []).some((v) => String(v).includes(String(id)));
+    ok('（准备）带契约的台发布成功、三个附件上传成功、软删一个', pubC.status === 201 && [fileA, fileOther, fileGone].every(Number.isInteger) && delGone.status === 200, JSON.stringify({ pub: pubC.status, fileA, fileOther, fileGone, del: delGone.status }));
+    ok('契约：file_ids 引用不存在的附件 → 400，点名那个 id', named(missing, 999999), JSON.stringify(missing.body));
+    ok('契约：file_ids 引用别的台的附件 → 400，点名', named(other, fileOther), JSON.stringify(other.body));
+    ok('契约：file_ids 引用已软删的附件 → 400，点名', named(gone, fileGone), JSON.stringify(gone.body));
+    ok('契约：file_ids 引用本台真实存在的附件 → 201 收下', good.status === 201 && Number.isInteger(good.body?.id), JSON.stringify(good.body));
+    // 删不存在的、删两次：404
+    const dNoData = await del('/api/apps/appdata-con/data/999999');
+    const dNoFile = await del('/api/apps/appdata-con/files/999999');
+    const d1 = await del(`/api/apps/appdata-con/data/${good.body?.id}`), d2 = await del(`/api/apps/appdata-con/data/${good.body?.id}`);
+    const f1 = await del(`/api/apps/appdata-con/files/${fileA}`), f2 = await del(`/api/apps/appdata-con/files/${fileA}`);
+    ok('删不存在的提交、不存在的附件 → 404', dNoData.status === 404 && dNoFile.status === 404, `${dNoData.status} ${dNoFile.status}`);
+    ok('同一条提交、同一个附件删两次：第一次 200，第二次 404', d1.status === 200 && d2.status === 404 && f1.status === 200 && f2.status === 404, `${d1.status} ${d2.status} ${f1.status} ${f2.status}`);
+    await del('/api/apps/appdata-con');
   }
   // 清理
   await call('DELETE', '/api/apps/appdata-smoke');

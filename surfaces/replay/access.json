@@ -29,8 +29,8 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "principal": { "id": "user:alpha", "kind": "person", "status": "active", "display_name": "合成甲" }, "active": [], "inactive": [] }
+            "headers": { "cache-control": "private, no-store", "content-length": "179", "etag": "W/\"b3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "principal": { "id": "user:alpha", "kind": "person", "status": "active", "display_name": "合成甲" }, "active": [], "inactive": [], "relations": { "departments": [], "teams_led": [], "members": [] } }
           }
         },
         {
@@ -299,36 +299,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "467", "etag": "W/\"1d3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": {
-              "principal": { "id": "user:alpha", "kind": "person", "status": "active", "display_name": "合成甲" },
-              "active": [
-                {
-                  "id": 1,
-                  "role": "member",
-                  "role_name": "普通员工",
-                  "permissions": [{ "kinds": ["read"] }, { "actions": ["app-data.submit", "app-data.upload", "sop-run.file-refs", "sop-run.file-upload", "sop-run.finish", "sop-run.save", "sop-run.start"] }, { "kinds": ["decide"], "scope": "self" }],
-                  "scope": "*",
-                  "effective": true,
-                  "expires_at": null,
-                  "approved_by": "cli",
-                  "source": "wizard"
-                }
-              ],
-              "inactive": []
-            }
-          }
-        },
-        {
-          "id": "access-self",
-          "route": "GET /api/principals/:id/access",
-          "class": "normal",
-          "what": "alpha 看自己，带 action：能读台列表",
-          "request": { "method": "GET", "path": "/api/principals/user:alpha/access?action=workbench.list", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
-          "response": {
-            "status": 200,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "563", "etag": "W/\"233-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "526", "etag": "W/\"20e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "principal": { "id": "user:alpha", "kind": "person", "status": "active", "display_name": "合成甲" },
               "active": [
@@ -345,6 +316,37 @@
                 }
               ],
               "inactive": [],
+              "relations": { "departments": [], "teams_led": [], "members": [] }
+            }
+          }
+        },
+        {
+          "id": "access-self",
+          "route": "GET /api/principals/:id/access",
+          "class": "normal",
+          "what": "alpha 看自己，带 action：能读台列表",
+          "request": { "method": "GET", "path": "/api/principals/user:alpha/access?action=workbench.list", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "622", "etag": "W/\"26e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "principal": { "id": "user:alpha", "kind": "person", "status": "active", "display_name": "合成甲" },
+              "active": [
+                {
+                  "id": 1,
+                  "role": "member",
+                  "role_name": "普通员工",
+                  "permissions": [{ "kinds": ["read"] }, { "actions": ["app-data.submit", "app-data.upload", "sop-run.file-refs", "sop-run.file-upload", "sop-run.finish", "sop-run.save", "sop-run.start"] }, { "kinds": ["decide"], "scope": "self" }],
+                  "scope": "*",
+                  "effective": true,
+                  "expires_at": null,
+                  "approved_by": "cli",
+                  "source": "wizard"
+                }
+              ],
+              "inactive": [],
+              "relations": { "departments": [], "teams_led": [], "members": [] },
               "decision": { "action": "workbench.list", "kind": "read", "verdict": "allow", "rule": "grant", "grant": 1 }
             }
           }

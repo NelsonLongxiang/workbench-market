@@ -25,8 +25,8 @@ import { root } from './root-context.ts';
 import { svc } from './context.ts';
 import type { GrantService, GrantRow } from './services/grant.ts';
 import type { PrincipalService } from './services/principal.ts';
-import { domainOf, type Kind, type Permission } from './roles.ts';
-import { ANONYMOUS_ACTIONS, builtin, narrowed, type BuiltinName } from './judgment-builtins.ts';
+import { permits, type Kind } from './roles.ts';
+import { ANONYMOUS_ACTIONS, builtin, deptKind, narrowed, type BuiltinName } from './judgment-builtins.ts';
 
 /** 做这件事的是谁 */
 export type JudgedActor =
@@ -43,19 +43,6 @@ declare module '@deepseek-ai/cordis' {
 }
 
 const grants = () => svc<GrantService>('grants');
-
-/** 一个角色（展开之后的权限）覆不覆盖这个动作 */
-function permits(closure: Permission[], action: string, kind: Kind): { covers: boolean; scoped: boolean } {
-  let scoped = false;
-  for (const p of closure) {
-    // 按类别给的，写了 domains 就只算这几个域里的动作
-    const hit = ((p.kinds ?? []).includes(kind) && (!p.domains || p.domains.includes(domainOf(action)))) || (p.actions ?? []).includes(action);
-    if (!hit) continue;
-    if (p.scope === undefined || p.scope === '*') return { covers: true, scoped: false };
-    scoped = true;
-  }
-  return { covers: false, scoped };
-}
 
 /** 一个主体有没有覆盖这个动作的生效授予（只有范围是 * 的授予算覆盖） */
 function grantFor(principal: string, action: string, kind: Kind, now: number): { grant: GrantRow | null; scoped: boolean } {
@@ -133,14 +120,15 @@ export function judgeBuiltin(input: JudgeInput): JudgeResult {
  *   · 主体停用、待放行的授予、范围是别的部门的授予：deny。决定类只给人；席位的责任人也要有同一项权限（和 judge 第 3、4 步同口径）。
  *   · action、kind 由调用方给登记过的动作和它的类别，这里不查动作清单。
  */
-export type ScopedInput = { principal: string; action: string; kind: Kind; scope: string; now?: number };
+/** exact：只认范围正好是 scope 的授予，不认范围「全部」的（经验库的部门级：人人都有一条范围「全部」的普通员工授予，那条不能让人看到每个部门的） */
+export type ScopedInput = { principal: string; action: string; kind: Kind; scope: string; now?: number; exact?: boolean };
 export type ScopedResult = { verdict: 'allow' | 'deny'; rule: string; grant: number | null };
 const DEPT_SCOPE = /^dept:[a-z][a-z0-9-]{0,47}$/;
 
-function grantWithin(principal: string, action: string, kind: Kind, scope: string, now: number): GrantRow | null {
+function grantWithin(principal: string, action: string, kind: Kind, scope: string, now: number, exact = false): GrantRow | null {
   const views = new Map(grants().roles().map((r) => [r.id, r]));
   for (const g of grants().activeFor(principal, now)) {
-    if (g.scope !== '*' && g.scope !== scope) continue;
+    if (exact ? g.scope !== scope : g.scope !== '*' && g.scope !== scope) continue;
     const role = views.get(g.role);
     if (role && permits(role.closure, action, kind).covers) return g;
   }
@@ -155,14 +143,16 @@ export function rolesCovering(action: string, kind: Kind): string[] {
 export function scopedVerdict(input: ScopedInput): ScopedResult {
   const now = input.now ?? Date.now();
   if (!DEPT_SCOPE.test(input.scope)) return { verdict: 'deny', rule: 'scope-unsupported', grant: null };
+  // 只认登记过按部门问的动作，类别也要对得上（judgment-builtins.ts 的 ASKED）：矩阵照同一张表推「范围内」，没登记的问不出部门这一档
+  if (deptKind(input.action) !== input.kind) return { verdict: 'deny', rule: 'scope-not-declared', grant: null };
   const p = svc<PrincipalService>('principals').get(input.principal);
   if (!p || p.status !== 'active') return { verdict: 'deny', rule: 'principal-inactive', grant: null };
   if (input.kind === 'decide' && p.kind !== 'person') return { verdict: 'deny', rule: 'decide-non-person', grant: null };
-  const g = grantWithin(p.id, input.action, input.kind, input.scope, now);
+  const g = grantWithin(p.id, input.action, input.kind, input.scope, now, input.exact === true);
   if (!g) return { verdict: 'deny', rule: 'no-grant', grant: null };
   if (p.kind !== 'person') {
     const resp = p.owner ? svc<PrincipalService>('principals').get(p.owner) : null;
-    if (!resp || resp.status !== 'active' || !grantWithin(resp.id, input.action, input.kind, input.scope, now)) return { verdict: 'deny', rule: 'responsible-lacks-permission', grant: g.id };
+    if (!resp || resp.status !== 'active' || !grantWithin(resp.id, input.action, input.kind, input.scope, now, input.exact === true)) return { verdict: 'deny', rule: 'responsible-lacks-permission', grant: g.id };
   }
   return { verdict: 'allow', rule: g.scope === '*' ? 'grant' : 'grant-dept', grant: g.id };
 }

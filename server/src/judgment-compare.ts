@@ -104,16 +104,15 @@ export function actorResolver(deps: Pick<CompareDeps, 'adminTokenOk'>): ActorOf 
   };
 }
 
-/** 迁移：第一次见到一个启用的人，给他一条 member；身份来源说他是管理员，再给 admin（同一个人同一个角色只迁一次） */
+/**
+ * 迁移：第一次见到一个启用的人，给他一条 member；身份来源说他是管理员，再给 admin（同一个人同一个角色只迁一次）。
+ * 不自动发管理层（management）：好几处业务代码直接认管理层授予（团队分配、认领直接落、数据视图），自动发等于比对一开就放宽。
+ * 管理层由属主单独授（遗留差异 L6）。
+ */
 export function migrateOnSight(actor: JudgedActor, admin: boolean): void {
   if (actor.type === 'principal' && actor.kind === 'person' && actor.status === 'active') {
     grants().migrate(actor.id, 'member', '迁移：首次见到的人，默认成员');
-    // 身份来源说是管理员的：今天什么都能看、能管，迁成系统管理员加管理层两条（等于今天的原样，各自能撤）；
-    // 6d 之前由属主决定每个人留哪条（存量差异清单 F）
-    if (admin) {
-      grants().migrate(actor.id, 'admin', '迁移：身份来源说是管理员（系统管理）');
-      grants().migrate(actor.id, 'management', '迁移：身份来源说是管理员（今天也看、改、拍板全公司的业务）');
-    }
+    if (admin) grants().migrate(actor.id, 'admin', '迁移：身份来源说是管理员（系统管理）');
   }
 }
 

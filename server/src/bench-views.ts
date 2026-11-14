@@ -140,7 +140,26 @@ export function validateViewDoc(doc: unknown, datasets: Map<string, DatasetDef>)
         toneRules(cols);
         if (block.unit !== undefined && !isText(block.unit, 12)) errs.push(`${at}：unit 须为 1～12 个字符`);
       } else if (type === 'table') {
-        keys(block, [...base, 'query', 'columns', 'page_size', 'value_labels'], at);
+        keys(block, [...base, 'query', 'columns', 'page_size', 'value_labels', 'column_labels'], at);
+        // 表头：每一列都要有说明名——数据集列定义的 label、聚合的 label，或者这里的 column_labels（列名 → 说明名）。
+        // 缺了就拒、点名缺哪一列：页面上的表头不露键名（没配的旧版本由页面写「第 N 列」兜底）
+        let named: Record<string, unknown> = {};
+        if (block.column_labels !== undefined) {
+          const cl = block.column_labels;
+          if (!isObj(cl) || !Object.keys(cl).length || Object.keys(cl).length > 40) errs.push(`${at}：column_labels 须为对象（列名 → 说明名，1～40 列）`);
+          else {
+            named = cl;
+            for (const [colName, label] of Object.entries(cl)) {
+              out(cols, colName, 'column_labels 的列');
+              if (!isText(label, 32)) errs.push(`${at}：column_labels.${colName.slice(0, 48)} 须为 1～32 个字符`);
+            }
+          }
+        }
+        if (cols) {
+          const shown = Array.isArray(block.columns) ? cols.filter((c) => (block.columns as unknown[]).includes(c.name)) : cols;
+          const missing = shown.filter((c) => !c.labeled && !(Object.hasOwn(named, c.name) && isText(named[c.name], 32)));
+          if (missing.length) errs.push(`${at}：表格的列 ${missing.map((c) => c.name).join('、')} 没有说明名——在数据集的列定义里给 label，或者在这个组件的 column_labels 里写（列名 → 说明名）`);
+        }
         // 「取值 → 说法」对照：列名 → 取值 → 说法（一段文字，或 { text, tone }）。没给对照的取值，页面显示成灰色的原文
         if (block.value_labels !== undefined) {
           const vl = block.value_labels;

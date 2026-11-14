@@ -5,8 +5,9 @@
   "scenarios": [
     {
       "name": "open",
-      "what": "登录门关，不配 LayerFS。预先写进库一个自产台（活跃 v2；v1、v2 放好物化目录，v3 只有库里一行），台令牌每个实例随机（HTML 里的 hex64 换占位）。",
+      "what": "登录门关，不配 LayerFS。预先写进库一个自产台（活跃 v2；v1、v2 放好物化目录，v3 只有库里一行），台令牌每个实例随机（HTML 里的 hex64 换占位）。前端目录用 web-dist-stub 换成占位（落到兜底的那几条才看得出路径规则放宽了没有）。",
       "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "fixtures": ["web-dist-stub"],
       "seed": [
         { "table": "apps", "row": { "slug": "replay-static", "title": "静态台", "kind": "app", "status": "active", "active_version": 2, "created_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" } },
         { "table": "app_versions", "row": { "app_id": 2, "version": 1, "file_count": 1, "total_bytes": 10, "created_by": "seed", "created_at": "2025-01-01 00:00:01" } },
@@ -291,17 +292,39 @@
         },
         {
           "id": "outside-upper",
-          "what": "slug 有大写（UPPER-APP，库里有、版本带 commit、目录不在）：不在路径规则内，落到兜底 404（兜底随有没有 web/dist 而不同，只比状态码）；规则放宽的话会去冷回读，没配 LayerFS 回 502",
-          "compare": "status",
+          "what": "slug 有大写（UPPER-APP，库里有、版本带 commit、目录不在）：不在路径规则内；带扩展名，页面兜底不接，落到 404 JSON。规则放宽的话会去冷回读，没配 LayerFS 回 502",
           "request": { "method": "GET", "path": "/apps/UPPER-APP/app.js", "headers": {} },
-          "response": { "status": 404 }
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "21", "etag": "W/\"15-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "not found" } }
         },
         {
           "id": "outside-dash",
-          "what": "slug 以连字符开头（-dash-app，库里有、文件也在）：同上，404，只比状态码",
-          "compare": "status",
+          "what": "slug 以连字符开头（-dash-app，库里有、文件也在）：不在路径规则内；带扩展名，落到 404 JSON。规则放宽的话回台里的文件（带 CSP 头）",
           "request": { "method": "GET", "path": "/apps/-dash-app/app.js", "headers": {} },
-          "response": { "status": 404 }
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "21", "etag": "W/\"15-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "not found" } }
+        },
+        {
+          "id": "outside-upper-page",
+          "what": "大写 slug 不带扩展名（/apps/UPPER-APP/）：不在路径规则内，页面兜底回前端外壳 200，没有台的 CSP 头。规则放宽的话由台托管接（先设 CSP，再 404 或冷回读）",
+          "vary": { "$location": ["port"] },
+          "request": { "method": "GET", "path": "/apps/UPPER-APP/", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-cache", "content-length": "244", "etag": "W/\"f4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": "<!doctype html>\n<html><head><meta name=\"wm-surface\" content=\"market\"><meta name=\"wm-control-url\" content=\"\"><meta name=\"wm-market-url\" content=\"http://127.0.0.1:<市场端口>\"><title>占位前端</title></head><body><div id=\"root\"></div></body></html>\n"
+          }
+        },
+        {
+          "id": "outside-dash-page",
+          "what": "连字符开头的 slug 不带扩展名（/apps/-dash-app/）：同上，页面兜底 200、没有 CSP 头",
+          "vary": { "$location": ["port"] },
+          "request": { "method": "GET", "path": "/apps/-dash-app/", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-cache", "content-length": "244", "etag": "W/\"f4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": "<!doctype html>\n<html><head><meta name=\"wm-surface\" content=\"market\"><meta name=\"wm-control-url\" content=\"\"><meta name=\"wm-market-url\" content=\"http://127.0.0.1:<市场端口>\"><title>占位前端</title></head><body><div id=\"root\"></div></body></html>\n"
+          }
         },
         {
           "id": "raw-long",

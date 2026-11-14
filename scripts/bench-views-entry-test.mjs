@@ -206,7 +206,7 @@ try {
 
   console.log('五、整条流程');
   const B = '/api/bench-views/demo';
-  r = await srv.call('PUT', `${B}/datasets/orders`, { ...mgr, body: { title: '订单', key: ['id'], columns: [{ name: 'id', type: 'integer' }, { name: 'day', type: 'date' }, { name: 'region', type: 'text' }, { name: 'amount', type: 'decimal' }] } });
+  r = await srv.call('PUT', `${B}/datasets/orders`, { ...mgr, body: { title: '订单', key: ['id'], columns: [{ name: 'id', type: 'integer', label: '编号' }, { name: 'day', type: 'date', label: '日期' }, { name: 'region', type: 'text', label: '地区' }, { name: 'amount', type: 'decimal', label: '金额' }] } });
   check(r.status === 200 && r.json?.created === true, '建数据集', r.text.slice(0, 160));
   const rows = [{ id: 1, day: '2026-01-05', region: '东区', amount: 1200.5 }, { id: 2, day: '2026-01-20', region: '南区', amount: 860 }];
   const key = (k) => ({ ...mgr, headers: { ...mgr.headers, 'idempotency-key': k } });

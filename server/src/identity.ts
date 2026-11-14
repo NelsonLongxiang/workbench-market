@@ -17,7 +17,7 @@
  */
 import { createHash } from 'node:crypto';
 import { Service, type Context } from '@deepseek-ai/cordis';
-import type { Express } from 'express';
+import type { HttpService } from './http.ts';
 import { root } from './root-context.ts';
 import { loginProviders } from './login-providers/index.ts';
 
@@ -34,7 +34,15 @@ export interface Viewer { login: string; uid: number; sub: string; name: string 
  * 认人的结果。认不出时 http 是该回给调用方的状态：401 没登录或会话失效，403 不是内部账号、主体已停用或对不到主体，502 身份来源不可达，503 没配置身份来源或主体目录不可用。
  * held 为真：提供方认出了人（登录是成功的），卡在主体那一步——停用了，或者还没对到主体。登录门据此给等待页，不让他回登录页反复试；两种不分开说
  */
-export type ViewerResult = { ok: true; viewer: Viewer; via?: 'session' } | { ok: false; http: number; error: string; held?: true };
+/**
+ * 认人的结果。
+ *   renewed：提供方在这次核验的应答里换了凭据（比如 Odoo 的会话号软轮换），这是换后的那份——由市场维持的会话要当场换成它；
+ *   cause：认不出时的原因类别（诊断日志用，不带凭据和人）：rejected 来源说会话无效、not-internal 不是内部员工、
+ *          http-5xx 来源出错、network 连不上、timeout 到点没回答、bad-answer 回答看不懂
+ */
+export type ViewerResult = { ok: true; viewer: Viewer; via?: 'session'; renewed?: string } | { ok: false; http: number; error: string; held?: true; cause?: SourceCause };
+export type SourceCause = 'rejected' | 'not-internal' | 'http-5xx' | 'network' | 'timeout' | 'bad-answer';
+const CAUSES: readonly string[] = ['rejected', 'not-internal', 'http-5xx', 'network', 'timeout', 'bad-answer'];
 
 /**
  * 身份来源不可达（到点没回答、抛错、来源自己说不可达）：和「没登录、会话失效」（401）分开说，页面按代号给一句人话。
@@ -60,8 +68,22 @@ export interface LoginProvider {
   configured(): boolean;
   /** 请求带来的、这个提供方认的凭据。只取不验；没有就是空串 */
   credentialOf(cookieHeader: string): string;
-  /** 把请求带来的 cookie 认成查看者，每次现查。source 是调用方显式指定的身份来源地址，缺省用部署配置的 */
+  /**
+   * 把请求带来的 cookie 认成查看者，每次现查。source 是调用方显式指定的身份来源地址，缺省用部署配置的。
+   * 认得出时可以带 renewed（来源在这次应答里换了凭据），认不出时可以带 cause（原因类别），见 ViewerResult
+   */
   resolveViewer(cookieHeader: string, source?: string): Promise<ViewerResult>;
+  /**
+   * 可选：把一份凭据（credentialOf 取出来的那种）写回成请求头里的样子（比如 session_id=<值>）。写了它，这家登录的人登录之后由市场维持会话：
+   * 市场发自己的会话，存下凭据，之后照旧拿它去问提供方（见 IdentityService.openSession）。不写就和原来一样，只认浏览器每次带来的凭据。
+   * 凭据形状不对时抛错
+   */
+  credentialHeader?(credential: string): string;
+  /**
+   * 可选：两份凭据是不是同一个会话（来源轮换前后的两个号）。不写就只认完全相同。
+   * 浏览器带来的和市场存下的不同、但是同一个会话时，市场会话不作废：先用存下的问，问不通再用浏览器带来的问
+   */
+  sameSession?(a: string, b: string): boolean;
 }
 
 // ---------- 主体目录 ----------
@@ -88,6 +110,12 @@ const DISABLED = '主体已停用';
 const UNBOUND = '这个登录还没有对到主体，请管理员处理';
 const UNAVAILABLE = '身份来源不可用';
 const UNRECOGNIZED = '身份来源的回答无法识别，按认不出处理';
+/** 由市场维持的会话被身份来源否了（那边注销、停用、改密码，或者对到了别人）：市场会话已注销，要重新登录 */
+const SESSION_ENDED = '登录已失效，请重新登录';
+/** 同一份凭据并发发会话时共用一个的窗口（毫秒） */
+const OPEN_DEDUPE_MS = 10_000;
+/** 认人诊断日志每分钟最多几行 */
+const DIAG_PER_MINUTE = 120;
 /** 提供方没有自报期限时的底线。比自带提供方自己的 5 秒超时长，不会抢在它前面 */
 const DEFAULT_DEADLINE_MS = 10_000;
 /**
@@ -106,7 +134,7 @@ const loginOk = (v: unknown): v is string => typeof v === 'string' && v.length >
 /** 人的主体标识：`user:` 加一个名，名的形状和登录名同一把尺 */
 const personIdOk = (v: unknown): v is string => typeof v === 'string' && v.startsWith('user:') && loginOk(v.slice(5));
 const deadlineOk = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 1 && v <= MAX_DEADLINE_MS;
-const unrecognized = (): ViewerResult => ({ ok: false, http: 502, error: UNRECOGNIZED });
+const unrecognized = (): ViewerResult => ({ ok: false, http: 502, error: UNRECOGNIZED, cause: 'bad-answer' });
 
 /** 到点还没有回答，就算它出错 */
 function within<T>(answer: Promise<T>, ms: number): Promise<T> {
@@ -132,13 +160,18 @@ function checked(answer: unknown): ViewerResult {
       if (sub !== `user:${login}`) return unrecognized();
       if (typeof uid !== 'number') return unrecognized();
       if (name !== null && typeof name !== 'string') return unrecognized();
-      return { ok: true, viewer: { login, uid, sub: `user:${login}`, name: name as string | null, admin: admin === true } };
+      let renewed: unknown;
+      try { renewed = (a as { renewed?: unknown }).renewed; } catch { renewed = undefined; }
+      return { ok: true, viewer: { login, uid, sub: `user:${login}`, name: name as string | null, admin: admin === true },
+        ...(typeof renewed === 'string' && renewed.length > 0 && renewed.length <= 1024 ? { renewed } : {}) };
     }
     if (ok === false) {
       const http = a.http, error = a.error;
       if (typeof http !== 'number' || !Number.isInteger(http) || http < 400 || http > 599) return unrecognized();
       if (typeof error !== 'string') return unrecognized();
-      return { ok: false, http, error };
+      let cause: unknown;
+      try { cause = (a as { cause?: unknown }).cause; } catch { cause = undefined; }
+      return { ok: false, http, error, ...(typeof cause === 'string' && CAUSES.includes(cause) ? { cause: cause as SourceCause } : {}) };
     }
   } catch { /* 读回答的时候抛错：按认不出 */ }
   return unrecognized();
@@ -152,8 +185,15 @@ export const SESSION_COOKIE = 'wm_session';
 
 /** 会话存储：实现要开库，是 Cordis 服务 `loginSessions`（services/login-session.ts）；这里只有契约 */
 export interface SessionStore {
-  /** 这个会话现在还算不算数（在、没注销、没过期、主体是启用的人）；算数才返回 */
-  lookupSession(token: unknown): { principal: string; provider: string; externalId: string; displayName: string } | null;
+  /**
+   * 这个会话现在还算不算数（在、没注销、没过期、主体是启用的人）；算数才返回。
+   * upstream：由市场维持的提供方会话，发会话时存下的提供方凭据（存储加密存放、交到这里时已解开）；普通会话没有
+   */
+  lookupSession(token: unknown): { principal: string; provider: string; externalId: string; displayName: string; upstream?: string | null; renewals?: number } | null;
+  /** 换掉由市场维持的会话里存下的提供方凭据（来源轮换了）；返回换没换成。可选 */
+  renewUpstream?(token: unknown, upstream: string): boolean;
+  /** 发一个会话；upstream 见上。可选：没有它就不发由市场维持的会话 */
+  createSession?(principal: string, provider: string, externalId: string, ttlMs: number, now?: number, upstream?: string): { token: string; expiresAt: number };
   /** 注销：立即失效 */
   revokeSession(token: unknown): boolean;
 }
@@ -381,14 +421,113 @@ export class IdentityService extends Service {
   /**
    * 市场会话认出的人。每次现查（会话在、没注销、没过期，主体是启用的人），不进任何缓存：停用、注销立即生效。
    * 会话发出去的时候已经对到了主体，所以查看者的主体标识直接用会话记着的。管理员标记一律 false（角色和授予是阶段六的事）。
+   *
+   * 由市场维持的提供方会话（存着提供方凭据的）还要过提供方这一关——ask 拿凭据写回的请求头去问（调用方决定用不用缓存）：
+   *   · 提供方说认得、对到的还是会话里的这个主体：认，管理员标记用提供方这次的回答；
+   *   · 提供方说认不得（那边注销了、停用了、改了密码）、或者对到了别人：当场注销这个市场会话，回 401（以后这个 cookie 再也不认）；
+   *   · 提供方不可达：不注销，照不可达回（502，失败关闭），来源恢复后照旧认；
+   *   · 浏览器这次带来的提供方凭据和存下的不是同一个（换了账号、在那边重新登录过）：注销旧的市场会话，回 null，按浏览器带来的认。
+   * 返回 null 表示「市场会话不管这个请求」，调用方接着按提供方凭据认。
    */
-  private sessionViewer(cookieHeader: string): ViewerResult | null {
+  private async sessionViewer(cookieHeader: string, ask: (header: string, ctx: { via: 'session'; renewals: number }) => Promise<{ provider: LoginProvider | null; result: ViewerResult }>): Promise<ViewerResult | null> {
     const token = sessionTokenOf(cookieHeader);
     if (!token) return null;
+    const store = this.sessionStore();
     let rec: ReturnType<SessionStore['lookupSession']> = null;
-    try { rec = this.sessionStore()?.lookupSession(token) ?? null; } catch { rec = null; }
+    try { rec = store?.lookupSession(token) ?? null; } catch { rec = null; }
     if (!rec || !personIdOk(rec.principal)) return null;
-    return { ok: true, via: 'session', viewer: { login: rec.principal.slice(5), uid: 0, sub: rec.principal, name: rec.displayName || null, admin: false } };
+    const viewer: Viewer = { login: rec.principal.slice(5), uid: 0, sub: rec.principal, name: rec.displayName || null, admin: false };
+    const upstream = typeof rec.upstream === 'string' && rec.upstream ? rec.upstream : null;
+    if (!upstream) return { ok: true, via: 'session', viewer };
+    const end = (cause: string): void => {
+      this.noteSession(cause);
+      try { store?.revokeSession(token); } catch { /* 注销不上：下一次照样会再判一次 */ }
+    };
+    const provider = this.provider;
+    if (!provider || provider.name !== rec.provider || typeof provider.credentialHeader !== 'function') { end('provider-changed'); return { ok: false, http: 401, error: SESSION_ENDED }; }
+    const headerOf = (credential: string): string | null => { try { return String(provider.credentialHeader!(credential)); } catch { return null; } };
+    let presented = '';
+    try { presented = String(provider.credentialOf(cookieHeader) ?? ''); } catch { presented = ''; }
+    let same = false;
+    try { same = presented !== '' && presented !== upstream && provider.sameSession?.(presented, upstream) === true; } catch { same = false; }
+    // 浏览器带来的是另一个会话（换了账号、在那边重新登录过）：旧的市场会话注销，按浏览器带来的认
+    if (presented && presented !== upstream && !same) { end('replaced'); return null; }
+    const ctx = { via: 'session' as const, renewals: Number(rec.renewals ?? 0) };
+    const header = headerOf(upstream);
+    if (header === null) { end('bad-credential'); return { ok: false, http: 401, error: SESSION_ENDED }; }
+    let { result } = await ask(header, ctx);
+    let current = upstream;
+    // 同一个会话、号不同（来源轮换前后）：存下的问不通，就用浏览器带来的再问一次；问通了换成它
+    if (!result.ok && !sourceDown(result) && same) {
+      const h2 = headerOf(presented);
+      if (h2 !== null) { ({ result } = await ask(h2, ctx)); current = presented; }
+    }
+    if (!result.ok) {
+      if (sourceDown(result)) return { ...result };
+      end(ctx.renewals > 0 ? 'rejected-after-renewal' : 'rejected');
+      return { ok: false, http: 401, error: SESSION_ENDED };
+    }
+    const who = this.admitted(provider.name, result.viewer);
+    if (!who.ok) { if (who.http < 500) end('not-admitted'); return { ...who }; }
+    if (who.viewer.sub !== rec.principal) { end('other-principal'); return { ok: false, http: 401, error: SESSION_ENDED }; }
+    // 来源换了凭据（轮换）：当场换掉存下的，不然宽限期一过就掉
+    const next = result.renewed && result.renewed !== current && headerOf(result.renewed) !== null ? result.renewed : current;
+    if (next !== upstream) {
+      try { if (store?.renewUpstream?.(token, next)) this.noteSession('renewed', 'info'); } catch { /* 换不上：下一次照样会再判一次 */ }
+    }
+    return { ok: true, via: 'session', viewer: { ...viewer, name: who.viewer.name ?? viewer.name, admin: who.viewer.admin === true } };
+  }
+
+  /** 诊断日志的限流：每分钟最多这么多行，免得来源出事时刷屏 */
+  private diag = { minute: 0, n: 0 };
+  private diagAllowed(): boolean {
+    const m = Math.floor(Date.now() / 60_000);
+    if (m !== this.diag.minute) this.diag = { minute: m, n: 0 };
+    return ++this.diag.n <= DIAG_PER_MINUTE;
+  }
+  /** 由市场维持的会话出了什么事（注销、换号）：一行诊断，只有类别，不带凭据、会话、人 */
+  private noteSession(cause: string, level: 'warn' | 'info' = 'warn'): void {
+    if (!this.diagAllowed()) return;
+    const line = JSON.stringify({ source: 'identity', event: level === 'info' ? 'session-upstream-renewed' : 'session-ended', cause, provider: this.provider?.name ?? null, at: new Date().toISOString() });
+    if (level === 'info') console.log(line); else console.warn(line);
+  }
+  /** 问身份来源没问通：一行诊断（原因类别、状态码、是浏览器带来的凭据还是市场会话存下的），不带凭据和人 */
+  private noteSourceFailure(provider: LoginProvider, result: ViewerResult, ctx?: { via: 'session'; renewals: number }): void {
+    if (result.ok || !this.diagAllowed()) return;
+    const cause = result.cause ?? (result.http >= 500 ? 'http-5xx' : result.http === 403 ? 'not-internal' : 'rejected');
+    console.warn(JSON.stringify({ source: 'identity', event: 'source-check-failed', provider: provider.name, via: ctx?.via ?? 'cookie', cause,
+      ...(ctx && ctx.renewals > 0 && !sourceDown(result) ? { after_renewal: true } : {}), http: result.http, at: new Date().toISOString() }));
+  }
+
+  /** 发会话时的去重：同一份提供方凭据并发进来的几个请求共用一个会话（几秒之内），不一人发好几个 */
+  private readonly opening = new Map<string, { at: number; session: { token: string; expiresAt: number } }>();
+
+  /**
+   * 由市场维持会话：提供方认出、对到了主体的人（viewer 是 resolveViewer 刚给的、不是从市场会话来的），发一个市场会话，
+   * 把请求带来的提供方凭据加密存下。提供方没写 credentialHeader、会话存储不支持、请求里没有凭据，都不发（返回 null，照原来认）。
+   * 期限由调用方给（WM_SESSION_TTL_MIN），不续期
+   */
+  openSession(cookieHeader: string, who: ViewerResult, ttlMs: number): { token: string; expiresAt: number } | null {
+    const provider = this.provider, store = this.sessionStore();
+    if (!who.ok || who.via === 'session') return null;
+    const viewer = who.viewer;
+    if (!provider || typeof provider.credentialHeader !== 'function' || typeof store?.createSession !== 'function') return null;
+    if (!personIdOk(viewer.sub) || !loginOk(viewer.login)) return null;
+    // 存浏览器带来的这份。认出这个人的那次核验里来源若换了号（轮换），旧号仍指向新号：下一次核验的应答会带回新号，届时换掉
+    const credential = this.credentialOf(cookieHeader);
+    if (!credential) return null;
+    try { provider.credentialHeader(credential); } catch { return null; }
+    const key = createHash('sha256').update(`${provider.name}\u0000${credential}`).digest('hex');
+    const now = Date.now();
+    for (const [k, v] of this.opening) if (now - v.at > OPEN_DEDUPE_MS) this.opening.delete(k);
+    const recent = this.opening.get(key);
+    if (recent) return recent.session;
+    try {
+      const session = store.createSession!(viewer.sub, provider.name, viewer.login, ttlMs, now, credential);
+      if (this.opening.size > 5000) this.opening.clear();
+      this.opening.set(key, { at: now, session });
+      return session;
+    } catch { return null; }
   }
 
   private readonly mismatchSeen = new Set<string>();
@@ -429,7 +568,7 @@ export class IdentityService extends Service {
   }
 
   /** 提供方这一层：问提供方，把回答收成契约的形状。认出来的人还没有对到主体，不能直接交出去 */
-  private async recognize(cookieHeader: string, source?: string): Promise<{ provider: LoginProvider | null; result: ViewerResult }> {
+  private async recognize(cookieHeader: string, source?: string, ctx?: { via: 'session'; renewals: number }): Promise<{ provider: LoginProvider | null; result: ViewerResult }> {
     const provider = this.provider;
     if (!provider) return { provider: null, result: { ok: false, http: 503, error: NO_PROVIDER } };
     // 按凭据合并：同时来的只问一次；刚不可达的，NEGATIVE_TTL_MS 之内不再问（换了提供方作废）
@@ -443,6 +582,7 @@ export class IdentityService extends Service {
     if (pending) { this.stats.shared++; const r = await pending; return { provider: r.provider, result: { ...r.result } }; }
     const run = (async () => {
       const result = await this.ask(provider, cookieHeader, source);
+      this.noteSourceFailure(provider, result, ctx); // 带着凭据却没问通：一行诊断（只在真问了的时候记，合并的、留着的不重复记）
       if (sourceDown(result)) {
         if (this.negative.size >= NEGATIVE_MAX) this.negative.clear();
         this.negative.set(key, { at: Date.now(), provider, result });
@@ -461,9 +601,10 @@ export class IdentityService extends Service {
     let result: ViewerResult | undefined;
     let answer: unknown;
     try { answer = await within(Promise.resolve(provider.resolveViewer(cookieHeader, source)), this.deadlineMs); } catch (e) {
-      if (e instanceof Error && e.message === 'deadline') this.stats.timeouts++;
+      const timeout = e instanceof Error && e.message === 'deadline';
+      if (timeout) this.stats.timeouts++;
       answer = undefined;
-      result = { ok: false, http: 502, error: UNAVAILABLE };
+      result = { ok: false, http: 502, error: UNAVAILABLE, cause: timeout ? 'timeout' : 'network' };
     }
     if (result === undefined) result = checked(answer);
     this.stats.last_ms = Date.now() - t0;
@@ -474,7 +615,11 @@ export class IdentityService extends Service {
   /** 把请求带来的 cookie 认成查看者。从不抛错，也不会一直等：认不出、提供方出错、到点没回答、主体停用或对不上，都是 ok:false */
   async resolveViewer(cookieHeader: string, source?: string): Promise<ViewerResult> {
     // 市场会话优先：有效就按它认，不再问身份来源（显式指定了身份来源地址的调用方除外，比如内容面）
-    if (source === undefined) { const fromSession = this.sessionViewer(cookieHeader); if (fromSession?.ok) { this.noteMismatch(cookieHeader, fromSession.viewer); return fromSession; } }
+    if (source === undefined) {
+      const fromSession = await this.sessionViewer(cookieHeader, (header, ctx) => this.recognize(header, undefined, ctx));
+      if (fromSession?.ok) { this.noteMismatch(cookieHeader, fromSession.viewer); return fromSession; }
+      if (fromSession) return fromSession; // 由市场维持的会话被提供方否了、或者来源不可达：不再按浏览器带来的凭据另认
+    }
     const { provider, result } = await this.recognize(cookieHeader, source);
     return this.settled(provider, result);
   }
@@ -497,23 +642,27 @@ export class IdentityService extends Service {
       throw new Error('cachedResolver：ttlMs 要是 1～300000 的毫秒数，max 要是正整数');
     }
     const cache = new Map<string, { at: number; provider: LoginProvider; result: ViewerResult }>();
-    return async (cookieHeader: string): Promise<ViewerResult> => {
-      const fromSession = this.sessionViewer(cookieHeader); // 市场会话不进缓存，每次现查
-      if (fromSession?.ok) { this.noteMismatch(cookieHeader, fromSession.viewer); return fromSession; }
-      const credential = this.credentialOf(cookieHeader);
-      if (!credential) return this.resolveViewer(cookieHeader);
+    // 提供方那一层的回答按凭据的哈希缓存：浏览器带来的凭据和市场会话里存下的凭据是同一份时，共用同一条缓存
+    const cachedRecognize = async (header: string, ctx?: { via: 'session'; renewals: number }): Promise<{ provider: LoginProvider | null; result: ViewerResult }> => {
+      const credential = this.credentialOf(header);
       const key = createHash('sha256').update(credential).digest('hex');
       const hit = cache.get(key);
-      let provider: LoginProvider | null, result: ViewerResult;
       // 换了提供方，旧回答作废
-      if (hit && hit.provider === this.provider && Date.now() - hit.at < ttlMs) ({ provider, result } = hit);
-      else {
-        ({ provider, result } = await this.recognize(cookieHeader));
-        if (provider) {
-          if (cache.size > max) cache.clear();
-          cache.set(key, { at: Date.now(), provider, result });
-        }
+      if (hit && hit.provider === this.provider && Date.now() - hit.at < ttlMs) return { provider: hit.provider, result: { ...hit.result } };
+      const r = await this.recognize(header, undefined, ctx);
+      if (r.provider) {
+        if (cache.size > max) cache.clear();
+        cache.set(key, { at: Date.now(), provider: r.provider, result: r.result });
       }
+      return r;
+    };
+    return async (cookieHeader: string): Promise<ViewerResult> => {
+      const fromSession = await this.sessionViewer(cookieHeader, cachedRecognize); // 市场会话本身不进缓存，每次现查；存下的提供方凭据按上面的缓存问
+      if (fromSession?.ok) { this.noteMismatch(cookieHeader, fromSession.viewer); return fromSession; }
+      if (fromSession) return fromSession;
+      const credential = this.credentialOf(cookieHeader);
+      if (!credential) return this.resolveViewer(cookieHeader);
+      const { provider, result } = await cachedRecognize(cookieHeader);
       return this.settled(provider, result);
     };
   }
@@ -632,8 +781,8 @@ export interface LoginRelay {
   /** 登录这一跳把浏览器送到哪个源；null 表示送不了（主机名对不上，或者要从 https 降到 http） */
   browserLoginOrigin(target: string, authority: string, configured: BrowserLoginOrigin | null, secure?: boolean): string | null;
 
-  /** 装上同域登录中继的路由；没开就什么都不装 */
-  install(app: Express): void;
+  /** 经 HTTP 服务注册同域登录中继的路由（不管开没开都注册，没开就放过）；要在任何请求体解析之前调 */
+  install(http: HttpService): void;
   /** 这个请求是不是中继放行的登录面（不要身份也能访问） */
   publicRoute(method: string, pathname: string): boolean;
   /** 到上游注销这一个会话；确认注销了才返回 true */

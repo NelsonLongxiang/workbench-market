@@ -62,6 +62,16 @@ try {
   ok('七种标记技能里都有例子', ['dataset', 'rows', 'upsert', 'append', 'delete', 'query', 'view-doc'].every((k) => seen.has(k)), [...seen]);
   const sk = readFileSync(join(DIR, 'SKILL.md'), 'utf8');
   ok('技能里写了入口开之前怎么先验：脚本名和七种标记', sk.includes('scripts/skill-data-views-examples-test.mjs') && ['json dataset', 'json rows:', 'json upsert:', 'json append:', 'json delete:', 'json query', 'json view-doc'].every((m) => sk.includes('`' + m)));
+  // 完整例子（references/example-inspection.md）第 5 步写的数，和真取到的一样（文字里写了几次、几个区，代码改了要跟着改）
+  {
+    const m = { month: '2026-01' };
+    const F = [{ col: 'day', op: 'prefix', value: '$month' }];
+    const total = (await s.query({ dataset: 'patrol_records', filter: F, measures: [{ as: 'v', fn: 'count' }] }, m)).rows[0]?.v;
+    const bad = (await s.query({ dataset: 'patrol_records', filter: [...F, { col: 'result', op: '=', value: 'bad' }], measures: [{ as: 'v', fn: 'count' }] }, m)).rows[0]?.v;
+    const byRegion = (await s.query({ dataset: 'patrol_records', filter: F, group: ['region'], sort: [{ col: 'region' }], measures: [{ as: 'n', fn: 'count' }] }, m)).rows.map((r) => `${r.region}${r.n}`).join(',');
+    const text = readFileSync(join(DIR, 'references/example-inspection.md'), 'utf8');
+    ok('完整例子：第 5 步写的数和真取到的一样（本月 6 次、异常 1 次、东南西各 2 次）', total === 6 && bad === 1 && byRegion === '东区2,南区2,西区2' && text.includes('本月巡检 6 次、异常 1 次') && text.includes('柱状图东区 2、南区 2、西区 2') && text.includes('明细 6 行'), { total, bad, byRegion });
+  }
   // 上限表里的数字和代码里的常量对得上
   const limits = readFileSync(join(DIR, 'references/limits.md'), 'utf8'), skill = readFileSync(join(DIR, 'SKILL.md'), 'utf8');
   const L = BENCH_LIMITS, has = (t) => limits.includes(t);

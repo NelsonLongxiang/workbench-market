@@ -96,5 +96,24 @@ ok('多个系列、线图：不按值着色', c.cartesianOption('bar', model, T,
 o = c.pieOption([{ name: 'a', value: 1 }], T, { donut: true });
 ok('饼的半径按像素定（块再宽也不变大）；图例缺省在右，窄的时候在下', typeof o.series[0].radius[1] === 'number' && o.legend.orient === 'vertical' && c.pieOption([{ name: 'a', value: 1 }], T, { legendBelow: true }).legend.bottom === 0);
 
+console.log('排版：块的宽度、表格的短值列');
+const T3 = (t, span) => (span === undefined ? { type: t } : { type: t, span });
+// 试点看板（驾驶舱里筛选栏不画）：两张统计卡、一张进度卡各 3 栏，柱图放不下，独占下一行——撑满
+ok('独占一行、没写 span 的图撑满这一行（不留半边空白）', JSON.stringify(v.layoutSpans([T3('stat'), T3('stat'), T3('progress'), T3('bar')])) === '[3,3,3,12]', v.layoutSpans([T3('stat'), T3('stat'), T3('progress'), T3('bar')]));
+ok('一行放得下的照旧：统计卡两张加一张图正好 12 栏', JSON.stringify(v.layoutSpans([T3('stat'), T3('stat'), T3('bar')])) === '[3,3,6]');
+ok('写了 span 的照写的来，独占一行也不撑', JSON.stringify(v.layoutSpans([T3('stat'), T3('stat'), T3('progress'), T3('bar', 6)])) === '[3,3,3,6]');
+ok('两张图一行各 6 栏；第三张独占下一行撑满', JSON.stringify(v.layoutSpans([T3('bar'), T3('line'), T3('pie')])) === '[6,6,12]');
+ok('表格、筛选栏本来就是 12 栏', JSON.stringify(v.layoutSpans([T3('filter-bar'), T3('table')])) === '[12,12]');
+ok('短值列（日期、数字、状态）按最长的值给宽度，日期「2026-01-25」放得下不折行', (v.nowrapWidth('date', '日期', ['2026-01-25', '2026-02-05']) ?? 0) >= 10 * 7.5 + 32 && v.nowrapWidth('number', '用时', ['13']) >= 64 && v.nowrapWidth('status', '结果', ['正常', '异常']) >= 64);
+ok('列标题比值长时按标题算（表头也不折行）；中日韩字符按两个单位', v.nowrapWidth('number', '本月应巡检次数', ['9']) > v.nowrapWidth('number', 'n', ['9']));
+ok('文本、人、席位列不给宽度（分剩下的、超长省略）；宽度有上限', v.nowrapWidth('text', '名字', ['x']) === undefined && v.nowrapWidth('person', '人', ['x']) === undefined && v.nowrapWidth('seat', '席位', ['x']) === undefined && v.nowrapWidth('number', 'n', ['9'.repeat(200)]) === 240);
+
+console.log('表格的表头');
+ok('有说明名用说明名；没有（空、空白、没给）写「第 N 列」，按页面上的次序，不露列名', v.tableHead(col('qty', 'integer', '件数'), 0) === '件数' && v.tableHead(col('qty', 'integer', ''), 2) === '第 3 列' && v.tableHead(col('qty', 'integer', '  '), 0) === '第 1 列' && v.tableHead(col('qty', 'integer'), 1) === '第 2 列');
+
+// 表格组件本身（React，这里不渲染）：表头和列宽都经 tableHead，源码里不再有拿列名兜底的写法（页面上的真实表头由前端的浏览器回归核）
+const tableSrc = (await import('node:fs')).readFileSync(new URL('../web/src/bench-blocks/Table.tsx', import.meta.url), 'utf8');
+ok('表格组件的表头经 tableHead，没有「label || name」的兜底', /title: head\b/.test(tableSrc) && /const head = tableHead\(c, i\)/.test(tableSrc) && !/label \|\| c\.name/.test(tableSrc));
+
 console.log(`\nbench-blocks-ui-unit: ${pass} passed / ${fail} failed`);
 process.exit(fail ? 1 : 0);

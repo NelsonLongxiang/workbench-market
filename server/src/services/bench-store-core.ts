@@ -30,7 +30,7 @@ import { join } from 'node:path';
 import type { BenchDialect, BenchSqlKit } from '../db.ts';
 import { isInsideRoot } from '../path-inside.ts';
 import {
-  BENCH_LIMITS, BenchError, COLUMN_TYPES, NAME_RE, coerceValue, decodeValue, physCol, physTable, planQuery,
+  BENCH_LIMITS, BenchError, COLUMN_TYPES, NAME_RE, coerceValue, decodeValue, physCol, physTable, planQuery, publicColumn,
   type ColumnDef, type DatasetDef, type OutColumn,
 } from '../bench-query.ts';
 import { diffJson, validateViewDoc, type JsonDiff } from '../bench-views.ts';
@@ -45,7 +45,33 @@ export const BENCH_METHODS = new Map<string, 'read' | 'write'>([
   ['viewVersions', 'read'], ['diffViews', 'read'], ['changes', 'read'], ['writes', 'read'], ['renderView', 'read'],
   ['defineDataset', 'write'], ['replace', 'write'], ['append', 'write'], ['upsert', 'write'], ['deleteRows', 'write'],
   ['snapshot', 'write'], ['restore', 'write'], ['putView', 'write'], ['rollbackView', 'write'], ['backupTo', 'write'], ['submitForm', 'write'],
+  ['varsList', 'read'], ['varGet', 'read'], ['varCount', 'read'], ['varsDigest', 'read'],
+  ['varsSyncGet', 'read'],
+  ['varInsert', 'write'], ['varUpdate', 'write'], ['varDelete', 'write'], ['varsImport', 'write'], ['varForce', 'write'], ['varsSynced', 'write'], ['varsReplace', 'write'], ['varsHotPending', 'write'], ['varsApplyHot', 'write'],
+  ['appDigest', 'read'], ['appCounts', 'read'], ['appDataPage', 'read'], ['appDataByIdem', 'read'], ['appFileById', 'read'], ['appFileIdsExisting', 'read'], ['appFilePage', 'read'], ['appFileCount', 'read'],
+  ['appDataPut', 'write'], ['appFilePut', 'write'], ['appDataDrop', 'write'], ['appFileDrop', 'write'], ['appReplace', 'write'],
 ]);
+
+/** 卡片的一个常量或变量（和主库 workbench_vars 的一行同形，只是不带 workbench_id） */
+/** 一组常量、变量行的摘要（主库和台库算法一样，才比得上） */
+export function varsDigestOf(rows: { key: string; kind: string; value: string; revision: number; owner: string }[]): string {
+  const h = createHash('sha256');
+  for (const r of [...rows].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))) h.update(`${r.key}\u0000${r.kind}\u0000${r.revision}\u0000${r.owner}\u0000${createHash('sha256').update(r.value).digest('hex')}\n`);
+  return h.digest('hex');
+}
+/** 台的提交记录、附件元数据的一行（列和主库的 app_data / app_files 一一对应，不带 app_slug） */
+export type AppDataRow = { id: number; data: string; created_by: string; created_at: string; deleted_at: string; idempotency_key: string; submitter_principal: string | null };
+export type AppFileRow = { id: number; original_name: string; mime: string; size: number; storage_path: string; created_by: string; created_at: string; note: string; sha256: string; deleted_at: string };
+/** 提交记录和附件的摘要：每一行全部的列（data 取 sha256）按 id 排好再整体取 sha256。主库那份和台库那份用同一个算法比，不给内容本身 */
+export function appDigestOf(data: AppDataRow[], files: AppFileRow[]): string {
+  const h = createHash('sha256');
+  for (const r of [...data].sort((a, b) => a.id - b.id)) h.update(`d\u0000${r.id}\u0000${createHash('sha256').update(r.data).digest('hex')}\u0000${r.created_by}\u0000${r.created_at}\u0000${r.deleted_at}\u0000${r.idempotency_key}\u0000${r.submitter_principal ?? '\u0001'}\n`);
+  for (const r of [...files].sort((a, b) => a.id - b.id)) h.update(`f\u0000${r.id}\u0000${r.original_name}\u0000${r.mime}\u0000${r.size}\u0000${r.storage_path}\u0000${r.created_by}\u0000${r.created_at}\u0000${r.note}\u0000${r.sha256}\u0000${r.deleted_at}\n`);
+  return h.digest('hex');
+}
+export const appDataRowOf = (r: Record<string, unknown>): AppDataRow => ({ id: Number(r.id), data: String(r.data), created_by: String(r.created_by), created_at: String(r.created_at), deleted_at: String(r.deleted_at ?? ''), idempotency_key: String(r.idempotency_key ?? ''), submitter_principal: r.submitter_principal === null || r.submitter_principal === undefined ? null : String(r.submitter_principal) });
+export const appFileRowOf = (r: Record<string, unknown>): AppFileRow => ({ id: Number(r.id), original_name: String(r.original_name), mime: String(r.mime), size: Number(r.size), storage_path: String(r.storage_path), created_by: String(r.created_by), created_at: String(r.created_at), note: String(r.note ?? ''), sha256: String(r.sha256 ?? ''), deleted_at: String(r.deleted_at ?? '') });
+export type BenchVarRow = { key: string; kind: 'var' | 'const'; value: string; revision: number; updated_by: string; owner: string; created_at: string; updated_at: string };
 
 export type WriteCtx = { actor: string; at: number; idemKey?: string; note?: string };
 export type WriteResult = { dataset: string; op: string; rows: number; row_count: number; data_bytes?: number; snapshot_id?: number; inserted?: number; updated?: number; deleted?: number; duplicate?: boolean; ids?: number[] };
@@ -322,6 +348,7 @@ export class BenchStoreCore {
       const v = await this.meta('schema_version');
       if (v === null) await this.setMeta('schema_version', String(mine));
       else if (Number(v) > mine) throw new BenchError('unsupported', `台库 ${this.slug} 的结构是第 ${v} 版，比这份代码认识的第 ${mine} 版新，不打开`);
+      // bs_vars 是附加的表：开库不建（main 档下台库和原来一样），有没有由 hasVars 现查，第一次写由 ensureVars 建
       // 版本号对得上，结构也要对得上：固定的几张表各试读一遍该有的列
       for (const probe of this.kit.probes) {
         try { await this.conn.all(probe); } catch (e) { throw new BenchError('unsupported', `台库 ${this.slug} 的结构和这份代码不符，不打开`, [], e); }
@@ -681,7 +708,7 @@ export class BenchStoreCore {
   query(spec: unknown, params: Record<string, unknown> = {}) {
     return this.serial(async () => {
       const { chars: _chars, ...out } = await this.runQuery(await this.load(), spec, params, BENCH_LIMITS.resultChars);
-      return out;
+      return { ...out, columns: out.columns.map(publicColumn) };
     });
   }
   /** 查询的本体；要在排着队的那一格里调。room 是还能取回多少个字符，chars 是这次取了多少 */
@@ -767,7 +794,14 @@ export class BenchStoreCore {
           const ds = defs.get(String(b.dataset));
           const cols = ds ? (b.fields as string[]).map((n) => ds.columns.find((c) => c.name === n)).filter((c): c is ColumnDef => !!c) : [];
           blocks.push(ds && cols.length === (b.fields as string[]).length ? { ...b, columns: cols } : { ...b, columns: [], error: { code: 'invalid', message: '表单引用的数据集或列现在已经不在了' } });
-        } else { const r = await run(b.query); blocks.push(r.data ? { ...b, data: r.data } : { ...b, error: r.error }); }
+        } else {
+          const r = await run(b.query);
+          if (!r.data) { blocks.push({ ...b, error: r.error }); continue; }
+          // 表格的表头：视图里给的 column_labels，其次是数据集、聚合里起的说明名；都没有就给空，由页面写「第 N 列」——不拿列名（键名）当表头
+          const given = b.type === 'table' && isObj(b.column_labels) ? b.column_labels as Record<string, string> : {};
+          const columns = r.data.columns.map((c) => (b.type === 'table' ? publicColumn({ ...c, label: Object.hasOwn(given, c.name) ? given[c.name] : c.labeled ? c.label : '' }) : publicColumn(c)));
+          blocks.push({ ...b, data: { ...r.data, columns } });
+        }
       }
       return { title: doc.title, version, active_version: active, views: doc.views.map((x) => ({ key: x.key, title: x.title })), view: { key: view.key, title: view.title }, filters, params, blocks };
     });
@@ -848,6 +882,255 @@ export class BenchStoreCore {
       return { active_version: to, unchanged: false };
     });
   }
+  // —— 卡片的常量、变量（第 5 步：从主库 workbench_vars 搬过来）——
+  /** 这个库里已经有（并试读过）bs_vars 了 */
+  private varsReady = false;
+  /**
+   * 第一次写常量、变量时建 bs_vars（附加的表，不升版本号）。只有 WM_VARS_STORE 是 shadow、bench 才会写；
+   * main 档下台库和原来逐字一样。调用方已经在 serial / tx 里（一次只做一件事）
+   */
+  private async ensureVars(): Promise<void> {
+    if (this.varsReady) return;
+    for (const sql of this.kit.varsSchema) await this.conn.run(sql);
+    for (const probe of this.kit.varsProbes) {
+      try { await this.conn.all(probe); } catch (e) { throw new BenchError('unsupported', `台库 ${this.slug} 的 bs_vars 和这份代码不符`, [], e); }
+    }
+    this.varsReady = true;
+  }
+  /** 读的方法用：还没有 bs_vars 就当作空，不建表（迁移的 dry-run、比对在 main 档下也不动台库的结构） */
+  private async hasVars(): Promise<boolean> {
+    if (this.varsReady) return true;
+    return (await this.conn.all(this.kit.varsExists)).length > 0;
+  }
+  // 规矩（乐观锁、常量的作者、审计）在 workbench-vars.ts；这里只做按 revision 条件的读写，写入一律带期望 revision 或「没有才建」
+  private varRow(r: Record<string, unknown>): BenchVarRow {
+    return { key: String(r.key), kind: String(r.kind) === 'const' ? 'const' : 'var', value: String(r.value), revision: Number(r.revision), updated_by: String(r.updated_by), owner: String(r.owner), created_at: String(r.created_at), updated_at: String(r.updated_at) };
+  }
+  varsList(prefix: string): Promise<BenchVarRow[]> {
+    return this.serial(async () => {
+      const rows = prefix
+        ? (!(await this.hasVars()) ? [] : await this.conn.all('SELECT * FROM bs_vars WHERE substr(key, 1, ?) = ? ORDER BY key', [prefix.length, prefix]))
+        : (!(await this.hasVars()) ? [] : await this.conn.all('SELECT * FROM bs_vars ORDER BY key'));
+      return rows.map((r) => this.varRow(r));
+    });
+  }
+  varGet(key: string): Promise<BenchVarRow | null> {
+    return this.serial(async () => { if (!(await this.hasVars())) return null; const r = await this.conn.all('SELECT * FROM bs_vars WHERE key = ?', [key]); return r.length ? this.varRow(r[0] as Record<string, unknown>) : null; });
+  }
+  varCount(): Promise<number> {
+    return this.serial(async () => (!(await this.hasVars()) ? 0 : Number((await this.conn.all('SELECT COUNT(*) AS n FROM bs_vars'))[0].n)));
+  }
+  /** 没有才建（revision 1）；已经有了返回 false（并发创建撞键） */
+  varInsert(r: { key: string; kind: string; value: string; by: string; owner: string; at: string }): Promise<boolean> {
+    return this.tx(async () => { await this.ensureVars(); await this.setMeta('vars_dirty', '1'); return !!(await this.conn.run('INSERT INTO bs_vars (key, kind, value, revision, updated_by, owner, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?, ?) ON CONFLICT (key) DO NOTHING', [r.key, r.kind, r.value, r.by, r.owner, r.at, r.at])); });
+  }
+  /** 比较并写：当前 revision 是 expected 才写，revision + 1；不是返回 false */
+  varUpdate(r: { key: string; expected: number; kind: string; value: string; by: string; owner: string; at: string }): Promise<boolean> {
+    return this.tx(async () => { await this.ensureVars(); await this.setMeta('vars_dirty', '1'); return !!(await this.conn.run('UPDATE bs_vars SET kind = ?, value = ?, revision = revision + 1, updated_by = ?, owner = ?, updated_at = ? WHERE key = ? AND revision = ?', [r.kind, r.value, r.by, r.owner, r.at, r.key, r.expected])); });
+  }
+  varDelete(key: string, expected: number): Promise<boolean> {
+    return this.tx(async () => { await this.ensureVars(); await this.setMeta('vars_dirty', '1'); return !!(await this.conn.run('DELETE FROM bs_vars WHERE key = ? AND revision = ?', [key, expected])); });
+  }
+  /**
+   * 照给的行原样落一份（shadow 档跟写、迁移用）：台库里没有，或台库的 revision 比给的小，才写；一样或更新的不动。
+   * row 为 null 是「主库里这个键已经删了」：台库里有就删。返回实际写了几行
+   */
+  varForce(key: string, row: BenchVarRow | null): Promise<number> {
+    return this.tx(async () => {
+      await this.ensureVars();
+      if (!row) return Number(await this.conn.run('DELETE FROM bs_vars WHERE key = ?', [key]));
+      return this.putVarRow(row);
+    });
+  }
+  /** 迁移：一批行照 varForce 的规矩落进来，一个事务。返回实际写了几行 */
+  varsImport(rows: BenchVarRow[]): Promise<number> {
+    return this.tx(async () => { await this.ensureVars(); let n = 0; for (const r of rows) n += await this.putVarRow(r); return n; });
+  }
+  private async putVarRow(r: BenchVarRow): Promise<number> {
+    const cur = await this.conn.all('SELECT revision FROM bs_vars WHERE key = ?', [r.key]);
+    if (cur.length && Number(cur[0].revision) >= r.revision) return 0;
+    if (cur.length) await this.conn.run('DELETE FROM bs_vars WHERE key = ?', [r.key]);
+    await this.conn.run('INSERT INTO bs_vars (key, kind, value, revision, updated_by, owner, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [r.key, r.kind, r.value, r.revision, r.updated_by, r.owner, r.created_at, r.updated_at]);
+    return 1;
+  }
+  /**
+   * 和主库的同步点（workbench-vars.ts 的 syncCard 用）：
+   *   mark  上一次两边确认一致时，主库那份行集合的摘要（从没同步过是 null）；
+   *   dirty bench 档在台库里写过、还没确认写回主库（varInsert / varUpdate / varDelete 在同一个事务里记上，varsSynced 清掉）
+   *   digest 台库现在的摘要（和上面两样一次读出来，不会读到一半被写入插进来）
+   */
+  varsSyncGet(): Promise<{ mark: string | null; dirty: boolean; digest: string; hotPending: boolean }> {
+    return this.serial(async () => ({
+      mark: await this.meta('vars_migrated'),
+      dirty: (await this.meta('vars_dirty')) !== null,
+      hotPending: (await this.meta('vars_hot_pending')) !== null,
+      digest: varsDigestOf((!(await this.hasVars()) ? [] : await this.conn.all('SELECT * FROM bs_vars ORDER BY key')).map((r) => this.varRow(r))),
+    }));
+  }
+  /**
+   * 写回主库之后：记下主库那份现在的摘要（mark）；台库在同一个事务里算出的摘要也等于它，才清 dirty。
+   * 这样别的写入已经进了台库、还没写回时（交错的两笔），dirty 留着，下次对同步点补写回，不会被当成「以主库为准」丢掉
+   */
+  varsSynced(mark: string): Promise<{ clean: boolean }> {
+    return this.tx(async () => {
+      await this.ensureVars();
+      await this.setMeta('vars_migrated', mark);
+      const clean = varsDigestOf((await this.conn.all('SELECT * FROM bs_vars ORDER BY key')).map((r) => this.varRow(r))) === mark;
+      if (clean) await this.conn.run('DELETE FROM bs_meta WHERE k = ?', ['vars_dirty']);
+      return { clean };
+    });
+  }
+  /** 高频变量「有待落盘」（Redis 里有这张卡片还没落进台库的写入）：写进 Redis 之前记上，落盘、清掉 Redis 那份之后清 */
+  varsHotPending(on: boolean): Promise<void> {
+    return this.tx(async () => {
+      if (on) await this.setMeta('vars_hot_pending', '1');
+      else await this.conn.run('DELETE FROM bs_meta WHERE k = ?', ['vars_hot_pending']);
+    });
+  }
+  /**
+   * 高频变量落盘：Redis 里的那份以它为准，原样落进台库（行整行换掉；deleted 的删掉），记 dirty（之后由调用方写回主库、记同步点），一个事务。
+   * 落盘期间这些键只在 Redis 里改（同一张卡片的读写排队），所以不用比 revision。返回落了几个键
+   */
+  varsApplyHot(entries: ({ deleted: true; key: string } | (BenchVarRow & { deleted?: false }))[]): Promise<number> {
+    return this.tx(async () => {
+      await this.ensureVars();
+      await this.setMeta('vars_dirty', '1');
+      for (const e of entries) {
+        await this.conn.run('DELETE FROM bs_vars WHERE key = ?', [e.key]);
+        if (!e.deleted) await this.conn.run('INSERT INTO bs_vars (key, kind, value, revision, updated_by, owner, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [e.key, e.kind, e.value, e.revision, e.updated_by, e.owner, e.created_at, e.updated_at]);
+      }
+      return entries.length;
+    });
+  }
+  /** 以主库为准：整张表换成给的行（原样，revision 也照抄），记同步点、清 dirty，一个事务。返回写了几行 */
+  varsReplace(rows: BenchVarRow[], mark: string): Promise<number> {
+    return this.tx(async () => {
+      await this.ensureVars();
+      await this.conn.run('DELETE FROM bs_vars');
+      for (const r of rows) await this.conn.run('INSERT INTO bs_vars (key, kind, value, revision, updated_by, owner, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [r.key, r.kind, r.value, r.revision, r.updated_by, r.owner, r.created_at, r.updated_at]);
+      await this.setMeta('vars_migrated', mark);
+      await this.conn.run('DELETE FROM bs_meta WHERE k = ?', ['vars_dirty']);
+      return rows.length;
+    });
+  }
+  /** 全部键的摘要：每个键的 kind、revision、owner、值的 sha256 按键排好再整体取 sha256（shadow 档比对、迁移的指纹用；不给值本身） */
+  varsDigest(): Promise<{ count: number; sha256: string }> {
+    return this.serial(async () => {
+      const rows = (!(await this.hasVars()) ? [] : await this.conn.all('SELECT * FROM bs_vars ORDER BY key')).map((r) => this.varRow(r));
+      return { count: rows.length, sha256: varsDigestOf(rows) };
+    });
+  }
+
+  // —— 台的提交记录和附件（第 6 步：主库 app_data / app_files 的副本）——
+  // 写一律由调用方先写主库、拿到主库那一行，再原样抄进来（app-data 服务）；这里不发 id、不生成时间。读给 WM_APP_DATA_STORE=bench 用。
+  private appReady = false;
+  private async ensureApp(): Promise<void> {
+    if (this.appReady) return;
+    for (const sql of this.kit.appSchema) await this.conn.run(sql);
+    for (const probe of this.kit.appProbes) {
+      try { await this.conn.all(probe); } catch (e) { throw new BenchError('unsupported', `台库 ${this.slug} 的提交记录表和这份代码不符`, [], e); }
+    }
+    this.appReady = true;
+  }
+  private async hasApp(): Promise<boolean> {
+    if (this.appReady) return true;
+    return (await this.conn.all(this.kit.appExists)).length > 0;
+  }
+  private async appAll(): Promise<{ data: AppDataRow[]; files: AppFileRow[] }> {
+    if (!(await this.hasApp())) return { data: [], files: [] };
+    return { data: (await this.conn.all('SELECT * FROM bs_app_data ORDER BY id')).map(appDataRowOf), files: (await this.conn.all('SELECT * FROM bs_app_files ORDER BY id')).map(appFileRowOf) };
+  }
+  /** 两份的摘要（和主库那份比；不给内容） */
+  appDigest(): Promise<{ data: number; files: number; sha256: string }> {
+    return this.serial(async () => { const a = await this.appAll(); return { data: a.data.length, files: a.files.length, sha256: appDigestOf(a.data, a.files) }; });
+  }
+  /** 删卡片前的规模（只给数）：没删的提交几条、多大，附件几个、多大 */
+  appCounts(): Promise<{ submissions: number; submission_bytes: number; files: number; file_bytes: number }> {
+    return this.serial(async () => {
+      if (!(await this.hasApp())) return { submissions: 0, submission_bytes: 0, files: 0, file_bytes: 0 };
+      const d = await this.conn.all("SELECT COUNT(*) AS n, COALESCE(SUM(LENGTH(data)), 0) AS b FROM bs_app_data WHERE deleted_at = ''");
+      const f = await this.conn.all("SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS b FROM bs_app_files WHERE deleted_at = ''");
+      return { submissions: Number(d[0].n), submission_bytes: Number(d[0].b), files: Number(f[0].n), file_bytes: Number(f[0].b) };
+    });
+  }
+  appDataPage(beforeId: number, limit: number): Promise<AppDataRow[]> {
+    return this.serial(async () => {
+      if (!(await this.hasApp())) return [];
+      const rows = beforeId > 0
+        ? await this.conn.all("SELECT * FROM bs_app_data WHERE deleted_at = '' AND id < ? ORDER BY id DESC LIMIT ?", [beforeId, limit])
+        : await this.conn.all("SELECT * FROM bs_app_data WHERE deleted_at = '' ORDER BY id DESC LIMIT ?", [limit]);
+      return rows.map(appDataRowOf);
+    });
+  }
+  appDataByIdem(key: string): Promise<AppDataRow | null> {
+    return this.serial(async () => {
+      if (!(await this.hasApp())) return null;
+      const r = await this.conn.all('SELECT * FROM bs_app_data WHERE idempotency_key = ?', [key]);
+      return r.length ? appDataRowOf(r[0]) : null;
+    });
+  }
+  /** 没软删的附件（软删的和不存在的一样，给 null） */
+  appFileById(id: number): Promise<AppFileRow | null> {
+    return this.serial(async () => {
+      if (!(await this.hasApp())) return null;
+      const r = await this.conn.all("SELECT * FROM bs_app_files WHERE id = ? AND deleted_at = ''", [id]);
+      return r.length ? appFileRowOf(r[0]) : null;
+    });
+  }
+  appFileIdsExisting(ids: number[]): Promise<number[]> {
+    return this.serial(async () => {
+      if (!(await this.hasApp())) return [];
+      const out: number[] = [];
+      for (const id of new Set(ids)) if ((await this.conn.all("SELECT 1 AS x FROM bs_app_files WHERE id = ? AND deleted_at = ''", [id])).length) out.push(id);
+      return out;
+    });
+  }
+  appFilePage(beforeId: number, limit: number): Promise<AppFileRow[]> {
+    return this.serial(async () => {
+      if (!(await this.hasApp())) return [];
+      const rows = beforeId > 0
+        ? await this.conn.all("SELECT * FROM bs_app_files WHERE deleted_at = '' AND id < ? ORDER BY id DESC LIMIT ?", [beforeId, limit])
+        : await this.conn.all("SELECT * FROM bs_app_files WHERE deleted_at = '' ORDER BY id DESC LIMIT ?", [limit]);
+      return rows.map(appFileRowOf);
+    });
+  }
+  appFileCount(): Promise<number> {
+    return this.serial(async () => (!(await this.hasApp()) ? 0 : Number((await this.conn.all("SELECT COUNT(*) AS n FROM bs_app_files WHERE deleted_at = ''"))[0].n)));
+  }
+  /** 照主库那一行原样落一份（有同 id 的整行换掉） */
+  appDataPut(r: AppDataRow): Promise<void> {
+    return this.tx(async () => {
+      await this.ensureApp();
+      await this.conn.run('DELETE FROM bs_app_data WHERE id = ?', [r.id]);
+      await this.conn.run('INSERT INTO bs_app_data (id, data, created_by, created_at, deleted_at, idempotency_key, submitter_principal) VALUES (?, ?, ?, ?, ?, ?, ?)', [r.id, r.data, r.created_by, r.created_at, r.deleted_at, r.idempotency_key, r.submitter_principal]);
+    });
+  }
+  appFilePut(r: AppFileRow): Promise<void> {
+    return this.tx(async () => {
+      await this.ensureApp();
+      await this.conn.run('DELETE FROM bs_app_files WHERE id = ?', [r.id]);
+      await this.conn.run('INSERT INTO bs_app_files (id, original_name, mime, size, storage_path, created_by, created_at, note, sha256, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [r.id, r.original_name, r.mime, r.size, r.storage_path, r.created_by, r.created_at, r.note, r.sha256, r.deleted_at]);
+    });
+  }
+  /** 主库那一行已经没了（写到一半撤回）：这边也去掉 */
+  appDataDrop(id: number): Promise<void> {
+    return this.tx(async () => { if (await this.hasApp()) await this.conn.run('DELETE FROM bs_app_data WHERE id = ?', [id]); });
+  }
+  appFileDrop(id: number): Promise<void> {
+    return this.tx(async () => { if (await this.hasApp()) await this.conn.run('DELETE FROM bs_app_files WHERE id = ?', [id]); });
+  }
+  /** 以主库为准整份换掉（迁移、对不上时重抄），一个事务。返回写了几行 */
+  appReplace(data: AppDataRow[], files: AppFileRow[]): Promise<number> {
+    return this.tx(async () => {
+      await this.ensureApp();
+      await this.conn.run('DELETE FROM bs_app_data');
+      await this.conn.run('DELETE FROM bs_app_files');
+      for (const r of data) await this.conn.run('INSERT INTO bs_app_data (id, data, created_by, created_at, deleted_at, idempotency_key, submitter_principal) VALUES (?, ?, ?, ?, ?, ?, ?)', [r.id, r.data, r.created_by, r.created_at, r.deleted_at, r.idempotency_key, r.submitter_principal]);
+      for (const r of files) await this.conn.run('INSERT INTO bs_app_files (id, original_name, mime, size, storage_path, created_by, created_at, note, sha256, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [r.id, r.original_name, r.mime, r.size, r.storage_path, r.created_by, r.created_at, r.note, r.sha256, r.deleted_at]);
+      return data.length + files.length;
+    });
+  }
+
   viewVersions(): Promise<ViewVersion[]> {
     return this.serial(async () => {
       const active = await this.activeVersion();

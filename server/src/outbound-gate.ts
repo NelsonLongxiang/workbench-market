@@ -26,14 +26,19 @@ import dgram from 'node:dgram';
 import childProcess from 'node:child_process';
 import workerThreads from 'node:worker_threads';
 import { syncBuiltinESMExports } from 'node:module';
+import { defineConfig, loadConfig } from './config.ts';
 
 /** 对外断开时仍然允许起的线程入口：必须是自己会装这个闸的文件。现在只有台库的工作线程 */
 const ALLOWED_WORKERS: ReadonlySet<string> = new Set([new URL('./services/bench-store-worker.ts', import.meta.url).href]);
 const RealWorker = workerThreads.Worker;
 
-const raw = String(process.env.WM_OUTBOUND ?? '').trim();
-if (raw !== '' && raw !== 'on' && raw !== 'off') throw new Error(`[outbound] WM_OUTBOUND 只能是 on 或 off（得：${JSON.stringify(raw)}），拒绝启动`);
-const OFF = raw === 'off';
+/** 对外断开的开关：WM_OUTBOUND 只认 on、off（空是 on），别的值拒绝启动 */
+export const Config = defineConfig((env) => {
+  const raw = String(env.WM_OUTBOUND ?? '').trim();
+  if (raw !== '' && raw !== 'on' && raw !== 'off') throw new Error(`[outbound] WM_OUTBOUND 只能是 on 或 off（得：${JSON.stringify(raw)}），拒绝启动`);
+  return { off: raw === 'off' };
+});
+const OFF = loadConfig(Config).off;
 
 /** 这个进程是不是处在「对外断开」 */
 export function outboundOff(): boolean { return OFF; }

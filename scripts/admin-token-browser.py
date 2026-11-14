@@ -54,7 +54,7 @@ with sync_playwright() as p:
         page.goto(base + f'/use/{wid}'); page.wait_for_timeout(1200)
         ok('未设口令：使用页照常内嵌 /go/', go_frames(page) == 1)
         page.goto(base + f'/cockpit/{cfg["cockpit"]}'); page.wait_for_timeout(1200)
-        ok('未设口令：驾驶舱照常内嵌 /go/、只读（没有新建/加面板）', go_frames(page) == 1 and page.get_by_text('驾驶舱在这里只能查看').count() >= 1)
+        ok('未设口令：驾驶舱照常内嵌 /go/、只读（没有新建/加面板）', go_frames(page) == 1 and page.get_by_text('这个驾驶舱你只能看').count() >= 1)  # 只读提示改成一行浅色说明（协调 2026-11-12）
         page.goto(base + '/market'); page.wait_for_timeout(800)
         open_me(page)
         ok('业务面用户卡里有口令输入，没有「管理控制面」链接', page.get_by_role('button', name=re.compile(r'口\s*令$')).count() == 1 and page.get_by_role('link', name=re.compile('管理控制面')).count() == 0)
@@ -68,7 +68,7 @@ with sync_playwright() as p:
             ok(f'业务面页面 fetch 大写变体 {v}（不带口令）→ 403', rv['status'] == 403, str(rv))
         ok('设口令后侧栏出现「设置 / 管理」', page.locator('[data-testid=nav-admin]').count() == 1)
         page.evaluate(f'history.pushState(null, "", "/cockpit/{cfg["cockpit"]}"); dispatchEvent(new PopStateEvent("popstate"))'); page.wait_for_timeout(1200)
-        ok('持口令：驾驶舱可编辑（不再显示只读提示）', page.get_by_text('驾驶舱在这里只能查看').count() == 0, page.url)
+        ok('持口令：驾驶舱可编辑（不再显示只读提示）', page.get_by_text('这个驾驶舱你只能看').count() == 0, page.url)
         ok('持口令：驾驶舱不内嵌 /go/（#292 M4 止血保留）', go_frames(page) == 0)
         page.evaluate(f'history.pushState(null, "", "/use/{wid}"); dispatchEvent(new PopStateEvent("popstate"))'); page.wait_for_timeout(1200)
         ok('持口令：使用页不内嵌 /go/，给出「清除口令并内嵌」', go_frames(page) == 0 and page.get_by_role('button', name='清除口令并内嵌').count() == 1)
@@ -88,7 +88,6 @@ with sync_playwright() as p:
         print('业务面登录弹窗（M4 残余）')
         for label, path, scope, btn, auto in (
             ('用户卡里的登录 chip', '/market', None, re.compile(r'^登\s*录$'), False),
-            ('统一待办', '/tasks', None, '在弹窗登录 Odoo', False),
         ):
             c = b.new_context(); opened = []
             c.on('page', lambda pg: opened.append(pg))

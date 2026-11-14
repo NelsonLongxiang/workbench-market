@@ -322,7 +322,7 @@ try {
   ok('G9 工作台事件回执（reply token 认证）不被登录门拦', (await req(B, 'POST', '/api/workbench-events/wbe-0000000000000000/decision', REMOTE, { token: 'x', decision: 'ask', reason: 'r' })).status === 404);
 
   // G4 next
-  for (const [raw, want] of [['//evil.example/x', '/'], ['https://evil.example/', '/'], ['/\\evil.example', '/'], ['/%2F%2Fevil.example', '/%2F%2Fevil.example'], ['/api/apps', '/'], ['/login?next=/x', '/'], ['javascript:alert(1)', '/'], ['/tasks?x=1#h', '/tasks?x=1#h']]) {
+  for (const [raw, want] of [['//evil.example/x', '/'], ['https://evil.example/', '/'], ['/\\evil.example', '/'], ['/%2F%2Fevil.example', '/%2F%2Fevil.example'], ['/api/apps', '/'], ['/login?next=/x', '/'], ['javascript:alert(1)', '/'], ['/work-items?x=1#h', '/work-items?x=1#h']]) {
     const t = await (await req(B, 'GET', `/login?next=${encodeURIComponent(raw)}`, PAGE)).text();
     ok(`G4 next=${raw} → ${want}`, t.includes(`var next=${JSON.stringify(want)}`));
   }

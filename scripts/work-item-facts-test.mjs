@@ -334,6 +334,43 @@ try {
     const quiet = publish(false);
     check(Boolean(eventRow(quiet.eventId)) && !items.get(itemIdForEvent(quiet.eventId)), '对照：没人听的时候，来源照常写');
   }
+
+  // ---------- 六、旧日志里子任务（答复、回复来信）的只说明这条消息的回执：回填不推事项 ----------
+  {
+    const eventId = newEventId();
+    const { 'team-a': d } = writeEvent({ eventId, teams: ['team-a'] });
+    writeLog(eventId, null, 'market', 'recorded');
+    writeLog(eventId, d, 'market', 'queued');
+    writeLog(eventId, d, 'market', 'sent');
+    writeLog(eventId, d, 'receiver:team-a', 'receipt:acknowledged', { task: `${eventId}.d${d}.a1` });
+    items.syncEvent(eventId);
+    const id = itemIdForEvent(eventId);
+    const s0 = items.get(id)?.state;
+    const n0 = db.prepare('SELECT COUNT(*) AS c FROM work_item_log WHERE item_id = ?').get(id).c;
+    // 这件事上发过的三个子任务：答复（ref > 0）、回复来信、打回（ref < 0）
+    const reply = (kind, ref) => Number(db.prepare("INSERT INTO workbench_event_replies (kind, event_id, delivery_id, ref, team, caller_session, context_id, target_url, message, status, next_at, created_at) VALUES (?, ?, ?, ?, 'team-a', 'market/test', 'ctx', 'http://peer.synthetic.invalid', '{}', 'sent', '2026-01-01 00:00:00', '2026-01-01 00:00:00')").run(kind, eventId, d, ref).lastInsertRowid);
+    const taskOf = (rid) => `${eventId}.d${d}.q${rid}.a1`;
+    const A = reply('answer', 7), F = reply('followup-reply', 1), R = reply('answer', -3);
+    // 旧格式：当时记成 receipt:*（现在入站记成 reply:*）
+    writeLog(eventId, d, 'receiver:team-a', 'receipt:acknowledged', { task: taskOf(A) });
+    writeLog(eventId, d, 'receiver:team-a', 'receipt:rejected', { task: taskOf(A) });
+    writeLog(eventId, d, 'receiver:team-a', 'receipt:completed', { task: taskOf(F) });
+    writeLog(eventId, d, 'receiver:team-a', 'receipt:rejected', { task: taskOf(R) });
+    items.syncEvent(eventId); // 回填走的是同一个函数（按事件日志重放）
+    const s1 = items.get(id)?.state;
+    const n1 = db.prepare('SELECT COUNT(*) AS c FROM work_item_log WHERE item_id = ?').get(id).c;
+    check(s0 === 'accepted' && s1 === s0 && n1 === n0,
+      '旧日志里答复任务的接单、拒收，回复来信任务的 completed，打回任务的拒收（都是 receipt:*）：回填重放不推事项、不多一行事项日志', show({ s0, s1, n0, n1 }));
+    const all = db.prepare('SELECT * FROM workbench_event_log WHERE event_id = ? ORDER BY id').all(eventId);
+    const at = (task, action) => all.findIndex((r) => r.action === action && JSON.parse(r.detail).task === task);
+    const facts = [[taskOf(A), 'receipt:acknowledged'], [taskOf(A), 'receipt:rejected'], [taskOf(F), 'receipt:completed'], [taskOf(R), 'receipt:rejected']].map(([t, a]) => factFromEventLog(eventRow(eventId), all, at(t, a)));
+    check(facts.every((f) => f === null), '……逐行看：这四行都不映射成事实', show(facts));
+    // 对照：打回任务的接单（receipt:acknowledged）照常映射成「重新接手」
+    writeLog(eventId, d, 'receiver:team-a', 'receipt:acknowledged', { task: taskOf(R) });
+    const all2 = db.prepare('SELECT * FROM workbench_event_log WHERE event_id = ? ORDER BY id').all(eventId);
+    const rf = factFromEventLog(eventRow(eventId), all2, all2.length - 1);
+    check(rf?.kind === 'eval' && rf.verdict === 'accept' && rf.rework === true, '对照：打回任务的接单照常映射（eval accept、rework）——推到已接手', show(rf));
+  }
 } catch (e) {
   fail++;
   console.log(`  ✗ 跑不下去：${e?.stack ?? e}`);

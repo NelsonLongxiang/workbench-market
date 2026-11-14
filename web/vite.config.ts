@@ -2,6 +2,9 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { HOST_ALIAS, wmExtensions } from './vite-extensions.mjs';
 
+/** 本机开发时转给哪个服务端（缺省本机 9800）；WM_DEV_SERVER 可以改 */
+const SERVER = process.env.WM_DEV_SERVER || 'http://127.0.0.1:9800';
+
 export default defineConfig({
   plugins: [react(), wmExtensions()],
   resolve: {
@@ -26,8 +29,13 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // 由服务端处理的路径都转过去，不然开发服务器会把它们当前端路由、回 index.html（嵌台里就会画出一个市场）。
+    // 用正则只认带分隔的前缀：/sop/ 不能吞掉前端的 /sops，/mcp 不能吞掉 /mcp-gateways
     proxy: {
-      '/api': { target: 'http://127.0.0.1:9800', changeOrigin: true },
+      '/api': { target: SERVER, changeOrigin: true },
+      '^/(go|apps|sop|content|a2a)/': { target: SERVER, changeOrigin: true },
+      '^/(mcp|login|sso)([/?]|$)': { target: SERVER, changeOrigin: true },
+      '^/(openapi\\.json|\\.well-known/)': { target: SERVER, changeOrigin: true },
     },
   },
 });

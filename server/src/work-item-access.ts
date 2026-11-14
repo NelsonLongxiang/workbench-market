@@ -7,6 +7,7 @@
  *   只过了管理门（管理口令、身份来源管理员登录）而没有管理层授予的，一律不算（存量差异清单 L21）。
  * can 还要看事情此刻在不在等：release 要事项在 held、事件和任务让放；verify、return 要在 ready；
  * reply 要不在终态、有可回复的席位消息；answer 要不在终态、有在等答复的提问。
+ * due 不是替人做决定：只认建立人本人（dueWriterOk，和 POST /api/work-items/:id/due 同一处；管理员、管理层都不代改），事项不在终态。
  *
  * turn（是不是轮到这个人）只有两句：answer、verify 轮到的是建立人；release 轮到的是负责人（或勾了先过目的建立人），管理层代办不算轮到。
  * can 为真而 turn 为假，就是「能代办」。
@@ -218,7 +219,13 @@ export function writerVerdict(viewer: WorkItemViewer, itemId: string, allowAdmin
   return verdict;
 }
 
-export type Can = { release: boolean; answer: boolean; verify: boolean; return: boolean; reply: boolean };
+export type Can = { release: boolean; answer: boolean; verify: boolean; return: boolean; reply: boolean; due: boolean };
+
+/**
+ * 改截止日期认谁（只有这一处，详情的 can.due 和 POST /api/work-items/:id/due 都用）：建立人本人，管理员不代改——截止是建立人对这件事的要求。
+ * 只认 ok：未验证来源的事项（creatorCheck 是 not_eligible）只能由管理员处理，改截止会往节点发通知，也是写，同样挡
+ */
+export const dueWriterOk = (verdict: WriterVerdict): boolean => verdict === 'ok';
 export type Turn = { release: boolean; answer: boolean; verify: boolean };
 
 const pendingAsks = (item: WorkItemRow): number => { const ev = eventOfItem(item); return ev ? pendingAsksOfEvent(ev).length : 0; };
@@ -330,6 +337,7 @@ export function canOf(item: WorkItemRow, viewer: WorkItemViewer): Can {
     verify: ready && decides(item, viewer, 'verify'),
     return: ready && decides(item, viewer, 'return'),
     reply: live && replyableMessages(item).length > 0 && decides(item, viewer, 'reply'),
+    due: live && dueWriterOk(writerVerdict(viewer, item.id, false)),
   };
 }
 
@@ -360,6 +368,19 @@ export function turnOf(item: WorkItemRow, viewer: WorkItemViewer): Turn {
     answer: live && mine && pendingAsks(item) > 0,
     verify: item.state === 'ready' && mine,
   };
+}
+
+/**
+ * 这件事是不是「等你拍板」：轮到看的人（turnOf）、而且他能当场办（canOf，出自 itemDecisionVerdict）。
+ * 和「关注」里事项来源（验收、过目、席位提问）那几条的 mine 与答法同一个口径，侧栏角标数的就是这些：
+ *   验收：轮到建立人，能验收或能退回；过目：轮到负责人或勾了先过目的建立人，能放行；提问：轮到建立人，能答。
+ * 事项列表各视角的 decide 用它数，不另写一份。turnOf 只会轮到建立人和交给的团队的负责人，列表先按这个在 SQL 里收窄候选（turnCandidates）
+ */
+export function decidesNow(item: WorkItemRow, viewer: WorkItemViewer): boolean {
+  const t = turnOf(item, viewer);
+  if (!t.release && !t.answer && !t.verify) return false;
+  const c = canOf(item, viewer);
+  return (t.verify && (c.verify || c.return)) || (t.release && c.release) || (t.answer && c.answer);
 }
 
 /** 建立人：主体和显示名（主体表里的显示名，认人时从登录提供方写进去的；没有就是 null，前端退回显示登录名）。建立人空着是 null */

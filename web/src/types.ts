@@ -78,6 +78,8 @@ export interface Cockpit {
   panels: PanelConfig[];
   created_at: string;
   updated_at: string;
+  /** 这次请求的人能不能改这个驾驶舱（服务端按写请求总门算）：页面上的编辑入口只看它 */
+  can?: { edit: boolean };
 }
 
 /** SOP 台（apps kind='sop'）：状态机 draft→published→deprecated，版本链带 changelog */

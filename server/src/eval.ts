@@ -1,12 +1,20 @@
 /** #178 skill_search 评估模型客户端（TypeSafe jev 经 Vercel AI Gateway·裸 JSON 协议）。
  *  纪律（属主/评审席#178）：五个协议头缺一不可·模型 ID 在头不在 body·boolean 一候选一题·批≤15·
  *  429/529 指数退避≤3 次·400/401 不重试·超时 15s·不可用报错不降级（绝不回退关键词匹配冒充置信度）。 */
+import { defineConfig, loadConfig, str } from './config.ts';
 
 const DEFAULT_GATEWAY = 'https://ai-gateway.vercel.sh/v4/ai/evaluation-model';
 const MODEL_ID = 'typesafe-ai/jev';
 const BATCH_MAX = 15;
 const TIMEOUT_MS = 15_000;
 const RETRY_MAX = 3;
+
+/** 评估模型的网关地址（缺省 Vercel AI Gateway）和密钥；没配密钥时 skill_search 退回关键词匹配 */
+export const Config = defineConfig((env) => ({
+  gatewayUrl: str(env.EVAL_GATEWAY_URL) || DEFAULT_GATEWAY,
+  apiKey: str(env.AI_GATEWAY_API_KEY),
+}));
+const config = loadConfig(Config);
 
 export type EvalCandidate = { qid: string; slug: string; name: string; description: string; argumentHint: string };
 
@@ -18,7 +26,7 @@ export class EvalUnavailableError extends Error {
 }
 
 function gatewayUrl(): string {
-  return String(process.env.EVAL_GATEWAY_URL ?? '').trim() || DEFAULT_GATEWAY;
+  return config.gatewayUrl;
 }
 
 /** 实例上配没配评估模型（有没有 AI_GATEWAY_API_KEY）：没配时 skill_search 退回关键词匹配；配了但调不通照旧报错不降级 */
@@ -27,7 +35,7 @@ export function evalConfigured(): boolean {
 }
 
 function apiKey(): string {
-  const k = String(process.env.AI_GATEWAY_API_KEY ?? '').trim();
+  const k = config.apiKey;
   if (!k) throw new EvalUnavailableError('AI_GATEWAY_API_KEY 未配置——skill_search 不可用（不降级）');
   return k;
 }

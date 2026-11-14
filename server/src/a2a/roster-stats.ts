@@ -7,7 +7,7 @@
  *   recorded            收下了（最新的一份，替换旧的）
  *   stale               不比已收下的那份新（宿主报的时间没往前走），没替换
  *   not_accepted        节点键或首行指纹和验过签的公钥对不上、时间缺失或超过收到时间加签名时间窗
- *   host_conflict       这个节点键已经由别的根地址报过
+ *   host_conflict       收下了，但同一个节点键（指纹前 8 位）下还有别的节点：两个都不参与按节点键的匹配，等管理员停用其中一个
  *   not_delivered_peer  来源不是投递过的宿主（照普通来信走）
  *   unverified          签名验不过（照普通来信走）
  *   not_declared        名片没声明 teamRoster（WM_A2A_TEAM_ROSTER=off，照普通来信走）

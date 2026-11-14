@@ -26,7 +26,9 @@ with sync_playwright() as p:
     pg3.goto(M + f'/cockpit/{cid}'); pg3.wait_for_selector('.wm-ck-benches .wm-panel')
     pg3.wait_for_timeout(800)
     n = pg3.locator('.wm-ck-benches .wm-panel').count()
-    check(f'旧布局升级后不丢卡片（{n}/{len(before)}）', n == len(before))
+    # 「统一待办」卡随 /tasks 退役：存着的那块面板页面不再画（数据不动），只数工作台面板
+    want = len([p for p in before if p.get('kind') != 'tasks'])
+    check(f'旧布局升级后不丢工作台面板（{n}/{want}）；统一待办卡不再画', n == want and want >= 1)
     # 内嵌的工作台按栏宽单列排：一个台占满栏宽，不能拖、不能拉伸
     ws = pg3.evaluate("""(()=>{const g=document.querySelector('.wm-ck-benches');const gw=g.getBoundingClientRect().width;
       return [...g.querySelectorAll(':scope > .wm-panel')].map(e=>Math.round(e.getBoundingClientRect().width-gw))})()""")

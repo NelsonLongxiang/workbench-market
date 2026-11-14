@@ -177,6 +177,9 @@ export function valueLabel(labels: unknown, column: string, value: unknown): Val
   }
   return null;
 }
+/** 表格的表头：只用说明名；没配的写「第 N 列」（i 是页面上的次序，从 0 起），不拿列名（键名）兜底 */
+export const tableHead = (c: BlockColumn, i: number): string => (typeof c.label === 'string' && c.label.trim() ? c.label : `第 ${i + 1} 列`);
+
 /** 有对照的列按「状态」画（标签），别的列不动 */
 export function withLabelColumns(data: BlockData | null | undefined, labels: unknown): BlockData | null {
   if (!data) return null;
@@ -186,6 +189,33 @@ export function withLabelColumns(data: BlockData | null | undefined, labels: unk
 
 /** 一个块是不是「空」：没有数据，或者一行也没有 */
 export const isEmptyData = (data: BlockData | null | undefined): boolean => !data || !Array.isArray(data.rows) || data.rows.length === 0;
+
+/**
+ * 一页里各块的宽度：先按 snapSpan 取，再按 12 栏从左往右排行。视图描述没给 span 的块要是一个人占了一整行（前面一行放不下它），
+ * 就撑满这一行，不留半边空白（统计卡一行放满之后，后面的图独占下一行时原来只有 6 栏宽）。给了 span 的照给的来。
+ * blocks 是真正要画出来的块（隐藏的筛选栏、不认识的类型不在里面）
+ */
+export function layoutSpans(blocks: { type: string; span?: unknown }[]): (3 | 4 | 6 | 12)[] {
+  const spans = blocks.map((b) => snapSpan(b.span, b.type));
+  const rows: number[][] = [];
+  let used = 12;
+  spans.forEach((s, i) => {
+    if (used + s > 12) { rows.push([i]); used = s; } else { (rows[rows.length - 1] as number[]).push(i); used += s; }
+  });
+  for (const r of rows) if (r.length === 1 && typeof blocks[r[0] as number]?.span !== 'number') spans[r[0] as number] = 12;
+  return spans;
+}
+
+/**
+ * 短值列不折行：数字、日期、时间、是否、状态这几类按这一页里最长的值（和列标题）估一个像素宽度，表格据此给列宽；
+ * 文本列给 undefined，分剩下的宽度、超长省略。中日韩字符按两个单位算
+ */
+export function nowrapWidth(kind: CellKind, title: string, values: string[]): number | undefined {
+  if (kind === 'text' || kind === 'person' || kind === 'seat') return undefined;
+  const units = (s: string) => [...s].reduce((n, ch) => n + (/[\u2E80-\uFFFF]/.test(ch) ? 2 : 1), 0);
+  const longest = Math.max(units(title), kind === 'time' ? 10 : 0, ...values.map(units));
+  return Math.min(240, Math.max(64, Math.ceil(longest * 7.5) + 32));
+}
 
 /** 视图描述里的 span（1～12）落到看板只认的四种宽度上；不给时按组件类型取 */
 export function snapSpan(span: unknown, type: string): 3 | 4 | 6 | 12 {

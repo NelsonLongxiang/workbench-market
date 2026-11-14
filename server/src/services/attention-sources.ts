@@ -1,11 +1,11 @@
 /**
  * 「关注」的提供方要用、来源里还没有现成函数的查询（阶段八 8c）。只读。
  * 口径照旧接口的写法，条数才对得上：
- *   · 席位的提问：GET /api/workbench-events 列表（最近 200 个事件，接口允许的最大窗口）里，投递的决定还是 ask 的；
- *     阶段七 R2 起也包括席位 A2A 回执里的提问（receipt:attention），旧接口只显示前者
+ *   · 席位的提问：投递的决定还是 ask 的；阶段七 R2 起也包括席位 A2A 回执里的提问（receipt:attention）。
+ *     原先照旧接口只看最近 200 个事件，早一点的提问会从「关注」漏掉、和事项的 can/turn 对不上；现在全库直接查，设上限（SEAT_ASK_LIMIT）
  * 等阶段三把工作台事件这个域搬完，查询挪回它的服务（另排）。
  */
-import { db } from '../db.ts';
+import { db, hasTable } from '../db.ts';
 
 export type OpenSeatAsk = {
   delivery_id: number; event_id: string; target_team: string;
@@ -17,7 +17,7 @@ export type OpenSeatAsk = {
   source: string; workbench: string; item: string;
 };
 
-const tableExists = (name: string) => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name));
+const tableExists = (name: string) => hasTable(name);
 
 /**
  * 一个投递当前的提问：它最近一条提问日志（decision:ask 或 receipt:attention），之后同一投递上没有「合上提问」的日志
@@ -45,13 +45,37 @@ const NOT_ANSWERED = `
      AND NOT EXISTS (SELECT 1 FROM work_item_log l WHERE l.item_id = 'wi_' || d.event_id AND l.fact = 'answer' AND l.rejected = ''
        AND json_extract(l.detail, '$.ask_id') = CAST(a.id AS TEXT))`;
 
-/** 事件表在任务中心初始化时才建：新库上还没有，就是没有提问。窗口同旧接口：最近 200 个事件 */
-export function openSeatAsks(): OpenSeatAsk[] {
+/** 「关注」一次最多给一个人列这么多条席位提问（远大于实际待答数）：超过时按提问时间先后取他看得到的最早这些，提供方标 more */
+export const SEAT_ASK_LIMIT = 1000;
+/** 往后取一批的条数：正常量下一批就取完 */
+export const SEAT_ASK_BATCH = 500;
+
+/**
+ * 节点没收下的答复：答复、打回任务回了 rejected（receipt-inbound 记成 reply:rejected）。
+ * 之后同一次投递又发出过子任务（reply-sent：人重发了、或改用别的办法）就算处理过了，不再列。最近 200 条
+ */
+export type RejectedReply = { log_id: number; event_id: string; delivery_id: number; target_team: string; at: string; summary: string; task: string };
+export function rejectedReplies(): RejectedReply[] {
+  if (!tableExists('workbench_events')) return [];
+  return db.prepare(`SELECT l.id AS log_id, l.event_id, l.delivery_id, d.target_team, l.at,
+      COALESCE(json_extract(l.detail, '$.summary'), '') AS summary, COALESCE(json_extract(l.detail, '$.task'), '') AS task
+    FROM workbench_event_log l JOIN workbench_event_deliveries d ON d.id = l.delivery_id
+    WHERE l.action = 'reply:rejected'
+      AND NOT EXISTS (SELECT 1 FROM workbench_event_log r WHERE r.delivery_id = l.delivery_id AND r.action = 'reply-sent' AND r.id > l.id)
+    ORDER BY l.id DESC LIMIT 200`).all() as RejectedReply[];
+}
+
+/**
+ * 还没答的席位提问，全库直接查（不按最近多少个事件截断：早一点的提问一样等人答，和事项详情的 can/turn、事项列表的 decide 同一个口径）。
+ * 按 (提问时间, 投递) 先后排，从 after 之后取至多 n 条；调用方按可见性过滤、分批往后取。
+ * 事件表在任务中心初始化时才建：新库上还没有，就是没有提问
+ */
+export function openSeatAsks(after: { asked_at: string; delivery_id: number } | null, n: number): OpenSeatAsk[] {
   if (!tableExists('workbench_events')) return [];
   return db.prepare(`SELECT o.*, e.source, e.workbench, e.item
-    FROM (SELECT event_id, source, workbench, item, id FROM workbench_events ORDER BY id DESC LIMIT 200) e
-    JOIN (${OPEN_ASK_SQL}${NOT_ANSWERED}) o ON o.event_id = e.event_id
-    ORDER BY o.asked_at, o.delivery_id`).all() as OpenSeatAsk[];
+    FROM (${OPEN_ASK_SQL}${NOT_ANSWERED}) o JOIN workbench_events e ON e.event_id = o.event_id
+    WHERE ? IS NULL OR o.asked_at > ? OR (o.asked_at = ? AND o.delivery_id > ?)
+    ORDER BY o.asked_at, o.delivery_id LIMIT ?`).all(after?.asked_at ?? null, after?.asked_at ?? null, after?.asked_at ?? null, after?.delivery_id ?? 0, n) as OpenSeatAsk[];
 }
 
 /** 一个投递正在等答复的那次提问：它所在的事件、提问那一行日志的 id（事项上的提问就是按它记的）、是哪一种提问 */

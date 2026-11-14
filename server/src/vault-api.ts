@@ -25,6 +25,23 @@ import { parseTotpSecret, totp } from './vault/totp.ts';
 import { generatePassphrase, generatePassword } from './vault/password.ts';
 import { estimateStrength } from './vault/password-strength.ts';
 import { checkMasterPassword, COMMON_PASSWORD_COUNT, MASTER_POLICY } from './vault-policy/policy.ts';
+import { defineConfig, loadConfig, str } from './config.ts';
+
+/**
+ * 凭据库的启动配置：闲置上锁分钟数、库文件路径、服务端主密码的来源。解析口径照原来逐个照搬。
+ * 主密码文件的内容不在这里取：每次开库现读（改文件不用重启）
+ */
+export const Config = defineConfig((env) => {
+  const n = Number(env.WM_VAULT_IDLE_MIN ?? 15);
+  return {
+    idleMin: Number.isFinite(n) && n >= 0 ? n : 15,
+    /** 空串＝用缺省（DATA_DIR/vault/default.json） */
+    path: env.WM_VAULT_PATH?.trim() || '',
+    passwordFile: str(env.DSH_VAULT_PASSWORD_FILE),
+    password: env.DSH_VAULT_PASSWORD ?? '',
+  };
+});
+const config = loadConfig(Config);
 
 export const VAULT_UPSTREAM = 'dsh-vault@1.10.75';
 const KINDS = ['login', 'ssh', 'api-key', 'secret', 'oauth', 'cookie', 'card', 'custom'] as const;
@@ -49,23 +66,22 @@ function assertNewMaster(password: string, who: string): void {
 }
 
 function idleMs(): number {
-  const n = Number(process.env.WM_VAULT_IDLE_MIN ?? 15);
-  return (Number.isFinite(n) && n >= 0 ? n : 15) * 60_000;
+  return config.idleMin * 60_000;
 }
 
 export function vaultPath(): string {
-  return process.env.WM_VAULT_PATH?.trim() || join(dataDir, 'vault', 'default.json');
+  return config.path || join(dataDir, 'vault', 'default.json');
 }
 
 /** 服务端配置的主密码来源：'file' | 'env' | ''（未配置 = 页面输入） */
 function serverPasswordSource(): 'file' | 'env' | '' {
-  if (String(process.env.DSH_VAULT_PASSWORD_FILE ?? '').trim()) return 'file';
-  return process.env.DSH_VAULT_PASSWORD ? 'env' : '';
+  if (config.passwordFile) return 'file';
+  return config.password ? 'env' : '';
 }
 /** 每次开库现读（改文件不用重启）；只去掉末尾一个换行，主密码里的空格原样保留 */
 function serverPassword(): string {
-  const file = String(process.env.DSH_VAULT_PASSWORD_FILE ?? '').trim();
-  if (!file) return process.env.DSH_VAULT_PASSWORD ?? '';
+  const file = config.passwordFile;
+  if (!file) return config.password;
   let pw: string;
   try { pw = readFileSync(file, 'utf8').replace(/\r?\n$/, ''); } catch { throw new VaultHttpError(503, '主密码文件读不到（DSH_VAULT_PASSWORD_FILE）', 'vault_password_file'); }
   if (!pw) throw new VaultHttpError(503, '主密码文件为空（DSH_VAULT_PASSWORD_FILE）', 'vault_password_file');

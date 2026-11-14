@@ -9,14 +9,14 @@
       "what": "管理口令由环境给（合成值，只在隔离实例里用）；库里先放一台宿主的名册。",
       "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
       "seed": [
-        { "table": "a2a_rosters", "row": { "host": "abcdef0123456789", "peer_root": "http://peer.synthetic.invalid", "peer_zone": "lab", "reported_at": "2026-11-11T09:00:00.000Z", "received_at": "2026-11-11 09:00:01.000" } },
+        { "table": "a2a_roster_nodes", "row": { "host": "abcdef0123456789", "key_fingerprint": "sha256:abcdef0123456789000000000000000000000000000000000000000000000000", "peer_root": "http://peer.synthetic.invalid", "peer_zone": "lab", "reported_at": "2026-11-11T09:00:00.000Z", "received_at": "2026-11-11 09:00:01.000" } },
         {
-          "table": "a2a_roster_seats",
-          "row": { "host": "abcdef0123456789", "team": "lab/canvas/team", "seat": "lab/a1a1a1a1", "name": "成员甲", "role": "member", "online": 1, "queued": 0, "last_active_at": "", "first_seen_at": "2026-11-11 09:00:01.000" }
+          "table": "a2a_roster_node_seats",
+          "row": { "peer_root": "http://peer.synthetic.invalid", "host": "abcdef0123456789", "key_fingerprint": "sha256:abcdef0123456789000000000000000000000000000000000000000000000000", "team": "lab/canvas/team", "seat": "lab/a1a1a1a1", "name": "成员甲", "role": "member", "online": 1, "queued": 0, "last_active_at": "", "first_seen_at": "2026-11-11 09:00:01.000" }
         },
         {
-          "table": "a2a_roster_seats",
-          "row": { "host": "abcdef0123456789", "team": "lab/canvas/team", "seat": "lab/00000000", "name": "总工", "role": "router", "online": 0, "queued": 0, "last_active_at": "", "first_seen_at": "2026-11-11 09:00:01.000" }
+          "table": "a2a_roster_node_seats",
+          "row": { "peer_root": "http://peer.synthetic.invalid", "host": "abcdef0123456789", "key_fingerprint": "sha256:abcdef0123456789000000000000000000000000000000000000000000000000", "team": "lab/canvas/team", "seat": "lab/00000000", "name": "总工", "role": "router", "online": 0, "queued": 0, "last_active_at": "", "first_seen_at": "2026-11-11 09:00:01.000" }
         }
       ],
       "steps": [

@@ -5,6 +5,7 @@
  *        生效的每条授予（角色、展开后的权限、范围、期限、放行人、来源 manual / migration / wizard，范围不是 * 的标「尚未生效」）；
  *        没生效的（草稿、待核、已撤销、已过期）各自的原因；带 action 时给出判定的结论（允许、先问人、拒绝）和命中的规则。
  *        管理员（口令或管理员登录，同源）、本机命令行能看任何人；登录的人只能看自己的那一份。按对象判（本人），声明「状态码不代表授权」。
+ *        另带 relations（只增）：团队这层关系——部门（成员、负责人）、负责的团队、手上的成员（team-relation.ts 的 relationsSummaryOf），不带事项内容。
  *   GET  /api/access/red-lines                                    红线清单（server/src/red-lines.ts，每条都有对抗例盯着）
  *        登录的人、管理员、本机命令行能读。
  *   GET  /api/setup/wizard                                        向导最近的运行和挂在上面的授予（管理员）
@@ -24,6 +25,7 @@ import type { Kind } from '../roles.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import type { Actor, GrantService } from '../services/grant.ts';
 import type { SetupWizardService, WizardAssignments } from '../services/setup-wizard.ts';
+import { relationsSummaryOf } from '../team-relation.ts';
 
 export type AccessRouteDeps = {
   markOdooAdmin: (req: express.Request) => Promise<void>;
@@ -110,7 +112,8 @@ export function registerAccessRoutes(app: HttpService, deps: AccessRouteDeps): v
       const r = judge({ actor: { type: 'principal', id: p.id, kind: p.kind, status: p.status, owner: p.owner }, action, kind: known.kind as Kind, declared: true, now });
       decision = { action, kind: known.kind, verdict: r.verdict, rule: r.rule, grant: r.grant ?? null, ...(scope !== null ? { scope, scope_note: '只回显：带范围的授予在判定这一步还不认（L13）' } : {}) };
     }
-    res.json({ principal: { id: p.id, kind: p.kind, status: p.status, display_name: p.display_name }, active, inactive, ...(decision ? { decision } : {}) });
+    // 只增：团队这层关系（哪个部门的成员、负责人；哪几个团队的负责人；手上的成员）。负责人能分配成员，这本身就是权限；只有关系，不带事项内容
+    res.json({ principal: { id: p.id, kind: p.kind, status: p.status, display_name: p.display_name }, active, inactive, relations: relationsSummaryOf(p.id), ...(decision ? { decision } : {}) });
   }));
 
   app.get('/api/access/red-lines', { action: 'access.red-lines', kind: 'read' }, route(async (req, res) => {

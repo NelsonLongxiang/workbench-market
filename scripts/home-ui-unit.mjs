@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /** 全景首页的纯函数单测（web/src/home-view.ts）：进全景的类型、列、每格状态与待定件数、终态的线、总结句、问候、点格筛选。
  *  数据形状照生命周期只读接口（/api/lifecycle/stages、objects）；全是合成值。 */
-import { cleanWho, seatLabel, teamLabel } from '../web/src/people.ts';
-import { answerChoices, decideCount, groupCards, isMine } from '../web/src/attention-view.ts';
+import { cleanWho, seatLabel, teamLabel, waitingLabel } from '../web/src/people.ts';
+import { SEAT_ASKS_MORE, answerChoices, decideCount, groupCards, isMine, isStuck, seatAsksMore, stuckLabel, stuckTotal } from '../web/src/attention-view.ts';
 import { cardWording, splitAskTitle, buildRows, splitRows, daysLabel, filterAttention, greeting, objectLabel, panoramaType, stageColumns, summaryLine, decideLine, toggleFocus } from '../web/src/home-view.ts';
 
 let pass = 0, fail = 0;
@@ -65,5 +65,31 @@ ok('卡片说法只看条目的 mine：轮到你不算代办（管理员也是�
   ok('总结句：代办的、别处处理的各说一句，不算进等你拍板', decideLine(2, 1, false, 3) === '有 2 件等你拍板。另有 3 件别人的事你可以代办，1 件要到别处处理。' && decideLine(0, 0, false, 2) === '眼下没有要你当场拍板的，另有 2 件别人的事你可以代办。' && decideLine(1, 2) === '有 1 件等你拍板。另有 2 件要到别处处理。');
   ok('代办的卡片写出在等谁：有建立人名字写名字，没有写「建立人」', cardWording('accept', true, false, 'alpha').label === '等 alpha 验收' && cardWording('ask', true, false, 'alpha').label === '在问 alpha' && cardWording('accept', true, false, '').label === '等建立人验收' && cardWording('accept', false, true, 'alpha').label === '等你验收');
 }
+{
+  const people = [{ principal: 'person:synthetic-beta', display_name: 'Synthetic beta' }];
+  const cases = [['person:synthetic-beta', 'Synthetic beta'], ['person:x', '一位同事'], ['user:pm-a', '一位同事'], ['synthetic:ext-1', '一个外部账号'], ['odoo:42', '一个外部账号'],
+    ['mcp:合成会话', 'AI 会话「合成会话」'], ['task-center', '任务中心'], ['https://peer.invalid', '一个对端节点'], ['zone/canvas/team-a', 'team-a'], ['小采 · zone/0a1b2c3d', '小采'], ['zone/0a1b2c3d', '一位 AI 员工'], ['', '']];
+  const got = cases.map(([raw]) => waitingLabel(raw, { people }));
+  ok('卡片第一行的「谁」不露主体键、外部身份和来源代号：认得的人写显示名，别的说人话', JSON.stringify(got) === JSON.stringify(cases.map((c) => c[1])), JSON.stringify(got));
+  ok('对端来源（receiver:）有承接席位写它的名字，没有写「对方团队」', waitingLabel('receiver:zone', { seat: '小运 · zone/11111111' }) === '小运' && waitingLabel('receiver:zone') === '对方团队');
+}
+
+ok('服务端给了名字（#657 的 waiting_for_name）就直接用；null、空串才退化', waitingLabel('person:x', { name: '合成同事甲' }) === '合成同事甲' && waitingLabel('person:x', { name: null }) === '一位同事'
+  && waitingLabel('person:x', { name: '  ' }) === '一位同事' && waitingLabel('mcp:s1', { name: 'MCP 会话 s1' }) === 'MCP 会话 s1');
+
+{
+  // 停太久的事项（#649）：单独一组，不算进「要到别处处理」、不算进等你拍板；总结句另说一句，件数用服务端的 stuck_count
+  const NOW = Date.parse('2026-11-13T12:00:00Z');
+  const st = (id, since) => ({ source: 'work-items-stuck', source_id: id, category: 'glance', title: '合成事项停住了', waiting_for: '', since, answers: [], object: '', phase: '', link: `/work-items/${id}` });
+  const other = { source: 'workbench-events', source_id: 'e1', category: 'glance', title: '', waiting_for: '', since: '', answers: [], object: '', phase: '', link: '' };
+  const g = groupCards([st('s1', '2026-11-13 02:00:00'), other, st('s2', '2026-11-12 00:00:00')], (x) => x.answers);
+  ok('停太久的单独一组，按停得最久的排；不在「要到别处处理」、不算等你拍板', g.stuck.map((x) => x.source_id).join() === 's2,s1' && g.elsewhere.map((x) => x.source_id).join() === 'e1' && g.now.length === 0 && decideCount([st('s1', '')], (x) => x.answers) === 0 && isStuck({ source: 'work-items-stuck' }) && !isStuck(other), JSON.stringify(g.stuck.map((x) => x.source_id)));
+  ok('标签：停了 N 小时；满两天写天；认不出时间只写停太久', stuckLabel('2026-11-13 02:00:00', NOW) === '停了 10 小时' && stuckLabel('2026-11-10 12:00:00', NOW) === '停了 3 天' && stuckLabel('2026-11-11 13:00:00', NOW) === '停了 47 小时' && stuckLabel('', NOW) === '停太久' && stuckLabel('不是时间', NOW) === '停太久');
+  ok('件数：服务端给的（含超出上限没列的）为准；没给或比列出来的少按列出来的', stuckTotal(12, 3) === 12 && stuckTotal(null, 3) === 3 && stuckTotal(undefined, 2) === 2 && stuckTotal(1, 3) === 3 && stuckTotal(NaN, 1) === 1);
+  ok('总结句：停太久的另说一句，排在最后', decideLine(2, 1, false, 3, 4) === '有 2 件等你拍板。另有 3 件别人的事你可以代办，1 件要到别处处理，4 件停太久。' && decideLine(0, 0, false, 0, 2) === '眼下没有要你当场拍板的，另有 2 件停太久。' && decideLine(1, 0, false, 0, 0) === '有 1 件等你拍板。');
+  ok('全景的总结句也带停太久', summaryLine(buildRows(pd, [obj('a', 'st_1')], []), 1, 0, 0, 5) === '公司现在有 1 条线在走，有 1 件等你拍板。另有 5 件停太久。');
+}
+ok('AI 员工的提问没列全（#720）：只认 sources[\'seat-asks\'].more 严格为 true；没有、不是 true、形状不对都当列全', seatAsksMore({ 'seat-asks': { more: true } }) && !seatAsksMore({ 'seat-asks': { more: 'true' } }) && !seatAsksMore({ 'seat-asks': {} }) && !seatAsksMore({ other: { more: true } }) && !seatAsksMore(null) && !seatAsksMore([]));
+ok('没列全的那句：说清只列了最早的一批、还有更多，不说接口和条数上限', SEAT_ASKS_MORE.includes('还有更多') && !/接口|1000|上限|seat/.test(SEAT_ASKS_MORE));
 console.log(`\nhome-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

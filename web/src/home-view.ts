@@ -53,16 +53,17 @@ export function splitRows(rows: Row[]): { active: Row[]; ended: Row[] } {
 export const daysLabel = (d: number | null): string => (d === null || d === undefined ? '天数未知' : `已 ${d} 天`);
 
 /** 一句总结：几条线在走（只数进行中的）、几件等你拍板（「关注」里给你的条数）；有待定的格子时指一句「红色标出来的格子」 */
-export function summaryLine(rows: Row[], pendingTotal: number, elsewhere = 0, proxy = 0): string {
+export function summaryLine(rows: Row[], pendingTotal: number, elsewhere = 0, proxy = 0, stuck = 0): string {
   const going = rows.filter((r) => !r.terminal).length;
   const spots = rows.reduce((n, r) => n + r.cells.filter((c) => c.pending > 0).length, 0);
   const head = `公司现在有 ${going} 条线在走，`;
-  return `${head}${decideLine(pendingTotal, elsewhere, spots > 0, proxy)}`;
+  return `${head}${decideLine(pendingTotal, elsewhere, spots > 0, proxy, stuck)}`;
 }
 
-/** 等你拍板的那半句：只数能当场办的；要到别处处理的另说一句（协调裁定）。全景表读不到时页面单用这一句 */
-export function decideLine(now: number, elsewhere: number, redCells = false, proxy = 0): string {
-  const more = [proxy > 0 ? `另有 ${proxy} 件别人的事你可以代办` : '', elsewhere > 0 ? `${proxy > 0 ? '' : '另有 '}${elsewhere} 件要到别处处理` : ''].filter(Boolean).join('，') + (proxy > 0 || elsewhere > 0 ? '。' : '');
+/** 等你拍板的那半句：只数能当场办的；可以代办的、要到别处处理的、停太久的另说一句（协调裁定）。全景表读不到时页面单用这一句 */
+export function decideLine(now: number, elsewhere: number, redCells = false, proxy = 0, stuck = 0): string {
+  const parts = [proxy > 0 ? `${proxy} 件别人的事你可以代办` : '', elsewhere > 0 ? `${elsewhere} 件要到别处处理` : '', stuck > 0 ? `${stuck} 件停太久` : ''].filter(Boolean);
+  const more = parts.length ? `另有 ${parts.join('，')}。` : '';
   if (!now) return more ? `眼下没有要你当场拍板的，${more}` : '眼下没有要你拍板的。';
   return `有 ${now} 件等你拍板${redCells ? '——红色标出来的格子就是' : ''}。${more}`;
 }

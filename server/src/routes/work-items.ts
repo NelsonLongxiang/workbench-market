@@ -38,21 +38,27 @@ import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import { identity, IDENTITY_UNAVAILABLE, sourceDown } from '../identity.ts';
-import { COCKPIT_ID_MAX, isCreator, STATES, type WorkItemService, type WorkItemState } from '../services/work-item.ts';
+import { COCKPIT_ID_MAX, dueAtOf, isCreator, overdueOf, STATES, type WorkItemService, type WorkItemState } from '../services/work-item.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import type { TeamService } from '../services/team.ts';
 import { answerItemAsk, CREATOR_ANSWERS, decideItemAnswer } from '../attention-answers.ts';
-import { markSeatMessagesRead, replySeatMessage, seatAsksOf, seatMessagesOf, seatProgressOf, SEAT_REPLY_MAX } from '../seat-messages.ts';
+import { viaBegin, viaSettle } from '../attention-via.ts';
+import { actorResolver } from '../judgment-compare.ts';
+import { markSeatMessagesRead, replySeatMessage, seatAsksOf, seatMessagesOf, seatProgressOf, seatSubitemsOf, SEAT_REPLY_MAX } from '../seat-messages.ts';
 import { principalsAdmin } from './principals.ts';
-import { canOf, canSee, creatorOf, itemDecisionVerdict, itemRoles, releaseBy, turnOf, VIEW_ALL_ACTION, VIEW_ALL_KIND, VIEWS, viewScopes, workItemViewer, writerVerdict, type ItemRole, type ViewName } from '../work-item-access.ts';
+import { canOf, canSee, creatorOf, dueWriterOk, decidesNow, itemDecisionVerdict, itemRoles, releaseBy, turnOf, VIEW_ALL_ACTION, VIEW_ALL_KIND, VIEWS, viewScopes, workItemViewer, writerVerdict, type ItemRole, type ViewName } from '../work-item-access.ts';
 import { arrangeTask } from '../task-center.ts';
-import { assignableTeams, kickWorkbenchEvents, releaseCore } from '../workbench-events.ts';
+import { assignableTeams, kickWorkbenchEvents, logEventFact, releaseCore } from '../workbench-events.ts';
 import { eventOfItem } from '../seat-messages.ts';
+import { attachmentsOfEvent } from '../services/work-item-attachments.ts';
+import { deliveryTarget, eventDispatched, inReplyTx, liveDeliveriesOfEvent, queueReply } from '../services/a2a-replies.ts';
 
 export type WorkItemRouteDeps = {
   markOdooAdmin: (req: express.Request) => Promise<void>;
   adminGuard: (req: express.Request, res: express.Response) => boolean;
   crossOriginDenied: (req: express.Request) => boolean;
+  /** 管理口令对不对（「关注」卡片带 remember 时认人用，和答复入口同一个 actorResolver） */
+  adminTokenOk: (req: express.Request) => boolean;
 };
 
 const ITEM_ID = /^wi_[A-Za-z0-9_-]{1,96}$/;
@@ -74,6 +80,7 @@ const ITEM_REPLY_DECIDES = '按事项判：建立人本人回复；持有管理�
 const LEAD_RELEASES = '按事项交给的团队判：负责人放行，团队没有负责人时持有管理层授予的人代办，是事项上的规则不是角色授权';
 
 export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps): void {
+  const rememberActor = actorResolver({ adminTokenOk: deps.adminTokenOk });
   // 列表：GET /api/work-items?state=&object=&phase=&limit=&cursor=。可见范围和详情同一个判断（管理员看全部，别人只看自己是建立人的），
   // 看不到的不出现也不计数。按 updated_at、id 倒序，游标翻页（limit 缺省 100、上限 200）；另带可见范围里按状态的计数
   app.get('/api/work-items', { action: 'work-items.list', kind: 'read', unauthenticated: 401, refine: [{ action: VIEW_ALL_ACTION, kind: VIEW_ALL_KIND, why: '「全部」视角只给管理层（按动作认，不按角色名；类别见 VIEW_ALL_KIND）', when: (req) => req.query.view === 'all' }] }, (req, res, next) => {
@@ -111,22 +118,32 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       // 视角（规范 14 第九节第 4 条）：服务端按身份给出哪些视角可用、各几件；不带 view 时落在第一个有内容的（都没有就第一个可用的）
       const scopes = viewScopes(viewer);
       const items = svc<WorkItemService>('workItems');
-      const views = Object.fromEntries(VIEWS.map((v) => [v, scopes[v] ? { available: true, count: items.countIn(scopes[v]!) } : { available: false, count: 0 }])) as Record<ViewName, { available: boolean; count: number }>;
+      // decide：这个视角里轮到看的人、能当场办的件数（decidesNow，和「关注」里事项来源的 mine、答法同一处判，侧栏角标数的就是这些）。
+      // 先只取可能轮到他的候选（他建的、他负责的团队里等过目的），逐件判一次；各视角只和自己的范围求交，
+      // 再按 itemRoles 过一遍这个视角对应的那种人（和下面的列表同一个口径）。不可用的视角不给 decide
+      const roleOf: Record<ViewName, ItemRole> = { mine: 'creator', seats: 'owner', team: 'lead', all: 'management' };
+      const now = viewer.principal ? items.turnCandidates(viewer.principal, scopes.team).filter((w) => decidesNow(w, viewer)) : [];
+      const decideIn = (v: ViewName) => {
+        if (!now.length) return 0;
+        const inScope = items.idsIn(scopes[v]!, now.map((w) => w.id));
+        return now.filter((w) => inScope.has(w.id) && itemRoles(w, viewer).includes(roleOf[v])).length;
+      };
+      const views = Object.fromEntries(VIEWS.map((v) => [v, scopes[v] ? { available: true, count: items.countIn(scopes[v]!), decide: decideIn(v) } : { available: false, count: 0 }])) as Record<ViewName, { available: boolean; count: number; decide?: number }>;
       if (viewRaw !== undefined && !scopes[viewRaw as ViewName]) return void res.status(403).json({ error: 'work_items_view_unavailable', views });
       const view = (viewRaw as ViewName | undefined) ?? VIEWS.find((v) => views[v].available && views[v].count > 0) ?? VIEWS.find((v) => views[v].available);
       if (!view) return void res.json({ view: null, views, items: [], counts: Object.fromEntries(STATES.map((st) => [st, 0])), total: 0, next_cursor: null });
       const page = items.page({ scope: scopes[view]!, state: state as WorkItemState | undefined, object: str('object'), phase: str('phase'), seat, cockpit, limit, after });
       // 视角的 SQL 只是加速：筛出来的每一条再按 itemRoles 过一遍，这个视角对应的那种人不成立的不给（列表里有、详情 404 的情况不允许出现）。
       // SQL 和 itemRoles 同一个口径时这里一条都不会少；计数照 SQL，测试守「列表里每一条详情都是 200」和件数一致
-      const roleOf: Record<ViewName, ItemRole> = { mine: 'creator', seats: 'owner', team: 'lead', all: 'management' };
       const shown = page.items.filter((w) => itemRoles(w, viewer).includes(roleOf[view]));
       // 等谁放行：这一页有 held 的才取一次全部团队视图（负责人名字按看的人裁）
       const teamViews = shown.some((w) => w.state === 'held') ? svc<TeamService>('teams').allViews() : [];
+      const nowMs = Date.now();
       res.json({
         view, views,
         items: shown.map((w) => ({
           id: w.id, title: w.title, state: w.state, object: w.object, phase: w.phase, seat: w.seat, cockpit_id: w.cockpit_id,
-          last_progress: w.last_log, updated_at: w.updated_at, release_by: releaseBy(w, viewer, teamViews),
+          last_progress: w.last_log, updated_at: w.updated_at, due: w.due_at ? w.due_at.slice(0, 10) : null, overdue: overdueOf(w, nowMs), release_by: releaseBy(w, viewer, teamViews),
         })),
         counts: page.counts, total: page.total,
         next_cursor: page.next ? Buffer.from(JSON.stringify({ u: page.next.updated_at, i: page.next.id }), 'utf8').toString('base64url') : null,
@@ -188,7 +205,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       const item = items.get(id);
       if (!item || !canSee(item, viewer)) return void res.status(404).json({ error: 'work_item_not_found' });
       // 只增：这个人能做什么（can）、是不是轮到他（turn）、建立人是谁（creator）。判断都在 work-item-access.ts，和各动作接口同一处
-      res.json({ item, log: items.log(id), ...seatMessagesOf(item), progress: seatProgressOf(item), asks: seatAsksOf(item), can: canOf(item, viewer), turn: turnOf(item, viewer), creator: creatorOf(item), release_by: releaseBy(item, viewer) });
+      res.json({ item, due: item.due_at ? item.due_at.slice(0, 10) : null, overdue: overdueOf(item), attachments: attachmentsOfEvent(item.source_ref).map((a) => ({ name: a.name, size: a.size, url: `/api/work-items/${id}/attachments/${a.id}`, id: a.id, mime: a.mime, sha256: a.sha256 })), log: items.log(id), ...seatMessagesOf(item), progress: seatProgressOf(item), subitems: seatSubitemsOf(item), asks: seatAsksOf(item), can: canOf(item, viewer), turn: turnOf(item, viewer), creator: creatorOf(item), release_by: releaseBy(item, viewer) });
     })().catch(next);
   });
 
@@ -299,6 +316,9 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       if (!item || !canSee(item, viewer)) return void res.status(404).json({ error: 'work_item_not_found' });
       const role = itemDecisionVerdict(item, viewer, 'release');
       if (!role.ok) return void res.status(403).json({ error: 'work_item_release_not_yours' });
+      // 「关注」过目卡片照 answer_via 调这里：带来的（from_attention）放成了记进「关注」的答复账，可以顺带记成经验（attention-via.ts）
+      const via = await viaBegin(req, 'work-items', id, 'release');
+      if (!via.ok) return void res.status(via.status).json(via.body);
       if (item.state !== 'held') {
         if (items.log(id).some((l) => l.fact === 'release' && !l.rejected)) return void res.json({ ok: true, item_id: id, duplicate: true, released: 0 });
         return void res.status(409).json({ error: 'work_item_not_held', state: item.state });
@@ -307,11 +327,65 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       if (!ev) return void res.status(409).json({ error: 'work_item_not_from_event' });
       const actor = viewer.principal ?? ((principalsAdmin ? await principalsAdmin(req, silentRes()) : null) || 'admin');
       const out = releaseCore(ev, actor, role.acting_for);
-      res.status(out.status).json({ item_id: id, duplicate: false, ...out.body });
+      const body = { item_id: id, duplicate: false, ...out.body };
+      const remembered = await viaSettle(req, via.plan, out.status, body, rememberActor);
+      res.status(out.status).json({ ...body, ...(remembered ? { remember: remembered } : {}) });
     })().catch(next);
   });
 
   // 动作类别是「决定」：建立人替自己的事项拍板
+  // 改截止日期（安排时填的，建立人可以改）：只有建立人本人（writerVerdict 为 ok），管理员也不行——截止是建立人对这件事的要求。
+  // 请求体只读 due：'YYYY-MM-DD' 或 null（清掉）；事项结束了不能改（409）。事件日志记一行 due-changed（从几号改成几号、谁改的）
+  // 同步到节点：派工正文里的 due 不改（那是发出去了什么的证据），改为给这个事件每一条还活着的投递排一条「[截止变更]」，
+  // 作为同一 context 的新任务发给接这件事的团队；投递还在等过目、排队时，等它发出去了再发；投递撤回、判死了就不发；出站关着整轮不发。
+  // 应答多带 notified：排了几条
+  app.post('/api/work-items/:id/due', { action: 'work-items.due-set', kind: 'write', statusNotVerdict: CREATOR_DECIDES }, (req, res, next) => {
+    res.set('Cache-Control', 'private, no-store');
+    if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
+    const id = String(req.params.id ?? '');
+    if (!ITEM_ID.test(id)) return void res.status(400).json({ error: 'work_item_id_invalid' });
+    const b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body as Record<string, unknown> : {};
+    if (!('due' in b)) return void res.status(400).json({ error: 'due_required' });
+    const dueAt = b.due === null ? '' : dueAtOf(b.due);
+    if (b.due !== null && dueAt === '') return void res.status(400).json({ error: 'due_invalid' });
+    (async () => {
+      const viewer = await workItemViewer(req, deps);
+      if (!viewer.principal) return void res.status(401).json({ error: 'work_items_auth_required' });
+      const verdict = writerVerdict(viewer, id, false); // 只认建立人本人：管理员不代改
+      if (verdict === 'not_found') return void res.status(404).json({ error: 'work_item_not_found' });
+      if (verdict === 'inactive') return void res.status(403).json({ error: 'work_items_principal_not_active' });
+      if (!dueWriterOk(verdict)) return void res.status(404).json({ error: 'work_item_not_found' });
+      const items = svc<WorkItemService>('workItems');
+      const item = items.get(id);
+      if (!item) return void res.status(404).json({ error: 'work_item_not_found' });
+      const at = new Date().toISOString();
+      const actor = viewer.principal;
+      // 改截止、留痕、给节点排变更在同一个保存点里：改了就一定留痕、一定排上
+      const out = inReplyTx(() => {
+        if (!items.setDue(id, dueAt, at.replace('T', ' ').slice(0, 19))) return null;
+        const ev = /^wbe-[0-9a-f]{16}$/.test(item.source_ref) ? item.source_ref : '';
+        if (!ev) return { notified: 0 };
+        const factId = logEventFact(ev, actor, 'due-changed', { from: item.due_at, to: dueAt });
+        if (!eventDispatched(ev)) return { notified: 0 };
+        // 同步到节点：正文里的 due 已经随派工发出去了（或者等放行时照原样发），所以给这个事件每一条还活着的投递排一条变更，
+        // 作为同一 context 的新任务发给那个团队；等那次投递真的发出去了才发，出站关着就不发（reply-outbound 的闸）
+        const text = `[截止变更] 原事项《${item.title.replace(/\s+/g, ' ').slice(0, 200)}》的截止日期${dueAt ? `改为 ${dueAt.slice(0, 10)}` : '取消了'}（原来是 ${item.due_at ? item.due_at.slice(0, 10) : '没有截止'}）`;
+        let n = 0;
+        for (const d of liveDeliveriesOfEvent(ev)) {
+          const target = deliveryTarget(d.id);
+          if (!target) continue;
+          if (queueReply({ kind: 'answer', eventId: ev, deliveryId: d.id, ref: factId, team: target.team, callerSession: target.caller_session, contextId: target.context_id, targetUrl: target.target_url,
+            message: JSON.stringify({ text, by: actor, notice: 'due-changed' }) }) !== null) n++;
+        }
+        return { notified: n };
+      });
+      if (!out) return void res.status(409).json({ error: 'work_item_ended', state: item.state });
+      if (out.notified > 0) kickWorkbenchEvents();
+      const after = items.get(id)!;
+      res.json({ item_id: id, due: after.due_at ? after.due_at.slice(0, 10) : null, overdue: overdueOf(after), notified: out.notified });
+    })().catch(next);
+  });
+
   app.post('/api/work-items/:id/decision', { action: 'work-items.accept', kind: 'decide', statusNotVerdict: CREATOR_DECIDES }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });

@@ -72,19 +72,47 @@ export function inReceiptTx<T>(fn: () => T): T {
  * 阶段七 R2：跟进（a2a-<hash>，和原任务号没有字面关系）只靠 context 归到投递：我们某个事件的 context、发给的对端 zone 等于签名方的
  * 最近一个任务号。存量没带 context 的投递，对方按「context 等于原任务号」回来：再按任务号找一次。找不到返回 undefined（跟进不认）。
  */
-export function sentTaskForFollowup(contextId: string, zone: string): SentTask | undefined {
+export function sentTaskForFollowup(contextId: string, zone: string, peerRoot: string): SentTask | undefined {
+  // 按区和根地址一起找：同一个区下可以有好几台宿主，同一个 context 也可能投给过其中几台，跟进找发来的那台自己的那次投递
   const byContext = db.prepare(`SELECT s.task_id, s.kind, s.event_id, s.delivery_id, s.peer_root, s.peer_zone
     FROM a2a_sent_tasks s JOIN workbench_events e ON e.event_id = s.event_id
-    WHERE e.context_id = ? AND s.peer_zone = ? AND s.peer_zone <> ''
-    ORDER BY s.created_at DESC, s.rowid DESC LIMIT 1`).get(contextId, zone) as SentTask | undefined;
+    WHERE e.context_id = ? AND s.peer_zone = ? AND s.peer_zone <> '' AND s.peer_root = ? AND s.peer_root <> ''
+    ORDER BY s.created_at DESC, s.rowid DESC LIMIT 1`).get(contextId, zone, peerRoot) as SentTask | undefined;
   if (byContext) return byContext;
   const byTask = sentTask(contextId);
-  return byTask && byTask.peer_zone === zone && byTask.peer_zone !== '' ? byTask : undefined;
+  return byTask && byTask.peer_zone === zone && byTask.peer_zone !== '' && byTask.peer_root === peerRoot ? byTask : undefined;
 }
 
 /** 一个事件上最近一步被采信的进展（事件日志里的 receipt:progress），给事项页的「正在处理」提示和子项 */
-export function latestProgressOfEvent(eventId: string): { at: string; detail: Record<string, unknown> } | null {
-  const row = db.prepare("SELECT at, detail FROM workbench_event_log WHERE event_id = ? AND action = 'receipt:progress' ORDER BY id DESC LIMIT 1").get(eventId) as { at: string; detail: string } | undefined;
+/** 一个事件上最近一条带子项（tickets）的采信回执：进展或结果都算（结果回执里是各子项的结局） */
+/**
+ * 这一步进展之后，同一任务有没有到过采信的结果回执：到过，这一步（连同它带的子项状态）就过时了——
+ * 任务已经结束，「排队中」「在做」不再是真的；结果回执没带 tickets 时，不能拿进展里的旧状态顶上。
+ */
+function progressEnded(eventId: string, rowId: number, task: unknown): boolean {
+  if (typeof task !== 'string' || task === '') return false;
+  return db.prepare("SELECT 1 FROM workbench_event_log WHERE event_id = ? AND id > ? AND action LIKE 'receipt:%' AND action NOT IN ('receipt:untrusted','receipt:unaccepted','receipt:progress') AND json_extract(detail, '$.disposition') = 'result' AND json_extract(detail, '$.task') = ? LIMIT 1")
+    .get(eventId, rowId, task) !== undefined;
+}
+
+export function latestTicketsOfEvent(eventId: string): unknown[] | null {
+  const row = db.prepare("SELECT id, action, detail FROM workbench_event_log WHERE event_id = ? AND action LIKE 'receipt:%' AND action NOT IN ('receipt:untrusted','receipt:unaccepted') AND json_type(detail, '$.tickets') = 'array' ORDER BY id DESC LIMIT 1").get(eventId) as { id: number; action: string; detail: string } | undefined;
   if (!row) return null;
-  try { return { at: row.at, detail: JSON.parse(row.detail) as Record<string, unknown> }; } catch { return null; }
+  try {
+    const d = JSON.parse(row.detail) as { tickets?: unknown; task?: unknown };
+    // 子项来自一步进展、而那个任务之后已经结束（结果回执没带子项）：旧的子项状态不再给
+    if (row.action === 'receipt:progress' && progressEnded(eventId, row.id, d.task)) return null;
+    return Array.isArray(d.tickets) ? d.tickets : null;
+  } catch { return null; }
+}
+
+export function latestProgressOfEvent(eventId: string): { at: string; detail: Record<string, unknown> } | null {
+  const row = db.prepare("SELECT id, at, detail FROM workbench_event_log WHERE event_id = ? AND action = 'receipt:progress' ORDER BY id DESC LIMIT 1").get(eventId) as { id: number; at: string; detail: string } | undefined;
+  if (!row) return null;
+  try {
+    const detail = JSON.parse(row.detail) as Record<string, unknown>;
+    // 这一步所属的任务之后已经有结果回执：任务结束了，「正在处理」不再给（比如打回后重做完、回到等验收）
+    if (progressEnded(eventId, row.id, detail.task)) return null;
+    return { at: row.at, detail };
+  } catch { return null; }
 }

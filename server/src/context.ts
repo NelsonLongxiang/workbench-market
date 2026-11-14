@@ -33,9 +33,12 @@ import { DepartmentService } from './services/department.ts';
 import { TeamService } from './services/team.ts';
 import { SetupWizardService } from './services/setup-wizard.ts';
 import { RelationProposalService } from './services/relation-proposal.ts';
+import { KnowledgeService } from './services/knowledge.ts';
 import { WorkItemService } from './services/work-item.ts';
 import { AttentionService } from './services/attention.ts';
 import { A2aPeerService } from './services/a2a-peers.ts';
+import { StateLayerService } from './services/state-layer.ts';
+import { BenchSweepService } from './services/bench-sweep.ts';
 import { HttpService } from './http.ts';
 
 /** 数据库连接服务：唯一持有 db 的地方（其余服务经注入取用）。 */
@@ -74,6 +77,7 @@ await Promise.all([
   TeamService,
   SetupWizardService,
   RelationProposalService,
+  KnowledgeService,
   BindingService,
   ChangeRequestService,
   TaskCenterService,
@@ -81,6 +85,8 @@ await Promise.all([
   WorkItemService,
   AttentionService,
   A2aPeerService,
+  StateLayerService,
+  BenchSweepService,
   HttpService
 ].map((P) => ctx.plugin(P)));
 

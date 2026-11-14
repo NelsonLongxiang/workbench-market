@@ -7,7 +7,8 @@
  * 修订 3 落实：卡片不发布 teamMemberships（绑定图不出门）；id8 每 SOP 随机生成持久化
  * （禁 slug 推导防抢注）；ADMIN_TOKEN 只经启动环境。
  */
-import { createHash, createPrivateKey, generateKeyPairSync, randomBytes, sign as edSign, timingSafeEqual, type KeyObject } from 'node:crypto';
+import { createHash, createPrivateKey, generateKeyPairSync, randomBytes, sign as edSign, type KeyObject } from 'node:crypto';
+import { envAdminTokenOk } from './admin-token-env.ts';
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { signCard, verifyCard } from '@nelsonlongxiang/dsh-open-a2a-net/card';
@@ -67,6 +68,21 @@ export function teamRosterMode(env: NodeJS.ProcessEnv = process.env): 'on' | 'of
 }
 export function setTeamRoster(on: boolean): void { teamRoster = on; }
 export function teamRosterDeclared(): boolean { return teamRoster; }
+
+/**
+ * 名片是否声明 directedSeats（a2a-net #627：宿主只认声明了它的远端成员发来的指名派工行 `[A2A dispatch] {"for":"<seatId>"}`）。
+ * 声明了，「安排一件事」带 seat_id 时派工正文第一行写指名（对端宿主也声明了才写，否则退回整队派发并留痕）；
+ * 不声明，带 seat_id 的安排一律 400（不悄悄当成没指名）。
+ * 开关 WM_A2A_DIRECTED_SEATS（缺省 on；off 时名片不声明、不收指名），启动时由 index.ts 读一次并设进来。
+ */
+let directedSeats = true;
+export function directedSeatsMode(env: NodeJS.ProcessEnv = process.env): 'on' | 'off' | null {
+  const raw = String(env.WM_A2A_DIRECTED_SEATS ?? '');
+  if (raw === '' || raw === 'on') return 'on';
+  return raw === 'off' ? 'off' : null;
+}
+export function setDirectedSeats(on: boolean): void { directedSeats = on; }
+export function directedSeatsDeclared(): boolean { return directedSeats; }
 
 let cachedKey: KeyObject | null = null;
 
@@ -128,12 +144,9 @@ export function sopNode8(slug: string, gen: () => string = () => randomBytes(4).
   return id8;
 }
 
-/** ADMIN_TOKEN 常量时间比较（两侧 sha256 定长再比；未设置一律拒绝）。 */
+/** ADMIN_TOKEN 常量时间比较（两侧 sha256 定长再比；未设置一律拒绝）。口令启动时取一次，见 admin-token-env.ts */
 export function adminTokenOk(provided: string | undefined): boolean {
-  const expect = process.env.ADMIN_TOKEN;
-  if (!expect) return false;
-  const h = (s: string) => createHash('sha256').update(s, 'utf8').digest();
-  return timingSafeEqual(h(String(provided ?? '')), h(expect));
+  return envAdminTokenOk(provided);
 }
 
 /**
@@ -165,7 +178,7 @@ export function buildAgentCard(keyPath: string): Record<string, unknown> {
     if (Array.isArray(parsed)) peers = parsed.filter((x) => typeof x === 'string');
   } catch { /* 配置坏值忽略 */ }
   const core = {
-    capabilities: { sop: true, bindings: 'human-only', stage: 'P1-readonly', ...(memberProvenance ? { canvasMemberProvenance: true } : {}), ...(progressReceipts ? { progressReceipts: true } : {}), ...(teamRoster ? { teamRoster: true } : {}) },
+    capabilities: { sop: true, bindings: 'human-only', stage: 'P1-readonly', reworkReturns: true, ...(memberProvenance ? { canvasMemberProvenance: true } : {}), ...(progressReceipts ? { progressReceipts: true } : {}), ...(teamRoster ? { teamRoster: true } : {}), ...(directedSeats ? { directedSeats: true } : {}) },
     expiresAt: now + CARD_TTL_MS,
     name: 'workbench-market',
     session: MARKET_TEAM,

@@ -48,6 +48,32 @@ export function cleanWho(s: string, seat = ''): string {
   return teamLabel(actorLabel(s, seat));
 }
 
+/** 系统来源的中文名（卡片第一行「谁在等」用） */
+const SYSTEM_WHO: Record<string, string> = { 'task-center': '任务中心', tasks: '任务中心', sop: 'SOP', market: '市场', attention: '关注', admin: '管理员', 'admin-token': '管理员', seed: '系统', system: '系统' };
+/** 卡片第一行的「谁」：给人看「谁的事」，不露主体键、外部身份和来源代号。
+ *  · 认得的人（和条目带的 creator 是同一个主体）写显示名；别的人写「一位同事」；
+ *  · 外部账号（<提供方>:<外部号>）写「一个外部账号」；AI 会话（mcp:<名字>）写「AI 会话「名字」」；
+ *  · 系统来源写中文；画布团队写团队名；席位有名字写名字、只有句柄写「一位 AI 员工」；对端地址写「一个对端节点」 */
+export function waitingLabel(raw: string, opts: { seat?: string; people?: { principal?: string | null; display_name?: string | null }[]; name?: string | null } = {}): string {
+  // 服务端给了名字（「关注」条目的 waiting_for_name，#657）就用它：它从来不是内部键本身；给的是 null 才按下面退化
+  if (typeof opts.name === 'string' && opts.name.trim()) return opts.name.trim();
+  const s = (raw || '').trim();
+  if (!s) return '';
+  for (const p of opts.people ?? []) if (p?.principal && p.principal === s) return (p.display_name || '').trim() || '一位同事';
+  if (/^receiver:/.test(s)) return opts.seat ? waitingLabel(opts.seat) : '对方团队';
+  if (/^(person|user|human):/.test(s)) return '一位同事';
+  const mcp = /^mcp:(.+)$/.exec(s);
+  if (mcp) return `AI 会话「${mcp[1]}」`;
+  if (Object.hasOwn(SYSTEM_WHO, s)) return SYSTEM_WHO[s];
+  if (/^https?:\/\//i.test(s)) return '一个对端节点';
+  const k = s.lastIndexOf(' · ');
+  if (k > 0) return s.slice(0, k);
+  if (/^[^/\s]+\/canvas\/.+$/.test(s)) return teamLabel(s);
+  if (/^[a-z0-9-]+\/[0-9a-f]{8}$/i.test(s)) return '一位 AI 员工';
+  if (/^[a-z][a-z0-9_-]*:/i.test(s)) return '一个外部账号';
+  return s;
+}
+
 /** 节点报的名字有时自带「 (0a1b2c3d)」这样的句柄后缀：列表里只要名字，去掉 */
 export const cleanSeatName = (name: string): string => (name || '').replace(/\s*[（(][0-9a-f]{6,}[)）]\s*$/i, '').trim();
 

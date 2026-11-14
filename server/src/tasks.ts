@@ -57,25 +57,37 @@ const YGL_CONCURRENCY = 4;
 const YGL_PER_CALL_TIMEOUT_MS = 3_000;
 /** 项目数上限与总预算可经环境变量 YGL_MAX_PROJECTS / YGL_TOTAL_BUDGET_MS 覆盖（.156 现网 52 个 active 项目，旧上限 40 会跳过 12 个）；
  *  缺省上限 200、总预算 8s；非整数或越界回落缺省。超限/超预算照旧在 degraded_projects 里如实上报，不静默截断。 */
-function envInt(name: string, def: number, min: number, max: number): number {
-  const raw = String(process.env[name] ?? '').trim();
+function envInt(value: string | undefined, def: number, min: number, max: number): number {
+  const raw = String(value ?? '').trim();
   if (!/^\d+$/.test(raw)) return def;
   const n = Number(raw);
   return n >= min && n <= max ? n : def;
 }
-const yglMaxProjects = () => envInt('YGL_MAX_PROJECTS', 200, 1, 10_000);
-const yglTotalBudgetMs = () => envInt('YGL_TOTAL_BUDGET_MS', 8_000, 500, 120_000);
+const yglMaxProjects = () => config.yglMaxProjects;
+const yglTotalBudgetMs = () => config.yglTotalBudgetMs;
 /** 项目名边界（direct-150a721a：无 shell 后 argv 传值天然安全，合法 Unicode 名必须支持——不限制业务命名凑安全）；仅防空/超长 */
 function yglProjectNameOk(name: string): boolean { return name.length >= 1 && name.length <= 128 && !name.includes('\0'); }
 
 /** 无 shell 调 ygl-trees：node + 包内真实入口 dist/bundle/bin.cjs（Windows shim 不再经 shell:true）。
  *  入口解析边界：①node同目录node_modules ②PNPM_HOME ③APPDATA/npm。Linux全局PATH可达但非node同级布局不在支持内（降级ok=false），不引大解析系统。 */
-import { existsSync, realpathSync, statSync } from 'node:fs';
+import { realpathSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { join, dirname, isAbsolute } from 'node:path';
+import { join, isAbsolute } from 'node:path';
+import { defineConfig, loadConfig, str } from './config.ts';
+import { yglCliEntry } from './ygl-cli.ts';
+
+/** 统一待办读的工作区、A2A 源的地址和密钥、跨项目枚举的项目数上限和总预算（找 ygl-trees 入口的几处目录在 ygl-cli.ts） */
+export const Config = defineConfig((env) => ({
+  yglHome: env.YGL_HOME,
+  a2aStateUrl: str(env.A2A_STATE_URL),
+  a2aApiKey: str(env.A2A_API_KEY),
+  yglMaxProjects: envInt(env.YGL_MAX_PROJECTS, 200, 1, 10_000),
+  yglTotalBudgetMs: envInt(env.YGL_TOTAL_BUDGET_MS, 8_000, 500, 120_000),
+}));
+const config = loadConfig(Config);
 
 export function taskWorkspaceKey(): string | null {
-  const home = process.env.YGL_HOME;
+  const home = config.yglHome;
   if (!home || !isAbsolute(home)) return null;
   try {
     const file = join(home, 'ygl-trees.db');
@@ -83,14 +95,8 @@ export function taskWorkspaceKey(): string | null {
     return createHash('sha256').update(realpathSync(file)).digest('hex');
   } catch { return null; }
 }
-export function yglCliEntry(): string | null {
-  for (const base of [dirname(process.execPath), process.env.PNPM_HOME, process.env.APPDATA ? process.env.APPDATA + '\\npm' : null]) {
-    if (!base) continue;
-    const cand = join(base, 'node_modules', 'ygl-trees', 'dist', 'bundle', 'bin.cjs');
-    if (existsSync(cand)) return cand;
-  }
-  return null;
-}
+// 找 ygl-trees 入口统一在 ygl-cli.ts（经验库、MCP 上游也用它）；这里转出去，原来的引用不用改
+export { yglCliEntry } from './ygl-cli.ts';
 
 function execYglJson(args: string[], timeoutMs: number, home: string): Promise<{ ok: boolean; parsed: unknown }> {
   return new Promise((resolve) => {
@@ -114,7 +120,7 @@ function execYglTasks(allowed: 'all' | readonly string[]): Promise<{ ok: boolean
   return (async () => {
     if (allowed !== 'all' && allowed.length === 0) return { ok: false, tasks: [], latencyMs: 0, error: 'source_not_authorized' };
     if (!taskWorkspaceKey()) return { ok: false, tasks: [], latencyMs: 0, error: 'ygl_home_required' };
-    const home = process.env.YGL_HOME!;
+    const home = config.yglHome!;
     // Only admin enumerates workspace projects. Scoped users never query ungranted project metadata.
     let names: string[];
     if (allowed === 'all') {
@@ -235,7 +241,7 @@ function marketTasks(sop: SopServiceLike, scope: TasksReadScope): TaskEnvelope[]
 /** A2A 源（omni-inbox v2 · 设计稿 docs/omni-inbox-a2a-source.md，依赖 dsh-open-a2a-net PR#32）。
  *  鉴权：X-API-Key（不是 X-Market-Client 头族）；字段校准点集中在下方 FIELD 注释，#32 合并后核对。 */
 function a2aEnabled(): boolean {
-  return String(process.env.A2A_STATE_URL ?? '').trim() !== '';
+  return config.a2aStateUrl !== '';
 }
 
 interface A2aStateRow {
@@ -245,8 +251,8 @@ interface A2aStateRow {
 }
 
 async function fetchA2aTasks(): Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs: number }> {
-  const base = String(process.env.A2A_STATE_URL ?? '').trim().replace(/\/+$/, '');
-  const key = String(process.env.A2A_API_KEY ?? '').trim();
+  const base = config.a2aStateUrl.replace(/\/+$/, '');
+  const key = config.a2aApiKey;
   const t0 = Date.now();
   try {
     const r = await fetch(`${base}/__dsh_a2a/state`, {
@@ -322,7 +328,7 @@ function changeRequestTasks(): TaskEnvelope[] {
     return rows.map((r: any) => ({
       id: `change-request:${r.id}`, source: 'market' as const,
       title: `人审·${r.kind === 'skill' ? '技能' : '台'}${r.op === 'delete' ? '删除' : '回滚'} ${r.slug}${r.reason ? '（' + String(r.reason).slice(0, 60) + '）' : ''}`,
-      status: 'todo' as const, due: '', link: '/reviews?request=' + r.id, project: 'review-gate',
+      status: 'todo' as const, due: '', link: '/market', project: 'review-gate', // 审核页（/reviews）已退役（#664）
     }));
   } catch { throw new Error('market_source_failed'); }
 }

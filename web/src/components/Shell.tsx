@@ -31,7 +31,8 @@ export default function Shell({ admin, footer, children }: { admin: boolean; foo
   const down = useSyncExternalStore(subscribeIdentity, identityDown);
   const [cockpits, setCockpits] = useState<Cockpit[] | null>(null);
   /** 用户卡上的名字：有显示名用显示名，没有再退登录名（people.ts 同一个取名函数） */
-  const [login, setLogin] = useState<string | null>(null);
+  /** undefined = 还在问是谁（不写「未登录」，不先说一句否定的话）；null = 问过了，没登录 */
+  const [login, setLogin] = useState<string | null | undefined>(undefined);
   const [meOpen, setMeOpen] = useState(false);
   // 角标随换页、换身份刷新；驾驶舱和登录身份只在进来时读一次
   // 角标 = 轮到你、能当场办的件数，和全景的总结句、「等你拍板」的数是同一个函数算的
@@ -72,8 +73,8 @@ export default function Shell({ admin, footer, children }: { admin: boolean; foo
           </Dropdown>}
           <Popover placement="topLeft" trigger="click" open={meOpen} onOpenChange={setMeOpen} content={<div className="wm-me-pop">{footer}</div>}>
             <button type="button" className="wm-me" data-testid="wm-me" aria-haspopup="dialog" aria-expanded={meOpen}>
-              <span className="wm-avatar" data-testid="wm-me-avatar">{(Array.from(login ?? '?')[0] ?? '?').toUpperCase()}</span>
-              <span className="wm-me-name" data-testid="wm-me-name">{login ?? '未登录'}</span>
+              <span className="wm-avatar" data-testid="wm-me-avatar">{login === undefined ? '' : (Array.from(login ?? '?')[0] ?? '?').toUpperCase()}</span>
+              <span className="wm-me-name" data-testid="wm-me-name" aria-busy={login === undefined}>{login === undefined ? '' : login ?? '未登录'}</span>
             </button>
           </Popover>
         </div>

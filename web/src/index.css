@@ -191,12 +191,24 @@ body {
   color: var(--wm-color-nav-text);
 }
 
+/* 被市场自己嵌在框里时，框里只写这一句（main.tsx、embed-guard.ts 的 framedByMarket） */
+.wm-framed-self { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: var(--wm-space-6); box-sizing: border-box; text-align: center; color: var(--wm-color-text-secondary); font-size: var(--wm-font-size-body); background: var(--wm-color-surface); }
+
 .wm-use-frame {
   flex: 1;
   width: 100%;
   border: none;
   background: var(--wm-color-surface);
 }
+
+/* 视图台页面（/use/<卡片 id> 是视图台时）：顶栏同嵌入使用页；下面一行标题和视图页签，正文是 12 列栅格的数据视图 */
+.wm-bp-bar-extra { margin-left: auto; display: flex; align-items: center; gap: var(--wm-space-2); }
+.wm-bp-head { display: flex; align-items: center; gap: var(--wm-space-4); padding: var(--wm-space-3) var(--wm-space-6); background: var(--wm-color-surface); border-bottom: 1px solid var(--wm-color-border); flex: none; flex-wrap: wrap; }
+.wm-bp-title { margin: 0; font-size: var(--wm-font-size-title); font-weight: var(--wm-font-weight-subtitle); color: var(--wm-color-text); }
+.wm-bp-tabs { display: flex; align-items: center; gap: var(--wm-space-1); flex-wrap: wrap; }
+.wm-bp-refresh { margin-left: auto; }
+.wm-bp-body { flex: 1; min-height: 0; overflow: auto; padding: var(--wm-space-4) var(--wm-space-6) var(--wm-space-6); }
+.wm-bp-state { margin-top: var(--wm-space-6); }
 
 /* 侧栏折叠按钮贴合深色底；保留以维持移动端抽屉触发器 */
 .wm-sider-collapse {
@@ -261,6 +273,7 @@ body {
   grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: var(--wm-space-3);
 }
+.wm-dash-grid-top { align-items: start; }
 .wm-span-3 { grid-column: span 3; }
 .wm-span-4 { grid-column: span 4; }
 .wm-span-6 { grid-column: span 6; }
@@ -413,6 +426,15 @@ body { background: var(--wm-color-page); }
 /* 宽度含内边距（border-box）：内容宽 1040 / 1280，加左右各 32 的内边距；主区不够宽时跟着主区收窄，不向右溢出 */
 .wm-page-body { box-sizing: border-box; width: 100%; max-width: 1104px; margin: 0 auto; padding: var(--wm-space-8) var(--wm-space-8) var(--wm-space-12); }
 .wm-page-body-wide { max-width: 1344px; }
+/* 经验库一条的正文（markdown）和依据的原文 */
+.wm-kn-body { margin-top: var(--wm-space-4); line-height: 1.75; }
+.wm-kn-body h1, .wm-kn-body h2, .wm-kn-body h3 { font-size: var(--wm-font-size-subtitle); margin: var(--wm-space-4) 0 var(--wm-space-2); }
+.wm-kn-body pre { padding: var(--wm-space-3); background: var(--wm-color-page); border-radius: var(--wm-radius-md); overflow-x: auto; }
+.wm-kn-quote { margin: 0; padding: var(--wm-space-1) var(--wm-space-3); border-left: 3px solid var(--wm-color-border-strong); color: var(--wm-color-text); }
+/* 答复卡上「记成经验」那一块：勾选默认收着，勾上才展开三项，竖着排（驾驶舱右栏窄也放得下） */
+.wm-remember-vis { display: flex; flex-direction: column; gap: var(--wm-space-1); } /* 谁能看三个选项一律竖排：驾驶舱右栏窄也一行一个，和 /attention 一致 */
+.wm-remember-label { display: block; margin-bottom: var(--wm-space-1); color: var(--wm-color-text-secondary); }
+.wm-decision-remember { display: flex; flex-direction: column; gap: var(--wm-space-2); padding-top: var(--wm-space-2); border-top: 1px dashed var(--wm-color-border); }
 .wm-page-intro { margin-bottom: var(--wm-space-6); color: var(--wm-color-text-secondary); }
 .wm-page-spin { display: block; margin: var(--wm-space-12) auto; }
 /* ---------- 工作台市场（照原型 3fbfd0b 的 #/market：分类胶囊、三列卡片） ---------- */
@@ -647,6 +669,7 @@ body { background: var(--wm-color-page); }
 .wm-bb-progress-nums { display: flex; align-items: baseline; gap: var(--wm-space-1); }
 .wm-bb-row-click { cursor: pointer; }
 .wm-bb-actions { white-space: nowrap; }
+.wm-bb-nowrap { white-space: nowrap; }
 .wm-bb-table .ant-table { font-size: var(--wm-font-size-body); }
 .wm-bb-table .ant-table-thead > tr > th { font-size: var(--wm-font-size-caption); font-weight: 600; color: var(--wm-color-text-secondary); background: var(--wm-color-surface); }
 .wm-bb-filter-bar { box-shadow: none; }
@@ -673,7 +696,13 @@ body { background: var(--wm-color-page); }
 .wm-view-row { display: flex; align-items: center; gap: var(--wm-space-2); }
 .wm-view { display: inline-flex; align-items: center; gap: var(--wm-space-2); height: 32px; padding: 0 var(--wm-space-3); border: 1px solid var(--wm-color-border); border-radius: var(--wm-radius-full); color: var(--wm-color-text-secondary); background: var(--wm-color-surface); }
 .wm-view.on { border-color: transparent; background: var(--wm-color-primary-subtle); color: var(--wm-color-primary); font-weight: var(--wm-font-weight-body-strong); }
+.wm-view-row[role=tablist] { flex-wrap: wrap; }
+button.wm-view { font: inherit; cursor: pointer; transition: color var(--wm-motion-fast) var(--wm-motion-easing), border-color var(--wm-motion-fast) var(--wm-motion-easing), background var(--wm-motion-fast) var(--wm-motion-easing); }
+button.wm-view:not(.on):hover { color: var(--wm-color-primary); border-color: var(--wm-color-primary); }
+button.wm-view:focus-visible { outline: 2px solid var(--wm-color-primary); outline-offset: 2px; }
 .wm-view i { font-style: normal; font-size: var(--wm-font-size-caption); font-variant-numeric: tabular-nums; }
+/* 页签上「等你拍板」的红数：和驾驶舱页签、侧栏角标同一种红点 */
+.wm-view-decide { min-width: 16px; padding: 0 4px; border-radius: var(--wm-radius-full); background: var(--wm-color-danger); color: var(--wm-color-on-primary); font-size: var(--wm-font-size-caption); font-weight: var(--wm-font-weight-body-strong); line-height: 16px; text-align: center; font-variant-numeric: tabular-nums; }
 .wm-view-group { margin-left: auto; display: inline-flex; align-items: center; gap: var(--wm-space-2); }
 .wm-avatar-none { background: transparent; border: 1px dashed var(--wm-color-border-strong); }
 
@@ -720,3 +749,12 @@ body { background: var(--wm-color-page); }
 .wm-ck-card.on { outline: 2px solid var(--wm-color-primary); outline-offset: 1px; }
 .wm-ck-card-pick { align-self: flex-end; }
 .wm-ck-process-h { margin-bottom: var(--wm-space-3); }
+/* 驾驶舱「AI 员工」：一行一个成员——首字头像、名字和团队、手上在办几件 */
+.wm-ck-sub { padding: var(--wm-space-2) var(--wm-space-3) var(--wm-space-1); font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); font-weight: var(--wm-font-weight-body-strong); }
+.wm-ck-note { padding-bottom: 0; }
+.wm-ck-staff { display: flex; align-items: center; gap: var(--wm-space-2); color: var(--wm-color-text); min-width: 0; }
+.wm-ck-staff-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.wm-ck-staff-main b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wm-ck-staff-busy { flex: none; }
+/* 「AI 员工」的成员列表：每张卡之间都没有分隔线，组与组之间靠小标题分（原来一组一条、一组没有，看着像两种列表） */
+[data-testid=ck-staff-pane] .wm-ck-list li { border-bottom: 0; padding-top: var(--wm-space-1); padding-bottom: var(--wm-space-1); }

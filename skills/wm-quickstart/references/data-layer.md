@@ -29,11 +29,12 @@
 3. 会一条条追加的（事件、记录），放数据面，只追加。
 4. 定稿后不应再改的，放常量。谁写的谁维护：要改，由写它的会话（作者）带 `override` 与 `reason` 修订，修订会留审计；作者缺失时由部署机本机命令行兜底。
 5. 二进制和大文件放文件面，在变量或记录里只引用 `file:<id>`。
+6. 刷得很勤的变量（进度、心跳、计数，几秒一写），键名用 `hot.` 开头，比如 `hot.progress`。**起名 hot. 就表示接受最多丢 30 秒**：部署开了 Redis 时，这类变量先写 Redis，30 秒落一次盘，Redis 整个丢了会丢最近一个周期的写入。不能丢的值不要用 `hot.` 开头；`hot.` 开头的键也不能是常量（会被拒）。
 
 ## 写入方
 
 - 页面凭本台令牌可以读写本台的变量和常量，也可以读写本台的数据面和文件面。
-- agent 用 MCP：`workbench_vars_get`、`workbench_vars_set`（MCP 不能修订常量）、`app_data_submit`、`app_files_upload`。
+- agent 用 MCP：`workbench_vars_get`、`workbench_vars_set`、`app_data_submit`、`app_files_upload`。`workbench_vars_set` 带 `kind: "const"` 新建常量，建它的会话就是作者；修订常量要作者本人（公共常量则任一会话）带 `override: true` 和 `reason`，见 [workbench-agents.md](workbench-agents.md)。
 - 改已存在的变量要带期望的 `revision`（`If-Match` 或 `revision` 参数），不符返回 409。拿到 409 后重读再写，不要硬覆盖。
 - 往数据面提交（`POST /api/apps/<slug>/data` 或 `app_data_submit`）带幂等键时，**每次新提交生成一个随机的键**（比如 `crypto.randomUUID()`），只在重试同一次提交时复用它。不要用业务字段、日期或内容拼键：键只在同一个提交方之间算重复：台页面的提交（不管是谁）是一方，每个 MCP 会话各是一方。页面上两次不同的提交撞了键，后一次会被当成重复或拒绝（409）。
 
@@ -49,6 +50,8 @@ if (r.status === 404) return showEmpty('还没写入 summary');
 if (!r.ok) return showWarn(`读取失败 HTTP ${r.status}，下面不是「没有数据」`);
 const { value, updated_at } = await r.json();   // 同时显示读取时点
 ```
+
+`hot.` 开头的变量在缓存暂时不通时会回 503（`code: vars_hot_unavailable`，`retryable: true`）：这时不是没有数据，过几秒重读，不要显示成 0 或空。
 
 ## 已有台的迁移
 

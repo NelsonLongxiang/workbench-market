@@ -11,6 +11,7 @@
  *   change-requests   GET /api/change-requests?status=pending  adminGuard（取数用 changeRequest 服务，和旧接口同一个函数）  审核
  *   mcp-access        GET /api/mcp/access-requests?status=pending adminGuard                 授权
  *   seat-asks         GET /api/workbench-events（决定是 ask 的）adminGuard                    提问
+ *   reply-rejected    没有旧接口：答复、打回任务被节点拒收（reply:rejected）  建立人本人 + 持有管理层授予的人（不认管理门）  提问（只提醒，没有答法）
  *   sop-runs          POST /api/sop/runs/:id/finish（派进来的 run 验收）  完成接口里不靠上传令牌的那两条（管理员、本机命令行）  验收
  *   tasks             GET /api/tasks（统一待办）                tasksReadAccess(adminHeaderOk) 审核
  *   owner-pending     GET /api/workbenches/:id/vars（看板台）  vars 接口的读门                提问
@@ -31,7 +32,7 @@ import { listVars, workbenchScope } from './workbench-vars.ts';
 import { principalsAdmin } from './routes/principals.ts';
 import { sopRunAcceptance } from './routes/sop-run-lifecycle.ts';
 import { buildBoard, findBoardWorkbench, parseConfig, BOARD_PATH, type BoardVar } from './owner-pending.ts';
-import { openSeatAsks } from './services/attention-sources.ts';
+import { openSeatAsks, rejectedReplies, SEAT_ASK_BATCH, SEAT_ASK_LIMIT } from './services/attention-sources.ts';
 import { benchMcpDecider, benchViewsConfig } from './routes/bench-views.ts';
 import { pendingBenchRequests } from './services/bench-mcp.ts';
 
@@ -40,7 +41,7 @@ function optionsHint(json: string): string {
   try { const o = JSON.parse(json) as unknown; return Array.isArray(o) && o.length ? `（可选：${o.filter((x) => typeof x === 'string').join(' / ')}）` : ''; } catch { return ''; }
 }
 import { withAnswers } from './attention-answers.ts';
-import { answerVia, type AttentionItem, type AttentionProvider, type AttentionService } from './services/attention.ts';
+import { answerVia, VIA_MARK, type AttentionItem, type AttentionProvider, type AttentionService } from './services/attention.ts';
 import type { ChangeRequestService } from './services/change-request.ts';
 import type { McpService } from './services/mcp.ts';
 import type { SopService } from './services/sop.ts';
@@ -53,7 +54,7 @@ import type { GrantService } from './services/grant.ts';
 import type { RelationProposalService } from './services/relation-proposal.ts';
 import { browserMarked, rawLoopback } from './surfaces.ts';
 import { teamName } from './team-relation.ts';
-import { canRelease, canSee, creatorOf, itemDecisionVerdict, requestViewer, stuckGoesTo, turnOf } from './work-item-access.ts';
+import { canRelease, canSee, creatorOf, holdsManagementGrant, isManagement, itemDecisionVerdict, requestViewer, stuckGoesTo, TERMINAL_STATES, turnOf, type WorkItemViewer } from './work-item-access.ts';
 import { pendingAsksOfEvent } from './services/attention-sources.ts';
 import { eventOfItem } from './seat-messages.ts';
 
@@ -107,7 +108,7 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
         ? (svc<ChangeRequestService>('changeRequest').listByStatus('pending') as { id: number; kind: string; slug: string; op: string; target_version: number | null; reason: string; requested_by: string; created_at: string }[]).map((r) => item({
           source: 'change-requests', source_id: String(r.id), category: 'review',
           title: `${r.kind === 'skill' ? '技能' : '台'}${r.op === 'delete' ? '删除' : '回滚'} ${r.slug}${r.reason ? `（${String(r.reason).slice(0, 60)}）` : ''}`,
-          waiting_for: r.requested_by, since: r.created_at, answers: ['approve', 'reject'], link: `/reviews?request=${r.id}`,
+          waiting_for: r.requested_by, since: r.created_at, answers: ['approve', 'reject'], link: '/market', // 审核页（/reviews）已退役（#664）：变更申请在卡片上答，要看台去市场
           detail: svc<ChangeRequestService>('changeRequest').detailOf(r),
         }))
         : null,
@@ -148,8 +149,8 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           detail: { session: r.session, bench: r.bench, bench_title: r.bench_title, tools: r.tools, reason: r.reason, created_at: r.created_at },
           // 能批的人（管理层）多半不是管理员，过不了答复入口前面的写请求总门：卡片照这个地址答，判断和答复入口转过去的是同一处
           answer_via: answerVia('POST', `/api/bench-views/${r.bench}/mcp-requests/${r.id}`, {
-            approve: { body: { approve: true }, input: { note: { to: 'note', max: 500 } } },
-            reject: { body: { approve: false }, input: { note: { to: 'note', required: true, max: 500 } } },
+            approve: { body: { approve: true, [VIA_MARK]: true }, input: { note: { to: 'note', max: 500 } } },
+            reject: { body: { approve: false, [VIA_MARK]: true }, input: { note: { to: 'note', required: true, max: 500 } } },
           }),
         }));
       },
@@ -164,19 +165,59 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
         const viewer = await requestViewer(req, admin);
         if (!admin && !viewer.principal) return null;
         const items = svc<WorkItemService>('workItems');
-        return openSeatAsks().flatMap((a) => {
-          const w = items.get(`wi_${a.event_id}`);
-          if (!w || !canSee(w, viewer)) return [];
-          return [item({
-            source: 'seat-asks', source_id: String(a.delivery_id), category: 'ask',
-            title: `${a.target_team} 问：${a.question || '（没写问题）'}${optionsHint(a.options)}`,
-            waiting_for: a.ask_kind === 'receipt' ? (a.asked_by || a.target_team) : a.asked_by ? `receiver:${a.asked_by}` : a.target_team, since: a.asked_at,
-            answers: itemDecisionVerdict(w, viewer, 'answer').ok ? ['answer'] : [],
-            link: `/work-items/wi_${a.event_id}`,
-            // 提问轮到的是建立人：代办的人（管理层）在这里 mine 为假
-            mine: turnOf(w, viewer).answer, creator: creatorOf(w), cockpit_id: w.cockpit_id ?? null,
-          })];
-        });
+        // 全库还没答的提问（不按最近多少个事件截断），按提问先后分批往后取，每批按可见性过滤后累加：
+        // 凑满这个人看得到的上限后，再往后看还有没有他看得到的，有才标 more。more 只反映他看得到的那些——
+        // 一条都看不到的人，应答和全库没有提问时一样
+        const list: AttentionItem[] = [];
+        let more = false;
+        for (let after: { asked_at: string; delivery_id: number } | null = null; ;) {
+          const batch = openSeatAsks(after, SEAT_ASK_BATCH);
+          for (const a of batch) {
+            const w = items.get(`wi_${a.event_id}`);
+            if (!w || !canSee(w, viewer)) continue;
+            if (list.length >= SEAT_ASK_LIMIT) { more = true; break; }
+            list.push(item({
+              source: 'seat-asks', source_id: String(a.delivery_id), category: 'ask',
+              title: `${a.target_team} 问：${a.question || '（没写问题）'}${optionsHint(a.options)}`,
+              waiting_for: a.ask_kind === 'receipt' ? (a.asked_by || a.target_team) : a.asked_by ? `receiver:${a.asked_by}` : a.target_team, since: a.asked_at,
+              answers: itemDecisionVerdict(w, viewer, 'answer').ok ? ['answer'] : [],
+              link: `/work-items/wi_${a.event_id}`,
+              // 提问轮到的是建立人：代办的人（管理层）在这里 mine 为假
+              mine: turnOf(w, viewer).answer, creator: creatorOf(w), cockpit_id: w.cockpit_id ?? null,
+            }));
+          }
+          if (more || batch.length < SEAT_ASK_BATCH) break;
+          const last = batch[batch.length - 1]!;
+          after = { asked_at: last.asked_at, delivery_id: Number(last.delivery_id) };
+        }
+        return more ? { items: list, total: list.length, more } : list;
+      },
+    }),
+    provide({
+      // 节点没收下你的答复（答复、打回任务回了 rejected）：给建立人冒一条，让他重发或改用别的办法。只是提醒，没有当场的答法；
+      // 谁看得到（协调方 2026-11-13 定）：建立人本人，加上持有管理层授予的人（holdsManagementGrant）。不认管理门：
+      // 管理口令、没有管理层授予的身份来源管理员都看不到——重发、改办法是替建立人做的业务决定，和代办同一个口径。
+      // 事项到了终态、同一投递之后又发过子任务的不列
+      source: 'reply-rejected', label: '节点没收下的答复',
+      list: async (req) => {
+        const viewer = await requestViewer(req, passes(deps.adminGuard, req));
+        if (!viewer.principal) return null;
+        const grant = holdsManagementGrant(viewer.principal);
+        const items = svc<WorkItemService>('workItems');
+        const out: AttentionItem[] = [];
+        for (const r of rejectedReplies()) {
+          const w = items.get(`wi_${r.event_id}`);
+          if (!w || TERMINAL_STATES.includes(w.state)) continue;
+          const mine = items.creatorCheck(w.id, viewer.principal) === 'ok';
+          if (!grant && !mine) continue;
+          out.push(item({
+            source: 'reply-rejected', source_id: String(r.log_id), category: 'ask',
+            title: `${r.target_team} 没收下你的答复${r.summary ? `：${r.summary}` : ''}——可以重发，或改用别的办法`,
+            waiting_for: mine ? viewer.principal : (w.creator_principal ?? ''), since: r.at, answers: [],
+            link: `/work-items/${w.id}`, mine, creator: creatorOf(w),
+          }));
+        }
+        return out;
       },
     }),
     provide({
@@ -218,7 +259,7 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           .filter((t) => !accept.has(t.id))
           .map((t) => item({
             source: 'tasks', source_id: t.id, category: 'review', title: t.title, waiting_for: t.source,
-            since: '', answers: [], link: t.link ?? '/tasks', object: t.project ?? '', // 统一待办的信封没有「什么时候开始」
+            since: '', answers: [], link: t.link ?? null, object: t.project ?? '', // 统一待办的信封没有「什么时候开始」；统一待办页已退役（#664），没给链接的就不给
             kind: taskKind(t),
           }));
       },
@@ -232,7 +273,7 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
         const scope = 'error' in found ? { id: 0, cls: 'external' as const, slug: null } : workbenchScope(found.id);
         if (!(await deps.varsAuthorizeRead(req, silentRes(), scope))) return null;
         if ('error' in found) return [];
-        const vars = listVars(scope).items as BoardVar[];
+        const vars = (await listVars(scope)).items as BoardVar[];
         const config = parseConfig(vars.find((v) => v.key === 'config.owner'));
         if (!config || 'error' in config) return [];
         return buildBoard(vars, config).rows.filter((r) => r.status === 'open').map((r) => item({
@@ -283,7 +324,7 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           if (!release && !admin) continue;
           const answers = [...(release ? ['release'] : []), ...(admin ? ['withdraw'] : [])];
           out.push(item({ source: 'work-items', source_id: w.id, category: 'glance', title: w.title, waiting_for: w.created_by, since: w.created_at, answers, link: `/work-items/${w.id}`, object: w.object, phase: w.phase,
-            mine: turnOf(w, viewer).release, creator: creatorOf(w), cockpit_id: w.cockpit_id, ...(release ? { answer_via: answerVia('POST', `/api/work-items/${w.id}/release`, { release: { body: {} } }) } : {}) }));
+            mine: turnOf(w, viewer).release, creator: creatorOf(w), cockpit_id: w.cockpit_id, ...(release ? { answer_via: answerVia('POST', `/api/work-items/${w.id}/release`, { release: { body: { [VIA_MARK]: true } } }) } : {}) }));
         }
         return out;
       },
@@ -324,8 +365,14 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
       list: (req) => passes(deps.adminGuard, req)
         ? svc<A2aPeerService>('a2aPeers').list({ status: 'key_changed' }).map((p) => item({
           source: 'a2a-peers', source_id: p.id, category: 'grant',
-          title: `对端 ${p.root_url}（${p.zone || '未知域'}）的名片公钥变了：旧 ${p.key_fingerprint.slice(0, 19)}… → 新 ${p.pending_fingerprint.slice(0, 19)}…，核对指纹后确认`,
-          waiting_for: p.root_url, since: p.updated_at, answers: [], link: `/a2a-peers?peer=${p.id}`,
+          title: `对端 ${p.root_url}（${p.zone || '未知域'}）的名片公钥变了：旧 ${p.key_fingerprint.slice(0, 19)}… → 新 ${p.pending_fingerprint.slice(0, 19)}…，向对端核对新指纹后，在这里填入完整指纹确认，或者停用这个对端`,
+          // 市场里没有对端登记表的页面：不给链接，当场办——确认新公钥（要填完整的新指纹，和对端核对过才填得出）、停用（要写理由）。
+          // 两个答法直接调对端登记表的接口，那边照旧只认管理员、核指纹
+          waiting_for: p.root_url, since: p.updated_at, answers: ['confirm-key', 'disable'], link: null,
+          answer_via: { method: 'POST', path: `/api/a2a/peers/${encodeURIComponent(p.id)}/confirm-key`, answers: {
+            'confirm-key': { body: { [VIA_MARK]: true }, input: { fingerprint: { to: 'fingerprint', required: true, max: 71 } } },
+            disable: { path: `/api/a2a/peers/${encodeURIComponent(p.id)}/disable`, body: { [VIA_MARK]: true }, input: { reason: { to: 'reason', required: true, max: 500 } } },
+          } },
         }))
         : null,
     }),
@@ -335,7 +382,7 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
       list: (req) => {
         if (!passes(deps.adminGuard, req)) return null;
         const t = svc<TeamService>('teams');
-        const what = { unclaimed: '待认领', 'off-roster': '不在节点名册里了', 'lead-vacant': '没有负责人' } as const;
+        const what = { unclaimed: '待认领', 'off-roster': '不在节点名册里了', 'node-changed': '对应的节点换了，原来的认领不算数了', 'lead-vacant': '没有负责人' } as const;
         const teamsOut = t.needingAttention().map((x) => {
           const node = t.nodeInfo(x.host);
           return item({
@@ -350,6 +397,26 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           waiting_for: r.node_name ?? '', since: r.roster_received_at, link: '/team', phase: 'roster-stale',
         }));
         return [...stale, ...teamsOut];
+      },
+    }),
+    provide({
+      // 团队归属记在旧节点上、现在不算数的（名册被清后别的节点报了同一个号、换了钥、对端停用，或者存量回填不上）：给管理员和管理层列出来，
+      // 在团队页重新认领、指定负责人、分配成员（重新做时旧的那几行自动结束）。只给数，不给节点标识
+      source: 'team-binding', label: '团队归属要重新确认',
+      list: async (req) => {
+        const admin = passes(deps.adminGuard, req);
+        const viewer = await requestViewer(req, admin);
+        if (!admin && !viewer.management) return null;
+        const t = svc<TeamService>('teams');
+        return t.staleBindings().map((x) => {
+          const node = t.nodeInfo(x.host);
+          const parts = [x.claim ? '认领' : '', x.leads ? `${x.leads} 个负责人` : '', x.assignments ? `${x.assignments} 个成员分配` : ''].filter(Boolean).join('、');
+          return item({
+            source: 'team-binding', source_id: `${x.host}:${x.team}`, category: 'glance',
+            title: `团队 ${teamName(x.team) || '（没有名字）'}${node.node_name ? `（来自 ${node.node_name}）` : ''}的${parts}记在原来的节点上，节点已经变了，这些不算数了，请重新确认`,
+            waiting_for: node.node_name ?? '', since: node.roster_received_at ?? '', link: '/team', object: x.team, phase: 'node-changed',
+          });
+        });
       },
     }),
     provide({

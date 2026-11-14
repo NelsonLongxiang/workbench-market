@@ -1,4 +1,5 @@
 import type { WorkItemListPage } from './work-items-view';
+import { seatAsksMore } from './attention-view';
 import type { Cockpit, ExportPayload, PanelConfig, SopApp, SopDefinition, SopRun, SopRunDetail, SopRunFile, Summary, Workbench, WorkbenchDraft, WorkbenchType } from './types';
 import { getAdminToken, loginRequired, redirectToLogin } from './admin-token';
 import { IDENTITY_DOWN_TEXT, isIdentityUnavailable } from './identity-status';
@@ -117,7 +118,7 @@ export async function postSeatMessageReply(id: string, messageId: number, text: 
 }
 
 /** 建立人本人验收、退回自己的事项（阶段八 8e）。不走 apiFetch：没登录、被拒由页面自己说，不弹管理员口令 */
-export async function postCreatorDecision(id: string, answer: string, reason: string): Promise<{ status: number; body: { duplicate?: boolean; result?: { error?: string }; error?: string } }> {
+export async function postCreatorDecision(id: string, answer: string, reason: string): Promise<{ status: number; body: { duplicate?: boolean; result?: { error?: string; message?: string }; error?: string; message?: string } }> {
   const res = await fetch(`/api/work-items/${encodeURIComponent(id)}/decision`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answer, reason }) });
   return { status: res.status, body: await res.json().catch(() => ({})) };
 }
@@ -141,7 +142,9 @@ function forgetShared(key: string) { for (const k of [...sharedMemo.keys()]) if 
 
 /** 「关注」：给这个身份的全部条目和总数。status 0 = 连不上 */
 /** identityDown：身份服务连不上（502 identity_unavailable）——这时不是「没有待办」，页面要说「暂时取不到」 */
-export type AttentionRead = { status: number; items: AttentionItemLite[]; total: number | null; identityDown: boolean };
+/** stuckCount：停太久的一共几件（counts.stuck_count，含超出上限没列出来的）；旧的应答没有就是 null */
+/** seatAsksMore：AI 员工的提问没列全（#720 的 sources['seat-asks'].more） */
+export type AttentionRead = { status: number; items: AttentionItemLite[]; total: number | null; identityDown: boolean; stuckCount: number | null; seatAsksMore: boolean };
 type AttentionItemLite = { source: string; source_id: string; category: string; [k: string]: unknown };
 export function getAttention(): Promise<AttentionRead> {
   return shared('attention', async () => {
@@ -149,9 +152,9 @@ export function getAttention(): Promise<AttentionRead> {
       const token = getAdminToken();
       const r = await fetch('/api/attention', { headers: token ? { 'X-Admin-Token': token } : {} });
       const raw: unknown = await r.json().catch(() => ({}));
-      const j = (r.ok ? raw : {}) as { items?: AttentionItemLite[]; counts?: { total?: number } };
-      return { status: r.status, items: Array.isArray(j.items) ? j.items : [], total: typeof j.counts?.total === 'number' ? j.counts.total : null, identityDown: isIdentityUnavailable(r.status, raw) };
-    } catch { return { status: 0, items: [], total: null, identityDown: false }; }
+      const j = (r.ok ? raw : {}) as { items?: AttentionItemLite[]; counts?: { total?: number; stuck_count?: number }; sources?: unknown };
+      return { status: r.status, items: Array.isArray(j.items) ? j.items : [], total: typeof j.counts?.total === 'number' ? j.counts.total : null, identityDown: isIdentityUnavailable(r.status, raw), stuckCount: typeof j.counts?.stuck_count === 'number' ? j.counts.stuck_count : null, seatAsksMore: seatAsksMore(j.sources) };
+    } catch { return { status: 0, items: [], total: null, identityDown: false, stuckCount: null, seatAsksMore: false }; }
   });
 }
 /** 办完一件：清掉「关注」的缓存，再广播（侧栏角标、全景都跟着刷新） */
@@ -169,12 +172,25 @@ export const listCockpitsShared = (): Promise<Cockpit[]> => shared('cockpits', (
 
 /** 当前登录身份（登录门的 /api/auth/me）：外壳的用户卡、全景的问候语用。拿不到就是 null，不弹口令。
  *  叫 getAuthMe 不叫 getMe：事项详情那条线（#565）在这里也加了一个 getMe，两边先后合进 main 时不撞名；都合了以后收成一份。 */
-export type AuthMe = { authenticated?: boolean; login?: string | null; via?: string | null; display_name?: string | null };
+/** can：服务端按这个人算好的能做什么（create_cockpit 建驾驶舱，remember_knowledge 把拍板记成经验，#745） */
+export type AuthMe = { authenticated?: boolean; login?: string | null; via?: string | null; display_name?: string | null; can?: { create_cockpit?: boolean; remember_knowledge?: boolean } };
 export function getAuthMe(): Promise<AuthMe | null> {
   return shared('auth-me', async () => {
     try { const r = await fetch('/api/auth/me', { cache: 'no-store', credentials: 'same-origin' }); return r.ok ? await r.json() as AuthMe : null; } catch { return null; }
   });
 }
+/** 能不能把拍板记成经验（/api/auth/me 的 can.remember_knowledge，和记的时候同一处判断）：拿不到当不能 */
+export const canRememberKnowledge = (): Promise<boolean> => getAuthMe().then((m) => m?.can?.remember_knowledge === true);
+/** 「记成经验」的三个口子（#745）：缺省档、「我处理过的」、补记。带登录的 cookie；返回状态码和应答体，让页面给说法；断网当 0 */
+async function rememberCall(path: string, init?: RequestInit): Promise<{ status: number; body: unknown }> {
+  try {
+    const r = await fetch(path, { credentials: 'same-origin', ...init, headers: { Accept: 'application/json', ...(init?.body ? { 'Content-Type': 'application/json' } : {}) } });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  } catch { return { status: 0, body: null }; }
+}
+export const getRememberDefaults = (source: string, sourceId: string) => rememberCall(`/api/knowledge/remember/defaults?${new URLSearchParams({ source, source_id: sourceId })}`);
+export const getRecentAnswers = () => rememberCall('/api/knowledge/remember/recent');
+export const postRememberLater = (req: { source: string; source_id: string; lesson: string; cue?: string; visibility?: string }) => rememberCall('/api/knowledge/remember', { method: 'POST', body: JSON.stringify(req) });
 
 /** 生命周期只读接口（观测层扩展挂在市场里）：带登录 cookie；扩展没挂上（404）或没配置（503）由页面给空状态，不弹口令 */
 /** identityDown：身份服务连不上（502 identity_unavailable），页面说「暂时取不到」，不当成没有 */
@@ -210,8 +226,13 @@ async function marketGet(url: string): Promise<{ status: number; body: unknown }
   } catch { return { status: 0, body: null }; }
 }
 export const getMarketWorkbenches = () => marketGet('/api/workbenches');
+/** 市场的连接器（MCP 上游）：只给管理员，页面只在管理员身份下才调 */
+export const getMarketConnectors = () => marketGet('/api/mcp/upstreams');
+/** 单个台的详情页（/market/wb/:id）：带状态码，让页面分「不在了」「没权限」「读不到」 */
+export const getMarketWorkbench = (id: number) => marketGet(`/api/workbenches/${id}`);
 export const getMarketSops = () => marketGet('/api/sops');
 export const getMarketSkills = () => marketGet('/api/skills');
+export const getMarketSkillVersions = (slug: string) => marketGet(`/api/skills/${encodeURIComponent(slug)}/versions`);
 export const getMarketRunningSops = () => marketGet('/api/sop/runs/active');
 
 /** 「谁能做什么」（照原型重做的 /access）：授予、主体、角色、角色矩阵各读各的，返回状态码让页面给说法；核准、不给（撤销待核的授予）也一样。
@@ -281,12 +302,16 @@ async function teamCall(url: string, init?: { method: string; body: unknown }): 
   } catch { return { status: 0, body: null }; }
 }
 export const getTeams = () => teamCall('/api/teams');
+/** 分给我的成员、我负责的团队（驾驶舱「AI 员工」用） */
+export const getMyTeams = () => teamCall('/api/teams/mine');
 export const getTeamDepartments = () => teamCall('/api/departments');
 export const getTeamPeople = () => teamCall('/api/principals');
 export const claimTeam = (host: string, team: string, department: string) => teamCall('/api/teams/claim', { method: 'POST', body: { host, team, department } });
 export const addTeamLead = (host: string, team: string, principal: string) => teamCall('/api/teams/leads', { method: 'POST', body: { host, team, principal } });
 /** 把一个成员分配给某位员工、收回（规范 14 第二节）：席位按 seat 加 seat_id 认；能不能做服务端判（负责人、管理层） */
 export const assignTeamSeat = (host: string, team: string, seat: string, seat_id: string, principal: string) => teamCall('/api/teams/assign', { method: 'POST', body: { host, team, seat, seat_id, principal } });
+/** 一步改派（#682）：一个事务里收回并分给另一个人；200 { ok, changed, id, from }，拒绝的状态码和错误码同分配 */
+export const reassignTeamSeat = (host: string, team: string, seat: string, seat_id: string, principal: string) => teamCall('/api/teams/reassign', { method: 'POST', body: { host, team, seat, seat_id, principal } });
 export const unassignTeamSeat = (host: string, team: string, seat: string, seat_id: string) => teamCall('/api/teams/unassign', { method: 'POST', body: { host, team, seat, seat_id } });
 export const putDepartment = (id: string, name: string, lead: string | null) => teamCall(`/api/departments/${encodeURIComponent(id)}`, { method: 'PUT', body: { name, ...(lead ? { lead } : {}) } });
 
@@ -339,4 +364,47 @@ export async function getBenchView(ref: { bench: string; view: string }, params:
     const body = await r.json().catch(() => null) as { error?: string } | null;
     return { status: r.status, body: r.ok ? body : null, error: typeof body?.error === 'string' ? body.error : undefined };
   } catch { return { status: 0, body: null }; }
+}
+
+/** 数据视图的两个只读入口（往驾驶舱里挂视图时选台、选视图用）：带登录的 cookie，不带管理口令。
+ *  返回状态码和应答体（出错时应答体里有 error 代号），让页面给说法；断网当状态码 0 */
+async function benchViewsGet(path: string): Promise<{ status: number; body: unknown }> {
+  try {
+    const r = await fetch(path, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  } catch { return { status: 0, body: null }; }
+}
+export const listBenchViews = () => benchViewsGet('/api/bench-views');
+export const getBenchViewDoc = (bench: string) => benchViewsGet(`/api/bench-views/${encodeURIComponent(bench)}/view`);
+/** 视图台页面的入口：ref 写卡片 id 或台标识。200 时 body 是 BenchEntry；读不到的、不存在的、没开台库的、还没有视图描述的都是同一个 404（页面照原来的方式打开卡片）；没登录 401 */
+export type BenchEntry = { bench: { slug: string; title: string; workbench_id: number | null }; version: number; title: string; default_view: string; views: { key: string; title: string }[] };
+export const getBenchEntry = (ref: string | number) => benchViewsGet(`/api/bench-views/${encodeURIComponent(String(ref))}/entry`) as Promise<{ status: number; body: BenchEntry | { error?: string } | null }>;
+/** 视图台页面上交表单：路径写卡片 id。返回状态码和应答体（出错时带 error、message），让表单说原因；断网当状态码 0 */
+export async function submitBenchForm(ref: string | number, req: { view: string; block: number; version: number; values: Record<string, unknown> }): Promise<{ status: number; body: unknown }> {
+  try {
+    const r = await fetch(`/api/bench-views/${encodeURIComponent(String(ref))}/form`, { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(req) });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  } catch { return { status: 0, body: null }; }
+}
+/** 经验库（#717）：列表 GET /api/knowledge（只含这个人看得到的）、一条的详情 GET /api/knowledge/:key。带登录的 cookie，不带管理口令（口令读不了业务内容）。
+ *  返回状态码和应答体，让页面给说法；断网当状态码 0 */
+export const getKnowledge = () => benchViewsGet('/api/knowledge');
+export const getKnowledgeItem = (key: string) => benchViewsGet(`/api/knowledge/${encodeURIComponent(key)}`);
+/** 「项目 → 部门」对照（#729）：读、改一行（department 给 null 是清掉）。返回状态码和应答体，让页面给说法；断网当状态码 0 */
+export const getProjectDepts = () => benchViewsGet('/api/knowledge/project-depts');
+export async function putProjectDept(project: string, department: string | null): Promise<{ status: number; body: unknown }> {
+  try {
+    const r = await fetch('/api/knowledge/project-depts', { method: 'PUT', credentials: 'same-origin', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify({ project, department }) });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  } catch { return { status: 0, body: null }; }
+}
+/** 这个人能不能新建驾驶舱（/api/auth/me 的 can.create_cockpit，服务端和建驾驶舱的路由同一处判断）。
+ *  带着管理口令问（口令持有人也能建）；不缓存：口令输入、清掉之后页面会再问一次。拿不到当不能 */
+export async function canCreateCockpit(): Promise<boolean> {
+  try {
+    const token = getAdminToken();
+    const r = await fetch('/api/auth/me', { cache: 'no-store', credentials: 'same-origin', headers: token ? { 'X-Admin-Token': token } : {} });
+    const b = r.ok ? await r.json() as { can?: { create_cockpit?: unknown } } : null;
+    return b?.can?.create_cockpit === true;
+  } catch { return false; }
 }

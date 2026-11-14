@@ -460,6 +460,27 @@ try {
       show({ wider: wider.status, objOther: objOther.status, sameScope: sameScope.status, all: all.status, objSame: objSame.status, bad }));
   }
 
+  // ---------- 六之二、范围给人看的名字（scope_name）：部门范围给部门名，别的范围给 null（部门不存在的范围起草就被拒，名字给 null 只是兜底） ----------
+  {
+    await srv.call('PUT', '/api/departments/syn-sales', { body: { name: '合成销售部' } }); // 本机命令行（属主）建部门
+    const issue = async (body) => { const d = await draft(body); await step(d.json?.grant?.id, 'submit'); const a = await step(d.json?.grant?.id, 'approve'); return { id: d.json?.grant?.id, draft: d.status, approve: a.status }; };
+    const dept = await issue({ principal: 'user:beta', role: 'dept-lead', scope: 'dept:syn-sales' });
+    const wide = await issue({ principal: 'user:beta', role: 'member', scope: '*' });
+    const list = (await srv.call('GET', '/api/grants?principal=user:beta')).json?.grants ?? [];
+    const byId = (id) => list.find((g) => g.id === id);
+    const one = (await srv.call('GET', `/api/grants/${dept.id}`)).json;
+    const me = await srv.call('GET', '/api/auth/me', { headers: { ...REMOTE, ...same }, session: SESSIONS.beta });
+    const myRoles = me.json?.roles ?? [];
+    const myDept = myRoles.find((r) => r.scope === 'dept:syn-sales'), myWide = myRoles.find((r) => r.scope === '*' && r.id === 'member');
+    check(dept.approve === 200 && wide.approve === 200
+      && byId(dept.id)?.scope_name === '合成销售部' && byId(wide.id)?.scope_name === null
+      && (one?.grant ?? one)?.scope_name === '合成销售部'
+      && myDept?.scope_name === '合成销售部' && myWide && myWide.scope_name === null
+      && list.every((g) => g.scope_name === null || (typeof g.scope_name === 'string' && !g.scope_name.includes(':'))),
+      '范围的名字：部门范围的授予在授予列表、单条、本人的 /api/auth/me 里都带部门名；* 等别的范围给 null；名字里不带标识',
+      show({ dept, wide, list: list.map((g) => [g.scope, g.scope_name]), one: (one?.grant ?? one)?.scope_name, me: myRoles.map((r) => [r.id, r.scope, r.scope_name]) }));
+  }
+
   // ---------- 七、到期、撤销、留痕 ----------
   {
     const d = await draft({ principal: 'user:beta', role: 'member', expires_at: Date.now() + 1500 });

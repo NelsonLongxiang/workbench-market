@@ -19,8 +19,9 @@ export class CockpitService extends Service {
   update(id: number, name: string, description: string, layoutJson: string) {
     return db.prepare(`UPDATE cockpits SET name = ?, description = ?, layout_config = ?, updated_at = datetime('now') WHERE id = ?`).run(name, description, layoutJson, id);
   }
-  create(name: string, description: string, layoutJson: string) {
-    return db.prepare(`INSERT INTO cockpits (name, description, layout_config) VALUES (?, ?, ?)`).run(name, description, layoutJson);
+  /** createdBy：建立人的主体；管理员（口令、Odoo 管理员）和本机命令行建的记 null */
+  create(name: string, description: string, layoutJson: string, createdBy: string | null = null) {
+    return db.prepare(`INSERT INTO cockpits (name, description, layout_config, created_by) VALUES (?, ?, ?, ?)`).run(name, description, layoutJson, createdBy);
   }
   list() {
     return db.prepare('SELECT * FROM cockpits ORDER BY updated_at DESC, id DESC').all();

@@ -1,0 +1,368 @@
+{
+  "domain": "content-open",
+  "what": "市场面上内容面的两层（随内容面配置才有用）：启动页 /content/open/<目标号>（从可信入口、带认得的会话，出一页按钮去内容面），迁移跳转（开了迁移的目标，浏览器顶层导航到 /go/<号>/… 时送去启动页）。没配内容面时两层都放过。2 条路由。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["ALL /^\\/content\\/open\\//", "GET /^\\/go\\/([1-9][0-9]*)(?:\\/|$)/i"],
+  "exempt": [{ "route": "GET /^\\/go\\/([1-9][0-9]*)(?:\\/|$)/i", "class": "unauthorized", "why": "迁移跳转只管把浏览器送到可信入口，不认人；认人在启动页", "shown_by": "configured/mig-nav" }],
+  "scenarios": [
+    {
+      "name": "configured",
+      "what": "配了内容面（content-surface-fake 夹具：端口现找、市场入口 http://market.replay.test、2 号目标开迁移、3 号不开），登录方换成假的，前端占位。登录门关。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "fixtures": ["content-surface-fake", "identity-fake", "web-dist-stub"],
+      "steps": [
+        {
+          "id": "open-ok",
+          "route": "ALL /^\\/content\\/open\\//",
+          "class": "normal",
+          "what": "从可信入口（Host 是市场入口）、带一个认得的会话：200 启动页（表单地址带内容面的端口、票据每次随机，只比状态码）",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/content/open/2", "raw": true, "headers": { "host": "market.replay.test", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "open-head",
+          "route": "ALL /^\\/content\\/open\\//",
+          "class": "normal",
+          "what": "HEAD 一样：200（只比状态码）",
+          "compare": "status",
+          "request": { "method": "HEAD", "path": "/content/open/2", "raw": true, "headers": { "host": "market.replay.test", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "open-anon",
+          "route": "ALL /^\\/content\\/open\\//",
+          "class": "unauthorized",
+          "what": "没有会话：401 请先登录",
+          "request": { "method": "GET", "path": "/content/open/2", "raw": true, "headers": { "host": "market.replay.test" } },
+          "response": {
+            "status": 401,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "207", "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'", "etag": "W/\"cf-<指纹>\"", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>Login required</title><p>请先在可信入口登录，再返回此工作台启动页。</p><a href=\"/login\" rel=\"noopener noreferrer\">前往可信登录入口</a>"
+          }
+        },
+        {
+          "id": "open-forged",
+          "route": "ALL /^\\/content\\/open\\//",
+          "class": "unauthorized",
+          "what": "会话认不出：401",
+          "request": { "method": "GET", "path": "/content/open/2", "raw": true, "headers": { "host": "market.replay.test", "cookie": "session_id=fake-forged-session-0001" } },
+          "response": {
+            "status": 401,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "207", "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'", "etag": "W/\"cf-<指纹>\"", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>Login required</title><p>请先在可信入口登录，再返回此工作台启动页。</p><a href=\"/login\" rel=\"noopener noreferrer\">前往可信登录入口</a>"
+          }
+        },
+        {
+          "id": "open-two-sessions",
+          "route": "ALL /^\\/content\\/open\\//",
+          "class": "unauthorized",
+          "what": "带了两个会话：不挑，401",
+          "request": { "method": "GET", "path": "/content/open/2", "raw": true, "headers": { "host": "market.replay.test", "cookie": "session_id=fake-internal-alpha-0001; session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 401,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "207", "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'", "etag": "W/\"cf-<指纹>\"", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>Login required</title><p>请先在可信入口登录，再返回此工作台启动页。</p><a href=\"/login\" rel=\"noopener noreferrer\">前往可信登录入口</a>"
+          }
+        },
+        {
+          "id": "open-portal-account",
+          "route": "ALL /^\\/content\\/open\\//",
+          "class": "unauthorized",
+          "what": "非内部账号的会话：401",
+          "request": { "method": "GET", "path": "/content/open/2", "raw": true, "headers": { "host": "market.replay.test", "cookie": "session_id=fake-portal-account-0001" } },
+          "response": {
+            "status": 401,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "207", "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'", "etag": "W/\"cf-<指纹>\"", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>Login required</title><p>请先在可信入口登录，再返回此工作台启动页。</p><a href=\"/login\" rel=\"noopener noreferrer\">前往可信登录入口</a>"
+          }
+        },
+        {
+          "id": "open-unknown-target",
+          "route": "ALL /^\\/content\\/open\\//",
+          "class": "invalid",
+          "what": "没配这个目标：404",
+          "request": { "method": "GET", "path": "/content/open/9", "raw": true, "headers": { "host": "market.replay.test", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "",
+            "headers": { "cache-control": "no-store", "content-length": "0", "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": ""
+          }
+        },
+        {
+          "id": "open-zero",
+          "route": "ALL /^\\/content\\/open\\//",
+          "class": "invalid",
+          "what": "目标号 0：404",
+          "request": { "method": "GET", "path": "/content/open/0", "raw": true, "headers": { "host": "market.replay.test", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "",
+            "headers": { "cache-control": "no-store", "content-length": "0", "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": ""
+          }
+        },
+        {
+          "id": "open-leading-zero",
+          "route": "ALL /^\\/content\\/open\\//",
+          "class": "invalid",
+          "what": "目标号带前导零：404",
+          "request": { "method": "GET", "path": "/content/open/02", "raw": true, "headers": { "host": "market.replay.test", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "",
+            "headers": { "cache-control": "no-store", "content-length": "0", "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": ""
+          }
+        },
+        {
+          "id": "open-trailing-slash",
+          "route": "ALL /^\\/content\\/open\\//",
+          "class": "invalid",
+          "what": "结尾带斜杠：404",
+          "request": { "method": "GET", "path": "/content/open/2/", "raw": true, "headers": { "host": "market.replay.test", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "",
+            "headers": { "cache-control": "no-store", "content-length": "0", "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": ""
+          }
+        },
+        {
+          "id": "open-query",
+          "route": "ALL /^\\/content\\/open\\//",
+          "class": "invalid",
+          "what": "带查询串：404（按原始 URL 整段比）",
+          "request": { "method": "GET", "path": "/content/open/2?x=1", "raw": true, "headers": { "host": "market.replay.test", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "",
+            "headers": { "cache-control": "no-store", "content-length": "0", "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": ""
+          }
+        },
+        {
+          "id": "open-bare",
+          "route": "ALL /^\\/content\\/open\\//",
+          "class": "invalid",
+          "what": "只有前缀：404",
+          "request": { "method": "GET", "path": "/content/open/", "raw": true, "headers": { "host": "market.replay.test", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "",
+            "headers": { "cache-control": "no-store", "content-length": "0", "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": ""
+          }
+        },
+        {
+          "id": "open-post",
+          "route": "ALL /^\\/content\\/open\\//",
+          "class": "invalid",
+          "what": "POST：404",
+          "request": { "method": "POST", "path": "/content/open/2", "raw": true, "headers": { "host": "market.replay.test", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "",
+            "headers": { "cache-control": "no-store", "content-length": "0", "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": ""
+          }
+        },
+        {
+          "id": "open-wrong-host",
+          "route": "ALL /^\\/content\\/open\\//",
+          "class": "invalid",
+          "what": "Host 不是市场入口：404",
+          "request": { "method": "GET", "path": "/content/open/2", "headers": { "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "",
+            "headers": { "cache-control": "no-store", "content-length": "0", "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": ""
+          }
+        },
+        {
+          "id": "open-upper",
+          "what": "大写前缀：不是这一层，落到页面兜底（兜底页里的市场地址带本实例端口，只比状态码）",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/CONTENT/open/2", "raw": true, "headers": { "host": "market.replay.test", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "mig-nav",
+          "route": "GET /^\\/go\\/([1-9][0-9]*)(?:\\/|$)/i",
+          "class": "normal",
+          "what": "迁移目标、顶层导航：302 去可信入口的启动页",
+          "request": { "method": "GET", "path": "/go/2/", "raw": true, "headers": { "host": "market.replay.test", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 302,
+            "type": "text/plain; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "62", "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'", "location": "http://market.replay.test/content/open/2", "referrer-policy": "no-referrer", "vary": "Accept", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": "Found. Redirecting to http://market.replay.test/content/open/2"
+          }
+        },
+        {
+          "id": "mig-nav-deep",
+          "route": "GET /^\\/go\\/([1-9][0-9]*)(?:\\/|$)/i",
+          "class": "normal",
+          "what": "迁移目标的深路径：一样 302 去启动页（不带原路径和参数）",
+          "request": { "method": "GET", "path": "/go/2/some/page?x=1", "raw": true, "headers": { "host": "market.replay.test", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 302,
+            "type": "text/plain; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "62", "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'", "location": "http://market.replay.test/content/open/2", "referrer-policy": "no-referrer", "vary": "Accept", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": "Found. Redirecting to http://market.replay.test/content/open/2"
+          }
+        },
+        {
+          "id": "mig-nav-head",
+          "what": "HEAD 导航：Express 的 GET 路由也接 HEAD，一样 302",
+          "request": { "method": "HEAD", "path": "/go/2/", "raw": true, "headers": { "host": "market.replay.test", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 302,
+            "type": "text/plain; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "62", "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'", "location": "http://market.replay.test/content/open/2", "referrer-policy": "no-referrer", "vary": "Accept", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": ""
+          }
+        },
+        {
+          "id": "mig-upper",
+          "route": "GET /^\\/go\\/([1-9][0-9]*)(?:\\/|$)/i",
+          "class": "normal",
+          "what": "大写 /GO/：迁移这层不分大小写，302",
+          "request": { "method": "GET", "path": "/GO/2/", "raw": true, "headers": { "host": "market.replay.test", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 302,
+            "type": "text/plain; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "62", "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'", "location": "http://market.replay.test/content/open/2", "referrer-policy": "no-referrer", "vary": "Accept", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": "Found. Redirecting to http://market.replay.test/content/open/2"
+          }
+        },
+        {
+          "id": "mig-no-slash",
+          "route": "GET /^\\/go\\/([1-9][0-9]*)(?:\\/|$)/i",
+          "class": "normal",
+          "what": "台号后面没有斜杠：302",
+          "request": { "method": "GET", "path": "/go/2", "raw": true, "headers": { "host": "market.replay.test", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 302,
+            "type": "text/plain; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "62", "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'", "location": "http://market.replay.test/content/open/2", "referrer-policy": "no-referrer", "vary": "Accept", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": "Found. Redirecting to http://market.replay.test/content/open/2"
+          }
+        },
+        {
+          "id": "mig-iframe",
+          "route": "GET /^\\/go\\/([1-9][0-9]*)(?:\\/|$)/i",
+          "class": "normal",
+          "what": "在 iframe 里：200 一页「在新标签页打开」（只许市场入口嵌）",
+          "request": { "method": "GET", "path": "/go/2/", "raw": true, "headers": { "host": "market.replay.test", "sec-fetch-mode": "navigate", "sec-fetch-dest": "iframe", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "242", "content-security-policy": "default-src 'none'; frame-ancestors http://market.replay.test; base-uri 'none'; form-action 'none'", "etag": "W/\"f2-<指纹>\"", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>Open isolated workbench</title><p>此工作台已迁到独立内容主机。</p><a target=\"_blank\" rel=\"noopener noreferrer\" href=\"http://market.replay.test/content/open/2\">在新标签页打开</a>"
+          }
+        },
+        {
+          "id": "mig-legacy",
+          "route": "GET /^\\/go\\/([1-9][0-9]*)(?:\\/|$)/i",
+          "class": "normal",
+          "what": "老浏览器（没有 sec-fetch 头、Mozilla、要 HTML）：200 同一页",
+          "request": { "method": "GET", "path": "/go/2/", "raw": true, "headers": { "host": "market.replay.test", "user-agent": "Mozilla/5.0 (replay)", "accept": "text/html,application/xhtml+xml" } },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "242", "content-security-policy": "default-src 'none'; frame-ancestors http://market.replay.test; base-uri 'none'; form-action 'none'", "etag": "W/\"f2-<指纹>\"", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>Open isolated workbench</title><p>此工作台已迁到独立内容主机。</p><a target=\"_blank\" rel=\"noopener noreferrer\" href=\"http://market.replay.test/content/open/2\">在新标签页打开</a>"
+          }
+        },
+        {
+          "id": "mig-wrong-host",
+          "route": "GET /^\\/go\\/([1-9][0-9]*)(?:\\/|$)/i",
+          "class": "invalid",
+          "what": "迁移目标、顶层导航、Host 不是市场入口：404 Not found",
+          "request": { "method": "GET", "path": "/go/2/", "raw": true, "headers": { "host": "other.replay.test", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document", "sec-fetch-site": "same-origin" } },
+          "response": { "status": 404, "type": "text/plain; charset=utf-8", "headers": { "content-length": "9", "etag": "W/\"9-<指纹>\"", "x-powered-by": "Express" }, "body": "Not found" }
+        },
+        {
+          "id": "mig-not-opted",
+          "route": "GET /^\\/go\\/([1-9][0-9]*)(?:\\/|$)/i",
+          "class": "invalid",
+          "what": "没开迁移的目标：迁移这层放过，交给门户（没有 3 号台，404）",
+          "request": { "method": "GET", "path": "/go/3/", "raw": true, "headers": { "host": "market.replay.test", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document", "sec-fetch-site": "same-origin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "工作台不存在: 3" } }
+        },
+        {
+          "id": "mig-not-nav",
+          "route": "GET /^\\/go\\/([1-9][0-9]*)(?:\\/|$)/i",
+          "class": "invalid",
+          "what": "不是导航（fetch）：放过，交给门户（没有 2 号台，404）",
+          "request": { "method": "GET", "path": "/go/2/", "raw": true, "headers": { "host": "market.replay.test", "sec-fetch-mode": "cors", "sec-fetch-dest": "empty" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "工作台不存在: 2" } }
+        },
+        {
+          "id": "mig-ws",
+          "route": "GET /^\\/go\\/([1-9][0-9]*)(?:\\/|$)/i",
+          "class": "invalid",
+          "what": "带 Upgrade 头：放过，交给门户",
+          "request": { "method": "GET", "path": "/go/2/", "raw": true, "headers": { "host": "market.replay.test", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document", "sec-fetch-site": "same-origin", "upgrade": "websocket" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "工作台不存在: 2" } }
+        },
+        {
+          "id": "mig-zero",
+          "what": "台号 0：迁移这层不接，门户 404",
+          "request": { "method": "GET", "path": "/go/0/", "raw": true, "headers": { "host": "market.replay.test", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document", "sec-fetch-site": "same-origin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "工作台不存在: 0" } }
+        },
+        {
+          "id": "mig-post",
+          "what": "POST：迁移这层不接，门户 404",
+          "request": { "method": "POST", "path": "/go/2/", "raw": true, "headers": { "host": "market.replay.test", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document", "sec-fetch-site": "same-origin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "工作台不存在: 2" } }
+        }
+      ]
+    },
+    {
+      "name": "plain",
+      "what": "没配内容面：两层都放过。前端占位。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "fixtures": ["web-dist-stub"],
+      "steps": [
+        {
+          "id": "plain-open",
+          "route": "ALL /^\\/content\\/open\\//",
+          "class": "normal",
+          "what": "没配内容面：这一层放过，落到页面兜底（200 前端外壳）",
+          "vary": { "$location": ["port"] },
+          "request": { "method": "GET", "path": "/content/open/2", "headers": { "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-cache", "content-length": "244", "etag": "W/\"f4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": "<!doctype html>\n<html><head><meta name=\"wm-surface\" content=\"market\"><meta name=\"wm-control-url\" content=\"\"><meta name=\"wm-market-url\" content=\"http://127.0.0.1:<市场端口>\"><title>占位前端</title></head><body><div id=\"root\"></div></body></html>\n"
+          }
+        },
+        {
+          "id": "plain-open-missing",
+          "route": "ALL /^\\/content\\/open\\//",
+          "class": "invalid",
+          "what": "没配内容面、带扩展名：页面兜底不接，404",
+          "request": { "method": "GET", "path": "/content/open/2.js", "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "21", "etag": "W/\"15-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "not found" } }
+        },
+        {
+          "id": "plain-mig",
+          "route": "GET /^\\/go\\/([1-9][0-9]*)(?:\\/|$)/i",
+          "class": "invalid",
+          "what": "没配内容面、顶层导航：迁移这层放过，交给门户（没有 2 号台，404）",
+          "request": { "method": "GET", "path": "/go/2/", "headers": { "sec-fetch-mode": "navigate", "sec-fetch-dest": "document", "sec-fetch-site": "same-origin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "工作台不存在: 2" } }
+        }
+      ]
+    }
+  ]
+}

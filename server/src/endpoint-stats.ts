@@ -66,7 +66,7 @@ export function endpointStatsMiddleware(): express.RequestHandler {
         // 门户面计数（direct-53caaed3 关缝）：/go/<id>/* 归一为 /go/:id——台维度天然可聚合。
         // 注：/go/ 非业务路由（无 req.route），放行条件单列
         const isPortal = /^\/go\/\d+/.test(url);
-        if (!url.startsWith('/api/') && url !== '/tasks' && !isPortal) return;
+        if (!url.startsWith('/api/') && !isPortal) return; // 统一待办页（/tasks）已退役（#664），不再单列
         if (isPortal && res.statusCode >= 400) return; // 门户 4xx/5xx 不计入活跃
         if (url === '/api/stats') return; // 自身不计
         const key = `${normalizeEndpoint(url)}|${new Date().toISOString().slice(0, 10)}`;
