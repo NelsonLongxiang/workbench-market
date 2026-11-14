@@ -13,7 +13,7 @@ import { apiFetch } from '../admin-token';
 import { attentionChanged, canRememberKnowledge, getRememberDefaults, postCreatorDecision, postRememberLater } from '../api';
 import RememberFields from './RememberFields';
 import { REMEMBER_LABEL, answeredWithRemember, defaultsOf, rememberLaterResult, rememberPayload, rememberProblem, type RememberDefaults, type Visibility } from '../remember-view';
-import { answerChoices, answerLabel, confirmButtonText, answerRoute, answerViaOf, viaInputLabel, workItemIdOf, viaBody, viaError, viaInput, viaPath, waited, type AttentionItem, isStuck, stuckLabel } from '../attention-view';
+import { answerChoices, answerLabel, confirmButtonText, answerRoute, answerViaOf, viaInputLabel, viaTakesRemember, workItemIdOf, viaBody, viaError, viaInput, viaPath, waited, type AttentionItem, isStuck, stuckLabel } from '../attention-view';
 import { cardWording, splitAskTitle } from '../home-view';
 import { seatLabel, teamLabel, waitingLabel } from '../people';
 import { fallbackPlace, pageLink } from '../page-paths';
@@ -59,7 +59,7 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
   const [busy, setBusy] = useState(false);
   // 「把这次的取舍记成经验」（#745）：只给能记的人（can.remember_knowledge）。
   // 走 /api/attention/answer 的随答复一起交（remember）；建立人的验收退回、席位提问的答复也记在同一本答复账上，答完紧接着补记（POST /api/knowledge/remember）；
-  // 条目自带答复入口（answer_via，比如放行）的答复不进那本账、记不上，不给这个勾选
+  // 条目自带答复入口（answer_via）的：入口收 remember 的（#767，body 带 from_attention）随答复一起交，别的入口不给勾选
   const [canRemember, setCanRemember] = useState(false);
   useEffect(() => { let live = true; void canRememberKnowledge().then((v) => { if (live) setCanRemember(v); }); return () => { live = false; }; }, []);
   const [remOn, setRemOn] = useState(false);
@@ -114,7 +114,7 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
   const stuck = isStuck(item);
   const label = (a: string) => (wording.proxy && PROXY[a]) || reviewAnswerLabel(item.source, a, item) || answerLabel(a);
   const [create, setCreate] = useState(false);
-  const rememberHere = canRemember && choices.length > 0 && answerRoute(admin, item) !== 'via';
+  const rememberHere = canRemember && choices.length > 0 && (answerRoute(admin, item) !== 'via' || viaTakesRemember(via));
   const rememberOn = rememberHere && remOn;
   /** 勾了记成经验、但还不能交（以后怎么办没填、超长、谁能看还在问）：答法按钮置灰，旁边说为什么 */
   const remBlock = rememberOn ? (remDefaults ? rememberProblem(lesson, cue) : '正在看这件事归哪个部门……') : null;
@@ -124,8 +124,18 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
     try {
       const route = answerRoute(admin, item);
       if (route === 'via' && via) {
-        const r = await apiFetch(viaPath(via, answer), { method: via.method, body: JSON.stringify(viaBody(via, answer, String(Object.values(input)[0] ?? ''))) });
-        if (!r.ok) throw Error(viaError(r.status, await r.json().catch(() => null)));
+        // 收 remember 的入口（#767）：remember 和答复同一个请求，应答多一个 remember 字段，形状和答复入口的一样
+        const r = await apiFetch(viaPath(via, answer), { method: via.method, body: JSON.stringify({ ...viaBody(via, answer, String(Object.values(input)[0] ?? '')), ...(later ? { remember: later } : {}) }) });
+        const vb = await r.json().catch(() => null);
+        if (later && r.status === 400 && vb?.error === 'remember_invalid') throw Error('没办成：「记成经验」那几项填得不对，看一下再交');
+        if (!r.ok) throw Error(viaError(r.status, vb));
+        if (later) {
+          const m = answeredWithRemember(vb?.remember);
+          void (m.type === 'success' ? message.success(m.text) : message.warning(m.text));
+          setOpen(null); setText(''); setChoice(''); setRemOn(false); setLesson(''); setCue('');
+          attentionChanged(); onDone();
+          return;
+        }
       } else if (route === 'ask') {
         // 建立人答自己事项上的席位提问：选了选项发 answer，否则发自由文本
         if (!wid || !detail?.askId) throw Error('这条提问已经合上了，刷新看看');

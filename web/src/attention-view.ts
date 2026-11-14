@@ -256,3 +256,11 @@ export const seatAsksMore = (sources: unknown): boolean =>
   !!sources && typeof sources === 'object' && (sources as Record<string, { more?: unknown } | undefined>)['seat-asks']?.more === true;
 /** 没列全时那一句（中性的提示，不用警示色）：件数照列出来的算，这句话告诉人这些数不全 */
 export const SEAT_ASKS_MORE = 'AI 员工的提问太多，这里只列了最早的一批，还有更多没列出来。';
+
+/** 条目自带的答复入口收不收「记成经验」（#767）：服务端在三类入口（事项放行、台的 MCP 授予申请、对端公钥确认和停用）每种答法的 body 里带 from_attention: true，
+ *  这些入口会把答复记进「关注」的答复账、也收 remember。没带这个标记的入口照旧不收，不给勾选 */
+export function viaTakesRemember(via: AnswerVia | null): boolean {
+  if (!via) return false;
+  const answers = Object.values(via.answers);
+  return answers.length > 0 && answers.every((a) => a.body?.from_attention === true);
+}

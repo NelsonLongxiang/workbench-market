@@ -432,6 +432,7 @@ body { background: var(--wm-color-page); }
 .wm-kn-body pre { padding: var(--wm-space-3); background: var(--wm-color-page); border-radius: var(--wm-radius-md); overflow-x: auto; }
 .wm-kn-quote { margin: 0; padding: var(--wm-space-1) var(--wm-space-3); border-left: 3px solid var(--wm-color-border-strong); color: var(--wm-color-text); }
 /* 答复卡上「记成经验」那一块：勾选默认收着，勾上才展开三项，竖着排（驾驶舱右栏窄也放得下） */
+.wm-remember-vis { display: flex; flex-direction: column; gap: var(--wm-space-1); } /* 谁能看三个选项一律竖排：驾驶舱右栏窄也一行一个，和 /attention 一致 */
 .wm-remember-label { display: block; margin-bottom: var(--wm-space-1); color: var(--wm-color-text-secondary); }
 .wm-decision-remember { display: flex; flex-direction: column; gap: var(--wm-space-2); padding-top: var(--wm-space-2); border-top: 1px dashed var(--wm-color-border); }
 .wm-page-intro { margin-bottom: var(--wm-space-6); color: var(--wm-color-text-secondary); }

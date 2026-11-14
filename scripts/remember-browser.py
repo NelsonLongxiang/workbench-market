@@ -24,7 +24,8 @@ ITEMS = [
     {'source': 'mcp-access', 'source_id': '9102', 'category': 'grant', 'title': 'MCP 会话 合成会话二 申请工具：put_rows', 'waiting_for': 'mcp:合成会话二', 'since': '2026-11-14T01:00:00Z', 'answers': ['approve', 'reject'], 'object': '', 'phase': '', 'link': '', 'mine': True},
 ]
 DEFAULTS = {'9101': {'default_visibility': 'department', 'department_name': '采购部'}, '9102': {'default_visibility': 'restricted', 'department_name': None},
-            '9103': {'default_visibility': 'department', 'department_name': None}}   # 9104：缺省档接口回 500
+            '9103': {'default_visibility': 'department', 'department_name': None},
+            'wi-syn-rel-noname': {'default_visibility': 'department', 'department_name': None}}   # 9104、wi-syn-rel-500：缺省档接口回 500
 EXTRA = [dict(ITEMS[0], source_id=sid, title=t) for sid, t in (('9103', 'MCP 会话 合成会话三 申请工具：get_rows'), ('9104', 'MCP 会话 合成会话四 申请工具：del_rows'))]
 RECENT = {'items': [
     {'source': 'work-items', 'source_id': 'wi-syn-1', 'title': '合成：比价表', 'answer': 'release', 'answer_text': '放行', 'answered_at': '2026-11-14T06:00:00Z', 'remembered': None, 'default_visibility': 'department', 'department_name': '采购部'},
@@ -37,9 +38,17 @@ state = {'can': True, 'answer_remember': {'status': 'written', 'duplicate': Fals
 CREATOR = [
     {'source': 'work-items', 'source_id': 'wi-syn-acc', 'category': 'accept', 'title': '合成：比价表做完了', 'waiting_for': 'user:synthetic-boss', 'since': '2026-11-14T02:00:00Z', 'answers': ['verify', 'return'], 'object': '', 'phase': '', 'link': '/work-items/wi-syn-acc', 'mine': True},
     {'source': 'work-items', 'source_id': 'wi-syn-rel', 'category': 'glance', 'title': '合成：到货核对等放行', 'waiting_for': 'zone/canvas/team-a', 'since': '2026-11-14T03:00:00Z', 'answers': ['release'], 'object': '', 'phase': '', 'link': '/work-items/wi-syn-rel', 'mine': True,
-     'answer_via': {'method': 'POST', 'path': '/api/work-items/wi-syn-rel/release', 'answers': {'release': {'body': {}}}}},
+     'answer_via': {'method': 'POST', 'path': '/api/work-items/wi-syn-rel/release', 'answers': {'release': {'body': {'from_attention': True}}}}},
+    # 放行卡片在缺省档读不准时：部门没名字、缺省档接口 500（统筹重点 2，answer_via 这条路也要守住）
+    *[{'source': 'work-items', 'source_id': sid, 'category': 'glance', 'title': t, 'waiting_for': 'zone/canvas/team-a', 'since': '2026-11-14T03:10:00Z', 'answers': ['release'], 'object': '', 'phase': '', 'link': f'/work-items/{sid}', 'mine': True,
+       'answer_via': {'method': 'POST', 'path': f'/api/work-items/{sid}/release', 'answers': {'release': {'body': {'from_attention': True}}}}}
+      for sid, t in (('wi-syn-rel-noname', '合成：放行·部门没名字'), ('wi-syn-rel-500', '合成：放行·缺省档读不到'))],
+    # 没带 from_attention 的老入口：不收 remember，不给勾选
+    {'source': 'work-items', 'source_id': 'wi-syn-old', 'category': 'glance', 'title': '合成：老入口的放行', 'waiting_for': 'zone/canvas/team-a', 'since': '2026-11-14T03:30:00Z', 'answers': ['release'], 'object': '', 'phase': '', 'link': '/work-items/wi-syn-old', 'mine': True,
+     'answer_via': {'method': 'POST', 'path': '/api/work-items/wi-syn-old/release', 'answers': {'release': {'body': {}}}}},
 ]
 decisions = []
+releases = []
 sent, later = [], []
 
 def setup(ctx):
@@ -49,9 +58,16 @@ def setup(ctx):
     def decision(r):
         decisions.append(json.loads(r.request.post_data or '{}')); fake(r, {'duplicate': False, 'result': {}})
     ctx.route(re.compile(r'/api/work-items/[^/]+/decision$'), decision)
+    def release(r):
+        b = json.loads(r.request.post_data or '{}'); releases.append(b)
+        sid = re.search(r'/work-items/([^/]+)/release', r.request.url).group(1)
+        # 和服务端一样：放行的应答是来源路由自己的正文，remember 和它的字段平级（不包在 result 里）；记上了，「我处理过的」里这一条就是已记
+        if 'remember' in b and sid == 'wi-syn-rel': state['recent_extra'] = [{'source': 'work-items', 'source_id': sid, 'title': '合成：到货核对等放行', 'answer': 'release', 'answer_text': '放行', 'answered_at': '2026-11-14T07:00:00Z', 'remembered': 'written', 'default_visibility': 'restricted', 'department_name': None}]
+        fake(r, {'item_id': sid, 'duplicate': False, 'ok': True, **({'remember': {'status': 'written', 'duplicate': False, 'scope_label': '只给管理层'}} if 'remember' in b else {})})
+    ctx.route(re.compile(r'/api/work-items/[^/]+/release$'), release)
     def defaults(r):
         sid = re.search(r'source_id=([^&]+)', r.request.url).group(1)
-        if sid == '9104': return fake(r, {'error': 'internal'}, 500)
+        if sid in ('9104', 'wi-syn-rel-500'): return fake(r, {'error': 'internal'}, 500)
         fake(r, DEFAULTS.get(sid, {'default_visibility': 'restricted', 'department_name': None}))
     ctx.route(re.compile(r'/api/knowledge/remember/defaults'), defaults)
     def answer(r):
@@ -59,7 +75,7 @@ def setup(ctx):
         if state['answer_status'] == 400: return fake(r, {'error': 'remember_invalid', 'message': 'lesson（以后遇到类似情况怎么办）必填，1～500 字'}, 400)
         fake(r, {'source': b['source'], 'source_id': b['source_id'], 'answer': b['answer'], 'duplicate': False, 'result': {}, **({'remember': state['answer_remember']} if 'remember' in b else {})})
     ctx.route(re.compile(r'/api/attention/answer$'), answer)
-    ctx.route(re.compile(r'/api/knowledge/remember/recent$'), lambda r: fake(r, RECENT) if state['can'] else fake(r, {'error': 'remember_denied', 'message': 'x'}, 403))
+    ctx.route(re.compile(r'/api/knowledge/remember/recent$'), lambda r: fake(r, {'items': state.get('recent_extra', []) + RECENT['items']}) if state['can'] else fake(r, {'error': 'remember_denied', 'message': 'x'}, 403))
     def remember_later(r):
         b = json.loads(r.request.post_data or '{}'); later.append(b)
         fake(r, {'status': 'written', 'duplicate': False, 'scope_label': '采购部'}, 201)
@@ -91,7 +107,7 @@ with sync_playwright() as p:
     c1.locator('[data-testid=remember-visibility]').wait_for()
     radios = c1.locator('[data-testid=remember-visibility] .ant-radio-wrapper')
     labels = radios.all_inner_texts(); checked = c1.locator('[data-testid=remember-visibility] .ant-radio-wrapper-checked').inner_text()
-    check('勾上展开三项；谁能看三个选项，本部门写部门名；缺省选中服务端推的「本部门（采购部）」，不是全公司', labels == ['本部门（采购部）', '全公司', '只给管理层'] and checked == '本部门（采购部）' and c1.locator('[data-testid=remember-lesson]').count() == 1 and c1.locator('[data-testid=remember-cue]').count() == 1, (labels, checked))
+    check('勾上展开三项；谁能看三个选项从窄到宽（只给管理层 / 本部门 / 全公司），本部门写部门名；缺省选中服务端推的「本部门（采购部）」，不是全公司', labels == ['只给管理层', '本部门（采购部）', '全公司'] and checked == '本部门（采购部）' and c1.locator('[data-testid=remember-lesson]').count() == 1 and c1.locator('[data-testid=remember-cue]').count() == 1, (labels, checked))
     if SHOT: c1.locator('[data-testid=remember-lesson]').fill('合成：只读工具直接批，写的工具先问清用途'); pg.wait_for_timeout(300); pg.screenshot(path=SHOT.replace('.png', '-答复卡.png')); c1.locator('[data-testid=remember-lesson]').fill('')
     approve = c1.get_by_role('button', name=re.compile('批\\s*准'))
     check('以后怎么办没填：答法按钮置灰，旁边说要先填', approve.is_disabled() and '先填' in c1.locator('[data-testid=decision-remember-block]').inner_text())
@@ -104,7 +120,7 @@ with sync_playwright() as p:
 
     c2 = card(pg, '9102')
     c2.locator('[data-testid=decision-remember-toggle]').click(); c2.locator('[data-testid=remember-visibility]').wait_for()
-    dept = c2.locator('[data-testid=remember-visibility] .ant-radio-wrapper').first
+    dept = c2.locator('[data-testid=remember-visibility] .ant-radio-wrapper', has_text='本部门').first
     checked = c2.locator('[data-testid=remember-visibility] .ant-radio-wrapper-checked').inner_text()
     check('推不出部门：缺省落在「只给管理层」，不是全公司；本部门置灰', checked == '只给管理层' and 'ant-radio-wrapper-disabled' in (dept.get_attribute('class') or ''), checked)
     c2.locator('[data-testid=remember-visibility] .ant-radio-wrapper', has_text='全公司').click()
@@ -150,7 +166,8 @@ with sync_playwright() as p:
     pg = ctx.new_page(); pg.set_default_timeout(10000); pg.goto(M + '/attention'); pg.wait_for_selector('[data-testid=decision-card]'); pg.wait_for_timeout(800)
     acc = pg.locator('[data-testid=decision-card]', has_text='比价表做完了').first
     rel = pg.locator('[data-testid=decision-card]', has_text='等放行').first
-    check('自带答复入口的放行（answer_via）：不进答复账、记不上，不给勾选；建立人的验收有勾选', rel.locator('[data-testid=decision-remember]').count() == 0 and acc.locator('[data-testid=decision-remember-toggle]').count() == 1)
+    old = pg.locator('[data-testid=decision-card]', has_text='老入口的放行').first
+    check('放行（answer_via 带 from_attention，#767）有勾选；没带标记的老入口不给勾选；建立人的验收有勾选', rel.locator('[data-testid=decision-remember-toggle]').count() == 1 and old.locator('[data-testid=decision-remember]').count() == 0 and acc.locator('[data-testid=decision-remember-toggle]').count() == 1)
     acc.locator('[data-testid=decision-remember-toggle]').click(); acc.locator('[data-testid=remember-visibility]').wait_for()
     acc.locator('[data-testid=remember-lesson]').fill('合成：比价表看交期，不只看价')
     n = len(later)
@@ -158,6 +175,29 @@ with sync_playwright() as p:
     pg.wait_for_function("() => [...document.querySelectorAll('.ant-message')].some(e => e.textContent.includes('记成了经验'))")
     check('验收走建立人的入口，答完紧接着补记：先发 decision，再 POST /api/knowledge/remember 带这一条', decisions[-1:] and decisions[-1].get('answer') == 'verify' and later[n:] == [{'source': 'work-items', 'source_id': 'wi-syn-acc', 'lesson': '合成：比价表看交期，不只看价', 'visibility': 'restricted'}], (decisions[-1:], later[n:]))
     check('提示「办好了，也记成了经验（采购部）」', pg.locator('.ant-message', has_text='办好了，也记成了经验（采购部）').count() >= 1)
+    # 放行：remember 和答复同一个请求，照 answer_via 的 body（带 from_attention）发，不再另外补记
+    rel.locator('[data-testid=decision-remember-toggle]').click(); rel.locator('[data-testid=remember-visibility]').wait_for()
+    rel.locator('[data-testid=remember-lesson]').fill('合成：到货核对先放行，数对不上再退')
+    n = len(later)
+    press(pg, rel.get_by_role('button', name=re.compile('派出去')).first)
+    pg.wait_for_function("() => [...document.querySelectorAll('.ant-message')].filter(e => e.textContent.includes('记成了经验')).length >= 1")
+    pg.wait_for_timeout(400)
+    check('放行带着 remember 一起发：照 answer_via 的 body 带上 from_attention，再加 remember（含谁能看）；不另外补记', releases[-1:] == [{'from_attention': True, 'remember': {'lesson': '合成：到货核对先放行，数对不上再退', 'visibility': 'restricted'}}] and later[n:] == [], (releases[-1:], later[n:]))
+    check('放行记上了：提示「办好了，也记成了经验（只给管理层）」（remember 在放行应答的顶层）', pg.locator('.ant-message', has_text='办好了，也记成了经验（只给管理层）').count() >= 1)
+    pg.wait_for_function("() => [...document.querySelectorAll('[data-testid=recent-row]')].some(e => e.textContent.includes('到货核对等放行'))")
+    row = pg.locator('[data-testid=recent-row]', has_text='到货核对等放行').first
+    check('放行之后「我处理过的」跟着重读：这一条在最上面，标「已记成经验」，没有补记按钮', pg.locator('[data-testid=recent-title]').first.inner_text() == '合成：到货核对等放行' and row.locator('[data-testid=recent-remembered]').inner_text() == '已记成经验' and row.locator('[data-testid=recent-remember]').count() == 0)
+    state.pop('recent_extra', None)
+    for sid, t, what in (('wi-syn-rel-noname', '放行·部门没名字', '部门没名字'), ('wi-syn-rel-500', '放行·缺省档读不到', '缺省档接口 500')):
+        c = pg.locator('[data-testid=decision-card]', has_text=t).first
+        c.locator('[data-testid=decision-remember-toggle]').click(); c.locator('[data-testid=remember-visibility]').wait_for(); pg.wait_for_timeout(300)
+        shown = c.locator('.ant-radio-wrapper-checked').inner_text().strip()
+        c.locator('[data-testid=remember-lesson]').fill('合成：' + what + '时只给管理层看')
+        m = len(releases)
+        press(pg, c.get_by_role('button', name=re.compile('派出去')).first)
+        pg.wait_for_timeout(800)
+        got = releases[m:][-1] if releases[m:] else {}
+        check(f'放行卡片·{what}：页面显示「只给管理层」，release 请求体里 remember.visibility 也是 restricted', shown == '只给管理层' and got.get('from_attention') is True and (got.get('remember') or {}).get('visibility') == 'restricted', (shown, got))
     ctx.close()
     state['odoo_admin'] = True
 
@@ -177,7 +217,7 @@ with sync_playwright() as p:
     if SHOT: pg.locator('[data-testid=recent-answers]').scroll_into_view_if_needed(); pg.wait_for_timeout(300); pg.screenshot(path=SHOT.replace('.png', '-我处理过的.png'))
     rows.nth(0).locator('[data-testid=recent-submit]').click()
     rows.nth(0).locator('[data-testid=recent-remembered]').wait_for()
-    check('交了：POST /api/knowledge/remember 带对的条目，谁能看带上选中的那一档（本部门）；这一行变成「已记成经验」', later[-1:] == [{'source': 'work-items', 'source_id': 'wi-syn-1', 'lesson': '合成：比价表先看交期再看价', 'visibility': 'department'}] and rows.nth(0).locator('[data-testid=recent-remembered]').inner_text() == '已记成经验', later)
+    check('补记放行这一条（#767 起「我处理过的」里会正当出现）：POST /api/knowledge/remember 带对的条目，谁能看带上选中的那一档（本部门）；这一行变成「已记成经验」', later[-1:] == [{'source': 'work-items', 'source_id': 'wi-syn-1', 'lesson': '合成：比价表先看交期再看价', 'visibility': 'department'}] and rows.nth(0).locator('[data-testid=recent-remembered]').inner_text() == '已记成经验', later)
     for i, what in ((2, '部门没名字'), (3, '缺省档没给')):
         row = pg.locator('[data-testid=recent-row]').nth(i)
         row.locator('[data-testid=recent-remember]').click(); row.locator('[data-testid=remember-fields]').wait_for()
@@ -202,6 +242,8 @@ with sync_playwright() as p:
     # 不滚动就量：展开以后答法按钮仍在右栏看得见的那一块里，也在 900 高的一屏里
     box = btn.bounding_box(); field = pane.locator('[data-testid=remember-lesson]').bounding_box()
     view = pg.evaluate("(() => { const b = document.querySelector('[data-testid=ck-process-answer]').closest('.wm-ck-pane-b'); const r = b ? b.getBoundingClientRect() : { top: 0, bottom: innerHeight }; return [r.top, r.bottom]; })()")
+    ys = [round(e.bounding_box()['y']) for e in pane.locator('[data-testid=remember-visibility] .ant-radio-wrapper').all()]
+    check('驾驶舱右栏：「谁能看」三个选项一行一个（竖排），不挤到第二行', len(ys) == 3 and ys[0] < ys[1] < ys[2], ys)
     check('驾驶舱右栏：三项竖着排（「谁能看」在以后怎么办的下面）；不滚动，答法按钮就在右栏可见的那一块里、在一屏里', box is not None and box['y'] >= view[0] and box['y'] + box['height'] <= min(view[1], 900) and pane.locator('[data-testid=remember-visibility]').bounding_box()['y'] > field['y'], (box, view, field))
     ctx.close()
     b.close()

@@ -22,12 +22,13 @@ export function defaultsOf(body: unknown): RememberDefaults {
   return b.default_visibility === 'department' && name ? { default_visibility: 'department', department_name: name } : { default_visibility: 'restricted', department_name: null };
 }
 
-/** 「谁能看」三个选项：本部门写上部门名，推不出部门时置灰（传了会回 400 remember_department_unknown） */
+/** 「谁能看」三个选项，按范围从窄到宽排（统筹 11-14：全公司夹在中间容易误点）：只给管理层 / 本部门（部门名）/ 全公司。
+ *  本部门写上部门名，推不出部门时置灰（传了会回 400 remember_department_unknown） */
 export function visibilityOptions(d: RememberDefaults): { value: Visibility; label: string; disabled: boolean }[] {
   return [
+    { value: 'restricted', label: '只给管理层', disabled: false },
     { value: 'department', label: d.department_name ? `本部门（${d.department_name}）` : '本部门', disabled: !d.department_name },
     { value: 'company', label: '全公司', disabled: false },
-    { value: 'restricted', label: '只给管理层', disabled: false },
   ];
 }
 
