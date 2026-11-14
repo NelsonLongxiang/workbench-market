@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 事项的期限和附件（web/src/work-item-extras.ts）：字段没到不画、格式不对当没有、链接只认本站 /api/、大小怎么说。 */
-import { attachmentsOf, attachProblem, uploadedId, dueEditable, dueErrorText, dueLabel, dueOf, hasDueField, overdueOf, safeFileUrl, sizeLabel, uploadErrorText, ATTACH_MAX_BYTES } from '../web/src/work-item-extras.ts';
+import { listDueTag, attachmentsOf, attachProblem, uploadedId, dueEditable, dueErrorText, dueLabel, dueOf, hasDueField, overdueOf, safeFileUrl, sizeLabel, uploadErrorText, ATTACH_MAX_BYTES } from '../web/src/work-item-extras.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -33,5 +33,12 @@ ok('传上以后的 id：正整数才认（安排时服务端只收正整数）�
 ok('改期限没改成的说法：别人改 404、结束了 409、日期不对', dueErrorText(404).includes('建立人') && dueErrorText(409, 'work_item_ended').includes('结束') && dueErrorText(400, 'due_invalid') === '日期不对');
 ok('期限能不能改：只照服务端的 can.due（建立人本人、没到终态；管理员不能代改）；没给 can.due 不给改', dueEditable({ can: { due: true } }) && !dueEditable({ can: { due: false } }) && !dueEditable({ can: {} }) && !dueEditable({ can: { due: 'true' } }) && !dueEditable(null));
 
+const T = '2026-11-14';
+ok('列表的期限标签：不限期 / 旧服务端没给不显示；过期照 overdue 用 error；今天到期、还剩 ≤3 天用 warning；更远的不上色', listDueTag({ due: null }, T, false) === null && listDueTag({}, T, false) === null
+  && JSON.stringify(listDueTag({ due: '2026-11-12', overdue: true }, T, false)) === JSON.stringify({ text: '2026-11-12 · 已过期 2 天', tone: 'error' })
+  && JSON.stringify(listDueTag({ due: '2026-11-14', overdue: false }, T, false)) === JSON.stringify({ text: '2026-11-14 · 今天到期', tone: 'warning' })
+  && listDueTag({ due: '2026-11-17' }, T, false).tone === 'warning' && listDueTag({ due: '2026-11-18' }, T, false).tone === null && listDueTag({ due: '2026-11-18' }, T, false).text === '2026-11-18 · 还剩 4 天');
+ok('列表的期限标签：已经结束的只写日期、不提醒；服务端说过期但本地日期还没过（时区差）照样标过期', JSON.stringify(listDueTag({ due: '2026-11-01', overdue: false }, T, true)) === JSON.stringify({ text: '期限 2026-11-01', tone: null })
+  && JSON.stringify(listDueTag({ due: '2026-11-14', overdue: true }, T, false)) === JSON.stringify({ text: '2026-11-14 · 已过期', tone: 'error' }));
 console.log(`\nwork-item-extras-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

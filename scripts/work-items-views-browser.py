@@ -169,6 +169,30 @@ with sync_playwright() as p:
     nav = pg.locator('[data-testid=nav-pending]').inner_text().strip()
     check('同一个计数：侧栏角标 3，等于各视角红数里的那 3 件（这里只有一个视角有，去重后就是它）；左下角是登录着的人', nav == '3' and max(reds) == 3 and pg.locator('[data-testid=wm-me-name]').inner_text().strip() == '合成负责人', (nav, reds))
     ctx.close()
+
+    # 每行的期限（#733 列表行带 due / overdue）：不限期的不显示；快到了、过期了用现有的提醒色（warning / error），没结束的才提醒
+    import datetime
+    d = lambda n: (datetime.date.today() + datetime.timedelta(days=n)).isoformat()
+    due_rows = [dict(item(1), title='合成：过期的', due=d(-2), overdue=True), dict(item(2), title='合成：后天到期', due=d(2), overdue=False),
+                dict(item(3), title='合成：还早', due=d(30), overdue=False), dict(item(4), title='合成：不限期', due=None, overdue=False),
+                dict(item(5, 'done'), title='合成：做完了的', due=d(-5), overdue=False), dict(item(6), title='合成：今天到期', due=d(0), overdue=False),
+                item(7)]  # 旧服务端：没有 due 这个键
+    handler, seen = serve(V(mine=7), {'mine': due_rows}, 'mine')
+    ctx = b.new_context(viewport={'width': 1440, 'height': 900}); pg = ctx.new_page(); pg.set_default_timeout(10000)
+    pg.route(LIST, handler)
+    pg.goto(M + '/work-items'); wait_view(pg, 'mine'); pg.wait_for_selector('[data-testid=work-item-row-due]')
+    def due_of(title):
+        row = pg.locator('[data-testid=work-item-row]', has_text=title).first
+        t = row.locator('[data-testid=work-item-row-due]')
+        return (t.inner_text().strip(), t.get_attribute('data-tone'), t.get_attribute('class') or '') if t.count() else None
+    od, soon, far, none, done, today, old = (due_of(t) for t in ('合成：过期的', '合成：后天到期', '合成：还早', '合成：不限期', '合成：做完了的', '合成：今天到期', '合成事项 7'))
+    check('过期的：写日期和「已过期 2 天」，用 error 提醒色', od and od[0] == f'{d(-2)} · 已过期 2 天' and od[1] == 'error' and 'ant-tag-error' in od[2], od)
+    check('快到了（还剩 2 天）、今天到期：用 warning 提醒色', soon and soon[0] == f'{d(2)} · 还剩 2 天' and soon[1] == 'warning' and 'ant-tag-warning' in soon[2] and today and today[0] == f'{d(0)} · 今天到期' and today[1] == 'warning', (soon, today))
+    check('还早（还剩 30 天）：写还剩几天，不上提醒色', far and far[0] == f'{d(30)} · 还剩 30 天' and far[1] == '' and 'ant-tag-error' not in far[2] and 'ant-tag-warning' not in far[2], far)
+    check('不限期的、旧服务端没给期限的：不显示期限', none is None and old is None, (none, old))
+    check('已经结束的：只写期限日期，不提醒过期', done and done[0] == f'期限 {d(-5)}' and done[1] == '', done)
+    if os.environ.get('WM_SHOT_DUE'): pg.wait_for_timeout(300); pg.screenshot(path=os.environ['WM_SHOT_DUE'])  # 本机看样子用，CI 不设
+    ctx.close()
     b.close()
 
 print(f'work-items-views-browser: {ok} 过 / {fail} 败')

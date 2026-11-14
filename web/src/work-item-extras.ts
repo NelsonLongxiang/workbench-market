@@ -108,3 +108,19 @@ export function dueEditable(d: { can?: unknown } | null | undefined): boolean {
   const c = d?.can && typeof d.can === 'object' ? (d.can as Record<string, unknown>).due : undefined;
   return c === true;
 }
+
+/** 期限快到了：还剩几天以内算（含今天） */
+export const DUE_SOON_DAYS = 3;
+/** 事项列表一行上的期限标签：不限期的（没有 due）不显示，返回 null。
+ *  文字是「日期 · 还剩 n 天 / 今天到期 / 已过期 n 天」；颜色只用现有的提醒色：过期（照服务端的 overdue）error，快到了（还剩 ≤ DUE_SOON_DAYS 天、没结束）warning，其余不上色。
+ *  已经结束的事项只写日期：过没过期不再提醒（服务端在终态给 overdue=false）。today 是本地日期 YYYY-MM-DD（页面传进来，测试好钉） */
+export function listDueTag(row: unknown, today: string, ended: boolean): { text: string; tone: 'error' | 'warning' | null } | null {
+  const due = dueOf(row);
+  if (!due) return null;
+  if (ended) return { text: `期限 ${due}`, tone: null };
+  const days = Math.round((Date.parse(`${due}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
+  if (!Number.isFinite(days)) return { text: `期限 ${due}`, tone: null };
+  if (overdueOf(row) || days < 0) return { text: `${due} · 已过期${days < 0 ? ` ${-days} 天` : ''}`, tone: 'error' };
+  if (days === 0) return { text: `${due} · 今天到期`, tone: 'warning' };
+  return { text: `${due} · 还剩 ${days} 天`, tone: days <= DUE_SOON_DAYS ? 'warning' : null };
+}
