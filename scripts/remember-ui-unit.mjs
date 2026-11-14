@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /** 「把这次的取舍记成经验」（#745）的纯函数单测（web/src/remember-view.ts）：缺省档、要交什么、能不能交、办完以后说什么、「我处理过的」、拍板人。数据都是合成的。 */
+import { viaTakesRemember, answerViaOf } from '../web/src/attention-view.ts';
 import { CUE_MAX, LESSON_MAX, answeredWithRemember, decidedByLine, defaultsOf, recentOf, recentTitle, rememberLaterResult, rememberPayload, rememberProblem, rememberedLabel, visibilityOptions } from '../web/src/remember-view.ts';
 
 let pass = 0, fail = 0;
@@ -12,7 +13,7 @@ ok('缺省档：推得出部门是本部门；推不出、没给、形状不对�
   D.default_visibility === 'department' && D.department_name === '采购部' && R.default_visibility === 'restricted'
   && defaultsOf(null).default_visibility === 'restricted' && defaultsOf({ default_visibility: 'company' }).default_visibility === 'restricted'
   && defaultsOf({ default_visibility: 'department', department_name: '' }).default_visibility === 'restricted');
-ok('三个选项：本部门写上部门名；推不出部门时本部门置灰；全公司、只给管理层总能选', J(visibilityOptions(D).map((o) => [o.value, o.label, o.disabled])) === J([['department', '本部门（采购部）', false], ['company', '全公司', false], ['restricted', '只给管理层', false]]) && visibilityOptions(R)[0].disabled && visibilityOptions(R)[0].label === '本部门');
+ok('三个选项按范围从窄到宽：只给管理层 / 本部门（写部门名）/ 全公司；推不出部门时本部门置灰', J(visibilityOptions(D).map((o) => [o.value, o.label, o.disabled])) === J([['restricted', '只给管理层', false], ['department', '本部门（采购部）', false], ['company', '全公司', false]]) && visibilityOptions(R)[1].disabled && visibilityOptions(R)[1].label === '本部门');
 ok('要交的：lesson 去空格；cue 空着不传；谁能看总是带上页面选中的那一档（不靠服务端的缺省）', J(rememberPayload(' 先退回整改 ', '  ', 'department')) === J({ lesson: '先退回整改', visibility: 'department' }) && J(rememberPayload('x', '样品检验不过', 'company')) === J({ lesson: 'x', cue: '样品检验不过', visibility: 'company' }) && J(rememberPayload('x', '', 'restricted')) === J({ lesson: 'x', visibility: 'restricted' }));
 ok('缺省档读不到（部门没名字、接口 500 没应答体）时：页面显示只给管理层，交出去的也是 restricted（#766 验收退回）', rememberPayload('x', '', defaultsOf({ default_visibility: 'department', department_name: null }).default_visibility).visibility === 'restricted' && rememberPayload('x', '', defaultsOf(null).default_visibility).visibility === 'restricted');
 ok('没填时的提示跟着地方走：答复卡上说「或者取消勾选」，「我处理过的」里说「或者点「取消」」（那里是取消按钮）', rememberProblem('', '').includes('或者取消勾选') && rememberProblem('', '', 'later').includes('或者点「取消」') && !rememberProblem('', '', 'later').includes('勾选'));
@@ -29,5 +30,9 @@ ok('没有标题的用来源名代替；认不出的来源写「一件事」，�
 ok('记没记过的说法：已记成经验 / 稍后会自动重试 / 没记上；没记过不写', rememberedLabel('written').text === '已记成经验' && rememberedLabel('pending').tone === 'warning' && rememberedLabel('failed').text === '没记上' && rememberedLabel(null) === null);
 ok('拍板人：有名字写「拍板：名字」，没有不写', decidedByLine(' 合成管理层 ') === '拍板：合成管理层' && decidedByLine(null) === null && decidedByLine('') === null);
 
+const via = (bodies) => answerViaOf({ source: 'work-items', source_id: 'wi-1', answer_via: { method: 'POST', path: '/api/work-items/wi-1/release', answers: Object.fromEntries(Object.entries(bodies).map(([k, body]) => [k, { body }])) } }, () => {});
+ok('条目自带的答复入口收不收「记成经验」（#767）：每种答法的 body 都带 from_attention: true 才收；少一个、没带、是字符串都不收；没有入口不收',
+  viaTakesRemember(via({ release: { from_attention: true } })) && viaTakesRemember(via({ approve: { from_attention: true }, reject: { from_attention: true } }))
+  && !viaTakesRemember(via({ approve: { from_attention: true }, reject: {} })) && !viaTakesRemember(via({ release: {} })) && !viaTakesRemember(via({ release: { from_attention: 'true' } })) && !viaTakesRemember(null));
 console.log(`\nremember-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);
