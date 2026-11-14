@@ -2421,7 +2421,7 @@ function ustarTar(files: { path: string; content: string | Buffer }[], opts: { p
 }
 
 
-registerSkillRoutes(http, { adminGuard, wrap, bad, resolveSnap, skillPublishCore, skillTicketKey, skillVersionDir, skillPackage, skillPkgDir, SKILL_DL_MAX, executeSkillRollback, executeSkillDelete, layerfsPublish, LAYERFS_SKILLS_PROJECT, layerfsServiceBase, rebuildWmSkills, ustarTar });
+registerSkillRoutes(http, { adminGuard, adminRead: (req) => settingsAdminRead(req), wrap, bad, resolveSnap, skillPublishCore, skillTicketKey, skillVersionDir, skillPackage, skillPkgDir, SKILL_DL_MAX, executeSkillRollback, executeSkillDelete, layerfsPublish, LAYERFS_SKILLS_PROJECT, layerfsServiceBase, rebuildWmSkills, ustarTar });
 
 // ---------- #437③ 进行中的 run 升级到当前 SOP 版本（预检 + 人确认 + 审计） ----------
 /** 每步的 data-field 名（含没有规则的字段），用来列出升级后新增、失效的字段 */
@@ -2841,17 +2841,19 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       const S = svc<SkillService>('skill');
       const row = S.skillBySlug(String(args?.slug ?? ''));
       if (!row) return { error: `skill not found: ${args?.slug}` };
-      // #94 S0⑤（K8）：MCP 面同规则——snapshot_path 相对化
+      // 快照路径是服务端的内部文件路径，只给管理员；MCP 会话是代理、不是管理员，一律不带（摘要 tree_digest 照给，核对完整性用）
       const vs = S.versionsBySkill(row.id) as any[];
       const activeV = SkillService.currentOf(row, vs)?.version ?? null;
-      return vs.map((v) => ({ ...v, active: v.version === activeV, snapshot_path: v.snapshot_path ? `skill-snapshots/${encodeURIComponent(row.slug)}/v${v.version}` : v.snapshot_path }));
+      return vs.map((v) => { const { snapshot_path: _snap, ...rest } = v; return { ...rest, active: v.version === activeV }; });
     }
     // 技能传输面：一次只传一个文件，不收也不发压缩包
     case 'skill_file_put':
       return skillStagePut(args?.content, args?.encoding, args?.sha256);
-    case 'skill_publish':
-      // 审计人恒为调用会话（不收 agent 自报的 reviewed_by）
-      return skillPublishCore(args?.slug, args?.files, args?.changelog, subject, { refsOnly: true });
+    case 'skill_publish': {
+      // 审计人恒为调用会话（不收 agent 自报的 reviewed_by）；快照路径只给管理员，MCP 会话的应答里不带（REST 发布要管理口令，照旧带）
+      const { snapshot_path: _snap, ...published } = await skillPublishCore(args?.slug, args?.files, args?.changelog, subject, { refsOnly: true });
+      return published;
+    }
     case 'skill_download':
       return skillDownloadIssue(resolveMcpSkillSlug(args?.slug), args?.version, subject, origin);
     case 'skill_read':
@@ -2864,10 +2866,11 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       if (vs.length === 0) return { error: `无版本：${args?.slug}` };
       const target = typeof args?.version === 'number' ? vs.find((v) => v.version === args.version) : SkillService.currentOf(row, vs); // 缺省当前版本
       if (!target) return { error: `版本不存在：v${args?.version}` };
+      // 快照路径是服务端的内部文件路径，只给管理员；MCP 会话是代理、不是管理员，不带。安装提示指向导出包地址
       return {
-        slug: row.slug, version: target.version, tree_digest: target.tree_digest, snapshot_path: `skill-snapshots/${encodeURIComponent(row.slug)}/v${target.version}`, // K8 相对化
+        slug: row.slug, version: target.version, tree_digest: target.tree_digest,
         expected_sha256: target.tree_digest,
-        install_hint: `薄分发（手工落盘）：复制 skill-snapshots/${encodeURIComponent(row.slug)}/v${target.version} → 目标技能目录；以 expected_sha256 钉装校验`,
+        install_hint: '薄分发（手工落盘）：从 export_url 取这一版的导出包（tar），解到目标技能目录；以 expected_sha256 钉装校验',
         export_url: `/api/skills/${encodeURIComponent(row.slug)}/export?version=${target.version}`, // #94 S3②：导出包面（薄分发）
       };
     }
