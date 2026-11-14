@@ -42,6 +42,8 @@ let pass = 0, fail = 0;
 const check = (ok, label, detail = '') => { if (ok) pass++; else fail++; console.log(`  ${ok ? '✓' : '✗'} ${label}${ok || !detail ? '' : `（${detail}）`}`); };
 const show = (v) => JSON.stringify(v);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// 测试自己开的库连接都带忙等：服务端同时在写，不等就会偶发 database is locked
+const BUSY_MS = 10_000;
 const freePort = () => new Promise((ok) => { const s = createServer(); s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => ok(port)); }); });
 
 rmSync(OUT, { recursive: true, force: true });
@@ -88,7 +90,7 @@ try {
   const FP = 'sha256:' + (HOST + '0'.repeat(64)).slice(0, 64);
   const KC = (n) => 'sha256:' + String(n).repeat(64);
   {
-    const db = new DatabaseSync(join(data, 'workbench-market.db'));
+    const db = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: BUSY_MS });
     const now = Date.now();
     db.prepare('INSERT INTO a2a_roster_nodes (host, peer_root, key_fingerprint, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?, ?)').run(HOST, PEER, FP, 'zone1', new Date(now).toISOString(), new Date(now).toISOString());
     db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, key_fingerprint, registered_by, registered_at, updated_at) VALUES ('peer-rem', ?, 'zone1', '', 'active', ?, 'seed', '0', '0')").run(PEER, FP);
@@ -144,9 +146,9 @@ try {
   const VIA = { from_attention: true };
   const release = (h, id, extra = {}) => call('POST', `/api/work-items/${id}/release`, h, extra);
   const later = (h, body) => call('POST', '/api/knowledge/remember', h, { source: 'work-items', ...body });
-  const released = (id) => { const d = new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true }); try { return Number(d.prepare("SELECT COUNT(*) AS n FROM work_item_log WHERE item_id = ? AND fact = 'release'").get(id).n); } finally { d.close(); } };
-  const ledger = (source, like) => { const d = new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true }); try { return d.prepare("SELECT source_id, answer, state, status, answered_by FROM attention_answers WHERE source = ? AND (source_id = ? OR source_id LIKE ? || ':%')").all(source, like, like); } finally { d.close(); } };
-  const benchReq = (id) => { const d = new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true }); try { return d.prepare('SELECT status FROM bench_mcp_requests WHERE id = ?').get(id)?.status; } finally { d.close(); } };
+  const released = (id) => { const d = new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true, timeout: BUSY_MS }); try { return Number(d.prepare("SELECT COUNT(*) AS n FROM work_item_log WHERE item_id = ? AND fact = 'release'").get(id).n); } finally { d.close(); } };
+  const ledger = (source, like) => { const d = new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true, timeout: BUSY_MS }); try { return d.prepare("SELECT source_id, answer, state, status, answered_by FROM attention_answers WHERE source = ? AND (source_id = ? OR source_id LIKE ? || ':%')").all(source, like, like); } finally { d.close(); } };
+  const benchReq = (id) => { const d = new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true, timeout: BUSY_MS }); try { return d.prepare('SELECT status FROM bench_mcp_requests WHERE id = ?').get(id)?.status; } finally { d.close(); } };
   const lastNote = () => { const f = JSON.parse(readFileSync(FX, 'utf8')); const n = f.items.note.at(-1); return n ? { ...n, body: f.bodies[`note:${n.id}`]?.body } : null; };
   const recent = async (h) => ((await call('GET', '/api/knowledge/remember/recent', h)).body?.items ?? []);
   const attention = async (h) => ((await call('GET', '/api/attention', h)).body?.items ?? []);
@@ -252,7 +254,7 @@ try {
     // 映射指着一个已经删掉的部门：团队 B 认领到运营部，运营部的记录没了（团队那边还记着部门号）。合成：直接删库里那一行
     const defaults = async () => (await call('GET', `/api/knowledge/remember/defaults?source=work-items&source_id=${encodeURIComponent(I.v4)}`, WHO.管理层)).body;
     const before = await defaults();
-    { const d = new DatabaseSync(join(data, 'workbench-market.db')); try { d.exec('PRAGMA foreign_keys = OFF'); d.prepare("DELETE FROM departments WHERE id = 'ops'").run(); } finally { d.close(); } }
+    { const d = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: BUSY_MS }); try { d.exec('PRAGMA foreign_keys = OFF'); d.prepare("DELETE FROM departments WHERE id = 'ops'").run(); } finally { d.close(); } }
     const after = await defaults();
     const c12 = kbCalls();
     const a12 = await release(WHO.管理层, I.v4, { ...VIA, remember: { lesson: '部门删了以后记的' } });
@@ -276,7 +278,7 @@ try {
   // ---------- 十四 ----------
   {
     // 原动作失败（这一轮 held 的投递已经没有了，releaseCore 回 409）：照卡片放行也不记账、不记成经验
-    { const d = new DatabaseSync(join(data, 'workbench-market.db')); try { d.prepare("UPDATE workbench_event_deliveries SET status = 'pending' WHERE status = 'held' AND event_id = (SELECT source_ref FROM work_items WHERE id = ?)").run(I.v8); } finally { d.close(); } }
+    { const d = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: BUSY_MS }); try { d.prepare("UPDATE workbench_event_deliveries SET status = 'pending' WHERE status = 'held' AND event_id = (SELECT source_ref FROM work_items WHERE id = ?)").run(I.v8); } finally { d.close(); } }
     const c14 = kbCalls();
     const f = await release(WHO.管理层, I.v8, { ...VIA, remember: { lesson: '失败了也想记' } });
     check(f.status === 409 && ledger('work-items', I.v8).length === 0 && f.body?.remember === undefined && kbCalls() === c14 && !(await recent(WHO.管理层)).some((x) => x.source_id === I.v8),
