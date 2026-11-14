@@ -78,8 +78,14 @@ const answerersOf = (id: string): string[] => {
   return [id, ...(provider ? svc<PrincipalService>('principals').externalIdsOf(id, provider).map((login) => `odoo:${login}`) : [])];
 };
 
-/** 答法给人看的说法（「关注」各来源的答法）；没列的原样 */
-const ANSWER_TEXT: Record<string, string> = { release: '放行', withdraw: '撤回', verify: '验收', return: '退回', approve: '批准', reject: '驳回', answer: '答复', bind: '对接' };
+/**
+ * 答法给人看的说法：「关注」各来源的全部答法（答复入口的转发表、直接实现的，和条目自带的 answer_via 答法），和卡片按钮上的说法一致。
+ * 新加答法要在这里补一句，scripts/answer-text-test.mjs 会核对；没列的原样给代号
+ */
+export const ANSWER_TEXT: Record<string, string> = {
+  release: '放行', withdraw: '撤回', verify: '验收', return: '退回', approve: '批准', reject: '驳回', answer: '答复', bind: '对接',
+  finish: '验收通过', 'confirm-key': '确认新公钥', disable: '停用这个对端',
+};
 /** 账上的键去掉「:那一轮」「@出现序号」的后缀，得到条目的 id（和「关注」里的 source_id 同一个） */
 function baseIdOf(source: string, key: string): string {
   if (source === 'principal-pending') { const at = key.lastIndexOf('@'); return at > 0 ? key.slice(0, at) : key; }
