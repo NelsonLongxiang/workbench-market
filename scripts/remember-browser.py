@@ -55,7 +55,10 @@ def setup(ctx):
     ctx.route(re.compile(r'/api/work-items/[^/]+/decision$'), decision)
     def release(r):
         b = json.loads(r.request.post_data or '{}'); releases.append(b)
-        fake(r, {'ok': True, **({'remember': {'status': 'written', 'duplicate': False, 'scope_label': '采购部'}} if 'remember' in b else {})})
+        sid = re.search(r'/work-items/([^/]+)/release', r.request.url).group(1)
+        # 和服务端一样：放行的应答是来源路由自己的正文，remember 和它的字段平级（不包在 result 里）；记上了，「我处理过的」里这一条就是已记
+        if 'remember' in b: state['recent_extra'] = [{'source': 'work-items', 'source_id': sid, 'title': '合成：到货核对等放行', 'answer': 'release', 'answer_text': '放行', 'answered_at': '2026-11-14T07:00:00Z', 'remembered': 'written', 'default_visibility': 'restricted', 'department_name': None}]
+        fake(r, {'item_id': sid, 'duplicate': False, 'ok': True, **({'remember': {'status': 'written', 'duplicate': False, 'scope_label': '只给管理层'}} if 'remember' in b else {})})
     ctx.route(re.compile(r'/api/work-items/[^/]+/release$'), release)
     def defaults(r):
         sid = re.search(r'source_id=([^&]+)', r.request.url).group(1)
@@ -67,7 +70,7 @@ def setup(ctx):
         if state['answer_status'] == 400: return fake(r, {'error': 'remember_invalid', 'message': 'lesson（以后遇到类似情况怎么办）必填，1～500 字'}, 400)
         fake(r, {'source': b['source'], 'source_id': b['source_id'], 'answer': b['answer'], 'duplicate': False, 'result': {}, **({'remember': state['answer_remember']} if 'remember' in b else {})})
     ctx.route(re.compile(r'/api/attention/answer$'), answer)
-    ctx.route(re.compile(r'/api/knowledge/remember/recent$'), lambda r: fake(r, RECENT) if state['can'] else fake(r, {'error': 'remember_denied', 'message': 'x'}, 403))
+    ctx.route(re.compile(r'/api/knowledge/remember/recent$'), lambda r: fake(r, {'items': state.get('recent_extra', []) + RECENT['items']}) if state['can'] else fake(r, {'error': 'remember_denied', 'message': 'x'}, 403))
     def remember_later(r):
         b = json.loads(r.request.post_data or '{}'); later.append(b)
         fake(r, {'status': 'written', 'duplicate': False, 'scope_label': '采购部'}, 201)
@@ -175,6 +178,11 @@ with sync_playwright() as p:
     pg.wait_for_function("() => [...document.querySelectorAll('.ant-message')].filter(e => e.textContent.includes('记成了经验')).length >= 1")
     pg.wait_for_timeout(400)
     check('放行带着 remember 一起发：照 answer_via 的 body 带上 from_attention，再加 remember（含谁能看）；不另外补记', releases[-1:] == [{'from_attention': True, 'remember': {'lesson': '合成：到货核对先放行，数对不上再退', 'visibility': 'restricted'}}] and later[n:] == [], (releases[-1:], later[n:]))
+    check('放行记上了：提示「办好了，也记成了经验（只给管理层）」（remember 在放行应答的顶层）', pg.locator('.ant-message', has_text='办好了，也记成了经验（只给管理层）').count() >= 1)
+    pg.wait_for_function("() => [...document.querySelectorAll('[data-testid=recent-row]')].some(e => e.textContent.includes('到货核对等放行'))")
+    row = pg.locator('[data-testid=recent-row]', has_text='到货核对等放行').first
+    check('放行之后「我处理过的」跟着重读：这一条在最上面，标「已记成经验」，没有补记按钮', pg.locator('[data-testid=recent-title]').first.inner_text() == '合成：到货核对等放行' and row.locator('[data-testid=recent-remembered]').inner_text() == '已记成经验' and row.locator('[data-testid=recent-remember]').count() == 0)
+    state.pop('recent_extra', None)
     ctx.close()
     state['odoo_admin'] = True
 
@@ -194,7 +202,7 @@ with sync_playwright() as p:
     if SHOT: pg.locator('[data-testid=recent-answers]').scroll_into_view_if_needed(); pg.wait_for_timeout(300); pg.screenshot(path=SHOT.replace('.png', '-我处理过的.png'))
     rows.nth(0).locator('[data-testid=recent-submit]').click()
     rows.nth(0).locator('[data-testid=recent-remembered]').wait_for()
-    check('交了：POST /api/knowledge/remember 带对的条目，谁能看带上选中的那一档（本部门）；这一行变成「已记成经验」', later[-1:] == [{'source': 'work-items', 'source_id': 'wi-syn-1', 'lesson': '合成：比价表先看交期再看价', 'visibility': 'department'}] and rows.nth(0).locator('[data-testid=recent-remembered]').inner_text() == '已记成经验', later)
+    check('补记放行这一条（#767 起「我处理过的」里会正当出现）：POST /api/knowledge/remember 带对的条目，谁能看带上选中的那一档（本部门）；这一行变成「已记成经验」', later[-1:] == [{'source': 'work-items', 'source_id': 'wi-syn-1', 'lesson': '合成：比价表先看交期再看价', 'visibility': 'department'}] and rows.nth(0).locator('[data-testid=recent-remembered]').inner_text() == '已记成经验', later)
     for i, what in ((2, '部门没名字'), (3, '缺省档没给')):
         row = pg.locator('[data-testid=recent-row]').nth(i)
         row.locator('[data-testid=recent-remember]').click(); row.locator('[data-testid=remember-fields]').wait_for()
