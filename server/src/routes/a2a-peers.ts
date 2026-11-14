@@ -14,6 +14,8 @@ import { svc } from '../context.ts';
 import { HttpError, bad } from '../errors.ts';
 import { PeerRegisterError, type A2aPeerService, type PeerRow, type PeerStatus } from '../services/a2a-peers.ts';
 import { noteBlocked, outboundOff } from '../outbound-gate.ts';
+import { viaBegin, viaSettle } from '../attention-via.ts';
+import { actorResolver } from '../judgment-compare.ts';
 
 /** 对外断开（WM_OUTBOUND=off）时，要取名片的两个入口直接说明，不去取、不改行（不写 card_error） */
 function outboundDenied(res: express.Response, kind: string): boolean {
@@ -27,6 +29,8 @@ export interface A2aPeerDeps {
   adminGuard: (req: express.Request, res: express.Response) => boolean;
   /** 留痕里的写法：口令记 admin-token，Odoo 管理员记 odoo:<登录名> */
   adminActor: (req: express.Request) => string;
+  /** 管理口令对不对（「关注」卡片带 remember 时认人用，和答复入口同一个 actorResolver） */
+  adminTokenOk: (req: express.Request) => boolean;
 }
 
 const ID = /^peer_[0-9a-f]{12}$/;
@@ -51,6 +55,7 @@ const wrap = (fn: (req: express.Request, res: express.Response) => Promise<unkno
 
 export function registerA2aPeerRoutes(app: HttpService, deps: A2aPeerDeps): void {
   const { adminGuard, adminActor } = deps;
+  const rememberActor = actorResolver({ adminTokenOk: deps.adminTokenOk });
 
   app.get('/api/a2a/peers', { action: 'a2a-peer.list', kind: 'admin' }, wrap((req, res) => {
     res.set('Cache-Control', 'private, no-store');
@@ -84,27 +89,37 @@ export function registerA2aPeerRoutes(app: HttpService, deps: A2aPeerDeps): void
     res.json({ ok: true, peer: view(p!) });
   }));
 
-  app.post('/api/a2a/peers/:id/confirm-key', { action: 'a2a-peer.confirm-key', kind: 'admin' }, wrap((req, res) => {
+  // 「关注」里「对端公钥待确认」卡片的两个答法照 answer_via 调这里和下面的 disable：卡片带来的（from_attention）答成了记进「关注」的答复账，
+  // 可以顺带记成经验（attention-via.ts）；别处直接调的照旧
+  app.post('/api/a2a/peers/:id/confirm-key', { action: 'a2a-peer.confirm-key', kind: 'admin' }, wrap(async (req, res) => {
     res.set('Cache-Control', 'private, no-store');
     if (!adminGuard(req, res)) return;
     const p = peerOf(req);
     const fp = typeof req.body?.fingerprint === 'string' ? req.body.fingerprint.trim() : '';
     if (!/^sha256:[0-9a-f]{64}$/.test(fp)) bad('fingerprint 必须是页面上看到的新指纹（sha256:<64 位十六进制>）');
+    const via = await viaBegin(req, 'a2a-peers', p.id, 'confirm-key');
+    if (!via.ok) return void res.status(via.status).json(via.body);
     const out = peers().confirmKey(p.id, fp, adminActor(req));
     if (!out.ok) {
       const [status, message] = out.reason === 'not_pending' ? [409, '这个对端没有待确认的新公钥'] : out.reason === 'fingerprint_mismatch' ? [409, '指纹和待确认的新公钥对不上（可能又变了，先刷新再看）'] : [404, 'peer not found'];
       return void res.status(status).json({ error: message, reason: out.reason });
     }
-    res.json({ ok: true, peer: view(out.peer) });
+    const body = { ok: true, peer: view(out.peer) };
+    const remembered = await viaSettle(req, via.plan, 200, body, rememberActor);
+    res.json({ ...body, ...(remembered ? { remember: remembered } : {}) });
   }));
 
-  app.post('/api/a2a/peers/:id/disable', { action: 'a2a-peer.disable', kind: 'admin' }, wrap((req, res) => {
+  app.post('/api/a2a/peers/:id/disable', { action: 'a2a-peer.disable', kind: 'admin' }, wrap(async (req, res) => {
     res.set('Cache-Control', 'private, no-store');
     if (!adminGuard(req, res)) return;
     const p = peerOf(req);
     const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
     if (!reason || reason.length > 500) bad('reason 必填（停用要写理由），不超过 500 字');
-    res.json({ ok: true, peer: view(peers().disable(p.id, adminActor(req), reason)!) });
+    const via = await viaBegin(req, 'a2a-peers', p.id, 'disable');
+    if (!via.ok) return void res.status(via.status).json(via.body);
+    const body = { ok: true, peer: view(peers().disable(p.id, adminActor(req), reason)!) };
+    const remembered = await viaSettle(req, via.plan, 200, body, rememberActor);
+    res.json({ ...body, ...(remembered ? { remember: remembered } : {}) });
   }));
 
   app.post('/api/a2a/peers/:id/enable', { action: 'a2a-peer.enable', kind: 'admin' }, wrap((req, res) => {

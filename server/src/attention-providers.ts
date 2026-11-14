@@ -41,7 +41,7 @@ function optionsHint(json: string): string {
   try { const o = JSON.parse(json) as unknown; return Array.isArray(o) && o.length ? `（可选：${o.filter((x) => typeof x === 'string').join(' / ')}）` : ''; } catch { return ''; }
 }
 import { withAnswers } from './attention-answers.ts';
-import { answerVia, type AttentionItem, type AttentionProvider, type AttentionService } from './services/attention.ts';
+import { answerVia, VIA_MARK, type AttentionItem, type AttentionProvider, type AttentionService } from './services/attention.ts';
 import type { ChangeRequestService } from './services/change-request.ts';
 import type { McpService } from './services/mcp.ts';
 import type { SopService } from './services/sop.ts';
@@ -149,8 +149,8 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           detail: { session: r.session, bench: r.bench, bench_title: r.bench_title, tools: r.tools, reason: r.reason, created_at: r.created_at },
           // 能批的人（管理层）多半不是管理员，过不了答复入口前面的写请求总门：卡片照这个地址答，判断和答复入口转过去的是同一处
           answer_via: answerVia('POST', `/api/bench-views/${r.bench}/mcp-requests/${r.id}`, {
-            approve: { body: { approve: true }, input: { note: { to: 'note', max: 500 } } },
-            reject: { body: { approve: false }, input: { note: { to: 'note', required: true, max: 500 } } },
+            approve: { body: { approve: true, [VIA_MARK]: true }, input: { note: { to: 'note', max: 500 } } },
+            reject: { body: { approve: false, [VIA_MARK]: true }, input: { note: { to: 'note', required: true, max: 500 } } },
           }),
         }));
       },
@@ -324,7 +324,7 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           if (!release && !admin) continue;
           const answers = [...(release ? ['release'] : []), ...(admin ? ['withdraw'] : [])];
           out.push(item({ source: 'work-items', source_id: w.id, category: 'glance', title: w.title, waiting_for: w.created_by, since: w.created_at, answers, link: `/work-items/${w.id}`, object: w.object, phase: w.phase,
-            mine: turnOf(w, viewer).release, creator: creatorOf(w), cockpit_id: w.cockpit_id, ...(release ? { answer_via: answerVia('POST', `/api/work-items/${w.id}/release`, { release: { body: {} } }) } : {}) }));
+            mine: turnOf(w, viewer).release, creator: creatorOf(w), cockpit_id: w.cockpit_id, ...(release ? { answer_via: answerVia('POST', `/api/work-items/${w.id}/release`, { release: { body: { [VIA_MARK]: true } } }) } : {}) }));
         }
         return out;
       },
@@ -370,8 +370,8 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           // 两个答法直接调对端登记表的接口，那边照旧只认管理员、核指纹
           waiting_for: p.root_url, since: p.updated_at, answers: ['confirm-key', 'disable'], link: null,
           answer_via: { method: 'POST', path: `/api/a2a/peers/${encodeURIComponent(p.id)}/confirm-key`, answers: {
-            'confirm-key': { body: {}, input: { fingerprint: { to: 'fingerprint', required: true, max: 71 } } },
-            disable: { path: `/api/a2a/peers/${encodeURIComponent(p.id)}/disable`, body: {}, input: { reason: { to: 'reason', required: true, max: 500 } } },
+            'confirm-key': { body: { [VIA_MARK]: true }, input: { fingerprint: { to: 'fingerprint', required: true, max: 71 } } },
+            disable: { path: `/api/a2a/peers/${encodeURIComponent(p.id)}/disable`, body: { [VIA_MARK]: true }, input: { reason: { to: 'reason', required: true, max: 500 } } },
           } },
         }))
         : null,

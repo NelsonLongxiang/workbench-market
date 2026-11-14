@@ -42,6 +42,8 @@ import { COCKPIT_ID_MAX, dueAtOf, isCreator, overdueOf, STATES, type WorkItemSer
 import type { PrincipalService } from '../services/principal.ts';
 import type { TeamService } from '../services/team.ts';
 import { answerItemAsk, CREATOR_ANSWERS, decideItemAnswer } from '../attention-answers.ts';
+import { viaBegin, viaSettle } from '../attention-via.ts';
+import { actorResolver } from '../judgment-compare.ts';
 import { markSeatMessagesRead, replySeatMessage, seatAsksOf, seatMessagesOf, seatProgressOf, seatSubitemsOf, SEAT_REPLY_MAX } from '../seat-messages.ts';
 import { principalsAdmin } from './principals.ts';
 import { canOf, canSee, creatorOf, dueWriterOk, decidesNow, itemDecisionVerdict, itemRoles, releaseBy, turnOf, VIEW_ALL_ACTION, VIEW_ALL_KIND, VIEWS, viewScopes, workItemViewer, writerVerdict, type ItemRole, type ViewName } from '../work-item-access.ts';
@@ -55,6 +57,8 @@ export type WorkItemRouteDeps = {
   markOdooAdmin: (req: express.Request) => Promise<void>;
   adminGuard: (req: express.Request, res: express.Response) => boolean;
   crossOriginDenied: (req: express.Request) => boolean;
+  /** 管理口令对不对（「关注」卡片带 remember 时认人用，和答复入口同一个 actorResolver） */
+  adminTokenOk: (req: express.Request) => boolean;
 };
 
 const ITEM_ID = /^wi_[A-Za-z0-9_-]{1,96}$/;
@@ -76,6 +80,7 @@ const ITEM_REPLY_DECIDES = '按事项判：建立人本人回复；持有管理�
 const LEAD_RELEASES = '按事项交给的团队判：负责人放行，团队没有负责人时持有管理层授予的人代办，是事项上的规则不是角色授权';
 
 export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps): void {
+  const rememberActor = actorResolver({ adminTokenOk: deps.adminTokenOk });
   // 列表：GET /api/work-items?state=&object=&phase=&limit=&cursor=。可见范围和详情同一个判断（管理员看全部，别人只看自己是建立人的），
   // 看不到的不出现也不计数。按 updated_at、id 倒序，游标翻页（limit 缺省 100、上限 200）；另带可见范围里按状态的计数
   app.get('/api/work-items', { action: 'work-items.list', kind: 'read', unauthenticated: 401, refine: [{ action: VIEW_ALL_ACTION, kind: VIEW_ALL_KIND, why: '「全部」视角只给管理层（按动作认，不按角色名；类别见 VIEW_ALL_KIND）', when: (req) => req.query.view === 'all' }] }, (req, res, next) => {
@@ -311,6 +316,9 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       if (!item || !canSee(item, viewer)) return void res.status(404).json({ error: 'work_item_not_found' });
       const role = itemDecisionVerdict(item, viewer, 'release');
       if (!role.ok) return void res.status(403).json({ error: 'work_item_release_not_yours' });
+      // 「关注」过目卡片照 answer_via 调这里：带来的（from_attention）放成了记进「关注」的答复账，可以顺带记成经验（attention-via.ts）
+      const via = await viaBegin(req, 'work-items', id, 'release');
+      if (!via.ok) return void res.status(via.status).json(via.body);
       if (item.state !== 'held') {
         if (items.log(id).some((l) => l.fact === 'release' && !l.rejected)) return void res.json({ ok: true, item_id: id, duplicate: true, released: 0 });
         return void res.status(409).json({ error: 'work_item_not_held', state: item.state });
@@ -319,7 +327,9 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       if (!ev) return void res.status(409).json({ error: 'work_item_not_from_event' });
       const actor = viewer.principal ?? ((principalsAdmin ? await principalsAdmin(req, silentRes()) : null) || 'admin');
       const out = releaseCore(ev, actor, role.acting_for);
-      res.status(out.status).json({ item_id: id, duplicate: false, ...out.body });
+      const body = { item_id: id, duplicate: false, ...out.body };
+      const remembered = await viaSettle(req, via.plan, out.status, body, rememberActor);
+      res.status(out.status).json({ ...body, ...(remembered ? { remember: remembered } : {}) });
     })().catch(next);
   });
 
