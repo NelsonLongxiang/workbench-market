@@ -230,6 +230,13 @@ try {
       '……事项上记交给方式 own-seat、不过目、指名的 seatId（走事件层 recorded 那一行）', show(ownItem));
     const ownReview = await call('POST', '/api/work-items', ALPHA, form({ seat_id: 'seat-0000000a', review: true }));
     check(ownReview.status === 201 && itemRow(ownReview.body?.item_id).review_by === 'requester' && ownReview.body.held === true, '……勾了先过目：由本人过目（review_by=requester），先 held', show(ownReview.body));
+    // 指名派发的投递在等放行时改截止：正文第一行签名派工行原样保留，后面信封里的 task.due 换成新的
+    const ownDue = await call('POST', `/api/work-items/${ownReview.body?.item_id}/due`, ALPHA, { due: '2099-03-03' });
+    const [dl1, ...drest] = (msg(ownReview.body?.event_id)[0] ?? '').split('\n');
+    let denv = null; try { denv = JSON.parse(drest.join('\n')); } catch { /* 不是 JSON */ }
+    check(ownDue.status === 200 && ownDue.body?.notified === 0 && ownDue.body.pending_release === true && dl1 === '[A2A dispatch] {"for":"seat-0000000a"}' && drest.length === 1
+      && denv?.type === 'workbench-event' && denv.task?.due === '2099-03-03',
+      '指名派发、等放行时改截止：第一行 [A2A dispatch] 原样保留，后面信封的 task.due 换成新的', show({ b: ownDue.body, dl1, n: drest.length, due: denv?.task?.due }));
     // 团队负责人指名本团队任何成员：lead-directed，不过目
     const lead = await call('POST', '/api/work-items', BETA, form({ seat_id: 'seat-0000000b' }));
     check(lead.status === 201 && lead.body.handoff === 'lead-directed' && itemRow(lead.body?.item_id).review_by === '' && msg(lead.body?.event_id)[0].startsWith('[A2A dispatch] {"for":"seat-0000000b"}\n'),
@@ -343,17 +350,57 @@ try {
       '改截止日期：别人（看不到这件）404、只带管理口令 401、远程匿名 401、不存在的日期 400、没带 due 400，都不改', show([other.status, adminOnly.status, anonRemote.status, badFmt.status, missing.status]));
     const d2 = dbr(); let trail = []; try { trail = d2.prepare("SELECT actor, detail FROM workbench_event_log WHERE event_id = ? AND action = 'due-changed'").all(past.body?.event_id).map((r) => ({ ...r })); } finally { d2.close(); }
     check(trail.length === 1 && trail[0].actor === 'user:alpha' && JSON.parse(trail[0].detail).from === '2026-01-01T00:00:00.000Z' && JSON.parse(trail[0].detail).to === '2099-01-02T00:00:00.000Z', '改截止日期留痕：谁改的、从几号改成几号', show(trail));
-    // 同步到节点：派工正文不改（证据），给这个事件每条还活着的投递排一条「[截止变更]」，同一 context 的新任务；拒掉的改动一条不排
-    const d3 = dbr(); let notes = [], body = '', dlv = []; try {
-      notes = d3.prepare("SELECT r.kind, r.delivery_id, r.context_id, r.message, r.status FROM workbench_event_replies r WHERE r.event_id = ?").all(past.body?.event_id).map((r) => ({ ...r }));
-      body = d3.prepare('SELECT message FROM workbench_event_deliveries WHERE event_id = ?').get(past.body?.event_id)?.message ?? '';
-      dlv = d3.prepare("SELECT id FROM workbench_event_deliveries WHERE event_id = ? AND status IN ('held','pending','sent')").all(past.body?.event_id).map((r) => r.id);
-    } finally { d3.close(); }
-    const nm = notes.map((n) => JSON.parse(n.message));
-    check(ch.body?.notified === dlv.length && dlv.length >= 1 && notes.length === dlv.length && notes.every((n) => n.kind === 'answer' && n.status === 'pending' && dlv.includes(n.delivery_id) && n.context_id !== '')
-      && nm.every((m) => m.notice === 'due-changed' && m.by === 'user:alpha' && m.text.startsWith('[截止变更]') && m.text.includes('2099-01-02') && m.text.includes('2026-01-01') && !m.text.includes('\n'))
-      && JSON.parse(body).task?.due === '2026-01-01',
-      '改截止日期同步到节点：每条还活着的投递排一条「[截止变更]」（一行字，新旧日期都写），作为同一 context 的新任务；派工正文里的 task.due 原样不改', show({ notified: ch.body?.notified, dlv, notes: nm }));
+    // 同步到节点。past 还在等放行（投递 held）：没有在办的席位，notified 为 0、pending_release 为真，不排「[截止变更]」；
+    // 还没发出去的派工正文里 task.due 改成新的，放行派出时带的就是最新的期限
+    const msgOf = (ev) => { const d = dbr(); try { return d.prepare('SELECT status, message FROM workbench_event_deliveries WHERE event_id = ?').get(ev) ?? {}; } finally { d.close(); } };
+    const notesOf = (ev) => { const d = dbr(); try { return d.prepare('SELECT kind, delivery_id, context_id, message, status FROM workbench_event_replies WHERE event_id = ?').all(ev).map((r) => ({ ...r })); } finally { d.close(); } };
+    const dueInBody = (m) => { const t = String(m ?? ''); return t === '' ? undefined : JSON.parse(t.slice(t.indexOf('{'))).task?.due; };
+    const heldBody = msgOf(past.body?.event_id);
+    check(ch.body?.notified === 0 && ch.body.pending_release === true && notesOf(past.body?.event_id).length === 0 && heldBody.status === 'held' && dueInBody(heldBody.message) === '2099-01-02'
+      && clr.body?.notified === 0 && clr.body.pending_release === true && dueInBody(msgOf(future.body?.event_id).message) === '',
+      '等放行时改截止：notified 0、pending_release 真，不排变更；还没发的派工正文里 task.due 换成新的（清掉就是空）', show({ ch: ch.body, clr: clr.body, held: heldBody.status, due: dueInBody(heldBody.message), notes: notesOf(past.body?.event_id).length }));
+    const rel = await call('POST', `/api/workbench-events/${past.body?.event_id}/release`, ADMIN, {});
+    const relBody = msgOf(past.body?.event_id);
+    check(rel.status === 200 && relBody.status !== 'held' && (relBody.status === 'sent' || dueInBody(relBody.message) === '2099-01-02'),
+      '等放行期间改了截止，放行之后派出去的正文带的是新期限', show({ rel: rel.status, st: relBody.status, due: dueInBody(relBody.message) }));
+    // 已放行、排队还没发出去：仍不算在办（notified 0、pending_release 真），排一条「[截止变更]」等它发出去了再发
+    const queued = await call('POST', `/api/work-items/${past.body?.item_id}/due`, ALPHA, { due: '2099-01-03' });
+    const qNotes = notesOf(past.body?.event_id).map((n) => ({ ...n, m: JSON.parse(n.message) }));
+    check(queued.body?.notified === 0 && queued.body.pending_release === true && qNotes.length === 1 && qNotes[0].kind === 'answer' && qNotes[0].status === 'pending' && qNotes[0].context_id !== ''
+      && qNotes[0].m.notice === 'due-changed' && qNotes[0].m.by === 'user:alpha' && qNotes[0].m.text.startsWith('[截止变更]') && qNotes[0].m.text.includes('2099-01-03') && qNotes[0].m.text.includes('2099-01-02') && !qNotes[0].m.text.includes('\n'),
+      '已放行还没发出去时改截止：notified 0、pending_release 真；排一条「[截止变更]」（一行字，新旧日期都写，同一 context 的新任务），等投递发出去了再发', show({ b: queued.body, qNotes }));
+    // notified 只算实际送达、对端此刻还能发的在办投递：已发出 + 对端 active 算 1；对端停用、判死的、没送达的都不算
+    const peerSet = (status) => dbw("UPDATE a2a_peers SET status = ? WHERE root_url = 'http://127.0.0.1:1'", status);
+    const sentItem = async () => {
+      const it = await call('POST', '/api/work-items', ALPHA, form({ due: '2099-02-01' }));
+      dbw("UPDATE workbench_event_deliveries SET status = 'sent', message = '', sent_at = datetime('now') WHERE event_id = ?", it.body?.event_id);
+      return it.body;
+    };
+    const s1 = await sentItem();
+    const okSent = await call('POST', `/api/work-items/${s1?.item_id}/due`, ALPHA, { due: '2099-02-02' });
+    const okNotes = notesOf(s1?.event_id).length;
+    peerSet('disabled');
+    const offSent = await call('POST', `/api/work-items/${s1?.item_id}/due`, ALPHA, { due: '2099-02-03' });
+    peerSet('key_changed');
+    const kcSent = await call('POST', `/api/work-items/${s1?.item_id}/due`, ALPHA, { due: '2099-02-04' });
+    const gatedNotes = notesOf(s1?.event_id).length;
+    peerSet('active');
+    // 已送达、投递地址在对端登记表里没有登记（peer_unknown，照旧能发）：算进 notified
+    const s3 = await sentItem();
+    dbw("UPDATE workbench_event_deliveries SET target_url = 'http://unregistered-node.invalid' WHERE event_id = ?", s3?.event_id);
+    const unkSent = await call('POST', `/api/work-items/${s3?.item_id}/due`, ALPHA, { due: '2099-02-06' });
+    const unkReg = (() => { const d = dbr(); try { return d.prepare("SELECT COUNT(*) AS c FROM a2a_peers WHERE root_url LIKE '%unregistered-node.invalid%'").get().c; } finally { d.close(); } })();
+    check(unkReg === 0 && unkSent.body?.notified === 1 && unkSent.body.pending_release === false && notesOf(s3?.event_id).length === 1,
+      '已送达、投递地址没登记（照旧能发）：notified 1，排一条变更', show({ b: unkSent.body, reg: unkReg, notes: notesOf(s3?.event_id).length }));
+    const s2 = await sentItem();
+    dbw("UPDATE workbench_event_deliveries SET status = 'dead' WHERE event_id = ?", s2?.event_id);
+    const deadSent = await call('POST', `/api/work-items/${s2?.item_id}/due`, ALPHA, { due: '2099-02-05' });
+    check(okSent.body?.notified === 1 && okSent.body.pending_release === false && okNotes === 1,
+      '已送达、对端 active：notified 1、pending_release 假，排一条变更', show({ b: okSent.body, notes: okNotes }));
+    check(offSent.body?.notified === 0 && kcSent.body?.notified === 0 && offSent.body.pending_release === false && kcSent.body.pending_release === false && gatedNotes === 3,
+      '已送达但对端停用、等确认新键：不算进 notified（0）；变更照排、由出站的闸挂着，对端恢复了再发', show({ off: offSent.body, kc: kcSent.body, notes: gatedNotes }));
+    check(deadSent.status === 200 && deadSent.body?.notified === 0 && deadSent.body.pending_release === false && notesOf(s2?.event_id).length === 0,
+      '投递判死了（没送达）：notified 0、pending_release 假，不排变更', show({ b: deadSent.body, notes: notesOf(s2?.event_id).length }));
     // 管理员不代改截止：会话登录的管理员改 alpha 的事项 → 404（不说有没有这件），不改动；只带管理口令的不是人，401；管理员看详情 can.due 为假
     const dueBefore = (() => { const d = dbr(); try { return d.prepare('SELECT due_at FROM work_items WHERE id = ?').get(past.body?.item_id)?.due_at; } finally { d.close(); } })();
     const SESSION_ADMIN = { ...SAME, cookie: `session_id=${SESSIONS.admin}` };
