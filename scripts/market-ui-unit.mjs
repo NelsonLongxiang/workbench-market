@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 工作台市场页的纯函数单测（web/src/market-view.ts）：三个来源合成卡片、分类计数、读不到和空着时怎么说。数据都是合成的。 */
-import { NO_DESCRIPTION, benchSlugFor, viewTitles, cardTags, connectorCards, detailProblem, manageHref, tabsFor, workbenchIdOf, cardsOf, emptyText, extraTags, healthLabel, initialOf, runningBySlug, skillCards, sopCards, sourceProblem, tabFromQuery, usableIcon, workbenchCards } from '../web/src/market-view.ts';
+import { NO_DESCRIPTION, reviewerLabel, sizeLabel, skillHref, skillOf, skillProblem, skillVersionsOf, benchSlugFor, viewTitles, cardTags, connectorCards, detailProblem, manageHref, tabsFor, workbenchIdOf, cardsOf, emptyText, extraTags, healthLabel, initialOf, runningBySlug, skillCards, sopCards, sourceProblem, tabFromQuery, usableIcon, workbenchCards } from '../web/src/market-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -37,7 +37,7 @@ ok('流程：slug 里的怪字符编码进地址', sopCards([sop('a b')], null)[
 // 技能
 const sks = skillCards([skill('s-2', { name: '乙技能', layer: 2, layer_name: '开发运维', family_parent: '族一', legacy: true, versions: 3 }), skill('s-1', { name: '甲技能' }), skill('s-0', { versions: 0 })]);
 ok('技能：没有版本的不列；按层再按名字排', J(sks.map((c) => c.name)) === '["甲技能","乙技能"]', J(sks.map((c) => c.name)));
-ok('技能：层、族和「旧版」标签、版本数、「查看」', sks[1].caption === '开发运维' && J(sks[1].tags) === '["族一","旧版"]' && sks[1].usage === '3 个版本' && sks[1].action === '查看' && sks[1].href === '/skills');
+ok('技能：层、族和「旧版」标签、版本数、「查看」', sks[1].caption === '开发运维' && J(sks[1].tags) === '["族一","旧版"]' && sks[1].usage === '3 个版本' && sks[1].action === '查看' && sks[1].href === '/market/skill/s-2');
 ok('技能：应答是 { items } 也认；别的形状按空', skillCards({ items: [skill('s-1')] }).length === 1 && skillCards({ error: 'x' }).length === 0);
 
 // 标签行、说明
@@ -75,5 +75,16 @@ ok('「编辑」回管理页那一行：?q=台名（编码过）', manageHref('�
   ok('视图的名字：取 view.content.views[].title；没写名字的不拿键顶替；没取到都是空', viewTitles(200, doc).join() === '利润看板,商品明细' && viewTitles(403, doc).length === 0 && viewTitles(200, { view: null }).length === 0);
 }
 
+// 技能自己的页面（/market/skill/<标识>；上一版的 /skills 总表删了）
+ok('技能卡片的「查看」去这个技能自己的页面；标识编码进地址', skillHref('dsh:a b') === '/market/skill/dsh%3Aa%20b' && skillCards([skill('s-1')])[0].href === '/market/skill/s-1');
+ok('按标识在技能列表里找一条：数组、{ items } 都认；找不到给 null', skillOf([skill('s-1'), skill('s-2')], 's-2').slug === 's-2' && skillOf({ items: [skill('s-1')] }, 's-1') !== null && skillOf([skill('s-1')], 'x') === null && skillOf(null, 's-1') === null);
+const VS = skillVersionsOf({ versions: [
+  { version: 1, changelog: ' 首版 ', breaking: 0, active: false, file_count: 3, total_bytes: 2048, reviewed_by: '合成审阅人', created_at: '2026-11-10 08:00:00', tree_digest: 'sha256:abc', snapshot_path: 'skill-snapshots/x/v1' },
+  { version: 2, changelog: '', breaking: 1, active: true, file_count: 4, total_bytes: 3 * 1024 * 1024, reviewed_by: 'user:syn-r', created_at: '2026-11-12 08:00:00' },
+  { version: 'x' }, null] });
+ok('版本：新的在前；改了什么、是不是不兼容、现在用的、文件数和大小；摘要和快照路径不取', VS.map((v) => v.version).join() === '2,1' && VS[0].breaking && VS[0].active && !VS[1].breaking && VS[1].changelog === '首版' && VS[1].files === 3 && !('tree_digest' in VS[0]) && !('snapshot_path' in VS[1]) && skillVersionsOf(null).length === 0);
+ok('谁审的：写的是名字就写；像内部标识（user:… 这类）不写', VS[1].reviewer === '合成审阅人' && VS[0].reviewer === '' && reviewerLabel('cli:local') === '' && reviewerLabel('') === '');
+ok('大小：KB / MB 一位小数；0 不写', sizeLabel(2048) === '2.0 KB' && sizeLabel(3 * 1024 * 1024) === '3.0 MB' && sizeLabel(0) === '' && sizeLabel(10) === '0.1 KB');
+ok('技能页读不到：404 没有这个技能、401、403、别的读不到；不露代号', skillProblem(404).text.includes('没有这个技能') && skillProblem(401).kind === 'login' && skillProblem(403).kind === 'denied' && skillProblem(500).kind === 'error' && skillProblem(200) === null);
 console.log(`\nmarket-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

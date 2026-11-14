@@ -135,7 +135,7 @@ export function skillCards(body: unknown): MarketCard[] {
         description: String(k.description ?? '').trim(),
         tags,
         usage: `${Number(k.versions)} 个版本`,
-        href: '/skills', action: '查看' as const,
+        href: skillHref(k.slug), action: '查看' as const,
       };
     });
 }
@@ -238,4 +238,42 @@ export function viewTitles(status: number, body: unknown): string[] {
   const views = (body as { view?: { content?: { views?: unknown } } | null } | null)?.view?.content?.views;
   if (!Array.isArray(views)) return [];
   return views.flatMap((v) => (v && typeof v === 'object' && typeof (v as { title?: unknown }).title === 'string' && (v as { title: string }).title.trim() ? [(v as { title: string }).title.trim()] : []));
+}
+
+/** 技能自己的页面（/market/skill/<标识>）：标识只在地址里，不写在页面的字上。上一版的「技能市场」总表（/skills）属主 2026-11-14 定了删掉 */
+export const skillHref = (slug: string): string => `/market/skill/${encodeURIComponent(slug)}`;
+/** 技能列表里按标识找一条（没有单条的读接口，从 /api/skills 里找）；应答是数组或 { items } 都认 */
+export function skillOf(body: unknown, slug: string): SkillRow | null {
+  const list = Array.isArray(body) ? body : (body && typeof body === 'object' && Array.isArray((body as { items?: unknown }).items) ? (body as { items: unknown[] }).items : []);
+  return (list as SkillRow[]).find((k) => !!k && typeof k === 'object' && k.slug === slug) ?? null;
+}
+/** 一个技能的一个版本（GET /api/skills/:slug/versions 的一行，只取页面用到的；摘要 digest、快照路径这类内部的东西不取） */
+export type SkillVersion = { version: number; changelog: string; breaking: boolean; active: boolean; files: number; bytes: number; reviewer: string; at: string };
+export function skillVersionsOf(body: unknown): SkillVersion[] {
+  const list = body && typeof body === 'object' && Array.isArray((body as { versions?: unknown }).versions) ? (body as { versions: unknown[] }).versions : [];
+  return list.flatMap((v): SkillVersion[] => {
+    if (!v || typeof v !== 'object') return [];
+    const x = v as Record<string, unknown>;
+    if (typeof x.version !== 'number') return [];
+    return [{ version: x.version, changelog: typeof x.changelog === 'string' ? x.changelog.trim() : '', breaking: x.breaking === true || x.breaking === 1, active: x.active === true,
+      files: typeof x.file_count === 'number' ? x.file_count : 0, bytes: typeof x.total_bytes === 'number' ? x.total_bytes : 0, reviewer: reviewerLabel(x.reviewed_by), at: typeof x.created_at === 'string' ? x.created_at : '' }];
+  }).sort((a, b) => b.version - a.version);
+}
+/** 谁审的：写的是名字就写名字；像内部标识（带冒号的 user:…、cli:… 这类）就不写 */
+export function reviewerLabel(v: unknown): string {
+  const t = typeof v === 'string' ? v.trim() : '';
+  return !t || /[:/@]/.test(t) ? '' : t;
+}
+/** 大小：KB / MB，一位小数 */
+export function sizeLabel(bytes: number): string {
+  if (!(bytes > 0)) return '';
+  return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(0.1, bytes / 1024).toFixed(1)} KB`;
+}
+/** 技能页读不到时怎么说 */
+export function skillProblem(status: number): { kind: 'gone' | 'login' | 'denied' | 'error'; text: string } | null {
+  if (status >= 200 && status < 300) return null;
+  if (status === 404) return { kind: 'gone', text: '没有这个技能，可能已经下架了。' };
+  if (status === 401) return { kind: 'login', text: '请先登录，登录后才能看这个技能。' };
+  if (status === 403) return { kind: 'denied', text: '你的账号现在不能查看技能。' };
+  return { kind: 'error', text: '读不到这个技能，稍后再试。' };
 }

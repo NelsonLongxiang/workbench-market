@@ -68,8 +68,8 @@ with sync_playwright() as p:
     h = headers(pg, '.wm-page')
     al = [pg.locator('.ant-table-row').first.locator('td').nth(h.index(c)).evaluate('e=>getComputedStyle(e).textAlign') for c in ('默认端口', '使用中')]
     check('类型数字列右对齐', al == ['right', 'right'], al)
-    # ── 技能市场 / MCP 网关：ProTable ──
-    for path in ('/skills', '/mcp-gateways'):
+    # ── MCP 网关：ProTable（上一版的技能市场总表 /skills 2026-11-14 删了，技能在市场里一个技能一页） ──
+    for path in ('/mcp-gateways',):
         pg.goto(M + path); pg.wait_for_selector('.wm-page .ant-table')
         check(f'{path} 列表为 ProTable', pg.locator('.wm-page .ant-pro-table').count() >= 1)
     b.close()

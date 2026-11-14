@@ -89,7 +89,6 @@ export default function Market() {
       <Dropdown trigger={['click']} menu={{ items: [
         { key: 'wb', label: <Link to="/market/manage">管理工作台</Link> },
         { key: 'sop', label: <Link to="/sops">流程的发布与绑定</Link> },
-        { key: 'skill', label: <Link to="/skills">技能的版本</Link> },
       ] }}>
         <Button data-testid="mkt-manage">管理 <DownOutlined /></Button>
       </Dropdown>
