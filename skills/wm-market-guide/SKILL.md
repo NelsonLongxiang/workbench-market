@@ -1,6 +1,6 @@
 ---
 name: wm-market-guide
-version: 1.5.0
+version: 1.5.1
 description: 工作台市场（workbench-market）使用指南——agent 经 MCP 面板操作市场与可视化界面（驾驶舱/门户/交付空间/市场的「技能」分类）的完整实践：工具选型、UI/UX token 规范、可视化组件模式、常见坑。当需要通过 MCP 操作工作台、发布自产台、跑 SOP、管技能、搭驾驶舱或排查门户 iframe/代理问题时加载。
 ---
 
@@ -40,26 +40,26 @@ agent 交付件的标准组合（在自产台上实测）：
 
 ## 四、发布纪律（血泪）
 
-- 先拉 served 基线：GET 台详情看 served_version→与本地 diff→版本号 served+1（防双写互踩）
-- 发布门禁（S1 三闸+）：空 content 拒、体积骤降>50% 拒（force 可越）、div 配对拒
+- 版本号不用自己算：改动合进台仓库的 main 后由管理员 `app_sync`，市场拉 main 的头出下一个版本并记下 commit；同步应答带 `served_version`（同步前在线的版本），要核对就拿它和本次的 diff 比
+- 发布门禁（S1 三闸+，`app_sync` 照样执行）：空 content 拒、体积骤降>50% 拒（force 可越）、div 配对拒；另有最多 64 个文件、单台合计 ≤100MB、只收 UTF-8 文本
 - 删除/回滚=人审：MCP 只能提 change_requests；人批准才执行
 - changelog 归档：version 记录含 changelog 列
 
 ## 五、UI/UX token 规范（市场同源·画界面照抄）
 
-antd theme（main.tsx ConfigProvider）：colorPrimary #1E3A5F · colorSuccess #059669 · colorError #DC2626 · colorTextSecondary #5A6577（WCAG AA 达标）· borderRadius 6 · fontFamily Inter/-apple-system/Segoe UI/PingFang SC/Microsoft YaHei
+色值、字号、间距以仓库根 `DESIGN.md` 为唯一事实源（生成 `web/src/tokens.css` 的 `--wm-*` 变量与 `design-tokens.ts`；页面里用变量，不写死色值）。antd theme（main.tsx ConfigProvider）就从这份 token 取值：colorPrimary #1E3A5F · colorSuccess #047857 · colorError #DC2626 · colorTextSecondary #5A6577（WCAG AA 达标）· borderRadius 6 · fontFamily Inter/-apple-system/Segoe UI/PingFang SC/Microsoft YaHei。旧的成功绿 #059669 白字对比度不够，已弃用
 
-CSS 类体系（index.css·35 类）：卡片 .wm-card（白底/1px rgba(30,58,95,.1)/8px 圆角/12px 内距）、驾驶舱 .wm-cockpit-grid+.wm-panel（白底 flex 列）、面板头 .wm-panel-head+.wm-panel-grip（拖拽柄）、侧栏 .wm-sider-collapse、数字 .wm-num/.wm-mono（等宽）、使用条 .wm-use-bar/.wm-use-frame、统计卡 .wm-stat-card/.wm-stat-label
+CSS 类体系（index.css，`.wm-*` 前缀）：驾驶舱 .wm-cockpit-grid+.wm-panel（白底 flex 列）、面板头 .wm-panel-head+.wm-panel-grip（拖拽柄）、侧栏 .wm-sider-collapse、数字 .wm-num/.wm-mono（等宽）、使用条 .wm-use-bar/.wm-use-frame、统计标签 .wm-stat-label
 
-色板：主 #1E3A5F · 深字 #0F172A/#1E293B · 次字 #64748B/#5A6577/#94A3B8 · 边框 #E2E8F0/#CBD5E1 · 底 #F8FAFC/#F5F5F5 · 白 #FFFFFF
+色板（摘自 DESIGN.md）：主 #1E3A5F · 正文 #0F172A · 次字 #5A6577 · 禁用/占位 #94A3B8（不写有效信息）· 边框 #E2E8F0/#CBD5E1 · 页面底 #F6F7F9 · 白 #FFFFFF
 
 UX 硬规（ui-ux-pro-max 检索实证）：表格移动端 overflow-x-auto 包裹；错误 role="alert"+aria-live；加载保留布局焦点+accessible busy；触控 ≥8px 间距；空态给行动指引。
 
 ## 六、可视化组件模式（驾驶舱面板）
 
 - 面板=react-grid-layout 项（可拖拽·layout_config 存 panel 数组）
-- 数据卡：wm-stat-card 统计卡（label+num+trend）/ .wm-num 等宽数字（财务/预算场景）
-- 状态色：up=#059669 · down=#DC2626 · 未知=#94A3B8
+- 数据卡：统计卡（label+num+trend，标签用 .wm-stat-label）/ .wm-num 等宽数字（财务/预算场景）
+- 状态色：up=#047857（success）· down=#DC2626（danger）· 未知=#94A3B8
 - 图表：antd/echarts 内置主题；配色用主色系（#1E3A5F→#64748B 梯度）不用彩虹色
 - iframe 台（/go/<id>/）：注入 base 或标准绝对前缀（§三.3）
 

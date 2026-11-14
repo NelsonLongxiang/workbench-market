@@ -1,5 +1,7 @@
 # 技能市场（Skill Market）可行动实施方案 v1
 
+> 补记（2026-11-13）：这是早期的实施方案。技能市场已经做出来，现行用法（`skills_list`、`skill_search`、`skill_read`、`skill_file_put`→`skill_publish`、带校验脚本的 `skill_download`、回滚走 `active_version`）以 README「MCP 生产通道」一行和技能 `wm-market-guide` 为准，和本方案不一致的地方以那里为准。
+
 > 派单 direct-f6c33264（监督席·主人令）· 事实源摸底：`~/.agents/skills`（101 目录，SKILL.md frontmatter：name/description/argument-hint/metadata{author,version}）· `jf-tech-expert-agents`（384 SKILL.md 散布 .agents/.claude/docs/packages；role bundle JSON 形态已见 apollo：bundle_version+roster_anchor sha256+prompt_stack soul）
 > 主人裁定基线：版本管理先行、分发薄做（portal 浏览+手工落盘）；N+1 快照+changelog breaking 标记；promote 手动发布；发布口令门+首版人审。
 

@@ -43,6 +43,7 @@ token 取值见仓库根 [`DESIGN.md`](../../DESIGN.md)。本文件规定**菜�
 > - 菜单换成产品化原型 3fbfd0b 的信息架构：首页 `/` 是「全景」，不再是「总览」。
 > - `/tasks`（统一待办）、`/reviews`（审核）2026-11-12 删了：发布任务由「安排一件事」取代，变更申请在全景的卡片上当场办。
 > - `/skills`（技能市场）2026-11-14 删了（属主：上一版是 demo，没有用于生产）：技能在「工作台市场」的「技能」分类里，一个技能一页 `/market/skill/<标识>`；旧链接跳到 `/market?k=技能`。
+> - 现在的分组（2026-11-14 核对 `nav.tsx`）：「工作」组是全景、事项 `/work-items`、驾驶舱、团队 `/team`、谁能做什么 `/access`、工作台市场、经验库 `/knowledge`，共 7 项，超出了上面「每组最多 6 项」的约定；「等你拍板」`/attention`、SOP 交付空间收进不显示的「旧入口」组（路由还在）；「管理」组另有待属主看板 `/owner-pending` 和凭据库 `/vault`。
 
 ### 2.2 目录（路由）规则
 
@@ -53,6 +54,8 @@ token 取值见仓库根 [`DESIGN.md`](../../DESIGN.md)。本文件规定**菜�
 ### 2.3 侧栏样式
 
 侧栏用深色（与内容区浅色区分），新增 token：`nav-bg #0F172A`、`nav-text #CBD5E1`、`nav-text-active #FFFFFF`、`nav-item-active-bg #1E3A5F`，不再在 `App.tsx` 里写死。
+
+> 补记（2026-11-13）：之后按产品化原型 `3fbfd0b` 改成了浅色侧栏，现在的取值以 `DESIGN.md` 为准（`nav-bg #F6F7F9`、`nav-text #5A6577`、`nav-text-active #1E3A5F`、`nav-item-active-bg #EEF2F7`）。「不在 `App.tsx` 里写死」这一条照旧。
 
 ## 3. 页面骨架（所有页面一致）
 

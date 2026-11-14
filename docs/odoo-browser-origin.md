@@ -18,7 +18,7 @@ Odoo 台登记的 URL 只写源（`http(s)://主机:端口`），不要带 `/web
 
 测试：
 - `node scripts/odoo-browser-origin-test.mjs`：地址策略 19 项；
-- `node scripts/odoo-browser-origin-http-test.mjs`：隔离 HTTP 19 项，包括身份查询仍走内部地址、已登录代理仍走内部地址、HTTPS 降级拒绝、主机名不符拒绝、中继优先。
+- `node scripts/odoo-browser-origin-http-test.mjs`：隔离 HTTP 27 项（2026-11-13 实跑），包括身份查询仍走内部地址、已登录代理仍走内部地址、HTTPS 降级拒绝、主机名不符拒绝、中继优先。
 
 两项都只用合成数据，不访问生产，也不用真实账号。真实账号和飞书登录要由使用者自己验收。
 
