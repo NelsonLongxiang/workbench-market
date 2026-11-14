@@ -7,7 +7,8 @@ import { Empty, Segmented, Skeleton, Typography } from 'antd';
 import { adminActive, subscribeAdminToken } from '../admin-token';
 import WmPage from '../components/WmPage';
 import DecisionCard from '../components/DecisionCard';
-import { ATTENTION_CHANGED, getAttention } from '../api';
+import { ATTENTION_CHANGED, canRememberKnowledge, getAttention } from '../api';
+import RecentAnswers from '../components/RecentAnswers';
 import { SEAT_ASKS_MORE, answerChoices, groupCards, isStuck, stuckTotal, type AttentionItem, type Category } from '../attention-view';
 import { decideLine } from '../home-view';
 
@@ -21,6 +22,9 @@ export default function Attention() {
   const [items, setItems] = useState<AttentionItem[] | null>(null);
   const [status, setStatus] = useState(0);
   const [cat, setCat] = useState<Category | 'all' | 'stuck'>('all');
+  // 「我处理过的」只给能把拍板记成经验的人（can.remember_knowledge，#745）
+  const [canRemember, setCanRemember] = useState(false);
+  useEffect(() => { let live = true; void canRememberKnowledge().then((v) => { if (live) setCanRemember(v); }); return () => { live = false; }; }, []);
   const [stuckCount, setStuckCount] = useState<number | null>(null);
   const [more, setMore] = useState(false);
 
@@ -75,6 +79,7 @@ export default function Attention() {
         <div className="wm-sub-h">要到别处处理的<span className="wm-sec-n">{shown.elsewhere.length}</span></div>
         <div className="wm-decisions" data-testid="attention-elsewhere">{shown.elsewhere.map(card)}</div>
       </>}
+      {canRemember && <RecentAnswers />}
     </div>
   </WmPage>;
 }

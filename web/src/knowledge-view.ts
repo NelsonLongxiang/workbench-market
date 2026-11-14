@@ -23,7 +23,8 @@ export function kindLabel(kind: unknown): string {
 }
 
 /** 列表里的一条（#717）。key 是不透明的编号，只用在地址里，不写在页面的字上 */
-export type KnowledgeItem = { key: string; kind: KnowledgeKind | string; title: string; summary: string; status: string | null; tags: string[]; created: string; updated: string; scope_label: string };
+/** decided_by_name：经验（kb）是谁拍的板（#745，经市场记下的才有名字，别的是 null） */
+export type KnowledgeItem = { key: string; kind: KnowledgeKind | string; title: string; summary: string; status: string | null; tags: string[]; created: string; updated: string; scope_label: string; decided_by_name: string | null };
 export type KnowledgeSource = 'ok' | 'not_ready' | 'degraded' | 'not_connected';
 export type KnowledgeEvidence = { quote: string; note: string; stance: string; created: string; source: { title: string; url: string | null } | null };
 
@@ -34,7 +35,7 @@ export function asItem(v: unknown): KnowledgeItem | null {
   const x = v as Record<string, unknown>;
   if (!str(x.key) || !str(x.title)) return null;
   return { key: str(x.key), kind: str(x.kind), title: str(x.title), summary: str(x.summary), status: typeof x.status === 'string' && x.status ? x.status : null,
-    tags: Array.isArray(x.tags) ? x.tags.filter((t): t is string => typeof t === 'string' && t.trim() !== '') : [], created: str(x.created), updated: str(x.updated), scope_label: str(x.scope_label) };
+    tags: Array.isArray(x.tags) ? x.tags.filter((t): t is string => typeof t === 'string' && t.trim() !== '') : [], created: str(x.created), updated: str(x.updated), scope_label: str(x.scope_label), decided_by_name: typeof x.decided_by_name === 'string' && x.decided_by_name.trim() ? x.decided_by_name.trim() : null };
 }
 /** 列表应答：{ items, source }。形状不对的条目丢掉；source 认不出当 ok */
 export function asList(body: unknown): { items: KnowledgeItem[]; source: KnowledgeSource } {

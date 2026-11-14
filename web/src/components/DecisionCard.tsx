@@ -10,7 +10,9 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { App, Button, Checkbox, Input, Popconfirm, Radio, Space, Tag, Typography } from 'antd';
 import { apiFetch } from '../admin-token';
-import { attentionChanged, postCreatorDecision } from '../api';
+import { attentionChanged, canRememberKnowledge, getRememberDefaults, postCreatorDecision, postRememberLater } from '../api';
+import RememberFields from './RememberFields';
+import { REMEMBER_LABEL, answeredWithRemember, defaultsOf, rememberLaterResult, rememberPayload, rememberProblem, type RememberDefaults, type Visibility } from '../remember-view';
 import { answerChoices, answerRoute, answerViaOf, workItemIdOf, viaBody, viaError, viaInput, viaPath, waited, type AttentionItem, isStuck, stuckLabel } from '../attention-view';
 import { cardWording, splitAskTitle } from '../home-view';
 import { seatLabel, teamLabel, waitingLabel } from '../people';
@@ -56,6 +58,20 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
   const [open, setOpen] = useState<string | null>(null);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  // 「把这次的取舍记成经验」（#745）：只给能记的人（can.remember_knowledge）。
+  // 走 /api/attention/answer 的随答复一起交（remember）；建立人的验收退回、席位提问的答复也记在同一本答复账上，答完紧接着补记（POST /api/knowledge/remember）；
+  // 条目自带答复入口（answer_via，比如放行）的答复不进那本账、记不上，不给这个勾选
+  const [canRemember, setCanRemember] = useState(false);
+  useEffect(() => { let live = true; void canRememberKnowledge().then((v) => { if (live) setCanRemember(v); }); return () => { live = false; }; }, []);
+  const [remOn, setRemOn] = useState(false);
+  const [lesson, setLesson] = useState('');
+  const [cue, setCue] = useState('');
+  const [vis, setVis] = useState<Visibility | null>(null);
+  const [remDefaults, setRemDefaults] = useState<RememberDefaults | null>(null);
+  const toggleRemember = (on: boolean) => {
+    setRemOn(on);
+    if (on && !remDefaults) void getRememberDefaults(item.source, item.source_id).then((r) => setRemDefaults(defaultsOf(r.status === 200 ? r.body : null)));
+  };
   const [detail, setDetail] = useState<Detail | null>(null);
   const [choice, setChoice] = useState('');
   const wid = workItemIdOf(item);
@@ -99,8 +115,13 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
   const stuck = isStuck(item);
   const label = (a: string) => (wording.proxy && PROXY[a]) || reviewAnswerLabel(item.source, a, item) || ANSWER[a] || a;
   const [create, setCreate] = useState(false);
+  const rememberHere = canRemember && choices.length > 0 && answerRoute(admin, item) !== 'via';
+  const rememberOn = rememberHere && remOn;
+  /** 勾了记成经验、但还不能交（以后怎么办没填、超长、谁能看还在问）：答法按钮置灰，旁边说为什么 */
+  const remBlock = rememberOn ? (remDefaults ? rememberProblem(lesson, cue) : '正在看这件事归哪个部门……') : null;
   const send = async (answer: string, input: Record<string, unknown>) => {
     setBusy(true);
+    const later = rememberOn && remDefaults ? rememberPayload(lesson, cue, vis ?? remDefaults.default_visibility) : undefined;
     try {
       const route = answerRoute(admin, item);
       if (route === 'via' && via) {
@@ -118,11 +139,28 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
         if (status === 401) throw Error('请先登录');
         if (status < 200 || status >= 300) throw Error(body?.message || body?.result?.message || body?.result?.error || body?.error || '没办成');
       } else {
-        const r = await apiFetch('/api/attention/answer', { method: 'POST', body: JSON.stringify({ source: item.source, source_id: item.source_id, answer, input }) });
+        const remember = later;
+        const r = await apiFetch('/api/attention/answer', { method: 'POST', body: JSON.stringify({ source: item.source, source_id: item.source_id, answer, input, ...(remember ? { remember } : {}) }) });
         const body = await r.json().catch(() => ({}));
+        // remember 不合格时整个答复回 400 remember_invalid、答复没生效：说经验那几项不对（服务端那句带字段名，不原样给人看）
+        if (r.status === 400 && body?.error === 'remember_invalid') throw Error('没办成：「记成经验」那几项填得不对，看一下再交');
         if (!r.ok) throw Error(body?.message || body?.result?.message || body?.result?.error || body?.error || '没办成');
+        // 答复办完了；经验记没记上另说一句，不拖住答复（统筹 11-14）
+        if (remember) {
+          const m = answeredWithRemember(body?.remember);
+          void (m.type === 'success' ? message.success(m.text) : message.warning(m.text));
+          setOpen(null); setText(''); setChoice(''); setRemOn(false); setLesson(''); setCue('');
+          attentionChanged(); onDone();
+          return;
+        }
       }
-      void message.success('办好了');
+      if (later) {
+        // 建立人的验收退回、席位提问的答复：答复已经办完，紧接着补记成经验；记没记上不影响答复（统筹 11-14）
+        const r = await postRememberLater({ source: item.source, source_id: item.source_id, ...later });
+        const m = rememberLaterResult(r.status, r.body);
+        void (m.ok && m.status === 'written' ? message.success(`办好了，也${m.text}`) : message.warning(`办好了；${m.ok ? m.text : `经验没记上：${m.text}`}`));
+        setRemOn(false); setLesson(''); setCue('');
+      } else void message.success('办好了');
       setOpen(null); setText(''); setChoice('');
       attentionChanged(); onDone();
     } catch (e) { void message.error(e instanceof Error ? e.message : '没办成'); }
@@ -154,7 +192,7 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
       <Radio.Group value={choice} onChange={(e) => setChoice(String(e.target.value))} optionType="button" data-testid="decision-options"
         options={options.map((o) => ({ label: o === detail?.suggested ? `${o}（席位建议）` : o, value: o }))} />
       <Space wrap size={8} className="wm-decision-actions">
-        <Button type="primary" loading={busy} disabled={!choice} onClick={() => void send('answer', { text: choice })}>{label('answer')}</Button>
+        <Button type="primary" loading={busy} disabled={!choice || !!remBlock} onClick={() => void send('answer', { text: choice })}>{label('answer')}</Button>
         {page && <Link to={page} className="wm-decision-more">自己写一句 →</Link>}
       </Space>
     </>}
@@ -162,12 +200,17 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
       options={(needOf(open)?.options ?? []).map((o) => ({ label: o, value: o }))} />}
     {open && !needOf(open)?.options?.length && <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} maxLength={needOf(open)?.max ?? 4000} showCount={!!needOf(open)?.max} placeholder={needOf(open)?.label} value={text} onChange={(e) => setText(e.target.value)} />}
     {open && BIND_CREATE(item.source, open) && <Checkbox checked={create} onChange={(e) => setCreate(e.target.checked)} data-testid="decision-bind-create">这个主体还没有，就新建</Checkbox>}
+    {rememberHere && <div className="wm-decision-remember" data-testid="decision-remember">
+      <Checkbox checked={remOn} onChange={(e) => toggleRemember(e.target.checked)} data-testid="decision-remember-toggle">{REMEMBER_LABEL}</Checkbox>
+      {remOn && <RememberFields defaults={remDefaults} lesson={lesson} cue={cue} visibility={vis} onLesson={setLesson} onCue={setCue} onVisibility={setVis} cuePlaceholder={parsed.question || undefined} />}
+      {remBlock && <Typography.Text type="secondary" className="wm-caption" data-testid="decision-remember-block">{remBlock}</Typography.Text>}
+    </div>}
     {!(isAsk && options.length > 0 && choices.includes('answer')) && <Space wrap size={8} className="wm-decision-actions">
       {choices.map((a, i) => {
         const need = needOf(a);
         if (open === a && need) {
           const go = () => void send(a, { [need.key]: text.trim(), ...(BIND_CREATE(item.source, a) && create ? { create: true } : {}) });
-          const ok = <Button key={a} type="primary" loading={busy} disabled={!need.optional && !text.trim()} onClick={BIND_CREATE(item.source, a) && create ? undefined : go} data-testid="decision-confirm">确定{label(a)}</Button>;
+          const ok = <Button key={a} type="primary" loading={busy} disabled={(!need.optional && !text.trim()) || !!remBlock} onClick={BIND_CREATE(item.source, a) && create ? undefined : go} data-testid="decision-confirm">确定{label(a)}</Button>;
           // 勾了「新建主体」：建了就多一个人，再确认一次
           return BIND_CREATE(item.source, a) && create
             ? <Popconfirm key={a} title="会新建一个主体" description={`建了就多一个人「${text.trim() || '（没写名字）'}」，确定新建并对接？`} okText="新建并对接" cancelText="再想想" onConfirm={go}>{ok}</Popconfirm>
@@ -177,7 +220,7 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
         if (open && open !== a && needOf(open)) return null;
         // 要先填一句的答法不再另外确认一次：填的那一步就是确认
         const confirm = need ? null : confirmText(item, a);
-        const btn = <Button key={a} type={i === 0 ? 'primary' : 'default'} danger={!!confirm && !!change} loading={busy && !open} disabled={!!run && !run.ready} onClick={confirm ? undefined : () => click(a)}>{label(a)}</Button>;
+        const btn = <Button key={a} type={i === 0 ? 'primary' : 'default'} danger={!!confirm && !!change} loading={busy && !open} disabled={(!!run && !run.ready) || !!remBlock} onClick={confirm ? undefined : () => click(a)}>{label(a)}</Button>;
         return confirm ? <Popconfirm key={a} title={`确定${label(a)}？`} description={confirm} okText={label(a)} cancelText="再想想" onConfirm={() => click(a)}>{btn}</Popconfirm> : btn;
       })}
       {open && needOf(open) && <Button onClick={() => { setOpen(null); setText(''); setCreate(false); }} data-testid="decision-cancel">取消</Button>}

@@ -172,12 +172,25 @@ export const listCockpitsShared = (): Promise<Cockpit[]> => shared('cockpits', (
 
 /** 当前登录身份（登录门的 /api/auth/me）：外壳的用户卡、全景的问候语用。拿不到就是 null，不弹口令。
  *  叫 getAuthMe 不叫 getMe：事项详情那条线（#565）在这里也加了一个 getMe，两边先后合进 main 时不撞名；都合了以后收成一份。 */
-export type AuthMe = { authenticated?: boolean; login?: string | null; via?: string | null; display_name?: string | null };
+/** can：服务端按这个人算好的能做什么（create_cockpit 建驾驶舱，remember_knowledge 把拍板记成经验，#745） */
+export type AuthMe = { authenticated?: boolean; login?: string | null; via?: string | null; display_name?: string | null; can?: { create_cockpit?: boolean; remember_knowledge?: boolean } };
 export function getAuthMe(): Promise<AuthMe | null> {
   return shared('auth-me', async () => {
     try { const r = await fetch('/api/auth/me', { cache: 'no-store', credentials: 'same-origin' }); return r.ok ? await r.json() as AuthMe : null; } catch { return null; }
   });
 }
+/** 能不能把拍板记成经验（/api/auth/me 的 can.remember_knowledge，和记的时候同一处判断）：拿不到当不能 */
+export const canRememberKnowledge = (): Promise<boolean> => getAuthMe().then((m) => m?.can?.remember_knowledge === true);
+/** 「记成经验」的三个口子（#745）：缺省档、「我处理过的」、补记。带登录的 cookie；返回状态码和应答体，让页面给说法；断网当 0 */
+async function rememberCall(path: string, init?: RequestInit): Promise<{ status: number; body: unknown }> {
+  try {
+    const r = await fetch(path, { credentials: 'same-origin', ...init, headers: { Accept: 'application/json', ...(init?.body ? { 'Content-Type': 'application/json' } : {}) } });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  } catch { return { status: 0, body: null }; }
+}
+export const getRememberDefaults = (source: string, sourceId: string) => rememberCall(`/api/knowledge/remember/defaults?${new URLSearchParams({ source, source_id: sourceId })}`);
+export const getRecentAnswers = () => rememberCall('/api/knowledge/remember/recent');
+export const postRememberLater = (req: { source: string; source_id: string; lesson: string; cue?: string; visibility?: string }) => rememberCall('/api/knowledge/remember', { method: 'POST', body: JSON.stringify(req) });
 
 /** 生命周期只读接口（观测层扩展挂在市场里）：带登录 cookie；扩展没挂上（404）或没配置（503）由页面给空状态，不弹口令 */
 /** identityDown：身份服务连不上（502 identity_unavailable），页面说「暂时取不到」，不当成没有 */

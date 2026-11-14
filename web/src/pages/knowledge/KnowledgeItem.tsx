@@ -46,6 +46,7 @@ export default function KnowledgeItem() {
           <Space size={8} wrap>{kindTag(item.kind)}{statusTag(item.status)}{item.tags.map((t) => <Tag key={t} bordered={false}>{t}</Tag>)}</Space>
           <Typography.Title level={4} style={{ marginTop: 12 }} data-testid="kn-detail-title">{item.title}</Typography.Title>
           <Space size={12} wrap className="wm-caption">
+            {item.decided_by_name && <Typography.Text type="secondary" className="wm-caption" data-testid="kn-detail-decider">拍板：{item.decided_by_name}</Typography.Text>}
             {item.scope_label && <Typography.Text type="secondary" className="wm-caption" data-testid="kn-detail-scope">谁能看：{item.scope_label}</Typography.Text>}
             <Typography.Text type="secondary" className="wm-caption">更新于 <RelTime value={item.updated || item.created} /></Typography.Text>
           </Space>

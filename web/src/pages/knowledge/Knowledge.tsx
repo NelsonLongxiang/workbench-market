@@ -76,6 +76,7 @@ export default function Knowledge() {
               description={<Space direction="vertical" size={4} className="wm-w-full">
                 {x.summary && <Typography.Paragraph type="secondary" ellipsis={{ rows: 2 }} style={{ marginBottom: 0 }}>{x.summary}</Typography.Paragraph>}
                 <Space size={8} wrap className="wm-caption">
+                  {x.decided_by_name && <Typography.Text type="secondary" className="wm-caption" data-testid="kn-item-decider">拍板：{x.decided_by_name}</Typography.Text>}
                   {x.scope_label && <Typography.Text type="secondary" className="wm-caption" data-testid="kn-item-scope">{x.scope_label}</Typography.Text>}
                   {x.tags.slice(0, 3).map((t) => <Tag key={t} bordered={false}>{t}</Tag>)}
                   <RelTime value={x.updated || x.created} />
