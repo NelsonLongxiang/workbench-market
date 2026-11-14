@@ -4,6 +4,8 @@
  *   · 管理员（管理口令、本机命令行）：带；
  *   · 别人（远程匿名、本机的浏览器页面）：不带，其余字段照旧，摘要 tree_digest 保留（核对完整性用，不算泄露）；
  *   · MCP 的 skill_versions（tools/call 和内嵌 REST）：会话是代理不是管理员，一律不带，摘要照旧。
+ *   · MCP 的 skill_install_plan、skill_publish 同样不带；skill_install_plan 的安装提示指向 export_url，句子里不出现路径。
+ *   · 整体扫一遍：非管理员能调的技能接口和 MCP 工具，应答里任何位置都不出现 skill-snapshots/。
  * 身份来源认出来的管理员和管理口令走同一个判断（settingsAdminRead，设置、导出用的就是它），这里不另起登录方。
  *
  * 隔离：空的 DATA_DIR（tmp/ 下现建、跑完删），MCP 网关开，不读任何真实数据。
@@ -72,7 +74,7 @@ try {
 
   // MCP：会话是代理，不是管理员，一律不带
   const sess = await call('POST', '/api/mcp/sessions', { name: 'skv-agent' }, AT);
-  await call('PUT', `/api/mcp/sessions/${sess.body.id}/grants`, { grants: ['skill_versions'] }, AT);
+  await call('PUT', `/api/mcp/sessions/${sess.body.id}/grants`, { grants: ['skill_versions', 'skill_install_plan', 'skills_list', 'skill_read', 'skill_download', 'skill_file_put', 'skill_publish'] }, AT);
   const rpc = await call('POST', '/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'skill_versions', arguments: { slug: SLUG } } }, { authorization: `Bearer ${sess.body.token}` });
   let out = null; try { out = JSON.parse(rpc.body?.result?.content?.[0]?.text ?? 'null'); } catch {}
   ok('MCP skill_versions：没有 snapshot_path', noPath(out), JSON.stringify(out?.[0] ?? rpc.body).slice(0, 200));
@@ -80,6 +82,34 @@ try {
   const rest = await call('POST', '/api/mcp-rest/tools/skill_versions', { slug: SLUG }, { authorization: `Bearer ${sess.body.token}` });
   const restOut = rest.body?.result ?? rest.body;
   ok('MCP 内嵌 REST skill_versions：没有 snapshot_path', noPath(Array.isArray(restOut) ? restOut : restOut?.versions ?? restOut), JSON.stringify(rest.body).slice(0, 200));
+
+  // skill_install_plan：tools/call 和内嵌 REST 各一次，应答里任何位置都不出现快照路径；安装提示指向 export_url
+  const tc = async (name, args) => {
+    const x = await call('POST', '/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }, { authorization: `Bearer ${sess.body.token}` });
+    return { raw: JSON.stringify(x.body), text: x.body?.result?.content?.[0]?.text ?? '', err: !!x.body?.result?.isError || !!x.body?.error };
+  };
+  const viaRest = async (name, args) => { const x = await call('POST', `/api/mcp-rest/tools/${name}`, args, { authorization: `Bearer ${sess.body.token}` }); return { raw: JSON.stringify(x.body), status: x.status }; };
+  const plan = await tc('skill_install_plan', { slug: SLUG });
+  ok('MCP skill_install_plan（tools/call）：调成功', !plan.err, plan.raw.slice(0, 160));
+  ok('MCP skill_install_plan（tools/call）：应答里任何位置都没有 skill-snapshots/', !plan.raw.includes('skill-snapshots/'), plan.raw.slice(0, 300));
+  let planOut = null; try { planOut = JSON.parse(plan.text); } catch {}
+  ok('MCP skill_install_plan：安装提示指向 export_url，摘要和导出地址照给', typeof planOut?.install_hint === 'string' && planOut.install_hint.includes('export_url') && /^[0-9a-f]{64}$/.test(String(planOut?.expected_sha256 ?? '')) && String(planOut?.export_url ?? '').startsWith('/api/skills/'), plan.text.slice(0, 300));
+  const planRest = await viaRest('skill_install_plan', { slug: SLUG });
+  ok('MCP 内嵌 REST skill_install_plan：200 且应答里没有 skill-snapshots/', planRest.status === 200 && !planRest.raw.includes('skill-snapshots/'), planRest.raw.slice(0, 300));
+  // MCP 发布：会话发的新版本，应答里也不带快照路径
+  const put = await tc('skill_file_put', { content: '---\nname: skv-probe\ndescription: 合成技能\n---\nv3' });
+  let putOut = null; try { putOut = JSON.parse(put.text); } catch {}
+  const pub = await tc('skill_publish', { slug: SLUG, files: [{ path: 'SKILL.md', sha256: putOut?.sha256 }], changelog: 'v3 经 MCP' });
+  ok('MCP skill_publish：发成功、应答里没有 skill-snapshots/', !pub.err && pub.text.includes('"version"') && !pub.raw.includes('skill-snapshots/'), pub.raw.slice(0, 300));
+  // 整体扫一遍：非管理员能调的技能接口和 MCP 工具
+  for (const [label, path] of [['GET /api/skills', '/api/skills'], ['GET /api/skills/:slug/versions', `/api/skills/${encodeURIComponent(SLUG)}/versions`], ['GET /api/skills/:slug/verify', `/api/skills/${encodeURIComponent(SLUG)}/verify`], ['GET /api/skills/role-packs', '/api/skills/role-packs']]) {
+    const x = await call('GET', path, null, REMOTE);
+    ok(`远程匿名 ${label}：应答里没有 skill-snapshots/`, !JSON.stringify(x.body).includes('skill-snapshots/'), `status=${x.status} ${JSON.stringify(x.body).slice(0, 160)}`);
+  }
+  for (const [name, args] of [['skills_list', {}], ['skill_versions', { slug: SLUG }], ['skill_read', { slug: SLUG }], ['skill_download', { slug: SLUG }]]) {
+    const x = await tc(name, args);
+    ok(`MCP ${name}：应答里没有 skill-snapshots/`, !x.raw.includes('skill-snapshots/'), x.raw.slice(0, 200));
+  }
 } finally {
   child.kill();
   await new Promise((r) => setTimeout(r, 400));
