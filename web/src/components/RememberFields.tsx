@@ -20,7 +20,7 @@ export default function RememberFields({ defaults, lesson, cue, visibility, onLe
     <div>
       <Typography.Text className="wm-caption wm-remember-label">谁能看</Typography.Text>
       {defaults
-        ? <Radio.Group value={visibility ?? defaults.default_visibility} onChange={(e) => onVisibility(e.target.value as Visibility)} data-testid="remember-visibility"
+        ? <Radio.Group className="wm-remember-vis" value={visibility ?? defaults.default_visibility} onChange={(e) => onVisibility(e.target.value as Visibility)} data-testid="remember-visibility"
             options={visibilityOptions(defaults).map((o) => ({ value: o.value, label: o.label, disabled: o.disabled }))} />
         : <Typography.Text type="secondary" className="wm-caption" data-testid="remember-visibility-loading">正在看这件事归哪个部门……</Typography.Text>}
     </div>
