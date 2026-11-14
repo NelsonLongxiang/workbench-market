@@ -35,5 +35,6 @@ const via = (bodies) => answerViaOf({ source: 'work-items', source_id: 'wi-1', a
 ok('条目自带的答复入口收不收「记成经验」（#767）：每种答法的 body 都带 from_attention: true 才收；少一个、没带、是字符串都不收；没有入口不收',
   viaTakesRemember(via({ release: { from_attention: true } })) && viaTakesRemember(via({ approve: { from_attention: true }, reject: { from_attention: true } }))
   && !viaTakesRemember(via({ approve: { from_attention: true }, reject: {} })) && !viaTakesRemember(via({ release: {} })) && !viaTakesRemember(via({ release: { from_attention: 'true' } })) && !viaTakesRemember(null));
+ok('answer_via 一种答法都没有（answers 为 {}）：不给勾选（空数组的 every 恒为真，得先看有没有答法）', viaTakesRemember(via({})) === false);
 console.log(`\nremember-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);
