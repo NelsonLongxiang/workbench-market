@@ -286,7 +286,7 @@ export const MCP_TOOLS: McpToolDef[] = [
   {
     name: 'skill_versions',
     category: 'read',
-    description: '查某技能版本链（newest-first）：version/changelog/breaking/tree_digest/snapshot_path/reviewed_by——版本不可变审计面；active=true 的是市场当前版本（active_version，回滚指针；回滚只移这个指针，不新增版本）。',
+    description: '查某技能版本链（newest-first）：version/changelog/breaking/tree_digest/reviewed_by——版本不可变审计面；active=true 的是市场当前版本（active_version，回滚指针；回滚只移这个指针，不新增版本）。',
     inputSchema: { type: 'object', properties: { slug: { type: 'string', description: '技能 slug（如 agents:brand）' } }, required: ['slug'] },
   },
   {

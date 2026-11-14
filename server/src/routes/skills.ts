@@ -19,6 +19,8 @@ import { HttpError } from '../errors.ts';
 /** 从 index.ts 传进来的：管理员守卫、异步处理函数的包装、400 的快捷写法、快照路径、发布核心、下载票和打包、回滚和删除、LayerFS 的推送和地址、重建、tar 打包（MCP、变更请求、每月自动重建也用）。 */
 export interface SkillDeps {
   adminGuard: (req: express.Request, res: express.Response) => boolean;
+  /** 这个请求是不是管理员（管理口令、身份来源认出的管理员、本机命令行），只判、不回应答 */
+  adminRead: (req: express.Request) => Promise<boolean>;
   wrap: (fn: (req: express.Request, res: express.Response) => Promise<unknown>) => express.RequestHandler;
   bad: (msg: string) => never;
   resolveSnap: (p: string) => string;
@@ -38,7 +40,7 @@ export interface SkillDeps {
 }
 
 export function registerSkillRoutes(app: HttpService, deps: SkillDeps): void {
-  const { adminGuard, wrap, bad, resolveSnap, skillPublishCore, skillTicketKey, skillVersionDir, skillPackage, skillPkgDir, SKILL_DL_MAX, executeSkillRollback, executeSkillDelete, layerfsPublish, LAYERFS_SKILLS_PROJECT, layerfsServiceBase, rebuildWmSkills, ustarTar } = deps;
+  const { adminGuard, adminRead, wrap, bad, resolveSnap, skillPublishCore, skillTicketKey, skillVersionDir, skillPackage, skillPkgDir, SKILL_DL_MAX, executeSkillRollback, executeSkillDelete, layerfsPublish, LAYERFS_SKILLS_PROJECT, layerfsServiceBase, rebuildWmSkills, ustarTar } = deps;
   // ---------- 技能市场钉装与审计（P1-b · 方案 §1：市场侧 manifest+校验 API+巡检，不动 DSH catalog）----------
   app.post('/api/skills/:slug/install', { action: 'skill.install', kind: 'admin' }, wrap(async (req, res) => {
     if (!adminGuard(req, res)) return;
@@ -238,13 +240,19 @@ export function registerSkillRoutes(app: HttpService, deps: SkillDeps): void {
     res.json({ ok: true, slug: row.slug, version: v, match, drift: !match, expected: target.tree_digest });
   });
 
-  app.get('/api/skills/:slug/versions', { action: 'skill.versions', kind: 'read' }, (req, res) => {
+  app.get('/api/skills/:slug/versions', { action: 'skill.versions', kind: 'read' }, wrap(async (req, res) => {
     const S = svc<SkillService>('skill');
     const row = S.skillBySlug(String(req.params.slug ?? '')) as any;
     if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
     // #94 S0⑤（K8）：版本列表 snapshot_path 相对化（不暴露 DATA_DIR）；兼容旧库无状态时推导。
+    // 快照路径是服务端的内部文件路径，只给管理员（管理口令、身份来源认出的管理员、本机命令行）；摘要 tree_digest 照给（核对完整性用）
+    const admin = await adminRead(req);
     const vsAll = S.versionsBySkill(row.id) as any[];
     const activeV = SkillService.currentOf(row, vsAll)?.version ?? null;
-    res.json({ slug: row.slug, active_version: activeV, versions: vsAll.map((v) => ({ ...v, active: v.version === activeV, shadow_status: v.shadow_status ?? (v.commit_id ? 'succeeded' : 'pending'), shadow_error: v.shadow_error ?? '', snapshot_path: v.snapshot_path ? `skill-snapshots/${encodeURIComponent(row.slug)}/v${v.version}` : v.snapshot_path })) });
-  });
+    res.json({ slug: row.slug, active_version: activeV, versions: vsAll.map((v) => {
+      const out: Record<string, unknown> = { ...v, active: v.version === activeV, shadow_status: v.shadow_status ?? (v.commit_id ? 'succeeded' : 'pending'), shadow_error: v.shadow_error ?? '', snapshot_path: v.snapshot_path ? `skill-snapshots/${encodeURIComponent(row.slug)}/v${v.version}` : v.snapshot_path };
+      if (!admin) delete out.snapshot_path;
+      return out;
+    }) });
+  }));
 }

@@ -181,7 +181,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "13181", "etag": "W/\"337d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "13167", "etag": "W/\"336f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               { "name": "access_info", "description": "查本会话的权限：会话名、已授权工具、完整工具目录（本地 + 上游聚合，每项带 category=read/write/admin、granted 和参数表 input_schema，没批的工具也看得到参数名）、本会话提过的权限申请及状态（通用申请编号 mcp-N，台的申请 bench-N）。带 ref 时只回这一条申请。任何已认证会话都能调，不受授权限制——调用工具被拒或 tools/list 里找不到想要的工具时先调它。", "category": "read", "always_allowed": true },
               { "name": "access_request", "description": "申请把目录里的工具授权给本会话（管理员在「MCP 网关」页批准后立即生效，批准是并入现有授权，不会收走已有工具）。tools 必须是 access_info 目录里的工具名；reason 必填（≤500 字），写清要做什么。同一组工具已有待批申请时返回那条，不重复建；每会话每小时最多 10 条。会话不能自己批准。", "category": "write", "always_allowed": true },
@@ -209,7 +209,7 @@
               { "name": "workbench_update", "description": "更新工作台配置（name/category/tags/description/enabled/health_path/sort/url）。不接受 auth——凭据变更人工操作；掩码 url 回传视为未变更。", "category": "admin" },
               { "name": "workbench_unregister", "description": "解除工作台注册（不删服务本体；驾驶舱面板引用联动清理）。", "category": "admin" },
               { "name": "skills_list", "description": "列出市场技能（可按 layer 1-5 过滤：1业务角色/2开发运维/3工作流/4架构设计/5AI原生运营），返回 slug（完整名字，带来源前缀，如 agents:xxx）/short_name（去掉前缀的短名字，技能正文里一般这样写）/name/layer/族/版本数/active_version/current_version——市场技能目录入口。两个版本字段别混：active_version＝市场当前版本（回滚指针，不带版本号的取装/导出/下载/安装计划都取它，未回滚即最新版）；current_version＝本机钉装记录里的版本（未钉装为 null）。", "category": "read", "always_allowed": true },
-              { "name": "skill_versions", "description": "查某技能版本链（newest-first）：version/changelog/breaking/tree_digest/snapshot_path/reviewed_by——版本不可变审计面；active=true 的是市场当前版本（active_version，回滚指针；回滚只移这个指针，不新增版本）。", "category": "read" },
+              { "name": "skill_versions", "description": "查某技能版本链（newest-first）：version/changelog/breaking/tree_digest/reviewed_by——版本不可变审计面；active=true 的是市场当前版本（active_version，回滚指针；回滚只移这个指针，不新增版本）。", "category": "read" },
               { "name": "skill_file_put", "description": "技能上传第一步：一次上传一个文件（不收压缩包），暂存在市场上，返回 sha256/size/integrity/next。文本文件 content 直接给；二进制文件（图片/字体/模板）content 给 base64 并带 encoding:\"base64\"。带上 sha256（推荐），服务端核对，不符就拒收、不暂存。成功应答的 sha256 是服务端对暂存字节算的，和本地文件一致就是完整的，不要为了验证再取回；integrity 为 sha256-verified 时服务端已替你核对过。单文件上限 10MB。同内容重复上传幂等并续期，暂存 24 小时后清掉。全部文件传完后调 skill_publish 按 sha256 引用成版。", "category": "admin" },
               { "name": "skill_publish", "description": "技能上传第二步（发版/更新）：用 skill_file_put 返回的 sha256 列出整棵文件树，一次成版。slug 不存在时建技能并发 v1，已存在时发新版本 N+1（旧版本不变）。有文件没上传或暂存已过期时报 400 并点名路径。SKILL.md 的 name/description/argument-hint 自动同步到技能信息。同一技能已有内容完全相同的版本时报 409。审计人记为本会话。", "category": "admin" },
               { "name": "skill_read", "description": "读技能正文（不用下载、解包）：缺省读当前版本的 SKILL.md，path 指定这一版里的别的文件（参考文件等）。返回原文、sha256、这一版的文件列表；二进制文件只给大小和摘要（要整包用 skill_download）。slug 可以写完整名字（agents:xxx），也可以写技能正文里常见的短名字（xxx）：短名字只有一个来源有就用它，几个来源都有时报错并列出完整名字。", "category": "read", "always_allowed": true },

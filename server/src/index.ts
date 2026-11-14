@@ -2421,7 +2421,7 @@ function ustarTar(files: { path: string; content: string | Buffer }[], opts: { p
 }
 
 
-registerSkillRoutes(http, { adminGuard, wrap, bad, resolveSnap, skillPublishCore, skillTicketKey, skillVersionDir, skillPackage, skillPkgDir, SKILL_DL_MAX, executeSkillRollback, executeSkillDelete, layerfsPublish, LAYERFS_SKILLS_PROJECT, layerfsServiceBase, rebuildWmSkills, ustarTar });
+registerSkillRoutes(http, { adminGuard, adminRead: (req) => settingsAdminRead(req), wrap, bad, resolveSnap, skillPublishCore, skillTicketKey, skillVersionDir, skillPackage, skillPkgDir, SKILL_DL_MAX, executeSkillRollback, executeSkillDelete, layerfsPublish, LAYERFS_SKILLS_PROJECT, layerfsServiceBase, rebuildWmSkills, ustarTar });
 
 // ---------- #437③ 进行中的 run 升级到当前 SOP 版本（预检 + 人确认 + 审计） ----------
 /** 每步的 data-field 名（含没有规则的字段），用来列出升级后新增、失效的字段 */
@@ -2841,10 +2841,10 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       const S = svc<SkillService>('skill');
       const row = S.skillBySlug(String(args?.slug ?? ''));
       if (!row) return { error: `skill not found: ${args?.slug}` };
-      // #94 S0⑤（K8）：MCP 面同规则——snapshot_path 相对化
+      // 快照路径是服务端的内部文件路径，只给管理员；MCP 会话是代理、不是管理员，一律不带（摘要 tree_digest 照给，核对完整性用）
       const vs = S.versionsBySkill(row.id) as any[];
       const activeV = SkillService.currentOf(row, vs)?.version ?? null;
-      return vs.map((v) => ({ ...v, active: v.version === activeV, snapshot_path: v.snapshot_path ? `skill-snapshots/${encodeURIComponent(row.slug)}/v${v.version}` : v.snapshot_path }));
+      return vs.map((v) => { const { snapshot_path: _snap, ...rest } = v; return { ...rest, active: v.version === activeV }; });
     }
     // 技能传输面：一次只传一个文件，不收也不发压缩包
     case 'skill_file_put':
