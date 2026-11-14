@@ -6,7 +6,7 @@ description: 工作台市场（workbench-market）使用指南——agent 经 MC
 
 # 工作台市场使用指南（MCP 面板 × 可视化）
 
-工作台市场 = 单进程 Express+React 应用（默认 9800）：/api/* REST · /mcp MCP StreamableHTTP · 其余路径托管前端 SPA。
+工作台市场 = 单进程 Express+React 应用：/api/* REST · /mcp MCP StreamableHTTP · 其余路径托管前端 SPA。
 
 ## 一、两条操作面（先选面）
 
@@ -15,7 +15,7 @@ description: 工作台市场（workbench-market）使用指南——agent 经 MC
 | MCP 面板（推荐给 agent）| /mcp（StreamableHTTP·Bearer 可选）| 全部 27 工具·幂等·结构化回执 |
 | REST | /api/* | 浏览器/脚本直调·部分需要 admin 口令 |
 
-鉴权边界（踩坑过）：远程（非回环）写面走 adminGuard（X-Admin-Token）；loopback 免。本地开发用 127.0.0.1 即免口令；远程调用需带令牌。MCP 工具没有能直接删除/回滚的——那两类走 change_requests 人审门（见 §四）。
+鉴权边界（踩坑过）：远程（非回环）写面走 adminGuard（X-Admin-Token）；loopback 免。本地开发从本机回环地址访问即免口令；远程调用需带令牌。MCP 工具没有能直接删除/回滚的——那两类走 change_requests 人审门（见 §四）。
 
 ## 二、MCP 工具地图（按用途分；实际有哪些以 `access_info` 的目录为准）
 
