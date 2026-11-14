@@ -34,14 +34,29 @@ if (framedByMarket(window as unknown as Parameters<typeof framedByMarket>[0])) {
           button={{ autoInsertSpace: false }}
           theme={{
             // #315：取值来自 DESIGN.md（经 scripts/gen-design-tokens.mjs 生成），这里只做 antd 名字映射
+            // 状态色三档（DESIGN.md「状态色分三档」）：主值（图标、边、实心按钮底）/ *-text（写字）/ *-bg（浅底）。
+            // 原来漏了 warning，提醒黄落在 antd 默认的 #faad14 上；三档都映射过去，antd 自己推的浅底不用
             token: {
               colorPrimary: T.colors.primary,
               colorSuccess: T.colors.success,
+              colorSuccessText: T.colors['success-text'],
+              colorSuccessBg: T.colors['success-bg'],
+              colorWarning: T.colors.warning,
+              colorWarningText: T.colors['warning-text'],
+              colorWarningBg: T.colors['warning-bg'],
               colorError: T.colors.danger,
+              colorErrorText: T.colors['danger-text'],
+              colorErrorBg: T.colors['danger-bg'],
               colorInfo: T.colors.info,
+              colorInfoBg: T.colors['info-bg'],
               colorTextSecondary: T.colors['text-secondary'],
               borderRadius: parseInt(T.rounded.md, 10),
               fontFamily: T.typography['family-sans'],
+            },
+            components: {
+              // 状态标签（tag-success / tag-warning / tag-danger）：antd 的标签拿主值写字，琥珀色写字对比度不够（DESIGN.md：warning 不写字）；
+              // 标签里改用 *-text 写字，底色照上面的 *-bg
+              Tag: { colorSuccess: T.colors['success-text'], colorWarning: T.colors['warning-text'], colorError: T.colors['danger-text'] },
             },
           }}
         >

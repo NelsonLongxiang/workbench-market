@@ -37,6 +37,14 @@ rmSync(tmp, { recursive: true, force: true });
 const main = readFileSync('web/src/main.tsx', 'utf8');
 const theme = main.slice(main.indexOf('theme={{'), main.indexOf('<AntApp>'));
 ok('main.tsx 主题不写死色值、取自 DESIGN_TOKENS', !/['"]#[0-9a-f]{3,8}['"]/i.test(theme) && theme.includes('T.colors.primary') && main.includes("import './tokens.css'"));
+// 状态色三档都映射（DESIGN.md「状态色分三档」）：漏一个（原来漏了 warning）antd 就用它自己的默认色
+const STATUS = [['Success', 'success'], ['Warning', 'warning'], ['Error', 'danger']];
+const missing = STATUS.flatMap(([a, d]) => [[`color${a}:`, `T.colors.${d}`], [`color${a}Text:`, `T.colors['${d}-text']`], [`color${a}Bg:`, `T.colors['${d}-bg']`]])
+  .filter(([k, v]) => !theme.includes(`${k} ${v}`)).map(([k]) => k);
+if (!theme.includes('colorInfo: T.colors.info')) missing.push('colorInfo:');
+const tagLine = theme.slice(theme.indexOf('Tag:'));
+ok('main.tsx 主题：success / warning / error 的主值、*-text、*-bg 和 info 都映射到 DESIGN_TOKENS；状态标签用 *-text 写字', missing.length === 0
+  && STATUS.every(([a, d]) => tagLine.includes(`color${a}: T.colors['${d}-text']`)), missing.join(','));
 const app = readFileSync('web/src/App.tsx', 'utf8');
 // 外壳（产品化原型起）：侧栏在 components/Shell.tsx，颜色只走 index.css 里的 nav-* 变量
 const shell = readFileSync('web/src/components/Shell.tsx', 'utf8');

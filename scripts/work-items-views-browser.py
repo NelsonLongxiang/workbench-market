@@ -191,6 +191,13 @@ with sync_playwright() as p:
     check('还早（还剩 30 天）：写还剩几天，不上提醒色', far and far[0] == f'{d(30)} · 还剩 30 天' and far[1] == '' and 'ant-tag-error' not in far[2] and 'ant-tag-warning' not in far[2], far)
     check('不限期的、旧服务端没给期限的：不显示期限', none is None and old is None, (none, old))
     check('已经结束的：只写期限日期，不提醒过期', done and done[0] == f'期限 {d(-5)}' and done[1] == '', done)
+    # 提醒色对齐设计稿（DESIGN.md 的 tag-warning / tag-danger：*-bg 打底、*-text 写字），不是 antd 默认的 #faad14 那一套
+    tok = json.loads(re.search(r'export const DESIGN_TOKENS = (\{.*\n\}) as const;', open('web/src/design-tokens.ts').read(), re.S).group(1))['colors']
+    rgb = lambda h: 'rgb(%d, %d, %d)' % tuple(int(h[i:i + 2], 16) for i in (1, 3, 5))
+    def look(title):
+        return pg.locator('[data-testid=work-item-row]', has_text=title).first.locator('[data-testid=work-item-row-due]').evaluate('e => { const c = getComputedStyle(e); return [c.color, c.backgroundColor]; }')
+    check('快到期的黄标签：字是 warning-text、底是 warning-bg（设计稿的值，不是 antd 默认黄）', look('合成：后天到期') == [rgb(tok['warning-text']), rgb(tok['warning-bg'])], (look('合成：后天到期'), tok['warning-text'], tok['warning-bg']))
+    check('过期的红标签：字是 danger-text、底是 danger-bg', look('合成：过期的') == [rgb(tok['danger-text']), rgb(tok['danger-bg'])], look('合成：过期的'))
     if os.environ.get('WM_SHOT_DUE'): pg.wait_for_timeout(300); pg.screenshot(path=os.environ['WM_SHOT_DUE'])  # 本机看样子用，CI 不设
     ctx.close()
     b.close()
