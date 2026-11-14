@@ -40,5 +40,6 @@ ok('列表的期限标签：不限期 / 旧服务端没给不显示；过期照 
   && listDueTag({ due: '2026-11-17' }, T, false).tone === 'warning' && listDueTag({ due: '2026-11-18' }, T, false).tone === null && listDueTag({ due: '2026-11-18' }, T, false).text === '2026-11-18 · 还剩 4 天');
 ok('列表的期限标签：已经结束的只写日期、不提醒；服务端说过期但本地日期还没过（时区差）照样标过期', JSON.stringify(listDueTag({ due: '2026-11-01', overdue: false }, T, true)) === JSON.stringify({ text: '期限 2026-11-01', tone: null })
   && JSON.stringify(listDueTag({ due: '2026-11-14', overdue: true }, T, false)) === JSON.stringify({ text: '2026-11-14 · 已过期', tone: 'error' }));
+ok('列表的期限标签：本地日期已经过了、服务端还没算过期（overdue=false，服务端按 UTC 日期算，北京时间零点到八点之间会这样）照样标「已过期 1 天」，不写「还剩 -1 天」', JSON.stringify(listDueTag({ due: '2026-11-13', overdue: false }, T, false)) === JSON.stringify({ text: '2026-11-13 · 已过期 1 天', tone: 'error' }));
 console.log(`\nwork-item-extras-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);
