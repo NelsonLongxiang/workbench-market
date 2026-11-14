@@ -48,6 +48,46 @@ export function returnTargetOfEvent(eventId: string): { delivery_id: number; tas
   return sent ?? null;
 }
 
+/**
+ * 通知类任务（截止变更）的任务号：<event>.d<投递>.n<回复行>.a<尝试>。和答复的 .q 分开，收回执时认得出它是通知：
+ * 通知只是告诉节点一件事，节点对它的回执（收到、完成、失败、拒绝）只记一行「节点已收到」，不进状态映射。
+ * 任务号是市场自己发、登记在 a2a_sent_tasks 里的，回执要和登记的任务号逐字对上才认，外面拼不出来
+ */
+export const noticeTaskId = (eventId: string, deliveryId: number, replyId: number, attempt: number): string => `${eventId}.d${deliveryId}.n${replyId}.a${attempt}`;
+export const isNoticeTask = (taskId: string): boolean => /^wbe-[0-9a-f]{16}\.d\d+\.n\d+\.a\d+$/.test(taskId);
+
+/**
+ * 市场在同一 context 里发出的新任务（答复、打回、回复席位来信）的任务号：<event>.d<投递>.q<回复行>.a<尝试>。
+ * 它们是这次投递底下的子任务：回执各算各的，不覆盖原投递的结局（事项服务按这个形状认）
+ */
+export const isReplyTask = (taskId: string): boolean => /^wbe-[0-9a-f]{16}\.d\d+\.q\d+\.a\d+$/.test(taskId);
+
+/**
+ * 子任务是哪一类：answer（答复席位提问、截止变更这类消息）、rework（打回：让对方重做）、followup-reply（回复席位来信）；
+ * 不是子任务、查不到返回 null。
+ * 打回和答复同是 kind = answer 的行，靠 ref 分开：打回入口（attention-answers 的 return）写的是负的进展序号（-seq，没有进展时是 0），
+ * 答复席位提问写的是提问那行日志的 id（正数）。正文发出去之后就清空了，不能靠正文认
+ */
+export function replyKindOfTask(taskId: string): 'answer' | 'rework' | 'followup-reply' | null {
+  const m = /^wbe-[0-9a-f]{16}\.d\d+\.q(\d+)\.a\d+$/.exec(taskId);
+  if (!m) return null;
+  const row = db.prepare('SELECT kind, ref FROM workbench_event_replies WHERE id = ?').get(Number(m[1])) as { kind: string; ref: number } | undefined;
+  if (row?.kind === 'followup-reply') return 'followup-reply';
+  if (row?.kind !== 'answer') return null;
+  return Number(row.ref) <= 0 ? 'rework' : 'answer';
+}
+
+/** 一个事件还活着的投递（等过目、排队、已发出）：改截止日期时给每一条排一条变更 */
+export function liveDeliveriesOfEvent(eventId: string): { id: number; status: 'held' | 'pending' | 'sent' }[] {
+  return db.prepare("SELECT id, status FROM workbench_event_deliveries WHERE event_id = ? AND status IN ('held','pending','sent') ORDER BY id").all(eventId) as never;
+}
+
+/** 一次投递现在的状态（没有这条返回 null）：变更类消息要等它发出去了再发 */
+export function deliveryStatusOf(deliveryId: number): string | null {
+  const row = db.prepare('SELECT status FROM workbench_event_deliveries WHERE id = ?').get(deliveryId) as { status: string } | undefined;
+  return row?.status ?? null;
+}
+
 export function queueReply(r: { kind: ReplyKind; eventId: string; deliveryId: number; ref: number; qid?: string; fixedTask?: string; team: string; callerSession: string; contextId: string; targetUrl: string; message: string; now?: number }): number | null {
   const at = sqlTime(r.now);
   const info = db.prepare(`INSERT OR IGNORE INTO workbench_event_replies (kind, event_id, delivery_id, ref, qid, fixed_task, team, caller_session, context_id, target_url, message, next_at, created_at)
@@ -64,6 +104,20 @@ export function dueReplies(limit = 20, now = Date.now()): ReplyRow[] {
 export function markReply(id: number, status: 'sent' | 'dead', attempts: number, error = '', now = Date.now()): void {
   db.prepare("UPDATE workbench_event_replies SET status = ?, attempts = ?, last_error = ?, message = '', sent_at = CASE WHEN ? = 'sent' THEN ? ELSE sent_at END WHERE id = ? AND status = 'pending'")
     .run(status, attempts, error.slice(0, 300), status, sqlTime(now), id);
+}
+
+/** 对端此刻不能发（改钥待确认、停用）：挂起到 nextAtMs 再看，attempts 不加、不判死。返回原因是不是第一次记（调用方只在第一次留痕） */
+export function holdReply(id: number, nextAtMs: number, reason: string): boolean {
+  const prev = db.prepare('SELECT last_error FROM workbench_event_replies WHERE id = ?').get(id) as { last_error: string } | undefined;
+  db.prepare("UPDATE workbench_event_replies SET next_at = ?, last_error = ? WHERE id = ? AND status = 'pending'").run(sqlTime(nextAtMs), reason, id);
+  return prev?.last_error !== reason;
+}
+
+/** 事件投递同上：对端此刻不能发，挂起到 nextAtMs 再看，attempts 不加、不判死。返回原因是不是第一次记 */
+export function holdDelivery(id: number, nextAtMs: number, reason: string): boolean {
+  const prev = db.prepare('SELECT last_error FROM workbench_event_deliveries WHERE id = ?').get(id) as { last_error: string } | undefined;
+  db.prepare("UPDATE workbench_event_deliveries SET next_at = ?, last_error = ? WHERE id = ? AND status = 'pending'").run(sqlTime(nextAtMs), reason, id);
+  return prev?.last_error !== reason;
 }
 
 export function retryReply(id: number, attempts: number, nextAtMs: number, error: string): void {

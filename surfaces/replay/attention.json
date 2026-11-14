@@ -22,7 +22,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1938", "etag": "W/\"792-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "2098", "etag": "W/\"832-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -60,6 +60,7 @@
                 "change-requests": { "label": "变更申请", "visible": true, "count": 1 },
                 "mcp-access": { "label": "MCP 权限申请", "visible": true, "count": 0 },
                 "seat-asks": { "label": "席位的提问", "visible": true, "count": 0 },
+                "reply-rejected": { "label": "节点没收下的答复", "visible": false, "count": 0 },
                 "sop-runs": { "label": "待验收的派单执行", "visible": true, "count": 0 },
                 "tasks": { "label": "任务中心收件（统一待办）", "visible": true, "count": 0 },
                 "owner-pending": { "label": "待属主看板", "visible": true, "count": 0 },
@@ -68,6 +69,7 @@
                 "work-items-stuck": { "label": "停太久的事项", "visible": true, "count": 0 },
                 "a2a-peers": { "label": "对端公钥待确认", "visible": true, "count": 0 },
                 "team-health": { "label": "团队与名册", "visible": true, "count": 0 },
+                "team-binding": { "label": "团队归属要重新确认", "visible": true, "count": 0 },
                 "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 }
               },
               "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
@@ -83,7 +85,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1938", "etag": "W/\"792-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "2098", "etag": "W/\"832-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -121,6 +123,7 @@
                 "change-requests": { "label": "变更申请", "visible": true, "count": 1 },
                 "mcp-access": { "label": "MCP 权限申请", "visible": true, "count": 0 },
                 "seat-asks": { "label": "席位的提问", "visible": true, "count": 0 },
+                "reply-rejected": { "label": "节点没收下的答复", "visible": false, "count": 0 },
                 "sop-runs": { "label": "待验收的派单执行", "visible": true, "count": 0 },
                 "tasks": { "label": "任务中心收件（统一待办）", "visible": true, "count": 0 },
                 "owner-pending": { "label": "待属主看板", "visible": true, "count": 0 },
@@ -129,6 +132,7 @@
                 "work-items-stuck": { "label": "停太久的事项", "visible": true, "count": 0 },
                 "a2a-peers": { "label": "对端公钥待确认", "visible": true, "count": 0 },
                 "team-health": { "label": "团队与名册", "visible": true, "count": 0 },
+                "team-binding": { "label": "团队归属要重新确认", "visible": true, "count": 0 },
                 "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 }
               },
               "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
@@ -144,7 +148,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1380", "etag": "W/\"564-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1541", "etag": "W/\"605-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -167,6 +171,7 @@
                 "change-requests": { "label": "变更申请", "visible": false, "count": 0 },
                 "mcp-access": { "label": "MCP 权限申请", "visible": false, "count": 0 },
                 "seat-asks": { "label": "席位的提问", "visible": false, "count": 0 },
+                "reply-rejected": { "label": "节点没收下的答复", "visible": false, "count": 0 },
                 "sop-runs": { "label": "待验收的派单执行", "visible": true, "count": 0 },
                 "tasks": { "label": "任务中心收件（统一待办）", "visible": false, "count": 0 },
                 "owner-pending": { "label": "待属主看板", "visible": true, "count": 0 },
@@ -175,6 +180,7 @@
                 "work-items-stuck": { "label": "停太久的事项", "visible": false, "count": 0 },
                 "a2a-peers": { "label": "对端公钥待确认", "visible": false, "count": 0 },
                 "team-health": { "label": "团队与名册", "visible": false, "count": 0 },
+                "team-binding": { "label": "团队归属要重新确认", "visible": false, "count": 0 },
                 "relation-proposals": { "label": "关系的提议", "visible": true, "count": 0 }
               },
               "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
@@ -190,7 +196,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1056", "etag": "W/\"420-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1217", "etag": "W/\"4c1-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [],
               "counts": { "total": 0, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 0 }, "by_source": {}, "stuck_count": 0 },
@@ -198,6 +204,7 @@
                 "change-requests": { "label": "变更申请", "visible": false, "count": 0 },
                 "mcp-access": { "label": "MCP 权限申请", "visible": false, "count": 0 },
                 "seat-asks": { "label": "席位的提问", "visible": false, "count": 0 },
+                "reply-rejected": { "label": "节点没收下的答复", "visible": false, "count": 0 },
                 "sop-runs": { "label": "待验收的派单执行", "visible": false, "count": 0 },
                 "tasks": { "label": "任务中心收件（统一待办）", "visible": false, "count": 0 },
                 "owner-pending": { "label": "待属主看板", "visible": false, "count": 0 },
@@ -206,6 +213,7 @@
                 "work-items-stuck": { "label": "停太久的事项", "visible": false, "count": 0 },
                 "a2a-peers": { "label": "对端公钥待确认", "visible": false, "count": 0 },
                 "team-health": { "label": "团队与名册", "visible": false, "count": 0 },
+                "team-binding": { "label": "团队归属要重新确认", "visible": false, "count": 0 },
                 "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 }
               },
               "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
@@ -221,7 +229,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1056", "etag": "W/\"420-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1217", "etag": "W/\"4c1-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [],
               "counts": { "total": 0, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 0 }, "by_source": {}, "stuck_count": 0 },
@@ -229,6 +237,7 @@
                 "change-requests": { "label": "变更申请", "visible": false, "count": 0 },
                 "mcp-access": { "label": "MCP 权限申请", "visible": false, "count": 0 },
                 "seat-asks": { "label": "席位的提问", "visible": false, "count": 0 },
+                "reply-rejected": { "label": "节点没收下的答复", "visible": false, "count": 0 },
                 "sop-runs": { "label": "待验收的派单执行", "visible": false, "count": 0 },
                 "tasks": { "label": "任务中心收件（统一待办）", "visible": false, "count": 0 },
                 "owner-pending": { "label": "待属主看板", "visible": false, "count": 0 },
@@ -237,6 +246,7 @@
                 "work-items-stuck": { "label": "停太久的事项", "visible": false, "count": 0 },
                 "a2a-peers": { "label": "对端公钥待确认", "visible": false, "count": 0 },
                 "team-health": { "label": "团队与名册", "visible": false, "count": 0 },
+                "team-binding": { "label": "团队归属要重新确认", "visible": false, "count": 0 },
                 "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 }
               },
               "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"

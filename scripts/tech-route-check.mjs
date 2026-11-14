@@ -11,10 +11,11 @@
  *   node scripts/tech-route-check.mjs --tighten     把变小了的基线收紧（只减不增）
  *   node scripts/tech-route-check.mjs --no-types    跳过类型检查那一项（它要跑一遍 tsc）
  *   node scripts/tech-route-check.mjs --no-boot     跳过快照那一项（它要起一个隔离实例）
- *   node scripts/tech-route-check.mjs --strict      预算档、红线档的检查量不出来也算失败（CI 用这个）
+ *   node scripts/tech-route-check.mjs --strict      预算档、红线档的检查量不出来也算失败；清单相对 main 放宽了预算档、红线档（基线调大、
+ *                                                   红线目标放宽、档位调低）而那条规则没写 loosen_reason，也算失败（CI 用这个）
  *   node scripts/tech-route-check.mjs --root DIR    体检另一棵目录树
  *
- * 退出码：0 通过；1 有预算或红线被突破；2 用法或清单错误（清单缺失、缺规则、档位写错、豁免不完整）。
+ * 退出码：0 通过；1 有预算或红线被突破，或（--strict 下）有没写原因的放宽；2 用法或清单错误（清单缺失、缺规则、档位写错、豁免不完整、放宽原因没带 PR 号）。
  */
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, posix, relative, resolve } from 'node:path';
@@ -624,6 +625,9 @@ function listProblems(list, { allowMissing = false } = {}) {
     seen.add(r.id);
     if (!TIERS.includes(r.tier)) problems.push(`${r.id} 的 tier 是「${r.tier}」，只能是 ${TIERS.join('、')}`);
     if (!allowMissing && typeof r.baseline?.total !== 'number') problems.push(`${r.id} 没有基线`);
+    // 一句话：去掉 PR 号、空白、标点符号和控制格式字符（零宽字符之类）之后，按字（码位）数至少还剩四个，光写「#123」不算说明
+    const loosenText = typeof r.loosen_reason === 'string' ? r.loosen_reason.replace(/#\d+/g, '').replace(/[\s\p{P}\p{S}\p{C}]/gu, '') : '';
+    if (r.loosen_reason !== undefined && (typeof r.loosen_reason !== 'string' || !/#\d+/.test(r.loosen_reason) || [...loosenText].length < 4)) problems.push(`${r.id} 的 loosen_reason 要写一句话说明为什么放宽、带 PR 号（比如「合并 A、B 时搬进来的存量 SQL（#123）」；光写 PR 号不算）`);
   }
   if (!allowMissing) for (const id of known) if (!seen.has(id)) problems.push(`清单里缺规则：${id}`);
   for (const [i, w] of (list.waivers || []).entries()) {
@@ -688,52 +692,77 @@ function run(root) {
 
 const TIER = { count: '计数', budget: '预算', redline: '红线' };
 
-/** 清单相对 main 放宽了什么：档位、基线、目标、豁免、登记。取不到 main 上的清单返回 null。 */
+/** 清单相对 main 放宽了什么（loosenVerdict 的结果）。取不到 main 上的清单返回 null。 */
 function listLoosened(root, list) {
   const r = spawnSync('git', ['show', `origin/main:${LIST}`], { cwd: root, encoding: 'utf8' });
   if (r.status !== 0) return null;
   let main;
   try { main = JSON.parse(r.stdout); } catch { return null; }
-  return diffLists(main, list);
+  return loosenVerdict(main, list);
 }
 
-/** 两份清单比较：list 相对 main 放宽了什么。 */
+/** 两份清单比较：list 相对 main 放宽了什么（只要文字）。 */
 function diffLists(main, list) {
+  return loosenEntries(main, list).map((e) => e.text);
+}
+
+/**
+ * 放宽了的哪些要拦（--strict 下没写原因就失败）：预算档、红线档的基线调大（总数或某个文件、条目），红线目标放宽，档位调低，规则被删。
+ * 计数档按实际重记、豁免、登记不进 CI 的测试只报告（豁免和登记各有自己必填的理由）。
+ * 要拦的放宽，这条规则写了 loosen_reason、并且和 main 上的不一样（这次新写或改过的），就放行，「清单变化」里显示原因。
+ * main 上早就有的原因是上一次放宽的，不管这一次。--tighten 重写清单时不带这个字段，原因自然清掉。
+ */
+function loosenVerdict(main, list) {
+  const reasonOf = (l, id) => (l.rules || []).find((x) => x.id === id)?.loosen_reason;
+  const reported = [], blocking = [];
+  for (const e of loosenEntries(main, list)) {
+    if (!e.block) { reported.push(e.text); continue; }
+    const reason = reasonOf(list, e.rule);
+    const fresh = typeof reason === 'string' && reason.trim() !== '' && reason !== reasonOf(main, e.rule);
+    if (fresh) reported.push(`${e.text}（放宽原因：${reason}）`);
+    else { reported.push(`${e.text}（没写放宽原因）`); blocking.push(e.text); }
+  }
+  return { reported, blocking };
+}
+
+/** 两份清单比较：list 相对 main 放宽了什么，逐条带上是哪条规则、要不要拦。 */
+function loosenEntries(main, list) {
   const rank = { count: 0, budget: 1, redline: 2 };
   const before = new Map((main.rules || []).map((x) => [x.id, x]));
   const now = new Map((list.rules || []).map((x) => [x.id, x]));
   const out = [];
   for (const [id, b] of before) {
     const a = now.get(id);
-    if (!a) { out.push(`${id} 被删掉`); continue; }
-    if (rank[a.tier] < rank[b.tier]) out.push(`${id} 档位放宽（${TIER[b.tier]} → ${TIER[a.tier]}）`);
-    if (a.baseline?.total > b.baseline?.total) out.push(`${id} 基线变大（${b.baseline.total} → ${a.baseline.total}）`);
+    const strictTier = rank[b.tier] > 0; // main 上是预算档或红线档
+    if (!a) { out.push({ rule: id, block: true, text: `${id} 被删掉` }); continue; }
+    if (rank[a.tier] < rank[b.tier]) out.push({ rule: id, block: true, text: `${id} 档位放宽（${TIER[b.tier]} → ${TIER[a.tier]}）` });
+    if (a.baseline?.total > b.baseline?.total) out.push({ rule: id, block: strictTier, text: `${id} 基线变大（${b.baseline.total} → ${a.baseline.total}）` });
     if ((a.tier || 'count') !== 'count') {
       // 预算档、红线档按文件（条目）比：总数不变或变小，也可能是把额度挪给了别的文件
       const grown = [];
       const bf = b.baseline?.files || {}, bi = new Set(b.baseline?.items || []);
       for (const [f, n] of Object.entries(a.baseline?.files || {})) if (n > (bf[f] ?? 0)) grown.push(f in bf ? `${f} ${bf[f]} → ${n}` : `${f} 新增 ${n}`);
       for (const it of a.baseline?.items || []) if (!bi.has(it)) grown.push(`${it} 新增`);
-      if (grown.length) out.push(`${id} 按文件放宽 ${grown.length} 处（${grown.slice(0, 3).join('、')}${grown.length > 3 ? ' 等' : ''}）`);
+      if (grown.length) out.push({ rule: id, block: strictTier, text: `${id} 按文件放宽 ${grown.length} 处（${grown.slice(0, 3).join('、')}${grown.length > 3 ? ' 等' : ''}）` });
     }
-    if ((a.target ?? Infinity) > (b.target ?? Infinity)) out.push(`${id} 目标放宽`);
+    if ((a.target ?? Infinity) > (b.target ?? Infinity)) out.push({ rule: id, block: b.tier === 'redline', text: `${id} 目标放宽` });
   }
   const key = (w) => `${w.rule} ${w.item}`;
   const had = new Set((main.waivers || []).map(key));
   const added = (list.waivers || []).map(key).filter((k) => !had.has(k));
-  if (added.length) out.push(`新增豁免 ${added.length} 处（${added.slice(0, 3).join('、')}${added.length > 3 ? ' 等' : ''}）`);
+  if (added.length) out.push({ rule: null, block: false, text: `新增豁免 ${added.length} 处（${added.slice(0, 3).join('、')}${added.length > 3 ? ' 等' : ''}）` });
   // 已有豁免按同一个键比各字段：until 变晚、或别的字段变了都点名；until 提前、豁免被删掉不算放宽
   const oldWaivers = new Map();
   for (const w of main.waivers || []) if (!oldWaivers.has(key(w))) oldWaivers.set(key(w), w);
   for (const w of list.waivers || []) {
     const b = oldWaivers.get(key(w));
     if (!b) continue;
-    if (String(w.until ?? '') > String(b.until ?? '')) out.push(`豁免延期（${key(w)}：${b.until ?? '无'} → ${w.until}）`);
+    if (String(w.until ?? '') > String(b.until ?? '')) out.push({ rule: null, block: false, text: `豁免延期（${key(w)}：${b.until ?? '无'} → ${w.until}）` });
     const fields = [...new Set([...Object.keys(b), ...Object.keys(w)])].filter((f) => !['rule', 'item', 'until'].includes(f) && JSON.stringify(b[f]) !== JSON.stringify(w[f]));
-    if (fields.length) out.push(`豁免改了 ${fields.join('、')}（${key(w)}）`);
+    if (fields.length) out.push({ rule: null, block: false, text: `豁免改了 ${fields.join('、')}（${key(w)}）` });
   }
   const tests = Object.keys(list.tests || {}).filter((k) => !(k in (main.tests || {})));
-  if (tests.length) out.push(`新登记不进 CI 的测试 ${tests.length} 个`);
+  if (tests.length) out.push({ rule: null, block: false, text: `新登记不进 CI 的测试 ${tests.length} 个` });
   return out;
 }
 
@@ -748,7 +777,8 @@ function table(rows, hasList, loosened) {
   const unmeasured = rows.filter((r) => r.m.skipped).map((r) => r.rule.id);
   lines.push('', !hasList ? `还没有 ${LIST}：只有现状，没有基线。`
     : `本次变化：${moved.length ? moved.map((r) => `${r.rule.id} ${r.cmp.delta > 0 ? '+' : ''}${r.cmp.delta}`).join(' · ') : '与基线一致'}${unmeasured.length ? `（未量：${unmeasured.join('、')}）` : ''}`);
-  if (hasList) lines.push(`清单变化（相对 main）：${loosened === null ? '取不到 main 上的清单' : loosened.length ? loosened.join('；') : '没有放宽'}`);
+  if (hasList) lines.push(`清单变化（相对 main）：${loosened === null ? '取不到 main 上的清单' : loosened.reported.length ? loosened.reported.join('；') : '没有放宽'}`);
+  if (hasList && loosened?.blocking.length) lines.push(`没写原因的放宽 ${loosened.blocking.length} 处（--strict 下失败）：在 ${LIST} 那条规则上写 loosen_reason（一句话、带 PR 号），或者改回去`);
   // 文件型检查超了的，把量到的原始报错行贴出来（类型检查用得上：只给「文件 0 → 1」看不出是哪一行）。
   for (const { rule, m, cmp } of rows) {
     if (!m.detail || !cmp.over.length) continue;
@@ -890,6 +920,45 @@ function selftest() {
   check(broken({ waivers: [{ rule: RULES[0].id, item: 'a.ts', reason: 'r', by: 'b', until: 'never' }] }), '清单校验：豁免的期限不是日期，报错');
   check(!broken({ waivers: [{ rule: RULES[0].id, item: 'a.ts', reason: 'r', by: 'b', until: '2999-01-01' }] }), '清单校验：五项齐全的豁免，通过');
   check(broken({ tests: { 'a-test.mjs': '' } }), '清单校验：登记的测试没写理由，报错');
+  // --strict 遇到放宽：预算档、红线档的基线调大，红线目标放宽，档位调低，没写原因就失败；计数档按实际重记照旧只报告
+  const L = (rules) => ({ rules, waivers: [], tests: {} });
+  const R = (tier, total, extra = {}) => ({ id: 'x', tier, target: 0, baseline: { total }, ...extra });
+  const blockOf = (main, list) => loosenVerdict(main, list).blocking;
+  check(blockOf(L([R('budget', 2)]), L([R('budget', 3)])).length === 1, '放宽：预算档基线调大、没写原因，失败');
+  check(blockOf(L([R('budget', 2)]), L([R('budget', 3, { loosen_reason: '合并 A 和 B 时搬进来的存量（#999）' })])).length === 0, '放宽：预算档基线调大、写了原因，通过');
+  check(loosenVerdict(L([R('budget', 2)]), L([R('budget', 3, { loosen_reason: '合并 A 和 B 时搬进来的存量（#999）' })])).reported.some((x) => x.includes('#999')), '放宽：写了原因的，「清单变化」里显示原因');
+  check(blockOf(L([R('count', 2)]), L([R('count', 5)])).length === 0, '放宽：计数档按实际重记变大，不算');
+  check(loosenVerdict(L([R('budget', 3)]), L([R('budget', 2)])).reported.length === 0, '收紧：预算档变小，不点名、不失败');
+  check(blockOf(L([R('redline', 0)]), L([R('redline', 0, { target: 1 })])).length === 1, '放宽：红线目标放宽、没写原因，失败');
+  check(blockOf(L([R('budget', 2)]), L([R('count', 2)])).length === 1, '放宽：预算档降为计数档、没写原因，失败');
+  check(blockOf(L([R('redline', 0)]), L([R('budget', 0)])).length === 1, '放宽：红线档降为预算档、没写原因，失败');
+  check(blockOf(L([{ ...R('budget', 2), baseline: { total: 2, files: { 'a.ts': 2 } } }]), L([{ ...R('budget', 2), baseline: { total: 2, files: { 'a.ts': 1, 'b.ts': 1 } } }])).length === 1, '放宽：预算档总数不变、额度挪给新文件，没写原因，失败');
+  const stale = '早先那次放宽的原因（#900）';
+  check(blockOf(L([R('budget', 2, { loosen_reason: stale })]), L([R('budget', 3, { loosen_reason: stale })])).length === 1, '放宽：原因是 main 上早就有的（上次那次的），这次照样失败');
+  check(broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: '没写 PR 号' })) }), '清单校验：放宽原因没带 PR 号，报错');
+  check(broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: '' })) }), '清单校验：放宽原因是空的，报错');
+  check(!broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: '一句话说明原因（#1）' })) }), '清单校验：放宽原因一句话带 PR 号，通过');
+  for (const bare of ['  #1', '（#1）', 'x #1', '#1 #2', '--- #12 ...']) check(broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: bare })) }), `清单校验：放宽原因除了 PR 号几乎没写字（${JSON.stringify(bare)}），报错`);
+  check(!broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: '搬 SQL（#12）' })) }), '清单校验：PR 号之外有四个字以上的说明，通过');
+  // 门槛两边各一条，和每一步去掉的东西各一条反例（阶段三验收在 #756 的变异）
+  const reasonOk = (reason) => !broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, loosen_reason: reason })) });
+  check(!reasonOk('abc（#1）'), '放宽原因：PR 号之外刚好三个字，报错（门槛是四个字）');
+  check(reasonOk('abcd（#1）'), '放宽原因：PR 号之外刚好四个字，通过');
+  check(!reasonOk('#1234'), '放宽原因：光写一个长 PR 号，报错（PR 号的数字不算字）');
+  check(!reasonOk('#1 #2 #3 #4 #5'), '放宽原因：写一串 PR 号，报错（每个 PR 号都去掉）');
+  check(!reasonOk('+++$ #1'), '放宽原因：除了 PR 号全是符号，报错（符号不算字）');
+  check(!reasonOk('\u{20000}\u{20000} #1'), '放宽原因：两个扩展区汉字（UTF-16 是四个单元），按字数算只有两个，报错');
+  check(!reasonOk('\u200B\u200B\u200B\u200B #1'), '放宽原因：零宽字符凑数，报错（控制和格式字符不算字）');
+  {
+    const dir = mkdtempSync(join(tmpdir(), 'tech-route-tighten-'));
+    try {
+      const first = RULES[0];
+      const prev = { rules: [], deps: {}, tests: {}, waivers: [] };
+      writeList(dir, [{ rule: { ...first, tier: 'budget', baseline: { total: 3 }, loosen_reason: '一句话（#1）' }, m: { total: 3 } }], prev, 'tighten');
+      const written = JSON.parse(readFileSync(join(dir, LIST), 'utf8'));
+      check(!('loosen_reason' in written.rules[0]), '--tighten：放宽原因只管引入它的那一次，收紧时清掉');
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  }
   console.log(failed ? `===== 路线体检自检：${failed} 项失败 =====` : '===== 路线体检自检：全过 =====');
   return failed ? 1 : 0;
 }
@@ -912,14 +981,18 @@ function main() {
     console.log(flag('--init') ? `已按现状写入 ${LIST}` : changes.length ? `已收紧：${changes.join('；')}` : '没有可收紧的');
     return;
   }
+  let loosened = null;
   if (flag('--json')) {
     console.log(JSON.stringify(rows.map(({ rule, m, cmp, fail, change }) => ({ id: rule.id, tier: rule.tier || 'count', total: m.total, baseline: rule.baseline?.total ?? null, target: rule.target, skipped: m.skipped || null, over: cmp.over, waived: cmp.waivedCount || 0, change, fail })), null, 2));
   } else {
-    const text = table(rows, Boolean(list), list ? listLoosened(root, list) : null);
+    loosened = list ? listLoosened(root, list) : null;
+    const text = table(rows, Boolean(list), loosened);
     console.log(`# 路线体检 ${today()}\n\n${text}`);
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## 路线体检\n\n${text}\n`);
   }
-  process.exit(rows.some((r) => r.fail) ? 1 : 0);
+  // --strict：预算档、红线档的放宽没写原因，也算失败（平时只在「清单变化」里点名）
+  const unexplained = flag('--strict') && (loosened ?? (list ? listLoosened(root, list) : null))?.blocking.length > 0;
+  process.exit(rows.some((r) => r.fail) || unexplained ? 1 : 0);
 }
 
 main();

@@ -51,6 +51,21 @@ export const SEAT_ASK_LIMIT = 1000;
 export const SEAT_ASK_BATCH = 500;
 
 /**
+ * 节点没收下的答复：答复、打回任务回了 rejected（receipt-inbound 记成 reply:rejected）。
+ * 之后同一次投递又发出过子任务（reply-sent：人重发了、或改用别的办法）就算处理过了，不再列。最近 200 条
+ */
+export type RejectedReply = { log_id: number; event_id: string; delivery_id: number; target_team: string; at: string; summary: string; task: string };
+export function rejectedReplies(): RejectedReply[] {
+  if (!tableExists('workbench_events')) return [];
+  return db.prepare(`SELECT l.id AS log_id, l.event_id, l.delivery_id, d.target_team, l.at,
+      COALESCE(json_extract(l.detail, '$.summary'), '') AS summary, COALESCE(json_extract(l.detail, '$.task'), '') AS task
+    FROM workbench_event_log l JOIN workbench_event_deliveries d ON d.id = l.delivery_id
+    WHERE l.action = 'reply:rejected'
+      AND NOT EXISTS (SELECT 1 FROM workbench_event_log r WHERE r.delivery_id = l.delivery_id AND r.action = 'reply-sent' AND r.id > l.id)
+    ORDER BY l.id DESC LIMIT 200`).all() as RejectedReply[];
+}
+
+/**
  * 还没答的席位提问，全库直接查（不按最近多少个事件截断：早一点的提问一样等人答，和事项详情的 can/turn、事项列表的 decide 同一个口径）。
  * 按 (提问时间, 投递) 先后排，从 after 之后取至多 n 条；调用方按可见性过滤、分批往后取。
  * 事件表在任务中心初始化时才建：新库上还没有，就是没有提问

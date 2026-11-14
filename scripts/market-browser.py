@@ -109,7 +109,7 @@ with sync_playwright() as p:
     check('管理员：顶栏有「管理」，且不是主按钮', btn.count() == 1 and pg.locator('.wm-top-actions .ant-btn-primary').count() == 0)
     btn.click(); pg.locator('.ant-dropdown-menu', has_text='管理工作台').wait_for(); settled(pg, '.ant-dropdown-menu')
     items = [t.strip() for t in pg.locator('.ant-dropdown-menu .ant-dropdown-menu-item').all_inner_texts()]
-    check('「管理」里是工作台、流程、技能三处原来的管理面', items == ['管理工作台', '流程的发布与绑定', '技能的版本'], items)
+    check('「管理」里是工作台、流程两处原来的管理面（技能的版本已在每个技能自己的页面上，上一版的 /skills 总表删了）', items == ['管理工作台', '流程的发布与绑定'], items)
     pg.locator('.ant-dropdown-menu a', has_text='管理工作台').click(); pg.wait_for_url(M + '/market/manage'); pg.wait_for_selector('.ant-table-row')
     crumb = pg.locator('.wm-top-crumb').inner_text().replace('\n', ' ')
     check('管理页：顶栏「工作台市场 / 管理工作台」，原来的工作台表格在', '工作台市场' in crumb and '管理工作台' in crumb and pg.locator('.ant-table-row').count() == len(wbs), crumb)

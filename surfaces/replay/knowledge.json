@@ -1,10 +1,20 @@
 {
   "domain": "knowledge",
-  "what": "经验库：/api/knowledge 的 5 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。条目、人、部门都是合成的。",
-  "routes": ["GET /api/knowledge", "GET /api/knowledge/status", "GET /api/knowledge/project-depts", "PUT /api/knowledge/project-depts", "GET /api/knowledge/:key"],
+  "what": "经验库：/api/knowledge 的 8 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。条目、人、部门都是合成的。",
+  "routes": [
+    "GET /api/knowledge",
+    "GET /api/knowledge/status",
+    "GET /api/knowledge/project-depts",
+    "PUT /api/knowledge/project-depts",
+    "POST /api/knowledge/remember",
+    "GET /api/knowledge/remember/recent",
+    "GET /api/knowledge/remember/defaults",
+    "GET /api/knowledge/:key"
+  ],
   "exempt": [
     { "route": "GET /api/knowledge/status", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入", "shown_by": "open/status-admin" },
-    { "route": "GET /api/knowledge/project-depts", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入", "shown_by": "open/pd-list-management" }
+    { "route": "GET /api/knowledge/project-depts", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入", "shown_by": "open/pd-list-management" },
+    { "route": "GET /api/knowledge/remember/recent", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入", "shown_by": "open/recent-management" }
   ],
   "scenarios": [
     {
@@ -26,7 +36,8 @@
         {
           "table": "knowledge_items",
           "row": { "kind": "note", "ygl_id": "replay-restricted", "key": "rJ7308I0D9-eXSJ_zeCgc-", "title": "回放经验：只给管理层", "summary": "", "status": "", "project": "", "scope": "restricted", "tags": "[]", "created": "2030-01-01T00:00:00Z", "updated": "2030-01-01T00:00:00Z", "seen_at": 1893456000000 }
-        }
+        },
+        { "table": "attention_answers", "row": { "source": "work-items", "source_id": "wi_replay:1", "answer": "release", "state": "done", "status": 200, "body": "{}", "answered_by": "user:no-flag" } }
       ],
       "steps": [
         {
@@ -129,12 +140,45 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "704", "etag": "W/\"2c0-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "773", "etag": "W/\"305-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
-                { "key": "rJ7308I0D9-eXSJ_zeCgc-", "kind": "kb", "title": "回放经验：只给管理层", "summary": "", "status": null, "tags": [], "created": "YYYY-MM-DDThh:mm:ssZ", "updated": "YYYY-MM-DDThh:mm:ssZ", "scope_label": "只给管理层" },
-                { "key": "CBchfsqJCtNjOGrLlzOiZP", "kind": "kb", "title": "回放经验：销售部", "summary": "销售部可见", "status": null, "tags": [], "created": "YYYY-MM-DDThh:mm:ssZ", "updated": "YYYY-MM-DDThh:mm:ssZ", "scope_label": "合成销售部" },
-                { "key": "soQK0oqPgPYRLWrIFXiIV3", "kind": "kb", "title": "回放经验：全公司", "summary": "人人可见", "status": null, "tags": [], "created": "YYYY-MM-DDThh:mm:ssZ", "updated": "YYYY-MM-DDThh:mm:ssZ", "scope_label": "全公司" }
+                {
+                  "key": "rJ7308I0D9-eXSJ_zeCgc-",
+                  "kind": "kb",
+                  "title": "回放经验：只给管理层",
+                  "summary": "",
+                  "status": null,
+                  "tags": [],
+                  "created": "YYYY-MM-DDThh:mm:ssZ",
+                  "updated": "YYYY-MM-DDThh:mm:ssZ",
+                  "scope_label": "只给管理层",
+                  "decided_by_name": null
+                },
+                {
+                  "key": "CBchfsqJCtNjOGrLlzOiZP",
+                  "kind": "kb",
+                  "title": "回放经验：销售部",
+                  "summary": "销售部可见",
+                  "status": null,
+                  "tags": [],
+                  "created": "YYYY-MM-DDThh:mm:ssZ",
+                  "updated": "YYYY-MM-DDThh:mm:ssZ",
+                  "scope_label": "合成销售部",
+                  "decided_by_name": null
+                },
+                {
+                  "key": "soQK0oqPgPYRLWrIFXiIV3",
+                  "kind": "kb",
+                  "title": "回放经验：全公司",
+                  "summary": "人人可见",
+                  "status": null,
+                  "tags": [],
+                  "created": "YYYY-MM-DDThh:mm:ssZ",
+                  "updated": "YYYY-MM-DDThh:mm:ssZ",
+                  "scope_label": "全公司",
+                  "decided_by_name": null
+                }
               ],
               "source": "not_ready"
             }
@@ -149,9 +193,22 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "253", "etag": "W/\"fd-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "276", "etag": "W/\"114-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
-              "items": [{ "key": "soQK0oqPgPYRLWrIFXiIV3", "kind": "kb", "title": "回放经验：全公司", "summary": "人人可见", "status": null, "tags": [], "created": "YYYY-MM-DDThh:mm:ssZ", "updated": "YYYY-MM-DDThh:mm:ssZ", "scope_label": "全公司" }],
+              "items": [
+                {
+                  "key": "soQK0oqPgPYRLWrIFXiIV3",
+                  "kind": "kb",
+                  "title": "回放经验：全公司",
+                  "summary": "人人可见",
+                  "status": null,
+                  "tags": [],
+                  "created": "YYYY-MM-DDThh:mm:ssZ",
+                  "updated": "YYYY-MM-DDThh:mm:ssZ",
+                  "scope_label": "全公司",
+                  "decided_by_name": null
+                }
+              ],
               "source": "not_ready"
             }
           }
@@ -191,9 +248,20 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "276", "etag": "W/\"114-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "299", "etag": "W/\"12b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
-              "item": { "key": "soQK0oqPgPYRLWrIFXiIV3", "kind": "kb", "title": "回放经验：全公司", "summary": "人人可见", "status": null, "tags": [], "created": "YYYY-MM-DDThh:mm:ssZ", "updated": "YYYY-MM-DDThh:mm:ssZ", "scope_label": "全公司" },
+              "item": {
+                "key": "soQK0oqPgPYRLWrIFXiIV3",
+                "kind": "kb",
+                "title": "回放经验：全公司",
+                "summary": "人人可见",
+                "status": null,
+                "tags": [],
+                "created": "YYYY-MM-DDThh:mm:ssZ",
+                "updated": "YYYY-MM-DDThh:mm:ssZ",
+                "scope_label": "全公司",
+                "decided_by_name": null
+              },
               "body": "# 回放正文\n以后照这样办。"
             }
           }
@@ -335,15 +403,187 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "334", "etag": "W/\"14e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "368", "etag": "W/\"170-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "kinds": [
                 { "kind": "claim", "items": 0, "last_ok_at": null, "last_full_at": null, "last_error": "" },
                 { "kind": "note", "items": 3, "last_ok_at": null, "last_full_at": null, "last_error": "" },
                 { "kind": "skill", "items": 0, "last_ok_at": null, "last_full_at": null, "last_error": "" },
                 { "kind": "check", "items": 0, "last_ok_at": null, "last_full_at": null, "last_error": "" }
+              ],
+              "writes": { "pending": 0, "failed": 0 }
+            }
+          }
+        },
+        {
+          "id": "rem-remote-anon",
+          "route": "POST /api/knowledge/remember",
+          "class": "unauthorized",
+          "what": "远程、没登录：401",
+          "request": { "method": "POST", "path": "/api/knowledge/remember", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "source": "work-items", "source_id": "wi_replay", "lesson": "x" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "rem-member",
+          "route": "POST /api/knowledge/remember",
+          "class": "unauthorized",
+          "what": "普通员工：没有对经验库拍板的授予，403",
+          "request": { "method": "POST", "path": "/api/knowledge/remember", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "source": "work-items", "source_id": "wi_replay", "lesson": "x" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "114", "etag": "W/\"72-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "remember_not_allowed", "message": "记成经验要有对经验库拍板的授予（管理层、属主）" }
+          }
+        },
+        {
+          "id": "rem-bad",
+          "route": "POST /api/knowledge/remember",
+          "class": "invalid",
+          "what": "lesson 空：400",
+          "request": { "method": "POST", "path": "/api/knowledge/remember", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-admin-flag-missing1" }, "json": { "source": "work-items", "source_id": "wi_replay", "lesson": "" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "106", "etag": "W/\"6a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "remember_invalid", "message": "lesson（以后遇到类似情况怎么办）必填，1～500 字" }
+          }
+        },
+        {
+          "id": "rem-not-answered",
+          "route": "POST /api/knowledge/remember",
+          "class": "invalid",
+          "what": "没答过的：404",
+          "request": { "method": "POST", "path": "/api/knowledge/remember", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-admin-flag-missing1" }, "json": { "source": "work-items", "source_id": "wi_other", "lesson": "x" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "102", "etag": "W/\"66-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "remember_answer_not_found", "message": "没有找到这个人 48 小时内答过的这一条" }
+          }
+        },
+        {
+          "id": "rem-management",
+          "route": "POST /api/knowledge/remember",
+          "class": "normal",
+          "what": "管理层补记自己答过的：写成（推不出部门，只给管理层）",
+          "request": {
+            "method": "POST",
+            "path": "/api/knowledge/remember",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-admin-flag-missing1" },
+            "json": { "source": "work-items", "source_id": "wi_replay", "lesson": "回放：以后照这样办" }
+          },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "70", "etag": "W/\"46-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "status": "written", "duplicate": false, "scope_label": "只给管理层" }
+          }
+        },
+        {
+          "id": "rem-again",
+          "route": "POST /api/knowledge/remember",
+          "class": "normal",
+          "what": "同一次答复再记：duplicate",
+          "request": {
+            "method": "POST",
+            "path": "/api/knowledge/remember",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-admin-flag-missing1" },
+            "json": { "source": "work-items", "source_id": "wi_replay", "lesson": "回放：以后照这样办" }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "69", "etag": "W/\"45-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "status": "written", "duplicate": true, "scope_label": "只给管理层" }
+          }
+        },
+        {
+          "id": "recent-anon",
+          "route": "GET /api/knowledge/remember/recent",
+          "class": "unauthorized",
+          "what": "远程、没登录：401",
+          "request": { "method": "GET", "path": "/api/knowledge/remember/recent", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "recent-member",
+          "route": "GET /api/knowledge/remember/recent",
+          "class": "unauthorized",
+          "what": "普通员工：403",
+          "request": { "method": "GET", "path": "/api/knowledge/remember/recent", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "114", "etag": "W/\"72-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "remember_not_allowed", "message": "记成经验要有对经验库拍板的授予（管理层、属主）" }
+          }
+        },
+        {
+          "id": "recent-management",
+          "route": "GET /api/knowledge/remember/recent",
+          "class": "normal",
+          "what": "管理层：自己 48 小时内答过的条目",
+          "vary": { "items.0.answered_at": "random" },
+          "request": { "method": "GET", "path": "/api/knowledge/remember/recent", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-admin-flag-missing1" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "235", "etag": "W/\"eb-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "items": [
+                { "source": "work-items", "source_id": "wi_replay", "title": null, "answer": "release", "answer_text": "放行", "answered_at": "<每个实例随机·string·24>", "remembered": "written", "default_visibility": "restricted", "department_name": null }
               ]
             }
+          }
+        },
+        {
+          "id": "defaults-anon",
+          "route": "GET /api/knowledge/remember/defaults",
+          "class": "unauthorized",
+          "what": "远程、没登录：401",
+          "request": { "method": "GET", "path": "/api/knowledge/remember/defaults?source=work-items&source_id=wi_replay", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "defaults-bad",
+          "route": "GET /api/knowledge/remember/defaults",
+          "class": "invalid",
+          "what": "缺 source_id：400",
+          "request": { "method": "GET", "path": "/api/knowledge/remember/defaults?source=work-items", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-admin-flag-missing1" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "66", "etag": "W/\"42-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "remember_invalid", "message": "要有 source、source_id" }
+          }
+        },
+        {
+          "id": "defaults-management",
+          "route": "GET /api/knowledge/remember/defaults",
+          "class": "normal",
+          "what": "推不出部门：只给管理层",
+          "request": { "method": "GET", "path": "/api/knowledge/remember/defaults?source=work-items&source_id=wi_replay", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-admin-flag-missing1" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "default_visibility": "restricted", "department_name": null }
           }
         }
       ]

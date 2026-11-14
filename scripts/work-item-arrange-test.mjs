@@ -72,7 +72,10 @@ try {
   check(defaults.status === 201, '缺省限流下能建（每分钟 5 件）', show(defaults));
   await call('PUT', '/api/settings', ADMIN, { arrange_rate_per_minute: '100' }); // 下面几节一个人要建好多件；限流单独一节测
   const dbr = () => new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true });
+  const dbw = (sql, ...a) => { const d = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 }); try { return d.prepare(sql).run(...a); } finally { d.close(); } };
   const deliveries = (eventId) => { const d = dbr(); try { return d.prepare('SELECT target_team, status FROM workbench_event_deliveries WHERE event_id = ? ORDER BY id').all(eventId).map((r) => ({ ...r })); } finally { d.close(); } };
+  const past0 = () => { const d = dbr(); try { return d.prepare("SELECT id FROM work_items WHERE id LIKE 'wi_wbe-%' ORDER BY rowid LIMIT 1").get()?.id; } finally { d.close(); } };
+  const past0Event = () => { const d = dbr(); try { return d.prepare("SELECT event_id FROM workbench_events ORDER BY rowid LIMIT 1").get()?.event_id; } finally { d.close(); } };
   const form = (extra = {}) => ({ title: '对一下上周的出货', intent: '把上周的出货单和对账单对一遍，列出对不上的', deliverable: '一张差异表', team: 'dsh/canvas/team-a', idempotency_key: key(), ...extra });
 
   // ---------- 可派的团队 ----------
@@ -192,22 +195,23 @@ try {
       const now = '2026-11-12 00:00:00', ms = Date.now() - 60000;
       const b = d.prepare("INSERT INTO bindings (target_type, target_slug, agent_node, direction, mode, notify_url, created_by, revoked_at) VALUES ('sop', 'task-center', ?, 'notify', 'read', ?, 'seed', '')");
       b.run('dsh/canvas/team-c', 'http://127.0.0.1:2'); b.run('dsh/1a2b3c4d', 'http://127.0.0.1:1'); b.run('dsh/canvas/team-d', 'http://127.0.0.1:3');
-      const r = d.prepare('INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?)');
+      const r = d.prepare('INSERT INTO a2a_roster_nodes (host, peer_root, peer_zone, reported_at, received_at, key_fingerprint) VALUES (?1, ?2, ?3, ?4, ?5, char(115, 104, 97, 50, 53, 54, 58) || substr(?1 || hex(zeroblob(32)), 1, 64))');
       r.run('a1b2c3d4', 'http://127.0.0.1:1', 'dsh', now, now); r.run('c3c3c3c3', 'http://127.0.0.1:2', 'dsh', now, now);
-      const st = d.prepare('INSERT INTO a2a_roster_seats (host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)');
+      const st = d.prepare('INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES ((SELECT peer_root FROM a2a_roster_nodes WHERE host = ?1 ORDER BY rowid LIMIT 1), (SELECT key_fingerprint FROM a2a_roster_nodes WHERE host = ?1 ORDER BY rowid LIMIT 1), ?1, ?2, ?3, ?4, ?5, ?6, 1, 0, ?7, ?8)');
       st.run('a1b2c3d4', 'dsh/canvas/team-a', 'dsh/00000001', 'seat-00000001', '合成总工', 'router', now, now);
       st.run('a1b2c3d4', 'dsh/canvas/team-a', 'dsh/0000000a', 'seat-0000000a', '合成成员甲', 'member', now, now);
       st.run('a1b2c3d4', 'dsh/canvas/team-a', 'dsh/0000000b', 'seat-0000000b', '合成成员乙', 'member', now, now);
       st.run('a1b2c3d4', 'dsh/canvas/team-a', 'dsh/0000000c', 'seat-0000000c', '合成观察者', 'observer', now, now);
       st.run('c3c3c3c3', 'dsh/canvas/team-c', 'dsh/0000000e', 'seat-0000000e', '合成成员丙', 'member', now, now);
-      const p = d.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, registered_by, registered_at, updated_at, card_capabilities) VALUES (?, ?, 'dsh', ?, 'active', 'seed', ?, ?, ?) ON CONFLICT(root_url) DO UPDATE SET status = 'active', zone = excluded.zone, name = excluded.name, card_capabilities = excluded.card_capabilities");
-      p.run('peer-syn-a', 'http://127.0.0.1:1', '合成节点甲', now, now, JSON.stringify({ directedSeats: true, reworkReturns: true }));
-      p.run('peer-syn-c', 'http://127.0.0.1:2', '合成节点丙', now, now, JSON.stringify({}));
+      const p = d.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, registered_by, registered_at, updated_at, card_capabilities, key_fingerprint) VALUES (?1, ?2, 'dsh', ?3, 'active', 'seed', ?4, ?5, ?6, CASE WHEN ?7 IS NULL THEN '' ELSE COALESCE((SELECT key_fingerprint FROM a2a_roster_nodes WHERE peer_root = ?2 ORDER BY rowid LIMIT 1), '') END) ON CONFLICT(root_url) DO UPDATE SET status = 'active', zone = excluded.zone, name = excluded.name, card_capabilities = excluded.card_capabilities, key_fingerprint = excluded.key_fingerprint");
+      p.run('peer-syn-a', 'http://127.0.0.1:1', '合成节点甲', now, now, JSON.stringify({ directedSeats: true, reworkReturns: true }), 'peer-syn-a');
+      p.run('peer-syn-c', 'http://127.0.0.1:2', '合成节点丙', now, now, JSON.stringify({}), 'peer-syn-c');
       const a = d.prepare("INSERT INTO seat_assignments (host, team, seat, seat_id, principal_id, assigned_by, assigned_at) VALUES (?, ?, ?, ?, ?, 'seed', ?)");
       a.run('a1b2c3d4', 'dsh/canvas/team-a', 'dsh/0000000a', 'seat-0000000a', 'user:alpha', ms);
       a.run('c3c3c3c3', 'dsh/canvas/team-c', 'dsh/0000000e', 'seat-0000000e', 'user:alpha', ms);
       d.prepare("INSERT INTO team_leads (host, team, principal_id, added_by, added_at) VALUES ('a1b2c3d4', 'dsh/canvas/team-a', 'user:beta', 'seed', ?)").run(ms);
       d.prepare("INSERT INTO team_leads (host, team, principal_id, added_by, added_at) VALUES ('c3c3c3c3', 'dsh/canvas/team-c', 'user:beta', 'seed', ?)").run(ms);
+      for (const t of ['teams', 'team_leads', 'seat_assignments']) d.prepare(\`UPDATE \${t} SET peer_root = COALESCE((SELECT r.peer_root FROM a2a_roster_nodes r WHERE r.host = \${t}.host), ''), key_fingerprint = COALESCE((SELECT p.key_fingerprint FROM a2a_roster_nodes r JOIN a2a_peers p ON p.root_url = r.peer_root WHERE r.host = \${t}.host), '') WHERE peer_root = ''\`).run(); // 种子行按当前名册记下节点
       console.log('SEEDED');`], { encoding: 'utf8' });
     if (!seeded.stdout.includes('SEEDED')) throw new Error(`造指名数据失败：${seeded.stderr.slice(-600)}`);
     const msg = (eventId) => { const d = dbr(); try { return d.prepare('SELECT message FROM workbench_event_deliveries WHERE event_id = ? ORDER BY id').all(eventId).map((r) => r.message); } finally { d.close(); } };
@@ -282,10 +286,271 @@ try {
       const fbDirect = await call('POST', '/api/work-items', ALPHA, form({ team: 'dsh/canvas/team-c', seat_id: 'seat-0000000e', review: false }));
       check(fbDirect.status === 201 && fbDirect.body.held === false && itemRow(fbDirect.body?.item_id).handoff === 'team',
         '对照：退回整队、本人 review:false、直派开着 → 直接派出，handoff=team', show(fbDirect.body));
+      // 撞号：另一个根地址也报了节点号 a1b2c3d4（对端停用，视图里不算），它的名册里 team-a 有一个本节点没有的成员席位。
+      // 指名按节点号找席位只经 a2a_rosters_live：这个席位找不到，不指名、不派
+      { const w = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 });
+        try {
+          const t1 = new Date().toISOString(), SQ = 'http://squat.synthetic.invalid', FP = 'sha256:' + 'e'.repeat(64);
+          w.prepare("INSERT INTO a2a_roster_nodes (peer_root, key_fingerprint, host, peer_zone, reported_at, received_at) VALUES (?, ?, 'a1b2c3d4', 'dsh', ?, ?)").run(SQ, FP, t1, t1);
+          w.prepare("INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, first_seen_at) VALUES (?, ?, 'a1b2c3d4', 'dsh/canvas/team-a', 'dsh/0000005a', 'seat-0000005a', '撞号节点上的成员', 'member', ?)").run(SQ, FP, t1);
+          w.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, registered_by, registered_at, updated_at) VALUES ('peer-squat', ?, 'dsh', '撞号的', 'disabled', 'seed', ?, ?)").run(SQ, t1, t1);
+        } finally { w.close(); } }
+      const sqCount = () => { const d = dbr(); try { return Number(d.prepare("SELECT COUNT(*) AS c FROM work_items WHERE directed_seat_id = 'seat-0000005a'").get().c) + Number(d.prepare("SELECT COUNT(*) AS c FROM workbench_event_deliveries WHERE message LIKE '%seat-0000005a%'").get().c); } finally { d.close(); } };
+      const sq = await call('POST', '/api/work-items', BETA, form({ seat_id: 'seat-0000005a' }));
+      check(sq.status === 400 && sq.body?.error === 'seat_not_in_team' && sqCount() === 0,
+        '撞号：同一节点号下另一个根地址（对端停用）名册里的席位，负责人指名它 → 400 seat_not_in_team，不指名、不派', show({ st: sq.status, body: sq.body, n: sqCount() }));
     } finally {
       await call('PUT', '/api/settings', ADMIN, { staff_direct_dispatch: 'off' });
       await call('PUT', '/api/task-center/policy', ADMIN, { agent_dispatch_enabled: false });
+      // 指名这一段让 beta 当了团队负责人；后面截止、附件那几段拿 beta 当「看不到这件事项的别人」，这里还原
+      const unlead = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '-e', `
+        const { DatabaseSync } = require('node:sqlite'); const d = new DatabaseSync(${JSON.stringify(join(data, 'workbench-market.db'))}, { timeout: 5000 });
+        d.prepare("DELETE FROM team_leads WHERE principal_id = 'user:beta' AND added_by = 'seed'").run(); console.log('UNLEAD');`], { encoding: 'utf8' });
+      if (!unlead.stdout.includes('UNLEAD')) throw new Error(`还原负责人失败：${unlead.stderr.slice(-600)}`);
     }
+  }
+
+  // ---------- 截止日期 ----------
+  {
+    const past = await call('POST', '/api/work-items', ALPHA, form({ due: '2026-01-01' }));
+    const future = await call('POST', '/api/work-items', ALPHA, form({ due: '2099-12-31' }));
+    const none = await call('POST', '/api/work-items', ALPHA, form());
+    const dp = await call('GET', `/api/work-items/${past.body?.item_id}`, ALPHA), df = await call('GET', `/api/work-items/${future.body?.item_id}`, ALPHA), dn = await call('GET', `/api/work-items/${none.body?.item_id}`, ALPHA);
+    check(dp.body?.due === '2026-01-01' && dp.body?.item?.due_at === '2026-01-01T00:00:00.000Z' && dp.body.overdue === true && df.body?.due === '2099-12-31' && df.body.overdue === false && dn.body?.due === null && dn.body.overdue === false,
+      '截止日期：详情给 due（YYYY-MM-DD，没填是 null），事项上存那天的 UTC 零点；过了期还没完成 overdue 为真，没过期、没填的为假', show({ p: [dp.body?.due, dp.body?.overdue], f: [df.body?.due, df.body?.overdue], n: [dn.body?.due, dn.body?.overdue] }));
+    const list = (await call('GET', '/api/work-items?view=mine', ALPHA)).body?.items ?? [];
+    const lp = list.find((x) => x.id === past.body?.item_id);
+    check(lp?.due === '2026-01-01' && lp.overdue === true, '事项列表也带 due 和 overdue', show(lp));
+    const d = dbr(); let pm = ''; try { pm = d.prepare('SELECT message FROM workbench_event_deliveries WHERE event_id = ?').get(past.body?.event_id)?.message ?? ''; } finally { d.close(); }
+    check(JSON.parse(pm).task?.due === '2026-01-01', '派给节点的正文里带截止日期（task.due）', pm.slice(0, 160));
+    // 详情的 can.due 和改截止接口同一处（dueWriterOk）：建立人真、管理口令假（接口 401）、别人看不到详情
+    const canAlpha = (await call('GET', `/api/work-items/${past.body?.item_id}`, ALPHA)).body?.can?.due;
+    const canAdmin = (await call('GET', `/api/work-items/${past.body?.item_id}`, ADMIN)).body?.can?.due;
+    const betaSees = (await call('GET', `/api/work-items/${past.body?.item_id}`, BETA)).status;
+    check(canAlpha === true && canAdmin === false && betaSees === 404, '详情 can.due：建立人真；管理口令假（改不了）；别人读不到这件', show({ canAlpha, canAdmin, betaSees }));
+    // 建立人改：改成新的、清掉；别人（看不到这件）404；只带管理口令 401；坏格式 400
+    const ch = await call('POST', `/api/work-items/${past.body?.item_id}/due`, ALPHA, { due: '2099-01-02' });
+    const clr = await call('POST', `/api/work-items/${future.body?.item_id}/due`, ALPHA, { due: null });
+    const other = await call('POST', `/api/work-items/${past.body?.item_id}/due`, BETA, { due: '2026-02-02' });
+    const adminOnly = await call('POST', `/api/work-items/${past.body?.item_id}/due`, ADMIN, { due: '2026-02-02' });
+    const anonRemote = await call('POST', `/api/work-items/${past.body?.item_id}/due`, { 'x-forwarded-for': '198.51.100.7' }, { due: '2026-02-02' });
+    const badFmt = await call('POST', `/api/work-items/${past.body?.item_id}/due`, ALPHA, { due: '2026-02-30' });
+    const missing = await call('POST', `/api/work-items/${past.body?.item_id}/due`, ALPHA, {});
+    const after = (await call('GET', `/api/work-items/${past.body?.item_id}`, ALPHA)).body;
+    check(ch.status === 200 && ch.body?.due === '2099-01-02' && ch.body.overdue === false && clr.status === 200 && clr.body?.due === null && after?.due === '2099-01-02',
+      '建立人改截止日期：改成新的、清掉都行，改后 overdue 跟着变', show({ ch: ch.body, clr: clr.body }));
+    check(other.status === 404 && adminOnly.status === 401 && anonRemote.status === 401 && badFmt.status === 400 && badFmt.body?.error === 'due_invalid' && missing.status === 400 && missing.body?.error === 'due_required' && after?.due === '2099-01-02',
+      '改截止日期：别人（看不到这件）404、只带管理口令 401、远程匿名 401、不存在的日期 400、没带 due 400，都不改', show([other.status, adminOnly.status, anonRemote.status, badFmt.status, missing.status]));
+    const d2 = dbr(); let trail = []; try { trail = d2.prepare("SELECT actor, detail FROM workbench_event_log WHERE event_id = ? AND action = 'due-changed'").all(past.body?.event_id).map((r) => ({ ...r })); } finally { d2.close(); }
+    check(trail.length === 1 && trail[0].actor === 'user:alpha' && JSON.parse(trail[0].detail).from === '2026-01-01T00:00:00.000Z' && JSON.parse(trail[0].detail).to === '2099-01-02T00:00:00.000Z', '改截止日期留痕：谁改的、从几号改成几号', show(trail));
+    // 同步到节点：派工正文不改（证据），给这个事件每条还活着的投递排一条「[截止变更]」，同一 context 的新任务；拒掉的改动一条不排
+    const d3 = dbr(); let notes = [], body = '', dlv = []; try {
+      notes = d3.prepare("SELECT r.kind, r.delivery_id, r.context_id, r.message, r.status FROM workbench_event_replies r WHERE r.event_id = ?").all(past.body?.event_id).map((r) => ({ ...r }));
+      body = d3.prepare('SELECT message FROM workbench_event_deliveries WHERE event_id = ?').get(past.body?.event_id)?.message ?? '';
+      dlv = d3.prepare("SELECT id FROM workbench_event_deliveries WHERE event_id = ? AND status IN ('held','pending','sent')").all(past.body?.event_id).map((r) => r.id);
+    } finally { d3.close(); }
+    const nm = notes.map((n) => JSON.parse(n.message));
+    check(ch.body?.notified === dlv.length && dlv.length >= 1 && notes.length === dlv.length && notes.every((n) => n.kind === 'answer' && n.status === 'pending' && dlv.includes(n.delivery_id) && n.context_id !== '')
+      && nm.every((m) => m.notice === 'due-changed' && m.by === 'user:alpha' && m.text.startsWith('[截止变更]') && m.text.includes('2099-01-02') && m.text.includes('2026-01-01') && !m.text.includes('\n'))
+      && JSON.parse(body).task?.due === '2026-01-01',
+      '改截止日期同步到节点：每条还活着的投递排一条「[截止变更]」（一行字，新旧日期都写），作为同一 context 的新任务；派工正文里的 task.due 原样不改', show({ notified: ch.body?.notified, dlv, notes: nm }));
+    // 管理员不代改截止：会话登录的管理员改 alpha 的事项 → 404（不说有没有这件），不改动；只带管理口令的不是人，401；管理员看详情 can.due 为假
+    const dueBefore = (() => { const d = dbr(); try { return d.prepare('SELECT due_at FROM work_items WHERE id = ?').get(past.body?.item_id)?.due_at; } finally { d.close(); } })();
+    const SESSION_ADMIN = { ...SAME, cookie: `session_id=${SESSIONS.admin}` };
+    const byAdmin = await call('POST', `/api/work-items/${past.body?.item_id}/due`, SESSION_ADMIN, { due: '2099-05-05' });
+    const byToken = await call('POST', `/api/work-items/${past.body?.item_id}/due`, ADMIN, { due: '2099-05-06' });
+    const dueAfter = (() => { const d = dbr(); try { return d.prepare('SELECT due_at FROM work_items WHERE id = ?').get(past.body?.item_id)?.due_at; } finally { d.close(); } })();
+    const adminView = await call('GET', `/api/work-items/${past.body?.item_id}`, SESSION_ADMIN);
+    check(byAdmin.status === 404 && byToken.status === 401 && dueAfter === dueBefore && adminView.status === 200 && adminView.body?.can?.due === false,
+      '管理员不代改截止：会话登录的管理员改 → 404、只带管理口令 → 401，都没改动；管理员看详情 can.due 为假', show({ st: byAdmin.status, token: byToken.status, dueBefore, dueAfter, can: adminView.body?.can }));
+    // 来自未验证提交方的事项（建立人主体记着 alpha，context 说 unverified，不是票据认出的）：creatorCheck 是 not_eligible，
+    // 只能由管理员处理。改截止会往节点发通知，也是写，同样挡住：建立人改不了（404，不说有没有这件），详情 can.due 为假
+    const uvSeed = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '-e', `
+      const { DatabaseSync } = require('node:sqlite'); const d = new DatabaseSync(${JSON.stringify(join(data, 'workbench-market.db'))}, { timeout: 5000 });
+      const t = new Date().toISOString();
+      d.prepare("INSERT INTO work_items (id, title, created_by, creator_principal, source_kind, context, state, created_at, updated_at) VALUES ('wi_unverified_due', '未验证来源的事项', 'user:alpha', 'user:alpha', 'agent', ?, 'draft', ?, ?)").run(JSON.stringify({ submitter_kind: 'unverified' }), t, t);
+      console.log('UV');`], { encoding: 'utf8' });
+    const uvDue = await call('POST', '/api/work-items/wi_unverified_due/due', ALPHA, { due: '2099-03-03' });
+    const uvDetail = await call('GET', '/api/work-items/wi_unverified_due', ALPHA);
+    const uvRow = (() => { const d = dbr(); try { return d.prepare("SELECT due_at FROM work_items WHERE id = 'wi_unverified_due'").get(); } finally { d.close(); } })();
+    check(uvSeed.stdout.includes('UV') && uvDue.status === 404 && uvDue.body?.error === 'work_item_not_found' && uvDetail.status === 200 && uvDetail.body?.can?.due === false && uvRow?.due_at === '',
+      '未验证来源的事项（creatorCheck 是 not_eligible）：建立人改截止 404、没改动；详情 can.due 为假', show({ seed: uvSeed.stderr.slice(-200), due: uvDue, st: uvDetail.status, can: uvDetail.body?.can, row: uvRow }));
+  }
+
+  // 登录门开着时再验一次接单节点取件（最后另起实例）：要用到的事件、令牌、附件
+  let gateCase = null;
+  // ---------- 附件 ----------
+  {
+    const { createHash } = await import('node:crypto');
+    const shaOf = (buf) => createHash('sha256').update(buf).digest('hex');
+    const up = async (headers, name, body, extra = {}) => {
+      const r = await fetch(`${base}/api/work-items/attachments/${encodeURIComponent(name)}`, { method: 'PUT', headers: { 'content-type': 'application/octet-stream', ...headers, ...extra }, body });
+      let j = null; try { j = await r.json(); } catch { /* 不是 JSON */ }
+      return { status: r.status, body: j };
+    };
+    const bytes = Buffer.from('合成附件：上周出货差异的草稿\n第二行\n', 'utf8');
+    const a1 = await up(ALPHA, '差异草稿.txt', bytes, { 'x-content-sha256': shaOf(bytes) });
+    const a2 = await up(ALPHA, '第二个.txt', Buffer.from('二'));
+    const wrong = await up(ALPHA, '核不对.txt', bytes, { 'x-content-sha256': '0'.repeat(64) });
+    const asJson = await up(ALPHA, 'j.txt', '{"a":1}', { 'content-type': 'application/json' });
+    const anon = await up({ 'x-forwarded-for': '198.51.100.7' }, 'x.txt', bytes);
+    const betaFile = await up(BETA, '别人的.txt', Buffer.from('b'));
+    check(a1.status === 201 && a1.body?.sha256 === shaOf(bytes) && a1.body.size === bytes.length && a1.body.integrity === 'sha256-verified' && a2.status === 201 && a2.body?.integrity === 'unverified',
+      '上传附件：登录的人传原始字节，带 X-Content-SHA256 核对过（sha256-verified），不带也能传', show({ a1: a1.body, a2: a2.body }));
+    check(wrong.status === 400 && wrong.body?.error === 'sha256_mismatch' && asJson.status === 415 && anon.status === 401,
+      '上传附件：sha256 对不上 400 不保存；按 JSON 发 415（请求体已被读走，不存空文件）；远程匿名 401', show({ wrong: wrong.status, asJson: asJson.status, anon: anon.status }));
+    // 安排时带附件：正文只带引用（名字、大小、sha256、取件地址），不带内容
+    const withAtt = await call('POST', '/api/work-items', ALPHA, form({ attachments: [a1.body?.id, a2.body?.id] }));
+    const d = dbr(); let msgRow; try { msgRow = d.prepare('SELECT id, message FROM workbench_event_deliveries WHERE event_id = ?').get(withAtt.body?.event_id); } finally { d.close(); }
+    const env = JSON.parse(msgRow?.message ?? '{}');
+    check(withAtt.status === 201 && env.attachments?.length === 2 && env.attachments[0].name === '差异草稿.txt' && env.attachments[0].sha256 === shaOf(bytes) && env.attachments[0].url.endsWith(`/api/workbench-events/${withAtt.body?.event_id}/attachments/${a1.body?.id}`)
+      && typeof env.attachments_fetch === 'string' && !msgRow.message.includes('上周出货差异的草稿'),
+      '安排时带附件：派工正文列名字、大小、sha256、取件地址和取件方式，不带文件内容', show(env.attachments));
+    const again = await call('POST', '/api/work-items', ALPHA, form({ attachments: [a1.body?.id] }));
+    const notMine = await call('POST', '/api/work-items', ALPHA, form({ attachments: [betaFile.body?.id] }));
+    const tooMany = await call('POST', '/api/work-items', ALPHA, form({ attachments: [1, 2, 3, 4, 5, 6] }));
+    const dup = await call('POST', '/api/work-items', ALPHA, form({ attachments: [a2.body?.id, a2.body?.id] }));
+    const notArr = await call('POST', '/api/work-items', ALPHA, form({ attachments: 'x' }));
+    check([again, notMine, tooMany, dup, notArr].every((r) => r.status === 400 && r.body?.error === 'attachments_invalid'),
+      '附件：已挂到别的事上的、别人上传的、超过 5 个、重复的、不是数组的：一律 400（同一个错误，不说是哪一种）', show([again, notMine, tooMany, dup, notArr].map((r) => r.status)));
+    // 人读：跟事项走
+    const item = withAtt.body?.item_id;
+    const detail = (await call('GET', `/api/work-items/${item}`, ALPHA)).body;
+    const getRaw = async (path, headers) => { const r = await fetch(base + path, { headers }); return { status: r.status, buf: Buffer.from(await r.arrayBuffer()), sha: r.headers.get('x-content-sha256'), cc: r.headers.get('cache-control') }; };
+    const mine = await getRaw(`/api/work-items/${item}/attachments/${a1.body?.id}`, ALPHA);
+    const theirs = await getRaw(`/api/work-items/${item}/attachments/${a1.body?.id}`, BETA);
+    const wrongItem = await getRaw(`/api/work-items/${past0()}/attachments/${a1.body?.id}`, ALPHA);
+    const nope = await getRaw(`/api/work-items/${item}/attachments/999999`, ALPHA);
+    check(detail?.attachments?.length === 2 && detail.attachments[0].name === '差异草稿.txt' && detail.attachments[0].size === bytes.length && detail.attachments[0].url === `/api/work-items/${item}/attachments/${a1.body?.id}` && mine.status === 200 && mine.buf.equals(bytes) && mine.sha === shaOf(bytes) && mine.cc === 'private, no-store',
+      '人读附件：事项详情列出附件；建立人取得到原样的字节（带 sha256、不进共享缓存）', show({ n: detail?.attachments?.length, st: mine.status }));
+    check(theirs.status === 404 && wrongItem.status === 404 && nope.status === 404, '人读附件：看不到这件事项的人、附件不属于这件事项、附件不存在：一律 404', show([theirs.status, wrongItem.status, nope.status]));
+    // 接单节点取件：凭派工时给的回执令牌；投递送达之前、令牌不对、没带令牌都取不到
+    const token = env.reply?.token ?? '';
+    const ev = withAtt.body?.event_id;
+    const heldTry = await getRaw(`/api/workbench-events/${ev}/attachments/${a1.body?.id}`, { 'x-reply-token': token });
+    const sent = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '-e', `
+      const { DatabaseSync } = require('node:sqlite'); const d = new DatabaseSync(${JSON.stringify(join(data, 'workbench-market.db'))});
+      d.prepare("UPDATE workbench_event_deliveries SET status = 'sent', sent_at = datetime('now') WHERE id = ?").run(${msgRow?.id}); console.log('SENT');`], { encoding: 'utf8' });
+    const ok = await getRaw(`/api/workbench-events/${ev}/attachments/${a1.body?.id}`, { 'x-reply-token': token });
+    const badTok = await getRaw(`/api/workbench-events/${ev}/attachments/${a1.body?.id}`, { 'x-reply-token': token + 'x' });
+    const noTok = await getRaw(`/api/workbench-events/${ev}/attachments/${a1.body?.id}`, {});
+    const otherEv = await getRaw(`/api/workbench-events/${past0Event()}/attachments/${a1.body?.id}`, { 'x-reply-token': token });
+    check(sent.stdout.includes('SENT') && heldTry.status === 404 && ok.status === 200 && ok.buf.equals(bytes) && badTok.status === 404 && noTok.status === 404 && otherEv.status === 404,
+      '接单节点取件：投递送达之后凭回执令牌取得到原样字节；送达之前、令牌不对、没带令牌、换了事件号都是 404', show([heldTry.status, ok.status, badTok.status, noTok.status, otherEv.status]));
+
+    // (b) 令牌只取得到它那件任务挂的附件：另一件任务（ev2，挂 a4）各有各的令牌，交叉取一律 404；任务结束之后自己的也取不到
+    const bytes4 = Buffer.from('第二件事的附件', 'utf8');
+    const a4 = await up(ALPHA, '另一件.txt', bytes4);
+    const second = await call('POST', '/api/work-items', ALPHA, form({ attachments: [a4.body?.id] }));
+    const ev2 = second.body?.event_id;
+    const d2r = dbr(); let row2; try { row2 = d2r.prepare('SELECT id, message FROM workbench_event_deliveries WHERE event_id = ?').get(ev2); } finally { d2r.close(); }
+    const token2 = JSON.parse(row2?.message ?? '{}').reply?.token ?? '';
+    spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '-e', `
+      const { DatabaseSync } = require('node:sqlite'); const d = new DatabaseSync(${JSON.stringify(join(data, 'workbench-market.db'))});
+      d.prepare("UPDATE workbench_event_deliveries SET status = 'sent', sent_at = datetime('now') WHERE id = ?").run(${row2?.id});`], { encoding: 'utf8' });
+    const own2 = await getRaw(`/api/workbench-events/${ev2}/attachments/${a4.body?.id}`, { 'x-reply-token': token2 });
+    const crossA = await getRaw(`/api/workbench-events/${ev2}/attachments/${a4.body?.id}`, { 'x-reply-token': token });
+    const crossB = await getRaw(`/api/workbench-events/${ev}/attachments/${a4.body?.id}`, { 'x-reply-token': token });
+    const crossC = await getRaw(`/api/workbench-events/${ev2}/attachments/${a1.body?.id}`, { 'x-reply-token': token2 });
+    const crossD = await getRaw(`/api/workbench-events/${ev}/attachments/${a1.body?.id}`, { 'x-reply-token': token2 });
+    check(second.status === 201 && token2 !== '' && token2 !== token && own2.status === 200 && own2.buf.equals(bytes4) && [crossA, crossB, crossC, crossD].every((r) => r.status === 404),
+      '取件（b）：令牌只取得到它那件任务挂的附件——拿 A 的令牌取 B 的附件（换不换事件号）、拿 B 的令牌取 A 的附件，一律 404', show([own2.status, crossA.status, crossB.status, crossC.status, crossD.status]));
+    gateCase = { ev, token, a1: a1.body?.id, bytes, ev2, token2, a4: a4.body?.id, item };
+
+    // 人读：看得到 X 也看得到 Y 的人，用 X 的地址读 Y 挂的附件 → 404（附件要属于地址里的这件事项）
+    const crossItem = await getRaw(`/api/work-items/${item}/attachments/${a4.body?.id}`, ALPHA);
+    const ownY = await getRaw(`/api/work-items/${second.body?.item_id}/attachments/${a4.body?.id}`, ALPHA);
+    check(ownY.status === 200 && crossItem.status === 404, '人读附件：同一个人看得到两件事项，拿 X 的地址读 Y 的附件 → 404（Y 的地址读得到）', show({ ownY: ownY.status, cross: crossItem.status }));
+
+    // 接单节点取件的三种「令牌还在、但不该再给」：事项到了终态、投递没在已发出（比如判死了）、送达超过 7 天
+    const armed = async (label) => {
+      const up1 = await up(ALPHA, `${label}.txt`, Buffer.from(label));
+      const arr = await call('POST', '/api/work-items', ALPHA, form({ attachments: [up1.body?.id] }));
+      const ev3 = arr.body?.event_id;
+      const d5 = dbr(); let r5; try { r5 = d5.prepare('SELECT id, message FROM workbench_event_deliveries WHERE event_id = ?').get(ev3); } finally { d5.close(); }
+      dbw("UPDATE workbench_event_deliveries SET status = 'sent', sent_at = datetime('now') WHERE id = ?", r5?.id);
+      return { ev: ev3, item: arr.body?.item_id, aid: up1.body?.id, delivery: r5?.id, tok: JSON.parse(r5?.message ?? '{}').reply?.token ?? '' };
+    };
+    const fetchAs = (x) => getRaw(`/api/workbench-events/${x.ev}/attachments/${x.aid}`, { 'x-reply-token': x.tok });
+    const term = await armed('终态'), dead = await armed('判死'), old = await armed('过期');
+    const ctl = await Promise.all([term, dead, old].map(fetchAs));
+    const lastTo = (() => { const d = dbr(); try { return d.prepare('SELECT to_state FROM work_item_log WHERE item_id = ? ORDER BY seq DESC LIMIT 1').get(term.item)?.to_state; } finally { d.close(); } })();
+    dbw("INSERT INTO work_item_log (item_id, fact, fact_source, fact_id, from_state, to_state, actor, detail) VALUES (?, 'failed', 'test', 'n2', ?, 'failed', 'test', '{}')", term.item, lastTo ?? 'draft');
+    dbw("UPDATE work_items SET state = 'failed' WHERE id = ?", term.item);
+    dbw("UPDATE workbench_event_deliveries SET status = 'dead' WHERE id = ?", dead.delivery);
+    dbw("UPDATE workbench_event_deliveries SET sent_at = datetime('now', '-8 days') WHERE id = ?", old.delivery);
+    const [fTerm, fDead, fOld] = await Promise.all([term, dead, old].map(fetchAs));
+    check(ctl.every((r) => r.status === 200), '对照：三件都送达、令牌对，先都取得到', show(ctl.map((r) => r.status)));
+    check(fTerm.status === 404, '取件：事项到了终态（这里是没办成）、令牌还在 → 404', show(fTerm.status));
+    check(fDead.status === 404, '取件：投递不在已发出（判死了）、令牌还在 → 404', show(fDead.status));
+    check(fOld.status === 404, '取件：送达超过 7 天、令牌还在 → 404', show(fOld.status));
+
+    // 上传可执行文件：ELF、MZ 头一律 400 attachment_executable_refused，不落盘、不记录
+    const { readdirSync } = await import('node:fs');
+    const filesIn = (dir) => { try { return readdirSync(dir, { recursive: true, withFileTypes: true }).filter((e) => e.isFile()).length; } catch { return 0; } };
+    const rowsNow = () => { const d = dbr(); try { return d.prepare('SELECT COUNT(*) AS c FROM work_item_attachments').get().c; } finally { d.close(); } };
+    const f0 = filesIn(join(data, 'uploads')), r0 = rowsNow();
+    const elf = await up(ALPHA, 'tool.bin', Buffer.concat([Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0]), Buffer.alloc(64)]));
+    const mz = await up(ALPHA, 'setup.txt', Buffer.concat([Buffer.from('MZ'), Buffer.alloc(64)]));
+    check([elf, mz].every((r) => r.status === 400 && r.body?.error === 'attachment_executable_refused') && filesIn(join(data, 'uploads')) === f0 && rowsNow() === r0,
+      '上传：ELF、MZ（改成 .txt 也一样）一律 400 attachment_executable_refused，不落盘、不记录', show({ elf: [elf.status, elf.body], mz: [mz.status, mz.body], files: [f0, filesIn(join(data, 'uploads'))], rows: [r0, rowsNow()] }));
+
+    // 对端登记表里停用、等确认新键的节点：回执令牌还在有效期内也一律当不存在（取件 404、回写决定 404，什么都不动）；恢复之后照常
+    const gated = await armed('对端状态');
+    const peerSet = (status) => dbw("UPDATE a2a_peers SET status = ? WHERE root_url = 'http://127.0.0.1:1'", status);
+    const decide = (decision) => call('POST', `/api/workbench-events/${gated.ev}/decision`, {}, { token: gated.tok, decision, reason: '合成的回写' });
+    const decisionNow = () => { const d = dbr(); try { return d.prepare('SELECT decision FROM workbench_event_deliveries WHERE id = ?').get(gated.delivery)?.decision ?? ''; } finally { d.close(); } };
+    const logN = () => { const d = dbr(); try { return Number(d.prepare("SELECT COUNT(*) AS c FROM workbench_event_log WHERE delivery_id = ? AND action LIKE 'decision:%'").get(gated.delivery).c); } finally { d.close(); } };
+    const g0 = await fetchAs(gated);
+    const before = { decision: decisionNow(), log: logN() };
+    const res = {};
+    for (const st of ['disabled', 'key_changed']) {
+      peerSet(st);
+      res[st] = { fetch: (await fetchAs(gated)).status, decide: (await decide('ask')).status, decision: decisionNow(), log: logN() };
+    }
+    peerSet('active');
+    const restored = { fetch: (await fetchAs(gated)).status, decide: (await decide('ask')).status, decision: decisionNow(), log: logN() };
+    check(g0.status === 200 && ['disabled', 'key_changed'].every((st) => res[st].fetch === 404 && res[st].decide === 404 && res[st].decision === before.decision && res[st].log === before.log),
+      '对端停用、等确认新键：凭有效的回执令牌取件 404、回写决定 404（和不存在一样），决定和事件日志都不动', show({ g0: g0.status, before, res }));
+    check(restored.fetch === 200 && restored.decide === 200 && restored.decision === 'ask' && restored.log === before.log + 1, '……对端恢复 active 之后，取件、回写决定照常', show(restored));
+    // 撤回这件任务（管理员经「关注」撤回；投递已发出，事项本身不一定立刻到终态）：之后凭自己的令牌也取不到
+    const wd = await call('POST', '/api/attention/answer', ADMIN, { source: 'work-items', source_id: second.body?.item_id, answer: 'withdraw', input: {} });
+    const st2 = (await call('GET', `/api/work-items/${second.body?.item_id}`, ALPHA)).body?.item?.state;
+    const after2 = await getRaw(`/api/workbench-events/${ev2}/attachments/${a4.body?.id}`, { 'x-reply-token': token2 });
+    check(wd.status === 200 && wd.body?.result?.status === 'withdrawn' && after2.status === 404, '取件（b）：任务撤回之后凭自己的令牌也取不到，和不存在一样 404', show({ wd: [wd.status, wd.body?.result], st2, after: after2.status }));
+
+    // (a) 没挂上的上传要有收场：24 小时没被引用的自动清掉（文件和记录一起）；每人没挂的总量有上限
+    const stale = await up(ALPHA, '放了一天.txt', Buffer.from('没人用'));
+    const back = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '-e', `
+      const { DatabaseSync } = require('node:sqlite'); const d = new DatabaseSync(${JSON.stringify(join(data, 'workbench-market.db'))});
+      d.prepare("UPDATE work_item_attachments SET created_at = ? WHERE id = ?").run(new Date(Date.now() - 25 * 3600 * 1000).toISOString(), ${stale.body?.id});
+      console.log('PATH ' + d.prepare('SELECT path FROM work_item_attachments WHERE id = ?').get(${stale.body?.id}).path);`], { encoding: 'utf8' });
+    const stalePath = join(data, (back.stdout.match(/PATH (.+)/) ?? [])[1] ?? 'missing');
+    const { existsSync } = await import('node:fs');
+    const fileBefore = existsSync(stalePath);
+    const fresh = await up(ALPHA, '新的.txt', Buffer.from('新'));
+    const d4 = dbr(); let gone, keptFresh, keptBound; try {
+      gone = d4.prepare('SELECT COUNT(*) AS n FROM work_item_attachments WHERE id = ?').get(stale.body?.id).n === 0;
+      keptFresh = d4.prepare('SELECT COUNT(*) AS n FROM work_item_attachments WHERE id = ?').get(fresh.body?.id).n === 1;
+      keptBound = d4.prepare("SELECT COUNT(*) AS n FROM work_item_attachments WHERE id = ? AND event_id != ''").get(a1.body?.id).n === 1;
+    } finally { d4.close(); }
+    const useStale = await call('POST', '/api/work-items', ALPHA, form({ attachments: [stale.body?.id] }));
+    check(stale.status === 201 && fileBefore && gone && !existsSync(stalePath) && keptFresh && keptBound && useStale.status === 400 && useStale.body?.error === 'attachments_invalid',
+      '收场（a）：上传后 24 小时没被引用的清掉（记录和文件都没了，再拿它安排 400）；新传的、已挂出去的不动', show({ fileBefore, gone, fileAfter: existsSync(stalePath), keptFresh, keptBound, use: useStale.status }));
+    // 总量上限：库里给 alpha 记上将近 500MB 没挂出去的（合成记录，不落文件），再传一个就超 → 429，不落盘；别人不受影响
+    const fill = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '-e', `
+      const { DatabaseSync } = require('node:sqlite'); const d = new DatabaseSync(${JSON.stringify(join(data, 'workbench-market.db'))});
+      const r = d.prepare("INSERT INTO work_item_attachments (uploaded_by, name, mime, size, sha256, path, created_at) VALUES ('user:alpha', '合成大文件', 'application/octet-stream', ?, ?, 'uploads/none/synthetic', ?)").run(500 * 1024 * 1024 - 4, '0'.repeat(64), new Date().toISOString());
+      console.log('FILL ' + r.lastInsertRowid);`], { encoding: 'utf8' });
+    const fillId = Number((fill.stdout.match(/FILL (\d+)/) ?? [])[1] ?? 0);
+    const over = await up(ALPHA, '超了.txt', Buffer.from('超过总量'));
+    const betaOk = await up(BETA, 'b.txt', Buffer.from('b'));
+    spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '-e', `
+      const { DatabaseSync } = require('node:sqlite'); const d = new DatabaseSync(${JSON.stringify(join(data, 'workbench-market.db'))});
+      d.prepare('DELETE FROM work_item_attachments WHERE id = ?').run(${fillId});`], { encoding: 'utf8' });
+    const afterFree = await up(ALPHA, '腾出来了.txt', Buffer.from('ok'));
+    check(fillId > 0 && over.status === 429 && over.body?.error === 'attachments_pending_bytes_limit' && over.body?.limit_bytes === 500 * 1024 * 1024 && betaOk.status === 201 && afterFree.status === 201,
+      '收场（a）：每人没挂出去的总量上限 500MB——超了先拒（429，不保存），别人不受影响；腾出来以后又能传', show({ over: [over.status, over.body], afterFree: afterFree.status, betaOk: betaOk.status }));
   }
 
   // ---------- 拒绝 ----------
@@ -336,6 +601,41 @@ try {
     const offPlain = await call2('POST', '/api/work-items', ALPHA, form());
     check(offPlain.status === 201 && offPlain.body?.directed === undefined && counts().items === afterSeat.items + 1,
       '……不带 seat_id 照常 201（整队派发）', show(offPlain));
+  }
+
+  // ---------- WM_LOGIN_GATE=enforce：同一份库再起一个实例，接单节点凭回执令牌取件不该被登录门挡住；人读附件仍要登录 ----------
+  {
+    if (child && child.exitCode === null) { child.kill('SIGTERM'); await new Promise((r) => { const t = setTimeout(r, 5000); child.once('exit', () => { clearTimeout(t); r(); }); }); if (child.exitCode === null) child.kill('SIGKILL'); }
+    if (!gateCase) throw new Error('附件那一段没跑到，登录门这一段没有可用的令牌');
+    const port3 = await freePort();
+    let log3 = '';
+    child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], { cwd: join(ROOT, 'server'), env: { ...env, PORT: String(port3), WM_LOGIN_GATE: 'enforce' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.on('data', (d) => { log3 += String(d); }); child.stderr.on('data', (d) => { log3 += String(d); });
+    const base3 = `http://127.0.0.1:${port3}`;
+    for (let i = 0, ok = false; !ok; i++) {
+      if (i > 200 || child.exitCode !== null) throw new Error(`登录门开着的实例没起来：${log3.slice(-800)}`);
+      try { ok = (await fetch(`${base3}/api/health`)).status === 200; } catch { /* 还没起来 */ }
+      if (!ok) await new Promise((r) => setTimeout(r, 200));
+    }
+    // 接单节点从外面来：不带会话，只带回执令牌
+    const REMOTE = { 'x-forwarded-for': '198.51.100.7' };
+    const fetch3 = async (path, headers, method = 'GET') => { const r = await fetch(base3 + path, { method, headers: { ...REMOTE, ...headers } }); return { status: r.status, buf: Buffer.from(await r.arrayBuffer()) }; };
+    const g = gateCase;
+    const gOk = await fetch3(`/api/workbench-events/${g.ev}/attachments/${g.a1}`, { 'x-reply-token': g.token });
+    const gNoTok = await fetch3(`/api/workbench-events/${g.ev}/attachments/${g.a1}`, {});
+    const gBadTok = await fetch3(`/api/workbench-events/${g.ev}/attachments/${g.a1}`, { 'x-reply-token': g.token + 'x' });
+    const gOtherEv = await fetch3(`/api/workbench-events/${g.ev2}/attachments/${g.a1}`, { 'x-reply-token': g.token });
+    const gWithdrawn = await fetch3(`/api/workbench-events/${g.ev2}/attachments/${g.a4}`, { 'x-reply-token': g.token2 });
+    check(gOk.status === 200 && gOk.buf.equals(g.bytes) && [gNoTok, gBadTok, gOtherEv, gWithdrawn].every((r) => r.status === 404),
+      '登录门开着：接单节点凭回执令牌取得到原样字节；没令牌、令牌不对、换了事件、任务已撤回的一律 404（不是登录门的 401）',
+      show([gOk.status, gNoTok.status, gBadTok.status, gOtherEv.status, gWithdrawn.status]));
+    // 放行只放这一条取件路径的 GET：同一路径的写、人读附件、取件路径换形状都仍由登录门挡（401）
+    const gHuman = await fetch3(`/api/work-items/${g.item}/attachments/${g.a1}`, {});
+    const gPost = await fetch3(`/api/workbench-events/${g.ev}/attachments/${g.a1}`, { 'x-reply-token': g.token }, 'POST');
+    const gShape = await fetch3(`/api/workbench-events/${g.ev}/attachments/0${g.a1}`, { 'x-reply-token': g.token });
+    check(gHuman.status === 401 && gPost.status === 401 && gShape.status === 401,
+      '登录门开着：人读附件（/api/work-items/:id/attachments/:aid）远程匿名仍 401；取件路径的 POST、id 带前导 0 的不在放行里，也是 401',
+      show({ human: gHuman.status, post: gPost.status, shape: gShape.status }));
   }
 } catch (e) {
   fail++;

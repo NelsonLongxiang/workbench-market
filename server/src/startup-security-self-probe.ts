@@ -8,7 +8,7 @@ export const isStartupProbeRequest = (req: IncomingMessage): boolean => internal
 type Row = { id: string; surface: 'market' | 'control'; method: string; path: string; verdict: 'pass' | 'fail' | 'warn' | 'skip'; status: number | null; reason: string | null };
 type State = { passed: boolean; failed: string[]; at: string | null; rows: Row[] };
 type Target = { port: number; surface: 'market' | 'control' };
-type Options = { market: Server; control?: Server; gatewayOn: boolean; nodeEnv?: string; loginGate?: 'enforce' | 'off'; appDataRead?: 'enforce' | 'warn'; sopRunWrite?: 'enforce' | 'warn'; benchViews?: boolean; outbound?: () => Promise<{ ok: boolean; reason: string | null }> };
+type Options = { market: Server; control?: Server; gatewayOn: boolean; nodeEnv?: string; loginGate?: 'enforce' | 'off'; appDataRead?: 'enforce' | 'warn'; sopRunWrite?: 'enforce' | 'warn'; benchViews?: boolean; portalForward?: () => { ok: boolean; reason: string | null }; outbound?: () => Promise<{ ok: boolean; reason: string | null }> ; sessionSeal?: () => { ok: boolean; reason: string | null } };
 /** Login-gate rows impersonate a remote anonymous browser behind a same-host proxy, so the local-CLI exemption cannot apply. */
 const REMOTE_ANON = { 'x-forwarded-for': '192.0.2.1', accept: 'text/html' };
 
@@ -83,7 +83,7 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
     });
   }
 
-  async function execute({ market, control, gatewayOn, nodeEnv, loginGate = 'off', appDataRead = 'enforce', sopRunWrite = 'enforce', benchViews = false, outbound }: Options): Promise<State> {
+  async function execute({ market, control, gatewayOn, nodeEnv, loginGate = 'off', appDataRead = 'enforce', sopRunWrite = 'enforce', benchViews = false, portalForward, outbound, sessionSeal }: Options): Promise<State> {
     const [m, c] = await Promise.all([listener(market), listener(control)]);
     if (c) c.surface = 'control';
     const table = [
@@ -113,6 +113,9 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       { id: 'market.work-items.seat-ask-answer-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/work-items/wi_selfprobe/asks/1/answer', body: '{"text":"selfprobe"}', origin: true, headers: REMOTE_ANON, status: 401 },
       // 驾驶舱的写（不经写请求总门，路由自己判）：远程匿名改一个不存在的驾驶舱必须 401——认人在找驾驶舱之前，所以门坏了会回 404，也不会改到任何东西
       { id: 'market.cockpits.anonymous-write', target: m, surface: 'market', method: 'PUT', path: '/api/cockpits/999999999', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
+      // 「安排一件事」的附件上传、改截止日期：同样经写请求总门放行、路由内认人，远程匿名来必须 401
+      { id: 'market.work-items.attachment-upload-anonymous', target: m, surface: 'market', method: 'PUT', path: '/api/work-items/attachments/selfprobe.txt', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
+      { id: 'market.work-items.due-set-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/work-items/wi_selfprobe/due', body: '{"due":null}', origin: true, headers: REMOTE_ANON, status: 401 },
       { id: 'market.export.reveal-anonymous', target: m, surface: 'market', method: 'GET', path: '/api/export?reveal=1', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 },
       // 数据视图的入口（WM_BENCH_VIEWS=on 才有这两行；关着时整组路由回 404，由 scripts/bench-views-entry-test.mjs 看）：
       // 远程匿名读不到台的清单、也登记不了台（登录门开不开都是 401：登录门先拦，或者路由自己认不出人）
@@ -126,6 +129,8 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       // L19：授予的放行经写请求总门放行、路由内认人，远程匿名来必须 401（能不能放行再由三档规则判）
       // 经验库：远程匿名列不出条目（路由自己认人，登录门开着时登录门先拦，都是 401）
       { id: 'market.knowledge.anonymous-read', target: m, surface: 'market', method: 'GET', path: '/api/knowledge', headers: REMOTE_ANON, status: 401 },
+      // 记成经验经写请求总门放行、路由内认人：远程匿名来记必须 401
+      { id: 'market.knowledge.remember-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/knowledge/remember', body: '{"source":"work-items","source_id":"wi_selfprobe","lesson":"x"}', origin: true, headers: REMOTE_ANON, status: 401 },
       // 经验库的「项目 → 部门」对照经写请求总门放行、路由内认人：远程匿名来改必须 401（能不能改再按拍板类问判定）
       { id: 'market.knowledge.project-depts-anonymous-write', target: m, surface: 'market', method: 'PUT', path: '/api/knowledge/project-depts', body: '{"project":"wm-self-probe","department":null}', origin: true, headers: REMOTE_ANON, status: 401 },
       { id: 'market.grants.approve-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/grants/1/approve', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
@@ -175,10 +180,25 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       state.rows.push(row);
       log({ source: 'self-probe', ...row }); // allowlisted fields only, no headers, body, marker or raw error
     }
+    // 门户转发前去掉市场自身的认证信息：拿编出来的请求头过一遍门户转发用的那份清单，市场的口令、令牌、会话 cookie 摘干净、台自己的留下才算过。不过就拒绝启动
+    if (portalForward) {
+      const g = portalForward();
+      const row: Row = { id: 'market.portal.forward-strips-market-auth', surface: 'market', method: 'CHECK', path: '/go/*', verdict: g.ok ? 'pass' : 'fail', status: null, reason: g.ok ? null : g.reason };
+      state.rows.push(row);
+      log({ source: 'self-probe', ...row });
+    }
     // 对外断开（WM_OUTBOUND=off）时加一行：真的去连一个不可路由的地址，确认在连之前就被闸拦下。不过就拒绝启动
     if (outbound) {
       const g = await outbound();
       const row: Row = { id: 'market.outbound.disconnected', surface: 'market', method: 'CONNECT', path: '192.0.2.1:9', verdict: g.ok ? 'pass' : 'fail', status: null, reason: g.ok ? 'outbound-off' : g.reason };
+      state.rows.push(row);
+      log({ source: 'self-probe', ...row });
+    }
+    // 由市场维持的登录会话存着身份来源的会话号（等同凭据）：加密能往返、密文里看不出原文、改过的解不开、密钥文件权限 600。不过就拒绝启动
+    if (sessionSeal) {
+      let g: { ok: boolean; reason: string | null };
+      try { g = sessionSeal(); } catch { g = { ok: false, reason: 'error' }; }
+      const row: Row = { id: 'market.login-session.upstream-sealed', surface: 'market', method: 'LOCAL', path: 'market_sessions.upstream_sealed', verdict: g.ok ? 'pass' : 'fail', status: null, reason: g.ok ? null : g.reason };
       state.rows.push(row);
       log({ source: 'self-probe', ...row });
     }

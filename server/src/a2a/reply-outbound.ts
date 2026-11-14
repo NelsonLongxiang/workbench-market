@@ -8,7 +8,11 @@
  */
 import { a2aKeyPath, a2aSendOutbound } from '../a2a.ts';
 import { noteBlocked, outboundOff } from '../outbound-gate.ts';
-import { dueReplies, inReplyTx, markReply, retryReply, type ReplyRow } from '../services/a2a-replies.ts';
+import { deliveryStatusOf, dueReplies, holdReply, inReplyTx, markReply, noticeTaskId, retryReply, type ReplyRow } from '../services/a2a-replies.ts';
+import { peerCanDeliver } from '../services/a2a-peers.ts';
+
+/** 对端此刻不能发（改钥待确认、停用）时，隔多久再看一次 */
+export const PEER_HOLD_MS = 60_000;
 import { recordSentTask } from '../services/a2a-receipts.ts';
 import { BACKOFF_MS, MAX_ATTEMPTS, TERMINAL_CODES, backoffScale, logDeliveryFact } from '../workbench-events.ts';
 import { peerCard, peerRoot } from './peer-card.ts';
@@ -37,26 +41,56 @@ export function returnMessage(r: { text: string; return: { of: string; title: st
   return `${dispatch}\n${line}`;
 }
 
+/**
+ * 变更通知的正文（目前只有改截止日期）：一行字，同一 context 的新任务发给接了这件事的团队。
+ * 人写的字（标题）压成一行：拼不出派工行、回执头或第二行
+ */
+export function noticeMessage(text: string): string {
+  return String(text).replace(/\s+/g, ' ').slice(0, 600);
+}
+
+/** 变更通知要等它对应的那次投递发出去了再发（对方先收到派工、再收到变更）；投递还在等过目或排队时隔这么久再看 */
+export const NOTICE_WAIT_MS = 30_000;
+
 /** 结清一条跟进的回执正文：只用跟进的任务号 */
 export function followupReceiptText(followupTask: string): string {
   return `[A2A receipt] task ${followupTask} 已转给人\n${JSON.stringify({ outcome: 'completed', idempotencyKey: followupTask, disposition: 'result' })}`;
 }
 
 async function sendOne(row: ReplyRow, now: () => number): Promise<void> {
+  // 发之前问对端登记表：改钥待确认、停用的挂起，不发、不计次数、不判死；原因第一次出现时留一行
+  const can = peerCanDeliver(row.target_url);
+  if (!can.ok && can.reason !== 'peer_unknown') {
+    if (holdReply(row.id, now() + PEER_HOLD_MS, can.reason)) logDeliveryFact(row.event_id, row.delivery_id, 'market', 'reply-held', { reply: row.id, kind: row.kind, reason: can.reason });
+    return;
+  }
   const attempt = row.attempts + 1;
   const isReceipt = row.kind === 'followup-receipt';
-  const taskId = isReceipt ? row.fixed_task : `${row.event_id}.d${row.delivery_id}.q${row.id}.a${attempt}`;
+  let isNotice = false;
+  try { isNotice = !isReceipt && typeof (JSON.parse(row.message) as { notice?: unknown }).notice === 'string'; } catch { /* 坏行下面判 dead */ }
+  // 通知（截止变更）用 .n 任务号：收回执时认得出是通知，只记录、不推状态
+  const taskId = isReceipt ? row.fixed_task : isNotice ? noticeTaskId(row.event_id, row.delivery_id, row.id, attempt) : `${row.event_id}.d${row.delivery_id}.q${row.id}.a${attempt}`;
   let message = '';
   if (isReceipt) message = followupReceiptText(row.qid);
   else {
-    let answer: { text: string; by: string; return?: { of: string; title: string } } = { text: '', by: '' };
+    let answer: { text: string; by: string; return?: { of: string; title: string }; notice?: string } = { text: '', by: '' };
     try { answer = JSON.parse(row.message); } catch { /* 坏行按空答复，下面判 dead */ }
     if (answer.text === '') {
       inReplyTx(() => { markReply(row.id, 'dead', attempt, 'empty answer', now()); logDeliveryFact(row.event_id, row.delivery_id, 'market', 'reply-dead', { reply: row.id, kind: row.kind, error: 'empty answer' }); });
       return;
     }
+    // 变更通知（改截止日期）：等那次投递发出去了再发；投递撤回、判死了就不发（对方没收到派工，也就不用知道变更）
+    if (typeof answer.notice === 'string') {
+      const st = deliveryStatusOf(row.delivery_id);
+      if (st === 'held' || st === 'pending') { retryReply(row.id, row.attempts, now() + NOTICE_WAIT_MS, 'waiting_for_delivery'); return; }
+      if (st !== 'sent') {
+        inReplyTx(() => { markReply(row.id, 'dead', attempt, 'delivery_not_sent', now()); logDeliveryFact(row.event_id, row.delivery_id, 'market', 'reply-dead', { reply: row.id, kind: row.kind, error: 'delivery_not_sent' }); });
+        return;
+      }
+    }
     // 打回重做和答复走同一条路（同 context 的新任务），正文不同
-    if (answer.return && typeof answer.return.of === 'string') {
+    if (typeof answer.notice === 'string') message = noticeMessage(answer.text);
+    else if (answer.return && typeof answer.return.of === 'string') {
       // 派工行只写给名片（登记表里钉住的那份）声明了 reworkReturns 的对端；没声明退回旧写法，第一次发时在事件日志留痕
       const declared = peerDeclares(row.target_url, 'reworkReturns');
       if (!declared && row.attempts === 0) logDeliveryFact(row.event_id, row.delivery_id, 'market', 'rework-fallback', { reply: row.id, reason: 'peer_not_declared' });

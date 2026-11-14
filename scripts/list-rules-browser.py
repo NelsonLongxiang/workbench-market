@@ -1,7 +1,7 @@
 """#319 列表规则浏览器回归；由 scripts/sider-menu-browser.mjs 起合成实例后调用，参数为配置 JSON 路径。
 （统一待办 /tasks 那一段随页面删了：旧页面删除清单第二批）
 工作台市场 / SOP 列表：状态列固定最左、操作列固定最右、每行直接操作 ≤2（其余在「更多」）、时间为相对时间；
-类型管理：数字列右对齐；技能市场 / MCP 网关：ProTable。"""
+类型管理：数字列右对齐；MCP 网关：ProTable（上一版的技能市场总表 /skills 2026-11-14 删了）。"""
 import json, re, sys, urllib.request
 from playwright.sync_api import sync_playwright
 cfg = json.load(open(sys.argv[1]))
@@ -68,8 +68,8 @@ with sync_playwright() as p:
     h = headers(pg, '.wm-page')
     al = [pg.locator('.ant-table-row').first.locator('td').nth(h.index(c)).evaluate('e=>getComputedStyle(e).textAlign') for c in ('默认端口', '使用中')]
     check('类型数字列右对齐', al == ['right', 'right'], al)
-    # ── 技能市场 / MCP 网关：ProTable ──
-    for path in ('/skills', '/mcp-gateways'):
+    # ── MCP 网关：ProTable（上一版的技能市场总表 /skills 2026-11-14 删了，技能在市场里一个技能一页） ──
+    for path in ('/mcp-gateways',):
         pg.goto(M + path); pg.wait_for_selector('.wm-page .ant-table')
         check(f'{path} 列表为 ProTable', pg.locator('.wm-page .ant-pro-table').count() >= 1)
     b.close()

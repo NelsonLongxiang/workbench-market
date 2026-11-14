@@ -72,14 +72,15 @@ export function inReceiptTx<T>(fn: () => T): T {
  * 阶段七 R2：跟进（a2a-<hash>，和原任务号没有字面关系）只靠 context 归到投递：我们某个事件的 context、发给的对端 zone 等于签名方的
  * 最近一个任务号。存量没带 context 的投递，对方按「context 等于原任务号」回来：再按任务号找一次。找不到返回 undefined（跟进不认）。
  */
-export function sentTaskForFollowup(contextId: string, zone: string): SentTask | undefined {
+export function sentTaskForFollowup(contextId: string, zone: string, peerRoot: string): SentTask | undefined {
+  // 按区和根地址一起找：同一个区下可以有好几台宿主，同一个 context 也可能投给过其中几台，跟进找发来的那台自己的那次投递
   const byContext = db.prepare(`SELECT s.task_id, s.kind, s.event_id, s.delivery_id, s.peer_root, s.peer_zone
     FROM a2a_sent_tasks s JOIN workbench_events e ON e.event_id = s.event_id
-    WHERE e.context_id = ? AND s.peer_zone = ? AND s.peer_zone <> ''
-    ORDER BY s.created_at DESC, s.rowid DESC LIMIT 1`).get(contextId, zone) as SentTask | undefined;
+    WHERE e.context_id = ? AND s.peer_zone = ? AND s.peer_zone <> '' AND s.peer_root = ? AND s.peer_root <> ''
+    ORDER BY s.created_at DESC, s.rowid DESC LIMIT 1`).get(contextId, zone, peerRoot) as SentTask | undefined;
   if (byContext) return byContext;
   const byTask = sentTask(contextId);
-  return byTask && byTask.peer_zone === zone && byTask.peer_zone !== '' ? byTask : undefined;
+  return byTask && byTask.peer_zone === zone && byTask.peer_zone !== '' && byTask.peer_root === peerRoot ? byTask : undefined;
 }
 
 /** 一个事件上最近一步被采信的进展（事件日志里的 receipt:progress），给事项页的「正在处理」提示和子项 */

@@ -51,14 +51,15 @@ export async function cardDeleterOf(req: express.Request, adminTokenOk: (req: ex
 
 const actorText = (d: CardDeleter): string => (d.kind === 'principal' ? d.id : d.kind === 'session' ? `mcp:${d.name}` : `builtin:${d.kind === 'owner' ? 'local-cli' : d.kind}`);
 
-export type BenchScale = { datasets: number; rows: number; bytes: number; view_versions: number };
+/** 台库里有多少东西（只给数）。submissions、files 是台的提交记录和附件（WM_APP_DATA_STORE 不是 main 时才在台库里） */
+export type BenchScale = { datasets: number; rows: number; bytes: number; view_versions: number; submissions: number; submission_bytes: number; files: number; file_bytes: number };
 /** 这个台的库里有多少东西（只给规模）。没有库文件、或者库是空的，返回 null */
 async function scaleOf(slug: string): Promise<BenchScale | null> {
   if (!benchStoreExists(slug)) return null;
   const s = await benchStore(slug);
-  const ds = await s.datasets(), vv = await s.viewVersions();
-  if (!ds.length && !vv.length) return null;
-  return { datasets: ds.length, rows: ds.reduce((n, d) => n + d.row_count, 0), bytes: ds.reduce((n, d) => n + d.data_bytes, 0), view_versions: vv.length };
+  const ds = await s.datasets(), vv = await s.viewVersions(), app = await s.appCounts();
+  if (!ds.length && !vv.length && !app.submissions && !app.files) return null;
+  return { datasets: ds.length, rows: ds.reduce((n, d) => n + d.row_count, 0), bytes: ds.reduce((n, d) => n + d.data_bytes, 0), view_versions: vv.length, ...app };
 }
 
 /**

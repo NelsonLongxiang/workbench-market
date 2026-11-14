@@ -92,6 +92,13 @@ try {
   ok('把授权串 工具@台 当工具名调用：按未授权拒绝（全局判定只认不带 @ 的名字）', r.rpcError?.code === -32601, JSON.stringify(r.rpcError ?? r.text).slice(0, 120));
   r = await tool(s.token, 'workbench_vars_get', { id: A, key: 'k1' });
   ok('MCP 读台 A 成功', !r.rpcError && !r.isError, r.text.slice(0, 160));
+  // 台号写法和工具同一口径（workbenchIdOf：十进制正整数、不带前导零）：数值上等于 A 的别的写法不算台 A，按台外拒绝
+  for (const id of [`0x${A.toString(16)}`, `0${A}`, `${A}.0`, ` ${A} `, `${A}e0`]) {
+    r = await tool(s.token, 'workbench_vars_get', { id, key: 'k1' });
+    ok(`限定到台：台号写成 ${JSON.stringify(id)} 不算台 A，按未授权拒绝（-32601）`, r.rpcError?.code === -32601, JSON.stringify(r.rpcError ?? r.text).slice(0, 120));
+  }
+  r = await rest(s.token, 'workbench_vars_get', { id: `0x${A.toString(16)}`, key: 'k1' });
+  ok('限定到台：REST 台号写成十六进制同样 403', r.status === 403, JSON.stringify(r.body).slice(0, 120));
   r = await rest(s.token, 'workbench_vars_set', { id: A, key: 'k2', value: 2 });
   ok('REST 写台 A 成功', r.status === 200, JSON.stringify(r.body).slice(0, 160));
   r = await rest(s.token, 'workbench_vars_set', { id: B, key: 'k2', value: 2 });
@@ -124,6 +131,11 @@ try {
   const g = await newSession('agent-global', ['workbench_vars_set']);
   r = await tool(g.token, 'workbench_vars_set', { id: B, key: 'g1', value: 1 });
   ok('全局授权：写任意台照旧', !r.rpcError && !r.isError, r.text.slice(0, 160));
+  // 全局授权：台号写法不对的由工具自己拒绝（400 的那句），和 REST 路由同一口径
+  for (const id of ['0x2', '02', 0, -1, 1.5, '1.5', '']) {
+    r = await tool(g.token, 'workbench_vars_set', { id, key: 'g2', value: 1 });
+    ok(`全局授权：台号 ${JSON.stringify(id)} 写法不对，工具拒绝`, r.isError && r.text.includes('十进制正整数'), JSON.stringify(r.rpcError ?? r.text).slice(0, 120));
+  }
   info = await tool(g.token, 'access_info');
   ok('全局授权：access_info 不标限定台', !('granted_workbenches' in ((info.payload?.catalog ?? []).find((t) => t.name === 'workbench_vars_set') ?? {})));
   r = await tool(g.token, 'access_request', { tools: [`workbench_vars_set@${A}`], reason: '试' });
