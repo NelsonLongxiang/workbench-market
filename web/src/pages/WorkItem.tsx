@@ -33,7 +33,7 @@ type Data = { item: Item; log: LogRow[]; messages?: SeatMessage[]; unread?: numb
   /** #733：期限、过期、附件在最外层，和 item 平级（旧服务端没有这几个键） */
   due?: string | null; overdue?: boolean; attachments?: unknown };
 const MSG_STATUS: Record<SeatMessage['status'], { label: string; color: string }> = {
-  unread: { label: '未读', color: 'blue' }, read: { label: '看过', color: 'default' }, replied: { label: '已回复', color: 'green' }, 'over-cap': { label: '超出上限', color: 'default' },
+  unread: { label: '未读', color: 'blue' }, read: { label: '看过', color: 'default' }, replied: { label: '已回复', color: 'success' }, 'over-cap': { label: '超出上限', color: 'default' },
 };
 const SENT_REASON: Record<string, string> = { queued: '已发回团队', event_not_dispatched: '这件事项只通知、没派出去，回复只记在事项上', not_queued: '回复已记下，但没有可发回的投递' };
 const REPLY_ERROR: Record<string, string> = { text_required: '先写点什么', text_too_long: '太长了，最多 4000 字', seat_message_not_found: '这条消息不在了', seat_message_not_open: '这条消息已经回复过或超出上限，不能再回复', work_items_cross_origin_denied: '请从市场页面里操作（跨站请求被拒）', work_items_principal_not_active: '你的账号还没启用，不能回复', work_item_creator_not_eligible: '这件事项不归你处理' };
@@ -117,7 +117,7 @@ function AskRow({ itemId, ask, seat, proxy, onDone }: { itemId: string; ask: Sea
     <Flex vertical gap="small" className="wm-w-full">
       <Space wrap size={6}>
         <Typography.Text strong>{textOf(ask.question) || '（没写问题）'}</Typography.Text>
-        {ask.status === 'answered' && <Tag color="green">已答复</Tag>}
+        {ask.status === 'answered' && <Tag color="success">已答复</Tag>}
         {ask.status === 'closed' && <Tag>已合上</Tag>}
         <Typography.Text type="secondary">{askerLabel(ask.asked_by, seat)}</Typography.Text><RelTime value={ask.at} />
       </Space>

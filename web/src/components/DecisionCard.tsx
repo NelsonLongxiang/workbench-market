@@ -181,7 +181,7 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
   };
   return <div className="wm-decision" data-testid="decision-card">
     <div className="wm-decision-head">
-      {stuck ? <Tag color="orange" data-testid="decision-stuck">{stuckLabel(item.since)}</Tag> : <Tag color={taskKind ? 'default' : COLOR[item.category] ?? 'default'}>{taskKind ?? wording.label}</Tag>}
+      {stuck ? <Tag color="warning" data-testid="decision-stuck">{stuckLabel(item.since)}</Tag> : <Tag color={taskKind ? 'default' : COLOR[item.category] ?? 'default'}>{taskKind ?? wording.label}</Tag>}
       <Typography.Text type="secondary" className="wm-caption">{[whoLine, !stuck && item.since && `等了 ${waited(item.since)}`].filter(Boolean).join(' · ')}</Typography.Text>
     </div>
     <Typography.Text strong className="wm-decision-title">{cc ? cc.title : rc ? rc.title : gc ? gc.title : parsed.question}</Typography.Text>

@@ -76,7 +76,7 @@ export default function SkillDetail() {
                   <Space size={8} wrap>
                     <Typography.Text strong>第 {v.version} 版</Typography.Text>
                     {v.active && <Tag color="blue">现在用的</Tag>}
-                    {v.breaking && <Tag color="red">和上一版不兼容</Tag>}
+                    {v.breaking && <Tag color="error">和上一版不兼容</Tag>}
                     {v.at && <RelTime value={v.at} />}
                   </Space>
                   <Typography.Paragraph className="wm-m-0" style={{ marginTop: 4 }}>{v.changelog || '没写改了什么'}</Typography.Paragraph>

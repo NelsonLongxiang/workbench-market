@@ -8,8 +8,8 @@ import RememberFields from './RememberFields';
 import { ATTENTION_CHANGED, getRecentAnswers, postRememberLater } from '../api';
 import { recentOf, recentTitle, rememberLaterResult, rememberPayload, rememberProblem, rememberedLabel, type RecentAnswer, type Visibility } from '../remember-view';
 
-/** 状态标签用 antd 的预设色（success / error 这类在本站是深色块） */
-const TONE: Record<string, string> = { success: 'green', warning: 'orange', error: 'red' };
+/** 状态标签用状态色（跟着主题走，DESIGN.md 的 tag-success / tag-warning / tag-danger） */
+const TONE: Record<string, string> = { success: 'success', warning: 'warning', error: 'error' };
 const keyOf = (r: Pick<RecentAnswer, 'source' | 'source_id'>) => `${r.source}\u0000${r.source_id}`;
 
 export default function RecentAnswers() {

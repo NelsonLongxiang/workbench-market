@@ -59,7 +59,7 @@ export default function KnowledgeItem() {
             const url = safeUrl(e.source?.url);
             return <List.Item key={i} data-testid="kn-evidence-row">
               <Space direction="vertical" size={4} className="wm-w-full">
-                <Space size={8}>{stanceLabel(e.stance) && <Tag color={e.stance === 'refutes' ? 'red' : 'green'}>{stanceLabel(e.stance)}</Tag>}
+                <Space size={8}>{stanceLabel(e.stance) && <Tag color={e.stance === 'refutes' ? 'error' : 'success'}>{stanceLabel(e.stance)}</Tag>}
                   {e.source?.title && (url ? <a href={url} target="_blank" rel="noopener noreferrer">{e.source.title}</a> : <Typography.Text type="secondary">{e.source.title}</Typography.Text>)}</Space>
                 <blockquote className="wm-kn-quote">{e.quote}</blockquote>
                 {e.note && <Typography.Text type="secondary">{e.note}</Typography.Text>}

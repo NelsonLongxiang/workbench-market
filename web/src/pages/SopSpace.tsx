@@ -15,7 +15,7 @@ import { SOP_STATUS } from './Sops';
 
 export const RUN_STATUS: Record<SopRun['status'], { color: string; label: string }> = {
   running: { color: 'processing', label: '执行中' },
-  finished: { color: 'green', label: '已完成' },
+  finished: { color: 'success', label: '已完成' },
 };
 
 export function SopStatusTag({ status }: { status: SopApp['status'] }) {

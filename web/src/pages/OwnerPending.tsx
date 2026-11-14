@@ -7,9 +7,9 @@ import AlsoInAttention from '../components/AlsoInAttention';
 import { answerBody, buildBoard, configRevisionBody, findBoardWorkbench, parseConfig, type Anomaly, type BoardConfig, type BoardRow, type BoardVar } from '../owner-pending';
 
 const STATUS: Record<BoardRow['status'], { text: string; color: string }> = {
-  open: { text: '待办', color: 'gold' },
+  open: { text: '待办', color: 'warning' },
   history: { text: '历史答复', color: 'blue' },
-  answered: { text: '已答复', color: 'green' },
+  answered: { text: '已答复', color: 'success' },
   withdrawn: { text: '撤回', color: 'default' },
 };
 const today = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });

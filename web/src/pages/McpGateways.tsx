@@ -20,10 +20,10 @@ interface AccessRequest {
 }
 type ReqStatus = AccessRequest['status'] | 'all';
 const REQ_STATUS: Record<AccessRequest['status'], { color: string; label: string }> = {
-  pending: { color: 'gold', label: '待批' }, approved: { color: 'green', label: '已批准' }, rejected: { color: 'default', label: '已驳回' },
+  pending: { color: 'warning', label: '待批' }, approved: { color: 'success', label: '已批准' }, rejected: { color: 'default', label: '已驳回' },
 };
 const CATEGORY: Record<string, { color: string; label: string }> = {
-  read: { color: 'blue', label: '只读' }, write: { color: 'orange', label: '写' }, admin: { color: 'red', label: '管理' },
+  read: { color: 'processing', label: '只读' }, write: { color: 'warning', label: '写' }, admin: { color: 'error', label: '管理' },
 };
 interface McpCall { id: number; at: string; session_name: string; method: string; tool: string; ok: number; error: string; duration_ms: number; args_sha256: string; channel?: string; }
 
@@ -252,9 +252,9 @@ export default function McpGateways() {
 
   // 列序按 PATTERNS.md §5：状态（最左）→ 名称 → 关键属性 → 时间 → 操作
   const sessCols: ProColumns<McpSession>[] = [
-    { title: '状态', dataIndex: 'revoked_at', width: 90, fixed: 'left', render: (_, s) => (s.revoked_at ? <Tag color="red">已吊销</Tag> : <Tag color="green">有效</Tag>) },
+    { title: '状态', dataIndex: 'revoked_at', width: 90, fixed: 'left', render: (_, s) => (s.revoked_at ? <Tag color="error">已吊销</Tag> : <Tag color="success">有效</Tag>) },
     { title: '会话', dataIndex: 'name', render: (_, s) => <Typography.Text className="wm-mono" strong>{s.name}</Typography.Text> },
-    { title: '授权工具', dataIndex: 'grants', width: 110, render: (_, s) => (s.grants.length ? <Tag color="green">{s.grants.length} 个</Tag> : <Tag color="red">默认拒绝</Tag>) },
+    { title: '授权工具', dataIndex: 'grants', width: 110, render: (_, s) => (s.grants.length ? <Tag color="success">{s.grants.length} 个</Tag> : <Tag color="error">默认拒绝</Tag>) },
     { title: '最近使用', dataIndex: 'last_used_at', width: 120, render: (_, s) => <RelTime value={s.last_used_at || null} /> },
     {
       title: '操作', valueType: 'option', width: 160, fixed: 'right',
@@ -279,7 +279,7 @@ export default function McpGateways() {
       render: (_, q) => (
         <Space size={4}>
           <Typography.Text className="wm-mono" strong>{q.session_name ?? `#${q.session_id}`}</Typography.Text>
-          {q.session_revoked ? <Tag color="red">已吊销</Tag> : null}
+          {q.session_revoked ? <Tag color="error">已吊销</Tag> : null}
         </Space>
       ),
     },
@@ -307,7 +307,7 @@ export default function McpGateways() {
     },
   ];
   const callCols: ProColumns<McpCall>[] = [
-    { title: '结果', dataIndex: 'ok', width: 70, fixed: 'left', render: (_, c) => (c.ok ? <Tag color="green">成功</Tag> : <Tag color="red">失败</Tag>) },
+    { title: '结果', dataIndex: 'ok', width: 70, fixed: 'left', render: (_, c) => (c.ok ? <Tag color="success">成功</Tag> : <Tag color="error">失败</Tag>) },
     { title: '工具', dataIndex: 'tool', width: 160, render: (_, c) => <Typography.Text className="wm-mono wm-caption">{c.tool || '—'}</Typography.Text> },
     { title: '会话', dataIndex: 'session_name', width: 120, render: (_, c) => <Typography.Text className="wm-mono wm-caption">{c.session_name}</Typography.Text> },
     { title: '渠道', dataIndex: 'channel', width: 70, render: (_, c) => <Tag>{c.channel === 'rest' ? 'REST' : 'MCP'}</Tag> },
@@ -406,12 +406,12 @@ export default function McpGateways() {
                   columns={[
                     { title: 'prefix', dataIndex: 'prefix', render: (v: string) => <Typography.Text className="wm-mono" strong>{v}</Typography.Text> },
                     { title: '端点', dataIndex: 'url', render: (v: string) => <Typography.Text className="wm-mono wm-caption">{v}</Typography.Text> },
-                    { title: '状态', dataIndex: 'enabled', width: 80, render: (v: boolean) => (v ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>) },
+                    { title: '状态', dataIndex: 'enabled', width: 80, render: (v: boolean) => (v ? <Tag color="success">启用</Tag> : <Tag>停用</Tag>) },
                     {
                       title: '可达', dataIndex: 'reachable', width: 200,
                       render: (_: unknown, u: McpUpstreamRow) => (u.reachable === false
-                        ? <span title={u.last_error}><Tag color="red">不可达</Tag><Typography.Text type="secondary" className="wm-caption">{u.last_ok_at ? `上次可达 ${u.last_ok_at.slice(0, 16).replace('T', ' ')}` : '从未连通'}</Typography.Text></span>
-                        : u.reachable ? <Tag color="green">可达 · {u.tools ?? 0} 个工具</Tag> : <Tag>未探测</Tag>),
+                        ? <span title={u.last_error}><Tag color="error">不可达</Tag><Typography.Text type="secondary" className="wm-caption">{u.last_ok_at ? `上次可达 ${u.last_ok_at.slice(0, 16).replace('T', ' ')}` : '从未连通'}</Typography.Text></span>
+                        : u.reachable ? <Tag color="success">可达 · {u.tools ?? 0} 个工具</Tag> : <Tag>未探测</Tag>),
                     },
                     {
                       title: '操作', width: 90,
