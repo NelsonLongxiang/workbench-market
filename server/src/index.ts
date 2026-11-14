@@ -123,7 +123,7 @@ import { designStandard } from './design-standard.ts';
 import { mountVault } from './vault-api.ts';
 import { expectedSha256, uploadIntegrity, type UploadIntegrity } from './upload-integrity.ts';
 import { loadConfig } from './config.ts';
-import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet, reportHotVarKeys, reportHotPending, setVarsStoreMode, startHotVarsFlush, flushHotVars, Config as VarsConfig } from './workbench-vars.ts';
+import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet, workbenchIdOf, reportHotVarKeys, reportHotPending, setVarsStoreMode, startHotVarsFlush, flushHotVars, Config as VarsConfig } from './workbench-vars.ts';
 import { registerWorkbenchVarsRoutes } from './routes/workbench-vars.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
@@ -3300,10 +3300,12 @@ const MCP_ACCESS_TOOLS: ReadonlySet<string> = new Set(['access_info', 'access_re
 const MCP_SCOPED_TOOLS: ReadonlySet<string> = new Set(['workbench_vars_get', 'workbench_vars_set', 'app_data_list', 'app_files_list']);
 /** 按 slug 限定到台的工具：授权里的台 id 对的是这个自产台的市场卡片 */
 const MCP_APP_SCOPED_TOOLS: ReadonlySet<string> = new Set(['app_data_list', 'app_files_list']);
-/** 一次调用落在哪张台上：按 slug 的取自产台卡片的编号（没登记卡片的台为 null，只有全局授权能读），其余按 id 参数 */
+/** 一次调用落在哪张台上：按 slug 的取自产台卡片的编号（没登记卡片的台为 null，只有全局授权能读），其余按 id 参数。
+ *  id 和工具自己同一口径（workbenchIdOf：十进制正整数、不带前导零）；写法不对的不算任何一张台（null，按台外拒绝）——
+ *  不能像 Number() 那样把 '0x2'、'02'、'2.0' 认成台 2 */
 function mcpScopeTarget(toolName: string, args: any): number | null {
   if (MCP_APP_SCOPED_TOOLS.has(toolName)) return wmWorkbenchIdFor(`/apps/${String(args?.slug ?? '')}/`);
-  return Number(args?.id);
+  try { return workbenchIdOf(args?.id); } catch { return null; }
 }
 /** 会话能不能对这个台用这个工具（MCP 内嵌 REST 的下载不走工具分发，在这里核） */
 function mcpToolAllowsApp(sess: McpSess | null, toolName: string, slug: string): boolean {
@@ -3535,7 +3537,7 @@ async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, 
     }
   }
   const scope = mcpToolScope(sess, toolName);
-  // 限定到台的授权在分发前核对：按 id 参数（与工具自身同样 Number(args.id) 解析），读台数据和附件的按 slug 找卡片；台外按未授权处理并记审计
+  // 限定到台的授权在分发前核对：按 id 参数（与工具自身同样用 workbenchIdOf 解析，写法不对的算台外），读台数据和附件的按 slug 找卡片；台外按未授权处理并记审计
   const target = scope !== null && scope !== 'all' ? mcpScopeTarget(toolName, args) : null;
   if (scope === null || (scope !== 'all' && (target === null || !scope.has(target)))) {
     mcpAudit(sess, channel, 'tools/call', toolName, false, scope === null ? 'not granted' : 'not granted: workbench scope', Date.now() - t0, args);
