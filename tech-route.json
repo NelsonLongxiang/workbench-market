@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "as_of": "2026-11-13",
+  "as_of": "2026-11-14",
   "doc": "路线清单：规则、档位、基线、豁免。由 scripts/tech-route-check.mjs 读写，约定见 CONTRIBUTING.md。tier 是现在生效的档位（count 只报告，budget 超过基线失败，redline 超过目标失败）；proposed 是建议档位。属主 2026-11-10 裁定按建议档位开；落点还没建好的检查先留在 count，rule.note 写明什么时候开。deps 是登记过的运行时依赖；tests 登记不进 CI 的测试脚本和理由；waivers 是豁免：{rule, item, reason, by, until} 五项都要写，until 是 YYYY-MM-DD，过期不算。",
   "rules": [
     {
@@ -212,11 +212,8 @@
       "what": "README 提到但已不存在的文件",
       "target": 0,
       "baseline": {
-        "total": 2,
-        "items": [
-          "scripts/a2a-peer-smoke.mjs",
-          "scripts/a2a-peer.mjs"
-        ]
+        "total": 0,
+        "items": []
       }
     },
     {
@@ -298,10 +295,10 @@
       "target": 0,
       "note": "数据库规划第 0 步：只数 server/src；读当前时间的写法只在 sql-clock 里数，这里不重复。算（括号里是两边都认的写法）：INSERT OR REPLACE / IGNORE / ABORT / FAIL / ROLLBACK 和 REPLACE INTO（ON CONFLICT … DO UPDATE / DO NOTHING）；PRAGMA（加列迁移暂时没有替代，见下）；lastInsertRowid、last_insert_rowid()（INSERT … RETURNING id）；rowid（用表自己的主键）；sqlite_master / sqlite_schema / sqlite_sequence（等数据访问服务提供）；json_extract、json_each 等 json_* 函数（先在代码里解析）；datetime / julianday / unixepoch / strftime 按列算日期（在代码里算）；ifnull（COALESCE）、group_concat、instr、GLOB、COLLATE NOCASE。不算：两边都认的 ON CONFLICT … DO UPDATE / DO NOTHING、RETURNING、COALESCE、substr、||、LIMIT / OFFSET、CAST、SAVEPOINT / RELEASE；AUTOINCREMENT（建表语句以后按中立写法两边各生成一份；去掉它反而会让行号可以复用，事件日志的水位就靠行号不复用）；BEGIN IMMEDIATE / EXCLUSIVE（事务入口还没有，没有替代写法）；typeof、hex、printf 这类名字太常见、按文本数会误报的。转预算档：先在 db.ts 放查表、列、索引在不在的函数（否则每次加列迁移都多一处 PRAGMA table_info，会被拦），迁移改成经它们之后，单独一个 PR 重记基线、把 tier 改成 budget。",
       "baseline": {
-        "total": 128,
+        "total": 136,
         "files": {
           "server/src/a2a-direct-sig.ts": 1,
-          "server/src/db.ts": 35,
+          "server/src/db.ts": 37,
           "server/src/index.ts": 13,
           "server/src/routes/bindings.ts": 2,
           "server/src/routes/cockpits.ts": 2,
@@ -316,7 +313,7 @@
           "server/src/services/a2a-roster.ts": 1,
           "server/src/services/a2a-stats.ts": 2,
           "server/src/services/app-data.ts": 2,
-          "server/src/services/attention-sources.ts": 8,
+          "server/src/services/attention-sources.ts": 10,
           "server/src/services/attention.ts": 1,
           "server/src/services/bench-mcp.ts": 2,
           "server/src/services/bench-store-core.ts": 2,
@@ -329,6 +326,7 @@
           "server/src/services/sop.ts": 3,
           "server/src/services/task-center.ts": 1,
           "server/src/services/team.ts": 2,
+          "server/src/services/work-item-attachments.ts": 3,
           "server/src/services/work-item.ts": 2,
           "server/src/services/workbench.ts": 1,
           "server/src/sop-run-access.ts": 3,
@@ -336,7 +334,7 @@
           "server/src/task-center.ts": 2,
           "server/src/tasks-read-access.ts": 1,
           "server/src/tasks.ts": 1,
-          "server/src/workbench-events.ts": 3
+          "server/src/workbench-events.ts": 4
         }
       }
     },
@@ -348,7 +346,7 @@
       "target": 0,
       "note": "数据库规划第 0 步：一个脚本记一处。算：new DatabaseSync(…)、better-sqlite3、Python 的 sqlite3.connect、sqlite3 命令行、引入服务端的库模块 db.ts（静态 from …/db.ts，或 import(…db.ts…)）。不算：只在字符串或注释里提到 db.ts 这个文件名；经别的服务端模块间接打开的（按文本数不到）；体检脚本自己。统一入口（测试读写库都经过的一个模块，换库时只改它）还没有：在它建好之前保持计数档，新脚本照旧可以开库，但要在 PR 里说明为什么不能经接口造数据、核对结果；入口建好后转预算档。",
       "baseline": {
-        "total": 172,
+        "total": 173,
         "files": {
           "scripts/a2a-answers-test.mjs": 1,
           "scripts/a2a-bound-redirect-test.mjs": 1,
@@ -360,6 +358,7 @@
           "scripts/a2a-peers-test.mjs": 1,
           "scripts/a2a-pinned-peer-test.mjs": 1,
           "scripts/a2a-receipt-inbound-test.mjs": 1,
+          "scripts/a2a-roster-key-test.mjs": 1,
           "scripts/access-smoke.mjs": 1,
           "scripts/app-data-diff-test.mjs": 1,
           "scripts/app-data-migrate.mjs": 1,
@@ -612,7 +611,7 @@
       "what": "api.ts 之外直接 fetch",
       "target": 0,
       "baseline": {
-        "total": 20,
+        "total": 18,
         "files": {
           "web/src/admin-token.ts": 4,
           "web/src/components/LoginChip.tsx": 1,
@@ -622,7 +621,6 @@
           "web/src/pages/odoo-login.ts": 1,
           "web/src/pages/OwnerPending.tsx": 1,
           "web/src/pages/Settings.tsx": 3,
-          "web/src/pages/Skills.tsx": 2,
           "web/src/pages/Sops.tsx": 4,
           "web/src/vault-api.ts": 1
         }
@@ -635,7 +633,7 @@
       "what": "内联样式",
       "target": null,
       "baseline": {
-        "total": 113
+        "total": 110
       }
     },
     {
