@@ -36,7 +36,7 @@ export default function RecentAnswers() {
   const start = (r: RecentAnswer) => { setOpen(keyOf(r)); setLesson(''); setCue(''); setVis(null); };
   const submit = async (r: RecentAnswer) => {
     setBusy(true);
-    const p = rememberPayload(lesson, cue, vis ?? r.defaults.default_visibility, r.defaults);
+    const p = rememberPayload(lesson, cue, vis ?? r.defaults.default_visibility);
     const res = await postRememberLater({ source: r.source, source_id: r.source_id, ...p });
     setBusy(false);
     const out = rememberLaterResult(res.status, res.body);
@@ -56,7 +56,7 @@ export default function RecentAnswers() {
             : <List dataSource={rows} rowKey={keyOf} renderItem={(r) => {
               const done = rememberedLabel(r.remembered);
               const here = open === keyOf(r);
-              const block = here ? rememberProblem(lesson, cue) : null;
+              const block = here ? rememberProblem(lesson, cue, 'later') : null;
               return <List.Item data-testid="recent-row">
                 <Space direction="vertical" size={8} className="wm-w-full">
                   <Space size={8} wrap>

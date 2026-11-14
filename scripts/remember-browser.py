@@ -23,10 +23,14 @@ ITEMS = [
     {'source': 'mcp-access', 'source_id': '9101', 'category': 'grant', 'title': 'MCP 会话 合成会话 申请工具：list_rows', 'waiting_for': 'mcp:合成会话', 'since': '2026-11-14T00:00:00Z', 'answers': ['approve', 'reject'], 'object': '', 'phase': '', 'link': '', 'mine': True},
     {'source': 'mcp-access', 'source_id': '9102', 'category': 'grant', 'title': 'MCP 会话 合成会话二 申请工具：put_rows', 'waiting_for': 'mcp:合成会话二', 'since': '2026-11-14T01:00:00Z', 'answers': ['approve', 'reject'], 'object': '', 'phase': '', 'link': '', 'mine': True},
 ]
-DEFAULTS = {'9101': {'default_visibility': 'department', 'department_name': '采购部'}, '9102': {'default_visibility': 'restricted', 'department_name': None}}
+DEFAULTS = {'9101': {'default_visibility': 'department', 'department_name': '采购部'}, '9102': {'default_visibility': 'restricted', 'department_name': None},
+            '9103': {'default_visibility': 'department', 'department_name': None}}   # 9104：缺省档接口回 500
+EXTRA = [dict(ITEMS[0], source_id=sid, title=t) for sid, t in (('9103', 'MCP 会话 合成会话三 申请工具：get_rows'), ('9104', 'MCP 会话 合成会话四 申请工具：del_rows'))]
 RECENT = {'items': [
     {'source': 'work-items', 'source_id': 'wi-syn-1', 'title': '合成：比价表', 'answer': 'release', 'answer_text': '放行', 'answered_at': '2026-11-14T06:00:00Z', 'remembered': None, 'default_visibility': 'department', 'department_name': '采购部'},
     {'source': 'mcp-access', 'source_id': '9001', 'title': None, 'answer': 'approve', 'answer_text': '批准', 'answered_at': '2026-11-14T05:00:00Z', 'remembered': 'written', 'default_visibility': 'restricted', 'department_name': None},
+    {'source': 'work-items', 'source_id': 'wi-syn-2', 'title': '合成：部门没名字的那件', 'answer': 'verify', 'answer_text': '验收', 'answered_at': '2026-11-14T04:00:00Z', 'remembered': None, 'default_visibility': 'department', 'department_name': None},
+    {'source': 'work-items', 'source_id': 'wi-syn-3', 'title': '合成：缺省档没给的那件', 'answer': 'verify', 'answer_text': '验收', 'answered_at': '2026-11-14T03:00:00Z', 'remembered': None},
 ]}
 state = {'can': True, 'answer_remember': {'status': 'written', 'duplicate': False, 'scope_label': '采购部'}, 'answer_status': 200, 'odoo_admin': True}
 # 不是管理员时：建立人自己的验收（走 /api/work-items/:id/decision，答完紧接着补记）、和一条自带答复入口的放行（answer_via：不进答复账，不给勾选）
@@ -41,12 +45,13 @@ sent, later = [], []
 def setup(ctx):
     ctx.route(re.compile(r'/api/auth/me$'), lambda r: fake(r, {'authenticated': True, 'via': 'cookie', 'login': 'synthetic-boss', 'display_name': '合成管理层', 'principal': 'user:synthetic-boss', 'roles': [], 'can': {'create_cockpit': True, 'remember_knowledge': state['can']}}))
     ctx.route(re.compile(r'/api/admin/whoami$'), lambda r: fake(r, {'via': 'odoo', 'login': 'synthetic-boss'} if state['odoo_admin'] else {'via': None, 'login': None}))
-    ctx.route(re.compile(r'/api/attention(\?|$)'), lambda r: fake(r, {'items': ITEMS if state['odoo_admin'] else CREATOR, 'counts': {'total': 2}, 'sources': {}}))
+    ctx.route(re.compile(r'/api/attention(\?|$)'), lambda r: fake(r, {'items': (ITEMS + (EXTRA if state.get('extra') else [])) if state['odoo_admin'] else CREATOR, 'counts': {'total': 2}, 'sources': {}}))
     def decision(r):
         decisions.append(json.loads(r.request.post_data or '{}')); fake(r, {'duplicate': False, 'result': {}})
     ctx.route(re.compile(r'/api/work-items/[^/]+/decision$'), decision)
     def defaults(r):
         sid = re.search(r'source_id=([^&]+)', r.request.url).group(1)
+        if sid == '9104': return fake(r, {'error': 'internal'}, 500)
         fake(r, DEFAULTS.get(sid, {'default_visibility': 'restricted', 'department_name': None}))
     ctx.route(re.compile(r'/api/knowledge/remember/defaults'), defaults)
     def answer(r):
@@ -94,7 +99,7 @@ with sync_playwright() as p:
     check('填了以后答法按钮能点', approve.is_enabled())
     press(pg, approve)
     pg.wait_for_function("() => document.querySelector('.ant-message')?.textContent.includes('记成了经验')")
-    check('一次办完：答复带着 remember 一起发，没改档就不传 visibility', sent[-1].get('source_id') == '9101' and sent[-1].get('remember') == {'lesson': '合成：只读工具直接批，写的工具先问清用途'}, sent[-1:])
+    check('一次办完：答复带着 remember 一起发，谁能看总是带上页面选中的那一档（这里是本部门）', sent[-1].get('source_id') == '9101' and sent[-1].get('remember') == {'lesson': '合成：只读工具直接批，写的工具先问清用途', 'visibility': 'department'}, sent[-1:])
     check('记上了：提示「办好了，也记成了经验（采购部）」', pg.locator('.ant-message', has_text='办好了，也记成了经验（采购部）').count() >= 1)
 
     c2 = card(pg, '9102')
@@ -107,7 +112,7 @@ with sync_playwright() as p:
     state['answer_remember'] = {'status': 'refused', 'error': 'remember_denied', 'message': '你没有对经验库拍板的授予'}
     press(pg, c2.get_by_role('button', name=re.compile('批\\s*准')))
     pg.wait_for_function("() => [...document.querySelectorAll('.ant-message')].some(e => e.textContent.includes('经验没记上'))")
-    check('人改成「全公司」才传 visibility；情况填了就带 cue', sent[-1].get('remember') == {'lesson': '合成：写的工具一律先问用途', 'cue': '合成会话要写表', 'visibility': 'company'}, sent[-1:])
+    check('人改成「全公司」就传 company；情况填了就带 cue', sent[-1].get('remember') == {'lesson': '合成：写的工具一律先问用途', 'cue': '合成会话要写表', 'visibility': 'company'}, sent[-1:])
     check('经验被拒不拖住答复：「办好了；经验没记上：你没有对经验库拍板的授予」，不露代号', pg.locator('.ant-message', has_text='办好了；经验没记上：你没有对经验库拍板的授予').count() >= 1 and pg.locator('.ant-message', has_text='remember_denied').count() == 0)
     ctx.close()
 
@@ -123,6 +128,22 @@ with sync_playwright() as p:
     state['answer_status'] = 200
     ctx.close()
 
+    # 缺省档读不到（#766 验收退回）：部门没名字、缺省档接口 500——页面显示只给管理层，交出去的也必须是 restricted，不能让服务端按它自己的缺省记成本部门
+    state['extra'] = True
+    ctx = b.new_context(viewport={'width': 1440, 'height': 900}); setup(ctx)
+    pg = ctx.new_page(); pg.set_default_timeout(10000); pg.goto(M + '/attention'); pg.wait_for_selector('[data-testid=decision-remember]')
+    for sid, what in (('9103', '部门没名字'), ('9104', '缺省档接口 500')):
+        c = pg.locator('[data-testid=decision-card]', has_text='合成会话三' if sid == '9103' else '合成会话四').first
+        c.locator('[data-testid=decision-remember-toggle]').click(); c.locator('[data-testid=remember-visibility]').wait_for()
+        shown = c.locator('[data-testid=remember-visibility] .ant-radio-wrapper-checked').inner_text()
+        c.locator('[data-testid=remember-lesson]').fill(f'合成：{what}的一句')
+        n = len(sent); press(pg, c.get_by_role('button', name=re.compile('批\\s*准')))
+        pg.wait_for_function(f"() => true"); pg.wait_for_timeout(600)
+        got = sent[n:][-1].get('remember') if sent[n:] else None
+        check(f'答复卡·{what}：页面显示「只给管理层」，交出去的 visibility 也是 restricted', shown == '只给管理层' and got is not None and got.get('visibility') == 'restricted', (shown, got))
+    state['extra'] = False
+    ctx.close()
+
     print('二之二、建立人自己的验收（不是管理员）')
     state['odoo_admin'] = False
     ctx = b.new_context(viewport={'width': 1440, 'height': 900}); setup(ctx)
@@ -135,7 +156,7 @@ with sync_playwright() as p:
     n = len(later)
     press(pg, acc.get_by_role('button', name=re.compile('验收')).first)
     pg.wait_for_function("() => [...document.querySelectorAll('.ant-message')].some(e => e.textContent.includes('记成了经验'))")
-    check('验收走建立人的入口，答完紧接着补记：先发 decision，再 POST /api/knowledge/remember 带这一条', decisions[-1:] and decisions[-1].get('answer') == 'verify' and later[n:] == [{'source': 'work-items', 'source_id': 'wi-syn-acc', 'lesson': '合成：比价表看交期，不只看价'}], (decisions[-1:], later[n:]))
+    check('验收走建立人的入口，答完紧接着补记：先发 decision，再 POST /api/knowledge/remember 带这一条', decisions[-1:] and decisions[-1].get('answer') == 'verify' and later[n:] == [{'source': 'work-items', 'source_id': 'wi-syn-acc', 'lesson': '合成：比价表看交期，不只看价', 'visibility': 'restricted'}], (decisions[-1:], later[n:]))
     check('提示「办好了，也记成了经验（采购部）」', pg.locator('.ant-message', has_text='办好了，也记成了经验（采购部）').count() >= 1)
     ctx.close()
     state['odoo_admin'] = True
@@ -145,7 +166,7 @@ with sync_playwright() as p:
     pg = ctx.new_page(); pg.set_default_timeout(10000); pg.goto(M + '/attention'); pg.wait_for_selector('[data-testid=recent-row]')
     rows = pg.locator('[data-testid=recent-row]')
     titles = pg.locator('[data-testid=recent-title]').all_inner_texts()
-    check('一行一条：有标题写标题，没标题写来源名（AI 会话申请工具）；答的是什么写出来', titles == ['合成：比价表', 'AI 会话申请工具'] and '放行' in rows.nth(0).inner_text() and '批准' in rows.nth(1).inner_text(), titles)
+    check('一行一条：有标题写标题，没标题写来源名（AI 会话申请工具）；答的是什么写出来', titles[:2] == ['合成：比价表', 'AI 会话申请工具'] and '放行' in rows.nth(0).inner_text() and '批准' in rows.nth(1).inner_text(), titles)
     check('记过的标「已记成经验」、没有补记按钮；没记过的有「记成经验」', rows.nth(1).locator('[data-testid=recent-remembered]').inner_text() == '已记成经验' and rows.nth(1).locator('[data-testid=recent-remember]').count() == 0 and rows.nth(0).locator('[data-testid=recent-remember]').count() == 1)
     text = pg.locator('[data-testid=recent-answers]').inner_text()
     check('「我处理过的」不露来源代号和编号', not any(x in text for x in ('work-items', 'mcp-access', 'wi-syn-1', '9001')), text[:120])
@@ -156,7 +177,17 @@ with sync_playwright() as p:
     if SHOT: pg.locator('[data-testid=recent-answers]').scroll_into_view_if_needed(); pg.wait_for_timeout(300); pg.screenshot(path=SHOT.replace('.png', '-我处理过的.png'))
     rows.nth(0).locator('[data-testid=recent-submit]').click()
     rows.nth(0).locator('[data-testid=recent-remembered]').wait_for()
-    check('交了：POST /api/knowledge/remember 带对的条目，没改档不传 visibility；这一行变成「已记成经验」', later[-1:] == [{'source': 'work-items', 'source_id': 'wi-syn-1', 'lesson': '合成：比价表先看交期再看价'}] and rows.nth(0).locator('[data-testid=recent-remembered]').inner_text() == '已记成经验', later)
+    check('交了：POST /api/knowledge/remember 带对的条目，谁能看带上选中的那一档（本部门）；这一行变成「已记成经验」', later[-1:] == [{'source': 'work-items', 'source_id': 'wi-syn-1', 'lesson': '合成：比价表先看交期再看价', 'visibility': 'department'}] and rows.nth(0).locator('[data-testid=recent-remembered]').inner_text() == '已记成经验', later)
+    for i, what in ((2, '部门没名字'), (3, '缺省档没给')):
+        row = pg.locator('[data-testid=recent-row]').nth(i)
+        row.locator('[data-testid=recent-remember]').click(); row.locator('[data-testid=remember-fields]').wait_for()
+        shown = row.locator('[data-testid=remember-visibility] .ant-radio-wrapper-checked').inner_text()
+        hint = row.inner_text()
+        row.locator('[data-testid=remember-lesson]').fill(f'合成：补记·{what}')
+        n = len(later); row.locator('[data-testid=recent-submit]').click(); row.locator('[data-testid=recent-remembered]').wait_for()
+        got = later[n:][-1] if later[n:] else {}
+        check(f'补记·{what}：页面显示「只给管理层」，交出去的 visibility 也是 restricted', shown == '只给管理层' and got.get('visibility') == 'restricted', (shown, got))
+        if i == 2: check('补记没填时的提示说「或者点「取消」」（那里是取消按钮，不是勾选）', '或者点「取消」' in hint and '取消勾选' not in hint, hint[-80:])
     ctx.close()
 
     print('三、驾驶舱右栏')

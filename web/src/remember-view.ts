@@ -29,16 +29,19 @@ export function visibilityOptions(d: RememberDefaults): { value: Visibility; lab
   ];
 }
 
-/** 要交的 remember：lesson 必填；cue 空着不传（服务端用条目标题）；visibility 只在人改了缺省档时才传 */
-export function rememberPayload(lesson: string, cue: string, chosen: Visibility, d: RememberDefaults): { lesson: string; cue?: string; visibility?: Visibility } {
+/** 要交的 remember：lesson 必填；cue 空着不传（服务端用条目标题）；visibility 总是带上页面上选中的那一档。
+ *  不靠服务端的缺省：页面在缺省档读不到（部门没名字、接口 500、断网）时显示的是「只给管理层」，服务端自己的缺省可能是「本部门」，
+ *  不带就会记得比页面显示的宽（#766 验收退回的那一处） */
+export function rememberPayload(lesson: string, cue: string, chosen: Visibility): { lesson: string; cue?: string; visibility: Visibility } {
   const l = lesson.trim(), c = cue.trim();
-  return { lesson: l, ...(c ? { cue: c } : {}), ...(chosen !== d.default_visibility ? { visibility: chosen } : {}) };
+  return { lesson: l, ...(c ? { cue: c } : {}), visibility: chosen };
 }
 
-/** 能不能交：以后怎么办 1～500 字；情况最多 200 字。不能交时给一句为什么（答法按钮旁边显示） */
-export function rememberProblem(lesson: string, cue: string): string | null {
+/** 能不能交：以后怎么办 1～500 字；情况最多 200 字。不能交时给一句为什么（答法按钮旁边显示）。
+ *  where：答复卡上是勾选框（「或者取消勾选」），「我处理过的」里是「取消」按钮（「或者点「取消」」） */
+export function rememberProblem(lesson: string, cue: string, where: 'card' | 'later' = 'card'): string | null {
   const l = lesson.trim();
-  if (!l) return `先填「${LESSON_LABEL}」，或者取消勾选`;
+  if (!l) return `先填「${LESSON_LABEL}」，${where === 'later' ? '或者点「取消」' : '或者取消勾选'}`;
   if (l.length > LESSON_MAX) return `「${LESSON_LABEL}」最多 ${LESSON_MAX} 字`;
   if (cue.trim().length > CUE_MAX) return `「${CUE_LABEL}」最多 ${CUE_MAX} 字`;
   return null;

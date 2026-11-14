@@ -121,7 +121,7 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
   const remBlock = rememberOn ? (remDefaults ? rememberProblem(lesson, cue) : '正在看这件事归哪个部门……') : null;
   const send = async (answer: string, input: Record<string, unknown>) => {
     setBusy(true);
-    const later = rememberOn && remDefaults ? rememberPayload(lesson, cue, vis ?? remDefaults.default_visibility, remDefaults) : undefined;
+    const later = rememberOn && remDefaults ? rememberPayload(lesson, cue, vis ?? remDefaults.default_visibility) : undefined;
     try {
       const route = answerRoute(admin, item);
       if (route === 'via' && via) {
