@@ -14,6 +14,8 @@
  *   八、台的 MCP 授予申请：卡片批的记账、记成经验缺省「只给管理层」（推不出部门不落到全公司）；直接驳回的不记账
  *   九、记账失败（合成的库触发器拒这一行）：批准照样生效、应答照常，只留一条告警，不回滚
  *   十、「关注」列表里三类条目的 answer_via 请求体都带 from_attention
+ *   十三、标记只认严格的 true："true"、1 不算卡片发起
+ *   十四、原动作失败（非 2xx）：不记账、不记成经验
  *   十二、部门映射指着已删除的部门：缺省范围应答、不传 visibility 的写入都落「只给管理层」
  *   十一、伪造标记：带了 from_attention、但这一条不在这个人的「关注」里：动作照旧，不记账，记成经验 404
  *
@@ -75,7 +77,8 @@ try {
       return itemIdForEvent(e);
     };
     const out = { v1: mk('合成：样品批次待放行', ${JSON.stringify(VACANT)}), v2: mk('合成：报价单待放行', ${JSON.stringify(VACANT)}), v3: mk('合成：发货单待放行', ${JSON.stringify(VACANT)}),
-      v4: mk('合成：合同待放行', ${JSON.stringify(VACANT)}), lead: mk('合成：交给有负责人的团队', ${JSON.stringify(TEAM)}) };
+      v4: mk('合成：合同待放行', ${JSON.stringify(VACANT)}), lead: mk('合成：交给有负责人的团队', ${JSON.stringify(TEAM)}),
+      v6: mk('合成：标记写成字符串', ${JSON.stringify(VACANT)}), v7: mk('合成：标记写成 1', ${JSON.stringify(VACANT)}), v8: mk('合成：放行失败', ${JSON.stringify(VACANT)}) };
     console.log('SEEDED ' + JSON.stringify(out));
     process.exit(0);`], { env, encoding: 'utf8' });
   const m = /SEEDED (.*)/.exec(seed.stdout);
@@ -167,12 +170,12 @@ try {
     '一、管理层照卡片放行、顺带记成经验：放行生效；答复账里有这一条（答法 release、谁答的、哪一轮）；经验写成，缺省范围是部门（dept:ops），不是全公司', show({ a1: [a1.status, a1.body], n1: n1?.scope, l1 }));
 
   // ---------- 二 ----------
-  const a2 = await release(WHO.管理层, I.v2, VIA);
+  const a2 = await release(WHO.管理层, I.v2, { ...VIA, by: 'user:alpha' }); // 请求体里伪造的 by 不认：答的人取请求本身
   const l2 = ledger('work-items', I.v2);
   const r2 = await later(WHO.管理层, { source_id: I.v2, lesson: '报价单先看底价' });
   const rec2 = (await recent(WHO.管理层)).find((x) => x.source_id === I.v2);
-  check(a2.status === 200 && released(I.v2) === 1 && a2.body?.remember === undefined && l2.length === 1 && r2.status === 201 && r2.body?.status === 'written' && rec2?.answer === 'release',
-    '二、照卡片放行、不记：答复账照记；「我处理过的」里有它，之后补记能记上', show({ a2: [a2.status, a2.body], l2, r2: [r2.status, r2.body], rec2 }));
+  check(a2.status === 200 && released(I.v2) === 1 && a2.body?.remember === undefined && l2.length === 1 && l2[0].answered_by === 'odoo:root-admin' && r2.status === 201 && r2.body?.status === 'written' && rec2?.answer === 'release',
+    '二、照卡片放行、不记（请求体里塞了伪造的 by）：答复账照记，答的人是请求本身认出来的；「我处理过的」里有它，之后补记能记上', show({ a2: [a2.status, a2.body], l2, r2: [r2.status, r2.body], rec2 }));
 
   // ---------- 三 ----------
   const c3 = kbCalls();
@@ -259,6 +262,25 @@ try {
         && a12.status === 200 && released(I.v4) === 1 && a12.body?.remember?.status === 'written' && a12.body.remember.scope_label === '只给管理层' && n12?.scope === 'restricted' && kbCalls() === c12 + 1,
       '十二、部门映射指着已删除的部门：缺省范围的应答从「部门」变成「只给管理层」（不给部门名）；不传 visibility 记成经验，写进去的是 restricted，不按不存在的部门写、不落全公司',
       show({ before, after, a12: [a12.status, a12.body?.remember], n12: n12?.scope }));
+  }
+  // ---------- 十三 ----------
+  {
+    // 标记只认严格的 true：写成字符串 "true"、数字 1 的不算卡片发起
+    const c13 = kbCalls();
+    const s6 = await release(WHO.管理层, I.v6, { from_attention: 'true', remember: { lesson: '字符串标记' } });
+    const s7 = await release(WHO.管理层, I.v7, { from_attention: 1, remember: { lesson: '数字标记' } });
+    check(s6.status === 200 && released(I.v6) === 1 && s7.status === 200 && released(I.v7) === 1 && ledger('work-items', I.v6).length === 0 && ledger('work-items', I.v7).length === 0
+        && s6.body?.remember === undefined && s7.body?.remember === undefined && kbCalls() === c13,
+      '十三、from_attention 写成 "true" 或 1：不算卡片发起，放行照常，不记账，remember 不看', show({ s6: [s6.status, s6.body], s7: [s7.status, s7.body], c: [c13, kbCalls()] }));
+  }
+  // ---------- 十四 ----------
+  {
+    // 原动作失败（这一轮 held 的投递已经没有了，releaseCore 回 409）：照卡片放行也不记账、不记成经验
+    { const d = new DatabaseSync(join(data, 'workbench-market.db')); try { d.prepare("UPDATE workbench_event_deliveries SET status = 'pending' WHERE status = 'held' AND event_id = (SELECT source_ref FROM work_items WHERE id = ?)").run(I.v8); } finally { d.close(); } }
+    const c14 = kbCalls();
+    const f = await release(WHO.管理层, I.v8, { ...VIA, remember: { lesson: '失败了也想记' } });
+    check(f.status === 409 && ledger('work-items', I.v8).length === 0 && f.body?.remember === undefined && kbCalls() === c14 && !(await recent(WHO.管理层)).some((x) => x.source_id === I.v8),
+      '十四、照卡片放行、原动作回非 2xx（409）：答复账里没有这一行，也不记成经验，「我处理过的」里没有', show({ f: [f.status, f.body], l: ledger('work-items', I.v8), c: [c14, kbCalls()] }));
   }
 } catch (e) {
   fail++;
