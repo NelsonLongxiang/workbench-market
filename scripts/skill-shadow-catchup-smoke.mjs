@@ -7,6 +7,8 @@
  *  四、整库重建：当前版本 commit_id 和 succeeded 同时写上（不等重启）；旧版本 commit_id 清掉、状态回到 pending；skipped 不动
  *  五、退避（子进程里直接调 catchUpRound）：摘要不符的版本失败后隔 2、4、8……轮才再试——连跑 8 轮只在第 1、3、7 轮 tried；skipped 的版本不再进 tried
  *  六、LayerFS 没配置（base 空）：configured=false，不推、不写库（状态和原因都不变）、不打 [skill-shadow] 日志
+ *  七、对外断开（配了 LayerFS）：整轮跳过——不推、不写库、轮数不动（退避不往前走），日志只打一行；恢复后同一个状态接着正常推
+ *     （实例层的对抗见 scripts/outbound-off-test.mjs：开关打开时那一版仍是 pending，对照组真的推了）
  *  定时器随根上下文停：见 scripts/timers-unload-test.mjs。 */
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -71,7 +73,17 @@ if (process.env.SKILL_SHADOW_UNIT === '1') {
     if (i > 1 && rowOf('agents:unit-drift').shadow_error === '') db.prepare("UPDATE skill_versions SET shadow_error = ? WHERE shadow_status = 'failed'").run(before5);
   }
   const five = { triedDrift, triedTotal, bin: rowOf('agents:unit-bin'), published };
-  process.stdout.write(JSON.stringify({ six, five }) + '\n');
+  // 七：对外断开（LayerFS 配了）两轮，再恢复
+  const st7 = newCatchUpState();
+  const before7 = [rowOf('agents:unit-drift'), rowOf('agents:unit-bin')];
+  const logs7 = logs.length, pub7 = published;
+  const off1 = await catchUpRound(deps('http://127.0.0.1:9'), 20, st7, () => true);
+  const off2 = await catchUpRound(deps('http://127.0.0.1:9'), 20, st7, () => true);
+  const seven = { off1, off2, round: st7.round, unchanged: JSON.stringify(before7) === JSON.stringify([rowOf('agents:unit-drift'), rowOf('agents:unit-bin')]), published: published - pub7,
+    logs: logs.slice(logs7).filter((l) => l.includes('[skill-shadow]')) };
+  const on7 = await catchUpRound(deps('http://127.0.0.1:9'), 20, st7, () => false);
+  seven.on = { tried: on7.tried, outbound_off: on7.outbound_off, round: st7.round };
+  process.stdout.write(JSON.stringify({ six, five, seven }) + '\n');
   db.close();
   process.exit(0);
 }
@@ -210,6 +222,11 @@ try {
     ok('五 退避：摘要不符的版本 8 轮里只在第 1、3、7 轮 tried（失败后隔 2、4 轮）', JSON.stringify(u?.five.triedDrift) === '[1,0,1,0,0,0,1,0]', JSON.stringify(u?.five));
     ok('五 skipped 的版本不再进 tried（第 1 轮 tried 2 个：摘要不符的和二进制的；之后最多 1 个）', u?.five.triedTotal?.[0] === 2 && u.five.triedTotal.slice(1).every((n) => n <= 1) && u.five.bin?.shadow_status === 'skipped', JSON.stringify(u?.five));
     ok('五 摘要不符、二进制都没去推', u?.five.published === 0, JSON.stringify(u?.five));
+    const s7 = u?.seven;
+    ok('七 对外断开：两轮都 outbound_off、一个都没 tried、没推', s7?.off1.outbound_off === true && s7.off2.outbound_off === true && s7.off1.tried === 0 && s7.off2.tried === 0 && s7.published === 0, JSON.stringify(s7));
+    ok('七 对外断开：状态和原因都不变、轮数不动（退避不往前走）', s7?.unchanged === true && s7.round === 0, JSON.stringify(s7));
+    ok('七 对外断开：两轮只打一行「对外已断开」', s7?.logs.length === 1 && /对外已断开/.test(s7.logs[0]), JSON.stringify(s7?.logs));
+    ok('七 恢复后同一个状态接着推（这一轮 tried 了）', s7?.on.outbound_off === false && s7.on.tried > 0 && s7.on.round === 1, JSON.stringify(s7?.on));
   } catch (e) { fail++; console.log('  ✗ 子进程异常', e?.stack ?? e); }
   finally { rmSync(UD, { recursive: true, force: true }); }
 }

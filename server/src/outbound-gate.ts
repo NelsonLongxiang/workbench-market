@@ -44,7 +44,7 @@ const OFF = loadConfig(Config).off;
 export function outboundOff(): boolean { return OFF; }
 
 export type OutboundKind = 'tcp' | 'unix-socket' | 'dns' | 'udp' | 'subprocess' | 'worker'
-  | 'event-delivery' | 'receipt-outbox' | 'allow-notify' | 'health-patrol' | 'health-check' | 'mcp-upstream' | 'sandbox' | string;
+  | 'event-delivery' | 'receipt-outbox' | 'skill-shadow' | 'allow-notify' | 'health-patrol' | 'health-check' | 'mcp-upstream' | 'sandbox' | string;
 const counts = new Map<string, number>();
 const recent: { kind: string; target: string; at: string }[] = [];
 /** 记一次被拦（或整轮跳过）。target 只给管理员看 */

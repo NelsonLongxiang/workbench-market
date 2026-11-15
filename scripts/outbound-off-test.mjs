@@ -11,11 +11,11 @@
  *     连 localhost:P 必须到自己（钉到自己实际监听的地址上）。
  *   第二组（实例层）：起一个打开开关的市场实例。库里和环境里所有对外地址都指向假网络，每一路用各自的路径（假网络记下
  *     每个连接的首行，按路归类，见 ROUTES）：取卡、Redis、通知绑定、事件投递、回执 outbox、人的答复发回、探活、/go/ 反代、
- *     Odoo 认人、GitHub 拉取、LayerFS、A2A 状态源（统一待办）、MCP 上游、沙箱桥派发、评估网关（技能搜）、飞书登录（换令牌）。
+ *     Odoo 认人、GitHub 拉取、LayerFS、技能影子补推（推到 LayerFS）、A2A 状态源（统一待办）、MCP 上游、沙箱桥派发、评估网关（技能搜）、飞书登录（换令牌）。
  *     然后把触发点逐个走一遍：等两轮 worker、提交台数据、check-all、/go/ 反代（Odoo 用另一个源，台不被当成 Odoo 台）、
  *     入站 /a2a/direct 带签名头（取卡）、带 Odoo 会话 cookie 认人、app_sync 拉 GitHub、统一待办、/mcp 的工具列表、
  *     sop_run_sandbox 和 skill_search、飞书登录发起再回调、对端登记和刷新。断言：假网络收到 0 个连接、逐路都是 0；
- *     投递、回执 outbox、答复仍是 pending、attempts 不变；健康检查和就绪检查都报 outbound；自检里有「对外已断开」那一行。
+ *     投递、回执 outbox、答复仍是 pending、attempts 不变；技能影子补推整轮跳过（没推过的版本仍是 pending、没写失败原因）；健康检查和就绪检查都报 outbound；自检里有「对外已断开」那一行。
  *   对照组（先红后绿）：同样两组不开开关重跑，逐路断言每一路都真的连到了假网络——证明每个触发点都走到了出站。
  *   非法值（WM_OUTBOUND=disabled）拒绝启动。
  *
@@ -161,6 +161,7 @@ const ROUTES = [
   ['Odoo 认人', (l) => l.startsWith('POST /web/session/get_session_info ')],
   ['GitHub 拉取', (l) => l.startsWith('GET /github/')],
   ['LayerFS', (l) => l.startsWith('GET /layerfs/')],
+  ['技能影子补推（推到 LayerFS）', (l) => l.startsWith('POST /layerfs/v1/projects/wm-skills/')],
   ['A2A 状态源（统一待办）', (l) => l.startsWith('GET /state/__dsh_a2a/state ')],
   ['MCP 上游', (l) => l.startsWith('POST /mcp ')],
   ['沙箱桥派发', (l) => l.startsWith('POST /sandbox/dispatch ')],
@@ -168,7 +169,12 @@ const ROUTES = [
   ['飞书登录（换令牌）', (l) => l.startsWith('POST /feishu/token ')],
 ];
 const byRoute = (lines) => Object.fromEntries(ROUTES.map(([name, hit]) => [name, lines.filter(hit).length]));
+/** 技能影子补推的合成快照：一个文件，摘要和 SkillService.filesDigest 同算法 */
+const SKILL_MD = '---\nname: syn-skill\n---\n合成技能\n';
+const SKILL_DIGEST = (() => { const h = createHash('sha256'); h.update('SKILL.md'); h.update('\0'); h.update(createHash('sha256').update(SKILL_MD).digest('hex')); h.update('\0'); return h.digest('hex'); })();
 function seed(dataDir, url) {
+  mkdirSync(join(dataDir, 'skill-snapshots/syn-skill/v1'), { recursive: true });
+  writeFileSync(join(dataDir, 'skill-snapshots/syn-skill/v1/SKILL.md'), SKILL_MD);
   const code = `
 const { db } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/db.ts')).href)});
 const cols = (t) => new Set(db.prepare('PRAGMA table_info("' + t + '")').all().map((c) => c.name));
@@ -196,7 +202,9 @@ db.prepare('INSERT INTO remote_allow_state (snapshot) VALUES (?)').run('[]');
 ins('a2a_peers', { id: 'peer_0a1b2c3d4e5f', root_url: U, zone: 'syn', name: 'syn', public_key: 'AAAA', key_fingerprint: 'sha256:' + '0'.repeat(64), status: 'active', registered_by: 'seed', registered_at: '2000-01-01T00:00:00.000Z', updated_at: '2000-01-01T00:00:00.000Z' });
 ins('bindings', { target_type: 'app', target_slug: 'syn-form', agent_node: 'syn2/1a2b3c4d', direction: 'notify', mode: 'read', notify_url: U.replace('127.0.0.1', 'localhost') + '/a2a', created_by: 'mcp:synthetic' });
 // 评估网关要有至少一个候选技能才会去问；MCP 会话给上游工具、沙箱、技能搜的授权
-ins('skills', { slug: 'syn-skill', name: '合成技能', layer: 1, layer_name: 'L1', description: '合成 技能', source: 'seed' });
+const sk = ins('skills', { slug: 'syn-skill', name: '合成技能', layer: 1, layer_name: 'L1', description: '合成 技能', source: 'seed' });
+// 技能影子补推：一版导入器那样写的、没推过的版本（快照由测试进程先写好），补推会去推它
+ins('skill_versions', { skill_id: sk, version: 1, tree_digest: ${JSON.stringify(SKILL_DIGEST)}, file_count: 1, total_bytes: 1, snapshot_path: 'skill-snapshots/syn-skill/v1', reviewed_by: 'importer' });
 ins('mcp_sessions', { name: 'syn-session', token_sha256: ${JSON.stringify(createHash('sha256').update(MCP_TOKEN).digest('hex'))}, grants: JSON.stringify(['sop_run_sandbox', 'skill_search', 'syn__x', 'workbench_check']) });
 // 飞书登录：应用凭证放进一个合成的凭据库
 const { openVault } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/vault/store.ts')).href)});
@@ -240,6 +248,7 @@ async function instanceLayer(dir, off) {
     WM_FEISHU_LOGIN: 'on', WM_FEISHU_AUTHORIZE_URL: net.url + '/feishu/authorize', WM_FEISHU_TOKEN_URL: net.url + '/feishu/token', WM_FEISHU_USERINFO_URL: net.url + '/feishu/userinfo',
     WM_FEISHU_TENANT_TOKEN_URL: net.url + '/feishu/tenant-token', WM_FEISHU_CONTACT_USER_URL: net.url + '/feishu/contact/',
     WM_VAULT_PATH: join(data, 'feishu-vault.json'), DSH_VAULT_PASSWORD: VAULT_MASTER,
+    WM_SKILL_SHADOW_EVERY_MS: '1000', // 技能影子补推：起来 1 秒后第一轮，之后每秒一轮
     ...(off ? { WM_OUTBOUND: 'off' } : {}),
   };
   // 先起一次建表（事件表随任务中心初始化才建），再灌数据
@@ -301,8 +310,9 @@ async function instanceLayer(dir, off) {
   const outbox = db.prepare('SELECT status, attempts FROM a2a_outbox ORDER BY id').all();
   const replies = db.prepare('SELECT status, attempts FROM workbench_event_replies ORDER BY id').all();
   const peers = db.prepare('SELECT root_url, status, card_error, card_fetched_at FROM a2a_peers ORDER BY root_url').all().map((r) => ({ ...r }));
+  const skillv = { ...db.prepare('SELECT shadow_status, shadow_error, commit_id FROM skill_versions ORDER BY id LIMIT 1').get() };
   db.close();
-  return { boot: true, seen, lines, hits, anon, ready, adm, deliveries, outbox, replies, peers, wb };
+  return { boot: true, seen, lines, hits, anon, ready, adm, deliveries, outbox, replies, peers, wb, skillv, log: I.log() };
 }
 
 rmSync(OUT, { recursive: true, force: true });
@@ -345,7 +355,9 @@ try {
     const row = off.anon?.self_probe?.rows?.find((r) => r.id === 'market.outbound.disconnected');
     check(row?.verdict === 'pass' && off.anon?.self_probe?.passed === true, '启动自检里有「对外已断开」这一行，并且通过', show(row));
     const b = off.adm?.outbound?.blocked ?? {};
-    const need = ['event-delivery', 'receipt-outbox', 'allow-notify', 'health-patrol', 'health-check', 'tcp'];
+    check(off.skillv.shadow_status === 'pending' && off.skillv.shadow_error === '' && off.skillv.commit_id === '', '技能影子补推整轮跳过：没推过的版本仍是 pending、没写失败原因', show(off.skillv));
+    check((off.log.match(/\[skill-shadow\] 对外已断开/g) ?? []).length === 1, '技能影子补推跳了十几轮，「对外已断开」只打一行', show((off.log.match(/\[skill-shadow\][^\n]*/g) ?? []).slice(0, 3)));
+    const need = ['event-delivery', 'receipt-outbox', 'allow-notify', 'health-patrol', 'health-check', 'skill-shadow', 'tcp'];
     check(need.every((k) => (b[k] ?? 0) > 0), `管理员能看到各类被拦的计数（${need.join('、')} 都 > 0）`, show(b));
   }
   const on = await instanceLayer(join(OUT, 'i-on'), false);
@@ -357,6 +369,7 @@ try {
     const unknown = on.lines.filter((l) => !ROUTES.some(([, hit]) => hit(l)));
     if (unknown.length) console.log(`  · 对照里还有认不出是哪一路的连接（不算失败）：${show(unknown)}`);
   }
+  if (on.boot) check(on.skillv.shadow_status !== 'pending', '对照（不开开关）：技能影子补推真的推了那一版（状态不再是 pending）——上面「仍是 pending」有意义', show(on.skillv));
   if (on.boot) check(on.wb.last_checked_at !== '' && on.hits.checkOne === 200 && on.hits.mcpCheck === 'ok',
     '对照（不开开关）：外部台被探过（检测时间写上了），单个检测 200、MCP 检测照常——上面「状态一直没动」有意义', show({ wb: on.wb, checkOne: on.hits.checkOne, mcpCheck: on.hits.mcpCheck }));
   if (on.boot) check(on.seen.tcp > 0 && (on.deliveries.some((d) => d.attempts > 0 || d.status !== 'pending') || on.outbox.some((o) => o.attempts > 0)) && on.replies.some((o) => o.attempts > 0 || o.status !== 'pending') && on.peers.length > 1 && on.anon?.outbound === undefined,

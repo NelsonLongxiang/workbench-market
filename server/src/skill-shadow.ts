@@ -8,6 +8,7 @@
  * 补推：每隔 WM_SKILL_SHADOW_EVERY_MS 一轮，找各技能**当前版本**里没有 commit_id、又不是 skipped 的，
  * 按 migrate-layerfs 同一套逻辑推（pushSkillVersion）：快照读出的摘要要和登记一致才推，推完从服务读回同一个 commit 重算，
  * 一致才记 succeeded；不一致记 failed，下一轮再试。每轮最多 WM_SKILL_SHADOW_BATCH 个。
+ *  · 对外断开（WM_OUTBOUND=off）：整轮跳过，不推、不写库、不改退避；记一次被拦（noteBlocked('skill-shadow')），日志只在第一次打一行。
  *  · LayerFS 没配置：什么都不做，不写库、不打日志。
  *  · LayerFS 连不上：这一轮推到第一个失败就停（不把一批都撞一遍），这一版记 failed；日志只在「通 → 不通」「不通 → 通」时各打一行。
  *  · 快照缺失、摘要和登记不符、空快照、读回不一致：记 failed 并写明原因；同一版在内存里退避——第 n 次失败后隔 2^n 轮再试（2、4、8……最多 64 轮），重启清零。
@@ -20,6 +21,7 @@ import { root } from './root-context.ts';
 import { svc } from './context.ts';
 import { SkillService } from './services/skill.ts';
 import { defineConfig, loadConfig, str } from './config.ts';
+import { outboundOff, noteBlocked } from './outbound-gate.ts';
 
 export const Config = defineConfig((env) => {
   const num = (name: string, raw: string, dflt: number, min: number, max: number): number => {
@@ -92,14 +94,21 @@ export async function pushSkillVersion(slug: string, v: any, deps: ShadowDeps, o
 }
 
 /** 补推的状态（跨轮）：LayerFS 上一轮通不通（只在变化时打日志）、各版本的退避 */
-export interface CatchUpState { down: boolean; backoff: Map<number, { fails: number; nextRound: number }>; round: number }
-export const newCatchUpState = (): CatchUpState => ({ down: false, backoff: new Map(), round: 0 });
-export type RoundResult = { configured: boolean; tried: number; succeeded: number; failed: number; skipped: number; stopped_unreachable: boolean };
+export interface CatchUpState { down: boolean; offLogged: boolean; backoff: Map<number, { fails: number; nextRound: number }>; round: number }
+export const newCatchUpState = (): CatchUpState => ({ down: false, offLogged: false, backoff: new Map(), round: 0 });
+export type RoundResult = { configured: boolean; outbound_off: boolean; tried: number; succeeded: number; failed: number; skipped: number; stopped_unreachable: boolean };
 
 /** 补推一轮（定时器调它；测试也可以直接调） */
-export async function catchUpRound(deps: ShadowDeps, batch: number, state: CatchUpState): Promise<RoundResult> {
+export async function catchUpRound(deps: ShadowDeps, batch: number, state: CatchUpState, off: () => boolean = outboundOff): Promise<RoundResult> {
+  const res: RoundResult = { configured: true, outbound_off: false, tried: 0, succeeded: 0, failed: 0, skipped: 0, stopped_unreachable: false };
+  // 对外断开：整轮跳过（CONTRIBUTING「会往外发的周期任务」）——不然被闸拦下的推送会被记成 failed、进退避。轮数也不加，退避不往前走
+  if (off()) {
+    noteBlocked('skill-shadow');
+    if (!state.offLogged) { state.offLogged = true; console.warn('[skill-shadow] 对外已断开（WM_OUTBOUND=off）：技能影子补推整轮跳过，不推、不记失败'); }
+    res.outbound_off = true;
+    return res;
+  }
   state.round++;
-  const res: RoundResult = { configured: true, tried: 0, succeeded: 0, failed: 0, skipped: 0, stopped_unreachable: false };
   let base = '';
   try { base = deps.layerfsServiceBase().base; } catch (e) {
     // 凭据文件坏了之类：当作连不上
