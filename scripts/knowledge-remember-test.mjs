@@ -246,7 +246,7 @@ try {
     await sleep(300);
     const note = lastNote();
     check(r乙.recent.includes(I.v5) && r乙.rem.status === 201 && r乙.rem.body?.status === 'written' && note?.scope === 'restricted' && note.title === '--scope *'
-        && note.body.includes('--scope=* --tags evil') && show(note.tags) === show(['market', 'decision']),
+        && note.body.includes('--scope=* --tags evil') && note.tags === 'market,decision',
       '十、user:bob-synth 能记；cue 是「--scope *」、lesson 带「--tags」时，写进 ygl-trees 的范围仍是「只给管理层」、标签不变，标题、正文原样（等号写法，不被当成参数）',
       show({ recent: r乙.recent, rem: [r乙.rem.status, r乙.rem.body], note }));
   }
