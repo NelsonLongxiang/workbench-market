@@ -21,6 +21,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: 事项服务断言与清理（Windows 数据库句柄必须先释放）
         run: node scripts/work-item-service-test.mjs
+      - name: 交付身份预检（合成正反例，不代替独立验收）
+        run: node scripts/bugfix-delivery-preflight-test.mjs
   odoo-operator-synthetic:
     runs-on: windows-latest
     steps:

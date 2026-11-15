@@ -760,6 +760,10 @@ curl -s -X POST "$REST_BASE/tools/workbench_summary" \
 - 或注入 `<base href="/go/<id>/">`（市场门户不做注入·台自持）；
 - **禁止**在 bundle 里硬编码根绝对路径（`/assets/...`）——门户代理只改写 HTML 属性与 Vite assetsURL helper，任意自拼的根绝对路径会逃逸前缀（白屏三层修的直接教训，见 PR#128-#130）。
 
+## Bugfix 交付预检（试点）
+
+`node scripts/ops/bugfix-delivery-preflight.mjs --help`：复用现有 ygl-trees CLI，明确指定隔离工作区、冻结spec版本与哈希，对当前交付包重验并核对报告、扫描结果和归档。只输出可送独立复验或拒绝原因，不派工、不改事项、不替人验收；会在指定工作区留下原生报告和归档。前置、参数与限制见 [试点说明](docs/bugfix-delivery-pilot.md)。
+
 ## Docker 部署（#147）
 
 ### 快速起
