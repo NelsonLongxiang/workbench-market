@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { isCredentialed, isInternalTarget } from './portal-access.ts';
 import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -1617,6 +1618,20 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_sop_run_files_sha ON sop_run_files(sha25
   if (!cols.some((c) => c.name === 'cookie_set_id')) {
     db.exec("ALTER TABLE workbenches ADD COLUMN cookie_set_id INTEGER NOT NULL DEFAULT 0");
   }
+  // One atomic, idempotent migration; do not publish a default-all credentialed row after a partial startup.
+  if (!cols.some(c => c.name === 'access')) {
+    db.exec('SAVEPOINT portal_access_migration');
+    try {
+      db.exec("ALTER TABLE workbenches ADD COLUMN access TEXT NOT NULL DEFAULT 'all'");
+      if (!cols.some(c => c.name === 'access_logins')) db.exec("ALTER TABLE workbenches ADD COLUMN access_logins TEXT NOT NULL DEFAULT '[]'");
+      const rows = db.prepare('SELECT id, url, auth_config, cookie_set_id FROM workbenches').all() as any[];
+      const update = db.prepare("UPDATE workbenches SET access = 'admin' WHERE id = ?");
+      const raised: number[] = [];
+      for (const row of rows) if (!isInternalTarget(row.url) && isCredentialed(row)) { update.run(row.id); raised.push(row.id); }
+      db.exec('RELEASE portal_access_migration');
+      if (raised.length) console.warn('[portal-access] credentialed external workbenches migrated to admin: '+raised.join(', '));
+    } catch (error) { db.exec('ROLLBACK TO portal_access_migration; RELEASE portal_access_migration'); throw error; }
+  } else if (!cols.some(c => c.name === 'access_logins')) db.exec("ALTER TABLE workbenches ADD COLUMN access_logins TEXT NOT NULL DEFAULT '[]'");
 }
 {
   const cols = tableColumns('apps') as { name: string }[];
@@ -1675,6 +1690,7 @@ export interface WorkbenchRow {
   category: string; tags: string; enabled: number; health_path: string;
   last_status: string; last_checked_at: string; last_latency_ms: number | null;
   last_http_code: number | null; last_error: string; sort: number; auth_config: string;
+  cookie_set_id?: number; access: string; access_logins: string;
   created_at: string; updated_at: string;
 }
 
@@ -1740,7 +1756,9 @@ export function rowToWorkbench(r: WorkbenchRow) {
   let auth: AuthConfig | null = null;
   try { const a = JSON.parse(r.auth_config || 'null'); if (a && (a.type === 'bearer' || a.type === 'basic') && typeof a.value === 'string') auth = a; } catch { auth = null; }
   const { auth_config: _ac, ...rest } = r;
-  return { ...rest, enabled: !!r.enabled, tags, auth };
+  let access_logins: string[] = [];
+  try { const value = JSON.parse(r.access_logins || '[]'); if (Array.isArray(value)) access_logins = value.filter(v => typeof v === 'string'); } catch { /* invalid stored list denies everyone except administrators */ }
+  return { ...rest, enabled: !!r.enabled, tags, auth, access_logins };
 }
 // ---------- 视图台的登记（数据视图，docs/data-views.md 第二节）----------
 // 主库里只有登记：有这个台、叫什么、谁在什么时候建的。台里的数据都在台自己的库里（见下面「台库」）。

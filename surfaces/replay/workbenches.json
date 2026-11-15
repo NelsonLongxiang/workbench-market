@@ -27,7 +27,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1559", "etag": "W/\"617-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "1695", "etag": "W/\"69f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               {
                 "id": 1,
@@ -49,6 +49,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -71,6 +73,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -93,6 +97,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -115,6 +121,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               }
             ]
@@ -134,7 +142,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "432", "etag": "W/\"1b0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "468", "etag": "W/\"1d4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 5,
               "name": "回放·甲",
@@ -155,6 +163,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": 0,
+              "access": "admin",
+              "access_logins": [],
               "auth": { "type": "bearer", "value": "synthetic-bearer" }
             }
           }
@@ -169,7 +179,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "408", "etag": "W/\"198-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "444", "etag": "W/\"1bc-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 6,
               "name": "回放·乙",
@@ -190,6 +200,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": 0,
+              "access": "admin",
+              "access_logins": [],
               "auth": null
             }
           }
@@ -204,7 +216,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "366", "etag": "W/\"16e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "400", "etag": "W/\"190-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 7,
               "name": "回放·SOP",
@@ -225,6 +237,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": 0,
+              "access": "all",
+              "access_logins": [],
               "auth": null
             }
           }
@@ -247,7 +261,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "4494", "etag": "W/\"118e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "4530", "etag": "W/\"11b2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 8,
               "name": "回放·长凭据",
@@ -268,6 +282,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": 0,
+              "access": "admin",
+              "access_logins": [],
               "auth": { "type": "basic", "value": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv" }
             }
           }
@@ -282,7 +298,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "375", "etag": "W/\"177-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "409", "etag": "W/\"199-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 9,
               "name": "回放·空凭据",
@@ -303,6 +319,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": 0,
+              "access": "all",
+              "access_logins": [],
               "auth": null
             }
           }
@@ -534,7 +552,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "3523", "etag": "W/\"dc3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "3835", "etag": "W/\"efb-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               {
                 "id": 1,
@@ -556,6 +574,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -578,6 +598,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -600,6 +622,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -622,6 +646,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -644,6 +670,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "admin",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -666,6 +694,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -688,6 +718,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "admin",
+                "access_logins": [],
                 "auth": { "type": "basic", "value": "****" }
               },
               {
@@ -710,6 +742,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -732,6 +766,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "admin",
+                "access_logins": [],
                 "auth": { "type": "bearer", "value": "****" }
               }
             ]
@@ -746,7 +782,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "422", "etag": "W/\"1a6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "458", "etag": "W/\"1ca-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               {
                 "id": 5,
@@ -768,6 +804,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "admin",
+                "access_logins": [],
                 "auth": { "type": "bearer", "value": "****" }
               }
             ]
@@ -782,7 +820,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "398", "etag": "W/\"18e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "434", "etag": "W/\"1b2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               {
                 "id": 6,
@@ -804,6 +842,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "admin",
+                "access_logins": [],
                 "auth": null
               }
             ]
@@ -818,7 +858,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "398", "etag": "W/\"18e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "434", "etag": "W/\"1b2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               {
                 "id": 6,
@@ -840,6 +880,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "admin",
+                "access_logins": [],
                 "auth": null
               }
             ]
@@ -862,7 +904,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "422", "etag": "W/\"1a6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "458", "etag": "W/\"1ca-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               {
                 "id": 5,
@@ -884,6 +926,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "admin",
+                "access_logins": [],
                 "auth": { "type": "bearer", "value": "****" }
               }
             ]
@@ -906,7 +950,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "3112", "etag": "W/\"c28-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "3390", "etag": "W/\"d3e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               {
                 "id": 2,
@@ -928,6 +972,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -950,6 +996,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -972,6 +1020,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -994,6 +1044,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "admin",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1016,6 +1068,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1038,6 +1092,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "admin",
+                "access_logins": [],
                 "auth": { "type": "basic", "value": "****" }
               },
               {
@@ -1060,6 +1116,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1082,6 +1140,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "admin",
+                "access_logins": [],
                 "auth": { "type": "bearer", "value": "****" }
               }
             ]
@@ -1104,7 +1164,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "3523", "etag": "W/\"dc3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "3835", "etag": "W/\"efb-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               {
                 "id": 1,
@@ -1126,6 +1186,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1148,6 +1210,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1170,6 +1234,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1192,6 +1258,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1214,6 +1282,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "admin",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1236,6 +1306,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1258,6 +1330,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "admin",
+                "access_logins": [],
                 "auth": { "type": "basic", "value": "****" }
               },
               {
@@ -1280,6 +1354,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1302,6 +1378,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "admin",
+                "access_logins": [],
                 "auth": { "type": "bearer", "value": "****" }
               }
             ]
@@ -1316,7 +1394,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "422", "etag": "W/\"1a6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "458", "etag": "W/\"1ca-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               {
                 "id": 5,
@@ -1338,6 +1416,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "admin",
+                "access_logins": [],
                 "auth": { "type": "bearer", "value": "****" }
               }
             ]
@@ -1352,7 +1432,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "3523", "etag": "W/\"dc3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "3835", "etag": "W/\"efb-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               {
                 "id": 1,
@@ -1374,6 +1454,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1396,6 +1478,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1418,6 +1502,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1440,6 +1526,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1462,6 +1550,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "admin",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1484,6 +1574,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1506,6 +1598,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "admin",
+                "access_logins": [],
                 "auth": { "type": "basic", "value": "****" }
               },
               {
@@ -1528,6 +1622,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1550,6 +1646,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "admin",
+                "access_logins": [],
                 "auth": { "type": "bearer", "value": "****" }
               }
             ]
@@ -1564,7 +1662,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "3523", "etag": "W/\"dc3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "3835", "etag": "W/\"efb-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               {
                 "id": 1,
@@ -1586,6 +1684,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1608,6 +1708,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1630,6 +1732,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1652,6 +1756,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1674,6 +1780,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "admin",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1696,6 +1804,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1718,6 +1828,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "admin",
+                "access_logins": [],
                 "auth": { "type": "basic", "value": "****" }
               },
               {
@@ -1740,6 +1852,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -1762,6 +1876,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "admin",
+                "access_logins": [],
                 "auth": { "type": "bearer", "value": "****" }
               }
             ]
@@ -1776,7 +1892,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "420", "etag": "W/\"1a4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "456", "etag": "W/\"1c8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 5,
               "name": "回放·甲",
@@ -1797,6 +1913,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": 0,
+              "access": "admin",
+              "access_logins": [],
               "auth": { "type": "bearer", "value": "****" }
             }
           }
@@ -1810,7 +1928,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "396", "etag": "W/\"18c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "432", "etag": "W/\"1b0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 6,
               "name": "回放·乙",
@@ -1831,6 +1949,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": 0,
+              "access": "admin",
+              "access_logins": [],
               "auth": null
             }
           }
@@ -1876,7 +1996,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "365", "etag": "W/\"16d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "399", "etag": "W/\"18f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 4,
               "name": "库里·残缺地址",
@@ -1897,6 +2017,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": 0,
+              "access": "all",
+              "access_logins": [],
               "auth": null
             }
           }
@@ -1910,7 +2032,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "435", "etag": "W/\"1b3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "471", "etag": "W/\"1d7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 5,
               "name": "回放·甲改",
@@ -1931,6 +2053,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": 0,
+              "access": "admin",
+              "access_logins": [],
               "auth": { "type": "bearer", "value": "synthetic-bearer" }
             }
           }
@@ -1957,7 +2081,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "429", "etag": "W/\"1ad-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "465", "etag": "W/\"1d1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 5,
               "name": "回放·甲改",
@@ -1978,6 +2102,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": 0,
+              "access": "admin",
+              "access_logins": [],
               "auth": { "type": "bearer", "value": "synthetic-bearer" }
             }
           }
@@ -1991,7 +2117,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "417", "etag": "W/\"1a1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "453", "etag": "W/\"1c5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 5,
               "name": "回放·甲改",
@@ -2012,6 +2138,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": 0,
+              "access": "admin",
+              "access_logins": [],
               "auth": { "type": "bearer", "value": "****" }
             }
           }
@@ -2025,7 +2153,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "398", "etag": "W/\"18e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "434", "etag": "W/\"1b2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               {
                 "id": 6,
@@ -2047,6 +2175,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "admin",
+                "access_logins": [],
                 "auth": null
               }
             ]
@@ -2061,7 +2191,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "429", "etag": "W/\"1ad-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "465", "etag": "W/\"1d1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 5,
               "name": "回放·甲改",
@@ -2082,6 +2212,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": 0,
+              "access": "admin",
+              "access_logins": [],
               "auth": { "type": "bearer", "value": "synthetic-bearer" }
             }
           }
@@ -2095,7 +2227,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "429", "etag": "W/\"1ad-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "465", "etag": "W/\"1d1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 5,
               "name": "回放·甲改",
@@ -2116,6 +2248,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": 0,
+              "access": "admin",
+              "access_logins": [],
               "auth": { "type": "bearer", "value": "synthetic-bearer" }
             }
           }
@@ -2155,7 +2289,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "389", "etag": "W/\"185-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "425", "etag": "W/\"1a9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 5,
               "name": "回放·甲改",
@@ -2176,6 +2310,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": 0,
+              "access": "admin",
+              "access_logins": [],
               "auth": null
             }
           }
@@ -2189,7 +2325,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "427", "etag": "W/\"1ab-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "463", "etag": "W/\"1cf-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 5,
               "name": "回放·甲改",
@@ -2210,6 +2346,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": 0,
+              "access": "admin",
+              "access_logins": [],
               "auth": { "type": "basic", "value": "synthetic-basic" }
             }
           }
@@ -2223,7 +2361,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "375", "etag": "W/\"177-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "411", "etag": "W/\"19b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 8,
               "name": "回放·长凭据",
@@ -2244,6 +2382,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": 0,
+              "access": "admin",
+              "access_logins": [],
               "auth": null
             }
           }
@@ -2265,7 +2405,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "427", "etag": "W/\"1ab-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "463", "etag": "W/\"1cf-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 5,
               "name": "回放·甲改",
@@ -2286,6 +2426,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": 0,
+              "access": "admin",
+              "access_logins": [],
               "auth": { "type": "basic", "value": "synthetic-basic" }
             }
           }
@@ -2299,7 +2441,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "428", "etag": "W/\"1ac-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "464", "etag": "W/\"1d0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 5,
               "name": "回放·甲改",
@@ -2320,6 +2462,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": -3,
+              "access": "admin",
+              "access_logins": [],
               "auth": { "type": "basic", "value": "synthetic-basic" }
             }
           }
@@ -2349,7 +2493,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "410", "etag": "W/\"19a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "446", "etag": "W/\"1be-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 6,
               "name": "回放·乙",
@@ -2370,6 +2514,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": 0,
+              "access": "admin",
+              "access_logins": [],
               "auth": null
             }
           }
@@ -2391,7 +2537,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "428", "etag": "W/\"1ac-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "464", "etag": "W/\"1d0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 5,
               "name": "回放·甲改",
@@ -2412,6 +2558,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": -3,
+              "access": "admin",
+              "access_logins": [],
               "auth": { "type": "basic", "value": "synthetic-basic" }
             }
           }
@@ -2652,7 +2800,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "376", "etag": "W/\"178-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "410", "etag": "W/\"19a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 10,
               "name": "回放·停用",
@@ -2673,6 +2821,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": 0,
+              "access": "all",
+              "access_logins": [],
               "auth": null
             }
           }
@@ -2986,7 +3136,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "369", "etag": "W/\"171-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "403", "etag": "W/\"193-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 2,
               "name": "门后·甲",
@@ -3007,6 +3157,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": 0,
+              "access": "all",
+              "access_logins": [],
               "auth": null
             }
           }
@@ -3028,7 +3180,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "782", "etag": "W/\"30e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "850", "etag": "W/\"352-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               {
                 "id": 1,
@@ -3050,6 +3202,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               },
               {
@@ -3072,6 +3226,8 @@
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "updated_at": "YYYY-MM-DD hh:mm:ss",
                 "cookie_set_id": 0,
+                "access": "all",
+                "access_logins": [],
                 "auth": null
               }
             ]
@@ -3086,7 +3242,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "369", "etag": "W/\"171-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "403", "etag": "W/\"193-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 2,
               "name": "门后·甲",
@@ -3107,6 +3263,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": 0,
+              "access": "all",
+              "access_logins": [],
               "auth": null
             }
           }
@@ -3133,7 +3291,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "372", "etag": "W/\"174-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "406", "etag": "W/\"196-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 2,
               "name": "门后·甲改",
@@ -3154,6 +3312,8 @@
               "created_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "cookie_set_id": 0,
+              "access": "all",
+              "access_logins": [],
               "auth": null
             }
           }

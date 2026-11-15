@@ -26,6 +26,7 @@ const mutation=process.env.WM_SYNTHETIC_PROBE_MUTATION;
 registerHooks({load(url,ctx,next){const loaded=next(url,ctx);if(!mutation||!url.endsWith(mutation==='portal-state-cookie'?'/server/src/portal.ts':mutation==='handler-error'?'/server/src/routes/workbenches.ts':mutation==='export-reveal'?'/server/src/routes/export-import.ts':mutation==='mcp-timeout'||mutation==='hold-probe'?'/server/src/routes/mcp-protocol.ts':mutation==='a2a-direct-unsigned'?'/server/src/routes/a2a-direct.ts':mutation==='bench-views-anonymous'?'/server/src/routes/bench-views.ts':mutation==='vars-missing'?'/server/src/workbench-vars.ts':'/server/src/index.ts'))return loaded;let s=String(loaded.source).replace(/\r\n/g,'\n');
 const replace=(from,to)=>{if(!s.includes(from))throw Error('mutation anchor missing: '+mutation);s=s.replace(from,to);};
 if(mutation==='portal-state-cookie')replace("maxAge: 10 * 60 * 1000, secure };","maxAge: 10 * 60 * 1000, secure: false };");
+if(mutation==='portal-access-validation')replace("  if (b.access !== undefined || b.access_logins !== undefined) {","  if (false && (b.access !== undefined || b.access_logins !== undefined)) {");
 if(mutation==='login-gate')replace('app.use(loginGate.middleware);','app.use((_q,_s,n)=>n());');
 if(mutation==='login-gate-apps')replace('app.use(loginGate.middleware);',"app.use((q,s,n)=>q.path.startsWith('/apps/')?n():loginGate.middleware(q,s,n));");
 if(mutation==='a2a-direct-unsigned')replace("    if (A2A_DIRECT_SIG !== 'off') {","    if (false) {");
@@ -137,6 +138,7 @@ await runCase('browser-write-regression',{mutation:'browser-write',expectFailure
 await runCase('principals-admin-read-regression',{mutation:'principals-admin-read',expectFailure:true});
 await runCase('forged-login-callback-regression',{mutation:'forged-login-callback',expectFailure:true});
 await runCase('unsigned-login-event-regression',{mutation:'unsigned-login-event',expectFailure:true});
+await runCase('portal-access-validation-regression',{mutation:'portal-access-validation',expectFailure:true});
 await runCase('portal-state-cookie-regression',{mutation:'portal-state-cookie',expectFailure:true});
 await runCase('export-reveal-regression',{mutation:'export-reveal',expectFailure:true});
 await runCase('grants-admin-read-regression',{mutation:'grants-admin-read',expectFailure:true});

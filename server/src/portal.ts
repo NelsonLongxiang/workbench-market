@@ -51,6 +51,7 @@ export function createPortal(
     readActiveManifest: (slug: string) => { manifest: any; app: any } | null;
     renderSopRunner: (manifest: any, app: any) => string;
     appsRoot: string;
+    authorize?: express.RequestHandler;
   },
 ): { prepare: PortalHandler; proxy: PortalHandler } {
   const { serveApp, readActiveManifest, renderSopRunner, appsRoot } = deps;
@@ -456,5 +457,6 @@ export function createPortal(
       },
     },
   });
-  return { prepare, proxy: moduleProxy };
+  const authorizedPrepare: PortalHandler = (req, res, next) => deps.authorize ? deps.authorize(req, res, error => error ? next(error) : prepare(req, res, next)) : prepare(req, res, next);
+  return { prepare: authorizedPrepare, proxy: moduleProxy };
 }

@@ -4,6 +4,8 @@ import { outboundOff, noteBlocked, outboundStatus, verifyOutboundGate } from './
 import './startup-gate-hold.ts';
 import { startupPassed } from './startup-gate.ts';
 import express from 'express';
+import { SENSITIVE_QUERY_KEYS, createPortalAccess, isCredentialed, isInternalTarget, parseAccessInput } from './portal-access.ts';
+import type { PrincipalService } from './services/principal.ts';
 import { createStartupSecurityProbe, isStartupProbeRequest, TEST_ENV_WAITS } from './startup-security-self-probe.ts';
 import { createLoginGate, loginGateMode, trustedProxies } from './login-gate.ts';
 import { identity, loginRelay, sourceDown } from './identity.ts';
@@ -640,7 +642,7 @@ function listWorkbenches(): ReturnType<typeof rowToWorkbench>[] {
 
 // 凭据面防浏览泄露（监督席派单 direct-30b57179/320ed1a5/74a7d418 安全批）：无认证 API 出口
 // （REST 列表/详情 + MCP 工具）对 url query 敏感参数与 auth.value 统一掩码；代理侧 DB 直读不受影响。
-const SENSITIVE_QUERY_KEYS = /^(token|password|passwd|secret|api[-_]?key|access[-_]?token|auth)$/i;
+// Shared with the portal credential-default policy; do not maintain two secret key lists.
 function maskSensitiveQuery(url: string): string {
   const qi = url.indexOf('?');
   if (qi < 0) return url;
@@ -707,6 +709,16 @@ function validateWorkbenchBody(b: any, partial = false) {
       bad('auth 形态：{type:"bearer"|"basic", value:string} 或 null');
     }
   }
+  if (b.cookie_set_id !== undefined) {
+    // Preserve the existing update contract: Number(value)||0, nonpositive detaches.
+    const id = Number(b.cookie_set_id) || 0;
+    if (id > 0 && !svc<CookieService>('cookie').byId(id)) bad(`cookie_set_id 不存在: ${id}`);
+    out.cookie_set_id = id;
+  }
+  if (b.access !== undefined || b.access_logins !== undefined) {
+    try { out._access = parseAccessInput(b.access ?? (b.access_logins !== undefined ? 'listed' : undefined), b.access_logins); }
+    catch (error) { bad((error as Error).message); }
+  }
   return out;
 }
 
@@ -738,16 +750,40 @@ function admitOrDeny(op: 'register' | 'update' | 'import', url: string) {
 }
 
 /** cores 的调用上下文：subject 只放已核认证标识；auditOk=false 时调用方回 X-WM-Audit-State: degraded */
-interface WriteCtx { subject: string; auditOk?: boolean }
+interface WriteCtx { subject: string; auditOk?: boolean; viaMcp?: boolean }
+/** MCP 面的凭据边界：凭据、Cookie 池挂接、访问范围只经人工 REST/表单（带凭据的台改地址的拦截在 workbenchUpdateCore 里，复用它的「地址未变」判定） */
+function mcpWorkbenchGuard(body: any): void {
+  for (const k of ['auth', 'cookie_set_id', 'access', 'access_logins'] as const) {
+    if (body?.[k] !== undefined) throw new HttpError(400, k === 'auth' ? '凭据不接受 MCP 写入——auth 请人工经市场页配置' : `${k} 不接受 MCP 写入——请人工经市场页配置`);
+  }
+}
+
+/** 自产台、SOP 台不经门户独占，门户范围对它们不起作用：只许 all（写库前调用） */
+function checkAccessTarget(url: string, given: { access: string } | undefined): void {
+  if (given && isInternalTarget(url) && given.access !== 'all') bad('自产台、SOP 台还能从 /apps、/sop 直接打开，门户访问范围对它们不起作用；只能设 all');
+}
+
+/** 写入后的访问范围：显式给了就用；没给时，新建或新带上凭据的外部台收紧为 admin（凭据不默认对全员开放） */
+function applyAccess(id: number, url: string, given: { access: string; logins: string[] } | undefined, credentialedNow: boolean, credentialedBefore: boolean, curAccess: string | null): void {
+  if (given) { svc<WorkbenchService>('workbench').setAccess(id, given.access, given.logins); return; }
+  if (isInternalTarget(url)) return;
+  if (credentialedNow && !credentialedBefore && (curAccess ?? 'all') === 'all') svc<WorkbenchService>('workbench').setAccess(id, 'admin', []);
+}
 
 // CRUD 共用核心（REST 与 MCP workbench_register/update/unregister 同链）：
 // MCP 面不接受 auth 字段（凭据只经人工 REST/表单——安全边界内置）
 function workbenchCreateCore(body: any, ctx: WriteCtx = { subject: 'anonymous' }): ReturnType<typeof rowToWorkbench> {
-  const f = validateWorkbenchBody(body);
+  if (ctx.viaMcp) mcpWorkbenchGuard(body);
+  const { _access: givenAccess, ...f } = validateWorkbenchBody(body);
+  checkAccessTarget(f.url, givenAccess);
   const adm = admitOrDeny('register', f.url);
   checkHealthPath(f.url, f.health_path ?? '');
-  const r = svc<WorkbenchService>('workbench').createByNamed({ type: 'web', icon: '', description: '', category: '', tags: '[]', enabled: 1, health_path: '', sort: 0, auth_config: '', ...f }) as unknown as { lastInsertRowid: number | bigint };
-  const row = svc<WorkbenchService>('workbench').byId(Number(r.lastInsertRowid)) as unknown as WorkbenchRow;
+  const row = svc<WorkbenchService>('workbench').accessTransaction(() => {
+    const r = svc<WorkbenchService>('workbench').createByNamed({ type: 'web', icon: '', description: '', category: '', tags: '[]', enabled: 1, health_path: '', sort: 0, auth_config: '', cookie_set_id: 0, ...f }) as unknown as { lastInsertRowid: number | bigint };
+    const id = Number(r.lastInsertRowid);
+    applyAccess(id, f.url, givenAccess, isCredentialed({ url: f.url, auth_config: f.auth_config ?? '', cookie_set_id: f.cookie_set_id ?? 0 }), false, 'all');
+    return svc<WorkbenchService>('workbench').byId(id) as unknown as WorkbenchRow;
+  });
   if (adm.allowlisted) ctx.auditOk = auditAllow('register', URL_POLICY, adm.key!, row.id, ctx.subject);
   return rowToWorkbench(row);
 }
@@ -755,31 +791,29 @@ function workbenchCreateCore(body: any, ctx: WriteCtx = { subject: 'anonymous' }
 function workbenchUpdateCore(id: number, body: any, ctx: WriteCtx = { subject: 'anonymous' }): ReturnType<typeof rowToWorkbench> {
   const cur = svc<WorkbenchService>('workbench').byId(id) as unknown as WorkbenchRow | undefined;
   if (!cur) throw new HttpError(404, `workbench not found: ${id}`);
-  const f = validateWorkbenchBody(body, true);
+  if (ctx.viaMcp) mcpWorkbenchGuard(body);
+  const { _access: givenAccess, ...f } = validateWorkbenchBody(body, true);
   // 掩码回传保护（url 面）：编辑表单从 API 取到的是掩码值，原样回传视为「未变更」
   if (f.url !== undefined && f.url.includes('=****') && f.url !== cur.url) delete f.url;
   // #258：url 未变（原样或同一规范化 key、同 fragment）= 纯元数据更新，沿旧行原 url（存量公网行不因改名被拒/删）；
   // scheme/host/port/path/query 任一变化都是新 url，必须重新准入
   if (f.url !== undefined && (f.url === cur.url || sameTarget(cur.url, f.url))) delete f.url;
+  if (ctx.viaMcp && f.url !== undefined && isCredentialed(cur)) throw new HttpError(403, '带凭据的台不能经 MCP 改地址——请人工经市场页修改');
+  checkAccessTarget(f.url ?? cur.url, givenAccess);
   const adm = f.url !== undefined ? admitOrDeny('update', f.url) : null;
   if (f.url !== undefined || f.health_path !== undefined) checkHealthPath(f.url ?? cur.url, f.health_path ?? cur.health_path ?? '');
-  // cookie_set_id 挂接（派单 direct-5fbb2176：nullable=0 取消挂接，正数须为池条目）
-  if (body.cookie_set_id !== undefined) {
-    const cid = Number(body.cookie_set_id) || 0;
-    if (cid > 0) {
-      const hit = svc<CookieService>('cookie').byId(cid);
-      if (!hit) bad(`cookie_set_id 不存在: ${cid}`);
-    }
-    (f as any).cookie_set_id = cid;
-  }
   const merged = { ...cur, ...f };
+  const row = svc<WorkbenchService>('workbench').accessTransaction(() => {
   svc<WorkbenchService>('workbench').updateAll({
     name: merged.name, url: merged.url, type: merged.type, icon: merged.icon,
     description: merged.description, category: merged.category, tags: merged.tags,
     enabled: merged.enabled, health_path: merged.health_path, sort: merged.sort,
     auth_config: merged.auth_config ?? '', cookie_set_id: (merged as any).cookie_set_id ?? 0, id,
   });
-  const row = svc<WorkbenchService>('workbench').byId(id) as unknown as WorkbenchRow;
+  if (!givenAccess && isInternalTarget(merged.url) && cur.access !== 'all') svc<WorkbenchService>('workbench').setAccess(id, 'all', []);
+  else applyAccess(id, merged.url, givenAccess, isCredentialed(merged), isCredentialed(cur), cur.access);
+  return svc<WorkbenchService>('workbench').byId(id) as unknown as WorkbenchRow;
+  });
   if (adm?.allowlisted) ctx.auditOk = auditAllow('update', URL_POLICY, adm.key!, id, ctx.subject);
   return rowToWorkbench(row);
 }
@@ -3050,14 +3084,14 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       });
     // 工作台注册 CRUD（agent 登记外部台——与 REST 同链；凭据字段不接受：传入即拒）
     case 'workbench_register': {
-      if (args?.auth !== undefined) throw new HttpError(400, '凭据不接受 MCP 写入——请人工经市场页配置');
-      const w = workbenchCreateCore(args, { subject });
+      mcpWorkbenchGuard(args);
+      const w = workbenchCreateCore(args, { subject, viaMcp: true });
       return maskForApi(w);
     }
     case 'workbench_update': {
-      if (args?.auth !== undefined) throw new HttpError(400, '凭据不接受 MCP 写入——请人工经市场页配置');
+      mcpWorkbenchGuard(args);
       const { id: _ignored, ...rest } = args ?? {};
-      const w = workbenchUpdateCore(Number(args?.id), rest, { subject });
+      const w = workbenchUpdateCore(Number(args?.id), rest, { subject, viaMcp: true });
       return maskForApi(w);
     }
     case 'workbench_unregister':
@@ -3784,7 +3818,29 @@ import { stripIncoming as stripPortalForward, verifyPortalForwardStrip, useMarke
 useMarketTokenCheck((token) => mcpSessionByToken(token) !== null); // 门户转发时认得市场的 MCP 会话令牌，摘掉不往台带
 
 loginRelay().useTicketStore(sqliteSsoTicketStore()); // SSO 回调票据落库：重启不丢、同一 DATA_DIR 的实例共享
-registerPortalRoutes(http, wbById, { serveApp, readActiveManifest, renderSopRunner, appsRoot }); // 门户 /go/（路由在 routes/portal.ts），挂在原来两层中间件的位置
+const portalAccess = createPortalAccess({
+  byId: wbById,
+  viewer: async req => {
+    const login = await loginGate.identity(req);
+    if (!login) return null;
+    if (login.admin || login.via === 'cookie') return { ...login, odooLogins: [] };
+    const who = await identity().resolveViewer(String(req.headers.cookie ?? ''));
+    if (!who.ok) return null;
+    const odooLogins = svc<PrincipalService>('principals').externalIdsOf(who.viewer.sub, 'odoo');
+    return { ...login, admin: who.viewer.admin === true, odooLogins };
+  },
+});
+const portalAccessHttp: express.RequestHandler = (req, res, next) => {
+  portalAccess(req, 'http').then(decision => {
+    if (decision.allow) return next();
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-WM-Access-Denied', decision.reason);
+    const message = decision.reason === 'anonymous' ? '需要先登录。' : decision.reason === 'not-admin' ? '这个工作台只给管理员打开。' : '这个工作台只给指定人员打开。';
+    if (req.headers['sec-fetch-dest'] === 'document' || String(req.headers.accept ?? '').includes('text/html')) return res.status(403).type('html').send('<!doctype html><meta charset="utf-8"><title>无权访问</title><p>'+message+'</p>');
+    res.status(403).json({ error: 'workbench_access_denied', reason: decision.reason, message });
+  }, next);
+};
+registerPortalRoutes(http, wbById, { serveApp, readActiveManifest, renderSopRunner, appsRoot, authorize: portalAccessHttp }); // 门户 /go/（路由在 routes/portal.ts），挂在原来两层中间件的位置
 
 // ---------- 静态托管前端（生产形态：单端口） ----------
 const webDist = join(here, '..', '..', 'web', 'dist');
@@ -3960,6 +4016,8 @@ for (const srv of allSurfaceServers()) if (srv !== goServer) srv.on('upgrade', (
 goServer.on('upgrade', async (req, socket, head) => {
   if (!startupSecurity.snapshot().passed) return socket.destroy();
   if (!(await loginGate.upgradeAllowed(req))) return socket.destroy(); // 登录门：WS 升级同样要身份
+  const access = await portalAccess(req, 'ws').catch(() => ({ allow: false }));
+  if (!access.allow) return socket.destroy();
   portalObserver?.observe(req);
   const m = goPrefix.exec(req.url ?? '');
   if (!m) return socket.destroy(); // 非 /go/ 的升级请求：本服务自身不提供 WS

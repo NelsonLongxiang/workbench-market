@@ -8,6 +8,7 @@
  */
 import type express from 'express';
 import { settingsForAdmin, settingsForPublic } from '../settings-view.ts';
+import { isInternalTarget, isCredentialed, parseAccessInput } from '../portal-access.ts';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import type { WorkbenchService } from '../services/workbench.ts';
@@ -96,7 +97,13 @@ export function registerExportImportRoutes(app: HttpService, deps: ExportImportD
       let adm;
       try { adm = admitOrDeny('import', url); checkHealthPath(url, String(w.health_path ?? '')); }
       catch (e) { if (e instanceof AdmissionError) importErr(e.status, e.code, i, String(e.extra?.message ?? '')); throw e; }
-      return { w, url, authCfg, adm };
+      let access = isCredentialed({ url, auth_config: authCfg }) && !isInternalTarget(url) ? { access: 'admin' as const, logins: [] as string[] } : { access: 'all' as const, logins: [] as string[] };
+      if (w.access !== undefined || w.access_logins !== undefined) {
+        try { access = parseAccessInput(w.access ?? 'listed', w.access_logins) as typeof access; }
+        catch { importErr(400, 'invalid_import', i, '访问范围不合法'); }
+      }
+      if (isInternalTarget(url) && access.access !== 'all') importErr(400, 'invalid_import', i, '内部台只支持 all');
+      return { w, url, authCfg, adm, access };
     });
     const svcWb = svc<WorkbenchService>('workbench');
     const inserted: { id: number; key: string | null; allowlisted: boolean }[] = [];
@@ -109,14 +116,16 @@ export function registerExportImportRoutes(app: HttpService, deps: ExportImportD
       const insType = svcWb.typeInsertIgnoreStmt();
       for (const t of types) insType.run(t.key, t.name, String(t.icon ?? ''), t.default_port ?? null, t.health_method ?? 'GET', String(t.health_path ?? '/'), t.expect_status ?? null, String(t.description ?? ''));
       const ins = svcWb.importInsertStmt();
-      for (const { w, url, authCfg, adm } of rows) {
+      for (const { w, url, authCfg, adm, access } of rows) {
         const r = ins.run(
           String(w.name ?? '未命名'), url, String(w.type ?? 'web'), String(w.icon ?? ''),
           String(w.description ?? ''), String(w.category ?? ''),
           JSON.stringify(Array.isArray(w.tags) ? w.tags : []), w.enabled === false ? 0 : 1,
           String(w.health_path ?? ''), Number(w.sort) || 0, authCfg
         ) as { lastInsertRowid: number | bigint };
-        inserted.push({ id: Number(r.lastInsertRowid), key: adm.key, allowlisted: adm.allowlisted });
+        const id = Number(r.lastInsertRowid);
+        svcWb.setAccess(id, access.access, access.logins);
+        inserted.push({ id, key: adm.key, allowlisted: adm.allowlisted });
       }
       // PR#15 评审吸收的增量思路：replace 重排自增 id 后，驾驶舱面板里指向旧 id 的引用已成悬空
       // （保存布局恒 400）——导入完成后全量剔除不存在引用（比按 id 精确清理更通用，也清历史遗留）
