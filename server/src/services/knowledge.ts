@@ -14,7 +14,7 @@ import { createHmac, randomBytes } from 'node:crypto';
 import { db } from '../db.ts';
 import { svc } from '../context.ts';
 import { defineConfig, loadConfig, str } from '../config.ts';
-import { execYgl } from '../ygl-cli.ts';
+import { execYgl, yglCliEntry, yglHome } from '../ygl-cli.ts';
 import { afterStartup } from '../startup-gate.ts';
 import { judge, scopedVerdict, type JudgedActor } from '../judgment.ts';
 import type { DepartmentService } from './department.ts';
@@ -230,6 +230,17 @@ export class KnowledgeService extends Service {
    *   not_ready：一类都没成过，还没跑过或只是超时这类；
    *   degraded：成过，但最近一轮有类没同步上（列表照常给已有的）。
    */
+  /**
+   * 记成经验的写入目标能不能用：本机找得到 ygl-trees 命令行和工作区（和 execYgl 同一处判断），并且同步过的话来源不是「未接入」
+   *（版本太旧、契约对不上这类，写也写不进去）。不能用时记成经验当场拒，不排待写、不进重试（knowledge-remember.ts）
+   */
+  writeTarget(): { ok: true } | { ok: false; reason: string } {
+    if (!yglCliEntry()) return { ok: false, reason: 'no_cli' };
+    if (!yglHome()) return { ok: false, reason: 'no_home' };
+    if (this.sourceState() === 'not_connected') return { ok: false, reason: this.status().find((s) => NOT_CONNECTED.has(s.last_error))?.last_error ?? 'not_connected' };
+    return { ok: true };
+  }
+
   sourceState(): SourceState {
     const st = this.status();
     if (st.every((s) => s.last_ok_at === null)) return st.some((s) => NOT_CONNECTED.has(s.last_error)) ? 'not_connected' : 'not_ready';
