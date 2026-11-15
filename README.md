@@ -111,6 +111,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - 一行管主体管理面：远程匿名 GET `/api/principals` 必须被拒（登录门关着 403，开着由登录门先拦 401）；
 - 一行管登录回调：远程匿名拿编出来的 state 打 `/login/feishu/callback` 必须 400（不跳转、不发会话）；
 - 一行管失效通知：远程匿名、不带签名向 `/login/feishu/events` 发事件必须 401；
+- 一行进程内检查 `market.portal.sso-state-cookie`：使用门户实际的 SSO state cookie 选项，核 HttpOnly、SameSite=Lax、仅当前台路径、无 Domain 和 HTTPS 必须 Secure；不访问账号或上游，失败拒绝启动；
 - 一行管授予管理面：远程匿名 GET `/api/grants` 必须 401（L19 起授予的读对登录的人放开，没登录就是 401，登录门开不开都一样）；
 - 一行管台数据的读：远程匿名不带台令牌 GET `/api/apps/<台>/data` 必须被拒（登录门关着 403，开着由登录门先拦 401；`WM_APP_DATA_READ=warn` 时这一行不跑）；
 - 一行管写 run：远程匿名不带 run 的写凭据 PUT `/api/sop/runs/<编出来的号>` 必须被拒（登录门关着 403，开着由登录门先拦 401；`WM_SOP_RUN_WRITE=warn` 时这一行不跑）；

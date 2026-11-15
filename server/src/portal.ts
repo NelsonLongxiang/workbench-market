@@ -24,6 +24,20 @@ import { stripOutgoing } from './portal-forward-headers.ts';
 
 export const goPrefix = /^\/go\/(\d+)(.*)$/;
 
+/** SSO state is host-only and secure exactly for HTTPS entries. */
+export function portalSsoStateCookieOptions(id: number, secure: boolean): express.CookieOptions {
+  return { httpOnly: true, sameSite: 'lax', path: `/go/${id}/`, maxAge: 10 * 60 * 1000, secure };
+}
+
+/** Startup checks the exact options constructor used by the portal response. */
+export function verifyPortalSsoStateCookie(): { ok: boolean; reason: string | null } {
+  const ok = [false, true].every(secure => {
+    const c = portalSsoStateCookieOptions(7, secure);
+    return c.httpOnly === true && c.sameSite === 'lax' && c.path === '/go/7/' && c.maxAge === 600000 && c.secure === secure && c.domain === undefined;
+  });
+  return { ok, reason: ok ? null : 'unsafe-sso-state-cookie' };
+}
+
 /** 门户的处理函数：同 Express（返回值不用） */
 export type PortalHandler = (req: express.Request, res: express.Response, next: express.NextFunction) => unknown;
 
@@ -160,7 +174,7 @@ export function createPortal(
           const _mkHost = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').trim();
           const _mkProto = (String(req.headers['x-forwarded-proto'] ?? '').includes('https') || req.secure) ? 'https' : 'http';
           const redirectUri = encodeURIComponent(`${_mkProto}://${_mkHost}/go/${m[1]}/?state=${state}`); // #170 P8 绝对回跳 // 回跳经市场（带 state·不裸跳目标域）
-          res.cookie(stateCookie, state, { httpOnly: true, sameSite: 'lax', path: `/go/${m[1]}/`, maxAge: 10 * 60 * 1000 });
+          res.cookie(stateCookie, state, portalSsoStateCookieOptions(Number(m[1]), _mkProto === 'https'));
           res.clearCookie(retCookie, { path: `/go/${m[1]}/` });
           if (relay) {
             return res.redirect(302, `/web/login?redirect=${encodeURIComponent(`/go/${m[1]}/?state=${state}`)}`);

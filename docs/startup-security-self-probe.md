@@ -8,6 +8,8 @@
 
 门闩只给本轮私有随机标记、真实回环socket、预先登记的本地port/method/固定path组合放行；该标记只穿过门闩，不绕过原鉴权或输入校验、不出现在日志/health。伪造普通self-probe头不享受标记。请求无Cookie、无Bearer、无管理口令，禁redirect跟随，1.5秒超时失败。
 
+门户另有进程内固定行 `market.portal.sso-state-cookie`：调用实际 SSO state cookie 选项构造器，HTTP/HTTPS 两组均须保持 host-only、HttpOnly、SameSite=Lax、当前台路径和 10 分钟期限，Secure 必须与 HTTPS 状态一致。无账号、网络或业务写入；失败或异常只记固定拒绝原因，不放开启动闸。
+
 health在完成前passed=false/at=null、503；通过后200与self_probe行摘要。失败行具名，不记录请求/响应正文、凭据、业务参数或原始异常。真实probe记录统一source=self-probe，采纳计数排除本轮内部请求。
 
 合成测试：模块正反矩阵、真实 index.ts 的鉴权移除/浏览器写门移除/超时 mutation、内容面 HTTP/WS 门闩；所有测试只使用新 DATA_DIR/隔离 home 与回环备用端口，不读取生产或个人工作区。明确开发/测试模式的显式 off 仅减去 MCP 两个拒绝请求，仍检查管理写和无 Origin 对照；生产/未设/空/未知NODE_ENV+off必须拒绝。仓内匿名MCP合成实例显式声明NODE_ENV=test，生产控制面用例保持production并开启网关。控制面未监听不主动连接配置端口，避免探测其他进程。

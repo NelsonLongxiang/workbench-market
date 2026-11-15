@@ -23,8 +23,9 @@ const preload=String.raw`import net from'node:net';import{registerHooks}from'nod
 const listen=net.Server.prototype.listen;
 net.Server.prototype.listen=function(...a){if(typeof a[0]==='number'){if(typeof a[1]==='string')a[1]='127.0.0.1';else a.splice(1,0,'127.0.0.1')}return listen.apply(this,a)};
 const mutation=process.env.WM_SYNTHETIC_PROBE_MUTATION;
-registerHooks({load(url,ctx,next){const loaded=next(url,ctx);if(!mutation||!url.endsWith(mutation==='handler-error'?'/server/src/routes/workbenches.ts':mutation==='export-reveal'?'/server/src/routes/export-import.ts':mutation==='mcp-timeout'||mutation==='hold-probe'?'/server/src/routes/mcp-protocol.ts':mutation==='a2a-direct-unsigned'?'/server/src/routes/a2a-direct.ts':mutation==='bench-views-anonymous'?'/server/src/routes/bench-views.ts':mutation==='vars-missing'?'/server/src/workbench-vars.ts':'/server/src/index.ts'))return loaded;let s=String(loaded.source).replace(/\r\n/g,'\n');
+registerHooks({load(url,ctx,next){const loaded=next(url,ctx);if(!mutation||!url.endsWith(mutation==='portal-state-cookie'?'/server/src/portal.ts':mutation==='handler-error'?'/server/src/routes/workbenches.ts':mutation==='export-reveal'?'/server/src/routes/export-import.ts':mutation==='mcp-timeout'||mutation==='hold-probe'?'/server/src/routes/mcp-protocol.ts':mutation==='a2a-direct-unsigned'?'/server/src/routes/a2a-direct.ts':mutation==='bench-views-anonymous'?'/server/src/routes/bench-views.ts':mutation==='vars-missing'?'/server/src/workbench-vars.ts':'/server/src/index.ts'))return loaded;let s=String(loaded.source).replace(/\r\n/g,'\n');
 const replace=(from,to)=>{if(!s.includes(from))throw Error('mutation anchor missing: '+mutation);s=s.replace(from,to);};
+if(mutation==='portal-state-cookie')replace("maxAge: 10 * 60 * 1000, secure };","maxAge: 10 * 60 * 1000, secure: false };");
 if(mutation==='login-gate')replace('app.use(loginGate.middleware);','app.use((_q,_s,n)=>n());');
 if(mutation==='login-gate-apps')replace('app.use(loginGate.middleware);',"app.use((q,s,n)=>q.path.startsWith('/apps/')?n():loginGate.middleware(q,s,n));");
 if(mutation==='a2a-direct-unsigned')replace("    if (A2A_DIRECT_SIG !== 'off') {","    if (false) {");
@@ -81,6 +82,7 @@ async function runCase(label,{off=false,control=false,occupied=false,unset=false
     const failed=so.split(/\r?\n/).flatMap(line=>{try{const row=JSON.parse(line);return row.source==='self-probe'&&row.verdict==='fail'?[row]:[];}catch{return [];}});
     check(label+' exactly the three named bench-view rows fail',failed.length===BENCH_PROBES.length&&BENCH_PROBES.every(id=>failed.some(row=>row.id===id)));
    }
+   if(mutation==='portal-state-cookie'){const failed=so.split(/\r?\n/).flatMap(line=>{try{const r=JSON.parse(line);return r.source==='self-probe'&&r.verdict==='fail'?[r]:[];}catch{return[]}});check(label+' only the exact portal state-cookie row fails',failed.length===1&&failed[0].id==='market.portal.sso-state-cookie'&&failed[0].reason==='unsafe-sso-state-cookie');}
    if(mutation==='app-data-read')check(label+' only the app data read row fails',so.includes('"id":"market.app-data.anonymous-read"')&&so.split('"verdict":"fail"').length===2);
    if(mutation==='vars-missing')check(label+' only the workbench vars missing-bench row fails',so.includes('"id":"market.workbench-vars.anonymous-read-missing"')&&so.split('"verdict":"fail"').length===2);
    if(mutation==='sop-run-write')check(label+' only the run write row fails',so.includes('"id":"market.sop-run.anonymous-write"')&&so.split('"verdict":"fail"').length===2);
@@ -93,6 +95,7 @@ async function runCase(label,{off=false,control=false,occupied=false,unset=false
   }else{
    check(label+' health reports completed pass',status===200&&health?.self_probe?.passed===true&&health.self_probe.at!==null);
    check(label+' table has explicit control skip/pass',health.self_probe.rows.some(x=>x.id==='control.admin-read'&&x.verdict===(control&&!occupied?'pass':'skip')));
+   check(label+' portal state-cookie local startup row is present and passed',health.self_probe.rows.filter(x=>x.id==='market.portal.sso-state-cookie').length===1&&health.self_probe.rows.find(x=>x.id==='market.portal.sso-state-cookie').verdict==='pass');
    if(off&&gate!=='enforce')check('explicit gateway off reports exactly two warnings',health.self_probe.rows.filter(x=>x.verdict==='warn').length===2);
    if(off&&gate==='enforce')check(label+' gateway forced on: MCP rows pass, no warnings, override logged',health.self_probe.rows.filter(x=>x.id.startsWith('market.mcp.')&&x.verdict==='pass').length===2&&!health.self_probe.rows.some(x=>x.verdict==='warn')&&se.includes('WM_LOGIN_GATE=enforce'));
    if(occupied)check('occupied control skips without probing the foreign process',foreignRequests===0&&health.self_probe.rows.some(x=>x.id==='control.admin-read'&&x.reason==='control-not-listening'));
@@ -134,6 +137,7 @@ await runCase('browser-write-regression',{mutation:'browser-write',expectFailure
 await runCase('principals-admin-read-regression',{mutation:'principals-admin-read',expectFailure:true});
 await runCase('forged-login-callback-regression',{mutation:'forged-login-callback',expectFailure:true});
 await runCase('unsigned-login-event-regression',{mutation:'unsigned-login-event',expectFailure:true});
+await runCase('portal-state-cookie-regression',{mutation:'portal-state-cookie',expectFailure:true});
 await runCase('export-reveal-regression',{mutation:'export-reveal',expectFailure:true});
 await runCase('grants-admin-read-regression',{mutation:'grants-admin-read',expectFailure:true});
 await runCase('bench-views-on',{benchViews:'on'});
