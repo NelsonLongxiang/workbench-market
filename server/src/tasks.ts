@@ -55,7 +55,7 @@ type SopServiceLike = {
 /** 跨项目枚举常量（direct-c4c460a6）：并发、单项目超时、总预算、项目数上限 */
 const YGL_CONCURRENCY = 4;
 const YGL_PER_CALL_TIMEOUT_MS = 3_000;
-/** 项目数上限与总预算可经环境变量 YGL_MAX_PROJECTS / YGL_TOTAL_BUDGET_MS 覆盖（.156 现网 52 个 active 项目，旧上限 40 会跳过 12 个）；
+/** 项目数上限与总预算可经环境变量 YGL_MAX_PROJECTS / YGL_TOTAL_BUDGET_MS 覆盖（现网 52 个 active 项目，旧上限 40 会跳过 12 个）；
  *  缺省上限 200、总预算 8s；非整数或越界回落缺省。超限/超预算照旧在 degraded_projects 里如实上报，不静默截断。 */
 function envInt(value: string | undefined, def: number, min: number, max: number): number {
   const raw = String(value ?? '').trim();

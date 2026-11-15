@@ -368,7 +368,7 @@ export function createPortal(
           (res as any).end = () => { try { res.removeHeader('transfer-encoding'); } catch { /* 未设 */ } res.setHeader('content-length', String(body.length)); return origEnd(body); };
           return;
         }
-        // Pocket meta-refresh 改写（.157 DSH 台实测根因）：DSH Pocket（如 13080 端口）在
+        // Pocket meta-refresh 改写（业务实盘 DSH 台实测根因）：DSH Pocket（如 13080 端口）在
         // token→cookie 交换后返回 <meta refresh url=/>，在门户上下文 / 会跳回市场 SPA 根。
         // 仅对 HTML 响应包装 res.write/end 做字符串替换（JSON/二进制零开销透传）。
         const pWid = (req as express.Request & { goWid?: string }).goWid;

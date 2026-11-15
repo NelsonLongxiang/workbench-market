@@ -406,6 +406,6 @@ export async function a2aSendOutbound(keyPath: string, target: OutboundTarget, m
   } as never);
   const taskId = opts.taskId ?? `market-${randomBytes(4).toString('hex')}`;
   // 联合评审①后补：推送 caller 必须是区限定句柄（market/<node8>）——裸 zone 标签在对端
-  // free-form 准入分支无画布路径永不可入（.157 实测发现·判据②c2）
+  // free-form 准入分支无画布路径永不可入（业务实盘实测发现·判据②c2）
   return client.routeDirect(target.baseUrl, target.team, message, contextId, undefined, callerSession ?? MARKET_TEAM, opts.async === true, taskId);
 }
