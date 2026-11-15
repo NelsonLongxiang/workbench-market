@@ -161,4 +161,9 @@ for(const nodeEnv of ['development','test']){
  const t0=Date.now(),r=await probe.run({market:server,gatewayOn:true,nodeEnv:'test'});
  check('a market surface that never listens still fails closed (bounded wait)',r.passed===false&&r.rows.some(x=>x.surface==='market')&&r.rows.filter(x=>x.surface==='market').every(x=>x.reason==='surface-not-listening')&&Date.now()-t0<15000);
 }
+{
+ // The actual cookie constructor is exercised by the real-index positive/mutation test; this fixture stays memory-only.
+ const f=await fixture();try{const r=await f.probe.run({market:f.server,gatewayOn:true,nodeEnv:'test',portalSsoStateCookie:()=>({ok:true,reason:null})});check('actual cookie safety check is a named local startup row',r.passed&&r.rows.filter(x=>x.id==='market.portal.sso-state-cookie').length===1&&r.rows.find(x=>x.id==='market.portal.sso-state-cookie').verdict==='pass'&&!f.requests.some(x=>x.path.startsWith('/go/')));}finally{await f.close();}
+ for(const callback of[()=>({ok:false,reason:noAuth}),()=>{throw Error(noAuth)}]){const f=await fixture();try{const r=await f.probe.run({market:f.server,gatewayOn:true,nodeEnv:'test',portalSsoStateCookie:callback});check('unsafe or failed cookie check keeps ingress closed and exposes only a fixed reason',!r.passed&&r.failed.length===1&&r.failed[0]==='market.portal.sso-state-cookie'&&r.rows.find(x=>x.id==='market.portal.sso-state-cookie').reason==='unsafe-sso-state-cookie'&&!JSON.stringify(f.logs).includes(noAuth)&&(await fetch('http://127.0.0.1:'+f.port+'/business')).status===503);}finally{await f.close();}}
+}
 console.log(JSON.stringify({checks,production_requests:0,personal_home_access:false}));

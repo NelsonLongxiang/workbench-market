@@ -10,12 +10,13 @@ const data = join(tmp, 'data');
 mkdirSync(data, { recursive: true });
 const SID0 = 'anon' + 'a'.repeat(28), SID1 = 'auth' + 'b'.repeat(28);
 const seen = [];
+let upstreamPolicy = {};
 const up = createServer((req, res) => {
   let body = ''; req.setEncoding('utf8'); req.on('data', c => body += c); req.on('end', () => {
     seen.push({ method: req.method, path: req.url, headers: req.headers, body });
     const p = new URL(req.url, 'http://upstream');
-    if (p.pathname === '/web/login' && req.method === 'GET') {
-      res.writeHead(200, {'content-type':'text/html', 'set-cookie': ['session_id='+SID0+'; Path=/; HttpOnly', 'wm_login=must-not-pass; Path=/']});
+    if (p.pathname === '/web/login' && (req.method === 'GET' || req.method === 'HEAD')) {
+      res.writeHead(200, {'content-type':'text/html', 'set-cookie': ['session_id='+SID0+'; Path=/; HttpOnly', 'wm_login=must-not-pass; Path=/'], ...upstreamPolicy});
       return res.end('<form method="post" action="/web/login"><input name="csrf_token"><input name="login"><input name="password"></form>');
     }
     if (p.pathname === '/web/login' && req.method === 'POST') {
@@ -29,7 +30,7 @@ const up = createServer((req, res) => {
     }
     if (p.pathname === '/web/login/totp') {
       if (req.method === 'POST') res.writeHead(303, {'location':'/','set-cookie':['session_id='+SID1+'; Path=/; HttpOnly']});
-      else res.writeHead(200, {'content-type':'text/html'});
+      else res.writeHead(200, {'content-type':'text/html', ...upstreamPolicy});
       return res.end('synthetic-totp');
     }
     if (p.pathname === '/web/session/get_session_info') {
@@ -49,7 +50,7 @@ for (const k of ['WM_EXTENSIONS_DIR','WM_ODOO_ORIGINS']) delete env[k];
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning','server/src/index.ts'], {env,stdio:['ignore','ignore','pipe']});
 let errors=''; server.stderr.on('data', c => errors += c);
 const http = (method,path,headers={},body='') => new Promise((done,reject) => {
-  const q=request({host:'127.0.0.1',port,method,path,headers:{...headers,...(body?{'content-length':Buffer.byteLength(body)}:{})}}, r=>{let text='';r.setEncoding('utf8');r.on('data',c=>text+=c);r.on('end',()=>done({status:r.statusCode,headers:r.headers,text}));});
+  const q=request({host:'127.0.0.1',port,method,path,headers:{...headers,...(body?{'content-length':Buffer.byteLength(body)}:{})}}, r=>{let text='';r.setEncoding('utf8');r.on('data',c=>text+=c);r.on('end',()=>done({status:r.statusCode,headers:r.headers,rawHeaders:r.rawHeaders,text}));});
   q.on('error',reject); if(body)q.write(body); q.end();
 });
 let pass=0, fail=0;
@@ -121,8 +122,9 @@ try {
   for (const [label,host,https] of [['LAN plain','192.0.2.88:9800',false],['public plain','market.example.test',true]]) {
     const h={host,...(https?{'x-forwarded-proto':'https'}:{})};
     const entry=await http('GET','/go/'+wid+'/',h);
-    const loc=String(entry.headers.location??''); const st=/wm_sso_\d+=([0-9a-f-]{36})/.exec(String(entry.headers['set-cookie']??''))?.[1]??'';
+    const loc=String(entry.headers.location??''); const entryCookie=String(entry.headers['set-cookie']??''); const st=/wm_sso_\d+=([0-9a-f-]{36})/.exec(entryCookie)?.[1]??'';
     check(label+' entry redirects to same-host login without upstream host',entry.status===302 && loc==='/web/login?redirect='+encodeURIComponent('/go/'+wid+'/?state='+st) && !!st && !loc.includes('127.0.0.1') && !entry.text.includes(env.WM_ODOO_URL));
+    check(label+' state cookie is HttpOnly/Lax and Secure exactly on HTTPS',/HttpOnly/i.test(entryCookie)&&/SameSite=Lax/i.test(entryCookie)&&/Path=\/go\/\d+\//.test(entryCookie)&&(https?/;\s*Secure(?:;|$)/i.test(entryCookie):!/;\s*Secure(?:;|$)/i.test(entryCookie)));
     const page=await http('GET',loc,h);
     check(label+' login page keeps the SSO callback for Odoo',page.status===200 && seen.at(-1).path==='/web/login?redirect='+encodeURIComponent('/go/'+wid+'/?state='+st));
     const post=await http('POST','/web/login',{...h,origin:(https?'https://':'http://')+host,'sec-fetch-site':'same-origin','content-type':'application/x-www-form-urlencoded',cookie:'session_id='+SID0},new URLSearchParams({csrf_token:'fixture-csrf',login:'fixture',password:'fixture-password',redirect:'/go/'+wid+'/?state='+st}).toString());
@@ -131,6 +133,27 @@ try {
     check(label+' callback passes the state check',back.status!==400 && String(back.headers['set-cookie']??'').includes('wm_sso_ok_'+wid+'=1'));
     lastSt=st;
   }
+  // Preserve the exact accepted /go/<digits>/ entry path; do not change the relay callback contract.
+  for(const [label,host,https] of [['LAN padded','192.0.2.88:9800',false],['public padded','market.example.test',true]]){
+    const idText='00'+wid,h={host,...(https?{'x-forwarded-proto':'https'}:{})};
+    const entry=await http('GET','/go/'+idText+'/',h);
+    const stateCookie=(entry.headers['set-cookie']??[]).find(value=>value.startsWith('wm_sso_'+idText+'='))??'';
+    check(label+' state cookie keeps the exact entry path and HTTPS flags',entry.status===302&&stateCookie.includes('Path=/go/'+idText+'/')&&/HttpOnly/i.test(stateCookie)&&/SameSite=Lax/i.test(stateCookie)&&(https?/;\s*Secure(?:;|$)/i.test(stateCookie):!/;\s*Secure(?:;|$)/i.test(stateCookie)));
+  }
+  // #413: all login GET/HEAD paths must keep every upstream policy, including duplicate headers.
+  const policies=[
+    {name:'default',headers:{},xfo:'SAMEORIGIN',csp:[],ancestor:"frame-ancestors 'self'"},
+    {name:'upstream-deny',headers:{'X-Frame-Options':'DENY','Content-Security-Policy':"default-src 'self'; frame-ancestors 'none'"},xfo:'DENY',csp:["default-src 'self'; frame-ancestors 'none'"],ancestor:"frame-ancestors 'none'"},
+    {name:'duplicate-deny',headers:{'X-Frame-Options':['SAMEORIGIN','DENY'],'Content-Security-Policy':["default-src 'self'; frame-ancestors 'self'","script-src 'none'; frame-ancestors 'none'"]},xfo:'DENY',csp:["default-src 'self'; frame-ancestors 'self'","script-src 'none'; frame-ancestors 'none'"],ancestor:"frame-ancestors 'none'"},
+    {name:'stricter-upstream',headers:{'X-Frame-Options':'SAMEORIGIN','Content-Security-Policy':"default-src 'none'; frame-ancestors https://embed.example.test"},xfo:'SAMEORIGIN',csp:["default-src 'none'; frame-ancestors https://embed.example.test"],ancestor:"frame-ancestors 'self'"},
+  ];
+  for(const policy of policies)for(const path of ['/web/login','/web/login/totp'])for(const method of ['GET','HEAD']){
+    upstreamPolicy=policy.headers;
+    const result=await http(method,path,{host:'market.example.test'}),raw=result.rawHeaders;
+    const all=name=>raw.flatMap((value,i)=>i%2===0&&value.toLowerCase()===name?[raw[i+1]]:[]),csp=all('content-security-policy');
+    check(policy.name+' '+method+' '+path+' preserves exact upstream CSP and enforces embedding intersection',result.status===200&&result.headers['x-frame-options']===policy.xfo&&result.headers['x-content-type-options']==='nosniff'&&JSON.stringify(csp)===JSON.stringify([...policy.csp,policy.ancestor])&&result.headers['cache-control']==='no-store'&&(method!=='HEAD'||result.text===''));
+  }
+  upstreamPolicy={};
   // Counterexamples (direct-24dd6c02): the callback redirect is honoured only with a ticket the portal issued for a trusted Odoo workbench.
   const H={host:'market.example.test'};
   const relayedRedirect=async (target)=>{ await http('GET','/web/login?redirect='+encodeURIComponent(target),H); return seen.at(-1).path.includes('redirect='); };
