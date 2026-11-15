@@ -18,9 +18,14 @@ export async function renderBenchView(bench: BenchEntry, store: BenchStore, opts
   });
   // A later read (including a cached key) may outlive an earlier successful block.
   // Fence the entire publication, including query-only blocks; never return a partial old binding.
+  assertBenchBinding(bench);
+  return result;
+}
+
+/** Synchronous publication fence; call after the last await and before writing the response. */
+export function assertBenchBinding(bench: BenchEntry): void {
   const latest = getBench(bench.slug);
   if (!latest || latest.workbench_id !== bench.workbench_id || latest.department_id !== bench.department_id || latest.team_host !== bench.team_host || latest.team !== bench.team || latest.created_at !== bench.created_at) {
     throw new HttpError(403, '工作台关联已改变，请重新打开');
   }
-  return result;
 }

@@ -32,7 +32,7 @@ import { bindBench, linkWorkbench, createBench, getBench, listBenches, resolveBe
 import { relationOf } from '../team-relation.ts';
 import { decideBenchRequest, listBenchMcp, setBenchGrants } from '../services/bench-mcp.ts';
 import { viaBegin, viaSettle } from '../attention-via.ts';
-import { renderBenchView } from '../services/bench-render.ts';
+import { assertBenchBinding, renderBenchView } from '../services/bench-render.ts';
 
 export type BenchViewsConfig = { on: boolean };
 /** 启动时读一次：WM_BENCH_VIEWS（on / off，缺省 off）。不合法拒绝启动 */
@@ -316,6 +316,7 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
       const invalidSelectors = Object.keys(req.query).some(k => k !== 'view' && k !== 'version' && !k.startsWith('p.'));
       const out = await renderBenchView(bench, await benchStore(bench.slug), { view: str(req.query.view), params, version: qint(req.query.version, 'version') }, invalidSelectors);
       const canSubmit = may(actor, 'bench-store.form-submit', bench);
+      assertBenchBinding(bench); // Last synchronous gate: nothing may await between this and res.json.
       res.json({ ...out, blocks: (out.blocks ?? []).map((b) => (b?.type === 'form' ? { ...b, can_submit: canSubmit } : b)) });
     } catch (e) { fail(res, e); }
   }));

@@ -76,6 +76,13 @@ globalThis.__race={current:{...b},read:async()=>{throw Error('not called')}};
 await assert.rejects(()=>renderBenchView(b,{renderView:async()=>{globalThis.__race.current=null;return {blocks:[result.blocks[2]]};}},{}),e=>e.status===403);
 globalThis.__race={current:{...b},read:async()=>{queueMicrotask(()=>{globalThis.__race.current={...b,workbench_id:2};});return {value:4,revision:1};}};
 await assert.rejects(()=>renderBenchView(b,{renderView:async()=>({blocks:[result.blocks[0],result.blocks[0],result.blocks[2]]})},{}),e=>e.status===403);
+// Ordinary key failures and pre-existing block errors cannot bypass whole-publication fencing.
+for (const failure of ['missing','invalid','unavailable','existing']) {
+ globalThis.__race={current:{...b},read:async key=>{if(key==='b'){globalThis.__race.current={...b,team:'moved'};if(failure==='missing')throw Object.assign(Error('missing'),{status:404});if(failure==='unavailable')throw Object.assign(Error('down'),{status:503});return {value:'bad',revision:1};}return {value:4,revision:1};}};
+ const data=structuredClone(result);if(failure==='existing'){data.blocks[1]={type:'stat',error:{code:'invalid'}};}
+ const store={renderView:async()=>{if(failure==='existing')globalThis.__race.current={...b,team:'moved'};return data;}};
+ await assert.rejects(()=>renderBenchView(b,store,{}),e=>e.status===403);
+}
 console.log('adapter publication races PASS');
 `;
 const race = spawnSync(process.execPath,['--import','data:text/javascript,'+encodeURIComponent(preload),'--input-type=module','-e',raceProgram],{encoding:'utf8',timeout:15000});

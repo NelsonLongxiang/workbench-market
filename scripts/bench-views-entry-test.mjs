@@ -48,7 +48,8 @@ async function boot(name, extraEnv = {}, { expectFail = false } = {}) {
   const env = {};
   for (const k of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP']) if (process.env[k]) env[k] = process.env[k];
   Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN, REDIS_URL: '', IDENTITY_SEAM_ROOT: ROOT, WM_EXTENSIONS_DIR: ext, ...extraEnv });
-  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const driftImport = name === 'publication-race' ? ['--import', pathToFileURL(join(HERE, 'fixtures/bench-render-drift-preload.mjs')).href] : [];
+  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, ...driftImport, 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
   child.stdout.on('data', (d) => { log += String(d); });
   child.stderr.on('data', (d) => { log += String(d); });
@@ -317,6 +318,21 @@ try {
   }
   r = await srv.call('GET', '/api/bench-views/ghost/render?var=secret_unused', nobody);
   check(r.status === 403, '无权请求先拒绝，不探台或变量', r.status);
+
+  console.log('六之二、最终 HTTP 发布屏障');
+  const raceSrv = await boot('publication-race', { WM_BENCH_VIEWS: 'on' });
+  await raceSrv.call('GET', '/api/auth/viewer', { session: SESSIONS.alpha });
+  const raceWho = { session: SESSIONS.alpha, headers: { ...REMOTE, origin: raceSrv.base, 'sec-fetch-site': 'same-origin' } };
+  const grantDraft = await raceSrv.call('POST', '/api/grants', { body: { principal: 'user:alpha', role: 'management', scope: '*', reason: '合成竞态' } });
+  await raceSrv.call('POST', '/api/grants/' + grantDraft.json.grant.id + '/submit');
+  await raceSrv.call('POST', '/api/grants/' + grantDraft.json.grant.id + '/approve');
+  const raceCard = await raceSrv.call('POST', '/api/workbenches', { body: { name: '合成竞态卡片', url: 'http://127.0.0.1:9/' } });
+  await raceSrv.call('POST', '/api/bench-views', { ...raceWho, body: { slug: 'binding-race', title: '合成竞态', workbench_id: raceCard.json.id } });
+  await raceSrv.call('PUT', '/api/bench-views/binding-race/datasets/d', { ...raceWho, body: { columns: [{ name: 'n', type: 'integer', label: '数值' }] } });
+  await raceSrv.call('POST', '/api/bench-views/binding-race/datasets/d/rows?op=replace', { ...raceWho, raw: JSON.stringify([{ n: 984321 }]) });
+  await raceSrv.call('PUT', '/api/bench-views/binding-race/view', { ...raceWho, body: { base: 0, note: '合成竞态', doc: { title: '合成', views: [{ key: 'v', title: 'v', blocks: [{ type: 'stat', query: { dataset: 'd' }, value: 'n' }] }] } } });
+  const raced = await raceSrv.call('GET', '/api/bench-views/binding-race/render', raceWho);
+  check(raced.status === 403 && !raced.text.includes('984321') && !raced.text.includes('var_revisions'), '真实 HTTP：adapter返回后、路由发布前微任务改绑，整份响应拒绝无数据残留', { status: raced.status, body: raced.text.slice(0, 160) });
 
   console.log('七、停用');
   await srv.call('POST', '/api/principals/disable', { body: { id: 'user:alpha', reason: '合成' } });
