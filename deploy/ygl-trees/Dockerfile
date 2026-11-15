@@ -1,6 +1,6 @@
 FROM node:22-bookworm-slim
-ARG YGL_TREES_VERSION=0.119.0
-ARG YGL_TREES_INTEGRITY=sha512-voXQXlZxAFeKiDffSfujU7JrLFfWMHHIc5SpktqE29o1/aX0tvuXSQyJW0xNrx17qqMTp0cTxn4wSGOeR5e4Cw==
+ARG YGL_TREES_VERSION=0.126.0
+ARG YGL_TREES_INTEGRITY=sha512-5PsRg2FtFuJf6njSNHP2V80krrw3v7aZHImh11L7buw4r8AYxZTxrwusuEl/VucNzAbbWuvv3oKnBdrR50jSjw==
 ENV npm_config_update_notifier=false
 COPY --chown=root:root package.json package-lock.json /opt/ygl/
 WORKDIR /opt/ygl

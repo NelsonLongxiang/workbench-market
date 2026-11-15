@@ -26,7 +26,7 @@ echo "Creating offline snapshot from stopped volume $volume." >&2
 # The candidate entrypoint holds a shared flock for each live workspace command.
 # This single helper holds the matching exclusive lock across checkpoint AND tar,
 # closing the check-then-use gap for all cooperating candidate writers.
-image=${YGL_IMAGE:-local/ygl-trees:0.119.0}
+image=${YGL_IMAGE:-local/ygl-trees:0.126.0}
 docker run --rm --network none --mount "type=volume,src=$volume,dst=/data" --entrypoint /bin/sh "$image" -ec 'flock --exclusive --nonblock /data/.sqlite-backup.lock /bin/sh -ec "node /usr/local/bin/ygl-checkpoint-sqlite.mjs /data && tar -C /data --exclude=./.sqlite-backup.lock -czf - ."' > "$tmp"
 test -s "$tmp"
 gzip -t "$tmp"
