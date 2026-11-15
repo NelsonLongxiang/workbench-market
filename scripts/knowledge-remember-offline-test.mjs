@@ -9,6 +9,10 @@
  *   三、卡片经 answer_via 放行带 remember：同样放行成功、经验被拒；答复账照记（之后接上了还能补记）
  *   四、补记接口：503 knowledge_not_connected，什么都不写
  *   五、同步状态里没有待写、没有放弃的；过一个重试周期也没有
+ *   六、先判权限再判接入：没有拍板授予的人补记仍是 403
+ *   七、命令行在、工作区不在：can 为假，补记 503
+ *   八、命令行和工作区都在、来源记过「未接入」：can 为假，补记 503
+ *   九、对照：都在、没记过「未接入」：can 为真，补记写成
  *
  *   node scripts/knowledge-remember-offline-test.mjs
  */
@@ -106,15 +110,21 @@ try {
     person.run('user:bob-synth', 'user:bob-synth', '合成乙'); ident.run('no-flag', 'no-flag', 'user:bob-synth');
     db.close();
   }
-  const port = await freePort();
-  child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], { cwd: join(ROOT, 'server'), env: { ...env, PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
-  child.stdout.on('data', (d) => { log += String(d); }); child.stderr.on('data', (d) => { log += String(d); });
-  const base = `http://127.0.0.1:${port}`;
-  for (let i = 0, ok = false; !ok; i++) {
-    if (i > 200 || child.exitCode !== null) throw new Error(`实例没起来：${log.slice(-800)}`);
-    try { ok = (await fetch(`${base}/api/health`)).status === 200; } catch { /* 还没起来 */ }
-    if (!ok) await sleep(200);
-  }
+  // 起一个实例（同一个数据目录）；后面几节换环境重起，看命令行在、工作区不在，和两样都在、来源记过「未接入」
+  let base = '';
+  const boot = async (patch = {}) => {
+    if (child && child.exitCode === null) { child.kill('SIGTERM'); await new Promise((r) => { const t = setTimeout(r, 5000); child.once('exit', () => { clearTimeout(t); r(); }); }); }
+    const port = await freePort();
+    child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], { cwd: join(ROOT, 'server'), env: { ...env, ...patch, PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.on('data', (d) => { log += String(d); }); child.stderr.on('data', (d) => { log += String(d); });
+    base = `http://127.0.0.1:${port}`;
+    for (let i = 0, ok = false; !ok; i++) {
+      if (i > 200 || child.exitCode !== null) throw new Error(`实例没起来：${log.slice(-800)}`);
+      try { ok = (await fetch(`${base}/api/health`)).status === 200; } catch { /* 还没起来 */ }
+      if (!ok) await sleep(200);
+    }
+  };
+  await boot();
   const call = async (method, path, headers, json) => {
     const r = await fetch(base + path, { method, headers: { ...headers, ...(json !== undefined ? { 'content-type': 'application/json' } : {}) }, body: json !== undefined ? JSON.stringify(json) : undefined });
     const text = await r.text(); let body = null; try { body = JSON.parse(text); } catch { /* 不是 JSON */ }
@@ -166,6 +176,40 @@ try {
   const s5 = await status();
   check(s5?.pending === 0 && s5?.failed === 0 && writes() === 0 && !/knowledge\.write|kb add/.test(log),
     '五、同步状态里没有待写、没有放弃的；过了重试周期也没有重试（日志里没有写入的尝试）', show({ s5, writes: writes() }));
+
+  // ---------- 六 ----------
+  // 先判权限、再判接入：没有拍板授予的人在没接入时拿到的仍是 403（不把接入状态告诉无权的人）
+  const r6 = await call('POST', '/api/knowledge/remember', WHO.普通员工, { source: 'work-items', source_id: I.v2, lesson: '无权的人' });
+  check(r6.status === 403 && r6.body?.error === 'remember_not_allowed' && writes() === 0,
+    '六、没接入时，没有拍板授予的人补记仍是 403 remember_not_allowed（不是 503，不透露接入状态）', show({ r6: [r6.status, r6.body] }));
+
+  // ---------- 七 ----------
+  // 命令行在（假的命令行）、YGL_HOME 指向不存在的目录
+  await boot({ WM_YGL_CLI: FAKE_CLI, YGL_HOME: join(OUT, 'no-such-ygl-home') });
+  const can7 = await me(WHO.管理层);
+  const r7 = await call('POST', '/api/knowledge/remember', WHO.管理层, { source: 'work-items', source_id: I.v2, lesson: '没有工作区' });
+  check(can7 === false && r7.status === 503 && r7.body?.error === 'knowledge_not_connected' && writes() === 0,
+    '七、命令行在、工作区（YGL_HOME）不在：can.remember_knowledge 为假，补记 503 knowledge_not_connected，什么都不写', show({ can7, r7: [r7.status, r7.body] }));
+
+  // ---------- 八 ----------
+  // 命令行、工作区都在，但同步记过「未接入」一类的错（契约对不上）：一样当场拒。合成：直接往同步状态表写一行
+  if (child && child.exitCode === null) { child.kill('SIGTERM'); await new Promise((r) => { const t = setTimeout(r, 5000); child.once('exit', () => { clearTimeout(t); r(); }); }); }
+  { const d = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: BUSY_MS }); try { d.prepare("INSERT OR REPLACE INTO knowledge_sync (kind, last_ok_at, last_error) VALUES ('note', NULL, 'contract_unsupported')").run(); } finally { d.close(); } }
+  await boot({ WM_YGL_CLI: FAKE_CLI, YGL_HOME: ygl });
+  const can8 = await me(WHO.管理层);
+  const r8 = await call('POST', '/api/knowledge/remember', WHO.管理层, { source: 'work-items', source_id: I.v2, lesson: '契约对不上' });
+  check(can8 === false && r8.status === 503 && r8.body?.error === 'knowledge_not_connected' && writes() === 0,
+    '八、命令行和工作区都在、来源记过「未接入」（contract_unsupported）：can 为假，补记 503，什么都不写', show({ can8, r8: [r8.status, r8.body] }));
+
+  // ---------- 九（对照） ----------
+  // 同一个现场把那一行错清掉：接上了，补记写得进去（第三节答复账里那一条），一切照旧
+  if (child && child.exitCode === null) { child.kill('SIGTERM'); await new Promise((r) => { const t = setTimeout(r, 5000); child.once('exit', () => { clearTimeout(t); r(); }); }); }
+  { const d = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: BUSY_MS }); try { d.prepare("DELETE FROM knowledge_sync WHERE kind = 'note'").run(); } finally { d.close(); } }
+  await boot({ WM_YGL_CLI: FAKE_CLI, YGL_HOME: ygl });
+  const can9 = await me(WHO.管理层);
+  const r9 = await call('POST', '/api/knowledge/remember', WHO.管理层, { source: 'work-items', source_id: I.v2, lesson: '接上了再补记' });
+  check(can9 === true && r9.status === 201 && r9.body?.status === 'written' && writes() === 1,
+    '九、对照：命令行、工作区都在、来源没记过「未接入」：can 为真，补记写成（接上以后一切照旧）', show({ can9, r9: [r9.status, r9.body], writes: writes() }));
 } catch (e) {
   fail++;
   console.log(`  ✗ 没跑完：${e?.stack ?? e}`);
