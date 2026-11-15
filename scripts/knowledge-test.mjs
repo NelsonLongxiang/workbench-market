@@ -54,8 +54,8 @@ const FIXTURE = {
   items: {
     claim: [{ kind: 'claim', id: 'claimSECRET1', title: '合成依据：样品要复检', summary: '复核过的结论', status: 'supported', project: 'syn-project', created: T(0), updated: T(1) }],
     note: [
-      { kind: 'note', id: 'noteSECRETstar', title: '合成经验：全公司', summary: '人人可见', scope: '*', tags: ['market'], created: T(0), updated: T(2) },
-      { kind: 'note', id: 'noteSECRETsales', title: '合成经验：销售部', summary: '销售部可见', scope: 'dept:sales', created: T(0), updated: T(3) },
+      { kind: 'note', id: 'noteSECRETstar', title: '合成经验：全公司', summary: '人人可见', scope: '*', tags: 'market, decision,,', created: T(0), updated: T(2) },
+      { kind: 'note', id: 'noteSECRETsales', title: '合成经验：销售部', summary: '销售部可见', scope: 'dept:sales', tags: ['legacy'], created: T(0), updated: T(3) },
       { kind: 'note', id: 'noteSECRETops', title: '合成经验：运营部', summary: '运营部可见', scope: 'dept:ops', created: T(0), updated: T(4) },
       { kind: 'note', id: 'noteSECRETrestr', title: '合成经验：只给管理层', summary: '', scope: 'restricted', project: 'syn-project', created: T(0), updated: T(5) },
       { kind: 'note', id: 'noteSECRETempty', title: '合成经验：没有范围', summary: '', created: T(0), updated: T(6) },
@@ -199,6 +199,10 @@ try {
     const label = Object.fromEntries((all.json?.items ?? []).map((i) => [i.title, i.scope_label]));
     check(label['合成经验：全公司'] === '全公司' && label['合成经验：销售部'] === '合成销售部' && ['合成经验：只给管理层', '合成经验：没有范围', '合成经验：怪范围', '合成方法', '合成检查', '合成依据：样品要复检'].every((t) => label[t] === '只给管理层'),
       '范围的说法：全公司、部门名（不露 dept:）；没给范围的、bench:、对不上写法的、依据和检查（没有范围）一律只给管理层', show(label));
+    // 标签：library 出口给的是逗号分隔的一串（ygl-trees 0.126.0 实测），拆开、去空白、去空项；数组的写法也认
+    const tags = Object.fromEntries((all.json?.items ?? []).map((i) => [i.title, i.tags]));
+    check(show(tags['合成经验：全公司']) === show(['market', 'decision']) && show(tags['合成经验：销售部']) === show(['legacy']) && show(tags['合成经验：运营部']) === show([]),
+      '标签：逗号分隔的一串拆成数组（去空白、去空项）；数组照收；没有就是空', show(tags));
   }
 
   // ---------- 八、「项目 → 部门」对照 ----------

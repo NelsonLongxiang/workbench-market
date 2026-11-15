@@ -195,7 +195,9 @@ export class KnowledgeService extends Service {
           if (!id || it?.kind !== kind) continue;
           const updated = typeof it.updated === 'string' && ISO_RE.test(it.updated) ? it.updated : '';
           const scope = typeof it.scope === 'string' && SCOPE_RE.test(it.scope) ? it.scope : '';
-          const tags = Array.isArray(it.tags) ? it.tags.filter((t): t is string => typeof t === 'string').slice(0, 20).map((t) => t.slice(0, 64)) : [];
+          // tags：ygl-library/1 给的是逗号分隔的一串（库里原样存的，比如 "market,decision"）；也认数组。别的写法当没有
+          const rawTags: unknown[] = typeof it.tags === 'string' ? it.tags.split(',') : Array.isArray(it.tags) ? it.tags : [];
+          const tags = rawTags.filter((t): t is string => typeof t === 'string').map((t) => t.trim()).filter(Boolean).slice(0, 20).map((t) => t.slice(0, 64));
           upsert.run(kind, id, this.keyOf(kind, id), clip(it.title, 500), clip(it.summary, 600), clip(it.status, 32), clip(it.project, 128), scope, JSON.stringify(tags),
             typeof it.created === 'string' && ISO_RE.test(it.created) ? it.created : '', updated, now);
           if (updated > maxUpdated) maxUpdated = updated;

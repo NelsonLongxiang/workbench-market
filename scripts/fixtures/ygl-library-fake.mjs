@@ -37,14 +37,15 @@ if (argv[0] === 'kb' && argv[1] === 'add') {
   if (fx.kb_add_fail === 'timeout') await new Promise(() => { setInterval(() => {}, 1000); }); // 一直不退
   {
     if ([opt('--title'), opt('--body'), opt('--scope'), opt('--tags')].includes(MISSING)) out({ error: 'option requires a value' }, 2);
-    const title = opt('--title') ?? '', body = opt('--body') ?? '', scope = opt('--scope') ?? '', tags = (opt('--tags') ?? '').split(',').filter(Boolean);
+    // tags 和真的一样原样存成逗号分隔的一串（ygl-trees 0.126.0 的 library 出口照这一串给）
+    const title = opt('--title') ?? '', body = opt('--body') ?? '', scope = opt('--scope') ?? '', tags = opt('--tags') ?? '';
     if (!title || !body) out({ error: 'title and body required' }, 2);
     fx.items = fx.items ?? {}; fx.items.note = fx.items.note ?? []; fx.bodies = fx.bodies ?? {};
     const same = fx.items.note.find((n) => n.title === title && fx.bodies[`note:${n.id}`]?.body === body);
     if (same) out({ id: same.id, verified: true, duplicate: true });
     const id = `kbw${String(fx.items.note.length + 1).padStart(4, '0')}`;
     const at = new Date().toISOString();
-    fx.items.note.push({ kind: 'note', id, title, summary: body.slice(0, 200), tags, ...(scope ? { scope } : {}), created: at, updated: at });
+    fx.items.note.push({ kind: 'note', id, title, summary: body.slice(0, 200), ...(tags ? { tags } : {}), ...(scope ? { scope } : {}), created: at, updated: at });
     fx.bodies[`note:${id}`] = { body };
     writeFileSync(join(process.env.YGL_HOME ?? '.', 'library-fixture.json'), JSON.stringify(fx));
     out({ id, verified: true });
