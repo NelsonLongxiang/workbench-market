@@ -3190,8 +3190,14 @@ app.delete('/api/admin-token', (req, res) => {
 // 内部读取走 mcpUpstreams() 直读 DB，不受影响；导出同样脱敏（与 auth.value 口径一致）。
 // 评审 #27：管理员口令哈希（admin_token_sha256）同表存放，出口一律剔除——远程 GET 无口令可读，
 // 无盐 sha256 + 短口令可离线爆破；口令只经 /api/admin-token 设置与校验，不随设置/导出外流。
+// 凭据类的键（令牌、密码、密钥）的值一律只说有没有；开关类的例外。别人（非管理员）读设置只给巡检参数和开关
+const SETTINGS_PUBLIC_KEYS = ['health_interval_seconds', 'health_timeout_ms', 'health_concurrency', 'dispatch_sorting_enabled', 'run_upload_require_token', 'patrol_armed_at'];
+const SETTINGS_FLAG_KEYS = new Set(['run_upload_require_token']);
+const isSecretSettingKey = (k: string): boolean => !SETTINGS_FLAG_KEYS.has(k) && /(^|_)(token|secret|password|passwd|api_?key)$/i.test(k);
 function maskUpstreamsSetting(settings: Record<string, string>): Record<string, string> {
-  const { [ADMIN_TOKEN_KEY]: _adminHash, ...all } = settings;
+  const { [ADMIN_TOKEN_KEY]: _adminHash, ...rest } = settings;
+  const all: Record<string, string> = {};
+  for (const [k, v] of Object.entries(rest)) all[k] = isSecretSettingKey(k) ? (v ? '****' : '') : v;
   const raw = all.mcp_upstreams;
   if (!raw) return all;
   try {
@@ -3209,7 +3215,20 @@ function maskUpstreamsSetting(settings: Record<string, string>): Record<string, 
   }
 }
 
-app.get('/api/settings', (_req, res) => { res.json(maskUpstreamsSetting(getSettings())); });
+// 管理员（口令或管理员登录，同源）和本机命令行看全部（凭据类的值只说有没有）；别人只看巡检参数和开关。设置读与掩码导出共用
+async function settingsForReader(req: express.Request): Promise<Record<string, string>> {
+  const cli = !browserMarked(req) && rawLoopback(req);
+  if (!cli) await markOdooAdmin(req);
+  const all = maskUpstreamsSetting(getSettings());
+  return cli || adminHeaderOk(req) ? all : Object.fromEntries(SETTINGS_PUBLIC_KEYS.filter((k) => k in all).map((k) => [k, all[k]]));
+}
+app.get('/api/settings', (req, res, next) => {
+  (async () => {
+    const view = await settingsForReader(req);
+    res.set('Cache-Control', 'private, no-store');
+    res.json(view);
+  })().catch(next);
+});
 
 app.put('/api/settings', (req, res) => {
   const b = req.body ?? {};
@@ -3237,6 +3256,8 @@ async function exportHandler(req: express.Request, res: express.Response): Promi
     if (!adminGuard(req, res)) return;
     res.set('Cache-Control', 'no-store');
   }
+  // 设置和 GET /api/settings 同口径：别人只拿巡检参数和开关（取真值的已过管理员门，拿全部）；导入不读 settings
+  const settingsView = reveal ? maskUpstreamsSetting(getSettings()) : await settingsForReader(req);
   res.json({
     format: 'workbench-market/export@1',
     exported_at: new Date().toISOString(),
@@ -3245,7 +3266,7 @@ async function exportHandler(req: express.Request, res: express.Response): Promi
     types: svc<WorkbenchService>('workbench').types(),
     // 评审 #24：上游 MCP 凭据（headers）与 auth.value 同口径——掩码导出不会带真凭据，
     // 导入侧亦不覆盖 mcp_upstreams（掩码值跳过），凭据需在页面重填。
-    settings: maskUpstreamsSetting(getSettings()),
+    settings: settingsView,
   });
 }
 
