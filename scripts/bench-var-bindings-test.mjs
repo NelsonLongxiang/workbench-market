@@ -30,19 +30,19 @@ await resolveViewVars(same, async () => { reads++; return { value: 1, revision: 
 assert.equal(reads, 1);
 for (const value of [null, '1', {}, [], false, NaN, Infinity]) {
  const got = await resolveViewVars(result, async () => ({ value, revision: 1 }));
- assert.equal(got.blocks[0].error.code, 'invalid');
+ assert.equal(got.blocks[0].error?.code, 'invalid');
  assert.equal(got.blocks[0].data, undefined);
 }
 const missing = await resolveViewVars(result, async () => undefined);
-assert.equal(missing.blocks[0].error.code, 'not_found');
+assert.equal(missing.blocks[0].error?.code, 'not_found');
 const unavailable = await resolveViewVars(result, async () => { throw Object.assign(new Error('private upstream details'), { status: 503 }); });
-assert.equal(unavailable.blocks[0].error.code, 'unavailable');
+assert.equal(unavailable.blocks[0].error?.code, 'unavailable');
 assert.equal(unavailable.blocks[0].data, undefined);
 assert.ok(!JSON.stringify(unavailable).includes('private upstream details'));
 const invalidTotal = await resolveViewVars(result, async key => ({ value: key === 'target' ? 0 : 10, revision: 1 }));
-assert.equal(invalidTotal.blocks[1].error.code, 'invalid');
+assert.equal(invalidTotal.blocks[1].error?.code, 'invalid');
 const denied = await resolveViewVars(result, async () => { throw Object.assign(new Error('secret denied'), { status: 403 }); });
-assert.equal(denied.blocks[0].error.code, 'forbidden');
+assert.equal(denied.blocks[0].error?.code, 'forbidden');
 assert.equal(denied.blocks[0].data, undefined);
 const old = { blocks: [{ type: 'stat', value: 'n', data: { columns: [{ name: 'n', type: 'integer' }], rows: [{ n: 4 }] } }] };
 assert.equal(await resolveViewVars(old, async () => { throw new Error('not called'); }), old);
