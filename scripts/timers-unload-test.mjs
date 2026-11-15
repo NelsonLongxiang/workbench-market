@@ -3,7 +3,7 @@
  * 周期定时器随上下文停（CONTRIBUTING「周期任务：能随所属模块一起停掉的定时器」）。
  *
  * 在子进程里起一个最小实例：临时数据目录，装上服务容器，引入并启动 index.ts 之外所有带周期定时器的模块
- * （端点计数落库、保险库闲置上锁、工作台事件投递、登录方式每日对账、授予到期标记），然后卸载根上下文。
+ * （端点计数落库、保险库闲置上锁、工作台事件投递、登录方式每日对账、授予到期标记、技能影子补推），然后卸载根上下文。
  *
  *   T1 起来之后这些周期定时器确实在跑（不然后面的「没残留」是空话）
  *   T2 卸载根上下文之后，一个周期定时器都不剩
@@ -60,6 +60,9 @@ async function child() {
   registerLoginEventRoutes(http);
   const refuse = () => { throw new Error('测试里不该走到'); };
   registerGrantRoutes(http, { markOdooAdmin: refuse, adminGuard: refuse, adminActor: refuse });
+  // 技能影子补推：LayerFS 没配置（base 空），一轮什么都不做；这里只看定时器起没起、停没停
+  const { startSkillShadowCatchUp } = await import(src('skill-shadow.ts'));
+  startSkillShadowCatchUp({ layerfsPublish: refuse, layerfsServiceBase: () => ({ base: '', token: '' }), LAYERFS_SKILLS_PROJECT: 'wm-skills', resolveSnap: refuse }, { everyMs: 600_000, batch: 20 });
 
   const started = longOnes();
   await root.fiber.dispose();
@@ -88,7 +91,7 @@ async function parent() {
     const where = (list) => list.map((t) => `${t.kind}(${t.ms}) ${t.at}`).join('；');
 
     const started = report?.started ?? [];
-    const expect = ['endpoint-stats.ts', 'vault-api.ts', 'workbench-events.ts', 'routes/login-events.ts', 'routes/grants.ts'];
+    const expect = ['endpoint-stats.ts', 'vault-api.ts', 'workbench-events.ts', 'routes/login-events.ts', 'routes/grants.ts', 'skill-shadow.ts'];
     for (const f of expect) ok(`T1 起来之后 ${f} 的周期定时器在跑`, started.some((t) => t.at.includes(`/server/src/${f}:`)), `起来的：${where(started)}`);
     ok('T2 卸载根上下文之后一个周期定时器都不剩', !!report && report.left.length === 0, report ? `剩下：${where(report.left)}` : '子进程没给报告');
     ok(`T3 子进程自己退出（${code === 'timeout' ? `${EXIT_LIMIT_MS}ms 还挂着` : `${Date.now() - t0}ms，退出码 ${code}`}）`, code === 0, code === 'timeout' ? '' : err.slice(-1000));

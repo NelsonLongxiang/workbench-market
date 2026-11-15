@@ -15,6 +15,7 @@ import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import { SkillService } from '../services/skill.ts';
 import { HttpError } from '../errors.ts';
+import { pushSkillVersion, type LayerfsPublish } from '../skill-shadow.ts';
 
 /** 从 index.ts 传进来的：管理员守卫、异步处理函数的包装、400 的快捷写法、快照路径、发布核心、下载票和打包、回滚和删除、LayerFS 的推送和地址、重建、tar 打包（MCP、变更请求、每月自动重建也用）。 */
 export interface SkillDeps {
@@ -32,7 +33,7 @@ export interface SkillDeps {
   SKILL_DL_MAX: number;
   executeSkillRollback: (slug: string, targetVersion: number, reviewedBy: string) => Promise<Record<string, unknown>>;
   executeSkillDelete: (slug: string) => void;
-  layerfsPublish: (project: string, files: { path: string; content: string }[], message: string, branch?: string) => Promise<{ commit_id: string; changed: boolean } | null>;
+  layerfsPublish: LayerfsPublish;
   LAYERFS_SKILLS_PROJECT: string;
   layerfsServiceBase: () => { base: string; token: string };
   rebuildWmSkills: (trigger: string) => Promise<{ ok: boolean; deleted_project: boolean; republished: number; cleared_stale: number }>;
@@ -163,37 +164,9 @@ export function registerSkillRoutes(app: HttpService, deps: SkillDeps): void {
     const vs = S.versionsBySkill(row.id) as any[];
     const results: any[] = [];
     for (const v of vs.sort((a, b) => a.version - b.version)) {
-      if (v.commit_id) { results.push({ version: v.version, result: 'skip', commit_id: v.commit_id }); continue; } // 幂等
-      if (!v.snapshot_path || !existsSync(resolveSnap(v.snapshot_path))) { results.push({ version: v.version, result: 'anomaly', reason: '快照目录缺失' }); continue; }
-      // 按字节读：LayerFS 契约 v1 的 content 是文本，非 UTF-8（二进制）文件转不了，点名留档不迁，不拿改坏的内容去算摘要
-      const raw: { path: string; bytes: Buffer }[] = [];
-      (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else raw.push({ path: rel + e.name, bytes: readFileSync(fp) }); } })(resolveSnap(v.snapshot_path));
-      const binary = raw.find((f) => !Buffer.from(f.bytes.toString('utf8'), 'utf8').equals(f.bytes));
-      if (binary) { results.push({ version: v.version, result: 'anomaly', reason: `含非 UTF-8（二进制）文件 ${binary.path}：LayerFS 契约只收文本，留档不迁` }); continue; }
-      const files = raw.map((f) => ({ path: f.path, content: f.bytes.toString('utf8') }));
-      // 0 字节文件是合法内容（如 Python 包的 __init__.py），照常迁移；整个快照一个文件都没有才算异常。
-      // 判据改为摘要：快照读出的文件集必须与登记的 tree_digest 一致才发布（登记快照不可变，不改它），发布后再从服务读回同一 commit 重算
-      if (files.length === 0) { results.push({ version: v.version, result: 'anomaly', reason: '空快照（留档不迁）' }); continue; }
-      const pre = SkillService.filesDigest(files).digest;
-      if (pre !== v.tree_digest) { results.push({ version: v.version, result: 'anomaly', reason: '快照读出的摘要与登记不符（留档不迁）' }); continue; }
-      const out = await layerfsPublish(LAYERFS_SKILLS_PROJECT, files, `[skill-migrate] ${row.slug} v${v.version}`, `skill/${row.slug}`);
-      if (!out) { S.versionShadowPublishFailed(v.id); results.push({ version: v.version, result: 'error', reason: 'layerfs 服务不可达（可重跑）' }); continue; }
-      // K13 摘要对账：从服务读回这个 commit 的文件集重算，与登记摘要一致才记 commit_id（0 字节文件读回也得是 0 字节、同路径）
-      let back = '';
-      try {
-        const { base, token } = layerfsServiceBase();
-        const fr = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(LAYERFS_SKILLS_PROJECT) + '/branches/' + encodeURIComponent(`skill/${row.slug}`) + '/commits/' + encodeURIComponent(out.commit_id) + '/files', { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(10000) });
-        const fj = await fr.json() as { files?: { path: string; content: string }[] };
-        if (fr.ok && Array.isArray(fj.files)) back = SkillService.filesDigest(fj.files).digest;
-      } catch { back = ''; }
-      if (back !== v.tree_digest) {
-        // 这个 commit 已在分支上但不登记（孤立）：记进 shadow_error 便于核对；月度整库重建（rebuildWmSkills）会清掉它
-        S.versionShadowFailed(`LayerFS readback digest mismatch; orphan commit ${out.commit_id} (cleared by monthly rebuild); retry migrate-layerfs`, v.id);
-        results.push({ version: v.version, result: 'error', reason: back ? '读回摘要与登记不符（不记 commit_id·可重跑）' : '读回失败（不记 commit_id·可重跑）', commit_id_unrecorded: out.commit_id });
-        continue;
-      }
-      S.versionMigrated(out.commit_id, v.id);
-      results.push({ version: v.version, result: 'migrated', commit_id: out.commit_id, digest_match: true, readback_digest_match: true });
+      // 推一版的逻辑在 skill-shadow.ts（定时补推也用它）；应答里每项的形状和原来一样（kind、unreachable 只给补推用）
+      const { kind: _k, unreachable: _u, ...one } = await pushSkillVersion(row.slug, v, { layerfsPublish, layerfsServiceBase, LAYERFS_SKILLS_PROJECT, resolveSnap }) as Record<string, unknown>;
+      results.push(one);
     }
     res.json({ slug: row.slug, project: LAYERFS_SKILLS_PROJECT, branch: `skill/${row.slug}`, results });
   }));
