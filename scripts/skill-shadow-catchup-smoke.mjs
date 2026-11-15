@@ -5,12 +5,15 @@
  *      含二进制的记 skipped、不推；摘要与登记不符的记 failed、写明原因、不推；遗产登记（legacy）不碰
  *  三、读回不一致：记 failed，下一轮重试，服务正常后变 succeeded
  *  四、整库重建：当前版本 commit_id 和 succeeded 同时写上（不等重启）；旧版本 commit_id 清掉、状态回到 pending；skipped 不动
+ *  五、退避（子进程里直接调 catchUpRound）：摘要不符的版本失败后隔 2、4、8……轮才再试——连跑 8 轮只在第 1、3、7 轮 tried；skipped 的版本不再进 tried
+ *  六、LayerFS 没配置（base 空）：configured=false，不推、不写库（状态和原因都不变）、不打 [skill-shadow] 日志
  *  定时器随根上下文停：见 scripts/timers-unload-test.mjs。 */
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -28,6 +31,49 @@ function digest(files) {
     h.update(createHash('sha256').update(f.bytes ?? Buffer.from(f.content, 'utf8')).digest('hex')); h.update('\0');
   }
   return h.digest('hex');
+}
+
+// ---- 五、六：子进程里装上服务容器，直接调 catchUpRound（DATA_DIR 要在引入服务端模块之前定好） ----
+if (process.env.SKILL_SHADOW_UNIT === '1') {
+  const dataDir = process.env.DATA_DIR;
+  const src = (f) => pathToFileURL(join(resolve(fileURLToPath(import.meta.url), '../../server/src'), f)).href;
+  await import(src('context.ts'));
+  const { catchUpRound, newCatchUpState } = await import(src('skill-shadow.ts'));
+  const { DatabaseSync } = await import('node:sqlite');
+  const db = new DatabaseSync(join(dataDir, 'workbench-market.db'), { timeout: 5000 });
+  const snap = (rel, files) => { const dir = join(dataDir, 'skill-snapshots', rel); for (const f of files) { mkdirSync(join(dir, f.path, '..'), { recursive: true }); writeFileSync(join(dir, f.path), f.bytes ?? f.content); } return `skill-snapshots/${rel}`; };
+  const add = (slug, files, registered = digest(files)) => {
+    const id = Number(db.prepare("INSERT INTO skills (slug, name, layer, layer_name, source) VALUES (?, ?, 5, '合成', 'agents-skills')").run(slug, slug).lastInsertRowid);
+    db.prepare("INSERT INTO skill_versions (skill_id, version, tree_digest, file_count, total_bytes, snapshot_path) VALUES (?, 1, ?, ?, 1, ?)").run(id, registered, files.length, snap(`${slug}/v1`, files));
+  };
+  const md = (n) => [{ path: 'SKILL.md', content: `---\nname: ${n}\n---\n合成\n` }];
+  add('agents:unit-drift', md('unit-drift'), digest(md('other')));
+  add('agents:unit-bin', [...md('unit-bin'), { path: 'x.bin', bytes: Buffer.from([0xff, 0xfe, 0x00]) }]);
+  const rowOf = (slug) => db.prepare('SELECT v.shadow_status, v.shadow_error, v.commit_id FROM skill_versions v JOIN skills s ON s.id = v.skill_id WHERE s.slug = ?').get(slug);
+  const logs = [];
+  for (const k of ['log', 'warn', 'error']) { const orig = console[k]; console[k] = (...a) => { logs.push(a.join(' ')); orig.apply(console, a); }; }
+  let published = 0;
+  const deps = (base) => ({ layerfsServiceBase: () => ({ base, token: '' }), layerfsPublish: async () => { published++; return null; }, LAYERFS_SKILLS_PROJECT: 'wm-skills', resolveSnap: (p) => join(dataDir, p) });
+  // 六：没配置
+  const before = [rowOf('agents:unit-drift'), rowOf('agents:unit-bin')];
+  const r0 = await catchUpRound(deps(''), 20, newCatchUpState());
+  const after0 = [rowOf('agents:unit-drift'), rowOf('agents:unit-bin')];
+  const six = { configured: r0.configured, tried: r0.tried, unchanged: JSON.stringify(before) === JSON.stringify(after0), published, logs: logs.filter((l) => l.includes('[skill-shadow]')) };
+  // 五：退避（LayerFS 配了；摘要不符和二进制都不会真去推）
+  const st = newCatchUpState();
+  const triedDrift = [], triedTotal = [];
+  for (let i = 1; i <= 8; i++) {
+    const before5 = rowOf('agents:unit-drift').shadow_error;
+    db.prepare("UPDATE skill_versions SET shadow_error = '' WHERE shadow_status = 'failed'").run(); // 清掉原因，看这一轮有没有再写一遍
+    const r = await catchUpRound(deps('http://127.0.0.1:9'), 20, st);
+    triedTotal.push(r.tried);
+    triedDrift.push(rowOf('agents:unit-drift').shadow_error !== '' ? 1 : 0);
+    if (i > 1 && rowOf('agents:unit-drift').shadow_error === '') db.prepare("UPDATE skill_versions SET shadow_error = ? WHERE shadow_status = 'failed'").run(before5);
+  }
+  const five = { triedDrift, triedTotal, bin: rowOf('agents:unit-bin'), published };
+  process.stdout.write(JSON.stringify({ six, five }) + '\n');
+  db.close();
+  process.exit(0);
 }
 
 // ---- LayerFS 替身：down 时发布回 503；dropEmpty 时读回丢掉空文件 ----
@@ -146,6 +192,26 @@ try {
   fail++; console.log('  ✗ 异常', e?.stack ?? e);
 } finally {
   server.kill(); lfs.close(); await sleep(300); rmSync(TMP, { recursive: true, force: true });
+}
+// ---- 五、六：子进程 ----
+{
+  const UD = join(resolve('tmp'), 'skill-shadow-unit-' + Date.now().toString(36));
+  mkdirSync(UD, { recursive: true });
+  try {
+    const env = { ...process.env, SKILL_SHADOW_UNIT: '1', DATA_DIR: UD, NODE_ENV: 'test', REDIS_URL: '', MCP_GATEWAY: 'off' };
+    for (const k of ['LAYERFS_SERVICE_URL', 'LAYERFS_SERVICE_TOKEN', 'LAYERFS_SERVICE_TOKEN_FILE']) delete env[k];
+    const out = await new Promise((res) => { const p = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', fileURLToPath(import.meta.url)], { env, stdio: ['ignore', 'pipe', 'pipe'] }); let o = '', e = ''; p.stdout.on('data', (c) => (o += c)); p.stderr.on('data', (c) => (e += c)); const k = setTimeout(() => p.kill('SIGKILL'), 60_000); p.on('exit', () => { clearTimeout(k); res(o + '\n' + e); }); });
+    const line = out.split('\n').reverse().find((l) => l.startsWith('{"six"'));
+    const u = line ? JSON.parse(line) : null;
+    if (!u) console.log(out.slice(-1500));
+    ok('六 没配置：configured=false、一个都没 tried', u?.six.configured === false && u.six.tried === 0, JSON.stringify(u?.six));
+    ok('六 没配置：候选版本的状态和原因都不变、没推', u?.six.unchanged === true && u.six.published === 0, JSON.stringify(u?.six));
+    ok('六 没配置：日志里没有 [skill-shadow]', u?.six.logs?.length === 0, JSON.stringify(u?.six.logs));
+    ok('五 退避：摘要不符的版本 8 轮里只在第 1、3、7 轮 tried（失败后隔 2、4 轮）', JSON.stringify(u?.five.triedDrift) === '[1,0,1,0,0,0,1,0]', JSON.stringify(u?.five));
+    ok('五 skipped 的版本不再进 tried（第 1 轮 tried 2 个：摘要不符的和二进制的；之后最多 1 个）', u?.five.triedTotal?.[0] === 2 && u.five.triedTotal.slice(1).every((n) => n <= 1) && u.five.bin?.shadow_status === 'skipped', JSON.stringify(u?.five));
+    ok('五 摘要不符、二进制都没去推', u?.five.published === 0, JSON.stringify(u?.five));
+  } catch (e) { fail++; console.log('  ✗ 子进程异常', e?.stack ?? e); }
+  finally { rmSync(UD, { recursive: true, force: true }); }
 }
 console.log(`\nskill-shadow-catchup-smoke: ${pass} passed / ${fail} failed`);
 process.exit(fail ? 1 : 0);

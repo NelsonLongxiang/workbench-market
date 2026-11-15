@@ -10,7 +10,7 @@
  * 一致才记 succeeded；不一致记 failed，下一轮再试。每轮最多 WM_SKILL_SHADOW_BATCH 个。
  *  · LayerFS 没配置：什么都不做，不写库、不打日志。
  *  · LayerFS 连不上：这一轮推到第一个失败就停（不把一批都撞一遍），这一版记 failed；日志只在「通 → 不通」「不通 → 通」时各打一行。
- *  · 快照缺失、摘要和登记不符、空快照：记 failed 并写明原因；同一版在内存里退避（一轮、两轮、四轮……最多 64 轮再试），重启清零。
+ *  · 快照缺失、摘要和登记不符、空快照、读回不一致：记 failed 并写明原因；同一版在内存里退避——第 n 次失败后隔 2^n 轮再试（2、4、8……最多 64 轮），重启清零。
  *  · 含二进制文件：LayerFS 契约 v1 只收文本，记 skipped（和发布时一样），以后不再试。
  * 定时器挂在根上下文的 effect 上，卸载时一起停；第一轮在起来之后 min(周期, 2 分钟) 才跑，不挡启动。
  */
@@ -127,7 +127,7 @@ export async function catchUpRound(deps: ShadowDeps, batch: number, state: Catch
     if (r.result === 'anomaly') S.versionShadowFailed(r.reason, v.id);
     res.failed++;
     const fails = (b?.fails ?? 0) + 1;
-    state.backoff.set(Number(v.id), { fails, nextRound: state.round + 2 ** Math.min(fails - 1, 6) });
+    state.backoff.set(Number(v.id), { fails, nextRound: state.round + 2 ** Math.min(fails, 6) });
   }
   if (!res.stopped_unreachable && state.down && res.tried > 0) { state.down = false; console.log('[skill-shadow] LayerFS 恢复，技能影子补推继续'); }
   return res;
