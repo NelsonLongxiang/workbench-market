@@ -50,4 +50,35 @@ const threshold = { blocks: [{ type: 'bar', data: { columns: [{ name: 'n', type:
 const resolvedThreshold = await resolveViewVars(threshold, async () => ({ value: 50, revision: 4 }));
 assert.equal(resolvedThreshold.blocks[0].tone_rules[0].value, 50);
 assert.deepEqual(resolvedThreshold.blocks[0].var_revisions, { target: 4 });
+
+// Adapter publication races, using in-memory dependency hooks; no database or app process.
+const { spawnSync } = await import('node:child_process');
+const registry = new URL('../server/src/services/bench-registry.ts', import.meta.url).href;
+const vars = new URL('../server/src/workbench-vars.ts', import.meta.url).href;
+const adapter = new URL('../server/src/services/bench-render.ts', import.meta.url).href;
+const preload = `import { registerHooks } from 'node:module'; registerHooks({ load(url,ctx,next) {
+ if (url === ${JSON.stringify(registry)}) return {format:'module',shortCircuit:true,source:'export const getBench=()=>globalThis.__race.current;'};
+ if (url === ${JSON.stringify(vars)}) return {format:'module',shortCircuit:true,source:'export const workbenchScope=id=>({id}); export const getVar=async(s,key)=>globalThis.__race.read(key);'};
+ return next(url,ctx); } });`;
+const raceProgram = `
+import assert from 'node:assert/strict';
+import { renderBenchView } from ${JSON.stringify(adapter)};
+const b = {slug:'board',workbench_id:1,department_id:'sales',team_host:'',team:''};
+const result = {blocks:[{type:'stat',value:{var:'a'},data:{columns:[],rows:[{}]}},{type:'stat',value:{var:'b'},data:{columns:[],rows:[{}]}},{type:'table',data:{columns:[],rows:[{secret:984321}]}}]};
+globalThis.__race={current:{...b},read:async()=>({value:4,revision:1})};
+const stable = await renderBenchView(b,{renderView:async()=>structuredClone(result)},{});
+assert.equal(stable.blocks[0].data.rows[0].value,4);
+for (const field of ['workbench_id','department_id','team_host','team']) {
+ globalThis.__race={current:{...b},read:async key=>{if(key==='b')globalThis.__race.current={...b,[field]:field==='workbench_id'?2:'changed'};return {value:4,revision:1};}};
+ await assert.rejects(()=>renderBenchView(b,{renderView:async()=>structuredClone(result)},{}),e=>e.code==='forbidden');
+}
+globalThis.__race={current:{...b},read:async()=>{throw Error('not called')}};
+await assert.rejects(()=>renderBenchView(b,{renderView:async()=>{globalThis.__race.current=null;return {blocks:[result.blocks[2]]};}},{}),e=>e.code==='forbidden');
+globalThis.__race={current:{...b},read:async()=>{queueMicrotask(()=>{globalThis.__race.current={...b,workbench_id:2};});return {value:4,revision:1};}};
+await assert.rejects(()=>renderBenchView(b,{renderView:async()=>({blocks:[result.blocks[0],result.blocks[0],result.blocks[2]]})},{}),e=>e.code==='forbidden');
+console.log('adapter publication races PASS');
+`;
+const race = spawnSync(process.execPath,['--import','data:text/javascript,'+encodeURIComponent(preload),'--input-type=module','-e',raceProgram],{encoding:'utf8',timeout:15000});
+assert.equal(race.status,0,race.stderr||race.stdout);
+console.log(race.stdout.trim());
 console.log('bench-var-bindings: contract, finite scalars, selected keys, revisions, errors, thresholds, old views PASS');
