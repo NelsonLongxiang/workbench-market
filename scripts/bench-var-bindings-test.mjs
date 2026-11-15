@@ -70,12 +70,12 @@ const stable = await renderBenchView(b,{renderView:async()=>structuredClone(resu
 assert.equal(stable.blocks[0].data.rows[0].value,4);
 for (const field of ['workbench_id','department_id','team_host','team']) {
  globalThis.__race={current:{...b},read:async key=>{if(key==='b')globalThis.__race.current={...b,[field]:field==='workbench_id'?2:'changed'};return {value:4,revision:1};}};
- await assert.rejects(()=>renderBenchView(b,{renderView:async()=>structuredClone(result)},{}),e=>e.code==='forbidden');
+ await assert.rejects(()=>renderBenchView(b,{renderView:async()=>structuredClone(result)},{}),e=>e.status===403);
 }
 globalThis.__race={current:{...b},read:async()=>{throw Error('not called')}};
-await assert.rejects(()=>renderBenchView(b,{renderView:async()=>{globalThis.__race.current=null;return {blocks:[result.blocks[2]]};}},{}),e=>e.code==='forbidden');
+await assert.rejects(()=>renderBenchView(b,{renderView:async()=>{globalThis.__race.current=null;return {blocks:[result.blocks[2]]};}},{}),e=>e.status===403);
 globalThis.__race={current:{...b},read:async()=>{queueMicrotask(()=>{globalThis.__race.current={...b,workbench_id:2};});return {value:4,revision:1};}};
-await assert.rejects(()=>renderBenchView(b,{renderView:async()=>({blocks:[result.blocks[0],result.blocks[0],result.blocks[2]]})},{}),e=>e.code==='forbidden');
+await assert.rejects(()=>renderBenchView(b,{renderView:async()=>({blocks:[result.blocks[0],result.blocks[0],result.blocks[2]]})},{}),e=>e.status===403);
 console.log('adapter publication races PASS');
 `;
 const race = spawnSync(process.execPath,['--import','data:text/javascript,'+encodeURIComponent(preload),'--input-type=module','-e',raceProgram],{encoding:'utf8',timeout:15000});

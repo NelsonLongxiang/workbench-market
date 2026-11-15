@@ -2,7 +2,6 @@
 import { resolveViewVars } from '../bench-bindings.ts';
 import { getVar, workbenchScope } from '../workbench-vars.ts';
 import { HttpError } from '../errors.ts';
-import { BenchError } from '../bench-query.ts';
 import { getBench, type BenchEntry } from './bench-registry.ts';
 import type { BenchStore } from './bench-store.ts';
 
@@ -21,7 +20,7 @@ export async function renderBenchView(bench: BenchEntry, store: BenchStore, opts
   // Fence the entire publication, including query-only blocks; never return a partial old binding.
   const latest = getBench(bench.slug);
   if (!latest || latest.workbench_id !== bench.workbench_id || latest.department_id !== bench.department_id || latest.team_host !== bench.team_host || latest.team !== bench.team || latest.created_at !== bench.created_at) {
-    throw new BenchError('forbidden', '工作台关联已改变，请重新打开');
+    throw new HttpError(403, '工作台关联已改变，请重新打开');
   }
   return result;
 }
