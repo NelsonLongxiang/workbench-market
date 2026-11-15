@@ -99,7 +99,8 @@ try {
   const token = { headers: { ...REMOTE, 'x-admin-token': ADMIN_TOKEN } };
   const boss = who(P.boss), member = who(P.member), lead = who(P.lead), other = who(P.other), sys = who(P.sys);
   // 授予：本机命令行（属主）起草、提交、放行
-  const activate = async (body) => { const d = await srv.call('POST', '/api/grants', { body: { reason: '合成：台绑部门', ...body } }); const id = d.json?.grant?.id; await srv.call('POST', `/api/grants/${id}/submit`); const a = await srv.call('POST', `/api/grants/${id}/approve`); return a.status < 300; };
+  const grantIds = new Map();
+  const activate = async (body) => { const d = await srv.call('POST', '/api/grants', { body: { reason: '合成：台绑部门', ...body } }); const id = d.json?.grant?.id; grantIds.set(body.principal, id); await srv.call('POST', `/api/grants/${id}/submit`); const a = await srv.call('POST', `/api/grants/${id}/approve`); return a.status < 300; };
   const otherId = db.prepare("SELECT id FROM principals WHERE id = 'user:no-flag'").get()?.id;
   for (const id of ['sales', 'ops']) await srv.call('PUT', `/api/departments/${id}`, { ...token, body: { name: id } });
   const prep = [
@@ -313,6 +314,10 @@ try {
   check(published.status === 200 && shown.status === 200 && shown.json?.blocks?.[0]?.data?.rows?.[0]?.[shown.json.blocks[0].value] === 42 && direct.status === 403 && !shown.text.includes('not_selected') && !shown.text.includes('123456'), '部门读者只见视图显式发布的数，不获得变量接口权或未引用值', { publish: published.status, render: shown.status, direct: direct.status });
   const extraKey = await srv.call('GET', '/api/bench-views/sales-b/render?var=not_selected', member);
   check(extraKey.status === 200 && extraKey.json?.blocks?.[0]?.error?.code === 'invalid' && !extraKey.json.blocks[0].data, '部门读者不能从 render 参数选其他 key');
+  const revokedReader = await srv.call('POST', '/api/grants/' + grantIds.get('user:beta') + '/revoke', { body: { reason: '合成：收回读者授予' } });
+  const readerAfterRevoke = await srv.call('GET', '/api/bench-views/sales-b/render', member);
+  const bossAfterRevoke = await srv.call('GET', '/api/bench-views/sales-b/render', boss);
+  check(revokedReader.status === 200 && readerAfterRevoke.status === 403 && !readerAfterRevoke.text.includes('42') && bossAfterRevoke.status === 200, '读者授予收回：下一次取数立即拒绝，未撤权读者照常', { revoke: revokedReader.status, denied: readerAfterRevoke.status, control: bossAfterRevoke.status });
   r = await srv.call('PUT', '/api/bench-views/sales-b/workbench', { ...boss, body: { workbench_id: null } });
   const againLink = await srv.call('PUT', '/api/bench-views/sales-b/workbench', { ...boss, body: { workbench_id: null } });
   const trailLink = db.prepare("SELECT before, after, actor FROM bench_bind_audit WHERE slug = 'sales-b' AND action = 'workbench' ORDER BY id").all();
