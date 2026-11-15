@@ -48,6 +48,8 @@ export const PAGE_KIND: Record<YglKind, 'claim' | 'kb' | 'skill' | 'verify'> = {
 export const CONTRACT = 'ygl-library/1';
 
 const CALL_TIMEOUT_MS = 10_000;
+/** 一次试写占住这一行的时长：比命令行超时长，期间别的一方（当场试写或后台重试）不会再拿去写 */
+const WRITE_LEASE_MS = CALL_TIMEOUT_MS + 5_000;
 const PAGE_LIMIT = 500;
 const MAX_PAGES = 200;
 const FULL_EVERY_MS = 24 * 3600_000;
@@ -370,17 +372,26 @@ export class KnowledgeService extends Service {
     if (prior) return { status: prior.status, duplicate: true };
     const { title, body } = noteOf(input);
     const ins = db.prepare(`INSERT INTO knowledge_writes (answer_key, principal_id, scope, title, body, status, attempts, next_at, created_at)
-      VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?) ON CONFLICT (answer_key) DO NOTHING`).run(input.answerKey, input.principal, input.scope, title, body, now, now);
+      VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?) ON CONFLICT (answer_key) DO NOTHING`).run(input.answerKey, input.principal, input.scope, title, body, now + WRITE_LEASE_MS, now);
     if (ins.changes !== 1) {
       const again = db.prepare('SELECT status FROM knowledge_writes WHERE answer_key = ?').get(input.answerKey) as { status: RememberOutcome['status'] };
       return { status: again.status, duplicate: true };
     }
     const id = Number(ins.lastInsertRowid);
-    return { status: await this.attemptWrite(id, now), duplicate: false };
+    // 新行落下时就带着租约（next_at 在命令行超时之后），后台重试不会在当场试写的同时也去写它
+    return { status: await this.attemptWrite(id, now, true), duplicate: false };
   }
 
-  /** 试写一条待写的：成了记下 ygl-trees 的 id、清掉正文、顺手同步一轮经验目录；没成按次数排下一次（rc 2 或试到头就放弃） */
-  private async attemptWrite(id: number, now = Date.now()): Promise<RememberOutcome['status']> {
+  /**
+   * 试写一条待写的：成了记下 ygl-trees 的 id、清掉正文、顺手同步一轮经验目录；没成按次数排下一次（rc 2 或试到头就放弃）。
+   * 同一行同一时刻只由一方写：没持有租约的先认领（到点的待写，把 next_at 推到租约之后，改到了才算认领到），
+   * 认领不到就不调命令行；收尾的更新只改仍是待写的行，后完成的一方不会把已经写成的改回待写
+   */
+  private async attemptWrite(id: number, now = Date.now(), leased = false): Promise<RememberOutcome['status']> {
+    if (!leased) {
+      const claim = db.prepare("UPDATE knowledge_writes SET next_at = ? WHERE id = ? AND status = 'pending' AND next_at <= ?").run(now + WRITE_LEASE_MS, id, now);
+      if (claim.changes !== 1) return (db.prepare('SELECT status FROM knowledge_writes WHERE id = ?').get(id) as { status: RememberOutcome['status'] } | undefined)?.status ?? 'failed';
+    }
     const w = db.prepare("SELECT id, scope, title, body, attempts FROM knowledge_writes WHERE id = ? AND status = 'pending'").get(id) as { id: number; scope: string; title: string; body: string; attempts: number } | undefined;
     if (!w) return (db.prepare('SELECT status FROM knowledge_writes WHERE id = ?').get(id) as { status: RememberOutcome['status'] } | undefined)?.status ?? 'failed';
     const res = await execYgl(['kb', 'add', `--title=${w.title}`, `--body=${w.body}`, '--tags=market,decision', `--scope=${w.scope}`, '--json'], { timeoutMs: CALL_TIMEOUT_MS });
@@ -388,7 +399,7 @@ export class KnowledgeService extends Service {
     const j = res.ok ? res.json as Record<string, unknown> : null;
     const yglId = j && typeof j.id === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(j.id) ? j.id : '';
     if (res.ok && yglId) {
-      db.prepare("UPDATE knowledge_writes SET status = 'written', attempts = ?, ygl_id = ?, body = '', last_error = '', written_at = ? WHERE id = ?").run(attempts, yglId, now, id);
+      db.prepare("UPDATE knowledge_writes SET status = 'written', attempts = ?, ygl_id = ?, body = '', last_error = '', written_at = ? WHERE id = ? AND status = 'pending'").run(attempts, yglId, now, id);
       // 新写的经验尽快出现在 /knowledge：同步一轮经验（增量）；出错不影响这次写
       if (!this.stopped) this.syncKind('note', false).catch(() => { /* 下一轮同步照样会带上 */ });
       return 'written';
@@ -396,7 +407,8 @@ export class KnowledgeService extends Service {
     const reason = res.ok ? 'bad_shape' : res.error === 'exit' && res.code === 2 ? 'rejected' : res.error;
     const giveUp = reason === 'rejected' || attempts >= WRITE_MAX_ATTEMPTS;
     const delay = Math.min(loadConfig(Config).writeRetrySeconds * 1000 * 2 ** (attempts - 1), WRITE_BACKOFF_CAP_MS);
-    db.prepare('UPDATE knowledge_writes SET status = ?, attempts = ?, next_at = ?, last_error = ? WHERE id = ?').run(giveUp ? 'failed' : 'pending', attempts, now + Math.max(delay, 1000), reason, id);
+    const settled = db.prepare("UPDATE knowledge_writes SET status = ?, attempts = ?, next_at = ?, last_error = ? WHERE id = ? AND status = 'pending'").run(giveUp ? 'failed' : 'pending', attempts, now + Math.max(delay, 1000), reason, id);
+    if (settled.changes !== 1) return (db.prepare('SELECT status FROM knowledge_writes WHERE id = ?').get(id) as { status: RememberOutcome['status'] } | undefined)?.status ?? 'failed';
     // 诊断一行：原因类别，不带内容和人
     console.warn(JSON.stringify({ source: 'knowledge', event: giveUp ? 'remember-gave-up' : 'remember-retry-later', cause: reason, attempts, at: new Date(now).toISOString() }));
     return giveUp ? 'failed' : 'pending';
