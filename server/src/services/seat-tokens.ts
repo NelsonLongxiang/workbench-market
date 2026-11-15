@@ -126,7 +126,8 @@ export function exchangeSeatToken(r: SeatTokenRequest, audOk: boolean, now = Dat
   if (Math.abs(now - r.ts) > SEAT_TOKEN_SKEW_MS) return { ok: false, reason: 'bad-ts' };
   const live = liveSeat(r.host, r.seat_id, r.root);
   if (!verifies(live?.publicKey ?? null, seatTokenCanonical(r), r.sig)) return { ok: false, reason: live ? 'bad-sig' : 'not-live' };
-  if (!claimSignatureOnce(r.sig, r.ts + SEAT_TOKEN_SKEW_MS + 60_000, now)) return { ok: false, reason: 'replay' };
+  // Deduplicate the same signature bytes used by verification, not equivalent Base64 spellings.
+  if (!claimSignatureOnce(Buffer.from(r.sig, 'base64').toString('base64'), r.ts + SEAT_TOKEN_SKEW_MS + 60_000, now)) return { ok: false, reason: 'replay' };
   const wait = seatQuota();
   if (wait > 0) return { ok: false, reason: 'rate-limited', retryAfter: wait };
   const subject = subjectOf(r.host, r.seat_id, keyFingerprint(live!.publicKey), live!.root, now);

@@ -121,6 +121,13 @@ try {
   const once = req(A, 'seat-a2');
   const r1 = await exchange(once), r2 = await exchange(once);
   ok('同一个签名第二次 → 401（第一次 200）', r1.status === 200 && r2.status === 401 && r2.text === REFUSED, `${r1.status} ${r2.status}`);
+  // The same verified signature bytes have multiple accepted Base64 representations; none may issue another token.
+  const signatureBytes = Buffer.from(once.sig, 'base64');
+  for (const [name, sig] of [['base64-unpadded', signatureBytes.toString('base64').replace(/=+$/, '')], ['base64url', signatureBytes.toString('base64url')]]) {
+    const replay = await exchange({ ...once, sig });
+    ok('同签名字节的 ' + name + ' 重放 → 401，不发新令牌', replay.status === 401 && replay.text === REFUSED, replay.text);
+  }
+
   for (const [name, body] of [['不是 JSON', '{x'], ['少了 sig', { ...req(A, 'seat-a1'), sig: undefined }], ['v 不是 1', { ...req(A, 'seat-a1'), v: 2 }], ['host 不是 8 位十六进制', { ...req(A, 'seat-a1'), host: 'ABCDEFGH' }], ['ts 是字符串', { ...req(A, 'seat-a1'), ts: String(Date.now()) }], ['nonce 太短', { ...req(A, 'seat-a1'), nonce: 'abc' }]]) {
     r = await exchange(body);
     ok(`请求体不成形（${name}）→ 400`, r.status === 400, `${r.status} ${r.text}`);
