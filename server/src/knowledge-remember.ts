@@ -22,7 +22,7 @@ import { itemTeams } from './work-item-access.ts';
 import { itemOfAsk } from './attention-answers.ts';
 
 export type RememberRequest = { source: string; sourceId: string; cue?: string; lesson: string; visibility?: 'company' | 'department' | 'restricted' };
-export type RememberResult = { ok: true; outcome: RememberOutcome; scope_label: string } | { ok: false; http: 400 | 403 | 404; error: string; message: string };
+export type RememberResult = { ok: true; outcome: RememberOutcome; scope_label: string } | { ok: false; http: 400 | 403 | 404 | 503; error: string; message: string };
 
 /** 请求体里的 remember 部分：形状不对返回说法（调用方在答复之前就拒，答复不会生效） */
 export function parseRemember(v: unknown): { ok: true; value: Omit<RememberRequest, 'source' | 'sourceId'> } | { ok: false; message: string } {
@@ -67,6 +67,13 @@ export function rememberRefusal(actor: JudgedActor): { error: string; message: s
   if (actor.type !== 'principal' || actor.kind !== 'person' || actor.status !== 'active') return { error: 'remember_not_allowed', message: '只有登录的人能记成经验（管理口令、本机命令行不能）' };
   if (judge({ actor, action: 'knowledge.remember', kind: 'decide', declared: true }).verdict !== 'allow') return { error: 'remember_not_allowed', message: '记成经验要有对经验库拍板的授予（管理层、属主）' };
   return null;
+}
+/**
+ * 经验库的写入目标没接上（本机没有 ygl-trees 命令行或工作区、来源「未接入」）：记成经验当场拒，不排待写、不进重试。
+ * /api/auth/me 的 can.remember_knowledge 也看这一处（为假时前端不给勾选、不给补记）。接上了就是 null，一切照旧
+ */
+export function rememberUnavailable(): { error: string; message: string } | null {
+  return svc<KnowledgeService>('knowledge').writeTarget().ok ? null : { error: 'knowledge_not_connected', message: '经验库还没接入 ygl-trees，这次的取舍没有记成经验' };
 }
 /**
  * 账上答这一条的人可能的几种写法：会话登录的管理员记成 odoo:<登录名>（登录名是现在登记的登录提供方认出来的），别的记成主体标识。
@@ -122,6 +129,8 @@ export function defaultVisibility(source: string, sourceId: string): { default_v
 export async function rememberAnswer(actor: JudgedActor, req: RememberRequest, fallbackCue = ''): Promise<RememberResult> {
   const refused = rememberRefusal(actor);
   if (refused) return { ok: false, http: 403, ...refused };
+  const offline = rememberUnavailable();
+  if (offline) return { ok: false, http: 503, ...offline };
   if (actor.type !== 'principal') return { ok: false, http: 403, error: 'remember_not_allowed', message: '只有登录的人能记成经验' };
   const bys = answerersOf(actor.id);
   const hit = svc<AttentionService>('attention').answeredRecently(req.source, req.sourceId, bys, REMEMBER_WINDOW_HOURS);

@@ -48,7 +48,7 @@ import { registerPrincipalRoutes } from './routes/principals.ts';
 import { loadRoleDeclarations, registerGrantRoutes } from './routes/grants.ts';
 import { installBuiltinJudge } from './judgment.ts';
 import { actorResolver, compareConfig, mountJudgmentCompare } from './judgment-compare.ts';
-import { rememberRefusal } from './knowledge-remember.ts';
+import { rememberRefusal, rememberUnavailable } from './knowledge-remember.ts';
 import { checkEnforce, enforceConfig, enforceGate, type EnforceConfig } from './judgment-enforce.ts';
 import { registerAttentionRoutes } from './routes/attention.ts';
 import { registerWorkItemRoutes } from './routes/work-items.ts';
@@ -233,8 +233,9 @@ const loginGate = createLoginGate({
     return { principal: who.viewer.sub, display_name: who.viewer.name ?? null, roles };
   },
   // /api/auth/me 的 can：这个请求能做的、不属于某一个对象的事（只增）。和对应的写路由问同一处
-  // remember_knowledge：能不能把拍板记成经验（和 POST /api/knowledge/remember、「关注」答复里的 remember 同一处判断，knowledge-remember.ts 的 rememberRefusal）
-  can: async (req) => ({ create_cockpit: await cockpits.can(req, 'cockpit.create'), remember_knowledge: rememberRefusal((await rememberActorOf(req)).actor) === null }),
+  // remember_knowledge：能不能把拍板记成经验（和 POST /api/knowledge/remember、「关注」答复里的 remember 同一处判断，knowledge-remember.ts 的 rememberRefusal；
+  // 经验库没接入 ygl-trees 时也为假：rememberUnavailable）
+  can: async (req) => ({ create_cockpit: await cockpits.can(req, 'cockpit.create'), remember_knowledge: rememberRefusal((await rememberActorOf(req)).actor) === null && rememberUnavailable() === null }),
   appToken: (slug) => wmAppToken(slug),
   varsAppTokenOk: (req) => workbenchVars.appTokenWrite(req),
   runCapOk: async (kind, runId, presented) => {
