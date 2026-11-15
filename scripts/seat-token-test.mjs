@@ -256,7 +256,8 @@ try {
   ok('拒的记下原因：别的键签 bad-sig、席位不在名册 / 节点停用 not-live、时间窗 bad-ts、受众 wrong-audience，这些 verified = 0（host、席位只是自称）',
     byReason('bad-sig').length >= 3 && byReason('not-live').length >= 4 && byReason('bad-ts').length === 2 && byReason('wrong-audience').length === 1
       && [...byReason('bad-sig'), ...byReason('not-live'), ...byReason('bad-ts')].every((x) => x.verified === 0 && x.token_ref === ''), JSON.stringify(L.filter((x) => x.outcome === 'refused').map((x) => x.reason)));
-  ok('重放记成 refused / replay、verified = 1（签名是真的）；主体被吊销记成 subject-revoked', byReason('replay').length === 1 && byReason('replay')[0].verified === 1 && byReason('subject-revoked').length === 1, JSON.stringify(byReason('replay')));
+  const replayRows = byReason('replay'); // same text, unpadded and base64url requests are three audited refusals
+  ok('同文本及两种等价编码的三次重放均记成 refused / replay、verified = 1；主体被吊销另记 subject-revoked', replayRows.length === 3 && replayRows.every((x) => x.verified === 1 && x.host === A.fp && x.seat_id === 'seat-a2' && x.root === A.root && x.session_id === null && x.token_ref === '' && x.expires_at === null) && byReason('subject-revoked').length === 1, JSON.stringify(replayRows));
   ok('请求体不成形的也记（bad-request），字段按收到的截短', L.filter((x) => x.outcome === 'bad-request').length === 5 && L.some((x) => x.host === 'ABCDEFGH'));
   ok('启动自检编的那次换令牌不写进换令牌记录（服务端认自检请求，不看请求体）', q("SELECT COUNT(*) AS c FROM a2a_seat_token_log WHERE seat_id = 'wm-self-probe'")[0].c === 0);
   {
