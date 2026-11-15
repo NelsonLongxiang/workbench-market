@@ -133,6 +133,13 @@ try {
     check(label+' callback passes the state check',back.status!==400 && String(back.headers['set-cookie']??'').includes('wm_sso_ok_'+wid+'=1'));
     lastSt=st;
   }
+  // Preserve the exact accepted /go/<digits>/ entry path; do not change the relay callback contract.
+  for(const [label,host,https] of [['LAN padded','192.0.2.88:9800',false],['public padded','market.example.test',true]]){
+    const idText='00'+wid,h={host,...(https?{'x-forwarded-proto':'https'}:{})};
+    const entry=await http('GET','/go/'+idText+'/',h);
+    const stateCookie=(entry.headers['set-cookie']??[]).find(value=>value.startsWith('wm_sso_'+idText+'='))??'';
+    check(label+' state cookie keeps the exact entry path and HTTPS flags',entry.status===302&&stateCookie.includes('Path=/go/'+idText+'/')&&/HttpOnly/i.test(stateCookie)&&/SameSite=Lax/i.test(stateCookie)&&(https?/;\s*Secure(?:;|$)/i.test(stateCookie):!/;\s*Secure(?:;|$)/i.test(stateCookie)));
+  }
   // #413: all login GET/HEAD paths must keep every upstream policy, including duplicate headers.
   const policies=[
     {name:'default',headers:{},xfo:'SAMEORIGIN',csp:[],ancestor:"frame-ancestors 'self'"},
