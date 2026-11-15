@@ -402,7 +402,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   red-lines.ts（红线清单：越不过去的规则，每条写明在哪儿管着、哪个对抗组盯着；scripts/red-lines-test.mjs 核对每条都有带 [red-line:<id>] 的对抗例）
   judgment.ts（判定：Cordis 事件 `judgment/judge`，内置监听器照六步判）
   layerfs-shadow.ts（LayerFS 影子发布结果持久化：只回写 commit_id 为空的版本行，失败标记后可重试）
-  skill-shadow.ts（技能影子副本：推一版（migrate-layerfs 和补推共用，推完读回摘要一致才记 succeeded）、定时补推（挂在根上下文上随之停·LayerFS 没配置不做·连不上这一轮停下、日志只在通断变化时打·异常的版本退避·二进制记 skipped））
+  skill-shadow.ts（技能影子副本：推一版（migrate-layerfs 和补推共用，推完读回摘要一致才记 succeeded）、定时补推（挂在根上下文上随之停·对外断开时整轮跳过、不记失败·LayerFS 没配置不做·连不上这一轮停下、日志只在通断变化时打·异常的版本退避·二进制记 skipped））
   login-gate.ts（全站登录门 WM_LOGIN_GATE：enforce 时页面 302 登录、API 401）
   mcp-tools.ts（MCP 工具注册表）
   owner-pending.ts（待属主看板的判断，服务端那一份：和 web/src/owner-pending.ts 跑同一份用例表 scripts/owner-pending-cases.json）
