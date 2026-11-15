@@ -20,7 +20,7 @@ app.get('/api/apps/:slug/data',(_q,r)=>r.status(403).end());
 app.get('/api/workbenches/:id/vars',(_q,r)=>r.status(403).end());
 app.put('/api/sop/runs/:id',(_q,r)=>r.status(403).end());
 app.get('/login/feishu/callback',(_q,r)=>r.status(400).end());
-app.post('/login/feishu/events',(_q,r)=>r.status(401).end());
+app.post('/login/feishu/events',(_q,r)=>r.status(401).end());app.post('/api/a2a/seat-token',(_q,r)=>r.status(401).end());
 let fallback=0;app.get('/business',(_q,r)=>{fallback++;r.json({ok:true})});
 const market=createServer(app);await new Promise(r=>market.listen(0,'127.0.0.1',r));
 const reserved=reserve();await new Promise(r=>reserved.listen(0,'127.0.0.1',r));const cp=reserved.address().port;await new Promise(r=>reserved.close(r));

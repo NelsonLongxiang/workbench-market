@@ -116,6 +116,36 @@
       "receipt_status TEXT NOT NULL DEFAULT ''",
       "callback_url TEXT NOT NULL DEFAULT ''"
     ],
+    "a2a_seat_subjects": [
+      "peer_root TEXT NOT NULL PK",
+      "key_fingerprint TEXT NOT NULL PK",
+      "seat_id TEXT NOT NULL PK",
+      "host TEXT NOT NULL",
+      "session_id INTEGER NOT NULL",
+      "created_at INTEGER NOT NULL"
+    ],
+    "a2a_seat_token_log": [
+      "id INTEGER PK",
+      "at INTEGER NOT NULL",
+      "host TEXT NOT NULL DEFAULT ''",
+      "seat_id TEXT NOT NULL DEFAULT ''",
+      "root TEXT NOT NULL DEFAULT ''",
+      "source TEXT NOT NULL DEFAULT ''",
+      "outcome TEXT NOT NULL",
+      "reason TEXT NOT NULL DEFAULT ''",
+      "verified INTEGER NOT NULL DEFAULT 0",
+      "session_id INTEGER",
+      "token_ref TEXT NOT NULL DEFAULT ''",
+      "expires_at INTEGER"
+    ],
+    "a2a_seat_tokens": [
+      "token_sha256 TEXT PK",
+      "host TEXT NOT NULL",
+      "seat_id TEXT NOT NULL",
+      "session_id INTEGER NOT NULL",
+      "issued_at INTEGER NOT NULL",
+      "expires_at INTEGER NOT NULL"
+    ],
     "a2a_sent_tasks": [
       "task_id TEXT PK",
       "kind TEXT NOT NULL DEFAULT 'delivery'",
@@ -484,7 +514,10 @@
       "error TEXT NOT NULL DEFAULT ''",
       "duration_ms INTEGER NOT NULL DEFAULT 0",
       "args_sha256 TEXT NOT NULL DEFAULT ''",
-      "channel TEXT NOT NULL DEFAULT 'mcp'"
+      "channel TEXT NOT NULL DEFAULT 'mcp'",
+      "seat TEXT NOT NULL DEFAULT ''",
+      "claimed_seat TEXT NOT NULL DEFAULT ''",
+      "token_ref TEXT NOT NULL DEFAULT ''"
     ],
     "mcp_grant_audit": [
       "id INTEGER PK",
@@ -1065,6 +1098,9 @@
     "idx_a2a_roster_changes_at ON a2a_roster_changes: CREATE INDEX idx_a2a_roster_changes_at ON a2a_roster_changes (id)",
     "idx_a2a_roster_nodes_host ON a2a_roster_nodes: CREATE INDEX idx_a2a_roster_nodes_host ON a2a_roster_nodes (host)",
     "idx_a2a_run_ctx ON a2a_run_ctx: CREATE INDEX idx_a2a_run_ctx ON a2a_run_ctx (context_id)",
+    "idx_a2a_seat_token_log_at ON a2a_seat_token_log: CREATE INDEX idx_a2a_seat_token_log_at ON a2a_seat_token_log (at)",
+    "idx_a2a_seat_token_log_seat ON a2a_seat_token_log: CREATE INDEX idx_a2a_seat_token_log_seat ON a2a_seat_token_log (host, seat_id, at)",
+    "idx_a2a_seat_tokens_expires ON a2a_seat_tokens: CREATE INDEX idx_a2a_seat_tokens_expires ON a2a_seat_tokens (expires_at)",
     "idx_a2a_sent_tasks_delivery ON a2a_sent_tasks: CREATE INDEX idx_a2a_sent_tasks_delivery ON a2a_sent_tasks (delivery_id)",
     "idx_a2a_sent_tasks_peer_root ON a2a_sent_tasks: CREATE INDEX idx_a2a_sent_tasks_peer_root ON a2a_sent_tasks (peer_root)",
     "idx_a2a_sig_seen_exp ON a2a_sig_seen: CREATE INDEX idx_a2a_sig_seen_exp ON a2a_sig_seen (expires_at)",

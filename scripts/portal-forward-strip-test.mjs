@@ -11,7 +11,7 @@ import { spawn } from './owned-script-fixture.mjs';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { connect } from 'node:net';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
 const PORT = 20000 + Math.floor(Math.random() * 12000);
 const ADMIN = 'pfs-admin-token';
@@ -154,6 +154,17 @@ try {
   ok('⑦h 方案名写成小写 bearer：市场一样认，一样不带', !('authorization' in h7l), `authorization=${h7l.authorization}`);
   const ws7c = await wsHandshake(`/go/${p}/ws`, { authorization: `Bearer ${sess.token}`, cookie: `pref=1; ${MARKET_COOKIES}` });
   ok('⑦i WebSocket 握手同时带 cookie 和市场令牌：令牌和市场 cookie 都不带，台的 cookie 留下', ws7c !== null && !('authorization' in (ws7c?.headers ?? {})) && ws7c?.headers?.cookie === 'pref=1', `authorization=${ws7c?.headers?.authorization} cookie=${ws7c?.headers?.cookie}`);
+
+  // ⑧ Authorization 是席位换来的短期 MCP 令牌（POST /api/a2a/seat-token 发的）：同样不往台带（HTTP、WebSocket 握手都看）
+  const { DatabaseSync } = await import('node:sqlite');
+  const { createHash, randomBytes } = await import('node:crypto');
+  const seatTok = randomBytes(32).toString('hex');
+  { const d = new DatabaseSync(join(DATA, 'workbench-market.db'), { timeout: 5000 });
+    try { d.prepare('INSERT INTO a2a_seat_tokens (token_sha256, host, seat_id, session_id, issued_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)').run(createHash('sha256').update(seatTok).digest('hex'), 'a1b2c3d4', 'seat-pfs', 1, Date.now(), Date.now() + 3600_000); } finally { d.close(); } }
+  const h8 = (await (await fetch(`${B}/go/${p}/echo`, { headers: { authorization: `Bearer ${seatTok}` } })).json()).headers ?? {};
+  ok('⑧a 带席位换来的短期令牌访问门户：上游收不到这个 Authorization', !('authorization' in h8), `authorization=${h8.authorization}`);
+  const ws8 = await wsHandshake(`/go/${p}/ws`, { authorization: `Bearer ${seatTok}` });
+  ok('⑧b WebSocket 握手带席位短期令牌：上游收不到', ws8 !== null && !('authorization' in (ws8?.headers ?? {})), `authorization=${ws8?.headers?.authorization}`);
 
   // ⑥ 启动自检有这一行，并且过了
   const health = await (await fetch(`${B}/api/health`)).json();

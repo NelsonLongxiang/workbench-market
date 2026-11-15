@@ -451,11 +451,11 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "526", "etag": "W/\"20e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "655", "etag": "W/\"28f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
-              { "id": 3, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/list", "tool": "", "ok": 1, "error": "", "duration_ms": 2, "args_sha256": "", "channel": "mcp" },
-              { "id": 2, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/call", "tool": "skill_publish", "ok": 0, "error": "forbidden", "duration_ms": 1, "args_sha256": "", "channel": "mcp" },
-              { "id": 1, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/call", "tool": "workbench_list", "ok": 1, "error": "", "duration_ms": 3, "args_sha256": "", "channel": "mcp" }
+              { "id": 3, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/list", "tool": "", "ok": 1, "error": "", "duration_ms": 2, "args_sha256": "", "channel": "mcp", "seat": "", "claimed_seat": "", "token_ref": "" },
+              { "id": 2, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/call", "tool": "skill_publish", "ok": 0, "error": "forbidden", "duration_ms": 1, "args_sha256": "", "channel": "mcp", "seat": "", "claimed_seat": "", "token_ref": "" },
+              { "id": 1, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/call", "tool": "workbench_list", "ok": 1, "error": "", "duration_ms": 3, "args_sha256": "", "channel": "mcp", "seat": "", "claimed_seat": "", "token_ref": "" }
             ]
           }
         },
@@ -468,8 +468,10 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "164", "etag": "W/\"a4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": [{ "id": 3, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/list", "tool": "", "ok": 1, "error": "", "duration_ms": 2, "args_sha256": "", "channel": "mcp" }]
+            "headers": { "content-length": "207", "etag": "W/\"cf-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "id": 3, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/list", "tool": "", "ok": 1, "error": "", "duration_ms": 2, "args_sha256": "", "channel": "mcp", "seat": "", "claimed_seat": "", "token_ref": "" }
+            ]
           }
         },
         {
@@ -481,11 +483,11 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "526", "etag": "W/\"20e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "655", "etag": "W/\"28f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
-              { "id": 3, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/list", "tool": "", "ok": 1, "error": "", "duration_ms": 2, "args_sha256": "", "channel": "mcp" },
-              { "id": 2, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/call", "tool": "skill_publish", "ok": 0, "error": "forbidden", "duration_ms": 1, "args_sha256": "", "channel": "mcp" },
-              { "id": 1, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/call", "tool": "workbench_list", "ok": 1, "error": "", "duration_ms": 3, "args_sha256": "", "channel": "mcp" }
+              { "id": 3, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/list", "tool": "", "ok": 1, "error": "", "duration_ms": 2, "args_sha256": "", "channel": "mcp", "seat": "", "claimed_seat": "", "token_ref": "" },
+              { "id": 2, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/call", "tool": "skill_publish", "ok": 0, "error": "forbidden", "duration_ms": 1, "args_sha256": "", "channel": "mcp", "seat": "", "claimed_seat": "", "token_ref": "" },
+              { "id": 1, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/call", "tool": "workbench_list", "ok": 1, "error": "", "duration_ms": 3, "args_sha256": "", "channel": "mcp", "seat": "", "claimed_seat": "", "token_ref": "" }
             ]
           }
         },
@@ -498,11 +500,11 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "526", "etag": "W/\"20e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "655", "etag": "W/\"28f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
-              { "id": 3, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/list", "tool": "", "ok": 1, "error": "", "duration_ms": 2, "args_sha256": "", "channel": "mcp" },
-              { "id": 2, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/call", "tool": "skill_publish", "ok": 0, "error": "forbidden", "duration_ms": 1, "args_sha256": "", "channel": "mcp" },
-              { "id": 1, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/call", "tool": "workbench_list", "ok": 1, "error": "", "duration_ms": 3, "args_sha256": "", "channel": "mcp" }
+              { "id": 3, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/list", "tool": "", "ok": 1, "error": "", "duration_ms": 2, "args_sha256": "", "channel": "mcp", "seat": "", "claimed_seat": "", "token_ref": "" },
+              { "id": 2, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/call", "tool": "skill_publish", "ok": 0, "error": "forbidden", "duration_ms": 1, "args_sha256": "", "channel": "mcp", "seat": "", "claimed_seat": "", "token_ref": "" },
+              { "id": 1, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/call", "tool": "workbench_list", "ok": 1, "error": "", "duration_ms": 3, "args_sha256": "", "channel": "mcp", "seat": "", "claimed_seat": "", "token_ref": "" }
             ]
           }
         },
