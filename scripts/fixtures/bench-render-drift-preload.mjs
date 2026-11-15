@@ -1,7 +1,7 @@
 /** Real HTTP publication race: run only in tests, no production hooks. */
 import { registerHooks } from 'node:module';
-import { linkWorkbench } from '../../server/src/services/bench-registry.ts';
 if (process.env.NODE_ENV !== 'test') throw new Error('bench-render-drift fixture is test-only');
+const { linkWorkbench } = await import('../../server/src/services/bench-registry.ts');
 globalThis.__benchRenderDrift = (slug) => {
   if (slug === 'binding-race') linkWorkbench(slug, { workbench_id: null }, 'race-test', Date.now());
 };
