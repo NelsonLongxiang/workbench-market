@@ -10,6 +10,7 @@ import { DatabaseSync } from 'node:sqlite';
 const root=resolve('.'),out=resolve('tmp/startup-self-probe-http-'+Date.now());
 mkdirSync(out,{recursive:true});let checks=0;
 const check=(name,condition)=>{assert.ok(condition,name);checks++;console.log('PASS '+name)};
+const BENCH_PROBES=['market.bench-views.anonymous-read','market.bench-views.anonymous-write','market.bench-views.var-render-anonymous'];
 const spare=async()=>{const s=createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const p=s.address().port;await new Promise(r=>s.close(r));assert(![3080,9800,9801].includes(p));return p;};
 const websocket=port=>new Promise((resolve,reject)=>{
  const s=connect(port,'127.0.0.1');let bytes=0;
@@ -22,7 +23,7 @@ const preload=String.raw`import net from'node:net';import{registerHooks}from'nod
 const listen=net.Server.prototype.listen;
 net.Server.prototype.listen=function(...a){if(typeof a[0]==='number'){if(typeof a[1]==='string')a[1]='127.0.0.1';else a.splice(1,0,'127.0.0.1')}return listen.apply(this,a)};
 const mutation=process.env.WM_SYNTHETIC_PROBE_MUTATION;
-registerHooks({load(url,ctx,next){const loaded=next(url,ctx);if(!mutation||!url.endsWith(mutation==='handler-error'?'/server/src/routes/workbenches.ts':mutation==='export-reveal'?'/server/src/routes/export-import.ts':mutation==='mcp-timeout'||mutation==='hold-probe'?'/server/src/routes/mcp-protocol.ts':mutation==='a2a-direct-unsigned'?'/server/src/routes/a2a-direct.ts':mutation==='bench-views-anonymous'?'/server/src/routes/bench-views.ts':mutation==='vars-missing'?'/server/src/workbench-vars.ts':'/server/src/index.ts'))return loaded;let s=String(loaded.source);
+registerHooks({load(url,ctx,next){const loaded=next(url,ctx);if(!mutation||!url.endsWith(mutation==='handler-error'?'/server/src/routes/workbenches.ts':mutation==='export-reveal'?'/server/src/routes/export-import.ts':mutation==='mcp-timeout'||mutation==='hold-probe'?'/server/src/routes/mcp-protocol.ts':mutation==='a2a-direct-unsigned'?'/server/src/routes/a2a-direct.ts':mutation==='bench-views-anonymous'?'/server/src/routes/bench-views.ts':mutation==='vars-missing'?'/server/src/workbench-vars.ts':'/server/src/index.ts'))return loaded;let s=String(loaded.source).replace(/\r\n/g,'\n');
 const replace=(from,to)=>{if(!s.includes(from))throw Error('mutation anchor missing: '+mutation);s=s.replace(from,to);};
 if(mutation==='login-gate')replace('app.use(loginGate.middleware);','app.use((_q,_s,n)=>n());');
 if(mutation==='login-gate-apps')replace('app.use(loginGate.middleware);',"app.use((q,s,n)=>q.path.startsWith('/apps/')?n():loginGate.middleware(q,s,n));");
@@ -76,7 +77,10 @@ async function runCase(label,{off=false,control=false,occupied=false,unset=false
    if(mutation==='export-reveal')check(label+' only the export reveal row fails',so.includes('"id":"market.export.reveal-anonymous"')&&so.split('"verdict":"fail"').length===2);
    // 授予读和放行入口认管理员是同一处（L19）：把它放开，读授予和匿名放行两行一起失败，别的行不动
    if(mutation==='grants-admin-read')check(label+' only the two grant rows fail',so.includes('"id":"market.grants.admin-read"')&&so.includes('"id":"market.grants.approve-anonymous"')&&so.split('"verdict":"fail"').length===3);
-   if(mutation==='bench-views-anonymous')check(label+' only the two bench-view rows fail',so.includes('"id":"market.bench-views.anonymous-read","surface":"market","method":"GET","path":"/api/bench-views","verdict":"fail"')&&so.includes('"id":"market.bench-views.anonymous-write"')&&so.split('"verdict":"fail"').length===3);
+   if(mutation==='bench-views-anonymous'){
+    const failed=so.split(/\r?\n/).flatMap(line=>{try{const row=JSON.parse(line);return row.source==='self-probe'&&row.verdict==='fail'?[row]:[];}catch{return [];}});
+    check(label+' exactly the three named bench-view rows fail',failed.length===BENCH_PROBES.length&&BENCH_PROBES.every(id=>failed.some(row=>row.id===id)));
+   }
    if(mutation==='app-data-read')check(label+' only the app data read row fails',so.includes('"id":"market.app-data.anonymous-read"')&&so.split('"verdict":"fail"').length===2);
    if(mutation==='vars-missing')check(label+' only the workbench vars missing-bench row fails',so.includes('"id":"market.workbench-vars.anonymous-read-missing"')&&so.split('"verdict":"fail"').length===2);
    if(mutation==='sop-run-write')check(label+' only the run write row fails',so.includes('"id":"market.sop-run.anonymous-write"')&&so.split('"verdict":"fail"').length===2);
@@ -95,7 +99,7 @@ async function runCase(label,{off=false,control=false,occupied=false,unset=false
    if(mutation==='hold-probe')check('real pending ingress checks ran before readiness',pendingChecked);
    if(gate==='enforce')check(label+' login-gate rows all pass',['page','app','api'].every(k=>health.self_probe.rows.some(x=>x.id==='market.login-gate.'+k&&x.verdict==='pass'))&&health.self_probe.rows.some(x=>x.id==='market.a2a-direct.unsigned'&&x.verdict==='pass')&&health.login_gate==='enforce');
    if(gate!=='enforce')check(label+' no login-gate rows when gate is off',!health.self_probe.rows.some(x=>x.id.startsWith('market.login-gate.')||x.id.startsWith('market.a2a-direct.')));
-   if(benchViews)check(label+' both bench-view rows pass',['read','write'].every(k=>health.self_probe.rows.some(x=>x.id==='market.bench-views.anonymous-'+k&&x.verdict==='pass'&&x.status===401)));
+   if(benchViews){const rows=health.self_probe.rows.filter(x=>x.id.startsWith('market.bench-views.'));check(label+' exactly the three named bench-view rows pass',rows.length===BENCH_PROBES.length&&BENCH_PROBES.every(id=>rows.some(x=>x.id===id&&x.verdict==='pass'&&x.status===401)));}
    else check(label+' no bench-view rows while the entry is off',!health.self_probe.rows.some(x=>x.id.startsWith('market.bench-views.')));
    check(label+' ordinary request works after successful startup',(await fetch('http://127.0.0.1:'+port+'/api/workbenches')).status===200);
   }
