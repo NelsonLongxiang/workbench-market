@@ -134,11 +134,13 @@ const PATH = {
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
 process.env.DATA_DIR = OUT;
+let db, workItemsFiber;
 try {
-  const { db } = await import(at('server/src/db.ts'));
+  ({ db } = await import(at('server/src/db.ts')));
   const { root } = await import(at('server/src/root-context.ts'));
   const { WorkItemService } = await import(at('server/src/services/work-item.ts'));
-  await root.plugin(WorkItemService);
+  workItemsFiber = root.plugin(WorkItemService);
+  await workItemsFiber;
   const items = root.get('workItems');
   check(Boolean(items), '事项服务装上之后能按名字 workItems 取到');
 
@@ -402,7 +404,16 @@ try {
   fail++;
   console.log(`  ✗ 跑不下去：${e?.stack ?? e}`);
 } finally {
-  rmSync(OUT, { recursive: true, force: true });
+  // 先停掉本测试的后台回填，再关库；Windows 上打开的数据库文件不能删除。
+  try {
+    await workItemsFiber?.dispose();
+  } finally {
+    try {
+      db?.close();
+    } finally {
+      rmSync(OUT, { recursive: true, force: true });
+    }
+  }
 }
 
 console.log(`\n${pass} 通过 / ${fail} 失败`);

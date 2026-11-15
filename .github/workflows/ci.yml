@@ -7,6 +7,20 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
+  work-item-cleanup-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: 事项服务断言与清理（Windows 数据库句柄必须先释放）
+        run: node scripts/work-item-service-test.mjs
   odoo-operator-synthetic:
     runs-on: windows-latest
     steps:
