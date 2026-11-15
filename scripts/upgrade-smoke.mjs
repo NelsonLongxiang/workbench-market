@@ -402,8 +402,9 @@ try {
   s = await startServer(HEAD, DATA, 'head-bench', { WM_BENCH_VIEWS: 'on' }); servers.push(s);
   const probeBench = await selfProbe(s.base);
   await stopServer(s);
-  check(s.ok && probeBench?.passed === true && benchRows(probeBench).length === 2 && benchRows(probeBench).every((r) => r.verdict === 'pass'),
-    '台库：开着入口启动，自检全过，入口的两行都过', JSON.stringify(benchRows(probeBench)));
+  const expectedBenchProbes = ['market.bench-views.anonymous-read', 'market.bench-views.anonymous-write', 'market.bench-views.var-render-anonymous'];
+  check(s.ok && probeBench?.passed === true && benchRows(probeBench).length === expectedBenchProbes.length && expectedBenchProbes.every(id => benchRows(probeBench).some(r => r.id === id && r.verdict === 'pass')),
+    '台库：开着入口启动，自检全过，读、写、变量渲染三条具名守卫都过', JSON.stringify(benchRows(probeBench)));
   report.head = { new_tables: after1.tables.filter((t) => !before.tables.includes(t)), self_probe_rows: probe1?.rows?.length ?? 0, boot_ms: servers.filter((x) => x.label.startsWith('head')).map((x) => x.ms) };
 
   // 3. 回滚到基线

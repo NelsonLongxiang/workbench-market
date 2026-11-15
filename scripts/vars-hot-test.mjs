@@ -45,6 +45,15 @@ async function child(mode) {
   await new Promise((r) => setImmediate(r));
   const ctl = globalThis.__stateRedis;
   const out = {};
+  const { createBench } = await import(src('services/bench-registry.ts'));
+  const { renderBenchView } = await import(src('services/bench-render.ts'));
+  const render = async (id, key) => {
+    const b = benchOfCard(id) ?? createBench({ workbench_id: id }, 'bindings-test', Date.now());
+    const store = await benchStore(b.slug);
+    const current = await store.getView();
+    await store.putView({ title: '合成', views: [{ key: 'v', title: 'v', blocks: [{ type: 'stat', value: { var: key } }] }] }, { actor: 'bindings-test', at: Date.now(), note: '合成引用', base: current?.active_version ?? 0 });
+    return (await renderBenchView(b, store, {})).blocks[0];
+  };
   const CLI = { actor: 'cli', admin: true, cli: true };
   db.prepare("INSERT INTO workbenches (id, name, url) VALUES (1, '合成甲', 'http://127.0.0.1:9/a'), (2, '合成乙', 'http://127.0.0.1:9/b'), (3, '合成丙', 'http://127.0.0.1:9/c'), (4, '合成丁', 'http://127.0.0.1:9/d'), (5, '合成戊', 'http://127.0.0.1:9/e'), (6, '合成己', 'http://127.0.0.1:9/f'), (7, '合成庚', 'http://127.0.0.1:9/g'), (8, '合成辛', 'http://127.0.0.1:9/h')").run();
   const scope = (id) => V.workbenchScope(id);
@@ -77,6 +86,7 @@ async function child(mode) {
       prefix: (await V.listVars(scope(1), 'hot.')).items.map((i) => i.key), redis: Object.keys(hotHash(1) ?? {}),
       bench: await benchRow(1, 'hot.p'), main: mainRow(1, 'hot.p'), pending: (await sync(1)).hotPending, audit: audit(1, 'hot.p'),
     };
+    out.bindHot = await render(1, 'hot.p');
     // H3
     out.h3flush = await V.flushHotVars();
     const s3 = await sync(1);
@@ -94,6 +104,7 @@ async function child(mode) {
       get: await tryIt(V.getVar(scope(2), 'hot.q')), list: await tryIt(V.listVars(scope(2))), set: await tryIt(V.setVar(scope(2), 'hot.q', { value: 9, hasValue: true, expected: 1 }, CLI)),
       plain: (await V.getVar(scope(2), 'plain')).value, flush: await V.flushHotVars(),
     };
+    out.bindUnavailable = await render(2, 'hot.q');
     // H6：卡片 3 没有待落盘，Redis 还是下线
     await V.setVar(scope(3), 'hot.r', { value: 5, hasValue: true }, CLI);
     out.h6 = { bench: (await benchRow(3, 'hot.r'))?.value, main: mainRow(3, 'hot.r')?.value, pending: (await sync(3)).hotPending, redis: hotHash(3) ?? null };
@@ -185,6 +196,12 @@ async function child(mode) {
     out.h15 = { f15, mid: mid15, after: { pending: (await sync(2)).hotPending, redis: hotHash(2) ?? null } };
     out.h12 = { failures: V.varsMirrorStats().fallbackFailures - before, dirty: (await sync(3)).dirty, main: mainRow(3, 'k')?.value };
   }
+  db.prepare("INSERT INTO workbenches (id, name, url) VALUES (11, '合成绑定专用', 'http://127.0.0.1:9/i')").run();
+  for (const storage of ['main', 'shadow', 'bench']) {
+    V.setVarsStoreMode(storage);
+    await V.setVar(scope(11), 'bind.n', { value: storage.length, hasValue: true, expected: storage === 'main' ? 0 : storage === 'shadow' ? 1 : 2 }, CLI);
+    out['bind_' + storage] = await render(11, 'bind.n');
+  }
   await closeBenchStores();
   await root.fiber.dispose();
   process.stdout.write(`${JSON.stringify(out)}\n`);
@@ -248,6 +265,13 @@ async function parent() {
   ok('卡片删了以后落盘：主库不补孤儿行，待落盘的记录清掉', on.h14?.orphans === 0 && JSON.stringify(on.h14.report) === '[]', on.h14);
   ok('落盘读台库的那一刻卡片被删：不写回主库（没有孤儿行），待落盘的记录清掉', on.h14b?.hit >= 1 && on.h14b.orphans === 0 && JSON.stringify(on.h14b.report) === '[]', on.h14b);
   ok('对同步点补写回、读台库的那一刻卡片被删：不补写回（没有孤儿行）', on.h14c?.hit >= 1 && on.h14c.toMain === 0 && on.h14c.orphans === 0, on.h14c);
+  console.log('视图绑定走原变量服务');
+  for (const m of ['main', 'shadow', 'bench']) {
+    const b = on['bind_' + m];
+    ok(`${m} 档：视图读取当前数值与 revision`, b?.data?.rows?.[0]?.[b.value] === m.length && b.var_revisions?.['bind.n'] >= 1, b);
+  }
+  ok('视图读到未落盘的 Redis 热值与 revision，不读旧台库', on.bindHot?.data?.rows?.[0]?.[on.bindHot.value] === 2 && on.bindHot.var_revisions?.['hot.p'] === 2, on.bindHot);
+  ok('Redis 不可用且有待落盘：视图明确块错，不假零、不读缓存', on.bindUnavailable?.error?.code === 'unavailable' && !on.bindUnavailable?.data, on.bindUnavailable);
   console.log(`vars-hot-test: ${pass} passed / ${fail} failed`);
   if (fail) process.exitCode = 1;
 }

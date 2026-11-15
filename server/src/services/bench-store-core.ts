@@ -29,6 +29,7 @@ import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BenchDialect, BenchSqlKit } from '../db.ts';
 import { isInsideRoot } from '../path-inside.ts';
+import { isVarRef } from '../bench-bindings.ts';
 import {
   BENCH_LIMITS, BenchError, COLUMN_TYPES, NAME_RE, coerceValue, decodeValue, physCol, physTable, planQuery, publicColumn,
   type ColumnDef, type DatasetDef, type OutColumn,
@@ -795,6 +796,11 @@ export class BenchStoreCore {
           const cols = ds ? (b.fields as string[]).map((n) => ds.columns.find((c) => c.name === n)).filter((c): c is ColumnDef => !!c) : [];
           blocks.push(ds && cols.length === (b.fields as string[]).length ? { ...b, columns: cols } : { ...b, columns: [], error: { code: 'invalid', message: '表单引用的数据集或列现在已经不在了' } });
         } else {
+          // The authorized render adapter resolves explicit scalar refs through the existing vars service.
+          if ((b.type === 'stat' || b.type === 'progress') && isVarRef(b.value) && b.query === undefined) {
+            blocks.push({ ...b, data: { columns: [], rows: [{}], truncated: false } });
+            continue;
+          }
           const r = await run(b.query);
           if (!r.data) { blocks.push({ ...b, error: r.error }); continue; }
           // 表格的表头：视图里给的 column_labels，其次是数据集、聚合里起的说明名；都没有就给空，由页面写「第 N 列」——不拿列名（键名）当表头

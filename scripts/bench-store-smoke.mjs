@@ -15,7 +15,7 @@ process.env.DATA_DIR = DATA;
 const { benchStore, benchStoreExists, closeBenchStores, removeBenchStore, onBenchChange, configureBenchRuntime, benchRuntimeStats, stopBenchWorkerAbruptly } = await import('../server/src/services/bench-store.ts');
 const { BENCH_LIMITS, planQuery } = await import('../server/src/bench-query.ts');
 const { BenchHost } = await import('../server/src/services/bench-store-core.ts');
-const { benchSqlKit } = await import('../server/src/db.ts');
+const { benchSqlKit, db } = await import('../server/src/db.ts');
 const { validateViewDoc, diffJson } = await import('../server/src/bench-views.ts');
 
 let pass = 0, fail = 0;
@@ -780,6 +780,7 @@ try {
 } finally {
   onBenchChange(null);
   await closeBenchStores();
+  db.close();
   rmSync(DATA, { recursive: true, force: true });
 }
 console.log(`\nbench-store-smoke: ${pass} passed / ${fail} failed`);
