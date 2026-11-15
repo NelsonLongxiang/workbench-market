@@ -89,6 +89,7 @@ import { registerChangeRequestRoutes } from './routes/change-requests.ts';
 import { registerSopStateRoutes, registerSopSpaceRoutes } from './routes/sops.ts';
 import { registerTaskIntakeRoutes, registerTaskReadRoutes, registerTaskControlRoutes } from './routes/task-center.ts';
 import { registerSkillRoutes } from './routes/skills.ts';
+import { startSkillShadowCatchUp } from './skill-shadow.ts';
 import { registerMcpRoutes } from './routes/mcp.ts';
 import { registerRemoteAllowRoutes } from './routes/remote-allow.ts';
 import { registerAppRoutes, registerAppLifecycleRoutes } from './routes/apps.ts';
@@ -1422,7 +1423,7 @@ function layerfsServiceBase(): { base: string; token: string } {
   const base = tokenFile ? String(process.env.LAYERFS_SERVICE_URL ?? '').trim() : String(s['layerfs_service_url'] ?? process.env.LAYERFS_SERVICE_URL ?? '').trim();
   return { base, token };
 }
-async function layerfsPublish(project: string, files: { path: string; content: string }[], message: string, branch = 'release'): Promise<{ commit_id: string; changed: boolean } | null> {
+async function layerfsPublish(project: string, files: { path: string; content: string }[], message: string, branch = 'release', opts: { quiet?: boolean } = {}): Promise<{ commit_id: string; changed: boolean } | null> {
   try {
     const { base, token } = layerfsServiceBase();
     if (!base) return null; // 未配置=不启用（契约 §1）
@@ -1438,7 +1439,8 @@ async function layerfsPublish(project: string, files: { path: string; content: s
     if (!j.commit_id) throw new Error('layerfs service 无 commit_id');
     return { commit_id: j.commit_id, changed: j.changed === true };
   } catch (e) {
-    console.warn(`[P1-shadow] 影子写失败（不阻发布·commit_id 留空）: ${project}: ${String((e as Error).message).slice(0, 100)}`);
+    // quiet：技能影子的定时补推自己按「通 ↔ 不通」的变化打日志（skill-shadow.ts），这里不再每次都打
+    if (!opts.quiet) console.warn(`[P1-shadow] 影子写失败（不阻发布·commit_id 留空）: ${project}: ${String((e as Error).message).slice(0, 100)}`);
     return null;
   }
 }
@@ -2389,14 +2391,14 @@ async function rebuildWmSkills(trigger: string): Promise<{ ok: boolean; deleted_
     const vs = S.versionsBySkill(sk.id) as any[];
     const latest = SkillService.currentOf(sk, vs);
     if (!latest?.snapshot_path || !existsSync(resolveSnap(latest.snapshot_path))) continue;
-    db.prepare("UPDATE skill_versions SET commit_id = '' WHERE skill_id = ?").run(sk.id); cleared++;
+    S.versionsShadowCleared(sk.id); cleared++; // commit_id 清掉，状态回到 pending（skipped 的不动）
     const raw: { path: string; bytes: Buffer }[] = [];
     try { (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else raw.push({ path: rel + e.name, bytes: readFileSync(fp) }); } })(resolveSnap(latest.snapshot_path)); } catch { continue; }
     if (raw.some((f) => !isUtf8Bytes(f.bytes))) continue; // 含二进制：LayerFS 只收文本，不迁
     const files = raw.map((f) => ({ path: f.path, content: f.bytes.toString('utf8') }));
     if (files.length === 0 || files.some((f) => f.content === '')) continue; // 异常快照不迁
     const out = await layerfsPublish(LAYERFS_SKILLS_PROJECT, files, `[rebuild] ${sk.slug} v${latest.version}`, `skill/${sk.slug}`);
-    if (out) { db.prepare('UPDATE skill_versions SET commit_id = ? WHERE id = ?').run(out.commit_id, latest.id); republished++; }
+    if (out) { S.versionMigrated(out.commit_id, latest.id); republished++; }
   }
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_wm_skills_rebuild', datetime('now'))").run();
   console.log(`[S4-rebuild] ${trigger}: deleted=${deleted} republished=${republished} cleared=${cleared}`);
@@ -2459,6 +2461,8 @@ function ustarTar(files: { path: string; content: string | Buffer }[], opts: { p
 
 
 registerSkillRoutes(http, { adminGuard, adminRead: (req) => settingsAdminRead(req), wrap, bad, resolveSnap, skillPublishCore, skillTicketKey, skillVersionDir, skillPackage, skillPkgDir, SKILL_DL_MAX, executeSkillRollback, executeSkillDelete, layerfsPublish, LAYERFS_SKILLS_PROJECT, layerfsServiceBase, rebuildWmSkills, ustarTar });
+// 技能影子的定时补推（导入器写的版本、推失败的、重建漏掉的）：挂在根上下文上，卸载时一起停
+startSkillShadowCatchUp({ layerfsPublish, layerfsServiceBase, LAYERFS_SKILLS_PROJECT, resolveSnap });
 
 // ---------- #437③ 进行中的 run 升级到当前 SOP 版本（预检 + 人确认 + 审计） ----------
 /** 每步的 data-field 名（含没有规则的字段），用来列出升级后新增、失效的字段 */

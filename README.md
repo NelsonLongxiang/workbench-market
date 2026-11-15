@@ -71,6 +71,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_REGISTER_URL_ALLOWLIST`（#258 公网登记精确许可·JSON 字符串数组·缺省 `[]`=公网一律 403 `url_not_allowlisted`·坏项/通配/硬拒/私网条目拒绝启动·见 docs/r3-url-allowlist-design.md）
 - `ALLOW_PUBLIC_NET`（#258 起**不再放行任何公网登记**，`1` 只在启动时告警）（网关开时 `/mcp` 启用会话令牌网关——**生产已开：所有 /mcp 调用须 `Authorization: Bearer <会话令牌>`**·会话经 `POST /api/mcp/sessions` 创建+`PUT …/grants` 授权）
 - `LAYERFS_SERVICE_URL`/`LAYERFS_SERVICE_TOKEN`（LayerFS 服务面·两者任一缺失则 LayerFS 集成整个禁用=降级直写）
+- `WM_SKILL_SHADOW_EVERY_MS`（技能影子副本定时补推的周期·毫秒·缺省 600000（10 分钟）·`0` 不补推·其余须 200～86400000 的整数，填错拒绝启动；第一轮在起来之后 min(周期, 2 分钟)）、`WM_SKILL_SHADOW_BATCH`（每轮最多推几个版本·缺省 20·1～500）：补推各技能当前版本里没有 commit_id、不是 skipped 的（导入器写的版本、推失败的、重建漏掉的），推完读回摘要一致才记 succeeded，见 server/src/skill-shadow.ts
 - `WM_ODOO_ORIGINS`（可信 Odoo 源·逗号分隔·门户只把 Odoo `session_id` 转给这些源与 `WM_ODOO_URL` 的源；都未设时谁都不转、Odoo 台免登不生效（fail closed·启动时提示））
 - `WM_ODOO_URL`（工作台认人的 Odoo 地址·浏览器 Odoo 会话按它现查 `get_session_info`：登录门、统一待办读权、Odoo 管理员认定、`/api/auth/viewer` 共用·未设则不认 Odoo 身份；旧名 `LC_ODOO_URL` 已弃用，仍在 `WM_ODOO_URL` 为空时回退读取并在启动时告警，两个都设以新名为准）
 - `WM_ODOO_BROWSER_URL`（只给浏览器用的 Odoo 登录地址·可选·须在可信名单内、只写 origin，非法拒启动；仅对源等于 `WM_ODOO_URL` 的 Odoo 台生效，主机名不符或 https 降级回 503；同域中继开着时中继优先·见 [docs/odoo-browser-origin.md](docs/odoo-browser-origin.md)）
@@ -401,6 +402,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   red-lines.ts（红线清单：越不过去的规则，每条写明在哪儿管着、哪个对抗组盯着；scripts/red-lines-test.mjs 核对每条都有带 [red-line:<id>] 的对抗例）
   judgment.ts（判定：Cordis 事件 `judgment/judge`，内置监听器照六步判）
   layerfs-shadow.ts（LayerFS 影子发布结果持久化：只回写 commit_id 为空的版本行，失败标记后可重试）
+  skill-shadow.ts（技能影子副本：推一版（migrate-layerfs 和补推共用，推完读回摘要一致才记 succeeded）、定时补推（挂在根上下文上随之停·LayerFS 没配置不做·连不上这一轮停下、日志只在通断变化时打·异常的版本退避·二进制记 skipped））
   login-gate.ts（全站登录门 WM_LOGIN_GATE：enforce 时页面 302 登录、API 401）
   mcp-tools.ts（MCP 工具注册表）
   owner-pending.ts（待属主看板的判断，服务端那一份：和 web/src/owner-pending.ts 跑同一份用例表 scripts/owner-pending-cases.json）

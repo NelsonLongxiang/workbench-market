@@ -538,6 +538,8 @@ jobs:
         run: node scripts/sop-run-list-page-smoke.mjs
       - name: 技能迁移 LayerFS 冒烟（0 字节文件照常迁移·读回摘要一致才记 commit_id·摘要不符留档）
         run: node scripts/skill-migrate-layerfs-smoke.mjs
+      - name: 技能影子补推冒烟（导入器写的当前版本定时补推·推完读回一致才记 succeeded·LayerFS 不通不刷屏、不挡启动、每轮撞一次就停·恢复后接着推·二进制记 skipped·摘要不符记 failed·读回不一致下一轮重试·重建同时写 commit_id 和状态、旧版本回到 pending）
+        run: node scripts/skill-shadow-catchup-smoke.mjs
       - name: 技能发布按字节冒烟（base64 二进制往返：快照/导出/钉装校验逐字节一致·同内容 409·影子 skipped·MCP skill_publish 上传/发版/更新）
         run: node scripts/skill-binary-publish-smoke.mjs
       - name: 技能回滚冒烟（回滚=移当前版本指针不新增版本·不撞同指纹唯一索引·回滚后缺省取装/导出/安装计划/校验=目标版本·二进制逐字节一致·MCP 变更申请批准同一执行体·发新版恢复跟随最新·预置孤儿版本目录挪进 .orphans 不混写）
