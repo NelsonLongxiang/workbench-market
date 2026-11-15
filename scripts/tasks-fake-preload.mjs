@@ -1,7 +1,7 @@
 /**
  * 录制回放用的夹具（--import 预加载）：给统一待办（/api/tasks）准备三个假的来源，每次的应答都一样。
  *   · ygl-trees：临时目录里放一个工作区（YGL_HOME 指过去）和一个占位的命令行入口（PNPM_HOME 指过去）；
- *     市场调这个入口时被截下，不起子进程：project list 回两个进行中的项目 alpha、beta，task list 按项目各回两条（一条待办、一条已完成）。
+ *     市场调这个入口时被截下，不起子进程：project list 回两个进行中的项目 alpha、beta，task list 按项目各回三条（一条待办、一条已完成、一条已取消——取消的不进统一待办）。
  *   · A2A：本机起一个假的状态端点（只听 127.0.0.1），A2A_STATE_URL、A2A_API_KEY 指过去；在途一条、归档一条；键不对回 401。
  *   · 扩展来源：临时目录里放三个扩展（WM_EXTENSIONS_DIR 指过去）：replay-ok 按 cookie 里有没有 session_id 回一条或要求登录；
  *     replay-broken 的 collect 一调就抛错，replay-leaky 不抛错、自己在 meta 里回 ok:false 和一段原始错误
@@ -48,6 +48,8 @@ cp.execFile = function (file, args, options, callback) {
     rows = [
       { id: base + 1, title: `replay ${project} 待办`, status: 'todo', due: '2030-01-02', project },
       { id: base + 2, title: `replay ${project} 已完成`, status: 'done', due: null, project },
+      // ygl-trees 0.121 起 task list 也列出取消了的：不该进统一待办（进了，回放就有差异）
+      { id: base + 3, title: `replay ${project} 已取消`, status: 'cancelled', due: null, project },
     ];
   }
   queueMicrotask(() => callback(null, JSON.stringify(rows), ''));

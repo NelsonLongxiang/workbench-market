@@ -181,7 +181,8 @@ export class KnowledgeService extends Service {
       ON CONFLICT (kind, ygl_id) DO UPDATE SET title = excluded.title, summary = excluded.summary, status = excluded.status, project = excluded.project,
         scope = excluded.scope, tags = excluded.tags, created = excluded.created, updated = excluded.updated, seen_at = excluded.seen_at`);
     for (let page = 0; page < MAX_PAGES; page++) {
-      const args = ['library', 'list', '--kind', kind, '--limit', String(PAGE_LIMIT), ...(since ? ['--since', since] : []), ...(cursor ? ['--cursor', cursor] : []), '--json'];
+      // 一律等号写法：游标是 base64url，可能以「-」开头，空格写法会被当成下一个参数
+      const args = ['library', 'list', `--kind=${kind}`, `--limit=${PAGE_LIMIT}`, ...(since ? [`--since=${since}`] : []), ...(cursor ? [`--cursor=${cursor}`] : []), '--json'];
       const r = await execYgl(args, { timeoutMs: CALL_TIMEOUT_MS });
       if (this.stopped) return { ok: false, error: 'stopped', seen };
       if (!r.ok) return fail(r.error);
@@ -325,7 +326,8 @@ export class KnowledgeService extends Service {
     const r = db.prepare('SELECT * FROM knowledge_items WHERE key = ?').get(key) as Row | undefined;
     const scope = r ? effectiveScope(r, this.projectMap()) : '';
     if (!r || !visibility(actor)(scope)) return null;
-    const res = await execYgl(['library', 'show', `${r.kind}:${r.ygl_id}`, '--json'], { timeoutMs: CALL_TIMEOUT_MS });
+    // ygl-trees 的用法是 library show <kind> <id>（两个参数）；写成 kind:id 会回 rc 2 用法错
+    const res = await execYgl(['library', 'show', r.kind, r.ygl_id, '--json'], { timeoutMs: CALL_TIMEOUT_MS });
     if (!res.ok) {
       const gone = res.error === 'exit' && res.code === 1 && !!res.json && typeof res.json === 'object' && 'error' in (res.json as object);
       if (gone) { db.prepare('DELETE FROM knowledge_items WHERE kind = ? AND ygl_id = ?').run(r.kind, r.ygl_id); return null; }

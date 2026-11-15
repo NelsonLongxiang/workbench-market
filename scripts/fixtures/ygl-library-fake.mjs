@@ -66,9 +66,11 @@ if (argv[1] === 'list') {
     out({ contract, items, total: all.length, next_cursor: start + limit < all.length ? String(start + limit) : null });
   }
 } else if (argv[1] === 'show') {
-  const ref = argv[2] ?? '';
+  // 和真的一样只认 library show <kind> <id>（两个参数）；写成 kind:id、缺 id 都是用法错 rc 2
+  const kind = argv[2] ?? '', id = argv[3] ?? '';
+  if (!['claim', 'note', 'skill', 'check'].includes(kind) || !id || id.startsWith('--')) out({ error: 'usage: library show <claim|note|skill|check> <id|title>' }, 2);
+  const ref = `${kind}:${id}`;
   if (fx.show_fail === 'exit2') out({ error: 'synthetic failure' }, 2);
-  const [kind, id] = ref.split(':');
   const row = (fx.items?.[kind] ?? []).find((it) => it.id === id);
   if (!row || fx.show_fail === 'gone') out({ error: `not found: ${ref}` }, 1);
   out({ contract, ...row, ...(fx.bodies?.[ref] ?? { body: '' }) });

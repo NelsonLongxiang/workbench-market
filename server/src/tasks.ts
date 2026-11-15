@@ -157,6 +157,8 @@ function execYglTasks(allowed: 'all' | readonly string[]): Promise<{ ok: boolean
     for (const r of results) {
       if (!r.ok) degradedProjects.push('(project-source-failed)');
       for (const row of r.rows as any[]) {
+        // 取消了的（ygl-trees 0.121 起 task list 照样列出 status: cancelled）不是待办，不进统一待办
+        if (row?.status === 'cancelled') continue;
         const nativeId = String(row?.id ?? row?.task_id ?? '');
         const dedupeKey = nativeId + '|' + r.project;
         if (!nativeId || seen.has(dedupeKey)) continue;
