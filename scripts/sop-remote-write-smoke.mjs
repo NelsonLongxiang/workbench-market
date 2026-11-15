@@ -3,7 +3,7 @@ import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** SOP Runner 远程写面冒烟（#T1 裁定 A 执行件 · 判据先红后绿）。
  *  背景：远程写中间件（server/src/index.ts REMOTE_ALLOW_*）豁免清单漏了 SOP Runner
- *  业务写面——.157 业务同事裸开 Runner 页提交表单 403（主人裁定 A 注释预言的同症状）。
+ *  业务写面——业务侧同事裸开 Runner 页提交表单 403（主人裁定 A 注释预言的同症状）。
  *  评审裁定（direct-7d8eaa75）：业务写面（建单/存步/完成/附件）入豁免；控制面照旧收口。
  *  六判据：①远程建单 201（红版 403）②远程存步 200（红版 403）③远程完成 200（红版 403）
  *  ④远程控制面（publish）仍 403（护栏）⑤远程 assign 仍 403（护栏·控制面不放松）

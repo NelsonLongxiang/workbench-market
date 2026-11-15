@@ -44,4 +44,4 @@ node scripts/sop-upload-token-rotation.mjs --db <ABSOLUTE_OFFLINE_DB_PATH> --app
 - 轮换内存5项：dryrun零写/实际新签并清完成/快照变拒/中途fault全回滚/完成行token变化也拒旧plan，无真实库apply。
 - 实际构建React/antd页面+拦截合成API4项，元数据可渲染/steps/无展开/无单项fallback fetch；不是现网GUI验收。UI取消列表“展开所有字段”是预期最小收口变化，不改旧单run接口。
 
-尚未完成：第二段单项字段与附件读scope、匿名调用方完整盘点、真实人员归属来源/旧run迁移、生产配置切换与真实令牌轮换。全部部署/合并留属主本人，不混#296/#308，不动186180/网络/LC/.88/WinSW。
+尚未完成：第二段单项字段与附件读scope、匿名调用方完整盘点、真实人员归属来源/旧run迁移、生产配置切换与真实令牌轮换。全部部署/合并留属主本人，不混#296/#308，不动186180/网络/LC/Odoo 主机/WinSW。
