@@ -298,7 +298,7 @@
       "GET /api/mcp-rest/sop/runs/:id  <- <anonymous>",
       "GET /api/mcp-rest/sop/runs/:id/files  <- <anonymous>",
       "GET /api/mcp-rest/sop/runs/:id/files/:fileId  <- <anonymous>",
-      "ALL /^\\/go\\/(\\d+)(.*)$/  <- prepare, middleware",
+      "ALL /^\\/go\\/(\\d+)(.*)$/  <- authorizedPrepare, middleware",
       "USE /  <- serveStatic",
       "GET /^(?!\\/api\\/|\\/assets\\/|\\/health).*/  <- <anonymous>",
       "USE /  <- <anonymous>",

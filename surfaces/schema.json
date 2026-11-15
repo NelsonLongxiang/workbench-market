@@ -1086,7 +1086,9 @@
       "auth_config TEXT NOT NULL DEFAULT ''",
       "created_at TEXT NOT NULL DEFAULT datetime('now')",
       "updated_at TEXT NOT NULL DEFAULT datetime('now')",
-      "cookie_set_id INTEGER NOT NULL DEFAULT 0"
+      "cookie_set_id INTEGER NOT NULL DEFAULT 0",
+      "access TEXT NOT NULL DEFAULT 'all'",
+      "access_logins TEXT NOT NULL DEFAULT '[]'"
     ]
   },
   "indexes": [

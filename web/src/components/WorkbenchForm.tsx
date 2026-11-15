@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { App, Button, Space, Typography } from 'antd';
-import { ModalForm, ProFormDigit, ProFormSelect, ProFormSwitch, ProFormText, ProFormTextArea } from '@ant-design/pro-components';
+import { ModalForm, ProFormDependency, ProFormDigit, ProFormSelect, ProFormSwitch, ProFormText, ProFormTextArea } from '@ant-design/pro-components';
 import { api } from '../api';
 import { apiFetch } from '../admin-token';
 import type { Workbench, WorkbenchType } from '../types';
@@ -76,6 +76,8 @@ export default function WorkbenchForm({
         description: copySource.description || '',
         authType: copySource.auth?.type ?? 'none',
         authValue: copySource.auth?.value ?? '',
+        access: 'auto',
+        access_logins: [],
       }
     : null;
 
@@ -94,6 +96,8 @@ export default function WorkbenchForm({
               ...initial,
               authType: initial.auth?.type ?? 'none',
               authValue: initial.auth?.value ?? '',
+              access: initial.access ?? 'all',
+              access_logins: (initial.access_logins ?? []).map((s) => s.replace(/^odoo:/, '')),
             }
           : copyInitial ?? {
               name: '',
@@ -108,11 +112,21 @@ export default function WorkbenchForm({
               description: '',
               authType: 'none',
               authValue: '',
+              access: 'auto',
+              access_logins: [],
             }
       }
       onFinish={async (values) => {
         try {
-          const { authType, authValue, _cookieImport, ...payload } = values;
+          const { authType, authValue, _cookieImport, access, access_logins, ...payload } = values;
+          // 访问范围：新建选「自动」时不发，由服务端按凭据判定；编辑时只有真改了才发（原样回传 all 会被当成显式选择，抵消加凭据时的自动收紧）
+          const logins = (access_logins ?? []).map((s: string) => String(s).trim()).filter(Boolean);
+          const sameLogins = JSON.stringify([...logins].sort()) === JSON.stringify([...(initial?.access_logins ?? []).map((s) => s.replace(/^odoo:/, ''))].sort());
+          const changed = initial ? access !== (initial.access ?? 'all') || (access === 'listed' && !sameLogins) : access !== 'auto';
+          if (changed && access !== 'auto') {
+            (payload as Record<string, unknown>).access = access;
+            if (access === 'listed') (payload as Record<string, unknown>).access_logins = logins;
+          }
           // 凭据注入：none → 清除；bearer/basic → 组装 auth（服务端经 /go/ 门户注入 Authorization 头）
           (payload as Record<string, unknown>).auth =
             authType === 'bearer' || authType === 'basic' ? { type: authType, value: authValue } : null;
@@ -220,6 +234,30 @@ export default function WorkbenchForm({
       <Button size="small" onClick={importCookies} disabled={!cookieJson.trim()} className="wm-mb-4">
         导入为 Cookie 集
       </Button>
+      <ProFormSelect
+        name="access"
+        label="谁能打开"
+        options={[
+          ...(initial ? [] : [{ value: 'auto', label: '自动：带凭据时仅管理员，否则登录即可' }]),
+          { value: 'all', label: '登录即可' },
+          { value: 'admin', label: '仅管理员' },
+          { value: 'listed', label: '管理员和指定的人' },
+        ]}
+        extra="经门户 /go/ 打开时生效；门户会把上面的凭据、Cookie 集和地址里的 token 带给每个能打开它的人"
+      />
+      <ProFormDependency name={['access']}>
+        {({ access }) =>
+          access === 'listed' ? (
+            <ProFormSelect
+              name="access_logins"
+              label="指定的人（Odoo 登录名）"
+              fieldProps={{ mode: 'tags', tokenSeparators: [',', ' '] }}
+              rules={[{ required: true, type: 'array', min: 1, message: '至少填一个登录名' }]}
+              placeholder="回车添加，可多个"
+            />
+          ) : null
+        }
+      </ProFormDependency>
       <ProFormTextArea name="description" label="描述" placeholder="支持 Markdown；在工作台详情中渲染（可空）" />
     </ModalForm>
   );

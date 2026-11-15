@@ -19,9 +19,9 @@ export class WorkbenchService extends Service {
   }
   createByNamed(r: Record<string, SQLInputValue>) {
     return db.prepare(
-      `INSERT INTO workbenches (name, url, type, icon, description, category, tags, enabled, health_path, sort, auth_config)
-       VALUES (@name, @url, @type, @icon, @description, @category, @tags, @enabled, @health_path, @sort, @auth_config)`
-    ).run(r);
+      `INSERT INTO workbenches (name, url, type, icon, description, category, tags, enabled, health_path, sort, auth_config, cookie_set_id)
+       VALUES (@name, @url, @type, @icon, @description, @category, @tags, @enabled, @health_path, @sort, @auth_config, @cookie_set_id)`
+    ).run({ cookie_set_id: 0, ...r });
   }
   registerMarketApp(title: string, url: string, icon: string, description: string, category: string) {
     return db.prepare(
@@ -69,6 +69,15 @@ export class WorkbenchService extends Service {
   }
   cookieSetId(id: number) {
     return db.prepare('SELECT cookie_set_id FROM workbenches WHERE id = ?').get(id);
+  }
+  /** Access policy writes are validated before entering the synchronous transaction. */
+  setAccess(id: number, access: string, logins: string[]) {
+    return db.prepare('UPDATE workbenches SET access = ?, access_logins = ?, updated_at = ? WHERE id = ?').run(access, JSON.stringify(logins), new Date().toISOString().replace('T', ' ').slice(0, 19), id);
+  }
+  accessTransaction<T>(operation: () => T): T {
+    db.exec('SAVEPOINT workbench_access_write');
+    try { const result = operation(); db.exec('RELEASE workbench_access_write'); return result; }
+    catch (error) { db.exec('ROLLBACK TO workbench_access_write; RELEASE workbench_access_write'); throw error; }
   }
   exists(id: number) {
     return db.prepare('SELECT 1 AS x FROM workbenches WHERE id = ?').get(id);

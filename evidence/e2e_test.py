@@ -829,6 +829,7 @@ with sync_playwright() as p:
                    'Upgrade: websocket\r\nConnection: Upgrade\r\n'
                    'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n'
                    'Sec-WebSocket-Version: 13\r\n'
+                   f'X-Admin-Token: {ADMIN_TOKEN}\r\n'
                    'Origin: http://127.0.0.1:9800\r\n\r\n').encode())
         first = s.recv(128).decode('latin1')
         s.close()

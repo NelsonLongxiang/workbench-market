@@ -92,6 +92,8 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       // enforce: the login gate answers the anonymous browser first (401) before the admin write guard (403)
       { id: 'market.browser-workbench-write', target: m, surface: 'market', method: 'POST', path: '/api/workbenches', body: '{"name":"","url":""}', origin: true, status: loginGate === 'enforce' ? 401 : 403 },
       { id: 'market.invalid-write-control', target: m, surface: 'market', method: 'POST', path: '/api/workbenches', body: '{"name":"","url":""}', status: 400 },
+      // Invalid policy is rejected before URL admission; both expected paths create no workbench.
+      { id: 'market.workbench-access-validate', target: m, surface: 'market', method: 'POST', path: '/api/workbenches', body: '{"name":"wm-self-probe","url":"http://wm-self-probe.invalid/","access":"wm-self-probe-invalid"}', status: 400 },
       { id: 'control.admin-read', target: c, surface: 'control', method: 'GET', path: '/api/mcp/sessions', status: 403 },
       // 主体管理面：远程匿名浏览器列不出主体。登录门关着时由路由自己的管理门拒（403），开着时登录门先拦（401）。
       // 不带任何凭据，所以这一行不会去问登录提供方，也不读主体表
