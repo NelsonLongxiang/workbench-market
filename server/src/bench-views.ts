@@ -8,6 +8,7 @@
  * 描述里的文字只当文字：页面渲染时一律转义，这里不解释其中的任何标记。
  */
 import { BenchError, NAME_RE, planQuery, type DatasetDef, type OutColumn } from './bench-query.ts';
+import { isVarRef } from './bench-bindings.ts';
 
 export const BLOCK_TYPES = ['filter-bar', 'stat', 'table', 'bar', 'line', 'pie', 'progress', 'form'] as const;
 const VIEW_KEY_RE = /^[a-z][a-z0-9-]{0,31}$/;
@@ -85,7 +86,7 @@ export function validateViewDoc(doc: unknown, datasets: Map<string, DatasetDef>)
           keys(r, ['col', 'op', 'value', 'tone'], rAt);
           out(cols, r.col, `tone_rules 第 ${ri + 1} 条的 col`, true);
           if (typeof r.op !== 'string' || !['<', '<=', '>', '>=', '=', '!='].includes(r.op)) errs.push(`${rAt}的 op 须为 < / <= / > / >= / = / !=`);
-          if (typeof r.value !== 'number' || !Number.isFinite(r.value)) errs.push(`${rAt}的 value 须为数字`);
+          if (!isVarRef(r.value) && (typeof r.value !== 'number' || !Number.isFinite(r.value))) errs.push(`${rAt}的 value 须为数字或本台引用 { var: 键名 }`);
           if (typeof r.tone !== 'string' || !['danger', 'warning', 'success'].includes(r.tone)) errs.push(`${rAt}的 tone 须为 danger / warning / success`);
         });
       };
@@ -131,12 +132,16 @@ export function validateViewDoc(doc: unknown, datasets: Map<string, DatasetDef>)
         if (block.submit_label !== undefined && !isText(block.submit_label, 16)) errs.push(`${at}：submit_label 须为 1～16 个字符`);
         return;
       }
-      // 其余组件都读一份查询
-      if (block.query === undefined) { errs.push(`${at}：缺 query`); return; }
-      const cols = query();
+      // Scalar references are explicit exact keys in this card's space, never paths or expressions.
+      const valueRef = (type === 'stat' || type === 'progress') && isVarRef(block.value);
+      const totalRef = type === 'progress' && isVarRef(block.total);
+      const standalone = valueRef && (type === 'stat' || totalRef || typeof block.total === 'number');
+      if (standalone && block.query !== undefined) errs.push(`${at}：完全取自常量变量的块不写 query`);
+      if (!standalone && block.query === undefined) { errs.push(`${at}：缺 query（或者用本台引用 { var: 键名 }）`); return; }
+      const cols: OutColumn[] | null = standalone ? [{ name: 'value', type: 'decimal', label: typeof block.title === 'string' ? block.title : '数值', role: 'measure' }] : query();
       if (type === 'stat') {
         keys(block, [...base, 'query', 'value', 'unit', 'tone_rules'], at);
-        out(cols, block.value, 'value');
+        if (!valueRef) out(cols, block.value, 'value');
         toneRules(cols);
         if (block.unit !== undefined && !isText(block.unit, 12)) errs.push(`${at}：unit 须为 1～12 个字符`);
       } else if (type === 'table') {
@@ -205,8 +210,9 @@ export function validateViewDoc(doc: unknown, datasets: Map<string, DatasetDef>)
         flag('donut');
       } else if (type === 'progress') {
         keys(block, [...base, 'query', 'value', 'total'], at);
-        out(cols, block.value, 'value', true);
-        if (typeof block.total === 'number') { if (!Number.isFinite(block.total) || block.total <= 0) errs.push(`${at}：total 写成数字时须大于 0`); }
+        if (!valueRef) out(cols, block.value, 'value', true);
+        if (totalRef) { /* checked exact-key reference, numeric value is checked when read */ }
+        else if (typeof block.total === 'number') { if (!Number.isFinite(block.total) || block.total <= 0) errs.push(`${at}：total 写成数字时须大于 0`); }
         else out(cols, block.total, 'total', true);
       }
     });

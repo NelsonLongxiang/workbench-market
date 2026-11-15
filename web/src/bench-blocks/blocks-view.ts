@@ -132,6 +132,7 @@ export function errorText(e: BlockError): string {
   if (e.code === 'invalid') return '这一块的设置和现在的数据对不上（可能有列被改过）。请负责这个台的人看一下。';
   if (e.code === 'not_found') return '这一块要的数据已经不在了。请负责这个台的人看一下。';
   if (e.code === 'busy') return '现在读写的人太多，稍后再试。';
+  if (e.code === 'unavailable') return '这一块引用的常量或变量暂时读不到，请稍后刷新。';
   if (e.code === 'forbidden') return '你的账号现在不能看这块数据。';
   return '读不到这块数据，稍后再试。';
 }

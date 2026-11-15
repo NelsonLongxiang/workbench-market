@@ -38,6 +38,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function freePort() { const p = createServer(); await new Promise((r) => p.listen(0, '127.0.0.1', r)); const { port } = p.address(); await new Promise((r) => p.close(r)); return port; }
 
 const running = [];
+const openDbs = [];
+const openDb = (p) => { const d = new DatabaseSync(p, { timeout: 5000 }); openDbs.push(d); return d; };
 async function boot(name, extraEnv = {}, { expectFail = false } = {}) {
   const port = await freePort();
   const data = join(OUT, name, 'data'), home = join(OUT, name, 'home'), ext = join(OUT, name, 'ext');
@@ -79,7 +81,7 @@ async function boot(name, extraEnv = {}, { expectFail = false } = {}) {
       return { status: res.status, text, json };
     } catch (e) { return { status: 0, text: String(e?.name ?? e), json: null }; }
   };
-  const srv = { name, base, host: new URL(base).host, data, stop, call, log: () => log, db: () => new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 }) };
+  const srv = { name, base, host: new URL(base).host, data, stop, call, log: () => log, db: () => openDb(join(data, 'workbench-market.db')) };
   running.push(srv);
   return srv;
 }
@@ -383,6 +385,7 @@ try {
 } catch (e) {
   fail++; console.log(`  ✗ 中途抛错：${e?.stack ?? e}`);
 } finally {
+  for (const d of openDbs) d.close();
   for (const s of running) await s.stop();
   rmSync(OUT, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }

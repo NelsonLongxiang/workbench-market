@@ -39,6 +39,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function freePort() { const p = createServer(); await new Promise((r) => p.listen(0, '127.0.0.1', r)); const { port } = p.address(); await new Promise((r) => p.close(r)); return port; }
 
 const running = [];
+const openDbs = [];
+const openDb = (path) => { const d = new DatabaseSync(path, { timeout: 5000 }); openDbs.push(d); return d; };
 async function boot(name, extraEnv = {}, { expectFail = false } = {}) {
   const port = await freePort();
   const data = join(OUT, name, 'data'), home = join(OUT, name, 'home'), ext = join(OUT, name, 'ext');
@@ -80,7 +82,7 @@ async function boot(name, extraEnv = {}, { expectFail = false } = {}) {
       return { status: res.status, text, json };
     } catch (e) { return { status: 0, text: String(e?.name ?? e), json: null }; }
   };
-  const srv = { name, base, host: new URL(base).host, data, stop, call, log: () => log, db: () => new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 }) };
+  const srv = { name, base, host: new URL(base).host, data, stop, call, log: () => log, db: () => openDb(join(data, 'workbench-market.db')) };
   running.push(srv);
   return srv;
 }
@@ -275,6 +277,47 @@ try {
   r = await srv.call('GET', `${B}/datasets/nope/snapshots`, mgr);
   check(r.status === 404 && r.json?.error === 'not_found', '没有这个数据集：404', r.text.slice(0, 100));
 
+  console.log('六之一、本台常量变量的视图绑定');
+  const card = await srv.call('POST', '/api/workbenches', { body: { name: '合成变量台', url: 'http://127.0.0.1:9/', type: 'web' } });
+  const wid = card.json?.id;
+  check(card.status === 201 && Number.isInteger(wid), '绑定准备：创建卡片', card.text.slice(0, 100));
+  r = await srv.call('PUT', "/api/bench-views/demo/workbench", { ...mgr, body: { workbench_id: wid, note: '合成绑定' } });
+  check(r.status === 200, '绑定准备：视图台只关联本卡片', r.text.slice(0, 100));
+  const putVar = (key, value, extra = {}) => srv.call('PUT', '/api/workbenches/' + wid + '/vars/' + key, { body: { value, ...extra } });
+  await putVar('completed', 37);
+  await putVar('target', 100, { kind: 'const' });
+  await putVar('secret_unused', 984321);
+  await putVar('bad_value', 'not a number');
+  const beforeView = await srv.call('GET', B + '/view', mgr);
+  const bindDoc = { title: '合成绑定', views: [{ key: 'board', title: '总览', blocks: [
+    { type: 'stat', title: '已完成', value: { var: 'completed' } },
+    { type: 'progress', value: { var: 'completed' }, total: { var: 'target' } },
+    { type: 'stat', title: '缺键', value: { var: 'missing' } },
+    { type: 'stat', title: '坏类型', value: { var: 'bad_value' } },
+    { type: 'stat', title: '对照', query: { dataset: 'orders', measures: [{ fn: 'count', as: 'n' }] }, value: 'n', tone_rules: [{ col: 'n', op: '<', value: { var: 'target' }, tone: 'warning' }] },
+  ] }] };
+  r = await srv.call('PUT', B + '/view', { ...mgr, body: { doc: bindDoc, base: beforeView.json.view.active_version, note: '合成引用' } });
+  check(r.status === 200, '保存引用视图：无数据集的指标和进度可用', r.text.slice(0, 160));
+  r = await srv.call('GET', B + '/render', mgr);
+  const bound = r.json?.blocks ?? [];
+  check(r.status === 200 && bound[0]?.data?.rows?.[0]?.[bound[0].value] === 37 && bound[1]?.total === 100, '真实 render：指标、进度值与常量目标', r.text.slice(0, 180));
+  check(bound[0]?.var_revisions?.completed === 1 && bound[1]?.var_revisions?.target === 1 && !r.text.includes('secret_unused') && !r.text.includes('984321'), '只返回显式选择的数值与 revision，不枚举空间', r.text.slice(0, 160));
+  check(bound[2]?.error?.code === 'not_found' && !bound[2]?.data && bound[3]?.error?.code === 'invalid' && !bound[3]?.data && bound[4]?.tone_rules?.[0]?.value === 100, '缺键和坏类型是块错，其他块及阈值正常', r.text.slice(0, 160));
+  await putVar('completed', 38, { revision: 1 });
+  r = await srv.call('GET', B + '/render', mgr);
+  check(r.json?.blocks?.[0]?.data?.rows?.[0]?.[r.json.blocks[0].value] === 38 && r.json.blocks[0].var_revisions.completed === 2, '修改原变量后重新 render 读到新值和 revision');
+  r = await srv.call('GET', '/api/workbenches/' + wid + '/vars/completed', mgr);
+  check(r.status === 403, '原变量 REST 门不变：只有管理层业务授予仍不能直接读变量', r.status);
+  r = await srv.call('GET', B + '/render?var=secret_unused', mgr);
+  check(r.status === 200 && r.json?.blocks?.every(b => b.error?.code === 'invalid' && !b.data) && !r.text.includes('984321'), '请求参数不能额外选择变量：明确块错，不输出任何值');
+  const activeView = await srv.call('GET', B + '/view', mgr);
+  for (const ref of [{ var: 'completed', bench: 999 }, { var: 'completed', path: '/x' }, { var: 'x[0]' }, { var: 'x + y' }]) {
+    r = await srv.call('PUT', B + '/view', { ...mgr, body: { doc: { title: '拒绝', views: [{ key: 'v', title: 'v', blocks: [{ type: 'stat', value: ref }] }] }, base: activeView.json.view.active_version, note: '应被拒绝' } });
+    check(r.status === 400, '跨台、子路径或表达式引用保存即拒：' + JSON.stringify(ref), r.status);
+  }
+  r = await srv.call('GET', '/api/bench-views/ghost/render?var=secret_unused', nobody);
+  check(r.status === 403, '无权请求先拒绝，不探台或变量', r.status);
+
   console.log('七、停用');
   await srv.call('POST', '/api/principals/disable', { body: { id: 'user:alpha', reason: '合成' } });
   r = await srv.call('GET', '/api/bench-views', mgr);
@@ -282,6 +325,7 @@ try {
 } catch (e) {
   fail++; console.log(`  ✗ 中途抛错：${e?.stack ?? e}`);
 } finally {
+  for (const d of openDbs) d.close();
   for (const s of running) await s.stop();
   rmSync(OUT, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }

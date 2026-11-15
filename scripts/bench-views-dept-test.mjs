@@ -40,6 +40,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function freePort() { const p = createServer(); await new Promise((r) => p.listen(0, '127.0.0.1', r)); const { port } = p.address(); await new Promise((r) => p.close(r)); return port; }
 
 const running = [];
+const openDbs = [];
+const openDb = (p) => { const d = new DatabaseSync(p); openDbs.push(d); return d; };
 async function boot(name, extraEnv = {}, { expectFail = false } = {}) {
   const port = await freePort();
   const data = join(OUT, name, 'data'), home = join(OUT, name, 'home'), ext = join(OUT, name, 'ext');
@@ -81,7 +83,7 @@ async function boot(name, extraEnv = {}, { expectFail = false } = {}) {
       return { status: res.status, text, json };
     } catch (e) { return { status: 0, text: String(e?.name ?? e), json: null }; }
   };
-  const srv = { name, base, host: new URL(base).host, data, stop, call, log: () => log, db: () => new DatabaseSync(join(data, 'workbench-market.db')) };
+  const srv = { name, base, host: new URL(base).host, data, stop, call, log: () => log, db: () => openDb(join(data, 'workbench-market.db')) };
   running.push(srv);
   return srv;
 }
@@ -301,6 +303,16 @@ try {
   r = await srv.call('DELETE', `/api/workbenches/${wbB}`, token);
   // 第 3 步起删卡片连带删它的台（台库是空的：不用确认、不留备份）。原来是「台留着、对应读作 null」
   check(r.status === 200 && !(await benchOf(boss, 'wb-born')), '登记台乙删掉之后：对应的视图台一起删了（台库是空的，不用确认）', r.text.slice(0, 160));
+  await srv.call('PUT', '/api/workbenches/' + wbA + '/vars/kpi', { body: { value: 42 } });
+  await srv.call('PUT', '/api/workbenches/' + wbA + '/vars/not_selected', { body: { value: 123456 } });
+  const saved = await srv.call('GET', '/api/bench-views/sales-b/view', boss);
+  const doc = { title: '合成部门引用', views: [{ key: 'v', title: 'v', blocks: [{ type: 'stat', value: { var: 'kpi' } }] }] };
+  const published = await srv.call('PUT', '/api/bench-views/sales-b/view', { ...boss, body: { doc, base: saved.json?.view?.active_version ?? 0, note: '合成发布一个数' } });
+  const shown = await srv.call('GET', '/api/bench-views/sales-b/render', member);
+  const direct = await srv.call('GET', '/api/workbenches/' + wbA + '/vars/kpi', member);
+  check(published.status === 200 && shown.status === 200 && shown.json?.blocks?.[0]?.data?.rows?.[0]?.[shown.json.blocks[0].value] === 42 && direct.status === 403 && !shown.text.includes('not_selected') && !shown.text.includes('123456'), '部门读者只见视图显式发布的数，不获得变量接口权或未引用值', { publish: published.status, render: shown.status, direct: direct.status });
+  const extraKey = await srv.call('GET', '/api/bench-views/sales-b/render?var=not_selected', member);
+  check(extraKey.status === 200 && extraKey.json?.blocks?.[0]?.error?.code === 'invalid' && !extraKey.json.blocks[0].data, '部门读者不能从 render 参数选其他 key');
   r = await srv.call('PUT', '/api/bench-views/sales-b/workbench', { ...boss, body: { workbench_id: null } });
   const againLink = await srv.call('PUT', '/api/bench-views/sales-b/workbench', { ...boss, body: { workbench_id: null } });
   const trailLink = db.prepare("SELECT before, after, actor FROM bench_bind_audit WHERE slug = 'sales-b' AND action = 'workbench' ORDER BY id").all();
@@ -314,6 +326,7 @@ try {
 } catch (e) {
   fail++; console.log(`  ✗ 中途抛错：${e?.stack ?? e}`);
 } finally {
+  for (const d of openDbs) d.close();
   for (const s of running) await s.stop();
   rmSync(OUT, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }

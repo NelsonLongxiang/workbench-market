@@ -14,7 +14,7 @@ mkdirSync(resolve('tmp'), { recursive: true }); // 新检出没有 tmp/
 const DATA = mkdtempSync(resolve('tmp/skill-data-views-'));
 process.env.DATA_DIR = DATA;
 const { BenchHost } = await import('../server/src/services/bench-store-core.ts');
-const { benchSqlKit } = await import('../server/src/db.ts');
+const { benchSqlKit, db } = await import('../server/src/db.ts');
 const { BENCH_LIMITS } = await import('../server/src/bench-query.ts');
 
 let pass = 0, fail = 0;
@@ -25,7 +25,7 @@ const DIR = resolve('skills/wm-data-views');
 const files = ['SKILL.md', ...readdirSync(join(DIR, 'references')).filter((f) => f.endsWith('.md')).sort().map((f) => `references/${f}`)];
 const blocks = [];
 for (const f of files) {
-  const text = readFileSync(join(DIR, f), 'utf8');
+  const text = readFileSync(join(DIR, f), 'utf8').replace(/\r\n/g, '\n');
   for (const m of text.matchAll(/```json ([a-z-]+(?::[a-z0-9_]+)?)\n([\s\S]*?)```/g)) blocks.push({ file: f, kind: m[1], body: m[2], n: blocks.filter((b) => b.file === f).length + 1 });
 }
 const say = (b) => `${b.file} 第 ${b.n} 个例子（${b.kind}）`;
@@ -84,6 +84,7 @@ try {
   fail++; console.log(`  ✗ 中途抛错：${e?.stack ?? e}`);
 } finally {
   await host.closeAll();
+  db.close();
   rmSync(DATA, { recursive: true, force: true });
 }
 console.log(`\nskill-data-views-examples-test: ${pass} passed / ${fail} failed`);

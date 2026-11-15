@@ -117,10 +117,11 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       { id: 'market.work-items.attachment-upload-anonymous', target: m, surface: 'market', method: 'PUT', path: '/api/work-items/attachments/selfprobe.txt', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
       { id: 'market.work-items.due-set-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/work-items/wi_selfprobe/due', body: '{"due":null}', origin: true, headers: REMOTE_ANON, status: 401 },
       { id: 'market.export.reveal-anonymous', target: m, surface: 'market', method: 'GET', path: '/api/export?reveal=1', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 },
-      // 数据视图的入口（WM_BENCH_VIEWS=on 才有这两行；关着时整组路由回 404，由 scripts/bench-views-entry-test.mjs 看）：
+      // 数据视图的入口（WM_BENCH_VIEWS=on 才有这三行；关着时整组路由回 404，由 scripts/bench-views-entry-test.mjs 看）：
       // 远程匿名读不到台的清单、也登记不了台（登录门开不开都是 401：登录门先拦，或者路由自己认不出人）
       ...(benchViews ? [
         { id: 'market.bench-views.anonymous-read', target: m, surface: 'market' as const, method: 'GET', path: '/api/bench-views', headers: REMOTE_ANON, status: 401 },
+        { id: 'market.bench-views.var-render-anonymous', target: m, surface: 'market' as const, method: 'GET', path: '/api/bench-views/wm-self-probe/render?var=wm-self-probe', headers: REMOTE_ANON, status: 401 },
         { id: 'market.bench-views.anonymous-write', target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views', body: '{"slug":"wm-self-probe","title":"x"}', headers: REMOTE_ANON, status: 401 },
       ] : []),
       // 授予管理面：远程匿名列不出授予（GET 不经写请求总门，拒的是路由自己的管理门；登录门开着时登录门先拦 401）
