@@ -91,11 +91,14 @@ export class GrantService extends Service {
   }
 
   /**
-   * 站内管理员（docs/local-accounts.md 第 5 节）：持有生效中的、范围是 * 的 owner 或 admin 授予。
+   * 站内管理员（docs/local-accounts.md 第 5 节）：持有生效中的、范围是 * 的 owner 或 admin 授予，回是哪一种（都有算 owner），都没有回 null。
+   *   owner：完整的管理员；admin：系统管理员——管系统，不看业务数据（属主 2026-11-16 定）。
    * 认人时现查（身份服务每次认出人都问一次，不进缓存）：授予撤销、到期，下一个请求就不再是管理员。
    */
-  heldAdmin(principal: string | null, now = Date.now()): boolean {
-    return !!principal && this.activeFor(principal, now).some((g) => g.scope === '*' && (g.role === 'owner' || g.role === 'admin'));
+  heldAdmin(principal: string | null, now = Date.now()): 'owner' | 'admin' | null {
+    if (!principal) return null;
+    const held = this.activeFor(principal, now).filter((g) => g.scope === '*' && (g.role === 'owner' || g.role === 'admin'));
+    return held.some((g) => g.role === 'owner') ? 'owner' : held.length ? 'admin' : null;
   }
 
   /** 这个主体是不是业务侧：持有范围 * 的生效授予，角色全公司的写和决定都有（管理层；属主另由 Actor.owner 认） */

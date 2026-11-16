@@ -26,10 +26,12 @@ import { loginProviders } from './login-providers/index.ts';
 /**
  * 查看者：一次请求被认成的那个人。
  * login 是提供方那边的登录名；sub 是主体标识（主体目录给的，人是 `user:<名>`；经现有登录认出的人，名就是登录名）；name 只用于显示；
- * admin 是「是不是管理员」：提供方说是，或者这个主体持有生效中的 owner / admin 授予（站内管理员，docs/local-accounts.md 第 5 节），缺了按 false。
- * adminBy：admin 只因为授予才为真时是 'grant'（留痕、whoami 据此不写成 Odoo 管理员）；提供方说是的不带。
+ * admin 是「是不是管理员」：提供方说是，或者这个主体持有生效中的 owner 授予（docs/local-accounts.md 第 5 节），缺了按 false。
+ * adminBy：admin 只因为 owner 授予才为真时是 'grant'（留痕、whoami 据此不写成 Odoo 管理员）；提供方说是的不带。
+ * systemAdmin：持有 admin 授予（没有 owner）的系统管理员——admin 仍是 false（直接读 admin 的业务面一律不认他），
+ *   只有管理门（index.ts 的 isAdmin）在非业务域的路由上认他（属主 2026-11-16 定：系统管理员不看业务数据）。
  */
-export interface Viewer { login: string; uid: number; sub: string; name: string | null; admin: boolean; adminBy?: 'grant' }
+export interface Viewer { login: string; uid: number; sub: string; name: string | null; admin: boolean; adminBy?: 'grant'; systemAdmin?: true }
 
 /**
  * 认人的结果。认不出时 http 是该回给调用方的状态：401 没登录或会话失效，403 不是内部账号、主体已停用或对不到主体，502 身份来源不可达，503 没配置身份来源或主体目录不可用。
@@ -101,7 +103,7 @@ export type Admission = { ok: true; principal: string } | { ok: false; reason: '
 /** 主体目录：「谁」的那一张表。实现要开库，是 Cordis 服务 `principals`（services/principal.ts）；这里只有契约 */
 /** 授予（Cordis 服务 `grants`）里认管理员的那一问。每次认出人都现问，不进缓存 */
 export interface AdminGrants {
-  heldAdmin(principal: string | null, now?: number): boolean;
+  heldAdmin(principal: string | null, now?: number): 'owner' | 'admin' | null;
 }
 
 export interface PrincipalDirectory {
@@ -518,7 +520,7 @@ export class IdentityService extends Service {
     if (next !== upstream) {
       try { if (store?.renewUpstream?.(token, next)) this.noteSession('renewed', 'info'); } catch { /* 换不上：下一次照样会再判一次 */ }
     }
-    return { ok: true, via: 'session', viewer: this.elevated({ ...viewer, name: who.viewer.name ?? viewer.name, admin: who.viewer.admin === true, ...(who.viewer.adminBy === 'grant' ? { adminBy: 'grant' as const } : {}) }) };
+    return { ok: true, via: 'session', viewer: this.elevated({ ...viewer, name: who.viewer.name ?? viewer.name, admin: who.viewer.admin === true, ...(who.viewer.adminBy === 'grant' ? { adminBy: 'grant' as const } : {}) }) /* admitted 已经按授予判过；这里再判一次，结论相同 */ };
   }
 
   /** 诊断日志的限流：每分钟最多这么多行，免得来源出事时刷屏 */
@@ -711,18 +713,21 @@ export class IdentityService extends Service {
   }
 
   /**
-   * 站内管理员：提供方没说是管理员、但这个主体持有生效中的 owner / admin 授予的，admin 记真、adminBy 记 grant。
+   * 站内管理员：提供方没说是管理员时现查授予——owner 授予：admin 记真、adminBy 记 grant；admin 授予：admin 仍是 false，systemAdmin 记真。
    * 只在认出人的两个出口调用（市场会话、主体目录对上之后），两处都不进缓存：撤销授予、停用主体，下一个请求就生效。
-   * 授予服务没装上、形状不对、抛错：一律不加（失败关闭）。
+   * 授予服务没装上、形状不对、抛错、回答不是这两种：一律不加（失败关闭）。提供方回答里带的 adminBy、systemAdmin 不认（checked 重建过）。
    */
   private elevated(viewer: Viewer): Viewer {
-    if (viewer.admin === true) return { ...viewer, admin: true };
-    let held = false;
+    const { adminBy: _by, systemAdmin: _sys, ...base } = viewer;
+    if (viewer.admin === true) return { ...base, admin: true, ...(viewer.adminBy === 'grant' ? { adminBy: 'grant' as const } : {}) };
+    let held: unknown = null;
     try {
       const g = this.ctx.get('grants') as AdminGrants | undefined;
-      held = !!g && typeof g.heldAdmin === 'function' && g.heldAdmin(viewer.sub) === true;
-    } catch { held = false; }
-    return held ? { ...viewer, admin: true, adminBy: 'grant' } : { ...viewer, admin: false };
+      held = g && typeof g.heldAdmin === 'function' ? g.heldAdmin(viewer.sub) : null;
+    } catch { held = null; }
+    if (held === 'owner') return { ...base, admin: true, adminBy: 'grant' };
+    if (held === 'admin') return { ...base, admin: false, systemAdmin: true };
+    return { ...base, admin: false };
   }
 
   /** 主体目录（Cordis 服务 `principals`）。没装上、形状不对，都当没有 */

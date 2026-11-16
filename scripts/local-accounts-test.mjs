@@ -14,7 +14,7 @@
  *       8 重置密码：旧会话注销；新的临时密码又要先改
  *       9 本人改密码：原密码不对 403；对了改好，旧会话注销
  *      10 同一来源输错太多：先歇一分钟（429）
- *   四、站内管理员（P2）：持生效中的 owner / admin 授予（范围 *）的人是管理员——待放行、收回、过期、管理层授予、停用都不算；
+ *   四、站内管理员（P2）：持生效中的 owner / admin 授予（范围 *）的人是管理员——owner 完整，admin 只管系统、看不到业务数据；待放行、收回、过期、管理层授予、停用都不算；
  *       whoami 说是授予、留痕记主体；不能放行别人的 admin 授予、不能放行授给自己的、不能停用自己；跨站写 403
  *
  *   node scripts/local-accounts-test.mjs
@@ -252,10 +252,12 @@ try {
     const ok = await approve(g.id);
     check(ok.status === 200, '13（准备）属主（本机命令行）放行', ok);
     const w1 = await whoamiOf(bob);
-    check(w1?.admin === true && w1.via === 'grant' && w1.login === 'user:bob', '13 放行之后：同一个会话立即是管理员，whoami 说是授予（不冒充 Odoo 管理员）', w1);
+    check(w1?.admin === true && w1.via === 'grant' && w1.login === 'user:bob' && w1.system_only === true, '13 放行之后：同一个会话立即是（系统）管理员，whoami 说是授予、只管系统（不冒充 Odoo 管理员）', w1);
     const mk = await bob.go('POST', '/api/local-accounts', { json: { username: 'dave' } });
     check(mk.status === 201 && (await listOf(bob)) === 200, '13 站内管理员能建人、能列出账号', mk.status);
     check(/"event":"create","username":"dave","by":"user:bob"/.test(log), '13 留痕记成主体 user:bob，不写成 odoo:bob');
+    const bobAll = await bob.go('GET', '/api/work-items?view=all');
+    check(bobAll.status === 403, '13 只持 admin 授予的系统管理员看不到业务数据：事项「全部」403（属主 2026-11-16 定）', bobAll.status);
 
     const cross = await bob.go('POST', '/api/local-accounts', { json: { username: 'erin' }, headers: { origin: 'http://attacker.invalid', 'sec-fetch-site': 'cross-site' } });
     check(cross.status === 403, '14 站内管理员的浏览器被别的站借去发写请求：403', cross.status);
@@ -288,7 +290,9 @@ try {
 
     const go = await grant('user:carol', 'owner');
     const okO = await approve(go.id);
-    check(okO.status === 200 && (await listOf(carol)) === 200 && (await whoamiOf(carol))?.via === 'grant', '20 属主（owner）授予也是站内管理员', okO);
+    const wc = await whoamiOf(carol);
+    check(okO.status === 200 && (await listOf(carol)) === 200 && wc?.via === 'grant' && wc.system_only === undefined, '20 属主（owner）授予是完整的站内管理员', { okO: okO.status, wc });
+    check((await carol.go('GET', '/api/work-items?view=all')).status === 200, '20 属主授予看得到业务数据：事项「全部」200');
     check((await adminCall('POST', '/api/principals/disable', { id: 'user:carol', reason: '合成：停用持授予的人' })).status === 200, '21（准备）停用 carol');
     const afterOff = await listOf(carol);
     check(afterOff === 401 || afterOff === 403, '21 主体停用：授予还在也不是管理员（会话失效）', afterOff);
