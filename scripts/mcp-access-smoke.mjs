@@ -28,7 +28,7 @@ const gh = await startFakeGithub();
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
-  env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'acc-admin-tok', MCP_GATEWAY: 'on', WM_GITHUB_API: gh.api },
+  env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'acc-admin-tok', MCP_GATEWAY: 'on', WM_GITHUB_API: gh.api, WM_BENCH_VIEWS: 'off' /* 数的是基础目录，不含数据视图工具 */ },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪（20s 超时）'); child.kill(); process.exit(1); }

@@ -30,8 +30,8 @@
   "scenarios": [
     {
       "name": "off",
-      "what": "缺省配置：开关关着。这组路由每条都回 404，不认人、不建库。",
-      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "what": "开关显式关着（WM_BENCH_VIEWS=off；缺省是开的）。这组路由每条都回 404，不认人、不建库。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin", "WM_BENCH_VIEWS": "off" },
       "clock": "2030-01-01T00:00:00Z",
       "fixtures": ["identity-fake"],
       "steps": [

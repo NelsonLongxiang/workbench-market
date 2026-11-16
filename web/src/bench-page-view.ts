@@ -7,8 +7,6 @@ import type { BenchEntry } from './api';
 export type EntryOutcome =
   | { kind: 'bench'; entry: BenchEntry }
   | { kind: 'card' }
-  | { kind: 'login' }
-  | { kind: 'forbidden' }
   | { kind: 'error' };
 
 const isStr = (v: unknown): v is string => typeof v === 'string' && v !== '';
@@ -29,9 +27,9 @@ export function asEntry(body: unknown): BenchEntry | null {
 
 export function entryOutcome(status: number, body: unknown): EntryOutcome {
   if (status === 200) { const entry = asEntry(body); return entry ? { kind: 'bench', entry } : { kind: 'error' }; }
-  if (status === 404) return { kind: 'card' };
-  if (status === 401) return { kind: 'login' };
-  if (status === 403) return { kind: 'forbidden' };
+  // 404（不是视图台、不存在）、401（没登录）、403（只带管理口令、跨站）都照原来打开卡片：入口缺省开着以后，
+  // 普通卡片不能因为问了一下入口就被拦成「去登录」。入口先判权、不透露哪张卡片是视图台，这一点不变（属主 2026-11-16 选的兜底）
+  if (status === 404 || status === 401 || status === 403) return { kind: 'card' };
   return { kind: 'error' };
 }
 
@@ -76,12 +74,8 @@ export function formError(status: number, body: unknown): { code: string; messag
   return { code: 'invalid', message: '这次没交上去，稍后再试' };
 }
 
-/** 入口没走到页面时的说法：401、403、读不到都不提「这个台」，不让人从说法里猜出这张卡片背后有没有台（403 在认台之前就拒了） */
+/** 入口读不到时的说法：不提「这个台」，不让人从说法里猜出这张卡片背后有没有台 */
 export const ENTRY_TEXT = {
-  login: '请先登录',
-  loginSub: '登录之后再从工作台市场打开。',
-  forbidden: '请用你自己的账号打开',
-  forbiddenSub: '只带管理口令、或者从别的网站跳过来，这里打不开。请登录之后从工作台市场打开。',
   error: '这会儿打不开',
   errorSub: '稍后再试；一直打不开，请找管理员。',
 } as const;

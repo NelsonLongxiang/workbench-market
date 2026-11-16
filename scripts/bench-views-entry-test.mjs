@@ -2,7 +2,7 @@
 /**
  * 数据视图的入口（/api/bench-views，docs/data-views.md 第三步的前一半）。起隔离实例（假的登录提供方，NODE_ENV=test）：
  *
- *   一、开关：缺省关着时这组路由每条都回 404（不认人、不建库）；值不合法拒绝启动
+ *   一、开关：缺省开（不设就开，没登录的请求由认人那一层回 401）；显式 off 时这组路由每条都回 404（不认人、不建库）；值不合法拒绝启动
  *   二、谁进不了：没登录 401；管理口令 403（读和写都是，带着管理层的登录一起来也是）；没有授予的人 403；
  *       系统管理员角色的授予 403；授予的范围不是「全部」的 403；主体停用 403；本机命令行 403；带跨站标记 403
  *   三、谁进得了：只有管理层（范围「全部」）的人，读写都行。普通员工（范围「全部」）读写都是 403；
@@ -90,16 +90,21 @@ async function boot(name, extraEnv = {}, { expectFail = false } = {}) {
 
 try {
   console.log('一、开关');
-  const off = await boot('off');
+  const off = await boot('off', { WM_BENCH_VIEWS: 'off' });
   for (const s of [SESSIONS.admin, SESSIONS.alpha]) await off.call('GET', '/api/auth/viewer', { session: s });
   let r = await off.call('GET', '/api/bench-views', { headers: REMOTE, session: SESSIONS.admin });
-  check(r.status === 404 && r.json?.error === 'bench_views_off', '缺省关着：/api/bench-views 回 404', r.text.slice(0, 80));
+  check(r.status === 404 && r.json?.error === 'bench_views_off', '显式 off：/api/bench-views 回 404', r.text.slice(0, 80));
   r = await off.call('GET', '/api/bench-views', { headers: { ...REMOTE, 'x-admin-token': ADMIN_TOKEN } });
-  check(r.status === 404, '缺省关着：带管理口令也是 404（在认人之前就回了）', r.status);
+  check(r.status === 404, '显式 off：带管理口令也是 404（在认人之前就回了）', r.status);
   r = await off.call('POST', '/api/bench-views/x/datasets/a/rows?op=replace', { headers: REMOTE, raw: '[]' });
-  check(r.status === 404, '缺省关着：行的写入也是 404', r.status);
-  check(!existsSync(join(off.data, 'bench-stores')), '缺省关着：数据目录里没有台库的目录');
+  check(r.status === 404, '显式 off：行的写入也是 404', r.status);
+  check(!existsSync(join(off.data, 'bench-stores')), '显式 off：数据目录里没有台库的目录');
   await off.stop();
+  // 不设开关＝开着：路由在，没登录的请求不再是「入口关着」的 404，而是认人那一层的 401
+  const dflt = await boot('default');
+  r = await dflt.call('GET', '/api/bench-views', { headers: REMOTE });
+  check(r.status === 401 && r.json?.error !== 'bench_views_off', '不设开关：缺省开着，没登录回 401（不是入口关着的 404）', r.text.slice(0, 80));
+  await dflt.stop();
   const bad = await boot('bad', { WM_BENCH_VIEWS: 'yes' }, { expectFail: true });
   check(bad.failed && bad.refused && /WM_BENCH_VIEWS/.test(bad.log), '开关的值不合法：拒绝启动，说清是哪个变量', bad.log.slice(-200));
   const badTtl = await boot('bad-ttl', { WM_BENCH_VIEWS: 'on', WM_BENCH_REQUEST_TTL_HOURS: '0' }, { expectFail: true });
