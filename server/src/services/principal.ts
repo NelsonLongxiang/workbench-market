@@ -232,8 +232,13 @@ export class PrincipalService extends Service implements PrincipalDirectory {
    *   · 只能绑到人身上，而且这个人是启用的。
    * 返回 bound（绑上了）或者说明为什么没绑。不抛错的情形都在返回值里；入参形状不对才抛。
    */
-  bindIdentity(input: { provider: string; externalId: string; principal: string; create?: boolean; displayName?: string | null }):
-    { ok: true; principal: PrincipalView; created: boolean } | { ok: false; reason: 'conflict' | 'missing' | 'not-person' | 'disabled' | 'taken'; principal?: string } {
+  /**
+   * createOnly：只新建，不接到已有的人身上——目标主体已经在（或有等价写法的），回 exists，什么都不写。
+   * 站内账号的核准、管理员建账号都用它（docs/local-accounts.md）：注册时没撞名，不代表核准时还没人用这个名字；
+   * 要把站内账号接到已有的人身上，走显式的「绑定到现有主体」（POST /api/principals/bind）
+   */
+  bindIdentity(input: { provider: string; externalId: string; principal: string; create?: boolean; createOnly?: boolean; displayName?: string | null }):
+    { ok: true; principal: PrincipalView; created: boolean } | { ok: false; reason: 'conflict' | 'missing' | 'not-person' | 'disabled' | 'taken' | 'exists'; principal?: string } {
     const { provider, externalId, principal } = input ?? ({} as never);
     if (!providerOk(provider) || !externalIdOk(externalId) || typeof principal !== 'string' || !/^user:./.test(principal) || !externalIdOk(principal.slice(5))) throw new Error('绑定的形状不对');
     const externalKey = comparisonKey(externalId), idKey = comparisonKey(principal);
@@ -244,6 +249,10 @@ export class PrincipalService extends Service implements PrincipalDirectory {
         const held = db.prepare('SELECT principal_id FROM principal_identities WHERE provider = ? AND (external_id = ? OR external_key = ?)').get(provider, externalId, externalKey) as { principal_id: string } | undefined;
         if (held) return { ok: false, reason: 'conflict', principal: held.principal_id };
         let target = db.prepare('SELECT id, kind, status FROM principals WHERE id = ?').get(principal) as Bound | undefined;
+        if (input.createOnly) {
+          const there = target ? { id: target.id } : db.prepare('SELECT id FROM principals WHERE id_key = ?').get(idKey) as { id: string } | undefined;
+          if (there) return { ok: false, reason: 'exists', principal: there.id };
+        }
         let created = false;
         if (!target) {
           if (!input.create) return { ok: false, reason: 'missing' };
@@ -265,6 +274,13 @@ export class PrincipalService extends Service implements PrincipalDirectory {
       try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ }
       throw e;
     }
+  }
+
+  /** 这个主体标识（或它的等价写法）已经有人用了：回占着的那个主体标识；没有回 null */
+  idTaken(id: string): string | null {
+    const key = comparisonKey(id);
+    if (!key) return null;
+    return (db.prepare('SELECT id FROM principals WHERE id_key = ?').get(key) as { id: string } | undefined)?.id ?? null;
   }
 
   /** 解绑一条外部身份（按原值精确匹配）。返回它原来绑在谁身上；没有这一条为 null */

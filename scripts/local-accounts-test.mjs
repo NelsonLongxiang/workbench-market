@@ -47,7 +47,9 @@ try {
   for (const k of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP']) if (process.env[k]) env[k] = process.env[k];
   Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN, REDIS_URL: '', WM_EXTENSIONS_DIR: ext, MARKET_PUBLIC_URL: base,
     // 本机当作反代：每个场景用自己的来源地址（X-Real-IP），按来源的输错限额各算各的
-    WM_TRUSTED_PROXIES: '127.0.0.1' });
+    WM_TRUSTED_PROXIES: '127.0.0.1',
+    // 注册缺省关着；这里要测注册，打开
+    WM_LOCAL_SIGNUP: 'approval' });
   child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', (d) => { log += String(d); });
   child.stderr.on('data', (d) => { log += String(d); });
@@ -307,7 +309,7 @@ try {
     check(afterOff === 401 || afterOff === 403, '21 主体停用：授予还在也不是管理员（会话失效）', afterOff);
   }
 
-  console.log('五、自己注册（P3：WM_LOCAL_SIGNUP 缺省 approval，要管理员核准）');
+  console.log('五、自己注册（P3：WM_LOCAL_SIGNUP=approval，要管理员核准）');
   {
     let ipN = 60;
     const nextIp = () => `192.0.2.${ipN++}`;

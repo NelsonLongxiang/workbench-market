@@ -32,6 +32,8 @@ export const SYSTEM_CREDENTIAL_WINDOW_MS = 7 * 24 * 3_600_000;
 /** 自己注册：同一来源一小时最多试这么多次（成功、失败都算，不让人拿注册去探哪些用户名占着） */
 export const SIGNUP_WINDOW_MS = 60 * 60_000;
 export const SIGNUP_MAX = 5;
+/** 自己注册、还没核准（没对接到主体）的账号，全站最多这么多个；到了就暂停注册（WM_LOCAL_SIGNUP_PENDING_MAX 可改） */
+export const SIGNUP_PENDING_MAX_DEFAULT = 50;
 /** 同一来源同时在算的核对个数（同一来源的登录排队一个一个核，每次约 110ms） */
 export const SOURCE_INFLIGHT_MAX = 1;
 /** 全进程同时在算的核对个数（libuv 线程池缺省 4 个线程，留一半给别的活） */
@@ -127,6 +129,8 @@ export class LocalAccountService extends Service {
   private inflightPeak = 0;
   private readonly codes = new Map<string, { username: string; state: string; exp: number }>();
   private readonly tickets = new Map<string, { username: string; state: string; exp: number }>();
+  /** 注册的口径：开没开、待核准上限。由登录方式插件按它的配置设（没设：关着） */
+  private signupPolicy = { open: false, pendingMax: SIGNUP_PENDING_MAX_DEFAULT };
 
   constructor(ctx: any) {
     super(ctx, 'localAccounts');
@@ -169,7 +173,10 @@ export class LocalAccountService extends Service {
    * 一律 taken、同一句「这个用户名不能用」，不说是哪种。
    */
   async register(input: { username: unknown; displayName?: unknown; password: unknown; confirm: unknown }, source: string, reserved: (username: string) => boolean, now = Date.now()):
-    Promise<{ ok: true; username: string } | { ok: false; reason: 'throttled' | 'invalid' | 'taken'; message: string }> {
+    Promise<{ ok: true; username: string } | { ok: false; reason: 'throttled' | 'invalid' | 'taken' | 'paused'; message: string }> {
+    const PAUSED = { ok: false, reason: 'paused', message: '现在等核准的注册太多了，注册先暂停，请过一段时间再来，或者联系管理员开通账号。' } as const;
+    // 待核准的到了上限：先暂停，不占这个来源的次数、不算哈希
+    if (this.pendingSignups() >= this.signupPolicy.pendingMax) return PAUSED;
     const hits = (this.signups.get(source) ?? []).filter((t) => t > now - SIGNUP_WINDOW_MS);
     if (hits.length >= SIGNUP_MAX) { this.signups.set(source, hits); return { ok: false, reason: 'throttled', message: '注册太频繁了，请过一会儿再试。' }; }
     hits.push(now);
@@ -190,10 +197,36 @@ export class LocalAccountService extends Service {
     if (!release) return { ok: false, reason: 'throttled', message: '系统正忙，请稍后再试。' };
     let hash: string;
     try { hash = await hashPassword(input.password as string); } finally { release(); }
+    // 算哈希期间别人可能也注册了：写之前再数一次（同步，和写入之间没有让出）
+    if (this.pendingSignups() >= this.signupPolicy.pendingMax) return PAUSED;
     const ins = db.prepare(`INSERT INTO local_accounts (username, display_name, password_hash, must_change, failed_count, locked_until, created_at, created_by, updated_at)
       VALUES (?, ?, ?, 0, 0, 0, ?, 'signup', ?) ON CONFLICT (username) DO NOTHING`).run(username, displayName, hash, now, now);
     if (ins.changes !== 1) return { ok: false, reason: 'taken', message: '这个用户名不能用。' };
     return { ok: true, username };
+  }
+
+  /** 登录方式插件装上时设注册口径；返回撤销函数（插件卸下时还原成关着） */
+  setSignupPolicy(p: { open: boolean; pendingMax: number }): () => void {
+    this.signupPolicy = { open: p.open, pendingMax: p.pendingMax };
+    return () => { this.signupPolicy = { open: false, pendingMax: SIGNUP_PENDING_MAX_DEFAULT }; };
+  }
+
+  /** 自己注册、还没对接到主体（等核准）的账号有几个 */
+  pendingSignups(): number {
+    return (db.prepare(`SELECT COUNT(*) AS n FROM local_accounts a WHERE a.created_by = 'signup'
+      AND NOT EXISTS (SELECT 1 FROM principal_identities i WHERE i.provider = 'local' AND i.external_id = a.username)`).get() as { n: number }).n;
+  }
+
+  /** 注册开着、待核准的到了上限：暂停注册（给管理员的「等你拍板」提示用）。关着的不算暂停 */
+  signupFull(): { full: boolean; pending: number; max: number } {
+    const pending = this.pendingSignups(), max = this.signupPolicy.pendingMax;
+    return { full: this.signupPolicy.open && pending >= max, pending, max };
+  }
+
+  /** 这个外部标识（local 下的，按等价写法比）是不是一个自己注册的账号：这种账号只能经核准新建主体，不能绑到已有的人身上 */
+  isSelfSignup(externalId: string): boolean {
+    const r = db.prepare("SELECT 1 FROM local_accounts WHERE username = ? AND created_by = 'signup'").get(externalId) as unknown;
+    return r !== undefined;
   }
 
   /** 删掉一个账号（建人时绑主体没成，撤回刚建的账号用） */

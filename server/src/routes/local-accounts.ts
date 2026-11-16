@@ -55,12 +55,17 @@ export function registerLocalAccountRoutes(app: HttpService, deps: LocalAccountR
   const route = (fn: (req: express.Request, res: express.Response) => Promise<unknown>): express.RequestHandler =>
     (req, res, next) => { res.set('Cache-Control', 'private, no-store'); fn(req, res).catch(next); };
 
-  /** 每个账号连着它对应的主体（没对接的是 null）和主体的状态 */
+  /**
+   * 每个账号连着它对应的主体（没对接的是 null）和主体的状态。
+   * name_taken：还没对接、而 user:<用户名> 已经有人用了（注册之后才出现的同名的人，比如他第一次从别的登录方式进来）——
+   * 页面据此提示管理员：核准只会新建，这种会被拒；真是同一个人，要用「绑定到现有主体」
+   */
   const withPrincipal = (a: ReturnType<LocalAccountService['list']>[number]) => {
     const id = principals().principalOf(PROVIDER, a.username);
     const p = id ? principals().get(id) : null;
-    return { ...a, principal: id, principal_status: p?.status ?? null, pending: id === null };
+    return { ...a, principal: id, principal_status: p?.status ?? null, pending: id === null, name_taken: id === null && principals().idTaken(`user:${a.username}`) !== null };
   };
+  const EXISTS_TEXT = '这个名字已经属于一个现有的人：核准、建账号只会新建人，不会接到已有的人身上。真是同一个人，请用「绑定到现有主体」把这个站内账号绑过去；不是的话，请拒绝，让对方换一个用户名注册';
 
   app.get('/api/local-accounts', { action: 'local-account.list', kind: 'admin' }, route(async (req, res) => {
     if (!(await admin(req, res))) return;
@@ -74,10 +79,12 @@ export function registerLocalAccountRoutes(app: HttpService, deps: LocalAccountR
     const made = await accounts().create({ username: req.body?.username, displayName: req.body?.display_name, ...(isSystemAdminOnly(req) ? { bySystem: actor } : {}) }, actor);
     if (!made.ok) throw new HttpError(made.reason === 'taken' ? 409 : 400, made.message);
     const username = made.account.username;
-    const bound = principals().bindIdentity({ provider: PROVIDER, externalId: username, principal: `user:${username}`, create: true, displayName: made.account.display_name || null });
-    if (!bound.ok) {
+    // 只新建：user:<用户名> 已经有人用了就拒，不接到那个人身上
+    const bound = principals().bindIdentity({ provider: PROVIDER, externalId: username, principal: `user:${username}`, create: true, createOnly: true, displayName: made.account.display_name || null });
+    if (!bound.ok || !bound.created) {
       accounts().remove(username); // 绑不上就撤回刚建的账号，不留一个登不进去的半成品
-      throw new HttpError(409, bound.reason === 'taken' || bound.reason === 'conflict' ? '这个用户名不能用（和已有的人重名或等价）' : '没能建出对应的人');
+      if (!bound.ok && bound.reason === 'exists') return void res.status(409).json({ error: EXISTS_TEXT, reason: 'exists' });
+      throw new HttpError(409, !bound.ok && (bound.reason === 'taken' || bound.reason === 'conflict') ? '这个用户名不能用（和已有的人重名或等价）' : '没能建出对应的人');
     }
     log('create', username, actor);
     res.status(201).json({ account: withPrincipal(made.account), temp_password: made.tempPassword });
@@ -114,8 +121,10 @@ export function registerLocalAccountRoutes(app: HttpService, deps: LocalAccountR
     const account = accounts().get(username);
     if (!account) throw new HttpError(404, '没有这个账号');
     if (principals().principalOf(PROVIDER, username)) throw new HttpError(409, '这个账号已经对接过了');
-    const bound = principals().bindIdentity({ provider: PROVIDER, externalId: username, principal: `user:${username}`, create: true, displayName: account.display_name || null });
-    if (!bound.ok) throw new HttpError(409, '这个用户名不能用（和已有的人重名或等价），请拒绝后让对方换一个用户名注册');
+    // 只新建：注册时没撞名，不代表现在还没人用这个名字（比如那个人后来第一次从别的登录方式进来）；已经有人了就拒，不接到他身上
+    const bound = principals().bindIdentity({ provider: PROVIDER, externalId: username, principal: `user:${username}`, create: true, createOnly: true, displayName: account.display_name || null });
+    if (!bound.ok && bound.reason === 'exists') return void res.status(409).json({ error: EXISTS_TEXT, reason: 'exists' });
+    if (!bound.ok || !bound.created) throw new HttpError(409, '这个用户名不能用（和已有的人重名或等价），请拒绝后让对方换一个用户名注册');
     log('approve', username, actor);
     res.json({ account: withPrincipal(accounts().get(username)!) });
   }));
