@@ -50,7 +50,7 @@ const SCOPE_RE = /^(\*|self|(domain|bench|sop|tool):[\x21-\x7e]{1,128}|dept:[a-z
  */
 export const SYSTEM_DOMAINS: readonly string[] = [
   'a2a', 'a2a-peer', 'access', 'admin', 'admin-token', 'agent-card', 'app', 'auth', 'binding', 'content', 'cookie', 'department',
-  'design-token', 'grant', 'health', 'judgment', 'login', 'market', 'mcp', 'portal', 'principal', 'relation', 'remote-allow', 'role', 'setting', 'setup',
+  'design-token', 'grant', 'health', 'judgment', 'local-account', 'login', 'market', 'mcp', 'portal', 'principal', 'relation', 'remote-allow', 'role', 'setting', 'setup',
   'skill', 'sso', 'stats', 'team', 'type', 'vault', 'workbench',
 ];
 /** 明确算业务的域。和 SYSTEM_DOMAINS 一起要盖住全部已登记动作的域（扩展的动作另算，都是业务） */

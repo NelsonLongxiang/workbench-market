@@ -13,10 +13,15 @@
  *       主体停用就不认；
  *     · 发市场会话（绝对期限、不续期），302 回当初的 next。
  *
+ *   站内表单（可选，插件有 form 才有）GET/POST /login/<方式>/form?state=
+ *     · 先看 state 还有效（是这个方式的、没过期、没用过；不核销）——表单只在一次真正发起了的登录里出现；
+ *     · POST 只收小的 urlencoded 请求体，跨站来的一律拒；页面的安全头由这里加（不许内嵌、不缓存、只许提交回本站）；
+ *     · 插件交回一页，或者去回调（只认这个方式自己的回调地址，带一次性码），之后和别的方式一样走回调。
+ *
  * 失败一律给一页说明，不带任何对方返回的原文；不 302 去任何地方。
  * app 是 HTTP 服务。两条路由都在登录门的放行清单里（还没有身份才需要登录）。
  */
-import type express from 'express';
+import express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import { identity, SESSION_COOKIE } from '../identity.ts';
@@ -67,6 +72,35 @@ export function registerLoginFlowRoutes(app: HttpService, deps: LoginFlowRouteDe
     res.set('Cache-Control', 'no-store').redirect(302, begun.location);
   }));
 
+  // 站内表单（账号密码之类）：安全头一律由核心加；插件只给页面内容
+  const FORM_HEADERS = {
+    'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+  };
+  const formBody = express.urlencoded({ extended: false, limit: '4kb', parameterLimit: 8 });
+  const formRoute = (method: 'GET' | 'POST') => route(async (req, res) => {
+    const flow = String(req.params.flow);
+    if (!FLOW_RE.test(flow) || !identity().flowHasForm(flow)) return page(res, 404, '没有这个登录方式', '请回到登录页选一种可用的登录方式。');
+    const state = typeof req.query.state === 'string' ? req.query.state : '';
+    if (!sessions().peekState(flow, state)) return page(res, 400, '登录请求无效或已过期', '请回到登录页重新登录。');
+    let fields: Record<string, string> = {};
+    if (method === 'POST') {
+      const site = req.headers['sec-fetch-site'];
+      if (site !== undefined && site !== 'same-origin' && site !== 'none') return page(res, 403, '请求来源不对', '请回到登录页重新登录。');
+      if (!req.is('application/x-www-form-urlencoded')) return page(res, 415, '请求格式不对', '请回到登录页重新登录。');
+      const parsed = await new Promise<boolean>((ok) => formBody(req, res, (err?: unknown) => ok(!err)));
+      if (!parsed) return page(res, 400, '请求格式不对', '请回到登录页重新登录。');
+      for (const [k, v] of Object.entries((req.body ?? {}) as Record<string, unknown>)) if (typeof v === 'string') fields[k] = v;
+    }
+    const out = await identity().flowForm(flow, { method, state, callbackUrl: callbackUrl(flow), fields, source: clientIp(req) });
+    fields = {};
+    if (out.kind === 'redirect') return res.set('Cache-Control', 'no-store').redirect(302, out.location);
+    if (!out.html) return page(res, out.status === 404 ? 404 : 503, '登录方式暂时不可用', '请稍后再试，或者换一种登录方式。');
+    res.status(out.status).set(FORM_HEADERS).type('html').send(out.html);
+  });
+  app.get('/login/:flow/form', { action: 'login.form', kind: 'read' }, formRoute('GET'));
+  app.post('/login/:flow/form', { action: 'login.form-submit', kind: 'write', statusNotVerdict: '站内表单：用户名或密码不对回 401，是登录方式的结论不是授权' }, formRoute('POST'));
+
   app.get('/login/:flow/callback', { action: 'login.callback', kind: 'write', statusNotVerdict: '登录回调：外人、别的租户回 403，是登录方式的结论不是授权' }, route(async (req, res) => {
     const flow = String(req.params.flow);
     res.clearCookie(STATE_COOKIE, { httpOnly: true, sameSite: 'lax', secure: secure(req), path: `/login/${flow}/callback` });
@@ -75,7 +109,8 @@ export function registerLoginFlowRoutes(app: HttpService, deps: LoginFlowRouteDe
     if (!taken) return page(res, 400, '登录请求无效或已过期', '请回到登录页重新登录。');
     const query: Record<string, string> = {};
     for (const [k, v] of Object.entries(req.query)) if (typeof v === 'string' && k !== 'state') query[k] = v;
-    const done = await identity().completeFlow(flow, query, { callbackUrl: callbackUrl(flow) });
+    // 有站内表单的方式（账号密码）把一次性码绑在 state 上：核销过的 state 交给它核对
+    const done = await identity().completeFlow(flow, query, { callbackUrl: callbackUrl(flow), ...(identity().flowHasForm(flow) ? { state: String(req.query.state ?? '') } : {}) });
     if (!done.ok) return page(res, done.http >= 500 ? 502 : done.http, '登录没有完成', done.http === 401 ? '没有同意授权。' : done.http === 403 ? '这个账号不能登录本站。' : '没能从登录方式那边确认你是谁，请稍后再试。');
     const who = done.identity;
     if (who.outsider) {

@@ -54,7 +54,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "2592", "etag": "W/\"a20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "2608", "etag": "W/\"a30-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "source": "initial",
               "roles": [
@@ -95,6 +95,7 @@
                         "grant",
                         "health",
                         "judgment",
+                        "local-account",
                         "login",
                         "market",
                         "mcp",

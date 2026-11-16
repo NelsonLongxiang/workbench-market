@@ -84,6 +84,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_JUDGMENT_COMPARE_OUT`（比对打开时每比一次追加一行 JSON 的文件·绝对路径·可选·给出报告的脚本汇总）
 - `WM_JUDGMENT_ENFORCE`（判定切换的开关·缺省空＝一个域都不切、行为不变·写域名列表（逗号分隔）或 `all`·要和 `WM_JUDGMENT_COMPARE=on` 一起开·写法不对、域没有登记的动作都拒绝启动·切了的域在路由处理之前由新判定说放不放行，拒绝回 403 `judgment_denied`（转提议是 `judgment_ask`），记进比对库的 `judgment_enforced`；放行的照旧交给原来的处理函数，旧守卫再判一遍做反向比对·声明了状态码不代表授权的路由、没报动作的存量路由、「暂不切」清单里的动作不受影响·回退：去掉这个域、重启）
 - `WM_FEISHU_LOGIN`（`on`=打开飞书登录·缺省关）
+- `WM_LOCAL_LOGIN`（站内账号的「账号密码」登录·缺省 `on`（不设就开）；`off` 关掉，登录页不再出现这个方式，`/login/local/*` 回 404；其它值拒绝启动；见「站内账号」与 [docs/local-accounts.md](docs/local-accounts.md)）
 - `WM_FEISHU_AUTHORIZE_URL` / `WM_FEISHU_TOKEN_URL` / `WM_FEISHU_USERINFO_URL`（飞书授权页、换令牌、取用户信息的地址·缺省取飞书开放平台文档里的·只收 https）
 - `WM_FEISHU_TENANT_TOKEN_URL` / `WM_FEISHU_CONTACT_USER_URL`（对账用：取 tenant_access_token、按 union_id 查人的地址·缺省同上）
 - `WM_FEISHU_VAULT_ENTRY`（飞书应用凭证在凭据库里的条目名·缺省 `feishu-login`：username 是 App ID、password 是 App Secret）
@@ -310,6 +311,7 @@ MCP仍拒auth、cookie_set_id、access、access_logins写入，带凭据台不�
 - **规范化依赖 Node 自带的 Unicode 数据**：已经分配的字符，折叠和规范化的结果按 Unicode 的稳定性承诺不会变；换 Node 版本时只有新分配的字符可能变。库里存的规范化值不重算，所以换版本不会让启动撞唯一约束；极少数情形下（登录名里有新分配的字符），撞名检查会多拦或漏拦一次。
 - **市场自己的会话**：用飞书等「登录方式」登录之后，发一个市场会话（cookie `wm_session`，库里只存哈希）。绝对期限 `WM_SESSION_TTL_MIN`（缺省 12 小时），不续期；`POST /api/auth/logout` 注销即失效；主体停用立即失效（认人时连着主体状态查），停用时这个人的会话全部注销，恢复之后要重新登录。请求同时带着市场会话和 Odoo 会话时按市场会话算；两边认出的不是同一个人时留一行痕（`source: identity`、`event: session-mismatch`，两边各认成谁），同一对会话只记一次。会话登录的人不是管理员（角色和授予在阶段六）。
 - **Odoo 用户登录后由市场维持会话**（登录门 enforce 时）：Odoo 认出来的人，市场同样发 `wm_session`（期限 `WM_SESSION_TTL_MIN`，cookie 属性同口令登录的 `wm_login`），并把这次的 Odoo 会话号加密存下（AES-256-GCM，密钥是数据目录里的 `.wm-login-session.key`，权限 600，不在库里）。之后每次照旧拿存下的会话号问 Odoo（按会话缓存 30 秒），所以浏览器里的 Odoo cookie 过期了也不掉登录；Odoo 那边注销、停用、改密码，缓存过期后的下一次请求即被拒，市场会话当场注销；Odoo 不可达回 502、不注销；浏览器带来的 Odoo 会话换了（换账号、重新登录），旧的市场会话注销、按新的认；管理员标记取 Odoo 这次的回答。会话号不进应答、日志和留痕，会话注销、到期、主体停用时清掉。启动自检多一行 `market.login-session.upstream-sealed`（加解密往返、密文看不出原文、改过的解不开、密钥文件 600），不过就拒绝启动。
+- **站内账号**（`WM_LOCAL_LOGIN`，缺省开；设计见 [docs/local-accounts.md](docs/local-accounts.md)）：用户名加密码，不依赖任何外部系统。登录方式名 `local`，登录页显示「账号密码」：`GET /login/local?next=<站内地址>` 发起，送到本站的表单页 `/login/local/form?state=…`（表单只在一次真正发起的登录里出现；不许内嵌、不缓存、只许提交回本站，跨站提交 403），用户名和密码对了发一个一次性码（60 秒、用一次、绑着这次的 state）去回调，之后和别的方式一样对主体、发市场会话。密码只存 scrypt 的结果（加盐、带参数）；没这个人和密码不对同一句提示、同样耗时；连续输错 5 次锁 15 分钟，同一来源一分钟输错 10 次先歇一分钟（429）。**管理**（都要管理员）：`GET /api/local-accounts` 列出（不含任何密码材料，带对应主体和状态）；`POST /api/local-accounts` `{username, display_name}` 建人——建账号、新建主体 `user:<用户名>` 并绑上外部身份 `local/<用户名>`，应答里给一次临时密码；`POST /api/local-accounts/<用户名>/reset-password` 重置成新的临时密码；`POST …/unlock` 解锁。临时密码登录时先出改密码的一步，改好才进。停用、恢复用 `/api/principals/disable`、`restore`。**本人**：`POST /api/local-accounts/_self/password` `{current, next}` 改自己的密码。重置、改密码之后这个账号已有的市场会话一律注销。
 - **飞书登录**（`WM_FEISHU_LOGIN=on`）：标准授权码流程，`GET /login/feishu?next=<站内地址>` 发起，回调 `/login/feishu/callback`。回调地址按 `MARKET_PUBLIC_URL` 拼，要和飞书应用里登记的一致。`state` 一次性、绑在发起它的浏览器上、10 分钟有效、按来源限额；`next` 只收站内路径。飞书应用的标识和密钥从凭据库里的一条（`WM_FEISHU_VAULT_ENTRY`）取，要部署方配了服务端主密码（`DSH_VAULT_PASSWORD_FILE`）才能无人值守读；库锁着时飞书登录回 503。认人用 union_id。还没对到主体的飞书身份：不自动建主体，停在「等管理员开通」，列进 `GET /api/principals/pending`，管理员用 `POST /api/principals/bind` 对一次，第一批上线可以用 `POST /api/principals/bind-batch`（请求体 `{"items":[{"provider","external_id","principal","create"}…],"reason"}`，一次最多 500 条，逐条给结果）。待对接清单只放对方的用户标识、显示名、企业邮箱和最近一次来的时间，30 天没再来的清掉；等待页对停用的和没对到主体的一模一样，不透露有没有这个人。打开 `WM_FEISHU_AUTO_BIND_EMAIL` 时，飞书企业邮箱和身份来源的登录名（按规范化之后）恰好对上一个启用的人、而且那个人还没有别的飞书身份，才自动绑，每次自动绑定留一行痕。
 - **离职即时失效**：飞书事件订阅的请求地址填 `<MARKET_PUBLIC_URL>/login/feishu/events`，订阅「员工离职」`contact.user.deleted_v3` 和「员工信息被修改」`contact.user.updated_v3`，并配 Encrypt Key。Encrypt Key、Verification Token 放在凭据库同一条（`WM_FEISHU_VAULT_ENTRY`）的自定义字段 `encrypt_key`、`verification_token` 里。照飞书文档验签（时间戳 5 分钟内、`X-Lark-Signature`）、解密、核对 Token 和 App ID；验不过 401。同一个事件号只处理一次（多实例共用、保留 7 天）；记事件号和停用在同一个事务里，停用出错事件号一起撤回，飞书重推时照常处理。处理出错只回固定的 503（`event_unavailable`），内部原因只进日志。离职、被修改成离职、冻结、退出的人：停用他绑着的主体，每个入口立即不认，会话一并注销；还没对到主体的从待对接清单里删掉。配了租户时别的租户的事件不处理。
 - **每日对账**：每天一次把绑在启用的人身上的飞书身份交给飞书查（`tenant_access_token` 加按 union_id 查人），状态明确说离职、冻结、退出的才停用；飞书出错、查不到的一个也不停用，只计数留痕。管理员可以手动跑一次：`POST /api/principals/reconcile`，请求体 `{"flow":"feishu"}`。**补不上的情形**：飞书那边直接删掉的人，如果「员工离职」事件也丢了，按 union_id 查回来是「不存在」，对账按查不清处理、不停用，每天留痕里的 `unknown` 会一直算上他。`unknown` 不为 0 就要人工复核：留痕的 `unknown_ids` 列出查不清的 union_id（最多 100 个），对着飞书通讯录核对，确认离开了由管理员手动停用（`POST /api/principals/disable`）。
@@ -447,7 +449,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   work-item-access.ts（事项上的四种人 itemRoles（建立人、成员的主人、负责人、管理层，成员的主人按团队服务的分配段和 inSegment（左闭右开，列表 seats 视角同一个口径，席位按（节点, seat_id）或（节点, 团队, 句柄）完整的键认），负责人按 relationOf，管理层按 work-items.view-all 这个拍板类动作认）和看得到的范围 canSee、列表的视角 viewScopes（mine、seats、team、all）；事项上这个人能做什么、是不是轮到他：canOf、turnOf、creatorOf，事项详情和「关注」共用；每一项和对应动作接口同一处判断（放行 canRelease、releaseRole（负责人；团队没有负责人时管理层代办；建立人勾了先过目由建立人放）、对话写入和验收 writerVerdict、回复 replyableMessages、提问 pendingAsksOfEvent））
   workbench-events.ts（工作台事件层 v1：人提交→事件→团队接单→决定回写）
   workbench-vars.ts（#336 工作台变量与常量：按台隔离、revision 乐观锁、常量保护）
-server/src/login-providers/  登录提供方插件（身份的具体实现只放这里，核心不引用）：index.ts（清单：这个部署装哪些提供方） feishu/index.ts（飞书登录方式：授权码流程，向 `identity` 登记一个登录方式，凭证从凭据库取） odoo/index.ts（Odoo 提供方的插件入口：向 `identity` 登记、提供 `loginRelay`） odoo/odoo-viewer.ts（Odoo 查看人现查） odoo/odoo-session.ts（门户 Odoo 会话可信源判定与剥除、登录回调票据） odoo/odoo-login-proxy.ts（可选同源 Odoo 登录中继 WM_ODOO_LOGIN_PROXY：只放行登录面，不代理 Odoo 应用；读、写两条路由经 HTTP 服务注册，报动作 login.odoo-proxy-page、login.odoo-proxy-submit，没开中继时放过） odoo/odoo-browser-origin.ts（只给浏览器用的 Odoo 登录地址 WM_ODOO_BROWSER_URL：登录一跳送到可信内网地址，身份与代理目标不变）
+server/src/login-providers/  登录提供方插件（身份的具体实现只放这里，核心不引用）：index.ts（清单：这个部署装哪些提供方） feishu/index.ts（飞书登录方式：授权码流程，向 `identity` 登记一个登录方式，凭证从凭据库取） local/index.ts（账号密码登录方式：站内表单、一次性码，账号经 `localAccounts` 服务核对） odoo/index.ts（Odoo 提供方的插件入口：向 `identity` 登记、提供 `loginRelay`） odoo/odoo-viewer.ts（Odoo 查看人现查） odoo/odoo-session.ts（门户 Odoo 会话可信源判定与剥除、登录回调票据） odoo/odoo-login-proxy.ts（可选同源 Odoo 登录中继 WM_ODOO_LOGIN_PROXY：只放行登录面，不代理 Odoo 应用；读、写两条路由经 HTTP 服务注册，报动作 login.odoo-proxy-page、login.odoo-proxy-submit，没开中继时放过） odoo/odoo-browser-origin.ts（只给浏览器用的 Odoo 登录地址 WM_ODOO_BROWSER_URL：登录一跳送到可信内网地址，身份与代理目标不变）
 server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·cookie·setting·mcp（域服务）；其余一个文件一行，按文件名排序：
   a2a-followups.ts（席位发来的消息（跟进）的登记：收下、按投递与对端计数、事项对话里的未读、看过、回复）
   a2a-handles.ts（市场 A2A 会话句柄 `market/<node8>` 的唯一性：生成时避开已占用的，存量撞车的不上卡、入站失败关闭）
@@ -479,6 +481,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   grant.ts（授予：Cordis 服务 `grants`·草稿→待核→生效→撤销或过期只能往前走·不能给自己授予·管理员级只有属主能放行·决定类只给人·到期自动失效·每步留痕）
   judgment-compare.ts（判定比对的记账：Cordis 服务 `judgmentCompare`·按路由计数·不一致合并计数、有上限）
   knowledge.ts（经验库：Cordis 服务 `knowledge`·从 ygl-trees 的 library 出口（契约 ygl-library/1）按类增量同步目录、每天全量对账·正文按需取·给页面的键是带本库密钥的 HMAC，不露 ygl-trees 的 id·谁能看哪条按授予逐条判·有项目、没给范围的条目按「项目 → 部门」对照当部门级，对不上的只给管理层）
+  local-account.ts（站内账号：Cordis 服务 `localAccounts`·scrypt 密码、输错锁定、临时密码、登录用的一次性码）
   login-session.ts（市场会话与登录 state：Cordis 服务 `loginSessions`·绝对期限·注销与停用即失效·state 一次性并绑浏览器·由市场维持的 Odoo 会话把会话号加密存放，注销、到期、停用时清掉）
   principal.ts（主体与外部身份：Cordis 服务 `principals`·把登录认出的人对到主体·停用与恢复）
   remote-allow.ts（远程写豁免面的快照）
@@ -518,6 +521,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   mcp-rest.ts（MCP 内嵌的 REST /api/mcp-rest、/openapi.json：OpenAPI 文档、工具调用、台文件上传（原始字节、multipart）列表下载（Range、ETag）、台数据、SOP run 与附件；认证是 MCP 会话令牌，授权映射到工具 grants）
   mcp.ts（MCP 网关控制面 /api/mcp：上游、会话、授权、工具目录、调用记录、权限申请的批准与驳回）
   portal.ts（门户 /go/<台号>/…：一条 ALL 正则路由、报动作 portal.use；前置准备和代理两个处理函数在 server/src/portal.ts 的 createPortal，原样）
+  local-accounts.ts（站内账号的管理 /api/local-accounts：列出、建人、重置密码、解锁，只有管理员能用；本人改密码）
   principals.ts（主体管理 /api/principals：列出、停用、恢复、对一次外部身份、待对接清单，只有管理员能用）
   principals.ts（主体管理 /api/principals：列出、停用、恢复，只有管理员能用）
   remote-allow.ts（远程写豁免面的变更 /api/remote-allow/diff）

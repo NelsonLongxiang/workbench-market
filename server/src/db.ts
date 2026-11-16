@@ -856,6 +856,23 @@ CREATE TABLE IF NOT EXISTS principal_pending (
 if (!hasColumn('market_sessions', 'upstream_sealed')) db.exec('ALTER TABLE market_sessions ADD COLUMN upstream_sealed TEXT');
 // 来源轮换过几次（市场跟着换了存下的会话号）：诊断用——轮换之后又被来源否掉的，日志里会标出来
 if (!hasColumn('market_sessions', 'upstream_renewals')) db.exec('ALTER TABLE market_sessions ADD COLUMN upstream_renewals INTEGER NOT NULL DEFAULT 0');
+// 站内账号（docs/local-accounts.md）：用户名加密码的登录方式 local 的账号。对应主体经外部身份（provider=local, external_id=用户名）连着，
+//   这里不存主体。password_hash 只放 scrypt 的结果和参数（scrypt$N$r$p$盐$哈希，都是 base64url），从不放明文；
+//   must_change：管理员发的临时密码，下次登录先改了才能进；failed_count / locked_until：连续输错的计数和锁到什么时候（毫秒）。
+db.exec(`
+CREATE TABLE IF NOT EXISTS local_accounts (
+  username TEXT PRIMARY KEY,
+  display_name TEXT NOT NULL DEFAULT '',
+  password_hash TEXT NOT NULL,
+  must_change INTEGER NOT NULL DEFAULT 0,
+  failed_count INTEGER NOT NULL DEFAULT 0,
+  locked_until INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  created_by TEXT NOT NULL DEFAULT '',
+  updated_at INTEGER NOT NULL,
+  last_login_at INTEGER
+);
+`);
 // 阶段六 6b：授予（谁有哪个角色）。角色本身是声明（server/src/roles.ts），这里只放数据。
 //   grants：主体、角色、范围、期限、理由、起草人、放行人、状态。状态只有五种，只能往前走：
 //     draft 草稿 → pending 待核 → active 生效 → revoked 撤销 或 expired 过期；草稿和待核也可以直接撤销（作废、驳回）。

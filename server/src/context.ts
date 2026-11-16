@@ -26,6 +26,7 @@ import { ChangeRequestService } from './services/change-request.ts';
 import { TaskCenterService } from './services/task-center.ts';
 import { RemoteAllowService } from './services/remote-allow.ts';
 import { LoginSessionService } from './services/login-session.ts';
+import { LocalAccountService } from './services/local-account.ts';
 import { GrantService } from './services/grant.ts';
 import { CustomRoleService } from './services/custom-role.ts';
 import { JudgmentCompareService } from './services/judgment-compare.ts';
@@ -70,6 +71,7 @@ await Promise.all([
   WorkbenchVarsService,
   PrincipalService,
   LoginSessionService,
+  LocalAccountService,
   GrantService,
   CustomRoleService,
   JudgmentCompareService,

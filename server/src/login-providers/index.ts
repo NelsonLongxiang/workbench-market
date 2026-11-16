@@ -6,6 +6,8 @@
  */
 import * as odoo from './odoo/index.ts';
 import * as feishu from './feishu/index.ts';
+import * as local from './local/index.ts';
 
-/** Odoo 是身份来源（每次请求现查它的会话）加业务台的登录中继；飞书是发市场会话的登录方式（WM_FEISHU_LOGIN=on 才可用） */
-export const loginProviders = [odoo, feishu];
+/** Odoo 是身份来源（每次请求现查它的会话）加业务台的登录中继；飞书是发市场会话的登录方式（WM_FEISHU_LOGIN=on 才可用）；
+ *  账号密码是站内账号的登录方式（WM_LOCAL_LOGIN，缺省开） */
+export const loginProviders = [odoo, feishu, local];

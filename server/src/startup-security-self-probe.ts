@@ -98,6 +98,8 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       // 主体管理面：远程匿名浏览器列不出主体。登录门关着时由路由自己的管理门拒（403），开着时登录门先拦（401）。
       // 不带任何凭据，所以这一行不会去问登录提供方，也不读主体表
       { id: 'market.principals.admin-read', target: m, surface: 'market', method: 'GET', path: '/api/principals', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 },
+      // 站内账号的管理面：远程匿名浏览器列不出账号（口径同主体管理面）
+      { id: 'market.local-accounts.admin-read', target: m, surface: 'market', method: 'GET', path: '/api/local-accounts', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 },
       // 导出真值：远程匿名带 reveal=1 拿不到真值。登录门关着时由路由的管理员门拒（403，不降级成掩码），开着时登录门先拦（401）
       // 建立人验收入口（8e）：它不经写请求总门，远程匿名来必须 401（登录门开着时登录门先拦，也是 401）
       { id: 'market.work-items.creator-decision-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/work-items/wi_selfprobe/decision', body: '{"answer":"verify"}', origin: true, headers: REMOTE_ANON, status: 401 },
