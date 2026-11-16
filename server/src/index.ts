@@ -585,13 +585,14 @@ function allowExtensionRemoteWrite(path: string): void {
 //   主体停没停用不进缓存，每次现查：停用一个主体，管理员认定立即不成立。
 const ODOO_ADMIN_TTL_MS = 30_000;
 const odooAdminViewer = identity().cachedResolver({ ttlMs: ODOO_ADMIN_TTL_MS, max: 1000 });
-const odooAdminReqs = new WeakMap<express.Request, string>(); // 本次请求经 Odoo 管理员认定 → 登录名
+const odooAdminReqs = new WeakMap<express.Request, string>(); // 本次请求认定的管理员登录 → Odoo 管理员记登录名；持 owner/admin 授予的站内管理员记 grant:<主体>
 async function odooAdminOf(cookieHeader: string): Promise<string | null> {
   if (!identity().hasCredential(cookieHeader)) return null; // Odoo 会话，或者由市场维持的会话（管理员标记取 Odoo 这次的回答）
   try {
     // Explicit relay logout revokes Odoo sessions; never reuse a stale admin verdict.
     const who = loginRelay().relayLogin() ? await identity().resolveViewer(cookieHeader) : await odooAdminViewer(cookieHeader);
-    return who.ok && who.viewer.admin ? who.viewer.login : null;
+    if (!who.ok || !who.viewer.admin) return null;
+    return who.viewer.adminBy === 'grant' ? `grant:${who.viewer.sub}` : who.viewer.login;
   } catch { return null; }
 }
 /** 按需认定：只在确实要判管理员的请求上现查（写门调 adminGuard 前、管理读面、口令设置、whoami），其余请求不碰 Odoo */
@@ -3514,6 +3515,7 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
 /** 审批人：Odoo 管理员记登录名，口令记 admin-token（口令本身不落库） */
 function adminActor(req: express.Request): string {
   const odoo = odooAdminReqs.get(req);
+  if (odoo?.startsWith('grant:')) return odoo.slice('grant:'.length); // 站内管理员：留痕记主体（user:<名>）
   return odoo ? `odoo:${odoo}` : 'admin-token';
 }
 function accessRequestId(req: express.Request): number {

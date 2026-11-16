@@ -26,9 +26,10 @@ import { loginProviders } from './login-providers/index.ts';
 /**
  * 查看者：一次请求被认成的那个人。
  * login 是提供方那边的登录名；sub 是主体标识（主体目录给的，人是 `user:<名>`；经现有登录认出的人，名就是登录名）；name 只用于显示；
- * admin 是提供方说的「是不是管理员」，缺了按 false。
+ * admin 是「是不是管理员」：提供方说是，或者这个主体持有生效中的 owner / admin 授予（站内管理员，docs/local-accounts.md 第 5 节），缺了按 false。
+ * adminBy：admin 只因为授予才为真时是 'grant'（留痕、whoami 据此不写成 Odoo 管理员）；提供方说是的不带。
  */
-export interface Viewer { login: string; uid: number; sub: string; name: string | null; admin: boolean }
+export interface Viewer { login: string; uid: number; sub: string; name: string | null; admin: boolean; adminBy?: 'grant' }
 
 /**
  * 认人的结果。认不出时 http 是该回给调用方的状态：401 没登录或会话失效，403 不是内部账号、主体已停用或对不到主体，502 身份来源不可达，503 没配置身份来源或主体目录不可用。
@@ -98,6 +99,11 @@ export interface ExternalIdentity { provider: string; externalId: string; displa
 export type Admission = { ok: true; principal: string } | { ok: false; reason: 'disabled' | 'unbound' };
 
 /** 主体目录：「谁」的那一张表。实现要开库，是 Cordis 服务 `principals`（services/principal.ts）；这里只有契约 */
+/** 授予（Cordis 服务 `grants`）里认管理员的那一问。每次认出人都现问，不进缓存 */
+export interface AdminGrants {
+  heldAdmin(principal: string | null, now?: number): boolean;
+}
+
 export interface PrincipalDirectory {
   /** 把提供方认出的人对到主体：见过的取出来；没见过的建一个（人，标识 `user:<对方的用户标识>`）。每次现查，不缓存 */
   admit(identity: ExternalIdentity): Admission;
@@ -457,7 +463,7 @@ export class IdentityService extends Service {
 
   /**
    * 市场会话认出的人。每次现查（会话在、没注销、没过期，主体是启用的人），不进任何缓存：停用、注销立即生效。
-   * 会话发出去的时候已经对到了主体，所以查看者的主体标识直接用会话记着的。管理员标记一律 false（角色和授予是阶段六的事）。
+   * 会话发出去的时候已经对到了主体，所以查看者的主体标识直接用会话记着的。管理员标记：持有生效中的 owner / admin 授予的是管理员（elevated，现查）。
    *
    * 由市场维持的提供方会话（存着提供方凭据的）还要过提供方这一关——ask 拿凭据写回的请求头去问（调用方决定用不用缓存）：
    *   · 提供方说认得、对到的还是会话里的这个主体：认，管理员标记用提供方这次的回答；
@@ -475,7 +481,7 @@ export class IdentityService extends Service {
     if (!rec || !personIdOk(rec.principal)) return null;
     const viewer: Viewer = { login: rec.principal.slice(5), uid: 0, sub: rec.principal, name: rec.displayName || null, admin: false };
     const upstream = typeof rec.upstream === 'string' && rec.upstream ? rec.upstream : null;
-    if (!upstream) return { ok: true, via: 'session', viewer };
+    if (!upstream) return { ok: true, via: 'session', viewer: this.elevated(viewer) };
     const end = (cause: string): void => {
       this.noteSession(cause);
       try { store?.revokeSession(token); } catch { /* 注销不上：下一次照样会再判一次 */ }
@@ -512,7 +518,7 @@ export class IdentityService extends Service {
     if (next !== upstream) {
       try { if (store?.renewUpstream?.(token, next)) this.noteSession('renewed', 'info'); } catch { /* 换不上：下一次照样会再判一次 */ }
     }
-    return { ok: true, via: 'session', viewer: { ...viewer, name: who.viewer.name ?? viewer.name, admin: who.viewer.admin === true } };
+    return { ok: true, via: 'session', viewer: this.elevated({ ...viewer, name: who.viewer.name ?? viewer.name, admin: who.viewer.admin === true, ...(who.viewer.adminBy === 'grant' ? { adminBy: 'grant' as const } : {}) }) };
   }
 
   /** 诊断日志的限流：每分钟最多这么多行，免得来源出事时刷屏 */
@@ -704,6 +710,21 @@ export class IdentityService extends Service {
     };
   }
 
+  /**
+   * 站内管理员：提供方没说是管理员、但这个主体持有生效中的 owner / admin 授予的，admin 记真、adminBy 记 grant。
+   * 只在认出人的两个出口调用（市场会话、主体目录对上之后），两处都不进缓存：撤销授予、停用主体，下一个请求就生效。
+   * 授予服务没装上、形状不对、抛错：一律不加（失败关闭）。
+   */
+  private elevated(viewer: Viewer): Viewer {
+    if (viewer.admin === true) return { ...viewer, admin: true };
+    let held = false;
+    try {
+      const g = this.ctx.get('grants') as AdminGrants | undefined;
+      held = !!g && typeof g.heldAdmin === 'function' && g.heldAdmin(viewer.sub) === true;
+    } catch { held = false; }
+    return held ? { ...viewer, admin: true, adminBy: 'grant' } : { ...viewer, admin: false };
+  }
+
   /** 主体目录（Cordis 服务 `principals`）。没装上、形状不对，都当没有 */
   private directory(): PrincipalDirectory | null {
     const d = this.ctx.get('principals') as PrincipalDirectory | undefined;
@@ -727,7 +748,7 @@ export class IdentityService extends Service {
         const ok = a.ok;
         if (ok === true) {
           const principal = a.principal;
-          if (personIdOk(principal)) return { ok: true, viewer: { ...viewer, sub: principal } };
+          if (personIdOk(principal)) return { ok: true, viewer: this.elevated({ ...viewer, sub: principal }) };
         } else if (ok === false) {
           const reason = a.reason;
           if (reason === 'disabled') return { ok: false, http: 403, error: DISABLED, held: true };

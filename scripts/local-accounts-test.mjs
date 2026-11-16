@@ -14,6 +14,8 @@
  *       8 重置密码：旧会话注销；新的临时密码又要先改
  *       9 本人改密码：原密码不对 403；对了改好，旧会话注销
  *      10 同一来源输错太多：先歇一分钟（429）
+ *   四、站内管理员（P2）：持生效中的 owner / admin 授予（范围 *）的人是管理员——待放行、收回、过期、管理层授予、停用都不算；
+ *       whoami 说是授予、留痕记主体；不能放行别人的 admin 授予、不能放行授给自己的、不能停用自己；跨站写 403
  *
  *   node scripts/local-accounts-test.mjs
  */
@@ -216,6 +218,80 @@ try {
     let last = 0;
     for (let i = 0; i < 12 && last !== 429; i++) last = (await b.go('POST', form, { form: { username: `nobody-${i}`, password: 'whatever-pass-1' } })).status;
     check(last === 429, '10 同一来源输错太多：先歇一分钟（429）', last);
+  }
+
+  console.log('四、站内管理员（P2：持 owner / admin 授予的人就是管理员）');
+  {
+    /** 本机命令行：回环直连、不带浏览器标记——授予管理面上算属主 */
+    const cli = (method, path, json) => fetch(new URL(path, base), { method, headers: json === undefined ? {} : { 'content-type': 'application/json' }, body: json === undefined ? undefined : JSON.stringify(json) })
+      .then(async (r) => ({ status: r.status, json: await r.json().catch(() => null) }));
+    const grant = async (principal, role, extra = {}) => {
+      const d = await cli('POST', '/api/grants', { principal, role, scope: '*', reason: '合成：站内管理员', ...extra });
+      const id = d.json?.grant?.id;
+      const s = await cli('POST', `/api/grants/${id}/submit`);
+      return { id, draft: d, submit: s };
+    };
+    const approve = (id) => cli('POST', `/api/grants/${id}/approve`);
+    const revoke = (id) => cli('POST', `/api/grants/${id}/revoke`, { reason: '合成：收回' });
+    const person = async (username, pw) => {
+      const t = (await adminCall('POST', '/api/local-accounts', { username })).json?.temp_password ?? '';
+      return (await login(username, t, pw, '192.0.2.50')).b;
+    };
+    const whoamiOf = async (b) => (await b.go('GET', '/api/admin/whoami')).json;
+    const listOf = async (b) => (await b.go('GET', '/api/local-accounts')).status;
+
+    const bob = await person('bob', 'Bob-pass-00001');
+    check((await me(bob))?.principal === 'user:bob', '11（准备）bob 用站内账号登录着');
+    const w0 = await whoamiOf(bob);
+    check(w0?.admin === false && (await listOf(bob)) === 403, '11 没有授予：不是管理员，管理接口 403', w0);
+
+    const g = await grant('user:bob', 'admin');
+    check(g.draft.status === 201 || g.draft.status === 200, '12（准备）本机命令行起草并提交 bob 的 admin 授予', g.draft);
+    check((await listOf(bob)) === 403, '12 授予还在待放行：不算管理员');
+
+    const ok = await approve(g.id);
+    check(ok.status === 200, '13（准备）属主（本机命令行）放行', ok);
+    const w1 = await whoamiOf(bob);
+    check(w1?.admin === true && w1.via === 'grant' && w1.login === 'user:bob', '13 放行之后：同一个会话立即是管理员，whoami 说是授予（不冒充 Odoo 管理员）', w1);
+    const mk = await bob.go('POST', '/api/local-accounts', { json: { username: 'dave' } });
+    check(mk.status === 201 && (await listOf(bob)) === 200, '13 站内管理员能建人、能列出账号', mk.status);
+    check(/"event":"create","username":"dave","by":"user:bob"/.test(log), '13 留痕记成主体 user:bob，不写成 odoo:bob');
+
+    const cross = await bob.go('POST', '/api/local-accounts', { json: { username: 'erin' }, headers: { origin: 'http://attacker.invalid', 'sec-fetch-site': 'cross-site' } });
+    check(cross.status === 403, '14 站内管理员的浏览器被别的站借去发写请求：403', cross.status);
+
+    const carol = await person('carol', 'Carol-pass-0001');
+    const gc = await grant('user:carol', 'admin');
+    const byBob = await bob.go('POST', `/api/grants/${gc.id}/approve`);
+    check(byBob.status === 403 && /owner_required/.test(byBob.text), '15 站内管理员不能放行别人的 admin 授予（要属主）', byBob.text.slice(0, 160));
+    check((await listOf(carol)) === 403, '15 carol 的授予没放行：还不是管理员');
+    const gb2 = await grant('user:bob', 'member');
+    const selfApprove = await bob.go('POST', `/api/grants/${gb2.id}/approve`);
+    check(selfApprove.status !== 200, '15 站内管理员不能放行授给自己的', selfApprove.status);
+
+    const selfOff = await bob.go('POST', '/api/principals/disable', { json: { id: 'user:bob', reason: '合成：停用自己' } });
+    check(selfOff.status === 409, '16 站内管理员不能停用自己（留痕 user:bob 对回到主体）', selfOff.status);
+
+    check((await revoke(g.id)).status === 200, '17（准备）收回 bob 的 admin 授予');
+    const w2 = await whoamiOf(bob);
+    check(w2?.admin === false && (await listOf(bob)) === 403, '17 收回之后：同一个会话的下一个请求就不是管理员（不等缓存）', w2);
+
+    const gm = await grant('user:carol', 'management');
+    await approve(gm.id);
+    check((await listOf(carol)) === 403, '18 管理层（management）授予不算站内管理员');
+
+    const gs = await grant('user:carol', 'admin', { expires_at: Date.now() + 4000 });
+    const okS = await approve(gs.id);
+    check(okS.status === 200 && (await listOf(carol)) === 200, '19（准备）带期限的 admin 授予：期限内是管理员', okS);
+    await sleep(4500);
+    check((await listOf(carol)) === 403, '19 过了期限：立即不是管理员（现比期限，不等周期任务）');
+
+    const go = await grant('user:carol', 'owner');
+    const okO = await approve(go.id);
+    check(okO.status === 200 && (await listOf(carol)) === 200 && (await whoamiOf(carol))?.via === 'grant', '20 属主（owner）授予也是站内管理员', okO);
+    check((await adminCall('POST', '/api/principals/disable', { id: 'user:carol', reason: '合成：停用持授予的人' })).status === 200, '21（准备）停用 carol');
+    const afterOff = await listOf(carol);
+    check(afterOff === 401 || afterOff === 403, '21 主体停用：授予还在也不是管理员（会话失效）', afterOff);
   }
 } catch (e) {
   fail++;

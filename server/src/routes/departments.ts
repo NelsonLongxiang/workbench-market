@@ -14,6 +14,7 @@
  * 读接口只给部门和人，不带任何事项内容。空就是空：没建部门时列表是空数组，不造数据。
  * 每次写记一行日志（谁、做了什么），不记别的内容。
  */
+import { actorPrincipal } from '../request-person.ts';
 import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
@@ -120,7 +121,7 @@ export function registerDepartmentRoutes(app: HttpService, deps: DepartmentRoute
     const lead = optional(b.lead, 'lead', 160);
     const curLead = current?.lead?.principal ?? null;
     // 换成一个新的负责人（带拍板）：不是属主只记成提议，负责人这次保持原样
-    const principal = by === 'cli' ? null : by.startsWith('odoo:') ? principals().principalOf(identity().providerName() ?? '', by.slice(5)) : null;
+    const principal = actorPrincipal(by);
     const owner = by === 'cli' || grants().isOwner(principal);
     const proposeLead = typeof lead === 'string' && lead !== curLead && !owner;
     if (proposeLead) {
@@ -152,7 +153,7 @@ export function registerDepartmentRoutes(app: HttpService, deps: DepartmentRoute
     const by = await writer(req, res);
     if (!by) return;
     const id = deptId(req);
-    const principal = by === 'cli' ? null : by.startsWith('odoo:') ? principals().principalOf(identity().providerName() ?? '', by.slice(5)) : null;
+    const principal = actorPrincipal(by);
     const r = removeDepartment(id, { by, principal }, Date.now());
     if (!r.ok) return void refused(res, r);
     logged('delete', { id, members: r.members }, by);

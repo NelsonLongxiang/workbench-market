@@ -11,7 +11,7 @@
  *   六、范围：角色里写的范围要在授予之内；object: 只比相等；写法不对的拒
  *   七、到期自动失效、撤销要理由、每步留痕
  *   八、不是管理员、跨站：接口都拒
- *   九、只建结构不接判定：授予了 admin 角色的人照样写不了管理面
+ *   九、站内管理员（docs/local-accounts.md P2）：持生效 admin 授予的人管理面放行，旧守卫也认；管理层（management）授予不算管理员
  *   十、角色声明不合格拒绝启动（同名、循环、不存在的包含和动作、类别和范围写法、不认识的键、路径和 JSON）
  *
  *   node scripts/grants-smoke.mjs              测本仓库
@@ -527,13 +527,20 @@ try {
       '接口：起草、看角色——匿名、登录的非管理员、跨站都 403；授予的读——没登录、口令错 401，登录的普通员工列得到但是空的（只看自己能放行的）；对照：管理员能列出角色', show({ results, ids }));
   }
 
-  // ---------- 九、只建结构不接判定 ----------
+  // ---------- 九、站内管理员（P2）：admin 授予就是管理员；管理层授予不是 ----------
   {
+    // 先给 alpha 一条管理层授予（beta 在三里已经有了 admin 授予，是管理员，不拿来做对照）
+    const gm = await activate({ principal: 'user:alpha', role: 'management' });
+    const mWrite = await srv.call('POST', '/api/types', { headers: { ...REMOTE, ...same }, session: SESSIONS.alpha, body: { key: 'zz-grant-probe-m', name: '探针' } });
+    const mList = await srv.call('GET', '/api/principals', { headers: { ...REMOTE, ...same }, session: SESSIONS.alpha });
+    check(gm.a.status === 200 && mWrite.status === 403 && mList.status === 403,
+      '管理层（management）授予不算管理员：管理写和管理读照样 403', show({ grant: gm.a.status, write: mWrite.status, list: mList.status }));
     const g = await activate({ principal: 'user:alpha', role: 'admin' });
     const write = await srv.call('POST', '/api/types', { headers: { ...REMOTE, ...same }, session: SESSIONS.alpha, body: { key: 'zz-grant-probe', name: '探针' } });
     const list = await srv.call('GET', '/api/principals', { headers: { ...REMOTE, ...same }, session: SESSIONS.alpha });
-    check(g.a.status === 200 && write.status === 403 && list.status === 403,
-      '只建结构不接判定：alpha 有了生效的 admin 授予，管理写和管理读照样 403（判定在 6c 才接）', show({ grant: g.a.status, write: write.status, list: list.status }));
+    const cross = await srv.call('POST', '/api/types', { headers: { ...REMOTE, origin: 'https://elsewhere.example', 'sec-fetch-site': 'cross-site' }, session: SESSIONS.alpha, body: { key: 'zz-grant-probe-x', name: '探针' } });
+    check(g.a.status === 200 && write.status === 201 && list.status === 200 && cross.status === 403,
+      '站内管理员：alpha 有了生效的 admin 授予，管理写和管理读放行（提供方说他不是管理员）；跨站写照样 403', show({ grant: g.a.status, write: write.status, list: list.status, cross: cross.status }));
   }
   db.close();
   await srv.stop();

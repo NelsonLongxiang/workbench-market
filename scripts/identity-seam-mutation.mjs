@@ -30,6 +30,7 @@ const SESSIONS_SVC = 'server/src/services/login-session.ts', FLOWS = 'server/src
 const PRINCIPAL = 'server/src/services/principal.ts', ROUTES = 'server/src/routes/principals.ts', DB = 'server/src/db.ts', GATE = 'server/src/login-gate.ts', GATE_ROUTES = 'server/src/routes/login-gate.ts'; // 登录门的四条路由搬进了 routes/（阶段三）
 
 const INDEX = 'server/src/index.ts';
+const REQUEST_PERSON = 'server/src/request-person.ts', LOCAL = 'local-accounts-test.mjs';
 const PRELOAD = 'scripts/identity-fake-preload.mjs', FAKE = 'scripts/identity-fake-provider.mjs';
 
 /** 变体：file 里的 find 恰好出现一次，换成 replace。suites 里的每一套都必须变红。 */
@@ -71,7 +72,7 @@ const MUTANTS = [
   { id: 'core-bypasses-service', what: '待办读权绕开身份服务，直接调实现', file: 'server/src/tasks-read-access.ts', suites: [SMOKE],
     find: 'const who = await identity().resolveViewer(cookie);', replace: "const who = await (await import('./login-providers/odoo/odoo-viewer.ts')).resolveOdooViewer(cookie);" },
   { id: 'any-viewer-is-admin', what: '管理员认定：认得出人就当管理员', file: INDEX, suites: [SMOKE],
-    find: 'return who.ok && who.viewer.admin ? who.viewer.login : null;', replace: 'return who.ok ? who.viewer.login : null;' },
+    find: 'if (!who.ok || !who.viewer.admin) return null;', replace: 'if (!who.ok) return null;' },
   { id: 'relay-admin-uses-cache', what: '管理员认定：登录中继开着也用缓存（提供方那边登出了还当管理员）', file: INDEX, suites: [SMOKE],
     find: "const who = loginRelay().relayLogin() ? await identity().resolveViewer(cookieHeader) : await odooAdminViewer(cookieHeader);", replace: 'const who = await odooAdminViewer(cookieHeader);' },
   { id: 'relay-gate-uses-cache', what: '登录门：要求现查时装配方照样给缓存的', file: INDEX, suites: [SMOKE],
@@ -125,7 +126,7 @@ const MUTANTS = [
   { id: 'directory-garbage-admits', what: '目录的回答看不懂就放行', file: IDENTITY, suites: [CONTRACT],
     find: '    } catch { /* 读回答的时候抛错：按不可用 */ }\n    return { ok: false, http: 503, error: DIRECTORY_FAILED };', replace: '    } catch { /* 读回答的时候抛错：按不可用 */ }\n    return { ok: true, viewer };' },
   { id: 'subject-from-provider', what: '主体标识不用目录给的，用提供方自己写的', file: IDENTITY, suites: [CONTRACT],
-    find: 'return { ok: true, viewer: { ...viewer, sub: principal } };', replace: 'return { ok: true, viewer };' },
+    find: 'return { ok: true, viewer: this.elevated({ ...viewer, sub: principal }) };', replace: 'return { ok: true, viewer: this.elevated(viewer) };' },
   // —— 带缓存的认人：缓存的只能是提供方的回答 ——
   { id: 'cache-hit-skips-directory', what: '缓存命中时不问主体目录（停用要等缓存过期才生效）', file: IDENTITY, suites: [CONTRACT, SMOKE],
     find: '      const { provider, result } = await cachedRecognize(cookieHeader);\n      return this.settled(provider, result);', replace: '      const { result } = await cachedRecognize(cookieHeader);\n      return { ...result };' },
@@ -198,7 +199,7 @@ const MUTANTS = [
   { id: 'browser-counts-as-cli', what: '主体管理接口：带浏览器标记的本机请求也算命令行', file: ROUTES, suites: [SMOKE],
     find: "    if (!browserMarked(req) && rawLoopback(req)) return 'cli'; // 本机命令行", replace: "    if (rawLoopback(req)) return 'cli';" },
   { id: 'self-disable-allowed', what: '管理员可以停用自己', file: ROUTES, suites: [SMOKE],
-    find: "      if (self === id) throw new HttpError(409, '不能停用自己');\n", replace: '' },
+    find: "if (status === 'disabled' && actorPrincipal(actor) === id) throw new HttpError(409, '不能停用自己');", replace: '' },
   // —— 管理员对一次外部身份 ——
   { id: 'bind-steals-identity', what: '绑定：外部身份已经绑在别人身上也照样改绑', file: PRINCIPAL, suites: [SERVICE, SMOKE],
     find: "        if (held) return { ok: false, reason: 'conflict', principal: held.principal_id };\n", replace: "        if (held) db.prepare('DELETE FROM principal_identities WHERE provider = ? AND principal_id = ?').run(provider, held.principal_id);\n" },
@@ -410,6 +411,18 @@ const MUTANTS = [
     find: "if (process.env.NODE_ENV !== 'test') {", replace: 'if (false) {' },
   { id: 'fixture-guard-removed', what: '夹具的函数不看环境', file: FAKE, suites: [CONTRACT],
     find: "  if (process.env.NODE_ENV !== 'test') throw new Error(", replace: '  if (false) throw new Error(' },
+  // —— 站内管理员（docs/local-accounts.md P2）：持生效 owner / admin 授予（范围 *）的人是管理员 ——
+  { id: 'grant-admin-ignored', what: '站内管理员：不认授予（持 admin 授予的人还不是管理员）', file: IDENTITY, suites: [LOCAL, GRANTS],
+    find: "held = !!g && typeof g.heldAdmin === 'function' && g.heldAdmin(viewer.sub) === true;", replace: 'held = false;' },
+  { id: 'grant-admin-any-role', what: '站内管理员：任何角色、任何范围的生效授予都算管理员', file: GRANT_SVC, suites: [LOCAL, GRANTS],
+    find: "g.scope === '*' && (g.role === 'owner' || g.role === 'admin')", replace: 'true' },
+  { id: 'grant-admin-ignores-state', what: '站内管理员：不看授予的状态和期限（待放行、收回、过期的还算）', file: GRANT_SVC, suites: [LOCAL],
+    find: "return !!principal && this.activeFor(principal, now).some((g) => g.scope === '*' && (g.role === 'owner' || g.role === 'admin'));",
+    replace: "return !!principal && (db.prepare('SELECT * FROM grants WHERE principal_id = ?').all(principal) as GrantRow[]).some((g) => g.scope === '*' && (g.role === 'owner' || g.role === 'admin'));" },
+  { id: 'grant-admin-actor-unmapped', what: '站内管理员的留痕对不回主体（不能停用自己、不能放行授给自己的就失守）', file: REQUEST_PERSON, suites: [LOCAL],
+    find: 'return /^user:[^\\s]{1,160}$/.test(by) ? by : null;', replace: 'return null;' },
+  { id: 'grant-admin-audit-as-odoo', what: '站内管理员的留痕写成 odoo:<名>（冒充 Odoo 管理员、对不回主体）', file: INDEX, suites: [LOCAL],
+    find: "  if (odoo?.startsWith('grant:')) return odoo.slice('grant:'.length); // 站内管理员：留痕记主体（user:<名>）\n", replace: '' },
 ];
 
 if (process.argv.includes('--list')) {

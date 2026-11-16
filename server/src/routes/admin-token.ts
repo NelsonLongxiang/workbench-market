@@ -39,8 +39,11 @@ export function registerAdminTokenRoutes(app: HttpService, deps: AdminTokenDeps)
 
   app.get('/api/admin/whoami', { action: 'admin.whoami', kind: 'read' }, (req, res) => {
     const viaToken = adminTokenCheck(req.headers['x-admin-token']);
-    const odoo = odooAdminReqs.get(req) ?? null;
-    res.set('Cache-Control', 'no-store').json({ admin: viaToken || !!odoo, via: viaToken ? 'token' : odoo ? 'odoo' : null, login: viaToken ? null : odoo });
+    const marked = odooAdminReqs.get(req) ?? null;
+    // 站内管理员（持 owner/admin 授予）记作 grant:<主体>：via 写 grant、login 写主体，不冒充 Odoo 管理员
+    const grant = marked?.startsWith('grant:') ? marked.slice('grant:'.length) : null;
+    const via = viaToken ? 'token' : grant ? 'grant' : marked ? 'odoo' : null;
+    res.set('Cache-Control', 'no-store').json({ admin: viaToken || !!marked, via, login: viaToken ? null : (grant ?? marked) });
   });
 
   app.get('/api/admin-token/state', { action: 'admin-token.state', kind: 'read' }, (req, res) => {

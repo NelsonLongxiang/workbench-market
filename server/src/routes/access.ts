@@ -13,6 +13,7 @@
  *   POST /api/setup/wizard/approve { run }                         属主一次放行这一批（只认属主，收窄）
  * 写请求先过 index.ts 的写请求总门。每次跑、放行写一行日志。
  */
+import { actorPrincipal } from '../request-person.ts';
 import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
@@ -68,7 +69,7 @@ export function registerAccessRoutes(app: HttpService, deps: AccessRouteDeps): v
     await deps.markOdooAdmin(req);
     if (!deps.adminGuard(req, res)) return null;
     const by = deps.adminActor(req);
-    const principal = by.startsWith('odoo:') ? principals().principalOf(identity().providerName() ?? '', by.slice(5)) : null;
+    const principal = actorPrincipal(by);
     return { by, principal, owner: grants().isOwner(principal) };
   }
 

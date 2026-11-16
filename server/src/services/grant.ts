@@ -90,6 +90,14 @@ export class GrantService extends Service {
     return db.prepare("SELECT * FROM grants WHERE principal_id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?) ORDER BY id").all(principal, now) as GrantRow[];
   }
 
+  /**
+   * 站内管理员（docs/local-accounts.md 第 5 节）：持有生效中的、范围是 * 的 owner 或 admin 授予。
+   * 认人时现查（身份服务每次认出人都问一次，不进缓存）：授予撤销、到期，下一个请求就不再是管理员。
+   */
+  heldAdmin(principal: string | null, now = Date.now()): boolean {
+    return !!principal && this.activeFor(principal, now).some((g) => g.scope === '*' && (g.role === 'owner' || g.role === 'admin'));
+  }
+
   /** 这个主体是不是业务侧：持有范围 * 的生效授予，角色全公司的写和决定都有（管理层；属主另由 Actor.owner 认） */
   isBusinessSide(principal: string | null, now = Date.now()): boolean {
     return !!principal && this.activeFor(principal, now).some((g) => g.scope === '*' && isBusinessSide(this.roleViews.get(g.role)?.closure ?? []));
