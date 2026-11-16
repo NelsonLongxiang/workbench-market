@@ -13,6 +13,7 @@
 - 这是公开仓：不写业务内容，不写内网地址、端口、主机名、凭证。部署方的私有功能放在仓库外，经扩展目录挂进来。
 - 安全面的改动（鉴权、CORS、SSRF、注入、令牌、会话）附对抗组，先红后绿，见 PR 模板。
 - 新的安全行为要加一行启动自检。
+- 身份与权限的改动先验后合：动到认人、登录方式、站内账号、注册与核准、主体与绑定、角色与授予、管理员认定、管理口令、会话令牌、MCP 工具授权（`server/src/identity*`、`server/src/login-gate.ts`、`server/src/login-providers/`、`server/src/roles.ts`、`server/src/judgment*`、`server/src/admin-token-env.ts`，以及 `server/src/routes/` 和 `server/src/services/` 里 `auth`、`admin-token`、`access`、`grants`、`principals`、`local-accounts`、`mcp` 相关的文件）的 PR，合进 main 之前要有一份独立验收：由作者以外的会话或人，在 PR 当前的头提交上复现对抗组（先红后绿）、跑变异，并把结论（PASS 或有条件 PASS 的条件已满足）贴在 PR 上。头提交变了，就只复核增量。作者不合自己的这类 PR。
 
 ## 东西该写在哪
 
