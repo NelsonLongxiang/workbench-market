@@ -104,6 +104,7 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
     taken: [409, '要新建的主体标识和一个已有的主体等价（只差大小写、全角半角之类）'],
     'not-person': [409, '只能绑到人身上'],
     disabled: [409, '目标主体已停用'],
+    exists: [409, '这个名字已经属于一个现有的人'],
   };
 
   /** 管理员对一次：把一条外部身份绑到一个人身上（可以同时新建这个人）。不能动自己名下的绑定 */
