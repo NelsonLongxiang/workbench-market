@@ -559,7 +559,9 @@
       "external_id TEXT NOT NULL PK",
       "external_key TEXT NOT NULL",
       "principal_id TEXT NOT NULL",
-      "created_at TEXT NOT NULL DEFAULT datetime('now')"
+      "created_at TEXT NOT NULL DEFAULT datetime('now')",
+      "bound_by_system TEXT NOT NULL DEFAULT ''",
+      "bound_by_system_at INTEGER"
     ],
     "principal_pending": [
       "provider TEXT NOT NULL PK",

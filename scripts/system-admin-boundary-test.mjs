@@ -18,6 +18,11 @@
  *     N1 MCP 访问申请：系统管理员不能批准；建会话的人不能批自己会话的申请
  *     X2 系统管理员照常管系统：角色清单、主体清单 200；业务面 403
  *     X3 迁移来的 admin 授予（source=migration）不让人成系统管理员，授予列表上标 ignored_for_admin
+ *     E9 导出真实值（/api/export?reveal=1）：系统管理员 403；属主、管理口令照常；不带 reveal 的导出系统管理员照常
+ *     X4 系统管理员经 bind 把（自己控制的）外部身份连新建绑到一个人身上，再给他起草普通员工：放行时同样标「凭据由系统管理员设置」、要确认；
+ *        对照：属主绑的不标
+ *     X5 业务侧真能放行：管理层看得到并放行给业务数据的普通档授予；部门负责人只看得到、放行得了本部门范围的（部门成员、普通员工），
+ *        别的部门、全公司范围的看不到（单条 404）、放行不了
  *   乙、口令存库的实例（启动环境不给口令）：
  *     E1 系统管理员改管理口令：403，口令没变；属主能改
  *
@@ -241,6 +246,81 @@ try {
     const list = await mia.go('GET', '/api/principals');
     const flagged = ((await olga.go('GET', '/api/grants?principal=user:mia')).json?.grants ?? []).find((g) => g.role === 'admin');
     check(before === 'user:mia' && who?.system_only !== true && list.status === 403 && flagged?.ignored_for_admin === true, 'X3 迁移来的 admin 授予不让人成系统管理员（以身份来源当下说的为准）：whoami 不是系统管理员，管理面 403', { who, list: list.status });
+  }
+
+  {
+    // E9：导出的真实值只给完整的管理员
+    const tokenCall = (method, path) => fetch(new URL(path, A.base), { method, headers: { 'x-admin-token': ADMIN_TOKEN } }).then(async (r) => ({ status: r.status, json: await r.json().catch(() => null) }));
+    const samReveal = await sam.go('GET', '/api/export?reveal=1');
+    const samPlain = await sam.go('GET', '/api/export');
+    const olgaReveal = await olga.go('GET', '/api/export?reveal=1');
+    const tokReveal = await tokenCall('GET', '/api/export?reveal=1');
+    check(samReveal.status === 403 && samReveal.json?.error === 'system_admin_reveal' && !samReveal.json?.workbenches && samPlain.status === 200 && samPlain.json?.masked === 1
+        && olgaReveal.status === 200 && olgaReveal.json?.masked === 0 && tokReveal.status === 200 && tokReveal.json?.masked === 0,
+      'E9 导出真实值：系统管理员 403（不给台配置），不带 reveal 的照常（掩码）；属主、管理口令照常取真值',
+      { samReveal: [samReveal.status, samReveal.json?.error], samPlain: [samPlain.status, samPlain.json?.masked], olga: olgaReveal.status, token: tokReveal.status });
+  }
+  {
+    // X4：系统管理员把一条外部身份（比如他自己控制的另一个账号）连新建绑到 user:alt 上，再给 alt 起草、提交普通员工
+    const bind = await sam.go('POST', '/api/principals/bind', { json: { provider: 'synthetic', external_id: 'sam-alt', principal: 'user:alt', create: true, reason: '合成' } });
+    const d = await sam.go('POST', '/api/grants', { json: { principal: 'user:alt', role: 'member', scope: '*', reason: '合成' } });
+    await sam.go('POST', `/api/grants/${d.json?.grant?.id}/submit`);
+    const listed = ((await olga.go('GET', '/api/grants?principal=user:alt')).json?.grants ?? []).find((g) => g.id === d.json?.grant?.id);
+    const one = (await olga.go('GET', `/api/grants/${d.json?.grant?.id}`)).json?.grant;
+    const noConfirm = await olga.go('POST', `/api/grants/${d.json?.grant?.id}/approve`);
+    const confirmed = await olga.go('POST', `/api/grants/${d.json?.grant?.id}/approve`, { json: { confirm_credentials: true } });
+    // 对照：属主绑的外部身份不标
+    await olga.go('POST', '/api/principals/bind', { json: { provider: 'synthetic', external_id: 'clean-1', principal: 'user:clean', create: true, reason: '合成' } });
+    const c = await sam.go('POST', '/api/grants', { json: { principal: 'user:clean', role: 'member', scope: '*', reason: '合成' } });
+    await sam.go('POST', `/api/grants/${c.json?.grant?.id}/submit`);
+    const cl = ((await olga.go('GET', '/api/grants?principal=user:clean')).json?.grants ?? []).find((g) => g.id === c.json?.grant?.id);
+    const cOk = await olga.go('POST', `/api/grants/${c.json?.grant?.id}/approve`);
+    // 成批绑的也一样
+    const bb = await sam.go('POST', '/api/principals/bind-batch', { json: { items: [{ provider: 'synthetic', external_id: 'sam-alt2', principal: 'user:alt2', create: true }], reason: '合成' } });
+    const d2 = await sam.go('POST', '/api/grants', { json: { principal: 'user:alt2', role: 'member', scope: '*', reason: '合成' } });
+    await sam.go('POST', `/api/grants/${d2.json?.grant?.id}/submit`);
+    const l2 = ((await olga.go('GET', '/api/grants?principal=user:alt2')).json?.grants ?? []).find((g) => g.id === d2.json?.grant?.id);
+    check(bind.status === 200 && d.status === 201 && listed?.credentials_set_by_system_admin?.kind === 'bind' && /synthetic\/sam-alt/.test(listed.credentials_set_by_system_admin.username ?? '')
+        && one?.credentials_set_by_system_admin?.kind === 'bind' && noConfirm.status === 409 && noConfirm.json?.error === 'credentials_set_by_system_admin' && /系统管理员绑上来的/.test(noConfirm.json?.message ?? '')
+        && confirmed.status === 200 && cl?.credentials_set_by_system_admin === null && cOk.status === 200
+        && bb.json?.bound === 1 && l2?.credentials_set_by_system_admin?.kind === 'bind',
+      'X4 系统管理员经 bind、bind-batch 连新建绑上的外部身份：列表、单条标「凭据由系统管理员设置」（bind），属主不确认放行 409、确认了才放行；属主绑的不标、照常放行',
+      { bind: bind.status, batch: [bb.status, l2?.credentials_set_by_system_admin], listed: listed?.credentials_set_by_system_admin, noConfirm: [noConfirm.status, noConfirm.json?.error], confirmed: confirmed.status, clean: [cl?.credentials_set_by_system_admin, cOk.status] });
+  }
+  {
+    // X5：业务侧真能放行（管这个范围的）。部门 d1、d2；mona 持管理层（*），dina 持 d1 的部门负责人
+    const d = A.db();
+    try { const now = Date.now(); d.prepare("INSERT INTO departments (id, name, created_at, updated_at) VALUES ('d1', '合成一部', ?, ?), ('d2', '合成二部', ?, ?)").run(now, now, now, now); } finally { d.close(); }
+    const mona = await A.person('mona', 'Mona-pass-00001', '192.0.2.76'); await A.grant('user:mona', 'management');
+    const dina = await A.person('dina', 'Dina-pass-00001', '192.0.2.77');
+    const dl = await A.cli('POST', '/api/grants', { principal: 'user:dina', role: 'dept-lead', scope: 'dept:d1', reason: '合成' });
+    await A.cli('POST', `/api/grants/${dl.json?.grant?.id}/submit`); await A.cli('POST', `/api/grants/${dl.json?.grant?.id}/approve`);
+    const tokenCall = (method, path, json) => fetch(new URL(path, A.base), { method, headers: { 'x-admin-token': ADMIN_TOKEN, 'content-type': 'application/json' }, body: json === undefined ? undefined : JSON.stringify(json) }).then(async (r) => ({ status: r.status, json: await r.json().catch(() => null) }));
+    const pend = async (who, role, scope) => {
+      await A.cli('POST', '/api/local-accounts', { username: who });
+      const g = await tokenCall('POST', '/api/grants', { principal: `user:${who}`, role, scope, reason: '合成' });
+      await tokenCall('POST', `/api/grants/${g.json?.grant?.id}/submit`);
+      return g.json?.grant?.id;
+    };
+    const gAll = await pend('una', 'member', '*');           // 全公司的普通员工
+    const gD1 = await pend('vic', 'member', 'dept:d1');      // 一部的普通员工
+    const gD1m = await pend('wes', 'dept-member', 'dept:d1'); // 一部的部门成员（带业务写）
+    const gD2 = await pend('xia', 'member', 'dept:d2');      // 二部的普通员工
+    const ids = (r) => (r.json?.grants ?? []).map((g) => g.id);
+    const monaList = ids(await mona.go('GET', '/api/grants?status=pending'));
+    const dinaList = ids(await dina.go('GET', '/api/grants?status=pending'));
+    const dinaOther = await dina.go('GET', `/api/grants/${gD2}`);
+    const dinaAll = await dina.go('POST', `/api/grants/${gAll}/approve`);
+    const dinaD2 = await dina.go('POST', `/api/grants/${gD2}/approve`);
+    const dinaOk = await dina.go('POST', `/api/grants/${gD1}/approve`);
+    const dinaOkM = await dina.go('POST', `/api/grants/${gD1m}/approve`);
+    const monaOk = await mona.go('POST', `/api/grants/${gAll}/approve`);
+    check(monaList.includes(gAll) && monaList.includes(gD1) && monaList.includes(gD2) && monaOk.status === 200,
+      'X5a 管理层（*）看得到全公司和各部门待放行的普通员工授予，放行全公司的照常', { monaList, monaOk: monaOk.status });
+    check(dinaList.includes(gD1) && dinaList.includes(gD1m) && !dinaList.includes(gD2) && !dinaList.includes(gAll) && dinaOther.status === 404
+        && dinaAll.status === 404 && dinaD2.status === 404 && dinaOk.status === 200 && dinaOkM.status === 200,
+      'X5b 部门负责人（d1）只看得到、放行得了本部门范围的普通员工、部门成员授予；二部、全公司的看不到（单条 404）、放行 404',
+      { dinaList, other: dinaOther.status, all: dinaAll.status, d2: dinaD2.status, ok: dinaOk.status, okM: dinaOkM.status });
   }
 
   // ---------------- 乙 ----------------
