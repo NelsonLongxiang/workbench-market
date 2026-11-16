@@ -252,6 +252,15 @@ export const getAccessRoles = () => accessCall('/api/roles');
 export const getAccessMatrix = () => accessCall('/api/roles/matrix');
 export const approveAccessGrant = (id: number) => accessCall(`/api/grants/${id}/approve`, { method: 'POST', body: {} });
 export const declineAccessGrant = (id: number, reason: string) => accessCall(`/api/grants/${id}/revoke`, { method: 'POST', body: { reason } });
+/** 站内账号（docs/local-accounts.md P4，「谁能做什么」的「账号」页签）：只有管理员能用 */
+const acct = (u: string) => `/api/local-accounts/${encodeURIComponent(u)}`;
+export const getLocalAccounts = () => accessCall('/api/local-accounts');
+export const createLocalAccount = (username: string, displayName: string) => accessCall('/api/local-accounts', { method: 'POST', body: { username, display_name: displayName } });
+export const resetLocalAccount = (u: string) => accessCall(`${acct(u)}/reset-password`, { method: 'POST', body: {} });
+export const unlockLocalAccount = (u: string) => accessCall(`${acct(u)}/unlock`, { method: 'POST', body: {} });
+export const approveLocalAccount = (u: string) => accessCall(`${acct(u)}/approve`, { method: 'POST', body: {} });
+export const rejectLocalAccount = (u: string) => accessCall(`${acct(u)}/reject`, { method: 'POST', body: {} });
+export const setPrincipalStatus = (id: string, on: boolean, reason: string) => accessCall(`/api/principals/${on ? 'restore' : 'disable'}`, { method: 'POST', body: { id, reason } });
 
 /** 「安排一件事」（#577）：可派的团队。404 = 服务端还没有这个接口，页面给「还没上线」 */
 export async function getAssignableTeams(): Promise<{ status: number; teams: { team: string; name: string }[] }> {
