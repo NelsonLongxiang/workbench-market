@@ -7,7 +7,7 @@ import express from 'express';
 import { SENSITIVE_QUERY_KEYS, createPortalAccess, isCredentialed, isInternalTarget, parseAccessInput } from './portal-access.ts';
 import type { PrincipalService } from './services/principal.ts';
 import { createStartupSecurityProbe, isStartupProbeRequest, TEST_ENV_WAITS } from './startup-security-self-probe.ts';
-import { createLoginGate, loginGateMode, trustedProxies } from './login-gate.ts';
+import { createLoginGate, loginGateMode, trustedProxies, trustedProxyCheck } from './login-gate.ts';
 import { identity, loginRelay, sourceDown } from './identity.ts';
 import { requestPerson, hasLoginCredential } from './request-person.ts';
 import { countSubmission, countSubmitterTicket } from './services/submission-counts.ts';
@@ -258,6 +258,9 @@ if (loginGate.enforced) console.log('[login-gate] enforce：无身份的请求�
   const tp = trustedProxies();
   if (tp.invalid.length) { console.error(`[trusted-proxies] 拒绝启动：WM_TRUSTED_PROXIES 有非法项（只收 IP 或 CIDR）：${tp.invalid.join(', ')}`); process.exit(1); }
   if (tp.entries.length) console.log(`[trusted-proxies] 认这些对端写入的 X-Real-IP/X-Forwarded-For：${tp.entries.join(', ')}（回环恒可信）`);
+  // 启动自检：写成网段的，网段里任何能连到端口的机器都能自报来源（按来源的限额会被换头绕过），给 warn；见 login-gate.ts 的 trustedProxyCheck
+  const tpc = trustedProxyCheck(tp.entries);
+  console.log(JSON.stringify({ source: 'self-check', id: 'login.trusted-proxies', verdict: tpc.verdict, ...(tpc.ranges.length ? { ranges: tpc.ranges } : {}), at: new Date().toISOString() }));
 }
 const A2A_DIRECT_SIG_RAW = directSigMode();
 // 名片是否声明 canvasMemberProvenance（WM_A2A_MEMBER_PROVENANCE=on|off，缺省 on）；值不合法拒绝启动
