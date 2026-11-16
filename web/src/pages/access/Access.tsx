@@ -2,7 +2,8 @@
  * 谁能做什么（照产品化原型 3fbfd0b 的 #/access）：两个页签。
  *  · 人和权限：上面是「待你核准的授予」卡片（当场核准，或者不给并写理由），下面是给出去的全部权限，按人排。
  *  · 角色预设：每个角色一张卡（几条生效中的授予在用），选一个看它在七大块上能看、能做、能拍板、能管什么；矩阵由服务端算。
- * 第三个页签「以某人的身份看」、红线清单、AI 员工遇到动作怎么办、全部留痕，等身份线的接口，现在不出现（不放占位）。
+ *  · 账号（P4）：站内账号的管理——待核准的注册、建人、重置密码、解锁、停用恢复（AccountsTab.tsx）。只给管理员；认出了人、明知没有管理权的不去问。
+ * 「以某人的身份看」、红线清单、AI 员工遇到动作怎么办、全部留痕，等身份线的接口，现在不出现（不放占位）。
  * 谁能看：照接口实际返回的来。授予、主体、角色、矩阵几个接口只给能管的人；认出了人、明知没有管理权的就不去问（mayReadAccessAdmin）。读不到授予时，「人和权限」改用
  * /api/auth/me 带的本人角色显示「你的权限」，下面一句别人的权限谁能看。
  * 判断逻辑在 web/src/access-view.ts（有单测）。
@@ -12,6 +13,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Alert, Button, Empty, Input, Skeleton, Table, Tag } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import WmPage from '../../components/WmPage';
+import AccountsTab from './AccountsTab';
 import { actorLabel } from '../../people';
 import { approveAccessGrant, declineAccessGrant, getAccessGrants, getAccessMatrix, getAccessPrincipals, getAccessRoles, getAuthMe } from '../../api';
 import { adminActive, subscribeAdminToken } from '../../admin-token';
@@ -228,7 +230,9 @@ export default function Access() {
           <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} className={tab === t.key ? 'wm-acc-tab on' : 'wm-acc-tab'} data-testid={`acc-tab-${t.key}`} onClick={() => pick(t.key)}>{t.name}</button>
         ))}
       </div>
-      {loading ? <Skeleton active /> : tab === 'people' ? peopleTab : rolesTab}
+      {loading ? <Skeleton active /> : tab === 'people' ? peopleTab : tab === 'accounts'
+        ? (src.limited ? <Alert className="wm-acc-alert" type="warning" showIcon message="账号只有管理员能看、能管。" data-testid="acct-limited" /> : <AccountsTab key={tick} />)
+        : rolesTab}
     </WmPage>
   );
 }

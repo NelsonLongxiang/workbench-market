@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 「谁能做什么」页的纯函数单测（web/src/access-view.ts）：状态、范围、期限的说法，待核准卡片，按人排的权限表，矩阵格子，读不到时怎么说。数据都是合成的。 */
-import { ACCESS_TABS, CELL_LEGEND, actionProblem, cellLabel, declineReasonOk, grantActorRaw, grantRows, grantsOf, indexPrincipals, kindLabel, matrixOf, pendingGrants, principalName, responsibleOf, roleName, roleUsage, rolesOf, scopeLabel, scopeNotYetEffective, sourceProblem, statusLabel, tabFromQuery, termLabel, myRolesOf, summaryDo, OTHERS_ONLY_ADMINS, approvalText, approveState, mayReadAccessAdmin } from '../web/src/access-view.ts';
+import { ACCESS_TABS, CELL_LEGEND, actionProblem, cellLabel, declineReasonOk, grantActorRaw, grantRows, grantsOf, indexPrincipals, kindLabel, matrixOf, pendingGrants, principalName, responsibleOf, roleName, roleUsage, rolesOf, scopeLabel, scopeNotYetEffective, sourceProblem, statusLabel, tabFromQuery, termLabel, myRolesOf, summaryDo, OTHERS_ONLY_ADMINS, approvalText, approveState, mayReadAccessAdmin, accountsOf, accountTags, accountOrigin, lastLoginLabel, usernameOk, accountsProblem, accountActionProblem, TEMP_PASSWORD_NOTE } from '../web/src/access-view.ts';
 import { actorLabel } from '../web/src/people.ts';
 
 let pass = 0, fail = 0;
@@ -8,8 +8,22 @@ const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ 
 const J = (x) => JSON.stringify(x);
 const NOW = Date.parse('2026-11-12T12:00:00Z');
 
-ok('页签：人和权限、角色预设两个（以某人的身份看等身份线的接口，先不出现）', J(ACCESS_TABS.map((t) => t.name)) === '["人和权限","角色预设"]');
-ok('页签：地址里认得 roles，其余都当人和权限', tabFromQuery('roles') === 'roles' && tabFromQuery('as') === 'people' && tabFromQuery(null) === 'people');
+ok('页签：人和权限、账号、角色预设三个（以某人的身份看等身份线的接口，先不出现）', J(ACCESS_TABS.map((t) => t.name)) === '["人和权限","账号","角色预设"]');
+ok('页签：地址里认得 roles、accounts，其余都当人和权限', tabFromQuery('roles') === 'roles' && tabFromQuery('accounts') === 'accounts' && tabFromQuery('as') === 'people' && tabFromQuery(null) === 'people' && tabFromQuery('toString') === 'people');
+
+// ---- 「账号」页签（站内账号，P4） ----
+const acc = (username, more = {}) => ({ username, display_name: '', must_change: false, locked: false, locked_until: null, created_at: 1, created_by: 'cli', updated_at: 1, last_login_at: null, principal: `user:${username}`, principal_status: 'active', pending: false, ...more });
+const accounts = accountsOf({ accounts: [acc('zed'), acc('amy', { principal: null, principal_status: null, pending: true, created_by: 'signup' }), acc('bob', { locked: true, must_change: true }), { username: 3 }, null, acc('cat', { principal_status: 'disabled' }), acc('dan', { principal: null, pending: false })] });
+ok('账号：形状不对的跳过；没有主体的一律算待核准；待核准在前、其余按用户名', J(accounts.map((a) => a.username)) === '["amy","dan","bob","cat","zed"]' && accounts[1].pending === true && accountsOf(null).length === 0 && accountsOf({ accounts: 'x' }).length === 0);
+const tags = (u) => accountTags(accounts.find((a) => a.username === u)).map((t) => t.text).join('、');
+ok('账号状态：待核准只标待核准；停用、锁定、要改密码可以同时标；都没有是正常', tags('amy') === '待核准' && tags('cat') === '已停用' && tags('bob') === '已锁定、要改密码' && tags('zed') === '正常');
+ok('账号状态的颜色：待核准、锁定是提醒，停用是危险，正常是成功', accountTags(accounts[0])[0].tone === 'warning' && accountTags(accounts.find((a) => a.username === 'cat'))[0].tone === 'danger' && accountTags(accounts.find((a) => a.username === 'zed'))[0].tone === 'success');
+ok('谁建的：自己注册、本机命令行、口令、管理员登录（Odoo 或站内）', J(['signup', 'cli', 'admin-token', 'odoo:jia', 'user:bob', ''].map(accountOrigin)) === '["自己注册","本机命令行","管理员（口令）","管理员 jia","管理员 bob","—"]');
+ok('最近登录：没登录过、有日期', lastLoginLabel(null) === '还没登录过' && /^\d{4}-\d{2}-\d{2}$/.test(lastLoginLabel(NOW)));
+ok('用户名写法和服务端一致', usernameOk('alice') && usernameOk('a.b_c-1') && !usernameOk('A') && !usernameOk('_x') && !usernameOk('a') && !usernameOk('a'.repeat(33)) && !usernameOk('中文'));
+ok('账号读不到：401 请先登录、403 只有管理员、404 还没上线、别的稍后再试；读到了没有问题', accountsProblem({ status: 401, body: null }).text.includes('请先登录') && accountsProblem({ status: 403, body: null }).text.includes('只有管理员') && accountsProblem({ status: 404, body: null }).type === 'info' && accountsProblem({ status: 0, body: null }).text.includes('稍后再试') && accountsProblem({ status: 200, body: {} }) === null);
+ok('账号操作没办成：服务端写成句子的 error 或 message 照说，代号不露；成功没有问题', accountActionProblem({ status: 409, body: { error: '这个账号已经对接过了' } }) === '这个账号已经对接过了' && accountActionProblem({ status: 403, body: { error: 'grants_cross_origin_denied' } }) === '你的账号现在不能做这一步。' && accountActionProblem({ status: 409, body: { error: 'conflict' } }) === '没办成，稍后再试。' && accountActionProblem({ status: 201, body: {} }) === null);
+ok('临时密码的提示说清楚只显示这一次', TEMP_PASSWORD_NOTE.includes('只显示这一次'));
 
 ok('状态：待核准、生效中、草稿、已过期、已收回；颜色跟着', J(['pending', 'active', 'draft', 'expired', 'revoked'].map((s) => statusLabel(s).text)) === '["待核准","生效中","草稿","已过期","已收回"]' && statusLabel('active').tone === 'success' && statusLabel('pending').tone === 'warning');
 ok('状态：原型链上的名字不当成状态（toString）', statusLabel('toString').text === 'toString' && statusLabel('toString').tone === 'default');
