@@ -758,3 +758,10 @@ button.wm-view:focus-visible { outline: 2px solid var(--wm-color-primary); outli
 .wm-ck-staff-busy { flex: none; }
 /* 「AI 员工」的成员列表：每张卡之间都没有分隔线，组与组之间靠小标题分（原来一组一条、一组没有，看着像两种列表） */
 [data-testid=ck-staff-pane] .wm-ck-list li { border-bottom: 0; padding-top: var(--wm-space-1); padding-bottom: var(--wm-space-1); }
+
+/* 「谁能做什么」的「账号」页签（AccountsTab.tsx） */
+.wm-acct-new { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0 16px; }
+.wm-acct-new .ant-input { width: 200px; }
+.wm-acct-ops { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.wm-acct-reason { display: inline-flex; gap: 6px; align-items: center; }
+.wm-acct-reason .ant-input { width: 200px; }

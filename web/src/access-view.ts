@@ -24,10 +24,10 @@ export interface Matrix { blocks: { key: string; name: string }[]; kinds: { key:
 export interface SourceResult { status: number; body: unknown }
 export type Tone = 'success' | 'warning' | 'danger' | 'default';
 
-export const ACCESS_TABS = [{ key: 'people', name: '人和权限' }, { key: 'roles', name: '角色预设' }] as const;
+export const ACCESS_TABS = [{ key: 'people', name: '人和权限' }, { key: 'accounts', name: '账号' }, { key: 'roles', name: '角色预设' }] as const;
 export type AccessTab = (typeof ACCESS_TABS)[number]['key'];
 export function tabFromQuery(raw: string | null): AccessTab {
-  return raw === 'roles' ? 'roles' : 'people';
+  return raw === 'roles' ? 'roles' : raw === 'accounts' ? 'accounts' : 'people';
 }
 
 const STATUS: Record<string, { text: string; tone: Tone; order: number }> = {
@@ -233,4 +233,78 @@ export function actionProblem(r: SourceResult): string | null {
 export function declineReasonOk(reason: string): boolean {
   const s = reason.trim();
   return s.length >= 1 && s.length <= 500;
+}
+
+// ---------- 「账号」页签：站内账号（docs/local-accounts.md P4；接口 /api/local-accounts） ----------
+
+/** 一个站内账号（列表接口的一行）。pending：自己注册、还没核准（没有对应主体） */
+export type LocalAccount = {
+  username: string; display_name: string; must_change: boolean; locked: boolean; created_by: string;
+  created_at: number | null; last_login_at: number | null; principal: string | null; principal_status: string | null; pending: boolean;
+};
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+/** 列表应答里取账号：形状不对的跳过；待核准的在前，其余按用户名 */
+export function accountsOf(body: unknown): LocalAccount[] {
+  const list = body && typeof body === 'object' ? (body as { accounts?: unknown }).accounts : null;
+  if (!Array.isArray(list)) return [];
+  const out: LocalAccount[] = [];
+  for (const x of list) {
+    if (!x || typeof x !== 'object') continue;
+    const a = x as Record<string, unknown>;
+    if (typeof a.username !== 'string' || !a.username) continue;
+    out.push({
+      username: a.username, display_name: typeof a.display_name === 'string' ? a.display_name : '', must_change: a.must_change === true, locked: a.locked === true,
+      created_by: typeof a.created_by === 'string' ? a.created_by : '', created_at: num(a.created_at), last_login_at: num(a.last_login_at),
+      principal: typeof a.principal === 'string' && a.principal ? a.principal : null, principal_status: typeof a.principal_status === 'string' ? a.principal_status : null,
+      pending: a.pending === true || !(typeof a.principal === 'string' && a.principal),
+    });
+  }
+  return out.sort((p, q) => (p.pending === q.pending ? p.username.localeCompare(q.username) : p.pending ? -1 : 1));
+}
+/** 账号的状态标签（可能有几个）：待核准；已停用；已锁定；要改密码；都没有就是正常 */
+export function accountTags(a: LocalAccount): { text: string; tone: Tone }[] {
+  if (a.pending) return [{ text: '待核准', tone: 'warning' }];
+  const out: { text: string; tone: Tone }[] = [];
+  if (a.principal_status === 'disabled') out.push({ text: '已停用', tone: 'danger' });
+  if (a.locked) out.push({ text: '已锁定', tone: 'warning' });
+  if (a.must_change) out.push({ text: '要改密码', tone: 'default' });
+  return out.length ? out : [{ text: '正常', tone: 'success' }];
+}
+/** 谁建的：自己注册、本机命令行、口令管理员、管理员登录 */
+export function accountOrigin(createdBy: string): string {
+  if (createdBy === 'signup') return '自己注册';
+  if (createdBy === 'cli') return '本机命令行';
+  if (createdBy === 'admin-token') return '管理员（口令）';
+  if (createdBy.startsWith('odoo:')) return `管理员 ${createdBy.slice(5)}`;
+  if (createdBy.startsWith('user:')) return `管理员 ${createdBy.slice(5)}`;
+  return createdBy || '—';
+}
+/** 最近登录：没登录过写「还没登录过」，否则写日期 */
+export function lastLoginLabel(ms: number | null): string {
+  return ms === null ? '还没登录过' : ymd(ms);
+}
+/** 用户名的写法（和服务端一致）：小写字母、数字和 . _ -，2～32 位，以字母或数字开头 */
+export const USERNAME_HINT = '小写字母、数字和 . _ -，2～32 位，以字母或数字开头';
+export function usernameOk(v: string): boolean {
+  return /^[a-z0-9][a-z0-9._-]{1,31}$/.test(v);
+}
+/** 临时密码只在这一次的应答里有：页面说清楚只显示一次 */
+export const TEMP_PASSWORD_NOTE = '临时密码只显示这一次，请当面或用可靠的方式交给对方；对方第一次登录要先改成自己的密码。';
+/** 账号读不到时怎么说 */
+export function accountsProblem(r: SourceResult | null): { type: 'warning' | 'info'; text: string } | null {
+  if (!r) return null;
+  if (r.status === 401) return { type: 'warning', text: '请先登录，登录后才能看到账号。' };
+  if (r.status === 403) return { type: 'warning', text: '账号只有管理员能看、能管。' };
+  if (r.status === 404) return { type: 'info', text: '站内账号的服务还没上线。' };
+  if (r.status === 0 || r.status >= 400) return { type: 'warning', text: '读不到账号，稍后再试。' };
+  return null;
+}
+/** 账号操作没办成时怎么说：服务端给了一句话（message，或者写成句子的 error）就用它，代号不露 */
+export function accountActionProblem(r: SourceResult): string | null {
+  if (r.status >= 200 && r.status < 300) return null;
+  const b = r.body && typeof r.body === 'object' ? (r.body as { message?: unknown; error?: unknown }) : {};
+  for (const v of [b.message, b.error]) if (typeof v === 'string' && v.trim() && /[^\x00-\x7f]/.test(v)) return v.trim();
+  if (r.status === 401) return '请先登录。';
+  if (r.status === 403) return '你的账号现在不能做这一步。';
+  return '没办成，稍后再试。';
 }
