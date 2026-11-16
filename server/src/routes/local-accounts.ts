@@ -105,7 +105,7 @@ export function registerLocalAccountRoutes(app: HttpService, deps: LocalAccountR
    * 原密码要对（同样计输错、同样按来源限额）；改好之后这个账号的市场会话全部注销，要重新登录。
    * 路径段用 _self：用户名不能以 _ 开头，和管理员那几条不会撞。
    */
-  app.post('/api/local-accounts/_self/password', { action: 'local-account.change-own-password', kind: 'write' }, route(async (req, res) => {
+  app.post('/api/local-accounts/_self/password', { action: 'local-account.change-own-password', kind: 'write', statusNotVerdict: '本人改密码：原密码不对回 403，是核对密码的结论不是授权' }, route(async (req, res) => {
     const site = req.headers['sec-fetch-site'];
     if (site !== undefined && site !== 'same-origin' && site !== 'none') throw new HttpError(403, '请求来源不对');
     const who = await requestPerson(req);

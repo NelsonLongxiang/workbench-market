@@ -99,7 +99,7 @@
       "POST /api/local-accounts  -> local-account.create  admin",
       "POST /api/local-accounts/:username/reset-password  -> local-account.reset-password  admin",
       "POST /api/local-accounts/:username/unlock  -> local-account.unlock  admin",
-      "POST /api/local-accounts/_self/password  -> local-account.change-own-password  write",
+      "POST /api/local-accounts/_self/password  -> local-account.change-own-password  write  （状态码不代表授权：本人改密码：原密码不对回 403，是核对密码的结论不是授权）",
       "GET /api/roles  -> role.list  admin",
       "GET /api/roles/matrix  -> role.matrix  admin",
       "POST /api/roles/:id/copy  -> role.copy  admin",
@@ -435,8 +435,13 @@
           "judgment.report",
           "knowledge.sync-status",
           "login.begin",
+          "login.form",
           "login.odoo-proxy-page",
           "login.odoo-proxy-submit",
+          "local-account.create",
+          "local-account.list",
+          "local-account.reset-password",
+          "local-account.unlock",
           "login.page",
           "market.export",
           "market.page",
@@ -528,6 +533,7 @@
           "design-token.read",
           "health.read",
           "health.ready",
+          "login.form",
           "login.odoo-proxy-page",
           "login.odoo-proxy-submit",
           "login.page",
@@ -582,6 +588,7 @@
           "design-token.read",
           "health.read",
           "health.ready",
+          "login.form",
           "login.page",
           "login.odoo-proxy-page",
           "login.odoo-proxy-submit",
@@ -646,6 +653,13 @@
           "local-cli"
         ],
         "why": "带管理类或决定类权限的自定义角色只有属主能放行（本机命令行在授予管理面上算属主），比管理员严"
+      },
+      {
+        "action": "local-account.change-own-password",
+        "only": [
+          "person"
+        ],
+        "why": "改自己的站内账号密码只认人：任何启用的人都能改自己的（路由只认登录着的本人、要原密码，不靠角色给写权限）；管理口令、本机命令行、席位都不是人，一律不能（管理员重置走 local-account.reset-password）"
       },
       {
         "action": "work-items.create",
