@@ -10,7 +10,7 @@
  *   四、管理员建账号（N2）：user:nora 已经有人（持 owner），建 nora：409，不给临时密码，账号没留下
  *   四b、只差大小写的同名也算已经有人
  *   五、对照：没人用的名字照常——核准新注册的 zack 新建 user:zack；建 yara 新建 user:yara
- *   六、真是同一个人：完整管理员用「绑定到现有主体」把站内账号 victim 绑到 user:victim，照常（显式操作）
+ *   六、自己注册的账号不能经「绑定到现有主体」接到已有的人身上（409 self-signup），注册的人还是登不成 user:victim
  *
  *   node scripts/local-accounts-create-only-test.mjs
  */
@@ -44,7 +44,7 @@ async function boot(mode) {
   for (const d of [data, home, ext]) mkdirSync(d, { recursive: true });
   const env = {};
   for (const k of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP']) if (process.env[k]) env[k] = process.env[k];
-  Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', REDIS_URL: '', WM_EXTENSIONS_DIR: ext, MARKET_PUBLIC_URL: base, WM_TRUSTED_PROXIES: '127.0.0.1' });
+  Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', REDIS_URL: '', WM_EXTENSIONS_DIR: ext, MARKET_PUBLIC_URL: base, WM_TRUSTED_PROXIES: '127.0.0.1', WM_LOCAL_SIGNUP: 'approval' });
   if (mode === 'env') env.ADMIN_TOKEN = ADMIN_TOKEN;
   const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
   children.push(child);
@@ -157,10 +157,10 @@ try {
     '五、对照：没人用的名字照常——核准 zack 新建 user:zack；建 yara 新建 user:yara、给临时密码', { z: [z.status, z.json?.account?.principal], y: [y.status, y.json?.account?.principal] });
 
   // ---------- 六 ----------
-  const explicit = await token('POST', '/api/principals/bind', { provider: 'local', external_id: 'victim', principal: 'user:victim', reason: '合成：确认是同一个人' });
+  const explicit = await token('POST', '/api/principals/bind', { provider: 'local', external_id: 'victim', principal: 'user:victim', reason: '合成：说是同一个人' });
   const asVictim3 = await A.login('victim', 'Victim-pass-0001', '', '192.0.2.85');
-  check(explicit.status === 200 && (await asVictim3.go('GET', '/api/auth/me')).json?.principal === 'user:victim',
-    '六、真是同一个人：完整管理员用「绑定到现有主体」显式把站内账号 victim 绑到 user:victim，照常', { explicit: explicit.status });
+  check(explicit.status === 409 && explicit.json?.reason === 'self-signup' && (await asVictim3.go('GET', '/api/auth/me')).json?.principal !== 'user:victim',
+    '六、自己注册的账号不能经「绑定到现有主体」接到 user:victim（409 self-signup），注册的人还是登不成 user:victim', { explicit: [explicit.status, explicit.json?.reason] });
 } catch (e) {
   fail++;
   console.log(`  ✗ 跑不下去：${e?.stack ?? e}`);
