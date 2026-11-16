@@ -13,7 +13,31 @@ import { isVarRef } from './bench-bindings.ts';
 export const BLOCK_TYPES = ['filter-bar', 'stat', 'table', 'bar', 'line', 'pie', 'progress', 'form'] as const;
 const VIEW_KEY_RE = /^[a-z][a-z0-9-]{0,31}$/;
 const FILTER_KINDS = ['month', 'date', 'select', 'search'];
-const MAX_VIEWS = 20, MAX_BLOCKS = 40, MAX_FIELDS = 40;
+const MAX_VIEWS = 20, MAX_BLOCKS = 40, MAX_FIELDS = 40, MAX_FILTER_FIELDS = 12;
+
+export type BlockType = (typeof BLOCK_TYPES)[number];
+/** 每种组件的契约：允许哪些键（顺序同校验）、哪些必填、条件写在 note。校验的键清单从这里取，view_put 工具定义的机器可读形态也从这里生成——同一份来源，不许漂移（scripts/bench-view-contract-test.mjs 钉住）。 */
+export const BLOCK_CONTRACT: Record<BlockType, { keys: readonly string[]; required: readonly string[]; note: string }> = {
+  'filter-bar': { keys: ['type', 'title', 'span', 'fields'], required: ['type', 'fields'], note: 'fields 是 1～12 个筛选字段 { name, kind, label?, default?, options? }，kind 只有 month / date / select / search；查询里用 $名字 引用的参数要先在这里声明；只有 select 给 options（一组文本，或 { dataset, col } 取某列的不同取值）' },
+  stat: { keys: ['type', 'title', 'span', 'query', 'value', 'unit', 'tone_rules'], required: ['type', 'value'], note: 'value 指向查询的一个输出列，或写本台引用 { var: 键名 }（此时不写 query，块独立取值）；tone_rules 按值着色，最多 2 条' },
+  table: { keys: ['type', 'title', 'span', 'query', 'columns', 'page_size', 'value_labels', 'column_labels'], required: ['type', 'query'], note: 'columns 选显示哪些输出列；每列要有说明名（数据集列定义的 label 或 column_labels）；page_size 5～200；value_labels 是「列名 → 取值 → 说法」' },
+  bar: { keys: ['type', 'title', 'span', 'query', 'x', 'y', 'series', 'stacked', 'horizontal', 'tone_rules'], required: ['type', 'query', 'x', 'y'], note: 'x 是分类列，y 是 1～12 个数值列（或用 series 拆系列，不和多个 y 同用）；tone_rules 只用于单系列的柱子' },
+  line: { keys: ['type', 'title', 'span', 'query', 'x', 'y', 'series', 'area'], required: ['type', 'query', 'x', 'y'], note: 'x 通常是时间列，y 是 1～12 个数值列；series 拆系列（不和多个 y 同用）；area 是面积填充' },
+  pie: { keys: ['type', 'title', 'span', 'query', 'label', 'value', 'donut'], required: ['type', 'query', 'label', 'value'], note: 'label 是分类列，value 是数值列，donut 画环形' },
+  progress: { keys: ['type', 'title', 'span', 'query', 'value', 'total'], required: ['type', 'value', 'total'], note: 'value、total 指向数值输出列，或写本台引用 { var: 键名 }（total 也可以写大于 0 的数字）' },
+  form: { keys: ['type', 'title', 'span', 'dataset', 'fields', 'submit_label'], required: ['type', 'dataset', 'fields'], note: '直接写数据集（表单没有 query）；fields 是 1～40 个列名，数据集的必填列都要在表单里' },
+};
+/** 视图描述整体的契约（view_put 的 doc 参数从这里生成；上限与校验同源） */
+export const VIEW_DOC_CONTRACT = {
+  titleMax: 64,
+  maxViews: MAX_VIEWS,
+  viewKeyPattern: VIEW_KEY_RE.source,
+  viewTitleMax: 32,
+  maxBlocks: MAX_BLOCKS,
+  filterFieldsMax: MAX_FILTER_FIELDS,
+  filterKinds: FILTER_KINDS,
+  blocks: BLOCK_CONTRACT,
+} as const;
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const isText = (v: unknown, max: number, min = 1): v is string => typeof v === 'string' && v.trim().length >= min && v.length <= max;
@@ -21,7 +45,7 @@ const isText = (v: unknown, max: number, min = 1): v is string => typeof v === '
 /** 核对一份视图描述；返回不合格的地方（空数组 = 合格），每条写明在哪个视图的第几个组件 */
 export function validateViewDoc(doc: unknown, datasets: Map<string, DatasetDef>): string[] {
   const errs: string[] = [];
-  const keys = (o: Record<string, unknown>, allowed: string[], where: string) => {
+  const keys = (o: Record<string, unknown>, allowed: readonly string[], where: string) => {
     const extra = Object.keys(o).filter((k) => !allowed.includes(k));
     if (extra.length) errs.push(`${where}：有不认识的键 ${extra.join('、')}`);
   };
@@ -51,7 +75,6 @@ export function validateViewDoc(doc: unknown, datasets: Map<string, DatasetDef>)
       if (typeof type !== 'string' || !(BLOCK_TYPES as readonly string[]).includes(type)) { errs.push(`${at}：不认识的组件类型 ${String(type).slice(0, 40)}（现有：${BLOCK_TYPES.join('、')}）`); return; }
       if (block.title !== undefined && !isText(block.title, 64, 0)) errs.push(`${at}：title 须为 64 个字符以内的文本`);
       if (block.span !== undefined && (!Number.isInteger(block.span) || (block.span as number) < 1 || (block.span as number) > 12)) errs.push(`${at}：span 须为 1～12 的整数（12 栏网格里占几栏）`);
-      const base = ['type', 'title', 'span'];
 
       /** 核对组件里的查询，返回它的输出列；查询不合格时返回 null */
       const query = (): OutColumn[] | null => {
@@ -93,8 +116,8 @@ export function validateViewDoc(doc: unknown, datasets: Map<string, DatasetDef>)
       const flag = (name: string) => { if (block[name] !== undefined && typeof block[name] !== 'boolean') errs.push(`${at}：${name} 须为 true 或 false`); };
 
       if (type === 'filter-bar') {
-        keys(block, [...base, 'fields'], at);
-        if (!Array.isArray(block.fields) || !block.fields.length || block.fields.length > 12) { errs.push(`${at}：fields 须为 1～12 个筛选字段`); return; }
+        keys(block, BLOCK_CONTRACT['filter-bar'].keys, at);
+        if (!Array.isArray(block.fields) || !block.fields.length || block.fields.length > MAX_FILTER_FIELDS) { errs.push(`${at}：fields 须为 1～${MAX_FILTER_FIELDS} 个筛选字段`); return; }
         const names = new Set<string>();
         block.fields.forEach((f: unknown, fi: number) => {
           const fAt = `${at}第 ${fi + 1} 个字段`;
@@ -121,7 +144,7 @@ export function validateViewDoc(doc: unknown, datasets: Map<string, DatasetDef>)
         return;
       }
       if (type === 'form') {
-        keys(block, [...base, 'dataset', 'fields', 'submit_label'], at);
+        keys(block, BLOCK_CONTRACT.form.keys, at);
         const ds = typeof block.dataset === 'string' ? datasets.get(block.dataset) : undefined;
         if (!ds) { errs.push(`${at}：数据集 ${String(block.dataset).slice(0, 48)} 不存在`); return; }
         if (!Array.isArray(block.fields) || !block.fields.length || block.fields.length > MAX_FIELDS) { errs.push(`${at}：fields 须为 1～${MAX_FIELDS} 个列名`); return; }
@@ -140,12 +163,12 @@ export function validateViewDoc(doc: unknown, datasets: Map<string, DatasetDef>)
       if (!standalone && block.query === undefined) { errs.push(`${at}：缺 query（或者用本台引用 { var: 键名 }）`); return; }
       const cols: OutColumn[] | null = standalone ? [{ name: 'value', type: 'decimal', label: typeof block.title === 'string' ? block.title : '数值', role: 'measure' }] : query();
       if (type === 'stat') {
-        keys(block, [...base, 'query', 'value', 'unit', 'tone_rules'], at);
+        keys(block, BLOCK_CONTRACT.stat.keys, at);
         if (!valueRef) out(cols, block.value, 'value');
         toneRules(cols);
         if (block.unit !== undefined && !isText(block.unit, 12)) errs.push(`${at}：unit 须为 1～12 个字符`);
       } else if (type === 'table') {
-        keys(block, [...base, 'query', 'columns', 'page_size', 'value_labels', 'column_labels'], at);
+        keys(block, BLOCK_CONTRACT.table.keys, at);
         // 表头：每一列都要有说明名——数据集列定义的 label、聚合的 label，或者这里的 column_labels（列名 → 说明名）。
         // 缺了就拒、点名缺哪一列：页面上的表头不露键名（没配的旧版本由页面写「第 N 列」兜底）
         let named: Record<string, unknown> = {};
@@ -190,7 +213,7 @@ export function validateViewDoc(doc: unknown, datasets: Map<string, DatasetDef>)
         }
         if (block.page_size !== undefined && (!Number.isInteger(block.page_size) || (block.page_size as number) < 5 || (block.page_size as number) > 200)) errs.push(`${at}：page_size 须为 5～200 的整数`);
       } else if (type === 'bar' || type === 'line') {
-        keys(block, [...base, 'query', 'x', 'y', 'series', ...(type === 'bar' ? ['stacked', 'horizontal', 'tone_rules'] : ['area'])], at);
+        keys(block, BLOCK_CONTRACT[type].keys, at);
         if (type === 'bar') {
           toneRules(cols);
           // 按值着色是给每根柱子换色，只有一个系列时才说得清
@@ -204,12 +227,12 @@ export function validateViewDoc(doc: unknown, datasets: Map<string, DatasetDef>)
         }
         for (const f of type === 'bar' ? ['stacked', 'horizontal'] : ['area']) flag(f);
       } else if (type === 'pie') {
-        keys(block, [...base, 'query', 'label', 'value', 'donut'], at);
+        keys(block, BLOCK_CONTRACT.pie.keys, at);
         out(cols, block.label, 'label');
         out(cols, block.value, 'value', true);
         flag('donut');
       } else if (type === 'progress') {
-        keys(block, [...base, 'query', 'value', 'total'], at);
+        keys(block, BLOCK_CONTRACT.progress.keys, at);
         if (!valueRef) out(cols, block.value, 'value', true);
         if (totalRef) { /* checked exact-key reference, numeric value is checked when read */ }
         else if (typeof block.total === 'number') { if (!Number.isFinite(block.total) || block.total <= 0) errs.push(`${at}：total 写成数字时须大于 0`); }

@@ -4,6 +4,8 @@
  *
  * 这些工具都**必须限定到台**：授予按「会话 × 台 × 工具」记，读也一样；不带台的授予不存在。
  */
+import { VIEW_DOC_CONTRACT } from './bench-views.ts';
+
 type Schema = Record<string, unknown>;
 export interface BenchToolDef { name: string; description: string; category: 'read' | 'write'; benchScoped: true; inputSchema: Schema }
 
@@ -77,6 +79,46 @@ const DEFINITION: Schema = {
   },
 };
 
+/** #763 view_put 的 doc 参数：块类型、必填、上限全部从 bench-views.ts 的 VIEW_DOC_CONTRACT 生成（同一份来源）；字段语义见各分支描述与技能。服务端校验是权威，这份描述不许比它松——scripts/bench-view-contract-test.mjs 钉住同构。 */
+const TONE_RULES: Schema = { type: 'array', maxItems: 2, description: '按值着色，最多 2 条：{ col, op, value, tone }，tone 只有 danger / warning / success', items: { type: 'object' } };
+const BLOCK_BRANCH_PROPS: Record<string, Record<string, Schema>> = {
+  'filter-bar': { fields: { type: 'array', minItems: 1, maxItems: VIEW_DOC_CONTRACT.filterFieldsMax, description: '筛选字段 { name, kind: month/date/select/search, label?, default?, options? }；查询里用 $名字 引用；只有 select 给 options（一组文本，或 { dataset, col }）', items: { type: 'object' } } },
+  stat: { query: QUERY, value: { description: '查询的一个输出列；或本台引用 { var: 键名 }（此时不写 query）' }, unit: { type: 'string', description: '单位（12 字以内）' }, tone_rules: TONE_RULES },
+  table: { query: QUERY, columns: { type: 'array', items: { type: 'string' }, description: '显示哪些输出列（不写是全部）' }, page_size: { type: 'integer', minimum: 5, maximum: 200 }, value_labels: { type: 'object', description: '列名 → 取值 → 说法（一段文字，或 { text, tone }）' }, column_labels: { type: 'object', description: '列名 → 说明名；每列要有说明名（或数据集列定义里的 label）' } },
+  bar: { query: QUERY, x: { type: 'string', description: '分类列' }, y: { type: 'array', items: { type: 'string' }, description: '1～12 个数值列' }, series: { type: 'string', description: '拆系列的列（不和多个 y 同用）' }, stacked: { type: 'boolean' }, horizontal: { type: 'boolean' }, tone_rules: TONE_RULES },
+  line: { query: QUERY, x: { type: 'string', description: '横轴列（通常是时间）' }, y: { type: 'array', items: { type: 'string' }, description: '1～12 个数值列' }, series: { type: 'string', description: '拆系列的列（不和多个 y 同用）' }, area: { type: 'boolean' } },
+  pie: { query: QUERY, label: { type: 'string', description: '分类列' }, value: { type: 'string', description: '数值列' }, donut: { type: 'boolean' } },
+  progress: { query: QUERY, value: { description: '数值输出列，或本台引用 { var: 键名 }' }, total: { description: '数值输出列、大于 0 的数字，或本台引用 { var: 键名 }' } },
+  form: { dataset: { type: 'string', description: '直接写数据集（表单没有 query）' }, fields: { type: 'array', items: { type: 'string' }, description: '列名；数据集的必填列都要在里面' }, submit_label: { type: 'string', description: '提交按钮的字（16 字以内）' } },
+};
+const BLOCK_ONEOF: Schema[] = Object.entries(VIEW_DOC_CONTRACT.blocks).map(([t, c]) => {
+  const extra = BLOCK_BRANCH_PROPS[t];
+  if (!extra) throw new Error(`view_put 契约缺 ${t} 的字段说明`);
+  const props: Record<string, Schema> = {};
+  for (const k of c.keys) {
+    if (k === 'type') props.type = { type: 'string', enum: [t] };
+    else if (k === 'title') props.title = { type: 'string', description: '标题（64 字以内）' };
+    else if (k === 'span') props.span = { type: 'integer', minimum: 1, maximum: 12, description: '12 栏网格里占几栏' };
+    else { const p = extra[k]; if (!p) throw new Error(`view_put 契约 ${t}.${k} 缺字段说明`); props[k] = p; }
+  }
+  return { type: 'object', additionalProperties: false, required: [...c.required], description: c.note, properties: props };
+});
+const VIEW_DOC: Schema = {
+  type: 'object', additionalProperties: false, required: ['title', 'views'],
+  description: `视图描述：顶层 title + views（1～${VIEW_DOC_CONTRACT.maxViews} 份视图）。${SKILL.replace('query.md', 'views.md')}；服务端按同一契约校验（输出列、$参数、数据集引用都查），不合格整份拒收、不产生新版本`,
+  properties: {
+    title: { type: 'string', description: `总标题（${VIEW_DOC_CONTRACT.titleMax} 字以内）` },
+    views: { type: 'array', minItems: 1, maxItems: VIEW_DOC_CONTRACT.maxViews, items: {
+      type: 'object', additionalProperties: false, required: ['key', 'title', 'blocks'],
+      properties: {
+        key: { type: 'string', pattern: VIEW_DOC_CONTRACT.viewKeyPattern, description: '视图键：小写字母开头，只含小写字母、数字、连字符，≤32 字符；不重复' },
+        title: { type: 'string', description: `视图标题（${VIEW_DOC_CONTRACT.viewTitleMax} 字以内）` },
+        blocks: { type: 'array', maxItems: VIEW_DOC_CONTRACT.maxBlocks, description: '组件（按顺序渲染）', items: { type: 'object', oneOf: BLOCK_ONEOF } },
+      },
+    } },
+  },
+};
+
 export const BENCH_TOOL_DEFS: BenchToolDef[] = [
   tool('dataset_list', 'read', '这个台有哪些数据集：列定义（含显示名和取值说明 values——某个取值是什么业务意思看这里）、主键、行数、占多少字节、上次谁在什么时候改的', obj({}, [])),
   tool('dataset_query', 'read', `按查询描述读一个数据集（筛选、分组、聚合、排序；不写 SQL）。例：1 月各区域 result 为 bad 的行数——{ dataset, filter: [{ col: "day", op: "prefix", value: "2026-01" }, { col: "result", op: "=", value: "bad" }], group: ["region"], measures: [{ fn: "count", as: "n" }], sort: [{ col: "n", dir: "desc" }] }。${SKILL}`, obj({ query: QUERY, params: { type: 'object', description: '查询描述里 $名字 的取值' } }, ['query'])),
@@ -91,7 +133,7 @@ export const BENCH_TOOL_DEFS: BenchToolDef[] = [
   tool('dataset_delete_rows', 'write', '按主键删行；删之前自动留快照', obj({ dataset: DATASET, keys: { type: 'array', description: '只含主键列的对象的数组', items: { type: 'object' } }, idempotency_key: IDEM, note: NOTE }, ['dataset', 'keys'])),
   tool('dataset_snapshot', 'write', '手工留一份快照', obj({ dataset: DATASET, note: NOTE }, ['dataset'])),
   tool('dataset_restore', 'write', '把数据集退回到某一份快照', obj({ snapshot_id: { type: 'integer', minimum: 1 }, note: NOTE }, ['snapshot_id'])),
-  tool('view_put', 'write', '保存视图描述：产生一个新版本并立即生效', obj({ doc: { type: 'object', description: '视图描述' }, base: { type: 'integer', minimum: 0, description: '你是基于第几版改的；还没有版本时给 0' }, note: NOTE }, ['doc', 'base', 'note'])),
+  tool('view_put', 'write', '保存视图描述：产生一个新版本并立即生效（doc 的块类型、必填、上限在参数里列全；服务端按同一契约校验，不合格整份拒收、不产生新版本）', obj({ doc: VIEW_DOC, base: { type: 'integer', minimum: 0, description: '你是基于第几版改的；还没有版本时给 0' }, note: NOTE }, ['doc', 'base', 'note'])),
   tool('view_rollback', 'write', '让旧版本重新生效（只移指针，不丢版本）', obj({ to: { type: 'integer', minimum: 1 }, base: { type: 'integer', minimum: 1, description: '你看到的生效版本' }, note: NOTE }, ['to', 'base', 'note'])),
 ];
 export const BENCH_TOOL_NAMES: ReadonlySet<string> = new Set(BENCH_TOOL_DEFS.map((t) => t.name));
