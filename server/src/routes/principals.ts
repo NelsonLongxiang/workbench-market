@@ -22,7 +22,7 @@ import { reconcileFlow } from './login-events.ts';
 import { identity } from '../identity.ts';
 import { browserMarked, rawLoopback } from '../surfaces.ts';
 import { HttpError } from '../errors.ts';
-import { systemAdminTargetRefusal } from '../admin-tier.ts';
+import { isSystemAdminOnly, systemAdminTargetRefusal } from '../admin-tier.ts';
 
 export type PrincipalRouteDeps = {
   /** 按需认定管理员登录（判管理员之前调用） */
@@ -148,6 +148,7 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
     if (guard) return void res.status(403).json(guard);
     const out = selfSignup(provider, externalId) ? { ok: false as const, reason: 'self-signup' as const, principal: undefined } : principals().bindIdentity({ provider, externalId, principal: target, create, displayName });
     if (!out.ok) { const [status, message] = BIND_REFUSED[out.reason]; return res.status(status).json({ error: message, reason: out.reason, ...(out.principal ? { principal: out.principal } : {}) }); }
+    if (isSystemAdminOnly(req)) principals().markBoundBySystem(provider, externalId, actorPrincipal(actor) ?? actor);
     console.log(JSON.stringify({ source: 'principals', event: 'bind', provider, external_id: externalId, id: target, created: out.created, by: actor, reason, at: new Date().toISOString() }));
     res.json({ ok: true, created: out.created, principal: out.principal });
   }));
@@ -174,6 +175,7 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
         if (guard) return { index, ok: false, status: 403, error: guard.message, reason: guard.error };
         const out = selfSignup(provider, externalId) ? { ok: false as const, reason: 'self-signup' as const, principal: undefined } : principals().bindIdentity({ provider, externalId, principal: target, create: item?.create === true, displayName });
         if (!out.ok) { const [status, message] = BIND_REFUSED[out.reason]; return { index, ok: false, status, error: message, reason: out.reason, ...(out.principal ? { principal: out.principal } : {}) }; }
+        if (isSystemAdminOnly(req)) principals().markBoundBySystem(provider, externalId, actorPrincipal(actor) ?? actor);
         console.log(JSON.stringify({ source: 'principals', event: 'bind', provider, external_id: externalId, id: target, created: out.created, by: actor, reason, batch: true, at: new Date().toISOString() }));
         return { index, ok: true, created: out.created, principal: target };
       } catch (e) {

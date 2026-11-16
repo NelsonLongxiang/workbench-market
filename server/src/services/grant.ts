@@ -9,6 +9,9 @@
  *   · 放行分三档（roles.ts 的 approvalOf）：管理员级的、带业务拍板的（管理层、部门负责人）只有属主能放行；
  *     带业务写的（部门成员、AI 员工）要业务侧：属主，或持有范围 * 的、全公司写和决定都有的授予的主体（管理层）；
  *     其余（普通员工、访客、只碰系统域的）管理员即可。
+ *     业务侧在自己管的范围里也能放行（2026-11-16 属主定）：持生效的、带业务拍板的授予（管理层、部门负责人）的人，
+ *     能看到并放行范围落在他那条授予范围内的「带业务写」和「给业务数据的普通档」授予——管理层（范围 *）管全部，
+ *     部门负责人（dept:<部门>）只管同一个部门范围的。
  *     属主 = 本机命令行（L1：授予面上本机命令行算属主），或持有生效的 owner 授予的主体。管理口令对不到人，第二、三档放行不了；
  *   · 第二、三档：起草的人不能自己放行（属主除外），一律等另一位放行；
  *   · 不是人的主体要有在职的责任人（责任人是启用的人）才能被授予；
@@ -242,9 +245,11 @@ export class GrantService extends Service {
     if (bad) return bad;
     const view = this.roleViews.get(g.role);
     const tier = view ? approvalOf(view) : 'owner';
-    if (tier === 'admin' && !actor.owner && actor.admin === false) return refuse(403, 'admin_required', `角色 ${g.role} 由管理员放行`);
+    // 管这个范围的业务侧（管理层、本部门的部门负责人）：给业务数据的普通档、带业务写的，都归他放行
+    const managesIt = () => this.decidesBusinessIn(actor.principal, g.scope, now);
+    if (tier === 'admin' && !actor.owner && actor.admin === false && !(this.businessData(g.role) && managesIt())) return refuse(403, 'admin_required', `角色 ${g.role} 由管理员放行`);
     if (tier === 'owner' && !actor.owner) return refuse(403, 'owner_required', `角色 ${g.role} ${view?.businessDecide ? '带业务的拍板' : '是管理员级的'}，${APPROVAL_TEXT.owner}`);
-    if (tier === 'business' && !actor.owner && !this.isBusinessSide(actor.principal, now)) return refuse(403, 'business_approval_required', `角色 ${g.role} 带业务的写，${APPROVAL_TEXT.business}`);
+    if (tier === 'business' && !actor.owner && !this.isBusinessSide(actor.principal, now) && !managesIt()) return refuse(403, 'business_approval_required', `角色 ${g.role} 带业务的写，${APPROVAL_TEXT.business}`);
     const sys = this.systemAdminRefusal(g.role, actor);
     if (sys) return sys;
     // 起草、提交的人不能自己放行：第二、三档，和一切给业务数据的授予（第一档的普通员工这类也算，两人制）；属主不在此限

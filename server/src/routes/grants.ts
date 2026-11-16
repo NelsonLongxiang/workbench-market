@@ -49,14 +49,18 @@ const principals = () => svc<PrincipalService>('principals');
  * 这条给业务数据的授予，被授予的人的站内账号凭据是不是系统管理员设的（他建的账号、他 7 天内重置的密码，见 local-account.ts 的 credentialSetBySystem）：
  * 是就回哪个账号、谁、什么时候、哪一种。放行时要放行人确认（confirm_credentials），列表和单条上标出来（docs/local-accounts.md 第 5 节）
  */
-function credentialsBySystem(g: { principal_id: string; role: string }): { username: string; by: string; at: number; kind: 'create' | 'reset' } | null {
+function credentialsBySystem(g: { principal_id: string; role: string }): { username: string; by: string; at: number; kind: 'create' | 'reset' | 'bind' } | null {
   if (!svc<GrantService>('grants').businessData(g.role)) return null;
   for (const u of principals().externalIdsOf(g.principal_id, 'local')) {
     const c = svc<LocalAccountService>('localAccounts').credentialSetBySystem(u);
     if (c) return { username: u, ...c };
   }
+  // 别的登录方式的外部身份由系统管理员经对接接口绑上来的（可能是他自己控制的另一个账号）：同样算
+  const b = principals().boundBySystem(g.principal_id)[0];
+  if (b) return { username: `${b.provider}/${b.external_id}`, by: b.by, at: b.at, kind: 'bind' };
   return null;
 }
+const CRED_TEXT = { create: '站内账号是系统管理员建的', reset: '系统管理员最近重置过站内账号的密码', bind: '这条外部身份是系统管理员绑上来的' } as const;
 /** 列表、单条每行多带的：凭据是不是系统管理员设的；迁移来的 admin 授予在认管理员时不算 */
 const marks = (g: { principal_id: string; role: string; source?: string }) => ({
   credentials_set_by_system_admin: credentialsBySystem(g), ignored_for_admin: g.role === 'admin' && g.source === 'migration',
@@ -361,7 +365,7 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
     if (g && !grants().approvalRefusal(g, actor)) {
       const cred = credentialsBySystem(g);
       if (cred && req.body?.confirm_credentials !== true) {
-        return res.status(409).json({ error: 'credentials_set_by_system_admin', message: `此人凭据由系统管理员设置（站内账号 ${cred.username}，${cred.kind === 'create' ? '账号是系统管理员建的' : '系统管理员最近重置过密码'}）。确认这个人确实是本人在用，再带 confirm_credentials: true 放行；不确定的，先让完整的管理员重置一次密码`, credentials_set_by_system_admin: cred });
+        return res.status(409).json({ error: 'credentials_set_by_system_admin', message: `此人凭据由系统管理员设置（${cred.username}：${CRED_TEXT[cred.kind]}）。确认这个人确实是本人在用，再带 confirm_credentials: true 放行；不确定的，先让完整的管理员重置一次密码（外部身份：完整的管理员解绑后重新绑定）`, credentials_set_by_system_admin: cred });
       }
     }
     send(res, grants().approve(idOf(req), actor), 'approve', actor);

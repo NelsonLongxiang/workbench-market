@@ -32,7 +32,7 @@ if(mutation==='login-gate-apps')replace('app.use(loginGate.middleware);',"app.us
 if(mutation==='a2a-direct-unsigned')replace("    if (A2A_DIRECT_SIG !== 'off') {","    if (false) {");
 if(mutation==='mcp-auth')replace('  if (!MCP_GATEWAY_ON) return null;','  if (true || !MCP_GATEWAY_ON) return null;');
 if(mutation==='browser-write')replace("  if (p.startsWith('/api/')) {","  if (false && p.startsWith('/api/')) {");
-if(mutation==='export-reveal')replace("      if (!adminGuard(req, res)) return;\n      res.set('Cache-Control', 'no-store');","      res.set('Cache-Control', 'no-store');");
+if(mutation==='export-reveal')replace("      if (!adminGuard(req, res)) return;\n","");
 if(mutation==='bench-views-anonymous')replace("if (actor.type === 'builtin' && actor.name === 'anonymous') { res.status(401).json({ error: 'login_required' }); return null; }","");
 if(mutation==='grants-admin-read')replace("registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor, adminHeaderOk,","registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor, adminHeaderOk: () => true,");
 if(mutation==='app-data-read')replace('  cliOk: (req) => !browserMarked(req) && rawLoopback(req),','  cliOk: () => true,');
@@ -70,6 +70,8 @@ async function runCase(label,{off=false,control=false,occupied=false,unset=false
    if(status===200)break;
    await new Promise(r=>setTimeout(r,75));
   }
+  // 注入点找不到时预载会抛「mutation anchor missing」：明确记一项失败，不让它混成「实例起不来」当作回归注入成功
+  if(mutation)check(label+' mutation anchor found and injected',!(so+se).includes('mutation anchor missing'));
   if(expectFailure){
    let wait;const finish=await Promise.race([ended,new Promise(r=>{wait=setTimeout(()=>r(null),3000)})]);clearTimeout(wait);
    check(label+' unsafe startup exits nonzero',finish!==null&&finish[0]!==0);
