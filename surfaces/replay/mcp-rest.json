@@ -1558,7 +1558,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "25429", "etag": "W/\"6355-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "38547", "etag": "W/\"9693-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "gateway": "on",
               "session": "replay-none",
@@ -1983,9 +1983,335 @@
                     "properties": { "part": { "type": "string", "enum": ["all", "tokens", "guide", "patterns"], "description": "取哪部分（缺省 all）" }, "section": { "type": "string", "description": "按章节标题关键词过滤，如「数据看板」「Colors」" } },
                     "additionalProperties": false
                   }
+                },
+                {
+                  "name": "dataset_list",
+                  "description": "[数据视图·必须限定到台] 这个台有哪些数据集：列定义（含显示名和取值说明 values——某个取值是什么业务意思看这里）、主键、行数、占多少字节、上次谁在什么时候改的",
+                  "category": "read",
+                  "granted": false,
+                  "input_schema": { "type": "object", "properties": { "bench": { "type": "string", "description": "台的标识" } }, "required": ["bench"], "additionalProperties": false },
+                  "bench_scoped": true,
+                  "scope": "必须限定到台",
+                  "granted_benches": []
+                },
+                {
+                  "name": "dataset_query",
+                  "description": "[数据视图·必须限定到台] 按查询描述读一个数据集（筛选、分组、聚合、排序；不写 SQL）。例：1 月各区域 result 为 bad 的行数——{ dataset, filter: [{ col: \"day\", op: \"prefix\", value: \"2026-01\" }, { col: \"result\", op: \"=\", value: \"bad\" }], group: [\"region\"], measures: [{ fn: \"count\", as: \"n\" }], sort: [{ col: \"n\", dir: \"desc\" }] }。完整写法和例子见技能 wm-data-views（references/query.md）",
+                  "category": "read",
+                  "granted": false,
+                  "input_schema": {
+                    "type": "object",
+                    "properties": {
+                      "bench": { "type": "string", "description": "台的标识" },
+                      "query": {
+                        "type": "object",
+                        "description": "查询描述（不写 SQL）。不写 group、measures 是明细查询；写了是聚合查询。完整写法和例子见技能 wm-data-views（references/query.md）",
+                        "properties": {
+                          "dataset": { "type": "string", "description": "数据集名（必填）" },
+                          "select": { "type": "array", "items": { "type": "string" }, "description": "明细查询要哪些列；不写是全部列。和 group、measures 不能同时写" },
+                          "filter": {
+                            "type": "array",
+                            "description": "筛选条件，最多 20 条，全部满足才算（AND）",
+                            "items": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": ["col", "op"],
+                              "properties": {
+                                "col": { "type": "string", "description": "列名" },
+                                "op": {
+                                  "type": "string",
+                                  "enum": ["=", "!=", ">", ">=", "<", "<=", "in", "is_null", "not_null", "contains", "prefix"],
+                                  "description": "比较符：= != > >= < <= 比大小；in 是「在这几个值里」（值放 values）；is_null / not_null 判空（不用 value）；contains 文本包含；prefix 开头是（文本、日期、时间列，比如按月筛日期列：prefix 2026-01）"
+                                },
+                                "value": { "description": "比较的值；写成 $名字 引用 params 里的值（没给就这条不生效）" },
+                                "values": { "type": "array", "description": "op 为 in 时的取值，1～200 个" }
+                              }
+                            }
+                          },
+                          "group": { "type": "array", "items": { "type": "string" }, "description": "按哪些列分组" },
+                          "measures": {
+                            "type": "array",
+                            "description": "聚合，最多 12 项",
+                            "items": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": ["fn", "as"],
+                              "properties": {
+                                "fn": { "type": "string", "enum": ["count", "count_distinct", "sum", "avg", "min", "max"], "description": "count 不写 col 就是数行数（COUNT(*)），写了 col 是数这一列不为空的行；count_distinct 数不同的值；sum、avg 只用于整数和小数列" },
+                                "col": { "type": "string", "description": "对哪一列算（count 可以不写）" },
+                                "as": { "type": "string", "description": "结果列的别名（必填，小写字母开头）" },
+                                "label": { "type": "string", "description": "显示名" }
+                              }
+                            }
+                          },
+                          "sort": {
+                            "type": "array",
+                            "description": "排序，最多 8 项。聚合查询只能按输出列（分组列和别名）排；不写时聚合按分组列升序、明细按写入次序",
+                            "items": { "type": "object", "additionalProperties": false, "required": ["col"], "properties": { "col": { "type": "string" }, "dir": { "type": "string", "enum": ["asc", "desc"], "description": "缺省 asc" } } }
+                          },
+                          "limit": { "type": "integer", "minimum": 1, "maximum": 5000, "description": "最多返回几行，缺省 200" },
+                          "offset": { "type": "integer", "minimum": 0, "description": "跳过前几行" }
+                        },
+                        "required": ["dataset"],
+                        "additionalProperties": false
+                      },
+                      "params": { "type": "object", "description": "查询描述里 $名字 的取值" }
+                    },
+                    "required": ["bench", "query"],
+                    "additionalProperties": false
+                  },
+                  "bench_scoped": true,
+                  "scope": "必须限定到台",
+                  "granted_benches": []
+                },
+                {
+                  "name": "dataset_snapshots",
+                  "description": "[数据视图·必须限定到台] 列出一个数据集现有的快照",
+                  "category": "read",
+                  "granted": false,
+                  "input_schema": { "type": "object", "properties": { "bench": { "type": "string", "description": "台的标识" }, "dataset": { "type": "string", "description": "数据集名" } }, "required": ["bench", "dataset"], "additionalProperties": false },
+                  "bench_scoped": true,
+                  "scope": "必须限定到台",
+                  "granted_benches": []
+                },
+                {
+                  "name": "view_get",
+                  "description": "[数据视图·必须限定到台] 读视图描述：不写 version 读现在生效的那一版",
+                  "category": "read",
+                  "granted": false,
+                  "input_schema": { "type": "object", "properties": { "bench": { "type": "string", "description": "台的标识" }, "version": { "type": "integer", "minimum": 1 } }, "required": ["bench"], "additionalProperties": false },
+                  "bench_scoped": true,
+                  "scope": "必须限定到台",
+                  "granted_benches": []
+                },
+                {
+                  "name": "view_versions",
+                  "description": "[数据视图·必须限定到台] 视图描述的版本清单",
+                  "category": "read",
+                  "granted": false,
+                  "input_schema": { "type": "object", "properties": { "bench": { "type": "string", "description": "台的标识" } }, "required": ["bench"], "additionalProperties": false },
+                  "bench_scoped": true,
+                  "scope": "必须限定到台",
+                  "granted_benches": []
+                },
+                {
+                  "name": "view_diff",
+                  "description": "[数据视图·必须限定到台] 两版视图描述差在哪",
+                  "category": "read",
+                  "granted": false,
+                  "input_schema": {
+                    "type": "object",
+                    "properties": { "bench": { "type": "string", "description": "台的标识" }, "a": { "type": "integer", "minimum": 1 }, "b": { "type": "integer", "minimum": 1 } },
+                    "required": ["bench", "a", "b"],
+                    "additionalProperties": false
+                  },
+                  "bench_scoped": true,
+                  "scope": "必须限定到台",
+                  "granted_benches": []
+                },
+                {
+                  "name": "dataset_define",
+                  "description": "[数据视图·必须限定到台] 建数据集，或者改它的列（给完整的新定义）。列可以带取值说明 values；唯一的整数主键可以设 auto 由服务端分配",
+                  "category": "write",
+                  "granted": false,
+                  "input_schema": {
+                    "type": "object",
+                    "properties": {
+                      "bench": { "type": "string", "description": "台的标识" },
+                      "definition": {
+                        "type": "object",
+                        "description": "数据集定义（给完整的新定义）。完整写法和例子见技能 wm-data-views（references/datasets.md）",
+                        "required": ["name", "columns"],
+                        "additionalProperties": false,
+                        "properties": {
+                          "name": { "type": "string", "description": "数据集名：小写字母开头，只含小写字母、数字、下划线" },
+                          "title": { "type": "string" },
+                          "key": { "type": "array", "items": { "type": "string" }, "description": "主键列" },
+                          "columns": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "required": ["name", "type"],
+                              "additionalProperties": false,
+                              "properties": {
+                                "name": { "type": "string" },
+                                "type": { "type": "string", "enum": ["text", "integer", "decimal", "date", "datetime", "boolean"] },
+                                "label": { "type": "string", "description": "显示名" },
+                                "required": { "type": "boolean" },
+                                "values": { "type": "object", "additionalProperties": { "type": "string" }, "description": "取值说明：「取值: 意思」，比如 { \"ok\": \"正常\", \"bad\": \"异常\" }。看数的人和席位靠它知道每个取值的业务意思" },
+                                "auto": { "type": "boolean", "description": "主键由服务端分配：只用于唯一的整数主键列。追加时不给这一列，按现有最大值往上数，应答的 ids 是分配到的号" }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "note": { "type": "string", "description": "一句说明" }
+                    },
+                    "required": ["bench", "definition"],
+                    "additionalProperties": false
+                  },
+                  "bench_scoped": true,
+                  "scope": "必须限定到台",
+                  "granted_benches": []
+                },
+                {
+                  "name": "dataset_replace",
+                  "description": "[数据视图·必须限定到台] 整份替换一个数据集的行；替换前的那一份自动留作快照",
+                  "category": "write",
+                  "granted": false,
+                  "input_schema": {
+                    "type": "object",
+                    "properties": {
+                      "bench": { "type": "string", "description": "台的标识" },
+                      "dataset": { "type": "string", "description": "数据集名" },
+                      "rows": { "type": "array", "description": "全部行", "items": { "type": "object" } },
+                      "idempotency_key": { "type": "string", "description": "幂等键：8～128 个可见 ASCII 字符。超时、断线后带同一个键重发，不会写两遍" },
+                      "note": { "type": "string", "description": "一句说明" }
+                    },
+                    "required": ["bench", "dataset", "rows"],
+                    "additionalProperties": false
+                  },
+                  "bench_scoped": true,
+                  "scope": "必须限定到台",
+                  "granted_benches": []
+                },
+                {
+                  "name": "dataset_upsert",
+                  "description": "[数据视图·必须限定到台] 按主键更新：有的改、没有的加",
+                  "category": "write",
+                  "granted": false,
+                  "input_schema": {
+                    "type": "object",
+                    "properties": {
+                      "bench": { "type": "string", "description": "台的标识" },
+                      "dataset": { "type": "string", "description": "数据集名" },
+                      "rows": { "type": "array", "description": "要更新或新增的行", "items": { "type": "object" } },
+                      "idempotency_key": { "type": "string", "description": "幂等键：8～128 个可见 ASCII 字符。超时、断线后带同一个键重发，不会写两遍" },
+                      "note": { "type": "string", "description": "一句说明" }
+                    },
+                    "required": ["bench", "dataset", "rows"],
+                    "additionalProperties": false
+                  },
+                  "bench_scoped": true,
+                  "scope": "必须限定到台",
+                  "granted_benches": []
+                },
+                {
+                  "name": "dataset_append",
+                  "description": "[数据视图·必须限定到台] 追加行；主键和已有的行撞了整批拒收。主键列设了 auto 的数据集，行里不给主键，由服务端按现有最大值往上数，应答的 ids 是分配到的号（不要自己查最大值再加一：两个席位同时写会撞）。重放同一个幂等键时 duplicate 为 true、inserted 为 0",
+                  "category": "write",
+                  "granted": false,
+                  "input_schema": {
+                    "type": "object",
+                    "properties": {
+                      "bench": { "type": "string", "description": "台的标识" },
+                      "dataset": { "type": "string", "description": "数据集名" },
+                      "rows": { "type": "array", "description": "要追加的行", "items": { "type": "object" } },
+                      "idempotency_key": { "type": "string", "description": "幂等键：8～128 个可见 ASCII 字符。超时、断线后带同一个键重发，不会写两遍" },
+                      "note": { "type": "string", "description": "一句说明" }
+                    },
+                    "required": ["bench", "dataset", "rows"],
+                    "additionalProperties": false
+                  },
+                  "bench_scoped": true,
+                  "scope": "必须限定到台",
+                  "granted_benches": []
+                },
+                {
+                  "name": "dataset_delete_rows",
+                  "description": "[数据视图·必须限定到台] 按主键删行；删之前自动留快照",
+                  "category": "write",
+                  "granted": false,
+                  "input_schema": {
+                    "type": "object",
+                    "properties": {
+                      "bench": { "type": "string", "description": "台的标识" },
+                      "dataset": { "type": "string", "description": "数据集名" },
+                      "keys": { "type": "array", "description": "只含主键列的对象的数组", "items": { "type": "object" } },
+                      "idempotency_key": { "type": "string", "description": "幂等键：8～128 个可见 ASCII 字符。超时、断线后带同一个键重发，不会写两遍" },
+                      "note": { "type": "string", "description": "一句说明" }
+                    },
+                    "required": ["bench", "dataset", "keys"],
+                    "additionalProperties": false
+                  },
+                  "bench_scoped": true,
+                  "scope": "必须限定到台",
+                  "granted_benches": []
+                },
+                {
+                  "name": "dataset_snapshot",
+                  "description": "[数据视图·必须限定到台] 手工留一份快照",
+                  "category": "write",
+                  "granted": false,
+                  "input_schema": {
+                    "type": "object",
+                    "properties": { "bench": { "type": "string", "description": "台的标识" }, "dataset": { "type": "string", "description": "数据集名" }, "note": { "type": "string", "description": "一句说明" } },
+                    "required": ["bench", "dataset"],
+                    "additionalProperties": false
+                  },
+                  "bench_scoped": true,
+                  "scope": "必须限定到台",
+                  "granted_benches": []
+                },
+                {
+                  "name": "dataset_restore",
+                  "description": "[数据视图·必须限定到台] 把数据集退回到某一份快照",
+                  "category": "write",
+                  "granted": false,
+                  "input_schema": {
+                    "type": "object",
+                    "properties": { "bench": { "type": "string", "description": "台的标识" }, "snapshot_id": { "type": "integer", "minimum": 1 }, "note": { "type": "string", "description": "一句说明" } },
+                    "required": ["bench", "snapshot_id"],
+                    "additionalProperties": false
+                  },
+                  "bench_scoped": true,
+                  "scope": "必须限定到台",
+                  "granted_benches": []
+                },
+                {
+                  "name": "view_put",
+                  "description": "[数据视图·必须限定到台] 保存视图描述：产生一个新版本并立即生效",
+                  "category": "write",
+                  "granted": false,
+                  "input_schema": {
+                    "type": "object",
+                    "properties": {
+                      "bench": { "type": "string", "description": "台的标识" },
+                      "doc": { "type": "object", "description": "视图描述" },
+                      "base": { "type": "integer", "minimum": 0, "description": "你是基于第几版改的；还没有版本时给 0" },
+                      "note": { "type": "string", "description": "一句说明" }
+                    },
+                    "required": ["bench", "doc", "base", "note"],
+                    "additionalProperties": false
+                  },
+                  "bench_scoped": true,
+                  "scope": "必须限定到台",
+                  "granted_benches": []
+                },
+                {
+                  "name": "view_rollback",
+                  "description": "[数据视图·必须限定到台] 让旧版本重新生效（只移指针，不丢版本）",
+                  "category": "write",
+                  "granted": false,
+                  "input_schema": {
+                    "type": "object",
+                    "properties": {
+                      "bench": { "type": "string", "description": "台的标识" },
+                      "to": { "type": "integer", "minimum": 1 },
+                      "base": { "type": "integer", "minimum": 1, "description": "你看到的生效版本" },
+                      "note": { "type": "string", "description": "一句说明" }
+                    },
+                    "required": ["bench", "to", "base", "note"],
+                    "additionalProperties": false
+                  },
+                  "bench_scoped": true,
+                  "scope": "必须限定到台",
+                  "granted_benches": []
                 }
               ],
               "requests": [],
+              "bench_requests": [],
+              "how_to_request_bench": "access_request {tools: [工具名@bench:台的标识], reason: 用途}：数据视图的工具必须限定到台，读也一样；一次只申请一个台；由台的管理层批准，不经 MCP 网关页",
               "how_to_request": "access_request {tools: [工具名], reason: 用途}；只要一张台时写 工具@台号（数字台号，workbench_list 里的 id；自产台、SOP 台也可以写台的标识，服务端换成台号；目前 workbench_vars_get / workbench_vars_set / app_data_list / app_files_list 支持）；管理员在「MCP 网关」页「权限申请」批准后立即生效（并入现有授权）",
               "openapi_url": "https://market.example/openapi.json",
               "rest_base": "https://market.example/api/mcp-rest",

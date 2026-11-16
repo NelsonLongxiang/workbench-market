@@ -2,7 +2,7 @@
  * 数据视图的入口（docs/data-views.md 第三、十节，第三步的前一半）：给登录的人用的 REST 接口，都在 /api/bench-views 下面。
  * 台的登记、数据集、四种写入、查询、快照、视图描述和它的版本、取数、表单提交。逻辑都在 services/bench-store.ts，这里只是路由。
  *
- * 整组路由在一个开关后面（WM_BENCH_VIEWS=on），缺省关：关着的时候每一条都直接回 404，不认人、不读请求体、不碰台库。
+ * 整组路由在一个开关后面（WM_BENCH_VIEWS），缺省开，显式 off 关：关着的时候每一条都直接回 404，不认人、不读请求体、不碰台库。
  * （路由照样注册，是为了让对外面的快照和录制回放看得见它们。）
  *
  * 谁能用（这一步只开放给管理层和范围是「全部」的授予；按部门、团队判的那一半等身份线的部门表和团队登记）：
@@ -35,11 +35,11 @@ import { viaBegin, viaSettle } from '../attention-via.ts';
 import { assertBenchBinding, renderBenchView } from '../services/bench-render.ts';
 
 export type BenchViewsConfig = { on: boolean };
-/** 启动时读一次：WM_BENCH_VIEWS（on / off，缺省 off）。不合法拒绝启动 */
+/** 启动时读一次：WM_BENCH_VIEWS（on / off，缺省 on；不需要时显式 off 关掉）。不合法拒绝启动 */
 export function benchViewsConfig(env: NodeJS.ProcessEnv = process.env): BenchViewsConfig {
   const raw = String(env.WM_BENCH_VIEWS ?? '').trim();
   if (raw !== '' && raw !== 'on' && raw !== 'off') throw new Error(`WM_BENCH_VIEWS 只接受 on 或 off，现在是 ${JSON.stringify(raw)}`);
-  return { on: raw === 'on' };
+  return { on: raw !== 'off' };
 }
 
 /** 带不带尾斜杠都算（路由本身两种都认；不算的话全局解析会先把请求体读掉，路由再报「不是合法的 JSON」，提示误导人）。

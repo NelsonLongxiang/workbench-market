@@ -103,7 +103,8 @@ async function runCase(label,{off=false,control=false,occupied=false,unset=false
    if(mutation==='hold-probe')check('real pending ingress checks ran before readiness',pendingChecked);
    if(gate==='enforce')check(label+' login-gate rows all pass',['page','app','api'].every(k=>health.self_probe.rows.some(x=>x.id==='market.login-gate.'+k&&x.verdict==='pass'))&&health.self_probe.rows.some(x=>x.id==='market.a2a-direct.unsigned'&&x.verdict==='pass')&&health.login_gate==='enforce');
    if(gate!=='enforce')check(label+' no login-gate rows when gate is off',!health.self_probe.rows.some(x=>x.id.startsWith('market.login-gate.')||x.id.startsWith('market.a2a-direct.')));
-   if(benchViews){const rows=health.self_probe.rows.filter(x=>x.id.startsWith('market.bench-views.'));check(label+' exactly the three named bench-view rows pass',rows.length===BENCH_PROBES.length&&BENCH_PROBES.every(id=>rows.some(x=>x.id===id&&x.verdict==='pass'&&x.status===401)));}
+   // 数据视图入口缺省开（不设就开），只有显式 off 时没有这三行
+   if(benchViews!=='off'){const rows=health.self_probe.rows.filter(x=>x.id.startsWith('market.bench-views.'));check(label+' exactly the three named bench-view rows pass',rows.length===BENCH_PROBES.length&&BENCH_PROBES.every(id=>rows.some(x=>x.id===id&&x.verdict==='pass'&&x.status===401)));}
    else check(label+' no bench-view rows while the entry is off',!health.self_probe.rows.some(x=>x.id.startsWith('market.bench-views.')));
    check(label+' ordinary request works after successful startup',(await fetch('http://127.0.0.1:'+port+'/api/workbenches')).status===200);
   }
@@ -143,6 +144,7 @@ await runCase('portal-state-cookie-regression',{mutation:'portal-state-cookie',e
 await runCase('export-reveal-regression',{mutation:'export-reveal',expectFailure:true});
 await runCase('grants-admin-read-regression',{mutation:'grants-admin-read',expectFailure:true});
 await runCase('bench-views-on',{benchViews:'on'});
+await runCase('bench-views-off',{benchViews:'off'});
 await runCase('bench-views-on-login-gate',{benchViews:'on',gate:'enforce',control:true});
 await runCase('bench-views-anonymous-regression',{benchViews:'on',mutation:'bench-views-anonymous',expectFailure:true});
 await runCase('app-data-read-regression',{mutation:'app-data-read',expectFailure:true});

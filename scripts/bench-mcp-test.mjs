@@ -363,7 +363,7 @@ try {
   await srv.stop();
 
   console.log('八、入口关着、网关关着');
-  const off = await boot('entry-off');
+  const off = await boot('entry-off', { WM_BENCH_VIEWS: 'off' }); // 入口缺省开，关要显式 off
   const C = await (async () => { const x = await off.call('POST', '/api/mcp/sessions', { headers: { ...REMOTE, 'x-admin-token': ADMIN_TOKEN }, body: { name: 'sess-c' } }); return { id: x.json?.id, token: x.json?.token }; })();
   // 入口以前开过：台登记着、授予也在。关了之后照样不行
   off.db().prepare('INSERT INTO bench_views (slug, title, created_by, created_at) VALUES (?, ?, ?, ?)').run('demo', 'demo', 'user:alpha', 1);

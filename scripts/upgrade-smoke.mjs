@@ -12,7 +12,7 @@
  *      · 回填：事项数等于事件数，第二次启动「补建 0 个」。
  *   3. 回滚：再用基线的代码指向升级后的数据目录启动——自检全过，读、写（新建工作台、台数据提交、开录入）、凭据库都正常。
  *   4. 再上线：本检出的代码再启动一次，自检全过；回滚期间基线写进来的事件也建出了事项。
- *   台库（数据视图）穿插在里面：入口缺省关着时升级不建台库；开着入口建一个合成台、写数据之后，
+ *   台库（数据视图）穿插在里面：入口缺省开着，升级本身不建台库、不登记台；开着入口建一个合成台、写数据之后，
  *   回滚到基线（它不认识台库）不动库文件，再上线后台库原样读得出来、再打开一次表结构不变。
  *
  * 只在本机回环地址上起实例；HOME、DSH_HOME、YGL_HOME 都指到临时目录；不访问任何外部系统。
@@ -393,16 +393,16 @@ try {
   const countDiff = Object.keys(after2.counts).filter((t) => after2.counts[t] !== after1.counts[t]);
   check(countDiff.length === 0, '幂等：第二次启动后各表行数相同', countDiff.map((t) => `${t} ${after1.counts[t]} → ${after2.counts[t]}`).join('；'));
   check(after2.counts.work_items === after1.counts.work_items && after2.counts.work_item_log === after1.counts.work_item_log && after1.counts.work_items !== undefined, `幂等：第二次启动没有再补建事项（${after2.counts.work_items}）`);
-  // 台库：入口缺省关着，升级不该凭空建出台库；开着入口之后建的台，要经得起回滚和再上线
-  check(!existsSync(join(DATA, 'bench-stores')) && after2.tables.includes('bench_views') && after2.counts.bench_views === 0 && benchRows(probe2).length === 0,
-    '台库：入口缺省关着——升级后数据目录里没有台库，台的登记表是空的，自检里没有入口的行');
+  const expectedBenchProbes = ['market.bench-views.anonymous-read', 'market.bench-views.anonymous-write', 'market.bench-views.var-render-anonymous'];
+  // 台库：入口缺省开着（自检里有入口的三行），但升级不该凭空建出台库、登记出台；开着入口之后建的台，要经得起回滚和再上线
+  check(!existsSync(join(DATA, 'bench-stores')) && after2.tables.includes('bench_views') && after2.counts.bench_views === 0 && benchRows(probe2).length === expectedBenchProbes.length && expectedBenchProbes.every((id) => benchRows(probe2).some((r) => r.id === id && r.verdict === 'pass')),
+    '台库：入口缺省开着——升级后数据目录里没有台库，台的登记表是空的，自检里入口的三行都过');
   const benchSeed = benchRun('seed');
   check(benchSeed.ok && JSON.parse(benchSeed.json || '{}').rows?.length === 3, '台库：用本检出的服务登记一个合成台，建数据集、写 3 行、留快照、存视图', benchSeed.err ?? '');
   const benchSchema1 = benchSchema();
   s = await startServer(HEAD, DATA, 'head-bench', { WM_BENCH_VIEWS: 'on' }); servers.push(s);
   const probeBench = await selfProbe(s.base);
   await stopServer(s);
-  const expectedBenchProbes = ['market.bench-views.anonymous-read', 'market.bench-views.anonymous-write', 'market.bench-views.var-render-anonymous'];
   check(s.ok && probeBench?.passed === true && benchRows(probeBench).length === expectedBenchProbes.length && expectedBenchProbes.every(id => benchRows(probeBench).some(r => r.id === id && r.verdict === 'pass')),
     '台库：开着入口启动，自检全过，读、写、变量渲染三条具名守卫都过', JSON.stringify(benchRows(probeBench)));
   report.head = { new_tables: after1.tables.filter((t) => !before.tables.includes(t)), self_probe_rows: probe1?.rows?.length ?? 0, boot_ms: servers.filter((x) => x.label.startsWith('head')).map((x) => x.ms) };
