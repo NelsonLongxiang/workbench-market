@@ -3,6 +3,9 @@
  *   begin     把浏览器送到本站的表单页 /login/local/form?state=…（state 由核心签好）；
  *   form      GET 出登录表单；POST 核对用户名和密码（账号服务 localAccounts），对了发一个一次性码，去核心的回调；
  *             临时密码对了的（管理员建的人、重置过的）先出改密码的一步，改好才发码；
+ *             每提交一次就把 state 换一个（loginSessions.rotateState，一次性）：页面、码、改密码票都接着用新的，
+ *             用过的、重放的、并发拿同一个来交的，只有一个换得到，别的不进哈希。账号密码那一步先占核对名额再换（见 verify 的 claim），
+ *             名额占不上回 429，state 不动；
  *   complete  回调拿码换回用户名（码绑着这次的 state，60 秒、用一次）。
  * 对到主体、等待页、发会话、停用，都是核心的事（routes/login-flows.ts），这里不碰。
  *
@@ -89,35 +92,50 @@ function toCallback(callbackUrl: string, state: string, code: string): FlowForm 
   return { kind: 'redirect', location: u.href };
 }
 
+/** state 用过了（重放、并发里没换到、过期）：这一次登录不能接着走了，回到登录页重来 */
+function stalePage(): FlowForm {
+  return { kind: 'page', status: 400, html: shell('登录请求已经用过或过期了', '<p class="hint">这个登录表单已经提交过了。请回到登录页重新登录。</p>') };
+}
+
 async function form(input: FlowFormInput): Promise<FlowForm> {
   const { state, fields } = input;
   if (input.method === 'GET') return input.view === 'signup' && config.signup ? signupPage(state, 200) : loginPage(state, 200);
   const acc = accounts();
-  // 自己注册：只建站内账号，不建主体；然后照常去回调（核心发现没对接：进待对接清单、给等待页）
+  // 自己注册：只建站内账号，不建主体；然后照常去回调（核心发现没对接：进待对接清单、给等待页）。
+  // state 和登录一样一次性：先换掉，之后的页面、码都用新的；换不到（重放、并发、过期）给「已经用过」页
   if (fields.mode === 'signup') {
     if (!config.signup) return NO_SIGNUP;
+    const fresh = sessions().rotateState('local', state);
+    if (!fresh) return stalePage();
     const typedName = typeof fields.username === 'string' ? fields.username : '';
     const typedDisplay = typeof fields.display_name === 'string' ? fields.display_name : '';
     const r = await acc.register({ username: typedName, displayName: typedDisplay, password: fields.password, confirm: fields.confirm }, input.source, (u) => nameTaken(u));
-    if (!r.ok) return signupPage(state, r.reason === 'throttled' ? 429 : r.reason === 'taken' ? 409 : 400, r.message, typedName, typedDisplay);
+    if (!r.ok) return signupPage(fresh, r.reason === 'throttled' ? 429 : r.reason === 'taken' ? 409 : 400, r.message, typedName, typedDisplay);
     console.log(JSON.stringify({ source: 'local-accounts', event: 'signup', username: r.username, at: new Date().toISOString() }));
-    return toCallback(input.callbackUrl, state, acc.issueCode(r.username, state));
+    return toCallback(input.callbackUrl, fresh, acc.issueCode(r.username, fresh));
   }
-  // 改密码那一步：票绑着这次的 state，用一次作废；没改成（两次不一致、不合规）再发一张新票
+  // 改密码那一步：票绑着交上来的那个 state，用一次作废；state 先换掉（一次性），之后都用新的；没改成（两次不一致、不合规）再发一张新票
   if (typeof fields.ticket === 'string' && fields.ticket) {
+    const fresh = sessions().rotateState('local', state);
+    if (!fresh) return stalePage();
     const username = acc.takeTicket(fields.ticket, state);
-    if (!username) return loginPage(state, 400, '这一步已经过期了，请重新输入用户名和临时密码。');
+    if (!username) return loginPage(fresh, 400, '这一步已经过期了，请重新输入用户名和临时密码。');
     const problem = fields.next !== fields.confirm ? '两次输的新密码不一样' : await acc.setPassword(username, fields.next);
-    if (problem) return changePage(state, acc.issueTicket(username, state), 400, problem);
+    if (problem) return changePage(fresh, acc.issueTicket(username, fresh), 400, problem);
     // 密码换了：这个账号已有的市场会话一律注销
     sessions().revokeForIdentity('local', username);
-    return toCallback(input.callbackUrl, state, acc.issueCode(username, state));
+    return toCallback(input.callbackUrl, fresh, acc.issueCode(username, fresh));
   }
   const typed = typeof fields.username === 'string' ? fields.username : '';
-  const r = await acc.verify(typed, fields.password, input.source);
-  if (!r.ok) return loginPage(state, r.reason === 'throttled' ? 429 : 401, r.reason === 'throttled' ? '尝试太频繁了，请过一分钟再试。' : BAD, typed);
-  if (r.mustChange) return changePage(state, acc.issueTicket(r.username, state), 200);
-  return toCallback(input.callbackUrl, state, acc.issueCode(r.username, state));
+  // 先占核对名额（来源、用户名、全进程），占上了再换 state，换上了才算哈希
+  let fresh: string | null = null;
+  const r = await acc.verify(typed, fields.password, input.source, Date.now(), { claim: () => (fresh = sessions().rotateState('local', state)) !== null });
+  if (!r.ok && r.reason === 'stale') return stalePage();
+  if (!r.ok && r.reason === 'throttled') return loginPage(state, 429, '尝试太频繁或系统正忙，请稍后再试。', typed);
+  const next = fresh ?? state;
+  if (!r.ok) return loginPage(next, 401, BAD, typed);
+  if (r.mustChange) return changePage(next, acc.issueTicket(r.username, next), 200);
+  return toCallback(input.callbackUrl, next, acc.issueCode(r.username, next));
 }
 
 const fail = (http: number, error: string) => ({ ok: false as const, http, error });

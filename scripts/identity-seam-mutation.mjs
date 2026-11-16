@@ -439,6 +439,8 @@ const MUTANTS = [
     find: "if (input.password !== input.confirm) return { ok: false, reason: 'invalid', message: '两次输的密码不一样。' };", replace: '' },
   { id: 'reject-bound-account', what: '已经对接的账号也能拒绝（删掉正在用的账号）', file: LOCAL_ROUTES, suites: [LOCAL],
     find: "if (principals().principalOf(PROVIDER, username)) throw new HttpError(409, '这个账号已经对接了，不能拒绝；要停用请用停用');", replace: '' },
+  { id: 'signup-state-reusable', what: '注册不换 state（同一个表单 state 能反复交）', file: 'server/src/login-providers/local/index.ts', suites: [LOCAL],
+    find: "    const fresh = sessions().rotateState('local', state);\n    if (!fresh) return stalePage();\n    const typedName", replace: "    const fresh = state;\n    const typedName" },
 ];
 
 if (process.argv.includes('--list')) {

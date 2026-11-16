@@ -117,12 +117,36 @@ export class LoginSessionService extends Service {
 
   /**
    * 看一眼 state 还有效（没过期、没用过、是这个方式的），不核销、不核浏览器半边（那一半只发给回调路径）。
-   * 给站内表单页用：表单只在一次真正发起了的登录里出现；真正放行仍在回调的 takeState。
+   * 给站内表单页用：表单只在一次真正发起了的登录里出现；提交时由登录方式用 rotateState 换掉（一次性），真正放行仍在回调的 takeState。
    */
   peekState(flow: string, state: unknown, now = Date.now()): boolean {
     if (typeof state !== 'string' || !TOKEN_RE.test(state)) return false;
     const row = db.prepare('SELECT flow FROM login_states WHERE state_sha256 = ? AND expires_at > ?').get(sha(state), now) as { flow: string } | undefined;
     return !!row && row.flow === flow;
+  }
+
+  /**
+   * 站内表单每提交一次就把 state 换一个（一次性）：旧的作废，新的接着用——登录方式、next、浏览器半边、来源、到期时间都照旧（不延长）。
+   * 旧的不在、过期了、不是这个方式的，返回 null（用过的、重放的、伪造的都拒）。并发拿同一个 state 来提交，只有一个换得到。
+   * 回调照旧用 takeState 核销最后那一个（浏览器半边没变，cookie 不用重发）。
+   */
+  rotateState(flow: string, state: unknown, now = Date.now()): string | null {
+    if (typeof state !== 'string' || !TOKEN_RE.test(state)) return null;
+    const fresh = newToken();
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const old = db.prepare('DELETE FROM login_states WHERE state_sha256 = ? AND flow = ? AND expires_at > ? RETURNING next, browser_sha256, source, created_at, expires_at')
+        .get(sha(state), flow, now) as { next: string; browser_sha256: string; source: string; created_at: number; expires_at: number } | undefined;
+      if (old) {
+        db.prepare('INSERT INTO login_states (state_sha256, flow, next, browser_sha256, source, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .run(sha(fresh), flow, old.next, old.browser_sha256, old.source, old.created_at, old.expires_at);
+      }
+      db.exec('COMMIT');
+      return old ? fresh : null;
+    } catch (e) {
+      try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ }
+      throw e;
+    }
   }
 
   // ---------- 登录方式推来的事件：防重放 ----------

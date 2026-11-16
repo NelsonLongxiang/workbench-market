@@ -91,7 +91,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_FEISHU_VAULT_ENTRY`（飞书应用凭证在凭据库里的条目名·缺省 `feishu-login`：username 是 App ID、password 是 App Secret）
 - `WM_FEISHU_TENANT_KEY`（可选·只认这个租户的人）
 - `WM_FEISHU_AUTO_BIND_EMAIL`（`on`=没对到主体的人按飞书企业邮箱自动对到已有主体·缺省关·打开时必须配 `WM_FEISHU_TENANT_KEY`，否则拒绝启动）；见「主体」一节
-- `WM_TRUSTED_PROXIES`（可信反代·逗号分隔的 IP/CIDR·这些对端写入的 `X-Real-IP`/`X-Forwarded-For` 最右项才算来源 IP，用于登录门限频与审计、Odoo 登录票据按来源限额；回环恒可信；容器部署要写上 docker 网桥网关或反代网段；非法项拒绝启动）
+- `WM_TRUSTED_PROXIES`（可信反代·逗号分隔的 IP/CIDR·缺省不设，只认回环·这些对端写入的 `X-Real-IP`/`X-Forwarded-For` 最右项才算来源 IP，用于登录门限频与审计、账号密码登录和 Odoo 登录票据按来源限额；不在列表里的对端直连带来的这两个头一律不认；非法项拒绝启动·只写反代在市场眼里的那一个地址，尽量不写网段：写进去的每个地址都能自报来源。容器部署时反代经 docker 网桥进来、要写网桥网关的话，发布的端口必须只让反代连得到（比如只绑在宿主机回环上）——docker 的用户态端口转发会让所有直连都显示成网关，直连者自带的 `X-Real-IP` 就会被采信，按来源的限额换个头就绕过去了·启动自检 `login.trusted-proxies`：列表里有网段（不止一个地址）时 `warn` 并列出来）
 - `WM_EXTENSIONS_DIR`（扩展挂载点·绝对路径·缺省不加载任何扩展·见「扩展」）
 - `WM_EXTENSION_ROUTES`（扩展路由没报动作时怎么办·缺省 `warn`：照旧能跑，启动日志逐条点名并计数；`enforce`：有没报动作的扩展路由就拒绝启动，阶段六切换判定时打开；其它值拒绝启动·见「扩展」）
 - `YGL_MAX_PROJECTS`（统一待办读 ygl-trees 的 active 项目数上限·缺省 200·超出部分在 `degraded_projects` 报 cap-exceeded）

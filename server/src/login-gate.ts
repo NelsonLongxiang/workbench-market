@@ -131,6 +131,16 @@ export function trustedProxies(raw = String(process.env.WM_TRUSTED_PROXIES ?? ''
   }
   return { list, entries, invalid };
 }
+/**
+ * 可信反代的启动自检：列表里的每一项，都是「它写来的 X-Real-IP / X-Forwarded-For 当真」。写成网段（不止一个地址）时，
+ * 网段里任何一台能连到市场端口的机器都能自报来源，按来源的限额（登录门、账号密码登录、SSO 票据）就能换个头绕过去——给 warn。
+ * docker 网桥网关也是这样：发布的端口走 docker 的用户态转发时，所有直连进来的连接看上去都来自网关；
+ * 网关写进了可信反代，又没把端口只绑在反代那一侧，直连者自带的 X-Real-IP 就会被采信。缺省（不设）只认回环，不受影响。
+ */
+export function trustedProxyCheck(entries: readonly string[]): { verdict: 'pass' | 'warn'; ranges: string[] } {
+  const ranges = entries.filter((e) => { const [addr, bits] = e.split('/'); return bits !== undefined && Number(bits) < (isIP(addr) === 4 ? 32 : 128); });
+  return { verdict: ranges.length ? 'warn' : 'pass', ranges };
+}
 let proxyCache: { raw: string; list: BlockList } | null = null;
 function trustedPeer(peer: string): boolean {
   if (peer === '127.0.0.1' || peer === '::1') return true;

@@ -68,7 +68,11 @@ try {
       }
     };
     const cookie = () => [...jar].map(([k, v]) => `${k}=${v}`).join('; ');
-    const go = async (method, path, { form, json, headers = {} } = {}) => {
+    // 表单的 state 每提交一次就换一个（一次性）：像真浏览器一样，接着交到页面上新的表单地址。伪造、没见过的地址不跟
+    const moved = new Map();
+    const latest = (p) => { let q = p; for (let i = 0; i < 100 && moved.has(q); i++) q = moved.get(q); return q; };
+    const go = async (method, path0, { form, json, headers = {} } = {}) => {
+      const path = method === 'POST' ? latest(path0) : path0;
       const h = { 'sec-fetch-site': 'same-origin', origin: base, 'x-real-ip': ip, ...headers };
       if (jar.size) h.cookie = cookie();
       let body;
@@ -77,6 +81,8 @@ try {
       const res = await fetch(new URL(path, base), { method, headers: h, body, redirect: 'manual' });
       take(res);
       const text = await res.text();
+      const act = /<form method="post" action="([^"]+)"/.exec(text)?.[1];
+      if (method === 'POST' && act && act !== path) moved.set(path, act);
       let j = null; try { j = JSON.parse(text); } catch { /* 页面 */ }
       return { status: res.status, location: res.headers.get('location') ?? '', text, json: j, headers: res.headers };
     };
@@ -135,7 +141,7 @@ try {
     const b = browser('192.0.2.31'); const { form } = await begin(b);
     const nobody = await b.go('POST', form, { form: { username: 'nobody-here', password: 'whatever-pass-1' } });
     const wrong = await b.go('POST', form, { form: { username: 'alice', password: 'wrong-pass-0001' } });
-    const strip = (t) => t.replace(/value="[^"]*"/g, '');
+    const strip = (t) => t.replace(/value="[^"]*"/g, '').replace(/action="[^"]*"/g, '').replace(/state=[A-Za-z0-9_-]+/g, 'state=');
     check(nobody.status === 401 && wrong.status === 401 && strip(nobody.text) === strip(wrong.text), '1 没这个人和密码不对：同一个状态码、同一页（除了回填的用户名）');
   }
   {
@@ -363,6 +369,14 @@ try {
     check((await login('ivan', 'Ivan-pass-00001', undefined, nextIp())).r.status === 401, '29 拒绝之后：登不进（和没这个人一样）');
     check((await adminCall('POST', '/api/local-accounts/nobody-x/reject')).status === 404 && (await adminCall('POST', '/api/local-accounts/nobody-x/approve')).status === 404, '29 没有这个账号：核准、拒绝都 404');
 
+    {
+      const b = browser(nextIp()); const { form } = await begin(b);
+      const first = await b.go('POST', form, { form: { mode: 'signup', username: 'lena', password: 'Lena-pass-00001', confirm: 'Lena-pass-00002' } });
+      // 同一个浏览器半边（同样的 cookie）、但不跟页面上的新地址：真的拿用过的 state 再交一次
+      const again = browser(); for (const [k, v] of b.jar) again.jar.set(k, v);
+      const replay = await again.go('POST', form, { form: { mode: 'signup', username: 'lena', password: 'Lena-pass-00001', confirm: 'Lena-pass-00001' } });
+      check(first.status === 400 && replay.status === 400 && /已经用过|无效或已过期/.test(replay.text) && !(await account('lena')), '29 注册的表单 state 也是一次性的：拿用过的 state 再交，给「已经用过」页，不建账号', { first: first.status, replay: replay.status });
+    }
     const ip = nextIp();
     const statuses = [];
     for (let i = 0; i < 6; i++) statuses.push((await signup({ username: `kim${i}x`, password: 'Kim-pass-000001', confirm: 'Kim-pass-000002' }, ip)).r.status);

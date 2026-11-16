@@ -7,7 +7,11 @@
  * 密码：
  *   · 只存 scrypt 的结果（Node 自带，N=2^15、r=8、p=1、每个账号单独加盐、64 字节），连参数一起存（scrypt$N$r$p$盐$哈希），以后能升级参数；
  *   · 校验用定长比较；用户名不存在时拿一个假的哈希也算一次，「没这个人」和「密码不对」耗时相同；
- *   · 连续输错 LOCK_AFTER 次锁 LOCK_MS；同一来源一分钟内输错 SOURCE_MAX 次，这个来源先歇一分钟（只在内存里，进程重启清零）。
+ *   · 连续输错 LOCK_AFTER 次锁 LOCK_MS；同一来源一分钟内尝试 SOURCE_MAX 次（对了的不算），这个来源先歇一分钟（只在内存里，进程重启清零）。
+ *   · 算哈希之前先占名额（admit）：这一次先记进来源的尝试数，再看三道「同时在算」的上限——同一来源 SOURCE_INFLIGHT_MAX（1）、
+ *     同一用户名 1、全进程 HASH_INFLIGHT_MAX（scrypt 每次约 32MB、占一个 libuv 线程）。超了直接回 throttled，不进哈希。
+ *     这样并发提交越不过按来源的限额，也占不满线程池；同一用户名同时只核一个，输错计数和锁定不会被并发绕过。
+ *     名额只在内存里（单实例）；多实例要换成共用的存储时，接口不变。
  * 一次性码（表单校验过了、交给回调换人）和改密码票（临时密码对了、还要先改密码）只在内存里、只存哈希，绑着这次登录的 state，到点作废、用一次作废。
  * 密码、临时密码、码、票，都不进日志，不进应答（临时密码只在生成它的那一次应答里给管理员）。
  */
@@ -26,6 +30,10 @@ const SOURCE_MAX = 10;
 /** 自己注册：同一来源一小时最多试这么多次（成功、失败都算，不让人拿注册去探哪些用户名占着） */
 export const SIGNUP_WINDOW_MS = 60 * 60_000;
 export const SIGNUP_MAX = 5;
+/** 同一来源同时在算的核对个数（同一来源的登录排队一个一个核，每次约 110ms） */
+export const SOURCE_INFLIGHT_MAX = 1;
+/** 全进程同时在算的核对个数（libuv 线程池缺省 4 个线程，留一半给别的活） */
+export const HASH_INFLIGHT_MAX = 2;
 const CODE_TTL_MS = 60_000;
 const TICKET_TTL_MS = 5 * 60_000;
 const ONE_TIME_MAX = 10_000;
@@ -102,13 +110,19 @@ export function displayNameOk(v: unknown): string | null {
   return [...t].length <= 64 ? t : null;
 }
 
-export type VerifyResult = { ok: true; username: string; mustChange: boolean } | { ok: false; reason: 'invalid' | 'locked' | 'throttled' };
+export type VerifyResult = { ok: true; username: string; mustChange: boolean } | { ok: false; reason: 'invalid' | 'locked' | 'throttled' | 'stale' };
 
 export class LocalAccountService extends Service {
   /** 假哈希：用户名不存在时也算一次 scrypt，耗时和真核对一样 */
   private dummy: Promise<string> | null = null;
   private readonly sourceFails = new Map<string, number[]>();
   private readonly signups = new Map<string, number[]>();
+  /** 同时在算的核对：按来源、按用户名、全进程 */
+  private readonly inflightBySource = new Map<string, number>();
+  private readonly inflightByName = new Set<string>();
+  private inflight = 0;
+  /** 进程起来以后同时在算的最多是几个（诊断、测试看「没超上限」） */
+  private inflightPeak = 0;
   private readonly codes = new Map<string, { username: string; state: string; exp: number }>();
   private readonly tickets = new Map<string, { username: string; state: string; exp: number }>();
 
@@ -168,7 +182,11 @@ export class LocalAccountService extends Service {
     let taken = true;
     try { taken = reserved(username) === true; } catch { taken = true; } // 查不了就当占着（失败关闭）
     if (taken || this.get(username, now)) return { ok: false, reason: 'taken', message: '这个用户名不能用。' };
-    const hash = await hashPassword(input.password as string);
+    // 算哈希和登录核对共用「同时在算」的上限（同一来源 1、全进程 HASH_INFLIGHT_MAX）；占不上回 throttled，不进哈希
+    const release = this.hashSlot(source);
+    if (!release) return { ok: false, reason: 'throttled', message: '系统正忙，请稍后再试。' };
+    let hash: string;
+    try { hash = await hashPassword(input.password as string); } finally { release(); }
     const ins = db.prepare(`INSERT INTO local_accounts (username, display_name, password_hash, must_change, failed_count, locked_until, created_at, created_by, updated_at)
       VALUES (?, ?, ?, 0, 0, 0, ?, 'signup', ?) ON CONFLICT (username) DO NOTHING`).run(username, displayName, hash, now, now);
     if (ins.changes !== 1) return { ok: false, reason: 'taken', message: '这个用户名不能用。' };
@@ -208,29 +226,92 @@ export class LocalAccountService extends Service {
     if (this.sourceFails.size > ONE_TIME_MAX) this.sourceFails.delete(this.sourceFails.keys().next().value as string);
   }
 
+  /** 退回先记的那一次尝试（核对对了、或者没进哈希就放弃了） */
+  private refundSourceAttempt(source: string, at: number): void {
+    const hits = this.sourceFails.get(source);
+    const i = hits ? hits.lastIndexOf(at) : -1;
+    if (hits && i >= 0) { hits.splice(i, 1); if (!hits.length) this.sourceFails.delete(source); }
+  }
+
+  /**
+   * 算哈希之前先占名额：来源这一分钟的尝试数、三道「同时在算」的上限都过得去，才记下这一次、占上名额，返回放名额的函数；
+   * 过不去返回 null（调用方直接回 throttled，不进哈希）。全是同步的：同一轮事件里并发进来的请求，先到的占上，后到的看得见
+   */
+  private admit(source: string, name: string, now: number): (() => void) | null {
+    if (this.throttled(source, now)) return null;
+    if ((this.inflightBySource.get(source) ?? 0) >= SOURCE_INFLIGHT_MAX) return null;
+    if (name && this.inflightByName.has(name)) return null;
+    if (this.inflight >= HASH_INFLIGHT_MAX) return null;
+    this.noteSourceFail(source, now);
+    this.inflightBySource.set(source, (this.inflightBySource.get(source) ?? 0) + 1);
+    if (name) this.inflightByName.add(name);
+    this.inflight++;
+    this.inflightPeak = Math.max(this.inflightPeak, this.inflight);
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      const n = (this.inflightBySource.get(source) ?? 1) - 1;
+      if (n > 0) this.inflightBySource.set(source, n); else this.inflightBySource.delete(source);
+      if (name) this.inflightByName.delete(name);
+      this.inflight--;
+    };
+  }
+
+  /** 核对的负载：现在同时在算几个、进程起来以后最多几个、上限是几 */
+  hashLoad(): { inflight: number; peak: number; max: number; per_source: number } {
+    return { inflight: this.inflight, peak: this.inflightPeak, max: HASH_INFLIGHT_MAX, per_source: SOURCE_INFLIGHT_MAX };
+  }
+
+  /** 只占「同时在算」的名额（同一来源、全进程），不记登录尝试：自己注册算哈希用。占不上返回 null */
+  private hashSlot(source: string): (() => void) | null {
+    if ((this.inflightBySource.get(source) ?? 0) >= SOURCE_INFLIGHT_MAX) return null;
+    if (this.inflight >= HASH_INFLIGHT_MAX) return null;
+    this.inflightBySource.set(source, (this.inflightBySource.get(source) ?? 0) + 1);
+    this.inflight++;
+    this.inflightPeak = Math.max(this.inflightPeak, this.inflight);
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      const n = (this.inflightBySource.get(source) ?? 1) - 1;
+      if (n > 0) this.inflightBySource.set(source, n); else this.inflightBySource.delete(source);
+      this.inflight--;
+    };
+  }
+
   /**
    * 核对用户名和密码。没这个人、密码不对，都是 invalid，而且耗时一样；锁着的是 locked（也照样算一次哈希）；
-   * 这个来源输错太多是 throttled（不算哈希，直接拒）。对了清零输错计数。
+   * 名额占不上（这个来源尝试太多、同时在算的超了上限）是 throttled（不算哈希，直接拒）。对了清零输错计数，先记的那次尝试退回。
+   * claim：占上名额之后、算哈希之前调一次（站内表单拿它换掉一次性的 state）；返回 false 就放掉名额、退回尝试，回 stale，不算哈希。
    */
-  async verify(username: unknown, password: unknown, source: string, now = Date.now()): Promise<VerifyResult> {
-    if (this.throttled(source, now)) return { ok: false, reason: 'throttled' };
+  async verify(username: unknown, password: unknown, source: string, now = Date.now(), opts: { claim?: () => boolean } = {}): Promise<VerifyResult> {
     const name = typeof username === 'string' ? username.trim().toLowerCase() : '';
-    const pw = typeof password === 'string' && password.length <= PASSWORD_MAX * 4 ? password : '';
-    const row = USERNAME_RE.test(name)
-      ? db.prepare('SELECT username, password_hash, must_change, locked_until FROM local_accounts WHERE username = ?').get(name) as Pick<Row, 'username' | 'password_hash' | 'must_change' | 'locked_until'> | undefined
-      : undefined;
-    if (!row) { await checkPassword(await this.dummyHash(), pw); this.noteSourceFail(source, now); return { ok: false, reason: 'invalid' }; }
-    if (Number(row.locked_until) > now) { await checkPassword(await this.dummyHash(), pw); this.noteSourceFail(source, now); return { ok: false, reason: 'locked' }; }
-    const good = pw !== '' && await checkPassword(row.password_hash, pw);
-    if (!good) {
-      this.noteSourceFail(source, now);
-      // 计数到点就锁；锁的时候计数清零，解锁之后重新数
-      db.prepare(`UPDATE local_accounts SET failed_count = CASE WHEN failed_count + 1 >= ? THEN 0 ELSE failed_count + 1 END,
-        locked_until = CASE WHEN failed_count + 1 >= ? THEN ? ELSE locked_until END, updated_at = ? WHERE username = ?`).run(LOCK_AFTER, LOCK_AFTER, now + LOCK_MS, now, row.username);
-      return { ok: false, reason: 'invalid' };
+    const release = this.admit(source, USERNAME_RE.test(name) ? name : '', now);
+    if (!release) return { ok: false, reason: 'throttled' };
+    try {
+      if (opts.claim && !opts.claim()) { this.refundSourceAttempt(source, now); return { ok: false, reason: 'stale' }; }
+      const pw = typeof password === 'string' && password.length <= PASSWORD_MAX * 4 ? password : '';
+      const row = USERNAME_RE.test(name)
+        ? db.prepare('SELECT username, password_hash, must_change, locked_until FROM local_accounts WHERE username = ?').get(name) as Pick<Row, 'username' | 'password_hash' | 'must_change' | 'locked_until'> | undefined
+        : undefined;
+      if (!row) { await checkPassword(await this.dummyHash(), pw); return { ok: false, reason: 'invalid' }; }
+      if (Number(row.locked_until) > now) { await checkPassword(await this.dummyHash(), pw); return { ok: false, reason: 'locked' }; }
+      const good = pw !== '' && await checkPassword(row.password_hash, pw);
+      if (!good) {
+        // 计数到点就锁；锁的时候计数清零，解锁之后重新数
+        const after = db.prepare(`UPDATE local_accounts SET failed_count = CASE WHEN failed_count + 1 >= ? THEN 0 ELSE failed_count + 1 END,
+          locked_until = CASE WHEN failed_count + 1 >= ? THEN ? ELSE locked_until END, updated_at = ? WHERE username = ? RETURNING locked_until`).get(LOCK_AFTER, LOCK_AFTER, now + LOCK_MS, now, row.username) as { locked_until: number } | undefined;
+        // 这一次把账号锁住了：记下是哪个来源（被人故意锁别人时查得到，docs/local-accounts.md 第 9 节）
+        if (after && Number(after.locked_until) === now + LOCK_MS) console.log(JSON.stringify({ source: 'local-accounts', event: 'locked', username: row.username, from: source, until: new Date(now + LOCK_MS).toISOString(), at: new Date(now).toISOString() }));
+        return { ok: false, reason: 'invalid' };
+      }
+      this.refundSourceAttempt(source, now);
+      db.prepare('UPDATE local_accounts SET failed_count = 0, updated_at = ? WHERE username = ?').run(now, row.username);
+      return { ok: true, username: row.username, mustChange: row.must_change === 1 };
+    } finally {
+      release();
     }
-    db.prepare('UPDATE local_accounts SET failed_count = 0, updated_at = ? WHERE username = ?').run(now, row.username);
-    return { ok: true, username: row.username, mustChange: row.must_change === 1 };
   }
 
   /** 记下一次成功登录的时间（换出会话那一刻） */
