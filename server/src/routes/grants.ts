@@ -18,6 +18,7 @@ import { svc } from '../context.ts';
 import { root } from '../root-context.ts';
 import { browserMarked, rawLoopback } from '../surfaces.ts';
 import { HttpError } from '../errors.ts';
+import { isSystemAdminOnly } from '../admin-tier.ts';
 import { MCP_TOOLS } from '../mcp-tools.ts';
 import { identity, IDENTITY_UNAVAILABLE, sourceDown } from '../identity.ts';
 import { APPROVAL_TEXT, approvalOf, touchesBusiness, BLOCKS, buildRoles, checkShape, MATRIX_KINDS, matrixSummary, orgRolesFromConfig, PLATFORM_ROLES, roleMatrix, type ActionCatalog, type Kind, type Permission, type RoleDecl } from '../roles.ts';
@@ -142,7 +143,7 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
     if (deps.adminHeaderOk(req)) {
       const by = deps.adminActor(req);
       const principal = actorPrincipal(by);
-      return { by, principal, owner: grants().isOwner(principal), admin: true };
+      return { by, principal, owner: grants().isOwner(principal), admin: true, ...(isSystemAdminOnly(req) ? { systemOnly: true } : {}) };
     }
     const cookie = String(req.headers.cookie ?? '');
     const who = cookie ? await identity().resolveViewer(cookie) : null;
@@ -160,7 +161,7 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
     const by = deps.adminActor(req);
     // 管理员登录对到主体：和主体管理面「不能停用自己」同一个取法
     const principal = actorPrincipal(by);
-    return { by, principal, owner: grants().isOwner(principal) };
+    return { by, principal, owner: grants().isOwner(principal), ...(isSystemAdminOnly(req) ? { systemOnly: true } : {}) };
   }
   const route = (fn: (req: express.Request, res: express.Response) => Promise<unknown>): express.RequestHandler =>
     (req, res, next) => { fn(req, res).catch(next); };

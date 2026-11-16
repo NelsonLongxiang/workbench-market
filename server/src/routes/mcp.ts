@@ -18,6 +18,7 @@ import { HttpError } from '../errors.ts';
 import { closeYglUpstreams, yglHomeProblem } from '../mcp-stdio-upstream.ts';
 import type { McpToolDef } from '../mcp-tools.ts';
 import { SEAT_SUBJECT_PREFIX } from '../services/seat-tokens.ts';
+import { isSystemAdminOnly } from '../admin-tier.ts';
 
 /** 上游配置（和 index.ts 里的 McpUpstream 同形） */
 type McpUpstream = { prefix: string; url: string; headers?: Record<string, string>; enabled?: boolean; toolCallTimeoutMs?: number; kind?: 'ygl-trees'; ygl_home?: string };
@@ -135,6 +136,9 @@ export function registerMcpRoutes(app: HttpService, deps: McpDeps): void {
     void mcpRegisteredNames().then((registered) => {
       try {
         const { saved, dropped, keptUnavailable } = resolveGrants(raw, held, registered);
+        // 系统管理员只能收窄、不能加：MCP 工具都在业务域（mcp-tool），给会话授工具要完整的管理员（admin-tier.ts）
+        const added = saved.filter((t: string) => !held.includes(t));
+        if (added.length && isSystemAdminOnly(req)) return void res.status(403).json({ error: 'system_admin_business_tools', message: 'MCP 工具都碰业务：系统管理员不能给会话加工具（能收回），要属主或完整的管理员', tools: added });
         svc<McpService>('mcp').sessionGrants(id, JSON.stringify(saved));
         res.json({ ok: true, id, grants: saved, dropped, kept_unavailable: keptUnavailable });
       } catch (e) {

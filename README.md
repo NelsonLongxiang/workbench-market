@@ -377,6 +377,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   bench-bindings.ts（视图显式引用本台常量变量的纯校验与数值解析；不执行表达式、不读库、不枚举空间）
   config.ts（配置的落点：模块自己的 Config，defineConfig 声明认哪些环境变量、怎么解析，启动时取一次；服务类插件写成 static Config，由 Cordis 装插件时校验）
   admin-token-env.ts（启动环境给的管理口令 ADMIN_TOKEN：启动时取一次、全进程只认这一份；对外只给有没有、常量时间比对、登录门指纹三样，口令本身不出模块。index.ts 的口令校验、a2a.ts、管理口令路由都经它）
+  admin-tier.ts（系统管理员的边界：认管理员时标出「这次只是系统管理员」（只持 admin 授予），各管理接口据此收紧——不能对业务侧的人（持 owner 或给业务数据的授予）重置密码、绑定解绑、停用恢复、收回授予，要属主或完整的管理员；见 docs/local-accounts.md 第 5 节）
   content-access.ts（内容票据与准入）
   content-static.ts（无令牌静态资产读取）
   content-surface.ts（内容面终结分发与到期引导）

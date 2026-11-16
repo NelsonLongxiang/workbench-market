@@ -32,7 +32,8 @@ import { dirname, join, posix, extname, relative, sep as pathSep } from 'node:pa
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import multer from 'multer';
 import { svc } from './context.ts';
-import { BUSINESS_DOMAINS, domainOf } from './roles.ts';
+import { SYSTEM_DOMAINS, domainOf } from './roles.ts';
+import { markSystemAdminOnly } from './admin-tier.ts';
 import type { HttpService } from './http.ts';
 import { registerTypeRoutes } from './routes/types.ts';
 import { registerCockpitRoutes } from './routes/cockpits.ts';
@@ -607,6 +608,7 @@ async function markOdooAdmin(req: express.Request): Promise<void> {
   if (!identity().hasCredential(cookie)) return;
   const login = await odooAdminOf(cookie);
   if (login) odooAdminReqs.set(req, login);
+  if (login?.startsWith('grant-system:')) markSystemAdminOnly(req); // 系统管理员：各管理接口据此收紧（admin-tier.ts）
 }
 // 管理读面（GET 也走 adminGuard/vaultGuard 的）与口令/身份端点：进路由前先认定
 const ADMIN_IDENTITY_PATHS = /^\/api\/(admin\/whoami|admin-token(\/|$)|mcp\/(sessions|upstreams|tools|calls|access-requests)(\/|$)|change-requests(\/|$)|bindings(\/|$)|a2a\/(peers|state|seat-token\/log)(\/|$)|remote-allow\/diff|vault\/|tasks(\/|$)|workbench-events(?!\/[^/]*\/attachments(\/|$))(\/|$))/; // a2a/peers：对端登记表的管理接口，会话登录的管理员也算管理员（和绑定同口径）；a2a/seat-token/log：换令牌的记录同口径；tasks：统一待办读面同样认 Odoo 管理员（与口令管理员同为全量）；workbench-events：工作台事件的列表、详情也认（「关注」的席位提问同口径）；接单节点取附件（…/:id/attachments/…）只认回执令牌、不看管理员，不在这里
@@ -2738,17 +2740,20 @@ function adminTokenCheck(provided: string | undefined): boolean {
   return adminTokenFromEnv() ? adminTokenOk(provided) : dbAdminTokenOk(provided);
 }
 
-/** 这个请求落到的路由是不是业务域的动作（roles.ts 的 BUSINESS_DOMAINS）；对不上路由回 false */
+/**
+ * 这个请求落到的路由算不算业务：默认算。只有报了动作、动作的域在系统域白名单（roles.ts 的 SYSTEM_DOMAINS）里的才不算——
+ * 对不上路由的（扩展直接挂的、没报动作的）、域不认识的（扩展自己的域、清单外新长出来的）一律按业务（系统管理员不放行）
+ */
 function businessRoute(req: express.Request): boolean {
   const spec = http.actionFor(req);
-  return !!spec && BUSINESS_DOMAINS.includes(domainOf(spec.action));
+  return !spec || !SYSTEM_DOMAINS.includes(domainOf(spec.action));
 }
 /** 管理员：有效口令，或本次请求已认定为 Odoo 管理员（见上方预判中间件） */
 function isAdmin(req: express.Request): boolean {
   if (adminTokenCheck(req.headers['x-admin-token'])) return true;
   const marked = odooAdminReqs.get(req);
   if (!marked) return false;
-  // 系统管理员（只持 admin 授予）：业务域的路由上不算管理员（属主 2026-11-16 定：系统管理员不看业务数据）；对不上路由的按非业务
+  // 系统管理员（只持 admin 授予）：只在系统域的路由上算管理员（属主 2026-11-16 定：系统管理员不看业务数据）；对不上路由、域不认识的都不算
   if (marked.startsWith('grant-system:')) return !businessRoute(req);
   return true;
 }

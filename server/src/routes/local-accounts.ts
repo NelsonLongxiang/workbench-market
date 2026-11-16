@@ -21,6 +21,7 @@ import { requestPerson } from '../request-person.ts';
 import { browserMarked, rawLoopback } from '../surfaces.ts';
 import { clientIp } from '../login-gate.ts';
 import { HttpError } from '../errors.ts';
+import { systemAdminTargetRefusal } from '../admin-tier.ts';
 
 export type LocalAccountRouteDeps = {
   /** 按需认定管理员登录（判管理员之前调用） */
@@ -84,6 +85,9 @@ export function registerLocalAccountRoutes(app: HttpService, deps: LocalAccountR
     const actor = await admin(req, res);
     if (!actor) return;
     const username = usernameOf(req.params.username);
+    // 系统管理员不能重置业务侧的人（持 owner 或碰业务的授予）的密码：重置了就能以他的身份登录（admin-tier.ts）
+    const guard = systemAdminTargetRefusal(req, principals().principalOf(PROVIDER, username));
+    if (guard) return void res.status(403).json(guard);
     const temp = await accounts().resetPassword(username);
     if (temp === null) throw new HttpError(404, '没有这个账号');
     sessions().revokeForIdentity(PROVIDER, username);

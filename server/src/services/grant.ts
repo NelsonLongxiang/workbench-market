@@ -21,7 +21,7 @@
  */
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
-import { APPROVAL_TEXT, EXPIRY_REQUIRED_ROLES, NON_PERSON_ONLY_ROLES, approvalOf, isBusinessSide, scopeOk, scopeWithin, type RoleView } from '../roles.ts';
+import { APPROVAL_TEXT, EXPIRY_REQUIRED_ROLES, NON_PERSON_ONLY_ROLES, approvalOf, grantsBusinessData, isBusinessSide, scopeOk, scopeWithin, type RoleView } from '../roles.ts';
 
 export type GrantStatus = 'draft' | 'pending' | 'active' | 'revoked' | 'expired';
 export type GrantRow = {
@@ -34,7 +34,8 @@ export type GrantEvent = { seq: number; grant_id: number; event: string; from_st
 /** 做这一步的是谁：留痕写法（cli、admin-token、odoo:<登录名>）、对到的主体（没有为 null）、是不是属主 */
 /** 做这一步的是谁。admin：过了管理员门（口令、管理员登录、本机命令行）；为 false 是登录的人自己（L19：放行入口对登录的人放开），
  *  这时第一档（普通员工、访客这类，管理员即可放行的）不归他放行。不写当成过了管理员门（老的调用方都从管理员门进来） */
-export type Actor = { by: string; principal: string | null; owner: boolean; admin?: boolean };
+/** systemOnly：经手的管理员只是系统管理员（只持 admin 授予）——碰业务的授予不能经手，业务侧主体的授予不能收回 */
+export type Actor = { by: string; principal: string | null; owner: boolean; admin?: boolean; systemOnly?: boolean };
 export type Refusal = { ok: false; http: 400 | 403 | 404 | 409 | 422; code: string; message: string };
 export type Result<T> = { ok: true } & T | Refusal;
 
@@ -45,6 +46,7 @@ const VERB: Record<string, string> = { submit: '提交', approve: '放行', revo
 const DENIED_TEXT: Record<string, string> = {
   owner_required: APPROVAL_TEXT.owner, business_approval_required: APPROVAL_TEXT.business, self_grant: '不能放行授给自己的',
   drafter_cannot_approve: '起草的人不能自己放行，要另一位放行', expired: '已经过了期限', state: '不在待核', admin_required: '由管理员放行',
+  system_admin_business_grant: '碰业务的授予，系统管理员不能经手',
 };
 
 export class GrantService extends Service {
@@ -92,12 +94,15 @@ export class GrantService extends Service {
 
   /**
    * 站内管理员（docs/local-accounts.md 第 5 节）：持有生效中的、范围是 * 的 owner 或 admin 授予，回是哪一种（都有算 owner），都没有回 null。
+   * 迁移来的 admin 授予不算（见下）。
    *   owner：完整的管理员；admin：系统管理员——管系统，不看业务数据（属主 2026-11-16 定）。
    * 认人时现查（身份服务每次认出人都问一次，不进缓存）：授予撤销、到期，下一个请求就不再是管理员。
    */
   heldAdmin(principal: string | null, now = Date.now()): 'owner' | 'admin' | null {
     if (!principal) return null;
-    const held = this.activeFor(principal, now).filter((g) => g.scope === '*' && (g.role === 'owner' || g.role === 'admin'));
+    // 迁移来的 admin 授予（source=migration，判定比对开着时按「身份来源说是管理员」补的）不算：
+    // 那个人是不是管理员仍以身份来源当下说的为准，身份来源撤了就不再是系统管理员（docs/local-accounts.md 第 5 节）
+    const held = this.activeFor(principal, now).filter((g) => g.scope === '*' && (g.role === 'owner' || (g.role === 'admin' && g.source !== 'migration')));
     return held.some((g) => g.role === 'owner') ? 'owner' : held.length ? 'admin' : null;
   }
 
@@ -109,6 +114,21 @@ export class GrantService extends Service {
   /** 这个主体在这个范围（* 或 dept:<部门>）有没有生效的、带业务拍板的授予（部门负责人、管理层、属主这类） */
   decidesBusinessIn(principal: string | null, scope: string, now = Date.now()): boolean {
     return !!principal && this.activeFor(principal, now).some((g) => (g.scope === '*' || g.scope === scope) && !!this.roleViews.get(g.role)?.businessDecide);
+  }
+
+  /**
+   * 业务侧的主体：持有生效的 owner 授予，或者持有任何给业务数据的生效授予（业务域的读写决定，范围不论；见 roles.ts 的 grantsBusinessData）。
+   * 系统管理员不能对这样的主体动手（重置密码、绑定解绑、停用恢复、收回授予，见 admin-tier.ts）：动了就等于拿到业务
+   */
+  businessProtected(principal: string | null, now = Date.now()): boolean {
+    return !!principal && this.activeFor(principal, now).some((g) => g.role === 'owner' || grantsBusinessData(this.roleViews.get(g.role)?.closure ?? [{ kinds: ['read'] }]));
+  }
+
+  /** 系统管理员不经手给业务数据的授予（起草、提交、放行都不行）：经手了就能借自己控制的别的账号拿到业务（docs/local-accounts.md 第 5 节） */
+  private systemAdminRefusal(role: string, actor: Actor): Refusal | null {
+    if (!actor.systemOnly) return null;
+    const view = this.roleViews.get(role);
+    return role === 'owner' || !view || grantsBusinessData(view.closure) ? refuse(403, 'system_admin_business_grant', `角色 ${role} 给业务数据：系统管理员不能经手，要属主或完整的管理员`) : null;
   }
 
   /** 这个主体是不是属主：持有生效的 owner 授予 */
@@ -165,7 +185,7 @@ export class GrantService extends Service {
   draft(input: { principal: string; role: string; scope: string; expiresAt: number | null; reason: string }, actor: Actor, now = Date.now()): Result<{ grant: GrantRow }> {
     if (input.expiresAt !== null && (!Number.isSafeInteger(input.expiresAt) || input.expiresAt <= now)) return refuse(400, 'expires_invalid', 'expires_at 要是将来的时刻（毫秒），或者不写');
     if (!input.reason.trim()) return refuse(400, 'reason_required', '要写理由');
-    const bad = this.check({ principal_id: input.principal, role: input.role, scope: input.scope, expires_at: input.expiresAt }, actor);
+    const bad = this.check({ principal_id: input.principal, role: input.role, scope: input.scope, expires_at: input.expiresAt }, actor) ?? this.systemAdminRefusal(input.role, actor);
     if (bad) return bad;
     db.exec('BEGIN IMMEDIATE');
     let id: number;
@@ -186,7 +206,7 @@ export class GrantService extends Service {
   submit(id: number, actor: Actor, now = Date.now()): Result<{ grant: GrantRow }> {
     const g = db.prepare('SELECT * FROM grants WHERE id = ?').get(id) as GrantRow | undefined;
     if (!g) return refuse(404, 'grant_missing', `授予 ${id} 不存在`);
-    const bad = this.check(g, actor);
+    const bad = this.check(g, actor) ?? this.systemAdminRefusal(g.role, actor);
     if (bad) return bad;
     return this.move(id, ['draft'], 'pending', 'submit', actor, '', now);
   }
@@ -203,6 +223,8 @@ export class GrantService extends Service {
     if (tier === 'admin' && !actor.owner && actor.admin === false) return refuse(403, 'admin_required', `角色 ${g.role} 由管理员放行`);
     if (tier === 'owner' && !actor.owner) return refuse(403, 'owner_required', `角色 ${g.role} ${view?.businessDecide ? '带业务的拍板' : '是管理员级的'}，${APPROVAL_TEXT.owner}`);
     if (tier === 'business' && !actor.owner && !this.isBusinessSide(actor.principal, now)) return refuse(403, 'business_approval_required', `角色 ${g.role} 带业务的写，${APPROVAL_TEXT.business}`);
+    const sys = this.systemAdminRefusal(g.role, actor);
+    if (sys) return sys;
     if (tier !== 'admin' && !actor.owner && (g.created_by === actor.by || (!!actor.principal && g.created_by_principal === actor.principal))) {
       return refuse(403, 'drafter_cannot_approve', `授予 ${g.id} 是你起草的，角色 ${g.role} 这一档要另一位放行：${APPROVAL_TEXT[tier]}`);
     }
@@ -237,7 +259,10 @@ export class GrantService extends Service {
   /** 撤销：草稿作废、待核驳回、生效的收回。要写理由 */
   revoke(id: number, actor: Actor, reason: string, now = Date.now()): Result<{ grant: GrantRow }> {
     if (!reason.trim()) return refuse(400, 'reason_required', '撤销要写理由');
-    if (!db.prepare('SELECT 1 FROM grants WHERE id = ?').get(id)) return refuse(404, 'grant_missing', `授予 ${id} 不存在`);
+    const g = db.prepare('SELECT principal_id FROM grants WHERE id = ?').get(id) as { principal_id: string } | undefined;
+    if (!g) return refuse(404, 'grant_missing', `授予 ${id} 不存在`);
+    // 系统管理员不能收回业务侧主体（持 owner 或碰业务的授予）的授予
+    if (actor.systemOnly && this.businessProtected(g.principal_id, now)) return refuse(403, 'system_admin_business_principal', '这个人持有业务授予或属主授予：系统管理员不能收回他的授予，要属主或完整的管理员');
     return this.move(id, ['draft', 'pending', 'active'], 'revoked', 'revoke', actor, reason, now);
   }
 

@@ -20,6 +20,7 @@ import { reconcileFlow } from './login-events.ts';
 import { identity } from '../identity.ts';
 import { browserMarked, rawLoopback } from '../surfaces.ts';
 import { HttpError } from '../errors.ts';
+import { systemAdminTargetRefusal } from '../admin-tier.ts';
 
 export type PrincipalRouteDeps = {
   /** 按需认定管理员登录（判管理员之前调用） */
@@ -80,6 +81,8 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
     const id = principalId(req.body?.id);
     const reason = reasonOf(req.body?.reason);
     if (status === 'disabled' && actorPrincipal(actor) === id) throw new HttpError(409, '不能停用自己'); // 管理员登录（odoo:<登录名>、站内管理员 user:<名>）对回主体
+    const guard = systemAdminTargetRefusal(req, id);
+    if (guard) return void res.status(403).json(guard);
     const out = principals().setStatus(id, status, actor, reason);
     if (!out) throw new HttpError(404, `principal not found: ${id}`);
     // 停用：这个人的市场会话全部注销（认人时本来就连着主体状态查，停用已经立即生效；注销是让恢复之后也要重新登录）
@@ -118,6 +121,8 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
     const displayName = req.body?.display_name === undefined || req.body?.display_name === null ? null : typeof req.body.display_name === 'string' && req.body.display_name.length <= 256 ? req.body.display_name : (() => { throw new HttpError(400, 'display_name 必须是不超过 256 个字符的字符串'); })();
     const reason = reasonOf(req.body?.reason);
     if (selfOf(actor) === target) throw new HttpError(409, '不能往自己身上绑外部身份');
+    const guard = systemAdminTargetRefusal(req, target);
+    if (guard) return void res.status(403).json(guard);
     const out = principals().bindIdentity({ provider, externalId, principal: target, create, displayName });
     if (!out.ok) { const [status, message] = BIND_REFUSED[out.reason]; return res.status(status).json({ error: message, reason: out.reason, ...(out.principal ? { principal: out.principal } : {}) }); }
     console.log(JSON.stringify({ source: 'principals', event: 'bind', provider, external_id: externalId, id: target, created: out.created, by: actor, reason, at: new Date().toISOString() }));
@@ -143,6 +148,8 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
         if (!target.startsWith('user:')) throw new HttpError(400, 'principal 必须是人（user:<名>）');
         const displayName = item?.display_name === undefined || item?.display_name === null ? null : typeof item.display_name === 'string' && item.display_name.length <= 256 ? item.display_name : (() => { throw new HttpError(400, 'display_name 必须是不超过 256 个字符的字符串'); })();
         if (self === target) return { index, ok: false, status: 409, error: '不能往自己身上绑外部身份' };
+        const guard = systemAdminTargetRefusal(req, target);
+        if (guard) return { index, ok: false, status: 403, error: guard.message, reason: guard.error };
         const out = principals().bindIdentity({ provider, externalId, principal: target, create: item?.create === true, displayName });
         if (!out.ok) { const [status, message] = BIND_REFUSED[out.reason]; return { index, ok: false, status, error: message, reason: out.reason, ...(out.principal ? { principal: out.principal } : {}) }; }
         console.log(JSON.stringify({ source: 'principals', event: 'bind', provider, external_id: externalId, id: target, created: out.created, by: actor, reason, batch: true, at: new Date().toISOString() }));
@@ -176,6 +183,8 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
     const reason = reasonOf(req.body?.reason);
     const self = selfOf(actor);
     if (self && principals().principalOf(provider, externalId) === self) throw new HttpError(409, '不能解绑自己名下的外部身份');
+    const guard = systemAdminTargetRefusal(req, principals().principalOf(provider, externalId));
+    if (guard) return void res.status(403).json(guard);
     const was = principals().unbindIdentity(provider, externalId);
     if (!was) throw new HttpError(404, `identity not found: ${provider}/${externalId}`);
     // 凭这条身份发出的会话一并注销（查会话时本来就核对这条身份还绑没绑着；注销是让重新绑回去之后也要重新登录）
