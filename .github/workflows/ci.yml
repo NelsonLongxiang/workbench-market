@@ -176,6 +176,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/bench-page-browser.mjs
+      - name: 数据视图真实闭环（#762：建数据集→写行→存视图→浏览器真接口打开→筛选改真实结果→表单落库→幂等重放→旧版本拒→回退重读→解绑 403→跨台隔离；业务接口不截）
+        env:
+          PYTHON: python
+        run: node scripts/bench-real-loop-browser.mjs
       - name: 身份变了以后页面重读（401 且确认没登录或换了人才清·502 不清挂横幅·旧身份在路上的应答不写回·后退恢复的页面也确认）
         env:
           PYTHON: python
