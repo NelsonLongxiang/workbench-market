@@ -226,8 +226,8 @@
     },
     {
       "name": "local",
-      "what": "账号密码登录（缺省开着）。库里预先放好三个 local 的 state（只存哈希；表单每提交一次就换掉一个，所以提交的几步各用各的）和站内账号 carol（密码 Synthetic-pass-0001，已绑在 user:carol 上）。",
-      "env": {},
+      "what": "账号密码登录（缺省开着；注册打开：WM_LOCAL_SIGNUP=approval）。库里预先放好三个 local 的 state（只存哈希；表单每提交一次就换掉一个，所以提交的几步各用各的）和站内账号 carol（密码 Synthetic-pass-0001，已绑在 user:carol 上）。",
+      "env": { "WM_LOCAL_SIGNUP": "approval" },
       "clock": "2030-01-01T00:00:00Z",
       "seed": [
         { "table": "principals", "row": { "id": "user:carol", "id_key": "user:carol", "kind": "person", "display_name": "Synthetic carol" } },
@@ -288,7 +288,7 @@
           "id": "form-get-signup",
           "route": "GET /login/:flow/form",
           "class": "normal",
-          "what": "注册页（WM_LOCAL_SIGNUP 缺省 approval）",
+          "what": "注册页（WM_LOCAL_SIGNUP=approval）",
           "request": { "method": "GET", "path": "/login/local/form?state=replaystate-local-000000000000000000000000x&view=signup" },
           "response": {
             "status": 200,

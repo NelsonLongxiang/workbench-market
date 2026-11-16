@@ -15,6 +15,8 @@ import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import type { PrincipalService } from '../services/principal.ts';
+import { comparisonKey } from '../services/principal.ts';
+import type { LocalAccountService } from '../services/local-account.ts';
 import type { LoginSessionService } from '../services/login-session.ts';
 import { reconcileFlow } from './login-events.ts';
 import { identity } from '../identity.ts';
@@ -32,12 +34,32 @@ export type PrincipalRouteDeps = {
 
 const principals = () => svc<PrincipalService>('principals');
 
+/**
+ * 自己注册的站内账号（local 下、按等价写法比）：只能经「账号」页核准新建主体，通用的对接（bind、bind-batch）一律不收，
+ * 免得把一个任何人都能注册的名字绑到已有的人身上。站内账号没装上就不算
+ */
+export function selfSignup(provider: string, externalId: string): boolean {
+  if (provider !== 'local') return false;
+  let acc: LocalAccountService | undefined;
+  try { acc = svc<LocalAccountService>('localAccounts'); } catch { return false; }
+  return acc.isSelfSignup(comparisonKey(externalId));
+}
+
 /** 主体标识：类别前缀加一个名。名里不许有控制字符，两头不许有空白 */
 function principalId(v: unknown): string {
   if (typeof v !== 'string' || v.length > 160 || v !== v.trim() || /[\x00-\x1f\x7f]/.test(v) || !/^(user|seat|app|system|node):.+$/.test(v)) {
     throw new HttpError(400, 'id 必须是主体标识（user: / seat: / app: / system: / node: 加一个名）');
   }
   return v;
+}
+
+/** 绑定的目标：人（user:<名>），名非空、不超过 128 个字符、两头没有空白、没有控制字符（和外部身份的写法同一个口径）；不对回 400 */
+function personTarget(v: unknown): string {
+  const id = principalId(v);
+  if (!id.startsWith('user:')) throw new HttpError(400, 'principal 必须是人（user:<名>）');
+  const name = id.slice(5);
+  if (!name || name.length > 128 || name !== name.trim() || /[\x00-\x1f\x7f]/.test(name)) throw new HttpError(400, 'principal 的名不能是空的，不能超过 128 个字符，两头不能有空白');
+  return id;
 }
 
 function reasonOf(v: unknown): string {
@@ -60,11 +82,11 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
   const route = (fn: (req: express.Request, res: express.Response) => Promise<unknown>): express.RequestHandler =>
     (req, res, next) => { fn(req, res).catch(next); };
 
-  /** 等管理员对接的清单：登录方式认出了人，却还没对到主体（对上之后自动从清单里消失） */
+  /** 等管理员对接的清单：登录方式认出了人，却还没对到主体（对上之后自动从清单里消失）。自己注册的站内账号另带 self_signup: true（只能经核准） */
   app.get('/api/principals/pending', { action: 'principal.list-pending', kind: 'admin' }, route(async (req, res) => {
     res.set('Cache-Control', 'private, no-store');
     if (!(await admin(req, res))) return;
-    res.json({ pending: principals().pending() });
+    res.json({ pending: principals().pending().map((p) => (selfSignup(p.provider, p.external_id) ? { ...p, self_signup: true } : p)) });
   }));
 
   app.get('/api/principals', { action: 'principal.list', kind: 'admin' }, route(async (req, res) => {
@@ -104,6 +126,8 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
     taken: [409, '要新建的主体标识和一个已有的主体等价（只差大小写、全角半角之类）'],
     'not-person': [409, '只能绑到人身上'],
     disabled: [409, '目标主体已停用'],
+    exists: [409, '这个名字已经属于一个现有的人'],
+    'self-signup': [409, '这是自己注册的站内账号，只能在「账号」页核准（新建一个人），不能绑到已有的人身上'],
   };
 
   /** 管理员对一次：把一条外部身份绑到一个人身上（可以同时新建这个人）。不能动自己名下的绑定 */
@@ -112,13 +136,12 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
     const actor = await admin(req, res);
     if (!actor) return;
     const { provider, externalId } = identityOf(req.body);
-    const target = principalId(req.body?.principal);
-    if (!target.startsWith('user:')) throw new HttpError(400, 'principal 必须是人（user:<名>）');
+    const target = personTarget(req.body?.principal);
     const create = req.body?.create === true;
     const displayName = req.body?.display_name === undefined || req.body?.display_name === null ? null : typeof req.body.display_name === 'string' && req.body.display_name.length <= 256 ? req.body.display_name : (() => { throw new HttpError(400, 'display_name 必须是不超过 256 个字符的字符串'); })();
     const reason = reasonOf(req.body?.reason);
     if (selfOf(actor) === target) throw new HttpError(409, '不能往自己身上绑外部身份');
-    const out = principals().bindIdentity({ provider, externalId, principal: target, create, displayName });
+    const out = selfSignup(provider, externalId) ? { ok: false as const, reason: 'self-signup' as const, principal: undefined } : principals().bindIdentity({ provider, externalId, principal: target, create, displayName });
     if (!out.ok) { const [status, message] = BIND_REFUSED[out.reason]; return res.status(status).json({ error: message, reason: out.reason, ...(out.principal ? { principal: out.principal } : {}) }); }
     console.log(JSON.stringify({ source: 'principals', event: 'bind', provider, external_id: externalId, id: target, created: out.created, by: actor, reason, at: new Date().toISOString() }));
     res.json({ ok: true, created: out.created, principal: out.principal });
@@ -139,11 +162,10 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
     const results = items.map((item: any, index: number) => {
       try {
         const { provider, externalId } = identityOf(item);
-        const target = principalId(item?.principal);
-        if (!target.startsWith('user:')) throw new HttpError(400, 'principal 必须是人（user:<名>）');
+        const target = personTarget(item?.principal);
         const displayName = item?.display_name === undefined || item?.display_name === null ? null : typeof item.display_name === 'string' && item.display_name.length <= 256 ? item.display_name : (() => { throw new HttpError(400, 'display_name 必须是不超过 256 个字符的字符串'); })();
         if (self === target) return { index, ok: false, status: 409, error: '不能往自己身上绑外部身份' };
-        const out = principals().bindIdentity({ provider, externalId, principal: target, create: item?.create === true, displayName });
+        const out = selfSignup(provider, externalId) ? { ok: false as const, reason: 'self-signup' as const, principal: undefined } : principals().bindIdentity({ provider, externalId, principal: target, create: item?.create === true, displayName });
         if (!out.ok) { const [status, message] = BIND_REFUSED[out.reason]; return { index, ok: false, status, error: message, reason: out.reason, ...(out.principal ? { principal: out.principal } : {}) }; }
         console.log(JSON.stringify({ source: 'principals', event: 'bind', provider, external_id: externalId, id: target, created: out.created, by: actor, reason, batch: true, at: new Date().toISOString() }));
         return { index, ok: true, created: out.created, principal: target };
