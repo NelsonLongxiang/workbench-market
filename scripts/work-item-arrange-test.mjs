@@ -684,6 +684,39 @@ try {
       '登录门开着：人读附件（/api/work-items/:id/attachments/:aid）远程匿名仍 401；取件路径的 POST、id 带前导 0 的不在放行里，也是 401',
       show({ human: gHuman.status, post: gPost.status, shape: gShape.status }));
   }
+  {
+    // 改过的截止经得住重建：事项表清掉（reset）后全量回填，due_at 要是改过的值（回放事件日志里的 due-changed，按行号取最后一条）；
+    // 不清事项表、只是从头全量核一遍（dirty 触发的那种），due_at 也不变
+    const dueOf = (conn) => Object.fromEntries(conn.prepare("SELECT id, due_at FROM work_items WHERE source_ref LIKE 'wbe-%' ORDER BY id").all().map((r) => [r.id, r.due_at]));
+    const live = dbr(); let liveDue = {}, changed = 0, pastId = '', futureId = '';
+    const rebuildDir = join(OUT, 'rebuild'), recheckDir = join(OUT, 'recheck');
+    mkdirSync(rebuildDir, { recursive: true }); mkdirSync(recheckDir, { recursive: true });
+    try {
+      liveDue = dueOf(live);
+      changed = live.prepare("SELECT COUNT(DISTINCT event_id) AS n FROM workbench_event_log WHERE action = 'due-changed'").get().n;
+      // 每件改过截止的事项最后一条 due-changed 改成了什么：改成新日期的（past）、清掉的（future）
+      for (const r of live.prepare("SELECT event_id, json_extract(detail, '$.to') AS t FROM workbench_event_log l WHERE action = 'due-changed' AND id = (SELECT MAX(id) FROM workbench_event_log WHERE event_id = l.event_id AND action = 'due-changed')").all()) {
+        if (r.t === '' && !futureId) futureId = `wi_${r.event_id}`;
+        if (r.t !== '' && !pastId) pastId = `wi_${r.event_id}`;
+      }
+      live.exec(`VACUUM INTO '${join(rebuildDir, 'workbench-market.db').replace(/'/g, "''")}'`);
+      live.exec(`VACUUM INTO '${join(recheckDir, 'workbench-market.db').replace(/'/g, "''")}'`);
+    } finally { live.close(); }
+    const rw = new DatabaseSync(join(rebuildDir, 'workbench-market.db'));
+    try { rw.exec('DROP TABLE work_item_log; DROP TABLE work_items;'); } finally { rw.close(); }
+    const backfillIn = (dir) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', `
+      const { root } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/root-context.ts')).href)});
+      const { WorkItemService } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/services/work-item.ts')).href)});
+      await root.plugin(WorkItemService); root.get('workItems').backfill(); console.log('BACKFILLED');`], { env: { PATH: process.env.PATH, HOME: home, DATA_DIR: dir, NODE_ENV: 'test' }, encoding: 'utf8' });
+    const rb = backfillIn(rebuildDir), rc = backfillIn(recheckDir);
+    const read = (dir) => { const c = new DatabaseSync(join(dir, 'workbench-market.db'), { readOnly: true }); try { return dueOf(c); } finally { c.close(); } };
+    const rebuilt = rb.stdout.includes('BACKFILLED') ? read(rebuildDir) : { error: rb.stderr.slice(-400) };
+    const rechecked = rc.stdout.includes('BACKFILLED') ? read(recheckDir) : { error: rc.stderr.slice(-400) };
+    check(changed >= 2 && !!pastId && !!futureId && liveDue[pastId].startsWith('2099-') && liveDue[futureId] === '' && show(rebuilt) === show(liveDue),
+      '事项表清掉后全量重建：改过的截止（改成新的、清掉）都按事件日志里最后一条 due-changed 回来，和重建前逐件相同',
+      show({ changed, past: [liveDue[pastId], rebuilt[pastId]], future: [liveDue[futureId], rebuilt[futureId]], diff: Object.keys(liveDue).filter((k) => liveDue[k] !== rebuilt[k]).slice(0, 5) }));
+    check(show(rechecked) === show(liveDue), '不清事项表、从头全量核一遍（dirty 触发的那种）：截止不变', show({ diff: Object.keys(liveDue).filter((k) => liveDue[k] !== rechecked[k]).slice(0, 5) }));
+  }
 } catch (e) {
   fail++;
   console.log(`  ✗ 跑不下去：${e?.stack ?? e}`);
