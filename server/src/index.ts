@@ -45,6 +45,7 @@ import { registerSummaryRoutes } from './routes/summary.ts';
 import { registerContentObservationRoutes } from './routes/content-observation.ts';
 import { registerAuthViewerRoutes } from './routes/auth-viewer.ts';
 import { registerPrincipalRoutes } from './routes/principals.ts';
+import { registerLocalAccountRoutes } from './routes/local-accounts.ts';
 import { loadRoleDeclarations, registerGrantRoutes } from './routes/grants.ts';
 import { installBuiltinJudge } from './judgment.ts';
 import { actorResolver, compareConfig, mountJudgmentCompare } from './judgment-compare.ts';
@@ -504,6 +505,8 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/messages\/(read|[1-9]\d{0,15}\/reply)$/,
   // 「安排一件事」：登录的人直接建事项（路由内经身份服务认人，只认启用的人；只此一条路径，不带子路径）
   /^\/api\/work-items$/,
+  // 站内账号：本人改自己的密码（路由内经身份服务认人、核同源、核原密码；只此一条路径）
+  /^\/api\/local-accounts\/_self\/password$/,
   // 「安排一件事」的附件上传、建立人改截止日期：路由内经身份服务认人（上传的是启用的人本人；改截止只认建立人本人）；只此两条
   /^\/api\/work-items\/attachments\/[^/]{1,255}$/,
   /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/due$/,
@@ -2094,6 +2097,7 @@ registerAuthViewerRoutes(http, { wrap, odooLoginUrl });
 
 // ---------- 主体管理（列出、停用、恢复）：路由在域模块里 ----------
 registerPrincipalRoutes(http, { markOdooAdmin, adminGuard, adminActor });
+registerLocalAccountRoutes(http, { markOdooAdmin, adminGuard, adminActor });
 registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor, adminHeaderOk, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段六 6b：角色声明与授予（只建结构，不接判定）
 registerDepartmentRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 部门：登录的人读、管理员写
 registerTeamRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 团队与分配（规范 14 第 1 步）：登录的人按可见范围读；认领、负责人是管理员，分配是负责人

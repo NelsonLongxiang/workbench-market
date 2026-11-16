@@ -115,6 +115,16 @@ export class LoginSessionService extends Service {
     return taken ? { next: taken.next } : null;
   }
 
+  /**
+   * 看一眼 state 还有效（没过期、没用过、是这个方式的），不核销、不核浏览器半边（那一半只发给回调路径）。
+   * 给站内表单页用：表单只在一次真正发起了的登录里出现；真正放行仍在回调的 takeState。
+   */
+  peekState(flow: string, state: unknown, now = Date.now()): boolean {
+    if (typeof state !== 'string' || !TOKEN_RE.test(state)) return false;
+    const row = db.prepare('SELECT flow FROM login_states WHERE state_sha256 = ? AND expires_at > ?').get(sha(state), now) as { flow: string } | undefined;
+    return !!row && row.flow === flow;
+  }
+
   // ---------- 登录方式推来的事件：防重放 ----------
 
   /** 记下一个事件号；第一次见到返回 true，见过返回 false（多个实例共用这张表，同一个事件只处理一次）。顺手清掉 7 天前的 */

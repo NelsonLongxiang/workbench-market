@@ -46,6 +46,7 @@ export const ANONYMOUS_ACTIONS: readonly string[] = [
   'design-token.read',
   'health.read',
   'health.ready',
+  'login.form', // 登录方式的站内表单页：给还没登录的人看，凭核心签的 state（state 不对 400）
   'login.page', // 登录页本来就是给还没登录的人看的
   'login.odoo-proxy-page', // Odoo 同域登录中继的登录页、静态资源、翻译：给还没登录的人看（没开中继时放过）
   'login.odoo-proxy-submit', // Odoo 同域登录中继的提交登录：同源门之外不认人
@@ -164,8 +165,13 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       // 经验库的同步状态：运维信息、不带条目内容，属主在本机看（没接入时原因只在这里）
       'knowledge.sync-status',
       'login.begin',
+      'login.form',
       'login.odoo-proxy-page',
       'login.odoo-proxy-submit',
+      'local-account.create',
+      'local-account.list',
+      'local-account.reset-password',
+      'local-account.unlock',
       'login.page',
       'market.export',
       'market.page',
@@ -263,6 +269,7 @@ export const NARROWED: readonly NarrowedAction[] = [
   { action: 'grant.revoke-migration', only: ['owner', 'local-cli'], why: '整批撤销迁移出来的授予只有属主能做（本机命令行在授予管理面上算属主），比管理员严' },
   { action: 'setup.wizard-approve', only: ['owner', 'local-cli'], why: '首次安装向导这一批只有属主能放行（本机命令行在授予管理面上算属主），比管理员严' },
   { action: 'role.approve', only: ['owner', 'local-cli'], why: '带管理类或决定类权限的自定义角色只有属主能放行（本机命令行在授予管理面上算属主），比管理员严' },
+  { action: 'local-account.change-own-password', only: ['person'], why: '改自己的站内账号密码只认人：任何启用的人都能改自己的（路由只认登录着的本人、要原密码，不靠角色给写权限）；管理口令、本机命令行、席位都不是人，一律不能（管理员重置走 local-account.reset-password）' },
   { action: 'work-items.create', only: ['person'], why: '「安排一件事」只认人：建立人就是提需求的本人。任何启用的人都能安排（不靠角色给写权限）；管理口令、本机命令行、席位都不是人，一律不能' },
 ];
 export const narrowed = (action: string): NarrowedAction | undefined => NARROWED.find((n) => n.action === action);

@@ -231,7 +231,14 @@ export interface LoginFlow {
   /** 没对到主体的人，要不要按对方给的企业邮箱自动对到已有的主体上（显式开关，缺省关；见 routes/login-flows.ts） */
   readonly autoBindByEmail?: boolean;
   begin(input: { state: string; callbackUrl: string }): Promise<FlowBegin>;
-  complete(query: Record<string, string>, input: { callbackUrl: string }): Promise<FlowComplete>;
+  /** state：这次登录的 state（核心已经核销过，只给有站内表单的插件把一次性码绑在它上面用） */
+  complete(query: Record<string, string>, input: { callbackUrl: string; state?: string }): Promise<FlowComplete>;
+  /**
+   * 站内表单（可选）：插件自己出一张表单页（GET/POST /login/<name>/form?state=…），比如账号密码。
+   * 核心先核对 state 还有效（没过期、没用过、是这个方式的，不核销），表单页的安全头、限额也是核心的事；
+   * 插件交回一页 HTML，或者一个站内回调地址（带一次性码，核心照常走回调）。插件不发会话、不碰 cookie。
+   */
+  form?(input: FlowFormInput): Promise<FlowForm>;
   /**
    * 失效通知（可选）：对方推来的事件（比如飞书通讯录变更）。插件自己验签、解密、核对来源，交回应答，
    * 以及这次该停用的外部身份（离职、被停用）和事件号（核心按它防重放）。验不过就交回 4xx，不交 offboard。
@@ -243,6 +250,11 @@ export interface LoginFlow {
    */
   checkMembers?(externalIds: string[]): Promise<{ gone: string[]; unknown: string[] }>;
 }
+
+/** 站内表单的一次请求：fields 只有 POST 才有（urlencoded 的字段，字符串）；source 是来源 IP，插件按它限额 */
+export type FlowFormInput = { method: 'GET' | 'POST'; state: string; callbackUrl: string; fields: Record<string, string>; source: string };
+/** 站内表单的回答：一页 HTML（status 200 或 4xx），或者去回调（location 必须是这个方式的回调地址，带一次性码） */
+export type FlowForm = { kind: 'page'; status: number; html: string } | { kind: 'redirect'; location: string };
 
 /** 失效通知的结果：http、body 原样回给对方；offboard 是该停用的外部身份；eventId 给核心防重放 */
 export type FlowEvent = { http: number; body: unknown; eventId?: string; offboard?: string[] };
@@ -341,6 +353,31 @@ export class IdentityService extends Service {
     return flowFail(502, FLOW_UNAVAILABLE);
   }
 
+  /** 这个登录方式有没有站内表单 */
+  flowHasForm(name: string): boolean {
+    const flow = this.flowsByName.get(name);
+    try { return !!flow && flow.available() === true && typeof flow.form === 'function'; } catch { return false; }
+  }
+
+  /**
+   * 站内表单：交给插件出页面或者校验提交。从不抛错；插件出错、到点没回答、交回的形状不对，都按 503。
+   * 去回调的地址只认这个方式自己的回调地址（同源、同路径），别的一律不放——表单页不能被拿来做开放跳转。
+   */
+  async flowForm(name: string, input: FlowFormInput): Promise<FlowForm> {
+    const unavailable: FlowForm = { kind: 'page', status: 503, html: '' };
+    const flow = this.flowsByName.get(name);
+    try { if (!flow || flow.available() !== true || typeof flow.form !== 'function') return { kind: 'page', status: 404, html: '' }; } catch { return unavailable; }
+    try {
+      const a = await within(Promise.resolve(flow.form(input)), FLOW_DEADLINE_MS) as FlowForm;
+      if (a?.kind === 'page' && typeof a.html === 'string' && Number.isInteger(a.status) && (a.status === 200 || (a.status >= 400 && a.status <= 499))) return { kind: 'page', status: a.status, html: a.html };
+      if (a?.kind === 'redirect' && typeof a.location === 'string') {
+        const want = new URL(input.callbackUrl), got = new URL(a.location, want);
+        if (got.origin === want.origin && got.pathname === want.pathname) return { kind: 'redirect', location: got.href };
+      }
+    } catch { /* 下面按不可用 */ }
+    return unavailable;
+  }
+
   /** 这个登录方式能不能收失效通知、能不能对账 */
   flowCapabilities(name: string): { events: boolean; reconcile: boolean } {
     const flow = this.flowsByName.get(name);
@@ -384,7 +421,7 @@ export class IdentityService extends Service {
   }
 
   /** 回调：拿回调参数去对方那边认人。同样从不抛错，形状不对按认不出 */
-  async completeFlow(name: string, query: Record<string, string>, input: { callbackUrl: string }): Promise<FlowComplete> {
+  async completeFlow(name: string, query: Record<string, string>, input: { callbackUrl: string; state?: string }): Promise<FlowComplete> {
     const flow = this.flowsByName.get(name);
     try { if (!flow || flow.available() !== true) return flowFail(404, '没有这个登录方式'); } catch { return flowFail(404, '没有这个登录方式'); }
     let answer: unknown;

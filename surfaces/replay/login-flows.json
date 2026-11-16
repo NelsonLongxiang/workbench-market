@@ -1,8 +1,11 @@
 {
   "domain": "login-flows",
-  "what": "登录方式：/login/<方式> 和 /login/<方式>/callback 的 2 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
-  "routes": ["GET /login/:flow", "GET /login/:flow/callback"],
-  "exempt": [{ "route": "GET /login/:flow", "class": "unauthorized", "why": "发起登录本来就是给还没登录的人用的，不查身份，没有未授权这一类", "shown_by": "feishu/start" }],
+  "what": "登录方式：/login/<方式> 和 /login/<方式>/callback、/login/<方式>/form 的 4 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /login/:flow", "GET /login/:flow/callback", "GET /login/:flow/form", "POST /login/:flow/form"],
+  "exempt": [
+    { "route": "GET /login/:flow", "class": "unauthorized", "why": "发起登录本来就是给还没登录的人用的，不查身份，没有未授权这一类", "shown_by": "feishu/start" },
+    { "route": "GET /login/:flow/form", "class": "unauthorized", "why": "表单页本来就是给还没登录的人用的，不查身份；凭的是核心签的 state，state 不对归无效一类", "shown_by": "local/form-get" }
+  ],
   "scenarios": [
     {
       "name": "off",
@@ -217,6 +220,157 @@
               "x-powered-by": "Express"
             },
             "body": "<!doctype html><meta charset=\"utf-8\"><title>登录请求无效或已过期</title><h1>登录请求无效或已过期</h1><p>请回到登录页重新登录。</p><p><a href=\"/login\">回到登录页</a></p>"
+          }
+        }
+      ]
+    },
+    {
+      "name": "local",
+      "what": "账号密码登录（缺省开着）。库里预先放好一个 local 的 state（只存哈希）和站内账号 carol（密码 Synthetic-pass-0001，已绑在 user:carol 上）。",
+      "env": {},
+      "clock": "2030-01-01T00:00:00Z",
+      "seed": [
+        { "table": "principals", "row": { "id": "user:carol", "id_key": "user:carol", "kind": "person", "display_name": "Synthetic carol" } },
+        { "table": "principal_identities", "row": { "provider": "local", "external_id": "carol", "external_key": "carol", "principal_id": "user:carol" } },
+        {
+          "table": "local_accounts",
+          "row": { "username": "carol", "display_name": "Synthetic carol", "password_hash": "scrypt$32768$8$1$UxPx2nKECAWDjgvOGmSNwQ$Exm6m4MsRsYfT-orVE4klTzx0wPdXDaS8e_wrT5OJv3nT6z2zb6HjfVAxKjF6LfDG-6a70Ux4EdF4k-nBQUVgA", "must_change": 0, "failed_count": 0, "locked_until": 0, "created_at": 1893456000000, "created_by": "seed", "updated_at": 1893456000000, "last_login_at": null }
+        },
+        {
+          "table": "login_states",
+          "row": { "state_sha256": "735525fb6f1a9f2bd06ca941bff327d3171db47a9e76561479c8f542866527be", "flow": "local", "next": "/tasks", "browser_sha256": "45a9fa3eb94153b4103e6b69a0553de16777344cf4091d9e74b42130377d1660", "source": "seed", "created_at": 0, "expires_at": 4102444800000 }
+        }
+      ],
+      "steps": [
+        {
+          "id": "start",
+          "route": "GET /login/:flow",
+          "class": "normal",
+          "what": "发起：302 去本站的表单页（state 每次随机）",
+          "vary": { "$location": ["port", "query:state"], "$cookies": { "wm_login_state": ["value", "max-age"] } },
+          "request": { "method": "GET", "path": "/login/local?next=/tasks" },
+          "response": {
+            "status": 302,
+            "type": "text/plain; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "111",
+              "location": "http://127.0.0.1:<市场端口>/login/local/form?state=<每个实例随机·43>",
+              "set-cookie": ["wm_login_state=<每个实例随机·43>; Max-Age=<约10分>; Path=/login/local/callback; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin, Accept",
+              "x-powered-by": "Express"
+            },
+            "body": "Found. Redirecting to http://127.0.0.1:<市场端口>/login/local/form?state=<每个实例随机·43>"
+          }
+        },
+        {
+          "id": "form-get",
+          "route": "GET /login/:flow/form",
+          "class": "normal",
+          "what": "表单页：只有用户名、密码两个框",
+          "request": { "method": "GET", "path": "/login/local/form?state=replaystate-local-000000000000000000000000x" },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "1337", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'", "etag": "W/\"539-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-content-type-options": "nosniff", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>账号密码登录</title><style>body{font-family:system-ui,-apple-system,\"Segoe UI\",\"PingFang SC\",sans-serif;background:#F6F7F9;color:#0F172A;margin:0}main{max-width:360px;margin:12vh auto;background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:28px}h1{font-size:20px;margin:0 0 16px}label{display:block;font-size:14px;margin:12px 0 4px}input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:14px}button{margin-top:18px;width:100%;padding:9px;border:0;border-radius:6px;background:#1E3A5F;color:#fff;font-size:14px;cursor:pointer}p.err{color:#DC2626;font-size:14px;margin:0 0 8px}p.hint{color:#5A6577;font-size:13px}a{color:#1E3A5F}</style><main><h1>账号密码登录</h1><form method=\"post\" action=\"/login/local/form?state=replaystate-local-000000000000000000000000x\"><label for=\"u\">用户名</label><input id=\"u\" name=\"username\" autocomplete=\"username\" required maxlength=\"64\" value=\"\"><label for=\"p\">密码</label><input id=\"p\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required maxlength=\"512\"><button type=\"submit\">登录</button></form><p class=\"hint\"><a href=\"/login\">换一种登录方式</a></p></main></html>"
+          }
+        },
+        {
+          "id": "form-get-forged",
+          "route": "GET /login/:flow/form",
+          "class": "invalid",
+          "what": "state 是编的",
+          "request": { "method": "GET", "path": "/login/local/form?state=replaystate-forged-00000000000000000000000x" },
+          "response": {
+            "status": 400,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "204", "content-security-policy": "default-src 'none'; frame-ancestors 'none'", "etag": "W/\"cc-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>登录请求无效或已过期</title><h1>登录请求无效或已过期</h1><p>请回到登录页重新登录。</p><p><a href=\"/login\">回到登录页</a></p>"
+          }
+        },
+        {
+          "id": "form-get-no-form",
+          "route": "GET /login/:flow/form",
+          "class": "invalid",
+          "what": "没有站内表单的登录方式",
+          "request": { "method": "GET", "path": "/login/feishu/form?state=replaystate-local-000000000000000000000000x" },
+          "response": {
+            "status": 404,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "210", "content-security-policy": "default-src 'none'; frame-ancestors 'none'", "etag": "W/\"d2-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>没有这个登录方式</title><h1>没有这个登录方式</h1><p>请回到登录页选一种可用的登录方式。</p><p><a href=\"/login\">回到登录页</a></p>"
+          }
+        },
+        {
+          "id": "form-post-wrong",
+          "route": "POST /login/:flow/form",
+          "class": "unauthorized",
+          "what": "密码不对：401，提示不分没这个人和密码错",
+          "request": { "method": "POST", "path": "/login/local/form?state=replaystate-local-000000000000000000000000x", "headers": { "content-type": "application/x-www-form-urlencoded" }, "text": "username=carol&password=wrong-password-0" },
+          "response": {
+            "status": 401,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "1455", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'", "etag": "W/\"5af-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-content-type-options": "nosniff", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>账号密码登录</title><style>body{font-family:system-ui,-apple-system,\"Segoe UI\",\"PingFang SC\",sans-serif;background:#F6F7F9;color:#0F172A;margin:0}main{max-width:360px;margin:12vh auto;background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:28px}h1{font-size:20px;margin:0 0 16px}label{display:block;font-size:14px;margin:12px 0 4px}input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:14px}button{margin-top:18px;width:100%;padding:9px;border:0;border-radius:6px;background:#1E3A5F;color:#fff;font-size:14px;cursor:pointer}p.err{color:#DC2626;font-size:14px;margin:0 0 8px}p.hint{color:#5A6577;font-size:13px}a{color:#1E3A5F}</style><main><h1>账号密码登录</h1><p class=\"err\" role=\"alert\">用户名或密码不对。连续输错多次，账号会暂时锁定一会儿。</p><form method=\"post\" action=\"/login/local/form?state=replaystate-local-000000000000000000000000x\"><label for=\"u\">用户名</label><input id=\"u\" name=\"username\" autocomplete=\"username\" required maxlength=\"64\" value=\"carol\"><label for=\"p\">密码</label><input id=\"p\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required maxlength=\"512\"><button type=\"submit\">登录</button></form><p class=\"hint\"><a href=\"/login\">换一种登录方式</a></p></main></html>"
+          }
+        },
+        {
+          "id": "form-post-nobody",
+          "route": "POST /login/:flow/form",
+          "class": "unauthorized",
+          "what": "没这个人：和密码不对一模一样",
+          "request": { "method": "POST", "path": "/login/local/form?state=replaystate-local-000000000000000000000000x", "headers": { "content-type": "application/x-www-form-urlencoded" }, "text": "username=nobody&password=wrong-password-0" },
+          "response": {
+            "status": 401,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "1456", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'", "etag": "W/\"5b0-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-content-type-options": "nosniff", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>账号密码登录</title><style>body{font-family:system-ui,-apple-system,\"Segoe UI\",\"PingFang SC\",sans-serif;background:#F6F7F9;color:#0F172A;margin:0}main{max-width:360px;margin:12vh auto;background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:28px}h1{font-size:20px;margin:0 0 16px}label{display:block;font-size:14px;margin:12px 0 4px}input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:14px}button{margin-top:18px;width:100%;padding:9px;border:0;border-radius:6px;background:#1E3A5F;color:#fff;font-size:14px;cursor:pointer}p.err{color:#DC2626;font-size:14px;margin:0 0 8px}p.hint{color:#5A6577;font-size:13px}a{color:#1E3A5F}</style><main><h1>账号密码登录</h1><p class=\"err\" role=\"alert\">用户名或密码不对。连续输错多次，账号会暂时锁定一会儿。</p><form method=\"post\" action=\"/login/local/form?state=replaystate-local-000000000000000000000000x\"><label for=\"u\">用户名</label><input id=\"u\" name=\"username\" autocomplete=\"username\" required maxlength=\"64\" value=\"nobody\"><label for=\"p\">密码</label><input id=\"p\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required maxlength=\"512\"><button type=\"submit\">登录</button></form><p class=\"hint\"><a href=\"/login\">换一种登录方式</a></p></main></html>"
+          }
+        },
+        {
+          "id": "form-post-json",
+          "route": "POST /login/:flow/form",
+          "class": "invalid",
+          "what": "不是表单格式：415",
+          "request": { "method": "POST", "path": "/login/local/form?state=replaystate-local-000000000000000000000000x", "json": { "username": "carol", "password": "Synthetic-pass-0001" } },
+          "response": {
+            "status": 415,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "180", "content-security-policy": "default-src 'none'; frame-ancestors 'none'", "etag": "W/\"b4-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>请求格式不对</title><h1>请求格式不对</h1><p>请回到登录页重新登录。</p><p><a href=\"/login\">回到登录页</a></p>"
+          }
+        },
+        {
+          "id": "form-post-cross-site",
+          "route": "POST /login/:flow/form",
+          "class": "unauthorized",
+          "what": "别的站提交过来：403",
+          "request": {
+            "method": "POST",
+            "path": "/login/local/form?state=replaystate-local-000000000000000000000000x",
+            "headers": { "content-type": "application/x-www-form-urlencoded", "origin": "http://attacker.invalid", "sec-fetch-site": "cross-site" },
+            "text": "username=carol&password=Synthetic-pass-0001"
+          },
+          "response": {
+            "status": 403,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "180", "content-security-policy": "default-src 'none'; frame-ancestors 'none'", "etag": "W/\"b4-<指纹>\"", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>请求来源不对</title><h1>请求来源不对</h1><p>请回到登录页重新登录。</p><p><a href=\"/login\">回到登录页</a></p>"
+          }
+        },
+        {
+          "id": "form-post-ok",
+          "route": "POST /login/:flow/form",
+          "class": "normal",
+          "what": "对了：302 去回调，带一次性码（码每次随机）",
+          "vary": { "$location": ["port", "query:code"] },
+          "request": { "method": "POST", "path": "/login/local/form?state=replaystate-local-000000000000000000000000x", "headers": { "content-type": "application/x-www-form-urlencoded" }, "text": "username=carol&password=Synthetic-pass-0001" },
+          "response": {
+            "status": 302,
+            "type": "text/plain; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "164", "location": "http://127.0.0.1:<市场端口>/login/local/callback?state=replaystate-local-000000000000000000000000x&code=<每个实例随机·43>", "vary": "Origin, Accept", "x-powered-by": "Express" },
+            "body": "Found. Redirecting to http://127.0.0.1:<市场端口>/login/local/callback?state=replaystate-local-000000000000000000000000x&code=<每个实例随机·43>"
           }
         }
       ]
