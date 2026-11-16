@@ -167,7 +167,7 @@ let judgmentEnforce: EnforceConfig = { domains: null };
     console.log(JSON.stringify({ source: 'judgment', event: 'enforce', domains: enforce.domains === 'all' ? 'all' : [...enforce.domains], at: new Date().toISOString() }));
   }
 }
-// 数据视图的入口（WM_BENCH_VIEWS=on|off，缺省 off）：关着的时候每条路由都直接回 404。值不合法拒绝启动
+// 数据视图的入口（WM_BENCH_VIEWS=on|off，缺省 on）：显式 off 时每条路由都直接回 404。值不合法拒绝启动
 const BENCH_VIEWS = (() => { try { return benchViewsConfig(); } catch (e) { console.error(`[bench-views] 拒绝启动：${(e as Error).message}`); process.exit(1); } })();
 // 台的权限申请没人处理的总期限（WM_BENCH_REQUEST_TTL_HOURS，缺省 72，1～720 小时）：启动时读一次，不合法拒绝启动
 setBenchRequestTtlHours((() => { try { return benchRequestTtlConfig(); } catch (e) { console.error(`[bench-views] 拒绝启动：${(e as Error).message}`); process.exit(1); } })());
