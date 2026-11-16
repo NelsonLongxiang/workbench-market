@@ -39,8 +39,13 @@ export function registerAdminTokenRoutes(app: HttpService, deps: AdminTokenDeps)
 
   app.get('/api/admin/whoami', { action: 'admin.whoami', kind: 'read' }, (req, res) => {
     const viaToken = adminTokenCheck(req.headers['x-admin-token']);
-    const odoo = odooAdminReqs.get(req) ?? null;
-    res.set('Cache-Control', 'no-store').json({ admin: viaToken || !!odoo, via: viaToken ? 'token' : odoo ? 'odoo' : null, login: viaToken ? null : odoo });
+    const marked = odooAdminReqs.get(req) ?? null;
+    // 站内管理员（持 owner/admin 授予）记作 grant:<主体>：via 写 grant、login 写主体，不冒充 Odoo 管理员
+    // 只持 admin 授予的系统管理员记作 grant-system:<主体>：同样 via=grant，另带 system_only（管系统，不看业务数据）
+    const system = marked?.startsWith('grant-system:') ? marked.slice('grant-system:'.length) : null;
+    const grant = marked?.startsWith('grant:') ? marked.slice('grant:'.length) : system;
+    const via = viaToken ? 'token' : grant ? 'grant' : marked ? 'odoo' : null;
+    res.set('Cache-Control', 'no-store').json({ admin: viaToken || !!marked, via, login: viaToken ? null : (grant ?? marked), ...(system && !viaToken ? { system_only: true } : {}) });
   });
 
   app.get('/api/admin-token/state', { action: 'admin-token.state', kind: 'read' }, (req, res) => {

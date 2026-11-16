@@ -32,6 +32,7 @@ import { dirname, join, posix, extname, relative, sep as pathSep } from 'node:pa
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import multer from 'multer';
 import { svc } from './context.ts';
+import { BUSINESS_DOMAINS, domainOf } from './roles.ts';
 import type { HttpService } from './http.ts';
 import { registerTypeRoutes } from './routes/types.ts';
 import { registerCockpitRoutes } from './routes/cockpits.ts';
@@ -585,13 +586,15 @@ function allowExtensionRemoteWrite(path: string): void {
 //   主体停没停用不进缓存，每次现查：停用一个主体，管理员认定立即不成立。
 const ODOO_ADMIN_TTL_MS = 30_000;
 const odooAdminViewer = identity().cachedResolver({ ttlMs: ODOO_ADMIN_TTL_MS, max: 1000 });
-const odooAdminReqs = new WeakMap<express.Request, string>(); // 本次请求经 Odoo 管理员认定 → 登录名
+const odooAdminReqs = new WeakMap<express.Request, string>(); // 本次请求认定的管理员登录 → Odoo 管理员记登录名；持 owner 授予的记 grant:<主体>；只持 admin 授予的系统管理员记 grant-system:<主体>
 async function odooAdminOf(cookieHeader: string): Promise<string | null> {
   if (!identity().hasCredential(cookieHeader)) return null; // Odoo 会话，或者由市场维持的会话（管理员标记取 Odoo 这次的回答）
   try {
     // Explicit relay logout revokes Odoo sessions; never reuse a stale admin verdict.
     const who = loginRelay().relayLogin() ? await identity().resolveViewer(cookieHeader) : await odooAdminViewer(cookieHeader);
-    return who.ok && who.viewer.admin ? who.viewer.login : null;
+    if (!who.ok) return null;
+    if (who.viewer.admin) return who.viewer.adminBy === 'grant' ? `grant:${who.viewer.sub}` : who.viewer.login;
+    return who.viewer.systemAdmin === true ? `grant-system:${who.viewer.sub}` : null; // 系统管理员：只在非业务域的路由上算管理员（isAdmin）
   } catch { return null; }
 }
 /** 按需认定：只在确实要判管理员的请求上现查（写门调 adminGuard 前、管理读面、口令设置、whoami），其余请求不碰 Odoo */
@@ -2732,9 +2735,19 @@ function adminTokenCheck(provided: string | undefined): boolean {
   return adminTokenFromEnv() ? adminTokenOk(provided) : dbAdminTokenOk(provided);
 }
 
+/** 这个请求落到的路由是不是业务域的动作（roles.ts 的 BUSINESS_DOMAINS）；对不上路由回 false */
+function businessRoute(req: express.Request): boolean {
+  const spec = http.actionFor(req);
+  return !!spec && BUSINESS_DOMAINS.includes(domainOf(spec.action));
+}
 /** 管理员：有效口令，或本次请求已认定为 Odoo 管理员（见上方预判中间件） */
 function isAdmin(req: express.Request): boolean {
-  return adminTokenCheck(req.headers['x-admin-token']) || odooAdminReqs.has(req);
+  if (adminTokenCheck(req.headers['x-admin-token'])) return true;
+  const marked = odooAdminReqs.get(req);
+  if (!marked) return false;
+  // 系统管理员（只持 admin 授予）：业务域的路由上不算管理员（属主 2026-11-16 定：系统管理员不看业务数据）；对不上路由的按非业务
+  if (marked.startsWith('grant-system:')) return !businessRoute(req);
+  return true;
 }
 
 /** 浏览器来源门：带 Sec-Fetch-Site 的必须是同源（Odoo 会话 cookie 是环境凭据，防跨站借用） */
@@ -3514,6 +3527,8 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
 /** 审批人：Odoo 管理员记登录名，口令记 admin-token（口令本身不落库） */
 function adminActor(req: express.Request): string {
   const odoo = odooAdminReqs.get(req);
+  if (odoo?.startsWith('grant:')) return odoo.slice('grant:'.length); // 站内管理员：留痕记主体（user:<名>）
+  if (odoo?.startsWith('grant-system:')) return odoo.slice('grant-system:'.length); // 系统管理员：同样记主体
   return odoo ? `odoo:${odoo}` : 'admin-token';
 }
 function accessRequestId(req: express.Request): number {

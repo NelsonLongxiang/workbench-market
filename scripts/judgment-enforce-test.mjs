@@ -10,7 +10,8 @@
  *       · 写：新判定拒绝的在处理之前回 403 judgment_denied（管理员登录、但不是属主，整批撤销迁移授予），记进 judgment_enforced，不算不一致；
  *       · 管理面的读（GET）走读的路：远程匿名、普通员工列主体，新旧都拒，应答是旧守卫的、和不切时逐字一样；
  *       · 没切的域照旧按旧守卫（匿名读 Cookie 池、远程匿名列授予的拒绝写法不变）；
- *       · 反向比对：给员工一条 admin 授予，新判定放行、旧守卫照旧拒，记成不一致（说明旧守卫还不能拿掉）
+ *       · 反向比对：给员工一条只带 principal.list 的自定义角色授予，新判定放行、旧守卫照旧拒，记成不一致（说明旧守卫还不能拿掉）。
+ *         （owner / admin 授予从站内账号 P2 起旧守卫也认——持有的人就是管理员，那一种新旧一致，不再拿来演示）
  *   面门：走错面的才算被挡（比对单列、开关不抢先），没声明、判不了的照常
  *   四、读的路（类别 read）：新判定拒，旧处理函数照跑——旧的也拒就原样回旧应答（逐字一样，404 还是 404）；
  *       旧的要放行就换成拒绝，旧的应答体一个字节都不发（json、流式写、跳转、HEAD 都试）
@@ -18,7 +19,7 @@
  *   node scripts/judgment-enforce-test.mjs
  */
 import { createServer } from 'node:net';
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from './owned-script-fixture.mjs';
@@ -104,7 +105,11 @@ try {
 
   // ---------- 三、切了 principal、stats ----------
   {
-    const srv = await boot('enforce', { WM_JUDGMENT_COMPARE: 'on', WM_JUDGMENT_ENFORCE: 'principal,stats,grant' });
+    // 自定义角色：只能列主体。不是 owner / admin，所以旧守卫（管理员）不认它，新判定认——反向比对用
+    const rolesFile = join(OUT, 'enforce-roles.json');
+    mkdirSync(OUT, { recursive: true });
+    writeFileSync(rolesFile, JSON.stringify({ roles: [{ id: 'principal-reader', name: '主体只读（合成）', permissions: [{ actions: ['principal.list'] }] }] }));
+    const srv = await boot('enforce', { WM_JUDGMENT_COMPARE: 'on', WM_JUDGMENT_ENFORCE: 'principal,stats,grant', WM_ROLES_FILE: rolesFile });
     const same = { origin: `http://${srv.host}`, 'sec-fetch-site': 'same-origin' };
     for (const s of [SESSIONS.admin, SESSIONS.alpha]) await srv.call('GET', '/api/auth/viewer', { session: s });
     const r = {
@@ -129,8 +134,8 @@ try {
       '管理面的读走读的路：远程匿名、普通员工列主体，新旧都拒，回的是旧守卫的应答（和不切时逐字一样），没有主体内容', show({ anon: r.listAnon.text.slice(0, 80), staff: r.listStaff.text.slice(0, 80) }));
     check(r.cookiesAnon.status === 200, '没切的域照旧按旧守卫：匿名读 Cookie 池 200', show({ cookies: r.cookiesAnon.status }));
 
-    // 反向比对：给员工 alpha 一条 admin 授予（本机命令行是属主），新判定放行，旧守卫（要管理口令或管理员登录）照旧拒
-    const d = await srv.call('POST', '/api/grants', { body: { principal: 'user:alpha', role: 'admin', scope: '*', reason: '合成：反向比对' } });
+    // 反向比对：给员工 alpha 一条只能列主体的自定义角色授予（本机命令行是属主），新判定放行，旧守卫（要管理口令或管理员登录）照旧拒
+    const d = await srv.call('POST', '/api/grants', { body: { principal: 'user:alpha', role: 'principal-reader', scope: '*', reason: '合成：反向比对' } });
     await srv.call('POST', `/api/grants/${d.json?.grant?.id}/submit`);
     const a = await srv.call('POST', `/api/grants/${d.json?.grant?.id}/approve`);
     const staffAgain = await srv.call('GET', '/api/principals', { headers: { ...REMOTE, ...same }, session: SESSIONS.alpha });
@@ -140,7 +145,7 @@ try {
     const mism = report.json?.mismatches ?? [];
     check(a.json?.grant?.status === 'active' && staffAgain.status === 403 && !staffAgain.text.includes('judgment_denied')
       && mism.some((m) => m.route === 'GET /api/principals' && m.old === 'deny' && m.new === 'allow' && m.actor_kind === 'person'),
-      '反向比对：员工有了 admin 授予，新判定放行，旧守卫照旧拒（写法是旧的），记成不一致：旧守卫还不能拿掉', show({ status: staffAgain.status, mism }));
+      '反向比对：员工有了只能列主体的自定义角色授予，新判定放行，旧守卫照旧拒（写法是旧的），记成不一致：旧守卫还不能拿掉', show({ status: staffAgain.status, mism }));
     check(enforcedRows.some((e) => e.route === 'POST /api/grants/revoke-migration' && e.actor_kind === 'person' && e.verdict === 'deny')
       && !enforcedRows.some((e) => e.route === 'GET /api/principals') && !mism.some((m) => m.actor_kind === 'anonymous'),
       '开关真的拒掉的（写）记进 judgment_enforced；读的路上新旧都拒的不记（旧的应答原样回），也不当不一致', show(enforcedRows));

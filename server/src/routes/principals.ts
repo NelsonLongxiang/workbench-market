@@ -10,6 +10,7 @@
  * 停用是本地动作：改的是主体那一行的状态，每个入口认人时现查，所以立即生效，恢复也一样。
  * 应急口令和本机命令行不是主体，停不掉；管理员不能停用自己（把自己锁在外面之后，只能靠口令或本机命令行恢复）。
  */
+import { actorPrincipal } from '../request-person.ts';
 import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
@@ -78,11 +79,7 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
     if (!actor) return;
     const id = principalId(req.body?.id);
     const reason = reasonOf(req.body?.reason);
-    if (status === 'disabled' && actor.startsWith('odoo:')) {
-      // 管理员登录的留痕写法是 odoo:<登录名>，冒号后面就是提供方那边的用户标识
-      const self = principals().principalOf(identity().providerName() ?? '', actor.slice(5));
-      if (self === id) throw new HttpError(409, '不能停用自己');
-    }
+    if (status === 'disabled' && actorPrincipal(actor) === id) throw new HttpError(409, '不能停用自己'); // 管理员登录（odoo:<登录名>、站内管理员 user:<名>）对回主体
     const out = principals().setStatus(id, status, actor, reason);
     if (!out) throw new HttpError(404, `principal not found: ${id}`);
     // 停用：这个人的市场会话全部注销（认人时本来就连着主体状态查，停用已经立即生效；注销是让恢复之后也要重新登录）
@@ -94,7 +91,7 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
   app.post('/api/principals/restore', { action: 'principal.restore', kind: 'admin' }, setStatus('active'));
 
   /** 发请求的管理员自己是哪个主体（管理员登录才有；口令和本机命令行不是主体） */
-  const selfOf = (actor: string): string | null => (actor.startsWith('odoo:') ? principals().principalOf(identity().providerName() ?? '', actor.slice(5)) : null);
+  const selfOf = (actor: string): string | null => actorPrincipal(actor);
   const identityOf = (body: any): { provider: string; externalId: string } => {
     const provider = body?.provider, externalId = body?.external_id;
     if (typeof provider !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(provider)) throw new HttpError(400, 'provider 必须是提供方的名字（小写字母、数字、连字符、下划线）');
