@@ -451,6 +451,8 @@ jobs:
         run: node scripts/a2a-direct-signature-smoke.mjs
       - name: Signed A2A direct and outbox reject redirects (#349, synthetic loopback only)
         run: node scripts/a2a-bound-redirect-test.mjs
+      - name: 统一绑定表启动迁移只补不改（重启后撤销、mode、notify_url 不变，id 不变；旧表新增的自然键补进来）
+        run: node scripts/bindings-migrate-test.mjs
       - name: /a2a/direct 入站签名拒收的对外应答统一；取卡冷却（逐字节相同·冷却期内只取一次卡·换钥匙冷却后生效·非法开关拒启动）
         run: node scripts/a2a-direct-sig-uniform-test.mjs
       - name: /a2a/direct 幂等登记落库（重启后同一 task_id 仍判 replay / conflict·30 分钟窗口边界·只存摘要·未绑定来源不占用 id）
