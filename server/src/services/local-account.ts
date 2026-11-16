@@ -9,7 +9,9 @@
  *   · 校验用定长比较；用户名不存在时拿一个假的哈希也算一次，「没这个人」和「密码不对」耗时相同；
  *   · 连续输错 LOCK_AFTER 次锁 LOCK_MS；同一来源一分钟内尝试 SOURCE_MAX 次（对了的不算），这个来源先歇一分钟（只在内存里，进程重启清零）。
  *   · 算哈希之前先占名额（admit）：这一次先记进来源的尝试数，再看三道「同时在算」的上限——同一来源 SOURCE_INFLIGHT_MAX（1）、
- *     同一用户名 1、全进程 HASH_INFLIGHT_MAX（scrypt 每次约 32MB、占一个 libuv 线程）。超了直接回 throttled，不进哈希。
+ *     同一用户名 1、全进程 HASH_INFLIGHT_MAX（scrypt 每次约 32MB、占一个 libuv 线程）。前两道超了直接回 throttled，不进哈希；
+ *     全进程那道满了先短排队（最多 HASH_QUEUE_MAX 个、每个最多等 HASH_WAIT_MS），队满或等超时才回 throttled——
+ *     正常登录碰上别人正在算时不白白被拒，并发攻击照样只有上限那么多个同时在算。排队期间来源、用户名的名额一直占着。
  *     这样并发提交越不过按来源的限额，也占不满线程池；同一用户名同时只核一个，输错计数和锁定不会被并发绕过。
  *     名额只在内存里（单实例）；多实例要换成共用的存储时，接口不变。
  * 一次性码（表单校验过了、交给回调换人）和改密码票（临时密码对了、还要先改密码）只在内存里、只存哈希，绑着这次登录的 state，到点作废、用一次作废。
@@ -38,6 +40,9 @@ export const SIGNUP_PENDING_MAX_DEFAULT = 50;
 export const SOURCE_INFLIGHT_MAX = 1;
 /** 全进程同时在算的核对个数（libuv 线程池缺省 4 个线程，留一半给别的活） */
 export const HASH_INFLIGHT_MAX = 2;
+/** 全进程那道满了时最多排几个、每个最多等多久（毫秒）；超出才回 throttled */
+export const HASH_QUEUE_MAX = 16;
+export const HASH_WAIT_MS = 2000;
 const CODE_TTL_MS = 60_000;
 const TICKET_TTL_MS = 5 * 60_000;
 const ONE_TIME_MAX = 10_000;
@@ -125,8 +130,12 @@ export class LocalAccountService extends Service {
   private readonly inflightBySource = new Map<string, number>();
   private readonly inflightByName = new Set<string>();
   private inflight = 0;
+  /** 等全进程名额的队（先来先得）：放名额时直接交给队头，不经过「空出来」那一刻 */
+  private readonly waiters: { grant: () => void }[] = [];
   /** 进程起来以后同时在算的最多是几个（诊断、测试看「没超上限」） */
   private inflightPeak = 0;
+  /** 进程起来以后真的算了几次核对的哈希（诊断、测试看「断开的请求没有白算」） */
+  private hashed = 0;
   private readonly codes = new Map<string, { username: string; state: string; exp: number }>();
   private readonly tickets = new Map<string, { username: string; state: string; exp: number }>();
   /** 注册的口径：开没开、待核准上限。由登录方式插件按它的配置设（没设：关着） */
@@ -271,33 +280,53 @@ export class LocalAccountService extends Service {
   }
 
   /**
-   * 算哈希之前先占名额：来源这一分钟的尝试数、三道「同时在算」的上限都过得去，才记下这一次、占上名额，返回放名额的函数；
-   * 过不去返回 null（调用方直接回 throttled，不进哈希）。全是同步的：同一轮事件里并发进来的请求，先到的占上，后到的看得见
+   * 算哈希之前先占名额：来源这一分钟的尝试数、来源和用户名两道「同时在算」的上限同步判（同一轮事件里并发进来的，先到的占上，后到的看得见、立即拒），
+   * 过了就记下这一次、占上这两个名额；全进程那道有空就占，满了排队（见 HASH_QUEUE_MAX、HASH_WAIT_MS）。返回放名额的函数；
+   * 过不去返回 null（调用方回 throttled，不进哈希）
    */
-  private admit(source: string, name: string, now: number): (() => void) | null {
+  private async admit(source: string, name: string, now: number, signal?: AbortSignal): Promise<(() => void) | null> {
+    // 请求已经断开了：不占名额、不排队、不算
+    if (signal?.aborted) return null;
+    // 来源、用户名两道：同步判、立即拒（并发进来的后到者看得见先到者占的名额）
     if (this.throttled(source, now)) return null;
     if ((this.inflightBySource.get(source) ?? 0) >= SOURCE_INFLIGHT_MAX) return null;
     if (name && this.inflightByName.has(name)) return null;
-    if (this.inflight >= HASH_INFLIGHT_MAX) return null;
     this.noteSourceFail(source, now);
     this.inflightBySource.set(source, (this.inflightBySource.get(source) ?? 0) + 1);
     if (name) this.inflightByName.add(name);
-    this.inflight++;
+    const unreserve = (): void => {
+      const n = (this.inflightBySource.get(source) ?? 1) - 1;
+      if (n > 0) this.inflightBySource.set(source, n); else this.inflightBySource.delete(source);
+      if (name) this.inflightByName.delete(name);
+    };
+    // 全进程那道：有空就占；满了排队，队满或等超时才拒（拒的这一次没进哈希，先记的尝试退回）
+    if (this.inflight < HASH_INFLIGHT_MAX) this.inflight++;
+    else {
+      const granted = this.waiters.length < HASH_QUEUE_MAX && await new Promise<boolean>((ok) => {
+        // 等超时、请求断开了，都出队、不算；轮到时交名额
+        const leave = (): void => { clearTimeout(timer); signal?.removeEventListener('abort', leave); const i = this.waiters.indexOf(w); if (i >= 0) this.waiters.splice(i, 1); ok(false); };
+        const w = { grant: () => { clearTimeout(timer); signal?.removeEventListener('abort', leave); ok(true); } };
+        const timer = setTimeout(leave, HASH_WAIT_MS);
+        signal?.addEventListener('abort', leave, { once: true });
+        this.waiters.push(w);
+      });
+      if (!granted) { unreserve(); this.refundSourceAttempt(source, now); return null; }
+    }
     this.inflightPeak = Math.max(this.inflightPeak, this.inflight);
     let done = false;
     return () => {
       if (done) return;
       done = true;
-      const n = (this.inflightBySource.get(source) ?? 1) - 1;
-      if (n > 0) this.inflightBySource.set(source, n); else this.inflightBySource.delete(source);
-      if (name) this.inflightByName.delete(name);
-      this.inflight--;
+      unreserve();
+      // 名额直接交给队头（inflight 不变）；没人排队才真的空出来
+      const next = this.waiters.shift();
+      if (next) next.grant(); else this.inflight--;
     };
   }
 
   /** 核对的负载：现在同时在算几个、进程起来以后最多几个、上限是几 */
-  hashLoad(): { inflight: number; peak: number; max: number; per_source: number } {
-    return { inflight: this.inflight, peak: this.inflightPeak, max: HASH_INFLIGHT_MAX, per_source: SOURCE_INFLIGHT_MAX };
+  hashLoad(): { inflight: number; peak: number; max: number; per_source: number; queued: number; queue_max: number; hashed: number } {
+    return { inflight: this.inflight, peak: this.inflightPeak, max: HASH_INFLIGHT_MAX, per_source: SOURCE_INFLIGHT_MAX, queued: this.waiters.length, queue_max: HASH_QUEUE_MAX, hashed: this.hashed };
   }
 
   /** 只占「同时在算」的名额（同一来源、全进程），不记登录尝试：自己注册算哈希用。占不上返回 null */
@@ -322,9 +351,9 @@ export class LocalAccountService extends Service {
    * 名额占不上（这个来源尝试太多、同时在算的超了上限）是 throttled（不算哈希，直接拒）。对了清零输错计数，先记的那次尝试退回。
    * claim：占上名额之后、算哈希之前调一次（站内表单拿它换掉一次性的 state）；返回 false 就放掉名额、退回尝试，回 stale，不算哈希。
    */
-  async verify(username: unknown, password: unknown, source: string, now = Date.now(), opts: { claim?: () => boolean } = {}): Promise<VerifyResult> {
+  async verify(username: unknown, password: unknown, source: string, now = Date.now(), opts: { claim?: () => boolean; signal?: AbortSignal } = {}): Promise<VerifyResult> {
     const name = typeof username === 'string' ? username.trim().toLowerCase() : '';
-    const release = this.admit(source, USERNAME_RE.test(name) ? name : '', now);
+    const release = await this.admit(source, USERNAME_RE.test(name) ? name : '', now, opts.signal);
     if (!release) return { ok: false, reason: 'throttled' };
     try {
       if (opts.claim && !opts.claim()) { this.refundSourceAttempt(source, now); return { ok: false, reason: 'stale' }; }
@@ -332,9 +361,10 @@ export class LocalAccountService extends Service {
       const row = USERNAME_RE.test(name)
         ? db.prepare('SELECT username, password_hash, must_change, locked_until FROM local_accounts WHERE username = ?').get(name) as Pick<Row, 'username' | 'password_hash' | 'must_change' | 'locked_until'> | undefined
         : undefined;
-      if (!row) { await checkPassword(await this.dummyHash(), pw); return { ok: false, reason: 'invalid' }; }
-      if (Number(row.locked_until) > now) { await checkPassword(await this.dummyHash(), pw); return { ok: false, reason: 'locked' }; }
-      const good = pw !== '' && await checkPassword(row.password_hash, pw);
+      const hash = (stored: string, p: string): Promise<boolean> => { this.hashed++; return checkPassword(stored, p); };
+      if (!row) { await hash(await this.dummyHash(), pw); return { ok: false, reason: 'invalid' }; }
+      if (Number(row.locked_until) > now) { await hash(await this.dummyHash(), pw); return { ok: false, reason: 'locked' }; }
+      const good = pw !== '' && await hash(row.password_hash, pw);
       if (!good) {
         // 计数到点就锁；锁的时候计数清零，解锁之后重新数
         const after = db.prepare(`UPDATE local_accounts SET failed_count = CASE WHEN failed_count + 1 >= ? THEN 0 ELSE failed_count + 1 END,
