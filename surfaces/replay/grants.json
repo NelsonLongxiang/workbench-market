@@ -532,7 +532,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "581", "etag": "W/\"245-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "646", "etag": "W/\"286-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "grant": {
                 "id": 1,
@@ -553,7 +553,9 @@
                 "scope_name": null,
                 "can_approve": false,
                 "approve_denied": "state",
-                "approve_denied_text": "不在待核"
+                "approve_denied_text": "不在待核",
+                "credentials_set_by_system_admin": null,
+                "ignored_for_admin": false
               }
             }
           }
@@ -723,10 +725,10 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "415", "etag": "W/\"19f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "480", "etag": "W/\"1e0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "grants": [
-                { "id": 1, "principal_id": "user:synthetic-a", "role": "member", "scope": "*", "expires_at": null, "reason": "合成：回放", "status": "revoked", "created_by": "cli", "created_by_principal": null, "approved_by": "cli", "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual", "scope_name": null, "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待核" }
+                { "id": 1, "principal_id": "user:synthetic-a", "role": "member", "scope": "*", "expires_at": null, "reason": "合成：回放", "status": "revoked", "created_by": "cli", "created_by_principal": null, "approved_by": "cli", "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual", "scope_name": null, "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待核", "credentials_set_by_system_admin": null, "ignored_for_admin": false }
               ]
             }
           }
