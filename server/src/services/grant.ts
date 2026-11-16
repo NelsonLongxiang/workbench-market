@@ -45,8 +45,8 @@ const VERB: Record<string, string> = { submit: '提交', approve: '放行', revo
 /** 放行被拒时给页面的短说法（按拒绝代码；没列的用拒绝本身的说法） */
 const DENIED_TEXT: Record<string, string> = {
   owner_required: APPROVAL_TEXT.owner, business_approval_required: APPROVAL_TEXT.business, self_grant: '不能放行授给自己的',
-  drafter_cannot_approve: '起草的人不能自己放行，要另一位放行', expired: '已经过了期限', state: '不在待核', admin_required: '由管理员放行',
-  system_admin_business_grant: '碰业务的授予，系统管理员不能经手',
+  drafter_cannot_approve: '起草或提交的人不能自己放行，要另一位放行', expired: '已经过了期限', state: '不在待核', admin_required: '由管理员放行',
+  system_admin_business_grant: '给业务数据的授予，系统管理员不能放行',
 };
 
 export class GrantService extends Service {
@@ -117,18 +117,40 @@ export class GrantService extends Service {
   }
 
   /**
-   * 业务侧的主体：持有生效的 owner 授予，或者持有任何给业务数据的生效授予（业务域的读写决定，范围不论；见 roles.ts 的 grantsBusinessData）。
-   * 系统管理员不能对这样的主体动手（重置密码、绑定解绑、停用恢复、收回授予，见 admin-tier.ts）：动了就等于拿到业务
+   * 业务侧的主体：持有 owner 授予，或者持有任何给业务数据的授予（业务域的读写决定，范围不论；见 roles.ts 的 grantsBusinessData）——
+   * 生效的、草稿、待放行的都算（还没放行的，放行之后就是业务侧；先动了手再等放行，等于拿到业务）。
+   * 系统管理员不能对这样的主体动手（重置密码、绑定解绑、停用恢复、收回授予，见 admin-tier.ts）
    */
   businessProtected(principal: string | null, now = Date.now()): boolean {
-    return !!principal && this.activeFor(principal, now).some((g) => g.role === 'owner' || grantsBusinessData(this.roleViews.get(g.role)?.closure ?? [{ kinds: ['read'] }]));
+    if (!principal) return false;
+    const rows = db.prepare("SELECT role FROM grants WHERE principal_id = ? AND status IN ('draft', 'pending', 'active') AND (expires_at IS NULL OR expires_at > ?)").all(principal, now) as { role: string }[];
+    return rows.some((g) => g.role === 'owner' || this.businessData(g.role));
   }
 
-  /** 系统管理员不经手给业务数据的授予（起草、提交、放行都不行）：经手了就能借自己控制的别的账号拿到业务（docs/local-accounts.md 第 5 节） */
+  /** 认管理员时不算的那些：迁移来的、生效中的 admin 授予（见 heldAdmin）有几条。启动时记一行，授予列表上每行标 ignored_for_admin */
+  migrationAdminsIgnored(now = Date.now()): number {
+    return Number((db.prepare("SELECT COUNT(*) AS n FROM grants WHERE role = 'admin' AND source = 'migration' AND status = 'active' AND (expires_at IS NULL OR expires_at > ?)").get(now) as { n: number }).n);
+  }
+
+  /** 这个角色给不给业务数据（owner、没声明的都算给） */
+  businessData(role: string): boolean {
+    const view = this.roleViews.get(role);
+    return role === 'owner' || !view || grantsBusinessData(view.closure);
+  }
+
+  /**
+   * 两人制（docs/local-accounts.md 第 5 节）：给业务数据的授予，系统管理员可以起草、提交（日常开新人要用），不能放行——
+   * 放行只给属主、完整的管理员、业务侧的人，而且起草、提交的人不能自己放行（见 approvalRefusal）。给自己控制的别的账号开业务这条路就走不通
+   */
   private systemAdminRefusal(role: string, actor: Actor): Refusal | null {
     if (!actor.systemOnly) return null;
-    const view = this.roleViews.get(role);
-    return role === 'owner' || !view || grantsBusinessData(view.closure) ? refuse(403, 'system_admin_business_grant', `角色 ${role} 给业务数据：系统管理员不能经手，要属主或完整的管理员`) : null;
+    return this.businessData(role) ? refuse(403, 'system_admin_business_grant', `角色 ${role} 给业务数据：系统管理员不能放行，要属主、完整的管理员或业务侧的人放行`) : null;
+  }
+
+  /** 这条授予是谁提交的（最近一次 submit 那一行的经手人） */
+  private submitterOf(id: number): { by: string; principal: string | null } | null {
+    const r = db.prepare("SELECT actor, actor_principal FROM grant_events WHERE grant_id = ? AND event = 'submit' ORDER BY seq DESC LIMIT 1").get(id) as { actor: string; actor_principal: string | null } | undefined;
+    return r ? { by: r.actor, principal: r.actor_principal } : null;
   }
 
   /** 这个主体是不是属主：持有生效的 owner 授予 */
@@ -185,7 +207,7 @@ export class GrantService extends Service {
   draft(input: { principal: string; role: string; scope: string; expiresAt: number | null; reason: string }, actor: Actor, now = Date.now()): Result<{ grant: GrantRow }> {
     if (input.expiresAt !== null && (!Number.isSafeInteger(input.expiresAt) || input.expiresAt <= now)) return refuse(400, 'expires_invalid', 'expires_at 要是将来的时刻（毫秒），或者不写');
     if (!input.reason.trim()) return refuse(400, 'reason_required', '要写理由');
-    const bad = this.check({ principal_id: input.principal, role: input.role, scope: input.scope, expires_at: input.expiresAt }, actor) ?? this.systemAdminRefusal(input.role, actor);
+    const bad = this.check({ principal_id: input.principal, role: input.role, scope: input.scope, expires_at: input.expiresAt }, actor);
     if (bad) return bad;
     db.exec('BEGIN IMMEDIATE');
     let id: number;
@@ -206,7 +228,7 @@ export class GrantService extends Service {
   submit(id: number, actor: Actor, now = Date.now()): Result<{ grant: GrantRow }> {
     const g = db.prepare('SELECT * FROM grants WHERE id = ?').get(id) as GrantRow | undefined;
     if (!g) return refuse(404, 'grant_missing', `授予 ${id} 不存在`);
-    const bad = this.check(g, actor) ?? this.systemAdminRefusal(g.role, actor);
+    const bad = this.check(g, actor);
     if (bad) return bad;
     return this.move(id, ['draft'], 'pending', 'submit', actor, '', now);
   }
@@ -225,8 +247,12 @@ export class GrantService extends Service {
     if (tier === 'business' && !actor.owner && !this.isBusinessSide(actor.principal, now)) return refuse(403, 'business_approval_required', `角色 ${g.role} 带业务的写，${APPROVAL_TEXT.business}`);
     const sys = this.systemAdminRefusal(g.role, actor);
     if (sys) return sys;
-    if (tier !== 'admin' && !actor.owner && (g.created_by === actor.by || (!!actor.principal && g.created_by_principal === actor.principal))) {
-      return refuse(403, 'drafter_cannot_approve', `授予 ${g.id} 是你起草的，角色 ${g.role} 这一档要另一位放行：${APPROVAL_TEXT[tier]}`);
+    // 起草、提交的人不能自己放行：第二、三档，和一切给业务数据的授予（第一档的普通员工这类也算，两人制）；属主不在此限
+    const sub = this.submitterOf(g.id);
+    const mine = g.created_by === actor.by || (!!actor.principal && g.created_by_principal === actor.principal)
+      || (!!sub && (sub.by === actor.by || (!!actor.principal && sub.principal === actor.principal)));
+    if ((tier !== 'admin' || this.businessData(g.role)) && !actor.owner && mine) {
+      return refuse(403, 'drafter_cannot_approve', `授予 ${g.id} 是你起草或提交的，角色 ${g.role} 要另一位放行`);
     }
     if (g.expires_at !== null && g.expires_at <= now) return refuse(409, 'expired', `授予 ${g.id} 已经过了期限，不能生效`);
     if (g.status !== 'pending') return refuse(409, 'state', `授予 ${g.id} 现在是 ${g.status}，不能放行`);

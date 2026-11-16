@@ -26,6 +26,7 @@ import type { CustomRoleService } from '../services/custom-role.ts';
 import type { DepartmentService } from '../services/department.ts';
 import { unknownBuiltinActions } from '../judgment-builtins.ts';
 import type { PrincipalService } from '../services/principal.ts';
+import type { LocalAccountService } from '../services/local-account.ts';
 import type { Actor, GrantService, GrantStatus, Refusal } from '../services/grant.ts';
 import type { JudgmentCompareService } from '../services/judgment-compare.ts';
 import { compareConfig } from '../judgment-compare.ts';
@@ -43,6 +44,23 @@ export type GrantRouteDeps = {
 
 const grants = () => svc<GrantService>('grants');
 const principals = () => svc<PrincipalService>('principals');
+
+/**
+ * 这条给业务数据的授予，被授予的人的站内账号凭据是不是系统管理员设的（他建的账号、他 7 天内重置的密码，见 local-account.ts 的 credentialSetBySystem）：
+ * 是就回哪个账号、谁、什么时候、哪一种。放行时要放行人确认（confirm_credentials），列表和单条上标出来（docs/local-accounts.md 第 5 节）
+ */
+function credentialsBySystem(g: { principal_id: string; role: string }): { username: string; by: string; at: number; kind: 'create' | 'reset' } | null {
+  if (!svc<GrantService>('grants').businessData(g.role)) return null;
+  for (const u of principals().externalIdsOf(g.principal_id, 'local')) {
+    const c = svc<LocalAccountService>('localAccounts').credentialSetBySystem(u);
+    if (c) return { username: u, ...c };
+  }
+  return null;
+}
+/** 列表、单条每行多带的：凭据是不是系统管理员设的；迁移来的 admin 授予在认管理员时不算 */
+const marks = (g: { principal_id: string; role: string; source?: string }) => ({
+  credentials_set_by_system_admin: credentialsBySystem(g), ignored_for_admin: g.role === 'admin' && g.source === 'migration',
+});
 const EXPIRE_EVERY_MS = 10 * 60_000;
 const STATUSES: readonly GrantStatus[] = ['draft', 'pending', 'active', 'revoked', 'expired'];
 
@@ -300,7 +318,7 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
     grants().expireDue();
     const now = Date.now();
     // scope_name：范围给人看的名字（部门范围给部门名，读不到给 null），页面不露部门标识
-    const rows = grants().list({ principal, status: status as GrantStatus | undefined, source: source as 'manual' | 'migration' | undefined }).map((g) => ({ ...g, scope_name: svc<DepartmentService>('departments').scopeName(g.scope), ...grants().approvability(g, actor, now) }));
+    const rows = grants().list({ principal, status: status as GrantStatus | undefined, source: source as 'manual' | 'migration' | undefined }).map((g) => ({ ...g, scope_name: svc<DepartmentService>('departments').scopeName(g.scope), ...grants().approvability(g, actor, now), ...marks(g) }));
     res.json({ grants: actor.admin === false ? rows.filter((g) => g.can_approve) : rows });
   }));
 
@@ -309,7 +327,7 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
     if (!actor) return;
     const g = grants().get(idOf(req));
     if (!g) throw new HttpError(404, `授予 ${req.params.id} 不存在`);
-    const view = { ...g, scope_name: svc<DepartmentService>('departments').scopeName(g.scope), ...grants().approvability(g, actor) };
+    const view = { ...g, scope_name: svc<DepartmentService>('departments').scopeName(g.scope), ...grants().approvability(g, actor), ...marks(g) };
     // 登录的人只看自己能放行的：别的一律当没有（不说有没有这一条）
     if (actor.admin === false && !view.can_approve) throw new HttpError(404, `授予 ${req.params.id} 不存在`);
     res.json({ grant: view });
@@ -338,6 +356,14 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
   app.post('/api/grants/:id/approve', { action: 'grant.approve', kind: 'admin', statusNotVerdict: THREE_TIERS }, route(async (req, res) => {
     const actor = await approverOf(req, res);
     if (!actor) return;
+    // 被授予的人的凭据是系统管理员设的：放得了的人也要先确认（带 confirm_credentials: true），免得放行之后系统管理员借这个账号看业务
+    const g = grants().get(idOf(req));
+    if (g && !grants().approvalRefusal(g, actor)) {
+      const cred = credentialsBySystem(g);
+      if (cred && req.body?.confirm_credentials !== true) {
+        return res.status(409).json({ error: 'credentials_set_by_system_admin', message: `此人凭据由系统管理员设置（站内账号 ${cred.username}，${cred.kind === 'create' ? '账号是系统管理员建的' : '系统管理员最近重置过密码'}）。确认这个人确实是本人在用，再带 confirm_credentials: true 放行；不确定的，先让完整的管理员重置一次密码`, credentials_set_by_system_admin: cred });
+      }
+    }
     send(res, grants().approve(idOf(req), actor), 'approve', actor);
   }));
 

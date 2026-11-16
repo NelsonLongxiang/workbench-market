@@ -12,9 +12,12 @@
  *     E6 系统管理员收回业务侧主体的授予：403
  *     E7 扩展报了自己域的动作（不在系统域白名单）的管理接口：系统管理员 403，属主 200
  *     E8 扩展直接挂、没报动作的管理接口：系统管理员 403，属主 200
- *     X1 系统管理员起草碰业务的授予（给自己建的账号开普通员工）：403
+ *     X1 两人制：系统管理员能起草、提交给业务数据的授予，不能放行；放行人要确认「凭据由系统管理员设置」
+ *     X1b 起草、提交的人不能自己放行给业务数据的授予（第一档也查）
+ *     N3 业务授予还在草稿、待放行时这个人就算业务侧：系统管理员不能重置他的密码
+ *     N1 MCP 访问申请：系统管理员不能批准；建会话的人不能批自己会话的申请
  *     X2 系统管理员照常管系统：角色清单、主体清单 200；业务面 403
- *     X3 迁移来的 admin 授予（source=migration）不让人成系统管理员
+ *     X3 迁移来的 admin 授予（source=migration）不让人成系统管理员，授予列表上标 ignored_for_admin
  *   乙、口令存库的实例（启动环境不给口令）：
  *     E1 系统管理员改管理口令：403，口令没变；属主能改
  *
@@ -168,10 +171,59 @@ try {
       'E6 系统管理员收回属主、持业务授予的人的授予：403（属主照常是属主）', { owner: owner.status, member: member.status });
   }
   {
+    // 两人制：系统管理员可以起草、提交给业务数据的授予（日常开新人），不能放行；放行人还要先确认「凭据由系统管理员设置」
     const d = await sam.go('POST', '/api/grants', { json: { principal: 'user:sock', role: 'member', scope: '*', reason: '合成' } });
-    check(d.status === 403 && d.json?.error === 'system_admin_business_grant', 'X1 系统管理员起草碰业务的授予（给自己建的账号开普通员工）：403', [d.status, d.json?.error]);
+    const sub = d.json?.grant?.id ? await sam.go('POST', `/api/grants/${d.json.grant.id}/submit`) : null;
+    const selfApprove = d.json?.grant?.id ? await sam.go('POST', `/api/grants/${d.json.grant.id}/approve`) : null;
+    const listed = ((await olga.go('GET', '/api/grants?status=pending')).json?.grants ?? []).find((g) => g.id === d.json?.grant?.id);
+    const noConfirm = d.json?.grant?.id ? await olga.go('POST', `/api/grants/${d.json.grant.id}/approve`) : null;
+    const confirmed = d.json?.grant?.id ? await olga.go('POST', `/api/grants/${d.json.grant.id}/approve`, { json: { confirm_credentials: true } }) : null;
+    check(d.status === 201 && sub?.status === 200 && selfApprove?.status === 403 && selfApprove.json?.error === 'system_admin_business_grant'
+        && listed?.credentials_set_by_system_admin?.kind === 'create' && noConfirm?.status === 409 && noConfirm.json?.error === 'credentials_set_by_system_admin' && confirmed?.status === 200,
+      'X1 两人制：系统管理员起草、提交给业务数据的授予照常（给他自己建的账号开普通员工），自己放行 403；列表标出「凭据由系统管理员设置」，属主不确认放行 409、确认了才放行',
+      { draft: d.status, submit: sub?.status, selfApprove: [selfApprove?.status, selfApprove?.json?.error], listed: listed?.credentials_set_by_system_admin, noConfirm: [noConfirm?.status, noConfirm?.json?.error], confirmed: confirmed?.status });
+    // 起草、提交的人不能自己放行：管理口令（浏览器里用的，不是本机命令行）起草提交的普通员工授予，它自己放行 403，属主放行照常（第一档也查）
+    const tokenCall = (method, path, json) => fetch(new URL(path, A.base), { method, headers: { 'x-admin-token': ADMIN_TOKEN, 'content-type': 'application/json', 'sec-fetch-site': 'same-origin', origin: A.base }, body: json === undefined ? undefined : JSON.stringify(json) }).then(async (r) => ({ status: r.status, json: await r.json().catch(() => null) }));
+    await A.cli('POST', '/api/local-accounts', { username: 'zed' });
+    const t1 = await tokenCall('POST', '/api/grants', { principal: 'user:zed', role: 'member', scope: '*', reason: '合成' });
+    await tokenCall('POST', `/api/grants/${t1.json?.grant?.id}/submit`);
+    const tSelf = await tokenCall('POST', `/api/grants/${t1.json?.grant?.id}/approve`);
+    const tOther = await olga.go('POST', `/api/grants/${t1.json?.grant?.id}/approve`);
+    check(t1.status === 201 && tSelf.status === 403 && tSelf.json?.error === 'drafter_cannot_approve' && tOther.status === 200,
+      'X1b 两人制：起草、提交的人不能自己放行给业务数据的授予（第一档的普通员工也查）；另一位（属主）放行照常', { draft: t1.status, self: [tSelf.status, tSelf.json?.error], other: tOther.status });
+    // N3：业务授予还在待放行时，这个人已经算业务侧——系统管理员不能重置他的密码
+    await A.cli('POST', '/api/local-accounts', { username: 'pia' });
+    const p1 = await tokenCall('POST', '/api/grants', { principal: 'user:pia', role: 'member', scope: '*', reason: '合成' });
+    const resetDraft = await sam.go('POST', '/api/local-accounts/pia/reset-password');
+    await tokenCall('POST', `/api/grants/${p1.json?.grant?.id}/submit`);
+    const resetPending = await sam.go('POST', '/api/local-accounts/pia/reset-password');
+    check(p1.status === 201 && resetDraft.status === 403 && resetPending.status === 403 && !resetPending.json?.temp_password,
+      'N3 业务授予还在草稿、待放行时，这个人已经算业务侧：系统管理员重置他的密码 403', { draft: resetDraft.status, pending: resetPending.status });
     const roles = await sam.go('GET', '/api/roles'), people = await sam.go('GET', '/api/principals'), b = await biz(sam);
     check(roles.status === 200 && people.status === 200 && b === 403, 'X2 系统管理员照常管系统：角色清单、主体清单 200；业务面 403', { roles: roles.status, people: people.status, biz: b });
+  }
+  {
+    // N1：系统管理员不能先建会话、再用会话令牌申请业务工具、自己批准；建会话的人（完整的管理员也一样）不能批自己会话的申请
+    const tokenCall = (method, path, json) => fetch(new URL(path, A.base), { method, headers: { 'x-admin-token': ADMIN_TOKEN, 'content-type': 'application/json' }, body: json === undefined ? undefined : JSON.stringify(json) }).then(async (r) => ({ status: r.status, json: await r.json().catch(() => null) }));
+    const ask = async (token) => {
+      const r = await fetch(new URL('/mcp', A.base), { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${token}` },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'access_request', arguments: { tools: ['sop_run_list'], reason: '合成' } } }) });
+      return r.status;
+    };
+    const pendingOf = async (sessionName) => ((await tokenCall('GET', '/api/mcp/access-requests?status=pending')).json ?? []).find((x) => x.session_name === sessionName)?.id;
+    const ms = await sam.go('POST', '/api/mcp/sessions', { json: { name: 'synthetic-sam-n1' } });
+    await ask(ms.json?.token);
+    const samReq = await pendingOf('synthetic-sam-n1');
+    const samApprove = samReq ? await sam.go('POST', `/api/mcp/access-requests/${samReq}/approve`, { json: { note: '合成' } }) : null;
+    const os = await olga.go('POST', '/api/mcp/sessions', { json: { name: 'synthetic-olga-n1' } });
+    await ask(os.json?.token);
+    const olgaReq = await pendingOf('synthetic-olga-n1');
+    const olgaSelf = olgaReq ? await olga.go('POST', `/api/mcp/access-requests/${olgaReq}/approve`, { json: { note: '合成' } }) : null;
+    const samOther = olgaReq ? await sam.go('POST', `/api/mcp/access-requests/${olgaReq}/approve`, { json: { note: '合成' } }) : null; // 不是他建的会话也不行
+    const byToken = olgaReq ? await tokenCall('POST', `/api/mcp/access-requests/${olgaReq}/approve`, { note: '合成' }) : null;
+    check(!!samReq && samApprove?.status === 403 && !!olgaReq && olgaSelf?.status === 403 && samOther?.status === 403 && samOther.json?.error === 'system_admin_business_tools' && byToken?.status === 200,
+      'N1 MCP 访问申请：系统管理员批准 403（建会话、替它申请、自己批走不通）；建会话的人（属主）批自己会话的申请 403；另一位（管理口令）批照常',
+      { samReq, samApprove: samApprove?.status, olgaReq, olgaSelf: olgaSelf?.status, samOther: samOther?.status, byToken: byToken?.status });
   }
   {
     // 迁移来的 admin 授予：判定比对开着时按「身份来源说是管理员」补的；合成：另建一个人 mia，直接在库里给她放一条生效的
@@ -187,7 +239,8 @@ try {
     } finally { d.close(); }
     const who = (await mia.go('GET', '/api/admin/whoami')).json;
     const list = await mia.go('GET', '/api/principals');
-    check(before === 'user:mia' && who?.system_only !== true && list.status === 403, 'X3 迁移来的 admin 授予不让人成系统管理员（以身份来源当下说的为准）：whoami 不是系统管理员，管理面 403', { who, list: list.status });
+    const flagged = ((await olga.go('GET', '/api/grants?principal=user:mia')).json?.grants ?? []).find((g) => g.role === 'admin');
+    check(before === 'user:mia' && who?.system_only !== true && list.status === 403 && flagged?.ignored_for_admin === true, 'X3 迁移来的 admin 授予不让人成系统管理员（以身份来源当下说的为准）：whoami 不是系统管理员，管理面 403', { who, list: list.status });
   }
 
   // ---------------- 乙 ----------------

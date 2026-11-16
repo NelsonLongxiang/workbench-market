@@ -27,6 +27,8 @@ export const LOCK_AFTER = 5;
 export const LOCK_MS = 15 * 60_000;
 const SOURCE_WINDOW_MS = 60_000;
 const SOURCE_MAX = 10;
+/** 系统管理员重置过密码，多久之内放行业务授予时要提示（见 credentialSetBySystem） */
+export const SYSTEM_CREDENTIAL_WINDOW_MS = 7 * 24 * 3_600_000;
 /** 自己注册：同一来源一小时最多试这么多次（成功、失败都算，不让人拿注册去探哪些用户名占着） */
 export const SIGNUP_WINDOW_MS = 60 * 60_000;
 export const SIGNUP_MAX = 5;
@@ -146,7 +148,8 @@ export class LocalAccountService extends Service {
   }
 
   /** 建一个账号，发一个临时密码（下次登录先改）。用户名不合规 invalid，已经有了 taken */
-  async create(input: { username: unknown; displayName?: unknown }, actor: string, now = Date.now()):
+  /** bySystem：建账号的是系统管理员（主体），记下来（见 credentialSetBySystem） */
+  async create(input: { username: unknown; displayName?: unknown; bySystem?: string }, actor: string, now = Date.now()):
     Promise<{ ok: true; tempPassword: string; account: LocalAccountView } | { ok: false; reason: 'invalid' | 'taken'; message: string }> {
     const username = input.username;
     if (typeof username !== 'string' || !USERNAME_RE.test(username)) return { ok: false, reason: 'invalid', message: '用户名只能用小写字母、数字和 . _ -，2～32 位，以字母或数字开头' };
@@ -154,8 +157,8 @@ export class LocalAccountService extends Service {
     if (displayName === null) return { ok: false, reason: 'invalid', message: '显示名最多 64 个字，不能有控制字符' };
     const temp = tempPassword();
     const hash = await hashPassword(temp);
-    const ins = db.prepare(`INSERT INTO local_accounts (username, display_name, password_hash, must_change, failed_count, locked_until, created_at, created_by, updated_at)
-      VALUES (?, ?, ?, 1, 0, 0, ?, ?, ?) ON CONFLICT (username) DO NOTHING`).run(username, displayName, hash, now, actor, now);
+    const ins = db.prepare(`INSERT INTO local_accounts (username, display_name, password_hash, must_change, failed_count, locked_until, created_at, created_by, updated_at, credential_by_system, credential_by_system_at)
+      VALUES (?, ?, ?, 1, 0, 0, ?, ?, ?, ?, ?) ON CONFLICT (username) DO NOTHING`).run(username, displayName, hash, now, actor, now, input.bySystem ?? '', input.bySystem ? now : null);
     if (ins.changes !== 1) return { ok: false, reason: 'taken', message: '这个用户名不能用' };
     return { ok: true, tempPassword: temp, account: this.get(username, now)! };
   }
@@ -199,11 +202,12 @@ export class LocalAccountService extends Service {
   }
 
   /** 重置成一个新的临时密码（下次登录先改），顺手解锁。没有这个账号返回 null */
-  async resetPassword(username: string, now = Date.now()): Promise<string | null> {
+  /** bySystem：重置的是系统管理员（主体），记下来（见 credentialSetBySystem）；别人重置的清掉 */
+  async resetPassword(username: string, now = Date.now(), bySystem = ''): Promise<string | null> {
     if (!this.get(username, now)) return null;
     const temp = tempPassword();
     const hash = await hashPassword(temp);
-    const up = db.prepare('UPDATE local_accounts SET password_hash = ?, must_change = 1, failed_count = 0, locked_until = 0, updated_at = ? WHERE username = ?').run(hash, now, username);
+    const up = db.prepare('UPDATE local_accounts SET password_hash = ?, must_change = 1, failed_count = 0, locked_until = 0, updated_at = ?, credential_by_system = ?, credential_by_system_at = ? WHERE username = ?').run(hash, now, bySystem, bySystem ? now : null, username);
     return up.changes === 1 ? temp : null;
   }
 
@@ -324,8 +328,22 @@ export class LocalAccountService extends Service {
     const problem = passwordProblem(username, next);
     if (problem) return problem;
     const hash = await hashPassword(next as string);
+    // 改密码不清系统管理员那条记录：拿着临时密码的人（可能就是系统管理员自己）也能走这一步，分不出是不是本人
     const up = db.prepare('UPDATE local_accounts SET password_hash = ?, must_change = 0, failed_count = 0, locked_until = 0, updated_at = ? WHERE username = ?').run(hash, now, username);
     return up.changes === 1 ? null : '没有这个账号';
+  }
+
+  /**
+   * 这个账号的凭据是不是系统管理员设的：账号是他建的（一直算），或者他在 SYSTEM_CREDENTIAL_WINDOW_MS（7 天）内重置过密码。是就回谁、什么时候、哪一种，不是回 null。
+   * 之后改过密码也照样算：拿着临时密码的人（可能就是系统管理员自己）也能改，分不出是不是本人；完整管理员再重置一次才清掉。
+   * 放行给业务数据的授予时据此提示放行人、要他确认（docs/local-accounts.md 第 5 节）：系统管理员可能知道这份凭据，放行后能借这个账号看业务
+   */
+  credentialSetBySystem(username: string, now = Date.now()): { by: string; at: number; kind: 'create' | 'reset' } | null {
+    if (!USERNAME_RE.test(username)) return null;
+    const r = db.prepare('SELECT credential_by_system AS by, credential_by_system_at AS at, created_at FROM local_accounts WHERE username = ?').get(username) as { by: string; at: number | null; created_at: number } | undefined;
+    if (!r || !r.by) return null;
+    const at = Number(r.at ?? 0), kind = at === Number(r.created_at) ? 'create' : 'reset';
+    return kind === 'create' || now - at < SYSTEM_CREDENTIAL_WINDOW_MS ? { by: r.by, at, kind } : null;
   }
 
   private sweep(map: Map<string, { exp: number }>, now: number): void {

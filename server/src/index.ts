@@ -2107,6 +2107,8 @@ registerAuthViewerRoutes(http, { wrap, odooLoginUrl });
 registerPrincipalRoutes(http, { markOdooAdmin, adminGuard, adminActor });
 registerLocalAccountRoutes(http, { markOdooAdmin, adminGuard, adminActor });
 registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor, adminHeaderOk, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段六 6b：角色声明与授予（只建结构，不接判定）
+// 迁移来的 admin 授予在认管理员时不算（services/grant.ts 的 heldAdmin）：启动时记一行有几条，属主据此决定要不要整批收回
+{ const n = svc<GrantService>('grants').migrationAdminsIgnored(); if (n) console.log(JSON.stringify({ source: 'grants', event: 'migration-admin-ignored', count: n, note: '迁移来的 admin 授予在认管理员时不算；要整批收回用 POST /api/grants/revoke-migration', at: new Date().toISOString() })); }
 registerDepartmentRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 部门：登录的人读、管理员写
 registerTeamRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 团队与分配（规范 14 第 1 步）：登录的人按可见范围读；认领、负责人是管理员，分配是负责人
 registerRelationRoutes(http, { markOdooAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 关系的提议（规范 14「关系由谁说了算」）：负责人、团队认领要属主或业务侧确认

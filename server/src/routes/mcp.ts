@@ -19,6 +19,7 @@ import { closeYglUpstreams, yglHomeProblem } from '../mcp-stdio-upstream.ts';
 import type { McpToolDef } from '../mcp-tools.ts';
 import { SEAT_SUBJECT_PREFIX } from '../services/seat-tokens.ts';
 import { isSystemAdminOnly } from '../admin-tier.ts';
+import { actorPrincipal } from '../request-person.ts';
 
 /** 上游配置（和 index.ts 里的 McpUpstream 同形） */
 type McpUpstream = { prefix: string; url: string; headers?: Record<string, string>; enabled?: boolean; toolCallTimeoutMs?: number; kind?: 'ygl-trees'; ygl_home?: string };
@@ -102,6 +103,7 @@ export function registerMcpRoutes(app: HttpService, deps: McpDeps): void {
     const token = randomBytes(32).toString('hex');
     const r = svc<McpService>('mcp').sessionCreateStmt()
       .run(name, sha256Hex(token), '[]') as unknown as { lastInsertRowid: number | bigint }; // 新会话授权空=默认拒绝
+    svc<McpService>('mcp').sessionCreatedBy(Number(r.lastInsertRowid), adminActor(req)); // 批准这个会话的访问申请时，建会话的人不能自己批
     res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), name, token, grants: [], note: 'token 仅此一次出现——库存 sha256 无取回接口，请立即分发保管' });
   });
 
@@ -174,6 +176,8 @@ export function registerMcpRoutes(app: HttpService, deps: McpDeps): void {
   // 批准 = 申请的工具并入会话 grants（并集）+ 改申请状态 + 审计行，同一事务；已吊销会话不能批
   app.post('/api/mcp/access-requests/:id/approve', { action: 'mcp.access-approve', kind: 'decide' }, (req, res, next) => {
     if (!adminGuard(req, res)) return;
+    // MCP 工具都在业务域：批准访问申请只给完整的管理员，系统管理员不行（不能先建会话、再替它申请、自己批）
+    if (isSystemAdminOnly(req)) return void res.status(403).json({ error: 'system_admin_business_tools', message: 'MCP 工具都碰业务：系统管理员不能批准访问申请，要属主或完整的管理员' });
     const id = accessRequestId(req);
     const note = String(req.body?.note ?? '').trim().slice(0, ACCESS_REASON_MAX);
     const actor = adminActor(req);
@@ -184,8 +188,11 @@ export function registerMcpRoutes(app: HttpService, deps: McpDeps): void {
         const r = mcp.accessRequestById(id) as AccessRequestRow | undefined;
         if (!r) throw new HttpError(404, `access request not found: ${id}`);
         if (r.status !== 'pending') throw new HttpError(409, `申请已处理（${r.status}），不能再批准`);
-        const sess = mcp.sessionFull(r.session_id) as { id: number; name: string; grants: string; revoked_at: string } | undefined;
+        const sess = mcp.sessionFull(r.session_id) as { id: number; name: string; grants: string; revoked_at: string; created_by: string } | undefined;
         if (!sess || sess.revoked_at) throw new HttpError(409, '会话已吊销，不能批准（可驳回）');
+        // 申请人和批准人不能是同一个人：建这个会话的主体不能批它的申请（完整的管理员也一样；口令、本机命令行不是主体，不在此限）
+        const creator = sess.created_by ? actorPrincipal(sess.created_by) : null;
+        if (creator && creator === actorPrincipal(actor)) throw new HttpError(403, '这个会话是你建的：它的访问申请要另一位管理员批准');
         const tools = parseToolList(r.tools);
         const before = parseToolList(sess.grants);
         // 与 PUT grants 同一口径（resolveGrants）：申请的工具当作「已持有」参与判定——上游暂不可达的保留，已下线的剔除；
