@@ -622,16 +622,22 @@ try { db.exec('DROP INDEX IF EXISTS idx_skill_versions_digest'); } catch { /* �
   if (!ctxCols.some((c) => c.name === 'callback_url')) {
     db.exec("ALTER TABLE a2a_run_ctx ADD COLUMN callback_url TEXT NOT NULL DEFAULT ''");
   }
-  // 联合评审① C：旧两表幂等平移入统一表（natural key 唯一索引承载 OR REPLACE 语义；重复启动安全）
-try {
-  db.exec(`INSERT OR REPLACE INTO bindings (target_type,target_slug,agent_node,direction,mode,notify_url,remote_api_key,created_by,created_at,revoked_at)
-    SELECT 'sop', sop_slug, node, 'admits', mode, callback_url, remote_api_key, created_by, created_at, revoked_at FROM sop_bindings`);
-  db.exec(`INSERT OR REPLACE INTO bindings (target_type,target_slug,agent_node,direction,mode,notify_url,created_by,created_at,revoked_at)
-    SELECT 'app', app_slug, node, 'notify', 'read', base_url, created_by, created_at, revoked_at FROM app_bindings`);
-} catch { /* 首启表未建等情形由外层建表先行——此处静默重试下次启动 */ }
-const bindCols = tableColumns('sop_bindings') as { name: string }[];
+  // 旧表 sop_bindings 早先没有 callback_url：先补列，下面的平移要读它
+  const bindCols = tableColumns('sop_bindings') as { name: string }[];
   if (!bindCols.some((c) => c.name === 'callback_url')) {
     db.exec("ALTER TABLE sop_bindings ADD COLUMN callback_url TEXT NOT NULL DEFAULT ''");
+  }
+  // 联合评审① C：旧两表平移入统一表，只补不改——只插统一表里还没有的自然键（台型、台、节点、方向），
+  // 已有的行一律不碰（id、撤销、mode、notify_url 都以统一表为准）；重复启动安全。旧两表只读：代码里不再写它们
+  try {
+    db.exec(`INSERT INTO bindings (target_type,target_slug,agent_node,direction,mode,notify_url,remote_api_key,created_by,created_at,revoked_at)
+      SELECT 'sop', sop_slug, node, 'admits', mode, callback_url, remote_api_key, created_by, created_at, revoked_at FROM sop_bindings WHERE true
+      ON CONFLICT (target_type, target_slug, agent_node, direction) DO NOTHING`);
+    db.exec(`INSERT INTO bindings (target_type,target_slug,agent_node,direction,mode,notify_url,created_by,created_at,revoked_at)
+      SELECT 'app', app_slug, node, 'notify', 'read', base_url, created_by, created_at, revoked_at FROM app_bindings WHERE true
+      ON CONFLICT (target_type, target_slug, agent_node, direction) DO NOTHING`);
+  } catch (e) {
+    console.error(`[db] 旧绑定表平移进统一表没成（不影响启动，下次启动再补）：${(e as Error)?.message ?? e}`);
   }
 }
 
