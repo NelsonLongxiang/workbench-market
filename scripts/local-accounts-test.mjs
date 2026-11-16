@@ -134,6 +134,7 @@ try {
   check(first.r.status === 302 && first.b.jar.has('wm_session'), '改好密码：回调发市场会话', first.r.status);
   const who = await me(first.b);
   check(who?.authenticated === true && who.principal === 'user:alice' && who.via === 'session', '认出是 alice（市场会话）', who);
+  check(who?.local_account === true, '/api/auth/me 说她有站内账号（用户卡据此给「改密码」入口）', who);
   check((await login('alice', temp)).r.status === 401, '临时密码改过之后就不能再用');
 
   console.log('三、对抗');
