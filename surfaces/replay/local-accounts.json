@@ -60,12 +60,12 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "807", "etag": "W/\"327-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "864", "etag": "W/\"360-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "accounts": [
-                { "username": "carol", "display_name": "Synthetic carol", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "seed", "updated_at": 1893456000000, "last_login_at": null, "principal": "user:carol", "principal_status": "active", "pending": false },
-                { "username": "erin", "display_name": "Synthetic erin", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "signup", "updated_at": 1893456000000, "last_login_at": null, "principal": null, "principal_status": null, "pending": true },
-                { "username": "fred", "display_name": "Synthetic fred", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "signup", "updated_at": 1893456000000, "last_login_at": null, "principal": null, "principal_status": null, "pending": true }
+                { "username": "carol", "display_name": "Synthetic carol", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "seed", "updated_at": 1893456000000, "last_login_at": null, "principal": "user:carol", "principal_status": "active", "pending": false, "name_taken": false },
+                { "username": "erin", "display_name": "Synthetic erin", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "signup", "updated_at": 1893456000000, "last_login_at": null, "principal": null, "principal_status": null, "pending": true, "name_taken": false },
+                { "username": "fred", "display_name": "Synthetic fred", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "signup", "updated_at": 1893456000000, "last_login_at": null, "principal": null, "principal_status": null, "pending": true, "name_taken": false }
               ]
             }
           }
@@ -79,12 +79,12 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "807", "etag": "W/\"327-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "864", "etag": "W/\"360-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "accounts": [
-                { "username": "carol", "display_name": "Synthetic carol", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "seed", "updated_at": 1893456000000, "last_login_at": null, "principal": "user:carol", "principal_status": "active", "pending": false },
-                { "username": "erin", "display_name": "Synthetic erin", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "signup", "updated_at": 1893456000000, "last_login_at": null, "principal": null, "principal_status": null, "pending": true },
-                { "username": "fred", "display_name": "Synthetic fred", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "signup", "updated_at": 1893456000000, "last_login_at": null, "principal": null, "principal_status": null, "pending": true }
+                { "username": "carol", "display_name": "Synthetic carol", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "seed", "updated_at": 1893456000000, "last_login_at": null, "principal": "user:carol", "principal_status": "active", "pending": false, "name_taken": false },
+                { "username": "erin", "display_name": "Synthetic erin", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "signup", "updated_at": 1893456000000, "last_login_at": null, "principal": null, "principal_status": null, "pending": true, "name_taken": false },
+                { "username": "fred", "display_name": "Synthetic fred", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "signup", "updated_at": 1893456000000, "last_login_at": null, "principal": null, "principal_status": null, "pending": true, "name_taken": false }
               ]
             }
           }
@@ -138,9 +138,9 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "314", "etag": "W/\"13a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "333", "etag": "W/\"14d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "account": { "username": "dave", "display_name": "Synthetic Dave", "must_change": true, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "last_login_at": null, "principal": "user:dave", "principal_status": "active", "pending": false },
+              "account": { "username": "dave", "display_name": "Synthetic Dave", "must_change": true, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "last_login_at": null, "principal": "user:dave", "principal_status": "active", "pending": false, "name_taken": false },
               "temp_password": "<每个实例随机·string·16>"
             }
           }
@@ -181,9 +181,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "314", "etag": "W/\"13a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "333", "etag": "W/\"14d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "account": { "username": "dave", "display_name": "Synthetic Dave", "must_change": true, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "last_login_at": null, "principal": "user:dave", "principal_status": "active", "pending": false },
+              "account": { "username": "dave", "display_name": "Synthetic Dave", "must_change": true, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "last_login_at": null, "principal": "user:dave", "principal_status": "active", "pending": false, "name_taken": false },
               "temp_password": "<每个实例随机·string·16>"
             }
           }
@@ -224,9 +224,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "284", "etag": "W/\"11c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "303", "etag": "W/\"12f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "account": { "username": "carol", "display_name": "Synthetic carol", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "seed", "updated_at": 1893456000000, "last_login_at": null, "principal": "user:carol", "principal_status": "active", "pending": false }
+              "account": { "username": "carol", "display_name": "Synthetic carol", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "seed", "updated_at": 1893456000000, "last_login_at": null, "principal": "user:carol", "principal_status": "active", "pending": false, "name_taken": false }
             }
           }
         },
@@ -279,9 +279,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "283", "etag": "W/\"11b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "302", "etag": "W/\"12e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "account": { "username": "erin", "display_name": "Synthetic erin", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "signup", "updated_at": 1893456000000, "last_login_at": null, "principal": "user:erin", "principal_status": "active", "pending": false }
+              "account": { "username": "erin", "display_name": "Synthetic erin", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "signup", "updated_at": 1893456000000, "last_login_at": null, "principal": "user:erin", "principal_status": "active", "pending": false, "name_taken": false }
             }
           }
         },
