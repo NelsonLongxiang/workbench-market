@@ -29,7 +29,8 @@ import { identity } from './identity.ts';
 import { collectTasks } from './tasks.ts';
 import { tasksReadAccess } from './tasks-read-access.ts';
 import { listVars, workbenchScope } from './workbench-vars.ts';
-import { principalsAdmin } from './routes/principals.ts';
+import { principalsAdmin, selfSignup } from './routes/principals.ts';
+import type { LocalAccountService } from './services/local-account.ts';
 import { sopRunAcceptance } from './routes/sop-run-lifecycle.ts';
 import { buildBoard, findBoardWorkbench, parseConfig, BOARD_PATH, type BoardVar } from './owner-pending.ts';
 import { openSeatAsks, rejectedReplies, SEAT_ASK_BATCH, SEAT_ASK_LIMIT } from './services/attention-sources.ts';
@@ -286,15 +287,31 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
       source: 'principal-pending', label: '待对接清单',
       list: async (req) => {
         if (!principalsAdmin || !(await principalsAdmin(req, silentRes()))) return null;
-        // 绑在非人主体上的：对接（bind）一定是 409，不给这个答法，标题里说清楚要先解绑那条外部身份
-        return svc<PrincipalService>('principals').pending().map((p) => item({
-          source: 'principal-pending', source_id: `${p.provider}:${p.external_id}`, category: 'grant',
-          title: p.reason === 'bound-to-non-person'
-            ? `${p.display_name || p.external_id}（${p.provider}）这个账号绑在非人主体（席位、节点）上，不能拿来登录；要让本人登录，先解绑那条外部身份`
-            : `${p.display_name || p.external_id}（${p.provider}）等对接到主体`,
-          waiting_for: `${p.provider}:${p.external_id}`,
-          since: p.last_seen, answers: p.reason === 'bound-to-non-person' ? [] : ['bind'], link: null, // 没有对应的页面：这类条目在卡片上当场办（link 只放站内页面路径，不放接口地址）
+        // 绑在非人主体上的：对接（bind）一定是 409，不给这个答法，标题里说清楚要先解绑那条外部身份。
+        // 自己注册的站内账号：对接也是 409（只能核准新建一个人），不给这个答法，送去「账号」页核准或拒绝
+        const out = svc<PrincipalService>('principals').pending().map((p) => {
+          const signup = selfSignup(p.provider, p.external_id);
+          return item({
+            source: 'principal-pending', source_id: `${p.provider}:${p.external_id}`, category: 'grant',
+            title: p.reason === 'bound-to-non-person'
+              ? `${p.display_name || p.external_id}（${p.provider}）这个账号绑在非人主体（席位、节点）上，不能拿来登录；要让本人登录，先解绑那条外部身份`
+              : signup ? `自己注册的账号 ${p.external_id}${p.display_name && p.display_name !== p.external_id ? `（自填显示名「${p.display_name}」）` : ''}等核准：去「账号」页签的「待核准的注册」核准（新建一个人）或拒绝`
+              : `${p.display_name || p.external_id}（${p.provider}）等对接到主体`,
+            waiting_for: `${p.provider}:${p.external_id}`,
+            since: p.last_seen, answers: p.reason === 'bound-to-non-person' || signup ? [] : ['bind'],
+            link: signup ? '/access?tab=accounts' : null, // 别的没有对应的页面：在卡片上当场办（link 只放站内页面路径，不放接口地址）
+            phase: signup ? 'self-signup' : '',
+          });
+        });
+        // 等核准的自己注册账号到了上限：注册暂停着，提醒管理员去核准或拒绝
+        let full: ReturnType<LocalAccountService['signupFull']> | null = null;
+        try { full = svc<LocalAccountService>('localAccounts').signupFull(); } catch { full = null; }
+        if (full?.full) out.unshift(item({
+          source: 'principal-pending', source_id: 'local:signup-paused', category: 'grant',
+          title: `自己注册已暂停：等核准的账号到了上限（${full.pending} / ${full.max} 个），新注册回「暂停」；核准或拒绝一些之后自动恢复`,
+          waiting_for: 'local', since: '', answers: [], link: '/access?tab=accounts', phase: 'signup-paused',
         }));
+        return out;
       },
     }),
     provide({

@@ -371,6 +371,7 @@ export class IdentityService extends Service {
 
   /**
    * 站内表单：交给插件出页面或者校验提交。从不抛错；插件出错、到点没回答、交回的形状不对，都按 503。
+   * 插件自己的页面只收 200、4xx 和 503（暂停服务，比如注册满了，页面上说清楚），别的 5xx 换成通用的「暂时不可用」。
    * 去回调的地址只认这个方式自己的回调地址（同源、同路径），别的一律不放——表单页不能被拿来做开放跳转。
    */
   async flowForm(name: string, input: FlowFormInput): Promise<FlowForm> {
@@ -379,7 +380,7 @@ export class IdentityService extends Service {
     try { if (!flow || flow.available() !== true || typeof flow.form !== 'function') return { kind: 'page', status: 404, html: '' }; } catch { return unavailable; }
     try {
       const a = await within(Promise.resolve(flow.form(input)), FLOW_DEADLINE_MS) as FlowForm;
-      if (a?.kind === 'page' && typeof a.html === 'string' && Number.isInteger(a.status) && (a.status === 200 || (a.status >= 400 && a.status <= 499))) return { kind: 'page', status: a.status, html: a.html };
+      if (a?.kind === 'page' && typeof a.html === 'string' && Number.isInteger(a.status) && (a.status === 200 || a.status === 503 || (a.status >= 400 && a.status <= 499))) return { kind: 'page', status: a.status, html: a.html };
       if (a?.kind === 'redirect' && typeof a.location === 'string') {
         const want = new URL(input.callbackUrl), got = new URL(a.location, want);
         if (got.origin === want.origin && got.pathname === want.pathname) return { kind: 'redirect', location: got.href };

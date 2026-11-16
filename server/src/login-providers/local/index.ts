@@ -13,7 +13,9 @@
  * 对到主体、等待页、发会话、停用，都是核心的事（routes/login-flows.ts），这里不碰。
  *
  * 配置：WM_LOCAL_LOGIN=on|off，缺省 on（不设就开）；别的值拒绝启动。
- *       WM_LOCAL_SIGNUP=approval|off，缺省 approval：表单页有「注册新账号」，自己注册的账号要管理员核准才进得去（第 4 节）；off 没有注册入口。
+ *       WM_LOCAL_SIGNUP=approval|off，缺省 off（没有注册入口）；approval：表单页有「注册新账号」，自己注册的账号要管理员核准才进得去（第 4 节）。
+ *       WM_LOCAL_SIGNUP_PENDING_MAX：等核准的自己注册账号全站最多几个，缺省 50（1～10000 的整数，别的值拒绝启动）；到了就暂停注册（503）。
+ *       启动时打一行日志写明这几项当下的值。
  * 注册：表单页 ?view=signup 出注册页；提交（mode=signup）只建站内账号，然后照常去回调——核心发现没对接，进待对接清单、给等待页。
  * 提示只说「用户名或密码不对」，不分没这个人、密码错、锁着了；页面不带任何从库里来的东西（只有用户自己刚输的用户名）。
  */
@@ -21,7 +23,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import type { FlowBegin, FlowComplete, FlowForm, FlowFormInput, IdentityService, LoginFlow } from '../../identity.ts';
 import type { LocalAccountService } from '../../services/local-account.ts';
 import type { LoginSessionService } from '../../services/login-session.ts';
-import { PASSWORD_MIN } from '../../services/local-account.ts';
+import { PASSWORD_MIN, SIGNUP_PENDING_MAX_DEFAULT } from '../../services/local-account.ts';
 import { createHmac, randomBytes } from 'node:crypto';
 import { defineConfig, loadConfig } from '../../config.ts';
 
@@ -30,7 +32,10 @@ export const Config = defineConfig((env) => {
   if (raw !== '' && raw !== 'on' && raw !== 'off') throw new Error(`[local] 拒绝启动：WM_LOCAL_LOGIN 只接受 on / off / 不设，现在是 ${JSON.stringify(raw)}`);
   const signup = String(env.WM_LOCAL_SIGNUP ?? '').trim();
   if (signup !== '' && signup !== 'approval' && signup !== 'off') throw new Error(`[local] 拒绝启动：WM_LOCAL_SIGNUP 只接受 approval / off / 不设，现在是 ${JSON.stringify(signup)}`);
-  return { on: raw !== 'off', signup: signup !== 'off' };
+  const capRaw = String(env.WM_LOCAL_SIGNUP_PENDING_MAX ?? '').trim();
+  const cap = capRaw === '' ? SIGNUP_PENDING_MAX_DEFAULT : /^[1-9][0-9]{0,4}$/.test(capRaw) && Number(capRaw) <= 10_000 ? Number(capRaw) : NaN;
+  if (Number.isNaN(cap)) throw new Error(`[local] 拒绝启动：WM_LOCAL_SIGNUP_PENDING_MAX 只接受 1～10000 的整数或不设，现在是 ${JSON.stringify(capRaw)}`);
+  return { on: raw !== 'off', signup: signup === 'approval', signupPendingMax: cap };
 });
 const config = loadConfig(Config);
 
@@ -141,7 +146,7 @@ async function submit(input: FlowFormInput): Promise<FlowForm> {
     const typedName = typeof fields.username === 'string' ? fields.username : '';
     const typedDisplay = typeof fields.display_name === 'string' ? fields.display_name : '';
     const r = await acc.register({ username: typedName, displayName: typedDisplay, password: fields.password, confirm: fields.confirm }, input.source, (u) => nameTaken(u));
-    if (!r.ok) return signupPage(fresh, r.reason === 'throttled' ? 429 : r.reason === 'taken' ? 409 : 400, r.message, typedName, typedDisplay);
+    if (!r.ok) return signupPage(fresh, r.reason === 'throttled' ? 429 : r.reason === 'taken' ? 409 : r.reason === 'paused' ? 503 : 400, r.message, typedName, typedDisplay);
     console.log(JSON.stringify({ source: 'local-accounts', event: 'signup', username: r.username, at: new Date().toISOString() }));
     return toCallback(input.callbackUrl, fresh, acc.issueCode(r.username, fresh));
   }
@@ -204,5 +209,7 @@ export function apply(ctx: Context): void {
     const p = ctx.get('principals') as { nameTaken?: (provider: string, externalId: string) => boolean } | undefined;
     return typeof p?.nameTaken === 'function' ? p.nameTaken('local', username) === true : true;
   };
+  ctx.effect(() => accounts().setSignupPolicy({ open: config.on && config.signup, pendingMax: config.signupPendingMax }), 'localAccounts.setSignupPolicy');
+  console.log(JSON.stringify({ source: 'local-accounts', event: 'config', login: config.on ? 'on' : 'off', signup: config.on && config.signup ? 'approval' : 'off', signup_pending_max: config.signupPendingMax, at: new Date().toISOString() }));
   ctx.effect(() => (ctx.get('identity') as IdentityService).registerFlow(flow), 'identity.registerFlow(local)');
 }

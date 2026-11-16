@@ -13,6 +13,10 @@
 - 这是公开仓：不写业务内容，不写内网地址、端口、主机名、凭证。部署方的私有功能放在仓库外，经扩展目录挂进来。
 - 安全面的改动（鉴权、CORS、SSRF、注入、令牌、会话）附对抗组，先红后绿，见 PR 模板。
 - 新的安全行为要加一行启动自检。
+- 身份与权限的改动先验后合。范围：影响谁能登录、谁是谁、谁能做什么的改动都算，拿不准就当这一类。按文件名大致是 `server/src/` 下名字里含 identity、login、local-account、signup、principal、grant、role、judgment、admin-token、access、auth、session、person、seat-token、custom-role、dept-lead、setup-wizard、mcp、peer、portal、surfaces、attention-answers、startup-security-self-probe 的文件，以及 `server/src/login-providers/` 整个目录。规则：
+  - 合进 main 之前，要有作者以外的会话或人在 PR 当前的头提交上做一次独立验收：复现对抗组（先红后绿）、跑变异，把结论（PASS，或有条件 PASS 且条件已满足）贴在 PR 上，写明对应的头提交。
+  - 头提交变了（包括把 main 合进 PR）就复核增量，验收结论要对应新的头提交。
+  - 作者不合自己的这类 PR。合并的人要先确认 PR 上有对应当前头提交的验收结论，没有就不合。
 
 ## 东西该写在哪
 
