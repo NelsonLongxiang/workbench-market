@@ -85,10 +85,13 @@ const DUP_MAX = 10_000;
 const dupKey = randomBytes(32);
 const mac = (s: string): string => createHmac('sha256', dupKey).update(s, 'utf8').digest('hex');
 const recentSubmits = new Map<string, { digest: string; at: number; outcome: Promise<FlowForm> }>();
+/** 认「同一份提交」窗口用的钟；只有测试会换（scripts/local-login-limits-test.mjs 拿它验窗口过了就不认） */
+let clock = (): number => Date.now();
+export function useFormClock(fn: () => number): () => void { const prev = clock; clock = fn; return () => { clock = prev; }; }
 
 async function form(input: FlowFormInput): Promise<FlowForm> {
   if (input.method === 'GET') return loginPage(input.state, 200);
-  const now = Date.now();
+  const now = clock();
   for (const [k, v] of recentSubmits) if (now - v.at >= DUP_MS) recentSubmits.delete(k);
   while (recentSubmits.size > DUP_MAX) recentSubmits.delete(recentSubmits.keys().next().value as string);
   const key = mac(`state\u0000${input.state}`);
@@ -122,7 +125,7 @@ async function submit(input: FlowFormInput): Promise<FlowForm> {
   const typed = typeof fields.username === 'string' ? fields.username : '';
   // 先占核对名额（来源、用户名、全进程），占上了再换 state，换上了才算哈希
   let fresh: string | null = null;
-  const r = await acc.verify(typed, fields.password, input.source, Date.now(), { claim: () => (fresh = sessions().rotateState('local', state)) !== null });
+  const r = await acc.verify(typed, fields.password, input.source, Date.now(), { claim: () => (fresh = sessions().rotateState('local', state)) !== null, signal: input.signal });
   if (!r.ok && r.reason === 'stale') return stalePage();
   if (!r.ok && r.reason === 'throttled') return loginPage(state, 429, '尝试太频繁或系统正忙，请稍后再试。', typed);
   const next = fresh ?? state;

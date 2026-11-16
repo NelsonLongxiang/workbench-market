@@ -126,6 +126,8 @@ export class LocalAccountService extends Service {
   private readonly waiters: { grant: () => void }[] = [];
   /** 进程起来以后同时在算的最多是几个（诊断、测试看「没超上限」） */
   private inflightPeak = 0;
+  /** 进程起来以后真的算了几次核对的哈希（诊断、测试看「断开的请求没有白算」） */
+  private hashed = 0;
   private readonly codes = new Map<string, { username: string; state: string; exp: number }>();
   private readonly tickets = new Map<string, { username: string; state: string; exp: number }>();
 
@@ -208,7 +210,9 @@ export class LocalAccountService extends Service {
    * 过了就记下这一次、占上这两个名额；全进程那道有空就占，满了排队（见 HASH_QUEUE_MAX、HASH_WAIT_MS）。返回放名额的函数；
    * 过不去返回 null（调用方回 throttled，不进哈希）
    */
-  private async admit(source: string, name: string, now: number): Promise<(() => void) | null> {
+  private async admit(source: string, name: string, now: number, signal?: AbortSignal): Promise<(() => void) | null> {
+    // 请求已经断开了：不占名额、不排队、不算
+    if (signal?.aborted) return null;
     // 来源、用户名两道：同步判、立即拒（并发进来的后到者看得见先到者占的名额）
     if (this.throttled(source, now)) return null;
     if ((this.inflightBySource.get(source) ?? 0) >= SOURCE_INFLIGHT_MAX) return null;
@@ -225,8 +229,11 @@ export class LocalAccountService extends Service {
     if (this.inflight < HASH_INFLIGHT_MAX) this.inflight++;
     else {
       const granted = this.waiters.length < HASH_QUEUE_MAX && await new Promise<boolean>((ok) => {
-        const w = { grant: () => { clearTimeout(timer); ok(true); } };
-        const timer = setTimeout(() => { const i = this.waiters.indexOf(w); if (i >= 0) this.waiters.splice(i, 1); ok(false); }, HASH_WAIT_MS);
+        // 等超时、请求断开了，都出队、不算；轮到时交名额
+        const leave = (): void => { clearTimeout(timer); signal?.removeEventListener('abort', leave); const i = this.waiters.indexOf(w); if (i >= 0) this.waiters.splice(i, 1); ok(false); };
+        const w = { grant: () => { clearTimeout(timer); signal?.removeEventListener('abort', leave); ok(true); } };
+        const timer = setTimeout(leave, HASH_WAIT_MS);
+        signal?.addEventListener('abort', leave, { once: true });
         this.waiters.push(w);
       });
       if (!granted) { unreserve(); this.refundSourceAttempt(source, now); return null; }
@@ -244,8 +251,8 @@ export class LocalAccountService extends Service {
   }
 
   /** 核对的负载：现在同时在算几个、进程起来以后最多几个、上限是几 */
-  hashLoad(): { inflight: number; peak: number; max: number; per_source: number; queued: number; queue_max: number } {
-    return { inflight: this.inflight, peak: this.inflightPeak, max: HASH_INFLIGHT_MAX, per_source: SOURCE_INFLIGHT_MAX, queued: this.waiters.length, queue_max: HASH_QUEUE_MAX };
+  hashLoad(): { inflight: number; peak: number; max: number; per_source: number; queued: number; queue_max: number; hashed: number } {
+    return { inflight: this.inflight, peak: this.inflightPeak, max: HASH_INFLIGHT_MAX, per_source: SOURCE_INFLIGHT_MAX, queued: this.waiters.length, queue_max: HASH_QUEUE_MAX, hashed: this.hashed };
   }
 
   /**
@@ -253,9 +260,9 @@ export class LocalAccountService extends Service {
    * 名额占不上（这个来源尝试太多、同时在算的超了上限）是 throttled（不算哈希，直接拒）。对了清零输错计数，先记的那次尝试退回。
    * claim：占上名额之后、算哈希之前调一次（站内表单拿它换掉一次性的 state）；返回 false 就放掉名额、退回尝试，回 stale，不算哈希。
    */
-  async verify(username: unknown, password: unknown, source: string, now = Date.now(), opts: { claim?: () => boolean } = {}): Promise<VerifyResult> {
+  async verify(username: unknown, password: unknown, source: string, now = Date.now(), opts: { claim?: () => boolean; signal?: AbortSignal } = {}): Promise<VerifyResult> {
     const name = typeof username === 'string' ? username.trim().toLowerCase() : '';
-    const release = await this.admit(source, USERNAME_RE.test(name) ? name : '', now);
+    const release = await this.admit(source, USERNAME_RE.test(name) ? name : '', now, opts.signal);
     if (!release) return { ok: false, reason: 'throttled' };
     try {
       if (opts.claim && !opts.claim()) { this.refundSourceAttempt(source, now); return { ok: false, reason: 'stale' }; }
@@ -263,9 +270,10 @@ export class LocalAccountService extends Service {
       const row = USERNAME_RE.test(name)
         ? db.prepare('SELECT username, password_hash, must_change, locked_until FROM local_accounts WHERE username = ?').get(name) as Pick<Row, 'username' | 'password_hash' | 'must_change' | 'locked_until'> | undefined
         : undefined;
-      if (!row) { await checkPassword(await this.dummyHash(), pw); return { ok: false, reason: 'invalid' }; }
-      if (Number(row.locked_until) > now) { await checkPassword(await this.dummyHash(), pw); return { ok: false, reason: 'locked' }; }
-      const good = pw !== '' && await checkPassword(row.password_hash, pw);
+      const hash = (stored: string, p: string): Promise<boolean> => { this.hashed++; return checkPassword(stored, p); };
+      if (!row) { await hash(await this.dummyHash(), pw); return { ok: false, reason: 'invalid' }; }
+      if (Number(row.locked_until) > now) { await hash(await this.dummyHash(), pw); return { ok: false, reason: 'locked' }; }
+      const good = pw !== '' && await hash(row.password_hash, pw);
       if (!good) {
         // 计数到点就锁；锁的时候计数清零，解锁之后重新数
         const after = db.prepare(`UPDATE local_accounts SET failed_count = CASE WHEN failed_count + 1 >= ? THEN 0 ELSE failed_count + 1 END,
