@@ -33,7 +33,9 @@ export function registerAdminTokenRoutes(app: HttpService, deps: AdminTokenDeps)
   }
   function adminTokenWritable(req: express.Request, requireCurrent: boolean): boolean {
     if (!browserSameSite(req) || (req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req))) return false;
-    if (odooAdminReqs.has(req)) return true;
+    // 完整的管理员（Odoo 管理员、持 owner 授予的人）能改；系统管理员不能（改了口令就能拿口令读业务）
+    const marked = odooAdminReqs.get(req);
+    if (marked && !marked.startsWith('grant-system:')) return true;
     return requireCurrent ? dbAdminTokenOk(req.headers['x-admin-token']) : isLoopbackReq(req);
   }
 

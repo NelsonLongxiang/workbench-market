@@ -31,6 +31,7 @@ const PRINCIPAL = 'server/src/services/principal.ts', ROUTES = 'server/src/route
 
 const INDEX = 'server/src/index.ts';
 const REQUEST_PERSON = 'server/src/request-person.ts', LOCAL = 'local-accounts-test.mjs';
+const SYSADMIN = 'system-admin-boundary-test.mjs', ADMIN_TIER = 'server/src/admin-tier.ts', ADMIN_TOKEN_ROUTES = 'server/src/routes/admin-token.ts', MCP_ROUTES = 'server/src/routes/mcp.ts';
 const LOCAL_SVC = 'server/src/services/local-account.ts', LOCAL_ROUTES = 'server/src/routes/local-accounts.ts';
 const PRELOAD = 'scripts/identity-fake-preload.mjs', FAKE = 'scripts/identity-fake-provider.mjs';
 
@@ -305,12 +306,12 @@ const MUTANTS = [
     find: "adminLevel: r.id === 'owner' || r.id === 'admin' || kindsIn.has('admin')", replace: "adminLevel: r.id === 'owner' || r.id === 'admin'" },
   // 授予的放行入口（L19 起走 approverOf）
   { id: 'grant-owner-any-admin', what: '放行时管理员登录一律当属主', file: GRANT_ROUTES, suites: [GRANTS],
-    find: 'return { by, principal, owner: grants().isOwner(principal), admin: true };', replace: 'return { by, principal, owner: !!principal, admin: true };' },
+    find: 'owner: grants().isOwner(principal), admin: true,', replace: 'owner: !!principal, admin: true,' },
   { id: 'grant-cli-not-owner', what: '放行时本机命令行不当属主（管理员级的授予没人能放行）', file: GRANT_ROUTES, suites: [GRANTS],
     find: "return { by: 'cli', principal: null, owner: true, admin: true };", replace: "return { by: 'cli', principal: null, owner: false, admin: true };" },
   // 管理面（actorOf）：自定义角色的放行、迁移授予的整批撤销只认属主
   { id: 'grant-admin-owner-any-admin', what: '管理面上管理员登录一律当属主（自定义角色放行、整批撤销）', file: GRANT_ROUTES, suites: [GRANTS],
-    find: 'return { by, principal, owner: grants().isOwner(principal) };', replace: 'return { by, principal, owner: !!principal };' },
+    find: 'return { by, principal, owner: grants().isOwner(principal), ...(isSystemAdminOnly(req)', replace: 'return { by, principal, owner: !!principal, ...(isSystemAdminOnly(req)' },
   { id: 'grant-admin-cli-not-owner', what: '管理面上本机命令行不当属主（自定义角色、整批撤销没人能做）', file: GRANT_ROUTES, suites: [CUSTOM, JUDGE],
     find: "return { by: 'cli', principal: null, owner: true };", replace: "return { by: 'cli', principal: null, owner: false };" },
   { id: 'grant-owner-ignores-revoke', what: '属主身份不看授予状态（撤销了的 owner 还算）', file: GRANT_SVC, suites: [GRANTS],
@@ -416,7 +417,7 @@ const MUTANTS = [
   { id: 'grant-admin-ignored', what: '站内管理员：不认授予（持 admin 授予的人还不是管理员）', file: IDENTITY, suites: [LOCAL, GRANTS],
     find: "held = g && typeof g.heldAdmin === 'function' ? g.heldAdmin(viewer.sub) : null;", replace: 'held = null;' },
   { id: 'grant-admin-any-role', what: '站内管理员：任何角色、任何范围的生效授予都算管理员', file: GRANT_SVC, suites: [LOCAL, GRANTS],
-    find: "g.scope === '*' && (g.role === 'owner' || g.role === 'admin')", replace: 'true' },
+    find: "g.scope === '*' && (g.role === 'owner' || (g.role === 'admin' && g.source !== 'migration'))", replace: 'true' },
   { id: 'grant-admin-ignores-state', what: '站内管理员：不看授予的状态和期限（待放行、收回、过期的还算）', file: GRANT_SVC, suites: [LOCAL],
     find: "const held = this.activeFor(principal, now).filter(",
     replace: "const held = (db.prepare('SELECT * FROM grants WHERE principal_id = ?').all(principal) as GrantRow[]).filter(" },
@@ -430,6 +431,35 @@ const MUTANTS = [
     find: "  if (odoo?.startsWith('grant:')) return odoo.slice('grant:'.length); // 站内管理员：留痕记主体（user:<名>）\n", replace: '' },
   { id: 'system-admin-audit-as-odoo', what: '系统管理员的留痕写成 odoo:grant-system:…（冒充 Odoo 管理员、对不回主体）', file: INDEX, suites: [LOCAL],
     find: "  if (odoo?.startsWith('grant-system:')) return odoo.slice('grant-system:'.length); // 系统管理员：同样记主体\n", replace: '' },
+  // 系统管理员的边界（docs/local-accounts.md 第 5 节）：系统面上也不能借道拿到业务
+  { id: 'system-admin-unrouted-allowed', what: '对不上路由的（扩展直接挂、没报动作的）按非业务，系统管理员放行', file: INDEX, suites: [SYSADMIN],
+    find: 'return !spec || !SYSTEM_DOMAINS.includes(domainOf(spec.action));', replace: 'return !!spec && !SYSTEM_DOMAINS.includes(domainOf(spec.action));' },
+  { id: 'system-admin-unknown-domain-allowed', what: '域不认识的（扩展自己的域）按非业务，系统管理员放行', file: INDEX, suites: [SYSADMIN],
+    find: 'return !spec || !SYSTEM_DOMAINS.includes(domainOf(spec.action));', replace: "return !spec || (!SYSTEM_DOMAINS.includes(domainOf(spec.action)) && domainOf(spec.action) !== 'synthetic-ext');" },
+  { id: 'system-admin-not-marked', what: '认管理员时不标「只是系统管理员」（各管理接口不收紧）', file: INDEX, suites: [SYSADMIN],
+    find: "  if (login?.startsWith('grant-system:')) markSystemAdminOnly(req);", replace: '' },
+  { id: 'system-admin-touches-business-principal', what: '系统管理员能对业务侧的人动手（重置、绑定、停用）', file: ADMIN_TIER, suites: [SYSADMIN],
+    find: "  if (!svc<GrantService>('grants').businessProtected(principal)) return null;", replace: '  return null;' },
+  { id: 'system-admin-revokes-business', what: '系统管理员能收回业务侧主体的授予', file: GRANT_SVC, suites: [SYSADMIN],
+    find: 'if (actor.systemOnly && this.businessProtected(g.principal_id, now))', replace: 'if (false)' },
+  { id: 'system-admin-handles-business-grant', what: '系统管理员能经手给业务数据的授予（给自己控制的账号开业务）', file: GRANT_SVC, suites: [SYSADMIN],
+    find: '    if (!actor.systemOnly) return null;\n', replace: '    return null;\n' },
+  { id: 'system-admin-writes-token', what: '系统管理员能改管理口令', file: ADMIN_TOKEN_ROUTES, suites: [SYSADMIN],
+    find: "if (marked && !marked.startsWith('grant-system:')) return true;", replace: 'if (marked) return true;' },
+  { id: 'system-admin-adds-mcp-tools', what: '系统管理员能给 MCP 会话加工具', file: MCP_ROUTES, suites: [SYSADMIN],
+    find: 'if (added.length && isSystemAdminOnly(req))', replace: 'if (false)' },
+  { id: 'business-protected-active-only', what: '业务侧只看生效的授予（草稿、待放行的不算，系统管理员能先动手再等放行）', file: GRANT_SVC, suites: [SYSADMIN],
+    find: "status IN ('draft', 'pending', 'active') AND (expires_at IS NULL OR expires_at > ?)\").all(principal, now)", replace: "status IN ('active') AND (expires_at IS NULL OR expires_at > ?)\").all(principal, now)" },
+  { id: 'two-person-skips-first-tier', what: '第一档（普通员工这类）给业务数据的授予，起草的人能自己放行', file: GRANT_SVC, suites: [SYSADMIN],
+    find: "if ((tier !== 'admin' || this.businessData(g.role)) && !actor.owner && mine) {", replace: "if (tier !== 'admin' && !actor.owner && mine) {" },
+  { id: 'credentials-confirm-skipped', what: '凭据由系统管理员设置时，放行不要确认', file: GRANT_ROUTES, suites: [SYSADMIN],
+    find: "if (cred && req.body?.confirm_credentials !== true) {", replace: 'if (false) {' },
+  { id: 'system-admin-approves-mcp-access', what: '系统管理员能批准 MCP 访问申请', file: MCP_ROUTES, suites: [SYSADMIN],
+    find: "    if (isSystemAdminOnly(req)) return void res.status(403).json({ error: 'system_admin_business_tools', message: 'MCP 工具都碰业务：系统管理员不能批准访问申请，要属主或完整的管理员' });\n", replace: '' },
+  { id: 'mcp-creator-approves-own', what: '建会话的人能批自己会话的访问申请', file: MCP_ROUTES, suites: [SYSADMIN],
+    find: 'if (creator && creator === actorPrincipal(actor))', replace: 'if (false)' },
+  { id: 'migration-admin-counts', what: '迁移来的 admin 授予也让人成系统管理员', file: GRANT_SVC, suites: [SYSADMIN],
+    find: "(g.role === 'admin' && g.source !== 'migration')", replace: "g.role === 'admin'" },
   // —— 自己注册（docs/local-accounts.md P3）：只建账号、要核准 ——
   { id: 'signup-ignores-reserved', what: '注册不看已有同名的人（核准时必撞名，也能抢占别人的用户名）', file: LOCAL_SVC, suites: [LOCAL],
     find: 'if (taken || this.get(username, now)) return', replace: 'if (this.get(username, now)) return' },
