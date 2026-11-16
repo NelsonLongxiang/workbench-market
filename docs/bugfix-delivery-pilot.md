@@ -8,7 +8,7 @@
 
 - 已安装可用的 ygl-trees CLI；继续复用市场已有的 WM_YGL_CLI 入口配置，不自动安装。
 - 一个已有且明确指定的隔离 ygl 工作区（包含 ygl-trees.db），不能拿个人或生产工作区做试验。
-- 已通过现有 verify submit/prepare 冻结的**单一 file 身份判据**：一条 assert，glob 与目标相对路径相同，sha256 明确绑定该路径。该判据不运行 command、agent、SQL 或业务模型。
+- 已通过现有 verify submit/prepare 冻结的**单一 file 身份判据**：一条 assert，checker 只允许 type、glob、sha256 以及严格等价的可选 require/min/max。glob 必须等于目标相对路径；sha256 必须为普通对象，且唯一自有键就是该路径。可选 require 只能为 [该路径]、min/max 只能为数字 1；其他字段、额外哈希键或 ignore 一律在调用 CLI 前拒绝，不通过删字段改写冻结判据。该判据不运行 command、agent、SQL 或业务模型。
 - 调用方从经复核的材料取得交付 SHA、spec id/version 及 spec.json 字节 SHA；不得临时从可变文件算出新期望值来规避变化。
 - 使用本地 SQLite。存在 YGL_DB_URL／YGL_PG_URL 时直接拒绝，不触及远端后端。
 
@@ -26,7 +26,7 @@ node scripts/ops/bugfix-delivery-preflight.mjs \
   --db <只读业务快照.sqlite>
 ~~~
 
-目录和快照可用相对路径；home 必须绝对路径。文件名相对 submission，使用正斜杠，不能含父目录、盘符、流名或控制字符。路径有空格时用当前shell的正确引号；不复制未经检查的外部命令。
+目录和快照可用相对路径；home 必须绝对路径。文件名相对 submission，使用正斜杠，不能含父目录、盘符、流名、glob 表达式或控制字符。路径有空格时用当前shell的正确引号；不复制未经检查的外部命令。
 
 每次重新调用现有 ygl CLI 的 verify run（指定spec版本、快照与submission），核对持久报告及native扫描结果，再运行 verify archive verify。新报告、扫描记录和归档写入显式home，这是预期副作用；不写市场数据库、不访问网络、不运行交付包内容。
 

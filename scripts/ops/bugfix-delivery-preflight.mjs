@@ -24,7 +24,7 @@ export function parseOptions(argv) {
     options[key] = value;
   }
   if (KEYS.some(k => !(k in options)) || !isAbsolute(options.home) || !HEX.test(options.sha256) || !HEX.test(options['spec-sha256']) || !ID.test(options.spec) || !/^[1-9][0-9]{0,7}$/.test(options['spec-version'])) throw Error('invalid_options');
-  if (isAbsolute(options.file) || /[\\:\u0000-\u001f\u007f]/.test(options.file) || options.file.split('/').some(x => !x || x === '.' || x === '..')) throw Error('invalid_file_path');
+  if (isAbsolute(options.file) || /[\\:*?\[\]{}\u0000-\u001f\u007f]/.test(options.file) || options.file.split('/').some(x => !x || x === '.' || x === '..')) throw Error('invalid_file_path');
   return options;
 }
 
@@ -36,6 +36,16 @@ async function digest(file) {
 const json = async file => JSON.parse(await readFile(file, 'utf8'));
 const inside = (root, file) => { const rel = relative(root, file); return rel !== '' && rel !== '..' && !rel.startsWith('..' + sep) && !isAbsolute(rel); };
 async function regularFile(file) { const info = await lstat(file); if (!info.isFile() || info.isSymbolicLink()) throw Error('not_regular_file'); }
+
+const plainObject = value => value !== null && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype;
+const identityChecker = (checker, file) => {
+  if (!plainObject(checker) || Object.keys(checker).some(key => !['type', 'glob', 'sha256', 'require', 'min', 'max'].includes(key))) return false;
+  if (checker.type !== 'file' || checker.glob !== file || !plainObject(checker.sha256)) return false;
+  const hashes = Object.keys(checker.sha256);
+  if (hashes.length !== 1 || hashes[0] !== file) return false;
+  if (Object.hasOwn(checker, 'require') && (!Array.isArray(checker.require) || checker.require.length !== 1 || checker.require[0] !== file)) return false;
+  return ['min', 'max'].every(key => !Object.hasOwn(checker, key) || checker[key] === 1);
+};
 
 const nativeExecute = async (args, options) => {
   const { execYgl } = await import('../../server/src/ygl-cli.ts');
@@ -59,7 +69,7 @@ export async function deliveryPreflight(options, execute = nativeExecute) {
     if (await digest(specPath) !== o['spec-sha256']) return outcome('NOT_READY', 'frozen_spec_changed');
     frozen = await json(specPath);
     if (frozen.spec_id !== o.spec || frozen.spec_version !== Number(o['spec-version'])) return outcome('NOT_READY', 'spec_version_mismatch');
-    if (frozen.views?.length || !Array.isArray(frozen.vu) || frozen.vu.length !== 1 || frozen.vu[0].role !== 'assert' || frozen.vu[0].checker?.type !== 'file' || frozen.vu[0].checker.glob !== o.file) return outcome('NOT_READY', 'spec_not_delivery_identity_only');
+    if (frozen.views?.length || !Array.isArray(frozen.vu) || frozen.vu.length !== 1 || frozen.vu[0].role !== 'assert' || !identityChecker(frozen.vu[0].checker, o.file)) return outcome('NOT_READY', 'spec_not_delivery_identity_only');
     if (frozen.vu[0].checker.sha256?.[o.file] !== o.sha256) return outcome('NOT_READY', 'delivery_not_bound_by_spec');
     if (await digest(file) !== o.sha256) return outcome('NOT_READY', 'delivery_hash_mismatch');
     snapshotSha = await digest(database);

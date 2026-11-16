@@ -64,7 +64,7 @@ try {
     const f = fixture(); f.options['spec-version'] = '2'; assert.equal((await deliveryPreflight(f.options, f.execute)).reason, 'spec_version_mismatch');
   });
   await check('spec that does not bind this delivery hash is refused', async () => {
-    const f = fixture(), spec = JSON.parse(fs.readFileSync(f.specPath)); spec.vu[0].checker.sha256 = {}; fs.writeFileSync(f.specPath, JSON.stringify(spec)); f.options['spec-sha256'] = sha(fs.readFileSync(f.specPath));
+    const f = fixture(), spec = JSON.parse(fs.readFileSync(f.specPath)); spec.vu[0].checker.sha256['delivery.tar'] = 'f'.repeat(64); fs.writeFileSync(f.specPath, JSON.stringify(spec)); f.options['spec-sha256'] = sha(fs.readFileSync(f.specPath));
     assert.equal((await deliveryPreflight(f.options, f.execute)).reason, 'delivery_not_bound_by_spec');
   });
   await check('rc0 with FAIL is rejected, no report/archive lookup', async () => {
@@ -117,7 +117,7 @@ try {
   });
   await check('drive-relative, stream, control and duplicate options are rejected', async () => {
     const f = fixture();
-    for (const file of ['C:relative', 'delivery.tar:stream', 'bad\u0000name', '..\\escape']) await assert.rejects(() => deliveryPreflight({ ...f.options, file }, f.execute));
+    for (const file of ['C:relative', 'delivery.tar:stream', 'bad\u0000name', '..\\escape', '*.tar', 'delivery?.tar', 'file[12].tar', '{a,b}.tar']) await assert.rejects(() => deliveryPreflight({ ...f.options, file }, f.execute));
     const argv = Object.entries(f.options).flatMap(([k, v]) => ['--' + k, v]); assert.throws(() => parseOptions([...argv, '--file', 'other']));
     await assert.rejects(() => deliveryPreflight({ ...f.options, extra: 'not-allowed' }, f.execute)); assert.equal(f.calls.length, 0);
   });
@@ -139,6 +139,38 @@ try {
     const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, WM_YGL_CLI: 'invalid-relative-native-entry' };
     const help = spawnSync(process.execPath, [script, '--help'], { env, encoding: 'utf8' }); assert.equal(help.status, 0); assert.match(help.stdout, /Usage:/);
     const bad = spawnSync(process.execPath, [script, '--unexpected', 'x'], { env, encoding: 'utf8' }); assert.equal(bad.status, 2); assert.equal(JSON.parse(bad.stdout).status, 'INVALID_ARGUMENTS'); assert.equal(bad.stderr, '');
+  });
+  for (const [name, alter] of [
+    ['extra hash key', (checker, f) => { fs.writeFileSync(path.join(path.dirname(f.file), 'extra.txt'), 'extra'); checker.sha256['extra.txt'] = sha(Buffer.from('extra')); }],
+    ['parent-directory hash key', (checker, f) => { fs.writeFileSync(path.join(f.dir, 'sibling.txt'), 'synthetic sibling'); checker.sha256['../sibling.txt'] = sha(Buffer.from('synthetic sibling')); }],
+    ['absolute hash key', (checker, f) => { checker.sha256[path.join(f.dir, 'outside.txt')] = 'a'.repeat(64); }],
+    ['empty hash map', (checker) => { checker.sha256 = {}; }],
+    ['array hash map', (checker) => { checker.sha256 = []; }],
+    ['null hash map', (checker) => { checker.sha256 = null; }],
+    ['string hash map', (checker) => { checker.sha256 = 'not-a-map'; }],
+    ['extra required file', (checker) => { checker.require = ['delivery.tar', 'extra.txt']; }],
+    ['parent-directory required file', (checker) => { checker.require = ['../sibling.txt']; }],
+    ['duplicate required file', (checker) => { checker.require = ['delivery.tar', 'delivery.tar']; }],
+    ['empty required list', (checker) => { checker.require = []; }],
+    ['ignore conditions', (checker) => { checker.ignore = ['extra.txt']; }],
+    ['empty ignore field', (checker) => { checker.ignore = []; }],
+    ['different minimum', (checker) => { checker.min = 0; }],
+    ['different maximum', (checker) => { checker.max = 2; }],
+    ['string minimum', (checker) => { checker.min = '1'; }],
+    ['unknown checker field', (checker) => { checker.extra = 'not allowed'; }],
+    ['prototype-named extra hash', (checker) => { Object.defineProperty(checker.sha256, '__proto__', { value: 'f'.repeat(64), enumerable: true }); }],
+  ]) {
+    await check('single-file boundary refuses ' + name + ' before native execution', async () => {
+      const f = fixture(), spec = JSON.parse(fs.readFileSync(f.specPath));
+      alter(spec.vu[0].checker, f); fs.writeFileSync(f.specPath, JSON.stringify(spec)); f.options['spec-sha256'] = sha(fs.readFileSync(f.specPath));
+      const result = await deliveryPreflight(f.options, f.execute);
+      assert.equal(result.reason, 'spec_not_delivery_identity_only'); assert.equal(f.calls.length, 0);
+    });
+  }
+  await check('equivalent one-file require and counts are permitted without changing frozen bytes', async () => {
+    const f = fixture(), spec = JSON.parse(fs.readFileSync(f.specPath)); spec.vu[0].checker.require = ['delivery.tar']; spec.vu[0].checker.min = 1; spec.vu[0].checker.max = 1;
+    fs.writeFileSync(f.specPath, JSON.stringify(spec)); const before = fs.readFileSync(f.specPath); f.options['spec-sha256'] = sha(before);
+    assert.equal((await deliveryPreflight(f.options, f.execute)).status, 'PRECHECK_PASSED'); assert.deepEqual(fs.readFileSync(f.specPath), before);
   });
 } finally {
   const absolute = path.resolve(out); if (!absolute.startsWith(path.join(root, 'tmp') + path.sep)) throw Error('unsafe_cleanup_target'); fs.rmSync(absolute, { recursive: true, force: true });
