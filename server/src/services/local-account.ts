@@ -27,6 +27,9 @@ export const LOCK_AFTER = 5;
 export const LOCK_MS = 15 * 60_000;
 const SOURCE_WINDOW_MS = 60_000;
 const SOURCE_MAX = 10;
+/** 自己注册：同一来源一小时最多试这么多次（成功、失败都算，不让人拿注册去探哪些用户名占着） */
+export const SIGNUP_WINDOW_MS = 60 * 60_000;
+export const SIGNUP_MAX = 5;
 /** 同一来源同时在算的核对个数（同一来源的登录排队一个一个核，每次约 110ms） */
 export const SOURCE_INFLIGHT_MAX = 1;
 /** 全进程同时在算的核对个数（libuv 线程池缺省 4 个线程，留一半给别的活） */
@@ -113,6 +116,7 @@ export class LocalAccountService extends Service {
   /** 假哈希：用户名不存在时也算一次 scrypt，耗时和真核对一样 */
   private dummy: Promise<string> | null = null;
   private readonly sourceFails = new Map<string, number[]>();
+  private readonly signups = new Map<string, number[]>();
   /** 同时在算的核对：按来源、按用户名、全进程 */
   private readonly inflightBySource = new Map<string, number>();
   private readonly inflightByName = new Set<string>();
@@ -154,6 +158,39 @@ export class LocalAccountService extends Service {
       VALUES (?, ?, ?, 1, 0, 0, ?, ?, ?) ON CONFLICT (username) DO NOTHING`).run(username, displayName, hash, now, actor, now);
     if (ins.changes !== 1) return { ok: false, reason: 'taken', message: '这个用户名不能用' };
     return { ok: true, tempPassword: temp, account: this.get(username, now)! };
+  }
+
+  /**
+   * 自己注册（docs/local-accounts.md 第 4 节）：只建站内账号（不用改密码），不建主体、不绑定——登录后核心发现没对接，进待对接清单、给等待页，
+   * 管理员核准才绑到新主体上。同一来源一小时最多试 SIGNUP_MAX 次（throttled）。用户名占着（已有账号，或 reserved 说占着：已有同名主体、等价写法的外部身份）
+   * 一律 taken、同一句「这个用户名不能用」，不说是哪种。
+   */
+  async register(input: { username: unknown; displayName?: unknown; password: unknown; confirm: unknown }, source: string, reserved: (username: string) => boolean, now = Date.now()):
+    Promise<{ ok: true; username: string } | { ok: false; reason: 'throttled' | 'invalid' | 'taken'; message: string }> {
+    const hits = (this.signups.get(source) ?? []).filter((t) => t > now - SIGNUP_WINDOW_MS);
+    if (hits.length >= SIGNUP_MAX) { this.signups.set(source, hits); return { ok: false, reason: 'throttled', message: '注册太频繁了，请过一会儿再试。' }; }
+    hits.push(now);
+    this.signups.set(source, hits);
+    if (this.signups.size > ONE_TIME_MAX) this.signups.delete(this.signups.keys().next().value as string);
+    const username = input.username;
+    if (typeof username !== 'string' || !USERNAME_RE.test(username)) return { ok: false, reason: 'invalid', message: '用户名只能用小写字母、数字和 . _ -，2～32 位，以字母或数字开头。' };
+    const displayName = displayNameOk(input.displayName);
+    if (displayName === null) return { ok: false, reason: 'invalid', message: '显示名最多 64 个字，不能有控制字符。' };
+    if (input.password !== input.confirm) return { ok: false, reason: 'invalid', message: '两次输的密码不一样。' };
+    const problem = passwordProblem(username, input.password);
+    if (problem) return { ok: false, reason: 'invalid', message: problem };
+    let taken = true;
+    try { taken = reserved(username) === true; } catch { taken = true; } // 查不了就当占着（失败关闭）
+    if (taken || this.get(username, now)) return { ok: false, reason: 'taken', message: '这个用户名不能用。' };
+    // 算哈希和登录核对共用「同时在算」的上限（同一来源 1、全进程 HASH_INFLIGHT_MAX）；占不上回 throttled，不进哈希
+    const release = this.hashSlot(source);
+    if (!release) return { ok: false, reason: 'throttled', message: '系统正忙，请稍后再试。' };
+    let hash: string;
+    try { hash = await hashPassword(input.password as string); } finally { release(); }
+    const ins = db.prepare(`INSERT INTO local_accounts (username, display_name, password_hash, must_change, failed_count, locked_until, created_at, created_by, updated_at)
+      VALUES (?, ?, ?, 0, 0, 0, ?, 'signup', ?) ON CONFLICT (username) DO NOTHING`).run(username, displayName, hash, now, now);
+    if (ins.changes !== 1) return { ok: false, reason: 'taken', message: '这个用户名不能用。' };
+    return { ok: true, username };
   }
 
   /** 删掉一个账号（建人时绑主体没成，撤回刚建的账号用） */
@@ -224,6 +261,23 @@ export class LocalAccountService extends Service {
   /** 核对的负载：现在同时在算几个、进程起来以后最多几个、上限是几 */
   hashLoad(): { inflight: number; peak: number; max: number; per_source: number } {
     return { inflight: this.inflight, peak: this.inflightPeak, max: HASH_INFLIGHT_MAX, per_source: SOURCE_INFLIGHT_MAX };
+  }
+
+  /** 只占「同时在算」的名额（同一来源、全进程），不记登录尝试：自己注册算哈希用。占不上返回 null */
+  private hashSlot(source: string): (() => void) | null {
+    if ((this.inflightBySource.get(source) ?? 0) >= SOURCE_INFLIGHT_MAX) return null;
+    if (this.inflight >= HASH_INFLIGHT_MAX) return null;
+    this.inflightBySource.set(source, (this.inflightBySource.get(source) ?? 0) + 1);
+    this.inflight++;
+    this.inflightPeak = Math.max(this.inflightPeak, this.inflight);
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      const n = (this.inflightBySource.get(source) ?? 1) - 1;
+      if (n > 0) this.inflightBySource.set(source, n); else this.inflightBySource.delete(source);
+      this.inflight--;
+    };
   }
 
   /**

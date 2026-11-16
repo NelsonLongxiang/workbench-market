@@ -7,6 +7,7 @@
  * 建人 = 建一个站内账号 + 新建主体 user:<用户名> + 把外部身份 local/<用户名> 绑上去，一步到位；绑不上就撤回刚建的账号。
  * 临时密码只在建人、重置这一次的应答里出现（不缓存、不进日志），对方下次登录先改密码。
  * 重置密码、本人改密码之后，这个账号已有的市场会话一律注销。
+ * 自己注册的账号（P3）没有对应主体，列表里 pending 为真：核准 = 新建主体 user:<用户名> 并绑上 local/<用户名>；拒绝 = 删掉这个还没对接的账号。
  *
  * app 是 HTTP 服务，不是 Express 应用本身。
  */
@@ -58,7 +59,7 @@ export function registerLocalAccountRoutes(app: HttpService, deps: LocalAccountR
   const withPrincipal = (a: ReturnType<LocalAccountService['list']>[number]) => {
     const id = principals().principalOf(PROVIDER, a.username);
     const p = id ? principals().get(id) : null;
-    return { ...a, principal: id, principal_status: p?.status ?? null };
+    return { ...a, principal: id, principal_status: p?.status ?? null, pending: id === null };
   };
 
   app.get('/api/local-accounts', { action: 'local-account.list', kind: 'admin' }, route(async (req, res) => {
@@ -102,6 +103,34 @@ export function registerLocalAccountRoutes(app: HttpService, deps: LocalAccountR
     if (!accounts().unlock(username)) throw new HttpError(404, '没有这个账号');
     log('unlock', username, actor);
     res.json({ account: withPrincipal(accounts().get(username)!) });
+  }));
+
+  /** 核准自己注册的账号：新建主体 user:<用户名>、绑上 local/<用户名>（顺手从待对接清单里拿掉）。已经对接了 409，撞名 409 */
+  app.post('/api/local-accounts/:username/approve', { action: 'local-account.approve', kind: 'admin' }, route(async (req, res) => {
+    const actor = await admin(req, res);
+    if (!actor) return;
+    const username = usernameOf(req.params.username);
+    const account = accounts().get(username);
+    if (!account) throw new HttpError(404, '没有这个账号');
+    if (principals().principalOf(PROVIDER, username)) throw new HttpError(409, '这个账号已经对接过了');
+    const bound = principals().bindIdentity({ provider: PROVIDER, externalId: username, principal: `user:${username}`, create: true, displayName: account.display_name || null });
+    if (!bound.ok) throw new HttpError(409, '这个用户名不能用（和已有的人重名或等价），请拒绝后让对方换一个用户名注册');
+    log('approve', username, actor);
+    res.json({ account: withPrincipal(accounts().get(username)!) });
+  }));
+
+  /** 拒绝自己注册的账号：删掉这个还没对接的账号，从待对接清单里拿掉。已经对接了的不能拒（409，要停用走 /api/principals/disable） */
+  app.post('/api/local-accounts/:username/reject', { action: 'local-account.reject', kind: 'admin' }, route(async (req, res) => {
+    const actor = await admin(req, res);
+    if (!actor) return;
+    const username = usernameOf(req.params.username);
+    if (!accounts().get(username)) throw new HttpError(404, '没有这个账号');
+    if (principals().principalOf(PROVIDER, username)) throw new HttpError(409, '这个账号已经对接了，不能拒绝；要停用请用停用');
+    accounts().remove(username);
+    principals().forgetPending(PROVIDER, username);
+    sessions().revokeForIdentity(PROVIDER, username);
+    log('reject', username, actor);
+    res.json({ ok: true });
   }));
 
   /**
