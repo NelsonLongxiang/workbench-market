@@ -873,6 +873,13 @@ CREATE TABLE IF NOT EXISTS local_accounts (
   last_login_at INTEGER
 );
 `);
+// MCP 会话是谁建的（管理员的留痕写法，user:<名>、odoo:<登录名>、admin-token……）：批准这个会话的访问申请时，建会话的人不能自己批（docs/local-accounts.md 第 5 节）
+if (!hasColumn('mcp_sessions', 'created_by')) db.exec("ALTER TABLE mcp_sessions ADD COLUMN created_by TEXT NOT NULL DEFAULT ''");
+// 站内账号的凭据最后是谁设的（docs/local-accounts.md 第 5 节）：系统管理员建账号、重置密码时记下他（主体）和时刻，本人改了密码就清掉。
+// 放行给业务数据的授予时据此提示放行人「此人凭据由系统管理员设置」，要放行人确认
+for (const [col, ddl] of [['credential_by_system', "TEXT NOT NULL DEFAULT ''"], ['credential_by_system_at', 'INTEGER']] as const) {
+  if (!hasColumn('local_accounts', col)) db.exec(`ALTER TABLE local_accounts ADD COLUMN ${col} ${ddl}`);
+}
 // 阶段六 6b：授予（谁有哪个角色）。角色本身是声明（server/src/roles.ts），这里只放数据。
 //   grants：主体、角色、范围、期限、理由、起草人、放行人、状态。状态只有五种，只能往前走：
 //     draft 草稿 → pending 待核 → active 生效 → revoked 撤销 或 expired 过期；草稿和待核也可以直接撤销（作废、驳回）。
