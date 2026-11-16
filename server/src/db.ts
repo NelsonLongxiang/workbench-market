@@ -880,6 +880,11 @@ if (!hasColumn('mcp_sessions', 'created_by')) db.exec("ALTER TABLE mcp_sessions 
 for (const [col, ddl] of [['credential_by_system', "TEXT NOT NULL DEFAULT ''"], ['credential_by_system_at', 'INTEGER']] as const) {
   if (!hasColumn('local_accounts', col)) db.exec(`ALTER TABLE local_accounts ADD COLUMN ${col} ${ddl}`);
 }
+// 外部身份是谁绑的（同上一节）：系统管理员经对接接口绑定（含连带新建的人）时记下他和时刻；解绑重绑就没了。
+// 放行给业务数据的授予时同样提示「此人凭据由系统管理员设置」——绑上去的身份可能就是系统管理员自己控制的别的账号
+for (const [col, ddl] of [['bound_by_system', "TEXT NOT NULL DEFAULT ''"], ['bound_by_system_at', 'INTEGER']] as const) {
+  if (!hasColumn('principal_identities', col)) db.exec(`ALTER TABLE principal_identities ADD COLUMN ${col} ${ddl}`);
+}
 // 阶段六 6b：授予（谁有哪个角色）。角色本身是声明（server/src/roles.ts），这里只放数据。
 //   grants：主体、角色、范围、期限、理由、起草人、放行人、状态。状态只有五种，只能往前走：
 //     draft 草稿 → pending 待核 → active 生效 → revoked 撤销 或 expired 过期；草稿和待核也可以直接撤销（作废、驳回）。

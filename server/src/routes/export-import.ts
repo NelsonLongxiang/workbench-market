@@ -1,6 +1,7 @@
 /**
  * 导出与导入的路由（/api/export、/api/import），连同只有导入用的 importErr。原样搬自 index.ts，一个字没改，只多了两格缩进。
- * 导出缺省脱敏；?reveal=1 取真值要求管理员（口令或管理员登录，浏览器来的要同源），不满足 403，不降级成掩码。
+ * 导出缺省脱敏；?reveal=1 取真值要求完整管理员（口令、管理员登录、owner 授予，浏览器来的要同源），不满足 403，不降级成掩码；
+ * 只持 admin 授予的系统管理员也是 403（工作台配置的真值里有业务系统的凭据，2026-11-16 属主定）。
  * 导入整批预检全过才进事务（事务语句在 WorkbenchService 里），任一失败整体回滚零写。
  *
  * app 是 HTTP 服务，不是 Express 应用本身：注册的写法和 Express 一样，路由挂在调用那一刻的位置，注册可以撤销。
@@ -15,6 +16,7 @@ import type { WorkbenchService } from '../services/workbench.ts';
 import type { CockpitService } from '../services/cockpit.ts';
 import { getSettings, type CockpitRow, type PanelConfig, type rowToWorkbench } from '../db.ts';
 import { HttpError } from '../errors.ts';
+import { isSystemAdminOnly } from '../admin-tier.ts';
 import { AdmissionError, auditAllow, checkHealthPath, checkTypeHealthPath, type AllowPolicy, type admitUrl } from '../url-admission.ts';
 
 type WorkbenchView = ReturnType<typeof rowToWorkbench>;
@@ -46,6 +48,7 @@ export function registerExportImportRoutes(app: HttpService, deps: ExportImportD
       // 取真值要求管理员，口径同别的管理读面；不满足 403，不悄悄降级成掩码（备份脚本拿到掩码会以为备份成功）
       await markAdmin(req);
       if (!adminGuard(req, res)) return;
+      if (isSystemAdminOnly(req)) { res.status(403).json({ error: 'system_admin_reveal', message: '系统管理员不能取导出的真实值；不带 reveal 的导出照常' }); return; }
       res.set('Cache-Control', 'no-store');
     }
     // 设置和 GET /api/settings 同口径：管理员（同源）与本机命令行拿全部（凭据类的值只说有没有），别人只拿巡检参数和开关
