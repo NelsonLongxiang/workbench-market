@@ -112,6 +112,8 @@
       "POST /api/local-accounts  <- <anonymous>",
       "POST /api/local-accounts/:username/reset-password  <- <anonymous>",
       "POST /api/local-accounts/:username/unlock  <- <anonymous>",
+      "POST /api/local-accounts/:username/approve  <- <anonymous>",
+      "POST /api/local-accounts/:username/reject  <- <anonymous>",
       "POST /api/local-accounts/_self/password  <- <anonymous>",
       "GET /api/roles  <- <anonymous>",
       "GET /api/roles/matrix  <- <anonymous>",

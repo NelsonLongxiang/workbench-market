@@ -1,12 +1,20 @@
 {
   "domain": "local-accounts",
-  "what": "站内账号的管理：/api/local-accounts 的 5 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
-  "routes": ["GET /api/local-accounts", "POST /api/local-accounts", "POST /api/local-accounts/:username/reset-password", "POST /api/local-accounts/:username/unlock", "POST /api/local-accounts/_self/password"],
+  "what": "站内账号的管理：/api/local-accounts 的 7 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": [
+    "GET /api/local-accounts",
+    "POST /api/local-accounts",
+    "POST /api/local-accounts/:username/reset-password",
+    "POST /api/local-accounts/:username/unlock",
+    "POST /api/local-accounts/_self/password",
+    "POST /api/local-accounts/:username/approve",
+    "POST /api/local-accounts/:username/reject"
+  ],
   "exempt": [{ "route": "GET /api/local-accounts", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/list-junk-query" }],
   "scenarios": [
     {
       "name": "open",
-      "what": "缺省配置。库里预先放好站内账号 carol（密码 Synthetic-pass-0001，绑在 user:carol 上）和 carol 的一个市场会话。",
+      "what": "缺省配置。库里预先放好站内账号 carol（密码 Synthetic-pass-0001，绑在 user:carol 上）和 carol 的一个市场会话。 另有两个自己注册、还没核准的账号 erin、fred（只有站内账号，没有主体）。",
       "env": {},
       "clock": "2030-01-01T00:00:00Z",
       "seed": [
@@ -19,6 +27,14 @@
         {
           "table": "market_sessions",
           "row": { "token_sha256": "c5da58a145130d3bcd46756d987c7f33a70868a390128ffd4f6e49ba06069b45", "principal_id": "user:carol", "provider": "local", "external_id": "carol", "created_at": 0, "expires_at": 4102444800000, "revoked_at": null }
+        },
+        {
+          "table": "local_accounts",
+          "row": { "username": "erin", "display_name": "Synthetic erin", "password_hash": "scrypt$32768$8$1$UxPx2nKECAWDjgvOGmSNwQ$Exm6m4MsRsYfT-orVE4klTzx0wPdXDaS8e_wrT5OJv3nT6z2zb6HjfVAxKjF6LfDG-6a70Ux4EdF4k-nBQUVgA", "must_change": 0, "failed_count": 0, "locked_until": 0, "created_at": 1893456000000, "created_by": "signup", "updated_at": 1893456000000, "last_login_at": null }
+        },
+        {
+          "table": "local_accounts",
+          "row": { "username": "fred", "display_name": "Synthetic fred", "password_hash": "scrypt$32768$8$1$UxPx2nKECAWDjgvOGmSNwQ$Exm6m4MsRsYfT-orVE4klTzx0wPdXDaS8e_wrT5OJv3nT6z2zb6HjfVAxKjF6LfDG-6a70Ux4EdF4k-nBQUVgA", "must_change": 0, "failed_count": 0, "locked_until": 0, "created_at": 1893456000000, "created_by": "signup", "updated_at": 1893456000000, "last_login_at": null }
         }
       ],
       "steps": [
@@ -44,10 +60,12 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "271", "etag": "W/\"10f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "807", "etag": "W/\"327-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "accounts": [
-                { "username": "carol", "display_name": "Synthetic carol", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "seed", "updated_at": 1893456000000, "last_login_at": null, "principal": "user:carol", "principal_status": "active" }
+                { "username": "carol", "display_name": "Synthetic carol", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "seed", "updated_at": 1893456000000, "last_login_at": null, "principal": "user:carol", "principal_status": "active", "pending": false },
+                { "username": "erin", "display_name": "Synthetic erin", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "signup", "updated_at": 1893456000000, "last_login_at": null, "principal": null, "principal_status": null, "pending": true },
+                { "username": "fred", "display_name": "Synthetic fred", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "signup", "updated_at": 1893456000000, "last_login_at": null, "principal": null, "principal_status": null, "pending": true }
               ]
             }
           }
@@ -61,10 +79,12 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "271", "etag": "W/\"10f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "807", "etag": "W/\"327-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "accounts": [
-                { "username": "carol", "display_name": "Synthetic carol", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "seed", "updated_at": 1893456000000, "last_login_at": null, "principal": "user:carol", "principal_status": "active" }
+                { "username": "carol", "display_name": "Synthetic carol", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "seed", "updated_at": 1893456000000, "last_login_at": null, "principal": "user:carol", "principal_status": "active", "pending": false },
+                { "username": "erin", "display_name": "Synthetic erin", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "signup", "updated_at": 1893456000000, "last_login_at": null, "principal": null, "principal_status": null, "pending": true },
+                { "username": "fred", "display_name": "Synthetic fred", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "signup", "updated_at": 1893456000000, "last_login_at": null, "principal": null, "principal_status": null, "pending": true }
               ]
             }
           }
@@ -118,9 +138,9 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "298", "etag": "W/\"12a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "314", "etag": "W/\"13a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "account": { "username": "dave", "display_name": "Synthetic Dave", "must_change": true, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "last_login_at": null, "principal": "user:dave", "principal_status": "active" },
+              "account": { "username": "dave", "display_name": "Synthetic Dave", "must_change": true, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "last_login_at": null, "principal": "user:dave", "principal_status": "active", "pending": false },
               "temp_password": "<每个实例随机·string·16>"
             }
           }
@@ -161,9 +181,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "298", "etag": "W/\"12a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "314", "etag": "W/\"13a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "account": { "username": "dave", "display_name": "Synthetic Dave", "must_change": true, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "last_login_at": null, "principal": "user:dave", "principal_status": "active" },
+              "account": { "username": "dave", "display_name": "Synthetic Dave", "must_change": true, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "last_login_at": null, "principal": "user:dave", "principal_status": "active", "pending": false },
               "temp_password": "<每个实例随机·string·16>"
             }
           }
@@ -204,11 +224,113 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "268", "etag": "W/\"10c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "284", "etag": "W/\"11c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "account": { "username": "carol", "display_name": "Synthetic carol", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "seed", "updated_at": 1893456000000, "last_login_at": null, "principal": "user:carol", "principal_status": "active" }
+              "account": { "username": "carol", "display_name": "Synthetic carol", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "seed", "updated_at": 1893456000000, "last_login_at": null, "principal": "user:carol", "principal_status": "active", "pending": false }
             }
           }
+        },
+        {
+          "id": "approve-remote-anon",
+          "route": "POST /api/local-accounts/:username/approve",
+          "class": "unauthorized",
+          "what": "远程、没有口令：核准不了",
+          "request": { "method": "POST", "path": "/api/local-accounts/erin/approve", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "approve-missing",
+          "route": "POST /api/local-accounts/:username/approve",
+          "class": "invalid",
+          "what": "没有这个账号：404",
+          "request": { "method": "POST", "path": "/api/local-accounts/nobody/approve", "json": {} },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "没有这个账号" }
+          }
+        },
+        {
+          "id": "approve-bound",
+          "route": "POST /api/local-accounts/:username/approve",
+          "class": "invalid",
+          "what": "已经对接过的：409",
+          "request": { "method": "POST", "path": "/api/local-accounts/carol/approve", "json": {} },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "这个账号已经对接过了" }
+          }
+        },
+        {
+          "id": "approve-cli",
+          "route": "POST /api/local-accounts/:username/approve",
+          "class": "normal",
+          "what": "本机命令行：核准 erin，新建主体 user:erin 并对接",
+          "vary": { "account.updated_at": 60000 },
+          "request": { "method": "POST", "path": "/api/local-accounts/erin/approve", "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "283", "etag": "W/\"11b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "account": { "username": "erin", "display_name": "Synthetic erin", "must_change": false, "locked": false, "locked_until": null, "created_at": 1893456000000, "created_by": "signup", "updated_at": 1893456000000, "last_login_at": null, "principal": "user:erin", "principal_status": "active", "pending": false }
+            }
+          }
+        },
+        {
+          "id": "reject-remote-anon",
+          "route": "POST /api/local-accounts/:username/reject",
+          "class": "unauthorized",
+          "what": "远程、没有口令：拒绝不了",
+          "request": { "method": "POST", "path": "/api/local-accounts/fred/reject", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "reject-bad-name",
+          "route": "POST /api/local-accounts/:username/reject",
+          "class": "invalid",
+          "what": "用户名不合格：400",
+          "request": { "method": "POST", "path": "/api/local-accounts/Fred!/reject", "json": {} },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "100", "etag": "W/\"64-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "用户名只能用小写字母、数字和 . _ -，2～32 位，以字母或数字开头" }
+          }
+        },
+        {
+          "id": "reject-bound",
+          "route": "POST /api/local-accounts/:username/reject",
+          "class": "invalid",
+          "what": "已经对接的不能拒绝：409",
+          "request": { "method": "POST", "path": "/api/local-accounts/carol/reject", "json": {} },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "78", "etag": "W/\"4e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "这个账号已经对接了，不能拒绝；要停用请用停用" }
+          }
+        },
+        {
+          "id": "reject-cli",
+          "route": "POST /api/local-accounts/:username/reject",
+          "class": "normal",
+          "what": "本机命令行：拒绝 fred，删掉这个还没对接的账号",
+          "request": { "method": "POST", "path": "/api/local-accounts/fred/reject", "json": {} },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "cache-control": "private, no-store", "content-length": "11", "etag": "W/\"b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true } }
         },
         {
           "id": "self-anon",

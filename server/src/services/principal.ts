@@ -169,6 +169,23 @@ export class PrincipalService extends Service implements PrincipalDirectory {
     }
   }
 
+  /**
+   * 这个外部身份要是对接成新主体 user:<externalId>，名字是不是已经占着：同名（规范化之后）的主体已有，或者同一提供方下等价写法的外部身份已有。
+   * 自己注册用它挡掉「核准时一定撞名」的用户名（docs/local-accounts.md 第 4 节）。
+   */
+  nameTaken(provider: string, externalId: string): boolean {
+    if (!providerOk(provider) || !externalIdOk(externalId)) return true;
+    const idKey = comparisonKey(`user:${externalId}`), externalKey = comparisonKey(externalId);
+    if (!externalKey) return true;
+    return !!db.prepare('SELECT 1 FROM principals WHERE id_key = ?').get(idKey)
+      || !!db.prepare('SELECT 1 FROM principal_identities WHERE provider = ? AND external_key = ?').get(provider, externalKey);
+  }
+
+  /** 从待对接清单里拿掉一条（拒绝自己注册的账号时用）。拿掉了回 true */
+  forgetPending(provider: string, externalId: string): boolean {
+    return db.prepare('DELETE FROM principal_pending WHERE provider = ? AND external_id = ?').run(provider, externalId).changes > 0;
+  }
+
   /** 这个主体名下、某个提供方的外部身份（external_id），按字面排序。用来认「账上记成 <提供方>:<外部身份> 的是不是他」：只认实际绑在他名下的，不从主体标识推 */
   externalIdsOf(principal: string, provider: string): string[] {
     return (db.prepare('SELECT external_id FROM principal_identities WHERE principal_id = ? AND provider = ? ORDER BY external_id').all(principal, provider) as { external_id: string }[]).map((r) => r.external_id);
