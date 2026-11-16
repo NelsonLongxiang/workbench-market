@@ -16,6 +16,7 @@
  *      10 同一来源输错太多：先歇一分钟（429）
  *   四、站内管理员（P2）：持生效中的 owner / admin 授予（范围 *）的人是管理员——owner 完整，admin 只管系统、看不到业务数据；待放行、收回、过期、管理层授予、停用都不算；
  *       whoami 说是授予、留痕记主体；不能放行别人的 admin 授予、不能放行授给自己的、不能停用自己；跨站写 403
+ *   五、自己注册（P3）：只建账号不建主体，登录只给等待页；占着的用户名同一句提示；核准建主体、拒绝删账号；非管理员核准不了；同一来源限额
  *
  *   node scripts/local-accounts-test.mjs
  */
@@ -140,7 +141,7 @@ try {
     const b = browser('192.0.2.31'); const { form } = await begin(b);
     const nobody = await b.go('POST', form, { form: { username: 'nobody-here', password: 'whatever-pass-1' } });
     const wrong = await b.go('POST', form, { form: { username: 'alice', password: 'wrong-pass-0001' } });
-    const strip = (t) => t.replace(/value="[^"]*"/g, '').replace(/action="[^"]*"/g, '');
+    const strip = (t) => t.replace(/value="[^"]*"/g, '').replace(/action="[^"]*"/g, '').replace(/state=[A-Za-z0-9_-]+/g, 'state=');
     check(nobody.status === 401 && wrong.status === 401 && strip(nobody.text) === strip(wrong.text), '1 没这个人和密码不对：同一个状态码、同一页（除了回填的用户名）');
   }
   {
@@ -304,6 +305,83 @@ try {
     check((await adminCall('POST', '/api/principals/disable', { id: 'user:carol', reason: '合成：停用持授予的人' })).status === 200, '21（准备）停用 carol');
     const afterOff = await listOf(carol);
     check(afterOff === 401 || afterOff === 403, '21 主体停用：授予还在也不是管理员（会话失效）', afterOff);
+  }
+
+  console.log('五、自己注册（P3：WM_LOCAL_SIGNUP 缺省 approval，要管理员核准）');
+  {
+    let ipN = 60;
+    const nextIp = () => `192.0.2.${ipN++}`;
+    /** 注册：从一次真正发起的登录里进注册页、提交；成功就跟着去回调。返回浏览器、提交的应答、回调的应答 */
+    const signup = async (fields, ip = nextIp()) => {
+      const b = browser(ip); const { form } = await begin(b);
+      const r = await b.go('POST', form, { form: { mode: 'signup', ...fields } });
+      const cb = r.status === 302 ? await b.go('GET', new URL(r.location).pathname + new URL(r.location).search) : null;
+      return { b, r, cb };
+    };
+    const pendingList = async () => (await adminCall('GET', '/api/principals/pending')).json?.pending ?? [];
+    const account = async (u) => (await adminCall('GET', '/api/local-accounts')).json?.accounts?.find((a) => a.username === u) ?? null;
+
+    {
+      const b = browser(nextIp()); const { form } = await begin(b);
+      const page = await b.go('GET', form);
+      const href = /href="([^"]*view=signup[^"]*)"/.exec(page.text)?.[1]?.replace(/&#38;|&amp;/g, '&') ?? '';
+      const sp = href ? await b.go('GET', href) : { status: 0, text: '' };
+      check(href && sp.status === 200 && /name="mode" value="signup"/.test(sp.text), '22 登录表单有「注册新账号」入口，注册页带 mode=signup', { href, status: sp.status });
+    }
+    const g = await signup({ username: 'gina', display_name: '合成用户庚', password: 'Gina-pass-0001', confirm: 'Gina-pass-0001' });
+    check(g.r.status === 302 && g.cb && g.cb.status !== 302 && !g.b.jar.has('wm_session'), '23 注册好：去回调，但不发会话（等待页）', { r: g.r.status, cb: g.cb?.status });
+    const ga = await account('gina');
+    check(ga?.pending === true && ga.principal === null && ga.created_by === 'signup' && ga.must_change === false, '23 列表里是待核准（没有主体），建立人记 signup', ga);
+    check((await pendingList()).some((x) => x.provider === 'local' && x.external_id === 'gina'), '23 进了待对接清单');
+    const early = await login('gina', 'Gina-pass-0001', undefined, nextIp());
+    check(!early.b.jar.has('wm_session') && early.r.status !== 302, '24 核准之前：密码对了也只给等待页，不发会话', early.r.status);
+
+    const takenLocal = await signup({ username: 'alice', password: 'Whatever-pass-1', confirm: 'Whatever-pass-1' });
+    check((await adminCall('POST', '/api/principals/bind', { provider: 'feishu', external_id: 'on_heidi', principal: 'user:heidi', create: true })).status === 200, '25（准备）已有一个别的方式登录的人 user:heidi');
+    const takenPrincipal = await signup({ username: 'heidi', password: 'Whatever-pass-1', confirm: 'Whatever-pass-1' });
+    const strip = (t) => t.replace(/value="[^"]*"/g, '').replace(/state=[A-Za-z0-9_-]+/g, 'state=');
+    check(takenLocal.r.status === 409 && takenPrincipal.r.status === 409 && strip(takenLocal.r.text) === strip(takenPrincipal.r.text) && /这个用户名不能用/.test(takenLocal.r.text),
+      '25 用户名占着（已有站内账号、已有同名的人）：同一个状态码、同一页，不说是哪种', { a: takenLocal.r.status, b: takenPrincipal.r.status });
+    check(!(await account('heidi')), '25 撞名的没建出账号');
+    const mismatch = await signup({ username: 'jack', password: 'Jack-pass-0001', confirm: 'Jack-pass-0002' });
+    const short = await signup({ username: 'jack', password: 'short', confirm: 'short' });
+    const xss = await signup({ username: 'jack', display_name: '<script>alert(1)</script>', password: 'Jack-pass-0001', confirm: 'Jack-pass-0002' });
+    check(mismatch.r.status === 400 && short.r.status === 400 && !(await account('jack')), '26 两次密码不一样、太短：400，没建出账号');
+    check(!xss.r.text.includes('<script>alert(1)</script>') && xss.r.text.includes('&#60;script&#62;'), '26 回填的显示名经过转义');
+
+    const aliceB = (await login('alice', 'Alice-pass-0003', undefined, nextIp())).b;
+    const byPlain = await aliceB.go('POST', '/api/local-accounts/gina/approve', { json: {} });
+    const anon = await browser(nextIp()).go('POST', '/api/local-accounts/gina/approve', { json: {} });
+    check(byPlain.status === 403 && anon.status === 403 && (await account('gina'))?.pending === true, '27 普通登录的人、匿名浏览器核准不了', { plain: byPlain.status, anon: anon.status });
+    const ok = await adminCall('POST', '/api/local-accounts/gina/approve');
+    check(ok.status === 200 && ok.json?.account?.principal === 'user:gina' && ok.json.account.pending === false, '28 管理员核准：新建主体 user:gina 并对接', ok);
+    check(!(await pendingList()).some((x) => x.provider === 'local' && x.external_id === 'gina'), '28 待对接清单里拿掉了');
+    check((await adminCall('POST', '/api/local-accounts/gina/approve')).status === 409, '28 再核准一次：409');
+    check((await adminCall('POST', '/api/local-accounts/gina/reject')).status === 409, '28 已对接的不能拒绝（409，要停用走停用）');
+    const gin = await login('gina', 'Gina-pass-0001', undefined, nextIp());
+    check(gin.r.status === 302 && gin.b.jar.has('wm_session') && (await me(gin.b))?.principal === 'user:gina', '28 核准之后：登录发会话，认出是 user:gina');
+    check((await gin.b.go('GET', '/api/local-accounts')).status === 403, '28 自己注册的人不是管理员');
+
+    const iv = await signup({ username: 'ivan', password: 'Ivan-pass-00001', confirm: 'Ivan-pass-00001' });
+    check(iv.r.status === 302, '29（准备）ivan 注册');
+    const rej = await adminCall('POST', '/api/local-accounts/ivan/reject');
+    check(rej.status === 200 && !(await account('ivan')) && !(await pendingList()).some((x) => x.provider === 'local' && x.external_id === 'ivan'), '29 拒绝：账号删掉，待对接清单里也拿掉', rej);
+    check((await login('ivan', 'Ivan-pass-00001', undefined, nextIp())).r.status === 401, '29 拒绝之后：登不进（和没这个人一样）');
+    check((await adminCall('POST', '/api/local-accounts/nobody-x/reject')).status === 404 && (await adminCall('POST', '/api/local-accounts/nobody-x/approve')).status === 404, '29 没有这个账号：核准、拒绝都 404');
+
+    {
+      const b = browser(nextIp()); const { form } = await begin(b);
+      const first = await b.go('POST', form, { form: { mode: 'signup', username: 'lena', password: 'Lena-pass-00001', confirm: 'Lena-pass-00002' } });
+      // 同一个浏览器半边（同样的 cookie）、但不跟页面上的新地址：真的拿用过的 state 再交一次
+      const again = browser(); for (const [k, v] of b.jar) again.jar.set(k, v);
+      const replay = await again.go('POST', form, { form: { mode: 'signup', username: 'lena', password: 'Lena-pass-00001', confirm: 'Lena-pass-00001' } });
+      check(first.status === 400 && replay.status === 400 && /已经用过|无效或已过期/.test(replay.text) && !(await account('lena')), '29 注册的表单 state 也是一次性的：拿用过的 state 再交，给「已经用过」页，不建账号', { first: first.status, replay: replay.status });
+    }
+    const ip = nextIp();
+    const statuses = [];
+    for (let i = 0; i < 6; i++) statuses.push((await signup({ username: `kim${i}x`, password: 'Kim-pass-000001', confirm: 'Kim-pass-000002' }, ip)).r.status);
+    check(statuses.slice(0, 5).every((x) => x === 400) && statuses[5] === 429, '30 同一来源一小时注册（成功失败都算）超过 5 次：429', statuses);
+    check(/"event":"signup","username":"gina"/.test(log) && !log.includes('Gina-pass-0001'), '31 注册留痕有用户名，日志里没有密码');
   }
 } catch (e) {
   fail++;

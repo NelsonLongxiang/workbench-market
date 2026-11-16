@@ -93,13 +93,14 @@ export function registerLoginFlowRoutes(app: HttpService, deps: LoginFlowRouteDe
       if (!parsed) return page(res, 400, '请求格式不对', '请回到登录页重新登录。');
       for (const [k, v] of Object.entries((req.body ?? {}) as Record<string, unknown>)) if (typeof v === 'string') fields[k] = v;
     }
+    const view = typeof req.query.view === 'string' && /^[a-z]{1,16}$/.test(req.query.view) ? req.query.view : '';
     // 请求断开了（还没回应答就关了连接）：告诉登录方式，排着队的核对不再排、不再算
     const gone = new AbortController();
     // 挂在响应上：请求体读完时请求那一侧的 close 已经过了；响应的 close 在连接断开（或回完）时才来，没回完就是断了
     const onClose = (): void => { if (!res.writableEnded) gone.abort(); };
     res.once('close', onClose);
     let out;
-    try { out = await identity().flowForm(flow, { method, state, callbackUrl: callbackUrl(flow), fields, source: clientIp(req), signal: gone.signal }); }
+    try { out = await identity().flowForm(flow, { method, state, callbackUrl: callbackUrl(flow), fields, source: clientIp(req), view, signal: gone.signal }); }
     finally { res.off('close', onClose); }
     fields = {};
     if (out.kind === 'redirect') return res.set('Cache-Control', 'no-store').redirect(302, out.location);

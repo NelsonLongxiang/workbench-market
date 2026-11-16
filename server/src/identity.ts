@@ -260,8 +260,9 @@ export interface LoginFlow {
 }
 
 /** 站内表单的一次请求：fields 只有 POST 才有（urlencoded 的字段，字符串）；source 是来源 IP，插件按它限额 */
-/** signal：请求断开（浏览器关了、客户端中止）时中止；登录方式可以据此不再排队、不再算（站内账号的核对名额） */
-export type FlowFormInput = { method: 'GET' | 'POST'; state: string; callbackUrl: string; fields: Record<string, string>; source: string; signal?: AbortSignal };
+/** view：表单页的哪一页（查询串 view=，只认小写字母、最多 16 个，别的当空），插件自己解释，比如 signup。
+ *  signal：请求断开（浏览器关了、客户端中止）时中止；登录方式可以据此不再排队、不再算（站内账号的核对名额） */
+export type FlowFormInput = { method: 'GET' | 'POST'; state: string; callbackUrl: string; fields: Record<string, string>; source: string; view: string; signal?: AbortSignal };
 /** 站内表单的回答：一页 HTML（status 200 或 4xx），或者去回调（location 必须是这个方式的回调地址，带一次性码） */
 export type FlowForm = { kind: 'page'; status: number; html: string } | { kind: 'redirect'; location: string };
 
