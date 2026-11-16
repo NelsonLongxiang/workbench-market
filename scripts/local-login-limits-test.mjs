@@ -5,20 +5,22 @@
  *   甲、进程内（账号服务直接打并发，看「同时在算」的峰值）：
  *     1 同一来源并发 60 个错密码：绝大多数 throttled，同时在算的不超过上限；1b 同一来源换着用户名：同时只核一个
  *     2 换着来源（伪造来源的样子）、同一用户名并发 60 个：同一用户名同时只核一个，绝大多数 throttled
- *     3 换着来源、换着用户名并发 60 个：全进程同时在算的不超过上限
+ *     3 换着来源、换着用户名并发 60 个：全进程同时在算的不超过上限，进哈希的不超过上限加队长
  *     4 claim 返回 false（state 用过了）：不进哈希、回 stale，先记的尝试退回
  *     4b 先记后算：占上名额、还没算哈希时，这一次已经算进来源的尝试数
- *     5 对了的那一次不占来源的尝试数
+ *     5 对了的那一次不占来源的尝试数；5b 随机间隔的正常登录压测：几乎不被拒（全进程那道排队）
  *   乙、来源识别：
  *     6 不在可信反代里的对端直连，带来的 X-Real-IP / X-Forwarded-For 不认；在列表里的才认
  *     7 启动自检：可信反代写成网段给 warn，单个地址 pass
  *   丙、起隔离实例走真实路径（本机当可信反代，X-Real-IP 当来源）：
  *     8 同一来源、同一 state 并发 60 个错密码：只有一个进了哈希（401），别的都在哈希之前被拒（state 已换掉 400，或名额占不上 429）
  *     9 同一来源、不同 state 并发 15 个：按来源的一分钟限额在算哈希之前就生效，进哈希的不超过 10 个
- *    10 state 一次性：提交过的那个 state 再交（重放）400，不进哈希；登录成功之后再交旧的也 400
+ *    10 state 一次性：拿交过的 state 交不一样的内容（重放）400、不进哈希；一模一样的再交拿第一次的应答；登录成功之后拿旧的交别的也 400
  *    11 换着伪造来源、同一用户名并发 40 个：大部分 429（同一用户名同时只核一个）
  *    12 账号被锁住时日志记一行 locked，带来源
  *    13 名额占不上（429）的那一次不核销 state，之后照样能交
+ *    14 双击登录：同一份提交同时到两次，两个应答是同一个去回调的跳转，跟着后一个能登进去
+ *    15 双击、密码错：两个应答一样；拿旧 state 交不一样的内容仍是重放（400）
  *
  *   node scripts/local-login-limits-test.mjs
  */
@@ -75,8 +77,25 @@ try {
       `2 换着来源、同一用户名并发 60 个：throttled ${name.reasons.throttled ?? 0} 个，同时在算的峰值 ${name.peak}（同一用户名同时只核一个）`, name);
     acc.unlock('bob');
     const all = await burst((i) => acc.verify(`nobody-${i}`, 'wrong-pass-000', `203.0.113.${i + 1}`));
-    check((all.reasons.throttled ?? 0) >= 50 && all.peak <= mod.HASH_INFLIGHT_MAX,
-      `3 换着来源、换着用户名并发 60 个：同时在算的峰值 ${all.peak}（全进程上限 ${mod.HASH_INFLIGHT_MAX}），throttled ${all.reasons.throttled ?? 0} 个`, all);
+    const ran3 = 60 - (all.reasons.throttled ?? 0);
+    check(all.peak <= mod.HASH_INFLIGHT_MAX && ran3 <= mod.HASH_INFLIGHT_MAX + mod.HASH_QUEUE_MAX && (all.reasons.throttled ?? 0) >= 60 - mod.HASH_INFLIGHT_MAX - mod.HASH_QUEUE_MAX,
+      `3 换着来源、换着用户名并发 60 个：同时在算的峰值 ${all.peak}（全进程上限 ${mod.HASH_INFLIGHT_MAX}）；进了哈希的 ${ran3} 个（不超过上限加队长 ${mod.HASH_INFLIGHT_MAX + mod.HASH_QUEUE_MAX}），throttled ${all.reasons.throttled ?? 0} 个`, all);
+    // 正常登录：随机间隔（指数分布）、各用各的来源和账号，速率取这台机器全进程能力的六成——排队兜得住，几乎不该被拒
+    {
+      const N = 30;
+      for (let i = 0; i < N; i++) { const r = await acc.create({ username: `legit${i}` }, 'cli'); await acc.setPassword(`legit${i}`, `Legit-pass-${String(i).padStart(4, '0')}`); if (!r.ok) throw new Error('建不了 legit'); }
+      const t1 = Date.now(); await acc.verify('legit0', 'Legit-pass-0000', '198.51.100.250'); const T = Math.max(20, Date.now() - t1);
+      const rate = 0.6 * mod.HASH_INFLIGHT_MAX / T; // 每毫秒几个
+      let seed = 7; const rand = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+      const jobs = [];
+      for (let i = 0; i < N; i++) {
+        jobs.push(acc.verify(`legit${i}`, `Legit-pass-${String(i).padStart(4, '0')}`, `198.51.99.${i + 1}`));
+        await sleep(Math.min(5 * T, -Math.log(1 - rand()) / rate));
+      }
+      const res = await Promise.all(jobs);
+      const refused = res.filter((r) => !r.ok).length;
+      check(refused === 0, `5b 正常登录压测：随机间隔、速率是全进程能力的六成（单次约 ${T}ms），${N} 次登录被拒 ${refused} 次（全进程那道排队，不白拒）`, tally(res.map((r) => (r.ok ? 'ok' : r.reason))));
+    }
     const t0 = Date.now();
     const stale = await acc.verify('amy', 'wrong-pass-000', '198.51.100.200', Date.now(), { claim: () => false });
     const took = Date.now() - t0;
@@ -160,10 +179,11 @@ try {
   {
     const ip = '192.0.2.51';
     const { form } = await begin(ip);
-    const rs = await Promise.all(Array.from({ length: 60 }, () => post(form, ip, { username: 'dave', password: 'wrong-pass-000' })));
+    // 攻击：同一个 state、每个请求猜一个不同的密码
+    const rs = await Promise.all(Array.from({ length: 60 }, (_, i) => post(form, ip, { username: 'dave', password: `wrong-pass-${String(i).padStart(3, '0')}` })));
     const t = tally(rs.map((r) => r.status));
     check((t[401] ?? 0) === 1 && (t[429] ?? 0) + (t[400] ?? 0) === 59,
-      `8 同一来源、同一 state 并发 60 个错密码：只有一个进了哈希（401）；别的都在哈希之前被拒——state 已经换掉的 400 ${t[400] ?? 0} 个、名额占不上的 429 ${t[429] ?? 0} 个`, t);
+      `8 同一来源、同一 state 并发 60 个不同的错密码：只有一个进了哈希（401）；别的都在哈希之前被拒——state 已经换掉的 400 ${t[400] ?? 0} 个、名额占不上的 429 ${t[429] ?? 0} 个`, t);
     await adminCall('POST', '/api/local-accounts/dave/unlock');
   }
   {
@@ -179,16 +199,22 @@ try {
     const ip = '192.0.2.53';
     const { form, cookie } = await begin(ip);
     const first = await post(form, ip, { username: 'dave', password: 'wrong-pass-000' }, cookie);
+    // 拿旧 state 交不一样的内容（换个密码再猜）：重放，400，不进哈希
     const t0 = Date.now();
-    const replay = await post(form, ip, { username: 'dave', password: 'wrong-pass-000' }, cookie);
+    const replay = await post(form, ip, { username: 'dave', password: 'wrong-pass-001' }, cookie);
     const took = Date.now() - t0;
+    // 一模一样的再交一次（双击、浏览器重发）：拿第一次的应答，不进第二次哈希
+    const t1 = Date.now();
+    const same = await post(form, ip, { username: 'dave', password: 'wrong-pass-000' }, cookie);
+    const tookSame = Date.now() - t1;
     const okLogin = await post(first.action, ip, { username: 'carol', password: carolTemp }, cookie);
-    const replayAfter = await post(first.action, ip, { username: 'carol', password: carolTemp }, cookie);
+    const replayAfter = await post(first.action, ip, { username: 'carol', password: `${carolTemp}x` }, cookie);
     const forged = await post('/login/local/form?state=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', ip, { username: 'dave', password: 'x' });
     check(first.status === 401 && first.action && first.action !== form && replay.status === 400 && took < 80
+        && same.status === 401 && same.action === first.action && tookSame < 80
         && okLogin.status === 200 && /name="ticket"/.test(okLogin.text) && replayAfter.status === 400 && forged.status === 400,
-      '10 state 一次性：提交一次就换新的；旧的再交（重放）400、不进哈希；登录对了之后再交旧的也 400；伪造的 400',
-      { first: [first.status, !!first.action], replay: [replay.status, took], okLogin: okLogin.status, replayAfter: replayAfter.status, forged: forged.status });
+      '10 state 一次性：提交一次就换新的；拿旧的交不一样的内容（重放）400、不进哈希；一模一样的再交拿第一次的应答、不进第二次哈希；登录对了之后拿旧的交别的也 400；伪造的 400',
+      { first: [first.status, !!first.action], replay: [replay.status, took], same: [same.status, same.action === first.action, tookSame], okLogin: okLogin.status, replayAfter: replayAfter.status, forged: forged.status });
     await adminCall('POST', '/api/local-accounts/dave/unlock');
   }
   {
@@ -218,6 +244,29 @@ try {
     await sleep(200);
     const line = log.split('\n').find((l) => l.includes('"event":"locked"') && l.includes('"username":"dave"') && l.includes(`"from":"${ip}"`));
     check(!!line && !/wrong-pass/.test(log), '12 连续输错 5 次锁住时日志记一行 locked（用户名、来源），不带密码', line ?? '');
+  }
+  {
+    // 双击「登录」：同一个 state、一模一样的两份提交同时到；浏览器显示的是后一个应答。两个都该是同一个去回调的跳转，跟着后一个能登进去
+    await adminCall('POST', '/api/local-accounts/carol/unlock');
+    const ip = '192.0.2.71';
+    const pw = 'Carol-pass-0001';
+    { const { form, cookie } = await begin(ip); const r = await post(form, ip, { username: 'carol', password: carolTemp }, cookie); await post(r.action || form, ip, { ticket: /name="ticket" value="([^"]+)"/.exec(r.text)?.[1] ?? '', next: pw, confirm: pw }, cookie); }
+    const { form, cookie } = await begin(ip);
+    const [a, b] = await Promise.all([post(form, ip, { username: 'carol', password: pw }, cookie), post(form, ip, { username: 'carol', password: pw }, cookie)]);
+    const cb = b.location ? await fetch(new URL(new URL(b.location).pathname + new URL(b.location).search, base), { headers: { cookie, 'x-real-ip': ip }, redirect: 'manual' }) : null;
+    const session = (cb?.headers.getSetCookie?.() ?? []).some((c) => c.startsWith('wm_session='));
+    check(a.status === 302 && b.status === 302 && a.location === b.location && cb?.status === 302 && session,
+      '14 双击登录（同一份提交同时到两次）：两个应答是同一个去回调的跳转，不出「已过期」；跟着后一个能登进去', { a: a.status, b: b.status, same: a.location === b.location, cb: cb?.status, session });
+  }
+  {
+    // 双击、密码错：两个应答一样（同一页 401、同一个新的表单地址），不进第二次哈希；接着交新的表单照常
+    const ip = '192.0.2.72';
+    const { form } = await begin(ip);
+    const [a, b] = await Promise.all([post(form, ip, { username: 'carol', password: 'not-carol-000' }), post(form, ip, { username: 'carol', password: 'not-carol-000' })]);
+    const next = await post(b.action, ip, { username: 'carol', password: 'not-carol-001' });
+    const diff = await post(form, ip, { username: 'carol', password: 'not-carol-002' });
+    check(a.status === 401 && b.status === 401 && a.action === b.action && a.action !== form && next.status === 401 && diff.status === 400,
+      '15 双击、密码错：两个应答一样（同一页、同一个新表单地址）；接着交新表单照常；拿旧 state 交不一样的内容仍是重放（400）', { a: a.status, b: b.status, sameAction: a.action === b.action, next: next.status, diff: diff.status });
   }
 } catch (e) {
   fail++;

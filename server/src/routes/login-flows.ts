@@ -82,7 +82,8 @@ export function registerLoginFlowRoutes(app: HttpService, deps: LoginFlowRouteDe
     const flow = String(req.params.flow);
     if (!FLOW_RE.test(flow) || !identity().flowHasForm(flow)) return page(res, 404, '没有这个登录方式', '请回到登录页选一种可用的登录方式。');
     const state = typeof req.query.state === 'string' ? req.query.state : '';
-    if (!sessions().peekState(flow, state)) return page(res, 400, '登录请求无效或已过期', '请回到登录页重新登录。');
+    // 提交时刚被换掉的 state 也放进去（双击、浏览器重发）：同一份提交由登录方式拿第一次的结果，内容不一样的它照样当重放拒
+    if (!sessions().peekState(flow, state, Date.now(), { recentlyRotated: method === 'POST' })) return page(res, 400, '登录请求无效或已过期', '请回到登录页重新登录。');
     let fields: Record<string, string> = {};
     if (method === 'POST') {
       const site = req.headers['sec-fetch-site'];

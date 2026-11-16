@@ -6,6 +6,9 @@
  *             每提交一次就把 state 换一个（loginSessions.rotateState，一次性）：页面、码、改密码票都接着用新的，
  *             用过的、重放的、并发拿同一个来交的，只有一个换得到，别的不进哈希。账号密码那一步先占核对名额再换（见 verify 的 claim），
  *             名额占不上回 429，state 不动；
+ *             同一个 state、填的东西一模一样的重复提交（双击、浏览器重发），在第一次还在算或刚算完 DUP_MS 之内，拿第一次的结果，
+ *             不再算一遍、也不回「已过期」——浏览器显示的是最后那个应答，第一次的应答（带一次性码的跳转）被它丢了；
+ *             填的东西不一样的照旧当重放拒（400）。只在内存里，只存 HMAC（进程随机密钥），不存密码；
  *   complete  回调拿码换回用户名（码绑着这次的 state，60 秒、用一次）。
  * 对到主体、等待页、发会话、停用，都是核心的事（routes/login-flows.ts），这里不碰。
  *
@@ -17,6 +20,7 @@ import type { FlowBegin, FlowComplete, FlowForm, FlowFormInput, IdentityService,
 import type { LocalAccountService } from '../../services/local-account.ts';
 import type { LoginSessionService } from '../../services/login-session.ts';
 import { PASSWORD_MIN } from '../../services/local-account.ts';
+import { createHmac, randomBytes } from 'node:crypto';
 import { defineConfig, loadConfig } from '../../config.ts';
 
 export const Config = defineConfig((env) => {
@@ -75,9 +79,33 @@ function stalePage(): FlowForm {
   return { kind: 'page', status: 400, html: shell('登录请求已经用过或过期了', '<p class="hint">这个登录表单已经提交过了。请回到登录页重新登录。</p>') };
 }
 
+/** 重复提交认作同一份的窗口；表单的 state 和填的内容只存 HMAC（进程随机密钥） */
+const DUP_MS = 10_000;
+const DUP_MAX = 10_000;
+const dupKey = randomBytes(32);
+const mac = (s: string): string => createHmac('sha256', dupKey).update(s, 'utf8').digest('hex');
+const recentSubmits = new Map<string, { digest: string; at: number; outcome: Promise<FlowForm> }>();
+
 async function form(input: FlowFormInput): Promise<FlowForm> {
+  if (input.method === 'GET') return loginPage(input.state, 200);
+  const now = Date.now();
+  for (const [k, v] of recentSubmits) if (now - v.at >= DUP_MS) recentSubmits.delete(k);
+  while (recentSubmits.size > DUP_MAX) recentSubmits.delete(recentSubmits.keys().next().value as string);
+  const key = mac(`state\u0000${input.state}`);
+  const digest = mac(JSON.stringify(Object.entries(input.fields).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))));
+  const prev = recentSubmits.get(key);
+  if (prev && prev.digest === digest && now - prev.at < DUP_MS) return prev.outcome;
+  const outcome = submit(input);
+  // 只记这个 state 的第一份：拿它交不一样的内容（重放）不顶掉第一份，第一份再到时照样认得
+  if (!prev || now - prev.at >= DUP_MS) recentSubmits.set(key, { digest, at: now, outcome });
+  // 名额占不上（429）的不留：state 没动，稍后重交要真的再试一次；出错的也不留
+  outcome.then((r) => { if (r.kind === 'page' && r.status === 429 && recentSubmits.get(key)?.outcome === outcome) recentSubmits.delete(key); },
+    () => { if (recentSubmits.get(key)?.outcome === outcome) recentSubmits.delete(key); });
+  return outcome;
+}
+
+async function submit(input: FlowFormInput): Promise<FlowForm> {
   const { state, fields } = input;
-  if (input.method === 'GET') return loginPage(state, 200);
   const acc = accounts();
   // 改密码那一步：票绑着交上来的那个 state，用一次作废；state 先换掉（一次性），之后都用新的；没改成（两次不一致、不合规）再发一张新票
   if (typeof fields.ticket === 'string' && fields.ticket) {

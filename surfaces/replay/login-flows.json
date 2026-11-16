@@ -373,13 +373,13 @@
           "id": "form-post-replay",
           "route": "POST /login/:flow/form",
           "class": "invalid",
-          "what": "state 一次性：错密码那一步交过的 state 再交（重放）400，不进哈希",
+          "what": "state 一次性：错密码那一步交过的 state 拿来交不一样的内容（重放）400，不进哈希；刚换掉 10 秒内的 state 由登录方式判（一模一样的才拿第一次的结果），所以是登录方式的「已经用过」页",
           "request": { "method": "POST", "path": "/login/local/form?state=replaystate-local-000000000000000000000001x", "headers": { "content-type": "application/x-www-form-urlencoded" }, "text": "username=carol&password=Synthetic-pass-0001" },
           "response": {
             "status": 400,
             "type": "text/html; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "204", "content-security-policy": "default-src 'none'; frame-ancestors 'none'", "etag": "W/\"cc-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
-            "body": "<!doctype html><meta charset=\"utf-8\"><title>登录请求无效或已过期</title><h1>登录请求无效或已过期</h1><p>请回到登录页重新登录。</p><p><a href=\"/login\">回到登录页</a></p>"
+            "headers": { "cache-control": "no-store", "content-length": "1073", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'", "etag": "W/\"431-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-content-type-options": "nosniff", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>登录请求已经用过或过期了</title><style>body{font-family:system-ui,-apple-system,\"Segoe UI\",\"PingFang SC\",sans-serif;background:#F6F7F9;color:#0F172A;margin:0}main{max-width:360px;margin:12vh auto;background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:28px}h1{font-size:20px;margin:0 0 16px}label{display:block;font-size:14px;margin:12px 0 4px}input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:14px}button{margin-top:18px;width:100%;padding:9px;border:0;border-radius:6px;background:#1E3A5F;color:#fff;font-size:14px;cursor:pointer}p.err{color:#DC2626;font-size:14px;margin:0 0 8px}p.hint{color:#5A6577;font-size:13px}a{color:#1E3A5F}</style><main><h1>登录请求已经用过或过期了</h1><p class=\"hint\">这个登录表单已经提交过了。请回到登录页重新登录。</p><p class=\"hint\"><a href=\"/login\">换一种登录方式</a></p></main></html>"
           }
         },
         {
