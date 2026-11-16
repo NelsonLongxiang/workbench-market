@@ -11,6 +11,7 @@
  *
  * 这一步只建结构，不接判定：现有的守卫不读授予，不改变任何人能做什么。
  */
+import { actorPrincipal } from '../request-person.ts';
 import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
@@ -140,7 +141,7 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
     await deps.markOdooAdmin(req);
     if (deps.adminHeaderOk(req)) {
       const by = deps.adminActor(req);
-      const principal = by.startsWith('odoo:') ? principals().principalOf(identity().providerName() ?? '', by.slice(5)) : null;
+      const principal = actorPrincipal(by);
       return { by, principal, owner: grants().isOwner(principal), admin: true };
     }
     const cookie = String(req.headers.cookie ?? '');
@@ -158,7 +159,7 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
     if (!deps.adminGuard(req, res)) return null;
     const by = deps.adminActor(req);
     // 管理员登录对到主体：和主体管理面「不能停用自己」同一个取法
-    const principal = by.startsWith('odoo:') ? principals().principalOf(identity().providerName() ?? '', by.slice(5)) : null;
+    const principal = actorPrincipal(by);
     return { by, principal, owner: grants().isOwner(principal) };
   }
   const route = (fn: (req: express.Request, res: express.Response) => Promise<unknown>): express.RequestHandler =>

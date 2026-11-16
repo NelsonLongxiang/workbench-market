@@ -147,6 +147,24 @@ export class HttpService extends Service {
     return [...routerOf(this.held.app).stack];
   }
 
+  /**
+   * 这个请求会落到哪条报了动作的路由（还没进路由的全局中间件也能问）：已经在路由里就取这条路由的；
+   * 否则按注册顺序找第一条方法、路径都对得上的（只用路径的正则判，不碰 Express 每层上的 params）。对不上回 null。
+   */
+  actionFor(req: express.Request): ActionSpec | null {
+    const here = (req as express.Request & { route?: { [ACTION_KEY]?: ActionSpec } }).route?.[ACTION_KEY];
+    if (here) return here;
+    const method = String(req.method ?? '').toLowerCase();
+    const path = String(req.path ?? '');
+    for (const layer of routerOf(this.held.app).stack as unknown as { regexp?: RegExp & { fast_slash?: boolean; fast_star?: boolean }; route?: { [ACTION_KEY]?: ActionSpec; _handles_method?: (m: string) => boolean } }[]) {
+      const declared = layer.route?.[ACTION_KEY];
+      if (!declared || !layer.regexp) continue;
+      const hit = layer.regexp.fast_slash || layer.regexp.fast_star || layer.regexp.test(path);
+      if (hit && layer.route?._handles_method?.(method) === true) return declared;
+    }
+    return null;
+  }
+
   /** 这一层是不是经这里注册、报了动作的路由 */
   declaredLayer(layer: unknown): RegisteredAction | undefined {
     const hit = this.registered.get(layer as Layer);

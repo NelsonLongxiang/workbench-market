@@ -35,6 +35,7 @@
  * 写请求总门对这两条放行（index.ts 的 REMOTE_ALLOW_PREFIX），认人、同源、负责人在这里判。认领、负责人的增减是管理面，照写请求总门和管理员门。
  * 每一步在 team_events 里留痕，并写一行日志（谁、做了什么、哪个团队）。
  */
+import { actorPrincipal } from '../request-person.ts';
 import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
@@ -135,7 +136,7 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
     await deps.markOdooAdmin(req);
     if (!deps.adminGuard(req, res)) return null;
     const by = deps.adminActor(req);
-    const principal = by.startsWith('odoo:') ? principals().principalOf(identity().providerName() ?? '', by.slice(5)) : null;
+    const principal = actorPrincipal(by);
     return { by, principal, owner: grants().isOwner(principal) };
   }
 
