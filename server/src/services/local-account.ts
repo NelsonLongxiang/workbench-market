@@ -23,6 +23,9 @@ export const LOCK_AFTER = 5;
 export const LOCK_MS = 15 * 60_000;
 const SOURCE_WINDOW_MS = 60_000;
 const SOURCE_MAX = 10;
+/** 自己注册：同一来源一小时最多试这么多次（成功、失败都算，不让人拿注册去探哪些用户名占着） */
+export const SIGNUP_WINDOW_MS = 60 * 60_000;
+export const SIGNUP_MAX = 5;
 const CODE_TTL_MS = 60_000;
 const TICKET_TTL_MS = 5 * 60_000;
 const ONE_TIME_MAX = 10_000;
@@ -105,6 +108,7 @@ export class LocalAccountService extends Service {
   /** 假哈希：用户名不存在时也算一次 scrypt，耗时和真核对一样 */
   private dummy: Promise<string> | null = null;
   private readonly sourceFails = new Map<string, number[]>();
+  private readonly signups = new Map<string, number[]>();
   private readonly codes = new Map<string, { username: string; state: string; exp: number }>();
   private readonly tickets = new Map<string, { username: string; state: string; exp: number }>();
 
@@ -140,6 +144,35 @@ export class LocalAccountService extends Service {
       VALUES (?, ?, ?, 1, 0, 0, ?, ?, ?) ON CONFLICT (username) DO NOTHING`).run(username, displayName, hash, now, actor, now);
     if (ins.changes !== 1) return { ok: false, reason: 'taken', message: '这个用户名不能用' };
     return { ok: true, tempPassword: temp, account: this.get(username, now)! };
+  }
+
+  /**
+   * 自己注册（docs/local-accounts.md 第 4 节）：只建站内账号（不用改密码），不建主体、不绑定——登录后核心发现没对接，进待对接清单、给等待页，
+   * 管理员核准才绑到新主体上。同一来源一小时最多试 SIGNUP_MAX 次（throttled）。用户名占着（已有账号，或 reserved 说占着：已有同名主体、等价写法的外部身份）
+   * 一律 taken、同一句「这个用户名不能用」，不说是哪种。
+   */
+  async register(input: { username: unknown; displayName?: unknown; password: unknown; confirm: unknown }, source: string, reserved: (username: string) => boolean, now = Date.now()):
+    Promise<{ ok: true; username: string } | { ok: false; reason: 'throttled' | 'invalid' | 'taken'; message: string }> {
+    const hits = (this.signups.get(source) ?? []).filter((t) => t > now - SIGNUP_WINDOW_MS);
+    if (hits.length >= SIGNUP_MAX) { this.signups.set(source, hits); return { ok: false, reason: 'throttled', message: '注册太频繁了，请过一会儿再试。' }; }
+    hits.push(now);
+    this.signups.set(source, hits);
+    if (this.signups.size > ONE_TIME_MAX) this.signups.delete(this.signups.keys().next().value as string);
+    const username = input.username;
+    if (typeof username !== 'string' || !USERNAME_RE.test(username)) return { ok: false, reason: 'invalid', message: '用户名只能用小写字母、数字和 . _ -，2～32 位，以字母或数字开头。' };
+    const displayName = displayNameOk(input.displayName);
+    if (displayName === null) return { ok: false, reason: 'invalid', message: '显示名最多 64 个字，不能有控制字符。' };
+    if (input.password !== input.confirm) return { ok: false, reason: 'invalid', message: '两次输的密码不一样。' };
+    const problem = passwordProblem(username, input.password);
+    if (problem) return { ok: false, reason: 'invalid', message: problem };
+    let taken = true;
+    try { taken = reserved(username) === true; } catch { taken = true; } // 查不了就当占着（失败关闭）
+    if (taken || this.get(username, now)) return { ok: false, reason: 'taken', message: '这个用户名不能用。' };
+    const hash = await hashPassword(input.password as string);
+    const ins = db.prepare(`INSERT INTO local_accounts (username, display_name, password_hash, must_change, failed_count, locked_until, created_at, created_by, updated_at)
+      VALUES (?, ?, ?, 0, 0, 0, ?, 'signup', ?) ON CONFLICT (username) DO NOTHING`).run(username, displayName, hash, now, now);
+    if (ins.changes !== 1) return { ok: false, reason: 'taken', message: '这个用户名不能用。' };
+    return { ok: true, username };
   }
 
   /** 删掉一个账号（建人时绑主体没成，撤回刚建的账号用） */

@@ -7,6 +7,8 @@
  * 对到主体、等待页、发会话、停用，都是核心的事（routes/login-flows.ts），这里不碰。
  *
  * 配置：WM_LOCAL_LOGIN=on|off，缺省 on（不设就开）；别的值拒绝启动。
+ *       WM_LOCAL_SIGNUP=approval|off，缺省 approval：表单页有「注册新账号」，自己注册的账号要管理员核准才进得去（第 4 节）；off 没有注册入口。
+ * 注册：表单页 ?view=signup 出注册页；提交（mode=signup）只建站内账号，然后照常去回调——核心发现没对接，进待对接清单、给等待页。
  * 提示只说「用户名或密码不对」，不分没这个人、密码错、锁着了；页面不带任何从库里来的东西（只有用户自己刚输的用户名）。
  */
 import type { Context } from '@deepseek-ai/cordis';
@@ -19,12 +21,16 @@ import { defineConfig, loadConfig } from '../../config.ts';
 export const Config = defineConfig((env) => {
   const raw = String(env.WM_LOCAL_LOGIN ?? '').trim();
   if (raw !== '' && raw !== 'on' && raw !== 'off') throw new Error(`[local] 拒绝启动：WM_LOCAL_LOGIN 只接受 on / off / 不设，现在是 ${JSON.stringify(raw)}`);
-  return { on: raw !== 'off' };
+  const signup = String(env.WM_LOCAL_SIGNUP ?? '').trim();
+  if (signup !== '' && signup !== 'approval' && signup !== 'off') throw new Error(`[local] 拒绝启动：WM_LOCAL_SIGNUP 只接受 approval / off / 不设，现在是 ${JSON.stringify(signup)}`);
+  return { on: raw !== 'off', signup: signup !== 'off' };
 });
 const config = loadConfig(Config);
 
 let accounts: () => LocalAccountService = () => { throw new Error('localAccounts 还没装上'); };
 let sessions: () => LoginSessionService = () => { throw new Error('loginSessions 还没装上'); };
+/** 注册时问主体目录：这个用户名对接成主体时会不会撞名。没装上就当占着（失败关闭） */
+let nameTaken: (username: string) => boolean = () => true;
 
 const esc = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const BAD = '用户名或密码不对。连续输错多次，账号会暂时锁定一会儿。';
@@ -41,14 +47,30 @@ function shell(title: string, body: string): string {
 }
 
 const action = (state: string) => `/login/local/form?state=${encodeURIComponent(state)}`;
+const signupHref = (state: string) => `${action(state)}&view=signup`;
 
 function loginPage(state: string, status: number, error = '', username = ''): FlowForm {
   return { kind: 'page', status, html: shell('账号密码登录',
     `${error ? `<p class="err" role="alert">${esc(error)}</p>` : ''}<form method="post" action="${esc(action(state))}">`
     + `<label for="u">用户名</label><input id="u" name="username" autocomplete="username" required maxlength="64" value="${esc(username.slice(0, 64))}">`
     + `<label for="p">密码</label><input id="p" name="password" type="password" autocomplete="current-password" required maxlength="512">`
-    + `<button type="submit">登录</button></form>`) };
+    + `<button type="submit">登录</button></form>`
+    + (config.signup ? `<p class="hint">还没有账号？<a href="${esc(signupHref(state))}">注册新账号</a>（管理员核准后才能用）</p>` : '')) };
 }
+
+function signupPage(state: string, status: number, error = '', username = '', displayName = ''): FlowForm {
+  return { kind: 'page', status, html: shell('注册新账号',
+    `<p class="hint">注册之后要等管理员核准才能进去。</p>`
+    + `${error ? `<p class="err" role="alert">${esc(error)}</p>` : ''}<form method="post" action="${esc(action(state))}">`
+    + `<input type="hidden" name="mode" value="signup">`
+    + `<label for="u">用户名</label><input id="u" name="username" autocomplete="username" required maxlength="32" value="${esc(username.slice(0, 32))}">`
+    + `<label for="d">显示名（可不填）</label><input id="d" name="display_name" autocomplete="name" maxlength="64" value="${esc(displayName.slice(0, 64))}">`
+    + `<label for="p">密码</label><input id="p" name="password" type="password" autocomplete="new-password" required minlength="${PASSWORD_MIN}" maxlength="512">`
+    + `<label for="c">再输一次</label><input id="c" name="confirm" type="password" autocomplete="new-password" required minlength="${PASSWORD_MIN}" maxlength="512">`
+    + `<button type="submit">注册</button></form><p class="hint"><a href="${esc(action(state))}">已有账号，去登录</a></p>`) };
+}
+
+const NO_SIGNUP: FlowForm = { kind: 'page', status: 404, html: shell('没有注册入口', '<p class="hint">这里不开放自己注册，请联系管理员开通账号。</p>') };
 
 function changePage(state: string, ticket: string, status: number, error = ''): FlowForm {
   return { kind: 'page', status, html: shell('先设一个新密码',
@@ -69,8 +91,18 @@ function toCallback(callbackUrl: string, state: string, code: string): FlowForm 
 
 async function form(input: FlowFormInput): Promise<FlowForm> {
   const { state, fields } = input;
-  if (input.method === 'GET') return loginPage(state, 200);
+  if (input.method === 'GET') return input.view === 'signup' && config.signup ? signupPage(state, 200) : loginPage(state, 200);
   const acc = accounts();
+  // 自己注册：只建站内账号，不建主体；然后照常去回调（核心发现没对接：进待对接清单、给等待页）
+  if (fields.mode === 'signup') {
+    if (!config.signup) return NO_SIGNUP;
+    const typedName = typeof fields.username === 'string' ? fields.username : '';
+    const typedDisplay = typeof fields.display_name === 'string' ? fields.display_name : '';
+    const r = await acc.register({ username: typedName, displayName: typedDisplay, password: fields.password, confirm: fields.confirm }, input.source, (u) => nameTaken(u));
+    if (!r.ok) return signupPage(state, r.reason === 'throttled' ? 429 : r.reason === 'taken' ? 409 : 400, r.message, typedName, typedDisplay);
+    console.log(JSON.stringify({ source: 'local-accounts', event: 'signup', username: r.username, at: new Date().toISOString() }));
+    return toCallback(input.callbackUrl, state, acc.issueCode(r.username, state));
+  }
   // 改密码那一步：票绑着这次的 state，用一次作废；没改成（两次不一致、不合规）再发一张新票
   if (typeof fields.ticket === 'string' && fields.ticket) {
     const username = acc.takeTicket(fields.ticket, state);
@@ -115,9 +147,13 @@ const flow: LoginFlow = {
 };
 
 export const name = 'login-provider-local';
-export const inject = ['identity', 'localAccounts', 'loginSessions'];
+export const inject = ['identity', 'localAccounts', 'loginSessions', 'principals'];
 export function apply(ctx: Context): void {
   accounts = () => ctx.get('localAccounts') as LocalAccountService;
   sessions = () => ctx.get('loginSessions') as LoginSessionService;
+  nameTaken = (username) => {
+    const p = ctx.get('principals') as { nameTaken?: (provider: string, externalId: string) => boolean } | undefined;
+    return typeof p?.nameTaken === 'function' ? p.nameTaken('local', username) === true : true;
+  };
   ctx.effect(() => (ctx.get('identity') as IdentityService).registerFlow(flow), 'identity.registerFlow(local)');
 }

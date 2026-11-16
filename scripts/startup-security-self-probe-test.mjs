@@ -10,7 +10,7 @@ const express=require('express');
 const { createStartupSecurityProbe, isStartupProbeRequest }=await import('../server/src/startup-security-self-probe.ts');
 let checks=0;const check=(name,condition)=>{assert.ok(condition,name);checks++;console.log('PASS '+name);};
 const noAuth='DO_NOT_LOG_SYNTHETIC_CREDENTIAL';
-async function fixture({seatTokenBroken=false,accessBroken=false,mcpBroken=false,writeBroken=false,principalsBroken=false,localAccountsBroken=false,callbackBroken=false,eventBroken=false,exportBroken=false,creatorBroken=false,listBroken=false,arrangeBroken=false,uploadBroken=false,dueBroken=false,seatReplyBroken=false,seatAskBroken=false,leadReleaseBroken=false,grantsBroken=false,grantApproveBroken=false,knowledgeBroken=false,knowledgeMapBroken=false,rememberBroken=false,teamReassignBroken=false,attentionBroken=false,appDataBroken=false,varsMissingBroken=false,runWriteBroken=false,hang=false,off=false,control=false,hold=false,noChallenge=false,successWrite=false,nodeEnv='test',cockpitBroken=false}={}){
+async function fixture({seatTokenBroken=false,accessBroken=false,mcpBroken=false,writeBroken=false,principalsBroken=false,localAccountsBroken=false,approveBroken=false,callbackBroken=false,eventBroken=false,exportBroken=false,creatorBroken=false,listBroken=false,arrangeBroken=false,uploadBroken=false,dueBroken=false,seatReplyBroken=false,seatAskBroken=false,leadReleaseBroken=false,grantsBroken=false,grantApproveBroken=false,knowledgeBroken=false,knowledgeMapBroken=false,rememberBroken=false,teamReassignBroken=false,attentionBroken=false,appDataBroken=false,varsMissingBroken=false,runWriteBroken=false,hang=false,off=false,control=false,hold=false,noChallenge=false,successWrite=false,nodeEnv='test',cockpitBroken=false}={}){
  const app=express(),logs=[],db=new DatabaseSync(':memory:');db.exec('CREATE TABLE workbenches(id INTEGER PRIMARY KEY,name TEXT)');let ordinaryHits=0;const requests=[];
  const probe=createStartupSecurityProbe({timeoutMs:hang?50:500,log:row=>logs.push(row)});app.use(probe.middleware);app.use(express.json());let release;const barrier=hold?new Promise(r=>release=r):Promise.resolve();
  const server=createServer(app);await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;
@@ -41,6 +41,7 @@ async function fixture({seatTokenBroken=false,accessBroken=false,mcpBroken=false
  app.put('/api/sop/runs/:id',(_req,res)=>runWriteBroken?res.status(404).json({error:'run not found'}):res.status(403).json({error:'run_write_denied'}));
  app.get('/api/principals',(_req,res)=>principalsBroken?res.json({principals:[{id:noAuth}]}):res.status(403).json({error:'denied'}));
  app.get('/api/local-accounts',(_req,res)=>localAccountsBroken?res.json({accounts:[{username:noAuth}]}):res.status(403).json({error:'denied'}));
+ app.post('/api/local-accounts/:u/approve',(_req,res)=>approveBroken?res.json({account:{username:noAuth}}):res.status(403).json({error:'denied'}));
  app.get('/login/feishu/callback',(_req,res)=>callbackBroken?res.redirect(302,'/work-items'):res.status(400).end());
  app.post('/login/feishu/events',(_req,res)=>eventBroken?res.status(200).json({}):res.status(401).end());
  app.post('/api/a2a/seat-token',(_req,res)=>seatTokenBroken?res.status(200).json({token:'0'.repeat(64)}):res.status(401).json({error:'seat_token_refused'}));
@@ -94,6 +95,7 @@ async function fixture({seatTokenBroken=false,accessBroken=false,mcpBroken=false
 {
  const f=await fixture({principalsBroken:true});try{const r=await f.start();check('principal list readable by a remote anonymous browser fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.principals.admin-read');check('leaked principal list is never copied into audit and the gate stays closed',!JSON.stringify(f.logs).includes(noAuth)&&(await fetch('http://127.0.0.1:'+f.port+'/business')).status===503);}finally{await f.close();}
  const la=await fixture({localAccountsBroken:true});try{const r=await la.start();check('local account list readable by a remote anonymous browser fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.local-accounts.admin-read');check('leaked local account list is never copied into audit and the gate stays closed',!JSON.stringify(la.logs).includes(noAuth)&&(await fetch('http://127.0.0.1:'+la.port+'/business')).status===503);}finally{await la.close();}
+ const ap=await fixture({approveBroken:true});try{const r=await ap.start();check('local account approval open to a remote anonymous browser fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.local-accounts.approve-anonymous');check('leaked approval answer is never copied into audit and the gate stays closed',!JSON.stringify(ap.logs).includes(noAuth)&&(await fetch('http://127.0.0.1:'+ap.port+'/business')).status===503);}finally{await ap.close();}
 }
 {
  const f=await fixture();try{const r=await f.start();const q=f.requests.find(x=>x.path==='/api/principals');check('principal row impersonates a remote anonymous browser and passes on 403',r.passed&&r.rows.some(x=>x.id==='market.principals.admin-read'&&x.verdict==='pass'&&x.status===403)&&q?.headers['x-forwarded-for']==='192.0.2.1'&&!q.headers.cookie&&!q.headers['x-admin-token']);}finally{await f.close();}
@@ -132,6 +134,7 @@ for(const nodeEnv of ['development','test']){
  app.post('/api/workbenches',(req,res)=>res.status(req.headers.origin?403:400).end());
  app.get('/api/principals',(_req,res)=>res.status(403).end());
  app.get('/api/local-accounts',(_req,res)=>res.status(403).end());
+ app.post('/api/local-accounts/:u/approve',(_req,res)=>res.status(403).end());
  app.get('/api/export',(_req,res)=>res.status(403).end());
  app.get('/api/grants',(_req,res)=>res.status(401).end());
  app.post('/api/grants/:id/approve',(_req,res)=>res.status(401).end());

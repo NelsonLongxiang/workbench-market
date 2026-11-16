@@ -92,7 +92,8 @@ export function registerLoginFlowRoutes(app: HttpService, deps: LoginFlowRouteDe
       if (!parsed) return page(res, 400, '请求格式不对', '请回到登录页重新登录。');
       for (const [k, v] of Object.entries((req.body ?? {}) as Record<string, unknown>)) if (typeof v === 'string') fields[k] = v;
     }
-    const out = await identity().flowForm(flow, { method, state, callbackUrl: callbackUrl(flow), fields, source: clientIp(req) });
+    const view = typeof req.query.view === 'string' && /^[a-z]{1,16}$/.test(req.query.view) ? req.query.view : '';
+    const out = await identity().flowForm(flow, { method, state, callbackUrl: callbackUrl(flow), fields, source: clientIp(req), view });
     fields = {};
     if (out.kind === 'redirect') return res.set('Cache-Control', 'no-store').redirect(302, out.location);
     if (!out.html) return page(res, out.status === 404 ? 404 : 503, '登录方式暂时不可用', '请稍后再试，或者换一种登录方式。');

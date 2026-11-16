@@ -31,6 +31,7 @@ const PRINCIPAL = 'server/src/services/principal.ts', ROUTES = 'server/src/route
 
 const INDEX = 'server/src/index.ts';
 const REQUEST_PERSON = 'server/src/request-person.ts', LOCAL = 'local-accounts-test.mjs';
+const LOCAL_SVC = 'server/src/services/local-account.ts', LOCAL_ROUTES = 'server/src/routes/local-accounts.ts';
 const PRELOAD = 'scripts/identity-fake-preload.mjs', FAKE = 'scripts/identity-fake-provider.mjs';
 
 /** 变体：file 里的 find 恰好出现一次，换成 replace。suites 里的每一套都必须变红。 */
@@ -429,6 +430,15 @@ const MUTANTS = [
     find: "  if (odoo?.startsWith('grant:')) return odoo.slice('grant:'.length); // 站内管理员：留痕记主体（user:<名>）\n", replace: '' },
   { id: 'system-admin-audit-as-odoo', what: '系统管理员的留痕写成 odoo:grant-system:…（冒充 Odoo 管理员、对不回主体）', file: INDEX, suites: [LOCAL],
     find: "  if (odoo?.startsWith('grant-system:')) return odoo.slice('grant-system:'.length); // 系统管理员：同样记主体\n", replace: '' },
+  // —— 自己注册（docs/local-accounts.md P3）：只建账号、要核准 ——
+  { id: 'signup-ignores-reserved', what: '注册不看已有同名的人（核准时必撞名，也能抢占别人的用户名）', file: LOCAL_SVC, suites: [LOCAL],
+    find: 'if (taken || this.get(username, now)) return', replace: 'if (this.get(username, now)) return' },
+  { id: 'signup-unthrottled', what: '注册不按来源限额', file: LOCAL_SVC, suites: [LOCAL],
+    find: 'if (hits.length >= SIGNUP_MAX) {', replace: 'if (false) {' },
+  { id: 'signup-confirm-unchecked', what: '注册不核对两次密码', file: LOCAL_SVC, suites: [LOCAL],
+    find: "if (input.password !== input.confirm) return { ok: false, reason: 'invalid', message: '两次输的密码不一样。' };", replace: '' },
+  { id: 'reject-bound-account', what: '已经对接的账号也能拒绝（删掉正在用的账号）', file: LOCAL_ROUTES, suites: [LOCAL],
+    find: "if (principals().principalOf(PROVIDER, username)) throw new HttpError(409, '这个账号已经对接了，不能拒绝；要停用请用停用');", replace: '' },
 ];
 
 if (process.argv.includes('--list')) {
