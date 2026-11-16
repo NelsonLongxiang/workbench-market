@@ -427,6 +427,8 @@ const MUTANTS = [
     find: 'return /^user:[^\\s]{1,160}$/.test(by) ? by : null;', replace: 'return null;' },
   { id: 'grant-admin-audit-as-odoo', what: '站内管理员的留痕写成 odoo:<名>（冒充 Odoo 管理员、对不回主体）', file: INDEX, suites: [LOCAL],
     find: "  if (odoo?.startsWith('grant:')) return odoo.slice('grant:'.length); // 站内管理员：留痕记主体（user:<名>）\n", replace: '' },
+  { id: 'system-admin-audit-as-odoo', what: '系统管理员的留痕写成 odoo:grant-system:…（冒充 Odoo 管理员、对不回主体）', file: INDEX, suites: [LOCAL],
+    find: "  if (odoo?.startsWith('grant-system:')) return odoo.slice('grant-system:'.length); // 系统管理员：同样记主体\n", replace: '' },
 ];
 
 if (process.argv.includes('--list')) {

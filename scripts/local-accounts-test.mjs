@@ -293,6 +293,8 @@ try {
     const wc = await whoamiOf(carol);
     check(okO.status === 200 && (await listOf(carol)) === 200 && wc?.via === 'grant' && wc.system_only === undefined, '20 属主（owner）授予是完整的站内管理员', { okO: okO.status, wc });
     check((await carol.go('GET', '/api/work-items?view=all')).status === 200, '20 属主授予看得到业务数据：事项「全部」200');
+    const mkF = await carol.go('POST', '/api/local-accounts', { json: { username: 'frank' } });
+    check(mkF.status === 201 && /"event":"create","username":"frank","by":"user:carol"/.test(log), '20 属主授予的管理员建人：留痕记主体 user:carol，不写成 odoo:carol', mkF.status);
     check((await adminCall('POST', '/api/principals/disable', { id: 'user:carol', reason: '合成：停用持授予的人' })).status === 200, '21（准备）停用 carol');
     const afterOff = await listOf(carol);
     check(afterOff === 401 || afterOff === 403, '21 主体停用：授予还在也不是管理员（会话失效）', afterOff);
