@@ -2,8 +2,9 @@
 授予和主体两份列表用合成的应答（经 page.route 截下）；角色和矩阵用实例真的。核准、不给两个写请求也截下，核对发了什么。
   · 没有口令、没登录：授予读不到（401），说「请先登录」，不弹口令框；
   · 认出了人但不是管理员：「人和权限」显示「你的权限」（取 /api/auth/me 的本人角色），下面一句别人的权限谁能看；四个管理读接口不去问（网络里没有）；
-  · 有口令：两个页签（没有「以某人的身份看」）；待核准卡片、按人排的表（状态最左），范围不是全部的生效中授予标「尚未生效」；矩阵里「范围内」的格子同样标；
+  · 有口令：三个页签（人和权限、账号、角色预设；没有「以某人的身份看」）；待核准卡片、按人排的表（状态最左），范围不是全部的生效中授予标「尚未生效」；矩阵里「范围内」的格子同样标；
   · 核准发对了请求；不给要写理由，理由空着确认按钮不能点，写了才发、带着理由；被拒时说服务端给的说法；
+  · 账号（P4）：普通员工不去问、说只有管理员；管理员建人显示一次临时密码、重置要确认且给新密码、停用恢复要写理由；待核准的卡片核准、拒绝发对请求，被拒照服务端的句子说；
   · 角色预设：每个角色一张卡、选中的角色有各大块（服务端的 BLOCKS，现在八块）× 四类的矩阵，格子是「全部 / 范围内 / 部分 / 只限自己 / 不能 / —」之一。"""
 import json, re, sys, urllib.request
 from playwright.sync_api import sync_playwright
@@ -59,7 +60,7 @@ with sync_playwright() as p:
     pg.wait_for_selector('.ant-alert', timeout=10000)
     check('没有口令、没登录：授予读不到（401），说请先登录；不弹口令框', pg.locator('.ant-alert', has_text='请先登录').count() == 1 and pg.locator('.ant-modal').count() == 0 and pg.locator('[data-testid=acc-mine]').count() == 0)
     tabs = [t.strip() for t in pg.locator('.wm-acc-tab').all_inner_texts()]
-    check('两个页签：人和权限、角色预设（以某人的身份看还没有）', tabs == ['人和权限', '角色预设'], tabs)
+    check('三个页签：人和权限、账号、角色预设（以某人的身份看还没有）', tabs == ['人和权限', '账号', '角色预设'], tabs)
     check('顶栏标题是导航名「谁能做什么」', pg.locator('.wm-top-title').inner_text().strip() == '谁能做什么')
 
     # 认出了人但不是管理员：浏览器没带会话，授予是 401（实例真的），/api/auth/me 截下来换成带本人角色的
@@ -89,6 +90,11 @@ with sync_playwright() as p:
     pg.goto(M + '/access'); pg.wait_for_selector('[data-testid=acc-pending]'); pg.wait_for_load_state('networkidle')
     card = pg.locator('[data-testid=acc-pending]').inner_text()
     check('不是管理员但有轮到他放行的：待核准卡片在「你的权限」里、上面；角色写「管理层」不写标识；还是不问那三个', pg.locator('[data-testid=acc-mine] [data-testid=acc-pending]').count() == 1 and '管理层' in card and 'management' not in card and asked == [], (card, asked))
+    # 账号页签：明知不是管理员，不去问 /api/local-accounts，直接说只有管理员能看
+    acct_asked = []
+    pg.on('request', lambda req: acct_asked.append(req.url) if '/api/local-accounts' in req.url else None)
+    pg.goto(M + '/access?tab=accounts'); pg.wait_for_selector('[data-testid=acct-limited]'); pg.wait_for_load_state('networkidle')
+    check('普通员工打开账号页签：说只有管理员能看、能管，不发 /api/local-accounts', acct_asked == [] and pg.locator('[data-testid=acct-tab]').count() == 0, acct_asked)
     pg.unroute('**/api/grants')
     pg.remove_listener('request', on_req)
     pg.goto(M + '/access'); pg.wait_for_selector('[data-testid=acc-mine]')
@@ -156,6 +162,60 @@ with sync_playwright() as p:
     confirm.click(); pg.wait_for_timeout(500)
     last = posted[-1] if posted else None
     check('不给：发的是撤销这条授予，带着去掉空白的理由', last and last[0] == 'revoke' and last[1].startswith('3/') and json.loads(last[2] or '{}').get('reason') == '还没定岗', last)
+
+    # ---- 账号页签（站内账号 P4）：先用实例真的接口——建人、重置、停用、恢复 ----
+    pg.locator('[data-testid=acc-tab-accounts]').click(); pg.wait_for_selector('[data-testid=acct-tab]')
+    check('切到账号：地址带 ?tab=accounts', 'tab=accounts' in pg.url, pg.url)
+    pg.locator('[data-testid=acct-new-username]').fill('Bad Name')
+    check('用户名不合规：按钮不能点，旁边说写法', pg.locator('[data-testid=acct-new-submit]').is_disabled() and pg.locator('[data-testid=acct-new-hint]').count() == 1)
+    pg.locator('[data-testid=acct-new-username]').fill('synth-acct')
+    pg.locator('[data-testid=acct-new-name]').fill('合成账号')
+    pg.locator('[data-testid=acct-new-submit]').click(); pg.wait_for_selector('[data-testid=acct-temp]')
+    temp1 = pg.locator('[data-testid=acct-temp-password]').inner_text().strip()
+    check('建人：临时密码只显示这一次（16 位），说清楚要对方先改', re.fullmatch(r'[a-z2-9]{16}', temp1) is not None and '只显示这一次' in pg.locator('[data-testid=acct-temp]').inner_text(), temp1)
+    row = pg.locator('.wm-acc-table tbody tr', has_text='synth-acct')
+    row.wait_for()
+    check('新账号进了全部账号：标「要改密码」、谁建的写管理员（口令）', '要改密码' in row.inner_text() and '管理员（口令）' in row.inner_text(), row.inner_text())
+    row.locator('[data-testid=acct-reset]').click()
+    pg.locator('.ant-popconfirm .ant-btn-primary', has_text='重置').click()
+    pg.wait_for_function("(t) => { const e = document.querySelector('[data-testid=acct-temp-password]'); return e && e.textContent.trim() !== t; }", arg=temp1)
+    temp2 = pg.locator('[data-testid=acct-temp-password]').inner_text().strip()
+    check('重置密码：要先确认，然后显示新的临时密码（和上一次不同）', re.fullmatch(r'[a-z2-9]{16}', temp2) is not None and temp2 != temp1 and '重置密码' in pg.locator('[data-testid=acct-temp]').inner_text())
+    row = pg.locator('.wm-acc-table tbody tr', has_text='synth-acct')
+    row.locator('[data-testid=acct-disable]').click()
+    check('停用：要写理由，空着确认按钮不能点', row.locator('[data-testid=acct-status-confirm]').is_disabled())
+    row.locator('[data-testid=acct-status-reason]').fill('合成：试停用')
+    row.locator('[data-testid=acct-status-confirm]').click()
+    pg.locator('.wm-acc-table tbody tr', has_text='synth-acct').locator('[data-testid=acct-restore]').wait_for()
+    check('停用之后：标「已停用」，按钮换成恢复', '已停用' in pg.locator('.wm-acc-table tbody tr', has_text='synth-acct').inner_text())
+    row = pg.locator('.wm-acc-table tbody tr', has_text='synth-acct')
+    row.locator('[data-testid=acct-restore]').click(); row.locator('[data-testid=acct-status-reason]').fill('合成：恢复'); row.locator('[data-testid=acct-status-confirm]').click()
+    pg.locator('.wm-acc-table tbody tr', has_text='synth-acct').locator('[data-testid=acct-disable]').wait_for()
+    check('恢复之后：不再标已停用', '已停用' not in pg.locator('.wm-acc-table tbody tr', has_text='synth-acct').inner_text())
+    # 待核准：列表截成带一个自己注册的账号；核准、拒绝截下来核对发了什么
+    LIST = {'accounts': [
+        {'username': 'zoe', 'display_name': '合成注册者', 'must_change': False, 'locked': False, 'locked_until': None, 'created_at': NOW, 'created_by': 'signup', 'updated_at': NOW, 'last_login_at': None, 'principal': None, 'principal_status': None, 'pending': True},
+        {'username': 'yan', 'display_name': '', 'must_change': False, 'locked': True, 'locked_until': NOW, 'created_at': NOW, 'created_by': 'user:jia', 'updated_at': NOW, 'last_login_at': NOW, 'principal': 'user:yan', 'principal_status': 'active', 'pending': False},
+    ]}
+    acct_posts = []
+    def on_acct(r):
+        if r.request.method == 'GET': return fake(r, LIST)
+        acct_posts.append((r.request.method, r.request.url.split('/api/local-accounts')[1]))
+        if r.request.url.endswith('/reject'): return fake(r, {'ok': True})
+        if r.request.url.endswith('/approve'): return fake(r, {'error': '这个用户名不能用（和已有的人重名或等价），请拒绝后让对方换一个用户名注册'}, 409)
+        fake(r, {'account': {}})
+    pg.route('**/api/local-accounts**', on_acct)
+    pg.goto(M + '/access?tab=accounts'); set_token(pg); pg.wait_for_selector('[data-testid=acct-pending]')
+    card = pg.locator('[data-testid=acct-pending]')
+    check('待核准的注册：一张卡，写显示名、用户名、自己注册；不进全部账号的表', card.count() == 1 and '合成注册者' in card.inner_text() and '自己注册' in card.inner_text() and pg.locator('.wm-acc-table tbody tr', has_text='zoe').count() == 0)
+    check('锁着的账号才有解锁按钮', pg.locator('.wm-acc-table tbody tr', has_text='yan').locator('[data-testid=acct-unlock]').count() == 1)
+    card.locator('[data-testid=acct-approve]').click(); pg.wait_for_selector('[data-testid=acct-err]')
+    check('核准被拒（撞名）：发的是 /zoe/approve，页面照服务端的句子说', acct_posts[-1:] == [('POST', '/zoe/approve')] and '请拒绝后让对方换一个用户名' in pg.locator('[data-testid=acct-err]').inner_text(), acct_posts)
+    card.locator('[data-testid=acct-reject]').click()
+    n = len(acct_posts)
+    pg.locator('.ant-popconfirm .ant-btn-dangerous', has_text='拒绝').click(); pg.wait_for_timeout(500)
+    check('拒绝：先确认，然后发 /zoe/reject', len(acct_posts) == n + 1 and acct_posts[-1] == ('POST', '/zoe/reject'), acct_posts)
+    pg.unroute('**/api/local-accounts**')
 
     # 角色预设：用实例真的角色和矩阵
     pg.locator('[data-testid=acc-tab-roles]').click(); pg.wait_for_selector('[data-testid=acc-matrix]')
