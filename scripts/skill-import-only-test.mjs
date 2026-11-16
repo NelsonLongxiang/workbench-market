@@ -11,6 +11,7 @@
  *   5 前态变了还拿旧指纹（--expect-state）：不动（退出 4）
  *   6 正式执行：只动点名的；跨源同名的另一个、别的技能、角色束、固定报告都不变
  *   7 中途失败（第二个快照位置被占）：整体回滚，第一个刚放的快照也删掉，库不变
+ *   7b 事务里失败（第一个已经写进库、第二个写库时撞唯一索引）：整个事务回滚，第一个的元数据和版本行都不留，它的快照也删掉
  *   8 jf 遗产点名：已登记的不再动
  *
  *   node scripts/skill-import-only-test.mjs
@@ -140,6 +141,20 @@ try {
   ok('7 库不变、第一个刚放的快照（only-c/v2）也删掉了、没有暂存目录留下', diffKeys(world, afterBroken).length === 0 && !existsSync(join(DATA, 'skill-snapshots', 'only-c', 'v2')) && !readdirSync(join(DATA, 'skill-snapshots')).some((n) => n.startsWith('.staging-')), diffKeys(world, afterBroken));
   rmSync(join(DATA, 'skill-snapshots', 'fail-c'), { force: true });
   world = snapshotOfWorld();
+
+  console.log('7b 事务里失败：整体回滚');
+  // only-a 现在有 v1、v2；把源改回 v1 的内容：和最新的 v2 不同（changed），插 v3 时撞 (skill_id, tree_digest) 唯一索引——写库阶段才失败。
+  // new-a 排在前面、正常改了：它的 upsert 和版本行在同一个事务里先写进去，失败时要一起退回
+  writeFileSync(join(SRC_A, 'only-a', 'SKILL.md'), '---\nname: only-a\ndescription: synthetic only-a\n---\nonly-a v1\n');
+  appendFileSync(join(SRC_A, 'new-a', 'SKILL.md'), 'new-a v2\n');
+  const midDry = run(['--dry-run', '--only', 'agents:new-a,agents:only-a']);
+  ok('7b（准备）试跑：两个都是 changed，第一个能写、第二个写库时会撞唯一索引', midDry.status === 0 && (midDry.out?.plans ?? []).every((p) => p.status === 'changed'), midDry.out);
+  const mid = run(['--only', 'agents:new-a,agents:only-a']);
+  const afterMid = snapshotOfWorld();
+  ok('7b 退出 5（import_failed_rolled_back），说的是写库时的错', mid.status === 5 && mid.err?.error === 'import_failed_rolled_back' && /UNIQUE|constraint/i.test(mid.err?.message ?? ''), mid.raw);
+  ok('7b 库一行不变（new-a 已经写进事务的 updated_at 和 v2 都退回了），new-a/v2、only-a/v3 两个快照都删掉了', diffKeys(world, afterMid).length === 0 && !existsSync(join(DATA, 'skill-snapshots', 'new-a', 'v2')) && !existsSync(join(DATA, 'skill-snapshots', 'only-a', 'v3')), { diff: diffKeys(world, afterMid), rows: same(world.rows, afterMid.rows) });
+  // 收尾：源恢复成库里最新的内容，后面的步骤照旧
+  writeFileSync(join(SRC_A, 'new-a', 'SKILL.md'), '---\nname: new-a\ndescription: synthetic new-a\n---\nbrand new\n');
 
   console.log('8 jf 遗产点名');
   const jf = run(['--only', 'jf:jf-legacy,jf:jf-one']);
