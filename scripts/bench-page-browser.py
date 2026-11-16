@@ -20,6 +20,10 @@ def check(n, c, x=''):
 SLUG = 'synth-bench-slug'
 ENTRY = {'bench': {'slug': SLUG, 'title': '合成·巡检台', 'workbench_id': 4242}, 'version': 5, 'title': '合成巡检总览', 'default_view': 'vk-board',
          'views': [{'key': 'vk-board', 'title': '巡检看板'}, {'key': 'vk-rows', 'title': '巡检明细'}]}
+# #761 页内刷新：席位改了视图描述之后的两个新入口形态——改总标题、加一份视图；把当前那份删掉
+ENTRY2 = {**ENTRY, 'version': 6, 'title': '合成巡检总览·二',
+          'views': [{'key': 'vk-board', 'title': '巡检看板'}, {'key': 'vk-rows', 'title': '巡检明细'}, {'key': 'vk-extra', 'title': '新加的视角'}]}
+ENTRY3 = {**ENTRY, 'version': 7, 'title': '合成巡检总览·三', 'views': [ENTRY['views'][0]]}
 SITE = {'name': 'site', 'kind': 'search', 'label': '区域'}
 FORM = {'type': 'form', 'title': '登记一次巡检', 'span': 6, 'columns': [{'name': 'site', 'type': 'text', 'label': '区域', 'required': True}, {'name': 'n', 'type': 'integer', 'label': '件数'}], 'submit_label': '登记'}
 def view_result(view, params):
@@ -50,6 +54,8 @@ def on_bv(route):
         if mode['entry'] == '500': return fake(route, {'error': 'internal'}, 500)
         if mode['entry'] == '401': return fake(route, {'error': 'auth_required'}, 401)
         if mode['entry'] == 'one': return fake(route, {**ENTRY, 'views': ENTRY['views'][:1]})
+        if mode['entry'] == 'v2': return fake(route, ENTRY2)
+        if mode['entry'] == 'v3': return fake(route, ENTRY3)
         return fake(route, ENTRY)
     if rest == 'render':
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
@@ -157,6 +163,33 @@ with sync_playwright() as p:
     check('数据视图没开：中性的一句「数据视图未开启」，不用警示色', '数据视图未开启' in pg.locator('[data-testid=bench-page-off]').inner_text() and pg.locator('.ant-result-warning').count() == 0)
     mode['render'] = 'ok'; mode['entry'] = 'one'; pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-bb=stat][data-bb-state=ready]')
     check('只有一份视图：不出页签', pg.locator('[data-testid=bench-page-tab]').count() == 0)
+
+    print('六、页内刷新同步入口（#761）')
+    mode['render'] = 'ok'; mode['entry'] = 'ok'
+    pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-bb=stat][data-bb-state=ready]')
+    e0, r0 = log['entry'], len(log['render'])
+    mode['entry'] = 'v2'
+    pg.locator('[data-testid=bench-page-refresh]').click()
+    pg.wait_for_function("() => document.querySelector('[data-testid=bench-page-title]')?.textContent === '合成巡检总览·二'")
+    tabs = [t.inner_text() for t in pg.locator('[data-testid=bench-page-tab]').all()]
+    check('刷新后：入口又问了一次，总标题换成新的，页签变三份（新加的在列）', log['entry'] > e0 and tabs == ['巡检看板', '巡检明细', '新加的视角'], (log['entry'], tabs))
+    check('还在当前那份视图，正文按同一份重新取了数；标签页标题也换了', pg.locator('[data-testid=bench-page-tab][aria-selected=true]').inner_text() == '巡检看板' and log['render'][-1] == ('vk-board', {}) and pg.title() == '合成巡检总览·二 · 合成·巡检台', (log['render'][r0:], pg.title()))
+    pg.locator('[data-testid=bench-page-tab]', has_text='巡检明细').click()
+    pg.wait_for_function("() => document.querySelector('[data-testid=bench-page-tab][aria-selected=true]')?.textContent === '巡检明细'")
+    mode['entry'] = 'v3'
+    r1 = len(log['render'])
+    pg.locator('[data-testid=bench-page-refresh]').click()
+    # 只剩一份视图时不出页签（和四里「只有一份视图」同一规则）：等页签消失，正文出现只有看板那份才有的柱图
+    pg.wait_for_function("() => document.querySelectorAll('[data-testid=bench-page-tab]').length === 0")
+    pg.wait_for_selector('[data-bb=bar][data-bb-state=ready]')
+    check('刷新后当前视图被删了：回到默认那一份重新取数，不停在失效键上', ('vk-board', {}) in [tuple(x) for x in log['render'][r1:]] and pg.locator('[data-bb=bar]').count() == 1, log['render'][r1:])
+    check('标题换成第三版，页签不再出（只剩一份）', pg.locator('[data-testid=bench-page-title]').inner_text() == '合成巡检总览·三' and pg.locator('[data-testid=bench-page-tab]').count() == 0)
+    mode['entry'] = '500'
+    r2 = len(log['render'])
+    pg.locator('[data-testid=bench-page-refresh]').click()
+    pg.wait_for_timeout(800)
+    check('入口这次读不到（500）：页面保持现状不换，正文照常重新取数，不整页报错', len(log['render']) > r2 and pg.locator('[data-testid=bench-page-title]').inner_text() == '合成巡检总览·三' and pg.locator('[data-testid=use-entry-error]').count() == 0, (len(log['render']) - r2))
+    mode['entry'] = 'ok'
 
     print('五、入口')
     mode['entry'] = '403'; pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('.wm-use-frame')
