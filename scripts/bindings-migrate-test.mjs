@@ -6,6 +6,7 @@
  *   一、首启建表；停下后往旧表里放三行（SOP 两行、应用一行），再起：三行都平移进来
  *   二、经统一表撤销一行、改一行的 mode 和 notify_url；停下，旧表再加一个新的自然键，再起：
  *       撤销的仍是撤销、id 不变；改过的 mode、notify_url 保持、id 不变；应用那一行 id 不变；新的自然键补进来
+ *   三、旧表里同一个自然键有两行（旧的已撤销、后来重建的生效），统一表里还没有这个键：平移取 id 最大的那一行（生效的新行），SOP、应用各一组
  *
  *   node scripts/bindings-migrate-test.mjs
  */
@@ -78,7 +79,14 @@ try {
   check(rev.status === 200 && a2?.revoked_at !== '' && mod.status === 201 && mod.json?.upserted === true && c2?.mode === 'run' && c2.notify_url === 'http://c-new.example',
     '二（准备）经统一表撤销 aaaaaaaa，把 cccccccc 改成 run、新的 notify_url', { rev: rev.status, mod: [mod.status, mod.json?.upserted], a2, c2 });
   await stop();
-  withDb((d) => d.prepare("INSERT INTO sop_bindings (sop_slug, node, mode, remote_api_key, callback_url, created_by) VALUES ('syn-sop', 'dsh/dddddddd', 'run', 'k-d', 'http://d.example', 'legacy')").run());
+  withDb((d) => {
+    d.prepare("INSERT INTO sop_bindings (sop_slug, node, mode, remote_api_key, callback_url, created_by) VALUES ('syn-sop', 'dsh/dddddddd', 'run', 'k-d', 'http://d.example', 'legacy')").run();
+    // 三：旧接口撤销后再重建，旧表里同一自然键留下两行：先一行已撤销（旧 mode、旧地址），后一行生效
+    d.prepare("INSERT INTO sop_bindings (sop_slug, node, mode, remote_api_key, callback_url, created_by, revoked_at) VALUES ('syn-sop2', 'dsh/eeeeeeee', 'read', 'k-old', 'http://e-old.example', 'legacy', '2026-01-01 00:00:00')").run();
+    d.prepare("INSERT INTO sop_bindings (sop_slug, node, mode, remote_api_key, callback_url, created_by) VALUES ('syn-sop2', 'dsh/eeeeeeee', 'run', 'k-new', 'http://e-new.example', 'legacy')").run();
+    d.prepare("INSERT INTO app_bindings (app_slug, node, base_url, created_by, revoked_at) VALUES ('syn-app2', 'dsh/ffffffff', 'http://f-old.example', 'legacy', '2026-01-01 00:00:00')").run();
+    d.prepare("INSERT INTO app_bindings (app_slug, node, base_url, created_by) VALUES ('syn-app2', 'dsh/ffffffff', 'http://f-new.example', 'legacy')").run();
+  });
   await start();
   const after = rows('sop', 'syn-sop'), appAfter = rows('app', 'syn-app');
   const a3 = byNode(after, 'dsh/aaaaaaaa'), c3 = byNode(after, 'dsh/cccccccc'), d3 = byNode(after, 'dsh/dddddddd'), b3 = byNode(appAfter, 'dsh/bbbbbbbb');
@@ -89,6 +97,10 @@ try {
   check(!!b3 && b3.id === b1.id, '二c 应用那一行重启后 id 不变', { before: b1, after: b3 });
   check(!!d3 && d3.mode === 'run' && d3.notify_url === 'http://d.example' && d3.revoked_at === '' && after.length === 3,
     '二d 旧表里新加的自然键，重启时补进统一表（只补这一行）', { after });
+  const e3 = rows('sop', 'syn-sop2'), f3 = rows('app', 'syn-app2');
+  check(e3.length === 1 && e3[0].revoked_at === '' && e3[0].mode === 'run' && e3[0].notify_url === 'http://e-new.example'
+      && f3.length === 1 && f3[0].revoked_at === '' && f3[0].notify_url === 'http://f-new.example',
+    '三 旧表同一自然键有「旧行已撤销 + 新行生效」两行、统一表里还没有：平移成生效的新行（mode、地址取新行；SOP、应用都一样）', { e3, f3 });
   // 接口看到的也是同一个结果：撤销的那一行不再算生效
   const listed = await call('GET', '/api/bindings?type=sop&slug=syn-sop');
   const la = (listed.json ?? []).find((r) => r.agent_node === 'dsh/aaaaaaaa');
