@@ -11,7 +11,7 @@ const E = { bench: { slug: 'synth-wb', title: '合成台', workbench_id: 7 }, ve
 // 入口
 ok('200 且形状对：进视图台页面', entryOutcome(200, E).kind === 'bench' && entryOutcome(200, E).entry.title === '合成看板');
 ok('404：照原来打开卡片（不管 error 写的是什么）', entryOutcome(404, { error: 'bench_not_found' }).kind === 'card' && entryOutcome(404, null).kind === 'card' && entryOutcome(404, { error: 'bench_views_off' }).kind === 'card');
-ok('401 去登录；403 要用自己的账号；5xx、断网读不到', entryOutcome(401, {}).kind === 'login' && entryOutcome(403, {}).kind === 'forbidden' && entryOutcome(500, {}).kind === 'error' && entryOutcome(0, null).kind === 'error' && entryOutcome(503, null).kind === 'error');
+ok('401（没登录）、403（只带管理口令、跨站）也照原来打开卡片，不拦成「去登录」；5xx、断网读不到', entryOutcome(401, {}).kind === 'card' && entryOutcome(403, {}).kind === 'card' && entryOutcome(500, {}).kind === 'error' && entryOutcome(0, null).kind === 'error');
 ok('200 但形状不对（没有视图、键重复、台名缺）：当读不到，不猜', entryOutcome(200, { ...E, views: [] }).kind === 'error' && entryOutcome(200, { ...E, views: [{ key: 'a', title: 'A' }, { key: 'a', title: 'B' }] }).kind === 'error' && entryOutcome(200, { ...E, bench: {} }).kind === 'error' && entryOutcome(200, null).kind === 'error');
 ok('默认视图不在清单里：用第一份；标题缺了用台名', asEntry({ ...E, default_view: 'gone', title: '' }).default_view === 'board' && asEntry({ ...E, title: '' }).title === '合成台');
 
