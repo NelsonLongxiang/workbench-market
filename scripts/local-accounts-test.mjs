@@ -65,7 +65,11 @@ try {
       }
     };
     const cookie = () => [...jar].map(([k, v]) => `${k}=${v}`).join('; ');
-    const go = async (method, path, { form, json, headers = {} } = {}) => {
+    // 表单的 state 每提交一次就换一个（一次性）：像真浏览器一样，接着交到页面上新的表单地址。伪造、没见过的地址不跟
+    const moved = new Map();
+    const latest = (p) => { let q = p; for (let i = 0; i < 100 && moved.has(q); i++) q = moved.get(q); return q; };
+    const go = async (method, path0, { form, json, headers = {} } = {}) => {
+      const path = method === 'POST' ? latest(path0) : path0;
       const h = { 'sec-fetch-site': 'same-origin', origin: base, 'x-real-ip': ip, ...headers };
       if (jar.size) h.cookie = cookie();
       let body;
@@ -74,6 +78,8 @@ try {
       const res = await fetch(new URL(path, base), { method, headers: h, body, redirect: 'manual' });
       take(res);
       const text = await res.text();
+      const act = /<form method="post" action="([^"]+)"/.exec(text)?.[1];
+      if (method === 'POST' && act && act !== path) moved.set(path, act);
       let j = null; try { j = JSON.parse(text); } catch { /* 页面 */ }
       return { status: res.status, location: res.headers.get('location') ?? '', text, json: j, headers: res.headers };
     };
@@ -132,7 +138,7 @@ try {
     const b = browser('192.0.2.31'); const { form } = await begin(b);
     const nobody = await b.go('POST', form, { form: { username: 'nobody-here', password: 'whatever-pass-1' } });
     const wrong = await b.go('POST', form, { form: { username: 'alice', password: 'wrong-pass-0001' } });
-    const strip = (t) => t.replace(/value="[^"]*"/g, '');
+    const strip = (t) => t.replace(/value="[^"]*"/g, '').replace(/action="[^"]*"/g, '');
     check(nobody.status === 401 && wrong.status === 401 && strip(nobody.text) === strip(wrong.text), '1 没这个人和密码不对：同一个状态码、同一页（除了回填的用户名）');
   }
   {
