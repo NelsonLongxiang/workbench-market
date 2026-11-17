@@ -6,7 +6,7 @@ import { join, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 
 import { scriptOptions, explicitPath, validatePathParents } from './explicit-data-target.mjs';
-import { skillSnapRel } from '../server/src/skill-snap-path.ts'; // #810：和服务端、导入器同一个函数
+import { skillSnapRel, skillSnapSafe } from '../server/src/skill-snap-path.ts'; // #810：和服务端、导入器同一个函数
 const targetOptions = scriptOptions();
 const TARGET_DATA = explicitPath(targetOptions['data-dir'] ?? process.env.DATA_DIR, targetOptions);
 const SRC = explicitPath(targetOptions['source-dir'] ?? process.env.SKILL_SRC, targetOptions);
@@ -33,6 +33,7 @@ const { svc } = await import('../server/src/context.ts');
 await new Promise((r) => setTimeout(r, 400));
 const S = svc('skill');
 const slug = 'agents:' + NAME;
+if (!skillSnapSafe(slug)) { console.error('[one] 技能名带「..」，快照目录读不出来，不导：' + slug); process.exit(2); }
 S.upsertSkill({ slug, name: NAME, layer: 5, layerName: 'AI 原生运营', description: 'draw.io/diagrams.net 图（架构/UML/ERD/序列/BPMN/网络/泳道）创建与编辑——可编辑 .drawio 文件·含同步/查询/测试/评审/导出/发布。', author: 'openclaw', source: 'agents-skills' });
 const row = S.skillBySlug(slug);
 const exist = S.versionsBySkill(row.id)[0];

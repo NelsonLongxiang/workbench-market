@@ -8,7 +8,9 @@
  *  ⑥ 导入试跑报技能自己写的版本号（sourceVersion）：顶层 version、metadata 下的 version 都认，没写是空串，不进身份
  *  ⑦ 本仓 skills/ 每个技能导入试跑都报得出版本号
  *  ⑧ #810 跨源同名：agents:x 和 dsh:x 各落各的 slug 目录，snapshot_path 存相对形，每个目录的摘要对得上自己那一行的 tree_digest
- *  ⑨ #810 skill-upload-one：按 agents:<名> 落目录，不删别的源同名技能的快照；目标已有东西就退出 5、不写库 */
+ *  ⑨ #810 skill-upload-one：按 agents:<名> 落目录，不删别的源同名技能的快照；目标已有东西就退出 5、不写库
+ *  ⑩ 名字带「..」（a..b）：快照目录段会带「..」，服务端读时按越界拒（导出 404）——要么导入被拒，要么导入后读得出来。
+ *     这里是被拒：全量导入跳过、进报告（unsafe），不建技能行、不建目录；--only 点名也在写之前拒（bad_slug）；skillSnapRel 自己也拒 */
 import { spawnSync } from 'node:child_process';
 import { rmSync, mkdirSync, writeFileSync, appendFileSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
@@ -31,6 +33,9 @@ for (const d of [DATA, SRC_A, SRC_B, join(SRC_C, 'zz-imp-alpha/references'), joi
 writeFileSync(join(SRC_C, 'zz-imp-alpha/SKILL.md'), '---\nname: zz-imp-alpha\ndescription: smoke fixture alpha\n---\n# alpha\nbody v1\n');
 writeFileSync(join(SRC_C, 'zz-imp-alpha/references/note.md'), '# note v1\n');
 writeFileSync(join(SRC_C, 'zz-imp-beta/SKILL.md'), '# no frontmatter here\n');
+// ⑩ 名字带连续的点
+mkdirSync(join(SRC_C, 'zz-dot'), { recursive: true });
+writeFileSync(join(SRC_C, 'zz-dot/SKILL.md'), '---\nname: zz..dot\ndescription: dotdot fixture\n---\n# dot\n');
 
 const runImporter = () => spawnSync(process.execPath, ['scripts/skill-import.mjs','--target-mode','isolated','--isolated-root',join(ROOT,'tmp')], {
   cwd: ROOT,
@@ -53,6 +58,16 @@ const rep1 = JSON.parse((await import('node:fs')).readFileSync(REPORT, 'utf8'));
 ok('④ 无 frontmatter 跳过并报告', rep1.c.skipped.includes('zz-imp-beta'), JSON.stringify(rep1.c));
 ok('⑤ 源 A/B 零导入（夹具隔离）', rep1.a.imported === 0 && rep1.b.imported === 0);
 ok('⑤ 产快照目录无夹具名（DATA_DIR 对齐）', !existsSync(join(PROD_SNAP, 'zz-imp-alpha')));
+ok('⑩ 名字带「..」：全量导入跳过、报告里点名（unsafe）', rep1.c.skipped.includes('zz-dot') && (rep1.unsafe ?? []).includes('dsh:zz..dot'), JSON.stringify({ c: rep1.c, unsafe: rep1.unsafe }));
+ok('⑩ 名字带「..」：不建技能行、不建快照目录', !db.prepare("SELECT 1 FROM skills WHERE slug = 'dsh:zz..dot'").get() && !readdirSync(join(DATA, 'skill-snapshots')).some((d) => d.includes('..')), JSON.stringify(readdirSync(join(DATA, 'skill-snapshots'))));
+{
+  const ro = spawnSync(process.execPath, ['scripts/skill-import.mjs', '--target-mode', 'isolated', '--isolated-root', join(ROOT, 'tmp'), '--only', 'dsh:zz..dot'], {
+    cwd: ROOT, env: { ...process.env, DATA_DIR: DATA, SKILL_SRC_A: SRC_A, SKILL_SRC_B: SRC_B, SKILL_SRC_C: SRC_C }, encoding: 'utf8', timeout: 60000 });
+  ok('⑩ --only 点名带「..」的：写之前就拒（退出 2、bad_slug），库里还是没有它', ro.status === 2 && /bad_slug/.test(ro.stdout + ro.stderr) && !db.prepare("SELECT 1 FROM skills WHERE slug = 'dsh:zz..dot'").get(), `rc=${ro.status} ${(ro.stdout + ro.stderr).slice(0, 200)}`);
+  const { skillSnapRel, skillSnapSafe } = await import('../server/src/skill-snap-path.ts');
+  let threw = false; try { skillSnapRel('agents:a..b', 1); } catch { threw = true; }
+  ok('⑩ skillSnapRel 兜底：带「..」的抛错；正常名字、单个点照旧', threw && !skillSnapSafe('dsh:a..b') && skillSnapSafe('agents:a.b') && skillSnapRel('agents:a.b', 2) === 'skill-snapshots/agents%3Aa.b/v2');
+}
 
 const r2 = runImporter();
 ok('② 幂等重跑退出 0', r2.status === 0);

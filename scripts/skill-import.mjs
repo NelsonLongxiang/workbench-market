@@ -21,7 +21,7 @@ import { createHash } from 'node:crypto';
 
 import { scriptOptions, explicitPath, validatePathParents } from './explicit-data-target.mjs';
 // #810：快照目录和服务端发布同一个函数（按全 slug），存进库的 snapshot_path 也是这个相对形
-import { skillSnapRel } from '../server/src/skill-snap-path.ts';
+import { skillSnapRel, skillSnapSafe } from '../server/src/skill-snap-path.ts';
 const targetOptions = scriptOptions({ selftest: { type: 'boolean' }, 'dry-run': { type: 'boolean' }, only: { type: 'string' }, 'expect-state': { type: 'string' } });
 const args = process.argv.slice(2);
 const TARGET_DATA = explicitPath(targetOptions['data-dir'] ?? process.env.DATA_DIR, targetOptions);
@@ -177,7 +177,8 @@ if (SELFTEST) { await selftest(); process.exit(0); }
 // ---- --only：点名导入（#783） ----
 const ONLY = targetOptions.only;
 const EXPECT_STATE = targetOptions['expect-state'];
-const ONLY_SLUG_RE = /^(agents|dsh|jf):([A-Za-z0-9][A-Za-z0-9._@-]{0,127})$/;
+// 名字里不许有连续的点（a..b）：快照目录段会带「..」，服务端读时按越界拒（见 server/src/skill-snap-path.ts 的 skillSnapSafe）
+const ONLY_SLUG_RE = /^(agents|dsh|jf):(?!.*\.\.)([A-Za-z0-9][A-Za-z0-9._@-]{0,127})$/;
 const fail = (code, error, detail = {}) => { console.error(JSON.stringify({ ok: false, error, ...detail })); process.exit(code); };
 /** 把 --only 解析成要处理的技能；写法、不认识、重复、歧义一律在任何写入之前失败 */
 function resolveOnly(raw) {
@@ -309,10 +310,11 @@ if (ONLY !== undefined) {
   console.log(JSON.stringify({ ok: true, dry: false, only: plans.map((x) => x.slug), plans, newVersions: plans.reduce((n, x) => n + x.newVersions, 0), state }));
   process.exit(0);
 }
-const report = { a: { imported: 0, skipped: [] }, b: { imported: 0, skipped: [] }, c: { imported: 0, skipped: [] }, bundles: 0, digests: [] };
+const report = { a: { imported: 0, skipped: [] }, b: { imported: 0, skipped: [] }, c: { imported: 0, skipped: [] }, bundles: 0, digests: [], unsafe: [] };
 if (!DRY) {
   for (const r of scanAgentsSkills()) {
     if (!r.name) { report.a.skipped.push(r.dir); continue; }
+    if (!skillSnapSafe(`agents:${r.name}`)) { report.a.skipped.push(r.dir); report.unsafe.push(`agents:${r.name}`); continue; } // 名字带「..」：快照读不出来，不导（不建技能行、不建目录）
     const t = treeDigest(join(AGENTS_SKILLS, r.dir));
     S.upsertSkill({ slug: `agents:${r.name}`, name: r.name, layer: LAYER.A, layerName: 'AI 原生运营', description: r.description, argumentHint: r.argumentHint, author: r.author, source: 'agents-skills' });
     const row = S.skillBySlug(`agents:${r.name}`);
@@ -331,6 +333,7 @@ if (!DRY) {
   }
   for (const r of scanDshSkills()) {
     if (!r.name) { report.c.skipped.push(r.dir); continue; }
+    if (!skillSnapSafe(`dsh:${r.name}`)) { report.c.skipped.push(r.dir); report.unsafe.push(`dsh:${r.name}`); continue; } // 同上
     const t = treeDigest(join(DSH_SKILLS, r.dir));
     S.upsertSkill({ slug: `dsh:${r.name}`, name: r.name, layer: LAYER.C, layerName: '开发运维层', description: r.description, argumentHint: r.argumentHint, author: r.author, source: 'dsh-skills' });
     const row = S.skillBySlug(`dsh:${r.name}`);
