@@ -20,6 +20,8 @@ import { join, relative, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 
 import { scriptOptions, explicitPath, validatePathParents } from './explicit-data-target.mjs';
+// #810：快照目录和服务端发布同一个函数（按全 slug），存进库的 snapshot_path 也是这个相对形
+import { skillSnapRel, skillSnapSafe } from '../server/src/skill-snap-path.ts';
 const targetOptions = scriptOptions({ selftest: { type: 'boolean' }, 'dry-run': { type: 'boolean' }, only: { type: 'string' }, 'expect-state': { type: 'string' } });
 const args = process.argv.slice(2);
 const TARGET_DATA = explicitPath(targetOptions['data-dir'] ?? process.env.DATA_DIR, targetOptions);
@@ -175,7 +177,8 @@ if (SELFTEST) { await selftest(); process.exit(0); }
 // ---- --only：点名导入（#783） ----
 const ONLY = targetOptions.only;
 const EXPECT_STATE = targetOptions['expect-state'];
-const ONLY_SLUG_RE = /^(agents|dsh|jf):([A-Za-z0-9][A-Za-z0-9._@-]{0,127})$/;
+// 名字里不许有连续的点（a..b）：快照目录段会带「..」，服务端读时按越界拒（见 server/src/skill-snap-path.ts 的 skillSnapSafe）
+const ONLY_SLUG_RE = /^(agents|dsh|jf):(?!.*\.\.)([A-Za-z0-9][A-Za-z0-9._@-]{0,127})$/;
 const fail = (code, error, detail = {}) => { console.error(JSON.stringify({ ok: false, error, ...detail })); process.exit(code); };
 /** 把 --only 解析成要处理的技能；写法、不认识、重复、歧义一律在任何写入之前失败 */
 function resolveOnly(raw) {
@@ -273,7 +276,8 @@ if (ONLY !== undefined) {
     for (const x of todo) {
       if (x.p.src === 'B') continue;
       x.version = (x.plan.latestVersion ?? 0) + 1;
-      x.snapDir = join(SNAP_ROOT, encodeURIComponent(x.p.row.name), `v${x.version}`);
+      x.snapRel = skillSnapRel(x.p.slug, x.version);
+      x.snapDir = join(TARGET_DATA, x.snapRel);
       if (existsSync(x.snapDir)) throw new Error(`snapshot_target_exists ${x.snapDir}`);
       x.staged = join(staging, String(todo.indexOf(x)));
       cpSync(join(x.p.root, x.p.dir), x.staged, { recursive: true, dereference: true });
@@ -293,7 +297,7 @@ if (ONLY !== undefined) {
       S.upsertSkill({ slug: p.slug, name: p.row.name, layer: LAYER[p.src], layerName: m.layerName, description: p.row.description, argumentHint: p.row.argumentHint, author: p.row.author, source: m.source });
       const row = S.skillBySlug(p.slug);
       if (p.src === 'B') { S.versionInsert({ skillId: row.id, version: 1, changelog: 'jf 首版登记（遗产不快照）', treeDigest: '', reviewedBy: 'importer' }); continue; }
-      S.versionInsert({ skillId: row.id, version: x.version, changelog: `import ${new Date().toISOString().slice(0, 10)}`, treeDigest: p.tree.digest, fileCount: p.tree.fileCount, totalBytes: p.tree.totalBytes, snapshotPath: x.snapDir, reviewedBy: 'importer' });
+      S.versionInsert({ skillId: row.id, version: x.version, changelog: `import ${new Date().toISOString().slice(0, 10)}`, treeDigest: p.tree.digest, fileCount: p.tree.fileCount, totalBytes: p.tree.totalBytes, snapshotPath: x.snapRel, reviewedBy: 'importer' });
     }
     db.exec('COMMIT'); began = false;
   } catch (e) {
@@ -306,10 +310,11 @@ if (ONLY !== undefined) {
   console.log(JSON.stringify({ ok: true, dry: false, only: plans.map((x) => x.slug), plans, newVersions: plans.reduce((n, x) => n + x.newVersions, 0), state }));
   process.exit(0);
 }
-const report = { a: { imported: 0, skipped: [] }, b: { imported: 0, skipped: [] }, c: { imported: 0, skipped: [] }, bundles: 0, digests: [] };
+const report = { a: { imported: 0, skipped: [] }, b: { imported: 0, skipped: [] }, c: { imported: 0, skipped: [] }, bundles: 0, digests: [], unsafe: [] };
 if (!DRY) {
   for (const r of scanAgentsSkills()) {
     if (!r.name) { report.a.skipped.push(r.dir); continue; }
+    if (!skillSnapSafe(`agents:${r.name}`)) { report.a.skipped.push(r.dir); report.unsafe.push(`agents:${r.name}`); continue; } // 名字带「..」：快照读不出来，不导（不建技能行、不建目录）
     const t = treeDigest(join(AGENTS_SKILLS, r.dir));
     S.upsertSkill({ slug: `agents:${r.name}`, name: r.name, layer: LAYER.A, layerName: 'AI 原生运营', description: r.description, argumentHint: r.argumentHint, author: r.author, source: 'agents-skills' });
     const row = S.skillBySlug(`agents:${r.name}`);
@@ -318,14 +323,17 @@ if (!DRY) {
     const ver = (S.versionsMax(row.id)?.v ?? 0) + 1;
     // 快照落盘（方案 §1 P0-b 语义前置到种子导入：首版即快照）
     const { cpSync, mkdirSync } = await import('node:fs');
-    const snapDir = join(SNAP_ROOT, encodeURIComponent(r.name), `v${ver}`); // S0⑦ 锚定 + DATA_DIR 对齐
+    const snapRel = skillSnapRel(`agents:${r.name}`, ver); // #810：按全 slug，和 dsh: 同名的不共用目录
+    const snapDir = join(TARGET_DATA, snapRel); // S0⑦ 锚定 + DATA_DIR 对齐
+    if (existsSync(snapDir)) throw new Error(`snapshot_target_exists ${snapDir}`); // 不往已有的快照里混写
     // cpSync(dereference) 自带建目录（junction 源复制内容非链接）
     cpSync(join(AGENTS_SKILLS, r.dir), snapDir, { recursive: true, dereference: true }); // junction 源复制内容（drawio-skill 实测）
-    S.versionInsert({ skillId: row.id, version: ver, changelog: `import ${new Date().toISOString().slice(0, 10)}`, treeDigest: t.digest, fileCount: t.fileCount, totalBytes: t.totalBytes, snapshotPath: snapDir, reviewedBy: 'importer' });
+    S.versionInsert({ skillId: row.id, version: ver, changelog: `import ${new Date().toISOString().slice(0, 10)}`, treeDigest: t.digest, fileCount: t.fileCount, totalBytes: t.totalBytes, snapshotPath: snapRel, reviewedBy: 'importer' });
     report.a.imported++;
   }
   for (const r of scanDshSkills()) {
     if (!r.name) { report.c.skipped.push(r.dir); continue; }
+    if (!skillSnapSafe(`dsh:${r.name}`)) { report.c.skipped.push(r.dir); report.unsafe.push(`dsh:${r.name}`); continue; } // 同上
     const t = treeDigest(join(DSH_SKILLS, r.dir));
     S.upsertSkill({ slug: `dsh:${r.name}`, name: r.name, layer: LAYER.C, layerName: '开发运维层', description: r.description, argumentHint: r.argumentHint, author: r.author, source: 'dsh-skills' });
     const row = S.skillBySlug(`dsh:${r.name}`);
@@ -333,9 +341,11 @@ if (!DRY) {
     if (exist?.tree_digest === t.digest) continue;
     const ver = (S.versionsMax(row.id)?.v ?? 0) + 1;
     const { cpSync } = await import('node:fs');
-    const snapDir = join(SNAP_ROOT, encodeURIComponent(r.name), `v${ver}`);
+    const snapRel = skillSnapRel(`dsh:${r.name}`, ver); // #810：按全 slug
+    const snapDir = join(TARGET_DATA, snapRel);
+    if (existsSync(snapDir)) throw new Error(`snapshot_target_exists ${snapDir}`);
     cpSync(join(DSH_SKILLS, r.dir), snapDir, { recursive: true, dereference: true }); // junction 源复制内容（ponytail 族同 drawio-skill 先例）
-    S.versionInsert({ skillId: row.id, version: ver, changelog: `import ${new Date().toISOString().slice(0, 10)}`, treeDigest: t.digest, fileCount: t.fileCount, totalBytes: t.totalBytes, snapshotPath: snapDir, reviewedBy: 'importer' });
+    S.versionInsert({ skillId: row.id, version: ver, changelog: `import ${new Date().toISOString().slice(0, 10)}`, treeDigest: t.digest, fileCount: t.fileCount, totalBytes: t.totalBytes, snapshotPath: snapRel, reviewedBy: 'importer' });
     report.c.imported++;
   }
   for (const r of scanJfSkills()) {
