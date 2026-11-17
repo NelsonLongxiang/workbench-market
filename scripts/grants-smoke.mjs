@@ -128,12 +128,14 @@ try {
   {
     const d = await draft({ principal: 'user:alpha', role: 'member' }, { headers: token });
     const s = await step(d.json?.grant?.id, 'submit', { headers: token });
-    const a = await step(d.json?.grant?.id, 'approve', { headers: token });
+    // 两人制（docs/local-accounts.md 第 5 节）：给业务数据的授予，起草、提交的人不能自己放行——口令自己放行 403，另一位（属主，本机命令行）放行
+    const self = await step(d.json?.grant?.id, 'approve', { headers: token });
+    const a = await step(d.json?.grant?.id, 'approve', {});
     const one = await srv.call('GET', `/api/grants/${d.json?.grant?.id}`, { headers: token });
     const ev = one.json?.grant?.events?.map((e) => `${e.event}:${e.from_status}->${e.to_status}:${e.actor}`);
-    check(d.status === 201 && s.status === 200 && a.status === 200 && a.json?.grant?.status === 'active' && a.json.grant.approved_by === 'admin-token'
-      && show(ev) === show(['draft:null->draft:admin-token', 'submit:draft->pending:admin-token', 'approve:pending->active:admin-token']),
-      '对照：口令管理员给成员角色——起草 201、提交、放行，生效；每一步留一行痕', show({ d: d.status, s: s.status, a: a.status, ev }));
+    check(d.status === 201 && s.status === 200 && self.status === 403 && self.json?.error === 'drafter_cannot_approve' && a.status === 200 && a.json?.grant?.status === 'active' && a.json.grant.approved_by === 'cli'
+      && show(ev) === show(['draft:null->draft:admin-token', 'submit:draft->pending:admin-token', 'approve:pending->active:cli']),
+      '对照：口令管理员给成员角色——起草 201、提交；口令自己放行 403（两人制），另一位放行生效；每一步留一行痕', show({ d: d.status, s: s.status, self: [self.status, self.json?.error], a: a.status, ev }));
   }
 
   // ---------- 一、五种状态之外的迁移 ----------
@@ -301,8 +303,8 @@ try {
     const before = await verdicts();
     const ai = await pending('ai-staff', 'seat:bot');
     const aiByToken = tried(await approve(ai, { headers: token }));
-    // 对照：普通员工照旧由系统管理员一步放行
-    const mem = await pending('member', 'user:gamma', asRoot);
+    // 对照：普通员工由管理员放行（两人制：口令起草提交，另一位管理员登录放行）
+    const mem = await pending('member', 'user:gamma');
     const memByAdmin = tried(await approve(mem, asRoot));
     const msgs = { business: (await approve(dm, asRoot)).json?.message, owner: (await approve(mg, asRoot)).json?.message };
     check(show(byToken) === show({ dm: '403:business_approval_required', dl: '403:owner_required', mg: '403:owner_required' })
@@ -310,7 +312,7 @@ try {
       && before['work-item.read'] !== 'allow' && before['sop-run.assign'] !== 'allow'
       && aiByToken === '403:business_approval_required' && memByAdmin === '200:active'
       && msgs.business?.includes('要管理层或属主放行') && msgs.owner?.includes('带业务的拍板，只有属主能放行'),
-      '三档放行：部门成员（带业务写）、部门负责人和管理层（带业务拍板）以范围全部授给人，管理口令、只有系统管理员身份的登录放行都 403，全部停在待核，被授的人这时事项的读写都拿不到；给席位的 AI 员工同样；对照：普通员工由系统管理员放行 200 [red-line:business-grants-business-approval]',
+      '三档放行：部门成员（带业务写）、部门负责人和管理层（带业务拍板）以范围全部授给人，管理口令、只有系统管理员身份的登录放行都 403，全部停在待核，被授的人这时事项的读写都拿不到；给席位的 AI 员工同样；对照：普通员工由另一位管理员放行 200（两人制） [red-line:business-grants-business-approval]',
       show({ byToken, byAdmin, states, before, aiByToken, memByAdmin, msgs }));
     // 业务侧：给 root-admin 一个管理层授予（本机命令行放行）。能放行第二档，第三档仍不行；自己起草的第二档也不行
     const mgmt = await activate({ principal: 'user:root-admin', role: 'management' });
@@ -367,7 +369,8 @@ try {
       mgBiz: tried(await step(biz, 'approve', MG)), mgBasic: tried(await step(basic, 'approve', MG)), mgTop: tried(await step(top, 'approve', MG)),
       plainBiz: tried(await step(biz2, 'approve', PLAIN)), anonBiz: tried(await step(biz2, 'approve', { headers: REMOTE })),
       crossBiz: tried(await step(biz2, 'approve', { headers: { ...REMOTE, origin: 'https://elsewhere.example', 'sec-fetch-site': 'cross-site' }, session: SESSIONS.noAdminFlag })),
-      tokenBasic: tried(await step(basic, 'approve', { headers: token })),
+      // 第一档给业务数据的（普通员工）已经由管理层放行了：再放行 409（不在待核）
+      tokenBasic: tried(await step(basic, 'approve', {})),
     };
     // 读不到的（不能放行的）对登录的人来说就是不存在：放行被拒的应答和一条根本不存在的授予一模一样（只差 id），不带档位、角色、状态
     const ghostId = 999999;
@@ -393,9 +396,9 @@ try {
     check(Number.isInteger(selfG) && Number.isInteger(offG) && disabled.status === 200 && realDisabled.status === 422 && realSelf === 'pending' && ghostMg.status === 404 && leaks.length === 0 && !/admin_required|owner_required|business_approval|self_grant|principal_disabled|user:|dept-|member|active|pending/.test(show(hidden)),
       '登录的人放行读不到的授予（第一档、第三档、普通员工放行第二档、授给自己的、被授人已停用的、已经生效的）：应答和一条不存在的授予一模一样，不带档位、角色、状态',
       show({ ghostMg, ghostPlain, leaks, selfG, offG, disabled: disabled.status, realDisabled: [realDisabled.status, realDisabled.json?.error], realSelf }));
-    check(mg.a.status === 200 && listed.includes(biz) && !listed.includes(basic) && !listed.includes(top) && readBasic.status === 404
-      && show(r) === show({ mgBiz: '200:active', mgBasic: '404:grant_missing', mgTop: '404:grant_missing', plainBiz: '404:grant_missing', anonBiz: '401:grants_auth_required', crossBiz: '403:grants_cross_origin_denied', tokenBasic: '200:active' }),
-      '放行入口对登录的人放开（L19）：只有管理层、没有管理员身份的人列得到、放行得了带业务写的（200）；普通员工这类第一档、部门负责人这类第三档放行不了；列表里只有自己能放行的，看别的单条 404；普通员工放行不了；远程匿名 401；跨站 403；对照：口令照旧放行第一档',
+    check(mg.a.status === 200 && listed.includes(biz) && listed.includes(basic) && !listed.includes(top) && readBasic.status === 200
+      && show(r) === show({ mgBiz: '200:active', mgBasic: '200:active', mgTop: '404:grant_missing', plainBiz: '404:grant_missing', anonBiz: '401:grants_auth_required', crossBiz: '403:grants_cross_origin_denied', tokenBasic: '409:state' }),
+      '放行入口对登录的人放开（L19）：只有管理层、没有管理员身份的人列得到、放行得了带业务写的和给业务数据的第一档（普通员工）（200，业务侧真能放行）；部门负责人这类第三档放行不了；列表里只有自己能放行的，看别的单条 404；普通员工放行不了；远程匿名 401；跨站 403',
       show({ listed, ids: { biz, basic, top }, readBasic: readBasic.status, r }));
     for (const id of [mg.id, biz, basic, top, biz2]) await step(id, 'revoke', {}, { reason: '合成：收回' });
   }
