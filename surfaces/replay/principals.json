@@ -22,7 +22,7 @@
       "env": {},
       "seed": [
         { "table": "principals", "row": { "id": "user:synthetic-a", "id_key": "user:synthetic-a", "kind": "person", "display_name": "Synthetic A" } },
-        { "table": "principal_identities", "row": { "provider": "odoo", "external_id": "synthetic-a", "external_key": "synthetic-a", "principal_id": "user:synthetic-a" } },
+        { "table": "principal_identities", "row": { "provider": "sso", "external_id": "synthetic-a", "external_key": "synthetic-a", "principal_id": "user:synthetic-a" } },
         { "table": "principals", "row": { "id": "seat:synthetic-seat", "id_key": "seat:synthetic-seat", "kind": "seat", "owner": "user:synthetic-a" } }
       ],
       "steps": [
@@ -48,7 +48,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "536", "etag": "W/\"218-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "535", "etag": "W/\"217-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "principals": [
                 {
@@ -73,7 +73,7 @@
                   "status_changed_by": "",
                   "status_reason": "",
                   "created_at": "YYYY-MM-DD hh:mm:ss",
-                  "identities": [{ "provider": "odoo", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+                  "identities": [{ "provider": "sso", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
                 }
               ]
             }
@@ -88,7 +88,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "536", "etag": "W/\"218-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "535", "etag": "W/\"217-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "principals": [
                 {
@@ -113,7 +113,7 @@
                   "status_changed_by": "",
                   "status_reason": "",
                   "created_at": "YYYY-MM-DD hh:mm:ss",
-                  "identities": [{ "provider": "odoo", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+                  "identities": [{ "provider": "sso", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
                 }
               ]
             }
@@ -188,7 +188,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "366", "etag": "W/\"16e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "365", "etag": "W/\"16d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "changed": true,
@@ -202,7 +202,7 @@
                 "status_changed_by": "cli",
                 "status_reason": "合成",
                 "created_at": "YYYY-MM-DD hh:mm:ss",
-                "identities": [{ "provider": "odoo", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+                "identities": [{ "provider": "sso", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
               }
             }
           }
@@ -216,7 +216,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "367", "etag": "W/\"16f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "366", "etag": "W/\"16e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "changed": false,
@@ -230,7 +230,7 @@
                 "status_changed_by": "cli",
                 "status_reason": "合成",
                 "created_at": "YYYY-MM-DD hh:mm:ss",
-                "identities": [{ "provider": "odoo", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+                "identities": [{ "provider": "sso", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
               }
             }
           }
@@ -283,7 +283,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "358", "etag": "W/\"166-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "357", "etag": "W/\"165-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "changed": true,
@@ -297,7 +297,7 @@
                 "status_changed_by": "cli",
                 "status_reason": "",
                 "created_at": "YYYY-MM-DD hh:mm:ss",
-                "identities": [{ "provider": "odoo", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+                "identities": [{ "provider": "sso", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
               }
             }
           }
@@ -339,7 +339,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "582", "etag": "W/\"246-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "581", "etag": "W/\"245-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "principals": [
                 {
@@ -364,7 +364,7 @@
                   "status_changed_by": "cli",
                   "status_reason": "",
                   "created_at": "YYYY-MM-DD hh:mm:ss",
-                  "identities": [{ "provider": "odoo", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+                  "identities": [{ "provider": "sso", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
                 }
               ]
             }
@@ -375,7 +375,7 @@
           "route": "POST /api/principals/bind",
           "class": "unauthorized",
           "what": "远程、没有口令：绑不了",
-          "request": { "method": "POST", "path": "/api/principals/bind", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "provider": "odoo", "external_id": "synthetic-b", "principal": "user:synthetic-a" } },
+          "request": { "method": "POST", "path": "/api/principals/bind", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "provider": "sso", "external_id": "synthetic-b", "principal": "user:synthetic-a" } },
           "response": {
             "status": 403,
             "type": "application/json; charset=utf-8",
@@ -397,11 +397,24 @@
           }
         },
         {
+          "id": "bind-retired",
+          "route": "POST /api/principals/bind",
+          "class": "invalid",
+          "what": "历史 Odoo 身份只读：provider 是 odoo 的新绑定一律 400",
+          "request": { "method": "POST", "path": "/api/principals/bind", "json": { "provider": "odoo", "external_id": "synthetic-b", "principal": "user:synthetic-a", "reason": "合成" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "115", "etag": "W/\"73-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "这个身份来源已下线：库里已有的绑定只读，不再接受新的绑定", "reason": "retired" }
+          }
+        },
+        {
           "id": "bind-not-person",
           "route": "POST /api/principals/bind",
           "class": "invalid",
           "what": "只能绑到人身上",
-          "request": { "method": "POST", "path": "/api/principals/bind", "json": { "provider": "odoo", "external_id": "synthetic-b", "principal": "seat:synthetic-seat" } },
+          "request": { "method": "POST", "path": "/api/principals/bind", "json": { "provider": "sso", "external_id": "synthetic-b", "principal": "seat:synthetic-seat" } },
           "response": {
             "status": 400,
             "type": "application/json; charset=utf-8",
@@ -414,7 +427,7 @@
           "route": "POST /api/principals/bind",
           "class": "invalid",
           "what": "已经绑着的外部身份（等价写法）不能直接改绑",
-          "request": { "method": "POST", "path": "/api/principals/bind", "json": { "provider": "odoo", "external_id": "SYNTHETIC-A", "principal": "user:synthetic-c", "create": true } },
+          "request": { "method": "POST", "path": "/api/principals/bind", "json": { "provider": "sso", "external_id": "SYNTHETIC-A", "principal": "user:synthetic-c", "create": true } },
           "response": {
             "status": 409,
             "type": "application/json; charset=utf-8",
@@ -427,7 +440,7 @@
           "route": "POST /api/principals/bind",
           "class": "invalid",
           "what": "目标不存在、没带 create",
-          "request": { "method": "POST", "path": "/api/principals/bind", "json": { "provider": "odoo", "external_id": "synthetic-b", "principal": "user:nobody" } },
+          "request": { "method": "POST", "path": "/api/principals/bind", "json": { "provider": "sso", "external_id": "synthetic-b", "principal": "user:nobody" } },
           "response": {
             "status": 404,
             "type": "application/json; charset=utf-8",
@@ -444,7 +457,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "449", "etag": "W/\"1c1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "448", "etag": "W/\"1c0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "created": false,
@@ -458,7 +471,7 @@
                 "status_changed_by": "cli",
                 "status_reason": "",
                 "created_at": "YYYY-MM-DD hh:mm:ss",
-                "identities": [{ "provider": "feishu", "external_id": "on_synthetic0001", "created_at": "YYYY-MM-DD hh:mm:ss" }, { "provider": "odoo", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+                "identities": [{ "provider": "feishu", "external_id": "on_synthetic0001", "created_at": "YYYY-MM-DD hh:mm:ss" }, { "provider": "sso", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
               }
             }
           }
@@ -468,11 +481,11 @@
           "route": "POST /api/principals/bind",
           "class": "normal",
           "what": "新建一个人并绑上",
-          "request": { "method": "POST", "path": "/api/principals/bind", "json": { "provider": "odoo", "external_id": "synthetic-b", "principal": "user:synthetic-b", "create": true, "display_name": "Synthetic B" } },
+          "request": { "method": "POST", "path": "/api/principals/bind", "json": { "provider": "sso", "external_id": "synthetic-b", "principal": "user:synthetic-b", "create": true, "display_name": "Synthetic B" } },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "336", "etag": "W/\"150-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "335", "etag": "W/\"14f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "created": true,
@@ -486,7 +499,7 @@
                 "status_changed_by": "",
                 "status_reason": "",
                 "created_at": "YYYY-MM-DD hh:mm:ss",
-                "identities": [{ "provider": "odoo", "external_id": "synthetic-b", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+                "identities": [{ "provider": "sso", "external_id": "synthetic-b", "created_at": "YYYY-MM-DD hh:mm:ss" }]
               }
             }
           }
@@ -552,7 +565,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "880", "etag": "W/\"370-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "878", "etag": "W/\"36e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "principals": [
                 {
@@ -577,7 +590,7 @@
                   "status_changed_by": "cli",
                   "status_reason": "",
                   "created_at": "YYYY-MM-DD hh:mm:ss",
-                  "identities": [{ "provider": "odoo", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+                  "identities": [{ "provider": "sso", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
                 },
                 {
                   "id": "user:synthetic-b",
@@ -589,7 +602,7 @@
                   "status_changed_by": "",
                   "status_reason": "",
                   "created_at": "YYYY-MM-DD hh:mm:ss",
-                  "identities": [{ "provider": "odoo", "external_id": "synthetic-b", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+                  "identities": [{ "provider": "sso", "external_id": "synthetic-b", "created_at": "YYYY-MM-DD hh:mm:ss" }]
                 }
               ]
             }

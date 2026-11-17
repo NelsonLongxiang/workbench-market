@@ -120,6 +120,7 @@ const UNAVAILABLE = '身份来源不可用';
 const UNRECOGNIZED = '身份来源的回答无法识别，按认不出处理';
 /** 由市场维持的会话被身份来源否了（那边注销、停用、改密码，或者对到了别人）：市场会话已注销，要重新登录 */
 const SESSION_ENDED = '登录已失效，请重新登录';
+const NOT_SIGNED_IN = '未登录';
 /** 同一份凭据并发发会话时共用一个的窗口（毫秒） */
 const OPEN_DEDUPE_MS = 10_000;
 /** 认人诊断日志每分钟最多几行 */
@@ -772,8 +773,17 @@ export class IdentityService extends Service {
     const who = await this.resolveViewer(cookieHeader);
     // 市场会话认出的人：不看身份来源有没有配置
     if (who.ok && who.via === 'session') return { http: 200, body: { ok: true, viewer: { ...who.viewer, kind: '人' }, roles: null } };
-    // 没配置身份来源时登录也没用，所以不带 auth_required；说法用提供方自己的
-    if (!this.configured()) return { http: 503, body: { ok: false, error: who.ok === false ? who.error : NO_PROVIDER } };
+    if (!this.configured()) {
+      // 没有身份来源、但有能用的登录方式（站内账号、飞书）：没登录就是没登录——401 带 auth_required，和下线前同一个语义。
+      // 市场会话自己的结论（失效 401、停用 403）照原样交出去；主体目录不可用之类仍是 503
+      if (this.flows().length > 0 && who.ok === false && (who.http === 401 || who.http === 403 || who.error === NO_PROVIDER)) {
+        return who.error === NO_PROVIDER
+          ? { http: 401, body: { ok: false, error: NOT_SIGNED_IN, auth_required: true } }
+          : { http: who.http, body: { ok: false, error: who.error, auth_required: who.http === 401 } };
+      }
+      // 一种登录方式也没有：登录也没用，所以不带 auth_required；说法用提供方自己的
+      return { http: 503, body: { ok: false, error: who.ok === false ? who.error : NO_PROVIDER } };
+    }
     if (who.ok === false) return { http: who.http, body: { ok: false, error: who.error, auth_required: who.http === 401 } };
     // kind 按主体口径（user: = 人）；roles 暂为 null
     return { http: 200, body: { ok: true, viewer: { ...who.viewer, kind: '人' }, roles: null } };

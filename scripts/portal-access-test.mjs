@@ -213,6 +213,53 @@ try {
   r = await req(B, 'PUT', `/api/workbenches/${legacy.id}`, ADM, { access: 'listed', access_logins: ['odoo:legacy.beta', 'alpha'] });
   ok('A12 改台保留原有的 odoo: 项、加 user: 项照常', r.status === 200 && JSON.stringify(r.body.access_logins) === '["odoo:legacy.beta","user:alpha"]' && (await req(B, 'GET', `/go/${legacy.id}/`, internal)).status === 200, `${r.status} ${JSON.stringify(r.body)}`);
 
+  // A12 历史 Odoo 身份只读：系统管理员建一个站内账号、想把名单里一条还没人绑的历史 odoo: 登录绑上去，绑定入口一律拒绝（400），
+  // 那个账号登录之后仍打不开这张 listed 台
+  {
+    const imp2 = await req(B, 'POST', '/api/import', ADM, { mode: 'merge', workbenches: [{ name: 'legacy-listed-2', url: `${UP}/legacy2/`, auth: { type: 'bearer', value: BEARER }, access: 'listed', access_logins: ['odoo:legacy.gone'] }] });
+    const legacy2 = (await req(B, 'GET', '/api/workbenches', ADM)).body.find((w) => w.name === 'legacy-listed-2');
+    const d = new DatabaseSync(join(E.DATA, 'workbench-market.db'), { timeout: 10_000 });
+    const now = Date.now();
+    const gid = Number(d.prepare("INSERT INTO grants (principal_id, role, scope, expires_at, reason, created_by, created_at, updated_at) VALUES ('user:alpha', 'admin', '*', NULL, 'synthetic', 'cli', ?, ?)").run(now, now).lastInsertRowid);
+    d.prepare("UPDATE grants SET status = 'pending' WHERE id = ?").run(gid); d.prepare("UPDATE grants SET status = 'active', approved_by = 'cli' WHERE id = ?").run(gid);
+    const SYS = { cookie: `session_id=${SESSIONS.alpha}`, 'sec-fetch-site': 'same-origin', origin: B }; // user:alpha，只持 admin 授予（系统管理员）
+    const made = await req(B, 'POST', '/api/local-accounts', SYS, { username: 'mallory', display_name: 'Synthetic mallory' });
+    const temp = made.body?.temp_password ?? '';
+    const bind = await req(B, 'POST', '/api/principals/bind', SYS, { provider: 'odoo', external_id: 'legacy.gone', principal: 'user:mallory', reason: 'synthetic' });
+    const batch = await req(B, 'POST', '/api/principals/bind-batch', SYS, { items: [{ provider: 'odoo', external_id: 'legacy.gone', principal: 'user:mallory' }], reason: 'synthetic' });
+    const cliBind = await req(B, 'POST', '/api/principals/bind', { 'x-admin-token': ADMIN }, { provider: 'odoo', external_id: 'legacy.gone', principal: 'user:mallory', reason: 'synthetic' });
+    const rows = d.prepare("SELECT COUNT(*) AS n FROM principal_identities WHERE provider = 'odoo' AND principal_id = 'user:mallory'").get().n;
+    ok('A12 历史 Odoo 身份只读：系统管理员、口令管理员经 bind、bind-batch 把 odoo: 登录绑给新建的站内账号都 400，库里没有这条绑定',
+      made.status === 201 && temp && imp2.status === 200 && bind.status === 400 && bind.body?.reason === 'retired' && batch.status === 200 && batch.body?.results?.[0]?.status === 400 && batch.body.results[0].reason === 'retired' && cliBind.status === 400 && rows === 0,
+      JSON.stringify({ made: made.status, bind: [bind.status, bind.body], batch: batch.body, cli: cliBind.status, rows }));
+    d.prepare("UPDATE grants SET status = 'revoked' WHERE id = ?").run(gid);
+    d.close();
+    // mallory 用临时密码登录（先改密码），拿市场会话去开那张台
+    const jar = new Map();
+    const take = (res) => { for (const c of res.headers.getSetCookie?.() ?? []) { const [pair] = c.split(';'); const i = pair.indexOf('='); const v = pair.slice(i + 1); if (v === '' || /max-age=0/i.test(c)) jar.delete(pair.slice(0, i)); else jar.set(pair.slice(0, i), v); } };
+    const go = async (method, path, form) => {
+      const h = { 'sec-fetch-site': 'same-origin', origin: B };
+      if (jar.size) h.cookie = [...jar].map(([k, v]) => `${k}=${v}`).join('; ');
+      if (form) h['content-type'] = 'application/x-www-form-urlencoded';
+      const res = await fetch(B + path, { method, headers: h, body: form ? new URLSearchParams(form).toString() : undefined, redirect: 'manual' });
+      take(res);
+      return { status: res.status, location: res.headers.get('location') ?? '', text: await res.text() };
+    };
+    const s0 = await go('GET', '/login/local?next=/');
+    let form = s0.location ? new URL(s0.location, B).pathname + new URL(s0.location, B).search : '';
+    let p = await go('POST', form, { username: 'mallory', password: temp });
+    form = /<form method="post" action="([^"]+)"/.exec(p.text)?.[1]?.replaceAll('&amp;', '&') ?? form;
+    const ticket = /name="ticket" value="([^"]+)"/.exec(p.text)?.[1] ?? '';
+    p = await go('POST', form, { ticket, next: 'Mallory-pass-0001', confirm: 'Mallory-pass-0001' });
+    if (p.status === 302) await go('GET', new URL(p.location, B).pathname + new URL(p.location, B).search);
+    const n1 = hitCount();
+    const me = (await req(B, 'GET', '/api/auth/me', { ...REMOTE, cookie: `wm_session=${jar.get('wm_session') ?? ''}` })).body;
+    const opened = await req(B, 'GET', `/go/${legacy2.id}/`, { ...REMOTE, cookie: `wm_session=${jar.get('wm_session') ?? ''}` });
+    ok('A12 那个站内账号登录之后打不开把这条 odoo: 登录列在名单里的 listed 台（not-listed，上游零命中）',
+      me?.principal === 'user:mallory' && opened.headers.get('x-wm-access-denied') === 'not-listed' && hitCount() === n1,
+      JSON.stringify({ me: me?.principal, id: legacy2?.id, logins: legacy2?.access_logins, status: opened.status, denied: opened.headers.get('x-wm-access-denied'), body: String(typeof opened.body === 'string' ? opened.body : JSON.stringify(opened.body)).slice(0, 160) }));
+  }
+
   // A6 MCP
   const s = await req(B, 'POST', '/api/mcp/sessions', ADM, { name: 'portal-access-agent' });
   const tok = s.body?.token;

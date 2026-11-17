@@ -173,8 +173,33 @@ console.log('▶ O8 旧作者 odoo:<登录名>');
     ok('O8 名下保留着 odoo:legacy.root 的历史绑定：算作者，能修订', r.status === 200, JSON.stringify(r));
     r = await edit(ALPHA, 'c_legacy', 4);
     ok('O8 别的管理员（没绑那条历史身份）仍改不了', r.status === 403, JSON.stringify(r));
+    db.prepare("INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES ('odoo', 'Other.Login', 'other.login', 'user:alpha')").run();
+    r = await edit(ALPHA, 'c_legacy', 4);
+    ok('O8 名下绑着别的 Odoo 登录（不是这条）的人也不算作者（403）', r.status === 403, JSON.stringify(r));
     r = await call(k.base, 'PUT', vpath(W, 'c_public'), ROOT, { value: 1, kind: 'const', override: true, revision: await rev('c_public'), reason: 'synthetic', owner: '*' });
     ok('O8 旧作者对上的人能把常量设成公共', r.status === 200 && r.body?.owner === '*', JSON.stringify(r));
+    // 历史 Odoo 身份只读：管理员把这条历史登录从原作者名下解下来、想绑给另一位持 owner 授予的人，绑定入口一律 400，
+    // 对方因此改不了旧作者的常量；原作者解绑之后也不再是作者，绑不回去
+    { const now = Date.now();
+      db.prepare("INSERT OR IGNORE INTO principals (id, id_key, kind, display_name) VALUES ('user:beta', 'user:beta', 'person', 'Synthetic beta')").run();
+      db.prepare("INSERT OR IGNORE INTO principal_identities (provider, external_id, external_key, principal_id) VALUES ('fake', 'beta', 'beta', 'user:beta')").run();
+      const g = Number(db.prepare("INSERT INTO grants (principal_id, role, scope, expires_at, reason, created_by, created_at, updated_at) VALUES ('user:beta', 'owner', '*', NULL, 'synthetic', 'cli', ?, ?)").run(now, now).lastInsertRowid);
+      db.prepare("UPDATE grants SET status = 'pending' WHERE id = ?").run(g);
+      db.prepare("UPDATE grants SET status = 'active', approved_by = 'cli' WHERE id = ?").run(g); }
+    const BETA = page(SESSIONS.beta);
+    const LEGACY = { provider: 'odoo', external_id: 'Legacy.Root' };
+    const unbound = await call(k.base, 'POST', '/api/principals/unbind', CLI, { ...LEGACY, reason: 'synthetic' });
+    const rebind = await call(k.base, 'POST', '/api/principals/bind', CLI, { ...LEGACY, principal: 'user:beta', reason: 'synthetic' });
+    const rebatch = await call(k.base, 'POST', '/api/principals/bind-batch', CLI, { items: [{ ...LEGACY, principal: 'user:beta' }], reason: 'synthetic' });
+    const back = await call(k.base, 'POST', '/api/principals/bind', CLI, { ...LEGACY, principal: 'user:root-admin', reason: 'synthetic' });
+    const recon = await call(k.base, 'POST', '/api/principals/reconcile', CLI, { flow: 'odoo' });
+    ok('O8 历史 Odoo 身份只读：能解绑；绑给别人、成批绑、绑回原主都 400；对账不写绑定，按 odoo 对账 404',
+      unbound.status === 200 && unbound.body?.unbound_from === 'user:root-admin' && rebind.status === 400 && rebind.body?.reason === 'retired'
+        && rebatch.status === 200 && rebatch.body?.results?.[0]?.status === 400 && rebatch.body.results[0].reason === 'retired' && back.status === 400 && recon.status === 404,
+      JSON.stringify({ unbound, rebind, rebatch: rebatch.body, back: back.status, recon: recon.status }));
+    r = await edit(BETA, 'c_legacy', 6);
+    const rRoot = await edit(ROOT, 'c_legacy', 6);
+    ok('O8 解绑后另一位完整管理员改不了旧作者的常量，原作者也不再是作者（都 403）', r.status === 403 && rRoot.status === 403, JSON.stringify({ beta: r.status, root: rRoot.status }));
     r = await call(k.base, 'PUT', vpath(W, 'c_legacy'), CLI, { value: 5, kind: 'const', override: true, revision: await rev('c_legacy'), reason: 'synthetic', owner: 'odoo:someone' });
     ok('O8 新写入的 owner 不再收 odoo:（本机命令行也是 400）', r.status === 400, JSON.stringify(r));
     r = await call(k.base, 'PUT', vpath(W, 'c_legacy'), CLI, { value: 5, kind: 'const', override: true, revision: await rev('c_legacy'), reason: 'synthetic', owner: 'user:alpha' });

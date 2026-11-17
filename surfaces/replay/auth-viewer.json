@@ -6,12 +6,32 @@
   "scenarios": [
     {
       "name": "unconfigured",
-      "what": "缺省配置：没装身份来源（没设 WM_ODOO_URL）。",
+      "what": "缺省配置：没装身份来源，有站内账号这种登录方式（缺省开）。",
       "env": {},
       "steps": [
         {
           "id": "no-session",
-          "what": "没配置身份来源：503（5xx 不算三类里的哪一类，只录下来比）",
+          "route": "GET /api/auth/viewer",
+          "class": "unauthorized",
+          "what": "没带会话：401，带登录入口（没有身份来源也一样）",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "74", "etag": "W/\"4a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "未登录", "auth_required": true, "login_url": "/login" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "no-login-methods",
+      "what": "没装身份来源，站内账号也关了（WM_LOCAL_LOGIN=off）：一种登录方式也没有。",
+      "env": { "WM_LOCAL_LOGIN": "off" },
+      "steps": [
+        {
+          "id": "no-session",
+          "what": "一种登录方式也没有：503（5xx 不算三类里的哪一类，只录下来比）",
           "request": { "method": "GET", "path": "/api/auth/viewer", "headers": {} },
           "response": {
             "status": 503,
