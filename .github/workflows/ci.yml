@@ -253,7 +253,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: 身份接缝与主体（契约单测·主体服务单测·主体标识规范化（NFKC_Casefold）全部码位对照 Unicode 属性、成批过主体服务·飞书登录与市场会话对抗组（本机假飞书：state 伪造与重放、next 外跳、换令牌失败、用户标识缺失或被篡改、停用注销过期即失效）·离职即时失效对抗组（通讯录事件验签与重放、对账补漏）·假提供方对抗组：缺省/登录门/登录中继/中继加登录门四个实例上的拒绝例与合法对照，停用一个主体各入口立即不认、恢复立即照常·部门读写（登录的人读、管理员写、dept:<部门标识> 只认部门表里有的）·夹具只在测试环境可用·变异测试逐个改坏必须变红；不访问任何外部系统）
         run: |
-          ( node scripts/identity-contract-test.mjs && node scripts/principal-service-test.mjs && node scripts/principal-fold-test.mjs && node scripts/identity-seam-smoke.mjs && node scripts/identity-source-timeout-test.mjs && node scripts/feishu-login-smoke.mjs && node scripts/feishu-offboard-smoke.mjs && node scripts/local-accounts-test.mjs && node scripts/local-accounts-create-only-test.mjs && node scripts/local-accounts-signup-guard-test.mjs && node scripts/local-login-limits-test.mjs && node scripts/system-admin-boundary-test.mjs && node scripts/export-reveal-smoke.mjs && node scripts/grants-smoke.mjs && node scripts/departments-smoke.mjs && node scripts/access-smoke.mjs && node scripts/red-lines-test.mjs && node scripts/teams-smoke.mjs && node scripts/team-node-binding-test.mjs && node scripts/judgment-compare-smoke.mjs && node scripts/judgment-compare-snapshot-test.mjs && node scripts/judgment-migration-test.mjs && node scripts/judgment-compare-zero-test.mjs && node scripts/judgment-compare-sweep-test.mjs && node scripts/judgment-enforce-test.mjs && node scripts/role-presets-test.mjs && node scripts/role-matrix-judgment-test.mjs && node scripts/custom-roles-smoke.mjs ) > identity-suites.log 2>&1 &
+          ( node scripts/identity-contract-test.mjs && node scripts/principal-service-test.mjs && node scripts/principal-fold-test.mjs && node scripts/identity-seam-smoke.mjs && node scripts/identity-source-timeout-test.mjs && node scripts/feishu-login-smoke.mjs && node scripts/feishu-offboard-smoke.mjs && node scripts/local-accounts-test.mjs && node scripts/local-accounts-create-only-test.mjs && node scripts/local-accounts-signup-guard-test.mjs && node scripts/odoo-offboard-preflight-test.mjs && node scripts/local-login-limits-test.mjs && node scripts/system-admin-boundary-test.mjs && node scripts/export-reveal-smoke.mjs && node scripts/grants-smoke.mjs && node scripts/departments-smoke.mjs && node scripts/access-smoke.mjs && node scripts/red-lines-test.mjs && node scripts/teams-smoke.mjs && node scripts/team-node-binding-test.mjs && node scripts/judgment-compare-smoke.mjs && node scripts/judgment-compare-snapshot-test.mjs && node scripts/judgment-migration-test.mjs && node scripts/judgment-compare-zero-test.mjs && node scripts/judgment-compare-sweep-test.mjs && node scripts/judgment-enforce-test.mjs && node scripts/role-presets-test.mjs && node scripts/role-matrix-judgment-test.mjs && node scripts/custom-roles-smoke.mjs ) > identity-suites.log 2>&1 &
           suites=$!
           set +e
           node scripts/identity-seam-mutation.mjs --jobs 2
@@ -537,8 +537,8 @@ jobs:
         run: node scripts/skill-binary-publish-smoke.mjs
       - name: 技能回滚冒烟（回滚=移当前版本指针不新增版本·不撞同指纹唯一索引·回滚后缺省取装/导出/安装计划/校验=目标版本·二进制逐字节一致·MCP 变更申请批准同一执行体·发新版恢复跟随最新·预置孤儿版本目录挪进 .orphans 不混写）
         run: node scripts/skill-rollback-smoke.mjs
-      - name: 技能导入冒烟（隔离库·源 C 导入、同内容不升版、改了升版旧版不变、无 frontmatter 跳过·导入试跑报技能自己写的版本号，顶层和 metadata 下都认，本仓 skills/ 每个都报得出）
-        run: node scripts/skill-import-smoke.mjs
+      - name: 技能导入冒烟（隔离库·源 C 导入、同内容不升版、改了升版旧版不变、无 frontmatter 跳过·导入试跑报技能自己写的版本号，顶层和 metadata 下都认，本仓 skills/ 每个都报得出）；点名导入对抗组（#783：--only 写法/不认识/歧义零写入·只读试跑·同内容不碰·前态指纹·中途失败整体回滚）
+        run: node scripts/skill-import-smoke.mjs && node scripts/skill-import-only-test.mjs
       - name: 驾驶舱布局吸附单测（#320：宽度只取 3/4/6/12·x 越界收回·不丢面板·读时迁移不回写）
         run: node scripts/cockpit-layout-unit.mjs
       - name: 名字的显示规则单测（纯函数——名册、线和步的名字；单列一步）

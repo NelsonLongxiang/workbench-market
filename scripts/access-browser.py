@@ -5,6 +5,7 @@
   · 有口令：三个页签（人和权限、账号、角色预设；没有「以某人的身份看」）；待核准卡片、按人排的表（状态最左），范围不是全部的生效中授予标「尚未生效」；矩阵里「范围内」的格子同样标；
   · 核准发对了请求；不给要写理由，理由空着确认按钮不能点，写了才发、带着理由；被拒时说服务端给的说法；
   · 账号（P4）：普通员工不去问、说只有管理员；管理员建人显示一次临时密码、重置要确认且给新密码、停用恢复要写理由；待核准的卡片核准、拒绝发对请求，被拒照服务端的句子说；
+  · 改密码（用户卡）：站内账号登录的人才有；两次不一致、原密码不对都提示；改好要重新登录，旧会话注销、只有新密码能用；
   · 角色预设：每个角色一张卡、选中的角色有各大块（服务端的 BLOCKS，现在八块）× 四类的矩阵，格子是「全部 / 范围内 / 部分 / 只限自己 / 不能 / —」之一。"""
 import json, re, sys, urllib.request
 from playwright.sync_api import sync_playwright
@@ -237,6 +238,45 @@ with sync_playwright() as p:
     want = mx['roles'][[r['id'] for r in mx['roles']].index('dept-lead')]['cells']['work']['read']
     shown = pg.locator('[data-testid=acc-matrix] tbody tr', has_text='事项与对话').locator('.wm-acc-cell').first.inner_text().strip()
     check('格子和接口算的一致（部门负责人 · 事项与对话 · 看）', {'all': '全部', 'scoped': '范围内', 'some': '部分', 'self': '只限自己', 'none': '不能', 'na': '—'}[want] == shown, (want, shown))
+
+    # ---- 用户卡里的「改密码」：站内账号登录的人才有；改好要重新登录，只有新密码能用 ----
+    req = urllib.request.Request(M + '/api/local-accounts', data=json.dumps({'username': 'synth-pw', 'display_name': '合成改密'}).encode(), method='POST', headers={'x-admin-token': TOK, 'content-type': 'application/json'})
+    with urllib.request.urlopen(req) as r: temp = json.load(r)['temp_password']
+    ctx = b.new_context(viewport={'width': 1440, 'height': 900}); up = ctx.new_page(); up.set_default_timeout(10000)
+    def local_login(pw, first_new=None):
+        up.goto(M + '/login/local?next=/'); up.wait_for_selector('input[name=username]')
+        up.fill('input[name=username]', 'synth-pw'); up.fill('input[name=password]', pw); up.click('button[type=submit]')
+        if first_new:
+            up.wait_for_selector('input[name=next]'); up.fill('input[name=next]', first_new); up.fill('input[name=confirm]', first_new); up.click('button[type=submit]')
+        up.wait_for_load_state('networkidle')
+    local_login(temp, 'Synth-pw-00001')
+    up.goto(M + '/'); up.wait_for_selector('[data-testid=wm-me]')
+    up.locator('[data-testid=wm-me]').click(); up.locator('[data-testid=pw-open]').wait_for()
+    before = up.evaluate("fetch('/api/auth/me', { cache: 'no-store' }).then((r) => r.json())")
+    check('站内账号登录的人：/api/auth/me 认出是他（市场会话）、有站内账号；用户卡里有「改密码」', before.get('principal') == 'user:synth-pw' and before.get('local_account') is True and up.locator('[data-testid=pw-open]').count() == 1, before)
+    up.locator('[data-testid=pw-open]').click(); up.locator('[data-testid=pw-current]').wait_for()
+    up.fill('[data-testid=pw-current]', 'Synth-pw-00001'); up.fill('[data-testid=pw-next]', 'Synth-pw-00002'); up.fill('[data-testid=pw-confirm]', 'Synth-pw-00003')
+    check('两次新密码不一样：提示、改好按钮不能点', up.locator('[data-testid=pw-problem]').count() == 1 and up.locator('[data-testid=pw-submit]').is_disabled())
+    up.fill('[data-testid=pw-current]', 'Wrong-pass-0001'); up.fill('[data-testid=pw-confirm]', 'Synth-pw-00002')
+    up.locator('[data-testid=pw-submit]').click(); up.wait_for_selector('[data-testid=pw-problem]')
+    check('原密码不对：照服务端的说法提示，不关框', '原密码不对' in up.locator('[data-testid=pw-problem]').inner_text() and up.locator('[data-testid=pw-done]').count() == 0, up.locator('[data-testid=pw-problem]').inner_text())
+    up.fill('[data-testid=pw-current]', 'Synth-pw-00001')
+    up.locator('[data-testid=pw-submit]').click(); up.wait_for_selector('[data-testid=pw-done]')
+    check('改好：说已退出、要用新密码重新登录', '重新登录' in up.locator('[data-testid=pw-done]').inner_text())
+    up.locator('[data-testid=pw-relogin]').click(); up.wait_for_url('**/login**')
+    # 从页面里问（带着浏览器的 cookie 和标记；回环直连、不带浏览器标记的会被当成本机命令行，测不出会话）
+    after = up.evaluate("fetch('/api/auth/me', { cache: 'no-store' }).then((r) => r.json())")
+    check('改好之后：原来的会话已经注销（/api/auth/me 认不出这个人）', after.get('via') != 'cli' and after.get('principal') != 'user:synth-pw', after)
+    local_login('Synth-pw-00001')
+    check('旧密码登不进', up.locator('p.err').count() == 1, up.url)
+    local_login('Synth-pw-00002')
+    up.goto(M + '/'); up.wait_for_selector('[data-testid=wm-me]')
+    me2 = up.evaluate("fetch('/api/auth/me', { cache: 'no-store' }).then((r) => r.json())")
+    check('新密码登得进', me2.get('principal') == 'user:synth-pw' and me2.get('local_account') is True, me2)
+    # 不是站内账号的（口令管理员）：用户卡里没有「改密码」
+    pg.goto(M + '/'); set_token(pg); pg.locator('[data-testid=wm-me]').click(); pg.wait_for_timeout(400)
+    check('没有站内账号的（口令管理员）：用户卡里没有「改密码」', pg.locator('[data-testid=pw-open]').count() == 0)
+    ctx.close()
     b.close()
 
 print(f'access-browser: {ok} 过 / {fail} 败')
