@@ -8,8 +8,11 @@
  *       （人是启用的、绑着站内账号、账号还在）。没有的话，下线之后只剩管理口令能管。
  *   三、待办读权（项目读权 task_source_read_grants、运行读权 sop_run_read_grants，生效中的）
  *       有没有落在只靠 Odoo 登录的人身上：下线之后这些读权没人用得上。
+ *   四、作者仍记成 odoo:<登录名> 的工作台常量有几条，其中对不回启用的人（名下没有这条历史 Odoo 身份）的几条；
+ *       属主待办看板的配置常量（config.owner）能不能对回主体。对不回的，上线前由属主重新保存一次。
+ *       只数主库里的常量（WM_VARS_STORE 是 main、shadow 时都在这里）；bench 模式下常量在各台的库里，这一项不准，要另查。
  *
- * 判定：二不满足、三大于 0、一大于 0 都算红（退出码 1）。一大于 0 而属主确认这些人不再需要登录的，
+ * 判定：二不满足、三大于 0、一大于 0、四里有对不回的，都算红（退出码 1）。一大于 0 而属主确认这些人不再需要登录的，
  *       带 --accept-odoo-only=<人数>（要和实际人数相等，人数变了就重新确认）。
  * 只读：库以只读方式打开，不写、不迁移；表不存在按「没有」算。
  *
@@ -64,7 +67,25 @@ export function preflight(db, now = Date.now()) {
   const readHolders = ready ? n(`SELECT COUNT(*) AS n FROM principals p WHERE ${odooOnly} AND (
         ${has('task_source_read_grants') ? "EXISTS (SELECT 1 FROM task_source_read_grants t WHERE t.subject = p.id AND t.revoked_at = '' AND datetime(t.expires_at) > datetime('now'))" : '0'}
      OR ${has('sop_run_read_grants') ? "EXISTS (SELECT 1 FROM sop_run_read_grants r WHERE r.subject = p.id AND r.revoked_at = '' AND (r.expires_at IS NULL OR r.expires_at = '' OR datetime(r.expires_at) > datetime('now')))" : '0'})`) : 0;
+  // 四、作者是 odoo:<登录名> 的常量：能不能对回启用的人（名下绑着这条 Odoo 身份，按大小写不敏感比）
+  const mapped = `EXISTS (SELECT 1 FROM principal_identities i JOIN principals p ON p.id = i.principal_id
+      WHERE i.provider = 'odoo' AND lower(i.external_id) = lower(substr(v.owner, 6)) AND p.kind = 'person' AND p.status = 'active')`;
+  const hasVars = has('workbench_vars') && !!db.prepare("SELECT 1 FROM pragma_table_info('workbench_vars') WHERE name = 'owner'").get();
+  const odooConsts = hasVars ? n("SELECT COUNT(*) AS n FROM workbench_vars v WHERE v.kind = 'const' AND v.owner LIKE 'odoo:%'") : 0;
+  const odooConstsUnmapped = hasVars && ready ? n(`SELECT COUNT(*) AS n FROM workbench_vars v WHERE v.kind = 'const' AND v.owner LIKE 'odoo:%' AND NOT ${mapped}`) : odooConsts;
+  // 属主待办看板：地址是本站 /owner-pending 的那张台上的 config.owner
+  let board = 'none';
+  if (hasVars && has('workbenches')) {
+    const rows = db.prepare("SELECT v.owner AS owner, v.kind AS kind, v.workbench_id AS wb FROM workbench_vars v JOIN workbenches w ON w.id = v.workbench_id WHERE v.key = 'config.owner' AND (rtrim(w.url, '/') LIKE '%/owner-pending' OR rtrim(w.url, '/') = '/owner-pending')").all();
+    if (rows.length > 1) board = 'ambiguous';
+    else if (rows.length === 1) {
+      const r = rows[0];
+      if (!String(r.owner).startsWith('odoo:')) board = 'not-odoo';
+      else board = ready && db.prepare(`SELECT 1 FROM workbench_vars v WHERE v.workbench_id = ? AND v.key = 'config.owner' AND ${mapped}`).get(r.wb) ? 'mapped' : 'unmapped';
+    }
+  }
   return {
+    odoo_owned_consts: { total: odooConsts, unmapped: odooConstsUnmapped, owner_board: board },
     odoo_only_people: odooOnlyPeople,
     odoo_only_people_with_feishu: odooOnlyWithFeishu,
     full_admins_on_local_accounts: fullAdminsOnLocal,
@@ -77,6 +98,7 @@ export function verdict(r, accept = null) {
   if (r.odoo_only_people > 0 && accept !== r.odoo_only_people) red.push('odoo-only-people');
   if (r.full_admins_on_local_accounts < 1) red.push('no-full-admin-on-local-account');
   if (r.odoo_only_read_grants.task_source + r.odoo_only_read_grants.sop_run > 0) red.push('read-grants-only-via-odoo');
+  if (r.odoo_owned_consts.unmapped > 0 || ['unmapped', 'ambiguous'].includes(r.odoo_owned_consts.owner_board)) red.push('odoo-owned-consts-unmapped');
   return { ok: red.length === 0, red };
 }
 
@@ -95,6 +117,8 @@ if (isMain) {
     console.log(`一、只靠 Odoo 登录、没有站内账号的人：${r.odoo_only_people} 人（其中绑着飞书的 ${r.odoo_only_people_with_feishu} 人）${opts.accept !== null ? `；确认数 ${opts.accept}` : ''}`);
     console.log(`二、落在站内账号上的完整管理员（owner、范围 *、生效中）：${r.full_admins_on_local_accounts} 人`);
     console.log(`三、只靠 Odoo 才用得上的待办读权：项目读权 ${r.odoo_only_read_grants.task_source} 条、运行读权 ${r.odoo_only_read_grants.sop_run} 条，涉及 ${r.odoo_only_read_grants.people} 人`);
+    const boardText = { none: '没有登记看板', 'not-odoo': '作者不是 odoo: 写法', mapped: '对得回主体', unmapped: '对不回主体（要属主重新保存一次）', ambiguous: '登记了不止一张看板' }[r.odoo_owned_consts.owner_board];
+    console.log(`四、作者仍是 odoo: 的常量：${r.odoo_owned_consts.total} 条，其中对不回主体的 ${r.odoo_owned_consts.unmapped} 条；属主待办看板的配置：${boardText}（只数主库，bench 模式要另查）`);
     console.log(v.ok ? '结论：绿，可以上线' : `结论：红（${v.red.join('、')}），不上线`);
   }
   process.exit(v.ok ? 0 : 1);

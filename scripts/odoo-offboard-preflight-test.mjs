@@ -74,6 +74,15 @@ try {
   person('user:fay'); bind('local', 'fay', 'user:fay'); account('fay'); grant('user:fay', 'owner', '*', 'pending');
   person('user:gus'); bind('local', 'gus', 'user:gus'); account('gus'); grant('user:gus', 'owner', '*', 'active', Date.now() + 2000); // 放行时期限还没到；下面等它过期（状态还没被周期任务标成 expired）
   person('user:hal'); bind('local', 'hal', 'user:hal'); account('hal'); grant('user:hal', 'admin', '*');
+  // 四：作者是 odoo: 的常量。bob 对得回（启用、绑着 odoo/bob，大小写不同也算）；ghost 没人绑、dave 停用了，对不回；mcp: 的不算
+  const wb = (url) => Number(d.prepare("INSERT INTO workbenches (name, url) VALUES ('合成', ?)").run(url).lastInsertRowid);
+  const board = wb('http://market.synthetic.invalid/owner-pending/'), other = wb('http://web.synthetic.invalid/');
+  const konst = (w, key, owner) => d.prepare("INSERT INTO workbench_vars (workbench_id, key, kind, value, owner) VALUES (?, ?, 'const', '{}', ?)").run(w, key, owner);
+  konst(board, 'config.owner', 'odoo:BOB');
+  konst(other, 'k1', 'odoo:ghost');
+  konst(other, 'k2', 'odoo:dave');
+  konst(other, 'k3', 'mcp:session-1');
+  d.prepare("INSERT INTO workbench_vars (workbench_id, key, kind, value, owner) VALUES (?, 'v1', 'var', '{}', 'odoo:ghost')").run(other); // 变量不算
   d.close();
   await new Promise((r) => setTimeout(r, 2500));
 
@@ -85,8 +94,10 @@ try {
     '二、完整管理员不算数的几种：落在只靠 Odoo 的人身上、站内账号已删、还没放行、过期、角色是 admin', r1.json);
   check(r1.json?.odoo_only_read_grants?.task_source === 1 && r1.json.odoo_only_read_grants.sop_run === 1 && r1.json.odoo_only_read_grants.people === 1,
     '三、只靠 Odoo 才用得上的待办读权：alice 的项目读权、运行读权各一条（停用的人、撤销的、过期的不算）', r1.json?.odoo_only_read_grants);
-  check(r1.code === 1 && ['odoo-only-people', 'no-full-admin-on-local-account', 'read-grants-only-via-odoo'].every((k) => r1.json?.red?.includes(k)),
-    '三项都红：退出码 1，红的原因逐项列出', { code: r1.code, red: r1.json?.red });
+  check(r1.json?.odoo_owned_consts?.total === 3 && r1.json.odoo_owned_consts.unmapped === 2 && r1.json.odoo_owned_consts.owner_board === 'mapped',
+    '四、作者仍是 odoo: 的常量 3 条（变量、mcp: 的不算），对不回的 2 条（没人绑的、绑着的人停用了）；看板配置对得回（大小写不同也算）', r1.json?.odoo_owned_consts);
+  check(r1.code === 1 && ['odoo-only-people', 'no-full-admin-on-local-account', 'read-grants-only-via-odoo', 'odoo-owned-consts-unmapped'].every((k) => r1.json?.red?.includes(k)),
+    '四项都红：退出码 1，红的原因逐项列出', { code: r1.code, red: r1.json?.red });
   check(!/alice|carol|bob|dave/.test(r1.out), '输出只有人数，不出现名字、登录名', r1.out.slice(0, 200));
   check(sha(file) === before, '只读：跑完库文件逐字节没变');
 
@@ -95,7 +106,13 @@ try {
   w.exec("UPDATE grants SET status = 'active', approved_by = 'cli' WHERE principal_id = 'user:fay'");
   w.exec("UPDATE task_source_read_grants SET revoked_at = datetime('now') WHERE subject = 'user:alice'");
   w.exec("UPDATE sop_run_read_grants SET revoked_at = datetime('now') WHERE subject = 'user:alice'");
+  w.exec("UPDATE workbench_vars SET owner = 'odoo:bob' WHERE key IN ('k1', 'k2')"); // 属主重新保存（这里直接改成对得回的作者）
+  w.exec("UPDATE workbench_vars SET owner = 'odoo:ghost' WHERE key = 'config.owner'");
   w.close();
+  const rb = run(file);
+  check(rb.json?.odoo_owned_consts?.unmapped === 1 && rb.json.odoo_owned_consts.owner_board === 'unmapped' && rb.json.red?.includes('odoo-owned-consts-unmapped'),
+    '四、看板配置的作者对不回主体：单独点名（unmapped），算红', rb.json?.odoo_owned_consts);
+  const w2 = new DatabaseSync(file); w2.exec("UPDATE workbench_vars SET owner = 'user:bob' WHERE key = 'config.owner'"); w2.close();
   const r2 = run(file);
   check(r2.code === 1 && r2.json?.full_admins_on_local_accounts === 1 && r2.json.red?.join() === 'odoo-only-people',
     '补上完整管理员、收回读权之后：只剩「只靠 Odoo 的人」这一项红', r2.json);
@@ -104,7 +121,24 @@ try {
   check(wrong.code === 1 && right.code === 0 && right.json?.ok === true,
     '属主确认这些人不再需要登录：--accept-odoo-only 写的人数要和实际相等（写 1 仍红，写 2 才绿）', { wrong: wrong.code, right: [right.code, right.json?.red] });
   const human = spawnSync(process.execPath, [SCRIPT, '--db', file, '--accept-odoo-only=2'], { encoding: 'utf8' });
-  check(human.status === 0 && /结论：绿/.test(human.stdout) && /一、.*2 人/.test(human.stdout), '人看的输出：三行结果加一行结论', human.stdout);
+  check(human.status === 0 && /结论：绿/.test(human.stdout) && /一、.*2 人/.test(human.stdout) && /四、.*2 条.*0 条.*作者不是 odoo: 写法/.test(human.stdout), '人看的输出：四行结果加一行结论', human.stdout);
+
+  // 登记了两张看板：常量都对得回，也算红（不知道认哪一张）
+  const two = freshDb('two-boards');
+  const t = new DatabaseSync(two);
+  t.prepare("INSERT INTO principals (id, id_key, kind, display_name) VALUES ('user:bob', 'user:bob', 'person', 'bob')").run();
+  for (const [p, e] of [['odoo', 'bob'], ['local', 'bob']]) t.prepare('INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES (?, ?, ?, ?)').run(p, e, e, 'user:bob');
+  t.prepare("INSERT INTO local_accounts (username, password_hash, created_at, updated_at) VALUES ('bob', 'x', 1, 1)").run();
+  const gid = Number(t.prepare("INSERT INTO grants (principal_id, role, scope, reason, created_by, created_at, updated_at) VALUES ('user:bob', 'owner', '*', '合成', 'cli', 1, 1)").run().lastInsertRowid);
+  t.prepare("UPDATE grants SET status = 'pending' WHERE id = ?").run(gid); t.prepare("UPDATE grants SET status = 'active', approved_by = 'cli' WHERE id = ?").run(gid);
+  for (const host of ['a', 'b']) {
+    const id = Number(t.prepare("INSERT INTO workbenches (name, url) VALUES ('合成', ?)").run(`http://${host}.synthetic.invalid/owner-pending`).lastInsertRowid);
+    t.prepare("INSERT INTO workbench_vars (workbench_id, key, kind, value, owner) VALUES (?, 'config.owner', 'const', '{}', 'odoo:bob')").run(id);
+  }
+  t.close();
+  const r3 = run(two);
+  check(r3.code === 1 && r3.json?.odoo_owned_consts?.unmapped === 0 && r3.json.odoo_owned_consts.owner_board === 'ambiguous' && r3.json.red?.join() === 'odoo-owned-consts-unmapped',
+    '四、登记了两张看板（作者都对得回）：看板认不准，也算红', r3.json);
 
   // 用法错误
   const missing = spawnSync(process.execPath, [SCRIPT, '--db', join(OUT, 'nope.db')], { encoding: 'utf8' });
