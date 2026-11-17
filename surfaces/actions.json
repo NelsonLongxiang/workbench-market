@@ -287,6 +287,7 @@
       "GET /api/mcp-rest/openapi.json  -> mcp-rest.openapi  read  （状态码不代表授权：MCP 会话令牌与工具授权由网关判，不是登录身份的结论）",
       "POST /api/mcp-rest/tools/:name  -> mcp-rest.tool-call  write  （状态码不代表授权：MCP 会话令牌与工具授权由网关判，不是登录身份的结论）",
       "PUT /api/mcp-rest/apps/:slug/files/:name  -> mcp-rest.file-upload  write  （状态码不代表授权：MCP 会话令牌与工具授权由网关判，不是登录身份的结论）",
+      "PUT /api/mcp-rest/uploads/:ticket  -> mcp-rest.ticket-upload  write  （状态码不代表授权：上传票本身就是凭据（只能用一次、10 分钟过期），用票时再核发票的会话和授权，不是登录身份的结论）",
       "POST /api/mcp-rest/apps/:slug/files  -> mcp-rest.file-upload  write  （状态码不代表授权：MCP 会话令牌与工具授权由网关判，不是登录身份的结论）",
       "GET /api/mcp-rest/apps/:slug/files  -> mcp-rest.files  read  （状态码不代表授权：MCP 会话令牌与工具授权由网关判，不是登录身份的结论）",
       "GET /api/mcp-rest/apps/:slug/files/:id  -> mcp-rest.file-download  read  （状态码不代表授权：MCP 会话令牌与工具授权由网关判，不是登录身份的结论）",

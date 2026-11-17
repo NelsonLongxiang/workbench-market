@@ -1,6 +1,6 @@
 {
   "domain": "mcp-rest",
-  "what": "MCP 内嵌的 REST：OpenAPI 文档（两个地址）、工具调用、台文件的上传（原始字节、multipart）列表下载、台数据、SOP run 与附件，共 11 条路由，认证是 MCP 会话令牌，授权映射到工具 grants。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "what": "MCP 内嵌的 REST：OpenAPI 文档（两个地址）、工具调用、台文件的上传（原始字节、multipart）列表下载、台数据、SOP run 与附件，共 12 条路由，认证是 MCP 会话令牌，授权映射到工具 grants；上传票的直传（PUT /api/mcp-rest/uploads/<票>）不认会话令牌，票本身就是凭据。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
   "routes": [
     "GET /openapi.json",
     "GET /api/mcp-rest/openapi.json",
@@ -12,7 +12,8 @@
     "GET /api/mcp-rest/apps/:slug/data",
     "GET /api/mcp-rest/sop/runs/:id",
     "GET /api/mcp-rest/sop/runs/:id/files",
-    "GET /api/mcp-rest/sop/runs/:id/files/:fileId"
+    "GET /api/mcp-rest/sop/runs/:id/files/:fileId",
+    "PUT /api/mcp-rest/uploads/:ticket"
   ],
   "exempt": [{ "route": "GET /openapi.json", "class": "invalid", "why": "OpenAPI 文档只看会话，不读请求里的别的东西", "shown_by": "open/openapi" }, { "route": "GET /api/mcp-rest/openapi.json", "class": "invalid", "why": "同上", "shown_by": "open/openapi-rest-path" }],
   "scenarios": [
@@ -115,7 +116,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "29548", "etag": "W/\"736c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "30026", "etag": "W/\"754a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -551,7 +552,7 @@
                     "tags": ["tools"],
                     "operationId": "app_files_upload",
                     "summary": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务",
-                    "description": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务端核对，不符就拒收、不保存（防客户端把长参数截短，base64 恰好 65536 字符又都没带时按疑似截断拒收）。成功应答的 sha256 是服务端对已保存字节算的，和本地文件一致就是完整的，不要为了验证再下载；integrity 为 sha256-verified 时服务端已替你核对过。超过几十 KB 的文件优先用 REST 原始字节上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>（同一会话令牌，不经 base64，可带请求头 X-Content-SHA256；入口见 access_info 的 rest_base 与 openapi_url）。剩余文件数看 app_files_list 的 quota。",
+                    "description": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务端核对，不符就拒收、不保存（防客户端把长参数截短，base64 恰好 65536 字符又都没带时按疑似截断拒收）。成功应答的 sha256 是服务端对已保存字节算的，和本地文件一致就是完整的，不要为了验证再下载；integrity 为 sha256-verified 时服务端已替你核对过。超过几十 KB 的文件不要放进 content_base64（要由你逐字抄写，长了会抄错、占上下文）：改用**上传票**——不带 content_base64，只给 slug、name、size、sha256（必带），返回 upload_url（10 分钟内有效、只能用一次、不用会话令牌）和现成的 curl 命令；在 shell 里把原始字节 PUT 上去，应答就是这里的应答（id/url/sha256…）。失败了重新申请一张。也可用 REST 原始字节上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>（同一会话令牌；入口见 access_info 的 rest_base 与 openapi_url）。剩余文件数看 app_files_list 的 quota。",
                     "x-category": "write",
                     "x-granted": true,
                     "requestBody": {
@@ -563,14 +564,14 @@
                             "properties": {
                               "slug": { "type": "string" },
                               "name": { "type": "string", "description": "原始文件名（含扩展名）" },
-                              "content_base64": { "type": "string", "description": "文件内容 base64（≤100MB 原始）" },
-                              "size": { "type": "integer", "description": "原始字节数（与收到的内容不符即拒收；能带 sha256 就带 sha256）" },
+                              "content_base64": { "type": "string", "description": "文件内容 base64（≤100MB 原始）；不带就是申请上传票（这时 size、sha256 必带）" },
+                              "size": { "type": "integer", "description": "原始字节数（与收到的内容不符即拒收；能带 sha256 就带 sha256）。申请上传票时必带，PUT 的字节数必须正好是它" },
                               "sha256": { "type": "string", "description": "原始内容 sha256（64 位十六进制，推荐带：带了就由服务端替你核对，不符即拒收、不保存）" },
                               "mime": { "type": "string", "description": "MIME（缺省 application/octet-stream）" },
                               "note": { "type": "string", "description": "备注（≤500 字·可 PATCH 更新）" },
                               "created_by": { "type": "string", "description": "创建者标识（≤128 字符）" }
                             },
-                            "required": ["slug", "name", "content_base64"],
+                            "required": ["slug", "name"],
                             "additionalProperties": false
                           }
                         }
@@ -881,7 +882,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "29548", "etag": "W/\"736c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "30026", "etag": "W/\"754a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -1317,7 +1318,7 @@
                     "tags": ["tools"],
                     "operationId": "app_files_upload",
                     "summary": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务",
-                    "description": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务端核对，不符就拒收、不保存（防客户端把长参数截短，base64 恰好 65536 字符又都没带时按疑似截断拒收）。成功应答的 sha256 是服务端对已保存字节算的，和本地文件一致就是完整的，不要为了验证再下载；integrity 为 sha256-verified 时服务端已替你核对过。超过几十 KB 的文件优先用 REST 原始字节上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>（同一会话令牌，不经 base64，可带请求头 X-Content-SHA256；入口见 access_info 的 rest_base 与 openapi_url）。剩余文件数看 app_files_list 的 quota。",
+                    "description": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务端核对，不符就拒收、不保存（防客户端把长参数截短，base64 恰好 65536 字符又都没带时按疑似截断拒收）。成功应答的 sha256 是服务端对已保存字节算的，和本地文件一致就是完整的，不要为了验证再下载；integrity 为 sha256-verified 时服务端已替你核对过。超过几十 KB 的文件不要放进 content_base64（要由你逐字抄写，长了会抄错、占上下文）：改用**上传票**——不带 content_base64，只给 slug、name、size、sha256（必带），返回 upload_url（10 分钟内有效、只能用一次、不用会话令牌）和现成的 curl 命令；在 shell 里把原始字节 PUT 上去，应答就是这里的应答（id/url/sha256…）。失败了重新申请一张。也可用 REST 原始字节上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>（同一会话令牌；入口见 access_info 的 rest_base 与 openapi_url）。剩余文件数看 app_files_list 的 quota。",
                     "x-category": "write",
                     "x-granted": true,
                     "requestBody": {
@@ -1329,14 +1330,14 @@
                             "properties": {
                               "slug": { "type": "string" },
                               "name": { "type": "string", "description": "原始文件名（含扩展名）" },
-                              "content_base64": { "type": "string", "description": "文件内容 base64（≤100MB 原始）" },
-                              "size": { "type": "integer", "description": "原始字节数（与收到的内容不符即拒收；能带 sha256 就带 sha256）" },
+                              "content_base64": { "type": "string", "description": "文件内容 base64（≤100MB 原始）；不带就是申请上传票（这时 size、sha256 必带）" },
+                              "size": { "type": "integer", "description": "原始字节数（与收到的内容不符即拒收；能带 sha256 就带 sha256）。申请上传票时必带，PUT 的字节数必须正好是它" },
                               "sha256": { "type": "string", "description": "原始内容 sha256（64 位十六进制，推荐带：带了就由服务端替你核对，不符即拒收、不保存）" },
                               "mime": { "type": "string", "description": "MIME（缺省 application/octet-stream）" },
                               "note": { "type": "string", "description": "备注（≤500 字·可 PATCH 更新）" },
                               "created_by": { "type": "string", "description": "创建者标识（≤128 字符）" }
                             },
-                            "required": ["slug", "name", "content_base64"],
+                            "required": ["slug", "name"],
                             "additionalProperties": false
                           }
                         }
@@ -1558,7 +1559,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "61090", "etag": "W/\"eea2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "62394", "etag": "W/\"f3ba-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "gateway": "on",
               "session": "replay-none",
@@ -1765,7 +1766,7 @@
                 },
                 {
                   "name": "app_files_upload",
-                  "description": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务端核对，不符就拒收、不保存（防客户端把长参数截短，base64 恰好 65536 字符又都没带时按疑似截断拒收）。成功应答的 sha256 是服务端对已保存字节算的，和本地文件一致就是完整的，不要为了验证再下载；integrity 为 sha256-verified 时服务端已替你核对过。超过几十 KB 的文件优先用 REST 原始字节上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>（同一会话令牌，不经 base64，可带请求头 X-Content-SHA256；入口见 access_info 的 rest_base 与 openapi_url）。剩余文件数看 app_files_list 的 quota。",
+                  "description": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务端核对，不符就拒收、不保存（防客户端把长参数截短，base64 恰好 65536 字符又都没带时按疑似截断拒收）。成功应答的 sha256 是服务端对已保存字节算的，和本地文件一致就是完整的，不要为了验证再下载；integrity 为 sha256-verified 时服务端已替你核对过。超过几十 KB 的文件不要放进 content_base64（要由你逐字抄写，长了会抄错、占上下文）：改用**上传票**——不带 content_base64，只给 slug、name、size、sha256（必带），返回 upload_url（10 分钟内有效、只能用一次、不用会话令牌）和现成的 curl 命令；在 shell 里把原始字节 PUT 上去，应答就是这里的应答（id/url/sha256…）。失败了重新申请一张。也可用 REST 原始字节上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>（同一会话令牌；入口见 access_info 的 rest_base 与 openapi_url）。剩余文件数看 app_files_list 的 quota。",
                   "category": "write",
                   "granted": false,
                   "input_schema": {
@@ -1773,14 +1774,14 @@
                     "properties": {
                       "slug": { "type": "string" },
                       "name": { "type": "string", "description": "原始文件名（含扩展名）" },
-                      "content_base64": { "type": "string", "description": "文件内容 base64（≤100MB 原始）" },
-                      "size": { "type": "integer", "description": "原始字节数（与收到的内容不符即拒收；能带 sha256 就带 sha256）" },
+                      "content_base64": { "type": "string", "description": "文件内容 base64（≤100MB 原始）；不带就是申请上传票（这时 size、sha256 必带）" },
+                      "size": { "type": "integer", "description": "原始字节数（与收到的内容不符即拒收；能带 sha256 就带 sha256）。申请上传票时必带，PUT 的字节数必须正好是它" },
                       "sha256": { "type": "string", "description": "原始内容 sha256（64 位十六进制，推荐带：带了就由服务端替你核对，不符即拒收、不保存）" },
                       "mime": { "type": "string", "description": "MIME（缺省 application/octet-stream）" },
                       "note": { "type": "string", "description": "备注（≤500 字·可 PATCH 更新）" },
                       "created_by": { "type": "string", "description": "创建者标识（≤128 字符）" }
                     },
-                    "required": ["slug", "name", "content_base64"],
+                    "required": ["slug", "name"],
                     "additionalProperties": false
                   }
                 },
@@ -1887,17 +1888,19 @@
                 },
                 {
                   "name": "skill_file_put",
-                  "description": "技能上传第一步：一次上传一个文件（不收压缩包），暂存在市场上，返回 sha256/size/integrity/next。文本文件 content 直接给；二进制文件（图片/字体/模板）content 给 base64 并带 encoding:\"base64\"。带上 sha256（推荐），服务端核对，不符就拒收、不暂存。成功应答的 sha256 是服务端对暂存字节算的，和本地文件一致就是完整的，不要为了验证再取回；integrity 为 sha256-verified 时服务端已替你核对过。单文件上限 10MB。同内容重复上传幂等并续期，暂存 24 小时后清掉。全部文件传完后调 skill_publish 按 sha256 引用成版。",
+                  "description": "技能上传第一步：一次上传一个文件（不收压缩包），暂存在市场上，返回 sha256/size/integrity/next。文本文件 content 直接给；二进制文件（图片/字体/模板）content 给 base64 并带 encoding:\"base64\"。带上 sha256（推荐），服务端核对，不符就拒收、不暂存。成功应答的 sha256 是服务端对暂存字节算的，和本地文件一致就是完整的，不要为了验证再取回；integrity 为 sha256-verified 时服务端已替你核对过。单文件上限 10MB。同内容重复上传幂等并续期，暂存 24 小时后清掉。全部文件传完后调 skill_publish 按 sha256 引用成版。超过几十 KB 的文件不要放进 content（要由你逐字抄写，长了会抄错、占上下文）：改用**上传票**——不带 content，只给 size、sha256（必带），返回 upload_url（10 分钟内有效、只能用一次、不用会话令牌）和现成的 curl 命令；在 shell 里把原始字节 PUT 上去，就暂存好了（应答同上），再在 skill_publish 里按 sha256 引用。失败了重新申请一张。",
                   "category": "admin",
                   "granted": false,
                   "input_schema": {
                     "type": "object",
                     "properties": {
-                      "content": { "type": "string" },
+                      "content": { "type": "string", "description": "文件内容；不带就是申请上传票（这时 size、sha256 必带）" },
                       "encoding": { "type": "string", "enum": ["utf8", "base64"], "description": "缺省 utf8" },
-                      "sha256": { "type": "string", "description": "原始内容 sha256（64 位十六进制，推荐带：带了就由服务端替你核对，不符即拒收、不暂存）" }
+                      "sha256": { "type": "string", "description": "原始内容 sha256（64 位十六进制，推荐带：带了就由服务端替你核对，不符即拒收、不暂存）。申请上传票时必带" },
+                      "size": { "type": "integer", "description": "原始字节数。只在申请上传票时用（必带）：PUT 的字节数必须正好是它" },
+                      "name": { "type": "string", "description": "文件名，只在申请上传票时用，进审计（暂存按内容寻址，不按名字）" }
                     },
-                    "required": ["content"],
+                    "required": [],
                     "additionalProperties": false
                   }
                 },
@@ -3849,6 +3852,117 @@
               "next_before_id": null
             }
           }
+        },
+        {
+          "id": "ticket-setup-session",
+          "what": "布置：管理口令新建一个会话（只比状态码），存下令牌和号",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/mcp/sessions", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "name": "replay-ticket" } },
+          "save": { "tkTok": "token", "tkId": "id" },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "ticket-setup-grant",
+          "what": "布置：给它 skill_file_put（只比状态码）",
+          "compare": "status",
+          "request": { "method": "PUT", "path": "/api/mcp/sessions/{{tkId}}/grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "grants": ["skill_file_put"] } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "ticket-setup-1",
+          "what": "布置：skill_file_put 不带 content，申请上传票（只比状态码），存下 upload_path",
+          "compare": "status",
+          "request": {
+            "method": "POST",
+            "path": "/api/mcp-rest/tools/skill_file_put",
+            "headers": { "authorization": "Bearer {{tkTok}}" },
+            "json": { "name": "SKILL.md", "size": 17, "sha256": "b686c9fdb34b452c5c28dbe07f74846668d992c1df8d663abf3b492c24cd4e60" }
+          },
+          "save": { "tk1": "ticket" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "ticket-put",
+          "route": "PUT /api/mcp-rest/uploads/:ticket",
+          "class": "normal",
+          "what": "上传票直传：不带会话令牌，201，应答和 skill_file_put 一样（sha256、size、24 小时、sha256-verified）",
+          "request": { "method": "PUT", "path": "/api/mcp-rest/uploads/{{tk1}}", "headers": { "content-type": "application/octet-stream" }, "text": "ticket 的内容\n" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "220", "etag": "W/\"dc-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "sha256": "b686c9fdb34b452c5c28dbe07f74846668d992c1df8d663abf3b492c24cd4e60", "size": 17, "expires_in_hours": 24, "integrity": "sha256-verified", "next": "服务端已按你给的 sha256 核对过并保存，无需下载回读" }
+          }
+        },
+        {
+          "id": "ticket-reuse",
+          "route": "PUT /api/mcp-rest/uploads/:ticket",
+          "class": "invalid",
+          "what": "同一张票再用：404（只能用一次）",
+          "request": { "method": "PUT", "path": "/api/mcp-rest/uploads/{{tk1}}", "headers": { "content-type": "application/octet-stream" }, "text": "ticket 的内容\n" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "84", "etag": "W/\"54-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "上传票不存在、已用过或已过期：重新调工具申请一张" } }
+        },
+        {
+          "id": "ticket-forged",
+          "route": "PUT /api/mcp-rest/uploads/:ticket",
+          "class": "invalid",
+          "what": "编出来的票（形状合格、仓库里没有）：同一句 404",
+          "request": { "method": "PUT", "path": "/api/mcp-rest/uploads/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "headers": { "content-type": "application/octet-stream" }, "text": "ticket 的内容\n" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "84", "etag": "W/\"54-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "上传票不存在、已用过或已过期：重新调工具申请一张" } }
+        },
+        {
+          "id": "ticket-setup-2",
+          "what": "布置：再申请一张（只比状态码）",
+          "compare": "status",
+          "request": {
+            "method": "POST",
+            "path": "/api/mcp-rest/tools/skill_file_put",
+            "headers": { "authorization": "Bearer {{tkTok}}" },
+            "json": { "name": "SKILL.md", "size": 17, "sha256": "b686c9fdb34b452c5c28dbe07f74846668d992c1df8d663abf3b492c24cd4e60" }
+          },
+          "save": { "tk2": "ticket" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "ticket-sha-mismatch",
+          "route": "PUT /api/mcp-rest/uploads/:ticket",
+          "class": "invalid",
+          "what": "字节数对、内容不对（sha256 不符）：400，未保存",
+          "request": { "method": "PUT", "path": "/api/mcp-rest/uploads/{{tk2}}", "headers": { "content-type": "application/octet-stream" }, "text": "ticket 的内容X" },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "117", "etag": "W/\"75-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "收到内容的 sha256 和申请时的不一样（收到 17 字节）：内容可能被改动，未保存" }
+          }
+        },
+        {
+          "id": "ticket-setup-3",
+          "what": "布置：再申请一张（只比状态码）",
+          "compare": "status",
+          "request": {
+            "method": "POST",
+            "path": "/api/mcp-rest/tools/skill_file_put",
+            "headers": { "authorization": "Bearer {{tkTok}}" },
+            "json": { "name": "SKILL.md", "size": 17, "sha256": "b686c9fdb34b452c5c28dbe07f74846668d992c1df8d663abf3b492c24cd4e60" }
+          },
+          "save": { "tk3": "ticket" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "ticket-setup-revoke",
+          "what": "布置：吊销发票的会话（只比状态码）",
+          "compare": "status",
+          "request": { "method": "DELETE", "path": "/api/mcp/sessions/{{tkId}}", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "ticket-revoked",
+          "route": "PUT /api/mcp-rest/uploads/:ticket",
+          "class": "unauthorized",
+          "what": "发票的会话已吊销：用票时再核，403，未保存",
+          "request": { "method": "PUT", "path": "/api/mcp-rest/uploads/{{tk3}}", "headers": { "content-type": "application/octet-stream" }, "text": "ticket 的内容\n" },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "96", "etag": "W/\"60-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "发这张票的会话已吊销，或已不再有这项授权：票作废，未保存" } }
         }
       ]
     },
@@ -3912,7 +4026,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "63188", "etag": "W/\"f6d4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "64492", "etag": "W/\"fbec-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -4716,7 +4830,7 @@
                     "tags": ["tools"],
                     "operationId": "app_files_upload",
                     "summary": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务",
-                    "description": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务端核对，不符就拒收、不保存（防客户端把长参数截短，base64 恰好 65536 字符又都没带时按疑似截断拒收）。成功应答的 sha256 是服务端对已保存字节算的，和本地文件一致就是完整的，不要为了验证再下载；integrity 为 sha256-verified 时服务端已替你核对过。超过几十 KB 的文件优先用 REST 原始字节上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>（同一会话令牌，不经 base64，可带请求头 X-Content-SHA256；入口见 access_info 的 rest_base 与 openapi_url）。剩余文件数看 app_files_list 的 quota。",
+                    "description": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务端核对，不符就拒收、不保存（防客户端把长参数截短，base64 恰好 65536 字符又都没带时按疑似截断拒收）。成功应答的 sha256 是服务端对已保存字节算的，和本地文件一致就是完整的，不要为了验证再下载；integrity 为 sha256-verified 时服务端已替你核对过。超过几十 KB 的文件不要放进 content_base64（要由你逐字抄写，长了会抄错、占上下文）：改用**上传票**——不带 content_base64，只给 slug、name、size、sha256（必带），返回 upload_url（10 分钟内有效、只能用一次、不用会话令牌）和现成的 curl 命令；在 shell 里把原始字节 PUT 上去，应答就是这里的应答（id/url/sha256…）。失败了重新申请一张。也可用 REST 原始字节上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>（同一会话令牌；入口见 access_info 的 rest_base 与 openapi_url）。剩余文件数看 app_files_list 的 quota。",
                     "x-category": "write",
                     "x-granted": true,
                     "requestBody": {
@@ -4728,14 +4842,14 @@
                             "properties": {
                               "slug": { "type": "string" },
                               "name": { "type": "string", "description": "原始文件名（含扩展名）" },
-                              "content_base64": { "type": "string", "description": "文件内容 base64（≤100MB 原始）" },
-                              "size": { "type": "integer", "description": "原始字节数（与收到的内容不符即拒收；能带 sha256 就带 sha256）" },
+                              "content_base64": { "type": "string", "description": "文件内容 base64（≤100MB 原始）；不带就是申请上传票（这时 size、sha256 必带）" },
+                              "size": { "type": "integer", "description": "原始字节数（与收到的内容不符即拒收；能带 sha256 就带 sha256）。申请上传票时必带，PUT 的字节数必须正好是它" },
                               "sha256": { "type": "string", "description": "原始内容 sha256（64 位十六进制，推荐带：带了就由服务端替你核对，不符即拒收、不保存）" },
                               "mime": { "type": "string", "description": "MIME（缺省 application/octet-stream）" },
                               "note": { "type": "string", "description": "备注（≤500 字·可 PATCH 更新）" },
                               "created_by": { "type": "string", "description": "创建者标识（≤128 字符）" }
                             },
-                            "required": ["slug", "name", "content_base64"],
+                            "required": ["slug", "name"],
                             "additionalProperties": false
                           }
                         }
@@ -4962,7 +5076,7 @@
                     "tags": ["tools"],
                     "operationId": "skill_file_put",
                     "summary": "技能上传第一步：一次上传一个文件（不收压缩包），暂存在市场上，返回 sha256/size/integrity/next。文本文件 content 直接给；二进制文件（图片/字体/模板）content 给 base64 并带 encodin",
-                    "description": "技能上传第一步：一次上传一个文件（不收压缩包），暂存在市场上，返回 sha256/size/integrity/next。文本文件 content 直接给；二进制文件（图片/字体/模板）content 给 base64 并带 encoding:\"base64\"。带上 sha256（推荐），服务端核对，不符就拒收、不暂存。成功应答的 sha256 是服务端对暂存字节算的，和本地文件一致就是完整的，不要为了验证再取回；integrity 为 sha256-verified 时服务端已替你核对过。单文件上限 10MB。同内容重复上传幂等并续期，暂存 24 小时后清掉。全部文件传完后调 skill_publish 按 sha256 引用成版。",
+                    "description": "技能上传第一步：一次上传一个文件（不收压缩包），暂存在市场上，返回 sha256/size/integrity/next。文本文件 content 直接给；二进制文件（图片/字体/模板）content 给 base64 并带 encoding:\"base64\"。带上 sha256（推荐），服务端核对，不符就拒收、不暂存。成功应答的 sha256 是服务端对暂存字节算的，和本地文件一致就是完整的，不要为了验证再取回；integrity 为 sha256-verified 时服务端已替你核对过。单文件上限 10MB。同内容重复上传幂等并续期，暂存 24 小时后清掉。全部文件传完后调 skill_publish 按 sha256 引用成版。超过几十 KB 的文件不要放进 content（要由你逐字抄写，长了会抄错、占上下文）：改用**上传票**——不带 content，只给 size、sha256（必带），返回 upload_url（10 分钟内有效、只能用一次、不用会话令牌）和现成的 curl 命令；在 shell 里把原始字节 PUT 上去，就暂存好了（应答同上），再在 skill_publish 里按 sha256 引用。失败了重新申请一张。",
                     "x-category": "admin",
                     "x-granted": true,
                     "requestBody": {
@@ -4972,11 +5086,13 @@
                           "schema": {
                             "type": "object",
                             "properties": {
-                              "content": { "type": "string" },
+                              "content": { "type": "string", "description": "文件内容；不带就是申请上传票（这时 size、sha256 必带）" },
                               "encoding": { "type": "string", "enum": ["utf8", "base64"], "description": "缺省 utf8" },
-                              "sha256": { "type": "string", "description": "原始内容 sha256（64 位十六进制，推荐带：带了就由服务端替你核对，不符即拒收、不暂存）" }
+                              "sha256": { "type": "string", "description": "原始内容 sha256（64 位十六进制，推荐带：带了就由服务端替你核对，不符即拒收、不暂存）。申请上传票时必带" },
+                              "size": { "type": "integer", "description": "原始字节数。只在申请上传票时用（必带）：PUT 的字节数必须正好是它" },
+                              "name": { "type": "string", "description": "文件名，只在申请上传票时用，进审计（暂存按内容寻址，不按名字）" }
                             },
-                            "required": ["content"],
+                            "required": [],
                             "additionalProperties": false
                           }
                         }
@@ -5334,7 +5450,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "29548", "etag": "W/\"736c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "30026", "etag": "W/\"754a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -5770,7 +5886,7 @@
                     "tags": ["tools"],
                     "operationId": "app_files_upload",
                     "summary": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务",
-                    "description": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务端核对，不符就拒收、不保存（防客户端把长参数截短，base64 恰好 65536 字符又都没带时按疑似截断拒收）。成功应答的 sha256 是服务端对已保存字节算的，和本地文件一致就是完整的，不要为了验证再下载；integrity 为 sha256-verified 时服务端已替你核对过。超过几十 KB 的文件优先用 REST 原始字节上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>（同一会话令牌，不经 base64，可带请求头 X-Content-SHA256；入口见 access_info 的 rest_base 与 openapi_url）。剩余文件数看 app_files_list 的 quota。",
+                    "description": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务端核对，不符就拒收、不保存（防客户端把长参数截短，base64 恰好 65536 字符又都没带时按疑似截断拒收）。成功应答的 sha256 是服务端对已保存字节算的，和本地文件一致就是完整的，不要为了验证再下载；integrity 为 sha256-verified 时服务端已替你核对过。超过几十 KB 的文件不要放进 content_base64（要由你逐字抄写，长了会抄错、占上下文）：改用**上传票**——不带 content_base64，只给 slug、name、size、sha256（必带），返回 upload_url（10 分钟内有效、只能用一次、不用会话令牌）和现成的 curl 命令；在 shell 里把原始字节 PUT 上去，应答就是这里的应答（id/url/sha256…）。失败了重新申请一张。也可用 REST 原始字节上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>（同一会话令牌；入口见 access_info 的 rest_base 与 openapi_url）。剩余文件数看 app_files_list 的 quota。",
                     "x-category": "write",
                     "x-granted": true,
                     "requestBody": {
@@ -5782,14 +5898,14 @@
                             "properties": {
                               "slug": { "type": "string" },
                               "name": { "type": "string", "description": "原始文件名（含扩展名）" },
-                              "content_base64": { "type": "string", "description": "文件内容 base64（≤100MB 原始）" },
-                              "size": { "type": "integer", "description": "原始字节数（与收到的内容不符即拒收；能带 sha256 就带 sha256）" },
+                              "content_base64": { "type": "string", "description": "文件内容 base64（≤100MB 原始）；不带就是申请上传票（这时 size、sha256 必带）" },
+                              "size": { "type": "integer", "description": "原始字节数（与收到的内容不符即拒收；能带 sha256 就带 sha256）。申请上传票时必带，PUT 的字节数必须正好是它" },
                               "sha256": { "type": "string", "description": "原始内容 sha256（64 位十六进制，推荐带：带了就由服务端替你核对，不符即拒收、不保存）" },
                               "mime": { "type": "string", "description": "MIME（缺省 application/octet-stream）" },
                               "note": { "type": "string", "description": "备注（≤500 字·可 PATCH 更新）" },
                               "created_by": { "type": "string", "description": "创建者标识（≤128 字符）" }
                             },
-                            "required": ["slug", "name", "content_base64"],
+                            "required": ["slug", "name"],
                             "additionalProperties": false
                           }
                         }
