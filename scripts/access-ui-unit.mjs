@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 「谁能做什么」页的纯函数单测（web/src/access-view.ts）：状态、范围、期限的说法，待核准卡片，按人排的权限表，矩阵格子，读不到时怎么说。数据都是合成的。 */
-import { ACCESS_TABS, CELL_LEGEND, actionProblem, cellLabel, declineReasonOk, grantActorRaw, grantRows, grantsOf, indexPrincipals, kindLabel, matrixOf, pendingGrants, principalName, responsibleOf, roleName, roleUsage, rolesOf, scopeLabel, scopeNotYetEffective, sourceProblem, statusLabel, tabFromQuery, termLabel, myRolesOf, summaryDo, OTHERS_ONLY_ADMINS, approvalText, approveState, mayReadAccessAdmin, accountsOf, accountTags, accountOrigin, lastLoginLabel, usernameOk, accountsProblem, accountActionProblem, TEMP_PASSWORD_NOTE } from '../web/src/access-view.ts';
+import { ACCESS_TABS, CELL_LEGEND, actionProblem, cellLabel, declineReasonOk, grantActorRaw, grantRows, grantsOf, indexPrincipals, kindLabel, matrixOf, pendingGrants, principalName, responsibleOf, roleName, roleUsage, rolesOf, scopeLabel, scopeNotYetEffective, sourceProblem, statusLabel, tabFromQuery, termLabel, myRolesOf, summaryDo, OTHERS_ONLY_ADMINS, approvalText, approveState, mayReadAccessAdmin, accountsOf, accountTags, accountOrigin, lastLoginLabel, usernameOk, accountsProblem, accountActionProblem, TEMP_PASSWORD_NOTE, passwordFormProblem, hasLocalAccount } from '../web/src/access-view.ts';
 import { actorLabel } from '../web/src/people.ts';
 
 let pass = 0, fail = 0;
@@ -24,6 +24,11 @@ ok('用户名写法和服务端一致', usernameOk('alice') && usernameOk('a.b_c
 ok('账号读不到：401 请先登录、403 只有管理员、404 还没上线、别的稍后再试；读到了没有问题', accountsProblem({ status: 401, body: null }).text.includes('请先登录') && accountsProblem({ status: 403, body: null }).text.includes('只有管理员') && accountsProblem({ status: 404, body: null }).type === 'info' && accountsProblem({ status: 0, body: null }).text.includes('稍后再试') && accountsProblem({ status: 200, body: {} }) === null);
 ok('账号操作没办成：服务端写成句子的 error 或 message 照说，代号不露；成功没有问题', accountActionProblem({ status: 409, body: { error: '这个账号已经对接过了' } }) === '这个账号已经对接过了' && accountActionProblem({ status: 403, body: { error: 'grants_cross_origin_denied' } }) === '你的账号现在不能做这一步。' && accountActionProblem({ status: 409, body: { error: 'conflict' } }) === '没办成，稍后再试。' && accountActionProblem({ status: 201, body: {} }) === null);
 ok('临时密码的提示说清楚只显示这一次', TEMP_PASSWORD_NOTE.includes('只显示这一次'));
+// ---- 本人改密码（用户卡里的「改密码」） ----
+const pf = (c, n, f, u = 'alice') => passwordFormProblem(c, n, f, u);
+ok('改密码：没填原密码、太短、太长、和用户名一样、和原密码一样、两次不一致都先拦下；合规的放行', pf('', 'Newpass-0001', 'Newpass-0001')?.includes('原密码') && pf('Old-pass-0001', 'short', 'short')?.includes('至少 10 位') && pf('Old-pass-0001', 'x'.repeat(129), 'x'.repeat(129))?.includes('最多') && pf('Old-pass-0001', 'Alice12345x'.slice(0, 5) + 'aaaaa', 'Aliceaaaaa', 'alicea') === null && pf('Old-pass-0001', 'aliceAlice', 'aliceAlice', 'aliceAlice')?.includes('用户名') && pf('Same-pass-001', 'Same-pass-001', 'Same-pass-001')?.includes('原密码一样') && pf('Old-pass-0001', 'Newpass-0001', 'Newpass-0002')?.includes('不一样') && pf('Old-pass-0001', 'Newpass-0001', 'Newpass-0001') === null);
+ok('改密码：长度按字符数算（和服务端一样，十个汉字够长）；控制字符不行', pf('Old-pass-0001', '一二三四五六七八九十', '一二三四五六七八九十') === null && pf('Old-pass-0001', 'abc\u0001defghij', 'abc\u0001defghij')?.includes('控制字符'));
+ok('改密码入口：/api/auth/me 说有站内账号（local_account 为 true）才出现', hasLocalAccount({ local_account: true }) && !hasLocalAccount({ local_account: 'true' }) && !hasLocalAccount({}) && !hasLocalAccount(null));
 
 ok('状态：待核准、生效中、草稿、已过期、已收回；颜色跟着', J(['pending', 'active', 'draft', 'expired', 'revoked'].map((s) => statusLabel(s).text)) === '["待核准","生效中","草稿","已过期","已收回"]' && statusLabel('active').tone === 'success' && statusLabel('pending').tone === 'warning');
 ok('状态：原型链上的名字不当成状态（toString）', statusLabel('toString').text === 'toString' && statusLabel('toString').tone === 'default');
