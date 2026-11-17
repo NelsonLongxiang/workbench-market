@@ -26,11 +26,11 @@ colors:
   danger: "#DC2626"           # 实心按钮白字 4.83:1；白底文字 4.83:1
   danger-text: "#B91C1C"
   danger-bg: "#FEF2F2"        # danger-text 其上 5.91:1
-  # 侧栏（唯一的深色区域）
-  nav-bg: "#0F172A"
-  nav-text: "#CBD5E1"         # nav-bg 上 12.02:1
-  nav-text-active: "#FFFFFF"
-  nav-item-active-bg: "#1E3A5F" # 白字 11.50:1
+  # 侧栏（产品化原型 3fbfd0b：浅色侧栏，白底细边，选中项浅底深字）
+  nav-bg: "#F6F7F9"           # 同 page：侧栏坐在页面底色上，主区是唯一的白卡片
+  nav-text: "#5A6577"         # nav-bg 上 5.50:1（同 text-secondary）
+  nav-text-active: "#1E3A5F"  # nav-bg 上 10.75:1、选中浅底上 10.23:1
+  nav-item-active-bg: "#EEF2F7" # 同 primary-subtle
   info: "{colors.primary}"
   info-bg: "{colors.primary-subtle}"
 typography:

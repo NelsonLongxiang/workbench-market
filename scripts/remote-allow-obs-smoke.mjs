@@ -65,7 +65,7 @@ try {
   // 模拟变更：手动往 state 表插一条假前次快照（含一条现清单外路径）→ 下次启动 diff 应报 removed
   {
     const { DatabaseSync } = await import('node:sqlite');
-    const db = new DatabaseSync(`${DATA}/workbench-market.db`);
+    const db = new DatabaseSync(`${DATA}/workbench-market.db`, { timeout: 5000 });
     db.exec("CREATE TABLE IF NOT EXISTS remote_allow_state (id INTEGER PRIMARY KEY, snapshot TEXT NOT NULL, captured_at TEXT DEFAULT (datetime('now')))");
     db.prepare('DELETE FROM remote_allow_state').run();
     db.prepare('INSERT INTO remote_allow_state (snapshot) VALUES (?)').run(JSON.stringify(['/mcp', '/.well-known/agent-card.json', '/a2a/direct', '/api/sop/runs(\\/\\d+)?$', '/api/apps/[a-z0-9-]+/(data|files)', '/api/legacy/path']));

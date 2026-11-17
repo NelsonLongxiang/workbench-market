@@ -1,6 +1,6 @@
 /** Browser-only login address policy tests. Usage: node scripts/odoo-browser-origin-test.mjs */
 import assert from 'node:assert/strict';
-import { odooBrowserOrigin, browserLoginOrigin } from '../server/src/odoo-browser-origin.ts';
+import { odooBrowserOrigin, browserLoginOrigin } from '../server/src/login-providers/odoo/odoo-browser-origin.ts';
 const keep={...process.env};let checks=0;const test=(label,fn)=>{fn();checks++;console.log('PASS '+label);};
 try{
  delete process.env.LC_ODOO_URL;process.env.WM_ODOO_URL='http://odoo.internal:8069';process.env.WM_ODOO_ORIGINS='http://192.0.2.88:8069';delete process.env.WM_ODOO_BROWSER_URL;

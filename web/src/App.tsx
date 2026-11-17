@@ -1,13 +1,18 @@
+import { sessionGeneration, subscribeSession } from './session-watch';
 import React from 'react';
-import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { ProLayout } from '@ant-design/pro-components';
-import { KeyOutlined, AppstoreOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
-import { findNav, NAV_GROUPS } from './nav';
-import Dashboard from './pages/Dashboard';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { retiredRedirect } from './page-paths';
+import Shell from './components/Shell';
+import { KeyOutlined } from '@ant-design/icons';
+import { api } from './api';
 import Market from './pages/Market';
+import MarketHome from './pages/market/Market';
+import WorkbenchDetail from './pages/market/WorkbenchDetail';
+import SkillDetail from './pages/market/SkillDetail';
+import Access from './pages/access/Access';
 import Types from './pages/Types';
 import Settings from './pages/Settings';
-import UseWorkbench from './pages/UseWorkbench';
+import UseEntry from './pages/UseEntry';
 import Cockpit from './pages/Cockpit';
 import Sops from './pages/Sops';
 import SopSpace from './pages/SopSpace';
@@ -18,24 +23,21 @@ import Vault from './pages/Vault';
 import { adminActive, adminTokenPresent, checkAdminToken, getAdminToken, odooAdmin, refreshAdminIdentity, setAdminToken, subscribeAdminToken } from './admin-token';
 import { marketOnly, marketUrl, onSurface, surface } from './surface';
 import { WEB_EXTENSIONS } from './extensions';
-import { Badge, Button as AButton, Input as AInput, Popover, Result, Tag } from 'antd';
-import Tasks from './pages/Tasks';
-import Reviews from './pages/Reviews';
-import SkillsPage from './pages/Skills';
+import { Alert, Button as AButton, Input as AInput, Popover, Result, Tag } from 'antd';
+import Attention from './pages/Attention';
+import WorkItem from './pages/WorkItem';
+import Knowledge from './pages/knowledge/Knowledge';
+import KnowledgeItem from './pages/knowledge/KnowledgeItem';
+import KnowledgeProjects from './pages/knowledge/KnowledgeProjects';
+import NotYet, { NOT_YET } from './pages/NotYet';
+import Team from './pages/team/Team';
+import Home from './pages/Home';
+
+import WorkItems from './pages/WorkItems';
 import ViewerChip from './components/ViewerChip';
 import LoginChip from './components/LoginChip';
-import { DESIGN_TOKENS as T } from './design-tokens';
-
-/** #316 菜单分组（数据在 nav.tsx，扩展可加组）：一级是分组标题，二级才是页面；「管理」组仅持管理员口令时显示、默认折叠。
- *  页面路由不变，旧书签照用。 */
-const ADMIN_GROUP = NAV_GROUPS.find((g) => g.admin)!.key;
-const WORK_GROUPS = NAV_GROUPS.filter((g) => !g.admin).map((g) => g.key);
-function menuRoutes(admin: boolean) {
-  return {
-    path: '/',
-    routes: NAV_GROUPS.filter((g) => admin || !g.admin).map((g) => ({ path: g.key, name: g.name, routes: g.pages })),
-  };
-}
+// import.meta.hot 只在 vite dev 时有；正式构建里它是 undefined，这一行连同演示页整个被摇掉
+const BenchBlocksDemo = import.meta.hot ? React.lazy(() => import('./pages/dev/BenchBlocksDemo')) : null;
 
 /** #292 M1：控制面上的业务页跳回业务面同 path */
 function MarketOnlyRedirect() {
@@ -96,89 +98,67 @@ function AdminTokenInput() {
   );
 }
 
+/** 预发实例（WM_OUTBOUND=off）：每一页顶上一条醒目的横幅，免得被当成正式环境用 */
+function OutboundBanner() {
+  const [off, setOff] = React.useState(false);
+  React.useEffect(() => { api.getHealth().then((h) => setOff(h.outbound?.mode === 'off')).catch(() => { /* 取不到就不显示 */ }); }, []);
+  if (!off) return null;
+  return <Alert type="error" banner showIcon message="预发实例：对外已断开（WM_OUTBOUND=off）" description="这个实例的所有出站都在发出前被拦下：投递、回执、通知都不会发出，探活和外部登录也不可用。不要把它当成正式环境使用。" />;
+}
+
 export default function App() {
   const location = useLocation();
   const admin = React.useSyncExternalStore(subscribeAdminToken, adminActive);
-  React.useEffect(() => { void refreshAdminIdentity(); }, []);
-  // 管理组默认折叠：初始只展开四个日常分组；当前页在管理组时也展开它
-  const [openKeys, setOpenKeys] = React.useState<string[]>(() =>
-    findNav(location.pathname)?.group.admin ? [...WORK_GROUPS, ADMIN_GROUP] : WORK_GROUPS);
+  // 身份世代：没登录了、换了人就加一。下面整棵按它做 key，各页的状态一起丢掉、按现在的人重读（session-watch.ts）
+  const gen = React.useSyncExternalStore(subscribeSession, sessionGeneration);
+  React.useEffect(() => { void refreshAdminIdentity(); }, [gen]);
 
   if (surface === 'control' && marketOnly(location.pathname)) return <MarketOnlyRedirect />;
 
   // 嵌入使用页占满整屏，脱离侧边栏壳
   if (location.pathname.startsWith('/use/')) {
     return (
-      <Routes>
-        <Route path="/use/:id" element={<UseWorkbench />} />
-      </Routes>
+      <React.Fragment key={gen}>
+        <OutboundBanner />
+        <Routes>
+          <Route path="/use/:id" element={<UseEntry />} />
+        </Routes>
+      </React.Fragment>
     );
   }
 
   return (
-    <ProLayout
-      headerRender={() => <AdminTokenBadge />}
-      title="工作台市场"
-      logo={<AppstoreOutlined style={{ fontSize: 26, color: T.colors.success }} />}
-      layout="side"
-      fixSiderbar
-      fixedHeader
-      route={menuRoutes(admin)}
-      openKeys={openKeys}
-      menu={{ autoClose: false }}
-      onOpenChange={(keys) => setOpenKeys((keys || []) as string[])}
-      location={{ pathname: location.pathname }}
-      // #316 子菜单模式下 ProLayout 只给一级显示图标；二级页面的专属图标在这里自己渲染
-      menuItemRender={(item, dom) => (item.path ? <Link to={item.path} className="wm-menu-link">{item.icon}{dom}</Link> : dom)}
-      menuHeaderRender={() => (
-        // ProLayout 默认把 logo 标题染成 colorPrimary（#1E3A5F  Navy），
-        // 在深色侧栏上几乎不可见；接管渲染：白字 600 + 字距
-        <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 4px' }}>
-          <AppstoreOutlined style={{ fontSize: 22, color: T.colors.success }} />
-          <span className="wm-strong" style={{ color: T.colors['nav-text-active'], fontSize: 16, letterSpacing: '0.02em', whiteSpace: 'nowrap' }}>
-            工作台市场
-          </span>
-        </Link>
-      )}
-      menuFooterRender={() => <AdminTokenBadge />}
-      collapsedButtonRender={(collapsed) => (
-        <span className="wm-sider-collapse">{collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}</span>
-      )}
-      token={{
-        sider: {
-          // #316：侧栏是唯一的深色区域，取 DESIGN.md 的 nav-* token
-          colorMenuBackground: T.colors['nav-bg'],
-          colorTextMenu: T.colors['nav-text'],
-          colorTextMenuSelected: T.colors['nav-text-active'],
-          colorBgMenuItemSelected: T.colors['nav-item-active-bg'],
-          colorTextMenuActive: T.colors['nav-text-active'],
-          colorTextMenuItemHover: T.colors['nav-text-active'],
-          colorTextMenuTitle: T.colors['nav-text'],
-        },
-      }}
-      contentStyle={{ padding: 16, paddingTop: 12 }}
-    >
-      {/* #279 当前用户：侧栏布局不渲染 headerRender，所以在内容区顶部右侧放一行，所有页面（含扩展页面）都能看到 */}
-      <div className="wm-mb-1" style={{ display: 'flex', justifyContent: 'flex-end', minHeight: 24 }}><LoginChip />{surface !== 'control' && <ViewerChip />}</div>
+    <Shell key={gen} admin={admin} footer={<><LoginChip />{surface !== 'control' && <ViewerChip />}<AdminTokenBadge /></>}>
+      <OutboundBanner />
       <Routes>
-        <Route path="/" element={<Dashboard />} />
+        <Route path="/" element={<Home />} />
+        <Route path="/team" element={<Team />} />
+        <Route path="/access" element={<Access />} />
+        <Route path="/knowledge" element={<Knowledge />} />
+        <Route path="/knowledge/projects" element={<KnowledgeProjects />} />
+        <Route path="/knowledge/:key" element={<KnowledgeItem />} />
         <Route path="/cockpit" element={<Cockpit />} />
         <Route path="/cockpit/:id" element={<Cockpit />} />
-        <Route path="/market" element={<Market />} />
+        <Route path="/market" element={<MarketHome />} />
+        <Route path="/market/manage" element={<Market />} />
+        <Route path="/market/wb/:id" element={<WorkbenchDetail />} />
+        <Route path="/market/skill/:slug" element={<SkillDetail />} />
         <Route path="/sops" element={<Sops />} />
         <Route path="/sops/:slug" element={<SopSpace />} />
         <Route path="/sops/:slug/runs/:id" element={<SopRunDetail />} />
-        <Route path="/tasks" element={<Tasks />} />
-        <Route path="/reviews" element={<Reviews />} />
+        <Route path="/attention" element={<Attention />} />
+        <Route path="/work-items" element={<WorkItems />} />
+        <Route path="/work-items/:id" element={<WorkItem />} />
         {WEB_EXTENSIONS.flatMap((e) => (e.routes ?? []).map((r) => <Route key={`${e.name}:${r.path}`} path={r.path} element={r.element} />))}
         <Route path="/owner-pending" element={<OwnerPending />} />
         <Route path="/mcp-gateways" element={<McpGateways />} />
         <Route path="/vault" element={<Vault />} />
         <Route path="/types" element={<Types />} />
-        <Route path="/skills" element={<SkillsPage />} />
         <Route path="/settings" element={<Settings />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        {/* 数据视图组件的演示页：只在开发时有（合成数据），正式构建里没有这一行，也不进侧栏 */}
+        {BenchBlocksDemo ? <Route path="/dev/bench-blocks" element={<React.Suspense fallback={null}><BenchBlocksDemo /></React.Suspense>} /> : null}
+        <Route path="*" element={<Navigate to={retiredRedirect(location.pathname) ?? '/'} replace />} />
       </Routes>
-    </ProLayout>
+    </Shell>
   );
 }

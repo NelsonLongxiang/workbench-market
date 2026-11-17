@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { App, Button, Descriptions, Drawer, Empty, Space, Table, Tabs, Tag, Typography } from 'antd';
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
+import { apiFetch } from '../admin-token';
+import { downloadAuthed } from '../api';
 
 interface AppDataRow { id: number; data: Record<string, unknown>; created_by: string; created_at: string }
 interface AppFileRow { id: number; original_name: string; mime: string; size: number; created_by: string; created_at: string; url: string }
@@ -12,7 +14,8 @@ function fmtSize(n: number): string {
 }
 
 /** 自产台提交数据查看器（派单 direct-22838fab 的 UI 补齐）：
- *  数据行（POST /api/apps/<slug>/data）+ 文件行（/files）——同源直读，游标分页「加载更多」。 */
+ *  数据行（POST /api/apps/<slug>/data）+ 文件行（/files）——同源读，游标分页「加载更多」。读台数据要管理员：经 apiFetch 带口令头，
+ *  下载也带头（Blob），不用裸链接（顶层导航带不了口令头）。 */
 export default function AppDataDrawer({ slug, title, open, onClose }: { slug: string; title?: string; open: boolean; onClose: () => void }) {
   const { message } = App.useApp();
   const [rows, setRows] = useState<AppDataRow[]>([]);
@@ -27,8 +30,8 @@ export default function AppDataDrawer({ slug, title, open, onClose }: { slug: st
       const q = new URLSearchParams({ limit: '20' });
       if (append && more.data) q.set('before_id', String(more.data));
       const [dr, fr] = await Promise.all([
-        fetch(`/api/apps/${slug}/data?${q.toString()}`).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`数据 HTTP ${r.status}`)))),
-        fetch(`/api/apps/${slug}/files?limit=20${append && more.files ? `&before_id=${more.files}` : ''}`).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`文件 HTTP ${r.status}`)))),
+        apiFetch(`/api/apps/${slug}/data?${q.toString()}`).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`数据 HTTP ${r.status}`)))),
+        apiFetch(`/api/apps/${slug}/files?limit=20${append && more.files ? `&before_id=${more.files}` : ''}`).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`文件 HTTP ${r.status}`)))),
       ]);
       setRows((prev) => (append ? [...prev, ...dr.items] : dr.items));
       setFiles((prev) => (append ? [...prev, ...fr.items] : fr.items));
@@ -67,7 +70,7 @@ export default function AppDataDrawer({ slug, title, open, onClose }: { slug: st
     { title: '时间', dataIndex: 'created_at', width: 150, render: (v: string) => <Typography.Text type="secondary" className="wm-caption">{v}</Typography.Text> },
     {
       title: '', width: 70, render: (_: unknown, r: AppFileRow) => (
-        <Button size="small" type="link" icon={<DownloadOutlined />} href={r.url} target="_blank">下载</Button>
+        <Button size="small" type="link" icon={<DownloadOutlined />} onClick={() => { downloadAuthed(r.url, r.original_name || 'file').catch((e: Error) => message.error(`下载失败：${e.message}`)); }}>下载</Button>
       ),
     },
   ];

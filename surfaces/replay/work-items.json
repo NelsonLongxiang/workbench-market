@@ -1,0 +1,1431 @@
+{
+  "domain": "work-items",
+  "what": "「安排一件事」的可派团队 /api/work-items/teams 和建事项 POST /api/work-items；事项列表 /api/work-items 的读；事项：/api/work-items/:id 的读（8d）和 /api/work-items/:id/decision 建立人验收、退回（8e）两条路由；阶段七 R2 的事项对话里席位消息的看过（messages/read）、回复（messages/:mid/reply）两条；建立人回答自己事项上的席位提问（asks/:qid/answer）一条。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": [
+    "GET /api/work-items/teams",
+    "POST /api/work-items",
+    "GET /api/work-items",
+    "GET /api/work-items/:id",
+    "POST /api/work-items/:id/decision",
+    "POST /api/work-items/:id/messages/read",
+    "POST /api/work-items/:id/messages/:mid/reply",
+    "POST /api/work-items/:id/asks/:qid/answer",
+    "POST /api/work-items/:id/release",
+    "POST /api/work-items/:id/due"
+  ],
+  "exempt": [
+    { "route": "POST /api/work-items/:id/decision", "class": "normal", "why": "正常应答要一件「等验收」的事项：今天没有 HTTP 入口能把事项推到等验收，seed 只能插草稿。正常的验收、退回由 scripts/work-item-creator-test.mjs 起实例、经事项服务造 ready 来测", "shown_by": "creator/decide-not-ready" },
+    { "route": "POST /api/work-items/:id/messages/:mid/reply", "class": "normal", "why": "正常回复要一件从工作台事件来的事项和一条签过名的席位跟进：seed 造不出验过签名的跟进。正常回复、发回、看过之后再回复由 scripts/a2a-answers-test.mjs 起实例、经入站造跟进来测", "shown_by": "creator/reply-no-message" },
+    { "route": "GET /api/work-items/teams", "class": "invalid", "why": "这个接口不收任何参数，没有参数非法的情形", "shown_by": "arrange/teams-alpha" },
+    { "route": "POST /api/work-items/:id/asks/:qid/answer", "class": "normal", "why": "正常回答要一件从工作台事件来、席位在问、建立人是登录者的事项：seed 造不出签名回执带来的提问。正常回答、两人同时答、改绑后答不了由 scripts/work-item-creator-test.mjs 起实例、经事项服务回填造事项来测", "shown_by": "creator/ask-no-ask" },
+    { "route": "POST /api/work-items/:id/release", "class": "normal", "why": "正常放行要一件从工作台事件来、还在等过目（held）的事项，以及名册、团队、负责人：seed 造不出经事件建的事项。负责人放行、管理层代办、建立人自己过目、幂等由 scripts/work-item-lead-release-test.mjs 起实例来测", "shown_by": "admin/release-not-held" }
+  ],
+  "scenarios": [
+    {
+      "name": "arrange",
+      "what": "「安排一件事」：任务中心上两个通知团队、一条撤销了的，别的台上一个",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "fixtures": ["identity-fake"],
+      "seed": [
+        {
+          "table": "bindings",
+          "row": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/canvas/team-a", "direction": "notify", "mode": "read", "notify_url": "http://127.0.0.1:1", "created_by": "seed", "revoked_at": "" }
+        },
+        {
+          "table": "bindings",
+          "row": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/canvas/team-b", "direction": "notify", "mode": "read", "notify_url": "http://127.0.0.1:1", "created_by": "seed", "revoked_at": "" }
+        },
+        {
+          "table": "bindings",
+          "row": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/canvas/team-old", "direction": "notify", "mode": "read", "notify_url": "http://127.0.0.1:1", "created_by": "seed", "revoked_at": "2026-01-01 00:00:00" }
+        },
+        { "table": "bindings", "row": { "target_type": "sop", "target_slug": "sop-x", "agent_node": "dsh/canvas/team-x", "direction": "notify", "mode": "read", "notify_url": "http://127.0.0.1:1", "created_by": "seed", "revoked_at": "" } }
+      ],
+      "steps": [
+        {
+          "id": "teams-alpha",
+          "route": "GET /api/work-items/teams",
+          "class": "normal",
+          "what": "登录的人：只列绑在任务中心上的通知绑定（别的台的、撤销了的不列）",
+          "request": { "method": "GET", "path": "/api/work-items/teams", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "123", "etag": "W/\"7b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "teams": [{ "team": "dsh/canvas/team-a", "name": "dsh/canvas/team-a" }, { "team": "dsh/canvas/team-b", "name": "dsh/canvas/team-b" }] }
+          }
+        },
+        {
+          "id": "teams-admin",
+          "route": "GET /api/work-items/teams",
+          "class": "normal",
+          "what": "管理员（口令）也能读可派团队",
+          "request": { "method": "GET", "path": "/api/work-items/teams", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "123", "etag": "W/\"7b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "teams": [{ "team": "dsh/canvas/team-a", "name": "dsh/canvas/team-a" }, { "team": "dsh/canvas/team-b", "name": "dsh/canvas/team-b" }] }
+          }
+        },
+        {
+          "id": "teams-anonymous",
+          "route": "GET /api/work-items/teams",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "GET", "path": "/api/work-items/teams", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "teams-cross-site",
+          "route": "GET /api/work-items/teams",
+          "class": "unauthorized",
+          "what": "跨站：403",
+          "request": { "method": "GET", "path": "/api/work-items/teams", "headers": { "sec-fetch-site": "cross-site", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_cross_origin_denied" }
+          }
+        },
+        {
+          "id": "create",
+          "route": "POST /api/work-items",
+          "class": "normal",
+          "what": "建一件：缺省先过目（held），建立人是本人",
+          "compare": ["state", "held", "duplicate", "reason"],
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "对一下上周的出货", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-arrange-key-0001" }
+          },
+          "response": { "status": 201, "picked": { "state": "held", "held": true, "duplicate": false } }
+        },
+        {
+          "id": "create-again",
+          "route": "POST /api/work-items",
+          "class": "normal",
+          "what": "同一个键再发：回同一件（duplicate）",
+          "compare": ["state", "held", "duplicate", "reason"],
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "对一下上周的出货", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-arrange-key-0001" }
+          },
+          "response": { "status": 200, "picked": { "state": "held", "held": true, "duplicate": true } }
+        },
+        {
+          "id": "create-conflict",
+          "route": "POST /api/work-items",
+          "class": "invalid",
+          "what": "同一个键、请求体不同：409",
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "换了个标题", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-arrange-key-0001" }
+          },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "idempotency_conflict" }
+          }
+        },
+        {
+          "id": "create-team-other",
+          "route": "POST /api/work-items",
+          "class": "invalid",
+          "what": "派给别的台上的团队：400",
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "对一下上周的出货", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-x", "object": "po:7", "phase": "对账", "idempotency_key": "replay-arrange-key-0002" }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "team_not_assignable" }
+          }
+        },
+        {
+          "id": "create-no-title",
+          "route": "POST /api/work-items",
+          "class": "invalid",
+          "what": "没有标题：400",
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-arrange-key-0003" }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "title_required" }
+          }
+        },
+        {
+          "id": "create-zero-review",
+          "route": "POST /api/work-items",
+          "class": "invalid",
+          "what": "review 是 0（不是布尔）：400",
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "对一下上周的出货", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-arrange-key-0004", "review": 0 }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "review_invalid" }
+          }
+        },
+        {
+          "id": "create-anonymous",
+          "route": "POST /api/work-items",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "x-forwarded-for": "198.51.100.7" },
+            "json": { "title": "对一下上周的出货", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-arrange-key-0001" }
+          },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "create-token-only",
+          "route": "POST /api/work-items",
+          "class": "unauthorized",
+          "what": "只带管理口令（不是人）：401",
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" },
+            "json": { "title": "对一下上周的出货", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-arrange-key-0001" }
+          },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "create-local-cli",
+          "route": "POST /api/work-items",
+          "class": "unauthorized",
+          "what": "本机命令行（回环直连、不带 cookie、没有浏览器标记）：不是人，401",
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "json": { "title": "对一下上周的出货", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-arrange-key-0001" }
+          },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "create-cross-site",
+          "route": "POST /api/work-items",
+          "class": "unauthorized",
+          "what": "跨站：403",
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "sec-fetch-site": "cross-site", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "对一下上周的出货", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-arrange-key-0001" }
+          },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_items_cross_origin_denied" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "admin",
+      "what": "管理口令由环境给（合成值，只在隔离实例里用）；库里先放一件 alpha 建的事项（草稿）和它的第一行日志。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "seed": [
+        { "table": "work_items", "row": { "id": "wi_replay_alpha", "title": "回放用事项", "created_by": "user:alpha", "creator_principal": "user:alpha", "source_kind": "agent" } },
+        { "table": "work_item_log", "row": { "item_id": "wi_replay_alpha", "fact": "create", "fact_source": "market", "fact_id": "wi_replay_alpha", "from_state": "draft", "to_state": "draft", "actor": "user:alpha" } }
+      ],
+      "steps": [
+        {
+          "id": "admin",
+          "route": "GET /api/work-items/:id",
+          "class": "normal",
+          "what": "管理员：看得到事项和它的日志",
+          "request": { "method": "GET", "path": "/api/work-items/wi_replay_alpha", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "1163", "etag": "W/\"48b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "item": { "id": "wi_replay_alpha", "title": "回放用事项", "created_at": "YYYY-MM-DD hh:mm:ss", "created_by": "user:alpha", "source_kind": "agent", "source_ref": "", "context": "{}", "event_id": null, "task_ids": "[]", "target_team": "", "seat": "", "eval": "", "eval_reason": "", "state": "draft", "progress_summary": "", "progress_at": "", "open_asks": "[]", "receipt_outcome": "", "receipt_at": "", "outputs": "{}", "evidence": "[]", "object": "", "phase": "", "updated_at": "YYYY-MM-DD hh:mm:ss", "creator_principal": "user:alpha", "handoff": "team", "review_by": "", "directed_seat_id": "", "seat_id": "", "seat_at": "", "cockpit_id": null, "due_at": "" },
+              "due": null,
+              "overdue": false,
+              "attachments": [],
+              "log": [
+                { "seq": 1, "item_id": "wi_replay_alpha", "fact": "create", "fact_source": "market", "fact_id": "wi_replay_alpha", "from_state": "draft", "to_state": "draft", "actor": "user:alpha", "detail": "{}", "at": "YYYY-MM-DD hh:mm:ss", "rejected": "" }
+              ],
+              "messages": [],
+              "unread": 0,
+              "progress": null,
+              "subitems": [],
+              "asks": [],
+              "can": { "release": false, "answer": false, "verify": false, "return": false, "reply": false, "due": false },
+              "turn": { "release": false, "answer": false, "verify": false },
+              "creator": { "principal": "user:alpha", "display_name": null },
+              "release_by": null
+            }
+          }
+        },
+        {
+          "id": "missing",
+          "route": "GET /api/work-items/:id",
+          "class": "invalid",
+          "what": "管理员：没有这件事项，404",
+          "request": { "method": "GET", "path": "/api/work-items/wi_no_such_item", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_item_not_found" }
+          }
+        },
+        {
+          "id": "bad-id",
+          "route": "GET /api/work-items/:id",
+          "class": "invalid",
+          "what": "id 不是事项 id 的样子：400",
+          "request": { "method": "GET", "path": "/api/work-items/not-an-item", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_item_id_invalid" }
+          }
+        },
+        {
+          "id": "anonymous-remote",
+          "route": "GET /api/work-items/:id",
+          "class": "unauthorized",
+          "what": "远程匿名：没登录，401",
+          "request": { "method": "GET", "path": "/api/work-items/wi_replay_alpha", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "cross-site",
+          "route": "GET /api/work-items/:id",
+          "class": "unauthorized",
+          "what": "跨站请求：拒",
+          "request": { "method": "GET", "path": "/api/work-items/wi_replay_alpha", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "cross-site" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_cross_origin_denied" }
+          }
+        },
+        {
+          "id": "release-bad-id",
+          "route": "POST /api/work-items/:id/release",
+          "class": "invalid",
+          "what": "id 不是事项 id 的样子：400",
+          "request": { "method": "POST", "path": "/api/work-items/wi_bad.id/release", "headers": { "sec-fetch-site": "same-origin", "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_item_id_invalid" }
+          }
+        },
+        {
+          "id": "release-not-held",
+          "route": "POST /api/work-items/:id/release",
+          "class": "unauthorized",
+          "what": "管理口令：这件没交给有负责人的团队，但口令不算持有管理层授予，不能代办，403（不认管理门）",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/release", "headers": { "sec-fetch-site": "same-origin", "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_item_release_not_yours" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "creator",
+      "what": "登录提供方换成假的：alpha 是建立人，beta 不是。",
+      "env": {},
+      "fixtures": ["identity-fake"],
+      "seed": [
+        { "table": "work_items", "row": { "id": "wi_replay_alpha", "title": "回放用事项", "created_by": "user:alpha", "creator_principal": "user:alpha", "source_kind": "agent" } },
+        { "table": "work_item_log", "row": { "item_id": "wi_replay_alpha", "fact": "create", "fact_source": "market", "fact_id": "wi_replay_alpha", "from_state": "draft", "to_state": "draft", "actor": "user:alpha" } }
+      ],
+      "steps": [
+        {
+          "id": "creator",
+          "route": "GET /api/work-items/:id",
+          "class": "normal",
+          "what": "建立人 alpha：看得到自己建的事项",
+          "request": { "method": "GET", "path": "/api/work-items/wi_replay_alpha", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "1175", "etag": "W/\"497-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "item": { "id": "wi_replay_alpha", "title": "回放用事项", "created_at": "YYYY-MM-DD hh:mm:ss", "created_by": "user:alpha", "source_kind": "agent", "source_ref": "", "context": "{}", "event_id": null, "task_ids": "[]", "target_team": "", "seat": "", "eval": "", "eval_reason": "", "state": "draft", "progress_summary": "", "progress_at": "", "open_asks": "[]", "receipt_outcome": "", "receipt_at": "", "outputs": "{}", "evidence": "[]", "object": "", "phase": "", "updated_at": "YYYY-MM-DD hh:mm:ss", "creator_principal": "user:alpha", "handoff": "team", "review_by": "", "directed_seat_id": "", "seat_id": "", "seat_at": "", "cockpit_id": null, "due_at": "" },
+              "due": null,
+              "overdue": false,
+              "attachments": [],
+              "log": [
+                { "seq": 1, "item_id": "wi_replay_alpha", "fact": "create", "fact_source": "market", "fact_id": "wi_replay_alpha", "from_state": "draft", "to_state": "draft", "actor": "user:alpha", "detail": "{}", "at": "YYYY-MM-DD hh:mm:ss", "rejected": "" }
+              ],
+              "messages": [],
+              "unread": 0,
+              "progress": null,
+              "subitems": [],
+              "asks": [],
+              "can": { "release": false, "answer": false, "verify": false, "return": false, "reply": false, "due": true },
+              "turn": { "release": false, "answer": false, "verify": false },
+              "creator": { "principal": "user:alpha", "display_name": "Synthetic alpha" },
+              "release_by": null
+            }
+          }
+        },
+        {
+          "id": "other",
+          "route": "GET /api/work-items/:id",
+          "class": "invalid",
+          "what": "别人 beta：不说有没有这件事项，404",
+          "request": { "method": "GET", "path": "/api/work-items/wi_replay_alpha", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_item_not_found" }
+          }
+        },
+        {
+          "id": "decide-anonymous",
+          "route": "POST /api/work-items/:id/decision",
+          "class": "unauthorized",
+          "what": "远程匿名：没登录，401（写请求总门对这条路径放行，由路由自己拒）",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/decision", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "answer": "verify" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "decide-cross-site",
+          "route": "POST /api/work-items/:id/decision",
+          "class": "unauthorized",
+          "what": "跨站请求：拒",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/decision", "headers": { "sec-fetch-site": "cross-site", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "answer": "verify" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_items_cross_origin_denied" }
+          }
+        },
+        {
+          "id": "decide-not-ready",
+          "route": "POST /api/work-items/:id/decision",
+          "class": "invalid",
+          "what": "建立人 alpha 验收自己的草稿事项：不在等验收，409",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/decision", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "answer": "verify" } },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "122", "etag": "W/\"7a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "item_id": "wi_replay_alpha", "answer": "verify", "duplicate": false, "result": { "error": "work_item_not_ready", "state": "draft" } }
+          }
+        },
+        {
+          "id": "decide-other-fact",
+          "route": "POST /api/work-items/:id/decision",
+          "class": "invalid",
+          "what": "拿这个入口送别的事实（release）：400",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/decision", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "answer": "release" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "144", "etag": "W/\"90-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "item_id": "wi_replay_alpha", "answer": "release", "duplicate": false, "result": { "error": "creator_answer_not_allowed", "allowed": ["verify", "return"] } }
+          }
+        },
+        {
+          "id": "decide-not-creator",
+          "route": "POST /api/work-items/:id/decision",
+          "class": "invalid",
+          "what": "beta 不是建立人：404，不说有没有这件事项",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/decision", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" }, "json": { "answer": "verify" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "106", "etag": "W/\"6a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "item_id": "wi_replay_alpha", "answer": "verify", "duplicate": false, "result": { "error": "work_item_not_found" } }
+          }
+        },
+        {
+          "id": "read-creator",
+          "route": "POST /api/work-items/:id/messages/read",
+          "class": "normal",
+          "what": "建立人 alpha 看过自己事项的席位消息：200，没有消息标了 0 条",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/messages/read", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "50", "etag": "W/\"32-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "item_id": "wi_replay_alpha", "marked": 0 }
+          }
+        },
+        {
+          "id": "read-other",
+          "route": "POST /api/work-items/:id/messages/read",
+          "class": "invalid",
+          "what": "别人 beta：不说有没有这件事项，404",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/messages/read", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" }, "json": {} },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_item_not_found" }
+          }
+        },
+        {
+          "id": "read-anonymous",
+          "route": "POST /api/work-items/:id/messages/read",
+          "class": "unauthorized",
+          "what": "远程匿名：没登录，401（写请求总门对这条路径放行，由路由自己拒）",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/messages/read", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "reply-no-message",
+          "route": "POST /api/work-items/:id/messages/:mid/reply",
+          "class": "invalid",
+          "what": "建立人 alpha 回复一条这件事项上没有的消息：404",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/messages/1/reply", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "text": "回一句" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "seat_message_not_found" }
+          }
+        },
+        {
+          "id": "reply-empty",
+          "route": "POST /api/work-items/:id/messages/:mid/reply",
+          "class": "invalid",
+          "what": "回复正文为空：400",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/messages/1/reply", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "text": "  " } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "25", "etag": "W/\"19-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "text_required" }
+          }
+        },
+        {
+          "id": "reply-other",
+          "route": "POST /api/work-items/:id/messages/:mid/reply",
+          "class": "invalid",
+          "what": "别人 beta：404",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/messages/1/reply", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" }, "json": { "text": "回一句" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_item_not_found" }
+          }
+        },
+        {
+          "id": "reply-anonymous",
+          "route": "POST /api/work-items/:id/messages/:mid/reply",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/messages/1/reply", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "text": "回一句" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "release-anonymous",
+          "route": "POST /api/work-items/:id/release",
+          "class": "unauthorized",
+          "what": "远程匿名：没登录，401（写请求总门对这条子路径放行，由路由自己拒）",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/release", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "release-creator-not-yours",
+          "route": "POST /api/work-items/:id/release",
+          "class": "unauthorized",
+          "what": "建立人（没勾先过目）：看得到，但放行归负责人，403",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/release", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_item_release_not_yours" }
+          }
+        },
+        {
+          "id": "release-cross-site",
+          "route": "POST /api/work-items/:id/release",
+          "class": "unauthorized",
+          "what": "跨站来的：403",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/release", "headers": { "sec-fetch-site": "cross-site", "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_items_cross_origin_denied" }
+          }
+        },
+        {
+          "id": "release-beta-hidden",
+          "route": "POST /api/work-items/:id/release",
+          "class": "invalid",
+          "what": "不是建立人、不是负责人、不是管理层：404（不说有没有这件）",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/release", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" }, "json": {} },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_item_not_found" }
+          }
+        },
+        {
+          "id": "ask-no-ask",
+          "route": "POST /api/work-items/:id/asks/:qid/answer",
+          "class": "invalid",
+          "what": "建立人 alpha 答一件不是从工作台事件来的事项上的提问：404",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/asks/1/answer", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "text": "中文" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "87", "etag": "W/\"57-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "item_id": "wi_replay_alpha", "duplicate": false, "result": { "error": "seat_ask_not_found" } }
+          }
+        },
+        {
+          "id": "ask-empty",
+          "route": "POST /api/work-items/:id/asks/:qid/answer",
+          "class": "invalid",
+          "what": "正文为空：返回 400",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/asks/1/answer", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "text": "  " } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "87", "etag": "W/\"57-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "item_id": "wi_replay_alpha", "duplicate": false, "result": { "error": "seat_ask_not_found" } }
+          }
+        },
+        {
+          "id": "ask-other",
+          "route": "POST /api/work-items/:id/asks/:qid/answer",
+          "class": "invalid",
+          "what": "别人 beta：404",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/asks/1/answer", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" }, "json": { "text": "中文" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_item_not_found" }
+          }
+        },
+        {
+          "id": "ask-anonymous",
+          "route": "POST /api/work-items/:id/asks/:qid/answer",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/asks/1/answer", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "text": "中文" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "due-anonymous",
+          "route": "POST /api/work-items/:id/due",
+          "class": "unauthorized",
+          "what": "远程匿名改截止日期：401",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/due", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "due": "2099-01-02" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "due-bad",
+          "route": "POST /api/work-items/:id/due",
+          "class": "invalid",
+          "what": "不存在的日期：400",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/due", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "due": "2099-02-30" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "23", "etag": "W/\"17-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "due_invalid" }
+          }
+        },
+        {
+          "id": "due-other",
+          "route": "POST /api/work-items/:id/due",
+          "class": "invalid",
+          "what": "别人 beta：看不到这件，404",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/due", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" }, "json": { "due": "2099-01-02" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_item_not_found" }
+          }
+        },
+        {
+          "id": "due-creator",
+          "route": "POST /api/work-items/:id/due",
+          "class": "normal",
+          "what": "建立人 alpha：改成 2099-01-02",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/due", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "due": "2099-01-02" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "101", "etag": "W/\"65-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "item_id": "wi_replay_alpha", "due": "2099-01-02", "overdue": false, "notified": 0, "pending_release": false }
+          }
+        }
+      ]
+    },
+    {
+      "name": "list",
+      "what": "列表：三个人的事项和一件建立人主体空着的；管理员看全部，别人只看自己的，看不到的不出现也不计数",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "fixtures": ["identity-fake"],
+      "seed": [
+        {
+          "table": "work_items",
+          "row": { "id": "wi_list_alpha_1", "title": "alpha 的草稿", "created_by": "user:alpha", "source_kind": "agent", "state": "draft", "object": "po:1", "phase": "p1", "seat": "", "created_at": "2026-01-01 00:00:01", "updated_at": "2026-01-01 00:00:01", "creator_principal": "user:alpha" }
+        },
+        {
+          "table": "work_item_log",
+          "row": { "item_id": "wi_list_alpha_1", "fact": "create", "fact_source": "market", "fact_id": "wi_list_alpha_1", "from_state": "draft", "to_state": "draft", "actor": "user:alpha", "at": "2026-01-01 00:00:01" }
+        },
+        {
+          "table": "work_items",
+          "row": { "id": "wi_list_alpha_2", "title": "alpha 在办", "created_by": "user:alpha", "source_kind": "agent", "state": "draft", "object": "po:2", "phase": "p1", "seat": "seat:checker", "created_at": "2026-01-01 00:00:02", "updated_at": "2026-01-01 00:00:02", "creator_principal": "user:alpha" }
+        },
+        {
+          "table": "work_item_log",
+          "row": { "item_id": "wi_list_alpha_2", "fact": "create", "fact_source": "market", "fact_id": "wi_list_alpha_2", "from_state": "draft", "to_state": "draft", "actor": "user:alpha", "at": "2026-01-01 00:00:02" }
+        },
+        {
+          "table": "work_item_log",
+          "row": { "item_id": "wi_list_alpha_2", "fact": "report", "fact_source": "seed", "fact_id": "wi_list_alpha_2:r", "from_state": "draft", "to_state": "draft", "actor": "seat:checker", "detail": "{\"summary\":\"对账做到第三步\"}", "at": "2026-01-01 00:00:03" }
+        },
+        {
+          "table": "work_items",
+          "row": { "id": "wi_list_alpha_3", "title": "alpha 的另一件", "created_by": "user:alpha", "source_kind": "agent", "state": "draft", "object": "po:1", "phase": "p1", "seat": "", "created_at": "2026-01-01 00:00:02", "updated_at": "2026-01-01 00:00:02", "creator_principal": "user:alpha" }
+        },
+        {
+          "table": "work_item_log",
+          "row": { "item_id": "wi_list_alpha_3", "fact": "create", "fact_source": "market", "fact_id": "wi_list_alpha_3", "from_state": "draft", "to_state": "draft", "actor": "user:alpha", "at": "2026-01-01 00:00:02" }
+        },
+        {
+          "table": "work_items",
+          "row": { "id": "wi_list_beta_1", "title": "beta 的", "created_by": "user:beta", "source_kind": "agent", "state": "draft", "object": "po:1", "phase": "p1", "seat": "", "created_at": "2026-01-01 00:00:04", "updated_at": "2026-01-01 00:00:04", "creator_principal": "user:beta" }
+        },
+        {
+          "table": "work_item_log",
+          "row": { "item_id": "wi_list_beta_1", "fact": "create", "fact_source": "market", "fact_id": "wi_list_beta_1", "from_state": "draft", "to_state": "draft", "actor": "user:beta", "at": "2026-01-01 00:00:04" }
+        },
+        {
+          "table": "work_items",
+          "row": { "id": "wi_list_nobody", "title": "没有建立人", "created_by": "human:somebody", "source_kind": "agent", "state": "draft", "object": "po:1", "phase": "p1", "seat": "", "created_at": "2026-01-01 00:00:05", "updated_at": "2026-01-01 00:00:05" }
+        },
+        {
+          "table": "work_item_log",
+          "row": { "item_id": "wi_list_nobody", "fact": "create", "fact_source": "market", "fact_id": "wi_list_nobody", "from_state": "draft", "to_state": "draft", "actor": "human:somebody", "at": "2026-01-01 00:00:05" }
+        }
+      ],
+      "steps": [
+        {
+          "id": "list-admin",
+          "route": "GET /api/work-items",
+          "class": "normal",
+          "what": "管理员看全部 5 件（含建立人主体空着的），按 updated_at、id 倒序；计数覆盖全部",
+          "request": { "method": "GET", "path": "/api/work-items", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "1880", "etag": "W/\"758-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "view": "all",
+              "views": { "mine": { "available": false, "count": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": true, "count": 5, "decide": 0 } },
+              "items": [
+                {
+                  "id": "wi_list_nobody",
+                  "title": "没有建立人",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "cockpit_id": null,
+                  "last_progress": { "actor": "human:somebody", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "due": null,
+                  "overdue": false,
+                  "release_by": null
+                },
+                {
+                  "id": "wi_list_beta_1",
+                  "title": "beta 的",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "cockpit_id": null,
+                  "last_progress": { "actor": "user:beta", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "due": null,
+                  "overdue": false,
+                  "release_by": null
+                },
+                {
+                  "id": "wi_list_alpha_3",
+                  "title": "alpha 的另一件",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "cockpit_id": null,
+                  "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "due": null,
+                  "overdue": false,
+                  "release_by": null
+                },
+                {
+                  "id": "wi_list_alpha_2",
+                  "title": "alpha 在办",
+                  "state": "draft",
+                  "object": "po:2",
+                  "phase": "p1",
+                  "seat": "seat:checker",
+                  "cockpit_id": null,
+                  "last_progress": { "actor": "seat:checker", "fact": "report", "text": "对账做到第三步", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "due": null,
+                  "overdue": false,
+                  "release_by": null
+                },
+                {
+                  "id": "wi_list_alpha_1",
+                  "title": "alpha 的草稿",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "cockpit_id": null,
+                  "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "due": null,
+                  "overdue": false,
+                  "release_by": null
+                }
+              ],
+              "counts": { "draft": 5, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
+              "total": 5,
+              "next_cursor": null
+            }
+          }
+        },
+        {
+          "id": "list-admin-page",
+          "route": "GET /api/work-items",
+          "class": "normal",
+          "what": "管理员 limit=2：两件加下一页游标",
+          "request": { "method": "GET", "path": "/api/work-items?limit=2", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "1019", "etag": "W/\"3fb-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "view": "all",
+              "views": { "mine": { "available": false, "count": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": true, "count": 5, "decide": 0 } },
+              "items": [
+                {
+                  "id": "wi_list_nobody",
+                  "title": "没有建立人",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "cockpit_id": null,
+                  "last_progress": { "actor": "human:somebody", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "due": null,
+                  "overdue": false,
+                  "release_by": null
+                },
+                {
+                  "id": "wi_list_beta_1",
+                  "title": "beta 的",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "cockpit_id": null,
+                  "last_progress": { "actor": "user:beta", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "due": null,
+                  "overdue": false,
+                  "release_by": null
+                }
+              ],
+              "counts": { "draft": 5, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
+              "total": 5,
+              "next_cursor": "eyJ1IjoiMjAyNi0wMS0wMSAwMDowMDowNCIsImkiOiJ3aV9saXN0X2JldGFfMSJ9"
+            }
+          }
+        },
+        {
+          "id": "list-admin-cursor",
+          "route": "GET /api/work-items",
+          "class": "normal",
+          "what": "从游标往后翻：同一时间的按 id 倒序接着走，不重不漏",
+          "request": { "method": "GET", "path": "/api/work-items?limit=2&cursor=eyJ1IjoiMjAyNi0wMS0wMSAwMDowMDowMiIsImkiOiJ3aV9saXN0X2FscGhhXzMifQ", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "995", "etag": "W/\"3e3-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "view": "all",
+              "views": { "mine": { "available": false, "count": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": true, "count": 5, "decide": 0 } },
+              "items": [
+                {
+                  "id": "wi_list_alpha_2",
+                  "title": "alpha 在办",
+                  "state": "draft",
+                  "object": "po:2",
+                  "phase": "p1",
+                  "seat": "seat:checker",
+                  "cockpit_id": null,
+                  "last_progress": { "actor": "seat:checker", "fact": "report", "text": "对账做到第三步", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "due": null,
+                  "overdue": false,
+                  "release_by": null
+                },
+                {
+                  "id": "wi_list_alpha_1",
+                  "title": "alpha 的草稿",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "cockpit_id": null,
+                  "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "due": null,
+                  "overdue": false,
+                  "release_by": null
+                }
+              ],
+              "counts": { "draft": 5, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
+              "total": 5,
+              "next_cursor": null
+            }
+          }
+        },
+        {
+          "id": "list-alpha",
+          "route": "GET /api/work-items",
+          "class": "normal",
+          "what": "alpha 只看到自己是建立人的 3 件；beta 的、没有建立人的不出现也不计数；带进展那件的最后一条是进展（seed 只能插草稿，状态都是 draft）",
+          "request": { "method": "GET", "path": "/api/work-items", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "1295", "etag": "W/\"50f-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "view": "mine",
+              "views": { "mine": { "available": true, "count": 3, "decide": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } },
+              "items": [
+                {
+                  "id": "wi_list_alpha_3",
+                  "title": "alpha 的另一件",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "cockpit_id": null,
+                  "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "due": null,
+                  "overdue": false,
+                  "release_by": null
+                },
+                {
+                  "id": "wi_list_alpha_2",
+                  "title": "alpha 在办",
+                  "state": "draft",
+                  "object": "po:2",
+                  "phase": "p1",
+                  "seat": "seat:checker",
+                  "cockpit_id": null,
+                  "last_progress": { "actor": "seat:checker", "fact": "report", "text": "对账做到第三步", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "due": null,
+                  "overdue": false,
+                  "release_by": null
+                },
+                {
+                  "id": "wi_list_alpha_1",
+                  "title": "alpha 的草稿",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "cockpit_id": null,
+                  "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "due": null,
+                  "overdue": false,
+                  "release_by": null
+                }
+              ],
+              "counts": { "draft": 3, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
+              "total": 3,
+              "next_cursor": null
+            }
+          }
+        },
+        {
+          "id": "list-alpha-state",
+          "route": "GET /api/work-items",
+          "class": "normal",
+          "what": "alpha 按 state=done 筛：列表空；计数不受 state 筛选影响（草稿还是 3）",
+          "request": { "method": "GET", "path": "/api/work-items?state=done", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "373", "etag": "W/\"175-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "view": "mine",
+              "views": { "mine": { "available": true, "count": 3, "decide": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } },
+              "items": [],
+              "counts": { "draft": 3, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
+              "total": 3,
+              "next_cursor": null
+            }
+          }
+        },
+        {
+          "id": "list-beta-object",
+          "route": "GET /api/work-items",
+          "class": "normal",
+          "what": "beta 按 object=po:1 筛：只算自己的 1 件（alpha 的、没有建立人的同一对象都不计数）",
+          "request": { "method": "GET", "path": "/api/work-items?object=po%3A1", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "659", "etag": "W/\"293-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "view": "mine",
+              "views": { "mine": { "available": true, "count": 1, "decide": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } },
+              "items": [
+                {
+                  "id": "wi_list_beta_1",
+                  "title": "beta 的",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "cockpit_id": null,
+                  "last_progress": { "actor": "user:beta", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "due": null,
+                  "overdue": false,
+                  "release_by": null
+                }
+              ],
+              "counts": { "draft": 1, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
+              "total": 1,
+              "next_cursor": null
+            }
+          }
+        },
+        {
+          "id": "list-anonymous",
+          "route": "GET /api/work-items",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "GET", "path": "/api/work-items", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "list-local-page",
+          "route": "GET /api/work-items",
+          "class": "unauthorized",
+          "what": "本机浏览器页面没登录：401（不放行本机页面）",
+          "request": { "method": "GET", "path": "/api/work-items", "headers": { "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "list-forged",
+          "route": "GET /api/work-items",
+          "class": "unauthorized",
+          "what": "提供方不认的会话：401",
+          "request": { "method": "GET", "path": "/api/work-items", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-forged-session-0001" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "list-cross-site",
+          "route": "GET /api/work-items",
+          "class": "unauthorized",
+          "what": "跨站：403",
+          "request": { "method": "GET", "path": "/api/work-items", "headers": { "sec-fetch-site": "cross-site", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_cross_origin_denied" }
+          }
+        },
+        {
+          "id": "list-bad-state",
+          "route": "GET /api/work-items",
+          "class": "invalid",
+          "what": "不认的 state：400",
+          "request": { "method": "GET", "path": "/api/work-items?state=bogus", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_state_invalid" }
+          }
+        },
+        {
+          "id": "list-bad-limit",
+          "route": "GET /api/work-items",
+          "class": "invalid",
+          "what": "limit 超上限：400",
+          "request": { "method": "GET", "path": "/api/work-items?limit=201", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_limit_invalid" }
+          }
+        },
+        {
+          "id": "list-zero-limit",
+          "route": "GET /api/work-items",
+          "class": "invalid",
+          "what": "limit=0：400",
+          "request": { "method": "GET", "path": "/api/work-items?limit=0", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_limit_invalid" }
+          }
+        },
+        {
+          "id": "list-bad-cursor",
+          "route": "GET /api/work-items",
+          "class": "invalid",
+          "what": "游标解不开：400",
+          "request": { "method": "GET", "path": "/api/work-items?cursor=%25%25", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_cursor_invalid" }
+          }
+        },
+        {
+          "id": "list-cursor-bad-id",
+          "route": "GET /api/work-items",
+          "class": "invalid",
+          "what": "游标里的 id 不像事项 id：400",
+          "request": { "method": "GET", "path": "/api/work-items?cursor=eyJ1IjoieCIsImkiOiIxLjUifQ", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_cursor_invalid" }
+          }
+        },
+        {
+          "id": "list-alpha-view-mine",
+          "route": "GET /api/work-items",
+          "class": "normal",
+          "what": "alpha 显式要「我安排的」：和缺省一样",
+          "request": { "method": "GET", "path": "/api/work-items?view=mine", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "1295", "etag": "W/\"50f-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "view": "mine",
+              "views": { "mine": { "available": true, "count": 3, "decide": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } },
+              "items": [
+                {
+                  "id": "wi_list_alpha_3",
+                  "title": "alpha 的另一件",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "cockpit_id": null,
+                  "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "due": null,
+                  "overdue": false,
+                  "release_by": null
+                },
+                {
+                  "id": "wi_list_alpha_2",
+                  "title": "alpha 在办",
+                  "state": "draft",
+                  "object": "po:2",
+                  "phase": "p1",
+                  "seat": "seat:checker",
+                  "cockpit_id": null,
+                  "last_progress": { "actor": "seat:checker", "fact": "report", "text": "对账做到第三步", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "due": null,
+                  "overdue": false,
+                  "release_by": null
+                },
+                {
+                  "id": "wi_list_alpha_1",
+                  "title": "alpha 的草稿",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "cockpit_id": null,
+                  "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "due": null,
+                  "overdue": false,
+                  "release_by": null
+                }
+              ],
+              "counts": { "draft": 3, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
+              "total": 3,
+              "next_cursor": null
+            }
+          }
+        },
+        {
+          "id": "list-admin-view-all",
+          "route": "GET /api/work-items",
+          "class": "normal",
+          "what": "管理层显式要「全部」",
+          "request": { "method": "GET", "path": "/api/work-items?view=all", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "1880", "etag": "W/\"758-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "view": "all",
+              "views": { "mine": { "available": false, "count": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": true, "count": 5, "decide": 0 } },
+              "items": [
+                {
+                  "id": "wi_list_nobody",
+                  "title": "没有建立人",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "cockpit_id": null,
+                  "last_progress": { "actor": "human:somebody", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "due": null,
+                  "overdue": false,
+                  "release_by": null
+                },
+                {
+                  "id": "wi_list_beta_1",
+                  "title": "beta 的",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "cockpit_id": null,
+                  "last_progress": { "actor": "user:beta", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "due": null,
+                  "overdue": false,
+                  "release_by": null
+                },
+                {
+                  "id": "wi_list_alpha_3",
+                  "title": "alpha 的另一件",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "cockpit_id": null,
+                  "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "due": null,
+                  "overdue": false,
+                  "release_by": null
+                },
+                {
+                  "id": "wi_list_alpha_2",
+                  "title": "alpha 在办",
+                  "state": "draft",
+                  "object": "po:2",
+                  "phase": "p1",
+                  "seat": "seat:checker",
+                  "cockpit_id": null,
+                  "last_progress": { "actor": "seat:checker", "fact": "report", "text": "对账做到第三步", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "due": null,
+                  "overdue": false,
+                  "release_by": null
+                },
+                {
+                  "id": "wi_list_alpha_1",
+                  "title": "alpha 的草稿",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "cockpit_id": null,
+                  "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "due": null,
+                  "overdue": false,
+                  "release_by": null
+                }
+              ],
+              "counts": { "draft": 5, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
+              "total": 5,
+              "next_cursor": null
+            }
+          }
+        },
+        {
+          "id": "list-alpha-view-all",
+          "route": "GET /api/work-items",
+          "class": "unauthorized",
+          "what": "alpha 要「全部」：这个视角对他不可用，403",
+          "request": { "method": "GET", "path": "/api/work-items?view=all", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "207", "etag": "W/\"cf-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "error": "work_items_view_unavailable",
+              "views": { "mine": { "available": true, "count": 3, "decide": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } }
+            }
+          }
+        },
+        {
+          "id": "list-bad-view",
+          "route": "GET /api/work-items",
+          "class": "invalid",
+          "what": "不认的视角：400",
+          "request": { "method": "GET", "path": "/api/work-items?view=bogus", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_view_invalid" }
+          }
+        },
+        {
+          "id": "list-empty-seat",
+          "route": "GET /api/work-items",
+          "class": "invalid",
+          "what": "按席位筛给空串：400",
+          "request": { "method": "GET", "path": "/api/work-items?seat=", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_seat_invalid" }
+          }
+        }
+      ]
+    }
+  ]
+}

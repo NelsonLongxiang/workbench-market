@@ -25,8 +25,8 @@ services:
       context: .
       dockerfile: Dockerfile.sync
       args:
-        YGL_IMAGE: ${YGL_IMAGE:-local/ygl-trees:0.119.0}
-    image: ${YGL_SYNC_IMAGE:-local/ygl-trees-sync:0.119.0}
+        YGL_IMAGE: ${YGL_IMAGE:-local/ygl-trees:0.126.0}
+    image: ${YGL_SYNC_IMAGE:-local/ygl-trees-sync:0.126.0}
     user: "0:0"
     environment:
       YGL_HOME: /var/lib/ygl

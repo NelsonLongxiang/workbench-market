@@ -47,14 +47,14 @@ export const adminTokenPresent = (): boolean => getAdminToken() !== '';
  *  这里只缓存结论给菜单与页面开关用；真正的授权在服务端每次请求判。 */
 let odooAdminLogin: string | null = null;
 export const odooAdmin = (): string | null => odooAdminLogin;
-/** 当前页面是否以管理员身份工作：持口令，或 Odoo 管理员 */
+/** 当前页面是否以管理员身份工作：持口令、Odoo 管理员，或持 owner/admin 授予的站内管理员 */
 export const adminActive = (): boolean => adminTokenPresent() || odooAdminLogin !== null;
 export async function refreshAdminIdentity(): Promise<void> {
   let next: string | null = null;
   try {
     const r = await fetch('/api/admin/whoami', { headers: { Accept: 'application/json' } });
     const j = await r.json() as { via?: string | null; login?: string | null };
-    next = j?.via === 'odoo' && typeof j.login === 'string' ? j.login : null;
+    next = (j?.via === 'odoo' || j?.via === 'grant') && typeof j.login === 'string' ? j.login : null; // grant：持 owner/admin 授予的站内管理员
   } catch { next = null; }
   if (next === odooAdminLogin) return;
   odooAdminLogin = next;

@@ -110,7 +110,9 @@ try {
   ok('引用了未上传的文件：拒绝并点名路径', r7.err && /missing\.txt/.test(JSON.stringify(r7.m)), JSON.stringify(r7.m).slice(0, 200));
   r7 = await call('skill_publish', { slug, files: [{ path: 'SKILL.md', sha256: p1.out.sha256 }, { path: 'assets/logo.png', sha256: p2.out.sha256 }], changelog: 'v2 经 MCP' });
   ok('MCP 发新版本 → v2', !r7.err && r7.out?.version === 2, JSON.stringify(r7.m).slice(0, 300));
-  ok('MCP 发布的二进制快照逐字节一致', readFileSync(join(DATA, r7.out?.snapshot_path ?? '-', 'assets/logo.png')).equals(png2));
+  // MCP 发布的应答不带快照路径（只给管理员）；按服务端的落盘规则自己拼：skill-snapshots/<slug 编码>/v<版本>
+  ok('MCP 发布的应答里没有快照路径', !('snapshot_path' in (r7.out ?? {})), JSON.stringify(r7.out ?? {}).slice(0, 200));
+  ok('MCP 发布的二进制快照逐字节一致', readFileSync(join(DATA, 'skill-snapshots', encodeURIComponent(slug), `v${r7.out?.version}`, 'assets/logo.png')).equals(png2));
   const v2row = (await get(`/api/skills/${S}/versions`)).versions?.find((v) => v.version === 2);
   ok('MCP 发布的 reviewed_by 记调用会话、changelog 在案', v2row?.reviewed_by === 'anonymous' && v2row?.changelog === 'v2 经 MCP', JSON.stringify(v2row));
   r7 = await call('skill_publish', { slug, files: [{ path: 'SKILL.md', sha256: p1.out.sha256 }, { path: 'assets/logo.png', sha256: p2.out.sha256 }] });
@@ -137,7 +139,7 @@ try {
   ok('伪造票号 404，也带 no-referrer', bad.status === 404 && bad.headers.get('referrer-policy') === 'no-referrer');
   {
     const { DatabaseSync } = await import('node:sqlite');
-    const sdb = new DatabaseSync(join(DATA, 'workbench-market.db'));
+    const sdb = new DatabaseSync(join(DATA, 'workbench-market.db'), { timeout: 5000 });
     const ticket = dl.out.download_url.split('/').pop();
     const key = createHash('sha256').update(ticket).digest('hex');
     ok('票据表里查不到明文票号（只存 sha256）', !sdb.prepare('SELECT 1 FROM skill_download_tickets WHERE id = ?').get(ticket) && !sdb.prepare('SELECT 1 FROM skill_download_tickets WHERE instr(id, ?) > 0 OR instr(issued_to, ?) > 0').get(ticket, ticket));

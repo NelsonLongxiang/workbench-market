@@ -3,20 +3,36 @@
 //   · 「是不是人提交的」在这里判（submitter_kind）；a2a 只负责送达和来源签名。
 //   · 「接不接」由接单节点判，凭投递里的 reply token 回写；GitHub issue 是工作记录。
 //   · 每个事件必有下文：unrouted，或每个投递落到 sent / dead / cancelled；held 是等人确认，不是终态。
+import { outboundOff, noteBlocked } from './outbound-gate.ts';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type express from 'express';
 import { db } from './db.ts';
-import { a2aKeyPath, a2aSendOutbound, marketPublicUrl, sopNode8 } from './a2a.ts';
+import { a2aKeyPath, a2aSendOutbound, MARKET_TEAM, marketPublicUrl, sopNode8 } from './a2a.ts';
 import { MAX_ROUTE_BODY_BYTES } from '@nelsonlongxiang/dsh-open-a2a-net/transport-caps';
+import { root } from './root-context.ts';
+import type { HttpService } from './http.ts';
+import { recordSentTask } from './services/a2a-receipts.ts';
+import { peerCard, peerRoot } from './a2a/peer-card.ts';
+import { PEER_HOLD_MS, replyTick } from './a2a/reply-outbound.ts';
+import { peerCanDeliver } from './services/a2a-peers.ts';
+import { holdDelivery } from './services/a2a-replies.ts';
+
+/** 8b：每写一行事件日志，在同一个事务里多发一个事件（事项服务听它）。这张表和它的写法都不变。 */
+export type WorkbenchEventLogged = { id: number; event_id: string; delivery_id: number | null; action: string };
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    'workbench-event/logged'(row: WorkbenchEventLogged): void;
+  }
+}
 
 export const WORKBENCH_EVENT_VERSION = 1;
 const DECISIONS = new Set(['accept', 'decline', 'ask']);
-const BACKOFF_MS = [60_000, 300_000, 900_000, 3_600_000]; // 与 SOP 回执 outbox 同一退避：1m/5m/15m/1h，5 次后 dead
-const MAX_ATTEMPTS = 5;
+export const BACKOFF_MS = [60_000, 300_000, 900_000, 3_600_000]; // 与 SOP 回执 outbox 同一退避：1m/5m/15m/1h，5 次后 dead
+export const MAX_ATTEMPTS = 5;
 const EVENT_ID = /^wbe-[0-9a-f]{16}$/;
 /** 对端判为不可重试的线码：-32001 载荷超限、-32002 同 task_id 不同载荷、-32003 同 task_id 重放（每次尝试的 task_id 都唯一，出现即异常） */
-const TERMINAL_CODES = new Set([-32001, -32002, -32003]);
-const REPLY_TTL_DAYS = 7; // reply token 自送达起 7 天有效（ask 之后也不例外）
+export const TERMINAL_CODES = new Set([-32001, -32002, -32003]);
+export const REPLY_TTL_DAYS = 7; // reply token 自送达起 7 天有效（ask 之后也不例外）
 const WORKER_CONCURRENCY = 8;
 
 export function initWorkbenchEvents(): void {
@@ -74,14 +90,27 @@ CREATE TRIGGER IF NOT EXISTS wbe_events_no_delete BEFORE DELETE ON workbench_eve
 }
 
 const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
-function sqliteUtcIn(ms: number): string {
+export function sqliteUtcIn(ms: number): string {
   return new Date(Date.now() + ms + 1_000).toISOString().slice(0, 19).replace('T', ' ');
 }
-function log(eventId: string, deliveryId: number | null, actor: string, action: string, detail: Record<string, unknown> = {}): void {
-  db.prepare('INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, ?, ?, ?)').run(eventId, deliveryId, actor, action, JSON.stringify(detail));
+/** 阶段七 R3：入站回执经它写事件日志（同一个 log()，事项服务照常听到）。调用方负责事务。 */
+export function logDeliveryFact(eventId: string, deliveryId: number, actor: string, action: string, detail: Record<string, unknown> = {}): void {
+  log(eventId, deliveryId, actor, action, detail);
+}
+/** 事件层面（不属于哪一次投递）的一行留痕，比如建立人改了截止日期。调用方负责事务 */
+export function logEventFact(eventId: string, actor: string, action: string, detail: Record<string, unknown> = {}): number {
+  return log(eventId, null, actor, action, detail);
+}
+/** 写一行事件日志，返回行 id */
+function log(eventId: string, deliveryId: number | null, actor: string, action: string, detail: Record<string, unknown> = {}): number {
+  const info = db.prepare('INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, ?, ?, ?)').run(eventId, deliveryId, actor, action, JSON.stringify(detail));
+  // 听的一方出什么错都不影响这里：它自己回滚、计数，漏掉的由回填补上
+  try { root.emit('workbench-event/logged', { id: Number(info.lastInsertRowid), event_id: eventId, delivery_id: deliveryId, action }); }
+  catch (e) { console.error(`[workbench-events] 发事件日志事件失败（不影响本次写入）：${(e as Error)?.message ?? e}`); }
+  return Number(info.lastInsertRowid);
 }
 
-interface Target { agent_node: string; notify_url: string }
+export interface Target { agent_node: string; notify_url: string }
 function notifyTargets(type: 'sop' | 'app', slug: string): Target[] {
   // 同一节点可以同时有 notify 与 both 两行（自然键含 direction）——按节点去重，先绑的那行为准
   const rows = db.prepare("SELECT agent_node, notify_url FROM bindings WHERE target_type = ? AND target_slug = ? AND direction IN ('notify','both') AND revoked_at = '' AND notify_url != '' ORDER BY id").all(type, slug) as unknown as Target[];
@@ -92,6 +121,14 @@ function notifyTargets(type: 'sop' | 'app', slug: string): Target[] {
     if (first !== r.notify_url) console.warn(`[workbench-events] ${type}/${slug} 上 ${r.agent_node} 有两条通知绑定且地址不同，按先绑的 ${first} 投递，忽略 ${r.notify_url}`);
     return false;
   });
+}
+
+/**
+ * 「安排一件事」能派给的团队：绑在任务中心（sop/task-center）上的通知绑定，和任务中心默认投递同一个口径（按节点去重，先绑的为准）。
+ * 别的绑定是为别的通知建的，对方没同意接任务，不在这里。列表接口和建事项时的校验都用它。
+ */
+export function assignableTeams(): Target[] {
+  return notifyTargets('sop', 'task-center');
 }
 
 /** 任务录入的「目标 SOP 台」：按 slug 或标题匹配一个已发布的 SOP；匹配不到返回 '' */
@@ -112,6 +149,37 @@ interface EventCore {
   formVersion: number | null;
   dataSha256: string;
   dispatch: boolean;
+  /** 8f：提需求的人（建录入时经身份服务认出来的主体），事项的建立人取它；发布的人只留痕。
+   *  都只记在事件层自己写的「recorded」那一行里，不进发给接收方的信封 */
+  requester?: string | null;
+  publisher?: string | null;
+  /** 8f-2：requester 是怎么认出来的。'ticket' = 台页面带回的提交人票据，服务端验过（对外的 submitter_kind 照旧 unverified） */
+  via?: 'ticket';
+  /** 「安排一件事」：挂在哪条线、哪一步。只记在 recorded 那一行，事项建出来时取（不进发给接收方的信封） */
+  object?: string;
+  phase?: string;
+  /** 规范 14 第 2 步：交给方式、等谁过目、指名的席位（seatId）。任务中心的事件都记交给方式（缺省 team）；
+   *  等谁过目没给时按投递 held 没有推：held → lead（等负责人过目），否则空。只记在 recorded 那一行 */
+  handoff?: 'team' | 'own-seat' | 'lead-directed';
+  reviewBy?: '' | 'lead' | 'requester';
+  directedSeatId?: string;
+  /** 「安排一件事」从哪个驾驶舱安排的（驾驶舱的 id）。只记在 recorded 那一行，事项建出来时取 */
+  cockpitId?: number;
+  /** 指名退回整队派发的留痕（对端宿主名片没声明 directedSeats）：想指名哪个席位、为什么没指名。只记在 recorded 那一行 */
+  directedFallback?: { seat_id: string; reason: string };
+  /** 截止日期 YYYY-MM-DD（只记在 recorded 那一行，事项建出来时取；信封里的 task.due 原样带给接收方） */
+  due?: string;
+}
+
+/**
+ * 投递的正文：信封 JSON；指名派发时第一行是签名派工行 `[A2A dispatch] {"for":"<seatId>"}`（a2a-net #627 N1），信封接在后面。
+ * 落库就是这一份（重试发的也是它），所以投递行就是对外发了什么的证据。seatId 进来前已过 `seat-<8hex>` 的形状校验，
+ * 这里再核一次：拼不出第二行、拼不出 rework。
+ */
+function dispatchText(core: EventCore, message: Record<string, unknown>): string {
+  const body = JSON.stringify(message);
+  if (!core.dispatch || !core.directedSeatId || !/^seat-[0-9a-f]{8}$/.test(core.directedSeatId)) return body;
+  return `[A2A dispatch] ${JSON.stringify({ for: core.directedSeatId })}\n${body}`;
 }
 
 /** 写事件行 + 每个目标一行投递。调用方负责事务。返回 event_id。 */
@@ -120,7 +188,8 @@ function recordEvent(core: EventCore, targets: Target[], routed: 'target' | 'def
   const createdAt = new Date().toISOString();
   db.prepare('INSERT INTO workbench_events (event_id, source, workbench, item, context_id, submitter_kind, submitter, form_version, data_sha256, dispatch, routed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(eventId, core.source, core.workbench, core.item, core.contextId, core.submitterKind, core.submitter, core.formVersion, core.dataSha256, core.dispatch ? 1 : 0, routed);
-  log(eventId, null, 'market', 'recorded', { source: core.source, routed, submitter_kind: core.submitterKind, targets: targets.length });
+  log(eventId, null, 'market', 'recorded', { source: core.source, routed, submitter_kind: core.submitterKind, targets: targets.length, ...(core.requester ? { requester: core.requester } : {}), ...(core.via ? { via: core.via } : {}), ...(core.publisher ? { publisher: core.publisher } : {}), ...(core.object ? { object: core.object } : {}), ...(core.phase ? { phase: core.phase } : {}),
+    ...(core.handoff ? { handoff: core.handoff, review_by: core.reviewBy ?? (held ? 'lead' : '') } : {}), ...(core.directedSeatId ? { directed_seat_id: core.directedSeatId } : {}), ...(core.cockpitId ? { cockpit_id: core.cockpitId } : {}), ...(core.directedFallback ? { directed_fallback: core.directedFallback } : {}), ...(core.due ? { due: core.due } : {}) });
   const envelope = envelopeOf(eventId, createdAt);
   for (const t of targets) {
     let token = '';
@@ -130,7 +199,7 @@ function recordEvent(core: EventCore, targets: Target[], routed: 'target' | 'def
       message = { ...envelope, reply: { url: `${marketPublicUrl()}/api/workbench-events/${eventId}/decision`, token, decisions: [...DECISIONS] } };
     }
     const info = db.prepare('INSERT INTO workbench_event_deliveries (event_id, target_team, target_url, caller_session, status, message, reply_token_sha256) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(eventId, t.agent_node, t.notify_url, callerSession, held ? 'held' : 'pending', JSON.stringify(message), token === '' ? '' : sha256(token));
+      .run(eventId, t.agent_node, t.notify_url, callerSession, held ? 'held' : 'pending', dispatchText(core, message), token === '' ? '' : sha256(token));
     log(eventId, Number(info.lastInsertRowid), 'market', held ? 'held' : 'queued', { target_team: t.agent_node });
   }
   return eventId;
@@ -140,23 +209,50 @@ function recordEvent(core: EventCore, targets: Target[], routed: 'target' | 'def
  * 任务中心人工发布 → human 事件。在 publishTaskIntake 的同一事务里调用（发布与事件同生同灭）。
  * 派发开关（任务级 × 中心级）没全开时投递记为 held：只记录「本来会派给谁」，管理员 release 后才发。
  */
-export function recordTaskCenterEvent(task: { id: number; data: Record<string, unknown>; stepValue: (key: string) => unknown; publishedBy: string; templateVersion: number; materialSha256: string; agentDispatch: boolean; centerOn: boolean }): string {
-  const targetSop = resolveTargetSop(task.stepValue('target'));
-  let targets = targetSop !== '' ? notifyTargets('sop', targetSop) : [];
+export function recordTaskCenterEvent(task: { id: number; data: Record<string, unknown>; stepValue: (key: string) => unknown; publishedBy: string; requesterPrincipal?: string | null; publisherPrincipal?: string | null; templateVersion: number | null; materialSha256: string; agentDispatch: boolean; centerOn: boolean;
+  /** 「安排一件事」：直接指定派给的团队（必须是 assignableTeams 之一），不按「目标 SOP 台」解析；submitter 用本人主体；object、phase 记进 recorded */
+  arranged?: { team: string; submitter: string; object?: string; phase?: string;
+    /** 规范 14：交给方式、等谁过目、指名的席位（seatId）。阶段七的指名派工经这里写；不给就是交给团队、按 held 推等谁过目 */
+    handoff?: 'team' | 'own-seat' | 'lead-directed'; reviewBy?: '' | 'lead' | 'requester'; directedSeatId?: string; directedFallback?: { seat_id: string; reason: string };
+    /** 从哪个驾驶舱安排的（调用方已经核过驾驶舱存在） */
+    cockpitId?: number;
+    /** 附件（只带引用）：信封里列名字、类型、大小、sha256 和取件地址，内容不进正文 */
+    attachments?: { id: number; name: string; mime: string; size: number; sha256: string }[] } }): string {
+  let targetSop = '';
+  let targets: Target[];
   let routed: 'target' | 'default' | 'unrouted' = 'target';
-  if (targets.length === 0) { targets = notifyTargets('sop', 'task-center'); routed = 'default'; }
-  if (targets.length === 0) routed = 'unrouted';
+  if (task.arranged) {
+    targets = assignableTeams().filter((t) => t.agent_node === task.arranged!.team);
+    if (targets.length !== 1) throw new Error('派给的团队不在可派的团队里');
+  } else {
+    targetSop = resolveTargetSop(task.stepValue('target'));
+    targets = targetSop !== '' ? notifyTargets('sop', targetSop) : [];
+    if (targets.length === 0) { targets = notifyTargets('sop', 'task-center'); routed = 'default'; }
+    if (targets.length === 0) routed = 'unrouted';
+  }
   const contextId = `wb:task-center:${task.id}`;
   const core: EventCore = {
     source: 'task-center', workbench: targetSop !== '' ? targetSop : 'task-center', item: `task:${task.id}`, contextId,
-    submitterKind: 'human', submitter: `human:${task.publishedBy}`, formVersion: task.templateVersion, dataSha256: task.materialSha256, dispatch: true,
+    submitterKind: 'human', submitter: task.arranged ? task.arranged.submitter : `human:${task.publishedBy}`, formVersion: task.templateVersion, dataSha256: task.materialSha256, dispatch: true,
+    requester: task.requesterPrincipal ?? null, publisher: task.publisherPrincipal ?? null,
+    ...(task.arranged?.object ? { object: task.arranged.object } : {}), ...(task.arranged?.phase ? { phase: task.arranged.phase } : {}),
+    handoff: task.arranged?.handoff ?? 'team', ...(task.arranged?.reviewBy !== undefined ? { reviewBy: task.arranged.reviewBy } : {}),
+    ...(task.arranged?.directedSeatId ? { directedSeatId: task.arranged.directedSeatId } : {}),
+    ...(task.arranged?.cockpitId ? { cockpitId: task.arranged.cockpitId } : {}),
+    ...(task.arranged?.directedFallback ? { directedFallback: task.arranged.directedFallback } : {}),
   };
   const fields: Record<string, unknown> = { id: task.id };
   for (const key of ['title', 'intent', 'references', 'deliverable', 'target', 'due']) fields[key] = task.stepValue(key) ?? '';
-  return recordEvent(core, targets, routed, !(task.agentDispatch && task.centerOn), `market/${sopNode8('task-center')}`, (eventId, createdAt) => ({
+  if (typeof fields.due === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fields.due)) core.due = fields.due;
+  return recordEvent(core, targets, routed, !(task.agentDispatch && task.centerOn), `${MARKET_TEAM}/${sopNode8('task-center')}`, (eventId, createdAt) => ({
     type: 'workbench-event', v: WORKBENCH_EVENT_VERSION, event_id: eventId, source: core.source, workbench: core.workbench, item: core.item,
     context_id: contextId, submitter_kind: core.submitterKind, submitter: core.submitter, form_version: core.formVersion,
     data_sha256: core.dataSha256, created_at: createdAt, dispatch: true, task: fields,
+    // 附件：只给引用。取件：GET <url>，请求头 X-Reply-Token 带下面 reply.token（和回写决定同一个令牌、同样的有效期）
+    ...(task.arranged?.attachments?.length ? {
+      attachments: task.arranged.attachments.map((a) => ({ name: a.name, mime: a.mime, size: a.size, sha256: a.sha256, url: `${marketPublicUrl()}/api/workbench-events/${eventId}/attachments/${a.id}` })),
+      attachments_fetch: 'GET 每个附件的 url，请求头 X-Reply-Token 带这条消息 reply.token 的值；令牌和回写决定同一个，送达后 7 天内有效',
+    } : {}),
   }));
 }
 
@@ -165,7 +261,7 @@ export function recordTaskCenterEvent(task: { id: number; data: Record<string, u
  * SSO v2 覆盖到这里之前一律 unverified、dispatch:false——只通知，不派发，不要决定。
  * 旧字段（type/slug/id/data/created_at/hint）原样保留，现有接收方不受影响。
  */
-export function recordAppDataEvent(item: { slug: string; id: number; data: unknown; json: string; createdBy: string; createdAt: string }): string | null {
+export function recordAppDataEvent(item: { slug: string; id: number; data: unknown; json: string; createdBy: string; createdAt: string; submitterPrincipal?: string | null }): string | null {
   const targets = notifyTargets('app', item.slug);
   if (targets.length === 0) return null; // 无通知绑定：不建事件（数据真源在 app_data，人类事件判据不涉及 unverified）
   const contextId = `wb:${item.slug}:${item.id}`;
@@ -173,14 +269,20 @@ export function recordAppDataEvent(item: { slug: string; id: number; data: unkno
     source: 'app-data', workbench: item.slug, item: `item:${item.id}`, contextId, submitterKind: 'unverified',
     submitter: item.createdBy, formVersion: null, dataSha256: sha256(item.json), dispatch: false,
   };
+  // 8f-2：带了验得过的提交人票据。对外不升级信任：submitter_kind 照旧 unverified、submitter 照旧是自填的显示名（和今天逐字节相同），
+  // 信封只多两个字段 submitter_principal、submitter_via:"ticket"。市场内部：提需求的人记进 recorded（via:ticket），事项的建立人取它。
+  // 判断「是谁」只读主体字段（submitter_principal、recorded.requester）；submitter（user:<id>、human:<名>）是显示用的存量，不拿来判断。
+  // 只通知、不派发（dispatch:false）照旧
+  const ticketed = item.submitterPrincipal ? { submitter_principal: item.submitterPrincipal, submitter_via: 'ticket' as const } : {};
+  if (item.submitterPrincipal) { core.requester = item.submitterPrincipal; core.via = 'ticket'; }
   let eventId = '';
   db.exec('BEGIN IMMEDIATE');
   try {
-    eventId = recordEvent(core, targets, 'target', false, `market/${sopNode8(item.slug)}`, (id) => ({
+    eventId = recordEvent(core, targets, 'target', false, `${MARKET_TEAM}/${sopNode8(item.slug)}`, (id) => ({
       type: 'app-data-submitted', slug: item.slug, id: item.id, data: item.data, created_at: item.createdAt,
       hint: '经 MCP app_data_list（slug + before_id 增量）读取；真源在 app_data',
       v: WORKBENCH_EVENT_VERSION, event_id: id, source: core.source, workbench: core.workbench, item: core.item, context_id: contextId,
-      submitter_kind: core.submitterKind, submitter: core.submitter, data_sha256: core.dataSha256, dispatch: false,
+      submitter_kind: core.submitterKind, submitter: core.submitter, ...ticketed, data_sha256: core.dataSha256, dispatch: false,
     }));
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
@@ -189,7 +291,7 @@ export function recordAppDataEvent(item: { slug: string; id: number; data: unkno
 
 // ---------- 投递 worker ----------
 interface DeliveryRow { id: number; event_id: string; target_team: string; target_url: string; caller_session: string; message: string; attempts: number; context_id: string; source: string; item: string }
-function backoffScale(): number {
+export function backoffScale(): number {
   const v = Number(process.env.A2A_OUTBOX_BACKOFF_SCALE);
   return Number.isFinite(v) && v > 0 ? v : 1;
 }
@@ -204,6 +306,40 @@ function settle(row: DeliveryRow, status: 'sent' | 'dead' | 'cancelled', error =
   log(row.event_id, row.id, 'market', action, error === '' ? {} : { error: error.slice(0, 300) });
 }
 /** 任务中心事件对应的任务已撤回？（撤回后不再派发） */
+/**
+ * 放行之前的判断（只有这一处）：事件在、任务没撤回。放行接口和事项详情的 can.release、turn.release 都用它
+ * （「有没有 held 的投递」接口在事务里数；事项那边看事项状态是不是 held，两者同进同退）。
+ * 能放行返回 null；不能返回旧接口的应答。
+ */
+/**
+ * 放行（只有这一处）：把这个事件 held 的投递转成待发，每条记一行 released。管理员的旧入口和负责人的新入口（POST /api/work-items/:id/release）都调它。
+ *   actor 记放行的人；actingFor 是代谁办（团队没有负责人时管理层代办记 team-lead），记进那一行的 detail，事项时间线照它写「代某某办」
+ */
+export function releaseCore(eventId: string, actor: string, actingFor = ''): { status: number; body: Record<string, unknown> } {
+  const blocked = releaseBlock(eventId);
+  if (blocked) return blocked;
+  db.exec('BEGIN IMMEDIATE');
+  let released: { id: number }[] = [];
+  try {
+    released = db.prepare("SELECT id FROM workbench_event_deliveries WHERE event_id = ? AND status = 'held'").all(eventId) as { id: number }[];
+    for (const r of released) {
+      db.prepare("UPDATE workbench_event_deliveries SET status = 'pending', next_at = datetime('now') WHERE id = ?").run(r.id);
+      log(eventId, r.id, actor, 'released', actingFor ? { acting_for: actingFor } : undefined);
+    }
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  if (released.length === 0) return { status: 409, body: { error: '该事件没有待确认（held）的投递', event_id: eventId } };
+  kickWorkbenchEvents();
+  return { status: 200, body: { ok: true, event_id: eventId, released: released.length, ...(actingFor ? { acting_for: actingFor } : {}) } };
+}
+
+export function releaseBlock(eventId: string): { status: number; body: Record<string, unknown> } | null {
+  const ev = db.prepare('SELECT source, item FROM workbench_events WHERE event_id = ?').get(eventId) as { source: string; item: string } | undefined;
+  if (!ev) return { status: 404, body: { error: 'event not found' } };
+  if (taskWithdrawn(ev.source, ev.item)) return { status: 409, body: { error: '任务已撤回，不再派发', event_id: eventId } };
+  return null;
+}
+
 function taskWithdrawn(source: string, item: string): boolean {
   if (source !== 'task-center') return false;
   const id = Number(item.replace(/^task:/, ''));
@@ -231,6 +367,12 @@ async function deliver(row: DeliveryRow): Promise<void> {
   try { await attemptDelivery(row); } finally { inFlight.delete(row.id); }
 }
 async function attemptDelivery(row: DeliveryRow): Promise<void> {
+  // 发之前问对端登记表：改钥待确认、停用的挂起，不发、不计次数、不判死（恢复之后照常发）；原因第一次出现时留一行 held
+  const can = peerCanDeliver(row.target_url);
+  if (!can.ok && can.reason !== 'peer_unknown') {
+    if (holdDelivery(row.id, Date.now() + PEER_HOLD_MS, can.reason)) log(row.event_id, row.id, 'market', 'held', { reason: can.reason });
+    return;
+  }
   const attempt = row.attempts + 1;
   // 每次尝试一个 task_id：对端幂等键按 task_id 全机唯一，且登记在「判定能否投递」之前——
   // 同一 task_id 重试拿到的 -32003 不能证明上次送到了；同机多团队共用一个 id 会撞 -32002。
@@ -238,6 +380,9 @@ async function attemptDelivery(row: DeliveryRow): Promise<void> {
   const taskId = `${row.event_id}.d${row.id}.a${attempt}`;
   const body = JSON.stringify({ team: row.target_team, message: row.message, caller_session: row.caller_session, context_id: row.context_id, wait: false, task_id: taskId });
   if (Buffer.byteLength(body, 'utf8') > MAX_ROUTE_BODY_BYTES) return settle(row, 'dead', 'payload exceeds the direct-route transport cap', attempt);
+  // 阶段七 R3：发出之前记下这个任务号和对端是谁（名片 team 与根地址）；回执只认这台宿主的签名。取不到名片也照发，回执届时只记「收到未采信」
+  const peer = await peerCard(row.target_url).catch(() => null);
+  recordSentTask({ taskId, eventId: row.event_id, deliveryId: row.id, peerRoot: peerRoot(row.target_url), peerZone: peer?.team ?? '' });
   let out: any;
   try {
     out = await a2aSendOutbound(a2aKeyPath(), { baseUrl: row.target_url, team: row.target_team }, row.message, row.context_id, row.caller_session, { taskId, async: true });
@@ -255,6 +400,8 @@ async function attemptDelivery(row: DeliveryRow): Promise<void> {
 let ticking = false;
 let kickAgain = false;
 export async function workbenchEventTick(): Promise<void> {
+  // 对外断开（预发）：整轮跳过——不发、不加 attempts、不判死，在途的保持 pending，开关打开以后原样接着投
+  if (outboundOff()) { noteBlocked('event-delivery'); return; }
   if (ticking) { kickAgain = true; return; }
   ticking = true;
   try {
@@ -265,6 +412,8 @@ export async function workbenchEventTick(): Promise<void> {
       for (let i = 0; i < due.length; i += WORKER_CONCURRENCY) {
         await Promise.allSettled(due.slice(i, i + WORKER_CONCURRENCY).map((row) => deliver(row).catch((e) => console.error(`[workbench-events] delivery ${row.id} failed: ${String(e).slice(0, 120)}`))));
       }
+      // 阶段七 R2：回给团队的消息（答复、来信回复、跟进回执），同一个 worker、同一套发送与退避
+      await replyTick();
     } while (kickAgain);
   } finally { ticking = false; }
 }
@@ -274,8 +423,12 @@ export function kickWorkbenchEvents(): void {
 }
 export function startWorkbenchEventWorker(): void {
   if (!process.env.MARKET_PUBLIC_URL) console.warn('[workbench-events] MARKET_PUBLIC_URL 未设：派发信封里的 reply.url 与 OriginClaim 的 callerUrl 都是回环地址，远程接单节点回写不了决定、对端也取不到市场卡片');
-  const timer = setInterval(() => { void workbenchEventTick(); }, 5_000);
-  timer.unref?.();
+  // 挂在根上下文的 effect 上，卸载时一起停
+  root.effect(() => {
+    const timer = setInterval(() => { void workbenchEventTick(); }, 5_000);
+    timer.unref?.();
+    return () => { clearInterval(timer); };
+  }, 'workbench-events.worker(5s)');
 }
 
 // ---------- HTTP 面 ----------
@@ -284,15 +437,17 @@ function eventView(e: any) {
   return { ...e, dispatch: e.dispatch === 1, deliveries };
 }
 
-export function registerWorkbenchEventRoutes(app: express.Express, guards: { admin: (req: express.Request, res: express.Response) => boolean; sameOrigin: (req: express.Request) => boolean }): void {
+export function registerWorkbenchEventRoutes(app: HttpService, guards: { admin: (req: express.Request, res: express.Response) => boolean; sameOrigin: (req: express.Request) => boolean;
+  /** 放行的人（留痕里的写法）：本机命令行 cli，口令 admin-token，会话登录的管理员 odoo:<登录名>。以前写死成 human:admin */
+  actor: (req: express.Request) => string }): void {
   // 列表 / 详情：管理员读（含目标团队与地址；reply token 永不出现在读面）
-  app.get('/api/workbench-events', (req, res) => {
+  app.get('/api/workbench-events', { action: 'workbench-event.list', kind: 'admin' }, (req, res) => {
     if (!guards.admin(req, res)) return;
     const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
     const rows = db.prepare('SELECT * FROM workbench_events ORDER BY id DESC LIMIT ?').all(limit);
     res.set('Cache-Control', 'no-store').json(rows.map(eventView));
   });
-  app.get('/api/workbench-events/:eventId', (req, res) => {
+  app.get('/api/workbench-events/:eventId', { action: 'workbench-event.read', kind: 'admin' }, (req, res) => {
     if (!guards.admin(req, res)) return;
     const e = db.prepare('SELECT * FROM workbench_events WHERE event_id = ?').get(req.params.eventId);
     if (!e) return res.status(404).json({ error: 'event not found' });
@@ -300,29 +455,15 @@ export function registerWorkbenchEventRoutes(app: express.Express, guards: { adm
     res.set('Cache-Control', 'no-store').json({ ...eventView(e), log: logRows });
   });
   // release：观察期的人工确认——把这个事件的 held 投递转为 pending
-  app.post('/api/workbench-events/:eventId/release', (req, res) => {
+  app.post('/api/workbench-events/:eventId/release', { action: 'workbench-event.release', kind: 'decide' }, (req, res) => {
     if (!guards.sameOrigin(req)) return res.status(403).json({ error: '跨源拒绝' });
     if (!guards.admin(req, res)) return;
     const eventId = req.params.eventId;
-    const ev = db.prepare('SELECT source, item FROM workbench_events WHERE event_id = ?').get(eventId) as { source: string; item: string } | undefined;
-    if (!ev) return res.status(404).json({ error: 'event not found' });
-    if (taskWithdrawn(ev.source, ev.item)) return res.status(409).json({ error: '任务已撤回，不再派发', event_id: eventId });
-    db.exec('BEGIN IMMEDIATE');
-    let released: { id: number }[] = [];
-    try {
-      released = db.prepare("SELECT id FROM workbench_event_deliveries WHERE event_id = ? AND status = 'held'").all(eventId) as { id: number }[];
-      for (const r of released) {
-        db.prepare("UPDATE workbench_event_deliveries SET status = 'pending', next_at = datetime('now') WHERE id = ?").run(r.id);
-        log(eventId, r.id, 'human:admin', 'released');
-      }
-      db.exec('COMMIT');
-    } catch (e) { db.exec('ROLLBACK'); throw e; }
-    if (released.length === 0) return res.status(409).json({ error: '该事件没有待确认（held）的投递', event_id: eventId });
-    kickWorkbenchEvents();
-    res.json({ ok: true, event_id: eventId, released: released.length });
+    const out = releaseCore(eventId, guards.actor(req));
+    res.status(out.status).json(out.body);
   });
   // 决定：接单节点凭投递里的 reply token 回写。ask 可再改；accept/decline 是终态。
-  app.post('/api/workbench-events/:eventId/decision', (req, res) => {
+  app.post('/api/workbench-events/:eventId/decision', { action: 'workbench-event.decision', kind: 'write', statusNotVerdict: '接单节点凭投递里的 reply token 回写，不是登录身份的结论' }, (req, res) => {
     const eventId = req.params.eventId;
     const b = req.body ?? {};
     if (!EVENT_ID.test(eventId)) return res.status(404).json({ error: 'event not found' });
@@ -336,9 +477,11 @@ export function registerWorkbenchEventRoutes(app: express.Express, guards: { adm
     if (ref.length > 300 || (ref !== '' && !/^https?:\/\/\S+$/.test(ref))) return res.status(400).json({ error: 'ref 须为 http(s) 链接，≤300 字' });
     // 凭 token 找到唯一一条投递；找不到与 token 错同答 404（不泄露事件是否存在）
     const hash = Buffer.from(sha256(token), 'hex');
-    const rows = db.prepare("SELECT id, status, decision, reply_token_sha256, (sent_at != '' AND datetime(sent_at, '+' || ? || ' days') > datetime('now')) AS live FROM workbench_event_deliveries WHERE event_id = ? AND reply_token_sha256 != ''").all(REPLY_TTL_DAYS, eventId) as { id: number; status: string; decision: string; reply_token_sha256: string; live: number }[];
+    const rows = db.prepare("SELECT id, status, decision, target_url, reply_token_sha256, (sent_at != '' AND datetime(sent_at, '+' || ? || ' days') > datetime('now')) AS live FROM workbench_event_deliveries WHERE event_id = ? AND reply_token_sha256 != ''").all(REPLY_TTL_DAYS, eventId) as { id: number; status: string; decision: string; target_url: string; reply_token_sha256: string; live: number }[];
     const row = token === '' ? undefined : rows.find((r) => { const h = Buffer.from(r.reply_token_sha256, 'hex'); return h.length === hash.length && timingSafeEqual(h, hash); });
     if (!row) return res.status(404).json({ error: 'event not found' });
+    // 对端登记表里停用、等确认新键的节点：令牌还在有效期内也和不存在一样答，什么都不动（没登记的照旧，同投递）
+    { const can = peerCanDeliver(String(row.target_url ?? '')); if (!can.ok && can.reason !== 'peer_unknown') return res.status(404).json({ error: 'event not found' }); }
     if (row.status !== 'sent') return res.status(409).json({ error: `投递状态为 ${row.status}，只有已送达的投递才能回写决定` });
     if (row.decision === 'accept' || row.decision === 'decline') return res.status(409).json({ error: `已有终态决定：${row.decision}`, decision: row.decision });
     if (row.live !== 1) return res.status(410).json({ error: `reply token 已过期（送达后 ${REPLY_TTL_DAYS} 天）` });

@@ -43,7 +43,7 @@ try {
   const d4 = await fetch(B + '/api/apps/f193/files/999999', { method: 'DELETE', headers: H });
   ok('F5 删不存在 → 404', d3.status === 404 && d4.status === 404, [d3.status, d4.status].join(','));
   // F8：配额全量计数（灌 200 条后第 201 个 413）
-  { const { DatabaseSync } = await import('node:sqlite'); const db = new DatabaseSync(DATA + '/workbench-market.db'); for (let i = 0; i < 200; i++) db.prepare("INSERT INTO app_files (app_slug, original_name, mime, size, storage_path, created_by) VALUES ('f193', ?, 'text/plain', 1, 'x', '')").run('bulk' + i); db.close(); }
+  { const { DatabaseSync } = await import('node:sqlite'); const db = new DatabaseSync(DATA + '/workbench-market.db', { timeout: 5000 }); for (let i = 0; i < 200; i++) db.prepare("INSERT INTO app_files (app_slug, original_name, mime, size, storage_path, created_by) VALUES ('f193', ?, 'text/plain', 1, 'x', '')").run('bulk' + i); db.close(); }
   const r8 = await mcp('app_files_upload', { slug: 'f193', name: 'over.txt', content_base64: Buffer.from('x').toString('base64') });
   ok('F8 配额按全量计数（201→413）', /413|上限/.test(JSON.stringify(r8.j)), JSON.stringify(r8.j).slice(0, 80));
   // F11：MCP 同步过锁（app_publish 已移除，MCP 只剩 app_sync·会话恒为 mcp）——REST 会话 cli-A 刚同步，60s 内 MCP 同步 → 409

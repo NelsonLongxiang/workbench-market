@@ -2,6 +2,7 @@
 /** SOP 字段规则冒烟（纯函数）：从步骤 HTML 抽 required/pattern/长度/类型，完成时核对 run 数据。 */
 import { checkMessage, checkRunData, evalCheckExpr, extractFieldRules, parseCheckExpr } from '../server/src/sop-field-rules.ts';
 import { renderSopRunner } from '../server/src/sop-runner.ts';
+import vm from 'node:vm';
 
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
@@ -122,6 +123,19 @@ ok('合规：通过', fc([{ file_id: 1, sha256: sha, role: '验证报告', statu
   const kh = renderSopRunner(km, { id: 1, slug: 'k', title: 'k', kind: 'sop' });
   ok('C16 执行页嵌入同一份函数源码', [parseCheckExpr, evalCheckExpr, checkMessage].every((f) => kh.includes(String(f))));
   ok('C17 执行页条件变化时也重算 data-check 字段', kh.includes("$$('[data-required-if],[data-check]')"));
+  // C18：源码里的三个函数带类型标注；嵌进执行页的是 String(fn)，必须是纯 JS，且在独立环境里求值后和模块里的行为一致
+  {
+    const fns = { parseCheckExpr, evalCheckExpr, checkMessage };
+    const leaked = Object.entries(fns).filter(([, f]) => /CheckToken|CheckTerm|string \| null|:\s*(string|number)\b/.test(String(f))).map(([n]) => n);
+    ok('C18a 嵌入的源码里没有类型标注', leaked.length === 0, leaked.join());
+    const box = vm.runInNewContext(`(function(){ var parseCheckExpr = ${String(parseCheckExpr)}; var evalCheckExpr = ${String(evalCheckExpr)}; var checkMessage = ${String(checkMessage)}; return { parseCheckExpr: parseCheckExpr, evalCheckExpr: evalCheckExpr, checkMessage: checkMessage }; })()`, {});
+    const exprs = ['a <= b', 'a+b=c', 'a + b - 1 >= s2.c', '-a < 0', '- - a = 1', 'a == b', 'a>1.5', ' a  >=  b ', 'x1 + 2.25 = y_2', '', 'a', 'a <= ', '<= b', 'a <= b <= c', 'a ** b', 'a <= b; alert(1)', 'a(b) = 1', '1 <= 2', 'a b = c', 'a.b.c = 1', 'a-b-c', 'a <= b'.padEnd(201, ' ')];
+    const vals = [{ a: '1', b: '1', c: '2', 's2.c': '1', x1: '3', y_2: '5.25' }, { a: '2', b: '', c: 'abc' }, { a: '0.1', b: '0.2', c: '0.3' }, {}];
+    const label = (st, f) => (st ? st + '/' : '') + f.toUpperCase();
+    const run = (impl) => JSON.stringify(exprs.map((e) => { const p = impl.parseCheckExpr(e); return [p, p && vals.map((v) => { const r = impl.evalCheckExpr(p, (st, f) => v[(st ? st + '.' : '') + f]); return [r, r && impl.checkMessage(p, r, label)]; })]; }));
+    const mine = run(fns), embedded = run(box);
+    ok('C18b 嵌入的三个函数在独立环境里和模块行为一致', mine === embedded, embedded.slice(0, 200));
+  }
 }
 
 // 执行页脚本写在模板字符串里：正则的反斜杠要双写，否则 \s 变成 s，条件必填在浏览器里永远不成立

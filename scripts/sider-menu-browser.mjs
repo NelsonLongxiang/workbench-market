@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-/** #316 侧栏五组菜单 + #317 页面骨架 + #319 列表规则浏览器回归（Python Playwright/Chromium，CI browser-security job）。
- *  #320（dashboard-browser.py）：总览 12 列栅格与四类卡片、过期提示、驾驶舱旧布局读时吸附不丢卡不回写。
+/** 新外壳（#571：侧栏主入口、角标、我的驾驶舱、设置 / 管理、用户卡）+ 页面骨架（顶栏）+ #319 列表规则 + #320 驾驶舱旧布局浏览器回归（Python Playwright/Chromium，CI browser-security job）。
+ *  #320（dashboard-browser.py）：驾驶舱旧布局读时吸附不丢卡不回写（原来的总览那一半随 /overview 删了）。
  *  #319（list-rules-browser.py）：统一待办 ProTable 全部可读且 ID 不重复、状态最左/操作最右、直接操作 ≤2、相对时间、数字右对齐。
  *  #317（page-skeleton-browser.py）：10 个页面都有 PageContainer、标题 = 菜单名、面包屑 = 分组 / 页面、右上至多 1 个 primary；驾驶舱详情带详情名。
  *  #316（sider-menu-browser.py）：
@@ -45,7 +45,24 @@ try {
   const cfg = join(TMP, 'browser.json');
   writeFileSync(cfg, JSON.stringify({ base, control: `http://127.0.0.1:${PORT + 1}`, token: env.ADMIN_TOKEN, cockpit, cockpit_name: '合成驾驶舱', min_tasks: 25, legacy_cockpit: legacy.id }));
   code = 0;
-  for (const script of ['scripts/sider-menu-browser.py', 'scripts/page-skeleton-browser.py', 'scripts/list-rules-browser.py', 'scripts/dashboard-browser.py']) {
+  // 一行一个脚本：各个 PR 各加各的行，git 能自动合（原来写在一行里，谁后合谁冲突）
+  for (const script of [
+    'scripts/sider-menu-browser.py',
+    'scripts/page-skeleton-browser.py',
+    'scripts/list-rules-browser.py',
+    'scripts/dashboard-browser.py',
+    'scripts/market-browser.py',
+    'scripts/knowledge-browser.py',
+    'scripts/remember-browser.py',
+    'scripts/access-browser.py',
+    'scripts/team-browser.py',
+    'scripts/cockpit-attention-browser.py',
+    'scripts/cockpit-embed-browser.py',
+    'scripts/seat-name-browser.py',
+    'scripts/work-items-views-browser.py',
+    'scripts/market-detail-browser.py',
+    'scripts/work-item-extras-browser.py',
+  ]) {
     const py = spawn(pythonBin(), [script, cfg], { stdio: 'inherit' });
     code |= await new Promise((x, j) => { py.on('error', j); py.on('exit', x); });
   }

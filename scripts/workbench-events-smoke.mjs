@@ -15,14 +15,17 @@
 //   W11 超过传输上限的载荷 → 一次即 dead（不重试 5 次）；W12 画布名与上游同规则（中文、中间空格可；>40 / 纯数字拒）
 //   W13 发送途中撤回：撤回如实报 in_flight，落定记 sent + sent-after-withdraw（不把 cancelled 事后改写）
 //   终态判据非空：注入一条 73h 前的 held，判据必须抓到
+//   W14 阶段八 8b：每个事件都建出事项、状态和来源对得上；监听器没出错；只跑回填和实时建的逐行相同
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { mkdirSync, mkdtempSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { generateKeyPairSync } from 'node:crypto';
+import { signCard } from '@nelsonlongxiang/dsh-open-a2a-net/card';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 const originSrc = process.env.A2A_ORIGIN_SRC ?? resolve('..', 'dsh-open-a2a-net', 'src', 'origin-claim.ts');
@@ -43,7 +46,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 登记之后才判能否投递——拒投时回 200 + -32000，同一 task_id 再来就是 409 -32003/-32002。
 function makePeer() {
   const peer = { got: [], verdicts: [], claims: new Map(), failFirst: 0, alwaysFail: false, delayMs: 0 };
+  // 阶段七 R3：市场发出投递前会取对端名片记下对端是谁；假对端照真实宿主提供签名名片（zone = peer）
+  const cardKey = generateKeyPairSync('ed25519').privateKey;
   peer.server = createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/.well-known/agent-card.json') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(signCard({ capabilities: {}, expiresAt: Date.now() + 3600_000, name: 'peer', session: 'peer', team: 'peer' }, cardKey)));
+    }
     let body = '';
     req.on('data', (c) => (body += c));
     req.on('end', async () => {
@@ -214,7 +223,7 @@ try {
     });
     await check('W10b 撤回后 release → 409', async () => assert.equal((await call('/api/workbench-events/' + tw.event_id + '/release', {})).status, 409));
     const th = await publishTask({ ...values, title: '未送达回写' }, false);
-    const db = new DatabaseSync(join(data, 'workbench-market.db')); db.exec('PRAGMA busy_timeout=5000');
+    const db = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 }); db.exec('PRAGMA busy_timeout=5000');
     const heldMsg = db.prepare("SELECT message FROM workbench_event_deliveries WHERE event_id = ? LIMIT 1").get(th.event_id).message;
     const heldToken = JSON.parse(heldMsg).reply.token;
     const early = await call('/api/workbench-events/' + th.event_id + '/decision', { token: heldToken, decision: 'accept', reason: '抢答' }, 'POST', remote);
@@ -291,7 +300,7 @@ try {
 
   // W9：只增日志
   {
-    const db = new DatabaseSync(join(data, 'workbench-market.db')); db.exec('PRAGMA busy_timeout=5000');
+    const db = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 }); db.exec('PRAGMA busy_timeout=5000');
     let updateRefused = false, deleteRefused = false, eventDeleteRefused = false;
     try { db.exec("UPDATE workbench_event_log SET action = 'x'"); } catch { updateRefused = true; }
     try { db.exec('DELETE FROM workbench_event_log'); } catch { deleteRefused = true; }
@@ -308,12 +317,60 @@ try {
     const humans = db.prepare("SELECT COUNT(*) AS n FROM workbench_events WHERE submitter_kind = 'human'").get().n;
     db.close();
     await check(`终态：${humans} 个 human 事件无 pending、无超时 held（${held} 个 held 在 72h 内等确认）`, () => assert.deepEqual(open, []));
+    // 阶段七 R3：每个真正发出去的任务号都记下了对端（名片 team 与根地址），回执只认这台宿主的签名
+    const sentTasks = (() => { const ro = new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true }); try { return ro.prepare('SELECT task_id, peer_zone, peer_root FROM a2a_sent_tasks').all(); } finally { ro.close(); } })();
+    await check(`R3 发出的 ${sentTasks.length} 个任务号都记下了对端 zone 与根地址`, () => {
+      assert.ok(sentTasks.length > 0);
+      for (const t of sentTasks) { assert.equal(t.peer_zone, 'peer'); assert.match(t.peer_root, /^http:\/\/127\.0\.0\.1:\d+$/); }
+    });
     // 判据非空：把一条 held 的投递时刻（created_at，72h 由此起算）挪到 73h 前，判据必须抓到它
-    const rw = new DatabaseSync(join(data, 'workbench-market.db')); rw.exec('PRAGMA busy_timeout=5000');
+    const rw = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 }); rw.exec('PRAGMA busy_timeout=5000');
     rw.prepare("UPDATE workbench_event_deliveries SET created_at = datetime('now', '-73 hours') WHERE id = (SELECT MIN(id) FROM workbench_event_deliveries WHERE status = 'held')").run();
     const caught = rw.prepare("SELECT COUNT(*) AS n FROM workbench_event_deliveries d JOIN workbench_events e ON e.event_id = d.event_id WHERE e.submitter_kind = 'human' AND (d.status = 'pending' OR (d.status = 'held' AND d.created_at < datetime('now', '-72 hours')))").get().n;
     rw.close();
     await check('终态判据非空：73h 前的 held 被判不通过', () => assert.equal(caught, 1));
+  }
+  // W14（阶段八 8b）：每个事件都在同一个事务里建出了事项，状态和来源对得上；实时建的和只跑回填建的逐行相同
+  {
+    const db = dbRead();
+    const evs = db.prepare('SELECT event_id, submitter_kind, routed FROM workbench_events ORDER BY id').all();
+    const byEvent = (sql, id) => db.prepare(sql).all(id);
+    const expected = (e) => {
+      if (e.submitter_kind === 'unverified' || e.routed === 'unrouted') return 'draft';
+      const ds = byEvent('SELECT status, decision FROM workbench_event_deliveries WHERE event_id = ?', e.event_id);
+      const acts = byEvent('SELECT action FROM workbench_event_log WHERE event_id = ?', e.event_id).map((r) => r.action);
+      if (ds.some((d) => d.decision === 'accept')) return 'accepted';
+      if (ds.some((d) => d.decision === 'ask')) return 'blocked';
+      const alive = ds.filter((d) => ['held', 'pending'].includes(d.status) || (d.status === 'sent' && d.decision === ''));
+      if (ds.length && ds.every((d) => d.status === 'cancelled')) return acts.some((a) => a.startsWith('sent')) ? 'delivered' : 'cancelled';
+      if (!alive.length && ds.some((d) => d.status === 'dead' || d.decision === 'decline')) return 'failed';
+      if (ds.length && ds.every((d) => d.status === 'held' || d.status === 'cancelled')) return 'held';
+      return 'delivered';
+    };
+    const wrong = [];
+    for (const e of evs) {
+      const item = db.prepare('SELECT state FROM work_items WHERE id = ?').get(`wi_${e.event_id}`);
+      if (item?.state !== expected(e)) wrong.push(`${e.event_id}（${e.submitter_kind}/${e.routed}）：应为 ${expected(e)}，得到 ${item?.state ?? '没有事项'}`);
+    }
+    const dumpOf = (conn) => JSON.stringify(conn.prepare('SELECT id, state, eval, eval_reason, open_asks, created_by, source_ref FROM work_items ORDER BY id').all().map((i) => [i,
+      conn.prepare('SELECT fact, fact_source, fact_id, from_state, to_state, actor, detail FROM work_item_log WHERE item_id = ? ORDER BY seq').all(i.id)]));
+    const live = dumpOf(db);
+    const copyDir = mkdtempSync(resolve('tmp', 'wbe-backfill-'));
+    db.exec(`VACUUM INTO '${join(copyDir, 'workbench-market.db').replace(/'/g, "''")}'`);
+    db.close();
+    const rw = new DatabaseSync(join(copyDir, 'workbench-market.db'), { timeout: 5000 });
+    rw.exec('DROP TABLE work_item_log; DROP TABLE work_items;');
+    rw.close();
+    const script = `const { root } = await import(${JSON.stringify(pathToFileURL(resolve('server/src/root-context.ts')).href)});
+      const { WorkItemService } = await import(${JSON.stringify(pathToFileURL(resolve('server/src/services/work-item.ts')).href)});
+      await root.plugin(WorkItemService); root.get('workItems').backfill(); root.get('workItems').backfill(); console.log('BACKFILLED');`;
+    const out = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', script], { env: { ...process.env, DATA_DIR: copyDir }, encoding: 'utf8' });
+    const back = new DatabaseSync(join(copyDir, 'workbench-market.db'), { readOnly: true });
+    const backfilled = out.stdout.includes('BACKFILLED') ? dumpOf(back) : `回填没跑完：${out.stderr.slice(-500)}`;
+    back.close();
+    await check(`W14a ${evs.length} 个事件各有一个事项，状态和来源对得上（未验证、未路由停在草稿）`, () => assert.deepEqual(wrong, []));
+    await check('W14b 监听器没出过错（服务日志里没有「没推进到事项」）', () => assert.ok(!logs.includes('没推进到事项'), logs.slice(-800)));
+    await check('W14c 只跑回填（两遍）建出来的事项和事项日志，和实时建的逐行相同', () => assert.equal(backfilled, live));
   }
   console.log(`workbench-events-smoke: ${pass} PASS`);
 } catch (e) {

@@ -1,4 +1,5 @@
-/** 台域（apps ×11 + app_versions ×8）：SQL 原文自 index.ts 搬入（S1）。 */
+/** 台域（apps ×12 + app_versions ×11）：SQL 原文自 index.ts 搬入（S1；迁进 LayerFS 的三句随阶段三第十三批搬入）。 */
+import type { SQLInputValue } from 'node:sqlite';
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
 
@@ -56,10 +57,26 @@ export class AppService extends Service {
   versionsMax(appId: number) {
     return db.prepare('SELECT MAX(version) AS v FROM app_versions WHERE app_id = ?').get(appId);
   }
+  /** 治理时间线的版本链：新的在前（原文自 /api/sops/:slug/timeline） */
+  versionLog(appId: number) {
+    return db.prepare('SELECT version, changelog, created_by, created_at FROM app_versions WHERE app_id = ? ORDER BY version DESC').all(appId);
+  }
   versionExists(appId: number, version: number) {
     return db.prepare('SELECT version FROM app_versions WHERE app_id = ? AND version = ?').get(appId, version);
   }
   versionsDelete(appId: number) {
     return db.prepare('DELETE FROM app_versions WHERE app_id = ?').run(appId);
+  }
+  /** 迁进 LayerFS 失败（服务不可达）：标 shadow failed，已有 commit 的不动（自 POST /api/apps/:slug/migrate-layerfs 搬入） */
+  versionMigrateFailed(versionId: SQLInputValue) {
+    return db.prepare("UPDATE app_versions SET shadow_status='failed', shadow_error='LayerFS publish failed; retry migrate-layerfs' WHERE id=? AND commit_id=''").run(versionId);
+  }
+  /** 迁进 LayerFS 成功：记 commit，shadow succeeded（同上） */
+  versionMigrated(commitId: SQLInputValue, versionId: SQLInputValue) {
+    return db.prepare("UPDATE app_versions SET commit_id = ?, shadow_status='succeeded', shadow_error='' WHERE id = ?").run(commitId, versionId);
+  }
+  /** 台的 LayerFS 项目名（同上） */
+  setLayerfsProject(project: SQLInputValue, slug: SQLInputValue) {
+    return db.prepare("UPDATE apps SET layerfs_project = ? WHERE slug = ?").run(project, slug);
   }
 }

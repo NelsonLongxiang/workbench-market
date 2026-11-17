@@ -15,7 +15,9 @@ def check(n, c, x=''):
     if c: ok += 1; print('  ✓', n)
     else: fail += 1; print('  ✗', n, x)
 def crumbs(pg):
-    return [t.strip() for t in pg.locator('.ant-page-header .ant-breadcrumb li:not(.ant-breadcrumb-separator)').all_inner_texts()]
+    # 新外壳（#571）：顶栏「页面名 / 详情名 / …」，没有分组那一级
+    t = pg.locator('.wm-top-crumb').first
+    return [x.strip() for x in t.inner_text().replace('\n', '').split('/')] if t.count() else []
 def no_private(text):
     return [v for v in PRIV if v in text]
 
@@ -28,8 +30,8 @@ with sync_playwright() as p:
         pg.goto(M + f'/sops/{SLUG}')
     history_rows = resp.value.json()
     pg.wait_for_selector('.wm-sop-runs .ant-table-row')
-    check('交付空间面包屑 = 交付 / SOP 交付空间 / SOP 名', crumbs(pg) == ['交付', 'SOP 交付空间', '机柜验收'], crumbs(pg))
-    btn = pg.locator('.ant-page-header-heading-extra a.ant-btn-primary', has_text=re.compile(r'开始执行'))
+    check('交付空间顶栏 = SOP 交付空间 / SOP 名', crumbs(pg) == ['SOP 交付空间', '机柜验收'], crumbs(pg))
+    btn = pg.locator('.wm-top-actions a.ant-btn-primary', has_text=re.compile(r'开始执行'))
     check('头部主操作「开始执行」指向 Runner', btn.count() == 1 and (btn.get_attribute('href') or '').endswith(f'/sop/{SLUG}/'))
     try:
         assert_metadata_history(pg.locator('.wm-sop-runs'), '合成·张工', 2, reqs, history_rows, tuple(PRIV))
@@ -51,11 +53,11 @@ with sync_playwright() as p:
     pg.wait_for_url(M + f'/sops/{SLUG}/runs/{RID}')
     pg.wait_for_selector('.wm-run-private')
     body = pg.locator('body').inner_text()
-    check('点行进入单次记录，面包屑带 SOP 名与记录号', crumbs(pg) == ['交付', 'SOP 交付空间', '机柜验收', f'记录 #{RID}'], crumbs(pg))
+    check('点行进入单次记录，顶栏带 SOP 名与记录号', crumbs(pg) == ['SOP 交付空间', '机柜验收', f'记录 #{RID}'], crumbs(pg))
     check('单次记录（无读授权）只显示元数据与提示，不出现任何私有值/附件名', not no_private(body) and '需要读授权' in body, no_private(body))
     check('单次记录（无读授权）不请求附件接口、不渲染步骤', not any(re.search(rf'/api/sop/runs/{RID}/files', u) for u in reqs) and pg.locator('.wm-run-body, .ant-steps').count() == 0)
     pg.reload(); pg.wait_for_selector('.wm-run-private')
-    check('单次记录刷新不丢（可分享链接）', pg.evaluate('location.pathname') == f'/sops/{SLUG}/runs/{RID}' and f'执行记录 #{RID}' in pg.locator('.ant-page-header-heading-title').inner_text())
+    check('单次记录刷新不丢（可分享链接）', pg.evaluate('location.pathname') == f'/sops/{SLUG}/runs/{RID}' and f'记录 #{RID}' in pg.locator('.wm-top-crumb').inner_text())
     pg.goto(M + f'/sops/{SLUG}/runs/99999'); pg.wait_for_selector('.ant-result-404')
     check('不存在的记录 → 404 结果页', pg.locator('.ant-result-404').count() == 1)
     pg.goto(M + '/sops/no-such-sop'); pg.wait_for_selector('.ant-result-404')
@@ -67,10 +69,13 @@ with sync_playwright() as p:
     check('列表「记录」按钮进入交付空间', True)
     # ── 控制面：管理员口令（输入后只走前端路由，刷新会按 #292 M4 抹口令）──
     cp = b.new_page(viewport={'width': 1280, 'height': 800}, accept_downloads=True); cp.set_default_timeout(10000)
-    cp.goto(C + '/sops'); cp.wait_for_selector('.ant-pro-sider .ant-menu')
-    cp.locator('.ant-pro-sider button', has_text='口令').first.click()
-    cp.locator('.ant-popover input[type=password]').fill(cfg['token'])
-    cp.locator('.ant-popover button', has_text='保').click(); cp.wait_for_timeout(300)
+    cp.goto(C + '/sops'); cp.wait_for_selector('[data-testid=wm-side]')
+    cp.locator('[data-testid=wm-me]').click()  # 新外壳：口令在用户卡弹出层里
+    cp.locator('[data-testid=wm-me][aria-expanded=true]').wait_for()
+    cp.locator('.wm-me-pop button', has_text='口令').click()
+    cp.locator('.ant-popover input[type=password]').last.fill(cfg['token'])
+    cp.locator('.ant-popover button', has_text='保').last.click()
+    cp.wait_for_selector('[data-testid=nav-admin]', timeout=10000)  # 口令核对过、存好了，侧栏才出现「设置 / 管理」
     cp.evaluate(f"history.pushState({{}}, '', '/sops/{SLUG}/runs/{RID}'); dispatchEvent(new PopStateEvent('popstate'))")
     cp.wait_for_selector('.wm-run-body .ant-steps')
     body = cp.locator('.wm-run-body').inner_text()

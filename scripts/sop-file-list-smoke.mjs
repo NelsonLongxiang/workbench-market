@@ -79,7 +79,7 @@ try {
   console.log('▶ L2b 旧文件没记 sha256');
   const run4 = (await call('POST', '/api/sop/runs', CLI, { slug: 'fl-sop' })).body;
   const f4 = await upload(run4.id, '旧件.txt', '旧文件内容');
-  { const db = new DatabaseSync(resolve(DATA, 'workbench-market.db')); db.prepare("UPDATE sop_run_files SET sha256 = '' WHERE id = ?").run(f4.id); db.close(); }
+  { const db = new DatabaseSync(resolve(DATA, 'workbench-market.db'), { timeout: 5000 }); db.prepare("UPDATE sop_run_files SET sha256 = '' WHERE id = ?").run(f4.id); db.close(); }
   r = await call('GET', `/api/sop/runs/${run4.id}/files`, { 'x-run-read-capability': run4.read_capability });
   ok('列文件时补算缺的 sha256（流式）', r.body?.items?.find((f) => f.id === f4.id)?.sha256 === sha('旧文件内容'), JSON.stringify(r.body?.items));
   await call('PUT', `/api/sop/runs/${run4.id}`, CLI, { stepKey: 'deliver', value: { files: [{ file_id: f4.id, name: '旧件.txt', sha256: sha('旧文件内容'), role: '交付件' }] } });

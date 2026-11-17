@@ -1,6 +1,8 @@
 # #296 内容面装配（Draft，默认关闭，未部署）
 
-原98259e0已merge固定main09fb3888，保公开历史/旧报告；#294已实合，不再等待M1。此PR仍须属主看过再合，不合并部署、不开LC审批授权、.88不动。
+> 补记（2026-11-13）：代码已于 2026-11-01 经 PR #296（`d6609ec`）合入 main（`server/src/content-surface.ts` 等），仍默认关闭：不设 `WM_CONTENT_PORT` 就不启动。下文「此PR仍须属主看过再合」是合入前的原话；生产是否已部署以运维记录为准。
+
+原98259e0已merge固定main09fb3888，保公开历史/旧报告；#294已实合，不再等待M1。此PR仍须属主看过再合，不合并部署、不开LC审批授权、Odoo 主机不动。
 
 ## 实际接线
 index在共享CORS/body-parser/portal/SPA前mount终结分发，按socket.localPort选content；复用registerSurface，显式IP/port。未知/API/mcp/a2a/sop/apps/错target均404，不next回市场SPA。HTTP与WS先验context、每次现查原viewer，最后才读取目标凭据与连接业务上游；/GO/id分类与代理前缀一致，不复用旧market goPrefix。

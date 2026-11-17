@@ -310,15 +310,19 @@ window.__SOP__ = ${boot};
     clearTimeout(timers[stepKey]);
     timers[stepKey] = setTimeout(function () { save(stepKey); }, 800);
   }
+  // 写这条记录要它的写凭据（开建时发给这台浏览器，存在本地）：保存和完成都带上；换了浏览器的旧记录没有它，只能管理员处理
+  var NO_WRITE = '这台浏览器没有这条记录的写凭据（可能换过浏览器或清过数据），保存不了，请联系管理员处理';
+  function writeHeaders(h) { if (runUploadToken) h['X-Run-Upload-Token'] = runUploadToken; return h; }
   function save(stepKey) {
     var value = collect(stepKey);
     try { localStorage.setItem(LS + '.' + stepKey, JSON.stringify(value)); } catch (e) {}
     return ensureRun().then(function () { return fetch('/api/sop/runs/' + runId, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      method: 'PUT', headers: writeHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ stepKey: stepKey, value: value })
     }); }).then(function (r) {
       dot(stepKey, r.ok ? 'saved' : 'dirty');
-      if (!r.ok) setState('保存失败（HTTP ' + r.status + '）——已缓冲本地，将随下次输入重试');
+      if (r.status === 403) setState(NO_WRITE);
+      else if (!r.ok) setState('保存失败（HTTP ' + r.status + '）——已缓冲本地，将随下次输入重试');
     }).catch(function () {
       dot(stepKey, 'dirty'); setState('离线——已缓冲本地，恢复网络后继续填写即可');
     });
@@ -554,8 +558,8 @@ window.__SOP__ = ${boot};
     ensureRun().then(function () { return Promise.all(BOOT.steps.filter(function (k) { return timers[k]; }).map(function (k) {
       clearTimeout(timers[k]); return save(k);
     })); }).then(function () {
-      return fetch('/api/sop/runs/' + runId + '/finish', { method: 'POST' });
-    }).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error((j && j.error) || ('HTTP ' + r.status)); return j; }); }).then(function (out) {
+      return fetch('/api/sop/runs/' + runId + '/finish', { method: 'POST', headers: writeHeaders({}) });
+    }).then(function (r) { return r.json().then(function (j) { if (r.status === 403) throw new Error(NO_WRITE); if (!r.ok) throw new Error((j && j.error) || ('HTTP ' + r.status)); return j; }); }).then(function (out) {
       localStorage.setItem(LS, JSON.stringify({ id: runId, status: 'finished' }));
       setRunMeta('run #' + out.id + ' · 已完成');
       setState('执行完成，记录已归档（' + out.steps + ' 个步骤数据）');

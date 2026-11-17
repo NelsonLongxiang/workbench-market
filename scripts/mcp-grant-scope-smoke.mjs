@@ -72,13 +72,13 @@ try {
   ok('grants 收 工具@台', r.status === 200 && JSON.stringify(r.body?.grants) === JSON.stringify([`workbench_vars_set@${A}`, `workbench_vars_get@${A}`]), JSON.stringify(r.body));
   r = await call('PUT', `/api/mcp/sessions/${s.id}/grants`, { grants: ['workbench_vars_set@999999'] }, AT);
   ok('台不存在 400', r.status === 400 && String(r.body?.error).includes('台不存在'), JSON.stringify(r.body));
-  r = await call('PUT', `/api/mcp/sessions/${s.id}/grants`, { grants: [`app_data_list@${A}`] }, AT);
+  r = await call('PUT', `/api/mcp/sessions/${s.id}/grants`, { grants: [`app_files_upload@${A}`] }, AT);
   ok('不支持按台的工具 400', r.status === 400 && String(r.body?.error).includes('暂不支持按台授权'), JSON.stringify(r.body));
   r = await call('PUT', `/api/mcp/sessions/${s.id}/grants`, { grants: [`no_such_tool@${A}`] }, AT);
   ok('未知工具@台 400', r.status === 400 && String(r.body?.error).includes('未知工具名'), JSON.stringify(r.body));
   ok('非法保存不改动原授权', JSON.stringify(await grantsOf(s.id)) === JSON.stringify([`workbench_vars_set@${A}`, `workbench_vars_get@${A}`]));
   const tools = (await call('GET', '/api/mcp/tools', null, AT)).body ?? [];
-  ok('/api/mcp/tools 标出可按台授权的工具', tools.filter((t) => t.scopable).map((t) => t.name).sort().join() === 'workbench_vars_get,workbench_vars_set');
+  ok('/api/mcp/tools 标出可按台授权的工具', tools.filter((t) => t.scopable).map((t) => t.name).sort().join() === 'app_data_list,app_files_list,workbench_vars_get,workbench_vars_set');
 
   // ============ 台内可调、台外拒绝（MCP 与 REST） ============
   ok('tools/list 列出限定到台的工具', (await listNames(s.token)).includes('workbench_vars_set'));
@@ -92,6 +92,13 @@ try {
   ok('把授权串 工具@台 当工具名调用：按未授权拒绝（全局判定只认不带 @ 的名字）', r.rpcError?.code === -32601, JSON.stringify(r.rpcError ?? r.text).slice(0, 120));
   r = await tool(s.token, 'workbench_vars_get', { id: A, key: 'k1' });
   ok('MCP 读台 A 成功', !r.rpcError && !r.isError, r.text.slice(0, 160));
+  // 台号写法和工具同一口径（workbenchIdOf：十进制正整数、不带前导零）：数值上等于 A 的别的写法不算台 A，按台外拒绝
+  for (const id of [`0x${A.toString(16)}`, `0${A}`, `${A}.0`, ` ${A} `, `${A}e0`]) {
+    r = await tool(s.token, 'workbench_vars_get', { id, key: 'k1' });
+    ok(`限定到台：台号写成 ${JSON.stringify(id)} 不算台 A，按未授权拒绝（-32601）`, r.rpcError?.code === -32601, JSON.stringify(r.rpcError ?? r.text).slice(0, 120));
+  }
+  r = await rest(s.token, 'workbench_vars_get', { id: `0x${A.toString(16)}`, key: 'k1' });
+  ok('限定到台：REST 台号写成十六进制同样 403', r.status === 403, JSON.stringify(r.body).slice(0, 120));
   r = await rest(s.token, 'workbench_vars_set', { id: A, key: 'k2', value: 2 });
   ok('REST 写台 A 成功', r.status === 200, JSON.stringify(r.body).slice(0, 160));
   r = await rest(s.token, 'workbench_vars_set', { id: B, key: 'k2', value: 2 });
@@ -106,7 +113,7 @@ try {
   let info = await tool(s.token, 'access_info');
   const setItem = (info.payload?.catalog ?? []).find((t) => t.name === 'workbench_vars_set');
   ok('access_info 标出限定的台', setItem?.granted === true && JSON.stringify(setItem?.granted_workbenches) === JSON.stringify([A]) && setItem?.scopable === true, JSON.stringify(setItem));
-  r = await tool(s.token, 'access_request', { tools: [`app_data_list@${A}`], reason: '试' });
+  r = await tool(s.token, 'access_request', { tools: [`app_files_upload@${A}`], reason: '试' });
   ok('申请不支持按台的工具@台拒绝', r.isError && r.text.includes('暂不支持按台申请'), r.text.slice(0, 120));
   r = await tool(s.token, 'access_request', { tools: ['workbench_vars_set@999999'], reason: '试' });
   ok('申请不存在的台拒绝', r.isError && r.text.includes('台不存在'), r.text.slice(0, 120));
@@ -124,6 +131,11 @@ try {
   const g = await newSession('agent-global', ['workbench_vars_set']);
   r = await tool(g.token, 'workbench_vars_set', { id: B, key: 'g1', value: 1 });
   ok('全局授权：写任意台照旧', !r.rpcError && !r.isError, r.text.slice(0, 160));
+  // 全局授权：台号写法不对的由工具自己拒绝（400 的那句），和 REST 路由同一口径
+  for (const id of ['0x2', '02', 0, -1, 1.5, '1.5', '']) {
+    r = await tool(g.token, 'workbench_vars_set', { id, key: 'g2', value: 1 });
+    ok(`全局授权：台号 ${JSON.stringify(id)} 写法不对，工具拒绝`, r.isError && r.text.includes('十进制正整数'), JSON.stringify(r.rpcError ?? r.text).slice(0, 120));
+  }
   info = await tool(g.token, 'access_info');
   ok('全局授权：access_info 不标限定台', !('granted_workbenches' in ((info.payload?.catalog ?? []).find((t) => t.name === 'workbench_vars_set') ?? {})));
   r = await tool(g.token, 'access_request', { tools: [`workbench_vars_set@${A}`], reason: '试' });

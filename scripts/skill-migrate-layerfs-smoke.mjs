@@ -79,7 +79,7 @@ try {
   for (;;) { try { if ((await fetch(base + '/api/health')).ok) break; } catch {} if (Date.now() > end) throw new Error('server not ready ' + serverErr.slice(-300)); await sleep(250); }
 
   const { DatabaseSync } = await import('node:sqlite');
-  const db = new DatabaseSync(join(DATA, 'workbench-market.db'));
+  const db = new DatabaseSync(join(DATA, 'workbench-market.db'), { timeout: 5000 });
   const addSkill = (slug, files, registered = digest(files)) => {
     const id = db.prepare("INSERT INTO skills (slug, name, layer, layer_name, source) VALUES (?, ?, 1, '合成', 'synthetic')").run(slug, slug).lastInsertRowid;
     db.prepare('INSERT INTO skill_versions (skill_id, version, tree_digest, file_count, total_bytes, snapshot_path) VALUES (?, 1, ?, ?, ?, ?)')

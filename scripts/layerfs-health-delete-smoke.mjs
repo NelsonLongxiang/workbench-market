@@ -81,9 +81,20 @@ try {
   ok('本地未留 commit_id、影子记失败', list.length > 0 && list.every((v) => !v.commit_id && v.shadow_status === 'failed') && !(list[0]?.layerfs_project), JSON.stringify(list).slice(0, 200));
 
   lf.deleteStatus = 500;
+  const verBefore = (await call('GET', '/api/apps/lf-orphan')).body?.active_version;
   const refused = await call('DELETE', '/api/apps/lf-orphan', { reviewed_by: 'layerfs-health-delete-smoke' });
   ok('远端删除失败 → 502', refused.status === 502, `status=${refused.status}`);
-  ok('失败后保留本地台', (await call('GET', '/api/apps/lf-orphan')).status === 200);
+  // 失败后本地台留着、标成「删除中」（等重试）：读按不存在处理（404），库里那一行还在
+  {
+    const { DatabaseSync } = await import('node:sqlite');
+    const d = new DatabaseSync(join(TMP, 'data', 'workbench-market.db'), { timeout: 5000 });
+    const app = d.prepare("SELECT id, status, active_version FROM apps WHERE slug = 'lf-orphan'").get();
+    const ver = app ? d.prepare('SELECT shadow_status, commit_id FROM app_versions WHERE app_id = ? AND version = ?').get(app.id, app.active_version) : undefined;
+    d.close();
+    ok('失败后保留本地台（标成删除中，读按不存在处理）', app?.status === 'deleting' && (await call('GET', '/api/apps/lf-orphan')).status === 404, `status=${app?.status}`);
+    // 原来经 GET 核的那两项（读不到了，改从库里核）：活跃版本没变，那个版本的影子仍是 failed、没有 commit_id
+    ok('失败后活跃版本没变，那个版本的影子仍是 failed（从库里核）', Number.isInteger(verBefore) && app?.active_version === verBefore && ver?.shadow_status === 'failed' && !ver.commit_id, JSON.stringify({ verBefore, app, ver }));
+  }
   lf.deleteStatus = 200;
   const deleted = await call('DELETE', '/api/apps/lf-orphan', { reviewed_by: 'layerfs-health-delete-smoke' });
   ok('重试删台成功', deleted.status === 200, `status=${deleted.status}`);
@@ -95,7 +106,7 @@ try {
   const resv = await ghPublish(base, gh, { slug: 'wm-skills', title: '撞名台', files: [{ path: 'index.html', content: '<!doctype html><p>x</p>' }] }, { 'x-admin-token': ADMIN });
   ok('同步保留名 wm-skills 被拒（400）', resv.status === 400, `status=${resv.status}`);
   const { DatabaseSync } = await import('node:sqlite');
-  const db = new DatabaseSync(join(TMP, 'data', 'workbench-market.db'));
+  const db = new DatabaseSync(join(TMP, 'data', 'workbench-market.db'), { timeout: 5000 });
   db.prepare("INSERT INTO apps (slug, title, layerfs_project) VALUES ('wm-skills', '历史遗留撞名台', 'wm-skills') ON CONFLICT(slug) DO UPDATE SET layerfs_project = 'wm-skills'").run();
   db.close();
   const delsBefore = lf.deletes.length;

@@ -21,7 +21,7 @@ export function assembleReadonlySop(source:FrozenSopSource, run:RunSnapshot, ste
     const fields = step.fields.map((field:any) => {
       if (!object(field) || Object.keys(field).some(k=>!['key','type','required','maxLength','options','maxItems','maxBytes','mime','operations'].includes(k)) || typeof field.required !== 'boolean' || !Array.isArray(field.operations) || JSON.stringify(field.operations)!==JSON.stringify(['read']) && !(allowSave && JSON.stringify(field.operations)===JSON.stringify(['read','save'])) && !(allowUpload && field.type==='file' && JSON.stringify(field.operations)===JSON.stringify(['read','upload']))) throw Error('Step '+step.key+': invalid read-only field declaration');
       if (field.type==='text' && (!Number.isSafeInteger(field.maxLength) || field.maxLength<1 || field.maxLength>4096) || field.type==='multi' && (!Number.isSafeInteger(field.maxItems) || field.maxItems<1 || field.maxItems>50) || field.maxItems!==undefined && !['multi','file'].includes(field.type) || field.maxLength!==undefined && field.type!=='text' || field.options!==undefined && field.type!=='multi') throw Error('Step '+step.key+': invalid field bounds');
-      return {...field};
+      return {...field} as ReadonlySop['fields'][number];
     });
     // Validate every step's declaration, not only the selected one. File/write declarations fail closed.
     let config:ReadonlySop;

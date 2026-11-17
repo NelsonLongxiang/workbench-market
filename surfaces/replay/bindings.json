@@ -1,0 +1,1008 @@
+{
+  "domain": "bindings",
+  "what": "A2A 人工绑定：/api/bindings 的 3 条路由，和 4 条退役的旧面（app.all，一律 410）。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。请求里的对端密钥是合成的；应答里一律掩码。",
+  "routes": ["GET /api/bindings", "POST /api/bindings", "DELETE /api/bindings/:id", "ALL /api/sops/:slug/bindings", "ALL /api/sops/:slug/bindings/:id", "ALL /api/apps/:slug/bindings", "ALL /api/apps/:slug/bindings/:id"],
+  "exempt": [
+    { "route": "ALL /api/sops/:slug/bindings", "class": "normal", "why": "旧面已经退役：不管带什么都回 410（Location 指新面），没有照常应答的请求", "shown_by": "open/old-sop-list-get" },
+    { "route": "ALL /api/sops/:slug/bindings/:id", "class": "normal", "why": "旧面已经退役：不管带什么都回 410（Location 指新面），没有照常应答的请求", "shown_by": "open/old-sop-one" },
+    { "route": "ALL /api/apps/:slug/bindings", "class": "normal", "why": "旧面已经退役：不管带什么都回 410（Location 指新面），没有照常应答的请求", "shown_by": "open/old-app-list" },
+    { "route": "ALL /api/apps/:slug/bindings/:id", "class": "normal", "why": "旧面已经退役：不管带什么都回 410（Location 指新面），没有照常应答的请求", "shown_by": "open/old-app-one" }
+  ],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "管理口令由环境给（合成值），登录门关。只有内置的 SOP（task-center）可绑；app 型的台要从 GitHub 同步，这里没有。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "steps": [
+        {
+          "id": "list-empty",
+          "route": "GET /api/bindings",
+          "class": "normal",
+          "what": "新库：内置的 SOP（task-center）没有绑定",
+          "request": { "method": "GET", "path": "/api/bindings?type=sop&slug=task-center", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": [] }
+        },
+        {
+          "id": "list-no-token",
+          "route": "GET /api/bindings",
+          "class": "unauthorized",
+          "what": "没带口令：管理员的路由，本机也拒",
+          "request": { "method": "GET", "path": "/api/bindings?type=sop&slug=task-center", "headers": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "list-wrong-token",
+          "route": "GET /api/bindings",
+          "class": "unauthorized",
+          "what": "口令不对",
+          "request": { "method": "GET", "path": "/api/bindings?type=sop&slug=task-center", "headers": { "x-admin-token": "nope" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "list-cross-origin",
+          "route": "GET /api/bindings",
+          "class": "unauthorized",
+          "what": "口令对，浏览器从别的站点发来",
+          "request": { "method": "GET", "path": "/api/bindings?type=sop&slug=task-center", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "list-no-slug",
+          "route": "GET /api/bindings",
+          "class": "invalid",
+          "what": "没给 slug",
+          "request": { "method": "GET", "path": "/api/bindings?type=sop", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "61", "etag": "W/\"3d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "slug 必填：/api/bindings?type=(sop|app)&slug=x" }
+          }
+        },
+        {
+          "id": "list-blank-slug",
+          "route": "GET /api/bindings",
+          "class": "invalid",
+          "what": "slug 只有空白",
+          "request": { "method": "GET", "path": "/api/bindings?type=sop&slug=%20%20", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "61", "etag": "W/\"3d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "slug 必填：/api/bindings?type=(sop|app)&slug=x" }
+          }
+        },
+        {
+          "id": "list-unknown-type",
+          "route": "GET /api/bindings",
+          "class": "normal",
+          "what": "type 不认识：当成 sop",
+          "request": { "method": "GET", "path": "/api/bindings?type=other&slug=task-center", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": [] }
+        },
+        {
+          "id": "list-app-type",
+          "route": "GET /api/bindings",
+          "class": "normal",
+          "what": "type=app：查 app 的绑定（这个 slug 下没有）",
+          "request": { "method": "GET", "path": "/api/bindings?type=app&slug=task-center", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": [] }
+        },
+        {
+          "id": "list-padded-slug",
+          "route": "GET /api/bindings",
+          "class": "normal",
+          "what": "slug 两头带空白：去掉再查",
+          "request": { "method": "GET", "path": "/api/bindings?type=sop&slug=%20task-center%20", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": [] }
+        },
+        {
+          "id": "list-unknown-slug",
+          "route": "GET /api/bindings",
+          "class": "normal",
+          "what": "不存在的 slug：列表是空的，不报错",
+          "request": { "method": "GET", "path": "/api/bindings?type=sop&slug=no-such-sop", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": [] }
+        },
+        {
+          "id": "create-no-token",
+          "route": "POST /api/bindings",
+          "class": "unauthorized",
+          "what": "没带口令",
+          "request": { "method": "POST", "path": "/api/bindings", "headers": {}, "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "admits" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "create-remote-anonymous",
+          "route": "POST /api/bindings",
+          "class": "unauthorized",
+          "what": "带转发头、没有口令",
+          "request": { "method": "POST", "path": "/api/bindings", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "admits" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "create-cross-origin",
+          "route": "POST /api/bindings",
+          "class": "unauthorized",
+          "what": "口令对，浏览器从别的站点发来",
+          "request": {
+            "method": "POST",
+            "path": "/api/bindings",
+            "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" },
+            "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "admits" }
+          },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "create-no-direction",
+          "route": "POST /api/bindings",
+          "class": "invalid",
+          "what": "没给 direction：不许默认",
+          "request": { "method": "POST", "path": "/api/bindings", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "85", "etag": "W/\"55-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "direction 必填且只许 admits|notify|both（显式选择·无默认）" }
+          }
+        },
+        {
+          "id": "create-bad-direction",
+          "route": "POST /api/bindings",
+          "class": "invalid",
+          "what": "direction 不认识",
+          "request": { "method": "POST", "path": "/api/bindings", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "both-ways" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "85", "etag": "W/\"55-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "direction 必填且只许 admits|notify|both（显式选择·无默认）" }
+          }
+        },
+        {
+          "id": "create-no-slug",
+          "route": "POST /api/bindings",
+          "class": "invalid",
+          "what": "没给 target_slug",
+          "request": { "method": "POST", "path": "/api/bindings", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "target_type": "sop", "agent_node": "dsh/1a2b3c4d", "direction": "admits" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "target_slug 必填" } }
+        },
+        {
+          "id": "create-no-slug-no-direction",
+          "route": "POST /api/bindings",
+          "class": "invalid",
+          "what": "两处都不对时先报哪一处：direction 排在 slug 前面",
+          "request": { "method": "POST", "path": "/api/bindings", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "target_type": "sop", "target_slug": "", "agent_node": "dsh/1a2b3c4d" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "85", "etag": "W/\"55-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "direction 必填且只许 admits|notify|both（显式选择·无默认）" }
+          }
+        },
+        {
+          "id": "create-bad-node",
+          "route": "POST /api/bindings",
+          "class": "invalid",
+          "what": "agent_node 形态不对",
+          "request": { "method": "POST", "path": "/api/bindings", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "no-slash", "direction": "admits" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "122", "etag": "W/\"7a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "agent_node 形态：<zone>/<id8> 或画布队 <zone>/canvas/<name>，如 dsh/1a2b3c4d、dsh/canvas/procurement" }
+          }
+        },
+        {
+          "id": "create-node-digit-zone",
+          "route": "POST /api/bindings",
+          "class": "invalid",
+          "what": "agent_node 的区域以数字开头",
+          "request": { "method": "POST", "path": "/api/bindings", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "1dsh/abcd1234", "direction": "admits" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "122", "etag": "W/\"7a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "agent_node 形态：<zone>/<id8> 或画布队 <zone>/canvas/<name>，如 dsh/1a2b3c4d、dsh/canvas/procurement" }
+          }
+        },
+        {
+          "id": "create-node-long-id",
+          "route": "POST /api/bindings",
+          "class": "invalid",
+          "what": "agent_node 的 id 超过 64 个字符",
+          "request": {
+            "method": "POST",
+            "path": "/api/bindings",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "direction": "admits" }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "122", "etag": "W/\"7a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "agent_node 形态：<zone>/<id8> 或画布队 <zone>/canvas/<name>，如 dsh/1a2b3c4d、dsh/canvas/procurement" }
+          }
+        },
+        {
+          "id": "create-canvas-numeric",
+          "route": "POST /api/bindings",
+          "class": "invalid",
+          "what": "画布队名是纯数字",
+          "request": { "method": "POST", "path": "/api/bindings", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/canvas/123", "direction": "admits" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "122", "etag": "W/\"7a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "agent_node 形态：<zone>/<id8> 或画布队 <zone>/canvas/<name>，如 dsh/1a2b3c4d、dsh/canvas/procurement" }
+          }
+        },
+        {
+          "id": "create-canvas-padded",
+          "route": "POST /api/bindings",
+          "class": "invalid",
+          "what": "画布队名两头有空格",
+          "request": { "method": "POST", "path": "/api/bindings", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/canvas/ team ", "direction": "admits" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "122", "etag": "W/\"7a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "agent_node 形态：<zone>/<id8> 或画布队 <zone>/canvas/<name>，如 dsh/1a2b3c4d、dsh/canvas/procurement" }
+          }
+        },
+        {
+          "id": "create-canvas-too-long",
+          "route": "POST /api/bindings",
+          "class": "invalid",
+          "what": "画布队名超过 40 个字符",
+          "request": {
+            "method": "POST",
+            "path": "/api/bindings",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/canvas/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn", "direction": "admits" }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "122", "etag": "W/\"7a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "agent_node 形态：<zone>/<id8> 或画布队 <zone>/canvas/<name>，如 dsh/1a2b3c4d、dsh/canvas/procurement" }
+          }
+        },
+        {
+          "id": "create-unknown-slug",
+          "route": "POST /api/bindings",
+          "class": "invalid",
+          "what": "台不存在",
+          "request": { "method": "POST", "path": "/api/bindings", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "target_type": "sop", "target_slug": "no-such-sop", "agent_node": "dsh/1a2b3c4d", "direction": "admits" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "app not found: no-such-sop" } }
+        },
+        {
+          "id": "create-type-mismatch",
+          "route": "POST /api/bindings",
+          "class": "invalid",
+          "what": "target_type=app 但这个台是 SOP",
+          "request": { "method": "POST", "path": "/api/bindings", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "target_type": "app", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "admits" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "68", "etag": "W/\"44-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "target_type=app 与台型不符（task-center 是 sop）" }
+          }
+        },
+        {
+          "id": "create-bad-notify",
+          "route": "POST /api/bindings",
+          "class": "invalid",
+          "what": "notify_url 不是 http(s)",
+          "request": {
+            "method": "POST",
+            "path": "/api/bindings",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "admits", "notify_url": "ftp://elsewhere.example" }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "132", "etag": "W/\"84-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "notify_url 必须是 http(s):// 根地址（达对端：回执投递/推送基址，也是入站验签的取卡地址）" }
+          }
+        },
+        {
+          "id": "create-notify-with-space",
+          "route": "POST /api/bindings",
+          "class": "invalid",
+          "what": "notify_url 中间有空白",
+          "request": {
+            "method": "POST",
+            "path": "/api/bindings",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "admits", "notify_url": "http://a b.example" }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "132", "etag": "W/\"84-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "notify_url 必须是 http(s):// 根地址（达对端：回执投递/推送基址，也是入站验签的取卡地址）" }
+          }
+        },
+        {
+          "id": "create-notify-missing",
+          "route": "POST /api/bindings",
+          "class": "invalid",
+          "what": "notify 向的绑定没带 notify_url",
+          "request": { "method": "POST", "path": "/api/bindings", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "notify" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "notify 向绑定必须携带 notify_url" } }
+        },
+        {
+          "id": "create-both-missing",
+          "route": "POST /api/bindings",
+          "class": "invalid",
+          "what": "both 向的绑定没带 notify_url",
+          "request": { "method": "POST", "path": "/api/bindings", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "both" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "notify 向绑定必须携带 notify_url" } }
+        },
+        {
+          "id": "create-malformed-json",
+          "route": "POST /api/bindings",
+          "class": "invalid",
+          "what": "请求体不是合法 JSON",
+          "request": { "method": "POST", "path": "/api/bindings", "headers": { "x-admin-token": "replay-synthetic-admin", "content-type": "application/json" }, "text": "{" },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "请求体不是合法 JSON" } }
+        },
+        {
+          "id": "list-after-rejected",
+          "route": "GET /api/bindings",
+          "class": "normal",
+          "what": "上面被拒的一个都没建出来",
+          "request": { "method": "GET", "path": "/api/bindings?type=sop&slug=task-center", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": [] }
+        },
+        {
+          "id": "create-admits",
+          "route": "POST /api/bindings",
+          "class": "normal",
+          "what": "准入向、只读：密钥照收（读模式下也存），应答里掩码",
+          "request": {
+            "method": "POST",
+            "path": "/api/bindings",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "admits", "remote_api_key": " synthetic-key ", "notify_url": "https://peer.example/" }
+          },
+          "save": { "b1": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "189", "etag": "W/\"bd-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 1, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "admits", "mode": "read", "notify_url": "https://peer.example", "remote_api_key": "****" }
+          }
+        },
+        {
+          "id": "create-run-mode",
+          "route": "POST /api/bindings",
+          "class": "normal",
+          "what": "准入向、可执行；节点两头带空白去掉；notify_url 末尾的斜杠去掉",
+          "request": {
+            "method": "POST",
+            "path": "/api/bindings",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": " dsh/abcd1234 ", "direction": "admits", "mode": "run", "notify_url": "https://peer.example///" }
+          },
+          "save": { "b2": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "184", "etag": "W/\"b8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 2, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/abcd1234", "direction": "admits", "mode": "run", "notify_url": "https://peer.example", "remote_api_key": "" }
+          }
+        },
+        {
+          "id": "create-notify",
+          "route": "POST /api/bindings",
+          "class": "normal",
+          "what": "通知向，带 notify_url；mode 给了不认识的值，按只读；不给密钥",
+          "request": {
+            "method": "POST",
+            "path": "/api/bindings",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/cafe0001", "direction": "notify", "mode": "exec", "notify_url": "http://peer.example" }
+          },
+          "save": { "b3": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "184", "etag": "W/\"b8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 3, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/cafe0001", "direction": "notify", "mode": "read", "notify_url": "http://peer.example", "remote_api_key": "" }
+          }
+        },
+        {
+          "id": "create-canvas",
+          "route": "POST /api/bindings",
+          "class": "normal",
+          "what": "画布队（中间可以有空格）、双向",
+          "request": {
+            "method": "POST",
+            "path": "/api/bindings",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/canvas/procurement team", "direction": "both", "notify_url": "https://canvas.example" }
+          },
+          "save": { "b4": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "200", "etag": "W/\"c8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 4, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/canvas/procurement team", "direction": "both", "mode": "read", "notify_url": "https://canvas.example", "remote_api_key": "" }
+          }
+        },
+        {
+          "id": "create-key-not-string",
+          "route": "POST /api/bindings",
+          "class": "normal",
+          "what": "密钥不是字符串：当成空",
+          "request": {
+            "method": "POST",
+            "path": "/api/bindings",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/beef0002", "direction": "admits", "remote_api_key": 12345 }
+          },
+          "save": { "b5": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "165", "etag": "W/\"a5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 5, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/beef0002", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "" }
+          }
+        },
+        {
+          "id": "create-keyed",
+          "route": "POST /api/bindings",
+          "class": "normal",
+          "what": "带密钥、一直留着：后面的列表里看得到掩码",
+          "request": {
+            "method": "POST",
+            "path": "/api/bindings",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/feed0003", "direction": "admits", "remote_api_key": "synthetic-key-2" }
+          },
+          "save": { "b6": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "169", "etag": "W/\"a9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 6, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/feed0003", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "****" }
+          }
+        },
+        {
+          "id": "create-blank-key",
+          "route": "POST /api/bindings",
+          "class": "normal",
+          "what": "密钥只有空白：去掉之后是空的，掩码也是空串",
+          "request": {
+            "method": "POST",
+            "path": "/api/bindings",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/feed0004", "direction": "admits", "remote_api_key": "   " }
+          },
+          "save": { "b7": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "165", "etag": "W/\"a5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 7, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/feed0004", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "" }
+          }
+        },
+        {
+          "id": "create-same-node-other-direction",
+          "route": "POST /api/bindings",
+          "class": "normal",
+          "what": "同台同节点、换一个方向再绑：自然键包括方向，是新的一行，不是重绑",
+          "request": {
+            "method": "POST",
+            "path": "/api/bindings",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "notify", "notify_url": "https://peer.example" }
+          },
+          "save": { "b8": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "185", "etag": "W/\"b9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 8, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "notify", "mode": "read", "notify_url": "https://peer.example", "remote_api_key": "" }
+          }
+        },
+        {
+          "id": "create-node-underscore",
+          "route": "POST /api/bindings",
+          "class": "normal",
+          "what": "节点 id 里带下划线：收",
+          "request": { "method": "POST", "path": "/api/bindings", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/ab_cd-12", "direction": "admits" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "165", "etag": "W/\"a5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 9, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/ab_cd-12", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "" }
+          }
+        },
+        {
+          "id": "upsert",
+          "route": "POST /api/bindings",
+          "class": "normal",
+          "what": "同一个台、同一个节点、同一个方向再绑一次：改字段，id 不变，标 upserted",
+          "request": {
+            "method": "POST",
+            "path": "/api/bindings",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "admits", "mode": "run", "remote_api_key": "", "notify_url": "" }
+          },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "180", "etag": "W/\"b4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 1, "upserted": true, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "admits", "mode": "run", "notify_url": "", "remote_api_key": "" }
+          }
+        },
+        {
+          "id": "list-after-creates",
+          "route": "GET /api/bindings",
+          "class": "normal",
+          "what": "列表：后建的排前面，密钥掩码（空的仍是空串）",
+          "request": { "method": "GET", "path": "/api/bindings?type=sop&slug=task-center", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2149", "etag": "W/\"865-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "id": 9, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/ab_cd-12", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 8, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "notify", "mode": "read", "notify_url": "https://peer.example", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 7, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/feed0004", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 6, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/feed0003", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "****", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 5, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/beef0002", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 4, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/canvas/procurement team", "direction": "both", "mode": "read", "notify_url": "https://canvas.example", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 3, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/cafe0001", "direction": "notify", "mode": "read", "notify_url": "http://peer.example", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 2, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/abcd1234", "direction": "admits", "mode": "run", "notify_url": "https://peer.example", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 1, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "admits", "mode": "run", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" }
+            ]
+          }
+        },
+        {
+          "id": "list-unknown-type-after",
+          "route": "GET /api/bindings",
+          "class": "normal",
+          "what": "有了绑定之后，type 不认识：照样当成 sop，列出来的和上一条一样",
+          "request": { "method": "GET", "path": "/api/bindings?type=other&slug=task-center", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2149", "etag": "W/\"865-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "id": 9, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/ab_cd-12", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 8, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "notify", "mode": "read", "notify_url": "https://peer.example", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 7, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/feed0004", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 6, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/feed0003", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "****", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 5, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/beef0002", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 4, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/canvas/procurement team", "direction": "both", "mode": "read", "notify_url": "https://canvas.example", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 3, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/cafe0001", "direction": "notify", "mode": "read", "notify_url": "http://peer.example", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 2, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/abcd1234", "direction": "admits", "mode": "run", "notify_url": "https://peer.example", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 1, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "admits", "mode": "run", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" }
+            ]
+          }
+        },
+        {
+          "id": "list-app-type-upper-after",
+          "route": "GET /api/bindings",
+          "class": "normal",
+          "what": "type=APP 大写：不认，当成 sop",
+          "request": { "method": "GET", "path": "/api/bindings?type=APP&slug=task-center", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2149", "etag": "W/\"865-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "id": 9, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/ab_cd-12", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 8, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "notify", "mode": "read", "notify_url": "https://peer.example", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 7, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/feed0004", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 6, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/feed0003", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "****", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 5, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/beef0002", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 4, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/canvas/procurement team", "direction": "both", "mode": "read", "notify_url": "https://canvas.example", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 3, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/cafe0001", "direction": "notify", "mode": "read", "notify_url": "http://peer.example", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 2, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/abcd1234", "direction": "admits", "mode": "run", "notify_url": "https://peer.example", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 1, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "admits", "mode": "run", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" }
+            ]
+          }
+        },
+        {
+          "id": "list-app-type-after",
+          "route": "GET /api/bindings",
+          "class": "normal",
+          "what": "有了绑定之后，type=app：这个 slug 下没有 app 的绑定",
+          "request": { "method": "GET", "path": "/api/bindings?type=app&slug=task-center", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": [] }
+        },
+        {
+          "id": "delete-no-token",
+          "route": "DELETE /api/bindings/:id",
+          "class": "unauthorized",
+          "what": "没带口令",
+          "request": { "method": "DELETE", "path": "/api/bindings/{{b2}}", "headers": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "delete-remote-anonymous",
+          "route": "DELETE /api/bindings/:id",
+          "class": "unauthorized",
+          "what": "带转发头、没有口令",
+          "request": { "method": "DELETE", "path": "/api/bindings/{{b2}}", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "delete-missing",
+          "route": "DELETE /api/bindings/:id",
+          "class": "invalid",
+          "what": "id 不存在",
+          "request": { "method": "DELETE", "path": "/api/bindings/999999", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "binding not found: 999999" } }
+        },
+        {
+          "id": "delete-non-numeric",
+          "route": "DELETE /api/bindings/:id",
+          "class": "invalid",
+          "what": "id 不是数字",
+          "request": { "method": "DELETE", "path": "/api/bindings/abc", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "binding not found: NaN" } }
+        },
+        {
+          "id": "delete-fraction",
+          "route": "DELETE /api/bindings/:id",
+          "class": "invalid",
+          "what": "id 带小数",
+          "request": { "method": "DELETE", "path": "/api/bindings/{{b2}}.5", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "binding not found: 2.5" } }
+        },
+        {
+          "id": "delete-hex",
+          "route": "DELETE /api/bindings/:id",
+          "class": "normal",
+          "what": "id 写成 0x：按数字读",
+          "request": { "method": "DELETE", "path": "/api/bindings/0x{{b2}}", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "23", "etag": "W/\"17-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "revoked": 2 } }
+        },
+        {
+          "id": "delete-again",
+          "route": "DELETE /api/bindings/:id",
+          "class": "invalid",
+          "what": "撤销过的再撤一次：404",
+          "request": { "method": "DELETE", "path": "/api/bindings/{{b2}}", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "binding not found: 2" } }
+        },
+        {
+          "id": "revive",
+          "route": "POST /api/bindings",
+          "class": "normal",
+          "what": "撤销过的绑定原样再绑：复活，id 不变",
+          "request": {
+            "method": "POST",
+            "path": "/api/bindings",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/abcd1234", "direction": "admits", "mode": "run", "notify_url": "https://peer.example" }
+          },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "200", "etag": "W/\"c8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 2, "upserted": true, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/abcd1234", "direction": "admits", "mode": "run", "notify_url": "https://peer.example", "remote_api_key": "" }
+          }
+        },
+        {
+          "id": "delete",
+          "route": "DELETE /api/bindings/:id",
+          "class": "normal",
+          "what": "撤销一个",
+          "request": { "method": "DELETE", "path": "/api/bindings/{{b3}}", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "23", "etag": "W/\"17-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "revoked": 3 } }
+        },
+        {
+          "id": "list-after",
+          "route": "GET /api/bindings",
+          "class": "normal",
+          "what": "写完之后：撤销的照样列出来，带撤销时间",
+          "request": { "method": "GET", "path": "/api/bindings?type=sop&slug=task-center", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2168", "etag": "W/\"878-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "id": 9, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/ab_cd-12", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 8, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "notify", "mode": "read", "notify_url": "https://peer.example", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 7, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/feed0004", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 6, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/feed0003", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "****", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 5, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/beef0002", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 4, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/canvas/procurement team", "direction": "both", "mode": "read", "notify_url": "https://canvas.example", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 3, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/cafe0001", "direction": "notify", "mode": "read", "notify_url": "http://peer.example", "remote_api_key": "", "revoked_at": "YYYY-MM-DD hh:mm:ss", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 2, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/abcd1234", "direction": "admits", "mode": "run", "notify_url": "https://peer.example", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 1, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "admits", "mode": "run", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" }
+            ]
+          }
+        },
+        {
+          "id": "old-sop-list-get",
+          "route": "ALL /api/sops/:slug/bindings",
+          "class": "invalid",
+          "what": "旧面 GET /api/sops/:slug/bindings：410，Location 指新面（slug 编码）",
+          "request": { "method": "GET", "path": "/api/sops/a%20b/bindings" },
+          "response": {
+            "status": 410,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "130", "etag": "W/\"82-<指纹>\"", "location": "/api/bindings?type=sop&slug=a%20b", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "绑定面已统一：GET/POST /api/bindings（direction 显式必填）", "location": "/api/bindings?type=sop&slug=a%20b" }
+          }
+        },
+        {
+          "id": "old-sop-list-post",
+          "route": "ALL /api/sops/:slug/bindings",
+          "class": "unauthorized",
+          "what": "旧面 POST、带转发头没有口令：写请求总门先拦",
+          "request": { "method": "POST", "path": "/api/sops/x/bindings", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "old-sop-list-post-local",
+          "route": "ALL /api/sops/:slug/bindings",
+          "class": "invalid",
+          "what": "旧面 POST、本机：410",
+          "request": { "method": "POST", "path": "/api/sops/x/bindings", "json": {} },
+          "response": {
+            "status": 410,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "126", "etag": "W/\"7e-<指纹>\"", "location": "/api/bindings?type=sop&slug=x", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "绑定面已统一：GET/POST /api/bindings（direction 显式必填）", "location": "/api/bindings?type=sop&slug=x" }
+          }
+        },
+        {
+          "id": "old-sop-one",
+          "route": "ALL /api/sops/:slug/bindings/:id",
+          "class": "invalid",
+          "what": "旧面 DELETE /api/sops/:slug/bindings/:id：410",
+          "request": { "method": "DELETE", "path": "/api/sops/x/bindings/3" },
+          "response": {
+            "status": 410,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "84", "etag": "W/\"54-<指纹>\"", "location": "/api/bindings", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "绑定面已统一：DELETE /api/bindings/:id", "location": "/api/bindings" }
+          }
+        },
+        {
+          "id": "old-sop-one-remote",
+          "route": "ALL /api/sops/:slug/bindings/:id",
+          "class": "unauthorized",
+          "what": "旧面 DELETE、带转发头没有口令",
+          "request": { "method": "DELETE", "path": "/api/sops/x/bindings/3", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "old-app-list",
+          "route": "ALL /api/apps/:slug/bindings",
+          "class": "invalid",
+          "what": "旧面 GET /api/apps/:slug/bindings：410",
+          "request": { "method": "GET", "path": "/api/apps/my-app/bindings" },
+          "response": {
+            "status": 410,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "131", "etag": "W/\"83-<指纹>\"", "location": "/api/bindings?type=app&slug=my-app", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "绑定面已统一：GET/POST /api/bindings（direction 显式必填）", "location": "/api/bindings?type=app&slug=my-app" }
+          }
+        },
+        {
+          "id": "old-app-list-remote",
+          "route": "ALL /api/apps/:slug/bindings",
+          "class": "unauthorized",
+          "what": "旧面 PUT、带转发头没有口令",
+          "request": { "method": "PUT", "path": "/api/apps/my-app/bindings", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "old-app-one",
+          "route": "ALL /api/apps/:slug/bindings/:id",
+          "class": "invalid",
+          "what": "旧面 PATCH /api/apps/:slug/bindings/:id：410",
+          "request": { "method": "PATCH", "path": "/api/apps/my-app/bindings/9", "json": {} },
+          "response": {
+            "status": 410,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "84", "etag": "W/\"54-<指纹>\"", "location": "/api/bindings", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "绑定面已统一：DELETE /api/bindings/:id", "location": "/api/bindings" }
+          }
+        },
+        {
+          "id": "old-app-one-remote",
+          "route": "ALL /api/apps/:slug/bindings/:id",
+          "class": "unauthorized",
+          "what": "旧面 POST、带转发头没有口令",
+          "request": { "method": "POST", "path": "/api/apps/my-app/bindings/9", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce），管理口令由环境给（合成值）。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "steps": [
+        {
+          "id": "list-anonymous",
+          "route": "GET /api/bindings",
+          "class": "unauthorized",
+          "what": "登录门开着，远程匿名",
+          "request": { "method": "GET", "path": "/api/bindings?type=sop&slug=task-center", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "list-with-token",
+          "route": "GET /api/bindings",
+          "class": "normal",
+          "what": "远程带口令",
+          "request": { "method": "GET", "path": "/api/bindings?type=sop&slug=task-center", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": [] }
+        },
+        {
+          "id": "create-anonymous",
+          "route": "POST /api/bindings",
+          "class": "unauthorized",
+          "what": "远程匿名",
+          "request": { "method": "POST", "path": "/api/bindings", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "admits" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "create-with-token",
+          "route": "POST /api/bindings",
+          "class": "normal",
+          "what": "远程带口令",
+          "request": {
+            "method": "POST",
+            "path": "/api/bindings",
+            "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" },
+            "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "admits" }
+          },
+          "save": { "g": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "165", "etag": "W/\"a5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 1, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "" }
+          }
+        },
+        {
+          "id": "delete-anonymous",
+          "route": "DELETE /api/bindings/:id",
+          "class": "unauthorized",
+          "what": "远程匿名",
+          "request": { "method": "DELETE", "path": "/api/bindings/{{g}}", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "delete-with-token",
+          "route": "DELETE /api/bindings/:id",
+          "class": "normal",
+          "what": "远程带口令",
+          "request": { "method": "DELETE", "path": "/api/bindings/{{g}}", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "23", "etag": "W/\"17-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "revoked": 1 } }
+        },
+        {
+          "id": "old-sop-anonymous",
+          "route": "ALL /api/sops/:slug/bindings",
+          "class": "unauthorized",
+          "what": "登录门开着，旧面远程匿名",
+          "request": { "method": "GET", "path": "/api/sops/x/bindings", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "old-app-anonymous",
+          "route": "ALL /api/apps/:slug/bindings",
+          "class": "unauthorized",
+          "what": "登录门开着，旧面远程匿名",
+          "request": { "method": "GET", "path": "/api/apps/x/bindings", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "old-sop-one-anonymous",
+          "route": "ALL /api/sops/:slug/bindings/:id",
+          "class": "unauthorized",
+          "what": "登录门开着，旧面远程匿名",
+          "request": { "method": "GET", "path": "/api/sops/x/bindings/1", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "old-app-one-anonymous",
+          "route": "ALL /api/apps/:slug/bindings/:id",
+          "class": "unauthorized",
+          "what": "登录门开着，旧面远程匿名",
+          "request": { "method": "GET", "path": "/api/apps/x/bindings/1", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        }
+      ]
+    }
+  ]
+}

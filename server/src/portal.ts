@@ -1,7 +1,10 @@
 /** 统一门户 /go/:id/* 反向代理（S3 抽离，注册顺序与逻辑逐行不变）。
  *
+ * 阶段三：这里只造两个处理函数（前置准备、代理），路由由 routes/portal.ts 经 HTTP 服务注册（ALL 加正则、报动作 portal.use）。
+ * 处理函数的内容一个字没改；原来是两层全局中间件，现在是同一条路由上的两个处理函数，前后紧挨着，次序不变。
+ *
  * 关键约束（原注释原样保留）：
- * - 必须全局挂载（不能 app.use('/go', ...)——Express 会剥 req.url 前缀，pathFilter 失配）
+ * - 必须全局挂载（不能 app.use('/go', ...)——Express 会剥 req.url 前缀，pathFilter 失配）。经 HTTP 服务注册的正则路由不剥前缀
  * - HPM 4.x 的 pathFilter 不支持 RegExp（静默漏到 SPA fallback），用函数形式
  * - upgrade 事件不流经 Express 中间件链，必须重做同一套准备（见 handlePortalUpgrade）
  */
@@ -14,36 +17,53 @@ import { svc } from './context.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { CookieService } from './services/cookie.ts';
 import { clientIp } from './login-gate.ts';
-import { browserLoginOrigin, odooBrowserOrigin } from './odoo-browser-origin.ts';
-import { configuredOdooUrl, consumeSsoCallback, isOdooSessionTarget, issueSsoCallback, odooSessionOf, safeReturnPath, setSsoTargetLookup, stripOdooSession } from './odoo-session.ts';
+import { loginRelay } from './identity.ts';
+import { isInsideRoot } from './path-inside.ts';
+import { stripOutgoing } from './portal-forward-headers.ts';
 
 
 export const goPrefix = /^\/go\/(\d+)(.*)$/;
 
-/** /go/ 代理实例（installPortal 装配；upgrade 段与其它模块共用） */
+/** SSO state is host-only and secure exactly for HTTPS entries. */
+export function portalSsoStateCookieOptions(id: string, secure: boolean): express.CookieOptions {
+  return { httpOnly: true, sameSite: 'lax', path: `/go/${id}/`, maxAge: 10 * 60 * 1000, secure };
+}
+
+/** Startup checks the exact options constructor used by the portal response. */
+export function verifyPortalSsoStateCookie(): { ok: boolean; reason: string | null } {
+  const ok = ['7', '007'].every(id => [false, true].every(secure => {
+    const c = portalSsoStateCookieOptions(id, secure);
+    return c.httpOnly === true && c.sameSite === 'lax' && c.path === `/go/${id}/` && c.maxAge === 600000 && c.secure === secure && c.domain === undefined;
+  }));
+  return { ok, reason: ok ? null : 'unsafe-sso-state-cookie' };
+}
+
+/** 门户的处理函数：同 Express（返回值不用） */
+export type PortalHandler = (req: express.Request, res: express.Response, next: express.NextFunction) => unknown;
+
+/** /go/ 代理实例（createPortal 装配；upgrade 段与其它模块共用） */
 export let moduleProxy: any = null;
 
-export function installPortal(
-  app: express.Express,
+export function createPortal(
   wbById: (id: number) => any | null,
   deps: {
     serveApp: (req: express.Request, res: express.Response) => any;
     readActiveManifest: (slug: string) => { manifest: any; app: any } | null;
     renderSopRunner: (manifest: any, app: any) => string;
     appsRoot: string;
+    authorize?: express.RequestHandler;
   },
-): void {
+): { prepare: PortalHandler; proxy: PortalHandler } {
   const { serveApp, readActiveManifest, renderSopRunner, appsRoot } = deps;
   // SSO 回调票据核对时按注册表现查台地址（已停用的台不算）
-  setSsoTargetLookup((id) => { const w = wbById(id); return w && w.enabled !== false && w.enabled !== 0 && typeof w.url === 'string' ? w.url : null; });
-  const browserOrigin = odooBrowserOrigin(); // 显式配置的浏览器登录地址：非法即拒启动（在监听之前）
-  if (browserOrigin && process.env.WM_ODOO_LOGIN_PROXY === '1') console.warn('[portal] WM_ODOO_LOGIN_PROXY=1 时同域中继优先，WM_ODOO_BROWSER_URL 对中继覆盖的 Odoo 台不生效');
+  loginRelay().useTargetLookup((id) => { const w = wbById(id); return w && w.enabled !== false && w.enabled !== 0 && typeof w.url === 'string' ? w.url : null; });
+  const browserOrigin = loginRelay().browserOrigin(); // 显式配置的浏览器登录地址：非法即拒启动（在监听之前）
   const goPrefix = /^\/go\/(\d+)(.*)$/;
 
   // id 校验 + 404（在代理前拦截，避免 router 内抛错变 500）
   // 注意：必须全局挂载（不能用 app.use('/go', ...) 前缀挂载——Express 会剥掉
   // req.url 的挂载前缀，goPrefix 与 http-proxy-middleware 的 pathFilter 都会失配）
-  app.use((req, res, next) => {
+  const prepare: PortalHandler = (req, res, next) => {
     if (!goPrefix.test(req.url ?? '')) return next();
     const m = goPrefix.exec(req.url ?? '')!;
     let origin = '', basePath = '', goQuery = '', goAuth = '';
@@ -69,7 +89,7 @@ export function installPortal(
         let rel = posix.normalize(rest);
         if (rel === '.' || rel.startsWith('/') || rel.startsWith('..')) return res.status(400).json({ error: '路径非法' });
         const abs = join(root, rel);
-        if (!abs.startsWith(root)) return res.status(400).json({ error: '路径非法' });
+        if (!isInsideRoot(root, abs)) return res.status(400).json({ error: '路径非法' });
         if (!existsSync(abs)) return res.status(404).json({ error: `file not found: ${rel}` });
         return res.sendFile(abs);
       }
@@ -93,12 +113,12 @@ export function installPortal(
       // SSO v1（监督席 direct-d2330efc 技术审 PASS·两注全收）：Odoo 类台免登——
       // ①浏览器无 session_id → 302 Odoo 登录（redirect 回跳+state 防 open-redirect·评审注②）
       // ②有 session_id → 白名单单键透传（只透 session_id·不透全 Cookie 头·评审注①）
-      // 可信 Odoo 源才走 SSO v1（按源判定，台类型/端口可由 agent 登记，不作数·见 odoo-session.ts）；其余台一律不转 Odoo 会话
-      const isOdooLike = isOdooSessionTarget(w.url);
-      if (!isOdooLike) stripOdooSession(req.headers);
+      // 可信 Odoo 源才走 SSO v1（按源判定，台类型/端口可由 agent 登记，不作数·见登录中继 loginRelay）；其余台一律不转 Odoo 会话
+      const isOdooLike = loginRelay().isSessionTarget(w.url);
+      if (!isOdooLike) loginRelay().stripSession(req.headers);
       if (isOdooLike) {
         const browserCookies = String(req.headers.cookie ?? '');
-        const sid = odooSessionOf(browserCookies);
+        const sid = loginRelay().sessionOf(browserCookies);
         const stateCookie = `wm_sso_${m[1]}`;
         const stMatch = new RegExp('(?:^|;\\s*)' + stateCookie + '=([^;\\s]+)').exec(browserCookies);
         const _qs = new URLSearchParams(String(req.originalUrl ?? req.url ?? '').split('?')[1] ?? '');
@@ -109,11 +129,13 @@ export function installPortal(
         // 登录入口 = 带 return 打到 /go/<id>/ 根：回跳页不在白名单（如从首页点「登录」带 return=/）时退回市场首页，
         // 不能当普通访问转发——浏览器里有 Odoo 匿名 session_id 时会被 Odoo 自己跳到 /web/login，经 /go/ 代理打开、静态资源加载不出来
         const atEntry = ['', '/'].includes(String(m[2] ?? '').split('?')[0]);
-        const ret = backState ? null : (safeReturnPath(_qs.get('return')) ?? (atEntry && _qs.has('return') ? '/' : null));
+        // return 只在登录入口上认：入口以外的路径是 Odoo 自己的页面，它们常带自己的 ?return=/（或 /login），要原样转给 Odoo，
+        // 不能被拦成市场的登录中继页（首页 / 进了回跳白名单以后才暴露出来）
+        const ret = backState ? null : (atEntry ? (loginRelay().safeReturnPath(_qs.get('return')) ?? (_qs.has('return') ? '/' : null)) : null);
         // #170 P1④（安全项）：回跳经市场且 state 校验——不匹配 400 拒（CSRF/open-redirect 防线）；匹配即消费
         if (backState) {
           if (!stMatch || stMatch[1] !== backState) return res.status(400).type('text').send('SSO state 校验失败（请从市场门户重新进入）');
-          consumeSsoCallback(Number(m[1]), backState); // 中继签发的回调票据一次性：用过即作废
+          loginRelay().consumeCallback(Number(m[1]), backState); // 中继签发的回调票据一次性：用过即作废
           res.clearCookie(stateCookie, { path: `/go/${m[1]}/` });
           res.cookie(`wm_sso_ok_${m[1]}`, '1', { httpOnly: true, sameSite: 'lax', path: `/go/${m[1]}/`, maxAge: 12 * 3600 * 1000 }); // #170 P10
           res.clearCookie(retCookie, { path: `/go/${m[1]}/` });
@@ -124,9 +146,9 @@ export function installPortal(
         if (!sid || ret) {
           // 浏览器登录地址（WM_ODOO_BROWSER_URL）：上游是容器名等浏览器解析不了的内部地址时，只把「登录这一跳」送到显式配置的可信地址；
           // 当前主机名对不上（host-only 会话 cookie 带不回来）或 https 入口要降级到 http 时一律 503。同域中继开着时由中继处理，这里不介入。
-          const relayOn = process.env.WM_ODOO_LOGIN_PROXY === '1' && u.origin === new URL(configuredOdooUrl()).origin;
+          const relayOn = loginRelay().relayLogin() && u.origin === new URL(loginRelay().sourceUrl()).origin;
           const secureLogin = req.secure || String(req.headers['x-forwarded-proto'] ?? '').split(',').some((p) => p.trim().toLowerCase() === 'https');
-          const loginOrigin = relayOn ? u.origin : browserLoginOrigin(u.origin, String(req.headers.host ?? ''), browserOrigin, secureLogin);
+          const loginOrigin = relayOn ? u.origin : loginRelay().browserLoginOrigin(u.origin, String(req.headers.host ?? ''), browserOrigin, secureLogin);
           if (!loginOrigin) return res.status(503).set('Cache-Control', 'no-store').json({ error: 'odoo_browser_host_mismatch' });
           if (ret) {
             // 真实 Odoo（19 核心 http.py request.redirect 默认 local=True）会把绝对回跳剥成 Odoo 本地路径（website 再加 /zh_CN 前缀 → 404），
@@ -134,7 +156,7 @@ export function installPortal(
             // 回程交给市场页轮询 /api/auth/viewer（弹窗流，#275）。
             // Optional same-origin login relay keeps LAN and public visitors on their
             // current authority; the upstream is still the fixed WM_ODOO_URL.
-            const odooLogin = process.env.WM_ODOO_LOGIN_PROXY === '1' && u.origin === new URL(configuredOdooUrl()).origin
+            const odooLogin = loginRelay().relayLogin() && u.origin === new URL(loginRelay().sourceUrl()).origin
               ? `/web/login?redirect=${encodeURIComponent(ret)}`
               : `${loginOrigin}/web/login`;
             res.setHeader('Cache-Control', 'no-store');
@@ -146,14 +168,14 @@ export function installPortal(
           }
           // 同域登录中继开着且目标就是部署配置的 Odoo：留在当前主机登录（上游主机名可能是容器名，浏览器解析不了），
           // 回跳是本台的 SSO 回调（相对路径）；state 由服务端签成一次性票据，中继只放行持有效票据的回调
-          const relay = process.env.WM_ODOO_LOGIN_PROXY === '1' && u.origin === new URL(configuredOdooUrl()).origin;
-          const ticket = relay ? issueSsoCallback(Number(m[1]), u.origin, clientIp(req)) : null;
+          const relay = loginRelay().relayLogin() && u.origin === new URL(loginRelay().sourceUrl()).origin;
+          const ticket = relay ? loginRelay().issueCallback(Number(m[1]), u.origin, clientIp(req)) : null;
           if (relay && !ticket) { res.setHeader('Retry-After', '600'); return res.status(429).type('text').send('Odoo 登录尝试过于频繁，请稍后再试'); }
           const state = ticket ?? randomUUID();
           const _mkHost = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').trim();
           const _mkProto = (String(req.headers['x-forwarded-proto'] ?? '').includes('https') || req.secure) ? 'https' : 'http';
           const redirectUri = encodeURIComponent(`${_mkProto}://${_mkHost}/go/${m[1]}/?state=${state}`); // #170 P8 绝对回跳 // 回跳经市场（带 state·不裸跳目标域）
-          res.cookie(stateCookie, state, { httpOnly: true, sameSite: 'lax', path: `/go/${m[1]}/`, maxAge: 10 * 60 * 1000 });
+          res.cookie(stateCookie, state, portalSsoStateCookieOptions(m[1], _mkProto === 'https'));
           res.clearCookie(retCookie, { path: `/go/${m[1]}/` });
           if (relay) {
             return res.redirect(302, `/web/login?redirect=${encodeURIComponent(`/go/${m[1]}/?state=${state}`)}`);
@@ -163,7 +185,7 @@ export function installPortal(
         const okCookie = `wm_sso_ok_${m[1]}`;
         const ssoOk = new RegExp('(?:^|;\\s*)' + okCookie + '=1').test(browserCookies);
         if (ssoOk) (req as express.Request & { goSsoSid?: string }).goSsoSid = sid; // #170 P10：仅 state 过检后转发
-        else stripOdooSession(req.headers); // P10b：未过检时从转发 Cookie 中剥除 session_id（否则 HPM 原样带上去=固定旁路）
+        else loginRelay().stripSession(req.headers); // P10b：未过检时从转发 Cookie 中剥除 session_id（否则 HPM 原样带上去=固定旁路）
       }
       // Cookie 池注入（派单 direct-5fbb2176）：台挂了 cookie_set 时按目标 host 匹配
       // cookie.domain + 未过期过滤 → 拼 Cookie 头（proxyReq 里替换而非追加）
@@ -201,7 +223,7 @@ export function installPortal(
     // 写回上游路径（goPrefix 失配，改写从不生效）；在此备份原始 id 供 proxyRes 使用。
     (req as express.Request & { goWid?: string }).goWid = m[1];
     next();
-  });
+  };
 
   // 每个 URL 从第一个 ? 或 %（任何百分号编码，含 %3F、%253F 这类多重编码的查询串）起到空白或 ] 为止一律换成 …；
   // 对象参数（如错误对象）只取 message 再抹，不把整个对象（可能带 url/headers）打出来
@@ -257,13 +279,15 @@ export function installPortal(
         proxyReq.setHeader('accept-encoding', 'identity');
         const rq = req as typeof req & { goAuth?: string; goOrigin?: string; goCookies?: string; goHost?: string; goSsoSid?: string };
         // SSO v1 白名单单键：Odoo 台只透 session_id（覆写 Cookie 头·评审注①——其他站 cookie 不泄入）
-        if (rq.goSsoSid) proxyReq.setHeader('cookie', `session_id=${rq.goSsoSid}`);
+        if (rq.goSsoSid) proxyReq.setHeader('cookie', `${loginRelay().sessionCookieName()}=${rq.goSsoSid}`);
         if (rq.goAuth) proxyReq.setHeader('authorization', rq.goAuth);
         if (rq.goOrigin) proxyReq.setHeader('origin', rq.goOrigin);
         if (rq.goOrigin) proxyReq.setHeader('referer', rq.goOrigin + '/'); // #170 P7 不泄：Referer 只到目标源，不携带 /go/<id>/ 市场路径
         // Cookie 池注入（派单 direct-5fbb2176）：前置中间件解析好的 goCookies（按目标 host
         // 匹配 + 未过期过滤后的 Cookie 头值），**替换**而非追加（确定性语义）
         if (rq.goCookies) proxyReq.setHeader('cookie', rq.goCookies);
+        // 市场自己的口令、令牌、凭据头和会话 cookie 不往台带（清单在 portal-forward-headers.ts，WS 握手在 index.ts 用同一份）
+        stripOutgoing(proxyReq, !!rq.goAuth);
       },
       proxyRes: (proxyRes, req, res) => {
         // 只记台 id、路径长度与 cookie 名：Set-Cookie 的值里有上游会话（如 Odoo session_id）；路径本身也不记——
@@ -344,7 +368,7 @@ export function installPortal(
           (res as any).end = () => { try { res.removeHeader('transfer-encoding'); } catch { /* 未设 */ } res.setHeader('content-length', String(body.length)); return origEnd(body); };
           return;
         }
-        // Pocket meta-refresh 改写（.157 DSH 台实测根因）：DSH Pocket（如 13080 端口）在
+        // Pocket meta-refresh 改写（业务实盘 DSH 台实测根因）：DSH Pocket（如 13080 端口）在
         // token→cookie 交换后返回 <meta refresh url=/>，在门户上下文 / 会跳回市场 SPA 根。
         // 仅对 HTML 响应包装 res.write/end 做字符串替换（JSON/二进制零开销透传）。
         const pWid = (req as express.Request & { goWid?: string }).goWid;
@@ -433,5 +457,6 @@ export function installPortal(
       },
     },
   });
-  app.use(moduleProxy);
+  const authorizedPrepare: PortalHandler = (req, res, next) => deps.authorize ? deps.authorize(req, res, error => error ? next(error) : prepare(req, res, next)) : prepare(req, res, next);
+  return { prepare: authorizedPrepare, proxy: moduleProxy };
 }

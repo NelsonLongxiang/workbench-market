@@ -1,0 +1,1379 @@
+{
+  "domain": "vault",
+  "what": "凭据库：/api/vault/* 的 17 条路由（状态、解锁、上锁、条目增删改查、回收站、验证码、生成与评估口令、主密码校验、健康报告、审计历史）。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。主密码、条目都是合成的；条目 id、时间、生成的口令、验证码每次不同，只比形状。",
+  "routes": [
+    "GET /api/vault/status",
+    "POST /api/vault/unlock",
+    "POST /api/vault/lock",
+    "GET /api/vault/entries",
+    "GET /api/vault/entries/:id",
+    "POST /api/vault/entries",
+    "PUT /api/vault/entries/:id",
+    "DELETE /api/vault/entries/:id",
+    "GET /api/vault/trash",
+    "POST /api/vault/trash/:id/restore",
+    "DELETE /api/vault/trash/:id",
+    "GET /api/vault/entries/:id/totp",
+    "POST /api/vault/generate",
+    "POST /api/vault/strength",
+    "POST /api/vault/master-check",
+    "GET /api/vault/health",
+    "GET /api/vault/history"
+  ],
+  "exempt": [
+    { "route": "POST /api/vault/lock", "class": "invalid", "why": "上锁不读请求里的任何东西，锁着再锁也照样回已上锁，没有会被拒的输入", "shown_by": "page/lock-again" },
+    { "route": "GET /api/vault/status", "class": "invalid", "why": "状态不读请求里的任何东西，没有会被拒的输入", "shown_by": "page/status-fresh" },
+    { "route": "POST /api/vault/generate", "class": "invalid", "why": "生成口令的参数越界就夹到范围里、类型不对就用缺省，不拒（见 generate-clamped）", "shown_by": "page/generate-clamped" },
+    { "route": "POST /api/vault/strength", "class": "invalid", "why": "password 不是字符串就当空串评估，不拒", "shown_by": "page/strength-not-string" },
+    { "route": "POST /api/vault/master-check", "class": "invalid", "why": "password 不是字符串就当空串校验，回不达标的原因，不拒", "shown_by": "page/master-not-string" },
+    { "route": "GET /api/vault/health", "class": "invalid", "why": "健康报告不读请求里的任何东西；锁着时的 423 和列表同一处（见 list-locked）", "shown_by": "page/health" },
+    { "route": "GET /api/vault/trash", "class": "invalid", "why": "回收站列表不读请求里的任何东西", "shown_by": "page/trash" },
+    { "route": "GET /api/vault/history", "class": "invalid", "why": "审计历史不读请求里的任何东西", "shown_by": "page/history" }
+  ],
+  "scenarios": [
+    {
+      "name": "page",
+      "what": "页面输入主密码（没配服务端主密码），管理口令由环境给（合成值）。走一遍新建库、条目的增删改查、回收站、上锁再解锁。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "steps": [
+        {
+          "id": "status-anon",
+          "route": "GET /api/vault/status",
+          "class": "unauthorized",
+          "what": "远程、没带管理口令：403",
+          "request": { "method": "GET", "path": "/api/vault/status", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "unlock-anon",
+          "route": "POST /api/vault/unlock",
+          "class": "unauthorized",
+          "what": "远程、没带管理口令：403",
+          "request": { "method": "POST", "path": "/api/vault/unlock", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "lock-anon",
+          "route": "POST /api/vault/lock",
+          "class": "unauthorized",
+          "what": "远程、没带管理口令：403",
+          "request": { "method": "POST", "path": "/api/vault/lock", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "list-anon",
+          "route": "GET /api/vault/entries",
+          "class": "unauthorized",
+          "what": "远程、没带管理口令：403",
+          "request": { "method": "GET", "path": "/api/vault/entries", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "get-anon",
+          "route": "GET /api/vault/entries/:id",
+          "class": "unauthorized",
+          "what": "远程、没带管理口令：403",
+          "request": { "method": "GET", "path": "/api/vault/entries/x", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "create-anon",
+          "route": "POST /api/vault/entries",
+          "class": "unauthorized",
+          "what": "远程、没带管理口令：403",
+          "request": { "method": "POST", "path": "/api/vault/entries", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "update-anon",
+          "route": "PUT /api/vault/entries/:id",
+          "class": "unauthorized",
+          "what": "远程、没带管理口令：403",
+          "request": { "method": "PUT", "path": "/api/vault/entries/x", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "delete-anon",
+          "route": "DELETE /api/vault/entries/:id",
+          "class": "unauthorized",
+          "what": "远程、没带管理口令：403",
+          "request": { "method": "DELETE", "path": "/api/vault/entries/x", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "trash-anon",
+          "route": "GET /api/vault/trash",
+          "class": "unauthorized",
+          "what": "远程、没带管理口令：403",
+          "request": { "method": "GET", "path": "/api/vault/trash", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "restore-anon",
+          "route": "POST /api/vault/trash/:id/restore",
+          "class": "unauthorized",
+          "what": "远程、没带管理口令：403",
+          "request": { "method": "POST", "path": "/api/vault/trash/x/restore", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "purge-anon",
+          "route": "DELETE /api/vault/trash/:id",
+          "class": "unauthorized",
+          "what": "远程、没带管理口令：403",
+          "request": { "method": "DELETE", "path": "/api/vault/trash/x", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "totp-anon",
+          "route": "GET /api/vault/entries/:id/totp",
+          "class": "unauthorized",
+          "what": "远程、没带管理口令：403",
+          "request": { "method": "GET", "path": "/api/vault/entries/x/totp", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "generate-anon",
+          "route": "POST /api/vault/generate",
+          "class": "unauthorized",
+          "what": "远程、没带管理口令：403",
+          "request": { "method": "POST", "path": "/api/vault/generate", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "strength-anon",
+          "route": "POST /api/vault/strength",
+          "class": "unauthorized",
+          "what": "远程、没带管理口令：403",
+          "request": { "method": "POST", "path": "/api/vault/strength", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "master-anon",
+          "route": "POST /api/vault/master-check",
+          "class": "unauthorized",
+          "what": "远程、没带管理口令：403",
+          "request": { "method": "POST", "path": "/api/vault/master-check", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "health-anon",
+          "route": "GET /api/vault/health",
+          "class": "unauthorized",
+          "what": "远程、没带管理口令：403",
+          "request": { "method": "GET", "path": "/api/vault/health", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "history-anon",
+          "route": "GET /api/vault/history",
+          "class": "unauthorized",
+          "what": "远程、没带管理口令：403",
+          "request": { "method": "GET", "path": "/api/vault/history", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "status-browser-no-token",
+          "route": "GET /api/vault/status",
+          "class": "unauthorized",
+          "what": "浏览器同源来的、没带口令：403（凭据库读写都要管理员）",
+          "request": { "method": "GET", "path": "/api/vault/status", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "102", "etag": "W/\"66-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（凭据库读写都要管理员）" }
+          }
+        },
+        {
+          "id": "status-fresh",
+          "route": "GET /api/vault/status",
+          "class": "normal",
+          "what": "新实例：库还不存在、锁着；路径每个实例不同（只比形状）（库文件路径随检出目录变，只比路径是字符串，其余字段逐项比）",
+          "compare": ["upstream", "shared_with_dsh", "exists", "unlocked", "env_password", "password_source", "idle_lock_minutes", "count", "weak_master", "weak_reasons", "master_policy", "control_only", "path.constructor.name"],
+          "request": { "method": "GET", "path": "/api/vault/status", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "picked": {
+              "upstream": "dsh-vault@1.10.75",
+              "shared_with_dsh": false,
+              "exists": false,
+              "unlocked": false,
+              "env_password": false,
+              "password_source": "",
+              "idle_lock_minutes": 15,
+              "count": null,
+              "weak_master": null,
+              "weak_reasons": [],
+              "master_policy": { "min_length": 12, "common_list": 10005 },
+              "path.constructor.name": "String"
+            }
+          }
+        },
+        {
+          "id": "list-locked",
+          "route": "GET /api/vault/entries",
+          "class": "invalid",
+          "what": "锁着读列表：423，请先解锁",
+          "request": { "method": "GET", "path": "/api/vault/entries", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 423,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "82", "etag": "W/\"52-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "凭据库已锁定，请先输入主密码解锁", "code": "vault_locked" }
+          }
+        },
+        {
+          "id": "unlock-empty",
+          "route": "POST /api/vault/unlock",
+          "class": "invalid",
+          "what": "没写主密码：400",
+          "request": { "method": "POST", "path": "/api/vault/unlock", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "cache-control": "no-store", "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "请输入主密码" } }
+        },
+        {
+          "id": "unlock-weak",
+          "route": "POST /api/vault/unlock",
+          "class": "invalid",
+          "what": "新建库、主密码太弱：400 vault_weak_master，不落盘",
+          "request": { "method": "POST", "path": "/api/vault/unlock", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "password": "12345678" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "414", "etag": "W/\"19e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "error": "主密码不满足新建库要求：至少 12 个字符（现在 8 个）；不能全是数字；是常见弱口令（或只在它前后加了数字、符号、大小写变化）",
+              "code": "vault_weak_master",
+              "reasons": ["至少 12 个字符（现在 8 个）", "不能全是数字", "是常见弱口令（或只在它前后加了数字、符号、大小写变化）"],
+              "strength": { "score": 5, "verdict": "weak" }
+            }
+          }
+        },
+        {
+          "id": "status-still-none",
+          "route": "GET /api/vault/status",
+          "class": "normal",
+          "what": "弱主密码被拒之后库还是不存在（库文件路径随检出目录变，只比路径是字符串，其余字段逐项比）",
+          "compare": ["upstream", "shared_with_dsh", "exists", "unlocked", "env_password", "password_source", "idle_lock_minutes", "count", "weak_master", "weak_reasons", "master_policy", "control_only", "path.constructor.name"],
+          "request": { "method": "GET", "path": "/api/vault/status", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "picked": {
+              "upstream": "dsh-vault@1.10.75",
+              "shared_with_dsh": false,
+              "exists": false,
+              "unlocked": false,
+              "env_password": false,
+              "password_source": "",
+              "idle_lock_minutes": 15,
+              "count": null,
+              "weak_master": null,
+              "weak_reasons": [],
+              "master_policy": { "min_length": 12, "common_list": 10005 },
+              "path.constructor.name": "String"
+            }
+          }
+        },
+        {
+          "id": "master-weak",
+          "route": "POST /api/vault/master-check",
+          "class": "normal",
+          "what": "新建库前的实时校验：弱的说原因",
+          "request": { "method": "POST", "path": "/api/vault/master-check", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "password": "12345678" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "403", "etag": "W/\"193-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": false,
+              "reasons": ["至少 12 个字符（现在 8 个）", "不能全是数字", "是常见弱口令（或只在它前后加了数字、符号、大小写变化）"],
+              "strength": {
+                "score": 5,
+                "verdict": "weak",
+                "feedback": ["digits only", "found in common-password lists", "keyboard pattern (qwerty / asdf / 1234)", "sequential characters (abcd / 4321)"],
+                "bits": 27,
+                "patterns": ["common", "keyboard", "sequence"]
+              }
+            }
+          }
+        },
+        {
+          "id": "master-ok",
+          "route": "POST /api/vault/master-check",
+          "class": "normal",
+          "what": "够强：ok",
+          "request": { "method": "POST", "path": "/api/vault/master-check", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "password": "replay-Synthetic-vault-passphrase-orbit-9431" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "151", "etag": "W/\"97-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "reasons": [], "strength": { "score": 92, "verdict": "very strong", "feedback": ["low character diversity"], "bits": 289, "patterns": ["low-diversity"] } }
+          }
+        },
+        {
+          "id": "master-not-string",
+          "route": "POST /api/vault/master-check",
+          "class": "normal",
+          "what": "password 不是字符串：当空串，照样回原因",
+          "request": { "method": "POST", "path": "/api/vault/master-check", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "password": 123 } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "254", "etag": "W/\"fe-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "reasons": ["至少 12 个字符（现在 0 个）", "强度评估为「弱」：字符种类太少"], "strength": { "score": 0, "verdict": "weak", "feedback": ["too short (aim ≥ 12)", "low character diversity"], "bits": 0, "patterns": ["low-diversity"] } }
+          }
+        },
+        {
+          "id": "unlock",
+          "route": "POST /api/vault/unlock",
+          "class": "normal",
+          "what": "强主密码：新建库并解锁，0 条",
+          "request": { "method": "POST", "path": "/api/vault/unlock", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "password": "replay-Synthetic-vault-passphrase-orbit-9431" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "65", "etag": "W/\"41-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "unlocked": true, "count": 0, "weak_master": false, "weak_reasons": [] }
+          }
+        },
+        {
+          "id": "strength",
+          "route": "POST /api/vault/strength",
+          "class": "normal",
+          "what": "评估一个口令的强度（确定的）",
+          "request": { "method": "POST", "path": "/api/vault/strength", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "password": "abc123" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "131", "etag": "W/\"83-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "score": 5, "verdict": "weak", "feedback": ["too short (aim ≥ 12)", "found in common-password lists"], "bits": 31, "patterns": ["common"] }
+          }
+        },
+        {
+          "id": "strength-not-string",
+          "route": "POST /api/vault/strength",
+          "class": "normal",
+          "what": "password 不是字符串：当空串",
+          "request": { "method": "POST", "path": "/api/vault/strength", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "password": ["x"] } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "130", "etag": "W/\"82-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "score": 0, "verdict": "weak", "feedback": ["too short (aim ≥ 12)", "low character diversity"], "bits": 0, "patterns": ["low-diversity"] }
+          }
+        },
+        {
+          "id": "generate",
+          "route": "POST /api/vault/generate",
+          "class": "normal",
+          "what": "生成口令：每次随机，只比形状",
+          "compare": ["password.length", "strength.score.constructor.name"],
+          "request": { "method": "POST", "path": "/api/vault/generate", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "length": 24 } },
+          "response": { "status": 200, "picked": { "password.length": 24, "strength.score.constructor.name": "Number" } }
+        },
+        {
+          "id": "generate-passphrase",
+          "route": "POST /api/vault/generate",
+          "class": "normal",
+          "what": "生成助记词口令（词长不定，只比状态码）",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/vault/generate", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "passphrase": true, "words": 5, "separator": "-" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "generate-clamped",
+          "route": "POST /api/vault/generate",
+          "class": "normal",
+          "what": "长度越界夹到范围里（不报错）",
+          "compare": ["password.length", "strength.score.constructor.name"],
+          "request": { "method": "POST", "path": "/api/vault/generate", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "length": 100000 } },
+          "response": { "status": 200, "picked": { "password.length": 128, "strength.score.constructor.name": "Number" } }
+        },
+        {
+          "id": "create-no-title",
+          "route": "POST /api/vault/entries",
+          "class": "invalid",
+          "what": "没有 title：400",
+          "request": { "method": "POST", "path": "/api/vault/entries", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "kind": "login" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "24", "etag": "W/\"18-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "title 必填" }
+          }
+        },
+        {
+          "id": "create-bad-kind",
+          "route": "POST /api/vault/entries",
+          "class": "invalid",
+          "what": "kind 不在清单里：400",
+          "request": { "method": "POST", "path": "/api/vault/entries", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "title": "x", "kind": "weird" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "76", "etag": "W/\"4c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "kind 只能是 login/ssh/api-key/secret/oauth/cookie/card/custom" }
+          }
+        },
+        {
+          "id": "create-unknown-field",
+          "route": "POST /api/vault/entries",
+          "class": "invalid",
+          "what": "不支持的字段：400",
+          "request": { "method": "POST", "path": "/api/vault/entries", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "title": "x", "cookies": [] } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "40", "etag": "W/\"28-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "不支持的字段：cookies" }
+          }
+        },
+        {
+          "id": "create-bad-otp",
+          "route": "POST /api/vault/entries",
+          "class": "invalid",
+          "what": "otpSecret 不是 Base32：400",
+          "request": { "method": "POST", "path": "/api/vault/entries", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "title": "x", "otpSecret": "!!!" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "63", "etag": "W/\"3f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "otpSecret 不是有效的 Base32 或 otpauth:// URI" }
+          }
+        },
+        {
+          "id": "create-not-object",
+          "route": "POST /api/vault/entries",
+          "class": "invalid",
+          "what": "请求体是数组：400",
+          "request": { "method": "POST", "path": "/api/vault/entries", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": [1, 2] },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "请求体须为 JSON 对象" }
+          }
+        },
+        {
+          "id": "create",
+          "route": "POST /api/vault/entries",
+          "class": "normal",
+          "what": "建一条登录条目（带 TOTP）：201，回完整条目",
+          "vary": { "id": "random", "createdAt": "random", "updatedAt": "random" },
+          "request": {
+            "method": "POST",
+            "path": "/api/vault/entries",
+            "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" },
+            "json": { "title": "合成邮箱", "kind": "login", "username": "synthetic@example.invalid", "password": "Synthetic-Pw-0001", "url": "https://mail.example.invalid", "otpSecret": "JBSWY3DPEHPK3PXP", "tags": ["合成"] }
+          },
+          "save": { "e1": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "316", "etag": "W/\"13c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": "<每个实例随机·string·36>",
+              "title": "合成邮箱",
+              "kind": "login",
+              "username": "synthetic@example.invalid",
+              "password": "Synthetic-Pw-0001",
+              "otpSecret": "JBSWY3DPEHPK3PXP",
+              "url": "https://mail.example.invalid",
+              "tags": ["合成"],
+              "createdAt": "<每个实例随机·number·13>",
+              "updatedAt": "<每个实例随机·number·13>",
+              "passwordHistoryCount": 0
+            }
+          }
+        },
+        {
+          "id": "create-2",
+          "route": "POST /api/vault/entries",
+          "class": "normal",
+          "what": "再建一条接口密钥（同一个口令、http 站点、自定义字段）",
+          "vary": { "id": "random", "createdAt": "random", "updatedAt": "random" },
+          "request": {
+            "method": "POST",
+            "path": "/api/vault/entries",
+            "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" },
+            "json": { "title": "合成接口密钥", "kind": "api-key", "apiKey": "synthetic-api-key", "password": "Synthetic-Pw-0001", "url": "http://api.example.invalid", "fields": { "pin": "0000" } }
+          },
+          "save": { "e2": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "287", "etag": "W/\"11f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": "<每个实例随机·string·36>",
+              "title": "合成接口密钥",
+              "kind": "api-key",
+              "password": "Synthetic-Pw-0001",
+              "apiKey": "synthetic-api-key",
+              "url": "http://api.example.invalid",
+              "fields": { "pin": "0000" },
+              "createdAt": "<每个实例随机·number·13>",
+              "updatedAt": "<每个实例随机·number·13>",
+              "passwordHistoryCount": 0
+            }
+          }
+        },
+        {
+          "id": "list",
+          "route": "GET /api/vault/entries",
+          "class": "normal",
+          "what": "列表只回摘要：自定义字段只给键名，不带口令",
+          "vary": { "entries.0.id": "random", "entries.0.createdAt": "random", "entries.0.updatedAt": "random", "entries.1.id": "random", "entries.1.createdAt": "random", "entries.1.updatedAt": "random" },
+          "request": { "method": "GET", "path": "/api/vault/entries", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "536", "etag": "W/\"218-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "entries": [
+                { "id": "<每个实例随机·string·36>", "title": "合成邮箱", "updatedAt": "<每个实例随机·number·13>", "kind": "login", "username": "synthetic@example.invalid", "url": "https://mail.example.invalid", "tags": ["合成"], "hasOtp": true },
+                { "id": "<每个实例随机·string·36>", "title": "合成接口密钥", "updatedAt": "<每个实例随机·number·13>", "kind": "api-key", "url": "http://api.example.invalid", "fieldKeys": ["pin"] }
+              ],
+              "stats": { "total": 2, "byKind": { "login": 1, "api-key": 1 }, "byTag": { "合成": 1 }, "withTotp": 1, "trashCount": 0, "favoriteCount": 0, "expired": 0 }
+            }
+          }
+        },
+        {
+          "id": "list-kind",
+          "route": "GET /api/vault/entries",
+          "class": "normal",
+          "what": "按类型筛",
+          "vary": { "entries.0.id": "random", "entries.0.createdAt": "random", "entries.0.updatedAt": "random" },
+          "request": { "method": "GET", "path": "/api/vault/entries?kind=api-key", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "318", "etag": "W/\"13e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "entries": [{ "id": "<每个实例随机·string·36>", "title": "合成接口密钥", "updatedAt": "<每个实例随机·number·13>", "kind": "api-key", "url": "http://api.example.invalid", "fieldKeys": ["pin"] }],
+              "stats": { "total": 2, "byKind": { "login": 1, "api-key": 1 }, "byTag": { "合成": 1 }, "withTotp": 1, "trashCount": 0, "favoriteCount": 0, "expired": 0 }
+            }
+          }
+        },
+        {
+          "id": "list-q-none",
+          "route": "GET /api/vault/entries",
+          "class": "normal",
+          "what": "搜不到：空列表",
+          "request": { "method": "GET", "path": "/api/vault/entries?q=%E4%B8%8D%E5%AD%98%E5%9C%A8", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "146", "etag": "W/\"92-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "entries": [], "stats": { "total": 2, "byKind": { "login": 1, "api-key": 1 }, "byTag": { "合成": 1 }, "withTotp": 1, "trashCount": 0, "favoriteCount": 0, "expired": 0 } }
+          }
+        },
+        {
+          "id": "get",
+          "route": "GET /api/vault/entries/:id",
+          "class": "normal",
+          "what": "读完整条目（记审计）",
+          "vary": { "id": "random", "createdAt": "random", "updatedAt": "random" },
+          "request": { "method": "GET", "path": "/api/vault/entries/{{e1}}", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "316", "etag": "W/\"13c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": "<每个实例随机·string·36>",
+              "title": "合成邮箱",
+              "kind": "login",
+              "username": "synthetic@example.invalid",
+              "password": "Synthetic-Pw-0001",
+              "otpSecret": "JBSWY3DPEHPK3PXP",
+              "url": "https://mail.example.invalid",
+              "tags": ["合成"],
+              "createdAt": "<每个实例随机·number·13>",
+              "updatedAt": "<每个实例随机·number·13>",
+              "passwordHistoryCount": 0
+            }
+          }
+        },
+        {
+          "id": "get-missing",
+          "route": "GET /api/vault/entries/:id",
+          "class": "invalid",
+          "what": "没有这个条目：404",
+          "request": { "method": "GET", "path": "/api/vault/entries/no-such-entry", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "cache-control": "no-store", "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "条目不存在" } }
+        },
+        {
+          "id": "update",
+          "route": "PUT /api/vault/entries/:id",
+          "class": "normal",
+          "what": "改备注和收藏",
+          "vary": { "id": "random", "createdAt": "random", "updatedAt": "random" },
+          "request": { "method": "PUT", "path": "/api/vault/entries/{{e1}}", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "notes": "合成备注", "favorite": true } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "355", "etag": "W/\"163-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": "<每个实例随机·string·36>",
+              "title": "合成邮箱",
+              "kind": "login",
+              "username": "synthetic@example.invalid",
+              "password": "Synthetic-Pw-0001",
+              "otpSecret": "JBSWY3DPEHPK3PXP",
+              "url": "https://mail.example.invalid",
+              "tags": ["合成"],
+              "createdAt": "<每个实例随机·number·13>",
+              "updatedAt": "<每个实例随机·number·13>",
+              "notes": "合成备注",
+              "favorite": true,
+              "passwordHistoryCount": 0
+            }
+          }
+        },
+        {
+          "id": "update-bad",
+          "route": "PUT /api/vault/entries/:id",
+          "class": "invalid",
+          "what": "改的字段不支持：400",
+          "request": { "method": "PUT", "path": "/api/vault/entries/{{e1}}", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "attachments": {} } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "44", "etag": "W/\"2c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "不支持的字段：attachments" }
+          }
+        },
+        {
+          "id": "update-missing",
+          "route": "PUT /api/vault/entries/:id",
+          "class": "invalid",
+          "what": "没有这个条目：404",
+          "request": { "method": "PUT", "path": "/api/vault/entries/no-such-entry", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "notes": "x" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "cache-control": "no-store", "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "条目不存在" } }
+        },
+        {
+          "id": "totp",
+          "route": "GET /api/vault/entries/:id/totp",
+          "class": "normal",
+          "what": "取验证码：码和剩余秒数随时刻变，只比形状",
+          "compare": ["code.length", "period", "remaining.constructor.name"],
+          "request": { "method": "GET", "path": "/api/vault/entries/{{e1}}/totp", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "picked": { "code.length": 6, "period": 30, "remaining.constructor.name": "Number" } }
+        },
+        {
+          "id": "totp-none",
+          "route": "GET /api/vault/entries/:id/totp",
+          "class": "invalid",
+          "what": "这条没有 TOTP 密钥：404",
+          "request": { "method": "GET", "path": "/api/vault/entries/{{e2}}/totp", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "该条目没有 TOTP 密钥" }
+          }
+        },
+        {
+          "id": "health",
+          "route": "GET /api/vault/health",
+          "class": "normal",
+          "what": "健康报告：复用的口令只回哪些条目，不回明文",
+          "compare": ["reused.length", "reused.0.count", "reused.0.entries.length", "httpSites.length", "httpSites.0.title", "no2fa.length", "weak.length", "rotation.length"],
+          "request": { "method": "GET", "path": "/api/vault/health", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "picked": { "reused.length": 1, "reused.0.count": 2, "reused.0.entries.length": 2, "httpSites.length": 1, "httpSites.0.title": "合成接口密钥", "no2fa.length": 0, "weak.length": 0, "rotation.length": 0 } }
+        },
+        {
+          "id": "history",
+          "route": "GET /api/vault/history",
+          "class": "normal",
+          "what": "审计历史：新的在前",
+          "compare": ["length", "0.action", "1.action", "2.action", "3.action"],
+          "request": { "method": "GET", "path": "/api/vault/history", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "picked": { "length": 6, "0.action": "totp", "1.action": "update", "2.action": "read", "3.action": "search" } }
+        },
+        {
+          "id": "delete",
+          "route": "DELETE /api/vault/entries/:id",
+          "class": "normal",
+          "what": "删除：进回收站",
+          "request": { "method": "DELETE", "path": "/api/vault/entries/{{e1}}", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "trashed": true }
+          }
+        },
+        {
+          "id": "delete-again",
+          "route": "DELETE /api/vault/entries/:id",
+          "class": "invalid",
+          "what": "已在回收站：404",
+          "request": { "method": "DELETE", "path": "/api/vault/entries/{{e1}}", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "45", "etag": "W/\"2d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "条目不存在或已在回收站" }
+          }
+        },
+        {
+          "id": "trash",
+          "route": "GET /api/vault/trash",
+          "class": "normal",
+          "what": "回收站：一条（不含任何密钥）",
+          "vary": { "0.id": "random", "0.deletedAt": "random", "0.updatedAt": "random" },
+          "request": { "method": "GET", "path": "/api/vault/trash", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "231", "etag": "W/\"e7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": "<每个实例随机·string·36>",
+                "title": "合成邮箱",
+                "kind": "login",
+                "username": "synthetic@example.invalid",
+                "url": "https://mail.example.invalid",
+                "tags": ["合成"],
+                "deletedAt": "<每个实例随机·number·13>",
+                "updatedAt": "<每个实例随机·number·13>"
+              }
+            ]
+          }
+        },
+        {
+          "id": "restore",
+          "route": "POST /api/vault/trash/:id/restore",
+          "class": "normal",
+          "what": "从回收站恢复",
+          "request": { "method": "POST", "path": "/api/vault/trash/{{e1}}/restore", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "cache-control": "no-store", "content-length": "11", "etag": "W/\"b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true } }
+        },
+        {
+          "id": "restore-missing",
+          "route": "POST /api/vault/trash/:id/restore",
+          "class": "invalid",
+          "what": "回收站里没有：404",
+          "request": { "method": "POST", "path": "/api/vault/trash/{{e1}}/restore", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "回收站里没有这个条目" }
+          }
+        },
+        {
+          "id": "purge-not-in-trash",
+          "route": "DELETE /api/vault/trash/:id",
+          "class": "invalid",
+          "what": "不在回收站里的不能永久删：404（先软删、再清除）",
+          "request": { "method": "DELETE", "path": "/api/vault/trash/{{e1}}", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "回收站里没有这个条目" }
+          }
+        },
+        {
+          "id": "delete-for-purge",
+          "route": "DELETE /api/vault/entries/:id",
+          "class": "normal",
+          "what": "再删一次，准备永久删除",
+          "request": { "method": "DELETE", "path": "/api/vault/entries/{{e1}}", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "trashed": true }
+          }
+        },
+        {
+          "id": "purge",
+          "route": "DELETE /api/vault/trash/:id",
+          "class": "normal",
+          "what": "永久删除回收站里的",
+          "request": { "method": "DELETE", "path": "/api/vault/trash/{{e1}}", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "25", "etag": "W/\"19-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "purged": true }
+          }
+        },
+        {
+          "id": "purge-missing",
+          "route": "DELETE /api/vault/trash/:id",
+          "class": "invalid",
+          "what": "已经清掉了：404",
+          "request": { "method": "DELETE", "path": "/api/vault/trash/{{e1}}", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "回收站里没有这个条目" }
+          }
+        },
+        {
+          "id": "trash-empty",
+          "route": "GET /api/vault/trash",
+          "class": "normal",
+          "what": "回收站空了",
+          "request": { "method": "GET", "path": "/api/vault/trash", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "cache-control": "no-store", "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": [] }
+        },
+        {
+          "id": "status-unlocked",
+          "route": "GET /api/vault/status",
+          "class": "normal",
+          "what": "解锁中：库存在、1 条（库文件路径随检出目录变，只比路径是字符串，其余字段逐项比）",
+          "compare": ["upstream", "shared_with_dsh", "exists", "unlocked", "env_password", "password_source", "idle_lock_minutes", "count", "weak_master", "weak_reasons", "master_policy", "control_only", "path.constructor.name"],
+          "request": { "method": "GET", "path": "/api/vault/status", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "picked": {
+              "upstream": "dsh-vault@1.10.75",
+              "shared_with_dsh": false,
+              "exists": true,
+              "unlocked": true,
+              "env_password": false,
+              "password_source": "",
+              "idle_lock_minutes": 15,
+              "count": 1,
+              "weak_master": false,
+              "weak_reasons": [],
+              "master_policy": { "min_length": 12, "common_list": 10005 },
+              "path.constructor.name": "String"
+            }
+          }
+        },
+        {
+          "id": "lock",
+          "route": "POST /api/vault/lock",
+          "class": "normal",
+          "what": "上锁",
+          "request": { "method": "POST", "path": "/api/vault/lock", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "cache-control": "no-store", "content-length": "18", "etag": "W/\"12-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "unlocked": false } }
+        },
+        {
+          "id": "lock-again",
+          "route": "POST /api/vault/lock",
+          "class": "normal",
+          "what": "锁着再锁：照样回已上锁",
+          "request": { "method": "POST", "path": "/api/vault/lock", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "cache-control": "no-store", "content-length": "18", "etag": "W/\"12-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "unlocked": false } }
+        },
+        {
+          "id": "list-after-lock",
+          "route": "GET /api/vault/entries",
+          "class": "invalid",
+          "what": "上锁之后读列表：423",
+          "request": { "method": "GET", "path": "/api/vault/entries", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 423,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "82", "etag": "W/\"52-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "凭据库已锁定，请先输入主密码解锁", "code": "vault_locked" }
+          }
+        },
+        {
+          "id": "unlock-wrong",
+          "route": "POST /api/vault/unlock",
+          "class": "unauthorized",
+          "what": "库已存在、主密码不对：401",
+          "request": { "method": "POST", "path": "/api/vault/unlock", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "password": "replay-Synthetic-vault-passphrase-orbit-9431-wrong" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "主密码不正确", "code": "vault_bad_password" }
+          }
+        },
+        {
+          "id": "unlock-again",
+          "route": "POST /api/vault/unlock",
+          "class": "normal",
+          "what": "主密码对：解锁，1 条",
+          "request": { "method": "POST", "path": "/api/vault/unlock", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "password": "replay-Synthetic-vault-passphrase-orbit-9431" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "65", "etag": "W/\"41-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "unlocked": true, "count": 1, "weak_master": false, "weak_reasons": [] }
+          }
+        },
+        {
+          "id": "trash-locked-check",
+          "route": "GET /api/vault/trash",
+          "class": "normal",
+          "what": "解锁后回收站照常可读",
+          "request": { "method": "GET", "path": "/api/vault/trash", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "cache-control": "no-store", "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": [] }
+        }
+      ]
+    },
+    {
+      "name": "server-password",
+      "what": "服务端持有主密码（DSH_VAULT_PASSWORD，合成值），配了凭据库专用域名（WM_VAULT_HOST=vault.example）：主域名来的除状态外一律 403 vault_control_only；带专用域名 Host 的照常。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin", "DSH_VAULT_PASSWORD": "replay-Synthetic-vault-passphrase-orbit-9431", "WM_VAULT_HOST": "vault.example" },
+      "steps": [
+        {
+          "id": "main-status",
+          "route": "GET /api/vault/status",
+          "class": "normal",
+          "what": "主域名查状态：只报 control_only 和主密码来源",
+          "request": { "method": "GET", "path": "/api/vault/status", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "76", "etag": "W/\"4c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "upstream": "dsh-vault@1.10.75", "control_only": true, "password_source": "env" }
+          }
+        },
+        {
+          "id": "main-unlock",
+          "route": "POST /api/vault/unlock",
+          "class": "unauthorized",
+          "what": "主域名来的：403 vault_control_only（服务端持有主密码时只在专用域名开放）",
+          "request": { "method": "POST", "path": "/api/vault/unlock", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "174", "etag": "W/\"ae-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "服务端持有主密码时，凭据库只在凭据库专用域名开放（主域名承载 /go/ 外站与 SOP 正文等同源内容）", "code": "vault_control_only" }
+          }
+        },
+        {
+          "id": "main-lock",
+          "route": "POST /api/vault/lock",
+          "class": "unauthorized",
+          "what": "主域名来的：403 vault_control_only（服务端持有主密码时只在专用域名开放）",
+          "request": { "method": "POST", "path": "/api/vault/lock", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "174", "etag": "W/\"ae-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "服务端持有主密码时，凭据库只在凭据库专用域名开放（主域名承载 /go/ 外站与 SOP 正文等同源内容）", "code": "vault_control_only" }
+          }
+        },
+        {
+          "id": "main-list",
+          "route": "GET /api/vault/entries",
+          "class": "unauthorized",
+          "what": "主域名来的：403 vault_control_only（服务端持有主密码时只在专用域名开放）",
+          "request": { "method": "GET", "path": "/api/vault/entries", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "174", "etag": "W/\"ae-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "服务端持有主密码时，凭据库只在凭据库专用域名开放（主域名承载 /go/ 外站与 SOP 正文等同源内容）", "code": "vault_control_only" }
+          }
+        },
+        {
+          "id": "main-get",
+          "route": "GET /api/vault/entries/:id",
+          "class": "unauthorized",
+          "what": "主域名来的：403 vault_control_only（服务端持有主密码时只在专用域名开放）",
+          "request": { "method": "GET", "path": "/api/vault/entries/x", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "174", "etag": "W/\"ae-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "服务端持有主密码时，凭据库只在凭据库专用域名开放（主域名承载 /go/ 外站与 SOP 正文等同源内容）", "code": "vault_control_only" }
+          }
+        },
+        {
+          "id": "main-create",
+          "route": "POST /api/vault/entries",
+          "class": "unauthorized",
+          "what": "主域名来的：403 vault_control_only（服务端持有主密码时只在专用域名开放）",
+          "request": { "method": "POST", "path": "/api/vault/entries", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "174", "etag": "W/\"ae-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "服务端持有主密码时，凭据库只在凭据库专用域名开放（主域名承载 /go/ 外站与 SOP 正文等同源内容）", "code": "vault_control_only" }
+          }
+        },
+        {
+          "id": "main-update",
+          "route": "PUT /api/vault/entries/:id",
+          "class": "unauthorized",
+          "what": "主域名来的：403 vault_control_only（服务端持有主密码时只在专用域名开放）",
+          "request": { "method": "PUT", "path": "/api/vault/entries/x", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "174", "etag": "W/\"ae-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "服务端持有主密码时，凭据库只在凭据库专用域名开放（主域名承载 /go/ 外站与 SOP 正文等同源内容）", "code": "vault_control_only" }
+          }
+        },
+        {
+          "id": "main-delete",
+          "route": "DELETE /api/vault/entries/:id",
+          "class": "unauthorized",
+          "what": "主域名来的：403 vault_control_only（服务端持有主密码时只在专用域名开放）",
+          "request": { "method": "DELETE", "path": "/api/vault/entries/x", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "174", "etag": "W/\"ae-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "服务端持有主密码时，凭据库只在凭据库专用域名开放（主域名承载 /go/ 外站与 SOP 正文等同源内容）", "code": "vault_control_only" }
+          }
+        },
+        {
+          "id": "main-trash",
+          "route": "GET /api/vault/trash",
+          "class": "unauthorized",
+          "what": "主域名来的：403 vault_control_only（服务端持有主密码时只在专用域名开放）",
+          "request": { "method": "GET", "path": "/api/vault/trash", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "174", "etag": "W/\"ae-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "服务端持有主密码时，凭据库只在凭据库专用域名开放（主域名承载 /go/ 外站与 SOP 正文等同源内容）", "code": "vault_control_only" }
+          }
+        },
+        {
+          "id": "main-restore",
+          "route": "POST /api/vault/trash/:id/restore",
+          "class": "unauthorized",
+          "what": "主域名来的：403 vault_control_only（服务端持有主密码时只在专用域名开放）",
+          "request": { "method": "POST", "path": "/api/vault/trash/x/restore", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "174", "etag": "W/\"ae-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "服务端持有主密码时，凭据库只在凭据库专用域名开放（主域名承载 /go/ 外站与 SOP 正文等同源内容）", "code": "vault_control_only" }
+          }
+        },
+        {
+          "id": "main-purge",
+          "route": "DELETE /api/vault/trash/:id",
+          "class": "unauthorized",
+          "what": "主域名来的：403 vault_control_only（服务端持有主密码时只在专用域名开放）",
+          "request": { "method": "DELETE", "path": "/api/vault/trash/x", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "174", "etag": "W/\"ae-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "服务端持有主密码时，凭据库只在凭据库专用域名开放（主域名承载 /go/ 外站与 SOP 正文等同源内容）", "code": "vault_control_only" }
+          }
+        },
+        {
+          "id": "main-totp",
+          "route": "GET /api/vault/entries/:id/totp",
+          "class": "unauthorized",
+          "what": "主域名来的：403 vault_control_only（服务端持有主密码时只在专用域名开放）",
+          "request": { "method": "GET", "path": "/api/vault/entries/x/totp", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "174", "etag": "W/\"ae-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "服务端持有主密码时，凭据库只在凭据库专用域名开放（主域名承载 /go/ 外站与 SOP 正文等同源内容）", "code": "vault_control_only" }
+          }
+        },
+        {
+          "id": "main-generate",
+          "route": "POST /api/vault/generate",
+          "class": "unauthorized",
+          "what": "主域名来的：403 vault_control_only（服务端持有主密码时只在专用域名开放）",
+          "request": { "method": "POST", "path": "/api/vault/generate", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "174", "etag": "W/\"ae-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "服务端持有主密码时，凭据库只在凭据库专用域名开放（主域名承载 /go/ 外站与 SOP 正文等同源内容）", "code": "vault_control_only" }
+          }
+        },
+        {
+          "id": "main-strength",
+          "route": "POST /api/vault/strength",
+          "class": "unauthorized",
+          "what": "主域名来的：403 vault_control_only（服务端持有主密码时只在专用域名开放）",
+          "request": { "method": "POST", "path": "/api/vault/strength", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "174", "etag": "W/\"ae-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "服务端持有主密码时，凭据库只在凭据库专用域名开放（主域名承载 /go/ 外站与 SOP 正文等同源内容）", "code": "vault_control_only" }
+          }
+        },
+        {
+          "id": "main-master",
+          "route": "POST /api/vault/master-check",
+          "class": "unauthorized",
+          "what": "主域名来的：403 vault_control_only（服务端持有主密码时只在专用域名开放）",
+          "request": { "method": "POST", "path": "/api/vault/master-check", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "174", "etag": "W/\"ae-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "服务端持有主密码时，凭据库只在凭据库专用域名开放（主域名承载 /go/ 外站与 SOP 正文等同源内容）", "code": "vault_control_only" }
+          }
+        },
+        {
+          "id": "main-health",
+          "route": "GET /api/vault/health",
+          "class": "unauthorized",
+          "what": "主域名来的：403 vault_control_only（服务端持有主密码时只在专用域名开放）",
+          "request": { "method": "GET", "path": "/api/vault/health", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "174", "etag": "W/\"ae-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "服务端持有主密码时，凭据库只在凭据库专用域名开放（主域名承载 /go/ 外站与 SOP 正文等同源内容）", "code": "vault_control_only" }
+          }
+        },
+        {
+          "id": "main-history",
+          "route": "GET /api/vault/history",
+          "class": "unauthorized",
+          "what": "主域名来的：403 vault_control_only（服务端持有主密码时只在专用域名开放）",
+          "request": { "method": "GET", "path": "/api/vault/history", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "174", "etag": "W/\"ae-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "服务端持有主密码时，凭据库只在凭据库专用域名开放（主域名承载 /go/ 外站与 SOP 正文等同源内容）", "code": "vault_control_only" }
+          }
+        },
+        {
+          "id": "vh-status",
+          "route": "GET /api/vault/status",
+          "class": "normal",
+          "what": "专用域名查状态：库还不存在，主密码来自环境（库文件路径随检出目录变，只比路径是字符串，其余字段逐项比）",
+          "compare": ["upstream", "shared_with_dsh", "exists", "unlocked", "env_password", "password_source", "idle_lock_minutes", "count", "weak_master", "weak_reasons", "master_policy", "control_only", "path.constructor.name"],
+          "request": { "method": "GET", "path": "/api/vault/status", "raw": true, "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "host": "vault.example" } },
+          "response": {
+            "status": 200,
+            "picked": {
+              "upstream": "dsh-vault@1.10.75",
+              "shared_with_dsh": false,
+              "exists": false,
+              "unlocked": false,
+              "env_password": true,
+              "password_source": "env",
+              "idle_lock_minutes": 15,
+              "count": null,
+              "weak_master": null,
+              "weak_reasons": [],
+              "master_policy": { "min_length": 12, "common_list": 10005 },
+              "path.constructor.name": "String"
+            }
+          }
+        },
+        {
+          "id": "vh-list",
+          "route": "GET /api/vault/entries",
+          "class": "normal",
+          "what": "专用域名读列表：按需用服务端主密码新建并解锁，0 条",
+          "request": { "method": "GET", "path": "/api/vault/entries", "raw": true, "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "host": "vault.example" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "115", "content-security-policy": "frame-ancestors 'none'; frame-src 'none'", "etag": "W/\"73-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": { "entries": [], "stats": { "total": 0, "byKind": {}, "byTag": {}, "withTotp": 0, "trashCount": 0, "favoriteCount": 0, "expired": 0 } }
+          }
+        },
+        {
+          "id": "vh-create",
+          "route": "POST /api/vault/entries",
+          "class": "normal",
+          "what": "专用域名建条目",
+          "vary": { "id": "random", "createdAt": "random", "updatedAt": "random" },
+          "request": {
+            "method": "POST",
+            "path": "/api/vault/entries",
+            "raw": true,
+            "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "host": "vault.example" },
+            "json": { "title": "合成条目", "kind": "secret", "secret": "synthetic-secret" }
+          },
+          "save": { "v1": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "189", "content-security-policy": "frame-ancestors 'none'; frame-src 'none'", "etag": "W/\"bd-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": { "id": "<每个实例随机·string·36>", "title": "合成条目", "kind": "secret", "secret": "synthetic-secret", "createdAt": "<每个实例随机·number·13>", "updatedAt": "<每个实例随机·number·13>", "passwordHistoryCount": 0 }
+          }
+        },
+        {
+          "id": "vh-get",
+          "route": "GET /api/vault/entries/:id",
+          "class": "normal",
+          "what": "专用域名读完整条目",
+          "vary": { "id": "random", "createdAt": "random", "updatedAt": "random" },
+          "request": { "method": "GET", "path": "/api/vault/entries/{{v1}}", "raw": true, "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "host": "vault.example" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "189", "content-security-policy": "frame-ancestors 'none'; frame-src 'none'", "etag": "W/\"bd-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": { "id": "<每个实例随机·string·36>", "title": "合成条目", "kind": "secret", "secret": "synthetic-secret", "createdAt": "<每个实例随机·number·13>", "updatedAt": "<每个实例随机·number·13>", "passwordHistoryCount": 0 }
+          }
+        },
+        {
+          "id": "vh-lock",
+          "route": "POST /api/vault/lock",
+          "class": "normal",
+          "what": "专用域名上锁",
+          "request": { "method": "POST", "path": "/api/vault/lock", "raw": true, "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "host": "vault.example" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "18", "content-security-policy": "frame-ancestors 'none'; frame-src 'none'", "etag": "W/\"12-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": { "unlocked": false }
+          }
+        },
+        {
+          "id": "vh-list-after-lock",
+          "route": "GET /api/vault/entries",
+          "class": "normal",
+          "what": "上锁之后再读：服务端持有主密码，按需重新解锁，1 条",
+          "vary": { "entries.0.id": "random", "entries.0.createdAt": "random", "entries.0.updatedAt": "random" },
+          "request": { "method": "GET", "path": "/api/vault/entries", "raw": true, "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "host": "vault.example" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "235", "content-security-policy": "frame-ancestors 'none'; frame-src 'none'", "etag": "W/\"eb-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": {
+              "entries": [{ "id": "<每个实例随机·string·36>", "title": "合成条目", "updatedAt": "<每个实例随机·number·13>", "kind": "secret" }],
+              "stats": { "total": 1, "byKind": { "secret": 1 }, "byTag": {}, "withTotp": 0, "trashCount": 0, "favoriteCount": 0, "expired": 0 }
+            }
+          }
+        },
+        {
+          "id": "vh-unlock-not-needed",
+          "route": "POST /api/vault/unlock",
+          "class": "invalid",
+          "what": "服务端持有主密码时页面上解锁没写主密码：照旧 400",
+          "request": { "method": "POST", "path": "/api/vault/unlock", "raw": true, "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "host": "vault.example" }, "json": {} },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "30", "content-security-policy": "frame-ancestors 'none'; frame-src 'none'", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": { "error": "请输入主密码" }
+          }
+        },
+        {
+          "id": "vh-generate",
+          "route": "POST /api/vault/generate",
+          "class": "normal",
+          "what": "专用域名生成口令",
+          "compare": ["password.length", "strength.score.constructor.name"],
+          "request": { "method": "POST", "path": "/api/vault/generate", "raw": true, "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "host": "vault.example" }, "json": {} },
+          "response": { "status": 200, "picked": { "password.length": 20, "strength.score.constructor.name": "Number" } }
+        },
+        {
+          "id": "vh-mainport-status-host-upper",
+          "route": "GET /api/vault/status",
+          "class": "normal",
+          "what": "Host 大写也认作专用域名（不分大小写、不看端口）（库文件路径随检出目录变，只比路径是字符串，其余字段逐项比）",
+          "compare": ["upstream", "shared_with_dsh", "exists", "unlocked", "env_password", "password_source", "idle_lock_minutes", "count", "weak_master", "weak_reasons", "master_policy", "control_only", "path.constructor.name"],
+          "request": { "method": "GET", "path": "/api/vault/status", "raw": true, "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "host": "VAULT.Example:8443" } },
+          "response": {
+            "status": 200,
+            "picked": {
+              "upstream": "dsh-vault@1.10.75",
+              "shared_with_dsh": false,
+              "exists": true,
+              "unlocked": true,
+              "env_password": true,
+              "password_source": "env",
+              "idle_lock_minutes": 15,
+              "count": 1,
+              "weak_master": false,
+              "weak_reasons": [],
+              "master_policy": { "min_length": 12, "common_list": 10005 },
+              "path.constructor.name": "String"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,12 +1,12 @@
 name: ${COMPOSE_PROJECT_NAME:-ygl-trees-candidate}
 services:
   ygl-workspace:
-    image: ${YGL_IMAGE:-local/ygl-trees:0.119.0}
+    image: ${YGL_IMAGE:-local/ygl-trees:0.126.0}
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        YGL_TREES_VERSION: ${YGL_TREES_VERSION:-0.119.0}
+        YGL_TREES_VERSION: ${YGL_TREES_VERSION:-0.126.0}
     restart: unless-stopped
     user: "1000:1000"
     environment:

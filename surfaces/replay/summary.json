@@ -1,0 +1,187 @@
+{
+  "domain": "summary",
+  "what": "首页总览：/api/summary 的 1 条路由。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /api/summary"],
+  "exempt": [{ "route": "GET /api/summary", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/junk-query" }],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "缺省配置：登录门关，读面开放。",
+      "env": {},
+      "steps": [
+        {
+          "id": "fresh",
+          "route": "GET /api/summary",
+          "class": "normal",
+          "what": "新库：只有一个内置的台（任务中心），启用着，状态未知",
+          "request": { "method": "GET", "path": "/api/summary" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "117", "etag": "W/\"75-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "total": 1, "enabled": 1, "up": 0, "down": 0, "unknown": 1, "avg_latency_ms": null, "categories": { "SOP 台": { "total": 1, "up": 0 } } }
+          }
+        },
+        {
+          "id": "junk-query",
+          "route": "GET /api/summary",
+          "class": "normal",
+          "what": "这条路由不读查询串：带无关、畸形的参数照常应答",
+          "request": { "method": "GET", "path": "/api/summary?category=x&limit[]=1" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "117", "etag": "W/\"75-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "total": 1, "enabled": 1, "up": 0, "down": 0, "unknown": 1, "avg_latency_ms": null, "categories": { "SOP 台": { "total": 1, "up": 0 } } }
+          }
+        },
+        {
+          "id": "add-a",
+          "what": "布置现场：登记一个台，分类「甲」（借工作台的路由，只比状态码）",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/workbenches", "json": { "name": "回放·甲一", "url": "http://127.0.0.1:9/a", "type": "web", "category": "甲" } },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "add-b",
+          "what": "布置现场：再登记一个，分类「甲」",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/workbenches", "json": { "name": "回放·甲二", "url": "http://127.0.0.1:9/b", "type": "web", "category": "甲" } },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "add-c",
+          "what": "布置现场：再登记一个，不给分类",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/workbenches", "json": { "name": "回放·无分类", "url": "http://127.0.0.1:9/c", "type": "web" } },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "disable-c",
+          "what": "布置现场：停用没分类的那个",
+          "compare": "status",
+          "request": { "method": "PUT", "path": "/api/workbenches/4", "json": { "enabled": false } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "check-builtin",
+          "what": "布置现场：探一次内置的台（市场自己托管的，记成在线，带延迟）",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/workbenches/1/check" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "check-b",
+          "what": "布置现场：探一次甲二（端口 9 不通，记成离线）",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/workbenches/3/check" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "after",
+          "route": "GET /api/summary",
+          "class": "normal",
+          "what": "三个新台之后：总数、启用数、离线数、按分类分（没分类的算「未分类」，停用的照样计入分类总数）",
+          "request": { "method": "GET", "path": "/api/summary" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "173", "etag": "W/\"ad-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "total": 4, "enabled": 3, "up": 1, "down": 1, "unknown": 1, "avg_latency_ms": null, "categories": { "SOP 台": { "total": 1, "up": 1 }, "甲": { "total": 2, "up": 0 }, "未分类": { "total": 1, "up": 0 } } }
+          }
+        },
+        {
+          "id": "remote-anonymous",
+          "route": "GET /api/summary",
+          "class": "normal",
+          "what": "带转发头的匿名读：登录门关着时读面开放",
+          "request": { "method": "GET", "path": "/api/summary", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "173", "etag": "W/\"ad-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "total": 4, "enabled": 3, "up": 1, "down": 1, "unknown": 1, "avg_latency_ms": null, "categories": { "SOP 台": { "total": 1, "up": 1 }, "甲": { "total": 2, "up": 0 }, "未分类": { "total": 1, "up": 0 } } }
+          }
+        },
+        {
+          "id": "head",
+          "what": "HEAD 走同一条 GET 路由，没有响应体",
+          "request": { "method": "HEAD", "path": "/api/summary" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "173", "etag": "W/\"ad-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": "" }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce），管理口令由环境给（合成值，只在隔离实例里用）。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "steps": [
+        {
+          "id": "anonymous",
+          "route": "GET /api/summary",
+          "class": "unauthorized",
+          "what": "远程匿名",
+          "request": { "method": "GET", "path": "/api/summary", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "wrong-token",
+          "route": "GET /api/summary",
+          "class": "unauthorized",
+          "what": "口令不对",
+          "request": { "method": "GET", "path": "/api/summary", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "not-the-token" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "browser-anonymous",
+          "route": "GET /api/summary",
+          "class": "unauthorized",
+          "what": "本机但带浏览器标记：不算命令行",
+          "request": { "method": "GET", "path": "/api/summary", "headers": { "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "with-token",
+          "route": "GET /api/summary",
+          "class": "normal",
+          "what": "远程带口令",
+          "request": { "method": "GET", "path": "/api/summary", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "117", "etag": "W/\"75-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "total": 1, "enabled": 1, "up": 0, "down": 0, "unknown": 1, "avg_latency_ms": null, "categories": { "SOP 台": { "total": 1, "up": 0 } } }
+          }
+        },
+        {
+          "id": "local-cli",
+          "route": "GET /api/summary",
+          "class": "normal",
+          "what": "本机命令行不用口令也能过门",
+          "request": { "method": "GET", "path": "/api/summary" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "117", "etag": "W/\"75-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "total": 1, "enabled": 1, "up": 0, "down": 0, "unknown": 1, "avg_latency_ms": null, "categories": { "SOP 台": { "total": 1, "up": 0 } } }
+          }
+        }
+      ]
+    }
+  ]
+}

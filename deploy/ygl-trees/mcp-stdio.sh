@@ -12,5 +12,5 @@ exec docker run --rm -i \
   --user 1000:1000 \
   --env YGL_HOME=/var/lib/ygl \
   --env "YGL_SESSION=${YGL_SESSION}" \
-  ${YGL_IMAGE:-local/ygl-trees:0.119.0} \
+  ${YGL_IMAGE:-local/ygl-trees:0.126.0} \
   mcp

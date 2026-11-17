@@ -1,7 +1,19 @@
+// 对外断开（WM_OUTBOUND=off）的闸必须最先装上：之后引入的模块一开套接字就要经过它
+import { outboundOff, noteBlocked, outboundStatus, verifyOutboundGate } from './outbound-gate.ts';
+// 启动闸也要赶在装服务（context.ts）之前拉上：后台任务（事项回填）等启动自检通过再开始
+import './startup-gate-hold.ts';
+import { startupPassed } from './startup-gate.ts';
 import express from 'express';
-import { createStartupSecurityProbe, isStartupProbeRequest } from './startup-security-self-probe.ts';
-import { createLoginGate, loginGateMode, trustedProxies } from './login-gate.ts';
-import { installOdooLoginProxy } from './odoo-login-proxy.ts';
+import { SENSITIVE_QUERY_KEYS, createPortalAccess, isCredentialed, isInternalTarget, parseAccessInput } from './portal-access.ts';
+import type { PrincipalService } from './services/principal.ts';
+import { createStartupSecurityProbe, isStartupProbeRequest, TEST_ENV_WAITS } from './startup-security-self-probe.ts';
+import { createLoginGate, loginGateMode, trustedProxies, trustedProxyCheck } from './login-gate.ts';
+import { identity, loginRelay, sourceDown } from './identity.ts';
+import { requestPerson, hasLoginCredential } from './request-person.ts';
+import { countSubmission, countSubmitterTicket } from './services/submission-counts.ts';
+import { sealSelfCheck } from './services/login-session.ts';
+import { serveAppHtml } from './app-html.ts';
+import { initSubmitterTickets, issueSubmitterTicket, selfCheckSubmitterTickets, submitterFromTicket } from './submitter-ticket.ts';
 import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
 import { recordAppDataEvent, cancelTaskCenterDeliveries, kickWorkbenchEvents, startWorkbenchEventWorker, registerWorkbenchEventRoutes } from './workbench-events.ts';
 import cors from 'cors';
@@ -9,7 +21,7 @@ import { contentConfig, createContentSurface, mountContentSurface, listenContent
 import { createPortalObservation } from './portal-observation.ts';
 import { allSurfaceServers, browserMarked, originIsThisSurface, rawLoopback, registerSurface, surfaceOf, surfacePorts, surfaceUrl } from './surfaces.ts';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -20,34 +32,155 @@ import { dirname, join, posix, extname, relative, sep as pathSep } from 'node:pa
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import multer from 'multer';
 import { svc } from './context.ts';
+import { SYSTEM_DOMAINS, domainOf } from './roles.ts';
+import { markSystemAdminOnly } from './admin-tier.ts';
+import type { HttpService } from './http.ts';
+import { registerTypeRoutes } from './routes/types.ts';
+import { registerCockpitRoutes } from './routes/cockpits.ts';
+import { cockpitAccess } from './cockpit-access.ts';
+import { registerCookieRoutes } from './routes/cookies.ts';
+import { registerStatsRoutes } from './routes/stats.ts';
+import { registerDesignTokenRoutes } from './routes/design-tokens.ts';
+import { registerAgentCardRoutes } from './routes/agent-card.ts';
+import { registerSsoRoutes } from './routes/sso.ts';
+import { registerSummaryRoutes } from './routes/summary.ts';
+import { registerContentObservationRoutes } from './routes/content-observation.ts';
+import { registerAuthViewerRoutes } from './routes/auth-viewer.ts';
+import { registerPrincipalRoutes } from './routes/principals.ts';
+import { registerLocalAccountRoutes } from './routes/local-accounts.ts';
+import { loadRoleDeclarations, registerGrantRoutes } from './routes/grants.ts';
+import { installBuiltinJudge } from './judgment.ts';
+import { actorResolver, compareConfig, mountJudgmentCompare } from './judgment-compare.ts';
+import { rememberRefusal, rememberUnavailable } from './knowledge-remember.ts';
+import { checkEnforce, enforceConfig, enforceGate, type EnforceConfig } from './judgment-enforce.ts';
+import { registerAttentionRoutes } from './routes/attention.ts';
+import { registerWorkItemRoutes } from './routes/work-items.ts';
+import { registerWorkItemAttachmentRoutes } from './routes/work-item-attachments.ts';
+import { registerRosterRoutes } from './routes/a2a-roster.ts';
+import { registerSettingsRoutes } from './routes/settings.ts';
+import { settingsViewsLeak } from './settings-view.ts';
+import { registerAdminTokenRoutes } from './routes/admin-token.ts';
+import { registerBindingRoutes } from './routes/bindings.ts';
+import { registerA2aPeerRoutes } from './routes/a2a-peers.ts';
+import { registerA2aDirectRoutes } from './routes/a2a-direct.ts';
+import { registerSeatTokenRoutes } from './routes/seat-token.ts';
+import { seatTokenSession } from './services/seat-tokens.ts';
+import { registerA2aOutboundRoutes } from './routes/a2a-outbound.ts';
+import { registerExportImportRoutes } from './routes/export-import.ts';
+import { registerDepartmentRoutes } from './routes/departments.ts';
+import { registerTeamRoutes } from './routes/teams.ts';
+import { registerRelationRoutes } from './routes/relations.ts';
+import { rosterStaleMinutesFromEnv, type TeamService } from './services/team.ts';
+import { proposalTtlDaysFromEnv, rosterGoneHoursFromEnv, type RelationProposalService } from './services/relation-proposal.ts';
+import { registerAccessRoutes } from './routes/access.ts';
+import { registerLoginFlowRoutes } from './routes/login-flows.ts';
+import { registerLoginGateRoutes } from './routes/login-gate.ts';
+import { registerWorkbenchRoutes } from './routes/workbenches.ts';
+import { registerSpaFallbackRoute } from './routes/spa-fallback.ts';
+import { registerContentOpenRoutes } from './routes/content-open.ts';
+import { registerSopPageRoutes } from './routes/sop-page.ts';
+import { registerLoginEventRoutes } from './routes/login-events.ts';
+import { registerTaskRoutes } from './routes/tasks.ts';
+import { benchViewsConfig, registerBenchViewRoutes, BENCH_ROWS_PATH } from './routes/bench-views.ts';
+import { registerKnowledgeRoutes } from './routes/knowledge.ts';
+import { BENCH_TOOL_NAMES, BENCH_GRANT_RE } from './bench-mcp-tools.ts';
+import { benchGrantsOf, benchRequestOfSession, benchRequestTtlConfig, benchRequestsOf, benchToolTarget, requestBenchTools, runBenchTool, setBenchRequestTtlHours } from './services/bench-mcp.ts';
+import { resolveBenchRef } from './services/bench-registry.ts';
+import { cardDeleterOf, checkCardDeletable, deleteCardWithBench, type CardDeleter } from './bench-card-delete.ts';
+import { BenchError } from './bench-query.ts';
+import { registerChangeRequestRoutes } from './routes/change-requests.ts';
+import { registerSopStateRoutes, registerSopSpaceRoutes } from './routes/sops.ts';
+import { registerTaskIntakeRoutes, registerTaskReadRoutes, registerTaskControlRoutes } from './routes/task-center.ts';
+import { registerSkillRoutes } from './routes/skills.ts';
+import { startSkillShadowCatchUp } from './skill-shadow.ts';
+import { registerMcpRoutes } from './routes/mcp.ts';
+import { registerRemoteAllowRoutes } from './routes/remote-allow.ts';
+import { registerAppRoutes, registerAppLifecycleRoutes } from './routes/apps.ts';
+import { registerAppDataRoutes, appDataReadMode, type AppDataReadMode } from './routes/app-data.ts';
+import { registerSopRunFileRoutes } from './routes/sop-run-files.ts';
+import { registerSopRunLifecycleRoutes, sopRunWriteMode, type SopRunWriteMode } from './routes/sop-run-lifecycle.ts';
+import { registerMcpRestRoutes } from './routes/mcp-rest.ts';
+import { registerAppsStaticRoutes } from './routes/apps-static.ts';
+import { managementGrantHolders } from './work-item-access.ts';
+import { registerHealthRoutes } from './routes/health.ts';
+import { registerMcpProtocolRoutes } from './routes/mcp-protocol.ts';
+import { registerSopRunControlRoutes } from './routes/sop-run-control.ts';
+import { registerSopRunAccessRoutes } from './routes/sop-run-access.ts';
 import type { WorkbenchService } from './services/workbench.ts';
+import { workItemStuckHoursFromEnv, type WorkItemService } from './services/work-item.ts';
 import type { SopService } from './services/sop.ts';
+import type { McpService } from './services/mcp.ts';
+import type { ChangeRequestService } from './services/change-request.ts';
+import type { TaskCenterService } from './services/task-center.ts';
+import type { RemoteAllowService } from './services/remote-allow.ts';
 import { SkillService } from './services/skill.ts';
 import type { AppService } from './services/app.ts';
-import type { AppDataService } from './services/app-data.ts';
+import { Config as AppDataConfig, type AppDataService } from './services/app-data.ts';
+import type { GrantService } from './services/grant.ts';
+import type { DepartmentService } from './services/department.ts';
 import type { CookieService } from './services/cookie.ts';
 import type { CockpitService } from './services/cockpit.ts';
-import type { SettingService } from './services/setting.ts';
+import { ADMIN_TOKEN_KEY, type SettingService } from './services/setting.ts';
+import type { BindingService } from './services/binding.ts';
 import { recordLayerFsShadowOutcome, recordLayerFsSkillShadowOutcome } from './layerfs-shadow.ts';
-import { db, getSettings, dataDir, rowToWorkbench, rowToCockpit, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow, type SopRunRow } from './db.ts';
+import { db, getSettings, dataDir, rowToWorkbench, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow, type SopRunRow } from './db.ts';
 (globalThis as any).__wmDb = db; // #94 v3 S1：tasks.ts 直读 change_requests 桥
 import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
 import { HttpError } from './errors.ts';
 import { designStandard } from './design-standard.ts';
 import { mountVault } from './vault-api.ts';
-import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet } from './workbench-vars.ts';
+import { expectedSha256, uploadIntegrity, type UploadIntegrity } from './upload-integrity.ts';
+import { loadConfig } from './config.ts';
+import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet, workbenchIdOf, reportHotVarKeys, reportHotPending, setVarsStoreMode, startHotVarsFlush, flushHotVars, Config as VarsConfig } from './workbench-vars.ts';
+import { registerWorkbenchVarsRoutes } from './routes/workbench-vars.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, redisConfigured, runStateRestore, runStateRead, runStateRetire, type RunStateRead } from './redis.ts';
 import { createRunCheckpoints } from './sop-state-checkpoints.ts';
-import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
+import { duplicateNode8s } from './services/a2a-handles.ts';
+import { adminTokenFromEnv, envAdminTokenFingerprint } from './admin-token-env.ts';
+import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, memberProvenanceMode, setMemberProvenance, progressReceiptsMode, setProgressReceipts, teamRosterMode, setTeamRoster, directedSeatsMode, setDirectedSeats, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
 import type { IncomingMessage } from 'node:http';
-import { createDirectSigVerifier, directSigBodyMode, directSigMode, type DirectSigMode } from './a2a-direct-sig.ts';
+import { a2aHealth } from './a2a/health.ts';
+import { followupRateLimit } from './a2a/receipt-inbound.ts';
+import { cardCooldownMs, createDirectSigVerifier, directSigBodyMode, directSigMode, type DirectSigMode } from './a2a-direct-sig.ts';
+import { isInsideRoot } from './path-inside.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const app = express();
-const startupSecurity = createStartupSecurityProbe();
+const http = svc<HttpService>('http'); // HTTP 服务持有 Express 应用；域模块经它注册路由（注册可撤销）
+const app = http.expressApp(); // 全局中间件、监听和还没搬走的路由，照旧直接用应用本身
+// 测试环境（NODE_ENV=test）等得久一点：只拉长等待，判定不变；生产照旧 1.5 秒一条、等监听 10 秒
+const startupSecurity = createStartupSecurityProbe(process.env.NODE_ENV === 'test' ? { ...TEST_ENV_WAITS } : {});
 app.use(startupSecurity.middleware); // #326: before parsers, content dispatch and every business route
+// 阶段六 6c：判定事件的内置监听器（六步）；并行比对（WM_JUDGMENT_COMPARE，缺省关）在应答结束之后算新结论、和旧结论比，不改应答
+installBuiltinJudge();
+let judgmentEnforce: EnforceConfig = { domains: null };
+{
+  let cfg: ReturnType<typeof compareConfig>;
+  try { cfg = compareConfig(); } catch (e) { console.error(`[judgment] 拒绝启动：${(e as Error).message}`); process.exit(1); }
+  const compareDeps = { adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), skip: isStartupProbeRequest, facts: () => ({ adminTokenSet: adminTokenFromEnv() || dbAdminTokenSet() }) };
+  const actorOf = actorResolver(compareDeps);
+  mountJudgmentCompare(app, cfg, compareDeps, actorOf);
+  // 阶段六 6d：判定切换的开关（WM_JUDGMENT_ENFORCE，缺省空 = 不切）。要在注册任何路由之前装门；写法不对、比对没开：拒绝启动
+  let enforce: EnforceConfig;
+  try { enforce = enforceConfig(cfg.on); } catch (e) { console.error(`[judgment] 拒绝启动：${(e as Error).message}`); process.exit(1); }
+  judgmentEnforce = enforce;
+  if (enforce.domains) {
+    http.setGate(enforceGate(enforce, actorOf, compareDeps.facts));
+    console.log(JSON.stringify({ source: 'judgment', event: 'enforce', domains: enforce.domains === 'all' ? 'all' : [...enforce.domains], at: new Date().toISOString() }));
+  }
+}
+// 数据视图的入口（WM_BENCH_VIEWS=on|off，缺省 on）：显式 off 时每条路由都直接回 404。值不合法拒绝启动
+const BENCH_VIEWS = (() => { try { return benchViewsConfig(); } catch (e) { console.error(`[bench-views] 拒绝启动：${(e as Error).message}`); process.exit(1); } })();
+// 台的权限申请没人处理的总期限（WM_BENCH_REQUEST_TTL_HOURS，缺省 72，1～720 小时）：启动时读一次，不合法拒绝启动
+setBenchRequestTtlHours((() => { try { return benchRequestTtlConfig(); } catch (e) { console.error(`[bench-views] 拒绝启动：${(e as Error).message}`); process.exit(1); } })());
+// 工作台的常量、变量存在哪（WM_VARS_STORE：main / shadow / bench，缺省 main）。不合法拒绝启动；起来时报一次已有的 hot. 开头的键
+setVarsStoreMode((() => { try { return loadConfig(VarsConfig).store; } catch (e) { console.error(`[vars] 拒绝启动：${(e as Error).message}`); process.exit(1); } })());
+reportHotVarKeys();
+// 台的提交记录和附件存在哪（WM_APP_DATA_STORE：main / shadow / bench，缺省 main）。不合法拒绝启动
+svc<AppDataService>('appData').setMode((() => { try { return loadConfig(AppDataConfig).store; } catch (e) { console.error(`[app-data] 拒绝启动：${(e as Error).message}`); process.exit(1); } })());
+reportHotPending(); // 上一个 bench 档进程留在 Redis 里没落盘的高频变量：不是 bench 档时醒目报一次
+startHotVarsFlush(); // 高频变量（hot. 开头的键）每 30 秒落一次台库；只在 bench 档、配了 Redis 时有活
 // 全站登录门（WM_LOGIN_GATE=enforce|off，缺省 off）：紧跟启动自检门，早于内容分发、解析器、静态资源、SPA 回落和各路由。
 // 依赖都是函数声明或请求期才取的值（提升/闭包），这里只建不调。值不合法拒绝启动（同 MCP_GATEWAY #284）
 const LOGIN_GATE_MODE = loginGateMode();
@@ -55,18 +188,58 @@ if (!LOGIN_GATE_MODE) {
   console.error('[login-gate] 拒绝启动：WM_LOGIN_GATE 只接受 enforce / off / 不设（当前值无法识别，不按关处理）');
   process.exit(1);
 }
+// 读台数据与附件的守卫（WM_APP_DATA_READ=enforce|warn，缺省 enforce）：启动时读一次，不合法拒绝启动
+const APP_DATA_READ: AppDataReadMode = (() => {
+  try { return appDataReadMode(process.env.WM_APP_DATA_READ); } catch (e) { console.error(`[app-data] 拒绝启动：${(e as Error).message}`); process.exit(1); }
+})();
+if (APP_DATA_READ === 'warn') console.warn('[app-data] WM_APP_DATA_READ=warn：没有台令牌、不是管理员的读照旧放行，只计数留痕（上线过渡用，过渡完设回 enforce）');
+// 写 run 的守卫（WM_SOP_RUN_WRITE=enforce|warn，缺省 enforce）：启动时读一次，不合法拒绝启动
+const SOP_RUN_WRITE: SopRunWriteMode = (() => {
+  try { return sopRunWriteMode(process.env.WM_SOP_RUN_WRITE); } catch (e) { console.error(`[sop-run] 拒绝启动：${(e as Error).message}`); process.exit(1); }
+})();
+if (SOP_RUN_WRITE === 'warn') console.warn('[sop-run] WM_SOP_RUN_WRITE=warn：没带写凭据的保存、完成照旧放行，只计数留痕（上线过渡用，过渡完设回 enforce）');
+// 市场会话的绝对期限（WM_SESSION_TTL_MIN，分钟，缺省 720 = 12 小时，范围 15～10080）：启动时读一次，不合法拒绝启动。不续期
+const SESSION_TTL_MIN = (() => {
+  const raw = String(process.env.WM_SESSION_TTL_MIN ?? '').trim();
+  const n = raw === '' ? 720 : /^[0-9]{1,5}$/.test(raw) ? Number(raw) : NaN;
+  if (!Number.isInteger(n) || n < 15 || n > 10080) { console.error('[session] 拒绝启动：WM_SESSION_TTL_MIN 只接受 15～10080 的整数（分钟）'); process.exit(1); }
+  return n;
+})();
+/** 记成经验那几处认人用（管理口令认成内置身份，不能记） */
+const rememberActorOf = actorResolver({ adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined) });
+const loginGateViewer = identity().cachedResolver({ ttlMs: 30_000, max: 2000 }); // 提供方的回答最多留 30 秒；主体停没停用每次现查
 const loginGate = createLoginGate({
   mode: LOGIN_GATE_MODE,
   dataDir,
   adminTokenCheck: (t) => adminTokenCheck(t),
-  adminTokenFingerprint: () => process.env.ADMIN_TOKEN
-    ? createHash('sha256').update('env|' + process.env.ADMIN_TOKEN, 'utf8').digest('hex')
+  adminTokenFingerprint: () => adminTokenFromEnv()
+    ? envAdminTokenFingerprint()
     : String((svc<SettingService>('setting').get(ADMIN_TOKEN_KEY) as { value: string } | undefined)?.value ?? ''),
-  odooViewer: async (cookie) => {
-    if (!odooUrl()) return null;
-    const who = await resolveOdooViewer(cookie); // 只认内部员工（门户账号 403）
-    return who.ok ? { login: who.viewer.login, admin: who.viewer.admin } : null;
+  odooViewer: async (cookie, fresh) => {
+    if (!identity().configured() && !identity().hasSession(cookie)) return null; // 没配身份来源时，只有市场会话还可能认得出人
+    const who = fresh ? await identity().resolveViewer(cookie) : await loginGateViewer(cookie); // 只认内部员工（门户账号 403）
+    if (!who.ok) return who.held ? { held: true as const } : sourceDown(who) ? { down: true as const } : null; // 卡在主体那一步：登录门给等待页；身份来源不可达：接口回 502 identity_unavailable
+    return { login: who.viewer.login, admin: who.viewer.admin, ...(who.via === 'session' ? { via: 'session' as const } : {}) };
   },
+  // Odoo 刚认出来的人：由市场维持会话（期限 WM_SESSION_TTL_MIN）。回答取自上面那份 30 秒缓存，不多问一次 Odoo
+  openSession: async (req) => {
+    const cookie = String(req.headers.cookie ?? '');
+    const who = await loginGateViewer(cookie);
+    if (!who.ok || who.via === 'session') return null;
+    return identity().openSession(cookie, who, SESSION_TTL_MIN * 60_000);
+  },
+  loginFlows: () => identity().flows(),
+  profile: async (req) => {
+    const who = await loginGateViewer(String(req.headers.cookie ?? ''));
+    if (!who.ok) return { principal: null, display_name: null, roles: [] };
+    const views = new Map(svc<GrantService>('grants').roles().map((r) => [r.id, r]));
+    const roles = svc<GrantService>('grants').activeFor(who.viewer.sub).map((g) => ({ id: g.role, name: views.get(g.role)?.name ?? g.role, scope: g.scope, scope_name: svc<DepartmentService>('departments').scopeName(g.scope), preset: !!views.get(g.role)?.platform, expires_at: g.expires_at, source: g.source, approved_by: g.approved_by }));
+    return { principal: who.viewer.sub, display_name: who.viewer.name ?? null, roles };
+  },
+  // /api/auth/me 的 can：这个请求能做的、不属于某一个对象的事（只增）。和对应的写路由问同一处
+  // remember_knowledge：能不能把拍板记成经验（和 POST /api/knowledge/remember、「关注」答复里的 remember 同一处判断，knowledge-remember.ts 的 rememberRefusal；
+  // 经验库没接入 ygl-trees 时也为假：rememberUnavailable）
+  can: async (req) => ({ create_cockpit: await cockpits.can(req, 'cockpit.create'), remember_knowledge: rememberRefusal((await rememberActorOf(req)).actor) === null && rememberUnavailable() === null }),
   appToken: (slug) => wmAppToken(slug),
   varsAppTokenOk: (req) => workbenchVars.appTokenWrite(req),
   runCapOk: async (kind, runId, presented) => {
@@ -76,7 +249,7 @@ const loginGate = createLoginGate({
     return row?.status === 'running' && want.length > 0 && want.length === presented.length && timingSafeEqual(Buffer.from(want), Buffer.from(presented));
   },
   goAppSlug: (id) => /^\/apps\/([a-z0-9][a-z0-9-]{0,63})\/?$/.exec(wbById(id)?.url ?? '')?.[1] ?? null,
-  odooLoginHref: (req) => (odooUrl() ? odooLoginUrl(req, '/login') : null),
+  odooLoginHref: (req) => (identity().configured() ? odooLoginUrl(req, '/login') : null),
   tokensCss: () => loadTokensCss()?.css ?? '',
 });
 if (loginGate.enforced) console.log('[login-gate] enforce：无身份的请求一律拦截（页面 302 /login，API 401）');
@@ -86,8 +259,75 @@ if (loginGate.enforced) console.log('[login-gate] enforce：无身份的请求�
   const tp = trustedProxies();
   if (tp.invalid.length) { console.error(`[trusted-proxies] 拒绝启动：WM_TRUSTED_PROXIES 有非法项（只收 IP 或 CIDR）：${tp.invalid.join(', ')}`); process.exit(1); }
   if (tp.entries.length) console.log(`[trusted-proxies] 认这些对端写入的 X-Real-IP/X-Forwarded-For：${tp.entries.join(', ')}（回环恒可信）`);
+  // 启动自检：写成网段的，网段里任何能连到端口的机器都能自报来源（按来源的限额会被换头绕过），给 warn；见 login-gate.ts 的 trustedProxyCheck
+  const tpc = trustedProxyCheck(tp.entries);
+  console.log(JSON.stringify({ source: 'self-check', id: 'login.trusted-proxies', verdict: tpc.verdict, ...(tpc.ranges.length ? { ranges: tpc.ranges } : {}), at: new Date().toISOString() }));
 }
 const A2A_DIRECT_SIG_RAW = directSigMode();
+// 名片是否声明 canvasMemberProvenance（WM_A2A_MEMBER_PROVENANCE=on|off，缺省 on）；值不合法拒绝启动
+const A2A_MEMBER_PROVENANCE = memberProvenanceMode();
+if (!A2A_MEMBER_PROVENANCE) {
+  console.error('[a2a] 拒绝启动：WM_A2A_MEMBER_PROVENANCE 只接受 on / off / 不设');
+  process.exit(1);
+}
+setMemberProvenance(A2A_MEMBER_PROVENANCE === 'on');
+{ // 存量句柄撞车（随机 node8 碰上）：声明打开时这些句柄不上卡、入站 404；启动时告警，提醒管理员处理
+  const dups = duplicateNode8s();
+  if (dups.size > 0) console.warn(`[a2a] ${dups.size} 个 A2A 会话句柄被不止一个台占用（${[...dups].map((d) => `${MARKET_TEAM}/${d}`).join('、')}）：${A2A_MEMBER_PROVENANCE === 'on' ? '已不上卡、入站一律 404' : '开关关着，入站仍按第一个台承接'}；请给其中的台重新生成句柄`);
+}
+console.log(`[a2a] 名片${A2A_MEMBER_PROVENANCE === 'on' ? '声明' : '不声明'} canvasMemberProvenance（WM_A2A_MEMBER_PROVENANCE=${A2A_MEMBER_PROVENANCE}）`);
+// 名片是否声明 progressReceipts（WM_A2A_PROGRESS_RECEIPTS=on|off，缺省 on）；值不合法拒绝启动
+const A2A_PROGRESS_RECEIPTS = progressReceiptsMode();
+if (!A2A_PROGRESS_RECEIPTS) {
+  console.error('[a2a] 拒绝启动：WM_A2A_PROGRESS_RECEIPTS 只接受 on / off / 不设');
+  process.exit(1);
+}
+setProgressReceipts(A2A_PROGRESS_RECEIPTS === 'on');
+console.log(`[a2a] 名片${A2A_PROGRESS_RECEIPTS === 'on' ? '声明' : '不声明'} progressReceipts（WM_A2A_PROGRESS_RECEIPTS=${A2A_PROGRESS_RECEIPTS}）：进展回执只记录、不结清、不推状态`);
+// 名片是否声明 teamRoster（WM_A2A_TEAM_ROSTER=on|off，缺省 on）；值不合法拒绝启动
+const A2A_TEAM_ROSTER = teamRosterMode();
+if (!A2A_TEAM_ROSTER) {
+  console.error('[a2a] 拒绝启动：WM_A2A_TEAM_ROSTER 只接受 on / off / 不设');
+  process.exit(1);
+}
+setTeamRoster(A2A_TEAM_ROSTER === 'on');
+console.log(`[a2a] 名片${A2A_TEAM_ROSTER === 'on' ? '声明' : '不声明'} teamRoster（WM_A2A_TEAM_ROSTER=${A2A_TEAM_ROSTER}）：${A2A_TEAM_ROSTER === 'on' ? '节点推来的团队名册照规矩收' : '入站名册一律不收'}`);
+// 名片是否声明 directedSeats（WM_A2A_DIRECTED_SEATS=on|off，缺省 on）；值不合法拒绝启动
+const A2A_DIRECTED_SEATS = directedSeatsMode();
+if (!A2A_DIRECTED_SEATS) {
+  console.error('[a2a] 拒绝启动：WM_A2A_DIRECTED_SEATS 只接受 on / off / 不设');
+  process.exit(1);
+}
+setDirectedSeats(A2A_DIRECTED_SEATS === 'on');
+console.log(`[a2a] 名片${A2A_DIRECTED_SEATS === 'on' ? '声明' : '不声明'} directedSeats（WM_A2A_DIRECTED_SEATS=${A2A_DIRECTED_SEATS}）：${A2A_DIRECTED_SEATS === 'on' ? '「安排一件事」可以指名团队里的成员' : '不收指名'}`);
+// 名册多久没更新算停推（WM_ROSTER_STALE_MINUTES，缺省 60 分钟）：超过就进管理员的「等你拍板」；值不合法拒绝启动
+const ROSTER_STALE_MINUTES = rosterStaleMinutesFromEnv();
+if (ROSTER_STALE_MINUTES === null) {
+  console.error('[teams] 拒绝启动：WM_ROSTER_STALE_MINUTES 要是 1～10080 的整数（分钟），或者不设（缺省 60）');
+  process.exit(1);
+}
+svc<TeamService>('teams').setRosterStaleMs(ROSTER_STALE_MINUTES * 60_000);
+// 关系的提议多久没人处理就失效（WM_PROPOSAL_TTL_DAYS，缺省 14 天）；值不合法拒绝启动
+const PROPOSAL_TTL_DAYS = proposalTtlDaysFromEnv();
+if (PROPOSAL_TTL_DAYS === null) {
+  console.error('[relations] 拒绝启动：WM_PROPOSAL_TTL_DAYS 要是 1～365 的整数（天），或者不设（缺省 14）');
+  process.exit(1);
+}
+svc<RelationProposalService>('relationProposals').setTtlDays(PROPOSAL_TTL_DAYS);
+// 团队连续不在名册多久才让关系提议失效（WM_PROPOSAL_ROSTER_GONE_HOURS，缺省 24 小时）；值不合法拒绝启动
+const PROPOSAL_ROSTER_GONE_HOURS = rosterGoneHoursFromEnv();
+if (PROPOSAL_ROSTER_GONE_HOURS === null) {
+  console.error('[relations] 拒绝启动：WM_PROPOSAL_ROSTER_GONE_HOURS 要是 1～720 的整数（小时），或者不设（缺省 24）');
+  process.exit(1);
+}
+svc<RelationProposalService>('relationProposals').setRosterGoneHours(PROPOSAL_ROSTER_GONE_HOURS);
+// 事项停多久算停太久（WM_WORK_ITEM_STUCK_HOURS，缺省 24 小时）：超过就冒给负责人（没有负责人冒给管理层）的「等你拍板」；值不合法拒绝启动
+const WORK_ITEM_STUCK_HOURS = workItemStuckHoursFromEnv();
+if (WORK_ITEM_STUCK_HOURS === null) {
+  console.error('[work-items] 拒绝启动：WM_WORK_ITEM_STUCK_HOURS 要是 1～720 的整数（小时），或者不设（缺省 24）');
+  process.exit(1);
+}
+svc<WorkItemService>('workItems').setStuckHours(WORK_ITEM_STUCK_HOURS);
 const A2A_DIRECT_SIG_BODY = directSigBodyMode();
 if (!A2A_DIRECT_SIG_RAW || !A2A_DIRECT_SIG_BODY) {
   console.error('[a2a-direct-sig] 拒绝启动：WM_A2A_DIRECT_SIG 只接受 require / accept / off / 不设，WM_A2A_DIRECT_SIG_BODY 只接受 require / accept / 不设');
@@ -95,9 +335,23 @@ if (!A2A_DIRECT_SIG_RAW || !A2A_DIRECT_SIG_BODY) {
 }
 const A2A_DIRECT_SIG: DirectSigMode = loginGate.enforced ? 'require' : A2A_DIRECT_SIG_RAW;
 if (loginGate.enforced && A2A_DIRECT_SIG_RAW !== 'require') console.warn(`[a2a-direct-sig] WM_A2A_DIRECT_SIG=${A2A_DIRECT_SIG_RAW} 被忽略：WM_LOGIN_GATE=enforce 时 /a2a/direct 强制 require`);
-const directSig = createDirectSigVerifier({ audiences: () => [marketPublicUrl()], bodyMode: A2A_DIRECT_SIG_BODY });
+// 验签失败触发的强制重取卡按来源冷却（WM_A2A_CARD_COOLDOWN_S，缺省 30，1～3600）；值不合法拒绝启动
+const A2A_CARD_COOLDOWN_MS = cardCooldownMs();
+if (A2A_CARD_COOLDOWN_MS === null) {
+  console.error('[a2a-direct-sig] 拒绝启动：WM_A2A_CARD_COOLDOWN_S 只接受 1～3600 的整数或不设');
+  process.exit(1);
+}
+// 席位跟进按对端限频（WM_A2A_FOLLOWUP_RATE_10MIN，缺省 300，1～100000）：超出的不存正文、只计数，结清回执照回；值不合法拒绝启动
+const A2A_FOLLOWUP_RATE = followupRateLimit();
+if (A2A_FOLLOWUP_RATE === null) {
+  console.error('[a2a] 拒绝启动：WM_A2A_FOLLOWUP_RATE_10MIN 只接受 1～100000 的整数或不设');
+  process.exit(1);
+}
+/** 取卡或验签这一步的失败：只有调用方在绑定上登记了取卡地址时才可能区分，对外不能露出来 */
+const FETCH_STEP_REFUSALS: ReadonlySet<string> = new Set(['unregistered', 'no-card', 'not-derivable', 'bad-sig']);
+const directSig = createDirectSigVerifier({ audiences: () => [marketPublicUrl()], bodyMode: A2A_DIRECT_SIG_BODY, refreshCooldownMs: A2A_CARD_COOLDOWN_MS });
 app.use(loginGate.middleware);
-installOdooLoginProxy(app); // narrow same-origin Odoo login, before any body parser
+loginRelay().install(http); // narrow same-origin Odoo login, before any body parser（路由在登录方式插件里，经 HTTP 服务注册）
 // Explicit opt-in only; no default content listener, no live configuration writes.
 const contentCfg = contentConfig(process.env);
 const portalObserver = process.env.WM_PORTAL_OBSERVE === '1' ? createPortalObservation(db, id => !!svc<WorkbenchService>('workbench').exists(id)) : null;
@@ -107,14 +361,14 @@ if (contentCfg) {
   const parsed = new URL(odoo);
   const ports = surfacePorts();
   if (contentCfg.port === ports.market || contentCfg.port === ports.control) throw Error('Content port must be distinct');
-  if (parsed.origin !== odoo || !trustedOdooOrigins().origins.has(odoo)) throw Error('Content viewer source must be an explicitly trusted Odoo origin');
+  if (parsed.origin !== odoo || !loginRelay().trustedOrigins().origins.has(odoo)) throw Error('Content viewer source must be an explicitly trusted Odoo origin');
 }
 const contentRuntime = contentCfg ? createContentSurface(contentCfg, {
   async viewer(cookie) {
     // Reject duplicate SID instead of inheriting the legacy first-cookie ambiguity.
-    const values = cookie.split(';').map(s => s.trim()).filter(s => s.startsWith('session_id='));
+    const values = loginRelay().sessionEntries(cookie);
     if (values.length !== 1) return null;
-    const result = await resolveOdooViewer(values[0], process.env.WM_CONTENT_ODOO_ORIGIN);
+    const result = await identity().resolveViewer(values[0], process.env.WM_CONTENT_ODOO_ORIGIN);
     return result.ok ? { subject: result.viewer.sub + ':' + result.viewer.uid, internal: true } : null;
   },
   staticTarget(id) {
@@ -132,18 +386,8 @@ const contentRuntime = contentCfg ? createContentSurface(contentCfg, {
     return { url: w.url, authorization: w.auth?.type === 'bearer' ? 'Bearer ' + w.auth.value : w.auth?.type === 'basic' ? 'Basic ' + Buffer.from(w.auth.value, 'utf8').toString('base64') : undefined };
   },
 }) : null;
-if (contentRuntime) {
-  mountContentSurface(app, contentRuntime); // TERMINAL content dispatch before every shared parser/route/SPA
-  app.use((req, res, next) => {
-    if (!req.url.startsWith('/content/open/')) return next();
-    if (surfaceOf(req) !== 'market') return res.status(404).end();
-    contentRuntime.launch(req, res, next);
-  });
-  app.use((req, res, next) => {
-    if (surfaceOf(req) !== 'market') return next();
-    contentRuntime.migrate(req, res, next);
-  });
-}
+if (contentRuntime) mountContentSurface(app, contentRuntime); // TERMINAL content dispatch before every shared parser/route/SPA
+registerContentOpenRoutes(http, contentRuntime); // 市场面上的启动页与迁移跳转（路由在 routes/content-open.ts；没配内容面时放过）
 // issue #1：CORS 从全开放收紧为白名单——生产形态（web/dist 由本服务同源托管）不需要跨源；
 // 仅 web dev（vite 5173，其 /api 代理是同源转发、但直连调试场景保留）放行本机回环源。
 // /mcp 为 StreamableHTTP POST（非浏览器 fetch 场景不受 CORS 约束；浏览器 MCP 客户端经同源门户）。
@@ -231,8 +475,11 @@ const MCP_REST_RAW_UPLOAD = /^\/api\/mcp-rest\/apps\/[^/]+\/files\/[^/]+$/i;
 app.use((req, res, next) => {
   if ((req.url ?? '').startsWith('/go/')) return next();
   if (req.method === 'PUT' && MCP_REST_RAW_UPLOAD.test(req.path)) return next();
+  // 数据视图的行写入：请求体原样递给台库的工作线程解析，不在这里解析（路由自己限大小）
+  if (req.method === 'POST' && BENCH_ROWS_PATH.test(req.path)) return next();
   // /a2a/direct 的 body 签名要原始字节（a2a-direct-sig.ts 的 X-WM-Body-Sha256）
-  const keepRaw = req.method === 'POST' && req.path.toLowerCase() === '/a2a/direct';
+  // 登录方式的失效通知（/login/<方式>/events）同样要原始字节：飞书的签名算在原始请求体上
+  const keepRaw = req.method === 'POST' && (req.path.toLowerCase() === '/a2a/direct' || /^\/login\/[a-z0-9][a-z0-9-]{0,31}\/events$/i.test(req.path));
   return express.json({ limit: bodyLimitFor(req), ...(keepRaw ? { verify: (r: IncomingMessage, _res: unknown, buf: Buffer) => { (r as IncomingMessage & { rawBody?: Buffer }).rawBody = buf; } } : {}) })(req, res, next);
 });
 
@@ -240,21 +487,53 @@ app.use((req, res, next) => {
 // 其余 /api/* 写操作要 X-Admin-Token（本机 REST 面维持内网信任模型不变；此中间件只拦远程写）。
 // 主人裁定 A（2026-10-23）：自产台数据/文件面对远程浏览器开放——应用层写，与发布面同口径；
 // 控制面（/api/mcp/*、/api/sops/*/bindings 等）照旧收口。没有这条，远程节点浏览器提交表单会 403。
-const REMOTE_ALLOW_EXACT = new Set(['/mcp', '/.well-known/agent-card.json', '/a2a/direct', '/api/auth/login', '/api/auth/logout']); // 登录/登出自带同源门与限频
+// 「关注」的答复入口（L20）：管理层、负责人看得到卡片也要能答。路由内核同源，能不能答由条目的来源判（转给原路由的照样再过这道门）
+// 阶段七：节点宿主来换席位令牌（/api/a2a/seat-token）是远程来的写，路由内按钉住的节点公钥验签、核名册、限频，不认口令
+const REMOTE_ALLOW_EXACT = new Set(['/mcp', '/.well-known/agent-card.json', '/a2a/direct', '/api/auth/login', '/api/auth/logout', '/api/attention/answer', '/api/a2a/seat-token']); // 登录/登出自带同源门与限频
 // ---------- 端点命中计数（总工程师 B 类单：采纳监测 instrumentation）----------
 // 必须挂在所有业务路由之前（Express 按注册序匹配，路由先响应则后续 use 不再执行）
 app.use(endpointStatsMiddleware());
 
 // #T1（评审裁定 direct-7d8eaa75，与裁定 A 同语义）：SOP Runner 业务写面——建单/存步/完成/附件
-// 对远程浏览器开放（.157 业务同事裸开 Runner 页提交 403 即本缺口）；精确到业务子路径：
+// 对远程浏览器开放（业务侧同事裸开 Runner 页提交 403 即本缺口）；精确到业务子路径：
 // assign（派单指派）是控制面不豁免；/api/sops/* 控制面照旧收口（smoke 判据④⑤护栏钉死）。
 const REMOTE_ALLOW_PREFIX = [
   /^\/api\/apps\/[a-z0-9-]{1,64}\/(data|files)(\/|$)/,
   /^\/api\/sop\/runs(\/\d+(\/(finish|files|files\/refs))?)?$/, // files/refs：引用已有文件，路由内与上传同一道写门，另逐条核源 run 读授权
   // 工作台事件 v1：接单节点回写决定（凭投递里的 reply token 鉴权，不认口令；只此一条子路径）
   /^\/api\/workbench-events\/wbe-[0-9a-f]{16}\/decision$/,
+  // 阶段八 8e：建立人本人验收、退回自己的事项（路由内经身份服务认人、事项服务判是不是建立人；只此一条子路径）
+  /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/decision$/,
+  // 规范 14：负责人放行（路由内认人、判是不是负责人或代办的管理层；只此一条子路径）
+  /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/release$/,
+  // 阶段七 R2：事项对话里的席位消息——看过、回复（路由内认人：管理员或建立人本人；只此两条子路径）
+  /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/messages\/(read|[1-9]\d{0,15}\/reply)$/,
+  // 「安排一件事」：登录的人直接建事项（路由内经身份服务认人，只认启用的人；只此一条路径，不带子路径）
+  /^\/api\/work-items$/,
+  // 站内账号：本人改自己的密码（路由内经身份服务认人、核同源、核原密码；只此一条路径）
+  /^\/api\/local-accounts\/_self\/password$/,
+  // 「安排一件事」的附件上传、建立人改截止日期：路由内经身份服务认人（上传的是启用的人本人；改截止只认建立人本人）；只此两条
+  /^\/api\/work-items\/attachments\/[^/]{1,255}$/,
+  /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/due$/,
+  // 团队：成员的分配、收回、改派由团队的负责人做（路由内认人、核同源、判是不是负责人或管理员；只此三条）
+  /^\/api\/teams\/(assign|unassign|reassign)$/,
+  // 授予的放行（L19）：管理层、属主多半不是管理员。路由内认人、核同源，三档规则判能不能放行；只此一条子路径
+  /^\/api\/grants\/[1-9]\d{0,15}\/approve$/,
+  // 驾驶舱的建、改、删：路由在处理之前自己判（cockpit-access.ts：管理员照旧；登录的人交给判定，管理层预设点名了这三个动作）
+  /^\/api\/cockpits(\/[^/]+)?$/,
+  // 关系的提议：确认、驳回由属主、管理层、接收部门的负责人做，他们大多不是管理员（路由内认人、核同源，服务判能不能确认；只此两条）
+  /^\/api\/relations\/proposals\/[1-9]\d{0,15}\/(approve|reject)$/,
+  // 阶段七：建立人本人回答自己事项上的席位提问（路由内认人：管理员或建立人本人；只此一条子路径）
+  /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/asks\/[1-9]\d{0,15}\/answer$/,
   // MCP 工具 REST 开放：与 /mcp 同口径，凭会话令牌在路由内鉴权，不认管理口令
   /^\/api\/mcp-rest\/(tools\/[^/]+|apps\/[a-z0-9-]{1,64}\/files(\/[^/]+)?)$/,
+  // 数据视图的入口（开关关着时每条都回 404）：路由内自己判——先拒管理口令，再经身份服务认人、问判定，只有管理层和范围是「全部」的授予放行。
+  // 这道门要的恰恰是管理口令，而这组路由不认管理口令，所以登记在这里
+  /^\/api\/bench-views(\/[a-z0-9][a-z0-9-]{0,63}(\/[a-z0-9_/-]{1,160})?)?$/,
+  // 经验库「记成经验」：管理层、属主拍板之后补记（他们大多不是管理员）。路由内认人、核同源、按拍板类问判定、核这个人答过这一条；只此一条路径
+  /^\/api\/knowledge\/remember$/,
+  // 经验库的「项目 → 部门」对照：管理层、属主改（他们大多不是管理员；系统管理员、管理口令反而不行）。路由内认人、核同源、按拍板类问判定；只此一条路径
+  /^\/api\/knowledge\/project-depts$/,
 ];
 
 // S3 豁免面可观测（评审席裁下批·PR#72 真事故锚）：启动时快照+diff——安全清单变更不再无声
@@ -284,6 +563,7 @@ function announceAllowDiff(): void {
   console.warn(`[S3 豁免面变更] added=${JSON.stringify(lastAllowDiff.added)} removed=${JSON.stringify(lastAllowDiff.removed)}`);
   // S3 联动（direct-6a39fc57 ③）：变更通知绑定台面——延迟投（等所有 svc 就绪·尽力而为）
   setTimeout(() => {
+    if (outboundOff()) { noteBlocked('allow-notify'); console.warn('[S3-notify] 对外已断开：豁免面变更通知不发'); return; }
     try {
       const nts = db.prepare("SELECT target_slug, agent_node, notify_url FROM bindings WHERE direction IN ('notify','both') AND revoked_at = '' AND notify_url != ''").all() as { target_slug: string; agent_node: string; notify_url: string }[];
       for (const nt of nts) {
@@ -306,36 +586,32 @@ function allowExtensionRemoteWrite(path: string): void {
 }
 // 管理身份（属主 2026-11-02 裁定：撤销 #292 M1「管理写只认控制面」，有管理员口令就够；Odoo 管理员登录也算管理员）：
 //   带 Odoo 会话 cookie、却没带有效口令的 /api 请求，现查 Odoo get_session_info；内部员工且 is_admin=true 即记为管理员。
-//   结果按会话哈希缓存 30 秒（Odoo 侧撤管理员权限最迟 30 秒生效），只缓存这一位布尔，不缓存会话本身。
+//   提供方的回答按会话哈希缓存 30 秒（Odoo 侧撤管理员权限最迟 30 秒生效），缓存在身份服务里，不缓存会话本身；
+//   主体停没停用不进缓存，每次现查：停用一个主体，管理员认定立即不成立。
 const ODOO_ADMIN_TTL_MS = 30_000;
-const odooAdminCache = new Map<string, { at: number; login: string | null }>();
-const odooAdminReqs = new WeakMap<express.Request, string>(); // 本次请求经 Odoo 管理员认定 → 登录名
+const odooAdminViewer = identity().cachedResolver({ ttlMs: ODOO_ADMIN_TTL_MS, max: 1000 });
+const odooAdminReqs = new WeakMap<express.Request, string>(); // 本次请求认定的管理员登录 → Odoo 管理员记登录名；持 owner 授予的记 grant:<主体>；只持 admin 授予的系统管理员记 grant-system:<主体>
 async function odooAdminOf(cookieHeader: string): Promise<string | null> {
-  const sid = odooSessionOf(cookieHeader);
-  if (!sid) return null;
-  // Explicit relay logout revokes Odoo sessions; never reuse a stale admin verdict.
-  if (process.env.WM_ODOO_LOGIN_PROXY === '1') {
-    try { const who = await resolveOdooViewer(cookieHeader); return who.ok && who.viewer.admin ? who.viewer.login : null; } catch { return null; }
-  }
-  const key = createHash('sha256').update(sid).digest('hex');
-  const hit = odooAdminCache.get(key);
-  if (hit && Date.now() - hit.at < ODOO_ADMIN_TTL_MS) return hit.login;
-  let login: string | null = null;
-  try { const who = await resolveOdooViewer(cookieHeader); login = who.ok && who.viewer.admin ? who.viewer.login : null; } catch { login = null; }
-  if (odooAdminCache.size > 1000) odooAdminCache.clear();
-  odooAdminCache.set(key, { at: Date.now(), login });
-  return login;
+  if (!identity().hasCredential(cookieHeader)) return null; // Odoo 会话，或者由市场维持的会话（管理员标记取 Odoo 这次的回答）
+  try {
+    // Explicit relay logout revokes Odoo sessions; never reuse a stale admin verdict.
+    const who = loginRelay().relayLogin() ? await identity().resolveViewer(cookieHeader) : await odooAdminViewer(cookieHeader);
+    if (!who.ok) return null;
+    if (who.viewer.admin) return who.viewer.adminBy === 'grant' ? `grant:${who.viewer.sub}` : who.viewer.login;
+    return who.viewer.systemAdmin === true ? `grant-system:${who.viewer.sub}` : null; // 系统管理员：只在非业务域的路由上算管理员（isAdmin）
+  } catch { return null; }
 }
 /** 按需认定：只在确实要判管理员的请求上现查（写门调 adminGuard 前、管理读面、口令设置、whoami），其余请求不碰 Odoo */
 async function markOdooAdmin(req: express.Request): Promise<void> {
   if (odooAdminReqs.has(req) || surfaceOf(req) === 'content' || adminTokenCheck(req.headers['x-admin-token'])) return;
   const cookie = String(req.headers.cookie ?? '');
-  if (!odooSessionOf(cookie)) return;
+  if (!identity().hasCredential(cookie)) return;
   const login = await odooAdminOf(cookie);
   if (login) odooAdminReqs.set(req, login);
+  if (login?.startsWith('grant-system:')) markSystemAdminOnly(req); // 系统管理员：各管理接口据此收紧（admin-tier.ts）
 }
 // 管理读面（GET 也走 adminGuard/vaultGuard 的）与口令/身份端点：进路由前先认定
-const ADMIN_IDENTITY_PATHS = /^\/api\/(admin\/whoami|admin-token(\/|$)|mcp\/(sessions|upstreams|tools|calls|access-requests)(\/|$)|change-requests(\/|$)|bindings(\/|$)|remote-allow\/diff|vault\/|tasks(\/|$))/; // tasks：统一待办读面同样认 Odoo 管理员（与口令管理员同为全量）
+const ADMIN_IDENTITY_PATHS = /^\/api\/(admin\/whoami|admin-token(\/|$)|mcp\/(sessions|upstreams|tools|calls|access-requests)(\/|$)|change-requests(\/|$)|bindings(\/|$)|a2a\/(peers|state|seat-token\/log)(\/|$)|remote-allow\/diff|vault\/|tasks(\/|$)|workbench-events(?!\/[^/]*\/attachments(\/|$))(\/|$))/; // a2a/peers：对端登记表的管理接口，会话登录的管理员也算管理员（和绑定同口径）；a2a/seat-token/log：换令牌的记录同口径；tasks：统一待办读面同样认 Odoo 管理员（与口令管理员同为全量）；workbench-events：工作台事件的列表、详情也认（「关注」的席位提问同口径）；接单节点取附件（…/:id/attachments/…）只认回执令牌、不看管理员，不在这里
 app.use(async (req, _res, next) => {
   if (ADMIN_IDENTITY_PATHS.test(req.path.toLowerCase())) await markOdooAdmin(req);
   next();
@@ -379,7 +655,7 @@ function listWorkbenches(): ReturnType<typeof rowToWorkbench>[] {
 
 // 凭据面防浏览泄露（监督席派单 direct-30b57179/320ed1a5/74a7d418 安全批）：无认证 API 出口
 // （REST 列表/详情 + MCP 工具）对 url query 敏感参数与 auth.value 统一掩码；代理侧 DB 直读不受影响。
-const SENSITIVE_QUERY_KEYS = /^(token|password|passwd|secret|api[-_]?key|access[-_]?token|auth)$/i;
+// Shared with the portal credential-default policy; do not maintain two secret key lists.
 function maskSensitiveQuery(url: string): string {
   const qi = url.indexOf('?');
   if (qi < 0) return url;
@@ -403,17 +679,6 @@ function maskSensitiveQuery(url: string): string {
 function maskForApi<T extends { url: string; auth: { type: string; value: string } | null }>(w: T): T {
   return { ...w, url: maskSensitiveQuery(w.url), auth: w.auth ? { ...w.auth, value: '****' } : w.auth };
 }
-
-app.get('/api/workbenches', (req, res) => {
-  const { q, category, type, status } = req.query;
-  let list = listWorkbenches();
-  if (q) { const s = String(q).toLowerCase(); list = list.filter((w) => w.name.toLowerCase().includes(s) || w.url.toLowerCase().includes(s) || (w.description || '').toLowerCase().includes(s)); }
-  if (category) list = list.filter((w) => w.category === category);
-  if (type) list = list.filter((w) => w.type === type);
-  if (status) list = list.filter((w) => w.last_status === status);
-  // 列表出队即掩码（q 过滤仍用原值——搜索语义不变，明文不落响应）
-  res.json(list.map(maskForApi));
-});
 
 function validateWorkbenchBody(b: any, partial = false) {
   const out: any = {};
@@ -457,6 +722,16 @@ function validateWorkbenchBody(b: any, partial = false) {
       bad('auth 形态：{type:"bearer"|"basic", value:string} 或 null');
     }
   }
+  if (b.cookie_set_id !== undefined) {
+    // Preserve the existing update contract: Number(value)||0, nonpositive detaches.
+    const id = Number(b.cookie_set_id) || 0;
+    if (id > 0 && !svc<CookieService>('cookie').byId(id)) bad(`cookie_set_id 不存在: ${id}`);
+    out.cookie_set_id = id;
+  }
+  if (b.access !== undefined || b.access_logins !== undefined) {
+    try { out._access = parseAccessInput(b.access ?? (b.access_logins !== undefined ? 'listed' : undefined), b.access_logins); }
+    catch (error) { bad((error as Error).message); }
+  }
   return out;
 }
 
@@ -488,16 +763,40 @@ function admitOrDeny(op: 'register' | 'update' | 'import', url: string) {
 }
 
 /** cores 的调用上下文：subject 只放已核认证标识；auditOk=false 时调用方回 X-WM-Audit-State: degraded */
-interface WriteCtx { subject: string; auditOk?: boolean }
+interface WriteCtx { subject: string; auditOk?: boolean; viaMcp?: boolean }
+/** MCP 面的凭据边界：凭据、Cookie 池挂接、访问范围只经人工 REST/表单（带凭据的台改地址的拦截在 workbenchUpdateCore 里，复用它的「地址未变」判定） */
+function mcpWorkbenchGuard(body: any): void {
+  for (const k of ['auth', 'cookie_set_id', 'access', 'access_logins'] as const) {
+    if (body?.[k] !== undefined) throw new HttpError(400, k === 'auth' ? '凭据不接受 MCP 写入——auth 请人工经市场页配置' : `${k} 不接受 MCP 写入——请人工经市场页配置`);
+  }
+}
+
+/** 自产台、SOP 台不经门户独占，门户范围对它们不起作用：只许 all（写库前调用） */
+function checkAccessTarget(url: string, given: { access: string } | undefined): void {
+  if (given && isInternalTarget(url) && given.access !== 'all') bad('自产台、SOP 台还能从 /apps、/sop 直接打开，门户访问范围对它们不起作用；只能设 all');
+}
+
+/** 写入后的访问范围：显式给了就用；没给时，新建或新带上凭据的外部台收紧为 admin（凭据不默认对全员开放） */
+function applyAccess(id: number, url: string, given: { access: string; logins: string[] } | undefined, credentialedNow: boolean, credentialedBefore: boolean, curAccess: string | null): void {
+  if (given) { svc<WorkbenchService>('workbench').setAccess(id, given.access, given.logins); return; }
+  if (isInternalTarget(url)) return;
+  if (credentialedNow && !credentialedBefore && (curAccess ?? 'all') === 'all') svc<WorkbenchService>('workbench').setAccess(id, 'admin', []);
+}
 
 // CRUD 共用核心（REST 与 MCP workbench_register/update/unregister 同链）：
 // MCP 面不接受 auth 字段（凭据只经人工 REST/表单——安全边界内置）
 function workbenchCreateCore(body: any, ctx: WriteCtx = { subject: 'anonymous' }): ReturnType<typeof rowToWorkbench> {
-  const f = validateWorkbenchBody(body);
+  if (ctx.viaMcp) mcpWorkbenchGuard(body);
+  const { _access: givenAccess, ...f } = validateWorkbenchBody(body);
+  checkAccessTarget(f.url, givenAccess);
   const adm = admitOrDeny('register', f.url);
   checkHealthPath(f.url, f.health_path ?? '');
-  const r = svc<WorkbenchService>('workbench').createByNamed({ type: 'web', icon: '', description: '', category: '', tags: '[]', enabled: 1, health_path: '', sort: 0, auth_config: '', ...f }) as unknown as { lastInsertRowid: number | bigint };
-  const row = svc<WorkbenchService>('workbench').byId(Number(r.lastInsertRowid)) as unknown as WorkbenchRow;
+  const row = svc<WorkbenchService>('workbench').accessTransaction(() => {
+    const r = svc<WorkbenchService>('workbench').createByNamed({ type: 'web', icon: '', description: '', category: '', tags: '[]', enabled: 1, health_path: '', sort: 0, auth_config: '', cookie_set_id: 0, ...f }) as unknown as { lastInsertRowid: number | bigint };
+    const id = Number(r.lastInsertRowid);
+    applyAccess(id, f.url, givenAccess, isCredentialed({ url: f.url, auth_config: f.auth_config ?? '', cookie_set_id: f.cookie_set_id ?? 0 }), false, 'all');
+    return svc<WorkbenchService>('workbench').byId(id) as unknown as WorkbenchRow;
+  });
   if (adm.allowlisted) ctx.auditOk = auditAllow('register', URL_POLICY, adm.key!, row.id, ctx.subject);
   return rowToWorkbench(row);
 }
@@ -505,80 +804,69 @@ function workbenchCreateCore(body: any, ctx: WriteCtx = { subject: 'anonymous' }
 function workbenchUpdateCore(id: number, body: any, ctx: WriteCtx = { subject: 'anonymous' }): ReturnType<typeof rowToWorkbench> {
   const cur = svc<WorkbenchService>('workbench').byId(id) as unknown as WorkbenchRow | undefined;
   if (!cur) throw new HttpError(404, `workbench not found: ${id}`);
-  const f = validateWorkbenchBody(body, true);
+  if (ctx.viaMcp) mcpWorkbenchGuard(body);
+  const { _access: givenAccess, ...f } = validateWorkbenchBody(body, true);
   // 掩码回传保护（url 面）：编辑表单从 API 取到的是掩码值，原样回传视为「未变更」
   if (f.url !== undefined && f.url.includes('=****') && f.url !== cur.url) delete f.url;
   // #258：url 未变（原样或同一规范化 key、同 fragment）= 纯元数据更新，沿旧行原 url（存量公网行不因改名被拒/删）；
   // scheme/host/port/path/query 任一变化都是新 url，必须重新准入
   if (f.url !== undefined && (f.url === cur.url || sameTarget(cur.url, f.url))) delete f.url;
+  if (ctx.viaMcp && f.url !== undefined && isCredentialed(cur)) throw new HttpError(403, '带凭据的台不能经 MCP 改地址——请人工经市场页修改');
+  checkAccessTarget(f.url ?? cur.url, givenAccess);
   const adm = f.url !== undefined ? admitOrDeny('update', f.url) : null;
   if (f.url !== undefined || f.health_path !== undefined) checkHealthPath(f.url ?? cur.url, f.health_path ?? cur.health_path ?? '');
-  // cookie_set_id 挂接（派单 direct-5fbb2176：nullable=0 取消挂接，正数须为池条目）
-  if (body.cookie_set_id !== undefined) {
-    const cid = Number(body.cookie_set_id) || 0;
-    if (cid > 0) {
-      const hit = svc<CookieService>('cookie').byId(cid);
-      if (!hit) bad(`cookie_set_id 不存在: ${cid}`);
-    }
-    (f as any).cookie_set_id = cid;
-  }
   const merged = { ...cur, ...f };
+  const row = svc<WorkbenchService>('workbench').accessTransaction(() => {
   svc<WorkbenchService>('workbench').updateAll({
     name: merged.name, url: merged.url, type: merged.type, icon: merged.icon,
     description: merged.description, category: merged.category, tags: merged.tags,
     enabled: merged.enabled, health_path: merged.health_path, sort: merged.sort,
     auth_config: merged.auth_config ?? '', cookie_set_id: (merged as any).cookie_set_id ?? 0, id,
   });
-  const row = svc<WorkbenchService>('workbench').byId(id) as unknown as WorkbenchRow;
+  if (!givenAccess && isInternalTarget(merged.url) && cur.access !== 'all') svc<WorkbenchService>('workbench').setAccess(id, 'all', []);
+  else applyAccess(id, merged.url, givenAccess, isCredentialed(merged), isCredentialed(cur), cur.access);
+  return svc<WorkbenchService>('workbench').byId(id) as unknown as WorkbenchRow;
+  });
   if (adm?.allowlisted) ctx.auditOk = auditAllow('update', URL_POLICY, adm.key!, id, ctx.subject);
   return rowToWorkbench(row);
 }
 
-function workbenchDeleteCore(id: number): { ok: boolean; deleted: number } {
-  const r = svc<WorkbenchService>('workbench').delete(id);
-  if (!r.changes) throw new HttpError(404, `workbench not found: ${id}`);
-  dropWorkbenchVars(id); // #336 变量随台删除
-  // issue #9：删除工作台同步清掉各驾驶舱对它的面板引用——否则悬空面板会让之后每次保存布局 400
-  const cocks = svc<CockpitService>('cockpit').all() as unknown as CockpitRow[];
-  for (const c of cocks) {
-    let panels: PanelConfig[];
-    try { panels = JSON.parse(c.layout_config || '[]'); } catch { continue; }
-    const kept = panels.filter((p) => p.workbenchId !== id);
-    if (kept.length !== panels.length) {
-      svc<CockpitService>('cockpit').setLayout(c.id, JSON.stringify(kept));
-    }
+// 删卡片连带它的台库（bench-card-delete.ts）：台库里有数据时要管理层并且确认，删前留备份；卡片本身那一份和台的登记在一个事务里
+async function workbenchDeleteCore(id: number, deleter: CardDeleter = { kind: 'anonymous' }, confirmBenchData = false): Promise<{ ok: boolean; deleted: number }> {
+  // 第 6 步（WM_APP_DATA_STORE 不是 main）：台的卡片的台库里有这个台的提交和附件，删卡片就是删它们——先对齐进台库，让下面那道门看得到规模
+  const cardRow = svc<WorkbenchService>('workbench').byId(id) as { url?: unknown } | undefined;
+  const appSlug = cardRow && typeof cardRow.url === 'string' ? await svc<AppDataService>('appData').beforeCardDelete(cardRow.url, id) : null;
+  const out = await deleteCardWithBench({
+    id, deleter, confirmBenchData,
+    exists: () => !!svc<WorkbenchService>('workbench').byId(id),
+    deleteCard: (slug) => {
+      const r = svc<WorkbenchService>('workbench').delete(id);
+      if (!r.changes) throw new HttpError(404, `workbench not found: ${id}`);
+      dropWorkbenchVars(id); // #336 变量随台删除
+      // issue #9：删除工作台同步清掉各驾驶舱对它的面板引用——否则悬空面板会让之后每次保存布局 400。挂这张卡片的台的视图面板一起摘
+      const cocks = svc<CockpitService>('cockpit').all() as unknown as CockpitRow[];
+      for (const c of cocks) {
+        let panels: PanelConfig[];
+        try { panels = JSON.parse(c.layout_config || '[]'); } catch { continue; }
+        const kept = panels.filter((p) => p.workbenchId !== id && !(slug && p.kind === 'bench-view' && p.bench === slug));
+        if (kept.length !== panels.length) {
+          svc<CockpitService>('cockpit').setLayout(c.id, JSON.stringify(kept));
+        }
+      }
+    },
+  });
+  if (appSlug) {
+    // 门过了、卡片删了（台库删前留了备份）：主库那份和附件字节一起删，不然以后再登记卡片时会按主库重抄回来
+    const files = await svc<AppDataService>('appData').filePaths(appSlug);
+    await svc<AppDataService>('appData').dataDelete(appSlug);
+    for (const f of files) { try { rmSync(join(dataDir, f), { force: true }); } catch { /* 已删 */ } }
+    await svc<AppDataService>('appData').filesDelete(appSlug);
   }
-  return { ok: true, deleted: id };
+  return out;
 }
 
 /** 审计主体：只认已核的管理口令；X-Market-Client 等自报头不算身份 */
 const restSubject = (req: express.Request) => (adminHeaderOk(req) ? 'admin' : 'anonymous');
-
-app.post('/api/workbenches', (req, res) => {
-  const ctx: WriteCtx = { subject: restSubject(req) };
-  const w = workbenchCreateCore(req.body, ctx);
-  if (ctx.auditOk === false) res.setHeader('X-WM-Audit-State', 'degraded');
-  res.status(201).json(w);
-});
-
-app.get('/api/workbenches/:id', (req, res) => {
-  const row = svc<WorkbenchService>('workbench').byId(Number(req.params.id)) as unknown as WorkbenchRow | undefined;
-  if (!row) throw new HttpError(404, `workbench not found: ${req.params.id}`);
-  // 与列表同策略掩码（issue #2/#3：auth.value 同为无认证出口的明文凭据向量）；
-  // 编辑流由 PUT 掩码回传保护兜底（掩码回传=不变更，DB 原值不毁）
-  res.json(maskForApi(rowToWorkbench(row)));
-});
-
-app.put('/api/workbenches/:id', (req, res) => {
-  const ctx: WriteCtx = { subject: restSubject(req) };
-  const w = workbenchUpdateCore(Number(req.params.id), req.body, ctx);
-  if (ctx.auditOk === false) res.setHeader('X-WM-Audit-State', 'degraded');
-  res.json(w);
-});
-
-app.delete('/api/workbenches/:id', (req, res) => {
-  res.json(workbenchDeleteCore(Number(req.params.id)));
-});
 
 // ---------- 健康检查 ----------
 function typeOf(key: string): TypeRow | undefined {
@@ -602,6 +890,8 @@ async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkben
     const selfRow = svc<WorkbenchService>('workbench').byId(w.id) as unknown as WorkbenchRow;
     return rowToWorkbench(selfRow);
   }
+  // 兜底：对外断开时，任何调用方都不去探外部地址，也不改这个台的状态（不然会被记成离线、污染副本）
+  if (outboundOff()) { noteBlocked('health-check', w.url); return rowToWorkbench(w); }
   const t = typeOf(w.type);
   const settings = getSettings();
   // issue #8：坏 health_path / 非法组合不得让单测整体 500——探测目标构造失败时该台记 down
@@ -637,101 +927,20 @@ async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkben
   return rowToWorkbench(row);
 }
 
-app.post('/api/workbenches/:id/check', wrap(async (req, res) => {
-  const row = svc<WorkbenchService>('workbench').byId(Number(req.params.id)) as unknown as WorkbenchRow | undefined;
-  if (!row) throw new HttpError(404, `workbench not found: ${req.params.id}`);
-  res.json(await checkOne(row));
-}));
-
-app.post('/api/check-all', wrap(async (_req, res) => {
-  const settings = getSettings();
-  const limit = Math.max(1, Number(settings.health_concurrency) || 8);
-  const rows = svc<WorkbenchService>('workbench').enabled() as unknown as WorkbenchRow[];
-  const results: ReturnType<typeof rowToWorkbench>[] = [];
-  // 台驱逐冷却两入口一致（patrol/check-all 共享）：down 台窗内跳过，每窗一探
-  const queue = [...rows].filter((w) => {
-    if (!downSince.has(w.id)) return true;
-    if (Date.now() - (lastProbeAt.get(w.id) ?? 0) >= EVICT_COOLDOWN_MS) { lastProbeAt.set(w.id, Date.now()); return true; }
-    return false;
-  });
-  const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
-    for (let w = queue.shift(); w; w = queue.shift()) results.push(await checkOne(w));
-  });
-  await Promise.all(workers);
-  for (const r of results) {
-    if (r.last_status === 'down') { if (!downSince.has(r.id)) { downSince.set(r.id, Date.now()); lastProbeAt.set(r.id, Date.now()); } }
-    else { downSince.delete(r.id); lastProbeAt.delete(r.id); }
-  }
-  res.json({ checked: results.length, up: results.filter((r) => r.last_status === 'up').length, down: results.filter((r) => r.last_status === 'down').length });
-}));
+// 台驱逐冷却（与 a2a-net peer 驱逐冷却同名不同物·命名区分，direct-53caaed3）：
+// 连续 down 的台进入 24h 冷却窗，窗内每窗只探一次（防 flapping）。up 即清零；内存态（重启清零，保守）。
+const EVICT_COOLDOWN_MS = Number(process.env.A2A_EVICT_COOLDOWN_MS) > 0 ? Number(process.env.A2A_EVICT_COOLDOWN_MS) : 24 * 3_600_000; // 测试可加速
+const downSince = new Map<number, number>();
+const lastProbeAt = new Map<number, number>();
+registerWorkbenchRoutes(http, { wrap, listWorkbenches, maskForApi, restSubject, workbenchCreateCore, workbenchUpdateCore, workbenchDeleteCore, adminTokenOk: (req) => adminHeaderOk(req), checkOne, downSince, lastProbeAt, EVICT_COOLDOWN_MS });
 
 // ---------- 驾驶舱 CRUD（任务驾驶舱：多工作台分屏组合视图） ----------
-function getCockpit(id: number): CockpitRow {
-  const row = svc<CockpitService>('cockpit').byId(id) as unknown as CockpitRow | undefined;
-  if (!row) throw new HttpError(404, `cockpit not found: ${id}`);
-  return row;
-}
-
-function validatePanels(raw: unknown): PanelConfig[] {
-  if (!Array.isArray(raw)) bad('layout_config 必须是面板数组');
-  const seen = new Set<number>();
-  return raw.map((p: any) => {
-    // 统一待办卡（omni-inbox）：kind='tasks'，workbenchId=0 占位，不引用工作台
-    if (p?.kind === 'tasks' && String(p?.i ?? '') === 'tasks') {
-      const tw = Math.min(12, Math.max(3, Number(p?.w) || 6));
-      const th = Math.min(40, Math.max(6, Number(p?.h) || 12));
-      return { i: 'tasks', workbenchId: 0, kind: 'tasks' as const, x: Math.min(12 - tw, Math.max(0, Number(p?.x) || 0)), y: Math.max(0, Number(p?.y) || 0), w: tw, h: th };
-    }
-    const workbenchId = Number(p?.workbenchId ?? Number(String(p?.i ?? '').replace('wb-', '')));
-    if (!Number.isInteger(workbenchId) || workbenchId < 1) bad(`面板 workbenchId 非法: ${JSON.stringify(p)}`);
-    if (seen.has(workbenchId)) bad(`面板重复引用工作台 ${workbenchId}`);
-    seen.add(workbenchId);
-    if (!svc<WorkbenchService>('workbench').idById(workbenchId)) bad(`面板引用的工作台不存在: ${workbenchId}`);
-    const w = Math.min(12, Math.max(1, Number(p?.w) || 6));
-    const h = Math.min(40, Math.max(4, Number(p?.h) || 10));
-    return {
-      i: `wb-${workbenchId}`,
-      workbenchId,
-      x: Math.min(12 - w, Math.max(0, Number(p?.x) || 0)),
-      y: Math.max(0, Number(p?.y) || 0),
-      w, h,
-    };
-  });
-}
-
-app.get('/api/cockpits', (_req, res) => {
-  const rows = svc<CockpitService>('cockpit').list() as unknown as CockpitRow[];
-  res.json(rows.map(rowToCockpit));
+// 驾驶舱的读应答带 can.edit：就是写请求总门对这个请求的判断（本机命令行照旧算属主；其余要有效口令或 Odoo 管理员，且同源）
+const cockpits = cockpitAccess({
+  adminOk: (req) => settingsAdminRead(req), // 和设置页的管理员读同一个判断（定义在后面，请求期才调用）
+  crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)),
 });
-
-app.post('/api/cockpits', (req, res) => {
-  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
-  if (!name) bad('name 不能为空');
-  const description = String(req.body?.description ?? '');
-  const panels = validatePanels(req.body?.panels ?? []);
-  const r = svc<CockpitService>('cockpit').create(name, description, JSON.stringify(panels)) as unknown as { lastInsertRowid: number | bigint };
-  res.status(201).json(rowToCockpit(getCockpit(Number(r.lastInsertRowid))));
-});
-
-app.get('/api/cockpits/:id', (req, res) => {
-  res.json(rowToCockpit(getCockpit(Number(req.params.id))));
-});
-
-app.put('/api/cockpits/:id', (req, res) => {
-  const cur = getCockpit(Number(req.params.id));
-  const name = req.body?.name !== undefined ? String(req.body.name).trim() : cur.name;
-  if (!name) bad('name 不能为空');
-  const description = req.body?.description !== undefined ? String(req.body.description) : cur.description;
-  const panels = req.body?.panels !== undefined ? validatePanels(req.body.panels) : JSON.parse(cur.layout_config || '[]');
-  svc<CockpitService>('cockpit').update(cur.id, name, description, JSON.stringify(panels));
-  res.json(rowToCockpit(getCockpit(cur.id)));
-});
-
-app.delete('/api/cockpits/:id', (req, res) => {
-  const cur = getCockpit(Number(req.params.id));
-  svc<CockpitService>('cockpit').delete(cur.id);
-  res.json({ ok: true });
-});
+registerCockpitRoutes(http, { can: cockpits.can, gate: cockpits.gate });
 
 // ---------- 自产台（台生成器：AI 发布 API + 全版本快照，发布即入册） ----------
 const appsRoot = join(dataDir, 'apps');
@@ -740,6 +949,8 @@ startWorkbenchEventWorker(); // 工作台事件 v1（人提交 → 事件 → �
 // #198（监督席裁 A·P11 回归修复）：自产台按台令牌——CSP sandbox 下页面源为 null，
 // 交付空间模式（页面调本台 data/files）靠「Origin: null + X-App-Token 匹配 slug」放行 CORS。
 const APP_TOKEN_KEY_FILE = join(dataDir, '.wm-app-token.key');
+initSubmitterTickets(dataDir); // 8f-2：提交人票据的密钥（单独一把，不和台令牌共用）
+selfCheckSubmitterTickets(); // 8f-2 启动自检：验不对就关掉票据（不出、不认）
 let _appTokenKey = '';
 // 登录门首次 enforce：按台令牌永久有效，开门之前它在公网页面上谁都拿得到；登录门又对带令牌的 data/files 直接放行，
 // 所以首次 enforce 启动时换一把新密钥（旧令牌全部作废），写记号 .wm-app-token.gate 后不再重复。原子替换、权限 600、日志不记密钥。
@@ -785,11 +996,20 @@ const LAYERFS_SYSTEM_PROJECTS: ReadonlySet<string> = new Set([LAYERFS_SKILLS_PRO
 const MAX_APP_FILES = 64;
 const MAX_APP_TOTAL_BYTES = 100 * 1024 * 1024;
 
-function getApp(slug: string): AppRow {
+/**
+ * 取一个台。正在删除的台（status = deleting：删台已经删了它的卡片、远端或本地还没删完，见 deleteAppCascade）：
+ * 读按不存在处理（和不存在同一个 404）；forWrite（提交、上传、改备注、软删、同步发布）回 409，说明正在删除
+ */
+function getApp(slug: string, forWrite = false): AppRow {
   const row = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
+  if (row && row.status === APP_DELETING) {
+    if (forWrite) throw new HttpError(409, `台 ${slug} 正在删除，不接受写入`, { code: 'app_deleting' });
+    throw new HttpError(404, `app not found: ${slug}`);
+  }
   if (!row) throw new HttpError(404, `app not found: ${slug}`);
   return row;
 }
+const APP_DELETING = 'deleting';
 
 function appDetail(a: AppRow) {
   const versions = (svc<AppService>('app').versions(a.id) as unknown as AppVersionRow[]).map(v => ({ ...v, shadow_status: (v as any).shadow_status ?? (v.commit_id ? 'succeeded' : 'pending'), shadow_error: String((v as any).shadow_error ?? '') }));
@@ -895,12 +1115,6 @@ function syncWorkbenchRegistration(a: AppRow): number {
   return Number(r.lastInsertRowid);
 }
 
-app.get('/api/apps', (_req, res) => {
-  // /api/apps = 全部台（app+sop）；/api/sops 才是 kind='sop' 过滤——S2 批量替换期间两口径装反过一次
-  const rows = svc<AppService>('app').all() as unknown as AppRow[];
-  res.json(rows.map(appDetail));
-});
-
 // ---------- SOP 台：混合源（sop.yaml）解析与校验 ----------
 interface SopStep { key: string; title: string; body?: string }
 interface SopManifest { title: string; code?: string; description?: string; steps: SopStep[] }
@@ -999,6 +1213,7 @@ function publishAppBody(b: any, source?: { repo: string; path: string; commit: s
     files = validateAppFiles(b.files, kind);
   }
   const existing = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
+  if (existing?.status === APP_DELETING) throw new HttpError(409, `台 ${slug} 正在删除，不接受写入`, { code: 'app_deleting' });
   if (existing && existing.kind !== kind) bad(`slug 已被 ${existing.kind} 类台占用，kind 不可切换`);
 
   // SOP 类发布面：sop.yaml 必在且可解析、changelog 必填（版本化治理）
@@ -1102,19 +1317,6 @@ function publishLockGuard(slug: string, who: string, force: boolean): { ok: true
 /** 属主 2026-11-02 来源收敛：自产台与 SOP 台只接受 GitHub 仓库 main 分支，直接传文件/patch 的发布一律拒（task-center 内置元台除外，仍只认管理员人工面） */
 const DIRECT_PUBLISH_CLOSED = '自产台与 SOP 台只接受 GitHub 仓库 main 分支：把文件合进仓库 main，再调 POST /api/apps/<slug>/sync（首次须带 source_repo，可选 source_path；本机 CLI 或管理员）或 MCP app_sync';
 
-app.post('/api/apps', (req, res) => {
-  const b = (req.body ?? {}) as Record<string, unknown>;
-  if (String(b.slug ?? '').trim().toLowerCase() !== 'task-center') return res.status(410).json({ error: DIRECT_PUBLISH_CLOSED });
-  if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
-  if (!adminGuard(req,res)) return;
-  // #165 回归修（E2E 红）：锁身份=客户端会话（X-Market-Client/admin 摘要），**不用 created_by**（元数据·同操作者带/不带误判两会话→合法发布 409）
-  const who = String(req.headers['x-market-client'] ?? '').trim() || (adminTokenCheck(req.headers['x-admin-token']) ? 'admin-session' : 'loopback-anon');
-  const gate = publishLockGuard('task-center', who, b.force === true || b.force === 'true');
-  if (!gate.ok) return res.status(409).json({ error: gate.hint });
-  const r = publishAppBody(b);
-  res.status(r.status).json(r.body);
-});
-
 /** 从 GitHub main 头同步一版。给了 source_repo 即（重新）绑定来源——只走 REST（本机 CLI 或管理员）；不给则按已绑定来源重拉（MCP app_sync 只能这样）。
  *  main 头与活跃版同一 commit 且来源未变 → 不出新版本（unchanged:true）。 */
 async function syncAppFromGithub(slug: string, b: any, who: string): Promise<{ status: number; body: object }> {
@@ -1123,6 +1325,7 @@ async function syncAppFromGithub(slug: string, b: any, who: string): Promise<{ s
   if (slug === 'task-center') throw new HttpError(403, 'task-center 内置元台不从仓库同步');
   if (layerfsReservedSlug(slug)) bad('slug 是系统保留名（LayerFS 系统项目），换一个');
   const existing = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
+  if (existing?.status === APP_DELETING) throw new HttpError(409, `台 ${slug} 正在删除，不接受写入`, { code: 'app_deleting' });
   const rebind = b?.source_repo !== undefined;
   if (!existing && !rebind) bad('该台尚未登记来源：首次同步须带 source_repo（owner/repo），可选 source_path');
   let src: { repo: string; path: string };
@@ -1145,67 +1348,7 @@ async function syncAppFromGithub(slug: string, b: any, who: string): Promise<{ s
   return { status: out.status, body: { ...out.body, source: { ...src, branch: SOURCE_BRANCH, commit: pulled.commit } } };
 }
 
-// 写总门已把关：本机 CLI 或管理员（口令 / Odoo 管理员），与原 POST /api/apps 同口径
-app.post('/api/apps/:slug/sync', wrap(async (req, res) => {
-  const b = (req.body ?? {}) as Record<string, unknown>;
-  // #165：锁身份=客户端会话，不用 created_by（元数据·同操作者带/不带会被当成两个会话误报 409）
-  const who = String(req.headers['x-market-client'] ?? '').trim() || (isAdmin(req) ? 'admin-session' : 'loopback-anon');
-  const slug = String(req.params.slug ?? '').trim().toLowerCase();
-  const gate = publishLockGuard(slug, who, b.force === true);
-  if (!gate.ok) return res.status(409).json({ error: gate.hint });
-  const r = await syncAppFromGithub(slug, b, who);
-  res.status(r.status).json(r.body);
-}));
-
-// #94 P1 迁移端点：现有版本依次导成该台项目的 Commit（三门禁复验·异常留档·幂等·sha256 对账）
-app.post('/api/apps/:slug/migrate-layerfs', wrap(async (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const a = getApp(req.params.slug);
-  const vs = svc<AppService>('app').versions(a.id) as any[];
-  const results: any[] = [];
-  let prevBytes = 0;
-  for (const v of vs.sort((x: any, y: any) => x.version - y.version)) {
-    const dir = join(appsRoot, a.slug, `v${v.version}`);
-    if (!existsSync(dir)) { results.push({ version: v.version, result: 'anomaly', reason: '物化目录缺失' }); continue; }
-    // 读物化文件
-    const files: { path: string; content: string }[] = [];
-    (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp, 'utf8') }); } })(dir);
-    // 三门禁复验（评审席复查裁定）
-    if (files.some((f) => f.content === '')) { results.push({ version: v.version, result: 'anomaly', reason: '空 content（门禁复验拒迁·留档）' }); prevBytes = v.total_bytes; continue; }
-    if (prevBytes > 0 && v.total_bytes < prevBytes * 0.5) { results.push({ version: v.version, result: 'anomaly', reason: `体积骤降（${prevBytes}→${v.total_bytes}·>50%·门禁拒迁）` }); prevBytes = v.total_bytes; continue; }
-    const html = files.filter((f) => /\.html?$/.test(f.path));
-    for (const h of html) {
-      const open = (h.content.match(/<div/g) ?? []).length; const close = (h.content.match(/<\/div>/g) ?? []).length;
-      if (open !== close) { results.push({ version: v.version, result: 'anomaly', reason: `div 配对失败（${open}开/${close}闭）` }); break; }
-    }
-    if (results.at(-1)?.version === v.version && results.at(-1)?.result === 'anomaly') { prevBytes = v.total_bytes; continue; }
-    // 幂等：已有 commit_id 跳过
-    if (v.commit_id) { results.push({ version: v.version, result: 'skip', commit_id: v.commit_id }); prevBytes = v.total_bytes; continue; }
-    if (layerfsReservedSlug(a.slug)) { results.push({ version: v.version, result: 'error', reason: 'slug 是系统保留名，不迁入 LayerFS' }); continue; }
-    const out = await layerfsPublish(layerfsProjectName(a.slug), files, `[migrate] v${v.version}`);
-    if (!out) { db.prepare("UPDATE app_versions SET shadow_status='failed', shadow_error='LayerFS publish failed; retry migrate-layerfs' WHERE id=? AND commit_id=''").run(v.id); results.push({ version: v.version, result: 'error', reason: 'layerfs 服务不可达（影子失败语义·可重跑）' }); prevBytes = v.total_bytes; continue; }
-    db.prepare("UPDATE app_versions SET commit_id = ?, shadow_status='succeeded', shadow_error='' WHERE id = ?").run(out.commit_id, v.id);
-    db.prepare("UPDATE apps SET layerfs_project = ? WHERE slug = ?").run(a.slug, a.slug);
-    // sha256 对账（物化 vs 服务 commit——经服务回读）
-    const { base, token } = layerfsServiceBase();
-    let shaMatch = false;
-    try {
-      const fr = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(layerfsProjectName(a.slug)) + '/branches/release/commits/' + encodeURIComponent(out.commit_id) + '/files', { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-      const fj = await fr.json() as { files: { path: string; content: string }[] };
-      const { createHash: ch } = await import('node:crypto');
-      const h1 = ch('sha256').update(JSON.stringify(files.map((f) => [f.path, ch('sha256').update(f.content, 'utf8').digest('hex')]))).digest('hex');
-      const h2 = ch('sha256').update(JSON.stringify(fj.files.map((f) => [f.path, ch('sha256').update(f.content, 'utf8').digest('hex')]))).digest('hex');
-      shaMatch = h1 === h2;
-    } catch { shaMatch = false; }
-    results.push({ version: v.version, result: 'migrated', commit_id: out.commit_id, changed: out.changed, sha256_match: shaMatch });
-    prevBytes = v.total_bytes;
-  }
-  res.json({ slug: a.slug, layerfs_project: a.slug, results });
-}));
-
-app.get('/api/apps/:slug', (req, res) => {
-  res.json(appDetail(getApp(req.params.slug)));
-});
+registerAppRoutes(http, { appDetail, getApp, DIRECT_PUBLISH_CLOSED, sameOriginGuard, adminGuard, adminTokenCheck, publishLockGuard, publishAppBody, wrap, isAdmin, syncAppFromGithub, appsRoot, layerfsReservedSlug, layerfsPublish, layerfsProjectName, layerfsServiceBase });
 
 // 版本回滚：activate 指定历史版本为当前生效快照（文件不动，只切换指针）；REST 与 MCP 共用
 async function activateAppVersion(slug: string, vRaw: unknown): Promise<object> {
@@ -1264,70 +1407,9 @@ function executeSkillDelete(slug: string): void {
   db.prepare('DELETE FROM skill_versions WHERE skill_id = ?').run(row.id);
   db.prepare('DELETE FROM skills WHERE id = ?').run(row.id);
 }
-app.get('/api/change-requests', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const status = typeof req.query.status === 'string' ? req.query.status : '';
-  const rows = status
-    ? db.prepare('SELECT * FROM change_requests WHERE status = ? ORDER BY id DESC LIMIT 100').all(status)
-    : db.prepare('SELECT * FROM change_requests ORDER BY id DESC LIMIT 100').all();
-  res.json(rows.map((r: any) => ({ ...r, payload: JSON.parse(r.payload || '{}') })));
-});
-app.post('/api/change-requests/:id/approve', wrap(async (req, res) => {
-  if (!adminGuard(req, res)) return; // K11：口令无效→401（adminGuard 已回）
-  const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
-  if (!reviewedBy) bad('批准必填 reviewed_by（K11——人审语义）'); // K11
-  const id = Number(req.params.id);
-  const r = db.prepare('SELECT * FROM change_requests WHERE id = ?').get(id) as any;
-  if (!r) throw new HttpError(404, `change_request not found: ${id}`);
-  if (r.status !== 'pending') bad(`请求已处理（status=${r.status}）——不可重复批准`); // 幂等
-  // 执行体（v3 契约形状：kind×op 四象限·与一步式 REST 同构）
-  if (r.kind === 'app' && r.op === 'rollback') {
-    await activateAppVersion(r.slug, r.target_version);
-  } else if (r.kind === 'app' && r.op === 'delete') {
-    await deleteAppCascade(r.slug);
-  } else if (r.kind === 'skill' && r.op === 'rollback') {
-    await executeSkillRollback(r.slug, Number(r.target_version), reviewedBy);
-  } else if (r.kind === 'skill' && r.op === 'delete') {
-    executeSkillDelete(r.slug);
-  } else { bad(`未知 kind×op: ${r.kind}/${r.op}`); }
-  db.prepare("UPDATE change_requests SET status='approved', reviewed_by=?, reviewed_at=datetime('now') WHERE id=?").run(reviewedBy, id);
-  res.json({ ok: true, id, status: 'approved', executed: `${r.kind}/${r.op}`, reviewed_by: reviewedBy });
-}));
-app.post('/api/change-requests/:id/reject', wrap(async (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
-  if (!reviewedBy) bad('拒绝必填 reviewed_by（K11）');
-  const id = Number(req.params.id);
-  const r = db.prepare('SELECT * FROM change_requests WHERE id = ?').get(id) as any;
-  if (!r) throw new HttpError(404, `change_request not found: ${id}`);
-  if (r.status !== 'pending') bad(`请求已处理（status=${r.status}）`);
-  db.prepare("UPDATE change_requests SET status='rejected', reviewed_by=?, reviewed_at=datetime('now') WHERE id=?").run(reviewedBy, id);
-  res.json({ ok: true, id, status: 'rejected', reviewed_by: reviewedBy });
-}));
+registerChangeRequestRoutes(http, { adminGuard, wrap, bad, activateAppVersion, deleteAppCascade, executeSkillRollback, executeSkillDelete, cardDeleter: (req) => cardDeleterOf(req, (r) => adminHeaderOk(r)) });
 
-app.post('/api/apps/:slug/activate', wrap(async (req, res) => {
-  if (req.params.slug === 'task-center') {
-    if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
-    if (!adminGuard(req,res)) return;
-  }
-  // #94 v3 S1（L14）：回滚经人审——一步式=口令+reviewed_by（缺 reviewed_by 不执行）
-  const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
-  if (!reviewedBy) bad('回滚需 reviewed_by（人审门——一步式直调必填；或经 MCP change_request_create 提请求）');
-  const out = await activateAppVersion(req.params.slug, req.body?.version);
-  res.json({ ...out, reviewed_by: reviewedBy });
-}));
-
-app.delete('/api/apps/:slug', wrap(async (req, res) => {
-  if (req.params.slug === 'task-center') {
-    if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
-    if (!adminGuard(req,res)) return;
-  }
-  // #94 v3 S1（L14）：删除经人审——一步式=口令+reviewed_by
-  const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
-  if (!reviewedBy) bad('删除需 reviewed_by（人审门——一步式直调必填；或经 MCP change_request_create 提请求）');
-  await deleteAppCascade(req.params.slug);
-  res.json({ ok: true, deleted: req.params.slug, reviewed_by: reviewedBy });
-}));
+registerAppLifecycleRoutes(http, { sameOriginGuard, adminGuard, wrap, bad, activateAppVersion, deleteAppCascade, cardDeleter: (req) => cardDeleterOf(req, (r) => adminHeaderOk(r)) });
 
 /** #94 v3 S1：台删除级联体（一步式 REST 与人审批准共用一个执行体——单一事实源） */
 /** #94 P1 影子双写：经 layerfs 服务发布 Commit（契约 v0 §2.1·Bearer）——失败不阻（warn·commit_id 留空） */
@@ -1353,7 +1435,7 @@ function layerfsServiceBase(): { base: string; token: string } {
   const base = tokenFile ? String(process.env.LAYERFS_SERVICE_URL ?? '').trim() : String(s['layerfs_service_url'] ?? process.env.LAYERFS_SERVICE_URL ?? '').trim();
   return { base, token };
 }
-async function layerfsPublish(project: string, files: { path: string; content: string }[], message: string, branch = 'release'): Promise<{ commit_id: string; changed: boolean } | null> {
+async function layerfsPublish(project: string, files: { path: string; content: string }[], message: string, branch = 'release', opts: { quiet?: boolean } = {}): Promise<{ commit_id: string; changed: boolean } | null> {
   try {
     const { base, token } = layerfsServiceBase();
     if (!base) return null; // 未配置=不启用（契约 §1）
@@ -1369,13 +1451,28 @@ async function layerfsPublish(project: string, files: { path: string; content: s
     if (!j.commit_id) throw new Error('layerfs service 无 commit_id');
     return { commit_id: j.commit_id, changed: j.changed === true };
   } catch (e) {
-    console.warn(`[P1-shadow] 影子写失败（不阻发布·commit_id 留空）: ${project}: ${String((e as Error).message).slice(0, 100)}`);
+    // quiet：技能影子的定时补推自己按「通 ↔ 不通」的变化打日志（skill-shadow.ts），这里不再每次都打
+    if (!opts.quiet) console.warn(`[P1-shadow] 影子写失败（不阻发布·commit_id 留空）: ${project}: ${String((e as Error).message).slice(0, 100)}`);
     return null;
   }
 }
 
-async function deleteAppCascade(slug: string): Promise<void> {
-  const a = getApp(slug);
+/**
+ * 删台。card：删这个台的卡片的人、是否确认删台库里的业务数据（卡片的台库有数据时要管理层并且确认，见 bench-card-delete.ts）。
+ * 这道门在任何删除之前先过；过了之后**紧接着**删卡片（逐张走删卡片那条路——台库删前备份、常量变量、驾驶舱面板一起处理），然后才删远端项目和台本身。
+ * 门和删卡片之间不隔着远端调用（要几秒）：原来先删远端、最后才删卡片，这几秒里某张卡片的台库第一次写进数据，第二次过门就 409，台删了、卡片还在（半截）。
+ * 现在远端删失败（502）时卡片已经按确认删了，台标成「删除中」（写入 409、读按不存在、发布也 409）——重试删台就收尾，不会留下「台没了、卡片和它的数据还在」。
+ */
+async function deleteAppCascade(slug: string, card: { deleter: CardDeleter; confirmBenchData: boolean } = { deleter: { kind: 'anonymous' }, confirmBenchData: false }): Promise<void> {
+  // 正在删除的台也取得到：上一次删到一半（远端删失败）的，重试照常收尾
+  const a = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
+  if (!a) throw new HttpError(404, `app not found: ${slug}`);
+  const cardIds = svc<WorkbenchService>('workbench').idsByAppUrls(`/apps/${a.slug}/`, `/sop/${a.slug}/`);
+  for (const id of cardIds) {
+    const row = svc<WorkbenchService>('workbench').byId(id) as { url?: unknown } | undefined;
+    if (row && typeof row.url === 'string') await svc<AppDataService>('appData').beforeCardDelete(row.url, id); // 第 6 步：提交和附件先对齐进台库，门才看得到
+    await checkCardDeletable(id, card.deleter, card.confirmBenchData);
+  }
   // Remove remote state first and retain local state on failure; without LayerFS config, apps never written there stay deletable.
   const versions = svc<AppService>('app').versions(a.id) as any[];
   const hasLayerfsState = Boolean((a as any).layerfs_project) || versions.some(v => String(v.commit_id ?? '') !== '');
@@ -1385,6 +1482,13 @@ async function deleteAppCascade(slug: string): Promise<void> {
   const reserved = layerfsReservedSlug(slug);
   if (reserved) console.warn(`[layerfs] 删台 ${slug}：slug 是系统保留项目名，跳过远端删除`);
   if (hasLayerfsState && !base && !reserved) throw new HttpError(503, 'LayerFS service is required to delete an app with LayerFS data');
+  // 删卡片之前先把台标成「删除中」：从这里起到删完（包括远端删失败、台留着等重试），这个台的写入一律 409、读按不存在处理——
+  // 卡片和台库已经没了，不能再往一个没有卡片的台里写。重试删台照常收尾；要撤销，由管理层从备份恢复卡片（设计稿，暂不做入口）
+  if (a.status !== APP_DELETING) svc<AppService>('app').setStatus(a.id, APP_DELETING);
+  // issue #6：清理应用与 SOP 对应的工作台注册——过了门紧接着逐张走删卡片那条路（台库删前备份、常量变量、驾驶舱面板一起），在远端调用之前
+  for (const id of cardIds) {
+    try { await workbenchDeleteCore(id, card.deleter, card.confirmBenchData); } catch (e) { if (!(e instanceof HttpError && e.status === 404)) throw e; } // 期间已被删了就算了
+  }
   if (base && !reserved) {
     let remote: Response;
     try {
@@ -1399,12 +1503,10 @@ async function deleteAppCascade(slug: string): Promise<void> {
   rmSync(join(appsRoot, slug), { recursive: true, force: true });
   svc<AppService>('app').versionsDelete(a.id);
   svc<AppService>('app').delete(a.id);
-  svc<AppDataService>('appData').dataDelete(slug);
-  const files = svc<AppDataService>('appData').filePaths(slug) as { storage_path: string }[];
-  for (const f of files) { try { rmSync(join(dataDir, f.storage_path), { force: true }); } catch { /* 已删 */ } }
-  svc<AppDataService>('appData').filesDelete(slug);
-  // issue #6：清理应用与 SOP 对应的工作台注册。
-  svc<WorkbenchService>('workbench').deleteByAppUrls(`/apps/${slug}/`, `/sop/${a.slug}/`);
+  await svc<AppDataService>('appData').dataDelete(slug);
+  const files = await svc<AppDataService>('appData').filePaths(slug);
+  for (const f of files) { try { rmSync(join(dataDir, f), { force: true }); } catch { /* 已删 */ } }
+  await svc<AppDataService>('appData').filesDelete(slug);
 }
 
 // ---------- 自产台数据提交面（监督席派单 direct-22838fab：台不仅是看板，有交互提交数据） ----------
@@ -1437,68 +1539,66 @@ function appDataContract(a: AppRow): DataContract | null {
 }
 
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9_.:-]{1,128}$/;
+/**
+ * 幂等键按提交方隔开：同一个键，只在同一个提交方的提交之间算「重复」。提交方——
+ *   page           台页面的提交（REST），带不带提交人票据都是这一方：一个台的页面靠固定的键拦并发首次登记（409），照旧拦得住；
+ *   mcp:<会话名>   经 MCP 会话的工具调用，每个会话各是一方；
+ *   anon           没有会话的工具调用。
+ * 页面和会话之间不串。存的时候键前面加上提交方和一个换行（键本身不许有换行，拼起来不会撞），不动表、不动索引；上线之前存的键没有前缀，按不存在处理。
+ * 应答：重复（200 duplicate）和 409 带不带那条记录的 id、时间——会话照旧带；页面这一方里票据认得出是谁的（登录了的人）照旧带，
+ * 认不出是谁的匿名提交不带，只说「重复」或「这个键已用在另一份内容上」：知道键的外人最多知道内容是否相同。
+ */
+function idemScope(channel: 'app-data.rest' | 'app-data.tool', subject: string | undefined): string {
+  if (channel === 'app-data.rest') return 'page';
+  return subject && subject.startsWith('mcp:') ? subject : 'anon';
+}
 /** 台数据写入核心：REST POST /api/apps/:slug/data 与 MCP app_data_submit 共用——1MB 上限、数据契约、幂等键、写入后推事件。
  *  违约不抛错，回 status 400 + violations，由两个入口各自原样交出去。 */
-function submitAppData(a: AppRow, input: { data: unknown; createdBy?: unknown; idempotencyKey?: unknown }): { status: number; body: Record<string, unknown> } {
+function submitAppData(a: AppRow, input: Parameters<typeof submitAppDataNow>[1]): ReturnType<typeof submitAppDataNow> {
+  // 同一个台的写入排队（services/app-data.ts 的 serialWrites）：查幂等键、契约查附件 → 插入，中间不让别的写入插进来
+  return svc<AppDataService>('appData').serialWrites(a.slug, () => submitAppDataNow(a, input));
+}
+async function submitAppDataNow(a: AppRow, input: { data: unknown; createdBy?: unknown; idempotencyKey?: unknown; submitterTicket?: unknown; subject?: string; channel: { name: 'app-data.rest' | 'app-data.tool'; hasCredential: boolean } }): Promise<{ status: number; body: Record<string, unknown> }> {
   const data = input.data;
   const json = JSON.stringify(data);
   if (json === undefined) bad('data 必填');
   if (Buffer.byteLength(json, 'utf8') > 1024 * 1024) bad('data 超 1MB 上限');
   const key = input.idempotencyKey === undefined || input.idempotencyKey === null || input.idempotencyKey === '' ? '' : String(input.idempotencyKey);
   if (key && !IDEMPOTENCY_KEY_RE.test(key)) bad('idempotency_key 只能是 1–128 个字母/数字/_ . : -');
+  // 8f-2：台页面在信封里带回的提交人票据。验得过、主体仍启用才记下这个人；验不过当没带（照样收、留空），不把原因回给调用方
+  const submitter = input.channel.name === 'app-data.rest' ? submitterFromTicket(input.submitterTicket, a.slug) : null;
+  const scope = idemScope(input.channel.name, input.subject);
+  const storedKey = key ? `${scope}\n${key}` : '';
   if (key) {
-    const prev = svc<AppDataService>('appData').dataByIdempotencyKey(a.slug, key) as { id: number; data: string; created_at: string } | undefined;
+    const prev = await svc<AppDataService>('appData').dataByIdempotencyKey(a.slug, storedKey);
     if (prev) {
-      if (prev.data !== json) throw new HttpError(409, 'idempotency_key 已用于另一份内容', { id: prev.id });
-      return { status: 200, body: { ok: true, id: prev.id, slug: a.slug, created_at: prev.created_at, duplicate: true } };
+      const known = scope === 'page' ? submitter !== null : scope !== 'anon';
+      if (prev.data !== json) throw new HttpError(409, 'idempotency_key 已用于另一份内容', known ? { id: prev.id } : undefined);
+      return { status: 200, body: known ? { ok: true, id: prev.id, slug: a.slug, created_at: prev.created_at, duplicate: true } : { ok: true, slug: a.slug, duplicate: true } };
     }
   }
   const contract = appDataContract(a);
   if (contract) {
-    const violations = checkRecord(contract, data, (id) => !!svc<AppDataService>('appData').fileById(id, a.slug));
+    // 契约校验是同步的：引用到的附件先一次查出来（只查 file_ids 里给的那些）
+    const refs = data && typeof data === 'object' && Array.isArray((data as { file_ids?: unknown }).file_ids) ? ((data as { file_ids: unknown[] }).file_ids.filter((x) => Number.isSafeInteger(x) && (x as number) > 0) as number[]) : [];
+    const existing = refs.length ? await svc<AppDataService>('appData').fileIdsExisting(a.slug, refs) : new Set<number>();
+    const violations = checkRecord(contract, data, (id) => existing.has(id));
     if (violations.length) return { status: 400, body: { error: '提交不符合本台数据契约', violations } };
   }
   const created_by = typeof input.createdBy === 'string' ? input.createdBy.trim().slice(0, 128) : '';
-  const r = svc<AppDataService>('appData').dataInsertStmt()
-    .run(a.slug, json, created_by, key) as unknown as { lastInsertRowid: number | bigint };
-  const itemId = Number(r.lastInsertRowid);
+  const itemId = await svc<AppDataService>('appData').dataInsert(a.slug, json, created_by, storedKey, submitter);
   const createdAt = new Date().toISOString();
   // 属主裁 C（2026-10-26）：提交即推送——绑定 agent 异步收通知（不阻塞 201）。
   // 工作台事件 v1：推送改走事件投递队列（退避重试、终态 sent/dead 可查），信封带 event_id 与 submitter_kind。
   // 提交面匿名、created_by 自填 → submitter_kind 恒 unverified、dispatch:false（只通知不派发）。
   // 联合评审① C：统一绑定表——notify 方向行（授 admits 不触发推送·方向独立性铁律）
+  // 8f：不带内容的提交计数。台的提交只凭票据认人（8f-2）
+  countSubmission(input.channel.name, input.channel.hasCredential, submitter !== null);
   try {
-    if (recordAppDataEvent({ slug: a.slug, id: itemId, data, json, createdBy: created_by, createdAt })) kickWorkbenchEvents();
+    if (recordAppDataEvent({ slug: a.slug, id: itemId, data, json, createdBy: created_by, createdAt, submitterPrincipal: submitter })) kickWorkbenchEvents();
   } catch (err) { console.error(`[app-notify] event record failed ${a.slug}: ${String(err).slice(0, 120)}`); }
   return { status: 201, body: { ok: true, id: itemId, slug: a.slug, created_at: createdAt } };
 }
-
-app.post('/api/apps/:slug/data', (req, res) => {
-  const a = getApp(req.params.slug);
-  const b = req.body ?? {};
-  // 兼容 {data: {...}} 或直接 {...} 两种形态；幂等键只认信封字段或 Idempotency-Key 头（直接形态的字段都算数据）
-  const envelope = b.data !== undefined && b.data !== null;
-  const out = submitAppData(a, {
-    data: envelope ? b.data : b,
-    createdBy: b.created_by,
-    idempotencyKey: req.get('idempotency-key') ?? (envelope ? b.idempotency_key : undefined),
-  });
-  res.status(out.status).json(out.body);
-});
-
-app.get('/api/apps/:slug/data', (req, res) => {
-  const a = getApp(req.params.slug);
-  const limit = pageLimit(req.query.limit);
-  const beforeId = pageBeforeId(req.query.before_id);
-  const rows = beforeId > 0
-    ? svc<AppDataService>('appData').dataPage(a.slug, beforeId, limit)
-    : svc<AppDataService>('appData').dataPage(a.slug, 0, limit);
-  const items = (rows as { id: number; data: string; created_by: string; created_at: string }[]).map((r) => ({
-    id: r.id, data: JSON.parse(r.data || '{}'), created_by: r.created_by, created_at: r.created_at,
-  }));
-  const has_more = rows.length === limit;
-  res.json({ slug: a.slug, items, count: items.length, has_more, next_before_id: has_more ? items[items.length - 1].id : null });
-});
 
 // ---------- 自产台文件提交面（所有资源类型文件，单文件 100MB 上限） ----------
 // multipart/form-data：字段 file（单文件）+ 可选 note/created_by。
@@ -1507,8 +1607,8 @@ const UPLOAD_MAX = 100 * 1024 * 1024; // 属主 2026-11-03：单文件放宽到 
 // 每台文件数上限：浏览器上传与 MCP 上传共用；部署可用 WM_APP_FILES_MAX 调整（存量迁移台已有数百个文件）
 const APP_FILES_MAX = Math.max(1, Number(process.env.WM_APP_FILES_MAX) || 2000);
 /** 台的文件容量（上传前可查）：已用/上限文件数、单文件上限、MCP base64 上限 */
-function appFilesQuota(slug: string) {
-  const used = Number(svc<AppDataService>('appData').fileCount(slug)) || 0;
+async function appFilesQuota(slug: string) {
+  const used = Number(await svc<AppDataService>('appData').fileCount(slug)) || 0;
   return { files_used: used, files_max: APP_FILES_MAX, files_left: Math.max(0, APP_FILES_MAX - used), max_file_bytes: UPLOAD_MAX, mcp_max_base64_chars: Math.ceil(UPLOAD_MAX / 3) * 4 };
 }
 const uploadRoot = join(dataDir, 'uploads');
@@ -1545,13 +1645,17 @@ function uploadKindOrThrow(path: string, size: number, name: string, reported: s
   return kind;
 }
 /** 自产台文件入库核心：浏览器 multipart 与 MCP REST（原始字节 PUT / multipart）共用——已落盘的文件按内容核类型（不符删盘 415）后写 app_files */
-function appFileStoreCore(slug: string, f: { path: string; size: number; name: string; reportedMime: string; createdBy: string; note: string; sha256?: string }) {
+async function appFileStoreCore(slug: string, f: { path: string; size: number; name: string; reportedMime: string; createdBy: string; note: string; sha256?: string }) {
   const kind = uploadKindOrThrow(f.path, f.size, f.name, f.reportedMime);
   // 存储相对路径（dataDir 内，随数据目录迁移）
   const rel = f.path.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
-  const r = svc<AppDataService>('appData').fileInsert(slug, f.name, kind.mime, f.size, rel, f.createdBy, f.note, f.sha256 ?? '') as unknown as { lastInsertRowid: number | bigint }; // #132 P0①：note 落库；sha256 有就存（下载 ETag 不再重算）
-  const id = Number(r.lastInsertRowid);
-  return { ok: true, id, slug, name: f.name, mime: kind.mime, size: f.size, note: f.note, url: `/api/apps/${slug}/files/${id}` };
+  // 查文件数上限 → 插入，排在这个台的写入队里：入口在收文件之前查过一次，这里排到了再核一次（并发的两笔不会一起用掉最后一个名额）
+  return svc<AppDataService>('appData').serialWrites(slug, async () => {
+    const quota = await appFilesQuota(slug);
+    if (quota.files_left <= 0) { rmSync(f.path, { force: true }); throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`, { quota }); }
+    const id = await svc<AppDataService>('appData').fileInsert(slug, f.name, kind.mime, f.size, rel, f.createdBy, f.note, f.sha256 ?? ''); // #132 P0①：note 落库；sha256 有就存（下载 ETag 不再重算）
+    return { ok: true, id, slug, name: f.name, mime: kind.mime, size: f.size, note: f.note, url: `/api/apps/${slug}/files/${id}` };
+  });
 }
 /** 上传落盘位置（multer 与原始字节上传同规则）：uploads/<YYYYMM>/<时间戳>-<随机><原扩展名> */
 function uploadMonthDir(): string {
@@ -1578,96 +1682,15 @@ const upload = multer({
 });
 
 
-app.post('/api/apps/:slug/files', (req, res, next) => {
-  try { getApp(req.params.slug); } catch (e) { return next(e); }
-  // 先查文件数再收文件，满了不落盘
-  if (appFilesQuota(req.params.slug).files_left <= 0) return res.status(413).json({ error: `该台文件数已达上限（${APP_FILES_MAX}）`, quota: appFilesQuota(req.params.slug) });
-  upload.single('file')(req, res, (err: any) => {
-    if (err) {
-      if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: '文件超 100MB 上限' });
-      return res.status(400).json({ error: `上传失败：${err.message}` });
-    }
-    try {
-      const a = getApp(req.params.slug);
-      if (!req.file) bad('缺少 file 字段（multipart/form-data）');
-      const created_by = typeof req.body?.created_by === 'string' ? req.body.created_by.trim().slice(0, 128) : '';
-      const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 500) : '';
-      res.status(201).json(appFileStoreCore(a.slug, { path: req.file.path, size: req.file.size, name: fixFileName(req.file.originalname), reportedMime: req.file.mimetype || '', createdBy: created_by, note }));
-    } catch (e) {
-      next(e);
-    }
-  });
-});
-
-app.get('/api/apps/:slug/files', (req, res) => {
-  const a = getApp(req.params.slug);
-  const limit = pageLimit(req.query.limit);
-  const beforeId = pageBeforeId(req.query.before_id);
-  const rows = beforeId > 0
-    ? svc<AppDataService>('appData').filePage(a.slug, beforeId, limit)
-    : svc<AppDataService>('appData').filePage(a.slug, 0, limit);
-  const items = (rows as any[]).map((r) => ({ ...r, url: `/api/apps/${a.slug}/files/${r.id}` }));
-  res.json({ slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null, quota: appFilesQuota(a.slug) });
-});
-
-// #132 P0①：note 更新面（PATCH）
-app.patch('/api/apps/:slug/files/:id', (req, res) => {
-  if (!adminGuard(req, res)) return; // #193 F3：写面人审（读开放·写删人审）
-  if (!adminGuard(req, res)) return; // #193 F3：写面人审（读开放·写删人审）
-  const a = getApp(req.params.slug);
-  const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 500) : undefined;
-  if (note === undefined) bad('note 必填（字符串）');
-  const hit = svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug) as any;
-  if (!hit) throw new HttpError(404, `file not found: ${req.params.id}`);
-  svc<AppDataService>('appData').fileUpdateNote(Number(req.params.id), a.slug, note);
-  res.json({ ok: true, id: Number(req.params.id), note });
-});
-
-// #132 P0③：软删面（deleted_at 置位·原行保审计·列表过滤）
-app.delete('/api/apps/:slug/files/:id', (req, res) => {
-  if (!adminGuard(req, res)) return; // #193 F3
-  if (!adminGuard(req, res)) return; // #193 F3
-  const a = getApp(req.params.slug);
-  const hit = svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug) as any;
-  if (!hit) throw new HttpError(404, `file not found: ${req.params.id}`);
-  const _fd = svc<AppDataService>('appData').fileSoftDelete(Number(req.params.id), a.slug) as { changes?: number };
-  if (Number(_fd?.changes ?? 0) === 0) throw new HttpError(404, `file not found: ${req.params.id}`); // #193 F5：幂等假绿修（不存在→404）
-  res.json({ ok: true, id: Number(req.params.id), deleted: 'soft' });
-});
-app.delete('/api/apps/:slug/data/:id', (req, res) => {
-  if (!adminGuard(req, res)) return; // #193 F3
-  if (!adminGuard(req, res)) return; // #193 F3
-  const a = getApp(req.params.slug);
-  const _dd = svc<AppDataService>('appData').dataSoftDelete(Number(req.params.id), a.slug) as { changes?: number };
-  if (Number(_dd?.changes ?? 0) === 0) throw new HttpError(404, `data not found: ${req.params.id}`); // #193 F5
-  res.json({ ok: true, id: Number(req.params.id), deleted: 'soft' });
-});
-
-app.get('/api/apps/:slug/files/:id', (req, res) => {
-  const a = getApp(req.params.slug);
-  const row = svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug) as any;
-  if (!row) throw new HttpError(404, `file not found: ${req.params.id}`);
-  const abs = join(dataDir, row.storage_path);
-  if (!existsSync(abs)) throw new HttpError(404, 'stored file missing on disk');
-  res.setHeader('content-type', row.mime || 'application/octet-stream');
-  res.setHeader('content-length', String(row.size));
-  // 附件下载语义（原始文件名）——inline 由 mime 决定，避免 XSS：非白名单 mime 强制 attachment
-  const inlineOk = /^(image\/(png|jpeg|webp|gif)|application\/pdf|text\/(plain|csv|markdown))$/.test(row.mime); // hotfix：effMime 未定义（#134 stash 舞连带残留）
-  // #215 族修（属主实测「点下载变新标签页访问二进制」）：存储 mime 存错（xlsx 存 text/plain）时 inline 白名单误放——按扩展名强制 attachment
-  // 仅二进制容器/归档扩展名强制 attachment（xlsx 存伪 mime 的 #215 防 XSS 线）；png/jpeg/webp/gif/pdf/csv 是 README 契约白名单 inline 面，不在此列
-  const BIN_EXT = /\.(xlsx|xls|docx|doc|zip|rar|7z|gz|tar|7z|bz2|xz)$/i.test(row.original_name || '');
-  const disp = (inlineOk && !BIN_EXT) ? 'inline' : 'attachment';
-  res.setHeader('content-disposition', `${disp}; filename*=UTF-8''${encodeURIComponent(row.original_name || 'file')}`);
-  res.setHeader('x-content-type-options', 'nosniff');
-  createReadStream(abs).pipe(res);
-});
+registerAppDataRoutes(http, { getApp, submitAppData, pageLimit, pageBeforeId, appFilesQuota, APP_FILES_MAX, upload, fixFileName, appFileStoreCore, adminGuard, bad, read: {
+  mode: APP_DATA_READ,
+  appTokenOk: (slug, presented) => { const got = Buffer.from(presented), want = Buffer.from(wmAppToken(slug)); return got.length === want.length && timingSafeEqual(got, want); }, // 按字节比长度：非 ASCII 的令牌不让比较抛错
+  adminOk: async (req) => { await markOdooAdmin(req); return adminHeaderOk(req); },
+  cliOk: (req) => !browserMarked(req) && rawLoopback(req),
+  viewCapOk: (slug, cap) => loginGate.viewCapOk(slug, cap),
+} });
 
 // ---------- SOP 台：状态机（draft → published → deprecated）+ 执行 Runner + 分层持久化 ----------
-app.get('/api/sops', (_req, res) => {
-  const rows = svc<AppService>('app').sops() as unknown as AppRow[];
-  res.json(rows.map(appDetail));
-});
-
 function sopTransition(slug: string, from: string[], to: string, label: string): AppRow {
   const a = getApp(slug);
   if (a.kind !== 'sop') throw new HttpError(400, `${slug} 不是 SOP 台`);
@@ -1682,75 +1705,14 @@ function sopTransition(slug: string, from: string[], to: string, label: string):
   return updated;
 }
 
-app.post('/api/sops/:slug/publish', (req, res) => {
-  if (req.params.slug === 'task-center') {
-    if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
-    if (!adminGuard(req,res)) return;
-  }
-  const a = sopTransition(req.params.slug, ['draft', 'deprecated'], 'published', '发布');
-  // publish 附带发布说明（可选）记入当前版本 changelog 末尾
-  if (typeof req.body?.note === 'string' && req.body.note.trim()) {
-    svc<AppService>('app').appendChangelog(a.id, a.active_version, `\n[publish] ${req.body.note.trim()}`);
-  }
-  res.json(appDetail(getApp(a.slug)));
-});
-
-app.post('/api/sops/:slug/deprecate', (req, res) => {
-  if (req.params.slug === 'task-center') {
-    if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
-    if (!adminGuard(req,res)) return;
-  }
-  const a = sopTransition(req.params.slug, ['published'], 'deprecated', '废弃');
-  // 废弃不入册删除：历史 run 仍可回放；市场行禁用（enabled=0）
-  svc<WorkbenchService>('workbench').setEnabledByUrl(0, `/sop/${a.slug}/`);
-  res.json(appDetail(getApp(a.slug)));
-});
+registerSopStateRoutes(http, { appDetail, getApp, sameOriginGuard, adminGuard, sopTransition });
 
 // ---------- SOP Runner：GET /sop/:slug/ → 内置执行页（读活跃版本 sop.yaml 服务端渲染）----------
+/** #321：执行页内联 DESIGN.md 生成的 --wm-* 变量，与市场前端同色同字号 */
+const renderSopRunner = (manifest: Parameters<typeof renderSopRunnerRaw>[0], app: Parameters<typeof renderSopRunnerRaw>[1]) => renderSopRunnerRaw(manifest, app, loadTokensCss()?.css ?? '');
 
 
-// /sop/:slug/ 根 → Runner；/sop/:slug/<path> → 版本目录静态文件（附件）
-app.get(/^\/sop\/[a-z0-9][a-z0-9-]*(\/.*)?$/, (req, res) => {
-  const m = /^\/sop\/([a-z0-9][a-z0-9-]*)\/?(.*)$/.exec(req.path ?? '');
-  if (!m) return res.status(404).json({ error: 'not found' });
-  const rest = m[2] || '';
-  const hit = readActiveManifest(m[1]);
-  if (!hit) return res.status(404).json({ error: `SOP not found: ${m[1]}` });
-  res.setHeader('X-App-Version', `v${hit.app.active_version}`);
-  const runParamRaw = typeof req.query?.run === 'string' && /^\d+$/.test(req.query.run) ? Number(req.query.run) : null;
-  if (rest === '' || rest === '/' || rest === 'index.html') {
-    // issue #11：非 published 不再渲染下发完整 Runner 页面（信息泄漏面）——403 瘦身为一行
-    if (hit.app.status !== 'published') {
-      return res.status(403).type('text').send(`SOP ${m[1]} 状态为 ${hit.app.status}，未上架不可执行\n`);
-    }
-    // #263 页面整链：?run=<id> 精确定位既有执行记录（不新开 run）；归属不匹配时 404，不静默换记录
-    if (runParamRaw !== null) {
-      const runRow = svc<SopService>('sop').runById(runParamRaw) as unknown as { sop_slug?: string } | undefined;
-      if (!runRow || runRow.sop_slug !== m[1]) return res.status(404).json({ error: `run ${runParamRaw} 不属于 SOP ${m[1]}` });
-      (globalThis as any).__wmSopPinRun = runParamRaw;
-      try { return res.status(200).type('html').send(renderSopRunner(hit.manifest, hit.app)); } finally { delete (globalThis as any).__wmSopPinRun; }
-    }
-    return res.status(200).type('html').send(renderSopRunner(hit.manifest, hit.app));
-  }
-  // 附件：从活跃版本目录读（与 serveApp 同款防穿越）
-  const root = join(appsRoot, m[1], `v${hit.app.active_version}`);
-  let rel = posix.normalize(rest);
-  if (rel === '.' || rel.startsWith('/') || rel.startsWith('..')) return res.status(400).json({ error: '路径非法' });
-  const abs = join(root, rel);
-  if (!abs.startsWith(root)) return res.status(400).json({ error: '路径非法' });
-  if (!existsSync(abs)) return res.status(404).json({ error: `file not found: ${rel}` });
-  // #198（裁 A）：自产台入口/子页面注入按台令牌——sandbox 页面凭它调本台 data/files
-  if (/\.html?$/i.test(rel)) {
-    try {
-      const tok = wmAppToken(m[1]);
-      const raw = readFileSync(abs, 'utf8');
-      const inject = `<meta name="wm-app-token" content="${tok}"><script>window.WM_APP_TOKEN="${tok}";window.WM_APP_SLUG="${m[1]}";window.WM_WORKBENCH_ID=${wmWorkbenchIdFor(`/sop/${m[1]}/`)};</script>`;
-      const out = /<head[^>]*>/i.test(raw) ? raw.replace(/<head([^>]*)>/i, (mm) => mm + inject) : inject + raw;
-      return res.type('html').send(out);
-    } catch { /* 读取失败回落原样 */ }
-  }
-  return res.sendFile(abs);
-});
+registerSopPageRoutes(http, { readActiveManifest, renderSopRunner, appsRoot, wmAppToken, wmWorkbenchIdFor });
 
 // ---------- SOP run API：分层治理（Redis 热态 + SQLite 真源）----------
 // core 函数为唯一持久化链：REST 与 MCP（sop_run_* 工具）共用——agent 更新持久化执行数据
@@ -1797,14 +1759,14 @@ function mergeRunData(row: SopRunRow, stepKey: string, value: unknown): string {
 }
 
 /** 开 run（钉当前版本；仅 published） */
-function sopRunStartCore(slugRaw: string, startedByRaw: string): { id: number; slug: string; version: number; status: string; data: Record<string, unknown>; read_capability: string } {
+function sopRunStartCore(slugRaw: string, startedByRaw: string, requester: string | null = null): { id: number; slug: string; version: number; status: string; data: Record<string, unknown>; read_capability: string } {
   const slug = slugRaw.trim().toLowerCase();
   if (!slug) bad('slug 必填');
   const hit = readActiveManifest(slug);
   if (!hit) throw new HttpError(404, `SOP not found: ${slug}`);
   if (hit.app.status !== 'published') throw new HttpError(409, `SOP 状态为 ${hit.app.status}，仅 published 可执行`);
   const started_by = startedByRaw.trim();
-  const r = svc<SopService>('sop').runCreate(slug, hit.app.active_version, started_by) as unknown as { lastInsertRowid: number | bigint };
+  const r = svc<SopService>('sop').runCreate(slug, hit.app.active_version, started_by, slug === 'task-center' ? requester : null) as unknown as { lastInsertRowid: number | bigint };
   const id = Number(r.lastInsertRowid);
   // P0：run-scoped 上传令牌（启动签发·Runner 页内嵌·files POST 必带）
   const uploadToken = randomBytes(32).toString('hex');
@@ -1922,22 +1884,50 @@ async function checkFileListsAgainstStore(rules: FieldRule[], data: Record<strin
 async function sopRunFinishCore(id: number): Promise<{ ok: boolean; id: number; status: string; steps: number }> {
   return runCheckpoints.serial(id, () => sopRunFinishLockedCore(id));
 }
+/** 这个 run 用的那一版 SOP 清单（版本目录里的 sop.yaml，没有就取当前版本）；任务中心的录入 run 没有字段规则 */
+function sopRunManifest(row: { sop_slug: string; sop_version: number }): SopManifest | null {
+  if (row.sop_slug === 'task-center') return null;
+  const yamlPath = join(appsRoot, row.sop_slug, `v${row.sop_version}`, 'sop.yaml');
+  return (existsSync(yamlPath) ? parseSopManifest(readFileSync(yamlPath, 'utf8')) : readActiveManifest(row.sop_slug)?.manifest) ?? null;
+}
+/** 完成前的字段校验（只有这一处）：完成接口用它拦，「等你拍板」的验收卡片用它预先告诉人「现在能不能验收通过」 */
+async function sopRunViolations(row: { id: number; sop_slug: string; sop_version: number }, data: string): Promise<string[]> {
+  const manifest = sopRunManifest(row);
+  if (!manifest) return [];
+  let parsedData: Record<string, unknown> = {};
+  try { parsedData = JSON.parse(data); } catch { parsedData = {}; }
+  const rules = extractFieldRules(manifest);
+  return [...checkRunData(rules, parsedData), ...(await checkFileListsAgainstStore(rules, parsedData, row.id))];
+}
+/**
+ * 「等你拍板」里待验收的派单 run 的卡片内容：哪条流程、哪次执行、谁派来的、各步骤填了没有（只给步骤名和填没填，不给内容）、
+ * 附件数和文件名（不给内容）、现在验收能不能通过（校验和完成接口同一处）。
+ */
+async function sopRunAcceptDetail(id: number): Promise<Record<string, unknown>> {
+  const row = sopRunRow(id);
+  const live = row.sop_slug === 'task-center' ? storedRunData(row) : (await runLiveData(row, false)).data;
+  const manifest = sopRunManifest(row);
+  const filled = (v: unknown) => v !== undefined && v !== null && !(typeof v === 'string' && v.trim() === '') && !(Array.isArray(v) && v.length === 0);
+  const ctx = svc<SopService>('sop').ctxSourceByRun(id) as { team?: string; caller?: string; task_id?: string } | undefined;
+  const files = (svc<SopService>('sop').runFiles(id) as { original_name: string }[]).map((f) => String(f.original_name ?? '').slice(0, 200));
+  const problems = row.status === 'running' ? await sopRunViolations(row, JSON.stringify(live)) : [];
+  return {
+    sop: row.sop_slug, sop_title: manifest?.title ?? readActiveManifest(row.sop_slug)?.app.title ?? '', run_id: row.id, version: row.sop_version,
+    started_at: row.started_at, updated_at: row.updated_at,
+    dispatcher: { team: ctx?.team ?? '', caller: ctx?.caller ?? '', task_id: ctx?.task_id ?? '' },
+    steps: (manifest?.steps ?? []).map((st) => ({ key: st.key, title: st.title, filled: filled((live as Record<string, unknown>)[st.key]) })),
+    attachments: { count: files.length, names: files.slice(0, 20) },
+    ready: problems.length === 0, problems: problems.slice(0, 5),
+  };
+}
+
 async function sopRunFinishLockedCore(id: number): Promise<{ ok: boolean; id: number; status: string; steps: number }> {
   const row = sopRunRow(id);
   if (row.status !== 'running') throw new HttpError(409, `run ${id} 已 ${row.status}`);
   const data = JSON.stringify(row.sop_slug === 'task-center' ? storedRunData(row) : (await runLiveData(row, true)).data);
   // 完成前按该 run 所用 SOP 版本里的字段规则（required/pattern/长度/类型）校验；不符则不完成、run 保持进行中
-  if (row.sop_slug !== 'task-center') {
-    const yamlPath = join(appsRoot, row.sop_slug, `v${row.sop_version}`, 'sop.yaml');
-    const manifest = existsSync(yamlPath) ? parseSopManifest(readFileSync(yamlPath, 'utf8')) : readActiveManifest(row.sop_slug)?.manifest;
-    if (manifest) {
-      let parsedData: Record<string, unknown> = {};
-      try { parsedData = JSON.parse(data); } catch { parsedData = {}; }
-      const rules = extractFieldRules(manifest);
-      const violations = [...checkRunData(rules, parsedData), ...(await checkFileListsAgainstStore(rules, parsedData, id))];
-      if (violations.length) throw new HttpError(400, `有 ${violations.length} 个字段未通过校验，未完成：${violations.slice(0, 5).join('；')}${violations.length > 5 ? ' 等' : ''}`, { violations });
-    }
-  }
+  const violations = await sopRunViolations(row, data);
+  if (violations.length) throw new HttpError(400, `有 ${violations.length} 个字段未通过校验，未完成：${violations.slice(0, 5).join('；')}${violations.length > 5 ? ' 等' : ''}`, { violations });
   svc<SopService>('sop').runFinish(id, data);
   runCheckpoints.forget(id); // only clear after the durable finish succeeds
   await runStateRetire(id); // best-effort cache retirement; SQLite status remains authoritative
@@ -1979,8 +1969,9 @@ async function postReceipt(targetUrl: string, row: { run_id: number; task_id: st
   };
   const url = `${targetUrl.replace(/\/+$/, '')}/a2a/direct`;
   // OriginClaim：回执同样带绑定形式信封（#64 关窗后未签名的回执会被对端拒收）
+  const bodyText = JSON.stringify(body);
   const r = await fetch(url, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', ...marketOriginClaim(a2aKeyPath(), { url, method: 'POST' }) }, body: JSON.stringify(body),
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...marketOriginClaim(a2aKeyPath(), { url, method: 'POST', body: bodyText }) }, body: bodyText,
     signal: AbortSignal.timeout(10_000), redirect: 'manual',
   });
   if (r.status >= 300 && r.status < 400) {
@@ -1991,6 +1982,7 @@ async function postReceipt(targetUrl: string, row: { run_id: number; task_id: st
 }
 /** 立即试投一次（finish 触发）；失败留给 worker */
 async function deliverOutboxOnce(runId: number): Promise<void> {
+  if (outboundOff()) { noteBlocked('receipt-outbox'); return; } // 对外断开：不试投、不记失败，留给开关打开以后
   try {
     const row = svc<SopService>('sop').outboxByRun(runId) as { id: number; run_id: number; task_id: string; context_id: string; target_url: string; payload: string; attempts: number; status: string } | undefined;
     if (!row || row.status !== 'pending') return;
@@ -2004,6 +1996,7 @@ async function deliverOutboxOnce(runId: number): Promise<void> {
   }
 }
 async function outboxWorkerTick(): Promise<void> {
+  if (outboundOff()) { noteBlocked('receipt-outbox'); return; } // 对外断开：整轮跳过，在途的保持 pending、attempts 不变
   try {
     const due = svc<SopService>('sop').outboxDue(20) as { id: number; run_id: number; task_id: string; context_id: string; target_url: string; payload: string; attempts: number }[];
     for (const row of due) {
@@ -2070,230 +2063,19 @@ function runFileWriteGate(req: express.Request, runId: number): void {
     if (presented !== expected) throw new HttpError(403, '上传令牌不符（run 不匹配或已过期）');
   }
 }
-/** 引用已有文件：同一 SOP 其他 run 的文件（按 run_id+file_id，要带源 run 的读凭证；管理员免），或按 sha256 找同 SOP 里已上传的同内容文件（只限管理员）。
- *  逐条给结果（linked / duplicate / failed + 原因），失败的不影响已成功的；引用行与源文件共用一份存储，不占上传配额。 */
-app.post('/api/sop/runs/:id(\\d+)/files/refs', wrap(async (req, res) => {
-  const runId = Number(req.params.id);
-  await markOdooAdmin(req);
-  runFileWriteGate(req, runId);
-  const target = sopRunRow(runId);
-  // 先核目标 run 的读授权：结果会回显文件名（duplicate / linked），没有读权的人不能借引用逐个试出本 run 的文件（执行页本就持有自己 run 的读能力）
-  const admin = adminHeaderOk(req);
-  const targetAuth = await authorizeRunRead({ adminOk: admin, cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, runId);
-  if (!targetAuth.authorized) return res.status(403).set('Cache-Control', 'no-store').json({ error: 'run read authorization required', hint: '带上本 run 的 X-Run-Read-Capability，或已授权会话、管理员' });
-  const items = Array.isArray(req.body?.items) ? req.body.items : null;
-  if (!items || !items.length) bad('items 必须是非空数组：[{ run_id, file_id, read_capability? } | { sha256 }]');
-  if (items.length > RUN_REF_BATCH_MAX) bad(`单次最多 ${RUN_REF_BATCH_MAX} 条，请分批关联`);
-  const createdBy = typeof req.body?.created_by === 'string' ? req.body.created_by.trim().slice(0, 128) : '';
-  const results: { index: number; status: 'linked' | 'duplicate' | 'failed'; id?: number; source_file_id?: number; name?: string; reason?: string }[] = [];
-  for (const [index, it] of items.entries()) {
-    try {
-      let src: any;
-      if (it && typeof it.sha256 === 'string') {
-        if (!admin) throw new HttpError(403, '按 sha256 引用只限管理员');
-        if (!/^[0-9a-f]{64}$/.test(it.sha256)) throw new HttpError(400, 'sha256 须为 64 位小写十六进制');
-        src = svc<SopService>('sop').runFileBySha(target.sop_slug, it.sha256);
-        if (!src) throw new HttpError(404, '同一 SOP 里没有这个 sha256 的已上传文件');
-      } else {
-        const sr = Number(it?.run_id), sf = Number(it?.file_id);
-        if (!Number.isInteger(sr) || !Number.isInteger(sf) || sr <= 0 || sf <= 0) throw new HttpError(400, '需要 run_id 与 file_id（正整数），或 sha256');
-        // 先核源 run 读授权，再查文件：不让无权者借 404 / 403 判断某文件属不属于那个 run（本 run 已在请求开头核过）
-        if (sr !== runId) {
-          const auth = await authorizeRunRead({ adminOk: admin, cap: typeof it.read_capability === 'string' ? it.read_capability : '', cookieHeader: req.headers.cookie }, sr);
-          if (!auth.authorized) throw new HttpError(403, `没有 run ${sr} 的读授权（带上它的 read_capability）`);
-        }
-        src = svc<SopService>('sop').runFileWithRun(sf);
-        if (!src || src.run_id !== sr) throw new HttpError(404, `run ${sr} 里没有文件 ${sf}`);
-        if (src.sop_slug !== target.sop_slug) throw new HttpError(403, '只能引用同一 SOP 的文件');
-      }
-      const rootId = Number(src.ref_of) || Number(src.id);
-      const have = (svc<SopService>('sop').runFiles(runId) as { id: number; ref_of: number }[]).find((f) => f.id === rootId || f.ref_of === rootId);
-      if (have) { results.push({ index, status: 'duplicate', id: have.id, source_file_id: rootId, name: src.original_name }); continue; }
-      if (runFileQuota(runId).ref_left_count <= 0) throw new HttpError(413, `该 run 引用数已达上限（${RUN_REF_MAX_COUNT}）`);
-      if (!existsSync(join(dataDir, src.storage_path))) throw new HttpError(410, '源文件已不在存储里');
-      const r = svc<SopService>('sop').runFileInsert({ runId, name: src.original_name, mime: src.mime, size: src.size, storagePath: src.storage_path, createdBy, sha256: src.sha256 || '', refOf: rootId }) as unknown as { lastInsertRowid: number | bigint };
-      try { db.prepare("INSERT INTO sop_run_file_audit (run_id, name, size, sha256, source) VALUES (?, ?, ?, ?, ?)").run(runId, src.original_name, src.size, src.sha256 || '', `ref:${rootId}`); } catch { /* 审计失败不阻 */ }
-      results.push({ index, status: 'linked', id: Number(r.lastInsertRowid), source_file_id: rootId, name: src.original_name });
-    } catch (e) {
-      results.push({ index, status: 'failed', reason: e instanceof HttpError ? e.message : '关联失败' });
-    }
-  }
-  const linked = results.filter((x) => x.status !== 'failed').length;
-  res.status(linked ? 200 : 422).json({ run_id: runId, results, linked, failed: results.length - linked, quota: runFileQuota(runId) });
-}));
-
-app.post('/api/sop/runs/:id/files', (req, res, next) => {
-  // ── P0 安全（总工 direct-c2b55f91）：上传面鉴权三件 ──
-  // ①run-scoped upload token（header X-Run-Upload-Token；admin 口令=人工作业一步式）
-  // ②配额（数≤20·单≤100MB[multer]·总量≤200MB→413）③写审计（sop_run_file_audit 同链）
-  try {
-    if (!/^\d+$/.test(String(req.params.id))) throw new HttpError(404, `run not found: ${req.params.id}`);
-    const row = sopRunRow(Number(req.params.id));
-    if (row.status !== 'running') throw new HttpError(409, `run ${req.params.id} 已 ${row.status}，不可再上传`);
-    // #150 开关（属主反馈·业务直传恢复）：settings run_upload_require_token='1' 才要令牌；缺省关闭=旧 T1 直传语义
-    const strict = (() => { try { const r = db.prepare("SELECT value FROM settings WHERE key = 'run_upload_require_token'").get() as { value?: string } | undefined; return String(r?.value ?? '') === '1'; } catch { return false; } })();
-    const adminOk = adminHeaderOk(req);
-    if (strict && !adminOk) { // #150 开关：严格模式才要令牌（缺省=旧 T1 直传）
-      const presented = String(req.headers['x-run-upload-token'] ?? '').trim();
-      const expected = String((row as any).upload_token ?? '');
-      if (!expected) throw new HttpError(403, '该 run 无上传令牌（旧 run 上传面已关闭）');
-      if (!presented) throw new HttpError(401, '缺少 X-Run-Upload-Token（Runner 页内嵌令牌·人工作业用 admin 口令）');   // T023 修订签 A1：缺令牌=401（错令牌=403·白名单外=400）
-      if (presented !== expected) throw new HttpError(403, '上传令牌不符（run 不匹配或已过期）');
-    }
-    // 配额只算本 run 自己上传的；引用已有文件（ref_of）不另占存储，单独限数
-    const q = runFileQuota(Number(req.params.id));
-    if (q.upload_count >= RUN_UPLOAD_MAX_COUNT) throw new HttpError(413, `该 run 文件数已达上限（${RUN_UPLOAD_MAX_COUNT}）；历史资料可以引用已有文件，不必重传`);
-    if (q.upload_bytes >= RUN_UPLOAD_MAX_BYTES) throw new HttpError(413, '该 run 文件总量已达上限（200MB）；历史资料可以引用已有文件，不必重传');
-  } catch (e) { return next(e); }
-  runUpload.single('file')(req, res, (err: any) => {
-    if (err) {
-      if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: '文件超 100MB 上限' });
-      return res.status(400).json({ error: `上传失败：${err.message}` });
-    }
-    try {
-      const runId = Number(req.params.id);
-      if (!req.file) bad('缺少 file 字段（multipart/form-data）');
-      const createdBy = typeof req.body?.created_by === 'string' ? req.body.created_by.trim().slice(0, 128) : '';
-      const rel = req.file.path.replace(dataDir, '').split(pathSep).join('/').replace(/^\/+/, '');
-      const originalName = fixFileName(req.file.originalname);
-      const kind = checkUploadKind(res, req.file, originalName);
-      if (!kind) return;
-      const sha = sha256Hex(readFileSync(req.file.path));
-      const r = svc<SopService>('sop').runFileInsert({ runId, name: originalName, mime: kind.mime, size: req.file.size, storagePath: rel, createdBy, sha256: sha }) as unknown as { lastInsertRowid: number | bigint };
-      try { db.prepare("INSERT INTO sop_run_file_audit (run_id, name, size, sha256, source) VALUES (?, ?, ?, ?, ?)").run(runId, originalName, req.file.size, sha, String(req.headers['x-run-upload-token'] ? 'token' : 'admin')); } catch { /* 审计失败不阻 */ }
-      res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), run_id: runId, name: originalName, mime: kind.mime, size: req.file.size, sha256: sha, url: `/api/sop/runs/${runId}/files/${Number(r.lastInsertRowid)}`, quota: runFileQuota(runId) });
-    } catch (e) { next(e); }
-  });
-});
-app.get('/api/sop/runs/:id/files', wrap(async (req, res) => {
-  if (!/^\d+$/.test(String(req.params.id))) throw new HttpError(404, `run not found: ${req.params.id}`);
-  const runId = Number(req.params.id);
-  sopRunRow(runId); // 404 语义与 run 一致
-  const auth = await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, runId);
-  if (!auth.authorized) return res.status(403).set('Cache-Control', 'no-store').json({ error: 'run read authorization required', hint: '创建响应的 read_capability（X-Run-Read-Capability 头）或已授权会话' });
-  // 旧文件没记 sha256 的先补算（流式、按存储路径一次补齐），执行页文件清单选上就带 sha，第一次完成不会因缺 sha 失败
-  const rows = svc<SopService>('sop').runFiles(runId) as any[];
-  for (const f of rows.filter((x) => !x.sha256)) f.sha256 = await ensureRunFileSha({ storage_path: (svc<SopService>('sop').runFileById(runId, f.id) as any)?.storage_path ?? '', sha256: '' });
-  const items = rows.map((f) => ({ ...f, url: `/api/sop/runs/${runId}/files/${f.id}` }));
-  res.json({ run_id: runId, items, count: items.length, quota: runFileQuota(runId) });
-}));
-app.get('/api/sop/runs/:id/files/:fileId', wrap(async (req, res) => {
-  if (!/^\d+$/.test(String(req.params.id)) || !/^\d+$/.test(String(req.params.fileId))) throw new HttpError(404, 'file not found');
-  const runId = Number(req.params.id);
-  const auth = await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, runId);
-  if (!auth.authorized) return res.status(403).set('Cache-Control', 'no-store').json({ error: 'run read authorization required', hint: '创建响应的 read_capability（X-Run-Read-Capability 头）或已授权会话' });
-  const row = svc<SopService>('sop').runFileById(runId, Number(req.params.fileId)) as any;
-  if (!row) throw new HttpError(404, `file not found: ${req.params.fileId}`);
-  const abs = join(dataDir, row.storage_path);
-  if (!existsSync(abs)) throw new HttpError(404, 'stored file missing on disk');
-  res.setHeader('content-type', row.mime || 'application/octet-stream');
-  res.setHeader('content-length', String(row.size));
-  res.setHeader('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(row.original_name || 'file')}`);
-  res.setHeader('x-content-type-options', 'nosniff');
-  createReadStream(abs).pipe(res);
-}));
+registerSopRunFileRoutes(http, { wrap, markOdooAdmin, runFileWriteGate, sopRunRow, adminHeaderOk, runReadCapHeader, bad, RUN_REF_BATCH_MAX, RUN_REF_MAX_COUNT, RUN_UPLOAD_MAX_COUNT, RUN_UPLOAD_MAX_BYTES, runFileQuota, runUpload, fixFileName, checkUploadKind, sha256Hex, ensureRunFileSha });
 
 // ---------- Cookie 池（监督席派单 direct-5fbb2176：web 型外部台 cookie 认证） ----------
-interface CookieExport { name: string; value: string; domain?: string; path?: string; expirationDate?: number; httpOnly?: boolean; sameSite?: string }
-interface CookieRow { id: number; label: string; cookies_json: string; created_at: string }
-
-function cookieExpiryInfo(cookies: CookieExport[]): { total: number; active: number; soonestExpMs: number | null; allExpired: boolean } {
-  const now = Date.now();
-  let active = 0;
-  let soonest: number | null = null;
-  for (const c of cookies) {
-    if (!c.expirationDate || c.expirationDate * 1000 > now) {
-      active++;
-      if (c.expirationDate) {
-        const ms = c.expirationDate * 1000 - now;
-        if (soonest === null || ms < soonest) soonest = ms;
-      }
-    }
-  }
-  return { total: cookies.length, active, soonestExpMs: soonest, allExpired: cookies.length > 0 && active === 0 };
-}
-
-function maskCookies(cookies: CookieExport[]): CookieExport[] {
-  return cookies.map((c) => ({ ...c, value: '****' }));
-}
-
-app.post('/api/cookies', (req, res) => {
-  const b = req.body ?? {};
-  const label = typeof b.label === 'string' ? b.label.trim() : '';
-  if (!label) bad('label 必填（如「DSH-3080 生产」）');
-  const arr = b.cookies;
-  if (!Array.isArray(arr) || arr.length === 0) bad('cookies 必须是非空数组（Cookie-Editor/EditThisCookie 导出格式）');
-  // 校验每条 name+value 必填（浏览器扩展标准导出全对象 verbatim 存储）
-  const clean: CookieExport[] = [];
-  for (const c of arr) {
-    if (typeof c?.name !== 'string' || !c.name) bad('每条 cookie 的 name 必填');
-    if (typeof c?.value !== 'string') bad(`cookie "${c.name}" 缺 value`);
-    clean.push({ name: c.name, value: c.value, domain: String(c.domain ?? ''), path: String(c.path ?? '/'), expirationDate: typeof c.expirationDate === 'number' ? c.expirationDate : undefined, httpOnly: !!c.httpOnly, sameSite: String(c.sameSite ?? '') });
-  }
-  const r = svc<CookieService>('cookie').create(label, JSON.stringify(clean)) as unknown as { lastInsertRowid: number | bigint };
-  const info = cookieExpiryInfo(clean);
-  res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), label, cookie_count: clean.length, active: info.active, cookies: maskCookies(clean) });
-});
-
-app.get('/api/cookies', (_req, res) => {
-  const rows = svc<CookieService>('cookie').all() as unknown as CookieRow[];
-  res.json(rows.map((r) => {
-    let cookies: CookieExport[] = [];
-    try { cookies = JSON.parse(r.cookies_json || '[]'); } catch { cookies = []; }
-    const info = cookieExpiryInfo(cookies);
-    return {
-      id: r.id, label: r.label, cookie_count: info.total, active: info.active,
-      all_expired: info.allExpired, soonest_exp_days: info.soonestExpMs !== null ? Math.floor(info.soonestExpMs / 86400000) : null,
-      created_at: r.created_at,
-      cookies: maskCookies(cookies), // value 全掩码——明文不回任何 API
-    };
-  }));
-});
-
-app.delete('/api/cookies/:id', (req, res) => {
-  const id = Number(req.params.id);
-  const r = svc<CookieService>('cookie').delete(id);
-  if (!r.changes) throw new HttpError(404, `cookie set not found: ${id}`);
-  // 挂接了该池的台自动取消引用
-  svc<WorkbenchService>('workbench').clearCookieSet(id);
-  res.json({ ok: true, deleted: id });
-});
+registerCookieRoutes(http);
 
 // PUT /api/workbenches/:id 已扩展支持 cookie_set_id（在 validateWorkbenchBody 后 merged）
 
 // ---------- 19a 任务发布面（监督席 direct-58d60ed6，主人已批）----------
 // 零新概念：给已有 run 写派单来源（复用 a2a_run_ctx），使其入待验收列表（dispatched=1）
-app.post('/api/sop/runs/:id/assign', wrap(async (req, res) => {
-  if (!/^\d+$/.test(String(req.params.id))) throw new HttpError(404, `run not found: ${req.params.id}`);
-  const runId = Number(req.params.id);
-  const row = sopRunRow(runId);
-  if (row.status !== 'running') throw new HttpError(409, `run ${runId} 已 ${row.status}，不可指派`);
-  const node = String(req.body?.node ?? '').trim();
-  if (!/^[a-z][a-z0-9-]*\/[a-z0-9][a-z0-9_-]{0,63}$/i.test(node)) bad('node 形态：<zone>/<id8>，如 dsh/1a2b3c4d');
-  const existed = svc<SopService>('sop').ctxSourceByRun(runId);
-  if (existed) throw new HttpError(409, `run ${runId} 已有派单来源，不可重复指派`);
-  svc<SopService>('sop').ctxRegisterFull({ contextId: `task-${runId}`, runId, taskId: `task-${runId}`, caller: node, team: '', receiptStatus: '' });
-  res.status(201).json({ ok: true, run_id: runId, node, task_id: `task-${runId}` });
-}));
+registerSopRunControlRoutes(http, { wrap, sopRunRow, bad, sopRunStartCore });
 
-app.post('/api/sop/runs', (req, res) => {
-  const out = sopRunStartCore(String(req.body?.slug ?? ''), String(req.body?.started_by ?? ''));
-  res.status(201).json(out);
-});
-
-app.get('/api/sop/runs/active', wrap(async (_req, res) => {
-  // #338: a nonempty Redis set is not proof that it contains every running row.
-  // SQLite creates/status-transitions every run, including unsaved and task-center runs.
-  const rows = svc<SopService>('sop').runsRunning() as unknown as SopRunRow[];
-  res.json(rows);
-}));
-
-app.get('/api/stats', (_req, res) => { res.json(statsPayload()); });
-app.get('/api/content/observation', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  res.setHeader('Cache-Control', 'no-store');
-  res.json(portalObserver ? { ...portalObserver.status(), counts: portalObserver.counts() } : { enabled: false, coverageVerified: false });
-});
+registerStatsRoutes(http);
+registerContentObservationRoutes(http, { adminGuard, portalObserver });
 
 /** #275 过渡登录入口（#221 落地前）：挑一个可信 Odoo 台，走 /go/<id>/ 的 SSO v1 舞步并带 return 落回市场原页面。
  *  先选 origin = WM_ODOO_URL 的台（工作台只认这个 Odoo 的会话；session_id 按主机名跨端口共享，登别的 Odoo 会把它覆盖掉），
@@ -2301,59 +2083,47 @@ app.get('/api/content/observation', (req, res) => {
 function odooLoginUrl(req: express.Request, returnPath: string): string | null {
   // 同域登录中继开着：登录入口就是本机 /web/login（中继只放行登录面、上游固定为 WM_ODOO_URL、redirect 只认白名单回跳页），
   // 不再依赖库里登记了 Odoo 台——否则部署方只能手工插一条假工作台才有登录入口
-  if (process.env.WM_ODOO_LOGIN_PROXY === '1' && odooUrl()) return `/web/login?redirect=${encodeURIComponent(returnPath)}`;
+  if (loginRelay().relayLogin() && loginRelay().sourceUrl()) return `/web/login?redirect=${encodeURIComponent(returnPath)}`;
   let host = '';
   try { host = new URL(`http://${String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').split(',')[0].trim()}`).hostname.toLowerCase(); } catch { host = ''; }
-  const odoo = listWorkbenches().filter((w) => w.enabled && /^https?:\/\//i.test(w.url) && isOdooSessionTarget(w.url));
+  const odoo = listWorkbenches().filter((w) => w.enabled && /^https?:\/\//i.test(w.url) && loginRelay().isSessionTarget(w.url));
   let idOrigin = '';
-  try { idOrigin = new URL(odooUrl()).origin; } catch { idOrigin = ''; }
+  try { idOrigin = new URL(loginRelay().sourceUrl()).origin; } catch { idOrigin = ''; }
   const at = (w: { url: string }) => { try { return new URL(w.url); } catch { return null; } };
   const pick = odoo.find((w) => idOrigin && at(w)?.origin === idOrigin) ?? odoo.find((w) => at(w)?.hostname.toLowerCase() === host);
   return pick ? `/go/${pick.id}/?return=${encodeURIComponent(returnPath)}` : null;
 }
 
-// ---------- 统一待办（omni-inbox · 总工程师设计 9c5557c1c0）：只读聚合 ----------
-app.get('/api/tasks', wrap(async (req, res) => {
-  res.set('Cache-Control', 'private, no-store');
-  res.vary('Cookie'); res.vary('X-Admin-Token');
-  if (req.headers['sec-fetch-site'] === 'cross-site' || (req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req))) return res.status(403).json({ error: 'tasks_cross_origin_denied' });
-  const access = await tasksReadAccess(adminHeaderOk(req), String(req.headers.cookie ?? ''));
-  if (!access.ok) return res.status(access.http).json({ error: access.error, ...(access.http === 401 ? { login_url: odooLoginUrl(req, '/tasks') } : {}) });
-  const payload = await collectTasks(svc<SopService>('sop') as never, access.scope);
-  if (!extensionTaskSourceKeys().length) return res.json(payload);
-  // 扩展来源自己按查看人判权（ctx.odoo.resolveViewer）；宿主不拿管理员身份替查看人取数
-  const ext = await collectExtensionTasks(req);
-  for (const [k, m] of Object.entries(ext.sources)) {
-    ext.sources[k] = { ...m, ...(m.ok === false && m.error ? { error: `${k}_source_unavailable` } : {}), ...(m.auth_required ? { login_url: odooLoginUrl(req, '/tasks') } : {}) };
-  }
-  res.json({ ...payload, tasks: [...payload.tasks, ...ext.tasks], sources: { ...payload.sources, ...ext.sources } });
-}));
-app.put('/api/tasks/read-grants', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  if (!createTaskSourceGrant(req.body)) return res.status(400).json({ error: 'invalid_task_source_grant' });
-  res.status(201).json({ ok: true });
-});
-app.post('/api/tasks/read-grants/revoke', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const n = revokeTaskSourceGrant(req.body);
-  if (n === null) return res.status(400).json({ error: 'invalid_task_source_grant' });
-  res.json({ ok: true, revoked: n });
-});
+// ---------- 统一待办（omni-inbox · 总工程师设计 9c5557c1c0）：只读聚合；路由在域模块里 ----------
+registerTaskRoutes(http, { wrap, adminGuard, adminHeaderOk, devOriginOk, odooLoginUrl });
+registerBenchViewRoutes(http, { on: BENCH_VIEWS.on, wrap, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), devOriginOk });
+// 经验库（/knowledge 的接口）：只读；条目按看的人的授予逐条判，管理口令拒（services/knowledge.ts、routes/knowledge.ts）
+registerKnowledgeRoutes(http, { wrap, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), devOriginOk });
 
 // #275 登录探测：弹窗送 Odoo 登录后，前端轮询这里拿 200 即回原页面（Odoo 19 无法跨源回跳，回程在市场源完成）；顶栏用户 chip 同源
-app.get('/api/auth/viewer', wrap(async (req, res) => {
-  const r = await odooViewerWhoami(String(req.headers.cookie ?? ''));
-  res.setHeader('Cache-Control', 'private, no-store');
-  // #279：未登录时带登录入口（顶栏 chip 复用 #277 弹窗流；中继页只认白名单 return，这里固定 /tasks）
-  res.status(r.http).json(r.http === 401 ? { ...r.body, login_url: odooLoginUrl(req, '/tasks') } : (r.http === 200 || r.http === 403) && process.env.WM_ODOO_LOGIN_PROXY === '1' ? { ...r.body, odoo_logout_supported: true } : r.body);
-}));
+registerAuthViewerRoutes(http, { wrap, odooLoginUrl });
+
+// ---------- 主体管理（列出、停用、恢复）：路由在域模块里 ----------
+registerPrincipalRoutes(http, { markOdooAdmin, adminGuard, adminActor });
+registerLocalAccountRoutes(http, { markOdooAdmin, adminGuard, adminActor });
+registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor, adminHeaderOk, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段六 6b：角色声明与授予（只建结构，不接判定）
+// 迁移来的 admin 授予在认管理员时不算（services/grant.ts 的 heldAdmin）：启动时记一行有几条，属主据此决定要不要整批收回
+{ const n = svc<GrantService>('grants').migrationAdminsIgnored(); if (n) console.log(JSON.stringify({ source: 'grants', event: 'migration-admin-ignored', count: n, note: '迁移来的 admin 授予在认管理员时不算；要整批收回用 POST /api/grants/revoke-migration', at: new Date().toISOString() })); }
+registerDepartmentRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 部门：登录的人读、管理员写
+registerTeamRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 团队与分配（规范 14 第 1 步）：登录的人按可见范围读；认领、负责人是管理员，分配是负责人
+registerRelationRoutes(http, { markOdooAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 关系的提议（规范 14「关系由谁说了算」）：负责人、团队认领要属主或业务侧确认
+registerAccessRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 角色预设 ②：以某人的身份看、红线清单、首次安装向导
+registerAttentionRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
+registerWorkItemRoutes(http, { markOdooAdmin, adminGuard, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8d：事项页的时间线
+registerWorkItemAttachmentRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 「安排一件事」的附件：上传、人读（跟事项走）、接单节点凭回执令牌取
+registerRosterRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段七：团队名册的读（登录即可读，只有席位信息）
 
 // ---------- 扩展（WM_EXTENSIONS_DIR）：挂在身份/写门之后、SPA 回落之前；加载失败拒绝启动 ----------
 try {
   const loaded = await loadExtensions(process.env.WM_EXTENSIONS_DIR, {
-    app, wrap,
+    app, wrap, http, routesMode: extensionRoutesMode(process.env.WM_EXTENSION_ROUTES),
     adminGuard: async (req, res) => { await markOdooAdmin(req); return adminGuard(req, res); },
-    odoo: { url: odooUrl, sessionOf: odooSessionOf, resolveViewer: (cookie) => resolveOdooViewer(cookie), loginUrl: odooLoginUrl, addReturnPath: addOdooReturnPath },
+    odoo: { url: () => loginRelay().sourceUrl(), sessionOf: (cookie) => loginRelay().sessionOf(cookie), resolveViewer: (cookie) => identity().resolveViewer(cookie), loginUrl: odooLoginUrl, addReturnPath: (path) => loginRelay().addReturnPath(path) },
     remoteWrite: { allowExact: allowExtensionRemoteWrite },
   });
   if (loaded.length) console.log(`[extensions] 已加载：${loaded.join('、')}（${process.env.WM_EXTENSIONS_DIR}）`);
@@ -2363,91 +2133,21 @@ try {
 }
 announceAllowDiff();
 
-// ---------- 技能市场钉装与审计（P1-b · 方案 §1：市场侧 manifest+校验 API+巡检，不动 DSH catalog）----------
-app.post('/api/skills/:slug/install', wrap(async (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const S = svc<SkillService>('skill');
-  const row = S.skillBySlug(String(req.params.slug ?? ''));
-  if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
-  const vs = S.versionsBySkill(row.id) as any[];
-  const target = typeof req.body?.version === 'number' ? vs.find((v) => v.version === req.body.version) : SkillService.currentOf(row, vs); // 缺省当前版本（回滚后即回滚到的版本）
-  if (!target) throw new HttpError(404, `无版本`);
-  S.ledgerInsert({ skillId: row.id, versionId: target.id, expectedDigest: target.tree_digest, installedPath: String(req.body?.installed_path ?? target.snapshot_path), installedBy: String(req.body?.installed_by ?? '') });
-  const ledger = S.ledgerActive() as any[];
-  const mine = ledger.find((l) => l.skill_id === row.id && l.version_id === target.id && l.status === 'installed');
-  // #94 S0⑤（K8）：钉装响应不回绝对路径（相对化——DB 存真值·响应给安装者自己的输入或相对形态）
-  res.status(201).json({ ok: true, slug: row.slug, version: target.version, ledger_id: mine?.id, expected_digest: target.tree_digest, installed_path: `skill-snapshots/${encodeURIComponent(row.slug)}/v${target.version}` }); // 恒相对（不回显绝对）
-}));
-
-// 装载校验（方案 P1-b 边界：市场侧 API+巡检，不动 DSH catalog）
-app.get('/api/skills/:slug/verify', wrap(async (req, res) => {
-  const S = svc<SkillService>('skill');
-  const row = S.skillBySlug(String(req.params.slug ?? ''));
-  if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
-  const ledger = (S.ledgerActive() as any[]).find((l) => l.skill_id === row.id);
-  if (!ledger) return res.json({ ok: null, note: '无钉装记录（未安装）' });
-  const [{ readdirSync, readFileSync }, { join }, { createHash }] = await Promise.all([import('node:fs'), import('node:path'), import('node:crypto')]);
-  let root = '';
-  const files: string[] = [];
-  try {
-    root = resolveSnap(ledger.installed_path); // #117：S4 起快照路径存 DATA_DIR 相对形
-    (function walk(d: string) { for (const e of readdirSync(d, { withFileTypes: true })) { const p = join(d, e.name); if (e.isDirectory()) walk(p); else files.push(p); } })(root);
-  } catch {
-    // #183 P0②：校验失败不回显服务器绝对路径（DATA_DIR 泄露面）
-    throw new HttpError(500, '钉装快照不可读（路径已隐藏·请重新安装后再校验）');
-  }
-  // #94 S0①：与发布面同构 digest（同一 filesDigest——排序/分隔符/utf8 归一消灭「多文件误判篡改」类）
-  const actual = SkillService.filesDigest(files.map((p) => ({ path: p.slice(root.length + 1).split('\\').join('/'), content: readFileSync(p) }))).digest; // #105：按原始字节（与导入器 treeDigest 同构，非 UTF-8 文件不误判）
-  res.json({ ok: actual === ledger.expected_digest, expected: ledger.expected_digest, actual, checked_files: files.length });
-}));
-
-app.post('/api/skills/:slug/install/:ledgerId/revoke', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const S = svc<SkillService>('skill');
-  const row = S.skillBySlug(String(req.params.slug ?? ''));
-  if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
-  const id = Number(req.params.ledgerId);
-  const led = (S.ledgerActive() as any[]).find((l) => l.id === id);
-  if (!led) throw new HttpError(404, `ledger not found: ${id}`); // #94 S0④：撤销校验（不存在→404）
-  if (led.skill_id !== row.id) throw new HttpError(404, `ledger not found: ${id}`); // #94 S0④（K7）：跨技能撤销 404（不泄露他技能 ledger 存在性）
-  S.ledgerRevoke(id);
-  res.json({ ok: true, ledger_id: id, status: 'revoked' });
-});
-
-// role-pack 展开清单（bundle→技能清单，上岗即装）
-app.get('/api/skills/role-packs', (_req, res) => {
-  const S = svc<SkillService>('skill');
-  const rows = S.bundlesAll() as any[];
-  res.json(rows.map((b) => ({ pack_id: b.pack_id, member_name: b.member_name, bundle_version: b.bundle_version, skill_slugs: JSON.parse(b.skill_slugs || '[]'), roster_digest: b.roster_digest })));
-});
-
-// ---------- 技能市场浏览面（P1-a：/api/skills 只读列表，供管理页） ----------
-app.get('/api/skills', (_req, res) => {
-  const S = svc<SkillService>('skill');
-  const rows = S.skillsAll() as any[];
-  res.json(rows.map((r) => {
-    const led = (S.ledgerActive() as any[]).find((l) => l.skill_id === r.id && l.status === 'installed');
-    return { slug: r.slug, name: r.name, layer: r.layer, layer_name: r.layer_name, family_parent: r.family_parent, description: r.description, legacy: r.legacy === 1, versions: (S.versionsBySkill(r.id) as any[]).length, active_version: SkillService.currentOf(r, S.versionsBySkill(r.id) as any[])?.version ?? null, is_installed: !!led, current_version: led ? (S.versionsBySkill(r.id) as any[]).find((v) => v.id === led.version_id)?.version ?? null : null }; // #132 P1⑤；active_version=当前版本（回滚指针），current_version=钉装的版本
-  }));
-});
-
-// ---------- 技能市场发布面（P0-b · 方案 PR#57 §1：口令门+首版人审+N+1 快照+digest 锚）----------
-app.post('/api/skills/:slug/versions', wrap(async (req, res) => {
-  if (!adminGuard(req, res)) return; // 口令门（方案裁定：复用 X-Admin-Token）
-  res.status(201).json(await skillPublishCore(String(req.params.slug ?? ''), req.body?.files, req.body?.changelog, req.body?.reviewed_by));
-}));
 // ---------- 技能文件暂存（MCP 一次只传一个文件：skill_file_put 先暂存，skill_publish 按 sha256 引用成版）----------
 const SKILL_STAGE_DIR = join(dataDir, 'skill-staging');
 const SKILL_STAGE_TTL_MS = 24 * 3600_000;
 const SKILL_FILE_MAX = 10 * 1024 * 1024; // 单文件上限（MCP 传输面；更大的走 REST 导出/发布）
 /** 暂存一个文件，内容寻址：同内容幂等；顺手清掉超过 24h 的暂存 */
-function skillStagePut(content: unknown, encoding: unknown): { sha256: string; size: number; expires_in_hours: number } {
+function skillStagePut(content: unknown, encoding: unknown, expected?: unknown): { sha256: string; size: number; expires_in_hours: number; integrity: UploadIntegrity; next: string } {
   if (typeof content !== 'string') bad('content 必须是字符串');
+  const wantSha = expectedSha256(expected); // 期望的 sha256（可选）：带了就在暂存前核对，不符拒收、不暂存
+  if (wantSha === 'bad') bad('sha256 须为 64 位十六进制');
   if (encoding !== undefined && encoding !== 'utf8' && encoding !== 'base64') bad('encoding 只收 utf8 或 base64');
   if (encoding === 'base64' && !isStrictBase64(content as string)) bad('content 不是合法 base64');
   const buf = Buffer.from(content as string, encoding === 'base64' ? 'base64' : 'utf8');
   if (buf.length > SKILL_FILE_MAX) bad(`单文件超过 ${SKILL_FILE_MAX} 字节上限`);
   const sha = createHash('sha256').update(buf).digest('hex');
+  if (wantSha !== null && sha !== wantSha) bad(`收到内容的 sha256 与声明不符（收到 ${buf.length} 字节）：内容可能在传输中被截断或改动，未暂存`);
   mkdirSync(SKILL_STAGE_DIR, { recursive: true });
   const now = Date.now();
   for (const e of readdirSync(SKILL_STAGE_DIR)) {
@@ -2456,7 +2156,7 @@ function skillStagePut(content: unknown, encoding: unknown): { sha256: string; s
   const fp = join(SKILL_STAGE_DIR, sha);
   if (existsSync(fp)) utimesSync(fp, new Date(), new Date()); // 重传续期
   else { const tmp = `${fp}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`; writeFileSync(tmp, buf); renameSync(tmp, fp); } // 先写临时再改名：发布不会读到半个文件
-  return { sha256: sha, size: buf.length, expires_in_hours: 24 };
+  return { sha256: sha, size: buf.length, expires_in_hours: 24, ...uploadIntegrity(wantSha as string | null, null) };
 }
 /** 某技能某版本的快照目录（缺省当前版本：回滚指针，未回滚即最新）+ 版本行 */
 function skillVersionDir(slugIn: unknown, versionIn: unknown): { row: any; target: any; dir: string } {
@@ -2469,6 +2169,41 @@ function skillVersionDir(slugIn: unknown, versionIn: unknown): { row: any; targe
   const dir = resolveSnap(target.snapshot_path);
   if (!dir || !existsSync(dir)) throw new HttpError(404, `snapshot missing: v${target.version}`);
   return { row, target, dir };
+}
+/** 技能的短名字：去掉来源前缀（agents:wm-data-views → wm-data-views）；没有前缀就是它自己 */
+const skillShortName = (slug: string) => String(slug).slice(String(slug).lastIndexOf(':') + 1);
+/**
+ * MCP 上传进来的技能名：完整名字照常认；库里没有、又不带前缀的，按短名字找——正好一个就用它（技能正文里一般写短名字），
+ * 几个来源都有同名的就报错并列出完整名字（技能对所有会话都看得到，不按看的人裁）
+ */
+function resolveMcpSkillSlug(slugIn: unknown): string {
+  const want = String(slugIn ?? '').trim();
+  const S = svc<SkillService>('skill');
+  if (!want || S.skillBySlug(want)) return want;
+  if (want.includes(':')) throw new HttpError(404, `skill not found: ${want}（完整名字用 skills_list 查）`);
+  const same = (S.skillsAll() as { slug: string }[]).map((r) => r.slug).filter((x) => x.includes(':') && skillShortName(x) === want).sort();
+  if (same.length === 1) return same[0];
+  if (same.length > 1) throw new HttpError(409, `有 ${same.length} 个同名技能，请用完整名字：${same.join('、')}`);
+  throw new HttpError(404, `skill not found: ${want}（没有这个技能；先调 skills_list 看有哪些、完整名字是什么）`);
+}
+const SKILL_READ_MAX_BYTES = 256 * 1024;
+/**
+ * skill_read：读这一版里的一个普通文件（缺省 SKILL.md）。只认快照里列得出的普通文件——路径必须和列表里的一字不差；
+ * 符号链接、目录、硬链接（链接数大于 1：可能和快照外的文件是同一份）都不算。发版写进快照的文件都是新建的，只有一个链接
+ */
+function skillRead(slugIn: unknown, pathIn: unknown, versionIn: unknown): Record<string, unknown> {
+  const { row, target, dir } = skillVersionDir(resolveMcpSkillSlug(slugIn), versionIn);
+  const files = skillSnapFiles(dir).filter((f) => { try { const st = lstatSync(f.abs); return st.isFile() && st.nlink === 1; } catch { return false; } });
+  const want = pathIn === undefined || pathIn === null || pathIn === '' ? 'SKILL.md' : String(pathIn);
+  const hit = files.find((f) => f.path === want);
+  if (!hit) throw new HttpError(404, `这一版里没有这个文件：path 写这一版文件列表里的相对路径（缺省 SKILL.md；不带 path 调一次看 files）`);
+  const bytes = readFileSync(hit.abs);
+  const list = files.map((f) => ({ path: f.path, size: statSync(f.abs).size }));
+  const head = { slug: row.slug, short_name: skillShortName(row.slug), version: target.version, path: hit.path, size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), files: list };
+  let text: string | null = null;
+  if (bytes.length <= SKILL_READ_MAX_BYTES && !bytes.includes(0)) { try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { text = null; } }
+  if (text === null) return { ...head, binary: bytes.length <= SKILL_READ_MAX_BYTES, note: bytes.length > SKILL_READ_MAX_BYTES ? `文件超过 ${SKILL_READ_MAX_BYTES / 1024}KB，不在这里给原文；要整包用 skill_download` : '二进制文件不给原文；要整包用 skill_download' };
+  return { ...head, content: text };
 }
 function skillSnapFiles(dir: string): { path: string; abs: string }[] {
   const out: { path: string; abs: string }[] = [];
@@ -2539,29 +2274,6 @@ function skillDownloadIssue(slugIn: unknown, versionIn: unknown, issuedTo: strin
     verify_command: `node ${SKILL_INSTALL_ROOT}/${name}/${SKILL_PKG_VERIFY} --expect ${target.tree_digest}`,
   };
 }
-app.get('/api/skills/dl/:ticket', (req, res) => {
-  res.setHeader('Referrer-Policy', 'no-referrer'); // 票号在路径里：不随 Referer 外带（404 也带）
-  const ticket = String(req.params.ticket ?? '');
-  const key = /^[0-9a-f]{64}$/.test(ticket) ? skillTicketKey(ticket) : '';
-  const t = key ? db.prepare('SELECT * FROM skill_download_tickets WHERE id = ?').get(key) as any : undefined;
-  if (t && t.expires_at > Date.now() && t.downloads >= SKILL_DL_MAX) {
-    db.prepare('UPDATE skill_download_tickets SET denied = denied + 1 WHERE id = ?').run(key);
-    console.warn(`[skill-download] ${t.slug} v${t.version} issued_to=${t.issued_to} 单票已下载 ${t.downloads} 次（上限 ${SKILL_DL_MAX}），拒绝`);
-  }
-  // 票不存在、已过期、超过次数上限同一应答：不透露票号是否签发过
-  if (!t || t.expires_at <= Date.now() || t.downloads >= SKILL_DL_MAX) throw new HttpError(404, `下载链接无效、已过期（10 分钟有效）或已用满 ${SKILL_DL_MAX} 次，请重新调 skill_download`);
-  const { row, target, dir } = skillVersionDir(t.slug, t.version);
-  const pkg = skillPackage(row, target, dir);
-  db.prepare("UPDATE skill_download_tickets SET downloads = downloads + 1, last_download_at = datetime('now') WHERE id = ?").run(key);
-  console.log(`[skill-download] ${t.slug} v${t.version} issued_to=${t.issued_to} bytes=${pkg.length}`);
-  res.setHeader('Content-Type', 'application/gzip');
-  res.setHeader('Content-Disposition', `attachment; filename="${skillPkgDir(row.slug)}-v${target.version}.tar.gz"`);
-  res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('X-Expected-Digest', target.tree_digest);
-  res.setHeader('X-Package-Sha256', createHash('sha256').update(pkg).digest('hex'));
-  res.end(pkg);
-});
-
 /** 技能发布核心（REST 口令面与 MCP skill_publish 共用）：首版建技能，此后每次 N+1；同技能同内容 409。
  *  refsOnly（MCP）：files 只收 {path, sha256}，内容取自 skill_file_put 的暂存，缺哪个点名 400 */
 async function skillPublishCore(slugIn: unknown, files: any, changelogIn: unknown, reviewedByIn: unknown, opts: { refsOnly?: boolean } = {}): Promise<Record<string, unknown>> {
@@ -2677,66 +2389,6 @@ async function skillPublishCore(slugIn: unknown, files: any, changelogIn: unknow
   return { ok: true, slug, version: nextVer, tree_digest: t.digest, file_count: t.fileCount, total_bytes: t.totalBytes, snapshot_path: `skill-snapshots/${encodeURIComponent(slug)}/v${nextVer}` }; // #94 S0⑤：不暴露 DATA_DIR 绝对路径
 }
 
-// #94 v3 S1/K16：技能一步式回滚/删除（口令+reviewed_by·与 app 同语义）
-app.post('/api/skills/:slug/activate', wrap(async (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
-  if (!reviewedBy) bad('技能回滚需 reviewed_by（人审门——一步式直调必填；或经 MCP change_request_create 提请求）');
-  const out = await executeSkillRollback(String(req.params.slug ?? ''), Number(req.body?.version), reviewedBy);
-  res.json(out);
-}));
-app.delete('/api/skills/:slug', wrap(async (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
-  if (!reviewedBy) bad('技能删除需 reviewed_by（人审门）');
-  executeSkillDelete(String(req.params.slug ?? ''));
-  res.json({ ok: true, deleted: req.params.slug, reviewed_by: reviewedBy });
-}));
-
-// #94 S2 全量重导：技能各版依次入 wm-skills 项目 skill/<slug> 分支（幂等 skip+摘要对账）
-app.post('/api/skills/:slug/migrate-layerfs', wrap(async (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const S = svc<SkillService>('skill');
-  const row = S.skillBySlug(String(req.params.slug ?? ''));
-  if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
-  const vs = S.versionsBySkill(row.id) as any[];
-  const results: any[] = [];
-  for (const v of vs.sort((a, b) => a.version - b.version)) {
-    if (v.commit_id) { results.push({ version: v.version, result: 'skip', commit_id: v.commit_id }); continue; } // 幂等
-    if (!v.snapshot_path || !existsSync(resolveSnap(v.snapshot_path))) { results.push({ version: v.version, result: 'anomaly', reason: '快照目录缺失' }); continue; }
-    // 按字节读：LayerFS 契约 v1 的 content 是文本，非 UTF-8（二进制）文件转不了，点名留档不迁，不拿改坏的内容去算摘要
-    const raw: { path: string; bytes: Buffer }[] = [];
-    (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else raw.push({ path: rel + e.name, bytes: readFileSync(fp) }); } })(resolveSnap(v.snapshot_path));
-    const binary = raw.find((f) => !Buffer.from(f.bytes.toString('utf8'), 'utf8').equals(f.bytes));
-    if (binary) { results.push({ version: v.version, result: 'anomaly', reason: `含非 UTF-8（二进制）文件 ${binary.path}：LayerFS 契约只收文本，留档不迁` }); continue; }
-    const files = raw.map((f) => ({ path: f.path, content: f.bytes.toString('utf8') }));
-    // 0 字节文件是合法内容（如 Python 包的 __init__.py），照常迁移；整个快照一个文件都没有才算异常。
-    // 判据改为摘要：快照读出的文件集必须与登记的 tree_digest 一致才发布（登记快照不可变，不改它），发布后再从服务读回同一 commit 重算
-    if (files.length === 0) { results.push({ version: v.version, result: 'anomaly', reason: '空快照（留档不迁）' }); continue; }
-    const pre = SkillService.filesDigest(files).digest;
-    if (pre !== v.tree_digest) { results.push({ version: v.version, result: 'anomaly', reason: '快照读出的摘要与登记不符（留档不迁）' }); continue; }
-    const out = await layerfsPublish(LAYERFS_SKILLS_PROJECT, files, `[skill-migrate] ${row.slug} v${v.version}`, `skill/${row.slug}`);
-    if (!out) { db.prepare("UPDATE skill_versions SET shadow_status='failed', shadow_error='LayerFS publish failed; retry migrate-layerfs' WHERE id=? AND commit_id=''").run(v.id); results.push({ version: v.version, result: 'error', reason: 'layerfs 服务不可达（可重跑）' }); continue; }
-    // K13 摘要对账：从服务读回这个 commit 的文件集重算，与登记摘要一致才记 commit_id（0 字节文件读回也得是 0 字节、同路径）
-    let back = '';
-    try {
-      const { base, token } = layerfsServiceBase();
-      const fr = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(LAYERFS_SKILLS_PROJECT) + '/branches/' + encodeURIComponent(`skill/${row.slug}`) + '/commits/' + encodeURIComponent(out.commit_id) + '/files', { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(10000) });
-      const fj = await fr.json() as { files?: { path: string; content: string }[] };
-      if (fr.ok && Array.isArray(fj.files)) back = SkillService.filesDigest(fj.files).digest;
-    } catch { back = ''; }
-    if (back !== v.tree_digest) {
-      // 这个 commit 已在分支上但不登记（孤立）：记进 shadow_error 便于核对；月度整库重建（rebuildWmSkills）会清掉它
-      db.prepare("UPDATE skill_versions SET shadow_status='failed', shadow_error=? WHERE id=? AND commit_id=''").run(`LayerFS readback digest mismatch; orphan commit ${out.commit_id} (cleared by monthly rebuild); retry migrate-layerfs`, v.id);
-      results.push({ version: v.version, result: 'error', reason: back ? '读回摘要与登记不符（不记 commit_id·可重跑）' : '读回失败（不记 commit_id·可重跑）', commit_id_unrecorded: out.commit_id });
-      continue;
-    }
-    db.prepare("UPDATE skill_versions SET commit_id = ?, shadow_status='succeeded', shadow_error='' WHERE id = ?").run(out.commit_id, v.id);
-    results.push({ version: v.version, result: 'migrated', commit_id: out.commit_id, digest_match: true, readback_digest_match: true });
-  }
-  res.json({ slug: row.slug, project: LAYERFS_SKILLS_PROJECT, branch: `skill/${row.slug}`, results });
-}));
-
 // ---------- #94 S4 D4：技能内容月度整库重建（layerfs#411 不能退役分支——定期重建清除已删技能残留） ----------
 async function rebuildWmSkills(trigger: string): Promise<{ ok: boolean; deleted_project: boolean; republished: number; cleared_stale: number }> {
   const { base, token } = layerfsServiceBase();
@@ -2754,24 +2406,19 @@ async function rebuildWmSkills(trigger: string): Promise<{ ok: boolean; deleted_
     const vs = S.versionsBySkill(sk.id) as any[];
     const latest = SkillService.currentOf(sk, vs);
     if (!latest?.snapshot_path || !existsSync(resolveSnap(latest.snapshot_path))) continue;
-    db.prepare("UPDATE skill_versions SET commit_id = '' WHERE skill_id = ?").run(sk.id); cleared++;
+    S.versionsShadowCleared(sk.id); cleared++; // commit_id 清掉，状态回到 pending（skipped 的不动）
     const raw: { path: string; bytes: Buffer }[] = [];
     try { (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else raw.push({ path: rel + e.name, bytes: readFileSync(fp) }); } })(resolveSnap(latest.snapshot_path)); } catch { continue; }
     if (raw.some((f) => !isUtf8Bytes(f.bytes))) continue; // 含二进制：LayerFS 只收文本，不迁
     const files = raw.map((f) => ({ path: f.path, content: f.bytes.toString('utf8') }));
     if (files.length === 0 || files.some((f) => f.content === '')) continue; // 异常快照不迁
     const out = await layerfsPublish(LAYERFS_SKILLS_PROJECT, files, `[rebuild] ${sk.slug} v${latest.version}`, `skill/${sk.slug}`);
-    if (out) { db.prepare('UPDATE skill_versions SET commit_id = ? WHERE id = ?').run(out.commit_id, latest.id); republished++; }
+    if (out) { S.versionMigrated(out.commit_id, latest.id); republished++; }
   }
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_wm_skills_rebuild', datetime('now'))").run();
   console.log(`[S4-rebuild] ${trigger}: deleted=${deleted} republished=${republished} cleared=${cleared}`);
   return { ok: true, deleted_project: deleted, republished, cleared_stale: cleared };
 }
-app.post('/api/admin/rebuild-wm-skills', wrap(async (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const out = await rebuildWmSkills('manual');
-  res.json(out);
-}));
 // 月度调度：启动+每 24h 查——距上次重建 ≥30 天即自动触发
 void (async function scheduleMonthlyRebuild() {
   const check = async () => {
@@ -2827,88 +2474,10 @@ function ustarTar(files: { path: string; content: string | Buffer }[], opts: { p
   return Buffer.concat(chunks);
 }
 
-// #94 S3①：导出面（薄分发——快照文件集打包 ustar·台与技能共契约面）
-app.get('/api/skills/:slug/export', (req, res) => {
-  const S = svc<SkillService>('skill');
-  const row = S.skillBySlug(String(req.params.slug ?? ''));
-  if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
-  const vs = S.versionsBySkill(row.id) as any[];
-  const v = req.query.version !== undefined ? Number(req.query.version) : SkillService.currentOf(row, vs)?.version; // 缺省当前版本
-  const target = vs.find((x) => x.version === v);
-  if (!target) throw new HttpError(404, `version not found: ${v}`);
-  const dir = resolveSnap(target.snapshot_path);
-  if (!dir || !existsSync(dir)) throw new HttpError(404, `snapshot missing: v${v}`);
-  const files: { path: string; content: Buffer }[] = []; // 按字节打包：导出的二进制文件与快照一致
-  (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp) }); } })(dir);
-  const tar = ustarTar(files, { prefix: String(row.slug).split(':').pop() + '/' }); // #601
-  res.setHeader('Content-Type', 'application/x-tar');
-  res.setHeader('Content-Disposition', 'attachment; filename="' + row.slug.replace(/[^a-z0-9._-]/gi, '_') + '-v' + v + '.tar"');
-  res.setHeader('X-Expected-Digest', target.tree_digest);
-  res.end(tar);
-});
 
-// #94 S3③：agent 端摘要上报（K14 漂移记——match/drift 双态入档）
-app.post('/api/skills/:slug/report-digest', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const S = svc<SkillService>('skill');
-  const row = S.skillBySlug(String(req.params.slug ?? ''));
-  if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
-  const v = Number(req.body?.version);
-  const digest = String(req.body?.digest ?? '');
-  if (!Number.isInteger(v) || !/^[0-9a-f]{64}$/.test(digest)) bad('version 正整数 + digest 64 位十六进制');
-  const target = (S.versionsBySkill(row.id) as any[]).find((x) => x.version === v);
-  if (!target) throw new HttpError(404, `version not found: ${v}`);
-  const match = digest === target.tree_digest;
-  db.prepare('INSERT INTO skill_digest_reports (skill_id, version, digest, expected, match_result, reported_by) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(row.id, v, digest, target.tree_digest, match ? 1 : 0, String(req.body?.reported_by ?? '').slice(0, 100));
-  res.json({ ok: true, slug: row.slug, version: v, match, drift: !match, expected: target.tree_digest });
-});
-
-
-app.get('/api/skills/:slug/versions', (req, res) => {
-  const S = svc<SkillService>('skill');
-  const row = S.skillBySlug(String(req.params.slug ?? ''));
-  if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
-  // #94 S0⑤（K8）：版本列表 snapshot_path 相对化（不暴露 DATA_DIR）；兼容旧库无状态时推导。
-  const vsAll = S.versionsBySkill(row.id) as any[];
-  const activeV = SkillService.currentOf(row, vsAll)?.version ?? null;
-  res.json({ slug: row.slug, active_version: activeV, versions: vsAll.map((v) => ({ ...v, active: v.version === activeV, shadow_status: v.shadow_status ?? (v.commit_id ? 'succeeded' : 'pending'), shadow_error: v.shadow_error ?? '', snapshot_path: v.snapshot_path ? `skill-snapshots/${encodeURIComponent(row.slug)}/v${v.version}` : v.snapshot_path })) });
-});
-
-app.get('/api/sop/runs', (req, res) => {
-  // P4（F7）：待验收列表 = running 且有派单来源（a2a_run_ctx 有 callback/task_id），不含人自己开的
-  if (req.query.dispatched === '1') {
-    // #19 ②a：agent 分拣投递「默认关闭」——settings 开关 dispatch_sorting_enabled（'1'=开·缺省关）
-    const ds = getSettings() as Record<string, unknown>;
-    if (ds['dispatch_sorting_enabled'] !== '1' && ds['dispatch_sorting_enabled'] !== 1) return res.json([]);
-    const rows = svc<SopService>('sop').runsDispatched() as unknown as SopRunRow[];
-    return res.json(rows);
-  }
-  const slug = typeof req.query.slug === 'string' ? req.query.slug : '';
-  const status = typeof req.query.status === 'string' ? req.query.status : '';
-  const where: string[] = [];
-  const args: unknown[] = [];
-  if (slug) { where.push('sop_slug = ?'); args.push(slug); }
-  if (status) { where.push('status = ?'); args.push(status); }
-  const sql = `SELECT * FROM sop_runs ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY updated_at DESC LIMIT 200`;
-  res.json(svc<SopService>('sop').runsQuery(sql, args) as unknown as SopRunRow[]);
-});
-
-// 异步路由一律经 wrap：Express 4 不接 async 抛出的错，404/409 会变成未处理的 Promise 拒绝让进程退出
-app.get('/api/sop/runs/:id(\\d+)', wrap(async (req, res) => {
-  const id = Number(req.params.id);
-  const auth = await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, id);
-  if (auth.authorized) return res.json(await sopRunGetCore(id));
-  res.set('Cache-Control', 'no-store').json(sopRunGetMeta(id)); // #309 phase2：未授权只回元数据，不回私有 data
-}));
-
-app.put('/api/sop/runs/:id(\\d+)', wrap(async (req, res) => {
-  res.json(await sopRunStepSaveCore(Number(req.params.id), String(req.body?.stepKey ?? ''), req.body?.value));
-}));
-
-app.post('/api/sop/runs/:id(\\d+)/finish', wrap(async (req, res) => {
-  res.json(await sopRunFinishCore(Number(req.params.id)));
-}));
+registerSkillRoutes(http, { adminGuard, adminRead: (req) => settingsAdminRead(req), wrap, bad, resolveSnap, skillPublishCore, skillTicketKey, skillVersionDir, skillPackage, skillPkgDir, SKILL_DL_MAX, executeSkillRollback, executeSkillDelete, layerfsPublish, LAYERFS_SKILLS_PROJECT, layerfsServiceBase, rebuildWmSkills, ustarTar });
+// 技能影子的定时补推（导入器写的版本、推失败的、重建漏掉的）：挂在根上下文上，卸载时一起停
+startSkillShadowCatchUp({ layerfsPublish, layerfsServiceBase, LAYERFS_SKILLS_PROJECT, resolveSnap });
 
 // ---------- #437③ 进行中的 run 升级到当前 SOP 版本（预检 + 人确认 + 审计） ----------
 /** 每步的 data-field 名（含没有规则的字段），用来列出升级后新增、失效的字段 */
@@ -2952,34 +2521,7 @@ async function sopRunUpgradePlan(id: number) {
     },
   };
 }
-app.get('/api/sop/runs/:id(\\d+)/upgrade-preflight', wrap(async (req, res) => {
-  const id = Number(req.params.id);
-  await markOdooAdmin(req); // 只用 Odoo 登录的管理员能升级，也要能打开预检（GET 不经写门，不会预先认定）
-  const auth = await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, id);
-  if (!auth.authorized) return res.status(403).set('Cache-Control', 'no-store').json({ error: 'run read authorization required' });
-  res.set('Cache-Control', 'no-store').json((await sopRunUpgradePlan(id)).preflight);
-}));
-/** 升级要人确认：管理员（口令或 Odoo 管理员）或本机命令行，写明 reason；不在升级里改字段值，只换校验所用的版本 */
-app.post('/api/sop/runs/:id(\\d+)/upgrade', wrap(async (req, res) => {
-  const cli = !browserMarked(req) && rawLoopback(req);
-  if (!cli && !adminHeaderOk(req)) throw new HttpError(403, '升级 run 只限管理员或本机命令行');
-  const id = Number(req.params.id);
-  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 200) : '';
-  if (!reason) bad('升级要写 reason（记入审计）');
-  const expected = req.body?.expected_version;
-  const out = await runCheckpoints.serial(id, async () => {
-    const plan = await sopRunUpgradePlan(id);
-    if (plan.preflight.up_to_date) throw new HttpError(409, `run ${id} 已是当前版本 v${plan.target}`);
-    if (expected !== undefined && Number(expected) !== plan.target) throw new HttpError(409, `当前版本已是 v${plan.target}，与预检时的 v${expected} 不同，请重新预检`);
-    // 未落盘的缓冲与热态一并写回 SQLite，和换版本同一次写入；旧热态的校验点含版本号，之后自然失效、从 SQLite 回填
-    const json = JSON.stringify(plan.data);
-    if (!svc<SopService>('sop').runUpgrade(id, plan.row.sop_version, plan.target, json).changes) throw new HttpError(409, `run ${id} 状态或版本已变，请重新预检`);
-    runCheckpoints.forget(id);
-    svc<SopService>('sop').runUpgradeAudit({ runId: id, from: plan.row.sop_version, to: plan.target, actor: cli ? 'cli' : adminActor(req), reason, violations: plan.preflight.violations_after.length });
-    return { ok: true, ...plan.preflight, upgraded: true };
-  });
-  res.json(out);
-}));
+registerSopRunLifecycleRoutes(http, { wrap, adminHeaderOk, runReadCapHeader, sopRunGetCore, sopRunGetMeta, sopRunStepSaveCore, sopRunFinishCore, sopRunAcceptDetail, markOdooAdmin, sopRunUpgradePlan, bad, runCheckpoints, adminActor, writeMode: SOP_RUN_WRITE });
 
 // ---------- 自产台静态托管：GET /apps/:slug/* → DATA_DIR/apps/<slug>/v<active>/* ----------
 function serveApp(req: express.Request, res: express.Response) {
@@ -3008,7 +2550,7 @@ function serveApp(req: express.Request, res: express.Response) {
   if (rel === '.' || rel.startsWith('/') || rel.startsWith('..')) return res.status(400).json({ error: '路径非法' });
   if (rel.endsWith('/')) rel += 'index.html';
   const abs = join(root, rel);
-  if (!abs.startsWith(root)) return res.status(400).json({ error: '路径非法' });
+  if (!isInsideRoot(root, abs)) return res.status(400).json({ error: '路径非法' });
   res.setHeader('X-App-Version', `v${ver}`);
   if (!existsSync(abs)) {
     // #94 P2（L6）：冷版本回读——物化已 prune·版本链在——经 layerfs 服务取该版 Commit 文件集
@@ -3037,29 +2579,26 @@ function serveApp(req: express.Request, res: express.Response) {
   }
   // #198（裁 A）：自产台 HTML 注入按台令牌——sandbox 页面凭它调本台 data/files（P11 回归修复）
   if (/\.html?$/i.test(rel)) {
-    try {
-      const tok = wmAppToken(m[1]);
-      const raw = readFileSync(abs, 'utf8');
-      const inject = `<meta name="wm-app-token" content="${tok}"><script>window.WM_APP_TOKEN="${tok}";window.WM_APP_SLUG="${m[1]}";window.WM_WORKBENCH_ID=${wmWorkbenchIdFor(`/apps/${m[1]}/`)};</script>`;
-      const out = /<head[^>]*>/i.test(raw) ? raw.replace(/<head([^>]*)>/i, (mm) => mm + inject) : inject + raw;
-      return res.type('html').send(loginGate.rewriteAppHtml(req, out)); // 登录门：本台绝对地址补查看凭证（off 时原样）
-    } catch { /* 读取失败回落原样 */ }
+    let raw: string;
+    try { raw = readFileSync(abs, 'utf8'); } catch { return res.sendFile(abs); /* 读取失败回落原样 */ }
+    // 8f-2：认得出看页面的是启用的人，就给一张只能在这个台的提交上记下他的票据（只有当前上架的版本出票）。
+    // 出票抛错页面照常、不带票据；别的出错回到原样页面并计数（app-html.ts）
+    void serveAppHtml(req, res, { raw, abs, slug: m[1], current: ver === a.active_version }, {
+      person: async (r) => (await requestPerson(r)).principal,
+      appToken: wmAppToken,
+      workbenchId: (slug) => String(wmWorkbenchIdFor(`/apps/${slug}/`)),
+      issueTicket: issueSubmitterTicket,
+      rewrite: (r, html) => loginGate.rewriteAppHtml(r, html),
+      countFallback: () => countSubmitterTicket('page_fallback'),
+    });
+    return;
   }
   res.sendFile(abs);
 }
-// 必须在 web/dist SPA fallback 之前注册
-app.get(/^\/apps\/[a-z0-9][a-z0-9-]*(\/.*)?$/, serveApp);
+registerAppsStaticRoutes(http, { serveApp });
 // #321 设计 token 的固定路径（自产台 <link> 引入）：/design/tokens@<主版本>.css 推荐（主版本内名字稳定、值可变，按需重新验证），
 // /design/tokens@<完整版本>.css 精确钉版本（内容不变，可长缓存）；其他版本 404，不猜
-app.get(/^\/design\/tokens@[0-9.]+\.css$/, (req, res) => {
-  const t = loadTokensCss();
-  const kind = t ? resolveTokensPath(req.path, t) : null;
-  if (!t || !kind) return res.status(404).type('text').send(t ? `只提供 tokens@${t.major}.css 与 tokens@${t.version}.css\n` : 'design tokens 不可用\n');
-  res.setHeader('Cache-Control', kind === 'exact' ? 'public, max-age=31536000, immutable' : 'no-cache');
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-WM-Tokens-Version', t.version);
-  res.type('text/css').send(t.css);
-});
+registerDesignTokenRoutes(http);
 
 function summaryPayload() {
   const rows = listWorkbenches();
@@ -3084,243 +2623,30 @@ function summaryPayload() {
   };
 }
 
-app.get('/api/summary', (_req, res) => {
-  res.json(summaryPayload());
-});
+registerSummaryRoutes(http, { summaryPayload });
 
 // ---------- 类型管理 ----------
-app.get('/api/types', (_req, res) => {
-  res.json(svc<WorkbenchService>('workbench').types());
-});
-
-app.post('/api/types', (req, res) => {
-  const b = req.body ?? {};
-  if (typeof b.key !== 'string' || !/^[a-z0-9][a-z0-9-]*$/.test(b.key)) bad('key 必须是小写字母/数字/连字符');
-  if (typeof b.name !== 'string' || !b.name.trim()) bad('name 不能为空');
-  if (b.key === 'web') bad('内置类型 web 不允许覆盖');
-  checkTypeHealthPath(String(b.health_path ?? '/'));
-  const exists = svc<WorkbenchService>('workbench').typeIdByKey(b.key);
-  if (exists) bad(`类型已存在: ${b.key}`);
-  const r = svc<WorkbenchService>('workbench').typeInsertStmt().run(
-    b.key, b.name.trim(), String(b.icon ?? ''), b.default_port ?? null,
-    b.health_method === 'HEAD' ? 'HEAD' : 'GET',
-    String(b.health_path ?? '/'), b.expect_status == null ? null : Number(b.expect_status), String(b.description ?? '')
-  );
-  res.status(201).json(svc<WorkbenchService>('workbench').typeById(Number(r.lastInsertRowid)));
-});
-
-app.put('/api/types/:id', (req, res) => {
-  const id = Number(req.params.id);
-  const cur = svc<WorkbenchService>('workbench').typeById(id) as unknown as TypeRow | undefined;
-  if (!cur) throw new HttpError(404, `type not found: ${id}`);
-  const b = req.body ?? {};
-  const next = {
-    name: typeof b.name === 'string' && b.name.trim() ? b.name.trim() : cur.name,
-    icon: b.icon !== undefined ? String(b.icon) : cur.icon,
-    default_port: b.default_port !== undefined ? (b.default_port ?? null) : cur.default_port,
-    health_method: b.health_method ? (b.health_method === 'HEAD' ? 'HEAD' : 'GET') : cur.health_method,
-    health_path: b.health_path !== undefined ? String(b.health_path) : cur.health_path,
-    expect_status: b.expect_status !== undefined ? (b.expect_status == null ? null : Number(b.expect_status)) : cur.expect_status,
-    description: b.description !== undefined ? String(b.description) : cur.description,
-  };
-  if (next.health_path !== cur.health_path) checkTypeHealthPath(next.health_path);
-  if (cur.key === 'web' && (next.health_path !== cur.health_path || next.expect_status !== cur.expect_status)) {
-    bad('内置类型 web 不允许修改探测语义');
-  }
-  svc<WorkbenchService>('workbench').typeUpdate({ ...next, id });
-  res.json(svc<WorkbenchService>('workbench').typeById(id));
-});
-
-app.delete('/api/types/:id', (req, res) => {
-  const id = Number(req.params.id);
-  const cur = svc<WorkbenchService>('workbench').typeById(id) as unknown as TypeRow | undefined;
-  if (!cur) throw new HttpError(404, `type not found: ${id}`);
-  if (cur.key === 'web' || cur.key === 'market-app') bad(`内置类型 ${cur.key} 不允许删除`);
-  const used = svc<WorkbenchService>('workbench').typeUsageCount(cur.key) as { n: number };
-  if (used.n > 0) throw new HttpError(409, `类型 ${cur.key} 仍被 ${used.n} 个工作台使用，先改挂其他类型`);
-  svc<WorkbenchService>('workbench').typeDelete(id);
-  res.json({ ok: true, deleted: id });
-});
+registerTypeRoutes(http);
 
 // ---------- 设置 / 导入导出 ----------
 // ---------- 管理员口令手动设置（本机引导：首次无口令时允许从 loopback 设置） ----------
 /** 首次设口令（库里还没有口令）：本机直连（CLI 或本机同源页面），或 Odoo 管理员；改/清口令：带当前口令或 Odoo 管理员 */
-function isLoopbackReq(req: express.Request): boolean {
-  return rawLoopback(req) && (!browserMarked(req) || originIsThisSurface(req));
+registerAdminTokenRoutes(http, { adminTokenCheck, odooAdminReqs, dbAdminTokenSet, dbAdminTokenOk, hashAdminToken, browserSameSite, devOriginOk });
+
+// 设置的出口分两级（settings-view.ts）：管理员看全部、凭据类的值只说有没有；别人只看白名单。导出用管理员那一级。
+// 内部读取走 getSettings()/mcpUpstreams() 直读 DB，不受影响。管理员口令哈希出口一律剔除（评审 #27）。
+
+// 启动自检（设置的出口）：拿真实的设置跑一遍两级出口，凭据类的值漏进任何一级就拒绝启动。只记键名，不记值
+{
+  const leaked = settingsViewsLeak(getSettings());
+  console.log(JSON.stringify({ source: 'self-check', id: 'settings.no-secret-values', verdict: leaked.length ? 'fail' : 'pass', ...(leaked.length ? { keys: leaked } : {}), at: new Date().toISOString() }));
+  if (leaked.length) { console.error(`[settings] 拒绝启动：设置的出口会带出凭据类的值（${leaked.join('、')}）`); process.exit(1); }
 }
-function adminTokenWritable(req: express.Request, requireCurrent: boolean): boolean {
-  if (!browserSameSite(req) || (req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req))) return false;
-  if (odooAdminReqs.has(req)) return true;
-  return requireCurrent ? dbAdminTokenOk(req.headers['x-admin-token']) : isLoopbackReq(req);
-}
+// 设置读的分级：管理员（口令或管理员登录，同源）与本机命令行看全部（凭据类的值只说有没有），别人只看巡检参数和开关。设置读与导出共用
+const settingsAdminRead = async (req: express.Request): Promise<boolean> => { if (!browserMarked(req) && rawLoopback(req)) return true; await markOdooAdmin(req); return adminHeaderOk(req); };
+registerSettingsRoutes(http, { armPatrol, adminRead: settingsAdminRead }); // 本机命令行也看全部（写设置它本来就能过写请求总门）
 
-app.get('/api/admin/whoami', (req, res) => {
-  const viaToken = adminTokenCheck(req.headers['x-admin-token']);
-  const odoo = odooAdminReqs.get(req) ?? null;
-  res.set('Cache-Control', 'no-store').json({ admin: viaToken || !!odoo, via: viaToken ? 'token' : odoo ? 'odoo' : null, login: viaToken ? null : odoo });
-});
-
-app.get('/api/admin-token/state', (req, res) => {
-  res.json({
-    source: process.env.ADMIN_TOKEN ? 'env' : (dbAdminTokenSet() ? 'db' : 'none'),
-    settable: !process.env.ADMIN_TOKEN && (dbAdminTokenSet() || isLoopbackReq(req) || odooAdminReqs.has(req)), // env 未设时：已有口令可凭旧口令改；首次由本机或 Odoo 管理员设
-  });
-});
-
-app.put('/api/admin-token', (req, res) => {
-  if (process.env.ADMIN_TOKEN) return res.status(400).json({ error: '口令由启动环境 ADMIN_TOKEN 提供，页面不可改（改环境变量并重启）' });
-  const token = typeof req.body?.token === 'string' ? req.body.token : '';
-  if (token.length < 4 || token.length > 128) return res.status(400).json({ error: '口令长度 4–128' });
-  const hasExisting = dbAdminTokenSet();
-  if (!adminTokenWritable(req, hasExisting)) {
-    return res.status(403).json({ error: hasExisting ? '修改口令需先在请求头带上当前口令（X-Admin-Token），或用 Odoo 管理员登录' : '首次设置口令仅限本机命令行/本机页面，或 Odoo 管理员' });
-  }
-  svc<SettingService>('setting').put(ADMIN_TOKEN_KEY, hashAdminToken(token));
-  res.json({ ok: true, source: 'db', note: '口令已设置并立即生效（库存 sha256，不可取回）' });
-});
-
-app.delete('/api/admin-token', (req, res) => {
-  if (process.env.ADMIN_TOKEN) return res.status(400).json({ error: '口令来自启动环境，需清环境变量并重启' });
-  if (!adminTokenWritable(req, true)) return res.status(403).json({ error: '需当前口令或 Odoo 管理员登录' });
-  svc<SettingService>('setting').delete(ADMIN_TOKEN_KEY);
-  res.json({ ok: true, source: 'none' });
-});
-
-// 评审 #24：settings 出口把 mcp_upstreams.headers 的值掩成 ****（键名保留）——
-// 内部读取走 mcpUpstreams() 直读 DB，不受影响；导出同样脱敏（与 auth.value 口径一致）。
-// 评审 #27：管理员口令哈希（admin_token_sha256）同表存放，出口一律剔除——远程 GET 无口令可读，
-// 无盐 sha256 + 短口令可离线爆破；口令只经 /api/admin-token 设置与校验，不随设置/导出外流。
-function maskUpstreamsSetting(settings: Record<string, string>): Record<string, string> {
-  const { [ADMIN_TOKEN_KEY]: _adminHash, ...all } = settings;
-  const raw = all.mcp_upstreams;
-  if (!raw) return all;
-  try {
-    const arr = JSON.parse(raw);
-    if (!Array.isArray(arr)) return { ...all, mcp_upstreams: '' };
-    const masked = arr.map((u: any) => ({
-      ...u,
-      headers: u?.headers && typeof u.headers === 'object'
-        ? Object.fromEntries(Object.keys(u.headers).map((k) => [k, '****']))
-        : {},
-    }));
-    return { ...all, mcp_upstreams: JSON.stringify(masked) };
-  } catch {
-    return { ...all, mcp_upstreams: '' };
-  }
-}
-
-app.get('/api/settings', (_req, res) => { res.json(maskUpstreamsSetting(getSettings())); });
-
-app.put('/api/settings', (req, res) => {
-  const b = req.body ?? {};
-  if (typeof b !== 'object' || b === null) bad('body 必须是 {key: value} 对象');
-  const allowed = ['health_interval_seconds', 'health_timeout_ms', 'health_concurrency', 'a2a_peers', 'mcp_upstreams', 'dispatch_sorting_enabled', 'run_upload_require_token']; // #19 ②a 分拣开关+#150 上传令牌开关
-  const upd = svc<SettingService>('setting').upsertStmt();
-  for (const [k, v] of Object.entries(b)) {
-    if (!allowed.includes(k)) continue;
-    upd.run(k, String(v));
-  }
-  armPatrol(); // issue #5：改巡检设置即重挂定时器（幂等 clearTimeout 开头），不必重启服务
-  res.json(maskUpstreamsSetting(getSettings()));
-});
-
-app.get('/api/export', (req, res) => {
-  // compliance 二期首项：导出默认脱敏（compliance 范围 kb ab3279b84a 的「导出面」——
-  // 无认证导出曾是最大凭据泄漏向量）。?reveal=1 显式取真值（备份/迁移用途），
-  // 导入侧对掩码 url/auth 整批400拒绝（见 import 预检）——失败零写，不跳行报成功。
-  const reveal = req.query.reveal === '1';
-  res.json({
-    format: 'workbench-market/export@1',
-    exported_at: new Date().toISOString(),
-    masked: reveal ? 0 : 1,
-    workbenches: listWorkbenches().map((w) => (reveal ? w : maskForApi(w))),
-    types: svc<WorkbenchService>('workbench').types(),
-    // 评审 #24：上游 MCP 凭据（headers）与 auth.value 同口径——掩码导出不会带真凭据，
-    // 导入侧亦不覆盖 mcp_upstreams（掩码值跳过），凭据需在页面重填。
-    settings: maskUpstreamsSetting(getSettings()),
-  });
-});
-
-// #258 D：import 整批预检（结构 + 掩码 + 同核准入）全过才进事务；replace 的清库、类型、插入、布局修复同一事务，
-// 任一失败整体回滚零写。不再 skip 坏行/掩码行（掩码导出整批拒 masked_import_value，请用 ?reveal=1 的受控备份）。
-const importErr = (status: number, code: string, row_index: number | null, message: string): never => {
-  throw new HttpError(status, code, { message, ...(row_index === null ? {} : { row_index }) });
-};
-app.post('/api/import', (req, res) => {
-  const b = req.body ?? {};
-  if (!Array.isArray(b.workbenches)) importErr(400, 'invalid_import', null, '导入文件缺少 workbenches 数组');
-  if (b.types !== undefined && !Array.isArray(b.types)) importErr(400, 'invalid_import', null, 'types 必须是数组');
-  // issue #7：mode 支持 query 优先（README 的 ?mode=replace 写法），body.mode 次之
-  const modeRaw = (typeof req.query.mode === 'string' ? req.query.mode : b.mode) ?? 'merge';
-  const mode = modeRaw === 'replace' ? 'replace' : 'merge';
-  const types: any[] = Array.isArray(b.types) ? b.types : [];
-  types.forEach((t) => {
-    if (!t || typeof t !== 'object' || typeof t.key !== 'string' || !t.key || typeof t.name !== 'string') importErr(400, 'invalid_import', null, 'types 每项须含字符串 key 与 name');
-    try { checkTypeHealthPath(String(t.health_path ?? '/')); } catch (e) { if (e instanceof AdmissionError) importErr(400, e.code, null, `类型 ${t.key}：${e.extra?.message ?? ''}`); throw e; }
-  });
-  const rows = (b.workbenches as any[]).map((w, i) => {
-    if (!w || typeof w !== 'object' || Array.isArray(w)) importErr(400, 'invalid_import', i, '行不是对象');
-    if (typeof w.url !== 'string' || !w.url.trim()) importErr(400, 'invalid_import', i, 'url 缺失');
-    if (w.name !== undefined && typeof w.name !== 'string') importErr(400, 'invalid_import', i, 'name 须为字符串');
-    if (w.tags !== undefined && !Array.isArray(w.tags)) importErr(400, 'invalid_import', i, 'tags 须为数组');
-    const url = w.url.trim();
-    if (url.includes('=****') || w.auth?.value === '****') importErr(400, 'masked_import_value', i, '含掩码占位（****）——掩码导出不能用来恢复，请用 ?reveal=1 的受控备份或重新录入');
-    let authCfg = '';
-    if (w.auth !== undefined && w.auth !== null) {
-      if (typeof w.auth !== 'object' || (w.auth.type !== 'bearer' && w.auth.type !== 'basic') || typeof w.auth.value !== 'string' || !w.auth.value || w.auth.value.length > 4096) {
-        importErr(400, 'invalid_import', i, 'auth 形态：{type:"bearer"|"basic", value:string}');
-      }
-      authCfg = JSON.stringify({ type: w.auth.type, value: w.auth.value });
-    }
-    let adm;
-    try { adm = admitOrDeny('import', url); checkHealthPath(url, String(w.health_path ?? '')); }
-    catch (e) { if (e instanceof AdmissionError) importErr(e.status, e.code, i, String(e.extra?.message ?? '')); throw e; }
-    return { w, url, authCfg, adm };
-  });
-  const svcWb = svc<WorkbenchService>('workbench');
-  const inserted: { id: number; key: string | null; allowlisted: boolean }[] = [];
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    if (mode === 'replace') {
-      svcWb.deleteAll();
-      svcWb.typeDeleteAllExcept('web');
-    }
-    const insType = svcWb.typeInsertIgnoreStmt();
-    for (const t of types) insType.run(t.key, t.name, String(t.icon ?? ''), t.default_port ?? null, t.health_method ?? 'GET', String(t.health_path ?? '/'), t.expect_status ?? null, String(t.description ?? ''));
-    const ins = svcWb.importInsertStmt();
-    for (const { w, url, authCfg, adm } of rows) {
-      const r = ins.run(
-        String(w.name ?? '未命名'), url, String(w.type ?? 'web'), String(w.icon ?? ''),
-        String(w.description ?? ''), String(w.category ?? ''),
-        JSON.stringify(Array.isArray(w.tags) ? w.tags : []), w.enabled === false ? 0 : 1,
-        String(w.health_path ?? ''), Number(w.sort) || 0, authCfg
-      ) as { lastInsertRowid: number | bigint };
-      inserted.push({ id: Number(r.lastInsertRowid), key: adm.key, allowlisted: adm.allowlisted });
-    }
-    // PR#15 评审吸收的增量思路：replace 重排自增 id 后，驾驶舱面板里指向旧 id 的引用已成悬空
-    // （保存布局恒 400）——导入完成后全量剔除不存在引用（比按 id 精确清理更通用，也清历史遗留）
-    const wbExists = (id: number) => !!svcWb.exists(id);
-    for (const c of svc<CockpitService>('cockpit').all() as unknown as CockpitRow[]) {
-      let panels: PanelConfig[];
-      try { panels = JSON.parse(c.layout_config || '[]'); } catch { continue; }
-      // 待办卡 kind='tasks' 以 workbenchId=0 占位、不引用工作台，不参与悬空剔除
-      const kept = panels.filter((p) => p.kind === 'tasks' || wbExists(p.workbenchId));
-      if (kept.length !== panels.length) {
-        svc<CockpitService>('cockpit').setLayout(c.id, JSON.stringify(kept));
-      }
-    }
-    db.exec('COMMIT');
-  } catch (e) {
-    db.exec('ROLLBACK');
-    console.error('[import] 事务回滚：', (e as Error)?.message ?? e);
-    throw new HttpError(500, 'import_failed', { message: '导入写入失败，已整体回滚（原数据未变）' });
-  }
-  // commit 之后才写 allow：每个命中许可的行恰一条
-  let auditOk = true;
-  for (const x of inserted) if (x.allowlisted && !auditAllow('import', URL_POLICY, x.key!, x.id, restSubject(req))) auditOk = false;
-  if (!auditOk) res.setHeader('X-WM-Audit-State', 'degraded');
-  res.json({ ok: true, mode, imported: inserted.length, skipped: 0 });
-});
+registerExportImportRoutes(http, { listWorkbenches, maskForApi, URL_POLICY, admitOrDeny, restSubject, markAdmin: markOdooAdmin, adminGuard, settingsAdminRead });
 
 // ---------- 凭据库（融合 dsh-vault）：读写全部过 vaultGuard ----------
 // 与 adminGuard 同口径，只多认一种浏览器形态：同源 GET 不带 Origin（只有 Sec-Fetch-Site: same-origin），
@@ -3333,13 +2659,15 @@ function vaultGuard(req: express.Request, res: express.Response): boolean {
   }
   return adminGuard(req, res);
 }
-mountVault(app, vaultGuard, (req) => VAULT_ON_MAIN || surfaceOf(req) === 'control' || onVaultHost(req)); // 服务端持有主密码时只在控制面或凭据库专用域名开放（两者都不承载 /go/、/sop/、/apps/）；属主显式接受同源风险时主域名也开放
-workbenchVars.mount(app); // #336 /api/workbenches/:id/vars
+mountVault(http, vaultGuard, (req) => VAULT_ON_MAIN || surfaceOf(req) === 'control' || onVaultHost(req)); // 服务端持有主密码时只在控制面或凭据库专用域名开放（两者都不承载 /go/、/sop/、/apps/）；属主显式接受同源风险时主域名也开放
+registerWorkbenchVarsRoutes(http, workbenchVars.handle); // #336 /api/workbenches/:id/vars（路由在 routes/workbench-vars.ts）
 
 // 存活 / 就绪分开：/api/health 是存活（只看本进程，不发外部请求）；/api/health/ready 是就绪（含 LayerFS）。
 // 两者都是公开端点，LayerFS 探测结果缓存 10 秒、同一时刻只发一次，匿名请求打不穿到 LayerFS。
 const LAYERFS_PROBE_TTL_MS = 10_000;
 let layerfsProbe: { at: number; status: 'healthy' | 'unhealthy' | 'unreachable' } | null = null;
+/** 上次 LayerFS 探测的缓存结果（还没探过是 null）。/api/health 只读这个、不触发探测；这个值会在就绪探测时更新，所以按调用取，不按值传 */
+function layerfsProbeCached(): typeof layerfsProbe { return layerfsProbe; }
 let layerfsProbing: Promise<'healthy' | 'unhealthy' | 'unreachable'> | null = null;
 function layerfsReadiness(): Promise<'healthy' | 'unhealthy' | 'unreachable'> {
   if (layerfsProbe && Date.now() - layerfsProbe.at < LAYERFS_PROBE_TTL_MS) return Promise.resolve(layerfsProbe.status);
@@ -3355,35 +2683,40 @@ function layerfsReadiness(): Promise<'healthy' | 'unhealthy' | 'unreachable'> {
   })().finally(() => { layerfsProbing = null; });
   return layerfsProbing;
 }
-function healthBase(): Record<string, unknown> {
-  return { ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, self_probe: startupSecurity.snapshot() };
-}
-app.get('/api/health', (_req, res) => {
-  const result = healthBase();
-  if (process.env.LAYERFS_SERVICE_URL && layerfsProbe) result.layerfs = layerfsProbe.status; // 只回缓存的上次结果，不触发探测
-  res.json(result);
-});
-app.get('/api/health/ready', async (_req, res) => {
-  const result = healthBase();
-  if (process.env.LAYERFS_SERVICE_URL) {
-    result.layerfs = await layerfsReadiness();
-    if (result.layerfs !== 'healthy') { result.ok = false; return res.status(503).json(result); }
+function healthBase(req?: express.Request): Record<string, unknown> {
+  // 事项回填的状态只报告（没跑、在跑到第几批、已完成），不因为它没跑完而报不就绪。
+  // 匿名只给 state；批数、游标、核过的事件数会透露事件量，只给带管理口令的请求
+  let backfill: unknown = null;
+  try {
+    const b = svc<WorkItemService>('workItems').backfillStatus();
+    backfill = req && adminTokenCheck(req.headers['x-admin-token'] as string | undefined) ? b : { state: b.state };
+  } catch { /* 事项服务没装上 */ }
+  // 持有管理层授予的主体个数（只给管理口令，只给个数）：0 时团队没有负责人的事项没人能代办放行（存量差异清单 L21）
+  let workItems: Record<string, unknown> | null = null;
+  if (req && adminTokenCheck(req.headers['x-admin-token'] as string | undefined)) {
+    try { workItems = { management_grant_holders: managementGrantHolders() }; } catch { /* 授予服务没装上 */ }
   }
-  res.json(result);
-});
-loginGate.mount(app); // /login、/api/auth/login|logout|me（解析器之后、SPA 回落之前）
+  // 对外断开时健康检查和就绪检查都带上 outbound（匿名只给开关，管理员再给计数）：免得把预发实例当成正常实例
+  const outbound = outboundStatus(Boolean(req && adminTokenCheck(req.headers['x-admin-token'] as string | undefined)));
+  return { ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, ...(workItems ? { work_items: workItems } : {}), ...(outbound ? { outbound } : {}), self_probe: startupSecurity.snapshot(), work_items_backfill: backfill };
+}
+registerHealthRoutes(http, { healthBase, layerfsProbeCached, layerfsReadiness, A2A_DIRECT_SIG, A2A_DIRECT_SIG_BODY, adminRead: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined) });
+// 没有任何主体持有管理层授予：团队没有负责人时，等过目的事项没人能代办放行。只告警、不拒绝启动（存量差异清单 L21）
+try {
+  if (managementGrantHolders() === 0) console.warn('[work-items] 注意：当前没有任何主体持有管理层授予；团队没有负责人时，等过目的事项没人能代办放行。上线前确认至少一人有管理层授予');
+} catch { /* 授予服务没装上 */ }
+registerLoginGateRoutes(http, loginGate.routeDeps); // /login、/api/auth/login|logout|me（解析器之后、SPA 回落之前）
+registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionTtlMs: SESSION_TTL_MIN * 60_000 });
+registerLoginEventRoutes(http); // /login/<方式>/events：离职、停用的失效通知；每天一次对账 // /login/<方式>、/login/<方式>/callback：飞书等发市场会话的登录
 
 // ---------- A2A 网络接入（GH #17 P1：签名卡片 + 人工绑定，只读暴露） ----------
 // 卡片：canonical/签名与上游 card.ts（裁判钉 75a3ebd）逐字节一致；sessionTeams 只列
 // published 且 ≥1 有效绑定的 SOP；不发布 teamMemberships（修订 3：绑定图不出门）。
-app.get('/.well-known/agent-card.json', (_req, res) => {
-  res.json(buildAgentCard(a2aKeyPath()));
-});
+registerAgentCardRoutes(http);
 
 // 人工绑定 API（读写都要 ADMIN_TOKEN + Origin 空或同源——服务端校验跨源，CORS 白名单管不住执行）
 // 管理员口令存储（主人要求「页面手动设置」）：settings.admin_token_sha256（不可逆），
 // 优先级 env ADMIN_TOKEN > 库内值 > 无（未设一律 403）。DB 仅存 sha256，明文不落库。
-const ADMIN_TOKEN_KEY = 'admin_token_sha256';
 function dbAdminTokenSet(): boolean {
   return !!svc<SettingService>('setting').has(ADMIN_TOKEN_KEY);
 }
@@ -3406,12 +2739,25 @@ function dbAdminTokenOk(provided: string | undefined): boolean {
 }
 /** 口令校验：env 优先（启动环境注入），否则库内 sha256 */
 function adminTokenCheck(provided: string | undefined): boolean {
-  return process.env.ADMIN_TOKEN ? adminTokenOk(provided) : dbAdminTokenOk(provided);
+  return adminTokenFromEnv() ? adminTokenOk(provided) : dbAdminTokenOk(provided);
 }
 
+/**
+ * 这个请求落到的路由算不算业务：默认算。只有报了动作、动作的域在系统域白名单（roles.ts 的 SYSTEM_DOMAINS）里的才不算——
+ * 对不上路由的（扩展直接挂的、没报动作的）、域不认识的（扩展自己的域、清单外新长出来的）一律按业务（系统管理员不放行）
+ */
+function businessRoute(req: express.Request): boolean {
+  const spec = http.actionFor(req);
+  return !spec || !SYSTEM_DOMAINS.includes(domainOf(spec.action));
+}
 /** 管理员：有效口令，或本次请求已认定为 Odoo 管理员（见上方预判中间件） */
 function isAdmin(req: express.Request): boolean {
-  return adminTokenCheck(req.headers['x-admin-token']) || odooAdminReqs.has(req);
+  if (adminTokenCheck(req.headers['x-admin-token'])) return true;
+  const marked = odooAdminReqs.get(req);
+  if (!marked) return false;
+  // 系统管理员（只持 admin 授予）：只在系统域的路由上算管理员（属主 2026-11-16 定：系统管理员不看业务数据）；对不上路由、域不认识的都不算
+  if (marked.startsWith('grant-system:')) return !businessRoute(req);
+  return true;
 }
 
 /** 浏览器来源门：带 Sec-Fetch-Site 的必须是同源（Odoo 会话 cookie 是环境凭据，防跨站借用） */
@@ -3471,146 +2817,15 @@ function sameOriginGuard(req: express.Request, res: express.Response): boolean {
   try { return new URL(origin).host === host; } catch { return false; }
 }
 
-/** 任务状态迁移：每次变化恰一条事件（BEGIN IMMEDIATE 串行段·#159 C23 只增不改） */
-function applyTaskTransition<T = void>(taskId: number, action: 'created' | 'toggled' | 'published' | 'withdrawn', actor: string, patch: Record<string, unknown> = {}, inTx?: () => T): T | undefined {
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    if (Object.keys(patch).length) {
-      const sets = Object.keys(patch).map((k) => k + ' = @' + k).join(', ');
-      db.prepare('UPDATE tasks SET ' + sets + ", updated_at = datetime('now') WHERE id = @___id").run({ ...patch, ___id: taskId });
-    }
-    db.prepare("INSERT INTO task_events (task_id, type, actor, actor_kind, payload_json) VALUES (?, ?, ?, 'human', ?)").run(taskId, action, actor, JSON.stringify(patch));
-    const out = inTx?.(); // 同一事务里的附带写（撤回时取消未发出的投递）
-    db.exec('COMMIT');
-    return out;
-  } catch (e) { db.exec('ROLLBACK'); throw e; }
-}
-
 // ---- 任务中心 8 端点（读开放·写删人审·C13 元台只能人工面） ----
-app.post('/api/task-center/tasks', (req, res) => {
-  if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' }); // C10
-  if (!adminGuard(req, res)) return; // C9 无口令 401/403
-  res.status(201).json(publishTaskIntake(req.body ?? {}));
-  kickWorkbenchEvents(); // 工作台事件 v1：发布同事务已记 human 事件，这里立即试投
-});
-registerWorkbenchEventRoutes(app, { admin: adminGuard, sameOrigin: (req) => sameOriginGuard(req, undefined as never) });
-app.get('/api/task-center/tasks', (req, res) => { // 读开放
-  res.json(db.prepare('SELECT * FROM tasks ORDER BY id DESC').all().map(taskListView)); // #309 phase2：列表同样不带 payload_json 私有副本
-});
-app.get('/api/task-center/tasks/:id', wrap(async (req, res) => {
-  const hit = db.prepare('SELECT * FROM tasks WHERE id = ?').get(Number(req.params.id));
-  if (!hit) throw new HttpError(404, 'task not found');
-  const events = db.prepare('SELECT id, type, actor, actor_kind, at, payload_json FROM task_events WHERE task_id = ? ORDER BY id').all(hit.id).map((e: any) => ({...e, action: e.type, detail: JSON.parse(e.payload_json)}));
-  // #309 phase2：详情复制的录入数据与全量投影需 run 级读授权；未授权只回元数据（payload_json 是私有副本）
-  const auth = hit.intake_run_id ? await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, hit.intake_run_id) : { authorized: false };
-  if (auth.authorized) return res.json({ ...taskView(hit), events });
-  res.set('Cache-Control', 'no-store').json({ ...taskListView(hit), events, private_read: 'authorization-required' });
-}));
-// #309 phase2：run 私有读授权管理面（播种 grant／重签 cap／撤销；adminGuard——运维持权人经权威映射操作，不猜归属）
-app.put('/api/sop/runs/:id(\\d+)/read-grants', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const id = Number(req.params.id);
-  sopRunRow(id);
-  const subject = typeof req.body?.subject === 'string' ? req.body.subject.trim() : '';
-  if (!/^(user|mcp):[A-Za-z0-9_.@-]{1,128}$/.test(subject)) bad('subject 形如 user:<Odoo登录名> 或 mcp:<会话名>');
-  const role = typeof req.body?.role === 'string' && req.body.role ? req.body.role.slice(0, 32) : 'reader';
-  const expiresAt = typeof req.body?.expires_at === 'string' && req.body.expires_at ? req.body.expires_at.slice(0, 19) : null;
-  runReadGrantCreate(id, subject, role, expiresAt, 'admin');
-  res.status(201).json({ ok: true, run_id: id, subject, role, expires_at: expiresAt });
-});
-app.post('/api/sop/runs/:id(\\d+)/read-grants/revoke', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const id = Number(req.params.id);
-  const subject = typeof req.body?.subject === 'string' ? req.body.subject.trim() : '';
-  if (!subject) bad('subject 必填');
-  const n = runReadGrantRevoke(id, subject);
-  res.json({ ok: true, run_id: id, subject, revoked: n });
-});
-app.post('/api/sop/runs/:id(\\d+)/read-caps', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const id = Number(req.params.id);
-  sopRunRow(id);
-  const cap = issueRunReadCap(id);
-  res.status(201).json({ ok: true, run_id: id, read_capability: cap, note: '明文仅此一次出现——请立即分发保管' });
-});
-app.post('/api/sop/runs/:id(\\d+)/read-caps/revoke', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const id = Number(req.params.id);
-  const n = runReadCapRevokeAll(id);
-  res.json({ ok: true, run_id: id, revoked_caps: n });
-});
-app.get('/api/task-center/policy', (req, res) => { // C7 读开放
-  res.json(taskCenterPolicy());
-});
-app.get('/api/task-center/template', (req, res) => { // C17 六固定步骤
-  const current = readActiveManifest('task-center');
-  res.json({ version: current?.app.active_version, steps: current?.manifest.steps ?? taskCenterSteps });
-});
-app.put('/api/task-center/policy', (req, res) => {
-  if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
-  if (!adminGuard(req, res)) return;
-  const body = req.body ?? {};
-  if (typeof body.agent_dispatch_enabled !== 'boolean') throw new HttpError(400, 'agent_dispatch_enabled 必须是布尔值');
-  const enabled = body.agent_dispatch_enabled;
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    const changed = taskCenterPolicy().agent_dispatch_enabled !== enabled;
-    db.prepare("UPDATE task_center_policy SET value=? WHERE key='center_switch'").run(enabled ? 'on' : 'off');
-    if (changed) db.prepare("INSERT INTO task_center_events(actor,action,detail) VALUES('human:admin','policy_changed',?)").run(JSON.stringify({agent_dispatch_enabled:enabled}));
-    db.exec('COMMIT');
-  } catch(e) { db.exec('ROLLBACK'); throw e; }
-  res.json({ ok: true, ...taskCenterPolicy() });
-});
-app.patch('/api/task-center/tasks/:id/switch', (req, res) => { // 任务级锁
-  if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
-  if (!adminGuard(req, res)) return;
-  const hit = db.prepare('SELECT id, enabled FROM tasks WHERE id = ?').get(Number(req.params.id));
-  if (!hit) throw new HttpError(404, 'task not found');
-  const nv = hit.enabled ? 0 : 1;
-  applyTaskTransition(hit.id, 'toggled', 'human:' + String((req as express.Request & { adminActor?: string }).adminActor ?? 'human'), { enabled: nv });
-  res.json({ ok: true, enabled: nv === 1 });
-});
-
-// #159 M3 B3（决策 #010）：发布冻结 + 撤回 + agent 派发开关（C2-C6/C8/C11/C18-C22·监督席两对齐）
-app.post('/api/task-center/tasks/:id/publish', (req, res) => {
-  if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
-  if (!adminGuard(req, res)) return;
-  const hit = db.prepare('SELECT * FROM tasks WHERE id = ?').get(Number(req.params.id)) as any;
-  if (!hit) throw new HttpError(404, 'task not found');
-  if (hit.status === 'published') throw new HttpError(409, '已发布不可再写（#159 C11）');
-  if (hit.status === 'withdrawn') throw new HttpError(409, '已撤回任务不可发布');
-  throw new HttpError(409, '旧草稿不得绕过录入 run 发布；请完成 task-center 录入后统一发布');
-
-});
-app.post('/api/task-center/tasks/:id/withdraw', (req, res) => {
-  if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
-  if (!adminGuard(req, res)) return;
-  const hit = db.prepare('SELECT * FROM tasks WHERE id = ?').get(Number(req.params.id)) as any;
-  if (!hit) throw new HttpError(404, 'task not found');
-  if (hit.status !== 'published') throw new HttpError(409, '仅已发布可撤回');
-  const actor = 'human:' + String((req as express.Request & { adminActor?: string }).adminActor ?? 'admin');
-  // 工作台事件 v1：撤回与取消未发出的投递同一事务；正在发送的那次如实报 in_flight
-  const c = applyTaskTransition(hit.id, 'withdrawn', actor, { status: 'withdrawn' }, () => cancelTaskCenterDeliveries(hit.id, actor));
-  res.json({ ok: true, id: hit.id, status: 'withdrawn', cancelled_deliveries: c?.cancelled ?? 0, in_flight_deliveries: c?.in_flight ?? 0 });
-});
-app.patch('/api/task-center/tasks/:id/agent-dispatch', (req, res) => { // 监督席对齐②：任务级 agent 派发开关（默认关·与任务锁语义对齐）
-  if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
-  if (!adminGuard(req, res)) return;
-  const hit = db.prepare('SELECT * FROM tasks WHERE id = ?').get(Number(req.params.id)) as any;
-  if (!hit) throw new HttpError(404, 'task not found');
-  if (hit.status !== 'published') throw new HttpError(409, '仅已发布任务可变更开关');
-  if (req.body?.enabled !== undefined && typeof req.body.enabled !== 'boolean') throw new HttpError(400, 'enabled 必须是布尔值');
-  const enabled = req.body?.enabled ?? !Boolean(hit.agent_dispatch_enabled);
-  const actor = 'human:' + String((req as express.Request & { adminActor?: string }).adminActor ?? 'admin');
-  if (enabled !== Boolean(hit.agent_dispatch_enabled)) applyTaskTransition(hit.id, 'toggled', actor, { agent_dispatch_enabled: enabled ? 1 : 0 });
-  res.json({ ok: true, ...taskView(db.prepare('SELECT * FROM tasks WHERE id=?').get(hit.id)) });
-});
+registerTaskIntakeRoutes(http, { sameOriginGuard, adminGuard });
+registerWorkbenchEventRoutes(http, { admin: adminGuard, sameOrigin: (req) => sameOriginGuard(req, undefined as never), actor: (req) => (!browserMarked(req) && rawLoopback(req) ? 'cli' : adminActor(req)) });
+registerTaskReadRoutes(http, { wrap, adminHeaderOk, runReadCapHeader });
+registerSopRunAccessRoutes(http, { adminGuard, sopRunRow, bad });
+registerTaskControlRoutes(http, { readActiveManifest, sameOriginGuard, adminGuard });
 
 
 
-function maskKey(v: string): string {
-  return v ? '****' : '';
-}
 
 // ---------- 统一绑定面（联合评审①裁定 C · 2026-10-26）：表层统一+语义分离 ----------
 // 一张 bindings 表：direction(admits=入站准入|notify=出站推送|both=显式双授永非默认)。
@@ -3619,204 +2834,35 @@ function maskKey(v: string): string {
 // S3 豁免面可观测（评审席裁下批）：GET /api/remote-allow/diff——安全清单变更管理面可查
 // SSO 回调路由（属主令「都需要」·A 面）：Odoo 登录完 302 回市场统一入口——
 // /sso/callback?redirect=/go/N/&state=xxx → 内域校验 → 302 目标台（会话 cookie 由浏览器自持 Odoo 域·此处只管回跳安全）
-app.get('/sso/callback', (req, res) => {
-  const redirect = String(req.query.redirect ?? '');
-  const state = String(req.query.state ?? '');
-  if (!redirect || !state) return res.status(400).json({ error: 'redirect 和 state 必填（Odoo 登录回跳统一入口）' });
-  {
-    // #170 P9：state 必须与 /go/<id>/ 回跳一一对应（伪造 state 旁路拒）
-    const mId = /^\/go\/(\d+)\//.exec(redirect);
-    if (!mId) return res.status(400).json({ error: 'redirect 形态非法（须 /go/<id>/…）' });
-    const ck = new RegExp('(?:^|;\\s*)wm_sso_' + mId[1] + '=([^;\\s]+)').exec(String(req.headers.cookie ?? ''));
-    if (!ck || ck[1] !== state) return res.status(400).json({ error: 'SSO state 校验失败（请从市场门户重新进入）' });
-  }
-  // open-redirect 护栏：只许内域路径（/ 开头且非 //）；再按浏览器 URL 解析复核——WHATWG 把 \ 当 /，/\evil.com 会被解析成外域（#92）
-  if (!redirect.startsWith('/') || redirect.startsWith('//') || new URL(redirect, 'http://sso.internal/').host !== 'sso.internal') {
-    return res.status(400).json({ error: 'redirect 只许本站路径（/go/... 形态·外域拒）' });
-  }
-  return res.redirect(302, redirect);
-});
+registerSsoRoutes(http);
 
-app.get('/api/remote-allow/diff', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  res.json({ ...lastAllowDiff, snapshot_count: (db.prepare('SELECT COUNT(*) AS n FROM remote_allow_state').get() as { n: number }).n });
-});
+registerRemoteAllowRoutes(http, { adminGuard, lastAllowDiff });
 
-// #19②b 裁 A（direct-2ff2ed21）：治理时间线——版本链+run 历史+验收链三合一面（轻内嵌）
-/** #318 SOP 交付空间「定义」与单次记录的步骤骨架：只回步骤 key / 标题，不回步骤正文 HTML。
- *  可见性同 Runner（issue #11）：published 公开；draft / deprecated 只给管理员。
- *  ?version=N 读该版本（单次记录按 run 的 sop_version 取）；版本目录已冷存时 404，不猜。 */
-app.get('/api/sops/:slug/definition', (req, res) => {
-  const a = getApp(req.params.slug);
-  if (a.kind !== 'sop') throw new HttpError(404, `SOP not found: ${req.params.slug}`);
-  if (a.status !== 'published' && !adminHeaderOk(req)) return res.status(403).set('Cache-Control', 'no-store').json({ error: `SOP ${a.slug} 状态为 ${a.status}，定义仅管理员可见` });
-  const raw = req.query.version;
-  const version = raw === undefined || raw === '' ? a.active_version : Number(raw);
-  if (!Number.isInteger(version) || version < 1) bad('version 必须是正整数');
-  if (!svc<AppService>('app').versionExists(a.id, version)) throw new HttpError(404, `版本不存在: v${version}`);
-  const yamlPath = join(appsRoot, a.slug, `v${version}`, 'sop.yaml');
-  if (!existsSync(yamlPath)) return res.status(404).json({ error: `v${version} 未物化（冷版本），无法读取步骤定义`, code: 'version_not_materialized' });
-  const m = parseSopManifest(readFileSync(yamlPath, 'utf8'));
-  res.json({ slug: a.slug, version, active_version: a.active_version, status: a.status, title: m.title, code: m.code ?? a.code ?? '', description: m.description ?? '', steps: m.steps.map(({ key, title }) => ({ key, title })) });
-});
+registerSopSpaceRoutes(http, { getApp, adminHeaderOk, bad, appsRoot, parseSopManifest });
 
-app.get('/api/sops/:slug/timeline', (req, res) => {
-  const a = getApp(req.params.slug);
-  if (a.kind !== 'sop') throw new HttpError(404, `SOP not found: ${req.params.slug}`);
-  const versions = (db.prepare('SELECT version, changelog, created_by, created_at FROM app_versions WHERE app_id = ? ORDER BY version DESC').all(a.id) as Array<{ version: number; changelog: string; created_by: string; created_at: string }>).map(v => ({ ...v, changelog: (v.changelog || '').slice(0, 200) }));
-  const runs = (svc<SopService>('sop').runsBySlug(a.slug) as unknown as Array<{ id: number; status: string; started_by: string; started_at: string; finished_at: string }>).slice(0, 50).map(r => ({ id: r.id, status: r.status, started_by: r.started_by, started_at: r.started_at, finished_at: r.finished_at }));
-  const receipts = (db.prepare("SELECT r.task_id, r.caller, r.receipt_status, r.run_id FROM a2a_run_ctx r WHERE r.task_id != '' AND r.run_id IN (SELECT id FROM sop_runs WHERE sop_slug = ?)").all(a.slug) as Array<{ task_id: string; caller: string; receipt_status: string; run_id: number }>).map(r => ({ task_id: r.task_id, caller: r.caller, receipt_status: r.receipt_status || 'pending', run_id: r.run_id }));
-  res.json({ slug: a.slug, versions, runs, receipts });
-});
-
-app.get('/api/bindings', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const type = req.query.type === 'app' ? 'app' : 'sop';
-  const slug = String(req.query.slug ?? '').trim();
-  if (!slug) bad('slug 必填：/api/bindings?type=(sop|app)&slug=x');
-  const rows = db.prepare("SELECT id, target_type, target_slug, agent_node, direction, mode, notify_url, remote_api_key, revoked_at, created_by, created_at FROM bindings WHERE target_type = ? AND target_slug = ? ORDER BY id DESC").all(type, slug);
-  res.json(rows.map((r: { remote_api_key: string }) => ({ ...r, remote_api_key: maskKey(r.remote_api_key) })));
-});
-
-app.post('/api/bindings', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const b = req.body ?? {};
-  const targetType = b.target_type === 'app' ? 'app' : 'sop';
-  const slug = typeof b.target_slug === 'string' ? b.target_slug.trim() : '';
-  const node = typeof b.agent_node === 'string' ? b.agent_node.trim() : '';
-  // 评审注 A（direction 显式铁律）：缺 direction 一律 400——不许静默默认任何方向
-  const direction = b.direction;
-  if (direction !== 'admits' && direction !== 'notify' && direction !== 'both') bad('direction 必填且只许 admits|notify|both（显式选择·无默认）');
-  if (!slug) bad('target_slug 必填');
-  // 画布队名与上游 canvas-store validName 同规则：trim 后 1–40 字符、不含 /、不能是纯数字（中间可有空格）
-  const canvasName = /^[a-z][a-z0-9-]*\/canvas\/([^/]{1,40})$/i.exec(node)?.[1];
-  if (!(canvasName !== undefined ? canvasName.trim() === canvasName && !/^\d+$/.test(canvasName) : /^[a-z][a-z0-9-]*\/[a-z0-9][a-z0-9_-]{0,63}$/i.test(node))) bad('agent_node 形态：<zone>/<id8> 或画布队 <zone>/canvas/<name>，如 dsh/1a2b3c4d、dsh/canvas/procurement');
-  const a = getApp(slug);
-  if (a.kind !== targetType) bad(`target_type=${targetType} 与台型不符（${slug} 是 ${a.kind}）`);
-  const mode = targetType === 'sop' && b.mode === 'run' ? 'run' : 'read'; // app 行 mode 恒 read（跨型 CHECK）
-  const remoteKey = targetType === 'sop' && typeof b.remote_api_key === 'string' ? b.remote_api_key.trim() : '';
-  const notifyRaw = typeof b.notify_url === 'string' ? b.notify_url.trim().replace(/\/+$/, '') : '';
-  if (notifyRaw !== '' && !/^https?:\/\/[^\s]+$/.test(notifyRaw)) bad('notify_url 必须是 http(s):// 根地址（达对端：回执投递/推送基址，也是入站验签的取卡地址）');
-  // admits+read 不发回执（P3 口径），但 notify_url 照样留：它是 /a2a/direct 入站验签的取卡地址；notify 向必须带 notify_url
-  const notifyUrl = notifyRaw;
-  if ((direction === 'notify' || direction === 'both') && notifyUrl === '') bad('notify 向绑定必须携带 notify_url');
-  if (targetType === 'sop') sopNode8(slug); // 确保节点短 id 已生成（上卡用）
-  // natural key 命中 → upsert（重绑=刷新字段并复活撤销态·绑定管理语义），首绑/重绑皆 201
-  const existing = db.prepare("SELECT id FROM bindings WHERE target_type = ? AND target_slug = ? AND agent_node = ? AND direction = ?").get(targetType, slug, node, direction) as { id: number } | undefined;
-  if (existing) {
-    db.prepare("UPDATE bindings SET mode = ?, notify_url = ?, remote_api_key = ?, revoked_at = '', created_by = 'admin', created_at = datetime('now') WHERE id = ?").run(mode, notifyUrl, remoteKey, existing.id);
-    res.status(201).json({ ok: true, id: existing.id, upserted: true, target_type: targetType, target_slug: slug, agent_node: node, direction, mode, notify_url: notifyUrl, remote_api_key: maskKey(remoteKey) });
-    return;
-  }
-  const r = db.prepare('INSERT INTO bindings (target_type, target_slug, agent_node, direction, mode, notify_url, remote_api_key, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(targetType, slug, node, direction, mode, notifyUrl, remoteKey, 'admin') as unknown as { lastInsertRowid: number | bigint };
-  res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), target_type: targetType, target_slug: slug, agent_node: node, direction, mode, notify_url: notifyUrl, remote_api_key: maskKey(remoteKey) });
-});
-
-app.delete('/api/bindings/:id', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const id = Number(req.params.id);
-  const hit = db.prepare("SELECT id FROM bindings WHERE id = ? AND revoked_at = ''").get(id) as { id: number } | undefined;
-  if (!hit) throw new HttpError(404, `binding not found: ${id}`);
-  db.prepare("UPDATE bindings SET revoked_at = datetime('now') WHERE id = ?").run(id);
-  res.json({ ok: true, revoked: id });
-});
-
-// 旧面 410 过渡（评审注 B：一版 Location 指新面，下一版 404）——UI/脚本切换缓冲
-app.all('/api/sops/:slug/bindings', (req, res) => {
-  const loc = `/api/bindings?type=sop&slug=${encodeURIComponent(String(req.params.slug ?? ''))}`;
-  res.set('Location', loc).status(410).json({ error: '绑定面已统一：GET/POST /api/bindings（direction 显式必填）', location: loc });
-});
-app.all('/api/sops/:slug/bindings/:id', (req, res) => {
-  res.set('Location', '/api/bindings').status(410).json({ error: '绑定面已统一：DELETE /api/bindings/:id', location: '/api/bindings' });
-});
-app.all('/api/apps/:slug/bindings', (req, res) => {
-  const loc = `/api/bindings?type=app&slug=${encodeURIComponent(String(req.params.slug ?? ''))}`;
-  res.set('Location', loc).status(410).json({ error: '绑定面已统一：GET/POST /api/bindings（direction 显式必填）', location: loc });
-});
-app.all('/api/apps/:slug/bindings/:id', (req, res) => {
-  res.set('Location', '/api/bindings').status(410).json({ error: '绑定面已统一：DELETE /api/bindings/:id', location: '/api/bindings' });
-});
+registerBindingRoutes(http, { adminGuard, getApp });
+registerA2aPeerRoutes(http, { adminGuard, adminActor, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined) }); // 对端登记表：只给管理员
+registerA2aOutboundRoutes(http, {
+  adminGuard,
+  state: () => {
+    const card = buildAgentCard(a2aKeyPath());
+    return {
+      team: MARKET_TEAM,
+      key: existsSync(a2aKeyPath()) ? 'present' : 'missing',
+      card: { name: card.name, session: card.session, team: card.team, expiresAt: card.expiresAt, sessionTeams: (card as any).sessionTeams ?? [] },
+      binding: svc<SopService>('sop').activeBindingCount(),
+    };
+  },
+  send: (target, message, contextId) => a2aSendOutbound(a2aKeyPath(), target, message, contextId),
+}); // A2A 出站：只给管理员，send 只发给已登记的正常对端
 
 // （旧双面绑定 CRUD 已删——统一面 /api/bindings 承接，410 过渡件在上）
 
 // /a2a/direct（P2）：准入开放——有效绑定 + 同 context 续 run + 上游幂等族 + 512KiB + DELIVERED 形状。
 // 查无 SOP 仍 404 不泄露；无绑定/draft/mode 不足 → 200 TASK_STATE_FAILED -32000（对齐上游 admission 形状）。
 // ADMIN_TOKEN 未设置时绑定面休眠（主人裁定：内网信任模型）——direct 对无绑定的 SOP 自然全拒。
-app.post('/a2a/direct', express.json({ limit: '600kb' }), async (req, res) => {
-  const rawBytes = Number(req.headers['content-length'] ?? 0) || JSON.stringify(req.body ?? {}).length;
-  // 入站签名（WM_A2A_DIRECT_SIG）：签名身份对上 caller_session 才进下面的绑定准入
-  if (A2A_DIRECT_SIG !== 'off') {
-    const caller = typeof req.body?.caller_session === 'string' ? req.body.caller_session : '';
-    const presence = directSig.presence(req);
-    let reason = '';
-    if (presence === 'signed') {
-      const v = await directSig.verify(req, (req as unknown as { rawBody?: Buffer }).rawBody ?? Buffer.alloc(0), caller);
-      // accept：调用方没登记取卡地址时验不了，按未签名的老路走（不比无签名更宽）
-      if (!v.ok && !(A2A_DIRECT_SIG === 'accept' && v.reason === 'unregistered')) reason = v.reason;
-    } else if (A2A_DIRECT_SIG === 'require') reason = presence === 'unbound' ? 'unbound-only' : 'absent';
-    if (reason !== '') {
-      console.warn(JSON.stringify({ source: 'a2a-direct-sig', refused: reason }));
-      // 对外把「没登记」与「取不到卡」并成一种，不泄露绑定是否存在
-      const shown = reason === 'unregistered' ? 'no-card' : reason;
-      res.status(401).json({ error: `untrusted-origin: signature verification failed (${shown}) — sign with OriginClaim Sig2 (X-A2A-Caller/-Url/-Ts/-Aud/-Sig2) using the card key published at the address registered on your binding`, code: -32000, task_status: 'TASK_STATE_FAILED' });
-      return;
-    }
-  }
-  // run 操作桥（P2 note 写入走 sop_runs 的哑数据面：step_key=note-<ts> 追加不覆盖）
-  const runOps = {
-    start: (slug: string, startedBy: string): { id: number; read_capability: string } => { const r = sopRunStartCore(slug, startedBy); return { id: r.id, read_capability: r.read_capability }; },
-    uploadToken: (id: number): string => String((db.prepare('SELECT upload_token FROM sop_runs WHERE id = ?').get(id) as { upload_token?: string } | undefined)?.upload_token ?? ''), // P0：派单回执带令牌（创建者即得）
-    saveNote: (runId: number, text: string): Promise<void> => runCheckpoints.serial(runId, async () => {
-      const row = sopRunRow(runId);
-      if (row.status !== 'running') throw new HttpError(409, 'run ' + runId + ' 已 ' + row.status + '，不可再写');
-      const data = row.sop_slug === 'task-center' ? storedRunData(row) : (await runLiveData(row, false, true)).data; // #448: a note is a write too
-      const notes = Array.isArray(data['a2a-notes']) ? data['a2a-notes'] as unknown[] : [];
-      notes.push({ at: new Date().toISOString(), text });
-      data['a2a-notes'] = notes;
-      if (row.sop_slug === 'task-center') {
-        svc<SopService>('sop').runUpdateData(runId, JSON.stringify(data));
-        runCheckpoints.forget(runId); // pure SQLite path must never retain a stale note snapshot
-      } else {
-        runCheckpoints.remember(runId, data, true); // delivered note requires SQLite success before cache publication
-        await runStateRestore(runId, { slug: row.sop_slug, version: row.sop_version, status: row.status, started_by: row.started_by, updated_at: Date.now() }, data, runCacheCheckpoint(sopRunRow(runId)));
-      }
-    }),
-    statusOf: (runId: number): { status: string; steps: number } | null => {
-      const row = svc<SopService>('sop').runStatusData(runId) as { status: string; data: string } | undefined;
-      if (!row) return null;
-      let n = 0;
-      try { n = Object.keys(JSON.parse(row.data || '{}')).length; } catch { n = 0; }
-      return { status: row.status, steps: n };
-    },
-    ctxBind: (contextId: string): number | null => {
-      const hit = svc<SopService>('sop').ctxRunId(contextId) as { run_id: number } | undefined;
-      return hit ? hit.run_id : null;
-    },
-    ctxRegister: (contextId: string, runId: number): void => {
-      svc<SopService>('sop').ctxRegister(contextId, runId);
-    },
-    ctxRegisterSource: (r: { contextId: string; runId: number; taskId: string; caller: string; team: string; receiptStatus: string }): void => {
-      svc<SopService>('sop').ctxRegisterSource(r);
-    },
-    bindingCallback: (slug: string, caller: string): string => {
-      const b = svc<SopService>('sop').bindingByNodeFull(slug, caller) as { callback_url?: string } | undefined;
-      return b?.callback_url ?? '';
-    },
-    ctxAttachCallback: (runId: number, callbackUrl: string): void => {
-      svc<SopService>('sop').ctxSetCallback(runId, callbackUrl);
-    },
-  };
-  try {
-    const out = await a2aDirectHandle(req.body, rawBytes, runOps);
-    res.status(out.httpStatus).json(out.body);
-  } catch (e: any) {
-    res.status(200).json({ error: `direct handler failed: ${String(e?.message ?? e)}`, code: -32000, task_status: 'TASK_STATE_FAILED' });
-  }
-});
-app.get('/a2a/direct', (_req, res) => {
-  res.status(404).json({ error: 'not found' });
-});
+registerSeatTokenRoutes(http, { audiences: () => [marketPublicUrl()], adminGuard }); // 阶段七：席位用节点签名换 1 小时的 MCP 令牌
+registerA2aDirectRoutes(http, { A2A_DIRECT_SIG, A2A_FOLLOWUP_RATE, FETCH_STEP_REFUSALS, directSig, sopRunStartCore, runCheckpoints, sopRunRow, storedRunData, runLiveData, runStateRestore, runCacheCheckpoint });
 
 // ---------- 统一门户：/go/:id/* 反向代理到对应工作台 ----------
 // 所有注册工作台挂到 9800 同域路径下：一个端口号 + 同源（CORS 消失）+
@@ -3827,21 +2873,15 @@ const wbById = (id: number): ReturnType<typeof rowToWorkbench> | null => {
 };
 
 import { MCP_TOOLS, type McpToolDef, type McpToolCategory } from './mcp-tools.ts';
-import { evalCandidates } from './eval.ts'; // #178 评估模型客户端
+import { evalCandidates, evalConfigured } from './eval.ts'; // #178 评估模型客户端
 
 import { renderSopRunner as renderSopRunnerRaw } from './sop-runner.ts';
-import { loadTokensCss, resolveTokensPath } from './design-tokens-css.ts';
-/** #321：执行页内联 DESIGN.md 生成的 --wm-* 变量，与市场前端同色同字号 */
-const renderSopRunner = (manifest: Parameters<typeof renderSopRunnerRaw>[0], app: Parameters<typeof renderSopRunnerRaw>[1]) => renderSopRunnerRaw(manifest, app, loadTokensCss()?.css ?? '');
+import { loadTokensCss } from './design-tokens-css.ts';
 import { sqliteSsoTicketStore } from './sso-ticket-store.ts';
-import { addOdooReturnPath, setSsoTicketStore, odooUrlDeprecated, isOdooLikeTarget, isOdooSessionTarget, odooSessionOf, stripOdooSession, trustedOdooOrigins } from './odoo-session.ts';
-import { collectTasks } from './tasks.ts';
 import { closeYglUpstreams, yglHomeProblem, yglUpstreamRpc } from './mcp-stdio-upstream.ts';
-import { tasksReadAccess, createTaskSourceGrant, revokeTaskSourceGrant } from './tasks-read-access.ts';
-import { odooUrl, odooViewerWhoami, resolveOdooViewer } from './odoo-viewer.ts';
-import { collectExtensionTasks, extensionTaskSourceKeys, loadExtensions } from './extensions.ts';
+import { loadExtensions, extensionRoutesMode, assertExtensionNamespaces } from './extensions.ts';
 import { authorizeRunRead, issueRunReadCap, runReadGrantCreate, runReadGrantRevoke, runReadCapRevokeAll } from './sop-read-auth.ts';
-import { endpointStatsMiddleware, statsPayload } from './endpoint-stats.ts';
+import { endpointStatsMiddleware } from './endpoint-stats.ts';
 import { fetchMainFiles, normalizeSource, SourceError, SOURCE_BRANCH } from './github-source.ts';
 import { checkRecord, parseContract, type DataContract } from './app-data-contract.ts';
 import { sniff, type Sniff } from './file-sniff.ts';
@@ -3864,26 +2904,30 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       if (typeof args?.q === 'string' && args.q) { const k = args.q.toLowerCase(); rows = rows.filter((r) => `${r.name} ${r.description}`.toLowerCase().includes(k)); }
       return rows.slice(0, 200).map((r) => {
       const led = (S.ledgerActive() as any[]).find((l: any) => l.skill_id === r.id && l.status === 'installed');
-      return { slug: r.slug, name: r.name, layer: r.layer, layer_name: r.layer_name, family_parent: r.family_parent, legacy: r.legacy === 1, versions: (S.versionsBySkill(r.id) as any[]).length, active_version: SkillService.currentOf(r, S.versionsBySkill(r.id) as any[])?.version ?? null, is_installed: !!led, current_version: led ? (S.versionsBySkill(r.id) as any[]).find((v) => v.id === led.version_id)?.version ?? null : null }; // #132 P1⑤ MCP
+      return { slug: r.slug, short_name: skillShortName(r.slug), name: r.name, description: String(r.description ?? ''), layer: r.layer, layer_name: r.layer_name, family_parent: r.family_parent, legacy: r.legacy === 1, versions: (S.versionsBySkill(r.id) as any[]).length, active_version: SkillService.currentOf(r, S.versionsBySkill(r.id) as any[])?.version ?? null, is_installed: !!led, current_version: led ? (S.versionsBySkill(r.id) as any[]).find((v) => v.id === led.version_id)?.version ?? null : null }; // #132 P1⑤ MCP
     });
     }
     case 'skill_versions': {
       const S = svc<SkillService>('skill');
       const row = S.skillBySlug(String(args?.slug ?? ''));
       if (!row) return { error: `skill not found: ${args?.slug}` };
-      // #94 S0⑤（K8）：MCP 面同规则——snapshot_path 相对化
+      // 快照路径是服务端的内部文件路径，只给管理员；MCP 会话是代理、不是管理员，一律不带（摘要 tree_digest 照给，核对完整性用）
       const vs = S.versionsBySkill(row.id) as any[];
       const activeV = SkillService.currentOf(row, vs)?.version ?? null;
-      return vs.map((v) => ({ ...v, active: v.version === activeV, snapshot_path: v.snapshot_path ? `skill-snapshots/${encodeURIComponent(row.slug)}/v${v.version}` : v.snapshot_path }));
+      return vs.map((v) => { const { snapshot_path: _snap, ...rest } = v; return { ...rest, active: v.version === activeV }; });
     }
     // 技能传输面：一次只传一个文件，不收也不发压缩包
     case 'skill_file_put':
-      return skillStagePut(args?.content, args?.encoding);
-    case 'skill_publish':
-      // 审计人恒为调用会话（不收 agent 自报的 reviewed_by）
-      return skillPublishCore(args?.slug, args?.files, args?.changelog, subject, { refsOnly: true });
+      return skillStagePut(args?.content, args?.encoding, args?.sha256);
+    case 'skill_publish': {
+      // 审计人恒为调用会话（不收 agent 自报的 reviewed_by）；快照路径只给管理员，MCP 会话的应答里不带（REST 发布要管理口令，照旧带）
+      const { snapshot_path: _snap, ...published } = await skillPublishCore(args?.slug, args?.files, args?.changelog, subject, { refsOnly: true });
+      return published;
+    }
     case 'skill_download':
-      return skillDownloadIssue(args?.slug, args?.version, subject, origin);
+      return skillDownloadIssue(resolveMcpSkillSlug(args?.slug), args?.version, subject, origin);
+    case 'skill_read':
+      return skillRead(args?.slug, args?.path, args?.version);
     case 'skill_install_plan': {
       const S = svc<SkillService>('skill');
       const row = S.skillBySlug(String(args?.slug ?? ''));
@@ -3892,10 +2936,11 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       if (vs.length === 0) return { error: `无版本：${args?.slug}` };
       const target = typeof args?.version === 'number' ? vs.find((v) => v.version === args.version) : SkillService.currentOf(row, vs); // 缺省当前版本
       if (!target) return { error: `版本不存在：v${args?.version}` };
+      // 快照路径是服务端的内部文件路径，只给管理员；MCP 会话是代理、不是管理员，不带。安装提示指向导出包地址
       return {
-        slug: row.slug, version: target.version, tree_digest: target.tree_digest, snapshot_path: `skill-snapshots/${encodeURIComponent(row.slug)}/v${target.version}`, // K8 相对化
+        slug: row.slug, version: target.version, tree_digest: target.tree_digest,
         expected_sha256: target.tree_digest,
-        install_hint: `薄分发（手工落盘）：复制 skill-snapshots/${encodeURIComponent(row.slug)}/v${target.version} → 目标技能目录；以 expected_sha256 钉装校验`,
+        install_hint: '薄分发（手工落盘）：从 export_url 取这一版的导出包（tar），解到目标技能目录；以 expected_sha256 钉装校验',
         export_url: `/api/skills/${encodeURIComponent(row.slug)}/export?version=${target.version}`, // #94 S3②：导出包面（薄分发）
       };
     }
@@ -3907,14 +2952,31 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       const SS = svc<SkillService>('skill');
       const all = (layerFilter >= 1 && layerFilter <= 5 ? SS.skillsByLayer(layerFilter) : SS.skillsAll()) as any[];
       const alive = all.filter((s) => !(s.legacy === 1 && (SS.versionsBySkill(s.id) as any[]).length === 0));
-      const tokens = need.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 2);
+      // 库是空的（或这一层没有）：不调评估模型，直说还没有导入技能——和「有技能但没有够格的」分开，免得新人以为是自己描述得不好
+      if (alive.length === 0) return { need_digest: createHash('sha256').update(need, 'utf8').digest('hex').slice(0, 12), candidates_total: 0, top_n: Math.max(1, Math.floor(Number((args as any)?.top_n ?? 30)) || 30), items: [],
+        note: layerFilter >= 1 && layerFilter <= 5 ? `这一层（layer ${layerFilter}）还没有技能；去掉 layer 再搜，或用 skills_list 看全部` : '这个实例还没有导入技能（技能库是空的），搜不到不是描述的问题；照 access_info 的目录（带参数表）直接用或申请工具' };
+      // 词：按非字母数字切开；连着写的中文再拆成两字一组（「怎么申请工具」→ 怎么、么申、申请、请工、工具），不然整句只算一个词
+      const words = need.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 2);
+      const tokens = [...new Set(words.flatMap((w) => (/\p{Script=Han}/u.test(w) && w.length > 2 ? [...w].slice(0, -1).map((c, i) => c + [...w][i + 1]) : [w])))];
       const scored = alive.map((s) => {
-        const hay = (String(s.name ?? '') + ' ' + String(s.description ?? '') + ' ' + String(s.argument_hint ?? '')).toLowerCase();
+        const hay = (String(s.name ?? '') + ' ' + skillShortName(String(s.slug ?? '')) + ' ' + String(s.description ?? '') + ' ' + String(s.argument_hint ?? '')).toLowerCase();
         let sc = 0;
         for (const t of tokens) { if (!t) continue; if (hay.includes(t)) sc += 1; if (String(s.name ?? '').toLowerCase().includes(t)) sc += 2; }
         return { s, sc };
       });
       scored.sort((a, b) => b.sc - a.sc);
+      // 实例上没配评估模型：退回关键词匹配（标题、短名字、描述），注明不是置信度；配了模型但调不通照旧报错不降级（#178）
+      if (!evalConfigured()) {
+        const hits = scored.filter((x) => x.sc > 0).slice(0, 3).map(({ s, sc }) => {
+          const vs = SS.versionsBySkill(s.id) as any[];
+          const cur = SkillService.currentOf(s, vs)?.version ?? null;
+          return { slug: s.slug, short_name: skillShortName(s.slug), name: s.name, layer: s.layer, description: String(s.description ?? ''), keyword_hits: sc, version: cur, install_plan: { slug: s.slug, version: cur } };
+        });
+        return { need_digest: createHash('sha256').update(need, 'utf8').digest('hex').slice(0, 12), candidates_total: scored.length, match: 'keyword', items: hits,
+          note: hits.length
+            ? '这个实例没有配置评估模型，这是关键词匹配（按标题、短名字、描述里出现的词，命中多的在前），不是置信度；拿不准时用 skill_read 读正文核对'
+            : `这个实例没有配置评估模型，这是关键词匹配：库里 ${scored.length} 个技能都没命中这些词；换几个词再搜，或用 skills_list 看全部（每项带描述）` };
+      }
       // #178 Q2 + S10 回归裁（监督席 direct-25d8fdcd）：**守属主 30 上限** 同时保留「不臆截」精神——
       // ≤30 全量不截断；>30 且可排序取前 30；词法全 0/全并列=无从排序 → 不砍（全量分批交模型）
       // 总工决策 #007（C 案·30/45 冲突裁）：无硬上限 + top-N 参数（缺省 30·沿现值）+ 候选总量披露
@@ -3932,11 +2994,11 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
         const s = qidOf.get(qid);
         const vs = SS.versionsBySkill(s.id) as any[];
         const cur = SkillService.currentOf(s, vs)?.version ?? null;
-        return { slug: s.slug, name: s.name, layer: s.layer, description: String(s.description ?? ''), confidence: pv, version: cur, install_plan: { slug: s.slug, version: cur } };
+        return { slug: s.slug, short_name: skillShortName(s.slug), name: s.name, layer: s.layer, description: String(s.description ?? ''), confidence: pv, version: cur, install_plan: { slug: s.slug, version: cur } };
       });
       try { db.prepare("INSERT INTO mcp_calls (at, session_name, method, tool, ok, error, duration_ms, args_sha256) VALUES (datetime('now'), ?, 'tools/call', 'skill_search', 1, '', 0, ?)").run('skill_search', need_digest); } catch { /* 审计失败不阻 */ }
       const _total = { candidates_total: candidatesTotal, top_n: topN }; // #007 总量披露（恒报·含未截断）
-      return items.length ? { need_digest, ..._total, items } : { need_digest, ..._total, items: [], note: '无置信度大于 0.7 的技能' };
+      return items.length ? { need_digest, ..._total, items } : { need_digest, ..._total, items: [], note: `库里有 ${candidatesTotal} 个技能，没有置信度大于 0.7 的；换个说法再搜，或用 skills_list 按关键词看全部、用 skill_read 读正文` };
     }
 
     case 'workbench_list': {
@@ -3950,6 +3012,8 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
     case 'workbench_summary':
       return summaryPayload();
     case 'workbench_check': {
+      // 对外断开（预发）：和 check-all 一样不探
+      if (outboundOff()) { noteBlocked('health-check'); throw new HttpError(503, '对外已断开（WM_OUTBOUND=off），不做探活'); }
       if (args?.all) {
         const settings = getSettings();
         const limit = Math.max(1, Number(settings.health_concurrency) || 8);
@@ -4052,37 +3116,39 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       });
     // 工作台注册 CRUD（agent 登记外部台——与 REST 同链；凭据字段不接受：传入即拒）
     case 'workbench_register': {
-      if (args?.auth !== undefined) throw new HttpError(400, '凭据不接受 MCP 写入——请人工经市场页配置');
-      const w = workbenchCreateCore(args, { subject });
+      mcpWorkbenchGuard(args);
+      const w = workbenchCreateCore(args, { subject, viaMcp: true });
       return maskForApi(w);
     }
     case 'workbench_update': {
-      if (args?.auth !== undefined) throw new HttpError(400, '凭据不接受 MCP 写入——请人工经市场页配置');
+      mcpWorkbenchGuard(args);
       const { id: _ignored, ...rest } = args ?? {};
-      const w = workbenchUpdateCore(Number(args?.id), rest, { subject });
+      const w = workbenchUpdateCore(Number(args?.id), rest, { subject, viaMcp: true });
       return maskForApi(w);
     }
     case 'workbench_unregister':
-      return workbenchDeleteCore(Number(args?.id));
+      // MCP 会话不是人：卡片的台库里有数据时一律 409（要管理层来删）
+      return await workbenchDeleteCore(Number(args?.id), { kind: 'session', name: String(subject).replace(/^mcp:/, '') });
     case 'workbench_vars_get':
-      return mcpVarsGet(args);
+      return await mcpVarsGet(args);
     case 'workbench_vars_set':
-      return mcpVarsSet(args, subject);
+      return await mcpVarsSet(args, subject);
     case 'app_data_list': {
       const a = getApp(String(args?.slug ?? ''));
       const limit = pageLimit(args?.limit);
       const beforeId = pageBeforeId(args?.before_id);
       const rows = beforeId > 0
-        ? svc<AppDataService>('appData').dataPage(a.slug, beforeId, limit)
-        : svc<AppDataService>('appData').dataPage(a.slug, 0, limit);
+        ? await svc<AppDataService>('appData').dataPage(a.slug, beforeId, limit)
+        : await svc<AppDataService>('appData').dataPage(a.slug, 0, limit);
       const items = (rows as any[]).map((r) => ({ id: r.id, data: JSON.parse(r.data || '{}'), created_by: r.created_by, created_at: r.created_at }));
       return { slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null };
     }
     case 'app_data_submit': {
       // 与 REST POST /api/apps/:slug/data 同一核心（契约校验、幂等、事件推送）；违约 → 400 + violations 原样
-      const a = getApp(String(args?.slug ?? ''));
+      const a = getApp(String(args?.slug ?? ''), true);
       if (args?.data === undefined || args?.data === null) bad('data 必填');
-      const out = submitAppData(a, { data: args.data, createdBy: args?.created_by ?? subject, idempotencyKey: args?.idempotency_key });
+      // 工具调用凭的是会话令牌（席位、agent），不看 cookie
+      const out = await submitAppData(a, { data: args.data, createdBy: args?.created_by ?? subject, idempotencyKey: args?.idempotency_key, subject, channel: { name: 'app-data.tool', hasCredential: false } });
       if (out.status >= 400) throw new HttpError(out.status, String(out.body.error), { violations: out.body.violations });
       return { ...out.body, status: out.status };
     }
@@ -4091,38 +3157,55 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       const limit = pageLimit(args?.limit);
       const beforeId = pageBeforeId(args?.before_id);
       const rows = beforeId > 0
-        ? svc<AppDataService>('appData').filePage(a.slug, beforeId, limit)
-        : svc<AppDataService>('appData').filePage(a.slug, 0, limit);
+        ? await svc<AppDataService>('appData').filePage(a.slug, beforeId, limit)
+        : await svc<AppDataService>('appData').filePage(a.slug, 0, limit);
       const items = (rows as any[]).map((r) => ({ ...r, url: `/api/apps/${a.slug}/files/${r.id}` }));
-      return { slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null, quota: appFilesQuota(a.slug) };
+      return { slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null, quota: await appFilesQuota(a.slug) };
     }
     case 'app_files_upload': {
       // #164 P1②（批派令）：MCP 侧上传——base64 入 app_files（与 REST multipart 同表同链）
       const slug = String(args?.slug ?? '').trim();
-      const name = fixFileName(String(args?.name ?? '').trim());
+      // 文件名照原样用（#815）：MCP 的参数是 JSON，本来就是 UTF-8。fixFileName 是给 multipart 修 busboy 的 latin1 乱码用的，
+      // 套在这里会把部分中文名弄成控制字符（合成.csv → "\b\u0010.csv"）。名字和 REST 原始字节上传同样校验
+      const name = String(args?.name ?? '').trim();
       const b64 = String(args?.content_base64 ?? '');
       if (!slug || !name || !b64) throw new HttpError(400, 'slug/name/content_base64 必填');
-      const a = getApp(slug);
-      const buf = Buffer.from(b64, 'base64');
+      if (name.length > 255 || name === '.' || name === '..' || /[\/\\\x00-\x1f]/.test(name)) throw new HttpError(400, '文件名不合法（≤255 字符，不含路径分隔符与控制字符）');
+      const a = getApp(slug, true);
+      // 完整性：有的 MCP 客户端会把过长的参数截短（常见截在 64KB）。截在 4 的倍数上的 base64 照样能解码，
+      // 不核就会把残缺文件当正常文件存下。所以：base64 严格校验；调用方带了 size / sha256 就逐项对；
+      // 恰好 65536 字符又没带 size / sha256 的，按疑似截断拒收（要么带上 size / sha256，要么改用 REST 原始字节上传）。
+      const compact = b64.replace(/\s+/g, '');
+      if (!/^[A-Za-z0-9+/_-]*={0,2}$/.test(compact) || compact.length % 4 !== 0) throw new HttpError(400, `content_base64 不是完整的 base64（长 ${compact.length} 字符）：可能在传输中被截断，请改用 REST 原始字节上传，或带上 size / sha256 重传`);
+      const wantSize = args?.size === undefined || args?.size === null || args?.size === '' ? null : Number(args.size);
+      const wantSha = args?.sha256 === undefined || args?.sha256 === null || args?.sha256 === '' ? null : String(args.sha256).toLowerCase();
+      if (wantSize !== null && (!Number.isSafeInteger(wantSize) || wantSize <= 0)) throw new HttpError(400, 'size 须为正整数（原始字节数）');
+      if (wantSha !== null && !/^[0-9a-f]{64}$/.test(wantSha)) throw new HttpError(400, 'sha256 须为 64 位十六进制');
+      if (compact.length === 65536 && wantSize === null && wantSha === null) throw new HttpError(400, 'content_base64 恰好 65536 字符，疑似被客户端截在 64KB：请带上 size（原始字节数）或 sha256 重传，大文件改用 REST 原始字节上传');
+      const buf = Buffer.from(compact, 'base64');
       if (!buf.length) throw new HttpError(400, 'content_base64 解码为空');
       if (buf.length > UPLOAD_MAX) throw new HttpError(413, `文件超 100MB 上限（${buf.length}B）`);
-      if (appFilesQuota(a.slug).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`); // #193 F8：全量计数；上限与浏览器上传共用
-      // 与浏览器上传同一套内容类型检查：扩展名与内容不符、或是可执行文件 → 拒收；相符则存规范 MIME
-      const kind = sniff(name, buf.subarray(0, 1024 * 1024), buf.length <= 1024 * 1024, String(args?.mime ?? ''));
-      if (kind.verdict === 'mismatch' || kind.verdict === 'executable') throw new HttpError(415, `文件类型不符：${kind.reason}`);
-      const dir = join(dataDir, 'uploads');
-      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-      const safe = name.replace(/[^\w.\u4e00-\u9fa5-]+/g, '_').slice(0, 80);
-      const fname = `${Date.now().toString(36)}-${safe}`;
-      const abs = join(dir, fname);
-      writeFileSync(abs, buf);
-      const rel = abs.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
-      const createdBy = String(args?.created_by ?? '').trim().slice(0, 128);
-      const note = String(args?.note ?? '').trim().slice(0, 500);
-      const sha256 = createHash('sha256').update(buf).digest('hex');
-      const r = svc<AppDataService>('appData').fileInsert(a.slug, name, kind.mime, buf.length, rel, createdBy, note, sha256) as unknown as { lastInsertRowid: number | bigint };
-      const id = Number(r.lastInsertRowid);
-      return { ok: true, id, slug: a.slug, name, mime: kind.mime, size: buf.length, sha256, note, url: `/api/apps/${a.slug}/files/${id}` };
+      if (wantSize !== null && buf.length !== wantSize) throw new HttpError(400, `收到 ${buf.length} 字节，声明 ${wantSize} 字节：内容可能在传输中被截断，未保存`);
+      if (wantSha !== null && createHash('sha256').update(buf).digest('hex') !== wantSha) throw new HttpError(400, `收到内容的 sha256 与声明不符（收到 ${buf.length} 字节）：内容可能在传输中被截断或改动，未保存`);
+      // 查文件数上限 → 落盘 → 插入，排在这个台的写入队里（并发的两笔不会一起用掉最后一个名额）
+      return svc<AppDataService>('appData').serialWrites(a.slug, async () => {
+        if ((await appFilesQuota(a.slug)).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`); // #193 F8：全量计数；上限与浏览器上传共用
+        // 与浏览器上传同一套内容类型检查：扩展名与内容不符、或是可执行文件 → 拒收；相符则存规范 MIME
+        const kind = sniff(name, buf.subarray(0, 1024 * 1024), buf.length <= 1024 * 1024, String(args?.mime ?? ''));
+        if (kind.verdict === 'mismatch' || kind.verdict === 'executable') throw new HttpError(415, `文件类型不符：${kind.reason}`);
+        const dir = join(dataDir, 'uploads');
+        if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+        const safe = name.replace(/[^\w.\u4e00-\u9fa5-]+/g, '_').slice(0, 80);
+        const fname = `${Date.now().toString(36)}-${safe}`;
+        const abs = join(dir, fname);
+        writeFileSync(abs, buf);
+        const rel = abs.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
+        const createdBy = String(args?.created_by ?? '').trim().slice(0, 128);
+        const note = String(args?.note ?? '').trim().slice(0, 500);
+        const sha256 = createHash('sha256').update(buf).digest('hex');
+        const id = await svc<AppDataService>('appData').fileInsert(a.slug, name, kind.mime, buf.length, rel, createdBy, note, sha256);
+        return { ok: true, id, slug: a.slug, name, mime: kind.mime, size: buf.length, sha256, note, url: `/api/apps/${a.slug}/files/${id}`, ...uploadIntegrity(wantSha, wantSize) };
+      });
     }
     default:
       throw new HttpError(400, `未知工具: ${name}`);
@@ -4147,6 +3230,7 @@ function mcpUpstreams(): McpUpstream[] {
     if (!raw) return [];
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return [];
+    if (outboundOff()) return []; // 对外断开：库里随副本带来的上游一律按关处理
     return arr.filter((u: any) => u && typeof u.prefix === 'string' && MCP_UPSTREAM_PREFIX_RE.test(u.prefix) && u.enabled !== false
       && (u.kind === 'ygl-trees' ? typeof u.ygl_home === 'string' : (u.kind === undefined && typeof u.url === 'string' && /^https?:\/\//.test(u.url))));
   } catch {
@@ -4179,7 +3263,8 @@ async function upstreamRpc(u: McpUpstream, method: string, params: unknown, id =
 /** 聚合工具面：本地 + 各上游（<prefix>__<name>）；上游失败时跳过其工具，并记入 upstreamHealth。
  *  上游工具的类别按其 annotations.readOnlyHint：明说只读才算 read，其余一律按 write（保守）。 */
 async function mcpAggregatedTools(): Promise<McpToolDef[]> {
-  const out: McpToolDef[] = [...MCP_TOOLS];
+  // 数据视图的工具：入口关着时不在目录里
+  const out: McpToolDef[] = MCP_TOOLS.filter((t) => BENCH_VIEWS.on || !t.benchScoped);
   const ups = mcpUpstreams();
   for (const u of ups) {
     const cached = upstreamToolCache.get(u.prefix);
@@ -4223,45 +3308,6 @@ async function mcpRegisteredNames(): Promise<Set<string>> {
   return new Set((await mcpAggregatedTools()).map((t) => t.name));
 }
 
-app.get('/api/mcp/upstreams', (req, res, next) => {
-  if (!adminGuard(req, res)) return;
-  // 先走一遍聚合（有缓存时不打上游），让每个上游都带上可达状态
-  void mcpAggregatedTools().then(() => {
-    res.json(mcpUpstreams().map((u) => {
-      const h = upstreamHealth.get(u.prefix);
-      return { prefix: u.prefix, kind: u.kind ?? 'http', url: u.url ?? '', ygl_home: u.ygl_home, enabled: u.enabled !== false, headers: Object.keys(u.headers ?? {}), toolCallTimeoutMs: u.toolCallTimeoutMs ?? 15000,
-        reachable: h ? h.reachable : null, tools: h?.tools ?? 0, last_error: h?.last_error ?? '', last_ok_at: h?.last_ok_at ?? '', last_checked_at: h?.last_checked_at ?? '' };
-    }));
-  }).catch(next);
-});
-
-app.put('/api/mcp/upstreams', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const arr = req.body?.upstreams;
-  if (!Array.isArray(arr)) bad('upstreams 必须是数组（整体替换语义）');
-  const clean: McpUpstream[] = [];
-  for (const u of arr) {
-    if (!u || typeof u.prefix !== 'string' || !MCP_UPSTREAM_PREFIX_RE.test(u.prefix)) bad(`prefix 规范：[a-z][a-z0-9]{0,15}——${JSON.stringify(u?.prefix)}`);
-    if (clean.some((x) => x.prefix === u.prefix)) bad(`上游前缀重复：${u.prefix}`);
-    if (u.kind !== undefined && u.kind !== 'ygl-trees') bad(`上游 ${u.prefix} 的 kind 只能是 ygl-trees 或不写`);
-    if (u.kind === 'ygl-trees') {
-      // 只认服务端自己解析的 ygl-trees 入口，配置里不能写命令、参数或环境变量
-      if (u.url !== undefined || u.headers !== undefined || u.command !== undefined || u.args !== undefined || u.env !== undefined) bad(`上游 ${u.prefix}（ygl-trees）只接受 prefix、ygl_home、enabled、toolCallTimeoutMs`);
-      const why = yglHomeProblem(u.ygl_home);
-      if (why) bad(`上游 ${u.prefix}：${why}`);
-      clean.push({ prefix: u.prefix, kind: 'ygl-trees', ygl_home: u.ygl_home, url: '', enabled: u.enabled !== false, toolCallTimeoutMs: Number(u.toolCallTimeoutMs) || 30000 });
-      continue;
-    }
-    if (typeof u.url !== 'string' || !/^https?:\/\//.test(u.url)) bad(`上游 ${u.prefix} 的 url 必须是 http(s)://`);
-    if (u.headers !== undefined && (typeof u.headers !== 'object' || u.headers === null || Object.values(u.headers).some((v) => typeof v !== 'string'))) bad(`上游 ${u.prefix} 的 headers 必须是字符串映射`);
-    clean.push({ prefix: u.prefix, url: u.url, headers: u.headers ?? {}, enabled: u.enabled !== false, toolCallTimeoutMs: Number(u.toolCallTimeoutMs) || 15000 });
-  }
-  svc<SettingService>('setting').upsertStmt().run('mcp_upstreams', JSON.stringify(clean));
-  upstreamToolCache.clear();
-  closeYglUpstreams();
-  res.json({ ok: true, upstreams: clean.map((u) => ({ prefix: u.prefix, kind: u.kind ?? 'http', url: u.url, ygl_home: u.ygl_home, enabled: u.enabled !== false })) });
-});
-
 
 // #284 缺省开（fail closed）：未设/空/on 均开网关，只有显式 MCP_GATEWAY=off 才关并在启动时告警；
 // 其它值拒绝启动（防拼写错误静默放开）。重启漏带环境变量不再把 /mcp 退回匿名可调。
@@ -4282,42 +3328,14 @@ function sha256Hex(s: string): string {
   return createHash('sha256').update(s, 'utf8').digest('hex');
 }
 
-function mcpSessionByToken(token: string): { id: number; name: string; grants: string[] } | null {
+function mcpSessionByToken(token: string): { id: number; name: string; grants: string[]; seat?: string; tokenRef?: string } | null {
   const row = svc<McpService>('mcp').sessionByToken(sha256Hex(token)) as { id: number; name: string; grants: string } | undefined;
-  if (!row) return null;
+  // 不是管理员发的会话令牌：再看是不是席位换来的短期令牌（每次都复核席位和节点仍有效，见 services/seat-tokens.ts）
+  if (!row) return seatTokenSession(sha256Hex(token));
   let grants: string[] = [];
   try { grants = JSON.parse(row.grants || '[]'); } catch { grants = []; }
   return { id: row.id, name: row.name, grants };
 }
-
-// 控制面（全部 X-Admin-Token 常量时间 + Origin 空或同源；MCP 零会话/令牌/授权写工具——人工锁）
-app.post('/api/mcp/sessions', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const name = typeof req.body?.name === 'string' ? req.body.name.trim().toLowerCase() : '';
-  if (!MCP_SESSION_NAME_RE.test(name)) bad('name 规范：小写字母开头，小写字母/数字/连字符，≤64 字符');
-  const dup = svc<McpService>('mcp').sessionByName(name);
-  if (dup) bad(`会话名已存在: ${name}`);
-  // mcp/ 命名空间独立于 dsh/<id8>（A2A 自报身份不混用；关联靠人登记 a2a_node 字段，仅关联不授权）
-  const token = randomBytes(32).toString('hex');
-  const r = svc<McpService>('mcp').sessionCreateStmt()
-    .run(name, sha256Hex(token), '[]') as unknown as { lastInsertRowid: number | bigint }; // 新会话授权空=默认拒绝
-  res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), name, token, grants: [], note: 'token 仅此一次出现——库存 sha256 无取回接口，请立即分发保管' });
-});
-
-app.get('/api/mcp/sessions', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const rows = svc<McpService>('mcp').sessions();
-  res.json(rows.map((r: any) => ({ ...r, grants: JSON.parse(r.grants || '[]') })));
-});
-
-app.delete('/api/mcp/sessions/:id', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const id = Number(req.params.id);
-  const hit = svc<McpService>('mcp').sessionById(id);
-  if (!hit) throw new HttpError(404, `session not found: ${id}`);
-  svc<McpService>('mcp').sessionRevoke(id); // 软吊销立即生效留审计
-  res.json({ ok: true, revoked: id });
-});
 
 /** grants 校验口径（#379，整体替换与批准申请共用）：注册表里有的保留；不在注册表的，只有 held 里已有的才不报错——
  *  所属上游已配置但暂不可达 → 保留（kept_unavailable）；其余（工具已下线/改名）→ 剔除（dropped）。held 之外的未知名 400。 */
@@ -4327,6 +3345,8 @@ function resolveGrants(raw: unknown[], held: string[], registered: Set<string>):
   for (const g of raw) {
     if (typeof g !== 'string') bad(`工具名必须是字符串: ${JSON.stringify(g)}`);
     const name = g as string;
+    // 数据视图的工具不经这里授予：台里是业务数据，由台的管理层在台上批（/api/bench-views/<台>/mcp-grants）
+    if (BENCH_GRANT_RE.test(name) || BENCH_TOOL_NAMES.has(parseGrant(name).tool)) bad(`${parseGrant(name).tool.split('@')[0]} 是数据视图的工具，必须限定到台，由台的管理层在台上授予，不经 MCP 网关页`);
     const scoped = parseGrant(name);
     if (scoped.wid !== null) { // #452 工具@台：工具须支持按台授权、台须存在；已持有但台已删除的剔除
       if (!registered.has(scoped.tool)) bad(`未知工具名: ${JSON.stringify(scoped.tool)}（合法面见 GET /api/mcp/tools）`);
@@ -4345,52 +3365,33 @@ function resolveGrants(raw: unknown[], held: string[], registered: Set<string>):
   return { saved, dropped, keptUnavailable };
 }
 
-app.put('/api/mcp/sessions/:id/grants', (req, res, next) => {
-  if (!adminGuard(req, res)) return;
-  const id = Number(req.params.id);
-  const sess = svc<McpService>('mcp').sessionById(id);
-  if (!sess) throw new HttpError(404, `session not found: ${id}`);
-  const raw = req.body?.grants;
-  if (!Array.isArray(raw)) bad('grants 必须是工具名数组（整体替换语义）');
-  // 注册表 = 本地工具 + 上游聚合工具（P2：taste__rules 等也可授权）
-  // #379：会话已持有、但当前注册表里没有的名字不再让整次保存 400——
-  //   所属上游已配置但暂不可达 → 保留（上游恢复后照常生效，不被无声挤掉）；其余（工具已下线/改名）→ 剔除并在 dropped 里列明。
-  //   新加的未知名字仍然 400（防拼写错误）。
-  let held: string[] = [];
-  try { held = JSON.parse(String((sess as { grants?: string }).grants || '[]')); } catch { held = []; }
-  void mcpRegisteredNames().then((registered) => {
-    try {
-      const { saved, dropped, keptUnavailable } = resolveGrants(raw, held, registered);
-      svc<McpService>('mcp').sessionGrants(id, JSON.stringify(saved));
-      res.json({ ok: true, id, grants: saved, dropped, kept_unavailable: keptUnavailable });
-    } catch (e) {
-      next(e);
-    }
-  }).catch(next);
-});
-
-app.get('/api/mcp/tools', (req, res, next) => {
-  if (!adminGuard(req, res)) return;
-  // 本地 + 上游聚合面（上游不可达时只列本地，不报错）
-  void mcpAggregatedTools()
-    .then((tools) => res.json(tools.map((t) => ({ name: t.name, description: t.description, category: t.category, ...(MCP_SCOPED_TOOLS.has(t.name) ? { scopable: true } : {}), ...(t.exempt ? { always_allowed: true } : {}) }))))
-    .catch(next);
-});
-
-app.get('/api/mcp/calls', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const limit = Math.min(Number(req.query.limit) || 200, 1000);
-  const rows = svc<McpService>('mcp').calls(limit);
-  res.json(rows);
-});
-
 // ---------- MCP 权限自助：access_info / access_request（免 grants）+ 管理员审批面 ----------
 // 会话只能看和申请；批准、驳回只走下面的管理员 REST（adminGuard：口令或 Odoo 管理员），会话令牌不是管理身份，自己批不了。
 const MCP_EXEMPT_TOOLS = new Set(MCP_TOOLS.filter((t) => t.exempt).map((t) => t.name));
-/** #452 可按台授权（工具@台）的工具：按 id 参数取工作台的。以后可扩到 app_data_* / app_files_* / app_sync（按 slug）。
+/** 权限自助的两个（由 mcpAccessTool 应答）；别的免授权工具（读技能的三个）照常走 callTool */
+const MCP_ACCESS_TOOLS: ReadonlySet<string> = new Set(['access_info', 'access_request']);
+/** #452 可按台授权（工具@台）的工具：按 id 参数取工作台的；读台数据和附件的两个按 slug 取，台 id 是这个自产台在市场里的卡片（/apps/<slug>/）。
+ *  不带 @ 的全局授权照旧是全部台（和 vars 一样）。以后可扩到 app_files_upload / app_sync。
  *  依赖 workbenches.id 为 AUTOINCREMENT、不复用：台删除后旧的 工具@台 要到下次保存才剔除，期间新台拿不到旧 id。
  *  例外：从备份恢复库或 sqlite_sequence 被重置时，要先清理各会话 grants 里的 工具@台。 */
-const MCP_SCOPED_TOOLS: ReadonlySet<string> = new Set(['workbench_vars_get', 'workbench_vars_set']);
+const MCP_SCOPED_TOOLS: ReadonlySet<string> = new Set(['workbench_vars_get', 'workbench_vars_set', 'app_data_list', 'app_files_list']);
+/** 按 slug 限定到台的工具：授权里的台 id 对的是这个自产台的市场卡片 */
+const MCP_APP_SCOPED_TOOLS: ReadonlySet<string> = new Set(['app_data_list', 'app_files_list']);
+/** 一次调用落在哪张台上：按 slug 的取自产台卡片的编号（没登记卡片的台为 null，只有全局授权能读），其余按 id 参数。
+ *  id 和工具自己同一口径（workbenchIdOf：十进制正整数、不带前导零）；写法不对的不算任何一张台（null，按台外拒绝）——
+ *  不能像 Number() 那样把 '0x2'、'02'、'2.0' 认成台 2 */
+function mcpScopeTarget(toolName: string, args: any): number | null {
+  if (MCP_APP_SCOPED_TOOLS.has(toolName)) return wmWorkbenchIdFor(`/apps/${String(args?.slug ?? '')}/`);
+  try { return workbenchIdOf(args?.id); } catch { return null; }
+}
+/** 会话能不能对这个台用这个工具（MCP 内嵌 REST 的下载不走工具分发，在这里核） */
+function mcpToolAllowsApp(sess: McpSess | null, toolName: string, slug: string): boolean {
+  const scope = mcpToolScope(sess, toolName);
+  if (scope === null) return false;
+  if (scope === 'all') return true;
+  const wid = mcpScopeTarget(toolName, { slug });
+  return wid !== null && scope.has(wid);
+}
 /** 授权串 'tool' 或 'tool@<台 id>'；@ 后不是正整数的整串当工具名（随后按未知工具名 400） */
 function parseGrant(g: string): { tool: string; wid: number | null } {
   const m = /^(.+)@([1-9]\d{0,9})$/.exec(g);
@@ -4399,15 +3400,29 @@ function parseGrant(g: string): { tool: string; wid: number | null } {
 const ACCESS_REQUEST_HOURLY_MAX = 10;
 const ACCESS_REASON_MAX = 500;
 const ACCESS_STATUSES = ['pending', 'approved', 'rejected'];
-type McpSess = { id: number; name: string; grants: string[] };
+/** seat：席位换来的令牌认出来的席位（<host>:<seat_id>）；claimed：请求头 X-Team-Seat 自报的，只进审计对账，不认作身份或授权 */
+type McpSess = { id: number; name: string; grants: string[]; seat?: string; tokenRef?: string; claimed?: string };
 type AccessRequestRow = { id: number; session_id: number; tools: string; reason: string; status: string; decided_by: string; decided_at: string; note: string; created_at: string };
 function parseToolList(raw: string): string[] {
   try { const v = JSON.parse(raw || '[]'); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []; } catch { return []; }
 }
-/** 会话看到的申请：不带 decided_by（管理员身份不外露给会话） */
-function accessRequestForSession(r: Pick<AccessRequestRow, 'id' | 'tools' | 'reason' | 'status' | 'note' | 'decided_at' | 'created_at'>) {
-  return { id: r.id, tools: parseToolList(r.tools), reason: r.reason, status: r.status, note: r.note, decided_at: r.decided_at || null, created_at: r.created_at };
+/** 库里的 UTC 时刻（sqlTime：「2026-11-12 08:00:00」）或毫秒数，对会话统一成 ISO（带 Z）；空、写不出的为 null */
+function isoOf(v: unknown): string | null {
+  if (v === null || v === undefined || v === '') return null;
+  const ms = typeof v === 'number' ? v : /^\d{4}-\d\d-\d\d[ T]\d\d:\d\d(:\d\d(\.\d+)?)?$/.test(String(v)) ? Date.parse(String(v).replace(' ', 'T') + 'Z') : Date.parse(String(v));
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
 }
+/** 申请对会话的编号：通用申请 mcp-N，台的申请 bench-N（两套编号各自从 1 起，不带前缀会撞号） */
+const ACCESS_REF_RE = /^(mcp|bench)-([1-9]\d{0,11})$/;
+/** 会话看到的申请：不带 decided_by（管理员身份不外露给会话）；时刻统一成 ISO */
+function accessRequestForSession(r: Pick<AccessRequestRow, 'id' | 'tools' | 'reason' | 'status' | 'note' | 'decided_at' | 'created_at'>) {
+  return { id: r.id, ref: `mcp-${r.id}`, tools: parseToolList(r.tools), reason: r.reason, status: r.status, note: r.note, decided_at: isoOf(r.decided_at), created_at: isoOf(r.created_at) };
+}
+function benchRequestForSession<T extends { id: number; created_at: unknown; decided_at: unknown }>(r: T) {
+  return { ...r, ref: `bench-${r.id}`, created_at: isoOf(r.created_at), decided_at: isoOf(r.decided_at) };
+}
+/** 申请之后怎么知道批没批：两种申请同一套说法 */
+const accessNext = (ref: string) => `批了就立即生效：回头调 access_info {ref: "${ref}"} 看这一条的 status（approved / rejected，驳回时 note 里有原因），批了之后 tools/list 会多出这些工具。等的时候可以接着申请别的。`;
 
 /** 对外基址：设了 MARKET_PUBLIC_URL 用它（反代/TLS 终止后 req.protocol 不可信），否则按本次请求的主机 */
 function mcpPublicOrigin(req: express.Request): string {
@@ -4425,16 +3440,34 @@ function mcpRestInfo(origin: string) {
 
 async function mcpAccessTool(name: string, args: any, sess: McpSess | null, origin: string): Promise<unknown> {
   const catalog = await mcpAggregatedTools();
+  if (name === 'access_info' && args?.ref !== undefined) {
+    // 只查一条：只认本会话的；别的会话的和不存在的同一句
+    const m = typeof args.ref === 'string' ? ACCESS_REF_RE.exec(args.ref.trim()) : null;
+    if (!m) bad('ref 写成 mcp-<编号>（通用申请）或 bench-<编号>（台的申请），编号见 access_request 的应答');
+    const id = Number(m![2]);
+    const notFound = () => bad(`本会话没有这条申请：${args.ref}`);
+    if (!sess) notFound();
+    if (m![1] === 'mcp') {
+      const row = svc<McpService>('mcp').accessRequestById(id) as AccessRequestRow | undefined;
+      if (!row || row.session_id !== sess!.id) notFound();
+      return { request: accessRequestForSession(row!) };
+    }
+    const row = BENCH_VIEWS.on ? benchRequestOfSession(sess!.id, id) : null;
+    if (!row) notFound();
+    return { request: benchRequestForSession(row!) };
+  }
   if (name === 'access_info') {
     const granted = (t: McpToolDef) => mcpToolGranted(sess, t.name); // 网关关时全部可调
+    const benchGrants = sess && BENCH_VIEWS.on ? benchGrantsOf(sess.id) : new Map<string, string[]>();
     const scopeOf = (t: McpToolDef) => { const sc = mcpToolScope(sess, t.name); return sc && sc !== 'all' ? [...sc].sort((a, b) => a - b) : null; };
     return {
       gateway: MCP_GATEWAY_ON ? 'on' : 'off',
       session: sess?.name ?? null,
       granted_tools: catalog.filter(granted).map((t) => t.name),
-      catalog: catalog.map((t) => ({ name: t.name, description: t.description, category: t.category, granted: granted(t), ...(scopeOf(t) ? { granted_workbenches: scopeOf(t) } : {}), ...(MCP_SCOPED_TOOLS.has(t.name) ? { scopable: true } : {}), ...(t.exempt ? { always_allowed: true } : {}) })),
+      catalog: catalog.map((t) => ({ name: t.name, description: t.description, category: t.category, granted: granted(t), input_schema: t.inputSchema, ...(t.benchScoped ? { bench_scoped: true, scope: '必须限定到台', granted_benches: benchGrants.get(t.name) ?? [] } : {}), ...(scopeOf(t) ? { granted_workbenches: scopeOf(t) } : {}), ...(MCP_SCOPED_TOOLS.has(t.name) ? { scopable: true } : {}), ...(t.exempt ? { always_allowed: true } : {}) })),
       requests: sess ? (svc<McpService>('mcp').accessRequestsBySession(sess.id) as AccessRequestRow[]).map(accessRequestForSession) : [],
-      how_to_request: `access_request {tools: [工具名], reason: 用途}；只要一张台时写 工具@台id（目前 ${[...MCP_SCOPED_TOOLS].join(' / ')} 支持）；管理员在「MCP 网关」页「权限申请」批准后立即生效（并入现有授权）`,
+      ...(BENCH_VIEWS.on ? { bench_requests: sess ? benchRequestsOf(sess.id).map(benchRequestForSession) : [], how_to_request_bench: 'access_request {tools: [工具名@bench:台的标识], reason: 用途}：数据视图的工具必须限定到台，读也一样；一次只申请一个台；由台的管理层批准，不经 MCP 网关页' } : {}),
+      how_to_request: `access_request {tools: [工具名], reason: 用途}；只要一张台时写 工具@台号（数字台号，workbench_list 里的 id；自产台、SOP 台也可以写台的标识，服务端换成台号；目前 ${[...MCP_SCOPED_TOOLS].join(' / ')} 支持）；管理员在「MCP 网关」页「权限申请」批准后立即生效（并入现有授权）`,
       ...mcpRestInfo(origin),
     };
   }
@@ -4445,16 +3478,41 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
   if (!Array.isArray(raw) || raw.length === 0) bad('tools 必须是非空的工具名数组');
   if (raw.length > 100) bad('tools 一次最多 100 个');
   const known = new Set(catalog.map((t) => t.name));
+  // 数据视图的工具：必须写成 工具@bench:台，一次一个台，不和别的工具混着申请；交给台的管理层批
+  const benchAsk = (raw as unknown[]).map((t) => (typeof t === 'string' ? BENCH_GRANT_RE.exec(t) : null));
+  const bare = (raw as unknown[]).find((t): t is string => typeof t === 'string' && BENCH_TOOL_NAMES.has(parseGrant(t).tool.split('@')[0]) && !BENCH_GRANT_RE.test(t));
+  if (BENCH_VIEWS.on && bare !== undefined) bad(`${bare.split('@')[0]} 是数据视图的工具，必须限定到台：写成 ${bare.split('@')[0]}@bench:<台的标识>（读也一样）`);
+  if (BENCH_VIEWS.on && benchAsk.some((m) => m && BENCH_TOOL_NAMES.has(m[1]))) {
+    if (!benchAsk.every((m) => m && BENCH_TOOL_NAMES.has(m[1]))) bad('数据视图的工具单独申请，不和别的工具写在同一条里');
+    const benches = [...new Set(benchAsk.map((m) => resolveBenchRef(m![2])))]; // 写卡片 id 也认：申请和授予按台标识记
+    if (benches.length !== 1) bad('一条申请只能是一个台的；几个台分开申请');
+    let made;
+    try { made = requestBenchTools(s.id, benches[0], benchAsk.map((m) => m![1]), args?.reason, Date.now()); } catch (e) { throw benchToolError(e); }
+    const request = benchRequestForSession(made.request);
+    // 台存不存在照旧不核（没有授予的会话看不出台存不存在，docs/data-views.md 第十节 3b）：写清写错了会怎样、拿什么去核对
+    return { ...made, request, note: `${made.note}——拿不准时把申请编号 ${request.ref} 和标识「${benches[0]}」交给给你任务的人核对。`, next: accessNext(request.ref) };
+  }
+  // 工具@台 的「台」也可以写自产台、SOP 台的标识（工具@<slug>）：服务端换成台号再记；换不到和数字台号不存在同一句
+  const asked: string[] = [];
   for (const t of raw) {
+    const bySlug = typeof t === 'string' ? /^(.+)@([a-z0-9][a-z0-9-]{0,63})$/.exec(t) : null;
+    if (bySlug && !/^\d+$/.test(bySlug[2]) && known.has(bySlug[1])) {
+      if (!MCP_SCOPED_TOOLS.has(bySlug[1])) bad(`${bySlug[1]} 暂不支持按台申请（目前只有 ${[...MCP_SCOPED_TOOLS].join(' / ')}）`);
+      const wid = wmWorkbenchIdFor(`/apps/${bySlug[2]}/`) ?? wmWorkbenchIdFor(`/sop/${bySlug[2]}/`);
+      if (wid === null) bad(`台不存在: ${bySlug[2]}`);
+      asked.push(`${bySlug[1]}@${wid}`);
+      continue;
+    }
     const p = typeof t === 'string' ? parseGrant(t) : null;
     if (!p || !known.has(p.tool)) bad(`不在工具目录里: ${JSON.stringify(t)}（先调 access_info 查目录）`);
     if (p!.wid !== null) {
       if (!MCP_SCOPED_TOOLS.has(p!.tool)) bad(`${p!.tool} 暂不支持按台申请（目前只有 ${[...MCP_SCOPED_TOOLS].join(' / ')}）`);
       if (!svc<WorkbenchService>('workbench').exists(p!.wid)) bad(`台不存在: ${p!.wid}`);
     }
+    asked.push(t as string);
   }
   // 已有全局授权的工具，再申请它的 工具@台 也算已可用
-  const wanted = [...new Set(raw as string[])].filter((t) => !MCP_EXEMPT_TOOLS.has(t) && !s.grants.includes(t) && !s.grants.includes(parseGrant(t).tool)).sort();
+  const wanted = [...new Set(asked)].filter((t) => !MCP_EXEMPT_TOOLS.has(t) && !s.grants.includes(t) && !s.grants.includes(parseGrant(t).tool)).sort();
   if (!wanted.length) bad('申请的工具本会话都已可用，无需申请');
   const reason = typeof args?.reason === 'string' ? args.reason.trim() : '';
   if (!reason) bad('reason 必填：写清要用这些工具做什么');
@@ -4472,7 +3530,7 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
       out = { ok: true, duplicate: false, request: accessRequestForSession(mcp.accessRequestById(Number(r.lastInsertRowid)) as AccessRequestRow) };
     }
     db.exec('COMMIT');
-    return out;
+    return { ...out, next: accessNext(out.request.ref) };
   } catch (e) {
     db.exec('ROLLBACK');
     throw e;
@@ -4482,6 +3540,8 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
 /** 审批人：Odoo 管理员记登录名，口令记 admin-token（口令本身不落库） */
 function adminActor(req: express.Request): string {
   const odoo = odooAdminReqs.get(req);
+  if (odoo?.startsWith('grant:')) return odoo.slice('grant:'.length); // 站内管理员：留痕记主体（user:<名>）
+  if (odoo?.startsWith('grant-system:')) return odoo.slice('grant-system:'.length); // 系统管理员：同样记主体
   return odoo ? `odoo:${odoo}` : 'admin-token';
 }
 function accessRequestId(req: express.Request): number {
@@ -4490,72 +3550,7 @@ function accessRequestId(req: express.Request): number {
   return id;
 }
 
-app.get('/api/mcp/access-requests', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const status = typeof req.query.status === 'string' ? req.query.status : '';
-  if (status && !ACCESS_STATUSES.includes(status)) bad('status 只能是 pending / approved / rejected');
-  const limit = pageLimit(req.query.limit, 200, 1000);
-  const rows = svc<McpService>('mcp').accessRequests(status, limit) as (AccessRequestRow & { session_name: string | null; session_revoked_at: string | null })[];
-  res.json(rows.map((r) => ({ ...r, tools: parseToolList(r.tools), session_revoked: !!r.session_revoked_at || r.session_name === null })));
-});
-
-// 批准 = 申请的工具并入会话 grants（并集）+ 改申请状态 + 审计行，同一事务；已吊销会话不能批
-app.post('/api/mcp/access-requests/:id/approve', (req, res, next) => {
-  if (!adminGuard(req, res)) return;
-  const id = accessRequestId(req);
-  const note = String(req.body?.note ?? '').trim().slice(0, ACCESS_REASON_MAX);
-  const actor = adminActor(req);
-  void mcpRegisteredNames().then((registered) => {
-    const mcp = svc<McpService>('mcp');
-    db.exec('BEGIN IMMEDIATE');
-    try {
-      const r = mcp.accessRequestById(id) as AccessRequestRow | undefined;
-      if (!r) throw new HttpError(404, `access request not found: ${id}`);
-      if (r.status !== 'pending') throw new HttpError(409, `申请已处理（${r.status}），不能再批准`);
-      const sess = mcp.sessionFull(r.session_id) as { id: number; name: string; grants: string; revoked_at: string } | undefined;
-      if (!sess || sess.revoked_at) throw new HttpError(409, '会话已吊销，不能批准（可驳回）');
-      const tools = parseToolList(r.tools);
-      const before = parseToolList(sess.grants);
-      // 与 PUT grants 同一口径（resolveGrants）：申请的工具当作「已持有」参与判定——上游暂不可达的保留，已下线的剔除；
-      // 申请的工具若被剔除就整单 409（不做部分批准），原有授权里已下线的名字顺带按同口径清掉
-      const { saved: after, dropped, keptUnavailable } = resolveGrants([...before, ...tools], [...before, ...tools], registered);
-      const gone = tools.filter((t) => dropped.includes(t));
-      if (gone.length) throw new HttpError(409, `已不可用（工具已下线，或 工具@台 的台已删除）：${gone.join(', ')}（请驳回后让会话重新申请）`);
-      const added = tools.filter((t) => !before.includes(t));
-      mcp.sessionGrants(sess.id, JSON.stringify(after));
-      mcp.accessRequestDecide(id, 'approved', actor, note);
-      mcp.grantAuditInsert(sess.id, id, 'access_request_approve', actor, JSON.stringify(before), JSON.stringify(after), note);
-      db.exec('COMMIT');
-      res.json({ ok: true, id, status: 'approved', session: sess.name, added, grants: after, dropped, kept_unavailable: keptUnavailable });
-    } catch (e) {
-      db.exec('ROLLBACK');
-      next(e);
-    }
-  }).catch(next);
-});
-
-app.post('/api/mcp/access-requests/:id/reject', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const id = accessRequestId(req);
-  const note = String(req.body?.note ?? '').trim().slice(0, ACCESS_REASON_MAX);
-  const actor = adminActor(req);
-  const mcp = svc<McpService>('mcp');
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    const r = mcp.accessRequestById(id) as AccessRequestRow | undefined;
-    if (!r) throw new HttpError(404, `access request not found: ${id}`);
-    if (r.status !== 'pending') throw new HttpError(409, `申请已处理（${r.status}），不能再驳回`);
-    const sess = mcp.sessionFull(r.session_id) as { grants: string } | undefined;
-    const grants = sess?.grants || '[]';
-    mcp.accessRequestDecide(id, 'rejected', actor, note);
-    mcp.grantAuditInsert(r.session_id, id, 'access_request_reject', actor, grants, grants, note); // 驳回不动 grants
-    db.exec('COMMIT');
-  } catch (e) {
-    db.exec('ROLLBACK');
-    throw e;
-  }
-  res.json({ ok: true, id, status: 'rejected' });
-});
+registerMcpRoutes(http, { adminGuard, bad, sha256Hex, MCP_UPSTREAM_PREFIX_RE, MCP_SESSION_NAME_RE, MCP_SCOPED_TOOLS, ACCESS_STATUSES, ACCESS_REASON_MAX, upstreamHealth, upstreamToolCache, mcpUpstreams, mcpAggregatedTools, mcpRegisteredNames, resolveGrants, pageLimit, parseToolList, adminActor, accessRequestId });
 
 // ---------- /mcp 与 REST（/api/mcp-rest/*）共用：会话认定、审计、tools/call ----------
 type McpChannel = 'mcp' | 'rest';
@@ -4572,15 +3567,18 @@ function mcpGatewaySession(req: express.Request, res: express.Response): McpSess
     return undefined;
   }
   svc<McpService>('mcp').sessionTouched(sess.id);
-  return sess;
+  const claimed = req.headers['x-team-seat'];
+  return typeof claimed === 'string' && claimed !== '' ? { ...sess, claimed: claimed.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 128) } : sess;
 }
 function mcpAudit(sess: McpSess | null, channel: McpChannel, method: string, tool: string, ok: boolean, error: string, durationMs: number, args: unknown): void {
   if (!MCP_GATEWAY_ON || !sess) return;
   svc<McpService>('mcp').callInsertStmt()
-    .run(sess.name, method, tool, ok ? 1 : 0, error, durationMs, sha256Hex(JSON.stringify(args ?? {})), channel); // 不存参数原文
+    .run(sess.name, method, tool, ok ? 1 : 0, error, durationMs, sha256Hex(JSON.stringify(args ?? {})), channel, sess.seat ?? '', sess.claimed ?? '', sess.tokenRef ?? ''); // 不存参数原文
 }
 /** 会话对某工具的授权范围（#452）：'all'＝免授权/全局授权/网关关；台 id 集合＝只授权了 工具@台；null＝无权 */
 function mcpToolScope(sess: McpSess | null, toolName: string): 'all' | Set<number> | null {
+  // 数据视图的工具不看会话的 grants，也不因为网关关了就放开：只认 services/bench-mcp.ts 里按台记的授予（mcpInvokeTool 里另核）
+  if (BENCH_TOOL_NAMES.has(toolName)) return null;
   if (!sess || MCP_EXEMPT_TOOLS.has(toolName) || (!toolName.includes('@') && sess.grants.includes(toolName))) return 'all'; // 全局授权只认不带 @ 的工具名
   if (!MCP_SCOPED_TOOLS.has(toolName)) return null;
   const ids = new Set<number>();
@@ -4589,7 +3587,15 @@ function mcpToolScope(sess: McpSess | null, toolName: string): 'all' | Set<numbe
 }
 /** 会话可调用（列目录用）：免授权工具 + grants（含只限定到某些台的）；网关关时全部可调 */
 function mcpToolGranted(sess: McpSess | null, toolName: string): boolean {
+  // 数据视图的工具：在任何一个台上有授予就算（列目录用；具体哪个台在调用时核）
+  if (BENCH_TOOL_NAMES.has(toolName)) return BENCH_VIEWS.on && !!sess && benchGrantsOf(sess.id).has(toolName);
   return mcpToolScope(sess, toolName) !== null;
+}
+/** 台库的错对外的样子：代号、说明、细目；内部错误只有固定的一句，原始的错进日志 */
+function benchToolError(e: unknown): Error {
+  if (!(e instanceof BenchError)) return e instanceof Error ? e : new Error(String(e));
+  if (e.code === 'internal') console.error(`[bench-mcp] 内部错误：${String((e.cause as Error | undefined)?.message ?? e.cause ?? '')}`);
+  return new HttpError(e.http, e.message, { error: e.code, ...(e.details.length ? { details: e.details } : {}) });
 }
 type McpInvokeResult =
   | { kind: 'not_granted' }
@@ -4597,16 +3603,31 @@ type McpInvokeResult =
   | { kind: 'error'; error: any; upstream: boolean };
 /** tools/call 唯一执行链：授权检查 → 免授权工具 / 上游转发 / 本地工具 → 审计。两个渠道各自把结果映射成自己的应答形状。 */
 async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, channel: McpChannel, origin: string, t0 = Date.now()): Promise<McpInvokeResult> {
+  if (BENCH_TOOL_NAMES.has(toolName)) {
+    // 数据视图的工具：授予按「会话 × 台 × 工具」核。入口关着、没有会话、没有授予、台没登记，都按未授权处理
+    try {
+      const store = await benchToolTarget(BENCH_VIEWS.on, sess ? sess.id : null, toolName, args);
+      if (!store) { mcpAudit(sess, channel, 'tools/call', toolName, false, 'not granted: bench scope', Date.now() - t0, args); return { kind: 'not_granted' }; }
+      const out = await runBenchTool(store, toolName, args, `mcp:${sess!.name}`, Date.now());
+      mcpAudit(sess, channel, 'tools/call', toolName, true, '', Date.now() - t0, args);
+      return { kind: 'ok', out, upstream: false };
+    } catch (e: any) {
+      const err = benchToolError(e);
+      mcpAudit(sess, channel, 'tools/call', toolName, false, String(err.message).slice(0, 200), Date.now() - t0, args);
+      return { kind: 'error', error: err, upstream: false };
+    }
+  }
   const scope = mcpToolScope(sess, toolName);
-  // 限定到台的授权在分发前按 id 参数核对（与工具自身同样 Number(args.id) 解析），台外按未授权处理并记审计
-  if (scope === null || (scope !== 'all' && !scope.has(Number(args?.id)))) {
+  // 限定到台的授权在分发前核对：按 id 参数（与工具自身同样用 workbenchIdOf 解析，写法不对的算台外），读台数据和附件的按 slug 找卡片；台外按未授权处理并记审计
+  const target = scope !== null && scope !== 'all' ? mcpScopeTarget(toolName, args) : null;
+  if (scope === null || (scope !== 'all' && (target === null || !scope.has(target)))) {
     mcpAudit(sess, channel, 'tools/call', toolName, false, scope === null ? 'not granted' : 'not granted: workbench scope', Date.now() - t0, args);
     return { kind: 'not_granted' };
   }
   // 上游路由（P2）：<prefix>__<tool> → 转发到对应上游 MCP
   const up = MCP_EXEMPT_TOOLS.has(toolName) ? null : routeUpstream(toolName);
   try {
-    const out = MCP_EXEMPT_TOOLS.has(toolName)
+    const out = MCP_ACCESS_TOOLS.has(toolName)
       ? await mcpAccessTool(toolName, args ?? {}, sess, origin)
       : up
       ? await upstreamRpc(up.upstream, 'tools/call', { name: up.remoteTool, arguments: args ?? {} }, 2, sess ? `mcp/${sess.name}` : undefined)
@@ -4619,84 +3640,7 @@ async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, 
   }
 }
 
-// /mcp 网关化（MCP_GATEWAY=on）：Bearer 有效→会话；无效/缺失/吊销→401+WWW-Authenticate（含 initialize，无兼容期）
-app.post('/mcp', async (req, res) => {
-  const msg = req.body ?? {};
-  const fail = (code: number, message: string) => res.json({ jsonrpc: '2.0', id: msg.id ?? null, error: { code, message } });
-
-  // 网关会话判定 + 审计
-  const sess = mcpGatewaySession(req, res);
-  if (sess === undefined) return;
-  const audit = (method: string, tool: string, ok: boolean, error: string, durationMs: number, args: unknown) =>
-    mcpAudit(sess, 'mcp', method, tool, ok, error, durationMs, args);
-  const t0 = Date.now();
-
-  if (typeof msg !== 'object' || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') {
-    audit('invalid', '', false, 'Invalid Request', 0, msg);
-    return fail(-32600, 'Invalid Request');
-  }
-  if (msg.id === undefined || msg.id === null) return res.status(202).end(); // notification（含 notifications/initialized）——stateless 无会话态需要跟踪
-  try {
-    if (msg.method === 'initialize') {
-      const want = typeof msg.params?.protocolVersion === 'string' ? msg.params.protocolVersion : '';
-      audit('initialize', '', true, '', Date.now() - t0, msg.params);
-      const rest = mcpRestInfo(mcpPublicOrigin(req));
-      return res.json({
-        jsonrpc: '2.0', id: msg.id,
-        result: {
-          protocolVersion: MCP_KNOWN_PROTOCOLS.includes(want) ? want : MCP_PROTOCOL,
-          capabilities: { tools: {} },
-          serverInfo: { name: 'workbench-market', version: '0.1.0', title: '工作台市场' },
-          instructions: `缺工具先调 access_info。大文件上传下载与资源读取可用同一会话令牌走 REST：${rest.rest_base}（OpenAPI：${rest.openapi_url}）`,
-          ...rest,
-        },
-      });
-    }
-    if (msg.method === 'ping') {
-      audit('ping', '', true, '', Date.now() - t0, null);
-      return res.json({ jsonrpc: '2.0', id: msg.id, result: {} });
-    }
-    if (msg.method === 'tools/list') {
-      const all = await mcpAggregatedTools(); // 本地 + 上游（P2 聚合）
-      // 按授权过滤；access_info / access_request 始终列出（缺权限时靠它们看目录、提申请）
-      const tools = all.filter((t) => mcpToolGranted(sess, t.name))
-        .map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
-      audit('tools/list', '', true, '', Date.now() - t0, null);
-      return res.json({ jsonrpc: '2.0', id: msg.id, result: { tools } });
-    }
-    if (msg.method === 'tools/call') {
-      if (typeof msg.params?.name !== 'string') {
-        audit('tools/call', '', false, 'params.name 必填', Date.now() - t0, msg.params);
-        return fail(-32602, 'params.name 必填');
-      }
-      // 未授权与不存在同应答——不泄露存在性
-      const toolName = msg.params.name;
-      const r = await mcpInvokeTool(sess, toolName, msg.params?.arguments, 'mcp', mcpPublicOrigin(req), t0);
-      if (r.kind === 'not_granted') return fail(-32601, `Method not found: ${msg.method}`); // 与未知工具同文案族
-      if (r.kind === 'ok') {
-        // 上游结果已是 MCP 形状（{content,isError?}）→ 原样透传（下游客户端语义无损）；
-        // 本地工具结果是业务对象 → 序列化为 text content。
-        const out = r.out;
-        if (r.upstream && out && typeof out === 'object' && Array.isArray((out as any).content)) {
-          return res.json({ jsonrpc: '2.0', id: msg.id, result: out });
-        }
-        return res.json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }] } });
-      }
-      // 工具执行失败按 MCP 规范走 isError（协议层错误才用 JSON-RPC error）
-      // 带具名字段的错误（如数据契约 violations）把状态码与字段原样附在后面，agent 能逐条改
-      const e = r.error;
-      const detail = e instanceof HttpError && e.extra ? `\n${JSON.stringify({ status: e.status, ...e.extra })}` : '';
-      return res.json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: `执行失败：${e?.message || e}${detail}` }], isError: true } });
-    }
-    audit(msg.method, '', false, 'Method not found', Date.now() - t0, msg.params);
-    return fail(-32601, `Method not found: ${msg.method}`);
-  } catch (e: any) {
-    audit(msg.method, '', false, 'Internal error', Date.now() - t0, msg.params);
-    return fail(-32603, `Internal error: ${e?.message || e}`);
-  }
-});
-app.get('/mcp', (_req, res) => res.status(405).json({ error: 'stateless StreamableHTTP：仅支持 POST（无服务端会话流）' }));
-app.delete('/mcp', (_req, res) => res.status(405).json({ error: '无会话可终止（stateless）' }));
+registerMcpProtocolRoutes(http, { mcpGatewaySession, mcpAudit, mcpRestInfo, mcpPublicOrigin, MCP_KNOWN_PROTOCOLS, MCP_PROTOCOL, mcpAggregatedTools, mcpToolGranted, mcpInvokeTool });
 
 // ---------- MCP 工具的 OpenAPI REST 开放：不说 MCP 协议的客户端用同一个会话令牌按 REST 调同一批工具 ----------
 // 认证、授权、审计、上游转发全走上面的共用链（mcpGatewaySession / mcpInvokeTool），只换应答形状。
@@ -4772,7 +3716,9 @@ function mcpRestResourceOps(): { path: string; method: 'get' | 'put' | 'post'; t
   const json = (description: string) => ({ description, content: { 'application/json': { schema: { type: 'object' } } } });
   const uploaded = { description: '已入库', content: { 'application/json': { schema: { type: 'object', required: ['id', 'sha256', 'mime', 'size', 'url'], properties: {
     id: { type: 'integer' }, slug: { type: 'string' }, name: { type: 'string' }, mime: { type: 'string' }, size: { type: 'integer' }, sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
-    note: { type: 'string' }, url: { type: 'string', description: 'REST 下载地址' }, download_url: { type: 'string', description: '台页面用的下载地址' } } } } } };
+    note: { type: 'string' }, url: { type: 'string', description: 'REST 下载地址' }, download_url: { type: 'string', description: '台页面用的下载地址' },
+    integrity: { type: 'string', enum: ['sha256-verified', 'unverified'], description: 'sha256-verified：服务端已按请求里的期望 sha256 核对过；unverified：请求没带，比对应答的 sha256 与本地即可' },
+    next: { type: 'string', description: '给 agent 的下一步提示：不需要下载回读' } } } } } };
   const binary = (description: string) => ({
     description,
     headers: { ETag: { description: '强 ETag = 文件 sha256', schema: { type: 'string' } }, 'X-Content-SHA256': { schema: { type: 'string' } }, 'Accept-Ranges': { schema: { type: 'string' } }, 'Content-Range': { schema: { type: 'string' } } },
@@ -4783,14 +3729,14 @@ function mcpRestResourceOps(): { path: string; method: 'get' | 'put' | 'post'; t
   const base = MCP_REST_BASE;
   return [
     { path: `${base}/apps/{slug}/files/{name}`, method: 'put', tool: 'app_files_upload', operationId: 'rest_file_upload', summary: '上传文件（原始字节，流式落盘）',
-      description: '请求体即文件内容（≤100MB），边收边落盘，不经 base64。与浏览器上传同一套核心：按内容识别类型（扩展名与内容不符 415）、台文件数配额。返回 id / sha256 / mime / url。',
-      parameters: [slug, P('name', '文件名（含扩展名，URL 编码）'), Q('note', '备注（≤500 字）', { type: 'string' }), Q('created_by', '提交人（缺省 mcp:<会话名>）', { type: 'string' })],
+      description: '请求体即文件内容（≤100MB），边收边落盘，不经 base64。与浏览器上传同一套核心：按内容识别类型（扩展名与内容不符 415）、台文件数配额。推荐带请求头 X-Content-SHA256：服务端核对，不符 400、不保存。返回 id / sha256 / mime / url / integrity / next；应答的 sha256 是对已保存字节算的，与本地一致即完整，不必下载回读。',
+      parameters: [slug, P('name', '文件名（含扩展名，URL 编码）'), Q('note', '备注（≤500 字）', { type: 'string' }), Q('created_by', '提交人（缺省 mcp:<会话名>）', { type: 'string' }), H('X-Content-SHA256', '期望的文件 sha256（64 位十六进制，推荐带：不符 400、不保存）')],
       requestBody: { required: true, content: { 'application/octet-stream': { schema: { type: 'string', format: 'binary' } }, '*/*': { schema: { type: 'string', format: 'binary' } } } },
       responses: { '201': uploaded }, errors: ['400', '401', '403', '404', '413', '415'] },
     { path: `${base}/apps/{slug}/files`, method: 'post', tool: 'app_files_upload', operationId: 'rest_file_upload_multipart', summary: '上传文件（multipart）',
-      description: 'multipart/form-data：字段 file（单文件 ≤100MB）+ 可选 note / created_by。其余同原始字节上传。',
-      parameters: [slug],
-      requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary' }, note: { type: 'string' }, created_by: { type: 'string' } } } } } },
+      description: 'multipart/form-data：字段 file（单文件 ≤100MB）+ 可选 note / created_by / sha256（期望的 sha256，也可放请求头 X-Content-SHA256，两处都带须一致）。其余同原始字节上传。',
+      parameters: [slug, H('X-Content-SHA256', '期望的文件 sha256（64 位十六进制，推荐带：不符 400、不保存）')],
+      requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary' }, note: { type: 'string' }, created_by: { type: 'string' }, sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' } } } } } },
       responses: { '201': uploaded }, errors: ['400', '401', '403', '404', '413', '415'] },
     { path: `${base}/apps/{slug}/files`, method: 'get', tool: 'app_files_list', operationId: 'rest_files_list', summary: '列文件（倒序分页 + 配额）',
       description: '与 app_files_list 同一结果；items[].url 为 REST 下载地址，quota 为剩余文件数与单文件上限。', parameters: [slug, ...page],
@@ -4817,34 +3763,6 @@ const serveMcpOpenApi = wrap(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store'); // 内容随会话授权变化
   res.json(await mcpOpenApiDoc(req, sess));
 });
-app.get('/openapi.json', serveMcpOpenApi);
-app.get('/api/mcp-rest/openapi.json', serveMcpOpenApi);
-app.post('/api/mcp-rest/tools/:name', wrap(async (req, res) => {
-  const t0 = Date.now();
-  const sess = mcpGatewaySession(req, res);
-  if (sess === undefined) return;
-  const toolName = req.params.name;
-  const args = req.body === undefined ? {} : req.body;
-  if (!args || typeof args !== 'object' || Array.isArray(args)) {
-    mcpAudit(sess, 'rest', 'tools/call', toolName, false, '请求体须为 JSON 对象', Date.now() - t0, null);
-    throw new HttpError(400, '请求体须为 JSON 对象（即工具参数）');
-  }
-  if (!(await mcpRegisteredNames()).has(toolName)) {
-    mcpAudit(sess, 'rest', 'tools/call', toolName, false, 'unknown tool', Date.now() - t0, args);
-    throw new HttpError(404, `未知工具: ${toolName}`, { hint: MCP_REST_DENIED_HINT });
-  }
-  const r = await mcpInvokeTool(sess, toolName, args, 'rest', mcpPublicOrigin(req), t0);
-  if (r.kind === 'not_granted') throw new HttpError(403, `会话未获授权调用 ${toolName}`, { hint: MCP_REST_DENIED_HINT });
-  if (r.kind === 'ok') {
-    // 上游工具自报 isError：工具级失败，按上游错误回 502，结果原样附上
-    if (r.upstream && r.out && typeof r.out === 'object' && (r.out as any).isError === true) return res.status(502).json({ error: `上游工具 ${toolName} 执行失败`, result: r.out });
-    return res.json(r.out ?? null);
-  }
-  // 本地工具错误走统一错误出口（HttpError 状态码 + 具名字段如 violations；校验类普通 Error → 400）；上游传输失败 → 502
-  if (r.upstream && !(r.error instanceof HttpError)) return res.status(502).json({ error: String(r.error?.message ?? r.error).slice(0, 200) });
-  throw r.error;
-}));
-
 // ---------- MCP 内嵌的文件与资源 REST：传文件不走 JSON-RPC 的 base64，下载直接拿二进制 ----------
 // 认证同上（会话 Bearer）；授权映射到现有工具 grants，不另设权限：上传 = app_files_upload，列文件/下载 = app_files_list，
 // 读台数据 = app_data_list，SOP run 元数据与附件 = sop_run_get（附件另过 run 读授权，与 sop_run_get 同一判定）。
@@ -4925,136 +3843,41 @@ async function sendStoredFile(req: express.Request, res: express.Response, f: { 
 }
 const restFileItem = (slug: string, r: any) => ({ ...r, url: `${MCP_REST_BASE}/apps/${slug}/files/${r.id}` });
 
-// 上传（原始字节）：PUT /api/mcp-rest/apps/<slug>/files/<文件名>，请求体即文件内容，边收边算 sha256 边落盘，不整包进内存
-app.put('/api/mcp-rest/apps/:slug/files/:name', wrap(async (req, res) => {
-  res.setHeader('connection', 'close'); // 提前拒绝（401/403/404/413）时不再读剩余请求体
-  const sess = mcpRestSession(req, res, 'app_files_upload', 'file_upload');
-  if (sess === undefined) return;
-  const name = String(req.params.name ?? '').trim();
-  const note = typeof req.query.note === 'string' ? req.query.note.trim().slice(0, 500) : '';
-  const createdBy = typeof req.query.created_by === 'string' && req.query.created_by.trim() ? req.query.created_by.trim().slice(0, 128) : (sess ? `mcp:${sess.name}` : '');
-  await mcpRestRun(sess, 'app_files_upload', 'file_upload', { slug: req.params.slug, name }, async () => {
-    if (!name || name.length > 255 || name === '.' || name === '..' || /[\/\\\x00-\x1f]/.test(name)) bad('文件名不合法（≤255 字符，不含路径分隔符与控制字符）');
-    const a = getApp(req.params.slug);
-    if (appFilesQuota(a.slug).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`, { quota: appFilesQuota(a.slug) });
-    const declared = Number(req.headers['content-length']);
-    if (Number.isFinite(declared) && declared > UPLOAD_MAX) throw new HttpError(413, '文件超 100MB 上限');
-    const abs = join(uploadMonthDir(), uploadFileName(name));
-    const h = createHash('sha256');
-    let size = 0;
-    const meter = new Transform({
-      transform(chunk: Buffer, _enc, cb) {
-        size += chunk.length;
-        if (size > UPLOAD_MAX) return cb(new HttpError(413, '文件超 100MB 上限'));
-        h.update(chunk);
-        cb(null, chunk);
-      },
-    });
-    try {
-      await pipeline(req, meter, createWriteStream(abs));
-    } catch (e) {
-      rmSync(abs, { force: true });
-      if (e instanceof HttpError) throw e; // 超限
-      throw new HttpError(400, `上传中断：${String((e as Error)?.message ?? e).slice(0, 120)}`);
-    }
-    if (size === 0) { rmSync(abs, { force: true }); bad('请求体为空'); }
-    const reported = String(req.headers['content-type'] ?? '').split(';')[0].trim();
-    const sha256 = h.digest('hex');
-    const out = appFileStoreCore(a.slug, { path: abs, size, name, reportedMime: reported === 'application/octet-stream' ? '' : reported, createdBy, note, sha256 });
-    res.status(201).json({ ...out, sha256, url: `${MCP_REST_BASE}/apps/${a.slug}/files/${out.id}`, download_url: out.url });
-  });
-}));
-// 上传（multipart）：POST /api/mcp-rest/apps/<slug>/files，字段 file + 可选 note/created_by——与浏览器上传同一个 multer 与入库核心
-app.post('/api/mcp-rest/apps/:slug/files', wrap(async (req, res) => {
-  res.setHeader('connection', 'close'); // 同上
-  const sess = mcpRestSession(req, res, 'app_files_upload', 'file_upload');
-  if (sess === undefined) return;
-  await mcpRestRun(sess, 'app_files_upload', 'file_upload', { slug: req.params.slug }, async () => {
-    const a = getApp(req.params.slug);
-    if (appFilesQuota(a.slug).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`, { quota: appFilesQuota(a.slug) });
-    await new Promise<void>((resolve, reject) => upload.single('file')(req, res, (err: any) => {
-      if (!err) return resolve();
-      reject(err.code === 'LIMIT_FILE_SIZE' ? new HttpError(413, '文件超 100MB 上限') : new HttpError(400, `上传失败：${err.message}`));
-    }));
-    if (!req.file) bad('缺少 file 字段（multipart/form-data）');
-    const file = req.file!;
-    const createdBy = typeof req.body?.created_by === 'string' && req.body.created_by.trim() ? req.body.created_by.trim().slice(0, 128) : (sess ? `mcp:${sess.name}` : '');
-    const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 500) : '';
-    const sha256 = await fileSha256(file.path);
-    const out = appFileStoreCore(a.slug, { path: file.path, size: file.size, name: fixFileName(file.originalname), reportedMime: file.mimetype || '', createdBy, note, sha256 });
-    res.status(201).json({ ...out, sha256, url: `${MCP_REST_BASE}/apps/${a.slug}/files/${out.id}`, download_url: out.url });
-  });
-}));
-// 列文件（倒序游标分页 + quota）：与 app_files_list 工具同一结果，url 指向 REST 下载
-app.get('/api/mcp-rest/apps/:slug/files', wrap(async (req, res) => {
-  const sess = mcpRestSession(req, res, 'app_files_list', 'files_list');
-  if (sess === undefined) return;
-  const r = await mcpInvokeTool(sess, 'app_files_list', { slug: req.params.slug, limit: req.query.limit, before_id: req.query.before_id }, 'rest', mcpPublicOrigin(req));
-  if (r.kind !== 'ok') throw (r as any).error ?? new HttpError(403, MCP_REST_DENIED_HINT);
-  const out = r.out as { slug: string; items: any[] };
-  res.json({ ...out, items: out.items.map((it) => ({ ...restFileItem(out.slug, it), download_url: it.url })) });
-}));
-// 下载：二进制 + Range + ETag(sha256)
-app.get('/api/mcp-rest/apps/:slug/files/:id', wrap(async (req, res) => {
-  const sess = mcpRestSession(req, res, 'app_files_list', 'file_download');
-  if (sess === undefined) return;
-  await mcpRestRun(sess, 'app_files_list', 'file_download', { slug: req.params.slug, id: req.params.id }, async () => {
-    const a = getApp(req.params.slug);
-    const row = /^\d+$/.test(String(req.params.id)) ? svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug) as any : null;
-    if (!row) throw new HttpError(404, `file not found: ${req.params.id}`);
-    await sendStoredFile(req, res, { abs: join(dataDir, row.storage_path), size: row.size, mime: row.mime, name: row.original_name, sha256: row.sha256,
-      onSha: (sha) => svc<AppDataService>('appData').fileSetSha256(row.id, a.slug, sha) });
-  });
-}));
-// 读台数据（倒序游标分页）：与 app_data_list 工具同一结果
-app.get('/api/mcp-rest/apps/:slug/data', wrap(async (req, res) => {
-  const sess = mcpRestSession(req, res, 'app_data_list', 'data_list');
-  if (sess === undefined) return;
-  const r = await mcpInvokeTool(sess, 'app_data_list', { slug: req.params.slug, limit: req.query.limit, before_id: req.query.before_id }, 'rest', mcpPublicOrigin(req));
-  if (r.kind !== 'ok') throw (r as any).error ?? new HttpError(403, MCP_REST_DENIED_HINT);
-  res.json(r.out);
-}));
 /** SOP run 读授权：与 sop_run_get 同一判定（会话主体 mcp:<会话名> 的 run grant，或 X-Run-Read-Capability） */
 async function mcpRestRunReadable(req: express.Request, sess: McpSess | null, runId: number): Promise<boolean> {
   return (await authorizeRunRead({ cap: runReadCapHeader(req), mcpSubject: sess ? `mcp:${sess.name}` : undefined }, runId)).authorized;
 }
 const runIdParam = (v: unknown): number => { if (!/^\d+$/.test(String(v))) throw new HttpError(404, `run not found: ${v}`); return Number(v); };
-// SOP run 元数据：与 sop_run_get 工具同一结果（未获 run 读授权时只有元数据）
-app.get('/api/mcp-rest/sop/runs/:id', wrap(async (req, res) => {
-  const sess = mcpRestSession(req, res, 'sop_run_get', 'sop_run_get');
-  if (sess === undefined) return;
-  const runId = runIdParam(req.params.id);
-  const cap = runReadCapHeader(req);
-  const r = await mcpInvokeTool(sess, 'sop_run_get', { run_id: runId, ...(cap ? { read_capability: cap } : {}) }, 'rest', mcpPublicOrigin(req));
-  if (r.kind !== 'ok') throw (r as any).error ?? new HttpError(403, MCP_REST_DENIED_HINT);
-  res.json(r.out);
-}));
-app.get('/api/mcp-rest/sop/runs/:id/files', wrap(async (req, res) => {
-  const sess = mcpRestSession(req, res, 'sop_run_get', 'sop_run_files');
-  if (sess === undefined) return;
-  const runId = runIdParam(req.params.id);
-  await mcpRestRun(sess, 'sop_run_get', 'sop_run_files', { run_id: runId }, async () => {
-    sopRunRow(runId); // 404 语义与 run 一致
-    if (!(await mcpRestRunReadable(req, sess, runId))) throw new HttpError(403, 'run read authorization required', { hint: '会话需有该 run 的读授权（run grant），或带 X-Run-Read-Capability' });
-    const items = (svc<SopService>('sop').runFiles(runId) as any[]).map((f) => ({ ...f, url: `${MCP_REST_BASE}/sop/runs/${runId}/files/${f.id}` }));
-    res.json({ run_id: runId, items, count: items.length });
-  });
-}));
-app.get('/api/mcp-rest/sop/runs/:id/files/:fileId', wrap(async (req, res) => {
-  const sess = mcpRestSession(req, res, 'sop_run_get', 'sop_run_file_download');
-  if (sess === undefined) return;
-  const runId = runIdParam(req.params.id);
-  await mcpRestRun(sess, 'sop_run_get', 'sop_run_file_download', { run_id: runId, file_id: req.params.fileId }, async () => {
-    if (!(await mcpRestRunReadable(req, sess, runId))) throw new HttpError(403, 'run read authorization required', { hint: '会话需有该 run 的读授权（run grant），或带 X-Run-Read-Capability' });
-    const row = /^\d+$/.test(String(req.params.fileId)) ? svc<SopService>('sop').runFileById(runId, Number(req.params.fileId)) as any : null;
-    if (!row) throw new HttpError(404, `file not found: ${req.params.fileId}`);
-    await sendStoredFile(req, res, { abs: join(dataDir, row.storage_path), size: row.size, mime: row.mime, name: row.original_name });
-  });
-}));
-import { installPortal, goPrefix, moduleProxy } from './portal.ts';
+registerMcpRestRoutes(http, { wrap, serveMcpOpenApi, mcpGatewaySession, mcpAudit, mcpRegisteredNames, MCP_REST_DENIED_HINT, mcpInvokeTool, mcpPublicOrigin, mcpRestSession, mcpToolAllowsApp, mcpRestRun, bad, getApp, appFilesQuota, APP_FILES_MAX, UPLOAD_MAX, uploadMonthDir, uploadFileName, appFileStoreCore, MCP_REST_BASE, upload, fixFileName, fileSha256, sendStoredFile, restFileItem, mcpRestRunReadable, runIdParam, sopRunRow, runReadCapHeader });
+import { goPrefix, moduleProxy, verifyPortalSsoStateCookie } from './portal.ts';
+import { registerPortalRoutes } from './routes/portal.ts';
+import { stripIncoming as stripPortalForward, verifyPortalForwardStrip, useMarketTokenCheck } from './portal-forward-headers.ts';
+useMarketTokenCheck((token) => mcpSessionByToken(token) !== null); // 门户转发时认得市场的 MCP 会话令牌，摘掉不往台带
 
-setSsoTicketStore(sqliteSsoTicketStore()); // SSO 回调票据落库：重启不丢、同一 DATA_DIR 的实例共享
-installPortal(app, wbById, { serveApp, readActiveManifest, renderSopRunner, appsRoot });
+loginRelay().useTicketStore(sqliteSsoTicketStore()); // SSO 回调票据落库：重启不丢、同一 DATA_DIR 的实例共享
+const portalAccess = createPortalAccess({
+  byId: wbById,
+  viewer: async req => {
+    const login = await loginGate.identity(req);
+    if (!login) return null;
+    if (login.admin || login.via === 'cookie') return { ...login, odooLogins: [] };
+    const who = await identity().resolveViewer(String(req.headers.cookie ?? ''));
+    if (!who.ok) return null;
+    const odooLogins = svc<PrincipalService>('principals').externalIdsOf(who.viewer.sub, 'odoo');
+    return { ...login, admin: who.viewer.admin === true, odooLogins };
+  },
+});
+const portalAccessHttp: express.RequestHandler = (req, res, next) => {
+  portalAccess(req, 'http').then(decision => {
+    if (decision.allow) return next();
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-WM-Access-Denied', decision.reason);
+    const message = decision.reason === 'anonymous' ? '需要先登录。' : decision.reason === 'not-admin' ? '这个工作台只给管理员打开。' : '这个工作台只给指定人员打开。';
+    if (req.headers['sec-fetch-dest'] === 'document' || String(req.headers.accept ?? '').includes('text/html')) return res.status(403).type('html').send('<!doctype html><meta charset="utf-8"><title>无权访问</title><p>'+message+'</p>');
+    res.status(403).json({ error: 'workbench_access_denied', reason: decision.reason, message });
+  }, next);
+};
+registerPortalRoutes(http, wbById, { serveApp, readActiveManifest, renderSopRunner, appsRoot, authorize: portalAccessHttp }); // 门户 /go/（路由在 routes/portal.ts），挂在原来两层中间件的位置
 
 // ---------- 静态托管前端（生产形态：单端口） ----------
 const webDist = join(here, '..', '..', 'web', 'dist');
@@ -5072,12 +3895,7 @@ function sendSurfaceIndex(req: express.Request, res: express.Response): void {
 }
 if (existsSync(webDist)) {
   app.use(express.static(webDist, { index: false })); // index.html 由 sendSurfaceIndex 注入后下发
-  // SPA fallback 只兜「路由路径」：静态资源（/assets/*、带扩展名文件）不存在的直接 404——
-  // 否则旧缓存 index.html 引用的已删 hash 会被回成 200 text/html，前端炸 MIME 错且难定位（实盘踩坑）
-  app.get(/^(?!\/api\/|\/assets\/|\/health).*/, (_req, res, next) => { // P1-4：/health* 不被 SPA 兜底（探活可区分）
-    if (/\.[A-Za-z0-9]+$/.test(_req.path) && _req.path !== '/index.html') return next(); // 带扩展名的文件请求不兜底
-    sendSurfaceIndex(_req, res);
-  });
+  registerSpaFallbackRoute(http, sendSurfaceIndex); // 页面兜底（路由在 routes/spa-fallback.ts），必须在静态托管之后、404 之前
   app.use((_req, res) => res.status(404).json({ error: 'not found' }));
 }
 
@@ -5109,12 +3927,8 @@ process.on('unhandledRejection', (r) => { console.error('[fatal] unhandledReject
 // ---------- 定期巡检 ----------
 let timer: ReturnType<typeof setTimeout> | null = null;
 let checking = false;
-// 台驱逐冷却（与 a2a-net peer 驱逐冷却同名不同物·命名区分，direct-53caaed3）：
-// 连续 down 的台进入 24h 冷却窗，窗内每窗只探一次（防 flapping）。up 即清零；内存态（重启清零，保守）。
-const EVICT_COOLDOWN_MS = Number(process.env.A2A_EVICT_COOLDOWN_MS) > 0 ? Number(process.env.A2A_EVICT_COOLDOWN_MS) : 24 * 3_600_000; // 测试可加速
-const downSince = new Map<number, number>();
-const lastProbeAt = new Map<number, number>();
 async function patrol(): Promise<void> {
+  if (outboundOff()) { noteBlocked('health-patrol'); return; } // 对外断开：启动后那一次和定时的都不探——探不到会把副本里每个台都记成离线
   if (checking) return;
   checking = true;
   try {
@@ -5136,6 +3950,7 @@ async function patrol(): Promise<void> {
 }
 function armPatrol(): void {
   if (timer) clearTimeout(timer);
+  if (outboundOff()) { noteBlocked('health-patrol'); return; } // 对外断开：库里随副本带来的巡检间隔一律按关处理
   const s = Number(getSettings().health_interval_seconds) || 0;
   if (s < 10) return; // 0 或过小视为关闭
   timer = setTimeout(() => { patrol().finally(armPatrol); }, s * 1000);
@@ -5144,36 +3959,23 @@ function armPatrol(): void {
 // #326: background patrol is armed only after the startup safety gate passes.
 
 const PORT = Number(process.env.PORT) || 9800;
-// ---------- A2A 出站（#17 P4 最小面）：市场作为客户端向对端派单/发消息 ----------
-// 官方 A2aClient（fetchCardDetail 带 OriginClaim 信封 + routeDirect 投递），单进程单端口（9800）。
-// 三件自实现按官方示例：身份密钥（DATA_DIR/a2a-key.pem）、OriginClaim 签名、fetch/schedule 适配。
-app.get('/api/a2a/state', (_req, res) => {
-  const card = buildAgentCard(a2aKeyPath());
-  res.json({
-    team: MARKET_TEAM,
-    key: existsSync(a2aKeyPath()) ? 'present' : 'missing',
-    card: { name: card.name, session: card.session, team: card.team, expiresAt: card.expiresAt, sessionTeams: (card as any).sessionTeams ?? [] },
-    binding: svc<SopService>('sop').activeBindingCount(),
-  });
-});
-
-app.post('/api/a2a/send', wrap(async (req, res) => {
-  const target = String(req.body?.target_url ?? '').trim();
-  const team = String(req.body?.team ?? '').trim();
-  const message = String(req.body?.message ?? '');
-  if (!/^https?:\/\/[^\s]+$/.test(target)) bad('target_url 必须是 http(s):// 对端节点地址');
-  if (!/^[a-z][a-z0-9-]*\/[0-9a-f]{8}$/i.test(team)) bad('team 形如 market/<8hex>（对端卡片里的 sessionTeams）');
-  if (!message) bad('message 必填');
-  try {
-    const out = await a2aSendOutbound(a2aKeyPath(), { baseUrl: target.replace(/\/+$/, ''), team }, message, typeof req.body?.context_id === 'string' ? req.body.context_id : undefined);
-    res.json({ ok: true, target, team, result: out });
-  } catch (e: any) {
-    throw new HttpError(502, `出站失败：${String(e?.message ?? e)}`);
-  }
-}));
+// A2A 出站的 /api/a2a/state、/api/a2a/send 在 routes/a2a-outbound.ts（只给管理员；send 只发给已登记的正常对端）
 
 if (getApp('task-center').status === 'published') syncWorkbenchRegistration(getApp('task-center'));
 const SURFACE_PORTS = surfacePorts();
+// 阶段六 6b：所有路由都注册完之后、开始监听之前读角色声明并校验（动作清单要齐）；不合格抛错，拒绝启动
+// 判定切换：开关里写的域都要有登记的动作，「暂不切」里的动作都要存在（全部路由注册完才核得了）
+{
+  const problems = checkEnforce(judgmentEnforce, http.actions());
+  if (problems.length) { console.error(`[judgment] 拒绝启动：${problems.join('；')}`); process.exit(1); }
+}
+try { loadRoleDeclarations(http); } catch (e) {
+  // 这里已经在全局 uncaughtException 兜底之后：不显式退出的话进程会以 0 结束，看上去像正常退出
+  console.error(`[grants] 拒绝启动：${String((e as Error)?.message ?? e)}`);
+  process.exit(1);
+}
+// 扩展名（动作前缀、路径首段）不能和核心动作的域、核心路径的首段重名：核心路由有的在扩展之后才注册，全部注册完再核一次
+try { assertExtensionNamespaces(http.actions(), http.stackLayers()); } catch (e) { console.error(`[extensions] 拒绝启动：${(e as Error).message}`); process.exit(1); }
 const goServer = registerSurface(app, 'market', PORT, () => {
   // #258 breaking：旧开关不再放行任何公网登记，只做兼容检测告警
   if (process.env.ALLOW_PUBLIC_NET === '1') console.warn('[R3] ALLOW_PUBLIC_NET=1: legacy flag no longer grants public registration; use WM_REGISTER_URL_ALLOWLIST exact entries.');
@@ -5183,12 +3985,12 @@ const goServer = registerSurface(app, 'market', PORT, () => {
     // 迁移材料：存量行不删不停，只列按新规会被拒的 id + URL 摘要 + 原因（不出原 URL/query）
     if (gaps.length) console.warn(JSON.stringify({ event: 'workbench_url_legacy_gap', policy_digest: URL_POLICY.digest, count: gaps.length, rows: gaps }));
   }
-  const odooTrust = trustedOdooOrigins();
-  const oldOdoo = odooUrlDeprecated();
+  const odooTrust = loginRelay().trustedOrigins();
+  const oldOdoo = loginRelay().legacyConfig();
   if (oldOdoo === 'only-old') console.warn('[odoo] LC_ODOO_URL 已弃用，请改名为 WM_ODOO_URL（当前按旧名读取）');
   else if (oldOdoo === 'both') console.warn('[odoo] WM_ODOO_URL 与已弃用的 LC_ODOO_URL 都设了：以 WM_ODOO_URL 为准，LC_ODOO_URL 可删');
   if (odooTrust.invalid.length) console.warn(`[SSO v1] WM_ODOO_ORIGINS/WM_ODOO_URL 有非法项（已忽略）：${odooTrust.invalid.join(', ')}`);
-  if (odooTrust.origins.size === 0 && listWorkbenches().some((w) => isOdooLikeTarget(w.type, w.url))) console.warn('[SSO v1] 未设 WM_ODOO_ORIGINS / WM_ODOO_URL：门户不转发 Odoo 会话，Odoo 台免登不生效（台内会显示 Odoo 自己的登录页）——要免登请把 Odoo 台的源写进 WM_ODOO_ORIGINS');
+  if (odooTrust.origins.size === 0 && listWorkbenches().some((w) => loginRelay().looksLikeTarget(w.type, w.url))) console.warn('[SSO v1] 未设 WM_ODOO_ORIGINS / WM_ODOO_URL：门户不转发 Odoo 会话，Odoo 台免登不生效（台内会显示 Odoo 自己的登录页）——要免登请把 Odoo 台的源写进 WM_ODOO_ORIGINS');
   const counts = svc<WorkbenchService>('workbench').count() as { n: number };
   console.log(`[workbench-market] server  http://127.0.0.1:${PORT}  (workbenches: ${counts.n}, web-dist: ${existsSync(webDist) ? 'served' : 'none'}, portal: /go/<id>/)`);
   if (SURFACE_PORTS.control) console.log(`[workbench-market] control http://127.0.0.1:${SURFACE_PORTS.control}  （可选的独立管理端口；管理写在业务面凭口令或 Odoo 管理员同样可做）`);
@@ -5198,8 +4000,9 @@ const goServer = registerSurface(app, 'market', PORT, () => {
 const controlServer = SURFACE_PORTS.control ? registerSurface(app, 'control', SURFACE_PORTS.control) : undefined;
 if (contentCfg && contentRuntime) listenContentSurface(app, contentCfg, contentRuntime, () => startupSecurity.snapshot().passed);
 
-void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode }).then((result) => {
+void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, benchViews: BENCH_VIEWS.on, outbound: outboundOff() ? verifyOutboundGate : undefined, sessionSeal: sealSelfCheck, portalForward: verifyPortalForwardStrip, portalSsoStateCookie: verifyPortalSsoStateCookie }).then((result) => {
   if (!result.passed) return refuseUnsafeStartup();
+  startupPassed(); // 放开启动闸：事项回填这类后台任务从这里开始（自检没过不开始）
   startRedis();
   armPatrol();
   svc<SettingService>('setting').put('patrol_armed_at', new Date().toISOString());
@@ -5230,6 +4033,7 @@ async function shutdown(sig: string): Promise<void> {
   try {
     await Promise.all(allSurfaceServers().map(srv => new Promise<void>(resolve => { srv.close(() => resolve()); })));
     await runCheckpoints.close();
+    try { await flushHotVars(); } catch { console.error('[shutdown] hot_vars_flush_failed'); } // 高频变量退出前落一次（Redis 不通就留给下次起来时落）
     db.close();
     clearTimeout(deadline);
     process.exit(0);
@@ -5249,6 +4053,8 @@ for (const srv of allSurfaceServers()) if (srv !== goServer) srv.on('upgrade', (
 goServer.on('upgrade', async (req, socket, head) => {
   if (!startupSecurity.snapshot().passed) return socket.destroy();
   if (!(await loginGate.upgradeAllowed(req))) return socket.destroy(); // 登录门：WS 升级同样要身份
+  const access = await portalAccess(req, 'ws').catch(() => ({ allow: false }));
+  if (!access.allow) return socket.destroy();
   portalObserver?.observe(req);
   const m = goPrefix.exec(req.url ?? '');
   if (!m) return socket.destroy(); // 非 /go/ 的升级请求：本服务自身不提供 WS
@@ -5270,7 +4076,8 @@ goServer.on('upgrade', async (req, socket, head) => {
   // ① 浏览器握手必带 Origin（=9800 门户源），上游 Origin fence 要求 Origin==Host authority → 403（实测）
   // ② Host 改成上游 authority，与 changeOrigin 语义一致；cookie 名是 authority 的 sha256，
   //    Host 不符则上游取不到签名 cookie → 401（实测）
-  if (!isOdooSessionTarget(w.url)) stripOdooSession(req.headers); // 同 HTTP 门户：Odoo 会话只转给可信 Odoo 源
+  if (!loginRelay().isSessionTarget(w.url)) loginRelay().stripSession(req.headers); // 同 HTTP 门户：Odoo 会话只转给可信 Odoo 源
+  stripPortalForward(req.headers); // 同 HTTP 门户：市场自己的口令、令牌、凭据头和会话 cookie 不往台带
   const upstreamHost = u.host; // host:port（authority 形态）
   if (req.headers.origin !== undefined) req.headers.origin = u.origin;
   req.headers.host = upstreamHost;

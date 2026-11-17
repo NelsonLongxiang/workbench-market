@@ -1,0 +1,133 @@
+{
+  "domain": "seat-token",
+  "what": "席位用节点签名换短期 MCP 令牌：POST /api/a2a/seat-token（钉住的节点公钥验签、核名册），GET /api/a2a/seat-token/log（换令牌的记录，只给管理员），共 2 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["POST /api/a2a/seat-token", "GET /api/a2a/seat-token/log"],
+  "exempt": [
+    { "route": "POST /api/a2a/seat-token", "class": "normal", "why": "换得到的应答带一张现生成的随机令牌，请求要用当前时间签（时间窗 ±5 分钟），录不成固定的应答；换得到、调用、复核由 scripts/seat-token-test.mjs 覆盖", "shown_by": "admin/forged" },
+    { "route": "GET /api/a2a/seat-token/log", "class": "invalid", "why": "查询串里不合法的筛选项（host、seat_id、since、until、limit）一律当没给，不拒：带畸形参数的请求照常应答", "shown_by": "admin/log-junk-query" }
+  ],
+  "scenarios": [
+    {
+      "name": "admin",
+      "what": "管理口令由环境给（合成值，只在隔离实例里用）；库里先放一行换令牌的记录（合成的节点、席位）。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "seed": [
+        {
+          "table": "a2a_seat_token_log",
+          "row": { "at": 1794470400000, "host": "abcdef01", "seat_id": "seat-synthetic", "root": "https://peer.synthetic.invalid", "source": "198.51.100.7", "outcome": "refused", "reason": "bad-sig", "verified": 0, "token_ref": "" }
+        }
+      ],
+      "steps": [
+        {
+          "id": "forged",
+          "route": "POST /api/a2a/seat-token",
+          "class": "unauthorized",
+          "what": "形状合格、签名是编的（节点不在名册、时间戳早已过期）：401，和别的拒法同一句",
+          "request": {
+            "method": "POST",
+            "path": "/api/a2a/seat-token",
+            "headers": { "content-type": "application/json", "x-forwarded-for": "198.51.100.7" },
+            "json": { "v": 1, "root": "https://peer.synthetic.invalid", "host": "abcdef01", "seat_id": "seat-synthetic", "ts": 1, "nonce": "replay-nonce-00000000", "aud": "https://market.synthetic.invalid", "sig": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==" }
+          },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "seat_token_refused" }
+          }
+        },
+        {
+          "id": "bad-body",
+          "route": "POST /api/a2a/seat-token",
+          "class": "invalid",
+          "what": "请求体不成形（v 不是 1、少了签名）：400",
+          "request": { "method": "POST", "path": "/api/a2a/seat-token", "headers": { "content-type": "application/json", "x-forwarded-for": "198.51.100.7" }, "json": { "v": 2, "host": "abcdef01" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "seat_token_bad_request" }
+          }
+        },
+        {
+          "id": "bad-host",
+          "route": "POST /api/a2a/seat-token",
+          "class": "invalid",
+          "what": "host 不是 8 位十六进制：400",
+          "request": {
+            "method": "POST",
+            "path": "/api/a2a/seat-token",
+            "headers": { "content-type": "application/json", "x-forwarded-for": "198.51.100.7" },
+            "json": { "v": 1, "root": "https://peer.synthetic.invalid", "host": "NOTAHOST", "seat_id": "seat-synthetic", "ts": 1, "nonce": "replay-nonce-00000001", "aud": "https://market.synthetic.invalid", "sig": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==" }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "seat_token_bad_request" }
+          }
+        },
+        {
+          "id": "log",
+          "route": "GET /api/a2a/seat-token/log",
+          "class": "normal",
+          "what": "管理员按节点、时间段筛换令牌的记录（只看库里先放的那一行）",
+          "request": { "method": "GET", "path": "/api/a2a/seat-token/log?host=abcdef01&until=1794470400001", "headers": { "sec-fetch-site": "same-origin", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "246", "etag": "W/\"f6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "entries": [
+                { "at": 1794470400000, "host": "abcdef01", "seat_id": "seat-synthetic", "root": "https://peer.synthetic.invalid", "source": "198.51.100.7", "outcome": "refused", "reason": "bad-sig", "verified": 0, "session_id": null, "token_ref": "", "expires_at": null }
+              ]
+            }
+          }
+        },
+        {
+          "id": "log-junk-query",
+          "route": "GET /api/a2a/seat-token/log",
+          "class": "normal",
+          "what": "畸形的筛选项当没给，照常应答（只看合成节点的那一行，limit 不合法退回缺省）",
+          "request": { "method": "GET", "path": "/api/a2a/seat-token/log?host=abcdef01&until=1794470400001&limit=abc&since=-1&seat_id=%00", "headers": { "sec-fetch-site": "same-origin", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "246", "etag": "W/\"f6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "entries": [
+                { "at": 1794470400000, "host": "abcdef01", "seat_id": "seat-synthetic", "root": "https://peer.synthetic.invalid", "source": "198.51.100.7", "outcome": "refused", "reason": "bad-sig", "verified": 0, "session_id": null, "token_ref": "", "expires_at": null }
+              ]
+            }
+          }
+        },
+        {
+          "id": "log-anonymous",
+          "route": "GET /api/a2a/seat-token/log",
+          "class": "unauthorized",
+          "what": "远程匿名：拒",
+          "request": { "method": "GET", "path": "/api/a2a/seat-token/log", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "log-bad-token",
+          "route": "GET /api/a2a/seat-token/log",
+          "class": "unauthorized",
+          "what": "口令不对：拒",
+          "request": { "method": "GET", "path": "/api/a2a/seat-token/log", "headers": { "sec-fetch-site": "same-origin", "x-admin-token": "wrong" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        }
+      ]
+    }
+  ]
+}

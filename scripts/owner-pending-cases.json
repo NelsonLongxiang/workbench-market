@@ -1,0 +1,735 @@
+{
+ "doc": "待属主看板的用例表：前端 web/src/owner-pending.ts 和服务端 server/src/owner-pending.ts 跑同一份（scripts/owner-pending-unit.mjs）。args 里的 null 在 parseConfig 上表示「没有这个变量」（undefined）。expect 是两边都必须逐字段相同的结果。",
+ "cases": [
+  {
+   "name": "按路径找到唯一看板台（忽略主机与末尾斜杠）",
+   "fn": "findBoardWorkbench",
+   "args": [
+    [
+     {
+      "id": 3,
+      "url": "http://other/"
+     },
+     {
+      "id": 7,
+      "url": "http://board.example:9800/owner-pending/"
+     }
+    ],
+    "http://market.example:9800"
+   ],
+   "expect": {
+    "id": 7
+   }
+  },
+  {
+   "name": "相对地址也认",
+   "fn": "findBoardWorkbench",
+   "args": [
+    [
+     {
+      "id": 5,
+      "url": "/owner-pending"
+     }
+    ],
+    "http://market.example:9800"
+   ],
+   "expect": {
+    "id": 5
+   }
+  },
+  {
+   "name": "没有看板台报错",
+   "fn": "findBoardWorkbench",
+   "args": [
+    [
+     {
+      "id": 3,
+      "url": "http://x/owner-pending-old"
+     }
+    ],
+    "http://market.example:9800"
+   ],
+   "expect": {
+    "error": "还没有登记看板台：请登记一张外部台卡片，地址填本站的 /owner-pending"
+   }
+  },
+  {
+   "name": "两张看板台报错并点名 id",
+   "fn": "findBoardWorkbench",
+   "args": [
+    [
+     {
+      "id": 1,
+      "url": "/owner-pending"
+     },
+     {
+      "id": 2,
+      "url": "http://y/owner-pending"
+     }
+    ],
+    "http://market.example:9800"
+   ],
+   "expect": {
+    "error": "登记了 2 张看板台卡片（id 1、2），请删到只剩一张"
+   }
+  },
+  {
+   "name": "坏 URL 不抛",
+   "fn": "findBoardWorkbench",
+   "args": [
+    [
+     {
+      "id": 1,
+      "url": "http://[bad"
+     }
+    ],
+    "http://market.example:9800"
+   ],
+   "expect": {
+    "error": "还没有登记看板台：请登记一张外部台卡片，地址填本站的 /owner-pending"
+   }
+  },
+  {
+   "name": "config 作者与 owner_login 一致才采信；writers 只收 mcp:<名>",
+   "fn": "parseConfig",
+   "args": [
+    {
+     "key": "config.owner",
+     "kind": "const",
+     "value": {
+      "owner_login": "boss",
+      "writers": [
+       "mcp:owner-board",
+       "bad writer",
+       "odoo:x"
+      ]
+     },
+     "revision": 2,
+     "owner": "odoo:boss",
+     "updated_by": "odoo:boss",
+     "updated_at": "2026-11-05 08:00:00"
+    }
+   ],
+   "expect": {
+    "ownerLogin": "boss",
+    "writers": [
+     "mcp:owner-board"
+    ],
+    "revision": 2
+   }
+  },
+  {
+   "name": "没有 config 返回 null",
+   "fn": "parseConfig",
+   "args": [
+    null
+   ],
+   "expect": null
+  },
+  {
+   "name": "作者不是 owner_login 本人不采信",
+   "fn": "parseConfig",
+   "args": [
+    {
+     "key": "config.owner",
+     "kind": "const",
+     "value": {
+      "owner_login": "boss",
+      "writers": [
+       "mcp:a"
+      ]
+     },
+     "revision": 1,
+     "owner": "odoo:mallory",
+     "updated_by": "odoo:mallory",
+     "updated_at": "2026-11-05 08:00:00"
+    }
+   ],
+   "expect": {
+    "error": "config.owner 的作者是「odoo:mallory」，与登记的属主 odoo:boss 不符，不采信"
+   }
+  },
+  {
+   "name": "口令身份写的（作者为空）不采信",
+   "fn": "parseConfig",
+   "args": [
+    {
+     "key": "config.owner",
+     "kind": "const",
+     "value": {
+      "owner_login": "boss",
+      "writers": [
+       "mcp:a"
+      ]
+     },
+     "revision": 1,
+     "owner": "",
+     "updated_by": "",
+     "updated_at": "2026-11-05 08:00:00"
+    }
+   ],
+   "expect": {
+    "error": "config.owner 的作者是「无」，与登记的属主 odoo:boss 不符，不采信"
+   }
+  },
+  {
+   "name": "不是常量不采信",
+   "fn": "parseConfig",
+   "args": [
+    {
+     "key": "config.owner",
+     "kind": "var",
+     "value": {
+      "owner_login": "boss",
+      "writers": [
+       "mcp:a"
+      ]
+     },
+     "revision": 1,
+     "owner": "odoo:boss",
+     "updated_by": "odoo:boss",
+     "updated_at": "2026-11-05 08:00:00"
+    }
+   ],
+   "expect": {
+    "error": "config.owner 不是常量，不采信"
+   }
+  },
+  {
+   "name": "缺 writers 不采信",
+   "fn": "parseConfig",
+   "args": [
+    {
+     "key": "config.owner",
+     "kind": "const",
+     "value": {
+      "owner_login": "boss"
+     },
+     "revision": 1,
+     "owner": "odoo:boss",
+     "updated_by": "odoo:boss",
+     "updated_at": "2026-11-05 08:00:00"
+    }
+   ],
+   "expect": {
+    "error": "config.owner 缺 writers（登记身份，形如 mcp:<会话名>）"
+   }
+  },
+  {
+   "name": "缺 owner_login 不采信",
+   "fn": "parseConfig",
+   "args": [
+    {
+     "key": "config.owner",
+     "kind": "const",
+     "value": {
+      "writers": [
+       "mcp:a"
+      ]
+     },
+     "revision": 1,
+     "owner": "odoo:boss",
+     "updated_by": "odoo:boss",
+     "updated_at": "2026-11-05 08:00:00"
+    }
+   ],
+   "expect": {
+    "error": "config.owner 缺 owner_login"
+   }
+  },
+  {
+   "name": "看板：只收登记身份的常量事项、属主答复、冒名点名、撤回、历史答复、排序",
+   "fn": "buildBoard",
+   "args": [
+    [
+     {
+      "key": "item.1",
+      "kind": "const",
+      "value": {
+       "question": "问题 1",
+       "checked": "记忆",
+       "waiting_for": "属主",
+       "first_raised": "2026-11-05",
+       "last_change": "2026-11-05",
+       "source": "监督席"
+      },
+      "revision": 1,
+      "owner": "mcp:owner-board",
+      "updated_by": "mcp:owner-board",
+      "updated_at": "2026-11-05 08:00:00"
+     },
+     {
+      "key": "item.2",
+      "kind": "const",
+      "value": {
+       "question": "问题 2",
+       "checked": "记忆",
+       "waiting_for": "属主",
+       "first_raised": "2026-11-05",
+       "last_change": "2026-11-05",
+       "source": "监督席"
+      },
+      "revision": 1,
+      "owner": "mcp:owner-board",
+      "updated_by": "mcp:owner-board",
+      "updated_at": "2026-11-05 08:00:00"
+     },
+     {
+      "key": "item.3",
+      "kind": "const",
+      "value": {
+       "question": "问题 3",
+       "checked": "记忆",
+       "waiting_for": "属主",
+       "first_raised": "2026-11-05",
+       "last_change": "2026-11-05",
+       "source": "监督席",
+       "status": "withdrawn",
+       "withdraw_reason": "提出方撤回"
+      },
+      "revision": 1,
+      "owner": "mcp:owner-board",
+      "updated_by": "mcp:owner-board",
+      "updated_at": "2026-11-05 08:00:00"
+     },
+     {
+      "key": "item.6",
+      "kind": "const",
+      "value": {
+       "question": "问题 6",
+       "checked": "记忆",
+       "waiting_for": "属主",
+       "first_raised": "2026-11-05",
+       "last_change": "2026-11-05",
+       "source": "监督席",
+       "history_answer": {
+        "summary": "普通 PR 修",
+        "date": "2026-11-05"
+       }
+      },
+      "revision": 1,
+      "owner": "mcp:owner-board",
+      "updated_by": "mcp:owner-board",
+      "updated_at": "2026-11-05 08:00:00"
+     },
+     {
+      "key": "item.10",
+      "kind": "const",
+      "value": {
+       "question": "问题 10",
+       "checked": "记忆",
+       "waiting_for": "属主",
+       "first_raised": "2026-11-05",
+       "last_change": "2026-11-05",
+       "source": "监督席"
+      },
+      "revision": 1,
+      "owner": "mcp:owner-board",
+      "updated_by": "mcp:owner-board",
+      "updated_at": "2026-11-05 08:00:00"
+     },
+     {
+      "key": "answer.2",
+      "kind": "const",
+      "value": {
+       "summary": "可以",
+       "date": "2026-11-06"
+      },
+      "revision": 3,
+      "owner": "odoo:boss",
+      "updated_by": "odoo:boss",
+      "updated_at": "2026-11-05 08:00:00"
+     },
+     {
+      "key": "answer.1",
+      "kind": "const",
+      "value": {
+       "summary": "假答复"
+      },
+      "revision": 1,
+      "owner": "mcp:someone",
+      "updated_by": "mcp:someone",
+      "updated_at": "2026-11-05 08:00:00"
+     },
+     {
+      "key": "item.4",
+      "kind": "const",
+      "value": {
+       "question": "冒名事项"
+      },
+      "revision": 1,
+      "owner": "mcp:other",
+      "updated_by": "mcp:other",
+      "updated_at": "2026-11-05 08:00:00"
+     },
+     {
+      "key": "item.5",
+      "kind": "var",
+      "value": {
+       "question": "变量"
+      },
+      "revision": 1,
+      "owner": "mcp:owner-board",
+      "updated_by": "mcp:owner-board",
+      "updated_at": "2026-11-05 08:00:00"
+     },
+     {
+      "key": "item.x1",
+      "kind": "const",
+      "value": {
+       "question": "坏编号"
+      },
+      "revision": 1,
+      "owner": "mcp:owner-board",
+      "updated_by": "mcp:owner-board",
+      "updated_at": "2026-11-05 08:00:00"
+     },
+     {
+      "key": "answer.9",
+      "kind": "const",
+      "value": {
+       "summary": "孤儿答复"
+      },
+      "revision": 1,
+      "owner": "odoo:boss",
+      "updated_by": "odoo:boss",
+      "updated_at": "2026-11-05 08:00:00"
+     },
+     {
+      "key": "config.owner",
+      "kind": "const",
+      "value": {},
+      "revision": 1,
+      "owner": "odoo:boss",
+      "updated_by": "odoo:boss",
+      "updated_at": "2026-11-05 08:00:00"
+     },
+     {
+      "key": "other.key",
+      "kind": "const",
+      "value": 1,
+      "revision": 1,
+      "owner": "",
+      "updated_by": "",
+      "updated_at": "2026-11-05 08:00:00"
+     }
+    ],
+    {
+     "ownerLogin": "boss",
+     "writers": [
+      "mcp:owner-board"
+     ],
+     "revision": 1
+    }
+   ],
+   "expect": {
+    "rows": [
+     {
+      "no": "1",
+      "question": "问题 1",
+      "checked": "记忆",
+      "waitingFor": "属主",
+      "firstRaised": "2026-11-05",
+      "lastChange": "2026-11-05",
+      "source": "监督席",
+      "status": "open",
+      "answer": null,
+      "itemRevision": 1,
+      "withdrawn": null,
+      "answerTakenBy": "mcp:someone"
+     },
+     {
+      "no": "10",
+      "question": "问题 10",
+      "checked": "记忆",
+      "waitingFor": "属主",
+      "firstRaised": "2026-11-05",
+      "lastChange": "2026-11-05",
+      "source": "监督席",
+      "status": "open",
+      "answer": null,
+      "itemRevision": 1,
+      "withdrawn": null,
+      "answerTakenBy": null
+     },
+     {
+      "no": "6",
+      "question": "问题 6",
+      "checked": "记忆",
+      "waitingFor": "属主",
+      "firstRaised": "2026-11-05",
+      "lastChange": "2026-11-05",
+      "source": "监督席",
+      "status": "history",
+      "answer": {
+       "summary": "普通 PR 修",
+       "date": "2026-11-05",
+       "by": "历史答复（迁移时由登记身份记入）",
+       "revision": null,
+       "historical": true
+      },
+      "itemRevision": 1,
+      "withdrawn": null,
+      "answerTakenBy": null
+     },
+     {
+      "no": "2",
+      "question": "问题 2",
+      "checked": "记忆",
+      "waitingFor": "属主",
+      "firstRaised": "2026-11-05",
+      "lastChange": "2026-11-05",
+      "source": "监督席",
+      "status": "answered",
+      "answer": {
+       "summary": "可以",
+       "date": "2026-11-06",
+       "by": "odoo:boss",
+       "revision": 3,
+       "historical": false
+      },
+      "itemRevision": 1,
+      "withdrawn": null,
+      "answerTakenBy": null
+     },
+     {
+      "no": "3",
+      "question": "问题 3",
+      "checked": "记忆",
+      "waitingFor": "属主",
+      "firstRaised": "2026-11-05",
+      "lastChange": "2026-11-05",
+      "source": "监督席",
+      "status": "withdrawn",
+      "answer": null,
+      "itemRevision": 1,
+      "withdrawn": {
+       "reason": "提出方撤回",
+       "by": "mcp:owner-board"
+      },
+      "answerTakenBy": null
+     }
+    ],
+    "anomalies": [
+     {
+      "key": "answer.1",
+      "reason": "作者「mcp:someone」不是属主 odoo:boss，不当作答复；这个编号属主写不进去，要在部署机本机用命令行清理"
+     },
+     {
+      "key": "item.4",
+      "reason": "作者「mcp:other」不是登记身份，不采信"
+     },
+     {
+      "key": "item.5",
+      "reason": "不是常量，不采信"
+     },
+     {
+      "key": "item.x1",
+      "reason": "编号须为 1–4 位数字"
+     },
+     {
+      "key": "answer.9",
+      "reason": "没有对应的事项 item.9"
+     }
+    ]
+   }
+  },
+  {
+   "name": "答复缺日期时用写入日期（按北京时间）",
+   "fn": "buildBoard",
+   "args": [
+    [
+     {
+      "key": "item.7",
+      "kind": "const",
+      "value": {
+       "question": "问题 7",
+       "checked": "记忆",
+       "waiting_for": "属主",
+       "first_raised": "2026-11-05",
+       "last_change": "2026-11-05",
+       "source": "监督席"
+      },
+      "revision": 1,
+      "owner": "mcp:owner-board",
+      "updated_by": "mcp:owner-board",
+      "updated_at": "2026-11-05 08:00:00"
+     },
+     {
+      "key": "answer.7",
+      "kind": "const",
+      "value": {
+       "summary": "行"
+      },
+      "revision": 1,
+      "owner": "odoo:boss",
+      "updated_by": "odoo:boss",
+      "updated_at": "2026-11-05 08:00:00"
+     }
+    ],
+    {
+     "ownerLogin": "boss",
+     "writers": [
+      "mcp:owner-board"
+     ],
+     "revision": 1
+    }
+   ],
+   "expect": {
+    "rows": [
+     {
+      "no": "7",
+      "question": "问题 7",
+      "checked": "记忆",
+      "waitingFor": "属主",
+      "firstRaised": "2026-11-05",
+      "lastChange": "2026-11-05",
+      "source": "监督席",
+      "status": "answered",
+      "answer": {
+       "summary": "行",
+       "date": "2026-11-05",
+       "by": "odoo:boss",
+       "revision": 1,
+       "historical": false
+      },
+      "itemRevision": 1,
+      "withdrawn": null,
+      "answerTakenBy": null
+     }
+    ],
+    "anomalies": []
+   }
+  },
+  {
+   "name": "北京凌晨写入（UTC 前一天 17:30）日期取北京当天",
+   "fn": "bjDate",
+   "args": [
+    "2026-11-05 17:30:00"
+   ],
+   "expect": "2026-11-06"
+  },
+  {
+   "name": "北京时间当天写入",
+   "fn": "bjDate",
+   "args": [
+    "2026-11-05 15:59:59"
+   ],
+   "expect": "2026-11-05"
+  },
+  {
+   "name": "坏日期回空串",
+   "fn": "bjDate",
+   "args": [
+    "坏"
+   ],
+   "expect": ""
+  },
+  {
+   "name": "新答复是常量、不带 override",
+   "fn": "answerBody",
+   "args": [
+    "  好的 ",
+    "2026-11-06",
+    null
+   ],
+   "expect": {
+    "value": {
+     "summary": "好的",
+     "date": "2026-11-06"
+    },
+    "kind": "const",
+    "reason": "属主答复"
+   }
+  },
+  {
+   "name": "改答复带 override 与期望 revision",
+   "fn": "answerBody",
+   "args": [
+    "改",
+    "2026-11-07",
+    3
+   ],
+   "expect": {
+    "value": {
+     "summary": "改",
+     "date": "2026-11-07"
+    },
+    "kind": "const",
+    "override": true,
+    "revision": 3,
+    "reason": "属主修订答复"
+   }
+  },
+  {
+   "name": "修订体：owner_login 不变、去重、override + 当前 revision + reason",
+   "fn": "configRevisionBody",
+   "args": [
+    {
+     "ownerLogin": "boss",
+     "writers": [
+      "mcp:owner-board"
+     ],
+     "revision": 4
+    },
+    [
+     " mcp:owner-board",
+     "mcp:owner-board-2",
+     "",
+     "mcp:owner-board"
+    ]
+   ],
+   "expect": {
+    "value": {
+     "owner_login": "boss",
+     "writers": [
+      "mcp:owner-board",
+      "mcp:owner-board-2"
+     ]
+    },
+    "kind": "const",
+    "override": true,
+    "revision": 4,
+    "reason": "属主修订登记身份：mcp:owner-board、mcp:owner-board-2"
+   }
+  },
+  {
+   "name": "修订体：坏写法报错",
+   "fn": "configRevisionBody",
+   "args": [
+    {
+     "ownerLogin": "boss",
+     "writers": [
+      "mcp:owner-board"
+     ],
+     "revision": 1
+    },
+    [
+     "owner-board"
+    ]
+   ],
+   "expect": {
+    "error": "登记身份写成 mcp:<会话名>，多个用逗号隔开，至少一个"
+   }
+  },
+  {
+   "name": "修订体：空列表报错",
+   "fn": "configRevisionBody",
+   "args": [
+    {
+     "ownerLogin": "boss",
+     "writers": [
+      "mcp:owner-board"
+     ],
+     "revision": 1
+    },
+    [
+     "  "
+    ]
+   ],
+   "expect": {
+    "error": "登记身份写成 mcp:<会话名>，多个用逗号隔开，至少一个"
+   }
+  }
+ ]
+}

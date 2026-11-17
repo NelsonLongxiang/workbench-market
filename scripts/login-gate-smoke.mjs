@@ -155,9 +155,15 @@ try {
     const https = await req(B, 'POST', '/api/auth/login', { ...REMOTE, 'x-forwarded-proto': 'https' }, { token: ADMIN });
     ok('G2 https（X-Forwarded-Proto）时 cookie 带 Secure', https.status === 200 && /;\s*Secure/i.test(cookieOf(https)));
   }
-  for (const p of ['/api/apps', `/api/apps/gate-app/files/${fileId}`, '/api/workbenches', '/sop/gate-sop/']) {
+  for (const p of ['/api/apps', '/api/workbenches', '/sop/gate-sop/']) {
     const r = await req(B, 'GET', p, C);
     ok(`G2 登录后 ${p} → 200`, r.status === 200, `${r.status}`);
+  }
+  {
+    // 台的附件：过了登录门还要台令牌或管理员——登录 cookie 本身不算管理员，带上口令头才行
+    const bare = await req(B, 'GET', `/api/apps/gate-app/files/${fileId}`, C);
+    const admin = await req(B, 'GET', `/api/apps/gate-app/files/${fileId}`, { ...C, 'x-admin-token': ADMIN });
+    ok('G2 登录后读台的附件：只有登录 cookie 403，带口令头 200', bare.status === 403 && admin.status === 200, `${bare.status}/${admin.status}`);
   }
   {
     const r = await req(B, 'GET', '/', CP);
@@ -316,7 +322,7 @@ try {
   ok('G9 工作台事件回执（reply token 认证）不被登录门拦', (await req(B, 'POST', '/api/workbench-events/wbe-0000000000000000/decision', REMOTE, { token: 'x', decision: 'ask', reason: 'r' })).status === 404);
 
   // G4 next
-  for (const [raw, want] of [['//evil.example/x', '/'], ['https://evil.example/', '/'], ['/\\evil.example', '/'], ['/%2F%2Fevil.example', '/%2F%2Fevil.example'], ['/api/apps', '/'], ['/login?next=/x', '/'], ['javascript:alert(1)', '/'], ['/tasks?x=1#h', '/tasks?x=1#h']]) {
+  for (const [raw, want] of [['//evil.example/x', '/'], ['https://evil.example/', '/'], ['/\\evil.example', '/'], ['/%2F%2Fevil.example', '/%2F%2Fevil.example'], ['/api/apps', '/'], ['/login?next=/x', '/'], ['javascript:alert(1)', '/'], ['/work-items?x=1#h', '/work-items?x=1#h']]) {
     const t = await (await req(B, 'GET', `/login?next=${encodeURIComponent(raw)}`, PAGE)).text();
     ok(`G4 next=${raw} → ${want}`, t.includes(`var next=${JSON.stringify(want)}`));
   }

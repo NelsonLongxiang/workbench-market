@@ -115,7 +115,7 @@ try {
   {
     const { DatabaseSync } = await import('node:sqlite');
     const { writeFileSync: wf, mkdirSync: mk } = await import('node:fs');
-    const db2 = new DatabaseSync(DATA + '/workbench-market.db');
+    const db2 = new DatabaseSync(DATA + '/workbench-market.db', { timeout: 5000 });
     const appRow = db2.prepare('SELECT id FROM apps WHERE slug = ?').get('p1-shadow');
     const badDir = DATA + '/apps/p1-shadow/v3';
     mk(badDir, { recursive: true }); wf(badDir + '/index.html', '');

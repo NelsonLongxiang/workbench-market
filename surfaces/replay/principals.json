@@ -1,0 +1,894 @@
+{
+  "domain": "principals",
+  "what": "主体管理：/api/principals 的 8 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": [
+    "GET /api/principals",
+    "POST /api/principals/disable",
+    "POST /api/principals/restore",
+    "POST /api/principals/bind",
+    "POST /api/principals/unbind",
+    "GET /api/principals/pending",
+    "POST /api/principals/bind-batch",
+    "POST /api/principals/reconcile"
+  ],
+  "exempt": [
+    { "route": "GET /api/principals", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/list-junk-query" },
+    { "route": "GET /api/principals/pending", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入", "shown_by": "open/pending" }
+  ],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "缺省配置：登录门关，没设管理口令，没配身份来源。本机命令行（回环直连、不带浏览器标记和转发头）算管理员；带转发头的按远程处理，没有口令就不是管理员。库里预先放两个主体。",
+      "env": {},
+      "seed": [
+        { "table": "principals", "row": { "id": "user:synthetic-a", "id_key": "user:synthetic-a", "kind": "person", "display_name": "Synthetic A" } },
+        { "table": "principal_identities", "row": { "provider": "odoo", "external_id": "synthetic-a", "external_key": "synthetic-a", "principal_id": "user:synthetic-a" } },
+        { "table": "principals", "row": { "id": "seat:synthetic-seat", "id_key": "seat:synthetic-seat", "kind": "seat", "owner": "user:synthetic-a" } }
+      ],
+      "steps": [
+        {
+          "id": "list-remote-anon",
+          "route": "GET /api/principals",
+          "class": "unauthorized",
+          "what": "远程、没有口令：列不出",
+          "request": { "method": "GET", "path": "/api/principals", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "list-cli",
+          "route": "GET /api/principals",
+          "class": "normal",
+          "what": "本机命令行：列出全部主体和外部身份",
+          "request": { "method": "GET", "path": "/api/principals" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "536", "etag": "W/\"218-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "principals": [
+                {
+                  "id": "seat:synthetic-seat",
+                  "kind": "seat",
+                  "display_name": "",
+                  "owner": "user:synthetic-a",
+                  "status": "active",
+                  "status_changed_at": "",
+                  "status_changed_by": "",
+                  "status_reason": "",
+                  "created_at": "YYYY-MM-DD hh:mm:ss",
+                  "identities": []
+                },
+                {
+                  "id": "user:synthetic-a",
+                  "kind": "person",
+                  "display_name": "Synthetic A",
+                  "owner": "",
+                  "status": "active",
+                  "status_changed_at": "",
+                  "status_changed_by": "",
+                  "status_reason": "",
+                  "created_at": "YYYY-MM-DD hh:mm:ss",
+                  "identities": [{ "provider": "odoo", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "list-junk-query",
+          "route": "GET /api/principals",
+          "class": "normal",
+          "what": "带畸形查询串照常应答",
+          "request": { "method": "GET", "path": "/api/principals?id=%00&x[]=1" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "536", "etag": "W/\"218-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "principals": [
+                {
+                  "id": "seat:synthetic-seat",
+                  "kind": "seat",
+                  "display_name": "",
+                  "owner": "user:synthetic-a",
+                  "status": "active",
+                  "status_changed_at": "",
+                  "status_changed_by": "",
+                  "status_reason": "",
+                  "created_at": "YYYY-MM-DD hh:mm:ss",
+                  "identities": []
+                },
+                {
+                  "id": "user:synthetic-a",
+                  "kind": "person",
+                  "display_name": "Synthetic A",
+                  "owner": "",
+                  "status": "active",
+                  "status_changed_at": "",
+                  "status_changed_by": "",
+                  "status_reason": "",
+                  "created_at": "YYYY-MM-DD hh:mm:ss",
+                  "identities": [{ "provider": "odoo", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "disable-remote-anon",
+          "route": "POST /api/principals/disable",
+          "class": "unauthorized",
+          "what": "远程、没有口令：停用不了",
+          "request": { "method": "POST", "path": "/api/principals/disable", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "id": "user:synthetic-a" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "disable-cross-site",
+          "route": "POST /api/principals/disable",
+          "class": "unauthorized",
+          "what": "带浏览器标记的本机请求不算命令行",
+          "request": { "method": "POST", "path": "/api/principals/disable", "headers": { "origin": "http://attacker.invalid", "sec-fetch-site": "cross-site" }, "json": { "id": "user:synthetic-a" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "disable-bad-id",
+          "route": "POST /api/principals/disable",
+          "class": "invalid",
+          "what": "标识没有类别前缀",
+          "request": { "method": "POST", "path": "/api/principals/disable", "json": { "id": "synthetic-a" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "93", "etag": "W/\"5d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "id 必须是主体标识（user: / seat: / app: / system: / node: 加一个名）" }
+          }
+        },
+        {
+          "id": "disable-bad-reason",
+          "route": "POST /api/principals/disable",
+          "class": "invalid",
+          "what": "理由不是字符串",
+          "request": { "method": "POST", "path": "/api/principals/disable", "json": { "id": "user:synthetic-a", "reason": 5 } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "63", "etag": "W/\"3f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "reason 必须是不超过 500 个字符的字符串" }
+          }
+        },
+        {
+          "id": "disable-missing",
+          "route": "POST /api/principals/disable",
+          "class": "invalid",
+          "what": "主体不存在",
+          "request": { "method": "POST", "path": "/api/principals/disable", "json": { "id": "user:nobody" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "44", "etag": "W/\"2c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "principal not found: user:nobody" }
+          }
+        },
+        {
+          "id": "disable",
+          "route": "POST /api/principals/disable",
+          "class": "normal",
+          "what": "停用",
+          "request": { "method": "POST", "path": "/api/principals/disable", "json": { "id": "user:synthetic-a", "reason": "合成" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "366", "etag": "W/\"16e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "changed": true,
+              "principal": {
+                "id": "user:synthetic-a",
+                "kind": "person",
+                "display_name": "Synthetic A",
+                "owner": "",
+                "status": "disabled",
+                "status_changed_at": "YYYY-MM-DD hh:mm:ss",
+                "status_changed_by": "cli",
+                "status_reason": "合成",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "identities": [{ "provider": "odoo", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+              }
+            }
+          }
+        },
+        {
+          "id": "disable-again",
+          "route": "POST /api/principals/disable",
+          "class": "normal",
+          "what": "已经停用的再停用：changed=false，上一次的记录不变",
+          "request": { "method": "POST", "path": "/api/principals/disable", "json": { "id": "user:synthetic-a", "reason": "又一次" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "367", "etag": "W/\"16f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "changed": false,
+              "principal": {
+                "id": "user:synthetic-a",
+                "kind": "person",
+                "display_name": "Synthetic A",
+                "owner": "",
+                "status": "disabled",
+                "status_changed_at": "YYYY-MM-DD hh:mm:ss",
+                "status_changed_by": "cli",
+                "status_reason": "合成",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "identities": [{ "provider": "odoo", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+              }
+            }
+          }
+        },
+        {
+          "id": "restore-remote-anon",
+          "route": "POST /api/principals/restore",
+          "class": "unauthorized",
+          "what": "远程、没有口令：恢复不了",
+          "request": { "method": "POST", "path": "/api/principals/restore", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "id": "user:synthetic-a" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "restore-bad-id",
+          "route": "POST /api/principals/restore",
+          "class": "invalid",
+          "what": "标识两头有空白",
+          "request": { "method": "POST", "path": "/api/principals/restore", "json": { "id": " user:synthetic-a" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "93", "etag": "W/\"5d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "id 必须是主体标识（user: / seat: / app: / system: / node: 加一个名）" }
+          }
+        },
+        {
+          "id": "restore-missing",
+          "route": "POST /api/principals/restore",
+          "class": "invalid",
+          "what": "主体不存在",
+          "request": { "method": "POST", "path": "/api/principals/restore", "json": { "id": "seat:nobody" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "44", "etag": "W/\"2c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "principal not found: seat:nobody" }
+          }
+        },
+        {
+          "id": "restore",
+          "route": "POST /api/principals/restore",
+          "class": "normal",
+          "what": "恢复",
+          "request": { "method": "POST", "path": "/api/principals/restore", "json": { "id": "user:synthetic-a" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "358", "etag": "W/\"166-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "changed": true,
+              "principal": {
+                "id": "user:synthetic-a",
+                "kind": "person",
+                "display_name": "Synthetic A",
+                "owner": "",
+                "status": "active",
+                "status_changed_at": "YYYY-MM-DD hh:mm:ss",
+                "status_changed_by": "cli",
+                "status_reason": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "identities": [{ "provider": "odoo", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+              }
+            }
+          }
+        },
+        {
+          "id": "disable-seat",
+          "route": "POST /api/principals/disable",
+          "class": "normal",
+          "what": "席位也停用得了（结构建好了，这一版还没有用到它的地方）",
+          "request": { "method": "POST", "path": "/api/principals/disable", "json": { "id": "seat:synthetic-seat" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "284", "etag": "W/\"11c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "changed": true,
+              "principal": {
+                "id": "seat:synthetic-seat",
+                "kind": "seat",
+                "display_name": "",
+                "owner": "user:synthetic-a",
+                "status": "disabled",
+                "status_changed_at": "YYYY-MM-DD hh:mm:ss",
+                "status_changed_by": "cli",
+                "status_reason": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "identities": []
+              }
+            }
+          }
+        },
+        {
+          "id": "list-after",
+          "route": "GET /api/principals",
+          "class": "normal",
+          "what": "列表里看得到状态和最近一次变更",
+          "request": { "method": "GET", "path": "/api/principals" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "582", "etag": "W/\"246-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "principals": [
+                {
+                  "id": "seat:synthetic-seat",
+                  "kind": "seat",
+                  "display_name": "",
+                  "owner": "user:synthetic-a",
+                  "status": "disabled",
+                  "status_changed_at": "YYYY-MM-DD hh:mm:ss",
+                  "status_changed_by": "cli",
+                  "status_reason": "",
+                  "created_at": "YYYY-MM-DD hh:mm:ss",
+                  "identities": []
+                },
+                {
+                  "id": "user:synthetic-a",
+                  "kind": "person",
+                  "display_name": "Synthetic A",
+                  "owner": "",
+                  "status": "active",
+                  "status_changed_at": "YYYY-MM-DD hh:mm:ss",
+                  "status_changed_by": "cli",
+                  "status_reason": "",
+                  "created_at": "YYYY-MM-DD hh:mm:ss",
+                  "identities": [{ "provider": "odoo", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "bind-remote-anon",
+          "route": "POST /api/principals/bind",
+          "class": "unauthorized",
+          "what": "远程、没有口令：绑不了",
+          "request": { "method": "POST", "path": "/api/principals/bind", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "provider": "odoo", "external_id": "synthetic-b", "principal": "user:synthetic-a" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "bind-bad-provider",
+          "route": "POST /api/principals/bind",
+          "class": "invalid",
+          "what": "提供方名字不合格",
+          "request": { "method": "POST", "path": "/api/principals/bind", "json": { "provider": "Odoo!", "external_id": "synthetic-b", "principal": "user:synthetic-a" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "99", "etag": "W/\"63-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "provider 必须是提供方的名字（小写字母、数字、连字符、下划线）" }
+          }
+        },
+        {
+          "id": "bind-not-person",
+          "route": "POST /api/principals/bind",
+          "class": "invalid",
+          "what": "只能绑到人身上",
+          "request": { "method": "POST", "path": "/api/principals/bind", "json": { "provider": "odoo", "external_id": "synthetic-b", "principal": "seat:synthetic-seat" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "50", "etag": "W/\"32-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "principal 必须是人（user:<名>）" }
+          }
+        },
+        {
+          "id": "bind-conflict",
+          "route": "POST /api/principals/bind",
+          "class": "invalid",
+          "what": "已经绑着的外部身份（等价写法）不能直接改绑",
+          "request": { "method": "POST", "path": "/api/principals/bind", "json": { "provider": "odoo", "external_id": "SYNTHETIC-A", "principal": "user:synthetic-c", "create": true } },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "150", "etag": "W/\"96-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "这个外部身份（或者它的等价写法）已经绑在一个主体上，先解绑", "reason": "conflict", "principal": "user:synthetic-a" }
+          }
+        },
+        {
+          "id": "bind-missing",
+          "route": "POST /api/principals/bind",
+          "class": "invalid",
+          "what": "目标不存在、没带 create",
+          "request": { "method": "POST", "path": "/api/principals/bind", "json": { "provider": "odoo", "external_id": "synthetic-b", "principal": "user:nobody" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "95", "etag": "W/\"5f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "目标主体不存在；要新建一个人，带上 create: true", "reason": "missing" }
+          }
+        },
+        {
+          "id": "bind",
+          "route": "POST /api/principals/bind",
+          "class": "normal",
+          "what": "把另一条外部身份绑到已有的人身上",
+          "request": { "method": "POST", "path": "/api/principals/bind", "json": { "provider": "feishu", "external_id": "on_synthetic0001", "principal": "user:synthetic-a", "reason": "合成" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "449", "etag": "W/\"1c1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "created": false,
+              "principal": {
+                "id": "user:synthetic-a",
+                "kind": "person",
+                "display_name": "Synthetic A",
+                "owner": "",
+                "status": "active",
+                "status_changed_at": "YYYY-MM-DD hh:mm:ss",
+                "status_changed_by": "cli",
+                "status_reason": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "identities": [{ "provider": "feishu", "external_id": "on_synthetic0001", "created_at": "YYYY-MM-DD hh:mm:ss" }, { "provider": "odoo", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+              }
+            }
+          }
+        },
+        {
+          "id": "bind-create",
+          "route": "POST /api/principals/bind",
+          "class": "normal",
+          "what": "新建一个人并绑上",
+          "request": { "method": "POST", "path": "/api/principals/bind", "json": { "provider": "odoo", "external_id": "synthetic-b", "principal": "user:synthetic-b", "create": true, "display_name": "Synthetic B" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "336", "etag": "W/\"150-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "created": true,
+              "principal": {
+                "id": "user:synthetic-b",
+                "kind": "person",
+                "display_name": "Synthetic B",
+                "owner": "",
+                "status": "active",
+                "status_changed_at": "",
+                "status_changed_by": "",
+                "status_reason": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "identities": [{ "provider": "odoo", "external_id": "synthetic-b", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+              }
+            }
+          }
+        },
+        {
+          "id": "unbind-remote-anon",
+          "route": "POST /api/principals/unbind",
+          "class": "unauthorized",
+          "what": "远程、没有口令：解绑不了",
+          "request": { "method": "POST", "path": "/api/principals/unbind", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "provider": "feishu", "external_id": "on_synthetic0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "unbind-bad-id",
+          "route": "POST /api/principals/unbind",
+          "class": "invalid",
+          "what": "标识两头有空白",
+          "request": { "method": "POST", "path": "/api/principals/unbind", "json": { "provider": "feishu", "external_id": " on_synthetic0001" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "134", "etag": "W/\"86-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "external_id 必须是对方的用户标识（非空、不超过 128 个字符、两头没有空白、没有控制字符）" }
+          }
+        },
+        {
+          "id": "unbind-missing",
+          "route": "POST /api/principals/unbind",
+          "class": "invalid",
+          "what": "没有这一条",
+          "request": { "method": "POST", "path": "/api/principals/unbind", "json": { "provider": "feishu", "external_id": "on_nobody" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "48", "etag": "W/\"30-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "identity not found: feishu/on_nobody" }
+          }
+        },
+        {
+          "id": "unbind",
+          "route": "POST /api/principals/unbind",
+          "class": "normal",
+          "what": "解绑",
+          "request": { "method": "POST", "path": "/api/principals/unbind", "json": { "provider": "feishu", "external_id": "on_synthetic0001", "reason": "合成" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "45", "etag": "W/\"2d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "unbound_from": "user:synthetic-a" }
+          }
+        },
+        {
+          "id": "list-after-bind",
+          "route": "GET /api/principals",
+          "class": "normal",
+          "what": "列表里看得到绑定的结果",
+          "request": { "method": "GET", "path": "/api/principals" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "880", "etag": "W/\"370-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "principals": [
+                {
+                  "id": "seat:synthetic-seat",
+                  "kind": "seat",
+                  "display_name": "",
+                  "owner": "user:synthetic-a",
+                  "status": "disabled",
+                  "status_changed_at": "YYYY-MM-DD hh:mm:ss",
+                  "status_changed_by": "cli",
+                  "status_reason": "",
+                  "created_at": "YYYY-MM-DD hh:mm:ss",
+                  "identities": []
+                },
+                {
+                  "id": "user:synthetic-a",
+                  "kind": "person",
+                  "display_name": "Synthetic A",
+                  "owner": "",
+                  "status": "active",
+                  "status_changed_at": "YYYY-MM-DD hh:mm:ss",
+                  "status_changed_by": "cli",
+                  "status_reason": "",
+                  "created_at": "YYYY-MM-DD hh:mm:ss",
+                  "identities": [{ "provider": "odoo", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+                },
+                {
+                  "id": "user:synthetic-b",
+                  "kind": "person",
+                  "display_name": "Synthetic B",
+                  "owner": "",
+                  "status": "active",
+                  "status_changed_at": "",
+                  "status_changed_by": "",
+                  "status_reason": "",
+                  "created_at": "YYYY-MM-DD hh:mm:ss",
+                  "identities": [{ "provider": "odoo", "external_id": "synthetic-b", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "pending-remote-anon",
+          "route": "GET /api/principals/pending",
+          "class": "unauthorized",
+          "what": "远程、没有口令：看不到",
+          "request": { "method": "GET", "path": "/api/principals/pending", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "pending",
+          "route": "GET /api/principals/pending",
+          "class": "normal",
+          "what": "待对接清单（新库是空的）",
+          "request": { "method": "GET", "path": "/api/principals/pending" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "14", "etag": "W/\"e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "pending": [] }
+          }
+        },
+        {
+          "id": "batch-remote-anon",
+          "route": "POST /api/principals/bind-batch",
+          "class": "unauthorized",
+          "what": "远程、没有口令：不能成批对接",
+          "request": { "method": "POST", "path": "/api/principals/bind-batch", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "items": [{ "provider": "feishu", "external_id": "on_batch0001", "principal": "user:synthetic-a" }] } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "batch-empty",
+          "route": "POST /api/principals/bind-batch",
+          "class": "invalid",
+          "what": "items 是空的",
+          "request": { "method": "POST", "path": "/api/principals/bind-batch", "json": { "items": [] } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "48", "etag": "W/\"30-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "items 必须是 1～500 条的数组" }
+          }
+        },
+        {
+          "id": "batch-not-array",
+          "route": "POST /api/principals/bind-batch",
+          "class": "invalid",
+          "what": "items 不是数组",
+          "request": { "method": "POST", "path": "/api/principals/bind-batch", "json": { "items": "x" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "48", "etag": "W/\"30-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "items 必须是 1～500 条的数组" }
+          }
+        },
+        {
+          "id": "batch",
+          "route": "POST /api/principals/bind-batch",
+          "class": "normal",
+          "what": "成批：逐条给结果（绑上、目标不存在、形状不对）",
+          "request": {
+            "method": "POST",
+            "path": "/api/principals/bind-batch",
+            "json": {
+              "items": [
+                { "provider": "feishu", "external_id": "on_batch0001", "principal": "user:synthetic-a" },
+                { "provider": "feishu", "external_id": "on_batch0002", "principal": "user:nobody" },
+                { "provider": "Bad!", "external_id": "x", "principal": "user:synthetic-a" }
+              ],
+              "reason": "合成"
+            }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "366", "etag": "W/\"16e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "bound": 1,
+              "results": [
+                { "index": 0, "ok": true, "created": false, "principal": "user:synthetic-a" },
+                { "index": 1, "ok": false, "status": 404, "error": "目标主体不存在；要新建一个人，带上 create: true", "reason": "missing" },
+                { "index": 2, "ok": false, "status": 400, "error": "provider 必须是提供方的名字（小写字母、数字、连字符、下划线）" }
+              ]
+            }
+          }
+        },
+        {
+          "id": "reconcile-remote-anon",
+          "route": "POST /api/principals/reconcile",
+          "class": "unauthorized",
+          "what": "远程、没有口令：不能手动对账",
+          "request": { "method": "POST", "path": "/api/principals/reconcile", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "flow": "feishu" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "reconcile-bad-flow",
+          "route": "POST /api/principals/reconcile",
+          "class": "invalid",
+          "what": "flow 不合格",
+          "request": { "method": "POST", "path": "/api/principals/reconcile", "json": { "flow": "Feishu!" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "47", "etag": "W/\"2f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "flow 必须是登录方式的名字" }
+          }
+        },
+        {
+          "id": "reconcile-not-capable",
+          "route": "POST /api/principals/reconcile",
+          "class": "invalid",
+          "what": "这个登录方式不能对账（飞书没打开）：404",
+          "request": { "method": "POST", "path": "/api/principals/reconcile", "json": { "flow": "feishu" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "这个登录方式不能对账：feishu" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "token",
+      "what": "设了管理口令。远程请求带对口令算管理员，带错口令不算。",
+      "env": { "ADMIN_TOKEN": "synthetic-replay-admin" },
+      "seed": [{ "table": "principals", "row": { "id": "user:synthetic-b", "id_key": "user:synthetic-b", "kind": "person" } }],
+      "steps": [
+        {
+          "id": "list-wrong-token",
+          "route": "GET /api/principals",
+          "class": "unauthorized",
+          "what": "错口令",
+          "request": { "method": "GET", "path": "/api/principals", "headers": { "x-forwarded-for": "192.0.2.10", "x-admin-token": "wrong" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "list-token",
+          "route": "GET /api/principals",
+          "class": "normal",
+          "what": "对口令",
+          "request": { "method": "GET", "path": "/api/principals", "headers": { "x-forwarded-for": "192.0.2.10", "x-admin-token": "synthetic-replay-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "221", "etag": "W/\"dd-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "principals": [
+                {
+                  "id": "user:synthetic-b",
+                  "kind": "person",
+                  "display_name": "",
+                  "owner": "",
+                  "status": "active",
+                  "status_changed_at": "",
+                  "status_changed_by": "",
+                  "status_reason": "",
+                  "created_at": "YYYY-MM-DD hh:mm:ss",
+                  "identities": []
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "disable-wrong-token",
+          "route": "POST /api/principals/disable",
+          "class": "unauthorized",
+          "what": "错口令",
+          "request": { "method": "POST", "path": "/api/principals/disable", "headers": { "x-forwarded-for": "192.0.2.10", "x-admin-token": "wrong" }, "json": { "id": "user:synthetic-b" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "disable-token",
+          "route": "POST /api/principals/disable",
+          "class": "normal",
+          "what": "对口令：留痕记 admin-token",
+          "request": { "method": "POST", "path": "/api/principals/disable", "headers": { "x-forwarded-for": "192.0.2.10", "x-admin-token": "synthetic-replay-admin" }, "json": { "id": "user:synthetic-b", "reason": "合成" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "281", "etag": "W/\"119-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "changed": true,
+              "principal": {
+                "id": "user:synthetic-b",
+                "kind": "person",
+                "display_name": "",
+                "owner": "",
+                "status": "disabled",
+                "status_changed_at": "YYYY-MM-DD hh:mm:ss",
+                "status_changed_by": "admin-token",
+                "status_reason": "合成",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "identities": []
+              }
+            }
+          }
+        },
+        {
+          "id": "restore-wrong-token",
+          "route": "POST /api/principals/restore",
+          "class": "unauthorized",
+          "what": "错口令",
+          "request": { "method": "POST", "path": "/api/principals/restore", "headers": { "x-forwarded-for": "192.0.2.10", "x-admin-token": "wrong" }, "json": { "id": "user:synthetic-b" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "restore-token",
+          "route": "POST /api/principals/restore",
+          "class": "normal",
+          "what": "对口令",
+          "request": { "method": "POST", "path": "/api/principals/restore", "headers": { "x-forwarded-for": "192.0.2.10", "x-admin-token": "synthetic-replay-admin" }, "json": { "id": "user:synthetic-b" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "273", "etag": "W/\"111-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "changed": true,
+              "principal": {
+                "id": "user:synthetic-b",
+                "kind": "person",
+                "display_name": "",
+                "owner": "",
+                "status": "active",
+                "status_changed_at": "YYYY-MM-DD hh:mm:ss",
+                "status_changed_by": "admin-token",
+                "status_reason": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "identities": []
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "feishu",
+      "what": "飞书登录打开、指向本机的假飞书（夹具 feishu-fake）。库里没有飞书身份，对账查 0 个人。",
+      "env": {},
+      "fixtures": ["feishu-fake"],
+      "steps": [
+        {
+          "id": "reconcile",
+          "route": "POST /api/principals/reconcile",
+          "class": "normal",
+          "what": "手动对账：没有飞书身份，查 0 个",
+          "request": { "method": "POST", "path": "/api/principals/reconcile", "json": { "flow": "feishu" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "49", "etag": "W/\"31-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "checked": 0, "disabled": [], "unknown": 0 }
+          }
+        }
+      ]
+    }
+  ]
+}

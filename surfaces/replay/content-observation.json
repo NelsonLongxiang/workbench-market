@@ -1,0 +1,234 @@
+{
+  "domain": "content-observation",
+  "what": "门户观测的状态：/api/content/observation 的 1 条路由（只给管理员）。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。应答带 Cache-Control: no-store，在响应头里比。",
+  "routes": ["GET /api/content/observation"],
+  "exempt": [{ "route": "GET /api/content/observation", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "observing/with-token-junk-query" }],
+  "scenarios": [
+    {
+      "name": "no-token",
+      "what": "缺省配置：没设管理口令，谁都拿不到。",
+      "env": {},
+      "steps": [
+        {
+          "id": "no-token-local",
+          "route": "GET /api/content/observation",
+          "class": "unauthorized",
+          "what": "没设管理口令：本机命令行也拒（这条路由要管理员，口令缺失一律拒）",
+          "request": { "method": "GET", "path": "/api/content/observation" },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "no-token-remote",
+          "route": "GET /api/content/observation",
+          "class": "unauthorized",
+          "what": "没设管理口令：远程匿名",
+          "request": { "method": "GET", "path": "/api/content/observation", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "not-observing",
+      "what": "设了管理口令，没开门户观测（WM_PORTAL_OBSERVE 不是 1）：回「没开」。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "steps": [
+        {
+          "id": "anonymous",
+          "route": "GET /api/content/observation",
+          "class": "unauthorized",
+          "what": "远程匿名",
+          "request": { "method": "GET", "path": "/api/content/observation", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "wrong-token",
+          "route": "GET /api/content/observation",
+          "class": "unauthorized",
+          "what": "口令不对",
+          "request": { "method": "GET", "path": "/api/content/observation", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "not-the-token" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "local-no-token",
+          "route": "GET /api/content/observation",
+          "class": "unauthorized",
+          "what": "本机命令行不带口令：管理员的路由照样要口令",
+          "request": { "method": "GET", "path": "/api/content/observation" },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "token-cross-origin",
+          "route": "GET /api/content/observation",
+          "class": "unauthorized",
+          "what": "口令对，但浏览器从别的站点发来：跨源拒",
+          "request": { "method": "GET", "path": "/api/content/observation", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "token-other-origin",
+          "route": "GET /api/content/observation",
+          "class": "unauthorized",
+          "what": "口令对，Origin 是别的主机但没带 sec-fetch-site",
+          "request": { "method": "GET", "path": "/api/content/observation", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "token-bad-origin",
+          "route": "GET /api/content/observation",
+          "class": "unauthorized",
+          "what": "口令对，Origin 不是合法地址",
+          "request": { "method": "GET", "path": "/api/content/observation", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "origin": "not a url" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "25", "etag": "W/\"19-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "Origin 非法" } }
+        },
+        {
+          "id": "with-token",
+          "route": "GET /api/content/observation",
+          "class": "normal",
+          "what": "远程带口令",
+          "request": { "method": "GET", "path": "/api/content/observation", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "enabled": false, "coverageVerified": false }
+          }
+        },
+        {
+          "id": "with-token-junk-query",
+          "route": "GET /api/content/observation",
+          "class": "normal",
+          "what": "这条路由不读查询串：带畸形参数照常应答",
+          "request": { "method": "GET", "path": "/api/content/observation?since=abc&x[]=1", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "enabled": false, "coverageVerified": false }
+          }
+        }
+      ]
+    },
+    {
+      "name": "observing",
+      "what": "设了管理口令，开了门户观测（WM_PORTAL_OBSERVE=1）：回观测的状态和计数。定了时钟：状态里有起始时间。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin", "WM_PORTAL_OBSERVE": "1" },
+      "clock": "2030-01-01T00:00:00Z",
+      "steps": [
+        {
+          "id": "anonymous",
+          "route": "GET /api/content/observation",
+          "class": "unauthorized",
+          "what": "远程匿名",
+          "request": { "method": "GET", "path": "/api/content/observation", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "wrong-token",
+          "route": "GET /api/content/observation",
+          "class": "unauthorized",
+          "what": "口令不对",
+          "request": { "method": "GET", "path": "/api/content/observation", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "not-the-token" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "local-no-token",
+          "route": "GET /api/content/observation",
+          "class": "unauthorized",
+          "what": "本机命令行不带口令：管理员的路由照样要口令",
+          "request": { "method": "GET", "path": "/api/content/observation" },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "token-cross-origin",
+          "route": "GET /api/content/observation",
+          "class": "unauthorized",
+          "what": "口令对，但浏览器从别的站点发来：跨源拒",
+          "request": { "method": "GET", "path": "/api/content/observation", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "token-other-origin",
+          "route": "GET /api/content/observation",
+          "class": "unauthorized",
+          "what": "口令对，Origin 是别的主机但没带 sec-fetch-site",
+          "request": { "method": "GET", "path": "/api/content/observation", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "token-bad-origin",
+          "route": "GET /api/content/observation",
+          "class": "unauthorized",
+          "what": "口令对，Origin 不是合法地址",
+          "request": { "method": "GET", "path": "/api/content/observation", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "origin": "not a url" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "25", "etag": "W/\"19-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "Origin 非法" } }
+        },
+        {
+          "id": "with-token",
+          "route": "GET /api/content/observation",
+          "class": "normal",
+          "what": "远程带口令",
+          "request": { "method": "GET", "path": "/api/content/observation", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "132", "etag": "W/\"84-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "startedAt": "YYYY-MM-DDThh:mm:ss.fffZ", "lastSuccessAt": null, "failures": 0, "writesHealthy": true, "coverageVerified": false, "counts": [] }
+          }
+        },
+        {
+          "id": "with-token-junk-query",
+          "route": "GET /api/content/observation",
+          "class": "normal",
+          "what": "这条路由不读查询串：带畸形参数照常应答",
+          "request": { "method": "GET", "path": "/api/content/observation?since=abc&x[]=1", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "132", "etag": "W/\"84-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "startedAt": "YYYY-MM-DDThh:mm:ss.fffZ", "lastSuccessAt": null, "failures": 0, "writesHealthy": true, "coverageVerified": false, "counts": [] }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -11,6 +11,8 @@
 //   V7 MCP：tools/list 含 workbench_vars_get/set；非作者 set 带 override 被拒；get 读到 REST 写的值（作者本人修订见 workbench-const-owner-smoke）
 //   V8 重启恢复：杀进程重启，同一 DATA_DIR 下值、revision、kind 原样
 //   V9 删台：变量随台删除（审计留存）
+//   V10 对抗：拒绝的应答不透露台在不在（匿名、非管理员页面、别台令牌对不存在的台和存在的台同一个 403）；
+//       台号只认十进制（0x2、02、2e0 回 400，不落到 2 号台）；留痕 limit 小数不 500
 import { spawn } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
@@ -111,6 +113,41 @@ try {
   ok('不存在的键 → 404 current_revision=0', r.status === 404 && r.body?.current_revision === 0, JSON.stringify(r.body));
   r = await call('GET', vpath(999999), CLI);
   ok('不存在的台 → 404', r.status === 404);
+
+  console.log('▶ V10 对抗：判权在查台之前（拒绝的应答不透露台在不在）；台号只认十进制；留痕 limit 小数');
+  const same = (x, y) => x.status === y.status && JSON.stringify(x.body) === JSON.stringify(y.body);
+  const pairs = [
+    ['远程匿名列举', REMOTE, ''], ['远程匿名读键', REMOTE, 'counter'], ['同源浏览器（非管理员）列举', BROWSER, ''],
+  ];
+  for (const [what, h, key] of pairs) {
+    const miss = await call('GET', vpath(999999, key), h), have = await call('GET', vpath(W.ext1, key), h);
+    ok(`${what}：不存在的台和存在的台同一个 403、同一句话`, miss.status === 403 && same(miss, have), `${miss.status} ${JSON.stringify(miss.body)} / ${have.status} ${JSON.stringify(have.body)}`);
+  }
+  {
+    const miss = await call('GET', vpath(999999, 'counter') + '/audit', REMOTE), have = await call('GET', vpath(W.ext1, 'counter') + '/audit', REMOTE);
+    ok('远程匿名读留痕：不存在的台和存在的台同一个 403', miss.status === 403 && same(miss, have), `${miss.status} / ${have.status}`);
+    const tm = await call('GET', vpath(999999), page(tokA)), to = await call('GET', vpath(W.appB), page(tokA));
+    ok('本台令牌读不存在的台：和读别的台同一个 403 app_token_mismatch', tm.status === 403 && tm.body?.code === 'app_token_mismatch' && same(tm, to), `${tm.status} ${JSON.stringify(tm.body)} / ${to.status}`);
+    ok('本台令牌读不存在的台：不发 ACAO', tm.headers.get('access-control-allow-origin') === null);
+    const am = await call('GET', vpath(999999), ADM);
+    ok('管理员读不存在的台：仍是 404（过了判权才说）', am.status === 404, `${am.status}`);
+  }
+  {
+    const hex = '0x' + W.appA.toString(16), padded = '0' + W.appA;
+    for (const [what, id] of [['0x 写法', hex], ['前导零', padded], ['指数写法', W.appA + 'e0']]) {
+      const g = await call('GET', `/api/workbenches/${id}/vars`, CLI);
+      ok(`台号${what}（${id}）：本机命令行读 400，不落到 ${W.appA} 号台`, g.status === 400, `${g.status} ${JSON.stringify(g.body)}`);
+    }
+    const w = await call('PUT', `/api/workbenches/${hex}/vars/hex.k`, ADM, { value: 1 });
+    const back = await call('GET', vpath(W.appA, 'hex.k'), CLI);
+    ok('管理员写 0x 写法的台号：400，真台里没多出这个键', w.status === 400 && back.status === 404, `${w.status} / ${back.status}`);
+    const t = await call('PUT', `/api/workbenches/${padded}/vars/pad.k`, page(tokA), { value: 1 });
+    ok('本台令牌写前导零的台号：总门不认，403', t.status === 403, `${t.status}`);
+  }
+  for (const lim of ['1.5', '150.5']) {
+    const a = await call('GET', vpath(W.ext1, 'counter') + '/audit?limit=' + lim, ADM);
+    ok(`留痕 limit=${lim}：200（小数往下取整，不是 500）`, a.status === 200 && Array.isArray(a.body?.items), `${a.status} ${JSON.stringify(a.body).slice(0, 120)}`);
+  }
 
   console.log('▶ V2 隔离');
   r = await put(W.appB, 'counter', { value: 'b' }, page(tokB));

@@ -129,7 +129,7 @@ try{
  const explicitTask=await call('/api/task-center/tasks',{intake_run_id:explicit,published_by:'fixture',agent_dispatch:true});
  const optIn=await taskGet(explicitTask.j.id);
  check('explicit human publication opt-in retained',()=>{assert.equal(optIn.agent_dispatch,true);assert.equal(optIn.agent_dispatch_effective,true);});
- const dbConn=new DatabaseSync(resolve(data,'workbench-market.db'));
+ const dbConn=new DatabaseSync(resolve(data,'workbench-market.db'), { timeout: 5000 });
  try {
    check('DB event UPDATE trigger blocks',()=>assert.throws(()=>dbConn.prepare('UPDATE task_events SET actor=? WHERE id=?').run('tamper',eid),/append only/));
    check('DB event DELETE trigger blocks',()=>assert.throws(()=>dbConn.prepare('DELETE FROM task_events WHERE id=?').run(eid),/append only/));

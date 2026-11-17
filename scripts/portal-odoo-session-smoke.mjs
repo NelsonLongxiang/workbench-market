@@ -12,7 +12,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { createServer, request } from 'node:http';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { isOdooSessionTarget, trustedOdooOrigins } from '../server/src/odoo-session.ts';
+import { isOdooSessionTarget, trustedOdooOrigins } from '../server/src/login-providers/odoo/odoo-session.ts';
 
 function http(port, method, path, { headers = {}, body } = {}) {
   return new Promise((done) => {

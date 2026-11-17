@@ -1,5 +1,6 @@
 /** 工作台域（workbenches ×37 + types ×13）：SQL 原文自 index.ts 搬入（S1）。 */
 import { Service } from '@deepseek-ai/cordis';
+import type { SQLInputValue } from 'node:sqlite';
 import { db } from '../db.ts';
 
 export class WorkbenchService extends Service {
@@ -16,11 +17,11 @@ export class WorkbenchService extends Service {
   listSorted() {
     return db.prepare('SELECT * FROM workbenches ORDER BY sort ASC, id ASC').all();
   }
-  createByNamed(r: Record<string, unknown>) {
+  createByNamed(r: Record<string, SQLInputValue>) {
     return db.prepare(
-      `INSERT INTO workbenches (name, url, type, icon, description, category, tags, enabled, health_path, sort, auth_config)
-       VALUES (@name, @url, @type, @icon, @description, @category, @tags, @enabled, @health_path, @sort, @auth_config)`
-    ).run(r);
+      `INSERT INTO workbenches (name, url, type, icon, description, category, tags, enabled, health_path, sort, auth_config, cookie_set_id)
+       VALUES (@name, @url, @type, @icon, @description, @category, @tags, @enabled, @health_path, @sort, @auth_config, @cookie_set_id)`
+    ).run({ cookie_set_id: 0, ...r });
   }
   registerMarketApp(title: string, url: string, icon: string, description: string, category: string) {
     return db.prepare(
@@ -41,7 +42,7 @@ export class WorkbenchService extends Service {
     return db.prepare('DELETE FROM workbenches WHERE id = ?').run(id);
   }
   /** 全字段更新（REST 编辑路径）——SQL 原文自 index.ts 搬入 */
-  updateAll(r: { name: string; url: string; type: string; icon: string; description: string; category: string; tags: string; enabled: number | boolean; health_path: string; sort: number; auth_config: string; cookie_set_id: number; id: number }) {
+  updateAll(r: { name: string; url: string; type: string; icon: string; description: string; category: string; tags: string; enabled: number; health_path: string; sort: number; auth_config: string; cookie_set_id: number; id: number }) {
     return db.prepare(
       `UPDATE workbenches SET name=@name, url=@url, type=@type, icon=@icon, description=@description,
      category=@category, tags=@tags, enabled=@enabled, health_path=@health_path, sort=@sort,
@@ -69,6 +70,15 @@ export class WorkbenchService extends Service {
   cookieSetId(id: number) {
     return db.prepare('SELECT cookie_set_id FROM workbenches WHERE id = ?').get(id);
   }
+  /** Access policy writes are validated before entering the synchronous transaction. */
+  setAccess(id: number, access: string, logins: string[]) {
+    return db.prepare('UPDATE workbenches SET access = ?, access_logins = ?, updated_at = ? WHERE id = ?').run(access, JSON.stringify(logins), new Date().toISOString().replace('T', ' ').slice(0, 19), id);
+  }
+  accessTransaction<T>(operation: () => T): T {
+    db.exec('SAVEPOINT workbench_access_write');
+    try { const result = operation(); db.exec('RELEASE workbench_access_write'); return result; }
+    catch (error) { db.exec('ROLLBACK TO workbench_access_write; RELEASE workbench_access_write'); throw error; }
+  }
   exists(id: number) {
     return db.prepare('SELECT 1 AS x FROM workbenches WHERE id = ?').get(id);
   }
@@ -94,8 +104,9 @@ export class WorkbenchService extends Service {
   typeUsageCount(key: string) {
     return db.prepare('SELECT COUNT(*) AS n FROM workbenches WHERE type = ?').get(key);
   }
-  deleteByAppUrls(appUrl: string, sopUrl: string) {
-    return db.prepare(`DELETE FROM workbenches WHERE (url = ? OR url = ?) AND type = 'market-app'`).run(appUrl, sopUrl);
+  /** 一个台登记的卡片（删台时逐张走删卡片那条路：台库、常量变量、驾驶舱面板一起处理） */
+  idsByAppUrls(appUrl: string, sopUrl: string) {
+    return (db.prepare(`SELECT id FROM workbenches WHERE (url = ? OR url = ?) AND type = 'market-app' ORDER BY id`).all(appUrl, sopUrl) as { id: number }[]).map((r) => r.id);
   }
   setEnabledByUrl(enabled: number, url: string) {
     return db.prepare(`UPDATE workbenches SET enabled = ${enabled}, updated_at = datetime('now') WHERE url = ? AND type = 'market-app'`).run(url);
@@ -141,5 +152,15 @@ export class WorkbenchService extends Service {
   }
   typeIdByKey(key: string) {
     return db.prepare('SELECT id FROM types WHERE key = ?').get(key);
+  }
+  /** 导入的整批写入用一个事务（db.exec 原文自 index.ts 的 POST /api/import 搬入） */
+  importBegin() {
+    db.exec('BEGIN IMMEDIATE');
+  }
+  importCommit() {
+    db.exec('COMMIT');
+  }
+  importRollback() {
+    db.exec('ROLLBACK');
   }
 }

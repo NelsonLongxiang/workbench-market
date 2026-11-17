@@ -121,7 +121,7 @@ const TEXT_FACTS = [
   ["web/src/index.css", "background: var(--wm-color-nav-bg);"],
   ["web/src/index.css", ".wm-use-bar .ant-badge-status-text"],
   ["web/src/index.css", "color: var(--wm-color-nav-text) !important;"],
-  ["server/src/index.ts", "/api/cockpits"],
+  ["server/src/routes/cockpits.ts", "/api/cockpits"],
   ["server/src/index.ts", "createProxyMiddleware"],
   ["server/src/portal.ts", "x-frame-options"],
   ["server/package.json", "http-proxy-middleware"],
@@ -153,7 +153,7 @@ const TEXT_FACTS = [
   ["evidence/e2e_test.py", "token=8sKZ"],
   ["server/src/portal.ts", "goWid"],
   ["evidence/e2e_test.py", "redir-relative"],
-  ["server/src/index.ts", "issue #5"],
+  ["server/src/routes/settings.ts", "issue #5"],
   ["server/src/index.ts", "issue #6"],
   ["server/src/index.ts", "issue #7"],
   ["scripts/import-smoke.mjs", "e2e-import-probe"],
@@ -167,7 +167,7 @@ const TEXT_FACTS = [
   ["server/src/index.ts", "sop_run_step_save"],
   ["evidence/e2e_test.py", "agent-填-1"],
   ["server/src/index.ts", "compliance 二期首项"],
-  ["server/src/index.ts", "masked_import_value"],
+  ["server/src/routes/export-import.ts", "masked_import_value"],
   ["evidence/e2e_test.py", "E2E MaskImport"],
   ["server/src/index.ts", "workbenchCreateCore"],
   ["server/src/index.ts", "凭据不接受 MCP 写入"],
@@ -215,7 +215,7 @@ const TEXT_FACTS = [
   ["server/src/index.ts", "hashAdminToken"],
   ["scripts/token-smoke.mjs", "无 admin_token_sha256"],
   ["server/src/a2a.ts", "a2aSendOutbound"],
-  ["server/src/index.ts", "/api/a2a/send"],
+  ["server/src/routes/a2a-outbound.ts", "/api/a2a/send"],
   ["server/src/db.ts", "a2a_outbox"],
   ["scripts/receipt-smoke.mjs", "E1 上游 parseReceipt 可解析"],
   ["server/src/db.ts", "sop_run_files"],
@@ -234,21 +234,24 @@ const TEXT_FACTS = [
   ["scripts/skill-install-smoke.mjs", "篡改后校验红"],
   ["server/src/services/sandbox.ts", "dispatch"],
 ];
-const snapDb = new DatabaseSync(snap);
+const snapDb = new DatabaseSync(snap, { timeout: 5000 });
 snapDb.exec(`CREATE TABLE verifier_text_facts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   path TEXT NOT NULL,
   needle TEXT NOT NULL,
-  present INTEGER NOT NULL
+  present INTEGER NOT NULL,
+  -- 说明：文件不在了（例如页面按旧页面删除清单删了）写 file_missing，present 记 -1，和「文件在、但不含这句」（0）分得开
+  note TEXT
 )`);
-const ins = snapDb.prepare("INSERT INTO verifier_text_facts (path, needle, present) VALUES (?, ?, ?)");
+const ins = snapDb.prepare("INSERT INTO verifier_text_facts (path, needle, present, note) VALUES (?, ?, ?, ?)");
 let hit = 0;
 for (const [p, needle] of TEXT_FACTS) {
   const present = p === PORTAL_CALL_CHAIN_FACT.path && needle === PORTAL_CALL_CHAIN_FACT.needle
     ? readPortalCallChainFact(root).present
-    : (readFileSync(join(root, p), "utf8").includes(needle) ? 1 : 0);
-  hit += present;
-  ins.run(p, needle, present);
+    // 文件不在了（页面删了）：不让整个打包脚本崩；记 -1 并写明 file_missing，验证器那边看得出判据是因为文件没了才不过（取证表本身不动）
+    : !existsSync(join(root, p)) ? -1 : (readFileSync(join(root, p), "utf8").includes(needle) ? 1 : 0);
+  hit += present === 1 ? 1 : 0;
+  ins.run(p, needle, present, present === -1 ? "file_missing" : null);
 }
 // 5) E2E 行为证据提取表：读 evidence/e2e-summary.json（e2e_test.py 每次运行落盘）；
 //    无文件则不插入——E2E 判据 fail-closed（count==1 与 exists 均失败），诚实暴露 E2E 未跑

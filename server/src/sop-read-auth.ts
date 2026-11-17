@@ -8,12 +8,17 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { db } from './db.ts';
-import { resolveOdooViewer } from './odoo-viewer.ts';
+import { identity } from './identity.ts';
+import { defineConfig, loadConfig } from './config.ts';
+
+/** run 读能力的有效天数：缺省 30，非数字回落缺省 */
+export const Config = defineConfig((env) => ({ readCapTtlDays: Number(env.SOP_READ_CAP_TTL_DAYS) || 30 }));
+const config = loadConfig(Config);
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
 /** 签发 run 读能力：明文仅创建/重签响应出现一次，库内只存摘要。 */
-export function issueRunReadCap(runId: number, ttlDays = Number(process.env.SOP_READ_CAP_TTL_DAYS) || 30): string {
+export function issueRunReadCap(runId: number, ttlDays = config.readCapTtlDays): string {
   const cap = randomBytes(32).toString('hex');
   const expires = new Date(Date.now() + ttlDays * 86_400_000).toISOString().slice(0, 19).replace('T', ' ');
   db.prepare('INSERT INTO sop_run_read_caps (run_id, cap_sha256, expires_at) VALUES (?, ?, ?)').run(runId, sha256(cap), expires);
@@ -50,8 +55,8 @@ export async function authorizeRunRead(ctx: RunReadContext, runId: number): Prom
     return { authorized: false, via: 'none' };
   }
   if (ctx.cookieHeader) {
-    const viewer = await resolveOdooViewer(String(ctx.cookieHeader));
-    if (viewer.ok && runGrantActive(runId, 'user:' + viewer.viewer.login)) return { authorized: true, via: 'session-grant' };
+    const viewer = await identity().resolveViewer(String(ctx.cookieHeader));
+    if (viewer.ok && runGrantActive(runId, viewer.viewer.sub)) return { authorized: true, via: 'session-grant' }; // 按主体标识查授权，不拿登录名去拼
   }
   return { authorized: false, via: 'none' };
 }
@@ -61,8 +66,8 @@ export function runReadGrantCreate(runId: number, subject: string, role: string,
   db.prepare('INSERT INTO sop_run_read_grants (run_id, subject, role, expires_at, granted_by) VALUES (?, ?, ?, ?, ?)').run(runId, subject, role, expiresAt, grantedBy);
 }
 export function runReadGrantRevoke(runId: number, subject: string): number {
-  return db.prepare("UPDATE sop_run_read_grants SET revoked_at = datetime('now') WHERE run_id = ? AND subject = ? AND revoked_at = ''").run(runId, subject).changes;
+  return Number(db.prepare("UPDATE sop_run_read_grants SET revoked_at = datetime('now') WHERE run_id = ? AND subject = ? AND revoked_at = ''").run(runId, subject).changes);
 }
 export function runReadCapRevokeAll(runId: number): number {
-  return db.prepare("UPDATE sop_run_read_caps SET revoked_at = datetime('now') WHERE run_id = ? AND revoked_at = ''").run(runId).changes;
+  return Number(db.prepare("UPDATE sop_run_read_caps SET revoked_at = datetime('now') WHERE run_id = ? AND revoked_at = ''").run(runId).changes);
 }

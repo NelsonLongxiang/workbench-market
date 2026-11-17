@@ -1,0 +1,266 @@
+/** 「关注」页和事项页共用的纯函数（阶段八 8d）：不碰 React，scripts/attention-ui-unit.mjs 直接测。 */
+
+export type Category = 'ask' | 'review' | 'accept' | 'glance' | 'grant';
+export type AttentionItem = { source: string; source_id: string; category: Category; title: string; waiting_for: string; since: string; answers: string[]; object: string; phase: string; link: string;
+  /** 只增的字段（#580）：变更申请带 detail（要动什么、影响多大）；统一待办带 kind（任务、SOP 执行……，它们不是审核） */
+  detail?: unknown; kind?: string;
+  /** #587：是不是轮到你（验收、提问对代办的人是 false）；事项和提问的条目带建立人 */
+  mine?: boolean; creator?: { principal?: string; display_name?: string | null } | null;
+  /** #657：服务端按看的人给的名字（看不到、不是人的给 null）；有就直接显示，null 就退化成「一位同事」这类说法 */
+  waiting_for_name?: string | null; creator_name?: string | null;
+  /** 条目自带的答复入口（见文件末尾的 answer_via 约定）；没带的照旧发 /api/attention/answer */
+  answer_via?: unknown };
+export type LogRow = { seq: number; fact: string; fact_source: string; fact_id: string; from_state: string; to_state: string; actor: string; detail: string; at: string; rejected: '' | 'not_allowed' | 'terminal' };
+
+/** since 是 SQLite UTC「YYYY-MM-DD HH:MM:SS」或 ISO；认不出返回 NaN */
+export function sinceMs(since: string): number {
+  if (!since) return NaN;
+  return Date.parse(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(since) ? since.replace(' ', 'T') + 'Z' : since);
+}
+
+/** 「等了多久」：空的显示「—」，认不出的原样 */
+export function waited(since: string, now = Date.now()): string {
+  if (!since) return '—';
+  const t = sinceMs(since);
+  if (isNaN(t)) return since;
+  const m = Math.max(0, Math.floor((now - t) / 60000));
+  if (m < 60) return `${m} 分钟`;
+  if (m < 60 * 24) return `${Math.floor(m / 60)} 小时`;
+  return `${Math.floor(m / 60 / 24)} 天`;
+}
+
+/** 等得最久的排前面；不知道从什么时候开始等的排最后（服务端给的先后保持不变） */
+export function byWaited(items: AttentionItem[]): AttentionItem[] {
+  return items.map((x, i) => ({ x, i, t: sinceMs(x.since) }))
+    .sort((a, b) => (isNaN(a.t) ? 1 : 0) - (isNaN(b.t) ? 1 : 0) || (isNaN(a.t) ? 0 : a.t - b.t) || a.i - b.i)
+    .map((e) => e.x);
+}
+
+/** 日志里的取值换成人话（接单判断、上报的状态、回执的结果）；不认得的原样 */
+export const VERDICT: Record<string, string> = { accept: '接了', stop: '不做了', ignore: '不接', unavailable: '接不了' };
+export const REPORT_STATUS: Record<string, string> = { progress: '在办', waiting: '在等', blocked: '在等答复', ready: '做完了', failed: '没办成', dropped: '对方放弃了' };
+export const OUTCOME: Record<string, string> = { completed: '做完了', acknowledged: '收到了', failed: '没办成', rejected: '拒了', abandoned: '放弃了', dead: '投递失败' };
+
+/** 一行事项日志的一句话说明：从 detail 里挑人看得懂的几样 */
+export function describe(row: Pick<LogRow, 'detail'>): string {
+  let d: Record<string, unknown> = {};
+  try { d = JSON.parse(row.detail || '{}'); } catch { /* 坏的 detail 当空 */ }
+  const note = d.note === 'unrouted' ? '没有目标团队' : d.note === 'untrusted' ? '提交方未验证，收到但未采信' : d.note === 'undispatched' ? '只通知、不派发，未派发' : d.note === 'followup' ? '席位发来的消息' : d.note === 'followup-reply' ? '人回复了席位的消息' : d.note === 'followup-read' ? '人看过席位的消息' : d.note === 'progress' ? '席位的进展' : d.note === 'late-result' ? '打回之前的旧结果（只记录）' : '';
+  const bits = [d.question, d.answer, d.summary, d.reason, (d.note === 'followup' || d.note === 'followup-reply' || d.note === 'progress' || d.note === 'late-result') ? d.text : '', note, typeof d.verdict === 'string' && `判断：${VERDICT[d.verdict] ?? d.verdict}`, typeof d.status === 'string' && `状态：${REPORT_STATUS[d.status] ?? d.status}`, typeof d.outcome === 'string' && `结果：${OUTCOME[d.outcome] ?? d.outcome}`, d.late ? '晚到' : ''];
+  return bits.filter((x): x is string => typeof x === 'string' && x !== '').join(' · ');
+}
+
+/** 建立人本人能答的（8e）：「等验收」的事项，验收、退回两种，走 POST /api/work-items/:id/decision */
+/** 条目挂的事项：席位提问的 link 是 /work-items/<id>，事项来源的 source_id 就是事项 id（卡片、驾驶舱的「办理过程」用） */
+export function workItemIdOf(item: Pick<AttentionItem, 'source' | 'source_id' | 'link'>): string | null {
+  if (item.source === 'work-items') return item.source_id;
+  const m = /^\/work-items\/([^/?#]+)/.exec(item.link || '');
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+export const CREATOR_ANSWERS = ['verify', 'return'];
+
+/**
+ * 这个人在「关注」里能直接答哪些：
+ *   · 管理员：条目给的全部答法，走答复入口 /api/attention/answer（它在写请求总门后面，只有管理员过得去）；
+ *   · 不是管理员：只有「等验收」的事项可以答验收、退回（列表里给不是管理员的事项都是他自己建的），走建立人入口；
+ *     别的不给答法和提交按钮，只留「在原页面处理」（免得点下去被告知「需要管理员」）。
+ */
+export function answerChoices(admin: boolean, item: Pick<AttentionItem, 'source' | 'category' | 'answers'> & { answer_via?: unknown; source_id?: string }): string[] {
+  // 条目自带答复入口：能不能办由那个入口自己判，服务端只把它列给办得了的人——不看是不是管理员
+  const via = answerViaOf(item);
+  if (via) return viaChoices(via, item.answers);
+  if (admin) return item.answers;
+  // 阶段七 #567：席位的提问只给建立人本人列出来，建立人在事项的提问入口答（POST /api/work-items/:id/asks/:qid/answer）
+  if (item.source === 'seat-asks') return item.answers.filter((a) => a === 'answer');
+  if (item.source === 'work-items' && item.category === 'accept') return item.answers.filter((a) => CREATOR_ANSWERS.includes(a));
+  return [];
+}
+
+/** 这一条用哪个入口答：条目自带答复入口的照它发（via）；不是管理员时，验收、打回走建立人入口，席位提问走事项的提问入口；其余（管理员）走答复入口 */
+export function answerRoute(admin: boolean, item: Pick<AttentionItem, 'source' | 'category'> & { answer_via?: unknown; source_id?: string }): 'creator' | 'ask' | 'attention' | 'via' {
+  if (answerViaOf(item)) return 'via';
+  if (!admin && item.source === 'seat-asks') return 'ask';
+  return !admin && item.source === 'work-items' && item.category === 'accept' ? 'creator' : 'attention';
+}
+
+/** 「等你拍板」的排法：能当场办的在前（在问、等验收、等过目、核准、其他），要跳到别处处理的（没有答法的，如「等你审核」）收在后面一组；
+ *  组里按等得久的在前 */
+/** 是不是轮到你：只看条目的 mine（#587）；没带这个字段的旧应答当作轮到你 */
+export const isMine = (x: { mine?: unknown }): boolean => x.mine !== false;
+
+/** 算不算「等你拍板」只有这一个判法：轮到你、而且能当场办。侧栏角标、全景、事项列表都用它 */
+export const isMyDecision = (x: AttentionItem, choicesOf: (x: AttentionItem) => string[]): boolean => isMine(x) && choicesOf(x).length > 0;
+
+/** 「等你拍板」的件数——侧栏角标、总结句、卡片区的数都用它 */
+export function decideCount(items: AttentionItem[], choicesOf: (x: AttentionItem) => string[]): number {
+  return items.filter((x) => isMyDecision(x, choicesOf)).length;
+}
+
+/** 事项列表用：「关注」里每件事项对应的条目，和其中「等你拍板」的事项编号（和角标同一个判法 isMyDecision） */
+export function workItemTurns(items: AttentionItem[], choicesOf: (x: AttentionItem) => string[]): { mine: Set<string>; byItem: Map<string, AttentionItem> } {
+  const mine = new Set<string>(), byItem = new Map<string, AttentionItem>();
+  for (const x of items) {
+    const id = workItemIdOf(x);
+    if (!id) continue; // 不是事项的条目
+    if (!byItem.has(id) || isMyDecision(x, choicesOf)) byItem.set(id, x);
+    if (isMyDecision(x, choicesOf)) mine.add(id);
+  }
+  return { mine, byItem };
+}
+
+/** 停太久的事项（服务端来源 work-items-stuck，#649）：没有当场的答法，到事项页去催。单独成一组，不算进「要到别处处理」，也不算进角标 */
+export const STUCK_SOURCE = 'work-items-stuck';
+export const isStuck = (x: { source: string }): boolean => x.source === STUCK_SOURCE;
+/** 停太久的卡片标签：「停了 N 小时」，满两天写天；认不出时间就只写「停太久」 */
+export function stuckLabel(since: string, now = Date.now()): string {
+  const t = sinceMs(since);
+  if (!since || isNaN(t)) return '停太久';
+  const h = Math.max(0, Math.floor((now - t) / 3_600_000));
+  return h >= 48 ? `停了 ${Math.floor(h / 24)} 天` : `停了 ${h} 小时`;
+}
+/** 停太久的一共几件：服务端的 counts.stuck_count 含超出上限没给出来的；没给（旧的应答）或比列出来的少，就按列出来的数 */
+export const stuckTotal = (serverCount: number | null | undefined, listed: number): number =>
+  typeof serverCount === 'number' && Number.isFinite(serverCount) ? Math.max(serverCount, listed) : listed;
+
+const ORDER: Record<string, number> = { ask: 0, accept: 1, glance: 2, grant: 3, review: 4 };
+export function groupCards(items: AttentionItem[], choicesOf: (x: AttentionItem) => string[]): { now: AttentionItem[]; proxy: AttentionItem[]; stuck: AttentionItem[]; elsewhere: AttentionItem[] } {
+  const sorted = byWaited(items).map((x, i) => ({ x, i })).sort((a, b) => (ORDER[a.x.category] ?? 9) - (ORDER[b.x.category] ?? 9) || a.i - b.i).map((e) => e.x);
+  // 四组：轮到你、能当场办的（这才是「等你拍板」）；别人的事、你能代办的（条目的 mine 为假）；停太久的；要到别处处理的（没有当场的答法）
+  const can = sorted.filter((x) => choicesOf(x).length > 0);
+  const rest = sorted.filter((x) => choicesOf(x).length === 0);
+  return { now: can.filter(isMine), proxy: can.filter((x) => !isMine(x)), stuck: rest.filter(isStuck), elsewhere: rest.filter((x) => !isStuck(x)) };
+}
+
+/** 「等你拍板」条目自带的答复入口（answer_via 约定）：条目说清用什么方法、发到哪个地址、每个答法的请求体和要填的东西，
+ *  卡片照着发，不按来源逐个写死地址。单测在 scripts/answer-via-unit.mjs。
+ *
+ *    answer_via: { method: 'POST' | 'PUT', path: '/api/…',
+ *      answers: { <答法>: { path?: '/api/…', body: {…}, input?: { <填写项>: { to: '<请求体的键>', required?: true, max?: N, options?: [...] } } } } }
+ *
+ *  · 请求体 = { ...body, [to]: 填的值 }；没填的选填项不带。
+ *  · 答法自己带 path 的另调那个地址（放行和撤回是两条路由），没带用顶层的；方法只有顶层一个。
+ *  · 填写项带 options 的是从里面选一个，没带是自由文本。
+ *  · 没带 answer_via 的条目照旧发 /api/attention/answer。
+ *  · 应答是那个地址自己的：2xx 算办成；4xx 是 { error, message? }，有 message 原样给人看。
+ *  · 地址只认同源、以 /api/ 开头的相对路径；别的一律当没带，并在控制台留一条告警（答法自己的地址不能用，就不给这个答法——不退回顶层地址，免得发错路由）。
+ *  · 卡片上只有一个输入框：一个答法最多认一个填写项；多出来的选填项不填，必填项超过一个的答法不在卡片上给。 */
+
+export type ViaInput = { name: string; to: string; required: boolean; max: number; options: string[] };
+export type ViaAnswer = { path: string; body: Record<string, unknown>; input: ViaInput | null };
+export type AnswerVia = { method: 'POST' | 'PUT'; path: string; answers: Record<string, ViaAnswer> };
+
+const DEFAULT_MAX = 4000;
+const obj = (v: unknown): Record<string, unknown> | null => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null);
+
+/** 地址能不能用：同源、以 /api/ 开头的相对路径（「//主机」、带协议的、绕出 /api/ 的、带反斜杠或控制字符的都不认） */
+export function safeApiPath(path: unknown): path is string {
+  if (typeof path !== 'string' || !path.startsWith('/api/') || /[\\\u0000-\u001f\u007f]/.test(path)) return false;
+  try {
+    const u = new URL(path, 'http://same.invalid');
+    return u.origin === 'http://same.invalid' && u.pathname.startsWith('/api/');
+  } catch { return false; }
+}
+
+function inputsOf(v: unknown): ViaInput[] {
+  const o = obj(v);
+  if (!o) return [];
+  return Object.entries(o).flatMap(([name, raw]) => {
+    const i = obj(raw);
+    if (!i || typeof i.to !== 'string' || !i.to) return [];
+    const max = typeof i.max === 'number' && Number.isFinite(i.max) && i.max > 0 ? Math.floor(i.max) : DEFAULT_MAX;
+    const options = Array.isArray(i.options) ? [...new Set(i.options.filter((o): o is string => typeof o === 'string' && o !== ''))] : [];
+    return [{ name, to: i.to, required: i.required === true, max, options }];
+  });
+}
+
+/** 读条目上的 answer_via；没带、形状不对或地址不能用都返回 null（后两种留一条告警） */
+const warned = new Set<string>();
+const warnOnce = (m: string): void => { if (!warned.has(m)) { warned.add(m); console.warn(m); } };
+export function answerViaOf(item: { answer_via?: unknown; source?: string; source_id?: string }, warn: (msg: string) => void = warnOnce): AnswerVia | null {
+  if (item.answer_via === undefined || item.answer_via === null) return null;
+  const tag = `${item.source ?? ''}/${item.source_id ?? ''}`;
+  const v = obj(item.answer_via);
+  const answers = v ? obj(v.answers) : null;
+  if (!v || !answers || (v.method !== 'POST' && v.method !== 'PUT')) { warn(`[answer_via] ${tag}：形状不对，当没带处理`); return null; }
+  if (!safeApiPath(v.path)) { warn(`[answer_via] ${tag}：地址不是同源的 /api/ 路径，当没带处理`); return null; }
+  const out: Record<string, ViaAnswer> = {};
+  for (const [name, raw] of Object.entries(answers)) {
+    const a = obj(raw);
+    if (!a) continue;
+    if (a.path !== undefined && a.path !== null && !safeApiPath(a.path)) { warn(`[answer_via] ${tag}：答法 ${name} 的地址不是同源的 /api/ 路径，不给这个答法`); continue; }
+    const inputs = inputsOf(a.input);
+    const required = inputs.filter((i) => i.required);
+    if (required.length > 1) { warn(`[answer_via] ${tag}：答法 ${name} 有多个必填项，卡片上办不了`); continue; }
+    out[name] = { path: typeof a.path === 'string' ? a.path : v.path, body: obj(a.body) ?? {}, input: required[0] ?? inputs[0] ?? null };
+  }
+  return { method: v.method, path: v.path, answers: out };
+}
+
+/** 卡片上给哪些答法：条目列的、answer_via 里也说了怎么发的，按条目的顺序 */
+export function viaChoices(via: AnswerVia, answers: string[]): string[] {
+  return answers.filter((a) => Object.prototype.hasOwnProperty.call(via.answers, a));
+}
+
+/** 这个答法要不要先填一句；不用填返回 null */
+export function viaInput(via: AnswerVia, answer: string): ViaInput | null {
+  return via.answers[answer]?.input ?? null;
+}
+
+/** 这个答法发到哪个地址：答法自己带的，没带用顶层的 */
+export function viaPath(via: AnswerVia, answer: string): string {
+  return via.answers[answer]?.path ?? via.path;
+}
+
+/** 答法按钮上的字：一律写中文，不露答法代号（confirm-key、disable 这类）。
+ *  对端公钥那张卡片：标题说「填入完整指纹确认，或者停用这个对端」，按钮照这个写。认不出的答法写「办这一步」，也不露代号 */
+export const ANSWER_LABEL: Readonly<Record<string, string>> = {
+  approve: '批准', reject: '不给', answer: '答复', bind: '对接', verify: '验收通过', return: '打回重做', release: '派出去', withdraw: '撤回', reply: '回复', ack: '知道了',
+  finish: '验收通过', 'confirm-key': '确认新公钥', disable: '停用这个对端',
+};
+export const answerLabel = (answer: string): string => (Object.prototype.hasOwnProperty.call(ANSWER_LABEL, answer) ? ANSWER_LABEL[answer] : '办这一步');
+/** 填完以后那个确定按钮：「确定」接答法说法（确定不给、确定对接）；说法本身已经是「确认…」的不再叠一个（不写「确定确认新公钥」） */
+export const confirmButtonText = (label: string): string => (label.startsWith('确') ? label : `确定${label}`);
+/** 看着像代号（全是小写英文、数字、短横线、下划线）的答法说法：服务端给的说法是这种时，换成页面自己的说法 */
+export const looksLikeCode = (text: string): boolean => /^[a-z][a-z0-9_-]*$/.test(text.trim());
+
+/** 答法要先填的那一项，输入框里提示写什么：对端公钥的确认要填完整的新指纹（和对端核对过的）；别的必填写理由，选填留一句 */
+export function viaInputLabel(input: Pick<ViaInput, 'to' | 'required'>): string {
+  if (input.to === 'fingerprint') return '填对端的完整新指纹（和对端核对过的，必填）';
+  return input.required ? '写一句理由（必填）' : '留一句（可不填）';
+}
+
+/** 请求体：答法自带的 body，加上填的那一项（选填又没填的不带；有选项的只认选项里的值） */
+export function viaBody(via: AnswerVia, answer: string, value = ''): Record<string, unknown> {
+  const a = via.answers[answer];
+  if (!a) return {};
+  const text = value.trim();
+  if (!a.input || !text) return { ...a.body };
+  if (a.input.options.length) return a.input.options.includes(text) ? { ...a.body, [a.input.to]: text } : { ...a.body };
+  return { ...a.body, [a.input.to]: text.slice(0, a.input.max) };
+}
+
+/** 没办成时给人看的话：有 message 原样给，没有就按状态说 */
+export function viaError(status: number, body: unknown): string {
+  const b = obj(body);
+  if (b && typeof b.message === 'string' && b.message.trim()) return b.message;
+  if (status === 401) return '请先登录';
+  if (status === 403) return '你没有权限办这一条';
+  if (status === 409) return '这一条已经有人办过了，刷新看看';
+  return '没办成';
+}
+
+/** AI 员工的提问太多、没列全（#720：sources['seat-asks'].more 只在这个人看得到的提问超过上限时才是 true，只列了按提问先后最早的一批）。
+ *  只认严格的 true；没有这一项、不是 true 都当列全了 */
+export const seatAsksMore = (sources: unknown): boolean =>
+  !!sources && typeof sources === 'object' && (sources as Record<string, { more?: unknown } | undefined>)['seat-asks']?.more === true;
+/** 没列全时那一句（中性的提示，不用警示色）：件数照列出来的算，这句话告诉人这些数不全 */
+export const SEAT_ASKS_MORE = 'AI 员工的提问太多，这里只列了最早的一批，还有更多没列出来。';
+
+/** 条目自带的答复入口收不收「记成经验」（#767）：服务端在三类入口（事项放行、台的 MCP 授予申请、对端公钥确认和停用）每种答法的 body 里带 from_attention: true，
+ *  这些入口会把答复记进「关注」的答复账、也收 remember。没带这个标记的入口照旧不收，不给勾选 */
+export function viaTakesRemember(via: AnswerVia | null): boolean {
+  if (!via) return false;
+  const answers = Object.values(via.answers);
+  return answers.length > 0 && answers.every((a) => a.body?.from_attention === true);
+}

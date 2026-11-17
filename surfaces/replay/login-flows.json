@@ -1,0 +1,460 @@
+{
+  "domain": "login-flows",
+  "what": "登录方式：/login/<方式> 和 /login/<方式>/callback、/login/<方式>/form 的 4 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /login/:flow", "GET /login/:flow/callback", "GET /login/:flow/form", "POST /login/:flow/form"],
+  "exempt": [
+    { "route": "GET /login/:flow", "class": "unauthorized", "why": "发起登录本来就是给还没登录的人用的，不查身份，没有未授权这一类", "shown_by": "feishu/start" },
+    { "route": "GET /login/:flow/form", "class": "unauthorized", "why": "表单页本来就是给还没登录的人用的，不查身份；凭的是核心签的 state，state 不对归无效一类", "shown_by": "local/form-get" }
+  ],
+  "scenarios": [
+    {
+      "name": "off",
+      "what": "缺省配置：飞书登录没打开。",
+      "env": {},
+      "steps": [
+        {
+          "id": "start-unknown",
+          "route": "GET /login/:flow",
+          "class": "invalid",
+          "what": "没有这个登录方式",
+          "request": { "method": "GET", "path": "/login/feishu?next=/tasks" },
+          "response": {
+            "status": 404,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "210", "content-security-policy": "default-src 'none'; frame-ancestors 'none'", "etag": "W/\"d2-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>没有这个登录方式</title><h1>没有这个登录方式</h1><p>请回到登录页选一种可用的登录方式。</p><p><a href=\"/login\">回到登录页</a></p>"
+          }
+        },
+        {
+          "id": "start-bad-name",
+          "route": "GET /login/:flow",
+          "class": "invalid",
+          "what": "名字不合格",
+          "request": { "method": "GET", "path": "/login/Feishu!?next=/" },
+          "response": {
+            "status": 404,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "210", "content-security-policy": "default-src 'none'; frame-ancestors 'none'", "etag": "W/\"d2-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>没有这个登录方式</title><h1>没有这个登录方式</h1><p>请回到登录页选一种可用的登录方式。</p><p><a href=\"/login\">回到登录页</a></p>"
+          }
+        },
+        {
+          "id": "callback-forged",
+          "route": "GET /login/:flow/callback",
+          "class": "invalid",
+          "what": "state 是编的",
+          "request": { "method": "GET", "path": "/login/feishu/callback?state=replaystate-alice-0000000000000000000000000&code=x" },
+          "response": {
+            "status": 400,
+            "type": "text/html; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "204",
+              "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
+              "etag": "W/\"cc-<指纹>\"",
+              "set-cookie": ["wm_login_state=; Path=/login/feishu/callback; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin",
+              "x-frame-options": "DENY",
+              "x-powered-by": "Express"
+            },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>登录请求无效或已过期</title><h1>登录请求无效或已过期</h1><p>请回到登录页重新登录。</p><p><a href=\"/login\">回到登录页</a></p>"
+          }
+        }
+      ]
+    },
+    {
+      "name": "feishu",
+      "what": "飞书登录打开，指向本机的假飞书（夹具 feishu-fake）。库里预先放好两个 state（只存哈希）、alice 的飞书身份绑在 user:alice 上；bob 没对到主体。",
+      "env": {},
+      "fixtures": ["feishu-fake"],
+      "seed": [
+        { "table": "principals", "row": { "id": "user:alice", "id_key": "user:alice", "kind": "person", "display_name": "Synthetic Alice" } },
+        { "table": "principal_identities", "row": { "provider": "feishu", "external_id": "on_616c6963652e2e2e2e2e2e2e2e2e2e2e", "external_key": "on_616c6963652e2e2e2e2e2e2e2e2e2e2e", "principal_id": "user:alice" } },
+        {
+          "table": "login_states",
+          "row": { "state_sha256": "7da0cebb461e8cb090113bcc9f355225f3f9d9ba03a43826c776eafeae658748", "flow": "feishu", "next": "/tasks", "browser_sha256": "45a9fa3eb94153b4103e6b69a0553de16777344cf4091d9e74b42130377d1660", "source": "seed", "created_at": 0, "expires_at": 4102444800000 }
+        },
+        {
+          "table": "login_states",
+          "row": { "state_sha256": "97c2af2d97f9153712264517b915ad749dbe012d8a13f2b9c0bf6c310744ce65", "flow": "feishu", "next": "/", "browser_sha256": "45a9fa3eb94153b4103e6b69a0553de16777344cf4091d9e74b42130377d1660", "source": "seed", "created_at": 0, "expires_at": 4102444800000 }
+        }
+      ],
+      "steps": [
+        {
+          "id": "start",
+          "route": "GET /login/:flow",
+          "class": "normal",
+          "what": "发起：302 去假飞书的授权页（state 每次随机，只比状态码）",
+          "vary": { "$location": ["port", "query:state"], "$cookies": { "wm_login_state": ["value", "max-age"] } },
+          "request": { "method": "GET", "path": "/login/feishu?next=/tasks" },
+          "response": {
+            "status": 302,
+            "type": "text/plain; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "274",
+              "location": "http://127.0.0.1:<别的端口>/open-apis/authen/v1/authorize?client_id=cli_synthetic0000001&app_id=cli_synthetic0000001&redirect_uri=http%3A%2F%2F127.0.0.1%3A<市场端口>%2Flogin%2Ffeishu%2Fcallback&response_type=code&state=<每个实例随机·43>",
+              "set-cookie": ["wm_login_state=<每个实例随机·43>; Max-Age=<约10分>; Path=/login/feishu/callback; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin, Accept",
+              "x-powered-by": "Express"
+            },
+            "body": "Found. Redirecting to http://127.0.0.1:<别的端口>/open-apis/authen/v1/authorize?client_id=cli_synthetic0000001&app_id=cli_synthetic0000001&redirect_uri=http%3A%2F%2F127.0.0.1%3A<市场端口>%2Flogin%2Ffeishu%2Fcallback&response_type=code&state=<每个实例随机·43>"
+          }
+        },
+        {
+          "id": "start-next-outside",
+          "route": "GET /login/:flow",
+          "class": "normal",
+          "what": "next 是外站：照样发起，回来时落到 /（只比状态码）",
+          "vary": { "$location": ["port", "query:state"], "$cookies": { "wm_login_state": ["value", "max-age"] } },
+          "request": { "method": "GET", "path": "/login/feishu?next=//evil.invalid/x" },
+          "response": {
+            "status": 302,
+            "type": "text/plain; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "274",
+              "location": "http://127.0.0.1:<别的端口>/open-apis/authen/v1/authorize?client_id=cli_synthetic0000001&app_id=cli_synthetic0000001&redirect_uri=http%3A%2F%2F127.0.0.1%3A<市场端口>%2Flogin%2Ffeishu%2Fcallback&response_type=code&state=<每个实例随机·43>",
+              "set-cookie": ["wm_login_state=<每个实例随机·43>; Max-Age=<约10分>; Path=/login/feishu/callback; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin, Accept",
+              "x-powered-by": "Express"
+            },
+            "body": "Found. Redirecting to http://127.0.0.1:<别的端口>/open-apis/authen/v1/authorize?client_id=cli_synthetic0000001&app_id=cli_synthetic0000001&redirect_uri=http%3A%2F%2F127.0.0.1%3A<市场端口>%2Flogin%2Ffeishu%2Fcallback&response_type=code&state=<每个实例随机·43>"
+          }
+        },
+        {
+          "id": "start-unknown",
+          "route": "GET /login/:flow",
+          "class": "invalid",
+          "what": "没有这个登录方式",
+          "request": { "method": "GET", "path": "/login/wechat?next=/" },
+          "response": {
+            "status": 404,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "210", "content-security-policy": "default-src 'none'; frame-ancestors 'none'", "etag": "W/\"d2-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>没有这个登录方式</title><h1>没有这个登录方式</h1><p>请回到登录页选一种可用的登录方式。</p><p><a href=\"/login\">回到登录页</a></p>"
+          }
+        },
+        {
+          "id": "callback-wrong-browser",
+          "route": "GET /login/:flow/callback",
+          "class": "invalid",
+          "what": "state 对、浏览器半边不对",
+          "request": { "method": "GET", "path": "/login/feishu/callback?state=replaystate-alice-0000000000000000000000000&code=replay-code-alice", "headers": { "cookie": "wm_login_state=other-browser-000000000000000000000000000" } },
+          "response": {
+            "status": 400,
+            "type": "text/html; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "204",
+              "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
+              "etag": "W/\"cc-<指纹>\"",
+              "set-cookie": ["wm_login_state=; Path=/login/feishu/callback; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin",
+              "x-frame-options": "DENY",
+              "x-powered-by": "Express"
+            },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>登录请求无效或已过期</title><h1>登录请求无效或已过期</h1><p>请回到登录页重新登录。</p><p><a href=\"/login\">回到登录页</a></p>"
+          }
+        },
+        {
+          "id": "callback-bob",
+          "route": "GET /login/:flow/callback",
+          "class": "unauthorized",
+          "what": "bob 还没对到主体：等管理员处理（403）",
+          "request": { "method": "GET", "path": "/login/feishu/callback?state=replaystate-bob-000000000000000000000000000&code=replay-code-bob", "headers": { "cookie": "wm_login_state=replaybrowser-00000000000000000000000000000" } },
+          "response": {
+            "status": 403,
+            "type": "text/html; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "218",
+              "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
+              "etag": "W/\"da-<指纹>\"",
+              "set-cookie": ["wm_login_state=; Path=/login/feishu/callback; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin",
+              "x-frame-options": "DENY",
+              "x-powered-by": "Express"
+            },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>等管理员处理</title><h1>等管理员处理</h1><p>登录成功了，但你的账号还需要管理员处理，处理好之前用不了本站。请联系管理员。</p>"
+          }
+        },
+        {
+          "id": "callback-alice",
+          "route": "GET /login/:flow/callback",
+          "class": "normal",
+          "what": "alice：发市场会话，302 回 /tasks（会话值每次随机，只比状态码）",
+          "vary": { "$cookies": { "wm_session": ["value", "max-age"] } },
+          "request": { "method": "GET", "path": "/login/feishu/callback?state=replaystate-alice-0000000000000000000000000&code=replay-code-alice", "headers": { "cookie": "wm_login_state=replaybrowser-00000000000000000000000000000" } },
+          "response": {
+            "status": 302,
+            "type": "text/plain; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "28",
+              "location": "/tasks",
+              "set-cookie": ["wm_login_state=; Path=/login/feishu/callback; Expires=<时间>; HttpOnly; SameSite=Lax", "wm_session=<每个实例随机·43>; Max-Age=<约720分>; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin, Accept",
+              "x-powered-by": "Express"
+            },
+            "body": "Found. Redirecting to /tasks"
+          }
+        },
+        {
+          "id": "callback-replay",
+          "route": "GET /login/:flow/callback",
+          "class": "invalid",
+          "what": "同一个 state 再用一次",
+          "request": { "method": "GET", "path": "/login/feishu/callback?state=replaystate-alice-0000000000000000000000000&code=replay-code-alice", "headers": { "cookie": "wm_login_state=replaybrowser-00000000000000000000000000000" } },
+          "response": {
+            "status": 400,
+            "type": "text/html; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "204",
+              "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
+              "etag": "W/\"cc-<指纹>\"",
+              "set-cookie": ["wm_login_state=; Path=/login/feishu/callback; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin",
+              "x-frame-options": "DENY",
+              "x-powered-by": "Express"
+            },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>登录请求无效或已过期</title><h1>登录请求无效或已过期</h1><p>请回到登录页重新登录。</p><p><a href=\"/login\">回到登录页</a></p>"
+          }
+        }
+      ]
+    },
+    {
+      "name": "local",
+      "what": "账号密码登录（缺省开着；注册打开：WM_LOCAL_SIGNUP=approval）。库里预先放好三个 local 的 state（只存哈希；表单每提交一次就换掉一个，所以提交的几步各用各的）和站内账号 carol（密码 Synthetic-pass-0001，已绑在 user:carol 上）。",
+      "env": { "WM_LOCAL_SIGNUP": "approval" },
+      "clock": "2030-01-01T00:00:00Z",
+      "seed": [
+        { "table": "principals", "row": { "id": "user:carol", "id_key": "user:carol", "kind": "person", "display_name": "Synthetic carol" } },
+        { "table": "principal_identities", "row": { "provider": "local", "external_id": "carol", "external_key": "carol", "principal_id": "user:carol" } },
+        {
+          "table": "local_accounts",
+          "row": { "username": "carol", "display_name": "Synthetic carol", "password_hash": "scrypt$32768$8$1$UxPx2nKECAWDjgvOGmSNwQ$Exm6m4MsRsYfT-orVE4klTzx0wPdXDaS8e_wrT5OJv3nT6z2zb6HjfVAxKjF6LfDG-6a70Ux4EdF4k-nBQUVgA", "must_change": 0, "failed_count": 0, "locked_until": 0, "created_at": 1893456000000, "created_by": "seed", "updated_at": 1893456000000, "last_login_at": null }
+        },
+        {
+          "table": "login_states",
+          "row": { "state_sha256": "735525fb6f1a9f2bd06ca941bff327d3171db47a9e76561479c8f542866527be", "flow": "local", "next": "/tasks", "browser_sha256": "45a9fa3eb94153b4103e6b69a0553de16777344cf4091d9e74b42130377d1660", "source": "seed", "created_at": 0, "expires_at": 4102444800000 }
+        },
+        {
+          "table": "login_states",
+          "row": { "state_sha256": "2dba055c3c17b79fd37a9bc239ca989e82a9c64dbc47fba8985b11098ca0c38f", "flow": "local", "next": "/tasks", "browser_sha256": "45a9fa3eb94153b4103e6b69a0553de16777344cf4091d9e74b42130377d1660", "source": "seed", "created_at": 0, "expires_at": 4102444800000 }
+        },
+        {
+          "table": "login_states",
+          "row": { "state_sha256": "038161fc5887bac65df331d42d8b3ce23dea61d70a87115c9380d0004e209e13", "flow": "local", "next": "/tasks", "browser_sha256": "45a9fa3eb94153b4103e6b69a0553de16777344cf4091d9e74b42130377d1660", "source": "seed", "created_at": 0, "expires_at": 4102444800000 }
+        }
+      ],
+      "steps": [
+        {
+          "id": "start",
+          "route": "GET /login/:flow",
+          "class": "normal",
+          "what": "发起：302 去本站的表单页（state 每次随机）",
+          "vary": { "$location": ["port", "query:state"], "$cookies": { "wm_login_state": ["value", "max-age"] } },
+          "request": { "method": "GET", "path": "/login/local?next=/tasks" },
+          "response": {
+            "status": 302,
+            "type": "text/plain; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "111",
+              "location": "http://127.0.0.1:<市场端口>/login/local/form?state=<每个实例随机·43>",
+              "set-cookie": ["wm_login_state=<每个实例随机·43>; Max-Age=<约10分>; Path=/login/local/callback; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin, Accept",
+              "x-powered-by": "Express"
+            },
+            "body": "Found. Redirecting to http://127.0.0.1:<市场端口>/login/local/form?state=<每个实例随机·43>"
+          }
+        },
+        {
+          "id": "form-get",
+          "route": "GET /login/:flow/form",
+          "class": "normal",
+          "what": "表单页：只有用户名、密码两个框",
+          "request": { "method": "GET", "path": "/login/local/form?state=replaystate-local-000000000000000000000000x" },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "1521", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'", "etag": "W/\"5f1-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-content-type-options": "nosniff", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>账号密码登录</title><style>body{font-family:system-ui,-apple-system,\"Segoe UI\",\"PingFang SC\",sans-serif;background:#F6F7F9;color:#0F172A;margin:0}main{max-width:360px;margin:12vh auto;background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:28px}h1{font-size:20px;margin:0 0 16px}label{display:block;font-size:14px;margin:12px 0 4px}input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:14px}button{margin-top:18px;width:100%;padding:9px;border:0;border-radius:6px;background:#1E3A5F;color:#fff;font-size:14px;cursor:pointer}p.err{color:#DC2626;font-size:14px;margin:0 0 8px}p.hint{color:#5A6577;font-size:13px}a{color:#1E3A5F}</style><main><h1>账号密码登录</h1><form method=\"post\" action=\"/login/local/form?state=replaystate-local-000000000000000000000000x\"><label for=\"u\">用户名</label><input id=\"u\" name=\"username\" autocomplete=\"username\" required maxlength=\"64\" value=\"\"><label for=\"p\">密码</label><input id=\"p\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required maxlength=\"512\"><button type=\"submit\">登录</button></form><p class=\"hint\">还没有账号？<a href=\"/login/local/form?state=replaystate-local-000000000000000000000000x&#38;view=signup\">注册新账号</a>（管理员核准后才能用）</p><p class=\"hint\"><a href=\"/login\">换一种登录方式</a></p></main></html>"
+          }
+        },
+        {
+          "id": "form-get-signup",
+          "route": "GET /login/:flow/form",
+          "class": "normal",
+          "what": "注册页（WM_LOCAL_SIGNUP=approval）",
+          "request": { "method": "GET", "path": "/login/local/form?state=replaystate-local-000000000000000000000000x&view=signup" },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "1857", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'", "etag": "W/\"741-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-content-type-options": "nosniff", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>注册新账号</title><style>body{font-family:system-ui,-apple-system,\"Segoe UI\",\"PingFang SC\",sans-serif;background:#F6F7F9;color:#0F172A;margin:0}main{max-width:360px;margin:12vh auto;background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:28px}h1{font-size:20px;margin:0 0 16px}label{display:block;font-size:14px;margin:12px 0 4px}input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:14px}button{margin-top:18px;width:100%;padding:9px;border:0;border-radius:6px;background:#1E3A5F;color:#fff;font-size:14px;cursor:pointer}p.err{color:#DC2626;font-size:14px;margin:0 0 8px}p.hint{color:#5A6577;font-size:13px}a{color:#1E3A5F}</style><main><h1>注册新账号</h1><p class=\"hint\">注册之后要等管理员核准才能进去。</p><form method=\"post\" action=\"/login/local/form?state=replaystate-local-000000000000000000000000x\"><input type=\"hidden\" name=\"mode\" value=\"signup\"><label for=\"u\">用户名</label><input id=\"u\" name=\"username\" autocomplete=\"username\" required maxlength=\"32\" value=\"\"><label for=\"d\">显示名（可不填）</label><input id=\"d\" name=\"display_name\" autocomplete=\"name\" maxlength=\"64\" value=\"\"><label for=\"p\">密码</label><input id=\"p\" name=\"password\" type=\"password\" autocomplete=\"new-password\" required minlength=\"10\" maxlength=\"512\"><label for=\"c\">再输一次</label><input id=\"c\" name=\"confirm\" type=\"password\" autocomplete=\"new-password\" required minlength=\"10\" maxlength=\"512\"><button type=\"submit\">注册</button></form><p class=\"hint\"><a href=\"/login/local/form?state=replaystate-local-000000000000000000000000x\">已有账号，去登录</a></p><p class=\"hint\"><a href=\"/login\">换一种登录方式</a></p></main></html>"
+          }
+        },
+        {
+          "id": "form-get-forged",
+          "route": "GET /login/:flow/form",
+          "class": "invalid",
+          "what": "state 是编的",
+          "request": { "method": "GET", "path": "/login/local/form?state=replaystate-forged-00000000000000000000000x" },
+          "response": {
+            "status": 400,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "204", "content-security-policy": "default-src 'none'; frame-ancestors 'none'", "etag": "W/\"cc-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>登录请求无效或已过期</title><h1>登录请求无效或已过期</h1><p>请回到登录页重新登录。</p><p><a href=\"/login\">回到登录页</a></p>"
+          }
+        },
+        {
+          "id": "form-get-no-form",
+          "route": "GET /login/:flow/form",
+          "class": "invalid",
+          "what": "没有站内表单的登录方式",
+          "request": { "method": "GET", "path": "/login/feishu/form?state=replaystate-local-000000000000000000000000x" },
+          "response": {
+            "status": 404,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "210", "content-security-policy": "default-src 'none'; frame-ancestors 'none'", "etag": "W/\"d2-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>没有这个登录方式</title><h1>没有这个登录方式</h1><p>请回到登录页选一种可用的登录方式。</p><p><a href=\"/login\">回到登录页</a></p>"
+          }
+        },
+        {
+          "id": "form-post-wrong",
+          "route": "POST /login/:flow/form",
+          "class": "unauthorized",
+          "what": "密码不对：401，提示不分没这个人和密码错；页面上的表单换成新的 state（一次性，每次随机）",
+          "vary": { "$location": ["query:state"] },
+          "request": { "method": "POST", "path": "/login/local/form?state=replaystate-local-000000000000000000000001x", "headers": { "content-type": "application/x-www-form-urlencoded" }, "text": "username=carol&password=wrong-password-0" },
+          "response": {
+            "status": 401,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "1639", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'", "etag": "W/\"667-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-content-type-options": "nosniff", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>账号密码登录</title><style>body{font-family:system-ui,-apple-system,\"Segoe UI\",\"PingFang SC\",sans-serif;background:#F6F7F9;color:#0F172A;margin:0}main{max-width:360px;margin:12vh auto;background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:28px}h1{font-size:20px;margin:0 0 16px}label{display:block;font-size:14px;margin:12px 0 4px}input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:14px}button{margin-top:18px;width:100%;padding:9px;border:0;border-radius:6px;background:#1E3A5F;color:#fff;font-size:14px;cursor:pointer}p.err{color:#DC2626;font-size:14px;margin:0 0 8px}p.hint{color:#5A6577;font-size:13px}a{color:#1E3A5F}</style><main><h1>账号密码登录</h1><p class=\"err\" role=\"alert\">用户名或密码不对。连续输错多次，账号会暂时锁定一会儿。</p><form method=\"post\" action=\"/login/local/form?state=<每个实例随机·43>\"><label for=\"u\">用户名</label><input id=\"u\" name=\"username\" autocomplete=\"username\" required maxlength=\"64\" value=\"carol\"><label for=\"p\">密码</label><input id=\"p\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required maxlength=\"512\"><button type=\"submit\">登录</button></form><p class=\"hint\">还没有账号？<a href=\"/login/local/form?state=<每个实例随机·43>&#38;view=signup\">注册新账号</a>（管理员核准后才能用）</p><p class=\"hint\"><a href=\"/login\">换一种登录方式</a></p></main></html>"
+          }
+        },
+        {
+          "id": "form-post-nobody",
+          "route": "POST /login/:flow/form",
+          "class": "unauthorized",
+          "what": "没这个人：和密码不对一模一样",
+          "vary": { "$location": ["query:state"] },
+          "request": { "method": "POST", "path": "/login/local/form?state=replaystate-local-000000000000000000000002x", "headers": { "content-type": "application/x-www-form-urlencoded" }, "text": "username=nobody&password=wrong-password-0" },
+          "response": {
+            "status": 401,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "1640", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'", "etag": "W/\"668-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-content-type-options": "nosniff", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>账号密码登录</title><style>body{font-family:system-ui,-apple-system,\"Segoe UI\",\"PingFang SC\",sans-serif;background:#F6F7F9;color:#0F172A;margin:0}main{max-width:360px;margin:12vh auto;background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:28px}h1{font-size:20px;margin:0 0 16px}label{display:block;font-size:14px;margin:12px 0 4px}input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:14px}button{margin-top:18px;width:100%;padding:9px;border:0;border-radius:6px;background:#1E3A5F;color:#fff;font-size:14px;cursor:pointer}p.err{color:#DC2626;font-size:14px;margin:0 0 8px}p.hint{color:#5A6577;font-size:13px}a{color:#1E3A5F}</style><main><h1>账号密码登录</h1><p class=\"err\" role=\"alert\">用户名或密码不对。连续输错多次，账号会暂时锁定一会儿。</p><form method=\"post\" action=\"/login/local/form?state=<每个实例随机·43>\"><label for=\"u\">用户名</label><input id=\"u\" name=\"username\" autocomplete=\"username\" required maxlength=\"64\" value=\"nobody\"><label for=\"p\">密码</label><input id=\"p\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required maxlength=\"512\"><button type=\"submit\">登录</button></form><p class=\"hint\">还没有账号？<a href=\"/login/local/form?state=<每个实例随机·43>&#38;view=signup\">注册新账号</a>（管理员核准后才能用）</p><p class=\"hint\"><a href=\"/login\">换一种登录方式</a></p></main></html>"
+          }
+        },
+        {
+          "id": "form-post-json",
+          "route": "POST /login/:flow/form",
+          "class": "invalid",
+          "what": "不是表单格式：415",
+          "request": { "method": "POST", "path": "/login/local/form?state=replaystate-local-000000000000000000000000x", "json": { "username": "carol", "password": "Synthetic-pass-0001" } },
+          "response": {
+            "status": 415,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "180", "content-security-policy": "default-src 'none'; frame-ancestors 'none'", "etag": "W/\"b4-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>请求格式不对</title><h1>请求格式不对</h1><p>请回到登录页重新登录。</p><p><a href=\"/login\">回到登录页</a></p>"
+          }
+        },
+        {
+          "id": "form-post-cross-site",
+          "route": "POST /login/:flow/form",
+          "class": "unauthorized",
+          "what": "别的站提交过来：403",
+          "request": {
+            "method": "POST",
+            "path": "/login/local/form?state=replaystate-local-000000000000000000000000x",
+            "headers": { "content-type": "application/x-www-form-urlencoded", "origin": "http://attacker.invalid", "sec-fetch-site": "cross-site" },
+            "text": "username=carol&password=Synthetic-pass-0001"
+          },
+          "response": {
+            "status": 403,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "180", "content-security-policy": "default-src 'none'; frame-ancestors 'none'", "etag": "W/\"b4-<指纹>\"", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>请求来源不对</title><h1>请求来源不对</h1><p>请回到登录页重新登录。</p><p><a href=\"/login\">回到登录页</a></p>"
+          }
+        },
+        {
+          "id": "form-post-replay",
+          "route": "POST /login/:flow/form",
+          "class": "invalid",
+          "what": "state 一次性：错密码那一步交过的 state 拿来交不一样的内容（重放）400，不进哈希；刚换掉 10 秒内的 state 由登录方式判（一模一样的才拿第一次的结果），所以是登录方式的「已经用过」页",
+          "request": { "method": "POST", "path": "/login/local/form?state=replaystate-local-000000000000000000000001x", "headers": { "content-type": "application/x-www-form-urlencoded" }, "text": "username=carol&password=Synthetic-pass-0001" },
+          "response": {
+            "status": 400,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "1073", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'", "etag": "W/\"431-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-content-type-options": "nosniff", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>登录请求已经用过或过期了</title><style>body{font-family:system-ui,-apple-system,\"Segoe UI\",\"PingFang SC\",sans-serif;background:#F6F7F9;color:#0F172A;margin:0}main{max-width:360px;margin:12vh auto;background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:28px}h1{font-size:20px;margin:0 0 16px}label{display:block;font-size:14px;margin:12px 0 4px}input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:14px}button{margin-top:18px;width:100%;padding:9px;border:0;border-radius:6px;background:#1E3A5F;color:#fff;font-size:14px;cursor:pointer}p.err{color:#DC2626;font-size:14px;margin:0 0 8px}p.hint{color:#5A6577;font-size:13px}a{color:#1E3A5F}</style><main><h1>登录请求已经用过或过期了</h1><p class=\"hint\">这个登录表单已经提交过了。请回到登录页重新登录。</p><p class=\"hint\"><a href=\"/login\">换一种登录方式</a></p></main></html>"
+          }
+        },
+        {
+          "id": "form-post-ok",
+          "route": "POST /login/:flow/form",
+          "class": "normal",
+          "what": "对了：302 去回调，带一次性码（码每次随机）",
+          "vary": { "$location": ["port", "query:code", "query:state"] },
+          "request": { "method": "POST", "path": "/login/local/form?state=replaystate-local-000000000000000000000000x", "headers": { "content-type": "application/x-www-form-urlencoded" }, "text": "username=carol&password=Synthetic-pass-0001" },
+          "response": {
+            "status": 302,
+            "type": "text/plain; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "164", "location": "http://127.0.0.1:<市场端口>/login/local/callback?state=<每个实例随机·43>&code=<每个实例随机·43>", "vary": "Origin, Accept", "x-powered-by": "Express" },
+            "body": "Found. Redirecting to http://127.0.0.1:<市场端口>/login/local/callback?state=<每个实例随机·43>&code=<每个实例随机·43>"
+          }
+        }
+      ]
+    },
+    {
+      "name": "local-signup-off",
+      "what": "WM_LOCAL_SIGNUP=off：表单页没有注册入口，?view=signup 照样只出登录表单，提交注册 404。",
+      "env": { "WM_LOCAL_SIGNUP": "off" },
+      "clock": "2030-01-01T00:00:00Z",
+      "seed": [
+        {
+          "table": "login_states",
+          "row": { "state_sha256": "735525fb6f1a9f2bd06ca941bff327d3171db47a9e76561479c8f542866527be", "flow": "local", "next": "/tasks", "browser_sha256": "45a9fa3eb94153b4103e6b69a0553de16777344cf4091d9e74b42130377d1660", "source": "seed", "created_at": 0, "expires_at": 4102444800000 }
+        }
+      ],
+      "steps": [
+        {
+          "id": "signup-view-off",
+          "route": "GET /login/:flow/form",
+          "class": "normal",
+          "what": "?view=signup：只出登录表单，没有注册入口",
+          "request": { "method": "GET", "path": "/login/local/form?state=replaystate-local-000000000000000000000000x&view=signup" },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "1337", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'", "etag": "W/\"539-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-content-type-options": "nosniff", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>账号密码登录</title><style>body{font-family:system-ui,-apple-system,\"Segoe UI\",\"PingFang SC\",sans-serif;background:#F6F7F9;color:#0F172A;margin:0}main{max-width:360px;margin:12vh auto;background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:28px}h1{font-size:20px;margin:0 0 16px}label{display:block;font-size:14px;margin:12px 0 4px}input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:14px}button{margin-top:18px;width:100%;padding:9px;border:0;border-radius:6px;background:#1E3A5F;color:#fff;font-size:14px;cursor:pointer}p.err{color:#DC2626;font-size:14px;margin:0 0 8px}p.hint{color:#5A6577;font-size:13px}a{color:#1E3A5F}</style><main><h1>账号密码登录</h1><form method=\"post\" action=\"/login/local/form?state=replaystate-local-000000000000000000000000x\"><label for=\"u\">用户名</label><input id=\"u\" name=\"username\" autocomplete=\"username\" required maxlength=\"64\" value=\"\"><label for=\"p\">密码</label><input id=\"p\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required maxlength=\"512\"><button type=\"submit\">登录</button></form><p class=\"hint\"><a href=\"/login\">换一种登录方式</a></p></main></html>"
+          }
+        },
+        {
+          "id": "signup-post-off",
+          "route": "POST /login/:flow/form",
+          "class": "invalid",
+          "what": "提交注册：404 没有注册入口",
+          "request": {
+            "method": "POST",
+            "path": "/login/local/form?state=replaystate-local-000000000000000000000000x",
+            "headers": { "content-type": "application/x-www-form-urlencoded" },
+            "text": "mode=signup&username=zed&password=Zed-pass-00001&confirm=Zed-pass-00001"
+          },
+          "response": {
+            "status": 404,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "1028", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'", "etag": "W/\"404-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-content-type-options": "nosniff", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>没有注册入口</title><style>body{font-family:system-ui,-apple-system,\"Segoe UI\",\"PingFang SC\",sans-serif;background:#F6F7F9;color:#0F172A;margin:0}main{max-width:360px;margin:12vh auto;background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:28px}h1{font-size:20px;margin:0 0 16px}label{display:block;font-size:14px;margin:12px 0 4px}input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:14px}button{margin-top:18px;width:100%;padding:9px;border:0;border-radius:6px;background:#1E3A5F;color:#fff;font-size:14px;cursor:pointer}p.err{color:#DC2626;font-size:14px;margin:0 0 8px}p.hint{color:#5A6577;font-size:13px}a{color:#1E3A5F}</style><main><h1>没有注册入口</h1><p class=\"hint\">这里不开放自己注册，请联系管理员开通账号。</p><p class=\"hint\"><a href=\"/login\">换一种登录方式</a></p></main></html>"
+          }
+        }
+      ]
+    }
+  ]
+}

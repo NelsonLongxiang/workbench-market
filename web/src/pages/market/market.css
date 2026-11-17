@@ -1,0 +1,23 @@
+/* 工作台市场的补充样式（卡片外面那一层、详情入口、单个台的详情页）。只用 tokens.css 的档位，不写死色值和字号。
+   放在这里不往 index.css 里加：市场和详情页各自 import。 */
+
+/* 卡片外面一层：放卡片（整张是「打开」的链接）和右下角的「详情」入口，两者是兄弟，不套链接。
+   右上角在原型里是质量评级那一格，不放东西；「详情」是右下「打开 →」旁边一个次要的文字链接 */
+.wm-mkt-cell { position: relative; display: flex; min-width: 0; }
+.wm-mkt-cell > .wm-mkt-card { flex: 1; min-width: 0; }
+/* 底行给右下角的「详情」让出位置：「打开 →」往左挪两个字加一格间距 */
+.wm-mkt-cell:has(.wm-mkt-detail) .wm-mkt-go { margin-right: calc(2em + var(--wm-space-3)); }
+.wm-mkt-detail {
+  position: absolute; bottom: var(--wm-space-4); right: var(--wm-space-4);
+  font-size: var(--wm-font-size-caption); line-height: inherit; color: var(--wm-color-text-secondary);
+  transition: color var(--wm-motion-fast) var(--wm-motion-easing);
+}
+.wm-mkt-detail:hover { color: var(--wm-color-primary); text-decoration: underline; }
+.wm-mkt-detail:focus-visible { outline: 2px solid var(--wm-color-primary); outline-offset: 2px; }
+
+/* 详情页 */
+.wm-wbd-head { display: flex; align-items: center; gap: var(--wm-space-4); }
+.wm-wbd-head .wm-mkt-ic { width: 56px; height: 56px; font-size: var(--wm-font-size-title); }
+.wm-wbd-name { margin: 0; font-size: var(--wm-font-size-title); font-weight: var(--wm-font-weight-title); color: var(--wm-color-text); }
+.wm-wbd-sub { color: var(--wm-color-text-secondary); font-size: var(--wm-font-size-caption); }
+.wm-wbd-desc { color: var(--wm-color-text); white-space: pre-wrap; }

@@ -1,0 +1,1420 @@
+{
+  "domain": "task-center",
+  "what": "任务中心：任务的列表、详情、录入发布、旧的发布接口、撤回、任务锁、agent 派发开关，总开关的读和改，录入模板，共 10 条路由。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": [
+    "POST /api/task-center/tasks",
+    "GET /api/task-center/tasks",
+    "GET /api/task-center/tasks/:id",
+    "GET /api/task-center/policy",
+    "GET /api/task-center/template",
+    "PUT /api/task-center/policy",
+    "PATCH /api/task-center/tasks/:id/switch",
+    "POST /api/task-center/tasks/:id/publish",
+    "POST /api/task-center/tasks/:id/withdraw",
+    "PATCH /api/task-center/tasks/:id/agent-dispatch"
+  ],
+  "exempt": [
+    { "route": "GET /api/task-center/tasks", "class": "invalid", "why": "列表不读请求里的任何东西，没有会被拒的输入", "shown_by": "open/list" },
+    { "route": "GET /api/task-center/policy", "class": "invalid", "why": "读总开关不读请求里的任何东西", "shown_by": "open/policy" },
+    { "route": "GET /api/task-center/template", "class": "invalid", "why": "读录入模板不读请求里的任何东西", "shown_by": "open/template" },
+    { "route": "POST /api/task-center/tasks/:id/publish", "class": "normal", "why": "旧的发布接口已经停用：找得到任务的一律 409（已发布、已撤回、草稿都不让走这里，发布只能经录入 run），没有照常应答的请求", "shown_by": "open/publish-draft" }
+  ],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "登录门关，读面开放；写只给管理员（本机也要口令），管理口令由环境给合成值。预先写进库：五条执行记录（合格的、缺步骤的、没完成的、别的 SOP 的、已经发布过的）、五个任务、一条事件（经 HTTP 建任务要先走完 task-center 的六步录入）。定了时钟。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "seed": [
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "task-center", "sop_version": 1, "status": "finished", "started_by": "seed", "data": "{\"title\":{\"value\":\"回放任务\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"一份报告\"}}" }
+        },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "task-center", "sop_version": 1, "status": "finished", "started_by": "seed", "data": "{\"title\":{\"value\":\"回放任务\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"  \"}}" }
+        },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "task-center", "sop_version": 1, "status": "running", "started_by": "seed", "data": "{\"title\":{\"value\":\"回放任务\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"一份报告\"}}" }
+        },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "other-sop", "sop_version": 1, "status": "finished", "started_by": "seed", "data": "{\"title\":{\"value\":\"回放任务\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"一份报告\"}}" }
+        },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "task-center", "sop_version": 1, "status": "finished", "started_by": "seed", "data": "{\"title\":{\"value\":\"早先发布的\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"一份报告\"}}" }
+        },
+        { "table": "tasks", "row": { "title": "库里的草稿", "status": "draft", "created_by": "seed" } },
+        { "table": "tasks", "row": { "title": "库里的已发布", "status": "published", "published_at": "2029-12-30 00:00:00", "published_by": "seed", "created_by": "seed" } },
+        { "table": "tasks", "row": { "title": "库里的已撤回", "status": "withdrawn", "created_by": "seed" } },
+        {
+          "table": "tasks",
+          "row": { "title": "早先发布的", "status": "published", "intake_run_id": 5, "template_version": 1, "payload_json": "{\"title\":{\"value\":\"早先发布的\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"一份报告\"}}", "material_sha256": "seed-sha", "published_at": "2029-12-31 00:00:00", "published_by": "seed", "created_by": "seed", "enabled": 1 }
+        },
+        { "table": "tasks", "row": { "title": "库里的第五个", "status": "draft", "created_by": "seed" } },
+        { "table": "task_events", "row": { "task_id": 2, "type": "published", "actor": "human:seed", "payload_json": "{\"note\":\"库里的\"}" } },
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-seed-0000000001", "source": "task-center", "workbench": "task-center", "item": "task:2", "context_id": "ctx-seed", "submitter_kind": "human", "submitter": "seed", "data_sha256": "seed", "dispatch": 0, "routed": "default" }
+        },
+        { "table": "workbench_event_deliveries", "row": { "event_id": "wbe-seed-0000000001", "target_team": "seed-team-a", "target_url": "http://127.0.0.1:9/a2a", "caller_session": "seed", "status": "held" } },
+        { "table": "workbench_event_deliveries", "row": { "event_id": "wbe-seed-0000000001", "target_team": "seed-team-b", "target_url": "http://127.0.0.1:9/a2a", "caller_session": "seed", "status": "sent" } }
+      ],
+      "steps": [
+        {
+          "id": "list",
+          "route": "GET /api/task-center/tasks",
+          "class": "normal",
+          "what": "列表：新的在前，只回元数据（不带 payload_json）",
+          "request": { "method": "GET", "path": "/api/task-center/tasks" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1320", "etag": "W/\"528-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "id": 5, "title": "库里的第五个", "kind": "录入", "status": "draft", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": null, "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 4, "title": "早先发布的", "kind": "录入", "status": "published", "enabled": 1, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": "YYYY-MM-DD hh:mm:ss", "intake_run_id": 5, "template_version": 1, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 3, "title": "库里的已撤回", "kind": "录入", "status": "withdrawn", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": null, "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 2, "title": "库里的已发布", "kind": "录入", "status": "published", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": "YYYY-MM-DD hh:mm:ss", "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 1, "title": "库里的草稿", "kind": "录入", "status": "draft", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": null, "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false }
+            ]
+          }
+        },
+        {
+          "id": "detail-draft",
+          "route": "GET /api/task-center/tasks/:id",
+          "class": "normal",
+          "what": "详情：草稿（没有录入 run）：只回元数据和事件，no-store，标 private_read",
+          "request": { "method": "GET", "path": "/api/task-center/tasks/1" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "305", "etag": "W/\"131-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 1,
+              "title": "库里的草稿",
+              "kind": "录入",
+              "status": "draft",
+              "enabled": 0,
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": null,
+              "published_at": null,
+              "intake_run_id": null,
+              "template_version": null,
+              "agent_dispatch": false,
+              "agent_dispatch_effective": false,
+              "events": [],
+              "private_read": "authorization-required"
+            }
+          }
+        },
+        {
+          "id": "detail-intake-anonymous",
+          "route": "GET /api/task-center/tasks/:id",
+          "class": "normal",
+          "what": "详情：有录入 run 的任务，不带口令：只回元数据",
+          "request": { "method": "GET", "path": "/api/task-center/tasks/4" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "320", "etag": "W/\"140-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 4,
+              "title": "早先发布的",
+              "kind": "录入",
+              "status": "published",
+              "enabled": 1,
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": null,
+              "published_at": "YYYY-MM-DD hh:mm:ss",
+              "intake_run_id": 5,
+              "template_version": 1,
+              "agent_dispatch": false,
+              "agent_dispatch_effective": false,
+              "events": [],
+              "private_read": "authorization-required"
+            }
+          }
+        },
+        {
+          "id": "detail-intake-admin",
+          "route": "GET /api/task-center/tasks/:id",
+          "class": "normal",
+          "what": "详情：有录入 run 的任务，带口令：全量（带 payload_json）",
+          "request": { "method": "GET", "path": "/api/task-center/tasks/4", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "530", "etag": "W/\"212-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 4,
+              "title": "早先发布的",
+              "kind": "录入",
+              "payload_json": "{\"title\":{\"value\":\"早先发布的\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"一份报告\"}}",
+              "status": "published",
+              "material_sha256": "seed-sha",
+              "published_at": "YYYY-MM-DD hh:mm:ss",
+              "published_by": "seed",
+              "enabled": 1,
+              "agent_dispatch_enabled": 0,
+              "created_by": "seed",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": null,
+              "intake_run_id": 5,
+              "template_version": 1,
+              "agent_dispatch": false,
+              "agent_dispatch_effective": false,
+              "events": []
+            }
+          }
+        },
+        {
+          "id": "detail-missing",
+          "route": "GET /api/task-center/tasks/:id",
+          "class": "invalid",
+          "what": "详情：没有这个任务，404",
+          "request": { "method": "GET", "path": "/api/task-center/tasks/999" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "task not found" } }
+        },
+        {
+          "id": "detail-not-number",
+          "route": "GET /api/task-center/tasks/:id",
+          "class": "invalid",
+          "what": "详情：id 不是数，404",
+          "request": { "method": "GET", "path": "/api/task-center/tasks/abc" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "task not found" } }
+        },
+        {
+          "id": "detail-fraction",
+          "route": "GET /api/task-center/tasks/:id",
+          "class": "invalid",
+          "what": "详情：id 是 1.5，404",
+          "request": { "method": "GET", "path": "/api/task-center/tasks/1.5" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "task not found" } }
+        },
+        {
+          "id": "detail-hex",
+          "route": "GET /api/task-center/tasks/:id",
+          "class": "normal",
+          "what": "详情：id 写成 0x2，按数字认",
+          "request": { "method": "GET", "path": "/api/task-center/tasks/0x2" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "518", "etag": "W/\"206-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 2,
+              "title": "库里的已发布",
+              "kind": "录入",
+              "status": "published",
+              "enabled": 0,
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": null,
+              "published_at": "YYYY-MM-DD hh:mm:ss",
+              "intake_run_id": null,
+              "template_version": null,
+              "agent_dispatch": false,
+              "agent_dispatch_effective": false,
+              "events": [{ "id": 1, "type": "published", "actor": "human:seed", "actor_kind": "human", "at": "YYYY-MM-DD hh:mm:ss", "payload_json": "{\"note\":\"库里的\"}", "action": "published", "detail": { "note": "库里的" } }],
+              "private_read": "authorization-required"
+            }
+          }
+        },
+        {
+          "id": "raw-detail-dotdot",
+          "route": "GET /api/task-center/tasks/:id",
+          "class": "invalid",
+          "what": "原样发：:id 是 ..，404",
+          "request": { "method": "GET", "path": "/api/task-center/tasks/..", "raw": true },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "task not found" } }
+        },
+        {
+          "id": "raw-detail-encoded-slash",
+          "route": "GET /api/task-center/tasks/:id",
+          "class": "invalid",
+          "what": "原样发：:id 是 1%2f..%2f2，404",
+          "request": { "method": "GET", "path": "/api/task-center/tasks/1%2f..%2f2", "raw": true },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "task not found" } }
+        },
+        {
+          "id": "raw-detail-backslash",
+          "route": "GET /api/task-center/tasks/:id",
+          "class": "invalid",
+          "what": "原样发：:id 里有反斜杠，404",
+          "request": { "method": "GET", "path": "/api/task-center/tasks/1\\2", "raw": true },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "task not found" } }
+        },
+        {
+          "id": "raw-detail-long",
+          "route": "GET /api/task-center/tasks/:id",
+          "class": "invalid",
+          "what": "原样发：:id 是 4000 个 9，404",
+          "request": { "method": "GET", "path": "/api/task-center/tasks/9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999", "raw": true },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "task not found" } }
+        },
+        {
+          "id": "policy",
+          "route": "GET /api/task-center/policy",
+          "class": "normal",
+          "what": "总开关：缺省关",
+          "request": { "method": "GET", "path": "/api/task-center/policy" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "agent_dispatch_enabled": false } }
+        },
+        {
+          "id": "template",
+          "route": "GET /api/task-center/template",
+          "class": "normal",
+          "what": "录入模板：活跃版本和六个固定步骤",
+          "request": { "method": "GET", "path": "/api/task-center/template" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "752", "etag": "W/\"2f0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "version": 1,
+              "steps": [
+                { "key": "title", "title": "任务标题", "body": "<label>任务标题<textarea data-field=\"value\"></textarea></label>" },
+                { "key": "intent", "title": "任务意图", "body": "<label>任务意图<textarea data-field=\"value\"></textarea></label>" },
+                { "key": "references", "title": "基准材料", "body": "<label>基准材料<textarea data-field=\"value\"></textarea></label>" },
+                { "key": "deliverable", "title": "提交物要求", "body": "<label>提交物要求<textarea data-field=\"value\"></textarea></label>" },
+                { "key": "target", "title": "目标 SOP 台", "body": "<label>目标 SOP 台<textarea data-field=\"value\"></textarea></label>" },
+                { "key": "due", "title": "截止日期", "body": "<label>截止日期<textarea data-field=\"value\"></textarea></label>" }
+              ]
+            }
+          }
+        },
+        {
+          "id": "intake-no-token",
+          "route": "POST /api/task-center/tasks",
+          "class": "unauthorized",
+          "what": "录入发布：本机不带口令，403",
+          "request": { "method": "POST", "path": "/api/task-center/tasks", "headers": {}, "json": { "intake_run_id": 1, "published_by": "回放发布人" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "intake-cross",
+          "route": "POST /api/task-center/tasks",
+          "class": "unauthorized",
+          "what": "录入发布：带口令但跨站，403",
+          "request": {
+            "method": "POST",
+            "path": "/api/task-center/tasks",
+            "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" },
+            "json": { "intake_run_id": 1, "published_by": "回放发布人" }
+          },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "intake-remote-anonymous",
+          "route": "POST /api/task-center/tasks",
+          "class": "unauthorized",
+          "what": "录入发布：带转发头没有口令，403",
+          "request": { "method": "POST", "path": "/api/task-center/tasks", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "intake_run_id": 1, "published_by": "回放发布人" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "intake-empty",
+          "route": "POST /api/task-center/tasks",
+          "class": "invalid",
+          "what": "录入发布：空的请求体，400 intake_run_id 必填",
+          "request": { "method": "POST", "path": "/api/task-center/tasks", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "47", "etag": "W/\"2f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "intake_run_id 必填（正整数）" } }
+        },
+        {
+          "id": "intake-run-string",
+          "route": "POST /api/task-center/tasks",
+          "class": "invalid",
+          "what": "录入发布：intake_run_id 是字符串，400",
+          "request": { "method": "POST", "path": "/api/task-center/tasks", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "intake_run_id": "1", "published_by": "回放发布人" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "47", "etag": "W/\"2f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "intake_run_id 必填（正整数）" } }
+        },
+        {
+          "id": "intake-run-zero",
+          "route": "POST /api/task-center/tasks",
+          "class": "invalid",
+          "what": "录入发布：intake_run_id 是 0，400",
+          "request": { "method": "POST", "path": "/api/task-center/tasks", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "intake_run_id": 0, "published_by": "回放发布人" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "47", "etag": "W/\"2f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "intake_run_id 必填（正整数）" } }
+        },
+        {
+          "id": "intake-run-fraction",
+          "route": "POST /api/task-center/tasks",
+          "class": "invalid",
+          "what": "录入发布：intake_run_id 是 1.5，400",
+          "request": { "method": "POST", "path": "/api/task-center/tasks", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "intake_run_id": 1.5, "published_by": "回放发布人" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "47", "etag": "W/\"2f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "intake_run_id 必填（正整数）" } }
+        },
+        {
+          "id": "intake-no-publisher",
+          "route": "POST /api/task-center/tasks",
+          "class": "invalid",
+          "what": "录入发布：没有 published_by，400",
+          "request": { "method": "POST", "path": "/api/task-center/tasks", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "intake_run_id": 1 } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "published_by 必填" } }
+        },
+        {
+          "id": "intake-blank-publisher",
+          "route": "POST /api/task-center/tasks",
+          "class": "invalid",
+          "what": "录入发布：published_by 只有空白，400",
+          "request": { "method": "POST", "path": "/api/task-center/tasks", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "intake_run_id": 1, "published_by": "   " } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "published_by 必填" } }
+        },
+        {
+          "id": "intake-dispatch-string",
+          "route": "POST /api/task-center/tasks",
+          "class": "invalid",
+          "what": "录入发布：agent_dispatch 不是布尔值，400",
+          "request": { "method": "POST", "path": "/api/task-center/tasks", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "intake_run_id": 1, "published_by": "回放发布人", "agent_dispatch": "yes" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "45", "etag": "W/\"2d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "agent_dispatch 必须是布尔值" } }
+        },
+        {
+          "id": "intake-run-missing-step",
+          "route": "POST /api/task-center/tasks",
+          "class": "invalid",
+          "what": "录入发布：run 缺必填步骤 deliverable，400",
+          "request": { "method": "POST", "path": "/api/task-center/tasks", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "intake_run_id": 2, "published_by": "回放发布人" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "46", "etag": "W/\"2e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "录入缺必填步骤: deliverable" } }
+        },
+        {
+          "id": "intake-run-running",
+          "route": "POST /api/task-center/tasks",
+          "class": "invalid",
+          "what": "录入发布：run 还没完成，400",
+          "request": { "method": "POST", "path": "/api/task-center/tasks", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "intake_run_id": 3, "published_by": "回放发布人" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "53", "etag": "W/\"35-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "录入必须是 task-center 已完成 run" } }
+        },
+        {
+          "id": "intake-run-other-sop",
+          "route": "POST /api/task-center/tasks",
+          "class": "invalid",
+          "what": "录入发布：run 是别的 SOP 的，400",
+          "request": { "method": "POST", "path": "/api/task-center/tasks", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "intake_run_id": 4, "published_by": "回放发布人" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "53", "etag": "W/\"35-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "录入必须是 task-center 已完成 run" } }
+        },
+        {
+          "id": "intake-run-none",
+          "route": "POST /api/task-center/tasks",
+          "class": "invalid",
+          "what": "录入发布：run 不存在，400",
+          "request": { "method": "POST", "path": "/api/task-center/tasks", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "intake_run_id": 999, "published_by": "回放发布人" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "53", "etag": "W/\"35-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "录入必须是 task-center 已完成 run" } }
+        },
+        {
+          "id": "intake-run-duplicate",
+          "route": "POST /api/task-center/tasks",
+          "class": "invalid",
+          "what": "录入发布：这个 run 已经发布过（库里第 4 个任务），409",
+          "request": { "method": "POST", "path": "/api/task-center/tasks", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "intake_run_id": 5, "published_by": "回放发布人" } },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "47", "etag": "W/\"2f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "同一录入 run 只能发布一次" } }
+        },
+        {
+          "id": "list-after-rejected",
+          "route": "GET /api/task-center/tasks",
+          "class": "normal",
+          "what": "被拒的几次都没写进去",
+          "request": { "method": "GET", "path": "/api/task-center/tasks" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1320", "etag": "W/\"528-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "id": 5, "title": "库里的第五个", "kind": "录入", "status": "draft", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": null, "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 4, "title": "早先发布的", "kind": "录入", "status": "published", "enabled": 1, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": "YYYY-MM-DD hh:mm:ss", "intake_run_id": 5, "template_version": 1, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 3, "title": "库里的已撤回", "kind": "录入", "status": "withdrawn", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": null, "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 2, "title": "库里的已发布", "kind": "录入", "status": "published", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": "YYYY-MM-DD hh:mm:ss", "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 1, "title": "库里的草稿", "kind": "录入", "status": "draft", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": null, "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false }
+            ]
+          }
+        },
+        {
+          "id": "intake",
+          "route": "POST /api/task-center/tasks",
+          "class": "normal",
+          "what": "录入发布：合格的 run，published_by 两头空白去掉，agent_dispatch=true；返回任务号、模板版本、材料指纹、事件号（事件号每次随机，只比类型和长度）",
+          "vary": { "event_id": "random" },
+          "request": { "method": "POST", "path": "/api/task-center/tasks", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "intake_run_id": 1, "published_by": "  回放发布人  ", "agent_dispatch": true } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "197", "etag": "W/\"c5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 6, "status": "published", "intake_run_id": 1, "template_version": 1, "material_sha256": "12abae2a044a1835b57079b93836274c7da61f5879c648553e72b1c4bbbbae0d", "event_id": "<每个实例随机·string·20>" }
+          }
+        },
+        {
+          "id": "intake-again",
+          "route": "POST /api/task-center/tasks",
+          "class": "invalid",
+          "what": "同一个 run 再发布：409",
+          "request": { "method": "POST", "path": "/api/task-center/tasks", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "intake_run_id": 1, "published_by": "回放发布人" } },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "47", "etag": "W/\"2f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "同一录入 run 只能发布一次" } }
+        },
+        {
+          "id": "detail-new",
+          "route": "GET /api/task-center/tasks/:id",
+          "class": "normal",
+          "what": "新任务的详情（带口令）：payload 是冻结的录入数据，事件一条 published",
+          "request": { "method": "GET", "path": "/api/task-center/tasks/6", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1027", "etag": "W/\"403-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 6,
+              "title": "回放任务",
+              "kind": "录入",
+              "payload_json": "{\"deliverable\":{\"value\":\"一份报告\"},\"intent\":{\"value\":\"验证录入发布\"},\"title\":{\"value\":\"回放任务\"}}",
+              "status": "published",
+              "material_sha256": "12abae2a044a1835b57079b93836274c7da61f5879c648553e72b1c4bbbbae0d",
+              "published_at": "YYYY-MM-DD hh:mm:ss",
+              "published_by": "human:回放发布人",
+              "enabled": 0,
+              "agent_dispatch_enabled": 1,
+              "created_by": "human:回放发布人",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": null,
+              "intake_run_id": 1,
+              "template_version": 1,
+              "agent_dispatch": true,
+              "agent_dispatch_effective": false,
+              "events": [
+                {
+                  "id": 2,
+                  "type": "published",
+                  "actor": "human:回放发布人",
+                  "actor_kind": "human",
+                  "at": "YYYY-MM-DD hh:mm:ss",
+                  "payload_json": "{\"intake_run_id\":1,\"template_version\":1,\"material_sha256\":\"12abae2a044a1835b57079b93836274c7da61f5879c648553e72b1c4bbbbae0d\"}",
+                  "action": "published",
+                  "detail": { "intake_run_id": 1, "template_version": 1, "material_sha256": "12abae2a044a1835b57079b93836274c7da61f5879c648553e72b1c4bbbbae0d" }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "policy-no-token",
+          "route": "PUT /api/task-center/policy",
+          "class": "unauthorized",
+          "what": "改总开关：本机不带口令，403",
+          "request": { "method": "PUT", "path": "/api/task-center/policy", "headers": {}, "json": { "agent_dispatch_enabled": true } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "policy-cross",
+          "route": "PUT /api/task-center/policy",
+          "class": "unauthorized",
+          "what": "改总开关：带口令但跨站，403",
+          "request": { "method": "PUT", "path": "/api/task-center/policy", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": { "agent_dispatch_enabled": true } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "policy-empty",
+          "route": "PUT /api/task-center/policy",
+          "class": "invalid",
+          "what": "改总开关：没给 agent_dispatch_enabled，400",
+          "request": { "method": "PUT", "path": "/api/task-center/policy", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "53", "etag": "W/\"35-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "agent_dispatch_enabled 必须是布尔值" } }
+        },
+        {
+          "id": "policy-string",
+          "route": "PUT /api/task-center/policy",
+          "class": "invalid",
+          "what": "改总开关：给的是字符串 \"true\"，400",
+          "request": { "method": "PUT", "path": "/api/task-center/policy", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "agent_dispatch_enabled": "true" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "53", "etag": "W/\"35-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "agent_dispatch_enabled 必须是布尔值" } }
+        },
+        {
+          "id": "policy-on",
+          "route": "PUT /api/task-center/policy",
+          "class": "normal",
+          "what": "改总开关：打开（变了，记一条事件）",
+          "request": { "method": "PUT", "path": "/api/task-center/policy", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "agent_dispatch_enabled": true } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "agent_dispatch_enabled": true } }
+        },
+        {
+          "id": "policy-on-again",
+          "route": "PUT /api/task-center/policy",
+          "class": "normal",
+          "what": "改总开关：再打开（没变，不记事件）",
+          "request": { "method": "PUT", "path": "/api/task-center/policy", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "agent_dispatch_enabled": true } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "agent_dispatch_enabled": true } }
+        },
+        {
+          "id": "policy-after-on",
+          "route": "GET /api/task-center/policy",
+          "class": "normal",
+          "what": "总开关：开",
+          "request": { "method": "GET", "path": "/api/task-center/policy" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "agent_dispatch_enabled": true } }
+        },
+        {
+          "id": "list-policy-on",
+          "route": "GET /api/task-center/tasks",
+          "class": "normal",
+          "what": "总开关开了：已发布、任务开关开的任务 agent_dispatch_effective=true",
+          "request": { "method": "GET", "path": "/api/task-center/tasks" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1584", "etag": "W/\"630-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "id": 6, "title": "回放任务", "kind": "录入", "status": "published", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": "YYYY-MM-DD hh:mm:ss", "intake_run_id": 1, "template_version": 1, "agent_dispatch": true, "agent_dispatch_effective": true },
+              { "id": 5, "title": "库里的第五个", "kind": "录入", "status": "draft", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": null, "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 4, "title": "早先发布的", "kind": "录入", "status": "published", "enabled": 1, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": "YYYY-MM-DD hh:mm:ss", "intake_run_id": 5, "template_version": 1, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 3, "title": "库里的已撤回", "kind": "录入", "status": "withdrawn", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": null, "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 2, "title": "库里的已发布", "kind": "录入", "status": "published", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": "YYYY-MM-DD hh:mm:ss", "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 1, "title": "库里的草稿", "kind": "录入", "status": "draft", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": null, "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false }
+            ]
+          }
+        },
+        {
+          "id": "policy-off",
+          "route": "PUT /api/task-center/policy",
+          "class": "normal",
+          "what": "改总开关：关上",
+          "request": { "method": "PUT", "path": "/api/task-center/policy", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "agent_dispatch_enabled": false } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "agent_dispatch_enabled": false } }
+        },
+        {
+          "id": "switch-no-token",
+          "route": "PATCH /api/task-center/tasks/:id/switch",
+          "class": "unauthorized",
+          "what": "任务锁：本机不带口令，403",
+          "request": { "method": "PATCH", "path": "/api/task-center/tasks/1/switch", "headers": {}, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "switch-cross",
+          "route": "PATCH /api/task-center/tasks/:id/switch",
+          "class": "unauthorized",
+          "what": "任务锁：带口令但跨站，403",
+          "request": { "method": "PATCH", "path": "/api/task-center/tasks/1/switch", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": {} },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "switch-missing",
+          "route": "PATCH /api/task-center/tasks/:id/switch",
+          "class": "invalid",
+          "what": "任务锁：没有这个任务，404",
+          "request": { "method": "PATCH", "path": "/api/task-center/tasks/999/switch", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "task not found" } }
+        },
+        {
+          "id": "switch-not-number",
+          "route": "PATCH /api/task-center/tasks/:id/switch",
+          "class": "invalid",
+          "what": "任务锁：id 不是数，404",
+          "request": { "method": "PATCH", "path": "/api/task-center/tasks/abc/switch", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "task not found" } }
+        },
+        {
+          "id": "switch-on",
+          "route": "PATCH /api/task-center/tasks/:id/switch",
+          "class": "normal",
+          "what": "任务锁：草稿的锁从关翻成开",
+          "request": { "method": "PATCH", "path": "/api/task-center/tasks/1/switch", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "enabled": true } }
+        },
+        {
+          "id": "switch-off",
+          "route": "PATCH /api/task-center/tasks/:id/switch",
+          "class": "normal",
+          "what": "任务锁：再翻一次，关",
+          "request": { "method": "PATCH", "path": "/api/task-center/tasks/1/switch", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "enabled": false } }
+        },
+        {
+          "id": "detail-after-switch",
+          "route": "GET /api/task-center/tasks/:id",
+          "class": "normal",
+          "what": "翻两次之后的详情：两条 toggled 事件，记着改了什么",
+          "request": { "method": "GET", "path": "/api/task-center/tasks/1" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "663", "etag": "W/\"297-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 1,
+              "title": "库里的草稿",
+              "kind": "录入",
+              "status": "draft",
+              "enabled": 0,
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "published_at": null,
+              "intake_run_id": null,
+              "template_version": null,
+              "agent_dispatch": false,
+              "agent_dispatch_effective": false,
+              "events": [
+                { "id": 3, "type": "toggled", "actor": "human:human", "actor_kind": "human", "at": "YYYY-MM-DD hh:mm:ss", "payload_json": "{\"enabled\":1}", "action": "toggled", "detail": { "enabled": 1 } },
+                { "id": 4, "type": "toggled", "actor": "human:human", "actor_kind": "human", "at": "YYYY-MM-DD hh:mm:ss", "payload_json": "{\"enabled\":0}", "action": "toggled", "detail": { "enabled": 0 } }
+              ],
+              "private_read": "authorization-required"
+            }
+          }
+        },
+        {
+          "id": "publish-no-token",
+          "route": "POST /api/task-center/tasks/:id/publish",
+          "class": "unauthorized",
+          "what": "旧的发布接口：本机不带口令，403",
+          "request": { "method": "POST", "path": "/api/task-center/tasks/1/publish", "headers": {}, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "publish-cross",
+          "route": "POST /api/task-center/tasks/:id/publish",
+          "class": "unauthorized",
+          "what": "旧的发布接口：带口令但跨站，403",
+          "request": { "method": "POST", "path": "/api/task-center/tasks/1/publish", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": {} },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "publish-missing",
+          "route": "POST /api/task-center/tasks/:id/publish",
+          "class": "invalid",
+          "what": "旧的发布接口：没有这个任务，404",
+          "request": { "method": "POST", "path": "/api/task-center/tasks/999/publish", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "task not found" } }
+        },
+        {
+          "id": "publish-published",
+          "route": "POST /api/task-center/tasks/:id/publish",
+          "class": "invalid",
+          "what": "旧的发布接口：已发布的，409 不可再写",
+          "request": { "method": "POST", "path": "/api/task-center/tasks/2/publish", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "47", "etag": "W/\"2f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "已发布不可再写（#159 C11）" } }
+        },
+        {
+          "id": "publish-withdrawn",
+          "route": "POST /api/task-center/tasks/:id/publish",
+          "class": "invalid",
+          "what": "旧的发布接口：已撤回的，409",
+          "request": { "method": "POST", "path": "/api/task-center/tasks/3/publish", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "已撤回任务不可发布" } }
+        },
+        {
+          "id": "publish-draft",
+          "route": "POST /api/task-center/tasks/:id/publish",
+          "class": "invalid",
+          "what": "旧的发布接口：草稿，409 不得绕过录入 run",
+          "request": { "method": "POST", "path": "/api/task-center/tasks/1/publish", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "96", "etag": "W/\"60-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "旧草稿不得绕过录入 run 发布；请完成 task-center 录入后统一发布" }
+          }
+        },
+        {
+          "id": "withdraw-no-token",
+          "route": "POST /api/task-center/tasks/:id/withdraw",
+          "class": "unauthorized",
+          "what": "撤回：本机不带口令，403",
+          "request": { "method": "POST", "path": "/api/task-center/tasks/2/withdraw", "headers": {}, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "withdraw-cross",
+          "route": "POST /api/task-center/tasks/:id/withdraw",
+          "class": "unauthorized",
+          "what": "撤回：带口令但跨站，403",
+          "request": { "method": "POST", "path": "/api/task-center/tasks/2/withdraw", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": {} },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "withdraw-missing",
+          "route": "POST /api/task-center/tasks/:id/withdraw",
+          "class": "invalid",
+          "what": "撤回：没有这个任务，404",
+          "request": { "method": "POST", "path": "/api/task-center/tasks/999/withdraw", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "task not found" } }
+        },
+        {
+          "id": "withdraw-draft",
+          "route": "POST /api/task-center/tasks/:id/withdraw",
+          "class": "invalid",
+          "what": "撤回：草稿，409 仅已发布可撤回",
+          "request": { "method": "POST", "path": "/api/task-center/tasks/1/withdraw", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "仅已发布可撤回" } }
+        },
+        {
+          "id": "withdraw",
+          "route": "POST /api/task-center/tasks/:id/withdraw",
+          "class": "normal",
+          "what": "撤回已发布的任务：库里给它的一条工作台事件挂了两条投递，held 的那条取消，已发出的那条不动（取消 1）",
+          "request": { "method": "POST", "path": "/api/task-center/tasks/2/withdraw", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "89", "etag": "W/\"59-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 2, "status": "withdrawn", "cancelled_deliveries": 1, "in_flight_deliveries": 0 }
+          }
+        },
+        {
+          "id": "withdraw-again",
+          "route": "POST /api/task-center/tasks/:id/withdraw",
+          "class": "invalid",
+          "what": "撤回：已撤回的再撤回，409",
+          "request": { "method": "POST", "path": "/api/task-center/tasks/2/withdraw", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "仅已发布可撤回" } }
+        },
+        {
+          "id": "withdraw-new",
+          "route": "POST /api/task-center/tasks/:id/withdraw",
+          "class": "normal",
+          "what": "撤回刚录入发布的任务：它在发布时记了一条工作台事件；没有绑定，就没有要取消的投递（0、0）",
+          "request": { "method": "POST", "path": "/api/task-center/tasks/6/withdraw", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "89", "etag": "W/\"59-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 6, "status": "withdrawn", "cancelled_deliveries": 0, "in_flight_deliveries": 0 }
+          }
+        },
+        {
+          "id": "detail-after-withdraw",
+          "route": "GET /api/task-center/tasks/:id",
+          "class": "normal",
+          "what": "撤回之后的详情：多一条 withdrawn 事件",
+          "request": { "method": "GET", "path": "/api/task-center/tasks/2" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "730", "etag": "W/\"2da-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 2,
+              "title": "库里的已发布",
+              "kind": "录入",
+              "status": "withdrawn",
+              "enabled": 0,
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "published_at": "YYYY-MM-DD hh:mm:ss",
+              "intake_run_id": null,
+              "template_version": null,
+              "agent_dispatch": false,
+              "agent_dispatch_effective": false,
+              "events": [
+                { "id": 1, "type": "published", "actor": "human:seed", "actor_kind": "human", "at": "YYYY-MM-DD hh:mm:ss", "payload_json": "{\"note\":\"库里的\"}", "action": "published", "detail": { "note": "库里的" } },
+                { "id": 5, "type": "withdrawn", "actor": "human:admin", "actor_kind": "human", "at": "YYYY-MM-DD hh:mm:ss", "payload_json": "{\"status\":\"withdrawn\"}", "action": "withdrawn", "detail": { "status": "withdrawn" } }
+              ],
+              "private_read": "authorization-required"
+            }
+          }
+        },
+        {
+          "id": "dispatch-no-token",
+          "route": "PATCH /api/task-center/tasks/:id/agent-dispatch",
+          "class": "unauthorized",
+          "what": "派发开关：本机不带口令，403",
+          "request": { "method": "PATCH", "path": "/api/task-center/tasks/4/agent-dispatch", "headers": {}, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "dispatch-cross",
+          "route": "PATCH /api/task-center/tasks/:id/agent-dispatch",
+          "class": "unauthorized",
+          "what": "派发开关：带口令但跨站，403",
+          "request": { "method": "PATCH", "path": "/api/task-center/tasks/4/agent-dispatch", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": {} },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "dispatch-missing",
+          "route": "PATCH /api/task-center/tasks/:id/agent-dispatch",
+          "class": "invalid",
+          "what": "派发开关：没有这个任务，404",
+          "request": { "method": "PATCH", "path": "/api/task-center/tasks/999/agent-dispatch", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "task not found" } }
+        },
+        {
+          "id": "dispatch-draft",
+          "route": "PATCH /api/task-center/tasks/:id/agent-dispatch",
+          "class": "invalid",
+          "what": "派发开关：草稿，409 仅已发布",
+          "request": { "method": "PATCH", "path": "/api/task-center/tasks/1/agent-dispatch", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "45", "etag": "W/\"2d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "仅已发布任务可变更开关" } }
+        },
+        {
+          "id": "dispatch-string",
+          "route": "PATCH /api/task-center/tasks/:id/agent-dispatch",
+          "class": "invalid",
+          "what": "派发开关：enabled 不是布尔值，400",
+          "request": { "method": "PATCH", "path": "/api/task-center/tasks/4/agent-dispatch", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "enabled": "x" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "enabled 必须是布尔值" } }
+        },
+        {
+          "id": "dispatch-toggle",
+          "route": "PATCH /api/task-center/tasks/:id/agent-dispatch",
+          "class": "normal",
+          "what": "派发开关：不给 enabled，翻转（关 → 开）",
+          "request": { "method": "PATCH", "path": "/api/task-center/tasks/4/agent-dispatch", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "544", "etag": "W/\"220-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 4, "title": "早先发布的", "kind": "录入", "payload_json": "{\"title\":{\"value\":\"早先发布的\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"一份报告\"}}", "status": "published", "material_sha256": "seed-sha", "published_at": "YYYY-MM-DD hh:mm:ss", "published_by": "seed", "enabled": 1, "agent_dispatch_enabled": 1, "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "intake_run_id": 5, "template_version": 1, "agent_dispatch": true, "agent_dispatch_effective": false }
+          }
+        },
+        {
+          "id": "dispatch-same",
+          "route": "PATCH /api/task-center/tasks/:id/agent-dispatch",
+          "class": "normal",
+          "what": "派发开关：给的和现在一样（开），不记事件",
+          "request": { "method": "PATCH", "path": "/api/task-center/tasks/4/agent-dispatch", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "enabled": true } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "544", "etag": "W/\"220-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 4, "title": "早先发布的", "kind": "录入", "payload_json": "{\"title\":{\"value\":\"早先发布的\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"一份报告\"}}", "status": "published", "material_sha256": "seed-sha", "published_at": "YYYY-MM-DD hh:mm:ss", "published_by": "seed", "enabled": 1, "agent_dispatch_enabled": 1, "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "intake_run_id": 5, "template_version": 1, "agent_dispatch": true, "agent_dispatch_effective": false }
+          }
+        },
+        {
+          "id": "dispatch-off",
+          "route": "PATCH /api/task-center/tasks/:id/agent-dispatch",
+          "class": "normal",
+          "what": "派发开关：关",
+          "request": { "method": "PATCH", "path": "/api/task-center/tasks/4/agent-dispatch", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "enabled": false } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "545", "etag": "W/\"221-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 4, "title": "早先发布的", "kind": "录入", "payload_json": "{\"title\":{\"value\":\"早先发布的\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"一份报告\"}}", "status": "published", "material_sha256": "seed-sha", "published_at": "YYYY-MM-DD hh:mm:ss", "published_by": "seed", "enabled": 1, "agent_dispatch_enabled": 0, "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "intake_run_id": 5, "template_version": 1, "agent_dispatch": false, "agent_dispatch_effective": false }
+          }
+        },
+        {
+          "id": "detail-after-dispatch",
+          "route": "GET /api/task-center/tasks/:id",
+          "class": "normal",
+          "what": "派发开关之后的详情（带口令）：两条 toggled 事件",
+          "request": { "method": "GET", "path": "/api/task-center/tasks/4", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "948", "etag": "W/\"3b4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 4,
+              "title": "早先发布的",
+              "kind": "录入",
+              "payload_json": "{\"title\":{\"value\":\"早先发布的\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"一份报告\"}}",
+              "status": "published",
+              "material_sha256": "seed-sha",
+              "published_at": "YYYY-MM-DD hh:mm:ss",
+              "published_by": "seed",
+              "enabled": 1,
+              "agent_dispatch_enabled": 0,
+              "created_by": "seed",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "intake_run_id": 5,
+              "template_version": 1,
+              "agent_dispatch": false,
+              "agent_dispatch_effective": false,
+              "events": [
+                { "id": 7, "type": "toggled", "actor": "human:admin", "actor_kind": "human", "at": "YYYY-MM-DD hh:mm:ss", "payload_json": "{\"agent_dispatch_enabled\":1}", "action": "toggled", "detail": { "agent_dispatch_enabled": 1 } },
+                { "id": 8, "type": "toggled", "actor": "human:admin", "actor_kind": "human", "at": "YYYY-MM-DD hh:mm:ss", "payload_json": "{\"agent_dispatch_enabled\":0}", "action": "toggled", "detail": { "agent_dispatch_enabled": 0 } }
+              ]
+            }
+          }
+        },
+        {
+          "id": "publish-v2",
+          "what": "布置现场：给 task-center 补发 v2（借发布的路由，只比状态码）",
+          "compare": "status",
+          "request": {
+            "method": "POST",
+            "path": "/api/apps",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "slug": "task-center", "kind": "sop", "changelog": "回放：v2", "patch": { "set": [{ "path": "docs/v2.txt", "content": "第二版\n" }] } }
+          },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "template-v2",
+          "route": "GET /api/task-center/template",
+          "class": "normal",
+          "what": "补发之后录入模板的版本是 2",
+          "request": { "method": "GET", "path": "/api/task-center/template" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "752", "etag": "W/\"2f0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "version": 2,
+              "steps": [
+                { "key": "title", "title": "任务标题", "body": "<label>任务标题<textarea data-field=\"value\"></textarea></label>" },
+                { "key": "intent", "title": "任务意图", "body": "<label>任务意图<textarea data-field=\"value\"></textarea></label>" },
+                { "key": "references", "title": "基准材料", "body": "<label>基准材料<textarea data-field=\"value\"></textarea></label>" },
+                { "key": "deliverable", "title": "提交物要求", "body": "<label>提交物要求<textarea data-field=\"value\"></textarea></label>" },
+                { "key": "target", "title": "目标 SOP 台", "body": "<label>目标 SOP 台<textarea data-field=\"value\"></textarea></label>" },
+                { "key": "due", "title": "截止日期", "body": "<label>截止日期<textarea data-field=\"value\"></textarea></label>" }
+              ]
+            }
+          }
+        },
+        {
+          "id": "list-final",
+          "route": "GET /api/task-center/tasks",
+          "class": "normal",
+          "what": "最后的列表",
+          "request": { "method": "GET", "path": "/api/task-center/tasks" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1653", "etag": "W/\"675-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "id": 6, "title": "回放任务", "kind": "录入", "status": "withdrawn", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "published_at": "YYYY-MM-DD hh:mm:ss", "intake_run_id": 1, "template_version": 1, "agent_dispatch": true, "agent_dispatch_effective": false },
+              { "id": 5, "title": "库里的第五个", "kind": "录入", "status": "draft", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": null, "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 4, "title": "早先发布的", "kind": "录入", "status": "published", "enabled": 1, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "published_at": "YYYY-MM-DD hh:mm:ss", "intake_run_id": 5, "template_version": 1, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 3, "title": "库里的已撤回", "kind": "录入", "status": "withdrawn", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": null, "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 2, "title": "库里的已发布", "kind": "录入", "status": "withdrawn", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "published_at": "YYYY-MM-DD hh:mm:ss", "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 1, "title": "库里的草稿", "kind": "录入", "status": "draft", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "published_at": null, "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false }
+            ]
+          }
+        },
+        {
+          "id": "list-remote-anonymous",
+          "route": "GET /api/task-center/tasks",
+          "class": "normal",
+          "what": "登录门关着：远程匿名读列表",
+          "request": { "method": "GET", "path": "/api/task-center/tasks", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1653", "etag": "W/\"675-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "id": 6, "title": "回放任务", "kind": "录入", "status": "withdrawn", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "published_at": "YYYY-MM-DD hh:mm:ss", "intake_run_id": 1, "template_version": 1, "agent_dispatch": true, "agent_dispatch_effective": false },
+              { "id": 5, "title": "库里的第五个", "kind": "录入", "status": "draft", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": null, "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 4, "title": "早先发布的", "kind": "录入", "status": "published", "enabled": 1, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "published_at": "YYYY-MM-DD hh:mm:ss", "intake_run_id": 5, "template_version": 1, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 3, "title": "库里的已撤回", "kind": "录入", "status": "withdrawn", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": null, "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 2, "title": "库里的已发布", "kind": "录入", "status": "withdrawn", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "published_at": "YYYY-MM-DD hh:mm:ss", "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 1, "title": "库里的草稿", "kind": "录入", "status": "draft", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "published_at": null, "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "dev-origin",
+      "what": "开发源放行（WM_DEV_ORIGIN=1）：本机前端开发服务器的 Origin 在写请求总门和管理员守卫那里都放行，任务中心的写只剩它们自己的同源检查。管理口令由环境给（合成值）。预先写进库同样的东西。",
+      "env": { "WM_DEV_ORIGIN": "1", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "seed": [
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "task-center", "sop_version": 1, "status": "finished", "started_by": "seed", "data": "{\"title\":{\"value\":\"回放任务\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"一份报告\"}}" }
+        },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "task-center", "sop_version": 1, "status": "finished", "started_by": "seed", "data": "{\"title\":{\"value\":\"回放任务\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"  \"}}" }
+        },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "task-center", "sop_version": 1, "status": "running", "started_by": "seed", "data": "{\"title\":{\"value\":\"回放任务\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"一份报告\"}}" }
+        },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "other-sop", "sop_version": 1, "status": "finished", "started_by": "seed", "data": "{\"title\":{\"value\":\"回放任务\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"一份报告\"}}" }
+        },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "task-center", "sop_version": 1, "status": "finished", "started_by": "seed", "data": "{\"title\":{\"value\":\"早先发布的\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"一份报告\"}}" }
+        },
+        { "table": "tasks", "row": { "title": "库里的草稿", "status": "draft", "created_by": "seed" } },
+        { "table": "tasks", "row": { "title": "库里的已发布", "status": "published", "published_at": "2029-12-30 00:00:00", "published_by": "seed", "created_by": "seed" } },
+        { "table": "tasks", "row": { "title": "库里的已撤回", "status": "withdrawn", "created_by": "seed" } },
+        {
+          "table": "tasks",
+          "row": { "title": "早先发布的", "status": "published", "intake_run_id": 5, "template_version": 1, "payload_json": "{\"title\":{\"value\":\"早先发布的\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"一份报告\"}}", "material_sha256": "seed-sha", "published_at": "2029-12-31 00:00:00", "published_by": "seed", "created_by": "seed", "enabled": 1 }
+        },
+        { "table": "tasks", "row": { "title": "库里的第五个", "status": "draft", "created_by": "seed" } },
+        { "table": "task_events", "row": { "task_id": 2, "type": "published", "actor": "human:seed", "payload_json": "{\"note\":\"库里的\"}" } },
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-seed-0000000001", "source": "task-center", "workbench": "task-center", "item": "task:2", "context_id": "ctx-seed", "submitter_kind": "human", "submitter": "seed", "data_sha256": "seed", "dispatch": 0, "routed": "default" }
+        },
+        { "table": "workbench_event_deliveries", "row": { "event_id": "wbe-seed-0000000001", "target_team": "seed-team-a", "target_url": "http://127.0.0.1:9/a2a", "caller_session": "seed", "status": "held" } },
+        { "table": "workbench_event_deliveries", "row": { "event_id": "wbe-seed-0000000001", "target_team": "seed-team-b", "target_url": "http://127.0.0.1:9/a2a", "caller_session": "seed", "status": "sent" } }
+      ],
+      "steps": [
+        {
+          "id": "dev-intake",
+          "route": "POST /api/task-center/tasks",
+          "class": "unauthorized",
+          "what": "开发源：录入发布，403 跨源拒绝",
+          "request": { "method": "POST", "path": "/api/task-center/tasks", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "http://localhost:5173" }, "json": { "intake_run_id": 1, "published_by": "回放发布人" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "access-control-allow-origin": "http://localhost:5173", "content-length": "24", "etag": "W/\"18-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "跨源拒绝" }
+          }
+        },
+        {
+          "id": "dev-policy",
+          "route": "PUT /api/task-center/policy",
+          "class": "unauthorized",
+          "what": "开发源：改总开关，403 跨源拒绝",
+          "request": { "method": "PUT", "path": "/api/task-center/policy", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "http://localhost:5173" }, "json": { "agent_dispatch_enabled": true } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "access-control-allow-origin": "http://localhost:5173", "content-length": "24", "etag": "W/\"18-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "跨源拒绝" }
+          }
+        },
+        {
+          "id": "dev-switch",
+          "route": "PATCH /api/task-center/tasks/:id/switch",
+          "class": "unauthorized",
+          "what": "开发源：任务锁，403 跨源拒绝",
+          "request": { "method": "PATCH", "path": "/api/task-center/tasks/1/switch", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "http://localhost:5173" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "access-control-allow-origin": "http://localhost:5173", "content-length": "24", "etag": "W/\"18-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "跨源拒绝" }
+          }
+        },
+        {
+          "id": "dev-publish",
+          "route": "POST /api/task-center/tasks/:id/publish",
+          "class": "unauthorized",
+          "what": "开发源：旧的发布接口，403 跨源拒绝",
+          "request": { "method": "POST", "path": "/api/task-center/tasks/1/publish", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "http://localhost:5173" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "access-control-allow-origin": "http://localhost:5173", "content-length": "24", "etag": "W/\"18-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "跨源拒绝" }
+          }
+        },
+        {
+          "id": "dev-withdraw",
+          "route": "POST /api/task-center/tasks/:id/withdraw",
+          "class": "unauthorized",
+          "what": "开发源：撤回，403 跨源拒绝",
+          "request": { "method": "POST", "path": "/api/task-center/tasks/2/withdraw", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "http://localhost:5173" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "access-control-allow-origin": "http://localhost:5173", "content-length": "24", "etag": "W/\"18-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "跨源拒绝" }
+          }
+        },
+        {
+          "id": "dev-dispatch",
+          "route": "PATCH /api/task-center/tasks/:id/agent-dispatch",
+          "class": "unauthorized",
+          "what": "开发源：派发开关，403 跨源拒绝",
+          "request": { "method": "PATCH", "path": "/api/task-center/tasks/4/agent-dispatch", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "http://localhost:5173" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "access-control-allow-origin": "http://localhost:5173", "content-length": "24", "etag": "W/\"18-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "跨源拒绝" }
+          }
+        },
+        {
+          "id": "dev-switch-no-origin",
+          "route": "PATCH /api/task-center/tasks/:id/switch",
+          "class": "normal",
+          "what": "对照：同样的配置、不带 Origin 的任务锁：照常",
+          "request": { "method": "PATCH", "path": "/api/task-center/tasks/1/switch", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "enabled": true } }
+        },
+        {
+          "id": "dev-list-after",
+          "route": "GET /api/task-center/tasks",
+          "class": "normal",
+          "what": "对照之后：只有任务 1 的锁翻了，别的都没动",
+          "request": { "method": "GET", "path": "/api/task-center/tasks" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1337", "etag": "W/\"539-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "id": 5, "title": "库里的第五个", "kind": "录入", "status": "draft", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": null, "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 4, "title": "早先发布的", "kind": "录入", "status": "published", "enabled": 1, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": "YYYY-MM-DD hh:mm:ss", "intake_run_id": 5, "template_version": 1, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 3, "title": "库里的已撤回", "kind": "录入", "status": "withdrawn", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": null, "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 2, "title": "库里的已发布", "kind": "录入", "status": "published", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": "YYYY-MM-DD hh:mm:ss", "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 1, "title": "库里的草稿", "kind": "录入", "status": "draft", "enabled": 1, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "published_at": null, "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce），管理口令由环境给（合成值）。预先写进库同样的东西。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "seed": [
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "task-center", "sop_version": 1, "status": "finished", "started_by": "seed", "data": "{\"title\":{\"value\":\"回放任务\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"一份报告\"}}" }
+        },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "task-center", "sop_version": 1, "status": "finished", "started_by": "seed", "data": "{\"title\":{\"value\":\"回放任务\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"  \"}}" }
+        },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "task-center", "sop_version": 1, "status": "running", "started_by": "seed", "data": "{\"title\":{\"value\":\"回放任务\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"一份报告\"}}" }
+        },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "other-sop", "sop_version": 1, "status": "finished", "started_by": "seed", "data": "{\"title\":{\"value\":\"回放任务\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"一份报告\"}}" }
+        },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "task-center", "sop_version": 1, "status": "finished", "started_by": "seed", "data": "{\"title\":{\"value\":\"早先发布的\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"一份报告\"}}" }
+        },
+        { "table": "tasks", "row": { "title": "库里的草稿", "status": "draft", "created_by": "seed" } },
+        { "table": "tasks", "row": { "title": "库里的已发布", "status": "published", "published_at": "2029-12-30 00:00:00", "published_by": "seed", "created_by": "seed" } },
+        { "table": "tasks", "row": { "title": "库里的已撤回", "status": "withdrawn", "created_by": "seed" } },
+        {
+          "table": "tasks",
+          "row": { "title": "早先发布的", "status": "published", "intake_run_id": 5, "template_version": 1, "payload_json": "{\"title\":{\"value\":\"早先发布的\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"一份报告\"}}", "material_sha256": "seed-sha", "published_at": "2029-12-31 00:00:00", "published_by": "seed", "created_by": "seed", "enabled": 1 }
+        },
+        { "table": "tasks", "row": { "title": "库里的第五个", "status": "draft", "created_by": "seed" } },
+        { "table": "task_events", "row": { "task_id": 2, "type": "published", "actor": "human:seed", "payload_json": "{\"note\":\"库里的\"}" } },
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-seed-0000000001", "source": "task-center", "workbench": "task-center", "item": "task:2", "context_id": "ctx-seed", "submitter_kind": "human", "submitter": "seed", "data_sha256": "seed", "dispatch": 0, "routed": "default" }
+        },
+        { "table": "workbench_event_deliveries", "row": { "event_id": "wbe-seed-0000000001", "target_team": "seed-team-a", "target_url": "http://127.0.0.1:9/a2a", "caller_session": "seed", "status": "held" } },
+        { "table": "workbench_event_deliveries", "row": { "event_id": "wbe-seed-0000000001", "target_team": "seed-team-b", "target_url": "http://127.0.0.1:9/a2a", "caller_session": "seed", "status": "sent" } }
+      ],
+      "steps": [
+        {
+          "id": "gated-list-anonymous",
+          "route": "GET /api/task-center/tasks",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名列表",
+          "request": { "method": "GET", "path": "/api/task-center/tasks", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-list-with-token",
+          "route": "GET /api/task-center/tasks",
+          "class": "normal",
+          "what": "登录门开着：远程带口令列表",
+          "request": { "method": "GET", "path": "/api/task-center/tasks", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1320", "etag": "W/\"528-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "id": 5, "title": "库里的第五个", "kind": "录入", "status": "draft", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": null, "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 4, "title": "早先发布的", "kind": "录入", "status": "published", "enabled": 1, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": "YYYY-MM-DD hh:mm:ss", "intake_run_id": 5, "template_version": 1, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 3, "title": "库里的已撤回", "kind": "录入", "status": "withdrawn", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": null, "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 2, "title": "库里的已发布", "kind": "录入", "status": "published", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": "YYYY-MM-DD hh:mm:ss", "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false },
+              { "id": 1, "title": "库里的草稿", "kind": "录入", "status": "draft", "enabled": 0, "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": null, "published_at": null, "intake_run_id": null, "template_version": null, "agent_dispatch": false, "agent_dispatch_effective": false }
+            ]
+          }
+        },
+        {
+          "id": "gated-detail-anonymous",
+          "route": "GET /api/task-center/tasks/:id",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名详情",
+          "request": { "method": "GET", "path": "/api/task-center/tasks/1", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-policy-anonymous",
+          "route": "GET /api/task-center/policy",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名看总开关",
+          "request": { "method": "GET", "path": "/api/task-center/policy", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-policy-with-token",
+          "route": "GET /api/task-center/policy",
+          "class": "normal",
+          "what": "登录门开着：远程带口令看总开关",
+          "request": { "method": "GET", "path": "/api/task-center/policy", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "agent_dispatch_enabled": false } }
+        },
+        {
+          "id": "gated-template-anonymous",
+          "route": "GET /api/task-center/template",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名看模板",
+          "request": { "method": "GET", "path": "/api/task-center/template", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-template-with-token",
+          "route": "GET /api/task-center/template",
+          "class": "normal",
+          "what": "登录门开着：远程带口令看模板",
+          "request": { "method": "GET", "path": "/api/task-center/template", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "752", "etag": "W/\"2f0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "version": 1,
+              "steps": [
+                { "key": "title", "title": "任务标题", "body": "<label>任务标题<textarea data-field=\"value\"></textarea></label>" },
+                { "key": "intent", "title": "任务意图", "body": "<label>任务意图<textarea data-field=\"value\"></textarea></label>" },
+                { "key": "references", "title": "基准材料", "body": "<label>基准材料<textarea data-field=\"value\"></textarea></label>" },
+                { "key": "deliverable", "title": "提交物要求", "body": "<label>提交物要求<textarea data-field=\"value\"></textarea></label>" },
+                { "key": "target", "title": "目标 SOP 台", "body": "<label>目标 SOP 台<textarea data-field=\"value\"></textarea></label>" },
+                { "key": "due", "title": "截止日期", "body": "<label>截止日期<textarea data-field=\"value\"></textarea></label>" }
+              ]
+            }
+          }
+        },
+        {
+          "id": "gated-intake-anonymous",
+          "route": "POST /api/task-center/tasks",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名录入发布",
+          "request": { "method": "POST", "path": "/api/task-center/tasks", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "intake_run_id": 1, "published_by": "回放发布人" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-policy-put-anonymous",
+          "route": "PUT /api/task-center/policy",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名改总开关",
+          "request": { "method": "PUT", "path": "/api/task-center/policy", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "agent_dispatch_enabled": true } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-switch-anonymous",
+          "route": "PATCH /api/task-center/tasks/:id/switch",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名任务锁",
+          "request": { "method": "PATCH", "path": "/api/task-center/tasks/1/switch", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-switch-with-token",
+          "route": "PATCH /api/task-center/tasks/:id/switch",
+          "class": "normal",
+          "what": "登录门开着：远程带口令任务锁",
+          "request": { "method": "PATCH", "path": "/api/task-center/tasks/1/switch", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "enabled": true } }
+        },
+        {
+          "id": "gated-publish-anonymous",
+          "route": "POST /api/task-center/tasks/:id/publish",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名发布",
+          "request": { "method": "POST", "path": "/api/task-center/tasks/1/publish", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-withdraw-anonymous",
+          "route": "POST /api/task-center/tasks/:id/withdraw",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名撤回",
+          "request": { "method": "POST", "path": "/api/task-center/tasks/2/withdraw", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-dispatch-anonymous",
+          "route": "PATCH /api/task-center/tasks/:id/agent-dispatch",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名派发开关",
+          "request": { "method": "PATCH", "path": "/api/task-center/tasks/4/agent-dispatch", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        }
+      ]
+    }
+  ]
+}

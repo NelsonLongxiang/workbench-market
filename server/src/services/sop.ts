@@ -1,4 +1,5 @@
-/** SOP 域（sop_runs ×10 + sop_bindings ×5 + a2a_run_ctx ×2）：SQL 原文自 index.ts 搬入（S1）。 */
+/** SOP 域（sop_runs ×10 + a2a_run_ctx ×3；绑定读统一表 bindings，旧表 sop_bindings 只在启动平移时读）：SQL 原文自 index.ts 搬入（S1）；run 文件上传与引用路由里的两句随阶段三第十五批搬入。 */
+import type { SQLInputValue } from 'node:sqlite';
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
 
@@ -14,8 +15,9 @@ export class SopService extends Service {
     super(ctx, 'sop');
   }
 
-  runCreate(slug: string, version: number, startedBy: string) {
-    return db.prepare(`INSERT INTO sop_runs (sop_slug, sop_version, started_by) VALUES (?, ?, ?)`).run(slug, version, startedBy);
+  /** requester：8f 建录入时经身份服务认出的提需求人（主体标识）；认不出为 null */
+  runCreate(slug: string, version: number, startedBy: string, requester: string | null = null) {
+    return db.prepare(`INSERT INTO sop_runs (sop_slug, sop_version, started_by, requester_principal) VALUES (?, ?, ?, ?)`).run(slug, version, startedBy, requester);
   }
   runById(id: number) {
     return db.prepare('SELECT * FROM sop_runs WHERE id = ?').get(id);
@@ -23,11 +25,23 @@ export class SopService extends Service {
   runByIdRunning(id: number) {
     return runMetadata(db.prepare('SELECT * FROM sop_runs WHERE id = ? AND status = ?').get(id, 'running'));
   }
+  /** run 的写凭据：状态和上传令牌（开建时发给开建的一方、派单时发给派单方）。没有这个 run 为 undefined */
+  runWriteCredential(id: number): { status: string; upload_token: string } | undefined {
+    return db.prepare('SELECT status, upload_token FROM sop_runs WHERE id = ?').get(id) as { status: string; upload_token: string } | undefined;
+  }
   runStatusData(id: number) {
     return db.prepare('SELECT status, data FROM sop_runs WHERE id = ?').get(id);
   }
+  /** /a2a/direct 开 run 时回给对端的上传令牌（创建者即得） */
+  runUploadToken(id: number) {
+    return db.prepare('SELECT upload_token FROM sop_runs WHERE id = ?').get(id);
+  }
   runSaveData(id: number, data: string) {
     return db.prepare("UPDATE sop_runs SET data = ?, updated_at = datetime('now') WHERE id = ?").run(data, id);
+  }
+  /** 治理时间线的 A2A 回执：这个 SOP 的执行记录上、task_id 不空的（原文自 /api/sops/:slug/timeline） */
+  receiptsBySlug(slug: string) {
+    return db.prepare("SELECT r.task_id, r.caller, r.receipt_status, r.run_id FROM a2a_run_ctx r WHERE r.task_id != '' AND r.run_id IN (SELECT id FROM sop_runs WHERE sop_slug = ?)").all(slug);
   }
   runsBySlug(slug: string) {
     return db.prepare('SELECT * FROM sop_runs WHERE sop_slug = ? ORDER BY id DESC').all(slug).map(runMetadata);
@@ -59,34 +73,29 @@ export class SopService extends Service {
     return db.prepare(`UPDATE sop_runs SET status = 'finished', data = ?, finished_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(data, id);
   }
   runsDispatchedAll(ids?: readonly number[]) {
-    return db.prepare('SELECT r.* FROM sop_runs r JOIN a2a_run_ctx c ON c.run_id = r.id' + (ids ? ' WHERE r.id IN (SELECT value FROM json_each(?))' : '') + ' GROUP BY r.id ORDER BY r.updated_at DESC').all(...(ids ? [JSON.stringify(ids)] : [])).map(runMetadata);
+    return db.prepare('SELECT r.* FROM sop_runs r JOIN a2a_run_ctx c ON c.run_id = r.id' + (ids ? ' WHERE r.id IN (SELECT value FROM json_each(?))' : '') + ' GROUP BY r.id ORDER BY r.updated_at DESC, r.id DESC').all(...(ids ? [JSON.stringify(ids)] : [])).map(runMetadata);
   }
   runsDispatched() {
-    return db.prepare("SELECT r.* FROM sop_runs r JOIN a2a_run_ctx c ON c.run_id = r.id WHERE r.status = 'running' GROUP BY r.id ORDER BY r.updated_at DESC").all().map(runMetadata);
+    return db.prepare("SELECT r.* FROM sop_runs r JOIN a2a_run_ctx c ON c.run_id = r.id WHERE r.status = 'running' GROUP BY r.id ORDER BY r.updated_at DESC, r.id DESC").all().map(runMetadata);
   }
   runsRunning(ids?: readonly number[]) {
-    return db.prepare("SELECT * FROM sop_runs WHERE status = 'running'" + (ids ? ' AND id IN (SELECT value FROM json_each(?))' : '') + ' ORDER BY updated_at DESC').all(...(ids ? [JSON.stringify(ids)] : [])).map(runMetadata);
+    return db.prepare("SELECT * FROM sop_runs WHERE status = 'running'" + (ids ? ' AND id IN (SELECT value FROM json_each(?))' : '') + ' ORDER BY updated_at DESC, id DESC').all(...(ids ? [JSON.stringify(ids)] : [])).map(runMetadata);
   }
   activeBindingCount() {
     return db.prepare("SELECT COUNT(*) AS n FROM bindings WHERE target_type = 'sop' AND revoked_at = ''").get();
   }
-  bindings(slug: string) {
-    return db.prepare('SELECT * FROM sop_bindings WHERE sop_slug = ? ORDER BY id DESC').all(slug);
-  }
-  bindingCreate(slug: string, node: string, mode: string, remoteApiKey: string, createdBy: string) {
-    return db.prepare('INSERT INTO sop_bindings (sop_slug, node, mode, remote_api_key, created_by) VALUES (?, ?, ?, ?, ?)').run(slug, node, mode, remoteApiKey, createdBy);
-  }
-  bindingExists(id: number, slug: string) {
-    return db.prepare('SELECT id FROM sop_bindings WHERE id = ? AND sop_slug = ?').get(id, slug);
-  }
-  bindingRevoke(id: number) {
-    return db.prepare("UPDATE sop_bindings SET revoked_at = datetime('now') WHERE id = ?").run(id);
-  }
-  bindingByNode(slug: string, node: string) {
-    return db.prepare("SELECT mode FROM sop_bindings WHERE sop_slug = ? AND node = ? AND revoked_at = ''").get(slug, node);
-  }
   runsQuery(sql: string, args: unknown[]) {
     return db.prepare(sql).all(...(args as never[])).map(runMetadata);
+  }
+  /** run 列表按 SOP、状态过滤（空串即不过滤），按更新时间倒序最多 200 条（SQL 原文自 GET /api/sop/runs 搬入，阶段三第十六批）。
+   *  更新时间只到秒，同一秒的两条按 id 倒序定先后（不加第二排序键时顺序不定，录制回放会偶发对调） */
+  runsFiltered(slug: string, status: string) {
+    const where: string[] = [];
+    const args: unknown[] = [];
+    if (slug) { where.push('sop_slug = ?'); args.push(slug); }
+    if (status) { where.push('status = ?'); args.push(status); }
+    const sql = `SELECT * FROM sop_runs ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY updated_at DESC, id DESC LIMIT 200`;
+    return this.runsQuery(sql, args);
   }
   // ---- P4 交付物（product/run-delivery F1-F4） ----
   runFileInsert(r: { runId: number; name: string; mime: string; size: number; storagePath: string; createdBy: string; sha256?: string; refOf?: number }) {
@@ -136,10 +145,6 @@ export class SopService extends Service {
     // 联合评审① C：回执 callback 读统一表 admits 行的 notify_url（direction 独立性：notify-only 行不参与回执）
     return db.prepare("SELECT notify_url AS callback_url FROM bindings WHERE target_type = 'sop' AND target_slug = ? AND agent_node = ? AND direction IN ('admits','both') AND revoked_at = ''").get(slug, node);
   }
-  bindingCreateFull(slug: string, node: string, mode: string, remoteApiKey: string, callbackUrl: string, createdBy: string) {
-    return db.prepare('INSERT INTO sop_bindings (sop_slug, node, mode, remote_api_key, callback_url, created_by) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(slug, node, mode, remoteApiKey, callbackUrl, createdBy);
-  }
   outboxInsert(r: { runId: number; taskId: string; contextId: string; targetUrl: string; payload: string }) {
     return db.prepare('INSERT OR IGNORE INTO a2a_outbox (run_id, task_id, context_id, target_url, payload) VALUES (?, ?, ?, ?, ?)')
       .run(r.runId, r.taskId, r.contextId, r.targetUrl, r.payload);
@@ -164,5 +169,14 @@ export class SopService extends Service {
   }
   ctxRegister(contextId: string, runId: number) {
     return db.prepare('INSERT INTO a2a_run_ctx (context_id, run_id) VALUES (?, ?)').run(contextId, runId);
+  }
+  // ---- run 交付文件：上传、引用两条路由里的 SQL（阶段三第十五批原文搬入）----
+  /** 上传是否要本 run 的上传令牌（设置 run_upload_require_token='1'） */
+  runUploadRequireToken() {
+    return db.prepare("SELECT value FROM settings WHERE key = 'run_upload_require_token'").get();
+  }
+  /** run 文件的写审计（上传记 token / admin，引用记 ref:<源文件 id>） */
+  runFileAudit(runId: SQLInputValue, name: SQLInputValue, size: SQLInputValue, sha256: SQLInputValue, source: SQLInputValue) {
+    return db.prepare("INSERT INTO sop_run_file_audit (run_id, name, size, sha256, source) VALUES (?, ?, ?, ?, ?)").run(runId, name, size, sha256, source);
   }
 }

@@ -233,15 +233,16 @@ async function startServer(extraEnv = {}, { expectExit = false } = {}) {
   throw new Error('server not ready');
 }
 async function stop(s) { if (s.child.exitCode === null) { const e = once(s.child, 'exit'); s.child.kill(); await e; } }
-const call = async (s, method, path, body) => {
-  const r = await fetch(s.base + path, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+const call = async (s, method, path, body, headers = {}) => {
+  const r = await fetch(s.base + path, { method, headers: { 'Content-Type': 'application/json', ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
   let j = null; try { j = await r.json(); } catch {}
   return { status: r.status, body: j, headers: r.headers };
 };
 const mcp = async (s, name, args) => (await call(s, 'POST', '/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })).body?.result;
 const allowLines = (s) => s.err.split('\n').filter((l) => l.startsWith('{')).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter((x) => x?.event === 'workbench_url_allowlist');
 const snapshot = async (s) => {
-  const e = (await call(s, 'GET', '/api/export?reveal=1')).body;
+  // 导出真值要求管理员：带上这个实例的合成口令
+  const e = (await call(s, 'GET', '/api/export?reveal=1', undefined, { 'x-admin-token': 'r3-test' })).body;
   const c = (await call(s, 'GET', '/api/cockpits')).body;
   return JSON.stringify({ w: e.workbenches.map(({ last_checked_at, ...r }) => r), t: e.types, c });
 };
@@ -344,9 +345,9 @@ try {
   await check('U10 import 写期注错（行 / 类型 / 布局触发器 RAISE(ABORT)）：整体回滚，快照逐项不变；去掉触发器同请求成功', async () => {
     const w1 = (await call(s, 'GET', '/api/workbenches')).body[0];
     assert.equal((await call(s, 'POST', '/api/cockpits', { name: 'r3', panels: [{ i: 'p', workbenchId: w1.id, x: 0, y: 0, w: 2, h: 2 }] })).status, 201);
-    const db = new DatabaseSync(join(s.data, 'workbench-market.db'));
+    const db = new DatabaseSync(join(s.data, 'workbench-market.db'), { timeout: 5000 });
     const before = await snapshot(s);
-    const exp = (await call(s, 'GET', '/api/export?reveal=1')).body;
+    const exp = (await call(s, 'GET', '/api/export?reveal=1', undefined, { 'x-admin-token': 'r3-test' })).body;
     const rows = exp.workbenches.map(({ name, url, type, health_path }) => ({ name, url, type, health_path }));
     const triggers = {
       row: `CREATE TRIGGER r3_u10_row BEFORE INSERT ON workbenches WHEN NEW.name = 'boom' BEGIN SELECT RAISE(ABORT, 'r3 u10 row'); END`,
@@ -428,7 +429,7 @@ try {
       const imp = await call(s, 'POST', '/api/import?mode=merge', { workbenches: [], types: [{ key: 'r3t-imp', name: 'imp', health_path: peerUrl }] });
       assert.equal(imp.body.error, 'invalid_health_path');
       // 存量：直接把类型改成绝对跨 origin（模拟旧版本写入），工作台本身 health 为空 → 继承
-      const db = new DatabaseSync(join(s.data, 'workbench-market.db'));
+      const db = new DatabaseSync(join(s.data, 'workbench-market.db'), { timeout: 5000 });
       db.prepare('UPDATE types SET health_path = ? WHERE key = ?').run(peerUrl, 'r3t');
       db.close();
       const w = await call(s, 'POST', '/api/workbenches', { name: 'inherit', url: `http://127.0.0.1:${base.address().port}/`, type: 'r3t' });

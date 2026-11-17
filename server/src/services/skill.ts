@@ -1,5 +1,6 @@
 /** 技能市场服务域（P0-a-2 建立 · P0-b 扩发布面）：数据访问收口，方法不做业务裁决。 */
 import { Service } from '@deepseek-ai/cordis';
+import type { SQLInputValue } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { db } from '../db.ts';
 
@@ -97,5 +98,55 @@ export class SkillService extends Service {
   }
   ledgerRevoke(id: number) {
     return db.prepare("UPDATE install_ledger SET status = 'revoked' WHERE id = ?").run(id);
+  }
+
+  // ---- 以下原文自 index.ts 的 /api/skills 路由（下载、迁移、摘要上报）搬入：同语句、同参数、同结果形状 ----
+  /** 下载票（库里只存票号的 sha256） */
+  ticketByKey(key: string) {
+    return db.prepare('SELECT * FROM skill_download_tickets WHERE id = ?').get(key);
+  }
+  /** 用满之后再来：记一次拒绝 */
+  ticketDenied(key: string) {
+    return db.prepare('UPDATE skill_download_tickets SET denied = denied + 1 WHERE id = ?').run(key);
+  }
+  ticketDownloaded(key: string) {
+    return db.prepare("UPDATE skill_download_tickets SET downloads = downloads + 1, last_download_at = datetime('now') WHERE id = ?").run(key);
+  }
+  /** 迁移：推 LayerFS 失败 */
+  versionShadowPublishFailed(id: number) {
+    return db.prepare("UPDATE skill_versions SET shadow_status='failed', shadow_error='LayerFS publish failed; retry migrate-layerfs' WHERE id=? AND commit_id=''").run(id);
+  }
+  /** 迁移：推上去了，读回的摘要对不上 */
+  versionShadowFailed(error: string, id: number) {
+    return db.prepare("UPDATE skill_versions SET shadow_status='failed', shadow_error=? WHERE id=? AND commit_id=''").run(error, id);
+  }
+  versionMigrated(commitId: string, id: number) {
+    return db.prepare("UPDATE skill_versions SET commit_id = ?, shadow_status='succeeded', shadow_error='' WHERE id = ?").run(commitId, id);
+  }
+  /** 补推：含二进制文件的版本，LayerFS 契约只收文本，以后不再试（和发布时一样记 skipped） */
+  versionShadowSkipped(error: string, id: number) {
+    return db.prepare("UPDATE skill_versions SET shadow_status='skipped', shadow_error=? WHERE id=? AND commit_id=''").run(error, id);
+  }
+  /**
+   * 补推的候选：各技能的当前版本（active_version 指着的，没有就是最新版）里，没有 commit_id、不是 skipped、有快照的；
+   * 遗产登记（legacy，不留快照）不算。没推过的排在失败过的前面，同一档按 id
+   */
+  shadowCatchUpCandidates(limit: number) {
+    return db.prepare(`SELECT v.*, s.slug AS skill_slug FROM skill_versions v JOIN skills s ON s.id = v.skill_id
+      WHERE v.commit_id = '' AND v.shadow_status <> 'skipped' AND v.snapshot_path <> '' AND s.legacy = 0
+        AND v.version = COALESCE(
+          (SELECT x.version FROM skill_versions x WHERE x.skill_id = s.id AND x.version = s.active_version),
+          (SELECT MAX(x.version) FROM skill_versions x WHERE x.skill_id = s.id))
+      ORDER BY CASE v.shadow_status WHEN 'failed' THEN 1 ELSE 0 END, v.id
+      LIMIT ?`).all(limit);
+  }
+  /** 整库重建：项目删了，这个技能各版的 commit 都失效——commit_id 清掉、状态回到 pending（skipped 的不动） */
+  versionsShadowCleared(skillId: number) {
+    return db.prepare("UPDATE skill_versions SET commit_id = '', shadow_status = CASE WHEN shadow_status = 'skipped' THEN 'skipped' ELSE 'pending' END, shadow_error = CASE WHEN shadow_status = 'skipped' THEN shadow_error ELSE '' END WHERE skill_id = ?").run(skillId);
+  }
+  /** skillId 是技能行里取出来的原值（和原来直接交给 prepare 一样） */
+  digestReportInsert(skillId: SQLInputValue, version: number, digest: string, expected: string, matchResult: number, reportedBy: string) {
+    return db.prepare('INSERT INTO skill_digest_reports (skill_id, version, digest, expected, match_result, reported_by) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(skillId, version, digest, expected, matchResult, reportedBy);
   }
 }

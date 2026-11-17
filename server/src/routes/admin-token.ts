@@ -1,0 +1,78 @@
+/**
+ * 管理口令的路由（/api/admin/whoami、/api/admin-token），连同只有它们用的两个判断（isLoopbackReq、adminTokenWritable）。
+ * 原样搬自 index.ts，一个字没改，只多了两格缩进。库里只存加盐哈希，任何应答都不带口令或哈希。
+ *
+ * app 是 HTTP 服务，不是 Express 应用本身：注册的写法和 Express 一样，路由挂在调用那一刻的位置，注册可以撤销。
+ * index.ts 里别的路由也在用、还没挪成模块的东西，经第二个参数传进来；处理函数照旧用原来的名字。
+ */
+import type express from 'express';
+import type { HttpService } from '../http.ts';
+import { svc } from '../context.ts';
+import { ADMIN_TOKEN_KEY, type SettingService } from '../services/setting.ts';
+import { browserMarked, originIsThisSurface, rawLoopback } from '../surfaces.ts';
+import { adminTokenFromEnv } from '../admin-token-env.ts';
+
+/** 口令来自启动环境（ADMIN_TOKEN 非空）时页面不能改、不能清。和口令校验同一份启动时取的值（admin-token-env.ts） */
+const config = { get fromEnv() { return adminTokenFromEnv(); } };
+
+/** 从 index.ts 传进来的：口令的存取与校验、本次请求是不是 Odoo 管理员、同源判断（别的路由和中间件也用）。 */
+export interface AdminTokenDeps {
+  adminTokenCheck: (provided: string | undefined) => boolean;
+  odooAdminReqs: WeakMap<express.Request, string>;
+  dbAdminTokenSet: () => boolean;
+  dbAdminTokenOk: (provided: string | undefined) => boolean;
+  hashAdminToken: (token: string, salt?: string) => string;
+  browserSameSite: (req: express.Request) => boolean;
+  devOriginOk: (req: express.Request) => boolean;
+}
+
+export function registerAdminTokenRoutes(app: HttpService, deps: AdminTokenDeps): void {
+  const { adminTokenCheck, odooAdminReqs, dbAdminTokenSet, dbAdminTokenOk, hashAdminToken, browserSameSite, devOriginOk } = deps;
+  function isLoopbackReq(req: express.Request): boolean {
+    return rawLoopback(req) && (!browserMarked(req) || originIsThisSurface(req));
+  }
+  function adminTokenWritable(req: express.Request, requireCurrent: boolean): boolean {
+    if (!browserSameSite(req) || (req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req))) return false;
+    // 完整的管理员（Odoo 管理员、持 owner 授予的人）能改；系统管理员不能（改了口令就能拿口令读业务）
+    const marked = odooAdminReqs.get(req);
+    if (marked && !marked.startsWith('grant-system:')) return true;
+    return requireCurrent ? dbAdminTokenOk(req.headers['x-admin-token']) : isLoopbackReq(req);
+  }
+
+  app.get('/api/admin/whoami', { action: 'admin.whoami', kind: 'read' }, (req, res) => {
+    const viaToken = adminTokenCheck(req.headers['x-admin-token']);
+    const marked = odooAdminReqs.get(req) ?? null;
+    // 站内管理员（持 owner/admin 授予）记作 grant:<主体>：via 写 grant、login 写主体，不冒充 Odoo 管理员
+    // 只持 admin 授予的系统管理员记作 grant-system:<主体>：同样 via=grant，另带 system_only（管系统，不看业务数据）
+    const system = marked?.startsWith('grant-system:') ? marked.slice('grant-system:'.length) : null;
+    const grant = marked?.startsWith('grant:') ? marked.slice('grant:'.length) : system;
+    const via = viaToken ? 'token' : grant ? 'grant' : marked ? 'odoo' : null;
+    res.set('Cache-Control', 'no-store').json({ admin: viaToken || !!marked, via, login: viaToken ? null : (grant ?? marked), ...(system && !viaToken ? { system_only: true } : {}) });
+  });
+
+  app.get('/api/admin-token/state', { action: 'admin-token.state', kind: 'read' }, (req, res) => {
+    res.json({
+      source: config.fromEnv ? 'env' : (dbAdminTokenSet() ? 'db' : 'none'),
+      settable: !config.fromEnv && (dbAdminTokenSet() || isLoopbackReq(req) || odooAdminReqs.has(req)), // env 未设时：已有口令可凭旧口令改；首次由本机或 Odoo 管理员设
+    });
+  });
+
+  app.put('/api/admin-token', { action: 'admin-token.set', kind: 'admin', refine: [{ action: 'admin-token.first-set', kind: 'admin', why: '还没设过口令时的首次设置（只限本机，见存量差异清单）', when: (_req, facts) => !facts.adminTokenSet }] }, (req, res) => {
+    if (config.fromEnv) return res.status(400).json({ error: '口令由启动环境 ADMIN_TOKEN 提供，页面不可改（改环境变量并重启）' });
+    const token = typeof req.body?.token === 'string' ? req.body.token : '';
+    if (token.length < 4 || token.length > 128) return res.status(400).json({ error: '口令长度 4–128' });
+    const hasExisting = dbAdminTokenSet();
+    if (!adminTokenWritable(req, hasExisting)) {
+      return res.status(403).json({ error: hasExisting ? '修改口令需先在请求头带上当前口令（X-Admin-Token），或用 Odoo 管理员登录' : '首次设置口令仅限本机命令行/本机页面，或 Odoo 管理员' });
+    }
+    svc<SettingService>('setting').put(ADMIN_TOKEN_KEY, hashAdminToken(token));
+    res.json({ ok: true, source: 'db', note: '口令已设置并立即生效（库存 sha256，不可取回）' });
+  });
+
+  app.delete('/api/admin-token', { action: 'admin-token.clear', kind: 'admin' }, (req, res) => {
+    if (config.fromEnv) return res.status(400).json({ error: '口令来自启动环境，需清环境变量并重启' });
+    if (!adminTokenWritable(req, true)) return res.status(403).json({ error: '需当前口令或 Odoo 管理员登录' });
+    svc<SettingService>('setting').delete(ADMIN_TOKEN_KEY);
+    res.json({ ok: true, source: 'none' });
+  });
+}

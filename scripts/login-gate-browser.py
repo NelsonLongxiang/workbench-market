@@ -27,11 +27,26 @@ def login(page, token):
     page.get_by_placeholder('管理员口令').fill(token)
     page.get_by_role('button', name='输入管理员口令登录').click()
 
+def open_me(page):
+    """点开侧栏用户卡，等弹出层开好了再往下：开没开看 aria-expanded；「开好了」= 盒子有尺寸、放大动画的类已经摘掉。
+    不用「此刻可见」判断——动画起点那一帧尺寸是 0，慢机器上撞上就误判。WM_BROWSER_CPU_THROTTLE=6 可在本机模拟慢 runner。"""
+    me = page.locator('[data-testid=wm-me]')
+    if me.get_attribute('aria-expanded') != 'true': me.click()
+    page.locator('[data-testid=wm-me][aria-expanded=true]').wait_for()
+    page.wait_for_function("""() => { const e = document.querySelector('.wm-me-pop'); if (!e) return false; const r = e.getBoundingClientRect(); const h = e.closest('.ant-popover');
+      return !!h && r.width > 0 && r.height > 0 && ![...h.classList].some(c => /-(appear|enter|leave)(-|$)/.test(c)) && !h.classList.contains('ant-popover-hidden'); }""")
+
+def slow(page):
+    import os
+    rate = float(os.environ.get('WM_BROWSER_CPU_THROTTLE', '0') or 0)
+    if rate > 1: page.context.new_cdp_session(page).send('Emulation.setCPUThrottlingRate', {'rate': rate})
+
 with sync_playwright() as p:
     b = p.chromium.launch(headless=True)
     try:
         ctx = b.new_context(viewport={'width': 1440, 'height': 900})
         page = ctx.new_page()
+        slow(page)
         # ① 匿名 → 登录页
         page.goto(base + '/apps/gate-app/')
         ok('① 匿名打开自产台 → 登录页且 next 带原地址', page.url == f"{base}/login?next={quote('/apps/gate-app/', safe='')}", page.url)
@@ -58,9 +73,10 @@ with sync_playwright() as p:
         if frame: check_app('③ 内嵌沙箱页', app_result(frame))
         # ④ SPA 顶栏身份与退出；会话失效后接口 401 去登录页
         page.goto(base + '/market')
+        open_me(page)  # 新外壳（#571）：登录身份和退出在用户卡弹出层里
         chip = page.get_by_text('管理员口令登录')
         chip.wait_for(timeout=15000)
-        ok('④ 顶栏显示登录身份', chip.is_visible())
+        ok('④ 用户卡显示登录身份', chip.is_visible())
         ctx.clear_cookies()
         page.evaluate("() => { history.pushState({}, '', '/sops'); dispatchEvent(new PopStateEvent('popstate')); }")
         page.wait_for_url(re.compile(r'/login\?next='), timeout=15000)
@@ -68,6 +84,7 @@ with sync_playwright() as p:
         login(page, tok)
         page.wait_for_url(base + '/sops', timeout=10000)
         ok('④ 重新登录后回到 /sops', page.url == base + '/sops')
+        open_me(page)
         page.get_by_role('button', name=re.compile('退\\s*出')).click()
         page.wait_for_url(re.compile(r'/login$'), timeout=10000)
         ok('④ 点「退出」回登录页且 cookie 已清', 'wm_login' not in {c['name'] for c in ctx.cookies()})

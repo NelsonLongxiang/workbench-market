@@ -36,7 +36,8 @@ export default function Market() {
   const [filters, setFilters] = useState(() => {
     const sp = searchParams.get('status');
     return {
-      q: '',
+      // 详情页的「编辑」带 ?q=<台名> 过来：先按名字筛出那一行
+      q: (searchParams.get('q') ?? '').slice(0, 100),
       type: 'all',
       category: 'all',
       status: sp === 'up' || sp === 'down' || sp === 'unknown' ? sp : 'all',
@@ -59,6 +60,15 @@ export default function Market() {
     [allItems]
   );
 
+  /** 门户访问范围标记：只给收窄了的外部台打，避免满屏标签 */
+  const accessTag = (w: Workbench) => {
+    if (w.url.startsWith('/') || !w.access || w.access === 'all') return null;
+    return (
+      <Tooltip title={w.access === 'admin' ? '经门户只给管理员打开' : `经门户只给管理员和指定的人打开：${(w.access_logins ?? []).map((s) => s.replace(/^odoo:/, '')).join('、')}`}>
+        <Tag>{w.access === 'admin' ? '仅管理员' : '指定人员'}</Tag>
+      </Tooltip>
+    );
+  };
   const typeTag = (key: string) => {
     const t = types.find((x) => x.key === key);
     return (
@@ -121,9 +131,12 @@ export default function Market() {
       width: 260,
       ellipsis: true,
       render: (_, w) => (
-        <Typography.Text className="wm-mono wm-caption" copyable={{ text: w.url }} style={{ maxWidth: 300 }} ellipsis={{ tooltip: w.url }}>
-          {w.url}
-        </Typography.Text>
+        <Space size={4}>
+          {accessTag(w)}
+          <Typography.Text className="wm-mono wm-caption" copyable={{ text: w.url }} style={{ maxWidth: 300 }} ellipsis={{ tooltip: w.url }}>
+            {w.url}
+          </Typography.Text>
+        </Space>
       ),
     },
     {
@@ -207,6 +220,8 @@ export default function Market() {
 
   return (
     <WmPage
+      detail="管理工作台"
+      wide
       subTitle="登记与发现各端口的 AI 工作台：类型 · 分类 · 在线状态"
       extra={(
         <Button
@@ -249,6 +264,7 @@ export default function Market() {
             key="q"
             allowClear
             placeholder="搜索名称 / 地址 / 描述"
+            defaultValue={filters.q}
             style={{ width: 240 }}
             onSearch={(v) => setFilters((f) => ({ ...f, q: v }))}
           />,
@@ -346,13 +362,22 @@ export default function Market() {
                   label: '凭据',
                   children: detail.auth ? (
                     <Tooltip title={`类型 ${detail.auth.type}；值仅脱敏展示，经 /go/ 门户访问时自动注入 Authorization 头`}>
-                      <Tag color="gold">
+                      <Tag color="warning">
                         含凭据（{detail.auth.type}：{detail.auth.value.length <= 4 ? '****' : `${detail.auth.value.slice(0, 2)}…${detail.auth.value.slice(-2)}`}）
                       </Tag>
                     </Tooltip>
                   ) : (
                     <Typography.Text type="secondary">无</Typography.Text>
                   ),
+                },
+                {
+                  key: 'access',
+                  label: '谁能打开',
+                  children: detail.url.startsWith('/') ? (
+                    <Typography.Text type="secondary">登录即可（自产台、SOP 台不经门户独占）</Typography.Text>
+                  ) : detail.access === 'admin' ? '仅管理员'
+                    : detail.access === 'listed' ? `管理员和：${(detail.access_logins ?? []).map((s) => s.replace(/^odoo:/, '')).join('、')}`
+                    : '登录即可',
                 },
                 { key: 'status', label: '状态', children: <StatusBadge status={detail.last_status} latency={detail.last_latency_ms} error={detail.last_error} checkedAt={detail.last_checked_at} /> },
                 { key: 'category', label: '分类', children: detail.category || '-' },

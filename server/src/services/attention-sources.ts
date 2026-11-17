@@ -1,0 +1,132 @@
+/**
+ * 「关注」的提供方要用、来源里还没有现成函数的查询（阶段八 8c）。只读。
+ * 口径照旧接口的写法，条数才对得上：
+ *   · 席位的提问：投递的决定还是 ask 的；阶段七 R2 起也包括席位 A2A 回执里的提问（receipt:attention）。
+ *     原先照旧接口只看最近 200 个事件，早一点的提问会从「关注」漏掉、和事项的 can/turn 对不上；现在全库直接查，设上限（SEAT_ASK_LIMIT）
+ * 等阶段三把工作台事件这个域搬完，查询挪回它的服务（另排）。
+ */
+import { db, hasTable } from '../db.ts';
+
+export type OpenSeatAsk = {
+  delivery_id: number; event_id: string; target_team: string;
+  /** 提问那一行事件日志：v1 的 decision:ask，或阶段七 R3 席位回执的 receipt:attention */
+  ask_log_id: number; ask_kind: 'decision' | 'receipt';
+  question: string; asked_by: string; asked_at: string;
+  /** 提问回执带的选项（JSON 数组字符串；没有是 '[]'） */
+  options: string;
+  source: string; workbench: string; item: string;
+};
+
+const tableExists = (name: string) => hasTable(name);
+
+/**
+ * 一个投递当前的提问：它最近一条提问日志（decision:ask 或 receipt:attention），之后同一投递上没有「合上提问」的日志
+ * （再问一次、作出决定、接单 / 结果回执——和事项服务合提问的规则同一套），事项上也还没有对它的答复。
+ * v1 只有 decision:ask 时，这和「投递的决定还是 ask」逐条相同。
+ */
+const ASK_ACTIONS = "('decision:ask','receipt:attention')";
+const CLOSING_ACTIONS = "('decision:ask','decision:accept','decision:decline','receipt:attention','receipt:acknowledged','receipt:completed','receipt:failed','receipt:rejected','receipt:abandoned')";
+const OPEN_ASK_SQL = `
+  SELECT d.id AS delivery_id, d.event_id, d.target_team, a.id AS ask_log_id,
+         CASE a.action WHEN 'receipt:attention' THEN 'receipt' ELSE 'decision' END AS ask_kind,
+         CASE a.action WHEN 'receipt:attention' THEN COALESCE(json_extract(a.detail, '$.summary'), '') ELSE COALESCE(json_extract(a.detail, '$.reason'), d.decision_reason) END AS question,
+         CASE a.action WHEN 'receipt:attention' THEN a.actor ELSE d.decided_by END AS asked_by,
+         CASE a.action WHEN 'receipt:attention' THEN a.at ELSE d.decided_at END AS asked_at,
+         CASE a.action WHEN 'receipt:attention' THEN COALESCE(json_extract(a.detail, '$.question.options'), '[]') ELSE '[]' END AS options
+    FROM workbench_event_deliveries d
+    JOIN workbench_event_log a ON a.id = (SELECT MAX(g.id) FROM workbench_event_log g WHERE g.delivery_id = d.id AND g.action IN ${ASK_ACTIONS})
+   WHERE NOT EXISTS (SELECT 1 FROM workbench_event_log c WHERE c.delivery_id = d.id AND c.id > a.id AND c.action IN ${CLOSING_ACTIONS})
+     -- 回执里的提问只在事项收下了它时才列（只通知、提交方未验证的事件，事项不收提问）：两边条数才对得上
+     AND (a.action <> 'receipt:attention' OR EXISTS (SELECT 1 FROM work_item_log k WHERE k.item_id = 'wi_' || d.event_id AND k.fact = 'ask'
+       AND k.fact_id = CAST(a.id AS TEXT) AND k.rejected = ''))
+`;
+/** 8d：在「关注」里答过的（事项上对这次提问记了答复）不再等 */
+const NOT_ANSWERED = `
+     AND NOT EXISTS (SELECT 1 FROM work_item_log l WHERE l.item_id = 'wi_' || d.event_id AND l.fact = 'answer' AND l.rejected = ''
+       AND json_extract(l.detail, '$.ask_id') = CAST(a.id AS TEXT))`;
+
+/** 「关注」一次最多给一个人列这么多条席位提问（远大于实际待答数）：超过时按提问时间先后取他看得到的最早这些，提供方标 more */
+export const SEAT_ASK_LIMIT = 1000;
+/** 往后取一批的条数：正常量下一批就取完 */
+export const SEAT_ASK_BATCH = 500;
+
+/**
+ * 节点没收下的答复：答复、打回任务回了 rejected（receipt-inbound 记成 reply:rejected）。
+ * 之后同一次投递又发出过子任务（reply-sent：人重发了、或改用别的办法）就算处理过了，不再列。最近 200 条
+ */
+export type RejectedReply = { log_id: number; event_id: string; delivery_id: number; target_team: string; at: string; summary: string; task: string };
+export function rejectedReplies(): RejectedReply[] {
+  if (!tableExists('workbench_events')) return [];
+  return db.prepare(`SELECT l.id AS log_id, l.event_id, l.delivery_id, d.target_team, l.at,
+      COALESCE(json_extract(l.detail, '$.summary'), '') AS summary, COALESCE(json_extract(l.detail, '$.task'), '') AS task
+    FROM workbench_event_log l JOIN workbench_event_deliveries d ON d.id = l.delivery_id
+    WHERE l.action = 'reply:rejected'
+      AND NOT EXISTS (SELECT 1 FROM workbench_event_log r WHERE r.delivery_id = l.delivery_id AND r.action = 'reply-sent' AND r.id > l.id)
+    ORDER BY l.id DESC LIMIT 200`).all() as RejectedReply[];
+}
+
+/**
+ * 还没答的席位提问，全库直接查（不按最近多少个事件截断：早一点的提问一样等人答，和事项详情的 can/turn、事项列表的 decide 同一个口径）。
+ * 按 (提问时间, 投递) 先后排，从 after 之后取至多 n 条；调用方按可见性过滤、分批往后取。
+ * 事件表在任务中心初始化时才建：新库上还没有，就是没有提问
+ */
+export function openSeatAsks(after: { asked_at: string; delivery_id: number } | null, n: number): OpenSeatAsk[] {
+  if (!tableExists('workbench_events')) return [];
+  return db.prepare(`SELECT o.*, e.source, e.workbench, e.item
+    FROM (${OPEN_ASK_SQL}${NOT_ANSWERED}) o JOIN workbench_events e ON e.event_id = o.event_id
+    WHERE ? IS NULL OR o.asked_at > ? OR (o.asked_at = ? AND o.delivery_id > ?)
+    ORDER BY o.asked_at, o.delivery_id LIMIT ?`).all(after?.asked_at ?? null, after?.asked_at ?? null, after?.asked_at ?? null, after?.delivery_id ?? 0, n) as OpenSeatAsk[];
+}
+
+/** 一个投递正在等答复的那次提问：它所在的事件、提问那一行日志的 id（事项上的提问就是按它记的）、是哪一种提问 */
+export function pendingAskOfDelivery(deliveryId: number): { event_id: string; ask_log_id: number; ask_kind: 'decision' | 'receipt' } | null {
+  if (!tableExists('workbench_events')) return null;
+  const row = db.prepare(`SELECT o.event_id, o.ask_log_id, o.ask_kind FROM (${OPEN_ASK_SQL}${NOT_ANSWERED}) o WHERE o.delivery_id = ?`).get(deliveryId) as { event_id: string; ask_log_id: number; ask_kind: 'decision' | 'receipt' } | undefined;
+  return row ?? null;
+}
+
+/** 一个事件上还在等答复的提问（按投递）：和 pendingAskOfDelivery 同一个定义，事项详情的 can.answer、turn.answer 用 */
+export function pendingAsksOfEvent(eventId: string): number[] {
+  if (!tableExists('workbench_events')) return [];
+  return (db.prepare(`SELECT o.delivery_id FROM (${OPEN_ASK_SQL}${NOT_ANSWERED}) o WHERE o.event_id = ?`).all(eventId) as { delivery_id: number }[]).map((r) => Number(r.delivery_id));
+}
+
+/**
+ * 一个投递当前这一轮提问（答没答过都算）：「关注」记账分轮用——答完之后键不变，重复答才认得出；再问一次是新的一轮。
+ */
+export function currentAskOfDelivery(deliveryId: number): { ask_log_id: number; event_id: string } | null {
+  if (!tableExists('workbench_events')) return null;
+  const row = db.prepare(`SELECT o.ask_log_id, o.event_id FROM (${OPEN_ASK_SQL}) o WHERE o.delivery_id = ?`).get(deliveryId) as { ask_log_id: number; event_id: string } | undefined;
+  return row ?? null;
+}
+
+/** 一行提问日志（decision:ask 或 receipt:attention）：它属于哪个事件、哪次投递 */
+export function askLogRow(askLogId: number): { id: number; event_id: string; delivery_id: number; action: string; detail: string; actor: string; at: string } | null {
+  if (!tableExists('workbench_events')) return null;
+  const row = db.prepare("SELECT id, event_id, delivery_id, action, detail, actor, at FROM workbench_event_log WHERE id = ? AND action IN ('decision:ask','receipt:attention') AND delivery_id IS NOT NULL").get(askLogId) as { id: number; event_id: string; delivery_id: number; action: string; detail: string; actor: string; at: string } | undefined;
+  return row ?? null;
+}
+
+/**
+ * 事项详情的提问列表：这个事件上的每一条提问日志（v1 的 decision:ask、席位回执的 receipt:attention），按时间先后；
+ * 带上人对它的答复（work_item_log 里 ask_id 等于这行日志 id、来源是 attention 的那条 answer——「关注」和事项入口记的都是这个来源；
+ * 同一投递又问一次时事项服务替旧提问记的那条合上不算）和它是不是投递当前在等的那一条。
+ */
+export function asksOfEvent(eventId: string, itemId: string): { id: number; delivery_id: number; action: string; detail: string; actor: string; at: string; pending: number; answer: string | null; answered_by: string | null; answered_at: string | null }[] {
+  if (!tableExists('workbench_events')) return [];
+  return db.prepare(`SELECT g.id, g.delivery_id, g.action, g.detail, g.actor, g.at,
+      EXISTS (SELECT 1 FROM (${OPEN_ASK_SQL}${NOT_ANSWERED}) o WHERE o.ask_log_id = g.id) AS pending,
+      (SELECT json_extract(l.detail, '$.answer') FROM work_item_log l WHERE l.item_id = ? AND l.fact = 'answer' AND l.rejected = '' AND l.fact_source = 'attention' AND json_extract(l.detail, '$.ask_id') = CAST(g.id AS TEXT) ORDER BY l.seq LIMIT 1) AS answer,
+      (SELECT l.actor FROM work_item_log l WHERE l.item_id = ? AND l.fact = 'answer' AND l.rejected = '' AND l.fact_source = 'attention' AND json_extract(l.detail, '$.ask_id') = CAST(g.id AS TEXT) ORDER BY l.seq LIMIT 1) AS answered_by,
+      (SELECT l.at FROM work_item_log l WHERE l.item_id = ? AND l.fact = 'answer' AND l.rejected = '' AND l.fact_source = 'attention' AND json_extract(l.detail, '$.ask_id') = CAST(g.id AS TEXT) ORDER BY l.seq LIMIT 1) AS answered_at
+    FROM workbench_event_log g
+    WHERE g.event_id = ? AND g.action IN ('decision:ask','receipt:attention') AND g.delivery_id IS NOT NULL
+      AND EXISTS (SELECT 1 FROM work_item_log k WHERE k.item_id = ? AND k.fact = 'ask' AND k.fact_id = CAST(g.id AS TEXT) AND k.rejected = '')
+    ORDER BY g.id LIMIT 200`).all(itemId, itemId, itemId, eventId, itemId) as never;
+}
+
+/** 待对接清单里这条外部身份这一次出现的序号（全局只增）；不在清单里返回 null（「关注」记账分轮用） */
+export function pendingPrincipalAppearance(provider: string, externalId: string): number | null {
+  const row = db.prepare('SELECT appearance FROM principal_pending WHERE provider = ? AND external_id = ?').get(provider, externalId) as { appearance: number } | undefined;
+  return row?.appearance ?? null;
+}

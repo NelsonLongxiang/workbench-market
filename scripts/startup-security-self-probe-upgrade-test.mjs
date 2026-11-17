@@ -10,6 +10,17 @@ const app=express(),probe=createStartupSecurityProbe({log:()=>{}});let held;cons
 app.use(probe.middleware);app.use(express.json());
 app.post('/mcp',async(_q,r)=>{await hold;r.status(401).set('WWW-Authenticate','Bearer').end()});
 app.post('/api/workbenches',(q,r)=>r.status(q.headers.origin?403:400).end());
+app.get('/api/principals',(_q,r)=>r.status(403).end());app.get('/api/local-accounts',(_q,r)=>r.status(403).end());app.post('/api/local-accounts/:u/approve',(_q,r)=>r.status(403).end());
+app.get('/api/export',(_q,r)=>r.status(403).end());
+app.get('/api/work-items',(_q,r)=>r.status(401).end());app.post('/api/work-items',(_q,r)=>r.status(401).end());app.put('/api/cockpits/:id',(_q,r)=>r.status(401).end());app.post('/api/work-items/:id/decision',(_q,r)=>r.status(401).end());app.post('/api/work-items/:id/messages/:mid/reply',(_q,r)=>r.status(401).end());app.post('/api/work-items/:id/asks/:d/answer',(_q,r)=>r.status(401).end());
+app.post('/api/work-items/:id/release',(_q,r)=>r.status(401).end());
+app.get('/api/grants',(_q,r)=>r.status(401).end());app.post('/api/grants/:id/approve',(_q,r)=>r.status(401).end());app.get('/api/knowledge',(_q,r)=>r.status(401).end());app.put('/api/knowledge/project-depts',(_q,r)=>r.status(401).end());app.post('/api/knowledge/remember',(_q,r)=>r.status(401).end());app.post('/api/teams/reassign',(_q,r)=>r.status(401).end());app.post('/api/attention/answer',(_q,r)=>r.status(403).end());
+app.put('/api/work-items/attachments/:name',(_q,r)=>r.status(401).end());app.post('/api/work-items/:id/due',(_q,r)=>r.status(401).end());
+app.get('/api/apps/:slug/data',(_q,r)=>r.status(403).end());
+app.get('/api/workbenches/:id/vars',(_q,r)=>r.status(403).end());
+app.put('/api/sop/runs/:id',(_q,r)=>r.status(403).end());
+app.get('/login/feishu/callback',(_q,r)=>r.status(400).end());
+app.post('/login/feishu/events',(_q,r)=>r.status(401).end());app.post('/api/a2a/seat-token',(_q,r)=>r.status(401).end());
 let fallback=0;app.get('/business',(_q,r)=>{fallback++;r.json({ok:true})});
 const market=createServer(app);await new Promise(r=>market.listen(0,'127.0.0.1',r));
 const reserved=reserve();await new Promise(r=>reserved.listen(0,'127.0.0.1',r));const cp=reserved.address().port;await new Promise(r=>reserved.close(r));

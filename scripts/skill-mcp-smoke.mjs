@@ -39,7 +39,9 @@ try {
   const slText = sl.result?.content?.[0]?.text ?? '';
   ok('skills_list 返回含种子', slText.includes('p1a:probe'), slText.slice(0, 100));
   const sv = await rpc('tools/call', { name: 'skill_versions', arguments: { slug: 'p1a:probe' } });
-  ok('skill_versions 版本链 v1', (sv.result?.content?.[0]?.text ?? '').includes('"version":1') || (sv.result?.content?.[0]?.text ?? '').includes('v1'));
+  // 按版本号判：原来是在文本里找 "v1"，实际碰上的是快照路径里的 /v1——快照路径现在只给管理员，MCP 会话拿不到
+  let svList = null; try { svList = JSON.parse(sv.result?.content?.[0]?.text ?? 'null'); } catch { /* 不是 JSON */ }
+  ok('skill_versions 版本链 v1', Array.isArray(svList) && svList.some((v) => v.version === 1), (sv.result?.content?.[0]?.text ?? '').slice(0, 120));
   const ip = await rpc('tools/call', { name: 'skill_install_plan', arguments: { slug: 'p1a:probe' } });
   const ipText = ip.result?.content?.[0]?.text ?? '';
   ok('install_plan 含 expected digest 与命令形态', ipText.includes('sha256') || ipText.includes('digest'), ipText.slice(0, 120));

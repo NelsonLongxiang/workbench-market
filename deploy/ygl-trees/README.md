@@ -1,10 +1,14 @@
 # YGL-trees container candidate
 
-This directory contains an isolated, disposable Docker candidate for ygl-trees 0.119.0. It is not a production deployment recipe and must not be pointed at an existing database, container, network, or persistent volume.
+This directory contains an isolated, disposable Docker candidate for ygl-trees 0.126.0. It is not a production deployment recipe and must not be pointed at an existing database, container, network, or persistent volume.
 
 The Compose default retains the historical candidate volume name; for every new disposable run explicitly set both a unique `COMPOSE_PROJECT_NAME` and unique `YGL_HOME_VOLUME`, render and inspect the resolved names, and never reuse an existing volume. The stack uses a private internal network. The optional PostgreSQL profile is an analytical mirror only; SQLite remains authoritative. The PG mirror does not provide PostgreSQL-backed MCP write semantics. Test only against a newly created disposable PostgreSQL instance with an external protected secret file.
 
 Before any use, inspect the rendered Compose configuration, confirm project and volume names are unique to the disposable test, and verify no host ports or existing services are selected. Keep secrets and generated runtime data outside source control.
+
+## Pinned version
+
+The candidate pins ygl-trees 0.126.0 (`package.json`, `package-lock.json`, and the `YGL_TREES_VERSION` / `YGL_TREES_INTEGRITY` build args in `Dockerfile`; the image tags in the Compose files and helper scripts follow it). 0.126.0 adds the market-facing `library` read-only feed (contract `ygl-library/1`) and the kb/skill `--scope` column (schema v15). A SQLite workspace created by an older candidate is migrated forward when 0.126.0 first opens it; the migration is additive but not reversible, so do not open it again with 0.119.0. Like everything here, an old candidate volume is disposable and should not be reused.
 
 ## Offline SQLite backup (disposable candidate only)
 

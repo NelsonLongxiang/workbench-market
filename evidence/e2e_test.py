@@ -31,6 +31,20 @@ BASE = f'http://127.0.0.1:{_port}'
 ADMIN_TOKEN = _os.environ.get('E2E_ADMIN_TOKEN', '')
 RESULTS = []
 
+# 要嵌进页面的测试工作台（使用页、驾驶舱面板）指向这个本机小页面，不指向市场自己：
+# 嵌台防护（web/src/embed-guard.ts）不把市场套进市场，登记成 BASE 的台在使用页、驾驶舱里会被换成一句说明
+import http.server as _hs, socketserver as _ss, threading as _th
+class _EmbedPage(_hs.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = b'<!doctype html><title>E2E embed</title><p>E2E embedded bench</p>'
+        self.send_response(200); self.send_header('Content-Type', 'text/html; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
+    def do_HEAD(self):
+        self.send_response(200); self.send_header('Content-Type', 'text/html; charset=utf-8'); self.end_headers()
+    def log_message(self, *a): pass
+_embed_srv = _ss.TCPServer(('127.0.0.1', 0), _EmbedPage)
+_th.Thread(target=_embed_srv.serve_forever, daemon=True).start()
+EMBED_URL = f'http://127.0.0.1:{_embed_srv.server_address[1]}/'
+
 
 def record(name, ok, err=''):
     RESULTS.append((name, ok, err))
@@ -194,22 +208,13 @@ with sync_playwright() as p:
     except Exception as _e:
         print('[E2E] MCP 会话引导失败:', _e)
 
-    # ---------- 1. 仪表盘 ----------
-    try:
-        page.goto(BASE + '/')
-        page.wait_for_load_state('networkidle')
-        body = page.inner_text('body')
-        assert '工作台总数' in body and '平均延迟' in body, '统计卡缺失'
-        assert '全部检测' in body, '操作按钮缺失'
-        record('仪表盘渲染（统计卡/操作）', True)
-    except Exception as e:
-        record('仪表盘渲染（统计卡/操作）', False, str(e)); shot('dashboard')
+    # ---------- 1. 仪表盘：原来的总览（/overview）随旧页面删了（属主 2026-11-11），全景另有回归 ----------
 
     if ADMIN_UI:  # #292 M1：市场管理（新增/开关/改名/复制/删除）只在控制面页面做；控制面关闭时走下方本机 CLI 分支
         # ---------- 2. 市场页：新增（含校验失败分支） ----------
         # goto 入 try + 失败 dump HTML：主区空（chunk 加载中断）时现场可诊断（E2E 劣化调查增强）
         try:
-            page.goto(ADMIN_UI + '/market', wait_until='domcontentloaded', timeout=30000)
+            page.goto(ADMIN_UI + '/market/manage', wait_until='domcontentloaded', timeout=30000)  # 工作台表格：新市场页（#584）之后在 /market/manage
             page.wait_for_load_state('networkidle', timeout=15000)
             page.wait_for_timeout(800)
         except Exception as e:
@@ -234,7 +239,7 @@ with sync_playwright() as p:
             assert '必须以 http' in modal.inner_text(), 'URL pattern 校验未出现'
             record('表单校验（必填/URL pattern）', True)
             # 2c. 正常填写提交
-            modal.get_by_label('服务地址').fill(BASE)
+            modal.get_by_label('服务地址').fill(EMBED_URL)
             modal.get_by_label('分类').fill('E2E')
             modal.get_by_label('标签').click()
             page.keyboard.type('e2e')
@@ -325,7 +330,7 @@ with sync_playwright() as p:
             modal.wait_for(state='visible')
             # 预填检查：名称带 (副本)，地址与源一致
             assert modal.get_by_label('名称').input_value() == 'E2E 改名后 (副本)', '副本名称预填错误'
-            assert modal.get_by_label('服务地址').input_value() == BASE, '地址预填错误'
+            assert modal.get_by_label('服务地址').input_value() == EMBED_URL, '地址预填错误'
             modal.get_by_label('名称').fill('E2E 复制件')
             submit_modal(modal)
             page.wait_for_timeout(1200)
@@ -347,7 +352,7 @@ with sync_playwright() as p:
     else:
         # 控制面关闭（WM_CONTROL_PORT=0）：管理写只能走本机 CLI（回环、无浏览器标记）；业务面读面 UI 照旧
         try:
-            r = api(page, 'POST', '/api/workbenches', {'name': 'E2E 测试工作台', 'url': BASE, 'category': 'E2E',
+            r = api(page, 'POST', '/api/workbenches', {'name': 'E2E 测试工作台', 'url': EMBED_URL, 'category': 'E2E',
                                                         'tags': ['e2e'], 'description': '**E2E** 自动化测试条目'})
             assert r.status == 201, f'CLI 新增应 201: {r.status}'
             wid = r.json()['id']
@@ -362,7 +367,7 @@ with sync_playwright() as p:
         except Exception as e:
             record('市场管理（控制面关闭·本机 CLI）', False, str(e))
         try:
-            page.goto(BASE + '/market', wait_until='domcontentloaded', timeout=30000)
+            page.goto(BASE + '/market/manage', wait_until='domcontentloaded', timeout=30000)
             page.wait_for_load_state('networkidle', timeout=15000)
             page.wait_for_timeout(800)
             page.get_by_placeholder('搜索名称 / 地址 / 描述').fill('E2E 改名后')
@@ -493,7 +498,7 @@ with sync_playwright() as p:
             page.reload(); page.wait_for_load_state('networkidle'); page.wait_for_timeout(800)
             trow = page.locator('.ant-table-row').filter(has_text='e2e-custom')
             trow.get_by_role('button', name='删除').click()
-            page.get_by_role('button', name='确 定').click()
+            page.get_by_role('button', name='确定').click()  # 全站两个字的按钮不插空格（ConfigProvider button.autoInsertSpace=false）
             page.wait_for_timeout(1000)
             expect(page.locator('.ant-table-row').filter(has_text='e2e-custom')).to_have_count(0)
             record('解除引用后删除类型', True)
@@ -536,13 +541,21 @@ with sync_playwright() as p:
         except Exception as e:
             record('类型管理 + 设置（控制面关闭·本机 CLI）', False, str(e))
 
-    # ---------- 11b. #292 M1 双面：业务面页面的管理写一律拒；控制面页面带口令可写 ----------
+    # ---------- 11b. 管理身份：11-02 起控制面开不开，业务面页面都凭口令管理写（带口令 201、不带口令 403）；控制面开着时核一下控制面地址 ----------
     try:
         page.goto(BASE + '/market', wait_until='domcontentloaded', timeout=30000)
         page.wait_for_load_state('networkidle', timeout=15000)
         if CTRL is None:
             record('M1 双面（单面旧实例，无此约束）', True)
-        elif TOKEN_MODE:
+        else:
+            # 11-02 属主撤销「管理写必须走控制面」以后：控制面开不开，业务面上凭口令都能管理写，不带口令被拒（两种模式同一组断言）
+            if CTRL:
+                # 控制面开着：页面给的控制面地址就是这一轮的控制面（和业务面不是同一个端口；跑器设了 WM_CONTROL_PORT 就核端口）
+                _cp = _os.environ.get('WM_CONTROL_PORT', '').strip()
+                _ctrl_port = CTRL.rsplit(':', 1)[-1]
+                assert _ctrl_port != BASE.rsplit(':', 1)[-1], f'控制面地址不该和业务面同一个端口: {CTRL!r}'
+                if _cp and _cp != '0':
+                    assert _ctrl_port == _cp, f'页面给的控制面地址 {CTRL!r} 应是这一轮的控制面端口 {_cp}'
             st, j = market_write()
             assert st == 201, f'业务面页面带口令管理写应 201: {st} {j}'
             api(page, 'DELETE', f"/api/workbenches/{j['id']}")
@@ -551,33 +564,23 @@ with sync_playwright() as p:
             st, _ = market_write('/api/settings', 'PUT', {'health_interval_seconds': '31'}, token='')
             assert st == 403, f'业务面页面不带口令改设置应 403: {st}'
             assert page.get_by_role('link', name='管理控制面').count() == 0, '页头不应再有控制面链接'
-            assert page.get_by_role('button', name=_re_m1.compile(r'口\s*令')).count() >= 1, '页头应有口令入口'
-            record('管理身份（未开控制面：业务面带口令写 201 / 不带口令 403 / 页头口令入口）', True)
-        else:
-            st, j = market_write()
-            assert st == 403 and j.get('control_surface_required') is True, f'业务面浏览器带对口令管理写也应 403: {st} {j}'
-            assert (j.get('control_url') or '') == CTRL, f'403 应带控制面地址 {CTRL!r}: {j.get("control_url")!r}'
-            st, _ = market_write('/api/settings', 'PUT', {'health_interval_seconds': '31'})
-            assert st == 403, f'业务面浏览器改设置应 403: {st}'
-            if CTRL:
-                link = page.get_by_role('link', name='管理控制面')
-                assert (link.get_attribute('href') or '').startswith(CTRL + '/market'), '页头应给控制面同 path 链接'
-                page.goto(CTRL + '/market'); page.wait_for_load_state('networkidle')
-                st, j = market_write()
-                assert st == 201, f'控制面页面带口令写应 201: {st} {j}'
-                api(page, 'DELETE', f"/api/workbenches/{j['id']}")
-                record('M1 双面（业务面管理写 403 + 控制面地址 / 控制面带口令写 201）', True)
-            else:
-                assert '控制面已关闭' in page.inner_text('body'), '页头应提示控制面已关闭'
-                record('M1 双面（控制面关闭：业务面管理写 403·无控制面地址·页头提示）', True)
+            # 新外壳（#571）：口令入口在侧栏底部用户卡的弹出层里。开没开看 aria-expanded，不看「此刻可见」（动画起点尺寸为 0）
+            _me = page.locator('[data-testid=wm-me]')
+            if _me.get_attribute('aria-expanded') != 'true': _me.click()
+            page.locator('[data-testid=wm-me][aria-expanded=true]').wait_for()
+            page.locator('.wm-me-pop').get_by_role('button', name=_re_m1.compile(r'口\s*令')).first.wait_for()
+            assert page.locator('.wm-me-pop').get_by_role('button', name=_re_m1.compile(r'口\s*令')).count() >= 1, '用户卡里应有口令入口'
+            _me.click(); page.locator('[data-testid=wm-me][aria-expanded=false]').wait_for()  # 收起，免得挡后面的步骤
+            record('管理身份（' + ('控制面开着' if CTRL else '未开控制面') + '：业务面带口令写 201 / 不带口令 403 / 用户卡口令入口' + ('/ 控制面地址是这一轮的控制面端口' if CTRL else '') + '）', True)
     except Exception as e:
         record('M1 双面', False, str(e)); shot('m1-surfaces')
 
     # ---------- 12. 任务驾驶舱（业务面只读：门户面板渲染→持久化→无编辑入口→布局写走 CLI→删除） ----------
-    # #292 M1：驾驶舱是业务页（控制面不提供，会跳回业务面），而 /api/cockpits 写是管理写——业务面浏览器发来一律 403。
+    # #292 M1：驾驶舱是业务页（控制面不提供，会跳回业务面）。#673 起 /api/cockpits 的建、改、删不经写请求总门、路由自己认人：
+    # 业务面页面不带口令、没登录的 401（cockpit_auth_required），带口令的照旧改得了、删得了。
     # #302 方案③：业务面隐藏全部编辑入口并提示走命令行；布局由本机 CLI 写，页面只验渲染/持久化（单面旧实例仍走页面改）。
     try:
-        pw = api(page, 'POST', '/api/workbenches', {'name': 'E2E 驾驶舱面板源', 'url': BASE}).json()['id']
+        pw = api(page, 'POST', '/api/workbenches', {'name': 'E2E 驾驶舱面板源', 'url': EMBED_URL}).json()['id']
         page.goto(BASE + '/cockpit')
         page.wait_for_load_state('networkidle')
         if CTRL is None:
@@ -619,7 +622,8 @@ with sync_playwright() as p:
             page.wait_for_load_state('networkidle')
             page.wait_for_timeout(2500)
             page.remove_listener('request', _on_req)
-            assert page.locator('.wm-panel').count() == 2, f'重叠驾驶舱应渲染 2 个面板: {page.locator(".wm-panel").count()}'
+            # 统一待办卡随 /tasks 退役（旧页面删除清单第二批）：存着的那块不再画，只剩工作台面板
+            assert page.locator('.wm-panel').count() == 1, f'重叠驾驶舱应渲染 1 个工作台面板（统一待办卡不再画）: {page.locator(".wm-panel").count()}'
             assert not cockpit_writes, f'只读页挂载不应发驾驶舱写请求: {cockpit_writes}'
             assert '布局保存失败' not in page.inner_text('body'), '只读页不应出现保存失败提示'
             assert api(page, 'GET', f"/api/cockpits/{ov['id']}").json()['panels'] == ov_before, '重叠布局数据不应被改'
@@ -627,9 +631,13 @@ with sync_playwright() as p:
             page.goto(BASE + f'/cockpit/{cid}')
             page.wait_for_load_state('networkidle')
             page.wait_for_timeout(600)
-            st, j = market_write(f'/api/cockpits/{cid}', 'PUT', {'panels': []}, token='' if TOKEN_MODE else None)
-            assert st == 403 and (TOKEN_MODE or j.get('control_surface_required') is True), f'业务面页面{"不带口令" if TOKEN_MODE else ""}改布局应 403: {st} {j}'
+            st, j = market_write(f'/api/cockpits/{cid}', 'PUT', {'panels': []}, token='')
+            # #673 起驾驶舱的写不经写请求总门，路由自己认人：业务面页面不带口令、没登录 → 401 cockpit_auth_required（和启动自检 market.cockpits.anonymous-write 同一个口径）
+            assert st == 401 and j.get('error') == 'cockpit_auth_required', f'业务面页面不带口令改布局应 401 cockpit_auth_required: {st} {j}'
             assert len(api(page, 'GET', f'/api/cockpits/{cid}').json()['panels']) == 1, '被拒的布局写不应生效'
+            # 对照：同一个业务面页面带上口令就改得了（口令持有人照旧能改驾驶舱）
+            st2, j2 = market_write(f'/api/cockpits/{cid}', 'PUT', {'panels': []})
+            assert st2 == 200, f'业务面页面带口令改布局应 200: {st2} {j2}'
             assert api(page, 'PUT', f'/api/cockpits/{cid}', {'panels': []}).status == 200, 'CLI 改布局应 200'
         else:
             page.locator('.wm-panel-actions [aria-label="移除此面板"], .wm-panel-actions .anticon-close').first.click()
@@ -638,19 +646,26 @@ with sync_playwright() as p:
         page.wait_for_load_state('networkidle')
         page.wait_for_timeout(600)
         assert page.locator('.wm-panel').count() == 0, '面板移除失败'
-        assert page.get_by_text('空驾驶舱', exact=False).first.is_visible(), '空驾驶舱提示未出现'
-        page.get_by_role('button', name='返回驾驶舱列表').click()
+        assert page.get_by_text('还没有要看的东西', exact=False).first.is_visible(), '空驾驶舱提示未出现'
+        # 回列表走顶上的面包屑「驾驶舱」（单页顶上只留「编辑」，不再有单独的返回按钮）
+        page.locator('[data-testid=wm-top] .wm-top-crumb a').first.click()
         page.wait_for_load_state('networkidle')
         assert page.get_by_text('E2E 驾驶舱', exact=True).first.is_visible(), '列表中未见 E2E 驾驶舱'
         if CTRL is not None:
             assert page.get_by_role('button', name='删除').count() == 0, '业务面驾驶舱列表不应有删除入口'
-            st, _ = market_write(f'/api/cockpits/{cid}', 'DELETE', {}, token='' if TOKEN_MODE else None)
-            assert st == 403, f'业务面页面删驾驶舱应 403: {st}'
+            st, j = market_write(f'/api/cockpits/{cid}', 'DELETE', {}, token='')
+            # #673 起驾驶舱的删也不经写请求总门，路由自己认人：业务面页面不带口令、没登录 → 401 cockpit_auth_required（和改布局同一个口径）
+            assert st == 401 and j.get('error') == 'cockpit_auth_required', f'业务面页面不带口令删驾驶舱应 401 cockpit_auth_required: {st} {j}'
+            assert any(c['id'] == cid for c in api(page, 'GET', '/api/cockpits').json()), '被拒的删除不应生效'
+            # 对照：同一个业务面页面带上口令删得了（删一个专门建的驾驶舱，不动上面这个）
+            tmp = api(page, 'POST', '/api/cockpits', {'name': 'E2E 删除对照', 'panels': []}).json()
+            st3, j3 = market_write(f"/api/cockpits/{tmp['id']}", 'DELETE', {})
+            assert st3 == 200 and not any(c['id'] == tmp['id'] for c in api(page, 'GET', '/api/cockpits').json()), f'业务面页面带口令删驾驶舱应 200 且删掉: {st3} {j3}'
         assert api(page, 'DELETE', f'/api/cockpits/{cid}').status == 200
         api(page, 'DELETE', f'/api/workbenches/{pw}')
         leftover = api(page, 'GET', '/api/cockpits').json()
         assert not any(c['name'] == 'E2E 驾驶舱' for c in leftover), '驾驶舱删除失败'
-        record('任务驾驶舱（业务面只读：门户面板渲染/持久化/无编辑入口/重叠布局挂载不写/布局写 403 走 CLI/删除）', True)
+        record('任务驾驶舱（业务面只读：门户面板渲染/持久化/无编辑入口/重叠布局挂载不写/不带口令改布局和删 401、带口令和 CLI 改得了/删除）', True)
     except Exception as e:
         record('任务驾驶舱', False, str(e)); shot('cockpit')
 
@@ -683,9 +698,8 @@ with sync_playwright() as p:
         ('/ 使用页·标题', f'/use/{_use_wid}', '.wm-use-bar .wm-use-title', 4.5),
         ('/ 使用页·地址文字', f'/use/{_use_wid}', '.wm-use-bar .wm-mono', 4.5),
         ('/ 使用页·顶栏按钮', f'/use/{_use_wid}', '.wm-use-bar .ant-btn', 4.5),
-        ('/ 总览·统计标签', '/', '.wm-stat-card .wm-stat-label', 4.5),
-        ('/ 总览·侧栏菜单项', '/', '.ant-pro-sider .ant-menu-item', 4.5),
-        ('/market 表格·状态文字', '/market', '.ant-table-tbody .ant-badge-status-text', 4.5),
+        ('/ 全景·侧栏主入口', '/', '[data-testid=wm-side] .wm-nav-item:not(.on)', 4.5),
+        ('/market/manage 表格·状态文字', '/market/manage', '.ant-table-tbody .ant-badge-status-text', 4.5),
         ('/sops 表格·SOP 状态 Tag', '/sops', '.ant-table-tbody .ant-tag', 4.5),
         ('/sops 表格·标题文字', '/sops', '.ant-table-tbody .ant-typography', 4.5),
     ]
@@ -729,7 +743,7 @@ with sync_playwright() as p:
         resp = page.request.fetch(BASE + '/apps/e2e-app/')
         assert resp.status == 200 and 'E2E-APP-V1' in resp.text(), '自产台静态服务失败'
         # 发布即入册：市场页出现行 + 类型 Tag
-        page.goto(BASE + '/market')
+        page.goto(BASE + '/market/manage')
         page.wait_for_load_state('networkidle')
         page.wait_for_timeout(600)
         row = page.locator('.ant-table-row').filter(has_text='E2E 自产台')
@@ -815,13 +829,14 @@ with sync_playwright() as p:
                    'Upgrade: websocket\r\nConnection: Upgrade\r\n'
                    'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n'
                    'Sec-WebSocket-Version: 13\r\n'
+                   f'X-Admin-Token: {ADMIN_TOKEN}\r\n'
                    'Origin: http://127.0.0.1:9800\r\n\r\n').encode())
         first = s.recv(128).decode('latin1')
         s.close()
         assert '101' in first.split('\r\n')[0], f'WS 握手未达 101: {first.split(chr(13))[0]}'
         # ⑧ 市场详情抽屉展示凭据状态（脱敏 Tag）
         api(page, 'PUT', f'/api/workbenches/{ewid}', {'auth': {'type': 'bearer', 'value': 'e2e-bear-tok'}})
-        page.goto(BASE + '/market')
+        page.goto(BASE + '/market/manage')
         page.wait_for_load_state('networkidle')
         # 详情抽屉由点击工作台名称打开
         page.locator('.ant-table-row').filter(has_text='E2E EchoAuth').first.locator('td a').first.click()
@@ -891,7 +906,10 @@ with sync_playwright() as p:
         assert not ex_leak, f'导出泄漏明文 token: {ex_leak[:2]}'
         au_leak = [w['name'] for w in exp['workbenches'] if (w.get('auth') or {}).get('value') not in (None, '', '****')]
         assert not au_leak, f'导出泄漏明文 auth: {au_leak[:2]}'
-        expr = page.request.fetch(BASE + '/api/export?reveal=1').json()
+        # 取真值要求管理员：不带口令 403、正文里没有真值（不降级成掩码）；带口令（同源、没有跨站标记）才拿得到
+        rno = page.request.fetch(BASE + '/api/export?reveal=1')
+        assert rno.status == 403 and 'startup-tok' not in rno.text(), f'不带口令的 reveal 导出没被拒: {rno.status}'
+        expr = page.request.fetch(BASE + '/api/export?reveal=1', headers={'x-admin-token': ADMIN_TOKEN}).json()
         assert expr.get('masked') == 0 and any('token=startup-tok' in w['url'] for w in expr['workbenches']), 'reveal 导出未含真值'
         # 导入掩码行整批拒（#258 D：不 skip 后报成功，掩码永不落库）
         bad_payload = {'workbenches': [{'name': 'E2E MaskImport', 'url': 'http://127.0.0.1:9901/x?token=****', 'type': 'web'}], 'types': []}
@@ -1097,11 +1115,14 @@ with sync_playwright() as p:
             page.goto(BASE + '/mcp-gateways')
             page.wait_for_load_state('networkidle')
             if not page.evaluate("() => !!sessionStorage.getItem('wm-admin-token')"):
-                # 没预注入口令的形态：走顶栏钥匙（全局入口），不用页内口令框
+                # 没预注入口令的形态：走用户卡里的钥匙（全局入口），不用页内口令框
                 _re7 = __import__('re')
-                page.get_by_role('button', name=_re7.compile(r'口\s*令')).first.click()
-                page.locator('.ant-popover .ant-input-password input').fill(_at7)
-                page.locator('.ant-popover').get_by_role('button', name=_re7.compile(r'保\s*存')).click()
+                _me7 = page.locator('[data-testid=wm-me]')  # 新外壳（#571）：全局口令入口在用户卡弹出层里
+                if _me7.get_attribute('aria-expanded') != 'true': _me7.click()
+                page.locator('[data-testid=wm-me][aria-expanded=true]').wait_for()
+                page.locator('.wm-me-pop').get_by_role('button', name=_re7.compile(r'口\s*令')).first.click()
+                page.locator('.ant-popover .ant-input-password input').last.fill(_at7)
+                page.locator('.ant-popover').get_by_role('button', name=_re7.compile(r'保\s*存')).last.click()
             _row7 = page.locator('.ant-table-row').filter(has_text=_s7['name'])
             _row7.wait_for(state='visible', timeout=8000)
             assert page.get_by_placeholder(__import__('re').compile('Odoo 管理员账号登录后免输')).count() == 0, '持全局口令时页内口令框不应出现（#375）'

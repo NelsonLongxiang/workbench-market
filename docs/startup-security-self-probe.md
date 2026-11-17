@@ -1,15 +1,21 @@
 # #326 启动安全自检：固定匿名断言与启动门闩
 
+> 补记（2026-11-13）：下面「固定表」是 #326 最初那一批。之后每次安全修复都往表里加了行（主体、授予、事项、驾驶舱、经验库、团队、台数据、工作台变量、写 run、登录回调与失效通知、数据视图、登录门、对外断开等），当前完整的表以 `server/src/startup-security-self-probe.ts` 为准，README「启动安全自检」一节有摘要。
+
 范围：各面监听后，用固定 127.0.0.1 和实际监听端口对本服务做匿名安全断言；自检结束前，入口门闩拒绝外部 HTTP、市场 WS 和内容面 WS，不运行任何业务工具。失败只关闭本次进程创建的服务器并以非零退出，不查杀父进程或宿主。
 
-固定表：market匿名MCP initialize=401且Bearer challenge；tools/list=401；market带本面Origin的POST /api/workbenches、固定空name/url=403；无Origin同一非法写=400（纯校验、零业务写对照）；control实际监听才测GET /api/mcp/sessions=403。控制面关闭或监听失败按既有面语义标skip；只有明确 NODE_ENV=development 或 NODE_ENV=test 时，显式MCP_GATEWAY=off 才把两条MCP行降为warning，其他行仍强制。production、未设、空值或其他运行模式配off时，两条MCP行具名fail（gateway-off-forbidden），启动门闩不开放且本进程非零退出。
+固定表：market匿名MCP initialize=401且Bearer challenge；tools/list=401；market带本面Origin的POST /api/workbenches、固定空name/url=403；无Origin同一非法写=400（纯校验、零业务写对照）；control实际监听才测GET /api/mcp/sessions=403；market远程匿名浏览器GET /api/grants=403（授予管理面只有管理员能读；登录门开着时由登录门先拦=401）；market远程匿名不带台令牌GET /api/apps/wm-self-probe/data=403（台数据与附件的读要台令牌、管理员或本机命令行，守卫先于查台；登录门开着时登录门先拦=401；WM_APP_DATA_READ=warn 时不跑）；market远程匿名不带run写凭据PUT /api/sop/runs/999999999=403（写run要上传令牌、管理员或本机命令行，守卫先于查run；登录门开着时登录门先拦=401；WM_SOP_RUN_WRITE=warn 时不跑）；market远程匿名浏览器GET /api/principals=403（主体管理面只有管理员能读；登录门enforce时由登录门先拦，期望401）；market远程匿名GET /login/feishu/callback带编出来的state=400（不跳转、不发会话；不论是否配置了登录方式）；market远程匿名POST /login/feishu/events不带签名=401（不停用任何人；不论是否配置了登录方式）；market远程匿名GET /api/export?reveal=1=403（导出真值要求管理员，不降级成掩码；登录门开着时由登录门先拦=401）。控制面关闭或监听失败按既有面语义标skip；只有明确 NODE_ENV=development 或 NODE_ENV=test 时，显式MCP_GATEWAY=off 才把两条MCP行降为warning，其他行仍强制。production、未设、空值或其他运行模式配off时，两条MCP行具名fail（gateway-off-forbidden），启动门闩不开放且本进程非零退出。
 
 门闩只给本轮私有随机标记、真实回环socket、预先登记的本地port/method/固定path组合放行；该标记只穿过门闩，不绕过原鉴权或输入校验、不出现在日志/health。伪造普通self-probe头不享受标记。请求无Cookie、无Bearer、无管理口令，禁redirect跟随，1.5秒超时失败。
+
+门户另有进程内固定行 `market.portal.sso-state-cookie`：调用实际 SSO state cookie 选项构造器，HTTP/HTTPS 两组均须保持 host-only、HttpOnly、SameSite=Lax、当前台路径和 10 分钟期限，Secure 必须与 HTTPS 状态一致。无账号、网络或业务写入；失败或异常只记固定拒绝原因，不放开启动闸。
 
 health在完成前passed=false/at=null、503；通过后200与self_probe行摘要。失败行具名，不记录请求/响应正文、凭据、业务参数或原始异常。真实probe记录统一source=self-probe，采纳计数排除本轮内部请求。
 
 合成测试：模块正反矩阵、真实 index.ts 的鉴权移除/浏览器写门移除/超时 mutation、内容面 HTTP/WS 门闩；所有测试只使用新 DATA_DIR/隔离 home 与回环备用端口，不读取生产或个人工作区。明确开发/测试模式的显式 off 仅减去 MCP 两个拒绝请求，仍检查管理写和无 Origin 对照；生产/未设/空/未知NODE_ENV+off必须拒绝。仓内匿名MCP合成实例显式声明NODE_ENV=test，生产控制面用例保持production并开启网关。控制面未监听不主动连接配置端口，避免探测其他进程。
 
 拒写探针不运行成功路径，不调用 tools/call。启动初始化仍有产品本来的 schema/内置任务中心种子写入；“探针不落库”指探针自身不创建/变更业务对象，不能误称整个启动过程无数据库写。
+
+`market.workbench-access-validate` 用固定非法 access 与 `.invalid` 地址核写入校验先于 URL 准入返回400；删除范围校验后会变为准入403，必须失败但仍不写业务对象。对应模块及真实index变异均验证，不发凭据或有效业务请求。
 
 这是离线实现/PR范围，不是生产操作或clean-r1改包授权。#309/#324仍各案处理；每次新安全修复须往固定自检表加行及对应正反测试，不用自检替代主体级授权。

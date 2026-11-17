@@ -1,0 +1,1145 @@
+{
+  "domain": "workbench-events",
+  "what": "工作台事件的管理面与回写面：列表、详情（管理员读）、放行一次投递（管理员，同源）、接单节点凭 reply token 回写决定，共 4 条路由（在 server/src/workbench-events.ts）。response 是改成经 HTTP 服务注册之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /api/workbench-events", "GET /api/workbench-events/:eventId", "POST /api/workbench-events/:eventId/release", "POST /api/workbench-events/:eventId/decision"],
+  "exempt": [
+    { "route": "GET /api/workbench-events", "class": "invalid", "why": "limit 读不成数或越界就用缺省或夹到范围里，没有会被拒的参数", "shown_by": "open/list-limit-bad" },
+    { "route": "POST /api/workbench-events/:eventId/decision", "class": "unauthorized", "why": "凭投递里的 reply token 放行，不看身份；token 不对和查无同答 404（不泄露事件是否存在）", "shown_by": "open/decide-ask" }
+  ],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "登录门关；对外断开（WM_OUTBOUND=off，投递 worker 整轮跳过，放行后的投递停在 pending）。预先写进库五个事件：两条 held 投递的、一条送达未过期带 token 的、一条送达已过期的、一条已有终态决定的、一条还没送达的；reply token 是合成值，库里只存 sha256。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin", "WM_OUTBOUND": "off" },
+      "seed": [
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-0000000000000001", "source": "app-data", "workbench": "replay-wb", "item": "app:replay-1", "context_id": "ctx-replay-1", "submitter_kind": "human", "submitter": "seed", "form_version": 1, "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dispatch": 1, "routed": "target", "created_at": "2025-01-01 00:00:01" }
+        },
+        {
+          "table": "workbench_event_deliveries",
+          "row": { "event_id": "wbe-0000000000000001", "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "caller_session": "market/0a1b2c3d", "status": "held", "message": "", "attempts": 0, "next_at": "2025-01-01 00:00:01", "created_at": "2025-01-01 00:00:01" }
+        },
+        {
+          "table": "workbench_event_deliveries",
+          "row": { "event_id": "wbe-0000000000000001", "target_team": "replay-zone/team-b", "target_url": "http://127.0.0.1:9", "caller_session": "market/0a1b2c3d", "status": "held", "message": "", "attempts": 0, "next_at": "2025-01-01 00:00:01", "created_at": "2025-01-01 00:00:01" }
+        },
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-0000000000000002", "source": "app-data", "workbench": "replay-wb", "item": "app:replay-2", "context_id": "ctx-replay-2", "submitter_kind": "human", "submitter": "seed", "form_version": 1, "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dispatch": 1, "routed": "target", "created_at": "2025-01-01 00:00:02" }
+        },
+        {
+          "table": "workbench_event_deliveries",
+          "row": { "event_id": "wbe-0000000000000002", "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "caller_session": "market/0a1b2c3d", "status": "sent", "message": "", "attempts": 0, "next_at": "2025-01-01 00:00:02", "created_at": "2025-01-01 00:00:02", "reply_token_sha256": "10e02276ec574151d590e24bc6b8031f93e34c544c4b5e2a848d1309208e4b35", "sent_at": "2099-01-01 00:00:00" }
+        },
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-0000000000000003", "source": "app-data", "workbench": "replay-wb", "item": "app:replay-3", "context_id": "ctx-replay-3", "submitter_kind": "human", "submitter": "seed", "form_version": 1, "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dispatch": 1, "routed": "target", "created_at": "2025-01-01 00:00:03" }
+        },
+        {
+          "table": "workbench_event_deliveries",
+          "row": { "event_id": "wbe-0000000000000003", "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "caller_session": "market/0a1b2c3d", "status": "sent", "message": "", "attempts": 0, "next_at": "2025-01-01 00:00:03", "created_at": "2025-01-01 00:00:03", "reply_token_sha256": "86512f8cc23ef3a809aa683ce8474c0ab2a24628eff36e1b31be95c94e6c7063", "sent_at": "2000-01-01 00:00:00" }
+        },
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-0000000000000004", "source": "app-data", "workbench": "replay-wb", "item": "app:replay-4", "context_id": "ctx-replay-4", "submitter_kind": "human", "submitter": "seed", "form_version": 1, "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dispatch": 1, "routed": "target", "created_at": "2025-01-01 00:00:04" }
+        },
+        {
+          "table": "workbench_event_deliveries",
+          "row": { "event_id": "wbe-0000000000000004", "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "caller_session": "market/0a1b2c3d", "status": "sent", "message": "", "attempts": 0, "next_at": "2025-01-01 00:00:04", "created_at": "2025-01-01 00:00:04", "reply_token_sha256": "ab2c018a33453cb9f4317fe461f4850f5ceaedfe5ecfdc3da37a0f84410f9b26", "sent_at": "2099-01-01 00:00:00", "decision": "accept", "decision_reason": "已接", "decided_by": "seed", "decided_at": "2025-01-01 00:00:04" }
+        },
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-0000000000000005", "source": "app-data", "workbench": "replay-wb", "item": "app:replay-5", "context_id": "ctx-replay-5", "submitter_kind": "human", "submitter": "seed", "form_version": 1, "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dispatch": 1, "routed": "target", "created_at": "2025-01-01 00:00:05" }
+        },
+        {
+          "table": "workbench_event_deliveries",
+          "row": { "event_id": "wbe-0000000000000005", "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "caller_session": "market/0a1b2c3d", "status": "pending", "message": "", "attempts": 0, "next_at": "2025-01-01 00:00:05", "created_at": "2025-01-01 00:00:05", "reply_token_sha256": "d614ef93cdb4ec3793673c2dfccc87fa4803738a76b2f9161a05391b27b1c289" }
+        },
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-0000000000000006", "source": "app-data", "workbench": "replay-wb", "item": "app:replay-6", "context_id": "ctx-replay-6", "submitter_kind": "human", "submitter": "seed", "form_version": 1, "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dispatch": 1, "routed": "target", "created_at": "2025-01-01 00:00:06" }
+        },
+        {
+          "table": "workbench_event_deliveries",
+          "row": { "event_id": "wbe-0000000000000006", "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "caller_session": "market/0a1b2c3d", "status": "sent", "message": "", "attempts": 0, "next_at": "2025-01-01 00:00:06", "created_at": "2025-01-01 00:00:06", "reply_token_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "sent_at": "2099-01-01 00:00:00" }
+        },
+        { "table": "workbench_event_log", "row": { "event_id": "wbe-0000000000000001", "delivery_id": null, "at": "2025-01-01 00:00:01", "actor": "market", "action": "recorded", "detail": "{}" } }
+      ],
+      "steps": [
+        {
+          "id": "list-remote",
+          "route": "GET /api/workbench-events",
+          "class": "unauthorized",
+          "what": "远程不带口令：管理守卫拦下",
+          "request": { "method": "GET", "path": "/api/workbench-events", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "list-local",
+          "route": "GET /api/workbench-events",
+          "class": "unauthorized",
+          "what": "本机不带口令：按管理守卫的应答",
+          "request": { "method": "GET", "path": "/api/workbench-events", "headers": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "list-cross",
+          "route": "GET /api/workbench-events",
+          "class": "unauthorized",
+          "what": "跨站带口令：拦下",
+          "request": { "method": "GET", "path": "/api/workbench-events", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "list",
+          "route": "GET /api/workbench-events",
+          "class": "normal",
+          "what": "管理口令：最新的在前，带每个事件的投递（不带 reply token）",
+          "request": { "method": "GET", "path": "/api/workbench-events", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "4085", "etag": "W/\"ff5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 6,
+                "event_id": "wbe-0000000000000006",
+                "source": "app-data",
+                "workbench": "replay-wb",
+                "item": "app:replay-6",
+                "context_id": "ctx-replay-6",
+                "submitter_kind": "human",
+                "submitter": "seed",
+                "form_version": 1,
+                "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "dispatch": true,
+                "routed": "target",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "deliveries": [
+                  { "id": 7, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "sent", "attempts": 0, "last_error": "", "sent_at": "YYYY-MM-DD hh:mm:ss", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+                ]
+              },
+              {
+                "id": 5,
+                "event_id": "wbe-0000000000000005",
+                "source": "app-data",
+                "workbench": "replay-wb",
+                "item": "app:replay-5",
+                "context_id": "ctx-replay-5",
+                "submitter_kind": "human",
+                "submitter": "seed",
+                "form_version": 1,
+                "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "dispatch": true,
+                "routed": "target",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "deliveries": [
+                  { "id": 6, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "pending", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+                ]
+              },
+              {
+                "id": 4,
+                "event_id": "wbe-0000000000000004",
+                "source": "app-data",
+                "workbench": "replay-wb",
+                "item": "app:replay-4",
+                "context_id": "ctx-replay-4",
+                "submitter_kind": "human",
+                "submitter": "seed",
+                "form_version": 1,
+                "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "dispatch": true,
+                "routed": "target",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "deliveries": [
+                  { "id": 5, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "sent", "attempts": 0, "last_error": "", "sent_at": "YYYY-MM-DD hh:mm:ss", "decision": "accept", "decision_reason": "已接", "decision_ref": "", "decided_by": "seed", "decided_at": "YYYY-MM-DD hh:mm:ss", "created_at": "YYYY-MM-DD hh:mm:ss" }
+                ]
+              },
+              {
+                "id": 3,
+                "event_id": "wbe-0000000000000003",
+                "source": "app-data",
+                "workbench": "replay-wb",
+                "item": "app:replay-3",
+                "context_id": "ctx-replay-3",
+                "submitter_kind": "human",
+                "submitter": "seed",
+                "form_version": 1,
+                "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "dispatch": true,
+                "routed": "target",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "deliveries": [
+                  { "id": 4, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "sent", "attempts": 0, "last_error": "", "sent_at": "YYYY-MM-DD hh:mm:ss", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+                ]
+              },
+              {
+                "id": 2,
+                "event_id": "wbe-0000000000000002",
+                "source": "app-data",
+                "workbench": "replay-wb",
+                "item": "app:replay-2",
+                "context_id": "ctx-replay-2",
+                "submitter_kind": "human",
+                "submitter": "seed",
+                "form_version": 1,
+                "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "dispatch": true,
+                "routed": "target",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "deliveries": [
+                  { "id": 3, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "sent", "attempts": 0, "last_error": "", "sent_at": "YYYY-MM-DD hh:mm:ss", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+                ]
+              },
+              {
+                "id": 1,
+                "event_id": "wbe-0000000000000001",
+                "source": "app-data",
+                "workbench": "replay-wb",
+                "item": "app:replay-1",
+                "context_id": "ctx-replay-1",
+                "submitter_kind": "human",
+                "submitter": "seed",
+                "form_version": 1,
+                "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "dispatch": true,
+                "routed": "target",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "deliveries": [
+                  { "id": 1, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "held", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                  { "id": 2, "target_team": "replay-zone/team-b", "target_url": "http://127.0.0.1:9", "status": "held", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": "list-limit",
+          "route": "GET /api/workbench-events",
+          "class": "normal",
+          "what": "limit=2：只回两条",
+          "request": { "method": "GET", "path": "/api/workbench-events?limit=2", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "1261", "etag": "W/\"4ed-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 6,
+                "event_id": "wbe-0000000000000006",
+                "source": "app-data",
+                "workbench": "replay-wb",
+                "item": "app:replay-6",
+                "context_id": "ctx-replay-6",
+                "submitter_kind": "human",
+                "submitter": "seed",
+                "form_version": 1,
+                "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "dispatch": true,
+                "routed": "target",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "deliveries": [
+                  { "id": 7, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "sent", "attempts": 0, "last_error": "", "sent_at": "YYYY-MM-DD hh:mm:ss", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+                ]
+              },
+              {
+                "id": 5,
+                "event_id": "wbe-0000000000000005",
+                "source": "app-data",
+                "workbench": "replay-wb",
+                "item": "app:replay-5",
+                "context_id": "ctx-replay-5",
+                "submitter_kind": "human",
+                "submitter": "seed",
+                "form_version": 1,
+                "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "dispatch": true,
+                "routed": "target",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "deliveries": [
+                  { "id": 6, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "pending", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": "list-limit-bad",
+          "route": "GET /api/workbench-events",
+          "class": "normal",
+          "what": "limit 读不成数：用缺省 50",
+          "request": { "method": "GET", "path": "/api/workbench-events?limit=abc", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "4085", "etag": "W/\"ff5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 6,
+                "event_id": "wbe-0000000000000006",
+                "source": "app-data",
+                "workbench": "replay-wb",
+                "item": "app:replay-6",
+                "context_id": "ctx-replay-6",
+                "submitter_kind": "human",
+                "submitter": "seed",
+                "form_version": 1,
+                "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "dispatch": true,
+                "routed": "target",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "deliveries": [
+                  { "id": 7, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "sent", "attempts": 0, "last_error": "", "sent_at": "YYYY-MM-DD hh:mm:ss", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+                ]
+              },
+              {
+                "id": 5,
+                "event_id": "wbe-0000000000000005",
+                "source": "app-data",
+                "workbench": "replay-wb",
+                "item": "app:replay-5",
+                "context_id": "ctx-replay-5",
+                "submitter_kind": "human",
+                "submitter": "seed",
+                "form_version": 1,
+                "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "dispatch": true,
+                "routed": "target",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "deliveries": [
+                  { "id": 6, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "pending", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+                ]
+              },
+              {
+                "id": 4,
+                "event_id": "wbe-0000000000000004",
+                "source": "app-data",
+                "workbench": "replay-wb",
+                "item": "app:replay-4",
+                "context_id": "ctx-replay-4",
+                "submitter_kind": "human",
+                "submitter": "seed",
+                "form_version": 1,
+                "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "dispatch": true,
+                "routed": "target",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "deliveries": [
+                  { "id": 5, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "sent", "attempts": 0, "last_error": "", "sent_at": "YYYY-MM-DD hh:mm:ss", "decision": "accept", "decision_reason": "已接", "decision_ref": "", "decided_by": "seed", "decided_at": "YYYY-MM-DD hh:mm:ss", "created_at": "YYYY-MM-DD hh:mm:ss" }
+                ]
+              },
+              {
+                "id": 3,
+                "event_id": "wbe-0000000000000003",
+                "source": "app-data",
+                "workbench": "replay-wb",
+                "item": "app:replay-3",
+                "context_id": "ctx-replay-3",
+                "submitter_kind": "human",
+                "submitter": "seed",
+                "form_version": 1,
+                "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "dispatch": true,
+                "routed": "target",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "deliveries": [
+                  { "id": 4, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "sent", "attempts": 0, "last_error": "", "sent_at": "YYYY-MM-DD hh:mm:ss", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+                ]
+              },
+              {
+                "id": 2,
+                "event_id": "wbe-0000000000000002",
+                "source": "app-data",
+                "workbench": "replay-wb",
+                "item": "app:replay-2",
+                "context_id": "ctx-replay-2",
+                "submitter_kind": "human",
+                "submitter": "seed",
+                "form_version": 1,
+                "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "dispatch": true,
+                "routed": "target",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "deliveries": [
+                  { "id": 3, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "sent", "attempts": 0, "last_error": "", "sent_at": "YYYY-MM-DD hh:mm:ss", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+                ]
+              },
+              {
+                "id": 1,
+                "event_id": "wbe-0000000000000001",
+                "source": "app-data",
+                "workbench": "replay-wb",
+                "item": "app:replay-1",
+                "context_id": "ctx-replay-1",
+                "submitter_kind": "human",
+                "submitter": "seed",
+                "form_version": 1,
+                "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "dispatch": true,
+                "routed": "target",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "deliveries": [
+                  { "id": 1, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "held", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                  { "id": 2, "target_team": "replay-zone/team-b", "target_url": "http://127.0.0.1:9", "status": "held", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": "list-limit-zero",
+          "route": "GET /api/workbench-events",
+          "class": "normal",
+          "what": "limit=0：当成没给，用缺省 50（不是「至少一条」）",
+          "request": { "method": "GET", "path": "/api/workbench-events?limit=0", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "4085", "etag": "W/\"ff5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 6,
+                "event_id": "wbe-0000000000000006",
+                "source": "app-data",
+                "workbench": "replay-wb",
+                "item": "app:replay-6",
+                "context_id": "ctx-replay-6",
+                "submitter_kind": "human",
+                "submitter": "seed",
+                "form_version": 1,
+                "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "dispatch": true,
+                "routed": "target",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "deliveries": [
+                  { "id": 7, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "sent", "attempts": 0, "last_error": "", "sent_at": "YYYY-MM-DD hh:mm:ss", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+                ]
+              },
+              {
+                "id": 5,
+                "event_id": "wbe-0000000000000005",
+                "source": "app-data",
+                "workbench": "replay-wb",
+                "item": "app:replay-5",
+                "context_id": "ctx-replay-5",
+                "submitter_kind": "human",
+                "submitter": "seed",
+                "form_version": 1,
+                "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "dispatch": true,
+                "routed": "target",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "deliveries": [
+                  { "id": 6, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "pending", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+                ]
+              },
+              {
+                "id": 4,
+                "event_id": "wbe-0000000000000004",
+                "source": "app-data",
+                "workbench": "replay-wb",
+                "item": "app:replay-4",
+                "context_id": "ctx-replay-4",
+                "submitter_kind": "human",
+                "submitter": "seed",
+                "form_version": 1,
+                "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "dispatch": true,
+                "routed": "target",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "deliveries": [
+                  { "id": 5, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "sent", "attempts": 0, "last_error": "", "sent_at": "YYYY-MM-DD hh:mm:ss", "decision": "accept", "decision_reason": "已接", "decision_ref": "", "decided_by": "seed", "decided_at": "YYYY-MM-DD hh:mm:ss", "created_at": "YYYY-MM-DD hh:mm:ss" }
+                ]
+              },
+              {
+                "id": 3,
+                "event_id": "wbe-0000000000000003",
+                "source": "app-data",
+                "workbench": "replay-wb",
+                "item": "app:replay-3",
+                "context_id": "ctx-replay-3",
+                "submitter_kind": "human",
+                "submitter": "seed",
+                "form_version": 1,
+                "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "dispatch": true,
+                "routed": "target",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "deliveries": [
+                  { "id": 4, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "sent", "attempts": 0, "last_error": "", "sent_at": "YYYY-MM-DD hh:mm:ss", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+                ]
+              },
+              {
+                "id": 2,
+                "event_id": "wbe-0000000000000002",
+                "source": "app-data",
+                "workbench": "replay-wb",
+                "item": "app:replay-2",
+                "context_id": "ctx-replay-2",
+                "submitter_kind": "human",
+                "submitter": "seed",
+                "form_version": 1,
+                "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "dispatch": true,
+                "routed": "target",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "deliveries": [
+                  { "id": 3, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "sent", "attempts": 0, "last_error": "", "sent_at": "YYYY-MM-DD hh:mm:ss", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+                ]
+              },
+              {
+                "id": 1,
+                "event_id": "wbe-0000000000000001",
+                "source": "app-data",
+                "workbench": "replay-wb",
+                "item": "app:replay-1",
+                "context_id": "ctx-replay-1",
+                "submitter_kind": "human",
+                "submitter": "seed",
+                "form_version": 1,
+                "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "dispatch": true,
+                "routed": "target",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "deliveries": [
+                  { "id": 1, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "held", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                  { "id": 2, "target_team": "replay-zone/team-b", "target_url": "http://127.0.0.1:9", "status": "held", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": "detail-remote",
+          "route": "GET /api/workbench-events/:eventId",
+          "class": "unauthorized",
+          "what": "远程不带口令：拦下",
+          "request": { "method": "GET", "path": "/api/workbench-events/wbe-0000000000000001", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "detail-unknown",
+          "route": "GET /api/workbench-events/:eventId",
+          "class": "invalid",
+          "what": "没有这个事件：404",
+          "request": { "method": "GET", "path": "/api/workbench-events/wbe-0000000000000099", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "event not found" } }
+        },
+        {
+          "id": "detail-bad-id",
+          "route": "GET /api/workbench-events/:eventId",
+          "class": "invalid",
+          "what": "事件号形状不对：404",
+          "request": { "method": "GET", "path": "/api/workbench-events/not-an-event", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "event not found" } }
+        },
+        {
+          "id": "detail",
+          "route": "GET /api/workbench-events/:eventId",
+          "class": "normal",
+          "what": "管理口令：事件、投递、日志",
+          "request": { "method": "GET", "path": "/api/workbench-events/wbe-0000000000000001", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "981", "etag": "W/\"3d5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 1,
+              "event_id": "wbe-0000000000000001",
+              "source": "app-data",
+              "workbench": "replay-wb",
+              "item": "app:replay-1",
+              "context_id": "ctx-replay-1",
+              "submitter_kind": "human",
+              "submitter": "seed",
+              "form_version": 1,
+              "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "dispatch": true,
+              "routed": "target",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "deliveries": [
+                { "id": 1, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "held", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 2, "target_team": "replay-zone/team-b", "target_url": "http://127.0.0.1:9", "status": "held", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+              ],
+              "log": [{ "delivery_id": null, "at": "YYYY-MM-DD hh:mm:ss", "actor": "market", "action": "recorded", "detail": "{}" }]
+            }
+          }
+        },
+        {
+          "id": "release-remote",
+          "route": "POST /api/workbench-events/:eventId/release",
+          "class": "unauthorized",
+          "what": "远程不带口令：拦下，不放",
+          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000001/release", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "release-cross",
+          "route": "POST /api/workbench-events/:eventId/release",
+          "class": "unauthorized",
+          "what": "跨站带口令：403 跨源拒绝，不放",
+          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000001/release", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": {} },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "release-local",
+          "route": "POST /api/workbench-events/:eventId/release",
+          "class": "unauthorized",
+          "what": "本机不带口令：按管理守卫的应答",
+          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000001/release", "headers": {}, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "after-denied",
+          "what": "读回：两条投递还是 held",
+          "request": { "method": "GET", "path": "/api/workbench-events/wbe-0000000000000001", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "981", "etag": "W/\"3d5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 1,
+              "event_id": "wbe-0000000000000001",
+              "source": "app-data",
+              "workbench": "replay-wb",
+              "item": "app:replay-1",
+              "context_id": "ctx-replay-1",
+              "submitter_kind": "human",
+              "submitter": "seed",
+              "form_version": 1,
+              "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "dispatch": true,
+              "routed": "target",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "deliveries": [
+                { "id": 1, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "held", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 2, "target_team": "replay-zone/team-b", "target_url": "http://127.0.0.1:9", "status": "held", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+              ],
+              "log": [{ "delivery_id": null, "at": "YYYY-MM-DD hh:mm:ss", "actor": "market", "action": "recorded", "detail": "{}" }]
+            }
+          }
+        },
+        {
+          "id": "release-unknown",
+          "route": "POST /api/workbench-events/:eventId/release",
+          "class": "invalid",
+          "what": "没有这个事件：404",
+          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000099/release", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "event not found" } }
+        },
+        {
+          "id": "release-none-held",
+          "route": "POST /api/workbench-events/:eventId/release",
+          "class": "invalid",
+          "what": "没有 held 的投递：409",
+          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000002/release", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "89", "etag": "W/\"59-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "该事件没有待确认（held）的投递", "event_id": "wbe-0000000000000002" }
+          }
+        },
+        {
+          "id": "release",
+          "route": "POST /api/workbench-events/:eventId/release",
+          "class": "normal",
+          "what": "放行：两条 held 转 pending（对外断开开着，worker 不发，状态停在 pending）",
+          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000001/release", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "event_id": "wbe-0000000000000001", "released": 2 }
+          }
+        },
+        {
+          "id": "after-release",
+          "what": "读回：两条投递 pending，日志多两行 released；本机回环带口令的请求，放行的人记成 cli（本机命令行）",
+          "request": { "method": "GET", "path": "/api/workbench-events/wbe-0000000000000001", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "1173", "etag": "W/\"495-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 1,
+              "event_id": "wbe-0000000000000001",
+              "source": "app-data",
+              "workbench": "replay-wb",
+              "item": "app:replay-1",
+              "context_id": "ctx-replay-1",
+              "submitter_kind": "human",
+              "submitter": "seed",
+              "form_version": 1,
+              "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "dispatch": true,
+              "routed": "target",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "deliveries": [
+                { "id": 1, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "pending", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 2, "target_team": "replay-zone/team-b", "target_url": "http://127.0.0.1:9", "status": "pending", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+              ],
+              "log": [
+                { "delivery_id": null, "at": "YYYY-MM-DD hh:mm:ss", "actor": "market", "action": "recorded", "detail": "{}" },
+                { "delivery_id": 1, "at": "YYYY-MM-DD hh:mm:ss", "actor": "cli", "action": "released", "detail": "{}" },
+                { "delivery_id": 2, "at": "YYYY-MM-DD hh:mm:ss", "actor": "cli", "action": "released", "detail": "{}" }
+              ]
+            }
+          }
+        },
+        {
+          "id": "release-again",
+          "route": "POST /api/workbench-events/:eventId/release",
+          "class": "invalid",
+          "what": "再放一次：没有 held 了，409",
+          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000001/release", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "89", "etag": "W/\"59-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "该事件没有待确认（held）的投递", "event_id": "wbe-0000000000000001" }
+          }
+        },
+        {
+          "id": "decide-bad-id",
+          "route": "POST /api/workbench-events/:eventId/decision",
+          "class": "invalid",
+          "what": "事件号形状不对：404（和查无同答）",
+          "request": { "method": "POST", "path": "/api/workbench-events/not-an-event/decision", "headers": {}, "json": { "token": "replay-reply-token-live-000000000000", "decision": "accept", "reason": "回放决定", "by": "replay-receiver" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "event not found" } }
+        },
+        {
+          "id": "decide-no-token",
+          "route": "POST /api/workbench-events/:eventId/decision",
+          "class": "invalid",
+          "what": "不带 token：404（不泄露事件是否存在）",
+          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000002/decision", "headers": {}, "json": { "decision": "accept", "reason": "x" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "event not found" } }
+        },
+        {
+          "id": "decide-wrong-token",
+          "route": "POST /api/workbench-events/:eventId/decision",
+          "class": "invalid",
+          "what": "token 不对：404",
+          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000002/decision", "headers": {}, "json": { "token": "wrong-token", "decision": "accept", "reason": "回放决定", "by": "replay-receiver" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "event not found" } }
+        },
+        {
+          "id": "decide-empty-token",
+          "route": "POST /api/workbench-events/:eventId/decision",
+          "class": "invalid",
+          "what": "空 token：一律不认，404（哪怕库里存的哈希正好是空串的）",
+          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000006/decision", "headers": {}, "json": { "token": "", "decision": "accept", "reason": "回放决定", "by": "replay-receiver" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "event not found" } }
+        },
+        {
+          "id": "decide-bad-decision",
+          "route": "POST /api/workbench-events/:eventId/decision",
+          "class": "invalid",
+          "what": "decision 不是 accept|decline|ask：400",
+          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000002/decision", "headers": {}, "json": { "token": "replay-reply-token-live-000000000000", "decision": "maybe", "reason": "回放决定", "by": "replay-receiver" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "46", "etag": "W/\"2e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "decision 只许 accept|decline|ask" } }
+        },
+        {
+          "id": "decide-no-reason",
+          "route": "POST /api/workbench-events/:eventId/decision",
+          "class": "invalid",
+          "what": "没有 reason：400",
+          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000002/decision", "headers": {}, "json": { "token": "replay-reply-token-live-000000000000", "decision": "accept", "reason": "", "by": "replay-receiver" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "reason 必填，≤500 字" } }
+        },
+        {
+          "id": "decide-long-reason",
+          "route": "POST /api/workbench-events/:eventId/decision",
+          "class": "invalid",
+          "what": "reason 超过 500 字：400",
+          "request": {
+            "method": "POST",
+            "path": "/api/workbench-events/wbe-0000000000000002/decision",
+            "headers": {},
+            "json": { "token": "replay-reply-token-live-000000000000", "decision": "accept", "reason": "长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长", "by": "replay-receiver" }
+          },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "reason 必填，≤500 字" } }
+        },
+        {
+          "id": "decide-bad-ref",
+          "route": "POST /api/workbench-events/:eventId/decision",
+          "class": "invalid",
+          "what": "ref 不是 http(s)：400",
+          "request": {
+            "method": "POST",
+            "path": "/api/workbench-events/wbe-0000000000000002/decision",
+            "headers": {},
+            "json": { "token": "replay-reply-token-live-000000000000", "decision": "accept", "reason": "回放决定", "by": "replay-receiver", "ref": "ftp://elsewhere.example/x" }
+          },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "50", "etag": "W/\"32-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "ref 须为 http(s) 链接，≤300 字" } }
+        },
+        {
+          "id": "decide-pending",
+          "route": "POST /api/workbench-events/:eventId/decision",
+          "class": "invalid",
+          "what": "投递还没送达：409",
+          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000005/decision", "headers": {}, "json": { "token": "replay-reply-token-pending-0000000000", "decision": "accept", "reason": "回放决定", "by": "replay-receiver" } },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "投递状态为 pending，只有已送达的投递才能回写决定" } }
+        },
+        {
+          "id": "decide-terminal",
+          "route": "POST /api/workbench-events/:eventId/decision",
+          "class": "invalid",
+          "what": "已有终态决定：409",
+          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000004/decision", "headers": {}, "json": { "token": "replay-reply-token-done-000000000000", "decision": "decline", "reason": "回放决定", "by": "replay-receiver" } },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "59", "etag": "W/\"3b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "已有终态决定：accept", "decision": "accept" } }
+        },
+        {
+          "id": "decide-expired",
+          "route": "POST /api/workbench-events/:eventId/decision",
+          "class": "invalid",
+          "what": "送达超过 7 天：410",
+          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000003/decision", "headers": {}, "json": { "token": "replay-reply-token-expired-0000000000", "decision": "accept", "reason": "回放决定", "by": "replay-receiver" } },
+          "response": { "status": 410, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "reply token 已过期（送达后 7 天）" } }
+        },
+        {
+          "id": "decide-ask",
+          "route": "POST /api/workbench-events/:eventId/decision",
+          "class": "normal",
+          "what": "回写 ask（可以再改）",
+          "request": {
+            "method": "POST",
+            "path": "/api/workbench-events/wbe-0000000000000002/decision",
+            "headers": {},
+            "json": { "token": "replay-reply-token-live-000000000000", "decision": "ask", "reason": "回放决定", "by": "replay-receiver", "ref": "https://receiver.example/r/1" }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "62", "etag": "W/\"3e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "event_id": "wbe-0000000000000002", "decision": "ask" }
+          }
+        },
+        {
+          "id": "decide-accept",
+          "route": "POST /api/workbench-events/:eventId/decision",
+          "class": "normal",
+          "what": "再回写 accept（终态）",
+          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000002/decision", "headers": {}, "json": { "token": "replay-reply-token-live-000000000000", "decision": "accept", "reason": "回放决定", "by": "replay-receiver" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "65", "etag": "W/\"41-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "event_id": "wbe-0000000000000002", "decision": "accept" }
+          }
+        },
+        {
+          "id": "decide-after-terminal",
+          "route": "POST /api/workbench-events/:eventId/decision",
+          "class": "invalid",
+          "what": "终态之后再写：409",
+          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000002/decision", "headers": {}, "json": { "token": "replay-reply-token-live-000000000000", "decision": "decline", "reason": "回放决定", "by": "replay-receiver" } },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "59", "etag": "W/\"3b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "已有终态决定：accept", "decision": "accept" } }
+        },
+        {
+          "id": "decide-admin-no-token",
+          "route": "POST /api/workbench-events/:eventId/decision",
+          "class": "invalid",
+          "what": "带管理口令也不顶 token：404",
+          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000002/decision", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "decision": "accept", "reason": "x" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "event not found" } }
+        },
+        {
+          "id": "after-decide",
+          "what": "读回：决定、理由、决定人都记上了，日志多两行；accept 没带 ref，ask 时写的链接被清空",
+          "request": { "method": "GET", "path": "/api/workbench-events/wbe-0000000000000002", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "1044", "etag": "W/\"414-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 2,
+              "event_id": "wbe-0000000000000002",
+              "source": "app-data",
+              "workbench": "replay-wb",
+              "item": "app:replay-2",
+              "context_id": "ctx-replay-2",
+              "submitter_kind": "human",
+              "submitter": "seed",
+              "form_version": 1,
+              "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "dispatch": true,
+              "routed": "target",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "deliveries": [
+                { "id": 3, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "sent", "attempts": 0, "last_error": "", "sent_at": "YYYY-MM-DD hh:mm:ss", "decision": "accept", "decision_reason": "回放决定", "decision_ref": "", "decided_by": "replay-receiver", "decided_at": "YYYY-MM-DD hh:mm:ss", "created_at": "YYYY-MM-DD hh:mm:ss" }
+              ],
+              "log": [
+                { "delivery_id": 3, "at": "YYYY-MM-DD hh:mm:ss", "actor": "receiver:replay-receiver", "action": "decision:ask", "detail": "{\"reason\":\"回放决定\",\"ref\":\"https://receiver.example/r/1\"}" },
+                { "delivery_id": 3, "at": "YYYY-MM-DD hh:mm:ss", "actor": "receiver:replay-receiver", "action": "decision:accept", "detail": "{\"reason\":\"回放决定\",\"ref\":\"\"}" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "faked",
+      "what": "登录提供方换成假的：登录的非管理员 alpha。同样的种子。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin", "WM_OUTBOUND": "off" },
+      "fixtures": ["identity-fake"],
+      "seed": [
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-0000000000000001", "source": "app-data", "workbench": "replay-wb", "item": "app:replay-1", "context_id": "ctx-replay-1", "submitter_kind": "human", "submitter": "seed", "form_version": 1, "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dispatch": 1, "routed": "target", "created_at": "2025-01-01 00:00:01" }
+        },
+        {
+          "table": "workbench_event_deliveries",
+          "row": { "event_id": "wbe-0000000000000001", "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "caller_session": "market/0a1b2c3d", "status": "held", "message": "", "attempts": 0, "next_at": "2025-01-01 00:00:01", "created_at": "2025-01-01 00:00:01" }
+        },
+        {
+          "table": "workbench_event_deliveries",
+          "row": { "event_id": "wbe-0000000000000001", "target_team": "replay-zone/team-b", "target_url": "http://127.0.0.1:9", "caller_session": "market/0a1b2c3d", "status": "held", "message": "", "attempts": 0, "next_at": "2025-01-01 00:00:01", "created_at": "2025-01-01 00:00:01" }
+        },
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-0000000000000002", "source": "app-data", "workbench": "replay-wb", "item": "app:replay-2", "context_id": "ctx-replay-2", "submitter_kind": "human", "submitter": "seed", "form_version": 1, "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dispatch": 1, "routed": "target", "created_at": "2025-01-01 00:00:02" }
+        },
+        {
+          "table": "workbench_event_deliveries",
+          "row": { "event_id": "wbe-0000000000000002", "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "caller_session": "market/0a1b2c3d", "status": "sent", "message": "", "attempts": 0, "next_at": "2025-01-01 00:00:02", "created_at": "2025-01-01 00:00:02", "reply_token_sha256": "10e02276ec574151d590e24bc6b8031f93e34c544c4b5e2a848d1309208e4b35", "sent_at": "2099-01-01 00:00:00" }
+        },
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-0000000000000003", "source": "app-data", "workbench": "replay-wb", "item": "app:replay-3", "context_id": "ctx-replay-3", "submitter_kind": "human", "submitter": "seed", "form_version": 1, "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dispatch": 1, "routed": "target", "created_at": "2025-01-01 00:00:03" }
+        },
+        {
+          "table": "workbench_event_deliveries",
+          "row": { "event_id": "wbe-0000000000000003", "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "caller_session": "market/0a1b2c3d", "status": "sent", "message": "", "attempts": 0, "next_at": "2025-01-01 00:00:03", "created_at": "2025-01-01 00:00:03", "reply_token_sha256": "86512f8cc23ef3a809aa683ce8474c0ab2a24628eff36e1b31be95c94e6c7063", "sent_at": "2000-01-01 00:00:00" }
+        },
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-0000000000000004", "source": "app-data", "workbench": "replay-wb", "item": "app:replay-4", "context_id": "ctx-replay-4", "submitter_kind": "human", "submitter": "seed", "form_version": 1, "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dispatch": 1, "routed": "target", "created_at": "2025-01-01 00:00:04" }
+        },
+        {
+          "table": "workbench_event_deliveries",
+          "row": { "event_id": "wbe-0000000000000004", "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "caller_session": "market/0a1b2c3d", "status": "sent", "message": "", "attempts": 0, "next_at": "2025-01-01 00:00:04", "created_at": "2025-01-01 00:00:04", "reply_token_sha256": "ab2c018a33453cb9f4317fe461f4850f5ceaedfe5ecfdc3da37a0f84410f9b26", "sent_at": "2099-01-01 00:00:00", "decision": "accept", "decision_reason": "已接", "decided_by": "seed", "decided_at": "2025-01-01 00:00:04" }
+        },
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-0000000000000005", "source": "app-data", "workbench": "replay-wb", "item": "app:replay-5", "context_id": "ctx-replay-5", "submitter_kind": "human", "submitter": "seed", "form_version": 1, "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dispatch": 1, "routed": "target", "created_at": "2025-01-01 00:00:05" }
+        },
+        {
+          "table": "workbench_event_deliveries",
+          "row": { "event_id": "wbe-0000000000000005", "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "caller_session": "market/0a1b2c3d", "status": "pending", "message": "", "attempts": 0, "next_at": "2025-01-01 00:00:05", "created_at": "2025-01-01 00:00:05", "reply_token_sha256": "d614ef93cdb4ec3793673c2dfccc87fa4803738a76b2f9161a05391b27b1c289" }
+        },
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-0000000000000006", "source": "app-data", "workbench": "replay-wb", "item": "app:replay-6", "context_id": "ctx-replay-6", "submitter_kind": "human", "submitter": "seed", "form_version": 1, "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dispatch": 1, "routed": "target", "created_at": "2025-01-01 00:00:06" }
+        },
+        {
+          "table": "workbench_event_deliveries",
+          "row": { "event_id": "wbe-0000000000000006", "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "caller_session": "market/0a1b2c3d", "status": "sent", "message": "", "attempts": 0, "next_at": "2025-01-01 00:00:06", "created_at": "2025-01-01 00:00:06", "reply_token_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "sent_at": "2099-01-01 00:00:00" }
+        },
+        { "table": "workbench_event_log", "row": { "event_id": "wbe-0000000000000001", "delivery_id": null, "at": "2025-01-01 00:00:01", "actor": "market", "action": "recorded", "detail": "{}" } }
+      ],
+      "steps": [
+        {
+          "id": "login-list",
+          "route": "GET /api/workbench-events",
+          "class": "unauthorized",
+          "what": "登录的非管理员：403",
+          "request": { "method": "GET", "path": "/api/workbench-events", "headers": { "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "login-detail",
+          "route": "GET /api/workbench-events/:eventId",
+          "class": "unauthorized",
+          "what": "登录的非管理员看详情：403",
+          "request": { "method": "GET", "path": "/api/workbench-events/wbe-0000000000000001", "headers": { "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "login-release",
+          "route": "POST /api/workbench-events/:eventId/release",
+          "class": "unauthorized",
+          "what": "登录的非管理员放行：拦下",
+          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000001/release", "headers": { "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "login-after",
+          "what": "读回（管理口令）：还是 held",
+          "request": { "method": "GET", "path": "/api/workbench-events/wbe-0000000000000001", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "981", "etag": "W/\"3d5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 1,
+              "event_id": "wbe-0000000000000001",
+              "source": "app-data",
+              "workbench": "replay-wb",
+              "item": "app:replay-1",
+              "context_id": "ctx-replay-1",
+              "submitter_kind": "human",
+              "submitter": "seed",
+              "form_version": 1,
+              "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "dispatch": true,
+              "routed": "target",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "deliveries": [
+                { "id": 1, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "held", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 2, "target_team": "replay-zone/team-b", "target_url": "http://127.0.0.1:9", "status": "held", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+              ],
+              "log": [{ "delivery_id": null, "at": "YYYY-MM-DD hh:mm:ss", "actor": "market", "action": "recorded", "detail": "{}" }]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce）。同样的种子。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin", "WM_OUTBOUND": "off" },
+      "seed": [
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-0000000000000001", "source": "app-data", "workbench": "replay-wb", "item": "app:replay-1", "context_id": "ctx-replay-1", "submitter_kind": "human", "submitter": "seed", "form_version": 1, "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dispatch": 1, "routed": "target", "created_at": "2025-01-01 00:00:01" }
+        },
+        {
+          "table": "workbench_event_deliveries",
+          "row": { "event_id": "wbe-0000000000000001", "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "caller_session": "market/0a1b2c3d", "status": "held", "message": "", "attempts": 0, "next_at": "2025-01-01 00:00:01", "created_at": "2025-01-01 00:00:01" }
+        },
+        {
+          "table": "workbench_event_deliveries",
+          "row": { "event_id": "wbe-0000000000000001", "target_team": "replay-zone/team-b", "target_url": "http://127.0.0.1:9", "caller_session": "market/0a1b2c3d", "status": "held", "message": "", "attempts": 0, "next_at": "2025-01-01 00:00:01", "created_at": "2025-01-01 00:00:01" }
+        },
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-0000000000000002", "source": "app-data", "workbench": "replay-wb", "item": "app:replay-2", "context_id": "ctx-replay-2", "submitter_kind": "human", "submitter": "seed", "form_version": 1, "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dispatch": 1, "routed": "target", "created_at": "2025-01-01 00:00:02" }
+        },
+        {
+          "table": "workbench_event_deliveries",
+          "row": { "event_id": "wbe-0000000000000002", "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "caller_session": "market/0a1b2c3d", "status": "sent", "message": "", "attempts": 0, "next_at": "2025-01-01 00:00:02", "created_at": "2025-01-01 00:00:02", "reply_token_sha256": "10e02276ec574151d590e24bc6b8031f93e34c544c4b5e2a848d1309208e4b35", "sent_at": "2099-01-01 00:00:00" }
+        },
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-0000000000000003", "source": "app-data", "workbench": "replay-wb", "item": "app:replay-3", "context_id": "ctx-replay-3", "submitter_kind": "human", "submitter": "seed", "form_version": 1, "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dispatch": 1, "routed": "target", "created_at": "2025-01-01 00:00:03" }
+        },
+        {
+          "table": "workbench_event_deliveries",
+          "row": { "event_id": "wbe-0000000000000003", "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "caller_session": "market/0a1b2c3d", "status": "sent", "message": "", "attempts": 0, "next_at": "2025-01-01 00:00:03", "created_at": "2025-01-01 00:00:03", "reply_token_sha256": "86512f8cc23ef3a809aa683ce8474c0ab2a24628eff36e1b31be95c94e6c7063", "sent_at": "2000-01-01 00:00:00" }
+        },
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-0000000000000004", "source": "app-data", "workbench": "replay-wb", "item": "app:replay-4", "context_id": "ctx-replay-4", "submitter_kind": "human", "submitter": "seed", "form_version": 1, "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dispatch": 1, "routed": "target", "created_at": "2025-01-01 00:00:04" }
+        },
+        {
+          "table": "workbench_event_deliveries",
+          "row": { "event_id": "wbe-0000000000000004", "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "caller_session": "market/0a1b2c3d", "status": "sent", "message": "", "attempts": 0, "next_at": "2025-01-01 00:00:04", "created_at": "2025-01-01 00:00:04", "reply_token_sha256": "ab2c018a33453cb9f4317fe461f4850f5ceaedfe5ecfdc3da37a0f84410f9b26", "sent_at": "2099-01-01 00:00:00", "decision": "accept", "decision_reason": "已接", "decided_by": "seed", "decided_at": "2025-01-01 00:00:04" }
+        },
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-0000000000000005", "source": "app-data", "workbench": "replay-wb", "item": "app:replay-5", "context_id": "ctx-replay-5", "submitter_kind": "human", "submitter": "seed", "form_version": 1, "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dispatch": 1, "routed": "target", "created_at": "2025-01-01 00:00:05" }
+        },
+        {
+          "table": "workbench_event_deliveries",
+          "row": { "event_id": "wbe-0000000000000005", "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "caller_session": "market/0a1b2c3d", "status": "pending", "message": "", "attempts": 0, "next_at": "2025-01-01 00:00:05", "created_at": "2025-01-01 00:00:05", "reply_token_sha256": "d614ef93cdb4ec3793673c2dfccc87fa4803738a76b2f9161a05391b27b1c289" }
+        },
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-0000000000000006", "source": "app-data", "workbench": "replay-wb", "item": "app:replay-6", "context_id": "ctx-replay-6", "submitter_kind": "human", "submitter": "seed", "form_version": 1, "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dispatch": 1, "routed": "target", "created_at": "2025-01-01 00:00:06" }
+        },
+        {
+          "table": "workbench_event_deliveries",
+          "row": { "event_id": "wbe-0000000000000006", "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "caller_session": "market/0a1b2c3d", "status": "sent", "message": "", "attempts": 0, "next_at": "2025-01-01 00:00:06", "created_at": "2025-01-01 00:00:06", "reply_token_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "sent_at": "2099-01-01 00:00:00" }
+        },
+        { "table": "workbench_event_log", "row": { "event_id": "wbe-0000000000000001", "delivery_id": null, "at": "2025-01-01 00:00:01", "actor": "market", "action": "recorded", "detail": "{}" } }
+      ],
+      "steps": [
+        {
+          "id": "gated-list",
+          "route": "GET /api/workbench-events",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名 401",
+          "request": { "method": "GET", "path": "/api/workbench-events", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-release",
+          "route": "POST /api/workbench-events/:eventId/release",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名放行 401",
+          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000001/release", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-decide",
+          "what": "登录门开着：远程接单节点凭 token 回写",
+          "request": {
+            "method": "POST",
+            "path": "/api/workbench-events/wbe-0000000000000002/decision",
+            "headers": { "x-forwarded-for": "198.51.100.7" },
+            "json": { "token": "replay-reply-token-live-000000000000", "decision": "accept", "reason": "回放决定", "by": "replay-receiver" }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "65", "etag": "W/\"41-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "event_id": "wbe-0000000000000002", "decision": "accept" }
+          }
+        }
+      ]
+    }
+  ]
+}

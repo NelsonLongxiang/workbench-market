@@ -18,6 +18,9 @@ export interface Workbench {
   enabled: boolean;
   health_path: string;
   auth: AuthConfig | null;
+  /** 门户 /go/ 访问范围：all=登录即可 · admin=仅管理员 · listed=管理员+指定 Odoo 账号 */
+  access?: 'all' | 'admin' | 'listed';
+  access_logins?: string[];
   last_status: HealthStatus;
   last_checked_at: string;
   last_latency_ms: number | null;
@@ -78,6 +81,8 @@ export interface Cockpit {
   panels: PanelConfig[];
   created_at: string;
   updated_at: string;
+  /** 这次请求的人能不能改这个驾驶舱（服务端按写请求总门算）：页面上的编辑入口只看它 */
+  can?: { edit: boolean };
 }
 
 /** SOP 台（apps kind='sop'）：状态机 draft→published→deprecated，版本链带 changelog */

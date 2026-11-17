@@ -13,16 +13,35 @@
  *    - 解锁/上锁/重开串行执行；文件被别的进程改过就先重开再读写；重开不删别人正持有的写锁。
  *    - 新建库的主密码过 vault-policy 门槛（长度/全数字/常见口令/弱），不过就拒、不落盘；已有库照常解锁，只回 weak_master 提示。 */
 import type express from 'express';
+import type { HttpService } from './http.ts';
 import { readFileSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { join } from 'node:path';
 import { dataDir } from './db.ts';
+import { root } from './root-context.ts';
 import { defaultVaultPath, openVault, type VaultEntry, type VaultEntryPatch, type VaultEntrySummary, type VaultStore } from './vault/store.ts';
 import { parseTotpSecret, totp } from './vault/totp.ts';
 import { generatePassphrase, generatePassword } from './vault/password.ts';
 import { estimateStrength } from './vault/password-strength.ts';
 import { checkMasterPassword, COMMON_PASSWORD_COUNT, MASTER_POLICY } from './vault-policy/policy.ts';
+import { defineConfig, loadConfig, str } from './config.ts';
+
+/**
+ * 凭据库的启动配置：闲置上锁分钟数、库文件路径、服务端主密码的来源。解析口径照原来逐个照搬。
+ * 主密码文件的内容不在这里取：每次开库现读（改文件不用重启）
+ */
+export const Config = defineConfig((env) => {
+  const n = Number(env.WM_VAULT_IDLE_MIN ?? 15);
+  return {
+    idleMin: Number.isFinite(n) && n >= 0 ? n : 15,
+    /** 空串＝用缺省（DATA_DIR/vault/default.json） */
+    path: env.WM_VAULT_PATH?.trim() || '',
+    passwordFile: str(env.DSH_VAULT_PASSWORD_FILE),
+    password: env.DSH_VAULT_PASSWORD ?? '',
+  };
+});
+const config = loadConfig(Config);
 
 export const VAULT_UPSTREAM = 'dsh-vault@1.10.75';
 const KINDS = ['login', 'ssh', 'api-key', 'secret', 'oauth', 'cookie', 'card', 'custom'] as const;
@@ -47,23 +66,22 @@ function assertNewMaster(password: string, who: string): void {
 }
 
 function idleMs(): number {
-  const n = Number(process.env.WM_VAULT_IDLE_MIN ?? 15);
-  return (Number.isFinite(n) && n >= 0 ? n : 15) * 60_000;
+  return config.idleMin * 60_000;
 }
 
 export function vaultPath(): string {
-  return process.env.WM_VAULT_PATH?.trim() || join(dataDir, 'vault', 'default.json');
+  return config.path || join(dataDir, 'vault', 'default.json');
 }
 
 /** 服务端配置的主密码来源：'file' | 'env' | ''（未配置 = 页面输入） */
 function serverPasswordSource(): 'file' | 'env' | '' {
-  if (String(process.env.DSH_VAULT_PASSWORD_FILE ?? '').trim()) return 'file';
-  return process.env.DSH_VAULT_PASSWORD ? 'env' : '';
+  if (config.passwordFile) return 'file';
+  return config.password ? 'env' : '';
 }
 /** 每次开库现读（改文件不用重启）；只去掉末尾一个换行，主密码里的空格原样保留 */
 function serverPassword(): string {
-  const file = String(process.env.DSH_VAULT_PASSWORD_FILE ?? '').trim();
-  if (!file) return process.env.DSH_VAULT_PASSWORD ?? '';
+  const file = config.passwordFile;
+  if (!file) return config.password;
   let pw: string;
   try { pw = readFileSync(file, 'utf8').replace(/\r?\n$/, ''); } catch { throw new VaultHttpError(503, '主密码文件读不到（DSH_VAULT_PASSWORD_FILE）', 'vault_password_file'); }
   if (!pw) throw new VaultHttpError(503, '主密码文件为空（DSH_VAULT_PASSWORD_FILE）', 'vault_password_file');
@@ -112,8 +130,12 @@ function idleExpired(o: Open | null): boolean {
 
 const lockNow = () => serial(async () => { const cur = open; open = null; await retire(cur); });
 
-/** 主动闲置上锁：不等下一次请求（没人来时主密码与明文条目也不能一直留在内存） */
-setInterval(() => { if (idleExpired(open)) void serial(async () => { if (idleExpired(open)) { const cur = open; open = null; await retire(cur); } }); }, Math.max(1000, Math.min(30_000, idleMs() / 4 || 30_000))).unref();
+/** 主动闲置上锁：不等下一次请求（没人来时主密码与明文条目也不能一直留在内存）。挂在根上下文的 effect 上，卸载时一起停 */
+root.effect(() => {
+  const idleTimer = setInterval(() => { if (idleExpired(open)) void serial(async () => { if (idleExpired(open)) { const cur = open; open = null; await retire(cur); } }); }, Math.max(1000, Math.min(30_000, idleMs() / 4 || 30_000)));
+  idleTimer.unref();
+  return () => { clearInterval(idleTimer); };
+}, 'vault.idle-lock');
 
 /** 取已解锁的库；闲置超时先上锁；文件被外部改过就重开。touch=false：取验证码这类被动轮询不算活动 */
 function unlocked(touch = true): Promise<Open> {
@@ -190,10 +212,41 @@ function totpPeriod(secret: string): number {
   try { return parseTotpSecret(secret).periodSeconds || 30; } catch { return 30; }
 }
 
-export function mountVault(app: express.Express, guard: Guard, serverPasswordSurface: (req: express.Request) => boolean = () => true): void {
+/**
+ * 服务端内部读一条应用凭证（登录插件取飞书应用的标识和密钥用），不经 HTTP，不交给浏览器。
+ *   · 按标题精确匹配一个没被删除的条目；同名有多条就不取（说不清是哪一条）。
+ *   · 标识取 username，密钥取 password、secret、apiKey 里第一个非空的；自定义字段（只收字符串值）一并交出（飞书事件的 Encrypt Key 等）。
+ *   · 库锁着、又没配服务端主密码（DSH_VAULT_PASSWORD_FILE / DSH_VAULT_PASSWORD），或者任何别的错：返回 null，调用方按不可用处理。
+ *   · 读一次记一条 read 审计（和页面上读完整条目同一种）。
+ */
+export async function vaultCredential(title: string): Promise<{ id: string; secret: string; fields: Record<string, string> } | null> {
+  try {
+    const o = await unlocked(false);
+    const hits = o.store.list().filter((e) => e.title === title && !e.deletedAt);
+    if (hits.length !== 1) return null;
+    const e = hits[0];
+    const id = typeof e.username === 'string' ? e.username.trim() : '';
+    const secret = [e.password, e.secret, e.apiKey].find((v) => typeof v === 'string' && v.length > 0) ?? '';
+    if (!id || !secret) return null;
+    o.store.audit('read', e.id, e.title);
+    const fields: Record<string, string> = {};
+    for (const [k, v] of Object.entries((e as { fields?: Record<string, unknown> }).fields ?? {})) if (typeof v === 'string') fields[k] = v;
+    return { id, secret, fields };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 17 条路由经 HTTP 服务注册，每条报动作（域 vault）。除状态接口外都声明面门：服务端持有主密码、请求又不是从控制面或凭据库专用域名来的，
+ * 由这里的 controlOnly 回 403 vault_control_only——那是面的规则，不是「谁能做什么」（判定比对记「被面门拦下」，切换时不抢先）。
+ * handler() 只造处理函数（口令门、面门、串行、错误出口），注册在下面逐条写，动作紧跟路径。
+ */
+export function mountVault(app: HttpService, guard: Guard, serverPasswordSurface: (req: express.Request) => boolean = () => true): void {
   const controlOnly = (req: express.Request) => serverPasswordSource() !== '' && !serverPasswordSurface(req);
-  const route = (method: 'get' | 'post' | 'put' | 'delete', path: string, fn: (req: express.Request, res: express.Response) => Promise<unknown>) => {
-    app[method](path, (req, res, next) => {
+  const GATE = { why: '服务端持有主密码时，凭据库只在控制面或凭据库专用域名开放（主域名承载外站与流程正文）', when: controlOnly };
+  const handler = (method: 'get' | 'post' | 'put' | 'delete', path: string, fn: (req: express.Request, res: express.Response) => Promise<unknown>): express.RequestHandler =>
+    (req, res, next) => {
       res.setHeader('Cache-Control', 'no-store');
       if (!guard(req, res)) return;
       if (path !== '/api/vault/status' && controlOnly(req)) {
@@ -217,10 +270,9 @@ export function mountVault(app: express.Express, guard: Guard, serverPasswordSur
         if (/^vault[:\s]/i.test(msg)) return res.status(400).json({ error: msg });
         next(e);
       });
-    });
-  };
+    };
 
-  route('get', '/api/vault/status', async (req) => {
+  app.get('/api/vault/status', { action: 'vault.status', kind: 'admin' }, handler('get', '/api/vault/status', async (req) => {
     if (controlOnly(req)) return { upstream: VAULT_UPSTREAM, control_only: true, password_source: serverPasswordSource() };
     const path = vaultPath();
     const sig = await fileSig(path);
@@ -240,9 +292,9 @@ export function mountVault(app: express.Express, guard: Guard, serverPasswordSur
       weak_reasons: open?.weak ?? [],
       master_policy: { min_length: MASTER_POLICY.minLength, common_list: COMMON_PASSWORD_COUNT },
     };
-  });
+  }));
 
-  route('post', '/api/vault/unlock', async (req) => {
+  app.post('/api/vault/unlock', { action: 'vault.unlock', kind: 'admin', statusNotVerdict: '主密码不对 401、尝试太多 429：是认主密码和限流的结果，不是授权的结论', surfaceGate: GATE }, handler('post', '/api/vault/unlock', async (req) => {
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
     if (!password) throw new VaultHttpError(400, '请输入主密码');
     return serial(async () => {
@@ -265,11 +317,11 @@ export function mountVault(app: express.Express, guard: Guard, serverPasswordSur
       await retire(cur);
       return { unlocked: true, count: next.store.list().length, weak_master: next.weak.length > 0, weak_reasons: next.weak };
     });
-  });
+  }));
 
-  route('post', '/api/vault/lock', async () => { await lockNow(); return { unlocked: false }; });
+  app.post('/api/vault/lock', { action: 'vault.lock', kind: 'admin', surfaceGate: GATE }, handler('post', '/api/vault/lock', async () => { await lockNow(); return { unlocked: false }; }));
 
-  route('get', '/api/vault/entries', async (req) => {
+  app.get('/api/vault/entries', { action: 'vault.list', kind: 'admin', surfaceGate: GATE }, handler('get', '/api/vault/entries', async (req) => {
     const o = await unlocked();
     const q = String(req.query.q ?? '');
     const kind = String(req.query.kind ?? '');
@@ -279,62 +331,62 @@ export function mountVault(app: express.Express, guard: Guard, serverPasswordSur
     if (tag) rows = rows.filter((r) => r.tags?.includes(tag));
     const stats = o.store.stats();
     return { entries: rows.map(summaryOut), stats: { total: stats.total, byKind: stats.byKind, byTag: stats.byTag, withTotp: stats.withTotp, trashCount: stats.trashCount, favoriteCount: stats.favoriteCount, expired: stats.expired } };
-  });
+  }));
 
-  route('get', '/api/vault/entries/:id', async (req) => {
+  app.get('/api/vault/entries/:id', { action: 'vault.read', kind: 'admin', surfaceGate: GATE }, handler('get', '/api/vault/entries/:id', async (req) => {
     const o = await unlocked();
     const e = o.store.get(req.params.id);
     if (!e) throw new VaultHttpError(404, '条目不存在');
     o.store.audit('read', e.id, e.title);
     return entryOut(e);
-  });
+  }));
 
-  route('post', '/api/vault/entries', async (req, res) => {
+  app.post('/api/vault/entries', { action: 'vault.create', kind: 'admin', surfaceGate: GATE }, handler('post', '/api/vault/entries', async (req, res) => {
     const o = await unlocked();
     const e = await o.store.add(pickPatch(req.body, true) as VaultEntryPatch & { title: string });
     await afterWrite(o);
     res.status(201);
     return entryOut(e);
-  });
+  }));
 
-  route('put', '/api/vault/entries/:id', async (req) => {
+  app.put('/api/vault/entries/:id', { action: 'vault.update', kind: 'admin', surfaceGate: GATE }, handler('put', '/api/vault/entries/:id', async (req) => {
     const o = await unlocked();
     const e = await o.store.update(req.params.id, pickPatch(req.body, false));
     if (!e) throw new VaultHttpError(404, '条目不存在');
     await afterWrite(o);
     return entryOut(e);
-  });
+  }));
 
-  route('delete', '/api/vault/entries/:id', async (req) => {
+  app.delete('/api/vault/entries/:id', { action: 'vault.delete', kind: 'admin', surfaceGate: GATE }, handler('delete', '/api/vault/entries/:id', async (req) => {
     const o = await unlocked();
     if (!(await o.store.delete(req.params.id))) throw new VaultHttpError(404, '条目不存在或已在回收站');
     await afterWrite(o);
     return { ok: true, trashed: true };
-  });
+  }));
 
-  route('get', '/api/vault/trash', async () => {
+  app.get('/api/vault/trash', { action: 'vault.trash', kind: 'admin', surfaceGate: GATE }, handler('get', '/api/vault/trash', async () => {
     const o = await unlocked();
     return o.store.listTrash().map(trashRow).sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
-  });
+  }));
 
-  route('post', '/api/vault/trash/:id/restore', async (req) => {
+  app.post('/api/vault/trash/:id/restore', { action: 'vault.restore', kind: 'admin', surfaceGate: GATE }, handler('post', '/api/vault/trash/:id/restore', async (req) => {
     const o = await unlocked();
     if (!(await o.store.restore(req.params.id))) throw new VaultHttpError(404, '回收站里没有这个条目');
     await afterWrite(o);
     return { ok: true };
-  });
+  }));
 
   /** 永久删除只对回收站里的条目开放（先软删、再清除，两步才能真删） */
-  route('delete', '/api/vault/trash/:id', async (req) => {
+  app.delete('/api/vault/trash/:id', { action: 'vault.purge', kind: 'admin', surfaceGate: GATE }, handler('delete', '/api/vault/trash/:id', async (req) => {
     const o = await unlocked();
     const e = o.store.getIncludingTrash(req.params.id);
     if (!e || e.deletedAt === undefined) throw new VaultHttpError(404, '回收站里没有这个条目');
     await o.store.purge(e.id);
     await afterWrite(o);
     return { ok: true, purged: true };
-  });
+  }));
 
-  route('get', '/api/vault/entries/:id/totp', async (req) => {
+  app.get('/api/vault/entries/:id/totp', { action: 'vault.totp', kind: 'admin', surfaceGate: GATE }, handler('get', '/api/vault/entries/:id/totp', async (req) => {
     const o = await unlocked(false);
     const e = o.store.get(req.params.id);
     if (!e?.otpSecret) throw new VaultHttpError(404, '该条目没有 TOTP 密钥');
@@ -343,10 +395,10 @@ export function mountVault(app: express.Express, guard: Guard, serverPasswordSur
     const period = totpPeriod(e.otpSecret);
     const now = Date.now();
     return { code: totp(e.otpSecret, now), period, remaining: period - (Math.floor(now / 1000) % period) };
-  });
+  }));
 
   /** 生成与评估不碰库：不需解锁（仍要口令） */
-  route('post', '/api/vault/generate', async (req) => {
+  app.post('/api/vault/generate', { action: 'vault.generate', kind: 'admin', surfaceGate: GATE }, handler('post', '/api/vault/generate', async (req) => {
     const b = (req.body ?? {}) as Record<string, unknown>;
     const password = b.passphrase
       ? generatePassphrase({ words: clampInt(b.words, 2, 12, 4), separator: typeof b.separator === 'string' && b.separator ? b.separator.slice(0, 3) : undefined })
@@ -357,22 +409,22 @@ export function mountVault(app: express.Express, guard: Guard, serverPasswordSur
           excludeAmbiguous: b.excludeAmbiguous === undefined ? undefined : Boolean(b.excludeAmbiguous),
         });
     return { password, strength: estimateStrength(password) };
-  });
+  }));
 
-  route('post', '/api/vault/strength', async (req) => {
+  app.post('/api/vault/strength', { action: 'vault.strength', kind: 'admin', surfaceGate: GATE }, handler('post', '/api/vault/strength', async (req) => {
     const password = typeof req.body?.password === 'string' ? req.body.password.slice(0, 1024) : '';
     return estimateStrength(password);
-  });
+  }));
 
   /** 新建库页面的实时校验：和 unlock 用同一个门槛 */
-  route('post', '/api/vault/master-check', async (req) => {
+  app.post('/api/vault/master-check', { action: 'vault.master-check', kind: 'admin', surfaceGate: GATE }, handler('post', '/api/vault/master-check', async (req) => {
     const password = typeof req.body?.password === 'string' ? req.body.password.slice(0, 1024) : '';
     const c = checkMasterPassword(password);
     return { ok: c.ok, reasons: c.reasons, strength: c.strength };
-  });
+  }));
 
   /** 健康报告：上游 health().reused 带着被复用的明文值——这里去掉，只回哪些条目在复用 */
-  route('get', '/api/vault/health', async () => {
+  app.get('/api/vault/health', { action: 'vault.health', kind: 'admin', surfaceGate: GATE }, handler('get', '/api/vault/health', async () => {
     const o = await unlocked();
     const h = o.store.health();
     return {
@@ -381,10 +433,10 @@ export function mountVault(app: express.Express, guard: Guard, serverPasswordSur
       reused: h.reused.map((r) => ({ count: r.entries.length, entries: r.entries.map(summaryOut) })),
       rotation: o.store.rotationReport().map(summaryOut),
     };
-  });
+  }));
 
-  route('get', '/api/vault/history', async () => {
+  app.get('/api/vault/history', { action: 'vault.history', kind: 'admin', surfaceGate: GATE }, handler('get', '/api/vault/history', async () => {
     const o = await unlocked();
     return o.store.getHistory().slice(0, 200); // 上游已是新→旧
-  });
+  }));
 }

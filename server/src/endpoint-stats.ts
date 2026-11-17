@@ -10,6 +10,7 @@
 import type express from 'express';
 import { db } from './db.ts';
 import { isStartupProbeRequest } from './startup-security-self-probe.ts';
+import { root } from './root-context.ts';
 
 db.exec(`CREATE TABLE IF NOT EXISTS endpoint_stats (
   endpoint TEXT NOT NULL,
@@ -23,19 +24,22 @@ function flushRows(rows: [string, string, number][]) {
   for (const [endpoint, day, hits] of rows) UPSERT.run(endpoint, day, hits);
 }
 
-/** 内存累计 + 5s 批量落库：避免每命中同步写放大（token-smoke 直连读库曾撞 database is locked） */
+/** 内存累计 + 5s 批量落库：避免每命中同步写放大（token-smoke 直连读库曾撞 database is locked）。挂在根上下文的 effect 上，卸载时一起停 */
 const pending = new Map<string, number>();
-let flushTimer: ReturnType<typeof setInterval> | null = setInterval(() => {
-  if (pending.size === 0) return;
-  const rows: [string, string, number][] = [];
-  for (const [key, hits] of pending) {
-    const i = key.lastIndexOf('|');
-    rows.push([key.slice(0, i), key.slice(i + 1), hits]);
-  }
-  pending.clear();
-  try { flushRows(rows); } catch { /* 落库失败丢本批，不阻塞业务 */ }
-}, 5_000);
-flushTimer.unref?.();
+root.effect(() => {
+  const flushTimer = setInterval(() => {
+    if (pending.size === 0) return;
+    const rows: [string, string, number][] = [];
+    for (const [key, hits] of pending) {
+      const i = key.lastIndexOf('|');
+      rows.push([key.slice(0, i), key.slice(i + 1), hits]);
+    }
+    pending.clear();
+    try { flushRows(rows); } catch { /* 落库失败丢本批，不阻塞业务 */ }
+  }, 5_000);
+  flushTimer.unref?.();
+  return () => { clearInterval(flushTimer); };
+}, 'endpoint-stats.flush(5s)');
 
 /** 路径规范化：数字段折叠为 :id（/api/sop/runs/42 → /api/sop/runs/:id） */
 export function normalizeEndpoint(pathname: string): string {
@@ -62,7 +66,7 @@ export function endpointStatsMiddleware(): express.RequestHandler {
         // 门户面计数（direct-53caaed3 关缝）：/go/<id>/* 归一为 /go/:id——台维度天然可聚合。
         // 注：/go/ 非业务路由（无 req.route），放行条件单列
         const isPortal = /^\/go\/\d+/.test(url);
-        if (!url.startsWith('/api/') && url !== '/tasks' && !isPortal) return;
+        if (!url.startsWith('/api/') && !isPortal) return; // 统一待办页（/tasks）已退役（#664），不再单列
         if (isPortal && res.statusCode >= 400) return; // 门户 4xx/5xx 不计入活跃
         if (url === '/api/stats') return; // 自身不计
         const key = `${normalizeEndpoint(url)}|${new Date().toISOString().slice(0, 10)}`;

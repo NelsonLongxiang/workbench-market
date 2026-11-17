@@ -1,0 +1,31 @@
+/** View-selected numeric keys are published by the saved view, not arbitrary vars-read access. */
+import { resolveViewVars } from '../bench-bindings.ts';
+import { getVar, workbenchScope } from '../workbench-vars.ts';
+import { HttpError } from '../errors.ts';
+import { getBench, type BenchEntry } from './bench-registry.ts';
+import type { BenchStore } from './bench-store.ts';
+
+/** Caller must authorize this bench before calling. Never accept a card/key from query parameters. */
+export async function renderBenchView(bench: BenchEntry, store: BenchStore, opts: Parameters<BenchStore['renderView']>[0], invalidSelectors = false) {
+  const out = await store.renderView(opts);
+  const result = invalidSelectors ? { ...out, blocks: out.blocks.map(({ data: _data, ...block }) => ({ ...block, error: { code: 'invalid', message: '取数只接受视图、版本和筛选参数，不能指定变量' } })) } : await resolveViewVars(out, async key => {
+    const current = getBench(bench.slug);
+    if (!current || current.workbench_id === null || current.workbench_id !== bench.workbench_id || current.department_id !== bench.department_id || current.team_host !== bench.team_host || current.team !== bench.team) throw new HttpError(404, '工作台没有关联卡片或关联已改变');
+    const hit = await getVar(workbenchScope(current.workbench_id), key);
+    const after = getBench(bench.slug);
+    if (!after || after.workbench_id !== current.workbench_id || after.department_id !== current.department_id || after.team_host !== current.team_host || after.team !== current.team) throw new HttpError(403, '工作台关联已改变，请重新打开');
+    return { value: hit.value, revision: hit.revision };
+  });
+  // A later read (including a cached key) may outlive an earlier successful block.
+  // Fence the entire publication, including query-only blocks; never return a partial old binding.
+  assertBenchBinding(bench);
+  return result;
+}
+
+/** Synchronous publication fence; call after the last await and before writing the response. */
+export function assertBenchBinding(bench: BenchEntry): void {
+  const latest = getBench(bench.slug);
+  if (!latest || latest.workbench_id !== bench.workbench_id || latest.department_id !== bench.department_id || latest.team_host !== bench.team_host || latest.team !== bench.team || latest.created_at !== bench.created_at) {
+    throw new HttpError(403, '工作台关联已改变，请重新打开');
+  }
+}

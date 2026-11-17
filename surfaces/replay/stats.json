@@ -1,0 +1,217 @@
+{
+  "domain": "stats",
+  "what": "端点命中统计：/api/stats 的 1 条路由。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /api/stats"],
+  "exempt": [{ "route": "GET /api/stats", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/junk-query" }],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "缺省配置：登录门关，读面开放。定了时钟：统计是按天分桶的，「今天」是拿现在算的。",
+      "env": {},
+      "clock": "2030-01-01T00:00:00Z",
+      "steps": [
+        {
+          "id": "first",
+          "route": "GET /api/stats",
+          "class": "normal",
+          "what": "刚起来：只有起实例时探活的那一次 /api/health",
+          "request": { "method": "GET", "path": "/api/stats" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "120", "etag": "W/\"78-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "endpoints": [{ "endpoint": "/api/health", "total": 1, "by_day": { "2030-01-01": 1 } }], "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
+          }
+        },
+        {
+          "id": "hit-types-1",
+          "what": "布置现场：打一次别的路由（只比状态码）",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/api/types" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "hit-types-2",
+          "what": "布置现场：同一条路由再打一次",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/api/types" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "hit-types-rejected",
+          "what": "布置现场：路由自己回 400 的请求也计数",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/types", "json": { "key": "Bad Key", "name": "x" } },
+          "response": { "status": 400 }
+        },
+        {
+          "id": "hit-not-found",
+          "what": "布置现场：回 404 的不计数",
+          "compare": "status",
+          "request": { "method": "PUT", "path": "/api/types/999999", "json": { "name": "x" } },
+          "response": { "status": 404 }
+        },
+        {
+          "id": "hit-denied-before-route",
+          "what": "布置现场：没走到路由就被写请求总门拒掉的不计数",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/types", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "key": "replay-denied", "name": "x" } },
+          "response": { "status": 403 }
+        },
+        {
+          "id": "hit-internal-probe",
+          "what": "布置现场：带内部探活标记的不计数",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/api/types", "headers": { "x-internal-probe": "1" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "hit-numeric-segment",
+          "what": "布置现场：路径里的数字段折叠成 :id",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/api/workbenches/1" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "after",
+          "route": "GET /api/stats",
+          "class": "normal",
+          "what": "打过几次之后：按端点分、按天分；看统计的这条路由自己不计数",
+          "request": { "method": "GET", "path": "/api/stats" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "254", "etag": "W/\"fe-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "endpoints": [
+                { "endpoint": "/api/health", "total": 1, "by_day": { "2030-01-01": 1 } },
+                { "endpoint": "/api/types", "total": 3, "by_day": { "2030-01-01": 3 } },
+                { "endpoint": "/api/workbenches/:id", "total": 1, "by_day": { "2030-01-01": 1 } }
+              ],
+              "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
+            }
+          }
+        },
+        {
+          "id": "junk-query",
+          "route": "GET /api/stats",
+          "class": "normal",
+          "what": "这条路由不读查询串：带无关、畸形的参数照常应答",
+          "request": { "method": "GET", "path": "/api/stats?day=abc&endpoint[]=x" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "254", "etag": "W/\"fe-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "endpoints": [
+                { "endpoint": "/api/health", "total": 1, "by_day": { "2030-01-01": 1 } },
+                { "endpoint": "/api/types", "total": 3, "by_day": { "2030-01-01": 3 } },
+                { "endpoint": "/api/workbenches/:id", "total": 1, "by_day": { "2030-01-01": 1 } }
+              ],
+              "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
+            }
+          }
+        },
+        {
+          "id": "remote-anonymous",
+          "route": "GET /api/stats",
+          "class": "normal",
+          "what": "带转发头的匿名读：登录门关着时读面开放（要身份的情形见 gated 场景）",
+          "request": { "method": "GET", "path": "/api/stats", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "254", "etag": "W/\"fe-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "endpoints": [
+                { "endpoint": "/api/health", "total": 1, "by_day": { "2030-01-01": 1 } },
+                { "endpoint": "/api/types", "total": 3, "by_day": { "2030-01-01": 3 } },
+                { "endpoint": "/api/workbenches/:id", "total": 1, "by_day": { "2030-01-01": 1 } }
+              ],
+              "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
+            }
+          }
+        },
+        {
+          "id": "head",
+          "what": "HEAD 走同一条 GET 路由，没有响应体",
+          "request": { "method": "HEAD", "path": "/api/stats" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "254", "etag": "W/\"fe-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": "" }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce），管理口令由环境给（合成值，只在隔离实例里用）。没有身份什么都访问不到。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "steps": [
+        {
+          "id": "anonymous",
+          "route": "GET /api/stats",
+          "class": "unauthorized",
+          "what": "远程匿名",
+          "request": { "method": "GET", "path": "/api/stats", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "wrong-token",
+          "route": "GET /api/stats",
+          "class": "unauthorized",
+          "what": "口令不对",
+          "request": { "method": "GET", "path": "/api/stats", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "not-the-token" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "browser-anonymous",
+          "route": "GET /api/stats",
+          "class": "unauthorized",
+          "what": "本机但带浏览器标记：不算命令行",
+          "request": { "method": "GET", "path": "/api/stats", "headers": { "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "with-token",
+          "route": "GET /api/stats",
+          "class": "normal",
+          "what": "远程带口令：前面几次被登录门拦下的都不计数",
+          "request": { "method": "GET", "path": "/api/stats", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "120", "etag": "W/\"78-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "endpoints": [{ "endpoint": "/api/health", "total": 1, "by_day": { "2030-01-01": 1 } }], "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
+          }
+        },
+        {
+          "id": "local-cli",
+          "route": "GET /api/stats",
+          "class": "normal",
+          "what": "本机命令行不用口令也能过门",
+          "request": { "method": "GET", "path": "/api/stats" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "120", "etag": "W/\"78-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "endpoints": [{ "endpoint": "/api/health", "total": 1, "by_day": { "2030-01-01": 1 } }], "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
+          }
+        }
+      ]
+    }
+  ]
+}

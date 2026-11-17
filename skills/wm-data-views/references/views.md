@@ -1,0 +1,147 @@
+# 视图描述和八种组件
+
+```json view-doc
+{ "title": "订单台",
+  "views": [
+    { "key": "overview", "title": "总览", "blocks": [
+      { "type": "stat", "title": "单数", "query": { "dataset": "orders", "measures": [ { "as": "v", "fn": "count" } ] }, "value": "v", "unit": "单" }
+    ] },
+    { "key": "entry", "title": "补录", "blocks": [
+      { "type": "form", "title": "补一单", "dataset": "orders", "fields": ["id", "day", "region", "status", "amount"], "submit_label": "提交" }
+    ] }
+  ] }
+```
+
+- 一个台 1～20 个视图（页面顶上的页签）。`key`：小写字母开头，小写字母、数字、连字符，最多 32 个字符，不能重复。
+- 每个视图最多 40 个组件，从上到下、从左到右排在 12 栏的网格里。
+- 每个组件都可以带 `title`（最多 64 个字符）和 `span`（占几栏，落到 3 / 4 / 6 / 12 这四档上；不给时统计卡和进度占 3，表格和筛选栏占 12，其余占 6）。不给 `span` 时页面会补齐一行：一行里只剩一个组件就撑满；一行没放满时，剩下的栏数平分给这一行里没给 `span` 的统计卡、进度卡（三张各 4 栏、两张各 6 栏）。想让卡并排占满一行，就别给它们写 `span`。
+- **多写一个不认识的键会被拒**（防止写错了没人知道）。
+
+## 组件一览
+
+| `type` | 画什么 | 自己的键 |
+|---|---|---|
+| `filter-bar` | 筛选栏 | `fields` |
+| `stat` | 一个大数 | `query`、`value`（取哪个输出列）、`unit`、`tone_rules` |
+| `progress` | 进度条 | `query`、`value`、`total`（一个输出列，或者写死的正数） |
+| `table` | 表格 | `query`、`columns`（显示哪些列、什么次序）、`page_size`（5～200）、`value_labels`、`column_labels` |
+| `bar` | 柱状图 | `query`、`x`、`y`（一个或几个数值列）、`series`、`stacked`、`horizontal`、`tone_rules` |
+| `line` | 折线图 | `query`、`x`、`y`、`series`、`area` |
+| `pie` | 饼图 | `query`、`label`、`value`、`donut` |
+| `form` | 表单 | `dataset`、`fields`、`submit_label` |
+
+图表的规矩：
+
+- `x`、`y`、`value`、`label` 都必须是查询的输出列；`y` 和 `value` 要是数值。
+- 分系列有两种写法，**不能同时用**：给多个 `y`（每个一条线 / 一组柱），或者一个 `y` 加 `series`（按那一列的取值分）。
+- 系列最多画 5 个，再多的自动并成「其他」。
+- 统计卡、进度取的是查询结果的**第一行**，所以它们的查询一般是只有聚合、没有分组的。
+
+## 引用本台常量与变量
+
+指标卡的 `value`、进度条的 `value` / `total`、统计卡和柱图的 `tone_rules[].value` 可以写成 `{ "var": "键名" }`。常量和变量都在同一空间，这个写法不区分 kind，且只读，不改值。
+
+下面假设本卡片已有数值键 `completed`、`monthly_target` 和 `warning_limit`：
+
+```json
+{ "title": "进度台", "views": [{ "key": "board", "title": "进度", "blocks": [
+  { "type": "stat", "title": "已完成", "value": { "var": "completed" },
+    "tone_rules": [{ "col": "value", "op": "<", "value": { "var": "warning_limit" }, "tone": "warning" }] },
+  { "type": "progress", "title": "月度进度", "value": { "var": "completed" }, "total": { "var": "monthly_target" } }
+]}] }
+```
+
+- 完全来自键的统计卡、进度条不用建一份重复数据集，也不写 query；进度的 total 也可以是固定正数。查询的 value 输出列仍可配一个键引用的 total。图表仍然从数据集查询，只是着色阈值可以引用键。
+- 键只按完整字面值读取：`hot.progress` 表示这个完整键，不是对象的子字段；不收卡片号、path、SQL、模板或表达式，不跨台。查询里的 `$month` 仍是筛选参数，与键引用无关。
+- 视图台须关联市场卡片；由服务端确定卡片，不从 URL 或绑定对象接受另一台。保存视图就是显式把被引用的数发布给有本视图读取权限的人；不赋予他们通用变量 API 权限。
+- 重新取数读取当前值，不把值烘焙进视图版本。同一次取数同一个键只读一次，成功块额外带 `var_revisions`（键 → 所用 revision），便于辨别变更；不同键与数据集之间不承诺跨存储原子快照。预览旧视图时也读取当前键值，不是历史变量快照。
+- 键可在保存视图后写入：保存只校验引用格式，运行时缺键、非数字（包括数字字符串）、目标不是正数都只使该块出错，不显示成 0。热变量暂时不可用或两边分叉同样明确块错，不读旧值。普通的数值 0 是合法值。
+- 视图描述、MCP 的 view_get 返回的仍是引用，不返回变量值。只有已授权的 render 路径解析当前视图显式引用的键，不列出整个空间；向 render 额外传 key / var 等选择器会得到块错误。
+
+## 筛选栏
+
+```json view-doc
+{ "title": "筛选", "views": [ { "key": "v", "title": "v", "blocks": [
+  { "type": "filter-bar", "fields": [
+    { "name": "month", "kind": "month", "label": "月份", "default": "2026-01" },
+    { "name": "day", "kind": "date", "label": "日期" },
+    { "name": "region", "kind": "select", "label": "区", "options": { "dataset": "orders", "col": "region" } },
+    { "name": "status", "kind": "select", "label": "状态", "options": ["done", "late"] },
+    { "name": "q", "kind": "search", "label": "单号" } ] }
+] } ] }
+```
+
+| `kind` | 值 |
+|---|---|
+| `month` | `YYYY-MM` |
+| `date` | `YYYY-MM-DD` |
+| `select` | 选项里的一个。`options` 给一组文本，或者 `{ dataset, col }`（取那一列出现过的值，最多 100 个） |
+| `search` | 人输入的文本 |
+
+`name` 就是查询里 `$名字` 引用的那个名字。`default` 是没选的时候用的值（一段文本）。
+
+## 表格的表头（每一列都要有说明名）
+
+表头不给人看列名（键名）。表格里显示的每一列都要有说明名，取的次序是：
+
+1. 这个组件的 `column_labels`（列名 → 说明名，1～32 个字符）；
+2. 数据集列定义里的 `label`；
+3. 聚合出来的列，`measures` 里那一项的 `label`。
+
+一列都对不上，`view_put` 就拒，错误里点名缺的是哪几列。只核页面上显示的列（给了 `columns` 就只核那几列）。
+
+```json view-doc
+{ "title": "表头", "views": [ { "key": "v", "title": "v", "blocks": [
+  { "type": "table", "title": "各区合计",
+    "query": { "dataset": "orders", "group": ["region"], "measures": [ { "as": "n", "fn": "count" }, { "as": "amount", "fn": "sum", "col": "amount", "label": "金额" } ] },
+    "column_labels": { "n": "单数" } }
+] } ] }
+```
+
+上面这块：`region` 用数据集里的说明名「区」；`amount` 用 `measures` 里的「金额」；`n` 没有说明名，靠 `column_labels` 补上「单数」。
+
+这条规矩之前就存下的旧版本不追改：页面上没有说明名的列，表头写「第 N 列」，不露列名。
+
+## 表格里的取值怎么说（`value_labels`）
+
+库里存的状态代号不要直接给人看。给一份对照：列名 → 取值 → 说法。
+
+```json view-doc
+{ "title": "说法", "views": [ { "key": "v", "title": "v", "blocks": [
+  { "type": "table", "query": { "dataset": "orders" },
+    "value_labels": { "status": { "done": { "text": "已完成", "tone": "success" }, "late": { "text": "已超期", "tone": "danger" }, "hold": "暂缓" } } }
+] } ] }
+```
+
+- 说法可以只是一段文字，也可以带颜色：`success`（绿）、`warning`（黄）、`danger`（红）、`default`（灰）。
+- 没配说法的取值会显示成灰色小字的原文——页面上一眼看得出「这个还没配」，不报错。
+- 有对照的列一定排在表格最左边，**不管 `columns` 里把它写在第几个**（列表的规矩：状态最左）。其余的列照 `columns` 的次序。
+
+## 按值着色（`tone_rules`）
+
+把「低于阈值」这类信号直接画出来。用在统计卡和**只有一个系列**的柱状图上，最多两条，按先后第一条满足的算。
+
+```json view-doc
+{ "title": "着色", "views": [ { "key": "v", "title": "v", "blocks": [
+  { "type": "bar", "title": "各区金额",
+    "query": { "dataset": "orders", "group": ["region"], "measures": [ { "as": "amount", "fn": "sum", "col": "amount", "label": "金额" } ] },
+    "x": "region", "y": "amount",
+    "tone_rules": [ { "col": "amount", "op": "<", "value": 100, "tone": "danger" }, { "col": "amount", "op": "<", "value": 500, "tone": "warning" } ] }
+] } ] }
+```
+
+- `col` 是一个数值输出列；`op` 是 `<`、`<=`、`>`、`>=`、`=`、`!=`；`value` 是数字；`tone` 只有 `danger`、`warning`、`success` 三种，不能给色值。
+- 图下面会自动带一行说明（「红 = 金额低于 100；黄 = 金额低于 500」）。
+
+## 表单
+
+- `fields` 是表单里出现的列。**数据集的必填列必须都在表单里**，不然保存视图时被拒。
+- 提交就是往那个数据集追加一行，校验和 `dataset_append` 一样。**只收表单里列出的字段**——数据集有、表单没列的列，经表单写不了。
+- 输入框按列的类型出：文本、整数、小数、日期、时间、是否。
+
+## 版本
+
+- `view_put` 每次保存是一个新版本并立即生效；内容和现在一样就不产生新版本。留最近 100 版。
+- `view_versions` 看历史，`view_diff` 看两版差在哪，`view_rollback` 让旧版本重新生效。
+- 旧版本引用的列如果后来被删了，不能让它重新生效；先把列加回来，或者基于它改一份新的。
+- 视图引用的列被删了之后，页面上只有用到那一列的组件显示出错，别的照常。删列之前先看一眼哪些组件在用。

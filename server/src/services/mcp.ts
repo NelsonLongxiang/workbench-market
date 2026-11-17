@@ -17,7 +17,7 @@ export class McpService extends Service {
     return db.prepare('INSERT INTO mcp_sessions (name, token_sha256, grants) VALUES (?, ?, ?)');
   }
   callInsertStmt() {
-    return db.prepare('INSERT INTO mcp_calls (session_name, method, tool, ok, error, duration_ms, args_sha256, channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    return db.prepare('INSERT INTO mcp_calls (session_name, method, tool, ok, error, duration_ms, args_sha256, channel, seat, claimed_seat, token_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   }
   sessionCreate(name: string, sha: string, grants: string) {
     return db.prepare('INSERT INTO mcp_sessions (name, token_sha256, grants) VALUES (?, ?, ?)').run(name, sha, grants);
@@ -45,7 +45,11 @@ export class McpService extends Service {
   }
   // ── 权限自助申请（access_request）与授权审计 ──
   sessionFull(id: number) {
-    return db.prepare('SELECT id, name, grants, revoked_at FROM mcp_sessions WHERE id = ?').get(id);
+    return db.prepare('SELECT id, name, grants, revoked_at, created_by FROM mcp_sessions WHERE id = ?').get(id);
+  }
+  /** 记下会话是谁建的（建会话的接口建好之后调） */
+  sessionCreatedBy(id: number, by: string) {
+    return db.prepare('UPDATE mcp_sessions SET created_by = ? WHERE id = ?').run(by, id);
   }
   accessRequestsBySession(sessionId: number, limit = 50) {
     return db.prepare('SELECT id, tools, reason, status, note, decided_at, created_at FROM mcp_access_requests WHERE session_id = ? ORDER BY id DESC LIMIT ?').all(sessionId, limit);
@@ -73,5 +77,16 @@ export class McpService extends Service {
   }
   grantAuditInsert(sessionId: number, requestId: number | null, action: string, actor: string, before: string, after: string, note: string) {
     return db.prepare('INSERT INTO mcp_grant_audit (session_id, request_id, action, actor, grants_before, grants_after, note) VALUES (?, ?, ?, ?, ?, ?, ?)').run(sessionId, requestId, action, actor, before, after, note);
+  }
+
+  // ---- 以下原文自 index.ts 的 /api/mcp/access-requests/:id/approve、reject 搬入：批准、驳回各自的事务语句（两处相同，合成一组） ----
+  accessTxBegin() {
+    db.exec('BEGIN IMMEDIATE');
+  }
+  accessTxCommit() {
+    db.exec('COMMIT');
+  }
+  accessTxRollback() {
+    db.exec('ROLLBACK');
   }
 }

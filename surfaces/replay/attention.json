@@ -1,0 +1,442 @@
+{
+  "domain": "attention",
+  "what": "「关注」：/api/attention 的读（8c）和 /api/attention/answer 的答（8d）两条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /api/attention", "POST /api/attention/answer"],
+  "exempt": [{ "route": "GET /api/attention", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "admin/junk-query" }],
+  "scenarios": [
+    {
+      "name": "admin",
+      "what": "管理口令由环境给（合成值，只在隔离实例里用）；库里先放一条待审的变更申请和一条待对接的外部身份。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "seed": [
+        { "table": "change_requests", "row": { "kind": "app", "slug": "replay-app", "op": "rollback", "target_version": 1, "reason": "回放用", "requested_by": "mcp:replay", "status": "pending" } },
+        { "table": "principal_pending", "row": { "provider": "replay", "external_id": "synthetic-pending", "display_name": "Synthetic Pending" } }
+      ],
+      "steps": [
+        {
+          "id": "admin-token",
+          "route": "GET /api/attention",
+          "class": "normal",
+          "what": "管理员（口令、同源页面）：七个来源都看得见；变更申请、待对接各一条，别的来源是空的",
+          "request": { "method": "GET", "path": "/api/attention", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "2172", "etag": "W/\"87c-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "items": [
+                {
+                  "answers": ["approve", "reject"],
+                  "object": "",
+                  "phase": "",
+                  "mine": true,
+                  "source": "change-requests",
+                  "source_id": "1",
+                  "category": "review",
+                  "title": "台回滚 replay-app（回放用）",
+                  "waiting_for": "mcp:replay",
+                  "since": "YYYY-MM-DD hh:mm:ss",
+                  "link": "/market",
+                  "detail": { "kind": "app", "op": "rollback", "slug": "replay-app", "title": "", "exists": false, "current_version": null, "target_version": 1, "target_changelog": "", "requested_by": "mcp:replay", "reason": "回放用", "created_at": "YYYY-MM-DD hh:mm:ss", "irreversible": false },
+                  "waiting_for_name": "MCP 会话 replay"
+                },
+                {
+                  "answers": ["bind"],
+                  "object": "",
+                  "phase": "",
+                  "mine": true,
+                  "source": "principal-pending",
+                  "source_id": "replay:synthetic-pending",
+                  "category": "grant",
+                  "title": "Synthetic Pending（replay）等对接到主体",
+                  "waiting_for": "replay:synthetic-pending",
+                  "since": "YYYY-MM-DD hh:mm:ss",
+                  "link": null,
+                  "waiting_for_name": null
+                }
+              ],
+              "counts": { "total": 2, "by_category": { "ask": 0, "review": 1, "accept": 0, "glance": 0, "grant": 1 }, "by_source": { "change-requests": 1, "principal-pending": 1 }, "stuck_count": 0 },
+              "sources": {
+                "change-requests": { "label": "变更申请", "visible": true, "count": 1 },
+                "mcp-access": { "label": "MCP 权限申请", "visible": true, "count": 0 },
+                "bench-mcp": { "label": "台的 MCP 授予申请", "visible": false, "count": 0 },
+                "seat-asks": { "label": "席位的提问", "visible": true, "count": 0 },
+                "reply-rejected": { "label": "节点没收下的答复", "visible": false, "count": 0 },
+                "sop-runs": { "label": "待验收的派单执行", "visible": true, "count": 0 },
+                "tasks": { "label": "任务中心收件（统一待办）", "visible": true, "count": 0 },
+                "owner-pending": { "label": "待属主看板", "visible": true, "count": 0 },
+                "principal-pending": { "label": "待对接清单", "visible": true, "count": 1 },
+                "work-items": { "label": "事项的验收和过目", "visible": true, "count": 0 },
+                "work-items-stuck": { "label": "停太久的事项", "visible": true, "count": 0 },
+                "a2a-peers": { "label": "对端公钥待确认", "visible": true, "count": 0 },
+                "team-health": { "label": "团队与名册", "visible": true, "count": 0 },
+                "team-binding": { "label": "团队归属要重新确认", "visible": true, "count": 0 },
+                "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 }
+              },
+              "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
+            }
+          }
+        },
+        {
+          "id": "junk-query",
+          "route": "GET /api/attention",
+          "class": "normal",
+          "what": "这条路由不读查询串：带无关、畸形的参数照常应答",
+          "request": { "method": "GET", "path": "/api/attention?source=x&limit[]=1", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "2172", "etag": "W/\"87c-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "items": [
+                {
+                  "answers": ["approve", "reject"],
+                  "object": "",
+                  "phase": "",
+                  "mine": true,
+                  "source": "change-requests",
+                  "source_id": "1",
+                  "category": "review",
+                  "title": "台回滚 replay-app（回放用）",
+                  "waiting_for": "mcp:replay",
+                  "since": "YYYY-MM-DD hh:mm:ss",
+                  "link": "/market",
+                  "detail": { "kind": "app", "op": "rollback", "slug": "replay-app", "title": "", "exists": false, "current_version": null, "target_version": 1, "target_changelog": "", "requested_by": "mcp:replay", "reason": "回放用", "created_at": "YYYY-MM-DD hh:mm:ss", "irreversible": false },
+                  "waiting_for_name": "MCP 会话 replay"
+                },
+                {
+                  "answers": ["bind"],
+                  "object": "",
+                  "phase": "",
+                  "mine": true,
+                  "source": "principal-pending",
+                  "source_id": "replay:synthetic-pending",
+                  "category": "grant",
+                  "title": "Synthetic Pending（replay）等对接到主体",
+                  "waiting_for": "replay:synthetic-pending",
+                  "since": "YYYY-MM-DD hh:mm:ss",
+                  "link": null,
+                  "waiting_for_name": null
+                }
+              ],
+              "counts": { "total": 2, "by_category": { "ask": 0, "review": 1, "accept": 0, "glance": 0, "grant": 1 }, "by_source": { "change-requests": 1, "principal-pending": 1 }, "stuck_count": 0 },
+              "sources": {
+                "change-requests": { "label": "变更申请", "visible": true, "count": 1 },
+                "mcp-access": { "label": "MCP 权限申请", "visible": true, "count": 0 },
+                "bench-mcp": { "label": "台的 MCP 授予申请", "visible": false, "count": 0 },
+                "seat-asks": { "label": "席位的提问", "visible": true, "count": 0 },
+                "reply-rejected": { "label": "节点没收下的答复", "visible": false, "count": 0 },
+                "sop-runs": { "label": "待验收的派单执行", "visible": true, "count": 0 },
+                "tasks": { "label": "任务中心收件（统一待办）", "visible": true, "count": 0 },
+                "owner-pending": { "label": "待属主看板", "visible": true, "count": 0 },
+                "principal-pending": { "label": "待对接清单", "visible": true, "count": 1 },
+                "work-items": { "label": "事项的验收和过目", "visible": true, "count": 0 },
+                "work-items-stuck": { "label": "停太久的事项", "visible": true, "count": 0 },
+                "a2a-peers": { "label": "对端公钥待确认", "visible": true, "count": 0 },
+                "team-health": { "label": "团队与名册", "visible": true, "count": 0 },
+                "team-binding": { "label": "团队归属要重新确认", "visible": true, "count": 0 },
+                "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 }
+              },
+              "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
+            }
+          }
+        },
+        {
+          "id": "cli",
+          "route": "GET /api/attention",
+          "class": "normal",
+          "what": "本机命令行（回环、不带浏览器标记）：和旧接口一样当管理员，看得见的来源照常列出",
+          "request": { "method": "GET", "path": "/api/attention" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "1615", "etag": "W/\"64f-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "items": [
+                {
+                  "answers": ["bind"],
+                  "object": "",
+                  "phase": "",
+                  "mine": true,
+                  "source": "principal-pending",
+                  "source_id": "replay:synthetic-pending",
+                  "category": "grant",
+                  "title": "Synthetic Pending（replay）等对接到主体",
+                  "waiting_for": "replay:synthetic-pending",
+                  "since": "YYYY-MM-DD hh:mm:ss",
+                  "link": null,
+                  "waiting_for_name": null
+                }
+              ],
+              "counts": { "total": 1, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 1 }, "by_source": { "principal-pending": 1 }, "stuck_count": 0 },
+              "sources": {
+                "change-requests": { "label": "变更申请", "visible": false, "count": 0 },
+                "mcp-access": { "label": "MCP 权限申请", "visible": false, "count": 0 },
+                "bench-mcp": { "label": "台的 MCP 授予申请", "visible": false, "count": 0 },
+                "seat-asks": { "label": "席位的提问", "visible": false, "count": 0 },
+                "reply-rejected": { "label": "节点没收下的答复", "visible": false, "count": 0 },
+                "sop-runs": { "label": "待验收的派单执行", "visible": true, "count": 0 },
+                "tasks": { "label": "任务中心收件（统一待办）", "visible": false, "count": 0 },
+                "owner-pending": { "label": "待属主看板", "visible": true, "count": 0 },
+                "principal-pending": { "label": "待对接清单", "visible": true, "count": 1 },
+                "work-items": { "label": "事项的验收和过目", "visible": false, "count": 0 },
+                "work-items-stuck": { "label": "停太久的事项", "visible": false, "count": 0 },
+                "a2a-peers": { "label": "对端公钥待确认", "visible": false, "count": 0 },
+                "team-health": { "label": "团队与名册", "visible": false, "count": 0 },
+                "team-binding": { "label": "团队归属要重新确认", "visible": false, "count": 0 },
+                "relation-proposals": { "label": "关系的提议", "visible": true, "count": 0 }
+              },
+              "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
+            }
+          }
+        },
+        {
+          "id": "anonymous-remote",
+          "route": "GET /api/attention",
+          "class": "normal",
+          "what": "远程匿名：每个来源的守卫都不过，条目和条数都是 0，sources 里全标看不见",
+          "request": { "method": "GET", "path": "/api/attention", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "1291", "etag": "W/\"50b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "items": [],
+              "counts": { "total": 0, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 0 }, "by_source": {}, "stuck_count": 0 },
+              "sources": {
+                "change-requests": { "label": "变更申请", "visible": false, "count": 0 },
+                "mcp-access": { "label": "MCP 权限申请", "visible": false, "count": 0 },
+                "bench-mcp": { "label": "台的 MCP 授予申请", "visible": false, "count": 0 },
+                "seat-asks": { "label": "席位的提问", "visible": false, "count": 0 },
+                "reply-rejected": { "label": "节点没收下的答复", "visible": false, "count": 0 },
+                "sop-runs": { "label": "待验收的派单执行", "visible": false, "count": 0 },
+                "tasks": { "label": "任务中心收件（统一待办）", "visible": false, "count": 0 },
+                "owner-pending": { "label": "待属主看板", "visible": false, "count": 0 },
+                "principal-pending": { "label": "待对接清单", "visible": false, "count": 0 },
+                "work-items": { "label": "事项的验收和过目", "visible": false, "count": 0 },
+                "work-items-stuck": { "label": "停太久的事项", "visible": false, "count": 0 },
+                "a2a-peers": { "label": "对端公钥待确认", "visible": false, "count": 0 },
+                "team-health": { "label": "团队与名册", "visible": false, "count": 0 },
+                "team-binding": { "label": "团队归属要重新确认", "visible": false, "count": 0 },
+                "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 }
+              },
+              "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
+            }
+          }
+        },
+        {
+          "id": "wrong-token",
+          "route": "GET /api/attention",
+          "class": "normal",
+          "what": "口令不对：同远程匿名",
+          "request": { "method": "GET", "path": "/api/attention", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "not-the-token" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "1291", "etag": "W/\"50b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "items": [],
+              "counts": { "total": 0, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 0 }, "by_source": {}, "stuck_count": 0 },
+              "sources": {
+                "change-requests": { "label": "变更申请", "visible": false, "count": 0 },
+                "mcp-access": { "label": "MCP 权限申请", "visible": false, "count": 0 },
+                "bench-mcp": { "label": "台的 MCP 授予申请", "visible": false, "count": 0 },
+                "seat-asks": { "label": "席位的提问", "visible": false, "count": 0 },
+                "reply-rejected": { "label": "节点没收下的答复", "visible": false, "count": 0 },
+                "sop-runs": { "label": "待验收的派单执行", "visible": false, "count": 0 },
+                "tasks": { "label": "任务中心收件（统一待办）", "visible": false, "count": 0 },
+                "owner-pending": { "label": "待属主看板", "visible": false, "count": 0 },
+                "principal-pending": { "label": "待对接清单", "visible": false, "count": 0 },
+                "work-items": { "label": "事项的验收和过目", "visible": false, "count": 0 },
+                "work-items-stuck": { "label": "停太久的事项", "visible": false, "count": 0 },
+                "a2a-peers": { "label": "对端公钥待确认", "visible": false, "count": 0 },
+                "team-health": { "label": "团队与名册", "visible": false, "count": 0 },
+                "team-binding": { "label": "团队归属要重新确认", "visible": false, "count": 0 },
+                "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 }
+              },
+              "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
+            }
+          }
+        },
+        {
+          "id": "cross-site",
+          "route": "GET /api/attention",
+          "class": "unauthorized",
+          "what": "跨站请求：一律拒（和统一待办同一个口径）",
+          "request": { "method": "GET", "path": "/api/attention", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "cross-site" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "attention_cross_origin_denied" }
+          }
+        },
+        {
+          "id": "foreign-origin",
+          "route": "GET /api/attention",
+          "class": "unauthorized",
+          "what": "别的站的页面来的：拒",
+          "request": { "method": "GET", "path": "/api/attention", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "attention_cross_origin_denied" }
+          }
+        },
+        {
+          "id": "answer-wrong-token",
+          "route": "POST /api/attention/answer",
+          "class": "unauthorized",
+          "what": "口令不对：写请求总门先拒（和旧入口一样）",
+          "request": {
+            "method": "POST",
+            "path": "/api/attention/answer",
+            "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "not-the-token" },
+            "json": { "source": "change-requests", "source_id": "1", "answer": "reject", "input": { "reviewed_by": "回放", "reason": "回放：不通过的理由" } }
+          },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "answer-cross-site",
+          "route": "POST /api/attention/answer",
+          "class": "unauthorized",
+          "what": "跨站请求：拒",
+          "request": {
+            "method": "POST",
+            "path": "/api/attention/answer",
+            "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "cross-site" },
+            "json": { "source": "change-requests", "source_id": "1", "answer": "reject", "input": { "reviewed_by": "回放", "reason": "回放：不通过的理由" } }
+          },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "attention_cross_origin_denied" }
+          }
+        },
+        {
+          "id": "answer-missing",
+          "route": "POST /api/attention/answer",
+          "class": "invalid",
+          "what": "缺 source_id：400",
+          "request": { "method": "POST", "path": "/api/attention/answer", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" }, "json": { "source": "change-requests", "answer": "reject" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "83", "etag": "W/\"53-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "attention_answer_invalid", "message": "要有 source、source_id、answer" }
+          }
+        },
+        {
+          "id": "answer-unknown-source",
+          "route": "POST /api/attention/answer",
+          "class": "invalid",
+          "what": "不认识的来源：404",
+          "request": { "method": "POST", "path": "/api/attention/answer", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" }, "json": { "source": "no-such", "source_id": "1", "answer": "x" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "attention_source_unknown" }
+          }
+        },
+        {
+          "id": "answer-not-offered",
+          "route": "POST /api/attention/answer",
+          "class": "invalid",
+          "what": "表里没有的答法：400",
+          "request": {
+            "method": "POST",
+            "path": "/api/attention/answer",
+            "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" },
+            "json": { "source": "change-requests", "source_id": "1", "answer": "delete", "input": { "reviewed_by": "回放" } }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "40", "etag": "W/\"28-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "attention_answer_not_offered" }
+          }
+        },
+        {
+          "id": "answer-not-in-list",
+          "route": "POST /api/attention/answer",
+          "class": "invalid",
+          "what": "列表里没有这一条：404，不转给原路由",
+          "request": {
+            "method": "POST",
+            "path": "/api/attention/answer",
+            "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" },
+            "json": { "source": "change-requests", "source_id": "999", "answer": "reject", "input": { "reviewed_by": "回放", "reason": "回放：不通过的理由" } }
+          },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "attention_item_not_found" }
+          }
+        },
+        {
+          "id": "answer-reject-no-reason",
+          "route": "POST /api/attention/answer",
+          "class": "invalid",
+          "what": "不通过不写理由：400（reason_required），申请不动",
+          "request": {
+            "method": "POST",
+            "path": "/api/attention/answer",
+            "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" },
+            "json": { "source": "change-requests", "source_id": "1", "answer": "reject", "input": { "reviewed_by": "回放" } }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "117", "etag": "W/\"75-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "source": "change-requests", "source_id": "1", "answer": "reject", "duplicate": false, "result": { "error": "reason_required" } }
+          }
+        },
+        {
+          "id": "answer-reject",
+          "route": "POST /api/attention/answer",
+          "class": "normal",
+          "what": "管理员拒绝库里那条变更申请：转给 /api/change-requests/1/reject，原路由的应答原样放在 result 里",
+          "request": {
+            "method": "POST",
+            "path": "/api/attention/answer",
+            "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" },
+            "json": { "source": "change-requests", "source_id": "1", "answer": "reject", "input": { "reviewed_by": "回放", "reason": "回放：不通过的理由" } }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "156", "etag": "W/\"9c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "source": "change-requests", "source_id": "1", "answer": "reject", "duplicate": false, "result": { "ok": true, "id": 1, "status": "rejected", "reviewed_by": "admin-token" } }
+          }
+        },
+        {
+          "id": "answer-again",
+          "route": "POST /api/attention/answer",
+          "class": "normal",
+          "what": "同一条再答：返回第一次的结果，duplicate:true，不再生效",
+          "request": {
+            "method": "POST",
+            "path": "/api/attention/answer",
+            "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" },
+            "json": { "source": "change-requests", "source_id": "1", "answer": "reject", "input": { "reviewed_by": "另一个人", "reason": "回放：不通过的理由" } }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "155", "etag": "W/\"9b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "source": "change-requests", "source_id": "1", "answer": "reject", "duplicate": true, "result": { "ok": true, "id": 1, "status": "rejected", "reviewed_by": "admin-token" } }
+          }
+        }
+      ]
+    }
+  ]
+}

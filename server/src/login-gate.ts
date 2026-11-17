@@ -5,6 +5,8 @@
  *    - 有效的 X-Admin-Token 头；
  *    - 登录 cookie（口令登录后签发：HMAC 签名、HttpOnly、SameSite=Lax、12 小时；不含口令，口令轮换即全部失效）；
  *    - Odoo 内部员工会话（现查 get_session_info，只认 is_internal_user；按会话哈希缓存 30 秒）。
+ *      Odoo 认出来以后由市场维持会话：发市场会话 cookie（wm_session，期限 WM_SESSION_TTL_MIN，属性同登录 cookie），存下这次的 Odoo 会话号，
+ *      之后照旧拿它问 Odoo——浏览器里的 Odoo cookie 过期了不掉登录；Odoo 那边注销、停用，市场会话跟着注销（见 identity.ts 的 sessionViewer）。
  *  无身份也放行的（各自有认证或本身公开）：
  *    - /mcp 与 #385 的 /openapi.json、/api/mcp-rest/*：网关自己的 Bearer 会话认证（enforce 时网关强制开）；
  *    - 签名卡片 GET /.well-known/agent-card.json；工作台事件回执（凭投递里的随机 reply token，库存 sha256、有效期）；
@@ -20,13 +22,13 @@
  *    - POST /a2a/direct：只放行到路由，由路由按 OriginClaim 签名判定（enforce 时 WM_A2A_DIRECT_SIG 强制 require，无签名或验不过 401）。 */
 import type express from 'express';
 import type { IncomingMessage } from 'node:http';
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { BlockList, isIP } from 'node:net';
 import { browserMarked, rawLoopback, surfaceOf } from './surfaces.ts';
-import { odooSessionOf } from './odoo-session.ts';
-import { odooLoginProxyRoute, revokeOdooSession } from './odoo-login-proxy.ts';
+import { identity as identityService, IDENTITY_UNAVAILABLE, loginRelay, SESSION_COOKIE } from './identity.ts';
+import type { LoginGateRouteDeps } from './routes/login-gate.ts';
 
 export type LoginGateMode = 'enforce' | 'off';
 /** 取开关；值不合法返回 null（调用方拒绝启动，参照 MCP_GATEWAY） */
@@ -37,15 +39,24 @@ export function loginGateMode(env: NodeJS.ProcessEnv = process.env): LoginGateMo
   return null;
 }
 
-export type Identity = { via: 'cli' | 'token' | 'cookie' | 'odoo'; login: string | null; admin: boolean };
-type Deps = {
+export type Identity = { via: 'cli' | 'token' | 'cookie' | 'odoo' | 'session'; login: string | null; admin: boolean };
+export type LoginGateDeps = {
   mode: LoginGateMode;
   dataDir: string;
   adminTokenCheck: (provided: string | undefined) => boolean;
   /** 当前口令的指纹（env 口令或库存哈希）；无口令时空串。签进 cookie：口令一换，旧 cookie 全部失效 */
   adminTokenFingerprint: () => string;
-  /** Odoo 内部员工（未配置 Odoo、门户账号、会话无效一律 null） */
-  odooViewer: (cookieHeader: string) => Promise<{ login: string; admin: boolean } | null>;
+  /** Odoo 内部员工（未配置 Odoo、门户账号、会话无效一律 null）。登录是成功的、卡在主体那一步（停用了或还没对到主体）回 { held: true }。
+   *  fresh=true 每次都问提供方；false 时提供方的回答可以用缓存的（期限由装配方定）。主体停没停用总是现查，这里不再自己缓存 */
+  odooViewer: (cookieHeader: string, fresh: boolean) => Promise<{ login: string; admin: boolean; via?: 'session' } | { held: true } | { down: true } | null>;
+  /** Odoo 刚认出来的人（不是从市场会话来的）：发一个由市场维持的会话，返回放进 wm_session 的值和到期时刻；不发返回 null */
+  openSession?: (req: express.Request) => Promise<{ token: string; expiresAt: number } | null>;
+  /** /api/auth/me 附带的「我是谁」：主体、显示名、当前生效授予的角色（侧栏用户卡用）。不给就只回原来的几项 */
+  profile?: (req: express.Request) => Promise<{ principal: string | null; display_name: string | null; roles: { id: string; name: string; scope: string; preset: boolean; expires_at: number | null; source: 'manual' | 'migration'; approved_by: string | null }[] }>;
+  /** /api/auth/me 附带的 can：这个请求能做的、不属于某一个对象的事（比如新建驾驶舱）。不给就不带 */
+  can?: (req: express.Request) => Promise<Record<string, boolean>>;
+  /** 登录页上列出的登录方式（发市场会话的那几种，比如飞书）：名字和按钮上的字 */
+  loginFlows?: () => { name: string; label: string }[];
   appToken: (slug: string) => string;
   /** /api/workbenches/<id>/vars 带的 X-App-Token 是否属于该台 */
   varsAppTokenOk: (req: express.Request) => boolean;
@@ -60,8 +71,7 @@ type Deps = {
 };
 
 export const LOGIN_COOKIE = 'wm_login';
-const SESSION_MS = 12 * 3600 * 1000;
-const ODOO_TTL_MS = 30_000;
+export const SESSION_MS = 12 * 3600 * 1000;
 const CAP_SEG = '~wm';
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const APP_DATA_RE = /^\/api\/apps\/([a-z0-9][a-z0-9-]*)\/(data|files)(\/|$)/;
@@ -72,7 +82,6 @@ const RUN_UPLOAD_RE = /^\/api\/sop\/runs\/(\d+)\/files$/;
 const CAP_PATH_RE = /^\/(apps\/([a-z0-9][a-z0-9-]*)|go\/(\d+))\/~wm\/([0-9a-z]+\.[0-9a-f]{32})(\/.*)?$/i;
 const APP_DOC_RE = /^\/(apps\/([a-z0-9][a-z0-9-]*)|go\/(\d+))(\/.*)?$/;
 
-const sha256 = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex');
 const eq = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64url');
 
@@ -87,6 +96,16 @@ export function safeNext(v: unknown): string {
     if (u.origin !== 'http://wm.invalid' || bad(out) || /^\/(login|api\/)/i.test(u.pathname)) return '/';
     return out;
   } catch { return '/'; }
+}
+
+/**
+ * 等管理员处理的页：登录成功了，但停用了、还没对到主体、或者不是本组织的人。几种情况同一页、同一个状态码，逐字节相同，
+ * 不透露系统里有没有这个人、是不是被停用了；也不叫人重新登录（重登没用），不给回登录页的链接。页上不带任何数据。
+ * 登录方式的回调（routes/login-flows.ts）和登录门共用这一份
+ */
+export function holdPage(res: express.Response): void {
+  res.status(403).set({ 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'" })
+    .type('html').send('<!doctype html><meta charset="utf-8"><title>等管理员处理</title><h1>等管理员处理</h1><p>登录成功了，但你的账号还需要管理员处理，处理好之前用不了本站。请联系管理员。</p>');
 }
 
 /** 想要页面的请求（浏览器导航）：给 302；其余给 401 JSON */
@@ -112,6 +131,16 @@ export function trustedProxies(raw = String(process.env.WM_TRUSTED_PROXIES ?? ''
   }
   return { list, entries, invalid };
 }
+/**
+ * 可信反代的启动自检：列表里的每一项，都是「它写来的 X-Real-IP / X-Forwarded-For 当真」。写成网段（不止一个地址）时，
+ * 网段里任何一台能连到市场端口的机器都能自报来源，按来源的限额（登录门、账号密码登录、SSO 票据）就能换个头绕过去——给 warn。
+ * docker 网桥网关也是这样：发布的端口走 docker 的用户态转发时，所有直连进来的连接看上去都来自网关；
+ * 网关写进了可信反代，又没把端口只绑在反代那一侧，直连者自带的 X-Real-IP 就会被采信。缺省（不设）只认回环，不受影响。
+ */
+export function trustedProxyCheck(entries: readonly string[]): { verdict: 'pass' | 'warn'; ranges: string[] } {
+  const ranges = entries.filter((e) => { const [addr, bits] = e.split('/'); return bits !== undefined && Number(bits) < (isIP(addr) === 4 ? 32 : 128); });
+  return { verdict: ranges.length ? 'warn' : 'pass', ranges };
+}
 let proxyCache: { raw: string; list: BlockList } | null = null;
 function trustedPeer(peer: string): boolean {
   if (peer === '127.0.0.1' || peer === '::1') return true;
@@ -136,7 +165,7 @@ export function clientIp(req: IncomingMessage): string {
   return pick(xff[xff.length - 1]) || peer;
 }
 
-export function createLoginGate(deps: Deps) {
+export function createLoginGate(deps: LoginGateDeps) {
   const enforced = deps.mode === 'enforce';
   const log = deps.log ?? ((row: object) => console.log(JSON.stringify(row)));
 
@@ -192,28 +221,20 @@ export function createLoginGate(deps: Deps) {
   }
   const viewCaps = new WeakMap<IncomingMessage, { slug: string; cap: string; base: string }>();
 
-  // ---------- Odoo 内部员工（按会话哈希缓存） ----------
-  const odooCache = new Map<string, { at: number; who: { login: string; admin: boolean } | null }>();
-  async function odooOf(cookie: string): Promise<{ login: string; admin: boolean } | null> {
-    const sid = odooSessionOf(cookie);
-    if (!sid) return null;
+  // ---------- Odoo 内部员工 ----------
+  async function odooOf(cookie: string): Promise<{ login: string; admin: boolean; via?: 'session' } | { held: true } | { down: true } | null> {
+    if (!identityService().hasCredential(cookie)) return null;
     // Relay mode supports explicit Odoo logout: do not keep a stale positive identity
-    // after the upstream session has been revoked.
-    if (process.env.WM_ODOO_LOGIN_PROXY === '1') {
-      try { return await deps.odooViewer(cookie); } catch { return null; }
-    }
-    const k = sha256(sid);
-    const hit = odooCache.get(k);
-    if (hit && Date.now() - hit.at < ODOO_TTL_MS) return hit.who;
-    let who: { login: string; admin: boolean } | null = null;
-    try { who = await deps.odooViewer(cookie); } catch { who = null; }
-    if (odooCache.size > 2000) odooCache.clear();
-    odooCache.set(k, { at: Date.now(), who });
-    return who;
+    // after the upstream session has been revoked. 其余情况提供方的回答可以用缓存的（缓存在身份服务里，主体状态不进缓存）。
+    try { return await deps.odooViewer(cookie, loginRelay().relayLogin()); } catch { return null; }
   }
 
   // ---------- 身份 ----------
   const identities = new WeakMap<IncomingMessage, Identity | null>();
+  /** 登录成功、卡在主体那一步的请求：没有身份（照旧什么都不给），只是要页面时给等待页而不是登录页 */
+  const held = new WeakSet<IncomingMessage>();
+  /** 带了凭据、但身份来源不可达的请求：没有身份（照旧什么都不给），接口回 502 identity_unavailable 而不是「请先登录」 */
+  const down = new WeakSet<IncomingMessage>();
   async function identity(req: IncomingMessage): Promise<Identity | null> {
     if (identities.has(req)) return identities.get(req)!;
     let id: Identity | null = null;
@@ -222,7 +243,9 @@ export function createLoginGate(deps: Deps) {
     else if (verifyCookie(cookieValue(req))) id = { via: 'cookie', login: null, admin: false };
     else {
       const who = await odooOf(String(req.headers.cookie ?? ''));
-      if (who) id = { via: 'odoo', login: who.login, admin: who.admin };
+      if (who && 'held' in who) held.add(req);
+      else if (who && 'down' in who) down.add(req);
+      else if (who) id = { via: who.via === 'session' ? 'session' : 'odoo', login: who.login, admin: who.admin };
     }
     identities.set(req, id);
     return id;
@@ -236,6 +259,8 @@ export function createLoginGate(deps: Deps) {
       res.redirect(302, next === '/' ? '/login' : `/login?next=${encodeURIComponent(next)}`);
       return;
     }
+    // 身份来源不可达：不是没登录，接口给固定代号，页面说「登录服务暂时联系不上」。失败关闭，照样不放行
+    if (down.has(req)) { res.status(502).json({ error: IDENTITY_UNAVAILABLE, message: '登录服务暂时联系不上，稍后再试' }); return; }
     res.setHeader('X-WM-Login-Required', '1');
     res.status(401).json({ error: 'login_required', message: '需要登录：用 Odoo 内部账号或管理员口令登录', login_url: '/login' });
   }
@@ -244,14 +269,20 @@ export function createLoginGate(deps: Deps) {
   function publicRoute(req: express.Request, p: string): boolean {
     const m = req.method;
     const get = m === 'GET' || m === 'HEAD';
-    if (surfaceOf(req) === 'market' && odooLoginProxyRoute(m, String(req.url ?? '').split('?')[0])) return true;
+    if (surfaceOf(req) === 'market' && loginRelay().publicRoute(m, String(req.url ?? '').split('?')[0])) return true;
     if (p === '/mcp') return true; // 网关 Bearer 会话认证；enforce 时网关强制开
     // #385 MCP 工具的 REST 开放：路由内只认网关会话令牌（mcpGatewaySession，无效 401），同 /mcp 不走浏览器登录
     if ((get && p === '/openapi.json') || p.startsWith('/api/mcp-rest/')) return true;
     if (get && (p === '/api/health' || p === '/api/health/ready' || p === '/login' || p === '/api/auth/me' || p === '/.well-known/agent-card.json')) return true;
     if (m === 'POST' && (p === '/api/auth/login' || p === '/api/auth/logout')) return true;
+    if (get && /^\/login\/[a-z0-9][a-z0-9-]{0,31}(\/callback)?$/.test(p)) return true; // 登录方式的发起和回调（还没有身份才要登录）；路由里核 state
+    if (m === 'POST' && /^\/login\/[a-z0-9][a-z0-9-]{0,31}\/events$/.test(p)) return true; // 失效通知：路由里由插件验签，验不过 401
+    if ((get || m === 'POST') && /^\/login\/[a-z0-9][a-z0-9-]{0,31}\/form$/.test(p)) return true; // 站内表单（账号密码）：路由里先核 state 还有效
     if (m === 'POST' && p === '/a2a/direct') return true; // 路由内验签（a2a-direct-sig.ts），enforce 下无签名 401
+    if (m === 'POST' && p === '/api/a2a/seat-token') return true; // 席位换令牌：路由内按钉住的节点公钥验签、核名册，验不过 401
     if (m === 'POST' && /^\/api\/workbench-events\/wbe-[0-9a-f]{16}\/decision$/.test(p)) return true; // reply token 认证
+    // 接单节点取附件：同一个 reply token（请求头 X-Reply-Token），路由内认，认不出一律 404；只放 GET，形状和路由一致
+    if (m === 'GET' && /^\/api\/workbench-events\/wbe-[0-9a-f]{16}\/attachments\/[1-9]\d{0,15}$/.test(p)) return true;
     if (get && /^\/design\/tokens@[0-9.]+\.css$/.test(p)) return true;
     if (get && /^\/api\/skills\/dl\/[0-9a-f]{64}$/.test(p)) return true; // 技能包下载票据：路由内查票（10 分钟有效、单票至多 5 次），无效 404
     // 沙箱页对本台数据面/变量面的预检：只回允许头，不带数据（实际请求再凭令牌）
@@ -304,6 +335,11 @@ export function createLoginGate(deps: Deps) {
       }
       if (publicRoute(req, p)) return next();
       const id = await identity(req);
+      // Odoo 刚认出来的人：由市场维持会话（cookie 属性同登录 cookie：HttpOnly、SameSite=Lax、https 时 Secure）
+      if (id && id.via === 'odoo' && deps.openSession) {
+        const s = await deps.openSession(req);
+        if (s) res.cookie(SESSION_COOKIE, s.token, { httpOnly: true, sameSite: 'lax', path: '/', maxAge: Math.max(0, s.expiresAt - Date.now()), secure: secure(req) });
+      }
       if (id) {
         // 已登录的人打开自产台页面：换到带查看凭证的地址，沙箱页的相对子资源才能加载
         const dm = wantsPage(req) && id.via !== 'cli' ? APP_DOC_RE.exec(req.path) : null;
@@ -319,7 +355,10 @@ export function createLoginGate(deps: Deps) {
       if (await runCapOk(req, p)) return next(); // 派单方凭按 run 凭据直连 REST（路由内照旧判同一凭据）
       const fm = (req.method === 'GET' || req.method === 'HEAD') ? APP_FILE_RE.exec(p) : null;
       if (fm && typeof req.query.wm_av === 'string' && capOk(fm[1], req.query.wm_av)) return next(); // 沙箱页 <img src> / 下载链接
+      // Odoo 登录入口本身照旧放行：同一个人有两个 Odoo 账号时，管理员会让他换已经接上的那个账号登录
       if (odooRelay(req, p)) return next();
+      // 登录成功、卡在主体那一步的人要页面：给等待页，说清楚是等管理员处理，不送回登录页。接口照旧 401
+      if (held.has(req) && wantsPage(req) && !p.startsWith('/api/')) return holdPage(res);
       return block(req, res);
     } catch (e) {
       return next(e);
@@ -391,69 +430,15 @@ export function createLoginGate(deps: Deps) {
     try { return new URL(String(origin)).host === String(req.headers.host ?? ''); } catch { return false; }
   }
 
-  function mount(app: express.Express): void {
-    app.get('/login', (req, res) => {
-      res.setHeader('Cache-Control', 'no-store');
-      res.setHeader('X-Frame-Options', 'DENY');
-      res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
-      const canOdooLogout = process.env.WM_ODOO_LOGIN_PROXY === '1' && String(req.headers.cookie ?? '').split(';').some(s => s.trim().startsWith('session_id='));
-      res.type('html').send(loginPage(safeNext(req.query.next), deps.odooLoginHref(req), deps.tokensCss(), deps.mode, canOdooLogout));
-    });
-    app.post('/api/auth/login', (req, res) => {
-      res.setHeader('Cache-Control', 'no-store');
-      if (!sameOrigin(req)) return res.status(403).json({ error: '跨源登录被拒绝' });
-      const ip = clientIp(req);
-      const rc = rateCheck(ip);
-      if (!rc.ok) { res.setHeader('Retry-After', String(rc.retryS)); return res.status(429).json({ error: '尝试过于频繁，请稍后再试', retry_after_s: rc.retryS }); }
-      const token = typeof req.body?.token === 'string' ? req.body.token : '';
-      const ok = token.length > 0 && token.length <= 256 && deps.adminTokenFingerprint() !== '' && deps.adminTokenCheck(token);
-      rateResult(ip, ok);
-      log({ source: 'login-gate', event: 'login', ok, ip, at: new Date().toISOString() }); // 只记结果、来源与时间，不记口令
-      if (!ok) return res.status(401).json({ error: '口令无效' }); // 口令错与未设置口令同答
-      const c = issueCookie();
-      setLoginCookie(req, res, c.value, SESSION_MS);
-      res.json({ ok: true, expires_at: new Date(c.exp).toISOString() });
-    });
-    app.post('/api/auth/logout', async (req, res) => {
-      res.setHeader('Cache-Control', 'no-store');
-      if (!sameOrigin(req)) return res.status(403).json({ error: '跨源登出被拒绝' });
-      const cookie = String(req.headers.cookie ?? '');
-      const sessions = cookie.split(';').map(s => s.trim()).filter(s => s.startsWith('session_id='));
-      const relay = process.env.WM_ODOO_LOGIN_PROXY === '1';
-      if (relay && sessions.length) {
-        // A browser must make an explicit same-origin JSON request to terminate Odoo.
-        let originOk = false;
-        try { originOk = !!req.headers.origin && new URL(String(req.headers.origin)).protocol === (secure(req) ? 'https:' : 'http:'); } catch { /* reject */ }
-        if (!originOk || !req.is('application/json') || req.headers['x-wm-odoo-logout'] !== '1') return res.status(403).json({ error: 'Odoo 登出请求不符合安全要求' });
-      }
-      const v = verifyCookie(cookieValue(req));
-      if (v) {
-        revoked.set(v.jti, v.exp);
-        for (const [j, exp] of revoked) if (exp <= Date.now()) revoked.delete(j);
-      }
-      res.clearCookie(LOGIN_COOKIE, { httpOnly: true, sameSite: 'lax', path: '/', secure: secure(req) });
-      if (!relay) return res.json({ ok: true, odoo_session: !!odooSessionOf(cookie) });
-      res.clearCookie('session_id', { httpOnly: true, sameSite: 'lax', path: '/', secure: secure(req) });
-      if (!sessions.length) return res.json({ ok: true, odoo_session: false, browser_session_cleared: true });
-      if (sessions.length !== 1) return res.status(409).json({ ok: false, error: 'Odoo 会话不唯一，无法确认服务器端已注销', browser_session_cleared: true, odoo_session_revoked: false });
-      const sid = sessions[0].slice('session_id='.length);
-      const done = await revokeOdooSession(sid);
-      return res.status(done ? 200 : 502).json({ ok: done, odoo_session: true, browser_session_cleared: true, odoo_session_revoked: done, ...(!done ? { error: '已清除浏览器会话，但无法确认 Odoo 服务器端注销' } : {}) });
-    });
-    app.get('/api/auth/me', async (req, res, next) => {
-      try {
-        res.setHeader('Cache-Control', 'private, no-store');
-        res.vary('Cookie');
-        const id = await identity(req);
-        res.json({ gate: deps.mode, authenticated: !!id, via: id?.via ?? null, login: id?.login ?? null });
-      } catch (e) { next(e); }
-    });
-  }
+  /** 四条路由（/login、/api/auth/login|logout|me）在 routes/login-gate.ts，经 HTTP 服务注册；它们要用的闭包从这里递过去 */
+  const routeDeps: LoginGateRouteDeps = { deps, log, rateCheck, rateResult, sameOrigin, secure, setLoginCookie, issueCookie, verifyCookie, cookieValue, revoked, identity };
 
-  return { mode: deps.mode, enforced, middleware, mount, identity, upgradeAllowed, rewriteAppHtml };
+  /** 登录门签给某个台页面的查看凭证（wm_av）对不对：台数据的下载守卫也认它（沙箱页的下载链接带不了头） */
+  const viewCapOk = (slug: string, cap: string): boolean => capOk(slug, cap);
+  return { mode: deps.mode, enforced, middleware, routeDeps, identity, upgradeAllowed, rewriteAppHtml, viewCapOk };
 }
 
-function loginPage(next: string, odooHref: string | null, tokensCss: string, mode: LoginGateMode, canOdooLogout: boolean): string {
+export function loginPage(next: string, odooHref: string | null, tokensCss: string, mode: LoginGateMode, canOdooLogout: boolean, flows: { name: string; label: string }[] = []): string {
   const j = (v: unknown) => JSON.stringify(v).replace(/</g, '\\u003c');
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>登录 · 工作台市场</title><style>
@@ -473,7 +458,7 @@ input{box-sizing:border-box;width:100%;height:36px;padding:0 var(--wm-space-3,12
 </style></head><body><main class="card">
 <h1>工作台市场</h1><p class="sub">${mode === 'enforce' ? '本站需要登录后访问' : '登录门未开启（WM_LOGIN_GATE=off）'}</p>
 ${canOdooLogout ? '<button id="odoo-logout" type="button">退出当前 Odoo 会话</button><div class="msg" id="odoo-logout-msg" role="alert"></div>' : ''}
-${odooHref ? `<button class="primary" id="odoo" type="button">用 Odoo 登录</button><div class="msg info" id="odoo-msg"></div><div class="or">或</div>` : ''}
+${flows.length ? '<style>.flow{display:flex;align-items:center;justify-content:center;box-sizing:border-box;width:100%;height:36px;margin-bottom:var(--wm-space-3,12px);border-radius:var(--wm-radius-md,6px);background:var(--wm-color-primary,#3370ff);color:var(--wm-color-on-primary,#fff);text-decoration:none}</style>' : ''}${flows.map((f) => `<a class="flow" href="/login/${encodeURIComponent(f.name)}?next=${encodeURIComponent(next)}">${f.label.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)}</a>`).join('')}${flows.length ? '<div class="or">或</div>' : ''}${odooHref ? `<button class="primary" id="odoo" type="button">用 Odoo 登录</button><div class="msg info" id="odoo-msg"></div><div class="or">或</div>` : ''}
 <form id="f"><input id="t" type="password" autocomplete="current-password" placeholder="管理员口令" aria-label="管理员口令" required>
 <button ${odooHref ? '' : 'class="primary" '}type="submit" id="go">输入管理员口令登录</button><div class="msg" id="msg" role="alert"></div></form>
 </main><script>(function(){var next=${j(next)},odoo=${j(odooHref)};
