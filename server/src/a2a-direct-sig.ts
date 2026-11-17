@@ -21,6 +21,7 @@ import type { IncomingMessage } from 'node:http';
 import type { TLSSocket } from 'node:tls';
 import { verifyCard } from '@nelsonlongxiang/dsh-open-a2a-net/card';
 import { db } from './db.ts';
+import { claimSignatureOnce } from './services/a2a-receipts.ts';
 
 export type DirectSigMode = 'require' | 'accept' | 'off';
 export type DirectSigBodyMode = 'require' | 'accept';
@@ -173,13 +174,9 @@ export function createDirectSigVerifier(deps: {
     } catch { return false; }
   }
 
-  /** 验过的签名只认一次（落库，原子插入） */
+  /** 验过的签名只认一次（落库，原子插入；和回执、换令牌同一处，按解码后的字节查重） */
   function claimOnce(sig: string, ts: number): boolean {
-    const t = now();
-    db.prepare('DELETE FROM a2a_sig_seen WHERE expires_at < ?').run(t);
-    const r = db.prepare('INSERT OR IGNORE INTO a2a_sig_seen (sig_hash, expires_at) VALUES (?, ?)')
-      .run(createHash('sha256').update(sig, 'utf8').digest('hex'), ts + SIG_SKEW_MS + 60_000) as unknown as { changes: number };
-    return r.changes === 1;
+    return claimSignatureOnce(sig, ts + SIG_SKEW_MS + 60_000, now());
   }
 
   /** 有签名头吗（Sig2 或 body 签名；只带 v1 Sig 返回 'unbound'） */

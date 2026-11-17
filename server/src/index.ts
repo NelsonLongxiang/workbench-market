@@ -5,6 +5,7 @@ import './startup-gate-hold.ts';
 import { startupPassed } from './startup-gate.ts';
 import express from 'express';
 import { SENSITIVE_QUERY_KEYS, createPortalAccess, isCredentialed, isInternalTarget, loginsOf, newOdooEntries, parseAccessInput } from './portal-access.ts';
+import { skillSnapRel } from './skill-snap-path.ts'; // #183/#810：写快照与导入脚本同一个函数
 import type { PrincipalService } from './services/principal.ts';
 import { createStartupSecurityProbe, isStartupProbeRequest, TEST_ENV_WAITS } from './startup-security-self-probe.ts';
 import { createLoginGate, loginGateMode, trustedProxies, trustedProxyCheck } from './login-gate.ts';
@@ -1018,11 +1019,6 @@ function validateAppFiles(raw: unknown, kind: 'app' | 'sop' = 'app'): { path: st
 }
 
 /** #94 S4 根修：快照路径统一解析——dataDir 相对形（'skill-snapshots/…'）为准；legacy 'server/data/…' 剥前缀；绝对路径直用（隔离实例自此真隔离——绝不因相对形落产库） */
-/** #183（P0·单一事实源）：技能快照磁盘相对路径——写与读同用此函数。
- *  唯一形=encodeURIComponent(全 slug)（agents:brand 与 jf:brand 互不覆盖）；导出包内顶层仍用 name。 */
-function skillSnapRel(slug: string, version: number): string {
-  return 'skill-snapshots/' + encodeURIComponent(String(slug)) + '/v' + version;
-}
 
 function resolveSnap(p: string): string {
   // #601 P0：绝对路径若落在 dataDir/skill-snapshots 内＝合法（历史导入器存过绝对）→ 归一相对；域外仍封禁（K14）
