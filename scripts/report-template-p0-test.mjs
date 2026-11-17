@@ -1,0 +1,38 @@
+#!/usr/bin/env node
+/** P0 compiler tests. Pure synthetic inputs; no database, external origin or policy implementation. */
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { materializeReport, ReportError } from '../web/src/report-template/p0.ts';
+import { makeOperatingFixture, makeProductFixture } from './fixtures/report-template-p0.mjs';
+const hash=x=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
+const run=f=>materializeReport(f.template,f.bindings,f.views,f.input,f.assets);
+let n=0;const check=(label,fn)=>{fn();n++;console.log('✓ '+label);};
+check('308 full rows are preserved and results are deeply frozen',()=>{const f=makeOperatingFixture();const r=run(f);assert.equal(r.sources.find(x=>x.slot==='details').rows,308);assert.equal(r.body[2].children[0].data.rows.length,308);assert(Object.isFrozen(r.body[2].children[0].data.rows[0]));assert.equal(r.body[1].children[0].content,f.input.fields.summary);});
+check('frozen artifact survives data, field, template and source object mutations',()=>{const f=makeOperatingFixture();const r=run(f),h=hash(r);f.views.source.blocks[2].data.rows[0].amount=-100;f.input.fields.summary='changed';f.template.title='changed';f.bindings.details.identity='changed';assert.equal(hash(r),h);assert.notEqual(hash(run(makeOperatingFixture('synthetic-b','2026-11'))),h);});
+check('same template accepts two periods and two compatible source identities',()=>{const a=makeOperatingFixture('a','2026-10'),b=makeOperatingFixture('b','2026-11');assert.deepEqual(a.template,b.template);assert.deepEqual(run(a).body.map(x=>x.type),run(b).body.map(x=>x.type));assert.equal(run(b).inputs.parameters.period,'2026-11');});
+check('50 repeat sections expand to stable distinct ids with images',()=>{const r=run(makeProductFixture());assert.equal(r.body.filter(x=>x.type==='section').length,50);assert.equal(new Set(r.body.map(x=>x.id)).size,r.body.length);assert.match(r.body[50].children[0].content,/SKU0050/);});
+const bad=(label,change)=>check(label,()=>{const f=makeOperatingFixture();change(f);assert.throws(()=>run(f),ReportError);});
+bad('truncated 200/308 cannot be accepted as full report',f=>{f.views.source.blocks[2].data.rows=f.views.source.blocks[2].data.rows.slice(0,200);f.views.source.blocks[2].data.truncated=true;});
+bad('false truncated flag but wrong count still refuses',f=>{f.views.source.blocks[2].data.rows.pop();});
+bad('missing columns refuse rather than blank cells',f=>{f.views.source.blocks[2].data.columns.pop();});
+bad('stringified amount does not become a silently coerced numeric value',f=>{f.views.source.blocks[2].data.rows[0].amount='10';});
+bad('definition hash mismatch refuses',f=>{f.views.source.definition_sha256='f'.repeat(64);});
+bad('source lifecycle identity mismatch refuses',f=>{f.views.source.identity='deleted-and-recreated';});
+bad('fixed index pointing to a different component refuses',f=>{f.views.source.blocks[2].type='form';});
+bad('parameter mapping is exact not best-effort',f=>{f.input.parameters.period='2026-12';});
+bad('invalid month refuses before rendering',f=>{f.input.parameters.period='2026-13';});
+bad('unknown nodes and executable props refuse',f=>{f.template.body[0].onload='alert(1)';});
+bad('duplicate template node ids refuse',f=>{f.template.body[1].id='cover';});
+bad('invalid grid refuses',f=>{f.template.body[1].children[1].columns=[8,8];});
+bad('undeclared field references refuse',f=>{f.template.body[1].children[0].content=[{ref:{scope:'field',name:'secret'}}];});
+bad('partial source errors cannot be published',f=>{f.views.source.blocks[2].error={code:'unavailable'};});
+check('duplicate stable repeat row keys refuse',()=>{const f=makeProductFixture();f.views.products.blocks[0].data.rows[1].sku=f.views.products.blocks[0].data.rows[0].sku;assert.throws(()=>run(f),ReportError);});
+check('repeat bounds refuse',()=>{const f=makeProductFixture();f.template.body[1].max_items=49;assert.throws(()=>run(f),ReportError);});
+check('asset URL cannot cause a fetch',()=>{const f=makeProductFixture();f.assets.sample.data_url='http://example.invalid/secret';assert.throws(()=>run(f),ReportError);});
+bad('unmapped source parameter does not silently change report scope',f=>{f.views.source.params.extra='hidden-scope';});
+bad('unknown binding column aliases refuse',f=>{f.bindings.details.columns.extra='secret';});
+bad('unimplemented grid ratios are not silently stacked',f=>{f.template.body[1].children[1].columns=[8,4];});
+bad('duplicate table columns refuse',f=>{f.template.body[2].children[0].props.columns.push('id');});
+bad('inherited slot mappings are not capabilities',f=>{f.bindings=Object.create(f.bindings);});
+bad('duplicate detail keys refuse even outside repeats',f=>{f.views.source.blocks[2].data.rows[1].id=f.views.source.blocks[2].data.rows[0].id;});
+console.log('report-template-p0-test: '+n+' passed / 0 failed');
