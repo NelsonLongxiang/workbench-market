@@ -6,6 +6,8 @@
 - **前端**：React 18 + antd 5 + @ant-design/pro-components + react-grid-layout（可拖拽仪表盘）+ react-markdown
 - **形态**：单进程、单端口（默认 9800），`/api/*` 提供 REST，其余路径托管前端构建产物
 
+> **产品化（阶段 0，草稿）**：定位、概念模型、驾驶舱 v2、与 DSH GUI 的关系、Token v2、A2A × superagent 融合契约与适配层重构方案，见 [docs/productization/](docs/productization/README.md)。
+
 ## 快速开始
 
 ```bash
