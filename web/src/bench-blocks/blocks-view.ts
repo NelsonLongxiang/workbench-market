@@ -192,8 +192,10 @@ export function withLabelColumns(data: BlockData | null | undefined, labels: unk
 export const isEmptyData = (data: BlockData | null | undefined): boolean => !data || !Array.isArray(data.rows) || data.rows.length === 0;
 
 /**
- * 一页里各块的宽度：先按 snapSpan 取，再按 12 栏从左往右排行。视图描述没给 span 的块要是一个人占了一整行（前面一行放不下它），
- * 就撑满这一行，不留半边空白（统计卡一行放满之后，后面的图独占下一行时原来只有 6 栏宽）。给了 span 的照给的来。
+ * 一页里各块的宽度：先按 snapSpan 取，再按 12 栏从左往右排行。给了 span 的照给的来；没给的：
+ *  · 一个人占了一整行（前面一行放不下它）：撑满这一行，不留半边空白（统计卡一行放满之后，后面的图独占下一行时原来只有 6 栏宽）。
+ *  · 统计卡、进度卡（缺省 3 栏）：这一行没放满时，剩下的栏数平分给这一行里没给 span 的统计卡、进度卡，让右边缘和面板对齐——
+ *    三张卡各 4 栏、两张各 6 栏、一张卡加一张 6 栏的图各 6 栏。平分后落不到 4 / 6 / 12 上（比如两张卡加一个写了 3 栏的块，余 3 栏）就不分，照旧。
  * blocks 是真正要画出来的块（隐藏的筛选栏、不认识的类型不在里面）
  */
 export function layoutSpans(blocks: { type: string; span?: unknown }[]): (3 | 4 | 6 | 12)[] {
@@ -203,7 +205,15 @@ export function layoutSpans(blocks: { type: string; span?: unknown }[]): (3 | 4 
   spans.forEach((s, i) => {
     if (used + s > 12) { rows.push([i]); used = s; } else { (rows[rows.length - 1] as number[]).push(i); used += s; }
   });
-  for (const r of rows) if (r.length === 1 && typeof blocks[r[0] as number]?.span !== 'number') spans[r[0] as number] = 12;
+  const auto = (i: number) => typeof blocks[i]?.span !== 'number';
+  for (const r of rows) {
+    if (r.length === 1) { if (auto(r[0] as number)) spans[r[0] as number] = 12; continue; }
+    const cards = r.filter((i) => auto(i) && (blocks[i]?.type === 'stat' || blocks[i]?.type === 'progress'));
+    const left = 12 - r.reduce((n, i) => n + (spans[i] as number), 0);
+    if (!cards.length || left <= 0 || left % cards.length) continue;
+    const to = 3 + left / cards.length;
+    if (to === 4 || to === 6 || to === 12) for (const i of cards) spans[i] = to;
+  }
   return spans;
 }
 
