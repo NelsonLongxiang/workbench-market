@@ -316,6 +316,17 @@ try {
     r = await post(rawR, hR);
     const j5 = (() => { try { return JSON.parse(r.text); } catch { return {}; } })();
     ok('同一条合法回执原样重发 → 409 幂等返回，不重复推进、不记未采信', r.status === 409 && j5.code === -32003 && j5.replay === true && logRows(a.ev).length === rows1, r.text);
+    // 5a) 同一条回执换一种等价编码重放（Sig3、Sig2 改成 base64url、去掉补位，字节不变）：签名查重按解码后的字节，算同一个签名
+    {
+      const urlForm = (s) => s.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const hRe = { ...hR, 'X-A2A-Caller-Sig3': urlForm(hR['X-A2A-Caller-Sig3']), 'X-A2A-Caller-Sig2': urlForm(hR['X-A2A-Caller-Sig2']) };
+      const seen = () => { const d = db(); try { return d.prepare('SELECT COUNT(*) AS n FROM a2a_sig_seen').get().n; } finally { d.close(); } };
+      const before = seen();
+      r = await post(rawR, hRe);
+      const jRe = (() => { try { return JSON.parse(r.text); } catch { return {}; } })();
+      ok('同一条回执换成等价编码重放 → 409 replay，签名已用记录不多一行（按字节认出是同一个签名）、不重复推进',
+        hRe['X-A2A-Caller-Sig3'] !== hR['X-A2A-Caller-Sig3'] && r.status === 409 && jRe.code === -32003 && seen() === before && logRows(a.ev).length === rows1, `${r.status} seen ${before}→${seen()} ${r.text}`);
+    }
     // 5b) 剥离重放（合法的先到）：去掉 Sig3 与 Body-Sha256，留 Sig2 等其余头，正文换成同一宿主另一个任务的 completed 回执
     {
       const victim = seedEvent();

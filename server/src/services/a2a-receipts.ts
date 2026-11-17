@@ -48,10 +48,13 @@ export function receiptRecorded(taskId: string, cls: 'ack' | 'final'): boolean {
   return Boolean(db.prepare('SELECT 1 FROM a2a_inbound_receipts WHERE task_id = ? AND class = ?').get(taskId, cls));
 }
 
-/** 验过的签名只认一次（落库到有效期结束） */
+/**
+ * 验过的签名只认一次（落库到有效期结束）。按解码后的字节查重：验签时标准 Base64 和 base64url 解出来是同一串字节，
+ * 查重也要认成同一个签名（和验签同一种解码）
+ */
 export function claimSignatureOnce(sig: string, expiresAt: number, now = Date.now()): boolean {
   db.prepare('DELETE FROM a2a_sig_seen WHERE expires_at < ?').run(now);
-  const r = db.prepare('INSERT OR IGNORE INTO a2a_sig_seen (sig_hash, expires_at) VALUES (?, ?)').run(createHash('sha256').update(sig, 'utf8').digest('hex'), expiresAt);
+  const r = db.prepare('INSERT OR IGNORE INTO a2a_sig_seen (sig_hash, expires_at) VALUES (?, ?)').run(createHash('sha256').update(Buffer.from(sig, 'base64')).digest('hex'), expiresAt);
   return Number(r.changes) === 1;
 }
 
