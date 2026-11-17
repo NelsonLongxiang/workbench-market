@@ -36,6 +36,7 @@ import Home from './pages/Home';
 import WorkItems from './pages/WorkItems';
 import ViewerChip from './components/ViewerChip';
 import LoginChip from './components/LoginChip';
+import PasswordChip from './components/PasswordChip';
 // import.meta.hot 只在 vite dev 时有；正式构建里它是 undefined，这一行连同演示页整个被摇掉
 const BenchBlocksDemo = import.meta.hot ? React.lazy(() => import('./pages/dev/BenchBlocksDemo')) : null;
 
@@ -128,7 +129,7 @@ export default function App() {
   }
 
   return (
-    <Shell key={gen} admin={admin} footer={<><LoginChip />{surface !== 'control' && <ViewerChip />}<AdminTokenBadge /></>}>
+    <Shell key={gen} admin={admin} footer={<><LoginChip />{surface !== 'control' && <ViewerChip />}{surface !== 'control' && <PasswordChip />}<AdminTokenBadge /></>}>
       <OutboundBanner />
       <Routes>
         <Route path="/" element={<Home />} />

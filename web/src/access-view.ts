@@ -308,3 +308,23 @@ export function accountActionProblem(r: SourceResult): string | null {
   if (r.status === 403) return '你的账号现在不能做这一步。';
   return '没办成，稍后再试。';
 }
+
+// ---------- 本人改密码（用户卡里的「改密码」，POST /api/local-accounts/_self/password） ----------
+
+/** 新密码的规则和服务端一致：至少 10 位、最多 128 位，不能和用户名一样；两次要一致、不能和原密码一样 */
+export const PASSWORD_MIN = 10;
+export function passwordFormProblem(current: string, next: string, confirm: string, username: string | null): string | null {
+  if (!current) return '请输入原密码。';
+  const len = [...next].length; // 和服务端一样按字符数（不按 UTF-16 单元）
+  if (len < PASSWORD_MIN) return `新密码至少 ${PASSWORD_MIN} 位。`;
+  if (len > 128) return '新密码最多 128 位。';
+  if (/[\x00-\x1f\x7f]/.test(next)) return '新密码里不能有控制字符。';
+  if (username && next.toLowerCase() === username.toLowerCase()) return '新密码不能和用户名一样。';
+  if (next === current) return '新密码不能和原密码一样。';
+  if (next !== confirm) return '两次输的新密码不一样。';
+  return null;
+}
+/** /api/auth/me 说这个人有没有站内账号（有才给「改密码」入口） */
+export function hasLocalAccount(me: unknown): boolean {
+  return !!me && typeof me === 'object' && (me as { local_account?: unknown }).local_account === true;
+}

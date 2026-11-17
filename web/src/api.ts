@@ -260,6 +260,8 @@ export const resetLocalAccount = (u: string) => accessCall(`${acct(u)}/reset-pas
 export const unlockLocalAccount = (u: string) => accessCall(`${acct(u)}/unlock`, { method: 'POST', body: {} });
 export const approveLocalAccount = (u: string) => accessCall(`${acct(u)}/approve`, { method: 'POST', body: {} });
 export const rejectLocalAccount = (u: string) => accessCall(`${acct(u)}/reject`, { method: 'POST', body: {} });
+/** 本人改密码：只认登录着的本人（市场会话），要原密码；成功后这个账号的会话全部注销，要重新登录 */
+export const changeOwnPassword = (current: string, next: string) => accessCall('/api/local-accounts/_self/password', { method: 'POST', body: { current, next } });
 export const setPrincipalStatus = (id: string, on: boolean, reason: string) => accessCall(`/api/principals/${on ? 'restore' : 'disable'}`, { method: 'POST', body: { id, reason } });
 
 /** 「安排一件事」（#577）：可派的团队。404 = 服务端还没有这个接口，页面给「还没上线」 */

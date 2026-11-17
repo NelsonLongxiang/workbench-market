@@ -52,7 +52,7 @@ export type LoginGateDeps = {
   /** Odoo 刚认出来的人（不是从市场会话来的）：发一个由市场维持的会话，返回放进 wm_session 的值和到期时刻；不发返回 null */
   openSession?: (req: express.Request) => Promise<{ token: string; expiresAt: number } | null>;
   /** /api/auth/me 附带的「我是谁」：主体、显示名、当前生效授予的角色（侧栏用户卡用）。不给就只回原来的几项 */
-  profile?: (req: express.Request) => Promise<{ principal: string | null; display_name: string | null; roles: { id: string; name: string; scope: string; preset: boolean; expires_at: number | null; source: 'manual' | 'migration'; approved_by: string | null }[] }>;
+  profile?: (req: express.Request) => Promise<{ principal: string | null; display_name: string | null; roles: { id: string; name: string; scope: string; preset: boolean; expires_at: number | null; source: 'manual' | 'migration'; approved_by: string | null }[]; local_account?: boolean }>;
   /** /api/auth/me 附带的 can：这个请求能做的、不属于某一个对象的事（比如新建驾驶舱）。不给就不带 */
   can?: (req: express.Request) => Promise<Record<string, boolean>>;
   /** 登录页上列出的登录方式（发市场会话的那几种，比如飞书）：名字和按钮上的字 */
