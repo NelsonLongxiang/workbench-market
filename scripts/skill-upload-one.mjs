@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /** 单技能上架（属主批准 drawio-skill·2026-10-27）：等价导入器 A 源链路+剔除 __pycache__。
  *  幂等：同 digest skip。 */
-import { readdirSync, statSync, readFileSync, cpSync, rmSync, mkdirSync } from 'node:fs';
+import { readdirSync, statSync, readFileSync, cpSync, existsSync, mkdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 
 import { scriptOptions, explicitPath, validatePathParents } from './explicit-data-target.mjs';
+import { skillSnapRel } from '../server/src/skill-snap-path.ts'; // #810：和服务端、导入器同一个函数
 const targetOptions = scriptOptions();
 const TARGET_DATA = explicitPath(targetOptions['data-dir'] ?? process.env.DATA_DIR, targetOptions);
 const SRC = explicitPath(targetOptions['source-dir'] ?? process.env.SKILL_SRC, targetOptions);
@@ -37,8 +38,10 @@ const row = S.skillBySlug(slug);
 const exist = S.versionsBySkill(row.id)[0];
 if (exist?.tree_digest === digest) { console.log('[one] 已存在同 digest·skip'); process.exit(0); }
 const ver = (S.versionsMax(row.id)?.v ?? 0) + 1;
-const snapDir = join(TARGET_DATA, 'skill-snapshots', encodeURIComponent(NAME), 'v' + ver);
-rmSync(snapDir, { recursive: true, force: true });
+// #810：按全 slug 落目录（不和 dsh: 等别的源同名技能共用）；目标已经有东西就停下，不先删——删掉的可能是库里别的版本行指着的快照
+const snapRel = skillSnapRel(slug, ver);
+const snapDir = join(TARGET_DATA, snapRel);
+if (existsSync(snapDir)) { console.error('[one] 快照目标已存在，不覆盖：' + snapDir); process.exit(5); }
 mkdirSync(snapDir, { recursive: true });
 for (const p of files) {
   const rel = relative(SRC, p).split('\\').join('/');
@@ -46,5 +49,5 @@ for (const p of files) {
   mkdirSync(join(dst, '..'), { recursive: true });
   cpSync(p, dst);
 }
-S.versionInsert({ skillId: row.id, version: ver, changelog: 'import 2026-10-27（属主批准上架·剔除 __pycache__）', treeDigest: digest, fileCount: files.length, totalBytes, snapshotPath: snapDir, reviewedBy: 'owner-approved' });
+S.versionInsert({ skillId: row.id, version: ver, changelog: 'import 2026-10-27（属主批准上架·剔除 __pycache__）', treeDigest: digest, fileCount: files.length, totalBytes, snapshotPath: snapRel, reviewedBy: 'owner-approved' });
 console.log('[one] 上架毕: ' + slug + ' v' + ver + ' files=' + files.length);

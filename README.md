@@ -417,6 +417,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   portal-observation.ts（无敏感原文的被动计数）
   portal.ts（/go/ 反代·白屏五层+登录态）
   portal-access.ts（门户按台访问范围 all/admin/listed、凭据默认收紧、HTTP/WS同判与审计）
+  skill-snap-path.ts（技能快照的磁盘相对路径，只此一处：`skill-snapshots/<encodeURIComponent(全 slug)>/v<n>`；服务端发布和 scripts/skill-import.mjs、scripts/skill-upload-one.mjs 写快照都用它，snapshot_path 存这个相对形，跨源同名技能各有各的目录，#183、#810）
   redis.ts（Redis 连接和 SOP 执行实例的热态：连接只有这一条；SOP 的读写经共用状态层的 sop 句柄，只碰 wm:sop: 开头的键）
   request-person.ts  这个请求是哪个人：只经身份服务认请求带的登录凭据（登录提供方的会话或市场会话），主体须是启用的人；认不出就是没有，调用方照常放行（任务中心建录入、发布用）
   roles.ts（角色声明：平台四个内置角色 owner/admin/member/guest，组织角色初始集合 dept-member/dept-lead 或外部声明文件·启动时校验，不合格拒绝启动·「谁能做什么」的矩阵从统一判定的同一套规则推（permits 和判定共用））
