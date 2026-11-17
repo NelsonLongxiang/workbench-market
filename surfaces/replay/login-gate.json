@@ -544,8 +544,18 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "191", "etag": "W/\"bf-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
-            "body": { "gate": "off", "authenticated": true, "via": "odoo", "login": "alpha", "principal": "user:alpha", "display_name": "Synthetic alpha", "roles": [], "can": { "create_cockpit": false, "remember_knowledge": false } }
+            "headers": { "cache-control": "private, no-store", "content-length": "213", "etag": "W/\"d5-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": {
+              "gate": "off",
+              "authenticated": true,
+              "via": "odoo",
+              "login": "alpha",
+              "principal": "user:alpha",
+              "display_name": "Synthetic alpha",
+              "roles": [],
+              "local_account": false,
+              "can": { "create_cockpit": false, "remember_knowledge": false }
+            }
           }
         },
         {
@@ -579,7 +589,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "328", "etag": "W/\"148-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "350", "etag": "W/\"15e-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
             "body": {
               "gate": "off",
               "authenticated": true,
@@ -588,6 +598,7 @@
               "principal": "user:alpha",
               "display_name": "Synthetic alpha",
               "roles": [{ "id": "member", "name": "普通员工", "scope": "*", "scope_name": null, "preset": true, "expires_at": null, "source": "manual", "approved_by": "cli" }],
+              "local_account": false,
               "can": { "create_cockpit": false, "remember_knowledge": false }
             }
           }
@@ -743,8 +754,18 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "191", "etag": "W/\"bf-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
-            "body": { "gate": "off", "authenticated": true, "via": "odoo", "login": "alpha", "principal": "user:alpha", "display_name": "Synthetic alpha", "roles": [], "can": { "create_cockpit": false, "remember_knowledge": false } }
+            "headers": { "cache-control": "private, no-store", "content-length": "213", "etag": "W/\"d5-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": {
+              "gate": "off",
+              "authenticated": true,
+              "via": "odoo",
+              "login": "alpha",
+              "principal": "user:alpha",
+              "display_name": "Synthetic alpha",
+              "roles": [],
+              "local_account": false,
+              "can": { "create_cockpit": false, "remember_knowledge": false }
+            }
           }
         }
       ]
