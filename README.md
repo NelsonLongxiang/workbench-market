@@ -15,6 +15,7 @@ pnpm build            # 构建前端 → web/dist，由 server 同端口托管
 pnpm start            # 生产模式（只跑 server，访问 http://127.0.0.1:9800）
 node scripts/gen-design-tokens.mjs   # 改了 DESIGN.md 的 token 后重新生成 web/src/tokens.css 与 design-tokens.ts（--check 只比对）
 node scripts/tech-route-check.mjs    # 路线体检：结构数字对照 tech-route.json 里的基线（预算与红线超了会失败；--selftest 自检）
+node scripts/report-template-p0-browser.mjs  # 报告模板 P0 合成试排（不接生产；范围与可选 PDF 内容核对见 docs/report-template-p0.md）
 node scripts/surface-snapshot.mjs     # 对外面的快照：改了路由、MCP 工具或表结构后，加 --write 重新生成
 node scripts/route-replay-test.mjs    # 路由录制回放：对同一组请求重放，状态码、响应头和响应体要和录下来的一样（有意改了行为加 --record 重录）
 node scripts/upgrade-smoke.mjs        # 升级冒烟：线上发布分支的库换成本检出的代码启动、再退回去，全程合成数据（--base 换基线）
