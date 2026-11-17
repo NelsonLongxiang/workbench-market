@@ -136,6 +136,13 @@ try {
   ok('有效 Sig2（上游 signOriginClaim）→ 进准入、已绑定 200 DELIVERED', delivered(r), show(r));
   r = await direct(raw, sigOk);
   ok('原样重放 → 401 replay', refused(r, 'replay'), show(r));
+  {
+    // 换一种等价编码重放（签名改成 base64url、去掉补位，字节不变）：签名查重按解码后的字节，同样是重放
+    const k = Object.keys(sigOk).find((x) => /sig2$/i.test(x));
+    const reenc = { ...sigOk, [k]: sigOk[k].replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') };
+    r = await direct(raw, reenc);
+    ok('换成等价编码重放 → 401 replay', reenc[k] !== sigOk[k] && refused(r, 'replay'), show(r));
+  }
   raw = start(OK);
   ok('有效 body 签名 → 200 DELIVERED', delivered(await direct(raw, bodyHeaders(raw))));
   r = await direct(start(READ), routeHeaders());
