@@ -1,5 +1,22 @@
 > 状态：已归档（2026-11-18）。原因：2026-11-05～11-06 钉在当时提交上的架构图来源说明；取代它的：[docs/productization/08-technical-route.md](../productization/08-technical-route.md)、[docs/productization/10-boundary-and-norms.md](../productization/10-boundary-and-norms.md)。原位置：`docs/workbench-market-arch-sources.md`。下面是原文，未改。
 
+**链接对照**（2026-11-18 归档时加）：原文里的相对链接是按原位置 `docs/workbench-market-arch-sources.md` 写的，挪进归档以后照新位置解析会断。原文不改，下表列出每个这样的链接现在指向哪里。
+
+| 原文里写的 | 现在在 |
+|---|---|
+| `../server/src/index.ts` | [`server/src/index.ts`](../../server/src/index.ts) |
+| `../server/src/extensions.ts` | [`server/src/extensions.ts`](../../server/src/extensions.ts) |
+| `../server/src/login-providers/odoo/odoo-browser-origin.ts` | [`server/src/login-providers/odoo/odoo-browser-origin.ts`](../../server/src/login-providers/odoo/odoo-browser-origin.ts) |
+| `../server/src/portal.ts` | [`server/src/portal.ts`](../../server/src/portal.ts) |
+| `../server/src/db.ts` | [`server/src/db.ts`](../../server/src/db.ts) |
+| `../server/src/tasks.ts` | [`server/src/tasks.ts`](../../server/src/tasks.ts) |
+| `../server/src/sso-ticket-store.ts` | [`server/src/sso-ticket-store.ts`](../../server/src/sso-ticket-store.ts) |
+| `../server/src/login-providers/odoo/odoo-session.ts` | [`server/src/login-providers/odoo/odoo-session.ts`](../../server/src/login-providers/odoo/odoo-session.ts) |
+| `../server/src/sop-state-checkpoints.ts` | [`server/src/sop-state-checkpoints.ts`](../../server/src/sop-state-checkpoints.ts) |
+| `../docs/workbench-market-arch.drawio` | [`docs/archive/workbench-market-arch.drawio`](workbench-market-arch.drawio)（原来的 `docs/workbench-market-arch.drawio` 已归档） |
+
+---
+
 # 架构图来源与状态边界
 
 本文与[可编辑架构图](./workbench-market-arch.drawio)一起维护。2026-11-06（Asia/Shanghai）本轮更新只增两张固定来源视图，原五页均保留为历史；历史 mxGraphModel、节点／边及几何不变。图是源码与证据边界说明，不是实时生产拓扑、完整验收或新实施授权。

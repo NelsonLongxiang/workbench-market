@@ -1,5 +1,15 @@
 > 状态：已归档（2026-11-18）。原因：前提是人在 DSH Web GUI 和市场之间切换；属主 2026-11-11 定「人只用市场」；取代它的：[docs/productization/06-a2a-superagent-fusion.md](../../productization/06-a2a-superagent-fusion.md)「一之三」。原位置：`docs/productization/04-dsh-gui-relationship.md`。下面是原文，未改。
 
+**链接对照**（2026-11-18 归档时加）：原文里的相对链接是按原位置 `docs/productization/04-dsh-gui-relationship.md` 写的，挪进归档以后照新位置解析会断。原文不改，下表列出每个这样的链接现在指向哪里。
+
+| 原文里写的 | 现在在 |
+|---|---|
+| `02-concept-model.md` | [`docs/productization/02-concept-model.md`](../../productization/02-concept-model.md) |
+| `06-a2a-superagent-fusion.md` | [`docs/productization/06-a2a-superagent-fusion.md`](../../productization/06-a2a-superagent-fusion.md) |
+| `05-token-v2.md` | [`docs/productization/05-token-v2.md`](../../productization/05-token-v2.md) |
+
+---
+
 # 04 · 市场与 DSH Web GUI 的关系
 
 > 阶段 0 草稿。回答：业务同事、操作者在两个界面之间怎么走，各自看什么，不重复造什么。
