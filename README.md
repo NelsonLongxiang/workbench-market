@@ -135,6 +135,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 ## 上线前确认
 
 - 至少一个主体持有管理层授予（管理口令读 `GET /api/health`，`work_items.management_grant_holders` 不是 0）。团队没有负责人时，只有他们能代办放行等过目的事项；一个都没有时，那些事项没人放得了（存量差异清单 L21）。
+- Odoo 下线预检（只读，第五次上线的准入）：`node scripts/ops/odoo-offboard-preflight.mjs --db <库文件>`（`--json` 给机器读）。只报人数，按「Odoo 下线后这个人还进不进得来」算（能用站内账号登录 = 人启用、绑着站内身份、站内账号还在，三项共用）：只靠 Odoo 登录的人；落在站内账号上的完整管理员（`owner`、范围 `*`、生效中）；只靠 Odoo 才用得上的待办读权（项目读权、运行读权）；作者仍是 `odoo:<登录名>`、对不回启用的人的工作台常量，以及属主待办看板的配置能不能对回（只数主库，`WM_VARS_STORE=bench` 时要另查）。没有这样的完整管理员、有这样的读权、有只靠 Odoo 的人、有对不回的常量，都算红（退出码 1），红了不上线；属主确认那些人不再需要登录的，带 `--accept-odoo-only=<人数>`（给了就必须和实际人数严格相等，实际 0 人时给别的数也红；写法不对、重复给是用法错误）。测试：`scripts/odoo-offboard-preflight-test.mjs`。
 
 ## 升级冒烟
 
