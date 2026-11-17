@@ -15,17 +15,17 @@ HANDLE = re.compile(r'\b[A-Za-z0-9_-]+/[0-9a-f]{6,}\b')
 STATES = ['draft', 'held', 'delivered', 'accepted', 'progress', 'waiting', 'ready', 'blocked', 'done', 'failed', 'dropped', 'cancelled']
 
 ITEM = {'id': 'wi-syn-1', 'title': '合成：核对一批到货', 'state': 'progress', 'created_by': 'user:syn-a', 'creator_principal': 'user:syn-a', 'created_at': '2026-11-10 08:00:00', 'updated_at': '2026-11-12 08:00:00',
-        'source_kind': 'arrange', 'source_ref': '', 'target_team': 'dsh/canvas/合成团队', 'seat': 'dsh/98b94be9', 'eval': 'accept', 'eval_reason': '', 'progress_summary': '', 'receipt_outcome': '', 'object': '', 'phase': '', 'open_asks': '', 'outputs': '', 'evidence': ''}
+        'source_kind': 'arrange', 'source_ref': '', 'target_team': 'dsh/canvas/合成团队', 'seat': 'dsh/5eed0a17', 'eval': 'accept', 'eval_reason': '', 'progress_summary': '', 'receipt_outcome': '', 'object': '', 'phase': '', 'open_asks': '', 'outputs': '', 'evidence': ''}
 LOG = [
     {'seq': 1, 'fact': 'create', 'fact_source': 'arrange', 'fact_id': '', 'from_state': '', 'to_state': 'draft', 'actor': 'user:syn-a', 'detail': '{}', 'at': '2026-11-12 01:00:00', 'rejected': ''},
     {'seq': 2, 'fact': 'receipt', 'fact_source': 'a2a', 'fact_id': '', 'from_state': 'delivered', 'to_state': 'accepted', 'actor': 'receiver:dsh', 'detail': json.dumps({'by': {'seat': 'dsh/1a2b3c4d'}}), 'at': '2026-11-12 02:00:00', 'rejected': ''},
     {'seq': 3, 'fact': 'progress', 'fact_source': 'a2a', 'fact_id': '', 'from_state': 'accepted', 'to_state': 'progress', 'actor': 'seat:dsh/5e6f7a8b', 'detail': json.dumps({'text': '在做'}), 'at': '2026-11-12 03:00:00', 'rejected': ''},
 ]
 DETAIL = {'item': ITEM, 'log': LOG, 'messages': [], 'unread': 0, 'progress': None, 'can': {}, 'turn': {}, 'creator': {'principal': 'user:syn-a', 'display_name': '合成甲'}}
-ROW = {'id': 'wi-syn-1', 'title': '合成：核对一批到货', 'state': 'progress', 'object': None, 'phase': None, 'seat': 'dsh/98b94be9',
+ROW = {'id': 'wi-syn-1', 'title': '合成：核对一批到货', 'state': 'progress', 'object': None, 'phase': None, 'seat': 'dsh/5eed0a17',
        'last_progress': {'actor': 'receiver:dsh', 'fact': 'progress', 'text': '在做', 'at': '2026-11-12T03:00:00Z'}, 'updated_at': '2026-11-12T03:00:00Z'}
 LIST = {'view': 'mine', 'views': {'mine': {'available': True, 'count': 1}}, 'items': [ROW], 'counts': {**{s: 0 for s in STATES}, 'progress': 1}, 'total': 1, 'next_cursor': None}
-ATT = {'items': [{'source': 'work-items', 'source_id': 'wi-syn-2', 'category': 'accept', 'title': '合成：等验收的一件', 'waiting_for': 'dsh/98b94be9', 'since': '2026-11-12T00:00:00Z',
+ATT = {'items': [{'source': 'work-items', 'source_id': 'wi-syn-2', 'category': 'accept', 'title': '合成：等验收的一件', 'waiting_for': 'dsh/5eed0a17', 'since': '2026-11-12T00:00:00Z',
                   'answers': ['verify', 'return'], 'object': '', 'phase': '', 'link': '/work-items/wi-syn-2', 'mine': True, 'creator': {'principal': 'user:syn-a', 'display_name': '合成甲'}}],
        'counts': {'total': 1, 'by_category': {'ask': 0, 'review': 0, 'accept': 1, 'glance': 0, 'grant': 0}}, 'sources': {}}
 
