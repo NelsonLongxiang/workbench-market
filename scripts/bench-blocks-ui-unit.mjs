@@ -105,6 +105,7 @@ ok('一行两张卡各 6 栏、四张各 3 栏、五张：四张一行、第五�
 ok('写了 span 的卡不动，剩下的平分给没写的：写了 4 栏的一张加两张没写的，没写的各 4 栏', JSON.stringify(v.layoutSpans([T3('stat', 4), T3('stat'), T3('stat')])) === '[4,4,4]');
 ok('平分后落不到 4 / 6 / 12 上就不分：两张卡加一张写了 3 栏的卡，余 3 栏不分', JSON.stringify(v.layoutSpans([T3('stat'), T3('stat'), T3('stat', 3)])) === '[3,3,3]');
 ok('一张卡加一张没写 span 的图：卡 6 栏、图 6 栏', JSON.stringify(v.layoutSpans([T3('stat'), T3('bar')])) === '[6,6]');
+ok('平分出来的宽度不在 3 / 4 / 6 / 12 里就不分：一张没写的卡加一张写了 4 栏的块，余 5 栏（3+5=8 栅格认不了），照旧 [3,4]', JSON.stringify(v.layoutSpans([T3('stat'), T3('stat', 4)])) === '[3,4]', v.layoutSpans([T3('stat'), T3('stat', 4)]));
 ok('一行放得下的照旧：统计卡两张加一张图正好 12 栏', JSON.stringify(v.layoutSpans([T3('stat'), T3('stat'), T3('bar')])) === '[3,3,6]');
 ok('写了 span 的照写的来，独占一行也不撑（三张没写的卡照样平分自己那一行）', JSON.stringify(v.layoutSpans([T3('stat'), T3('stat'), T3('progress'), T3('bar', 6)])) === '[4,4,4,6]');
 ok('卡全写了 span：照写的，右边留空也不动', JSON.stringify(v.layoutSpans([T3('stat', 3), T3('stat', 3), T3('progress', 3), T3('bar')])) === '[3,3,3,12]');
