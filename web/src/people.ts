@@ -16,7 +16,7 @@ export function who(v: unknown): string {
 
 /** 名册里也查不到名字的席位怎么说（不露句柄） */
 export const UNNAMED_SEAT = '一位 AI 员工';
-/** 像不像一个席位句柄（<区>/<编号>，例如 dsh/98b94be9）：像的不直接给人看。画布团队（<区>/canvas/<名字>）有三段，不算 */
+/** 像不像一个席位句柄（<区>/<编号>，例如 dsh/5eed0a17）：像的不直接给人看。画布团队（<区>/canvas/<名字>）有三段，不算 */
 export const looksLikeHandle = (s: string): boolean => /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test((s || '').trim());
 
 /** 席位：服务端给「名字 · 句柄」或只有句柄；只写名字（见文件头）。roster：句柄 → 名字（rosterNames 给的） */
