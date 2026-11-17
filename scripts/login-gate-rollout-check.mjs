@@ -215,10 +215,10 @@ try {
   row('Odoo 身份', 'Odoo 门户账号', '401（登录门只认内部员工）', st(r), gate401(r));
   r = await req('GET', '/api/tasks', ODOO_ADM);
   row('统一待办', 'Odoo 管理员只带会话读 /api/tasks', '200', st(r), r.status === 200);
-  r = await req('POST', '/api/task-center/tasks/999999/publish', BRW, {});
-  row('任务中心', '只有登录 cookie（非管理员）发布任务', '403（管理写仍要口令或 Odoo 管理员）', st(r), r.status === 403);
-  r = await req('POST', '/api/task-center/tasks/999999/publish', { ...REMOTE, 'x-admin-token': ADMIN }, {});
-  row('任务中心', '远程带口令发布任务', '过两道门（不存在的任务 404）', st(r), r.status === 404);
+  r = await req('POST', '/api/task-center/tasks/999999/withdraw', BRW, {});
+  row('任务中心', '只有登录 cookie（非管理员）撤回任务', '403（管理写仍要口令或 Odoo 管理员）', st(r), r.status === 403);
+  r = await req('POST', '/api/task-center/tasks/999999/withdraw', { ...REMOTE, 'x-admin-token': ADMIN }, {});
+  row('任务中心', '远程带口令撤回任务', '过两道门（不存在的任务 404）', st(r), r.status === 404);
   r = await req('GET', `/go/${odooWb.id}/?return=%2Flogin`, PAGE);
   row('Odoo', '登录中继 /go/<Odoo 台>/?return=/login（匿名）', '200 跳转页', st(r), r.status === 200 && r.text.includes(`${ODOO}/web/login`));
   r = await req('GET', `/go/${odooWb.id}/?return=%2Ftasks`, PAGE);

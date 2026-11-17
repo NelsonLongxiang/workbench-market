@@ -545,7 +545,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   sso.ts（SSO 回调 /sso/callback）
   stats.ts（端点命中统计 /api/stats）
   summary.ts（首页总览 /api/summary）
-  task-center.ts（任务中心 /api/task-center：录入发布、任务、总开关、模板、任务锁、撤回、派发开关；录入发布：事项的建立人是提需求的人——建录入时经身份服务认出、记在录入上的那个，没有就空着；发布的人认得出就只留痕）
+  task-center.ts（任务中心 /api/task-center：任务、总开关、模板、任务锁、撤回、派发开关。录入发布 POST /api/task-center/tasks 和按编号发布已退役（404），任务只经「安排一件事」POST /api/work-items 建；存量的录入任务照旧能读、撤回、开关）
   tasks.ts（统一待办 /api/tasks 与 ygl 项目读授权的授予、撤销）
   bench-views.ts（数据视图的入口 /api/bench-views：台的登记、数据集、四种写入、查询、快照、视图描述与版本、取数、表单·在 `WM_BENCH_VIEWS` 开关后面，缺省开、可设 off 关·先拒管理口令再问判定，放行两档：管理层（范围「全部」，读写都按「能不能写」问判定）；或者台绑了部门、这个人在这个部门上有已放行的授予（scopedVerdict，关系只收窄不放行））
   knowledge.ts（经验库 /api/knowledge：列表、详情、同步状态（含记成经验的待写、放弃条数）、补记成经验 POST /api/knowledge/remember·跨站和管理口令 403、没登录 401·条目按范围判：全公司认业务的看，部门认这个部门范围的授予，其余只给管理层·看不到的和不存在的同一个 404·「项目 → 部门」对照 /api/knowledge/project-depts 只有管理层、属主看和改，每次改记一行）

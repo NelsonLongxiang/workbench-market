@@ -155,8 +155,6 @@
           "sso-gateway-smoke.mjs",
           "stats-smoke.mjs",
           "taskcenter-b1-smoke.mjs",
-          "taskcenter-b2-smoke.mjs",
-          "taskcenter-b3-smoke.mjs",
           "token-smoke-lock-test.mjs",
           "token-smoke.mjs",
           "unified-bindings-smoke.mjs",

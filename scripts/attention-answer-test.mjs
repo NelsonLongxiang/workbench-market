@@ -60,7 +60,7 @@ putVar('item.1', { question: '问题一', source: '登记方' }, 'mcp:writer');
 putVar('item.2', { question: '问题二', source: '登记方' }, 'mcp:writer');
 for (const id of ['ext-new', 'ext-old', 'ext-extra']) db.prepare("INSERT INTO principal_pending (provider, external_id, display_name) VALUES ('synthetic', ?, ?)").run(id, 'Name ' + id);
 db.prepare("INSERT INTO bindings (target_type, target_slug, agent_node, direction, notify_url) VALUES ('sop', 'task-center', 'team-a', 'notify', 'http://team-a.synthetic.invalid/a2a')").run();
-const publish = (id, open) => { db.exec('BEGIN IMMEDIATE'); const e = events.recordTaskCenterEvent({ id, data: {}, stepValue: () => '', publishedBy: 'alpha', templateVersion: 1, materialSha256: 'c'.repeat(64), agentDispatch: open, centerOn: open }); db.exec('COMMIT'); return e; };
+const publish = (id, open) => { db.exec('BEGIN IMMEDIATE'); const e = events.recordTaskCenterEvent({ id, data: {}, stepValue: () => '', publishedBy: 'alpha', templateVersion: 1, materialSha256: 'c'.repeat(64), agentDispatch: open, centerOn: open , arranged: { team: 'team-a', submitter: 'human:alpha' } }); db.exec('COMMIT'); return e; };
 out.release = { new: publish(801, false), old: publish(802, false) };
 for (const id of [803, 804]) db.prepare("INSERT INTO tasks (id, title, status, published_at, published_by) VALUES (?, ?, 'published', datetime('now'), 'alpha')").run(id, '任务 ' + id);
 out.withdraw = { new: publish(803, false), old: publish(804, false) };

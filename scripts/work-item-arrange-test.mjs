@@ -359,7 +359,14 @@ try {
     check(ch.body?.notified === 0 && ch.body.pending_release === true && notesOf(past.body?.event_id).length === 0 && heldBody.status === 'held' && dueInBody(heldBody.message) === '2099-01-02'
       && clr.body?.notified === 0 && clr.body.pending_release === true && dueInBody(msgOf(future.body?.event_id).message) === '',
       '等放行时改截止：notified 0、pending_release 真，不排变更；还没发的派工正文里 task.due 换成新的（清掉就是空）', show({ ch: ch.body, clr: clr.body, held: heldBody.status, due: dueInBody(heldBody.message), notes: notesOf(past.body?.event_id).length }));
-    const rel = await call('POST', `/api/workbench-events/${past.body?.event_id}/release`, ADMIN, {});
+    // 放行经事项的入口（管理员旧的放行入口已退役）：团队没有负责人，由持有管理层授予的人代办——本机命令行给 root-admin 起草、提交、批准一份
+    await call('GET', '/api/auth/me', { ...SAME, cookie: `session_id=${SESSIONS.admin}` }); // 认一次，主体表里才有 root-admin
+    const g = await call('POST', '/api/grants', {}, { principal: 'user:root-admin', role: 'management', scope: '*', reason: '合成：代办放行' });
+    if (!g.body?.grant?.id) throw new Error(`管理层授予起草失败：${show(g)}`);
+    await call('POST', `/api/grants/${g.body?.grant?.id}/submit`, {}, {});
+    const ga = await call('POST', `/api/grants/${g.body?.grant?.id}/approve`, {}, {});
+    if (!(ga.status >= 200 && ga.status < 300)) throw new Error(`管理层授予没搭起来：${show(ga)}`);
+    const rel = await call('POST', `/api/work-items/${past.body?.item_id}/release`, { ...SAME, cookie: `session_id=${SESSIONS.admin}` }, {});
     const relBody = msgOf(past.body?.event_id);
     check(rel.status === 200 && relBody.status !== 'held' && (relBody.status === 'sent' || dueInBody(relBody.message) === '2099-01-02'),
       '等放行期间改了截止，放行之后派出去的正文带的是新期限', show({ rel: rel.status, st: relBody.status, due: dueInBody(relBody.message) }));

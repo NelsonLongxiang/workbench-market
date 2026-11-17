@@ -228,10 +228,8 @@
       "GET /login/:flow/callback  -> login.callback  write  （状态码不代表授权：登录回调：外人、别的租户回 403，是登录方式的结论不是授权）",
       "POST /login/:flow/events  -> login.event  write  （状态码不代表授权：验签：签名、来源不对回 401，由登录方式插件判，不看身份）",
       "GET /.well-known/agent-card.json  -> agent-card.read  read",
-      "POST /api/task-center/tasks  -> task-center.publish  admin",
       "GET /api/workbench-events  -> workbench-event.list  admin",
       "GET /api/workbench-events/:eventId  -> workbench-event.read  admin",
-      "POST /api/workbench-events/:eventId/release  -> workbench-event.release  decide",
       "POST /api/workbench-events/:eventId/decision  -> workbench-event.decision  write  （状态码不代表授权：接单节点凭投递里的 reply token 回写，不是登录身份的结论）",
       "GET /api/task-center/tasks  -> task-center.list  read",
       "GET /api/task-center/tasks/:id  -> task-center.read  read",
@@ -243,7 +241,6 @@
       "GET /api/task-center/template  -> task-center.template  read",
       "PUT /api/task-center/policy  -> task-center.policy-update  admin",
       "PATCH /api/task-center/tasks/:id/switch  -> task-center.toggle  admin",
-      "POST /api/task-center/tasks/:id/publish  -> task-center.publish-legacy  admin",
       "POST /api/task-center/tasks/:id/withdraw  -> task-center.withdraw  admin",
       "PATCH /api/task-center/tasks/:id/agent-dispatch  -> task-center.dispatch-toggle  admin",
       "GET /sso/callback  -> sso.callback  write",
@@ -366,7 +363,6 @@
           "change-request.reject",
           "mcp.access-approve",
           "mcp.access-reject",
-          "workbench-event.release",
           "work-items.view-all"
         ]
       },

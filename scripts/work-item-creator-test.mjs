@@ -9,7 +9,7 @@
  *         未登录、拿这个入口送别的事实（release、withdraw、report……）、建立人不是人（席位）、来源未验证——全部被拒、事项不动
  *   建立人主体（「是不是他的」只认它）：
  *         自报的建立人名是别人的登录名——那个人看不到、答不了；建立人主体空着——对非管理员，「关注」、事项页、验收入口一致地都没有它；
- *         同一个登录名改绑到另一个主体之后，不再是建立人；任务中心发布：录入是匿名建的，发布的人认得出也不当建立人（8f），口令发布留空；
+ *         同一个登录名改绑到另一个主体之后，不再是建立人；录入发布入口已退役（404）；
  *         回填重复跑结果相同
  *   启动自检：远程匿名打这个入口必须 401
  *   判定比对开着：建立人验收成功的请求记成「状态码不代表授权」，不出现不一致
@@ -453,21 +453,11 @@ try {
   }
   // ---------- 任务中心发布：建立人主体只取身份服务认出来的人 ----------
   {
-    const run = async () => {
-      const r = await call('POST', '/api/sop/runs', {}, { slug: 'task-center' });
-      for (const [k, v] of Object.entries({ title: '建立人主体', intent: '对抗', deliverable: '一行' })) await call('PUT', `/api/sop/runs/${r.body.id}`, {}, { stepKey: k, value: v });
-      await call('POST', `/api/sop/runs/${r.body.id}/finish`, {}, {});
-      return r.body.id;
-    };
-    const item = (eventId) => { const c = db(); try { return c.prepare('SELECT id, created_by, creator_principal FROM work_items WHERE id = ?').get(`wi_${eventId}`); } finally { c.close(); } };
-    const bySession = await call('POST', '/api/task-center/tasks', { ...SAME, cookie: `session_id=${SESSIONS.admin}` }, { intake_run_id: await run(), published_by: 'alpha' });
-    const byToken = await call('POST', '/api/task-center/tasks', ADMIN, { intake_run_id: await run(), published_by: 'alpha' });
-    const s = bySession.body?.event_id ? item(bySession.body.event_id) : null, t = byToken.body?.event_id ? item(byToken.body.event_id) : null;
-    const adminPrincipal = (() => { const c = db(); try { return c.prepare("SELECT id FROM principals WHERE id = 'user:root-admin'").get()?.id ?? null; } finally { c.close(); } })();
-    check(bySession.status === 201 && s && s.creator_principal === null && adminPrincipal !== null && s.created_by === 'human:alpha', '会话登录的管理员发布匿名建的录入（published_by 自填 alpha）：建立人主体留空——不拿发布的人顶替，也不认自填的名字（8f）', show({ bySession, s }));
-    check(byToken.status === 201 && t && t.creator_principal === null && t.created_by === 'human:alpha', '口令发布（认不出人）：建立人主体留空，自填的 alpha 只进显示名', show({ byToken, t }));
-    const page = t ? await call('GET', `/api/work-items/${t.id}`, ALPHA) : { status: 0 };
-    check(page.status === 404, '自填 alpha 的那件事项：alpha 读不到（404）', show(page));
+    // 录入发布已退役：「发布的人、自填的名字都不当建立人」不再有这条入口；「安排一件事」的建立人只认会话认出的本人，
+    // 请求体自报的建立人一概不认，由 work-item-arrange-test 守
+    const bySession = await call('POST', '/api/task-center/tasks', { ...SAME, cookie: `session_id=${SESSIONS.admin}` }, { intake_run_id: 1, published_by: 'alpha' });
+    const byToken = await call('POST', '/api/task-center/tasks', ADMIN, { intake_run_id: 1, published_by: 'alpha' });
+    check(bySession.status === 404 && byToken.status === 404, '录入发布入口已退役：会话管理员、管理口令来发都是 404', show({ bySession: bySession.status, byToken: byToken.status }));
   }
   // ---------- 回填重复跑，结果相同 ----------
   {
