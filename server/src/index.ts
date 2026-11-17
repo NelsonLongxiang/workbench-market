@@ -3235,11 +3235,11 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
     case 'app_files_upload': {
       // #164 P1②（批派令）：MCP 侧上传——base64 入 app_files（与 REST multipart 同表同链）
       const slug = String(args?.slug ?? '').trim();
-      const name = fixFileName(String(args?.name ?? '').trim());
+      // 文件名照原样用（#815）：MCP 的参数是 JSON，本来就是 UTF-8。fixFileName 是给 multipart 修 busboy 的 latin1 乱码用的，
+      // 套在这里会把部分中文名弄成控制字符（合成.csv → "\b\u0010.csv"）。名字和 REST 原始字节上传同样校验
+      const name = String(args?.name ?? '').trim();
       if (args?.content_base64 === undefined) {
         // 不带 content_base64：申请上传票。台、文件名、文件数余量现在就核，免得字节传完了才被拒。
-        // 文件名照原样用：MCP 的参数本来就是 UTF-8，fixFileName 是给 multipart 修 latin1 乱码的，套在这里会把中文名弄坏
-        const name = String(args?.name ?? '').trim();
         if (!slug || !name) throw new HttpError(400, 'slug/name 必填');
         if (name.length > 255 || name === '.' || name === '..' || /[\/\\\x00-\x1f]/.test(name)) throw new HttpError(400, '文件名不合法（≤255 字符，不含路径分隔符与控制字符）');
         const { size, sha256 } = ticketSizeSha(args, UPLOAD_MAX);
@@ -3252,6 +3252,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       }
       const b64 = String(args?.content_base64 ?? '');
       if (!slug || !name || !b64) throw new HttpError(400, 'slug/name/content_base64 必填');
+      if (name.length > 255 || name === '.' || name === '..' || /[\/\\\x00-\x1f]/.test(name)) throw new HttpError(400, '文件名不合法（≤255 字符，不含路径分隔符与控制字符）');
       const a = getApp(slug, true);
       // 完整性：有的 MCP 客户端会把过长的参数截短（常见截在 64KB）。截在 4 的倍数上的 base64 照样能解码，
       // 不核就会把残缺文件当正常文件存下。所以：base64 严格校验；调用方带了 size / sha256 就逐项对；
