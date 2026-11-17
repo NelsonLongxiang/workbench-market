@@ -180,6 +180,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/bench-real-loop-browser.mjs
+      - name: 报告模板 P0（合成隔离：308 行完整长表、50 个重复详情、冻结输入、Chromium 打印）
+        env:
+          PYTHON: python
+        run: node scripts/report-template-p0-browser.mjs
       - name: 身份变了以后页面重读（401 且确认没登录或换了人才清·502 不清挂横幅·旧身份在路上的应答不写回·后退恢复的页面也确认）
         env:
           PYTHON: python
@@ -560,6 +564,8 @@ jobs:
         run: node scripts/owner-pending-unit.mjs && node scripts/owner-pending-board-smoke.mjs && node scripts/attention-ui-unit.mjs && node scripts/work-item-detail-ui-unit.mjs && node scripts/market-ui-unit.mjs && node scripts/home-ui-unit.mjs && node scripts/arrange-ui-unit.mjs && node scripts/review-ui-unit.mjs
       - name: 数据视图组件单测（纯函数——格式、取值说法、按值着色、图表配置、工具契约一致性；单列一步，不和上面那行挤在一起）
         run: node scripts/bench-blocks-ui-unit.mjs && node scripts/bench-var-bindings-test.mjs && node scripts/bench-view-contract-test.mjs
+      - name: 报告模板 P0 编排（正反例、数据完整性、源定义签名、稳定键与冻结值）
+        run: node scripts/report-template-p0-test.mjs && node scripts/report-template-p0-store-test.mjs
       - name: 「谁能做什么」页单测（纯函数——授予的状态、范围、期限，待核准，按人排的表，矩阵格子；单列一步）
         run: node scripts/access-ui-unit.mjs
       - name: 「经验库」页单测（纯数据——四类的先后和说法、认不出的类别不露代号；单列一步）
