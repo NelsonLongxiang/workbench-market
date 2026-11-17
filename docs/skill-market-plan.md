@@ -83,6 +83,10 @@ CREATE TABLE install_ledger (
 - **源 B `jf-tech`**：`.agents/skills`（主）+`.claude/skills`（去重 by name）+ packages 子包（标 source=jf-tech:package）；**layer=1 业务角色层**；role_bundles 从 `.agents/role-*.json` 直读收编（apollo/dionysus 神谱束）。
 - **family 关系（gitnexus 族）**：族判定=name 前缀/目录分组（导入器 `--family-map family.json` 人工维护映射，首版从目录名推断+人审修正）——同族 skills.family_parent 指族父 slug，族父自身也是 skills 行（virtual=1 不导入文件，仅聚合点——用 family_parent='' + 特殊 author='family-anchor' 标记）。
 - 幂等：重复导入 by (source,name)→已存在则比 digest，同→skip，异→**不自动升版**（报 diff 待人走发布门）。
+- **点名导入（#783）**：`--only agents:<名>,dsh:<名>,jf:<名或遗产目录>` 只处理点名的技能。slug 写全，不认前缀、通配、同名目录推断；不认识、写法不对、重复、同一个源里两个目录报同一个名字（歧义）的，任何写入之前失败（退出 2）。
+  - `--dry-run --only …`：只读打开显式目标库（不加载应用、不建库），逐个报 same / changed / missing、预计新增的版本数和这一批的前态指纹 `state`；库不在或读不了失败（退出 3）。
+  - 正式 `--only …`：同内容的不碰（连元数据也不 upsert）；要导的先放快照、再一个事务写库，任何一步失败整体回滚、刚放的快照删掉（退出 5）；不处理角色束、不写固定的全源报告（结果打在标准输出）。`--expect-state <state>` 执行前重算前态，和试跑时不一样就不动（退出 4）。
+  - 不带 `--only` 的全源导入、`--dry-run` 扫描输出照旧。对抗组：`scripts/skill-import-only-test.mjs`。
 
 ## ④ E2E/判据计划（先红后绿，逐 PR）
 
