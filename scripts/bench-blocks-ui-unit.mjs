@@ -98,10 +98,17 @@ ok('饼的半径按像素定（块再宽也不变大）；图例缺省在右，�
 
 console.log('排版：块的宽度、表格的短值列');
 const T3 = (t, span) => (span === undefined ? { type: t } : { type: t, span });
-// 试点看板（驾驶舱里筛选栏不画）：两张统计卡、一张进度卡各 3 栏，柱图放不下，独占下一行——撑满
-ok('独占一行、没写 span 的图撑满这一行（不留半边空白）', JSON.stringify(v.layoutSpans([T3('stat'), T3('stat'), T3('progress'), T3('bar')])) === '[3,3,3,12]', v.layoutSpans([T3('stat'), T3('stat'), T3('progress'), T3('bar')]));
+// 试点看板（驾驶舱里筛选栏不画）：两张统计卡、一张进度卡先各 3 栏，柱图放不下，独占下一行——撑满；三张卡平分剩下的 3 栏，各 4 栏
+ok('独占一行、没写 span 的图撑满这一行（不留半边空白）', JSON.stringify(v.layoutSpans([T3('stat'), T3('stat'), T3('progress'), T3('bar')])) === '[4,4,4,12]', v.layoutSpans([T3('stat'), T3('stat'), T3('progress'), T3('bar')]));
+ok('一行三张没写 span 的卡：各 4 栏，右边缘对齐（统筹 11-13）', JSON.stringify(v.layoutSpans([T3('stat'), T3('stat'), T3('stat')])) === '[4,4,4]');
+ok('一行两张卡各 6 栏、四张各 3 栏、五张：四张一行、第五张独占下一行撑满', JSON.stringify(v.layoutSpans([T3('stat'), T3('progress')])) === '[6,6]' && JSON.stringify(v.layoutSpans([T3('stat'), T3('stat'), T3('stat'), T3('stat')])) === '[3,3,3,3]' && JSON.stringify(v.layoutSpans([T3('stat'), T3('stat'), T3('stat'), T3('stat'), T3('stat')])) === '[3,3,3,3,12]');
+ok('写了 span 的卡不动，剩下的平分给没写的：写了 4 栏的一张加两张没写的，没写的各 4 栏', JSON.stringify(v.layoutSpans([T3('stat', 4), T3('stat'), T3('stat')])) === '[4,4,4]');
+ok('平分后落不到 4 / 6 / 12 上就不分：两张卡加一张写了 3 栏的卡，余 3 栏不分', JSON.stringify(v.layoutSpans([T3('stat'), T3('stat'), T3('stat', 3)])) === '[3,3,3]');
+ok('一张卡加一张没写 span 的图：卡 6 栏、图 6 栏', JSON.stringify(v.layoutSpans([T3('stat'), T3('bar')])) === '[6,6]');
+ok('平分出来的宽度不在 3 / 4 / 6 / 12 里就不分：一张没写的卡加一张写了 4 栏的块，余 5 栏（3+5=8 栅格认不了），照旧 [3,4]', JSON.stringify(v.layoutSpans([T3('stat'), T3('stat', 4)])) === '[3,4]', v.layoutSpans([T3('stat'), T3('stat', 4)]));
 ok('一行放得下的照旧：统计卡两张加一张图正好 12 栏', JSON.stringify(v.layoutSpans([T3('stat'), T3('stat'), T3('bar')])) === '[3,3,6]');
-ok('写了 span 的照写的来，独占一行也不撑', JSON.stringify(v.layoutSpans([T3('stat'), T3('stat'), T3('progress'), T3('bar', 6)])) === '[3,3,3,6]');
+ok('写了 span 的照写的来，独占一行也不撑（三张没写的卡照样平分自己那一行）', JSON.stringify(v.layoutSpans([T3('stat'), T3('stat'), T3('progress'), T3('bar', 6)])) === '[4,4,4,6]');
+ok('卡全写了 span：照写的，右边留空也不动', JSON.stringify(v.layoutSpans([T3('stat', 3), T3('stat', 3), T3('progress', 3), T3('bar')])) === '[3,3,3,12]');
 ok('两张图一行各 6 栏；第三张独占下一行撑满', JSON.stringify(v.layoutSpans([T3('bar'), T3('line'), T3('pie')])) === '[6,6,12]');
 ok('表格、筛选栏本来就是 12 栏', JSON.stringify(v.layoutSpans([T3('filter-bar'), T3('table')])) === '[12,12]');
 ok('短值列（日期、数字、状态）按最长的值给宽度，日期「2026-01-25」放得下不折行', (v.nowrapWidth('date', '日期', ['2026-01-25', '2026-02-05']) ?? 0) >= 10 * 7.5 + 32 && v.nowrapWidth('number', '用时', ['13']) >= 64 && v.nowrapWidth('status', '结果', ['正常', '异常']) >= 64);

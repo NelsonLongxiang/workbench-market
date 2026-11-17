@@ -2,7 +2,7 @@
 
 写视图台页面、驾驶舱里的视图面板、或者别的要画数据视图的页面时看这一份。设计和规矩在 [data-views.md](data-views.md)；给 agent 的用法在技能 `skills/wm-data-views`。
 
-分工：接口和组件 `web/src/bench-blocks/` 归数据视图支线；页面（`web/src/pages/UseEntry.tsx`、驾驶舱的 `components/cockpit/BenchView*.tsx`）归前端。页面要让组件做它现在做不到的事，找数据视图支线改组件，不在页面里另写一份。
+分工：接口和组件 `web/src/bench-blocks/` 归数据视图支线；页面（打开卡片先问入口的 `web/src/pages/UseEntry.tsx`、视图台页面本身 `web/src/pages/BenchPage.tsx`、驾驶舱的 `components/cockpit/BenchView*.tsx`）归前端。页面要让组件做它现在做不到的事，找数据视图支线改组件，不在页面里另写一份。
 
 ## 一、打开一张卡片（`/use/<卡片编号>`）
 
@@ -60,7 +60,7 @@
 | `dense` | 表格用紧凑的行高（拼进面板里用） |
 | `hideFilters` | 不画视图自己的筛选栏（筛选由外面管，值照样经 `render` 传进来） |
 
-块的宽度：视图描述里写了 `span` 的照写的（12 栏网格里占 3、4、6、12 栏）；没写的按类型取，一行里只剩它一个就撑满这一行（`layoutSpans`）。
+块的宽度：视图描述里写了 `span` 的照写的（12 栏网格里占 3、4、6、12 栏）；没写的按类型取，一行里只剩它一个就撑满这一行；一行没放满时，剩下的栏数平分给这一行里没写 `span` 的统计卡、进度卡（三张各 4 栏、两张各 6 栏，平分后落不到 4、6、12 上就不分），右边缘和面板对齐（`layoutSpans`）。
 
 ### 单个块
 

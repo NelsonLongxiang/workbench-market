@@ -213,7 +213,7 @@ gsap.from(el, { opacity: 0, y: 12, duration: 0.35, ease: 'power1.out', scrollTri
 - **色板补充：** 选中/悬停强调边 `rgba(5,150,105,.45)`（emerald 微光）；统计色 在线 `#059669` / 离线 `#DC2626` / 未探测灰。
 - **字体：** 见 Typography 节实现校正——系统栈 + Cascadia Mono，无 webfont。
 - **对比度实测（2026-10-19 校对）：** 主文字 ~15:1 ✅；次级 `#5A6577` 5.9:1 ✅；错误红 `#DC2626` 4.83:1 ✅；成功绿 `#059669` 3.77:1 仅限图形点/开关（非文字）✅；卡片 URL `#64748b` 4.75:1 ✅。
-- **移动端：** 表格 `scroll.x` 横向滚动；工具栏双层 flex-wrap；详见 `evidence/ux-audit.md`。
+- **移动端：** 表格 `scroll.x` 横向滚动；工具栏双层 flex-wrap；详见 `evidence/ux-audit.md`（本机审计产物，`evidence/` 不入库）。
 
 ---
 
