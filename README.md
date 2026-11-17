@@ -6,6 +6,8 @@
 - **前端**：React 18 + antd 5 + @ant-design/pro-components + react-grid-layout（可拖拽仪表盘）+ react-markdown
 - **形态**：单进程、单端口（默认 9800），`/api/*` 提供 REST，其余路径托管前端构建产物
 
+> **产品化（阶段 0，草稿）**：定位、概念模型、驾驶舱 v2、与 DSH GUI 的关系、Token v2、A2A × superagent 融合契约与适配层重构方案，见 [docs/productization/](docs/productization/README.md)。
+
 ## 快速开始
 
 ```bash
@@ -653,7 +655,7 @@ ygl-trees verify run <spec-id> --db tmp/verify-snap.sqlite --submission tmp/subm
 node scripts/verify-report.mjs <run1.json> [run2.json ...]
 ```
 
-基线：`run_62af35289857cabe` 175/175 PASS（spec_049eae7969a2，2026-10-27）；初版基线 `run_766e0c923b514232` 58/58 PASS（spec_24a0b30d47d1，2026-10-20）。红测四条：`run_8b5fa9dcc555773c`（删 ollama+README）V10/V12/V16 精确 FAIL；`run_45ce9306eb05a210`（源码改 #5A6577）V37 精确 FAIL；`run_79cacaa31cd69a45`（E2E 13/14 + 轴色漂移）V49/V53 精确 FAIL；`run_aa92adf654b5964a`（篡改对比度记录为 1.18:1）V56 精确 FAIL——DOM 探针 → 摘要 → 提取表 → 判据的 fail-closed 链路实证。判据源文件在 [verify/](verify/)：material.md（冻结材料原文）、candidates.json（VU 候选 + checker）、reviews.json（三问盲审结论）；175 单元表由 [scripts/gen-verifier.mjs](scripts/gen-verifier.mjs) 单一事实源生成。
+基线：`run_62af35289857cabe` 175/175 PASS（spec_049eae7969a2，2026-10-27）；初版基线 `run_766e0c923b514232` 58/58 PASS（spec_24a0b30d47d1，2026-10-20）。红测四条：`run_8b5fa9dcc555773c`（删 ollama+README）V10/V12/V16 精确 FAIL；`run_45ce9306eb05a210`（源码改 #5A6577）V37 精确 FAIL；`run_79cacaa31cd69a45`（E2E 13/14 + 轴色漂移）V49/V53 精确 FAIL；`run_aa92adf654b5964a`（篡改对比度记录为 1.18:1）V56 精确 FAIL——DOM 探针 → 摘要 → 提取表 → 判据的 fail-closed 链路实证。判据源文件在本地的 `verify/`（本机生成、不入库，见上文「验证资产为本地产物不入库」）：material.md（冻结材料原文）、candidates.json（VU 候选 + checker）、reviews.json（三问盲审结论）；175 单元表由 [scripts/gen-verifier.mjs](scripts/gen-verifier.mjs) 单一事实源生成。
 
 ## 统一待办（omni-inbox）
 
