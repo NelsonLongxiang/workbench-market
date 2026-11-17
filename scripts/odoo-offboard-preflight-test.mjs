@@ -140,6 +140,62 @@ try {
   check(r3.code === 1 && r3.json?.odoo_owned_consts?.unmapped === 0 && r3.json.odoo_owned_consts.owner_board === 'ambiguous' && r3.json.red?.join() === 'odoo-owned-consts-unmapped',
     '四、登记了两张看板（作者都对得回）：看板认不准，也算红', r3.json);
 
+  // 验收补的口径和缺口：一个专门的库
+  const g = freshDb('gaps');
+  const q = new DatabaseSync(g);
+  const nowG = Date.now();
+  const P = (id, status = 'active') => q.prepare("INSERT INTO principals (id, id_key, kind, display_name, status) VALUES (?, ?, 'person', ?, ?)").run(id, id, id.slice(5), status);
+  const B = (provider, ext, id) => q.prepare('INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES (?, ?, ?, ?)').run(provider, ext, ext.toLowerCase(), id);
+  const A = (u) => q.prepare("INSERT INTO local_accounts (username, password_hash, created_at, updated_at) VALUES (?, 'x', ?, ?)").run(u, nowG, nowG);
+  const G = (principal, role, scope) => {
+    const id = Number(q.prepare("INSERT INTO grants (principal_id, role, scope, reason, created_by, created_at, updated_at) VALUES (?, ?, ?, '合成', 'cli', ?, ?)").run(principal, role, scope, nowG, nowG).lastInsertRowid);
+    q.prepare("UPDATE grants SET status = 'pending' WHERE id = ?").run(id); q.prepare("UPDATE grants SET status = 'active', approved_by = 'cli' WHERE id = ?").run(id);
+  };
+  // kim：绑着 Odoo 和站内身份，但站内账号已经删了 → 算只靠 Odoo；他的运行读权（只有运行读权，没有项目读权）也算只靠 Odoo 得来
+  P('user:kim'); B('odoo', 'kim', 'user:kim'); B('local', 'kim', 'user:kim');
+  q.prepare("INSERT INTO sop_run_read_grants (run_id, subject) VALUES (7, 'user:kim')").run();
+  // 过期的运行读权不算
+  q.prepare("INSERT INTO sop_run_read_grants (run_id, subject, expires_at) VALUES (8, 'user:kim', datetime('now', '-1 day'))").run();
+  // 完整管理员不算数的：范围不是 *（lou）、人已停用（mia，停用前放行的）
+  P('user:lou'); B('local', 'lou', 'user:lou'); A('lou'); q.prepare("INSERT INTO departments (id, name, created_at, updated_at) VALUES ('d1', '合成', 1, 1)").run(); G('user:lou', 'owner', 'dept:d1');
+  P('user:mia'); B('local', 'mia', 'user:mia'); A('mia'); G('user:mia', 'owner', '*'); q.prepare("UPDATE principals SET status = 'disabled' WHERE id = 'user:mia'").run();
+  // 期限被直接写成文本日期（列是 INTEGER，SQLite 原样存文本）：不能当成永不过期
+  P('user:nia'); B('local', 'nia', 'user:nia'); A('nia');
+  { const id = Number(q.prepare("INSERT INTO grants (principal_id, role, scope, expires_at, reason, created_by, created_at, updated_at) VALUES ('user:nia', 'owner', '*', '2000-01-01', '合成', 'cli', ?, ?)").run(nowG, nowG).lastInsertRowid);
+    q.prepare("UPDATE grants SET status = 'pending' WHERE id = ?").run(id); q.prepare("UPDATE grants SET status = 'active', approved_by = 'cli' WHERE id = ?").run(id); }
+  // 第四项：作者 odoo:fsonly 的常量，名下只有同名的飞书身份、没有 Odoo 身份 → 对不回
+  P('user:fsonly'); B('feishu', 'fsonly', 'user:fsonly');
+  const w9 = Number(q.prepare("INSERT INTO workbenches (name, url) VALUES ('合成', 'http://x.synthetic.invalid/')").run().lastInsertRowid);
+  q.prepare("INSERT INTO workbench_vars (workbench_id, key, kind, value, owner) VALUES (?, 'k', 'const', '{}', 'odoo:fsonly')").run(w9);
+  q.close();
+  const rg = run(g);
+  check(rg.json?.odoo_only_people === 1 && rg.json.odoo_only_read_grants.sop_run === 1 && rg.json.odoo_only_read_grants.task_source === 0 && rg.json.red?.includes('read-grants-only-via-odoo'),
+    '口径统一：绑着站内身份、站内账号却已经删了的人算只靠 Odoo；他名下的运行读权（过期的不算）算只靠 Odoo 得来，只有运行读权也判红', rg.json);
+  check(rg.json?.full_admins_on_local_accounts === 0, '完整管理员不算数：范围不是 *、人已停用、期限被写成文本', rg.json?.full_admins_on_local_accounts);
+  check(rg.json?.odoo_owned_consts?.unmapped === 1, '第四项只按 Odoo 身份对：名下只有同名飞书身份的对不回', rg.json?.odoo_owned_consts);
+  check(rg.json?.odoo_owned_consts?.scope?.includes('bench'), 'JSON 也说明第四项只数主库（bench 模式要另查）', rg.json?.odoo_owned_consts?.scope);
+
+  // 确认数：给了就必须严格相等；实际 0 人时给了别的数也红
+  const zero = freshDb('zero');
+  const z = new DatabaseSync(zero);
+  z.prepare("INSERT INTO principals (id, id_key, kind, display_name) VALUES ('user:ann', 'user:ann', 'person', 'ann')").run();
+  z.prepare("INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES ('local', 'ann', 'ann', 'user:ann')").run();
+  z.prepare("INSERT INTO local_accounts (username, password_hash, created_at, updated_at) VALUES ('ann', 'x', 1, 1)").run();
+  const zid = Number(z.prepare("INSERT INTO grants (principal_id, role, scope, reason, created_by, created_at, updated_at) VALUES ('user:ann', 'owner', '*', '合成', 'cli', 1, 1)").run().lastInsertRowid);
+  z.prepare("UPDATE grants SET status = 'pending' WHERE id = ?").run(zid); z.prepare("UPDATE grants SET status = 'active', approved_by = 'cli' WHERE id = ?").run(zid);
+  z.close();
+  const z0 = run(zero), z5 = run(zero, '--accept-odoo-only=5'), zz = run(zero, '--accept-odoo-only=0');
+  const zHuman = spawnSync(process.execPath, [SCRIPT, '--db', zero, '--accept-odoo-only=5'], { encoding: 'utf8' });
+  check(z0.code === 0 && z5.code === 1 && z5.json?.red?.join() === 'odoo-only-people' && z5.json.accept?.match === false && zz.code === 0 && /实际 0，参数 5/.test(zHuman.stdout),
+    '确认数严格相等：实际 0 人时不给参数绿、给 0 绿、给 5 红（人看的输出写明「实际 0，参数 5」）', { z0: z0.code, z5: [z5.code, z5.json?.accept], zz: zz.code });
+  const more = run(file, '--accept-odoo-only=3');
+  check(more.code === 1 && more.json?.accept?.match === false, '确认数比实际多（实际 2，给 3）也红：不是「大于等于就绿」', more.json?.accept);
+  const usage = ['03', '3.0', '+3', '-3', ' 3', '', '3e0', '0x3'].map((v) => spawnSync(process.execPath, [SCRIPT, '--db', file, `--accept-odoo-only=${v}`], { encoding: 'utf8' }).status);
+  const twice = spawnSync(process.execPath, [SCRIPT, '--db', file, '--accept-odoo-only=2', '--accept-odoo-only=2'], { encoding: 'utf8' }).status;
+  check(usage.every((c) => c === 2) && twice === 2, '确认数写法不对（前导零、小数、正负号、空白、空、科学计数、十六进制）、重复给：都是用法错误（2）', { usage, twice });
+  const humanAll = spawnSync(process.execPath, [SCRIPT, '--db', file], { encoding: 'utf8' }).stdout + spawnSync(process.execPath, [SCRIPT, '--db', g], { encoding: 'utf8' }).stdout;
+  check(!/alice|carol|bob|dave|kim|lou|mia|nia|fsonly|ghost|BOB/i.test(humanAll), '人看的输出也只有人数：不出现名字、登录名', humanAll.slice(0, 200));
+
   // 用法错误
   const missing = spawnSync(process.execPath, [SCRIPT, '--db', join(OUT, 'nope.db')], { encoding: 'utf8' });
   const badArg = spawnSync(process.execPath, [SCRIPT, '--db', file, '--accept-odoo-only=x'], { encoding: 'utf8' });

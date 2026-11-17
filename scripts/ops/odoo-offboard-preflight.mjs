@@ -2,10 +2,11 @@
 /**
  * Odoo 下线的上线前预检（只读）：在要上线的库上回答三件事，只报人数，不列名字、不列登录名。
  *
- *   一、只靠 Odoo 登录、还没有站内账号的人：启用的人、名下绑着 Odoo 身份、没绑站内账号（local）。
+ *   口径：按「Odoo 下线以后这个人还进不进得来」算。能进来 = 能用站内账号登录（canLogInLocally：人是启用的、
+ *   名下绑着站内身份、那个站内账号还在）。三项都用这同一个条件。
+ *   一、只靠 Odoo 登录的人：启用的人、名下绑着 Odoo 身份、不能用站内账号登录（没绑，或者绑着但站内账号已经删了）。
  *       另报其中绑着飞书身份的人数（飞书登录开着时他们还能进来；飞书现在缺省关）。
- *   二、至少一个完整管理员授予（生效中、范围 *、角色 owner）落在能用站内账号登录的人身上
- *       （人是启用的、绑着站内账号、账号还在）。没有的话，下线之后只剩管理口令能管。
+ *   二、至少一个完整管理员授予（生效中、范围 *、角色 owner）落在能用站内账号登录的人身上。没有的话，下线之后只剩管理口令能管。
  *   三、待办读权（项目读权 task_source_read_grants、运行读权 sop_run_read_grants，生效中的）
  *       有没有落在只靠 Odoo 登录的人身上：下线之后这些读权没人用得上。
  *   四、作者仍记成 odoo:<登录名> 的工作台常量有几条，其中对不回启用的人（名下没有这条历史 Odoo 身份）的几条；
@@ -13,7 +14,8 @@
  *       只数主库里的常量（WM_VARS_STORE 是 main、shadow 时都在这里）；bench 模式下常量在各台的库里，这一项不准，要另查。
  *
  * 判定：二不满足、三大于 0、一大于 0、四里有对不回的，都算红（退出码 1）。一大于 0 而属主确认这些人不再需要登录的，
- *       带 --accept-odoo-only=<人数>（要和实际人数相等，人数变了就重新确认）。
+ *       带 --accept-odoo-only=<人数>：给了就必须和实际人数严格相等（实际 0 人时给了别的数也算红），人数变了就重新确认。
+ *       参数写错、重复给都是用法错误（退出码 2）。
  * 只读：库以只读方式打开，不写、不迁移；表不存在按「没有」算。
  *
  *   node scripts/ops/odoo-offboard-preflight.mjs --db <库文件>            人看的
@@ -30,6 +32,7 @@ function args(argv) {
     if (a === '--json') out.json = true;
     else if (a.startsWith('--db=')) out.db = a.slice(5);
     else if (a.startsWith('--accept-odoo-only=')) {
+      if (out.accept !== null) throw new Error('--accept-odoo-only 只能给一次');
       const v = a.slice('--accept-odoo-only='.length);
       if (!/^(0|[1-9][0-9]{0,6})$/.test(v)) throw new Error('--accept-odoo-only 要写人数（非负整数）');
       out.accept = Number(v);
@@ -45,21 +48,21 @@ export function preflight(db, now = Date.now()) {
   const has = (t) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t);
   const n = (sql, ...p) => Number(db.prepare(sql).get(...p)?.n ?? 0);
   const ready = has('principals') && has('principal_identities');
-  // 能用站内账号登录的人：启用的人、绑着 local 身份、站内账号还在
-  const localOk = has('local_accounts')
-    ? "EXISTS (SELECT 1 FROM principal_identities l JOIN local_accounts a ON a.username = l.external_id WHERE l.principal_id = p.id AND l.provider = 'local')"
+  // 三项共用的口径：这个人（表别名 p）能不能用站内账号登录——启用的人、名下绑着站内身份、那个站内账号还在
+  const canLogInLocally = (alias) => has('local_accounts')
+    ? `(${alias}.kind = 'person' AND ${alias}.status = 'active' AND EXISTS (SELECT 1 FROM principal_identities l JOIN local_accounts a ON a.username = l.external_id WHERE l.principal_id = ${alias}.id AND l.provider = 'local'))`
     : '0';
   const odooOnly = ready
     ? `p.kind = 'person' AND p.status = 'active'
        AND EXISTS (SELECT 1 FROM principal_identities o WHERE o.principal_id = p.id AND o.provider = 'odoo')
-       AND NOT EXISTS (SELECT 1 FROM principal_identities l WHERE l.principal_id = p.id AND l.provider = 'local')`
+       AND NOT ${canLogInLocally('p')}`
     : '0';
   const odooOnlyPeople = ready ? n(`SELECT COUNT(*) AS n FROM principals p WHERE ${odooOnly}`) : 0;
   const odooOnlyWithFeishu = ready ? n(`SELECT COUNT(*) AS n FROM principals p WHERE ${odooOnly}
       AND EXISTS (SELECT 1 FROM principal_identities f WHERE f.principal_id = p.id AND f.provider = 'feishu')`) : 0;
   const fullAdminsOnLocal = ready && has('grants') ? n(`SELECT COUNT(DISTINCT g.principal_id) AS n FROM grants g JOIN principals p ON p.id = g.principal_id
-      WHERE g.role = 'owner' AND g.scope = '*' AND g.status = 'active' AND (g.expires_at IS NULL OR g.expires_at > ?)
-        AND p.kind = 'person' AND p.status = 'active' AND ${localOk}`, now) : 0;
+      WHERE g.role = 'owner' AND g.scope = '*' AND g.status = 'active' AND (g.expires_at IS NULL OR (typeof(g.expires_at) = 'integer' AND g.expires_at > ?))
+        AND ${canLogInLocally('p')}`, now) : 0;
   const taskGrants = ready && has('task_source_read_grants') ? n(`SELECT COUNT(*) AS n FROM task_source_read_grants t JOIN principals p ON p.id = t.subject
       WHERE t.revoked_at = '' AND datetime(t.expires_at) > datetime('now') AND ${odooOnly}`) : 0;
   const runGrants = ready && has('sop_run_read_grants') ? n(`SELECT COUNT(*) AS n FROM sop_run_read_grants r JOIN principals p ON p.id = r.subject
@@ -85,7 +88,7 @@ export function preflight(db, now = Date.now()) {
     }
   }
   return {
-    odoo_owned_consts: { total: odooConsts, unmapped: odooConstsUnmapped, owner_board: board },
+    odoo_owned_consts: { total: odooConsts, unmapped: odooConstsUnmapped, owner_board: board, scope: 'main-db-only (WM_VARS_STORE=bench 时常量在各台的库里，这一项不准，要另查)' },
     odoo_only_people: odooOnlyPeople,
     odoo_only_people_with_feishu: odooOnlyWithFeishu,
     full_admins_on_local_accounts: fullAdminsOnLocal,
@@ -95,7 +98,8 @@ export function preflight(db, now = Date.now()) {
 
 export function verdict(r, accept = null) {
   const red = [];
-  if (r.odoo_only_people > 0 && accept !== r.odoo_only_people) red.push('odoo-only-people');
+  // 确认数给了就必须严格相等（实际 0 人时给了别的数也红）；没给时只要有这样的人就红
+  if (accept !== null ? accept !== r.odoo_only_people : r.odoo_only_people > 0) red.push('odoo-only-people');
   if (r.full_admins_on_local_accounts < 1) red.push('no-full-admin-on-local-account');
   if (r.odoo_only_read_grants.task_source + r.odoo_only_read_grants.sop_run > 0) red.push('read-grants-only-via-odoo');
   if (r.odoo_owned_consts.unmapped > 0 || ['unmapped', 'ambiguous'].includes(r.odoo_owned_consts.owner_board)) red.push('odoo-owned-consts-unmapped');
@@ -112,9 +116,10 @@ if (isMain) {
   let r;
   try { r = preflight(db); } finally { db.close(); }
   const v = verdict(r, opts.accept);
-  if (opts.json) console.log(JSON.stringify({ ...r, ...v }));
+  if (opts.json) console.log(JSON.stringify({ ...r, ...v, ...(opts.accept !== null ? { accept: { given: opts.accept, actual: r.odoo_only_people, match: opts.accept === r.odoo_only_people } } : {}) }));
   else {
-    console.log(`一、只靠 Odoo 登录、没有站内账号的人：${r.odoo_only_people} 人（其中绑着飞书的 ${r.odoo_only_people_with_feishu} 人）${opts.accept !== null ? `；确认数 ${opts.accept}` : ''}`);
+    const mismatch = opts.accept !== null && opts.accept !== r.odoo_only_people ? `，不符（实际 ${r.odoo_only_people}，参数 ${opts.accept}）` : '';
+    console.log(`一、只靠 Odoo 登录、不能用站内账号登录的人：${r.odoo_only_people} 人（其中绑着飞书的 ${r.odoo_only_people_with_feishu} 人）${opts.accept !== null ? `；确认数 ${opts.accept}${mismatch}` : ''}`);
     console.log(`二、落在站内账号上的完整管理员（owner、范围 *、生效中）：${r.full_admins_on_local_accounts} 人`);
     console.log(`三、只靠 Odoo 才用得上的待办读权：项目读权 ${r.odoo_only_read_grants.task_source} 条、运行读权 ${r.odoo_only_read_grants.sop_run} 条，涉及 ${r.odoo_only_read_grants.people} 人`);
     const boardText = { none: '没有登记看板', 'not-odoo': '作者不是 odoo: 写法', mapped: '对得回主体', unmapped: '对不回主体（要属主重新保存一次）', ambiguous: '登记了不止一张看板' }[r.odoo_owned_consts.owner_board];
