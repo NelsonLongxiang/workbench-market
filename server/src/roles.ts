@@ -78,6 +78,16 @@ export function touchesBusiness(perms: readonly Permission[]): boolean {
 }
 
 /**
+ * 这组权限给不给业务数据：业务域的读、写、决定（按类别整类给的、或按动作点名的）。「管理」类不算——系统管理员那条不圈域的管理类
+ *（台的切版本、删数据这类）不让人看到业务数据。系统管理员不能对给了业务数据的人动手、不能经手这样的授予（admin-tier.ts、services/grant.ts）
+ */
+export function grantsBusinessData(perms: readonly Permission[]): boolean {
+  const system = new Set(SYSTEM_DOMAINS);
+  return perms.some((p) => (p.actions ?? []).some((a) => !system.has(domainOf(a)))
+    || ((p.kinds ?? []).some((k) => k !== 'admin') && (p.domains === undefined || p.domains.some((d) => !system.has(d)))));
+}
+
+/**
  * 这组权限带不带业务域的写：整类给的写，没圈域（就是全部域）或圈的域里有业务域；或者按动作给了业务域的写动作，
  * 普通员工那几个（提需求、补充说明）除外——普通员工、访客这类日常开人的授予不因此多一道放行。
  */

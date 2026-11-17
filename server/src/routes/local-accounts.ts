@@ -22,6 +22,7 @@ import { requestPerson } from '../request-person.ts';
 import { browserMarked, rawLoopback } from '../surfaces.ts';
 import { clientIp } from '../login-gate.ts';
 import { HttpError } from '../errors.ts';
+import { isSystemAdminOnly, systemAdminTargetRefusal } from '../admin-tier.ts';
 
 export type LocalAccountRouteDeps = {
   /** 按需认定管理员登录（判管理员之前调用） */
@@ -74,7 +75,8 @@ export function registerLocalAccountRoutes(app: HttpService, deps: LocalAccountR
   app.post('/api/local-accounts', { action: 'local-account.create', kind: 'admin' }, route(async (req, res) => {
     const actor = await admin(req, res);
     if (!actor) return;
-    const made = await accounts().create({ username: req.body?.username, displayName: req.body?.display_name }, actor);
+    // 系统管理员建的账号记下来：放行给业务数据的授予时提示放行人「此人凭据由系统管理员设置」
+    const made = await accounts().create({ username: req.body?.username, displayName: req.body?.display_name, ...(isSystemAdminOnly(req) ? { bySystem: actor } : {}) }, actor);
     if (!made.ok) throw new HttpError(made.reason === 'taken' ? 409 : 400, made.message);
     const username = made.account.username;
     // 只新建：user:<用户名> 已经有人用了就拒，不接到那个人身上
@@ -92,7 +94,10 @@ export function registerLocalAccountRoutes(app: HttpService, deps: LocalAccountR
     const actor = await admin(req, res);
     if (!actor) return;
     const username = usernameOf(req.params.username);
-    const temp = await accounts().resetPassword(username);
+    // 系统管理员不能重置业务侧的人（持 owner 或碰业务的授予）的密码：重置了就能以他的身份登录（admin-tier.ts）
+    const guard = systemAdminTargetRefusal(req, principals().principalOf(PROVIDER, username));
+    if (guard) return void res.status(403).json(guard);
+    const temp = await accounts().resetPassword(username, Date.now(), isSystemAdminOnly(req) ? actor : '');
     if (temp === null) throw new HttpError(404, '没有这个账号');
     sessions().revokeForIdentity(PROVIDER, username);
     log('reset-password', username, actor);

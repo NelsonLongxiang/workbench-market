@@ -45,7 +45,11 @@ export class McpService extends Service {
   }
   // ── 权限自助申请（access_request）与授权审计 ──
   sessionFull(id: number) {
-    return db.prepare('SELECT id, name, grants, revoked_at FROM mcp_sessions WHERE id = ?').get(id);
+    return db.prepare('SELECT id, name, grants, revoked_at, created_by FROM mcp_sessions WHERE id = ?').get(id);
+  }
+  /** 记下会话是谁建的（建会话的接口建好之后调） */
+  sessionCreatedBy(id: number, by: string) {
+    return db.prepare('UPDATE mcp_sessions SET created_by = ? WHERE id = ?').run(by, id);
   }
   accessRequestsBySession(sessionId: number, limit = 50) {
     return db.prepare('SELECT id, tools, reason, status, note, decided_at, created_at FROM mcp_access_requests WHERE session_id = ? ORDER BY id DESC LIMIT ?').all(sessionId, limit);
