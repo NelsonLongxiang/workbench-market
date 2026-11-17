@@ -234,8 +234,10 @@ const loginGate = createLoginGate({
     const views = new Map(svc<GrantService>('grants').roles().map((r) => [r.id, r]));
     const roles = svc<GrantService>('grants').activeFor(who.viewer.sub).map((g) => ({ id: g.role, name: views.get(g.role)?.name ?? g.role, scope: g.scope, scope_name: svc<DepartmentService>('departments').scopeName(g.scope), preset: !!views.get(g.role)?.platform, expires_at: g.expires_at, source: g.source, approved_by: g.approved_by }));
     // local_account：这个人名下有站内账号（外部身份 local/<用户名>），页面据此在用户卡里给「改密码」入口（POST /api/local-accounts/_self/password）
-    const local_account = !!svc<PrincipalService>('principals').get(who.viewer.sub)?.identities.some((i) => i.provider === 'local');
-    return { principal: who.viewer.sub, display_name: who.viewer.name ?? null, roles, local_account };
+    // local_username：那个站内账号的用户名，只说本人自己的。改密码页拿它预检「不能和用户名一样」——用飞书等别的方式登录的人，
+    // login 是那种方式的登录名，不是站内用户名（#802 验收发现 1）。
+    const local = svc<PrincipalService>('principals').get(who.viewer.sub)?.identities.find((i) => i.provider === 'local');
+    return { principal: who.viewer.sub, display_name: who.viewer.name ?? null, roles, local_account: !!local, local_username: local?.external_id ?? null };
   },
   // /api/auth/me 的 can：这个请求能做的、不属于某一个对象的事（只增）。和对应的写路由问同一处
   // remember_knowledge：能不能把拍板记成经验（和 POST /api/knowledge/remember、「关注」答复里的 remember 同一处判断，knowledge-remember.ts 的 rememberRefusal；
