@@ -20,6 +20,7 @@ import type { AppDataService } from '../services/app-data.ts';
 import type { SopService } from '../services/sop.ts';
 import { HttpError } from '../errors.ts';
 import { expectedSha256, uploadIntegrity } from '../upload-integrity.ts';
+import type { UploadTicket } from '../upload-tickets.ts';
 
 type McpSess = { id: number; name: string; grants: string[] };
 type McpChannel = 'mcp' | 'rest';
@@ -59,13 +60,20 @@ export interface McpRestDeps {
   runIdParam: (v: unknown) => number;
   runReadCapHeader: (req: express.Request) => string | undefined;
   sopRunRow: (id: number) => SopRunRow;
+  /** 上传票（先申请、再直传）：用票（拿到即作废）、复核发票的会话和授权、技能文件的暂存 */
+  takeUploadTicket: (token: unknown) => UploadTicket | null;
+  uploadTicketSession: (t: UploadTicket) => McpSess | null | 'denied';
+  skillStageIncomingPath: () => string;
+  skillStageFromFile: (tmpAbs: string, size: number, sha: string) => Record<string, unknown>;
 }
 
 /** 这一域只认网关的 MCP 会话令牌和工具授权（不是登录身份）：401、403 是会话的结论，不和统一判定比 */
 const MCP_SESSION_DECIDES = 'MCP 会话令牌与工具授权由网关判，不是登录身份的结论';
+/** 上传票的直传：票本身就是凭据，用票时再核发票的会话和授权；404、403 是票和会话的结论，不和统一判定比 */
+const UPLOAD_TICKET_DECIDES = '上传票本身就是凭据（只能用一次、10 分钟过期），用票时再核发票的会话和授权，不是登录身份的结论';
 
 export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void {
-  const { wrap, serveMcpOpenApi, mcpGatewaySession, mcpAudit, mcpRegisteredNames, MCP_REST_DENIED_HINT, mcpInvokeTool, mcpPublicOrigin, mcpRestSession, mcpToolAllowsApp, mcpRestRun, bad, getApp, appFilesQuota, APP_FILES_MAX, UPLOAD_MAX, uploadMonthDir, uploadFileName, appFileStoreCore, MCP_REST_BASE, upload, fixFileName, fileSha256, sendStoredFile, restFileItem, mcpRestRunReadable, runIdParam, sopRunRow, runReadCapHeader } = deps;
+  const { wrap, serveMcpOpenApi, mcpGatewaySession, mcpAudit, mcpRegisteredNames, MCP_REST_DENIED_HINT, mcpInvokeTool, mcpPublicOrigin, mcpRestSession, mcpToolAllowsApp, mcpRestRun, bad, getApp, appFilesQuota, APP_FILES_MAX, UPLOAD_MAX, uploadMonthDir, uploadFileName, appFileStoreCore, MCP_REST_BASE, upload, fixFileName, fileSha256, sendStoredFile, restFileItem, mcpRestRunReadable, runIdParam, sopRunRow, runReadCapHeader, takeUploadTicket, uploadTicketSession, skillStageIncomingPath, skillStageFromFile } = deps;
   app.get('/openapi.json', { action: 'mcp-rest.openapi', kind: 'read', statusNotVerdict: MCP_SESSION_DECIDES }, serveMcpOpenApi);
   app.get('/api/mcp-rest/openapi.json', { action: 'mcp-rest.openapi', kind: 'read', statusNotVerdict: MCP_SESSION_DECIDES }, serveMcpOpenApi);
   app.post('/api/mcp-rest/tools/:name', { action: 'mcp-rest.tool-call', kind: 'write', statusNotVerdict: MCP_SESSION_DECIDES }, wrap(async (req, res) => {
@@ -136,6 +144,67 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
       const out = await appFileStoreCore(a.slug, { path: abs, size, name, reportedMime: reported === 'application/octet-stream' ? '' : reported, createdBy, note, sha256 });
       res.status(201).json({ ...out, sha256, url: `${MCP_REST_BASE}/apps/${a.slug}/files/${out.id}`, download_url: out.url, ...uploadIntegrity(wantSha as string | null, null) });
     });
+  }));
+  // 上传票的直传：PUT /api/mcp-rest/uploads/<票>，请求体即文件的原始字节。票由 skill_file_put / app_files_upload 不带内容时发出：
+  // 不认会话令牌（有 shell 的 agent 手上一般没有），票本身就是凭据——只能用一次（一拿到就作废，传失败也作废）、10 分钟过期；
+  // 用票时再核一次发票的会话没吊销、这项授权还在。字节数必须正好是申请时的 size（多一个字节就停），sha256 必须对上，否则什么都不留。
+  app.put('/api/mcp-rest/uploads/:ticket', { action: 'mcp-rest.ticket-upload', kind: 'write', statusNotVerdict: UPLOAD_TICKET_DECIDES }, wrap(async (req, res) => {
+    res.setHeader('connection', 'close'); // 提前拒绝时不再读剩余请求体
+    const t0 = Date.now();
+    const t = takeUploadTicket(req.params.ticket);
+    // 没有、用过、过期、写法不对：一律同一句 404（不说是哪一种，也不进审计——没有票就没有会话可记）
+    if (!t) return res.status(404).json({ error: '上传票不存在、已用过或已过期：重新调工具申请一张' });
+    const tool = t.kind === 'skill_file' ? 'skill_file_put' : 'app_files_upload';
+    // 审计只记票上写的东西，不记票本身
+    const auditArgs = { kind: t.kind, ...(t.slug ? { slug: t.slug } : {}), name: t.name, size: t.size, sha256: t.sha256 };
+    const sess = uploadTicketSession(t);
+    if (sess === 'denied') {
+      mcpAudit(null, 'rest', 'rest/ticket_upload', tool, false, 'ticket session revoked or grant withdrawn', Date.now() - t0, auditArgs);
+      return res.status(403).json({ error: '发这张票的会话已吊销，或已不再有这项授权：票作废，未保存' });
+    }
+    let abs = '';
+    try {
+      const declared = req.headers['content-length'];
+      if (declared !== undefined && Number(declared) !== t.size) throw new HttpError(400, `Content-Length ${String(declared)} 和申请时的 size ${t.size} 不一样：未保存`);
+      let a: AppRow | null = null;
+      if (t.kind === 'app_file') {
+        a = getApp(t.slug!, true); // 期间台被删（或正在删）：404 / 409
+        const quota = await appFilesQuota(a.slug);
+        if (quota.files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`, { quota });
+        abs = join(uploadMonthDir(), uploadFileName(t.name));
+      } else abs = skillStageIncomingPath();
+      const h = createHash('sha256');
+      let size = 0;
+      const meter = new Transform({
+        transform(chunk: Buffer, _enc, cb) {
+          size += chunk.length;
+          if (size > t.size) return cb(new HttpError(413, `收到的字节超过申请时的 size（${t.size}）：未保存`));
+          h.update(chunk);
+          cb(null, chunk);
+        },
+      });
+      try {
+        await pipeline(req, meter, createWriteStream(abs));
+      } catch (e) {
+        if (e instanceof HttpError) throw e;
+        throw new HttpError(400, `上传中断：${String((e as Error)?.message ?? e).slice(0, 120)}`);
+      }
+      const sha256 = h.digest('hex');
+      if (size !== t.size) throw new HttpError(400, `收到 ${size} 字节，申请时是 ${t.size} 字节：内容可能被截断，未保存`);
+      if (sha256 !== t.sha256) throw new HttpError(400, `收到内容的 sha256 和申请时的不一样（收到 ${size} 字节）：内容可能被改动，未保存`);
+      let out: Record<string, unknown>;
+      if (a) {
+        const stored = await appFileStoreCore(a.slug, { path: abs, size, name: t.name, reportedMime: t.mime ?? '', createdBy: t.createdBy ?? '', note: t.note ?? '', sha256 });
+        out = { ...stored, sha256, url: `${MCP_REST_BASE}/apps/${a.slug}/files/${stored.id}`, download_url: stored.url, ...uploadIntegrity(sha256, null) };
+      } else out = skillStageFromFile(abs, size, sha256);
+      abs = ''; // 已经归位，不再清理
+      mcpAudit(sess, 'rest', 'rest/ticket_upload', tool, true, '', Date.now() - t0, auditArgs);
+      res.status(201).json(out);
+    } catch (e) {
+      if (abs) rmSync(abs, { force: true });
+      mcpAudit(sess, 'rest', 'rest/ticket_upload', tool, false, String((e as Error)?.message ?? e).slice(0, 200), Date.now() - t0, auditArgs);
+      throw e;
+    }
   }));
   // 上传（multipart）：POST /api/mcp-rest/apps/<slug>/files，字段 file + 可选 note/created_by——与浏览器上传同一个 multer 与入库核心
   app.post('/api/mcp-rest/apps/:slug/files', { action: 'mcp-rest.file-upload', kind: 'write', statusNotVerdict: MCP_SESSION_DECIDES }, wrap(async (req, res) => {

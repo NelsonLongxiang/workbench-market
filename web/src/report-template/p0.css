@@ -1,0 +1,33 @@
+/* P0 print experiment, not a theme override for the live application. */
+@page { size: A4 portrait; margin: 20mm; }
+:root { color-scheme: light; }
+body { margin: 0; color: var(--wm-color-text); background: var(--wm-color-page); font: var(--wm-font-size-body)/var(--wm-line-height-body) var(--wm-font-sans); }
+.rp-document { width: 170mm; margin: 24px auto; padding: 20mm; background: var(--wm-color-surface); }
+.rp-document h1 { font-size: var(--wm-font-size-display); line-height: var(--wm-line-height-display); margin: 0 0 var(--wm-space-6); }
+.rp-document h2 { font-size: var(--wm-font-size-title); line-height: var(--wm-line-height-title); margin: var(--wm-space-8) 0 var(--wm-space-4); break-after: avoid; }
+.rp-document h3 { font-size: var(--wm-font-size-subtitle); margin: var(--wm-space-6) 0 var(--wm-space-3); break-after: avoid; }
+.rp-document p { margin: var(--wm-space-3) 0; white-space: pre-wrap; overflow-wrap: anywhere; orphans: 3; widows: 3; }
+.rp-cover { border-bottom: 1px solid var(--wm-color-border); padding-bottom: var(--wm-space-6); }
+.rp-note, .rp-document figcaption, .rp-provenance { color: var(--wm-color-text-secondary); font-size: var(--wm-font-size-caption); line-height: var(--wm-line-height-caption); }
+.rp-grid { display: grid; gap: var(--wm-space-3); break-inside: avoid; margin: var(--wm-space-4) 0; }
+.rp-grid-12 { grid-template-columns: 1fr; }
+.rp-grid-6-6 { grid-template-columns: 1fr 1fr; }
+.rp-grid-4-4-4 { grid-template-columns: 1fr 1fr 1fr; }
+.rp-grid-3-3-3-3 { grid-template-columns: repeat(4, 1fr); }
+.rp-stat { padding: var(--wm-space-4); border: 1px solid var(--wm-color-border); border-radius: var(--wm-radius-md); }
+.rp-stat span { display: block; color: var(--wm-color-text-secondary); }
+.rp-stat strong { display: block; margin-top: var(--wm-space-2); font-size: var(--wm-font-size-display); font-variant-numeric: tabular-nums; }
+.rp-stat small { font-size: var(--wm-font-size-caption); }
+.rp-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: var(--wm-font-size-caption); line-height: var(--wm-line-height-caption); }
+.rp-table thead { display: table-header-group; }
+.rp-table tr { break-inside: avoid; }
+.rp-table th, .rp-table td { border: 1px solid var(--wm-color-border); padding: var(--wm-space-2); vertical-align: top; overflow-wrap: anywhere; }
+.rp-table th { background: var(--wm-color-primary-subtle); text-align: left; }
+.rp-table .rp-number { text-align: right; font-variant-numeric: tabular-nums; }
+.rp-chart-box, .rp-figure { margin: var(--wm-space-4) 0; break-inside: avoid; }
+.rp-chart { width: 100%; height: 240px; }
+.rp-figure img { display: block; width: 50mm; height: 25mm; object-fit: contain; }
+.rp-section-lead { break-inside: avoid; }
+.rp-page-break { break-after: page; }
+.rp-provenance { margin-top: var(--wm-space-6); overflow-wrap: anywhere; }
+@media print { body { background: var(--wm-color-surface); } .rp-document { margin: 0; padding: 0; width: 100%; } .rp-chart { height: 240px; } }
