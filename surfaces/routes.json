@@ -300,6 +300,7 @@
       "GET /api/mcp-rest/openapi.json  <- <anonymous>",
       "POST /api/mcp-rest/tools/:name  <- <anonymous>",
       "PUT /api/mcp-rest/apps/:slug/files/:name  <- <anonymous>",
+      "PUT /api/mcp-rest/uploads/:ticket  <- <anonymous>",
       "POST /api/mcp-rest/apps/:slug/files  <- <anonymous>",
       "GET /api/mcp-rest/apps/:slug/files  <- <anonymous>",
       "GET /api/mcp-rest/apps/:slug/files/:id  <- <anonymous>",

@@ -13,6 +13,10 @@ export class McpService extends Service {
   sessionByName(name: string) {
     return db.prepare('SELECT id FROM mcp_sessions WHERE name = ?').get(name);
   }
+  /** 上传票用票时复核：这个名字的会话还在（没吊销），连同它此刻的 grants */
+  sessionActiveByName(name: string) {
+    return db.prepare('SELECT id, name, grants FROM mcp_sessions WHERE name = ? AND revoked_at = ?').get(name, '');
+  }
   sessionCreateStmt() {
     return db.prepare('INSERT INTO mcp_sessions (name, token_sha256, grants) VALUES (?, ?, ?)');
   }

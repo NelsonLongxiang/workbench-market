@@ -130,6 +130,7 @@ import { HttpError } from './errors.ts';
 import { designStandard } from './design-standard.ts';
 import { mountVault } from './vault-api.ts';
 import { expectedSha256, uploadIntegrity, type UploadIntegrity } from './upload-integrity.ts';
+import { UploadTickets, UPLOAD_TICKET_TTL_MS, type UploadTicket } from './upload-tickets.ts';
 import { loadConfig } from './config.ts';
 import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet, workbenchIdOf, reportHotVarKeys, reportHotPending, setVarsStoreMode, startHotVarsFlush, flushHotVars, Config as VarsConfig } from './workbench-vars.ts';
 import { registerWorkbenchVarsRoutes } from './routes/workbench-vars.ts';
@@ -471,7 +472,8 @@ function bodyLimitFor(req: express.Request): string {
 }
 // MCP REST 原始字节上传（PUT /api/mcp-rest/apps/<slug>/files/<name>）：请求体就是文件（data.json 也带 application/json），由路由流式落盘，不经 JSON 解析。
 // 用 req.path（与路由同一个 pathname，已处理绝对形式请求目标 #299）+ 不区分大小写（路由同样不区分）
-const MCP_REST_RAW_UPLOAD = /^\/api\/mcp-rest\/apps\/[^/]+\/files\/[^/]+$/i;
+// 上传票的直传（PUT /api/mcp-rest/uploads/<票>）同理：请求体就是文件
+const MCP_REST_RAW_UPLOAD = /^\/api\/mcp-rest\/(apps\/[^/]+\/files\/[^/]+|uploads\/[^/]+)$/i;
 app.use((req, res, next) => {
   if ((req.url ?? '').startsWith('/go/')) return next();
   if (req.method === 'PUT' && MCP_REST_RAW_UPLOAD.test(req.path)) return next();
@@ -526,7 +528,8 @@ const REMOTE_ALLOW_PREFIX = [
   // 阶段七：建立人本人回答自己事项上的席位提问（路由内认人：管理员或建立人本人；只此一条子路径）
   /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/asks\/[1-9]\d{0,15}\/answer$/,
   // MCP 工具 REST 开放：与 /mcp 同口径，凭会话令牌在路由内鉴权，不认管理口令
-  /^\/api\/mcp-rest\/(tools\/[^/]+|apps\/[a-z0-9-]{1,64}\/files(\/[^/]+)?)$/,
+  // 上传票的直传：票本身就是凭据（只能用一次、10 分钟过期），路由内核票、再核发票的会话和授权还在
+  /^\/api\/mcp-rest\/(tools\/[^/]+|apps\/[a-z0-9-]{1,64}\/files(\/[^/]+)?|uploads\/[A-Za-z0-9_-]{43})$/,
   // 数据视图的入口（开关关着时每条都回 404）：路由内自己判——先拒管理口令，再经身份服务认人、问判定，只有管理层和范围是「全部」的授予放行。
   // 这道门要的恰恰是管理口令，而这组路由不认管理口令，所以登记在这里
   /^\/api\/bench-views(\/[a-z0-9][a-z0-9-]{0,63}(\/[a-z0-9_/-]{1,160})?)?$/,
@@ -2148,15 +2151,76 @@ function skillStagePut(content: unknown, encoding: unknown, expected?: unknown):
   if (buf.length > SKILL_FILE_MAX) bad(`单文件超过 ${SKILL_FILE_MAX} 字节上限`);
   const sha = createHash('sha256').update(buf).digest('hex');
   if (wantSha !== null && sha !== wantSha) bad(`收到内容的 sha256 与声明不符（收到 ${buf.length} 字节）：内容可能在传输中被截断或改动，未暂存`);
+  skillStageSweep();
+  const fp = join(SKILL_STAGE_DIR, sha);
+  if (existsSync(fp)) utimesSync(fp, new Date(), new Date()); // 重传续期
+  else { const tmp = `${fp}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`; writeFileSync(tmp, buf); renameSync(tmp, fp); } // 先写临时再改名：发布不会读到半个文件
+  return { sha256: sha, size: buf.length, expires_in_hours: 24, ...uploadIntegrity(wantSha as string | null, null) };
+}
+/** 建暂存目录，顺手清掉超过 24h 的暂存 */
+function skillStageSweep(): void {
   mkdirSync(SKILL_STAGE_DIR, { recursive: true });
   const now = Date.now();
   for (const e of readdirSync(SKILL_STAGE_DIR)) {
     try { const fp = join(SKILL_STAGE_DIR, e); if (now - statSync(fp).mtimeMs > SKILL_STAGE_TTL_MS) rmSync(fp, { force: true }); } catch { /* 并发删除 */ }
   }
+}
+/** 上传票（先申请、再直传）收下的技能文件：已核过大小和 sha256 的临时文件挪进暂存（同内容已在就续期、丢掉这份），应答和 skill_file_put 一样 */
+function skillStageFromFile(tmpAbs: string, size: number, sha: string): { sha256: string; size: number; expires_in_hours: number; integrity: UploadIntegrity; next: string } {
+  skillStageSweep();
   const fp = join(SKILL_STAGE_DIR, sha);
-  if (existsSync(fp)) utimesSync(fp, new Date(), new Date()); // 重传续期
-  else { const tmp = `${fp}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`; writeFileSync(tmp, buf); renameSync(tmp, fp); } // 先写临时再改名：发布不会读到半个文件
-  return { sha256: sha, size: buf.length, expires_in_hours: 24, ...uploadIntegrity(wantSha as string | null, null) };
+  if (existsSync(fp)) { rmSync(tmpAbs, { force: true }); utimesSync(fp, new Date(), new Date()); }
+  else renameSync(tmpAbs, fp);
+  return { sha256: sha, size, expires_in_hours: 24, ...uploadIntegrity(sha, null) };
+}
+/** 技能文件经上传票收进来时，临时文件先落在暂存目录里（同一个盘，挪进去是改名）；名字带点开头，不会被当成某个 sha 的暂存 */
+function skillStageIncomingPath(): string {
+  skillStageSweep();
+  return join(SKILL_STAGE_DIR, `.incoming-${process.pid}-${randomBytes(6).toString('hex')}.tmp`);
+}
+
+// ---------- MCP 上传票（先申请、再直传；见 upload-tickets.ts）----------
+const uploadTickets = new UploadTickets();
+/** 发票：调用方会话由 callTool 的 subject 给出（mcp:<会话名>；网关关着时是 anonymous）。别的调用方不发票 */
+function issueUploadTicket(t: Omit<UploadTicket, 'issuedAt' | 'expiresAt' | 'session'>, subject: string, origin: string): Record<string, unknown> {
+  const session = subject.startsWith('mcp:') ? subject.slice(4) : subject === 'anonymous' && !MCP_GATEWAY_ON ? null : undefined;
+  if (session === undefined) throw new HttpError(403, '上传票只发给 MCP 会话');
+  const { token, expiresAt } = uploadTickets.issue({ ...t, session });
+  const path = `/api/mcp-rest/uploads/${token}`;
+  const url = `${origin.replace(/\/+$/, '')}${path}`;
+  return {
+    upload_url: url,
+    upload_path: path,
+    ticket: token,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    size: t.size,
+    sha256: t.sha256,
+    expires_at: new Date(expiresAt).toISOString(),
+    expires_in_seconds: Math.round(UPLOAD_TICKET_TTL_MS / 1000),
+    curl: `curl -fsS -X PUT -H 'Content-Type: application/octet-stream' --data-binary @<本地文件> '${url}'`,
+    next: `在 shell 里把文件的原始字节 PUT 到 upload_url（${Math.round(UPLOAD_TICKET_TTL_MS / 60000)} 分钟内、只能用一次、不用会话令牌）；字节数必须正好是 ${t.size}，sha256 必须是申请时给的。应答就是上传结果。失败了（含字节对不上）票就作废，重新调本工具申请一张。`,
+  };
+}
+/** 用票时再问一次：发票的会话还在不在、这项授权还在不在（app 文件还要对这个台）。不在就是 'denied' */
+function uploadTicketSession(t: UploadTicket): McpSess | null | 'denied' {
+  if (t.session === null) return MCP_GATEWAY_ON ? 'denied' : null;
+  const row = svc<McpService>('mcp').sessionActiveByName(t.session) as { id: number; name: string; grants: string } | undefined;
+  if (!row) return 'denied';
+  let grants: string[] = [];
+  try { grants = JSON.parse(row.grants || '[]'); } catch { grants = []; }
+  const sess: McpSess = { id: row.id, name: row.name, grants };
+  const ok = t.kind === 'app_file' ? mcpToolAllowsApp(sess, 'app_files_upload', t.slug ?? '') : mcpToolScope(sess, 'skill_file_put') !== null;
+  return ok ? sess : 'denied';
+}
+/** 申请上传票时的公共校验：size 正整数且不超上限，sha256 必带 */
+function ticketSizeSha(args: any, max: number): { size: number; sha256: string } {
+  const size = Number(args?.size);
+  if (!Number.isSafeInteger(size) || size <= 0) throw new HttpError(400, '申请上传票：size 必带，为正整数（原始字节数）');
+  if (size > max) throw new HttpError(413, `申请上传票：size 超过上限 ${max} 字节`);
+  const sha = expectedSha256(args?.sha256);
+  if (sha === null || sha === 'bad') throw new HttpError(400, '申请上传票：sha256 必带，为 64 位十六进制');
+  return { size, sha256: sha };
 }
 /** 某技能某版本的快照目录（缺省当前版本：回滚指针，未回滚即最新）+ 版本行 */
 function skillVersionDir(slugIn: unknown, versionIn: unknown): { row: any; target: any; dir: string } {
@@ -2918,6 +2982,12 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
     }
     // 技能传输面：一次只传一个文件，不收也不发压缩包
     case 'skill_file_put':
+      // 不带 content：申请上传票（字节随后由 PUT /api/mcp-rest/uploads/<票> 收进暂存）
+      if (args?.content === undefined) {
+        const { size, sha256 } = ticketSizeSha(args, SKILL_FILE_MAX);
+        const name = String(args?.name ?? '').trim().slice(0, 255) || sha256;
+        return issueUploadTicket({ kind: 'skill_file', name, size, sha256 }, subject, origin);
+      }
       return skillStagePut(args?.content, args?.encoding, args?.sha256);
     case 'skill_publish': {
       // 审计人恒为调用会话（不收 agent 自报的 reviewed_by）；快照路径只给管理员，MCP 会话的应答里不带（REST 发布要管理口令，照旧带）
@@ -3166,6 +3236,20 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       // #164 P1②（批派令）：MCP 侧上传——base64 入 app_files（与 REST multipart 同表同链）
       const slug = String(args?.slug ?? '').trim();
       const name = fixFileName(String(args?.name ?? '').trim());
+      if (args?.content_base64 === undefined) {
+        // 不带 content_base64：申请上传票。台、文件名、文件数余量现在就核，免得字节传完了才被拒。
+        // 文件名照原样用：MCP 的参数本来就是 UTF-8，fixFileName 是给 multipart 修 latin1 乱码的，套在这里会把中文名弄坏
+        const name = String(args?.name ?? '').trim();
+        if (!slug || !name) throw new HttpError(400, 'slug/name 必填');
+        if (name.length > 255 || name === '.' || name === '..' || /[\/\\\x00-\x1f]/.test(name)) throw new HttpError(400, '文件名不合法（≤255 字符，不含路径分隔符与控制字符）');
+        const { size, sha256 } = ticketSizeSha(args, UPLOAD_MAX);
+        const a = getApp(slug, true);
+        if ((await appFilesQuota(a.slug)).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`);
+        const mime = typeof args?.mime === 'string' ? args.mime.trim().slice(0, 128) : '';
+        const createdBy = String(args?.created_by ?? '').trim().slice(0, 128) || (subject.startsWith('mcp:') ? subject : '');
+        const note = String(args?.note ?? '').trim().slice(0, 500);
+        return issueUploadTicket({ kind: 'app_file', slug: a.slug, name, size, sha256, mime, createdBy, note }, subject, origin);
+      }
       const b64 = String(args?.content_base64 ?? '');
       if (!slug || !name || !b64) throw new HttpError(400, 'slug/name/content_base64 必填');
       const a = getApp(slug, true);
@@ -3845,7 +3929,8 @@ async function mcpRestRunReadable(req: express.Request, sess: McpSess | null, ru
   return (await authorizeRunRead({ cap: runReadCapHeader(req), mcpSubject: sess ? `mcp:${sess.name}` : undefined }, runId)).authorized;
 }
 const runIdParam = (v: unknown): number => { if (!/^\d+$/.test(String(v))) throw new HttpError(404, `run not found: ${v}`); return Number(v); };
-registerMcpRestRoutes(http, { wrap, serveMcpOpenApi, mcpGatewaySession, mcpAudit, mcpRegisteredNames, MCP_REST_DENIED_HINT, mcpInvokeTool, mcpPublicOrigin, mcpRestSession, mcpToolAllowsApp, mcpRestRun, bad, getApp, appFilesQuota, APP_FILES_MAX, UPLOAD_MAX, uploadMonthDir, uploadFileName, appFileStoreCore, MCP_REST_BASE, upload, fixFileName, fileSha256, sendStoredFile, restFileItem, mcpRestRunReadable, runIdParam, sopRunRow, runReadCapHeader });
+registerMcpRestRoutes(http, { wrap, serveMcpOpenApi, mcpGatewaySession, mcpAudit, mcpRegisteredNames, MCP_REST_DENIED_HINT, mcpInvokeTool, mcpPublicOrigin, mcpRestSession, mcpToolAllowsApp, mcpRestRun, bad, getApp, appFilesQuota, APP_FILES_MAX, UPLOAD_MAX, uploadMonthDir, uploadFileName, appFileStoreCore, MCP_REST_BASE, upload, fixFileName, fileSha256, sendStoredFile, restFileItem, mcpRestRunReadable, runIdParam, sopRunRow, runReadCapHeader,
+  takeUploadTicket: (token) => uploadTickets.take(token), uploadTicketSession, skillStageIncomingPath, skillStageFromFile });
 import { goPrefix, moduleProxy, verifyPortalSsoStateCookie } from './portal.ts';
 import { registerPortalRoutes } from './routes/portal.ts';
 import { stripIncoming as stripPortalForward, verifyPortalForwardStrip, useMarketTokenCheck } from './portal-forward-headers.ts';
