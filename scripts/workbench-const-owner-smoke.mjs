@@ -8,9 +8,13 @@
 //   O5 删除：口令管理员删不了别人的常量；本机命令行带 reason 兜底删除（MCP 不提供删除）
 //   O7 公共常量：作者本人带 owner=*、override、reason 设成公共；之后任何会话带 override 与 reason 可修订，管理员口令仍不行；收归个人、转变量只限本机命令行/管理员
 //   O6 旧库升级：没有 owner 列的库启动后补列，常量按 mcp:/odoo: 最后写入者回填，共享身份留空
+//   O8 Odoo 下线后的旧作者 odoo:<登录名>：站内登录的人（user:<主体>）名下保留着这条历史 Odoo 绑定才算作者，能修订、能设成公共；
+//      没绑的人（哪怕是管理员）不算；新写入的 owner 不再收 odoo:（400），收 user:
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { SESSIONS } from './identity-fake-provider.mjs';
 import { DatabaseSync } from 'node:sqlite';
 
 mkdirSync('tmp', { recursive: true });
@@ -19,10 +23,10 @@ let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ✓ ' + n); } else { fail++; console.log('  ✗ ' + n + ' ' + x); } };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function start(DATA) {
+function start(DATA, fake = false) {
   const PORT = 22000 + Math.floor(Math.random() * 10000);
-  const env = { ...process.env, PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: DATA, ADMIN_TOKEN: ADMIN, MCP_GATEWAY: 'on', NODE_ENV: 'test', REDIS_URL: '', LAYERFS_SERVICE_URL: '' };
-  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { env, stdio: ['ignore', 'ignore', 'pipe'] });
+  const env = { ...process.env, PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: DATA, ADMIN_TOKEN: ADMIN, MCP_GATEWAY: 'on', NODE_ENV: 'test', REDIS_URL: '', LAYERFS_SERVICE_URL: '', ...(fake ? { IDENTITY_SEAM_ROOT: resolve('.') } : {}) };
+  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', ...(fake ? ['--import', pathToFileURL(resolve('scripts/identity-fake-preload.mjs')).href] : []), 'server/src/index.ts'], { env, stdio: ['ignore', 'ignore', 'pipe'] });
   let err = ''; child.stderr.on('data', (c) => (err += c));
   return { base: 'http://127.0.0.1:' + PORT, child, err: () => err };
 }
@@ -139,6 +143,44 @@ try {
 } finally {
   await stop(i);
   rmSync(DATA, { recursive: true, force: true });
+}
+
+console.log('▶ O8 旧作者 odoo:<登录名>');
+{
+  const D8 = mkdtempSync(resolve('tmp', 'const-owner-odoo-'));
+  const k = start(D8, true);
+  try {
+    ok('实例就绪（假身份来源）', await ready(k), k.err().slice(-300));
+    const page = (sid) => ({ 'content-type': 'application/json', 'sec-fetch-site': 'same-origin', origin: k.base, cookie: `session_id=${sid}` });
+    const ROOT = page(SESSIONS.admin), ALPHA = page(SESSIONS.alpha); // user:root-admin（夹具给了 owner 授予）、user:alpha（下面种一条 admin 授予）
+    const wb = await call(k.base, 'POST', '/api/workbenches', CLI, { name: 'Const Odoo', url: 'http://127.0.0.1:9/', type: 'web' });
+    const W = wb.body?.id;
+    for (const key of ['c_legacy', 'c_public']) await call(k.base, 'PUT', vpath(W, key), CLI, { value: 1, kind: 'const' });
+    const db = new DatabaseSync(join(D8, 'workbench-market.db'), { timeout: 10_000 });
+    db.prepare("UPDATE workbench_vars SET owner = 'odoo:legacy.root' WHERE workbench_id = ? AND key IN ('c_legacy', 'c_public')").run(W);
+    { const now = Date.now();
+      db.prepare("INSERT INTO principals (id, id_key, kind, display_name) VALUES ('user:alpha', 'user:alpha', 'person', 'Synthetic alpha')").run();
+      db.prepare("INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES ('fake', 'alpha', 'alpha', 'user:alpha')").run();
+      const g = Number(db.prepare("INSERT INTO grants (principal_id, role, scope, expires_at, reason, created_by, created_at, updated_at) VALUES ('user:alpha', 'admin', '*', NULL, 'synthetic', 'cli', ?, ?)").run(now, now).lastInsertRowid);
+      db.prepare("UPDATE grants SET status = 'pending' WHERE id = ?").run(g);
+      db.prepare("UPDATE grants SET status = 'active', approved_by = 'cli' WHERE id = ?").run(g); }
+    const rev = async (key) => (await call(k.base, 'GET', vpath(W, key), CLI)).body?.revision;
+    const edit = async (h, key, value) => call(k.base, 'PUT', vpath(W, key), h, { value, kind: 'const', override: true, revision: await rev(key), reason: 'synthetic' });
+    let r = await edit(ROOT, 'c_legacy', 2);
+    ok('O8 名下还没有历史绑定：改不了旧作者的常量（403）', r.status === 403 && r.body?.code === 'const_override_forbidden', JSON.stringify(r));
+    db.prepare("INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES ('odoo', 'Legacy.Root', 'legacy.root', 'user:root-admin')").run();
+    r = await edit(ROOT, 'c_legacy', 3);
+    ok('O8 名下保留着 odoo:legacy.root 的历史绑定：算作者，能修订', r.status === 200, JSON.stringify(r));
+    r = await edit(ALPHA, 'c_legacy', 4);
+    ok('O8 别的管理员（没绑那条历史身份）仍改不了', r.status === 403, JSON.stringify(r));
+    r = await call(k.base, 'PUT', vpath(W, 'c_public'), ROOT, { value: 1, kind: 'const', override: true, revision: await rev('c_public'), reason: 'synthetic', owner: '*' });
+    ok('O8 旧作者对上的人能把常量设成公共', r.status === 200 && r.body?.owner === '*', JSON.stringify(r));
+    r = await call(k.base, 'PUT', vpath(W, 'c_legacy'), CLI, { value: 5, kind: 'const', override: true, revision: await rev('c_legacy'), reason: 'synthetic', owner: 'odoo:someone' });
+    ok('O8 新写入的 owner 不再收 odoo:（本机命令行也是 400）', r.status === 400, JSON.stringify(r));
+    r = await call(k.base, 'PUT', vpath(W, 'c_legacy'), CLI, { value: 5, kind: 'const', override: true, revision: await rev('c_legacy'), reason: 'synthetic', owner: 'user:alpha' });
+    ok('O8 移交给 user:<主体> 照常', r.status === 200 && r.body?.owner === 'user:alpha', JSON.stringify(r));
+    db.close();
+  } finally { await stop(k); rmSync(D8, { recursive: true, force: true }); }
 }
 
 console.log('▶ O6 旧库升级回填');

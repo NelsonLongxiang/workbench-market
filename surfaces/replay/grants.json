@@ -42,7 +42,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -206,7 +206,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -218,7 +218,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "9756", "etag": "W/\"261c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "9726", "etag": "W/\"25fe-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "blocks": [
                 { "key": "overview", "name": "全景" },
@@ -347,9 +347,9 @@
                     "knowledge": { "read": "scoped", "write": "na", "decide": "none", "admin": "none" },
                     "team": { "read": "none", "write": "none", "decide": "none", "admin": "none" },
                     "access": { "read": "some", "write": "na", "decide": "na", "admin": "none" },
-                    "system": { "read": "some", "write": "some", "decide": "none", "admin": "none" }
+                    "system": { "read": "some", "write": "none", "decide": "none", "admin": "none" }
                   },
-                  "summary": { "see": "能看：全景（全部）、事项与对话（部分）、关注（全部）、工作台数据（范围内）、经验库（范围内）、权限与角色（部分）、系统与节点（部分）", "do": "能做：事项与对话（部分）、工作台数据（部分）、系统与节点（部分）；能管：无", "decide": "能拍板：无", "cannot": "一律不能拍板、管理；碰不到团队与 AI 员工" }
+                  "summary": { "see": "能看：全景（全部）、事项与对话（部分）、关注（全部）、工作台数据（范围内）、经验库（范围内）、权限与角色（部分）、系统与节点（部分）", "do": "能做：事项与对话（部分）、工作台数据（部分）；能管：无", "decide": "能拍板：无", "cannot": "一律不能拍板、管理；碰不到团队与 AI 员工" }
                 },
                 {
                   "id": "dept-member",
@@ -411,7 +411,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -420,12 +420,7 @@
           "class": "unauthorized",
           "what": "带浏览器标记的本机请求不算命令行",
           "request": { "method": "POST", "path": "/api/grants", "headers": { "origin": "http://attacker.invalid", "sec-fetch-site": "cross-site" }, "json": { "principal": "user:synthetic-a", "role": "member", "scope": "*", "reason": "合成" } },
-          "response": {
-            "status": 403,
-            "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
-          }
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" } }
         },
         {
           "id": "draft-bad-scope",
@@ -570,7 +565,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -675,7 +670,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -743,7 +738,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -772,7 +767,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -798,7 +793,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -855,7 +850,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -951,7 +946,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -1018,7 +1013,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -1049,7 +1044,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {

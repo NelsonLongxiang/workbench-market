@@ -136,6 +136,19 @@ try {
   check(first.r.status === 302 && first.b.jar.has('wm_session'), '改好密码：回调发市场会话', first.r.status);
   const who = await me(first.b);
   check(who?.authenticated === true && who.principal === 'user:alice' && who.via === 'session', '认出是 alice（市场会话）', who);
+  {
+    // 市场会话 cookie 的属性（以前由 odoo-market-session-test 对 Odoo 发的会话核，Odoo 下线后在站内账号上核）：HttpOnly、SameSite=Lax、Path=/，http 时不带 Secure
+    const sc = (first.r.headers.getSetCookie?.() ?? []).find((c) => c.startsWith('wm_session='));
+    const attrs = (c) => (c ?? '').split(';').slice(1).map((x) => x.trim().split('=')[0].toLowerCase());
+    check(!!sc && /HttpOnly/i.test(sc) && /SameSite=Lax/i.test(sc) && /Path=\//i.test(sc) && !attrs(sc).includes('secure') && !attrs(sc).includes('domain'),
+      '市场会话 cookie：HttpOnly、SameSite=Lax、Path=/，不带 Domain（http 下不带 Secure）', sc);
+    // 登出：这个会话当场作废，同一个 cookie 再来也认不出
+    const kept = first.b.jar.get('wm_session');
+    const out = await first.b.go('POST', '/api/auth/logout', { json: {} });
+    const again = browser('192.0.2.21'); again.jar.set('wm_session', kept); // 另一个浏览器带着登出前的同一个 cookie
+    const replay = await me(again);
+    check(out.status === 200 && !first.b.jar.has('wm_session') && replay?.authenticated !== true, '登出：浏览器的会话 cookie 清掉，同一个 cookie 再来也认不出', { out: out.status, replay });
+  }
   check((await login('alice', temp)).r.status === 401, '临时密码改过之后就不能再用');
 
   console.log('三、对抗');

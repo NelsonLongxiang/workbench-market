@@ -168,7 +168,7 @@ try {
   await sleep(300);
   const n1 = lastNote(), l1 = ledger('work-items', I.v1);
   check(a1.status === 200 && released(I.v1) === 1 && a1.body?.remember?.status === 'written' && a1.body.remember.scope_label === '部门' && n1?.scope === 'dept:ops' && kbCalls() === c1 + 1
-      && l1.length === 1 && l1[0].state === 'done' && l1[0].answer === 'release' && l1[0].status === 200 && l1[0].answered_by === 'odoo:root-admin' && l1[0].source_id.startsWith(`${I.v1}:`),
+      && l1.length === 1 && l1[0].state === 'done' && l1[0].answer === 'release' && l1[0].status === 200 && l1[0].answered_by === 'user:root-admin' && l1[0].source_id.startsWith(`${I.v1}:`),
     '一、管理层照卡片放行、顺带记成经验：放行生效；答复账里有这一条（答法 release、谁答的、哪一轮）；经验写成，缺省范围是部门（dept:ops），不是全公司', show({ a1: [a1.status, a1.body], n1: n1?.scope, l1 }));
 
   // ---------- 二 ----------
@@ -176,7 +176,7 @@ try {
   const l2 = ledger('work-items', I.v2);
   const r2 = await later(WHO.管理层, { source_id: I.v2, lesson: '报价单先看底价' });
   const rec2 = (await recent(WHO.管理层)).find((x) => x.source_id === I.v2);
-  check(a2.status === 200 && released(I.v2) === 1 && a2.body?.remember === undefined && l2.length === 1 && l2[0].answered_by === 'odoo:root-admin' && r2.status === 201 && r2.body?.status === 'written' && rec2?.answer === 'release',
+  check(a2.status === 200 && released(I.v2) === 1 && a2.body?.remember === undefined && l2.length === 1 && l2[0].answered_by === 'user:root-admin' && r2.status === 201 && r2.body?.status === 'written' && rec2?.answer === 'release',
     '二、照卡片放行、不记（请求体里塞了伪造的 by）：答复账照记，答的人是请求本身认出来的；「我处理过的」里有它，之后补记能记上', show({ a2: [a2.status, a2.body], l2, r2: [r2.status, r2.body], rec2 }));
 
   // ---------- 三 ----------

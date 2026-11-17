@@ -8,7 +8,7 @@ export const isStartupProbeRequest = (req: IncomingMessage): boolean => internal
 type Row = { id: string; surface: 'market' | 'control'; method: string; path: string; verdict: 'pass' | 'fail' | 'warn' | 'skip'; status: number | null; reason: string | null };
 type State = { passed: boolean; failed: string[]; at: string | null; rows: Row[] };
 type Target = { port: number; surface: 'market' | 'control' };
-type Options = { market: Server; control?: Server; gatewayOn: boolean; nodeEnv?: string; loginGate?: 'enforce' | 'off'; appDataRead?: 'enforce' | 'warn'; sopRunWrite?: 'enforce' | 'warn'; benchViews?: boolean; portalForward?: () => { ok: boolean; reason: string | null }; portalSsoStateCookie?: () => { ok: boolean; reason: string | null }; outbound?: () => Promise<{ ok: boolean; reason: string | null }> ; sessionSeal?: () => { ok: boolean; reason: string | null } };
+type Options = { market: Server; control?: Server; gatewayOn: boolean; nodeEnv?: string; loginGate?: 'enforce' | 'off'; appDataRead?: 'enforce' | 'warn'; sopRunWrite?: 'enforce' | 'warn'; benchViews?: boolean; portalForward?: () => { ok: boolean; reason: string | null }; portalSessionStrip?: () => { ok: boolean; reason: string | null }; outbound?: () => Promise<{ ok: boolean; reason: string | null }> ; sessionSeal?: () => { ok: boolean; reason: string | null } };
 /** Login-gate rows impersonate a remote anonymous browser behind a same-host proxy, so the local-CLI exemption cannot apply. */
 const REMOTE_ANON = { 'x-forwarded-for': '192.0.2.1', accept: 'text/html' };
 
@@ -83,7 +83,7 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
     });
   }
 
-  async function execute({ market, control, gatewayOn, nodeEnv, loginGate = 'off', appDataRead = 'enforce', sopRunWrite = 'enforce', benchViews = false, portalForward, portalSsoStateCookie, outbound, sessionSeal }: Options): Promise<State> {
+  async function execute({ market, control, gatewayOn, nodeEnv, loginGate = 'off', appDataRead = 'enforce', sopRunWrite = 'enforce', benchViews = false, portalForward, portalSessionStrip, outbound, sessionSeal }: Options): Promise<State> {
     const [m, c] = await Promise.all([listener(market), listener(control)]);
     if (c) c.surface = 'control';
     const table = [
@@ -196,11 +196,11 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       state.rows.push(row);
       log({ source: 'self-probe', ...row });
     }
-    // Fixed synthetic cookie options only: no account, registry, Odoo call or business response.
-    if (portalSsoStateCookie) {
+    // 门户对任何上游都剥掉浏览器带来的 session_id（Odoo 会话）：合成的 Cookie 头，不碰任何台、账号、上游
+    if (portalSessionStrip) {
       let ok = false;
-      try { ok = portalSsoStateCookie().ok === true; } catch { /* fail closed, do not copy errors to health/audit */ }
-      const row: Row = { id: 'market.portal.sso-state-cookie', surface: 'market', method: 'CHECK', path: '/go/*', verdict: ok ? 'pass' : 'fail', status: null, reason: ok ? null : 'unsafe-sso-state-cookie' };
+      try { ok = portalSessionStrip().ok === true; } catch { /* fail closed, do not copy errors to health/audit */ }
+      const row: Row = { id: 'market.portal.session-id-stripped', surface: 'market', method: 'CHECK', path: '/go/*', verdict: ok ? 'pass' : 'fail', status: null, reason: ok ? null : 'session-id-forwarded' };
       state.rows.push(row);
       log({ source: 'self-probe', ...row });
     }

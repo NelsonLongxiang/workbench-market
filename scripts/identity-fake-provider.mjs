@@ -49,6 +49,7 @@ export const SESSIONS = {
   okThrows: 'fake-answer-ok-getter-throws', // 回答对象的 ok 一读就抛错
   viewerThrows: 'fake-answer-viewer-throws-1', // 回答对象的 viewer 一读就抛错
   flipLogin: 'fake-login-flips-on-reread', // 登录名头两次读是 alpha，再读就成了 root-admin
+  claimsAdmin: 'fake-claims-admin-000001', // 登录名 claims-admin，来源自称管理员、库里没有任何授予：管理员只认授予，它不该是管理员
   squatter: 'fake-squatter-session-01', // 登录名 squatted，自称管理员：测「标识已被别的主体占着」时用，别处不要认它
   // 和 alpha 是同一个写法的等价变体（同一个 uid）：只能被拒，不能另建主体，更不能绕过 alpha 的停用
   alphaUpper: 'fake-alpha-upper-case-01', // 登录名 Alpha
@@ -94,6 +95,7 @@ const ANSWERS = {
   [SESSIONS.okThrows]: () => ({ get ok() { throw new Error('synthetic accessor failure'); } }),
   [SESSIONS.viewerThrows]: () => ({ ok: true, get viewer() { throw new Error('synthetic accessor failure'); } }),
   [SESSIONS.squatter]: () => viewer('squatted', 31, { admin: true }),
+  [SESSIONS.claimsAdmin]: () => viewer('claims-admin', 32, { admin: true }),
   [SESSIONS.alphaUpper]: () => viewer('Alpha', 11, { admin: false }),
   [SESSIONS.alphaWide]: () => viewer('\uff41\uff4c\uff50\uff48\uff41', 11, { admin: false }),
   [SESSIONS.alphaZeroWidth]: () => viewer('al\u200bpha', 11, { admin: false }),
@@ -110,6 +112,15 @@ export const fakeProvider = {
   configured: () => true,
   credentialOf: sessionOf,
   async resolveViewer(cookieHeader) {
+    // IDENTITY_FAKE_REMOTE_URL：回答交给测试自己起的本机替身（测试要能现场改回答：吊销、来源挂掉、数被问了几次）。
+    // 替身回的就是提供方回答的原样（{ ok, viewer } / { ok:false, http }）；替身不是 2xx 或连不上 = 来源不可达。
+    const remote = process.env.IDENTITY_FAKE_REMOTE_URL;
+    if (remote) {
+      try {
+        const r = await fetch(remote, { headers: { cookie: String(cookieHeader ?? '') }, signal: AbortSignal.timeout(DEADLINE_MS) });
+        return r.ok ? await r.json() : { ok: false, http: 502, error: '身份来源不可达（合成替身）' };
+      } catch { return { ok: false, http: 502, error: '身份来源不可达（合成替身）' }; }
+    }
     const sid = sessionOf(cookieHeader);
     if (!sid) return { ok: false, http: 401, error: '没有会话（合成）' };
     const once = ONCE_RE.exec(sid);
@@ -275,5 +286,40 @@ export async function swapInFake(treeRoot) {
   const fiber = tree.root.plugin(fakePlugin);
   await fiber;
   if (tree.identity().providerName() !== 'fake') throw new Error('假的登录提供方没有装上');
+  await seedFakeAdmin(treeRoot);
   return { ...tree, fiber };
+}
+
+/**
+ * 管理员只认授予（身份来源自己说「是管理员」不算）：假来源里的管理员 root-admin（SESSIONS.admin）要真当管理员，
+ * 就给他建好主体、绑上假身份、放一条生效的 owner 授予——和线上「持 owner 授予的人是完整的管理员」同一个口径。
+ * 已经有了就不动（同一个数据目录重启）。别的自称管理员的假会话（truthyAdmin、impersonate……）不给授予：核心不该认它们。
+ * IDENTITY_FAKE_ADMIN_GRANT=admin：只给一条 admin 授予（系统管理员）——要「是管理员、但不是属主」的测试用（以前的 Odoo 管理员这一类已经没有了）；
+ * =none：什么都不给。
+ */
+export const FAKE_ADMIN = { login: 'root-admin', principal: 'user:root-admin' };
+async function seedFakeAdmin(treeRoot) {
+  assertTestEnv();
+  const { db } = await import(pathToFileURL(join(treeRoot, 'server/src/db.ts')).href);
+  const { principal, login } = FAKE_ADMIN;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    if (!db.prepare('SELECT 1 FROM principals WHERE id = ?').get(principal)) {
+      db.prepare("INSERT INTO principals (id, id_key, kind, display_name) VALUES (?, ?, 'person', ?)").run(principal, principal, `Synthetic ${login}`); // 和假来源回答里的显示名一致
+    }
+    if (!db.prepare("SELECT 1 FROM principal_identities WHERE provider = 'fake' AND external_id = ?").get(login)) {
+      db.prepare("INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES ('fake', ?, ?, ?)").run(login, login, principal);
+    }
+    const role = process.env.IDENTITY_FAKE_ADMIN_GRANT === 'admin' ? 'admin' : process.env.IDENTITY_FAKE_ADMIN_GRANT === 'none' ? '' : 'owner';
+    if (role && !db.prepare("SELECT 1 FROM grants WHERE principal_id = ? AND role = ? AND scope = '*' AND status = 'active'").get(principal, role)) {
+      const now = Date.now();
+      const id = Number(db.prepare("INSERT INTO grants (principal_id, role, scope, expires_at, reason, created_by, created_at, updated_at) VALUES (?, ?, '*', NULL, '测试夹具：假来源里的管理员', 'cli', ?, ?)").run(principal, role, now, now).lastInsertRowid);
+      db.prepare("UPDATE grants SET status = 'pending' WHERE id = ?").run(id);
+      db.prepare("UPDATE grants SET status = 'active', approved_by = 'cli' WHERE id = ?").run(id);
+    }
+    db.exec('COMMIT');
+  } catch (e) {
+    try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ }
+    throw e;
+  }
 }

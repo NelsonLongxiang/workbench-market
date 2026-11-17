@@ -5,8 +5,8 @@
  *
  *   一、开关：缺省关（报告是空的、不记任何东西）；值不合法拒绝启动（进程自己以非 0 退出）
  *   二、各类结果落对地方：内置身份按清单一致、细分的动作、被完整性门拦下、状态码不代表授权、不确定、404 不判、没报动作不比
- *   三、迁移：第一次见到的人给 member，身份来源说是管理员的给 admin（不给 management），来源记 migration；重复见不重复迁
- *   四、故意撤一条授予：比对里出现对应的不一致；迁移不会把它补回来
+ *   三、迁移：第一次见到的人给 member（不给 management，也不再给 admin：管理员只认授予），来源记 migration；重复见不重复迁
+ *   四、撤掉系统管理员的 admin 授予：旧守卫和新判定一起拒（两边都只认授予），比对里没有不一致；迁移不会补出 admin
  *   五、迁移出来的授予：一条命令列出、一条命令整批撤销（只有属主能）
  *   六、记录里没有查询串、路径里的 id、口令和 cookie
  *   六之二、请求本身改了口令：身份按请求进来时认
@@ -55,7 +55,7 @@ async function boot(name, extraEnv = {}, { expectFail = false, fault = false } =
   writeFileSync(join(ext, 'legacy-probe', 'server.mjs'), "export function register(ctx) { ctx.app.get('/legacy-probe/ping', (_req, res) => { res.json({ ok: true }); }); }\n");
   const env = {};
   for (const k of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP']) if (process.env[k]) env[k] = process.env[k];
-  Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN, REDIS_URL: '', IDENTITY_SEAM_ROOT: ROOT, WM_EXTENSIONS_DIR: ext, ...extraEnv });
+  Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN, REDIS_URL: '', IDENTITY_SEAM_ROOT: ROOT, IDENTITY_FAKE_ADMIN_GRANT: 'admin', WM_EXTENSIONS_DIR: ext, ...extraEnv });
   const args = ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, ...(fault ? ['--import', FAULT] : []), 'src/index.ts'];
   const child = spawn(process.execPath, args, { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
@@ -156,24 +156,24 @@ try {
     const rep = await srv.report();
     const migrated = (await srv.call('GET', '/api/grants?source=migration')).json?.grants ?? [];
     const pairs = migrated.map((g) => `${g.principal_id}:${g.role}:${g.status}`).sort();
-    check(a1.status === 200 && show(pairs) === show(['user:alpha:member:active', 'user:root-admin:admin:active', 'user:root-admin:member:active'])
+    check(a1.status === 200 && show(pairs) === show(['user:alpha:member:active', 'user:root-admin:member:active'])
       && migrated.every((g) => g.source === 'migration' && g.approved_by === 'system:migration')
       && !mismatch(rep, 'GET /api/principals') && tallyOf(rep, 'GET /api/types', 'agree') >= 1,
-      '迁移：第一次见到的人给 member、身份来源说是管理员的再给 admin，不自动给 management（管理层由属主单独授，L6）；来源 migration、放行人 system:migration；再见不重复迁；迁完之后管理员读管理面、成员读开放面、成员读管理面（两边都拒）都一致', show({ pairs, tally: rep.tally.filter((t) => t.route === 'GET /api/principals') }));
+      '迁移：第一次见到的人给 member，不迁 admin（管理员只认授予）、不自动给 management（管理层由属主单独授，L6）；来源 migration、放行人 system:migration；再见不重复迁；迁完之后管理员读管理面、成员读开放面、成员读管理面（两边都拒）都一致', show({ pairs, tally: rep.tally.filter((t) => t.route === 'GET /api/principals') }));
   }
 
-  // ---------- 四、故意撤一条授予 ----------
+  // ---------- 四、撤掉系统管理员的 admin 授予 ----------
   {
-    const admins = ((await srv.call('GET', '/api/grants?source=migration&principal=user:root-admin')).json?.grants ?? []).filter((g) => g.role === 'admin');
+    const admins = ((await srv.call('GET', '/api/grants?principal=user:root-admin&status=active')).json?.grants ?? []).filter((g) => g.role === 'admin');
+    const before = (await srv.report()).mismatches.length;
     const rv = await srv.call('POST', `/api/grants/${admins[0]?.id}/revoke`, { body: { reason: '合成：故意撤，看比对' } });
     const after = await srv.call('GET', '/api/principals', asRoot);
     await srv.call('GET', '/api/principals', asRoot);
     const rep = await srv.report();
-    const m = mismatch(rep, 'GET /api/principals', 'no-grant');
     const again = ((await srv.call('GET', '/api/grants?principal=user:root-admin&source=migration')).json?.grants ?? []).filter((g) => g.role === 'admin');
-    check(rv.status === 200 && after.status === 200 && m?.old === 'allow' && m.new === 'deny' && m.actor_kind === 'person' && m.count === 2
-      && again.length === 1 && again[0].status === 'revoked',
-      '故意撤掉迁移给的 admin：旧守卫照样放行（应答不变），比对里出现「旧允许、新拒绝、没有授予」，同一种合并计数；迁移不会把它补回来', show({ rv: rv.status, after: after.status, m, again: again.map((g) => g.status) }));
+    check(admins.length === 1 && admins[0].source === 'manual' && rv.status === 200 && after.status === 403 && rep.mismatches.length === before && !mismatch(rep, 'GET /api/principals')
+      && tallyOf(rep, 'GET /api/principals', 'agree') >= 1 && again.length === 0,
+      '撤掉系统管理员的 admin 授予：旧守卫照样拒（403，不再有「身份来源说是管理员」那条路），新判定也拒，比对里没有不一致；迁移不会补出 admin', show({ rv: rv.status, after: after.status, mismatches: rep.mismatches, again: again.length }));
   }
 
   // ---------- 五、迁移的整批撤销 ----------
@@ -182,9 +182,12 @@ try {
     const noReason = await srv.call('POST', '/api/grants/revoke-migration', { body: {} });
     const byCli = await srv.call('POST', '/api/grants/revoke-migration', { body: { reason: '合成：整批撤销' } });
     const left = ((await srv.call('GET', '/api/grants?source=migration&status=active')).json?.grants ?? []).length;
+    // 撤掉之后同样的人再来：迁移看的是「迁没迁过」，不是「现在有没有」，撤掉的不补回来
+    await srv.call('GET', '/api/types', asAlpha); await srv.call('GET', '/api/principals', asRoot); await sleep(300);
+    const leftAgain = ((await srv.call('GET', '/api/grants?source=migration&status=active')).json?.grants ?? []).length;
     const manual = (await srv.call('GET', '/api/grants?source=manual')).json?.grants ?? [];
-    check(byToken.status === 403 && noReason.status === 400 && byCli.status === 200 && byCli.json?.revoked === 2 && left === 0 && manual.length === 0,
-      '迁移出来的授予整批撤销：口令管理员 403（只有属主能）、不写理由 400；本机命令行撤了剩下的 2 条（两个人的 member），之后一条生效的都没有', show({ byToken: byToken.status, noReason: noReason.status, byCli: byCli.json, left }));
+    check(byToken.status === 403 && noReason.status === 400 && byCli.status === 200 && byCli.json?.revoked === 2 && left === 0 && leftAgain === 0 && manual.length === 1 && manual[0].principal_id === 'user:root-admin' && manual[0].status === 'revoked',
+      '迁移出来的授予整批撤销：口令管理员 403（只有属主能）、不写理由 400；本机命令行撤了剩下的 2 条（两个人的 member），之后一条生效的都没有；同样的人再来也不补回来', show({ byToken: byToken.status, noReason: noReason.status, byCli: byCli.json, left, leftAgain }));
   }
 
   // ---------- 六、记录里没有不该有的 ----------

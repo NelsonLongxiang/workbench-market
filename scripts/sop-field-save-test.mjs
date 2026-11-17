@@ -4,9 +4,9 @@ const db=new DatabaseSync(':memory:');db.exec("CREATE TABLE sop_runs(id INTEGER 
 const initial=JSON.stringify({inspect:{note:'old',count:4,ok:true,tags:['a']},release:{private_note:'OTHER_STEP'}});db.prepare('INSERT INTO sop_runs VALUES(12,?,?,?,?)').run('inspection-sop',3,'running',initial);
 let yaml=readFileSync(new URL('./fixtures/sop-readonly/typed-v3.yaml',import.meta.url),'utf8').replaceAll('operations: [read]','operations: [read, save]'),at=1000,subject='alpha';
 const oldOrigin=process.env.WM_ODOO_ORIGINS;process.env.WM_ODOO_ORIGINS='http://odoo.synthetic.invalid';
-const cookie='session_id=syntheticAlpha00000001',scope={runId:12,targetId:4,step:'inspect'};
-const access=createSopRunAccess({db,odooOrigin:'http://odoo.synthetic.invalid',marketOrigin:'http://market.synthetic.invalid',frozenYaml:()=>yaml,now:()=>at,viewer:async()=>({ok:true,viewer:{sub:'user:'+subject,uid:subject==='alpha'?1:2,login:subject,name:null}})});
-const bind=()=>access.bindTrustedRun({runId:12,targetId:4,ownerSubject:'user:alpha:1',manifestSha256:createHash('sha256').update(yaml).digest('hex')});bind();
+const cookie='wm_session=syntheticAlpha00000001',scope={runId:12,targetId:4,step:'inspect'};
+const access=createSopRunAccess({db,marketOrigin:'http://market.synthetic.invalid',frozenYaml:()=>yaml,now:()=>at,viewer:async()=>({ok:true,viewer:{sub:'user:'+subject,uid:subject==='alpha'?1:2,login:subject,name:null}})});
+const bind=()=>access.bindTrustedRun({runId:12,targetId:4,ownerSubject:'user:alpha',manifestSha256:createHash('sha256').update(yaml).digest('hex')});bind();
 let checks=0;const check=async(n,f)=>{await f();checks++;console.log('PASS '+n)},data=()=>db.prepare('SELECT data FROM sop_runs WHERE id=12').get().data,revision=()=>db.prepare('SELECT revision FROM sop_run_revisions WHERE run_id=12').get().revision;
 const save=(cap,patch={},s=scope)=>access.save(cookie,cap,s,{version:3,expected_revision:revision(),values:{note:'new'},...patch});
 const reject=async(fn,status)=>{const before=[data(),revision()];await assert.rejects(fn,e=>e.status===status);assert.deepEqual([data(),revision()],before)};

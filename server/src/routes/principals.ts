@@ -26,7 +26,7 @@ import { isSystemAdminOnly, systemAdminTargetRefusal } from '../admin-tier.ts';
 
 export type PrincipalRouteDeps = {
   /** 按需认定管理员登录（判管理员之前调用） */
-  markOdooAdmin: (req: express.Request) => Promise<void>;
+  markAdmin: (req: express.Request) => Promise<void>;
   /** 管理门（口令或管理员登录 + 同源）；不过时它自己回 403 */
   adminGuard: (req: express.Request, res: express.Response) => boolean;
   /** 管理员身份落到人：管理员登录是 odoo:<登录名>，口令是 admin-token */
@@ -76,7 +76,7 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
   /** 是管理员就返回「谁」（留痕里的写法）；不是就已经回了 403，返回 null */
   async function admin(req: express.Request, res: express.Response): Promise<string | null> {
     if (!browserMarked(req) && rawLoopback(req)) return 'cli'; // 本机命令行
-    await deps.markOdooAdmin(req);
+    await deps.markAdmin(req);
     return deps.adminGuard(req, res) ? deps.adminActor(req) : null;
   }
   principalsAdmin = admin;

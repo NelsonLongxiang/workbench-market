@@ -149,7 +149,7 @@ try {
   };
   const token = { ...SAME, 'x-admin-token': ADMIN_TOKEN };
   const sessionAdmin = { ...SAME, cookie: `session_id=${SESSIONS.admin}` };
-  const GUARD_403 = '需要有效的 X-Admin-Token 或 Odoo 管理员登录';
+  const GUARD_403 = '需要有效的 X-Admin-Token 或站内管理员登录';
 
   // 口令管理员：照旧
   const t1 = await call('GET', '/api/workbench-events', token), t2 = await call('GET', `/api/workbench-events/${ev1}`, token);

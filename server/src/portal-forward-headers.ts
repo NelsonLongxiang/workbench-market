@@ -11,7 +11,7 @@
  * Authorization：形状是 Bearer 加 64 位十六进制、并且市场查得到的（MCP 会话令牌等市场自己发的令牌），摘掉；
  *   别的照旧——没配凭据的台，浏览器自己带的 Basic、Bearer 是给台的，原样转；配了凭据的台由门户覆盖成台的凭据（HTTP 那边覆盖之后不再查）。
  *   查法由发令牌的模块登记（useMarketTokenCheck），这里不开库；一个都没登记时启动自检不过。
- * Odoo 台的 session_id 由门户的 SSO 规则管（没过检剥掉、过检只转它一个），不在这里。
+ * 浏览器带来的 session_id 由门户另外剥掉（portal.ts 的 stripSessionIdCookie，对任何上游都剥），不在这里。
  */
 import type { IncomingHttpHeaders, OutgoingHttpHeader } from 'node:http';
 

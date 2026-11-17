@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
- * 比对打开时的「按人迁移授予」不放宽（遗留差异 L6）：身份来源的管理员第一次被见到，只迁 member 和 admin，不迁 management。
+ * 比对打开时的「按人迁移授予」不放宽（遗留差异 L6）：系统管理员（持 admin 授予）第一次被见到，只迁 member，不迁 management、也不迁 admin
+ * （管理员只认授予，2026-11-17 起不再按身份来源的说法迁 admin）。
  * 管理层由属主单独授。几处业务代码直接认管理层授予，所以迁了 management 就等于比对一开就放宽——这里一处一处守住：
  *
- *   一、身份来源的管理员第一次被见到后：迁出来的只有 member、admin，没有任何生效的 management
+ *   一、系统管理员第一次被见到后：迁出来的只有 member，没有任何生效的 management
  *   二、团队分配、收回：仍回 403 not_team_lead（系统管理员不代办）
  *   三、认领团队：仍然走提议（202），不直接落
  *   四、数据视图（WM_BENCH_VIEWS=on）：仍然进不去（403 bench_views_forbidden）
@@ -53,7 +54,7 @@ async function boot() {
   for (const d of [data, home, ext]) mkdirSync(d, { recursive: true });
   const env = {};
   for (const k of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP']) if (process.env[k]) env[k] = process.env[k];
-  Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN, REDIS_URL: '', IDENTITY_SEAM_ROOT: ROOT, WM_EXTENSIONS_DIR: ext, WM_JUDGMENT_COMPARE: 'on', WM_BENCH_VIEWS: 'on' });
+  Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN, REDIS_URL: '', IDENTITY_SEAM_ROOT: ROOT, IDENTITY_FAKE_ADMIN_GRANT: 'admin', WM_EXTENSIONS_DIR: ext, WM_JUDGMENT_COMPARE: 'on', WM_BENCH_VIEWS: 'on' });
   child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
   child.stdout.on('data', (d) => { log += String(d); });
@@ -81,7 +82,7 @@ try {
   const srv = await boot();
   const db = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 });
   const same = { origin: `http://${srv.host}`, 'sec-fetch-site': 'same-origin' };
-  const asRoot = { headers: { ...REMOTE, ...same }, session: SESSIONS.admin }; // 身份来源说是管理员的人
+  const asRoot = { headers: { ...REMOTE, ...same }, session: SESSIONS.admin }; // 系统管理员：夹具给 root-admin 一条 admin 授予（IDENTITY_FAKE_ADMIN_GRANT=admin）
   const now = new Date().toISOString();
   db.prepare('INSERT INTO a2a_roster_nodes (host, peer_root, peer_zone, reported_at, received_at, key_fingerprint) VALUES (?1, ?2, ?3, ?4, ?5, char(115, 104, 97, 50, 53, 54, 58) || substr(?1 || hex(zeroblob(32)), 1, 64))').run(HOST, 'https://node-mig.synthetic.invalid', 'zone1', now, now);
   // 团队归属绑节点（根地址 + 完整指纹）：这个根地址要在对端登记里、启用、有指纹（合成的）
@@ -98,18 +99,18 @@ try {
   await srv.call('POST', '/api/teams/claim', { body: { host: HOST, team: TEAM, department: 'sales' } });
   await srv.call('POST', '/api/teams/leads', { body: { host: HOST, team: TEAM, principal: 'user:alpha' } });
 
-  // 让比对第一次见到身份来源的管理员：读一个管理面、一个业务读面
+  // 让比对第一次见到这位系统管理员：读一个管理面、一个业务读面
   await srv.call('GET', '/api/principals', asRoot);
   await srv.call('GET', '/api/teams', asRoot);
   await sleep(400);
   await srv.call('GET', '/api/judgment/compare'); // 取一次报告：把攒着的比对记账写掉
 
-  // ---------- 一、迁出来的只有 member、admin ----------
+  // ---------- 一、迁出来的只有 member ----------
   {
     const migrated = ((await srv.call('GET', '/api/grants?source=migration&principal=user:root-admin')).json?.grants ?? []).map((g) => `${g.role}:${g.status}`).sort();
     const mgmt = db.prepare("SELECT COUNT(*) AS n FROM grants WHERE principal_id = 'user:root-admin' AND role = 'management' AND status = 'active'").get().n;
-    check(show(migrated) === show(['admin:active', 'member:active']) && mgmt === 0,
-      '身份来源的管理员第一次被见到：迁出来的只有 member、admin，没有任何生效的 management（管理层由属主单独授，L6）', show({ migrated, mgmt }));
+    check(show(migrated) === show(['member:active']) && mgmt === 0,
+      '系统管理员第一次被见到：迁出来的只有 member，没有任何生效的 management（管理层由属主单独授，L6），也不迁 admin', show({ migrated, mgmt }));
   }
   const seat = { host: HOST, team: TEAM, seat: MEMBER.seat, seat_id: MEMBER.seat_id };
   // ---------- 二、团队分配、收回：系统管理员不代办 ----------
@@ -117,16 +118,16 @@ try {
   const unassign = await srv.call('POST', '/api/teams/unassign', { ...asRoot, body: seat });
   check(assign.status === 403 && assign.json?.error === 'not_team_lead' && unassign.status === 403 && unassign.json?.error === 'not_team_lead'
     && db.prepare('SELECT COUNT(*) AS n FROM seat_assignments').get().n === 0,
-    '团队分配、收回：身份来源的管理员仍回 403 not_team_lead（系统管理员不代办），没有写分配', show({ assign: [assign.status, assign.json?.error], unassign: [unassign.status, unassign.json?.error] }));
+    '团队分配、收回：系统管理员仍回 403 not_team_lead（系统管理员不代办），没有写分配', show({ assign: [assign.status, assign.json?.error], unassign: [unassign.status, unassign.json?.error] }));
   // ---------- 三、认领团队：走提议 ----------
   const claim = await srv.call('POST', '/api/teams/claim', { ...asRoot, body: { host: HOST, team: OTHER, department: 'ops' } });
   const claimed = db.prepare('SELECT claimed FROM teams WHERE host = ? AND team = ?').get(HOST, OTHER)?.claimed ?? 0;
   check(claim.status === 202 && claim.json?.proposed === true && !claimed,
-    '认领团队：身份来源的管理员仍然只能提议（202），团队没有直接认领', show({ claim: [claim.status, claim.json], claimed }));
+    '认领团队：系统管理员仍然只能提议（202），团队没有直接认领', show({ claim: [claim.status, claim.json], claimed }));
   // ---------- 四、数据视图：进不去 ----------
   const bench = await srv.call('POST', '/api/bench-views', { ...asRoot, body: { slug: 'wm-mig-probe', title: '合成台' } });
   check(bench.status === 403 && bench.json?.error === 'bench_views_forbidden',
-    '数据视图：身份来源的管理员仍然进不去（403 bench_views_forbidden），台没有登记', show({ bench: [bench.status, bench.json?.error] }));
+    '数据视图：系统管理员仍然进不去（403 bench_views_forbidden），台没有登记', show({ bench: [bench.status, bench.json?.error] }));
 
   // ---------- 五、对照：属主单独授了 management 之后，同一个人都放行 ----------
   {

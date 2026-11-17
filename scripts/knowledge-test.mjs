@@ -91,7 +91,7 @@ async function boot(name, fixture, { data, env: extraEnv = {}, dropEnv = [], fau
   writeFileSync(join(ygl, 'library-fixture.json'), JSON.stringify(fixture));
   const env = {};
   for (const k of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP']) if (process.env[k]) env[k] = process.env[k];
-  Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: dataDir, NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN, REDIS_URL: '', IDENTITY_SEAM_ROOT: ROOT,
+  Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: dataDir, NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN, REDIS_URL: '', IDENTITY_SEAM_ROOT: ROOT, IDENTITY_FAKE_ADMIN_GRANT: 'none',
     WM_YGL_CLI: FAKE_CLI, YGL_HOME: ygl, WM_KNOWLEDGE_SYNC_MINUTES: '1', ...extraEnv });
   for (const k of dropEnv) delete env[k];
   child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, ...(fault ? ['--import', FAULT] : []), 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -343,13 +343,13 @@ try {
       `没接入（${mode}）：启动照常、自检不红；接口回空列表、source=not_connected、不带原因；管理员看得到原因 ${want}；四类同一个原因只告警一次、不带路径`,
       show({ health: health.status, status: l.status, source: l.json?.source, errors: st.map((k) => k.last_error), warns }));
     if (mode === 'exit2') {
-      // 全新的库、谁都没发过授予：同步状态（没接入时管理员要靠它看原因）三种管理身份都看得到——
-      // 本机命令行（属主）；身份来源说是管理员的人（第一次见到时迁移出 admin 预设，不用等别处先触发迁移）；管理口令。普通员工照样 403
+      // 全新的库、谁都没发过授予：同步状态（没接入时管理员要靠它看原因）本机命令行（属主）、管理口令看得到。
+      // 身份来源自己说是管理员的人不算管理员（Odoo 下线起管理员只认授予），和普通员工一样 403
       const stOf = async (o) => (await bad.call('GET', '/api/knowledge/status', o)).status;
       const fresh = { localCli: await stOf({}), odooAdmin: await stOf({ headers: { ...REMOTE, ...sameB }, session: SESSIONS.admin }), token: await stOf({ headers: token }),
         alpha: await stOf({ headers: { ...REMOTE, ...sameB }, session: SESSIONS.alpha }) };
-      check(show(fresh) === show({ localCli: 200, odooAdmin: 200, token: 200, alpha: 403 }),
-        '全新的库：本机命令行、身份来源的管理员（当场迁移出系统管理员预设）、管理口令都看得到同步状态；普通员工 403', show(fresh));
+      check(show(fresh) === show({ localCli: 200, odooAdmin: 403, token: 200, alpha: 403 }),
+        '全新的库：本机命令行、管理口令看得到同步状态；身份来源自称的管理员（没有授予）、普通员工 403', show(fresh));
     }
     await stop();
   }

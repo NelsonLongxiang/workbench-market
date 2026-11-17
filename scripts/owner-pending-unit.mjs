@@ -41,7 +41,7 @@ ok('不是常量不采信', 'error' in parseConfig(v('config.owner', { owner_log
 ok('缺 writers 不采信', 'error' in parseConfig(v('config.owner', { owner_login: 'boss' }, 'odoo:boss')));
 
 // 看板
-const C = { ownerLogin: 'boss', writers: ['mcp:owner-board'], revision: 1 };
+const C = { ownerLogin: 'boss', ownerPrincipal: '', owners: ['odoo:boss'], writers: ['mcp:owner-board'], revision: 1 };
 const item = (no, extra = {}) => v(`item.${no}`, { question: `问题 ${no}`, checked: '记忆', waiting_for: '属主', first_raised: '2026-11-05', last_change: '2026-11-05', source: '监督席', ...extra }, 'mcp:owner-board');
 const vars = [
   item(1),
@@ -85,7 +85,7 @@ const b2 = answerBody('改', '2026-11-07', 3);
 ok('改答复带 override 与期望 revision', b2.override === true && b2.revision === 3 && b2.kind === 'const' && typeof b2.reason === 'string' && b2.reason.length > 0);
 
 // 修订登记身份
-const rb = configRevisionBody({ ownerLogin: 'boss', writers: ['mcp:owner-board'], revision: 4 }, [' mcp:owner-board', 'mcp:owner-board-2', '', 'mcp:owner-board']);
+const rb = configRevisionBody({ ownerLogin: 'boss', ownerPrincipal: '', owners: ['odoo:boss'], writers: ['mcp:owner-board'], revision: 4 }, [' mcp:owner-board', 'mcp:owner-board-2', '', 'mcp:owner-board']);
 ok('修订体：owner_login 不变、去重、override + 当前 revision + reason', rb.kind === 'const' && rb.override === true && rb.revision === 4 && rb.value.owner_login === 'boss' && JSON.stringify(rb.value.writers) === '["mcp:owner-board","mcp:owner-board-2"]' && /属主修订/.test(rb.reason), JSON.stringify(rb));
 ok('修订体：坏写法或空列表报错', 'error' in configRevisionBody(C, ['owner-board']) && 'error' in configRevisionBody(C, ['  ']));
 

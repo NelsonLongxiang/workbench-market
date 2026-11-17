@@ -588,7 +588,7 @@
           "route": "GET /api/bench-views",
           "class": "unauthorized",
           "what": "身份来源说是管理员、但没有授予的登录：403",
-          "request": { "method": "GET", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-admin-0001" } },
+          "request": { "method": "GET", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-claims-admin-000001" } },
           "response": {
             "status": 403,
             "type": "application/json; charset=utf-8",
@@ -750,7 +750,7 @@
           "route": "GET /api/bench-views/:bench/datasets",
           "class": "unauthorized",
           "what": "没权限的人看不出台存不存在：没登记的也是 403",
-          "request": { "method": "GET", "path": "/api/bench-views/ghost/datasets", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-admin-0001" } },
+          "request": { "method": "GET", "path": "/api/bench-views/ghost/datasets", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-claims-admin-000001" } },
           "response": {
             "status": 403,
             "type": "application/json; charset=utf-8",
@@ -763,7 +763,7 @@
           "route": "GET /api/bench-views/:bench/datasets",
           "class": "unauthorized",
           "what": "没权限的人看不出台存不存在：登记过的也是 403",
-          "request": { "method": "GET", "path": "/api/bench-views/demo/datasets", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-admin-0001" } },
+          "request": { "method": "GET", "path": "/api/bench-views/demo/datasets", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-claims-admin-000001" } },
           "response": {
             "status": 403,
             "type": "application/json; charset=utf-8",
