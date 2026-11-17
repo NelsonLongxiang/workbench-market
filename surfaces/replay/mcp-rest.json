@@ -1558,7 +1558,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "38547", "etag": "W/\"9693-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "61090", "etag": "W/\"eea2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "gateway": "on",
               "session": "replay-none",
@@ -2270,14 +2270,532 @@
                 },
                 {
                   "name": "view_put",
-                  "description": "[数据视图·必须限定到台] 保存视图描述：产生一个新版本并立即生效",
+                  "description": "[数据视图·必须限定到台] 保存视图描述：产生一个新版本并立即生效（doc 的块类型、必填、上限在参数里列全；服务端按同一契约校验，不合格整份拒收、不产生新版本）",
                   "category": "write",
                   "granted": false,
                   "input_schema": {
                     "type": "object",
                     "properties": {
                       "bench": { "type": "string", "description": "台的标识" },
-                      "doc": { "type": "object", "description": "视图描述" },
+                      "doc": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["title", "views"],
+                        "description": "视图描述：顶层 title + views（1～20 份视图）。完整写法和例子见技能 wm-data-views（references/views.md）；服务端按同一契约校验（输出列、$参数、数据集引用都查），不合格整份拒收、不产生新版本",
+                        "properties": {
+                          "title": { "type": "string", "description": "总标题（64 字以内）" },
+                          "views": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 20,
+                            "items": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": ["key", "title", "blocks"],
+                              "properties": {
+                                "key": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,31}$", "description": "视图键：小写字母开头，只含小写字母、数字、连字符，≤32 字符；不重复" },
+                                "title": { "type": "string", "description": "视图标题（32 字以内）" },
+                                "blocks": {
+                                  "type": "array",
+                                  "maxItems": 40,
+                                  "description": "组件（按顺序渲染）",
+                                  "items": {
+                                    "type": "object",
+                                    "oneOf": [
+                                      {
+                                        "type": "object",
+                                        "additionalProperties": false,
+                                        "required": ["type", "fields"],
+                                        "description": "fields 是 1～12 个筛选字段 { name, kind, label?, default?, options? }，kind 只有 month / date / select / search；查询里用 $名字 引用的参数要先在这里声明；只有 select 给 options（一组文本，或 { dataset, col } 取某列的不同取值）",
+                                        "properties": {
+                                          "type": { "type": "string", "enum": ["filter-bar"] },
+                                          "title": { "type": "string", "description": "标题（64 字以内）" },
+                                          "span": { "type": "integer", "minimum": 1, "maximum": 12, "description": "12 栏网格里占几栏" },
+                                          "fields": {
+                                            "type": "array",
+                                            "minItems": 1,
+                                            "maxItems": 12,
+                                            "description": "筛选字段 { name, kind: month/date/select/search, label?, default?, options? }；查询里用 $名字 引用；只有 select 给 options（一组文本，或 { dataset, col }）",
+                                            "items": { "type": "object" }
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "type": "object",
+                                        "additionalProperties": false,
+                                        "required": ["type", "value"],
+                                        "description": "value 指向查询的一个输出列，或写本台引用 { var: 键名 }（此时不写 query，块独立取值）；tone_rules 按值着色，最多 2 条",
+                                        "properties": {
+                                          "type": { "type": "string", "enum": ["stat"] },
+                                          "title": { "type": "string", "description": "标题（64 字以内）" },
+                                          "span": { "type": "integer", "minimum": 1, "maximum": 12, "description": "12 栏网格里占几栏" },
+                                          "query": {
+                                            "type": "object",
+                                            "description": "查询描述（不写 SQL）。不写 group、measures 是明细查询；写了是聚合查询。完整写法和例子见技能 wm-data-views（references/query.md）",
+                                            "properties": {
+                                              "dataset": { "type": "string", "description": "数据集名（必填）" },
+                                              "select": { "type": "array", "items": { "type": "string" }, "description": "明细查询要哪些列；不写是全部列。和 group、measures 不能同时写" },
+                                              "filter": {
+                                                "type": "array",
+                                                "description": "筛选条件，最多 20 条，全部满足才算（AND）",
+                                                "items": {
+                                                  "type": "object",
+                                                  "additionalProperties": false,
+                                                  "required": ["col", "op"],
+                                                  "properties": {
+                                                    "col": { "type": "string", "description": "列名" },
+                                                    "op": {
+                                                      "type": "string",
+                                                      "enum": ["=", "!=", ">", ">=", "<", "<=", "in", "is_null", "not_null", "contains", "prefix"],
+                                                      "description": "比较符：= != > >= < <= 比大小；in 是「在这几个值里」（值放 values）；is_null / not_null 判空（不用 value）；contains 文本包含；prefix 开头是（文本、日期、时间列，比如按月筛日期列：prefix 2026-01）"
+                                                    },
+                                                    "value": { "description": "比较的值；写成 $名字 引用 params 里的值（没给就这条不生效）" },
+                                                    "values": { "type": "array", "description": "op 为 in 时的取值，1～200 个" }
+                                                  }
+                                                }
+                                              },
+                                              "group": { "type": "array", "items": { "type": "string" }, "description": "按哪些列分组" },
+                                              "measures": {
+                                                "type": "array",
+                                                "description": "聚合，最多 12 项",
+                                                "items": {
+                                                  "type": "object",
+                                                  "additionalProperties": false,
+                                                  "required": ["fn", "as"],
+                                                  "properties": {
+                                                    "fn": {
+                                                      "type": "string",
+                                                      "enum": ["count", "count_distinct", "sum", "avg", "min", "max"],
+                                                      "description": "count 不写 col 就是数行数（COUNT(*)），写了 col 是数这一列不为空的行；count_distinct 数不同的值；sum、avg 只用于整数和小数列"
+                                                    },
+                                                    "col": { "type": "string", "description": "对哪一列算（count 可以不写）" },
+                                                    "as": { "type": "string", "description": "结果列的别名（必填，小写字母开头）" },
+                                                    "label": { "type": "string", "description": "显示名" }
+                                                  }
+                                                }
+                                              },
+                                              "sort": {
+                                                "type": "array",
+                                                "description": "排序，最多 8 项。聚合查询只能按输出列（分组列和别名）排；不写时聚合按分组列升序、明细按写入次序",
+                                                "items": {
+                                                  "type": "object",
+                                                  "additionalProperties": false,
+                                                  "required": ["col"],
+                                                  "properties": { "col": { "type": "string" }, "dir": { "type": "string", "enum": ["asc", "desc"], "description": "缺省 asc" } }
+                                                }
+                                              },
+                                              "limit": { "type": "integer", "minimum": 1, "maximum": 5000, "description": "最多返回几行，缺省 200" },
+                                              "offset": { "type": "integer", "minimum": 0, "description": "跳过前几行" }
+                                            },
+                                            "required": ["dataset"],
+                                            "additionalProperties": false
+                                          },
+                                          "value": { "description": "查询的一个输出列；或本台引用 { var: 键名 }（此时不写 query）" },
+                                          "unit": { "type": "string", "description": "单位（12 字以内）" },
+                                          "tone_rules": { "type": "array", "maxItems": 2, "description": "按值着色，最多 2 条：{ col, op, value, tone }，tone 只有 danger / warning / success", "items": { "type": "object" } }
+                                        }
+                                      },
+                                      {
+                                        "type": "object",
+                                        "additionalProperties": false,
+                                        "required": ["type", "query"],
+                                        "description": "columns 选显示哪些输出列；每列要有说明名（数据集列定义的 label 或 column_labels）；page_size 5～200；value_labels 是「列名 → 取值 → 说法」",
+                                        "properties": {
+                                          "type": { "type": "string", "enum": ["table"] },
+                                          "title": { "type": "string", "description": "标题（64 字以内）" },
+                                          "span": { "type": "integer", "minimum": 1, "maximum": 12, "description": "12 栏网格里占几栏" },
+                                          "query": {
+                                            "type": "object",
+                                            "description": "查询描述（不写 SQL）。不写 group、measures 是明细查询；写了是聚合查询。完整写法和例子见技能 wm-data-views（references/query.md）",
+                                            "properties": {
+                                              "dataset": { "type": "string", "description": "数据集名（必填）" },
+                                              "select": { "type": "array", "items": { "type": "string" }, "description": "明细查询要哪些列；不写是全部列。和 group、measures 不能同时写" },
+                                              "filter": {
+                                                "type": "array",
+                                                "description": "筛选条件，最多 20 条，全部满足才算（AND）",
+                                                "items": {
+                                                  "type": "object",
+                                                  "additionalProperties": false,
+                                                  "required": ["col", "op"],
+                                                  "properties": {
+                                                    "col": { "type": "string", "description": "列名" },
+                                                    "op": {
+                                                      "type": "string",
+                                                      "enum": ["=", "!=", ">", ">=", "<", "<=", "in", "is_null", "not_null", "contains", "prefix"],
+                                                      "description": "比较符：= != > >= < <= 比大小；in 是「在这几个值里」（值放 values）；is_null / not_null 判空（不用 value）；contains 文本包含；prefix 开头是（文本、日期、时间列，比如按月筛日期列：prefix 2026-01）"
+                                                    },
+                                                    "value": { "description": "比较的值；写成 $名字 引用 params 里的值（没给就这条不生效）" },
+                                                    "values": { "type": "array", "description": "op 为 in 时的取值，1～200 个" }
+                                                  }
+                                                }
+                                              },
+                                              "group": { "type": "array", "items": { "type": "string" }, "description": "按哪些列分组" },
+                                              "measures": {
+                                                "type": "array",
+                                                "description": "聚合，最多 12 项",
+                                                "items": {
+                                                  "type": "object",
+                                                  "additionalProperties": false,
+                                                  "required": ["fn", "as"],
+                                                  "properties": {
+                                                    "fn": {
+                                                      "type": "string",
+                                                      "enum": ["count", "count_distinct", "sum", "avg", "min", "max"],
+                                                      "description": "count 不写 col 就是数行数（COUNT(*)），写了 col 是数这一列不为空的行；count_distinct 数不同的值；sum、avg 只用于整数和小数列"
+                                                    },
+                                                    "col": { "type": "string", "description": "对哪一列算（count 可以不写）" },
+                                                    "as": { "type": "string", "description": "结果列的别名（必填，小写字母开头）" },
+                                                    "label": { "type": "string", "description": "显示名" }
+                                                  }
+                                                }
+                                              },
+                                              "sort": {
+                                                "type": "array",
+                                                "description": "排序，最多 8 项。聚合查询只能按输出列（分组列和别名）排；不写时聚合按分组列升序、明细按写入次序",
+                                                "items": {
+                                                  "type": "object",
+                                                  "additionalProperties": false,
+                                                  "required": ["col"],
+                                                  "properties": { "col": { "type": "string" }, "dir": { "type": "string", "enum": ["asc", "desc"], "description": "缺省 asc" } }
+                                                }
+                                              },
+                                              "limit": { "type": "integer", "minimum": 1, "maximum": 5000, "description": "最多返回几行，缺省 200" },
+                                              "offset": { "type": "integer", "minimum": 0, "description": "跳过前几行" }
+                                            },
+                                            "required": ["dataset"],
+                                            "additionalProperties": false
+                                          },
+                                          "columns": { "type": "array", "items": { "type": "string" }, "description": "显示哪些输出列（不写是全部）" },
+                                          "page_size": { "type": "integer", "minimum": 5, "maximum": 200 },
+                                          "value_labels": { "type": "object", "description": "列名 → 取值 → 说法（一段文字，或 { text, tone }）" },
+                                          "column_labels": { "type": "object", "description": "列名 → 说明名；每列要有说明名（或数据集列定义里的 label）" }
+                                        }
+                                      },
+                                      {
+                                        "type": "object",
+                                        "additionalProperties": false,
+                                        "required": ["type", "query", "x", "y"],
+                                        "description": "x 是分类列，y 是 1～12 个数值列（或用 series 拆系列，不和多个 y 同用）；tone_rules 只用于单系列的柱子",
+                                        "properties": {
+                                          "type": { "type": "string", "enum": ["bar"] },
+                                          "title": { "type": "string", "description": "标题（64 字以内）" },
+                                          "span": { "type": "integer", "minimum": 1, "maximum": 12, "description": "12 栏网格里占几栏" },
+                                          "query": {
+                                            "type": "object",
+                                            "description": "查询描述（不写 SQL）。不写 group、measures 是明细查询；写了是聚合查询。完整写法和例子见技能 wm-data-views（references/query.md）",
+                                            "properties": {
+                                              "dataset": { "type": "string", "description": "数据集名（必填）" },
+                                              "select": { "type": "array", "items": { "type": "string" }, "description": "明细查询要哪些列；不写是全部列。和 group、measures 不能同时写" },
+                                              "filter": {
+                                                "type": "array",
+                                                "description": "筛选条件，最多 20 条，全部满足才算（AND）",
+                                                "items": {
+                                                  "type": "object",
+                                                  "additionalProperties": false,
+                                                  "required": ["col", "op"],
+                                                  "properties": {
+                                                    "col": { "type": "string", "description": "列名" },
+                                                    "op": {
+                                                      "type": "string",
+                                                      "enum": ["=", "!=", ">", ">=", "<", "<=", "in", "is_null", "not_null", "contains", "prefix"],
+                                                      "description": "比较符：= != > >= < <= 比大小；in 是「在这几个值里」（值放 values）；is_null / not_null 判空（不用 value）；contains 文本包含；prefix 开头是（文本、日期、时间列，比如按月筛日期列：prefix 2026-01）"
+                                                    },
+                                                    "value": { "description": "比较的值；写成 $名字 引用 params 里的值（没给就这条不生效）" },
+                                                    "values": { "type": "array", "description": "op 为 in 时的取值，1～200 个" }
+                                                  }
+                                                }
+                                              },
+                                              "group": { "type": "array", "items": { "type": "string" }, "description": "按哪些列分组" },
+                                              "measures": {
+                                                "type": "array",
+                                                "description": "聚合，最多 12 项",
+                                                "items": {
+                                                  "type": "object",
+                                                  "additionalProperties": false,
+                                                  "required": ["fn", "as"],
+                                                  "properties": {
+                                                    "fn": {
+                                                      "type": "string",
+                                                      "enum": ["count", "count_distinct", "sum", "avg", "min", "max"],
+                                                      "description": "count 不写 col 就是数行数（COUNT(*)），写了 col 是数这一列不为空的行；count_distinct 数不同的值；sum、avg 只用于整数和小数列"
+                                                    },
+                                                    "col": { "type": "string", "description": "对哪一列算（count 可以不写）" },
+                                                    "as": { "type": "string", "description": "结果列的别名（必填，小写字母开头）" },
+                                                    "label": { "type": "string", "description": "显示名" }
+                                                  }
+                                                }
+                                              },
+                                              "sort": {
+                                                "type": "array",
+                                                "description": "排序，最多 8 项。聚合查询只能按输出列（分组列和别名）排；不写时聚合按分组列升序、明细按写入次序",
+                                                "items": {
+                                                  "type": "object",
+                                                  "additionalProperties": false,
+                                                  "required": ["col"],
+                                                  "properties": { "col": { "type": "string" }, "dir": { "type": "string", "enum": ["asc", "desc"], "description": "缺省 asc" } }
+                                                }
+                                              },
+                                              "limit": { "type": "integer", "minimum": 1, "maximum": 5000, "description": "最多返回几行，缺省 200" },
+                                              "offset": { "type": "integer", "minimum": 0, "description": "跳过前几行" }
+                                            },
+                                            "required": ["dataset"],
+                                            "additionalProperties": false
+                                          },
+                                          "x": { "type": "string", "description": "分类列" },
+                                          "y": { "type": "array", "items": { "type": "string" }, "description": "1～12 个数值列" },
+                                          "series": { "type": "string", "description": "拆系列的列（不和多个 y 同用）" },
+                                          "stacked": { "type": "boolean" },
+                                          "horizontal": { "type": "boolean" },
+                                          "tone_rules": { "type": "array", "maxItems": 2, "description": "按值着色，最多 2 条：{ col, op, value, tone }，tone 只有 danger / warning / success", "items": { "type": "object" } }
+                                        }
+                                      },
+                                      {
+                                        "type": "object",
+                                        "additionalProperties": false,
+                                        "required": ["type", "query", "x", "y"],
+                                        "description": "x 通常是时间列，y 是 1～12 个数值列；series 拆系列（不和多个 y 同用）；area 是面积填充",
+                                        "properties": {
+                                          "type": { "type": "string", "enum": ["line"] },
+                                          "title": { "type": "string", "description": "标题（64 字以内）" },
+                                          "span": { "type": "integer", "minimum": 1, "maximum": 12, "description": "12 栏网格里占几栏" },
+                                          "query": {
+                                            "type": "object",
+                                            "description": "查询描述（不写 SQL）。不写 group、measures 是明细查询；写了是聚合查询。完整写法和例子见技能 wm-data-views（references/query.md）",
+                                            "properties": {
+                                              "dataset": { "type": "string", "description": "数据集名（必填）" },
+                                              "select": { "type": "array", "items": { "type": "string" }, "description": "明细查询要哪些列；不写是全部列。和 group、measures 不能同时写" },
+                                              "filter": {
+                                                "type": "array",
+                                                "description": "筛选条件，最多 20 条，全部满足才算（AND）",
+                                                "items": {
+                                                  "type": "object",
+                                                  "additionalProperties": false,
+                                                  "required": ["col", "op"],
+                                                  "properties": {
+                                                    "col": { "type": "string", "description": "列名" },
+                                                    "op": {
+                                                      "type": "string",
+                                                      "enum": ["=", "!=", ">", ">=", "<", "<=", "in", "is_null", "not_null", "contains", "prefix"],
+                                                      "description": "比较符：= != > >= < <= 比大小；in 是「在这几个值里」（值放 values）；is_null / not_null 判空（不用 value）；contains 文本包含；prefix 开头是（文本、日期、时间列，比如按月筛日期列：prefix 2026-01）"
+                                                    },
+                                                    "value": { "description": "比较的值；写成 $名字 引用 params 里的值（没给就这条不生效）" },
+                                                    "values": { "type": "array", "description": "op 为 in 时的取值，1～200 个" }
+                                                  }
+                                                }
+                                              },
+                                              "group": { "type": "array", "items": { "type": "string" }, "description": "按哪些列分组" },
+                                              "measures": {
+                                                "type": "array",
+                                                "description": "聚合，最多 12 项",
+                                                "items": {
+                                                  "type": "object",
+                                                  "additionalProperties": false,
+                                                  "required": ["fn", "as"],
+                                                  "properties": {
+                                                    "fn": {
+                                                      "type": "string",
+                                                      "enum": ["count", "count_distinct", "sum", "avg", "min", "max"],
+                                                      "description": "count 不写 col 就是数行数（COUNT(*)），写了 col 是数这一列不为空的行；count_distinct 数不同的值；sum、avg 只用于整数和小数列"
+                                                    },
+                                                    "col": { "type": "string", "description": "对哪一列算（count 可以不写）" },
+                                                    "as": { "type": "string", "description": "结果列的别名（必填，小写字母开头）" },
+                                                    "label": { "type": "string", "description": "显示名" }
+                                                  }
+                                                }
+                                              },
+                                              "sort": {
+                                                "type": "array",
+                                                "description": "排序，最多 8 项。聚合查询只能按输出列（分组列和别名）排；不写时聚合按分组列升序、明细按写入次序",
+                                                "items": {
+                                                  "type": "object",
+                                                  "additionalProperties": false,
+                                                  "required": ["col"],
+                                                  "properties": { "col": { "type": "string" }, "dir": { "type": "string", "enum": ["asc", "desc"], "description": "缺省 asc" } }
+                                                }
+                                              },
+                                              "limit": { "type": "integer", "minimum": 1, "maximum": 5000, "description": "最多返回几行，缺省 200" },
+                                              "offset": { "type": "integer", "minimum": 0, "description": "跳过前几行" }
+                                            },
+                                            "required": ["dataset"],
+                                            "additionalProperties": false
+                                          },
+                                          "x": { "type": "string", "description": "横轴列（通常是时间）" },
+                                          "y": { "type": "array", "items": { "type": "string" }, "description": "1～12 个数值列" },
+                                          "series": { "type": "string", "description": "拆系列的列（不和多个 y 同用）" },
+                                          "area": { "type": "boolean" }
+                                        }
+                                      },
+                                      {
+                                        "type": "object",
+                                        "additionalProperties": false,
+                                        "required": ["type", "query", "label", "value"],
+                                        "description": "label 是分类列，value 是数值列，donut 画环形",
+                                        "properties": {
+                                          "type": { "type": "string", "enum": ["pie"] },
+                                          "title": { "type": "string", "description": "标题（64 字以内）" },
+                                          "span": { "type": "integer", "minimum": 1, "maximum": 12, "description": "12 栏网格里占几栏" },
+                                          "query": {
+                                            "type": "object",
+                                            "description": "查询描述（不写 SQL）。不写 group、measures 是明细查询；写了是聚合查询。完整写法和例子见技能 wm-data-views（references/query.md）",
+                                            "properties": {
+                                              "dataset": { "type": "string", "description": "数据集名（必填）" },
+                                              "select": { "type": "array", "items": { "type": "string" }, "description": "明细查询要哪些列；不写是全部列。和 group、measures 不能同时写" },
+                                              "filter": {
+                                                "type": "array",
+                                                "description": "筛选条件，最多 20 条，全部满足才算（AND）",
+                                                "items": {
+                                                  "type": "object",
+                                                  "additionalProperties": false,
+                                                  "required": ["col", "op"],
+                                                  "properties": {
+                                                    "col": { "type": "string", "description": "列名" },
+                                                    "op": {
+                                                      "type": "string",
+                                                      "enum": ["=", "!=", ">", ">=", "<", "<=", "in", "is_null", "not_null", "contains", "prefix"],
+                                                      "description": "比较符：= != > >= < <= 比大小；in 是「在这几个值里」（值放 values）；is_null / not_null 判空（不用 value）；contains 文本包含；prefix 开头是（文本、日期、时间列，比如按月筛日期列：prefix 2026-01）"
+                                                    },
+                                                    "value": { "description": "比较的值；写成 $名字 引用 params 里的值（没给就这条不生效）" },
+                                                    "values": { "type": "array", "description": "op 为 in 时的取值，1～200 个" }
+                                                  }
+                                                }
+                                              },
+                                              "group": { "type": "array", "items": { "type": "string" }, "description": "按哪些列分组" },
+                                              "measures": {
+                                                "type": "array",
+                                                "description": "聚合，最多 12 项",
+                                                "items": {
+                                                  "type": "object",
+                                                  "additionalProperties": false,
+                                                  "required": ["fn", "as"],
+                                                  "properties": {
+                                                    "fn": {
+                                                      "type": "string",
+                                                      "enum": ["count", "count_distinct", "sum", "avg", "min", "max"],
+                                                      "description": "count 不写 col 就是数行数（COUNT(*)），写了 col 是数这一列不为空的行；count_distinct 数不同的值；sum、avg 只用于整数和小数列"
+                                                    },
+                                                    "col": { "type": "string", "description": "对哪一列算（count 可以不写）" },
+                                                    "as": { "type": "string", "description": "结果列的别名（必填，小写字母开头）" },
+                                                    "label": { "type": "string", "description": "显示名" }
+                                                  }
+                                                }
+                                              },
+                                              "sort": {
+                                                "type": "array",
+                                                "description": "排序，最多 8 项。聚合查询只能按输出列（分组列和别名）排；不写时聚合按分组列升序、明细按写入次序",
+                                                "items": {
+                                                  "type": "object",
+                                                  "additionalProperties": false,
+                                                  "required": ["col"],
+                                                  "properties": { "col": { "type": "string" }, "dir": { "type": "string", "enum": ["asc", "desc"], "description": "缺省 asc" } }
+                                                }
+                                              },
+                                              "limit": { "type": "integer", "minimum": 1, "maximum": 5000, "description": "最多返回几行，缺省 200" },
+                                              "offset": { "type": "integer", "minimum": 0, "description": "跳过前几行" }
+                                            },
+                                            "required": ["dataset"],
+                                            "additionalProperties": false
+                                          },
+                                          "label": { "type": "string", "description": "分类列" },
+                                          "value": { "type": "string", "description": "数值列" },
+                                          "donut": { "type": "boolean" }
+                                        }
+                                      },
+                                      {
+                                        "type": "object",
+                                        "additionalProperties": false,
+                                        "required": ["type", "value", "total"],
+                                        "description": "value、total 指向数值输出列，或写本台引用 { var: 键名 }（total 也可以写大于 0 的数字）",
+                                        "properties": {
+                                          "type": { "type": "string", "enum": ["progress"] },
+                                          "title": { "type": "string", "description": "标题（64 字以内）" },
+                                          "span": { "type": "integer", "minimum": 1, "maximum": 12, "description": "12 栏网格里占几栏" },
+                                          "query": {
+                                            "type": "object",
+                                            "description": "查询描述（不写 SQL）。不写 group、measures 是明细查询；写了是聚合查询。完整写法和例子见技能 wm-data-views（references/query.md）",
+                                            "properties": {
+                                              "dataset": { "type": "string", "description": "数据集名（必填）" },
+                                              "select": { "type": "array", "items": { "type": "string" }, "description": "明细查询要哪些列；不写是全部列。和 group、measures 不能同时写" },
+                                              "filter": {
+                                                "type": "array",
+                                                "description": "筛选条件，最多 20 条，全部满足才算（AND）",
+                                                "items": {
+                                                  "type": "object",
+                                                  "additionalProperties": false,
+                                                  "required": ["col", "op"],
+                                                  "properties": {
+                                                    "col": { "type": "string", "description": "列名" },
+                                                    "op": {
+                                                      "type": "string",
+                                                      "enum": ["=", "!=", ">", ">=", "<", "<=", "in", "is_null", "not_null", "contains", "prefix"],
+                                                      "description": "比较符：= != > >= < <= 比大小；in 是「在这几个值里」（值放 values）；is_null / not_null 判空（不用 value）；contains 文本包含；prefix 开头是（文本、日期、时间列，比如按月筛日期列：prefix 2026-01）"
+                                                    },
+                                                    "value": { "description": "比较的值；写成 $名字 引用 params 里的值（没给就这条不生效）" },
+                                                    "values": { "type": "array", "description": "op 为 in 时的取值，1～200 个" }
+                                                  }
+                                                }
+                                              },
+                                              "group": { "type": "array", "items": { "type": "string" }, "description": "按哪些列分组" },
+                                              "measures": {
+                                                "type": "array",
+                                                "description": "聚合，最多 12 项",
+                                                "items": {
+                                                  "type": "object",
+                                                  "additionalProperties": false,
+                                                  "required": ["fn", "as"],
+                                                  "properties": {
+                                                    "fn": {
+                                                      "type": "string",
+                                                      "enum": ["count", "count_distinct", "sum", "avg", "min", "max"],
+                                                      "description": "count 不写 col 就是数行数（COUNT(*)），写了 col 是数这一列不为空的行；count_distinct 数不同的值；sum、avg 只用于整数和小数列"
+                                                    },
+                                                    "col": { "type": "string", "description": "对哪一列算（count 可以不写）" },
+                                                    "as": { "type": "string", "description": "结果列的别名（必填，小写字母开头）" },
+                                                    "label": { "type": "string", "description": "显示名" }
+                                                  }
+                                                }
+                                              },
+                                              "sort": {
+                                                "type": "array",
+                                                "description": "排序，最多 8 项。聚合查询只能按输出列（分组列和别名）排；不写时聚合按分组列升序、明细按写入次序",
+                                                "items": {
+                                                  "type": "object",
+                                                  "additionalProperties": false,
+                                                  "required": ["col"],
+                                                  "properties": { "col": { "type": "string" }, "dir": { "type": "string", "enum": ["asc", "desc"], "description": "缺省 asc" } }
+                                                }
+                                              },
+                                              "limit": { "type": "integer", "minimum": 1, "maximum": 5000, "description": "最多返回几行，缺省 200" },
+                                              "offset": { "type": "integer", "minimum": 0, "description": "跳过前几行" }
+                                            },
+                                            "required": ["dataset"],
+                                            "additionalProperties": false
+                                          },
+                                          "value": { "description": "数值输出列，或本台引用 { var: 键名 }" },
+                                          "total": { "description": "数值输出列、大于 0 的数字，或本台引用 { var: 键名 }" }
+                                        }
+                                      },
+                                      {
+                                        "type": "object",
+                                        "additionalProperties": false,
+                                        "required": ["type", "dataset", "fields"],
+                                        "description": "直接写数据集（表单没有 query）；fields 是 1～40 个列名，数据集的必填列都要在表单里",
+                                        "properties": {
+                                          "type": { "type": "string", "enum": ["form"] },
+                                          "title": { "type": "string", "description": "标题（64 字以内）" },
+                                          "span": { "type": "integer", "minimum": 1, "maximum": 12, "description": "12 栏网格里占几栏" },
+                                          "dataset": { "type": "string", "description": "直接写数据集（表单没有 query）" },
+                                          "fields": { "type": "array", "items": { "type": "string" }, "description": "列名；数据集的必填列都要在里面" },
+                                          "submit_label": { "type": "string", "description": "提交按钮的字（16 字以内）" }
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
                       "base": { "type": "integer", "minimum": 0, "description": "你是基于第几版改的；还没有版本时给 0" },
                       "note": { "type": "string", "description": "一句说明" }
                     },

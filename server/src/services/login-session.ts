@@ -32,6 +32,8 @@ const newToken = (): string => randomBytes(32).toString('base64url');
 export const STATE_TTL_MS = 10 * 60_000;
 /** 一个来源手里同时有效的 state 最多这么多（防有人刷满表） */
 export const STATES_PER_SOURCE = 20;
+/** 刚换掉的 state 还认作「同一次登录」多久（站内表单认双击用） */
+export const ROTATED_KEEP_MS = 10_000;
 const STATES_MAX = 20_000;
 
 export type SessionRecord = { principal: string; provider: string; externalId: string; displayName: string; createdAt: number; expiresAt: number;
@@ -119,10 +121,13 @@ export class LoginSessionService extends Service {
    * 看一眼 state 还有效（没过期、没用过、是这个方式的），不核销、不核浏览器半边（那一半只发给回调路径）。
    * 给站内表单页用：表单只在一次真正发起了的登录里出现；提交时由登录方式用 rotateState 换掉（一次性），真正放行仍在回调的 takeState。
    */
-  peekState(flow: string, state: unknown, now = Date.now()): boolean {
+  peekState(flow: string, state: unknown, now = Date.now(), opts: { recentlyRotated?: boolean } = {}): boolean {
     if (typeof state !== 'string' || !TOKEN_RE.test(state)) return false;
     const row = db.prepare('SELECT flow FROM login_states WHERE state_sha256 = ? AND expires_at > ?').get(sha(state), now) as { flow: string } | undefined;
-    return !!row && row.flow === flow;
+    if (row) return row.flow === flow;
+    // 刚换掉的也认（只给表单提交用）：让登录方式自己判是不是同一份提交又到了一次；不是的它照样当重放拒
+    const r = opts.recentlyRotated ? this.rotated.get(sha(state)) : undefined;
+    return !!r && r.flow === flow && now - r.at < ROTATED_KEEP_MS;
   }
 
   /**
@@ -130,6 +135,9 @@ export class LoginSessionService extends Service {
    * 旧的不在、过期了、不是这个方式的，返回 null（用过的、重放的、伪造的都拒）。并发拿同一个 state 来提交，只有一个换得到。
    * 回调照旧用 takeState 核销最后那一个（浏览器半边没变，cookie 不用重发）。
    */
+  /** 刚被 rotateState 换掉的 state（只存哈希、只在内存里，ROTATED_KEEP_MS 内）：给站内表单认「同一份提交又到了一次」（双击） */
+  private readonly rotated = new Map<string, { flow: string; at: number }>();
+
   rotateState(flow: string, state: unknown, now = Date.now()): string | null {
     if (typeof state !== 'string' || !TOKEN_RE.test(state)) return null;
     const fresh = newToken();
@@ -142,6 +150,11 @@ export class LoginSessionService extends Service {
           .run(sha(fresh), flow, old.next, old.browser_sha256, old.source, old.created_at, old.expires_at);
       }
       db.exec('COMMIT');
+      if (old) {
+        for (const [k, v] of this.rotated) if (now - v.at >= ROTATED_KEEP_MS) this.rotated.delete(k);
+        while (this.rotated.size >= 10_000) this.rotated.delete(this.rotated.keys().next().value as string);
+        this.rotated.set(sha(state), { flow, at: now });
+      }
       return old ? fresh : null;
     } catch (e) {
       try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ }

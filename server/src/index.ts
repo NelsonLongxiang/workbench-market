@@ -32,7 +32,8 @@ import { dirname, join, posix, extname, relative, sep as pathSep } from 'node:pa
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import multer from 'multer';
 import { svc } from './context.ts';
-import { BUSINESS_DOMAINS, domainOf } from './roles.ts';
+import { SYSTEM_DOMAINS, domainOf } from './roles.ts';
+import { markSystemAdminOnly } from './admin-tier.ts';
 import type { HttpService } from './http.ts';
 import { registerTypeRoutes } from './routes/types.ts';
 import { registerCockpitRoutes } from './routes/cockpits.ts';
@@ -611,6 +612,7 @@ async function markOdooAdmin(req: express.Request): Promise<void> {
   if (!identity().hasCredential(cookie)) return;
   const login = await odooAdminOf(cookie);
   if (login) odooAdminReqs.set(req, login);
+  if (login?.startsWith('grant-system:')) markSystemAdminOnly(req); // 系统管理员：各管理接口据此收紧（admin-tier.ts）
 }
 // 管理读面（GET 也走 adminGuard/vaultGuard 的）与口令/身份端点：进路由前先认定
 const ADMIN_IDENTITY_PATHS = /^\/api\/(admin\/whoami|admin-token(\/|$)|mcp\/(sessions|upstreams|tools|calls|access-requests)(\/|$)|change-requests(\/|$)|bindings(\/|$)|a2a\/(peers|state|seat-token\/log)(\/|$)|remote-allow\/diff|vault\/|tasks(\/|$)|workbench-events(?!\/[^/]*\/attachments(\/|$))(\/|$))/; // a2a/peers：对端登记表的管理接口，会话登录的管理员也算管理员（和绑定同口径）；a2a/seat-token/log：换令牌的记录同口径；tasks：统一待办读面同样认 Odoo 管理员（与口令管理员同为全量）；workbench-events：工作台事件的列表、详情也认（「关注」的席位提问同口径）；接单节点取附件（…/:id/attachments/…）只认回执令牌、不看管理员，不在这里
@@ -2109,6 +2111,8 @@ registerAuthViewerRoutes(http, { wrap, odooLoginUrl });
 registerPrincipalRoutes(http, { markOdooAdmin, adminGuard, adminActor });
 registerLocalAccountRoutes(http, { markOdooAdmin, adminGuard, adminActor });
 registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor, adminHeaderOk, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段六 6b：角色声明与授予（只建结构，不接判定）
+// 迁移来的 admin 授予在认管理员时不算（services/grant.ts 的 heldAdmin）：启动时记一行有几条，属主据此决定要不要整批收回
+{ const n = svc<GrantService>('grants').migrationAdminsIgnored(); if (n) console.log(JSON.stringify({ source: 'grants', event: 'migration-admin-ignored', count: n, note: '迁移来的 admin 授予在认管理员时不算；要整批收回用 POST /api/grants/revoke-migration', at: new Date().toISOString() })); }
 registerDepartmentRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 部门：登录的人读、管理员写
 registerTeamRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 团队与分配（规范 14 第 1 步）：登录的人按可见范围读；认领、负责人是管理员，分配是负责人
 registerRelationRoutes(http, { markOdooAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 关系的提议（规范 14「关系由谁说了算」）：负责人、团队认领要属主或业务侧确认
@@ -2742,17 +2746,20 @@ function adminTokenCheck(provided: string | undefined): boolean {
   return adminTokenFromEnv() ? adminTokenOk(provided) : dbAdminTokenOk(provided);
 }
 
-/** 这个请求落到的路由是不是业务域的动作（roles.ts 的 BUSINESS_DOMAINS）；对不上路由回 false */
+/**
+ * 这个请求落到的路由算不算业务：默认算。只有报了动作、动作的域在系统域白名单（roles.ts 的 SYSTEM_DOMAINS）里的才不算——
+ * 对不上路由的（扩展直接挂的、没报动作的）、域不认识的（扩展自己的域、清单外新长出来的）一律按业务（系统管理员不放行）
+ */
 function businessRoute(req: express.Request): boolean {
   const spec = http.actionFor(req);
-  return !!spec && BUSINESS_DOMAINS.includes(domainOf(spec.action));
+  return !spec || !SYSTEM_DOMAINS.includes(domainOf(spec.action));
 }
 /** 管理员：有效口令，或本次请求已认定为 Odoo 管理员（见上方预判中间件） */
 function isAdmin(req: express.Request): boolean {
   if (adminTokenCheck(req.headers['x-admin-token'])) return true;
   const marked = odooAdminReqs.get(req);
   if (!marked) return false;
-  // 系统管理员（只持 admin 授予）：业务域的路由上不算管理员（属主 2026-11-16 定：系统管理员不看业务数据）；对不上路由的按非业务
+  // 系统管理员（只持 admin 授予）：只在系统域的路由上算管理员（属主 2026-11-16 定：系统管理员不看业务数据）；对不上路由、域不认识的都不算
   if (marked.startsWith('grant-system:')) return !businessRoute(req);
   return true;
 }
@@ -3162,9 +3169,12 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
     case 'app_files_upload': {
       // #164 P1②（批派令）：MCP 侧上传——base64 入 app_files（与 REST multipart 同表同链）
       const slug = String(args?.slug ?? '').trim();
-      const name = fixFileName(String(args?.name ?? '').trim());
+      // 文件名照原样用（#815）：MCP 的参数是 JSON，本来就是 UTF-8。fixFileName 是给 multipart 修 busboy 的 latin1 乱码用的，
+      // 套在这里会把部分中文名弄成控制字符（合成.csv → "\b\u0010.csv"）。名字和 REST 原始字节上传同样校验
+      const name = String(args?.name ?? '').trim();
       const b64 = String(args?.content_base64 ?? '');
       if (!slug || !name || !b64) throw new HttpError(400, 'slug/name/content_base64 必填');
+      if (name.length > 255 || name === '.' || name === '..' || /[\/\\\x00-\x1f]/.test(name)) throw new HttpError(400, '文件名不合法（≤255 字符，不含路径分隔符与控制字符）');
       const a = getApp(slug, true);
       // 完整性：有的 MCP 客户端会把过长的参数截短（常见截在 64KB）。截在 4 的倍数上的 base64 照样能解码，
       // 不核就会把残缺文件当正常文件存下。所以：base64 严格校验；调用方带了 size / sha256 就逐项对；

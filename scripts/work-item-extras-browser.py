@@ -88,13 +88,16 @@ with sync_playwright() as p:
     check('旧服务端（没有 due 这个键）：不画期限、不写「不限」，没有附件卡片', pg.locator('[data-testid=work-item-due]').count() == 0 and '期限' not in summary and '不限' not in summary and pg.locator('[data-testid=work-item-attachments]').count() == 0, summary)
 
     # 安排一件事：传附件、带着 id 安排
-    uploads, posted = [], []
+    uploads, posted, accepted = [], [], []
     def on_upload(route):
         name = route.request.url.rsplit('/', 1)[1]
         h = route.request.headers
         uploads.append((name, h.get('content-type', ''), h.get('x-content-sha256', ''), len(route.request.post_data_buffer or b'')))
         if 'big' in name: return route.fulfill(status=413, content_type='application/json', body=json.dumps({'error': 'attachment_too_large', 'max_bytes': 104857600}))
-        route.fulfill(status=201, content_type='application/json', body=json.dumps({'id': len(uploads), 'name': name, 'mime': 'text/plain', 'size': 5, 'sha256': 'x', 'integrity': 'sha256-verified'}))
+        # The id counts accepted uploads only. The page sends both files at once, so counting every request (len(uploads)) gave the
+        # small file id 2 whenever big.bin's request arrived first, and the arrange check below failed at random on CI.
+        accepted.append(name)
+        route.fulfill(status=201, content_type='application/json', body=json.dumps({'id': len(accepted), 'name': name, 'mime': 'text/plain', 'size': 5, 'sha256': 'x', 'integrity': 'sha256-verified'}))
     pg.route(re.compile(r'/api/work-items/attachments/[^/]+$'), on_upload)
     pg.route(re.compile(r'/api/work-items/teams$'), lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps({'teams': [{'team': 'syn/canvas/syn-team', 'name': '合成团队'}]})))
     def on_post(route):

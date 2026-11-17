@@ -187,6 +187,17 @@ export class PrincipalService extends Service implements PrincipalDirectory {
   }
 
   /** 这个主体名下、某个提供方的外部身份（external_id），按字面排序。用来认「账上记成 <提供方>:<外部身份> 的是不是他」：只认实际绑在他名下的，不从主体标识推 */
+  /** 系统管理员经对接接口绑上这条外部身份：记下他和时刻（docs/local-accounts.md 第 5 节，凭据提示用） */
+  markBoundBySystem(provider: string, externalId: string, by: string, now = Date.now()): void {
+    db.prepare('UPDATE principal_identities SET bound_by_system = ?, bound_by_system_at = ? WHERE provider = ? AND external_id = ?').run(by, now, provider, externalId);
+  }
+
+  /** 这个人身上由系统管理员绑的外部身份 */
+  boundBySystem(principal: string): { provider: string; external_id: string; by: string; at: number }[] {
+    return db.prepare("SELECT provider, external_id, bound_by_system AS by, bound_by_system_at AS at FROM principal_identities WHERE principal_id = ? AND bound_by_system <> '' ORDER BY provider, external_id")
+      .all(principal) as never;
+  }
+
   externalIdsOf(principal: string, provider: string): string[] {
     return (db.prepare('SELECT external_id FROM principal_identities WHERE principal_id = ? AND provider = ? ORDER BY external_id').all(principal, provider) as { external_id: string }[]).map((r) => r.external_id);
   }
