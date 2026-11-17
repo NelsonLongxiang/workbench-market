@@ -2,6 +2,7 @@
 实例里有一张真的卡片（没有台库）。是视图台的那一种：入口、取数、交表单用 page.route 截下、换成合成的应答，并记下页面发了什么。
   一、视图台：进数据视图页，台名、视图标题、两个视图页签；台标识、视图键不写在页面的字上；
   二、换视图、改筛选：地址跟着变（?v=、p.<字段>），按新的视图和筛选取数；拿这个地址重开，看到的是同一份；
+      「巡检明细」那份的三张卡没写宽度：平分一整行，最右一张的右边缘和下面整行的表格对齐（统筹 11-13）；
   三、交表单：请求带视图、第几块、版本、填的值；交上去之后整页重新取数；版本变了、不让交，各说一句；
   四、取数没成：看不到、数据视图没开、只有一份视图（不出页签）；
   五、入口：没有台的卡片照原来嵌页面、不存在的卡片照原来说不存在（都走实例里真的入口）；入口 403、读不到（再试一次）。"""
@@ -38,6 +39,9 @@ def view_result(view, params):
                    {'type': 'table', 'title': '巡检记录', 'span': 6, 'data': {'columns': [{'name': 'site', 'type': 'text', 'label': '区域'}, {'name': 'n', 'type': 'integer', 'label': '次数'}, {'name': 'state', 'type': 'text', 'label': ''}], 'rows': rows}}, {**FORM, 'can_submit': True},
                    {**FORM, 'title': '改巡检计划', 'can_submit': False, 'span': 12}]
     else:
+        # 这份视图的卡都不写宽度：统计、进度，再加一张进度，三张平分一整行
+        for blk in blocks[1:]: blk.pop('span', None)
+        blocks += [{'type': 'progress', 'title': '本周完成度', 'value': 'v', 'total': 20, 'data': {'columns': [{'name': 'v', 'type': 'integer'}], 'rows': [{'v': 5}]}}]
         blocks += [{'type': 'table', 'title': '明细', 'span': 12, 'data': {'columns': [{'name': 'site', 'type': 'text'}, {'name': 'n', 'type': 'integer'}], 'rows': rows}}]
     return {'title': ENTRY['title'], 'version': 5, 'view': {'key': view, 'title': vt}, 'params': params, 'blocks': blocks}
 
@@ -119,6 +123,12 @@ with sync_playwright() as p:
     pg.wait_for_function("() => document.querySelector('[data-testid=bench-page-tab][aria-selected=true]')?.textContent === '巡检明细'")
     pg.wait_for_selector('[data-bb=table] >> text=明细')
     check('换到「巡检明细」：地址带 v，按它取数', q_of(pg).get('v') == 'vk-rows' and log['render'][n0:][-1:] == [('vk-rows', {})], (pg.url, log['render'][n0:]))
+    pg.wait_for_function("() => document.querySelectorAll('[data-bb=progress][data-bb-state=ready]').length === 2")
+    r = pg.evaluate("() => ({ cards: [...document.querySelectorAll('[data-bb=stat],[data-bb=progress]')].map(e => { const b = e.getBoundingClientRect(); return [b.left, b.right, b.top]; }), table: (b => [b.left, b.right])(document.querySelector('[data-bb=table]').getBoundingClientRect()) })")
+    ws = [c[1] - c[0] for c in r['cards']]
+    check('三张没写宽度的卡同在一行、一样宽，最右一张的右边缘和整行表格的右边缘对齐（左边缘也对齐）',
+          len(r['cards']) == 3 and len({round(c[2]) for c in r['cards']}) == 1 and max(ws) - min(ws) <= 1
+          and abs(r['cards'][-1][1] - r['table'][1]) <= 1 and abs(r['cards'][0][0] - r['table'][0]) <= 1, r)
     inp = pg.locator('[data-filter=site] input')
     inp.fill('北区'); inp.press('Enter')
     pg.wait_for_function("() => new URLSearchParams(location.search).get('p.site') === '北区'")
