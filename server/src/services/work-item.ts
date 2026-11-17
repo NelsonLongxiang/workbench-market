@@ -278,6 +278,21 @@ export function dueAtOf(v: unknown): string {
   return Number.isNaN(t) || new Date(t).toISOString().slice(0, 10) !== v ? '' : new Date(t).toISOString();
 }
 
+/**
+ * 事件日志里最后一条改截止（due-changed，按行号）改成了什么：重建事项（事项表清掉后全量回填）时用它，不退回建事项时的截止。
+ * 改截止接口直接改事项表、同时记这一行；平时回填遇到已有的事项不重建，所以只有重建这条路要回放它。
+ * 没改过返回 null；清掉记的是空串（dueAtOf('') 也是空串，原样认）；记的值不合规（不是 dueAtOf 出来的写法）当没改过
+ */
+export function lastDueOf(rows: readonly { action: string; detail: string }[]): string | null {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (rows[i].action !== 'due-changed') continue;
+    let to: unknown;
+    try { to = (JSON.parse(rows[i].detail || '{}') as { to?: unknown }).to; } catch { return null; }
+    return typeof to === 'string' && dueAtOf(to.slice(0, 10)) === to ? to : null;
+  }
+  return null;
+}
+
 /** 过了期仍未完成：有截止日期、事项不在终态、现在已经过了截止那天（截止日当天结束之后）。服务端按同一时钟算 */
 export function overdueOf(item: Pick<WorkItemRow, 'due_at' | 'state'>, now = Date.now()): boolean {
   if (!item.due_at || TERMINAL.includes(item.state)) return false;
@@ -767,7 +782,7 @@ export class WorkItemService extends Service {
       const tag = (v: unknown) => (typeof v === 'string' ? v.trim().slice(0, 200) : '');
       this.insertItem(itemId, {
         title: derived.title, target_team: derived.target_team, created_by: createdBy, creator_principal: creator, object: tag(rec.object), phase: tag(rec.phase),
-        ...handoffOf(rec), cockpit_id: cockpitOf(rec.cockpit_id), due_at: dueAtOf(rec.due),
+        ...handoffOf(rec), cockpit_id: cockpitOf(rec.cockpit_id), due_at: lastDueOf(rows) ?? dueAtOf(rec.due),
         source_kind: event.source as SourceKind, source_ref: event.event_id, event_id: event.id,
         context: { workbench: event.workbench, item: event.item, context_id: event.context_id, submitter_kind: event.submitter_kind, ...(creator && event.submitter_kind === 'unverified' ? { submitter_via: 'ticket' } : {}) },
       }, { source: EVENT_FACT_SOURCE, id: String(recorded.id) }, event.created_at);

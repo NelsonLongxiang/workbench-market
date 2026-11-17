@@ -1,4 +1,4 @@
-/** SOP 域（sop_runs ×10 + sop_bindings ×5 + a2a_run_ctx ×3）：SQL 原文自 index.ts 搬入（S1）；run 文件上传与引用路由里的两句随阶段三第十五批搬入。 */
+/** SOP 域（sop_runs ×10 + a2a_run_ctx ×3；绑定读统一表 bindings，旧表 sop_bindings 只在启动平移时读）：SQL 原文自 index.ts 搬入（S1）；run 文件上传与引用路由里的两句随阶段三第十五批搬入。 */
 import type { SQLInputValue } from 'node:sqlite';
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
@@ -84,21 +84,6 @@ export class SopService extends Service {
   activeBindingCount() {
     return db.prepare("SELECT COUNT(*) AS n FROM bindings WHERE target_type = 'sop' AND revoked_at = ''").get();
   }
-  bindings(slug: string) {
-    return db.prepare('SELECT * FROM sop_bindings WHERE sop_slug = ? ORDER BY id DESC').all(slug);
-  }
-  bindingCreate(slug: string, node: string, mode: string, remoteApiKey: string, createdBy: string) {
-    return db.prepare('INSERT INTO sop_bindings (sop_slug, node, mode, remote_api_key, created_by) VALUES (?, ?, ?, ?, ?)').run(slug, node, mode, remoteApiKey, createdBy);
-  }
-  bindingExists(id: number, slug: string) {
-    return db.prepare('SELECT id FROM sop_bindings WHERE id = ? AND sop_slug = ?').get(id, slug);
-  }
-  bindingRevoke(id: number) {
-    return db.prepare("UPDATE sop_bindings SET revoked_at = datetime('now') WHERE id = ?").run(id);
-  }
-  bindingByNode(slug: string, node: string) {
-    return db.prepare("SELECT mode FROM sop_bindings WHERE sop_slug = ? AND node = ? AND revoked_at = ''").get(slug, node);
-  }
   runsQuery(sql: string, args: unknown[]) {
     return db.prepare(sql).all(...(args as never[])).map(runMetadata);
   }
@@ -159,10 +144,6 @@ export class SopService extends Service {
   bindingByNodeFull(slug: string, node: string) {
     // 联合评审① C：回执 callback 读统一表 admits 行的 notify_url（direction 独立性：notify-only 行不参与回执）
     return db.prepare("SELECT notify_url AS callback_url FROM bindings WHERE target_type = 'sop' AND target_slug = ? AND agent_node = ? AND direction IN ('admits','both') AND revoked_at = ''").get(slug, node);
-  }
-  bindingCreateFull(slug: string, node: string, mode: string, remoteApiKey: string, callbackUrl: string, createdBy: string) {
-    return db.prepare('INSERT INTO sop_bindings (sop_slug, node, mode, remote_api_key, callback_url, created_by) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(slug, node, mode, remoteApiKey, callbackUrl, createdBy);
   }
   outboxInsert(r: { runId: number; taskId: string; contextId: string; targetUrl: string; payload: string }) {
     return db.prepare('INSERT OR IGNORE INTO a2a_outbox (run_id, task_id, context_id, target_url, payload) VALUES (?, ?, ?, ?, ?)')

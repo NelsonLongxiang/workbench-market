@@ -176,6 +176,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/bench-page-browser.mjs
+      - name: 数据视图真实闭环（#762：建数据集→写行→存视图→浏览器真接口打开→筛选改真实结果→表单落库→幂等重放→旧版本拒→回退重读→解绑 403→跨台隔离；业务接口不截）
+        env:
+          PYTHON: python
+        run: node scripts/bench-real-loop-browser.mjs
       - name: 身份变了以后页面重读（401 且确认没登录或换了人才清·502 不清挂横幅·旧身份在路上的应答不写回·后退恢复的页面也确认）
         env:
           PYTHON: python
@@ -260,7 +264,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: 身份接缝与主体（契约单测·主体服务单测·主体标识规范化（NFKC_Casefold）全部码位对照 Unicode 属性、成批过主体服务·飞书登录与市场会话对抗组（本机假飞书：state 伪造与重放、next 外跳、换令牌失败、用户标识缺失或被篡改、停用注销过期即失效）·离职即时失效对抗组（通讯录事件验签与重放、对账补漏）·假提供方对抗组：缺省/登录门/登录中继/中继加登录门四个实例上的拒绝例与合法对照，停用一个主体各入口立即不认、恢复立即照常·部门读写（登录的人读、管理员写、dept:<部门标识> 只认部门表里有的）·夹具只在测试环境可用·变异测试逐个改坏必须变红；不访问任何外部系统）
         run: |
-          ( node scripts/identity-contract-test.mjs && node scripts/principal-service-test.mjs && node scripts/principal-fold-test.mjs && node scripts/identity-seam-smoke.mjs && node scripts/identity-source-timeout-test.mjs && node scripts/feishu-login-smoke.mjs && node scripts/feishu-offboard-smoke.mjs && node scripts/local-accounts-test.mjs && node scripts/local-accounts-create-only-test.mjs && node scripts/local-accounts-signup-guard-test.mjs && node scripts/local-login-limits-test.mjs && node scripts/export-reveal-smoke.mjs && node scripts/grants-smoke.mjs && node scripts/departments-smoke.mjs && node scripts/access-smoke.mjs && node scripts/red-lines-test.mjs && node scripts/teams-smoke.mjs && node scripts/team-node-binding-test.mjs && node scripts/judgment-compare-smoke.mjs && node scripts/judgment-compare-snapshot-test.mjs && node scripts/judgment-migration-test.mjs && node scripts/judgment-compare-zero-test.mjs && node scripts/judgment-compare-sweep-test.mjs && node scripts/judgment-enforce-test.mjs && node scripts/role-presets-test.mjs && node scripts/role-matrix-judgment-test.mjs && node scripts/custom-roles-smoke.mjs ) > identity-suites.log 2>&1 &
+          ( node scripts/identity-contract-test.mjs && node scripts/principal-service-test.mjs && node scripts/principal-fold-test.mjs && node scripts/identity-seam-smoke.mjs && node scripts/identity-source-timeout-test.mjs && node scripts/feishu-login-smoke.mjs && node scripts/feishu-offboard-smoke.mjs && node scripts/local-accounts-test.mjs && node scripts/local-accounts-create-only-test.mjs && node scripts/local-accounts-signup-guard-test.mjs && node scripts/local-login-limits-test.mjs && node scripts/system-admin-boundary-test.mjs && node scripts/export-reveal-smoke.mjs && node scripts/grants-smoke.mjs && node scripts/departments-smoke.mjs && node scripts/access-smoke.mjs && node scripts/red-lines-test.mjs && node scripts/teams-smoke.mjs && node scripts/team-node-binding-test.mjs && node scripts/judgment-compare-smoke.mjs && node scripts/judgment-compare-snapshot-test.mjs && node scripts/judgment-migration-test.mjs && node scripts/judgment-compare-zero-test.mjs && node scripts/judgment-compare-sweep-test.mjs && node scripts/judgment-enforce-test.mjs && node scripts/role-presets-test.mjs && node scripts/role-matrix-judgment-test.mjs && node scripts/custom-roles-smoke.mjs ) > identity-suites.log 2>&1 &
           suites=$!
           set +e
           node scripts/identity-seam-mutation.mjs --jobs 2
@@ -447,6 +451,8 @@ jobs:
         run: node scripts/a2a-direct-signature-smoke.mjs
       - name: Signed A2A direct and outbox reject redirects (#349, synthetic loopback only)
         run: node scripts/a2a-bound-redirect-test.mjs
+      - name: 统一绑定表启动迁移只补不改（重启后撤销、mode、notify_url 不变，id 不变；旧表新增的自然键补进来）
+        run: node scripts/bindings-migrate-test.mjs
       - name: /a2a/direct 入站签名拒收的对外应答统一；取卡冷却（逐字节相同·冷却期内只取一次卡·换钥匙冷却后生效·非法开关拒启动）
         run: node scripts/a2a-direct-sig-uniform-test.mjs
       - name: /a2a/direct 幂等登记落库（重启后同一 task_id 仍判 replay / conflict·30 分钟窗口边界·只存摘要·未绑定来源不占用 id）
@@ -552,8 +558,8 @@ jobs:
         run: node scripts/names-ui-unit.mjs
       - name: 待属主看板（作者核验：config.owner 只认属主本人·事项只认登记身份·答复只认属主·冒名点名不采信·只授三个工具）
         run: node scripts/owner-pending-unit.mjs && node scripts/owner-pending-board-smoke.mjs && node scripts/attention-ui-unit.mjs && node scripts/work-item-detail-ui-unit.mjs && node scripts/market-ui-unit.mjs && node scripts/home-ui-unit.mjs && node scripts/arrange-ui-unit.mjs && node scripts/review-ui-unit.mjs
-      - name: 数据视图组件单测（纯函数——格式、取值说法、按值着色、图表配置；单列一步，不和上面那行挤在一起）
-        run: node scripts/bench-blocks-ui-unit.mjs && node scripts/bench-var-bindings-test.mjs
+      - name: 数据视图组件单测（纯函数——格式、取值说法、按值着色、图表配置、工具契约一致性；单列一步，不和上面那行挤在一起）
+        run: node scripts/bench-blocks-ui-unit.mjs && node scripts/bench-var-bindings-test.mjs && node scripts/bench-view-contract-test.mjs
       - name: 「谁能做什么」页单测（纯函数——授予的状态、范围、期限，待核准，按人排的表，矩阵格子；单列一步）
         run: node scripts/access-ui-unit.mjs
       - name: 「经验库」页单测（纯数据——四类的先后和说法、认不出的类别不露代号；单列一步）

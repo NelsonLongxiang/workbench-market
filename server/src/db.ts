@@ -622,16 +622,25 @@ try { db.exec('DROP INDEX IF EXISTS idx_skill_versions_digest'); } catch { /* �
   if (!ctxCols.some((c) => c.name === 'callback_url')) {
     db.exec("ALTER TABLE a2a_run_ctx ADD COLUMN callback_url TEXT NOT NULL DEFAULT ''");
   }
-  // 联合评审① C：旧两表幂等平移入统一表（natural key 唯一索引承载 OR REPLACE 语义；重复启动安全）
-try {
-  db.exec(`INSERT OR REPLACE INTO bindings (target_type,target_slug,agent_node,direction,mode,notify_url,remote_api_key,created_by,created_at,revoked_at)
-    SELECT 'sop', sop_slug, node, 'admits', mode, callback_url, remote_api_key, created_by, created_at, revoked_at FROM sop_bindings`);
-  db.exec(`INSERT OR REPLACE INTO bindings (target_type,target_slug,agent_node,direction,mode,notify_url,created_by,created_at,revoked_at)
-    SELECT 'app', app_slug, node, 'notify', 'read', base_url, created_by, created_at, revoked_at FROM app_bindings`);
-} catch { /* 首启表未建等情形由外层建表先行——此处静默重试下次启动 */ }
-const bindCols = tableColumns('sop_bindings') as { name: string }[];
+  // 旧表 sop_bindings 早先没有 callback_url：先补列，下面的平移要读它
+  const bindCols = tableColumns('sop_bindings') as { name: string }[];
   if (!bindCols.some((c) => c.name === 'callback_url')) {
     db.exec("ALTER TABLE sop_bindings ADD COLUMN callback_url TEXT NOT NULL DEFAULT ''");
+  }
+  // 联合评审① C：旧两表平移入统一表，只补不改——只插统一表里还没有的自然键（台型、台、节点、方向），
+  // 已有的行一律不碰（id、撤销、mode、notify_url 都以统一表为准）；重复启动安全。旧两表只读：代码里不再写它们。
+  // 旧表里同一自然键可能有多行（旧接口撤销后再重建）：只取 id 最大的那一行（最新的），不靠插入顺序
+  try {
+    db.exec(`INSERT INTO bindings (target_type,target_slug,agent_node,direction,mode,notify_url,remote_api_key,created_by,created_at,revoked_at)
+      SELECT 'sop', sop_slug, node, 'admits', mode, callback_url, remote_api_key, created_by, created_at, revoked_at FROM sop_bindings s
+      WHERE s.id = (SELECT MAX(s2.id) FROM sop_bindings s2 WHERE s2.sop_slug = s.sop_slug AND s2.node = s.node)
+      ON CONFLICT (target_type, target_slug, agent_node, direction) DO NOTHING`);
+    db.exec(`INSERT INTO bindings (target_type,target_slug,agent_node,direction,mode,notify_url,created_by,created_at,revoked_at)
+      SELECT 'app', app_slug, node, 'notify', 'read', base_url, created_by, created_at, revoked_at FROM app_bindings a
+      WHERE a.id = (SELECT MAX(a2.id) FROM app_bindings a2 WHERE a2.app_slug = a.app_slug AND a2.node = a.node)
+      ON CONFLICT (target_type, target_slug, agent_node, direction) DO NOTHING`);
+  } catch (e) {
+    console.error(`[db] 旧绑定表平移进统一表没成（不影响启动，下次启动再补）：${(e as Error)?.message ?? e}`);
   }
 }
 
@@ -873,6 +882,18 @@ CREATE TABLE IF NOT EXISTS local_accounts (
   last_login_at INTEGER
 );
 `);
+// MCP 会话是谁建的（管理员的留痕写法，user:<名>、odoo:<登录名>、admin-token……）：批准这个会话的访问申请时，建会话的人不能自己批（docs/local-accounts.md 第 5 节）
+if (!hasColumn('mcp_sessions', 'created_by')) db.exec("ALTER TABLE mcp_sessions ADD COLUMN created_by TEXT NOT NULL DEFAULT ''");
+// 站内账号的凭据最后是谁设的（docs/local-accounts.md 第 5 节）：系统管理员建账号、重置密码时记下他（主体）和时刻，本人改了密码就清掉。
+// 放行给业务数据的授予时据此提示放行人「此人凭据由系统管理员设置」，要放行人确认
+for (const [col, ddl] of [['credential_by_system', "TEXT NOT NULL DEFAULT ''"], ['credential_by_system_at', 'INTEGER']] as const) {
+  if (!hasColumn('local_accounts', col)) db.exec(`ALTER TABLE local_accounts ADD COLUMN ${col} ${ddl}`);
+}
+// 外部身份是谁绑的（同上一节）：系统管理员经对接接口绑定（含连带新建的人）时记下他和时刻；解绑重绑就没了。
+// 放行给业务数据的授予时同样提示「此人凭据由系统管理员设置」——绑上去的身份可能就是系统管理员自己控制的别的账号
+for (const [col, ddl] of [['bound_by_system', "TEXT NOT NULL DEFAULT ''"], ['bound_by_system_at', 'INTEGER']] as const) {
+  if (!hasColumn('principal_identities', col)) db.exec(`ALTER TABLE principal_identities ADD COLUMN ${col} ${ddl}`);
+}
 // 阶段六 6b：授予（谁有哪个角色）。角色本身是声明（server/src/roles.ts），这里只放数据。
 //   grants：主体、角色、范围、期限、理由、起草人、放行人、状态。状态只有五种，只能往前走：
 //     draft 草稿 → pending 待核 → active 生效 → revoked 撤销 或 expired 过期；草稿和待核也可以直接撤销（作废、驳回）。

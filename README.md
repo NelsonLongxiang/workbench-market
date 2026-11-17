@@ -241,7 +241,7 @@ GET              /api/vault/entries/:id/totp    当前动态验证码 + 剩余�
 GET              /api/vault/trash · POST …/:id/restore · DELETE /api/vault/trash/:id   回收站 / 恢复 / 永久删除（只对回收站内条目）
 POST             /api/vault/generate|strength   生成密码或口令短语 / 强度评估（POST，密码不进 URL）
 GET              /api/vault/health|history      安全体检（复用项不回明文）/ 活动记录（新→旧 200 条）
-GET              /api/export                    全量导出（缺省掩码；?reveal=1 取真值要管理员：口令或管理员登录，浏览器来的要同源，否则 403）
+GET              /api/export                    全量导出（缺省掩码；?reveal=1 取真值要完整管理员：口令、管理员登录或 owner 授予，浏览器来的要同源，否则 403；只持 admin 授予的系统管理员也 403）
 POST             /api/import?mode=merge|replace 导入
 GET              /api/health                    存活：版本与运行时长（不发外部请求；配了 LayerFS 时回缓存的上次就绪结果；`a2a` 块：入站签名开关的生效值、名片有效期、幂等窗口、出站积压与回执时长、拒收计数——只有计数，查无 SOP 与没有绑定并成 `not-found` 一个桶，计数进程内、重启清零）
 GET              /api/health/ready              就绪：含 LayerFS 探测（结果缓存 10 秒），不健康 503
@@ -379,6 +379,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   bench-bindings.ts（视图显式引用本台常量变量的纯校验与数值解析；不执行表达式、不读库、不枚举空间）
   config.ts（配置的落点：模块自己的 Config，defineConfig 声明认哪些环境变量、怎么解析，启动时取一次；服务类插件写成 static Config，由 Cordis 装插件时校验）
   admin-token-env.ts（启动环境给的管理口令 ADMIN_TOKEN：启动时取一次、全进程只认这一份；对外只给有没有、常量时间比对、登录门指纹三样，口令本身不出模块。index.ts 的口令校验、a2a.ts、管理口令路由都经它）
+  admin-tier.ts（系统管理员的边界：认管理员时标出「这次只是系统管理员」（只持 admin 授予），各管理接口据此收紧——不能对业务侧的人（持 owner 或给业务数据的授予）重置密码、绑定解绑、停用恢复、收回授予，要属主或完整的管理员；见 docs/local-accounts.md 第 5 节）
   content-access.ts（内容票据与准入）
   content-static.ts（无令牌静态资产读取）
   content-surface.ts（内容面终结分发与到期引导）
