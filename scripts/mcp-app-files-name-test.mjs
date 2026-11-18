@@ -5,10 +5,11 @@
  *  一、UTF-8 名字原样存：合成.csv（修之前被存成 "\b\u0010.csv"）、交付.csv、emoji、本来就带 Ã 的名字、英文名
  *  二、不合法的名字拒收、不保存：带 /、\、..、控制字符、. 和 ..、超 255 字符
  *  三、DEL（0x7f）和方向控制符（U+202A～202E、U+2066～2069、U+200E/200F、U+061C）：base64、上传票、REST 原始字节三个入口都拒收
+ *  四、multipart 两个入口（/api/apps/<台>/files、/api/mcp-rest/apps/<台>/files）：方向控制符拒收 400，不落库、不留临时文件
  * 测试数据都是合成的。
  */
 import { spawn } from 'node:child_process';
-import { mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
@@ -92,6 +93,35 @@ try {
     ok(`${label} REST 原始字节：400`, r.status === 400 && /文件名不合法/.test(t), `status=${r.status} ${t.slice(0, 120)}`);
   }
   ok('三里的名字一个都没进文件面', (await listed()).length === before);
+
+  console.log('四、multipart 两个入口（浏览器 / 台页面的 /api/apps/<台>/files，MCP REST 的 multipart）：方向控制符也拒收，落盘的临时文件删掉');
+  // DEL 和 C0 在 multipart 里会被 busboy 当成坏的段头拒掉，"/" 会被截成 basename，所以这里只剩方向控制符要靠我们自己拒
+  const uploadsDir = join(DATA, 'uploads');
+  const onDisk = () => (existsSync(uploadsDir) ? readdirSync(uploadsDir, { recursive: true }).filter((f) => /\.\w+$/.test(String(f))).length : 0);
+  const diskBefore = onDisk();
+  const multipart = async (path, headers, name) => {
+    const fd = new FormData();
+    fd.append('file', new Blob([bytes], { type: 'text/plain' }), name);
+    const r = await fetch(BASE + path, { method: 'POST', headers, body: fd });
+    return { status: r.status, text: await r.text() };
+  };
+  const entries = [
+    ['/api/apps/<台>/files', '/api/apps/name-app/files', AT],
+    ['/api/mcp-rest/apps/<台>/files', '/api/mcp-rest/apps/name-app/files', { Authorization: `Bearer ${token}` }],
+  ];
+  for (const name of sneaky.filter((n) => !n.includes('\u007f'))) {
+    const label = J(name).replace(/[^\x20-\x7e]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+    for (const [shown, path, headers] of entries) {
+      const r = await multipart(path, headers, name);
+      ok(`${label} multipart ${shown}：400`, r.status === 400 && /文件名不合法/.test(r.text), `status=${r.status} ${r.text.slice(0, 120)}`);
+    }
+  }
+  ok('四里的名字一个都没进文件面', (await listed()).length === before);
+  ok('四里被拒的上传没在磁盘上留下文件', onDisk() === diskBefore, `before=${diskBefore} after=${onDisk()}`);
+  for (const [shown, path, headers] of entries) {
+    const r = await multipart(path, headers, '合成 multipart.txt');
+    ok(`普通中文名 multipart ${shown}：照样能存`, r.status === 201, `status=${r.status} ${r.text.slice(0, 120)}`);
+  }
   const fine = await up('普通‐连字符 «引号».txt');
   ok('不是方向控制符的 Unicode 标点照样能存', !fine.isError, fine.text.slice(0, 80));
   const edge = await up('x'.repeat(255));
