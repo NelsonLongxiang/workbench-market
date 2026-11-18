@@ -11,6 +11,8 @@
  *   node scripts/identity-seam-mutation.mjs --jobs 1    一个一个跑
  *   node scripts/identity-seam-mutation.mjs --only a,b  只跑点名的变体（调试用；CI 跑全部）
  *   node scripts/identity-seam-mutation.mjs --list      只列出变体
+ *   node scripts/identity-seam-mutation.mjs --shard 2/5 只跑第 2 片（共 5 片；CI 并行分片用）。分法是确定的：按每个变体要跑的套数，
+ *                                                      依次放进当前最轻的那一片，几片合起来正好是全部变体、不重不漏。每一片都先验没改过的副本是绿的
  */
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -487,17 +489,33 @@ const MUTANTS = [
     find: "    const fresh = sessions().rotateState('local', state);\n    if (!fresh) return stalePage();\n    const typedName", replace: "    const fresh = state;\n    const typedName" },
 ];
 
-if (process.argv.includes('--list')) {
-  for (const m of MUTANTS) console.log(`${m.id}\t${m.file}\t${m.what}`);
-  process.exit(0);
-}
 const onlyArg = process.argv.indexOf('--only');
 const ONLY = onlyArg >= 0 ? String(process.argv[onlyArg + 1] ?? '').split(',').filter(Boolean) : null;
 if (ONLY) {
   const unknown = ONLY.filter((id) => !MUTANTS.some((m) => m.id === id));
   if (unknown.length || !ONLY.length) { console.error(`--only：没有这些变体：${unknown.join('、') || '（空）'}`); process.exit(2); }
 }
-const SELECTED = ONLY ? MUTANTS.filter((m) => ONLY.includes(m.id)) : MUTANTS;
+const shardArg = process.argv.indexOf('--shard');
+const SHARD = shardArg >= 0 ? /^([1-9]\d*)\/([1-9]\d*)$/.exec(String(process.argv[shardArg + 1] ?? '')) : null;
+if (shardArg >= 0 && (!SHARD || Number(SHARD[1]) > Number(SHARD[2]))) { console.error('--shard 要写成 i/n（1 ≤ i ≤ n），比如 --shard 2/5'); process.exit(2); }
+/** 第 i 片（从 1 数）有哪些变体：按变体在清单里的次序，依次放进当前套数最少的一片（套数一样时放编号小的） */
+export function shardOf(list, i, n) {
+  const load = Array(n).fill(0), out = Array.from({ length: n }, () => []);
+  for (const m of list) {
+    let k = 0;
+    for (let j = 1; j < n; j++) if (load[j] < load[k]) k = j;
+    out[k].push(m); load[k] += m.suites.length;
+  }
+  return out[i - 1];
+}
+const PICKED = ONLY ? MUTANTS.filter((m) => ONLY.includes(m.id)) : MUTANTS;
+const SELECTED = SHARD ? shardOf(PICKED, Number(SHARD[1]), Number(SHARD[2])) : PICKED;
+if (process.argv.includes('--list')) {
+  // 只列出变体（带 --shard 时只列这一片、带 --only 时只列点名的），第四列是要跑的套数
+  for (const m of SELECTED) console.log(`${m.id}\t${m.file}\t${m.what}\t${m.suites.length}`);
+  process.exit(0);
+}
+if (SHARD) console.log(`identity-seam-mutation：第 ${SHARD[1]}/${SHARD[2]} 片，${SELECTED.length} 个变体（共 ${PICKED.length} 个）`);
 
 /** 一棵副本目录树：server/src 和 scripts 是真抄的，别的都链回本仓库。 */
 function plant(name, mutant) {

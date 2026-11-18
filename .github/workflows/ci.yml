@@ -7,47 +7,86 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
+  changes:
+    # 这次 PR 改了哪些文件：只改 docs/ 下的、或者仓库根上的 *.md，算纯文档。纯文档时重的检查跳过（照样报绿），只跑路线体检和隐私扫描。
+    # skills/ 下的 *.md 不算纯文档：技能正文里写到的工具名有一步在核
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      docs_only: ${{ steps.files.outputs.docs_only }}
+    steps:
+      - id: files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          files=$(gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[].filename')
+          echo "这次改的文件："; printf '%s\n' "$files"
+          if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -qvE '^docs/|^[^/]+\.md$'; then docs_only=true; else docs_only=false; fi
+          echo "纯文档：$docs_only"
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
   odoo-operator-synthetic:
+    needs: changes
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.docs_only != 'true'
       - name: Synthetic Odoo operator guards (no credentials or network)
+        if: needs.changes.outputs.docs_only != 'true'
         shell: pwsh
         run: ./scripts/ops/odoo-readonly-preflight-test.ps1
-  browser-security:
+  browser-security-shard:
     # #292 M4 真实浏览器反例：有口令不嵌 /go/、跳出清口令、登录弹窗不复制口令且无 opener（bfcache 未命中记 SKIP）
+    name: browser-security 分片 ${{ matrix.shard }}
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     runs-on: ubuntu-latest
     env:
       PLAYWRIGHT_VERSION: '1.57.0'
     steps:
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.docs_only != 'true'
       - uses: pnpm/action-setup@v4
+        if: needs.changes.outputs.docs_only != 'true'
         with:
           version: 11.28.5
       - uses: actions/setup-node@v4
+        if: needs.changes.outputs.docs_only != 'true'
         with:
           node-version: 24
           cache: pnpm
       - uses: actions/setup-python@v5
+        if: needs.changes.outputs.docs_only != 'true'
         with:
           python-version: '3.12'
       - run: pnpm install --frozen-lockfile
+        if: needs.changes.outputs.docs_only != 'true'
       # 装环境和跑测试分开：装环境只依赖外网（PyPI、Playwright 的浏览器下载、apt 软件源），带重试与缓存；
       # 失败时标「装环境失败」。浏览器版本由 Playwright 版本决定，缓存键带上它，升级就换键。
       # 缓存先取后存：存放在装环境之后单独一步，后面的测试红了也照样存
       - name: 装环境：取 Playwright 浏览器缓存
+        if: needs.changes.outputs.docs_only != 'true'
         id: pw-cache
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-browsers-${{ runner.os }}-${{ env.ImageOS }}-${{ env.PLAYWRIGHT_VERSION }}-chromium
       - name: 装环境：取系统依赖的 apt 包缓存
+        if: needs.changes.outputs.docs_only != 'true'
         id: apt-cache
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/playwright-apt
           key: playwright-apt-${{ env.ImageOS }}-${{ env.ImageVersion }}-${{ env.PLAYWRIGHT_VERSION }}
       - name: 装环境：Playwright（Python）+ Chromium 与系统依赖
+        if: needs.changes.outputs.docs_only != 'true'
         id: browser-env
         timeout-minutes: 12
         run: |
@@ -121,19 +160,21 @@ jobs:
           fi
           probe || fail "补了系统依赖，Chromium 还是起不来"
       - name: 装环境：存 Playwright 浏览器缓存
-        if: steps.browser-env.outcome == 'success' && steps.pw-cache.outputs.cache-hit != 'true'
+        if: needs.changes.outputs.docs_only != 'true' && (steps.browser-env.outcome == 'success' && steps.pw-cache.outputs.cache-hit != 'true')
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/ms-playwright
           key: ${{ steps.pw-cache.outputs.cache-primary-key }}
       - name: 装环境：存系统依赖的 apt 包缓存
-        if: steps.browser-env.outcome == 'success' && steps.apt-cache.outputs.cache-hit != 'true'
+        if: needs.changes.outputs.docs_only != 'true' && (steps.browser-env.outcome == 'success' && steps.apt-cache.outputs.cache-hit != 'true')
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/playwright-apt
           key: ${{ steps.apt-cache.outputs.cache-primary-key }}
       - run: pnpm --filter web build
+        if: needs.changes.outputs.docs_only != 'true'
       - name: Odoo same-host login and logout (synthetic HTTP and Chromium)
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: |
           export CHROME_BIN=$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')
           node scripts/odoo-same-host-login-smoke.mjs
@@ -141,111 +182,137 @@ jobs:
           node scripts/odoo-logout-smoke.mjs
           node scripts/log-secret-relay-headers-smoke.mjs
       - name: SOP metadata-only history UI (#309, synthetic intercepted API)
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         env:
           PYTHON: python
         run: node scripts/sop-list-privacy-browser.mjs
       - name: 管理员口令浏览器反例
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         env:
           PYTHON: python
         run: node scripts/admin-token-browser.mjs
       - name: 全站登录门浏览器回归（enforce：登录页·沙箱自产台子资源/图片/内嵌·SPA 401 去登录·退出·next 防外跳）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         env:
           PYTHON: python
         run: node scripts/login-gate-browser.mjs
       - name: UI 外壳浏览器回归（#316 菜单分组；#317 页面骨架；#319 列表规则；#320 看板 12 列栅格·四类卡片·数据截至·驾驶舱旧布局吸附不丢卡不回写）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         env:
           PYTHON: python
         run: node scripts/sider-menu-browser.mjs
       - name: 「等你拍板」三处同数（侧栏角标 · 总结句 · 卡片区件数；只数轮到你且能当场办的；数据走接口造）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         env:
           PYTHON: python
         run: node scripts/home-count-browser.mjs
       - name: 核准类请求的门（替审核页的回归——没有资格不发核准类读写·有资格在卡片上点批准和不给发对请求·统一答复入口和按 answer_via 各一种）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         env:
           PYTHON: python
         run: node scripts/approval-gate-browser.mjs
       - name: 驾驶舱「AI 员工」（普通员工和负责人两种身份·卡上写手上在办 N 件·点进去按席位筛·普通员工不读全部团队）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         env:
           PYTHON: python
         run: node scripts/ai-staff-browser.mjs
       - name: 驾驶舱里的数据视图（能改的人才有入口·选台只列有权限的台·挂上后出现小标题·共用筛选改一次两份都重取·看不到的不露代号；数据视图接口截成合成的）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         env:
           PYTHON: python
         run: node scripts/cockpit-bench-view-browser.mjs
       - name: 视图台页面（打开卡片先问入口·视图台进数据视图页·换视图和筛选进地址·重开是同一份·交表单带版本、交完重取·没有台的卡片照原来嵌页面；视图台的接口截成合成的）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         env:
           PYTHON: python
         run: node scripts/bench-page-browser.mjs
       - name: 数据视图真实闭环（#762：建数据集→写行→存视图→浏览器真接口打开→筛选改真实结果→表单落库→幂等重放→旧版本拒→回退重读→解绑 403→跨台隔离；业务接口不截）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         env:
           PYTHON: python
         run: node scripts/bench-real-loop-browser.mjs
       - name: 报告模板 P0（合成隔离：308 行完整长表、50 个重复详情、冻结输入、Chromium 打印）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         env:
           PYTHON: python
         run: node scripts/report-template-p0-browser.mjs
       - name: 身份变了以后页面重读（401 且确认没登录或换了人才清·502 不清挂横幅·旧身份在路上的应答不写回·后退恢复的页面也确认）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         env:
           PYTHON: python
         run: node scripts/session-browser.mjs
       - name: 身份服务连不上（#639 的 502 identity_unavailable——整页提示·角标和等你拍板写暂时取不到·不跳登录页·自动重试后提示消失·别的 502 和 401 不算）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         env:
           PYTHON: python
         run: node scripts/identity-down-browser.mjs
       - name: SOP 交付空间浏览器回归（#318：执行记录元数据·单次记录读授权由服务端判·定义不带正文·刷新不丢·附件带口令下载）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         env:
           PYTHON: python
         run: node scripts/sop-space-browser.mjs
       - name: 设计 token 出口（#321：/design/tokens@1.css 固定路径·SOP 执行页内联变量且不写死色值·与市场同色同字号·自产台示例全走变量）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         env:
           PYTHON: python
         run: node scripts/tokens-surface-smoke.mjs
       # E2E 组 21 的 a2a-smoke 用上游 verifyCard 当裁判：检出公开的 dsh-open-a2a-net（钉提交），A2A_CARD_SRC 指过去
       - uses: actions/checkout@v4
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         with:
           repository: NelsonLongxiang/dsh-open-a2a-net
           ref: 9c0dfc012fd9c6001da4af0847682dc2700b154c
           path: dsh-open-a2a-net
       - name: 完整 E2E 跑器隔离回归（宿主 YGL_HOME 诱饵不透传）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/e2e-full-run-isolation-smoke.mjs
       - name: Content full-index launch and revocation browser (fake Odoo, no production)
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         env:
           PYTHON: python
         run: node scripts/content-index-browser.mjs
       - name: SOP read-only preview browser (intercepted origin; no TCP or production)
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         env:
           PYTHON: python
         run: node scripts/sop-readonly-browser.mjs && node scripts/sop-field-browser.mjs --finish
       - name: SOP 执行页可访问性（#436：字段可访问名称·说明与错误关联·错误汇总·条件必填切换）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         env:
           PYTHON: python
         run: node scripts/sop-runner-a11y-browser.mjs
       - name: SOP 字段间数值关系（#471：data-check 执行页与服务端逐字同结论·依赖字段重算·错误汇总）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         env:
           PYTHON: python
         run: node scripts/sop-field-check-browser.mjs
       - name: SOP run 引用已有文件与配额、文件清单字段（#437②①：逐条结果·同 SOP·源 run 读凭证·不占上传配额·执行页多选逐个上传）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         env:
           PYTHON: python
         run: node scripts/sop-run-file-refs-smoke.mjs && node scripts/sop-file-list-smoke.mjs
       - name: 完整 E2E 跑器收尾回归（自起 server 未确认退出不删 TMP）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/e2e-full-run-cleanup-test.mjs
       - name: 宿主 YGL_HOME 诱饵（不可读目录，完整 E2E 两档都带着它跑）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: mkdir -p "$RUNNER_TEMP/decoy-ygl-home" && chmod 000 "$RUNNER_TEMP/decoy-ygl-home"
       - name: 完整 E2E（M1 双面：控制面开，隔离实例）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         env:
           PYTHON: python
           A2A_CARD_SRC: ${{ github.workspace }}/dsh-open-a2a-net/src/card.ts
           YGL_HOME: ${{ runner.temp }}/decoy-ygl-home
         run: node scripts/e2e-full-run.mjs
       - name: 完整 E2E（WM_CONTROL_PORT=0 控制面关闭）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         env:
           PYTHON: python
           A2A_CARD_SRC: ${{ github.workspace }}/dsh-open-a2a-net/src/card.ts
           YGL_HOME: ${{ runner.temp }}/decoy-ygl-home
         run: node scripts/e2e-full-run.mjs --control-off
       - name: 失败归因
-        if: failure()
+        if: failure() && needs.changes.outputs.docs_only != 'true'
         run: |
           if [ "${{ steps.browser-env.outcome }}" = "success" ]; then
             echo "::error title=测试失败::浏览器环境装好了（装环境一步成功），失败在后面的测试步骤里，看标红的那一步"
@@ -254,7 +321,14 @@ jobs:
           fi
   # 身份接缝与主体：从 tsc-and-syntax 拆出来并行跑（这一步最长，单独一个 job 不拖别的检查）。
   # job 里再并行一层：变异测试（最慢）和单测、对抗组同时跑；单测与对抗组的输出先进日志，跑完再打出来。
-  identity-seam:
+  identity-seam-shard:
+    name: identity-seam 分片 ${{ matrix.part }}
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [suites, '1/5', '2/5', '3/5', '4/5', '5/5']
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -267,39 +341,46 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: 身份接缝与主体（契约单测·主体服务单测·主体标识规范化（NFKC_Casefold）全部码位对照 Unicode 属性、成批过主体服务·飞书登录与市场会话对抗组（本机假飞书：state 伪造与重放、next 外跳、换令牌失败、用户标识缺失或被篡改、停用注销过期即失效）·离职即时失效对抗组（通讯录事件验签与重放、对账补漏）·假提供方对抗组：缺省/登录门/登录中继/中继加登录门四个实例上的拒绝例与合法对照，停用一个主体各入口立即不认、恢复立即照常·部门读写（登录的人读、管理员写、dept:<部门标识> 只认部门表里有的）·夹具只在测试环境可用·变异测试逐个改坏必须变红；不访问任何外部系统）
-        run: |
-          ( node scripts/identity-contract-test.mjs && node scripts/principal-service-test.mjs && node scripts/principal-fold-test.mjs && node scripts/identity-seam-smoke.mjs && node scripts/identity-source-timeout-test.mjs && node scripts/feishu-login-smoke.mjs && node scripts/feishu-offboard-smoke.mjs && node scripts/local-accounts-test.mjs && node scripts/local-accounts-create-only-test.mjs && node scripts/local-accounts-signup-guard-test.mjs && node scripts/odoo-offboard-preflight-test.mjs && node scripts/local-login-limits-test.mjs && node scripts/system-admin-boundary-test.mjs && node scripts/export-reveal-smoke.mjs && node scripts/grants-smoke.mjs && node scripts/departments-smoke.mjs && node scripts/access-smoke.mjs && node scripts/red-lines-test.mjs && node scripts/teams-smoke.mjs && node scripts/team-node-binding-test.mjs && node scripts/judgment-compare-smoke.mjs && node scripts/judgment-compare-snapshot-test.mjs && node scripts/judgment-migration-test.mjs && node scripts/judgment-compare-zero-test.mjs && node scripts/judgment-compare-sweep-test.mjs && node scripts/judgment-enforce-test.mjs && node scripts/role-presets-test.mjs && node scripts/role-matrix-judgment-test.mjs && node scripts/custom-roles-smoke.mjs ) > identity-suites.log 2>&1 &
-          suites=$!
-          set +e
-          node scripts/identity-seam-mutation.mjs --jobs 2
-          mutation=$?
-          wait "$suites"
-          rc=$?
-          echo "::group::单测与对抗组的输出"
-          cat identity-suites.log
-          echo "::endgroup::"
-          echo "单测与对抗组退出码 $rc；变异测试退出码 $mutation"
-          [ "$rc" -eq 0 ] && [ "$mutation" -eq 0 ]
+        if: matrix.part == 'suites'
+        run: node scripts/identity-contract-test.mjs && node scripts/principal-service-test.mjs && node scripts/principal-fold-test.mjs && node scripts/identity-seam-smoke.mjs && node scripts/identity-source-timeout-test.mjs && node scripts/feishu-login-smoke.mjs && node scripts/feishu-offboard-smoke.mjs && node scripts/local-accounts-test.mjs && node scripts/local-accounts-create-only-test.mjs && node scripts/local-accounts-signup-guard-test.mjs && node scripts/odoo-offboard-preflight-test.mjs && node scripts/local-login-limits-test.mjs && node scripts/system-admin-boundary-test.mjs && node scripts/export-reveal-smoke.mjs && node scripts/grants-smoke.mjs && node scripts/departments-smoke.mjs && node scripts/access-smoke.mjs && node scripts/red-lines-test.mjs && node scripts/teams-smoke.mjs && node scripts/team-node-binding-test.mjs && node scripts/judgment-compare-smoke.mjs && node scripts/judgment-compare-snapshot-test.mjs && node scripts/judgment-migration-test.mjs && node scripts/judgment-compare-zero-test.mjs && node scripts/judgment-compare-sweep-test.mjs && node scripts/judgment-enforce-test.mjs && node scripts/role-presets-test.mjs && node scripts/role-matrix-judgment-test.mjs && node scripts/custom-roles-smoke.mjs
+      - name: 身份接缝的变异测试（分片：每片先验没改过的副本是绿的，再验这一片的每个变体都被抓住）
+        if: matrix.part != 'suites'
+        run: node scripts/identity-seam-mutation.mjs --jobs 2 --shard ${{ matrix.part }}
   upgrade-smoke:
     # 线上发布分支的库换成这份代码启动两次（自检、只加不改、幂等、回填），再退回发布分支能读能写；全程合成数据、只听回环
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.docs_only != 'true'
       - uses: pnpm/action-setup@v4
+        if: needs.changes.outputs.docs_only != 'true'
         with:
           version: 11.28.5
       - uses: actions/setup-node@v4
+        if: needs.changes.outputs.docs_only != 'true'
         with:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+        if: needs.changes.outputs.docs_only != 'true'
       - name: 升级冒烟的比对口径自检（只有回填版本升了时才放回填进度表的 version、phase、cursor；版本没升、别的表、别的列一律算改了）
+        if: needs.changes.outputs.docs_only != 'true'
         run: node scripts/upgrade-smoke.mjs --selftest
       - name: 升级冒烟（基线 origin/release/prod-hotfix-1 → 本 PR）
+        if: needs.changes.outputs.docs_only != 'true'
         run: node scripts/upgrade-smoke.mjs
       - name: 升级冒烟（基线 fa89254f，第二次上线的起点 → 本 PR）
+        if: needs.changes.outputs.docs_only != 'true'
         run: node scripts/upgrade-smoke.mjs --base fa89254fe1f4027363df240914d1c8c6e9d02ed2
-  tsc-and-syntax:
+  tsc-and-syntax-shard:
+    name: tsc-and-syntax 分片 ${{ matrix.shard }}
+    needs: changes
+    strategy:
+      fail-fast: false
+      matrix:
+        # 纯文档的 PR 只跑第 1 片里的路线体检和隐私扫描
+        shard: ${{ fromJSON(needs.changes.outputs.docs_only == 'true' && '[1]' || '[1, 2, 3]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -315,16 +396,21 @@ jobs:
         with:
           python-version: '3.12'
       - name: Explicit script data/library targets (#341, missing-target IO intercepted)
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/explicit-data-targets-test.mjs && node scripts/explicit-data-target-positive-test.mjs && node scripts/explicit-source-links-test.mjs && node scripts/owned-script-fixture-test.mjs && node scripts/owned-script-fixture-lan-test.mjs
       - name: Explicit script targets (#341, negative calls intercepted, loopback fixtures)
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         env:
           PYTHON: python
         run: node scripts/explicit-script-targets-test.mjs
       - name: tsc (web)
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: pnpm --filter web typecheck
       - name: server 语法核（esbuild）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/check-server-syntax.mjs
       - name: 路线体检（结构数字对照 tech-route.json 的基线：预算与红线超了就失败，体检表写进摘要页；自检先红后绿）
+        if: matrix.shard == 1
         run: |
           git fetch --no-tags --depth=1 origin main
           node scripts/tech-route-check.mjs --selftest
@@ -332,319 +418,463 @@ jobs:
           node scripts/tech-route-check.mjs --strict
           node scripts/privacy-gate.mjs --selftest
       - name: 台库冒烟（数据视图：数据集与改列·四种写入的校验、幂等、上限·快照与退回·查询描述与注入形态·视图描述的核对、版本、并发保存、回退·排队、隔离、标识不逃出目录）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/bench-store-smoke.mjs && node --disable-warning=ExperimentalWarning scripts/skill-data-views-examples-test.mjs
       - name: 台库分道（同一个台固定一道·不同道互不排队·大写入全局一次一件且做完换线程·一道终止不碍别的道·排队上限按各道合计）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/bench-store-lanes-test.mjs
       - name: 台库按卡片 id 开放（卡片 id 和台标识都认·删卡片要管理层并确认、409 只给规模·删前备份·连带清登记、授予、库文件、驾驶舱面板）与清扫（孤儿库、过期备份、Redis 孤儿键）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/bench-card-test.mjs && node scripts/bench-sweep-test.mjs
       - name: 库的写锁等待有上限（市场主库、判定比对库：别的进程短暂持写锁时等得到、一直不放时 5 秒前后报错不无限等·台库按这一次的时限取小）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/db-busy-timeout-test.mjs
       - name: 按时间排序的列表在时间相同时次序固定（SOP 运行列表同一秒的按 id 倒序·成员分配同一毫秒的按 id 正序·反复取次序不变）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/time-order-tiebreak-test.mjs
       - name: 事项服务单测（阶段八 8a：第三节状态表含补定的原地行逐行正例、表外迁移逐个反例·只记录的答复与回执·终态之后只收晚到回执·同一条事实只记一次·事项日志改写删除在库这一层被拒；8b：事件日志→事项的映射·正放打乱重复终态相同·监听器漏一次回填补上·未验证来源不推进·回填两遍逐行相同·来源回滚事项也没有）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/work-item-service-test.mjs && node scripts/work-item-facts-test.mjs && node scripts/work-item-migration-test.mjs
       - name: 事项回填不挡启动（后台分批、每片让出事件循环；启动到能应答不随事件数增长·中途被杀重启接着跑、终态同一次跑完·重跑逐行相同、版本没变跳过·回填期间进来的事实不丢不重复）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/work-item-backfill-test.mjs
       - name: 事项回填和启动自检的时序（回填每个事件很慢也不挡自检：等自检通过再开始、每处理一个事件看一次表·回填照样跑完·自检没过不开始回填）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/work-item-backfill-startup-test.mjs
       - name: 建事项时的标题和派给（任务中心的取任务标题、取不到退到来源坐标·派给取投递的目标团队·存量只补自动的缺省值、改过的不动、重复跑不改、启动就补不随回填版本走·不写事项日志）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/work-item-title-team-test.mjs
       - name: 事项的交给方式（建的时候记下交给方式、等谁过目、指名的 seatId·不认得的取值兜底成交给团队·旧库补列、存量是缺省值）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/work-item-handoff-test.mjs
       - name: 事项上看得到的人和列表的视角（放宽访问的对抗：建立人、管理层看得到，别人 404·管理层按拍板类动作认：只授普通员工或系统管理员的看不到别人的、只授管理层的看得到·列表里每一条详情都是 200·视角可用性和件数·不可用的视角 403·「关注」的验收条目和详情同一处判断）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/work-item-views-test.mjs
       - name: 成员的主人、负责人和 seats / team 视角（放宽访问的对抗：席位按完整的键，别的节点上 seat_id 相同、名字只多一个字的团队里句柄相同的都不算·换主人那一秒左闭右开、列表和详情同一个口径·负责人看得到本团队的、别的团队的 404·列表里每一条详情都是 200·「关注」负责人看得到本团队的待验收）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/work-item-views-team-test.mjs
       - name: 只认已确认的关系（管理口令指的负责人只是提议、分配成员系统管理员不能代办、认领只是提议：都看不到事项·对照：确认之后看得到）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/work-item-relations-trust-test.mjs
       - name: 停太久的事项进「等你拍板」（过阈值才算、差一分钟不算·等过目、等验收、有提问的不算·冒给负责人、没有负责人冒给管理层，建立人和只授系统管理员的没有·一次最多 50 条按停得最久排、stuck_count 是总数、不算进角标·坏阈值拒绝启动）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/work-item-stuck-test.mjs
       - name: 放行归负责人（放宽访问的对抗：负责人放、团队有负责人时管理层和口令管理员 403·没有负责人时管理层代办、留痕记 acting_for·建立人勾了先过目由建立人放·幂等·「关注」的过目只给能放的人、带 answer_via·跨站拒）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/work-item-lead-release-test.mjs
       - name: 事项列表各视角的「等你拍板」件数（views.<视角>.decide 和侧栏角标同一个判法·各视角去重并集等于「关注」里事项来源轮到他的·alpha、负责人、管理层三种身份·代办的、轮到却办不了的不算·不可用的视角不给·办掉一件跟着少）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/work-item-view-decide-test.mjs
       - name: 「关注」的席位提问全库直接查（最近 200 个事件之外的提问照样列·和 decide 同一批同数·合上的不列·more 按看得到的算·看得到的超上限按最早的取、sources 带 more）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/attention-seat-asks-full-test.mjs
       - name: 事项记从哪个驾驶舱安排的（安排时记下、坏值和不存在的驾驶舱 400、算进幂等哈希且旧哈希不变·列表按驾驶舱筛只收窄、不存在的回空列表·驾驶舱删了照旧返回·「关注」条目带上·旧库补列、存量 null）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/work-item-cockpit-test.mjs
       - name: 对端登记表（升级回填建对端行、取不到名片的待登记不挡投递、重跑不变·登记取名片验签钉公钥·公钥变了不自动接受、进「关注」、指纹对得上才换·停用和重新启用·canDeliver 原因分得开·健康从现有表算·对外只给指纹）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/a2a-peers-test.mjs
       - name: 「安排一件事」（放宽访问的对抗：只认会话登录的启用的人·建立人是本人、自报的不认·只能派给绑在任务中心上的团队·缺省先过目、员工直派要两个开关都开·幂等按人·限流管理员可调·匿名、口令、跨站、停用拒·启动自检一行）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/work-item-arrange-test.mjs
       - name: 「关注」的读（阶段八 8c：提供方随插件卸载撤销·七个来源都出现·每个看的人每个来源的可见性和条数等于旧接口·事项验收只给建立人和管理员、过目只给管理员·事件层未答提问 = 事项 open_asks·跨站拒）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/attention-test.mjs
       - name: 工作台事件的读面认会话登录的管理员（放宽访问的对抗：管理员认定的路由集合钉成表、只多工作台事件四条·会话管理员能看·非管理员、匿名、不认的会话、错口令照旧 403·停用的主体和早在名单里的读面同一个结果·决定端点只认回复令牌）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/workbench-events-admin-identity-test.mjs
       - name: 「关注」的答（阶段八 8d：每个转发的来源新入口和旧入口状态、留痕、应答逐字段相同·无权的人被拒方式一样·重复答返回第一次的结果·并发答一个生效·转发只走写死的表、身份原样、请求体不透传·席位提问的答复和事项的验收退回）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/attention-answer-test.mjs
       - name: 审核进「关注」（变更申请当场批：和旧入口同一处判断·审核人取认出来的管理员·不通过要理由·detail 只给看内容所需的最少字段、删除标不可恢复、不出文件内容·员工看不到也答不了·统一待办条目带 kind）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/attention-review-test.mjs
       - name: 待验收的派单 run 进「等你拍板」（当场验收和完成接口同一处判断、同一个执行·detail 不给步骤内容和文件内容·员工看不到也答不了·统一待办同一条去重）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/attention-sop-run-test.mjs
       - name: 建立人验收自己的事项（阶段八 8e，放宽访问的对抗组：别人的事项、冒用显示名、夹带建立人、停用的建立人、跨站、未登录、不在等验收、送别的事实、来源未验证都拒·退回后再进等验收能再答·管理员照旧·启动自检一行）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/work-item-creator-test.mjs
       - name: 事项的 can、turn、creator 和「关注」的 mine（三种身份逐项对着动作接口验：can 说能接口就放行、说不能就拒·状态上不允许的一律 false·turn 只轮到建立人或有放行权限的人·放行留痕记真实的管理员）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/work-item-can-turn-test.mjs
       - name: 事项上替人做决定的五个动作只有一个判法（对抗组：只有管理口令、只有系统管理员角色、持管理层授予的非建立人、建立人本人 × 答提问、回复、验收、退回、放行；can 和真调对得上·「关注」的答法和 mine 照同一个函数·代办留痕记 acting_for）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/work-item-decision-verdict-test.mjs
       - name: 事项列表（放宽访问的对抗：管理员看全部、登录的人只看自己是建立人的·别人的和建立人空着的不出现也不计数·筛选与计数·游标翻页不重不漏·匿名、本机页面、不认的会话 401·跨站 403·坏参数 400·启动自检一行）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/work-items-list-test.mjs
       - name: 提需求的人（阶段八 8f-1：建录入时经身份服务认出的人记在录入上，发布时当事项的建立人·发布的人只留痕、不顶替·请求体自报不认·认不出照样放行·不带内容的提交计数）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/submitter-requester-test.mjs
       - name: 提交人票据（阶段八 8f-2：出台页面时给认得出的人一张绑人、绑台、两小时的票据·顶层和 iframe 都给·不许缓存、不串人·提交时验签、验期、验台、现查主体·别的台、过期、改字节、停用、自报、拿去打别的入口一律不认·不进日志和库·启动自检失败即关）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/submitter-ticket-test.mjs
       - name: 走不到的纵深防御单测（阶段三清单：/sop/<slug>/ 附件的第二道防穿越，在代码副本上去掉第一道后单独拦得住；两道都去掉的对照会漏）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/sop-page-path-defense-test.mjs
       - name: 出自产台页面的单测（阶段八 8f-2：出票抛错页面照常不带票据·认人抛错当认不出·拼页面抛错回到原样页面并计数·历史版本不出票）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node --disable-warning=ExperimentalWarning scripts/app-html-unit.mjs
       - name: 表结构探查函数（数据库规划第 0 步：迁移里查表、列、索引在不在只经 db.ts 的几个函数；名字不是小写标识符一律抛错不碰库；列名与直接查表结构逐个相同）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node --disable-warning=ExperimentalWarning scripts/db-schema-probe-test.mjs
       - name: 对外断开（WM_OUTBOUND=off：假网络记账，进程层 17 种出站办法一律在发出前被拦、实例层各触发点走一遍假网络收到 0 个连接、投递与回执保持 pending 不判死、自检与健康检查看得见；对照组不开开关必须收到连接；非法值拒绝启动）
+        if: matrix.shard == 1 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/outbound-off-test.mjs && node scripts/bench-outbound-off-test.mjs && node scripts/bench-views-entry-test.mjs && node scripts/bench-mcp-test.mjs && node scripts/bench-views-dept-test.mjs && node scripts/knowledge-test.mjs && node scripts/knowledge-lifecycle-test.mjs && node scripts/knowledge-remember-test.mjs && node scripts/knowledge-write-claim-test.mjs && node scripts/attention-via-ledger-test.mjs && node scripts/knowledge-remember-offline-test.mjs && node scripts/answer-text-test.mjs && node scripts/knowledge-visibility-test.mjs
       - name: HTTP 服务单测（经服务注册与直接注册的路由栈逐行相同·注册可撤销·同一路径只撤一条·随插件卸载·撤销时在途请求不受影响）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/http-service-test.mjs
       - name: 周期定时器随上下文停（index.ts 之外带周期定时器的模块起来之后都在跑；卸载根上下文之后一个不剩；把 unref 换成空操作，子进程照样自己退出）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/timers-unload-test.mjs
       - name: 配置的落点（模块自己的 Config：不给配置取启动环境、给了用给的、非法值装不上；服务类插件经 Cordis 拿到配置；收进来的模块解析口径照旧、不再直接读环境变量）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/config-landing-test.mjs
       - name: 安全面的配置启动时取一次（运行中改 process.env：真实例上删掉环境口令照旧认、塞进一个不认、登录门指纹同一份·环境口令仍不可由页面设或清·凭据库不会变成服务端主密码自动解锁、不会被指到别的库文件·对外断开不会被打开）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/config-runtime-env-test.mjs
       - name: 路由录制回放（搬路由之前录下的应答，对同一组请求重放，状态码、响应头、响应体必须零差异；每条路由都有未授权、参数非法、正常三类，按录下来的应答核对；自检先红后绿）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/route-replay-test.mjs --selftest && node scripts/route-replay-test.mjs
       - name: 工作台的常量、变量存进台库（WM_VARS_STORE：迁移能重复跑、同步点（bench → main → bench 不丢、并发写不丢、两边都改过报分叉）、shadow 跟写、按摘要比对、写回主库、main 档不动台库结构；高频变量 hot. 先写 Redis、30 秒落盘、Redis 不通有待落盘回 503；同一份录带在 shadow、bench 两档下也零差异；主库和台库两个实例随机操作逐条一样）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/vars-store-test.mjs && node scripts/vars-hot-test.mjs && WM_VARS_STORE=shadow node scripts/route-replay-test.mjs workbench-vars && WM_VARS_STORE=bench node scripts/route-replay-test.mjs workbench-vars && node scripts/vars-store-diff-test.mjs
       - name: Startup security self-probe (#326, loopback synthetic only)
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/startup-security-self-probe-test.mjs && node scripts/startup-security-self-probe-http-test.mjs && node scripts/startup-security-self-probe-upgrade-test.mjs
       - name: 门户转发前去掉市场自身的认证信息（GET、POST、WebSocket 握手里没有市场的口令、令牌、凭据头和市场 cookie；台自己的头和 cookie 照旧；启动自检这一行过了）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/portal-forward-strip-test.mjs
       - name: Portal per-workbench access (synthetic HTTP and WS; no production)
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/portal-access-test.mjs
       - name: Tasks identity and project/run grant isolation (#324, synthetic only)
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/tasks-read-authority-http-test.mjs
       - name: Redis ready recovery and durable-generation rebound (#351, synthetic only)
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/redis-ready-state-test.mjs && node scripts/redis-ready-recovery-http-test.mjs && node scripts/redis-ready-fingerprint-mutation.mjs && node scripts/sop-redis-read-503-test.mjs && node scripts/sop-hot-pending-restart-test.mjs
       - name: 共用状态层（Redis 可选——没配、连着、中途断开、出错、卸载；台的键按台 id 前缀，删台一起清；假 Redis，不连网络）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/state-layer-test.mjs
       - name: SOP checkpoint deadlines and active-list completeness (#337, #338; synthetic only)
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/sop-state-checkpoints-test.mjs && node scripts/sop-state-http-test.mjs && node scripts/sop-state-restart-test.mjs
       - name: SOP list privacy and upload-token rotation (#309, synthetic only)
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/sop-list-privacy-test.mjs && node scripts/sop-query-token-test.mjs && node scripts/sop-upload-token-rotation-test.mjs && node scripts/sop-list-privacy-http-test.mjs && node scripts/sop-run-read-auth-test.mjs
       - name: Verifier criterion65 portal call-chain mutations (synthetic snapshot only)
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/portal-call-chain-test.mjs && node scripts/verifier-masked-import-test.mjs
       - name: 统一待办 ygl-trees 项目上限与总预算（合成入口）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/ygl-project-cap-smoke.mjs
       - name: Content admission and terminal surface (synthetic only)
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/content-access-test.mjs && node scripts/content-surface-test.mjs && node scripts/content-stream-revocation-test.mjs && node scripts/content-migration-test.mjs && node scripts/content-query-credentials-test.mjs && node scripts/content-static-test.mjs && node scripts/portal-observation-test.mjs
       - name: SOP read-only preview validation (no browser or production routing)
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/sop-field-rules-smoke.mjs && node scripts/sop-run-upgrade-smoke.mjs && node scripts/sop-field-finish-test.mjs && node scripts/sop-field-finish-router-test.mjs && node scripts/sop-field-upload-test.mjs && node scripts/sop-field-upload-router-test.mjs && node scripts/sop-field-save-test.mjs && node scripts/sop-field-router-test.mjs && node scripts/sop-field-channel-state-test.mjs && node scripts/sop-run-access-test.mjs && node scripts/sop-readonly-assembly-test.mjs && node scripts/sop-readonly-channel-test.mjs && node scripts/sop-readonly-state-test.mjs
       - name: Taskcenter B1 seed and intake publication
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/taskcenter-intake-smoke.mjs
       # OriginClaim 绑定形式：裁判是上游 verifyOriginClaim（钉在含 src/origin-claim.ts 的 master 提交），按关窗后的状态判
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.docs_only != 'true'
         with:
           repository: NelsonLongxiang/dsh-open-a2a-net
           ref: cf4896164b5df2304fc5f5c7bb613cb865e924f6
           path: dsh-open-a2a-net
       - name: OriginClaim 绑定形式出站（#64 关窗后对端只认 Sig2：上游裁判·重放换路由/方法/主机皆拒·仅 v1 反例）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         env:
           A2A_ORIGIN_SRC: ${{ github.workspace }}/dsh-open-a2a-net/src/origin-claim.ts
         run: node scripts/origin-claim-bound-smoke.mjs
       - name: /a2a/direct 入站签名（WM_A2A_DIRECT_SIG accept/require/enforce·上游 signOriginClaim 签·篡改 body/方法/路径/过期/重放/身份不符/未登记/坏卡 401·取卡不跟随重定向·密钥轮换）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         env:
           A2A_ORIGIN_SRC: ${{ github.workspace }}/dsh-open-a2a-net/src/origin-claim.ts
         run: node scripts/a2a-direct-signature-smoke.mjs
       - name: Signed A2A direct and outbox reject redirects (#349, synthetic loopback only)
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/a2a-bound-redirect-test.mjs
       - name: 统一绑定表启动迁移只补不改（重启后撤销、mode、notify_url 不变，id 不变；旧表新增的自然键补进来）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/bindings-migrate-test.mjs
       - name: /a2a/direct 入站签名拒收的对外应答统一；取卡冷却（逐字节相同·冷却期内只取一次卡·换钥匙冷却后生效·非法开关拒启动）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/a2a-direct-sig-uniform-test.mjs
       - name: /a2a/direct 幂等登记落库（重启后同一 task_id 仍判 replay / conflict·30 分钟窗口边界·只存摘要·未绑定来源不占用 id）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/a2a-idempotency-test.mjs
       - name: A2A 错误码表与 /api/health 的 a2a 块（每个原因有中文原因与处理办法·拒收计数·出站积压·公开计数并桶不泄露 SOP 是否存在）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/a2a-health-test.mjs
       # 成员来源（#334）的指纹裁判：上游 src/canvas-id.ts 的 canvasOwnerFingerprint（钉在含它的 master 提交，单独目录）
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.docs_only != 'true'
         with:
           repository: NelsonLongxiang/dsh-open-a2a-net
           ref: e58a54e6076e2966bfdea2a326fdf2569586a1cf
           path: dsh-open-a2a-net-provenance
       - name: 名片声明 canvasMemberProvenance 的义务（只承接本 zone、句柄唯一、只在本节点投递失败关闭、只由本节点密钥签发·上游 verifyOriginClaim 与 canvasOwnerFingerprint 裁判、重启不变、off 与之前相同、非法值拒启动）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         env:
           A2A_ORIGIN_SRC: ${{ github.workspace }}/dsh-open-a2a-net/src/origin-claim.ts
           A2A_MEMBER_FP_SRC: ${{ github.workspace }}/dsh-open-a2a-net-provenance/src/canvas-id.ts
         run: node scripts/a2a-member-provenance-test.mjs
       - name: 席位 A2A 回执进事项（签名方 = 当初投递到的宿主·Sig3 不降级·别人的任务号照原路逐字节相同·别的团队签/没签名/重放/词表外/夹带指令/未采信上限·日志无签名材料）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/a2a-receipt-inbound-test.mjs
       - name: 对端钉住的公钥接上入站与出站（回执、跟进、名册只认钉住的那把，改钥待确认、停用的不收·投递和回给团队的消息过 canDeliver，不能发的挂起不判死）
+        if: matrix.shard == 2 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/a2a-pinned-peer-test.mjs
       - name: 名册以根地址和完整指纹为键（升级回填·回填不上的要人确认·同号两个节点都不匹配·换键后的旧行、停用、等确认新键的不匹配）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/a2a-roster-key-test.mjs
       - name: 市场出站补 body 绑定签名 Sig3（a2aSendOutbound 与回执 outbox 都带 Sig2+Sig3·上游新版 verifyOriginClaim 判 bodyBound·改正文被拒·无正文只带 Sig2）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         env:
           A2A_ORIGIN_V3_SRC: ${{ github.workspace }}/dsh-open-a2a-net-provenance/src/origin-claim.ts
         run: node scripts/a2a-outbound-sig3-test.mjs
       - name: 席位提问进「关注」、答复作为同 context 新任务发回、跟进记事项日志（两边条数一致·v1 与回执提问混排只列最新·只通知的事件不发·退避 5 次 dead·跟进只认同一对端的 Sig3）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/a2a-answers-test.mjs
       - name: 席位用节点签名换短期 MCP 令牌（钉住的公钥验签·名册里的席位·别的宿主冒名/停用/待确认/时间窗/受众/重放一律同一个 401·每次调用复核·授权挂在席位主体上跨令牌保留·X-Team-Seat 只对账·限频）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/seat-token-test.mjs
       - name: 工作台事件层 v1（人提交→事件→团队接单：held/release·自动派发·退避重试/dead·决定端点·unrouted·表单 unverified·只增日志；对端上游裁判按关窗验）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         env:
           A2A_ORIGIN_SRC: ${{ github.workspace }}/dsh-open-a2a-net/src/origin-claim.ts
         run: node scripts/workbench-events-smoke.mjs
       - name: 工作台事件出站的 caller_session 用 MARKET_TEAM（缺省与非缺省团队名各一例）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/workbench-events-market-team-test.mjs
       - name: SSRF 默认关闭与启动告警（隔离实例）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/r1-ssrf-smoke.mjs
       - name: R3 URL 登记准入（#258：精确许可·硬拒·全入口同核·import 全事务注错·审计日志）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/r3-url-allowlist-smoke.mjs
       - name: 来源收敛（自产台/SOP 台只接受 GitHub 仓库 main·直接发布 410·sync 记 commit·替身仓库）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/github-source-smoke.mjs
       - name: 导入导出（独立实例：replace 语义·内部路径行·掩码整批拒）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/import-smoke.mjs
       - name: MCP 网关缺省开（#284·未设/空/on 匿名 401·off 告警·坏值拒启）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/gateway-default-smoke.mjs && node scripts/gateway-smoke.mjs
       - name: MCP 上传完整性（base64 截断检测：size/sha256 不符拒收、64KB 边界疑似截断拒收、坏 base64 拒收、被拒不落库）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/mcp-upload-integrity-smoke.mjs
       - name: ygl-trees 作为 MCP 上游（#474：stdio 子进程·配置校验·环境不含口令·命令执行关闭·按会话授权·超时重启）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/ygl-upstream-smoke.mjs
       - name: 全站登录门（WM_LOGIN_GATE：enforce 匿名 302/401·口令登录 cookie·限频退避·next 防外跳·台令牌/查看凭证·/mcp 网关·本机命令行·Odoo 替身·off 不变·坏值拒启）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/login-gate-smoke.mjs
       - name: Odoo 用户登录后由市场维持会话（浏览器的 Odoo cookie 过期照样认得出·Odoo 注销或停用后会话跟着注销·不可达不注销·换账号·会话号加密存放不外泄）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/odoo-market-session-test.mjs
       - name: 登录门上线演练（enforce 隔离实例：MCP/健康/A2A/SOP/台与门户/生命周期/运维/回滚逐类真实请求）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/login-gate-rollout-check.mjs
       - name: MCP 权限可见与自助申请（access_info 全目录·access_request 去重限频·管理员批准并集/驳回不动 grants/吊销不能批·app_data_submit 与 REST 同核契约校验·匿名 401）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/mcp-access-smoke.mjs && node scripts/mcp-grant-scope-smoke.mjs && node scripts/mcp-newcomer-test.mjs && node scripts/mcp-upload-ticket-test.mjs && node scripts/mcp-app-files-name-test.mjs
       - name: 技能版本链的快照路径只给管理员（远程匿名、本机页面、MCP 会话都拿不到；管理口令、本机命令行拿得到；摘要照给）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/skill-versions-path-test.mjs
       - name: MCP 内嵌 REST / OpenAPI（文件：99MB 流式上传 sha256 一致·Range/ETag 下载·415·403/401；资源：列文件/读数据/SOP 附件；工具映射与 /mcp 同链·审计 channel=rest·匿名 5MB 413）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/mcp-rest-smoke.mjs && node scripts/mcp-rest-smoke.mjs --login-gate
       - name: 台数据与附件的读守卫（台令牌、管理员或本机命令行；匿名、跨站、员工、别台令牌、换过的令牌一律 403 且先于查台；查看凭证只认下载；告警模式；MCP 按台授权）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/app-data-read-guard-smoke.mjs
       - name: 台的提交和附件（数据面、文件面冒烟；同台同幂等键并发只落一行，不出 500）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/appdata-smoke.mjs && node scripts/appfiles-smoke.mjs
       - name: 台的提交和附件存进卡片的台库（WM_APP_DATA_STORE 三档；先写主库再照抄、按摘要对齐、迁移能重复跑、只删卡片也删提交；三档录带零差异；main 和 bench 两个实例逐条一样；bench 档同键并发不出 500）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/app-data-store-test.mjs && node scripts/app-data-diff-test.mjs && WM_APP_DATA_STORE=bench node scripts/appdata-smoke.mjs && WM_APP_DATA_STORE=shadow node scripts/route-replay-test.mjs app-data && WM_APP_DATA_STORE=bench node scripts/route-replay-test.mjs app-data && WM_APP_DATA_STORE=shadow node scripts/route-replay-test.mjs mcp-rest && WM_APP_DATA_STORE=bench node scripts/route-replay-test.mjs mcp-rest
       - name: 设置的读按角色给（别人只看巡检参数和开关；管理员看全部、凭据类的值只说有没有；导出和改设置的应答不带凭据）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/settings-read-smoke.mjs
       - name: SOP run 的写守卫（上传令牌、管理员或本机命令行；匿名、别的 run 的令牌、已结束的 run、员工、跨站一律 403 且先于查 run；开建照旧开放；告警模式）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/sop-run-write-guard-smoke.mjs
       - name: 两个守卫告警档的计数接进 /api/health（warn 档匿名读、写各一次管理读看到加一·按路由模板和调用方类别·非管理读和口令不对看不到·不带台名、run 号、会话·enforce 档为空）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/health-guard-warn-counts-test.mjs
       - name: 工作台变量与常量（#336：三类台隔离·权限·常量保护·并发 409·重启恢复·MCP；常量谁写的谁维护）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/workbench-vars-smoke.mjs && node scripts/workbench-const-owner-smoke.mjs
       - name: MCP design_standard 只读读取设计标准（模块+实例·网关开关两态）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/design-standard-smoke.mjs
       - name: design token 管线（#315：产物与 DESIGN.md 同步·引用解析·主题与侧栏不写死色值）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/design-tokens-smoke.mjs
       - name: SOP 定义只读接口（#318：published 公开·draft/deprecated 仅管理员·不带步骤正文·冷版本 404）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/sop-definition-smoke.mjs
       - name: 自产台/SOP 台卡片健康核实台本身（不存在或未上架记 down）与 sop_run_get 时间字段
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/self-hosted-health-smoke.mjs
       - name: LayerFS 存活/就绪与删台兜底冒烟
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/layerfs-health-delete-smoke.mjs
       - name: sop_run_list 翻页冒烟（limit/offset·同时间戳按 id 排定）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/sop-run-list-page-smoke.mjs
       - name: 技能迁移 LayerFS 冒烟（0 字节文件照常迁移·读回摘要一致才记 commit_id·摘要不符留档）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/skill-migrate-layerfs-smoke.mjs
       - name: 技能影子补推冒烟（导入器写的当前版本定时补推·推完读回一致才记 succeeded·LayerFS 不通不刷屏、不挡启动、每轮撞一次就停·恢复后接着推·二进制记 skipped·摘要不符记 failed·读回不一致下一轮重试·重建同时写 commit_id 和状态、旧版本回到 pending）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/skill-shadow-catchup-smoke.mjs
       - name: 技能发布按字节冒烟（base64 二进制往返：快照/导出/钉装校验逐字节一致·同内容 409·影子 skipped·MCP skill_publish 上传/发版/更新）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/skill-binary-publish-smoke.mjs
       - name: 技能回滚冒烟（回滚=移当前版本指针不新增版本·不撞同指纹唯一索引·回滚后缺省取装/导出/安装计划/校验=目标版本·二进制逐字节一致·MCP 变更申请批准同一执行体·发新版恢复跟随最新·预置孤儿版本目录挪进 .orphans 不混写）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/skill-rollback-smoke.mjs
       - name: 技能导入冒烟（隔离库·源 C 导入、同内容不升版、改了升版旧版不变、无 frontmatter 跳过·导入试跑报技能自己写的版本号，顶层和 metadata 下都认，本仓 skills/ 每个都报得出）；点名导入对抗组（#783：--only 写法/不认识/歧义零写入·只读试跑·同内容不碰·前态指纹·中途失败整体回滚）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/skill-import-smoke.mjs && node scripts/skill-import-only-test.mjs
       - name: 驾驶舱布局吸附单测（#320：宽度只取 3/4/6/12·x 越界收回·不丢面板·读时迁移不回写）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/cockpit-layout-unit.mjs
       - name: 名字的显示规则单测（纯函数——名册、线和步的名字；单列一步）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/names-ui-unit.mjs
       - name: 待属主看板（作者核验：config.owner 只认属主本人·事项只认登记身份·答复只认属主·冒名点名不采信·只授三个工具）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/owner-pending-unit.mjs && node scripts/owner-pending-board-smoke.mjs && node scripts/attention-ui-unit.mjs && node scripts/work-item-detail-ui-unit.mjs && node scripts/market-ui-unit.mjs && node scripts/home-ui-unit.mjs && node scripts/arrange-ui-unit.mjs && node scripts/review-ui-unit.mjs
       - name: 数据视图组件单测（纯函数——格式、取值说法、按值着色、图表配置、工具契约一致性；单列一步，不和上面那行挤在一起）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/bench-blocks-ui-unit.mjs && node scripts/bench-var-bindings-test.mjs && node scripts/bench-view-contract-test.mjs
       - name: 报告模板 P0 编排（正反例、数据完整性、源定义签名、稳定键与冻结值）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/report-template-p0-test.mjs && node scripts/report-template-p0-store-test.mjs
       - name: 「谁能做什么」页单测（纯函数——授予的状态、范围、期限，待核准，按人排的表，矩阵格子；单列一步）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/access-ui-unit.mjs
       - name: 「经验库」页单测（纯数据——四类的先后和说法、认不出的类别不露代号；单列一步）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/knowledge-ui-unit.mjs
       - name: 「记成经验」单测（纯函数——缺省档不落全公司·要交什么·能不能交·办完的说法·我处理过的·拍板人；单列一步）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/remember-ui-unit.mjs
       - name: 答法按钮的说法单测（「关注」各来源的答法都有中文说法、不露代号——从服务端来源读答法；单列一步）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/answer-label-unit.mjs
       - name: 状态标签不手写预设色（orange / green / red / gold 这类不走主题；类别色白名单放行，每条写理由；单列一步）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/tag-status-color-unit.mjs
       - name: 驾驶舱左栏紧凑行单测（纯函数——一条的键、标签怎么说、选中的那条还在不在；单列一步）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/cockpit-attention-unit.mjs
       - name: 嵌台防护单测（纯函数——登记的地址指不指向市场自己、框里是不是市场自己的页面；单列一步）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/embed-guard-unit.mjs
       - name: 事项的期限和附件单测（纯函数——字段没到不画、链接只认本站 /api/、大小怎么说；单列一步）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/work-item-extras-unit.mjs
       - name: 「团队」页单测（纯函数——团队状态、负责人、成员归谁用、计数、空和读不到的说法、建部门校验；单列一步）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/team-ui-unit.mjs
       - name: 身份服务连不上单测（纯函数——认法只认 502 加这个代号·退避重试·连上后清状态并重读·全景的总结句；单列一步）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/identity-status-unit.mjs
       - name: 事项列表单测（纯函数——分组、行文、视角、名字；单列一步）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/work-items-ui-unit.mjs
       - name: 站内页面路径单测（卡片上只把站内真有的页面做成链接·路由表和 App.tsx 一致；单列一步）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/page-paths-unit.mjs
       - name: 驾驶舱骨架单测（纯函数——三栏尺寸、放大还原、数据视图引用、页签；单列一步）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/cockpit-frame-unit.mjs
       - name: 驾驶舱「AI 员工」单测（纯函数——分给我的成员·我负责的团队不重复·忙闲说法·点进去的地址；单列一步）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/ai-staff-ui-unit.mjs
       - name: 驾驶舱的 can.edit（读应答里带；和写请求总门对同一个请求的判断一致：逐个身份读一次、改一次）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/cockpit-can-test.mjs
       - name: 驾驶舱里的数据视图（共用的筛选、挂视图、取不到时的说法）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/cockpit-bench-view-unit.mjs
       - name: 视图台页面单测（入口怎么走·地址里的视图和筛选·表单没交上去的说法）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/bench-page-unit.mjs
       - name: 身份变了以后页面重读单测（纯函数——认人只认 /api/auth/me·不通和 502 不算·合并去抖·世代号；单列一步）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/session-watch-unit.mjs
       - name: 技能正文里写到的 MCP 工具名都在工具目录里（对照 surfaces/mcp-tools.json）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/skill-tool-names-test.mjs
       - name: 凭据库（融合 dsh-vault：读写要口令·业务面 403·摘要无明文·坏 JSON 不进日志·写锁/重开/闲置上锁/限流）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/vault-concurrency-test.mjs && node scripts/vault-smoke.mjs
       - name: 条目自带答复入口单测（纯函数——answer_via 的地址、请求体、填写项；核准卡片的写法；单列一步）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/answer-via-unit.mjs
       - name: F5 env-face 判定回归（不启动 Docker）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/security-env-face-test.mjs
       - name: 扩展挂载点冒烟（WM_EXTENSIONS_DIR：不设不加载·目录/模块/register 出错拒绝启动·路由/待办来源/业务写面）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/extensions-smoke.mjs
       - name: 扩展的路由报动作（ctx.routes.add：动作名、路径命名空间、方法与类别、谁能调；直接挂的点名计数，enforce 拒绝启动；快照 --extensions 单列、不写 surfaces/）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/extension-routes-smoke.mjs
       - name: Odoo 弹窗登录链接单测（return 换成当前页·只回 path）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/odoo-login-href-unit.mjs
       - name: Odoo 浏览器登录地址策略（WM_ODOO_BROWSER_URL）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/odoo-browser-origin-test.mjs
       - name: 来源 IP 单测（WM_TRUSTED_PROXIES：可信反代才认 X-Real-IP/XFF·伪造不生效·非法项拒绝启动）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/client-ip-unit.mjs
       - name: 日志不泄露上游会话 + 登录中继安全头（Set-Cookie 只记名·查询串不进日志·XFO/nosniff/frame-ancestors）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         # 这一步只核响应头和日志。Chromium 嵌框那几条在 browser-security 里用钉住版本的 Chromium 跑（PLAYWRIGHT_VERSION）；
         # 这里清掉 runner 镜像自带的 CHROME_BIN（系统 Google Chrome，版本随镜像漂：镜像 20261111 升到 157，被拦的子框不再出现在主框架树里）
         run: CHROME_BIN= node scripts/log-secret-relay-headers-smoke.mjs
       - name: 管理员口令止血单测（#292 M4：pagehide 抹口令·变更广播）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/admin-token-guard-unit.mjs
       - name: 门户改写冒烟（白屏三层与外链护栏、JS/CSS 的 /api/ 前缀、同源绝对链接、Referer 只到目标源、自产台 CSP sandbox、cookie 的 Secure 与 __Host- 处理、泛化根路径）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/portal-rewrite-smoke.mjs && node scripts/portal-p6711-smoke.mjs && node scripts/portal-p13-smoke.mjs
       - name: 门户剥 Service-Worker-Allowed 冒烟（#292 M5）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/portal-sw-header-smoke.mjs
       - name: 门户台地址带路径的跳转映射冒烟（base 外跳转拦成 502、base 内去 base）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/portal-base-redirect-smoke.mjs
       - name: 门户 SPA 资产前缀改写冒烟（HTML 的 src/href、JS 与 CSS 里的 /assets/ 都加 /go/<id>/ 前缀并真取到；外链、协议相对、data 不动）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/spa-asset-rewrite-smoke.mjs
       - name: 控制面冒烟（#292 M1：浏览器管理写只认控制面·本机 CLI 保留·反代按远程·控制面围栏）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/control-surface-smoke.mjs
       - name: 远程写总门大小写一致性（/API/… 不能绕过口令）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/api-gate-case-smoke.mjs
       - name: 安全对抗例组（PASS / SKIP / NEEDS-MATERIAL 分列）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: node scripts/security-adversarial-smoke.mjs
       # 上传走的是平台的产物接口：它出故障（比如返回网页而不是 JSON）不代表测试失败。
       # 作业结论以测试步骤为准；上传失败时证据不丢——原样打进日志、等一会儿补传一次，并在作业摘要里单独标出「证据没传上去」。
       - name: 留存 F5 原始证据与覆盖摘要
         id: f5_evidence
-        if: always()
+        if: always() && matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
@@ -654,7 +884,7 @@ jobs:
             tmp/f5-env-face-*.json
           if-no-files-found: warn
       - name: 证据没传上去：原样留在日志里，等一分钟后补传
-        if: always() && steps.f5_evidence.outcome == 'failure'
+        if: always() && matrix.shard == 3 && needs.changes.outputs.docs_only != 'true' && steps.f5_evidence.outcome == 'failure'
         run: |
           echo "::warning title=证据没传上去::F5 原始证据上传失败（平台的产物接口出错，不影响测试结论）。证据原文在本步日志里；下一步补传一次。"
           {
@@ -670,7 +900,7 @@ jobs:
           sleep 60
       - name: 补传 F5 原始证据
         id: f5_evidence_retry
-        if: always() && steps.f5_evidence.outcome == 'failure'
+        if: always() && matrix.shard == 3 && needs.changes.outputs.docs_only != 'true' && steps.f5_evidence.outcome == 'failure'
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
@@ -681,7 +911,7 @@ jobs:
             tmp/f5-env-face-*.json
           if-no-files-found: warn
       - name: 补传的结果
-        if: always() && steps.f5_evidence.outcome == 'failure'
+        if: always() && matrix.shard == 3 && needs.changes.outputs.docs_only != 'true' && steps.f5_evidence.outcome == 'failure'
         env:
           RETRY: ${{ steps.f5_evidence_retry.outcome }}
         run: |
@@ -692,6 +922,7 @@ jobs:
             echo "补传也失败：证据原文在「证据没传上去」那一步的日志里（带字节数和 sha256，可以核对）。" >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: server 冷启动探针（防重启即死）
+        if: matrix.shard == 3 && needs.changes.outputs.docs_only != 'true'
         run: |
           PORT=19999 DATA_DIR=${{ runner.temp }}/ci-data ADMIN_TOKEN=ci timeout 20 node --disable-warning=ExperimentalWarning server/src/index.ts &
           for i in $(seq 1 15); do
@@ -702,26 +933,33 @@ jobs:
   # 契约联调：上游 a2a-net 的 superagent 宿主当对端（宿主自己从 process face 签发确认、进展、提问、结果回执），市场在回环上收。
   # 改入站（回执、进展、跟进、验签）的 PR 都要过它。上游钉 next/0.8 的 f458294（#610 合并提交：preview.13 之上修掉了对 bots.a2a 里远端成员误发 superagent-member）。
   upstream-contract:
+    needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.docs_only != 'true'
       - uses: pnpm/action-setup@v4
+        if: needs.changes.outputs.docs_only != 'true'
         with:
           version: 11.28.5
       - uses: actions/setup-node@v4
+        if: needs.changes.outputs.docs_only != 'true'
         with:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+        if: needs.changes.outputs.docs_only != 'true'
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.docs_only != 'true'
         with:
           repository: NelsonLongxiang/dsh-open-a2a-net
           ref: f458294bd6352be7a90c4d20b1fb84c6e1843dbb
           path: dsh-open-a2a-net-contract
       - name: 上游依赖与构建（缓存键带钉住的提交）
+        if: needs.changes.outputs.docs_only != 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -729,11 +967,56 @@ jobs:
             dsh-open-a2a-net-contract/lib
           key: upstream-contract-f458294bd6352be7a90c4d20b1fb84c6e1843dbb-${{ hashFiles('dsh-open-a2a-net-contract/pnpm-lock.yaml') }}
       - name: 装上游依赖并构建
+        if: needs.changes.outputs.docs_only != 'true'
         working-directory: dsh-open-a2a-net-contract
         run: |
           [ -d node_modules ] || pnpm install --frozen-lockfile --ignore-scripts
           [ -d lib ] || pnpm run build
       - name: 契约联调：市场 × superagent 宿主（确认、进展、提问、答复轻路径、结果、abandoned；只听回环、临时目录、合成数据）
+        if: needs.changes.outputs.docs_only != 'true'
         env:
           A2A_UPSTREAM_DIR: ${{ github.workspace }}/dsh-open-a2a-net-contract
         run: node scripts/contract-upstream-test.mjs
+
+  identity-seam:
+    # 身份接缝汇总：保留原来的检查名，合并方看这一项。分片有一片没成功（失败、取消）就红；纯文档跳过时绿
+    if: always()
+    needs: [changes, identity-seam-shard]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULT: ${{ needs.identity-seam-shard.result }}
+          CHANGES: ${{ needs.changes.result }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+        run: |
+          echo "分片结果：$RESULT；改动判断：$CHANGES；纯文档：$DOCS_ONLY"
+          [ "$CHANGES" = "success" ] || { echo "改动判断那一步没成功"; exit 1; }
+          [ "$RESULT" = "success" ] || { [ "$RESULT" = "skipped" ] && [ "$DOCS_ONLY" = "true" ]; }
+  tsc-and-syntax:
+    # 类型检查与语法核汇总：保留原来的检查名，合并方看这一项。分片有一片没成功（失败、取消）就红；纯文档跳过时绿
+    if: always()
+    needs: [changes, tsc-and-syntax-shard]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULT: ${{ needs.tsc-and-syntax-shard.result }}
+          CHANGES: ${{ needs.changes.result }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+        run: |
+          echo "分片结果：$RESULT；改动判断：$CHANGES；纯文档：$DOCS_ONLY"
+          [ "$CHANGES" = "success" ] || { echo "改动判断那一步没成功"; exit 1; }
+          [ "$RESULT" = "success" ] || { [ "$RESULT" = "skipped" ] && [ "$DOCS_ONLY" = "true" ]; }
+  browser-security:
+    # 浏览器回归汇总：保留原来的检查名，合并方看这一项。分片有一片没成功（失败、取消）就红；纯文档跳过时绿
+    if: always()
+    needs: [changes, browser-security-shard]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULT: ${{ needs.browser-security-shard.result }}
+          CHANGES: ${{ needs.changes.result }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+        run: |
+          echo "分片结果：$RESULT；改动判断：$CHANGES；纯文档：$DOCS_ONLY"
+          [ "$CHANGES" = "success" ] || { echo "改动判断那一步没成功"; exit 1; }
+          [ "$RESULT" = "success" ] || { [ "$RESULT" = "skipped" ] && [ "$DOCS_ONLY" = "true" ]; }
