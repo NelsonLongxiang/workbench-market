@@ -607,7 +607,7 @@ jobs:
         run: node scripts/extension-routes-smoke.mjs
       - name: 登录入口地址单测（Odoo 下线后只认本站 /login·外站不用·回首页的换成回到当前页）
         run: node scripts/login-href-unit.mjs
-      - name: 门户名单写法单测（新写站内账号·历史 odoo: 项原样保留）
+      - name: 门户名单写法单测（新写站内账号·历史 odoo 前缀项原样保留）
         run: node scripts/portal-logins-unit.mjs
       - name: 来源 IP 单测（WM_TRUSTED_PROXIES：可信反代才认 X-Real-IP/XFF·伪造不生效·非法项拒绝启动）
         run: node scripts/client-ip-unit.mjs
