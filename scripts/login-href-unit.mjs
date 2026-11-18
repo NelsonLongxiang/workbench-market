@@ -10,6 +10,8 @@ ok('外站地址不用（以前的 Odoo 登录地址）：换成站内登录页'
 ok('// 开头的协议相对地址不用', loginHref('//evil.example/login', '/a') === '/login?next=%2Fa');
 ok('以前的同域 Odoo 中继 /web/login、门户 /go/ 不用', loginHref('/web/login?redirect=%2F', '/a') === '/login?next=%2Fa' && loginHref('/go/7/?return=%2F', '/a') === '/login?next=%2Fa');
 ok('没给 login_url、不是字符串：站内登录页', loginHref(undefined, '/a') === '/login?next=%2Fa' && loginHref(42, '/') === '/login');
+ok('结尾锚定：只是前缀像 /login 的不用（/loginx、/login.evil、/login/x、/login/../go/）', ['/loginx', '/login.evil.example', '/login/x', '/login/../go/7/'].every((u) => loginHref(u, '/a') === '/login?next=%2Fa'));
+ok('结尾锚定：查询串里带 # 或空白的不用（# 后、空白后可以接任意东西）', loginHref('/login?next=%2Fa#//evil.example', '/b') === '/login?next=%2Fb' && loginHref('/login?next=%2Fa x', '/b') === '/login?next=%2Fb' && loginHref('/login\n//evil', '/b') === '/login?next=%2Fb');
 ok('当前页地址不正常（// 开头）：不带 next', loginHref('/login', '//evil.example/x') === '/login');
 console.log(`\nlogin-href-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);
