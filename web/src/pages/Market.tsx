@@ -7,6 +7,7 @@ import { ProTable } from '@ant-design/pro-components';
 import Markdown from 'react-markdown';
 import { api } from '../api';
 import type { Workbench, WorkbenchType } from '../types';
+import { loginLabel } from '../portal-logins';
 import StatusBadge, { fmtCheckedAt } from '../components/StatusBadge';
 import RelTime from '../components/RelTime';
 import RowActions from '../components/RowActions';
@@ -64,7 +65,7 @@ export default function Market() {
   const accessTag = (w: Workbench) => {
     if (w.url.startsWith('/') || !w.access || w.access === 'all') return null;
     return (
-      <Tooltip title={w.access === 'admin' ? '经门户只给管理员打开' : `经门户只给管理员和指定的人打开：${(w.access_logins ?? []).map((s) => s.replace(/^odoo:/, '')).join('、')}`}>
+      <Tooltip title={w.access === 'admin' ? '经门户只给管理员打开' : `经门户只给管理员和指定的人打开：${(w.access_logins ?? []).map(loginLabel).join('、')}`}>
         <Tag>{w.access === 'admin' ? '仅管理员' : '指定人员'}</Tag>
       </Tooltip>
     );
@@ -376,7 +377,7 @@ export default function Market() {
                   children: detail.url.startsWith('/') ? (
                     <Typography.Text type="secondary">登录即可（自产台、SOP 台不经门户独占）</Typography.Text>
                   ) : detail.access === 'admin' ? '仅管理员'
-                    : detail.access === 'listed' ? `管理员和：${(detail.access_logins ?? []).map((s) => s.replace(/^odoo:/, '')).join('、')}`
+                    : detail.access === 'listed' ? `管理员和：${(detail.access_logins ?? []).map(loginLabel).join('、')}`
                     : '登录即可',
                 },
                 { key: 'status', label: '状态', children: <StatusBadge status={detail.last_status} latency={detail.last_latency_ms} error={detail.last_error} checkedAt={detail.last_checked_at} /> },

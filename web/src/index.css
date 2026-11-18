@@ -41,6 +41,10 @@ body {
 /* 「我的助理」页：怎么接入的三步、「再往前看」 */
 .wm-assistant-steps { margin: 0; padding-left: var(--wm-space-6); line-height: var(--wm-line-height-subtitle); }
 .wm-assistant-more { margin-top: var(--wm-space-3); }
+/* 当前用户 chip（ViewerChip）：未登录、停用时标签和按钮排一行；名字太长截断 */
+.wm-viewer-chip { display: inline-flex; align-items: center; gap: var(--wm-space-1); }
+.wm-viewer-tag { margin-inline-end: 0; }
+.wm-viewer-me { cursor: pointer; max-width: 260px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
 .wm-text-body { font-size: var(--wm-font-size-body); line-height: var(--wm-line-height-body); }
 .wm-display { font-size: var(--wm-font-size-display); line-height: var(--wm-line-height-display); font-weight: var(--wm-font-weight-display); }
 .wm-text-subtitle { font-size: var(--wm-font-size-subtitle); line-height: var(--wm-line-height-subtitle); font-weight: var(--wm-font-weight-subtitle); }

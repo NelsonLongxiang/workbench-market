@@ -11,9 +11,9 @@
  *     连 localhost:P 必须到自己（钉到自己实际监听的地址上）。
  *   第二组（实例层）：起一个打开开关的市场实例。库里和环境里所有对外地址都指向假网络，每一路用各自的路径（假网络记下
  *     每个连接的首行，按路归类，见 ROUTES）：取卡、Redis、通知绑定、事件投递、回执 outbox、人的答复发回、探活、/go/ 反代、
- *     Odoo 认人、GitHub 拉取、LayerFS、技能影子补推（推到 LayerFS）、A2A 状态源（统一待办）、MCP 上游、沙箱桥派发、评估网关（技能搜）、飞书登录（换令牌）。
- *     然后把触发点逐个走一遍：等两轮 worker、提交台数据、check-all、/go/ 反代（Odoo 用另一个源，台不被当成 Odoo 台）、
- *     入站 /a2a/direct 带签名头（取卡）、带 Odoo 会话 cookie 认人、app_sync 拉 GitHub、统一待办、/mcp 的工具列表、
+ *     GitHub 拉取、LayerFS、技能影子补推（推到 LayerFS）、A2A 状态源（统一待办）、MCP 上游、沙箱桥派发、评估网关（技能搜）、飞书登录（换令牌）。
+ *     然后把触发点逐个走一遍：等两轮 worker、提交台数据、check-all、/go/ 反代、
+ *     入站 /a2a/direct 带签名头（取卡）、app_sync 拉 GitHub、统一待办、/mcp 的工具列表、
  *     sop_run_sandbox 和 skill_search、飞书登录发起再回调、对端登记和刷新。断言：假网络收到 0 个连接、逐路都是 0；
  *     投递、回执 outbox、答复仍是 pending、attempts 不变；技能影子补推整轮跳过（没推过的版本仍是 pending、没写失败原因）；健康检查和就绪检查都报 outbound；自检里有「对外已断开」那一行。
  *   对照组（先红后绿）：同样两组不开开关重跑，逐路断言每一路都真的连到了假网络——证明每个触发点都走到了出站。
@@ -158,7 +158,6 @@ const ROUTES = [
   ['截止变更发给节点（改截止日期）', (l) => l.startsWith('POST /duenotice/')],
   ['探活（巡检、check-all）', (l) => /^GET \/ @127\.0\.0\.1:/.test(l)],
   ['/go/ 反代', (l) => l.startsWith('GET /wb/')],
-  ['Odoo 认人', (l) => l.startsWith('POST /web/session/get_session_info ')],
   ['GitHub 拉取', (l) => l.startsWith('GET /github/')],
   ['LayerFS', (l) => l.startsWith('GET /layerfs/')],
   ['技能影子补推（推到 LayerFS）', (l) => l.startsWith('POST /layerfs/v1/projects/wm-skills/')],
@@ -242,8 +241,7 @@ async function instanceLayer(dir, off) {
   const net = await fakeNet(dir);
   const data = join(dir, 'data'); mkdirSync(data, { recursive: true });
   const env = {
-    // Odoo 用另一个源（localhost）：和台地址同源的话，/go/ 会把台当成 Odoo 台去走单点登录（302），走不到反代
-    WM_ODOO_URL: `http://localhost:${net.tcpPort}`, REDIS_URL: `redis://127.0.0.1:${net.tcpPort}`, LAYERFS_SERVICE_URL: net.url + '/layerfs', A2A_STATE_URL: net.url + '/state', A2A_API_KEY: 'x',
+    REDIS_URL: `redis://127.0.0.1:${net.tcpPort}`, LAYERFS_SERVICE_URL: net.url + '/layerfs', A2A_STATE_URL: net.url + '/state', A2A_API_KEY: 'x',
     WM_GITHUB_API: net.url + '/github', EVAL_GATEWAY_URL: net.url + '/eval', AI_GATEWAY_API_KEY: 'x',
     WM_FEISHU_LOGIN: 'on', WM_FEISHU_AUTHORIZE_URL: net.url + '/feishu/authorize', WM_FEISHU_TOKEN_URL: net.url + '/feishu/token', WM_FEISHU_USERINFO_URL: net.url + '/feishu/userinfo',
     WM_FEISHU_TENANT_TOKEN_URL: net.url + '/feishu/tenant-token', WM_FEISHU_CONTACT_USER_URL: net.url + '/feishu/contact/',
@@ -268,7 +266,6 @@ async function instanceLayer(dir, off) {
   hits.a2aSend = (await I.call('POST', '/api/a2a/send', { target_url: net.url, team: 'syn/1a2b3c4d', message: 'x' }, A)).status;
   hits.direct = (await I.call('POST', '/a2a/direct', { team: 'market/00000000', message: 'x', caller_session: 'syn/1a2b3c4d' },
     { 'x-a2a-caller': 'syn', 'x-a2a-caller-url': net.url, 'x-a2a-caller-ts': String(Date.now()), 'x-a2a-caller-aud': I.base, 'x-a2a-caller-sig2': 'AAAA' })).status;
-  hits.odooViewer = (await I.call('GET', '/api/auth/viewer', undefined, { cookie: 'session_id=0123456789abcdef0123456789abcdef' })).status;
   hits.appSync = (await I.call('POST', '/api/apps/syn-form/sync', {}, A)).status;
   const reg = await I.call('POST', '/api/a2a/peers', { root_url: net.url.replace('127.0.0.1', 'localhost') }, A);
   const ref = await I.call('POST', '/api/a2a/peers/peer_0a1b2c3d4e5f/refresh', {}, A);

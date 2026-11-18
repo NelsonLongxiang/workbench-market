@@ -3,12 +3,12 @@
  * 提需求的人（阶段八 8f-1）。规格见产品化文档 02 附录「PR 8f」。
  * 起一个隔离实例（假的登录提供方，NODE_ENV=test；台从本机的 GitHub 替身同步）：
  *
- *   正例：alpha 登录着建任务中心的录入，管理员（口令）发布、published_by 自填别人 → 事项的建立人主体是 alpha，
- *         alpha 读得到、别人读不到；发布的人认得出（会话登录的管理员）就只留痕在事件里，不当建立人
- *   对抗：匿名建的录入由会话管理员发布——建立人留空，不拿发布的人顶替；请求体自报 started_by、requester_principal、principal 不认；
+ *   正例：alpha 登录着建任务中心的录入 → run 上记下提需求的人 alpha（录入发布已退役：发布入口 404，「发布的人不当建立人」由
+ *         「安排一件事」的建立人规则接着守，见 work-item-arrange-test）
+ *   对抗：匿名建的录入不记人；请求体自报 started_by、requester_principal、principal 不认；
  *         提供方不认的会话、被停用的人建录入——照样 201，只是不记人；别人续填、完成 alpha 建的录入——还是 alpha；
  *         建录入的应答不多不少（不回提需求人）
- *   计数：只有通道、有没有登录凭据、认没认出、次数，没有内容列；任务中心建录入、发布，台的 REST 提交按维度各记一笔
+ *   计数：只有通道、有没有登录凭据、认没认出、次数，没有内容列；任务中心建录入、台的 REST 提交按维度各记一笔
  *
  *   node scripts/submitter-requester-test.mjs              测本仓库
  *   node scripts/submitter-requester-test.mjs --root DIR   测另一棵目录树（变异测试用）
@@ -79,40 +79,24 @@ try {
     await call('POST', `/api/sop/runs/${r.body?.id}/finish`, w, {});
     return r;
   };
-  const publish = (runId, headers, by = 'someone-else') => call('POST', '/api/task-center/tasks', headers, { intake_run_id: runId, published_by: by });
-  const itemOf = (eventId) => q('SELECT id, created_by, creator_principal FROM work_items WHERE id = ?', `wi_${eventId}`)[0];
-  const recordedOf = (eventId) => JSON.parse(q("SELECT detail FROM workbench_event_log WHERE event_id = ? AND action = 'recorded'", eventId)[0]?.detail ?? '{}');
-
+  // 录入发布已退役（任务只经「安排一件事」建）：这里只守建录入时记下的提需求人和计数
   // ---------- 正例 ----------
   {
     const c0 = counts();
     const run = await intake(ALPHA);
-    const pub = await publish(run.body?.id, ADMIN, 'beta');
-    const it = itemOf(pub.body?.event_id), rec = recordedOf(pub.body?.event_id);
     check(run.status === 201 && requesterOf(run.body.id) === 'user:alpha', 'alpha 登录着建录入：run 上记下提需求的人 alpha', show({ run: run.status, p: requesterOf(run.body?.id) }));
-    check(pub.status === 201 && it?.creator_principal === 'user:alpha' && it?.created_by === 'user:alpha', '口令发布、published_by 自填 beta：事项的建立人主体是 alpha，显示的建立人也是认出来的 alpha（自填的 beta 不进事项）', show({ pub: pub.status, it }));
-    check(rec.requester === 'user:alpha' && rec.publisher === undefined && rec.principal === undefined, '事件 recorded 里记提需求的人；口令发布认不出发布人，不记', show(rec));
-    const mine = await call('GET', `/api/work-items/${it?.id}`, ALPHA), theirs = await call('GET', `/api/work-items/${it?.id}`, BETA);
-    check(mine.status === 200 && theirs.status === 404, '这件事项 alpha 读得到，自填进显示名的 beta 读不到', show({ mine: mine.status, theirs: theirs.status }));
     const d = delta(c0, counts());
-    check(d['task-center.intake|1|1'] === 1 && d['task-center.publish|0|0'] === 1 && Object.keys(d).length === 2, '计数：建录入（带凭据、认出）一笔，发布（口令、没凭据、没认出）一笔', show(d));
-  }
-  {
-    const run = await intake(ALPHA);
-    const pub = await publish(run.body?.id, SESSION_ADMIN, 'alpha');
-    const it = itemOf(pub.body?.event_id), rec = recordedOf(pub.body?.event_id);
-    check(pub.status === 201 && it?.creator_principal === 'user:alpha' && rec.publisher === 'user:root-admin' && rec.requester === 'user:alpha', '会话登录的管理员发布 alpha 的录入：建立人是 alpha，发布人 root-admin 只留痕在事件里', show({ it, rec }));
+    check(d['task-center.intake|1|1'] === 1 && Object.keys(d).length === 1, '计数：建录入（带凭据、认出）一笔', show(d));
+    const pub = await call('POST', '/api/task-center/tasks', ADMIN, { intake_run_id: run.body?.id, published_by: 'beta' });
+    check(pub.status === 404, '录入发布入口已退役：管理口令来发也是 404，不建任务、不记发布计数', show({ pub: pub.status, d: delta(c0, counts()) }));
   }
   // ---------- 对抗 ----------
   {
     const c0 = counts();
     const run = await intake({ ...SAME });
-    const pub = await publish(run.body?.id, SESSION_ADMIN, 'root-admin');
-    const it = itemOf(pub.body?.event_id), rec = recordedOf(pub.body?.event_id);
-    check(run.status === 201 && requesterOf(run.body.id) === null && it?.creator_principal === null && rec.publisher === 'user:root-admin' && rec.requester === undefined,
-      '匿名建的录入由会话管理员发布：建立人留空，不拿发布的人顶替（发布人只留痕）', show({ run: run.status, it, rec }));
+    check(run.status === 201 && requesterOf(run.body.id) === null, '匿名建录入：不记提需求的人', show({ run: run.status, p: requesterOf(run.body?.id) }));
     const d = delta(c0, counts());
-    check(d['task-center.intake|0|0'] === 1 && d['task-center.publish|1|1'] === 1, '计数：匿名建录入（没凭据、没认出）、会话管理员发布（带凭据、认出）', show(d));
+    check(d['task-center.intake|0|0'] === 1, '计数：匿名建录入（没凭据、没认出）', show(d));
   }
   {
     const run = await intake(ALPHA, { started_by: 'expert:beta', requester_principal: 'user:beta', principal: 'user:beta', requester: 'user:beta' });

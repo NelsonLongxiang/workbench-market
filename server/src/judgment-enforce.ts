@@ -78,8 +78,8 @@ export function enforceGate(config: EnforceConfig, actorOf: ActorOf, facts: () =
     if (declared.statusNotVerdict || !enforced(config, spec.action)) return next();
     // 面门：走错了面的交给路由自己的面门拒，开关不抢先
     if (surfaceBlocked(declared, req)) return next();
-    actorOf(req).then(({ actor, admin }) => {
-      migrateOnSight(actor, admin);
+    actorOf(req).then(({ actor }) => {
+      migrateOnSight(actor);
       const result = judge({ actor, action: spec.action, kind: spec.kind, declared: true });
       if (result.verdict === 'allow') return next();
       const route = (req as express.Request & { route?: { path: unknown } }).route;

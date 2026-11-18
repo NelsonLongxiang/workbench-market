@@ -1,18 +1,18 @@
 #!/usr/bin/env node
-/** S4 门户 Odoo 会话转发组（security-adversarial-smoke 调用；也可单跑）：
- *  Odoo 的 session_id 同主机名下会被浏览器带进 /go/<id>/ 的每个请求；它既是用户的 Odoo 会话，也是生命周期审批的身份凭据，
- *  门户只许把它转给可信 Odoo 源（WM_ODOO_ORIGINS / WM_ODOO_URL）——台的类型与端口可由 agent 经 MCP 随意登记，不作数。
- *  隔离实例（WM_ODOO_ORIGINS=可信上游）+ 两个记录型上游（可信 Odoo / 攻击者），各记下收到的 Cookie 头（HTTP 与 WS 升级）。
- *  正例拒：普通台 GET/POST/只有会话/多个同名/WS；攻击者源登记成 type=odoo、或地址路径/查询里带 :8069——走完 SSO state 回跳
- *  （门户给的话）再加同源脚本可伪造的 wm_sso_ok cookie，仍收不到 session_id。
- *  对照：其它 cookie 原样转发；可信 Odoo 源走真实 state 回跳后只收到 session_id（SSO v1 白名单单键）；未过 state 仍剥（P10b）。
- *  另起一个两项都不设的实例（fail closed）：type=odoo 或地址带 :8069 的台不给 SSO 跳转，HTTP 与 WS 都收不到 session_id。 */
+/** S4 门户会话不外泄组（security-adversarial-smoke 调用；也可单跑）：
+ *  Odoo 下线（2026-11-17）起，门户对任何上游都剥掉浏览器带来的 session_id，不再有「只转给可信 Odoo 源」的单点登录。
+ *  session_id 同主机名下会被浏览器带进 /go/<id>/ 的每个请求；台的类型与地址可由 agent 经 MCP 随意登记，一律不作数。
+ *  隔离实例特意还设着旧的 WM_ODOO_ORIGINS / WM_ODOO_URL（指向一个记录型上游）：它们已下线，启动只告警、不起作用。
+ *  两个记录型上游（以前算「可信 Odoo」的 / 攻击者），各记下收到的 Cookie 头（HTTP 与 WS 升级）。
+ *  正例拒：普通台 GET/POST/只有会话/多个同名/WS；攻击者源登记成 type=odoo、地址带 :8069；以前算可信 Odoo 源的台，
+ *  带上同源脚本可伪造的 wm_sso_ok、或旧的 state 回跳参数，都收不到 session_id；首访也不再 302 去 Odoo 登录。
+ *  对照：其它 cookie 原样转发。另起一个旧变量都不设的实例，结论相同。 */
 import { spawn } from 'node:child_process';
 import { mkdirSync, rmSync } from 'node:fs';
 import { createServer, request } from 'node:http';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { isOdooSessionTarget, trustedOdooOrigins } from '../server/src/login-providers/odoo/odoo-session.ts';
+import { stripSessionIdCookie, verifyPortalSessionStrip } from '../server/src/portal.ts';
 
 function http(port, method, path, { headers = {}, body } = {}) {
   return new Promise((done) => {
@@ -50,38 +50,31 @@ export async function startCaptureUpstream() {
 export async function runPortalOdooSessionGroup() {
   let pass = 0, fail = 0;
   const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ✓ ' + n); } else { fail++; console.log('  ✗ ' + n + ' ' + x); } };
-  // 判定谓词：只认可信源（不起服务）
+  // 剥除函数本身（不起服务）：只剥 session_id 这一个名字，别的 cookie 原样、顺序不变
   {
-    const saved = { W: process.env.WM_ODOO_ORIGINS, L: process.env.WM_ODOO_URL };
-    const withTrust = (w, l, fn) => { process.env.WM_ODOO_ORIGINS = w; process.env.WM_ODOO_URL = l; try { return fn(); } finally { for (const [k, v] of [['WM_ODOO_ORIGINS', saved.W], ['WM_ODOO_URL', saved.L]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } } };
-    const T = (url) => withTrust('http://odoo.corp:8069, https://erp.corp', '', () => isOdooSessionTarget(url));
+    const strip = (cookie) => { const h = { cookie }; stripSessionIdCookie(h); return h.cookie; };
     const cases = [
-      ['可信源本身（含路径）', T('http://odoo.corp:8069/web'), true],
-      ['可信源大小写与路径不同仍算同源', T('HTTP://ODOO.CORP:8069/x/y?z=1'), true],
-      ['https 可信源缺省端口等价', T('https://erp.corp:443/'), true],
-      ['端口 8069 的非可信源', T('http://attacker.example:8069/'), false],
-      ['路径里带 :8069', T('http://attacker.example/x/:8069'), false],
-      ['userinfo 伪装 http://odoo.corp:8069@attacker.example/', T('http://odoo.corp:8069@attacker.example/'), false],
-      ['后缀相似主机 odoo.corp.attacker.example', T('http://odoo.corp.attacker.example:8069/'), false],
-      ['同主机换协议 https://odoo.corp:8069', T('https://odoo.corp:8069/'), false],
-      ['同主机换端口 odoo.corp:8070', T('http://odoo.corp:8070/'), false],
-      ['非法地址', T('not a url'), false],
+      ['只有 session_id：整个 Cookie 头去掉', strip('session_id=s1'), undefined],
+      ['夹在中间', strip('a=1; session_id=s1; b=2'), 'a=1; b=2'],
+      ['名字两边有空白', strip(' session_id = s1 ;a=1'), 'a=1'],
+      ['多个同名', strip('session_id=s1; x=1; session_id=s2'), 'x=1'],
+      ['数组形式的 Cookie 头', strip(['a=1', 'session_id=s1']), 'a=1'],
+      ['名字相近的不剥', strip('session_idx=1; my_session_id=2'), 'session_idx=1; my_session_id=2'],
     ];
     const bad = cases.filter(([, got, want]) => got !== want).map(([n, got]) => `${n}=${got}`);
-    ok(`S4p 判定谓词只认可信源（${cases.length} 例：端口/userinfo/相似主机/换协议/换端口都不算；台类型不参与判定）`, bad.length === 0, bad.join(','));
-    const t = withTrust('http://ok.corp, ftp://x.corp, :::', 'http://id-odoo.corp:8069/odoo', trustedOdooOrigins);
-    ok('S4q 可信源 = WM_ODOO_URL 的源 ∪ WM_ODOO_ORIGINS，非法项列出不采信', [...t.origins].sort().join(',') === 'http://id-odoo.corp:8069,http://ok.corp' && t.invalid.length === 2, JSON.stringify({ o: [...t.origins], i: t.invalid }));
-    ok('S4r 一个可信源都没配：谁都不转（fail closed）', withTrust('', '', () => !isOdooSessionTarget('http://x/') && !isOdooSessionTarget('http://x:8069/') && !isOdooSessionTarget('http://127.0.0.1:8069/odoo')));
+    ok(`S4p 剥除函数只剥 session_id（${cases.length} 例）`, bad.length === 0, bad.join(','));
+    ok('S4q 启动自检用的同一份检查是绿的', verifyPortalSessionStrip().ok === true);
   }
   const cap = await startCaptureUpstream(); // 攻击者源（以及普通台）
-  const real = await startCaptureUpstream(); // 可信 Odoo 源
+  const real = await startCaptureUpstream(); // 以前算「可信 Odoo」的源（旧变量还指着它）
   const DATA = resolve('tmp/sec-portal-sid-' + Date.now().toString(36));
   mkdirSync(DATA, { recursive: true });
   const PORT = 20000 + Math.floor(Math.random() * 12000);
   const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
-    cwd: process.cwd(), stdio: 'ignore',
-    env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'sec-portal', WM_ODOO_ORIGINS: `http://127.0.0.1:${real.port}`, WM_ODOO_URL: '' },
+    cwd: process.cwd(), stdio: ['ignore', 'ignore', 'pipe'],
+    env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'sec-portal', WM_ODOO_ORIGINS: `http://127.0.0.1:${real.port}`, WM_ODOO_URL: `http://127.0.0.1:${real.port}/odoo`, WM_ODOO_LOGIN_PROXY: '1' },
   });
+  let log1 = ''; child.stderr.on('data', (d) => (log1 += d));
   try {
     if (!(await waitReady(PORT))) throw new Error('S4 隔离实例未就绪');
     const reg = async (name, url, type) => (await http(PORT, 'POST', '/api/workbenches', { headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, url, ...(type ? { type } : {}) }) })).body?.id;
@@ -94,7 +87,7 @@ export async function runPortalOdooSessionGroup() {
     const SID = 'S4secretS4secretS4secret';
     const has = (c) => /(?:^|;\s*)session_id=/.test(String(c ?? ''));
     const lastUnder = (u, prefix) => [...u.seen].reverse().find((x) => String(x.url).startsWith(prefix));
-    /** 走一遍 SSO v1：无会话进门户 → 若 302 带 state 则回跳消费 → 带会话 + wm_sso_ok（真拿到的，或同源脚本 document.cookie 伪造的）再进 */
+    /** 以前的 SSO v1 舞步：无会话进门户 → 若 302 带 state 则回跳消费 → 带会话 + wm_sso_ok（真拿到的，或同源脚本伪造的）再进。现在第一步就不该 302 */
     const ssoFlow = async (id, path) => {
       const r1 = await http(PORT, 'GET', `/go/${id}/`);
       const st = /wm_sso_(\d+)=([^;]+)/.exec(String(r1.headers?.['set-cookie'] ?? ''));
@@ -136,12 +129,19 @@ export async function runPortalOdooSessionGroup() {
     got = lastUnder(cap, '/ft/ws');
     ok('S4k 攻击者 type=odoo 台的 WS 升级：收不到 session_id', got && got.kind === 'ws' && !has(got.cookie), JSON.stringify(got));
 
+    const first = await http(PORT, 'GET', `/go/${odoo}/`);
     ran = await ssoFlow(odoo, 'web');
     got = real.last('/odoo/web');
-    ok('S4f 对照：可信 Odoo 源走真实 state 回跳后只收到 session_id（SSO v1 白名单单键）', ran && got && got.cookie === `session_id=${SID}`, `ran=${ran} ${JSON.stringify(got)}`);
-    await http(PORT, 'GET', `/go/${odoo}/web2`, { headers: { cookie: `session_id=${SID}; keep=1` } });
-    got = real.last('/odoo/web2');
-    ok('S4g 对照：可信 Odoo 源未过 state 仍剥 session_id（P10b）', got && !has(got.cookie), JSON.stringify(got));
+    ok('S4f 以前算可信 Odoo 源的台（旧变量还指着它）：首访不再 302 去登录，没有 state 回跳；带伪造的 wm_sso_ok 也收不到 session_id，其它 cookie 照转（市场自己的 wm_ cookie 门户本来就剥）',
+      first.status !== 302 && !ran && got && !has(got.cookie) && got.cookie === `keep=1`, `first=${first.status} ran=${ran} ${JSON.stringify(got)}`);
+    await http(PORT, 'GET', `/go/${odoo}/web2?state=forged`, { headers: { cookie: `session_id=${SID}; wm_sso_${odoo}=forged; keep=1` } });
+    got = real.last('/odoo/web2?state=forged');
+    ok('S4g 带旧的 state 回跳参数和 state cookie：照样剥 session_id，原样转发（不再核 state）', got && !has(got.cookie), JSON.stringify(got));
+    await wsUpgrade(PORT, `/go/${odoo}/ws`, `session_id=${SID}; wm_sso_ok_${odoo}=1`);
+    got = real.last('/odoo/ws');
+    ok('S4l 以前算可信 Odoo 源的台的 WS 升级：收不到 session_id', got && got.kind === 'ws' && !has(got.cookie), JSON.stringify(got));
+    ok('S4m 旧变量（WM_ODOO_ORIGINS、WM_ODOO_URL、WM_ODOO_LOGIN_PROXY）启动时各打一行「已下线、忽略」，不拒启动',
+      ['WM_ODOO_ORIGINS', 'WM_ODOO_URL', 'WM_ODOO_LOGIN_PROXY'].every((n) => log1.includes(`"name":"${n}"`) && log1.includes('已下线')), log1.slice(-400));
   } catch (e) {
     ok('S4 组运行', false, String(e?.message ?? e));
   } finally {
@@ -178,9 +178,9 @@ export async function runPortalOdooSessionGroup() {
       return { ok: r1.status !== 302 && !!h && !!w && !leak(h) && !leak(w), got: `首访 ${r1.status} · http=${h?.cookie} · ws=${w?.cookie}` };
     };
     const a = await probe(await reg('S4-none-type', `http://127.0.0.1:${cap2.port}/nt`, 'odoo'), '/nt');
-    ok('S4s 未配可信源：type=odoo 台不给 SSO 跳转，HTTP 与 WS 都收不到 session_id（含伪造 wm_sso_ok）', a.ok, a.got);
+    ok('S4s 旧变量都不设：type=odoo 台不给 SSO 跳转，HTTP 与 WS 都收不到 session_id（含伪造 wm_sso_ok）', a.ok, a.got);
     const b = await probe(await reg('S4-none-port', `http://127.0.0.1:${cap2.port}/np:8069`), '/np:8069');
-    ok('S4t 未配可信源：地址带 :8069 的台同样不给跳转、收不到 session_id', b.ok, b.got);
+    ok('S4t 旧变量都不设：地址带 :8069 的台同样不给跳转、收不到 session_id', b.ok, b.got);
   } catch (e) {
     ok('S4 未配可信源组运行', false, String(e?.message ?? e));
   } finally {
@@ -193,6 +193,6 @@ export async function runPortalOdooSessionGroup() {
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const r = await runPortalOdooSessionGroup();
-  console.log(`S4 portal odoo session: ${r.pass} passed / ${r.fail} failed`);
+  console.log(`S4 portal session strip: ${r.pass} passed / ${r.fail} failed`);
   process.exitCode = r.fail ? 1 : 0;
 }

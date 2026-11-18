@@ -1,5 +1,6 @@
 /** 待属主看板（纯逻辑，页面与单测共用）：数据全在一张外部台的工作台变量里，靠常量的作者认人——
- *  config.owner  属主本人用 Odoo 管理员身份建的常量：{ owner_login, writers: ['mcp:<会话名>'] }，作者须是 odoo:<owner_login>
+ *  config.owner  属主本人建的常量：{ owner_principal: 'user:<名>', writers: ['mcp:<会话名>'] }，作者须是属主本人；
+ *                Odoo 下线前登记的 { owner_login } 照旧认（作者 odoo:<owner_login>）
  *  item.<NN>     登记身份（writers 之一）建的常量：事项本身
  *  answer.<NN>   属主本人建的常量：答复
  *  作者对不上的记录一律不采信，列进 anomalies 点名作者，不静默丢弃。 */
@@ -7,7 +8,8 @@
 export const BOARD_PATH = '/owner-pending';
 
 export type BoardVar = { key: string; kind: string; value: unknown; revision: number; owner: string; updated_by: string; updated_at: string };
-export type BoardConfig = { ownerLogin: string; writers: string[]; revision: number };
+/** owners：算作属主的身份——owner_principal（站内主体 user:<名>）和旧写法 odoo:<owner_login>（Odoo 下线前登记的）；答复和配置的作者须是其一 */
+export type BoardConfig = { ownerLogin: string; ownerPrincipal: string; owners: string[]; writers: string[]; revision: number };
 /** history：迁移时由登记身份记入的历史答复，未经本页属主确认，和属主答复分开 */
 export type ItemStatus = 'open' | 'history' | 'answered' | 'withdrawn';
 export type BoardRow = {
@@ -47,22 +49,28 @@ export function findBoardWorkbench(list: Array<{ id: number; url: string }>, bas
   return { error: `登记了 ${hits.length} 张看板台卡片（id ${hits.map((w) => w.id).join('、')}），请删到只剩一张` };
 }
 
-/** config.owner 只在作者正是它写的 owner_login 时才算数 */
+/**
+ * config.owner 只在作者正是它登记的属主时才算数。属主写成 owner_principal（站内主体 user:<名>）；
+ * Odoo 下线（2026-11-17）前登记的 owner_login 照旧认（作者 odoo:<owner_login>），两个都写了两个都算属主。
+ */
 export function parseConfig(v: BoardVar | undefined): BoardConfig | { error: string } | null {
   if (!v) return null;
   const val = obj(v.value);
   const ownerLogin = str(val.owner_login);
+  const ownerPrincipal = str(val.owner_principal);
   const writers = Array.isArray(val.writers) ? val.writers.map(str).filter((w) => /^mcp:[^\s]{1,128}$/.test(w)) : [];
   if (v.kind !== 'const') return { error: 'config.owner 不是常量，不采信' };
-  if (!ownerLogin) return { error: 'config.owner 缺 owner_login' };
-  if (v.owner !== `odoo:${ownerLogin}`) return { error: `config.owner 的作者是「${v.owner || '无'}」，与登记的属主 odoo:${ownerLogin} 不符，不采信` };
+  if (ownerPrincipal && !/^user:[^\s]{1,128}$/.test(ownerPrincipal)) return { error: 'config.owner 的 owner_principal 要写成 user:<名>' };
+  const owners = [...(ownerPrincipal ? [ownerPrincipal] : []), ...(ownerLogin ? [`odoo:${ownerLogin}`] : [])];
+  if (!owners.length) return { error: 'config.owner 缺 owner_principal（属主的站内主体 user:<名>）' };
+  if (!owners.includes(v.owner)) return { error: `config.owner 的作者是「${v.owner || '无'}」，与登记的属主 ${owners.join(' / ')} 不符，不采信` };
   if (!writers.length) return { error: 'config.owner 缺 writers（登记身份，形如 mcp:<会话名>）' };
-  return { ownerLogin, writers, revision: v.revision };
+  return { ownerLogin, ownerPrincipal, owners, writers, revision: v.revision };
 }
 
 /** 事项与答复按作者核验后合成看板行；状态：撤回 > 已答复（属主答复或历史答复）> 待办 */
 export function buildBoard(vars: BoardVar[], config: BoardConfig): { rows: BoardRow[]; anomalies: Anomaly[] } {
-  const owner = `odoo:${config.ownerLogin}`;
+  const owner = config.owners.join(' / ');
   const anomalies: Anomaly[] = [];
   const answers = new Map<string, BoardVar>();
   const taken = new Map<string, string>();
@@ -76,7 +84,7 @@ export function buildBoard(vars: BoardVar[], config: BoardConfig): { rows: Board
       if (!config.writers.includes(v.owner)) { anomalies.push({ key: v.key, reason: `作者「${v.owner || '无'}」不是登记身份，不采信` }); continue; }
       items.push(v);
     } else {
-      if (v.owner !== owner) { anomalies.push({ key: v.key, reason: `作者「${v.owner || '无'}」不是属主 ${owner}，不当作答复；这个编号属主写不进去，要在部署机本机用命令行清理` }); taken.set(m[2], v.owner || '无'); continue; }
+      if (!config.owners.includes(v.owner)) { anomalies.push({ key: v.key, reason: `作者「${v.owner || '无'}」不是属主 ${owner}，不当作答复；这个编号属主写不进去，要在部署机本机用命令行清理` }); taken.set(m[2], v.owner || '无'); continue; }
       answers.set(m[2], v);
     }
   }
@@ -118,9 +126,9 @@ export function answerBody(summary: string, date: string, existingRevision: numb
     : { value, kind: 'const', reason: '属主答复' };
 }
 
-/** 属主修订登记身份（轮换会话）：config.owner 是属主本人的常量，带 override、当前 revision 与 reason；owner_login 不变 */
+/** 属主修订登记身份（轮换会话）：config.owner 是属主本人的常量，带 override、当前 revision 与 reason；owner_login、owner_principal 不变 */
 export function configRevisionBody(cfg: BoardConfig, writers: string[]): Record<string, unknown> | { error: string } {
   const list = [...new Set(writers.map((w) => w.trim()).filter(Boolean))];
   if (!list.length || !list.every((w) => /^mcp:[^\s]{1,128}$/.test(w))) return { error: '登记身份写成 mcp:<会话名>，多个用逗号隔开，至少一个' };
-  return { value: { owner_login: cfg.ownerLogin, writers: list }, kind: 'const', override: true, revision: cfg.revision, reason: `属主修订登记身份：${list.join('、')}` };
+  return { value: { ...(cfg.ownerLogin ? { owner_login: cfg.ownerLogin } : {}), ...(cfg.ownerPrincipal ? { owner_principal: cfg.ownerPrincipal } : {}), writers: list }, kind: 'const', override: true, revision: cfg.revision, reason: `属主修订登记身份：${list.join('、')}` };
 }

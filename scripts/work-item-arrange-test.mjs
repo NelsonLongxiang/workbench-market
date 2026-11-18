@@ -99,6 +99,12 @@ try {
     const detail = await call('GET', `/api/work-items/${b.item_id}`, ALPHA);
     const it = detail.body?.item ?? {};
     check(detail.status === 200 && it.creator_principal === 'user:alpha' && it.created_by === 'user:alpha', '建立人是本人：请求体自报的建立人、提需求人、发布人一概不认', show({ status: detail.status, cp: it.creator_principal, by: it.created_by }));
+    // 派工信封里的 submitter 同样不认请求体自报的（这一次自报的是 user:beta）：是经身份服务认出来的本人
+    {
+      const d = dbr(); let raw = ''; try { raw = d.prepare('SELECT message FROM workbench_event_deliveries WHERE event_id = ? ORDER BY id LIMIT 1').get(b.event_id)?.message ?? ''; } finally { d.close(); }
+      let env = null; try { env = JSON.parse(raw.slice(raw.indexOf('{'))); } catch { /* 不是 JSON */ }
+      check(env?.submitter === 'user:alpha' && env?.submitter_kind === 'human', '派工信封的 submitter 也不认请求体自报的提交人（自报 user:beta，信封是 user:alpha）', show({ submitter: env?.submitter, kind: env?.submitter_kind }));
+    }
     check(it.title === '对一下上周的出货' && it.target_team === 'dsh/canvas/team-a' && it.object === 'po:7' && it.phase === '对账', '标题取任务标题，派给是选中的团队，object、phase 带上', show({ t: it.title, team: it.target_team, o: it.object, p: it.phase }));
     check(show(deliveries(b.event_id)) === show([{ target_team: 'dsh/canvas/team-a', status: 'held' }]), '投递只有选中的那一个团队，等放行（held）', show(deliveries(b.event_id)));
     const other = await call('GET', `/api/work-items/${b.item_id}`, BETA);
@@ -237,10 +243,15 @@ try {
     check(ownDue.status === 200 && ownDue.body?.notified === 0 && ownDue.body.pending_release === true && dl1 === '[A2A dispatch] {"for":"seat-0000000a"}' && drest.length === 1
       && denv?.type === 'workbench-event' && denv.task?.due === '2099-03-03',
       '指名派发、等放行时改截止：第一行 [A2A dispatch] 原样保留，后面信封的 task.due 换成新的', show({ b: ownDue.body, dl1, n: drest.length, due: denv?.task?.due }));
+    // 派工信封里的 submitter 是这件事的建立人本人（事件的 submitter，经身份服务认出来的主体），submitter_kind 是 human；
+    // 换一个人建，信封跟着换（不是写死的，见下面负责人 beta 那一条）
+    check(denv?.submitter === 'user:alpha' && denv?.submitter_kind === 'human', '派工信封带事件的 submitter：建立人本人（user:alpha），submitter_kind human', show({ submitter: denv?.submitter, kind: denv?.submitter_kind }));
     // 团队负责人指名本团队任何成员：lead-directed，不过目
     const lead = await call('POST', '/api/work-items', BETA, form({ seat_id: 'seat-0000000b' }));
     check(lead.status === 201 && lead.body.handoff === 'lead-directed' && itemRow(lead.body?.item_id).review_by === '' && msg(lead.body?.event_id)[0].startsWith('[A2A dispatch] {"for":"seat-0000000b"}\n'),
       '负责人指名团队里别的成员：201、lead-directed、不过目，派工行写那个 seatId', show(lead.body));
+    { const [, ...rest] = (msg(lead.body?.event_id)[0] ?? '').split('\n'); let lenv = null; try { lenv = JSON.parse(rest.join('\n')); } catch { /* 不是 JSON */ }
+      check(lenv?.submitter === 'user:beta' && lenv?.submitter_kind === 'human', '……换 beta 建：派工信封的 submitter 跟着是 user:beta', show({ submitter: lenv?.submitter, kind: lenv?.submitter_kind })); }
     // 不带 seat_id：交给团队，不写派工行（服务端不默认指名，即使这个人在这个团队里有分配的席位）
     const teamOnly = await call('POST', '/api/work-items', ALPHA, form());
     check(teamOnly.status === 201 && itemRow(teamOnly.body?.item_id).handoff === 'team' && itemRow(teamOnly.body?.item_id).directed_seat_id === '' && !msg(teamOnly.body?.event_id)[0].startsWith('[A2A dispatch]') && teamOnly.body.handoff === undefined,
@@ -359,7 +370,14 @@ try {
     check(ch.body?.notified === 0 && ch.body.pending_release === true && notesOf(past.body?.event_id).length === 0 && heldBody.status === 'held' && dueInBody(heldBody.message) === '2099-01-02'
       && clr.body?.notified === 0 && clr.body.pending_release === true && dueInBody(msgOf(future.body?.event_id).message) === '',
       '等放行时改截止：notified 0、pending_release 真，不排变更；还没发的派工正文里 task.due 换成新的（清掉就是空）', show({ ch: ch.body, clr: clr.body, held: heldBody.status, due: dueInBody(heldBody.message), notes: notesOf(past.body?.event_id).length }));
-    const rel = await call('POST', `/api/workbench-events/${past.body?.event_id}/release`, ADMIN, {});
+    // 放行经事项的入口（管理员旧的放行入口已退役）：团队没有负责人，由持有管理层授予的人代办——本机命令行给 root-admin 起草、提交、批准一份
+    await call('GET', '/api/auth/me', { ...SAME, cookie: `session_id=${SESSIONS.admin}` }); // 认一次，主体表里才有 root-admin
+    const g = await call('POST', '/api/grants', {}, { principal: 'user:root-admin', role: 'management', scope: '*', reason: '合成：代办放行' });
+    if (!g.body?.grant?.id) throw new Error(`管理层授予起草失败：${show(g)}`);
+    await call('POST', `/api/grants/${g.body?.grant?.id}/submit`, {}, {});
+    const ga = await call('POST', `/api/grants/${g.body?.grant?.id}/approve`, {}, {});
+    if (!(ga.status >= 200 && ga.status < 300)) throw new Error(`管理层授予没搭起来：${show(ga)}`);
+    const rel = await call('POST', `/api/work-items/${past.body?.item_id}/release`, { ...SAME, cookie: `session_id=${SESSIONS.admin}` }, {});
     const relBody = msgOf(past.body?.event_id);
     check(rel.status === 200 && relBody.status !== 'held' && (relBody.status === 'sent' || dueInBody(relBody.message) === '2099-01-02'),
       '等放行期间改了截止，放行之后派出去的正文带的是新期限', show({ rel: rel.status, st: relBody.status, due: dueInBody(relBody.message) }));
@@ -446,6 +464,41 @@ try {
       '上传附件：登录的人传原始字节，带 X-Content-SHA256 核对过（sha256-verified），不带也能传', show({ a1: a1.body, a2: a2.body }));
     check(wrong.status === 400 && wrong.body?.error === 'sha256_mismatch' && asJson.status === 415 && anon.status === 401,
       '上传附件：sha256 对不上 400 不保存；按 JSON 发 415（请求体已被读走，不存空文件）；远程匿名 401', show({ wrong: wrong.status, asJson: asJson.status, anon: anon.status }));
+    // 文件名和台文件上传同一条规则（upload-file-name.ts）：DEL、方向控制符（U+202E 能让名字倒着显示）都拒
+    for (const [label, name] of [['DEL', 'x\u007f.txt'], ['U+202E', 'x\u202e.txt'], ['U+2066', 'x\u2066.txt'], ['U+200F', 'x\u200f.txt']]) {
+      const r = await up(ALPHA, name, Buffer.from('合成'));
+      check(r.status === 400 && r.body?.error === 'attachment_name_invalid', `上传附件：文件名带 ${label} 拒收（400 attachment_name_invalid）`, show({ status: r.status, body: r.body }));
+    }
+    // 中文长文件名：写请求总门按解码后的长度放行（一个汉字编码后占 9 个字符，按编码长度 255 卡，二十几个字就被当成要口令的写挡掉，403）；
+    // 长度、路径分隔符这些交给路由里的统一文件名规则判
+    {
+      const mid = await up(ALPHA, '合成长名'.repeat(10) + '.txt', Buffer.from('长名'));
+      check(mid.status === 201 && mid.body?.name === '合成长名'.repeat(10) + '.txt', '上传附件：40 个汉字的文件名能传（总门按解码后的长度）', show({ status: mid.status, body: mid.body }));
+      const edge = await up(ALPHA, '合'.repeat(251) + '.txt', Buffer.from('255'));
+      check(edge.status === 201, '上传附件：正好 255 个字符（251 个汉字 + .txt）能传', show({ status: edge.status, body: edge.body }));
+      const over = await up(ALPHA, '合'.repeat(252) + '.txt', Buffer.from('256'));
+      check(over.status === 400 && over.body?.error === 'attachment_name_invalid', '上传附件：256 个字符由路由按统一规则拒（400），不是总门的 403', show({ status: over.status, body: over.body }));
+      // 编码后更长的也一样到路由：256 个汉字（编码后 2304 个字符）、256 个四字节 emoji（编码后 3072 个字符），都拿路由的 400，不是总门要口令的 403
+      for (const [label, name] of [['256 个汉字', '合'.repeat(256)], ['256 个 emoji', '\u{1F4C4}'.repeat(256)]]) {
+        const r = await up(ALPHA, name, Buffer.from('x'));
+        check(r.status === 400 && r.body?.error === 'attachment_name_invalid', `上传附件：${label}由路由按统一规则拒（400），不是总门的 403`, show({ status: r.status, body: r.body }));
+      }
+      // 解码以后带路径分隔符、.. 的：总门放进来，路由照样拒，不落盘
+      // （单独的 %2E%2E 不在这里：fetch 按 URL 规范先把它当成 .. 段折掉，请求根本到不了这条路径）
+      for (const raw of ['..%2F..%2Fx.txt', 'a%5Cb.txt', '%2e%2e%2f%e5%90%88.txt']) {
+        const r = await fetch(`${base}/api/work-items/attachments/${raw}`, { method: 'PUT', headers: { 'content-type': 'application/octet-stream', ...ALPHA }, body: Buffer.from('x') });
+        let j = null; try { j = await r.json(); } catch { /* 不是 JSON */ }
+        check(r.status === 400 && j?.error === 'attachment_name_invalid', `上传附件：${raw} 解码后是路径分隔符或 ..，照样 400`, show({ status: r.status, body: j }));
+      }
+      // 路径的形状：附件名只能是一段。多一段、结尾多一个斜杠的，总门照样当成要口令的写（403），不落盘
+      // （Express 默认不区分结尾斜杠，总门这条要是放宽成别的形状，a.txt/ 会被当成 a.txt 收下）
+      for (const tail of ['a/b.txt', 'a.txt/']) {
+        const before = (() => { const d = dbr(); try { return d.prepare('SELECT COUNT(*) AS n FROM work_item_attachments').get().n; } finally { d.close(); } })();
+        const r = await fetch(`${base}/api/work-items/attachments/${tail}`, { method: 'PUT', headers: { 'content-type': 'application/octet-stream', ...ALPHA }, body: Buffer.from('x') });
+        const after = (() => { const d = dbr(); try { return d.prepare('SELECT COUNT(*) AS n FROM work_item_attachments').get().n; } finally { d.close(); } })();
+        check(r.status === 403 && after === before, `上传附件：…/attachments/${tail} 不是一段，总门 403、不落盘`, show({ status: r.status, before, after }));
+      }
+    }
     // 安排时带附件：正文只带引用（名字、大小、sha256、取件地址），不带内容
     const withAtt = await call('POST', '/api/work-items', ALPHA, form({ attachments: [a1.body?.id, a2.body?.id] }));
     const d = dbr(); let msgRow; try { msgRow = d.prepare('SELECT id, message FROM workbench_event_deliveries WHERE event_id = ?').get(withAtt.body?.event_id); } finally { d.close(); }

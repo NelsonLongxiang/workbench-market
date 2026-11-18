@@ -19,7 +19,7 @@ import type { AttentionItem } from '../attention-view';
 import { rowKey } from '../cockpit-attention';
 import { benchViewRefs, isBenchViewPanel, itemsTabLabel, mainTabKeys, refsOfTab } from '../cockpit-frame-view';
 
-/** 驾驶舱写（/api/cockpits）是管理写：不是管理员（口令或 Odoo 管理员）时只读，隐藏新建/删除/改名/加移面板，网格不可拖拽 */
+/** 驾驶舱写（/api/cockpits）是管理写：不是管理员（口令或站内管理员）时只读，隐藏新建/删除/改名/加移面板，网格不可拖拽 */
 /** 只能看的人的一行说明：只说只能看、谁来调，不教人去拿口令。谁能建、能改由服务端判（#673：管理层授予或管理员） */
 const READ_ONLY_LIST = '驾驶舱你只能看，新建和调整由管理层或管理员来。';
 const READ_ONLY_HINT = '这个驾驶舱你只能看，布局由管理层或管理员调整。';
@@ -50,7 +50,7 @@ function PanelHeadActions(props: { wid: number; url?: string; onRefresh: () => v
 
 
 export default function Cockpit() {
-  // 管理身份（口令或 Odoo 管理员）：只用在右栏事项的标签上，和驾驶舱无关。
+  // 管理身份（口令或站内管理员）：只用在右栏事项的标签上，和驾驶舱无关。
   // 改某一个驾驶舱（改名、加面板、删除……）照服务端在这个驾驶舱上给的 can.edit；新建照 /api/auth/me 的 can.create_cockpit
   const ADMIN = useSyncExternalStore(subscribeAdminToken, adminActive);
   const [canCreate, setCanCreate] = useState(false);
@@ -106,7 +106,7 @@ export default function Cockpit() {
     [listReq.data, id]
   );
   const READ_ONLY = active?.can?.edit !== true;
-  // 口令输入、清掉、换了 Odoo 管理员之后，服务端算的 can 会变：重读一次
+  // 口令输入、清掉、换了站内管理员之后，服务端算的 can 会变：重读一次
   useEffect(() => subscribeAdminToken(() => listReq.refresh()), [listReq.refresh]);
 
   // 切换驾驶舱时装载其面板布局

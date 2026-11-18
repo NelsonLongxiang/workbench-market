@@ -32,7 +32,7 @@ import type { JudgmentCompareService } from '../services/judgment-compare.ts';
 import { compareConfig } from '../judgment-compare.ts';
 
 export type GrantRouteDeps = {
-  markOdooAdmin: (req: express.Request) => Promise<void>;
+  markAdmin: (req: express.Request) => Promise<void>;
   adminGuard: (req: express.Request, res: express.Response) => boolean;
   /** 管理员登录是 odoo:<登录名>，口令是 admin-token */
   adminActor: (req: express.Request) => string;
@@ -161,7 +161,7 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
   async function approverOf(req: express.Request, res: express.Response): Promise<Actor | null> {
     if (!browserMarked(req) && rawLoopback(req)) return { by: 'cli', principal: null, owner: true, admin: true };
     if (deps.crossOriginDenied(req)) { res.status(403).json({ error: 'grants_cross_origin_denied' }); return null; }
-    await deps.markOdooAdmin(req);
+    await deps.markAdmin(req);
     if (deps.adminHeaderOk(req)) {
       const by = deps.adminActor(req);
       const principal = actorPrincipal(by);
@@ -178,7 +178,7 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
 
   async function actorOf(req: express.Request, res: express.Response): Promise<Actor | null> {
     if (!browserMarked(req) && rawLoopback(req)) return { by: 'cli', principal: null, owner: true }; // 本机命令行是属主
-    await deps.markOdooAdmin(req);
+    await deps.markAdmin(req);
     if (!deps.adminGuard(req, res)) return null;
     const by = deps.adminActor(req);
     // 管理员登录对到主体：和主体管理面「不能停用自己」同一个取法

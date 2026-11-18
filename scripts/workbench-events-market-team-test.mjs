@@ -20,7 +20,7 @@ db.prepare("INSERT OR IGNORE INTO apps (slug, title, kind, status) VALUES ('task
 for (const [type, slug] of [['app', 'evt-app'], ['sop', 'task-center']]) db.prepare("INSERT INTO bindings (target_type, target_slug, agent_node, direction, mode, notify_url) VALUES (?, ?, 'dsh/aaaa1111', 'notify', 'read', 'http://peer.invalid')").run(type, slug);
 ev.recordAppDataEvent({ slug: 'evt-app', id: 1, data: { a: 1 }, json: '{"a":1}', createdBy: 'someone', createdAt: '2026-11-12T00:00:00Z' });
 let tc = '';
-try { tc = ev.recordTaskCenterEvent({ id: 7, data: {}, stepValue: () => '', publishedBy: 'human:alice', templateVersion: 1, materialSha256: 'x'.repeat(64), agentDispatch: false, centerOn: false }); } catch (e) { tc = 'ERR ' + e.message; }
+try { tc = ev.recordTaskCenterEvent({ id: 7, data: {}, stepValue: () => '', publishedBy: 'human:alice', templateVersion: 1, materialSha256: 'x'.repeat(64), agentDispatch: false, centerOn: false , arranged: { team: 'dsh/aaaa1111', submitter: 'human:alice' } }); } catch (e) { tc = 'ERR ' + e.message; }
 const node8 = (slug) => db.prepare('SELECT a2a_node8 FROM apps WHERE slug = ?').get(slug).a2a_node8;
 const rows = db.prepare('SELECT e.source, d.caller_session FROM workbench_event_deliveries d JOIN workbench_events e ON e.event_id = d.event_id ORDER BY d.id').all();
 console.log(JSON.stringify({ rows, app8: node8('evt-app'), tc8: node8('task-center'), tc }));

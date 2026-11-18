@@ -3,12 +3,15 @@
 // 隔离 DATA_DIR + 本机回环假对端；对端用上游 verifyOriginClaim 按「不绑定窗已关」验每次投递。
 // 判据：
 //   W1 画布队名可作通知绑定的 agent_node（旧正则 400）
-//   W2 开关没全开 → 投递 held，对端收 0；W3 release 后投出，信封字段齐、task_id=<event_id>.d<投递>.a<尝试>、来源签名过验、明文 token 投后清空
+// 事件经「安排一件事」（POST /api/work-items，登录的员工 alpha）建；放行经事项的入口（POST /api/work-items/:id/release），
+// 团队都没有负责人，由持有管理层授予的人代办。旧的「录入 run → 管理员发布」和管理员的放行入口已退役。
+//   W2 先过目（review 缺省）→ 投递 held，对端收 0；W3 放行后投出，信封字段齐、task_id=<event_id>.d<投递>.a<尝试>、来源签名过验、明文 token 投后清空；
+//      再放一次回 duplicate、不再放；旧的管理员放行入口 404
 //   W4 决定端点：错 token 404 / 缺理由 400 / ask→accept 200 / 终态后再写 409；业务面浏览器请求可达（远程豁免）
-//   W5 两开关全开 → 自动投递；目标 SOP 台命中 → routed=target
+//   W5 中心总开关和员工直派都开、不要先过目 → 自动投递；要先过目 → 仍 held
 //   W6 对端前两次「登记幂等键后拒投」→ 退避重试后真的送达（不把 -32003 当已送达）；一直拒 → 5 次后 dead；
-//      同机两个画布队各自送达（task_id 每次尝试唯一，不撞 -32002）；notify+both 双绑定按节点去重
-//   W7 无任何通知绑定 → routed=unrouted、零投递（不静默丢）
+//      notify+both 双绑定按节点去重（可派团队里只出现一次）；每次投递的 token 不同
+//   W7 没有绑定的团队派不了：安排回 400、不建事件；旧的发布入口 404
 //   W8 自产台表单提交 → submitter_kind=unverified、dispatch:false、无 reply、旧字段保留
 //   W9 只增日志：UPDATE/DELETE 被触发器拒
 //   W10 撤回 → 未发出的投递 cancelled、release 409；未送达的投递不能回写决定；token 送达 7 天后过期 410
@@ -27,6 +30,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { generateKeyPairSync } from 'node:crypto';
 import { signCard } from '@nelsonlongxiang/dsh-open-a2a-net/card';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
+import { SESSIONS } from './identity-fake-provider.mjs';
 
 const originSrc = process.env.A2A_ORIGIN_SRC ?? resolve('..', 'dsh-open-a2a-net', 'src', 'origin-claim.ts');
 const { verifyOriginClaim } = await import(pathToFileURL(originSrc).href);
@@ -36,7 +40,8 @@ const data = mkdtempSync(resolve('tmp', 'wbe-'));
 const port = 21000 + Math.floor(Math.random() * 11000);
 const base = 'http://127.0.0.1:' + port;
 const gh = await startFakeGithub();
-const env = { ...process.env, WM_GITHUB_API: gh.api, PORT: String(port), DATA_DIR: data, ADMIN_TOKEN: 'wbe-test', MCP_GATEWAY: 'on', REDIS_URL: '', LAYERFS_SERVICE_URL: '', MARKET_PUBLIC_URL: base, A2A_OUTBOX_BACKOFF_SCALE: '0.0001' };
+const env = { ...process.env, NODE_ENV: 'test', IDENTITY_SEAM_ROOT: resolve('.'), WM_GITHUB_API: gh.api, PORT: String(port), DATA_DIR: data, ADMIN_TOKEN: 'wbe-test', MCP_GATEWAY: 'on', REDIS_URL: '', LAYERFS_SERVICE_URL: '', MARKET_PUBLIC_URL: base, A2A_OUTBOX_BACKOFF_SCALE: '0.0001' };
+const PRELOAD = pathToFileURL(resolve('scripts/identity-fake-preload.mjs')).href;
 let child, logs = '', pass = 0;
 const check = async (name, fn) => { await fn(); pass++; console.log('PASS ' + name); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -82,7 +87,7 @@ function makePeer() {
 }
 
 async function start() {
-  child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'server/src/index.ts'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', (c) => (logs += c)); child.stderr.on('data', (c) => (logs += c));
   for (let i = 0; i < 100; i++) { try { if ((await fetch(base + '/api/health')).ok) return; } catch {} if (child.exitCode !== null) break; await sleep(150); }
   throw new Error('fixture boot failed ' + logs.slice(-800));
@@ -96,15 +101,18 @@ async function call(path, body, method = 'POST', headers = {}) {
 async function waitFor(cond, ms = 4000) { const end = Date.now() + ms; while (Date.now() < end) { if (await cond()) return true; await sleep(100); } return false; }
 const dbRead = () => new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true });
 
-async function publishTask(values, agentDispatch) {
-  const run = await call('/api/sop/runs', { slug: 'task-center' });
-  assert.equal(run.status, 201, JSON.stringify(run.j));
-  for (const [k, v] of Object.entries(values)) assert.equal((await call('/api/sop/runs/' + run.j.id, { stepKey: k, value: v }, 'PUT')).status, 200);
-  await call('/api/sop/runs/' + run.j.id + '/finish', {});
-  const pub = await call('/api/task-center/tasks', { intake_run_id: run.j.id, published_by: 'owner', agent_dispatch: agentDispatch });
-  assert.equal(pub.status, 201, JSON.stringify(pub.j));
-  return pub.j;
+// 登录的员工 alpha 安排（同源、会话，不带管理口令）；持有管理层授予的人（admin 会话）放行
+const ALPHA = { 'X-Admin-Token': '', 'Sec-Fetch-Site': 'same-origin', cookie: `session_id=${SESSIONS.alpha}` };
+const MGMT = { 'X-Admin-Token': '', 'Sec-Fetch-Site': 'same-origin', cookie: `session_id=${SESSIONS.admin}` };
+const CLI = async (method, path, body) => { const r = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }); let j; try { j = await r.json(); } catch { j = {}; } return { status: r.status, j }; };
+let keyN = 0;
+async function arrangeTask(values, { team = 'dsh/canvas/intake', review = true } = {}) {
+  const key = 'wbe-smoke-key-' + String(++keyN).padStart(6, '0');
+  const r = await call('/api/work-items', { title: values.title, intent: values.intent, deliverable: values.deliverable, due: values.due, team, review, idempotency_key: key }, 'POST', ALPHA);
+  assert.equal(r.status, 201, JSON.stringify(r.j));
+  return { id: r.j.task_id, event_id: r.j.event_id, item_id: r.j.item_id };
 }
+const release = (t) => call('/api/work-items/' + t.item_id + '/release', {}, 'POST', MGMT);
 const eventOf = async (id) => (await call('/api/workbench-events/' + id, undefined, 'GET')).j;
 
 const peers = [];
@@ -112,26 +120,35 @@ try {
   const ok = await makePeer(); const flaky = await makePeer(); const down = await makePeer();
   peers.push(ok, flaky, down);
   await start();
+  for (const h of [ALPHA, MGMT]) await call('/api/auth/me', undefined, 'GET', h);
+  { // 持有管理层授予的人：团队都没有负责人，过目由他代办（本机命令行起草、提交、批准）
+    const g = await CLI('POST', '/api/grants', { principal: 'user:root-admin', role: 'management', scope: '*', reason: '合成：代办放行' });
+    await CLI('POST', `/api/grants/${g.j?.grant?.id}/submit`, {});
+    const ga = await CLI('POST', `/api/grants/${g.j?.grant?.id}/approve`, {});
+    assert.ok(ga.status >= 200 && ga.status < 300, JSON.stringify(ga.j));
+    // 一个人一分钟内要安排十来件：放宽限流（缺省每分钟 5 件）
+    assert.equal((await call('/api/settings', { arrange_rate_per_minute: 1000, arrange_rate_per_day: 10000 }, 'PUT')).status, 200);
+  }
 
   const bind = await call('/api/bindings', { target_type: 'sop', target_slug: 'task-center', agent_node: 'dsh/canvas/intake', direction: 'notify', notify_url: ok.base });
   await check('W1 画布队名可作通知绑定的 agent_node', () => assert.equal(bind.status, 201, JSON.stringify(bind.j)));
 
   // W2：中心开关默认关 → held
   const values = { title: '采购对账', intent: '核对十月 PO', references: [], deliverable: '差异表', target: '', due: '2026-11-09' };
-  const t1 = await publishTask(values, true);
-  await check('W2a 发布返回 event_id', () => assert.match(String(t1.event_id), /^wbe-[0-9a-f]{16}$/));
+  const t1 = await arrangeTask(values);
+  await check('W2a 安排返回 event_id', () => assert.match(String(t1.event_id), /^wbe-[0-9a-f]{16}$/));
   const e1 = await eventOf(t1.event_id);
-  await check('W2b 事件 human / 默认接单团队 / 投递 held', () => {
-    assert.equal(e1.submitter_kind, 'human'); assert.equal(e1.submitter, 'human:owner'); assert.equal(e1.routed, 'default');
-    assert.equal(e1.data_sha256, t1.material_sha256);
+  await check('W2b 事件 human / 派给选中的团队 / 投递 held', () => {
+    assert.equal(e1.submitter_kind, 'human'); assert.equal(e1.submitter, 'user:alpha'); assert.equal(e1.routed, 'target');
+    assert.match(String(e1.data_sha256), /^[0-9a-f]{64}$/);
     assert.equal(e1.deliveries.length, 1); assert.equal(e1.deliveries[0].status, 'held'); assert.equal(e1.deliveries[0].target_team, 'dsh/canvas/intake');
   });
   await sleep(600);
   await check('W2c held 时对端收 0', () => assert.equal(ok.got.length, 0));
 
-  // W3：release → 投出
-  const rel = await call('/api/workbench-events/' + t1.event_id + '/release', {});
-  await check('W3a release 200', () => assert.equal(rel.status, 200, JSON.stringify(rel.j)));
+  // W3：放行 → 投出
+  const rel = await release(t1);
+  await check('W3a 放行 200（管理层代办，没有负责人的团队）', () => { assert.equal(rel.status, 200, JSON.stringify(rel.j)); assert.equal(rel.j.acting_for, 'team-lead'); });
   await waitFor(() => ok.got.length >= 1);
   const env1 = JSON.parse(ok.got[0].message ?? '{}');
   await check('W3b 信封字段齐（契约 v1）', () => {
@@ -139,7 +156,7 @@ try {
     assert.equal(ok.got[0].team, 'dsh/canvas/intake'); assert.match(String(ok.got[0].caller_session), /^market\/[0-9a-f]{8}$/);
     assert.equal(ok.got[0].wait, false);
     assert.equal(env1.type, 'workbench-event'); assert.equal(env1.v, 1); assert.equal(env1.event_id, t1.event_id);
-    assert.equal(env1.submitter_kind, 'human'); assert.equal(env1.dispatch, true); assert.equal(env1.data_sha256, t1.material_sha256);
+    assert.equal(env1.submitter_kind, 'human'); assert.equal(env1.dispatch, true); assert.equal(env1.data_sha256, e1.data_sha256);
     assert.equal(env1.task.title, '采购对账'); assert.equal(env1.task.due, '2026-11-09');
     assert.equal(env1.reply.url, `${base}/api/workbench-events/${t1.event_id}/decision`); assert.ok(env1.reply.token.length >= 32);
   });
@@ -152,7 +169,12 @@ try {
     await check('W3d sent 后明文信封清空、只留 token 哈希', () => { assert.equal(row.status, 'sent'); assert.equal(row.message, ''); assert.equal(row.reply_token_sha256.length, 64); });
   }
   await check('W3e 读面不出现 token', async () => assert.ok(!JSON.stringify(await eventOf(t1.event_id)).includes(env1.reply.token)));
-  await check('W3f 再次 release → 409', async () => assert.equal((await call('/api/workbench-events/' + t1.event_id + '/release', {})).status, 409));
+  await check('W3f 再放一次 → 200 duplicate，不再放、不再记', async () => {
+    const again = await release(t1);
+    assert.equal(again.status, 200); assert.equal(again.j.duplicate, true);
+    assert.equal((await eventOf(t1.event_id)).log.filter((l) => l.action === 'released').length, 1);
+  });
+  await check('W3g 旧的管理员放行入口已退役：404', async () => assert.equal((await call('/api/workbench-events/' + t1.event_id + '/release', {})).status, 404));
 
   // W4：决定端点（模拟业务面上的远程/浏览器请求：带 Sec-Fetch-Site、不带口令）
   const remote = { 'X-Admin-Token': '', 'Sec-Fetch-Site': 'cross-site' };
@@ -176,63 +198,66 @@ try {
   });
   await check('W4g 列表需口令', async () => assert.equal((await call('/api/workbench-events', undefined, 'GET', { 'X-Admin-Token': '' })).status, 403));
 
-  // W5：两开关全开 → 自动；目标台命中 → routed=target
+  // W5：中心总开关、员工直派都开，不要先过目 → 自动
   assert.equal((await call('/api/task-center/policy', { agent_dispatch_enabled: true }, 'PUT')).status, 200);
+  assert.equal((await call('/api/settings', { staff_direct_dispatch: 'on' }, 'PUT')).status, 200);
   const before = ok.got.length;
-  const t2 = await publishTask({ ...values, title: '自动派发', target: 'task-center' }, true);
+  const t2 = await arrangeTask({ ...values, title: '自动派发' }, { review: false });
   await waitFor(() => ok.got.length > before);
   const e2 = await eventOf(t2.event_id);
-  await check('W5 自动投递 + routed=target', () => { assert.equal(ok.got.length, before + 1); assert.equal(e2.routed, 'target'); assert.notEqual(e2.deliveries[0].status, 'held'); });
-  const t2b = await publishTask({ ...values, title: '任务级关' }, false);
-  await check('W5b 任务级开关关 → 仍 held', async () => assert.equal((await eventOf(t2b.event_id)).deliveries[0].status, 'held'));
+  await check('W5 自动投递（不经放行）', () => { assert.equal(ok.got.length, before + 1); assert.equal(e2.routed, 'target'); assert.notEqual(e2.deliveries[0].status, 'held'); assert.ok(!e2.log.some((l) => l.action === 'released')); });
+  const t2b = await arrangeTask({ ...values, title: '要先过目' });
+  await check('W5b 要先过目 → 仍 held', async () => assert.equal((await eventOf(t2b.event_id)).deliveries[0].status, 'held'));
 
-  // W6：重试与 dead（worker 每 5s 一轮；退避倍率压到毫秒级）
+  // W6：重试与 dead（worker 每 5s 一轮；退避倍率压到毫秒级）。每件只派给一个团队
   flaky.failFirst = 2; down.alwaysFail = true;
   await call('/api/bindings', { target_type: 'sop', target_slug: 'task-center', agent_node: 'dsh/canvas/flaky', direction: 'notify', notify_url: flaky.base });
   await call('/api/bindings', { target_type: 'sop', target_slug: 'task-center', agent_node: 'dsh/canvas/down', direction: 'notify', notify_url: down.base });
-  await call('/api/bindings', { target_type: 'sop', target_slug: 'task-center', agent_node: 'dsh/canvas/beta', direction: 'notify', notify_url: ok.base }); // 与 intake 同一台主机
   const dual = await call('/api/bindings', { target_type: 'sop', target_slug: 'task-center', agent_node: 'dsh/canvas/intake', direction: 'both', notify_url: ok.base }); // 同节点再来一行 both
-  await check('W6-pre notify+both 双绑定可建', () => assert.equal(dual.status, 201));
-  const t3 = await publishTask({ ...values, title: '重试' }, true);
-  const settled = await waitFor(async () => { const e = await eventOf(t3.event_id); return e.deliveries.every((d) => d.status === 'sent' || d.status === 'dead'); }, 40_000);
-  const e3 = await eventOf(t3.event_id);
-  const by = Object.fromEntries(e3.deliveries.map((d) => [d.target_team, d]));
-  await check('W6a 四个目标各一行投递（双绑定按节点去重、发布不 500）', () => { assert.ok(settled, JSON.stringify(e3.deliveries)); assert.equal(e3.deliveries.length, 4); });
+  await check('W6-pre notify+both 双绑定可建，可派团队里按节点去重只出现一次', async () => {
+    assert.equal(dual.status, 201);
+    const teams = (await call('/api/work-items/teams', undefined, 'GET', ALPHA)).j;
+    const list = Array.isArray(teams) ? teams : teams?.teams ?? [];
+    assert.equal(list.filter((t) => (t.agent_node ?? t.team ?? t) === 'dsh/canvas/intake').length, 1, JSON.stringify(teams));
+  });
+  const tf = await arrangeTask({ ...values, title: '重试' }, { team: 'dsh/canvas/flaky', review: false });
+  const td = await arrangeTask({ ...values, title: '判死' }, { team: 'dsh/canvas/down', review: false });
+  const settledOf = async (t) => waitFor(async () => (await eventOf(t.event_id)).deliveries.every((d) => d.status === 'sent' || d.status === 'dead'), 40_000);
+  const settled = (await settledOf(tf)) && (await settledOf(td));
+  const ef = await eventOf(tf.event_id), ed = await eventOf(td.event_id);
+  await check('W6a 每件一行投递、都落定', () => { assert.ok(settled, JSON.stringify([ef.deliveries, ed.deliveries])); assert.equal(ef.deliveries.length, 1); assert.equal(ed.deliveries.length, 1); });
   await check('W6b 登记后拒投两次 → 重试后对端真的收到（-32003 不算送达）', () => {
-    assert.equal(by['dsh/canvas/flaky'].status, 'sent'); assert.equal(by['dsh/canvas/flaky'].attempts, 3);
-    assert.equal(flaky.got.filter((g) => JSON.parse(g.message).event_id === t3.event_id).length, 1);
+    assert.equal(ef.deliveries[0].status, 'sent'); assert.equal(ef.deliveries[0].attempts, 3);
+    assert.equal(flaky.got.filter((g) => JSON.parse(g.message).event_id === tf.event_id).length, 1);
   });
-  await check('W6e 同机两个画布队都送达（不撞 -32002）', () => {
-    assert.equal(by['dsh/canvas/intake'].status, 'sent'); assert.equal(by['dsh/canvas/beta'].status, 'sent');
-    assert.deepEqual(ok.got.filter((g) => JSON.parse(g.message).event_id === t3.event_id).map((g) => g.team).sort(), ['dsh/canvas/beta', 'dsh/canvas/intake']);
-  });
-  await check('W6c 一直拒 → 5 次后 dead（带最后错误）', () => { assert.equal(by['dsh/canvas/down'].status, 'dead'); assert.equal(by['dsh/canvas/down'].attempts, 5); assert.ok(by['dsh/canvas/down'].last_error.length > 0); });
-  await check('W6d 同一事件给每个目标的 token 不同', () => {
-    const tokens = [...ok.got, ...flaky.got].filter((g) => g.task_id.startsWith(t3.event_id + '.')).map((g) => JSON.parse(g.message).reply.token);
-    assert.equal(tokens.length, 3); assert.equal(new Set(tokens).size, 3);
+  await check('W6c 一直拒 → 5 次后 dead（带最后错误）', () => { assert.equal(ed.deliveries[0].status, 'dead'); assert.equal(ed.deliveries[0].attempts, 5); assert.ok(ed.deliveries[0].last_error.length > 0); });
+  await check('W6d 每次投递的 token 不同', () => {
+    const tokens = [...ok.got, ...flaky.got].map((g) => JSON.parse(g.message).reply?.token).filter(Boolean);
+    assert.ok(tokens.length >= 3); assert.equal(new Set(tokens).size, tokens.length);
   });
 
   // W10：撤回、未送达不能回写、token 过期
   {
-    const tw = await publishTask({ ...values, title: '将撤回' }, false); // 任务级关 → held
+    const tw = await arrangeTask({ ...values, title: '将撤回' }); // 先过目 → held
     const heldRows = (await eventOf(tw.event_id)).deliveries;
     const wd = await call('/api/task-center/tasks/' + tw.id + '/withdraw', {});
     await check('W10a 撤回 → 未发出的投递全部 cancelled', async () => {
       assert.equal(wd.status, 200, JSON.stringify(wd.j)); assert.equal(wd.j.cancelled_deliveries, heldRows.length); assert.equal(wd.j.in_flight_deliveries, 0);
       assert.ok((await eventOf(tw.event_id)).deliveries.every((d) => d.status === 'cancelled'));
     });
-    await check('W10b 撤回后 release → 409', async () => assert.equal((await call('/api/workbench-events/' + tw.event_id + '/release', {})).status, 409));
-    const th = await publishTask({ ...values, title: '未送达回写' }, false);
+    await check('W10b 撤回后放行 → 409', async () => assert.equal((await release(tw)).status, 409));
+    const th = await arrangeTask({ ...values, title: '未送达回写' });
     const db = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 }); db.exec('PRAGMA busy_timeout=5000');
     const heldMsg = db.prepare("SELECT message FROM workbench_event_deliveries WHERE event_id = ? LIMIT 1").get(th.event_id).message;
     const heldToken = JSON.parse(heldMsg).reply.token;
     const early = await call('/api/workbench-events/' + th.event_id + '/decision', { token: heldToken, decision: 'accept', reason: '抢答' }, 'POST', remote);
     await check('W10c held（未送达）的投递不能回写决定 → 409', () => assert.equal(early.status, 409));
-    const t3intake = ok.got.find((g) => g.team === 'dsh/canvas/intake' && JSON.parse(g.message).event_id === t3.event_id);
-    const t3token = JSON.parse(t3intake.message).reply.token;
-    db.prepare("UPDATE workbench_event_deliveries SET sent_at = datetime('now', '-8 days') WHERE event_id = ? AND target_team = 'dsh/canvas/intake'").run(t3.event_id);
+    // 自动派出、还没决定的那件（W5）：把送达时刻挪到 8 天前
+    const t2sent = ok.got.find((g) => JSON.parse(g.message).event_id === t2.event_id);
+    const t2token = JSON.parse(t2sent.message).reply.token;
+    db.prepare("UPDATE workbench_event_deliveries SET sent_at = datetime('now', '-8 days') WHERE event_id = ?").run(t2.event_id);
     db.close();
-    const late = await call('/api/workbench-events/' + t3.event_id + '/decision', { token: t3token, decision: 'accept', reason: '晚了' }, 'POST', remote);
+    const late = await call('/api/workbench-events/' + t2.event_id + '/decision', { token: t2token, decision: 'accept', reason: '晚了' }, 'POST', remote);
     await check('W10d 送达 7 天后 token 过期 → 410', () => assert.equal(late.status, 410, JSON.stringify(late.j)));
   }
 
@@ -264,7 +289,7 @@ try {
     const binds0 = (await call('/api/bindings?type=sop&slug=task-center', undefined, 'GET')).j;
     for (const b of Array.isArray(binds0) ? binds0 : []) if (!b.revoked_at) await call('/api/bindings/' + b.id, undefined, 'DELETE');
     await call('/api/bindings', { target_type: 'sop', target_slug: 'task-center', agent_node: 'dsh/canvas/slow', direction: 'notify', notify_url: slow.base });
-    const ts = await publishTask({ ...values, title: '途中撤回' }, true);
+    const ts = await arrangeTask({ ...values, title: '途中撤回' }, { team: 'dsh/canvas/slow', review: false });
     await sleep(600); // 已在发送、对端还没应答
     const wd = await call('/api/task-center/tasks/' + ts.id + '/withdraw', {});
     await waitFor(async () => (await eventOf(ts.event_id)).deliveries[0].status !== 'pending', 8000);
@@ -277,12 +302,18 @@ try {
     });
   }
 
-  // W7：撤掉全部通知绑定 → unrouted
+  // W7：撤掉全部通知绑定 → 派不了（不建事件）；旧的发布入口已退役
   const binds = (await call('/api/bindings?type=sop&slug=task-center', undefined, 'GET')).j;
   for (const b of Array.isArray(binds) ? binds : []) if (!b.revoked_at) await call('/api/bindings/' + b.id, undefined, 'DELETE');
-  const t4 = await publishTask({ ...values, title: '无人接' }, true);
-  const e4 = await eventOf(t4.event_id);
-  await check('W7 无绑定 → routed=unrouted、零投递、事件仍在', () => { assert.equal(e4.routed, 'unrouted'); assert.equal(e4.deliveries.length, 0); assert.equal(e4.submitter_kind, 'human'); });
+  {
+    const n0e = (await call('/api/workbench-events?limit=200', undefined, 'GET')).j.length;
+    const r = await call('/api/work-items', { title: '无人接', intent: 'i', deliverable: 'd', team: 'dsh/canvas/slow', idempotency_key: 'wbe-smoke-unrouted-0001' }, 'POST', ALPHA);
+    const n1e = (await call('/api/workbench-events?limit=200', undefined, 'GET')).j.length;
+    await check('W7a 没有绑定的团队派不了：400 team_not_assignable，不建事件', () => { assert.equal(r.status, 400, JSON.stringify(r.j)); assert.equal(r.j.error, 'team_not_assignable'); assert.equal(n1e, n0e); });
+    const legacy = await call('/api/task-center/tasks', { intake_run_id: 1, published_by: 'x' });
+    const legacyById = await call('/api/task-center/tasks/1/publish', {});
+    await check('W7b 旧的录入发布、按编号发布已退役：404', () => { assert.equal(legacy.status, 404); assert.equal(legacyById.status, 404); });
+  }
 
   // W8：自产台表单提交
   assert.ok([200, 201].includes((await ghPublish(base, gh, { slug: 'wbe-form', title: 'F', files: [{ path: 'index.html', content: '<h1>x</h1>' }] }, { 'X-Admin-Token': 'wbe-test' })).status));

@@ -21,6 +21,7 @@ import { svc } from '../context.ts';
 import { dataDir } from '../db.ts';
 import { sniff } from '../file-sniff.ts';
 import { expectedSha256 } from '../upload-integrity.ts';
+import { uploadNameOk } from '../upload-file-name.ts';
 import { root } from '../root-context.ts';
 import { releaseBlock } from '../workbench-events.ts';
 import { itemIdForEvent, type WorkItemService } from '../services/work-item.ts';
@@ -30,7 +31,7 @@ import { canSee, TERMINAL_STATES, workItemViewer } from '../work-item-access.ts'
 import { peerCanDeliver } from '../services/a2a-peers.ts';
 
 export type AttachmentRouteDeps = {
-  markOdooAdmin: (req: express.Request) => Promise<void>;
+  markAdmin: (req: express.Request) => Promise<void>;
   adminGuard: (req: express.Request, res: express.Response) => boolean;
   crossOriginDenied: (req: express.Request) => boolean;
 };
@@ -90,7 +91,7 @@ export function registerWorkItemAttachmentRoutes(app: HttpService, deps: Attachm
     res.setHeader('connection', 'close'); // 提前拒绝时不再读剩余请求体
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
     const name = String(req.params.name ?? '').trim();
-    if (!name || name.length > 255 || name === '.' || name === '..' || /[\/\\\x00-\x1f\x7f]/.test(name)) return void res.status(400).json({ error: 'attachment_name_invalid' });
+    if (!uploadNameOk(name)) return void res.status(400).json({ error: 'attachment_name_invalid' });
     const wantSha = expectedSha256(req.headers['x-content-sha256']);
     if (wantSha === 'bad') return void res.status(400).json({ error: 'x_content_sha256_invalid' });
     const declared = Number(req.headers['content-length']);

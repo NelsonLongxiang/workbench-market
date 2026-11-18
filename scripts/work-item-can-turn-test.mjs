@@ -53,7 +53,7 @@ const publish = (title, dispatch) => {
   const id = Number(db.prepare("INSERT INTO tasks (title, status, published_at, published_by) VALUES (?, 'published', '2026-01-01 00:00:00', 'root-admin')").run(title).lastInsertRowid);
   const fields = { title, intent: 'i', references: '', deliverable: 'd', target: '', due: '' };
   db.exec('BEGIN IMMEDIATE');
-  const e = ev.recordTaskCenterEvent({ id, data: fields, stepValue: (k) => fields[k], publishedBy: 'root-admin', requesterPrincipal: 'user:alpha', publisherPrincipal: 'user:root-admin', templateVersion: 1, materialSha256: 'h', agentDispatch: dispatch, centerOn: dispatch });
+  const e = ev.recordTaskCenterEvent({ id, data: fields, stepValue: (k) => fields[k], publishedBy: 'root-admin', requesterPrincipal: 'user:alpha', publisherPrincipal: 'user:root-admin', templateVersion: 1, materialSha256: 'h', agentDispatch: dispatch, centerOn: dispatch , arranged: { team: 'dsh/canvas/team-a', submitter: 'human:root-admin' } });
   db.exec('COMMIT');
   return { task: id, event: e, item: 'wi_' + e, delivery: db.prepare('SELECT id FROM workbench_event_deliveries WHERE event_id = ?').get(e).id };
 };
