@@ -137,6 +137,7 @@ try {
   const who = await me(first.b);
   check(who?.authenticated === true && who.principal === 'user:alice' && who.via === 'session', '认出是 alice（市场会话）', who);
   check(who?.local_account === true, '/api/auth/me 说她有站内账号（用户卡据此给「改密码」入口）', who);
+  check(who?.local_username === 'alice', '/api/auth/me 带她自己的站内用户名（改密码页预检「不能和用户名一样」用它，不用 login）', who);
   check((await login('alice', temp)).r.status === 401, '临时密码改过之后就不能再用');
 
   console.log('三、对抗');
