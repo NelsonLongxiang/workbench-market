@@ -71,7 +71,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -162,7 +162,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -363,7 +363,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -415,7 +415,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -492,12 +492,7 @@
           "class": "unauthorized",
           "what": "登录的员工不是管理员：建不了",
           "request": { "method": "PUT", "path": "/api/departments/sales", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "origin": "http://127.0.0.1" }, "json": { "name": "合成销售部" } },
-          "response": {
-            "status": 403,
-            "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
-          }
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" } }
         }
       ]
     }

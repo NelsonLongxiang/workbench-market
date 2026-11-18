@@ -1,22 +1,26 @@
 #!/usr/bin/env node
-/** 门户按台访问范围（portal-access.ts）。隔离 DATA_DIR、随机端口、本机上游替身与 Odoo 替身，合成口令与凭据；不碰生产。
+/** 门户按台访问范围（portal-access.ts）。隔离 DATA_DIR、随机端口、本机上游替身、假身份来源（identity-fake-preload），合成口令与凭据；不碰生产。
  *  远程身份用 X-Forwarded-For 模拟（不带转发头的本机请求算本机命令行 = 管理员）。判据：
  *   A1 默认值：带凭据（URL token / bearer）的外部台新建后 access=admin；不带凭据 = all；显式 listed 生效
  *   A2 校验：非法 access 400 且不落库；listed 空名单 400；自产台/SOP 台设非 all 400
- *   A3 判定（enforce）：Odoo 内部员工打不开 admin 台（403 JSON + X-WM-Access-Denied，上游零命中）；能开 all 台；
- *      名单里的人能开 listed 台且上游收到注入的凭据；Odoo 管理员、口令头、口令登录 cookie 能开 admin 台；门户账号先被登录门 401
+ *   A3 判定（enforce）：内部员工打不开 admin 台（403 JSON + X-WM-Access-Denied，上游零命中）；能开 all 台；
+ *      名单里的人（user:<主体>）能开 listed 台且上游收到注入的凭据；有管理员授予的人、口令头、口令登录 cookie 能开 admin 台；门户账号先被登录门 401
  *   A4 页面导航被拒 → 403 HTML；WS 升级与 HTTP 同判（被拒断开、放行有字节）
  *   A5 改写：给 all 台加凭据自动收紧为 admin；显式 access=all 保留；改成自产台地址时回到 all
  *   A6 MCP：access / access_logins / cookie_set_id / auth 一律 400；带凭据的台改地址 403 且地址不变；改名照常
  *   A7 审计：拒绝与放行各有 source=portal-access 行，日志不含凭据明文
  *   A8 登录门 off：匿名（浏览器标记）打不开 admin 台、能开 all 台
  *   A9 迁移：旧库（无 access 列）启动后，带凭据的外部台回填 admin，其余 all，启动日志点名
- *   A10 导入：备份里没有 access 的带凭据行导入后为 admin，带了合法 access 的沿用 */
+ *   A10 导入：备份里没有 access 的带凭据行导入后为 admin，带了合法 access 的沿用
+ *   A12 名单只收 user:（Odoo 已下线）：新建、改台加新的 odoo: 一律 400 且不落库；改台保留原有的 odoo: 项照常；
+ *       备份恢复进来的旧 odoo: 项按查看人主体名下保留的历史 Odoo 绑定对上，没绑的人对不上 */
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { connect } from 'node:net';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { SESSIONS } from './identity-fake-provider.mjs';
 import { DatabaseSync } from 'node:sqlite';
 
 let pass = 0, fail = 0;
@@ -28,7 +32,7 @@ const URLTOKEN = 'portal-access-synthetic-urltoken';
 mkdirSync('tmp', { recursive: true });
 
 // Exercise the actual decider and transaction method without importing the application database.
-const {createPortalAccess,decide,loginsOf}=await import('../server/src/portal-access.ts');
+const {createPortalAccess,decide,loginsOf,newOdooEntries,normalizeLogin}=await import('../server/src/portal-access.ts');
 const {stripTypeScriptTypes}=await import('node:module'),{readFileSync}=await import('node:fs');
 const serviceText=readFileSync('server/src/services/workbench.ts','utf8');
 const methods=[...serviceText.matchAll(/^  accessTransaction<T>[(]operation: [(][)] => T[)]: T [{][\s\S]*?^  [}]/gm)];
@@ -41,31 +45,23 @@ ok('A11 transaction error rolls back preceding writes',rolled&&memory.prepare('S
 transaction(()=>memory.exec('INSERT INTO probe VALUES(2)'));
 ok('A11 transaction success commits',memory.prepare('SELECT COUNT(*) n FROM probe').get().n===1);memory.close();
 const listed={id:7,url:'http://synthetic.invalid/',access:'listed',access_logins:['odoo:alice']};
-ok('A11 equal login text without bound Odoo identity is not listed',!decide(listed,{via:'session',login:'alice',admin:false,odooLogins:[]}).allow);
-ok('A11 bound external identity permits listed market session',decide(listed,{via:'session',login:'unrelated-session-name',admin:false,odooLogins:['alice']}).allow);
+ok('A11 equal login text without bound Odoo identity is not listed',!decide(listed,{via:'session',login:'alice',principal:'user:alice',admin:false,odooLogins:[]}).allow);
+ok('A11 bound historical Odoo identity matches a legacy odoo: entry',decide(listed,{via:'session',login:'unrelated-session-name',principal:'user:someone',admin:false,odooLogins:['Alice']}).allow);
+const listedUser={...listed,access_logins:['user:alice']};
+ok('A12 user: entry matches the viewer principal',decide(listedUser,{via:'session',login:'x',principal:'user:alice',admin:false,odooLogins:[]}).allow);
+ok('A12 user: entry does not match by login text alone (no principal)',!decide(listedUser,{via:'source',login:'alice',principal:null,admin:false,odooLogins:[]}).allow);
+ok('A12 user: entry is not matched by a bound Odoo login of the same name',!decide(listedUser,{via:'session',login:'x',principal:'user:bob',admin:false,odooLogins:['alice']}).allow);
+ok('A12 bare names normalize to user:, odoo: kept as written',normalizeLogin(' Alice ')==='user:alice'&&normalizeLogin('odoo:Alice')==='odoo:alice'&&normalizeLogin('USER:Alice')==='user:alice');
+ok('A12 newOdooEntries flags only odoo: entries not already present',JSON.stringify(newOdooEntries(['odoo:a','odoo:b','user:c'],['odoo:A']))==='["odoo:b"]'&&newOdooEntries(['user:c']).length===0);
 ok('A11 stored non-string ACL entries are ignored',loginsOf({...listed,access_logins:[123,{},null]}).length===0);
 for(const channel of ['http','ws']){
   let row={...listed,access:'listed'},release,entered;
   const reached=new Promise(r=>entered=r),wait=new Promise(r=>release=r);
-  const guard=createPortalAccess({byId:()=>row,viewer:async()=>{entered();await wait;return{via:'odoo',login:'alice',admin:false,odooLogins:['alice']}},log:()=>{}});
+  const guard=createPortalAccess({byId:()=>row,viewer:async()=>{entered();await wait;return{via:'source',login:'alice',principal:'user:alice',admin:false,odooLogins:['alice']}},log:()=>{}});
   const pending=guard({url:'/go/007/private',headers:{},socket:{remoteAddress:'192.0.2.5'}},channel);
   await reached;row={...row,access:'admin'};release();
   ok('A11 '+channel+' policy tightening while identity awaits is observed',!(await pending).allow);
 }
-
-// Odoo 替身：session_id 前缀决定身份
-const odoo = createServer((req, res) => {
-  const sid = /(?:^|;\s*)session_id=([^;\s]+)/.exec(String(req.headers.cookie ?? ''))?.[1] ?? '';
-  if (req.url === '/web/session/get_session_info') {
-    const admin = sid.startsWith('adminsession'), listed = sid.startsWith('listedsession'), internal = admin || listed || sid.startsWith('internalsession'), portal = sid.startsWith('portalsession');
-    const username = admin ? 'gate.admin' : listed ? 'Gate.Listed' : internal ? 'gate.internal' : 'gate.portal';
-    res.setHeader('content-type', 'application/json');
-    return res.end(JSON.stringify(internal || portal ? { result: { uid: 7, username, name: 'Synthetic', is_internal_user: internal, is_admin: admin } } : { result: { uid: false } }));
-  }
-  res.statusCode = 404; res.end('odoo-fixture-404');
-});
-await new Promise((r) => odoo.listen(0, '127.0.0.1', r));
-const ODOO = `http://127.0.0.1:${odoo.address().port}`;
 
 // 上游替身：记录每次命中带来的凭据
 const hits = [];
@@ -78,12 +74,13 @@ up.on('upgrade', (req, socket) => { hits.push({ url: req.url, auth: req.headers.
 await new Promise((r) => up.listen(0, '127.0.0.1', r));
 const UP = `http://127.0.0.1:${up.address().port}`;
 
+const PRELOAD = pathToFileURL(resolve('scripts/identity-fake-preload.mjs')).href;
 function start(extra, tag, dataDir) {
   const PORT = 21000 + Math.floor(Math.random() * 11000);
   const DATA = dataDir ?? mkdtempSync(resolve('tmp', `portal-access-${tag}-`));
-  const env = { ...process.env, PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: DATA, NODE_ENV: 'test', REDIS_URL: '', LAYERFS_SERVICE_URL: '', ...extra };
+  const env = { ...process.env, PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: DATA, NODE_ENV: 'test', REDIS_URL: '', LAYERFS_SERVICE_URL: '', IDENTITY_SEAM_ROOT: resolve('.'), ...extra };
   for (const k of Object.keys(extra)) if (extra[k] === undefined) delete env[k];
-  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'server/src/index.ts'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   child.stdout.on('data', (c) => (out += c)); child.stderr.on('data', (c) => (out += c));
   const exited = new Promise((r) => child.once('exit', (code) => r(code)));
@@ -126,7 +123,7 @@ const create = (B, body) => req(B, 'POST', '/api/workbenches', ADM, body);
 
 // ---------- E：登录门 enforce ----------
 console.log('E · WM_LOGIN_GATE=enforce');
-const E = start({ WM_LOGIN_GATE: 'enforce', ADMIN_TOKEN: ADMIN, WM_ODOO_URL: ODOO, WM_ODOO_ORIGINS: ODOO }, 'enforce');
+const E = start({ WM_LOGIN_GATE: 'enforce', ADMIN_TOKEN: ADMIN }, 'enforce');
 try {
   ok('E 启动', await ready(E), E.out().slice(-600));
   const B = E.B;
@@ -134,11 +131,11 @@ try {
   const wTok = await create(B, { name: 'tok', url: `${UP}/?token=${URLTOKEN}` });
   const wBear = await create(B, { name: 'bear', url: `${UP}/b/`, auth: { type: 'bearer', value: BEARER } });
   const wPlain = await create(B, { name: 'plain', url: `${UP}/p/` });
-  const wList = await create(B, { name: 'listed', url: `${UP}/l/`, auth: { type: 'bearer', value: BEARER }, access: 'listed', access_logins: ['Gate.Listed'] });
+  const wList = await create(B, { name: 'listed', url: `${UP}/l/`, auth: { type: 'bearer', value: BEARER }, access: 'listed', access_logins: ['Beta'] });
   ok('A1 URL 带 token 的台默认 admin', wTok.status === 201 && wTok.body.access === 'admin', JSON.stringify(wTok.body));
   ok('A1 bearer 台默认 admin', wBear.status === 201 && wBear.body.access === 'admin');
   ok('A1 无凭据台 = all', wPlain.status === 201 && wPlain.body.access === 'all');
-  ok('A1 显式 listed 生效、登录名规范化', wList.status === 201 && wList.body.access === 'listed' && JSON.stringify(wList.body.access_logins) === '["odoo:gate.listed"]', JSON.stringify(wList.body));
+  ok('A1 显式 listed 生效、登录名规范化', wList.status === 201 && wList.body.access === 'listed' && JSON.stringify(wList.body.access_logins) === '["user:beta"]', JSON.stringify(wList.body));
   const pool=await req(B,'POST','/api/cookies',ADM,{label:'synthetic pool',cookies:[{name:'synthetic_cookie',value:'synthetic-value'}]});
   const pooled=await create(B,{name:'pooled',url:UP+'/pooled/',cookie_set_id:pool.body.id});
   ok('A1 valid cookie-pool attachment is stored and defaults to admin',pooled.status===201&&pooled.body.cookie_set_id===pool.body.id&&pooled.body.access==='admin');
@@ -152,7 +149,7 @@ try {
   ok('A2 被拒的写入都没落库', (await req(B, 'GET', '/api/workbenches', ADM)).body.length === before);
 
   // A3 判定
-  const internal = sess('internalsession0000000001');
+  const internal = sess(SESSIONS.alpha);
   let n0 = hitCount();
   let r = await req(B, 'GET', `/go/${wTok.body.id}/`, internal);
   ok('A3 内部员工打不开 admin 台：403 + 原因头', r.status === 403 && r.headers.get('x-wm-access-denied') === 'not-admin' && r.body?.error === 'workbench_access_denied', `${r.status} ${JSON.stringify(r.body)}`);
@@ -160,25 +157,25 @@ try {
   r = await req(B, 'GET', `/go/${wPlain.body.id}/`, internal);
   ok('A3 内部员工能开 all 台', r.status === 200 && r.body?.upstream === true, `${r.status}`);
   n0 = hitCount();
-  r = await req(B, 'GET', `/go/${wList.body.id}/`, sess('listedsession0000000001'));
+  r = await req(B, 'GET', `/go/${wList.body.id}/`, sess(SESSIONS.beta));
   ok('A3 名单里的人能开 listed 台且上游收到凭据', r.status === 200 && hits.slice(n0).some((h) => h.auth === `Bearer ${BEARER}`), `${r.status}`);
   ok('A3 名单外的人打不开 listed 台', (await req(B, 'GET', `/go/${wList.body.id}/`, internal)).headers.get('x-wm-access-denied') === 'not-listed');
   n0 = hitCount();
-  r = await req(B, 'GET', `/go/${wTok.body.id}/`, sess('adminsession0000000001'));
-  ok('A3 Odoo 管理员能开 admin 台且 URL token 照常带上', r.status === 200 && hits.slice(n0).some((h) => String(h.url).includes(URLTOKEN)), `${r.status}`);
+  r = await req(B, 'GET', `/go/${wTok.body.id}/`, sess(SESSIONS.admin));
+  ok('A3 有管理员授予的人能开 admin 台且 URL token 照常带上', r.status === 200 && hits.slice(n0).some((h) => String(h.url).includes(URLTOKEN)), `${r.status}`);
   ok('A3 口令头（远程）能开 admin 台', (await req(B, 'GET', `/go/${wBear.body.id}/`, { ...REMOTE, ...ADM })).status === 200);
   const login = await fetch(B + '/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json', ...REMOTE }, body: JSON.stringify({ token: ADMIN }) });
   const wl = /wm_login=([^;]+)/.exec(login.headers.get('set-cookie') ?? '')?.[1] ?? '';
   ok('A3 口令登录 cookie 能开 admin 台', wl !== '' && (await req(B, 'GET', `/go/${wBear.body.id}/`, { ...REMOTE, cookie: `wm_login=${wl}` })).status === 200);
-  ok('A3 门户账号先被登录门拦（401）', (await req(B, 'GET', `/go/${wPlain.body.id}/`, sess('portalsession00000000001'))).status === 401);
+  ok('A3 门户账号先被登录门拦（401）', (await req(B, 'GET', `/go/${wPlain.body.id}/`, sess(SESSIONS.portal))).status === 401);
   // A4 页面与 WS
   r = await req(B, 'GET', `/go/${wBear.body.id}/`, { ...internal, ...PAGE });
   ok('A4 页面导航被拒 → 403 HTML', r.status === 403 && typeof r.body === 'string' && r.body.includes('只给管理员'), `${r.status}`);
   n0 = hitCount();
-  const wsDenied = await rawWs(E.PORT, `/go/${wTok.body.id}/ws`, { 'x-forwarded-for': '198.51.100.7', cookie: 'session_id=internalsession0000000001' });
+  const wsDenied = await rawWs(E.PORT, `/go/${wTok.body.id}/ws`, { 'x-forwarded-for': '198.51.100.7', cookie: `session_id=${SESSIONS.alpha}` });
   ok('A4 WS：内部员工连 admin 台被断开、上游零命中', !wsDenied.includes('101') && hitCount() === n0, JSON.stringify(wsDenied.slice(0, 40)));
-  const wsOk = await rawWs(E.PORT, `/go/${wTok.body.id}/ws`, { 'x-forwarded-for': '198.51.100.7', cookie: 'session_id=adminsession0000000001' });
-  ok('A4 WS：Odoo 管理员连 admin 台能握手', wsOk.includes('101'), JSON.stringify(wsOk.slice(0, 40)));
+  const wsOk = await rawWs(E.PORT, `/go/${wTok.body.id}/ws`, { 'x-forwarded-for': '198.51.100.7', cookie: `session_id=${SESSIONS.admin}` });
+  ok('A4 WS：有管理员授予的人连 admin 台能握手', wsOk.includes('101'), JSON.stringify(wsOk.slice(0, 40)));
 
   for(const path of [`/go/${wTok.body.id}suffix`, `/go/00${wTok.body.id}/private`, `/go/${wTok.body.id}/private?x=1`]){
     const before=hitCount(), denied=await req(B,'GET',path,internal);
@@ -193,8 +190,75 @@ try {
   ok('A5 显式 access=all 保留（管理员明确选择）', r.status === 200 && r.body.access === 'all');
   r = await req(B, 'PUT', `/api/workbenches/${wPlain.body.id}`, ADM, { name: 'plain-renamed' });
   ok('A5 只改名不动范围', r.status === 200 && r.body.access === 'all');
-  r = await req(B, 'PUT', `/api/workbenches/${wTok.body.id}`, ADM, { access: 'listed', access_logins: ['gate.internal'] });
+  r = await req(B, 'PUT', `/api/workbenches/${wTok.body.id}`, ADM, { access: 'listed', access_logins: ['alpha'] });
   ok('A5 改成 listed 后名单里的人能开', r.status === 200 && (await req(B, 'GET', `/go/${wTok.body.id}/`, internal)).status === 200);
+
+  // A12 名单只收 user:
+  const nBefore = (await req(B, 'GET', '/api/workbenches', ADM)).body.length;
+  r = await create(B, { name: 'odoo-new', url: `${UP}/o/`, access: 'listed', access_logins: ['odoo:somebody'] });
+  ok('A12 新建台名单带 odoo: → 400 且不落库', r.status === 400 && String(r.body?.error ?? '').includes('odoo:') && (await req(B, 'GET', '/api/workbenches', ADM)).body.length === nBefore, `${r.status} ${JSON.stringify(r.body)}`);
+  const listBefore = JSON.stringify((await req(B, 'GET', `/api/workbenches/${wList.body.id}`, ADM)).body);
+  r = await req(B, 'PUT', `/api/workbenches/${wList.body.id}`, ADM, { access: 'listed', access_logins: ['beta', 'odoo:somebody'] });
+  ok('A12 改台加新的 odoo: → 400 且台不变', r.status === 400 && JSON.stringify((await req(B, 'GET', `/api/workbenches/${wList.body.id}`, ADM)).body) === listBefore, `${r.status}`);
+  // 备份恢复进来的旧项（合并导入照收历史数据）
+  const imp = await req(B, 'POST', '/api/import', ADM, { mode: 'merge', workbenches: [{ name: 'legacy-listed', url: `${UP}/legacy/`, auth: { type: 'bearer', value: BEARER }, access: 'listed', access_logins: ['odoo:Legacy.Beta'] }] });
+  const legacy = (await req(B, 'GET', '/api/workbenches', ADM)).body.find((w) => w.name === 'legacy-listed');
+  ok('A12 备份恢复的旧 odoo: 项照收', imp.status === 200 && JSON.stringify(legacy?.access_logins) === '["odoo:legacy.beta"]', `${imp.status} ${JSON.stringify(legacy)}`);
+  ok('A12 主体名下没有历史绑定：旧 odoo: 项对不上', (await req(B, 'GET', `/go/${legacy.id}/`, sess(SESSIONS.beta))).headers.get('x-wm-access-denied') === 'not-listed');
+  { const d = new DatabaseSync(join(E.DATA, 'workbench-market.db'), { timeout: 10_000 }); d.prepare("INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES ('odoo', 'Legacy.Beta', 'legacy.beta', 'user:beta')").run(); d.close(); }
+  n0 = hitCount();
+  r = await req(B, 'GET', `/go/${legacy.id}/`, sess(SESSIONS.beta));
+  ok('A12 主体名下保留的历史 Odoo 绑定对上旧 odoo: 项', r.status === 200 && hits.slice(n0).some((h) => h.auth === `Bearer ${BEARER}`), `${r.status} ${r.headers.get('x-wm-access-denied')}`);
+  ok('A12 别人（没有那条绑定）仍对不上', (await req(B, 'GET', `/go/${legacy.id}/`, internal)).headers.get('x-wm-access-denied') === 'not-listed');
+  r = await req(B, 'PUT', `/api/workbenches/${legacy.id}`, ADM, { access: 'listed', access_logins: ['odoo:legacy.beta', 'alpha'] });
+  ok('A12 改台保留原有的 odoo: 项、加 user: 项照常', r.status === 200 && JSON.stringify(r.body.access_logins) === '["odoo:legacy.beta","user:alpha"]' && (await req(B, 'GET', `/go/${legacy.id}/`, internal)).status === 200, `${r.status} ${JSON.stringify(r.body)}`);
+
+  // A12 历史 Odoo 身份只读：系统管理员建一个站内账号、想把名单里一条还没人绑的历史 odoo: 登录绑上去，绑定入口一律拒绝（400），
+  // 那个账号登录之后仍打不开这张 listed 台
+  {
+    const imp2 = await req(B, 'POST', '/api/import', ADM, { mode: 'merge', workbenches: [{ name: 'legacy-listed-2', url: `${UP}/legacy2/`, auth: { type: 'bearer', value: BEARER }, access: 'listed', access_logins: ['odoo:legacy.gone'] }] });
+    const legacy2 = (await req(B, 'GET', '/api/workbenches', ADM)).body.find((w) => w.name === 'legacy-listed-2');
+    const d = new DatabaseSync(join(E.DATA, 'workbench-market.db'), { timeout: 10_000 });
+    const now = Date.now();
+    const gid = Number(d.prepare("INSERT INTO grants (principal_id, role, scope, expires_at, reason, created_by, created_at, updated_at) VALUES ('user:alpha', 'admin', '*', NULL, 'synthetic', 'cli', ?, ?)").run(now, now).lastInsertRowid);
+    d.prepare("UPDATE grants SET status = 'pending' WHERE id = ?").run(gid); d.prepare("UPDATE grants SET status = 'active', approved_by = 'cli' WHERE id = ?").run(gid);
+    const SYS = { cookie: `session_id=${SESSIONS.alpha}`, 'sec-fetch-site': 'same-origin', origin: B }; // user:alpha，只持 admin 授予（系统管理员）
+    const made = await req(B, 'POST', '/api/local-accounts', SYS, { username: 'mallory', display_name: 'Synthetic mallory' });
+    const temp = made.body?.temp_password ?? '';
+    const bind = await req(B, 'POST', '/api/principals/bind', SYS, { provider: 'odoo', external_id: 'legacy.gone', principal: 'user:mallory', reason: 'synthetic' });
+    const batch = await req(B, 'POST', '/api/principals/bind-batch', SYS, { items: [{ provider: 'odoo', external_id: 'legacy.gone', principal: 'user:mallory' }], reason: 'synthetic' });
+    const cliBind = await req(B, 'POST', '/api/principals/bind', { 'x-admin-token': ADMIN }, { provider: 'odoo', external_id: 'legacy.gone', principal: 'user:mallory', reason: 'synthetic' });
+    const rows = d.prepare("SELECT COUNT(*) AS n FROM principal_identities WHERE provider = 'odoo' AND principal_id = 'user:mallory'").get().n;
+    ok('A12 历史 Odoo 身份只读：系统管理员、口令管理员经 bind、bind-batch 把 odoo: 登录绑给新建的站内账号都 400，库里没有这条绑定',
+      made.status === 201 && temp && imp2.status === 200 && bind.status === 400 && bind.body?.reason === 'retired' && batch.status === 200 && batch.body?.results?.[0]?.status === 400 && batch.body.results[0].reason === 'retired' && cliBind.status === 400 && rows === 0,
+      JSON.stringify({ made: made.status, bind: [bind.status, bind.body], batch: batch.body, cli: cliBind.status, rows }));
+    d.prepare("UPDATE grants SET status = 'revoked' WHERE id = ?").run(gid);
+    d.close();
+    // mallory 用临时密码登录（先改密码），拿市场会话去开那张台
+    const jar = new Map();
+    const take = (res) => { for (const c of res.headers.getSetCookie?.() ?? []) { const [pair] = c.split(';'); const i = pair.indexOf('='); const v = pair.slice(i + 1); if (v === '' || /max-age=0/i.test(c)) jar.delete(pair.slice(0, i)); else jar.set(pair.slice(0, i), v); } };
+    const go = async (method, path, form) => {
+      const h = { 'sec-fetch-site': 'same-origin', origin: B };
+      if (jar.size) h.cookie = [...jar].map(([k, v]) => `${k}=${v}`).join('; ');
+      if (form) h['content-type'] = 'application/x-www-form-urlencoded';
+      const res = await fetch(B + path, { method, headers: h, body: form ? new URLSearchParams(form).toString() : undefined, redirect: 'manual' });
+      take(res);
+      return { status: res.status, location: res.headers.get('location') ?? '', text: await res.text() };
+    };
+    const s0 = await go('GET', '/login/local?next=/');
+    let form = s0.location ? new URL(s0.location, B).pathname + new URL(s0.location, B).search : '';
+    let p = await go('POST', form, { username: 'mallory', password: temp });
+    form = /<form method="post" action="([^"]+)"/.exec(p.text)?.[1]?.replaceAll('&amp;', '&') ?? form;
+    const ticket = /name="ticket" value="([^"]+)"/.exec(p.text)?.[1] ?? '';
+    p = await go('POST', form, { ticket, next: 'Mallory-pass-0001', confirm: 'Mallory-pass-0001' });
+    if (p.status === 302) await go('GET', new URL(p.location, B).pathname + new URL(p.location, B).search);
+    const n1 = hitCount();
+    const me = (await req(B, 'GET', '/api/auth/me', { ...REMOTE, cookie: `wm_session=${jar.get('wm_session') ?? ''}` })).body;
+    const opened = await req(B, 'GET', `/go/${legacy2.id}/`, { ...REMOTE, cookie: `wm_session=${jar.get('wm_session') ?? ''}` });
+    ok('A12 那个站内账号登录之后打不开把这条 odoo: 登录列在名单里的 listed 台（not-listed，上游零命中）',
+      me?.principal === 'user:mallory' && opened.headers.get('x-wm-access-denied') === 'not-listed' && hitCount() === n1,
+      JSON.stringify({ me: me?.principal, id: legacy2?.id, logins: legacy2?.access_logins, status: opened.status, denied: opened.headers.get('x-wm-access-denied'), body: String(typeof opened.body === 'string' ? opened.body : JSON.stringify(opened.body)).slice(0, 160) }));
+  }
 
   // A6 MCP
   const s = await req(B, 'POST', '/api/mcp/sessions', ADM, { name: 'portal-access-agent' });
@@ -270,7 +334,7 @@ console.log('M · 旧库（无 access 列）迁移');
     const l2 = (await req(M2.B, 'GET', '/api/workbenches', ADM)).body;
     const by = (n) => l2.find((w) => w.name === n);
     ok('A10 导入：没带 access 的带凭据行为 admin', imp.status === 200 && by('imp-bearer')?.access === 'admin', `${imp.status} ${JSON.stringify(imp.body).slice(0, 200)}`);
-    ok('A10 导入：带了合法 access 的沿用', by('imp-listed')?.access === 'listed' && JSON.stringify(by('imp-listed')?.access_logins) === '["odoo:someone"]');
+    ok('A10 导入：带了合法 access 的沿用', by('imp-listed')?.access === 'listed' && JSON.stringify(by('imp-listed')?.access_logins) === '["user:someone"]');
     ok('A10 导入：无凭据行 all', by('imp-plain')?.access === 'all');
     const snapshot=JSON.stringify(l2);
     const invalid=await req(M2.B,'POST','/api/import',ADM,{mode:'replace',workbenches:[{name:'would-replace',url:`${UP}/valid/`},{name:'invalid-access',url:`${UP}/invalid/`,access:'listed',access_logins:[]}]});
@@ -280,6 +344,6 @@ console.log('M · 旧库（无 access 列）迁移');
   } finally { await stop(M2); }
 }
 
-odoo.close(); up.close();
+up.close();
 console.log(`\n门户按台访问范围：${pass} 过 / ${fail} 不过`);
 process.exit(fail ? 1 : 0);

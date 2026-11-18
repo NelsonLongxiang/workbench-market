@@ -1,38 +1,12 @@
 # 07 · A2A 适配层重构方案
 
+> **2026-11-18 整理**：第一节「现状盘点」是 2026-11-10 的文件和行号，挪到文末「历史」；目标形态、步骤、风险照旧。进度以 [12](12-implementation-plan.md) 阶段七和第零节为准。
+
 > 阶段 0 草稿。目标：**市场不实现协议，只消费协议**；外部行为不变。行号以 2026-11-10 的 main 为准。
 
 ## 一、现状盘点
 
-### 代码分布
-
-| 关注点 | 位置 | 说明 |
-|---|---|---|
-| 名片、签名、回执格式、出站客户端 | `server/src/a2a.ts`（338 行） | 名片签名、回执格式、传输上限、`A2aClient` 已从 `@nelsonlongxiang/dsh-open-a2a-net` 引用 |
-| 入站准入与消息处理 | `server/src/a2a.ts` `a2aDirectHandle`（约 162–275 行） | 团队解析 → caller 准入 → 幂等 → 解析市场私有方言 `{"sop":{"action":…}}` → run ↔ `context_id` |
-| 入站路由与业务桥 | `server/src/index.ts` 3746–3819 | 签名校验 + 60 行 `runOps` 桥接对象（开 run、写备注、查状态、上下文登记、回执地址） |
-| 入站签名校验 | `server/src/a2a-direct-sig.ts`（218 行） | OriginClaim Sig2 / body 摘要 |
-| 名片发布 | `server/src/index.ts` 3379 | `/.well-known/agent-card.json` |
-| 出站 ①：事件投递（有重试） | `server/src/workbench-events.ts`（353 行），worker 在 275 行 | 自己的 `setInterval` + 退避常量 `BACKOFF_MS` |
-| 出站 ②：SOP 完成回执（有重试） | `server/src/index.ts` 1946–2026 | 另一个 `setInterval` + 另一份同值的 `OUTBOX_BACKOFF_MS`；表 `a2a_outbox` |
-| 出站 ③：豁免面变更通知（无重试） | `server/src/index.ts` 约 286–297 | 启动后 `setTimeout` 尽力而为，失败只打日志 |
-| 出站 ④：管理员手动发送 | `server/src/index.ts` 5160 `/api/a2a/send` | |
-| 状态读取 | `server/src/tasks.ts` 238–260；`/api/a2a/state` 5151 | 统一待办的 A2A 来源；读 `/__dsh_a2a/state` |
-| 绑定 CRUD | `server/src/index.ts` 3672–3741 | 统一绑定表 + 旧端点 410 过渡件 |
-| 测试 | `scripts/a2a-smoke.mjs`、`scripts/a2a-direct-signature-smoke.mjs`、`scripts/a2a-bound-redirect-test.mjs` | 冒烟脚本；没有与上游测试向量对照的一致性测试 |
-
-### 问题
-
-| # | 问题 | 影响 |
-|---|---|---|
-| R1 | A2A 代码散在 5 个文件，入站路由和 60 行桥接写在 5278 行的 `index.ts` 里 | 改一处要读全文件；评审面大 |
-| R2 | 四条出站路径，两套重试 worker、两份退避常量，一条无重试 | 行为不一致；同一修复要改两处 |
-| R3 | 幂等窗口存在进程内存的 `Map` 里（30 分钟） | 进程重启后重放保护丢失；多进程不可用 |
-| R4 | 幂等语义、准入顺序、-3200x 错误码、OriginClaim 域标签、名片有效期由市场自己维护一份 | 上游变化时悄悄偏离 |
-| R5 | 钉 a2a-net 0.6.25，网络上已到 0.6.31，next/0.8 在推进 | 版本漂移；新能力用不上 |
-| R6 | 入站消息方言 `{"sop":{"action":"start|note|status"}}` 是市场私有的，没写进协议 | 对端只能读本仓代码才知道怎么调 |
-| R7 | A2A 相关环境变量 9 个（`MARKET_TEAM`、`MARKET_PUBLIC_URL`、`A2A_API_KEY`、`A2A_STATE_URL`、`WM_A2A_DIRECT_SIG`、`WM_A2A_DIRECT_SIG_BODY`、`A2A_ORIGIN_CLAIM_UNBOUND`、`A2A_EVICT_COOLDOWN_MS`、`A2A_OUTBOX_BACKOFF_SCALE`） | 组合多、难测、难部署 |
-| R8 | 准入失败一律 404（不泄露存在性），但市场自己也看不到原因 | 排障只能翻服务器日志 |
+> 这一节已过时（2026-11-18），原文挪到文末「历史」。盘点的文件和行号是 2026-11-10 的；阶段七按第二、四节做了大半（幂等登记、错误码与健康、回执入站、名片与入站签名、公钥钉住、名册、团队归属、席位换令牌），进度见 [12](12-implementation-plan.md) 阶段七。
 
 ## 二、目标形态
 
@@ -109,3 +83,39 @@ server/src/a2a/
 - **P1**：外部节点工具包与测试向量是否由 a2a-net 项目提供。
 - **P1**：配置收敛改变部署接口（环境变量），落地前确认，并同步部署文档。
 - P2：步骤顺序与 PR 切分（阶段 1 开工时定）。
+
+## 历史
+
+> 2026-11-18 整理时从正文挪来的段落，照录不改，按原来在正文里的顺序排。正文里原位置留了一行说明。
+
+### 原「一、现状盘点」
+
+### 代码分布
+
+| 关注点 | 位置 | 说明 |
+|---|---|---|
+| 名片、签名、回执格式、出站客户端 | `server/src/a2a.ts`（338 行） | 名片签名、回执格式、传输上限、`A2aClient` 已从 `@nelsonlongxiang/dsh-open-a2a-net` 引用 |
+| 入站准入与消息处理 | `server/src/a2a.ts` `a2aDirectHandle`（约 162–275 行） | 团队解析 → caller 准入 → 幂等 → 解析市场私有方言 `{"sop":{"action":…}}` → run ↔ `context_id` |
+| 入站路由与业务桥 | `server/src/index.ts` 3746–3819 | 签名校验 + 60 行 `runOps` 桥接对象（开 run、写备注、查状态、上下文登记、回执地址） |
+| 入站签名校验 | `server/src/a2a-direct-sig.ts`（218 行） | OriginClaim Sig2 / body 摘要 |
+| 名片发布 | `server/src/index.ts` 3379 | `/.well-known/agent-card.json` |
+| 出站 ①：事件投递（有重试） | `server/src/workbench-events.ts`（353 行），worker 在 275 行 | 自己的 `setInterval` + 退避常量 `BACKOFF_MS` |
+| 出站 ②：SOP 完成回执（有重试） | `server/src/index.ts` 1946–2026 | 另一个 `setInterval` + 另一份同值的 `OUTBOX_BACKOFF_MS`；表 `a2a_outbox` |
+| 出站 ③：豁免面变更通知（无重试） | `server/src/index.ts` 约 286–297 | 启动后 `setTimeout` 尽力而为，失败只打日志 |
+| 出站 ④：管理员手动发送 | `server/src/index.ts` 5160 `/api/a2a/send` | |
+| 状态读取 | `server/src/tasks.ts` 238–260；`/api/a2a/state` 5151 | 统一待办的 A2A 来源；读 `/__dsh_a2a/state` |
+| 绑定 CRUD | `server/src/index.ts` 3672–3741 | 统一绑定表 + 旧端点 410 过渡件 |
+| 测试 | `scripts/a2a-smoke.mjs`、`scripts/a2a-direct-signature-smoke.mjs`、`scripts/a2a-bound-redirect-test.mjs` | 冒烟脚本；没有与上游测试向量对照的一致性测试 |
+
+### 问题
+
+| # | 问题 | 影响 |
+|---|---|---|
+| R1 | A2A 代码散在 5 个文件，入站路由和 60 行桥接写在 5278 行的 `index.ts` 里 | 改一处要读全文件；评审面大 |
+| R2 | 四条出站路径，两套重试 worker、两份退避常量，一条无重试 | 行为不一致；同一修复要改两处 |
+| R3 | 幂等窗口存在进程内存的 `Map` 里（30 分钟） | 进程重启后重放保护丢失；多进程不可用 |
+| R4 | 幂等语义、准入顺序、-3200x 错误码、OriginClaim 域标签、名片有效期由市场自己维护一份 | 上游变化时悄悄偏离 |
+| R5 | 钉 a2a-net 0.6.25，网络上已到 0.6.31，next/0.8 在推进 | 版本漂移；新能力用不上 |
+| R6 | 入站消息方言 `{"sop":{"action":"start|note|status"}}` 是市场私有的，没写进协议 | 对端只能读本仓代码才知道怎么调 |
+| R7 | A2A 相关环境变量 9 个（`MARKET_TEAM`、`MARKET_PUBLIC_URL`、`A2A_API_KEY`、`A2A_STATE_URL`、`WM_A2A_DIRECT_SIG`、`WM_A2A_DIRECT_SIG_BODY`、`A2A_ORIGIN_CLAIM_UNBOUND`、`A2A_EVICT_COOLDOWN_MS`、`A2A_OUTBOX_BACKOFF_SCALE`） | 组合多、难测、难部署 |
+| R8 | 准入失败一律 404（不泄露存在性），但市场自己也看不到原因 | 排障只能翻服务器日志 |

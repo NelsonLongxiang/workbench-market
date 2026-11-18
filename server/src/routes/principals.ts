@@ -15,7 +15,7 @@ import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import type { PrincipalService } from '../services/principal.ts';
-import { comparisonKey } from '../services/principal.ts';
+import { comparisonKey, retiredProvider } from '../services/principal.ts';
 import type { LocalAccountService } from '../services/local-account.ts';
 import type { LoginSessionService } from '../services/login-session.ts';
 import { reconcileFlow } from './login-events.ts';
@@ -26,7 +26,7 @@ import { isSystemAdminOnly, systemAdminTargetRefusal } from '../admin-tier.ts';
 
 export type PrincipalRouteDeps = {
   /** 按需认定管理员登录（判管理员之前调用） */
-  markOdooAdmin: (req: express.Request) => Promise<void>;
+  markAdmin: (req: express.Request) => Promise<void>;
   /** 管理门（口令或管理员登录 + 同源）；不过时它自己回 403 */
   adminGuard: (req: express.Request, res: express.Response) => boolean;
   /** 管理员身份落到人：管理员登录是 odoo:<登录名>，口令是 admin-token */
@@ -76,7 +76,7 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
   /** 是管理员就返回「谁」（留痕里的写法）；不是就已经回了 403，返回 null */
   async function admin(req: express.Request, res: express.Response): Promise<string | null> {
     if (!browserMarked(req) && rawLoopback(req)) return 'cli'; // 本机命令行
-    await deps.markOdooAdmin(req);
+    await deps.markAdmin(req);
     return deps.adminGuard(req, res) ? deps.adminActor(req) : null;
   }
   principalsAdmin = admin;
@@ -131,7 +131,10 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
     disabled: [409, '目标主体已停用'],
     exists: [409, '这个名字已经属于一个现有的人'],
     'self-signup': [409, '这是自己注册的站内账号，只能在「账号」页核准（新建一个人），不能绑到已有的人身上'],
+    retired: [400, '这个身份来源已下线：库里已有的绑定只读，不再接受新的绑定'],
   };
+  /** 已下线的身份来源（Odoo）：先于其它检查拒绝，回 400 */
+  const RETIRED_REFUSAL = { error: BIND_REFUSED.retired[1], reason: 'retired' as const };
 
   /** 管理员对一次：把一条外部身份绑到一个人身上（可以同时新建这个人）。不能动自己名下的绑定 */
   app.post('/api/principals/bind', { action: 'principal.bind', kind: 'admin' }, route(async (req, res) => {
@@ -139,6 +142,7 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
     const actor = await admin(req, res);
     if (!actor) return;
     const { provider, externalId } = identityOf(req.body);
+    if (retiredProvider(provider)) return void res.status(400).json(RETIRED_REFUSAL);
     const target = personTarget(req.body?.principal);
     const create = req.body?.create === true;
     const displayName = req.body?.display_name === undefined || req.body?.display_name === null ? null : typeof req.body.display_name === 'string' && req.body.display_name.length <= 256 ? req.body.display_name : (() => { throw new HttpError(400, 'display_name 必须是不超过 256 个字符的字符串'); })();
@@ -168,6 +172,7 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
     const results = items.map((item: any, index: number) => {
       try {
         const { provider, externalId } = identityOf(item);
+        if (retiredProvider(provider)) return { index, ok: false, status: 400, ...RETIRED_REFUSAL };
         const target = personTarget(item?.principal);
         const displayName = item?.display_name === undefined || item?.display_name === null ? null : typeof item.display_name === 'string' && item.display_name.length <= 256 ? item.display_name : (() => { throw new HttpError(400, 'display_name 必须是不超过 256 个字符的字符串'); })();
         if (self === target) return { index, ok: false, status: 409, error: '不能往自己身上绑外部身份' };
@@ -198,7 +203,7 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
     res.json({ ok: true, ...out });
   }));
 
-  /** 解绑一条外部身份。不能动自己名下的绑定 */
+  /** 解绑一条外部身份。不能动自己名下的绑定。已下线来源（Odoo）的也能解（清理用），但解掉之后不能再绑回任何人 */
   app.post('/api/principals/unbind', { action: 'principal.unbind', kind: 'admin' }, route(async (req, res) => {
     res.set('Cache-Control', 'private, no-store');
     const actor = await admin(req, res);
@@ -213,7 +218,8 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
     if (!was) throw new HttpError(404, `identity not found: ${provider}/${externalId}`);
     // 凭这条身份发出的会话一并注销（查会话时本来就核对这条身份还绑没绑着；注销是让重新绑回去之后也要重新登录）
     svc<LoginSessionService>('loginSessions').revokeForIdentity(provider, externalId);
-    console.log(JSON.stringify({ source: 'principals', event: 'unbind', provider, external_id: externalId, id: was, by: actor, reason, at: new Date().toISOString() }));
+    // 已下线来源的解绑也留同一行痕（retired: true），解掉之后绑不回任何人
+    console.log(JSON.stringify({ source: 'principals', event: 'unbind', provider, external_id: externalId, id: was, by: actor, reason, ...(retiredProvider(provider) ? { retired: true } : {}), at: new Date().toISOString() }));
     res.json({ ok: true, unbound_from: was });
   }));
 }

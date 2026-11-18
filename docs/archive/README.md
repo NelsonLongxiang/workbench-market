@@ -6,6 +6,7 @@
 - 原位置留一个一行的占位文件指到这里，旧的 PR 和外部链接点进去还能找到；仓库内的引用改到新位置。图（`.drawio`）不留占位，新路径写在下面的时间线表里。
 - 原文里的相对链接是按原位置写的，挪进归档会断：这样的文件在状态行下面加一块「链接对照」，用一条分隔线（`---`）和原文隔开，列出每个链接现在指向哪里。要核原文时，去掉分隔线和它后面那个空行以及之前的全部内容。
 - 合并：几篇同一主题的合成一篇，合并后的那篇开头写「由哪几篇合并而来、日期」，并进去的段落注明出处；被并掉的原文照样归档。
+- 改写：正文里过时的段落原文照录挪到同篇末尾的「历史」节，原位置留一行说明和现在去哪看；正文写现在的口径。
 - 下面这张表按时间记每一步。表加 git 历史，就能还原「当时是怎么想的、后来为什么变了」。
 
 ## 时间线
@@ -35,9 +36,16 @@
 | 2026-11-18 | `docs/productization/04-dsh-gui-relationship.md` | 归档 | [`docs/archive/productization/04-dsh-gui-relationship.md`](productization/04-dsh-gui-relationship.md)；取代：docs/productization/06-a2a-superagent-fusion.md「一之三」 | 前提是人在 DSH Web GUI 和市场之间切换；属主 2026-11-11 定「人只用市场」 | 属主 11-11 裁定 |
 | 2026-11-18 | `docs/productization/14-team-and-assignment.md` | 合并（并入第 15 篇）后归档 | [`docs/archive/productization/14-team-and-assignment.md`](productization/14-team-and-assignment.md)；取代：docs/productization/15-two-layer-org.md（第八节） | 两层组织（属主 2026-11-17）改掉了部门、负责人、成员分给员工这套；仍然成立的四节已并进第 15 篇 | #819；属主 11-17 裁定 |
 | 2026-11-18 | `docs/productization/15-two-layer-org.md` | 合并（14 的四小节并入第八节） | 原位置不变 | 14 仍然成立的：卡住的事往上冒、改派、数字从事项来、编制变更由市场提节点确认 | #819；属主 11-17 裁定 |
+| 2026-11-18 | `docs/productization/03-cockpit-v2.md` | 改写：第一节挪进文末「历史」 | 原位置 | 第一节「现状」测的是已弃用的旧界面（属主 11-11 原 UI 弃用） | #833 |
+| 2026-11-18 | `docs/productization/05-token-v2.md` | 加状态行 | 原位置 | v2 没开工，DESIGN.md 仍是 v1.0.0；正文照旧 | #833 |
+| 2026-11-18 | `docs/productization/06-a2a-superagent-fusion.md` | 改写：第二、三节挪进文末「历史」 | 原位置 | v2 提案和 superagent 规则覆盖被上游现行合同取代（见「一之二补」） | #833 |
+| 2026-11-18 | `docs/productization/07-a2a-adapter-refactor.md` | 改写：第一节挪进文末「历史」 | 原位置 | 现状盘点是 11-10 的文件和行号；阶段七做了大半 | #833 |
+| 2026-11-18 | `docs/productization/09-constraint-system.md` | 改写：第四、六节挪进文末「历史」 | 原位置 | 11-10 的基线和落地批次已落地；现在的数字以 tech-route.json 为准 | #833 |
+| 2026-11-18 | `docs/productization/11-identity-and-permission.md` | 改写：第一、二、六、七节原文挪进文末「历史」，正文第一、七节写现在的口径 | 原位置 | 站内账号（属主 11-16）、Odoo 全面下线（11-17）改掉了「飞书直连、不存密码、不做登录页」和过渡步骤 | #833 |
+| 2026-11-18 | `docs/productization/README.md` | 改链接 | 原位置 | 指向 04、14 的链接改到归档位置（#825 合并之后） | #833 |
 
 ## 这一批没动、以后再处理的
 
 - `design-system/workbench-market/MASTER.md`：原计划并进 `PATTERNS.md`。但开发验证器（`scripts/gen-verifier.mjs` 判据 33、44、45，`scripts/make-submission.mjs`）钉着这个文件的路径和两个色值，挪走会让验证器失败，等验证器的判据改了再并。
 - Odoo 三篇（`docs/odoo-browser-origin.md`、`docs/odoo-login-relay.md`、`docs/odoo-operator-setup.md`）：等 Odoo 全面下线（#823）合并之后归档。
-- `docs/productization/README.md` 里指向 04、14 的链接、第 12 篇：#825 正在改它们，那边合并之后再改到新位置；在那之前，原路径的占位文件指到归档。
+- 第 12 篇的「历史」节：#825 把它定为唯一路线图，由统筹会话做。（`docs/productization/README.md` 指向 04、14 的链接已在 #825 合并后改到归档位置。）

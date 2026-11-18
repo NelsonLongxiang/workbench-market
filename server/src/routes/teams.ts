@@ -50,7 +50,7 @@ import { orgWideManagement, teamName, teamVisibleTo } from '../team-relation.ts'
 import { CONFIRM_BY, type RelationProposalService } from '../services/relation-proposal.ts';
 
 export type TeamRouteDeps = {
-  markOdooAdmin: (req: express.Request) => Promise<void>;
+  markAdmin: (req: express.Request) => Promise<void>;
   adminGuard: (req: express.Request, res: express.Response) => boolean;
   adminHeaderOk: (req: express.Request) => boolean;
   adminActor: (req: express.Request) => string;
@@ -94,7 +94,7 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
     res.set('Cache-Control', 'private, no-store');
     if (!browserMarked(req) && rawLoopback(req)) return { kind: 'admin', by: 'cli', principal: null };
     if (deps.crossOriginDenied(req)) { res.status(403).json({ error: 'teams_cross_origin_denied' }); return null; }
-    await deps.markOdooAdmin(req);
+    await deps.markAdmin(req);
     const admin = deps.adminHeaderOk(req);
     const cookie = String(req.headers.cookie ?? '');
     const who = cookie ? await identity().resolveViewer(cookie) : null;
@@ -133,7 +133,7 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
   /** 管理员（同源）或本机命令行；不是就回 403，返回 null */
   async function admin(req: express.Request, res: express.Response): Promise<(Actor & { owner: boolean }) | null> {
     if (!browserMarked(req) && rawLoopback(req)) return { by: 'cli', principal: null, owner: true };
-    await deps.markOdooAdmin(req);
+    await deps.markAdmin(req);
     if (!deps.adminGuard(req, res)) return null;
     const by = deps.adminActor(req);
     const principal = actorPrincipal(by);

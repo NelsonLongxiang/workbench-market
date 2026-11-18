@@ -118,37 +118,22 @@ try {
   ok('待办来源并入，带 label/color', j.sources?.demo?.ok === true && j.sources.demo.label === '演示来源' && j.sources.demo.color === 'purple', JSON.stringify(j.sources?.demo));
   ok('来源只收自己键的条目（冒名条目丢弃）', j.tasks.some((t) => t.id === 'demo:1' && t.readonly_note === '只读') && !j.tasks.some((t) => t.id === 'x:1'));
   ok('来源抛错：降级为稳定码，不回原始错误', j.sources?.['demo-broken']?.ok === false && j.sources['demo-broken'].error === 'demo-broken_source_unavailable' && !JSON.stringify(j).includes('PRIVATE_DETAIL'), JSON.stringify(j.sources?.['demo-broken']));
+  // 已弃用的兼容壳 ctx.odoo：扩展照常加载（addReturnPath 不抛错、什么都不做），用到时打一行弃用警告，只打一次
+  const deprec = (g.p.out.match(/ctx\.odoo 已弃用/g) ?? []).length;
+  ok('ctx.odoo 兼容壳：扩展照常加载，用到时警告一次「已弃用、改用 ctx.identity」', deprec === 1 && /\[ext:demo\] ctx\.odoo 已弃用/.test(g.p.out), `出现 ${deprec} 次`);
   g.p.kill(); await g.done;
 
-  // ---- Odoo 地址旧名 LC_ODOO_URL 兼容（已弃用）：只设旧名能用；两个都设以 WM_ODOO_URL 为准 ----
-  const SID = 'sidCompat' + '0'.repeat(23);
-  const odoo = createServer((req, res) => { req.resume(); req.on('end', () => { const ok = String(req.headers.cookie).includes(SID); res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(ok ? { result: { uid: 7, username: 'compat', name: 'Compat', is_internal_user: true } } : { error: { code: 100 } })); }); });
-  await new Promise((x) => odoo.listen(0, '127.0.0.1', x));
-  const good = `http://127.0.0.1:${odoo.address().port}`;
-  const viewer = async (s) => { const x = await fetch(s.base + '/api/auth/viewer', { headers: { cookie: `session_id=${SID}` } }); return { status: x.status, j: await x.json().catch(() => null) }; };
-  const old = boot('odoo-old', undefined, { LC_ODOO_URL: good });
-  ok('只设旧名 LC_ODOO_URL：启动', await ready(old), old.p.out.slice(-300));
-  let v = await viewer(old);
-  ok('只设旧名：照常认人', v.status === 200 && v.j?.viewer?.login === 'compat', JSON.stringify(v));
-  ok('只设旧名：启动告警已弃用、请改名', /LC_ODOO_URL 已弃用，请改名为 WM_ODOO_URL/.test(old.p.out), old.p.out.slice(-300));
-  old.p.kill(); await old.done;
-  const both = boot('odoo-both', undefined, { WM_ODOO_URL: good, LC_ODOO_URL: 'http://127.0.0.1:9' });
-  ok('两个都设：启动', await ready(both), both.p.out.slice(-300));
-  v = await viewer(both);
-  ok('两个都设：以 WM_ODOO_URL 为准', v.status === 200 && v.j?.viewer?.login === 'compat', JSON.stringify(v));
-  ok('两个都设：告警旧名可删', /以 WM_ODOO_URL 为准，LC_ODOO_URL 可删/.test(both.p.out), both.p.out.slice(-300));
-  both.p.kill(); await both.done;
-  await new Promise((x) => odoo.close(x));
-
-  const { addOdooReturnPath, safeReturnPath } = await import('../server/src/login-providers/odoo/odoo-session.ts');
-  // 回跳白名单收首页 /（统一待办 /tasks 已退役，不再收）；/ 收进来以后，协议相对、点段、反斜杠这些照样不收
-  ok('登录回跳收首页、不收已退役的 /tasks；/ 收进来以后外站写法照样不收', safeReturnPath('/') === '/' && safeReturnPath('/?x=1') === '/?x=1' && safeReturnPath('/tasks') === null
-    && ['//evil.example/', '/.//evil.example', '/%2e//evil.example', '/\\evil.example', 'http://evil.example/', '/\t/evil.example'].every((v) => safeReturnPath(v) === null));
-  ok('登录回跳白名单默认不含扩展页', safeReturnPath('/demo-page') === null);
-  addOdooReturnPath('/demo-page');
-  ok('ctx.odoo.addReturnPath 登记后可回跳（含 query）', safeReturnPath('/demo-page?x=1') === '/demo-page?x=1');
-  threw = ''; try { addOdooReturnPath('//evil.example'); } catch (e) { threw = String(e.message); }
-  ok('回跳页路径非法 → 抛错', /路径非法/.test(threw), threw);
+  // ---- Odoo 已下线（2026-11-17）：旧变量（含旧名 LC_ODOO_URL、内容面那几个）还设着照常启动、逐个告警「已下线、忽略」，带 Odoo 会话认不出人 ----
+  {
+    const SID = 'sidCompat' + '0'.repeat(23);
+    const both = boot('odoo-retired', undefined, { WM_ODOO_URL: 'http://127.0.0.1:9', LC_ODOO_URL: 'http://127.0.0.1:9', WM_CONTENT_PORT: '0', WM_CONTENT_IP: '127.0.0.2', WM_CONTENT_TARGETS: '[{bad json' });
+    ok('旧的 Odoo 变量还设着：照常启动（不拒启动）', await ready(both), both.p.out.slice(-300));
+    const x = await fetch(both.base + '/api/auth/viewer', { headers: { cookie: `session_id=${SID}` } });
+    const j = await x.json().catch(() => null);
+    ok('带 Odoo 会话：认不出人（不再有身份来源）', x.status !== 200 && j?.ok !== true, JSON.stringify({ status: x.status, j }));
+    ok('旧变量逐个告警已下线、忽略（内容面的变量配错了也不拒启动）', ['WM_ODOO_URL', 'LC_ODOO_URL', 'WM_CONTENT_IP', 'WM_CONTENT_TARGETS'].every((n) => both.p.out.includes(`"name":"${n}"`)) && /已下线/.test(both.p.out), both.p.out.slice(-300));
+    both.p.kill(); await both.done;
+  }
 } catch (e) {
   fail++; console.log('  ✗ 异常', e?.stack ?? e);
 } finally {

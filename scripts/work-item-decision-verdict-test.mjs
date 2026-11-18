@@ -3,10 +3,10 @@
  * 事项上替人做决定的动作只有一个判法（work-item-access.ts 的 itemDecisionVerdict）：can.*、真去调接口、「关注」的答法和 mine 出自它。
  * 对抗组：四种身份 × 五个动作，逐个先看 can、再真调，两边必须对得上；能做的留痕要记真实的人和 acting_for。
  *
- *   身份：只有管理口令；只有系统管理员角色（身份来源说是管理员、另有一份系统管理授予，没有管理层授予）；
+ *   身份：只有管理口令；只有系统管理员角色（一份系统管理授予，没有管理层授予）；
  *         持有管理层授予的非建立人；建立人本人
  *   动作：answer（答席位提问：「关注」和事项入口 /asks/:qid/answer 两个入口）、reply（事项对话里回复）、verify、return（事项自己的决定入口和「关注」两个入口各试一次）、release
- *   期望：口令、系统管理员角色——五个都不能（看得到，答不了）；持管理层授予的——都能，留痕 acting_for（放行 team-lead、其余 creator）；
+ *   期望：口令——五个都不能（看得到，答不了）；系统管理员角色——事项是业务数据，连看都看不到（管理员只认授予：系统管理员只在非业务域算管理员），五个都不能；持管理层授予的——都能，留痕 acting_for（放行 team-lead、其余 creator）；
  *         建立人——除放行（这件不是自审）外都能，留痕不带 acting_for
  *   「关注」：每种身份看到的答法 = can；mine 只对建立人是 true
  *
@@ -51,7 +51,7 @@ const publish = (title, dispatch) => {
   const id = Number(db.prepare("INSERT INTO tasks (title, status, published_at, published_by) VALUES (?, 'published', '2026-01-01 00:00:00', 'root-admin')").run(title).lastInsertRowid);
   const fields = { title, intent: 'i', references: '', deliverable: 'd', target: '', due: '' };
   db.exec('BEGIN IMMEDIATE');
-  const e = ev.recordTaskCenterEvent({ id, data: fields, stepValue: (k) => fields[k], publishedBy: 'root-admin', requesterPrincipal: 'user:alpha', publisherPrincipal: 'user:root-admin', templateVersion: 1, materialSha256: 'h', agentDispatch: dispatch, centerOn: dispatch });
+  const e = ev.recordTaskCenterEvent({ id, data: fields, stepValue: (k) => fields[k], publishedBy: 'root-admin', requesterPrincipal: 'user:alpha', publisherPrincipal: 'user:root-admin', templateVersion: 1, materialSha256: 'h', agentDispatch: dispatch, centerOn: dispatch , arranged: { team: 'dsh/canvas/team-a', submitter: 'human:root-admin' } });
   db.exec('COMMIT');
   return { event: e, item: 'wi_' + e, delivery: db.prepare('SELECT id FROM workbench_event_deliveries WHERE event_id = ?').get(e).id };
 };
@@ -79,7 +79,7 @@ let child = null, log = '';
 try {
   const data = join(OUT, 'data'), home = join(OUT, 'home');
   for (const d of [data, home, join(OUT, 'ext')]) mkdirSync(d, { recursive: true });
-  const env = { PATH: process.env.PATH, HOME: home, DATA_DIR: data, NODE_ENV: 'test', ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'on', WM_CONTROL_PORT: '0', IDENTITY_SEAM_ROOT: ROOT, WM_EXTENSIONS_DIR: join(OUT, 'ext'), MARKET_PUBLIC_URL: 'http://market.synthetic.invalid' };
+  const env = { PATH: process.env.PATH, HOME: home, DATA_DIR: data, NODE_ENV: 'test', ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'on', WM_CONTROL_PORT: '0', IDENTITY_SEAM_ROOT: ROOT, IDENTITY_FAKE_ADMIN_GRANT: 'admin', WM_EXTENSIONS_DIR: join(OUT, 'ext'), MARKET_PUBLIC_URL: 'http://market.synthetic.invalid' };
   const seeded = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', SEED], { env, encoding: 'utf8' });
   const m = /SEEDED (.*)/.exec(seeded.stdout);
   if (!m) throw new Error(`造数据失败：${seeded.stderr.slice(-800)}`);
@@ -140,7 +140,9 @@ try {
     console.log(`— ${w}`);
     // ---------- 看得到；can 和期望一致 ----------
     const dAsked = await detail(s.asked, w), dHeld = await detail(s.held, w), dReady = await detail(s.verifyD, w);
-    check(!!(dAsked && dHeld && dReady), `${w}：看得到这几件的详情`, show({ asked: !!dAsked, held: !!dHeld, ready: !!dReady }));
+    const blind = w === '系统管理员角色';
+    if (blind) check(!dAsked && !dHeld && !dReady, `${w}：看不到这几件的详情（业务数据）`, show({ asked: !!dAsked, held: !!dHeld, ready: !!dReady }));
+    else check(!!(dAsked && dHeld && dReady), `${w}：看得到这几件的详情`, show({ asked: !!dAsked, held: !!dHeld, ready: !!dReady }));
     const can = { answer: !!dAsked?.can?.answer, reply: !!dAsked?.can?.reply, verify: !!dReady?.can?.verify, return: !!dReady?.can?.return, release: !!dHeld?.can?.release };
     check(show(can) === show(e), `${w}：can = 期望`, show({ can, e }));
     const mine = !!dReady?.turn?.verify;
@@ -150,8 +152,9 @@ try {
     const att = await attention(w);
     const ask = att.find((x) => x.source === 'seat-asks' && x.source_id === String(s.delivery));
     const acc = att.find((x) => x.source === 'work-items' && x.source_id === s.verifyA);
-    check(!!ask && show(ask.answers) === show(e.answer ? ['answer'] : []) && ask.mine === (w === '建立人'), `${w}：「关注」里的席位提问，答法 = can.answer，mine 只对建立人`, show(ask && { answers: ask.answers, mine: ask.mine }));
-    check(!!acc && show(acc.answers) === show(e.verify ? ['verify', 'return'] : []) && acc.mine === (w === '建立人'), `${w}：「关注」里的待验收，答法 = can.verify/return，mine 只对建立人`, show(acc && { answers: acc.answers, mine: acc.mine }));
+    if (blind) check(!ask && !acc, `${w}：「关注」里没有这几件`, show({ ask: !!ask, acc: !!acc }));
+    else check(!!ask && show(ask.answers) === show(e.answer ? ['answer'] : []) && ask.mine === (w === '建立人'), `${w}：「关注」里的席位提问，答法 = can.answer，mine 只对建立人`, show(ask && { answers: ask.answers, mine: ask.mine }));
+    if (!blind) check(!!acc && show(acc.answers) === show(e.verify ? ['verify', 'return'] : []) && acc.mine === (w === '建立人'), `${w}：「关注」里的待验收，答法 = can.verify/return，mine 只对建立人`, show(acc && { answers: acc.answers, mine: acc.mine }));
 
     // ---------- 真调：can 说能就放行，说不能就拒；能做的留痕记真实的人和 acting_for ----------
     const factOk = (f, acting) => f && f.actor === PRINCIPAL[w] && (JSON.parse(f.detail || '{}').acting_for ?? '') === acting;
@@ -166,8 +169,9 @@ try {
     await tryIt('reply', e.reply, () => call('POST', `/api/work-items/${s.asked}/messages/${s.msg}/reply`, H[w], { text: '回' }), s.asked, 'note', acting);
     // 答席位提问有两个入口：「关注」和事项自己的 POST /api/work-items/:id/asks/:qid/answer（#567），同一个判法。
     // 答不了的两个入口都试；答得了的只能答一次（答了提问就合上），管理层授予走事项入口、建立人走「关注」
-    const qid = dAsked?.asks?.find((a) => a.status === 'open')?.id;
-    check(Number.isInteger(qid), `${w}：详情 asks 里有在等的提问（拿到 qid）`, show(dAsked?.asks));
+    // 看不到详情的身份（系统管理员角色）：提问号从口令看到的详情里取，照样两个入口都去试
+    const qid = (blind ? await detail(s.asked, '口令') : dAsked)?.asks?.find((a) => a.status === 'open')?.id;
+    check(Number.isInteger(qid), `${w}：${blind ? '（借口令的详情）' : '详情 '}asks 里有在等的提问（拿到 qid）`, show(dAsked?.asks));
     const viaItem = () => call('POST', `/api/work-items/${s.asked}/asks/${qid}/answer`, H[w], { text: '东店' });
     if (!e.answer || w === '管理层授予') await tryIt('answer（事项入口）', e.answer, viaItem, s.asked, 'answer', acting);
     if (!e.answer || w === '建立人') await tryIt('answer（「关注」）', e.answer, () => viaAttn(w, 'seat-asks', s.delivery, 'answer', { text: '东店' }), s.asked, 'answer', acting);

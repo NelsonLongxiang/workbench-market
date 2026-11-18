@@ -65,13 +65,13 @@ export function registerKnowledgeRoutes(app: HttpService, deps: KnowledgeRouteDe
     res.set('Cache-Control', 'private, no-store');
     res.vary('Cookie'); res.vary('X-Admin-Token');
     if (req.headers['sec-fetch-site'] === 'cross-site' || (req.headers.origin && !originIsThisSurface(req) && !deps.devOriginOk(req))) return void res.status(403).json({ error: 'knowledge_cross_origin_denied' });
-    const { actor, admin } = await actorOf(req);
+    const { actor } = await actorOf(req);
     // 没登录：直接 401，不进判定（判定出错时匿名也照样是 401）
     if (actor.type === 'builtin' && actor.name === 'anonymous') return void res.status(401).json({ error: 'login_required' });
     let allowed: boolean;
     try {
-      // 和判定切换的门同一个口径：身份来源说是管理员的人，第一次见到时迁移出系统管理员预设（同一个人只迁一次），再问判定
-      migrateOnSight(actor, admin);
+      // 和判定切换的门同一个口径：第一次见到的人迁出成员预设（同一个人只迁一次），再问判定
+      migrateOnSight(actor);
       allowed = judge({ actor, action: 'knowledge.sync-status', kind: 'admin', declared: true }).verdict === 'allow';
     } catch { return void res.status(503).json(JUDGMENT_DOWN); }
     if (!allowed) return void res.status(403).json({ error: 'knowledge_status_denied', message: '同步状态给管理员看' });

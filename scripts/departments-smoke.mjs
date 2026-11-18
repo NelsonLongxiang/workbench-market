@@ -51,7 +51,7 @@ async function boot() {
   for (const d of [data, home, ext]) mkdirSync(d, { recursive: true });
   const env = {};
   for (const k of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP']) if (process.env[k]) env[k] = process.env[k];
-  Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN, REDIS_URL: '', IDENTITY_SEAM_ROOT: ROOT, WM_EXTENSIONS_DIR: ext });
+  Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN, REDIS_URL: '', IDENTITY_SEAM_ROOT: ROOT, IDENTITY_FAKE_ADMIN_GRANT: 'admin', WM_EXTENSIONS_DIR: ext });
   child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
   child.stdout.on('data', (d) => { log += String(d); });
@@ -115,7 +115,7 @@ try {
     const proposedLead = byToken.json?.department?.lead === null && byToken.json?.lead_proposal?.status === 'pending';
     await srv.call('PUT', '/api/departments/sales', { body: { name: '合成销售部', lead: 'user:alpha' } });
     check(byToken.status === 201 && byToken.json?.department?.name === '合成销售部' && proposedLead && byRoot.status === 201 && byCli.status === 201
-      && db.prepare("SELECT updated_by FROM departments WHERE id = 'ops'").get()?.updated_by === 'odoo:root-admin' && at >= t0 && at <= Date.now(),
+      && db.prepare("SELECT updated_by FROM departments WHERE id = 'ops'").get()?.updated_by === 'user:root-admin' && at >= t0 && at <= Date.now(),
       '对照：口令管理员、管理员登录同源、本机命令行能建部门；名称去掉首尾空白；改动的人和时间（代码给的毫秒）记下；口令管理员指定的负责人只记成提议',
       show({ token: byToken.status, root: byRoot.status, cli: byCli.status, at, t0 }));
   }

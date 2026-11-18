@@ -99,6 +99,8 @@ try {
     const ident = db.prepare("INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES ('fake', ?, ?, ?)"); // 合成的登录提供方叫 fake
     person.run('user:no-flag', 'user:no-flag', '合成甲'); ident.run('truthy-flag', 'truthy-flag', 'user:no-flag');
     person.run('user:bob-synth', 'user:bob-synth', '合成乙'); ident.run('no-flag', 'no-flag', 'user:bob-synth');
+    // 账上的 odoo:<登录名> 是 Odoo 下线前的留痕：按库里保留的 Odoo 绑定对回主体（不看现在登记的是哪个身份来源）
+    db.prepare("INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES ('odoo', 'no-flag', 'no-flag', 'user:bob-synth')").run();
     db.prepare("INSERT INTO attention_answers (source, source_id, answer, state, status, answered_by) VALUES ('work-items', ?, 'release', 'done', 200, 'odoo:no-flag')").run(`${I.v5}:1`);
     db.close();
   }

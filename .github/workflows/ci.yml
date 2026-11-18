@@ -133,13 +133,6 @@ jobs:
           path: ~/.cache/playwright-apt
           key: ${{ steps.apt-cache.outputs.cache-primary-key }}
       - run: pnpm --filter web build
-      - name: Odoo same-host login and logout (synthetic HTTP and Chromium)
-        run: |
-          export CHROME_BIN=$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')
-          node scripts/odoo-same-host-login-smoke.mjs
-          node scripts/odoo-browser-origin-http-test.mjs
-          node scripts/odoo-logout-smoke.mjs
-          node scripts/log-secret-relay-headers-smoke.mjs
       - name: SOP metadata-only history UI (#309, synthetic intercepted API)
         env:
           PYTHON: python
@@ -212,10 +205,6 @@ jobs:
           path: dsh-open-a2a-net
       - name: 完整 E2E 跑器隔离回归（宿主 YGL_HOME 诱饵不透传）
         run: node scripts/e2e-full-run-isolation-smoke.mjs
-      - name: Content full-index launch and revocation browser (fake Odoo, no production)
-        env:
-          PYTHON: python
-        run: node scripts/content-index-browser.mjs
       - name: SOP read-only preview browser (intercepted origin; no TCP or production)
         env:
           PYTHON: python
@@ -418,7 +407,7 @@ jobs:
       - name: 工作台的常量、变量存进台库（WM_VARS_STORE：迁移能重复跑、同步点（bench → main → bench 不丢、并发写不丢、两边都改过报分叉）、shadow 跟写、按摘要比对、写回主库、main 档不动台库结构；高频变量 hot. 先写 Redis、30 秒落盘、Redis 不通有待落盘回 503；同一份录带在 shadow、bench 两档下也零差异；主库和台库两个实例随机操作逐条一样）
         run: node scripts/vars-store-test.mjs && node scripts/vars-hot-test.mjs && WM_VARS_STORE=shadow node scripts/route-replay-test.mjs workbench-vars && WM_VARS_STORE=bench node scripts/route-replay-test.mjs workbench-vars && node scripts/vars-store-diff-test.mjs
       - name: Startup security self-probe (#326, loopback synthetic only)
-        run: node scripts/startup-security-self-probe-test.mjs && node scripts/startup-security-self-probe-http-test.mjs && node scripts/startup-security-self-probe-upgrade-test.mjs
+        run: node scripts/startup-security-self-probe-test.mjs && node scripts/startup-security-self-probe-http-test.mjs
       - name: 门户转发前去掉市场自身的认证信息（GET、POST、WebSocket 握手里没有市场的口令、令牌、凭据头和市场 cookie；台自己的头和 cookie 照旧；启动自检这一行过了）
         run: node scripts/portal-forward-strip-test.mjs
       - name: Portal per-workbench access (synthetic HTTP and WS; no production)
@@ -437,11 +426,11 @@ jobs:
         run: node scripts/portal-call-chain-test.mjs && node scripts/verifier-masked-import-test.mjs
       - name: 统一待办 ygl-trees 项目上限与总预算（合成入口）
         run: node scripts/ygl-project-cap-smoke.mjs
-      - name: Content admission and terminal surface (synthetic only)
-        run: node scripts/content-access-test.mjs && node scripts/content-surface-test.mjs && node scripts/content-stream-revocation-test.mjs && node scripts/content-migration-test.mjs && node scripts/content-query-credentials-test.mjs && node scripts/content-static-test.mjs && node scripts/portal-observation-test.mjs
+      - name: Portal passive observation (synthetic only)
+        run: node scripts/portal-observation-test.mjs
       - name: SOP read-only preview validation (no browser or production routing)
         run: node scripts/sop-field-rules-smoke.mjs && node scripts/sop-run-upgrade-smoke.mjs && node scripts/sop-field-finish-test.mjs && node scripts/sop-field-finish-router-test.mjs && node scripts/sop-field-upload-test.mjs && node scripts/sop-field-upload-router-test.mjs && node scripts/sop-field-save-test.mjs && node scripts/sop-field-router-test.mjs && node scripts/sop-field-channel-state-test.mjs && node scripts/sop-run-access-test.mjs && node scripts/sop-readonly-assembly-test.mjs && node scripts/sop-readonly-channel-test.mjs && node scripts/sop-readonly-state-test.mjs
-      - name: Taskcenter B1 seed and intake publication
+      - name: 任务中心种子台、录入 run、总开关和任务级派发开关、撤回、任务事件只增（录入发布已退役：404）
         run: node scripts/taskcenter-intake-smoke.mjs
       # OriginClaim 绑定形式：裁判是上游 verifyOriginClaim（钉在含 src/origin-claim.ts 的 master 提交），按关窗后的状态判
       - uses: actions/checkout@v4
@@ -492,7 +481,7 @@ jobs:
         run: node scripts/a2a-answers-test.mjs
       - name: 席位用节点签名换短期 MCP 令牌（钉住的公钥验签·名册里的席位·别的宿主冒名/停用/待确认/时间窗/受众/重放一律同一个 401·每次调用复核·授权挂在席位主体上跨令牌保留·X-Team-Seat 只对账·限频）
         run: node scripts/seat-token-test.mjs
-      - name: 工作台事件层 v1（人提交→事件→团队接单：held/release·自动派发·退避重试/dead·决定端点·unrouted·表单 unverified·只增日志；对端上游裁判按关窗验）
+      - name: 工作台事件层 v1（安排一件事→事件→团队接单：先过目 held·负责人或管理层放行·自动派发·退避重试/dead·决定端点·撤回与途中撤回·派不了的团队不建事件·表单 unverified·只增日志·终态判据·事项和回填一致；旧的发布和管理员放行入口 404）
         env:
           A2A_ORIGIN_SRC: ${{ github.workspace }}/dsh-open-a2a-net/src/origin-claim.ts
         run: node scripts/workbench-events-smoke.mjs
@@ -512,10 +501,8 @@ jobs:
         run: node scripts/mcp-upload-integrity-smoke.mjs
       - name: ygl-trees 作为 MCP 上游（#474：stdio 子进程·配置校验·环境不含口令·命令执行关闭·按会话授权·超时重启）
         run: node scripts/ygl-upstream-smoke.mjs
-      - name: 全站登录门（WM_LOGIN_GATE：enforce 匿名 302/401·口令登录 cookie·限频退避·next 防外跳·台令牌/查看凭证·/mcp 网关·本机命令行·Odoo 替身·off 不变·坏值拒启）
+      - name: 全站登录门（WM_LOGIN_GATE：enforce 匿名 302/401·口令登录 cookie·限频退避·next 防外跳·台令牌/查看凭证·/mcp 网关·本机命令行·假身份来源·off 不变·坏值拒启）
         run: node scripts/login-gate-smoke.mjs
-      - name: Odoo 用户登录后由市场维持会话（浏览器的 Odoo cookie 过期照样认得出·Odoo 注销或停用后会话跟着注销·不可达不注销·换账号·会话号加密存放不外泄）
-        run: node scripts/odoo-market-session-test.mjs
       - name: 登录门上线演练（enforce 隔离实例：MCP/健康/A2A/SOP/台与门户/生命周期/运维/回滚逐类真实请求）
         run: node scripts/login-gate-rollout-check.mjs
       - name: MCP 权限可见与自助申请（access_info 全目录·access_request 去重限频·管理员批准并集/驳回不动 grants/吊销不能批·app_data_submit 与 REST 同核契约校验·匿名 401）
@@ -622,14 +609,10 @@ jobs:
         run: node scripts/login-href-unit.mjs
       - name: 门户名单写法单测（新写站内账号·历史 odoo: 项原样保留）
         run: node scripts/portal-logins-unit.mjs
-      - name: Odoo 浏览器登录地址策略（WM_ODOO_BROWSER_URL）
-        run: node scripts/odoo-browser-origin-test.mjs
       - name: 来源 IP 单测（WM_TRUSTED_PROXIES：可信反代才认 X-Real-IP/XFF·伪造不生效·非法项拒绝启动）
         run: node scripts/client-ip-unit.mjs
-      - name: 日志不泄露上游会话 + 登录中继安全头（Set-Cookie 只记名·查询串不进日志·XFO/nosniff/frame-ancestors）
-        # 这一步只核响应头和日志。Chromium 嵌框那几条在 browser-security 里用钉住版本的 Chromium 跑（PLAYWRIGHT_VERSION）；
-        # 这里清掉 runner 镜像自带的 CHROME_BIN（系统 Google Chrome，版本随镜像漂：镜像 20261111 升到 157，被拦的子框不再出现在主框架树里）
-        run: CHROME_BIN= node scripts/log-secret-relay-headers-smoke.mjs
+      - name: 门户日志不泄露上游会话（Set-Cookie 只记名·查询串不进日志）
+        run: node scripts/portal-log-secret-smoke.mjs
       - name: 管理员口令止血单测（#292 M4：pagehide 抹口令·变更广播）
         run: node scripts/admin-token-guard-unit.mjs
       - name: 门户改写冒烟（白屏三层与外链护栏、JS/CSS 的 /api/ 前缀、同源绝对链接、Referer 只到目标源、自产台 CSP sandbox、cookie 的 Secure 与 __Host- 处理、泛化根路径）

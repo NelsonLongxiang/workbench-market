@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 // #159 B1: true HTTP flows on an isolated DATA_DIR; no production requests.
+// 录入发布（POST /api/task-center/tasks）、按编号发布已退役（任务只经「安排一件事」建）：发布入口回 404。
+// 这里照旧守任务中心的种子台（模板、REST/MCP 改不动、冒名的 meta 拒）、录入 run 完成后不可写、总开关和任务级派发开关、
+// 撤回、任务事件只增不改、重启后持久。要一件已发布的任务时，按旧发布写的两行（tasks、task_events）直接造一件存量的录入任务。
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -40,28 +43,18 @@ try{
  async function intake(){const r=await call('/api/sop/runs',{slug:'task-center'});assert.equal(r.status,201);CAPS[r.j.id]=String(r.j.read_capability||'');for(const [k,v]of Object.entries(values)){const s=await call('/api/sop/runs/'+r.j.id,{stepKey:k,value:v},'PUT');assert.equal(s.status,200);}return r.j.id;}
  const taskGet=async id=>(await fetch(base+'/api/task-center/tasks/'+id,{headers:RC(id)})).json();
  const id=await intake();
- const unfinished=await call('/api/task-center/tasks',{intake_run_id:id,published_by:'fixture'});
- check('C3 unfinished run rejected400',()=>assert.equal(unfinished.status,400));
  await call('/api/sop/runs/'+id+'/finish',{});
- const noAdmin=await call('/api/task-center/tasks',{intake_run_id:id,published_by:'fixture'},'POST',{'X-Admin-Token':''});
- check('C9 no admin rejected',()=>assert.ok([401,403].includes(noAdmin.status)));
- const foreign=await call('/api/task-center/tasks',{intake_run_id:id,published_by:'fixture'},'POST',{Origin:'https://evil.example'});
- check('C10 foreign origin rejected',()=>assert.equal(foreign.status,403));
- const pub=await call('/api/task-center/tasks',{intake_run_id:id,published_by:'fixture'});
- check('C1 completed run published201',()=>assert.equal(pub.status,201,JSON.stringify(pub.j)));
+ const retired=await call('/api/task-center/tasks',{intake_run_id:id,published_by:'fixture'});
+ const retiredById=await call('/api/task-center/tasks/1/publish',{});
+ check('录入发布、按编号发布已退役：管理口令来也是 404',()=>{assert.equal(retired.status,404);assert.equal(retiredById.status,404);});
+ const seedLegacyTask=(runId,by,dispatch=false)=>{const db=new DatabaseSync(resolve(data,'workbench-market.db'),{timeout:5000});try{const run=db.prepare('SELECT * FROM sop_runs WHERE id=?').get(runId);const actor='human:'+by;const tid=Number(db.prepare("INSERT INTO tasks(title,kind,payload_json,status,intake_run_id,template_version,material_sha256,published_at,published_by,created_by,agent_dispatch_enabled) VALUES(?,'录入',?,'published',?,?,?,datetime('now'),?,?,?)").run(values.title,run.data,runId,run.sop_version,createHash('sha256').update(canonical(values)).digest('hex'),actor,actor,dispatch?1:0).lastInsertRowid);db.prepare("INSERT INTO task_events(task_id,type,actor,actor_kind,payload_json) VALUES(?,'published',?,'human',?)").run(tid,actor,JSON.stringify({intake_run_id:runId}));return tid;}finally{db.close();}};
+ const pub={j:{id:seedLegacyTask(id,'fixture')}};
  const task=await taskGet(pub.j.id);
- check('C19 pinned run/template',()=>{assert.equal(task.intake_run_id,id);assert.equal(task.template_version,template.version);});
- check('C2 canonical run hash',()=>assert.equal(task.material_sha256,createHash('sha256').update(canonical(values)).digest('hex')));
  check('C6 task switch defaults off',()=>{assert.equal(task.agent_dispatch,false);assert.equal(task.agent_dispatch_effective,false);});
  const policy=await (await fetch(base+'/api/task-center/policy')).json();
  check('C7 center policy defaults off',()=>assert.equal(policy.agent_dispatch_enabled,false));
- const dup=await call('/api/task-center/tasks',{intake_run_id:id,published_by:'fixture'});
- check('C4 same run conflicts409',()=>assert.equal(dup.status,409));
  const frozen=await call('/api/sop/runs/'+id,{stepKey:'title',value:'changed'},'PUT');
  check('C5 finished/published intake cannot write',()=>assert.equal(frozen.status,409));
- const other=await intake();await call('/api/sop/runs/'+other+'/finish',{});
- const same=await call('/api/task-center/tasks',{intake_run_id:other,published_by:'fixture'});
- check('different runs with same material both publish',()=>assert.equal(same.status,201,JSON.stringify(same.j)));
  const mutate=await call('/api/sops/task-center/deprecate',{},'POST',{'X-Admin-Token':''});
  check('C14 seed deprecate without admin rejected',()=>assert.ok([400,401,403].includes(mutate.status)));
  const seedYaml=JSON.stringify({title:'task-center',meta:'task-center',steps:template.steps});
@@ -73,22 +66,8 @@ try{
    const r=await call('/mcp',{jsonrpc:'2.0',id:1,method:'tools/call',params:{name:tool,arguments:{slug:' TASK-CENTER ',kind:'sop',version:1,files:[{path:'sop.yaml',content:seedYaml}],changelog:'mcp blocked'}}});
    check('C14 MCP '+tool+' rejects normalized meta slug',()=>assert.ok(r.j.error||r.j.result?.isError,JSON.stringify(r.j)));
  }
- const missing=await call('/api/task-center/tasks',{intake_run_id:999999,published_by:'fixture'});
- check('missing intake rejected400',()=>assert.equal(missing.status,400));
- const empty=await call('/api/sop/runs',{slug:'task-center'});await call('/api/sop/runs/'+empty.j.id+'/finish',{});
- const invalid=await call('/api/task-center/tasks',{intake_run_id:empty.j.id,published_by:'fixture'});
- check('completed but empty intake rejected400',()=>assert.equal(invalid.status,400));
- const raced=await intake();await call('/api/sop/runs/'+raced+'/finish',{});
- const pair=await Promise.all([call('/api/task-center/tasks',{intake_run_id:raced,published_by:'fixture'}),call('/api/task-center/tasks',{intake_run_id:raced,published_by:'fixture'})]);
- check('concurrent same run yields one publish one conflict',()=>assert.deepEqual(pair.map(r=>r.status).sort(),[201,409]));
  const direct=await taskGet(pub.j.id);
- check('publication appends exactly one human event',()=>{assert.equal(direct.events.length,1);assert.equal(direct.events[0].actor,'human:fixture');});
- const shape=await call('/api/sop/runs',{slug:'task-center'});
- for(const key of ['title','intent','deliverable'])await call('/api/sop/runs/'+shape.j.id,{stepKey:key,value:{value:key==='title'?'Runner title':key}},'PUT');
- await call('/api/sop/runs/'+shape.j.id+'/finish',{});
- const shaped=await call('/api/task-center/tasks',{intake_run_id:shape.j.id,published_by:'fixture'});
- const shapedTask=await taskGet(shaped.j.id);
- check('Runner field object produces actual title',()=>{assert.equal(shaped.status,201);assert.equal(shapedTask.title,'Runner title');});
+ check('a published task carries exactly one human event',()=>{assert.equal(direct.events.length,1);assert.equal(direct.events[0].actor,'human:fixture');});
  check('C18 seed versions have changelog',()=>assert.ok(initial.versions.every(v=>v.changelog)));
  for(const [path,body,method] of [
    ['/api/task-center/tasks/'+pub.j.id+'/agent-dispatch',{enabled:true},'PATCH'],
@@ -125,10 +104,6 @@ try{
  await call('/api/task-center/policy',{agent_dispatch_enabled:true},'PUT');
  const withdrawnEffective=await taskGet(pub.j.id);
  check('withdrawn task never effective even with both flags',()=>assert.equal(withdrawnEffective.agent_dispatch_effective,false));
- const explicit=await intake();await call('/api/sop/runs/'+explicit+'/finish',{});
- const explicitTask=await call('/api/task-center/tasks',{intake_run_id:explicit,published_by:'fixture',agent_dispatch:true});
- const optIn=await taskGet(explicitTask.j.id);
- check('explicit human publication opt-in retained',()=>{assert.equal(optIn.agent_dispatch,true);assert.equal(optIn.agent_dispatch_effective,true);});
  const dbConn=new DatabaseSync(resolve(data,'workbench-market.db'), { timeout: 5000 });
  try {
    check('DB event UPDATE trigger blocks',()=>assert.throws(()=>dbConn.prepare('UPDATE task_events SET actor=? WHERE id=?').run('tamper',eid),/append only/));

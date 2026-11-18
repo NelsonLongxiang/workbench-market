@@ -19,7 +19,7 @@ import { parseRemember, rememberAnswer } from '../knowledge-remember.ts';
 
 export type AttentionRouteDeps = AttentionDeps & {
   /** 按需认定管理员登录（会话登录的管理员）：汇总之前认定一次，每个来源的守卫看到的是同一个结论，和提供方的先后无关 */
-  markOdooAdmin: (req: express.Request) => Promise<void>;
+  markAdmin: (req: express.Request) => Promise<void>;
   /** 跨站或别的站的页面来的请求：拒（index.ts 里和 /api/tasks 同一个判断） */
   crossOriginDenied: (req: express.Request) => boolean;
   /** 带的是有效的管理口令吗（记成经验时认人：管理口令不能记） */
@@ -37,7 +37,7 @@ export function registerAttentionRoutes(app: HttpService, deps: AttentionRouteDe
     res.vary('Cookie'); res.vary('X-Admin-Token');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'attention_cross_origin_denied' });
     (async () => {
-      await deps.markOdooAdmin(req);
+      await deps.markAdmin(req);
       // 带了 cookie、不是管理员、身份来源不可达：不给一个空列表（看着像「没有要拍板的」），回 502 和固定代号，页面说「登录服务暂时联系不上」
       const cookie = String(req.headers.cookie ?? '');
       if (cookie && !deps.adminHeaderOk(req) && sourceDown(await identity().resolveViewer(cookie))) {
@@ -75,7 +75,7 @@ export function registerAttentionRoutes(app: HttpService, deps: AttentionRouteDe
     const remember = b.remember === undefined ? null : parseRemember(b.remember);
     if (remember && !remember.ok) return void res.status(400).json({ error: 'remember_invalid', message: remember.message });
     (async () => {
-      await deps.markOdooAdmin(req);
+      await deps.markAdmin(req);
       // 带了 cookie、不是管理员、身份来源不可达：502 和固定代号（和「关注」列表、事项接口同一个口径）
       const cookie = String(req.headers.cookie ?? '');
       if (cookie && !deps.adminHeaderOk(req) && sourceDown(await identity().resolveViewer(cookie))) {
