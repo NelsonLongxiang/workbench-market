@@ -18,7 +18,7 @@
 | 引擎 | ygl-trees | 证据、知识沉淀成技能、验证器、科技树；生命周期状态机以它的插件形态运行 |
 | 入口 | **workbench-market（本仓）** | 人下达、审批、看产物；台、SOP、MCP、凭据库、身份 |
 
-市场是**组织层**的人用入口；单个席位怎么干活，在 DSH 自己的 Web GUI 里看（见 [04](04-dsh-gui-relationship.md)）。
+市场是**组织层**的人用入口；单个席位怎么干活，在 DSH 自己的 Web GUI 里看（见 [04](../archive/productization/04-dsh-gui-relationship.md)）。
 
 ## 用户与角色
 
