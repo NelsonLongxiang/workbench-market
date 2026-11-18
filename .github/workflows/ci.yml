@@ -609,6 +609,10 @@ jobs:
         run: node scripts/login-href-unit.mjs
       - name: 门户名单写法单测（新写站内账号·历史 odoo 前缀项原样保留）
         run: node scripts/portal-logins-unit.mjs
+      - name: 站内管理员身份单测（只认 via=grant·via=odoo 和口令都不算·出错清掉结论）
+        run: node scripts/admin-identity-unit.mjs
+      - name: 扩展兼容层单测（odooLoginHref、useOdooPopupLogin 只认站内 /login·外站退回站内登录页·不开弹窗）
+        run: node scripts/odoo-compat-unit.mjs
       - name: 来源 IP 单测（WM_TRUSTED_PROXIES：可信反代才认 X-Real-IP/XFF·伪造不生效·非法项拒绝启动）
         run: node scripts/client-ip-unit.mjs
       - name: 门户日志不泄露上游会话（Set-Cookie 只记名·查询串不进日志）
