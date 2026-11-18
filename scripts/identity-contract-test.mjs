@@ -33,6 +33,9 @@ check(shipped.identity().configured() === false, '出厂：configured() 为 fals
   check(who.http === 503 && who.body.ok === false && !('auth_required' in who.body), '出厂、没配身份来源：whoami 503，不带 auth_required', show(who));
   const r = await shipped.identity().resolveViewer(cookie(SESSIONS.alpha));
   check(r.ok === false && r.http === 503, '出厂、没配身份来源：认不出人（503）', show(r));
+  // 给扩展和路由用的认人（resolveCaller）和 whoami 同一个口径：一种登录方式都没有时仍是 503，不叫人去登录
+  const c = await shipped.identity().resolveCaller(cookie(SESSIONS.alpha));
+  check(c.ok === false && c.http === 503 && c.error === who.body.error, '出厂、一种登录方式都没有：resolveCaller 仍是 503，和 whoami 同一个说法', show(c));
 }
 check(shipped.loginRelay === undefined, '出厂：不再有业务台的登录中继（随 Odoo 下线），核心不导出 loginRelay');
 
