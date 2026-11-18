@@ -37,6 +37,10 @@ const BASE_GROUPS: NavGroup[] = [
     { path: '/attention', name: '等你拍板', icon: null },
     { path: '/sops', name: 'SOP 交付空间', icon: null },
   ] },
+  // 个人的页面：入口在左下角用户卡里，不进侧栏；排在「管理」前面，/settings/assistant 才不会被认成管理里的「设置」
+  { key: '/g/me', name: '我的', hidden: true, pages: [
+    { path: '/settings/assistant', name: '我的助理', icon: null },
+  ] },
   { key: '/g/admin', name: '管理', admin: true, pages: [
     { path: '/owner-pending', name: '待属主看板', icon: <InboxOutlined /> },
     { path: '/mcp-gateways', name: 'MCP 网关', icon: <SafetyCertificateOutlined /> },

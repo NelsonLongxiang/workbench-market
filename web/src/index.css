@@ -33,6 +33,11 @@ body {
 
 /* ---------- 文字与间距工具类（#322：替代散落的 style={{ fontSize / margin }}，值取 DESIGN.md 6 档字号与 4px 栅格） ---------- */
 .wm-caption { font-size: var(--wm-font-size-caption); line-height: var(--wm-line-height-caption); }
+/* 用户卡里「我的助理」入口 */
+.wm-me-link { display: inline-flex; align-items: center; gap: var(--wm-space-1); }
+/* 「我的助理」页：怎么接入的三步、「再往前看」 */
+.wm-assistant-steps { margin: 0; padding-left: var(--wm-space-6); line-height: 26px; }
+.wm-assistant-more { margin-top: var(--wm-space-3); }
 .wm-text-body { font-size: var(--wm-font-size-body); line-height: var(--wm-line-height-body); }
 .wm-display { font-size: var(--wm-font-size-display); line-height: var(--wm-line-height-display); font-weight: var(--wm-font-weight-display); }
 .wm-text-subtitle { font-size: var(--wm-font-size-subtitle); line-height: var(--wm-line-height-subtitle); font-weight: var(--wm-font-weight-subtitle); }

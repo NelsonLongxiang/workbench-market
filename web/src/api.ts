@@ -192,6 +192,25 @@ export const getRememberDefaults = (source: string, sourceId: string) => remembe
 export const getRecentAnswers = () => rememberCall('/api/knowledge/remember/recent');
 export const postRememberLater = (req: { source: string; source_id: string; lesson: string; cue?: string; visibility?: string }) => rememberCall('/api/knowledge/remember', { method: 'POST', body: JSON.stringify(req) });
 
+/** 一人一助理（#829，docs/assistant-phase1.md 第六节）：只认本人的市场会话。
+ *  不带管理员口令头、不带 Authorization：带了服务端一律 403 session_only（口令、令牌都不是人）。断网当状态码 0。 */
+async function assistantCall(path: string, init: { method?: 'POST'; body?: unknown } = {}): Promise<{ status: number; body: unknown }> {
+  try {
+    const r = await fetch(path, {
+      method: init.method ?? 'GET', credentials: 'same-origin', cache: 'no-store',
+      headers: { Accept: 'application/json', ...(init.method ? { 'Content-Type': 'application/json' } : {}) },
+      ...(init.method ? { body: JSON.stringify(init.body ?? {}) } : {}),
+    });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  } catch { return { status: 0, body: null }; }
+}
+export const getAssistant = () => assistantCall('/api/assistant');
+/** 取或重置令牌：应答里的 token 只在这一次出现，页面显示一次就丢 */
+export const postAssistantToken = () => assistantCall('/api/assistant/token', { method: 'POST' });
+export const postAssistantDisable = () => assistantCall('/api/assistant/disable', { method: 'POST' });
+export const postAssistantEnable = () => assistantCall('/api/assistant/enable', { method: 'POST' });
+export const getAssistantActions = (cursor?: string | null) => assistantCall(`/api/assistant/actions${cursor ? `?${new URLSearchParams({ cursor })}` : ''}`);
+
 /** 生命周期只读接口（观测层扩展挂在市场里）：带登录 cookie；扩展没挂上（404）或没配置（503）由页面给空状态，不弹口令 */
 /** identityDown：身份服务连不上（502 identity_unavailable），页面说「暂时取不到」，不当成没有 */
 export async function getLifecycle<T>(path: string): Promise<{ status: number; body: T | null; identityDown?: boolean }> {
