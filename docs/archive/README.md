@@ -44,7 +44,7 @@
 | 2026-11-18 | `docs/productization/11-identity-and-permission.md` | 改写：第一、二、六、七节原文挪进文末「历史」，正文第一、七节写现在的口径 | 原位置 | 站内账号（属主 11-16）、Odoo 全面下线（11-17）改掉了「飞书直连、不存密码、不做登录页」和过渡步骤 | #833 |
 | 2026-11-18 | `docs/productization/README.md` | 改链接 | 原位置 | 指向 04、14 的链接改到归档位置（#825 合并之后） | #833 |
 | 2026-11-18 | `docs/productization/11-identity-and-permission.md`、`docs/productization/README.md` | 改写：11 的开头那句、第三节「默认提供方飞书的要点」、附录 6d 的说明原文挪进文末「历史」，正文换成新口径；README 第 11 行摘要直接改 | 原位置 | 和 #833 新写的第一节矛盾的旧口径（飞书直连、等飞书启用再关旧登录）；#833 评审指出 | #834 |
-| 2026-11-18 | `docs/archive/workbench-market-arch-sources.md` 的链接对照 | 改对照：三行改成「已删除」加最后一版的取法 | 原位置 | #823 删掉了 odoo-browser-origin.ts、odoo-session.ts、sso-ticket-store.ts，对照表还指着它们，断了 3 个链接；原文不动 | 本 PR |
+| 2026-11-18 | `docs/archive/workbench-market-arch-sources.md` 的链接对照 | 改对照：三行改成「已删除」加最后一版的取法 | 原位置 | #823 删掉了 odoo-browser-origin.ts、odoo-session.ts、sso-ticket-store.ts，对照表还指着它们，断了 3 个链接；原文不动 | #839 |
 
 ## 这一批没动、以后再处理的
 
