@@ -1,11 +1,12 @@
 """「我的助理」页（/settings/assistant，一人一助理第 1 期，接口见 docs/assistant-phase1.md 第六节）浏览器回归；
 由 scripts/sider-menu-browser.mjs 起合成实例后调用，参数为配置 JSON 路径。/api/assistant* 用 page.route 截成合成的应答，记下页面发了什么：
-  一、状态：没登录 → 去登录；管理员口令、令牌（403 session_only）→ 只认本人；服务端还没上线（404）→ 说没上线；出错 → 再试一次；
-      部署方没开（enabled_by_deployment 为假）→ 说本站没开放、取令牌按钮置灰，以前的记录照常列；
+  一、状态：没登录 → 去登录；管理员口令、令牌（403 session_only）→ 只认本人；服务端没有助理接口（404）、部署方没开放 → 只说一句「本站还没开放助理」；
+      出错 → 再试一次；这几种状态都不出介绍；介绍和「怎么接入」只写第 1 期真有的只看能力；
   二、正常：状态、接入地址、令牌那一行、等你确认件数、近 30 天件数；不露助理的主体标识和确认编号；
-  三、取令牌：原文只显示一次（点「我已复制」就没了）；重置要先确认；停用要先确认、说清作废几件；停用后能启用；
+  三、取令牌：原文只显示一次（点「我已复制」就没了；离开这一页 pagehide 也清掉）；重置要先确认；停用要先确认、说清作废几件；停用后能启用；
   四、它替你办过的事：每条写工具的中文说法、描述、你的回答、状态；站外链接不给；「再往前看」带游标翻页；
-  五、这一页发出的请求都不带管理员口令头、不带 Authorization（带了服务端一律 403）；入口在左下角用户卡里。
+  五、这一页发出的请求都不带管理员口令头、不带 Authorization（带了服务端一律 403）；
+      入口在左下角用户卡里，只在已登录、部署方开放时出（没登录、404、没开放都不出）。
 数据全是合成的。"""
 import json, os, re, sys
 SHOT = os.environ.get('WM_SHOT_ASSISTANT')  # 本机看样子用，CI 不设
@@ -58,11 +59,12 @@ def setup(ctx):
     ctx.route(re.compile(r'/api/assistant/disable$'), disable)
     ctx.route(re.compile(r'/api/assistant/enable$'), enable)
 
+STATES = ', '.join(f'[data-testid={t}]' for t in ('assistant-card', 'assistant-login', 'assistant-session-only', 'assistant-missing', 'assistant-error'))
 def open_page(b, **st):
     state.clear(); state.update({'info': dict(INFO)}, **st); sent.clear()
     ctx = b.new_context(viewport={'width': 1440, 'height': 900}); setup(ctx)
     pg = ctx.new_page(); pg.set_default_timeout(10000)
-    pg.goto(M + '/settings/assistant'); pg.wait_for_selector('[data-testid=assistant-intro]'); pg.wait_for_timeout(500)
+    pg.goto(M + '/settings/assistant'); pg.wait_for_selector(STATES); pg.wait_for_timeout(500)
     return ctx, pg
 
 with sync_playwright() as p:
@@ -70,19 +72,23 @@ with sync_playwright() as p:
     try:
         print('一、各种状态')
         for code, err, tid, words in ((401, 'not_signed_in', 'assistant-login', '请先登录'), (403, 'session_only', 'assistant-session-only', '管理员口令'),
-                                      (404, 'not_found', 'assistant-missing', '本站还没有上线助理'), (500, 'x', 'assistant-error', '读不到你的助理')):
+                                      (404, 'not_found', 'assistant-missing', '本站还没开放助理'), (500, 'x', 'assistant-error', '读不到你的助理')):
             ctx, pg = open_page(b, get=code, get_err=err)
             el = pg.locator(f'[data-testid={tid}]')
-            check(f'{code}：{words}', el.count() == 1 and words in el.inner_text(), pg.locator('main').inner_text()[:160])
+            check(f'{code}：{words}；不出介绍', el.count() == 1 and words in el.inner_text() and pg.locator('[data-testid=assistant-intro]').count() == 0, pg.locator('main').inner_text()[:160])
             if code == 401: check('401：「去登录」回到这一页', pg.get_by_role('link', name=re.compile('去登录')).get_attribute('href') == '/login?next=%2Fsettings%2Fassistant')
             if code == 500:
-                state['get'] = 200; pg.get_by_role('button', name=re.compile('再试一次')).click(); pg.wait_for_selector('[data-testid=assistant-card]')
-                check('出错后点「再试一次」：读到了就显示助理', True)
+                state['get'] = 200; n = len([x for x in sent if x['path'] == '/api/assistant'])
+                pg.get_by_role('button', name=re.compile('再试一次')).click()
+                try: pg.wait_for_selector('[data-testid=assistant-card]', timeout=5000)
+                except Exception: pass
+                check('出错后点「再试一次」：再读一次，读到了就显示助理', len([x for x in sent if x['path'] == '/api/assistant']) == n + 1 and pg.locator('[data-testid=assistant-card]').count() == 1 and pg.locator('[data-testid=assistant-error]').count() == 0)
             ctx.close()
 
         ctx, pg = open_page(b, info={**INFO, 'enabled_by_deployment': False})
-        check('部署方没开：说「本站还没开放助理」，取令牌按钮置灰', pg.locator('[data-testid=assistant-not-open]').count() == 1 and pg.locator('[data-testid=assistant-token-new]').is_disabled())
-        check('部署方没开：以前的记录照常列', pg.locator('[data-testid=assistant-action]').count() == 2)
+        main = pg.locator('main').inner_text()
+        check('部署方没开放：只说一句「本站还没开放助理」，不出介绍、令牌、接入地址、怎么接入',
+              '本站还没开放助理' in pg.locator('[data-testid=assistant-missing]').inner_text() and all(pg.locator(f'[data-testid={t}]').count() == 0 for t in ('assistant-intro', 'assistant-card', 'assistant-howto', 'assistant-token-new')) and 'market.example.invalid' not in main, main[:200])
         ctx.close()
 
         print('二、正常')
@@ -92,7 +98,10 @@ with sync_playwright() as p:
               '启用中' in card and 'market.example.invalid/mcp' in card and '还没取过令牌' in card and pg.locator('[data-testid=assistant-pending]').inner_text() == '1 件' and '替你办过 3 件' in card, card)
         body = pg.locator('main').inner_text()
         check('不露助理的主体标识（assistant:…）和确认编号（c-syn-…）', 'assistant:' not in body and 'c-syn-' not in body)
-        check('怎么接入写三步，第三步说在已登录的市场页面上打「确认」', '打「确认」' in pg.locator('[data-testid=assistant-howto]').inner_text())
+        howto, intro = pg.locator('[data-testid=assistant-howto]').inner_text(), pg.locator('[data-testid=assistant-intro]').inner_text()
+        check('介绍只写第 1 期真有的：只会看（我是谁、授予、能用的工具、待你确认处理到哪）；动手的写「以后接入」', '只会看' in intro and '以后接入' in intro, intro)
+        check('「怎么接入」的例子是第 1 期能做的（我是谁、你能用哪些工具），不拿第 2、3 期的工具举例', '「我是谁」' in howto and '「你能用哪些工具」' in howto and not any(w in howto for w in ('拍板', '期限', '改到')), howto)
+        check('「怎么接入」第三步：动手的以后接入，到时候在已登录的市场页面上打「确认」', '以后接入' in howto and '打「确认」' in howto)
         if SHOT: pg.screenshot(path=SHOT)
 
         print('三、令牌、停用、启用')
@@ -102,6 +111,11 @@ with sync_playwright() as p:
         check('取完：令牌那一行变成「已经取过一枚」，按钮变成「重置令牌」', '已经取过一枚' in pg.locator('[data-testid=assistant-token-line]').inner_text() and pg.locator('[data-testid=assistant-token-reset]').count() == 1)
         pg.get_by_role('button', name='我已复制').click(); pg.wait_for_timeout(200)
         check('点「我已复制」：原文从页面上没了', pg.locator('[data-testid=assistant-token]').count() == 0 and 'wma_' not in pg.locator('main').inner_text())
+        n = len([x for x in sent if x['path'] == '/api/assistant/token'])
+        pg.locator('[data-testid=assistant-token-reset]').click(); pg.wait_for_timeout(300)
+        pg.locator('.ant-popover').last.get_by_role('button', name=re.compile(r'^重\s*置$')).click(); pg.wait_for_selector('[data-testid=assistant-token]')
+        pg.evaluate("window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }))")
+        check('离开这一页（pagehide，后退缓存要存整页之前）：令牌原文同步从页面上清掉', pg.locator('[data-testid=assistant-token]').count() == 0 and 'wma_' not in pg.locator('main').inner_text())
         n = len([x for x in sent if x['path'] == '/api/assistant/token'])
         pg.locator('[data-testid=assistant-token-reset]').click(); pg.wait_for_timeout(300)
         check('重置要先确认：只点按钮不发请求，弹出的说明写清旧令牌作废', len([x for x in sent if x['path'] == '/api/assistant/token']) == n and '旧令牌立刻作废' in pg.locator('.ant-popover').last.inner_text())
@@ -129,6 +143,13 @@ with sync_playwright() as p:
         print('五、请求和入口')
         check('这一页发出的请求都不带管理员口令头、不带 Authorization', sent and not any(x['token'] or x['auth'] for x in sent), [x for x in sent if x['token'] or x['auth']])
         ctx.close()
+        for name, st in (('部署方没开放', {'info': {**INFO, 'enabled_by_deployment': False}}), ('没登录', {'get': 401, 'get_err': 'not_signed_in'}),
+                         ('服务端没有助理接口', {'get': 404, 'get_err': 'not_found'}), ('口令或令牌', {'get': 403, 'get_err': 'session_only'})):
+            ctx, pg = open_page(b, **st)
+            sent.clear(); pg.goto(M + '/'); pg.locator('[data-testid=wm-me]').click()
+            pg.wait_for_timeout(800)
+            check(f'{name}：用户卡里没有「我的助理」入口（问过 /api/assistant 才定）', any(x['path'] == '/api/assistant' for x in sent) and pg.locator('[data-testid=me-assistant]').count() == 0)
+            ctx.close()
         ctx, pg = open_page(b)
         pg.goto(M + '/'); pg.locator('[data-testid=wm-me]').click(); pg.locator('[data-testid=me-assistant]').click(); pg.wait_for_url('**/settings/assistant'); pg.wait_for_selector('[data-testid=assistant-card]')
         check('左下角用户卡里有「我的助理」，点进来就是这一页；顶栏写「我的助理」', pg.locator('[data-testid=assistant-card]').count() == 1 and '我的助理' in pg.locator('[data-testid=wm-top]').first.inner_text(), (pg.url, pg.locator('[data-testid=assistant-card]').count(), pg.locator('[data-testid=wm-top]').first.inner_text()[:80]))

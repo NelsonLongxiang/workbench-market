@@ -49,7 +49,7 @@ export default function AssistantConfirm() {
   if (kind.kind === 'login') return shell(<div data-testid="confirm-login"><Result status="info" title="请先登录" subTitle="登录后回到这一条。" extra={<Button type="primary" href={here}>去登录</Button>} /></div>);
   if (kind.kind === 'not-yours') return shell(<div data-testid="confirm-not-yours"><Result status="403" title="这一条不是给你的" subTitle="它只能由发起它的人自己登录后确认，链接转给别人也没用；或者这一条已经没有了。" /></div>);
   if (kind.kind === 'session-only') return shell(<div data-testid="confirm-session-only"><Result status="warning" title={kind.text} subTitle="请用你自己的站内账号登录后再打开这个链接。" /></div>);
-  if (kind.kind === 'missing') return shell(<Empty description="本站还没有上线助理" data-testid="confirm-missing" />);
+  if (kind.kind === 'missing') return shell(<Empty description="本站还没开放助理" data-testid="confirm-missing" />);
   if (kind.kind === 'error' || !info) return shell(<Alert type="error" showIcon message={kind.text} action={<Button size="small" onClick={() => void load()}>再试一次</Button>} data-testid="confirm-error" />);
 
   const st = shownStatus(info, now);

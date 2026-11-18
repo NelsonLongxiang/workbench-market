@@ -54,7 +54,7 @@ with sync_playwright() as p:
     try:
         print('一、读')
         for code, err, tid, words in ((401, 'not_signed_in', 'confirm-login', '请先登录'), (403, 'not_yours', 'confirm-not-yours', '这一条不是给你的'),
-                                      (403, 'session_only', 'confirm-session-only', '管理员口令'), (404, 'not_found', 'confirm-missing', '本站还没有上线助理'), (500, 'x', 'confirm-error', '读不到这一条')):
+                                      (403, 'session_only', 'confirm-session-only', '管理员口令'), (404, 'not_found', 'confirm-missing', '本站还没开放助理'), (500, 'x', 'confirm-error', '读不到这一条')):
             ctx, pg = open_page(b, get=code, get_body={'error': err})
             el = pg.locator(f'[data-testid={tid}]')
             check(f'{code} {err}：{words}', el.count() == 1 and words in el.inner_text(), pg.locator('main').inner_text()[:160])
