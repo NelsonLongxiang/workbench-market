@@ -391,7 +391,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   github-source.ts（GitHub main 分支来源拉取：commits/trees/blobs 三段取内容·版本记 commit sha）
   health.ts（探测）
   http.ts  HTTP 服务（Cordis 服务 http）：持有 Express 应用；域模块经它注册路由，每条报上动作名和类别，注册可撤销
-  identity.ts（身份契约：核心只经它认人·Cordis 服务 `identity` 认人与 whoami·`/api/auth/viewer`（没登录 401 带登录入口；一种登录方式也没有时 503）·提供方认出的人要对到主体上才算数，主体停用即不认）
+  identity.ts（身份契约：核心只经它认人·Cordis 服务 `identity` 认人与 whoami·`/api/auth/viewer`（没登录 401 带登录入口；一种登录方式也没有时 503。交给扩展的 `ctx.identity.resolveViewer` 同一个口径：有登录方式时认不出人回 401「未登录」）·提供方认出的人要对到主体上才算数，主体停用即不认）
   index.ts（REST+静态+巡检装配）
   judgment-builtins.ts（内置身份：管理口令、本机命令行、本机页面、匿名，权限按动作逐条列出，进快照·问判定用的类别和按部门问的动作（ASKED）、按关系对自己的事拍板的动作（SELF_DECIDED）：路由放行、scopedVerdict、「谁能做什么」的矩阵都照这两张表）
   knowledge-remember.ts（经验库第 2 步「记成经验」：「关注」的答复带 remember、POST /api/knowledge/remember 都走这一处·只有答这一条的人、持有对经验库拍板的授予才能记·范围缺省取事项所在团队的部门，推不出只给管理层·回写 ygl-trees 的 kb，写不上进待写队列后台重试，不挡答复）

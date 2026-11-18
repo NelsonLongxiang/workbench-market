@@ -53,6 +53,7 @@ const GOOD = `export function register(ctx) {
   ctx.remoteWrite.allowExact('/api/demo-ext/act');
   ctx.app.get('/api/demo-ext/ping', ctx.wrap(async (_req, res) => { res.json({ ok: true, ext: ctx.name }); }));
   ctx.app.post('/api/demo-ext/act', ctx.wrap(async (_req, res) => { res.status(202).json({ ok: true }); }));
+  ctx.app.get('/api/demo-ext/who', ctx.wrap(async (req, res) => { const w = await ctx.identity.resolveViewer(String(req.headers.cookie ?? '')); res.status(w.ok ? 200 : w.http).json(w); }));
   ctx.app.get('/api/demo-ext/admin', ctx.wrap(async (req, res) => { if (!(await ctx.adminGuard(req, res))) return; res.json({ ok: true }); }));
   ctx.tasks.addSource({ key: 'demo', label: '演示来源', color: 'purple', collect: async () => ({ meta: { ok: true, count: 1, latency_ms: 0 }, tasks: [{ id: 'demo:1', source: 'demo', title: '演示待办', status: 'todo', due: null, link: null, project: null, readonly_note: '只读' }, { id: 'x:1', source: 'market', title: '冒名', status: 'todo', due: null, link: null, project: null }] }) });
   ctx.tasks.addSource({ key: 'demo-broken', label: '坏来源', collect: async () => { throw new Error('PRIVATE_DETAIL'); } });
@@ -118,10 +119,22 @@ try {
   ok('待办来源并入，带 label/color', j.sources?.demo?.ok === true && j.sources.demo.label === '演示来源' && j.sources.demo.color === 'purple', JSON.stringify(j.sources?.demo));
   ok('来源只收自己键的条目（冒名条目丢弃）', j.tasks.some((t) => t.id === 'demo:1' && t.readonly_note === '只读') && !j.tasks.some((t) => t.id === 'x:1'));
   ok('来源抛错：降级为稳定码，不回原始错误', j.sources?.['demo-broken']?.ok === false && j.sources['demo-broken'].error === 'demo-broken_source_unavailable' && !JSON.stringify(j).includes('PRIVATE_DETAIL'), JSON.stringify(j.sources?.['demo-broken']));
+  // 没有身份来源、有站内账号这种登录方式：没登录的人从 ctx.identity.resolveViewer 拿到的是 401「未登录」，不是 503「未配置身份来源」（和 whoami 同一个口径，页面按 401 去登录页）
+  r = await fetch(g.base + '/api/demo-ext/who'); j = await r.json().catch(() => null);
+  ok('ctx.identity.resolveViewer：没登录回 401「未登录」（有登录方式时不是 503）', r.status === 401 && j?.ok === false && j.http === 401 && j.error === '未登录', `${r.status} ${JSON.stringify(j)}`);
   // 已弃用的兼容壳 ctx.odoo：扩展照常加载（addReturnPath 不抛错、什么都不做），用到时打一行弃用警告，只打一次
   const deprec = (g.p.out.match(/ctx\.odoo 已弃用/g) ?? []).length;
   ok('ctx.odoo 兼容壳：扩展照常加载，用到时警告一次「已弃用、改用 ctx.identity」', deprec === 1 && /\[ext:demo\] ctx\.odoo 已弃用/.test(g.p.out), `出现 ${deprec} 次`);
   g.p.kill(); await g.done;
+
+  // 一种登录方式也没有（站内账号关了、没有身份来源）：仍是 503「未配置身份来源」
+  {
+    const nf = boot('no-flows', goodRoot, { WM_LOCAL_LOGIN: 'off' });
+    ok('站内账号关了：启动', await ready(nf), nf.p.out.slice(-300));
+    r = await fetch(nf.base + '/api/demo-ext/who'); j = await r.json().catch(() => null);
+    ok('ctx.identity.resolveViewer：一种登录方式也没有时回 503「未配置身份来源」', r.status === 503 && j?.error === '未配置身份来源', `${r.status} ${JSON.stringify(j)}`);
+    nf.p.kill(); await nf.done;
+  }
 
   // ---- Odoo 已下线（2026-11-17）：旧变量（含旧名 LC_ODOO_URL、内容面那几个）还设着照常启动、逐个告警「已下线、忽略」，带 Odoo 会话认不出人 ----
   {

@@ -621,10 +621,18 @@ export class IdentityService extends Service {
     try { return this.flowsByName.get(name)?.autoBindByEmail === true; } catch { return false; }
   }
 
+  /**
+   * 没有身份来源时认不出人：有能用的登录方式（站内账号、飞书）就是「没登录」——401，和 whoami 同一个口径，
+   * 交给扩展（ctx.identity.resolveViewer）和各路由的结论也一样，页面按 401 去登录页；一种登录方式也没有才是 503「未配置身份来源」
+   */
+  private noProvider(): ViewerResult {
+    return this.flows().length > 0 ? { ok: false, http: 401, error: NOT_SIGNED_IN } : { ok: false, http: 503, error: NO_PROVIDER };
+  }
+
   /** 提供方这一层：问提供方，把回答收成契约的形状。认出来的人还没有对到主体，不能直接交出去 */
   private async recognize(cookieHeader: string, source?: string, ctx?: { via: 'session'; renewals: number }): Promise<{ provider: LoginProvider | null; result: ViewerResult }> {
     const provider = this.provider;
-    if (!provider) return { provider: null, result: { ok: false, http: 503, error: NO_PROVIDER } };
+    if (!provider) return { provider: null, result: this.noProvider() };
     // 按凭据合并：同时来的只问一次；刚不可达的，NEGATIVE_TTL_MS 之内不再问（换了提供方作废）
     let credential: string | null = null;
     try { credential = provider.credentialOf(cookieHeader); } catch { credential = null; }
@@ -681,7 +689,7 @@ export class IdentityService extends Service {
   /** 提供方这一层的结果，过了主体目录才交出去。认得出的人只有这一个出口 */
   private settled(provider: LoginProvider | null, result: ViewerResult): ViewerResult {
     if (!result.ok) return { ...result }; // 副本：调用方改它，改不到缓存里的那一份
-    if (!provider) return { ok: false, http: 503, error: NO_PROVIDER };
+    if (!provider) return this.noProvider();
     return this.admitted(provider.name, result.viewer);
   }
 

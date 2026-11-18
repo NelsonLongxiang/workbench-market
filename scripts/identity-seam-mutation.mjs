@@ -65,7 +65,7 @@ const MUTANTS = [
   { id: 'provider-deadline-ignored', what: '不理会提供方自报的期限', file: IDENTITY, suites: [CONTRACT],
     find: 'this.deadlineMs = deadline ?? DEFAULT_DEADLINE_MS;', replace: 'this.deadlineMs = DEFAULT_DEADLINE_MS;' },
   { id: 'no-provider-recognizes-someone', what: '没装提供方也认出一个人', file: IDENTITY, suites: [CONTRACT],
-    find: 'if (!provider) return { provider: null, result: { ok: false, http: 503, error: NO_PROVIDER } };',
+    find: 'if (!provider) return { provider: null, result: this.noProvider() };',
     replace: "if (!provider) return { provider: { name: 'none' } as LoginProvider, result: { ok: true, viewer: { login: 'nobody', uid: 0, sub: 'user:nobody', name: null, admin: false } } };" },
   { id: 'identity-accessor-unguarded', what: '身份服务不在时 identity() 交出 undefined', file: IDENTITY, suites: [CONTRACT],
     find: "  if (!service) throw new Error('身份服务没有装上');\n", replace: '' },
@@ -266,6 +266,8 @@ const MUTANTS = [
     find: "  return site !== undefined && site !== 'same-origin' && site !== 'none';", replace: "  return site === 'cross-site';" },
   { id: 'legacy-ttl-warn-missing', what: '只设旧变量时启动自检没有「登录持久化未生效」那一行', file: 'server/src/index.ts', suites: ['session-persistence-test.mjs'],
     find: 'sessionLegacyTtl: SESSION_LEGACY_ONLY, ', replace: '' },
+  { id: 'no-provider-503', what: '没有身份来源、有登录方式时，扩展认人拿到 503「未配置身份来源」（不是 401 没登录）', file: 'server/src/identity.ts', suites: ['extensions-smoke.mjs'],
+    find: '    return this.flows().length > 0 ? { ok: false, http: 401, error: NOT_SIGNED_IN } : { ok: false, http: 503, error: NO_PROVIDER };', replace: '    return { ok: false, http: 503, error: NO_PROVIDER };' },
   // —— 飞书登录和市场会话（5b）——
   { id: 'state-not-bound-to-browser', what: 'state 不核对浏览器半边（回调链接换个浏览器也能用）', file: SESSIONS_SVC, suites: [FEISHU],
     find: " || !sameHex(row.browser_sha256, sha(browser))) return null;\n    const taken = db.prepare('DELETE FROM login_states WHERE state_sha256 = ? AND browser_sha256 = ? AND flow = ? AND expires_at > ? RETURNING next').get(sha(state), sha(browser), flow, now)",
