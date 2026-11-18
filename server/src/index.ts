@@ -1006,6 +1006,8 @@ function validateAppFiles(raw: unknown, kind: 'app' | 'sop' = 'app'): { path: st
     if (typeof f?.path !== 'string' || typeof f?.content !== 'string') bad('每个文件必须是 {path: string, content: string}（v1 仅支持 UTF-8 文本）');
     const p = posix.normalize(f.path.replace(/\\/g, '/'));
     if (p.length > 200 || p === '.' || p.startsWith('/') || p.startsWith('..') || p.includes('../')) bad(`文件路径非法: ${f.path}`);
+    // 每一段和上传文件名同一条规则（upload-file-name.ts）：控制字符、DEL、方向控制符都拒；路径原样回显会被方向控制符倒着显示，所以转义后再写
+    for (const seg of p.split('/')) if (!uploadNameOk(seg)) bad(`文件路径非法（含控制字符或方向控制符）: ${JSON.stringify(f.path).replace(/[^\x20-\x7e]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'))}`);
     if (seen.has(p)) bad(`文件重复: ${p}`);
     seen.add(p);
     total += Buffer.byteLength(f.content, 'utf8');

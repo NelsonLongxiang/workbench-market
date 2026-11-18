@@ -31,7 +31,7 @@ rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
   cwd: process.cwd(),
-  env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, PUBLISH_LOCK_MS: '1', WM_GITHUB_API: gh.api, WM_GITHUB_TOKEN: 'fixture-read-token' },
+  env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, PUBLISH_LOCK_MS: '1', WM_GITHUB_API: gh.api, WM_GITHUB_TOKEN: 'fixture-read-token', ADMIN_TOKEN: 'gss-synthetic-admin' },
   stdio: 'ignore',
 });
 try {
@@ -89,6 +89,16 @@ try {
   ok('⑤c alpha 托管的是自己目录的内容', sa2.includes('<div>v10</div>'));
   const empty = await sync('gh-gamma', { title: 'C', source_repo: 'acme/apps', source_path: 'apps/gamma' });
   ok('⑤d 子目录不存在 → 400', empty.status === 400, `status=${empty.status}`);
+
+  // ⑤e 源码路径每一段和上传文件名同一条规则（upload-file-name.ts）：方向控制符、DEL、C0 都拒，台不建、不落盘
+  for (const [i, [label, bad]] of [['U+202E', 'x\u202e.js'], ['目录名带 U+2066', 'd\u2066/a.js'], ['U+200F', 'x\u200f.js'], ['DEL', 'x\u007f.js'], ['C0', 'x\u0001.js']].entries()) {
+    gh.commit(`acme/badpath${i}`, [{ path: 'index.html', content: page(30 + i) }, { path: bad, content: '1' }]);
+    const r = await sync(`gh-badpath${i}`, { title: '坏路径', source_repo: `acme/badpath${i}` });
+    const after = await fetch(`${BASE}/api/apps/gh-badpath${i}`);
+    ok(`⑤e 源码路径里有 ${label} → 400，台没建`, r.status === 400 && /控制字符或方向控制符/.test(String(r.body?.error)) && after.status === 404, `status=${r.status} ${String(r.body?.error).slice(0, 80)} after=${after.status}`);
+  }
+  const tcBad = await post('/api/apps', { slug: 'task-center', kind: 'sop', changelog: 'x', files: [{ path: 'sop.yaml', content: 'title: x' }, { path: 'x\u202e.md', content: '1' }] }, { 'X-Admin-Token': 'gss-synthetic-admin' });
+  ok('⑤f task-center 人工发布：路径里有 U+202E → 400', tcBad.status === 400 && /控制字符或方向控制符/.test(String(tcBad.body?.error)), `status=${tcBad.status} ${String(tcBad.body?.error).slice(0, 80)}`);
 
   // ⑥ 发布门禁照旧
   gh.commit('acme/solo', [{ path: 'index.html', content: '' }]);
