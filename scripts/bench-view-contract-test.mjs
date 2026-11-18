@@ -92,4 +92,13 @@ for (const [name, blocks] of negatives) {
   assert.notEqual(errs.length, 0, `${name} 须被拒`);
 }
 
-console.log('bench-view-contract-test: 8 个契约分支同构 + 正反例全部通过');
+// 五、报错帮会话自己改对：不认识的键点名是哪个，并列出这里能用的键（和契约同一份）
+{
+  const errs = validateViewDoc(docOf([{ type: 'stat', query: agg, value: 's', colour: 'red' }]), datasets);
+  const hit = errs.find((e) => e.includes('有不认识的键 colour'));
+  assert.ok(hit, `多写了键：报出是哪个键（${errs.join(' | ')}）`);
+  assert.ok(hit.includes(`这里能用的键：${BLOCK_CONTRACT.stat.keys.join('、')}`), `列出 stat 能用的键，和契约一致（${hit}）`);
+  const top = validateViewDoc({ title: 'x', views: [{ key: 'v', title: 't', blocks: [] }], theme: 'dark' }, datasets).find((e) => e.includes('有不认识的键 theme'));
+  assert.ok(top?.includes('这里能用的键：title、views'), `顶层也列出能用的键（${top}）`);
+}
+console.log('bench-view-contract-test: 8 个契约分支同构 + 正反例全部通过；不认识的键报出能用的键');

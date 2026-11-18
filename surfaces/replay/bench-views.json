@@ -1620,8 +1620,8 @@
           "response": {
             "status": 400,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "113", "etag": "W/\"71-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
-            "body": { "error": "invalid", "message": "视图描述有 1 处不合格，未保存", "details": ["视图描述须为对象"] }
+            "headers": { "cache-control": "private, no-store", "content-length": "211", "etag": "W/\"d3-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "视图描述有 1 处不合格，未保存。每种组件的键、必填、上限见技能 wm-data-views 的 references/view-doc-schema.json", "details": ["视图描述须为对象"] }
           }
         },
         {
@@ -1638,8 +1638,8 @@
           "response": {
             "status": 400,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "228", "etag": "W/\"e4-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
-            "body": { "error": "invalid", "message": "视图描述有 1 处不合格，未保存", "details": ["第 1 个视图第 1 个组件：不认识的组件类型 html（现有：filter-bar、stat、table、bar、line、pie、progress、form）"] }
+            "headers": { "cache-control": "private, no-store", "content-length": "326", "etag": "W/\"146-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "视图描述有 1 处不合格，未保存。每种组件的键、必填、上限见技能 wm-data-views 的 references/view-doc-schema.json", "details": ["第 1 个视图第 1 个组件：不认识的组件类型 html（现有：filter-bar、stat、table、bar、line、pie、progress、form）"] }
           }
         },
         {
@@ -1656,8 +1656,8 @@
           "response": {
             "status": 400,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "163", "etag": "W/\"a3-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
-            "body": { "error": "invalid", "message": "视图描述有 1 处不合格，未保存", "details": ["第 1 个视图第 1 个组件：查询不合格——没有数据集 nope"] }
+            "headers": { "cache-control": "private, no-store", "content-length": "261", "etag": "W/\"105-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "视图描述有 1 处不合格，未保存。每种组件的键、必填、上限见技能 wm-data-views 的 references/view-doc-schema.json", "details": ["第 1 个视图第 1 个组件：查询不合格——没有数据集 nope"] }
           }
         },
         {

@@ -244,6 +244,7 @@ try {
   // 表格的列都要有说明名：聚合出来的列没给 label，会话存也拒，点名缺的是哪一列；不产生新版本
   r = await tool(srv, A.token, 'view_put', { bench: 'demo', doc: { title: '日报', views: [{ key: 'main', title: '总览', blocks: [{ type: 'table', query: { dataset: 'daily', group: ['day'], measures: [{ as: 'total', fn: 'sum', col: 'n' }] } }] }] }, base: 1, note: '缺说明名' });
   check(/列 total 没有说明名/.test(r.text) && (await tool(srv, A.token, 'view_get', { bench: 'demo' })).json?.view?.active_version === 1, '会话存视图：表格的列没有说明名就拒，点名是哪一列', r.text.slice(0, 200));
+  check(/references\/view-doc-schema\.json/.test(r.text), '被拒时应答里指向技能里的完整契约（view_put 的参数说明里只有大致形状）', r.text.slice(0, 200));
   r = await srv.call('GET', '/api/bench-views/demo/log', mgr);
   check(r.json?.writes?.some((w) => w.actor === 'mcp:sess-a') && r.json.changes.some((c) => c.actor === 'mcp:sess-a'), '台的留痕里记的是 mcp:<会话名>', r.text.slice(0, 160));
   r = await tool(srv, A.token, 'dataset_replace', { bench: 'demo', dataset: 'daily', rows: [{ day: 'not-a-date', n: 'x' }] });

@@ -47,7 +47,8 @@ export function validateViewDoc(doc: unknown, datasets: Map<string, DatasetDef>)
   const errs: string[] = [];
   const keys = (o: Record<string, unknown>, allowed: readonly string[], where: string) => {
     const extra = Object.keys(o).filter((k) => !allowed.includes(k));
-    if (extra.length) errs.push(`${where}：有不认识的键 ${extra.join('、')}`);
+    // 顺带列出这里能用的键：会话不读技能里的契约，也能照着改对
+    if (extra.length) errs.push(`${where}：有不认识的键 ${extra.join('、')}；这里能用的键：${allowed.join('、')}`);
   };
   if (!isObj(doc)) return ['视图描述须为对象'];
   keys(doc, ['title', 'views'], '视图描述');

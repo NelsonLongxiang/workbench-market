@@ -858,7 +858,8 @@ export class BenchStoreCore {
       const text = canonical(doc);
       if (Buffer.byteLength(text, 'utf8') > BENCH_LIMITS.viewBytes) throw new BenchError('limit', `视图描述超过 ${BENCH_LIMITS.viewBytes} 字节`);
       const errs = validateViewDoc(doc, await this.load());
-      if (errs.length) throw new BenchError('invalid', `视图描述有 ${errs.length} 处不合格，未保存`, errs.slice(0, 50));
+      // view_put 的工具定义里只有 doc 的大致形状（#861），被拒时指向完整契约
+      if (errs.length) throw new BenchError('invalid', `视图描述有 ${errs.length} 处不合格，未保存。每种组件的键、必填、上限见技能 wm-data-views 的 references/view-doc-schema.json`, errs.slice(0, 50));
       const sum = sha256(text);
       if (active) {
         const cur = await this.conn.all('SELECT sha256 FROM bs_view_versions WHERE version = ?', [active]);
