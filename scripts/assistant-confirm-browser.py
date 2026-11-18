@@ -42,22 +42,23 @@ def setup(ctx):
         fake(r, res, code)
     ctx.route(re.compile(r'/api/assistant/confirms/[^/?]+$'), confirms)
 
+STATES = ', '.join(f'[data-testid={t}]' for t in ('confirm-who', 'confirm-login', 'confirm-not-yours', 'confirm-session-only', 'confirm-missing', 'confirm-error'))
 def open_page(b, cid='c-syn-1', **st):
     state.clear(); state.update({'item': item()}, **st); sent.clear()
     ctx = b.new_context(viewport={'width': 1440, 'height': 900}); setup(ctx)
     pg = ctx.new_page(); pg.set_default_timeout(10000)
-    pg.goto(M + f'/assistant/confirm/{cid}'); pg.wait_for_selector('[data-testid=confirm-foot]'); pg.wait_for_timeout(400)
+    pg.goto(M + f'/assistant/confirm/{cid}'); pg.wait_for_selector(STATES); pg.wait_for_timeout(400)
     return ctx, pg
 
 with sync_playwright() as p:
     b = p.chromium.launch()
     try:
         print('一、读')
-        for code, err, tid, words in ((401, 'not_signed_in', 'confirm-login', '请先登录'), (403, 'not_yours', 'confirm-not-yours', '这一条不是给你的'),
+        for code, err, tid, words in ((401, 'not_signed_in', 'confirm-login', '请先登录'), (403, 'not_yours', 'confirm-not-yours', '你打不开这一条'),
                                       (403, 'session_only', 'confirm-session-only', '管理员口令'), (404, 'not_found', 'confirm-missing', '本站还没开放助理'), (500, 'x', 'confirm-error', '读不到这一条')):
             ctx, pg = open_page(b, get=code, get_body={'error': err})
             el = pg.locator(f'[data-testid={tid}]')
-            check(f'{code} {err}：{words}', el.count() == 1 and words in el.inner_text(), pg.locator('main').inner_text()[:160])
+            check(f'{code} {err}：{words}；没读到这一条，不出页脚那句规则', el.count() == 1 and words in el.inner_text() and pg.locator('[data-testid=confirm-foot]').count() == 0, pg.locator('main').inner_text()[:160])
             if code == 401: check('401：「去登录」登录完回到这一条', pg.get_by_role('link', name=re.compile('去登录')).get_attribute('href') == '/login?next=%2Fassistant%2Fconfirm%2Fc-syn-1')
             if code == 403 and err == 'not_yours': check('不是你的：页面上没有提交框，也没有描述', pg.locator('[data-testid=confirm-input]').count() == 0 and '合成事项甲' not in pg.locator('main').inner_text())
             ctx.close()
@@ -68,6 +69,7 @@ with sync_playwright() as p:
         check('写谁的助理、市场写的描述（标明不是助理写的）、还剩多久', '合成甲的助理' in pg.locator('[data-testid=confirm-who]').inner_text() and '由市场写，不是助理写的' in pg.locator('[data-testid=confirm-desc]').inner_text()
               and '11 月 20 日' in main and re.search(r'还剩 \d 分', pg.locator('[data-testid=confirm-left]').inner_text()))
         check('不露确认编号和助理的主体标识', 'c-syn-1' not in main and 'assistant:' not in main)
+        check('读到了这一条：页脚写清只认本人会话、只能用一次、别站的提交拒绝', '只能用一次' in pg.locator('[data-testid=confirm-foot]').inner_text())
         check('不进侧栏：侧栏里没有「待你确认」；顶栏写「待你确认」', pg.locator('[data-testid=wm-side]').inner_text().count('待你确认') == 0 and '待你确认' in pg.locator('[data-testid=wm-top]').inner_text())
         if SHOT: pg.screenshot(path=SHOT)
         inp, okb = pg.locator('[data-testid=confirm-input]'), pg.locator('[data-testid=confirm-ok]')
@@ -98,7 +100,7 @@ with sync_playwright() as p:
         ctx.close()
         for st, words in (('stale', '相关的数据变了'), ('denied', '已经没有办这件事的权限'), ('cancelled', '已作废'), ('failed', '没办成')):
             ctx, pg = open_page(b, item=item(status=st))
-            check(f'打开时已经是 {st}：只显示结果（{words}），没有提交框', words in pg.locator('[data-testid=confirm-outcome]').inner_text() and pg.locator('[data-testid=confirm-input]').count() == 0)
+            check(f'打开时已经是 {st}：只显示结果（{words}），没有提交框；页脚照出', words in pg.locator('[data-testid=confirm-outcome]').inner_text() and pg.locator('[data-testid=confirm-input]').count() == 0 and pg.locator('[data-testid=confirm-foot]').count() == 1)
             ctx.close()
 
         print('四、时钟走到时限')

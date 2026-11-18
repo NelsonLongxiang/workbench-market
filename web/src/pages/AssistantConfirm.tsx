@@ -43,11 +43,12 @@ export default function AssistantConfirm() {
 
   const here = `/login?next=${encodeURIComponent(`/assistant/confirm/${id}`)}`;
   const foot = <Typography.Text type="secondary" className="wm-caption" data-testid="confirm-foot">这一页只认你本人已登录的市场会话；一条只能用一次，过期作废；从别的网站发来的提交一律拒绝。</Typography.Text>;
-  const shell = (body: ReactNode) => <WmPage><div className="wm-confirm">{body}{foot}</div></WmPage>;
+  // 页脚那句规则只在读到了这一条时出；没登录、打不开、没开放、出错时不说
+  const shell = (body: ReactNode, withFoot = false) => <WmPage><div className="wm-confirm">{body}{withFoot && foot}</div></WmPage>;
 
   if (!kind) return shell(<Card><Skeleton active paragraph={{ rows: 3 }} /></Card>);
   if (kind.kind === 'login') return shell(<div data-testid="confirm-login"><Result status="info" title="请先登录" subTitle="登录后回到这一条。" extra={<Button type="primary" href={here}>去登录</Button>} /></div>);
-  if (kind.kind === 'not-yours') return shell(<div data-testid="confirm-not-yours"><Result status="403" title="这一条不是给你的" subTitle="它只能由发起它的人自己登录后确认，链接转给别人也没用；或者这一条已经没有了。" /></div>);
+  if (kind.kind === 'not-yours') return shell(<div data-testid="confirm-not-yours"><Result status="403" title="你打不开这一条" subTitle="它只能由发起它的人自己登录后确认，链接转给别人也没用；或者这一条已经没有了。" /></div>);
   if (kind.kind === 'session-only') return shell(<div data-testid="confirm-session-only"><Result status="warning" title={kind.text} subTitle="请用你自己的站内账号登录后再打开这个链接。" /></div>);
   if (kind.kind === 'missing') return shell(<Empty description="本站还没开放助理" data-testid="confirm-missing" />);
   if (kind.kind === 'error' || !info) return shell(<Alert type="error" showIcon message={kind.text} action={<Button size="small" onClick={() => void load()}>再试一次</Button>} data-testid="confirm-error" />);
@@ -66,7 +67,7 @@ export default function AssistantConfirm() {
       <Alert type={st === 'done' ? 'success' : st === 'failed' || st === 'denied' ? 'error' : 'info'} showIcon data-testid="confirm-outcome"
         message={<Space><Tag color={STATUS_TONE[st]}>{STATUS_TEXT[st]}</Tag></Space>} description={<Space direction="vertical">
           <span>{OUTCOME_TEXT[st]}</span>{info.link && <Link to={info.link} data-testid="confirm-result-link">去看结果 →</Link>}</Space>} />
-    </>);
+    </>, true);
   }
   const left = remainingText(info.expiresAt, now);
   const exact = typed === CONFIRM_WORD;
@@ -84,5 +85,5 @@ export default function AssistantConfirm() {
         {problem && <Alert type="warning" showIcon message={problem} data-testid="confirm-problem" />}
       </Space>
     </Card>
-  </>);
+  </>, true);
 }
