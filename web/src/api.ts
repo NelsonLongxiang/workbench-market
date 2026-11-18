@@ -210,6 +210,9 @@ export const postAssistantToken = () => assistantCall('/api/assistant/token', { 
 export const postAssistantDisable = () => assistantCall('/api/assistant/disable', { method: 'POST' });
 export const postAssistantEnable = () => assistantCall('/api/assistant/enable', { method: 'POST' });
 export const getAssistantActions = (cursor?: string | null) => assistantCall(`/api/assistant/actions${cursor ? `?${new URLSearchParams({ cursor })}` : ''}`);
+/** 「待你确认」一条：读；本人答（confirm 要带 typed，原样提交，不修剪） */
+export const getAssistantConfirm = (id: string) => assistantCall(`/api/assistant/confirms/${encodeURIComponent(id)}`);
+export const postAssistantConfirm = (id: string, answer: 'confirm' | 'decline', typed: string) => assistantCall(`/api/assistant/confirms/${encodeURIComponent(id)}`, { method: 'POST', body: answer === 'confirm' ? { answer, typed } : { answer } });
 
 /** 生命周期只读接口（观测层扩展挂在市场里）：带登录 cookie；扩展没挂上（404）或没配置（503）由页面给空状态，不弹口令 */
 /** identityDown：身份服务连不上（502 identity_unavailable），页面说「暂时取不到」，不当成没有 */

@@ -13,6 +13,7 @@ import Access from './pages/access/Access';
 import Types from './pages/Types';
 import Settings from './pages/Settings';
 import MyAssistant from './pages/MyAssistant';
+import AssistantConfirm from './pages/AssistantConfirm';
 import UseEntry from './pages/UseEntry';
 import Cockpit from './pages/Cockpit';
 import Sops from './pages/Sops';
@@ -158,6 +159,7 @@ export default function App() {
         <Route path="/types" element={<Types />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/settings/assistant" element={<MyAssistant />} />
+        <Route path="/assistant/confirm/:id" element={<AssistantConfirm />} />
         {/* 数据视图组件的演示页：只在开发时有（合成数据），正式构建里没有这一行，也不进侧栏 */}
         {BenchBlocksDemo ? <Route path="/dev/bench-blocks" element={<React.Suspense fallback={null}><BenchBlocksDemo /></React.Suspense>} /> : null}
         <Route path="*" element={<Navigate to={retiredRedirect(location.pathname) ?? '/'} replace />} />
