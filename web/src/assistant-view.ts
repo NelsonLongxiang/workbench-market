@@ -95,7 +95,9 @@ export function actionsOf(body: unknown): { items: ActionRow[]; next: string | n
     if (!id || !description || !isStatus(x.status)) return [];
     return [{
       id, at: time(x.at) ?? '', toolLabel: str(x.tool_label) || '一件事', description,
-      answer: isAnswer(x.answer) ? x.answer : 'pending', status: x.status, link: pageLink(x.link),
+      answer: isAnswer(x.answer) ? x.answer : 'pending', status: x.status,
+      // 还在等确认的链到确认页；别的给站内的结果链接
+      link: x.status === 'pending' ? confirmPath(id) : pageLink(x.link),
     }];
   });
   return { items, next: str(b.next_cursor) || null };
@@ -104,4 +106,77 @@ export function actionsOf(body: unknown): { items: ActionRow[]; next: string | n
 /** 令牌那一行怎么说：没取过 / 发出时刻和最后一次使用 */
 export function tokenLine(a: Pick<AssistantInfo, 'hasToken'>): string {
   return a.hasToken ? '已经取过一枚（原文只在取的那一次显示）' : '还没取过令牌';
+}
+
+/* ---------------- 「待你确认」页（/assistant/confirm/<id>，#829 第三节第 3、5 条） ---------------- */
+
+/** 确认页的地址：助理回复里给的就是它；「我的助理」页里还在等确认的那几条也链到这里 */
+export const confirmPath = (id: string): string => `/assistant/confirm/${encodeURIComponent(id)}`;
+
+/** 本人要打的字：服务端只认恰好这两个字，前端不替人修剪空格、不做任何规范化（原样提交） */
+export const CONFIRM_WORD = '确认';
+
+export type ConfirmInfo = { id: string; description: string; assistantLabel: string; createdAt: string | null; expiresAt: number | null; status: ConfirmStatus; link: string | null };
+/** GET /api/assistant/confirms/<id> 的应答整形；形状不对返回 null */
+export function confirmOf(body: unknown): ConfirmInfo | null {
+  if (!body || typeof body !== 'object') return null;
+  const b = body as Record<string, unknown>;
+  const id = str(b.id), description = str(b.description);
+  if (!id || !description || !isStatus(b.status)) return null;
+  const exp = time(b.expires_at);
+  return { id, description, assistantLabel: str(b.assistant_label) || '你的助理', createdAt: time(b.created_at), expiresAt: exp ? Date.parse(exp) : null, status: b.status, link: pageLink(b.link) };
+}
+
+/** 读的时候已经过了时限的「等你确认」一律当过期（服务端也这么判；页面开着时钟走到了，也照这个说） */
+export const shownStatus = (c: Pick<ConfirmInfo, 'status' | 'expiresAt'>, now: number): ConfirmStatus =>
+  c.status === 'pending' && c.expiresAt !== null && c.expiresAt <= now ? 'expired' : c.status;
+
+/** 还剩多久：「还剩 4 分 12 秒」；到了返回空串 */
+export function remainingText(expiresAt: number | null, now: number): string {
+  if (expiresAt === null) return '';
+  const s = Math.floor((expiresAt - now) / 1000);
+  if (s <= 0) return '';
+  return s >= 60 ? `还剩 ${Math.floor(s / 60)} 分 ${s % 60} 秒` : `还剩 ${s} 秒`;
+}
+
+/** 确认页处在哪种状态：读不到的各一句。不是本人的和不存在的，服务端回同一个 403（不透露这一条存不存在） */
+export function confirmPageKind(status: number, body: unknown): { kind: PageKind | 'not-yours'; text: string } {
+  const err = body && typeof body === 'object' ? str((body as Record<string, unknown>).error) : '';
+  if (status === 200) return confirmOf(body) ? { kind: 'ok', text: '' } : { kind: 'error', text: '读到的这一条看不懂，稍后再试' };
+  if (status === 401) return { kind: 'login', text: '请先登录' };
+  if (status === 403 && err === 'session_only') return { kind: 'session-only', text: '这一页只认你自己的站内账号登录：管理员口令、令牌都不是人，确认不了' };
+  if (status === 403) return { kind: 'not-yours', text: '这一条不是给你的，或者已经没有了' };
+  if (status === 404) return { kind: 'missing', text: '本站还没开放助理' };
+  if (status === 0) return { kind: 'error', text: '连不上服务器，稍后再试' };
+  return { kind: 'error', text: '读不到这一条，稍后再试' };
+}
+
+/** 每种结局一句话：页面到了终态只显示这一句和结果链接，不再给提交框 */
+export const OUTCOME_TEXT: Record<ConfirmStatus, string> = {
+  pending: '还在等你确认。',
+  confirming: '正在办，稍等一下再刷新看结果。',
+  done: '按你确认那一刻的权限和数据重新判过，办好了。',
+  failed: '办的时候出了错，没办成。可以到对应的页面核对一下。',
+  declined: '你选了不办，这一条已作废，什么也没改。',
+  expired: '5 分钟内没确认，这一条已作废，什么也没改。要办就让助理重新发起。',
+  stale: '从助理发起到你确认之间，相关的数据变了，这一条作废、没有执行。要办就让助理按现在的数据重新发起。',
+  denied: '你确认的时候，你已经没有办这件事的权限了，没有执行。',
+  cancelled: '助理被停用或令牌被重置了，这一条已作废，什么也没改。',
+};
+
+/** 提交以后（POST /api/assistant/confirms/<id>）怎么说：
+ *  200 带最终状态；409 已经不是待确认了（带当前状态）；422 打的字不对，这一条仍可再交；其余是没交上 */
+export function answerResult(status: number, body: unknown): { final: ConfirmStatus | null; link: string | null; text: string } {
+  const b = body && typeof body === 'object' ? body as Record<string, unknown> : {};
+  const err = str(b.error);
+  if ((status === 200 || status === 409) && isStatus(b.status)) {
+    return { final: b.status, link: pageLink(b.link), text: status === 409 ? `这一条已经处理过了：${STATUS_TEXT[b.status]}` : STATUS_TEXT[b.status] };
+  }
+  if (status === 422) return { final: null, link: null, text: `要恰好打「${CONFIRM_WORD}」两个字（不带空格），再交一次` };
+  if (status === 401) return { final: null, link: null, text: '登录过期了，请重新登录后再打开这个链接' };
+  if (status === 403 && err === 'cross_site') return { final: null, link: null, text: '只能在本站的这个页面上提交' };
+  if (status === 403 && err === 'session_only') return { final: null, link: null, text: '只认你自己的站内账号登录，口令和令牌提交不了' };
+  if (status === 403) return { final: null, link: null, text: '这一条不是给你的，或者已经没有了' };
+  if (status === 0) return { final: null, link: null, text: '连不上服务器，没交上；时限内可以再交' };
+  return { final: null, link: null, text: '没交上，稍后再试' };
 }

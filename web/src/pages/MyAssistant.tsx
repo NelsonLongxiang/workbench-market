@@ -131,7 +131,7 @@ export default function MyAssistant() {
               : <List dataSource={rows} rowKey="id" renderItem={(r) => <List.Item data-testid="assistant-action"
                   extra={<Tag color={STATUS_TONE[r.status]} data-testid="assistant-action-status">{STATUS_TEXT[r.status]}</Tag>}>
                   <List.Item.Meta title={<Space size={8} wrap><Tag>{r.toolLabel}</Tag><span>{r.description}</span></Space>}
-                    description={<Space size={8} wrap className="wm-caption">{r.at && <RelTime value={r.at} />}<span>{ANSWER_TEXT[r.answer]}</span>{r.link && <Link to={r.link}>去看结果 →</Link>}</Space>} />
+                    description={<Space size={8} wrap className="wm-caption">{r.at && <RelTime value={r.at} />}<span>{ANSWER_TEXT[r.answer]}</span>{r.link && <Link to={r.link}>{r.status === 'pending' ? '去确认 →' : '去看结果 →'}</Link>}</Space>} />
                 </List.Item>} />}
         {next && <Button className="wm-assistant-more" loading={busy === 'more'} onClick={async () => { setBusy('more'); await loadActions(next); setBusy(null); }} data-testid="assistant-more">再往前看</Button>}
       </Card>

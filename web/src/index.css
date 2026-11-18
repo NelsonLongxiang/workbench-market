@@ -35,8 +35,11 @@ body {
 .wm-caption { font-size: var(--wm-font-size-caption); line-height: var(--wm-line-height-caption); }
 /* 用户卡里「我的助理」入口 */
 .wm-me-link { display: inline-flex; align-items: center; gap: var(--wm-space-1); }
+/* 「待你确认」页：窄一列，描述字大一点 */
+.wm-confirm { max-width: 640px; display: flex; flex-direction: column; gap: var(--wm-space-4); }
+.wm-confirm-what { margin-top: var(--wm-space-2); font-size: var(--wm-font-size-subtitle); font-weight: 600; line-height: var(--wm-line-height-subtitle); }
 /* 「我的助理」页：怎么接入的三步、「再往前看」 */
-.wm-assistant-steps { margin: 0; padding-left: var(--wm-space-6); line-height: 26px; }
+.wm-assistant-steps { margin: 0; padding-left: var(--wm-space-6); line-height: var(--wm-line-height-subtitle); }
 .wm-assistant-more { margin-top: var(--wm-space-3); }
 /* 当前用户 chip（ViewerChip）：未登录、停用时标签和按钮排一行；名字太长截断 */
 .wm-viewer-chip { display: inline-flex; align-items: center; gap: var(--wm-space-1); }
