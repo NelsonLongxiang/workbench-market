@@ -17,7 +17,7 @@ import { answerChoices, answerLabel, confirmButtonText, answerRoute, answerViaOf
 import { cardWording, splitAskTitle } from '../home-view';
 import { seatLabel, teamLabel, waitingLabel } from '../people';
 import { fallbackPlace, pageLink } from '../page-paths';
-import { REVIEW_NEEDS, changeCard, changeDetailOf, confirmText, grantCard, grantDetailOf, reviewAnswerLabel, runCard, runDetailOf, taskKindLabel } from '../review-view';
+import { REVIEW_NEEDS, changeCard, changeDetailOf, confirmText, grantCard, grantDetailOf, grantDoneText, reviewAnswerLabel, runCard, runDetailOf, taskKindLabel } from '../review-view';
 
 
 const COLOR: Record<string, string> = { ask: 'gold', accept: 'green', glance: 'default', review: 'blue', grant: 'purple' };
@@ -121,6 +121,7 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
   const send = async (answer: string, input: Record<string, unknown>) => {
     setBusy(true);
     const later = rememberOn && remDefaults ? rememberPayload(lesson, cue, vis ?? remDefaults.default_visibility) : undefined;
+    let doneText = '办好了';
     try {
       const route = answerRoute(admin, item);
       if (route === 'via' && via) {
@@ -129,6 +130,7 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
         const vb = await r.json().catch(() => null);
         if (later && r.status === 400 && vb?.error === 'remember_invalid') throw Error('没办成：「记成经验」那几项填得不对，看一下再交');
         if (!r.ok) throw Error(viaError(r.status, vb));
+        if (gc) doneText = grantDoneText(vb);
         if (later) {
           const m = answeredWithRemember(vb?.remember);
           void (m.type === 'success' ? message.success(m.text) : message.warning(m.text));
@@ -169,7 +171,7 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
         const m = rememberLaterResult(r.status, r.body);
         void (m.ok && m.status === 'written' ? message.success(`办好了，也${m.text}`) : message.warning(`办好了；${m.ok ? m.text : `经验没记上：${m.text}`}`));
         setRemOn(false); setLesson(''); setCue('');
-      } else void message.success('办好了');
+      } else void message.success(doneText);
       setOpen(null); setText(''); setChoice('');
       attentionChanged(); onDone();
     } catch (e) { void message.error(e instanceof Error ? e.message : '没办成'); }
@@ -192,6 +194,8 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
     {gc && <div className="wm-decision-lines" data-testid="decision-grant">
       {gc.lines.map((l, i) => <Typography.Text key={i} type="secondary">{l}</Typography.Text>)}
       {gc.warn && <Typography.Text type="warning">{gc.warn}</Typography.Text>}
+      {gc.opens && <Typography.Text type="warning" data-testid="decision-grant-opens">{gc.opens}</Typography.Text>}
+      {gc.cardLink && <Link to={gc.cardLink} data-testid="decision-grant-card">看这张卡片 →</Link>}
     </div>}
     {cc && <div className="wm-decision-lines" data-testid="decision-change">
       {cc.lines.map((l, i) => <Typography.Text key={i} type="secondary">{l}</Typography.Text>)}

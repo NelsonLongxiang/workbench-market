@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { App, Button, Empty, Input, Modal, Popconfirm, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
 import { KeyOutlined, PlusOutlined } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
@@ -376,13 +377,18 @@ export default function McpGateways() {
                 <Typography.Paragraph type="secondary" className="wm-caption">
                   会话经 MCP <Typography.Text code>access_request</Typography.Text> 提交；批准把申请的工具并入该会话现有授权（不收走已有工具），立即生效并记审计。已吊销会话只能驳回。
                 </Typography.Paragraph>
+                <Typography.Paragraph type="secondary" className="wm-caption" data-testid="mcp-bench-hint">
+                  这里只有会话自己的工具申请。会话申请在某个台上用工具（台的工具授权）不在这一页，在<Link to="/attention">「等你拍板」</Link>里批。
+                </Typography.Paragraph>
                 <Space className="wm-mb-3">
                   <Select<ReqStatus> value={reqStatus} onChange={(v) => { setReqStatus(v); reqStatusRef.current = v; loadRequests(v); }} style={{ width: 140 }}
                     options={[{ value: 'pending', label: '待批' }, { value: 'approved', label: '已批准' }, { value: 'rejected', label: '已驳回' }, { value: 'all', label: '全部' }]} />
                 </Space>
                 <ProTable<AccessRequest> rowKey="id" size="middle" columns={reqCols} dataSource={requests} loading={reqLoading} search={false} options={false} toolBarRender={false}
                   pagination={{ pageSize: 20, hideOnSinglePage: true }}
-                  locale={{ emptyText: <Empty description={reqStatus === 'pending' ? '没有待批的申请' : '没有记录'} /> }} />
+                  locale={{ emptyText: <Empty data-testid="mcp-requests-empty" description={reqStatus === 'pending'
+                    ? <>这里没有待批的会话工具申请。台的工具授权在<Link to="/attention">「等你拍板」</Link>里批。</>
+                    : '没有记录'} /> }} />
               </>
             ),
           },

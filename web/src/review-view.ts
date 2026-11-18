@@ -122,20 +122,37 @@ export function runCard(d: RunDetail, team: (t: string) => string = (t) => t): {
 
 /** AI 会话申请用某个工作台的工具（「关注」来源 bench-mcp，#621 / #623）：卡片写清哪个会话、哪个台、要哪些工具（读 / 写分开）、申请理由。
  *  怎么答由条目的 answer_via 说（批准可以留一句，不批必须写理由），这里只管怎么显示 */
-export type GrantDetail = { session: string; bench: string; bench_title: string; read: string[]; write: string[]; reason: string };
+export type GrantDetail = { session: string; bench: string; bench_title: string; read: string[]; write: string[]; reason: string;
+  /** 台库开没开：申请写的是一张还没开台库的卡片时服务端给 false，批准会顺带为它开台库（release/6，属主 11-18 踩到的那种）；没给字段的旧应答当开过 */
+  registered: boolean;
+  /** 对应哪张卡片（工作台市场的卡片编号）；能链到卡片详情 */
+  workbenchId: number | null };
 export function grantDetailOf(item: Pick<AttentionItem, 'source'> & { detail?: unknown }): GrantDetail | null {
   if (item.source !== 'bench-mcp' || !item.detail || typeof item.detail !== 'object') return null;
   const d = item.detail as Record<string, unknown>;
   const tools = (Array.isArray(d.tools) ? d.tools : []).filter((x): x is Record<string, unknown> => !!x && typeof x === 'object' && typeof (x as Record<string, unknown>).tool === 'string');
   // 没写明是读的一律按写算：宁可多提醒一句
-  return { session: str(d.session), bench: str(d.bench), bench_title: str(d.bench_title), read: tools.filter((t) => t.category === 'read').map((t) => str(t.tool)), write: tools.filter((t) => t.category !== 'read').map((t) => str(t.tool)), reason: str(d.reason).trim() };
+  const wb = d.workbench_id;
+  return { session: str(d.session), bench: str(d.bench), bench_title: str(d.bench_title), read: tools.filter((t) => t.category === 'read').map((t) => str(t.tool)), write: tools.filter((t) => t.category !== 'read').map((t) => str(t.tool)), reason: str(d.reason).trim(),
+    registered: d.bench_registered !== false, workbenchId: typeof wb === 'number' && Number.isSafeInteger(wb) && wb > 0 ? wb : null };
 }
 const few = (names: string[]): string => `${names.slice(0, 4).join('、')}${names.length > 4 ? ` 等 ${names.length} 个` : ''}`;
-export function grantCard(d: GrantDetail): { title: string; lines: string[]; warn: string } {
+export function grantCard(d: GrantDetail): { title: string; lines: string[]; warn: string; opens: string; cardLink: string | null } {
   const n = d.read.length + d.write.length;
+  const name = d.bench_title || d.bench || '没写是哪个';
   return {
-    title: `AI 会话「${d.session || '没写名字'}」想用工作台「${d.bench_title || d.bench || '没写是哪个'}」的${n ? ` ${n} 个` : ''}工具`,
+    title: `AI 会话「${d.session || '没写名字'}」想用工作台「${name}」的${n ? ` ${n} 个` : ''}工具`,
     lines: [d.read.length ? `只读：${few(d.read)}` : '', d.reason ? `申请理由：${d.reason}` : '没写申请理由'].filter(Boolean),
     warn: d.write.length ? `会改数据：${few(d.write)}` : '',
+    opens: d.registered ? '' : `这张卡片还没开台库：批准时会顺带为「${name}」开一个，再写上授予；不批就不开`,
+    cardLink: d.workbenchId === null ? null : `/market/wb/${d.workbenchId}`,
   };
+}
+
+/** 批准以后怎么说：服务端这次顺带开了台库，应答带 opened_bench: { slug, title }，说一句开了哪个；别的照旧「办好了」 */
+export function grantDoneText(body: unknown): string {
+  const ob = body && typeof body === 'object' ? (body as Record<string, unknown>).opened_bench : null;
+  if (!ob || typeof ob !== 'object') return '办好了';
+  const t = str((ob as Record<string, unknown>).title).trim() || str((ob as Record<string, unknown>).slug).trim();
+  return t ? `办好了：已为「${t}」开了台库，授予也写上了` : '办好了：顺带开了台库，授予也写上了';
 }
