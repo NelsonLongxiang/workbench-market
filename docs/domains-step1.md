@@ -90,6 +90,11 @@ seq（自增）, area_id, kind ∈ {create, retire, spec-add, spec-activate, mig
 
 **入口：** 属主一个人调 `POST /api/areas/migrate`，回这次建了哪些领域、起草了哪些授予。授予放行走现有的授予放行接口，或者照设置向导的「一批放行」。
 
+**同时调两次也只成一份：** 每个部门的「建领域 + 起草授予」放在同一个事务里。
+- 领域按标识去重：主键冲突就跳过。
+- 授予按「被授予人 + 角色 `area-member` + 范围 `area:<x>` + 理由『由部门负责人迁移』」去重：事务里先查有没有这样一条非撤销的授予，有就跳过。
+- 两次调用交错时，后进事务的那一次看得到前一次已经提交的行，所以只成一份。PG 上同样做：事务隔离级别用可串行化，或者对 `areas` 那一行加锁后再查。
+
 **搬到 PostgreSQL：** 三张新表都在中立写法里登记。迁移只用「插入（存在就跳过）」，这个写法由数据访问服务给两种库各一份，所以 PG 上跑同一段代码。
 
 ## 三、授权
@@ -113,12 +118,18 @@ seq（自增）, area_id, kind ∈ {create, retire, spec-add, spec-activate, mig
 **触发、验收、定规范是三个动作。** 前两个第 1 步只登记名字和类别，还不接到事项上。
 - **问题：** 第 1 步路由上没有它们。角色声明引用了不存在的动作，启动校验不让过。
 - **我的做法：** 在 `POST /api/work-items`、`POST /api/work-items/:id/decision` 上各登记一条 `refine`（细分动作），`when` 在第 1 步恒为假，第 2 步改成「请求带了领域」。动作因此进了动作清单和快照，角色能引用。判定行为在第 1 步不变，回放零差异。
-- **待评审确认：** 这样登记是否可取；另一种做法是第 2 步再登记、角色也到第 2 步再加。
+- **已定**（第七节第 1 条）：第 1 步就这样登记，角色一次给全。
 
 **判定怎么接：**
 
 - `judgment.ts` 的 `scopedVerdict` 现在只认 `dept:`（`DEPT_SCOPE`）。改成也认 `area:`；`ASKED` 表里的 `dept` 一列改名 `scoped`，含义不变（「按范围问时用的类别」）。
-- 过渡期两种范围都认：问 `area:<x>` 时，持 `dept:<x>`（同标识）生效授予的人也算。第 5 步收掉 `dept:` 时去掉这条。
+- **`area.spec-set` 是一条硬规则，不走「角色覆盖就放行」：** 判定（`judgeBuiltin` 和 `scopedVerdict` 两处）遇到这个动作，只认两种人：
+  - 属主（见第 3 小节）；
+  - 持有本领域 `area-spec` 角色、范围正好是 `area:<x>` 的生效授予的人。
+  别的角色哪怕权限覆盖了这个动作也不算。比如管理层拿着范围 `*` 的授予，`area` 是业务域、管理层的权限覆盖全部业务域的决定类；又比如一个自定义角色列了 `area.spec-set`。规则写进 `narrowed`（收窄），和建领域、撤领域同一种机制。
+- **过渡期 `dept:<x>` 等同 `area:<x>`，只限 `ASKED` 表里原有的那几项动作：** 也就是数据视图台的 `bench-store.*` 和经验库的 `knowledge.read`，按第 1 步开工时 `ASKED` 里的清单写死成一个集合。
+  - 新的 `area.*` 动作一律不认 `dept:`。只持 `dept:<x>` 的人在领域 `<x>` 上不能触发、验收、定规范，要等属主放行 `area-member`。
+  - 第 5 步收掉 `dept:` 时连这个集合一起删。
 
 ### 2. 角色
 
@@ -134,7 +145,9 @@ seq（自增）, area_id, kind ∈ {create, retire, spec-add, spec-activate, mig
 ### 3. 谁能放行
 
 - 照 `roles.ts` 的 `approvalOf` 三档，两个新角色都带决定类权限，属于「带业务拍板」一档，只有属主能放行。
-- `area-spec` 另加一条硬规则：起草、放行都只有属主。用意是只有属主能「授」定规范，起草也不许别人代。规则写在 `services/grant.ts` 的 `issueCheck` 和 `approvability`。
+- **属主指谁**：照 `services/grant.ts` 文件头现有的定义——本机命令行（授予面上本机命令行算属主），或者持有生效的 `owner` 授予（范围 `*`）的主体。管理口令对不到人，不算属主。
+- **定规范只有属主能授**：按「角色的权限展开后是否覆盖 `area.spec-set`」来判，不按角色名。`area-spec`、列了这个动作的自定义角色、以后任何覆盖它的角色，起草和放行都只有属主。规则写在 `services/grant.ts` 的 `issueCheck`（起草）和 `approvability`（放行）。
+- **只有一位属主时也走得通**：现有规则里「起草的人不能自己放行」只管第二、三档，属主这一档不受它限制。所以属主给另一个人起草 `area-spec`，可以自己放行；本机命令行也可以放行。属主不能给自己授予（库里约束），但属主本来就能定规范，不需要这条授予。
 - 起草人、放行人都不能是被授予的人（库里现有的约束）。
 - 不是人的主体不能持有带决定类的授予（judge 第 3 步现有规则），所以 AI 席位拿不到 `area-spec`、`area-member`。
 - 系统管理员照旧两人制：可以起草 `area-member`、不能放行，看不到规范正文（业务域）。
@@ -154,7 +167,7 @@ seq（自增）, area_id, kind ∈ {create, retire, spec-add, spec-activate, mig
 | `server/src/routes/knowledge.ts`、`knowledge_project_depts` | 「项目 → 部门」对照 | 对照的目标改成领域（同标识）；表第 1 步不改名、只读旧行、新写进新列，第 5 步并表 |
 | `server/src/routes/departments.ts`、`services/department.ts`、`services/dept-lead-grant.ts` | 增、改、删部门，成员增删，`setDepartmentLead`、`removeDepartment` | 写接口停写（第六节）；读接口照旧 |
 | `server/src/services/relation-proposal.ts` | `dept-lead`、`team-claim` 两种提议 | 不再收新的 `dept-lead` 提议；`team-claim` 第 3 步改成认领到领域 |
-| `server/src/services/setup-wizard.ts` | `targets`（`dept_leads` 生成 `dept-lead`/`dept:`） | 不再收 `dept_leads`；向导加一种 `area_members`（第 1 步可选，评审定） |
+| `server/src/services/setup-wizard.ts` | `targets`（`dept_leads` 生成 `dept-lead`/`dept:`） | 不再收 `dept_leads`；第 1 步不加 `area_members`（第七节第 4 条） |
 | `server/src/attention-names.ts` | `nameResolver`（同部门互相看得到名字） | 第 1 步不改：它只管能不能看到别人的名字，不带权。第 5 步改成「对同一个领域有授予」 |
 | `server/src/team-relation.ts`、`work-item-access.ts`、`task-center.ts`、`services/team.ts` | `relationOf`、`teamVisibleTo`、`itemRoles`、`arrangeTask` | 第 1 步不改：这些是团队、负责人、分配那一套，第 2～4 步随事项带领域一起换 |
 | `server/src/red-lines.ts` | `dept-lead-field-no-power` | 加一条：`area-spec` 只有属主能授 |
@@ -191,23 +204,30 @@ seq（自增）, area_id, kind ∈ {create, retire, spec-add, spec-activate, mig
 | 5 | 直接在库里改、删一个规范版本（SQLite、PG 各一次） | 触发器拒 |
 | 6 | 生效指针指向不存在的版本 | 400；库里外键也拒 |
 | 7 | 管理层、系统管理员起草或放行 `area-spec` | 拒：只有属主起草、放行 |
-| 8 | 属主给自己起草 `area-spec` | 拒（起草人不能是被授予人，库里现有约束） |
+| 8 | 只有一位属主：属主给另一个人起草 `area-spec`，再由属主本人放行；另一条由本机命令行放行 | 都能成；被授予的人随后能新加规范版本 |
 | 9 | 给 AI 席位起草 `area-member` 或 `area-spec` | 拒（决定类不给非人主体） |
 | 10 | 范围 `area:甲` 的授予去访问领域乙的台、规范 | 403 |
 | 11 | 范围写成 `area:` 后面跟大写、超长、已撤的领域、不存在的领域 | 400 |
-| 12 | 过渡期：只持 `dept:<x>` 旧授予的人访问绑在 `<x>` 的台 | 照旧放行（回放零差异）；新起草 `dept:` 范围被拒 |
+| 12 | 过渡期：只持 `dept:<x>` 旧授予的人访问绑在 `<x>` 的台；同一个人对领域 `<x>` 新加规范版本、触发、验收 | 台照旧放行（回放零差异）；规范、触发、验收都 403；新起草 `dept:` 范围被拒 |
 | 13 | 迁移跑两次 | 第二次不新建领域、不重复起草；旧部门表、成员表、负责人授予原样 |
 | 14 | 迁移遇到负责人停用、只有字段没授予的部门 | 建领域，不起草授予 |
 | 15 | 撤领域时还有生效授予 | 409 |
 | 16 | 规范正文超 64 KB、sha256 和正文对不上 | 400 / 库里拒 |
 | 17 | 停写的旧接口（改部门、加成员、`dept-lead` 提议、向导 `dept_leads`） | 410，库里没有变化 |
 | 18 | 远程匿名访问领域的写接口 | 401（启动自检那一行同） |
+| 19 | 持管理层授予（范围 `*`）的人，对任一领域新加规范版本、移生效指针 | 403（定规范是硬规则，角色覆盖不算） |
+| 20 | 自定义角色的权限列了 `area.spec-set`，由管理层或系统管理员起草、放行 | 都拒：覆盖 `area.spec-set` 的授予只有属主能起草、放行 |
+| 21 | 迁移接口同时调两次（并发） | 只成一份：领域一个、授予草稿一条 |
+| 22 | 持 `area:<x>` 授予的人读经验库里写着 `dept:<x>` 的条目 | 看得到（经验库照写 `dept:`，判定处按领域问） |
 
 **变异核对：**
-- 拿掉 `area-spec` 只有属主这条，7 应红；
+- 拿掉「覆盖 `area.spec-set` 的授予只有属主起草、放行」，7、20 应红；
+- 拿掉 `area.spec-set` 的硬规则（改回按角色覆盖放行），19 应红；
 - 拿掉版本触发器，5 应红；
 - 让 `area:` 匹配前缀而不是整串，10 应红；
-- 拿掉过渡期认 `dept:`，12 应红。
+- 拿掉过渡期认 `dept:`，12 的台那一半应红；过渡期认 `dept:` 扩到 `area.*`，12 的规范、触发、验收那一半应红；
+- 迁移不放在一个事务里、或者不按授予去重，21 应红；
+- 把 `area.trigger`、`area.accept` 那两条 `refine` 的 `when` 改成恒真，事项那几份回放应有差异。
 
 ## 六、和 14 的旧对象怎么收
 
@@ -226,9 +246,11 @@ seq（自增）, area_id, kind ∈ {create, retire, spec-add, spec-activate, mig
 
 **删除前（第 5 步）：** 按「旧断言 → 新守护」逐条核对。每张要删的表、每个要删的接口，原来哪些测试守着，现在由哪条领域的测试守，列成表；没人守的先补测试再删。
 
-## 七、待评审确认
+## 七、评审已定（阶段四验收，#828）
 
-1. 第三节第 1 条：`area.trigger`、`area.accept` 第 1 步用恒为假的 `refine` 先登记；还是第 2 步再登记、角色也到第 2 步再加。
-2. 第二节第 2 条：库里的范围前缀用 `area:`（`domain:` 已被动作的域占用）。
-3. 第四节：经验库写 `area:` 要等 ygl-trees 认这个写法；没认之前照写 `dept:`，判定处换成按领域问。
-4. 设置向导第 1 步要不要加 `area_members`（一批起草领域成员授予）；不加的话，迁移以外新领域的授予逐条走授予接口。
+1. `area.trigger`、`area.accept` **第 1 步就用恒为假的 `refine` 登记**，角色这一步就完整：
+   - 理由：第 2 步再往 `area-member` 里加动作，会让属主已经放行的授予在没人重新放行的情况下变宽。
+   - 配的变异写在第五节。
+2. 库里的范围前缀用 **`area:`**。
+3. 经验库照写 `dept:`，等 ygl-trees 认了 `area:` 再换；判定处按领域问。对抗清单第 22 条守着。
+4. 设置向导**第 1 步不加** `area_members`：迁移已经覆盖现有的人，新领域的授予逐条起草。
