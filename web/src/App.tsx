@@ -1,9 +1,9 @@
 import { sessionGeneration, subscribeSession } from './session-watch';
 import React from 'react';
-import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { retiredRedirect } from './page-paths';
 import Shell from './components/Shell';
-import { KeyOutlined, RobotOutlined } from '@ant-design/icons';
+import { KeyOutlined } from '@ant-design/icons';
 import { api } from './api';
 import Market from './pages/Market';
 import MarketHome from './pages/market/Market';
@@ -38,6 +38,7 @@ import WorkItems from './pages/WorkItems';
 import ViewerChip from './components/ViewerChip';
 import LoginChip from './components/LoginChip';
 import PasswordChip from './components/PasswordChip';
+import AssistantLink from './components/AssistantLink';
 // import.meta.hot 只在 vite dev 时有；正式构建里它是 undefined，这一行连同演示页整个被摇掉
 const BenchBlocksDemo = import.meta.hot ? React.lazy(() => import('./pages/dev/BenchBlocksDemo')) : null;
 
@@ -130,7 +131,7 @@ export default function App() {
   }
 
   return (
-    <Shell key={gen} admin={admin} footer={<><LoginChip />{surface !== 'control' && <ViewerChip />}{surface !== 'control' && <Link to="/settings/assistant" className="wm-me-link" data-testid="me-assistant"><RobotOutlined /> 我的助理</Link>}{surface !== 'control' && <PasswordChip />}<AdminTokenBadge /></>}>
+    <Shell key={gen} admin={admin} footer={<><LoginChip />{surface !== 'control' && <ViewerChip />}{surface !== 'control' && <AssistantLink />}{surface !== 'control' && <PasswordChip />}<AdminTokenBadge /></>}>
       <OutboundBanner />
       <Routes>
         <Route path="/" element={<Home />} />

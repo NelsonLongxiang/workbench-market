@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 一人一助理的页面说法和整形（web/src/assistant-view.ts）：接口形状按 docs/assistant-phase1.md 第六节（#829）。全是合成值。 */
-const { ANSWER_TEXT, STATUS_TEXT, STATUS_TONE, actionError, actionsOf, assistantOf, pageKind, tokenLine } = await import('../web/src/assistant-view.ts');
+const { ANSWER_TEXT, STATUS_TEXT, showEntry, STATUS_TONE, actionError, actionsOf, assistantOf, pageKind, tokenLine } = await import('../web/src/assistant-view.ts');
 
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ✓', n); } else { fail++; console.log('  ✗', n, x); } };
@@ -17,6 +17,13 @@ ok('件数不是非负整数的当 0', assistantOf({ ...BODY, actions_30d: -1, p
 ok('页面状态：200 看得懂 → 正常；看不懂 → 出错', pageKind(200, BODY).kind === 'ok' && pageKind(200, { status: 'x' }).kind === 'error');
 ok('页面状态：401 去登录；403 只认本人会话（口令、令牌）；404 服务端还没上线；断网、别的出错', pageKind(401, {}).kind === 'login' && pageKind(403, { error: 'session_only' }).kind === 'session-only' && pageKind(403, { error: 'session_only' }).text.includes('管理员口令') && pageKind(404, {}).kind === 'missing' && pageKind(0, null).text.includes('连不上') && pageKind(500, {}).kind === 'error');
 ok('动作没办成：404 是本站没开放；跨站、不是本人、没登录、断网各一句', actionError(404, {}).includes('没开放') && actionError(403, { error: 'cross_site' }).includes('本站页面') && actionError(403, { error: 'session_only' }).includes('本人') === false && actionError(403, { error: 'session_only' }).includes('站内账号') && actionError(401, {}) === '请先登录' && actionError(0, null).includes('连不上'));
+
+ok('读的 403：session_only 才算「只认本人」；跨站、别的 403 各说各的（当出错）', pageKind(403, { error: 'cross_site' }).kind === 'error' && pageKind(403, { error: 'cross_site' }).text.includes('本站打开') && pageKind(403, {}).kind === 'error' && pageKind(403, {}).text.includes('没有权限'));
+ok('动作 404：取令牌说不能取令牌；停用启用说不能停用或启用（不再都说令牌）', actionError(404, {}, 'token').includes('取令牌') && actionError(404, {}, 'power').includes('停用或启用') && !actionError(404, {}, 'power').includes('令牌'));
+ok('动作 403：别的 403 说没有权限，不按「只认本人」说', actionError(403, {}).includes('没有权限') && !actionError(403, {}).includes('站内账号'));
+ok('用户卡入口：只在 200、看得懂、部署方开放时出', showEntry(200, BODY) === true);
+ok('用户卡入口：没开放、没登录、口令或令牌、服务端没有接口、出错、看不懂，都不出',
+  showEntry(200, { ...BODY, enabled_by_deployment: false }) === false && showEntry(401, {}) === false && showEntry(403, { error: 'session_only' }) === false && showEntry(404, {}) === false && showEntry(500, {}) === false && showEntry(0, null) === false && showEntry(200, { status: 'x' }) === false);
 
 ok('九种确认状态都有人话和颜色（服务端 #829 第三节）', ['pending', 'confirming', 'done', 'failed', 'declined', 'expired', 'stale', 'denied', 'cancelled'].every((s) => STATUS_TEXT[s] && STATUS_TONE[s]));
 ok('人话里没有英文代号', Object.values(STATUS_TEXT).concat(Object.values(ANSWER_TEXT)).every((t) => !/[A-Za-z]/.test(t)));

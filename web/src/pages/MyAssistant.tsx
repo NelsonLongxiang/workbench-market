@@ -1,9 +1,12 @@
 /** 「我的助理」页（/settings/assistant，入口在左下角用户卡里）。一人一助理第 1 期，接口见 docs/assistant-phase1.md 第六节（#829）。
- *  每个账户一个助理，开通账户时就建好了；它代表本人，只做本人权限以内的事；动手前在市场页面上由本人打字确认。
- *  这一页：助理的状态、接入地址、取 / 重置令牌（原文只显示一次）、停用 / 启用、怎么接入、它替你办过的事。
- *  状态：没登录、不是本人的会话（管理员口令、令牌）、服务端还没上线（404）、部署方没开（enabled_by_deployment）、出错，各有一句。
+ *  每个账户一个助理；它代表本人，只做本人权限以内的事。第 1 期它只有只看的工具（whoami、assistant_confirm_status），
+ *  介绍和「怎么接入」只写这些；动手的工具以后接入，到时候每件都要本人在市场页面上打字确认。
+ *  这一页：助理的状态、接入地址、取 / 重置令牌（原文只显示一次，离开这一页时清掉，后退缓存也带不回来）、停用 / 启用、怎么接入、它替你办过的事。
+ *  状态：没登录、不是本人的会话（管理员口令、令牌）、服务端没有助理接口（404）或部署方没开放（enabled_by_deployment 为假）、出错，各有一句；
+ *  介绍只在正常状态下出。
  *  说法和整形在 web/src/assistant-view.ts；不露代号（助理的主体标识、确认编号、工具代号）。 */
 import { useCallback, useEffect, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { Alert, App, Button, Card, Descriptions, Empty, List, Popconfirm, Result, Skeleton, Space, Tag, Typography } from 'antd';
 import { KeyOutlined, PoweroffOutlined, RobotOutlined } from '@ant-design/icons';
@@ -40,6 +43,12 @@ export default function MyAssistant() {
     if (k.kind === 'ok') void loadActions(null);
   }, [loadActions]);
   useEffect(() => { void load(); }, [load]);
+  // 令牌原文不跟着整页进浏览器的后退缓存：离开这一页（pagehide）时同步清掉，DOM 里先没了再存
+  useEffect(() => {
+    const clear = () => flushSync(() => setToken(null));
+    window.addEventListener('pagehide', clear);
+    return () => window.removeEventListener('pagehide', clear);
+  }, []);
 
   const takeToken = async () => {
     setBusy('token');
@@ -47,13 +56,13 @@ export default function MyAssistant() {
     setBusy(null);
     const t = r.status === 200 && r.body && typeof r.body === 'object' ? (r.body as { token?: unknown }).token : null;
     if (typeof t === 'string' && t) { setToken(t); void load(); }
-    else void message.error(actionError(r.status, r.body));
+    else void message.error(actionError(r.status, r.body, 'token'));
   };
   const power = async (on: boolean) => {
     setBusy('power');
     const r = await (on ? postAssistantEnable() : postAssistantDisable());
     setBusy(null);
-    if (r.status !== 200) { void message.error(actionError(r.status, r.body)); return; }
+    if (r.status !== 200) { void message.error(actionError(r.status, r.body, 'power')); return; }
     if (!on) setToken(null);
     const cancelled = !on && r.body && typeof r.body === 'object' ? Number((r.body as { cancelled?: unknown }).cancelled) || 0 : 0;
     void message.success(on ? '助理已启用' : `助理已停用，所有连接都断开了${cancelled ? `；还在等你确认的 ${cancelled} 件一并作废` : ''}`);
@@ -61,22 +70,23 @@ export default function MyAssistant() {
   };
 
   const intro = <Typography.Paragraph type="secondary" className="wm-caption" data-testid="assistant-intro">
-    每个账户有一个助理，开通账户时就建好了。它代表你，只能做你权限以内的事：只看的直接回答；要动手的，先给你一个链接，你在已登录的市场页面上打「确认」它才办，一事一确认。它办的每件事都记成「你（经助理）」。
+    每个账户有一个助理，它代表你，只能做你权限以内的事。现在它只会看：告诉你它代表谁、你当下有哪些授予、它能用哪些工具，以及某一条「待你确认」处理到哪了。要动手的工具以后接入，到时候每件事都要你在已登录的市场页面上打「确认」它才办。
   </Typography.Paragraph>;
 
-  if (!kind) return <WmPage>{intro}<Card><Skeleton active paragraph={{ rows: 4 }} /></Card></WmPage>;
-  if (kind.kind === 'login') return <WmPage>{intro}<div data-testid="assistant-login"><Result status="info" title="请先登录" subTitle="登录后才能看你的助理。" extra={<Button type="primary" href={LOGIN}>去登录</Button>} /></div></WmPage>;
-  if (kind.kind === 'session-only') return <WmPage>{intro}<div data-testid="assistant-session-only"><Result status="warning" title={kind.text} subTitle="管理员口令是大家共用的，令牌是给助理用的，都不代表你本人。请用你自己的站内账号登录后再打开这一页。" /></div></WmPage>;
-  if (kind.kind === 'missing') return <WmPage>{intro}<Empty description={<>本站还没有上线助理。<br />服务端这一期上线以后，这里会显示你的助理。</>} data-testid="assistant-missing" /></WmPage>;
-  if (kind.kind === 'error' || !info) return <WmPage>{intro}<Alert type="error" showIcon message={kind.text} action={<Button size="small" onClick={() => void load()}>再试一次</Button>} data-testid="assistant-error" /></WmPage>;
+  const notOpen = <Empty description="本站还没开放助理" data-testid="assistant-missing" />;
+  if (!kind) return <WmPage><Card><Skeleton active paragraph={{ rows: 4 }} /></Card></WmPage>;
+  if (kind.kind === 'login') return <WmPage><div data-testid="assistant-login"><Result status="info" title="请先登录" subTitle="登录后才能看你的助理。" extra={<Button type="primary" href={LOGIN}>去登录</Button>} /></div></WmPage>;
+  if (kind.kind === 'session-only') return <WmPage><div data-testid="assistant-session-only"><Result status="warning" title={kind.text} subTitle="管理员口令是大家共用的，令牌是给助理用的，都不代表你本人。请用你自己的站内账号登录后再打开这一页。" /></div></WmPage>;
+  if (kind.kind === 'missing') return <WmPage>{notOpen}</WmPage>;
+  if (kind.kind === 'error' || !info) return <WmPage><Alert type="error" showIcon message={kind.text} action={<Button size="small" onClick={() => void load()}>再试一次</Button>} data-testid="assistant-error" /></WmPage>;
+  // 部署方没开放：和服务端没有助理接口一样，只说一句，不出介绍、不出令牌和接入
+  if (!info.enabled) return <WmPage>{notOpen}</WmPage>;
 
   const on = info.status === 'active';
-  const canToken = info.enabled && on;
+  const canToken = on;
   return <WmPage>
     {intro}
     <Space direction="vertical" size="middle" className="wm-w-full">
-      {!info.enabled && <Alert type="info" showIcon data-testid="assistant-not-open" message="本站还没开放助理"
-        description="部署方打开以后，你才能取令牌、让助理替你动手。以前的记录照常能看。" />}
       {token && <Alert type="warning" showIcon data-testid="assistant-token" message="新令牌只显示这一次，现在复制"
         description={<Space direction="vertical" className="wm-w-full">
           <Typography.Text code copyable={{ text: token }} data-testid="assistant-token-text">{token}</Typography.Text>
@@ -110,8 +120,8 @@ export default function MyAssistant() {
       <Card size="small" title="怎么接入" data-testid="assistant-howto">
         <ol className="wm-assistant-steps">
           <li>在 Claude 或 DSH 会话里添加一个 MCP 服务器：地址填上面的接入地址，令牌填你取到的那一串。</li>
-          <li>直接说要办什么，例如「等我拍板的有哪些」「把这件事的期限改到 11 月 20 日」。只看的它直接回答。</li>
-          <li>要动手的事，它会在回复里给你一个市场链接。在你已登录的浏览器里打开，看清市场写的那句描述，打「确认」它才办；5 分钟内不确认就作废。</li>
+          <li>问它，例如「我是谁」「你能用哪些工具」。现在它只会看，这些它直接回答。</li>
+          <li>动手的工具以后接入。到时候它会在回复里给你一个市场链接：在你已登录的浏览器里打开，看清市场写的那句描述，打「确认」它才办；5 分钟内不确认就作废。</li>
         </ol>
       </Card>
       <Card size="small" title={<Space><span>它替你办过的事</span><Typography.Text type="secondary" className="wm-caption">近 30 天</Typography.Text></Space>} data-testid="assistant-actions">

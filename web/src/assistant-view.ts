@@ -42,19 +42,27 @@ export function pageKind(status: number, body: unknown): { kind: PageKind; text:
   const err = body && typeof body === 'object' ? str((body as Record<string, unknown>).error) : '';
   if (status === 200) return assistantOf(body) ? { kind: 'ok', text: '' } : { kind: 'error', text: '读到的助理信息看不懂，稍后再试' };
   if (status === 401) return { kind: 'login', text: '请先登录' };
-  if (status === 403) return { kind: 'session-only', text: err === 'session_only' ? '这一页只认你自己的站内账号登录：管理员口令、令牌都不是人，打不开' : '这一页只认你自己的站内账号登录' };
-  if (status === 404) return { kind: 'missing', text: '本站还没有上线助理' };
+  if (status === 403 && err === 'session_only') return { kind: 'session-only', text: '这一页只认你自己的站内账号登录：管理员口令、令牌都不是人，打不开' };
+  if (status === 403 && err === 'cross_site') return { kind: 'error', text: '这一页只能在本站打开' };
+  if (status === 403) return { kind: 'error', text: '没有权限看这一页' };
+  if (status === 404) return { kind: 'missing', text: '本站还没开放助理' };
   if (status === 0) return { kind: 'error', text: '连不上服务器，稍后再试' };
   return { kind: 'error', text: '读不到你的助理，稍后再试' };
 }
 
-/** 动作（取令牌、停用、启用）没办成怎么说 */
-export function actionError(status: number, body: unknown): string {
+/** 用户卡里的「我的助理」入口出不出：只在 GET /api/assistant 回 200、看得懂、并且部署方开放了（enabled_by_deployment 为真）时出。
+ *  没登录（401）、不是本人的会话（403）、服务端没有助理接口（404）、没开放、出错，都不出。 */
+export const showEntry = (status: number, body: unknown): boolean => status === 200 && assistantOf(body)?.enabled === true;
+
+/** 动作（取令牌、停用、启用）没办成怎么说；404 按是哪一种动作说 */
+export function actionError(status: number, body: unknown, action: 'token' | 'power' = 'token'): string {
   const err = body && typeof body === 'object' ? str((body as Record<string, unknown>).error) : '';
   if (status === 0) return '连不上服务器，没办成';
   if (status === 401) return '请先登录';
-  if (status === 403) return err === 'cross_site' ? '这一步只能在本站页面上点' : '只认你自己的站内账号登录';
-  if (status === 404) return '本站还没开放助理，现在不能取令牌';
+  if (status === 403 && err === 'cross_site') return '这一步只能在本站页面上点';
+  if (status === 403 && err === 'session_only') return '只认你自己的站内账号登录，管理员口令和令牌办不了';
+  if (status === 403) return '没有权限做这一步';
+  if (status === 404) return action === 'token' ? '本站还没开放助理，现在不能取令牌' : '本站还没开放助理，现在不能停用或启用';
   return '没办成，稍后再试';
 }
 
