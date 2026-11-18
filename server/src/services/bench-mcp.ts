@@ -12,7 +12,7 @@ import { db } from '../db.ts';
 import { BenchError } from '../bench-query.ts';
 import { BENCH_SLUG_RE } from './bench-store-core.ts';
 import { benchStore, type BenchStore } from './bench-store.ts';
-import { getBench, resolveBenchRef } from './bench-registry.ts';
+import { benchAliases, cardSlug, getBench, resolveBenchRef, unopenedCard } from './bench-registry.ts';
 import { BENCH_TOOL_DEFS, BENCH_TOOL_NAMES } from '../bench-mcp-tools.ts';
 
 export const BENCH_REQUEST_HOURLY_MAX = 10;
@@ -118,7 +118,20 @@ export function requestBenchTools(sessionId: number, bench: string, tools: unkno
 }
 
 // —— 台的管理层这一侧 ——
-const audit = (bench: string, sessionId: number, action: string, tools: string[], actor: string, at: number, requestId: number | null, note: string): void => {
+/**
+ * 一条申请里写的台指的是哪个台。申请表照会话写的原样存，这里统一换算：
+ *   · 登记过的台（写台标识、卡片 id 都认）：registered，slug 是台标识；
+ *   · 一张还在、还没开台库的卡片（写卡片 id 或 wb-<卡片 id>）：没登记，slug 是批准时会给它开的台标识 wb-<卡片 id>；
+ *   · 别的（标识写错了、卡片已删）：null，没有人能批，不进待批清单。
+ */
+export type RequestTarget = { slug: string; title: string; registered: boolean; workbench_id: number | null };
+export function requestTarget(ref: string): RequestTarget | null {
+  const b = getBench(resolveBenchRef(ref));
+  if (b) return { slug: b.slug, title: b.title, registered: true, workbench_id: b.workbench_id };
+  const c = unopenedCard(ref);
+  return c ? { slug: cardSlug(c.workbench_id), title: c.name, registered: false, workbench_id: c.workbench_id } : null;
+}
+const audit =(bench: string, sessionId: number, action: string, tools: string[], actor: string, at: number, requestId: number | null, note: string): void => {
   db.prepare('INSERT INTO bench_mcp_audit (bench, session_id, action, tools, actor, request_id, note, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(bench, sessionId, action, JSON.stringify(tools), actor, requestId, note.slice(0, 500), at);
 };
 /** 一个台上：哪些会话有哪些工具、有哪些申请、最近的留痕 */
@@ -131,38 +144,75 @@ export function listBenchMcp(bench: string, at = Date.now()) {
     e.tools.push({ tool: String(r.tool), category: CATEGORY.get(String(r.tool)) ?? 'write', granted_by: String(r.granted_by), granted_at: Number(r.granted_at) });
     grants.set(id, e);
   }
-  const requests = (db.prepare(`SELECT q.*, s.name FROM bench_mcp_requests q LEFT JOIN mcp_sessions s ON s.id = q.session_id WHERE q.bench = ? ORDER BY q.id DESC LIMIT 100`).all(bench) as Row[])
+  // 写成卡片号的申请也算这个台的
+  const b = getBench(bench), refs = b ? benchAliases(b) : [bench];
+  const requests = (db.prepare(`SELECT q.*, s.name FROM bench_mcp_requests q LEFT JOIN mcp_sessions s ON s.id = q.session_id WHERE q.bench IN (${refs.map(() => '?').join(', ')}) ORDER BY q.id DESC LIMIT 100`).all(...refs) as Row[])
     .map((r) => ({ ...forSession(r), session_id: Number(r.session_id), session: r.name === null ? '' : String(r.name), decided_by: String(r.decided_by) }));
   const log = (db.prepare('SELECT id, session_id, action, tools, actor, request_id, note, at FROM bench_mcp_audit WHERE bench = ? ORDER BY id DESC LIMIT 100').all(bench) as Row[])
     .map((r) => ({ id: Number(r.id), session_id: Number(r.session_id), action: String(r.action), tools: parseTools(r.tools), actor: String(r.actor), request_id: r.request_id === null ? null : Number(r.request_id), note: String(r.note), at: Number(r.at) }));
   return { grants: [...grants.values()], requests, log };
 }
-/** 所有登记过的台上还没定的申请（「关注」里的待批清单用）。台没登记的、会话已吊销或删除的不在里面：批不了，列出来只能让人去点一个必然失败的「同意」 */
-export function pendingBenchRequests(limit = 200, at = Date.now()) {
+/**
+ * 还没定、批得了的申请（「关注」里的待批清单用）：登记过的台上的，和写成「还没开台库的卡片」的（批准时顺带开台库，bench_registered 为 false）。
+ * 标识写错的、卡片已删的、会话已吊销或删除的不在里面：批不了，列出来只能让人去点一个必然失败的「同意」。
+ * bench 是换算后的台标识（没开台库的卡片是 wb-<卡片 id>），批的时候照它找台。
+ */
+export type PendingBenchRequest = {
+  id: number; bench: string; bench_title: string; bench_registered: boolean; workbench_id: number | null;
+  session: string; reason: string; created_at: number; tools: { tool: string; category: string }[];
+};
+export function pendingBenchRequests(limit = 200, at = Date.now()): PendingBenchRequest[] {
   expireBenchRequests(at);
-  return (db.prepare(`SELECT q.id, q.bench, q.tools, q.reason, q.created_at, s.name AS session, b.title AS bench_title
-    FROM bench_mcp_requests q JOIN bench_views b ON b.slug = q.bench JOIN mcp_sessions s ON s.id = q.session_id AND s.revoked_at = ''
-    WHERE q.status = 'pending' ORDER BY q.id LIMIT ?`).all(limit) as Row[]).map((r) => ({
-    id: Number(r.id), bench: String(r.bench), bench_title: String(r.bench_title), session: r.session === null ? '' : String(r.session), reason: String(r.reason), created_at: Number(r.created_at),
-    tools: parseTools(r.tools).map((t) => ({ tool: t, category: CATEGORY.get(t) ?? 'write' })),
-  }));
+  const out: PendingBenchRequest[] = [];
+  // 批不了的要滤掉，所以多取一些；每个会话每小时最多 10 条，写错标识的不会把清单挤满
+  for (const r of db.prepare(`SELECT q.id, q.bench, q.tools, q.reason, q.created_at, s.name AS session
+    FROM bench_mcp_requests q JOIN mcp_sessions s ON s.id = q.session_id AND s.revoked_at = ''
+    WHERE q.status = 'pending' ORDER BY q.id LIMIT ?`).all(limit * 5) as Row[]) {
+    const t = requestTarget(String(r.bench));
+    if (!t) continue;
+    out.push({
+      id: Number(r.id), bench: t.slug, bench_title: t.title, bench_registered: t.registered, workbench_id: t.workbench_id,
+      session: r.session === null ? '' : String(r.session), reason: String(r.reason), created_at: Number(r.created_at),
+      tools: parseTools(r.tools).map((x) => ({ tool: x, category: CATEGORY.get(x) ?? 'write' })),
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
 }
-/** 批准或驳回一条申请。申请得是这个台的、还没定过的 */
+/** 申请 #id 对的是台 bench（台标识，或没开台库的卡片的 wb-<卡片 id>）、还没定、提申请的会话还在：批得了就返回那一行，批不了抛出（和 decideBenchRequest 同样的说法）。不写库 */
+function decidable(bench: string, id: number, approve: boolean): Row {
+  const q = db.prepare('SELECT * FROM bench_mcp_requests WHERE id = ?').get(id) as Row | undefined;
+  if (!q || requestTarget(String(q.bench))?.slug !== bench) throw new BenchError('not_found', `这个台上没有申请 #${id}`);
+  if (String(q.status) !== 'pending') throw new BenchError('conflict', statusOf(q) === 'expired' ? `申请 #${id} 已经失效（没有人处理，过了期限）` : `申请 #${id} 已经${String(q.status) === 'approved' ? '批准' : '驳回'}过了`);
+  if (approve) {
+    const s = db.prepare('SELECT revoked_at FROM mcp_sessions WHERE id = ?').get(Number(q.session_id)) as Row | undefined;
+    if (!s || String(s.revoked_at ?? '') !== '') throw new BenchError('conflict', '提这条申请的会话已经吊销或删除，批不了');
+  }
+  return q;
+}
+/** 批之前先核一遍批不批得了（给没开台库的卡片开库之前用：批不了就不白开一个台库）。不写库 */
+export function checkBenchRequest(bench: string, id: number, approve: boolean, at = Date.now()): void {
+  expireBenchRequests(at);
+  decidable(bench, id, approve);
+}
+/**
+ * 批准或驳回一条申请。申请得是这个台的（会话写成卡片号的也算，见 requestTarget）、还没定过的。
+ * 批准时台必须已经登记（没开台库的卡片由路由先开库再调这里）；驳回不需要
+ */
 export function decideBenchRequest(bench: string, id: number, approve: unknown, actor: string, note: unknown, at: number) {
   if (typeof approve !== 'boolean') throw new BenchError('invalid', '要给 approve（true 批准 / false 驳回）');
   const why = typeof note === 'string' ? note.trim().slice(0, 500) : '';
   db.exec('BEGIN IMMEDIATE');
   try {
     expireBenchRequests(at);
-    const q = db.prepare('SELECT * FROM bench_mcp_requests WHERE id = ? AND bench = ?').get(id, bench) as Row | undefined;
-    if (!q) throw new BenchError('not_found', `这个台上没有申请 #${id}`);
-    if (String(q.status) !== 'pending') throw new BenchError('conflict', statusOf(q) === 'expired' ? `申请 #${id} 已经失效（没有人处理，过了期限）` : `申请 #${id} 已经${String(q.status) === 'approved' ? '批准' : '驳回'}过了`);
+    const q = decidable(bench, id, false);
     // 不批要写理由：申请的会话看得到这句话。在路由这一层就要求，卡片不经答复入口直接调过来时也一样
     if (!approve && !why) throw new BenchError('invalid', '不批要写理由（note）');
     const sessionId = Number(q.session_id), tools = parseTools(q.tools).filter((t) => BENCH_TOOL_NAMES.has(t));
     if (approve) {
-      const s = db.prepare('SELECT revoked_at FROM mcp_sessions WHERE id = ?').get(sessionId) as Row | undefined;
-      if (!s || String(s.revoked_at ?? '') !== '') throw new BenchError('conflict', '提这条申请的会话已经吊销或删除，批不了');
+      decidable(bench, id, true);
+      // 授予按台标识记：台得已经登记（不然工具调用时也认不出这个台）
+      if (!getBench(bench)) throw new BenchError('not_found', '这个台还没登记，先开台库再批');
       for (const t of tools) db.prepare('INSERT OR IGNORE INTO bench_mcp_grants (session_id, bench, tool, granted_by, granted_at, request_id) VALUES (?, ?, ?, ?, ?, ?)').run(sessionId, bench, t, actor, at, id);
     }
     db.prepare('UPDATE bench_mcp_requests SET status = ?, decided_by = ?, decided_at = ?, note = ? WHERE id = ?').run(approve ? 'approved' : 'rejected', actor, at, why, id);

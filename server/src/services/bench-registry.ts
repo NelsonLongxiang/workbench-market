@@ -55,6 +55,29 @@ export function benchOfCard(workbenchId: number): BenchEntry | null {
   return r ? row(r) : null;
 }
 
+/**
+ * 写成卡片的引用（卡片 id，或服务端给卡片定的标识 wb-<卡片 id>），这张卡片还在、还没开台库：给卡片 id 和名字；别的都是 null。
+ * 用在 MCP 授予申请上：会话申请时只知道卡片号，台库要等管理层批准时才开（批准一步就能把授予写成）。
+ * 已经有同名的台（旧的纯数字台、或者 wb-<n> 已经被别的登记占了）也是 null：那不是「没开台库的卡片」。
+ */
+export function unopenedCard(ref: unknown): { workbench_id: number; name: string } | null {
+  if (typeof ref !== 'string') return null;
+  const m = CARD_REF_RE.test(ref) ? ref : CARD_SLUG_RE.exec(ref)?.[1];
+  if (!m) return null;
+  const id = Number(m);
+  if (getBench(ref) || getBench(cardSlug(id)) || benchOfCard(id)) return null;
+  const w = db.prepare('SELECT name FROM workbenches WHERE id = ?').get(id) as { name: string } | undefined;
+  return w ? { workbench_id: id, name: String(w.name).trim().slice(0, 64) || `台 ${id}` } : null;
+}
+/**
+ * 一个台在申请表里可能被写成的样子：台标识本身，对应了卡片的还有卡片 id 和 wb-<卡片 id>。
+ * 申请表照会话写的原样存（不替会话把卡片号换成台标识：那样应答就透露了台开没开），读、批、驳回时按这几种一起认
+ */
+export function benchAliases(b: Pick<BenchEntry, 'slug' | 'workbench_id'>): string[] {
+  return [...new Set([b.slug, ...(b.workbench_id === null ? [] : [String(b.workbench_id), cardSlug(b.workbench_id)])])];
+}
+const inList = (n: number): string => Array(n).fill('?').join(', ');
+
 export function getBench(slug: unknown): BenchEntry | null {
   if (typeof slug !== 'string' || !BENCH_SLUG_RE.test(slug)) return null;
   const r = db.prepare(`SELECT ${COLS} FROM bench_views WHERE slug = ?`).get(slug) as Record<string, unknown> | undefined;
@@ -163,8 +186,9 @@ export function bindBench(slug: string, input: unknown, actor: string, at: numbe
       for (const g of held) bySession.set(g.session_id, [...(bySession.get(g.session_id) ?? []), g.tool]);
       for (const [sessionId, tools] of bySession) db.prepare('INSERT INTO bench_mcp_audit (bench, session_id, action, tools, actor, note, at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(slug, sessionId, 'revoke', JSON.stringify(tools), actor, why, at);
       revoked = Number(db.prepare('DELETE FROM bench_mcp_grants WHERE bench = ?').run(slug).changes);
-      // 没定的申请逐条驳回，各留一行痕（和人手驳回的留痕同一个样子）
-      for (const q of db.prepare("SELECT id, session_id, tools FROM bench_mcp_requests WHERE bench = ? AND status = 'pending' ORDER BY id").all(slug) as { id: number; session_id: number; tools: string }[]) {
+      // 没定的申请逐条驳回，各留一行痕（和人手驳回的留痕同一个样子）。写成卡片号的申请也算这个台的
+      const refs = benchAliases(cur);
+      for (const q of db.prepare(`SELECT id, session_id, tools FROM bench_mcp_requests WHERE bench IN (${inList(refs.length)}) AND status = 'pending' ORDER BY id`).all(...refs) as { id: number; session_id: number; tools: string }[]) {
         db.prepare("UPDATE bench_mcp_requests SET status = 'rejected', decided_by = ?, decided_at = ?, note = ? WHERE id = ? AND status = 'pending'").run(actor, at, '台改绑了，请重新申请', q.id);
         db.prepare('INSERT INTO bench_mcp_audit (bench, session_id, action, tools, actor, request_id, note, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(slug, q.session_id, 'reject', q.tools, actor, q.id, why, at);
         rejected++;
@@ -219,7 +243,8 @@ export function removeCardBench(workbenchId: number, actor: string, at: number, 
       for (const g of held) bySession.set(g.session_id, [...(bySession.get(g.session_id) ?? []), g.tool]);
       for (const [sessionId, tools] of bySession) db.prepare('INSERT INTO bench_mcp_audit (bench, session_id, action, tools, actor, note, at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(slug, sessionId, 'revoke', JSON.stringify(tools), actor, why, at);
       db.prepare('DELETE FROM bench_mcp_grants WHERE bench = ?').run(slug);
-      for (const q of db.prepare("SELECT id, session_id, tools FROM bench_mcp_requests WHERE bench = ? AND status = 'pending' ORDER BY id").all(slug) as { id: number; session_id: number; tools: string }[]) {
+      const refs = benchAliases(cur!);
+      for (const q of db.prepare(`SELECT id, session_id, tools FROM bench_mcp_requests WHERE bench IN (${inList(refs.length)}) AND status = 'pending' ORDER BY id`).all(...refs) as { id: number; session_id: number; tools: string }[]) {
         db.prepare("UPDATE bench_mcp_requests SET status = 'rejected', decided_by = ?, decided_at = ?, note = ? WHERE id = ? AND status = 'pending'").run(actor, at, '卡片已删', q.id);
         db.prepare('INSERT INTO bench_mcp_audit (bench, session_id, action, tools, actor, request_id, note, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(slug, q.session_id, 'reject', q.tools, actor, q.id, why, at);
       }
