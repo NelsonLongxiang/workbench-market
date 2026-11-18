@@ -65,7 +65,7 @@ try {
 
   // ARCHIVE_CAP 边界（direct-65206a7e ②，替身声明口径修正）：cap=64 截断是**上游投影**责任
   // （真实 /__dsh_a2a/state 的 archived 永远 ≤RECENT_FACE_CAP）——替身忠实模拟 64 行投影，
-  // 市场侧责任=忠实消费全量 + newest-first 顺序保持。真实端到端 count=64 已实测（docs/stub-declaration-template.md）
+  // 市场侧责任=忠实消费全量 + newest-first 顺序保持。真实端到端 count=64 已实测（docs/archive/stub-declaration-template.md）
   {
     const big = { ...FIXTURE, tasks: [], archived: Array.from({ length: 64 }, (_, i) => ({
       taskId: `cap-r${String(66 - i).padStart(2, '0')}`, team: 'cap/team', peer: 'dsh/99990000',

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 「谁能做什么」页的纯函数单测（web/src/access-view.ts）：状态、范围、期限的说法，待核准卡片，按人排的权限表，矩阵格子，读不到时怎么说。数据都是合成的。 */
-import { ACCESS_TABS, CELL_LEGEND, actionProblem, cellLabel, declineReasonOk, grantActorRaw, grantRows, grantsOf, indexPrincipals, kindLabel, matrixOf, pendingGrants, principalName, responsibleOf, roleName, roleUsage, rolesOf, scopeLabel, scopeNotYetEffective, sourceProblem, statusLabel, tabFromQuery, termLabel, myRolesOf, summaryDo, OTHERS_ONLY_ADMINS, approvalText, approveState, mayReadAccessAdmin, accountsOf, accountTags, accountOrigin, lastLoginLabel, usernameOk, accountsProblem, accountActionProblem, TEMP_PASSWORD_NOTE, passwordFormProblem, hasLocalAccount } from '../web/src/access-view.ts';
+import { ACCESS_TABS, CELL_LEGEND, actionProblem, cellLabel, declineReasonOk, grantActorRaw, grantRows, grantsOf, indexPrincipals, kindLabel, matrixOf, pendingGrants, principalName, responsibleOf, roleName, roleUsage, rolesOf, scopeLabel, scopeNotYetEffective, sourceProblem, statusLabel, tabFromQuery, termLabel, myRolesOf, summaryDo, OTHERS_ONLY_ADMINS, approvalText, approveState, mayReadAccessAdmin, accountsOf, accountTags, accountOrigin, lastLoginLabel, usernameOk, accountsProblem, accountActionProblem, TEMP_PASSWORD_NOTE, passwordFormProblem, hasLocalAccount, localUsernameOf } from '../web/src/access-view.ts';
 import { actorLabel } from '../web/src/people.ts';
 
 let pass = 0, fail = 0;
@@ -28,6 +28,11 @@ ok('临时密码的提示说清楚只显示这一次', TEMP_PASSWORD_NOTE.includ
 const pf = (c, n, f, u = 'alice') => passwordFormProblem(c, n, f, u);
 ok('改密码：没填原密码、太短、太长、和用户名一样、和原密码一样、两次不一致都先拦下；合规的放行', pf('', 'Newpass-0001', 'Newpass-0001')?.includes('原密码') && pf('Old-pass-0001', 'short', 'short')?.includes('至少 10 位') && pf('Old-pass-0001', 'x'.repeat(129), 'x'.repeat(129))?.includes('最多') && pf('Old-pass-0001', 'Alice12345x'.slice(0, 5) + 'aaaaa', 'Aliceaaaaa', 'alicea') === null && pf('Old-pass-0001', 'aliceAlice', 'aliceAlice', 'aliceAlice')?.includes('用户名') && pf('Same-pass-001', 'Same-pass-001', 'Same-pass-001')?.includes('原密码一样') && pf('Old-pass-0001', 'Newpass-0001', 'Newpass-0002')?.includes('不一样') && pf('Old-pass-0001', 'Newpass-0001', 'Newpass-0001') === null);
 ok('改密码：长度按字符数算（和服务端一样，十个汉字够长）；控制字符不行', pf('Old-pass-0001', '一二三四五六七八九十', '一二三四五六七八九十') === null && pf('Old-pass-0001', 'abc\u0001defghij', 'abc\u0001defghij')?.includes('控制字符'));
+// #802 验收发现 2：BMP 以外的字符，按字符数和按 UTF-16 单元不一样。5 个 emoji = 5 个字符（不够 10，要拦）= 10 个 UTF-16 单元（按单元会被放过）
+ok('改密码：长度按字符数算，BMP 以外的字符也一样（5 个 emoji 不够长，10 个够）', pf('Old-pass-0001', '😀😁😂🤣😃', '😀😁😂🤣😃')?.includes('至少 10 位') && pf('Old-pass-0001', '😀😁😂🤣😃😄😅😆😉😊', '😀😁😂🤣😃😄😅😆😉😊') === null && pf('Old-pass-0001', '😀'.repeat(128), '😀'.repeat(128)) === null && pf('Old-pass-0001', '😀'.repeat(129), '😀'.repeat(129))?.includes('最多'));
+// #802 验收发现 1：预检「不能和用户名一样」用站内用户名（local_username），不拿 login 代替
+ok('站内用户名只从 local_username 取：不拿 login 顶替；没有、空、不是字符串都当没有', localUsernameOf({ local_username: 'alice', login: 'feishu-alice' }) === 'alice' && localUsernameOf({ login: 'alice' }) === null && localUsernameOf({ local_username: '' }) === null && localUsernameOf({ local_username: 7 }) === null && localUsernameOf(null) === null);
+ok('飞书等方式登录、名下挂着站内账号：拿站内用户名预检，不拿飞书登录名', pf('Old-pass-0001', 'aliceAlice', 'aliceAlice', localUsernameOf({ local_username: 'aliceAlice', login: 'ou_feishu_123' }))?.includes('用户名') && pf('Old-pass-0001', 'ou_feishu_123', 'ou_feishu_123', localUsernameOf({ local_username: 'aliceAlice', login: 'ou_feishu_123' })) === null);
 ok('改密码入口：/api/auth/me 说有站内账号（local_account 为 true）才出现', hasLocalAccount({ local_account: true }) && !hasLocalAccount({ local_account: 'true' }) && !hasLocalAccount({}) && !hasLocalAccount(null));
 
 ok('状态：待核准、生效中、草稿、已过期、已收回；颜色跟着', J(['pending', 'active', 'draft', 'expired', 'revoked'].map((s) => statusLabel(s).text)) === '["待核准","生效中","草稿","已过期","已收回"]' && statusLabel('active').tone === 'success' && statusLabel('pending').tone === 'warning');
