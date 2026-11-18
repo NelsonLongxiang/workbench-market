@@ -79,7 +79,7 @@ try {
 
   console.log('三、DEL 和方向控制符：三个入口（base64、上传票、REST 原始字节）都拒收');
   // U+202E 能把「txt.exe」显示成「exe.txt」那类倒序；DEL 和 C0 一样是控制字符
-  const sneaky = ['x\u007f.txt', 'x‮.txt', 'x‪.txt', 'x⁦.txt', 'x⁩.txt', 'x‎.txt', 'x‏.txt', 'x؜.txt'];
+  const sneaky = ['x\u007f.txt', 'x\u202e.txt', 'x\u202a.txt', 'x\u2066.txt', 'x\u2069.txt', 'x\u200e.txt', 'x\u200f.txt', 'x\u061c.txt'];
   const bytes = Buffer.from('合成内容');
   const sha = (await import('node:crypto')).createHash('sha256').update(bytes).digest('hex');
   for (const name of sneaky) {
