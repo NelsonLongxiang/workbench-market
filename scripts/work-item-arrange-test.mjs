@@ -472,6 +472,11 @@ try {
       check(edge.status === 201, '上传附件：正好 255 个字符（251 个汉字 + .txt）能传', show({ status: edge.status, body: edge.body }));
       const over = await up(ALPHA, '合'.repeat(252) + '.txt', Buffer.from('256'));
       check(over.status === 400 && over.body?.error === 'attachment_name_invalid', '上传附件：256 个字符由路由按统一规则拒（400），不是总门的 403', show({ status: over.status, body: over.body }));
+      // 编码后更长的也一样到路由：256 个汉字（编码后 2304 个字符）、256 个四字节 emoji（编码后 3072 个字符），都拿路由的 400，不是总门要口令的 403
+      for (const [label, name] of [['256 个汉字', '合'.repeat(256)], ['256 个 emoji', '\u{1F4C4}'.repeat(256)]]) {
+        const r = await up(ALPHA, name, Buffer.from('x'));
+        check(r.status === 400 && r.body?.error === 'attachment_name_invalid', `上传附件：${label}由路由按统一规则拒（400），不是总门的 403`, show({ status: r.status, body: r.body }));
+      }
       // 解码以后带路径分隔符、.. 的：总门放进来，路由照样拒，不落盘
       // （单独的 %2E%2E 不在这里：fetch 按 URL 规范先把它当成 .. 段折掉，请求根本到不了这条路径）
       for (const raw of ['..%2F..%2Fx.txt', 'a%5Cb.txt', '%2e%2e%2f%e5%90%88.txt']) {
