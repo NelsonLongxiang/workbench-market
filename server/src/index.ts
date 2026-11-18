@@ -16,7 +16,7 @@ import { countSubmission, countSubmitterTicket } from './services/submission-cou
 import { sealSelfCheck } from './services/login-session.ts';
 import { serveAppHtml } from './app-html.ts';
 import { initSubmitterTickets, issueSubmitterTicket, selfCheckSubmitterTickets, submitterFromTicket } from './submitter-ticket.ts';
-import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
+import { initializeTaskCenter, taskCenterSteps, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
 import { recordAppDataEvent, cancelTaskCenterDeliveries, kickWorkbenchEvents, startWorkbenchEventWorker, registerWorkbenchEventRoutes } from './workbench-events.ts';
 import cors from 'cors';
 import { createPortalObservation } from './portal-observation.ts';
@@ -89,7 +89,7 @@ import { cardDeleterOf, checkCardDeletable, deleteCardWithBench, type CardDelete
 import { BenchError } from './bench-query.ts';
 import { registerChangeRequestRoutes } from './routes/change-requests.ts';
 import { registerSopStateRoutes, registerSopSpaceRoutes } from './routes/sops.ts';
-import { registerTaskIntakeRoutes, registerTaskReadRoutes, registerTaskControlRoutes } from './routes/task-center.ts';
+import { registerTaskReadRoutes, registerTaskControlRoutes } from './routes/task-center.ts';
 import { registerSkillRoutes } from './routes/skills.ts';
 import { startSkillShadowCatchUp } from './skill-shadow.ts';
 import { registerMcpRoutes } from './routes/mcp.ts';
@@ -2840,8 +2840,7 @@ function sameOriginGuard(req: express.Request, res: express.Response): boolean {
 }
 
 // ---- 任务中心 8 端点（读开放·写删人审·C13 元台只能人工面） ----
-registerTaskIntakeRoutes(http, { sameOriginGuard, adminGuard });
-registerWorkbenchEventRoutes(http, { admin: adminGuard, sameOrigin: (req) => sameOriginGuard(req, undefined as never), actor: (req) => (!browserMarked(req) && rawLoopback(req) ? 'cli' : adminActor(req)) });
+registerWorkbenchEventRoutes(http, { admin: adminGuard });
 registerTaskReadRoutes(http, { wrap, adminHeaderOk, runReadCapHeader });
 registerSopRunAccessRoutes(http, { adminGuard, sopRunRow, bad });
 registerTaskControlRoutes(http, { readActiveManifest, sameOriginGuard, adminGuard });
@@ -3946,7 +3945,7 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
     return res.status(err.status ?? 400).json({ error: err.type === 'entity.too.large' ? '请求体过大' : '请求体不是合法 JSON' });
   }
   const msg = String(err?.message ?? err);
-  let status = err instanceof HttpError || err instanceof TaskIntakeError ? err.status : 500;
+  let status = err instanceof HttpError ? err.status : 500;
   if (status === 500 && VALIDATION_ERR_PREFIX.some((p) => msg.startsWith(p))) status = 400;
   if (isStartupProbeRequest(_req)) {
     if (status === 500) console.error(JSON.stringify({ source: 'self-probe', event: 'handler-error', status }));

@@ -66,7 +66,7 @@ const held = (title, team, by, extra = {}) => {
 const asked = (title) => {
   const id = task(title), f = { title, intent: 'i', references: '', deliverable: 'd', target: '', due: '' };
   db.exec('BEGIN IMMEDIATE');
-  const e = ev.recordTaskCenterEvent({ id, data: f, stepValue: (k) => f[k], publishedBy: 'x', requesterPrincipal: 'user:alpha', publisherPrincipal: 'user:alpha', templateVersion: 1, materialSha256: 'h', agentDispatch: true, centerOn: true });
+  const e = ev.recordTaskCenterEvent({ id, data: f, stepValue: (k) => f[k], publishedBy: 'x', requesterPrincipal: 'user:alpha', publisherPrincipal: 'user:alpha', templateVersion: 1, materialSha256: 'h', agentDispatch: true, centerOn: true , arranged: { team: ${JSON.stringify(TEAM)}, submitter: 'user:alpha' } });
   db.exec('COMMIT');
   const d = db.prepare('SELECT id FROM workbench_event_deliveries WHERE event_id = ? AND target_team = ?').get(e, ${JSON.stringify(TEAM)});
   db.prepare("UPDATE workbench_event_deliveries SET status = 'sent', sent_at = '2026-01-01 00:00:00', decision = 'ask', decision_reason = '哪个店？', decided_by = 'bob', decided_at = '2026-01-01 00:00:01' WHERE id = ?").run(d.id);

@@ -6,16 +6,16 @@
 
 | 来源 | 判定 | 派发 |
 |---|---|---|
-| 任务中心人工发布（`POST /api/task-center/tasks`，管理口令把关） | `submitter_kind: human` | 是，带 reply token |
+| 「安排一件事」（`POST /api/work-items`，登录的人本人） | `submitter_kind: human` | 是，带 reply token |
 | 自产台表单提交（`POST /api/apps/:slug/data`，匿名面） | `submitter_kind: unverified` | 否，只做数据通知 |
 
 agent、MCP、CLI 发起的提交永远不会是 `human`。等 SSO v2 覆盖到表单提交之后，表单提交才可能升级为 human。
 
 ## 发到哪个团队
 
-1. 任务录入里「目标 SOP 台」能按 slug 或标题匹配到一个已发布的 SOP，就发给这个 SOP 上的 `notify` / `both` 绑定，记 `routed: target`。
-2. 匹配不到，或这个 SOP 没有通知绑定，就发给 `task-center` 自己的通知绑定，即默认接单团队，记 `routed: default`。
-3. 两处都没有，记 `routed: unrouted`。事件照样落库，不会静默丢失。
+安排时选一个团队，只发给它，记 `routed: target`。能选的团队是 `task-center` 上的 `notify` / `both` 绑定（同一节点两行按先绑的算一次，`GET /api/work-items/teams` 列出）；不在里面的回 400 `team_not_assignable`，不建事件。
+
+旧的「录入 run → 管理员发布」按「目标 SOP 台」或任务中心的全部通知绑定扇出、没有绑定记 `routed: unrouted`，已退役。库里的存量事件照旧带着当时的 `routed`（`default`、`unrouted`）。
 
 绑定的 `agent_node` 可以填画布队名，比如 `dsh/canvas/procurement`。对端主机要把市场加为这个画布的远程成员，那一半准入在 a2a 侧。
 
@@ -26,13 +26,15 @@ curl -X POST http://127.0.0.1:9800/api/bindings -H 'Content-Type: application/js
 
 ## 先观察，后自动
 
-任务级开关 `agent_dispatch` 和中心级开关 `center_switch` 都打开时，事件发布即投递。
+安排时不要先过目（`review: false`），并且中心总开关 `center_switch` 和设置里的员工直派 `staff_direct_dispatch` 都开着，事件一建就投递。
 
-只要有一个没开，投递就记为 `held`：只记录「本来会派给谁」，不发出去。管理员看过之后可以 release：
+否则投递记为 `held`：只记录「本来会派给谁」，不发出去。由团队的负责人放行；团队没有负责人时，持有管理层授予的人代办（留痕记 `acting_for: team-lead`）：
 
 ```bash
-curl -X POST http://127.0.0.1:9800/api/workbench-events/<event_id>/release -H "X-Admin-Token: $ADMIN_TOKEN"
+curl -X POST http://127.0.0.1:9800/api/work-items/<事项编号>/release -H 'Sec-Fetch-Site: same-origin' -H 'Cookie: <负责人的会话>'
 ```
+
+管理员旧的放行入口 `POST /api/workbench-events/<event_id>/release` 已退役（404）。
 
 ## 投递与终态
 
@@ -62,3 +64,34 @@ curl -X POST http://<市场>/api/workbench-events/<event_id>/decision -H 'Conten
 ## 验证
 
 `scripts/workbench-events-smoke.mjs` 覆盖 W1–W12 和终态判据，共 36 项。假对端按上游 `/a2a/direct` 的顺序实现：先登记幂等键，再判定能否投递。对端用上游 `verifyOriginClaim`，按关窗后的状态验证。
+
+## 已退役（2026-11-18）
+
+旧的「录入 run → 管理员发布」路径和管理员的放行入口退役了：`POST /api/task-center/tasks`、`POST /api/task-center/tasks/:id/publish`、`POST /api/workbench-events/:id/release` 都回 404。事件只经「安排一件事」建，放行只经事项的入口。下面是退役前本篇的原文，照录不改，方便对照当时的做法。
+
+「哪些提交算事件」表里原来的第一行：
+
+| 任务中心人工发布（`POST /api/task-center/tasks`，管理口令把关） | `submitter_kind: human` | 是，带 reply token |
+
+### 原「发到哪个团队」
+
+1. 任务录入里「目标 SOP 台」能按 slug 或标题匹配到一个已发布的 SOP，就发给这个 SOP 上的 `notify` / `both` 绑定，记 `routed: target`。
+2. 匹配不到，或这个 SOP 没有通知绑定，就发给 `task-center` 自己的通知绑定，即默认接单团队，记 `routed: default`。
+3. 两处都没有，记 `routed: unrouted`。事件照样落库，不会静默丢失。
+
+绑定的 `agent_node` 可以填画布队名，比如 `dsh/canvas/procurement`。对端主机要把市场加为这个画布的远程成员，那一半准入在 a2a 侧。
+
+```bash
+curl -X POST http://127.0.0.1:9800/api/bindings -H 'Content-Type: application/json' -H "X-Admin-Token: $ADMIN_TOKEN" \
+  -d '{"target_type":"sop","target_slug":"task-center","agent_node":"dsh/canvas/intake","direction":"notify","notify_url":"http://<主机>:13080"}'
+```
+
+### 原「先观察，后自动」
+
+任务级开关 `agent_dispatch` 和中心级开关 `center_switch` 都打开时，事件发布即投递。
+
+只要有一个没开，投递就记为 `held`：只记录「本来会派给谁」，不发出去。管理员看过之后可以 release：
+
+```bash
+curl -X POST http://127.0.0.1:9800/api/workbench-events/<event_id>/release -H "X-Admin-Token: $ADMIN_TOKEN"
+```
