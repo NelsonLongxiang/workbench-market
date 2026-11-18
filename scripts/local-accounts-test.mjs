@@ -146,6 +146,7 @@ try {
   const who = await me(first.b);
   check(who?.authenticated === true && who.principal === 'user:alice' && who.via === 'session', '认出是 alice（市场会话）', who);
   check(who?.local_account === true, '/api/auth/me 说她有站内账号（用户卡据此给「改密码」入口）', who);
+  check(who?.local_username === 'alice', '/api/auth/me 带她自己的站内用户名（改密码页预检「不能和用户名一样」用它，不用 login）', who);
   {
     // 市场会话 cookie 的属性（以前由 odoo-market-session-test 对 Odoo 发的会话核，Odoo 下线后在站内账号上核）：HttpOnly、SameSite=Lax、Path=/，http 时不带 Secure
     const sc = (first.r.headers.getSetCookie?.() ?? []).find((c) => c.startsWith('wm_session='));
