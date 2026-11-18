@@ -20,23 +20,23 @@ export interface TaskRouteDeps {
   adminGuard: (req: express.Request, res: express.Response) => boolean;
   adminHeaderOk: (req: express.Request) => boolean;
   devOriginOk: (req: express.Request) => boolean;
-  odooLoginUrl: (req: express.Request, returnPath: string) => string | null;
+  loginUrl: (req: express.Request, returnPath: string) => string | null;
 }
 
 export function registerTaskRoutes(app: HttpService, deps: TaskRouteDeps): void {
-  const { wrap, adminGuard, adminHeaderOk, devOriginOk, odooLoginUrl } = deps;
+  const { wrap, adminGuard, adminHeaderOk, devOriginOk, loginUrl } = deps;
   app.get('/api/tasks', { action: 'tasks.list', kind: 'read' }, wrap(async (req, res) => {
     res.set('Cache-Control', 'private, no-store');
     res.vary('Cookie'); res.vary('X-Admin-Token');
     if (req.headers['sec-fetch-site'] === 'cross-site' || (req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req))) return res.status(403).json({ error: 'tasks_cross_origin_denied' });
     const access = await tasksReadAccess(adminHeaderOk(req), String(req.headers.cookie ?? ''));
-    if (!access.ok) return res.status(access.http).json({ error: access.error, ...(access.http === 401 ? { login_url: odooLoginUrl(req, '/') } : {}) });
+    if (!access.ok) return res.status(access.http).json({ error: access.error, ...(access.http === 401 ? { login_url: loginUrl(req, '/') } : {}) });
     const payload = await collectTasks(svc<SopService>('sop') as never, access.scope);
     if (!extensionTaskSourceKeys().length) return res.json(payload);
     // 扩展来源自己按查看人判权（ctx.odoo.resolveViewer）；宿主不拿管理员身份替查看人取数
     const ext = await collectExtensionTasks(req);
     for (const [k, m] of Object.entries(ext.sources)) {
-      ext.sources[k] = { ...m, ...(m.ok === false && m.error ? { error: `${k}_source_unavailable` } : {}), ...(m.auth_required ? { login_url: odooLoginUrl(req, '/') } : {}) };
+      ext.sources[k] = { ...m, ...(m.ok === false && m.error ? { error: `${k}_source_unavailable` } : {}), ...(m.auth_required ? { login_url: loginUrl(req, '/') } : {}) };
     }
     res.json({ ...payload, tasks: [...payload.tasks, ...ext.tasks], sources: { ...payload.sources, ...ext.sources } });
   }));

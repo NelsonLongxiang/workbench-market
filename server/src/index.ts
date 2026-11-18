@@ -4,21 +4,21 @@ import { outboundOff, noteBlocked, outboundStatus, verifyOutboundGate } from './
 import './startup-gate-hold.ts';
 import { startupPassed } from './startup-gate.ts';
 import express from 'express';
-import { SENSITIVE_QUERY_KEYS, createPortalAccess, isCredentialed, isInternalTarget, parseAccessInput } from './portal-access.ts';
+import { SENSITIVE_QUERY_KEYS, createPortalAccess, isCredentialed, isInternalTarget, loginsOf, newOdooEntries, parseAccessInput } from './portal-access.ts';
 import { skillSnapRel } from './skill-snap-path.ts'; // #183/#810：写快照与导入脚本同一个函数
 import type { PrincipalService } from './services/principal.ts';
 import { createStartupSecurityProbe, isStartupProbeRequest, TEST_ENV_WAITS } from './startup-security-self-probe.ts';
 import { createLoginGate, loginGateMode, trustedProxies, trustedProxyCheck } from './login-gate.ts';
-import { identity, loginRelay, sourceDown } from './identity.ts';
+import { identity, sourceDown } from './identity.ts';
+import { warnOffboardedOdoo } from './retired-env.ts';
 import { requestPerson, hasLoginCredential } from './request-person.ts';
 import { countSubmission, countSubmitterTicket } from './services/submission-counts.ts';
-import { sealSelfCheck } from './services/login-session.ts';
+import { renewalSelfCheck, sealSelfCheck } from './services/login-session.ts';
 import { serveAppHtml } from './app-html.ts';
 import { initSubmitterTickets, issueSubmitterTicket, selfCheckSubmitterTickets, submitterFromTicket } from './submitter-ticket.ts';
-import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
+import { initializeTaskCenter, taskCenterSteps, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
 import { recordAppDataEvent, cancelTaskCenterDeliveries, kickWorkbenchEvents, startWorkbenchEventWorker, registerWorkbenchEventRoutes } from './workbench-events.ts';
 import cors from 'cors';
-import { contentConfig, createContentSurface, mountContentSurface, listenContentSurface } from './content-surface.ts';
 import { createPortalObservation } from './portal-observation.ts';
 import { allSurfaceServers, browserMarked, originIsThisSurface, rawLoopback, registerSurface, surfaceOf, surfacePorts, surfaceUrl } from './surfaces.ts';
 import { createProxyMiddleware } from 'http-proxy-middleware';
@@ -43,7 +43,6 @@ import { registerCookieRoutes } from './routes/cookies.ts';
 import { registerStatsRoutes } from './routes/stats.ts';
 import { registerDesignTokenRoutes } from './routes/design-tokens.ts';
 import { registerAgentCardRoutes } from './routes/agent-card.ts';
-import { registerSsoRoutes } from './routes/sso.ts';
 import { registerSummaryRoutes } from './routes/summary.ts';
 import { registerContentObservationRoutes } from './routes/content-observation.ts';
 import { registerAuthViewerRoutes } from './routes/auth-viewer.ts';
@@ -78,7 +77,6 @@ import { registerLoginFlowRoutes } from './routes/login-flows.ts';
 import { registerLoginGateRoutes } from './routes/login-gate.ts';
 import { registerWorkbenchRoutes } from './routes/workbenches.ts';
 import { registerSpaFallbackRoute } from './routes/spa-fallback.ts';
-import { registerContentOpenRoutes } from './routes/content-open.ts';
 import { registerSopPageRoutes } from './routes/sop-page.ts';
 import { registerLoginEventRoutes } from './routes/login-events.ts';
 import { registerTaskRoutes } from './routes/tasks.ts';
@@ -91,7 +89,7 @@ import { cardDeleterOf, checkCardDeletable, deleteCardWithBench, type CardDelete
 import { BenchError } from './bench-query.ts';
 import { registerChangeRequestRoutes } from './routes/change-requests.ts';
 import { registerSopStateRoutes, registerSopSpaceRoutes } from './routes/sops.ts';
-import { registerTaskIntakeRoutes, registerTaskReadRoutes, registerTaskControlRoutes } from './routes/task-center.ts';
+import { registerTaskReadRoutes, registerTaskControlRoutes } from './routes/task-center.ts';
 import { registerSkillRoutes } from './routes/skills.ts';
 import { startSkillShadowCatchUp } from './skill-shadow.ts';
 import { registerMcpRoutes } from './routes/mcp.ts';
@@ -132,7 +130,9 @@ import { designStandard } from './design-standard.ts';
 import { mountVault } from './vault-api.ts';
 import { expectedSha256, uploadIntegrity, type UploadIntegrity } from './upload-integrity.ts';
 import { UploadTickets, UPLOAD_TICKET_TTL_MS, type UploadTicket } from './upload-tickets.ts';
+import { uploadNameOk, UPLOAD_NAME_INVALID } from './upload-file-name.ts';
 import { loadConfig } from './config.ts';
+import { Config as SessionPolicyConfig, sessionRenewal, type SessionLife } from './session-policy.ts';
 import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet, workbenchIdOf, reportHotVarKeys, reportHotPending, setVarsStoreMode, startHotVarsFlush, flushHotVars, Config as VarsConfig } from './workbench-vars.ts';
 import { registerWorkbenchVarsRoutes } from './routes/workbench-vars.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
@@ -200,12 +200,13 @@ const SOP_RUN_WRITE: SopRunWriteMode = (() => {
   try { return sopRunWriteMode(process.env.WM_SOP_RUN_WRITE); } catch (e) { console.error(`[sop-run] 拒绝启动：${(e as Error).message}`); process.exit(1); }
 })();
 if (SOP_RUN_WRITE === 'warn') console.warn('[sop-run] WM_SOP_RUN_WRITE=warn：没带写凭据的保存、完成照旧放行，只计数留痕（上线过渡用，过渡完设回 enforce）');
-// 市场会话的绝对期限（WM_SESSION_TTL_MIN，分钟，缺省 720 = 12 小时，范围 15～10080）：启动时读一次，不合法拒绝启动。不续期
-const SESSION_TTL_MIN = (() => {
-  const raw = String(process.env.WM_SESSION_TTL_MIN ?? '').trim();
-  const n = raw === '' ? 720 : /^[0-9]{1,5}$/.test(raw) ? Number(raw) : NaN;
-  if (!Number.isInteger(n) || n < 15 || n > 10080) { console.error('[session] 拒绝启动：WM_SESSION_TTL_MIN 只接受 15～10080 的整数（分钟）'); process.exit(1); }
-  return n;
+// 市场会话的期限（session-policy.ts：WM_SESSION_IDLE_DAYS 滑动窗口、WM_SESSION_MAX_DAYS 绝对上限，旧的 WM_SESSION_TTL_MIN 兼容并警告）：启动时读一次，不合法拒绝启动
+const { life: SESSION_LIFE, legacyOnly: SESSION_LEGACY_ONLY } = ((): { life: SessionLife; legacyOnly: boolean } => {
+  try {
+    const { life, warnings, legacyOnly } = loadConfig(SessionPolicyConfig);
+    for (const w of warnings) console.warn(`[session] ${w}`);
+    return { life, legacyOnly };
+  } catch (e) { console.error(`[session] 拒绝启动：${(e as Error).message}`); process.exit(1); }
 })();
 /** 记成经验那几处认人用（管理口令认成内置身份，不能记） */
 const rememberActorOf = actorResolver({ adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined) });
@@ -217,18 +218,18 @@ const loginGate = createLoginGate({
   adminTokenFingerprint: () => adminTokenFromEnv()
     ? envAdminTokenFingerprint()
     : String((svc<SettingService>('setting').get(ADMIN_TOKEN_KEY) as { value: string } | undefined)?.value ?? ''),
-  odooViewer: async (cookie, fresh) => {
-    if (!identity().configured() && !identity().hasSession(cookie)) return null; // 没配身份来源时，只有市场会话还可能认得出人
-    const who = fresh ? await identity().resolveViewer(cookie) : await loginGateViewer(cookie); // 只认内部员工（门户账号 403）
+  viewer: async (cookie) => {
+    if (!identity().configured() && !identity().hasSession(cookie)) return null; // 没登记身份来源时，只有市场会话还可能认得出人
+    const who = await loginGateViewer(cookie);
     if (!who.ok) return who.held ? { held: true as const } : sourceDown(who) ? { down: true as const } : null; // 卡在主体那一步：登录门给等待页；身份来源不可达：接口回 502 identity_unavailable
     return { login: who.viewer.login, admin: who.viewer.admin, ...(who.via === 'session' ? { via: 'session' as const } : {}) };
   },
-  // Odoo 刚认出来的人：由市场维持会话（期限 WM_SESSION_TTL_MIN）。回答取自上面那份 30 秒缓存，不多问一次 Odoo
+  // 身份来源刚认出来的人：由市场维持会话（期限见 session-policy.ts）。回答取自上面那份 30 秒缓存，不多问一次来源
   openSession: async (req) => {
     const cookie = String(req.headers.cookie ?? '');
     const who = await loginGateViewer(cookie);
     if (!who.ok || who.via === 'session') return null;
-    return identity().openSession(cookie, who, SESSION_TTL_MIN * 60_000);
+    return identity().openSession(cookie, who, SESSION_LIFE);
   },
   loginFlows: () => identity().flows(),
   profile: async (req) => {
@@ -255,7 +256,6 @@ const loginGate = createLoginGate({
     return row?.status === 'running' && want.length > 0 && want.length === presented.length && timingSafeEqual(Buffer.from(want), Buffer.from(presented));
   },
   goAppSlug: (id) => /^\/apps\/([a-z0-9][a-z0-9-]{0,63})\/?$/.exec(wbById(id)?.url ?? '')?.[1] ?? null,
-  odooLoginHref: (req) => (identity().configured() ? odooLoginUrl(req, '/login') : null),
   tokensCss: () => loadTokensCss()?.css ?? '',
 });
 if (loginGate.enforced) console.log('[login-gate] enforce：无身份的请求一律拦截（页面 302 /login，API 401）');
@@ -356,44 +356,11 @@ if (A2A_FOLLOWUP_RATE === null) {
 /** 取卡或验签这一步的失败：只有调用方在绑定上登记了取卡地址时才可能区分，对外不能露出来 */
 const FETCH_STEP_REFUSALS: ReadonlySet<string> = new Set(['unregistered', 'no-card', 'not-derivable', 'bad-sig']);
 const directSig = createDirectSigVerifier({ audiences: () => [marketPublicUrl()], bodyMode: A2A_DIRECT_SIG_BODY, refreshCooldownMs: A2A_CARD_COOLDOWN_MS });
+app.use(sessionRenewal(SESSION_LIFE)); // 一次登录持续保持：带着市场会话来的 /api/ 请求，满一天续一次（session-policy.ts）
 app.use(loginGate.middleware);
-loginRelay().install(http); // narrow same-origin Odoo login, before any body parser（路由在登录方式插件里，经 HTTP 服务注册）
-// Explicit opt-in only; no default content listener, no live configuration writes.
-const contentCfg = contentConfig(process.env);
 const portalObserver = process.env.WM_PORTAL_OBSERVE === '1' ? createPortalObservation(db, id => !!svc<WorkbenchService>('workbench').exists(id)) : null;
 app.use((req, _res, next) => { if (surfaceOf(req) === 'market') portalObserver?.observe(req); next(); });
-if (contentCfg) {
-  const odoo = String(process.env.WM_CONTENT_ODOO_ORIGIN ?? '');
-  const parsed = new URL(odoo);
-  const ports = surfacePorts();
-  if (contentCfg.port === ports.market || contentCfg.port === ports.control) throw Error('Content port must be distinct');
-  if (parsed.origin !== odoo || !loginRelay().trustedOrigins().origins.has(odoo)) throw Error('Content viewer source must be an explicitly trusted Odoo origin');
-}
-const contentRuntime = contentCfg ? createContentSurface(contentCfg, {
-  async viewer(cookie) {
-    // Reject duplicate SID instead of inheriting the legacy first-cookie ambiguity.
-    const values = loginRelay().sessionEntries(cookie);
-    if (values.length !== 1) return null;
-    const result = await identity().resolveViewer(values[0], process.env.WM_CONTENT_ODOO_ORIGIN);
-    return result.ok ? { subject: result.viewer.sub + ':' + result.viewer.uid, internal: true } : null;
-  },
-  staticTarget(id) {
-    // Exact metadata projection: no auth_config, Cookie pool or app token read.
-    const w = db.prepare('SELECT url, enabled FROM workbenches WHERE id = ?').get(id) as { url: string; enabled: number } | undefined;
-    const match = w?.enabled ? /^[/]apps[/]([a-z0-9][a-z0-9-]{0,63})[/]$/.exec(w.url) : null;
-    if (!w || !match) return null;
-    const a = db.prepare('SELECT active_version, kind, status FROM apps WHERE slug = ?').get(match[1]) as { active_version: number; kind: string; status: string } | undefined;
-    if (!a || a.kind !== 'app' || a.status !== 'active') return null;
-    return { url: w.url, root: join(appsRoot, match[1], 'v' + a.active_version), version: a.active_version };
-  },
-  upstream(id) {
-    const w = wbById(id);
-    if (!w || !w.enabled || w.cookie_set_id) return null; // cookie containers require a separate adapter, never browser fallback
-    return { url: w.url, authorization: w.auth?.type === 'bearer' ? 'Bearer ' + w.auth.value : w.auth?.type === 'basic' ? 'Basic ' + Buffer.from(w.auth.value, 'utf8').toString('base64') : undefined };
-  },
-}) : null;
-if (contentRuntime) mountContentSurface(app, contentRuntime); // TERMINAL content dispatch before every shared parser/route/SPA
-registerContentOpenRoutes(http, contentRuntime); // 市场面上的启动页与迁移跳转（路由在 routes/content-open.ts；没配内容面时放过）
+// 内容查看面（WM_CONTENT_PORT 等）只能凭 Odoo 会话认人，随 Odoo 一起下线（2026-11-17）：整块删掉，设了只在启动时告警（见 warnOffboardedOdoo）
 // issue #1：CORS 从全开放收紧为白名单——生产形态（web/dist 由本服务同源托管）不需要跨源；
 // 仅 web dev（vite 5173，其 /api 代理是同源转发、但直连调试场景保留）放行本机回环源。
 // /mcp 为 StreamableHTTP POST（非浏览器 fetch 场景不受 CORS 约束；浏览器 MCP 客户端经同源门户）。
@@ -436,7 +403,7 @@ app.use((req, res, next) => {
   next();
 });
 // #336 工作台变量：鉴权依赖（函数声明有提升，请求期已定义）；沙箱页面按台令牌 CORS
-const workbenchVars = createWorkbenchVars({ appToken: wmAppToken, markOdooAdmin, adminRead: vaultGuard, adminWrite: adminGuard, adminActor });
+const workbenchVars = createWorkbenchVars({ appToken: wmAppToken, markAdmin, adminRead: vaultGuard, adminWrite: adminGuard, adminActor });
 app.use(workbenchVars.cors);
 // #198（裁 A）：自产台数据/文件面的按台令牌 CORS——sandbox 页面（Origin: null）凭 X-App-Token 匹配 slug 才放行
 app.use((req, res, next) => {
@@ -520,7 +487,10 @@ const REMOTE_ALLOW_PREFIX = [
   // 站内账号：本人改自己的密码（路由内经身份服务认人、核同源、核原密码；只此一条路径）
   /^\/api\/local-accounts\/_self\/password$/,
   // 「安排一件事」的附件上传、建立人改截止日期：路由内经身份服务认人（上传的是启用的人本人；改截止只认建立人本人）；只此两条
-  /^\/api\/work-items\/attachments\/[^/]{1,255}$/,
+  // 文件名段的长度放得很宽：总门看的是还没解码的路径，一个汉字编码后占 9 个字符（%E5%90%88），按 255 卡，中文长名就成了要口令的 403。
+  // 长度不在这里判：超长的名字也要放到路由，由路由按解码后的名字回「文件名不合法」的 400（upload-file-name.ts 的 uploadNameOk），
+  // 不能在这里回误导人的 403。8192 只是防病态长路径的上限；这一段不带斜杠，放宽不会让路径的形状变宽
+  /^\/api\/work-items\/attachments\/[^/]{1,8192}$/,
   /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/due$/,
   // 团队：成员的分配、收回、改派由团队的负责人做（路由内认人、核同源、判是不是负责人或管理员；只此三条）
   /^\/api\/teams\/(assign|unassign|reassign)$/,
@@ -583,7 +553,7 @@ function announceAllowDiff(): void {
     } catch { /* 不阻启动 */ }
   }, 3000);
 }
-/** 扩展的业务写面：远程浏览器 POST 该路径不经管理写门（不要口令、不查 Odoo 管理员），由扩展路由自己判身份与同源。
+/** 扩展的业务写面：远程浏览器 POST 该路径不经管理写门（不要口令、不认管理员），由扩展路由自己判身份与同源。
  *  只收 /api/<命名空间>/… 精确路径，命名空间不得是宿主的；进 S3 豁免面快照，变更照常告警与通知 */
 const HOST_API_NAMESPACES = new Set(['a2a', 'admin', 'admin-token', 'apps', 'auth', 'bindings', 'change-requests', 'check-all', 'cockpits', 'content', 'cookies', 'design', 'export', 'health', 'import', 'mcp', 'mcp-rest', 'remote-allow', 'settings', 'skills', 'sop', 'sops', 'stats', 'summary', 'task-center', 'tasks', 'types', 'vault', 'workbench-events', 'workbenches']);
 function allowExtensionRemoteWrite(path: string): void {
@@ -592,41 +562,37 @@ function allowExtensionRemoteWrite(path: string): void {
   if (HOST_API_NAMESPACES.has(m[1])) throw new Error(`业务写面不能落在宿主命名空间 /api/${m[1]}/：${path}`);
   REMOTE_ALLOW_EXACT.add(path);
 }
-// 管理身份（属主 2026-11-02 裁定：撤销 #292 M1「管理写只认控制面」，有管理员口令就够；Odoo 管理员登录也算管理员）：
-//   带 Odoo 会话 cookie、却没带有效口令的 /api 请求，现查 Odoo get_session_info；内部员工且 is_admin=true 即记为管理员。
-//   提供方的回答按会话哈希缓存 30 秒（Odoo 侧撤管理员权限最迟 30 秒生效），缓存在身份服务里，不缓存会话本身；
-//   主体停没停用不进缓存，每次现查：停用一个主体，管理员认定立即不成立。
-const ODOO_ADMIN_TTL_MS = 30_000;
-const odooAdminViewer = identity().cachedResolver({ ttlMs: ODOO_ADMIN_TTL_MS, max: 1000 });
-const odooAdminReqs = new WeakMap<express.Request, string>(); // 本次请求认定的管理员登录 → Odoo 管理员记登录名；持 owner 授予的记 grant:<主体>；只持 admin 授予的系统管理员记 grant-system:<主体>
-async function odooAdminOf(cookieHeader: string): Promise<string | null> {
-  if (!identity().hasCredential(cookieHeader)) return null; // Odoo 会话，或者由市场维持的会话（管理员标记取 Odoo 这次的回答）
+// 管理身份（属主 2026-11-02 裁定：撤销 #292 M1「管理写只认控制面」，有管理员口令就够）：
+//   没带有效口令的 /api 请求，按市场会话认出的人现查授予：持生效的 owner 授予的是完整的管理员，只持 admin 授予的是系统管理员。
+//   每次现查，不缓存：收回、过期、主体停用，下一个请求就不再是管理员。Odoo 管理员认定已下线（2026-11-17）。
+const adminReqs = new WeakMap<express.Request, string>(); // 本次请求认定的管理员：持 owner 授予的记 grant:<主体>；只持 admin 授予的系统管理员记 grant-system:<主体>
+async function adminOf(cookieHeader: string): Promise<string | null> {
+  if (!identity().hasCredential(cookieHeader)) return null;
   try {
-    // Explicit relay logout revokes Odoo sessions; never reuse a stale admin verdict.
-    const who = loginRelay().relayLogin() ? await identity().resolveViewer(cookieHeader) : await odooAdminViewer(cookieHeader);
+    const who = await identity().resolveViewer(cookieHeader);
     if (!who.ok) return null;
-    if (who.viewer.admin) return who.viewer.adminBy === 'grant' ? `grant:${who.viewer.sub}` : who.viewer.login;
+    if (who.viewer.admin && who.viewer.adminBy === 'grant') return `grant:${who.viewer.sub}`; // 只认授予：别的来源说是管理员一律不算
     return who.viewer.systemAdmin === true ? `grant-system:${who.viewer.sub}` : null; // 系统管理员：只在非业务域的路由上算管理员（isAdmin）
   } catch { return null; }
 }
-/** 按需认定：只在确实要判管理员的请求上现查（写门调 adminGuard 前、管理读面、口令设置、whoami），其余请求不碰 Odoo */
-async function markOdooAdmin(req: express.Request): Promise<void> {
-  if (odooAdminReqs.has(req) || surfaceOf(req) === 'content' || adminTokenCheck(req.headers['x-admin-token'])) return;
+/** 按需认定：只在确实要判管理员的请求上现查（写门调 adminGuard 前、管理读面、口令设置、whoami） */
+async function markAdmin(req: express.Request): Promise<void> {
+  if (adminReqs.has(req) || adminTokenCheck(req.headers['x-admin-token'])) return;
   const cookie = String(req.headers.cookie ?? '');
   if (!identity().hasCredential(cookie)) return;
-  const login = await odooAdminOf(cookie);
-  if (login) odooAdminReqs.set(req, login);
+  const login = await adminOf(cookie);
+  if (login) adminReqs.set(req, login);
   if (login?.startsWith('grant-system:')) markSystemAdminOnly(req); // 系统管理员：各管理接口据此收紧（admin-tier.ts）
 }
 // 管理读面（GET 也走 adminGuard/vaultGuard 的）与口令/身份端点：进路由前先认定
 const ADMIN_IDENTITY_PATHS = /^\/api\/(admin\/whoami|admin-token(\/|$)|mcp\/(sessions|upstreams|tools|calls|access-requests)(\/|$)|change-requests(\/|$)|bindings(\/|$)|a2a\/(peers|state|seat-token\/log)(\/|$)|remote-allow\/diff|vault\/|tasks(\/|$)|workbench-events(?!\/[^/]*\/attachments(\/|$))(\/|$))/; // a2a/peers：对端登记表的管理接口，会话登录的管理员也算管理员（和绑定同口径）；a2a/seat-token/log：换令牌的记录同口径；tasks：统一待办读面同样认 Odoo 管理员（与口令管理员同为全量）；workbench-events：工作台事件的列表、详情也认（「关注」的席位提问同口径）；接单节点取附件（…/:id/attachments/…）只认回执令牌、不看管理员，不在这里
 app.use(async (req, _res, next) => {
-  if (ADMIN_IDENTITY_PATHS.test(req.path.toLowerCase())) await markOdooAdmin(req);
+  if (ADMIN_IDENTITY_PATHS.test(req.path.toLowerCase())) await markAdmin(req);
   next();
 });
 // 写请求总门。
 //   本机 CLI（回环直连、不带浏览器标记、没有反代转发头）照旧免口令——属主口径；
-//   其余 /api 管理写走 adminGuard：有效口令或 Odoo 管理员，浏览器来的还要同源；同机反代转进来的按远程处理。
+//   其余 /api 管理写走 adminGuard：有效口令或站内管理员，浏览器来的还要同源；同机反代转进来的按远程处理。
 //   业务写白名单（REMOTE_ALLOW_*）不变，照旧免口令。
 app.use(async (req, res, next) => {
   if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next(); // 读面不拦（掩码已有）
@@ -639,8 +605,8 @@ app.use(async (req, res, next) => {
   if (workbenchVars.appTokenWrite(req)) return next(); // #336：自产台/SOP 台凭本台令牌写本台变量（路由内再判）
   if (p === '/api/admin-token') return next(); // 设/清口令由路由自己判（首次设置时还没有口令可验）
   if (p.startsWith('/api/')) {
-    // 其余 /api/* 写：走 adminGuard（函数声明有提升，请求期已定义）；先按需认定 Odoo 管理员
-    await markOdooAdmin(req);
+    // 其余 /api/* 写：走 adminGuard（函数声明有提升，请求期已定义）；先按需认定站内管理员
+    await markAdmin(req);
     if (adminGuard(req, res)) return next();
     return; // adminGuard 已回 403
   }
@@ -791,12 +757,19 @@ function applyAccess(id: number, url: string, given: { access: string; logins: s
   if (credentialedNow && !credentialedBefore && (curAccess ?? 'all') === 'all') svc<WorkbenchService>('workbench').setAccess(id, 'admin', []);
 }
 
+/** 门户名单新写入不再收 odoo:<登录名>（Odoo 已下线）：改台时原来就有的可以留着，新加的回 400 */
+function rejectNewOdooLogins(given: { logins: string[] } | undefined, existing: string[]): void {
+  const fresh = given ? newOdooEntries(given.logins, existing) : [];
+  if (fresh.length) bad(`access_logins 不再收 odoo:<登录名>（Odoo 已下线），改写成 user:<主体>：${fresh.join('、')}`);
+}
+
 // CRUD 共用核心（REST 与 MCP workbench_register/update/unregister 同链）：
 // MCP 面不接受 auth 字段（凭据只经人工 REST/表单——安全边界内置）
 function workbenchCreateCore(body: any, ctx: WriteCtx = { subject: 'anonymous' }): ReturnType<typeof rowToWorkbench> {
   if (ctx.viaMcp) mcpWorkbenchGuard(body);
   const { _access: givenAccess, ...f } = validateWorkbenchBody(body);
   checkAccessTarget(f.url, givenAccess);
+  rejectNewOdooLogins(givenAccess, []);
   const adm = admitOrDeny('register', f.url);
   checkHealthPath(f.url, f.health_path ?? '');
   const row = svc<WorkbenchService>('workbench').accessTransaction(() => {
@@ -821,6 +794,7 @@ function workbenchUpdateCore(id: number, body: any, ctx: WriteCtx = { subject: '
   if (f.url !== undefined && (f.url === cur.url || sameTarget(cur.url, f.url))) delete f.url;
   if (ctx.viaMcp && f.url !== undefined && isCredentialed(cur)) throw new HttpError(403, '带凭据的台不能经 MCP 改地址——请人工经市场页修改');
   checkAccessTarget(f.url ?? cur.url, givenAccess);
+  rejectNewOdooLogins(givenAccess, loginsOf(cur));
   const adm = f.url !== undefined ? admitOrDeny('update', f.url) : null;
   if (f.url !== undefined || f.health_path !== undefined) checkHealthPath(f.url ?? cur.url, f.health_path ?? cur.health_path ?? '');
   const merged = { ...cur, ...f };
@@ -943,7 +917,7 @@ const lastProbeAt = new Map<number, number>();
 registerWorkbenchRoutes(http, { wrap, listWorkbenches, maskForApi, restSubject, workbenchCreateCore, workbenchUpdateCore, workbenchDeleteCore, adminTokenOk: (req) => adminHeaderOk(req), checkOne, downSince, lastProbeAt, EVICT_COOLDOWN_MS });
 
 // ---------- 驾驶舱 CRUD（任务驾驶舱：多工作台分屏组合视图） ----------
-// 驾驶舱的读应答带 can.edit：就是写请求总门对这个请求的判断（本机命令行照旧算属主；其余要有效口令或 Odoo 管理员，且同源）
+// 驾驶舱的读应答带 can.edit：就是写请求总门对这个请求的判断（本机命令行照旧算属主；其余要有效口令或站内管理员，且同源）
 const cockpits = cockpitAccess({
   adminOk: (req) => settingsAdminRead(req), // 和设置页的管理员读同一个判断（定义在后面，请求期才调用）
   crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)),
@@ -1035,6 +1009,8 @@ function validateAppFiles(raw: unknown, kind: 'app' | 'sop' = 'app'): { path: st
     if (typeof f?.path !== 'string' || typeof f?.content !== 'string') bad('每个文件必须是 {path: string, content: string}（v1 仅支持 UTF-8 文本）');
     const p = posix.normalize(f.path.replace(/\\/g, '/'));
     if (p.length > 200 || p === '.' || p.startsWith('/') || p.startsWith('..') || p.includes('../')) bad(`文件路径非法: ${f.path}`);
+    // 每一段和上传文件名同一条规则（upload-file-name.ts）：控制字符、DEL、方向控制符都拒；路径原样回显会被方向控制符倒着显示，所以转义后再写
+    for (const seg of p.split('/')) if (!uploadNameOk(seg)) bad(`文件路径非法（含控制字符或方向控制符）: ${JSON.stringify(f.path).replace(/[^\x20-\x7e]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'))}`);
     if (seen.has(p)) bad(`文件重复: ${p}`);
     seen.add(p);
     total += Buffer.byteLength(f.content, 'utf8');
@@ -1649,6 +1625,8 @@ function uploadKindOrThrow(path: string, size: number, name: string, reported: s
 }
 /** 自产台文件入库核心：浏览器 multipart 与 MCP REST（原始字节 PUT / multipart）共用——已落盘的文件按内容核类型（不符删盘 415）后写 app_files */
 async function appFileStoreCore(slug: string, f: { path: string; size: number; name: string; reportedMime: string; createdBy: string; note: string; sha256?: string }) {
+  // 文件名在这里再核一次：multipart 两个入口的名字只经过 fixFileName，到这里才第一次核；不合法就删掉已落盘的文件
+  if (!uploadNameOk(f.name)) { rmSync(f.path, { force: true }); throw new HttpError(400, UPLOAD_NAME_INVALID); }
   const kind = uploadKindOrThrow(f.path, f.size, f.name, f.reportedMime);
   // 存储相对路径（dataDir 内，随数据目录迁移）
   const rel = f.path.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
@@ -1688,7 +1666,7 @@ const upload = multer({
 registerAppDataRoutes(http, { getApp, submitAppData, pageLimit, pageBeforeId, appFilesQuota, APP_FILES_MAX, upload, fixFileName, appFileStoreCore, adminGuard, bad, read: {
   mode: APP_DATA_READ,
   appTokenOk: (slug, presented) => { const got = Buffer.from(presented), want = Buffer.from(wmAppToken(slug)); return got.length === want.length && timingSafeEqual(got, want); }, // 按字节比长度：非 ASCII 的令牌不让比较抛错
-  adminOk: async (req) => { await markOdooAdmin(req); return adminHeaderOk(req); },
+  adminOk: async (req) => { await markAdmin(req); return adminHeaderOk(req); },
   cliOk: (req) => !browserMarked(req) && rawLoopback(req),
   viewCapOk: (slug, cap) => loginGate.viewCapOk(slug, cap),
 } });
@@ -2066,7 +2044,7 @@ function runFileWriteGate(req: express.Request, runId: number): void {
     if (presented !== expected) throw new HttpError(403, '上传令牌不符（run 不匹配或已过期）');
   }
 }
-registerSopRunFileRoutes(http, { wrap, markOdooAdmin, runFileWriteGate, sopRunRow, adminHeaderOk, runReadCapHeader, bad, RUN_REF_BATCH_MAX, RUN_REF_MAX_COUNT, RUN_UPLOAD_MAX_COUNT, RUN_UPLOAD_MAX_BYTES, runFileQuota, runUpload, fixFileName, checkUploadKind, sha256Hex, ensureRunFileSha });
+registerSopRunFileRoutes(http, { wrap, markAdmin, runFileWriteGate, sopRunRow, adminHeaderOk, runReadCapHeader, bad, RUN_REF_BATCH_MAX, RUN_REF_MAX_COUNT, RUN_UPLOAD_MAX_COUNT, RUN_UPLOAD_MAX_BYTES, runFileQuota, runUpload, fixFileName, checkUploadKind, sha256Hex, ensureRunFileSha });
 
 // ---------- Cookie 池（监督席派单 direct-5fbb2176：web 型外部台 cookie 认证） ----------
 registerCookieRoutes(http);
@@ -2080,53 +2058,41 @@ registerSopRunControlRoutes(http, { wrap, sopRunRow, bad, sopRunStartCore });
 registerStatsRoutes(http);
 registerContentObservationRoutes(http, { adminGuard, portalObserver });
 
-/** #275 过渡登录入口（#221 落地前）：挑一个可信 Odoo 台，走 /go/<id>/ 的 SSO v1 舞步并带 return 落回市场原页面。
- *  先选 origin = WM_ODOO_URL 的台（工作台只认这个 Odoo 的会话；session_id 按主机名跨端口共享，登别的 Odoo 会把它覆盖掉），
- *  再选与请求同主机名的台；都没有返回 null，不盲选（别的主机名登完市场也拿不到 session_id） */
-function odooLoginUrl(req: express.Request, returnPath: string): string | null {
-  // 同域登录中继开着：登录入口就是本机 /web/login（中继只放行登录面、上游固定为 WM_ODOO_URL、redirect 只认白名单回跳页），
-  // 不再依赖库里登记了 Odoo 台——否则部署方只能手工插一条假工作台才有登录入口
-  if (loginRelay().relayLogin() && loginRelay().sourceUrl()) return `/web/login?redirect=${encodeURIComponent(returnPath)}`;
-  let host = '';
-  try { host = new URL(`http://${String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').split(',')[0].trim()}`).hostname.toLowerCase(); } catch { host = ''; }
-  const odoo = listWorkbenches().filter((w) => w.enabled && /^https?:\/\//i.test(w.url) && loginRelay().isSessionTarget(w.url));
-  let idOrigin = '';
-  try { idOrigin = new URL(loginRelay().sourceUrl()).origin; } catch { idOrigin = ''; }
-  const at = (w: { url: string }) => { try { return new URL(w.url); } catch { return null; } };
-  const pick = odoo.find((w) => idOrigin && at(w)?.origin === idOrigin) ?? odoo.find((w) => at(w)?.hostname.toLowerCase() === host);
-  return pick ? `/go/${pick.id}/?return=${encodeURIComponent(returnPath)}` : null;
+/** 登录入口：站内的登录页，登录完回到 returnPath（站内路径；登录页自己再过一遍 safeNext）。Odoo 登录中继已下线（2026-11-17） */
+function loginUrl(_req: express.Request, returnPath: string): string {
+  return returnPath === '/' ? '/login' : `/login?next=${encodeURIComponent(returnPath)}`;
 }
 
 // ---------- 统一待办（omni-inbox · 总工程师设计 9c5557c1c0）：只读聚合；路由在域模块里 ----------
-registerTaskRoutes(http, { wrap, adminGuard, adminHeaderOk, devOriginOk, odooLoginUrl });
+registerTaskRoutes(http, { wrap, adminGuard, adminHeaderOk, devOriginOk, loginUrl });
 registerBenchViewRoutes(http, { on: BENCH_VIEWS.on, wrap, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), devOriginOk });
 // 经验库（/knowledge 的接口）：只读；条目按看的人的授予逐条判，管理口令拒（services/knowledge.ts、routes/knowledge.ts）
 registerKnowledgeRoutes(http, { wrap, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), devOriginOk });
 
-// #275 登录探测：弹窗送 Odoo 登录后，前端轮询这里拿 200 即回原页面（Odoo 19 无法跨源回跳，回程在市场源完成）；顶栏用户 chip 同源
-registerAuthViewerRoutes(http, { wrap, odooLoginUrl });
+// 登录探测：前端拿它看现在是谁（顶栏用户 chip 同源）；没登录时给出站内登录页地址
+registerAuthViewerRoutes(http, { wrap, loginUrl });
 
 // ---------- 主体管理（列出、停用、恢复）：路由在域模块里 ----------
-registerPrincipalRoutes(http, { markOdooAdmin, adminGuard, adminActor });
-registerLocalAccountRoutes(http, { markOdooAdmin, adminGuard, adminActor });
-registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor, adminHeaderOk, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段六 6b：角色声明与授予（只建结构，不接判定）
+registerPrincipalRoutes(http, { markAdmin, adminGuard, adminActor });
+registerLocalAccountRoutes(http, { markAdmin, adminGuard, adminActor });
+registerGrantRoutes(http, { markAdmin, adminGuard, adminActor, adminHeaderOk, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段六 6b：角色声明与授予（只建结构，不接判定）
 // 迁移来的 admin 授予在认管理员时不算（services/grant.ts 的 heldAdmin）：启动时记一行有几条，属主据此决定要不要整批收回
 { const n = svc<GrantService>('grants').migrationAdminsIgnored(); if (n) console.log(JSON.stringify({ source: 'grants', event: 'migration-admin-ignored', count: n, note: '迁移来的 admin 授予在认管理员时不算；要整批收回用 POST /api/grants/revoke-migration', at: new Date().toISOString() })); }
-registerDepartmentRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 部门：登录的人读、管理员写
-registerTeamRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 团队与分配（规范 14 第 1 步）：登录的人按可见范围读；认领、负责人是管理员，分配是负责人
-registerRelationRoutes(http, { markOdooAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 关系的提议（规范 14「关系由谁说了算」）：负责人、团队认领要属主或业务侧确认
-registerAccessRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 角色预设 ②：以某人的身份看、红线清单、首次安装向导
-registerAttentionRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
-registerWorkItemRoutes(http, { markOdooAdmin, adminGuard, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8d：事项页的时间线
-registerWorkItemAttachmentRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 「安排一件事」的附件：上传、人读（跟事项走）、接单节点凭回执令牌取
-registerRosterRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段七：团队名册的读（登录即可读，只有席位信息）
+registerDepartmentRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 部门：登录的人读、管理员写
+registerTeamRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 团队与分配（规范 14 第 1 步）：登录的人按可见范围读；认领、负责人是管理员，分配是负责人
+registerRelationRoutes(http, { markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 关系的提议（规范 14「关系由谁说了算」）：负责人、团队认领要属主或业务侧确认
+registerAccessRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 角色预设 ②：以某人的身份看、红线清单、首次安装向导
+registerAttentionRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
+registerWorkItemRoutes(http, { markAdmin, adminGuard, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8d：事项页的时间线
+registerWorkItemAttachmentRoutes(http, { markAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 「安排一件事」的附件：上传、人读（跟事项走）、接单节点凭回执令牌取
+registerRosterRoutes(http, { markAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段七：团队名册的读（登录即可读，只有席位信息）
 
 // ---------- 扩展（WM_EXTENSIONS_DIR）：挂在身份/写门之后、SPA 回落之前；加载失败拒绝启动 ----------
 try {
   const loaded = await loadExtensions(process.env.WM_EXTENSIONS_DIR, {
     app, wrap, http, routesMode: extensionRoutesMode(process.env.WM_EXTENSION_ROUTES),
-    adminGuard: async (req, res) => { await markOdooAdmin(req); return adminGuard(req, res); },
-    odoo: { url: () => loginRelay().sourceUrl(), sessionOf: (cookie) => loginRelay().sessionOf(cookie), resolveViewer: (cookie) => identity().resolveViewer(cookie), loginUrl: odooLoginUrl, addReturnPath: (path) => loginRelay().addReturnPath(path) },
+    adminGuard: async (req, res) => { await markAdmin(req); return adminGuard(req, res); },
+    identity: { resolveViewer: (cookie) => identity().resolveCaller(cookie), loginUrl }, // 口径和 /api/auth/viewer 一致：没有身份来源、有站内登录时，没登录是 401
     remoteWrite: { allowExact: allowExtensionRemoteWrite },
   });
   if (loaded.length) console.log(`[extensions] 已加载：${loaded.join('、')}（${process.env.WM_EXTENSIONS_DIR}）`);
@@ -2357,6 +2323,8 @@ async function skillPublishCore(slugIn: unknown, files: any, changelogIn: unknow
     if (f.path.includes('\\')) bad(`path 非法（禁反斜杠）: ${f.path}`);
     if (f.path.startsWith('/') || /^[A-Za-z]:/.test(f.path)) bad(`path 非法（禁绝对路径）: ${f.path}`);
     for (const seg of f.path.split('/')) if (seg === '' || seg === '.' || seg === '..') bad(`path 非法（空/. / .. 段）: ${f.path}`);
+    // 每一段和上传文件名同一条规则（upload-file-name.ts）：控制字符、DEL、方向控制符都拒；路径原样回显会被方向控制符倒着显示，所以转义后再写
+    for (const seg of f.path.split('/')) if (!uploadNameOk(seg)) bad(`path 非法（含控制字符或方向控制符）: ${JSON.stringify(f.path).replace(/[^\x20-\x7e]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'))}`);
     if (SKILL_PKG_RESERVED.has(f.path)) bad(`path ${f.path} 是技能包保留名（市场打包时生成）`);
   }
   // #94 S0③（K6）：同名重复路径拒收（同 path 两义——内容静默覆盖防）
@@ -2585,7 +2553,7 @@ async function sopRunUpgradePlan(id: number) {
     },
   };
 }
-registerSopRunLifecycleRoutes(http, { wrap, adminHeaderOk, runReadCapHeader, sopRunGetCore, sopRunGetMeta, sopRunStepSaveCore, sopRunFinishCore, sopRunAcceptDetail, markOdooAdmin, sopRunUpgradePlan, bad, runCheckpoints, adminActor, writeMode: SOP_RUN_WRITE });
+registerSopRunLifecycleRoutes(http, { wrap, adminHeaderOk, runReadCapHeader, sopRunGetCore, sopRunGetMeta, sopRunStepSaveCore, sopRunFinishCore, sopRunAcceptDetail, markAdmin, sopRunUpgradePlan, bad, runCheckpoints, adminActor, writeMode: SOP_RUN_WRITE });
 
 // ---------- 自产台静态托管：GET /apps/:slug/* → DATA_DIR/apps/<slug>/v<active>/* ----------
 function serveApp(req: express.Request, res: express.Response) {
@@ -2694,8 +2662,8 @@ registerTypeRoutes(http);
 
 // ---------- 设置 / 导入导出 ----------
 // ---------- 管理员口令手动设置（本机引导：首次无口令时允许从 loopback 设置） ----------
-/** 首次设口令（库里还没有口令）：本机直连（CLI 或本机同源页面），或 Odoo 管理员；改/清口令：带当前口令或 Odoo 管理员 */
-registerAdminTokenRoutes(http, { adminTokenCheck, odooAdminReqs, dbAdminTokenSet, dbAdminTokenOk, hashAdminToken, browserSameSite, devOriginOk });
+/** 首次设口令（库里还没有口令）：本机直连（CLI 或本机同源页面），或站内管理员（持 owner 授予）；改/清口令：带当前口令或站内管理员 */
+registerAdminTokenRoutes(http, { adminTokenCheck, adminReqs, dbAdminTokenSet, dbAdminTokenOk, hashAdminToken, browserSameSite, devOriginOk });
 
 // 设置的出口分两级（settings-view.ts）：管理员看全部、凭据类的值只说有没有；别人只看白名单。导出用管理员那一级。
 // 内部读取走 getSettings()/mcpUpstreams() 直读 DB，不受影响。管理员口令哈希出口一律剔除（评审 #27）。
@@ -2707,18 +2675,18 @@ registerAdminTokenRoutes(http, { adminTokenCheck, odooAdminReqs, dbAdminTokenSet
   if (leaked.length) { console.error(`[settings] 拒绝启动：设置的出口会带出凭据类的值（${leaked.join('、')}）`); process.exit(1); }
 }
 // 设置读的分级：管理员（口令或管理员登录，同源）与本机命令行看全部（凭据类的值只说有没有），别人只看巡检参数和开关。设置读与导出共用
-const settingsAdminRead = async (req: express.Request): Promise<boolean> => { if (!browserMarked(req) && rawLoopback(req)) return true; await markOdooAdmin(req); return adminHeaderOk(req); };
+const settingsAdminRead = async (req: express.Request): Promise<boolean> => { if (!browserMarked(req) && rawLoopback(req)) return true; await markAdmin(req); return adminHeaderOk(req); };
 registerSettingsRoutes(http, { armPatrol, adminRead: settingsAdminRead }); // 本机命令行也看全部（写设置它本来就能过写请求总门）
 
-registerExportImportRoutes(http, { listWorkbenches, maskForApi, URL_POLICY, admitOrDeny, restSubject, markAdmin: markOdooAdmin, adminGuard, settingsAdminRead });
+registerExportImportRoutes(http, { listWorkbenches, maskForApi, URL_POLICY, admitOrDeny, restSubject, markAdmin: markAdmin, adminGuard, settingsAdminRead });
 
 // ---------- 凭据库（融合 dsh-vault）：读写全部过 vaultGuard ----------
 // 与 adminGuard 同口径，只多认一种浏览器形态：同源 GET 不带 Origin（只有 Sec-Fetch-Site: same-origin），
 // adminGuard 按「无 Origin 即非本面」会拒掉控制面页面自己的读请求；凭据读必须和写一样严，所以读也要口令。
 function vaultGuard(req: express.Request, res: express.Response): boolean {
-  if (browserMarked(req) && !req.headers.origin && req.headers['sec-fetch-site'] === 'same-origin' && surfaceOf(req) !== 'content') {
+  if (browserMarked(req) && !req.headers.origin && req.headers['sec-fetch-site'] === 'same-origin') {
     if (isAdmin(req)) return true;
-    res.status(403).json({ error: '需要有效的 X-Admin-Token 或 Odoo 管理员登录（凭据库读写都要管理员）' });
+    res.status(403).json({ error: '需要有效的 X-Admin-Token 或站内管理员登录（凭据库读写都要管理员）' });
     return false;
   }
   return adminGuard(req, res);
@@ -2770,7 +2738,7 @@ try {
   if (managementGrantHolders() === 0) console.warn('[work-items] 注意：当前没有任何主体持有管理层授予；团队没有负责人时，等过目的事项没人能代办放行。上线前确认至少一人有管理层授予');
 } catch { /* 授予服务没装上 */ }
 registerLoginGateRoutes(http, loginGate.routeDeps); // /login、/api/auth/login|logout|me（解析器之后、SPA 回落之前）
-registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionTtlMs: SESSION_TTL_MIN * 60_000 });
+registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionLife: SESSION_LIFE });
 registerLoginEventRoutes(http); // /login/<方式>/events：离职、停用的失效通知；每天一次对账 // /login/<方式>、/login/<方式>/callback：飞书等发市场会话的登录
 
 // ---------- A2A 网络接入（GH #17 P1：签名卡片 + 人工绑定，只读暴露） ----------
@@ -2814,17 +2782,17 @@ function businessRoute(req: express.Request): boolean {
   const spec = http.actionFor(req);
   return !spec || !SYSTEM_DOMAINS.includes(domainOf(spec.action));
 }
-/** 管理员：有效口令，或本次请求已认定为 Odoo 管理员（见上方预判中间件） */
+/** 管理员：有效口令，或本次请求已认定为站内管理员（见上方预判中间件） */
 function isAdmin(req: express.Request): boolean {
   if (adminTokenCheck(req.headers['x-admin-token'])) return true;
-  const marked = odooAdminReqs.get(req);
+  const marked = adminReqs.get(req);
   if (!marked) return false;
   // 系统管理员（只持 admin 授予）：只在系统域的路由上算管理员（属主 2026-11-16 定：系统管理员不看业务数据）；对不上路由、域不认识的都不算
   if (marked.startsWith('grant-system:')) return !businessRoute(req);
   return true;
 }
 
-/** 浏览器来源门：带 Sec-Fetch-Site 的必须是同源（Odoo 会话 cookie 是环境凭据，防跨站借用） */
+/** 浏览器来源门：带 Sec-Fetch-Site 的必须是同源（会话 cookie 是环境凭据，防跨站借用） */
 function browserSameSite(req: express.Request): boolean {
   const site = req.headers['sec-fetch-site'];
   return site === undefined || site === 'same-origin' || site === 'none' || devOriginOk(req);
@@ -2840,7 +2808,7 @@ function adminHeaderOk(req: express.Request): boolean {
 
 function adminGuard(req: express.Request, res: express.Response): boolean {
   if (!isAdmin(req)) {
-    res.status(403).json({ error: '需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）' }); // 属主报障文案修正：不再把「未带/无效」说成「未设置」
+    res.status(403).json({ error: '需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）' }); // 属主报障文案修正：不再把「未带/无效」说成「未设置」
     return false;
   }
   if (!browserSameSite(req)) {
@@ -2882,8 +2850,7 @@ function sameOriginGuard(req: express.Request, res: express.Response): boolean {
 }
 
 // ---- 任务中心 8 端点（读开放·写删人审·C13 元台只能人工面） ----
-registerTaskIntakeRoutes(http, { sameOriginGuard, adminGuard });
-registerWorkbenchEventRoutes(http, { admin: adminGuard, sameOrigin: (req) => sameOriginGuard(req, undefined as never), actor: (req) => (!browserMarked(req) && rawLoopback(req) ? 'cli' : adminActor(req)) });
+registerWorkbenchEventRoutes(http, { admin: adminGuard });
 registerTaskReadRoutes(http, { wrap, adminHeaderOk, runReadCapHeader });
 registerSopRunAccessRoutes(http, { adminGuard, sopRunRow, bad });
 registerTaskControlRoutes(http, { readActiveManifest, sameOriginGuard, adminGuard });
@@ -2896,9 +2863,6 @@ registerTaskControlRoutes(http, { readActiveManifest, sameOriginGuard, adminGuar
 // 授权独立铁律：admits 消费点只认 admits|both；notify 消费点只认 notify|both——授一边不隐含另一边。
 // 跨型 CHECK（DDL）：app 行 remote_api_key 恒空、mode 恒 read（sop 专属语义不漂移）。
 // S3 豁免面可观测（评审席裁下批）：GET /api/remote-allow/diff——安全清单变更管理面可查
-// SSO 回调路由（属主令「都需要」·A 面）：Odoo 登录完 302 回市场统一入口——
-// /sso/callback?redirect=/go/N/&state=xxx → 内域校验 → 302 目标台（会话 cookie 由浏览器自持 Odoo 域·此处只管回跳安全）
-registerSsoRoutes(http);
 
 registerRemoteAllowRoutes(http, { adminGuard, lastAllowDiff });
 
@@ -2941,7 +2905,6 @@ import { evalCandidates, evalConfigured } from './eval.ts'; // #178 评估模型
 
 import { renderSopRunner as renderSopRunnerRaw } from './sop-runner.ts';
 import { loadTokensCss } from './design-tokens-css.ts';
-import { sqliteSsoTicketStore } from './sso-ticket-store.ts';
 import { closeYglUpstreams, yglHomeProblem, yglUpstreamRpc } from './mcp-stdio-upstream.ts';
 import { loadExtensions, extensionRoutesMode, assertExtensionNamespaces } from './extensions.ts';
 import { authorizeRunRead, issueRunReadCap, runReadGrantCreate, runReadGrantRevoke, runReadCapRevokeAll } from './sop-read-auth.ts';
@@ -3241,7 +3204,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       if (args?.content_base64 === undefined) {
         // 不带 content_base64：申请上传票。台、文件名、文件数余量现在就核，免得字节传完了才被拒。
         if (!slug || !name) throw new HttpError(400, 'slug/name 必填');
-        if (name.length > 255 || name === '.' || name === '..' || /[\/\\\x00-\x1f]/.test(name)) throw new HttpError(400, '文件名不合法（≤255 字符，不含路径分隔符与控制字符）');
+        if (!uploadNameOk(name)) throw new HttpError(400, UPLOAD_NAME_INVALID);
         const { size, sha256 } = ticketSizeSha(args, UPLOAD_MAX);
         const a = getApp(slug, true);
         if ((await appFilesQuota(a.slug)).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`);
@@ -3252,7 +3215,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       }
       const b64 = String(args?.content_base64 ?? '');
       if (!slug || !name || !b64) throw new HttpError(400, 'slug/name/content_base64 必填');
-      if (name.length > 255 || name === '.' || name === '..' || /[\/\\\x00-\x1f]/.test(name)) throw new HttpError(400, '文件名不合法（≤255 字符，不含路径分隔符与控制字符）');
+      if (!uploadNameOk(name)) throw new HttpError(400, UPLOAD_NAME_INVALID);
       const a = getApp(slug, true);
       // 完整性：有的 MCP 客户端会把过长的参数截短（常见截在 64KB）。截在 4 的倍数上的 base64 照样能解码，
       // 不核就会把残缺文件当正常文件存下。所以：base64 严格校验；调用方带了 size / sha256 就逐项对；
@@ -3448,7 +3411,7 @@ function resolveGrants(raw: unknown[], held: string[], registered: Set<string>):
 }
 
 // ---------- MCP 权限自助：access_info / access_request（免 grants）+ 管理员审批面 ----------
-// 会话只能看和申请；批准、驳回只走下面的管理员 REST（adminGuard：口令或 Odoo 管理员），会话令牌不是管理身份，自己批不了。
+// 会话只能看和申请；批准、驳回只走下面的管理员 REST（adminGuard：口令或站内管理员），会话令牌不是管理身份，自己批不了。
 const MCP_EXEMPT_TOOLS = new Set(MCP_TOOLS.filter((t) => t.exempt).map((t) => t.name));
 /** 权限自助的两个（由 mcpAccessTool 应答）；别的免授权工具（读技能的三个）照常走 callTool */
 const MCP_ACCESS_TOOLS: ReadonlySet<string> = new Set(['access_info', 'access_request']);
@@ -3619,12 +3582,12 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
   }
 }
 
-/** 审批人：Odoo 管理员记登录名，口令记 admin-token（口令本身不落库） */
+/** 审批人：站内管理员记主体，口令记 admin-token（口令本身不落库）。历史留痕里的 odoo:<登录名> 不改 */
 function adminActor(req: express.Request): string {
-  const odoo = odooAdminReqs.get(req);
-  if (odoo?.startsWith('grant:')) return odoo.slice('grant:'.length); // 站内管理员：留痕记主体（user:<名>）
-  if (odoo?.startsWith('grant-system:')) return odoo.slice('grant-system:'.length); // 系统管理员：同样记主体
-  return odoo ? `odoo:${odoo}` : 'admin-token';
+  const marked = adminReqs.get(req);
+  if (marked?.startsWith('grant:')) return marked.slice('grant:'.length); // 站内管理员：留痕记主体（user:<名>）
+  if (marked?.startsWith('grant-system:')) return marked.slice('grant-system:'.length); // 系统管理员：同样记主体
+  return 'admin-token';
 }
 function accessRequestId(req: express.Request): number {
   const id = Number(req.params.id);
@@ -3932,22 +3895,22 @@ async function mcpRestRunReadable(req: express.Request, sess: McpSess | null, ru
 const runIdParam = (v: unknown): number => { if (!/^\d+$/.test(String(v))) throw new HttpError(404, `run not found: ${v}`); return Number(v); };
 registerMcpRestRoutes(http, { wrap, serveMcpOpenApi, mcpGatewaySession, mcpAudit, mcpRegisteredNames, MCP_REST_DENIED_HINT, mcpInvokeTool, mcpPublicOrigin, mcpRestSession, mcpToolAllowsApp, mcpRestRun, bad, getApp, appFilesQuota, APP_FILES_MAX, UPLOAD_MAX, uploadMonthDir, uploadFileName, appFileStoreCore, MCP_REST_BASE, upload, fixFileName, fileSha256, sendStoredFile, restFileItem, mcpRestRunReadable, runIdParam, sopRunRow, runReadCapHeader,
   takeUploadTicket: (token) => uploadTickets.take(token), uploadTicketSession, skillStageIncomingPath, skillStageFromFile });
-import { goPrefix, moduleProxy, verifyPortalSsoStateCookie } from './portal.ts';
+import { goPrefix, moduleProxy, stripSessionIdCookie, verifyPortalSessionStrip } from './portal.ts';
 import { registerPortalRoutes } from './routes/portal.ts';
 import { stripIncoming as stripPortalForward, verifyPortalForwardStrip, useMarketTokenCheck } from './portal-forward-headers.ts';
 useMarketTokenCheck((token) => mcpSessionByToken(token) !== null); // 门户转发时认得市场的 MCP 会话令牌，摘掉不往台带
 
-loginRelay().useTicketStore(sqliteSsoTicketStore()); // SSO 回调票据落库：重启不丢、同一 DATA_DIR 的实例共享
 const portalAccess = createPortalAccess({
   byId: wbById,
   viewer: async req => {
     const login = await loginGate.identity(req);
     if (!login) return null;
-    if (login.admin || login.via === 'cookie') return { ...login, odooLogins: [] };
+    if (login.admin || login.via === 'cookie') return { ...login, principal: null, odooLogins: [] };
     const who = await identity().resolveViewer(String(req.headers.cookie ?? ''));
     if (!who.ok) return null;
+    // 旧名单里的 odoo:<登录名> 项按这个人名下保留的历史 Odoo 身份对（只读库里的绑定，不问 Odoo）
     const odooLogins = svc<PrincipalService>('principals').externalIdsOf(who.viewer.sub, 'odoo');
-    return { ...login, admin: who.viewer.admin === true, odooLogins };
+    return { ...login, admin: who.viewer.admin === true, principal: who.viewer.sub, odooLogins };
   },
 });
 const portalAccessHttp: express.RequestHandler = (req, res, next) => {
@@ -3992,7 +3955,7 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
     return res.status(err.status ?? 400).json({ error: err.type === 'entity.too.large' ? '请求体过大' : '请求体不是合法 JSON' });
   }
   const msg = String(err?.message ?? err);
-  let status = err instanceof HttpError || err instanceof TaskIntakeError ? err.status : 500;
+  let status = err instanceof HttpError ? err.status : 500;
   if (status === 500 && VALIDATION_ERR_PREFIX.some((p) => msg.startsWith(p))) status = 400;
   if (isStartupProbeRequest(_req)) {
     if (status === 500) console.error(JSON.stringify({ source: 'self-probe', event: 'handler-error', status }));
@@ -4068,22 +4031,16 @@ const goServer = registerSurface(app, 'market', PORT, () => {
     // 迁移材料：存量行不删不停，只列按新规会被拒的 id + URL 摘要 + 原因（不出原 URL/query）
     if (gaps.length) console.warn(JSON.stringify({ event: 'workbench_url_legacy_gap', policy_digest: URL_POLICY.digest, count: gaps.length, rows: gaps }));
   }
-  const odooTrust = loginRelay().trustedOrigins();
-  const oldOdoo = loginRelay().legacyConfig();
-  if (oldOdoo === 'only-old') console.warn('[odoo] LC_ODOO_URL 已弃用，请改名为 WM_ODOO_URL（当前按旧名读取）');
-  else if (oldOdoo === 'both') console.warn('[odoo] WM_ODOO_URL 与已弃用的 LC_ODOO_URL 都设了：以 WM_ODOO_URL 为准，LC_ODOO_URL 可删');
-  if (odooTrust.invalid.length) console.warn(`[SSO v1] WM_ODOO_ORIGINS/WM_ODOO_URL 有非法项（已忽略）：${odooTrust.invalid.join(', ')}`);
-  if (odooTrust.origins.size === 0 && listWorkbenches().some((w) => loginRelay().looksLikeTarget(w.type, w.url))) console.warn('[SSO v1] 未设 WM_ODOO_ORIGINS / WM_ODOO_URL：门户不转发 Odoo 会话，Odoo 台免登不生效（台内会显示 Odoo 自己的登录页）——要免登请把 Odoo 台的源写进 WM_ODOO_ORIGINS');
+  warnOffboardedOdoo(); // 还设着旧的 Odoo 变量：逐个警告「已下线、忽略」，不拒绝启动
   const counts = svc<WorkbenchService>('workbench').count() as { n: number };
   console.log(`[workbench-market] server  http://127.0.0.1:${PORT}  (workbenches: ${counts.n}, web-dist: ${existsSync(webDist) ? 'served' : 'none'}, portal: /go/<id>/)`);
-  if (SURFACE_PORTS.control) console.log(`[workbench-market] control http://127.0.0.1:${SURFACE_PORTS.control}  （可选的独立管理端口；管理写在业务面凭口令或 Odoo 管理员同样可做）`);
+  if (SURFACE_PORTS.control) console.log(`[workbench-market] control http://127.0.0.1:${SURFACE_PORTS.control}  （可选的独立管理端口；管理写在业务面凭口令或站内管理员同样可做）`);
   // The listener exists but HTTP/market WS remain gated until anonymous safety checks pass.
 });
 
 const controlServer = SURFACE_PORTS.control ? registerSurface(app, 'control', SURFACE_PORTS.control) : undefined;
-if (contentCfg && contentRuntime) listenContentSurface(app, contentCfg, contentRuntime, () => startupSecurity.snapshot().passed);
 
-void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, benchViews: BENCH_VIEWS.on, outbound: outboundOff() ? verifyOutboundGate : undefined, sessionSeal: sealSelfCheck, portalForward: verifyPortalForwardStrip, portalSsoStateCookie: verifyPortalSsoStateCookie }).then((result) => {
+void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, benchViews: BENCH_VIEWS.on, outbound: outboundOff() ? verifyOutboundGate : undefined, sessionSeal: sealSelfCheck, sessionRenewal: () => renewalSelfCheck(SESSION_LIFE), sessionLegacyTtl: SESSION_LEGACY_ONLY, portalForward: verifyPortalForwardStrip, portalSessionStrip: verifyPortalSessionStrip }).then((result) => {
   if (!result.passed) return refuseUnsafeStartup();
   startupPassed(); // 放开启动闸：事项回填这类后台任务从这里开始（自检没过不开始）
   startRedis();
@@ -4132,7 +4089,7 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 // 关键：upgrade 事件不流经 Express 中间件链——前置中间件设置的 goOrigin/goBase/goQuery/goAuth
 // 在这里全部不存在，必须对 upgrade 请求重做同样的准备，否则 router 兜底到 http://127.0.0.1（80 端口
 // 无服务）→ DSH 台经门户打开后 WS 永远连不上（页面「重新连接中…」，实测踩坑）。
-for (const srv of allSurfaceServers()) if (srv !== goServer) srv.on('upgrade', (req, socket) => { if (surfaceOf(req) !== 'content') socket.destroy(); }); // #292 M1：控制面不提供 WS
+for (const srv of allSurfaceServers()) if (srv !== goServer) srv.on('upgrade', (_req, socket) => { socket.destroy(); }); // #292 M1：控制面不提供 WS
 goServer.on('upgrade', async (req, socket, head) => {
   if (!startupSecurity.snapshot().passed) return socket.destroy();
   if (!(await loginGate.upgradeAllowed(req))) return socket.destroy(); // 登录门：WS 升级同样要身份
@@ -4159,7 +4116,7 @@ goServer.on('upgrade', async (req, socket, head) => {
   // ① 浏览器握手必带 Origin（=9800 门户源），上游 Origin fence 要求 Origin==Host authority → 403（实测）
   // ② Host 改成上游 authority，与 changeOrigin 语义一致；cookie 名是 authority 的 sha256，
   //    Host 不符则上游取不到签名 cookie → 401（实测）
-  if (!loginRelay().isSessionTarget(w.url)) loginRelay().stripSession(req.headers); // 同 HTTP 门户：Odoo 会话只转给可信 Odoo 源
+  stripSessionIdCookie(req.headers); // 同 HTTP 门户：浏览器带来的 Odoo 会话一律不转给任何上游
   stripPortalForward(req.headers); // 同 HTTP 门户：市场自己的口令、令牌、凭据头和会话 cookie 不往台带
   const upstreamHost = u.host; // host:port（authority 形态）
   if (req.headers.origin !== undefined) req.headers.origin = u.origin;

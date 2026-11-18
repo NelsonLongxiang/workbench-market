@@ -39,11 +39,12 @@ const REMOTE = { 'x-forwarded-for': '192.0.2.10' }; // 文档网段：经反代�
 const RUN_ID = 4101;
 const PRIVATE = 'SYNTHETIC_PRIVATE_RUN_VALUE';
 
-/** 探针扩展：把宿主交给扩展的认人和管理员门原样用一遍 */
+/** 探针扩展：把宿主交给扩展的认人和管理员门原样用一遍。认人走 ctx.identity；已弃用的兼容壳 ctx.odoo 也问一遍，两边的回答要一字不差（兼容路径不能更宽） */
 const EXT_PROBE = `export function register(ctx) {
   ctx.app.get('/api/seam-probe/who', ctx.wrap(async (req, res) => {
     const cookie = String(req.headers.cookie ?? '');
-    res.json({ sid: ctx.odoo.sessionOf(cookie), who: await ctx.odoo.resolveViewer(cookie) });
+    const who = await ctx.identity.resolveViewer(cookie), compat = await ctx.odoo.resolveViewer(cookie);
+    res.json({ sid: ctx.odoo.sessionOf(cookie), url: ctx.odoo.url(), who, same: JSON.stringify(who) === JSON.stringify(compat) });
   }));
   ctx.app.get('/api/seam-probe/admin', ctx.wrap(async (req, res) => { if (!(await ctx.adminGuard(req, res))) return; res.json({ admin: true }); }));
 }
@@ -149,6 +150,8 @@ async function observe(srv, sid) {
     runPrivate: run.text.includes(PRIVATE), run: run.status,
     ext: ext.json?.who?.ok ?? null, extLogin: ext.json?.who?.viewer?.login ?? null, extAdmin: ext.json?.who?.viewer?.admin ?? null,
     extGuard: extGuard.status,
+    // 兼容壳 ctx.odoo：认人转给 ctx.identity（回答一字不差），Odoo 的会话号、地址一律给空
+    extCompat: ext.json?.same === true && ext.json?.sid === null && ext.json?.url === '',
   };
 }
 
@@ -185,8 +188,8 @@ async function openChecks(srv, tag) {
   const alphaOk = alpha.viewer === 200 && alpha.login === 'alpha' && alpha.viewerAdmin === false && alpha.tasks === 200 && alpha.runPrivate && alpha.admin === false && alpha.write === 403
     && alpha.ext === true && alpha.extLogin === 'alpha' && alpha.extAdmin === false && alpha.extGuard === 403;
   const betaOk = beta.viewer === 200 && beta.login === 'beta' && beta.tasks === 200 && !beta.runPrivate && beta.run === 200 && beta.ext === true && beta.extLogin === 'beta';
-  const adminOk = admin.viewer === 200 && admin.viewerAdmin === true && admin.admin === true && admin.adminLogin === 'root-admin' && admin.write === 400 && admin.tasks === 200
-    && admin.ext === true && admin.extAdmin === true && admin.extGuard === 200;
+  const adminOk = admin.viewer === 200 && admin.viewerAdmin === true && admin.admin === true && admin.adminLogin === 'user:root-admin' && admin.write === 400 && admin.tasks === 200
+    && admin.ext === true && admin.extAdmin === true && admin.extGuard === 200 && admin.extCompat;
   check(alphaOk, `${tag}对照·内部员工 alpha：认得出、读得到待办和授权给自己的 run 私有值、扩展认得出；不是管理员，管理写 403、扩展的管理员门 403`, show(alpha));
   check(betaOk, `${tag}对照·内部员工 beta：认得出、读得到待办；别人的 run 只看到元数据`, show(beta));
   check(adminOk, `${tag}对照·管理员：管理员认定成立，管理写过得了管理员门（400=走到了校验），扩展的管理员门放行`, show(admin));
@@ -194,14 +197,14 @@ async function openChecks(srv, tag) {
   for (const [label, sid, viewer, tasks, tasksError] of REFUSALS) {
     const o = await observe(srv, sid);
     const refused = o.viewer === viewer && o.login === null && o.admin === false && o.write === 403 && o.tasks === tasks && o.tasksError === tasksError && !o.runPrivate && o.run === 200
-      && o.ext === false && o.extLogin === null && o.extGuard === 403;
+      && o.ext === false && o.extLogin === null && o.extGuard === 403 && o.extCompat;
     check(refused && alphaOk && adminOk, `${tag}${label} → whoami ${viewer}、不是管理员、管理写 403、待办 ${tasks}、run 私有值不给、扩展认不出`, show(o));
   }
   for (const [label, sid, login] of NOT_ADMIN) {
     const o = await observe(srv, sid);
     const demoted = o.viewer === 200 && o.login === login && o.viewerAdmin === false && o.admin === false && o.write === 403 && o.tasks === 200 && !o.runPrivate
-      && o.ext === true && o.extAdmin === false && o.extGuard === 403;
-    check(demoted && adminOk, `${tag}${label} → 认得出人，按「不是管理员」处理：管理写 403、扩展的管理员门 403`, show(o));
+      && o.ext === true && o.extAdmin === false && o.extGuard === 403 && o.extCompat;
+    check(demoted && adminOk, `${tag}${label} → 认得出人，按「不是管理员」处理：管理写 403、扩展的管理员门 403；扩展经兼容壳 ctx.odoo 问到的和 ctx.identity 一字不差，也不是管理员`, show(o));
   }
 }
 
@@ -212,7 +215,7 @@ async function gateChecks(srv, tag) {
     return { api: api.status, error: api.json?.error ?? null, authenticated: me.json?.authenticated ?? null, via: me.json?.via ?? null, login: me.json?.login ?? null };
   };
   const inside = await gate(SESSIONS.alpha);
-  const insideOk = inside.api === 200 && inside.authenticated === true && inside.via === 'odoo' && inside.login === 'alpha';
+  const insideOk = inside.api === 200 && inside.authenticated === true && inside.via === 'source' && inside.login === 'alpha';
   check(insideOk, `${tag}对照：内部员工进得来`, show(inside));
   // 来源本身不可达（来源说不可达、提供方抛错、到点没回答）：接口回 502 identity_unavailable（不说「请先登录」）；别的认不出照旧 401。都进不来
   const SOURCE_DOWN = new Set([SESSIONS.unreachable, SESSIONS.throws, SESSIONS.hangs]);
@@ -283,10 +286,10 @@ async function principalChecks(srv, tag, relay) {
   {
     const on = await setStatus(srv, 'restore', 'user:alpha', {}, SESSIONS.admin, '合成：回来了');
     const alpha = await observe(srv, SESSIONS.alpha);
-    check(on.status === 200 && on.json?.changed === true && on.json.principal?.status === 'active' && on.json.principal.status_changed_by === 'odoo:root-admin' && show(alpha) === show(before.alpha) && controls,
+    check(on.status === 200 && on.json?.changed === true && on.json.principal?.status === 'active' && on.json.principal.status_changed_by === 'user:root-admin' && show(alpha) === show(before.alpha) && controls,
       `${tag}主体⑤·恢复 alpha → 每个入口立即和停用之前一模一样`, show(alpha));
     const lines = srv.log().split('\n').filter((l) => l.includes('"source":"principals"') && l.includes('"id":"user:alpha"'));
-    check(lines.length === 2 && lines[1].includes('"event":"restore"') && lines[1].includes('"by":"odoo:root-admin"'), `${tag}主体⑤·恢复也写一行日志，记下是管理员登录做的`, show(lines));
+    check(lines.length === 2 && lines[1].includes('"event":"restore"') && lines[1].includes('"by":"user:root-admin"'), `${tag}主体⑤·恢复也写一行日志，记下是管理员登录做的`, show(lines));
   }
   // ⑥ 停用管理员：管理员认定立即不成立（它的缓存是热的），自己也恢复不了自己
   {
@@ -322,31 +325,13 @@ async function principalChecks(srv, tag, relay) {
     check(o.viewer === 403 && o.login === null && o.admin === false && o.write === 403 && o.tasks === 403 && o.ext === false && o.extGuard === 403 && row?.identities.length === 0 && controls,
       `${tag}主体⑧·标识已被占用、外部身份没绑定（还自称管理员）→ 不认、不替它绑上`, show(o));
   }
-  // ⑨ 缓存：提供方的回答可以留一会儿，主体停没停用每次现查。用「提供方只认第一次」的会话看得出走没走缓存
+  // ⑨ 管理员只认授予（Odoo 下线起）：身份来源自己说「是管理员」不算，问几次都不算。授予收回、主体停用立即生效由 local-accounts-test 守
   {
-    const sid = onceSession(relay ? 'relay-admin' : 'cached-admin', true);
+    const sid = onceSession('claims-admin', true);
     const whoami = async () => (await srv.call('GET', '/api/admin/whoami', sid)).json?.admin ?? null;
     const first = await whoami(), second = await whoami();
-    if (relay) {
-      check(first === true && second === false, `${tag}主体⑨·登录中继开着：管理员认定每次现查，提供方那边会话一失效立即不认（不用缓存）`, show({ first, second }));
-    } else {
-      check(first === true && second === true, `${tag}主体⑨·管理员认定用了缓存：30 秒内不重问提供方`, show({ first, second }));
-      const off = await setStatus(srv, 'disable', 'user:cached-admin');
-      const third = await whoami();
-      const write = await srv.call('POST', '/api/workbenches', sid, { name: '', url: '' });
-      check(off.status === 200 && third === false && write.status === 403 && second === true, `${tag}主体⑨·缓存还热着时停用主体 → 管理员认定立即不成立，不等缓存过期`, show({ third, write: write.status }));
-      await setStatus(srv, 'restore', 'user:cached-admin');
-      const fourth = await whoami();
-      check(fourth === true && third === false, `${tag}主体⑨·恢复 → 立即成立`, show({ fourth }));
-      // 停用期间才第一次来的会话：提供方认得出，目录不认。这一次的拒绝不能进缓存，否则恢复之后还要等缓存过期
-      await srv.call('GET', '/api/auth/viewer', onceSession('late-admin', false)); // 先让 user:late-admin 这个主体建出来
-      await setStatus(srv, 'disable', 'user:late-admin');
-      const later = onceSession('late-admin', true); // 同一个登录名的另一个会话，缓存里还没有它
-      const during = (await srv.call('GET', '/api/admin/whoami', later)).json?.admin ?? null;
-      await setStatus(srv, 'restore', 'user:late-admin');
-      const after = (await srv.call('GET', '/api/admin/whoami', later)).json?.admin ?? null;
-      check(during === false && after === true, `${tag}主体⑨·停用期间的拒绝不进缓存：恢复之后立即成立`, show({ during, after }));
-    }
+    const write = await srv.call('POST', '/api/workbenches', sid, { name: '', url: '' });
+    check(first !== true && second !== true && write.status === 403, `${tag}主体⑨·身份来源自称管理员：不算管理员，管理写 403`, show({ first, second, write: write.status }));
   }
   // ⑩ 本机命令行（回环直连，不带反代转发头和浏览器标记）：和别的管理面一样免口令，留痕记 cli；带了浏览器标记就不算命令行
   {
@@ -527,28 +512,6 @@ async function meChecks(srv, tag) {
     `${tag}/api/auth/me：认出了人带主体、显示名和当前生效的角色（键、中文名、范围、是不是预设、来源、放行人）；口令没有主体、角色为空；原来的字段不变`, show({ me0: me0.json, role, tok: tok.json }));
 }
 
-/** 开着内容面的实例：内容面启动页现查认人，停用的主体拿不到票据 */
-async function contentChecks(tag) {
-  const contentPort = await freePort();
-  const port = await freePort();
-  const source = 'http://identity-source.invalid';
-  const srv = await boot('content', {
-    PORT: String(port), IDENTITY_FAKE_TRUSTED_ORIGIN: source, WM_CONTENT_ODOO_ORIGIN: source,
-    WM_CONTENT_PORT: String(contentPort), WM_CONTENT_IP: '127.0.0.1', WM_CONTENT_MARKET_ORIGIN: `http://127.0.0.1:${port}`,
-    WM_CONTENT_TARGETS: JSON.stringify([{ id: 2, origin: `http://w-2-test.internal:${contentPort}`, upstreamUrl: 'http://127.0.0.1:9/' }]),
-  });
-  running.push(srv);
-  const launch = async (sid) => { const r = await srv.call('GET', '/content/open/2', sid); return { status: r.status, ticket: /ticket/i.test(r.text) }; };
-  const before = await launch(SESSIONS.alpha), beta = await launch(SESSIONS.beta), anon = await launch(null);
-  await setStatus(srv, 'disable', 'user:alpha');
-  const off = await launch(SESSIONS.alpha), betaOff = await launch(SESSIONS.beta);
-  await setStatus(srv, 'restore', 'user:alpha');
-  const back = await launch(SESSIONS.alpha);
-  const issued = (x) => x.status === before.status && x.ticket === before.ticket;
-  check(before.status === 200 && before.ticket && issued(beta) && !anon.ticket && !off.ticket && off.status !== 200 && issued(betaOff) && issued(back),
-    `${tag}主体·内容面：停用 alpha → 启动页不发票据；beta 照常；恢复 → alpha 照常`, show({ before, anon, off, betaOff, back }));
-}
-
 /** 两个实例共用一个数据目录：在一个上停用，另一个立即不认；重启之后还是停用 */
 async function sharedChecks(a, tag) {
   const fine = (o, login) => o.viewer === 200 && o.login === login && o.tasks === 200 && o.ext === true;
@@ -581,25 +544,17 @@ try {
     check(r.status === 1 && /拒绝加载/.test(r.stderr) && !existsSync(join(data, 'workbench-market.db')), '夹具守卫·NODE_ENV=production 带着假提供方的预加载：进程退出，实例起不来', `status=${r.status} signal=${r.signal} ${String(r.stderr).trim().slice(0, 160)}`);
   }
 
-  const [open, gated, relay, relayGated] = await Promise.all([
+  const [open, gated] = await Promise.all([
     boot('open'),
     boot('gated', { WM_LOGIN_GATE: 'enforce' }),
-    boot('relay', { WM_ODOO_LOGIN_PROXY: '1' }),
-    boot('relay-gated', { WM_ODOO_LOGIN_PROXY: '1', WM_LOGIN_GATE: 'enforce' }),
   ].map((p) => p.then((srv) => { running.push(srv); return srv; })));
 
   await openChecks(open, '');
   await principalChecks(open, '', false);
   await sharedChecks(open, '');
-  await contentChecks('内容面·');
   await gateChecks(gated, '登录门·');
   await gatePrincipalChecks(gated, '登录门·', false);
   await meChecks(gated, '登录门·');
-  // 同域登录中继开着：管理员认定和登录门各走另一支（不缓存，每次现查），同样的例子再过一遍
-  await openChecks(relay, '中继·');
-  await principalChecks(relay, '中继·', true);
-  await gateChecks(relayGated, '中继＋登录门·');
-  await gatePrincipalChecks(relayGated, '中继＋登录门·', true);
 } catch (e) {
   if (e?.selfProbe) check(false, `启动自检：实例拒绝启动，没过的行是 ${e.selfProbe.join('、')}`, '后面的检查都没有跑');
   else { fail++; console.log(`  ✗ 对抗组没跑完：${String(e?.message ?? e).slice(0, 400)}`); }

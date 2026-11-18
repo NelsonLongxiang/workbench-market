@@ -6,12 +6,12 @@
 |---|---|
 | `../server/src/index.ts` | [`server/src/index.ts`](../../server/src/index.ts) |
 | `../server/src/extensions.ts` | [`server/src/extensions.ts`](../../server/src/extensions.ts) |
-| `../server/src/login-providers/odoo/odoo-browser-origin.ts` | [`server/src/login-providers/odoo/odoo-browser-origin.ts`](../../server/src/login-providers/odoo/odoo-browser-origin.ts) |
+| `../server/src/login-providers/odoo/odoo-browser-origin.ts` | `server/src/login-providers/odoo/odoo-browser-origin.ts`：已随 Odoo 全面下线删除（#823，提交 5daba7b5）；最后一版：`git show e234a3f3:server/src/login-providers/odoo/odoo-browser-origin.ts` |
 | `../server/src/portal.ts` | [`server/src/portal.ts`](../../server/src/portal.ts) |
 | `../server/src/db.ts` | [`server/src/db.ts`](../../server/src/db.ts) |
 | `../server/src/tasks.ts` | [`server/src/tasks.ts`](../../server/src/tasks.ts) |
-| `../server/src/sso-ticket-store.ts` | [`server/src/sso-ticket-store.ts`](../../server/src/sso-ticket-store.ts) |
-| `../server/src/login-providers/odoo/odoo-session.ts` | [`server/src/login-providers/odoo/odoo-session.ts`](../../server/src/login-providers/odoo/odoo-session.ts) |
+| `../server/src/sso-ticket-store.ts` | `server/src/sso-ticket-store.ts`：已随 Odoo 全面下线删除（#823，提交 5daba7b5）；最后一版：`git show e234a3f3:server/src/sso-ticket-store.ts` |
+| `../server/src/login-providers/odoo/odoo-session.ts` | `server/src/login-providers/odoo/odoo-session.ts`：已随 Odoo 全面下线删除（#823，提交 5daba7b5）；最后一版：`git show e234a3f3:server/src/login-providers/odoo/odoo-session.ts` |
 | `../server/src/sop-state-checkpoints.ts` | [`server/src/sop-state-checkpoints.ts`](../../server/src/sop-state-checkpoints.ts) |
 | `../docs/workbench-market-arch.drawio` | [`docs/archive/workbench-market-arch.drawio`](workbench-market-arch.drawio)（原来的 `docs/workbench-market-arch.drawio` 已归档） |
 

@@ -65,7 +65,7 @@ try {
       const id = Number(db.prepare("INSERT INTO tasks (title, status) VALUES ('t', 'published')").run().lastInsertRowid);
       const f = { title: 't', intent: 'i', references: '', deliverable: 'd', target: '', due: '' };
       db.exec('BEGIN IMMEDIATE');
-      const e = ev.recordTaskCenterEvent({ id, data: f, stepValue: (k) => f[k], publishedBy: 'x', requesterPrincipal: 'user:alpha', publisherPrincipal: 'user:alpha', templateVersion: 1, materialSha256: 'h', agentDispatch: dispatch, centerOn: dispatch, ...(extra ? { arranged: { team: 'dsh/canvas/team-a', submitter: 'user:alpha', ...extra } } : {}) });
+      const e = ev.recordTaskCenterEvent({ id, data: f, stepValue: (k) => f[k], publishedBy: 'x', requesterPrincipal: 'user:alpha', publisherPrincipal: 'user:alpha', templateVersion: 1, materialSha256: 'h', agentDispatch: dispatch, centerOn: dispatch, arranged: { team: 'dsh/canvas/team-a', submitter: 'user:alpha', ...(extra ?? {}) } });
       db.exec('COMMIT');
       return e;
     };

@@ -24,7 +24,8 @@
 import express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
-import { identity, SESSION_COOKIE } from '../identity.ts';
+import { identity } from '../identity.ts';
+import { setSessionCookie, type SessionLife } from '../session-policy.ts';
 import { safeNext, clientIp, holdPage } from '../login-gate.ts';
 import type { LoginSessionService } from '../services/login-session.ts';
 import type { PrincipalService } from '../services/principal.ts';
@@ -32,8 +33,8 @@ import type { PrincipalService } from '../services/principal.ts';
 export type LoginFlowRouteDeps = {
   /** 市场对外地址（MARKET_PUBLIC_URL）：回调地址按它拼，要和对方应用里登记的一致；不信请求自带的 Host */
   publicUrl: () => string;
-  /** 会话的绝对期限（毫秒） */
-  sessionTtlMs: number;
+  /** 市场会话的滑动窗口和绝对上限（session-policy.ts） */
+  sessionLife: SessionLife;
 };
 
 /** 浏览器半边放在这个 cookie 里，只发给回调路径 */
@@ -139,8 +140,8 @@ export function registerLoginFlowRoutes(app: HttpService, deps: LoginFlowRouteDe
       if (admitted.reason !== 'disabled') principals().notePending({ provider: flow, externalId: who.externalId, displayName: who.displayName, email: who.email });
       return holdPage(res);
     }
-    const session = sessions().createSession(admitted.principal, flow, who.externalId, deps.sessionTtlMs);
-    res.cookie(SESSION_COOKIE, session.token, { httpOnly: true, sameSite: 'lax', secure: secure(req), path: '/', maxAge: session.expiresAt - Date.now() });
+    const session = sessions().createSession(admitted.principal, flow, who.externalId, deps.sessionLife);
+    setSessionCookie(req, res, session.token, session.expiresAt);
     console.log(JSON.stringify({ source: 'login', event: 'session', flow, id: admitted.principal, at: new Date().toISOString() }));
     res.set('Cache-Control', 'no-store').redirect(302, taken.next);
   }));

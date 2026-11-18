@@ -113,7 +113,7 @@ ok('「你的权限」带上服务端给的范围显示名，没给就不带', m
   ok('只有不带管理类的内置预设（普通员工、部门负责人、管理层）不问', mayReadAccessAdmin(me([preset('member'), preset('dept-lead'), preset('management')]), false) === false);
   ok('属主、系统管理员预设照旧问', mayReadAccessAdmin(me([preset('member'), preset('owner')]), false) && mayReadAccessAdmin(me([preset('admin')]), false));
   ok('自定义角色（preset 不是 true）照旧问，由服务端判', mayReadAccessAdmin(me([{ id: 'custom-x', name: '自定义', scope: '*', preset: false }]), false) && mayReadAccessAdmin(me([{ id: 'custom-y', scope: '*' }]), false));
-  ok('页面以管理员身份工作（口令或 Odoo 管理员）照旧问', mayReadAccessAdmin(me([]), true));
+  ok('页面以管理员身份工作（口令或站内管理员）照旧问', mayReadAccessAdmin(me([]), true));
   ok('没认出人（没登录、读不到、没有主体、角色不是数组）照旧问', mayReadAccessAdmin(null, false) && mayReadAccessAdmin({ authenticated: false, roles: [] }, false)
     && mayReadAccessAdmin({ authenticated: true, principal: null, roles: [] }, false) && mayReadAccessAdmin({ authenticated: true, principal: 'user:x' }, false));
 }

@@ -116,7 +116,7 @@ try {
     const r = await call('POST', '/api/attention/answer', ADMIN, { source: 'change-requests', source_id: String(S.appRollback), answer: 'approve', input: { reviewed_by: '自报的名字' } });
     const row = q('SELECT status, reviewed_by, reviewed_by_principal FROM change_requests WHERE id = ?', S.appRollback)[0];
     const active = q("SELECT active_version FROM apps WHERE slug = 'rb-app'")[0].active_version;
-    check(r.status === 200 && r.body?.result?.status === 'approved' && row.status === 'approved' && row.reviewed_by === 'odoo:root-admin' && row.reviewed_by_principal === 'odoo:root-admin' && active === 1,
+    check(r.status === 200 && r.body?.result?.status === 'approved' && row.status === 'approved' && row.reviewed_by === 'user:root-admin' && row.reviewed_by_principal === 'user:root-admin' && active === 1,
       '当场批准：真的执行（台的活跃版本切到第 1 版），审核人是认出来的管理员，自报的名字不收', show({ r: r.body, row, active }));
     const gone = (await list(ADMIN)).some((x) => x.source === 'change-requests' && x.source_id === String(S.appRollback));
     check(!gone, '批完从「等你拍板」里消失');

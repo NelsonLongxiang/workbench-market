@@ -65,7 +65,7 @@ putVar('item.2', { question: '已答的问题', source: '登记方' }, 'mcp:writ
 putVar('answer.2', { summary: '答了' }, 'odoo:boss');
 // 工作台事件：两个团队；一个事件开关全开、被一个团队提问；一个事件搁置（过目）
 for (const t of ['team-a', 'team-b']) db.prepare("INSERT INTO bindings (target_type, target_slug, agent_node, direction, notify_url) VALUES ('sop', 'task-center', ?, 'notify', ?)").run(t, 'http://' + t + '.synthetic.invalid/a2a');
-const publish = (id, open) => { db.exec('BEGIN IMMEDIATE'); const e = events.recordTaskCenterEvent({ id, data: {}, stepValue: () => '', publishedBy: 'alpha', templateVersion: 1, materialSha256: 'b'.repeat(64), agentDispatch: open, centerOn: open }); db.exec('COMMIT'); return e; };
+const publish = (id, open) => { db.exec('BEGIN IMMEDIATE'); const e = events.recordTaskCenterEvent({ id, data: {}, stepValue: () => '', publishedBy: 'alpha', templateVersion: 1, materialSha256: 'b'.repeat(64), agentDispatch: open, centerOn: open , arranged: { team: 'team-a', submitter: 'human:alpha' } }); db.exec('COMMIT'); return e; };
 const asked = publish(901, true);
 const d = db.prepare("SELECT id FROM workbench_event_deliveries WHERE event_id = ? ORDER BY id LIMIT 1").get(asked).id;
 db.prepare("UPDATE workbench_event_deliveries SET status = 'sent', decision = 'ask', decision_reason = '哪个店？', decided_by = 'bob', decided_at = datetime('now') WHERE id = ?").run(d);

@@ -1,11 +1,10 @@
 /**
  * 身份契约。核心只经这里认人；换登录方式是换一个登录提供方插件，不改核心。
  *
- * 这里有两个角色，分开放：
- *   - 身份来源（认人、是不是管理员、whoami）：Cordis 服务 `identity`。实现是登记在它后面的登录提供方（LoginProvider）。
- *   - 业务台的登录中继（门户把谁的会话转给谁、登录这一跳送去哪、回调票据）：Cordis 服务 `loginRelay`，窄接口 LoginRelay。
- * 两者的实现都在 login-providers/ 下的插件里，装哪些由那里的清单决定。本文件是唯一引用那份清单的地方，
- * 别的核心文件只用下面的 identity() 和 loginRelay()。
+ * 身份服务（认人、是不是管理员、whoami）：Cordis 服务 `identity`。登录方式（LoginFlow）和身份来源（LoginProvider）都登记在它后面，
+ * 实现在 login-providers/ 下的插件里，装哪些由那里的清单决定。本文件是唯一引用那份清单的地方，别的核心文件只用下面的 identity()。
+ * 业务台的登录中继（loginRelay）随 Odoo 一起下线（2026-11-17）：门户对任何上游都剥掉 session_id，不再转会话、不再有登录回调。
+ * 线上不再登记身份来源；LoginProvider 契约留着（测试用假的来源测核心那几道检查）。
  *
  * 服务不照单全收提供方的回答，一律朝认不出人的方向收：
  *   没装提供方、提供方抛错、到点没回答、回答的形状不对 → 认不出（不放行）；管理员标记不是 true → 不是管理员。
@@ -26,8 +25,9 @@ import { loginProviders } from './login-providers/index.ts';
 /**
  * 查看者：一次请求被认成的那个人。
  * login 是提供方那边的登录名；sub 是主体标识（主体目录给的，人是 `user:<名>`；经现有登录认出的人，名就是登录名）；name 只用于显示；
- * admin 是「是不是管理员」：提供方说是，或者这个主体持有生效中的 owner 授予（docs/local-accounts.md 第 5 节），缺了按 false。
- * adminBy：admin 只因为 owner 授予才为真时是 'grant'（留痕、whoami 据此不写成 Odoo 管理员）；提供方说是的不带。
+ * admin 是「是不是管理员」：只看这个主体持不持有生效中的 owner 授予（docs/local-accounts.md 第 5 节），缺了按 false。
+ *   提供方回答里的 admin 不算数（2026-11-17 Odoo 下线起，管理员只认授予）。
+ * adminBy：admin 为真时总是 'grant'（因为只有授予能让人成管理员）。
  * systemAdmin：持有 admin 授予（没有 owner）的系统管理员——admin 仍是 false（直接读 admin 的业务面一律不认他），
  *   只有管理门（index.ts 的 isAdmin）在非业务域的路由上认他（属主 2026-11-16 定：系统管理员不看业务数据）。
  */
@@ -120,6 +120,7 @@ const UNAVAILABLE = '身份来源不可用';
 const UNRECOGNIZED = '身份来源的回答无法识别，按认不出处理';
 /** 由市场维持的会话被身份来源否了（那边注销、停用、改密码，或者对到了别人）：市场会话已注销，要重新登录 */
 const SESSION_ENDED = '登录已失效，请重新登录';
+const NOT_SIGNED_IN = '未登录';
 /** 同一份凭据并发发会话时共用一个的窗口（毫秒） */
 const OPEN_DEDUPE_MS = 10_000;
 /** 认人诊断日志每分钟最多几行 */
@@ -201,7 +202,7 @@ export interface SessionStore {
   /** 换掉由市场维持的会话里存下的提供方凭据（来源轮换了）；返回换没换成。可选 */
   renewUpstream?(token: unknown, upstream: string): boolean;
   /** 发一个会话；upstream 见上。可选：没有它就不发由市场维持的会话 */
-  createSession?(principal: string, provider: string, externalId: string, ttlMs: number, now?: number, upstream?: string): { token: string; expiresAt: number };
+  createSession?(principal: string, provider: string, externalId: string, life: number | { idleMs: number; maxMs: number }, now?: number, upstream?: string): { token: string; expiresAt: number };
   /** 注销：立即失效 */
   revokeSession(token: unknown): boolean;
 }
@@ -450,6 +451,11 @@ export class IdentityService extends Service {
     try { const c = this.provider?.credentialOf(cookieHeader); return typeof c === 'string' ? c : ''; } catch { return ''; }
   }
 
+  /** 请求里的市场会话的值（同名多个按没有；只取不验）。续期用 */
+  sessionToken(cookieHeader: string): string {
+    return sessionTokenOf(cookieHeader);
+  }
+
   /** 请求里带没带市场会话（只看有没有，不验） */
   hasSession(cookieHeader: string): boolean {
     return sessionTokenOf(cookieHeader) !== '';
@@ -553,9 +559,9 @@ export class IdentityService extends Service {
   /**
    * 由市场维持会话：提供方认出、对到了主体的人（viewer 是 resolveViewer 刚给的、不是从市场会话来的），发一个市场会话，
    * 把请求带来的提供方凭据加密存下。提供方没写 credentialHeader、会话存储不支持、请求里没有凭据，都不发（返回 null，照原来认）。
-   * 期限由调用方给（WM_SESSION_TTL_MIN），不续期
+   * 期限由调用方给（session-policy.ts 的滑动窗口和绝对上限）
    */
-  openSession(cookieHeader: string, who: ViewerResult, ttlMs: number): { token: string; expiresAt: number } | null {
+  openSession(cookieHeader: string, who: ViewerResult, life: number | { idleMs: number; maxMs: number }): { token: string; expiresAt: number } | null {
     const provider = this.provider, store = this.sessionStore();
     if (!who.ok || who.via === 'session') return null;
     const viewer = who.viewer;
@@ -571,7 +577,7 @@ export class IdentityService extends Service {
     const recent = this.opening.get(key);
     if (recent) return recent.session;
     try {
-      const session = store.createSession!(viewer.sub, provider.name, viewer.login, ttlMs, now, credential);
+      const session = store.createSession!(viewer.sub, provider.name, viewer.login, life, now, credential);
       if (this.opening.size > 5000) this.opening.clear();
       this.opening.set(key, { at: now, session });
       return session;
@@ -716,13 +722,13 @@ export class IdentityService extends Service {
   }
 
   /**
-   * 站内管理员：提供方没说是管理员时现查授予——owner 授予：admin 记真、adminBy 记 grant；admin 授予：admin 仍是 false，systemAdmin 记真。
+   * 站内管理员：现查授予（提供方说的不算）——owner 授予：admin 记真、adminBy 记 grant；admin 授予：admin 仍是 false，systemAdmin 记真。
    * 只在认出人的两个出口调用（市场会话、主体目录对上之后），两处都不进缓存：撤销授予、停用主体，下一个请求就生效。
    * 授予服务没装上、形状不对、抛错、回答不是这两种：一律不加（失败关闭）。提供方回答里带的 adminBy、systemAdmin 不认（checked 重建过）。
    */
   private elevated(viewer: Viewer): Viewer {
+    // 管理员只认授予（2026-11-17 Odoo 下线起）：身份来源自己说「是管理员」一律不算，每次按授予现算
     const { adminBy: _by, systemAdmin: _sys, ...base } = viewer;
-    if (viewer.admin === true) return { ...base, admin: true, ...(viewer.adminBy === 'grant' ? { adminBy: 'grant' as const } : {}) };
     let held: unknown = null;
     try {
       const g = this.ctx.get('grants') as AdminGrants | undefined;
@@ -767,92 +773,33 @@ export class IdentityService extends Service {
     return { ok: false, http: 503, error: DIRECTORY_FAILED };
   }
 
-  /** 我是谁：登录探测和顶栏用户 chip 读它 */
-  async whoami(cookieHeader: string): Promise<Whoami> {
+  /**
+   * 认「这次请求是谁」，口径和 whoami 一样：给路由和扩展用（ctx.identity.resolveViewer 就是它）。
+   * 和 resolveViewer 的差别只在没有身份来源的时候：
+   *   - 有能用的登录方式（站内账号、飞书）：没登录就是没登录，401「未登录」，调用方据此把人带去登录；
+   *     市场会话自己的结论（失效 401、停用 403）照原样交出去；主体目录不可用之类仍是 503；
+   *   - 一种登录方式也没有：登录也没用，仍是 503，说法用提供方自己的。
+   * 配了身份来源时和 resolveViewer 完全一样。
+   */
+  async resolveCaller(cookieHeader: string): Promise<ViewerResult> {
     const who = await this.resolveViewer(cookieHeader);
     // 市场会话认出的人：不看身份来源有没有配置
-    if (who.ok && who.via === 'session') return { http: 200, body: { ok: true, viewer: { ...who.viewer, kind: '人' }, roles: null } };
-    // 没配置身份来源时登录也没用，所以不带 auth_required；说法用提供方自己的
-    if (!this.configured()) return { http: 503, body: { ok: false, error: who.ok === false ? who.error : NO_PROVIDER } };
-    if (who.ok === false) return { http: who.http, body: { ok: false, error: who.error, auth_required: who.http === 401 } };
-    // kind 按主体口径（user: = 人）；roles 暂为 null
-    return { http: 200, body: { ok: true, viewer: { ...who.viewer, kind: '人' }, roles: null } };
+    if (who.ok || this.configured()) return who;
+    if (this.flows().length > 0 && (who.http === 401 || who.http === 403 || who.error === NO_PROVIDER)) {
+      return who.error === NO_PROVIDER ? { ok: false, http: 401, error: NOT_SIGNED_IN } : who;
+    }
+    return { ok: false, http: 503, error: who.error || NO_PROVIDER };
   }
-}
 
-// ---------- 业务台的登录中继 ----------
-
-/** 门户登录回调的一次性票据：把台 id、签发时的可信源和来源绑在一起 */
-export interface SsoTicket { id: number; origin: string; source: string; exp: number }
-
-/** 票据存储。中继自带进程内存的；核心装配时换成落库的（重启不丢，同一数据目录的多个实例共享） */
-export interface SsoTicketStore {
-  get(state: string): SsoTicket | null;
-  put(state: string, t: SsoTicket): void;
-  /** 原子地取出并删除（多实例下同一张票据只能被一个回调核销）；不存在返回 null */
-  take(state: string): SsoTicket | null;
-  /** 删掉过期票据；size > max 时删最早签发的，直到不超过 max */
-  sweep(now: number, max: number): void;
-  activeBySource(source: string, now: number): number;
-}
-
-/** 显式配置的、只给浏览器用的登录地址 */
-export type BrowserLoginOrigin = { origin: string; hostname: string; upstream: string };
-
-/**
- * 业务台的登录中继（窄接口）。门户、登录门、WS 升级只经它碰业务台的会话。
- * 会话只转给部署配置的可信源；台的类型和地址可以被 agent 登记，不参与判定。
- */
-export interface LoginRelay {
-  /** 中继的上游地址（今天也是身份来源的地址），去掉末尾斜杠；没配置为空串 */
-  sourceUrl(): string;
-  /** 还在用已弃用的旧配置名吗：只设了旧名、新旧都设了、没用旧名。只用于启动提示 */
-  legacyConfig(): 'only-old' | 'both' | null;
-
-  /** 同域登录中继开着没有（部署配置）。核心不再自己读这家登录的开关 */
-  relayLogin(): boolean;
-  /** 业务台会话的 cookie 名。核心不再写死它 */
-  sessionCookieName(): string;
-  /** 请求 Cookie 头里业务台会话的各项，原样（`名=值`），按出现顺序；同名多项都在 */
-  sessionEntries(cookieHeader: string): string[];
-  /** 恰好一项、而且值的形状合格时返回那一项（`名=值`），否则空串。严格的入口（内容面、SOP 字段通道）用它，不继承「多项取第一项」的旧歧义 */
-  soleSession(cookieHeader: string): string;
-  /** 请求里的业务台会话（只取不验）；没有为空串 */
-  sessionOf(cookieHeader: string): string;
-  /** 就地剥掉转发请求里的业务台会话 */
-  stripSession(headers: { cookie?: string | string[] }): void;
-  /** 这个地址能不能拿到业务台会话：只按可信源判定，一个可信源都没配时谁都不给 */
-  isSessionTarget(url: string): boolean;
-  /** 可信源，和配置里被忽略的非法项 */
-  trustedOrigins(): { origins: Set<string>; invalid: string[] };
-  /** 旧口径下看起来像业务台的登记。不参与判定，只用于启动提示 */
-  looksLikeTarget(type: unknown, url: string): boolean;
-
-  /** 登录回跳目标：只收登记过的市场页的 path，不合格返回 null */
-  safeReturnPath(v: unknown): string | null;
-  /** 登记一个需要身份的市场页，作为登录回跳目标 */
-  addReturnPath(path: string): void;
-
-  /** 换掉票据存储 */
-  useTicketStore(store: SsoTicketStore): void;
-  /** 登记「按台 id 现查地址」的函数；台不存在或已停用返回 null */
-  useTargetLookup(lookup: (id: number) => string | null): void;
-  /** 给可信的台签一张回调票据，返回 state；这个来源手里的有效票据已到上限时返回 null */
-  issueCallback(id: number, origin: string, source: string): string | null;
-  /** 回调核对通过后作废票据；返回作废前它是否有效 */
-  consumeCallback(id: number, state: string): boolean;
-
-  /** 显式配置的浏览器登录地址；没配置为 null，配置非法就抛错（调用方在监听之前调，等于拒绝启动） */
-  browserOrigin(): BrowserLoginOrigin | null;
-  /** 登录这一跳把浏览器送到哪个源；null 表示送不了（主机名对不上，或者要从 https 降到 http） */
-  browserLoginOrigin(target: string, authority: string, configured: BrowserLoginOrigin | null, secure?: boolean): string | null;
-
-  /** 经 HTTP 服务注册同域登录中继的路由（不管开没开都注册，没开就放过）；要在任何请求体解析之前调 */
-  install(http: HttpService): void;
-  /** 这个请求是不是中继放行的登录面（不要身份也能访问） */
-  publicRoute(method: string, pathname: string): boolean;
-  /** 到上游注销这一个会话；确认注销了才返回 true */
-  revokeSession(sid: string): Promise<boolean>;
+  /** 我是谁：登录探测和顶栏用户 chip 读它。认人用 resolveCaller，这里只管把结论写成应答 */
+  async whoami(cookieHeader: string): Promise<Whoami> {
+    const who = await this.resolveCaller(cookieHeader);
+    // kind 按主体口径（user: = 人）；roles 暂为 null
+    if (who.ok) return { http: 200, body: { ok: true, viewer: { ...who.viewer, kind: '人' }, roles: null } };
+    // 没有身份来源时的 503（一种登录方式也没有、或者主体目录不可用）：登录也没用，不带 auth_required
+    if (who.http === 503 && !this.configured()) return { http: 503, body: { ok: false, error: who.error } };
+    return { http: who.http, body: { ok: false, error: who.error, auth_required: who.http === 401 } };
+  }
 }
 
 // ---------- 装配与取用 ----------
@@ -868,9 +815,3 @@ export function identity(): IdentityService {
   return service;
 }
 
-/** 业务台的登录中继。没有插件提供它就抛错，不给一个什么都放行的空实现 */
-export function loginRelay(): LoginRelay {
-  const relay = root.get('loginRelay') as LoginRelay | undefined;
-  if (!relay) throw new Error('登录中继没有装上：login-providers/ 的清单里没有提供 loginRelay 的插件');
-  return relay;
-}

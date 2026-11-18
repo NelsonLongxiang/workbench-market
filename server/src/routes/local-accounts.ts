@@ -26,7 +26,7 @@ import { isSystemAdminOnly, systemAdminTargetRefusal } from '../admin-tier.ts';
 
 export type LocalAccountRouteDeps = {
   /** 按需认定管理员登录（判管理员之前调用） */
-  markOdooAdmin: (req: express.Request) => Promise<void>;
+  markAdmin: (req: express.Request) => Promise<void>;
   /** 管理门（口令或管理员登录 + 同源）；不过时它自己回 403 */
   adminGuard: (req: express.Request, res: express.Response) => boolean;
   /** 管理员身份落到人（留痕里的写法） */
@@ -49,7 +49,7 @@ const log = (event: string, username: string, by: string) =>
 export function registerLocalAccountRoutes(app: HttpService, deps: LocalAccountRouteDeps): void {
   async function admin(req: express.Request, res: express.Response): Promise<string | null> {
     if (!browserMarked(req) && rawLoopback(req)) return 'cli'; // 本机命令行
-    await deps.markOdooAdmin(req);
+    await deps.markAdmin(req);
     return deps.adminGuard(req, res) ? deps.adminActor(req) : null;
   }
   const route = (fn: (req: express.Request, res: express.Response) => Promise<unknown>): express.RequestHandler =>

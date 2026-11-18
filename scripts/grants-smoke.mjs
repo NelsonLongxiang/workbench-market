@@ -55,7 +55,7 @@ async function boot(name, extraEnv = {}, { expectFail = false } = {}) {
   for (const d of [data, home, ext]) mkdirSync(d, { recursive: true });
   const env = {};
   for (const k of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP']) if (process.env[k]) env[k] = process.env[k];
-  Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN, REDIS_URL: '', IDENTITY_SEAM_ROOT: ROOT, WM_EXTENSIONS_DIR: ext, ...extraEnv });
+  Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN, REDIS_URL: '', IDENTITY_SEAM_ROOT: ROOT, IDENTITY_FAKE_ADMIN_GRANT: 'admin', WM_EXTENSIONS_DIR: ext, ...extraEnv });
   const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
   child.stdout.on('data', (d) => { log += String(d); });
@@ -118,7 +118,7 @@ try {
   for (const s of [SESSIONS.admin, SESSIONS.alpha, SESSIONS.beta]) await srv.call('GET', '/api/auth/viewer', { session: s });
   db.exec("INSERT INTO principals (id, id_key, kind, display_name, owner) VALUES ('seat:bot', 'seat:bot', 'seat', '合成席位', 'user:alpha'), ('seat:orphan', 'seat:orphan', 'seat', '没人管的席位', 'user:nobody')");
   const same = { origin: `http://${srv.host}`, 'sec-fetch-site': 'same-origin' };
-  const asRoot = { headers: { ...REMOTE, ...same }, session: SESSIONS.admin }; // 管理员登录（odoo:root-admin），不是属主
+  const asRoot = { headers: { ...REMOTE, ...same }, session: SESSIONS.admin }; // 管理员登录（root-admin 只持 admin 授予：系统管理员），不是属主
   const draft = (body, who = {}) => srv.call('POST', '/api/grants', { body: { scope: '*', reason: '合成：对抗例', ...body }, ...who });
   const step = (id, s, who = {}, body) => srv.call('POST', `/api/grants/${id}/${s}`, { ...who, ...(body ? { body } : {}) });
   /** 本机命令行（属主）走完起草→提交→放行 */
@@ -290,9 +290,12 @@ try {
     // 每次放行之前，同一个人先读这条授予的 can_approve：说能就要放行成功，说不能就要被拒、代码一致（页面照它显示，规则只在服务端一份）
     const agree = [];
     const approve = async (id, who) => {
-      const seen = (await srv.call('GET', `/api/grants/${id}`, who)).json?.grant ?? {};
+      const read = await srv.call('GET', `/api/grants/${id}`, who);
+      const seen = read.json?.grant ?? {};
       const r = await step(id, 'approve', who);
-      agree.push({ id, can: seen.can_approve, denied: seen.approve_denied, text: seen.approve_denied_text, got: tried(r), ok: seen.can_approve === (r.status === 200) && (r.status === 200 || seen.approve_denied === r.json?.error) });
+      // 读不到这一条的人（不是管理员、又放行不了）：单条 404、放行也是和不存在一样的 404，两边一致
+      const hidden = read.status === 404 && r.status === 404 && r.json?.error === 'grant_missing';
+      agree.push({ id, can: seen.can_approve, denied: hidden ? 'hidden' : seen.approve_denied, text: seen.approve_denied_text, got: tried(r), ok: hidden || (seen.can_approve === (r.status === 200) && (r.status === 200 || seen.approve_denied === r.json?.error)) });
       return r;
     };
     // 验收实测的三条：管理口令起草、提交、放行，范围全部
@@ -303,27 +306,36 @@ try {
     const before = await verdicts();
     const ai = await pending('ai-staff', 'seat:bot');
     const aiByToken = tried(await approve(ai, { headers: token }));
-    // 对照：普通员工由管理员放行（两人制：口令起草提交，另一位管理员登录放行）
+    // 普通员工（给业务数据的第一档）：系统管理员放行不了；口令自己起草提交的，口令自己放行也不行（两人制）；属主（本机命令行）放行照常
     const mem = await pending('member', 'user:gamma');
     const memByAdmin = tried(await approve(mem, asRoot));
+    const memByTokenSelf = tried(await approve(mem, { headers: token }));
+    const memByOwner = tried(await approve(mem, {}));
     const msgs = { business: (await approve(dm, asRoot)).json?.message, owner: (await approve(mg, asRoot)).json?.message };
     check(show(byToken) === show({ dm: '403:business_approval_required', dl: '403:owner_required', mg: '403:owner_required' })
       && show(byAdmin) === show(byToken) && show(states) === show(['pending', 'pending', 'pending'])
       && before['work-item.read'] !== 'allow' && before['sop-run.assign'] !== 'allow'
-      && aiByToken === '403:business_approval_required' && memByAdmin === '200:active'
+      && aiByToken === '403:business_approval_required' && memByAdmin === '403:system_admin_business_grant' && memByTokenSelf === '403:drafter_cannot_approve' && memByOwner === '200:active'
       && msgs.business?.includes('要管理层或属主放行') && msgs.owner?.includes('带业务的拍板，只有属主能放行'),
-      '三档放行：部门成员（带业务写）、部门负责人和管理层（带业务拍板）以范围全部授给人，管理口令、只有系统管理员身份的登录放行都 403，全部停在待核，被授的人这时事项的读写都拿不到；给席位的 AI 员工同样；对照：普通员工由另一位管理员放行 200（两人制） [red-line:business-grants-business-approval]',
-      show({ byToken, byAdmin, states, before, aiByToken, memByAdmin, msgs }));
-    // 业务侧：给 root-admin 一个管理层授予（本机命令行放行）。能放行第二档，第三档仍不行；自己起草的第二档也不行
+      '三档放行：部门成员（带业务写）、部门负责人和管理层（带业务拍板）以范围全部授给人，管理口令、只有系统管理员身份的登录放行都 403，全部停在待核，被授的人这时事项的读写都拿不到；给席位的 AI 员工同样；普通员工：系统管理员放行不了、口令起草的口令自己放行不了，由属主放行（两人制）；对照：普通员工由另一位管理员放行 200（两人制） [red-line:business-grants-business-approval]',
+      show({ byToken, byAdmin, states, before, aiByToken, memByAdmin, memByTokenSelf, memByOwner, msgs }));
+    // 不能放行授给自己的（root-admin 这时还是系统管理员、读得到）：授予的各项核对在档位之前，先回 self_grant
+    const selfG = await pending('dept-member', 'user:root-admin');
+    await approve(selfG, asRoot);
+    const listed = (await srv.call('GET', '/api/grants?status=pending', asRoot)).json?.grants?.find((g) => g.id === selfG);
+    // 业务侧：root-admin 先起草一条第二档（这时还是系统管理员，能起草），再收回他的 admin 授予、给一个管理层授予（本机命令行放行）。
+    // 他现在是业务侧的普通人：能放行第二档，第三档仍不行（读不到这一条，和不存在一样 404）；自己起草的第二档也不行
+    const own = await pending('ai-staff', 'seat:bot', asRoot);
+    const sysGrants = ((await srv.call('GET', '/api/grants?principal=user:root-admin&status=active', {})).json?.grants ?? []).filter((g) => g.role === 'admin');
+    for (const g of sysGrants) await step(g.id, 'revoke', {}, { reason: '合成：改成业务侧' });
     const mgmt = await activate({ principal: 'user:root-admin', role: 'management' });
     const byMgmt = { dm: tried(await approve(dm, asRoot)), dl: tried(await approve(dl, asRoot)), mg: tried(await approve(mg, asRoot)) };
-    const own = await pending('ai-staff', 'seat:bot', asRoot);
     const ownByMgmt = tried(await approve(own, asRoot));
     const aiByMgmt = tried(await approve(ai, asRoot));
-    check(show(byMgmt) === show({ dm: '200:active', dl: '403:owner_required', mg: '403:owner_required' })
-      && ownByMgmt === '403:drafter_cannot_approve' && aiByMgmt === '200:active' && mgmt.a.status === 200,
-      '业务侧放行：持管理层授予的人放行带业务写的 200，放行带业务拍板的（部门负责人、管理层）403——管理层不能再造管理层；自己起草的第二档放行不了（403），别人起草的能',
-      show({ mgmt: mgmt.a.status, byMgmt, ownByMgmt, aiByMgmt }));
+    check(show(byMgmt) === show({ dm: '200:active', dl: '404:grant_missing', mg: '404:grant_missing' })
+      && ownByMgmt === '404:grant_missing' && aiByMgmt === '200:active' && mgmt.a.status === 200 && sysGrants.length === 1,
+      '业务侧放行：持管理层授予的人放行带业务写的 200，放行带业务拍板的（部门负责人、管理层）不行——管理层不能再造管理层（他读不到这一条，404）；自己起草的第二档放行不了，别人起草的能',
+      show({ mgmt: mgmt.a.status, byMgmt, ownByMgmt, aiByMgmt, sysGrants: sysGrants.length }));
     // 属主（本机命令行）放行第三档；之后被授的人才有业务读写
     const byOwner = { dl: tried(await approve(dl, {})), mg: tried(await approve(mg, {})) };
     const after = await verdicts();
@@ -334,9 +346,6 @@ try {
       '属主放行带业务拍板的 200，之后被授的人才有事项的读写；角色清单给出每个角色是哪一档和说法（页面照着显示） [red-line:business-decide-grants-owner-approval]',
       show({ byOwner, after, ap }));
     // can_approve 和放行接口一致：三档、口令、自己起草的、不能放行授给自己的，各至少一例
-    const selfG = await pending('dept-member', 'user:root-admin');
-    await approve(selfG, asRoot);
-    const listed = (await srv.call('GET', '/api/grants?status=pending', asRoot)).json?.grants?.find((g) => g.id === selfG);
     const kinds = new Set(agree.map((a) => (a.can ? 'ok' : a.denied)));
     check(agree.every((a) => a.ok) && ['ok', 'owner_required', 'business_approval_required', 'drafter_cannot_approve', 'self_grant'].every((k) => kinds.has(k))
       && agree.some((a) => a.can && a.got === '200:active' && a.id === mem) && agree.find((a) => a.denied === 'business_approval_required')?.text === '要管理层或属主放行'
@@ -349,8 +358,15 @@ try {
 
   // ---------- 三之四·二、管理面上只认属主的事：管理员登录（不是属主）做不了 ----------
   {
-    const byRoot = await srv.call('POST', '/api/grants/revoke-migration', { ...asRoot, body: { reason: '合成：管理员登录试整批撤销' } });
-    check(byRoot.status === 403 && byRoot.json?.error === 'owner_required', '迁移出来的授予整批撤销只认属主：管理员登录（不是属主）403 owner_required', show({ status: byRoot.status, body: byRoot.json }));
+    const byRoot = await srv.call('POST', '/api/grants/revoke-migration', { headers: token, body: { reason: '合成：管理口令试整批撤销' } });
+    check(byRoot.status === 403 && byRoot.json?.error === 'owner_required', '迁移出来的授予整批撤销只认属主：管理口令（是管理员、不是属主）403 owner_required', show({ status: byRoot.status, body: byRoot.json }));
+    // root-admin 的 admin 授予上面已经收回：这里另给 beta 一条 admin 授予（本机命令行放行），用 beta 的会话试，试完收回
+    const sysG = await activate({ principal: 'user:beta', role: 'admin' });
+    const sysActive = ((await srv.call('GET', '/api/grants?principal=user:beta&status=active')).json?.grants ?? []).map((g) => g.role);
+    const bySys = await srv.call('POST', '/api/grants/revoke-migration', { headers: { ...REMOTE, ...same }, session: SESSIONS.beta, body: { reason: '合成：系统管理员试整批撤销' } });
+    await step(sysG.id, 'revoke', {}, { reason: '合成：收回' });
+    check(sysActive.includes('admin') && !sysActive.includes('owner') && bySys.status === 403 && bySys.json?.error === 'owner_required',
+      '迁移出来的授予整批撤销只认属主：登录的系统管理员（持 admin 授予、不是属主）也是 403 owner_required', show({ sysActive, status: bySys.status, body: bySys.json }));
   }
 
   // ---------- 三之五、放行入口对登录的人放开（L19）：只有管理层、没有管理员身份的人能放行第二档，第一档、第三档照旧放行不了 ----------

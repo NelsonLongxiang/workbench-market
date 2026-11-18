@@ -4,7 +4,9 @@
     带 answer_via 的条目（AI 会话申请工具）只列给办得了的人，由服务端守（scripts/bench-mcp-test.mjs「管理口令、普通员工、有做没有拍板的角色、
     没有授予的管理员、本机命令行：清单里都没有这类条目」和「他们来答：和直接调那条路由一样被拒」），这里不再塞给没资格的人。
 (b) 有资格的人（合成管理员）在卡片上点：变更申请「通过并回滚」「不通过」（带理由）走统一答复入口 POST /api/attention/answer；
-    AI 会话申请工具「批准」「不给」（带理由）按条目的 answer_via 发到它自己的地址。断言每个请求的路径、方法、请求体。"""
+    AI 会话申请工具「批准」「不给」（带理由）按条目的 answer_via 发到它自己的地址。断言每个请求的路径、方法、请求体。
+(d) 申请写的是还没开台库的卡片（detail.bench_registered=false，属主 11-18 踩到的那种）：卡片写明批准会顺带开台库、链到这张卡片；
+    侧栏「全景」的计数算上它；批准后应答带 opened_bench，提示说开了哪个台库。MCP 网关的「权限申请」没有待批时指去「等你拍板」。"""
 import json, re, sys
 from playwright.sync_api import sync_playwright
 cfg = json.load(open(sys.argv[1])); M = cfg['base']
@@ -120,5 +122,41 @@ with sync_playwright() as p:
         still = card('合成台 9202').count() == 1 and card('合成台 9202').get_by_role('button', name=re.compile(r'通过并回滚')).is_enabled()
         check(f'答复入口回 {status}：卡片还在、还能再试，给出错误、不说「办好了」', len(sent2) == 1 and still and '办好了' not in msgs and ('合成：这条已经有人定过了' in msgs if status == 409 else len(msgs) > 0), (sent2, msgs))
         ctx.close()
+    # (d) 还没开台库的卡片
+    VIA2 = {**VIA, 'path': '/api/bench-views/wb-1971/mcp-requests/8'}
+    NEW = {**GRANT, 'source_id': 'wb-1971:8', 'answer_via': VIA2, 'detail': {'session': '合成会话乙', 'bench': 'wb-1971', 'bench_title': '合成卡片丙', 'tools': [{'tool': 'dataset_list', 'category': 'read'}],
+           'reason': '合成', 'created_at': 1, 'bench_registered': False, 'workbench_id': 1971}}
+    sent3 = []
+    ctx = ctx_for(b, cfg['admin_session'], [NEW])
+    def opened(r):
+        sent3.append({'path': r.request.url.split(M)[-1], 'body': r.request.post_data_json if r.request.post_data else None})
+        r.fulfill(status=200, content_type='application/json', body=json.dumps({'ok': True, 'opened_bench': {'slug': 'wb-1971', 'title': '合成卡片丙'}}))
+    ctx.route('**/api/bench-views/*/mcp-requests/*', opened)
+    pg = ctx.new_page(); pg.set_default_timeout(10000)
+    visit(pg, '/')
+    g = card('合成会话乙')
+    check('没开台库的卡片：全景「等你拍板」里有这一条，侧栏「全景」的计数算上它', g.count() == 1 and pg.locator('[data-testid=nav-pending]').inner_text().strip() == '1' and pg.locator('[data-testid=home-decide-n]').inner_text().strip() == '1')
+    opens = g.locator('[data-testid=decision-grant-opens]'); link = g.locator('[data-testid=decision-grant-card]')
+    opens_t = opens.inner_text() if opens.count() == 1 else ''
+    check('卡片写明批准时会顺带为这张卡片开台库、不批不开；链到卡片详情', '批准时会顺带为「合成卡片丙」开一个' in opens_t and '不批就不开' in opens_t
+          and link.count() == 1 and link.get_attribute('href') == '/market/wb/1971', g.inner_text() if g.count() else '')
+    g.get_by_role('button', name=re.compile(r'批\s*准')).click(); pg.wait_for_timeout(300)
+    if g.locator('textarea').count(): g.get_by_role('button', name=re.compile('确定')).click()
+    pg.wait_for_timeout(800)
+    msgs = ' '.join(pg.locator('.ant-message-notice').all_inner_texts())
+    check('批准：按 answer_via 发到这张卡片的地址；应答带 opened_bench 时提示开了哪个台库', len(sent3) == 1 and sent3[0]['path'] == VIA2['path'] and sent3[0]['body'] == {'approve': True} and '已为「合成卡片丙」开了台库' in msgs, (sent3, msgs))
+    ctx.close()
+    # MCP 网关的「权限申请」：没有待批的会话工具申请时，指去「等你拍板」
+    ctx = ctx_for(b, cfg['admin_session'])
+    ctx.route('**/api/mcp/access-requests*', lambda r: r.fulfill(status=200, content_type='application/json', body='[]'))
+    pg = ctx.new_page(); pg.set_default_timeout(10000)
+    visit(pg, '/mcp-gateways'); pg.get_by_role('tab', name=re.compile('权限申请')).click(); pg.wait_for_timeout(500)
+    empty, hint = pg.locator('[data-testid=mcp-requests-empty]'), pg.locator('[data-testid=mcp-bench-hint]')
+    check('MCP 网关「权限申请」没有待批时：说台的工具授权在「等你拍板」里批，链到 /attention（不再只说「没有待批的申请」）',
+          empty.count() == 1 and '台的工具授权在「等你拍板」里批' in empty.inner_text() and empty.get_by_role('link').count() == 1 and empty.get_by_role('link').get_attribute('href') == '/attention'
+          and hint.count() == 1 and hint.get_by_role('link').get_attribute('href') == '/attention', pg.locator('main').inner_text()[:300])
+    check('写明台的工具授权要用有管理层授予的账号来批（系统管理员、管理口令看不到）', '有管理层授予的账号' in hint.inner_text() and '管理口令' in hint.inner_text() and '有管理层授予的账号' in empty.inner_text())
+    check('页头那句提示也指「等你拍板」，不再说「关注」', '「等你拍板」' in pg.locator('[data-testid=also-in-attention]').inner_text() and '「关注」' not in pg.locator('main').inner_text())
+    ctx.close()
     b.close()
 print(f'approval-gate-browser: {ok} passed / {fail} failed'); sys.exit(1 if fail else 0)

@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // #437① 文件清单字段：隔离 DATA_DIR + 本机 GitHub 替身，合成一个带文件清单字段的 SOP。
 // 判据：
+//   L0 文件名：方向控制符、DEL 拒收 400，不进文件面、不留临时文件
 //   L1 完成时逐行按文件面核：文件不在本记录、sha256 与实际内容不一致（含同名不同内容）、文件名不一致都拦下
 //   L2 角色缺失按结构规则拦；合规后完成成功；引用来的文件同样可以登记
 //   L3（有 PYTHON 且装了 Playwright 时）执行页表格编辑器：选文件自动带出 sha256，选角色，保存后完成成功
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
@@ -28,11 +29,12 @@ async function call(method, path, headers = CLI, body) {
   let j = null; try { j = await r.json(); } catch { /* 无体 */ }
   return { status: r.status, body: j };
 }
-async function upload(run, name, text) {
+async function uploadRaw(run, name, text) {
   const fd = new FormData(); fd.append('file', new Blob([text], { type: 'text/plain' }), name);
   const r = await fetch(`${B}/api/sop/runs/${run}/files`, { method: 'POST', body: fd });
-  return (await r.json().catch(() => null)) ?? {};
+  return { status: r.status, body: (await r.json().catch(() => null)) ?? {} };
 }
+async function upload(run, name, text) { return (await uploadRaw(run, name, text)).body; }
 const sha = (t) => createHash('sha256').update(t).digest('hex');
 const body = '<p>交付文件清单：<textarea data-field="files" data-label="交付文件清单" data-type="file-list" data-roles="交付件|验证报告" data-min-items="1"></textarea></p>';
 const SOP = [{ path: 'sop.yaml', content: JSON.stringify({ title: 'File List SOP', steps: [{ key: 'deliver', title: '交付', body }] }) }];
@@ -45,6 +47,19 @@ try {
   ok('SOP 同步', pub.status === 201, String(pub.status));
   await call('POST', '/api/sops/fl-sop/publish', CLI, { changelog: 'v1' });
   const run = (await call('POST', '/api/sop/runs', CLI, { slug: 'fl-sop' })).body;
+
+  console.log('▶ L0 文件名和台文件上传同一条规则（upload-file-name.ts）');
+  // 方向控制符能让名字倒着显示（U+202E），DEL 和 C0 一样是控制字符：都拒收 400，不进文件面，落盘的临时文件删掉
+  const runDir = join(DATA, 'run-files', String(run.id));
+  const onDisk = () => (existsSync(runDir) ? readdirSync(runDir).length : 0);
+  const show = (n) => JSON.stringify(n).replace(/[^\x20-\x7e]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+  for (const name of ['x\u202e.txt', 'x\u2066.txt', 'x\u200f.txt', 'x\u061c.txt', 'x\u007f.txt']) {
+    const r = await uploadRaw(run.id, name, '合成');
+    ok(`${show(name)}：400`, r.status === 400, `${r.status} ${JSON.stringify(r.body).slice(0, 120)}`);
+  }
+  const listed0 = await call('GET', `/api/sop/runs/${run.id}/files`, { 'x-run-read-capability': run.read_capability });
+  ok('上面这些一个都没进文件面', listed0.status === 200 && (listed0.body?.items ?? []).length === 0, JSON.stringify(listed0.body).slice(0, 160));
+  ok('磁盘上没留下文件', onDisk() === 0, String(onDisk()));
   const f1 = await upload(run.id, '交付.xlsx.txt', '交付内容 v1');
   const save = (rows) => call('PUT', `/api/sop/runs/${run.id}`, CLI, { stepKey: 'deliver', value: { files: rows } });
   const finish = () => call('POST', `/api/sop/runs/${run.id}/finish`, CLI);

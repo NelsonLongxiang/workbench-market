@@ -590,7 +590,12 @@
             "status": 200,
             "type": "application/json",
             "headers": { "transfer-encoding": "chunked", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "method": "GET", "url": "/echo", "headers": { "cookie": "session_id=s-odoo", "referer": "http://odoo.replay.test/", "origin": "http://odoo.replay.test", "host": "odoo.replay.test", "accept-encoding": "identity" }, "body": "" }
+            "body": {
+              "method": "GET",
+              "url": "/echo",
+              "headers": { "cookie": "wm_pref=1; other=2", "referer": "http://odoo.replay.test/", "origin": "http://odoo.replay.test", "host": "odoo.replay.test", "accept-encoding": "identity" },
+              "body": ""
+            }
           }
         },
         {
@@ -602,13 +607,8 @@
           "response": {
             "status": 200,
             "type": "application/json",
-            "headers": {
-              "set-cookie": ["wm_sso_9=; Path=/go/9/; Expires=<时间>", "wm_sso_ok_9=1; Max-Age=43200; Path=/go/9/; Expires=<时间>; HttpOnly; SameSite=Lax", "wm_sso_ret_9=; Path=/go/9/; Expires=<时间>"],
-              "transfer-encoding": "chunked",
-              "vary": "Origin",
-              "x-powered-by": "Express"
-            },
-            "body": { "method": "GET", "url": "/echo?k=v", "headers": { "referer": "http://odoo.replay.test/", "origin": "http://odoo.replay.test", "host": "odoo.replay.test", "accept-encoding": "identity" }, "body": "" }
+            "headers": { "transfer-encoding": "chunked", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "method": "GET", "url": "/echo?state=st-1&k=v", "headers": { "referer": "http://odoo.replay.test/", "origin": "http://odoo.replay.test", "host": "odoo.replay.test", "accept-encoding": "identity" }, "body": "" }
           }
         },
         {
@@ -619,32 +619,42 @@
           "response": {
             "status": 200,
             "type": "text/html; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "285", "etag": "W/\"11d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": "<!doctype html><meta charset=\"utf-8\"><title>跳转 Odoo 登录…</title><p style=\"font:14px/1.8 system-ui;padding:16px\">正在跳转 Odoo 登录；登录完成后回到原窗口即可，本窗口可以关闭。</p><script>location.replace(\"http://odoo.replay.test/web/login\")</script>"
+            "headers": { "content-length": "547", "vary": "Origin", "x-powered-by": "Express" },
+            "body": "<!doctype html><html><head><meta http-equiv=\"refresh\" content=\"0; url=/go/9/\"><script type=\"module\" src=\"/go/9/assets/app.js\"></script><link rel=\"stylesheet\" href=\"/go/9/assets/s.css\"><link rel=\"icon\" href='/go/9/favicon.ico'></head><body><a href=\"http://upstream.replay.test/page?a=1\">同源完整地址</a><a href=\"https://cdn.example.com/assets/x.png\">外链</a><a href=\"//cdn.example.com/y.css\">协议相对</a><img src=\"data:image/png;base64,AAA\"><a href=\"/go/987654/keep\">已带前缀</a><a href=\"/go/9/base/inner\">base 下</a></body></html>"
           }
         },
         {
           "id": "odoo-state-bad",
           "route": "ALL /^\\/go\\/(\\d+)(.*)$/",
-          "class": "invalid",
-          "what": "Odoo 台、回跳带 state 但没有对应的 state cookie：400",
+          "class": "normal",
+          "what": "门户不再做 Odoo SSO：坏的 state 参数原样转给台，session_id 照样剥掉",
           "request": { "method": "GET", "path": "/go/9/?state=bad", "headers": { "cookie": "session_id=s-odoo" } },
-          "response": { "status": 400, "type": "text/plain; charset=utf-8", "headers": { "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": "SSO state 校验失败（请从市场门户重新进入）" }
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "content-length": "547", "vary": "Origin", "x-powered-by": "Express" },
+            "body": "<!doctype html><html><head><meta http-equiv=\"refresh\" content=\"0; url=/go/9/\"><script type=\"module\" src=\"/go/9/assets/app.js\"></script><link rel=\"stylesheet\" href=\"/go/9/assets/s.css\"><link rel=\"icon\" href='/go/9/favicon.ico'></head><body><a href=\"http://upstream.replay.test/page?a=1\">同源完整地址</a><a href=\"https://cdn.example.com/assets/x.png\">外链</a><a href=\"//cdn.example.com/y.css\">协议相对</a><img src=\"data:image/png;base64,AAA\"><a href=\"/go/987654/keep\">已带前缀</a><a href=\"/go/9/base/inner\">base 下</a></body></html>"
+          }
         },
         {
           "id": "odoo-state-mismatch",
           "route": "ALL /^\\/go\\/(\\d+)(.*)$/",
-          "class": "invalid",
-          "what": "Odoo 台、state cookie 对不上：400",
+          "class": "normal",
+          "what": "门户不再做 Odoo SSO：state 对不上也原样转给台，session_id 照样剥掉",
           "request": { "method": "GET", "path": "/go/9/?state=bad", "headers": { "cookie": "session_id=s-odoo; wm_sso_9=other" } },
-          "response": { "status": 400, "type": "text/plain; charset=utf-8", "headers": { "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": "SSO state 校验失败（请从市场门户重新进入）" }
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "content-length": "547", "vary": "Origin", "x-powered-by": "Express" },
+            "body": "<!doctype html><html><head><meta http-equiv=\"refresh\" content=\"0; url=/go/9/\"><script type=\"module\" src=\"/go/9/assets/app.js\"></script><link rel=\"stylesheet\" href=\"/go/9/assets/s.css\"><link rel=\"icon\" href='/go/9/favicon.ico'></head><body><a href=\"http://upstream.replay.test/page?a=1\">同源完整地址</a><a href=\"https://cdn.example.com/assets/x.png\">外链</a><a href=\"//cdn.example.com/y.css\">协议相对</a><img src=\"data:image/png;base64,AAA\"><a href=\"/go/987654/keep\">已带前缀</a><a href=\"/go/9/base/inner\">base 下</a></body></html>"
+          }
         },
         {
           "id": "odoo-no-sid",
           "what": "Odoo 台、浏览器没有 session_id：302 去 Odoo 登录，回跳地址和 state 每次随机，只比状态码",
           "compare": "status",
           "request": { "method": "GET", "path": "/go/9/", "headers": {} },
-          "response": { "status": 302 }
+          "response": { "status": 200 }
         },
         {
           "id": "disabled",
@@ -802,8 +812,8 @@
           "response": {
             "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
-            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+            "headers": { "cache-control": "no-store", "content-length": "114", "etag": "W/\"72-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用站内账号或管理员口令登录", "login_url": "/login" }
           }
         },
         {

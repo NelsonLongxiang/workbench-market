@@ -291,7 +291,7 @@ try {
       db.exec('BEGIN IMMEDIATE');
       let eventId;
       try {
-        eventId = events.recordTaskCenterEvent({ id, data: {}, stepValue: (k) => (k === 'title' ? `任务 ${id}` : ''), publishedBy: 'alice', templateVersion: 1, materialSha256: 'y'.repeat(64), agentDispatch: open, centerOn: open });
+        eventId = events.recordTaskCenterEvent({ id, data: {}, stepValue: (k) => (k === 'title' ? `任务 ${id}` : ''), publishedBy: 'alice', templateVersion: 1, materialSha256: 'y'.repeat(64), agentDispatch: open, centerOn: open , arranged: { team: 'team-a', submitter: 'human:alice' } });
         db.exec(rollback ? 'ROLLBACK' : 'COMMIT');
       } catch (e) { db.exec('ROLLBACK'); throw e; }
       return { id, eventId };
@@ -314,8 +314,8 @@ try {
     try { broken = publish(false); } catch (e) { threw = String(e?.message ?? e); }
     items.syncEvent = realSync;
     const after = items.failureCounts();
-    check(threw === '' && eventRow(broken.eventId) && sourceRows(broken.eventId).length === 3, '监听器出错：来源的发布照常成功，事件和三行事件日志都在', threw);
-    check(!items.get(itemIdForEvent(broken.eventId)) && (after.recorded ?? 0) === (before.recorded ?? 0) + 1 && (after.held ?? 0) === (before.held ?? 0) + 2, '没建出事项；按事实种类计数（recorded 一次、held 两次）', show({ before, after }));
+    check(threw === '' && eventRow(broken.eventId) && sourceRows(broken.eventId).length === 2, '监听器出错：来源的发布照常成功，事件和两行事件日志都在（只派给一个团队：recorded、held 各一行）', threw);
+    check(!items.get(itemIdForEvent(broken.eventId)) && (after.recorded ?? 0) === (before.recorded ?? 0) + 1 && (after.held ?? 0) === (before.held ?? 0) + 1, '没建出事项；按事实种类计数（recorded 一次、held 一次）', show({ before, after }));
     items.backfill();
     check(items.get(itemIdForEvent(broken.eventId))?.state === 'held', '回填之后事项补上，进「搁置」');
 
@@ -323,7 +323,7 @@ try {
     db.exec('BEGIN IMMEDIATE');
     const r = events.cancelTaskCenterDeliveries(held.id, 'human:alice');
     db.exec('COMMIT');
-    check(r.cancelled === 2 && items.get(itemIdForEvent(held.eventId)).state === 'cancelled', '撤回任务：两个搁置的投递取消，事项进「撤回」', show(r));
+    check(r.cancelled === 1 && items.get(itemIdForEvent(held.eventId)).state === 'cancelled', '撤回任务：搁置的投递取消，事项进「撤回」', show(r));
     db.exec('BEGIN IMMEDIATE');
     events.cancelTaskCenterDeliveries(queued.id, 'human:alice');
     db.exec('COMMIT');

@@ -238,7 +238,7 @@ with sync_playwright() as p:
     pg.route('**/api/teams/unassign', on_unassign)
     pg.route('**/api/teams/reassign', on_reassign)
     # 看的人：负责人甲经理（/api/auth/me 截下来，左下角写他，不是「未登录」）
-    def me(login, name): return {'gate': 'off', 'authenticated': True, 'via': 'odoo', 'login': login, 'principal': f'user:{login}', 'display_name': name, 'roles': []}
+    def me(login, name): return {'gate': 'off', 'authenticated': True, 'via': 'session', 'login': login, 'principal': f'user:{login}', 'display_name': name, 'roles': []}
     who = {'me': me('jia', '甲经理')}
     pg.route('**/api/auth/me', lambda r: fake(r, who['me']))
     pg.reload(); pg.wait_for_selector('[data-testid=team-member]')

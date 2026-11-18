@@ -24,7 +24,7 @@ import type { TeamService } from '../services/team.ts';
 import { teamName } from '../team-relation.ts';
 
 export type RelationRouteDeps = {
-  markOdooAdmin: (req: express.Request) => Promise<void>;
+  markAdmin: (req: express.Request) => Promise<void>;
   adminHeaderOk: (req: express.Request) => boolean;
   adminActor: (req: express.Request) => string;
   crossOriginDenied: (req: express.Request) => boolean;
@@ -62,7 +62,7 @@ export function registerRelationRoutes(app: HttpService, deps: RelationRouteDeps
     res.set('Cache-Control', 'private, no-store');
     if (!browserMarked(req) && rawLoopback(req)) return { actor: { by: 'cli', principal: null, owner: true }, admin: true };
     if (deps.crossOriginDenied(req)) { res.status(403).json({ error: 'relations_cross_origin_denied' }); return null; }
-    await deps.markOdooAdmin(req);
+    await deps.markAdmin(req);
     const admin = deps.adminHeaderOk(req);
     const cookie = String(req.headers.cookie ?? '');
     const v = cookie ? await identity().resolveViewer(cookie) : null;

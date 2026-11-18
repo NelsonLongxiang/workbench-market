@@ -103,8 +103,8 @@ export class GrantService extends Service {
    */
   heldAdmin(principal: string | null, now = Date.now()): 'owner' | 'admin' | null {
     if (!principal) return null;
-    // 迁移来的 admin 授予（source=migration，判定比对开着时按「身份来源说是管理员」补的）不算：
-    // 那个人是不是管理员仍以身份来源当下说的为准，身份来源撤了就不再是系统管理员（docs/local-accounts.md 第 5 节）
+    // 迁移来的 admin 授予（source=migration，以前判定比对开着时按「身份来源说是管理员」补的）不算：
+    // 管理员只认授予（Odoo 下线后身份来源不再能说谁是管理员），这类旧授予由管理员核过之后另发正式授予；整批撤销见 revoke-migration
     const held = this.activeFor(principal, now).filter((g) => g.scope === '*' && (g.role === 'owner' || (g.role === 'admin' && g.source !== 'migration')));
     return held.some((g) => g.role === 'owner') ? 'owner' : held.length ? 'admin' : null;
   }

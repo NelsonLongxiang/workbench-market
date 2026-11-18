@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
  * 站内账号（docs/local-accounts.md P1）：起隔离实例（NODE_ENV=test，不接任何外部身份来源），走浏览器的真实路径。
+ *   〇、没登录的人问 /api/auth/viewer：401 带登录入口（没有身份来源、有登录方式时也一样）
  *   一、建人：管理员建 alice，回一次临时密码；对应主体 user:alice 建好、启用
  *   二、第一次登录：临时密码对了先要改密码（不发码）；两次不一致、太短都不行；改好才去回调，回调发市场会话，认出是 alice
  *   三、对抗：
@@ -12,7 +13,7 @@
  *       6 应答和日志里没有密码材料：列表里没有哈希、日志里没有临时密码和新密码
  *       7 停用之后：已有的会话立即失效，再登录只给等待页、不发会话
  *       8 重置密码：旧会话注销；新的临时密码又要先改
- *       9 本人改密码：原密码不对 403；对了改好，旧会话注销
+ *       9 本人改密码：来源不对（Sec-Fetch-Site 跨站、同站）403，原密码对也不改；原密码不对 403；对了改好，旧会话注销
  *      10 同一来源输错太多：先歇一分钟（429）
  *   四、站内管理员（P2）：持生效中的 owner / admin 授予（范围 *）的人是管理员——owner 完整，admin 只管系统、看不到业务数据；待放行、收回、过期、管理层授予、停用都不算；
  *       whoami 说是授予、留痕记主体；不能放行别人的 admin 授予、不能放行授给自己的、不能停用自己；跨站写 403
@@ -21,7 +22,7 @@
  *   node scripts/local-accounts-test.mjs
  */
 import { createServer } from 'node:net';
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from './owned-script-fixture.mjs';
@@ -43,6 +44,16 @@ try {
   const base = `http://127.0.0.1:${port}`;
   const data = join(OUT, 'data'), home = join(OUT, 'home'), ext = join(OUT, 'ext');
   for (const d of [data, home, ext]) mkdirSync(d, { recursive: true });
+  // 探针扩展：把宿主交给扩展的认人（ctx.identity，以及已弃用的兼容壳 ctx.odoo）原样问一遍，回答原样交出来
+  mkdirSync(join(ext, 'viewer-probe'), { recursive: true });
+  writeFileSync(join(ext, 'viewer-probe', 'server.mjs'), `export function register(ctx) {
+  ctx.app.get('/api/viewer-probe/who', ctx.wrap(async (req, res) => {
+    const cookie = String(req.headers.cookie ?? '');
+    const who = await ctx.identity.resolveViewer(cookie), compat = await ctx.odoo.resolveViewer(cookie);
+    res.json({ who, same: JSON.stringify(who) === JSON.stringify(compat) });
+  }));
+}
+`);
   const env = {};
   for (const k of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP']) if (process.env[k]) env[k] = process.env[k];
   Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN, REDIS_URL: '', WM_EXTENSIONS_DIR: ext, MARKET_PUBLIC_URL: base,
@@ -107,6 +118,18 @@ try {
     return { b, r: cb };
   }
 
+  console.log('〇、没登录的人问「我是谁」');
+  {
+    // 没有身份来源、有站内账号这种登录方式：没登录就是 401（带 auth_required 和登录入口），不是 503「服务不可用」
+    const v = await browser('192.0.2.30').go('GET', '/api/auth/viewer');
+    check(v.status === 401 && v.json?.auth_required === true && typeof v.json?.login_url === 'string' && v.json.login_url.includes('/login'),
+      '/api/auth/viewer：没登录回 401，带 auth_required 和登录入口', { status: v.status, json: v.json });
+    // 交给扩展的认人同一个口径：没登录是 401（扩展据此把人带去登录），不是 503「未配置身份来源」；兼容壳 ctx.odoo 一字不差
+    const e = await browser('192.0.2.30').go('GET', '/api/viewer-probe/who');
+    check(e.status === 200 && e.json?.who?.ok === false && e.json.who.http === 401 && e.json.same === true,
+      '扩展 ctx.identity.resolveViewer：没登录回 401，和 /api/auth/viewer 一致；ctx.odoo 一字不差', e.json);
+  }
+
   console.log('一、建人');
   const made = await adminCall('POST', '/api/local-accounts', { username: 'alice', display_name: '合成用户甲' });
   const temp = made.json?.temp_password ?? '';
@@ -138,6 +161,19 @@ try {
   check(who?.authenticated === true && who.principal === 'user:alice' && who.via === 'session', '认出是 alice（市场会话）', who);
   check(who?.local_account === true, '/api/auth/me 说她有站内账号（用户卡据此给「改密码」入口）', who);
   check(who?.local_username === 'alice', '/api/auth/me 带她自己的站内用户名（改密码页预检「不能和用户名一样」用它，不用 login）', who);
+  {
+    // 市场会话 cookie 的属性（以前由 odoo-market-session-test 对 Odoo 发的会话核，Odoo 下线后在站内账号上核）：HttpOnly、SameSite=Lax、Path=/，http 时不带 Secure
+    const sc = (first.r.headers.getSetCookie?.() ?? []).find((c) => c.startsWith('wm_session='));
+    const attrs = (c) => (c ?? '').split(';').slice(1).map((x) => x.trim().split('=')[0].toLowerCase());
+    check(!!sc && /HttpOnly/i.test(sc) && /SameSite=Lax/i.test(sc) && /Path=\//i.test(sc) && !attrs(sc).includes('secure') && !attrs(sc).includes('domain'),
+      '市场会话 cookie：HttpOnly、SameSite=Lax、Path=/，不带 Domain（http 下不带 Secure）', sc);
+    // 登出：这个会话当场作废，同一个 cookie 再来也认不出
+    const kept = first.b.jar.get('wm_session');
+    const out = await first.b.go('POST', '/api/auth/logout', { json: {} });
+    const again = browser('192.0.2.21'); again.jar.set('wm_session', kept); // 另一个浏览器带着登出前的同一个 cookie
+    const replay = await me(again);
+    check(out.status === 200 && !first.b.jar.has('wm_session') && replay?.authenticated !== true, '登出：浏览器的会话 cookie 清掉，同一个 cookie 再来也认不出', { out: out.status, replay });
+  }
   check((await login('alice', temp)).r.status === 401, '临时密码改过之后就不能再用');
 
   console.log('三、对抗');
@@ -198,9 +234,15 @@ try {
   {
     const alice = (await login('alice', 'Alice-pass-0001')).b;
     check((await me(alice))?.principal === 'user:alice', '7（准备）alice 登录着');
+    const extWho = async (b) => (await b.go('GET', '/api/viewer-probe/who')).json;
+    const viewerStatus = async (b) => (await b.go('GET', '/api/auth/viewer')).status;
+    const on = await extWho(alice);
+    check(on?.who?.ok === true && on.who.viewer?.login === 'alice' && on.same === true, '7 扩展认人：登录着的认出是 alice；ctx.odoo 一字不差', on);
     const off = await adminCall('POST', '/api/principals/disable', { id: 'user:alice', reason: '合成：停用测试' });
     check(off.status === 200, '7 管理员停用 user:alice', off);
     check((await me(alice))?.principal !== 'user:alice', '7 已有的会话立即失效');
+    const gone = await extWho(alice), vs = await viewerStatus(alice);
+    check(gone?.who?.ok === false && gone.who.http === vs && [401, 403].includes(vs) && gone.same === true, '7 扩展认人：停用之后不认，状态码和 /api/auth/viewer 一致', { ext: gone, viewer: vs });
     const again = await login('alice', 'Alice-pass-0001');
     check(again.r.status !== 302 && !again.b.jar.has('wm_session'), '7 再登录：不发会话（等待页）', again.r.status);
     check((await adminCall('POST', '/api/principals/restore', { id: 'user:alice', reason: '合成：恢复' })).status === 200, '7 恢复');
@@ -211,12 +253,20 @@ try {
     const t2 = reset.json?.temp_password ?? '';
     check(reset.status === 200 && t2 && t2 !== temp && reset.json.account.must_change === true, '8 重置：回新的临时密码，要先改');
     check((await me(alice))?.principal !== 'user:alice', '8 旧会话注销');
+    const lapsed = (await alice.go('GET', '/api/viewer-probe/who')).json, lvs = (await alice.go('GET', '/api/auth/viewer')).status;
+    check(lapsed?.who?.ok === false && lapsed.who.http === 401 && lvs === 401 && lapsed.same === true, '8 扩展认人：会话注销之后 401，和 /api/auth/viewer 一致', { ext: lapsed, viewer: lvs });
     check((await login('alice', 'Alice-pass-0001')).r.status === 401, '8 旧密码不能再用');
     const fresh = await login('alice', t2, 'Alice-pass-0002');
     check(fresh.r.status === 302 && fresh.b.jar.has('wm_session'), '8 新临时密码：先改再进');
   }
   {
     const alice = (await login('alice', 'Alice-pass-0002')).b;
+    // 来源不对就 403（#802）：原密码给对了也不改。只带 Sec-Fetch-Site、不带 Origin，核的是这条路由自己的那道检查
+    for (const site of ['cross-site', 'same-site']) {
+      const r = await alice.go('POST', '/api/local-accounts/_self/password', { json: { current: 'Alice-pass-0002', next: 'Alice-pass-0009' }, headers: { 'sec-fetch-site': site } });
+      check(r.status === 403 && /来源/.test(r.text ?? ''), `9 本人改密码，Sec-Fetch-Site: ${site}：403，原密码对也不改`, r.status);
+    }
+    check((await me(alice))?.principal === 'user:alice', '9 来源不对的两次之后：会话还在（没改、没注销）');
     const bad = await alice.go('POST', '/api/local-accounts/_self/password', { json: { current: 'not-it-0000', next: 'Alice-pass-0003' } });
     check(bad.status === 403, '9 本人改密码：原密码不对 403', bad.status);
     const ok = await alice.go('POST', '/api/local-accounts/_self/password', { json: { current: 'Alice-pass-0002', next: 'Alice-pass-0003' } });

@@ -16,6 +16,7 @@ import { dataDir, type SopRunRow } from '../db.ts';
 import type { SopService } from '../services/sop.ts';
 import { HttpError } from '../errors.ts';
 import { expectedSha256, uploadIntegrity } from '../upload-integrity.ts';
+import { uploadNameOk, UPLOAD_NAME_INVALID } from '../upload-file-name.ts';
 import { authorizeRunRead } from '../sop-read-auth.ts';
 import type { Sniff } from '../file-sniff.ts';
 
@@ -24,7 +25,7 @@ type RunFileQuota = { upload_count: number; upload_bytes: number; upload_max_cou
 /** 从 index.ts 传进来的：异步包装、Odoo 管理员认定、写入门、按 id 取 run、管理员头、读能力头、400 的快捷写法、几个上限、配额、上传中间件、文件名修复、按内容核类型、sha256、旧文件补算 sha。 */
 export interface SopRunFilesDeps {
   wrap: (fn: (req: express.Request, res: express.Response) => Promise<unknown>) => express.RequestHandler;
-  markOdooAdmin: (req: express.Request) => Promise<void>;
+  markAdmin: (req: express.Request) => Promise<void>;
   runFileWriteGate: (req: express.Request, runId: number) => void;
   sopRunRow: (id: number) => SopRunRow;
   adminHeaderOk: (req: express.Request) => boolean;
@@ -43,12 +44,12 @@ export interface SopRunFilesDeps {
 }
 
 export function registerSopRunFileRoutes(app: HttpService, deps: SopRunFilesDeps): void {
-  const { wrap, markOdooAdmin, runFileWriteGate, sopRunRow, adminHeaderOk, runReadCapHeader, bad, RUN_REF_BATCH_MAX, RUN_REF_MAX_COUNT, RUN_UPLOAD_MAX_COUNT, RUN_UPLOAD_MAX_BYTES, runFileQuota, runUpload, fixFileName, checkUploadKind, sha256Hex, ensureRunFileSha } = deps;
+  const { wrap, markAdmin, runFileWriteGate, sopRunRow, adminHeaderOk, runReadCapHeader, bad, RUN_REF_BATCH_MAX, RUN_REF_MAX_COUNT, RUN_UPLOAD_MAX_COUNT, RUN_UPLOAD_MAX_BYTES, runFileQuota, runUpload, fixFileName, checkUploadKind, sha256Hex, ensureRunFileSha } = deps;
   /** 引用已有文件：同一 SOP 其他 run 的文件（按 run_id+file_id，要带源 run 的读凭证；管理员免），或按 sha256 找同 SOP 里已上传的同内容文件（只限管理员）。
    *  逐条给结果（linked / duplicate / failed + 原因），失败的不影响已成功的；引用行与源文件共用一份存储，不占上传配额。 */
   app.post('/api/sop/runs/:id(\\d+)/files/refs', { action: 'sop-run.file-refs', kind: 'write', statusNotVerdict: '按 run 的凭据：上传令牌、对源 run 的读授权由 run 授权判，不是谁能做什么' }, wrap(async (req, res) => {
     const runId = Number(req.params.id);
-    await markOdooAdmin(req);
+    await markAdmin(req);
     runFileWriteGate(req, runId);
     const target = sopRunRow(runId);
     // 先核目标 run 的读授权：结果会回显文件名（duplicate / linked），没有读权的人不能借引用逐个试出本 run 的文件（执行页本就持有自己 run 的读能力）
@@ -130,6 +131,8 @@ export function registerSopRunFileRoutes(app: HttpService, deps: SopRunFilesDeps
         const createdBy = typeof req.body?.created_by === 'string' ? req.body.created_by.trim().slice(0, 128) : '';
         const rel = req.file.path.replace(dataDir, '').split(pathSep).join('/').replace(/^\/+/, '');
         const originalName = fixFileName(req.file.originalname);
+        // 文件名和台文件上传同一条规则；不合法就删掉已落盘的文件
+        if (!uploadNameOk(originalName)) { rmSync(req.file.path, { force: true }); bad(UPLOAD_NAME_INVALID); }
         // 期望的 sha256：请求头 X-Content-SHA256 或表单字段 sha256（都带时须一致），不符拒收、不保存
         const fromHeader = expectedSha256(req.headers['x-content-sha256']), fromField = expectedSha256(req.body?.sha256);
         if (fromHeader === 'bad' || fromField === 'bad' || (fromHeader !== null && fromField !== null && fromHeader !== fromField)) {

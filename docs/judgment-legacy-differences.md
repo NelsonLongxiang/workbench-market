@@ -106,7 +106,7 @@
 - 收紧为只认人：管理口令保留应急用途，但决定类改走「先问人」；
 - 或者明确口令持有人就是属主的代理，并要求每次决定写理由。
 
-**统一判定里怎么登记的**：内置身份「管理口令」照管理员角色算，另把这六个决定类动作登记为「代属主行事」（`attention.answer`、`change-request.approve`、`change-request.reject`、`mcp.access-approve`、`mcp.access-reject`、`workbench-event.release`）。`workbench-event.release` 是阶段三搬工作台事件那批加的：协调方 11-12 定放行投递算决定类（6d 前置 L11 #31）。判定的留痕里标明经口令。主体表里不是人的主体（席位等）做决定，照旧转提议，不受这条例外影响。
+**统一判定里怎么登记的**：内置身份「管理口令」照管理员角色算，另把这几个决定类动作登记为「代属主行事」（`attention.answer`、`change-request.approve`、`change-request.reject`、`mcp.access-approve`、`mcp.access-reject`；`workbench-event.release` 随管理员旧的放行入口退役一起去掉了）。`workbench-event.release` 是阶段三搬工作台事件那批加的：协调方 11-12 定放行投递算决定类（6d 前置 L11 #31）。判定的留痕里标明经口令。主体表里不是人的主体（席位等）做决定，照旧转提议，不受这条例外影响。
 
 ## L5（原 E）门户观测状态只认管理口令
 
@@ -221,7 +221,7 @@
 **结果**：
 - 以前管理口令能在「关注」里答席位提问、验收、退回，现在不能。
 - 没有任何主体持有管理层授予时，团队没有负责人的等过目事项没人放得了，建立人不在时也没人代办。
-- 管理员旧的放行入口 `POST /api/workbench-events/:id/release` 还在，那是控制面（L4）。
+- 管理员旧的放行入口 `POST /api/workbench-events/:id/release` 已退役（404）：放行只经事项的入口，团队有负责人时管理口令放不了。
 
 **看得见的信号**：管理口令读 `GET /api/health` 时，`work_items.management_grant_holders` 是持有管理层授予的主体个数，只给个数、不给是谁。是 0 时，启动时也打一行告警。
 

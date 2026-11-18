@@ -157,29 +157,50 @@ export interface ExtensionContext {
   };
   /** 包 async 路由：抛错交给宿主统一的错误处理 */
   wrap: (fn: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response, next: NextFunction) => void;
-  /** 管理员门（口令或 Odoo 管理员）：未通过时已写好响应并返回 false */
+  /** 管理员门（口令或站内管理员）：未通过时已写好响应并返回 false */
   adminGuard: (req: Request, res: Response) => Promise<boolean>;
+  /** 认人：请求带的市场会话认出的人（每次现查，不缓存），口径和 /api/auth/viewer 一致——有登录方式、只是没登录时回 401，一种登录方式都没有时回 503；站内登录页地址（登录完回到 returnPath） */
+  identity: {
+    resolveViewer: (cookieHeader: string) => Promise<{ ok: true; viewer: Viewer } | { ok: false; http: number; error: string }>;
+    loginUrl: (req: Request, returnPath: string) => string | null;
+  };
+  /**
+   * 已弃用（Odoo 下线，2026-11-17）：留一版兼容，下一版删。扩展第一次用到时打一行弃用警告。
+   * url 回空串、sessionOf 回 null、addReturnPath 什么都不做；resolveViewer、loginUrl 转给 identity（认市场会话、站内登录页）
+   */
   odoo: {
     url: () => string;
     sessionOf: (cookieHeader: string) => string | null;
     resolveViewer: (cookieHeader: string) => Promise<{ ok: true; viewer: Viewer } | { ok: false; http: number; error: string }>;
-    /** 门户 Odoo 登录入口（/go/<Odoo 台>/?return=…）；returnPath 须先经 addReturnPath 登记 */
     loginUrl: (req: Request, returnPath: string) => string | null;
     addReturnPath: (path: string) => void;
   };
   tasks: { addSource: (src: TaskSource) => void };
-  /** 业务写面：远程浏览器 POST 该精确路径不经宿主管理写门（不要口令、不查 Odoo 管理员），由扩展路由自己判身份与同源。
+  /** 业务写面：远程浏览器 POST 该精确路径不经宿主管理写门（不要口令、不认管理员），由扩展路由自己判身份与同源。
    *  只收 /api/<命名空间>/…，命名空间不得是宿主的；进 S3 豁免面快照（/api/remote-allow/diff） */
   remoteWrite: { allowExact: (path: string) => void };
   log: (msg: string) => void;
   warn: (msg: string) => void;
 }
 
-export type ExtensionHost = Omit<ExtensionContext, 'apiVersion' | 'name' | 'dir' | 'log' | 'warn' | 'tasks' | 'routes'> & {
+export type ExtensionHost = Omit<ExtensionContext, 'apiVersion' | 'name' | 'dir' | 'log' | 'warn' | 'tasks' | 'routes' | 'odoo'> & {
   /** 经它注册扩展的路由、对比路由栈 */
   http: HttpService;
   routesMode: ExtensionRoutesMode;
 };
+
+/** ctx.odoo 的兼容壳：每个扩展第一次用到时警告一次 */
+function deprecatedOdoo(name: string, id: ExtensionContext['identity']): ExtensionContext['odoo'] {
+  let warned = false;
+  const warn = () => { if (!warned) { warned = true; console.warn(`[ext:${name}] ctx.odoo 已弃用（Odoo 已下线）：改用 ctx.identity；下一版删掉 ctx.odoo`); } };
+  return {
+    url: () => { warn(); return ''; },
+    sessionOf: () => { warn(); return null; },
+    resolveViewer: (cookie) => { warn(); return id.resolveViewer(cookie); },
+    loginUrl: (req, returnPath) => { warn(); return id.loginUrl(req, returnPath); },
+    addReturnPath: () => { warn(); },
+  };
+}
 
 const BUILTIN_SOURCES = new Set(['ygl-trees', 'market', 'a2a']);
 const taskSources: TaskSource[] = [];
@@ -262,6 +283,7 @@ export async function loadExtensions(dirRaw: string | undefined, host: Extension
           extMiddleware.push({ extension: name, path, purpose: spec.purpose });
         },
       },
+      odoo: deprecatedOdoo(name, shared.identity),
       log: (m) => console.log(`[ext:${name}] ${m}`),
       warn: (m) => console.warn(`[ext:${name}] ${m}`),
     };

@@ -2,7 +2,7 @@
  * 谁能建、改、删驾驶舱（统筹 2026-11-12 定，身份线定机制）。写驾驶舱的三条路由、读应答里的 can.edit、/api/auth/me 的
  * can.create_cockpit 都问这一处，说法只有一份。
  *
- *   · 本机命令行、过了管理员门的（有效口令或 Odoo 管理员，且同源）：照旧什么都能做。
+ *   · 本机命令行、过了管理员门的（有效口令或站内管理员，且同源）：照旧什么都能做。
  *   · 浏览器从别的站点来：403。
  *   · 其余按会话认人：身份来源不可达 502；没认出来 401；不是启用的人 403。
  *   · 认出来的人：交给判定——动作 cockpit.create / cockpit.update / cockpit.delete，类别是「管理」。
@@ -20,7 +20,7 @@ import type { PrincipalService } from './services/principal.ts';
 
 export type CockpitAction = 'cockpit.create' | 'cockpit.update' | 'cockpit.delete';
 export type CockpitAccessDeps = {
-  /** 本机命令行，或过了管理员门（有效口令、Odoo 管理员，且同源）：和写请求总门对管理写的判断是同一个 */
+  /** 本机命令行，或过了管理员门（有效口令、站内管理员，且同源）：和写请求总门对管理写的判断是同一个 */
   adminOk: (req: express.Request) => Promise<boolean>;
   /** 浏览器从别的站点来 */
   crossOriginDenied: (req: express.Request) => boolean;

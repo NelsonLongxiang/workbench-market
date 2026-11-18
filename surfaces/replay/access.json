@@ -193,7 +193,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -206,7 +206,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -231,8 +231,16 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "163", "etag": "W/\"a3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "run": 1, "created": [{ "principal": "user:alpha", "role": "member", "scope": "*", "grant": 1 }, { "principal": "user:beta", "role": "member", "scope": "*", "grant": 2 }], "skipped": [] }
+            "headers": { "content-length": "233", "etag": "W/\"e9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "run": 1,
+              "created": [
+                { "principal": "user:alpha", "role": "member", "scope": "*", "grant": 2 },
+                { "principal": "user:beta", "role": "member", "scope": "*", "grant": 3 },
+                { "principal": "user:root-admin", "role": "member", "scope": "*", "grant": 4 }
+              ],
+              "skipped": []
+            }
           }
         },
         {
@@ -244,8 +252,16 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "181", "etag": "W/\"b5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "run": 2, "created": [], "skipped": [{ "principal": "user:alpha", "role": "member", "scope": "*", "reason": "already" }, { "principal": "user:beta", "role": "member", "scope": "*", "reason": "already" }] }
+            "headers": { "content-length": "260", "etag": "W/\"104-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "run": 2,
+              "created": [],
+              "skipped": [
+                { "principal": "user:alpha", "role": "member", "scope": "*", "reason": "already" },
+                { "principal": "user:beta", "role": "member", "scope": "*", "reason": "already" },
+                { "principal": "user:root-admin", "role": "member", "scope": "*", "reason": "already" }
+              ]
+            }
           }
         },
         {
@@ -258,7 +274,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -288,7 +304,7 @@
           "class": "normal",
           "what": "本机命令行（属主）放行第一次运行：两条都生效",
           "request": { "method": "POST", "path": "/api/setup/wizard/approve", "json": { "run": 1 } },
-          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "40", "etag": "W/\"28-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "approved": [1, 2], "failed": [] } }
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "approved": [2, 3, 4], "failed": [] } }
         },
         {
           "id": "access-after",
@@ -304,7 +320,7 @@
               "principal": { "id": "user:alpha", "kind": "person", "status": "active", "display_name": "合成甲" },
               "active": [
                 {
-                  "id": 1,
+                  "id": 2,
                   "role": "member",
                   "role_name": "普通员工",
                   "permissions": [{ "kinds": ["read"] }, { "actions": ["app-data.submit", "app-data.upload", "sop-run.file-refs", "sop-run.file-upload", "sop-run.finish", "sop-run.save", "sop-run.start"] }, { "kinds": ["decide"], "scope": "self" }],
@@ -334,7 +350,7 @@
               "principal": { "id": "user:alpha", "kind": "person", "status": "active", "display_name": "合成甲" },
               "active": [
                 {
-                  "id": 1,
+                  "id": 2,
                   "role": "member",
                   "role_name": "普通员工",
                   "permissions": [{ "kinds": ["read"] }, { "actions": ["app-data.submit", "app-data.upload", "sop-run.file-refs", "sop-run.file-upload", "sop-run.finish", "sop-run.save", "sop-run.start"] }, { "kinds": ["decide"], "scope": "self" }],
@@ -347,7 +363,7 @@
               ],
               "inactive": [],
               "relations": { "departments": [], "teams_led": [], "members": [] },
-              "decision": { "action": "workbench.list", "kind": "read", "verdict": "allow", "rule": "grant", "grant": 1 }
+              "decision": { "action": "workbench.list", "kind": "read", "verdict": "allow", "rule": "grant", "grant": 2 }
             }
           }
         },
@@ -361,7 +377,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "420", "etag": "W/\"1a4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "505", "etag": "W/\"1f9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "runs": [
                 { "id": 2, "shape": "small", "created_by": "cli", "created_at": 1893456000000, "approved_by": null, "approved_at": null, "grants": [] },
@@ -372,7 +388,11 @@
                   "created_at": 1893456000000,
                   "approved_by": "cli",
                   "approved_at": 1893456000000,
-                  "grants": [{ "id": 1, "principal": "user:alpha", "role": "member", "scope": "*", "status": "active" }, { "id": 2, "principal": "user:beta", "role": "member", "scope": "*", "status": "active" }]
+                  "grants": [
+                    { "id": 2, "principal": "user:alpha", "role": "member", "scope": "*", "status": "active" },
+                    { "id": 3, "principal": "user:beta", "role": "member", "scope": "*", "status": "active" },
+                    { "id": 4, "principal": "user:root-admin", "role": "member", "scope": "*", "status": "active" }
+                  ]
                 }
               ]
             }

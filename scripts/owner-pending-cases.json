@@ -112,6 +112,10 @@
    ],
    "expect": {
     "ownerLogin": "boss",
+    "ownerPrincipal": "",
+    "owners": [
+     "odoo:boss"
+    ],
     "writers": [
      "mcp:owner-board"
     ],
@@ -234,7 +238,7 @@
     }
    ],
    "expect": {
-    "error": "config.owner 缺 owner_login"
+    "error": "config.owner 缺 owner_principal（属主的站内主体 user:<名>）"
    }
   },
   {
@@ -416,6 +420,10 @@
     ],
     {
      "ownerLogin": "boss",
+     "ownerPrincipal": "",
+     "owners": [
+      "odoo:boss"
+     ],
      "writers": [
       "mcp:owner-board"
      ],
@@ -569,6 +577,10 @@
     ],
     {
      "ownerLogin": "boss",
+     "ownerPrincipal": "",
+     "owners": [
+      "odoo:boss"
+     ],
      "writers": [
       "mcp:owner-board"
      ],
@@ -667,6 +679,10 @@
    "args": [
     {
      "ownerLogin": "boss",
+     "ownerPrincipal": "",
+     "owners": [
+      "odoo:boss"
+     ],
      "writers": [
       "mcp:owner-board"
      ],
@@ -699,6 +715,10 @@
    "args": [
     {
      "ownerLogin": "boss",
+     "ownerPrincipal": "",
+     "owners": [
+      "odoo:boss"
+     ],
      "writers": [
       "mcp:owner-board"
      ],
@@ -718,6 +738,10 @@
    "args": [
     {
      "ownerLogin": "boss",
+     "ownerPrincipal": "",
+     "owners": [
+      "odoo:boss"
+     ],
      "writers": [
       "mcp:owner-board"
      ],
@@ -729,6 +753,116 @@
    ],
    "expect": {
     "error": "登记身份写成 mcp:<会话名>，多个用逗号隔开，至少一个"
+   }
+  },
+  {
+   "name": "owner_principal 登记的属主：作者是这个主体才采信",
+   "fn": "parseConfig",
+   "args": [
+    {
+     "key": "config.owner",
+     "kind": "const",
+     "value": {
+      "owner_principal": "user:boss",
+      "writers": [
+       "mcp:owner-board"
+      ]
+     },
+     "revision": 3,
+     "owner": "user:boss",
+     "updated_by": "user:boss",
+     "updated_at": "2026-11-17 01:00:00"
+    }
+   ],
+   "expect": {
+    "ownerLogin": "",
+    "ownerPrincipal": "user:boss",
+    "owners": [
+     "user:boss"
+    ],
+    "writers": [
+     "mcp:owner-board"
+    ],
+    "revision": 3
+   }
+  },
+  {
+   "name": "旧的 owner_login 加上 owner_principal：两个都算属主，作者仍是旧的 odoo: 也采信",
+   "fn": "parseConfig",
+   "args": [
+    {
+     "key": "config.owner",
+     "kind": "const",
+     "value": {
+      "owner_login": "boss",
+      "owner_principal": "user:boss",
+      "writers": [
+       "mcp:owner-board"
+      ]
+     },
+     "revision": 4,
+     "owner": "odoo:boss",
+     "updated_by": "user:boss",
+     "updated_at": "2026-11-17 01:00:00"
+    }
+   ],
+   "expect": {
+    "ownerLogin": "boss",
+    "ownerPrincipal": "user:boss",
+    "owners": [
+     "user:boss",
+     "odoo:boss"
+    ],
+    "writers": [
+     "mcp:owner-board"
+    ],
+    "revision": 4
+   }
+  },
+  {
+   "name": "owner_principal 写法不对不采信",
+   "fn": "parseConfig",
+   "args": [
+    {
+     "key": "config.owner",
+     "kind": "const",
+     "value": {
+      "owner_principal": "boss",
+      "writers": [
+       "mcp:owner-board"
+      ]
+     },
+     "revision": 1,
+     "owner": "boss",
+     "updated_by": "x",
+     "updated_at": "2026-11-17 01:00:00"
+    }
+   ],
+   "expect": {
+    "error": "config.owner 的 owner_principal 要写成 user:<名>"
+   }
+  },
+  {
+   "name": "只写 owner_principal 时，作者是别的主体不采信",
+   "fn": "parseConfig",
+   "args": [
+    {
+     "key": "config.owner",
+     "kind": "const",
+     "value": {
+      "owner_principal": "user:boss",
+      "writers": [
+       "mcp:owner-board"
+      ]
+     },
+     "revision": 1,
+     "owner": "user:mallory",
+     "updated_by": "user:mallory",
+     "updated_at": "2026-11-17 01:00:00"
+    }
+   ],
+   "expect": {
+    "error": "config.owner 的作者是「user:mallory」，与登记的属主 user:boss 不符，不采信"
    }
   }
  ]

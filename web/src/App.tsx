@@ -21,7 +21,7 @@ import SopRunDetail from './pages/SopRunDetail';
 import McpGateways from './pages/McpGateways';
 import OwnerPending from './pages/OwnerPending';
 import Vault from './pages/Vault';
-import { adminActive, adminTokenPresent, checkAdminToken, getAdminToken, odooAdmin, refreshAdminIdentity, setAdminToken, subscribeAdminToken } from './admin-token';
+import { adminActive, adminTokenPresent, adminLogin, checkAdminToken, getAdminToken, refreshAdminIdentity, setAdminToken, subscribeAdminToken } from './admin-token';
 import { marketOnly, marketUrl, onSurface, surface } from './surface';
 import { WEB_EXTENSIONS } from './extensions';
 import { Alert, Button as AButton, Input as AInput, Popover, Result, Tag } from 'antd';
@@ -50,10 +50,10 @@ function MarketOnlyRedirect() {
   return <Result status="info" title="这是业务页面，请在业务面打开" extra={href ? <AButton type="primary" href={href}>去业务面</AButton> : null} />;
 }
 
-/** 管理身份：管理员口令或 Odoo 管理员登录（属主 2026-11-02 撤销「口令只在控制面输入」） */
+/** 管理身份：管理员口令，或持管理员授予的站内账号（属主 2026-11-02 撤销「口令只在控制面输入」；Odoo 2026-11-17 下线） */
 function AdminTokenBadge() {
-  const odoo = React.useSyncExternalStore(subscribeAdminToken, odooAdmin);
-  return <>{odoo && <Tag color="blue" title="当前 Odoo 账号是管理员，管理操作无需另输口令">Odoo 管理员 · {odoo}</Tag>}<AdminTokenInput /></>;
+  const who = React.useSyncExternalStore(subscribeAdminToken, adminLogin);
+  return <>{who && <Tag color="blue" title="当前账号持有管理员授予，管理操作无需另输口令">站内管理员 · {who.replace(/^user:/, '')}</Tag>}<AdminTokenInput /></>;
 }
 
 function AdminTokenInput() {

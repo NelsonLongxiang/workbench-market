@@ -8,7 +8,8 @@
  *   G5 沙箱页：带本台 X-App-Token 的 data/files 放行，异台令牌被拦；查看凭证只对本台、篡改即拦、不能当顶层页面打开；预检放行
  *   G6 /mcp：匿名 401（MCP_GATEWAY=off 也被强制开），有效会话 200
  *   G7 本机命令行放行；浏览器标记的本机请求不算命令行；X-Admin-Token 头放行
- *   G8 Odoo：内部员工会话放行，门户账号被拦；登录中继只放登录用的那一个入口；WS 升级匿名断开
+ *   G8 Odoo 已下线（2026-11-17）：Odoo 会话（内部员工、管理员都一样）不再认人，一律 401；登录页没有「用 Odoo 登录」；
+ *      以前匿名可开的登录中继入口也被拦；WS 升级匿名断开
  *   G9 A2A：签名卡片放行；/a2a/direct 放行到路由、无签名 → 401
  *   G13 来源 IP：同机反代（对端回环）时按 X-Real-IP / X-Forwarded-For 最右一项分桶限频、审计记真实 IP；对端不是本机时转发头一律不信
  *   G12 按 run 凭据：读凭证只放行该 run 的读与附件下载，上传令牌只放行该 run（执行中）的附件上传；换 run、伪造、吊销、结束都拦
@@ -255,33 +256,21 @@ try {
   ok('G7 远程带有效 X-Admin-Token → 200', (await req(B, 'GET', '/api/apps', { ...REMOTE, 'x-admin-token': ADMIN })).status === 200);
   ok('G7 远程带错误 X-Admin-Token → 401', (await req(B, 'GET', '/api/apps', { ...REMOTE, 'x-admin-token': 'nope' })).status === 401);
 
-  // G8 Odoo
+  // G8 Odoo 已下线：旧变量还指着假 Odoo，Odoo 会话一律不认
   {
     const internal = { ...REMOTE, cookie: 'session_id=internalsession0000000001' };
-    ok('G8 Odoo 内部员工会话 → 200', (await req(B, 'GET', '/api/apps', internal)).status === 200);
+    ok('G8 Odoo 内部员工会话 → 401（不再认人）', (await req(B, 'GET', '/api/apps', internal)).status === 401);
     const me = await (await req(B, 'GET', '/api/auth/me', internal)).json();
-    ok('G8 /api/auth/me 报 Odoo 身份与登录名', me.via === 'odoo' && me.login === 'gate.internal');
-    {
-      // #389：统一待办读面认 Odoo 管理员；登录门下远程只带 Odoo 会话（不带口令）也要与口令管理员同为全量
-      await req(B, 'POST', '/api/sop/runs', {}, { slug: 'gate-sop', started_by: 'gate-smoke' }); // 本机命令行播一条待办
-      const viaToken = await req(B, 'GET', '/api/tasks', { ...REMOTE, 'x-admin-token': ADMIN });
-      const viaOdoo = await req(B, 'GET', '/api/tasks', { ...REMOTE, cookie: 'session_id=adminsession0000000001' });
-      const tj = await viaToken.json(), oj = await viaOdoo.json();
-      const titles = (j) => JSON.stringify((j.tasks ?? []).map((t) => t.title).sort());
-      const notAuthorized = (j) => Object.entries(j.sources ?? {}).some(([, v]) => v?.error === 'source_not_authorized');
-      ok('G8 Odoo 管理员（只带会话）/api/tasks → 200，与口令管理员同为全量', viaToken.status === 200 && viaOdoo.status === 200 && titles(oj) === titles(tj) && (tj.tasks ?? []).length > 0 && !notAuthorized(oj), `${viaToken.status}/${viaOdoo.status} ${titles(oj).slice(0, 80)} vs ${titles(tj).slice(0, 80)}`);
-      const viaInternal = await req(B, 'GET', '/api/tasks', internal);
-      const ij = await viaInternal.json().catch(() => ({}));
-      ok('G8 对照：Odoo 普通内部员工过了登录门，但 /api/tasks 不是全量', ij.error !== 'login_required' && !(viaInternal.status === 200 && titles(ij) === titles(tj) && !notAuthorized(ij)), `${viaInternal.status} ${JSON.stringify(ij).slice(0, 120)}`);
-    }
+    ok('G8 /api/auth/me 带 Odoo 会话：没认出人', me.authenticated === false && me.via === null && me.login === null, JSON.stringify(me));
+    const viaOdoo = await req(B, 'GET', '/api/tasks', { ...REMOTE, cookie: 'session_id=adminsession0000000001' });
+    ok('G8 Odoo 管理员（只带会话）/api/tasks → 401：Odoo 管理员认定已下线', viaOdoo.status === 401, String(viaOdoo.status));
     ok('G8 Odoo 门户账号 → 401', (await req(B, 'GET', '/api/apps', { ...REMOTE, cookie: 'session_id=portalsession00000000001' })).status === 401);
     ok('G8 无效 Odoo 会话 → 401', (await req(B, 'GET', '/api/apps', { ...REMOTE, cookie: 'session_id=unknownsession0000000001' })).status === 401);
     const page = await (await req(B, 'GET', '/login', PAGE)).text();
     const relay = `${odooGo}?return=%2Flogin`;
-    ok('G8 登录页给出「用 Odoo 登录」与口令两种方式', page.includes('用 Odoo 登录') && page.includes('输入管理员口令登录') && page.includes(JSON.stringify(relay)));
+    ok('G8 登录页没有「用 Odoo 登录」，只有口令（和发会话的登录方式）', !page.includes('用 Odoo 登录') && !page.includes('odoo-logout') && page.includes('输入管理员口令登录') && !page.includes(JSON.stringify(relay)));
     const rl = await req(B, 'GET', relay, PAGE);
-    const rlt = await rl.text();
-    ok('G8 登录中继匿名可开（只出跳转页）', rl.status === 200 && rlt.includes(`${ODOO}/web/login`) && !rlt.includes('odoo-fixture-404'));
+    ok('G8 以前匿名可开的登录中继入口（Odoo 台带 return=/login）→ 拦，不出跳转页', rl.status === 302 && !(await rl.text()).includes('/web/login'));
     ok('G8 同一 Odoo 台去掉 return → 拦', (await req(B, 'GET', odooGo, PAGE)).status === 302);
     ok('G8 同一 Odoo 台的子路径 → 拦', (await req(B, 'GET', `${odooGo}web/login?return=%2Flogin`, PAGE)).status === 302);
     ok('G8 return 换成别的页 → 拦', (await req(B, 'GET', `${odooGo}?return=%2Ftasks`, PAGE)).status === 302);
