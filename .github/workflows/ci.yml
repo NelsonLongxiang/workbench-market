@@ -148,6 +148,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/admin-token-browser.mjs
+      - name: 当前用户 chip（/api/auth/viewer：200 显示是谁·401 去站内登录页·403 停用可退出·503 只提示不清会话·不开弹窗）
+        env:
+          PYTHON: python
+        run: node scripts/viewer-refresh-build.mjs && "$PYTHON" scripts/viewer-refresh-browser.py tmp/viewer-refresh/fixture.js
       - name: 全站登录门浏览器回归（enforce：登录页·沙箱自产台子资源/图片/内嵌·SPA 401 去登录·退出·next 防外跳）
         env:
           PYTHON: python
@@ -614,8 +618,10 @@ jobs:
         run: node scripts/extensions-smoke.mjs
       - name: 扩展的路由报动作（ctx.routes.add：动作名、路径命名空间、方法与类别、谁能调；直接挂的点名计数，enforce 拒绝启动；快照 --extensions 单列、不写 surfaces/）
         run: node scripts/extension-routes-smoke.mjs
-      - name: Odoo 弹窗登录链接单测（return 换成当前页·只回 path）
-        run: node scripts/odoo-login-href-unit.mjs
+      - name: 登录入口地址单测（Odoo 下线后只认本站 /login·外站不用·回首页的换成回到当前页）
+        run: node scripts/login-href-unit.mjs
+      - name: 门户名单写法单测（新写站内账号·历史 odoo: 项原样保留）
+        run: node scripts/portal-logins-unit.mjs
       - name: Odoo 浏览器登录地址策略（WM_ODOO_BROWSER_URL）
         run: node scripts/odoo-browser-origin-test.mjs
       - name: 来源 IP 单测（WM_TRUSTED_PROXIES：可信反代才认 X-Real-IP/XFF·伪造不生效·非法项拒绝启动）

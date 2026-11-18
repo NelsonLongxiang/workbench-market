@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { Alert, App, Button, Form, Input, Modal, Space, Table, Tag, Tooltip, Typography } from 'antd';
-import { adminActive, apiFetch, loginRequired, odooAdmin, redirectToLogin, subscribeAdminToken } from '../admin-token';
+import { adminActive, adminLogin, apiFetch, loginRequired, redirectToLogin, subscribeAdminToken } from '../admin-token';
 import { api } from '../api';
 import WmPage from '../components/WmPage';
 import AlsoInAttention from '../components/AlsoInAttention';
@@ -28,7 +28,7 @@ async function ownerPut(id: number, key: string, body: Record<string, unknown>):
 
 export default function OwnerPending() {
   const admin = useSyncExternalStore(subscribeAdminToken, adminActive);
-  const viewer = useSyncExternalStore(subscribeAdminToken, odooAdmin);
+  const viewer = useSyncExternalStore(subscribeAdminToken, adminLogin);
   const { message } = App.useApp();
   const [boardId, setBoardId] = useState<number | null>(null);
   const [config, setConfig] = useState<BoardConfig | null>(null);

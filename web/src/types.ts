@@ -18,7 +18,7 @@ export interface Workbench {
   enabled: boolean;
   health_path: string;
   auth: AuthConfig | null;
-  /** 门户 /go/ 访问范围：all=登录即可 · admin=仅管理员 · listed=管理员+指定 Odoo 账号 */
+  /** 门户 /go/ 访问范围：all=登录即可 · admin=仅管理员 · listed=管理员+指定的人（user:<站内账号>；odoo:<登录名> 是 Odoo 下线前的历史项） */
   access?: 'all' | 'admin' | 'listed';
   access_logins?: string[];
   last_status: HealthStatus;
