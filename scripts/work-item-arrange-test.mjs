@@ -99,6 +99,12 @@ try {
     const detail = await call('GET', `/api/work-items/${b.item_id}`, ALPHA);
     const it = detail.body?.item ?? {};
     check(detail.status === 200 && it.creator_principal === 'user:alpha' && it.created_by === 'user:alpha', '建立人是本人：请求体自报的建立人、提需求人、发布人一概不认', show({ status: detail.status, cp: it.creator_principal, by: it.created_by }));
+    // 派工信封里的 submitter 同样不认请求体自报的（这一次自报的是 user:beta）：是经身份服务认出来的本人
+    {
+      const d = dbr(); let raw = ''; try { raw = d.prepare('SELECT message FROM workbench_event_deliveries WHERE event_id = ? ORDER BY id LIMIT 1').get(b.event_id)?.message ?? ''; } finally { d.close(); }
+      let env = null; try { env = JSON.parse(raw.slice(raw.indexOf('{'))); } catch { /* 不是 JSON */ }
+      check(env?.submitter === 'user:alpha' && env?.submitter_kind === 'human', '派工信封的 submitter 也不认请求体自报的提交人（自报 user:beta，信封是 user:alpha）', show({ submitter: env?.submitter, kind: env?.submitter_kind }));
+    }
     check(it.title === '对一下上周的出货' && it.target_team === 'dsh/canvas/team-a' && it.object === 'po:7' && it.phase === '对账', '标题取任务标题，派给是选中的团队，object、phase 带上', show({ t: it.title, team: it.target_team, o: it.object, p: it.phase }));
     check(show(deliveries(b.event_id)) === show([{ target_team: 'dsh/canvas/team-a', status: 'held' }]), '投递只有选中的那一个团队，等放行（held）', show(deliveries(b.event_id)));
     const other = await call('GET', `/api/work-items/${b.item_id}`, BETA);
@@ -483,6 +489,14 @@ try {
         const r = await fetch(`${base}/api/work-items/attachments/${raw}`, { method: 'PUT', headers: { 'content-type': 'application/octet-stream', ...ALPHA }, body: Buffer.from('x') });
         let j = null; try { j = await r.json(); } catch { /* 不是 JSON */ }
         check(r.status === 400 && j?.error === 'attachment_name_invalid', `上传附件：${raw} 解码后是路径分隔符或 ..，照样 400`, show({ status: r.status, body: j }));
+      }
+      // 路径的形状：附件名只能是一段。多一段、结尾多一个斜杠的，总门照样当成要口令的写（403），不落盘
+      // （Express 默认不区分结尾斜杠，总门这条要是放宽成别的形状，a.txt/ 会被当成 a.txt 收下）
+      for (const tail of ['a/b.txt', 'a.txt/']) {
+        const before = (() => { const d = dbr(); try { return d.prepare('SELECT COUNT(*) AS n FROM work_item_attachments').get().n; } finally { d.close(); } })();
+        const r = await fetch(`${base}/api/work-items/attachments/${tail}`, { method: 'PUT', headers: { 'content-type': 'application/octet-stream', ...ALPHA }, body: Buffer.from('x') });
+        const after = (() => { const d = dbr(); try { return d.prepare('SELECT COUNT(*) AS n FROM work_item_attachments').get().n; } finally { d.close(); } })();
+        check(r.status === 403 && after === before, `上传附件：…/attachments/${tail} 不是一段，总门 403、不落盘`, show({ status: r.status, before, after }));
       }
     }
     // 安排时带附件：正文只带引用（名字、大小、sha256、取件地址），不带内容
