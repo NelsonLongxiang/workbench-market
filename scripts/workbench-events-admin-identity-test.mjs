@@ -3,10 +3,11 @@
  * 工作台事件的读写面认会话登录的管理员（ADMIN_IDENTITY_PATHS 加 workbench-events）。这是放宽访问，带对抗：
  *
  *   一、路径匹配只多这一组：把 index.ts 里的正则对 surfaces/routes.json 的全部路由各取一个样本路径，
- *       匹配到的集合钉成一张表；和去掉 workbench-events 这一项的正则比，只多 /api/workbench-events 的四条
- *   二、起一个隔离实例（假的登录提供方，NODE_ENV=test），对 /api/workbench-events 的列表、详情、放行：
- *       · 口令管理员：照旧能看、能放行
- *       · 会话登录的管理员：现在能看、能放行（有意放开，放行是写操作）
+ *       匹配到的集合钉成一张表；和去掉 workbench-events 这一项的正则比，只多 /api/workbench-events 的三条
+ *   二、起一个隔离实例（假的登录提供方，NODE_ENV=test），对 /api/workbench-events 的列表、详情：
+ *       · 口令管理员：照旧能看
+ *       · 会话登录的管理员：现在能看（有意放开）
+ *       · 管理员旧的放行入口已退役（放行经事项的入口，负责人放、没有负责人时管理层代办）：谁来都 404
  *       · 会话登录的非管理员、远程匿名、提供方不认的会话：照旧 403，应答和管理门原来的一样
  *       · 停用的主体：和一个早就在名单里的管理读面（/api/change-requests）同一个结果
  *       · 决定端点凭回复令牌，不看管理员：会话登录的管理员不带令牌照旧被拒
@@ -87,8 +88,8 @@ const EXPECTED = [
   "PUT /api/mcp/upstreams",
   "PUT /api/tasks/read-grants",
   "PUT /api/vault/entries/:id",
-  // 这次加的：工作台事件的列表、详情、放行、决定（写的两条本来就过写请求总门、那里已经认定，实际变的是两条读）
-  'GET /api/workbench-events', 'GET /api/workbench-events/:eventId', 'POST /api/workbench-events/:eventId/release', 'POST /api/workbench-events/:eventId/decision',
+  // 这次加的：工作台事件的列表、详情、决定（决定本来就过写请求总门、那里已经认定，实际变的是两条读）。管理员的放行入口已退役
+  'GET /api/workbench-events', 'GET /api/workbench-events/:eventId', 'POST /api/workbench-events/:eventId/decision',
 ];
 const ADDED = EXPECTED.filter((r) => r.includes('/api/workbench-events'));
 
@@ -101,7 +102,7 @@ const events = await import(at('server/src/workbench-events.ts'));
 events.initWorkbenchEvents();
 db.prepare("INSERT INTO bindings (target_type, target_slug, agent_node, direction, notify_url) VALUES ('sop', 'task-center', 'team-a', 'notify', 'http://team-a.synthetic.invalid/a2a')").run();
 const ids = [];
-for (const id of [701, 702]) { db.exec('BEGIN IMMEDIATE'); ids.push(events.recordTaskCenterEvent({ id, data: {}, stepValue: () => '', publishedBy: 'alpha', templateVersion: 1, materialSha256: 'c'.repeat(64), agentDispatch: false, centerOn: false })); db.exec('COMMIT'); }
+for (const id of [701, 702]) { db.exec('BEGIN IMMEDIATE'); ids.push(events.recordTaskCenterEvent({ id, data: {}, stepValue: () => '', publishedBy: 'alpha', templateVersion: 1, materialSha256: 'c'.repeat(64), agentDispatch: false, centerOn: false , arranged: { team: 'team-a', submitter: 'human:alpha' } })); db.exec('COMMIT'); }
 console.log('SEEDED ' + JSON.stringify(ids));
 `;
 
@@ -158,9 +159,9 @@ try {
   // 会话登录的管理员：现在能看、能放行
   const s1 = await call('GET', '/api/workbench-events', sessionAdmin), s2 = await call('GET', `/api/workbench-events/${ev1}`, sessionAdmin);
   check(s1.status === 200 && s1.body.length === 2 && s2.status === 200, '会话登录的管理员：列表、详情现在能看（有意放开）', show([s1.status, s1.body, s2.status]));
-  const rel = await call('POST', `/api/workbench-events/${ev1}/release`, sessionAdmin, {});
+  const rel = await call('POST', `/api/workbench-events/${ev1}/release`, sessionAdmin, {}), relToken = await call('POST', `/api/workbench-events/${ev1}/release`, token, {});
   const after = await call('GET', `/api/workbench-events/${ev1}`, token);
-  check(rel.status === 200 && after.body.deliveries.every((d) => d.status !== 'held') && after.body.log.some((l) => l.action === 'released'), '会话登录的管理员：放行能做（写操作；改前就能，写请求总门里已经认定），投递离开搁置、留了一行 released', show([rel.status, rel.body]));
+  check(rel.status === 404 && relToken.status === 404 && after.body.deliveries.every((d) => d.status === 'held') && !after.body.log.some((l) => l.action === 'released'), '管理员旧的放行入口已退役：会话管理员、口令来放都是 404，投递照旧搁置、没有 released', show({ rel: rel.status, relToken: relToken.status }));
 
   // 照旧被拒的
   const denied = [
@@ -170,11 +171,11 @@ try {
     ['口令不对', { ...SAME, 'x-admin-token': 'not-the-token' }],
   ];
   for (const [who, h] of denied) {
-    const rs = [await call('GET', '/api/workbench-events', h), await call('GET', `/api/workbench-events/${ev2}`, h), await call('POST', `/api/workbench-events/${ev2}/release`, h, {})];
-    check(rs.every((r) => r.status === 403 && String(r.body?.error ?? '').startsWith(GUARD_403)), `${who}：列表、详情、放行照旧 403，应答是管理门原来那一句`, show(rs.map((r) => [r.status, r.body])));
+    const rs = [await call('GET', '/api/workbench-events', h), await call('GET', `/api/workbench-events/${ev2}`, h)];
+    check(rs.every((r) => r.status === 403 && String(r.body?.error ?? '').startsWith(GUARD_403)), `${who}：列表、详情照旧 403，应答是管理门原来那一句`, show(rs.map((r) => [r.status, r.body])));
   }
   const still = await call('GET', `/api/workbench-events/${ev2}`, token);
-  check(still.body.deliveries.every((d) => d.status === 'held'), '被拒的放行没有生效：第二个事件仍然搁置');
+  check(still.body.deliveries.every((d) => d.status === 'held'), '没有放行：第二个事件仍然搁置');
 
   // 决定端点凭回复令牌：会话登录的管理员不带令牌照旧被拒
   const dec = await call('POST', `/api/workbench-events/${ev2}/decision`, sessionAdmin, { decision: 'accept', reason: 'x' });

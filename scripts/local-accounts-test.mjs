@@ -13,7 +13,7 @@
  *       6 应答和日志里没有密码材料：列表里没有哈希、日志里没有临时密码和新密码
  *       7 停用之后：已有的会话立即失效，再登录只给等待页、不发会话
  *       8 重置密码：旧会话注销；新的临时密码又要先改
- *       9 本人改密码：原密码不对 403；对了改好，旧会话注销
+ *       9 本人改密码：来源不对（Sec-Fetch-Site 跨站、同站）403，原密码对也不改；原密码不对 403；对了改好，旧会话注销
  *      10 同一来源输错太多：先歇一分钟（429）
  *   四、站内管理员（P2）：持生效中的 owner / admin 授予（范围 *）的人是管理员——owner 完整，admin 只管系统、看不到业务数据；待放行、收回、过期、管理层授予、停用都不算；
  *       whoami 说是授予、留痕记主体；不能放行别人的 admin 授予、不能放行授给自己的、不能停用自己；跨站写 403
@@ -239,6 +239,12 @@ try {
   }
   {
     const alice = (await login('alice', 'Alice-pass-0002')).b;
+    // 来源不对就 403（#802）：原密码给对了也不改。只带 Sec-Fetch-Site、不带 Origin，核的是这条路由自己的那道检查
+    for (const site of ['cross-site', 'same-site']) {
+      const r = await alice.go('POST', '/api/local-accounts/_self/password', { json: { current: 'Alice-pass-0002', next: 'Alice-pass-0009' }, headers: { 'sec-fetch-site': site } });
+      check(r.status === 403 && /来源/.test(r.text ?? ''), `9 本人改密码，Sec-Fetch-Site: ${site}：403，原密码对也不改`, r.status);
+    }
+    check((await me(alice))?.principal === 'user:alice', '9 来源不对的两次之后：会话还在（没改、没注销）');
     const bad = await alice.go('POST', '/api/local-accounts/_self/password', { json: { current: 'not-it-0000', next: 'Alice-pass-0003' } });
     check(bad.status === 403, '9 本人改密码：原密码不对 403', bad.status);
     const ok = await alice.go('POST', '/api/local-accounts/_self/password', { json: { current: 'Alice-pass-0002', next: 'Alice-pass-0003' } });

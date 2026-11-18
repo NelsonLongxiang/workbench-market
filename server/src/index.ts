@@ -16,7 +16,7 @@ import { countSubmission, countSubmitterTicket } from './services/submission-cou
 import { sealSelfCheck } from './services/login-session.ts';
 import { serveAppHtml } from './app-html.ts';
 import { initSubmitterTickets, issueSubmitterTicket, selfCheckSubmitterTickets, submitterFromTicket } from './submitter-ticket.ts';
-import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
+import { initializeTaskCenter, taskCenterSteps, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
 import { recordAppDataEvent, cancelTaskCenterDeliveries, kickWorkbenchEvents, startWorkbenchEventWorker, registerWorkbenchEventRoutes } from './workbench-events.ts';
 import cors from 'cors';
 import { createPortalObservation } from './portal-observation.ts';
@@ -89,7 +89,7 @@ import { cardDeleterOf, checkCardDeletable, deleteCardWithBench, type CardDelete
 import { BenchError } from './bench-query.ts';
 import { registerChangeRequestRoutes } from './routes/change-requests.ts';
 import { registerSopStateRoutes, registerSopSpaceRoutes } from './routes/sops.ts';
-import { registerTaskIntakeRoutes, registerTaskReadRoutes, registerTaskControlRoutes } from './routes/task-center.ts';
+import { registerTaskReadRoutes, registerTaskControlRoutes } from './routes/task-center.ts';
 import { registerSkillRoutes } from './routes/skills.ts';
 import { startSkillShadowCatchUp } from './skill-shadow.ts';
 import { registerMcpRoutes } from './routes/mcp.ts';
@@ -130,6 +130,7 @@ import { designStandard } from './design-standard.ts';
 import { mountVault } from './vault-api.ts';
 import { expectedSha256, uploadIntegrity, type UploadIntegrity } from './upload-integrity.ts';
 import { UploadTickets, UPLOAD_TICKET_TTL_MS, type UploadTicket } from './upload-tickets.ts';
+import { uploadNameOk, UPLOAD_NAME_INVALID } from './upload-file-name.ts';
 import { loadConfig } from './config.ts';
 import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet, workbenchIdOf, reportHotVarKeys, reportHotPending, setVarsStoreMode, startHotVarsFlush, flushHotVars, Config as VarsConfig } from './workbench-vars.ts';
 import { registerWorkbenchVarsRoutes } from './routes/workbench-vars.ts';
@@ -1616,6 +1617,8 @@ function uploadKindOrThrow(path: string, size: number, name: string, reported: s
 }
 /** 自产台文件入库核心：浏览器 multipart 与 MCP REST（原始字节 PUT / multipart）共用——已落盘的文件按内容核类型（不符删盘 415）后写 app_files */
 async function appFileStoreCore(slug: string, f: { path: string; size: number; name: string; reportedMime: string; createdBy: string; note: string; sha256?: string }) {
+  // 文件名在这里再核一次：multipart 两个入口的名字只经过 fixFileName，到这里才第一次核；不合法就删掉已落盘的文件
+  if (!uploadNameOk(f.name)) { rmSync(f.path, { force: true }); throw new HttpError(400, UPLOAD_NAME_INVALID); }
   const kind = uploadKindOrThrow(f.path, f.size, f.name, f.reportedMime);
   // 存储相对路径（dataDir 内，随数据目录迁移）
   const rel = f.path.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
@@ -2312,6 +2315,8 @@ async function skillPublishCore(slugIn: unknown, files: any, changelogIn: unknow
     if (f.path.includes('\\')) bad(`path 非法（禁反斜杠）: ${f.path}`);
     if (f.path.startsWith('/') || /^[A-Za-z]:/.test(f.path)) bad(`path 非法（禁绝对路径）: ${f.path}`);
     for (const seg of f.path.split('/')) if (seg === '' || seg === '.' || seg === '..') bad(`path 非法（空/. / .. 段）: ${f.path}`);
+    // 每一段和上传文件名同一条规则（upload-file-name.ts）：控制字符、DEL、方向控制符都拒；路径原样回显会被方向控制符倒着显示，所以转义后再写
+    for (const seg of f.path.split('/')) if (!uploadNameOk(seg)) bad(`path 非法（含控制字符或方向控制符）: ${JSON.stringify(f.path).replace(/[^\x20-\x7e]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'))}`);
     if (SKILL_PKG_RESERVED.has(f.path)) bad(`path ${f.path} 是技能包保留名（市场打包时生成）`);
   }
   // #94 S0③（K6）：同名重复路径拒收（同 path 两义——内容静默覆盖防）
@@ -2837,8 +2842,7 @@ function sameOriginGuard(req: express.Request, res: express.Response): boolean {
 }
 
 // ---- 任务中心 8 端点（读开放·写删人审·C13 元台只能人工面） ----
-registerTaskIntakeRoutes(http, { sameOriginGuard, adminGuard });
-registerWorkbenchEventRoutes(http, { admin: adminGuard, sameOrigin: (req) => sameOriginGuard(req, undefined as never), actor: (req) => (!browserMarked(req) && rawLoopback(req) ? 'cli' : adminActor(req)) });
+registerWorkbenchEventRoutes(http, { admin: adminGuard });
 registerTaskReadRoutes(http, { wrap, adminHeaderOk, runReadCapHeader });
 registerSopRunAccessRoutes(http, { adminGuard, sopRunRow, bad });
 registerTaskControlRoutes(http, { readActiveManifest, sameOriginGuard, adminGuard });
@@ -3192,7 +3196,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       if (args?.content_base64 === undefined) {
         // 不带 content_base64：申请上传票。台、文件名、文件数余量现在就核，免得字节传完了才被拒。
         if (!slug || !name) throw new HttpError(400, 'slug/name 必填');
-        if (name.length > 255 || name === '.' || name === '..' || /[\/\\\x00-\x1f]/.test(name)) throw new HttpError(400, '文件名不合法（≤255 字符，不含路径分隔符与控制字符）');
+        if (!uploadNameOk(name)) throw new HttpError(400, UPLOAD_NAME_INVALID);
         const { size, sha256 } = ticketSizeSha(args, UPLOAD_MAX);
         const a = getApp(slug, true);
         if ((await appFilesQuota(a.slug)).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`);
@@ -3203,7 +3207,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       }
       const b64 = String(args?.content_base64 ?? '');
       if (!slug || !name || !b64) throw new HttpError(400, 'slug/name/content_base64 必填');
-      if (name.length > 255 || name === '.' || name === '..' || /[\/\\\x00-\x1f]/.test(name)) throw new HttpError(400, '文件名不合法（≤255 字符，不含路径分隔符与控制字符）');
+      if (!uploadNameOk(name)) throw new HttpError(400, UPLOAD_NAME_INVALID);
       const a = getApp(slug, true);
       // 完整性：有的 MCP 客户端会把过长的参数截短（常见截在 64KB）。截在 4 的倍数上的 base64 照样能解码，
       // 不核就会把残缺文件当正常文件存下。所以：base64 严格校验；调用方带了 size / sha256 就逐项对；
@@ -3943,7 +3947,7 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
     return res.status(err.status ?? 400).json({ error: err.type === 'entity.too.large' ? '请求体过大' : '请求体不是合法 JSON' });
   }
   const msg = String(err?.message ?? err);
-  let status = err instanceof HttpError || err instanceof TaskIntakeError ? err.status : 500;
+  let status = err instanceof HttpError ? err.status : 500;
   if (status === 500 && VALIDATION_ERR_PREFIX.some((p) => msg.startsWith(p))) status = 400;
   if (isStartupProbeRequest(_req)) {
     if (status === 500) console.error(JSON.stringify({ source: 'self-probe', event: 'handler-error', status }));

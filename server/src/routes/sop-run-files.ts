@@ -16,6 +16,7 @@ import { dataDir, type SopRunRow } from '../db.ts';
 import type { SopService } from '../services/sop.ts';
 import { HttpError } from '../errors.ts';
 import { expectedSha256, uploadIntegrity } from '../upload-integrity.ts';
+import { uploadNameOk, UPLOAD_NAME_INVALID } from '../upload-file-name.ts';
 import { authorizeRunRead } from '../sop-read-auth.ts';
 import type { Sniff } from '../file-sniff.ts';
 
@@ -130,6 +131,8 @@ export function registerSopRunFileRoutes(app: HttpService, deps: SopRunFilesDeps
         const createdBy = typeof req.body?.created_by === 'string' ? req.body.created_by.trim().slice(0, 128) : '';
         const rel = req.file.path.replace(dataDir, '').split(pathSep).join('/').replace(/^\/+/, '');
         const originalName = fixFileName(req.file.originalname);
+        // 文件名和台文件上传同一条规则；不合法就删掉已落盘的文件
+        if (!uploadNameOk(originalName)) { rmSync(req.file.path, { force: true }); bad(UPLOAD_NAME_INVALID); }
         // 期望的 sha256：请求头 X-Content-SHA256 或表单字段 sha256（都带时须一致），不符拒收、不保存
         const fromHeader = expectedSha256(req.headers['x-content-sha256']), fromField = expectedSha256(req.body?.sha256);
         if (fromHeader === 'bad' || fromField === 'bad' || (fromHeader !== null && fromField !== null && fromHeader !== fromField)) {

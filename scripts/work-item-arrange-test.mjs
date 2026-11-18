@@ -359,7 +359,14 @@ try {
     check(ch.body?.notified === 0 && ch.body.pending_release === true && notesOf(past.body?.event_id).length === 0 && heldBody.status === 'held' && dueInBody(heldBody.message) === '2099-01-02'
       && clr.body?.notified === 0 && clr.body.pending_release === true && dueInBody(msgOf(future.body?.event_id).message) === '',
       '等放行时改截止：notified 0、pending_release 真，不排变更；还没发的派工正文里 task.due 换成新的（清掉就是空）', show({ ch: ch.body, clr: clr.body, held: heldBody.status, due: dueInBody(heldBody.message), notes: notesOf(past.body?.event_id).length }));
-    const rel = await call('POST', `/api/workbench-events/${past.body?.event_id}/release`, ADMIN, {});
+    // 放行经事项的入口（管理员旧的放行入口已退役）：团队没有负责人，由持有管理层授予的人代办——本机命令行给 root-admin 起草、提交、批准一份
+    await call('GET', '/api/auth/me', { ...SAME, cookie: `session_id=${SESSIONS.admin}` }); // 认一次，主体表里才有 root-admin
+    const g = await call('POST', '/api/grants', {}, { principal: 'user:root-admin', role: 'management', scope: '*', reason: '合成：代办放行' });
+    if (!g.body?.grant?.id) throw new Error(`管理层授予起草失败：${show(g)}`);
+    await call('POST', `/api/grants/${g.body?.grant?.id}/submit`, {}, {});
+    const ga = await call('POST', `/api/grants/${g.body?.grant?.id}/approve`, {}, {});
+    if (!(ga.status >= 200 && ga.status < 300)) throw new Error(`管理层授予没搭起来：${show(ga)}`);
+    const rel = await call('POST', `/api/work-items/${past.body?.item_id}/release`, { ...SAME, cookie: `session_id=${SESSIONS.admin}` }, {});
     const relBody = msgOf(past.body?.event_id);
     check(rel.status === 200 && relBody.status !== 'held' && (relBody.status === 'sent' || dueInBody(relBody.message) === '2099-01-02'),
       '等放行期间改了截止，放行之后派出去的正文带的是新期限', show({ rel: rel.status, st: relBody.status, due: dueInBody(relBody.message) }));
@@ -446,6 +453,11 @@ try {
       '上传附件：登录的人传原始字节，带 X-Content-SHA256 核对过（sha256-verified），不带也能传', show({ a1: a1.body, a2: a2.body }));
     check(wrong.status === 400 && wrong.body?.error === 'sha256_mismatch' && asJson.status === 415 && anon.status === 401,
       '上传附件：sha256 对不上 400 不保存；按 JSON 发 415（请求体已被读走，不存空文件）；远程匿名 401', show({ wrong: wrong.status, asJson: asJson.status, anon: anon.status }));
+    // 文件名和台文件上传同一条规则（upload-file-name.ts）：DEL、方向控制符（U+202E 能让名字倒着显示）都拒
+    for (const [label, name] of [['DEL', 'x\u007f.txt'], ['U+202E', 'x\u202e.txt'], ['U+2066', 'x\u2066.txt'], ['U+200F', 'x\u200f.txt']]) {
+      const r = await up(ALPHA, name, Buffer.from('合成'));
+      check(r.status === 400 && r.body?.error === 'attachment_name_invalid', `上传附件：文件名带 ${label} 拒收（400 attachment_name_invalid）`, show({ status: r.status, body: r.body }));
+    }
     // 安排时带附件：正文只带引用（名字、大小、sha256、取件地址），不带内容
     const withAtt = await call('POST', '/api/work-items', ALPHA, form({ attachments: [a1.body?.id, a2.body?.id] }));
     const d = dbr(); let msgRow; try { msgRow = d.prepare('SELECT id, message FROM workbench_event_deliveries WHERE event_id = ?').get(withAtt.body?.event_id); } finally { d.close(); }

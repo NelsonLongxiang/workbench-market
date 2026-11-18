@@ -131,14 +131,6 @@ export function assignableTeams(): Target[] {
   return notifyTargets('sop', 'task-center');
 }
 
-/** 任务录入的「目标 SOP 台」：按 slug 或标题匹配一个已发布的 SOP；匹配不到返回 '' */
-function resolveTargetSop(value: unknown): string {
-  const v = typeof value === 'string' ? value.trim() : '';
-  if (v === '') return '';
-  const hit = db.prepare("SELECT slug FROM apps WHERE kind = 'sop' AND status = 'published' AND (slug = ? OR title = ?) ORDER BY id LIMIT 1").get(v, v) as { slug: string } | undefined;
-  return hit?.slug ?? '';
-}
-
 interface EventCore {
   source: 'task-center' | 'app-data';
   workbench: string;
@@ -206,50 +198,41 @@ function recordEvent(core: EventCore, targets: Target[], routed: 'target' | 'def
 }
 
 /**
- * 任务中心人工发布 → human 事件。在 publishTaskIntake 的同一事务里调用（发布与事件同生同灭）。
- * 派发开关（任务级 × 中心级）没全开时投递记为 held：只记录「本来会派给谁」，管理员 release 后才发。
+ * 「安排一件事」→ human 事件。在 arrangeTask 的同一事务里调用（任务与事件同生同灭）。只派给选中的那一个团队（必须是 assignableTeams 之一）。
+ * 不直接派出（agentDispatch × centerOn 没全开）时投递记为 held：只记录「本来会派给谁」，负责人放行（releaseCore）后才发。
+ * 旧的「录入 run → 管理员发布」按目标 SOP 台或任务中心的全部通知绑定扇出、没有绑定记 unrouted 的那条路已退役。
  */
 export function recordTaskCenterEvent(task: { id: number; data: Record<string, unknown>; stepValue: (key: string) => unknown; publishedBy: string; requesterPrincipal?: string | null; publisherPrincipal?: string | null; templateVersion: number | null; materialSha256: string; agentDispatch: boolean; centerOn: boolean;
-  /** 「安排一件事」：直接指定派给的团队（必须是 assignableTeams 之一），不按「目标 SOP 台」解析；submitter 用本人主体；object、phase 记进 recorded */
-  arranged?: { team: string; submitter: string; object?: string; phase?: string;
+  /** 「安排一件事」：派给的团队（必须是 assignableTeams 之一）；submitter 用本人主体；object、phase 记进 recorded */
+  arranged: { team: string; submitter: string; object?: string; phase?: string;
     /** 规范 14：交给方式、等谁过目、指名的席位（seatId）。阶段七的指名派工经这里写；不给就是交给团队、按 held 推等谁过目 */
     handoff?: 'team' | 'own-seat' | 'lead-directed'; reviewBy?: '' | 'lead' | 'requester'; directedSeatId?: string; directedFallback?: { seat_id: string; reason: string };
     /** 从哪个驾驶舱安排的（调用方已经核过驾驶舱存在） */
     cockpitId?: number;
     /** 附件（只带引用）：信封里列名字、类型、大小、sha256 和取件地址，内容不进正文 */
     attachments?: { id: number; name: string; mime: string; size: number; sha256: string }[] } }): string {
-  let targetSop = '';
-  let targets: Target[];
-  let routed: 'target' | 'default' | 'unrouted' = 'target';
-  if (task.arranged) {
-    targets = assignableTeams().filter((t) => t.agent_node === task.arranged!.team);
-    if (targets.length !== 1) throw new Error('派给的团队不在可派的团队里');
-  } else {
-    targetSop = resolveTargetSop(task.stepValue('target'));
-    targets = targetSop !== '' ? notifyTargets('sop', targetSop) : [];
-    if (targets.length === 0) { targets = notifyTargets('sop', 'task-center'); routed = 'default'; }
-    if (targets.length === 0) routed = 'unrouted';
-  }
+  const targets = assignableTeams().filter((t) => t.agent_node === task.arranged.team);
+  if (targets.length !== 1) throw new Error('派给的团队不在可派的团队里');
   const contextId = `wb:task-center:${task.id}`;
   const core: EventCore = {
-    source: 'task-center', workbench: targetSop !== '' ? targetSop : 'task-center', item: `task:${task.id}`, contextId,
-    submitterKind: 'human', submitter: task.arranged ? task.arranged.submitter : `human:${task.publishedBy}`, formVersion: task.templateVersion, dataSha256: task.materialSha256, dispatch: true,
+    source: 'task-center', workbench: 'task-center', item: `task:${task.id}`, contextId,
+    submitterKind: 'human', submitter: task.arranged.submitter, formVersion: task.templateVersion, dataSha256: task.materialSha256, dispatch: true,
     requester: task.requesterPrincipal ?? null, publisher: task.publisherPrincipal ?? null,
-    ...(task.arranged?.object ? { object: task.arranged.object } : {}), ...(task.arranged?.phase ? { phase: task.arranged.phase } : {}),
-    handoff: task.arranged?.handoff ?? 'team', ...(task.arranged?.reviewBy !== undefined ? { reviewBy: task.arranged.reviewBy } : {}),
-    ...(task.arranged?.directedSeatId ? { directedSeatId: task.arranged.directedSeatId } : {}),
-    ...(task.arranged?.cockpitId ? { cockpitId: task.arranged.cockpitId } : {}),
-    ...(task.arranged?.directedFallback ? { directedFallback: task.arranged.directedFallback } : {}),
+    ...(task.arranged.object ? { object: task.arranged.object } : {}), ...(task.arranged.phase ? { phase: task.arranged.phase } : {}),
+    handoff: task.arranged.handoff ?? 'team', ...(task.arranged.reviewBy !== undefined ? { reviewBy: task.arranged.reviewBy } : {}),
+    ...(task.arranged.directedSeatId ? { directedSeatId: task.arranged.directedSeatId } : {}),
+    ...(task.arranged.cockpitId ? { cockpitId: task.arranged.cockpitId } : {}),
+    ...(task.arranged.directedFallback ? { directedFallback: task.arranged.directedFallback } : {}),
   };
   const fields: Record<string, unknown> = { id: task.id };
   for (const key of ['title', 'intent', 'references', 'deliverable', 'target', 'due']) fields[key] = task.stepValue(key) ?? '';
   if (typeof fields.due === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fields.due)) core.due = fields.due;
-  return recordEvent(core, targets, routed, !(task.agentDispatch && task.centerOn), `${MARKET_TEAM}/${sopNode8('task-center')}`, (eventId, createdAt) => ({
+  return recordEvent(core, targets, 'target', !(task.agentDispatch && task.centerOn), `${MARKET_TEAM}/${sopNode8('task-center')}`, (eventId, createdAt) => ({
     type: 'workbench-event', v: WORKBENCH_EVENT_VERSION, event_id: eventId, source: core.source, workbench: core.workbench, item: core.item,
     context_id: contextId, submitter_kind: core.submitterKind, submitter: core.submitter, form_version: core.formVersion,
     data_sha256: core.dataSha256, created_at: createdAt, dispatch: true, task: fields,
     // 附件：只给引用。取件：GET <url>，请求头 X-Reply-Token 带下面 reply.token（和回写决定同一个令牌、同样的有效期）
-    ...(task.arranged?.attachments?.length ? {
+    ...(task.arranged.attachments?.length ? {
       attachments: task.arranged.attachments.map((a) => ({ name: a.name, mime: a.mime, size: a.size, sha256: a.sha256, url: `${marketPublicUrl()}/api/workbench-events/${eventId}/attachments/${a.id}` })),
       attachments_fetch: 'GET 每个附件的 url，请求头 X-Reply-Token 带这条消息 reply.token 的值；令牌和回写决定同一个，送达后 7 天内有效',
     } : {}),
@@ -437,9 +420,8 @@ function eventView(e: any) {
   return { ...e, dispatch: e.dispatch === 1, deliveries };
 }
 
-export function registerWorkbenchEventRoutes(app: HttpService, guards: { admin: (req: express.Request, res: express.Response) => boolean; sameOrigin: (req: express.Request) => boolean;
-  /** 放行的人（留痕里的写法）：本机命令行 cli，口令 admin-token，会话登录的管理员 odoo:<登录名>。以前写死成 human:admin */
-  actor: (req: express.Request) => string }): void {
+/** 管理员读事件和投递；接单节点回写决定。放行只经事项的入口（POST /api/work-items/:id/release，负责人放；团队没有负责人时管理层代办），管理员旧的放行入口已退役 */
+export function registerWorkbenchEventRoutes(app: HttpService, guards: { admin: (req: express.Request, res: express.Response) => boolean }): void {
   // 列表 / 详情：管理员读（含目标团队与地址；reply token 永不出现在读面）
   app.get('/api/workbench-events', { action: 'workbench-event.list', kind: 'admin' }, (req, res) => {
     if (!guards.admin(req, res)) return;
@@ -453,14 +435,6 @@ export function registerWorkbenchEventRoutes(app: HttpService, guards: { admin: 
     if (!e) return res.status(404).json({ error: 'event not found' });
     const logRows = db.prepare('SELECT delivery_id, at, actor, action, detail FROM workbench_event_log WHERE event_id = ? ORDER BY id').all(req.params.eventId);
     res.set('Cache-Control', 'no-store').json({ ...eventView(e), log: logRows });
-  });
-  // release：观察期的人工确认——把这个事件的 held 投递转为 pending
-  app.post('/api/workbench-events/:eventId/release', { action: 'workbench-event.release', kind: 'decide' }, (req, res) => {
-    if (!guards.sameOrigin(req)) return res.status(403).json({ error: '跨源拒绝' });
-    if (!guards.admin(req, res)) return;
-    const eventId = req.params.eventId;
-    const out = releaseCore(eventId, guards.actor(req));
-    res.status(out.status).json(out.body);
   });
   // 决定：接单节点凭投递里的 reply token 回写。ask 可再改；accept/decline 是终态。
   app.post('/api/workbench-events/:eventId/decision', { action: 'workbench-event.decision', kind: 'write', statusNotVerdict: '接单节点凭投递里的 reply token 回写，不是登录身份的结论' }, (req, res) => {

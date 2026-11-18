@@ -1,7 +1,7 @@
 {
   "domain": "workbench-events",
-  "what": "工作台事件的管理面与回写面：列表、详情（管理员读）、放行一次投递（管理员，同源）、接单节点凭 reply token 回写决定，共 4 条路由（在 server/src/workbench-events.ts）。response 是改成经 HTTP 服务注册之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
-  "routes": ["GET /api/workbench-events", "GET /api/workbench-events/:eventId", "POST /api/workbench-events/:eventId/release", "POST /api/workbench-events/:eventId/decision"],
+  "what": "工作台事件的管理面与回写面：列表、详情（管理员读）、接单节点凭 reply token 回写决定，共 3 条路由（管理员的放行入口已退役，放行经事项的入口）（在 server/src/workbench-events.ts）。response 是改成经 HTTP 服务注册之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /api/workbench-events", "GET /api/workbench-events/:eventId", "POST /api/workbench-events/:eventId/decision"],
   "exempt": [
     { "route": "GET /api/workbench-events", "class": "invalid", "why": "limit 读不成数或越界就用缺省或夹到范围里，没有会被拒的参数", "shown_by": "open/list-limit-bad" },
     { "route": "POST /api/workbench-events/:eventId/decision", "class": "unauthorized", "why": "凭投递里的 reply token 放行，不看身份；token 不对和查无同答 404（不泄露事件是否存在）", "shown_by": "open/decide-ask" }
@@ -582,151 +582,6 @@
           }
         },
         {
-          "id": "release-remote",
-          "route": "POST /api/workbench-events/:eventId/release",
-          "class": "unauthorized",
-          "what": "远程不带口令：拦下，不放",
-          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000001/release", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
-          "response": {
-            "status": 403,
-            "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
-          }
-        },
-        {
-          "id": "release-cross",
-          "route": "POST /api/workbench-events/:eventId/release",
-          "class": "unauthorized",
-          "what": "跨站带口令：403 跨源拒绝，不放",
-          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000001/release", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": {} },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
-        },
-        {
-          "id": "release-local",
-          "route": "POST /api/workbench-events/:eventId/release",
-          "class": "unauthorized",
-          "what": "本机不带口令：按管理守卫的应答",
-          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000001/release", "headers": {}, "json": {} },
-          "response": {
-            "status": 403,
-            "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
-          }
-        },
-        {
-          "id": "after-denied",
-          "what": "读回：两条投递还是 held",
-          "request": { "method": "GET", "path": "/api/workbench-events/wbe-0000000000000001", "headers": { "x-admin-token": "replay-synthetic-admin" } },
-          "response": {
-            "status": 200,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "981", "etag": "W/\"3d5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": {
-              "id": 1,
-              "event_id": "wbe-0000000000000001",
-              "source": "app-data",
-              "workbench": "replay-wb",
-              "item": "app:replay-1",
-              "context_id": "ctx-replay-1",
-              "submitter_kind": "human",
-              "submitter": "seed",
-              "form_version": 1,
-              "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-              "dispatch": true,
-              "routed": "target",
-              "created_at": "YYYY-MM-DD hh:mm:ss",
-              "deliveries": [
-                { "id": 1, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "held", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
-                { "id": 2, "target_team": "replay-zone/team-b", "target_url": "http://127.0.0.1:9", "status": "held", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
-              ],
-              "log": [{ "delivery_id": null, "at": "YYYY-MM-DD hh:mm:ss", "actor": "market", "action": "recorded", "detail": "{}" }]
-            }
-          }
-        },
-        {
-          "id": "release-unknown",
-          "route": "POST /api/workbench-events/:eventId/release",
-          "class": "invalid",
-          "what": "没有这个事件：404",
-          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000099/release", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
-          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "event not found" } }
-        },
-        {
-          "id": "release-none-held",
-          "route": "POST /api/workbench-events/:eventId/release",
-          "class": "invalid",
-          "what": "没有 held 的投递：409",
-          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000002/release", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
-          "response": {
-            "status": 409,
-            "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "89", "etag": "W/\"59-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "该事件没有待确认（held）的投递", "event_id": "wbe-0000000000000002" }
-          }
-        },
-        {
-          "id": "release",
-          "route": "POST /api/workbench-events/:eventId/release",
-          "class": "normal",
-          "what": "放行：两条 held 转 pending（对外断开开着，worker 不发，状态停在 pending）",
-          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000001/release", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
-          "response": {
-            "status": 200,
-            "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "ok": true, "event_id": "wbe-0000000000000001", "released": 2 }
-          }
-        },
-        {
-          "id": "after-release",
-          "what": "读回：两条投递 pending，日志多两行 released；本机回环带口令的请求，放行的人记成 cli（本机命令行）",
-          "request": { "method": "GET", "path": "/api/workbench-events/wbe-0000000000000001", "headers": { "x-admin-token": "replay-synthetic-admin" } },
-          "response": {
-            "status": 200,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "1173", "etag": "W/\"495-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": {
-              "id": 1,
-              "event_id": "wbe-0000000000000001",
-              "source": "app-data",
-              "workbench": "replay-wb",
-              "item": "app:replay-1",
-              "context_id": "ctx-replay-1",
-              "submitter_kind": "human",
-              "submitter": "seed",
-              "form_version": 1,
-              "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-              "dispatch": true,
-              "routed": "target",
-              "created_at": "YYYY-MM-DD hh:mm:ss",
-              "deliveries": [
-                { "id": 1, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "pending", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
-                { "id": 2, "target_team": "replay-zone/team-b", "target_url": "http://127.0.0.1:9", "status": "pending", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
-              ],
-              "log": [
-                { "delivery_id": null, "at": "YYYY-MM-DD hh:mm:ss", "actor": "market", "action": "recorded", "detail": "{}" },
-                { "delivery_id": 1, "at": "YYYY-MM-DD hh:mm:ss", "actor": "cli", "action": "released", "detail": "{}" },
-                { "delivery_id": 2, "at": "YYYY-MM-DD hh:mm:ss", "actor": "cli", "action": "released", "detail": "{}" }
-              ]
-            }
-          }
-        },
-        {
-          "id": "release-again",
-          "route": "POST /api/workbench-events/:eventId/release",
-          "class": "invalid",
-          "what": "再放一次：没有 held 了，409",
-          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000001/release", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
-          "response": {
-            "status": 409,
-            "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "89", "etag": "W/\"59-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "该事件没有待确认（held）的投递", "event_id": "wbe-0000000000000001" }
-          }
-        },
-        {
           "id": "decide-bad-id",
           "route": "POST /api/workbench-events/:eventId/decision",
           "class": "invalid",
@@ -991,49 +846,6 @@
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
-        },
-        {
-          "id": "login-release",
-          "route": "POST /api/workbench-events/:eventId/release",
-          "class": "unauthorized",
-          "what": "登录的非管理员放行：拦下",
-          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000001/release", "headers": { "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
-          "response": {
-            "status": 403,
-            "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
-          }
-        },
-        {
-          "id": "login-after",
-          "what": "读回（管理口令）：还是 held",
-          "request": { "method": "GET", "path": "/api/workbench-events/wbe-0000000000000001", "headers": { "x-admin-token": "replay-synthetic-admin" } },
-          "response": {
-            "status": 200,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "981", "etag": "W/\"3d5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": {
-              "id": 1,
-              "event_id": "wbe-0000000000000001",
-              "source": "app-data",
-              "workbench": "replay-wb",
-              "item": "app:replay-1",
-              "context_id": "ctx-replay-1",
-              "submitter_kind": "human",
-              "submitter": "seed",
-              "form_version": 1,
-              "data_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-              "dispatch": true,
-              "routed": "target",
-              "created_at": "YYYY-MM-DD hh:mm:ss",
-              "deliveries": [
-                { "id": 1, "target_team": "replay-zone/team-a", "target_url": "http://127.0.0.1:9", "status": "held", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
-                { "id": 2, "target_team": "replay-zone/team-b", "target_url": "http://127.0.0.1:9", "status": "held", "attempts": 0, "last_error": "", "sent_at": "", "decision": "", "decision_reason": "", "decision_ref": "", "decided_by": "", "decided_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
-              ],
-              "log": [{ "delivery_id": null, "at": "YYYY-MM-DD hh:mm:ss", "actor": "market", "action": "recorded", "detail": "{}" }]
-            }
-          }
         }
       ]
     },
@@ -1103,19 +915,6 @@
           "class": "unauthorized",
           "what": "登录门开着：远程匿名 401",
           "request": { "method": "GET", "path": "/api/workbench-events", "headers": { "x-forwarded-for": "198.51.100.7" } },
-          "response": {
-            "status": 401,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "114", "etag": "W/\"72-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
-            "body": { "error": "login_required", "message": "需要登录：用站内账号或管理员口令登录", "login_url": "/login" }
-          }
-        },
-        {
-          "id": "gated-release",
-          "route": "POST /api/workbench-events/:eventId/release",
-          "class": "unauthorized",
-          "what": "登录门开着：远程匿名放行 401",
-          "request": { "method": "POST", "path": "/api/workbench-events/wbe-0000000000000001/release", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
           "response": {
             "status": 401,
             "type": "application/json; charset=utf-8",
