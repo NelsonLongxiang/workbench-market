@@ -13,7 +13,7 @@ import { identity, sourceDown } from './identity.ts';
 import { warnOffboardedOdoo } from './retired-env.ts';
 import { requestPerson, hasLoginCredential } from './request-person.ts';
 import { countSubmission, countSubmitterTicket } from './services/submission-counts.ts';
-import { sealSelfCheck } from './services/login-session.ts';
+import { renewalSelfCheck, sealSelfCheck } from './services/login-session.ts';
 import { serveAppHtml } from './app-html.ts';
 import { initSubmitterTickets, issueSubmitterTicket, selfCheckSubmitterTickets, submitterFromTicket } from './submitter-ticket.ts';
 import { initializeTaskCenter, taskCenterSteps, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
@@ -132,6 +132,7 @@ import { expectedSha256, uploadIntegrity, type UploadIntegrity } from './upload-
 import { UploadTickets, UPLOAD_TICKET_TTL_MS, type UploadTicket } from './upload-tickets.ts';
 import { uploadNameOk, UPLOAD_NAME_INVALID } from './upload-file-name.ts';
 import { loadConfig } from './config.ts';
+import { Config as SessionPolicyConfig, sessionRenewal, type SessionLife } from './session-policy.ts';
 import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet, workbenchIdOf, reportHotVarKeys, reportHotPending, setVarsStoreMode, startHotVarsFlush, flushHotVars, Config as VarsConfig } from './workbench-vars.ts';
 import { registerWorkbenchVarsRoutes } from './routes/workbench-vars.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
@@ -199,12 +200,13 @@ const SOP_RUN_WRITE: SopRunWriteMode = (() => {
   try { return sopRunWriteMode(process.env.WM_SOP_RUN_WRITE); } catch (e) { console.error(`[sop-run] 拒绝启动：${(e as Error).message}`); process.exit(1); }
 })();
 if (SOP_RUN_WRITE === 'warn') console.warn('[sop-run] WM_SOP_RUN_WRITE=warn：没带写凭据的保存、完成照旧放行，只计数留痕（上线过渡用，过渡完设回 enforce）');
-// 市场会话的绝对期限（WM_SESSION_TTL_MIN，分钟，缺省 720 = 12 小时，范围 15～10080）：启动时读一次，不合法拒绝启动。不续期
-const SESSION_TTL_MIN = (() => {
-  const raw = String(process.env.WM_SESSION_TTL_MIN ?? '').trim();
-  const n = raw === '' ? 720 : /^[0-9]{1,5}$/.test(raw) ? Number(raw) : NaN;
-  if (!Number.isInteger(n) || n < 15 || n > 10080) { console.error('[session] 拒绝启动：WM_SESSION_TTL_MIN 只接受 15～10080 的整数（分钟）'); process.exit(1); }
-  return n;
+// 市场会话的期限（session-policy.ts：WM_SESSION_IDLE_DAYS 滑动窗口、WM_SESSION_MAX_DAYS 绝对上限，旧的 WM_SESSION_TTL_MIN 兼容并警告）：启动时读一次，不合法拒绝启动
+const { life: SESSION_LIFE, legacyOnly: SESSION_LEGACY_ONLY } = ((): { life: SessionLife; legacyOnly: boolean } => {
+  try {
+    const { life, warnings, legacyOnly } = loadConfig(SessionPolicyConfig);
+    for (const w of warnings) console.warn(`[session] ${w}`);
+    return { life, legacyOnly };
+  } catch (e) { console.error(`[session] 拒绝启动：${(e as Error).message}`); process.exit(1); }
 })();
 /** 记成经验那几处认人用（管理口令认成内置身份，不能记） */
 const rememberActorOf = actorResolver({ adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined) });
@@ -222,12 +224,12 @@ const loginGate = createLoginGate({
     if (!who.ok) return who.held ? { held: true as const } : sourceDown(who) ? { down: true as const } : null; // 卡在主体那一步：登录门给等待页；身份来源不可达：接口回 502 identity_unavailable
     return { login: who.viewer.login, admin: who.viewer.admin, ...(who.via === 'session' ? { via: 'session' as const } : {}) };
   },
-  // 身份来源刚认出来的人：由市场维持会话（期限 WM_SESSION_TTL_MIN）。回答取自上面那份 30 秒缓存，不多问一次来源
+  // 身份来源刚认出来的人：由市场维持会话（期限见 session-policy.ts）。回答取自上面那份 30 秒缓存，不多问一次来源
   openSession: async (req) => {
     const cookie = String(req.headers.cookie ?? '');
     const who = await loginGateViewer(cookie);
     if (!who.ok || who.via === 'session') return null;
-    return identity().openSession(cookie, who, SESSION_TTL_MIN * 60_000);
+    return identity().openSession(cookie, who, SESSION_LIFE);
   },
   loginFlows: () => identity().flows(),
   profile: async (req) => {
@@ -354,6 +356,7 @@ if (A2A_FOLLOWUP_RATE === null) {
 /** 取卡或验签这一步的失败：只有调用方在绑定上登记了取卡地址时才可能区分，对外不能露出来 */
 const FETCH_STEP_REFUSALS: ReadonlySet<string> = new Set(['unregistered', 'no-card', 'not-derivable', 'bad-sig']);
 const directSig = createDirectSigVerifier({ audiences: () => [marketPublicUrl()], bodyMode: A2A_DIRECT_SIG_BODY, refreshCooldownMs: A2A_CARD_COOLDOWN_MS });
+app.use(sessionRenewal(SESSION_LIFE)); // 一次登录持续保持：带着市场会话来的 /api/ 请求，满一天续一次（session-policy.ts）
 app.use(loginGate.middleware);
 const portalObserver = process.env.WM_PORTAL_OBSERVE === '1' ? createPortalObservation(db, id => !!svc<WorkbenchService>('workbench').exists(id)) : null;
 app.use((req, _res, next) => { if (surfaceOf(req) === 'market') portalObserver?.observe(req); next(); });
@@ -2730,7 +2733,7 @@ try {
   if (managementGrantHolders() === 0) console.warn('[work-items] 注意：当前没有任何主体持有管理层授予；团队没有负责人时，等过目的事项没人能代办放行。上线前确认至少一人有管理层授予');
 } catch { /* 授予服务没装上 */ }
 registerLoginGateRoutes(http, loginGate.routeDeps); // /login、/api/auth/login|logout|me（解析器之后、SPA 回落之前）
-registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionTtlMs: SESSION_TTL_MIN * 60_000 });
+registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionLife: SESSION_LIFE });
 registerLoginEventRoutes(http); // /login/<方式>/events：离职、停用的失效通知；每天一次对账 // /login/<方式>、/login/<方式>/callback：飞书等发市场会话的登录
 
 // ---------- A2A 网络接入（GH #17 P1：签名卡片 + 人工绑定，只读暴露） ----------
@@ -4032,7 +4035,7 @@ const goServer = registerSurface(app, 'market', PORT, () => {
 
 const controlServer = SURFACE_PORTS.control ? registerSurface(app, 'control', SURFACE_PORTS.control) : undefined;
 
-void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, benchViews: BENCH_VIEWS.on, outbound: outboundOff() ? verifyOutboundGate : undefined, sessionSeal: sealSelfCheck, portalForward: verifyPortalForwardStrip, portalSessionStrip: verifyPortalSessionStrip }).then((result) => {
+void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, benchViews: BENCH_VIEWS.on, outbound: outboundOff() ? verifyOutboundGate : undefined, sessionSeal: sealSelfCheck, sessionRenewal: () => renewalSelfCheck(SESSION_LIFE), sessionLegacyTtl: SESSION_LEGACY_ONLY, portalForward: verifyPortalForwardStrip, portalSessionStrip: verifyPortalSessionStrip }).then((result) => {
   if (!result.passed) return refuseUnsafeStartup();
   startupPassed(); // 放开启动闸：事项回填这类后台任务从这里开始（自检没过不开始）
   startRedis();

@@ -193,7 +193,7 @@
               "cache-control": "no-store",
               "content-length": "28",
               "location": "/tasks",
-              "set-cookie": ["wm_login_state=; Path=/login/feishu/callback; Expires=<时间>; HttpOnly; SameSite=Lax", "wm_session=<每个实例随机·43>; Max-Age=<约720分>; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "set-cookie": ["wm_login_state=; Path=/login/feishu/callback; Expires=<时间>; HttpOnly; SameSite=Lax", "wm_session=<每个实例随机·43>; Max-Age=<约43200分>; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"],
               "vary": "Origin, Accept",
               "x-powered-by": "Express"
             },

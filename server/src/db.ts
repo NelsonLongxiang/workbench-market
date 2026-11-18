@@ -821,7 +821,7 @@ CREATE INDEX IF NOT EXISTS idx_principal_identities_principal ON principal_ident
 //   principal_pending：等管理员对接的清单。只放认人需要的最少信息（对方的用户标识、显示名、企业邮箱）和最近一次来的时间；
 //     保留 30 天，过期清掉（见 services/principal.ts）。
 //   login_events_seen：登录方式推来的事件（比如飞书通讯录变更）处理过的事件号，防重放；多个实例共用，保留 7 天。
-//   market_sessions：登录之后发给浏览器的会话（cookie 里是随机值，库里只存哈希）。绝对期限，不续期；
+//   market_sessions：登录之后发给浏览器的会话（cookie 里是随机值，库里只存哈希）。滑动续期加绝对上限（见下面 renewed_at、max_expires_at）；
 //     注销即 revoked_at；主体停用由认人时现查主体状态管住。provider/external_id 记着这次是凭哪条外部身份进来的（留痕用）。
 db.exec(`
 CREATE TABLE IF NOT EXISTS login_states (
@@ -865,6 +865,10 @@ CREATE TABLE IF NOT EXISTS principal_pending (
 if (!hasColumn('market_sessions', 'upstream_sealed')) db.exec('ALTER TABLE market_sessions ADD COLUMN upstream_sealed TEXT');
 // 来源轮换过几次（市场跟着换了存下的会话号）：诊断用——轮换之后又被来源否掉的，日志里会标出来
 if (!hasColumn('market_sessions', 'upstream_renewals')) db.exec('ALTER TABLE market_sessions ADD COLUMN upstream_renewals INTEGER NOT NULL DEFAULT 0');
+// 一次登录持续保持（session-policy.ts）：renewed_at 上次续期的时刻（毫秒），max_expires_at 登录时定下的绝对上限（毫秒）。
+//   都是可空的整数列，旧会话两列为空：按「上次续期 = 创建时刻、上限 = 原来的到期时刻」算，不会被延长。换 PG 时照搬为 BIGINT
+if (!hasColumn('market_sessions', 'renewed_at')) db.exec('ALTER TABLE market_sessions ADD COLUMN renewed_at INTEGER');
+if (!hasColumn('market_sessions', 'max_expires_at')) db.exec('ALTER TABLE market_sessions ADD COLUMN max_expires_at INTEGER');
 // 站内账号（docs/local-accounts.md）：用户名加密码的登录方式 local 的账号。对应主体经外部身份（provider=local, external_id=用户名）连着，
 //   这里不存主体。password_hash 只放 scrypt 的结果和参数（scrypt$N$r$p$盐$哈希，都是 base64url），从不放明文；
 //   must_change：管理员发的临时密码，下次登录先改了才能进；failed_count / locked_until：连续输错的计数和锁到什么时候（毫秒）。
