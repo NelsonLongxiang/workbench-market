@@ -43,7 +43,7 @@
 | 2026-11-18 | `docs/productization/09-constraint-system.md` | 改写：第四、六节挪进文末「历史」 | 原位置 | 11-10 的基线和落地批次已落地；现在的数字以 tech-route.json 为准 | #833 |
 | 2026-11-18 | `docs/productization/11-identity-and-permission.md` | 改写：第一、二、六、七节原文挪进文末「历史」，正文第一、七节写现在的口径 | 原位置 | 站内账号（属主 11-16）、Odoo 全面下线（11-17）改掉了「飞书直连、不存密码、不做登录页」和过渡步骤 | #833 |
 | 2026-11-18 | `docs/productization/README.md` | 改链接 | 原位置 | 指向 04、14 的链接改到归档位置（#825 合并之后） | #833 |
-| 2026-11-18 | `docs/productization/11-identity-and-permission.md`、`docs/productization/README.md` | 改写：11 的开头那句、第三节「默认提供方飞书的要点」、附录 6d 的说明原文挪进文末「历史」，正文换成新口径；README 第 11 行摘要直接改 | 原位置 | 和 #833 新写的第一节矛盾的旧口径（飞书直连、等飞书启用再关旧登录）；#833 评审指出 | 本 PR |
+| 2026-11-18 | `docs/productization/11-identity-and-permission.md`、`docs/productization/README.md` | 改写：11 的开头那句、第三节「默认提供方飞书的要点」、附录 6d 的说明原文挪进文末「历史」，正文换成新口径；README 第 11 行摘要直接改 | 原位置 | 和 #833 新写的第一节矛盾的旧口径（飞书直连、等飞书启用再关旧登录）；#833 评审指出 | #834 |
 
 ## 这一批没动、以后再处理的
 
