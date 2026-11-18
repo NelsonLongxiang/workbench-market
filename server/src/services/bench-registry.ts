@@ -71,10 +71,12 @@ export function unopenedCard(ref: unknown): { workbench_id: number; name: string
 }
 /**
  * 一个台在申请表里可能被写成的样子：台标识本身，对应了卡片的还有卡片 id 和 wb-<卡片 id>。
- * 申请表照会话写的原样存（不替会话把卡片号换成台标识：那样应答就透露了台开没开），读、批、驳回时按这几种一起认
+ * 申请表照会话写的原样存（不替会话把卡片号换成台标识：那样应答就透露了台开没开），读、批、驳回时按这几种一起认。
+ * wb-<卡片 id> 只在台标识就是它时才算（那时它就是 slug 本身）：卡片对应的是别的名字的台时，resolveBenchRef 和工具调用
+ * 都不把 wb-<卡片 id> 换成那个台，批也批不到；这里要是认了，管理页上会显示一条批不了的待批申请。三处认法一致
  */
 export function benchAliases(b: Pick<BenchEntry, 'slug' | 'workbench_id'>): string[] {
-  return [...new Set([b.slug, ...(b.workbench_id === null ? [] : [String(b.workbench_id), cardSlug(b.workbench_id)])])];
+  return [...new Set([b.slug, ...(b.workbench_id === null ? [] : [String(b.workbench_id)])])];
 }
 const inList = (n: number): string => Array(n).fill('?').join(', ');
 

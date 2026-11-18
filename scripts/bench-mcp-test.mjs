@@ -405,8 +405,12 @@ try {
   const hg = await tool(srv, H.token, 'access_request', { tools: [`dataset_list@bench:wb-${WG}`], reason: '写成了 wb-<卡片 id>' });
   const gListed = mine(await attention(mgr)).some((x) => x.source_id.endsWith(`:${hg.json?.request?.id}`));
   const gApprove = await srv.call('POST', `/api/bench-views/wb-${WG}/mcp-requests/${hg.json?.request?.id}`, { ...mgr, body: { approve: true } });
-  check(linkG.status === 201 && hg.json?.ok === true && !gListed && gApprove.status === 404 && db.prepare('SELECT COUNT(*) AS n FROM bench_views WHERE workbench_id = ?').get(WG).n === 1,
-    '卡片已对应了别的台、申请写成 wb-<卡片 id>：不进清单，批是 404，不会再开一个台库', { link: linkG.status, listed: gListed, approve: gApprove.status });
+  const gViaLinked = await srv.call('POST', `/api/bench-views/linked-g/mcp-requests/${hg.json?.request?.id}`, { ...mgr, body: { approve: true } });
+  // 认法三处一致：清单、台上的管理页、批。管理页上显示待批、却从这个台批不了，只能等它到期——不该出现
+  const gPage = await srv.call('GET', '/api/bench-views/linked-g/mcp-grants', mgr);
+  check(linkG.status === 201 && hg.json?.ok === true && !gListed && gApprove.status === 404 && gViaLinked.status === 404 && db.prepare('SELECT COUNT(*) AS n FROM bench_views WHERE workbench_id = ?').get(WG).n === 1,
+    '卡片已对应了别的台、申请写成 wb-<卡片 id>：不进清单，批是 404（两个路径都是），不会再开一个台库', { link: linkG.status, listed: gListed, approve: gApprove.status, viaLinked: gViaLinked.status });
+  check(gPage.status === 200 && !gPage.json?.requests?.some((x) => x.id === hg.json?.request?.id), '这种申请也不出现在那个台的管理页上（显示了也批不了）', gPage.json?.requests?.map((x) => `${x.id}:${x.status}`));
   const WF = mkCard('合成卡片丁');
   const h7 = await tool(srv, H.token, 'access_request', { tools: [`dataset_list@bench:${WF}`], reason: '开库那一条' });
   const h8 = await tool(srv, H.token, 'access_request', { tools: [`dataset_snapshots@bench:${WF}`], reason: '开台库之前提的，留到删卡片' });
