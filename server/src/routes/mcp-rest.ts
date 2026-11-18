@@ -111,7 +111,7 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
     const note = typeof req.query.note === 'string' ? req.query.note.trim().slice(0, 500) : '';
     const createdBy = typeof req.query.created_by === 'string' && req.query.created_by.trim() ? req.query.created_by.trim().slice(0, 128) : (sess ? `mcp:${sess.name}` : '');
     await mcpRestRun(sess, 'app_files_upload', 'file_upload', { slug: req.params.slug, name }, async () => {
-      if (!name || name.length > 255 || name === '.' || name === '..' || /[\/\\\x00-\x1f]/.test(name)) bad('文件名不合法（≤255 字符，不含路径分隔符与控制字符）');
+      if (!name || name.length > 255 || name === '.' || name === '..' || /[\/\\\x00-\x1f\x7f؜‎‏‪-‮⁦-⁩]/.test(name)) bad('文件名不合法（≤255 字符，不含路径分隔符与控制字符）');
       // 期望的 sha256（请求头 X-Content-SHA256，可选）：带了就在落库前核对，不符拒收、不保存
       const wantSha = expectedSha256(req.headers['x-content-sha256']);
       if (wantSha === 'bad') bad('X-Content-SHA256 须为 64 位十六进制');

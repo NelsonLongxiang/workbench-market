@@ -4,6 +4,7 @@
  * 独立实例：全新 DATA_DIR、合成的管理口令、MCP_GATEWAY=on、GitHub 替身仓库发一个合成自产台。
  *  一、UTF-8 名字原样存：合成.csv（修之前被存成 "\b\u0010.csv"）、交付.csv、emoji、本来就带 Ã 的名字、英文名
  *  二、不合法的名字拒收、不保存：带 /、\、..、控制字符、. 和 ..、超 255 字符
+ *  三、DEL（0x7f）和方向控制符（U+202A～202E、U+2066～2069、U+200E/200F、U+061C）：base64、上传票、REST 原始字节三个入口都拒收
  * 测试数据都是合成的。
  */
 import { spawn } from 'node:child_process';
@@ -74,6 +75,25 @@ try {
     ok(`${J(name.length > 40 ? name.slice(0, 12) + '…(' + name.length + ')' : name)}：拒收`, r.isError && /文件名不合法/.test(r.text), r.text.slice(0, 120));
   }
   ok('上面这些一个都没进文件面', (await listed()).length === before);
+
+  console.log('三、DEL 和方向控制符：三个入口（base64、上传票、REST 原始字节）都拒收');
+  // U+202E 能把「txt.exe」显示成「exe.txt」那类倒序；DEL 和 C0 一样是控制字符
+  const sneaky = ['x\u007f.txt', 'x‮.txt', 'x‪.txt', 'x⁦.txt', 'x⁩.txt', 'x‎.txt', 'x‏.txt', 'x؜.txt'];
+  const bytes = Buffer.from('合成内容');
+  const sha = (await import('node:crypto')).createHash('sha256').update(bytes).digest('hex');
+  for (const name of sneaky) {
+    const label = J(name).replace(/[^\x20-\x7e]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+    const b64 = await up(name);
+    ok(`${label} base64：拒收`, b64.isError && /文件名不合法/.test(b64.text), b64.text.slice(0, 120));
+    const ticket = await tool(token, 'app_files_upload', { slug: 'name-app', name, size: bytes.length, sha256: sha });
+    ok(`${label} 申请上传票：拒收，不发票`, ticket.isError && /文件名不合法/.test(ticket.text), ticket.text.slice(0, 120));
+    const r = await fetch(`${BASE}/api/mcp-rest/apps/name-app/files/${encodeURIComponent(name)}`, { method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/octet-stream' }, body: bytes });
+    const t = await r.text();
+    ok(`${label} REST 原始字节：400`, r.status === 400 && /文件名不合法/.test(t), `status=${r.status} ${t.slice(0, 120)}`);
+  }
+  ok('三里的名字一个都没进文件面', (await listed()).length === before);
+  const fine = await up('普通‐连字符 «引号».txt');
+  ok('不是方向控制符的 Unicode 标点照样能存', !fine.isError, fine.text.slice(0, 80));
   const edge = await up('x'.repeat(255));
   ok('正好 255 个字符：可以', !edge.isError && edge.payload?.name === 'x'.repeat(255), edge.text.slice(0, 80));
 } catch (e) {
