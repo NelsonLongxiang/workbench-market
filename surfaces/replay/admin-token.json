@@ -81,7 +81,7 @@
           "class": "unauthorized",
           "what": "首次设置、远程：拒",
           "request": { "method": "PUT", "path": "/api/admin-token", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "token": "replay-first-token" } },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "85", "etag": "W/\"55-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "首次设置口令仅限本机命令行/本机页面，或 Odoo 管理员" } }
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "85", "etag": "W/\"55-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "首次设置口令仅限本机命令行/本机页面，或站内管理员" } }
         },
         {
           "id": "first-cross-origin",
@@ -89,7 +89,7 @@
           "class": "unauthorized",
           "what": "首次设置、浏览器从别的站点发来：拒",
           "request": { "method": "PUT", "path": "/api/admin-token", "headers": { "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": { "token": "replay-first-token" } },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "85", "etag": "W/\"55-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "首次设置口令仅限本机命令行/本机页面，或 Odoo 管理员" } }
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "85", "etag": "W/\"55-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "首次设置口令仅限本机命令行/本机页面，或站内管理员" } }
         },
         {
           "id": "first-other-origin",
@@ -97,7 +97,7 @@
           "class": "unauthorized",
           "what": "首次设置、本机但 Origin 是别的主机：拒",
           "request": { "method": "PUT", "path": "/api/admin-token", "headers": { "origin": "https://elsewhere.example" }, "json": { "token": "replay-first-token" } },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "85", "etag": "W/\"55-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "首次设置口令仅限本机命令行/本机页面，或 Odoo 管理员" } }
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "85", "etag": "W/\"55-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "首次设置口令仅限本机命令行/本机页面，或站内管理员" } }
         },
         {
           "id": "first-browser-marked",
@@ -105,7 +105,7 @@
           "class": "unauthorized",
           "what": "首次设置、本机但带浏览器标记、没有 Origin：不算本机命令行，拒",
           "request": { "method": "PUT", "path": "/api/admin-token", "headers": { "sec-fetch-site": "same-origin" }, "json": { "token": "replay-first-token" } },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "85", "etag": "W/\"55-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "首次设置口令仅限本机命令行/本机页面，或 Odoo 管理员" } }
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "85", "etag": "W/\"55-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "首次设置口令仅限本机命令行/本机页面，或站内管理员" } }
         },
         {
           "id": "too-short",
@@ -233,7 +233,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "109", "etag": "W/\"6d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "修改口令需先在请求头带上当前口令（X-Admin-Token），或用 Odoo 管理员登录" }
+            "body": { "error": "修改口令需先在请求头带上当前口令（X-Admin-Token），或用站内管理员登录" }
           }
         },
         {
@@ -246,7 +246,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "109", "etag": "W/\"6d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "修改口令需先在请求头带上当前口令（X-Admin-Token），或用 Odoo 管理员登录" }
+            "body": { "error": "修改口令需先在请求头带上当前口令（X-Admin-Token），或用站内管理员登录" }
           }
         },
         {
@@ -255,7 +255,7 @@
           "class": "unauthorized",
           "what": "改口令、带对的当前口令但浏览器从别的站点发来：拒",
           "request": { "method": "PUT", "path": "/api/admin-token", "headers": { "x-admin-token": "abcd", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": { "token": "replay-first-token" } },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "109", "etag": "W/\"6d-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "修改口令需先在请求头带上当前口令（X-Admin-Token），或用 Odoo 管理员登录" } }
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "109", "etag": "W/\"6d-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "修改口令需先在请求头带上当前口令（X-Admin-Token），或用站内管理员登录" } }
         },
         {
           "id": "change-with-current",
@@ -315,7 +315,7 @@
           "class": "unauthorized",
           "what": "清口令、本机、不带口令：拒",
           "request": { "method": "DELETE", "path": "/api/admin-token" },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "需当前口令或 Odoo 管理员登录" } }
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "需当前口令或站内管理员登录" } }
         },
         {
           "id": "delete-wrong-token",
@@ -323,7 +323,7 @@
           "class": "unauthorized",
           "what": "清口令、带错的口令：拒",
           "request": { "method": "DELETE", "path": "/api/admin-token", "headers": { "x-admin-token": "replay-first-token" } },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "需当前口令或 Odoo 管理员登录" } }
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "需当前口令或站内管理员登录" } }
         },
         {
           "id": "delete-cross-origin",
@@ -331,7 +331,7 @@
           "class": "unauthorized",
           "what": "清口令、带对的口令但浏览器从别的站点发来：拒",
           "request": { "method": "DELETE", "path": "/api/admin-token", "headers": { "x-admin-token": "replay-second-token", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" } },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "需当前口令或 Odoo 管理员登录" } }
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "需当前口令或站内管理员登录" } }
         },
         {
           "id": "delete-with-token",
@@ -368,7 +368,7 @@
           "class": "unauthorized",
           "what": "库里已经没有口令再清：要当前口令，拒",
           "request": { "method": "DELETE", "path": "/api/admin-token", "headers": { "x-admin-token": "replay-second-token" } },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "需当前口令或 Odoo 管理员登录" } }
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "需当前口令或站内管理员登录" } }
         },
         {
           "id": "set-max-length",
@@ -398,7 +398,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "109", "etag": "W/\"6d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "修改口令需先在请求头带上当前口令（X-Admin-Token），或用 Odoo 管理员登录" }
+            "body": { "error": "修改口令需先在请求头带上当前口令（X-Admin-Token），或用站内管理员登录" }
           }
         },
         {
@@ -412,7 +412,7 @@
             "headers": { "x-admin-token": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy", "origin": "https://elsewhere.example" },
             "json": { "token": "replay-first-token" }
           },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "109", "etag": "W/\"6d-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "修改口令需先在请求头带上当前口令（X-Admin-Token），或用 Odoo 管理员登录" } }
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "109", "etag": "W/\"6d-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "修改口令需先在请求头带上当前口令（X-Admin-Token），或用站内管理员登录" } }
         },
         {
           "id": "delete-cross-site-only",
@@ -424,7 +424,7 @@
             "path": "/api/admin-token",
             "headers": { "x-admin-token": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy", "sec-fetch-site": "cross-site" }
           },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "需当前口令或 Odoo 管理员登录" } }
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "需当前口令或站内管理员登录" } }
         },
         {
           "id": "delete-other-origin-only",
@@ -436,7 +436,7 @@
             "path": "/api/admin-token",
             "headers": { "x-admin-token": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy", "origin": "https://elsewhere.example" }
           },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "需当前口令或 Odoo 管理员登录" } }
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "需当前口令或站内管理员登录" } }
         },
         {
           "id": "whoami-max-length",
@@ -529,8 +529,8 @@
           "response": {
             "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
-            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+            "headers": { "cache-control": "no-store", "content-length": "114", "etag": "W/\"72-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用站内账号或管理员口令登录", "login_url": "/login" }
           }
         },
         {
@@ -542,8 +542,8 @@
           "response": {
             "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
-            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+            "headers": { "cache-control": "no-store", "content-length": "114", "etag": "W/\"72-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用站内账号或管理员口令登录", "login_url": "/login" }
           }
         },
         {
@@ -555,8 +555,8 @@
           "response": {
             "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
-            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+            "headers": { "cache-control": "no-store", "content-length": "114", "etag": "W/\"72-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用站内账号或管理员口令登录", "login_url": "/login" }
           }
         },
         {
@@ -568,8 +568,8 @@
           "response": {
             "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
-            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+            "headers": { "cache-control": "no-store", "content-length": "114", "etag": "W/\"72-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用站内账号或管理员口令登录", "login_url": "/login" }
           }
         },
         {
@@ -602,8 +602,8 @@
           "response": {
             "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
-            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+            "headers": { "cache-control": "no-store", "content-length": "114", "etag": "W/\"72-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用站内账号或管理员口令登录", "login_url": "/login" }
           }
         },
         {
@@ -615,8 +615,8 @@
           "response": {
             "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
-            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+            "headers": { "cache-control": "no-store", "content-length": "114", "etag": "W/\"72-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用站内账号或管理员口令登录", "login_url": "/login" }
           }
         }
       ]
@@ -636,8 +636,8 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "48", "etag": "W/\"30-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "admin": true, "via": "odoo", "login": "root-admin" }
+            "headers": { "cache-control": "no-store", "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "admin": true, "via": "grant", "login": "user:root-admin" }
           }
         },
         {
@@ -675,7 +675,7 @@
           "class": "unauthorized",
           "what": "远程、普通员工首次设置：拒",
           "request": { "method": "PUT", "path": "/api/admin-token", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "token": "replay-first-token" } },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "85", "etag": "W/\"55-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "首次设置口令仅限本机命令行/本机页面，或 Odoo 管理员" } }
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "85", "etag": "W/\"55-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "首次设置口令仅限本机命令行/本机页面，或站内管理员" } }
         },
         {
           "id": "first-odoo-admin-remote",
@@ -722,7 +722,7 @@
           "class": "unauthorized",
           "what": "远程、普通员工清口令：拒",
           "request": { "method": "DELETE", "path": "/api/admin-token", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "session_id=fake-internal-alpha-0001" } },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "需当前口令或 Odoo 管理员登录" } }
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "需当前口令或站内管理员登录" } }
         },
         {
           "id": "delete-odoo-admin-remote",

@@ -100,7 +100,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -113,7 +113,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "102", "etag": "W/\"66-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（凭据库读写都要管理员）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（凭据库读写都要管理员）" }
           }
         },
         {
@@ -126,7 +126,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "102", "etag": "W/\"66-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（凭据库读写都要管理员）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（凭据库读写都要管理员）" }
           }
         },
         {
@@ -191,7 +191,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -536,7 +536,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -562,7 +562,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "102", "etag": "W/\"66-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（凭据库读写都要管理员）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（凭据库读写都要管理员）" }
           }
         },
         {
@@ -644,7 +644,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -722,7 +722,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -743,7 +743,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "102", "etag": "W/\"66-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（凭据库读写都要管理员）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（凭据库读写都要管理员）" }
           }
         },
         {
@@ -908,7 +908,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -921,7 +921,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -934,7 +934,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -947,7 +947,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -960,7 +960,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -973,7 +973,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -986,7 +986,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -999,7 +999,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "no-store", "content-length": "202", "etag": "W/\"ca-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "按台令牌不能新建常量：常量要有作者，请用 MCP 会话或 Odoo 登录写", "code": "const_create_forbidden", "workbench_id": 2, "key": "w.const", "current_revision": 0, "current": null }
+            "body": { "error": "按台令牌不能新建常量：常量要有作者，请用 MCP 会话或站内登录写", "code": "const_create_forbidden", "workbench_id": 2, "key": "w.const", "current_revision": 0, "current": null }
           }
         },
         {
@@ -1071,9 +1071,9 @@
           "response": {
             "status": 403,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "366", "etag": "W/\"16e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "372", "etag": "W/\"174-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "error": "常量只能由个人身份（MCP 会话或 Odoo 登录）或部署机本机命令行修订",
+              "error": "常量只能由个人身份（MCP 会话或站内登录的人）或部署机本机命令行修订",
               "code": "const_override_forbidden",
               "workbench_id": 2,
               "key": "seed.public",
@@ -1276,8 +1276,8 @@
           "response": {
             "status": 400,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "99", "etag": "W/\"63-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "owner 只能是 mcp:<会话名>、odoo:<登录名> 或 *（公共）；空串=无作者" }
+            "headers": { "cache-control": "no-store", "content-length": "140", "etag": "W/\"8c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "owner 只能是 mcp:<会话名>、user:<主体> 或 *（公共）；空串=无作者（odoo:<登录名> 已下线，不再收）" }
           }
         },
         {
@@ -1501,7 +1501,7 @@
             "status": 201,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "no-store", "content-length": "224", "etag": "\"1\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "ok": true, "created": true, "workbench_id": 2, "key": "o.const", "kind": "const", "value": 1, "revision": 1, "updated_by": "odoo:root-admin", "owner": "odoo:root-admin", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+            "body": { "ok": true, "created": true, "workbench_id": 2, "key": "o.const", "kind": "const", "value": 1, "revision": 1, "updated_by": "user:root-admin", "owner": "user:root-admin", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -1519,7 +1519,7 @@
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "no-store", "content-length": "225", "etag": "\"2\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "ok": true, "created": false, "workbench_id": 2, "key": "o.const", "kind": "const", "value": 2, "revision": 2, "updated_by": "odoo:root-admin", "owner": "odoo:root-admin", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+            "body": { "ok": true, "created": false, "workbench_id": 2, "key": "o.const", "kind": "const", "value": 2, "revision": 2, "updated_by": "user:root-admin", "owner": "user:root-admin", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -1537,7 +1537,7 @@
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "no-store", "content-length": "211", "etag": "\"3\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "ok": true, "created": false, "workbench_id": 2, "key": "o.const", "kind": "const", "value": 2, "revision": 3, "updated_by": "odoo:root-admin", "owner": "*", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+            "body": { "ok": true, "created": false, "workbench_id": 2, "key": "o.const", "kind": "const", "value": 2, "revision": 3, "updated_by": "user:root-admin", "owner": "*", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -1555,7 +1555,7 @@
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "no-store", "content-length": "215", "etag": "\"2\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "ok": true, "created": false, "workbench_id": 2, "key": "seed.public", "kind": "const", "value": 3, "revision": 2, "updated_by": "odoo:root-admin", "owner": "*", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
+            "body": { "ok": true, "created": false, "workbench_id": 2, "key": "seed.public", "kind": "const", "value": 3, "revision": 2, "updated_by": "user:root-admin", "owner": "*", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -1568,7 +1568,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -1581,7 +1581,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -1824,10 +1824,10 @@
               "workbench_id": 2,
               "key": "o.const",
               "items": [
-                { "id": 20, "key": "o.const", "action": "const_delete", "actor": "odoo:root-admin", "kind": "const", "old_revision": 3, "new_revision": null, "old_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "new_sha256": "", "reason": "done", "at": "YYYY-MM-DD hh:mm:ss" },
-                { "id": 15, "key": "o.const", "action": "make_public", "actor": "odoo:root-admin", "kind": "const", "old_revision": 2, "new_revision": 3, "old_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "new_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "reason": "公开", "at": "YYYY-MM-DD hh:mm:ss" },
-                { "id": 14, "key": "o.const", "action": "const_override", "actor": "odoo:root-admin", "kind": "const", "old_revision": 1, "new_revision": 2, "old_sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b", "new_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "reason": "改", "at": "YYYY-MM-DD hh:mm:ss" },
-                { "id": 13, "key": "o.const", "action": "create", "actor": "odoo:root-admin", "kind": "const", "old_revision": null, "new_revision": 1, "old_sha256": "", "new_sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b", "reason": "", "at": "YYYY-MM-DD hh:mm:ss" }
+                { "id": 20, "key": "o.const", "action": "const_delete", "actor": "user:root-admin", "kind": "const", "old_revision": 3, "new_revision": null, "old_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "new_sha256": "", "reason": "done", "at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 15, "key": "o.const", "action": "make_public", "actor": "user:root-admin", "kind": "const", "old_revision": 2, "new_revision": 3, "old_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "new_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "reason": "公开", "at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 14, "key": "o.const", "action": "const_override", "actor": "user:root-admin", "kind": "const", "old_revision": 1, "new_revision": 2, "old_sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b", "new_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35", "reason": "改", "at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 13, "key": "o.const", "action": "create", "actor": "user:root-admin", "kind": "const", "old_revision": null, "new_revision": 1, "old_sha256": "", "new_sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b", "reason": "", "at": "YYYY-MM-DD hh:mm:ss" }
               ]
             }
           }
@@ -1850,7 +1850,7 @@
                 { "key": "c.owned", "kind": "const", "value": 1, "revision": 2, "updated_by": "cli", "owner": "*", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
                 { "key": "seed.const", "kind": "const", "value": "c", "revision": 1, "updated_by": "mcp:someone", "owner": "mcp:someone", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
                 { "key": "seed.null", "kind": "var", "value": null, "revision": 1, "updated_by": "cli", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
-                { "key": "seed.public", "kind": "const", "value": 3, "revision": 2, "updated_by": "odoo:root-admin", "owner": "*", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
+                { "key": "seed.public", "kind": "const", "value": 3, "revision": 2, "updated_by": "user:root-admin", "owner": "*", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" },
                 { "key": "seed.var", "kind": "var", "value": { "n": 1 }, "revision": 3, "updated_by": "app:replay-vars", "owner": "", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss" }
               ],
               "count": 6
@@ -2382,7 +2382,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {
@@ -2434,7 +2434,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "102", "etag": "W/\"66-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（凭据库读写都要管理员）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（凭据库读写都要管理员）" }
           }
         },
         {
@@ -2479,7 +2479,7 @@
             "status": 403,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
           }
         },
         {

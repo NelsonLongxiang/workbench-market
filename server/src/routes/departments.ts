@@ -28,7 +28,7 @@ import { CONFIRM_BY, type RelationProposalService } from '../services/relation-p
 import { removeDepartment, setDepartmentLead } from '../services/dept-lead-grant.ts';
 
 export type DepartmentRouteDeps = {
-  markOdooAdmin: (req: express.Request) => Promise<void>;
+  markAdmin: (req: express.Request) => Promise<void>;
   adminGuard: (req: express.Request, res: express.Response) => boolean;
   /** 管理员（口令或管理员登录），浏览器来的要同源；不写应答 */
   adminHeaderOk: (req: express.Request) => boolean;
@@ -71,7 +71,7 @@ export function registerDepartmentRoutes(app: HttpService, deps: DepartmentRoute
     res.set('Cache-Control', 'private, no-store');
     if (!browserMarked(req) && rawLoopback(req)) return true;
     if (deps.crossOriginDenied(req)) { res.status(403).json({ error: 'departments_cross_origin_denied' }); return false; }
-    await deps.markOdooAdmin(req);
+    await deps.markAdmin(req);
     if (deps.adminHeaderOk(req)) return true;
     const cookie = String(req.headers.cookie ?? '');
     const who = cookie ? await identity().resolveViewer(cookie) : null;
@@ -84,7 +84,7 @@ export function registerDepartmentRoutes(app: HttpService, deps: DepartmentRoute
   /** 写：本机命令行或管理员；返回留痕写法，不过就已经回了 403，返回 null */
   async function writer(req: express.Request, res: express.Response): Promise<string | null> {
     if (!browserMarked(req) && rawLoopback(req)) return 'cli';
-    await deps.markOdooAdmin(req);
+    await deps.markAdmin(req);
     if (!deps.adminGuard(req, res)) return null;
     return deps.adminActor(req);
   }

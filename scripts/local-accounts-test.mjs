@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
  * 站内账号（docs/local-accounts.md P1）：起隔离实例（NODE_ENV=test，不接任何外部身份来源），走浏览器的真实路径。
+ *   〇、没登录的人问 /api/auth/viewer：401 带登录入口（没有身份来源、有登录方式时也一样）
  *   一、建人：管理员建 alice，回一次临时密码；对应主体 user:alice 建好、启用
  *   二、第一次登录：临时密码对了先要改密码（不发码）；两次不一致、太短都不行；改好才去回调，回调发市场会话，认出是 alice
  *   三、对抗：
@@ -107,6 +108,14 @@ try {
     return { b, r: cb };
   }
 
+  console.log('〇、没登录的人问「我是谁」');
+  {
+    // 没有身份来源、有站内账号这种登录方式：没登录就是 401（带 auth_required 和登录入口），不是 503「服务不可用」
+    const v = await browser('192.0.2.30').go('GET', '/api/auth/viewer');
+    check(v.status === 401 && v.json?.auth_required === true && typeof v.json?.login_url === 'string' && v.json.login_url.includes('/login'),
+      '/api/auth/viewer：没登录回 401，带 auth_required 和登录入口', { status: v.status, json: v.json });
+  }
+
   console.log('一、建人');
   const made = await adminCall('POST', '/api/local-accounts', { username: 'alice', display_name: '合成用户甲' });
   const temp = made.json?.temp_password ?? '';
@@ -138,6 +147,19 @@ try {
   check(who?.authenticated === true && who.principal === 'user:alice' && who.via === 'session', '认出是 alice（市场会话）', who);
   check(who?.local_account === true, '/api/auth/me 说她有站内账号（用户卡据此给「改密码」入口）', who);
   check(who?.local_username === 'alice', '/api/auth/me 带她自己的站内用户名（改密码页预检「不能和用户名一样」用它，不用 login）', who);
+  {
+    // 市场会话 cookie 的属性（以前由 odoo-market-session-test 对 Odoo 发的会话核，Odoo 下线后在站内账号上核）：HttpOnly、SameSite=Lax、Path=/，http 时不带 Secure
+    const sc = (first.r.headers.getSetCookie?.() ?? []).find((c) => c.startsWith('wm_session='));
+    const attrs = (c) => (c ?? '').split(';').slice(1).map((x) => x.trim().split('=')[0].toLowerCase());
+    check(!!sc && /HttpOnly/i.test(sc) && /SameSite=Lax/i.test(sc) && /Path=\//i.test(sc) && !attrs(sc).includes('secure') && !attrs(sc).includes('domain'),
+      '市场会话 cookie：HttpOnly、SameSite=Lax、Path=/，不带 Domain（http 下不带 Secure）', sc);
+    // 登出：这个会话当场作废，同一个 cookie 再来也认不出
+    const kept = first.b.jar.get('wm_session');
+    const out = await first.b.go('POST', '/api/auth/logout', { json: {} });
+    const again = browser('192.0.2.21'); again.jar.set('wm_session', kept); // 另一个浏览器带着登出前的同一个 cookie
+    const replay = await me(again);
+    check(out.status === 200 && !first.b.jar.has('wm_session') && replay?.authenticated !== true, '登出：浏览器的会话 cookie 清掉，同一个 cookie 再来也认不出', { out: out.status, replay });
+  }
   check((await login('alice', temp)).r.status === 401, '临时密码改过之后就不能再用');
 
   console.log('三、对抗');

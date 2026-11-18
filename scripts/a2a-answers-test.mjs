@@ -120,11 +120,14 @@ try {
   for (let i = 0; i < 40; i++) { if (q("SELECT 1 FROM sqlite_master WHERE name = 'workbench_events'").length) break; await sleep(250); }
   // 持有管理层授予的两个人：root-admin（会话登录的管理员，答提问、回复用 dapi）、no-flag（不是管理员，看「节点没收下的答复」）；
   // alpha（建立人）、beta（别的员工，没有授予）先登录一次，把主体建出来；
-  // squatted（身份来源说是管理员，过管理门；判定对照开着时第一次见到会迁出管理层那条，有就撤掉——他就是「只过了管理门、没有管理层授予」的人）
+  // squatted：本机命令行给他一条 admin 授予（系统管理员），过管理门；有管理层授予就撤掉——他就是「只过了管理门、没有管理层授予」的人
+  // （管理员只认授予：身份来源自己说是管理员不算，所以这里显式给授予）
   {
     await dapi('GET', '/api/auth/me');
     for (const s of [SESSIONS.alpha, SESSIONS.beta, SESSIONS.noAdminFlag, SESSIONS.squatter]) await attentionAs(s);
     const local = async (path, body) => (await fetch(BASE + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
+    { const d = await local('/api/grants', { principal: 'user:squatted', role: 'admin', scope: '*', reason: '合成：系统管理员' });
+      for (const st of ['submit', 'approve']) await local(`/api/grants/${d?.grant?.id}/${st}`, {}); }
     const mg = (((await (await fetch(BASE + '/api/grants?principal=user:squatted&status=active')).json())?.grants) ?? []).filter((g) => (g.role ?? g.role_id) === 'management');
     for (const x of mg) await local(`/api/grants/${x.id}/revoke`, { reason: '合成：只留管理门、不带管理层授予' });
     const mgLeft = (((await (await fetch(BASE + '/api/grants?principal=user:squatted&status=active')).json())?.grants) ?? []).filter((g) => (g.role ?? g.role_id) === 'management').length;

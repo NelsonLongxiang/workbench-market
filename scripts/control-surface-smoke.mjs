@@ -150,7 +150,7 @@ try {
   r = await http(B.port, 'DELETE', '/api/admin-token', { origin: MB, 'x-admin-token': 'changed-with-current' });
   ok('清口令带当前口令 → 200', r.status === 200, `${r.status} ${JSON.stringify(r.body)}`);
 
-  console.log('Odoo 管理员登录即管理员（合成 Odoo，get_session_info 按 session_id 回答）');
+  console.log('Odoo 已下线（2026-11-17）：Odoo 会话（哪怕 is_admin）不算管理员，也不再去问 Odoo（合成 Odoo，旧变量还指着它）');
   const SIDS = { 'admin-session-0123456789': { username: 'boss', is_admin: true, is_internal_user: true }, 'staff-session-0123456789': { username: 'staff', is_admin: false, is_internal_user: true }, 'portal-session-0123456789': { username: 'portal', is_admin: true, is_internal_user: false } };
   let odooCalls = 0;
   const odoo = createServer((rq, rs) => {
@@ -168,7 +168,7 @@ try {
   const MO = `http://127.0.0.1:${O.port}`;
   const ck = (sid) => ({ cookie: `session_id=${sid}` });
   r = await http(O.port, 'POST', '/api/workbenches', { origin: MO, ...ck('admin-session-0123456789') }, wb(30));
-  ok('Odoo 管理员（is_admin）+ 同源 → 201，不需口令', r.status === 201, `${r.status} ${JSON.stringify(r.body)}`);
+  ok('Odoo 管理员（is_admin）+ 同源 → 403：Odoo 管理员认定已下线', r.status === 403, `${r.status} ${JSON.stringify(r.body)}`);
   r = await http(O.port, 'POST', '/api/workbenches', { origin: MO, ...ck('staff-session-0123456789') }, wb(31));
   ok('Odoo 普通员工 → 403', r.status === 403, `${r.status}`);
   r = await http(O.port, 'POST', '/api/workbenches', { origin: MO, ...ck('portal-session-0123456789') }, wb(32));
@@ -180,18 +180,17 @@ try {
   r = await http(O.port, 'POST', '/api/workbenches', { 'sec-fetch-site': 'cross-site', ...ck('admin-session-0123456789') }, wb(35));
   ok('Odoo 管理员 + Sec-Fetch-Site: cross-site → 403', r.status === 403, `${r.status}`);
   r = await http(O.port, 'GET', '/api/mcp/sessions', { ...ck('admin-session-0123456789') });
-  ok('Odoo 管理员可读管理读面（/api/mcp/sessions）→ 200', r.status === 200, `${r.status} ${JSON.stringify(r.body)}`);
+  ok('Odoo 管理员读管理读面（/api/mcp/sessions）→ 403', r.status === 403, `${r.status} ${JSON.stringify(r.body)}`);
   r = await http(O.port, 'GET', '/api/mcp/sessions', { ...ck('staff-session-0123456789') });
   ok('Odoo 普通员工读管理读面 → 403', r.status === 403, `${r.status}`);
   r = await http(O.port, 'GET', '/api/admin/whoami', { ...ck('admin-session-0123456789') });
-  ok('whoami：Odoo 管理员 → via=odoo login=boss', r.body?.admin === true && r.body?.via === 'odoo' && r.body?.login === 'boss', JSON.stringify(r.body));
+  ok('whoami：Odoo 管理员 → 不是管理员', r.body?.admin === false && r.body?.login === null, JSON.stringify(r.body));
   r = await http(O.port, 'GET', '/api/admin/whoami', { ...ck('staff-session-0123456789') });
   ok('whoami：普通员工 → admin=false', r.body?.admin === false, JSON.stringify(r.body));
-  const before = odooCalls;
   for (let i = 0; i < 3; i++) await http(O.port, 'GET', '/api/admin/whoami', { ...ck('admin-session-0123456789') });
-  ok('同一会话 30 秒内只现查 Odoo 一次（缓存结论）', odooCalls === before, `${odooCalls - before} 次`);
+  ok('一次都不去问 Odoo（旧变量还设着也一样）', odooCalls === 0, `${odooCalls} 次`);
   r = await http(O.port, 'GET', '/api/admin/whoami', { ...ck('admin-session-0123456789'), 'x-admin-token': TOK });
-  ok('带有效口令时不查 Odoo、via=token', r.body?.via === 'token', JSON.stringify(r.body));
+  ok('带有效口令：照常是管理员、via=token', r.body?.via === 'token' && r.body?.admin === true, JSON.stringify(r.body));
   odoo.close();
 
   console.log('web dev 来源例外（显式开启）');

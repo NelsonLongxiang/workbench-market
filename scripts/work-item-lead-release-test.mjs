@@ -43,7 +43,7 @@ let child = null, log = '';
 try {
   const data = join(OUT, 'data'), home = join(OUT, 'home');
   for (const d of [data, home, join(OUT, 'ext')]) mkdirSync(d, { recursive: true });
-  const env = { PATH: process.env.PATH, HOME: home, DATA_DIR: data, NODE_ENV: 'test', ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'on', WM_CONTROL_PORT: '0', IDENTITY_SEAM_ROOT: ROOT, WM_EXTENSIONS_DIR: join(OUT, 'ext'), MARKET_PUBLIC_URL: 'http://market.synthetic.invalid' };
+  const env = { PATH: process.env.PATH, HOME: home, DATA_DIR: data, NODE_ENV: 'test', ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'on', WM_CONTROL_PORT: '0', IDENTITY_SEAM_ROOT: ROOT, IDENTITY_FAKE_ADMIN_GRANT: 'admin', WM_EXTENSIONS_DIR: join(OUT, 'ext'), MARKET_PUBLIC_URL: 'http://market.synthetic.invalid' };
   // 事项：都由 alpha 建、都先过目（held）；团队 A 有负责人（部门负责人 beta），团队 B 在名册里但没有负责人
   const seed = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', `
     const { db } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/db.ts')).href)});
@@ -136,9 +136,9 @@ try {
     const t = await detail(I.vacant.item, ADMIN), s0 = await detail(I.vacant.item, WHO.管理层);
     const rt = await release(I.vacant.item, ADMIN), rs = await release(I.vacant.item, WHO.管理层);
     const g = (await glances(WHO.管理层)).find((x) => x.source_id === I.vacant.item);
-    check(show(t) === show({ can: false, turn: false }) && show(s0) === show({ can: false, turn: false }) && rt.status === 403 && rs.status === 403 && rs.body?.error === 'work_item_release_not_yours'
-      && released(I.vacant.event).length === 0 && g && show(g.answers) === show(['withdraw']) && !g.answer_via,
-      '团队没有负责人：管理口令、没有管理层授予的身份来源管理员都不能代办（can 假，放行 403，没放）；「关注」里只给撤回、不带放行地址', show({ t, s0, rt: rt.status, rs: [rs.status, rs.body?.error], g: g && [g.answers, !!g.answer_via] }));
+    check(show(t) === show({ can: false, turn: false }) && show(s0) === show({ status: 404 }) && rt.status === 403 && rs.status === 404 && rs.body?.error === 'work_item_not_found'
+      && released(I.vacant.event).length === 0 && !g,
+      '团队没有负责人：管理口令不能代办（can 假，放行 403）；只有系统管理员授予、还没有管理层授予的人连事项都看不到（404，业务域不算管理员）；都没放；他的「关注」里也没有这件', show({ t, s0, rt: rt.status, rs: [rs.status, rs.body?.error], g: g && [g.answers, !!g.answer_via] }));
     // 有别的生效授予（普通员工）不算持有管理层授予
     const m = await call('POST', '/api/grants', {}, { principal: 'user:alpha', role: 'member', scope: '*', reason: '合成：普通员工' });
     await call('POST', `/api/grants/${m.body?.grant?.id}/submit`, {}, {});
@@ -191,8 +191,8 @@ try {
     check(!lead.some((x) => x.source_id === I.vacant.item) && !lead.some((x) => x.source_id === I.requester.item), '负责人看不到别的团队、建立人自己过目的那件');
     const v = mgmt.find((x) => x.source_id === I.vacant.item);
     const l = mgmt.find((x) => x.source_id === I.lead.item);
-    check(l && show(l.answers) === show(['withdraw']) && !l.answer_via && v && v.mine === false && show(v.answers) === show(['release', 'withdraw']) && v.answer_via?.path === `/api/work-items/${I.vacant.item}/release`,
-      '管理层的「关注」：团队有负责人的那件只给撤回（不能放）；没有负责人的那件是代办（mine:false）、能放能撤回', show({ l: l && [l.answers, !!l.answer_via], v }));
+    check(!l && v && v.mine === false && show(v.answers) === show(['release']) && v.answer_via?.path === `/api/work-items/${I.vacant.item}/release`,
+      '管理层的「关注」：团队有负责人的那件不出现（管理层不能放；系统管理员在业务域不算能撤回的管理员）；没有负责人的那件是代办（mine:false）、能放', show({ l: l && [l.answers, !!l.answer_via], v }));
     const c = creator.find((x) => x.source_id === I.requester.item);
     check(creator.length === 1 && c?.mine === true && show(c.answers) === show(['release']), '建立人的「关注」：只有自己过目的那件，轮到他', show(creator.map((x) => [x.source_id, x.mine])));
   }

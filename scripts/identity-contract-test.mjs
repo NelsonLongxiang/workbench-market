@@ -26,15 +26,15 @@ const show = (v) => JSON.stringify(v);
 
 // ---------- 一、出厂的装配 ----------
 const shipped = await import(pathToFileURL(join(ROOT, 'server/src/identity.ts')).href);
-check(shipped.identity().providerName() === 'odoo', '出厂：身份服务后面是自带的提供方');
-check(shipped.identity().configured() === false, '出厂、没配身份来源：configured() 为 false');
+check(shipped.identity().providerName() === null, '出厂：不登记任何身份来源（Odoo 已下线，只有发市场会话的登录方式）');
+check(shipped.identity().configured() === false, '出厂：configured() 为 false');
 {
   const who = await shipped.identity().whoami(cookie(SESSIONS.alpha));
   check(who.http === 503 && who.body.ok === false && !('auth_required' in who.body), '出厂、没配身份来源：whoami 503，不带 auth_required', show(who));
   const r = await shipped.identity().resolveViewer(cookie(SESSIONS.alpha));
   check(r.ok === false && r.http === 503, '出厂、没配身份来源：认不出人（503）', show(r));
 }
-check(typeof shipped.loginRelay().sessionOf === 'function' && shipped.loginRelay().isSessionTarget('http://anything.invalid/') === false, '出厂：登录中继在，没配可信源时谁都不给会话');
+check(shipped.loginRelay === undefined, '出厂：不再有业务台的登录中继（随 Odoo 下线），核心不导出 loginRelay');
 
 // ---------- 二、换成假的提供方：服务怎么收它的回答 ----------
 const tree = await swapInFake(ROOT);
@@ -105,7 +105,7 @@ const viewerOf = async (sid) => { const r = await id().resolveViewer(cookie(sid)
 }
 {
   const v = await viewerOf(SESSIONS.admin);
-  check(v?.login === 'root-admin' && v.admin === true, '对照：管理员标记是 true → 是管理员', show(v));
+  check(v?.login === 'root-admin' && v.admin === false, '管理员标记是 true → 也不是管理员：管理员只认授予（这里没装授予服务）', show(v));
 }
 
 // whoami
@@ -209,7 +209,7 @@ check(id().credentialOf(cookie(SESSIONS.alpha)) === SESSIONS.alpha && id().crede
   directoryFiber = tree.root.plugin(directoryPlugin(directory));
   await directoryFiber;
   const back = await id().resolveViewer(cookie(SESSIONS.admin));
-  check(back.ok === true && back.viewer.admin === true && none.ok === false, '对照：目录装回去，照常认得出', show(back));
+  check(back.ok === true && back.viewer.login === 'root-admin' && none.ok === false, '对照：目录装回去，照常认得出', show(back));
 }
 
 // ---------- 二之三、带缓存的认人：提供方的回答可以留一会儿，主体那一步每次现查 ----------
@@ -223,7 +223,7 @@ check(id().credentialOf(cookie(SESSIONS.alpha)) === SESSIONS.alpha && id().crede
     const c = cookie(onceSession('cache-a', true));
     let n = asked;
     const first = await cached(c), second = await cached(c);
-    check(first.ok === true && second.ok === true && second.viewer.login === 'cache-a' && second.viewer.admin === true && asked - n === 1, '缓存期内同一个会话：提供方只被问一次', `问了 ${asked - n} 次：${show(second)}`);
+    check(first.ok === true && second.ok === true && second.viewer.login === 'cache-a' && asked - n === 1, '缓存期内同一个会话：提供方只被问一次', `问了 ${asked - n} 次：${show(second)}`);
     const live = await id().resolveViewer(c);
     check(live.ok === false && live.http === 401, '对照：不带缓存的认人每次现查（这个会话提供方只认第一次）', show(live));
     // 主体那一步不进缓存
@@ -282,7 +282,7 @@ check(id().credentialOf(cookie(SESSIONS.alpha)) === SESSIONS.alpha && id().crede
     await tree.fiber.dispose();
     const off2 = id().register({ name: 'other', configured: () => true, credentialOf: fakeProvider.credentialOf, resolveViewer: async () => ({ ok: false, http: 401, error: '另一个提供方不认这个会话' }) });
     const after = await kept(cookie(SESSIONS.admin));
-    check(before.ok === true && before.viewer.admin === true && after.ok === false && after.http === 401, '换了提供方：旧提供方的回答作废，不拿来放行', show(after));
+    check(before.ok === true && before.viewer.login === 'root-admin' && after.ok === false && after.http === 401, '换了提供方：旧提供方的回答作废，不拿来放行', show(after));
     off2();
     tree.fiber = tree.root.plugin(fakePlugin);
     await tree.fiber;
@@ -312,9 +312,6 @@ check(id().providerName() === null && id().configured() === false, '插件卸载
   const who = await id().whoami(cookie(SESSIONS.admin));
   check(who.http === 503 && who.body.ok === false, '没装提供方 → whoami 503', show(who));
   check(id().credentialOf(cookie(SESSIONS.admin)) === '', '没装提供方 → 没有凭据可取');
-  let threw = false;
-  try { tree.loginRelay(); } catch { threw = true; }
-  check(threw, '没装登录中继 → 取用即抛错，不给一个什么都放行的空实现');
 }
 {
   const whole = { name: 'x', configured() {}, credentialOf() {}, resolveViewer() {} };
