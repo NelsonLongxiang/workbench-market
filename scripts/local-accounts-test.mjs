@@ -22,7 +22,7 @@
  *   node scripts/local-accounts-test.mjs
  */
 import { createServer } from 'node:net';
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from './owned-script-fixture.mjs';
@@ -44,6 +44,16 @@ try {
   const base = `http://127.0.0.1:${port}`;
   const data = join(OUT, 'data'), home = join(OUT, 'home'), ext = join(OUT, 'ext');
   for (const d of [data, home, ext]) mkdirSync(d, { recursive: true });
+  // 探针扩展：把宿主交给扩展的认人（ctx.identity，以及已弃用的兼容壳 ctx.odoo）原样问一遍，回答原样交出来
+  mkdirSync(join(ext, 'viewer-probe'), { recursive: true });
+  writeFileSync(join(ext, 'viewer-probe', 'server.mjs'), `export function register(ctx) {
+  ctx.app.get('/api/viewer-probe/who', ctx.wrap(async (req, res) => {
+    const cookie = String(req.headers.cookie ?? '');
+    const who = await ctx.identity.resolveViewer(cookie), compat = await ctx.odoo.resolveViewer(cookie);
+    res.json({ who, same: JSON.stringify(who) === JSON.stringify(compat) });
+  }));
+}
+`);
   const env = {};
   for (const k of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP']) if (process.env[k]) env[k] = process.env[k];
   Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN, REDIS_URL: '', WM_EXTENSIONS_DIR: ext, MARKET_PUBLIC_URL: base,
@@ -114,6 +124,10 @@ try {
     const v = await browser('192.0.2.30').go('GET', '/api/auth/viewer');
     check(v.status === 401 && v.json?.auth_required === true && typeof v.json?.login_url === 'string' && v.json.login_url.includes('/login'),
       '/api/auth/viewer：没登录回 401，带 auth_required 和登录入口', { status: v.status, json: v.json });
+    // 交给扩展的认人同一个口径：没登录是 401（扩展据此把人带去登录），不是 503「未配置身份来源」；兼容壳 ctx.odoo 一字不差
+    const e = await browser('192.0.2.30').go('GET', '/api/viewer-probe/who');
+    check(e.status === 200 && e.json?.who?.ok === false && e.json.who.http === 401 && e.json.same === true,
+      '扩展 ctx.identity.resolveViewer：没登录回 401，和 /api/auth/viewer 一致；ctx.odoo 一字不差', e.json);
   }
 
   console.log('一、建人');
@@ -220,9 +234,15 @@ try {
   {
     const alice = (await login('alice', 'Alice-pass-0001')).b;
     check((await me(alice))?.principal === 'user:alice', '7（准备）alice 登录着');
+    const extWho = async (b) => (await b.go('GET', '/api/viewer-probe/who')).json;
+    const viewerStatus = async (b) => (await b.go('GET', '/api/auth/viewer')).status;
+    const on = await extWho(alice);
+    check(on?.who?.ok === true && on.who.viewer?.login === 'alice' && on.same === true, '7 扩展认人：登录着的认出是 alice；ctx.odoo 一字不差', on);
     const off = await adminCall('POST', '/api/principals/disable', { id: 'user:alice', reason: '合成：停用测试' });
     check(off.status === 200, '7 管理员停用 user:alice', off);
     check((await me(alice))?.principal !== 'user:alice', '7 已有的会话立即失效');
+    const gone = await extWho(alice), vs = await viewerStatus(alice);
+    check(gone?.who?.ok === false && gone.who.http === vs && [401, 403].includes(vs) && gone.same === true, '7 扩展认人：停用之后不认，状态码和 /api/auth/viewer 一致', { ext: gone, viewer: vs });
     const again = await login('alice', 'Alice-pass-0001');
     check(again.r.status !== 302 && !again.b.jar.has('wm_session'), '7 再登录：不发会话（等待页）', again.r.status);
     check((await adminCall('POST', '/api/principals/restore', { id: 'user:alice', reason: '合成：恢复' })).status === 200, '7 恢复');
@@ -233,6 +253,8 @@ try {
     const t2 = reset.json?.temp_password ?? '';
     check(reset.status === 200 && t2 && t2 !== temp && reset.json.account.must_change === true, '8 重置：回新的临时密码，要先改');
     check((await me(alice))?.principal !== 'user:alice', '8 旧会话注销');
+    const lapsed = (await alice.go('GET', '/api/viewer-probe/who')).json, lvs = (await alice.go('GET', '/api/auth/viewer')).status;
+    check(lapsed?.who?.ok === false && lapsed.who.http === 401 && lvs === 401 && lapsed.same === true, '8 扩展认人：会话注销之后 401，和 /api/auth/viewer 一致', { ext: lapsed, viewer: lvs });
     check((await login('alice', 'Alice-pass-0001')).r.status === 401, '8 旧密码不能再用');
     const fresh = await login('alice', t2, 'Alice-pass-0002');
     check(fresh.r.status === 302 && fresh.b.jar.has('wm_session'), '8 新临时密码：先改再进');

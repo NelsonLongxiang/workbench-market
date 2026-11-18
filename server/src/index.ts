@@ -2092,7 +2092,7 @@ try {
   const loaded = await loadExtensions(process.env.WM_EXTENSIONS_DIR, {
     app, wrap, http, routesMode: extensionRoutesMode(process.env.WM_EXTENSION_ROUTES),
     adminGuard: async (req, res) => { await markAdmin(req); return adminGuard(req, res); },
-    identity: { resolveViewer: (cookie) => identity().resolveViewer(cookie), loginUrl },
+    identity: { resolveViewer: (cookie) => identity().resolveCaller(cookie), loginUrl }, // 口径和 /api/auth/viewer 一致：没有身份来源、有站内登录时，没登录是 401
     remoteWrite: { allowExact: allowExtensionRemoteWrite },
   });
   if (loaded.length) console.log(`[extensions] 已加载：${loaded.join('、')}（${process.env.WM_EXTENSIONS_DIR}）`);

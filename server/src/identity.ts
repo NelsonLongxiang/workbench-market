@@ -773,25 +773,32 @@ export class IdentityService extends Service {
     return { ok: false, http: 503, error: DIRECTORY_FAILED };
   }
 
-  /** 我是谁：登录探测和顶栏用户 chip 读它 */
-  async whoami(cookieHeader: string): Promise<Whoami> {
+  /**
+   * 认「这次请求是谁」，口径和 whoami 一样：给路由和扩展用（ctx.identity.resolveViewer 就是它）。
+   * 和 resolveViewer 的差别只在没有身份来源的时候：
+   *   - 有能用的登录方式（站内账号、飞书）：没登录就是没登录，401「未登录」，调用方据此把人带去登录；
+   *     市场会话自己的结论（失效 401、停用 403）照原样交出去；主体目录不可用之类仍是 503；
+   *   - 一种登录方式也没有：登录也没用，仍是 503，说法用提供方自己的。
+   * 配了身份来源时和 resolveViewer 完全一样。
+   */
+  async resolveCaller(cookieHeader: string): Promise<ViewerResult> {
     const who = await this.resolveViewer(cookieHeader);
     // 市场会话认出的人：不看身份来源有没有配置
-    if (who.ok && who.via === 'session') return { http: 200, body: { ok: true, viewer: { ...who.viewer, kind: '人' }, roles: null } };
-    if (!this.configured()) {
-      // 没有身份来源、但有能用的登录方式（站内账号、飞书）：没登录就是没登录——401 带 auth_required，和下线前同一个语义。
-      // 市场会话自己的结论（失效 401、停用 403）照原样交出去；主体目录不可用之类仍是 503
-      if (this.flows().length > 0 && who.ok === false && (who.http === 401 || who.http === 403 || who.error === NO_PROVIDER)) {
-        return who.error === NO_PROVIDER
-          ? { http: 401, body: { ok: false, error: NOT_SIGNED_IN, auth_required: true } }
-          : { http: who.http, body: { ok: false, error: who.error, auth_required: who.http === 401 } };
-      }
-      // 一种登录方式也没有：登录也没用，所以不带 auth_required；说法用提供方自己的
-      return { http: 503, body: { ok: false, error: who.ok === false ? who.error : NO_PROVIDER } };
+    if (who.ok || this.configured()) return who;
+    if (this.flows().length > 0 && (who.http === 401 || who.http === 403 || who.error === NO_PROVIDER)) {
+      return who.error === NO_PROVIDER ? { ok: false, http: 401, error: NOT_SIGNED_IN } : who;
     }
-    if (who.ok === false) return { http: who.http, body: { ok: false, error: who.error, auth_required: who.http === 401 } };
+    return { ok: false, http: 503, error: who.error || NO_PROVIDER };
+  }
+
+  /** 我是谁：登录探测和顶栏用户 chip 读它。认人用 resolveCaller，这里只管把结论写成应答 */
+  async whoami(cookieHeader: string): Promise<Whoami> {
+    const who = await this.resolveCaller(cookieHeader);
     // kind 按主体口径（user: = 人）；roles 暂为 null
-    return { http: 200, body: { ok: true, viewer: { ...who.viewer, kind: '人' }, roles: null } };
+    if (who.ok) return { http: 200, body: { ok: true, viewer: { ...who.viewer, kind: '人' }, roles: null } };
+    // 没有身份来源时的 503（一种登录方式也没有、或者主体目录不可用）：登录也没用，不带 auth_required
+    if (who.http === 503 && !this.configured()) return { http: 503, body: { ok: false, error: who.error } };
+    return { http: who.http, body: { ok: false, error: who.error, auth_required: who.http === 401 } };
   }
 }
 
