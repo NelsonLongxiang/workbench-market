@@ -100,10 +100,12 @@ with sync_playwright() as p:
         ctx, page, st = open_case('anon')
         expect(page.get_by_test_id('viewer-anon')).to_be_visible()
         st['case'] = 'ok'
+        calls_before = st['calls']
         page.evaluate('(() => { const t = Date.now() + 61000; Date.now = () => t; })()')
         page.evaluate("window.dispatchEvent(new Event('focus'))")
-        expect(page.get_by_test_id('viewer-ok')).to_be_visible(timeout=5000)
-        check('隔一分钟以上切回页面：重新查，登录后的身份显示出来', True)
+        try: page.get_by_test_id('viewer-ok').wait_for(state='visible', timeout=5000)
+        except Exception: pass
+        check('隔一分钟以上切回页面：重新查，登录后的身份显示出来', st['calls'] > calls_before and page.get_by_test_id('viewer-ok').count() == 1 and page.get_by_test_id('viewer-anon').count() == 0, (st['calls'], page.locator('header').inner_text()[:80] if page.locator('header').count() else ''))
         ctx.close()
     finally:
         browser.close()
