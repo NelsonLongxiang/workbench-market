@@ -43,9 +43,13 @@
 | 2026-11-18 | `docs/productization/09-constraint-system.md` | 改写：第四、六节挪进文末「历史」 | 原位置 | 11-10 的基线和落地批次已落地；现在的数字以 tech-route.json 为准 | #833 |
 | 2026-11-18 | `docs/productization/11-identity-and-permission.md` | 改写：第一、二、六、七节原文挪进文末「历史」，正文第一、七节写现在的口径 | 原位置 | 站内账号（属主 11-16）、Odoo 全面下线（11-17）改掉了「飞书直连、不存密码、不做登录页」和过渡步骤 | #833 |
 | 2026-11-18 | `docs/productization/README.md` | 改链接 | 原位置 | 指向 04、14 的链接改到归档位置（#825 合并之后） | #833 |
+| 2026-11-18 | `docs/productization/11-identity-and-permission.md`、`docs/productization/README.md` | 改写：11 的开头那句、第三节「默认提供方飞书的要点」、附录 6d 的说明原文挪进文末「历史」，正文换成新口径；README 第 11 行摘要直接改 | 原位置 | 和 #833 新写的第一节矛盾的旧口径（飞书直连、等飞书启用再关旧登录）；#833 评审指出 | #834 |
+| 2026-11-18 | `docs/archive/workbench-market-arch-sources.md` 的链接对照 | 改对照：三行改成「已删除」加最后一版的取法 | 原位置 | #823 删掉了 odoo-browser-origin.ts、odoo-session.ts、sso-ticket-store.ts，对照表还指着它们，断了 3 个链接；原文不动 | #839 |
+| 2026-11-18 | `docs/odoo-browser-origin.md` | 归档 | [`docs/archive/odoo-browser-origin.md`](odoo-browser-origin.md)；取代：docs/local-accounts.md（站内账号） | 它说明的 `WM_ODOO_BROWSER_URL`（内网 Odoo 的浏览器登录地址）随 Odoo 全面下线退役：认人和业务台的 Odoo 会话中继一起下了，这个变量现在只在 `server/src/retired-env.ts` 的退役清单里 | #823；#840 |
+| 2026-11-18 | `docs/odoo-login-relay.md` | 归档 | [`docs/archive/odoo-login-relay.md`](odoo-login-relay.md)；取代：docs/local-accounts.md（站内账号） | 它说明的同域登录中继（`WM_ODOO_LOGIN_PROXY`）随 Odoo 全面下线退役，这个变量现在只在 `server/src/retired-env.ts` 的退役清单里 | #823；#840 |
 
 ## 这一批没动、以后再处理的
 
 - `design-system/workbench-market/MASTER.md`：原计划并进 `PATTERNS.md`。但开发验证器（`scripts/gen-verifier.mjs` 判据 33、44、45，`scripts/make-submission.mjs`）钉着这个文件的路径和两个色值，挪走会让验证器失败，等验证器的判据改了再并。
-- Odoo 三篇（`docs/odoo-browser-origin.md`、`docs/odoo-login-relay.md`、`docs/odoo-operator-setup.md`）：等 Odoo 全面下线（#823）合并之后归档。
+- `docs/odoo-operator-setup.md`：原计划和另两篇 Odoo 文档一起归档，没归。它说明的是 Odoo 只读权限预检工具（`scripts/ops/odoo-readonly-preflight.ps1`），这个工具还在仓库里、它的测试还在 CI 里跑，和登录无关，不随 Odoo 全面下线退役。另两篇已归档（见上表）。
 - 第 12 篇的「历史」节：#825 把它定为唯一路线图，由统筹会话做。（`docs/productization/README.md` 指向 04、14 的链接已在 #825 合并后改到归档位置。）

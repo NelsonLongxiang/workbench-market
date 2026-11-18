@@ -2318,6 +2318,8 @@ async function skillPublishCore(slugIn: unknown, files: any, changelogIn: unknow
     if (f.path.includes('\\')) bad(`path 非法（禁反斜杠）: ${f.path}`);
     if (f.path.startsWith('/') || /^[A-Za-z]:/.test(f.path)) bad(`path 非法（禁绝对路径）: ${f.path}`);
     for (const seg of f.path.split('/')) if (seg === '' || seg === '.' || seg === '..') bad(`path 非法（空/. / .. 段）: ${f.path}`);
+    // 每一段和上传文件名同一条规则（upload-file-name.ts）：控制字符、DEL、方向控制符都拒；路径原样回显会被方向控制符倒着显示，所以转义后再写
+    for (const seg of f.path.split('/')) if (!uploadNameOk(seg)) bad(`path 非法（含控制字符或方向控制符）: ${JSON.stringify(f.path).replace(/[^\x20-\x7e]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'))}`);
     if (SKILL_PKG_RESERVED.has(f.path)) bad(`path ${f.path} 是技能包保留名（市场打包时生成）`);
   }
   // #94 S0③（K6）：同名重复路径拒收（同 path 两义——内容静默覆盖防）

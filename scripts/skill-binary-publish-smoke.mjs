@@ -74,6 +74,11 @@ try {
   ok('未知 encoding → 400', r.status === 400, `${r.status} ${JSON.stringify(r.body)}`);
   r = await post(`/api/skills/${S}/versions`, { files: [{ path: '../x.bin', content: 'QUJD', encoding: 'base64' }] });
   ok('base64 文件同样走路径校验（.. 段 400）', r.status === 400, `${r.status}`);
+  // 每一段文件名和上传文件名同一条规则（upload-file-name.ts）：方向控制符、DEL、C0 都拒
+  for (const [label, bad] of [['U+202E', 'x\u202e.md'], ['目录名带 U+2066', 'd\u2066/a.md'], ['U+200F', 'x\u200f.md'], ['DEL', 'x\u007f.md'], ['C0', 'x\u0001.md']]) {
+    r = await post(`/api/skills/${S}/versions`, { files: [{ path: bad, content: 'QUJD', encoding: 'base64' }] });
+    ok(`路径里有 ${label} → 400`, r.status === 400, `${r.status} ${JSON.stringify(r.body).slice(0, 120)}`);
+  }
 
   // 4) LayerFS 影子：含二进制的版本记 skipped，不推
   const vs = await get(`/api/skills/${S}/versions`);
