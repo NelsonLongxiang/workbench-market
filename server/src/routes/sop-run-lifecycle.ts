@@ -53,7 +53,7 @@ export interface SopRunLifecycleDeps {
   sopRunFinishCore: (id: number) => Promise<object>;
   /** 「等你拍板」里待验收派单 run 的卡片内容（index.ts 的 sopRunAcceptDetail） */
   sopRunAcceptDetail: (id: number) => Promise<Record<string, unknown>>;
-  markOdooAdmin: (req: express.Request) => Promise<void>;
+  markAdmin: (req: express.Request) => Promise<void>;
   sopRunUpgradePlan: (id: number) => Promise<UpgradePlan>;
   bad: (msg: string) => never;
   /** 写守卫：模式（WM_SOP_RUN_WRITE） */
@@ -76,7 +76,7 @@ export type SopRunAcceptance = {
 export let sopRunAcceptance: SopRunAcceptance | null = null;
 
 export function registerSopRunLifecycleRoutes(app: HttpService, deps: SopRunLifecycleDeps): void {
-  const { wrap, adminHeaderOk, runReadCapHeader, sopRunGetCore, sopRunGetMeta, sopRunStepSaveCore, sopRunFinishCore, sopRunAcceptDetail, markOdooAdmin, sopRunUpgradePlan, bad, runCheckpoints, adminActor, writeMode } = deps;
+  const { wrap, adminHeaderOk, runReadCapHeader, sopRunGetCore, sopRunGetMeta, sopRunStepSaveCore, sopRunFinishCore, sopRunAcceptDetail, markAdmin, sopRunUpgradePlan, bad, runCheckpoints, adminActor, writeMode } = deps;
   app.get('/api/sop/runs', { action: 'sop-run.list', kind: 'read' }, (req, res) => {
     // P4（F7）：待验收列表 = running 且有派单来源（a2a_run_ctx 有 callback/task_id），不含人自己开的
     if (req.query.dispatched === '1') {
@@ -106,7 +106,7 @@ export function registerSopRunLifecycleRoutes(app: HttpService, deps: SopRunLife
   /** 不靠上传令牌能写 run 的（只有这一处）：本机命令行；管理员（口令或会话登录的管理员，同源由写请求总门判） */
   async function withoutToken(req: express.Request): Promise<boolean> {
     if (!browserMarked(req) && rawLoopback(req)) return true; // 本机命令行
-    await markOdooAdmin(req);
+    await markAdmin(req);
     return adminHeaderOk(req);
   }
   sopRunAcceptance = { allowed: withoutToken, finish: (id) => sopRunFinishCore(id), detail: (id) => sopRunAcceptDetail(id) };
@@ -144,7 +144,7 @@ export function registerSopRunLifecycleRoutes(app: HttpService, deps: SopRunLife
 
   app.get('/api/sop/runs/:id(\\d+)/upgrade-preflight', { action: 'sop-run.upgrade-preflight', kind: 'read', statusNotVerdict: '按 run 的凭据：读能力、主体读授权由 run 授权判' }, wrap(async (req, res) => {
     const id = Number(req.params.id);
-    await markOdooAdmin(req); // 只用 Odoo 登录的管理员能升级，也要能打开预检（GET 不经写门，不会预先认定）
+    await markAdmin(req); // 只用 Odoo 登录的管理员能升级，也要能打开预检（GET 不经写门，不会预先认定）
     const auth = await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, id);
     if (!auth.authorized) return res.status(403).set('Cache-Control', 'no-store').json({ error: 'run read authorization required' });
     res.set('Cache-Control', 'no-store').json((await sopRunUpgradePlan(id)).preflight);

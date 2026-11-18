@@ -10,7 +10,8 @@
  *     旧结论又是拒绝——同源门是请求完整性的门，在判定之外、判定之前，切换时原样保留。
  *   · 谁在请求（先后）：有效的管理口令 → 内置身份 admin-token；市场会话或登录提供方认出来的 → 对到的主体；
  *     本机命令行（回环直连、没有浏览器标记）→ 内置身份 local-cli；本机页面（回环直连、带浏览器标记、Origin 是本站）→ local-page；其余 → anonymous。
- *   · 迁移（只在比对打开的实例上）：第一次见到一个启用的人，给他一条 member；身份来源说他是管理员，给一条 admin。
+ *   · 迁移（只在比对打开的实例上）：第一次见到一个启用的人，给他一条 member。管理员只认授予（2026-11-17 Odoo 下线起），
+ *     身份来源说的「是管理员」不再有，也就不再迁 admin。
  *     来源都记 migration，同一个人同一个角色只迁一次（撤了不会补回来）。
  *   · 新结论由判定事件给（judgment.ts）。新结论是 ask 或 deny 都算「不允许」。两边不一样就记一条不一致。
  * 判定出错只计数（error），不影响请求。比对记录不记请求体、查询串、凭据和路径里的 id；路由记模式。
@@ -82,37 +83,36 @@ function oldVerdict(status: number): 'allow' | 'deny' | 'skip-404' | 'uncertain'
 }
 
 /** 谁在请求（比对和切换开关共用一个口径）：先后顺序见文件头 */
-export type ActorOf = (req: express.Request) => Promise<{ actor: JudgedActor; admin: boolean }>;
+export type ActorOf = (req: express.Request) => Promise<{ actor: JudgedActor }>;
 export function actorResolver(deps: Pick<CompareDeps, 'adminTokenOk'>): ActorOf {
   const resolve = identity().cachedResolver({ ttlMs: 60_000, max: 1000 });
-  return async function actorOf(req: express.Request): Promise<{ actor: JudgedActor; admin: boolean }> {
-    if (deps.adminTokenOk(req)) return { actor: { type: 'builtin', name: 'admin-token' }, admin: false };
+  return async function actorOf(req: express.Request): Promise<{ actor: JudgedActor }> {
+    if (deps.adminTokenOk(req)) return { actor: { type: 'builtin', name: 'admin-token' } };
     const cookie = String(req.headers.cookie ?? '');
     if (cookie) {
-      let who: { ok: boolean; viewer?: { sub?: unknown; admin?: unknown } };
+      let who: { ok: boolean; viewer?: { sub?: unknown } };
       try { who = await resolve(cookie) as typeof who; } catch { who = { ok: false }; }
       const id = who.ok && typeof who.viewer?.sub === 'string' ? who.viewer.sub : '';
       const p = id ? principals().get(id) : null;
-      if (p) return { actor: { type: 'principal', id: p.id, kind: p.kind, status: p.status, owner: p.owner }, admin: who.viewer?.admin === true };
+      if (p) return { actor: { type: 'principal', id: p.id, kind: p.kind, status: p.status, owner: p.owner } };
     }
     if (rawLoopback(req)) {
-      if (!browserMarked(req)) return { actor: { type: 'builtin', name: 'local-cli' }, admin: false };
+      if (!browserMarked(req)) return { actor: { type: 'builtin', name: 'local-cli' } };
       // 本机页面：和管理口令设置那里的「本机」同一个口径——带浏览器标记的，Origin 要是本站；没有 Origin 或别的站按匿名
-      if (sameSiteOrigin(req)) return { actor: { type: 'builtin', name: 'local-page' }, admin: false };
+      if (sameSiteOrigin(req)) return { actor: { type: 'builtin', name: 'local-page' } };
     }
-    return { actor: { type: 'builtin', name: 'anonymous' }, admin: false };
+    return { actor: { type: 'builtin', name: 'anonymous' } };
   };
 }
 
 /**
- * 迁移：第一次见到一个启用的人，给他一条 member；身份来源说他是管理员，再给 admin（同一个人同一个角色只迁一次）。
+ * 迁移：第一次见到一个启用的人，给他一条 member（同一个人只迁一次）。
  * 不自动发管理层（management）：好几处业务代码直接认管理层授予（团队分配、认领直接落、数据视图），自动发等于比对一开就放宽。
  * 管理层由属主单独授（遗留差异 L6）。
  */
-export function migrateOnSight(actor: JudgedActor, admin: boolean): void {
+export function migrateOnSight(actor: JudgedActor): void {
   if (actor.type === 'principal' && actor.kind === 'person' && actor.status === 'active') {
     grants().migrate(actor.id, 'member', '迁移：首次见到的人，默认成员');
-    if (admin) grants().migrate(actor.id, 'admin', '迁移：身份来源说是管理员（系统管理）');
   }
 }
 
@@ -132,7 +132,7 @@ export function mountJudgmentCompare(app: express.Express, config: CompareConfig
     try { appendFileSync(config.out, `${JSON.stringify(line)}\n`); } catch { /* 写不了文件不影响比对 */ }
   }
 
-  async function compareOne(req: express.Request, res: express.Response, actorAtStart: Promise<{ actor: JudgedActor; admin: boolean }>, facts: RequestFacts): Promise<void> {
+  async function compareOne(req: express.Request, res: express.Response, actorAtStart: Promise<{ actor: JudgedActor }>, facts: RequestFacts): Promise<void> {
     const route = (req as express.Request & { route?: { path: unknown; [ACTION_KEY]?: ActionSpec } }).route;
     if (!route) return; // 没进路由（登录门、写请求总门、兜底）：不比
     const pattern = `${req.method} ${String(route.path)}`;
@@ -153,8 +153,8 @@ export function mountJudgmentCompare(app: express.Express, config: CompareConfig
       return;
     }
     // 身份在请求进来时就开始认（这里才等结果）：请求本身可能改了口令、注销了会话，事后再认会认错人
-    const { actor, admin } = await actorAtStart;
-    migrateOnSight(actor, admin);
+    const { actor } = await actorAtStart;
+    migrateOnSight(actor);
     const result = judge({ actor, action: spec.action, kind: spec.kind, declared: true });
     const now = result.verdict === 'allow' ? 'allow' : 'deny';
     const actorKind = actor.type === 'builtin' ? actor.name : actor.kind;
@@ -166,7 +166,7 @@ export function mountJudgmentCompare(app: express.Express, config: CompareConfig
 
   app.use((req, res, next) => {
     if (deps.skip(req)) return next();
-    const actorAtStart = actorOf(req).catch(() => ({ actor: { type: 'builtin', name: 'anonymous' } as JudgedActor, admin: false }));
+    const actorAtStart = actorOf(req).catch(() => ({ actor: { type: 'builtin', name: 'anonymous' } as JudgedActor }));
     let facts: RequestFacts;
     try { facts = deps.facts(); } catch { facts = { adminTokenSet: true }; }
     res.on('finish', () => {

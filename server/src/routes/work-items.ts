@@ -55,7 +55,7 @@ import { deliveryTarget, eventDispatched, inReplyTx, liveDeliveriesOfEvent, queu
 import { peerCanDeliver } from '../services/a2a-peers.ts';
 
 export type WorkItemRouteDeps = {
-  markOdooAdmin: (req: express.Request) => Promise<void>;
+  markAdmin: (req: express.Request) => Promise<void>;
   adminGuard: (req: express.Request, res: express.Response) => boolean;
   crossOriginDenied: (req: express.Request) => boolean;
   /** 管理口令对不对（「关注」卡片带 remember 时认人用，和答复入口同一个 actorResolver） */
@@ -172,7 +172,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
     res.vary('Cookie'); res.vary('X-Admin-Token');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
     (async () => {
-      await deps.markOdooAdmin(req);
+      await deps.markAdmin(req);
       if (!deps.adminGuard(req, silentRes()) && !(await person(req, res))) return;
       res.json({ teams: assignableTeams().map((t) => ({ team: t.agent_node, name: t.agent_node })) });
     })().catch(next);

@@ -93,6 +93,13 @@ export type PendingReason = 'unbound' | 'bound-to-non-person';
 const COLUMNS = 'id, kind, display_name, owner, status, status_changed_at, status_changed_by, status_reason, created_at';
 
 /** 提供方的名字：小写字母、数字、连字符、下划线 */
+/**
+ * 已下线的身份来源：库里留着的这类外部身份只读（历史留痕、旧作者按它对回主体），不再接受任何新绑定——
+ * 管理员绑定、成批绑定、登录时自动建人、按邮箱自动对上都不收。解绑照旧可以（清理用），解掉之后也绑不回去
+ */
+export const RETIRED_PROVIDERS: ReadonlySet<string> = new Set(['odoo']);
+export const retiredProvider = (provider: string): boolean => RETIRED_PROVIDERS.has(provider);
+
 const providerOk = (v: unknown): v is string => typeof v === 'string' && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(v);
 /** 对方的用户标识：和身份服务对登录名的要求同一把尺（非空、不超过 128、两头没有空白、没有控制字符） */
 const externalIdOk = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 128 && v === v.trim() && !/[\x00-\x1f\x7f]/.test(v);
@@ -143,6 +150,7 @@ export class PrincipalService extends Service implements PrincipalDirectory {
     const verdict = (b: Bound): Admission => (b.kind !== 'person' ? { ok: false, reason: 'unbound' } : b.status === 'active' ? { ok: true, principal: b.id } : { ok: false, reason: 'disabled' });
     const bound = this.boundTo(provider, externalId);
     if (bound) return verdict(bound);
+    if (retiredProvider(provider)) return { ok: false, reason: 'unbound' }; // 已下线的来源：不新建人、不新绑
 
     const id = `user:${externalId}`, idKey = comparisonKey(id), externalKey = comparisonKey(externalId);
     if (!externalKey) throw new Error('外部身份规范化之后是空的');
@@ -249,9 +257,10 @@ export class PrincipalService extends Service implements PrincipalDirectory {
    * 要把站内账号接到已有的人身上，走显式的「绑定到现有主体」（POST /api/principals/bind）
    */
   bindIdentity(input: { provider: string; externalId: string; principal: string; create?: boolean; createOnly?: boolean; displayName?: string | null }):
-    { ok: true; principal: PrincipalView; created: boolean } | { ok: false; reason: 'conflict' | 'missing' | 'not-person' | 'disabled' | 'taken' | 'exists'; principal?: string } {
+    { ok: true; principal: PrincipalView; created: boolean } | { ok: false; reason: 'conflict' | 'missing' | 'not-person' | 'disabled' | 'taken' | 'exists' | 'retired'; principal?: string } {
     const { provider, externalId, principal } = input ?? ({} as never);
     if (!providerOk(provider) || !externalIdOk(externalId) || typeof principal !== 'string' || !/^user:./.test(principal) || !externalIdOk(principal.slice(5))) throw new Error('绑定的形状不对');
+    if (retiredProvider(provider)) return { ok: false, reason: 'retired' };
     const externalKey = comparisonKey(externalId), idKey = comparisonKey(principal);
     if (!externalKey) throw new Error('外部身份规范化之后是空的');
     db.exec('BEGIN IMMEDIATE');
@@ -319,6 +328,7 @@ export class PrincipalService extends Service implements PrincipalDirectory {
   bindByEmail(input: { provider: string; externalId: string; email: string; against: string }): Admission {
     const { provider, externalId, email, against } = input ?? ({} as never);
     if (!providerOk(provider) || !externalIdOk(externalId) || !providerOk(against) || typeof email !== 'string' || !email.includes('@') || email.length > 320) return { ok: false, reason: 'unbound' };
+    if (retiredProvider(provider)) return { ok: false, reason: 'unbound' };
     const emailKey = comparisonKey(email.trim()), externalKey = comparisonKey(externalId);
     db.exec('BEGIN IMMEDIATE');
     try {

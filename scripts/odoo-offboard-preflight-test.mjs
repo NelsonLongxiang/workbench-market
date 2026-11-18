@@ -175,6 +175,24 @@ try {
   check(rg.json?.odoo_owned_consts?.unmapped === 1, '第四项只按 Odoo 身份对：名下只有同名飞书身份的对不回', rg.json?.odoo_owned_consts);
   check(rg.json?.odoo_owned_consts?.scope?.includes('bench'), 'JSON 也说明第四项只数主库（bench 模式要另查）', rg.json?.odoo_owned_consts?.scope);
 
+  // 只认站内身份：名下没有 local 身份、只有别的身份（Odoo、飞书）恰好和某个还在的站内账号同名，不算能用站内账号登录
+  const nl = freshDb('non-local');
+  const x = new DatabaseSync(nl);
+  const nowX = Date.now();
+  const XP = (id) => x.prepare("INSERT INTO principals (id, id_key, kind, display_name, status) VALUES (?, ?, 'person', ?, 'active')").run(id, id, id.slice(5));
+  const XB = (provider, ext, id) => x.prepare('INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES (?, ?, ?, ?)').run(provider, ext, ext.toLowerCase(), id);
+  const XA = (u) => x.prepare("INSERT INTO local_accounts (username, password_hash, created_at, updated_at) VALUES (?, 'x', ?, ?)").run(u, nowX, nowX);
+  const XG = (principal) => {
+    const id = Number(x.prepare("INSERT INTO grants (principal_id, role, scope, reason, created_by, created_at, updated_at) VALUES (?, 'owner', '*', '合成', 'cli', ?, ?)").run(principal, nowX, nowX).lastInsertRowid);
+    x.prepare("UPDATE grants SET status = 'pending' WHERE id = ?").run(id); x.prepare("UPDATE grants SET status = 'active', approved_by = 'cli' WHERE id = ?").run(id);
+  };
+  XP('user:oli'); XB('odoo', 'oli', 'user:oli'); XA('oli'); XG('user:oli');      // 只有 Odoo 身份，站内账号 oli 在（不是他的）
+  XP('user:pat'); XB('feishu', 'pat', 'user:pat'); XA('pat'); XG('user:pat');    // 只有飞书身份，站内账号 pat 在
+  x.close();
+  const rn = run(nl);
+  check(rn.json?.odoo_only_people === 1 && rn.json.full_admins_on_local_accounts === 0 && rn.json.red?.includes('no-full-admin-on-local-account'),
+    '只认 local 身份：启用的人只绑着 Odoo 或飞书、同名站内账号还在，不算能用站内账号登录（oli 算只靠 Odoo；两人的 owner 授予都不算落在站内账号上）', rn.json);
+
   // 确认数：给了就必须严格相等；实际 0 人时给了别的数也红
   const zero = freshDb('zero');
   const z = new DatabaseSync(zero);

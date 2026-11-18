@@ -59,7 +59,7 @@ async function child() {
   const http = svc('http');
   registerLoginEventRoutes(http);
   const refuse = () => { throw new Error('测试里不该走到'); };
-  registerGrantRoutes(http, { markOdooAdmin: refuse, adminGuard: refuse, adminActor: refuse });
+  registerGrantRoutes(http, { markAdmin: refuse, adminGuard: refuse, adminActor: refuse });
   // 技能影子补推：LayerFS 没配置（base 空），一轮什么都不做；这里只看定时器起没起、停没停
   const { startSkillShadowCatchUp } = await import(src('skill-shadow.ts'));
   startSkillShadowCatchUp({ layerfsPublish: refuse, layerfsServiceBase: () => ({ base: '', token: '' }), LAYERFS_SKILLS_PROJECT: 'wm-skills', resolveSnap: refuse }, { everyMs: 600_000, batch: 20 });

@@ -2,10 +2,11 @@
 //   · 持久化只用 SQLite（workbench_vars），写入返回即已落库；不经 Redis，也就没有「缓存写成功 ≠ 持久化成功」的歧义。
 //   · 并发：乐观锁。每次写 revision +1；改/删已存在的键必须带期望 revision（If-Match 或 revision 参数），不符 409 并回当前 revision。
 //     新建时可带 revision=0 表示「只在不存在时创建」；不带也行（撞上并发创建同样 409）。
-//   · 常量 kind=const：写入后不能直接改、删。谁写的谁维护：新建时记作者（只认个人身份 mcp:<会话名> / odoo:<登录名>），
+//   · 常量 kind=const：写入后不能直接改、删。谁写的谁维护：新建时记作者（只认个人身份 mcp:<会话名> / user:<主体>；
+//     Odoo 下线前记下的 odoo:<登录名> 照旧当作者，主体名下保留着这条历史 Odoo 身份的人就是他），
 //     作者本人带 override 与 reason 可修订、删除（REST 与 MCP 都行）；作者缺失或要移交时由部署机本机命令行兜底（可改作者）。
-//     管理员口令与 Odoo 管理员不因「是管理员」就能动别人的常量；按台令牌注入在台页面里、人人可得，不能新建常量。修订都留审计（只记值的 sha256）。
-//   · 读写口径：本机命令行 / 管理员（口令或 Odoo 管理员）可读写任意台；自产台、SOP 台页面凭本台 X-App-Token 只能读写本台；
+//     管理员口令与站内管理员不因「是管理员」就能动别人的常量；按台令牌注入在台页面里、人人可得，不能新建常量。修订都留审计（只记值的 sha256）。
+//   · 读写口径：本机命令行 / 管理员（口令或站内管理员）可读写任意台；自产台、SOP 台页面凭本台 X-App-Token 只能读写本台；
 //     外部台没有按台令牌，只有管理员能读写。匿名一律 403。
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type express from 'express';
@@ -15,6 +16,7 @@ import { svc } from './context.ts';
 import { HttpError } from './errors.ts';
 import { browserMarked, rawLoopback } from './surfaces.ts';
 import type { WorkbenchService } from './services/workbench.ts';
+import type { PrincipalService } from './services/principal.ts';
 import type { SettingService } from './services/setting.ts';
 import type { WorkbenchVarsService, WorkbenchVarRow } from './services/workbench-vars.ts';
 import { BenchError } from './bench-query.ts';
@@ -33,22 +35,31 @@ const PATH_RE = /^\/api\/workbenches\/([1-9]\d{0,11})\/vars(?:\/|$)/i;
 
 export type WorkbenchClass = 'app' | 'sop' | 'external';
 export type Scope = { id: number; cls: WorkbenchClass; slug: string | null };
-/** 调用方：actor 记入 updated_by / 审计；admin=管理读写面（本机命令行、口令、Odoo 管理员）；cli=部署机本机命令行（常量兜底维护） */
+/** 调用方：actor 记入 updated_by / 审计；admin=管理读写面（本机命令行、口令、站内管理员）；cli=部署机本机命令行（常量兜底维护） */
 export type Caller = { actor: string; admin: boolean; cli: boolean };
-/** 能当常量作者的个人身份：MCP 会话或 Odoo 登录人；口令、本机、台令牌都是共享身份 */
-const PERSONAL_RE = /^(mcp|odoo):[^\s]{1,128}$/;
+/** 能当常量作者的个人身份：MCP 会话或站内的人（user:<主体>）；口令、本机、台令牌都是共享身份。
+ *  odoo:<登录名> 是 Odoo 下线前的个人身份：库里有的照旧认（见 sameAuthor），新写入不再收 */
+const PERSONAL_RE = /^(mcp|user):[^\s]{1,128}$/;
 const personal = (actor: string) => PERSONAL_RE.test(actor) ? actor : '';
+/** 这个调用方是不是这条常量的作者：同一个身份；或者作者是旧的 odoo:<登录名>、调用方是名下保留着这条历史 Odoo 身份的主体（只读库里的绑定，不问 Odoo） */
+function sameAuthor(actor: string, owner: string): boolean {
+  if (!owner || !actor) return false;
+  if (actor === owner) return true;
+  if (!owner.startsWith('odoo:') || !actor.startsWith('user:')) return false;
+  const login = owner.slice('odoo:'.length).toLowerCase();
+  try { return svc<PrincipalService>('principals').externalIdsOf(actor, 'odoo').some((x) => x.toLowerCase() === login); } catch { return false; }
+}
 
 export type WorkbenchVarsDeps = {
   /** 按台令牌（index.ts 的 wmAppToken） */
   appToken: (slug: string) => string;
-  /** 按需认定 Odoo 管理员（写门/读面判管理员前调用） */
-  markOdooAdmin: (req: express.Request) => Promise<void>;
+  /** 按需认定站内管理员（写门/读面判管理员前调用） */
+  markAdmin: (req: express.Request) => Promise<void>;
   /** 管理读门（与凭据库同口径：同源页面 GET 也要管理员） */
   adminRead: (req: express.Request, res: express.Response) => boolean;
-  /** 管理写门（口令或 Odoo 管理员 + 同源） */
+  /** 管理写门（口令或站内管理员 + 同源） */
   adminWrite: (req: express.Request, res: express.Response) => boolean;
-  /** 管理员身份落到人：Odoo 管理员 odoo:<登录名>，口令 admin-token */
+  /** 管理员身份落到人：站内管理员 user:<主体>，口令 admin-token */
   adminActor: (req: express.Request) => string;
 };
 
@@ -130,7 +141,7 @@ function getVarMain(scope: Scope, key: string) {
   return { workbench_id: scope.id, ...view(r) };
 }
 
-/** 公共常量：owner 为 * 时，任何个人身份（mcp:/odoo:）都能带 override 与 reason 修订；台令牌、管理员口令这类共享身份不行 */
+/** 公共常量：owner 为 * 时，任何个人身份（mcp:/user:）都能带 override 与 reason 修订；台令牌、管理员口令这类共享身份不行 */
 const PUBLIC_OWNER = '*';
 /** 常量的规矩没过：主库那一种存法换成 conflict()（带当前行），台库那一种换成 conflictBench() */
 class ConstRefusal extends Error {
@@ -140,9 +151,9 @@ class ConstRefusal extends Error {
 }
 /** 常量维护权：作者本人、公共常量的任一个人身份，或部署机本机命令行 */
 function maintainConstCheck(cur: { owner: string }, caller: Caller, reason: string, what: string): void {
-  const may = caller.cli || (cur.owner === PUBLIC_OWNER ? PERSONAL_RE.test(caller.actor) : !!cur.owner && caller.actor === cur.owner);
+  const may = caller.cli || (cur.owner === PUBLIC_OWNER ? PERSONAL_RE.test(caller.actor) : sameAuthor(caller.actor, cur.owner));
   if (!may) {
-    const who = cur.owner === PUBLIC_OWNER ? '个人身份（MCP 会话或 Odoo 登录）' : `作者（${cur.owner || '未登记作者'}）`;
+    const who = cur.owner === PUBLIC_OWNER ? '个人身份（MCP 会话或站内登录的人）' : `作者（${cur.owner || '未登记作者'}）`;
     throw new ConstRefusal(`常量只能由${who}或部署机本机命令行${what}`, 'const_override_forbidden', 403);
   }
   if (!reason) throw new ConstRefusal(`${what}常量要写 reason（记入审计）`, 'reason_required', 400);
@@ -157,9 +168,9 @@ function maintainConst(scope: Scope, key: string, cur: WorkbenchVarRow, caller: 
 function ownerInputCheck(owner: unknown, caller: Caller, cur?: { kind: string; owner: string }): string | undefined {
   if (owner === undefined) return undefined;
   const o = typeof owner === 'string' ? owner.trim() : '';
-  const toPublic = o === PUBLIC_OWNER && cur?.kind === 'const' && !!cur.owner && cur.owner !== PUBLIC_OWNER && caller.actor === cur.owner;
+  const toPublic = o === PUBLIC_OWNER && cur?.kind === 'const' && !!cur.owner && cur.owner !== PUBLIC_OWNER && sameAuthor(caller.actor, cur.owner);
   if (!caller.cli && !toPublic) throw new ConstRefusal('指定或移交常量作者只限部署机本机命令行（作者本人可把自己的常量设成公共：owner="*"）', 'owner_change_forbidden', 403);
-  if (o !== '' && o !== PUBLIC_OWNER && !PERSONAL_RE.test(o)) throw new HttpError(400, 'owner 只能是 mcp:<会话名>、odoo:<登录名> 或 *（公共）；空串=无作者');
+  if (o !== '' && o !== PUBLIC_OWNER && !PERSONAL_RE.test(o)) throw new HttpError(400, 'owner 只能是 mcp:<会话名>、user:<主体> 或 *（公共）；空串=无作者（odoo:<登录名> 已下线，不再收）');
   return o;
 }
 function ownerInput(scope: Scope, key: string, owner: unknown, caller: Caller, cur?: WorkbenchVarRow): string | undefined {
@@ -184,7 +195,7 @@ function setVarMain(scope: Scope, key: string, input: SetInput, caller: Caller) 
       if (S.count(scope.id) >= MAX_KEYS_PER_WORKBENCH) throw new HttpError(400, `每台最多 ${MAX_KEYS_PER_WORKBENCH} 个键`);
       const kind = (input.kind as string | undefined) ?? 'var';
       // 台令牌注入在台页面里，打开页面的人都拿得到：它建的常量没有可追的作者，只能写普通变量
-      if (kind === 'const' && caller.actor.startsWith('app:')) conflict(scope, key, '按台令牌不能新建常量：常量要有作者，请用 MCP 会话或 Odoo 登录写', 'const_create_forbidden', 403);
+      if (kind === 'const' && caller.actor.startsWith('app:')) conflict(scope, key, '按台令牌不能新建常量：常量要有作者，请用 MCP 会话或站内登录写', 'const_create_forbidden', 403);
       const asked = ownerInput(scope, key, input.owner, caller);
       if (asked !== undefined && kind !== 'const') throw new HttpError(400, 'owner 只用于常量');
       const owner = kind === 'const' ? (asked ?? personal(caller.actor)) : '';
@@ -509,7 +520,7 @@ async function setVarBench(scope: Scope, key: string, input: SetInput, caller: C
     if (input.expected !== undefined && input.expected !== 0) return conflictBench(scope, store, key, `键不存在，期望 revision ${input.expected} 不成立`, 'revision_conflict');
     if ((hotOn() ? (await listRows(scope.id, store, '')).length : await store.varCount()) >= MAX_KEYS_PER_WORKBENCH) throw new HttpError(400, `每台最多 ${MAX_KEYS_PER_WORKBENCH} 个键`);
     const kind = (input.kind as string | undefined) ?? 'var';
-    if (kind === 'const' && caller.actor.startsWith('app:')) return conflictBench(scope, store, key, '按台令牌不能新建常量：常量要有作者，请用 MCP 会话或 Odoo 登录写', 'const_create_forbidden', 403);
+    if (kind === 'const' && caller.actor.startsWith('app:')) return conflictBench(scope, store, key, '按台令牌不能新建常量：常量要有作者，请用 MCP 会话或站内登录写', 'const_create_forbidden', 403);
     const asked = await ownerInputBench(scope, store, key, input.owner, caller);
     if (asked !== undefined && kind !== 'const') throw new HttpError(400, 'owner 只用于常量');
     const owner = kind === 'const' ? (asked ?? personal(caller.actor)) : '';
@@ -743,7 +754,7 @@ export function createWorkbenchVars(deps: WorkbenchVarsDeps) {
       res.status(403).json({ error: '按台令牌不属于该工作台（只能读写本台变量；外部台只限管理员）', code: 'app_token_mismatch' });
       return null;
     }
-    await deps.markOdooAdmin(req);
+    await deps.markAdmin(req);
     if (!(write ? deps.adminWrite(req, res) : deps.adminRead(req, res))) return null;
     return { actor: deps.adminActor(req), admin: true, cli: false };
   }

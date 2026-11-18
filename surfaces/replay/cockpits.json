@@ -1539,8 +1539,8 @@
           "response": {
             "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
-            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+            "headers": { "cache-control": "no-store", "content-length": "114", "etag": "W/\"72-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用站内账号或管理员口令登录", "login_url": "/login" }
           }
         },
         {
@@ -1552,8 +1552,8 @@
           "response": {
             "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
-            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+            "headers": { "cache-control": "no-store", "content-length": "114", "etag": "W/\"72-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用站内账号或管理员口令登录", "login_url": "/login" }
           }
         },
         {
@@ -1565,8 +1565,8 @@
           "response": {
             "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
-            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+            "headers": { "cache-control": "no-store", "content-length": "114", "etag": "W/\"72-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用站内账号或管理员口令登录", "login_url": "/login" }
           }
         },
         {
@@ -1586,8 +1586,8 @@
           "response": {
             "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
-            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+            "headers": { "cache-control": "no-store", "content-length": "114", "etag": "W/\"72-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用站内账号或管理员口令登录", "login_url": "/login" }
           }
         },
         {
@@ -1599,8 +1599,8 @@
           "response": {
             "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
-            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+            "headers": { "cache-control": "no-store", "content-length": "114", "etag": "W/\"72-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用站内账号或管理员口令登录", "login_url": "/login" }
           }
         },
         {
@@ -1655,8 +1655,8 @@
           "response": {
             "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
-            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+            "headers": { "cache-control": "no-store", "content-length": "114", "etag": "W/\"72-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用站内账号或管理员口令登录", "login_url": "/login" }
           }
         },
         {
@@ -1698,8 +1698,8 @@
           "response": {
             "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
-            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+            "headers": { "cache-control": "no-store", "content-length": "114", "etag": "W/\"72-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用站内账号或管理员口令登录", "login_url": "/login" }
           }
         },
         {
@@ -1745,8 +1745,8 @@
           "response": {
             "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
-            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+            "headers": { "cache-control": "no-store", "content-length": "114", "etag": "W/\"72-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用站内账号或管理员口令登录", "login_url": "/login" }
           }
         },
         {
@@ -1758,8 +1758,8 @@
           "response": {
             "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
-            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+            "headers": { "cache-control": "no-store", "content-length": "114", "etag": "W/\"72-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用站内账号或管理员口令登录", "login_url": "/login" }
           }
         },
         {
