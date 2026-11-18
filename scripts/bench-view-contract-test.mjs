@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 /** #763 视图契约一致性：view_put 的机器可读 doc 描述与 bench-views 的校验同一来源。纯内存检查，不碰库不碰网。
  *   一、契约覆盖全部组件类型，键/必填/说明自洽
- *   二、view_put 的 doc 参数机器可读：枚举、上限、pattern 都取自 VIEW_DOC_CONTRACT
+ *   二、视图描述的完整契约（VIEW_DOC_SCHEMA）机器可读：枚举、上限、pattern 都取自 VIEW_DOC_CONTRACT；
+ *       它在技能 wm-data-views 的 references/view-doc-schema.json 里，和代码一字不差；view_put 的工具定义里只留最小形状
  *   三、每个 oneOf 分支与 BLOCK_CONTRACT 同构（键集合+顺序、必填、禁多余键）
  *   四、每种组件一个正例过校验；特征反例仍拒——工具描述不许比服务端校验松
  */
 import assert from 'node:assert/strict';
 import { validateViewDoc, BLOCK_TYPES, BLOCK_CONTRACT, VIEW_DOC_CONTRACT } from '../server/src/bench-views.ts';
-import { BENCH_TOOL_DEFS } from '../server/src/bench-mcp-tools.ts';
+import { BENCH_TOOL_DEFS, VIEW_DOC_SCHEMA } from '../server/src/bench-mcp-tools.ts';
+import { readFileSync } from 'node:fs';
+import { render } from './gen-view-doc-schema.mjs';
 
 // 一、契约自洽
 assert.deepEqual(Object.keys(BLOCK_CONTRACT), [...BLOCK_TYPES]);
@@ -20,10 +23,16 @@ for (const t of BLOCK_TYPES) {
   assert.ok(typeof c.note === 'string' && c.note.length >= 8, `${t}：note 讲了条件`);
 }
 
-// 二、doc 机器可读且同源
+// 二、doc 机器可读且同源（完整契约在技能里，工具定义里只留最小形状）
 const viewPut = BENCH_TOOL_DEFS.find((t) => t.name === 'view_put');
 assert.ok(viewPut, '有 view_put 工具');
-const doc = viewPut.inputSchema.properties.doc;
+const slim = viewPut.inputSchema.properties.doc;
+assert.equal(slim.type, 'object');
+assert.deepEqual([...slim.required].sort(), ['title', 'views']);
+assert.ok(slim.description.includes('references/view-doc-schema.json'), 'view_put 的 doc 说明指向技能里的完整契约');
+assert.ok(Buffer.byteLength(JSON.stringify(viewPut)) < 3000, `view_put 的定义要小（现在 ${Buffer.byteLength(JSON.stringify(viewPut))} 字节）：完整契约不放进工具定义`);
+assert.equal(readFileSync(new URL('../skills/wm-data-views/references/view-doc-schema.json', import.meta.url), 'utf8'), render(), '技能里的 view-doc-schema.json 和代码生成的一字不差（不一致就跑 node scripts/gen-view-doc-schema.mjs）');
+const doc = VIEW_DOC_SCHEMA;
 assert.equal(doc.type, 'object');
 const views = doc.properties.views;
 assert.equal(views.maxItems, VIEW_DOC_CONTRACT.maxViews);
