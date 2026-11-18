@@ -446,6 +446,11 @@ try {
       '上传附件：登录的人传原始字节，带 X-Content-SHA256 核对过（sha256-verified），不带也能传', show({ a1: a1.body, a2: a2.body }));
     check(wrong.status === 400 && wrong.body?.error === 'sha256_mismatch' && asJson.status === 415 && anon.status === 401,
       '上传附件：sha256 对不上 400 不保存；按 JSON 发 415（请求体已被读走，不存空文件）；远程匿名 401', show({ wrong: wrong.status, asJson: asJson.status, anon: anon.status }));
+    // 文件名和台文件上传同一条规则（upload-file-name.ts）：DEL、方向控制符（U+202E 能让名字倒着显示）都拒
+    for (const [label, name] of [['DEL', 'x\u007f.txt'], ['U+202E', 'x\u202e.txt'], ['U+2066', 'x\u2066.txt'], ['U+200F', 'x\u200f.txt']]) {
+      const r = await up(ALPHA, name, Buffer.from('合成'));
+      check(r.status === 400 && r.body?.error === 'attachment_name_invalid', `上传附件：文件名带 ${label} 拒收（400 attachment_name_invalid）`, show({ status: r.status, body: r.body }));
+    }
     // 安排时带附件：正文只带引用（名字、大小、sha256、取件地址），不带内容
     const withAtt = await call('POST', '/api/work-items', ALPHA, form({ attachments: [a1.body?.id, a2.body?.id] }));
     const d = dbr(); let msgRow; try { msgRow = d.prepare('SELECT id, message FROM workbench_event_deliveries WHERE event_id = ?').get(withAtt.body?.event_id); } finally { d.close(); }
