@@ -103,7 +103,13 @@ const BLOCK_ONEOF: Schema[] = Object.entries(VIEW_DOC_CONTRACT.blocks).map(([t, 
   }
   return { type: 'object', additionalProperties: false, required: [...c.required], description: c.note, properties: props };
 });
-const VIEW_DOC: Schema = {
+/**
+ * 视图描述的完整 JSON Schema（块类型、必填、上限、各字段说明），从 VIEW_DOC_CONTRACT 生成，和服务端校验同一来源。
+ * 不放进 view_put 的工具定义：它一份就占全部工具定义的四成，每个拿到 view_put 的会话一开局都要整段装进上下文。
+ * 改放技能 wm-data-views 的 references/view-doc-schema.json（scripts/gen-view-doc-schema.mjs 生成，
+ * scripts/bench-view-contract-test.mjs 核对技能里的文件和这里一字不差），要写视图的会话按需去读。
+ */
+export const VIEW_DOC_SCHEMA: Schema = {
   type: 'object', additionalProperties: false, required: ['title', 'views'],
   description: `视图描述：顶层 title + views（1～${VIEW_DOC_CONTRACT.maxViews} 份视图）。${SKILL.replace('query.md', 'views.md')}；服务端按同一契约校验（输出列、$参数、数据集引用都查），不合格整份拒收、不产生新版本`,
   properties: {
@@ -117,6 +123,14 @@ const VIEW_DOC: Schema = {
       },
     } },
   },
+};
+
+/** view_put 的 doc 参数只给最小形状：完整契约按需读技能里的那份 schema（见 VIEW_DOC_SCHEMA） */
+const VIEW_DOC_MIN: Schema = {
+  type: 'object', required: ['title', 'views'],
+  description: `视图描述：{ title, views: [{ key, title, blocks: [组件…] }] }，最多 ${VIEW_DOC_CONTRACT.maxViews} 份视图、每份最多 ${VIEW_DOC_CONTRACT.maxBlocks} 个组件；组件类型 ${Object.keys(VIEW_DOC_CONTRACT.blocks).join(' / ')}。`
+    + '每种组件有哪些键、哪些必填、上限多少，完整的机器可读契约在技能 wm-data-views 的 references/view-doc-schema.json（写法和例子见 references/views.md）；先读它再写',
+  properties: { title: { type: 'string' }, views: { type: 'array', minItems: 1, maxItems: VIEW_DOC_CONTRACT.maxViews, items: { type: 'object' } } },
 };
 
 export const BENCH_TOOL_DEFS: BenchToolDef[] = [
@@ -133,7 +147,7 @@ export const BENCH_TOOL_DEFS: BenchToolDef[] = [
   tool('dataset_delete_rows', 'write', '按主键删行；删之前自动留快照', obj({ dataset: DATASET, keys: { type: 'array', description: '只含主键列的对象的数组', items: { type: 'object' } }, idempotency_key: IDEM, note: NOTE }, ['dataset', 'keys'])),
   tool('dataset_snapshot', 'write', '手工留一份快照', obj({ dataset: DATASET, note: NOTE }, ['dataset'])),
   tool('dataset_restore', 'write', '把数据集退回到某一份快照', obj({ snapshot_id: { type: 'integer', minimum: 1 }, note: NOTE }, ['snapshot_id'])),
-  tool('view_put', 'write', '保存视图描述：产生一个新版本并立即生效（doc 的块类型、必填、上限在参数里列全；服务端按同一契约校验，不合格整份拒收、不产生新版本）', obj({ doc: VIEW_DOC, base: { type: 'integer', minimum: 0, description: '你是基于第几版改的；还没有版本时给 0' }, note: NOTE }, ['doc', 'base', 'note'])),
+  tool('view_put', 'write', '保存视图描述：产生一个新版本并立即生效。服务端按契约校验（块类型、必填、上限、输出列、$参数、数据集引用都查），不合格整份拒收、不产生新版本，错误里点名是哪一处', obj({ doc: VIEW_DOC_MIN, base: { type: 'integer', minimum: 0, description: '你是基于第几版改的；还没有版本时给 0' }, note: NOTE }, ['doc', 'base', 'note'])),
   tool('view_rollback', 'write', '让旧版本重新生效（只移指针，不丢版本）', obj({ to: { type: 'integer', minimum: 1 }, base: { type: 'integer', minimum: 1, description: '你看到的生效版本' }, note: NOTE }, ['to', 'base', 'note'])),
 ];
 export const BENCH_TOOL_NAMES: ReadonlySet<string> = new Set(BENCH_TOOL_DEFS.map((t) => t.name));
