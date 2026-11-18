@@ -10,7 +10,7 @@ import WmPage from '../components/WmPage';
 import RowActions from '../components/RowActions';
 import RelTime from '../components/RelTime';
 
-/** 凭据库（融合 dsh-vault）：读写都要管理员（口令或 Odoo 管理员）；与 DSH 插件共用同一个加密库文件 */
+/** 凭据库（融合 dsh-vault）：读写都要管理员（口令或站内管理员）；与 DSH 插件共用同一个加密库文件 */
 const KIND_LABEL: Record<VaultKind, string> = { login: '登录', ssh: 'SSH', 'api-key': 'API Key', secret: 'Secret', oauth: 'OAuth', cookie: 'Cookie 会话', card: '银行卡', custom: '自定义' };
 const KIND_COLOR: Record<VaultKind, string> = { login: 'blue', ssh: 'geekblue', 'api-key': 'purple', secret: 'magenta', oauth: 'cyan', cookie: 'gold', card: 'volcano', custom: 'default' };
 /** 每类条目在表单里展示哪些字段（其余字段保留但不显示） */
@@ -44,7 +44,7 @@ export default function VaultPage() {
   if (!tokenSet) {
     return (
       <WmPage>
-        <Result status="warning" title="先确认管理员身份" subTitle="凭据库的读写都要管理员：在顶栏输入管理员口令，或用 Odoo 管理员账号登录后再回到本页。" />
+        <Result status="warning" title="先确认管理员身份" subTitle="凭据库的读写都要管理员：在顶栏输入管理员口令，或用有管理员授予的站内账号登录后再回到本页。" />
       </WmPage>
     );
   }

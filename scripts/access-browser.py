@@ -65,7 +65,7 @@ with sync_playwright() as p:
     check('顶栏标题是导航名「谁能做什么」', pg.locator('.wm-top-title').inner_text().strip() == '谁能做什么')
 
     # 认出了人但不是管理员：浏览器没带会话，授予是 401（实例真的），/api/auth/me 截下来换成带本人角色的
-    ME = {'gate': 'off', 'authenticated': True, 'via': 'odoo', 'login': 'bing', 'principal': 'user:bing', 'display_name': '丙',
+    ME = {'gate': 'off', 'authenticated': True, 'via': 'session', 'login': 'bing', 'principal': 'user:bing', 'display_name': '丙',
           'roles': [{'id': 'member', 'name': '普通员工', 'scope': '*', 'preset': True, 'expires_at': None, 'source': 'manual', 'approved_by': 'odoo:jia'},
                     {'id': 'dept-lead', 'name': '部门负责人', 'scope': 'domain:work', 'preset': True, 'expires_at': NOW, 'source': 'manual', 'approved_by': 'odoo:jia'}]}
     pg.route('**/api/auth/me', lambda r: fake(r, ME))

@@ -33,7 +33,7 @@ RECENT = {'items': [
     {'source': 'work-items', 'source_id': 'wi-syn-2', 'title': '合成：部门没名字的那件', 'answer': 'verify', 'answer_text': '验收', 'answered_at': '2026-11-14T04:00:00Z', 'remembered': None, 'default_visibility': 'department', 'department_name': None},
     {'source': 'work-items', 'source_id': 'wi-syn-3', 'title': '合成：缺省档没给的那件', 'answer': 'verify', 'answer_text': '验收', 'answered_at': '2026-11-14T03:00:00Z', 'remembered': None},
 ]}
-state = {'can': True, 'answer_remember': {'status': 'written', 'duplicate': False, 'scope_label': '采购部'}, 'answer_status': 200, 'odoo_admin': True}
+state = {'can': True, 'answer_remember': {'status': 'written', 'duplicate': False, 'scope_label': '采购部'}, 'answer_status': 200, 'grant_admin': True}
 # 不是管理员时：建立人自己的验收（走 /api/work-items/:id/decision，答完紧接着补记）、和一条自带答复入口的放行（answer_via：不进答复账，不给勾选）
 CREATOR = [
     {'source': 'work-items', 'source_id': 'wi-syn-acc', 'category': 'accept', 'title': '合成：比价表做完了', 'waiting_for': 'user:synthetic-boss', 'since': '2026-11-14T02:00:00Z', 'answers': ['verify', 'return'], 'object': '', 'phase': '', 'link': '/work-items/wi-syn-acc', 'mine': True},
@@ -53,8 +53,8 @@ sent, later = [], []
 
 def setup(ctx):
     ctx.route(re.compile(r'/api/auth/me$'), lambda r: fake(r, {'authenticated': True, 'via': 'cookie', 'login': 'synthetic-boss', 'display_name': '合成管理层', 'principal': 'user:synthetic-boss', 'roles': [], 'can': {'create_cockpit': True, 'remember_knowledge': state['can']}}))
-    ctx.route(re.compile(r'/api/admin/whoami$'), lambda r: fake(r, {'via': 'odoo', 'login': 'synthetic-boss'} if state['odoo_admin'] else {'via': None, 'login': None}))
-    ctx.route(re.compile(r'/api/attention(\?|$)'), lambda r: fake(r, {'items': (ITEMS + (EXTRA if state.get('extra') else [])) if state['odoo_admin'] else CREATOR, 'counts': {'total': 2}, 'sources': {}}))
+    ctx.route(re.compile(r'/api/admin/whoami$'), lambda r: fake(r, {'admin': True, 'via': 'grant', 'login': 'user:synthetic-boss'} if state['grant_admin'] else {'admin': False, 'via': None, 'login': None}))
+    ctx.route(re.compile(r'/api/attention(\?|$)'), lambda r: fake(r, {'items': (ITEMS + (EXTRA if state.get('extra') else [])) if state['grant_admin'] else CREATOR, 'counts': {'total': 2}, 'sources': {}}))
     def decision(r):
         decisions.append(json.loads(r.request.post_data or '{}')); fake(r, {'duplicate': False, 'result': {}})
     ctx.route(re.compile(r'/api/work-items/[^/]+/decision$'), decision)
@@ -161,7 +161,7 @@ with sync_playwright() as p:
     ctx.close()
 
     print('二之二、建立人自己的验收（不是管理员）')
-    state['odoo_admin'] = False
+    state['grant_admin'] = False
     ctx = b.new_context(viewport={'width': 1440, 'height': 900}); setup(ctx)
     pg = ctx.new_page(); pg.set_default_timeout(10000); pg.goto(M + '/attention'); pg.wait_for_selector('[data-testid=decision-card]'); pg.wait_for_timeout(800)
     acc = pg.locator('[data-testid=decision-card]', has_text='比价表做完了').first
@@ -199,7 +199,7 @@ with sync_playwright() as p:
         got = releases[m:][-1] if releases[m:] else {}
         check(f'放行卡片·{what}：页面显示「只给管理层」，release 请求体里 remember.visibility 也是 restricted', shown == '只给管理层' and got.get('from_attention') is True and (got.get('remember') or {}).get('visibility') == 'restricted', (shown, got))
     ctx.close()
-    state['odoo_admin'] = True
+    state['grant_admin'] = True
 
     print('四、我处理过的')
     ctx = b.new_context(viewport={'width': 1440, 'height': 900}); setup(ctx)

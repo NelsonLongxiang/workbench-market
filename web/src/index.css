@@ -33,6 +33,10 @@ body {
 
 /* ---------- 文字与间距工具类（#322：替代散落的 style={{ fontSize / margin }}，值取 DESIGN.md 6 档字号与 4px 栅格） ---------- */
 .wm-caption { font-size: var(--wm-font-size-caption); line-height: var(--wm-line-height-caption); }
+/* 当前用户 chip（ViewerChip）：未登录、停用时标签和按钮排一行；名字太长截断 */
+.wm-viewer-chip { display: inline-flex; align-items: center; gap: var(--wm-space-1); }
+.wm-viewer-tag { margin-inline-end: 0; }
+.wm-viewer-me { cursor: pointer; max-width: 260px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
 .wm-text-body { font-size: var(--wm-font-size-body); line-height: var(--wm-line-height-body); }
 .wm-display { font-size: var(--wm-font-size-display); line-height: var(--wm-line-height-display); font-weight: var(--wm-font-weight-display); }
 .wm-text-subtitle { font-size: var(--wm-font-size-subtitle); line-height: var(--wm-line-height-subtitle); font-weight: var(--wm-font-weight-subtitle); }

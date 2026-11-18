@@ -4,6 +4,7 @@ import { ModalForm, ProFormDependency, ProFormDigit, ProFormSelect, ProFormSwitc
 import { api } from '../api';
 import { apiFetch } from '../admin-token';
 import type { Workbench, WorkbenchType } from '../types';
+import { loginShown } from '../portal-logins';
 
 interface CookieSetInfo {
   id: number; label: string; cookie_count: number; active: number;
@@ -97,7 +98,7 @@ export default function WorkbenchForm({
               authType: initial.auth?.type ?? 'none',
               authValue: initial.auth?.value ?? '',
               access: initial.access ?? 'all',
-              access_logins: (initial.access_logins ?? []).map((s) => s.replace(/^odoo:/, '')),
+              access_logins: (initial.access_logins ?? []).map(loginShown),
             }
           : copyInitial ?? {
               name: '',
@@ -121,7 +122,7 @@ export default function WorkbenchForm({
           const { authType, authValue, _cookieImport, access, access_logins, ...payload } = values;
           // 访问范围：新建选「自动」时不发，由服务端按凭据判定；编辑时只有真改了才发（原样回传 all 会被当成显式选择，抵消加凭据时的自动收紧）
           const logins = (access_logins ?? []).map((s: string) => String(s).trim()).filter(Boolean);
-          const sameLogins = JSON.stringify([...logins].sort()) === JSON.stringify([...(initial?.access_logins ?? []).map((s) => s.replace(/^odoo:/, ''))].sort());
+          const sameLogins = JSON.stringify([...logins].sort()) === JSON.stringify([...(initial?.access_logins ?? []).map(loginShown)].sort());
           const changed = initial ? access !== (initial.access ?? 'all') || (access === 'listed' && !sameLogins) : access !== 'auto';
           if (changed && access !== 'auto') {
             (payload as Record<string, unknown>).access = access;
@@ -250,7 +251,8 @@ export default function WorkbenchForm({
           access === 'listed' ? (
             <ProFormSelect
               name="access_logins"
-              label="指定的人（Odoo 登录名）"
+              label="指定的人（站内账号名）"
+              extra="填站内账号名，回车添加。以「odoo:」开头的是 Odoo 下线前的历史登录名，只能保留或删掉，不能新加"
               fieldProps={{ mode: 'tags', tokenSeparators: [',', ' '] }}
               rules={[{ required: true, type: 'array', min: 1, message: '至少填一个登录名' }]}
               placeholder="回车添加，可多个"

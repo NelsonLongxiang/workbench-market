@@ -3,7 +3,7 @@
  * 按人排的权限表，角色矩阵的格子怎么说，读不到时怎么说。纯函数，不碰 React；页面在 pages/access/Access.tsx。
  *
  * 只能 import type：scripts/access-ui-unit.mjs 用 Node 直接加载这个文件。「谁」的通用说法（去前缀、系统来源说人话）
- * 在 people.ts，页面里接上；这里只把授予留痕特有的两种写法（本机命令行 cli、管理员登录 odoo:<登录名>）先换掉。
+ * 在 people.ts，页面里接上；这里只把授予留痕特有的两种写法（本机命令行 cli、Odoo 下线前的管理员登录 odoo:<登录名>，历史记录照认）先换掉。
  */
 
 export type GrantStatus = 'draft' | 'pending' | 'active' | 'revoked' | 'expired';
@@ -94,7 +94,7 @@ export function indexPrincipals(body: unknown): Map<string, Principal> {
   return new Map(list.filter((p) => p && typeof p.id === 'string').map((p) => [p.id, p]));
 }
 
-/** 授予留痕特有的两种写法先换成人话，其余交给 people.ts 的 actorLabel：本机命令行 cli；管理员登录 odoo:<登录名>，
+/** 授予留痕特有的两种写法先换成人话，其余交给 people.ts 的 actorLabel：本机命令行 cli；Odoo 下线前的管理员登录 odoo:<登录名>（历史记录），
  *  能从主体的登录身份对到人就用那个人的名字，对不到就用登录名 */
 export function grantActorRaw(raw: unknown, byId?: Map<string, Principal>): string {
   const s = String(raw ?? '').trim();
@@ -194,7 +194,7 @@ export function myRolesOf(me: unknown): MyRole[] | null {
 }
 
 /** 主体、角色、矩阵三个读接口只给能管的人（服务端那边是「管理」类动作）。认出了人、又明知他没有管理权的，页面就不去问，
- *  免得每次打开都白挨 403。授予不在这里判：L19（#659）起登录的人读得到自己能放行的那些，页面照常问。能管的：页面以管理员身份工作（持口令或 Odoo 管理员），或本人角色里有带「管理」类的内置预设
+ *  免得每次打开都白挨 403。授予不在这里判：L19（#659）起登录的人读得到自己能放行的那些，页面照常问。能管的：页面以管理员身份工作（持口令或站内管理员），或本人角色里有带「管理」类的内置预设
  *  （属主、系统管理员，见 server/src/roles.ts 的 PLATFORM_ROLES），或有自定义角色（能不能管页面不知道，照旧去问、由服务端判）。
  *  没认出人（没登录、本机命令行、/api/auth/me 读不到）也照旧去问：页面不知道，交给服务端。 */
 export const ADMIN_PRESETS: readonly string[] = ['owner', 'admin'];

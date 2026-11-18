@@ -33,7 +33,7 @@ export async function checkAdminToken(token: string): Promise<string | null> {
     const s: { source?: string } = await fetch('/api/admin-token/state', { headers: { Accept: 'application/json' } })
       .then((x) => (x.ok ? x.json() : {}))
       .catch(() => ({}));
-    if (s.source === 'none') return '服务端还没有设置管理员口令；请用 Odoo 管理员账号登录，或在本机设置口令';
+    if (s.source === 'none') return '服务端还没有设置管理员口令；请用有管理员授予的站内账号登录，或在本机设置口令';
     if (s.source === 'env') return '口令不对：服务端口令来自部署环境变量 ADMIN_TOKEN，以前在设置页改过的口令不再生效';
     return '口令不对：与服务端当前口令不一致';
   } catch { return null; }
@@ -43,21 +43,21 @@ export async function checkAdminToken(token: string): Promise<string | null> {
 export const ADMIN_TOKEN_CHANGED = 'wm:admin-token-changed';
 export const adminTokenPresent = (): boolean => getAdminToken() !== '';
 
-/** Odoo 管理员（属主 2026-11-02：Odoo 管理员登录也算管理员）：服务端按浏览器的 Odoo 会话现查 is_admin，
- *  这里只缓存结论给菜单与页面开关用；真正的授权在服务端每次请求判。 */
-let odooAdminLogin: string | null = null;
-export const odooAdmin = (): string | null => odooAdminLogin;
-/** 当前页面是否以管理员身份工作：持口令、Odoo 管理员，或持 owner/admin 授予的站内管理员 */
-export const adminActive = (): boolean => adminTokenPresent() || odooAdminLogin !== null;
+/** 站内管理员：登录的人持 owner/admin 授予（服务端 /api/admin/whoami 回 via=grant）。Odoo 已下线（2026-11-17），
+ *  身份来源自己说「是管理员」不再算数。这里只缓存结论给菜单与页面开关用；真正的授权在服务端每次请求判。 */
+let grantAdminLogin: string | null = null;
+export const adminLogin = (): string | null => grantAdminLogin;
+/** 当前页面是否以管理员身份工作：持口令，或持 owner/admin 授予的站内管理员 */
+export const adminActive = (): boolean => adminTokenPresent() || grantAdminLogin !== null;
 export async function refreshAdminIdentity(): Promise<void> {
   let next: string | null = null;
   try {
     const r = await fetch('/api/admin/whoami', { headers: { Accept: 'application/json' } });
     const j = await r.json() as { via?: string | null; login?: string | null };
-    next = (j?.via === 'odoo' || j?.via === 'grant') && typeof j.login === 'string' ? j.login : null; // grant：持 owner/admin 授予的站内管理员
+    next = j?.via === 'grant' && typeof j.login === 'string' ? j.login : null; // 只认授予；服务端遗留的 via=odoo 不再算
   } catch { next = null; }
-  if (next === odooAdminLogin) return;
-  odooAdminLogin = next;
+  if (next === grantAdminLogin) return;
+  grantAdminLogin = next;
   try { window.dispatchEvent(new Event(ADMIN_TOKEN_CHANGED)); } catch { /* 非浏览器环境 */ }
 }
 export function subscribeAdminToken(cb: () => void): () => void {
@@ -100,7 +100,7 @@ export async function apiFetch(url: string, init: RequestInit = {}): Promise<Res
     throw new Error('需要登录：正在前往登录页');
   }
   if ((r.status === 401 || r.status === 403) && url.startsWith('/api/')) {
-    const err = new Error('需要管理员：请在顶栏输入管理员口令，或用 Odoo 管理员账号登录') as Error & { needAdminToken?: boolean };
+    const err = new Error('需要管理员：请在顶栏输入管理员口令，或用有管理员授予的站内账号登录') as Error & { needAdminToken?: boolean };
     err.needAdminToken = true;
     throw err;
   }
