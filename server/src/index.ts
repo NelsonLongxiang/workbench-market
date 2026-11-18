@@ -130,6 +130,7 @@ import { designStandard } from './design-standard.ts';
 import { mountVault } from './vault-api.ts';
 import { expectedSha256, uploadIntegrity, type UploadIntegrity } from './upload-integrity.ts';
 import { UploadTickets, UPLOAD_TICKET_TTL_MS, type UploadTicket } from './upload-tickets.ts';
+import { uploadNameOk, UPLOAD_NAME_INVALID } from './upload-file-name.ts';
 import { loadConfig } from './config.ts';
 import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet, workbenchIdOf, reportHotVarKeys, reportHotPending, setVarsStoreMode, startHotVarsFlush, flushHotVars, Config as VarsConfig } from './workbench-vars.ts';
 import { registerWorkbenchVarsRoutes } from './routes/workbench-vars.ts';
@@ -1616,6 +1617,8 @@ function uploadKindOrThrow(path: string, size: number, name: string, reported: s
 }
 /** 自产台文件入库核心：浏览器 multipart 与 MCP REST（原始字节 PUT / multipart）共用——已落盘的文件按内容核类型（不符删盘 415）后写 app_files */
 async function appFileStoreCore(slug: string, f: { path: string; size: number; name: string; reportedMime: string; createdBy: string; note: string; sha256?: string }) {
+  // 文件名在这里再核一次：multipart 两个入口的名字只经过 fixFileName，到这里才第一次核；不合法就删掉已落盘的文件
+  if (!uploadNameOk(f.name)) { rmSync(f.path, { force: true }); throw new HttpError(400, UPLOAD_NAME_INVALID); }
   const kind = uploadKindOrThrow(f.path, f.size, f.name, f.reportedMime);
   // 存储相对路径（dataDir 内，随数据目录迁移）
   const rel = f.path.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
@@ -3192,7 +3195,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       if (args?.content_base64 === undefined) {
         // 不带 content_base64：申请上传票。台、文件名、文件数余量现在就核，免得字节传完了才被拒。
         if (!slug || !name) throw new HttpError(400, 'slug/name 必填');
-        if (name.length > 255 || name === '.' || name === '..' || /[\/\\\x00-\x1f]/.test(name)) throw new HttpError(400, '文件名不合法（≤255 字符，不含路径分隔符与控制字符）');
+        if (!uploadNameOk(name)) throw new HttpError(400, UPLOAD_NAME_INVALID);
         const { size, sha256 } = ticketSizeSha(args, UPLOAD_MAX);
         const a = getApp(slug, true);
         if ((await appFilesQuota(a.slug)).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`);
@@ -3203,7 +3206,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       }
       const b64 = String(args?.content_base64 ?? '');
       if (!slug || !name || !b64) throw new HttpError(400, 'slug/name/content_base64 必填');
-      if (name.length > 255 || name === '.' || name === '..' || /[\/\\\x00-\x1f]/.test(name)) throw new HttpError(400, '文件名不合法（≤255 字符，不含路径分隔符与控制字符）');
+      if (!uploadNameOk(name)) throw new HttpError(400, UPLOAD_NAME_INVALID);
       const a = getApp(slug, true);
       // 完整性：有的 MCP 客户端会把过长的参数截短（常见截在 64KB）。截在 4 的倍数上的 base64 照样能解码，
       // 不核就会把残缺文件当正常文件存下。所以：base64 严格校验；调用方带了 size / sha256 就逐项对；
