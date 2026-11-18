@@ -668,7 +668,7 @@ UI：原来的 `/tasks` 页、总览待办聚合卡和驾驶舱的「统一待�
 - 目录形状：`<WM_EXTENSIONS_DIR>/<扩展名>/`，扩展名 `[a-z0-9-]`。`server.ts`（或 `.mjs`/`.js`）导出 `register(ctx)`，启动时调用一次；`web/index.tsx` 默认导出 `{ name, routes, nav, marketOnly }`，**构建期**由 `web/vite-extensions.mjs` 并入前端（`WM_EXTENSIONS_DIR` 要在 `pnpm --filter web build` 时也设上）。
 - 出错不静默：目录不存在、不是绝对路径、子目录两种入口都没有、模块加载失败、没导出 `register`、`register` 抛错，服务端都**拒绝启动**并点名扩展与原因；前端构建同样失败。
 - `ctx`（`server/src/extensions.ts`，`apiVersion` 1）：`app`/`wrap` 挂路由（在身份与写门之后、SPA 回落之前）；`adminGuard`；`odoo.url`/`resolveViewer`/`loginUrl`/`addReturnPath`（登记需要身份的页面作登录回跳）；`tasks.addSource`；`remoteWrite.allowExact`（业务写面：远程浏览器 POST 该精确路径不经管理写门、由扩展自己判身份，只收 `/api/<非宿主命名空间>/…`，进 S3 豁免面快照）。
-- 前端扩展从 `@wm/host` 取宿主组件（`WmPage`、`useOdooPopupLogin`、`odooLoginHref`）；`react`、`antd` 等按宿主的一份解析。
+- 前端扩展从 `@wm/host` 取宿主组件（`WmPage`、`loginHref`）；`react`、`antd` 等按宿主的一份解析。`loginHref(login_url, 当前页)` 给出站内登录页的地址，整页跳过去、登录完回到当前页。Odoo 下线（2026-11-17）前的 `odooLoginHref`、`useOdooPopupLogin`、`ODOO_SESSION_CONFIRMED` 保留一个版本：都改成整页跳站内登录页（不再弹窗、不再派发事件），第一次用时在控制台告警一次，下个版本删除。
 - 镜像：`deploy/Dockerfile.market` 有一个空的 `wm-extensions` 阶段，部署方用同名构建上下文覆盖它（compose `build.additional_contexts`），并传构建参数 `WM_EXTENSIONS_DIR=/opt/wm-extensions`；运行时同样设 `WM_EXTENSIONS_DIR`。
 - **路由报动作**：新写的路由用 `ctx.routes.add(method, path, { action, kind, who, statusNotVerdict? }, handler)`，经 HTTP 服务注册，和核心路由一样报动作。
   - 动作名 `<扩展名>.<动词>`（只有一个点，动词里分段用连字符，比如 `lifecycle.board-read`）。

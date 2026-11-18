@@ -86,6 +86,16 @@ export function typeLabel(types: WorkbenchType[], key: string): WorkbenchType | 
 
 /** 下载需要鉴权的文件：fetch 带上口令头（控制面）与同源 cookie（业务面的读授权会话），再交给浏览器保存。
  *  普通 <a href> 不带 X-Admin-Token，控制面上会 403。 */
+/** 退出：注销市场会话（站内账号、飞书登录的都是市场会话）。Odoo 已下线（2026-11-17），不再顺带撤 Odoo 会话。 */
+export async function logoutCurrentSession(): Promise<{ ok: boolean; message?: string }> {
+  try {
+    const r = await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const body = await r.json().catch(() => null);
+    if (!r.ok || !body?.ok) return { ok: false, message: typeof body?.error === 'string' ? body.error : '无法确认退出，请勿在共享设备上离开当前浏览器。' };
+    return { ok: true };
+  } catch { return { ok: false, message: '无法连接服务器，无法确认退出，请勿在共享设备上离开当前浏览器。' }; }
+}
+
 export async function downloadAuthed(url: string, filename: string): Promise<void> {
   const token = getAdminToken();
   const res = await fetch(url, { headers: token ? { 'X-Admin-Token': token } : {} });

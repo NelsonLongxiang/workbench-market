@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { Alert, App, Button, Form, Input, Modal, Space, Table, Tag, Tooltip, Typography } from 'antd';
-import { adminActive, apiFetch, loginRequired, odooAdmin, redirectToLogin, subscribeAdminToken } from '../admin-token';
+import { adminActive, adminLogin, apiFetch, loginRequired, redirectToLogin, subscribeAdminToken } from '../admin-token';
+import { loginLabel } from '../portal-logins';
 import { api } from '../api';
 import WmPage from '../components/WmPage';
 import AlsoInAttention from '../components/AlsoInAttention';
@@ -14,7 +15,7 @@ const STATUS: Record<BoardRow['status'], { text: string; color: string }> = {
 };
 const today = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
 
-/** 属主写入只带浏览器的 Odoo 会话、不带管理员口令：口令是共享身份，写出来的常量没有作者，看板不认 */
+/** 属主写入只带浏览器的市场会话（站内账号登录）、不带管理员口令：口令是共享身份，写出来的常量没有作者，看板不认 */
 async function ownerPut(id: number, key: string, body: Record<string, unknown>): Promise<void> {
   const r = await fetch(`/api/workbenches/${id}/vars/${encodeURIComponent(key)}`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body),
@@ -28,7 +29,7 @@ async function ownerPut(id: number, key: string, body: Record<string, unknown>):
 
 export default function OwnerPending() {
   const admin = useSyncExternalStore(subscribeAdminToken, adminActive);
-  const viewer = useSyncExternalStore(subscribeAdminToken, odooAdmin);
+  const viewer = useSyncExternalStore(subscribeAdminToken, adminLogin);
   const { message } = App.useApp();
   const [boardId, setBoardId] = useState<number | null>(null);
   const [config, setConfig] = useState<BoardConfig | null>(null);
@@ -65,15 +66,17 @@ export default function OwnerPending() {
   }, [admin]);
   useEffect(() => { void load(); }, [load]);
 
-  const isOwner = !!config && viewer === config.ownerLogin;
+  // 管理员认定回的 login 是主体（user:<名>）；属主是 config 里登记的 owner_principal，Odoo 下线前登记的 odoo:<owner_login> 照认
+  const me = viewer ? (viewer.includes(':') ? viewer : `user:${viewer}`) : null;
+  const isOwner = !!config && !!me && config.owners.includes(me);
 
   const register = async () => {
-    if (!boardId || !viewer) return;
+    if (!boardId || !me) return;
     const list = writers.split(/[\s,，]+/).map((w) => w.trim()).filter(Boolean);
     if (!list.length || !list.every((w) => /^mcp:[^\s]{1,128}$/.test(w))) { void message.warning('登记身份写成 mcp:<会话名>，多个用逗号隔开'); return; }
     setBusy(true);
     try {
-      await ownerPut(boardId, 'config.owner', { value: { owner_login: viewer, writers: list }, kind: 'const', reason: '属主登记看板' });
+      await ownerPut(boardId, 'config.owner', { value: { owner_principal: me, writers: list }, kind: 'const', reason: '属主登记看板' });
       void message.success('已登记');
       await load();
     } catch (e) { void message.error(e instanceof Error ? e.message : '登记失败'); }
@@ -135,21 +138,21 @@ export default function OwnerPending() {
     <AlsoInAttention what="待你答复的事项" />
     <Space direction="vertical" style={{ width: '100%' }}>
       <Typography.Text type="secondary" className="wm-caption">
-        本页答复由属主本人的 Odoo 登录写入，可作为属主对该事项的答复；涉及生产或不可逆动作的授权，仍须在授权登记表里引用本条答复登记后才生效。
+        本页答复由属主本人登录后写入，可作为属主对该事项的答复；涉及生产或不可逆动作的授权，仍须在授权登记表里引用本条答复登记后才生效。
       </Typography.Text>
-      {!admin && <Alert type="info" showIcon message="请先确认管理员身份" description="用 Odoo 管理员账号登录后查看；答复只认属主本人的 Odoo 登录，不认管理员口令。" />}
-      {config && <Alert type="warning" showIcon message={<span>本看板属主：<b>odoo:{config.ownerLogin}</b> · 登记身份：{config.writers.join('、')}</span>}
+      {!admin && <Alert type="info" showIcon message="请先确认管理员身份" description="用有管理员授予的站内账号登录后查看；答复只认属主本人的登录，不认管理员口令。" />}
+      {config && <Alert type="warning" showIcon message={<span>本看板属主：<b>{config.owners.map(loginLabel).join('、')}</b> · 登记身份：{config.writers.join('、')}</span>}
         description="只采信属主本人的答复和登记身份写的事项。上面的属主如果不是属主本人，本看板作废：请在部署机本机用命令行清理 config.owner 后由属主重新登记。"
         action={isOwner ? <Button size="small" onClick={() => { setWritersDraft(config.writers.join(', ')); setRevising(true); }}>修订登记身份</Button> : undefined} />}
-      {admin && !viewer && <Alert type="info" showIcon message="当前是管理员口令身份：可以查看，不能答复" description="答复要用属主本人的 Odoo 管理员账号登录。" />}
+      {admin && !viewer && <Alert type="info" showIcon message="当前是管理员口令身份：可以查看，不能答复" description="答复要用属主本人的站内账号登录。" />}
       {error && <Alert type="error" showIcon message={error} />}
       {admin && boardId && !config && !error && (viewer
         ? <Alert type="warning" showIcon message="看板还没登记属主" description={<Space direction="vertical">
-            <span>只有属主本人能登记，登记后本页只认你（odoo:{viewer}）的答复，以及下面这些登记身份写的事项。</span>
+            <span>只有属主本人能登记，登记后本页只认你（{loginLabel(me ?? '')}）的答复，以及下面这些登记身份写的事项。</span>
             <Form.Item label="登记身份" style={{ marginBottom: 0 }}><Input aria-label="登记身份" value={writers} onChange={(e) => setWriters(e.target.value)} autoComplete="off" style={{ width: 360 }} /></Form.Item>
             <Button type="primary" loading={busy} onClick={() => void register()}>我是属主，登记</Button>
           </Space>} />
-        : <Alert type="warning" showIcon message="看板还没登记属主" description="需要属主本人用 Odoo 管理员账号打开本页完成登记。" />)}
+        : <Alert type="warning" showIcon message="看板还没登记属主" description="需要属主本人用站内账号登录后打开本页完成登记。" />)}
       {anomalies.length > 0 && <Alert type="warning" showIcon message={`${anomalies.length} 条记录来源不符，未采信`} description={<ul style={{ margin: 0, paddingLeft: 18 }}>{anomalies.map((a) => <li key={a.key}><code>{a.key}</code>：{a.reason}</li>)}</ul>} />}
       {config && <Table<BoardRow> rowKey="no" size="middle" loading={loading} columns={columns} dataSource={rows} pagination={false}
         locale={{ emptyText: '没有待属主的事项' }} scroll={{ x: 1100 }} />}
