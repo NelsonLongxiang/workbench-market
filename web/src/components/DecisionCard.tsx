@@ -17,7 +17,7 @@ import { answerChoices, answerLabel, confirmButtonText, answerRoute, answerViaOf
 import { cardWording, splitAskTitle } from '../home-view';
 import { seatLabel, teamLabel, waitingLabel } from '../people';
 import { fallbackPlace, pageLink } from '../page-paths';
-import { REVIEW_NEEDS, changeCard, changeDetailOf, confirmText, grantCard, grantDetailOf, grantDoneText, reviewAnswerLabel, runCard, runDetailOf, taskKindLabel } from '../review-view';
+import { REVIEW_NEEDS, changeCard, changeDetailOf, confirmText, grantCard, grantDetailOf, grantDoneText, withDoneText, reviewAnswerLabel, runCard, runDetailOf, taskKindLabel } from '../review-view';
 
 
 const COLOR: Record<string, string> = { ask: 'gold', accept: 'green', glance: 'default', review: 'blue', grant: 'purple' };
@@ -133,7 +133,8 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
         if (gc) doneText = grantDoneText(vb);
         if (later) {
           const m = answeredWithRemember(vb?.remember);
-          void (m.type === 'success' ? message.success(m.text) : message.warning(m.text));
+          const t = withDoneText(doneText, m.text);
+          void (m.type === 'success' ? message.success(t) : message.warning(t));
           setOpen(null); setText(''); setChoice(''); setRemOn(false); setLesson(''); setCue('');
           attentionChanged(); onDone();
           return;

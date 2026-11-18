@@ -149,6 +149,9 @@ export function grantCard(d: GrantDetail): { title: string; lines: string[]; war
   };
 }
 
+/** 同一次批准还勾了「记成经验」：经验那句以「办好了」开头，把开头换成开台库的那句，两件事都说到（验收 #854 的建议） */
+export const withDoneText = (done: string, text: string): string => (done !== '办好了' && text.startsWith('办好了') ? done + text.slice('办好了'.length) : text);
+
 /** 批准以后怎么说：服务端这次顺带开了台库，应答带 opened_bench: { slug, title }，说一句开了哪个；别的照旧「办好了」 */
 export function grantDoneText(body: unknown): string {
   const ob = body && typeof body === 'object' ? (body as Record<string, unknown>).opened_bench : null;

@@ -2,7 +2,7 @@
 /** 条目自带答复入口（answer_via 约定）的纯函数单测（web/src/attention-view.ts）和 AI 会话申请工具那张卡怎么写（web/src/review-view.ts）。
  *  全是合成值。 */
 import { answerChoices, answerRoute, answerViaOf, decideCount, safeApiPath, viaBody, viaChoices, viaError, viaInput, viaPath } from '../web/src/attention-view.ts';
-import { grantCard, grantDetailOf, grantDoneText } from '../web/src/review-view.ts';
+import { grantCard, grantDetailOf, grantDoneText, withDoneText } from '../web/src/review-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -74,6 +74,8 @@ ok('没办成：有 message 原样给；没有按状态说', viaError(400, { err
   ok('字段形状不对：bench_registered 只认严格的 false；workbench_id 只认正整数', odd.registered === true && odd.workbenchId === null && grantDetailOf(item(via, { detail: { ...detail, workbench_id: -3 } })).workbenchId === null);
   ok('批准以后：顺带开了台库说开了哪个；没开照旧「办好了」；形状不对不崩', grantDoneText({ ok: true, opened_bench: { slug: 'wb-1971', title: '合成卡片丙' } }) === '办好了：已为「合成卡片丙」开了台库，授予也写上了'
     && grantDoneText({ ok: true, opened_bench: { slug: 'wb-1971' } }).includes('「wb-1971」') && grantDoneText({ ok: true }) === '办好了' && grantDoneText(null) === '办好了' && grantDoneText({ opened_bench: 'x' }) === '办好了');
+  ok('批准同时记成经验：开台库那句不被经验那句吞掉；没开台库照旧只说经验', withDoneText('办好了：已为「合成卡片丙」开了台库，授予也写上了', '办好了，也记成了经验（合成部门）') === '办好了：已为「合成卡片丙」开了台库，授予也写上了，也记成了经验（合成部门）'
+    && withDoneText('办好了：已为「X」开了台库，授予也写上了', '办好了；经验没记上，稍后会自动重试') === '办好了：已为「X」开了台库，授予也写上了；经验没记上，稍后会自动重试' && withDoneText('办好了', '办好了，也记成了经验') === '办好了，也记成了经验');
   ok('工具多了只列前四个，写总数；没有台名用台的代号', many.lines[0] === '只读：a、b、c、d 等 6 个' && many.title.includes('「b」'), JSON.stringify(many));
 }
 
