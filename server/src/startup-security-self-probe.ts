@@ -8,7 +8,7 @@ export const isStartupProbeRequest = (req: IncomingMessage): boolean => internal
 type Row = { id: string; surface: 'market' | 'control'; method: string; path: string; verdict: 'pass' | 'fail' | 'warn' | 'skip'; status: number | null; reason: string | null };
 type State = { passed: boolean; failed: string[]; at: string | null; rows: Row[] };
 type Target = { port: number; surface: 'market' | 'control' };
-type Options = { market: Server; control?: Server; gatewayOn: boolean; nodeEnv?: string; loginGate?: 'enforce' | 'off'; appDataRead?: 'enforce' | 'warn'; sopRunWrite?: 'enforce' | 'warn'; benchViews?: boolean; portalForward?: () => { ok: boolean; reason: string | null }; portalSessionStrip?: () => { ok: boolean; reason: string | null }; outbound?: () => Promise<{ ok: boolean; reason: string | null }> ; sessionSeal?: () => { ok: boolean; reason: string | null }; sessionRenewal?: () => { ok: boolean; reason: string | null } };
+type Options = { market: Server; control?: Server; gatewayOn: boolean; nodeEnv?: string; loginGate?: 'enforce' | 'off'; appDataRead?: 'enforce' | 'warn'; sopRunWrite?: 'enforce' | 'warn'; benchViews?: boolean; portalForward?: () => { ok: boolean; reason: string | null }; portalSessionStrip?: () => { ok: boolean; reason: string | null }; outbound?: () => Promise<{ ok: boolean; reason: string | null }> ; sessionSeal?: () => { ok: boolean; reason: string | null }; sessionRenewal?: () => { ok: boolean; reason: string | null }; sessionLegacyTtl?: boolean };
 /** Login-gate rows impersonate a remote anonymous browser behind a same-host proxy, so the local-CLI exemption cannot apply. */
 const REMOTE_ANON = { 'x-forwarded-for': '192.0.2.1', accept: 'text/html' };
 
@@ -83,7 +83,7 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
     });
   }
 
-  async function execute({ market, control, gatewayOn, nodeEnv, loginGate = 'off', appDataRead = 'enforce', sopRunWrite = 'enforce', benchViews = false, portalForward, portalSessionStrip, outbound, sessionSeal, sessionRenewal }: Options): Promise<State> {
+  async function execute({ market, control, gatewayOn, nodeEnv, loginGate = 'off', appDataRead = 'enforce', sopRunWrite = 'enforce', benchViews = false, portalForward, portalSessionStrip, outbound, sessionSeal, sessionRenewal, sessionLegacyTtl = false }: Options): Promise<State> {
     const [m, c] = await Promise.all([listener(market), listener(control)]);
     if (c) c.surface = 'control';
     const table = [
@@ -229,6 +229,12 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       const row: Row = { id: 'market.login-session.renewal-bounded', surface: 'market', method: 'LOCAL', path: 'market_sessions.expires_at', verdict: g.ok ? 'pass' : 'fail', status: null, reason: g.ok ? null : g.reason };
       state.rows.push(row);
       log({ source: 'self-probe', ...row });
+    }
+    // 只设了旧变量 WM_SESSION_TTL_MIN（两个新变量都没设）：会话按它当绝对上限、不续期——登录持久化没生效。记一行 warn，部署时一眼看得出 .env 里还留着旧变量
+    if (sessionLegacyTtl) {
+      const row: Row = { id: 'market.login-session.persistence', surface: 'market', method: 'LOCAL', path: 'WM_SESSION_TTL_MIN', verdict: 'warn', status: null, reason: 'persistence-off-legacy-ttl-min' };
+      state.rows.push(row);
+      log({ source: 'self-probe', ...row, message: '登录持久化未生效：只设了已弃用的 WM_SESSION_TTL_MIN，会话按它当绝对上限、不续期；改用 WM_SESSION_IDLE_DAYS / WM_SESSION_MAX_DAYS' });
     }
     state = { passed: state.rows.every(r => r.verdict !== 'fail'), failed: state.rows.filter(r => r.verdict === 'fail').map(r => r.id), at: new Date().toISOString(), rows: state.rows };
     return snapshot();

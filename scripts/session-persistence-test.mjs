@@ -5,13 +5,14 @@
  *   〇、启动自检多一行 market.login-session.renewal-bounded（续期有界），造的合成数据整个回滚
  *   一、发会话：cookie 持久（Max-Age = 30 天）、HttpOnly、SameSite=Lax、Path=/、不带 Domain；https（经反代）时带 Secure；库里记下续期时刻和一年的上限
  *   二、滑动续期：不到一天不续（不发 Set-Cookie、库不动）；过了一天续一次（同一个值、Max-Age 回到 30 天），紧接着的请求又不续；页面和静态文件不续
+ *   二b、Sec-Fetch-Site 是 cross-site、same-site 的请求不续；same-origin、none、没有这个头的照常续
  *   三、绝对上限：续期不超过登录时定下的上限；顶到上限之后不再续；旧会话（没有上限列）不被延长
  *   四、过期：滑动窗口里没来过，到期就掉，之后的请求续不回来
  *   五、立即失效，续期救不回来：登出、本人改密码、停用（恢复之后也要重新登录）
  *   六、收回授予：下一个请求就没有那份权限（会话还是那个人的）
  *   七、重启之后照样有效（同一个数据目录再起一个实例，旧 cookie 照认）
  *   八、口令登录的 wm_login 照旧 12 小时
- *   九、配置：缺省 30/365 天；WM_SESSION_TTL_MIN 单独设时当绝对上限、打弃用警告；和新变量一起设时被忽略并警告；不合法、窗口大于上限拒绝启动
+ *   九、配置：缺省 30/365 天；WM_SESSION_TTL_MIN 单独设时当绝对上限、打弃用警告、自检多一行 warn「登录持久化未生效」；和新变量一起设时被忽略并警告；不合法、窗口大于上限拒绝启动
  *
  *   node scripts/session-persistence-test.mjs
  */
@@ -155,6 +156,27 @@ try {
   const page = await A.b.go('GET', '/');
   check(!sessionSetCookie(page) && (await row(A.token)).renewed_at === after.renewed_at - 2 * DAY, '页面（非 /api/）的应答不续、不带 Set-Cookie', { set: sessionSetCookie(page) });
 
+  console.log('二b、别的站点发来的请求不续');
+  {
+    const I = await signIn('iris', 'Iris-pass-00001');
+    const hit = async (site) => {
+      await rewind(I.token, 2 * DAY);
+      const before = (await row(I.token)).renewed_at;
+      const h = { cookie: `wm_session=${I.token}` };
+      if (site !== undefined) h['sec-fetch-site'] = site;
+      const res = await fetch(new URL('/api/auth/me', base), { headers: h });
+      await res.text();
+      const set = (res.headers.getSetCookie?.() ?? []).some((c) => c.startsWith('wm_session='));
+      return { set, renewed: (await row(I.token)).renewed_at !== before };
+    };
+    const out = {};
+    for (const site of ['cross-site', 'same-site', 'same-origin', 'none', undefined]) out[String(site)] = await hit(site);
+    check(!out['cross-site'].set && !out['cross-site'].renewed && !out['same-site'].set && !out['same-site'].renewed,
+      'Sec-Fetch-Site 是 cross-site、same-site：不续、不发 Set-Cookie（别的站点不能替人续命）', out);
+    check(out['same-origin'].set && out['same-origin'].renewed && out.none.set && out.none.renewed && out.undefined.set && out.undefined.renewed,
+      'same-origin、none、没有这个头（命令行、老浏览器）：照常续', out);
+  }
+
   console.log('三、绝对上限');
   {
     const cap = Date.now() + 5 * DAY;
@@ -251,12 +273,22 @@ try {
     const d2 = join(OUT, 'data-ttl'); mkdirSync(d2, { recursive: true });
     await start({ WM_SESSION_TTL_MIN: '60' }, { dir: d2 });
     check(/WM_SESSION_TTL_MIN 已弃用/.test(log), '只设 WM_SESSION_TTL_MIN：启动打弃用警告', log.slice(-300));
+    {
+      const h = await (await fetch(`${base}/api/health`)).json().catch(() => null);
+      const p = (h?.self_probe?.rows ?? h?.startup_security?.rows ?? []).find((x) => x.id === 'market.login-session.persistence');
+      check(p?.verdict === 'warn' && p.reason === 'persistence-off-legacy-ttl-min' && /登录持久化未生效/.test(log) && h?.self_probe?.passed !== false,
+        '只设 WM_SESSION_TTL_MIN：启动自检多一行 warn「登录持久化未生效」（不拒绝启动）', { p, passed: h?.self_probe?.passed });
+    }
     const T = await signIn('tina', 'Tina-pass-00001');
     check(near(maxAgeOf(T.issued), 3600, 60), '只设 WM_SESSION_TTL_MIN=60：当绝对上限，cookie 一小时', T.issued);
     await stop();
     const d3 = join(OUT, 'data-both'); mkdirSync(d3, { recursive: true });
     await start({ WM_SESSION_TTL_MIN: '60', WM_SESSION_IDLE_DAYS: '7', WM_SESSION_MAX_DAYS: '90' }, { dir: d3 });
     check(/WM_SESSION_TTL_MIN 已弃用.*忽略/.test(log), '新旧一起设：旧的被忽略并警告', log.slice(-300));
+    {
+      const h = await (await fetch(`${base}/api/health`)).json().catch(() => null);
+      check(!(h?.self_probe?.rows ?? []).some((x) => x.id === 'market.login-session.persistence'), '新变量设着（持久化生效）：没有那一行 warn', h?.self_probe?.rows?.map((x) => x.id));
+    }
     const U = await signIn('ugo', 'Ugo-pass-000001');
     check(near(maxAgeOf(U.issued), 7 * 86400, 120), '新变量生效：WM_SESSION_IDLE_DAYS=7 → cookie 7 天', U.issued);
     await stop();

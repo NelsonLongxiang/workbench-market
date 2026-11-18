@@ -201,11 +201,11 @@ const SOP_RUN_WRITE: SopRunWriteMode = (() => {
 })();
 if (SOP_RUN_WRITE === 'warn') console.warn('[sop-run] WM_SOP_RUN_WRITE=warn：没带写凭据的保存、完成照旧放行，只计数留痕（上线过渡用，过渡完设回 enforce）');
 // 市场会话的期限（session-policy.ts：WM_SESSION_IDLE_DAYS 滑动窗口、WM_SESSION_MAX_DAYS 绝对上限，旧的 WM_SESSION_TTL_MIN 兼容并警告）：启动时读一次，不合法拒绝启动
-const SESSION_LIFE: SessionLife = (() => {
+const { life: SESSION_LIFE, legacyOnly: SESSION_LEGACY_ONLY } = ((): { life: SessionLife; legacyOnly: boolean } => {
   try {
-    const { life, warnings } = loadConfig(SessionPolicyConfig);
+    const { life, warnings, legacyOnly } = loadConfig(SessionPolicyConfig);
     for (const w of warnings) console.warn(`[session] ${w}`);
-    return life;
+    return { life, legacyOnly };
   } catch (e) { console.error(`[session] 拒绝启动：${(e as Error).message}`); process.exit(1); }
 })();
 /** 记成经验那几处认人用（管理口令认成内置身份，不能记） */
@@ -4035,7 +4035,7 @@ const goServer = registerSurface(app, 'market', PORT, () => {
 
 const controlServer = SURFACE_PORTS.control ? registerSurface(app, 'control', SURFACE_PORTS.control) : undefined;
 
-void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, benchViews: BENCH_VIEWS.on, outbound: outboundOff() ? verifyOutboundGate : undefined, sessionSeal: sealSelfCheck, sessionRenewal: () => renewalSelfCheck(SESSION_LIFE), portalForward: verifyPortalForwardStrip, portalSessionStrip: verifyPortalSessionStrip }).then((result) => {
+void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, benchViews: BENCH_VIEWS.on, outbound: outboundOff() ? verifyOutboundGate : undefined, sessionSeal: sealSelfCheck, sessionRenewal: () => renewalSelfCheck(SESSION_LIFE), sessionLegacyTtl: SESSION_LEGACY_ONLY, portalForward: verifyPortalForwardStrip, portalSessionStrip: verifyPortalSessionStrip }).then((result) => {
   if (!result.passed) return refuseUnsafeStartup();
   startupPassed(); // 放开启动闸：事项回填这类后台任务从这里开始（自检没过不开始）
   startRedis();

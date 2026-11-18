@@ -40,13 +40,13 @@ export const Config = defineConfig((env) => {
     const min = intIn('WM_SESSION_TTL_MIN', ttlRaw, 15, 10080);
     const maxMs = min * 60_000;
     warnings.push('WM_SESSION_TTL_MIN 已弃用：这次按它当绝对上限（到点就掉、不续期），请改用 WM_SESSION_IDLE_DAYS / WM_SESSION_MAX_DAYS');
-    return { life: { idleMs: Math.min(30 * DAY_MS, maxMs), maxMs }, warnings };
+    return { life: { idleMs: Math.min(30 * DAY_MS, maxMs), maxMs }, warnings, legacyOnly: true };
   }
   const idleDays = idleRaw === '' ? 30 : intIn('WM_SESSION_IDLE_DAYS', idleRaw, 1, 3650);
   const maxDays = maxRaw === '' ? 365 : intIn('WM_SESSION_MAX_DAYS', maxRaw, 1, 3650);
   if (idleDays > maxDays) throw new Error(`WM_SESSION_IDLE_DAYS（${idleDays}）不能大于 WM_SESSION_MAX_DAYS（${maxDays}）`);
   if (ttlRaw !== '') warnings.push('WM_SESSION_TTL_MIN 已弃用，和 WM_SESSION_IDLE_DAYS / WM_SESSION_MAX_DAYS 一起设时被忽略');
-  return { life: { idleMs: idleDays * DAY_MS, maxMs: maxDays * DAY_MS }, warnings };
+  return { life: { idleMs: idleDays * DAY_MS, maxMs: maxDays * DAY_MS }, warnings, legacyOnly: false };
 });
 
 const secure = (req: express.Request): boolean => req.secure || String(req.headers['x-forwarded-proto'] ?? '').split(',')[0].trim() === 'https';
@@ -56,14 +56,21 @@ export function setSessionCookie(req: express.Request, res: express.Response, to
   res.cookie(SESSION_COOKIE, token, { httpOnly: true, sameSite: 'lax', path: '/', secure: secure(req), maxAge: Math.max(0, expiresAt - now) });
 }
 
+/** 浏览器标着是从别的站点（cross-site、same-site）发来的：不续。没有这个头（命令行、老浏览器）和 same-origin、none 照常 */
+const fromElsewhere = (req: express.Request): boolean => {
+  const site = req.headers['sec-fetch-site'];
+  return site !== undefined && site !== 'same-origin' && site !== 'none';
+};
+
 /**
  * 滑动续期：带着市场会话来的 /api/ 请求，会话还算数、离上次续期满一天，就往后顺延（不超过绝对上限），并重发 cookie。
- * 只看 /api/（页面和静态文件的应答不带 Set-Cookie，免得被缓存）；续不上（失效了、还不到一天、库出错）什么都不做，认人照旧由后面的关口判。
+ * 只看 /api/（页面和静态文件的应答不带 Set-Cookie，免得被缓存）；别的站点发来的请求不续（浏览器会替它带上 SameSite=Lax 的 cookie，
+ * 不能让别的站点替人续命）。续不上（失效了、还不到一天、库出错）什么都不做，认人照旧由后面的关口判。
  */
 export function sessionRenewal(life: SessionLife): express.RequestHandler {
   return function sessionRenewal(req, res, next) {
     try {
-      if (req.path.startsWith('/api/')) {
+      if (req.path.startsWith('/api/') && !fromElsewhere(req)) {
         const token = identity().sessionToken(String(req.headers.cookie ?? ''));
         if (token) {
           const renewed = svc<LoginSessionService>('loginSessions').renewSession(token, life);
