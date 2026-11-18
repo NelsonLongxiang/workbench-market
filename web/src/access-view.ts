@@ -324,6 +324,11 @@ export function passwordFormProblem(current: string, next: string, confirm: stri
   if (next !== confirm) return '两次输的新密码不一样。';
   return null;
 }
+/** 本人站内账号的用户名（/api/auth/me 的 local_username）；没有或不是字符串就是 null。不拿 login 代替：别的方式登录时 login 不是站内用户名 */
+export function localUsernameOf(me: unknown): string | null {
+  const v = me && typeof me === 'object' ? (me as { local_username?: unknown }).local_username : undefined;
+  return typeof v === 'string' && v !== '' ? v : null;
+}
 /** /api/auth/me 说这个人有没有站内账号（有才给「改密码」入口） */
 export function hasLocalAccount(me: unknown): boolean {
   return !!me && typeof me === 'object' && (me as { local_account?: unknown }).local_account === true;

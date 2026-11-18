@@ -544,7 +544,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "213", "etag": "W/\"d5-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "235", "etag": "W/\"eb-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
             "body": {
               "gate": "off",
               "authenticated": true,
@@ -554,6 +554,7 @@
               "display_name": "Synthetic alpha",
               "roles": [],
               "local_account": false,
+              "local_username": null,
               "can": { "create_cockpit": false, "remember_knowledge": false }
             }
           }
@@ -589,7 +590,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "350", "etag": "W/\"15e-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "372", "etag": "W/\"174-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
             "body": {
               "gate": "off",
               "authenticated": true,
@@ -599,6 +600,7 @@
               "display_name": "Synthetic alpha",
               "roles": [{ "id": "member", "name": "普通员工", "scope": "*", "scope_name": null, "preset": true, "expires_at": null, "source": "manual", "approved_by": "cli" }],
               "local_account": false,
+              "local_username": null,
               "can": { "create_cockpit": false, "remember_knowledge": false }
             }
           }
@@ -754,7 +756,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "213", "etag": "W/\"d5-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "235", "etag": "W/\"eb-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
             "body": {
               "gate": "off",
               "authenticated": true,
@@ -764,6 +766,7 @@
               "display_name": "Synthetic alpha",
               "roles": [],
               "local_account": false,
+              "local_username": null,
               "can": { "create_cockpit": false, "remember_knowledge": false }
             }
           }
