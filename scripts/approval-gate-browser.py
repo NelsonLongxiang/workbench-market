@@ -155,6 +155,7 @@ with sync_playwright() as p:
     check('MCP 网关「权限申请」没有待批时：说台的工具授权在「等你拍板」里批，链到 /attention（不再只说「没有待批的申请」）',
           empty.count() == 1 and '台的工具授权在「等你拍板」里批' in empty.inner_text() and empty.get_by_role('link').count() == 1 and empty.get_by_role('link').get_attribute('href') == '/attention'
           and hint.count() == 1 and hint.get_by_role('link').get_attribute('href') == '/attention', pg.locator('main').inner_text()[:300])
+    check('写明台的工具授权要用有管理层授予的账号来批（系统管理员、管理口令看不到）', '有管理层授予的账号' in hint.inner_text() and '管理口令' in hint.inner_text() and '有管理层授予的账号' in empty.inner_text())
     check('页头那句提示也指「等你拍板」，不再说「关注」', '「等你拍板」' in pg.locator('[data-testid=also-in-attention]').inner_text() and '「关注」' not in pg.locator('main').inner_text())
     ctx.close()
     b.close()
