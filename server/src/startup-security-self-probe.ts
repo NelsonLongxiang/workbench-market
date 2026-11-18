@@ -8,7 +8,7 @@ export const isStartupProbeRequest = (req: IncomingMessage): boolean => internal
 type Row = { id: string; surface: 'market' | 'control'; method: string; path: string; verdict: 'pass' | 'fail' | 'warn' | 'skip'; status: number | null; reason: string | null };
 type State = { passed: boolean; failed: string[]; at: string | null; rows: Row[] };
 type Target = { port: number; surface: 'market' | 'control' };
-type Options = { market: Server; control?: Server; gatewayOn: boolean; nodeEnv?: string; loginGate?: 'enforce' | 'off'; appDataRead?: 'enforce' | 'warn'; sopRunWrite?: 'enforce' | 'warn'; benchViews?: boolean; portalForward?: () => { ok: boolean; reason: string | null }; portalSessionStrip?: () => { ok: boolean; reason: string | null }; outbound?: () => Promise<{ ok: boolean; reason: string | null }> ; sessionSeal?: () => { ok: boolean; reason: string | null } };
+type Options = { market: Server; control?: Server; gatewayOn: boolean; nodeEnv?: string; loginGate?: 'enforce' | 'off'; appDataRead?: 'enforce' | 'warn'; sopRunWrite?: 'enforce' | 'warn'; benchViews?: boolean; portalForward?: () => { ok: boolean; reason: string | null }; portalSessionStrip?: () => { ok: boolean; reason: string | null }; outbound?: () => Promise<{ ok: boolean; reason: string | null }> ; sessionSeal?: () => { ok: boolean; reason: string | null }; sessionRenewal?: () => { ok: boolean; reason: string | null } };
 /** Login-gate rows impersonate a remote anonymous browser behind a same-host proxy, so the local-CLI exemption cannot apply. */
 const REMOTE_ANON = { 'x-forwarded-for': '192.0.2.1', accept: 'text/html' };
 
@@ -83,7 +83,7 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
     });
   }
 
-  async function execute({ market, control, gatewayOn, nodeEnv, loginGate = 'off', appDataRead = 'enforce', sopRunWrite = 'enforce', benchViews = false, portalForward, portalSessionStrip, outbound, sessionSeal }: Options): Promise<State> {
+  async function execute({ market, control, gatewayOn, nodeEnv, loginGate = 'off', appDataRead = 'enforce', sopRunWrite = 'enforce', benchViews = false, portalForward, portalSessionStrip, outbound, sessionSeal, sessionRenewal }: Options): Promise<State> {
     const [m, c] = await Promise.all([listener(market), listener(control)]);
     if (c) c.surface = 'control';
     const table = [
@@ -219,6 +219,14 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       let g: { ok: boolean; reason: string | null };
       try { g = sessionSeal(); } catch { g = { ok: false, reason: 'error' }; }
       const row: Row = { id: 'market.login-session.upstream-sealed', surface: 'market', method: 'LOCAL', path: 'market_sessions.upstream_sealed', verdict: g.ok ? 'pass' : 'fail', status: null, reason: g.ok ? null : g.reason };
+      state.rows.push(row);
+      log({ source: 'self-probe', ...row });
+    }
+    // 一次登录持续保持：续期有界——满一天才续、不超过上限、注销和过期的续不回来（在回滚掉的事务里拨着时间核）。不过就拒绝启动
+    if (sessionRenewal) {
+      let g: { ok: boolean; reason: string | null };
+      try { g = sessionRenewal(); } catch { g = { ok: false, reason: 'error' }; }
+      const row: Row = { id: 'market.login-session.renewal-bounded', surface: 'market', method: 'LOCAL', path: 'market_sessions.expires_at', verdict: g.ok ? 'pass' : 'fail', status: null, reason: g.ok ? null : g.reason };
       state.rows.push(row);
       log({ source: 'self-probe', ...row });
     }

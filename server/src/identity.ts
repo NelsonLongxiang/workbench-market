@@ -202,7 +202,7 @@ export interface SessionStore {
   /** 换掉由市场维持的会话里存下的提供方凭据（来源轮换了）；返回换没换成。可选 */
   renewUpstream?(token: unknown, upstream: string): boolean;
   /** 发一个会话；upstream 见上。可选：没有它就不发由市场维持的会话 */
-  createSession?(principal: string, provider: string, externalId: string, ttlMs: number, now?: number, upstream?: string): { token: string; expiresAt: number };
+  createSession?(principal: string, provider: string, externalId: string, life: number | { idleMs: number; maxMs: number }, now?: number, upstream?: string): { token: string; expiresAt: number };
   /** 注销：立即失效 */
   revokeSession(token: unknown): boolean;
 }
@@ -451,6 +451,11 @@ export class IdentityService extends Service {
     try { const c = this.provider?.credentialOf(cookieHeader); return typeof c === 'string' ? c : ''; } catch { return ''; }
   }
 
+  /** 请求里的市场会话的值（同名多个按没有；只取不验）。续期用 */
+  sessionToken(cookieHeader: string): string {
+    return sessionTokenOf(cookieHeader);
+  }
+
   /** 请求里带没带市场会话（只看有没有，不验） */
   hasSession(cookieHeader: string): boolean {
     return sessionTokenOf(cookieHeader) !== '';
@@ -554,9 +559,9 @@ export class IdentityService extends Service {
   /**
    * 由市场维持会话：提供方认出、对到了主体的人（viewer 是 resolveViewer 刚给的、不是从市场会话来的），发一个市场会话，
    * 把请求带来的提供方凭据加密存下。提供方没写 credentialHeader、会话存储不支持、请求里没有凭据，都不发（返回 null，照原来认）。
-   * 期限由调用方给（WM_SESSION_TTL_MIN），不续期
+   * 期限由调用方给（session-policy.ts 的滑动窗口和绝对上限）
    */
-  openSession(cookieHeader: string, who: ViewerResult, ttlMs: number): { token: string; expiresAt: number } | null {
+  openSession(cookieHeader: string, who: ViewerResult, life: number | { idleMs: number; maxMs: number }): { token: string; expiresAt: number } | null {
     const provider = this.provider, store = this.sessionStore();
     if (!who.ok || who.via === 'session') return null;
     const viewer = who.viewer;
@@ -572,7 +577,7 @@ export class IdentityService extends Service {
     const recent = this.opening.get(key);
     if (recent) return recent.session;
     try {
-      const session = store.createSession!(viewer.sub, provider.name, viewer.login, ttlMs, now, credential);
+      const session = store.createSession!(viewer.sub, provider.name, viewer.login, life, now, credential);
       if (this.opening.size > 5000) this.opening.clear();
       this.opening.set(key, { at: now, session });
       return session;

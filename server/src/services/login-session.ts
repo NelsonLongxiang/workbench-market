@@ -8,7 +8,8 @@
  *   · 按来源限额，过期的随手清掉。
  *
  * 市场会话：
- *   · cookie 里是随机值，库里只存哈希。绝对期限，不续期；注销就记下 revoked_at，立即失效。
+ *   · cookie 里是随机值，库里只存哈希。滑动续期加绝对上限（session-policy.ts）：expires_at 是这次的到期时刻，max_expires_at 是登录时定下的上限，
+ *     renewed_at 是上次续期的时刻；续期只续还算数的会话，满一天才续一次，不超过上限。注销就记下 revoked_at，立即失效，续不回来。
  *   · 认人时现查，而且和主体表、外部身份表连着查：主体停用（或者不是人了）、发会话时凭的那条外部身份已经不绑在这个主体上，
  *     都查不到，会话立即失效——以后任何停用、解绑、改绑的路径都管得住，不用一条条去吊销。
  *   · 由市场维持的登录提供方会话（用 Odoo 这类身份来源登录的人）：发会话时把浏览器带来的提供方会话凭据加密存下（upstream_sealed），
@@ -83,6 +84,36 @@ export function sealSelfCheck(): { ok: boolean; reason: string | null } {
     try { if (process.platform !== 'win32' && (statSync(KEY_FILE()).mode & 0o077) !== 0) return { ok: false, reason: 'key-file-mode' }; } catch { /* 只读卷：没有密钥文件，进程内随机 */ }
     return { ok: true, reason: null };
   } catch { return { ok: false, reason: 'error' }; }
+}
+
+/**
+ * 启动自检那一行（续期有界）：在一个事务里造一个合成的人和两条会话，拨着时间核对——满一天才续、续了不超过上限、
+ * 注销了的续不回来、过期了的续不回来；做完整个回滚，库里不留任何东西。不过就拒绝启动
+ */
+export function renewalSelfCheck(life: { idleMs: number; maxMs: number }): { ok: boolean; reason: string | null } {
+  // 只借这几个方法（它们只碰库，不碰服务实例的状态）；createSession 顺手清旧行用的 sweepUpstream 换成空操作
+  const P = LoginSessionService.prototype, self = { sweepUpstream: () => 0 } as unknown as LoginSessionService;
+  const svc = { createSession: P.createSession.bind(self), renewSession: P.renewSession.bind(self), revokeSession: P.revokeSession.bind(self) };
+  const id = `user:~self-probe-${randomBytes(6).toString('hex')}`, ext = id.slice(5), t0 = Date.now(), DAY = 86_400_000;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.prepare("INSERT INTO principals (id, id_key, kind, display_name) VALUES (?, ?, 'person', '')").run(id, id);
+    db.prepare('INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES (?, ?, ?, ?)').run('self-probe', ext, ext, id);
+    const tight = { idleMs: Math.min(life.idleMs, 3 * DAY), maxMs: Math.min(life.maxMs, 4 * DAY) };
+    if (tight.idleMs > tight.maxMs) tight.idleMs = tight.maxMs;
+    const a = svc.createSession(id, 'self-probe', ext, tight, t0);
+    if (svc.renewSession(a.token, tight, t0 + 1000) !== null) return { ok: false, reason: 'renewed-too-soon' };
+    const r1 = svc.renewSession(a.token, tight, t0 + DAY + 1000);
+    // 窗口不到一天（比如旧变量 WM_SESSION_TTL_MIN 设成几个小时）：满一天之前就过期了，不该续
+    if (tight.idleMs <= DAY + 1000 ? r1 !== null : (!r1 || r1.expiresAt > t0 + tight.maxMs)) return { ok: false, reason: !r1 ? 'not-renewed' : tight.idleMs <= DAY + 1000 ? 'renewed-after-expiry' : 'past-cap' };
+    svc.revokeSession(a.token, t0 + DAY + 2000);
+    if (svc.renewSession(a.token, tight, t0 + 2 * DAY + 3000) !== null) return { ok: false, reason: 'revoked-renewed' };
+    const b = svc.createSession(id, 'self-probe', ext, tight, t0);
+    if (svc.renewSession(b.token, tight, b.expiresAt + 1000) !== null) return { ok: false, reason: 'expired-renewed' };
+    return { ok: true, reason: null };
+  } catch { return { ok: false, reason: 'error' }; } finally {
+    try { db.exec('ROLLBACK'); } catch { /* 事务已经不在了 */ }
+  }
 }
 
 export class LoginSessionService extends Service {
@@ -190,14 +221,18 @@ export class LoginSessionService extends Service {
 
   // ---------- 市场会话 ----------
 
-  /** 发一个会话。principal 必须是启用的人（调用方已经对到主体）；返回放进 cookie 的值和到期时刻 */
-  /** upstream：由市场维持的提供方会话，发会话时浏览器带来的提供方会话凭据（加密存下）；普通的市场会话不给 */
-  createSession(principal: string, provider: string, externalId: string, ttlMs: number, now = Date.now(), upstream?: string): { token: string; expiresAt: number } {
-    if (!Number.isInteger(ttlMs) || ttlMs < 60_000) throw new Error('会话期限不对');
+  /**
+   * 发一个会话。principal 必须是启用的人（调用方已经对到主体）；返回放进 cookie 的值和到期时刻。
+   * life：滑动窗口和绝对上限（session-policy.ts）；给一个数就是「不续期的绝对期限」（窗口和上限一样）。
+   * upstream：由市场维持的提供方会话，发会话时浏览器带来的提供方会话凭据（加密存下）；普通的市场会话不给
+   */
+  createSession(principal: string, provider: string, externalId: string, life: number | { idleMs: number; maxMs: number }, now = Date.now(), upstream?: string): { token: string; expiresAt: number } {
+    const { idleMs, maxMs } = typeof life === 'number' ? { idleMs: life, maxMs: life } : life ?? ({} as never);
+    if (!Number.isInteger(idleMs) || idleMs < 60_000 || !Number.isInteger(maxMs) || maxMs < idleMs) throw new Error('会话期限不对');
     if (upstream !== undefined && (typeof upstream !== 'string' || !upstream || upstream.length > 1024)) throw new Error('提供方会话凭据不对');
-    const token = newToken(), expiresAt = now + ttlMs;
-    db.prepare('INSERT INTO market_sessions (token_sha256, principal_id, provider, external_id, created_at, expires_at, upstream_sealed) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(sha(token), principal, provider, externalId, now, expiresAt, upstream === undefined ? null : sealUpstream(upstream));
+    const token = newToken(), expiresAt = now + idleMs;
+    db.prepare('INSERT INTO market_sessions (token_sha256, principal_id, provider, external_id, created_at, expires_at, upstream_sealed, renewed_at, max_expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(sha(token), principal, provider, externalId, now, expiresAt, upstream === undefined ? null : sealUpstream(upstream), now, now + maxMs);
     db.prepare('DELETE FROM market_sessions WHERE expires_at <= ? OR (revoked_at IS NOT NULL AND revoked_at <= ?)').run(now - 86_400_000, now - 86_400_000);
     this.sweepUpstream(now, true);
     return { token, expiresAt };
@@ -233,6 +268,31 @@ export class LoginSessionService extends Service {
       return null;
     }
     return { ...rest, upstream };
+  }
+
+  /**
+   * 滑动续期：会话还算数（在、没注销、没过期、主体是启用的人、发会话凭的那条外部身份还绑在他身上），离上次续期满 everyMs，
+   * 就把到期时刻顺延到 now + idleMs，但不超过登录时定下的上限（旧会话没有上限的，以原来的到期时刻为上限，不延长）。
+   * 续了返回新的到期时刻；没续（失效了、还不到时候、已经顶到上限）返回 null。
+   * 和注销是同一张表上的条件更新：注销（revoked_at）一旦写下，这里就续不上
+   */
+  renewSession(token: unknown, life: { idleMs: number; maxMs: number }, now = Date.now(), everyMs = 86_400_000): { expiresAt: number } | null {
+    if (typeof token !== 'string' || !TOKEN_RE.test(token) || !Number.isInteger(life?.idleMs) || life.idleMs < 60_000) return null;
+    const row = db.prepare(`SELECT s.expires_at AS expiresAt, s.max_expires_at AS cap, s.renewed_at AS renewedAt, s.created_at AS createdAt
+      FROM market_sessions s JOIN principals p ON p.id = s.principal_id
+      JOIN principal_identities i ON i.provider = s.provider AND i.external_id = s.external_id AND i.principal_id = s.principal_id
+      WHERE s.token_sha256 = ? AND s.expires_at > ? AND p.status = 'active' AND p.kind = 'person'`).get(sha(token), now) as
+      { expiresAt: number; cap: number | null; renewedAt: number | null; createdAt: number } | undefined;
+    // 注销与否由下面的条件更新判（revoked_at IS NULL）：和注销同一张表、同一行，先写下注销的，这里就更新不到
+    if (!row) return null;
+    const last = Number(row.renewedAt ?? row.createdAt);
+    if (now - last < everyMs) return null;
+    const cap = Number(row.cap ?? row.expiresAt);
+    const next = Math.min(now + life.idleMs, cap);
+    if (next <= Number(row.expiresAt)) return null;
+    const done = db.prepare('UPDATE market_sessions SET expires_at = ?, renewed_at = ? WHERE token_sha256 = ? AND revoked_at IS NULL AND expires_at = ?')
+      .run(next, now, sha(token), row.expiresAt).changes === 1;
+    return done ? { expiresAt: next } : null;
   }
 
   /** 来源轮换了：换掉存下的提供方凭据（只换还算数的、本来就存着凭据的会话），轮换计数加一。返回换没换成 */

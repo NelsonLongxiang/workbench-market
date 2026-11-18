@@ -5,6 +5,7 @@
       "USE /  <- query",
       "USE /  <- expressInit",
       "USE /  <- middleware",
+      "USE /  <- sessionRenewal",
       "USE /  <- middleware",
       "USE /  <- <anonymous>",
       "USE /  <- corsMiddleware",
