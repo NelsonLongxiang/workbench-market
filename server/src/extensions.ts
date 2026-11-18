@@ -159,7 +159,7 @@ export interface ExtensionContext {
   wrap: (fn: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response, next: NextFunction) => void;
   /** 管理员门（口令或站内管理员）：未通过时已写好响应并返回 false */
   adminGuard: (req: Request, res: Response) => Promise<boolean>;
-  /** 认人：请求带的市场会话认出的人（每次现查，不缓存）；站内登录页地址（登录完回到 returnPath） */
+  /** 认人：请求带的市场会话认出的人（每次现查，不缓存），口径和 /api/auth/viewer 一致——有登录方式、只是没登录时回 401，一种登录方式都没有时回 503；站内登录页地址（登录完回到 returnPath） */
   identity: {
     resolveViewer: (cookieHeader: string) => Promise<{ ok: true; viewer: Viewer } | { ok: false; http: number; error: string }>;
     loginUrl: (req: Request, returnPath: string) => string | null;
