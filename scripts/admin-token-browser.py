@@ -41,8 +41,7 @@ def set_token(page):
     page.get_by_role('button', name='口令已设').wait_for()
 
 WRITE = '''async ([t]) => { const r = await fetch("/api/workbenches", { method: "POST", headers: { "Content-Type": "application/json", "X-Admin-Token": t }, body: JSON.stringify({ name: "from-page", url: "http://127.0.0.1:9/", type: "web" }) }); return { status: r.status, body: await r.json().catch(() => null) }; }'''
-VIEWER = {'ok': True, 'viewer': {'login': 'pm-a', 'uid': 7, 'sub': 'user:pm-a', 'name': '测试 PM-A', 'kind': '人'}, 'roles': None}
-ANON = json.dumps({'ok': False, 'auth_required': True, 'login_url': f'/go/{wid}/'})
+ANON = json.dumps({'ok': False, 'auth_required': True, 'login_url': '/login'})
 
 with sync_playwright() as p:
     b = p.chromium.launch(headless=True)
@@ -85,46 +84,20 @@ with sync_playwright() as p:
         ok('同一标签页跳到 /go/ 后，新文档读不到口令', page.evaluate('sessionStorage.getItem("wm-admin-token")') is None)
         c.close()
 
-        print('业务面登录弹窗（M4 残余）')
-        for label, path, scope, btn, auto in (
-            ('用户卡里的登录 chip', '/market', None, re.compile(r'^登\s*录$'), False),
-        ):
-            c = b.new_context(); opened = []
-            c.on('page', lambda pg: opened.append(pg))
-            q = c.new_page(); who = {'s': 'anon'}
-            q.route('**/api/auth/viewer', lambda r: r.fulfill(status=401, content_type='application/json', body=ANON) if who['s'] == 'anon' else r.fulfill(status=200, content_type='application/json', body=json.dumps(VIEWER)))
-            def tasks_route(route):
-                # #324: anonymous identity is rejected before any private source fetch.
-                if who['s'] == 'anon':
-                    route.fulfill(status=401, content_type='application/json', body=json.dumps({'error': 'tasks_auth_required', 'login_url': f'/go/{wid}/'}))
-                else:
-                    route.fulfill(status=200, content_type='application/json', body=json.dumps({'tasks': [], 'sources': {'market': {'ok': False, 'count': 0, 'latency_ms': 0, 'error': 'source_not_authorized'}, 'ygl-trees': {'ok': False, 'count': 0, 'latency_ms': 0, 'error': 'source_not_authorized'}}, 'generated_at': '2026-01-01T00:00:00Z'}))
-            q.route('**/api/tasks', tasks_route)
-            q.goto(base + path)
-            if path == '/market': open_me(q)  # 新外壳：登录 chip 在用户卡弹出层里
-            loc = (q.locator(scope) if scope else q).get_by_role('button', name=btn)
-            loc.first.wait_for(timeout=8000); q.wait_for_timeout(1500)
-            pre = len(opened) - 1
-            ok(f'{label}：点之前{"自动开 1 个" if auto else "没有"}登录窗', pre == (1 if auto else 0), f'已开 {pre} 个')
-            loc.first.click(); q.wait_for_timeout(2500)
-            total = len(opened) - 1
-            ok(f'{label}：点之后总共只有 1 个登录窗', total == 1, f'共 {total} 个')
-            pops = [pg for pg in opened[1:] if not pg.is_closed()]
-            if pops:
-                pops[0].wait_for_function('window.__probe !== undefined', timeout=8000)
-                ok(f'{label}：登录窗没有 opener、没有口令', pops[0].evaluate('window.__probe') .get('opener') == 'no-opener' and pops[0].evaluate('window.__probe').get('own') is None, str(pops[0].evaluate('window.__probe')))
-            who['s'] = 'ok'; q.wait_for_timeout(4000)
-            ok(f'{label}：登录成功后没有遗留的登录窗', all(pg.is_closed() for pg in opened[1:]))
-            c.close()
-
-        c = b.new_context(); q = c.new_page(); who = {'s': 'anon'}
-        q.route('**/api/auth/viewer', lambda r: r.fulfill(status=401, content_type='application/json', body=ANON) if who['s'] == 'anon' else r.fulfill(status=200, content_type='application/json', body=json.dumps(VIEWER)))
-        q.goto(base + '/market'); open_me(q); q.get_by_text('未登录 Odoo').wait_for()
-        with c.expect_page() as pp:
-            q.get_by_role('button', name=re.compile(r'^登\s*录$')).click()
-        pp.value.close(); q.wait_for_timeout(500); who['s'] = 'ok'  # 模拟 COOP 断开 / 先关弹窗，随后才登录成功
-        open_me(q); q.get_by_text('测试 PM-A（pm-a）· 人').wait_for(timeout=8000)
-        ok('弹窗先关、随后才登录成功：轮询补查照常收尾', True)
+        print('业务面登录入口（Odoo 下线后没有弹窗登录：整页去站内登录页）')
+        # 旧断言（弹窗没有 opener、弹窗里没有口令、有口令时不发起弹窗）→ 新守护：同一个标签页整页跳到 /login，
+        # 不开任何新窗口；跳过去之后新文档里读不到口令（离开即抹，M4）
+        c = b.new_context(); opened = []
+        c.on('page', lambda pg: opened.append(pg))
+        q = c.new_page()
+        q.route('**/api/auth/viewer', lambda r: r.fulfill(status=401, content_type='application/json', body=ANON))
+        q.goto(base + '/market'); q.evaluate('sessionStorage.setItem("wm-admin-token", "synthetic-browser-admin")')
+        open_me(q); q.get_by_test_id('viewer-anon').wait_for()
+        ok('用户卡里写「未登录」，没有「未登录 Odoo」的旧说法', q.get_by_text('未登录 Odoo').count() == 0)
+        q.get_by_test_id('viewer-login').click(); q.wait_for_url('**/login**', timeout=8000)
+        ok('点「登录」：同一个标签页跳到站内登录页，登录完回到原页', '/login?next=%2Fmarket' in q.url, q.url)
+        ok('不开任何新窗口（没有弹窗登录了）', len(opened) == 1, f'共 {len(opened)} 个页面')
+        ok('跳到登录页之后，新文档里读不到口令', q.evaluate('sessionStorage.getItem("wm-admin-token")') is None)
         c.close()
     finally:
         b.close()

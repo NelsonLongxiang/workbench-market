@@ -20,6 +20,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { DatabaseSync } from 'node:sqlite';
 import { spawn } from './owned-script-fixture.mjs';
 import { SESSIONS } from './identity-fake-provider.mjs';
 
@@ -55,7 +56,7 @@ async function boot(outFile) {
   writeFileSync(join(ext, 'legacy-probe', 'server.mjs'), "export function register(ctx) { ctx.app.get('/legacy-probe/ping', (_req, res) => { res.json({ ok: true }); }); }\n");
   const env = {};
   for (const k of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP']) if (process.env[k]) env[k] = process.env[k];
-  Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN, REDIS_URL: '', IDENTITY_SEAM_ROOT: ROOT, WM_EXTENSIONS_DIR: ext, WM_JUDGMENT_COMPARE: 'on', WM_JUDGMENT_COMPARE_OUT: outFile });
+  Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN, REDIS_URL: '', IDENTITY_SEAM_ROOT: ROOT, IDENTITY_FAKE_ADMIN_GRANT: 'admin', WM_EXTENSIONS_DIR: ext, WM_JUDGMENT_COMPARE: 'on', WM_JUDGMENT_COMPARE_OUT: outFile });
   child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
   child.stdout.on('data', (d) => { log += String(d); });
@@ -111,6 +112,7 @@ try {
   const srv = await boot(jsonl);
   const same = { origin: `http://${srv.host}`, 'sec-fetch-site': 'same-origin' };
   const asRoot = { headers: { ...REMOTE, ...same }, session: SESSIONS.admin };
+  const asAlpha = { headers: { ...REMOTE, ...same }, session: SESSIONS.alpha };
   const cross = { origin: 'https://elsewhere.example', 'sec-fetch-site': 'cross-site' };
   // 取数这一次请求自己的比对在应答之后才记：它不在自己这份里，却在逐行输出里。两边都去掉这条路由再比
   const SELF = 'GET /api/judgment/compare';
@@ -123,24 +125,29 @@ try {
   };
   const notSelf = (l) => { try { return JSON.parse(l).route !== SELF; } catch { return true; } };
 
-  // 第一批：一致、不确定、404 不判、没报动作、状态码不代表授权、被完整性门拦下，再造一种不一致（撤掉迁移给的 admin）
+  // 第一批：一致、不确定、404 不判、没报动作、状态码不代表授权、被完整性门拦下，再造一种不一致
+  // （以前迁移给的 admin 授予还在库里：旧守卫认管理员时不算它，新判定按授予算——同一条请求旧拒新放）
   await srv.call('GET', '/api/principals', { headers: token });
   await srv.call('GET', '/api/types', { headers: REMOTE });
-  await srv.call('GET', '/api/principals', asRoot); // 第一次见到：迁移给 admin
+  await srv.call('GET', '/api/principals', asRoot); // 系统管理员读管理面：一致
+  await srv.call('GET', '/api/types', asAlpha); // 第一次见到 alpha：迁出 member
   await srv.call('POST', '/api/grants', { body: { role: 'member', scope: '*' } }); // 400：不确定
   await srv.call('GET', '/api/departments/no-such-dept-1', { headers: token }); // 404：不判
   await srv.call('GET', '/legacy-probe/ping'); // 没报动作
   await srv.call('GET', '/api/grants'); // 声明了状态码不代表授权
   await srv.call('GET', '/api/principals', { headers: { ...REMOTE, ...cross }, session: SESSIONS.admin }); // 跨站被拒
-  const admins = ((await srv.call('GET', '/api/grants?source=migration&principal=user:root-admin')).json?.grants ?? []).filter((g) => g.role === 'admin');
-  await srv.call('POST', `/api/grants/${admins[0]?.id}/revoke`, { body: { reason: '合成：故意撤，看比对' } });
-  await srv.call('GET', '/api/principals', asRoot); // 旧允许、新拒绝
+  { const d = new DatabaseSync(join(OUT, 'data', 'workbench-market.db'), { timeout: 10_000 }); const now = Date.now();
+    const id = Number(d.prepare("INSERT INTO grants (principal_id, role, scope, expires_at, reason, created_by, created_at, updated_at, source) VALUES ('user:alpha', 'admin', '*', NULL, '合成：以前迁移来的 admin', 'system:migration', ?, ?, 'migration')").run(now, now).lastInsertRowid);
+    d.prepare("UPDATE grants SET status = 'pending' WHERE id = ?").run(id);
+    d.prepare("UPDATE grants SET status = 'active', approved_by = 'system:migration' WHERE id = ?").run(id);
+    d.close(); }
+  await srv.call('GET', '/api/principals', asAlpha); // 旧拒绝、新允许
   const snap1 = await snapshot('snap1');
   await sleep(300);
   const cut = readFileSync(jsonl, 'utf8').split('\n').filter((l) => l.trim()).length;
   // 第二批：同一种不一致再来两次，另有几次一致
-  await srv.call('GET', '/api/principals', asRoot);
-  await srv.call('GET', '/api/principals', asRoot);
+  await srv.call('GET', '/api/principals', asAlpha);
+  await srv.call('GET', '/api/principals', asAlpha);
   await srv.call('GET', '/api/types', { headers: REMOTE });
   await srv.call('GET', '/api/principals', { headers: token });
   const snap2 = await snapshot('snap2');

@@ -188,8 +188,8 @@ function silentRes(): express.Response {
 }
 
 /** 看的人是谁：管理员（和各动作接口同一个管理门）、登录认出来的主体、是不是启用的人 */
-export async function workItemViewer(req: express.Request, deps: { markOdooAdmin: (req: express.Request) => Promise<void>; adminGuard: (req: express.Request, res: express.Response) => boolean; adminActor?: (req: express.Request) => string }): Promise<WorkItemViewer> {
-  await deps.markOdooAdmin(req);
+export async function workItemViewer(req: express.Request, deps: { markAdmin: (req: express.Request) => Promise<void>; adminGuard: (req: express.Request, res: express.Response) => boolean; adminActor?: (req: express.Request) => string }): Promise<WorkItemViewer> {
+  await deps.markAdmin(req);
   const admin = deps.adminGuard(req, silentRes());
   let principal: string | null = null, person = false, down = false;
   const cookie = String(req.headers.cookie ?? '');

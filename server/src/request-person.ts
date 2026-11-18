@@ -30,12 +30,13 @@ export function hasLoginCredential(req: express.Request): boolean {
 }
 
 /**
- * 管理员留痕的写法（adminActor）对回到哪个主体：odoo:<登录名> 按身份来源对；站内管理员（持 owner/admin 授予）留痕就是主体本身 user:<名>；
+ * 管理员留痕的写法（adminActor）对回到哪个主体：站内管理员（持 owner/admin 授予）留痕就是主体本身 user:<名>；
+ * Odoo 下线（2026-11-17）前的留痕 odoo:<登录名> 按库里保留的历史 Odoo 绑定对（只读，不问 Odoo）；
  * 口令（admin-token）、本机命令行（cli）不是主体，回 null。「不能停用自己」「不能放行授给自己的」、属主认定都按这一处取。
  */
 export function actorPrincipal(by: string): string | null {
   if (by.startsWith('odoo:')) {
-    try { return svc<PrincipalService>('principals').principalOf(identity().providerName() ?? '', by.slice(5)); } catch { return null; }
+    try { return svc<PrincipalService>('principals').principalOf('odoo', by.slice(5)); } catch { return null; }
   }
   return /^user:[^\s]{1,160}$/.test(by) ? by : null;
 }

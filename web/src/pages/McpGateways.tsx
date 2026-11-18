@@ -6,7 +6,7 @@ import type { ProColumns } from '@ant-design/pro-components';
 import WmPage from '../components/WmPage';
 import AlsoInAttention from '../components/AlsoInAttention';
 import RelTime from '../components/RelTime';
-import { adminActive, apiFetch, checkAdminToken, odooAdmin, setAdminToken, subscribeAdminToken } from '../admin-token';
+import { adminActive, adminLogin, apiFetch, checkAdminToken, setAdminToken, subscribeAdminToken } from '../admin-token';
 import { api } from '../api';
 
 /** #379：上游带可达状态（reachable=null 表示还没探过） */
@@ -36,10 +36,10 @@ const TOOLS = [
 ];
 
 /** MCP 网关管理页（GH #20 P1）：会话/令牌/授权/审计——全部走既有五端点（无新后端）。
- *  #375：接入全局管理身份——持顶栏口令或已登录 Odoo 管理员即可载入；口令框只在两者都没有时出现，写入全局口令。 */
+ *  #375：接入全局管理身份——持顶栏口令或有管理员授予的站内账号即可载入；口令框只在两者都没有时出现，写入全局口令。 */
 export default function McpGateways() {
   const { message, modal } = App.useApp();
-  const [active, setActive] = useState(adminActive()); // 持口令或 Odoo 管理员
+  const [active, setActive] = useState(adminActive()); // 持口令或站内管理员
   const [tokenDraft, setTokenDraft] = useState('');
   const [tokenChecking, setTokenChecking] = useState(false);
   const loadToken = async () => {
@@ -128,7 +128,7 @@ export default function McpGateways() {
       .finally(() => setCallsLoading(false));
   }, [message, loadRequests]);
 
-  // 身份变化（顶栏输入或清除口令、Odoo 管理员认定完成）后重新判定并载入
+  // 身份变化（顶栏输入或清除口令、站内管理员认定完成）后重新判定并载入
   useEffect(() => {
     const sync = () => { const a = adminActive(); setActive(a); if (a) reload(); };
     sync();
@@ -327,7 +327,7 @@ export default function McpGateways() {
       {active ? (
         <Space className="wm-mb-3">
           <Typography.Text type="secondary" className="wm-caption">
-            {odooAdmin() ? `已按 Odoo 管理员（${odooAdmin()}）载入` : '已按管理员口令载入'}
+            {adminLogin() ? `已按站内管理员（${(adminLogin() ?? '').replace(/^user:/, '')}）载入` : '已按管理员口令载入'}
           </Typography.Text>
           <Button onClick={reload} loading={loading}>刷新</Button>
         </Space>
@@ -335,7 +335,7 @@ export default function McpGateways() {
         <Space.Compact className="wm-w-full wm-mb-3" style={{ maxWidth: 640 }}>
           <Input.Password
             prefix={<KeyOutlined />}
-            placeholder="管理员口令（或用 Odoo 管理员账号登录后免输）"
+            placeholder="管理员口令（有管理员授予的站内账号登录后免输）"
             value={tokenDraft}
             onChange={(e) => setTokenDraft(e.target.value)}
             onPressEnter={() => { void loadToken(); }}
@@ -363,7 +363,7 @@ export default function McpGateways() {
               <>
                 <ProTable<McpSession> rowKey="id" size="middle" columns={sessCols} dataSource={sessions} loading={loading} search={false} options={false} toolBarRender={false}
                   pagination={{ pageSize: 20, hideOnSinglePage: true }}
-                  locale={{ emptyText: <Empty description={active ? "无会话——创建首个会话" : "需要管理员：输入口令，或用 Odoo 管理员账号登录"} /> }} />
+                  locale={{ emptyText: <Empty description={active ? "无会话——创建首个会话" : "需要管理员：输入口令，或用有管理员授予的站内账号登录"} /> }} />
                 <Typography.Title level={5} style={{ marginTop: 24 }}>审计（最近 100 条）</Typography.Title>
                 <ProTable<McpCall> rowKey="id" size="middle" columns={callCols} dataSource={calls} loading={callsLoading} search={false} options={false} toolBarRender={false} pagination={{ pageSize: 20, hideOnSinglePage: true }} />
               </>

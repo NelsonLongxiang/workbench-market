@@ -112,7 +112,7 @@ try {
   // ---------- 一 ----------
   const reg = await signup('victim', 'Victim-pass-0001', '192.0.2.81');
   const before = await account('victim');
-  const made = await A.cli('POST', '/api/principals/bind', { provider: 'odoo', external_id: 'victim', principal: 'user:victim', create: true, reason: '合成：他第一次从别的登录方式进来' });
+  const made = await A.cli('POST', '/api/principals/bind', { provider: 'sso', external_id: 'victim', principal: 'user:victim', create: true, reason: '合成：他第一次从别的登录方式进来' });
   const gv = await A.grant('user:victim', 'owner');
   const after = await account('victim');
   check([302, 200].includes(reg.status) && before?.pending === true && before.name_taken === false && made.status === 200 && gv.status === 200 && after?.pending === true && after.name_taken === true,
@@ -133,7 +133,7 @@ try {
     '三、完整管理员（管理口令）核准：同样 409，没有接上', { byToken: [byToken.status, byToken.json?.reason], meV2 });
 
   // ---------- 四 ----------
-  await A.cli('POST', '/api/principals/bind', { provider: 'odoo', external_id: 'nora', principal: 'user:nora', create: true, reason: '合成' });
+  await A.cli('POST', '/api/principals/bind', { provider: 'sso', external_id: 'nora', principal: 'user:nora', create: true, reason: '合成' });
   await A.grant('user:nora', 'owner');
   const n2 = await token('POST', '/api/local-accounts', { username: 'nora' });
   const n2sam = await sam.go('POST', '/api/local-accounts', { json: { username: 'nora' } });
@@ -143,7 +143,7 @@ try {
   // ---------- 四b ----------
   // 先注册 wendy，之后只差大小写的同名出现了（别的登录方式进来的是 Wendy）：同样算已经有人，回同一句话
   await signup('wendy', 'Wendy-pass-0001', '192.0.2.86');
-  await A.cli('POST', '/api/principals/bind', { provider: 'odoo', external_id: 'Wendy', principal: 'user:Wendy', create: true, reason: '合成' });
+  await A.cli('POST', '/api/principals/bind', { provider: 'sso', external_id: 'Wendy', principal: 'user:Wendy', create: true, reason: '合成' });
   const wl = await account('wendy');
   const wa = await token('POST', '/api/local-accounts/wendy/approve');
   check(wl?.name_taken === true && wa.status === 409 && wa.json?.reason === 'exists' && /已经属于一个现有的人/.test(wa.json?.error ?? ''),

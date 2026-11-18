@@ -211,14 +211,18 @@ describe('契约联调：市场 × superagent 宿主', () => {
       const stranger = await askAdmission('market/deadbeef')
       rec('清单§2.4 反例：没加进画布的来源不准入，宿主答了就不再问', stranger.answer?.admitted === false && stranger.asks === 1, `${JSON.stringify(stranger.answer).slice(0, 300)}（问了 ${stranger.asks} 次）`)
 
-      // ---------- 派工：市场发布一件任务 ----------
-      let runSeq = 0
+      // ---------- 派工：市场里一个员工「安排一件事」，不要先过目（总开关、员工直派都开），直接派给 canvas 地址 ----------
+      // （旧的「录入 run → 管理员发布」已退役）
+      const { SESSIONS: ARRANGE_SESSIONS } = await import(pathToFileURL(join(MARKET_TREE, 'scripts/identity-fake-provider.mjs')).href)
+      const STAFF = { Cookie: `session_id=${ARRANGE_SESSIONS.alpha}`, 'Sec-Fetch-Site': 'same-origin', 'X-Admin-Token': '' }
+      await call('GET', '/api/auth/me', undefined, STAFF)
+      const direct = await call('PUT', '/api/settings', { staff_direct_dispatch: 'on' })
+      rec('市场：打开员工直派（不要先过目就直接派出）', direct.status === 200, String(direct.status))
+      let runSeq = 0, arrangeSeq = 0
       const publish = async (title: string): Promise<{ eventId: string; task: string; item: any } | undefined> => {
-        runSeq++
-        const data = { title: { value: title }, intent: { value: '契约联调' }, deliverable: { value: '一句话结论' } }
-        const runId = Number(mdb.prepare("INSERT INTO sop_runs (sop_slug, sop_version, status, started_by, data) VALUES ('task-center', 1, 'finished', 'tester', ?)").run(JSON.stringify(data)).lastInsertRowid)
-        const pub = await call('POST', '/api/task-center/tasks', { intake_run_id: runId, published_by: 'tester', agent_dispatch: true })
-        if (pub.status !== 201) { rec(`市场：发布「${title}」`, false, `${pub.status} ${JSON.stringify(pub.body)}`); return undefined }
+        const pub = await call('POST', '/api/work-items', { title, intent: '契约联调', deliverable: '一句话结论', team: canvasAddress, review: false, idempotency_key: `contract-arrange-${String(++arrangeSeq).padStart(6, '0')}` }, STAFF)
+        if (pub.status !== 201) { rec(`市场：安排「${title}」`, false, `${pub.status} ${JSON.stringify(pub.body)}`); return undefined }
+        runSeq = Number(pub.body.task_id)
         const eventId = String(pub.body.event_id)
         const sent = await until(() => q<any>('SELECT d.status, d.last_error, t.task_id FROM workbench_event_deliveries d LEFT JOIN a2a_sent_tasks t ON t.delivery_id = d.id WHERE d.event_id = ? ORDER BY t.created_at DESC', eventId).find(r => r.status === 'sent' || r.status === 'dead' || r.last_error), 30_000)
         const item = q<any>('SELECT * FROM work_items WHERE event_id = (SELECT id FROM workbench_events WHERE event_id = ?)', eventId)[0]

@@ -1,15 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, Descriptions, Popover, Tag, Tooltip, Typography } from 'antd';
+import { Button, Descriptions, Popover, Tag, Typography } from 'antd';
 import { UserOutlined } from '@ant-design/icons';
-import { ODOO_SESSION_CONFIRMED, odooLoginHref, useOdooPopupLogin } from '../pages/odoo-login';
-import { logoutCurrentSession } from '../odoo-logout';
+import { logoutCurrentSession } from '../api';
+import { loginHref } from '../login-href';
 
-/** #279 当前用户 chip（过渡：数据取 /api/auth/viewer，即浏览器的 Odoo 会话；#221 落地后换成 /api/auth/me）。
- *  未配置 WM_ODOO_URL（503）或接口不通时不显示；未登录给 #277 的弹窗登录入口；角色暂无（来源待定、授权通道未实现）。 */
-interface WhoamiViewer { login: string; uid: number; sub: string; name: string | null; kind: string }
-type State = { kind: 'hidden' } | { kind: 'anon'; loginUrl: string | null } | { kind: 'denied'; error: string; logoutAvailable: boolean } | { kind: 'ok'; viewer: WhoamiViewer; logoutAvailable: boolean };
+/** 当前用户 chip（GET /api/auth/viewer）。Odoo 下线（2026-11-17）后认的是市场会话（站内账号、飞书登录）：
+ *  - 200：显示是谁；
+ *  - 401（带 auth_required、login_url）：没登录或会话失效 → 「未登录」加去登录页的链接（整页跳，登录完回到当前页）；
+ *  - 403：账号停用 → 照实说，给「退出」；
+ *  - 503：一种登录方式也没有 → 只提示，不清会话、不跳走；
+ *  - 别的（接口不通、回答不认得）：不显示。
+ *  弹出层不再写「来源：Odoo 会话」那一栏（原型里没有登录来源这一项）。 */
+interface Viewer { login: string; sub: string; name: string | null; kind: string }
+type State =
+  | { kind: 'hidden' }
+  | { kind: 'anon'; loginUrl: unknown }
+  | { kind: 'disabled'; error: string }
+  | { kind: 'unavailable'; error: string }
+  | { kind: 'ok'; viewer: Viewer };
 
-const REFRESH_MS = 60_000; // 切回页面时最多每分钟复查一次（每次都要现查 Odoo）
+const REFRESH_MS = 60_000; // 切回页面时最多每分钟复查一次
 
 export default function ViewerChip() {
   const [state, setState] = useState<State>({ kind: 'hidden' });
@@ -23,24 +33,21 @@ export default function ViewerChip() {
       const r = await fetch('/api/auth/viewer', { cache: 'no-store', credentials: 'same-origin' });
       const j = await r.json().catch(() => null);
       if (request !== requestRef.current) return;
-      if (r.ok && j?.ok && j.viewer) setState({ kind: 'ok', viewer: j.viewer, logoutAvailable: j.odoo_logout_supported === true });
-      else if (r.status === 401) setState({ kind: 'anon', loginUrl: typeof j?.login_url === 'string' ? j.login_url : null });
-      else if (r.status === 403) setState({ kind: 'denied', error: typeof j?.error === 'string' ? j.error : '该 Odoo 账号无权访问工作台', logoutAvailable: j?.odoo_logout_supported === true }); // 门户账号
+      const v = j?.viewer;
+      if (r.ok && j?.ok === true && v && typeof v.login === 'string' && v.login && typeof v.sub === 'string') setState({ kind: 'ok', viewer: v });
+      else if (r.status === 401) setState({ kind: 'anon', loginUrl: j?.login_url });
+      else if (r.status === 403) setState({ kind: 'disabled', error: typeof j?.error === 'string' ? j.error : '账号已停用' });
+      else if (r.status === 503) setState({ kind: 'unavailable', error: typeof j?.error === 'string' ? j.error : '现在没有可用的登录方式' });
       else setState({ kind: 'hidden' });
     } catch { if (request === requestRef.current) setState({ kind: 'hidden' }); }
   }, []);
   useEffect(() => {
     void load();
     const onBack = () => { if (document.visibilityState === 'visible' && Date.now() - lastRef.current > REFRESH_MS) void load(); };
-    const onConfirmed = () => { void load(); }; // bypass focus throttle after verified popup login
-    window.addEventListener(ODOO_SESSION_CONFIRMED, onConfirmed);
     window.addEventListener('focus', onBack);
     document.addEventListener('visibilitychange', onBack);
-    return () => { ++requestRef.current; window.removeEventListener(ODOO_SESSION_CONFIRMED, onConfirmed); window.removeEventListener('focus', onBack); document.removeEventListener('visibilitychange', onBack); };
+    return () => { ++requestRef.current; window.removeEventListener('focus', onBack); document.removeEventListener('visibilitychange', onBack); };
   }, [load]);
-
-  const href = state.kind === 'anon' && state.loginUrl ? odooLoginHref(state.loginUrl) : null;
-  const login = useOdooPopupLogin(href, () => {}); // confirmed event is the single refresh path
 
   const logout = async () => {
     setLoggingOut(true);
@@ -49,35 +56,30 @@ export default function ViewerChip() {
     window.location.assign('/login');
   };
   if (state.kind === 'hidden') return null;
-  if (state.kind === 'denied') return <span><Tag icon={<UserOutlined />} color="error" style={{ marginInlineEnd: 0 }} title={state.error}>无权访问（门户账号）</Tag>{state.logoutAvailable && <Button size="small" type="link" loading={loggingOut} onClick={logout}>退出 Odoo</Button>}</span>;
+  if (state.kind === 'unavailable') return <Tag icon={<UserOutlined />} color="warning" className="wm-viewer-tag" title={state.error} data-testid="viewer-unavailable">暂时登录不了</Tag>;
+  if (state.kind === 'disabled') {
+    return <span className="wm-viewer-chip">
+      <Tag icon={<UserOutlined />} color="error" className="wm-viewer-tag" title={state.error} data-testid="viewer-disabled">账号已停用</Tag>
+      <Button size="small" type="link" loading={loggingOut} onClick={logout}>退出</Button>
+    </span>;
+  }
   if (state.kind === 'anon') {
-    return (
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-        <Tag icon={<UserOutlined />} color="default" style={{ marginInlineEnd: 0 }}>未登录 Odoo</Tag>
-        {href && !login.tokenHere && <Button size="small" type="link" onClick={login.open} disabled={login.polling}>{login.polling ? '等待登录…' : '登录'}</Button>}
-        {href && login.tokenHere && (
-          <Tooltip title="本标签页存着管理员口令，登录弹窗会复制它；先清除口令，或另开一个标签页登录">
-            <Button size="small" type="link" onClick={login.clearAndOpen}>清除口令并登录</Button>
-          </Tooltip>
-        )}
-        {login.blocked && <Typography.Text type="warning" className="wm-caption">弹窗被拦截</Typography.Text>}
-      </span>
-    );
+    const href = loginHref(state.loginUrl, window.location.pathname + window.location.search + window.location.hash);
+    return <span className="wm-viewer-chip">
+      <Tag icon={<UserOutlined />} color="default" className="wm-viewer-tag" data-testid="viewer-anon">未登录</Tag>
+      <Button size="small" type="link" href={href} data-testid="viewer-login">登录</Button>
+    </span>;
   }
   const v = state.viewer;
-  const label = `${v.name ?? v.login}（${v.login}）· ${v.kind}`;
+  const label = `${v.name ?? v.login}（${v.login}）`;
   return (
     <Popover trigger="click" title="当前用户" content={(
       <><Descriptions size="small" column={1} style={{ width: 280 }} items={[
         { key: 'name', label: '显示名', children: v.name ?? '—' },
         { key: 'login', label: '登录名', children: v.login },
-        { key: 'kind', label: '类别', children: v.kind },
-        { key: 'sub', label: '主体', children: <Typography.Text code>{v.sub}</Typography.Text> },
-        { key: 'roles', label: '角色', children: <Typography.Text type="secondary">暂无（授权通道未实现）</Typography.Text> },
-        { key: 'src', label: '来源', children: <Typography.Text type="secondary" className="wm-caption">Odoo 会话（过渡，#221 落地后换市场统一登录）</Typography.Text> },
-      ]} />{state.logoutAvailable && <Button size="small" loading={loggingOut} onClick={logout}>退出 Odoo</Button>}</>
+      ]} /><Button size="small" loading={loggingOut} onClick={logout}>退出</Button></>
     )}>
-      <Tag icon={<UserOutlined />} color="blue" style={{ cursor: 'pointer', marginInlineEnd: 0, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', verticalAlign: 'middle' }} title={label}>{label}</Tag>
+      <Tag icon={<UserOutlined />} color="blue" className="wm-viewer-tag wm-viewer-me" title={label} data-testid="viewer-ok">{label}</Tag>
     </Popover>
   );
 }

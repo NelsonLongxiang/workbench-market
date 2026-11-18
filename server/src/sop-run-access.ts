@@ -2,13 +2,15 @@
  * Legacy started_by / A2A node labels NEVER confer a human permission. */
 import {createHash,createHmac,randomBytes,timingSafeEqual} from 'node:crypto';
 import type {DatabaseSync} from 'node:sqlite';
-import {identity,loginRelay,type ViewerResult} from './identity.ts';
+import {identity,SESSION_COOKIE,type ViewerResult} from './identity.ts';
+// 认人凭市场会话（wm_session）：Odoo 下线（2026-11-17）以前凭 Odoo 会话 session_id。请求里恰好一项、形状合规才取，交给 viewer 现查
+const soleSessionEntry=(cookie:string)=>{const all=String(cookie??'').split(';').map(c=>c.trim()).filter(c=>c.startsWith(SESSION_COOKIE+'='));return all.length===1&&/^[A-Za-z0-9_.=-]{16,512}$/.test(all[0].slice(SESSION_COOKIE.length+1))?all[0]:'';};
 import {parse as parseYaml} from 'yaml';
 import {validateReadonlySop} from './sop-readonly-channel.ts';
 import {assembleReadonlySop,type FrozenSopSource} from './sop-readonly-assembly.ts';
-type ResolveViewer = (cookieHeader:string,source?:string)=>Promise<ViewerResult>;
+type ResolveViewer = (cookieHeader:string)=>Promise<ViewerResult>;
 // Existing run upload hard ceilings: single50MiB / run20 files / run200MiB. Stored MIME is declared, not content-authenticated.
-type Deps = {db:DatabaseSync; odooOrigin:string; marketOrigin:string; frozenYaml:(slug:string,version:number)=>string; viewer?:ResolveViewer; now?:()=>number};
+type Deps = {db:DatabaseSync; marketOrigin:string; frozenYaml:(slug:string,version:number)=>string; viewer?:ResolveViewer; now?:()=>number};
 type Binding = {run_id:number; target_id:number; sop_version:number; owner_subject:string; assignee_subject:string; acl_revision:number; manifest_sha256:string; revoked:number};
 type Scope = {targetId:number;runId:number;step:string};
 type CapRecord = Scope & {action:'read'|'save'|'upload'|'finish';version:number;subject:string;session:string;epoch:number;aclRevision:number;expires:number};
@@ -17,9 +19,7 @@ export class SopWriteError extends Error { status:number;code:string;constructor
 const deny = () => { throw new SopWriteError(403,'sop_run_access_denied'); };
 const hash = (s:string) => createHash('sha256').update(s).digest('hex');
 export function createSopRunAccess(deps:Deps) {
-  const {db}=deps, now=deps.now??Date.now, viewer:ResolveViewer=deps.viewer??((cookie,source)=>identity().resolveViewer(cookie,source));
-  const origin=new URL(deps.odooOrigin);
-  if(origin.origin!==deps.odooOrigin || !loginRelay().trustedOrigins().origins.has(deps.odooOrigin)) throw Error('Explicit trusted Odoo origin required');
+  const {db}=deps, now=deps.now??Date.now, viewer:ResolveViewer=deps.viewer??((cookie)=>identity().resolveViewer(cookie));
   // Only callers constructing this unmounted service initialize this table. Existing app startup unchanged.
   db.exec('CREATE TABLE IF NOT EXISTS sop_run_access (run_id INTEGER PRIMARY KEY, target_id INTEGER NOT NULL, sop_version INTEGER NOT NULL, owner_subject TEXT NOT NULL, assignee_subject TEXT NOT NULL, acl_revision INTEGER NOT NULL, manifest_sha256 TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0)');
   db.exec('CREATE TABLE IF NOT EXISTS sop_run_revisions (run_id INTEGER PRIMARY KEY, revision INTEGER NOT NULL, data_sha256 TEXT NOT NULL)');
@@ -27,7 +27,7 @@ export function createSopRunAccess(deps:Deps) {
   const secret=randomBytes(32), records=new Map<string,CapRecord>(), sessions=new Map<string,{epoch:number;generation:number;subject:string|null}>();
   const mac=(s:string)=>createHmac('sha256',secret).update(s).digest('base64url');
   const cookieKey=(cookie:string) => {
-    const sole=loginRelay().soleSession(cookie); // exactly one well-formed session entry, shape owned by the login provider
+    const sole=soleSessionEntry(cookie); // exactly one well-formed session entry
     if(!sole) return deny();
     return {cookie:sole,key:mac(sole)}; // reference is process-local and never projected
   };
@@ -50,13 +50,13 @@ export function createSopRunAccess(deps:Deps) {
     const session=cookieKey(cookie);
     if(!sessions.has(session.key)){if(sessions.size>=4096)return deny();sessions.set(session.key,{epoch:0,generation:0,subject:null});}
     const state=sessions.get(session.key)!,epoch=state.epoch,generation=++state.generation;let result:ViewerResult|null=null;
-    try{result=await viewer(session.cookie,deps.odooOrigin);}catch{ /* fresh identity failed below */ }
+    try{result=await viewer(session.cookie);}catch{ /* fresh identity failed below */ }
     // Latest-started identity query wins. A stale result (success OR failure) cannot replace newer state.
     if(state.generation!==generation||state.epoch!==epoch)return deny();
     if(!result?.ok){revokeKey(session.key);return deny();}
     const who=result.viewer;
-    if(!positive(who.uid)||!who.sub?.startsWith('user:')){revokeKey(session.key);return deny();}
-    const subject=who.sub+':'+who.uid;
+    if(typeof who.sub!=='string'||!/^user:[^\s:]{1,128}$/.test(who.sub)){revokeKey(session.key);return deny();}
+    const subject=who.sub; // 主体标识（市场会话没有 uid）
     if(state.subject!==null&&state.subject!==subject)revokeKey(session.key);
     state.subject=subject;
     return {...session,epoch:state.epoch,generation:state.generation,subject};
@@ -103,10 +103,10 @@ export function createSopRunAccess(deps:Deps) {
   }
   return {
     /** Server-only controlled registration. Never expose through MCP or accept started_by as subject.
-     * caller supplies Odoo sub+uid derived from trusted records; no legacy backfill/guess. */
+     * caller supplies principal ids (user:<name>) derived from trusted records; no legacy backfill/guess. */
     bindTrustedRun(input:{runId:number;targetId:number;ownerSubject:string;assigneeSubject?:string;manifestSha256:string}) {
       const run=metadata(input.runId,input.targetId);
-      const valid=(s:string)=>typeof s==='string'&&/^user:[^\s:]+:[1-9][0-9]*$/.test(s)&&s.length<=256;
+      const valid=(s:string)=>typeof s==='string'&&/^user:[^\s:]{1,128}$/.test(s);
       if(!valid(input.ownerSubject)||input.assigneeSubject!==undefined&&!valid(input.assigneeSubject)||!/^[a-f0-9]{64}$/.test(input.manifestSha256))return deny();
       const revision=(binding(input.runId)?.acl_revision??0)+1;
       db.prepare('INSERT INTO sop_run_access(run_id,target_id,sop_version,owner_subject,assignee_subject,acl_revision,manifest_sha256,revoked) VALUES(?,?,?,?,?,?,?,0) ON CONFLICT(run_id) DO UPDATE SET target_id=excluded.target_id,sop_version=excluded.sop_version,owner_subject=excluded.owner_subject,assignee_subject=excluded.assignee_subject,acl_revision=excluded.acl_revision,manifest_sha256=excluded.manifest_sha256,revoked=0').run(input.runId,input.targetId,run.sop_version,input.ownerSubject,input.assigneeSubject??'',revision,input.manifestSha256);

@@ -6,8 +6,8 @@
  *  ② 点「清除口令并内嵌」后 iframe 出现、存储为空；
  *  ③ 同一标签页跳到 /go/<id>/、/sop/<slug>/ 后，新文档的 sessionStorage 里没有口令；
  *  ④ 对照：没设口令时使用页照常内嵌；
- *  ⑤ 顶栏 ViewerChip 的 Odoo 登录弹窗（whoami 用 page.route 打桩成 401 + 同源 /go/ 探针页）：有口令时不发起、只给「清除口令并登录」；
- *     弹窗里 sessionStorage 没有口令、window.opener 为 null；登录成功（含弹窗先被关掉、之后 whoami 才变 200）照常收尾；
+ *  ⑤ 用户卡里的登录入口（whoami 打桩成 401）：Odoo 下线后没有弹窗登录，点「登录」同一个标签页整页跳到站内 /login?next=…，
+ *     不开新窗口，跳过去之后新文档里读不到口令（取代原来「弹窗没有 opener、弹窗里没有口令」那一组）；
  *  ⑥ bfcache：后退若未命中往返缓存（persisted=false）记 SKIP，不当通过。
  *  需先 pnpm --filter web build（服务端托管 web/dist）。合成上游 + 全新 DATA_DIR + 随机回环端口；不碰真实口令。 */
 import { pythonBin } from './python-bin.mjs';
@@ -28,7 +28,7 @@ const gh = await startFakeGithub(); // 来源收敛（属主 2026-11-02）：SOP
 const PORT = 20000 + Math.floor(Math.random() * 12000);
 const base = `http://127.0.0.1:${PORT}`;
 const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), YGL_HOME: join(TMP, 'home'), ADMIN_TOKEN: 'synthetic-browser-admin', WM_GITHUB_API: gh.api };
-for (const k of ['WM_ODOO_URL', 'WM_EXTENSIONS_DIR', 'WM_ODOO_ORIGINS', 'WM_CONTROL_PORT']) delete env[k]; // 缺省不开控制面
+for (const k of ['WM_EXTENSIONS_DIR', 'WM_CONTROL_PORT']) delete env[k]; // 缺省不开控制面
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });
 let serverErr = ''; server.stderr.on('data', (c) => (serverErr += c));
 const api = async (method, path, body) => {

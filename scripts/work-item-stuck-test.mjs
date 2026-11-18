@@ -43,7 +43,7 @@ let child = null, log = '';
 try {
   const data = join(OUT, 'data'), home = join(OUT, 'home');
   for (const d of [data, home, join(OUT, 'ext')]) mkdirSync(d, { recursive: true });
-  const env = { PATH: process.env.PATH, HOME: home, DATA_DIR: data, NODE_ENV: 'test', ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'on', WM_CONTROL_PORT: '0', IDENTITY_SEAM_ROOT: ROOT, WM_EXTENSIONS_DIR: join(OUT, 'ext'), MARKET_PUBLIC_URL: 'http://market.synthetic.invalid' };
+  const env = { PATH: process.env.PATH, HOME: home, DATA_DIR: data, NODE_ENV: 'test', ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'on', WM_CONTROL_PORT: '0', IDENTITY_SEAM_ROOT: ROOT, IDENTITY_FAKE_ADMIN_GRANT: 'admin', WM_EXTENSIONS_DIR: join(OUT, 'ext'), MARKET_PUBLIC_URL: 'http://market.synthetic.invalid' };
 
   // ---------- 坏的阈值拒绝启动 ----------
   for (const bad of ['0', '721', 'x', '1.5', '-3']) {
@@ -175,8 +175,8 @@ try {
     const grants = await call('GET', '/api/grants', {});
     const rootGrants = (grants.body?.grants ?? grants.body ?? []).filter?.((g) => g.principal_id === 'user:root-admin' && g.status === 'active') ?? [];
     const g = await attention(WHO.只过管理门), t = await attention(WHO.只有管理口令);
-    check(g.status === 200 && rootGrants.length === 0 && stuckOf(g).length === 0 && g.body.counts.stuck_count === 0,
-      '只过了管理门的系统管理员（身份来源说是管理员、没有任何授予）：一条没有，stuck_count 是 0（条目带事项标题，不冒给他）', show({ s: g.status, grants: rootGrants.length, n: g.body?.counts?.stuck_count, ids: stuckOf(g).map((x) => x.title) }));
+    check(g.status === 200 && rootGrants.length === 1 && rootGrants[0].role === 'admin' && stuckOf(g).length === 0 && g.body.counts.stuck_count === 0,
+      '系统管理员（只有一条 admin 授予、没有管理层授予）：一条没有，stuck_count 是 0（条目带事项标题，不冒给他）', show({ s: g.status, grants: rootGrants.length, n: g.body?.counts?.stuck_count, ids: stuckOf(g).map((x) => x.title) }));
     check(t.status === 200 && stuckOf(t).length === 0 && t.body.counts.stuck_count === 0,
       '只有管理口令：一条没有，stuck_count 是 0', show({ s: t.status, n: t.body?.counts?.stuck_count, ids: stuckOf(t).map((x) => x.title) }));
   }
