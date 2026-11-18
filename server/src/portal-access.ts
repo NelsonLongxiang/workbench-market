@@ -4,8 +4,10 @@
  *
  * 三档：
  *  - all：凡是过了登录门的人（未开登录门时就是所有人）——旧行为；
- *  - admin：只给管理员（本机命令行、X-Admin-Token、口令登录 cookie、Odoo 管理员）；
- *  - listed：管理员 + access_logins 里点名的 Odoo 账号（`odoo:<登录名>`）。
+ *  - admin：只给管理员（本机命令行、X-Admin-Token、口令登录 cookie、站内管理员）；
+ *  - listed：管理员 + access_logins 里点名的人：`user:<主体>`（市场会话认出的主体）。
+ *    Odoo 下线（2026-11-17）以前登记的 `odoo:<登录名>` 项不改数据，照旧按查看人主体名下保留的历史 Odoo 身份去对；
+ *    新写入不再收 `odoo:`（新建台一律拒；改台时只许保留原来就有的，见 newOdooEntries）。不带前缀的按 `user:` 算。
  *
  * 带凭据（auth 头、Cookie 池、URL 里的 token 类查询参数）的台，没有显式给 access 时一律按 admin：
  * 门户会把凭据注入给每个能打开它的人，凭据的权限面不能默认对全员开放。
@@ -28,7 +30,7 @@ export interface AccessRow {
 }
 
 /** 登录门认出的身份（与 login-gate.ts 的 Identity 同形；只用到这几项） */
-export interface Viewer { via: 'cli' | 'token' | 'cookie' | 'odoo' | 'session'; login: string | null; admin: boolean; odooLogins?: string[] }
+export interface Viewer { via: 'cli' | 'token' | 'cookie' | 'source' | 'session'; login: string | null; admin: boolean; principal?: string | null; odooLogins?: string[] }
 
 export function isInternalTarget(url: string): boolean {
   return url.startsWith('/');
@@ -50,7 +52,13 @@ export function isCredentialed(row: AccessRow): boolean {
 export function normalizeLogin(v: unknown): string {
   const s = String(v ?? '').trim().toLowerCase();
   if (s === '') return '';
-  return s.startsWith('odoo:') ? s : `odoo:${s}`;
+  return s.startsWith('odoo:') || s.startsWith('user:') ? s : `user:${s}`;
+}
+
+/** 这次写入里新加的 odoo: 项（原来名单里没有的）：新写入不再收 odoo:，调用方据此回 400 */
+export function newOdooEntries(list: string[], existing: string[] = []): string[] {
+  const kept = new Set(existing.map(normalizeLogin));
+  return list.filter((e) => e.startsWith('odoo:') && !kept.has(e));
 }
 
 /** 校验并规范化写入值；非法抛 Error（调用方转 400） */
@@ -64,7 +72,7 @@ export function parseAccessInput(access: unknown, logins: unknown): { access: Ac
     if (logins.length > 200) throw new Error('access_logins 最多 200 项');
     if (logins.some(value => typeof value !== 'string')) throw new Error('access_logins 每项必须是字符串');
     list = [...new Set(logins.map(normalizeLogin).filter((s) => s !== ''))];
-    for (const s of list) if (!/^odoo:[^\s:]{1,128}$/.test(s)) throw new Error(`access_logins 项非法：${s}`);
+    for (const s of list) if (!/^(user|odoo):[^\s:]{1,128}$/.test(s)) throw new Error(`access_logins 项非法：${s}`);
   }
   if (access === 'listed' && list.length === 0) throw new Error('access=listed 时 access_logins 不能为空');
   if (access !== 'listed') list = [];
@@ -96,13 +104,17 @@ export function decide(row: AccessRow, viewer: Viewer | null): Decision {
   if (!viewer) return { allow: false, reason: 'anonymous' };
   if (viewerIsAdmin(viewer)) return { allow: true };
   if (access === 'admin') return { allow: false, reason: 'not-admin' };
-  const bound = viewer.odooLogins ?? [];
-  return bound.some(login => loginsOf(row).includes(normalizeLogin(login))) ? { allow: true } : { allow: false, reason: 'not-listed' };
+  const listed = loginsOf(row);
+  const me = viewer.principal ? normalizeLogin(viewer.principal) : '';
+  // 旧的 odoo: 项：按查看人主体名下保留的历史 Odoo 身份对（不再问 Odoo）
+  const bound = (viewer.odooLogins ?? []).map((login) => `odoo:${String(login).trim().toLowerCase()}`);
+  const hit = listed.some((e) => (e.startsWith('user:') ? me !== '' && e === me : bound.includes(e)));
+  return hit ? { allow: true } : { allow: false, reason: 'not-listed' };
 }
 
 export function viewerLabel(v: Viewer | null): string {
   if (!v) return 'anonymous';
-  if (v.via === 'odoo') return `odoo:${String(v.login ?? '').toLowerCase()}`;
+  if (v.via === 'source') return `source:${String(v.login ?? '').toLowerCase()}`;
   return v.via === 'token' ? 'admin-token' : v.via === 'cookie' ? 'admin-cookie' : v.via === 'session' ? 'market-session' : 'cli';
 }
 

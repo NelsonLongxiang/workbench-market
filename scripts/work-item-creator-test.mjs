@@ -78,7 +78,7 @@ try {
   for (const d of [data, home, join(OUT, 'ext')]) mkdirSync(d, { recursive: true });
   const compareOut = join(OUT, 'judgment-compare.jsonl');
   // 并行比对开着：建立人验收成功的那一步也记下来，看新判定和旧结论对不对得上
-  const env = { WM_JUDGMENT_COMPARE: 'on', WM_JUDGMENT_COMPARE_OUT: compareOut, PATH: process.env.PATH, HOME: home, DATA_DIR: data, NODE_ENV: 'test', ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'on', WM_CONTROL_PORT: '0', IDENTITY_SEAM_ROOT: ROOT, WM_EXTENSIONS_DIR: join(OUT, 'ext'), MARKET_PUBLIC_URL: 'http://market.synthetic.invalid' };
+  const env = { WM_JUDGMENT_COMPARE: 'on', WM_JUDGMENT_COMPARE_OUT: compareOut, PATH: process.env.PATH, HOME: home, DATA_DIR: data, NODE_ENV: 'test', ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'on', WM_CONTROL_PORT: '0', IDENTITY_SEAM_ROOT: ROOT, IDENTITY_FAKE_ADMIN_GRANT: 'admin', WM_EXTENSIONS_DIR: join(OUT, 'ext'), MARKET_PUBLIC_URL: 'http://market.synthetic.invalid' };
   const seeded = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', SEED], { env, encoding: 'utf8' });
   const m = /SEEDED (.*)/.exec(seeded.stdout);
   if (!m) throw new Error(`造数据失败：${seeded.stderr.slice(-800)}`);
@@ -382,27 +382,32 @@ try {
         'A3：同一投递先问 q1、再问 q2，用 q1 的编号答：409，q2 仍在等，不记不发', show({ r3b, q1, q2 })); }
     // 持有管理层授予的人（user:no-flag，上面 L20 那一段授的）：能代办答提问
     const MGMT = { ...SAME, cookie: `session_id=${SESSIONS.noAdminFlag}` };
-    // L21 口径：答席位的提问是替建立人做业务决定——建立人本人，或持有管理层授予的人；只过了管理门的（管理口令、没有管理层授予的会话管理员）不能答。
+    // L21 口径：答席位的提问是替建立人做业务决定——建立人本人，或持有管理层授予的人；只过了管理门的管理口令不能答；
+    // 系统管理员（只持 admin 授予）在业务域不算管理员，事项连读都读不到。
     // 四种身份分别看：详情的 can.answer、「关注」里给不给答法、事项入口真去答、「关注」入口真去答
     {
       const SADMIN = { ...SAME, cookie: `session_id=${SESSIONS.admin}` };
-      // 身份来源说是管理员的人，第一次见到时只迁出 member、系统管理员两条，不迁管理层（judgment-compare 的 migrateOnSight，L6）：他就是「只过了管理门」的人
+      // root-admin：夹具只给一条 admin 授予（IDENTITY_FAKE_ADMIN_GRANT=admin），第一次见到时迁出 member，不迁管理层（judgment-compare 的 migrateOnSight，L6）
       await call('GET', '/api/auth/viewer', SADMIN); await call('GET', '/api/attention', SADMIN); await call('GET', `/api/work-items/${fourA.item}`, SADMIN);
       const active = ((await call('GET', '/api/grants?principal=user:root-admin&status=active', {})).body?.grants ?? []).map((g) => g.role ?? g.role_id);
-      check(active.includes('admin') && !active.includes('management'), '造数据：会话管理员被迁了系统管理员、没有管理层授予（管理门照旧过）', show({ active }));
+      check(active.includes('admin') && !active.includes('management'), '造数据：会话管理员只有系统管理员授予、没有管理层授予', show({ active }));
       const canAns = async (a, h) => (await call('GET', `/api/work-items/${a.item}`, h)).body?.can?.answer;
       const listed = async (a, h) => ((await call('GET', '/api/attention', h)).body?.items ?? []).find((x) => x.source === 'seat-asks' && x.source_id === String(a.delivery))?.answers ?? null;
       const viaAttn = (a, h, text) => call('POST', '/api/attention/answer', h, { source: 'seat-asks', source_id: String(a.delivery), answer: 'answer', input: { text } });
-      for (const [who, h] of [['管理口令', ADMIN_H], ['会话登录的管理员（没有管理层授予）', SADMIN]]) {
-        // 这两种身份过了读的门（管理门），事项详情读得到（200）——所以不能答回 403，不是 404（读不到的才和不存在一样回 404）
+      for (const [who, h] of [['管理口令', ADMIN_H], ['系统管理员（没有管理层授予）', SADMIN]]) {
+        // 管理口令过了读的门（管理门），事项详情读得到（200）——所以不能答回 403，不是 404（读不到的才和不存在一样回 404）；
+        // 系统管理员在业务域不算管理员，读不到（404），答也和不存在一样（404）
+        const sys = h === SADMIN;
         const readable = (await call('GET', `/api/work-items/${fourA.item}`, h)).status;
         const c1 = await canAns(fourA, h), l1 = await listed(fourA, h);
         const b0 = answered(fourA) + answered(fourB), s0 = sentAnswers(fourA) + sentAnswers(fourB);
         const r1 = await ans(fourA, h), r2 = await viaAttn(fourB, h, '管理门答');
         const e1 = r1.body?.error ?? r1.body?.result?.error, e2 = r2.body?.error ?? r2.body?.result?.error;
-        check(readable === 200 && c1 === false && (l1 === null || l1.length === 0) && r1.status === 403 && e1 === 'seat_ask_answer_forbidden' && [400, 403].includes(r2.status)
+        check((sys ? readable === 404 && !c1 && l1 === null && r1.status === 404 && [403, 404].includes(r2.status)
+          : readable === 200 && c1 === false && (l1 === null || l1.length === 0) && r1.status === 403 && e1 === 'seat_ask_answer_forbidden' && [400, 403].includes(r2.status))
           && answered(fourA) + answered(fourB) === b0 && sentAnswers(fourA) + sentAnswers(fourB) === s0,
-          `L21·${who}：读得到这件事项（详情 200），但 can.answer 为假、「关注」不给答法；事项入口 403（读得到、不能答）、「关注」入口被拒；不记答复、不发回`, show({ readable, c1, l1, r1: [r1.status, e1], r2: [r2.status, e2] }));
+          sys ? `L21·${who}：读不到这件事项（404），「关注」里没有；两个入口都和不存在一样被拒；不记答复、不发回`
+            : `L21·${who}：读得到这件事项（详情 200），但 can.answer 为假、「关注」不给答法；事项入口 403（读得到、不能答）、「关注」入口被拒；不记答复、不发回`, show({ readable, c1, l1, r1: [r1.status, e1], r2: [r2.status, e2] }));
       }
       const cc = await canAns(fourA, ALPHA), lc = await listed(fourA, ALPHA);
       check(cc === true && JSON.stringify(lc) === JSON.stringify(['answer']), 'L21·建立人本人：详情 can.answer 为真、「关注」给答法', show({ cc, lc }));
@@ -455,7 +460,11 @@ try {
   {
     // 录入发布已退役：「发布的人、自填的名字都不当建立人」不再有这条入口；「安排一件事」的建立人只认会话认出的本人，
     // 请求体自报的建立人一概不认，由 work-item-arrange-test 守
-    const bySession = await call('POST', '/api/task-center/tasks', { ...SAME, cookie: `session_id=${SESSIONS.admin}` }, { intake_run_id: 1, published_by: 'alpha' });
+    // 会话登录的完整管理员：strasse 由本机命令行（属主）给一条 owner 授予（root-admin 在这里只是系统管理员，业务域不算管理员）
+    await call('GET', '/api/auth/viewer', { ...SAME, cookie: `session_id=${SESSIONS.strasse}` });
+    { const d = await call('POST', '/api/grants', {}, { principal: 'user:strasse', role: 'owner', scope: '*', reason: '合成：完整管理员' });
+      for (const st of ['submit', 'approve']) await call('POST', `/api/grants/${d.body?.grant?.id}/${st}`, {}, {}); }
+    const bySession = await call('POST', '/api/task-center/tasks', { ...SAME, cookie: `session_id=${SESSIONS.strasse}` }, { intake_run_id: 1, published_by: 'alpha' });
     const byToken = await call('POST', '/api/task-center/tasks', ADMIN, { intake_run_id: 1, published_by: 'alpha' });
     check(bySession.status === 404 && byToken.status === 404, '录入发布入口已退役：会话管理员、管理口令来发都是 404', show({ bySession: bySession.status, byToken: byToken.status }));
   }

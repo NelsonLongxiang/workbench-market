@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 登录门上线演练（WM_LOGIN_GATE=enforce）：在隔离实例上按调用方逐类发真实请求，列出期望值、实际值、是否通过。
- *  本机随机端口、合成 DATA_DIR、本机替身（GitHub、Odoo、外部台、A2A 对端），合成口令与中性 slug；不碰生产库与生产网络。
+ *  本机随机端口、合成 DATA_DIR、本机替身（GitHub、身份来源、外部台、A2A 对端），合成口令与中性 slug；不碰生产库与生产网络。
  *  远程调用方用 X-Forwarded-For 模拟（同机反代转进来的不算本机命令行）。
  *  用法：node scripts/login-gate-rollout-check.mjs [--json <输出文件>]。退出码：有「必须通过」的行没过 → 1。
  *  每行的 need：must = 上线前必须成立；gap = 已知缺口（记录现状，不影响退出码）；info = 行为变化，供上线方案参考。 */
@@ -10,8 +10,10 @@ import { createServer } from 'node:http';
 import { connect, createServer as netServer } from 'node:net';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { signCard } from '@nelsonlongxiang/dsh-open-a2a-net/card';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
+import { SESSIONS } from './identity-fake-provider.mjs';
 
 const jsonOut = process.argv.includes('--json') ? process.argv[process.argv.indexOf('--json') + 1] : '';
 const rows = [];
@@ -28,15 +30,6 @@ const PORT = await freePort();
 const B = `http://127.0.0.1:${PORT}`;
 
 // ---------- 替身 ----------
-const odoo = createServer((req, res) => {
-  const sid = /(?:^|;\s*)session_id=([^;\s]+)/.exec(String(req.headers.cookie ?? ''))?.[1] ?? '';
-  if (req.url === '/web/session/get_session_info') {
-    const admin = sid.startsWith('adminsession'), internal = admin || sid.startsWith('internalsession'), portal = sid.startsWith('portalsession');
-    res.setHeader('content-type', 'application/json');
-    return res.end(JSON.stringify(internal || portal ? { result: { uid: 9, username: admin ? 'rc.admin' : internal ? 'rc.internal' : 'rc.portal', name: 'Synthetic', is_internal_user: internal, is_admin: admin } } : { result: { uid: false } }));
-  }
-  res.statusCode = 404; res.end('odoo-fixture');
-});
 const upstream = createServer((req, res) => { res.setHeader('content-type', 'text/html'); res.end('<!doctype html><title>upstream</title><p>synthetic external workbench</p>'); });
 upstream.on('upgrade', (_q, socket) => socket.end('HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n'));
 const ZONE = 'rcpeer';
@@ -45,15 +38,15 @@ const peer = createServer((req, res) => {
   if (req.url === '/node/.well-known/agent-card.json') { res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify(signCard({ capabilities: {}, expiresAt: Date.now() + 3600_000, name: ZONE + '-node', session: ZONE, team: ZONE }, peerKey))); }
   res.statusCode = 404; res.end('{}');
 });
-for (const s of [odoo, upstream, peer]) await new Promise((r) => s.listen(0, '127.0.0.1', r));
-const ODOO = `http://127.0.0.1:${odoo.address().port}`, UP = `http://127.0.0.1:${upstream.address().port}`, PEER = `http://127.0.0.1:${peer.address().port}`;
+for (const s of [upstream, peer]) await new Promise((r) => s.listen(0, '127.0.0.1', r));
+const UP = `http://127.0.0.1:${upstream.address().port}`, PEER = `http://127.0.0.1:${peer.address().port}`;
 const gh = await startFakeGithub();
 
 // ---------- 实例 ----------
 function boot(extra) {
-  const env = { ...process.env, PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: DATA, NODE_ENV: 'test', REDIS_URL: '', LAYERFS_SERVICE_URL: '', WM_GITHUB_API: gh.api, ADMIN_TOKEN: ADMIN, MARKET_PUBLIC_URL: B, WM_ODOO_URL: ODOO, WM_ODOO_ORIGINS: ODOO, MCP_GATEWAY: 'on', WM_A2A_DIRECT_SIG: '', WM_A2A_DIRECT_SIG_BODY: '', ...extra };
+  const env = { ...process.env, PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: DATA, NODE_ENV: 'test', REDIS_URL: '', LAYERFS_SERVICE_URL: '', WM_GITHUB_API: gh.api, ADMIN_TOKEN: ADMIN, MARKET_PUBLIC_URL: B, IDENTITY_SEAM_ROOT: resolve('.'), WM_ODOO_URL: `${UP}/odoo`, WM_ODOO_ORIGINS: UP, MCP_GATEWAY: 'on', WM_A2A_DIRECT_SIG: '', WM_A2A_DIRECT_SIG_BODY: '', ...extra };
   for (const k of ['WM_EXTENSIONS_DIR', 'YGL_HOME']) delete env[k];
-  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', pathToFileURL(resolve('scripts/identity-fake-preload.mjs')).href, 'server/src/index.ts'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = ''; child.stdout.on('data', (c) => (out += c)); child.stderr.on('data', (c) => (out += c));
   const exited = new Promise((r) => child.once('exit', r));
   return { child, exited, out: () => out };
@@ -95,7 +88,7 @@ try {
   const sop = await ghPublish(B, gh, { slug: 'rc-sop', kind: 'sop', title: 'RC SOP', changelog: 'x', files: [{ path: 'sop.yaml', content: 'title: RC SOP\nsteps:\n  - key: a\n    title: A\n' }] }, { 'x-admin-token': ADMIN });
   await req('POST', '/api/sops/rc-sop/publish', {}, { changelog: 'x' });
   const ext = (await req('POST', '/api/workbenches', {}, { name: 'RC External', url: UP + '/', type: 'web' })).j;
-  const odooWb = (await req('POST', '/api/workbenches', {}, { name: 'RC Odoo', url: ODOO + '/', type: 'odoo' })).j;
+  const odooWb = (await req('POST', '/api/workbenches', {}, { name: 'RC 旧 Odoo 台', url: UP + '/odoo/', type: 'odoo' })).j;
   const appWb = (await req('GET', '/api/workbenches', {})).j.find((w) => w.url === '/apps/rc-app/');
   for (const [node, url] of [[`${ZONE}/a1b2c3d4`, PEER + '/node'], [`${ZONE}/0f0f0f0f`, '']]) await req('POST', '/api/bindings', { 'x-admin-token': ADMIN }, { target_type: 'sop', target_slug: 'rc-sop', agent_node: node, direction: 'admits', mode: 'run', ...(url ? { notify_url: url } : {}) });
   const preTok = await tokOf('rc-app');
@@ -110,7 +103,8 @@ try {
   const login = await req('POST', '/api/auth/login', REMOTE, { token: ADMIN });
   const ck = /wm_login=([^;]+)/.exec(login.h.get('set-cookie') ?? '')?.[1] ?? '';
   const C = { ...REMOTE, cookie: `wm_login=${ck}` }, CP = { ...PAGE, cookie: `wm_login=${ck}` };
-  const ODOO_IN = { ...REMOTE, cookie: 'session_id=internalsession00000000001' }, ODOO_ADM = { ...REMOTE, cookie: 'session_id=adminsession000000000001' };
+  // 身份来源用假来源（identity-fake-preload）；旧的 Odoo 变量 WM_ODOO_URL / WM_ODOO_ORIGINS 照旧设着，看它们被忽略
+  const SRC_IN = { ...REMOTE, cookie: `session_id=${SESSIONS.alpha}` }, SRC_ADM = { ...REMOTE, cookie: `session_id=${SESSIONS.admin}` };
   const T = (t) => ({ ...REMOTE, origin: 'null', 'x-app-token': t });
 
   console.log('\n— 健康检查与启动自检');
@@ -206,29 +200,27 @@ try {
   r = await req('POST', '/api/apps/rc-app/data', T(newTok), { x: 1 });
   row('台', '新台令牌写数据（沙箱页）', '放行（非 401）', st(r), r.status !== 401 && r.status < 500);
 
-  console.log('\n— 事项页、Odoo 身份、任务中心、Odoo 登录回跳');
+  console.log('\n— 事项页、身份来源、任务中心、Odoo 已下线');
   r = await req('GET', '/work-items', PAGE);
   row('事项页', '远程匿名打开 /work-items', '302 /login?next=%2Fwork-items', st(r), r.status === 302 && r.h.get('location') === '/login?next=%2Fwork-items');
-  r = await req('GET', '/api/auth/viewer', ODOO_IN);
-  row('Odoo 身份', 'Odoo 内部员工 /api/auth/viewer', '过登录门', st(r), !gate401(r));
-  r = await req('GET', '/api/auth/viewer', { ...REMOTE, cookie: 'session_id=portalsession00000000001' });
-  row('Odoo 身份', 'Odoo 门户账号', '401（登录门只认内部员工）', st(r), gate401(r));
-  r = await req('GET', '/api/tasks', ODOO_ADM);
-  row('统一待办', 'Odoo 管理员只带会话读 /api/tasks', '200', st(r), r.status === 200);
+  r = await req('GET', '/api/auth/viewer', SRC_IN);
+  row('身份来源', '来源认出的内部员工 /api/auth/viewer', '过登录门', st(r), !gate401(r));
+  r = await req('GET', '/api/auth/viewer', { ...REMOTE, cookie: `session_id=${SESSIONS.portal}` });
+  row('身份来源', '来源说不是内部账号', '401（登录门只认内部员工）', st(r), gate401(r));
+  r = await req('GET', '/api/tasks', SRC_ADM);
+  row('统一待办', '持管理员授予的人只带会话读 /api/tasks', '200', st(r), r.status === 200);
   r = await req('POST', '/api/task-center/tasks/999999/withdraw', BRW, {});
-  row('任务中心', '只有登录 cookie（非管理员）撤回任务', '403（管理写仍要口令或 Odoo 管理员）', st(r), r.status === 403);
+  row('任务中心', '只有登录 cookie（非管理员）撤回任务', '403（管理写仍要口令或管理员授予）', st(r), r.status === 403);
   r = await req('POST', '/api/task-center/tasks/999999/withdraw', { ...REMOTE, 'x-admin-token': ADMIN }, {});
   row('任务中心', '远程带口令撤回任务', '过两道门（不存在的任务 404）', st(r), r.status === 404);
   r = await req('GET', `/go/${odooWb.id}/?return=%2Flogin`, PAGE);
-  row('Odoo', '登录中继 /go/<Odoo 台>/?return=/login（匿名）', '200 跳转页', st(r), r.status === 200 && r.text.includes(`${ODOO}/web/login`));
-  r = await req('GET', `/go/${odooWb.id}/?return=%2Ftasks`, PAGE);
-  row('Odoo', '旧入口 ?return=/tasks（匿名）', '302 /login（只能从登录页走）', st(r), r.status === 302, 'info', '匿名用户先到登录页；已登录用户在 /tasks 照旧可用');
+  row('Odoo 已下线', '旧登录中继 /go/<旧 Odoo 台>/?return=/login（匿名）', '302 /login（没有中继跳转页）', st(r), r.status === 302 && String(r.h.get('location') ?? '').startsWith('/login') && !r.text.includes('/web/login'));
   r = await req('GET', `/go/${odooWb.id}/?return=%2Ftasks`, { ...PAGE, cookie: `wm_login=${ck}` });
-  row('Odoo', '已登录用户走 ?return=/tasks', '200 跳转页', st(r), r.status === 200);
-  r = await req('GET', `/sso/callback?redirect=/go/${odooWb.id}/&state=x`, { ...PAGE, cookie: 'session_id=internalsession00000000001' });
-  row('Odoo', 'Odoo 登录回跳 /sso/callback（带内部员工会话）', '过登录门（state 不符由路由 400）', st(r), !gate401(r) && r.status !== 302);
+  row('Odoo 已下线', '已登录用户走旧入口 ?return=/tasks', '照常反代到台（没有中继跳转页）', st(r), r.status === 200 && r.text.includes('synthetic external workbench'));
+  r = await req('GET', `/sso/callback?redirect=/go/${odooWb.id}/&state=x`, { ...PAGE, cookie: `wm_login=${ck}` });
+  row('Odoo 已下线', '旧登录回跳 /sso/callback（已登录）', '不回跳到台（路由已删：页面请求落到前端外壳）', st(r), r.status !== 302 && !r.h.get('location') && !r.text.includes('session_id'));
   r = await req('GET', '/login', PAGE);
-  row('Odoo', '登录页给出「用 Odoo 登录」', '有', r.text.includes('用 Odoo 登录') ? '有' : '无', r.text.includes('用 Odoo 登录'));
+  row('Odoo 已下线', '登录页不再给「用 Odoo 登录」', '无', r.text.includes('Odoo') ? '有' : '无', r.status === 200 && !r.text.includes('Odoo'));
 
   console.log('\n— 运维脚本与回调');
   r = await req('GET', '/api/apps', {});
@@ -264,7 +256,7 @@ try {
 } catch (e) {
   console.error('演练中断：', e?.stack ?? e); code = 2;
 } finally {
-  await gh.close(); for (const s of [odoo, upstream, peer]) s.close();
+  await gh.close(); for (const s of [upstream, peer]) s.close();
   if (jsonOut) writeFileSync(jsonOut, JSON.stringify({ at: new Date().toISOString(), rows }, null, 2));
   rmSync(OUT, { recursive: true, force: true });
 }

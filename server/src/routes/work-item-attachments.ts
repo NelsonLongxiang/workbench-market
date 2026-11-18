@@ -30,7 +30,7 @@ import { canSee, TERMINAL_STATES, workItemViewer } from '../work-item-access.ts'
 import { peerCanDeliver } from '../services/a2a-peers.ts';
 
 export type AttachmentRouteDeps = {
-  markOdooAdmin: (req: express.Request) => Promise<void>;
+  markAdmin: (req: express.Request) => Promise<void>;
   adminGuard: (req: express.Request, res: express.Response) => boolean;
   crossOriginDenied: (req: express.Request) => boolean;
 };

@@ -465,6 +465,11 @@ try {
     const same = browser(open); await feishuLogin(same, fake, 'alice');
     await same.req('GET', '/api/admin/whoami', { cookies: { session_id: SESSIONS.alpha } }); await new Promise((done) => setTimeout(done, 300));
     const linesAfter = open.log().split('\n').filter((l) => l.includes('"event":"session-mismatch"'));
+    // 登录门（enforce）认人走带缓存的那一路（cachedResolver）：两种都带着时同样按市场会话算
+    const g = browser(gated); await feishuLogin(g, fake, 'alice');
+    const gateMe = await g.req('GET', '/api/auth/me', { cookies: { session_id: SESSIONS.admin } });
+    check(gateMe.status === 200 && gateMe.json?.principal === 'user:alpha' && !JSON.stringify(gateMe.json).includes('root-admin'),
+      '登录门（带缓存的认人）：同时带着市场会话（alpha）和来源会话（root-admin），按市场会话认成 alpha', show({ status: gateMe.status, me: gateMe.json }));
     check(both.json?.admin === false && odooOnly.json?.admin === true && lines.length === 1 && lines[0].includes('"session":"user:alpha"') && lines[0].includes('"other":"user:root-admin"') && linesAfter.length === 1,
       '同时带着市场会话（alpha）和 Odoo 管理员会话：按市场会话算，不是管理员，并留一行痕（两边各认成谁）；对照：只带 Odoo 会话是管理员；两边是同一个人时不留痕', show({ both: both.json, odooOnly: odooOnly.json, lines: lines.length, linesAfter: linesAfter.length }));
   }

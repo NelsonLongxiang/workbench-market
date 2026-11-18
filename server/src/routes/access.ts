@@ -29,7 +29,7 @@ import type { SetupWizardService, WizardAssignments } from '../services/setup-wi
 import { relationsSummaryOf } from '../team-relation.ts';
 
 export type AccessRouteDeps = {
-  markOdooAdmin: (req: express.Request) => Promise<void>;
+  markAdmin: (req: express.Request) => Promise<void>;
   adminGuard: (req: express.Request, res: express.Response) => boolean;
   adminHeaderOk: (req: express.Request) => boolean;
   adminActor: (req: express.Request) => string;
@@ -53,7 +53,7 @@ export function registerAccessRoutes(app: HttpService, deps: AccessRouteDeps): v
     res.set('Cache-Control', 'private, no-store');
     if (!browserMarked(req) && rawLoopback(req)) return { admin: true };
     if (deps.crossOriginDenied(req)) { res.status(403).json({ error: 'access_cross_origin_denied' }); return null; }
-    await deps.markOdooAdmin(req);
+    await deps.markAdmin(req);
     if (deps.adminHeaderOk(req)) return { admin: true };
     const cookie = String(req.headers.cookie ?? '');
     const who = cookie ? await identity().resolveViewer(cookie) : null;
@@ -66,7 +66,7 @@ export function registerAccessRoutes(app: HttpService, deps: AccessRouteDeps): v
   /** 管理员（同源）或本机命令行；带上是不是属主。不是就回 403，返回 null */
   async function adminActor(req: express.Request, res: express.Response): Promise<Actor | null> {
     if (!browserMarked(req) && rawLoopback(req)) return { by: 'cli', principal: null, owner: true };
-    await deps.markOdooAdmin(req);
+    await deps.markAdmin(req);
     if (!deps.adminGuard(req, res)) return null;
     const by = deps.adminActor(req);
     const principal = actorPrincipal(by);

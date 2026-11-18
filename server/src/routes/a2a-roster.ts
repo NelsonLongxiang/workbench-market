@@ -17,7 +17,7 @@ import { identity } from '../identity.ts';
 import { activeItemsBySeat, rosters } from '../services/a2a-roster.ts';
 
 export type RosterRouteDeps = {
-  markOdooAdmin: (req: express.Request) => Promise<void>;
+  markAdmin: (req: express.Request) => Promise<void>;
   adminGuard: (req: express.Request, res: express.Response) => boolean;
   crossOriginDenied: (req: express.Request) => boolean;
 };
@@ -35,7 +35,7 @@ export function registerRosterRoutes(app: HttpService, deps: RosterRouteDeps): v
     res.vary('Cookie'); res.vary('X-Admin-Token');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'teams_cross_origin_denied' });
     (async () => {
-      await deps.markOdooAdmin(req);
+      await deps.markAdmin(req);
       if (!deps.adminGuard(req, silentRes())) {
         const cookie = String(req.headers.cookie ?? '');
         if (!cookie) return void res.status(401).json({ error: 'teams_auth_required' });

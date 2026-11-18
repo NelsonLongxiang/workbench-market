@@ -55,7 +55,7 @@ for (const k of ['new', 'old']) {
 const wb = db.prepare("INSERT INTO workbenches (name, url, type) VALUES ('看板', '/owner-pending', 'web')").run().lastInsertRowid;
 out.board = Number(wb);
 const putVar = (key, value, owner) => db.prepare("INSERT INTO workbench_vars (workbench_id, key, kind, value, owner, updated_by) VALUES (?, ?, 'const', ?, ?, ?)").run(wb, key, JSON.stringify(value), owner, owner);
-putVar('config.owner', { owner_login: 'root-admin', writers: ['mcp:writer'] }, 'odoo:root-admin');
+putVar('config.owner', { owner_principal: 'user:root-admin', writers: ['mcp:writer'] }, 'user:root-admin');
 putVar('item.1', { question: '问题一', source: '登记方' }, 'mcp:writer');
 putVar('item.2', { question: '问题二', source: '登记方' }, 'mcp:writer');
 for (const id of ['ext-new', 'ext-old', 'ext-extra']) db.prepare("INSERT INTO principal_pending (provider, external_id, display_name) VALUES ('synthetic', ?, ?)").run(id, 'Name ' + id);
@@ -143,7 +143,7 @@ try {
   const kill = async () => { child.kill('SIGKILL'); await new Promise((r) => (child.exitCode !== null || child.signalCode ? r() : child.once('exit', r))); };
   await boot();
   const SAME = { 'sec-fetch-site': 'same-origin' };
-  const ADMIN = { ...SAME, cookie: `session_id=${SESSIONS.admin}` }; // 会话登录的管理员（odoo:root-admin）：留痕里看得出是谁
+  const ADMIN = { ...SAME, cookie: `session_id=${SESSIONS.admin}` }; // 会话登录的管理员（user:root-admin）：留痕里看得出是谁
   const call = async (method, path, headers, body) => {
     const r = await fetch(base + path, { method, headers: { ...headers, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) }, body: body !== undefined ? JSON.stringify(body) : undefined });
     let json = null; try { json = await r.json(); } catch { /* 不是 JSON */ }
@@ -171,17 +171,17 @@ try {
 
   // ---------- 一、新入口和旧入口逐字段相同 ----------
   {
-    // 新入口：审核人是认出来的管理员（odoo:root-admin），自报的 reviewed_by 不收；不通过要写理由。旧入口照旧收 reviewed_by（这里填同一个人）、理由可选
+    // 新入口：审核人是认出来的管理员（user:root-admin），自报的 reviewed_by 不收；不通过要写理由。旧入口照旧收 reviewed_by（这里填同一个人）、理由可选
     const n = await answer('change-requests', S.cr.rejectNew, 'reject', { reviewed_by: 'alice', reason: '合成理由' });
-    const o = await call('POST', `/api/change-requests/${S.cr.rejectOld}/reject`, ADMIN, { reviewed_by: 'odoo:root-admin', reason: '合成理由' });
+    const o = await call('POST', `/api/change-requests/${S.cr.rejectOld}/reject`, ADMIN, { reviewed_by: 'user:root-admin', reason: '合成理由' });
     const rows = (id) => strip(q('SELECT * FROM change_requests WHERE id = ?', id), ['slug']);
     check(n.status === o.status && sameApart({ ...n.body.result, id: 0 }, { ...o.body, id: 0 }) && same(rows(S.cr.rejectNew), rows(S.cr.rejectOld)) && rows(S.cr.rejectNew)[0].status === 'rejected'
-      && rows(S.cr.rejectNew)[0].reviewed_by === 'odoo:root-admin' && rows(S.cr.rejectNew)[0].reviewed_by_principal === 'odoo:root-admin' && rows(S.cr.rejectNew)[0].review_note === '合成理由',
+      && rows(S.cr.rejectNew)[0].reviewed_by === 'user:root-admin' && rows(S.cr.rejectNew)[0].reviewed_by_principal === 'user:root-admin' && rows(S.cr.rejectNew)[0].review_note === '合成理由',
       '变更申请·拒绝：和旧入口同一处判断——状态码、应答、申请那一行（状态、审核人、认出来的审核人、理由）逐字段相同；自报的 reviewed_by 不收', show({ n, o, rows: [rows(S.cr.rejectNew), rows(S.cr.rejectOld)] }));
     const noReason = await answer('change-requests', S.cr.dup, 'reject', { reviewed_by: 'alice' });
     check(noReason.status === 400 && noReason.body?.result?.error === 'reason_required' && q('SELECT status FROM change_requests WHERE id = ?', S.cr.dup)[0].status === 'pending', '新入口不通过不写理由：400，申请不动', show(noReason));
     const na = await answer('change-requests', S.cr.approveNew, 'approve', { reviewed_by: 'alice' });
-    const oa = await call('POST', `/api/change-requests/${S.cr.approveOld}/approve`, ADMIN, { reviewed_by: 'odoo:root-admin' });
+    const oa = await call('POST', `/api/change-requests/${S.cr.approveOld}/approve`, ADMIN, { reviewed_by: 'user:root-admin' });
     const norm = (b) => JSON.parse(JSON.stringify(b).replaceAll(String(S.cr.approveNew), 'X').replaceAll(String(S.cr.approveOld), 'X').replaceAll('approveNew', 'Y').replaceAll('approveOld', 'Y'));
     check(na.status === oa.status && na.status >= 400 && sameApart(norm(na.body.result), norm(oa.body)) && same(rows(S.cr.approveNew), rows(S.cr.approveOld)),
       `变更申请·批准失败（台不存在）：原路由的失败（${oa.status}）原样交回，不吞；申请那一行两边一样没变`, show({ na, oa }));
@@ -203,7 +203,7 @@ try {
     const o = await call('PUT', `/api/workbenches/${S.board}/vars/answer.2`, ADMIN, answerBody('可以', today, null));
     const v = (k) => strip(q('SELECT * FROM workbench_vars WHERE workbench_id = ? AND key = ?', S.board, k), ['key']);
     const audit = (k) => strip(q('SELECT * FROM workbench_var_audit WHERE workbench_id = ? AND key = ?', S.board, k), ['key']);
-    check(n.status === o.status && sameApart({ ...n.body.result, key: '' }, { ...o.body, key: '' }) && same(v('answer.1'), v('answer.2')) && same(audit('answer.1'), audit('answer.2')) && v('answer.1')[0]?.owner === 'odoo:root-admin',
+    check(n.status === o.status && sameApart({ ...n.body.result, key: '' }, { ...o.body, key: '' }) && same(v('answer.1'), v('answer.2')) && same(audit('answer.1'), audit('answer.2')) && v('answer.1')[0]?.owner === 'user:root-admin',
       '待属主看板·答复：常量那一行（作者是属主本人）、审计那一行、应答逐字段相同', show({ n, o, v: [v('answer.1'), v('answer.2')], a: [audit('answer.1'), audit('answer.2')] }));
   }
   {
@@ -303,14 +303,14 @@ try {
     check(rs.every((r) => r.status === 404 || r.status === 400), '路径只来自写死的表：id 不是数字（含 ..、查询串、编码过的路径）就到不了任何路由', show(rs.map((r) => r.status)));
     const e = await answer('change-requests', S.cr.extra, 'reject', { reason: '合成', reviewed_by: 'alice', status: 'approved', reviewed_at: 'x' }, ADMIN, { path: '/api/principals/bind', method: 'PUT' });
     const row = q('SELECT status, reviewed_by FROM change_requests WHERE id = ?', S.cr.extra)[0];
-    check(e.status === 200 && row.status === 'rejected' && row.reviewed_by === 'odoo:root-admin', '请求体只取这一种答法的字段：input 里多带的 status、reviewed_at、自报的 reviewed_by，外层多带的 path 和 method 都不起作用', show({ e, row }));
+    check(e.status === 200 && row.status === 'rejected' && row.reviewed_by === 'user:root-admin', '请求体只取这一种答法的字段：input 里多带的 status、reviewed_at、自报的 reviewed_by，外层多带的 path 和 method 都不起作用', show({ e, row }));
     const b2 = await answer('principal-pending', 'synthetic:ext-extra', 'bind', { principal: 'user:bound-e', create: true, reason: '对接', display_name: '夹带的名字' });
     const p = q('SELECT display_name FROM principals WHERE id = ?', 'user:bound-e')[0];
     check(b2.status === 200 && p && p.display_name !== '夹带的名字', '绑定时夹带 display_name：不透传给原路由', show({ b2, p }));
     // 身份原样：留痕里记「谁」的那几处（看板常量的作者、MCP 申请的批准人），是会话登录的那个管理员，不是本机命令行、不是口令
     const owner = q('SELECT owner FROM workbench_vars WHERE workbench_id = ? AND key = ?', S.board, 'answer.1')[0]?.owner;
     const decided = q('SELECT decided_by FROM mcp_access_requests WHERE id = ?', S.mcp.new)[0]?.decided_by;
-    check(owner === 'odoo:root-admin' && decided === q('SELECT decided_by FROM mcp_access_requests WHERE id = ?', S.mcp.old)[0]?.decided_by && !/^(cli|admin-token)$/.test(decided), '身份原样带过去：看板答复的作者、MCP 申请的批准人都是会话登录的那个管理员（和旧入口一样），不是本机命令行或口令', show({ owner, decided }));
+    check(owner === 'user:root-admin' && decided === q('SELECT decided_by FROM mcp_access_requests WHERE id = ?', S.mcp.old)[0]?.decided_by && !/^(cli|admin-token)$/.test(decided), '身份原样带过去：看板答复的作者、MCP 申请的批准人都是会话登录的那个管理员（和旧入口一样），不是本机命令行或口令', show({ owner, decided }));
   }
 
   // ---------- 五、新写的两类 ----------
@@ -341,7 +341,7 @@ try {
     const r = await answer('work-items', S.ready.ret, 'return', { reason: '差异没标' });
     const st = (id) => q('SELECT state FROM work_items WHERE id = ?', id)[0].state;
     const last = q("SELECT fact, actor, detail FROM work_item_log WHERE item_id = ? ORDER BY seq DESC LIMIT 1", S.ready.ret)[0];
-    check(v.status === 200 && st(S.ready.verify) === 'done' && r0.status === 400 && r.status === 200 && st(S.ready.ret) === 'progress' && last.fact === 'return' && last.actor === 'odoo:root-admin' && JSON.parse(last.detail).reason === '差异没标' && JSON.parse(last.detail).acting_for === 'creator',
+    check(v.status === 200 && st(S.ready.verify) === 'done' && r0.status === 400 && r.status === 200 && st(S.ready.ret) === 'progress' && last.fact === 'return' && last.actor === 'user:root-admin' && JSON.parse(last.detail).reason === '差异没标' && JSON.parse(last.detail).acting_for === 'creator',
       '事项的验收（ready → done）和退回（要理由，ready → progress；日志记谁、为什么、代建立人办）', show({ v, r0, r, last }));
   }
 

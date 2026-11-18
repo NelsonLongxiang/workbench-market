@@ -75,10 +75,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `ALLOW_PUBLIC_NET`（#258 起**不再放行任何公网登记**，`1` 只在启动时告警）（网关开时 `/mcp` 启用会话令牌网关——**生产已开：所有 /mcp 调用须 `Authorization: Bearer <会话令牌>`**·会话经 `POST /api/mcp/sessions` 创建+`PUT …/grants` 授权）
 - `LAYERFS_SERVICE_URL`/`LAYERFS_SERVICE_TOKEN`（LayerFS 服务面·两者任一缺失则 LayerFS 集成整个禁用=降级直写）
 - `WM_SKILL_SHADOW_EVERY_MS`（技能影子副本定时补推的周期·毫秒·缺省 600000（10 分钟）·`0` 不补推·其余须 200～86400000 的整数，填错拒绝启动；第一轮在起来之后 min(周期, 2 分钟)）、`WM_SKILL_SHADOW_BATCH`（每轮最多推几个版本·缺省 20·1～500）：补推各技能当前版本里没有 commit_id、不是 skipped 的（导入器写的版本、推失败的、重建漏掉的），推完读回摘要一致才记 succeeded，见 server/src/skill-shadow.ts
-- `WM_ODOO_ORIGINS`（可信 Odoo 源·逗号分隔·门户只把 Odoo `session_id` 转给这些源与 `WM_ODOO_URL` 的源；都未设时谁都不转、Odoo 台免登不生效（fail closed·启动时提示））
-- `WM_ODOO_URL`（工作台认人的 Odoo 地址·浏览器 Odoo 会话按它现查 `get_session_info`：登录门、统一待办读权、Odoo 管理员认定、`/api/auth/viewer` 共用·未设则不认 Odoo 身份；旧名 `LC_ODOO_URL` 已弃用，仍在 `WM_ODOO_URL` 为空时回退读取并在启动时告警，两个都设以新名为准）
-- `WM_ODOO_BROWSER_URL`（只给浏览器用的 Odoo 登录地址·可选·须在可信名单内、只写 origin，非法拒启动；仅对源等于 `WM_ODOO_URL` 的 Odoo 台生效，主机名不符或 https 降级回 503；同域中继开着时中继优先·见 [docs/odoo-browser-origin.md](docs/odoo-browser-origin.md)）
-- `WM_ODOO_LOGIN_PROXY`（`1`=市场同域 Odoo 登录中继·上游固定为 `WM_ODOO_URL`·见 [docs/odoo-login-relay.md](docs/odoo-login-relay.md)）
+- 已下线、只告警的变量（Odoo 认人和业务台中继 2026-11-17 下线）：`WM_ODOO_URL`、`WM_ODOO_ORIGINS`、`WM_ODOO_BROWSER_URL`、`WM_ODOO_LOGIN_PROXY`、`LC_ODOO_URL`；内容查看面（只能凭 Odoo 会话认人，随之下线）的 `WM_CONTENT_PORT`、`WM_CONTENT_IP`、`WM_CONTENT_MARKET_ORIGIN`、`WM_CONTENT_ODOO_ORIGIN`、`WM_CONTENT_TARGETS`。还设着时启动逐个打一行「已下线、忽略」，不拒绝启动（`server/src/retired-env.ts`）；门户对任何上游都剥掉浏览器带来的 `session_id`
 - `WM_SESSION_TTL_MIN`（市场会话的绝对期限，分钟·缺省 720＝12 小时·范围 15～10080·不续期·不合法拒绝启动）
 - `WM_APP_DATA_READ`（台数据与附件的读守卫·缺省 `enforce`：`GET /api/apps/<台>/data`、`/files`、`/files/<id>` 要本台的台令牌、管理员（同源）或本机命令行，下载另认本台页面的查看凭证，都不满足 403；`warn`＝上线过渡用，照旧放行，只按路由和调用方类别计数留痕（日志 `source: app-data-read`；进程启动以来的累计次数在带管理口令读 `/api/health` 的 `guard_would_deny.app_data_read` 里，按路由模板 × 调用方类别，不带主体和台名、run 号），过渡完设回 `enforce`；其它值拒绝启动）
 - `WM_SOP_RUN_WRITE`（SOP run 的写守卫·缺省 `enforce`：保存一步 `PUT /api/sop/runs/<id>`、完成 `POST …/finish` 要这个 run 的上传令牌 `X-Run-Upload-Token`（run 还在执行）、管理员（同源）或本机命令行，都不满足 403，不分登录门开没开；`warn`＝上线过渡用，照旧放行，只按路由和调用方类别计数留痕（日志 `source: sop-run-write`；进程启动以来的累计次数在带管理口令读 `/api/health` 的 `guard_would_deny.sop_run_write` 里，按路由模板 × 调用方类别，不带主体和台名、run 号），过渡完设回 `enforce`；其它值拒绝启动）
@@ -102,11 +99,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_YGL_CLI`（ygl-trees 入口文件 `dist/bundle/bin.cjs` 的绝对路径·可选·不设时照旧在 node 同目录、PNPM_HOME、APPDATA/npm 下找·相对路径拒绝启动·统一待办、经验库、MCP 上游都经它找入口）
 - `WM_KNOWLEDGE_SYNC_MINUTES`（经验库从 ygl-trees 同步目录的间隔·分钟·缺省 10·`0` 不同步·不是 0～1440 的整数拒绝启动·同步等启动自检通过才开始）
 - `WM_KNOWLEDGE_WRITE_RETRY_SECONDS`（「记成经验」写 ygl-trees 没写上时的重试间隔·秒·缺省 60·按次数翻倍、封顶 6 小时·`0` 不自动重试·不是 0～3600 的整数拒绝启动）
-- `YGL_TOTAL_BUDGET_MS`（ygl-trees 源总预算·缺省 8000·超预算未读的报 budget-exhausted；两项非整数或越界都回落缺省）。内容面（Draft，默认关闭）：`WM_CONTENT_PORT`（显式内容端口，缺省/0不启）
-- `WM_CONTENT_IP`（显式绑定非通配IP）
-- `WM_CONTENT_MARKET_ORIGIN`（可信市场完整origin）
-- `WM_CONTENT_ODOO_ORIGIN`（须属于已配可信Odoo源）
-- `WM_CONTENT_TARGETS`（JSON数组，固定id/origin/upstreamUrl；migrateBrowser仅显式true才迁出该target浏览器导航（默认关）；queryCredentialKeys只列上游凭据参数键，不列值，pin URL需去除这些参数；origin为w-id-env.internal且端口匹配）
+- `YGL_TOTAL_BUDGET_MS`（ygl-trees 源总预算·缺省 8000·超预算未读的报 budget-exhausted；两项非整数或越界都回落缺省）。
 - `WM_PORTAL_OBSERVE`（显式1才记录被动聚合，管理员读`/api/content/observation`；coverageVerified仍false），见[装配说明](docs/content-foundations-integration-296.md)。设置键：`run_upload_require_token`（`1`=SOP run 文件上传要令牌·缺省关=旧直传语义）。。凭据库：`WM_VAULT_PATH`（库文件·缺省 `DATA_DIR/vault/default.json`；指向 `$DSH_HOME/vault/default.json` 即与 DSH 插件共用——插件开着时同时写会丢更新）
 - `DSH_VAULT_PASSWORD_FILE`（主密码文件·**设了就以文件为准**：管理员访问凭据库时按需自动解锁、不闲置上锁、页面不再要主密码；每次开库现读、只去掉末尾一个换行；读不到或为空回 503，不回落到环境变量·文件建议 0600、只挂给 market 容器）
 - `DSH_VAULT_PASSWORD`（主密码·同上效果、与插件同名，但会出现在 `docker inspect`，生产优先用文件；两者都不设则在页面输入，只存进程内存）——**服务端持有主密码时凭据库只在凭据库专用域名 `WM_VAULT_HOST`（或控制面）开放，主域名一律 403 `vault_control_only`**：主域名跑着 `/go/` 外站与 SOP 正文，同源脚本可借管理员的 Odoo 会话静默读走全库；专用域名是另一个源，那些脚本改不了 Host、也读不到跨源响应。`WM_VAULT_HOST`（凭据库专用域名·只填主机名，如 `vault.example.com`·按请求 Host 精确比较、不分大小写、不看端口·带协议/端口/路径拒绝启动）上与控制面同一道围栏：`/go`、`/sop`、`/apps`、`/mcp`、`/openapi.json`、`/api/mcp-rest/`、`/a2a/` 一律 404，禁止被嵌；反代须原样转发 Host（nginx `proxy_set_header Host $host`）；Odoo 会话按域名分开，在专用域名上要用口令或在该域名 `/login` 登录。代价是「专用域名上的管理员身份 = 能读全部凭据」，服务器被攻破时库也随之暴露。`WM_VAULT_SERVER_PASSWORD_ON_MAIN`（只接受 `accept-same-origin-risk` 或不设，其它值拒绝启动）：设了就让服务端持有主密码时凭据库**在主域名也开放**，不需要专用域名或控制面。**残余风险（属主接受后才设）：管理员登着的时候，经 `/go/` 代理的外站页面或带脚本的 SOP 正文，能不声不响地读走全部凭据明文，不需要主密码，也不受闲置上锁的限制**；不设时保持只在专用域名/控制面开放
@@ -292,7 +285,7 @@ GET              /api/health/ready              就绪：含 LayerFS 探测（�
 
 **管理员**（属主 2026-11-02 裁定，撤销 #292 M1「管理写只认控制面」）：满足任一即为管理员——
 - **管理员口令**：请求头 `X-Admin-Token`。`设置` 页或顶栏钥匙图标输入（口令只存本标签页 `sessionStorage`，离开页面即清）；库存**加盐**哈希 `salt$sha256(salt+口令)`，settings/导出出口一律剔除该键。优先级：启动环境 `ADMIN_TOKEN` > 页面设置值 > 无。首次设置限本机（CLI 或本机同源页面）或 Odoo 管理员；改/清要带当前口令或 Odoo 管理员。
-- **Odoo 管理员登录**：浏览器带着 Odoo 会话（`session_id`）访问时，服务端向 `WM_ODOO_URL` 现查 `get_session_info`，内部员工且 `is_admin=true` 即为管理员，不需另输口令；结论按会话哈希缓存 30 秒（Odoo 侧撤权最迟 30 秒生效）。`GET /api/admin/whoami` 返回当前身份（`via: token|odoo|null`），顶栏显示「Odoo 管理员 · 登录名」。要管理员的读面（变更申请、MCP 会话与权限申请、凭据库、统一待办、绑定、工作台事件的列表和详情 `/api/workbench-events` 等）进路由前先这样认定，所以 Odoo 管理员和口令管理员看到的一样。
+- **站内管理员登录**：登录的人持有生效的 owner 授予（属主，完整的管理员）或 admin 授予（系统管理员，只在非业务域算管理员）即为管理员，不需另输口令；每次请求现查授予，收回、过期、停用下一个请求就不算。身份来源自己说「是管理员」一律不算（Odoo 认人 2026-11-17 已下线）。
 - 浏览器发来的管理写（带 `Origin` 或 `Sec-Fetch-Site`）在业务面即可做，但必须同源：跨源 `Origin` 或 `Sec-Fetch-Site: cross-site` 一律 403（Odoo 会话 cookie 是环境凭据，防跨站借用）。
 - 持口令时使用页/驾驶舱不内嵌 `/go/`、离开市场页面即抹掉口令（#292 M4 止血保留）。
 - **可选独立管理端口**：`WM_CONTROL_PORT` 显式给端口才开（缺省不开）；开了时它不提供 `/go/`、`/sop/`、`/apps/`、`/mcp`、`/openapi.json`、`/api/mcp-rest/*`、`/a2a/*`（404），响应带 `frame-ancestors 'none'` 与 `X-Frame-Options: DENY`，管理写规则与业务面相同。
@@ -310,13 +303,12 @@ MCP仍拒auth、cookie_set_id、access、access_logins写入，带凭据台不�
 **主体**：登录认出的人要对到一个主体上才算数。主体是「谁」的那一张表（`principals`），五类——人 `user:<名>`、席位 `seat:<名>`、台 `app:<slug>`、系统 `system:<名>`、外部节点 `node:<团队>`；不是人的主体必须有责任人。现在只有「人」在用，其余四类只建好了结构。
 - **外部身份**（`principal_identities`）挂在主体上：提供方 + 对方的用户标识唯一，一个主体可以有多个。现有登录认出一个人时，第一次见到就建一个 `user:<登录名>` 和一条外部身份，之后都是同一个主体。留痕里的旧写法 `odoo:<登录名>` 就是这条外部身份（提供方 `odoo`、标识是登录名），历史记录不用改。
 - **等待页**：登录门开着时，登录是成功的（提供方认出了人）、却停用了或还没对到主体的人要页面，给一张「等管理员处理」的页（403），写明登录成功了、要管理员处理，不送回登录页；停用和没对到是同一页、逐字节相同，不透露是哪一种；页上不带任何数据，接口照旧 401。没通过提供方认证的照旧跳登录页。飞书回调里被拦的也是这一页。
-- **停用**是本地动作：停用一个主体，所有认人的入口立即不认它——登录门、`/api/auth/viewer`、管理员认定、统一待办读权、SOP 运行读授权、内容面、交给扩展的认人；恢复之后立即照常。提供方的回答可以缓存（管理员认定和登录门各 30 秒），主体停没停用每次现查，不进缓存。共用数据目录的多个实例同样立即生效，重启不丢。
+- **停用**是本地动作：停用一个主体，所有认人的入口立即不认它——登录门、`/api/auth/viewer`、管理员认定、统一待办读权、SOP 运行读授权、交给扩展的认人；恢复之后立即照常。提供方的回答可以缓存（管理员认定和登录门各 30 秒），主体停没停用每次现查，不进缓存。共用数据目录的多个实例同样立即生效，重启不丢。
 - 标识已经被别的主体占着、这个外部身份却没绑定：不自动认领（那等于让一个外来账号顶替已有的主体），登录不认，要管理员处理。不管经哪个登录提供方，这样被拦的人都进待对接清单（`GET /api/principals/pending`，「关注」的待对接来源也看得到）：只记提供方、对方的用户标识、显示名、邮箱、为什么在清单上和最近一次来的时间，同一个人反复来只有一条，再来时没带邮箱、显示名就留着原来的，保留 30 天；停用的不进（那不是待对接）。原因有两种：`unbound`（对不到主体，管理员对接一次）；`bound-to-non-person`（这条外部身份绑在席位、节点这类非人主体上，不能拿来登录，对接会 409，要先解绑那条外部身份；「关注」里这一条不给对接的答法）。「占着」按规范化之后的值比，规范化用 Unicode 的 NFKC_Casefold（完整大小写折叠加 NFKC，去掉零宽一类的默认可忽略字符；不用土耳其语规则）：只差大小写（含 ß、ẞ、SS）、全角半角、连字、夹零宽字符的写法算撞上，同样不认、不另建（表上按规范化值建了唯一约束）；只拒不并，原值照存。`scripts/principal-fold-test.mjs` 在全部码位上对照 Unicode 的派生属性核对它。
 - **管理接口**（都要管理员：本机 CLI、口令或 Odoo 管理员）：`GET /api/principals` 列出全部主体和各自的外部身份；`POST /api/principals/disable`、`POST /api/principals/restore`，请求体 `{"id":"user:<名>","reason":"…"}`，行上记下最近一次是谁、什么时候、为什么。管理员不能停用自己。口令和本机 CLI 不是主体，停不掉，留作应急。
-- **对一次外部身份**（都要管理员）：`POST /api/principals/bind` 请求体 `{"provider":"…","external_id":"…","principal":"user:<名>","create":false,"reason":"…"}`，把一条外部身份绑到一个启用的人身上，`create: true` 时目标不存在就新建这个人；`POST /api/principals/unbind` 请求体 `{"provider":"…","external_id":"…"}`。已经绑在别处的（含等价写法）不能直接改绑，要先解绑；管理员不能动自己名下的绑定。变体写法先登录、把本人挡在外面的：先解绑旧写法，再把新写法绑到原来的主体上。每次绑定、解绑写一行日志。
+- **对一次外部身份**（都要管理员）：`POST /api/principals/bind` 请求体 `{"provider":"…","external_id":"…","principal":"user:<名>","create":false,"reason":"…"}`，把一条外部身份绑到一个启用的人身上，`create: true` 时目标不存在就新建这个人；`POST /api/principals/unbind` 请求体 `{"provider":"…","external_id":"…"}`。已经绑在别处的（含等价写法）不能直接改绑，要先解绑；管理员不能动自己名下的绑定。变体写法先登录、把本人挡在外面的：先解绑旧写法，再把新写法绑到原来的主体上。每次绑定、解绑写一行日志。**历史 Odoo 身份只读**：`provider` 是 `odoo` 的新绑定，`bind`、`bind-batch` 一律 400（`reason: retired`），登录时也不会自动建；库里已有的照旧用于对回旧记录，可以解绑（清理用，留痕带 `retired: true`），解掉之后绑不回任何人。
 - **规范化依赖 Node 自带的 Unicode 数据**：已经分配的字符，折叠和规范化的结果按 Unicode 的稳定性承诺不会变；换 Node 版本时只有新分配的字符可能变。库里存的规范化值不重算，所以换版本不会让启动撞唯一约束；极少数情形下（登录名里有新分配的字符），撞名检查会多拦或漏拦一次。
 - **市场自己的会话**：用飞书等「登录方式」登录之后，发一个市场会话（cookie `wm_session`，库里只存哈希）。绝对期限 `WM_SESSION_TTL_MIN`（缺省 12 小时），不续期；`POST /api/auth/logout` 注销即失效；主体停用立即失效（认人时连着主体状态查），停用时这个人的会话全部注销，恢复之后要重新登录。请求同时带着市场会话和 Odoo 会话时按市场会话算；两边认出的不是同一个人时留一行痕（`source: identity`、`event: session-mismatch`，两边各认成谁），同一对会话只记一次。会话登录的人不是管理员（角色和授予在阶段六）。
-- **Odoo 用户登录后由市场维持会话**（登录门 enforce 时）：Odoo 认出来的人，市场同样发 `wm_session`（期限 `WM_SESSION_TTL_MIN`，cookie 属性同口令登录的 `wm_login`），并把这次的 Odoo 会话号加密存下（AES-256-GCM，密钥是数据目录里的 `.wm-login-session.key`，权限 600，不在库里）。之后每次照旧拿存下的会话号问 Odoo（按会话缓存 30 秒），所以浏览器里的 Odoo cookie 过期了也不掉登录；Odoo 那边注销、停用、改密码，缓存过期后的下一次请求即被拒，市场会话当场注销；Odoo 不可达回 502、不注销；浏览器带来的 Odoo 会话换了（换账号、重新登录），旧的市场会话注销、按新的认；管理员标记取 Odoo 这次的回答。会话号不进应答、日志和留痕，会话注销、到期、主体停用时清掉。启动自检多一行 `market.login-session.upstream-sealed`（加解密往返、密文看不出原文、改过的解不开、密钥文件 600），不过就拒绝启动。
 - **站内账号**（`WM_LOCAL_LOGIN`，缺省开；设计见 [docs/local-accounts.md](docs/local-accounts.md)）：用户名加密码，不依赖任何外部系统。登录方式名 `local`，登录页显示「账号密码」：`GET /login/local?next=<站内地址>` 发起，送到本站的表单页 `/login/local/form?state=…`（表单只在一次真正发起的登录里出现；不许内嵌、不缓存、只许提交回本站，跨站提交 403），用户名和密码对了发一个一次性码（60 秒、用一次、绑着这次的 state）去回调，之后和别的方式一样对主体、发市场会话。密码只存 scrypt 的结果（加盐、带参数）；没这个人和密码不对同一句提示、同样耗时；连续输错 5 次锁 15 分钟，同一来源一分钟输错 10 次先歇一分钟（429）。**管理**（都要管理员）：`GET /api/local-accounts` 列出（不含任何密码材料，带对应主体和状态）；`POST /api/local-accounts` `{username, display_name}` 建人——建账号、新建主体 `user:<用户名>` 并绑上外部身份 `local/<用户名>`，应答里给一次临时密码；`POST /api/local-accounts/<用户名>/reset-password` 重置成新的临时密码；`POST …/unlock` 解锁。临时密码登录时先出改密码的一步，改好才进。**自己注册**（`WM_LOCAL_SIGNUP`，缺省 `off`，设 `approval` 打开）：表单页 `?view=signup` 出注册页，提交只建站内账号、不建主体，之后登录只给等待页（进待对接清单）；用户名占着（已有账号、已有同名的人）同一句「这个用户名不能用」；同一来源一小时最多试 5 次；等核准的到了上限（`WM_LOCAL_SIGNUP_PENDING_MAX`）注册暂停、回 503。这种账号只能经核准新建一个人，`/api/principals/bind`、`bind-batch` 不收（409 `self-signup`），待对接清单里带 `self_signup: true`。列表里这种账号 `pending: true`；`POST /api/local-accounts/<用户名>/approve` 核准（新建主体 `user:<用户名>` 并对接），`POST …/reject` 拒绝（删掉还没对接的账号；已对接的回 409，要停用走停用）。停用、恢复用 `/api/principals/disable`、`restore`。**本人**：`POST /api/local-accounts/_self/password` `{current, next}` 改自己的密码。**页面**：「谁能做什么」（`/access?tab=accounts`）的「账号」页签，管理员（含系统管理员）在这里核准、拒绝注册，建人（临时密码只显示一次）、重置密码、解锁、停用和恢复（要写理由）；不是管理员的打开只看到一句说明，不去请求。站内账号登录的人在用户卡里有「改密码」（`/api/auth/me` 带 `local_account: true` 时才出现）：填原密码和两次新密码，改好后这个账号的会话全部注销，回登录页用新密码再登。重置、改密码之后这个账号已有的市场会话一律注销。**站内管理员**：持有生效中的、范围是 `*` 的 `owner` 或 `admin` 授予的人就是管理员（不论用哪种方式登录）——`owner` 是完整的管理员；`admin` 是系统管理员，只在非业务域的管理接口上算管理员，看不到业务数据（事项、待办、关注、工作台数据等，见 `roles.ts` 的 `BUSINESS_DOMAINS`），whoami 另带 `system_only: true`；每次认人都现查授予，收回、过期、主体停用，下一个请求就不再是管理员。`/api/admin/whoami` 对这种管理员回 `via: "grant"`、`login` 是主体标识，留痕记主体（`user:<名>`）。任命走 `/api/grants`（`admin` 授予由属主放行）；第一个管理员用管理口令或本机命令行建账号并授予。
 - **飞书登录**（`WM_FEISHU_LOGIN=on`）：标准授权码流程，`GET /login/feishu?next=<站内地址>` 发起，回调 `/login/feishu/callback`。回调地址按 `MARKET_PUBLIC_URL` 拼，要和飞书应用里登记的一致。`state` 一次性、绑在发起它的浏览器上、10 分钟有效、按来源限额；`next` 只收站内路径。飞书应用的标识和密钥从凭据库里的一条（`WM_FEISHU_VAULT_ENTRY`）取，要部署方配了服务端主密码（`DSH_VAULT_PASSWORD_FILE`）才能无人值守读；库锁着时飞书登录回 503。认人用 union_id。还没对到主体的飞书身份：不自动建主体，停在「等管理员开通」，列进 `GET /api/principals/pending`，管理员用 `POST /api/principals/bind` 对一次，第一批上线可以用 `POST /api/principals/bind-batch`（请求体 `{"items":[{"provider","external_id","principal","create"}…],"reason"}`，一次最多 500 条，逐条给结果）。待对接清单只放对方的用户标识、显示名、企业邮箱和最近一次来的时间，30 天没再来的清掉；等待页对停用的和没对到主体的一模一样，不透露有没有这个人。打开 `WM_FEISHU_AUTO_BIND_EMAIL` 时，飞书企业邮箱和身份来源的登录名（按规范化之后）恰好对上一个启用的人、而且那个人还没有别的飞书身份，才自动绑，每次自动绑定留一行痕。
 - **离职即时失效**：飞书事件订阅的请求地址填 `<MARKET_PUBLIC_URL>/login/feishu/events`，订阅「员工离职」`contact.user.deleted_v3` 和「员工信息被修改」`contact.user.updated_v3`，并配 Encrypt Key。Encrypt Key、Verification Token 放在凭据库同一条（`WM_FEISHU_VAULT_ENTRY`）的自定义字段 `encrypt_key`、`verification_token` 里。照飞书文档验签（时间戳 5 分钟内、`X-Lark-Signature`）、解密、核对 Token 和 App ID；验不过 401。同一个事件号只处理一次（多实例共用、保留 7 天）；记事件号和停用在同一个事务里，停用出错事件号一起撤回，飞书重推时照常处理。处理出错只回固定的 503（`event_unavailable`），内部原因只进日志。离职、被修改成离职、冻结、退出的人：停用他绑着的主体，每个入口立即不认，会话一并注销；还没对到主体的从待对接清单里删掉。配了租户时别的租户的事件不处理。
@@ -384,9 +376,6 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   config.ts（配置的落点：模块自己的 Config，defineConfig 声明认哪些环境变量、怎么解析，启动时取一次；服务类插件写成 static Config，由 Cordis 装插件时校验）
   admin-token-env.ts（启动环境给的管理口令 ADMIN_TOKEN：启动时取一次、全进程只认这一份；对外只给有没有、常量时间比对、登录门指纹三样，口令本身不出模块。index.ts 的口令校验、a2a.ts、管理口令路由都经它）
   admin-tier.ts（系统管理员的边界：认管理员时标出「这次只是系统管理员」（只持 admin 授予），各管理接口据此收紧——不能对业务侧的人（持 owner 或给业务数据的授予）重置密码、绑定解绑、停用恢复、收回授予，要属主或完整的管理员；见 docs/local-accounts.md 第 5 节）
-  content-access.ts（内容票据与准入）
-  content-static.ts（无令牌静态资产读取）
-  content-surface.ts（内容面终结分发与到期引导）
   context.ts（服务容器）
   db-busy.ts（库被别的连接锁着写时最多等多久：DB_BUSY_TIMEOUT_MS = 5000。市场主库、判定比对库用它，台库每次读写取它和那一次时限中较小的；部署切换时新旧进程短暂重叠写不直接报 database is locked，超过上限照样报错。多个进程同时写同一个库仍不支持）
   db.ts（schema+迁移）
@@ -400,7 +389,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   github-source.ts（GitHub main 分支来源拉取：commits/trees/blobs 三段取内容·版本记 commit sha）
   health.ts（探测）
   http.ts  HTTP 服务（Cordis 服务 http）：持有 Express 应用；域模块经它注册路由，每条报上动作名和类别，注册可撤销
-  identity.ts（身份契约：核心只经它认人·Cordis 服务 `identity` 认人与 whoami、`loginRelay` 业务台登录中继的窄接口·`/api/auth/viewer`·提供方认出的人要对到主体上才算数，主体停用即不认）
+  identity.ts（身份契约：核心只经它认人·Cordis 服务 `identity` 认人与 whoami·`/api/auth/viewer`（没登录 401 带登录入口；一种登录方式也没有时 503）·提供方认出的人要对到主体上才算数，主体停用即不认）
   index.ts（REST+静态+巡检装配）
   judgment-builtins.ts（内置身份：管理口令、本机命令行、本机页面、匿名，权限按动作逐条列出，进快照·问判定用的类别和按部门问的动作（ASKED）、按关系对自己的事拍板的动作（SELF_DECIDED）：路由放行、scopedVerdict、「谁能做什么」的矩阵都照这两张表）
   knowledge-remember.ts（经验库第 2 步「记成经验」：「关注」的答复带 remember、POST /api/knowledge/remember 都走这一处·只有答这一条的人、持有对经验库拍板的授予才能记·范围缺省取事项所在团队的部门，推不出只给管理层·回写 ygl-trees 的 kb，写不上进待写队列后台重试，不挡答复）
@@ -421,6 +410,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   portal-observation.ts（无敏感原文的被动计数）
   portal.ts（/go/ 反代·白屏五层+登录态）
   portal-access.ts（门户按台访问范围 all/admin/listed、凭据默认收紧、HTTP/WS同判与审计）
+  skill-snap-path.ts（技能快照的磁盘相对路径，只此一处：`skill-snapshots/<encodeURIComponent(全 slug)>/v<n>`；服务端发布和 scripts/skill-import.mjs、scripts/skill-upload-one.mjs 写快照都用它，snapshot_path 存这个相对形，跨源同名技能各有各的目录，#183、#810）
   upload-tickets.ts（MCP 上传票：先申请、再直传——票只存 sha256、只能用一次、10 分钟过期、每会话 20 张、全局 1000 张，只在内存里；发票在 skill_file_put / app_files_upload 不带内容时，用票在 PUT /api/mcp-rest/uploads/<票>）
   redis.ts（Redis 连接和 SOP 执行实例的热态：连接只有这一条；SOP 的读写经共用状态层的 sop 句柄，只碰 wm:sop: 开头的键）
   request-person.ts  这个请求是哪个人：只经身份服务认请求带的登录凭据（登录提供方的会话或市场会话），主体须是启用的人；认不出就是没有，调用方照常放行（任务中心建录入、发布用）
@@ -440,7 +430,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   sop-runner.ts（执行页）
   sop-state-checkpoints.ts（#337 热写检查点：逐 run 串行与 SQLite 落盘期限）
   sop-types.ts（SOP 类型）
-  sso-ticket-store.ts（门户 SSO 回调一次性票据的 SQLite 存储：重启不丢、多实例原子取出）
+  retired-env.ts（已下线的环境变量：Odoo 那几个还设着时启动只告警、忽略；内容查看面设了也不启动）
   startup-gate-hold.ts（服务进程最先引入：拉上启动闸）
   startup-gate.ts（启动闸：后台任务——事项回填——等启动自检通过再开始；没拉闸的进程照旧马上开始）
   startup-security-self-probe.ts（#326 启动匿名安全面自检与门闩）
@@ -512,7 +502,6 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   bindings.ts（A2A 人工绑定 /api/bindings 和退役的旧面）
   change-requests.ts（人审变更请求 /api/change-requests：列表、批准、拒绝；批准、拒绝的判断和执行收在 changeRequestReview 一处，「关注」的审核卡片当场批也调它，审核人取认出来的管理员、不通过要写理由）
   cockpits.ts（驾驶舱 /api/cockpits：写不经写请求总门，处理之前问 cockpit-access.ts；读应答带 can.edit，不带建立人）
-  content-open.ts（市场面上内容面的两层：启动页 /content/open/<目标号>、开了迁移的目标的 /go/ 顶层导航送去启动页；处理函数在 server/src/content-surface.ts，原样；没配内容面时放过）
   content-observation.ts（门户观测状态 /api/content/observation）
   cookies.ts（Cookie 池 /api/cookies）
   departments.ts（部门 /api/departments：登录的人读列表、单个部门的成员、某人属于哪些部门；管理员建改删部门和成员）
@@ -542,7 +531,6 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   sop-run-files.ts（SOP run 的交付文件 /api/sop/runs/:id/files：上传、列表、下载、引用已有文件；上传是公开入口，读要本 run 的读能力或管理员）
   sop-run-lifecycle.ts（SOP run 的列表、读、写一步、完成、升级预检、升级 /api/sop/runs、/:id、/finish、/upgrade-preflight、/upgrade；写一步和完成是公开入口，读要读能力或管理员，升级要管理员或本机命令行；「等你拍板」里待验收派单 run 的当场验收经导出的 sopRunAcceptance：不靠上传令牌的那两条（管理员、本机命令行）和完成接口同一处，执行就是完成接口那一个）
   sops.ts（SOP 台 /api/sops：列表、发布、废弃，和定义、治理时间线）
-  sso.ts（SSO 回调 /sso/callback）
   stats.ts（端点命中统计 /api/stats）
   summary.ts（首页总览 /api/summary）
   task-center.ts（任务中心 /api/task-center：任务、总开关、模板、任务锁、撤回、派发开关。录入发布 POST /api/task-center/tasks 和按编号发布已退役（404），任务只经「安排一件事」POST /api/work-items 建；存量的录入任务照旧能读、撤回、开关）
@@ -636,7 +624,7 @@ data/           SQLite 数据文件（git 忽略）
 
 ## 开发验证器
 
-v69.2 仅更新判据65的源码结构口径（继v69.1追加GoFrame遮蔽与属性值副作用拒绝，并明示数据流限度）：M4 将 iframe 构造移到 GoFrame，提取器检查使用页到 GoFrame 的受限顶层 return／const 绑定结构，并保留 raw URL、删除组件调用、不经门户、遮蔽与死 return 必红反例；需新材料重新 submit/prepare，不覆盖旧 v68 的174/1报告。175编号不变，结构检查不替代运行时E2E。见 [迁移说明](docs/verifier-v69-portal-chain.md)。
+v69.2 仅更新判据65的源码结构口径（继v69.1追加GoFrame遮蔽与属性值副作用拒绝，并明示数据流限度）：M4 将 iframe 构造移到 GoFrame，提取器检查使用页到 GoFrame 的受限顶层 return／const 绑定结构，并保留 raw URL、删除组件调用、不经门户、遮蔽与死 return 必红反例；需新材料重新 submit/prepare，不覆盖旧 v68 的174/1报告。175编号不变，结构检查不替代运行时E2E。见 [迁移说明](docs/archive/verifier-v69-portal-chain.md)。
 
 基于 ygl-trees verify 管线（M13 spec validator）的闭集判定器 v69.2：**175 条判据**五十四维覆盖——数据域完整性（9：types/workbenches 全部数值与枚举列域）、种子与配置（6：类型数 ≥9、内置 web、ollama/streamlit 探测路径钉、巡检三键、工作台非空）、提交物结构（20：清单/源码/构建产物/脚本/自举档案/设计规范/证据资产）、**颜色可见性**（18：经对比度审计的色值钉位，如次级文字 #5A6577=5.9:1、焦点环 rgba(5,150,105,.6)、深底状态文字 rgba(255,255,255,.85)）、**E2E 行为证据**（3：用例规模（≥25 含驾驶舱/统一门户/自产台/凭据注入/WS 握手/SOP 台/MCP 生产通道/SOP 管理页/运行时批用例）、全绿、时间戳，源自 e2e_test.py 落盘的 evidence/e2e-summary.json）、**渲染层对比度探针**（2：E2E 内置 Playwright 实测 DOM 前景/背景配对——深底状态文字曾实测 1.18:1 不可见，此维度在行为层抓住同类回归，9 处目标全 ≥4.5:1 且 fail-closed）、**任务驾驶舱**（3：驾驶舱名称域完整、Cockpit.tsx 在位、/api/cockpits 路由钉位）、**统一门户**（4：代理中间件与禁嵌头剥离逻辑在位、代理依赖声明、使用页 iframe 走 /go/ 同源代理）、**台生成器**（5：自产台 slug 域完整、market-app 内置类型在位、发布路由与版本链表钉位、演示自产台常驻）、**凭据注入**（3：服务端注入头钉位、表单凭据字段钉位、E2E 注入行为断言钉位——认证类工作台凭据不再明文拼 url）、**WS 升级**（2：upgrade 事件挂载与握手 Origin 改写钉位——upgrade 不流经 Express 中间件链且不触发 proxyReq 钩子，缺位时 HTTP 通而 WS 死（DSH 台「重新连接中」的实测根因），E2E 以 socket 级 101 握手断言钉住行为）、**SOP 台**（5：运行真源表 sop_runs 与 Redis 状态层模块 runStateSave 钉位、Runner 服务端渲染与运行 API 钉位、E2E 行为断言钉位——状态层 Redis 热态 + 持久层 SQLite 真源的分层治理，Redis 不可达自动降级直写）、**MCP 生产通道**（4：/mcp 端点与工具注册表钉位、JSON-RPC -32601 协议合规锚点、E2E 行为断言钉位——AI 会话直连市场的 agent 原生供给面）、**SOP 管理页**（4：Sops.tsx 在位与 SOP_STATUS 状态语义表钉位、/sops 路由钉位、演示 SOP 常驻钉位——状态徽章可视化状态机 + run 记录直查分层持久化数据）、**凭据面防泄露**（2：maskSensitiveQuery 掩码函数与掩码回传保护钉位——REST/MCP 无认证出口对 url query 敏感参数与 auth.value 统一脱敏，代理侧 DB 直读不受影响）、**安全批整改**（2：auth.value+MCP 脱敏、CORS 白名单、draft 403 瘦身——外部评审 #1/#2/#3/#11）、**门户 Location 改写**（2：proxyRes 的 goWid 备份钉位与行为断言——3xx 跳转改写回 /go/ 前缀内，评审 #4）、**安全批双锚**（3：CORS/MCP 协议/draft 403 三面源码+行为双锚——防「代码在而行为回归」）、**运行时批整改**（4：巡检重挂/删台清注册/导入 replace 语义钉位 + 组 19 断言探针——评审 #5-10）、**A2A 网络接入 P1**（4：上游一致卡片签名/绑定口令/节点短 id/裁判冒烟——GH #17 只读暴露）、**Agent 执行数据面**（3：run 持久化同链核心 + MCP sop_run_* 五工具 + 人机同链断言）、**导出脱敏**（3：默认 maskForApi + 导入掩码跳过 + 行为断言——compliance 二期首项）、**注册 CRUD MCP 化**（3：REST 同链核心/凭据硬拒绝/行为断言——agent 自主登记外部台）、**破坏性测试隔离**（1：导入 replace 永不碰活库——84 事故根治）。内容与 JSON 在 CLI 闭集不可直接判定，经三张提取表桥接：`verifier_text_facts`（色值与源码事实钉位）、`verifier_e2e_summary`（E2E 摘要）、`verifier_contrast_checks`（渲染对比度实测），由 make-submission.mjs 打包时从当前源码/证据重新提取写入快照。typecheck/lint/build 不在闭集内，由开发流程自行执行。
 

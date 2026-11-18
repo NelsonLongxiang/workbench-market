@@ -6,10 +6,16 @@
  *  ④ 无 frontmatter：跳过并进报告（方案灰度容错）
  *  ⑤ 源隔离：SKILL_SRC_A/B 指空目录 → 0 导入；产快照目录无夹具名（DATA_DIR 对齐证）
  *  ⑥ 导入试跑报技能自己写的版本号（sourceVersion）：顶层 version、metadata 下的 version 都认，没写是空串，不进身份
- *  ⑦ 本仓 skills/ 每个技能导入试跑都报得出版本号 */
+ *  ⑦ 本仓 skills/ 每个技能导入试跑都报得出版本号
+ *  ⑧ #810 跨源同名：agents:x 和 dsh:x 各落各的 slug 目录，snapshot_path 存相对形，每个目录的摘要对得上自己那一行的 tree_digest
+ *  ⑨ #810 skill-upload-one：按 agents:<名> 落目录，不删别的源同名技能的快照；目标已有东西就退出 5、不写库
+ *  ⑪ 防护各自触发一次：源 A 名字带「..」、源 A/C 与 --only 的快照目标已存在、upload-one 名字带「..」（#811 验收的测试缺口）
+ *  ⑩ 名字带「..」（a..b）：快照目录段会带「..」，服务端读时按越界拒（导出 404）——要么导入被拒，要么导入后读得出来。
+ *     这里是被拒：全量导入跳过、进报告（unsafe），不建技能行、不建目录；--only 点名也在写之前拒（bad_slug）；skillSnapRel 自己也拒 */
 import { spawnSync } from 'node:child_process';
 import { rmSync, mkdirSync, writeFileSync, appendFileSync, existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 
 const ROOT = resolve(import.meta.dirname, '..');
@@ -28,6 +34,9 @@ for (const d of [DATA, SRC_A, SRC_B, join(SRC_C, 'zz-imp-alpha/references'), joi
 writeFileSync(join(SRC_C, 'zz-imp-alpha/SKILL.md'), '---\nname: zz-imp-alpha\ndescription: smoke fixture alpha\n---\n# alpha\nbody v1\n');
 writeFileSync(join(SRC_C, 'zz-imp-alpha/references/note.md'), '# note v1\n');
 writeFileSync(join(SRC_C, 'zz-imp-beta/SKILL.md'), '# no frontmatter here\n');
+// ⑩ 名字带连续的点
+mkdirSync(join(SRC_C, 'zz-dot'), { recursive: true });
+writeFileSync(join(SRC_C, 'zz-dot/SKILL.md'), '---\nname: zz..dot\ndescription: dotdot fixture\n---\n# dot\n');
 
 const runImporter = () => spawnSync(process.execPath, ['scripts/skill-import.mjs','--target-mode','isolated','--isolated-root',join(ROOT,'tmp')], {
   cwd: ROOT,
@@ -44,11 +53,22 @@ ok('① 层2 开发运维层', sk?.layer === 2 && sk?.layer_name === '开发运�
 ok('① source=dsh-skills', sk?.source === 'dsh-skills');
 const vs1 = db.prepare('SELECT * FROM skill_versions WHERE skill_id = ? ORDER BY version').all(sk?.id);
 ok('① v1 建立且 digest 非空', vs1.length === 1 && vs1[0].tree_digest.length === 64, `n=${vs1.length}`);
-ok('① 快照落隔离区（SKILL.md+references/note.md）', existsSync(join(DATA, 'skill-snapshots/zz-imp-alpha/v1/SKILL.md')) && existsSync(join(DATA, 'skill-snapshots/zz-imp-alpha/v1/references/note.md')));
+ok('① snapshot_path 存相对形、按全 slug', vs1[0]?.snapshot_path === 'skill-snapshots/dsh%3Azz-imp-alpha/v1', vs1[0]?.snapshot_path);
+ok('① 快照落隔离区（SKILL.md+references/note.md）', existsSync(join(DATA, 'skill-snapshots/dsh%3Azz-imp-alpha/v1/SKILL.md')) && existsSync(join(DATA, 'skill-snapshots/dsh%3Azz-imp-alpha/v1/references/note.md')));
 const rep1 = JSON.parse((await import('node:fs')).readFileSync(REPORT, 'utf8'));
 ok('④ 无 frontmatter 跳过并报告', rep1.c.skipped.includes('zz-imp-beta'), JSON.stringify(rep1.c));
 ok('⑤ 源 A/B 零导入（夹具隔离）', rep1.a.imported === 0 && rep1.b.imported === 0);
 ok('⑤ 产快照目录无夹具名（DATA_DIR 对齐）', !existsSync(join(PROD_SNAP, 'zz-imp-alpha')));
+ok('⑩ 名字带「..」：全量导入跳过、报告里点名（unsafe）', rep1.c.skipped.includes('zz-dot') && (rep1.unsafe ?? []).includes('dsh:zz..dot'), JSON.stringify({ c: rep1.c, unsafe: rep1.unsafe }));
+ok('⑩ 名字带「..」：不建技能行、不建快照目录', !db.prepare("SELECT 1 FROM skills WHERE slug = 'dsh:zz..dot'").get() && !readdirSync(join(DATA, 'skill-snapshots')).some((d) => d.includes('..')), JSON.stringify(readdirSync(join(DATA, 'skill-snapshots'))));
+{
+  const ro = spawnSync(process.execPath, ['scripts/skill-import.mjs', '--target-mode', 'isolated', '--isolated-root', join(ROOT, 'tmp'), '--only', 'dsh:zz..dot'], {
+    cwd: ROOT, env: { ...process.env, DATA_DIR: DATA, SKILL_SRC_A: SRC_A, SKILL_SRC_B: SRC_B, SKILL_SRC_C: SRC_C }, encoding: 'utf8', timeout: 60000 });
+  ok('⑩ --only 点名带「..」的：写之前就拒（退出 2、bad_slug），库里还是没有它', ro.status === 2 && /bad_slug/.test(ro.stdout + ro.stderr) && !db.prepare("SELECT 1 FROM skills WHERE slug = 'dsh:zz..dot'").get(), `rc=${ro.status} ${(ro.stdout + ro.stderr).slice(0, 200)}`);
+  const { skillSnapRel, skillSnapSafe } = await import('../server/src/skill-snap-path.ts');
+  let threw = false; try { skillSnapRel('agents:a..b', 1); } catch { threw = true; }
+  ok('⑩ skillSnapRel 兜底：带「..」的抛错；正常名字、单个点照旧', threw && !skillSnapSafe('dsh:a..b') && skillSnapSafe('agents:a.b') && skillSnapRel('agents:a.b', 2) === 'skill-snapshots/agents%3Aa.b/v2');
+}
 
 const r2 = runImporter();
 ok('② 幂等重跑退出 0', r2.status === 0);
@@ -61,8 +81,8 @@ const r3 = runImporter();
 ok('③ 漂移重跑退出 0', r3.status === 0);
 const vs3 = db.prepare('SELECT * FROM skill_versions WHERE skill_id = ? ORDER BY version').all(sk.id);
 ok('③ 漂移 → v2 新版', vs3.length === 2 && vs3[1].version === 2, `n=${vs3.length}`);
-ok('③ v1 不可变（digest/快照原样）', vs3[0].tree_digest === vs1[0].tree_digest && existsSync(join(DATA, 'skill-snapshots/zz-imp-alpha/v1/SKILL.md')));
-ok('③ v2 快照在隔离区', existsSync(join(DATA, 'skill-snapshots/zz-imp-alpha/v2/SKILL.md')));
+ok('③ v1 不可变（digest/快照原样）', vs3[0].tree_digest === vs1[0].tree_digest && existsSync(join(DATA, 'skill-snapshots/dsh%3Azz-imp-alpha/v1/SKILL.md')));
+ok('③ v2 快照在隔离区', existsSync(join(DATA, 'skill-snapshots/dsh%3Azz-imp-alpha/v2/SKILL.md')));
 
 db.close();
 
@@ -98,6 +118,104 @@ ok('⑦ 本仓技能导入试跑退出码 0', d7.status === 0 && !!d7.out, Strin
 ok('⑦ 本仓技能至少 4 个、全部扫到', repoSkills.length >= 4 && repoSkills.every((d) => v7[d]?.name), JSON.stringify(repoSkills));
 for (const d of repoSkills) ok(`⑦ ${d} 报出版本号 ${declared(d)}`, !!declared(d) && v7[d]?.sourceVersion === declared(d), JSON.stringify(v7[d]?.sourceVersion));
 rmSync(SRC_V, { recursive: true, force: true });
+
+// ⑧ 跨源同名（#810）：A、C 各放一个 twin，内容不同，各带一个只有自己才有的文件
+/** 和导入器同一种目录摘要（相对路径 + 每个文件的 sha256，剔除 __pycache__/.git/*.pyc） */
+const dirDigest = (dir) => {
+  const files = [];
+  (function walk(d) { for (const e of readdirSync(d, { withFileTypes: true })) { if (e.isDirectory() && (e.name === '__pycache__' || e.name === '.git')) continue; if (!e.isDirectory() && /\.pyc$/i.test(e.name)) continue; const p = join(d, e.name); if (e.isDirectory()) walk(p); else files.push(p); } })(dir);
+  files.sort();
+  const h = createHash('sha256');
+  for (const p of files) { h.update(relative(dir, p).split('\\').join('/')); h.update('\0'); h.update(createHash('sha256').update(readFileSync(p)).digest('hex')); h.update('\0'); }
+  return h.digest('hex');
+};
+const TW = join(ROOT, 'tmp/e2e-skimp-twin');
+const TW_DATA = join(TW, 'data'), TW_A = join(TW, 'a'), TW_B = join(TW, 'b'), TW_C = join(TW, 'c'), TW_ONE = join(TW, 'one');
+rmSync(TW, { recursive: true, force: true });
+for (const d of [TW_DATA, TW_B, join(TW_A, 'twin'), join(TW_C, 'twin'), TW_ONE]) mkdirSync(d, { recursive: true });
+writeFileSync(join(TW_A, 'twin/SKILL.md'), '---\nname: twin\ndescription: agents twin\n---\nagents twin\n');
+writeFileSync(join(TW_A, 'twin/only-in-agents.txt'), 'a\n');
+writeFileSync(join(TW_C, 'twin/SKILL.md'), '---\nname: twin\ndescription: dsh twin\n---\ndsh twin\n');
+writeFileSync(join(TW_C, 'twin/only-in-dsh.txt'), 'c\n');
+const r8 = spawnSync(process.execPath, ['scripts/skill-import.mjs', '--target-mode', 'isolated', '--isolated-root', TW], {
+  cwd: ROOT, env: { ...process.env, DATA_DIR: TW_DATA, SKILL_SRC_A: TW_A, SKILL_SRC_B: TW_B, SKILL_SRC_C: TW_C }, encoding: 'utf8', timeout: 60000,
+});
+ok('⑧ 全源导入退出码 0', r8.status === 0, `stderr=${(r8.stderr || '').slice(0, 300)}`);
+const twinRows = () => { const d = new DatabaseSync(join(TW_DATA, 'workbench-market.db'), { readOnly: true }); const rows = d.prepare("SELECT s.slug, v.version, v.tree_digest, v.file_count, v.snapshot_path FROM skill_versions v JOIN skills s ON s.id = v.skill_id WHERE s.slug IN ('agents:twin','dsh:twin') ORDER BY s.slug, v.version").all(); d.close(); return rows; };
+const t8 = twinRows();
+const a8 = t8.find((r) => r.slug === 'agents:twin'), c8 = t8.find((r) => r.slug === 'dsh:twin');
+ok('⑧ 两行版本各有各的目录（agents%3Atwin、dsh%3Atwin，相对形）', a8?.snapshot_path === 'skill-snapshots/agents%3Atwin/v1' && c8?.snapshot_path === 'skill-snapshots/dsh%3Atwin/v1', JSON.stringify(t8));
+const a8dir = join(TW_DATA, a8?.snapshot_path ?? 'x'), c8dir = join(TW_DATA, c8?.snapshot_path ?? 'x');
+ok('⑧ 每个目录的摘要对得上自己那一行的 tree_digest，文件数也对', existsSync(a8dir) && existsSync(c8dir) && dirDigest(a8dir) === a8.tree_digest && dirDigest(c8dir) === c8.tree_digest && a8.file_count === 2 && c8.file_count === 2);
+ok('⑧ 没有混写：agents 的目录里没有 dsh 的文件，反之亦然；按 name 的旧目录没再建', !existsSync(join(a8dir, 'only-in-dsh.txt')) && !existsSync(join(c8dir, 'only-in-agents.txt')) && !existsSync(join(TW_DATA, 'skill-snapshots/twin')));
+
+// ⑨ skill-upload-one（#810）：同名的 agents:twin 上新版，dsh:twin 的快照一个字节不动
+writeFileSync(join(TW_ONE, 'SKILL.md'), '---\nname: twin\ndescription: upload one\n---\nupload-one twin v2\n');
+const c8before = dirDigest(c8dir);
+const one = () => spawnSync(process.execPath, ['scripts/skill-upload-one.mjs', '--target-mode', 'isolated', '--isolated-root', TW], {
+  cwd: ROOT, env: { ...process.env, DATA_DIR: TW_DATA, SKILL_SRC: TW_ONE, SKILL_NAME: 'twin' }, encoding: 'utf8', timeout: 60000,
+});
+const r9 = one();
+const t9 = twinRows();
+const a9 = t9.filter((r) => r.slug === 'agents:twin');
+ok('⑨ 上架成功，agents:twin 多了 v2，落在 agents%3Atwin/v2、相对形', r9.status === 0 && a9.length === 2 && a9[1].snapshot_path === 'skill-snapshots/agents%3Atwin/v2' && dirDigest(join(TW_DATA, a9[1].snapshot_path)) === a9[1].tree_digest, `${r9.status} ${(r9.stderr || '').slice(0, 300)} ${JSON.stringify(a9)}`);
+ok('⑨ dsh:twin 的快照和版本行都没动', dirDigest(c8dir) === c8before && JSON.stringify(t9.filter((r) => r.slug === 'dsh:twin')) === JSON.stringify(t8.filter((r) => r.slug === 'dsh:twin')));
+// 目标位置已经有东西（比如上次中断留下的）：停下、不删、不写库
+appendFileSync(join(TW_ONE, 'SKILL.md'), 'v3\n');
+mkdirSync(join(TW_DATA, 'skill-snapshots/agents%3Atwin/v3'), { recursive: true });
+writeFileSync(join(TW_DATA, 'skill-snapshots/agents%3Atwin/v3/keep.txt'), 'leftover\n');
+const r9b = one();
+ok('⑨ 目标已存在：退出 5，留在那里的东西不删，库里不多版本行', r9b.status === 5 && existsSync(join(TW_DATA, 'skill-snapshots/agents%3Atwin/v3/keep.txt')) && twinRows().filter((r) => r.slug === 'agents:twin').length === 2, `${r9b.status} ${(r9b.stderr || '').slice(0, 200)}`);
+rmSync(TW, { recursive: true, force: true });
+
+// ⑪ 防护各自触发一次（#811 验收留下的测试缺口）：每一步用自己的隔离目录，只让被测的那道检查起作用
+//   a. 全量导入时源 A 的名字带「..」：跳过、报告里点名，不建技能行、不建目录（去掉这道检查的话，兜底会让整次导入报错）
+//   b、c. 全量导入时源 A、源 C 的快照目标已有东西：停下、报 snapshot_target_exists，留在那里的不动、不混写，不写版本行
+//   d. --only 的快照目标已有东西：退出 5、报 snapshot_target_exists（不能只靠挪目录时撞上非空目录才失败），不删、不写版本行
+//   e. skill-upload-one 的名字带「..」：写库之前就退出 2，不留技能行
+{
+  const G = join(ROOT, 'tmp/e2e-skimp-guard');
+  rmSync(G, { recursive: true, force: true });
+  const fresh = (tag) => { const d = { root: join(G, tag), data: join(G, tag, 'data'), a: join(G, tag, 'a'), b: join(G, tag, 'b'), c: join(G, tag, 'c') }; for (const x of [d.data, d.a, d.b, d.c]) mkdirSync(x, { recursive: true }); return d; };
+  const skill = (dir, name) => { mkdirSync(dir, { recursive: true }); writeFileSync(join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: guard fixture\n---\n# ${name}\n`); };
+  const imp = (d, extra = []) => spawnSync(process.execPath, ['scripts/skill-import.mjs', '--target-mode', 'isolated', '--isolated-root', d.root, ...extra], {
+    cwd: ROOT, env: { ...process.env, DATA_DIR: d.data, SKILL_SRC_A: d.a, SKILL_SRC_B: d.b, SKILL_SRC_C: d.c }, encoding: 'utf8', timeout: 60000 });
+  const rows = (d, slug) => { const x = new DatabaseSync(join(d.data, 'workbench-market.db'), { readOnly: true }); try { return { skill: x.prepare('SELECT id FROM skills WHERE slug = ?').get(slug), versions: x.prepare('SELECT v.version FROM skill_versions v JOIN skills s ON s.id = v.skill_id WHERE s.slug = ?').all(slug).length }; } finally { x.close(); } };
+  const leftover = (d, rel) => { const dir = join(d.data, 'skill-snapshots', rel, 'v1'); mkdirSync(dir, { recursive: true }); writeFileSync(join(dir, 'keep.txt'), 'leftover\n'); return dir; };
+  const untouched = (dir) => existsSync(join(dir, 'keep.txt')) && readdirSync(dir).join() === 'keep.txt';
+
+  const a = fresh('a-dotdot');
+  skill(join(a.a, 'zz-dota'), 'zz..a');
+  const ra = imp(a);
+  const repa = existsSync(REPORT) ? JSON.parse(readFileSync(REPORT, 'utf8')) : {};
+  ok('⑪a 源 A 名字带「..」：全量导入照常结束、跳过并在报告里点名', ra.status === 0 && (repa.a?.skipped ?? []).includes('zz-dota') && (repa.unsafe ?? []).includes('agents:zz..a'), `status=${ra.status} ${(ra.stderr || '').slice(0, 200)} ${JSON.stringify(repa.unsafe)}`);
+  ok('⑪a 源 A 名字带「..」：不建技能行、不建快照目录', !rows(a, 'agents:zz..a').skill && !(existsSync(join(a.data, 'skill-snapshots')) && readdirSync(join(a.data, 'skill-snapshots')).some((n) => n.includes('..'))));
+
+  for (const [tag, src, slug, rel] of [['b-exists-a', 'a', 'agents:zz-guard-a', 'agents%3Azz-guard-a'], ['c-exists-c', 'c', 'dsh:zz-guard-c', 'dsh%3Azz-guard-c']]) {
+    const d = fresh(tag);
+    skill(join(d[src], 'zz-guard'), slug.split(':')[1]);
+    const left = leftover(d, rel);
+    const r = imp(d);
+    ok(`⑪${tag[0]} 全量导入、源 ${src.toUpperCase()} 的快照目标已有东西：停下并报 snapshot_target_exists`, r.status !== 0 && /snapshot_target_exists/.test((r.stdout || '') + (r.stderr || '')), `status=${r.status}`);
+    ok(`⑪${tag[0]} 留在那里的不动、没混写进技能文件，也没写版本行`, untouched(left) && rows(d, slug).versions === 0, JSON.stringify({ files: readdirSync(left), versions: rows(d, slug).versions }));
+  }
+
+  const o = fresh('d-only-exists');
+  const r0 = imp(o); // 先建好空库（--only 要求库已存在）
+  skill(join(o.c, 'zz-guard-o'), 'zz-guard-o');
+  const lefto = leftover(o, 'dsh%3Azz-guard-o');
+  const ro = imp(o, ['--only', 'dsh:zz-guard-o']);
+  ok('⑪d --only 的快照目标已有东西：退出 5、报 snapshot_target_exists', r0.status === 0 && ro.status === 5 && /snapshot_target_exists/.test((ro.stdout || '') + (ro.stderr || '')), `status=${ro.status} ${(ro.stderr || '').slice(0, 200)}`);
+  ok('⑪d 留在那里的不删、不混写，也没写版本行', untouched(lefto) && rows(o, 'dsh:zz-guard-o').versions === 0, JSON.stringify({ files: readdirSync(lefto) }));
+
+  const u = fresh('e-upload-one');
+  skill(u.a, 'zz..one');
+  const ru = spawnSync(process.execPath, ['scripts/skill-upload-one.mjs', '--target-mode', 'isolated', '--isolated-root', u.root], {
+    cwd: ROOT, env: { ...process.env, DATA_DIR: u.data, SKILL_SRC: u.a, SKILL_NAME: 'zz..one' }, encoding: 'utf8', timeout: 60000 });
+  const uRow = existsSync(join(u.data, 'workbench-market.db')) ? rows(u, 'agents:zz..one') : { skill: undefined };
+  ok('⑪e upload-one 名字带「..」：退出 2，不留技能行、不建目录', ru.status === 2 && !uRow.skill && !(existsSync(join(u.data, 'skill-snapshots')) && readdirSync(join(u.data, 'skill-snapshots')).some((n) => n.includes('..'))), `status=${ru.status} row=${JSON.stringify(uRow.skill)}`);
+  rmSync(G, { recursive: true, force: true });
+}
 
 console.log(`\n===== skill-import 冒烟 ${pass + fail} 项：${pass} 通过 / ${fail} 失败 =====`);
 process.exit(fail ? 1 : 0);

@@ -178,7 +178,7 @@ try {
   {
     const B = await boot('bind', { WM_LOCAL_SIGNUP: 'approval' });
     const olga = await B.person('olga', 'Olga-pass-00001', '192.0.2.41'); await B.grant('user:olga', 'owner');
-    await B.cli('POST', '/api/principals/bind', { provider: 'odoo', external_id: 'boss', principal: 'user:boss', create: true, reason: '合成：已有的人' });
+    await B.cli('POST', '/api/principals/bind', { provider: 'sso', external_id: 'boss', principal: 'user:boss', create: true, reason: '合成：已有的人' });
     await B.grant('user:boss', 'owner');
     { const { b, form } = await B.signupForm('192.0.2.42'); await b.go('POST', form, { form: { mode: 'signup', username: 'mallory', display_name: 'boss', password: 'Mallory-pass-001', confirm: 'Mallory-pass-001' } }); }
     await B.login('mallory', 'Mallory-pass-001', '', '192.0.2.43'); // 登一次：进待对接清单
@@ -215,12 +215,12 @@ try {
     const asM3 = await B.login('mallory', 'Mallory-pass-001', '', '192.0.2.46');
     check(viaCard.status >= 400 && viaCardOlga.status >= 400 && (await asM3.go('GET', '/api/auth/me')).json?.principal !== 'user:boss',
       'F2f 经「关注」卡片的答法绑自己注册的 mallory 到 user:boss：被拒（管理口令、完整管理员都一样），没绑上', { viaCard: [viaCard.status, viaCard.json], viaCardOlga: [viaCardOlga.status, viaCardOlga.json] });
-    const sp = await B.token('POST', '/api/principals/bind', { provider: 'odoo', external_id: 'spacey', principal: 'user: 名', create: true, reason: '合成' });
-    const spb = await B.token('POST', '/api/principals/bind-batch', { items: [{ provider: 'odoo', external_id: 'spacey', principal: 'user:名 ', create: true }], reason: '合成' });
+    const sp = await B.token('POST', '/api/principals/bind', { provider: 'sso', external_id: 'spacey', principal: 'user: 名', create: true, reason: '合成' });
+    const spb = await B.token('POST', '/api/principals/bind-batch', { items: [{ provider: 'sso', external_id: 'spacey', principal: 'user:名 ', create: true }], reason: '合成' });
     check(sp.status === 400 && spb.status === 200 && spb.json?.results?.[0]?.status === 400,
       'F2g 绑定目标「user: 名」「user:名 」（两头空白）：单条 400、成批那一条 400，不是 500', { sp: sp.status, spb: spb.json?.results?.[0] });
     // 对照：不是自己注册的（管理员建的、别的登录方式的）照旧能绑
-    const other = await B.token('POST', '/api/principals/bind', { provider: 'odoo', external_id: 'boss2', principal: 'user:boss', reason: '合成：对照' });
+    const other = await B.token('POST', '/api/principals/bind', { provider: 'sso', external_id: 'boss2', principal: 'user:boss', reason: '合成：对照' });
     const ap = await B.token('POST', '/api/local-accounts/mallory/approve');
     const asM2 = await B.login('mallory', 'Mallory-pass-001', '', '192.0.2.45');
     check(other.status === 200 && ap.status === 200 && ap.json?.account?.principal === 'user:mallory' && (await asM2.go('GET', '/api/auth/me')).json?.principal === 'user:mallory',

@@ -13,6 +13,7 @@
  *   7 中途失败（第二个快照位置被占）：整体回滚，第一个刚放的快照也删掉，库不变
  *   7b 事务里失败（第一个已经写进库、第二个写库时撞唯一索引）：整个事务回滚，第一个的元数据和版本行都不留，它的快照也删掉
  *   8 jf 遗产点名：已登记的不再动
+ *   9 #810 跨源同名的首版：dsh:twin 先导入之后，--only agents:twin 照样能导入，各落各的 slug 目录、摘要各自对得上
  *
  *   node scripts/skill-import-only-test.mjs
  */
@@ -65,6 +66,17 @@ function snapshotOfWorld() {
   return { rows, tree: tree.sort(), report: existsSync(REPORT) ? sha(readFileSync(REPORT)) : null };
 }
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const idOf = (rows, slug) => rows.skills.find((r) => r.slug === slug)?.id;
+/** 和导入器同一种目录摘要（#810：证明快照目录的内容就是那一行记的） */
+const dirDigest = (dir) => {
+  if (!existsSync(dir)) return null;
+  const files = [];
+  (function walk(d) { for (const e of readdirSync(d, { withFileTypes: true })) { if (e.isDirectory() && (e.name === '__pycache__' || e.name === '.git')) continue; if (!e.isDirectory() && /\.pyc$/i.test(e.name)) continue; const p = join(d, e.name); if (e.isDirectory()) walk(p); else files.push(p); } })(dir);
+  files.sort();
+  const h = createHash('sha256');
+  for (const p of files) { h.update(relative(dir, p).split('\\').join('/')); h.update('\0'); h.update(sha(readFileSync(p))); h.update('\0'); }
+  return h.digest('hex');
+};
 const diffKeys = (a, b) => ['rows', 'tree', 'report'].filter((k) => !same(a[k], b[k]));
 
 try {
@@ -74,6 +86,10 @@ try {
   let world = snapshotOfWorld();
   const slugs = world.rows.skills.map((r) => r.slug).sort();
   ok('0 基线里两个源都有 shared-x、jf 遗产和角色束都在', slugs.includes('agents:shared-x') && slugs.includes('dsh:shared-x') && slugs.includes('jf:jf-legacy') && world.rows.role_bundles.length === 1, slugs);
+  const pathOf = (rows, slug) => rows.skill_versions.find((v) => v.skill_id === idOf(rows, slug))?.snapshot_path;
+  const digestOf = (rows, slug) => rows.skill_versions.find((v) => v.skill_id === idOf(rows, slug))?.tree_digest;
+  ok('0（#810）跨源同名的 shared-x 各有各的快照目录（相对形、按全 slug），摘要各自对得上', pathOf(world.rows, 'agents:shared-x') === 'skill-snapshots/agents%3Ashared-x/v1' && pathOf(world.rows, 'dsh:shared-x') === 'skill-snapshots/dsh%3Ashared-x/v1'
+    && dirDigest(join(DATA, pathOf(world.rows, 'agents:shared-x'))) === digestOf(world.rows, 'agents:shared-x') && dirDigest(join(DATA, pathOf(world.rows, 'dsh:shared-x'))) === digestOf(world.rows, 'dsh:shared-x'), world.rows.skill_versions.map((v) => v.snapshot_path));
 
   console.log('1 写法、不认识、重复、歧义：写入之前失败');
   for (const [only, why] of [['agents:*', 'only_invalid'], ['agents:', 'only_invalid'], ['shared-x', 'only_invalid'], ['agents:shared', 'only_unresolved'], ['agents:nope', 'only_unresolved'], ['dsh:dupe', 'only_unresolved'], ['agents:only-a,agents:only-a', 'only_invalid'], ['agents:only-a,agents:nope', 'only_unresolved'], [' ', 'only_empty']]) {
@@ -118,14 +134,13 @@ try {
   const afterDone = snapshotOfWorld();
   ok('6 成功、新增 2 个版本，指纹对得上', done.status === 0 && done.out?.newVersions === 2 && done.out?.state === fresh.out.state, done.raw);
   const touched = new Set(['agents:only-a', 'agents:new-a']);
-  const idOf = (rows, slug) => rows.skills.find((r) => r.slug === slug)?.id;
   const untouchedSkills = (rows) => rows.skills.filter((r) => !touched.has(r.slug));
   const untouchedVersions = (rows) => rows.skill_versions.filter((v) => ![idOf(rows, 'agents:only-a'), idOf(rows, 'agents:new-a')].includes(v.skill_id));
   ok('6 别的技能（含跨源同名的 dsh:shared-x）一行不变，它们的版本一行不变', same(untouchedSkills(world.rows), untouchedSkills(afterDone.rows)) && same(untouchedVersions(world.rows), untouchedVersions(afterDone.rows)));
   ok('6 角色束、固定报告不变', same(world.rows.role_bundles, afterDone.rows.role_bundles) && world.report === afterDone.report);
   const vOnlyA = afterDone.rows.skill_versions.filter((v) => v.skill_id === idOf(afterDone.rows, 'agents:only-a')).map((v) => v.version);
   const vNewA = afterDone.rows.skill_versions.filter((v) => v.skill_id === idOf(afterDone.rows, 'agents:new-a')).map((v) => v.version);
-  ok('6 only-a 多了 v2、new-a 有了 v1，快照只多了这两个目录', same(vOnlyA, [1, 2]) && same(vNewA, [1]) && same(afterDone.tree.filter((p) => !world.tree.includes(p)).filter((p) => p.endsWith('/')).sort(), ['new-a/', 'new-a/v1/', 'only-a/v2/']), { vOnlyA, vNewA, added: afterDone.tree.filter((p) => !world.tree.includes(p)) });
+  ok('6 only-a 多了 v2、new-a 有了 v1，快照只多了这两个目录', same(vOnlyA, [1, 2]) && same(vNewA, [1]) && same(afterDone.tree.filter((p) => !world.tree.includes(p)).filter((p) => p.endsWith('/')).sort(), ['agents%3Anew-a/', 'agents%3Anew-a/v1/', 'agents%3Aonly-a/v2/']), { vOnlyA, vNewA, added: afterDone.tree.filter((p) => !world.tree.includes(p)) });
   world = afterDone;
   const again = run(['--only', 'agents:only-a,agents:new-a']);
   ok('6 再跑一次：同内容，0 个新版本，什么都没动', again.status === 0 && again.out?.newVersions === 0 && diffKeys(world, snapshotOfWorld()).length === 0, again.out);
@@ -133,13 +148,13 @@ try {
   console.log('7 中途失败：整体回滚');
   appendFileSync(join(SRC_C, 'only-c', 'SKILL.md'), 'only-c v2\n');
   skill(SRC_C, 'fail-c', 'fail-c', 'will fail');
-  writeFileSync(join(DATA, 'skill-snapshots', 'fail-c'), 'a file where the snapshot directory should go');
+  writeFileSync(join(DATA, 'skill-snapshots', 'dsh%3Afail-c'), 'a file where the snapshot directory should go');
   world = snapshotOfWorld();
   const broken = run(['--only', 'dsh:only-c,dsh:fail-c']);
   const afterBroken = snapshotOfWorld();
   ok('7 退出 5（import_failed_rolled_back）', broken.status === 5 && broken.err?.error === 'import_failed_rolled_back', broken.raw);
-  ok('7 库不变、第一个刚放的快照（only-c/v2）也删掉了、没有暂存目录留下', diffKeys(world, afterBroken).length === 0 && !existsSync(join(DATA, 'skill-snapshots', 'only-c', 'v2')) && !readdirSync(join(DATA, 'skill-snapshots')).some((n) => n.startsWith('.staging-')), diffKeys(world, afterBroken));
-  rmSync(join(DATA, 'skill-snapshots', 'fail-c'), { force: true });
+  ok('7 库不变、第一个刚放的快照（only-c/v2）也删掉了、没有暂存目录留下', diffKeys(world, afterBroken).length === 0 && !existsSync(join(DATA, 'skill-snapshots', 'dsh%3Aonly-c', 'v2')) && !readdirSync(join(DATA, 'skill-snapshots')).some((n) => n.startsWith('.staging-')), diffKeys(world, afterBroken));
+  rmSync(join(DATA, 'skill-snapshots', 'dsh%3Afail-c'), { force: true });
   world = snapshotOfWorld();
 
   console.log('7b 事务里失败：整体回滚');
@@ -152,13 +167,29 @@ try {
   const mid = run(['--only', 'agents:new-a,agents:only-a']);
   const afterMid = snapshotOfWorld();
   ok('7b 退出 5（import_failed_rolled_back），说的是写库时的错', mid.status === 5 && mid.err?.error === 'import_failed_rolled_back' && /UNIQUE|constraint/i.test(mid.err?.message ?? ''), mid.raw);
-  ok('7b 库一行不变（new-a 已经写进事务的 updated_at 和 v2 都退回了），new-a/v2、only-a/v3 两个快照都删掉了', diffKeys(world, afterMid).length === 0 && !existsSync(join(DATA, 'skill-snapshots', 'new-a', 'v2')) && !existsSync(join(DATA, 'skill-snapshots', 'only-a', 'v3')), { diff: diffKeys(world, afterMid), rows: same(world.rows, afterMid.rows) });
+  ok('7b 库一行不变（new-a 已经写进事务的 updated_at 和 v2 都退回了），new-a/v2、only-a/v3 两个快照都删掉了', diffKeys(world, afterMid).length === 0 && !existsSync(join(DATA, 'skill-snapshots', 'agents%3Anew-a', 'v2')) && !existsSync(join(DATA, 'skill-snapshots', 'agents%3Aonly-a', 'v3')), { diff: diffKeys(world, afterMid), rows: same(world.rows, afterMid.rows) });
   // 收尾：源恢复成库里最新的内容，后面的步骤照旧
   writeFileSync(join(SRC_A, 'new-a', 'SKILL.md'), '---\nname: new-a\ndescription: synthetic new-a\n---\nbrand new\n');
 
   console.log('8 jf 遗产点名');
   const jf = run(['--only', 'jf:jf-legacy,jf:jf-one']);
   ok('8 已登记的不再动：0 个新版本，库不变', jf.status === 0 && jf.out?.newVersions === 0 && diffKeys(world, snapshotOfWorld()).length === 0, jf.out);
+
+  console.log('9 跨源同名的首版（#810）');
+  skill(SRC_C, 'twin', 'twin', 'dsh twin');
+  writeFileSync(join(SRC_C, 'twin', 'only-in-dsh.txt'), 'c\n');
+  const dshTwin = run(['--only', 'dsh:twin']);
+  ok('9 先导 dsh:twin：成功、1 个新版本', dshTwin.status === 0 && dshTwin.out?.newVersions === 1, dshTwin.raw);
+  skill(SRC_A, 'twin', 'twin', 'agents twin');
+  writeFileSync(join(SRC_A, 'twin', 'only-in-agents.txt'), 'a\n');
+  const before9 = snapshotOfWorld();
+  const agentsTwin = run(['--only', 'agents:twin']);
+  const after9 = snapshotOfWorld();
+  ok('9 再导 agents:twin 首版：成功（不再撞 snapshot_target_exists）', agentsTwin.status === 0 && agentsTwin.out?.newVersions === 1, agentsTwin.raw);
+  ok('9 两个各落各的目录，摘要各自对得上，没有混写', pathOf(after9.rows, 'agents:twin') === 'skill-snapshots/agents%3Atwin/v1' && pathOf(after9.rows, 'dsh:twin') === 'skill-snapshots/dsh%3Atwin/v1'
+    && dirDigest(join(DATA, pathOf(after9.rows, 'agents:twin'))) === digestOf(after9.rows, 'agents:twin') && dirDigest(join(DATA, pathOf(after9.rows, 'dsh:twin'))) === digestOf(after9.rows, 'dsh:twin')
+    && !existsSync(join(DATA, pathOf(after9.rows, 'agents:twin'), 'only-in-dsh.txt')), after9.rows.skill_versions.map((v) => v.snapshot_path));
+  ok('9 dsh:twin 的行和快照一点没动', same(before9.rows.skill_versions.filter((v) => v.skill_id === idOf(before9.rows, 'dsh:twin')), after9.rows.skill_versions.filter((v) => v.skill_id === idOf(after9.rows, 'dsh:twin'))) && same(before9.tree.filter((p) => p.startsWith('dsh%3Atwin')), after9.tree.filter((p) => p.startsWith('dsh%3Atwin'))));
 } catch (e) {
   fail++;
   console.log(`  ✗ 跑不下去：${e?.stack ?? e}`);

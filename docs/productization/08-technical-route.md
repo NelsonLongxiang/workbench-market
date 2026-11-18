@@ -27,7 +27,7 @@
 | 前端 | 一个应用：React 18 + antd 5 + Vite；token 由 `DESIGN.md` 生成 | |
 | 入口面 | REST、MCP、门户代理、A2A 入站，只有这四个 | |
 | 测试 | 零框架的 node 脚本；浏览器回归用 Playwright | |
-| 交付形态 | 一个组织一个实例：单进程加一个数据目录 | 实例内部的隔离边界见 [租户边界评审件](../tenant-boundary-review.md) |
+| 交付形态 | 一个组织一个实例：单进程加一个数据目录 | 实例内部的隔离边界见 [租户边界评审件](../archive/tenant-boundary-review.md) |
 
 ## 二、现状（实测）
 
@@ -76,7 +76,7 @@
 
 | 事 | 归属 | 市场只做 | 契约 |
 |---|---|---|---|
-| 席位运行（会话、工具、模型） | DSH | 深链打开、只读汇总 | [04](04-dsh-gui-relationship.md) 的 C1 ～ C4 |
+| 席位运行（会话、工具、模型） | DSH | 深链打开、只读汇总 | [04](../archive/productization/04-dsh-gui-relationship.md) 的 C1 ～ C4 |
 | 消息投递、回执、成员准入 | a2a-net | 把网络能力以插件装进自己的上下文；引用协议，不实现协议 | [07](07-a2a-adapter-refactor.md) |
 | 席位侧的判断（接不接、怎么办） | superagent | 展示 `report`，接住 `ask` | [06](06-a2a-superagent-fusion.md) |
 | 证据、验证、经验 | ygl-trees | 存 id 和链接；作为 MCP 上游接入 | [02](02-concept-model.md)、[06](06-a2a-superagent-fusion.md) |

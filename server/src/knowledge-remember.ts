@@ -9,7 +9,6 @@
  *   · 写到哪：回写 ygl-trees 的 kb（KnowledgeService.remember），市场只留指针和留痕；写不上不挡答复，进待写队列后台重试。
  */
 import { svc } from './context.ts';
-import { identity } from './identity.ts';
 import { judge, type JudgedActor } from './judgment.ts';
 import type { AttentionService } from './services/attention.ts';
 import type { KnowledgeService, RememberOutcome } from './services/knowledge.ts';
@@ -76,14 +75,12 @@ export function rememberUnavailable(): { error: string; message: string } | null
   return svc<KnowledgeService>('knowledge').writeTarget().ok ? null : { error: 'knowledge_not_connected', message: '经验库还没接入 ygl-trees，这次的取舍没有记成经验' };
 }
 /**
- * 账上答这一条的人可能的几种写法：会话登录的管理员记成 odoo:<登录名>（登录名是现在登记的登录提供方认出来的），别的记成主体标识。
- * 登录名只取实际绑在这个主体名下、这个提供方的外部身份（principal_identities），不从主体标识拼：
- * 登录名 alice 绑在 user:bob 名下时，odoo:alice 答的是 user:bob，不是 user:alice。没有登记提供方时只认主体标识
+ * 账上答这一条的人可能的几种写法：主体标识；Odoo 下线（2026-11-17）前会话登录的管理员记成的 odoo:<登录名>（历史留痕，只读）。
+ * 登录名只取实际绑在这个主体名下的 Odoo 外部身份（principal_identities 里保留的历史绑定），不从主体标识拼：
+ * 登录名 alice 绑在 user:bob 名下时，odoo:alice 答的是 user:bob，不是 user:alice
  */
-const answerersOf = (id: string): string[] => {
-  const provider = identity().providerName();
-  return [id, ...(provider ? svc<PrincipalService>('principals').externalIdsOf(id, provider).map((login) => `odoo:${login}`) : [])];
-};
+const answerersOf = (id: string): string[] =>
+  [id, ...svc<PrincipalService>('principals').externalIdsOf(id, 'odoo').map((login) => `odoo:${login}`)];
 
 /**
  * 答法给人看的说法：「关注」各来源的全部答法（答复入口的转发表、直接实现的，和条目自带的 answer_via 答法），和卡片按钮上的说法一致。

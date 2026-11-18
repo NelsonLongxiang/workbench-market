@@ -7,10 +7,10 @@ import { useEffect, useState } from 'react';
 import { Alert, Button, Input, Modal } from 'antd';
 import { KeyOutlined } from '@ant-design/icons';
 import { changeOwnPassword, getAuthMe } from '../api';
-import { accountActionProblem, hasLocalAccount, passwordFormProblem } from '../access-view';
+import { accountActionProblem, hasLocalAccount, localUsernameOf, passwordFormProblem } from '../access-view';
 
 export default function PasswordChip() {
-  const [me, setMe] = useState<{ login?: unknown } | null>(null);
+  const [me, setMe] = useState<unknown>(null);
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
@@ -21,12 +21,12 @@ export default function PasswordChip() {
 
   useEffect(() => {
     let live = true;
-    void getAuthMe().then((j) => { if (live) setMe(j as { login?: unknown } | null); });
+    void getAuthMe().then((j) => { if (live) setMe(j); });
     return () => { live = false; };
   }, []);
   if (!hasLocalAccount(me)) return null;
 
-  const username = typeof me?.login === 'string' ? me.login : null;
+  const username = localUsernameOf(me); // 站内用户名，不是 login（飞书等方式登录时两者不同）
   const problem = passwordFormProblem(current, next, confirm, username);
   const reset = () => { setCurrent(''); setNext(''); setConfirm(''); setErr(null); };
   const submit = async () => {
