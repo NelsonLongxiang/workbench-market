@@ -40,13 +40,17 @@
 |---|---|---|
 | `id` | TEXT 主键 | 领域标识，`^[a-z][a-z0-9-]{0,47}$`（和部门标识同一套写法，迁移时原样沿用） |
 | `name` | TEXT 非空 | 给人看的名字 |
-| `status` | TEXT | `active` / `retired`；撤了的只读，不删 |
+| `status` | TEXT | `pending-lead` / `active` / `retired`。`pending-lead`：还没有生效的领域负责人，见下面「每个领域至少一位负责人」；撤了的只读，不删 |
 | `spec_version` | INTEGER，可空 | 生效指针：现在生效的规范版本号；没有规范时为空 |
 | `team_host`、`team` | TEXT，缺省空串 | 对应的 a2a-net 团队，第 3 步才写，第 1 步建出来都是空 |
 | `source` | TEXT | `manual` / `department`（从部门迁来的） |
 | `created_at`、`created_by`、`updated_at`、`updated_by` | | 毫秒；做的人记主体标识 |
 
-约束：`spec_version` 非空时要有对应的规范版本。这条由服务判；两种库都加外键 `(id, spec_version) → area_specs (area_id, version)`。
+约束：`spec_version` 非空时要有对应的规范版本。
+
+**每个领域至少一位负责人**（属主 11-18「有团队就一定会有负责人」；#859 评审：要有守护）：
+- 新建或迁移出来的领域，没有生效的 `area-lead` 授予时，状态是 `pending-lead`：能读、能定规范，但**不能触发、不能验收**（`area.trigger`、`area.accept` 回 409「领域还没有负责人」）。属主放行第一条 `area-lead` 后，同一事务里改成 `active`。
+- **收回最后一位负责人要先补人**：撤销、停用一个 `area-lead` 授予时，如果这个领域就剩它一条生效的，回 409「领域至少要有一位负责人」，除非同一操作里属主同时撤掉这个领域。负责人本人被停用时，领域退回 `pending-lead`，留痕写原因，并给属主一条待办。这条由服务判；两种库都加外键 `(id, spec_version) → area_specs (area_id, version)`。
 
 **`area_specs`（领域规范的版本）**
 
@@ -84,7 +88,7 @@ seq（自增）, area_id, kind ∈ {create, retire, spec-add, spec-activate, mig
 一次迁移，幂等（跑几次结果一样）：
 
 1. 每个部门建一个同标识、同名字的领域，`source = department`，记一行 `area_events(kind = migrate, detail = 部门标识)`。已有同标识领域的跳过。
-2. 部门负责人：部门有生效的负责人授予时（`dept_lead_grants` 里有，`leadGrantActive` 为真），给这个人起草一条 `area-lead`（领域负责人）授予，范围是 `area:<同标识>`，理由写「由部门负责人迁移」，状态停在待核，等属主放行（第三节第 3 条：这一档只有属主能放行）。
+2. 部门负责人：部门**没有**生效的负责人授予时，迁出来的领域是 `pending-lead`，等属主指定负责人。部门有生效的负责人授予时（`dept_lead_grants` 里有，`leadGrantActive` 为真），给这个人起草一条 `area-lead`（领域负责人）授予，范围是 `area:<同标识>`，理由写「由部门负责人迁移」，状态停在待核，等属主放行（第三节第 3 条：这一档只有属主能放行）。
    - 不起草 `area-spec`（定规范）：定规范单独授予，迁移不替属主做决定。
    - 负责人停用了的、只有字段没有授予的（`dept-lead-pending`），不起草。
 3. 部门成员（`department_members`）不迁：15 说系统里没有人的组织，领域里没有「成员」这层。成员表只读保留。
@@ -153,7 +157,8 @@ seq（自增）, area_id, kind ∈ {create, retire, spec-add, spec-activate, mig
 - **只有一位属主时也走得通**：现有规则里「起草的人不能自己放行」只管第二、三档，属主这一档不受它限制。所以属主给另一个人起草 `area-spec`，可以自己放行；本机命令行也可以放行。属主不能给自己授予（库里约束），但属主本来就能定规范，不需要这条授予。
 - 起草人、放行人都不能是被授予的人（库里现有的约束）。
 - 不是人的主体不能持有带决定类的授予（judge 第 3 步现有规则），所以 AI 席位拿不到 `area-spec`、`area-member`、`area-lead`。
-- 系统管理员照旧两人制：可以起草 `area-member`、不能放行，看不到规范正文（业务域）。`area-lead` 只有属主起草和放行。
+- 系统管理员照旧两人制：可以起草 `area-member`、不能放行，看不到规范正文（业务域）。
+- **负责人只有属主起草和放行，按权限覆盖判，不按角色名**（#859 评审）：和 `area.spec-set` 同一种写法，只要角色的权限展开后覆盖了任一负责人专有的动作（`area.release`、`area.reassign`、`area.access-approve`，名字以评审定下的为准），起草和放行都只有属主。`area-lead`、列了这些动作的自定义角色、以后任何覆盖它们的角色都一样。规则写在 `services/grant.ts` 的 `issueCheck` 和 `approvability`。
 
 ## 四、受影响的现有代码（以 main f1b0bac9 为准，开工时重核）
 
@@ -226,6 +231,9 @@ seq（自增）, area_id, kind ∈ {create, retire, spec-add, spec-activate, mig
 | 24 | 持 `area-lead` 的人在第 1 步调负责人专有的动作（放行、改派、批接入） | 拒：第 1 步这些动作用恒为假的 `refine` 登记 |
 | 25 | 持 `area-lead`（领域 x）的人新加领域 x 的规范版本 | 403：负责人不含定规范，定规范单独授予 |
 | 26 | 迁移遇到有生效负责人授予的部门 | 起草的是 `area-lead`，不是 `area-member` |
+| 27 | 自定义角色的权限列了任一负责人专有的动作，由管理层或系统管理员起草、放行 | 都拒：覆盖负责人动作的授予只有属主能起草、放行 |
+| 28 | 迁移遇到没有负责人的部门；随后在这个领域触发、验收；属主放行第一条 `area-lead` 后再试 | 领域是 `pending-lead`，触发、验收 409；放行后变 `active`，触发、验收按授予判 |
+| 29 | 撤销、停用领域里最后一条生效的 `area-lead` | 409「领域至少要有一位负责人」；属主同时撤领域时可以；负责人本人被停用时领域退回 `pending-lead` |
 
 **变异核对：**
 - 拿掉「覆盖 `area.spec-set` 的授予只有属主起草、放行」，7、20 应红；
@@ -235,6 +243,11 @@ seq（自增）, area_id, kind ∈ {create, retire, spec-add, spec-activate, mig
 - 拿掉过渡期认 `dept:`，12 的台那一半应红；过渡期认 `dept:` 扩到 `area.*`，12 的规范、触发、验收那一半应红；
 - 迁移不放在一个事务里、或者不按授予去重，21 应红；
 - 把 `area.trigger`、`area.accept` 那两条 `refine` 的 `when` 改成恒真，事项那几份回放应有差异。
+- 把「负责人只有属主起草、放行」改回按角色名（只认 `area-lead`），27 应红；整条拿掉，23、27 都应红；
+- 把负责人专有动作的 `refine` 改成恒真，24 应红；
+- 让 `area-lead` 的权限覆盖 `area.spec-set`（比如把它并进 `area-lead`），25 应红；
+- 迁移时对有负责人的部门改成起草 `area-member`，26 应红；
+- 拿掉 `pending-lead` 对触发、验收的拦截，28 应红；拿掉「最后一位负责人」的检查，29 应红。
 
 ## 六、和 14 的旧对象怎么收
 
@@ -247,7 +260,7 @@ seq（自增）, area_id, kind ∈ {create, retire, spec-add, spec-activate, mig
 | 「项目 → 部门」对照（`knowledge_project_depts`） | 新写落到领域；旧行只读 | — | 并表 |
 | 数据视图台的部门绑定（`bench_views.department_id`） | 字段不改，含义换成领域标识（同标识），绑定时核领域表 | 第 2 步改列名 | — |
 | 团队登记、认领到部门（`teams.department_id`、`team-claim`） | 照旧 | 第 3 步：团队对应领域（`areas.team_host/team`），认领改成认领到领域，停写旧列 | 删旧列 |
-| 团队负责人（`team_leads`） | 照旧 | 第 2 步：事项按领域流转、过目改由领域负责人（`area-lead`）放行；现有的团队负责人起草成对应领域的 `area-lead` 授予、属主放行后，旧表停写 | **不删**，只读保留（属主 11-18：有团队就有负责人） |
+| 团队负责人（`team_leads`） | 照旧 | 第 2 步：事项按领域流转、过目改由领域负责人（`area-lead`）放行；这时团队还没对应到领域，团队负责人照旧过目本团队的事。**第 3 步**团队对应领域以后，再把现有的团队负责人起草成对应领域的 `area-lead` 授予（#859 评审：顺序要在团队对应领域之后），属主放行后旧表停写 | **不删**，只读保留（属主 11-18：有团队就有负责人） |
 | 成员分配给员工（`seat_assignments`、指名派工里的「成员的主人」） | 照旧 | 照旧；第 3 步团队对应领域后，分配跟着成员所在的领域走 | **不删**（属主 11-18：保留） |
 | 团队事件（`team_events`） | 照旧 | 停写跟着上面几项 | 只读保留，不删（留痕） |
 
