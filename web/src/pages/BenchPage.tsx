@@ -11,14 +11,14 @@ import { getBenchView, submitBenchForm, type BenchEntry } from '../api';
 import { BENCH_VIEWS_OFF, benchViewError, isBenchViewsOff } from '../cockpit-frame-view';
 import { formError, pageTitle, paramsFromQuery, toQuery, viewFromQuery } from '../bench-page-view';
 
-type State = { phase: 'loading' } | { phase: 'ok'; result: ViewResult } | { phase: 'off' } | { phase: 'error'; text: string };
+type State = { phase: 'loading' } | { phase: 'ok'; result: ViewResult; requestKey: string } | { phase: 'off' } | { phase: 'error'; text: string };
 
 export default function BenchPage({ cardId, entry, refreshEntry }: { cardId: string; entry: BenchEntry; refreshEntry: () => void }) {
   const nav = useNavigate();
   const [q, setQ] = useSearchParams();
   const view = viewFromQuery(entry, q);
   const params = paramsFromQuery(q);
-  const key = JSON.stringify([view, params]);
+  const key = JSON.stringify([cardId, view, params]);
   const [s, setS] = useState<State>({ phase: 'loading' });
   const [refreshing, setRefreshing] = useState(false);
   const seq = useRef(0);
@@ -30,7 +30,7 @@ export default function BenchPage({ cardId, entry, refreshEntry }: { cardId: str
     const r = await getBenchView({ bench: cardId, view }, params);
     if (mine !== seq.current) return; // 连着换了几次视图或筛选：只认最后一次
     setRefreshing(false);
-    if (r.status === 200 && r.body) setS({ phase: 'ok', result: r.body as ViewResult });
+    if (r.status === 200 && r.body) setS({ phase: 'ok', result: r.body as ViewResult, requestKey: key });
     else if (isBenchViewsOff(r.status, r.error)) setS({ phase: 'off' });
     else setS({ phase: 'error', text: benchViewError(r.status, r.error) });
   // key 是视图和筛选值的指纹
@@ -82,7 +82,7 @@ export default function BenchPage({ cardId, entry, refreshEntry }: { cardId: str
         {s.phase === 'loading' ? <div className="wm-dash-card" data-testid="bench-page-loading"><Skeleton active paragraph={{ rows: 6 }} /></div>
           : s.phase === 'off' ? <div className="wm-bp-state" data-testid="bench-page-off"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={BENCH_VIEWS_OFF} /></div>
             : s.phase === 'error' ? <div className="wm-bp-state" data-testid="bench-page-error"><Result status="warning" title={s.text} extra={<Button onClick={() => { setS({ phase: 'loading' }); void load(); }}>再试一次</Button>} /></div>
-              : <BenchView result={s.result} frame="card" onParams={(p) => go(view, p)} onSubmit={submit} />}
+              : <BenchView result={s.result} tableBench={cardId} tableDisabled={refreshing || s.requestKey !== key} frame="card" onParams={(p) => go(view, p)} onSubmit={submit} />}
       </main>
     </div>
   );

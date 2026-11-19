@@ -177,6 +177,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/bench-real-loop-browser.mjs
+      - name: 原生表格完整导出与来源详情（合成真实接口、实际浏览器下载、4833与1650全匹配、撤权与跨源拒绝）
+        env:
+          PYTHON: python
+        run: node scripts/bench-table-browser.mjs
       - name: 报告模板 P0（合成隔离：308 行完整长表、50 个重复详情、冻结输入、Chromium 打印）
         env:
           PYTHON: python
@@ -554,7 +558,7 @@ jobs:
       - name: 待属主看板（作者核验：config.owner 只认属主本人·事项只认登记身份·答复只认属主·冒名点名不采信·只授三个工具）
         run: node scripts/owner-pending-unit.mjs && node scripts/owner-pending-board-smoke.mjs && node scripts/attention-ui-unit.mjs && node scripts/work-item-detail-ui-unit.mjs && node scripts/market-ui-unit.mjs && node scripts/home-ui-unit.mjs && node scripts/arrange-ui-unit.mjs && node scripts/review-ui-unit.mjs
       - name: 数据视图组件单测（纯函数——格式、取值说法、按值着色、图表配置、工具契约一致性；单列一步，不和上面那行挤在一起）
-        run: node scripts/bench-blocks-ui-unit.mjs && node scripts/bench-var-bindings-test.mjs && node scripts/bench-view-contract-test.mjs
+        run: node scripts/bench-blocks-ui-unit.mjs && node scripts/bench-var-bindings-test.mjs && node scripts/bench-view-contract-test.mjs && node scripts/bench-table-test.mjs
       - name: 报告模板 P0 编排（正反例、数据完整性、源定义签名、稳定键与冻结值）
         run: node scripts/report-template-p0-test.mjs && node scripts/report-template-p0-store-test.mjs
       - name: 「谁能做什么」页单测（纯函数——授予的状态、范围、期限，待核准，按人排的表，矩阵格子；单列一步）

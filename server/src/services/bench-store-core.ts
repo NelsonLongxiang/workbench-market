@@ -35,6 +35,7 @@ import {
   type ColumnDef, type DatasetDef, type OutColumn,
 } from '../bench-query.ts';
 import { diffJson, validateViewDoc, type JsonDiff } from '../bench-views.ts';
+import { tableTarget, tableDigest, type TableTarget } from '../bench-table.ts';
 import { DB_BUSY_TIMEOUT_MS } from '../db-busy.ts';
 
 export const BENCH_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -43,7 +44,7 @@ const IDEM_RE = /^[\x21-\x7e]{8,128}$/;
 /** 这一层对外开放的操作，和各自算读还是写（时限不同）。工作线程只认这张表里的名字 */
 export const BENCH_METHODS = new Map<string, 'read' | 'write'>([
   ['datasets', 'read'], ['datasetVersions', 'read'], ['snapshots', 'read'], ['query', 'read'], ['getView', 'read'],
-  ['viewVersions', 'read'], ['diffViews', 'read'], ['changes', 'read'], ['writes', 'read'], ['renderView', 'read'],
+  ['viewVersions', 'read'], ['diffViews', 'read'], ['changes', 'read'], ['writes', 'read'], ['renderView', 'read'], ['tableExport', 'read'], ['tableRow', 'read'],
   ['defineDataset', 'write'], ['replace', 'write'], ['append', 'write'], ['upsert', 'write'], ['deleteRows', 'write'],
   ['snapshot', 'write'], ['restore', 'write'], ['putView', 'write'], ['rollbackView', 'write'], ['backupTo', 'write'], ['submitForm', 'write'],
   ['varsList', 'read'], ['varGet', 'read'], ['varCount', 'read'], ['varsDigest', 'read'],
@@ -752,6 +753,7 @@ export class BenchStoreCore {
       const view = opts.view === undefined ? doc.views[0] : doc.views.find((x) => x.key === opts.view);
       if (!view) throw new BenchError('not_found', `没有视图 ${String(opts.view).slice(0, 40)}`);
       const defs = await this.load(), given = isObj(opts.params) ? opts.params : {};
+      const revision = await this.tableRevision(defs);
       // 筛选栏的值：只认声明过的字段；值只收文本
       const params: Record<string, string> = {};
       // 这份视图认哪些筛选项（名字、类型、显示名）：驾驶舱把顶上那一排选中的值按名字传进来，认的就生效，不认的忽略
@@ -809,9 +811,96 @@ export class BenchStoreCore {
           blocks.push({ ...b, data: { ...r.data, columns } });
         }
       }
+      if (revision !== await this.tableRevision(await this.load())) throw new BenchError('conflict', '读取期间数据已改变，请刷新后重试');
+      for (const [index, b] of blocks.entries()) if (b.type === 'table' && b.data && !b.error) {
+        const q = b.query as Record<string, unknown>;
+        b.table_context = { view: view.key, block: index, version, params, revision: tableDigest([revision, version, view.key, index, params, q]) };
+      }
       return { title: doc.title, version, active_version: active, views: doc.views.map((x) => ({ key: x.key, title: x.title })), view: { key: view.key, title: view.title }, filters, params, blocks };
     });
   }
+  /** A read identity changes on any data/schema/view mutation, including restore and same-timestamp writes. */
+  private async tableRevision(defs: Map<string, DatasetDef>): Promise<string> {
+    const writes = await this.conn.all('SELECT MAX(id) AS n FROM bs_writes');
+    const changes = await this.conn.all('SELECT MAX(id) AS n FROM bs_changes');
+    return tableDigest([this.slug, Array.from(defs.values()), Number(writes[0]?.n ?? 0), Number(changes[0]?.n ?? 0)]);
+  }
+
+  /** Resolve only a saved table; the browser may not supply a dataset/query. Run entirely in one queue slot. */
+  private async tableRead(raw: TableTarget) {
+    const target = tableTarget(raw);
+    const { version, doc } = await this.viewDoc(target.version);
+    const view = doc.views.find(v => v.key === target.view), block = view?.blocks[target.block];
+    if (!view || !block || block.type !== 'table') throw new BenchError('not_found', '这个位置不是表格');
+    const defs = await this.load(), params: Record<string, string> = {};
+    const given = target.params ?? {};
+    for (const b of view.blocks) if (b.type === 'filter-bar') for (const field of b.fields as FilterField[]) {
+      const v = Object.hasOwn(given, field.name) ? given[field.name] : undefined;
+      if (v !== undefined && v !== null && (typeof v !== 'string' || v.length > 200)) throw new BenchError('invalid', '筛选参数写法不对');
+      const value = typeof v === 'string' && v !== '' ? v : field.default ?? '';
+      if (value !== '') params[field.name] = value;
+    }
+    const revision = tableDigest([await this.tableRevision(defs), version, view.key, target.block, params, block.query]);
+    if (target.revision !== revision) throw new BenchError('conflict', '数据、筛选或版本已改变，请刷新后重新操作');
+    return { target, version, view, block, defs, params, revision };
+  }
+
+  /** All matching results, ignoring the table's display limit/offset; bounded by the existing dataset cap. */
+  tableExport(target: TableTarget) {
+    return this.serial(async () => {
+      const x = await this.tableRead(target), query = x.block.query as Record<string, unknown>;
+      const rows: Record<string, unknown>[] = [];
+      let columns: OutColumn[] = [], room: number = BENCH_LIMITS.resultChars;
+      for (let offset = 0; offset <= BENCH_LIMITS.rows; offset += BENCH_LIMITS.queryLimit) {
+        const page = await this.runQuery(x.defs, { ...query, offset, limit: BENCH_LIMITS.queryLimit }, x.params, room);
+        rows.push(...page.rows); room -= page.chars; columns = page.columns;
+        if (rows.length > BENCH_LIMITS.rows) throw new BenchError('limit', '完整导出超过行数上限，未生成截断文件');
+        if (!page.truncated) break;
+      }
+      const labels = isObj(x.block.column_labels) ? x.block.column_labels as Record<string, string> : {};
+      const names = Array.isArray(x.block.columns) ? x.block.columns as string[] : columns.map(c => c.name);
+      const selected = names.map(name => columns.find(c => c.name === name)).filter((c): c is OutColumn => !!c);
+      if (selected.length !== names.length) throw new BenchError('conflict', '列定义已改变，请刷新后重新导出');
+      await this.tableRead(target); // Detect writes by a different process during a paged export; never publish mixed generations.
+      return { version: x.version, view: x.view.key, title: String(x.block.title ?? x.view.title), params: x.params, revision: x.revision,
+        columns: selected.map(c => publicColumn({ ...c, label: Object.hasOwn(labels, c.name) ? labels[c.name] : c.labeled ? c.label : '' })), rows, row_count: rows.length, truncated: false };
+    });
+  }
+
+  /** Re-read the exact displayed result row in the same query/context; never silently move to newer data. */
+  tableRow(target: TableTarget, rowIndex: number, expected: unknown, includeOriginal = false) {
+    return this.serial(async () => {
+      const x = await this.tableRead(target), query = x.block.query as Record<string, unknown>;
+      const original = planQuery(query, x.defs, { params: x.params });
+      if (!Number.isSafeInteger(rowIndex) || rowIndex < 0 || rowIndex >= original.limit || !isObj(expected)) throw new BenchError('invalid', '要选择表格里的一条有效记录');
+      const result = await this.runQuery(x.defs, { ...query, offset: Number(query.offset ?? 0) + rowIndex, limit: 1 }, x.params, BENCH_LIMITS.resultChars);
+      const row = result.rows[0];
+      if (!row || canonical(row) !== canonical(expected)) throw new BenchError('conflict', '所选记录已改变，请刷新后重新打开');
+      // Original row fields are selected from this table's own dataset and inherited filters, never another bench.
+      const ds = x.defs.get(original.dataset)!;
+      const grouped = Array.isArray(query.group) && query.group.length > 0 || Array.isArray(query.measures) && query.measures.length > 0;
+      let sourceRows: Record<string, unknown>[] = [], sourceTruncated = false;
+      if (includeOriginal) {
+        const groups = Array.isArray(query.group) ? query.group as string[] : [];
+        const baseFilter = Array.isArray(query.filter) ? query.filter : [];
+        const groupFilter = groups.map(col => row[col] === null ? { col, op: 'is_null' } : { col, op: 'in', values: [row[col]] });
+        if (baseFilter.length + groupFilter.length <= BENCH_LIMITS.filters) {
+          const spec = grouped ? { dataset: ds.name, filter: [...baseFilter, ...groupFilter], limit: 200 }
+            : { ...query, select: ds.columns.map(c => c.name), offset: Number(query.offset ?? 0) + rowIndex, limit: 1 };
+          const raw = await this.runQuery(x.defs, spec, x.params, BENCH_LIMITS.resultChars);
+          sourceRows = raw.rows; sourceTruncated = raw.truncated;
+        }
+      }
+      await this.tableRead(target);
+      const filterLabels = Object.fromEntries(x.view.blocks.filter(b => b.type === 'filter-bar').flatMap(b => (b.fields as FilterField[]).map(f => [f.name, f.label ?? '筛选项'])));
+      return { version: x.version, view: x.view.key, params: x.params, filter_labels: filterLabels, revision: x.revision, dataset: ds.name, dataset_title: ds.title,
+        row, columns: result.columns.map(publicColumn), source_row: !grouped ? sourceRows[0] ?? null : null, source_rows: sourceRows, source_truncated: sourceTruncated,
+        source_columns: sourceRows.length ? ds.columns.map(c => ({ name: c.name, label: c.label, type: c.type })) : [],
+        source_status: sourceRows.length ? grouped ? 'group-rows' : 'original-row' : 'result-only',
+        source_message: sourceRows.length ? (grouped ? '同批次、版本、当前筛选及本组范围的原行；最多展示 200 行，超过时明确标记。' : '同一台、同一批次/版本与筛选范围内的原行。') + ' 原证字段按原值显示，不推定原证已存在或可访问。' : '未取得可确认的原行或原证；只有当前结果与来源定位，不代表证据已经存在。' };
+    });
+  }
+
   /**
    * 表单提交：往表单绑定的数据集追加一行。只收表单里列出的字段，多给的拒收；校验、幂等键、上限都和 append 一样。
    * version 是页面取数时拿到的视图版本：这期间视图换了版，表单可能已经不是原来那个，拒绝，由页面刷新后再提交。
