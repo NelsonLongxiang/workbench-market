@@ -134,6 +134,14 @@
       "GET /api/relations/proposals  -> relation.proposal-list  read",
       "POST /api/relations/proposals/:id/approve  -> relation.proposal-approve  decide  （状态码不代表授权：确认人由提议的种类判（负责人只有属主；团队认领要管理层或接收部门的负责人），按对象的范围，统一判定还不认（L13））",
       "POST /api/relations/proposals/:id/reject  -> relation.proposal-reject  write  （状态码不代表授权：确认人由提议的种类判（负责人只有属主；团队认领要管理层或接收部门的负责人），按对象的范围，统一判定还不认（L13））",
+      "GET /api/areas  -> area.list  read  （状态码不代表授权：按领域看的范围由对象定，统一判定还不认；看不到的按不存在回 404）",
+      "GET /api/areas/:id  -> area.read  read  （状态码不代表授权：按领域看的范围由对象定，统一判定还不认；看不到的按不存在回 404）",
+      "GET /api/areas/:id/specs  -> area.spec-list  read  （状态码不代表授权：按领域看的范围由对象定，统一判定还不认；看不到的按不存在回 404）",
+      "GET /api/areas/:id/specs/:version  -> area.spec-read  read  （状态码不代表授权：按领域看的范围由对象定，统一判定还不认；看不到的按不存在回 404）",
+      "POST /api/areas  -> area.create  decide",
+      "POST /api/areas/:id/retire  -> area.retire  decide",
+      "POST /api/areas/:id/specs/activate  -> area.spec-set  decide",
+      "POST /api/areas/:id/specs  -> area.spec-set  decide",
       "GET /api/principals/:id/access  -> principal.access  admin  （状态码不代表授权：按对象判：管理员看任何人，登录的人只看自己（本人是对象范围，统一判定还不认，L13））",
       "GET /api/access/red-lines  -> access.red-lines  read",
       "GET /api/setup/wizard  -> setup.wizard-read  admin",
@@ -382,6 +390,13 @@
           "app.read",
           "app.rollback",
           "app.sync",
+          "area.create",
+          "area.list",
+          "area.read",
+          "area.retire",
+          "area.spec-list",
+          "area.spec-read",
+          "area.spec-set",
           "attention.read",
           "auth.me",
           "cockpit.create",
@@ -645,6 +660,30 @@
         "why": "改自己的站内账号密码只认人：任何启用的人都能改自己的（路由只认登录着的本人、要原密码，不靠角色给写权限）；管理口令、本机命令行、席位都不是人，一律不能（管理员重置走 local-account.reset-password）"
       },
       {
+        "action": "area.create",
+        "only": [
+          "owner",
+          "local-cli"
+        ],
+        "why": "建领域只有属主（本机命令行在这里算属主）；管理层、系统管理员、管理口令都不行（docs/domains-step1.md 第三节）"
+      },
+      {
+        "action": "area.retire",
+        "only": [
+          "owner",
+          "local-cli"
+        ],
+        "why": "撤领域只有属主（本机命令行在这里算属主）；管理层、系统管理员、管理口令都不行（docs/domains-step1.md 第三节）"
+      },
+      {
+        "action": "area.spec-set",
+        "only": [
+          "owner",
+          "local-cli"
+        ],
+        "why": "定规范是硬规则，角色覆盖不算：第 1 步 PR1 只有属主（本机命令行在这里算属主），PR2 加持本领域 area-spec 授予的人"
+      },
+      {
         "action": "work-items.create",
         "only": [
           "person"
@@ -846,7 +885,8 @@
       "work-items",
       "workbench-event",
       "bench-store",
-      "knowledge"
+      "knowledge",
+      "area"
     ]
   },
   "presets": [

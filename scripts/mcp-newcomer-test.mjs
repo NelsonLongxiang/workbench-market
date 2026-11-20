@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
  * 新来的 AI 席位第一次接 MCP（冷读暴露的四处，通用网关这一侧）的对抗组。独立实例：全新 DATA_DIR、合成的管理口令、MCP_GATEWAY=on、数据视图开。
- *  一、读技能不用申请：零授权会话 tools/list 就有 skill_search、skills_list、skill_read；access_info 的目录每项带参数表（input_schema）。
+ *  一、读技能不用申请：零授权会话 tools/list 就有 skill_search、skills_list、skill_read。
+ *     目录分层（渐进开放第 1 步）：access_info 默认只给索引（名称、一行说明、类别、批没批），不带参数表；参数表按名字取（access_info {tool}），
+ *     和 tools/list 里的 inputSchema 一样；老客户端带 full: true 照样拿全量。
  *     免授权 ≠ 免认证：匿名、无效令牌、已吊销的会话照样 401。放开的只有这三个读：skill_download、skill_versions、skill_file_put、skill_publish 照旧要授权。
  *  二、skill_read 只读技能快照里的普通文件：../、绝对路径、反斜杠、点段、快照外的符号链接都读不到，和没有这个文件同一句；二进制只给大小和摘要。
  *  三、skill_search 的空结果分两种：库里一个技能都没有（不调评估模型，直说还没有导入技能）；有技能但没有够格的（另一句）。
@@ -69,13 +71,58 @@ try {
   const names = await listNames(bare.token);
   ok('零授权会话 tools/list 有两个权限自助工具、分段读大结果和三个读技能的工具，别的没有', J([...names].sort()) === J(['access_info', 'access_request', 'result_read', ...SKILL_READS].sort()), J(names));
   const info = await tool(bare.token, 'access_info');
+  // 工具结果是紧凑 JSON（不缩进）：同一份内容，换行和缩进不占上下文
+  ok('tools/call 的结果是紧凑 JSON：没有换行和缩进，解析得开', info.text.length > 100 && !info.text.includes('\n') && info.payload && JSON.stringify(info.payload) === info.text, info.text.slice(0, 80));
   const cat = info.payload?.catalog ?? [];
   const listed = ((await rpc('tools/list', {}, bare.token)).body?.result?.tools ?? []);
-  ok('access_info 的目录每项都带参数表 input_schema，和批准后 tools/list 里的 inputSchema 一样（新人不用先申请才知道参数名）',
-    cat.length > 30 && cat.every((t) => t.input_schema && typeof t.input_schema === 'object' && t.input_schema.type === 'object')
-    && listed.every((t) => J(cat.find((c) => c.name === t.name)?.input_schema) === J(t.inputSchema)),
-    J(cat.filter((t) => !t.input_schema).map((t) => t.name)));
-  ok('skill_search 的参数表里写着 need（冷读里猜成 query 的那个）', J(cat.find((t) => t.name === 'skill_search')?.input_schema?.required) === J(['need']));
+  // 目录分层（渐进开放第 1 步）：默认只给索引，参数表按名字取
+  const fullInfo = await tool(bare.token, 'access_info', { full: true });
+  const fullCat = fullInfo.payload?.catalog ?? [];
+  ok('access_info 默认只给索引：每项没有参数表，说明压成一行（不超过 80 字、没有换行和控制字符），目录项数和全量一样',
+    cat.length > 30 && cat.length === fullCat.length && cat.every((t) => !('input_schema' in t) && typeof t.description === 'string' && t.description.length > 0 && [...t.description].length <= 80 && !/[\u0000-\u001f\u007f-\u009f]/.test(t.description)),
+    J(cat.filter((t) => 'input_schema' in t || [...(t.description ?? '')].length > 80).map((t) => t.name)));
+  ok('默认应答不到全量的四分之一（不缩进、不带参数表）', info.text.length * 4 < fullInfo.text.length, `${info.text.length} / ${fullInfo.text.length}`);
+  ok('应答里写着怎么取参数表', typeof info.payload?.how_to_detail === 'string' && info.payload.how_to_detail.includes('access_info'));
+  ok('老客户端带 full: true 照样拿全量：每项带参数表，说明是原文', fullCat.length > 30 && fullCat.every((t) => t.input_schema && t.input_schema.type === 'object') && fullCat.some((t) => [...t.description].length > 80));
+  // 逐字节对照：scripts/fixtures/access-info-full-baseline.json 是加 result_read 之前（main 79f539a5，第 1 步和不缩进都已合入）
+  // 同样配置下 access_info {full: true} 的原样应答（实例地址随端口变，两边都写成 {{origin}} 再比）。
+  // 第 1 步那时的基准对的是第 1 步之前的 access_info {}，证明了 full 和老的整份目录逐字节相同；这一份接着那一份，往下传。
+  // 现在拿到的，除了多出 result_read 那一项（目录里一项、granted_tools 里一个名字，它是免授权的），应当和它一个字节都不差。
+  // 工具目录以后再变（加了、删了工具），这一条会红：那时照这里的做法重抓基准，把那一次加的、删的写进期望
+  {
+    const { readFileSync } = await import('node:fs');
+    const ADDED = ['result_read'];
+    const before = JSON.parse(readFileSync(new URL('./fixtures/access-info-full-baseline.json', import.meta.url), 'utf8'));
+    const nowText = fullInfo.text.split(BASE).join('{{origin}}');
+    const nowFull = JSON.parse(nowText);
+    const added = nowFull.catalog.map((t) => t.name).filter((n) => !before.catalog.some((t) => t.name === n));
+    const removed = before.catalog.map((t) => t.name).filter((n) => !nowFull.catalog.some((t) => t.name === n));
+    const changed = before.catalog.filter((t) => J(t) !== J(nowFull.catalog.find((x) => x.name === t.name))).map((t) => t.name);
+    // 把这次加的那几项按它们现在的位置放回基准里，再和现在的应答逐字节比
+    const insertAt = (list, items, nameOf) => { const out = [...list]; for (const it of items) { const i = nowFull.catalog.findIndex((x) => x.name === nameOf(it)); out.splice(i, 0, it); } return out; };
+    const newEntries = nowFull.catalog.filter((t) => ADDED.includes(t.name));
+    const patched = { ...before, granted_tools: nowFull.granted_tools.filter((n) => before.granted_tools.includes(n) || ADDED.includes(n)), catalog: insertAt(before.catalog, newEntries, (t) => t.name) };
+    ok('带 full: true 的应答和基准逐字节相同（只多了 result_read 那一项）', J(added) === J(ADDED) && removed.length === 0 && changed.length === 0 && JSON.stringify(patched) === nowText,
+      J({ added, removed, changed, bytes: [Buffer.byteLength(nowText), Buffer.byteLength(JSON.stringify(patched))] }));
+  }
+  const details = await Promise.all(listed.map((t) => tool(bare.token, 'access_info', { tool: t.name })));
+  ok('按名字取参数表（access_info {tool}）：和 tools/list 里的 inputSchema 一样，说明是原文（新人不用先申请才知道参数名）',
+    details.every((d, i) => d.payload?.tool?.name === listed[i].name && J(d.payload.tool.input_schema) === J(listed[i].inputSchema) && d.payload.tool.description === listed[i].description),
+    J(details.map((d) => d.text.slice(0, 60))));
+  const notGranted = await tool(bare.token, 'access_info', { tool: 'workbench_vars_set' });
+  ok('没批的工具也能取参数表，标 granted=false', notGranted.payload?.tool?.granted === false && notGranted.payload.tool.input_schema?.type === 'object', notGranted.text.slice(0, 120));
+  const ss = await tool(bare.token, 'access_info', { tool: 'skill_search' });
+  ok('skill_search 的参数表里写着 need（冷读里猜成 query 的那个）', J(ss.payload?.tool?.input_schema?.required) === J(['need']));
+  // 一行说明的压法：上游聚合来的说明是别人写的，只当数据——去控制字符、只取第一句、限长
+  const { catalogSummary } = await import('../server/src/mcp-tools.ts');
+  const evil = catalogSummary('第一句\u0007话\n第二行；第二句。'), long = catalogSummary('长'.repeat(200));
+  ok('一行说明：去掉控制字符和换行，只取第一句；超长截到 80 字加省略号', evil === '第一句 话 第二行；' && [...long].length === 80 && long.endsWith('…'), J([evil, long.length]));
+  const fmt = catalogSummary('看\u202e反过来\u2066隔离\u2069零\u200b宽\u200d连\ufeff结。');
+  ok('一行说明：方向控制符（U+202E、U+2066、U+2069）和零宽字符（U+200B、U+200D、U+FEFF）这类格式字符都去掉', fmt === '看反过来隔离零宽连结。' && !/\p{Cf}/u.test(fmt), J(fmt));
+  const unknown = await tool(bare.token, 'access_info', { tool: 'no_such_tool' });
+  ok('取不存在的工具：报错，不编一个出来', unknown.isError && /目录里没有/.test(unknown.text), unknown.text.slice(0, 120));
+  const both = await tool(bare.token, 'access_info', { tool: 'skill_search', full: true });
+  ok('tool、full、ref 一次只能给一个', both.isError, both.text.slice(0, 120));
   ok('读技能的三个工具在目录里标 always_allowed、granted；下载、版本链、上传、发布照旧 granted=false',
     SKILL_READS.every((n) => cat.find((t) => t.name === n)?.always_allowed === true && cat.find((t) => t.name === n)?.granted === true)
     && ['skill_download', 'skill_versions', 'skill_file_put', 'skill_publish'].every((n) => cat.find((t) => t.name === n)?.granted === false && !cat.find((t) => t.name === n)?.always_allowed));

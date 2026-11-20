@@ -70,6 +70,7 @@ import { registerExportImportRoutes } from './routes/export-import.ts';
 import { registerDepartmentRoutes } from './routes/departments.ts';
 import { registerTeamRoutes } from './routes/teams.ts';
 import { registerRelationRoutes } from './routes/relations.ts';
+import { registerAreaRoutes } from './routes/areas.ts';
 import { rosterStaleMinutesFromEnv, type TeamService } from './services/team.ts';
 import { proposalTtlDaysFromEnv, rosterGoneHoursFromEnv, type RelationProposalService } from './services/relation-proposal.ts';
 import { registerAccessRoutes } from './routes/access.ts';
@@ -2081,6 +2082,7 @@ registerGrantRoutes(http, { markAdmin, adminGuard, adminActor, adminHeaderOk, cr
 registerDepartmentRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 部门：登录的人读、管理员写
 registerTeamRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 团队与分配（规范 14 第 1 步）：登录的人按可见范围读；认领、负责人是管理员，分配是负责人
 registerRelationRoutes(http, { markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 关系的提议（规范 14「关系由谁说了算」）：负责人、团队认领要属主或业务侧确认
+registerAreaRoutes(http, { markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 领域（规范 15）：属主建撤、定规范；属主、管理层看全部
 registerAccessRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 角色预设 ②：以某人的身份看、红线清单、首次安装向导
 registerAttentionRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
 registerWorkItemRoutes(http, { markAdmin, adminGuard, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8d：事项页的时间线
@@ -2900,7 +2902,7 @@ const wbById = (id: number): ReturnType<typeof rowToWorkbench> | null => {
   return row ? rowToWorkbench(row) : null;
 };
 
-import { MCP_TOOLS, type McpToolDef, type McpToolCategory } from './mcp-tools.ts';
+import { MCP_TOOLS, catalogSummary, type McpToolDef, type McpToolCategory } from './mcp-tools.ts';
 import { evalCandidates, evalConfigured } from './eval.ts'; // #178 评估模型客户端
 
 import { renderSopRunner as renderSopRunnerRaw } from './sop-runner.ts';
@@ -2987,7 +2989,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       const alive = all.filter((s) => !(s.legacy === 1 && (SS.versionsBySkill(s.id) as any[]).length === 0));
       // 库是空的（或这一层没有）：不调评估模型，直说还没有导入技能——和「有技能但没有够格的」分开，免得新人以为是自己描述得不好
       if (alive.length === 0) return { need_digest: createHash('sha256').update(need, 'utf8').digest('hex').slice(0, 12), candidates_total: 0, top_n: Math.max(1, Math.floor(Number((args as any)?.top_n ?? 30)) || 30), items: [],
-        note: layerFilter >= 1 && layerFilter <= 5 ? `这一层（layer ${layerFilter}）还没有技能；去掉 layer 再搜，或用 skills_list 看全部` : '这个实例还没有导入技能（技能库是空的），搜不到不是描述的问题；照 access_info 的目录（带参数表）直接用或申请工具' };
+        note: layerFilter >= 1 && layerFilter <= 5 ? `这一层（layer ${layerFilter}）还没有技能；去掉 layer 再搜，或用 skills_list 看全部` : '这个实例还没有导入技能（技能库是空的），搜不到不是描述的问题；照 access_info 的目录直接用或申请工具（参数表用 access_info {tool: 工具名} 取）' };
       // 词：按非字母数字切开；连着写的中文再拆成两字一组（「怎么申请工具」→ 怎么、么申、申请、请工、工具），不然整句只算一个词
       const words = need.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 2);
       const tokens = [...new Set(words.flatMap((w) => (/\p{Script=Han}/u.test(w) && w.length > 2 ? [...w].slice(0, -1).map((c, i) => c + [...w][i + 1]) : [w])))];
@@ -3564,6 +3566,11 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
     return { id: row.id, tool: row.tool, sha256: row.sha256, total_chars: total, offset, text: row.body.slice(offset, end), next_offset: end < total ? end : null };
   }
   const catalog = await mcpAggregatedTools();
+  if (name === 'access_info') {
+    const given = (['ref', 'tool', 'full'] as const).filter((k) => args?.[k] !== undefined && !(k === 'full' && args.full === false));
+    if (given.length > 1) bad(`access_info 的 ${given.join('、')} 一次只能给一个`);
+    if (args?.full !== undefined && typeof args.full !== 'boolean') bad('full 写 true 或 false');
+  }
   if (name === 'access_info' && args?.ref !== undefined) {
     // 只查一条：只认本会话的；别的会话的和不存在的同一句
     const m = typeof args.ref === 'string' ? ACCESS_REF_RE.exec(args.ref.trim()) : null;
@@ -3584,11 +3591,22 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
     const granted = (t: McpToolDef) => mcpToolGranted(sess, t.name); // 网关关时全部可调
     const benchGrants = sess && BENCH_VIEWS.on ? benchGrantsOf(sess.id) : new Map<string, string[]>();
     const scopeOf = (t: McpToolDef) => { const sc = mcpToolScope(sess, t.name); return sc && sc !== 'all' ? [...sc].sort((a, b) => a - b) : null; };
+    /** 目录一项：标记（台的范围、免授权……）在索引和全量里一样；full 时带完整说明和参数表，否则只有一行说明 */
+    const entry = (t: McpToolDef, detail: boolean) => ({ name: t.name, description: detail ? t.description : catalogSummary(t.description), category: t.category, granted: granted(t), ...(detail ? { input_schema: t.inputSchema } : {}), ...(t.benchScoped ? { bench_scoped: true, scope: '必须限定到台', granted_benches: benchGrants.get(t.name) ?? [] } : {}), ...(scopeOf(t) ? { granted_workbenches: scopeOf(t) } : {}), ...(MCP_SCOPED_TOOLS.has(t.name) ? { scopable: true } : {}), ...(t.exempt ? { always_allowed: true } : {}) });
+    // 渐进开放第 1 步：按名字取一个工具的详情（没批的也给：目录本来就看得到，参数名不算机密）
+    if (args?.tool !== undefined) {
+      if (typeof args.tool !== 'string' || !args.tool.trim()) bad('tool 写工具名（来自目录）');
+      const t = catalog.find((x) => x.name === args.tool.trim());
+      if (!t) bad(`目录里没有这个工具：${JSON.stringify(String(args.tool).slice(0, 80))}（不带参数调 access_info 看目录）`);
+      return { tool: entry(t!, true) };
+    }
+    const full = args?.full === true;
     return {
       gateway: MCP_GATEWAY_ON ? 'on' : 'off',
       session: sess?.name ?? null,
       granted_tools: catalog.filter(granted).map((t) => t.name),
-      catalog: catalog.map((t) => ({ name: t.name, description: t.description, category: t.category, granted: granted(t), input_schema: t.inputSchema, ...(t.benchScoped ? { bench_scoped: true, scope: '必须限定到台', granted_benches: benchGrants.get(t.name) ?? [] } : {}), ...(scopeOf(t) ? { granted_workbenches: scopeOf(t) } : {}), ...(MCP_SCOPED_TOOLS.has(t.name) ? { scopable: true } : {}), ...(t.exempt ? { always_allowed: true } : {}) })),
+      catalog: catalog.map((t) => entry(t, full)),
+      ...(full ? {} : { how_to_detail: '要某个工具的参数表和完整说明：access_info {tool: "工具名"}（没批的也取得到）' }),
       requests: sess ? (svc<McpService>('mcp').accessRequestsBySession(sess.id) as AccessRequestRow[]).map(accessRequestForSession) : [],
       ...(BENCH_VIEWS.on ? { bench_requests: sess ? benchRequestsOf(sess.id).map(benchRequestForSession) : [], how_to_request_bench: 'access_request {tools: [工具名@bench:台的标识], reason: 用途}：数据视图的工具必须限定到台，读也一样；一次只申请一个台；由台的管理层批准，不经 MCP 网关页' } : {}),
       how_to_request: `access_request {tools: [工具名], reason: 用途}；只要一张台时写 工具@台号（数字台号，workbench_list 里的 id；自产台、SOP 台也可以写台的标识，服务端换成台号；目前 ${[...MCP_SCOPED_TOOLS].join(' / ')} 支持）；管理员在「MCP 网关」页「权限申请」批准后立即生效（并入现有授权）`,
