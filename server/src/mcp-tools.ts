@@ -5,6 +5,18 @@
 import { BENCH_TOOL_DEFS } from './bench-mcp-tools.ts';
 
 export type McpToolCategory = 'read' | 'write' | 'admin';
+
+/** 目录索引里的一行说明（渐进开放第 1 步）：取说明的第一句（到「。」「；」或换行），去掉控制字符和格式类字符（方向控制符、零宽字符这些
+ *  Unicode Cf 类，能把显示的文字倒过来或藏东西）、合并空白，超过 80 字截断加「…」。
+ *  上游聚合来的说明是别人写的，这里只当展示用的数据：限长、去控制字符，完整原文只在按名字取详情时给 */
+export const CATALOG_SUMMARY_MAX = 80;
+export function catalogSummary(description: unknown): string {
+  const clean = String(description ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/gu, ' ').replace(/\p{Cf}+/gu, '').replace(/\s+/g, ' ').trim();
+  const cut = /[。；]/.exec(clean);
+  const first = cut ? clean.slice(0, cut.index + 1) : clean;
+  const chars = [...first];
+  return chars.length <= CATALOG_SUMMARY_MAX ? first : `${chars.slice(0, CATALOG_SUMMARY_MAX - 1).join('')}…`;
+}
 /** benchScoped：数据视图的工具，必须限定到台——授予不走会话的 grants，见 services/bench-mcp.ts */
 export interface McpToolDef { name: string; description: string; category: McpToolCategory; exempt?: boolean; benchScoped?: boolean; inputSchema: Record<string, unknown> }
 export const MCP_TOOLS: McpToolDef[] = [
@@ -13,8 +25,16 @@ export const MCP_TOOLS: McpToolDef[] = [
     name: 'access_info',
     category: 'read',
     exempt: true,
-    description: '查本会话的权限：会话名、已授权工具、完整工具目录（本地 + 上游聚合，每项带 category=read/write/admin、granted 和参数表 input_schema，没批的工具也看得到参数名）、本会话提过的权限申请及状态（通用申请编号 mcp-N，台的申请 bench-N）。带 ref 时只回这一条申请。任何已认证会话都能调，不受授权限制——调用工具被拒或 tools/list 里找不到想要的工具时先调它。',
-    inputSchema: { type: 'object', properties: { ref: { type: 'string', description: '只查一条申请：access_request 应答里的编号，如 mcp-3、bench-2' } }, additionalProperties: false },
+    description: '查本会话的权限：会话名、已授权工具、工具目录（本地 + 上游聚合；默认只给索引——每项是名字、一行说明、category=read/write/admin、granted，不带参数表）、本会话提过的权限申请及状态（通用申请编号 mcp-N，台的申请 bench-N）。要某个工具的参数表和完整说明，带 tool（没批的工具也取得到）；带 ref 只回这一条申请；带 full: true 回整份目录连参数表（大，只在确实要全量时用）。三者一次只能给一个。任何已认证会话都能调，不受授权限制——调用工具被拒或 tools/list 里找不到想要的工具时先调它。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tool: { type: 'string', description: '只取这一个工具的详情：完整说明和参数表 input_schema（工具名来自目录）' },
+        ref: { type: 'string', description: '只查一条申请：access_request 应答里的编号，如 mcp-3、bench-2' },
+        full: { type: 'boolean', description: 'true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）' },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: 'access_request',
