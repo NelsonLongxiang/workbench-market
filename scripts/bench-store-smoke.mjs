@@ -8,6 +8,17 @@ import { mkdirSync, mkdtempSync, rmSync, existsSync, readdirSync, writeFileSync 
 import { resolve, join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { DatabaseSync } from 'node:sqlite';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+// Exercise a genuinely blocked transaction, not a race between a 1ms soft check and watchdog.
+// The helper is inherited by test-owned workers; no product hook or timeout/oracle is changed.
+const transactionFixture = new URL('./fixtures/bench-watchdog-transaction.mjs', import.meta.url).href;
+if (!process.execArgv.includes(transactionFixture)) {
+  const result = spawnSync(process.execPath, [...process.execArgv, '--import', transactionFixture, fileURLToPath(import.meta.url), ...process.argv.slice(2)], { stdio: 'inherit' });
+  if (result.error) throw result.error;
+  process.exit(result.status ?? 1);
+}
 
 mkdirSync('tmp', { recursive: true });
 const DATA = mkdtempSync(resolve('tmp/bench-store-smoke-'));
@@ -486,7 +497,7 @@ try {
   // 被强行终止的线程手里握着写锁（留快照要先读完全表，中途停不下来）：等它真的退出才起新线程，排在后面的写入不会撞上锁
   configureBenchRuntime({ writeMs: 1, graceMs: 1 });
   st = benchRuntimeStats();
-  const killedInTx = refused(() => big.snapshot('wide', ctx())); // 这一刻已经发给线程，时限按上面的算
+  const killedInTx = refused(() => big.snapshot('wide', ctx({ note: 'synthetic-watchdog-locked-transaction' }))); // 这一刻已经发给线程，时限按上面的算
   configureBenchRuntime(base); // 排在后面的那次写入用正常的时限
   const writeBehind = refused(() => big.upsert('wide', [{ id: 1, body: 'after-kill', grp: 2 }], ctx()));
   e = await killedInTx;

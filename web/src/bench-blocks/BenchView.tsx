@@ -9,6 +9,8 @@ import { FormBlock, type FormField } from './Form';
 import { ProgressBlock } from './Progress';
 import { StatBlock } from './Stat';
 import { TableBlock } from './Table';
+import { NativeTable } from './NativeTable';
+import { asTableContext } from '../bench-table-view';
 import { layoutSpans, snapSpan, valueLabel, withLabelColumns, type BlockData, type BlockError } from './blocks-view';
 
 type Block = { type: string; title?: string; span?: number; data?: BlockData; error?: BlockError; [k: string]: unknown };
@@ -27,12 +29,15 @@ export interface BenchViewProps {
   dense?: boolean;
   /** 不画视图自己的筛选栏：筛选由外面管（驾驶舱顶上那一排），值照样经取数传进来 */
   hideFilters?: boolean;
+  /** Only the standalone bench page enables authenticated table download/detail actions. */
+  tableBench?: string;
+  tableDisabled?: boolean;
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 /** 表单块的 can_submit 是 false 时的说法 */
 export const FORM_DENIED = '你的账号不能在这个台上填表。要填的话，请管理层为你开通这个台的权限。';
-export function BenchView({ result, loading, onParams, onSubmit, formDisabledReason, frame, dense, hideFilters }: BenchViewProps) {
+export function BenchView({ result, loading, onParams, onSubmit, formDisabledReason, frame, dense, hideFilters, tableBench, tableDisabled }: BenchViewProps) {
   const blocks = result?.blocks ?? [];
   // 宽度按真正画出来的块排（隐藏的筛选栏不占位）：独占一行又没写 span 的块撑满这一行
   const KNOWN = new Set(['filter-bar', 'form', 'stat', 'progress', 'table', 'bar', 'line', 'pie']);
@@ -47,7 +52,11 @@ export function BenchView({ result, loading, onParams, onSubmit, formDisabledRea
         if (b.type === 'form') return <FormBlock key={i} frame={frame} title={b.title} span={common.span} error={b.error ?? null} fields={(b.columns as FormField[]) ?? []} submitLabel={str(b.submit_label) || undefined} onSubmit={(v) => onSubmit(i, v)} disabledReason={formDisabledReason ?? (b.can_submit === false ? FORM_DENIED : undefined)} />;
         if (b.type === 'stat') return <StatBlock key={i} {...common} value={str(b.value)} unit={str(b.unit) || undefined} toneRules={b.tone_rules} />;
         if (b.type === 'progress') return <ProgressBlock key={i} {...common} value={str(b.value)} total={typeof b.total === 'number' ? b.total : str(b.total)} />;
-        if (b.type === 'table') return <TableBlock key={i} {...common} dense={dense} data={withLabelColumns(common.data, b.value_labels)} statusText={(v, col) => valueLabel(b.value_labels, col, v)} columns={Array.isArray(b.columns) ? (b.columns as string[]) : undefined} pageSize={typeof b.page_size === 'number' ? b.page_size : undefined} />;
+        if (b.type === 'table') {
+          const props = { ...common, dense, data: withLabelColumns(common.data, b.value_labels), statusText: (v: unknown, col: string) => valueLabel(b.value_labels, col, v), columns: Array.isArray(b.columns) ? b.columns as string[] : undefined, pageSize: typeof b.page_size === 'number' ? b.page_size : undefined };
+          const context = asTableContext(b.table_context);
+          return tableBench && context ? <NativeTable key={i} {...props} bench={tableBench} context={context} disabled={tableDisabled} /> : <TableBlock key={i} {...props} />;
+        }
         if (b.type === 'bar') return <BarBlock key={i} {...common} x={str(b.x)} y={(b.y as string | string[]) ?? []} series={str(b.series) || undefined} stacked={b.stacked === true} horizontal={b.horizontal === true} toneRules={b.tone_rules} />;
         if (b.type === 'line') return <LineBlock key={i} {...common} x={str(b.x)} y={(b.y as string | string[]) ?? []} series={str(b.series) || undefined} area={b.area === true} />;
         if (b.type === 'pie') return <PieBlock key={i} {...common} label={str(b.label)} value={str(b.value)} donut={b.donut === true} />;

@@ -27,6 +27,7 @@ import { judge, scopedVerdict, type JudgedActor } from '../judgment.ts';
 import { ASKED, deptKind } from '../judgment-builtins.ts';
 import type { Kind } from '../roles.ts';
 import { BENCH_LIMITS, BenchError } from '../bench-query.ts';
+import { tableTarget, tableCsv } from '../bench-table.ts';
 import { benchStore, type BenchStore } from '../services/bench-store.ts';
 import { bindBench, linkWorkbench, createBench, getBench, listBenches, resolveBenchRef, unopenedCard, cardSlug, type BenchEntry } from '../services/bench-registry.ts';
 import { relationOf } from '../team-relation.ts';
@@ -318,6 +319,50 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
       const canSubmit = may(actor, 'bench-store.form-submit', bench);
       assertBenchBinding(bench); // Last synchronous gate: nothing may await between this and res.json.
       res.json({ ...out, blocks: (out.blocks ?? []).map((b) => (b?.type === 'form' ? { ...b, can_submit: canSubmit } : b)) });
+    } catch (e) { fail(res, e); }
+  }));
+  // Table operations reuse the existing render/query authorization; no new grant or binding is introduced.
+  app.post('/api/bench-views/:bench/table/export', { action: 'bench-store.render', kind: 'read', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.vary('Cookie');
+    const bench = getBench(req.params.bench);
+    const actor = await allowActor(req, res, 'bench-store.render', bench);
+    if (!actor) return;
+    if (!bench) return res.status(404).json({ error: 'bench_not_found' });
+    try {
+      const target = tableTarget(req.body);
+      const out = await (await benchStore(bench.slug)).tableExport(target);
+      const csv = tableCsv(out.columns, out.rows);
+      // Long reads must not publish after access was revoked or a binding changed.
+      const current = await allowActor(req, res, 'bench-store.render', getBench(bench.slug));
+      if (!current) return;
+      assertBenchBinding(bench);
+      res.set('Content-Type', 'text/csv; charset=utf-8');
+      res.set('Content-Disposition', "attachment; filename*=UTF-8''" + encodeURIComponent('table-' + out.view + '-v' + out.version + '.csv'));
+      res.set('X-Content-Type-Options', 'nosniff');
+      res.set('X-Row-Count', String(out.row_count));
+      res.set('X-View-Version', String(out.version));
+      res.set('X-Table-Revision', out.revision);
+      res.send(csv);
+    } catch (e) { fail(res, e); }
+  }));
+  app.post('/api/bench-views/:bench/table/row', { action: 'bench-store.render', kind: 'read', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.vary('Cookie');
+    const bench = getBench(req.params.bench);
+    const actor = await allowActor(req, res, 'bench-store.render', bench);
+    if (!actor) return;
+    if (!bench) return res.status(404).json({ error: 'bench_not_found' });
+    try {
+      const body = req.body;
+      if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(k => !['target', 'index', 'row'].includes(k))) throw new BenchError('invalid', '记录详情需要表格上下文、行号和所选记录');
+      const target = tableTarget(body.target), mayOriginal = may(actor, 'bench-store.query', bench);
+      const out = await (await benchStore(bench.slug)).tableRow(target, body.index, body.row, mayOriginal);
+      const current = await allowActor(req, res, 'bench-store.render', getBench(bench.slug));
+      if (!current) return;
+      const canReadOriginal = mayOriginal && may(current, 'bench-store.query', getBench(bench.slug));
+      assertBenchBinding(bench);
+      res.json(canReadOriginal ? out : { ...out, source_row: null, source_rows: [], source_truncated: false, source_columns: [], source_status: 'forbidden', source_message: '你无权查看原行或原证详情；未扩大读取权限。' });
     } catch (e) { fail(res, e); }
   }));
   app.post('/api/bench-views/:bench/form', { action: 'bench-store.form-submit', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.form-submit', (req, _res, s, actor) => {

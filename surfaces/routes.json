@@ -83,6 +83,8 @@
       "GET /api/bench-views/:bench/view/diff  <- <anonymous>",
       "POST /api/bench-views/:bench/view/rollback  <- <anonymous>",
       "GET /api/bench-views/:bench/render  <- <anonymous>",
+      "POST /api/bench-views/:bench/table/export  <- <anonymous>",
+      "POST /api/bench-views/:bench/table/row  <- <anonymous>",
       "POST /api/bench-views/:bench/form  <- <anonymous>",
       "GET /api/bench-views/:bench/mcp-grants  <- <anonymous>",
       "PUT /api/bench-views/:bench/mcp-grants  <- <anonymous>",
