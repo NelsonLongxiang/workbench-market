@@ -24,6 +24,7 @@
       "clock": "2030-01-01T00:00:00Z",
       "fixtures": ["identity-fake", "knowledge-fake"],
       "seed": [
+        { "table": "departments", "row": { "id": "sales", "name": "合成销售部", "created_at": 0, "updated_at": 0 } },
         { "table": "knowledge_meta", "row": { "k": "key-secret", "v": "replay-knowledge-key-secret-0001" } },
         {
           "table": "knowledge_items",
@@ -40,13 +41,6 @@
         { "table": "attention_answers", "row": { "source": "work-items", "source_id": "wi_replay:1", "answer": "release", "state": "done", "status": 200, "body": "{}", "answered_by": "user:no-flag" } }
       ],
       "steps": [
-        {
-          "id": "dept-sales",
-          "what": "布置现场：属主（本机命令行）建部门 sales（借部门的路由，只比状态码）",
-          "compare": "status",
-          "request": { "method": "PUT", "path": "/api/departments/sales", "json": { "name": "合成销售部" } },
-          "response": { "status": 201 }
-        },
         {
           "id": "viewer-alpha",
           "what": "布置现场：alpha 登录一次",

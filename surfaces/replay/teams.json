@@ -47,14 +47,23 @@
         {
           "table": "a2a_roster_node_seats",
           "row": { "peer_root": "https://node.synthetic.invalid", "host": "a1b2c3d4", "key_fingerprint": "sha256:a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1", "team": "zone1/canvas/Sales Team", "seat": "zone1/0000000b", "seat_id": "seat-0000000b", "name": "合成成员", "role": "member", "online": 1, "first_seen_at": "2030-01-01T00:00:00Z" }
-        }
+        },
+        { "table": "grants", "row": { "id": 9001, "principal_id": "user:beta", "role": "dept-lead", "scope": "dept:sales", "reason": "随部门负责人确认", "status": "draft", "created_by": "cli", "created_at": 0, "updated_at": 0 } },
+        { "table": "dept_lead_grants", "row": { "department_id": "sales", "grant_id": 9001, "principal_id": "user:beta", "created_at": 0 } }
       ],
       "steps": [
         {
-          "id": "dept-lead-set",
-          "what": "布置现场：属主（本机命令行）正式指定 sales 的负责人 beta，负责人的授予随之发出（借部门的路由，只比状态码）——种进库里的只有字段，不算负责人",
+          "id": "dept-lead-grant-submit",
+          "what": "布置现场：部门已停写，sales 的负责人 beta 是停写前属主指定的——种进库里的是字段、随负责人发的那条授予（草稿）和对照；这里经授予的路由提交（借授予的路由，只比状态码）",
           "compare": "status",
-          "request": { "method": "PUT", "path": "/api/departments/sales", "json": { "name": "合成销售部", "lead": "user:beta" } },
+          "request": { "method": "POST", "path": "/api/grants/9001/submit" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "dept-lead-grant-approve",
+          "what": "布置现场：属主（本机命令行）放行那条授予，beta 才算 sales 的负责人（借授予的路由，只比状态码）",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/9001/approve" },
           "response": { "status": 200 }
         },
         {
