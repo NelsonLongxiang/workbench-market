@@ -1,7 +1,7 @@
 /** 「等你拍板」里审核类卡片的纯函数（不碰 React，scripts/review-ui-unit.mjs 直接测；只引类型）。
  *  变更申请（回滚 / 删除一个工作台或技能）当场办：数据是「关注」条目上的 detail（#580）。
  *  统一待办的条目不是审核（kind：任务、SOP 执行……），没有当场的答法，按 kind 说清是什么。 */
-import type { AttentionItem } from './attention-view';
+import { hostDecideAt, type AttentionItem } from './attention-view.ts';
 
 export type ChangeDetail = {
   kind: 'app' | 'skill'; op: 'rollback' | 'delete'; slug: string; title: string; exists: boolean;
@@ -158,4 +158,41 @@ export function grantDoneText(body: unknown): string {
   if (!ob || typeof ob !== 'object') return '办好了';
   const t = str((ob as Record<string, unknown>).title).trim() || str((ob as Record<string, unknown>).slug).trim();
   return t ? `办好了：已为「${t}」开了台库，授予也写上了` : '办好了：顺带开了台库，授予也写上了';
+}
+
+/** 团队的决策卡（T8，来源 a2a-decisions）：宿主上的观察者或总工提给属主的一道选择题。第一期只展示，拍板到宿主上（卡片上的「去宿主拍板 →」）。
+ *  卡片写清：谁提的（观察者 / 总工、哪个宿主上的哪个团队）、多急（P0～P3）、问什么、有哪几个选项、建议选哪个和理由、带了哪些附件 */
+export type HostDecision = { host: string; team: string; proposer: string; level: string; question: string; options: string[]; recommended: string; reason: string;
+  files: { name: string; size: number }[]; decideAt: string | null };
+export function hostDecisionOf(item: Pick<AttentionItem, 'source'> & { detail?: unknown }): HostDecision | null {
+  if (item.source !== 'a2a-decisions' || !item.detail || typeof item.detail !== 'object') return null;
+  const d = item.detail as Record<string, unknown>;
+  const files = (Array.isArray(d.files) ? d.files : []).flatMap((f): { name: string; size: number }[] => {
+    if (!f || typeof f !== 'object') return [];
+    const x = f as Record<string, unknown>;
+    return typeof x.name === 'string' && x.name.trim() ? [{ name: x.name.trim(), size: typeof x.size === 'number' && Number.isFinite(x.size) && x.size >= 0 ? x.size : -1 }] : [];
+  });
+  return {
+    host: str(d.host).trim(), team: str(d.team).trim(), proposer: str(d.proposer_kind), level: /^P[0-3]$/.test(str(d.level)) ? str(d.level) : '',
+    question: str(d.question).trim(), options: (Array.isArray(d.options) ? d.options : []).filter((o): o is string => typeof o === 'string' && !!o.trim()).map((o) => o.trim()),
+    recommended: str(d.recommended).trim(), reason: str(d.reason).trim(), files, decideAt: hostDecideAt(item),
+  };
+}
+/** 附件大小：B / KB / MB；认不出写「大小不明」 */
+export const fileSize = (n: number): string => (n < 0 ? '大小不明' : n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
+/** 急的程度给标签的颜色：P0 红、P1 橙、P2 蓝、P3 灰 */
+export const LEVEL_TONE: Record<string, string> = { P0: 'error', P1: 'warning', P2: 'processing', P3: 'default' };
+export function hostDecisionCard(d: HostDecision, teamName: (t: string) => string): { title: string; who: string; lines: string[]; where: string } {
+  const who = d.proposer === 'observer' ? '观察者' : d.proposer === 'router' ? '总工' : '团队';
+  const team = d.team ? teamName(d.team) || d.team : '';
+  return {
+    title: d.question || '（没写问题）',
+    who: `${who}${d.host ? `（${d.host}${team ? ` · ${team}` : ''}）` : team ? `（${team}）` : ''} 提的`,
+    lines: [
+      d.options.length ? `可选：${d.options.map((o) => (o === d.recommended ? `${o}（建议）` : o)).join(' / ')}` : '',
+      d.reason ? `理由：${d.reason}` : '',
+      d.files.length ? `附件 ${d.files.length} 个：${d.files.slice(0, 3).map((f) => `${f.name}（${fileSize(f.size)}）`).join('、')}${d.files.length > 3 ? ' 等' : ''}` : '',
+    ].filter(Boolean),
+    where: d.decideAt ? '' : '宿主没给拍板的地址：到宿主上找这张卡拍板',
+  };
 }

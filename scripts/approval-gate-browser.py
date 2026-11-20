@@ -6,7 +6,9 @@
 (b) 有资格的人（合成管理员）在卡片上点：变更申请「通过并回滚」「不通过」（带理由）走统一答复入口 POST /api/attention/answer；
     AI 会话申请工具「批准」「不给」（带理由）按条目的 answer_via 发到它自己的地址。断言每个请求的路径、方法、请求体。
 (d) 申请写的是还没开台库的卡片（detail.bench_registered=false，属主 11-18 踩到的那种）：卡片写明批准会顺带开台库、链到这张卡片；
-    侧栏「全景」的计数算上它；批准后应答带 opened_bench，提示说开了哪个台库。MCP 网关的「权限申请」没有待批时指去「等你拍板」。"""
+    侧栏「全景」的计数算上它；批准后应答带 opened_bench，提示说开了哪个台库。MCP 网关的「权限申请」没有待批时指去「等你拍板」。
+(e) 团队的决策卡（T8，来源 a2a-decisions，只展示）：带宿主拍板地址的进全景「等你拍板」和侧栏计数，按钮「去宿主拍板 →」新标签打开、不带来源页；
+    地址是空串或 javascript: 的归「要到别处处理」、不计数、不给链接；没有这个来源（非属主）时什么也不显示、不计数。"""
 import json, re, sys
 from playwright.sync_api import sync_playwright
 cfg = json.load(open(sys.argv[1])); M = cfg['base']
@@ -157,6 +159,58 @@ with sync_playwright() as p:
           and hint.count() == 1 and hint.get_by_role('link').get_attribute('href') == '/attention', pg.locator('main').inner_text()[:300])
     check('写明台的工具授权要用有管理层授予的账号来批（系统管理员、管理口令看不到）', '有管理层授予的账号' in hint.inner_text() and '管理口令' in hint.inner_text() and '有管理层授予的账号' in empty.inner_text())
     check('页头那句提示也指「等你拍板」，不再说「关注」', '「等你拍板」' in pg.locator('[data-testid=also-in-attention]').inner_text() and '「关注」' not in pg.locator('main').inner_text())
+    ctx.close()
+    # (e) 团队的决策卡
+    def deccard(sid, decide_at, level='P1'):
+        return {'source': 'a2a-decisions', 'source_id': sid, 'category': 'ask', 'kind': 'a2a-decision', 'title': f'[{level}] 观察者（合成团队）：合成问题 {sid}',
+                'waiting_for': 'team:synthetic.example.invalid/team-a', 'since': '2026-11-20T08:00:00Z', 'answers': [], 'object': '', 'phase': '', 'link': '', 'mine': True,
+                'detail': {'host': '合成宿主', 'team': 'team-a', 'proposer_kind': 'observer', 'level': level, 'question': f'合成：下周先上哪个？{sid}', 'options': ['甲方案', '乙方案'],
+                           'recommended': '乙方案', 'reason': '合成理由', 'files': [{'name': 'a.pdf', 'size': 2048}], 'created_at': '2026-11-20T08:00:00Z', 'decide_at': decide_at}}
+    HOST = 'https://host.example.invalid/decide/1'
+    decs = [deccard('d1', HOST, 'P0'), deccard('d2', ''), deccard('d3', 'javascript:alert(1)')]
+    ctx = ctx_for(b, cfg['admin_session'], decs)
+    ctx.route('https://host.example.invalid/**', lambda r: r.fulfill(status=200, content_type='text/html', body='<title>合成宿主</title>合成宿主的拍板页'))
+    pg = ctx.new_page(); pg.set_default_timeout(10000)
+    errs = []; pg.on('pageerror', lambda e: errs.append(str(e)))
+    writes = []; pg.on('request', lambda r: writes.append((r.method, r.url.split(M)[-1])) if r.method != 'GET' and '/api/' in r.url else None)
+    visit(pg, '/')
+    d1 = card('下周先上哪个？d1')
+    nowbox, elsebox = pg.locator('[data-testid=decisions-now]'), pg.locator('[data-testid=decisions-elsewhere]')
+    check('带宿主地址的决策卡：进全景「等你拍板」那一组，侧栏「全景」计数 1；空串、javascript: 的两张在「要到别处处理的」那组，不计数',
+          d1.count() == 1 and nowbox.locator('[data-testid=decision-card]', has_text='d1').count() == 1 and pg.locator('[data-testid=home-decide-n]').inner_text().strip() == '1'
+          and pg.locator('[data-testid=nav-pending]').inner_text().strip() == '1' and nowbox.locator('[data-testid=decision-card]').count() == 1
+          and elsebox.locator('[data-testid=decision-card]', has_text='d2').count() == 1 and elsebox.locator('[data-testid=decision-card]', has_text='d3').count() == 1
+          and '2 件要到别处处理' in pg.locator('[data-testid=home-summary]').inner_text(), pg.locator('main').inner_text()[:400])
+    txt = d1.inner_text() if d1.count() else ''
+    check('卡片写清：团队的决策卡、P0、谁提的、问题、选项（标出建议）、理由、附件', all(w in txt for w in ('团队的决策卡', 'P0', '观察者（合成宿主', '合成：下周先上哪个？d1', '可选：甲方案 / 乙方案（建议）', '理由：合成理由', 'a.pdf（2 KB）')), txt)
+    go = d1.locator('[data-testid=decision-host-go]')
+    check('按钮「去宿主拍板 →」：链到宿主地址，新标签打开，rel 带 noopener noreferrer；卡片上没有批准、驳回之类的答法',
+          go.count() == 1 and '去宿主拍板' in go.inner_text() and go.get_attribute('href') == HOST and go.get_attribute('target') == '_blank'
+          and set((go.get_attribute('rel') or '').split()) >= {'noopener', 'noreferrer'} and d1.get_by_role('button', name=re.compile(r'批\s*准|不\s*给|通\s*过')).count() == 0)
+    popup = None
+    if go.count():
+        try:
+            with pg.expect_popup(timeout=5000) as pop: go.click()
+            popup = pop.value; popup.wait_for_load_state()
+        except Exception: popup = None
+        if popup is None and pg.url.rstrip('/') != M.rstrip('/'): visit(pg, '/')  # 没新开标签、把本页带走了：回来接着测
+    check('点「去宿主拍板 →」：新标签打开宿主的拍板页，市场这一页还在，没发任何写请求', popup is not None and popup.url == HOST and pg.url.rstrip('/') == M.rstrip('/') and not writes, (popup and popup.url, pg.url, writes))
+    if popup: popup.close()
+    visit(pg, '/attention')
+    d2, d3 = card('下周先上哪个？d2'), card('下周先上哪个？d3')
+    check('「等你拍板」完整列表：空串、javascript: 的两张在「要到别处处理」里，写到宿主上找这张卡，没有可点的链接',
+          d2.count() == 1 and d3.count() == 1 and '到宿主上找这张卡' in d2.locator('[data-testid=decision-where]').inner_text()
+          and d2.locator('a').count() == 0 and d3.locator('a').count() == 0 and d3.locator('[data-testid=decision-host-go]').count() == 0, pg.locator('main').inner_text()[:400])
+    check('页面上哪儿都没有 javascript: 链接', pg.locator('a[href^="javascript:" i]').count() == 0)
+    check('决策卡这几页没有报错', not errs, errs)
+    ctx.close()
+    # 非属主：服务端不列这个来源（sources 里 visible 为假），页面上什么也没有、不计数
+    ctx = b.new_context(viewport={'width': 1440, 'height': 900})
+    ctx.add_cookies([{'name': 'session_id', 'value': cfg['alpha_session'], 'url': M}])
+    ctx.route('**/api/attention', lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps({'items': [], 'counts': {'total': 0, 'by_category': {}}, 'sources': {'a2a-decisions': {'label': '团队的决策卡', 'visible': False}}})))
+    pg = ctx.new_page(); pg.set_default_timeout(10000)
+    visit(pg, '/')
+    check('非属主（这个来源不可见）：全景「等你拍板」0 件，侧栏不出计数，没有决策卡', pg.locator('[data-testid=home-decide-n]').inner_text().strip() == '0' and pg.locator('[data-testid=nav-pending]').count() == 0 and pg.locator('[data-testid=decision-host-go]').count() == 0)
     ctx.close()
     b.close()
 print(f'approval-gate-browser: {ok} passed / {fail} failed'); sys.exit(1 if fail else 0)
