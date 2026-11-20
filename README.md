@@ -462,6 +462,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   a2a-replies.ts（市场回给团队的消息的发送状态：答复、来信回复、跟进回执；时间由代码生成后写入）
   seat-tokens.ts（席位用节点签名换 1 小时的 MCP 令牌（设计和给节点侧的格式见 [docs/seat-token-exchange.md](docs/seat-token-exchange.md)）：按钉住的节点公钥验签（指纹 = 名册的 host）、核节点 active 和名册里的席位、签名只认一次；令牌只存 sha256、不续期，每次调用复核席位和节点；每个席位一个长期的授权主体（mcp_sessions 一行），grants 和按台批的授予挂在它上面，跨令牌轮换保留）
   a2a-stats.ts（A2A 出站积压的聚合读数：两张出站表按状态计数、最老待发、最近回执时长）
+  area.ts（领域：Cordis 服务 `areas`·领域、领域规范的版本（建好不能改、不能删，改规范 = 新加一版、回退 = 移生效指针）、留痕·新建的是 pending-lead·撤领域时同一个写事务里一并撤销 area:<标识> 的没结束的授予（草稿、待核、生效）·撤了只读不删；docs/domains-step1.md）
   attention-sources.ts（「关注」要用、来源里还没有现成函数的只读查询：席位未答的提问）
   bench-mcp.ts（数据视图的 MCP 工具：授予按「会话 × 台 × 工具」记在自己的表里，不放进会话的 grants·申请由会话提、台的管理层批·读也按台限定·执行时把台库的方法对到工具名上）
   bench-registry.ts（视图台的登记：主库里只记有这个台、叫什么、谁建的、绑到哪个部门和团队·登记过的台才有库，没登记的标识一律当作不存在·改绑留痕·卡片 id 为主、台标识为别名：入口写卡片 id 或台标识都认（resolveBenchRef），只给 workbench_id 就开出 wb-<卡片 id>·纯数字标识不许登记·删卡片时登记和授予一起删（removeCardBench））
@@ -509,6 +510,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   content-observation.ts（门户观测状态 /api/content/observation）
   cookies.ts（Cookie 池 /api/cookies）
   departments.ts（部门 /api/departments：登录的人读列表、单个部门的成员、某人属于哪些部门；管理员建改删部门和成员）
+  areas.ts（领域 /api/areas：属主、管理层、管理口令、本机命令行看全部，别人列表为空、单条 404；建、撤、定规范第 1 步只有属主；规范的版本清单和单版）
   teams.ts（团队与分配 /api/teams：团队页（部门 → 团队 → 成员，按看的人的可见范围在服务端裁好）、「我的 AI 员工」；管理员认领、退回、指定和移除负责人；负责人分配、收回、改派成员（改派一个事务里收回并分给另一个人；状态码不代表授权）；团队的变更记录、某人各段分配的历史（按关系裁：管理员、管理层看全部，负责人看自己的团队，本人看自己的；读不到的按不存在回））
   access.ts（角色预设 ②：以某人的身份看 /api/principals/:id/access（管理员看任何人、登录的人看自己，带 action 给判定结论）、红线清单 /api/access/red-lines、首次安装向导 /api/setup/wizard（管理员跑，属主放行））
   design-tokens.ts（设计 token 固定路径 /design/tokens@<版本>.css）

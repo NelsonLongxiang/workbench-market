@@ -70,6 +70,7 @@ import { registerExportImportRoutes } from './routes/export-import.ts';
 import { registerDepartmentRoutes } from './routes/departments.ts';
 import { registerTeamRoutes } from './routes/teams.ts';
 import { registerRelationRoutes } from './routes/relations.ts';
+import { registerAreaRoutes } from './routes/areas.ts';
 import { rosterStaleMinutesFromEnv, type TeamService } from './services/team.ts';
 import { proposalTtlDaysFromEnv, rosterGoneHoursFromEnv, type RelationProposalService } from './services/relation-proposal.ts';
 import { registerAccessRoutes } from './routes/access.ts';
@@ -2081,6 +2082,7 @@ registerGrantRoutes(http, { markAdmin, adminGuard, adminActor, adminHeaderOk, cr
 registerDepartmentRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 部门：登录的人读、管理员写
 registerTeamRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 团队与分配（规范 14 第 1 步）：登录的人按可见范围读；认领、负责人是管理员，分配是负责人
 registerRelationRoutes(http, { markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 关系的提议（规范 14「关系由谁说了算」）：负责人、团队认领要属主或业务侧确认
+registerAreaRoutes(http, { markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 领域（规范 15）：属主建撤、定规范；属主、管理层看全部
 registerAccessRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 角色预设 ②：以某人的身份看、红线清单、首次安装向导
 registerAttentionRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
 registerWorkItemRoutes(http, { markAdmin, adminGuard, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8d：事项页的时间线
