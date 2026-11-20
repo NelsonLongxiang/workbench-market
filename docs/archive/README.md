@@ -47,6 +47,9 @@
 | 2026-11-18 | `docs/archive/workbench-market-arch-sources.md` 的链接对照 | 改对照：三行改成「已删除」加最后一版的取法 | 原位置 | #823 删掉了 odoo-browser-origin.ts、odoo-session.ts、sso-ticket-store.ts，对照表还指着它们，断了 3 个链接；原文不动 | #839 |
 | 2026-11-18 | `docs/odoo-browser-origin.md` | 归档 | [`docs/archive/odoo-browser-origin.md`](odoo-browser-origin.md)；取代：docs/local-accounts.md（站内账号） | 它说明的 `WM_ODOO_BROWSER_URL`（内网 Odoo 的浏览器登录地址）随 Odoo 全面下线退役：认人和业务台的 Odoo 会话中继一起下了，这个变量现在只在 `server/src/retired-env.ts` 的退役清单里 | #823；#840 |
 | 2026-11-18 | `docs/odoo-login-relay.md` | 归档 | [`docs/archive/odoo-login-relay.md`](odoo-login-relay.md)；取代：docs/local-accounts.md（站内账号） | 它说明的同域登录中继（`WM_ODOO_LOGIN_PROXY`）随 Odoo 全面下线退役，这个变量现在只在 `server/src/retired-env.ts` 的退役清单里 | #823；#840 |
+| 2026-11-20 | `docs/content-foundations-integration-296.md` | 归档 | [`docs/archive/content-foundations-integration-296.md`](content-foundations-integration-296.md) | 它说明的内容查看面（`content-surface.ts`、`content-access.ts`、`content-static.ts`、`routes/content-open.ts`）随 Odoo 全面下线删掉了；还在代码里的被动观察（`WM_PORTAL_OBSERVE`）由根目录 README 说明，README 里指向本篇的链接改到归档位置 | #296、#823；PR_NO |
+| 2026-11-20 | `docs/app-read-scope-266.md` | 归档 | [`docs/archive/app-read-scope-266.md`](app-read-scope-266.md)；取代：无（#266 仍开着、待裁，要按站内主体重写） | 设计稿的身份模型建在 Odoo 认人上（`resolveOdooViewer`、Odoo 管理员认定），随 Odoo 全面下线不成立了 | #266、#823；PR_NO |
+| 2026-11-20 | `docs/app-read-scope-266.matrix.json` | 归档（配套矩阵，随上一篇） | [`docs/archive/app-read-scope-266.matrix.json`](app-read-scope-266.matrix.json) | 和设计稿一起挪，设计稿里的相对链接仍有效；JSON 不留占位，里面的 `doc` 字段是原文未改 | #266；PR_NO |
 
 ## 这一批没动、以后再处理的
 
