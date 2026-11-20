@@ -74,6 +74,33 @@ function readmeTreePaths(readme) {
   return out;
 }
 
+/** README「## 目录」代码块里，目录行用「·」连写的简写清单：`server/src/services/  app·app-data·sop（域服务）` → 该目录下的 app.ts、app-data.ts、sop.ts */
+function readmeTreeShorthand(readme) {
+  const at = readme.indexOf('## 目录');
+  if (at < 0) return [];
+  const block = /```\n([\s\S]*?)```/.exec(readme.slice(at));
+  if (!block) return [];
+  const out = [];
+  for (const line of block[1].split('\n')) {
+    const m = /^([\w.-]+(?:\/[\w.-]+)*\/)\s+([\w.-]+(?:\s*·\s*[\w.-]+)+)/.exec(line);
+    if (m) for (const stem of m[2].split('·')) out.push(`${m[1]}${stem.trim()}.ts`);
+  }
+  return out;
+}
+
+/** server 文件算不算 README 提到了：根 README 写了文件名（或「名字/」）；或在「目录」块的简写清单里；
+ *  或它所在的子目录自带 README.md 写了文件名，且根 README 提到了这个子目录（「子目录名/」） */
+function readmeMentions(repo) {
+  const readme = repo.read('README.md');
+  const shorthand = new Set(readmeTreeShorthand(readme));
+  return (f) => {
+    if (readme.includes(basename(f)) || readme.includes(`${basename(f, '.ts')}/`) || shorthand.has(f)) return true;
+    const dir = dirname(f);
+    if (dir === 'server/src' || !readme.includes(`${basename(dir)}/`)) return false;
+    return repo.read(`${dir}/README.md`).includes(basename(f));
+  };
+}
+
 const RE = {
   route: /\b(?:app|router|r|api)\.(?:get|post|put|patch|delete)\(\s*['"`\/\[]/g,
   // 路由注册（含 .all 和 vault-api 那种 route('get', …) 的写法）；报了动作的是路径后面紧跟 { action: … }
@@ -356,14 +383,22 @@ const RULES = [
   {
     id: 'readme-tree', what: 'README 没提到的 server 文件', target: 0, proposed: 'budget',
     measure: (repo) => {
-      const readme = repo.read('README.md');
-      const items = repo.server().filter((f) => !readme.includes(basename(f)) && !readme.includes(`${basename(f, '.ts')}/`));
+      const mentioned = readmeMentions(repo);
+      const items = repo.server().filter((f) => !mentioned(f));
       return { total: items.length, items, note: `顶层 ${items.filter((f) => f.split('/').length === 3).length} 个` };
     },
     sample: {
       clean: { 'server/src/foo.ts': '', 'README.md': '目录：foo.ts\n' },
       dirty: { 'server/src/foo.ts': '', 'README.md': '目录：bar.ts\n' }, expect: 1,
     },
+    cases: [
+      { label: '「目录」块里目录行的「·」简写清单算提到', files: { 'server/src/services/app.ts': '', 'server/src/services/app-data.ts': '', 'README.md': '## 目录\n\n```\nserver/src/services/  app·app-data（域服务）\n```\n' }, expect: 0 },
+      { label: '简写清单里没有的照算', files: { 'server/src/services/app.ts': '', 'server/src/services/cookie.ts': '', 'README.md': '## 目录\n\n```\nserver/src/services/  app·sop（域服务）\n```\n' }, expect: 1 },
+      { label: '简写只认「目录」块里的目录行，正文里的「·」不算', files: { 'server/src/services/app.ts': '', 'README.md': '说明：server/src/services/  app·sop\n' }, expect: 1 },
+      { label: '子目录自带 README 写了文件名、根 README 提到子目录，算提到', files: { 'server/src/vault/crypto.ts': '', 'server/src/vault/README.md': '| `crypto.ts` | 无 |\n', 'README.md': '目录：vault/（见其 README）\n' }, expect: 0 },
+      { label: '子目录 README 没写到的文件照算', files: { 'server/src/vault/crypto.ts': '', 'server/src/vault/totp.ts': '', 'server/src/vault/README.md': '`crypto.ts`\n', 'README.md': '目录：vault/\n' }, expect: 1 },
+      { label: '根 README 没提到子目录，子目录 README 写了也不算', files: { 'server/src/vault/crypto.ts': '', 'server/src/vault/README.md': '`crypto.ts`\n', 'README.md': '目录：别的\n' }, expect: 1 },
+    ],
   },
   {
     id: 'readme-stale-paths', what: 'README 提到但已不存在的文件', target: 0, proposed: 'budget',

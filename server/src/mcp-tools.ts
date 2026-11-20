@@ -1,7 +1,8 @@
 /** MCP 工具注册表（S3 抽离）：纯数据，供 /mcp 与网关授权面共用。
  *  category：read 只读 / write 写业务数据 / admin 改市场配置或发布——供 access_info 目录与管理员审批参考。
  *  exempt：任何已认证会话都能调、不受 grants 限制（与 initialize、tools/list 同级），tools/list 始终列出。
- *  免授权的：权限自助两个（看目录、提申请），和读技能的三个（skills_list、skill_search、skill_read）——技能里没有业务数据，新来的席位不用等人批就能自学。 */
+ *  免授权的：权限自助两个（看目录、提申请）；分段读大结果的 result_read（只读得到本会话的结果，读时按原工具再判授权）；
+ *  和读技能的三个（skills_list、skill_search、skill_read）——技能里没有业务数据，新来的席位不用等人批就能自学。 */
 import { BENCH_TOOL_DEFS } from './bench-mcp-tools.ts';
 
 export type McpToolCategory = 'read' | 'write' | 'admin';
@@ -52,6 +53,22 @@ export const MCP_TOOLS: McpToolDef[] = [
     },
   },
 
+  {
+    name: 'result_read',
+    category: 'read',
+    exempt: true,
+    description: '分段读一份大结果：工具结果太大时应答只给引用（result_ref），能执行代码的直接拿 url 用同一个会话令牌 GET；不能执行代码的用它按段读。只读得到本会话的结果，读的时候按原来那个工具再判一次授权；引用过期就读不到了，重新调原工具。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: '引用的编号（result_ref.id）' },
+        offset: { type: 'integer', minimum: 0, description: '从第几个字符读起，缺省 0；接着读用上一段应答里的 next_offset' },
+        length: { type: 'integer', minimum: 1, description: '这一段读多少个字符，缺省也是上限 32768' },
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
   {
     name: 'workbench_list',
     category: 'read',

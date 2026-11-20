@@ -664,7 +664,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "8194", "etag": "W/\"2002-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "8372", "etag": "W/\"20b4-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -711,6 +711,7 @@
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.mcp-rest.result-ref-anonymous", "surface": "market", "method": "GET", "path": "/api/mcp-rest/results/AAAAAAAAAAAAAAAAAAAAAA", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.mcp-rest.ticket-upload-forged", "surface": "market", "method": "PUT", "path": "/api/mcp-rest/uploads/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "verdict": "pass", "status": 404, "reason": null },
                   { "id": "market.a2a-seat-token.forged", "surface": "market", "method": "POST", "path": "/api/a2a/seat-token", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
@@ -749,7 +750,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "7634", "etag": "W/\"1dd2-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "7812", "etag": "W/\"1e84-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -796,6 +797,7 @@
                   { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.mcp-rest.result-ref-anonymous", "surface": "market", "method": "GET", "path": "/api/mcp-rest/results/AAAAAAAAAAAAAAAAAAAAAA", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.mcp-rest.ticket-upload-forged", "surface": "market", "method": "PUT", "path": "/api/mcp-rest/uploads/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "verdict": "pass", "status": 404, "reason": null },
                   { "id": "market.a2a-seat-token.forged", "surface": "market", "method": "POST", "path": "/api/a2a/seat-token", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },

@@ -162,6 +162,9 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       // 席位换令牌：签名是编出来的（形状合格、时间戳早已过期、节点不在名册）——必须 401、换不出令牌。登录门开不开都一样（路由本来就放行）
       // 上传票的直传（PUT /api/mcp-rest/uploads/<票>）不认会话令牌，票本身就是凭据：编出来的票（形状合格、仓库里没有）必须 404、什么都不写。
       // 登录门开不开都一样（/api/mcp-rest/ 本来就放行）；门坏了会回 201 或 400（按 size 核字节）
+      // 大结果的引用（GET /api/mcp-rest/results/<编号>）只给建它的会话：远程匿名拿一个编出来的编号来，必须 401、取不到任何东西。
+      // 网关关着（本机开发）时没有会话可认，这一行不跑
+      ...(gatewayOn ? [{ id: 'market.mcp-rest.result-ref-anonymous', target: m, surface: 'market' as const, method: 'GET', path: `/api/mcp-rest/results/${'A'.repeat(22)}`, headers: REMOTE_ANON, status: 401 }] : []),
       { id: 'market.mcp-rest.ticket-upload-forged', target: m, surface: 'market', method: 'PUT', path: `/api/mcp-rest/uploads/${'A'.repeat(43)}`, body: '{}', headers: REMOTE_ANON, status: 404 },
       { id: 'market.a2a-seat-token.forged', target: m, surface: 'market', method: 'POST', path: '/api/a2a/seat-token', body: `{"v":1,"root":"https://wm-self-probe.invalid","host":"00000000","seat_id":"wm-self-probe","ts":1,"nonce":"wm-self-probe-nonce-0000","aud":"https://wm-self-probe.invalid","sig":"${'A'.repeat(86)}=="}`, headers: REMOTE_ANON, status: 401 },
       { id: 'market.login-flow.unsigned-event', target: m, surface: 'market', method: 'POST', path: '/login/feishu/events', body: '{"schema":"2.0"}', headers: REMOTE_ANON, status: 401 },

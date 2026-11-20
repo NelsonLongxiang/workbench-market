@@ -10,7 +10,7 @@ const express=require('express');
 const { createStartupSecurityProbe, isStartupProbeRequest }=await import('../server/src/startup-security-self-probe.ts');
 let checks=0;const check=(name,condition)=>{assert.ok(condition,name);checks++;console.log('PASS '+name);};
 const noAuth='DO_NOT_LOG_SYNTHETIC_CREDENTIAL';
-async function fixture({decisionCardBroken=false,ticketUploadBroken=false,seatTokenBroken=false,accessBroken=false,mcpBroken=false,writeBroken=false,principalsBroken=false,localAccountsBroken=false,approveBroken=false,callbackBroken=false,eventBroken=false,exportBroken=false,creatorBroken=false,listBroken=false,arrangeBroken=false,uploadBroken=false,dueBroken=false,seatReplyBroken=false,seatAskBroken=false,leadReleaseBroken=false,grantsBroken=false,grantApproveBroken=false,knowledgeBroken=false,areaCreateBroken=false,areaSpecBroken=false,areaReadBroken=false,knowledgeMapBroken=false,rememberBroken=false,teamReassignBroken=false,attentionBroken=false,appDataBroken=false,varsMissingBroken=false,runWriteBroken=false,hang=false,off=false,control=false,hold=false,noChallenge=false,successWrite=false,nodeEnv='test',cockpitBroken=false}={}){
+async function fixture({decisionCardBroken=false,ticketUploadBroken=false,resultRefOpen=false,seatTokenBroken=false,accessBroken=false,mcpBroken=false,writeBroken=false,principalsBroken=false,localAccountsBroken=false,approveBroken=false,callbackBroken=false,eventBroken=false,exportBroken=false,creatorBroken=false,listBroken=false,arrangeBroken=false,uploadBroken=false,dueBroken=false,seatReplyBroken=false,seatAskBroken=false,leadReleaseBroken=false,grantsBroken=false,grantApproveBroken=false,knowledgeBroken=false,areaCreateBroken=false,areaSpecBroken=false,areaReadBroken=false,knowledgeMapBroken=false,rememberBroken=false,teamReassignBroken=false,attentionBroken=false,appDataBroken=false,varsMissingBroken=false,runWriteBroken=false,hang=false,off=false,control=false,hold=false,noChallenge=false,successWrite=false,nodeEnv='test',cockpitBroken=false}={}){
  const app=express(),logs=[],db=new DatabaseSync(':memory:');db.exec('CREATE TABLE workbenches(id INTEGER PRIMARY KEY,name TEXT)');let ordinaryHits=0;const requests=[];
  const probe=createStartupSecurityProbe({timeoutMs:hang?50:500,log:row=>logs.push(row)});app.use(probe.middleware);app.use(express.json());let release;const barrier=hold?new Promise(r=>release=r):Promise.resolve();
  const server=createServer(app);await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;
@@ -50,6 +50,7 @@ async function fixture({decisionCardBroken=false,ticketUploadBroken=false,seatTo
  app.post('/api/a2a/seat-token',(_req,res)=>seatTokenBroken?res.status(200).json({token:'0'.repeat(64)}):res.status(401).json({error:'seat_token_refused'}));
  app.post('/a2a/direct',(_req,res)=>decisionCardBroken?res.status(200).json({ok:true,status:'stored'}):res.status(401).json({ok:false,error:'untrusted-origin'}));
  app.put('/api/mcp-rest/uploads/:ticket',(_req,res)=>ticketUploadBroken?res.status(201).json({id:1,sha256:noAuth}):res.status(404).json({error:'ticket_missing'}));
+ app.get('/api/mcp-rest/results/:id',(_req,res)=>resultRefOpen?res.status(200).json({leaked:true}):res.status(401).json({error:'denied'}));
  app.get('/api/health',(_req,res)=>res.json({self_probe:probe.snapshot()}));
  app.get('/business',(_req,res)=>res.json({ok:true}));
  return {probe,server,controlServer,port,logs,db,requests,get hits(){return ordinaryHits},release:()=>release?.(),start:()=>probe.run({market:server,control:controlServer,gatewayOn:!off,nodeEnv}),close:async()=>{for(const s of [server,controlServer].filter(Boolean)){s.closeAllConnections();await new Promise(r=>s.close(r));}db.close();}};
@@ -67,6 +68,7 @@ async function fixture({decisionCardBroken=false,ticketUploadBroken=false,seatTo
  const f=await fixture({writeBroken:true});try{const r=await f.start();check('missing browser-write guard fails even though invalid payload only returns400',!r.passed&&r.failed.includes('market.browser-workbench-write'));check('broken-guard negative case still creates no business objects',f.db.prepare('SELECT COUNT(*) n FROM workbenches').get().n===0);}finally{await f.close();}
 }
 {
+ const rr=await fixture({resultRefOpen:true});try{const r=await rr.start();check('result-ref route that serves an anonymous request fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.mcp-rest.result-ref-anonymous');}finally{await rr.close();}
  const tu=await fixture({ticketUploadBroken:true});try{const r=await tu.start();check('upload-ticket route that accepts a forged ticket fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.mcp-rest.ticket-upload-forged');check('forged-ticket answer is never copied into audit and the gate stays closed',!JSON.stringify(tu.logs).includes(noAuth)&&(await fetch('http://127.0.0.1:'+tu.port+'/business')).status===503);}finally{await tu.close();}
  const f=await fixture({seatTokenBroken:true});try{const r=await f.start();check('seat-token endpoint that issues a token for a forged signature fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.a2a-seat-token.forged');}finally{await f.close();}
 }
@@ -159,6 +161,7 @@ for(const nodeEnv of ['development','test']){
  app.post('/api/a2a/seat-token',(_req,res)=>res.status(401).end());
  app.post('/a2a/direct',(_req,res)=>res.status(401).end());
  app.put('/api/mcp-rest/uploads/:ticket',(_req,res)=>res.status(404).end());
+ app.get('/api/mcp-rest/results/:id',(_req,res)=>res.status(401).end());
  app.get('/api/work-items',(_req,res)=>res.status(401).end());
  app.post('/api/work-items',(_req,res)=>res.status(401).end());
  app.put('/api/cockpits/:id',(_req,res)=>res.status(401).end());

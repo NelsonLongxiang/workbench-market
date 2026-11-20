@@ -382,6 +382,32 @@ try {
   const rest = await gw.call('POST', '/api/mcp-rest/tools/dataset_list', { body: { bench: 'demo' } });
   check(!open.isError && open.rpcError === null && r.rpcError === -32601 && rest.status !== 200 && !existsSync(join(gw.data, 'bench-stores', 'demo.sqlite')),
     '网关关着：别的工具不用令牌就能调，数据视图的工具照样调不了（两个渠道都是），也不建台库', { other: open.rpcError, bench: r.rpcError, rest: rest.status });
+
+  console.log('九、大结果给引用：数据视图的工具按台的授予再判');
+  {
+    const rr = await boot('result-ref', { WM_BENCH_VIEWS: 'on', WM_MCP_RESULT_LIMITS: 'inline=2000,ttl=600000' });
+    for (const s of [SESSIONS.admin, SESSIONS.alpha]) await rr.call('GET', '/api/auth/viewer', { session: s });
+    const sameR = { origin: `http://${rr.host}`, 'sec-fetch-site': 'same-origin' };
+    const mgrR = { headers: { ...REMOTE, ...sameR }, session: SESSIONS.alpha };
+    const g = await rr.call('POST', '/api/grants', { body: { scope: '*', reason: '合成：大结果的引用', principal: 'user:alpha', role: 'management' } });
+    await rr.call('POST', `/api/grants/${g.json?.grant?.id}/submit`); await rr.call('POST', `/api/grants/${g.json?.grant?.id}/approve`);
+    await rr.call('POST', '/api/bench-views', { ...mgrR, body: { slug: 'demo', title: 'demo' } });
+    await rr.call('PUT', '/api/bench-views/demo/datasets/seed', { ...mgrR, body: { key: ['id'], columns: [{ name: 'id', type: 'integer' }, { name: 'note', type: 'text' }] } });
+    await rr.call('POST', '/api/bench-views/demo/datasets/seed/rows?op=replace', { ...mgrR, raw: JSON.stringify(Array.from({ length: 40 }, (_, i) => ({ id: i + 1, note: 'n'.repeat(100) }))) });
+    const made = await rr.call('POST', '/api/mcp/sessions', { headers: { ...REMOTE, 'x-admin-token': ADMIN_TOKEN }, body: { name: 'sess-ref' } });
+    const R = { id: made.json?.id, token: made.json?.token };
+    const grant = await rr.call('PUT', '/api/bench-views/demo/mcp-grants', { ...mgrR, body: { session: 'sess-ref', tools: ['dataset_query'] } });
+    const q = await tool(rr, R.token, 'dataset_query', { bench: 'demo', query: { dataset: 'seed' } });
+    const ref = q.json?.result_ref;
+    check(grant.status === 200 && !!ref?.id, '（准备）台上授予了 dataset_query，查出来的结果超过阈值：给引用', { grant: grant.status, text: q.text.slice(0, 160) });
+    const ok1 = await rr.call('GET', `/api/mcp-rest/results/${ref?.id}`, { headers: { authorization: `Bearer ${R.token}` } });
+    check(ok1.status === 200 && ok1.text.includes('nnnn'), '授予还在：取得到', ok1.status);
+    await rr.call('PUT', '/api/bench-views/demo/mcp-grants', { ...mgrR, body: { session: 'sess-ref', tools: [] } });
+    const gone = await rr.call('GET', `/api/mcp-rest/results/${ref?.id}`, { headers: { authorization: `Bearer ${R.token}` } });
+    const goneRead = await tool(rr, R.token, 'result_read', { id: ref?.id });
+    check(gone.status === 403 && goneRead.isError, '收回这个台上的授予：REST 和 result_read 都取不到', { rest: gone.status, read: goneRead.text.slice(0, 80) });
+    await rr.stop();
+  }
 } catch (e) {
   fail++; console.log(`  ✗ 中途抛错：${e?.stack ?? e}`);
 } finally {
