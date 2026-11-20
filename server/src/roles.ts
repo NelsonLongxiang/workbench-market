@@ -62,6 +62,8 @@ export const BUSINESS_DOMAINS: readonly string[] = [
   'bench-store',
   // 经验库（依据、经验、方法、检查）：公司的业务知识，系统管理员缺省看不到
   'knowledge',
+  // 领域和领域规范（规范 15）：规范决定 AI 在这个领域怎么干活，是业务内容，系统管理员缺省看不到
+  'area',
 ];
 /** 动作的域：点号前面那段；MCP 工具名（没有点）都算 mcp-tool */
 export const domainOf = (action: string): string => (action.includes('.') ? action.slice(0, action.indexOf('.')) : 'mcp-tool');
@@ -145,7 +147,7 @@ export const BLOCKS: readonly { key: string; name: string; domains: readonly str
   { key: 'attention', name: '关注', domains: ['attention'] },
   { key: 'bench-data', name: '工作台数据', domains: ['app-data', 'bench-store', 'mcp-rest', 'mcp-tool'] },
   { key: 'knowledge', name: '经验库', domains: ['knowledge'] },
-  { key: 'team', name: '团队与 AI 员工', domains: ['binding', 'department', 'principal', 'relation', 'team'] },
+  { key: 'team', name: '团队与 AI 员工', domains: ['area', 'binding', 'department', 'principal', 'relation', 'team'] },
   { key: 'access', name: '权限与角色', domains: ['access', 'admin', 'admin-token', 'grant', 'judgment', 'role', 'setup'] },
   { key: 'system', name: '系统与节点', domains: ['a2a', 'a2a-peer', 'agent-card', 'app', 'auth', 'content', 'cookie', 'design-token', 'health', 'local-account', 'login', 'market', 'mcp', 'portal', 'remote-allow', 'setting', 'skill', 'sso', 'stats', 'type', 'vault', 'workbench'] },
 ];

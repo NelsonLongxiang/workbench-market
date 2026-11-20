@@ -31,6 +31,7 @@ import { GrantService } from './services/grant.ts';
 import { CustomRoleService } from './services/custom-role.ts';
 import { JudgmentCompareService } from './services/judgment-compare.ts';
 import { DepartmentService } from './services/department.ts';
+import { AreaService } from './services/area.ts';
 import { TeamService } from './services/team.ts';
 import { SetupWizardService } from './services/setup-wizard.ts';
 import { RelationProposalService } from './services/relation-proposal.ts';
@@ -76,6 +77,7 @@ await Promise.all([
   CustomRoleService,
   JudgmentCompareService,
   DepartmentService,
+  AreaService,
   TeamService,
   SetupWizardService,
   RelationProposalService,

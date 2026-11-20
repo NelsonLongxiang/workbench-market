@@ -1410,6 +1410,75 @@ CREATE TABLE IF NOT EXISTS department_members (
 );
 CREATE INDEX IF NOT EXISTS idx_department_members_principal ON department_members (principal_id);
 `);
+// 领域（docs/domains-step1.md 第二节；规范 15 两层组织）。领域是分派和规范的边界；领域规范按版本存，版本建好不能改、不能删，
+// 改规范 = 新加一版，回退 = 把生效指针（areas.spec_version）移回旧版本。领域不删，撤了只读（status = retired）。
+//   areas：标识（和部门标识同一套写法）、名字、状态（pending-lead 还没有生效的领域负责人 / active / retired）、生效指针、对应的 a2a-net 团队（第 3 步才写）、来源。
+//   area_specs：(领域, 版本) 复合主键，正文上限 64 KB（按字节），摘要由服务算。
+//   area_events：每次建、撤、新加版本、移指针、迁移一行，只增不改。
+// 时间一律是毫秒、由代码给。「不能改、不能删」靠触发器；生效指针只能指已有的版本也靠触发器（SQLite 这里没开外键检查）。
+// PG 那一份成对的触发器到搬库（第 13 篇）时登记。
+db.exec(`
+CREATE TABLE IF NOT EXISTS areas (
+  id TEXT PRIMARY KEY CHECK (id <> ''),
+  name TEXT NOT NULL CHECK (name <> ''),
+  status TEXT NOT NULL DEFAULT 'pending-lead' CHECK (status IN ('pending-lead', 'active', 'retired')),
+  spec_version INTEGER,
+  team_host TEXT NOT NULL DEFAULT '',
+  team TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'department')),
+  created_at INTEGER NOT NULL,
+  created_by TEXT NOT NULL CHECK (created_by <> ''),
+  updated_at INTEGER NOT NULL,
+  updated_by TEXT NOT NULL CHECK (updated_by <> '')
+);
+CREATE TABLE IF NOT EXISTS area_specs (
+  area_id TEXT NOT NULL REFERENCES areas (id),
+  version INTEGER NOT NULL CHECK (version >= 1),
+  body TEXT NOT NULL CHECK (body <> '' AND length(CAST(body AS BLOB)) <= 65536),
+  sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
+  note TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  created_by TEXT NOT NULL CHECK (created_by <> ''),
+  created_by_principal TEXT,
+  PRIMARY KEY (area_id, version)
+);
+CREATE TABLE IF NOT EXISTS area_events (
+  seq INTEGER PRIMARY KEY,
+  area_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('create', 'retire', 'spec-add', 'spec-activate', 'migrate')),
+  version INTEGER,
+  actor TEXT NOT NULL CHECK (actor <> ''),
+  actor_principal TEXT,
+  at INTEGER NOT NULL,
+  detail TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_area_events_area ON area_events (area_id, seq);
+CREATE TRIGGER IF NOT EXISTS areas_no_delete BEFORE DELETE ON areas
+  BEGIN SELECT RAISE(ABORT, '领域不删除，撤了只读'); END;
+CREATE TRIGGER IF NOT EXISTS areas_no_replace BEFORE INSERT ON areas WHEN EXISTS (SELECT 1 FROM areas WHERE id = NEW.id)
+  BEGIN SELECT RAISE(ABORT, '领域不删除，也不能用同一个标识覆盖'); END;
+CREATE TRIGGER IF NOT EXISTS areas_no_rekey BEFORE UPDATE OF id ON areas WHEN NEW.id IS NOT OLD.id
+  BEGIN SELECT RAISE(ABORT, '领域标识建好不改'); END;
+CREATE TRIGGER IF NOT EXISTS areas_spec_exists BEFORE UPDATE OF spec_version ON areas
+  WHEN NEW.spec_version IS NOT NULL AND NOT EXISTS (SELECT 1 FROM area_specs WHERE area_id = NEW.id AND version = NEW.spec_version)
+  BEGIN SELECT RAISE(ABORT, '生效指针只能指这个领域已有的规范版本'); END;
+CREATE TRIGGER IF NOT EXISTS areas_spec_exists_insert BEFORE INSERT ON areas WHEN NEW.spec_version IS NOT NULL
+  BEGIN SELECT RAISE(ABORT, '新建的领域还没有规范版本，生效指针要为空'); END;
+CREATE TRIGGER IF NOT EXISTS areas_retired_final BEFORE UPDATE ON areas WHEN OLD.status = 'retired'
+  BEGIN SELECT RAISE(ABORT, '撤了的领域只读'); END;
+CREATE TRIGGER IF NOT EXISTS area_specs_no_update BEFORE UPDATE ON area_specs
+  BEGIN SELECT RAISE(ABORT, '规范版本建好不能改'); END;
+CREATE TRIGGER IF NOT EXISTS area_specs_no_delete BEFORE DELETE ON area_specs
+  BEGIN SELECT RAISE(ABORT, '规范版本不能删'); END;
+CREATE TRIGGER IF NOT EXISTS area_specs_no_replace BEFORE INSERT ON area_specs WHEN EXISTS (SELECT 1 FROM area_specs WHERE area_id = NEW.area_id AND version = NEW.version)
+  BEGIN SELECT RAISE(ABORT, '规范版本不能覆盖'); END;
+CREATE TRIGGER IF NOT EXISTS area_events_no_update BEFORE UPDATE ON area_events
+  BEGIN SELECT RAISE(ABORT, 'area_events 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS area_events_no_delete BEFORE DELETE ON area_events
+  BEGIN SELECT RAISE(ABORT, 'area_events 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS area_events_no_replace BEFORE INSERT ON area_events WHEN EXISTS (SELECT 1 FROM area_events WHERE seq = NEW.seq)
+  BEGIN SELECT RAISE(ABORT, 'area_events 只增不改'); END;
+`);
 // 团队与分配（规范 14 第 1 步）。团队、席位是节点名册里的事实（a2a_roster_seats，市场只读）；这三张表是公司的安排，只在市场里。
 //   键和名册一致：团队 (host, team)，host 是节点公钥指纹的前 8 位十六进制（小写）；席位以 (host, seat_id) 为主，seat_id 空的旧节点退回 (host, team, seat)。
 //   teams：团队的登记——认领了没有、挂在哪个部门。没认领的团队不一定有行（名册里出现了、还没人认领）。

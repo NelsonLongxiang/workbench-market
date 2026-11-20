@@ -108,6 +108,14 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       'app.read',
       'app.rollback',
       'app.sync',
+      // 领域：本机命令行在这里算属主，读写都能做（docs/domains-step1.md 第三节）
+      'area.create',
+      'area.list',
+      'area.read',
+      'area.retire',
+      'area.spec-list',
+      'area.spec-read',
+      'area.spec-set',
       'attention.read',
       'auth.me',
       'cockpit.create',
@@ -260,6 +268,9 @@ export const NARROWED: readonly NarrowedAction[] = [
   { action: 'setup.wizard-approve', only: ['owner', 'local-cli'], why: '首次安装向导这一批只有属主能放行（本机命令行在授予管理面上算属主），比管理员严' },
   { action: 'role.approve', only: ['owner', 'local-cli'], why: '带管理类或决定类权限的自定义角色只有属主能放行（本机命令行在授予管理面上算属主），比管理员严' },
   { action: 'local-account.change-own-password', only: ['person'], why: '改自己的站内账号密码只认人：任何启用的人都能改自己的（路由只认登录着的本人、要原密码，不靠角色给写权限）；管理口令、本机命令行、席位都不是人，一律不能（管理员重置走 local-account.reset-password）' },
+  { action: 'area.create', only: ['owner', 'local-cli'], why: '建领域只有属主（本机命令行在这里算属主）；管理层、系统管理员、管理口令都不行（docs/domains-step1.md 第三节）' },
+  { action: 'area.retire', only: ['owner', 'local-cli'], why: '撤领域只有属主（本机命令行在这里算属主）；管理层、系统管理员、管理口令都不行（docs/domains-step1.md 第三节）' },
+  { action: 'area.spec-set', only: ['owner', 'local-cli'], why: '定规范是硬规则，角色覆盖不算：第 1 步 PR1 只有属主（本机命令行在这里算属主），PR2 加持本领域 area-spec 授予的人' },
   { action: 'work-items.create', only: ['person'], why: '「安排一件事」只认人：建立人就是提需求的本人。任何启用的人都能安排（不靠角色给写权限）；管理口令、本机命令行、席位都不是人，一律不能' },
 ];
 export const narrowed = (action: string): NarrowedAction | undefined => NARROWED.find((n) => n.action === action);
