@@ -59,7 +59,27 @@ export function legacySeed(dbFile, { busyMs = 10000 } = {}) {
     return run((d) => Number(d.prepare("INSERT INTO relation_proposals (kind, department_id, principal_id, proposed_by, proposed_at) VALUES ('dept-lead', ?, ?, ?, ?)").run(departmentId, principal, by, now()).lastInsertRowid));
   }
 
-  return { department, member, grant, deptLead, deptLeadProposal, run };
+  /**
+   * 清掉部门负责人（停写前「属主把负责人改成空」的样子）：字段清空，随负责人发的那条（dept_lead_grants 记着的）收回，记录删掉。
+   * 这个人另外持有的授予不碰
+   */
+  function clearLead(departmentId) {
+    run((d) => {
+      const t = now();
+      const link = d.prepare('SELECT grant_id FROM dept_lead_grants WHERE department_id = ?').get(departmentId);
+      if (link) {
+        const g = d.prepare('SELECT status FROM grants WHERE id = ?').get(link.grant_id);
+        if (g && ['draft', 'pending', 'active'].includes(g.status)) {
+          d.prepare("UPDATE grants SET status = 'revoked', updated_at = ? WHERE id = ?").run(t, link.grant_id);
+          d.prepare("INSERT INTO grant_events (grant_id, event, from_status, to_status, actor, actor_principal, reason, at) VALUES (?, 'revoke', ?, 'revoked', ?, NULL, '随部门负责人变更收回', ?)").run(link.grant_id, g.status, BY, t);
+        }
+        d.prepare('DELETE FROM dept_lead_grants WHERE department_id = ?').run(departmentId);
+      }
+      d.prepare("UPDATE departments SET lead_principal = '', updated_at = ? WHERE id = ?").run(t, departmentId);
+    });
+  }
+
+  return { department, member, grant, deptLead, deptLeadProposal, clearLead, run };
 }
 
 /**
