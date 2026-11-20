@@ -1,0 +1,839 @@
+{
+  "domain": "areas",
+  "what": "领域：/api/areas 的 8 条路由（docs/domains-step1.md 第 1 步 PR1）。response 由 scripts/route-replay-test.mjs --record 写入，不手改。主体都是合成的。",
+  "routes": ["GET /api/areas", "GET /api/areas/:id", "GET /api/areas/:id/specs", "GET /api/areas/:id/specs/:version", "POST /api/areas", "POST /api/areas/:id/retire", "POST /api/areas/:id/specs/activate", "POST /api/areas/:id/specs"],
+  "exempt": [{ "route": "GET /api/areas", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/list-junk" }],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "缺省配置：登录门关，没设管理口令。本机命令行是属主；假登录提供方认出 alpha（员工，没有授予）、beta（准备步骤里由本机命令行放行管理层）。",
+      "env": {},
+      "clock": "2030-01-01T00:00:00Z",
+      "fixtures": ["identity-fake"],
+      "seed": [
+        { "table": "principals", "row": { "id": "user:alpha", "id_key": "user:alpha", "kind": "person", "display_name": "合成甲" } },
+        { "table": "principals", "row": { "id": "user:beta", "id_key": "user:beta", "kind": "person", "display_name": "合成乙" } },
+        { "table": "principal_identities", "row": { "provider": "fake", "external_id": "alpha", "external_key": "alpha", "principal_id": "user:alpha" } },
+        { "table": "principal_identities", "row": { "provider": "fake", "external_id": "beta", "external_key": "beta", "principal_id": "user:beta" } }
+      ],
+      "steps": [
+        {
+          "id": "setup-grant",
+          "what": "准备：本机命令行给 beta 起草管理层（范围 *）",
+          "request": { "method": "POST", "path": "/api/grants", "json": { "principal": "user:beta", "role": "management", "scope": "*", "reason": "合成" } },
+          "save": { "g": "grant.id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "297", "etag": "W/\"129-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grant": { "id": 2, "principal_id": "user:beta", "role": "management", "scope": "*", "expires_at": null, "reason": "合成", "status": "draft", "created_by": "cli", "created_by_principal": null, "approved_by": null, "approved_by_principal": null, "created_at": 1893456000609, "updated_at": 1893456000609, "source": "manual" }
+            }
+          }
+        },
+        {
+          "id": "setup-submit",
+          "what": "准备：提交",
+          "request": { "method": "POST", "path": "/api/grants/{{g}}/submit" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "299", "etag": "W/\"12b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grant": { "id": 2, "principal_id": "user:beta", "role": "management", "scope": "*", "expires_at": null, "reason": "合成", "status": "pending", "created_by": "cli", "created_by_principal": null, "approved_by": null, "approved_by_principal": null, "created_at": 1893456000609, "updated_at": 1893456000612, "source": "manual" }
+            }
+          }
+        },
+        {
+          "id": "setup-approve",
+          "what": "准备：本机命令行（属主）放行",
+          "request": { "method": "POST", "path": "/api/grants/{{g}}/approve" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "299", "etag": "W/\"12b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grant": { "id": 2, "principal_id": "user:beta", "role": "management", "scope": "*", "expires_at": null, "reason": "合成", "status": "active", "created_by": "cli", "created_by_principal": null, "approved_by": "cli", "approved_by_principal": null, "created_at": 1893456000609, "updated_at": 1893456000614, "source": "manual" }
+            }
+          }
+        },
+        {
+          "id": "list-empty",
+          "route": "GET /api/areas",
+          "class": "normal",
+          "what": "本机命令行：还没有领域，空数组",
+          "request": { "method": "GET", "path": "/api/areas" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "12", "etag": "W/\"c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "areas": [] }
+          }
+        },
+        {
+          "id": "create-remote-anon",
+          "route": "POST /api/areas",
+          "class": "unauthorized",
+          "what": "远程、没登录：写请求总门拦下",
+          "request": { "method": "POST", "path": "/api/areas", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "id": "sales", "name": "合成销售" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "create-staff",
+          "route": "POST /api/areas",
+          "class": "unauthorized",
+          "what": "员工 alpha：不是属主，403",
+          "request": { "method": "POST", "path": "/api/areas", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "id": "sales", "name": "合成销售" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "create-mgmt",
+          "route": "POST /api/areas",
+          "class": "unauthorized",
+          "what": "管理层 beta：建领域只有属主，403",
+          "request": { "method": "POST", "path": "/api/areas", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" }, "json": { "id": "sales", "name": "合成销售" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "create-cli",
+          "route": "POST /api/areas",
+          "class": "normal",
+          "what": "本机命令行（属主）建 sales：201，pending-lead",
+          "request": { "method": "POST", "path": "/api/areas", "json": { "id": "sales", "name": "合成销售" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "224", "etag": "W/\"e0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "area": { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000620, "created_by": "cli", "updated_at": 1893456000620, "updated_by": "cli" }
+            }
+          }
+        },
+        {
+          "id": "create-cli-ops",
+          "route": "POST /api/areas",
+          "class": "normal",
+          "what": "本机命令行建 ops：201",
+          "request": { "method": "POST", "path": "/api/areas", "json": { "id": "ops", "name": "合成运营" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "222", "etag": "W/\"de-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "area": { "id": "ops", "name": "合成运营", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000621, "created_by": "cli", "updated_at": 1893456000621, "updated_by": "cli" }
+            }
+          }
+        },
+        {
+          "id": "create-bad-id",
+          "route": "POST /api/areas",
+          "class": "invalid",
+          "what": "标识带大写：400",
+          "request": { "method": "POST", "path": "/api/areas", "json": { "id": "Sales", "name": "x" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "131", "etag": "W/\"83-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "id 要是领域标识：小写字母开头的字母、数字、连字符，最多 48 个字符", "code": "area_id_invalid" }
+          }
+        },
+        {
+          "id": "create-bad-name",
+          "route": "POST /api/areas",
+          "class": "invalid",
+          "what": "名字为空：400",
+          "request": { "method": "POST", "path": "/api/areas", "json": { "id": "hr", "name": " " } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "98", "etag": "W/\"62-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_name_invalid", "message": "领域名字要是 1～64 个字符，不带控制字符" }
+          }
+        },
+        {
+          "id": "create-dup",
+          "route": "POST /api/areas",
+          "class": "invalid",
+          "what": "同标识再建：409",
+          "request": { "method": "POST", "path": "/api/areas", "json": { "id": "sales", "name": "重复" } },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "91", "etag": "W/\"5b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_exists", "message": "领域 sales 已经有了（撤了的也占着标识）" }
+          }
+        },
+        {
+          "id": "create-not-object",
+          "route": "POST /api/areas",
+          "class": "invalid",
+          "what": "请求体是数组：400",
+          "request": { "method": "POST", "path": "/api/areas", "json": [] },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "131", "etag": "W/\"83-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "id 要是领域标识：小写字母开头的字母、数字、连字符，最多 48 个字符", "code": "area_id_invalid" }
+          }
+        },
+        {
+          "id": "list-cli",
+          "route": "GET /api/areas",
+          "class": "normal",
+          "what": "本机命令行：两个都在",
+          "request": { "method": "GET", "path": "/api/areas" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "441", "etag": "W/\"1b9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "areas": [
+                { "id": "ops", "name": "合成运营", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000621, "created_by": "cli", "updated_at": 1893456000621, "updated_by": "cli" },
+                { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000620, "created_by": "cli", "updated_at": 1893456000620, "updated_by": "cli" }
+              ]
+            }
+          }
+        },
+        {
+          "id": "list-junk",
+          "route": "GET /api/areas",
+          "class": "normal",
+          "what": "这条路由不读查询串：带无关参数照常",
+          "request": { "method": "GET", "path": "/api/areas?x=1&y[]=2" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "441", "etag": "W/\"1b9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "areas": [
+                { "id": "ops", "name": "合成运营", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000621, "created_by": "cli", "updated_at": 1893456000621, "updated_by": "cli" },
+                { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000620, "created_by": "cli", "updated_at": 1893456000620, "updated_by": "cli" }
+              ]
+            }
+          }
+        },
+        {
+          "id": "list-mgmt",
+          "route": "GET /api/areas",
+          "class": "normal",
+          "what": "管理层 beta：看全部",
+          "request": { "method": "GET", "path": "/api/areas", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "441", "etag": "W/\"1b9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "areas": [
+                { "id": "ops", "name": "合成运营", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000621, "created_by": "cli", "updated_at": 1893456000621, "updated_by": "cli" },
+                { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000620, "created_by": "cli", "updated_at": 1893456000620, "updated_by": "cli" }
+              ]
+            }
+          }
+        },
+        {
+          "id": "list-staff",
+          "route": "GET /api/areas",
+          "class": "normal",
+          "what": "员工 alpha：没有领域授予，空数组",
+          "request": { "method": "GET", "path": "/api/areas", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "12", "etag": "W/\"c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "areas": [] }
+          }
+        },
+        {
+          "id": "list-remote-anon",
+          "route": "GET /api/areas",
+          "class": "unauthorized",
+          "what": "远程、没登录：401",
+          "request": { "method": "GET", "path": "/api/areas", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "areas_auth_required" }
+          }
+        },
+        {
+          "id": "list-cross-site",
+          "route": "GET /api/areas",
+          "class": "unauthorized",
+          "what": "跨站来的浏览器：403",
+          "request": { "method": "GET", "path": "/api/areas", "headers": { "sec-fetch-site": "cross-site", "origin": "https://evil.invalid", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "37", "etag": "W/\"25-<指纹>\"", "x-powered-by": "Express" },
+            "body": { "error": "areas_cross_origin_denied" }
+          }
+        },
+        {
+          "id": "read-cli",
+          "route": "GET /api/areas/:id",
+          "class": "normal",
+          "what": "本机命令行读 sales",
+          "request": { "method": "GET", "path": "/api/areas/sales" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "224", "etag": "W/\"e0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "area": { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000620, "created_by": "cli", "updated_at": 1893456000620, "updated_by": "cli" }
+            }
+          }
+        },
+        {
+          "id": "read-mgmt",
+          "route": "GET /api/areas/:id",
+          "class": "normal",
+          "what": "管理层读 sales",
+          "request": { "method": "GET", "path": "/api/areas/sales", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "224", "etag": "W/\"e0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "area": { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000620, "created_by": "cli", "updated_at": 1893456000620, "updated_by": "cli" }
+            }
+          }
+        },
+        {
+          "id": "read-staff",
+          "route": "GET /api/areas/:id",
+          "class": "invalid",
+          "what": "员工 alpha：看不到，和不存在一样 404",
+          "request": { "method": "GET", "path": "/api/areas/sales", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "59", "etag": "W/\"3b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_missing", "message": "领域 sales 不存在" }
+          }
+        },
+        {
+          "id": "read-missing",
+          "route": "GET /api/areas/:id",
+          "class": "invalid",
+          "what": "不存在：404",
+          "request": { "method": "GET", "path": "/api/areas/nope" },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_missing", "message": "领域 nope 不存在" }
+          }
+        },
+        {
+          "id": "read-bad-id",
+          "route": "GET /api/areas/:id",
+          "class": "invalid",
+          "what": "标识写法不对：400",
+          "request": { "method": "GET", "path": "/api/areas/BAD" },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "125", "etag": "W/\"7d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "领域标识要是小写字母开头的字母、数字、连字符，最多 48 个字符", "code": "area_id_invalid" }
+          }
+        },
+        {
+          "id": "read-remote-anon",
+          "route": "GET /api/areas/:id",
+          "class": "unauthorized",
+          "what": "远程、没登录：401",
+          "request": { "method": "GET", "path": "/api/areas/sales", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "areas_auth_required" }
+          }
+        },
+        {
+          "id": "spec-add-remote-anon",
+          "route": "POST /api/areas/:id/specs",
+          "class": "unauthorized",
+          "what": "远程、没登录：写请求总门拦下",
+          "request": { "method": "POST", "path": "/api/areas/sales/specs", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "body": "x" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "spec-add-staff",
+          "route": "POST /api/areas/:id/specs",
+          "class": "unauthorized",
+          "what": "员工 alpha：403",
+          "request": { "method": "POST", "path": "/api/areas/sales/specs", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "body": "x" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "spec-add-mgmt",
+          "route": "POST /api/areas/:id/specs",
+          "class": "unauthorized",
+          "what": "管理层 beta：定规范是硬规则，角色覆盖不算，403",
+          "request": { "method": "POST", "path": "/api/areas/sales/specs", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" }, "json": { "body": "x" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "spec-add-cli",
+          "route": "POST /api/areas/:id/specs",
+          "class": "normal",
+          "what": "本机命令行新加第 1 版：201，生效",
+          "request": { "method": "POST", "path": "/api/areas/sales/specs", "json": { "body": "# 合成规范\n第一版", "note": "第一版" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "436", "etag": "W/\"1b4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "spec": { "version": 1, "sha256": "54b307313a860d2386bfbf937ac101f0522f6abaa6ff8f4504d977a9de432f13", "bytes": 24, "note": "第一版", "created_at": 1893456000633, "created_by": "cli", "created_by_principal": null, "active": true },
+              "area": { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": 1, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000620, "created_by": "cli", "updated_at": 1893456000633, "updated_by": "cli" }
+            }
+          }
+        },
+        {
+          "id": "spec-add-cli-2",
+          "route": "POST /api/areas/:id/specs",
+          "class": "normal",
+          "what": "带对得上的 sha256 新加第 2 版：201",
+          "request": { "method": "POST", "path": "/api/areas/sales/specs", "json": { "body": "第二版", "sha256": "11b8dabcaf337e8aa119e31120d5b317c1dd310758fd35552251eaa5cc928589" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "426", "etag": "W/\"1aa-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "spec": { "version": 2, "sha256": "11b8dabcaf337e8aa119e31120d5b317c1dd310758fd35552251eaa5cc928589", "bytes": 9, "note": "", "created_at": 1893456000634, "created_by": "cli", "created_by_principal": null, "active": true },
+              "area": { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": 2, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000620, "created_by": "cli", "updated_at": 1893456000634, "updated_by": "cli" }
+            }
+          }
+        },
+        {
+          "id": "spec-add-sha-mismatch",
+          "route": "POST /api/areas/:id/specs",
+          "class": "invalid",
+          "what": "sha256 对不上：400",
+          "request": { "method": "POST", "path": "/api/areas/sales/specs", "json": { "body": "第三版", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "75", "etag": "W/\"4b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_spec_sha256_mismatch", "message": "sha256 和正文对不上" }
+          }
+        },
+        {
+          "id": "spec-add-not-string",
+          "route": "POST /api/areas/:id/specs",
+          "class": "invalid",
+          "what": "正文不是字符串：400",
+          "request": { "method": "POST", "path": "/api/areas/sales/specs", "json": { "body": 7 } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "100", "etag": "W/\"64-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "body 要是规范正文（Markdown，1 字节～64 KB）", "code": "area_spec_body_invalid" }
+          }
+        },
+        {
+          "id": "spec-add-empty",
+          "route": "POST /api/areas/:id/specs",
+          "class": "invalid",
+          "what": "正文为空：400",
+          "request": { "method": "POST", "path": "/api/areas/sales/specs", "json": { "body": "" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "103", "etag": "W/\"67-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_spec_body_invalid", "message": "规范正文要是 1 字节～64 KB（现在 0 字节）" }
+          }
+        },
+        {
+          "id": "spec-add-missing",
+          "route": "POST /api/areas/:id/specs",
+          "class": "invalid",
+          "what": "领域不存在：404",
+          "request": { "method": "POST", "path": "/api/areas/nope/specs", "json": { "body": "x" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_missing", "message": "领域 nope 不存在" }
+          }
+        },
+        {
+          "id": "spec-list-cli",
+          "route": "GET /api/areas/:id/specs",
+          "class": "normal",
+          "what": "本机命令行：两版，不带正文",
+          "request": { "method": "GET", "path": "/api/areas/sales/specs" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "453", "etag": "W/\"1c5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "area_id": "sales",
+              "spec_version": 2,
+              "specs": [
+                { "version": 2, "sha256": "11b8dabcaf337e8aa119e31120d5b317c1dd310758fd35552251eaa5cc928589", "bytes": 9, "note": "", "created_at": 1893456000634, "created_by": "cli", "created_by_principal": null, "active": true },
+                { "version": 1, "sha256": "54b307313a860d2386bfbf937ac101f0522f6abaa6ff8f4504d977a9de432f13", "bytes": 24, "note": "第一版", "created_at": 1893456000633, "created_by": "cli", "created_by_principal": null, "active": false }
+              ]
+            }
+          }
+        },
+        {
+          "id": "spec-list-staff",
+          "route": "GET /api/areas/:id/specs",
+          "class": "invalid",
+          "what": "员工 alpha：404",
+          "request": { "method": "GET", "path": "/api/areas/sales/specs", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "59", "etag": "W/\"3b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_missing", "message": "领域 sales 不存在" }
+          }
+        },
+        {
+          "id": "spec-list-remote-anon",
+          "route": "GET /api/areas/:id/specs",
+          "class": "unauthorized",
+          "what": "远程、没登录：401",
+          "request": { "method": "GET", "path": "/api/areas/sales/specs", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "areas_auth_required" }
+          }
+        },
+        {
+          "id": "spec-read-cli",
+          "route": "GET /api/areas/:id/specs/:version",
+          "class": "normal",
+          "what": "本机命令行读第 1 版：带正文和 sha256",
+          "request": { "method": "GET", "path": "/api/areas/sales/specs/1" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "270", "etag": "W/\"10e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "area_id": "sales",
+              "spec": { "version": 1, "sha256": "54b307313a860d2386bfbf937ac101f0522f6abaa6ff8f4504d977a9de432f13", "bytes": 24, "note": "第一版", "created_at": 1893456000633, "created_by": "cli", "created_by_principal": null, "active": false, "body": "# 合成规范\n第一版" }
+            }
+          }
+        },
+        {
+          "id": "spec-read-hex",
+          "route": "GET /api/areas/:id/specs/:version",
+          "class": "invalid",
+          "what": "版本号 0x1：400",
+          "request": { "method": "GET", "path": "/api/areas/sales/specs/0x1" },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "版本号要是从 1 起的整数", "code": "area_spec_version_invalid" }
+          }
+        },
+        {
+          "id": "spec-read-leading-zero",
+          "route": "GET /api/areas/:id/specs/:version",
+          "class": "invalid",
+          "what": "版本号 01：400",
+          "request": { "method": "GET", "path": "/api/areas/sales/specs/01" },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "版本号要是从 1 起的整数", "code": "area_spec_version_invalid" }
+          }
+        },
+        {
+          "id": "spec-read-zero",
+          "route": "GET /api/areas/:id/specs/:version",
+          "class": "invalid",
+          "what": "版本号 0：400",
+          "request": { "method": "GET", "path": "/api/areas/sales/specs/0" },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "版本号要是从 1 起的整数", "code": "area_spec_version_invalid" }
+          }
+        },
+        {
+          "id": "spec-read-missing",
+          "route": "GET /api/areas/:id/specs/:version",
+          "class": "invalid",
+          "what": "没有第 9 版：404",
+          "request": { "method": "GET", "path": "/api/areas/sales/specs/9" },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "76", "etag": "W/\"4c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_spec_missing", "message": "领域 sales 没有第 9 版规范" }
+          }
+        },
+        {
+          "id": "spec-read-staff",
+          "route": "GET /api/areas/:id/specs/:version",
+          "class": "invalid",
+          "what": "员工 alpha：404",
+          "request": { "method": "GET", "path": "/api/areas/sales/specs/1", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "59", "etag": "W/\"3b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_missing", "message": "领域 sales 不存在" }
+          }
+        },
+        {
+          "id": "spec-read-remote-anon",
+          "route": "GET /api/areas/:id/specs/:version",
+          "class": "unauthorized",
+          "what": "远程、没登录：401",
+          "request": { "method": "GET", "path": "/api/areas/sales/specs/1", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "areas_auth_required" }
+          }
+        },
+        {
+          "id": "activate-remote-anon",
+          "route": "POST /api/areas/:id/specs/activate",
+          "class": "unauthorized",
+          "what": "远程、没登录：写请求总门拦下",
+          "request": { "method": "POST", "path": "/api/areas/sales/specs/activate", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "version": 1 } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "activate-staff",
+          "route": "POST /api/areas/:id/specs/activate",
+          "class": "unauthorized",
+          "what": "员工 alpha：403",
+          "request": { "method": "POST", "path": "/api/areas/sales/specs/activate", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "version": 1 } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "activate-cli",
+          "route": "POST /api/areas/:id/specs/activate",
+          "class": "normal",
+          "what": "本机命令行回退到第 1 版：200，只移指针",
+          "request": { "method": "POST", "path": "/api/areas/sales/specs/activate", "json": { "version": 1 } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "221", "etag": "W/\"dd-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "area": { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": 1, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000620, "created_by": "cli", "updated_at": 1893456000642, "updated_by": "cli" }
+            }
+          }
+        },
+        {
+          "id": "activate-missing-version",
+          "route": "POST /api/areas/:id/specs/activate",
+          "class": "invalid",
+          "what": "没有第 9 版：400",
+          "request": { "method": "POST", "path": "/api/areas/sales/specs/activate", "json": { "version": 9 } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "84", "etag": "W/\"54-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_spec_version_missing", "message": "领域 sales 没有第 9 版规范" }
+          }
+        },
+        {
+          "id": "activate-string",
+          "route": "POST /api/areas/:id/specs/activate",
+          "class": "invalid",
+          "what": "版本号写成字符串：400",
+          "request": { "method": "POST", "path": "/api/areas/sales/specs/activate", "json": { "version": "1" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "版本号要是从 1 起的整数", "code": "area_spec_version_invalid" }
+          }
+        },
+        {
+          "id": "activate-zero",
+          "route": "POST /api/areas/:id/specs/activate",
+          "class": "invalid",
+          "what": "版本号 0：400",
+          "request": { "method": "POST", "path": "/api/areas/sales/specs/activate", "json": { "version": 0 } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "版本号要是从 1 起的整数", "code": "area_spec_version_invalid" }
+          }
+        },
+        {
+          "id": "retire-remote-anon",
+          "route": "POST /api/areas/:id/retire",
+          "class": "unauthorized",
+          "what": "远程、没登录：写请求总门拦下",
+          "request": { "method": "POST", "path": "/api/areas/ops/retire", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "retire-staff",
+          "route": "POST /api/areas/:id/retire",
+          "class": "unauthorized",
+          "what": "员工 alpha：403",
+          "request": { "method": "POST", "path": "/api/areas/ops/retire", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "retire-mgmt",
+          "route": "POST /api/areas/:id/retire",
+          "class": "unauthorized",
+          "what": "管理层 beta：撤领域只有属主，403",
+          "request": { "method": "POST", "path": "/api/areas/ops/retire", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "retire-cli",
+          "route": "POST /api/areas/:id/retire",
+          "class": "normal",
+          "what": "本机命令行撤 ops：200，retired，不删",
+          "request": { "method": "POST", "path": "/api/areas/ops/retire", "json": { "reason": "合成" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "217", "etag": "W/\"d9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "area": { "id": "ops", "name": "合成运营", "status": "retired", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000621, "created_by": "cli", "updated_at": 1893456000645, "updated_by": "cli" }
+            }
+          }
+        },
+        {
+          "id": "retire-again",
+          "route": "POST /api/areas/:id/retire",
+          "class": "invalid",
+          "what": "再撤一次：409",
+          "request": { "method": "POST", "path": "/api/areas/ops/retire", "json": {} },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "69", "etag": "W/\"45-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_retired", "message": "领域 ops 已经撤了，只读" }
+          }
+        },
+        {
+          "id": "retire-missing",
+          "route": "POST /api/areas/:id/retire",
+          "class": "invalid",
+          "what": "不存在：404",
+          "request": { "method": "POST", "path": "/api/areas/nope/retire", "json": {} },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_missing", "message": "领域 nope 不存在" }
+          }
+        },
+        {
+          "id": "retire-bad-reason",
+          "route": "POST /api/areas/:id/retire",
+          "class": "invalid",
+          "what": "reason 不是字符串：400",
+          "request": { "method": "POST", "path": "/api/areas/sales/retire", "json": { "reason": 7 } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "84", "etag": "W/\"54-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "reason 要是不超过 200 个字符的字符串", "code": "reason_invalid" }
+          }
+        },
+        {
+          "id": "spec-add-retired",
+          "route": "POST /api/areas/:id/specs",
+          "class": "invalid",
+          "what": "撤了的领域只读：409",
+          "request": { "method": "POST", "path": "/api/areas/ops/specs", "json": { "body": "x" } },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "69", "etag": "W/\"45-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_retired", "message": "领域 ops 已经撤了，只读" }
+          }
+        },
+        {
+          "id": "list-after",
+          "route": "GET /api/areas",
+          "class": "normal",
+          "what": "本机命令行：ops 是 retired，仍然列着",
+          "request": { "method": "GET", "path": "/api/areas" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "433", "etag": "W/\"1b1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "areas": [
+                { "id": "ops", "name": "合成运营", "status": "retired", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000621, "created_by": "cli", "updated_at": 1893456000645, "updated_by": "cli" },
+                { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": 1, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000620, "created_by": "cli", "updated_at": 1893456000642, "updated_by": "cli" }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

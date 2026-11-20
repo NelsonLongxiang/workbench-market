@@ -222,6 +222,39 @@
       "code TEXT NOT NULL DEFAULT ''",
       "a2a_node8 TEXT NOT NULL DEFAULT ''"
     ],
+    "area_events": [
+      "seq INTEGER PK",
+      "area_id TEXT NOT NULL",
+      "kind TEXT NOT NULL",
+      "version INTEGER",
+      "actor TEXT NOT NULL",
+      "actor_principal TEXT",
+      "at INTEGER NOT NULL",
+      "detail TEXT NOT NULL DEFAULT ''"
+    ],
+    "area_specs": [
+      "area_id TEXT NOT NULL PK",
+      "version INTEGER NOT NULL PK",
+      "body TEXT NOT NULL",
+      "sha256 TEXT NOT NULL",
+      "note TEXT NOT NULL DEFAULT ''",
+      "created_at INTEGER NOT NULL",
+      "created_by TEXT NOT NULL",
+      "created_by_principal TEXT"
+    ],
+    "areas": [
+      "id TEXT PK",
+      "name TEXT NOT NULL",
+      "status TEXT NOT NULL DEFAULT 'pending-lead'",
+      "spec_version INTEGER",
+      "team_host TEXT NOT NULL DEFAULT ''",
+      "team TEXT NOT NULL DEFAULT ''",
+      "source TEXT NOT NULL DEFAULT 'manual'",
+      "created_at INTEGER NOT NULL",
+      "created_by TEXT NOT NULL",
+      "updated_at INTEGER NOT NULL",
+      "updated_by TEXT NOT NULL"
+    ],
     "attention_answers": [
       "source TEXT NOT NULL PK",
       "source_id TEXT NOT NULL PK",
@@ -1129,6 +1162,7 @@
     "idx_app_data_idem ON app_data: CREATE UNIQUE INDEX idx_app_data_idem ON app_data (app_slug, idempotency_key) WHERE idempotency_key <> ''",
     "idx_app_data_slug ON app_data: CREATE INDEX idx_app_data_slug ON app_data(app_slug, created_at)",
     "idx_app_files_slug ON app_files: CREATE INDEX idx_app_files_slug ON app_files(app_slug, created_at)",
+    "idx_area_events_area ON area_events: CREATE INDEX idx_area_events_area ON area_events (area_id, seq)",
     "idx_bench_bind_audit_slug ON bench_bind_audit: CREATE INDEX idx_bench_bind_audit_slug ON bench_bind_audit (slug, id)",
     "idx_bench_mcp_audit_bench ON bench_mcp_audit: CREATE INDEX idx_bench_mcp_audit_bench ON bench_mcp_audit (bench, id)",
     "idx_bench_mcp_grants_bench ON bench_mcp_grants: CREATE INDEX idx_bench_mcp_grants_bench ON bench_mcp_grants (bench, session_id)",
@@ -1193,6 +1227,18 @@
     "uq_bindings_natural ON bindings: CREATE UNIQUE INDEX uq_bindings_natural ON bindings (target_type, target_slug, agent_node, direction)"
   ],
   "triggers": [
+    "area_events_no_delete ON area_events: CREATE TRIGGER area_events_no_delete BEFORE DELETE ON area_events BEGIN SELECT RAISE(ABORT, 'area_events 只增不改'); END",
+    "area_events_no_replace ON area_events: CREATE TRIGGER area_events_no_replace BEFORE INSERT ON area_events WHEN EXISTS (SELECT 1 FROM area_events WHERE seq = NEW.seq) BEGIN SELECT RAISE(ABORT, 'area_events 只增不改'); END",
+    "area_events_no_update ON area_events: CREATE TRIGGER area_events_no_update BEFORE UPDATE ON area_events BEGIN SELECT RAISE(ABORT, 'area_events 只增不改'); END",
+    "area_specs_no_delete ON area_specs: CREATE TRIGGER area_specs_no_delete BEFORE DELETE ON area_specs BEGIN SELECT RAISE(ABORT, '规范版本不能删'); END",
+    "area_specs_no_replace ON area_specs: CREATE TRIGGER area_specs_no_replace BEFORE INSERT ON area_specs WHEN EXISTS (SELECT 1 FROM area_specs WHERE area_id = NEW.area_id AND version = NEW.version) BEGIN SELECT RAISE(ABORT, '规范版本不能覆盖'); END",
+    "area_specs_no_update ON area_specs: CREATE TRIGGER area_specs_no_update BEFORE UPDATE ON area_specs BEGIN SELECT RAISE(ABORT, '规范版本建好不能改'); END",
+    "areas_no_delete ON areas: CREATE TRIGGER areas_no_delete BEFORE DELETE ON areas BEGIN SELECT RAISE(ABORT, '领域不删除，撤了只读'); END",
+    "areas_no_rekey ON areas: CREATE TRIGGER areas_no_rekey BEFORE UPDATE OF id ON areas WHEN NEW.id IS NOT OLD.id BEGIN SELECT RAISE(ABORT, '领域标识建好不改'); END",
+    "areas_no_replace ON areas: CREATE TRIGGER areas_no_replace BEFORE INSERT ON areas WHEN EXISTS (SELECT 1 FROM areas WHERE id = NEW.id) BEGIN SELECT RAISE(ABORT, '领域不删除，也不能用同一个标识覆盖'); END",
+    "areas_retired_final ON areas: CREATE TRIGGER areas_retired_final BEFORE UPDATE ON areas WHEN OLD.status = 'retired' BEGIN SELECT RAISE(ABORT, '撤了的领域只读'); END",
+    "areas_spec_exists ON areas: CREATE TRIGGER areas_spec_exists BEFORE UPDATE OF spec_version ON areas WHEN NEW.spec_version IS NOT NULL AND NOT EXISTS (SELECT 1 FROM area_specs WHERE area_id = NEW.id AND version = NEW.spec_version) BEGIN SELECT RAISE(ABORT, '生效指针只能指这个领域已有的规范版本'); END",
+    "areas_spec_exists_insert ON areas: CREATE TRIGGER areas_spec_exists_insert BEFORE INSERT ON areas WHEN NEW.spec_version IS NOT NULL BEGIN SELECT RAISE(ABORT, '新建的领域还没有规范版本，生效指针要为空'); END",
     "grant_events_no_delete ON grant_events: CREATE TRIGGER grant_events_no_delete BEFORE DELETE ON grant_events BEGIN SELECT RAISE(ABORT, 'grant_events 只增不改'); END",
     "grant_events_no_replace ON grant_events: CREATE TRIGGER grant_events_no_replace BEFORE INSERT ON grant_events WHEN EXISTS (SELECT 1 FROM grant_events WHERE seq = NEW.seq) BEGIN SELECT RAISE(ABORT, 'grant_events 只增不改'); END",
     "grant_events_no_update ON grant_events: CREATE TRIGGER grant_events_no_update BEFORE UPDATE ON grant_events BEGIN SELECT RAISE(ABORT, 'grant_events 只增不改'); END",
