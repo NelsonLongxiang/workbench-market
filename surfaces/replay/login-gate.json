@@ -591,7 +591,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "374", "etag": "W/\"176-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "395", "etag": "W/\"18b-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
             "body": {
               "gate": "off",
               "authenticated": true,
@@ -599,7 +599,7 @@
               "login": "alpha",
               "principal": "user:alpha",
               "display_name": "Synthetic alpha",
-              "roles": [{ "id": "member", "name": "普通员工", "scope": "*", "scope_name": null, "preset": true, "expires_at": null, "source": "manual", "approved_by": "cli" }],
+              "roles": [{ "id": "member", "name": "普通员工", "scope": "*", "scope_name": null, "scope_effect": "all", "preset": true, "expires_at": null, "source": "manual", "approved_by": "cli" }],
               "local_account": false,
               "local_username": null,
               "can": { "create_cockpit": false, "remember_knowledge": false }

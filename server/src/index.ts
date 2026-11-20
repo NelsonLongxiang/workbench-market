@@ -1,4 +1,5 @@
 // 对外断开（WM_OUTBOUND=off）的闸必须最先装上：之后引入的模块一开套接字就要经过它
+import { scopeView } from './grant-scope-view.ts';
 import { outboundOff, noteBlocked, outboundStatus, verifyOutboundGate } from './outbound-gate.ts';
 // 启动闸也要赶在装服务（context.ts）之前拉上：后台任务（事项回填）等启动自检通过再开始
 import './startup-gate-hold.ts';
@@ -117,7 +118,6 @@ import { SkillService } from './services/skill.ts';
 import type { AppService } from './services/app.ts';
 import { Config as AppDataConfig, type AppDataService } from './services/app-data.ts';
 import type { GrantService } from './services/grant.ts';
-import type { DepartmentService } from './services/department.ts';
 import type { CookieService } from './services/cookie.ts';
 import type { CockpitService } from './services/cockpit.ts';
 import { ADMIN_TOKEN_KEY, type SettingService } from './services/setting.ts';
@@ -237,7 +237,7 @@ const loginGate = createLoginGate({
     const who = await loginGateViewer(String(req.headers.cookie ?? ''));
     if (!who.ok) return { principal: null, display_name: null, roles: [] };
     const views = new Map(svc<GrantService>('grants').roles().map((r) => [r.id, r]));
-    const roles = svc<GrantService>('grants').activeFor(who.viewer.sub).map((g) => ({ id: g.role, name: views.get(g.role)?.name ?? g.role, scope: g.scope, scope_name: svc<DepartmentService>('departments').scopeName(g.scope), preset: !!views.get(g.role)?.platform, expires_at: g.expires_at, source: g.source, approved_by: g.approved_by }));
+    const roles = svc<GrantService>('grants').activeFor(who.viewer.sub).map((g) => ({ id: g.role, name: views.get(g.role)?.name ?? g.role, scope: g.scope, ...scopeView(g.scope), preset: !!views.get(g.role)?.platform, expires_at: g.expires_at, source: g.source, approved_by: g.approved_by }));
     // local_account：这个人名下有站内账号（外部身份 local/<用户名>），页面据此在用户卡里给「改密码」入口（POST /api/local-accounts/_self/password）
     // local_username：那个站内账号的用户名，只说本人自己的。改密码页拿它预检「不能和用户名一样」——用飞书等别的方式登录的人，
     // login 是那种方式的登录名，不是站内用户名（#802 验收发现 1）。

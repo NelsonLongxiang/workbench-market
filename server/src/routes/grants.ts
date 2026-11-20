@@ -23,7 +23,7 @@ import { MCP_TOOLS } from '../mcp-tools.ts';
 import { identity, IDENTITY_UNAVAILABLE, sourceDown } from '../identity.ts';
 import { APPROVAL_TEXT, approvalOf, touchesBusiness, BLOCKS, buildRoles, checkShape, MATRIX_KINDS, matrixSummary, orgRolesFromConfig, PLATFORM_ROLES, roleMatrix, type ActionCatalog, type Kind, type Permission, type RoleDecl } from '../roles.ts';
 import type { CustomRoleService } from '../services/custom-role.ts';
-import type { DepartmentService } from '../services/department.ts';
+import { scopeView } from '../grant-scope-view.ts';
 import { unknownBuiltinActions } from '../judgment-builtins.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import type { LocalAccountService } from '../services/local-account.ts';
@@ -321,8 +321,8 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
     if (source !== undefined && source !== 'manual' && source !== 'migration') throw new HttpError(400, 'source 只能是 manual、migration');
     grants().expireDue();
     const now = Date.now();
-    // scope_name：范围给人看的名字（部门范围给部门名，读不到给 null），页面不露部门标识
-    const rows = grants().list({ principal, status: status as GrantStatus | undefined, source: source as 'manual' | 'migration' | undefined }).map((g) => ({ ...g, scope_name: svc<DepartmentService>('departments').scopeName(g.scope), ...grants().approvability(g, actor, now), ...marks(g) }));
+    // scope_name、scope_effect 见 scopeView
+    const rows = grants().list({ principal, status: status as GrantStatus | undefined, source: source as 'manual' | 'migration' | undefined }).map((g) => ({ ...g, ...scopeView(g.scope), ...grants().approvability(g, actor, now), ...marks(g) }));
     res.json({ grants: actor.admin === false ? rows.filter((g) => g.can_approve) : rows });
   }));
 
@@ -331,7 +331,7 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
     if (!actor) return;
     const g = grants().get(idOf(req));
     if (!g) throw new HttpError(404, `授予 ${req.params.id} 不存在`);
-    const view = { ...g, scope_name: svc<DepartmentService>('departments').scopeName(g.scope), ...grants().approvability(g, actor), ...marks(g) };
+    const view = { ...g, ...scopeView(g.scope), ...grants().approvability(g, actor), ...marks(g) };
     // 登录的人只看自己能放行的：别的一律当没有（不说有没有这一条）
     if (actor.admin === false && !view.can_approve) throw new HttpError(404, `授予 ${req.params.id} 不存在`);
     res.json({ grant: view });
