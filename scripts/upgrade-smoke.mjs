@@ -82,6 +82,23 @@ function rowsChangedOf(digestBase, digestAfter, volatileTables, volatileCols) {
   return out;
 }
 
+// 台库匿名守卫按具名契约核对；与实现独立列出，不能用实现自己的清单证明自己没有漏项。
+const expectedBenchProbes = [
+  'market.bench-views.anonymous-read',
+  'market.bench-views.anonymous-write',
+  'market.bench-views.var-render-anonymous',
+  'market.bench-views.table-export-anonymous',
+  'market.bench-views.table-row-anonymous',
+];
+function benchRows(probe) { return (Array.isArray(probe?.rows) ? probe.rows : []).filter((r) => String(r?.id).startsWith('market.bench-views.')); }
+function benchProbesPassed(probe) {
+  const rows = benchRows(probe);
+  return rows.length === expectedBenchProbes.length && expectedBenchProbes.every((id) => {
+    const matches = rows.filter((r) => r.id === id);
+    return matches.length === 1 && matches[0].verdict === 'pass' && matches[0].status === 401;
+  });
+}
+
 if (argv.includes('--selftest')) {
   let ok = 0, bad = 0;
   const t = (label, got, want) => { const pass = (got.length > 0) === want; if (pass) ok++; else bad++; console.log(`  ${pass ? '✓' : '✗'} ${label}${pass ? '' : `（${JSON.stringify(got)}）`}`); };
@@ -97,6 +114,23 @@ if (argv.includes('--selftest')) {
   t('别的表的同名列（version、phase、cursor）变了：算改了', run(bf(), bf(), { base: { other_progress: [{ id: 1, version: 1, phase: 'a', cursor: 1 }] }, after: { other_progress: [{ id: 1, version: 2, phase: 'b', cursor: 2 }] } }), true);
   t('原有行没了：算改了', rowsChangedOf({ work_item_backfill: [bf()] }, { work_item_backfill: [] }, [], vol), true);
   t('什么都没变：不算', run(bf(), bf()), false);
+  // Frozen observed contract, independent of the implementation's expected-ID list above.
+  const goodRows = ['anonymous-read', 'anonymous-write', 'var-render-anonymous', 'table-export-anonymous', 'table-row-anonymous']
+    .map((name) => ({ id: 'market.bench-views.' + name, verdict: 'pass', status: 401 }));
+  const probes = (label, rows, want) => t(label, benchProbesPassed({ rows }) ? [] : ['probe contract mismatch'], !want);
+  probes('五条具名匿名守卫都通过且401：放行', goodRows, true);
+  probes('probe顺序变化、夹着其他域：仍放行', [...goodRows].reverse().concat({ id: 'market.other', verdict: 'pass', status: 200 }), true);
+  for (let i = 0; i < goodRows.length; i++) {
+    const id = goodRows[i].id;
+    probes('漏了具名守卫：' + id, goodRows.filter((_, n) => n !== i), false);
+    probes('相同条数但id错了：' + id, goodRows.map((r, n) => n === i ? { ...r, id: 'market.bench-views.unexpected' } : r), false);
+    probes('具名守卫失败：' + id, goodRows.map((r, n) => n === i ? { ...r, verdict: 'fail' } : r), false);
+    probes('具名守卫HTTP200：' + id, goodRows.map((r, n) => n === i ? { ...r, status: 200 } : r), false);
+  }
+  probes('重复条目不能掩盖缺少的id', [goodRows[0], goodRows[0], ...goodRows.slice(2)], false);
+  probes('多一条台库守卫不静默放行', [...goodRows, { id: 'market.bench-views.unexpected', verdict: 'pass', status: 401 }], false);
+  probes('空答复拒绝', [], false);
+  t('probe列表不是数组拒绝', benchProbesPassed({ rows: 'not-an-array' }) ? [] : ['bad probe rows'], true);
   console.log(`\nupgrade-smoke 自检：${ok} 过，${bad} 没过`);
   process.exit(bad ? 1 : 0);
 }
@@ -302,7 +336,6 @@ function benchSchema() {
   const db = new DatabaseSync(file, { readOnly: true });
   try { return JSON.stringify(db.prepare("SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name").all()); } finally { db.close(); }
 }
-const benchRows = (probe) => (probe?.rows ?? []).filter((r) => String(r.id).startsWith('market.bench-views.'));
 
 function cleanup() { if (!KEEP) rmSync(OUT, { recursive: true, force: true }); }
 
@@ -393,18 +426,17 @@ try {
   const countDiff = Object.keys(after2.counts).filter((t) => after2.counts[t] !== after1.counts[t]);
   check(countDiff.length === 0, '幂等：第二次启动后各表行数相同', countDiff.map((t) => `${t} ${after1.counts[t]} → ${after2.counts[t]}`).join('；'));
   check(after2.counts.work_items === after1.counts.work_items && after2.counts.work_item_log === after1.counts.work_item_log && after1.counts.work_items !== undefined, `幂等：第二次启动没有再补建事项（${after2.counts.work_items}）`);
-  const expectedBenchProbes = ['market.bench-views.anonymous-read', 'market.bench-views.anonymous-write', 'market.bench-views.var-render-anonymous'];
-  // 台库：入口缺省开着（自检里有入口的三行），但升级不该凭空建出台库、登记出台；开着入口之后建的台，要经得起回滚和再上线
-  check(!existsSync(join(DATA, 'bench-stores')) && after2.tables.includes('bench_views') && after2.counts.bench_views === 0 && benchRows(probe2).length === expectedBenchProbes.length && expectedBenchProbes.every((id) => benchRows(probe2).some((r) => r.id === id && r.verdict === 'pass')),
-    '台库：入口缺省开着——升级后数据目录里没有台库，台的登记表是空的，自检里入口的三行都过');
+  // 台库：入口缺省开着（五条具名匿名守卫），但升级不该凭空建出台库、登记出台；开着入口之后建的台，要经得起回滚和再上线
+  check(!existsSync(join(DATA, 'bench-stores')) && after2.tables.includes('bench_views') && after2.counts.bench_views === 0 && benchProbesPassed(probe2),
+    '台库：入口缺省开着——升级后数据目录里没有台库，台的登记表是空的，自检里五条具名匿名守卫均只出现一次、pass 且 HTTP 401');
   const benchSeed = benchRun('seed');
   check(benchSeed.ok && JSON.parse(benchSeed.json || '{}').rows?.length === 3, '台库：用本检出的服务登记一个合成台，建数据集、写 3 行、留快照、存视图', benchSeed.err ?? '');
   const benchSchema1 = benchSchema();
   s = await startServer(HEAD, DATA, 'head-bench', { WM_BENCH_VIEWS: 'on' }); servers.push(s);
   const probeBench = await selfProbe(s.base);
   await stopServer(s);
-  check(s.ok && probeBench?.passed === true && benchRows(probeBench).length === expectedBenchProbes.length && expectedBenchProbes.every(id => benchRows(probeBench).some(r => r.id === id && r.verdict === 'pass')),
-    '台库：开着入口启动，自检全过，读、写、变量渲染三条具名守卫都过', JSON.stringify(benchRows(probeBench)));
+  check(s.ok && probeBench?.passed === true && benchProbesPassed(probeBench),
+    '台库：开着入口启动，自检全过，读、写、变量渲染、完整导出、来源详情五条匿名守卫均只出现一次、pass 且 HTTP 401', JSON.stringify(benchRows(probeBench)));
   report.head = { new_tables: after1.tables.filter((t) => !before.tables.includes(t)), self_probe_rows: probe1?.rows?.length ?? 0, boot_ms: servers.filter((x) => x.label.startsWith('head')).map((x) => x.ms) };
 
   // 3. 回滚到基线
