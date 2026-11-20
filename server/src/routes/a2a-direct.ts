@@ -16,6 +16,7 @@ import { HttpError } from '../errors.ts';
 import { a2aDirectHandle, marketPublicUrl } from '../a2a.ts';
 import { noteA2aError, type A2aErrorKey } from '../a2a/errors.ts';
 import { handleInboundReceipt } from '../a2a/receipt-inbound.ts';
+import { handleInboundDecisionCard } from '../a2a/decision-card-inbound.ts';
 import { shownRefusal, type createDirectSigVerifier, type DirectSigMode, type SigRefusal } from '../a2a-direct-sig.ts';
 import type { createRunCheckpoints } from '../sop-state-checkpoints.ts';
 import type { runStateRestore as RunStateRestore } from '../redis.ts';
@@ -39,6 +40,10 @@ export function registerA2aDirectRoutes(app: HttpService, deps: A2aDirectDeps): 
   const { A2A_DIRECT_SIG, A2A_FOLLOWUP_RATE, FETCH_STEP_REFUSALS, directSig, sopRunStartCore, runCheckpoints, sopRunRow, storedRunData, runLiveData, runStateRestore, runCacheCheckpoint } = deps;
   app.post('/a2a/direct', { action: 'a2a.direct-inbound', kind: 'write', statusNotVerdict: '入站签名与绑定准入判，不是登录身份的结论' }, express.json({ limit: '600kb' }), async (req, res) => {
     const rawBytes = Number(req.headers['content-length'] ?? 0) || JSON.stringify(req.body ?? {}).length;
+    // 观察者落地 T8：团队的决策卡（正文以 [A2A decision-card] v1 开头）的窄分流。只认绑定正文的签名、钉住的公钥、团队在签名宿主名册里；
+    // 走了这条就不回落到原路（不合格的明确拒绝）。不是这种正文的返回 null，照原路，应答不变
+    const decisionCard = await handleInboundDecisionCard(req, { audiences: () => [marketPublicUrl()] });
+    if (decisionCard) { res.status(decisionCard.status).json(decisionCard.body); return; }
     // 阶段七 R3：A2A 回执的窄分流——正文是回执、任务号是我们发出的、签名方是当初投递到的那台宿主，三条都成立才走这里；否则照原路，应答不变
     const inboundReceipt = await handleInboundReceipt(req, { audiences: () => [marketPublicUrl()], followupRate: A2A_FOLLOWUP_RATE });
     if (inboundReceipt) { res.status(inboundReceipt.status).json(inboundReceipt.body); return; }

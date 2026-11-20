@@ -1,5 +1,26 @@
 {
   "tables": {
+    "a2a_decision_cards": [
+      "peer_root TEXT NOT NULL PK",
+      "key_fingerprint TEXT NOT NULL PK",
+      "team TEXT NOT NULL PK",
+      "card_id TEXT NOT NULL PK",
+      "rev INTEGER NOT NULL",
+      "state TEXT NOT NULL",
+      "doc_sha256 TEXT NOT NULL",
+      "proposer_kind TEXT NOT NULL",
+      "level TEXT NOT NULL",
+      "question TEXT NOT NULL",
+      "options TEXT NOT NULL",
+      "recommended TEXT NOT NULL",
+      "reason TEXT NOT NULL DEFAULT ''",
+      "files TEXT NOT NULL DEFAULT '[]'",
+      "decide_at TEXT NOT NULL DEFAULT ''",
+      "created_at TEXT NOT NULL",
+      "decided_at TEXT NOT NULL DEFAULT ''",
+      "decided_option TEXT",
+      "received_at INTEGER NOT NULL"
+    ],
     "a2a_idempotency": [
       "task_id TEXT PK",
       "fp_sha256 TEXT NOT NULL",
@@ -1144,6 +1165,7 @@
     ]
   },
   "indexes": [
+    "idx_a2a_decision_cards_state ON a2a_decision_cards: CREATE INDEX idx_a2a_decision_cards_state ON a2a_decision_cards (state, received_at)",
     "idx_a2a_idempotency_at ON a2a_idempotency: CREATE INDEX idx_a2a_idempotency_at ON a2a_idempotency (created_at)",
     "idx_a2a_outbox_due ON a2a_outbox: CREATE INDEX idx_a2a_outbox_due ON a2a_outbox(status, next_at)",
     "idx_a2a_outbox_run ON a2a_outbox: CREATE UNIQUE INDEX idx_a2a_outbox_run ON a2a_outbox(run_id)",

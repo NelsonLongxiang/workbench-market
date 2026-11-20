@@ -22,7 +22,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "2172", "etag": "W/\"87c-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "2245", "etag": "W/\"8c5-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -71,7 +71,8 @@
                 "a2a-peers": { "label": "对端公钥待确认", "visible": true, "count": 0 },
                 "team-health": { "label": "团队与名册", "visible": true, "count": 0 },
                 "team-binding": { "label": "团队归属要重新确认", "visible": true, "count": 0 },
-                "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 }
+                "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 },
+                "a2a-decisions": { "label": "团队的决策卡", "visible": false, "count": 0 }
               },
               "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
             }
@@ -86,7 +87,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "2172", "etag": "W/\"87c-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "2245", "etag": "W/\"8c5-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -135,7 +136,8 @@
                 "a2a-peers": { "label": "对端公钥待确认", "visible": true, "count": 0 },
                 "team-health": { "label": "团队与名册", "visible": true, "count": 0 },
                 "team-binding": { "label": "团队归属要重新确认", "visible": true, "count": 0 },
-                "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 }
+                "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 },
+                "a2a-decisions": { "label": "团队的决策卡", "visible": false, "count": 0 }
               },
               "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
             }
@@ -150,7 +152,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1615", "etag": "W/\"64f-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1687", "etag": "W/\"697-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -184,7 +186,8 @@
                 "a2a-peers": { "label": "对端公钥待确认", "visible": false, "count": 0 },
                 "team-health": { "label": "团队与名册", "visible": false, "count": 0 },
                 "team-binding": { "label": "团队归属要重新确认", "visible": false, "count": 0 },
-                "relation-proposals": { "label": "关系的提议", "visible": true, "count": 0 }
+                "relation-proposals": { "label": "关系的提议", "visible": true, "count": 0 },
+                "a2a-decisions": { "label": "团队的决策卡", "visible": true, "count": 0 }
               },
               "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
             }
@@ -199,7 +202,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1291", "etag": "W/\"50b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1364", "etag": "W/\"554-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [],
               "counts": { "total": 0, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 0 }, "by_source": {}, "stuck_count": 0 },
@@ -218,7 +221,8 @@
                 "a2a-peers": { "label": "对端公钥待确认", "visible": false, "count": 0 },
                 "team-health": { "label": "团队与名册", "visible": false, "count": 0 },
                 "team-binding": { "label": "团队归属要重新确认", "visible": false, "count": 0 },
-                "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 }
+                "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 },
+                "a2a-decisions": { "label": "团队的决策卡", "visible": false, "count": 0 }
               },
               "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
             }
@@ -233,7 +237,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1291", "etag": "W/\"50b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1364", "etag": "W/\"554-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [],
               "counts": { "total": 0, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 0 }, "by_source": {}, "stuck_count": 0 },
@@ -252,7 +256,8 @@
                 "a2a-peers": { "label": "对端公钥待确认", "visible": false, "count": 0 },
                 "team-health": { "label": "团队与名册", "visible": false, "count": 0 },
                 "team-binding": { "label": "团队归属要重新确认", "visible": false, "count": 0 },
-                "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 }
+                "relation-proposals": { "label": "关系的提议", "visible": false, "count": 0 },
+                "a2a-decisions": { "label": "团队的决策卡", "visible": false, "count": 0 }
               },
               "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
             }
