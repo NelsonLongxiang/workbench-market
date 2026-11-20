@@ -69,6 +69,8 @@ try {
   const names = await listNames(bare.token);
   ok('零授权会话 tools/list 有两个权限自助工具和三个读技能的工具，别的没有', J([...names].sort()) === J(['access_info', 'access_request', ...SKILL_READS].sort()), J(names));
   const info = await tool(bare.token, 'access_info');
+  // 工具结果是紧凑 JSON（不缩进）：同一份内容，换行和缩进不占上下文
+  ok('tools/call 的结果是紧凑 JSON：没有换行和缩进，解析得开', info.text.length > 100 && !info.text.includes('\n') && info.payload && JSON.stringify(info.payload) === info.text, info.text.slice(0, 80));
   const cat = info.payload?.catalog ?? [];
   const listed = ((await rpc('tools/list', {}, bare.token)).body?.result?.tools ?? []);
   ok('access_info 的目录每项都带参数表 input_schema，和批准后 tools/list 里的 inputSchema 一样（新人不用先申请才知道参数名）',
