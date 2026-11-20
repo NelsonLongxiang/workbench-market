@@ -141,6 +141,7 @@
       "GET /api/areas/:id/specs  -> area.spec-list  read  （状态码不代表授权：按领域看的范围由对象定，统一判定还不认；看不到的按不存在回 404）",
       "GET /api/areas/:id/specs/:version  -> area.spec-read  read  （状态码不代表授权：按领域看的范围由对象定，统一判定还不认；看不到的按不存在回 404）",
       "POST /api/areas  -> area.create  decide",
+      "POST /api/areas/migrate  -> area.migrate  decide",
       "POST /api/areas/:id/retire  -> area.retire  decide；细分：area.release  decide（负责人专有的动作，第 1 步只登记（恒为假），挂在领域的写路由下）；细分：area.reassign  decide（负责人专有的动作，第 1 步只登记（恒为假），挂在领域的写路由下）；细分：area.access-approve  decide（负责人专有的动作，第 1 步只登记（恒为假），挂在领域的写路由下）",
       "POST /api/areas/:id/specs/activate  -> area.spec-set  decide  （状态码不代表授权：定规范认持本领域 area-spec 授予的人，领域范围由对象定，统一判定还不认；路由按对象判（judgment.ts 的 areaVerdict））",
       "POST /api/areas/:id/specs  -> area.spec-set  decide  （状态码不代表授权：定规范认持本领域 area-spec 授予的人，领域范围由对象定，统一判定还不认；路由按对象判（judgment.ts 的 areaVerdict））",
@@ -394,6 +395,7 @@
           "app.sync",
           "area.create",
           "area.list",
+          "area.migrate",
           "area.read",
           "area.retire",
           "area.spec-list",
@@ -668,6 +670,14 @@
           "local-cli"
         ],
         "why": "建领域只有属主（本机命令行在这里算属主）；管理层、系统管理员、管理口令都不行（docs/domains-step1.md 第三节）"
+      },
+      {
+        "action": "area.migrate",
+        "only": [
+          "owner",
+          "local-cli"
+        ],
+        "why": "部门迁成领域只有属主（本机命令行在这里算属主）：迁移替部门负责人起草领域负责人的授予，这类授予本来就只有属主能起草（docs/domains-step1.md 第二节第 3 小节）"
       },
       {
         "action": "area.retire",

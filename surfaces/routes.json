@@ -155,6 +155,7 @@
       "GET /api/areas/:id/specs  <- <anonymous>",
       "GET /api/areas/:id/specs/:version  <- <anonymous>",
       "POST /api/areas  <- <anonymous>",
+      "POST /api/areas/migrate  <- <anonymous>",
       "POST /api/areas/:id/retire  <- <anonymous>",
       "POST /api/areas/:id/specs/activate  <- <anonymous>",
       "POST /api/areas/:id/specs  <- <anonymous>",

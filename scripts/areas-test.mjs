@@ -27,6 +27,9 @@
  *   C1 放行第一位负责人后变 active、留痕   C2 不能收回最后一位负责人（路由层，原因透传）；有两位时能收一位；草稿照常作废；撤领域一并收回
  *   C3 负责人本人停用：退回 pending-lead、留痕、属主的待办；恢复后回到 active   C4 负责人授予到期：退回 pending-lead
  *
+ * D 组：部门迁成领域（PR3a）。并发调两次（#21）见 scripts/areas-lead-test.mjs 的 L6
+ *   D1 只有属主能迁   D2 每个部门一个领域；只给有生效负责人授予的部门起草 area-lead（待核）；旧数据不删   D3 再跑一次没有变化   D4 放行后变 active
+ *
  *   node scripts/areas-test.mjs
  */
 import { createServer } from 'node:net';
@@ -407,7 +410,7 @@ try {
     for (const role of ['area-spec', 'area-lead', 'spec-setter', 'lead-helper', 'decide-all']) tries[role] = (await draftBy(sam, 'user:sid', role, 'area:zeta')).status;
     const monaTry = (await draftBy(mona, 'user:sid', 'area-spec', 'area:zeta')).status;
     check(Object.values(tries).every((s) => s === 403) && monaTry === 403 && grantCount() === before,
-      'B3a（#7、#20、#23、#27）系统管理员起草 area-spec、area-lead、只列定规范的自定义角色、只列一个负责人动作的、整类决定的（都带 area:）：403；管理层也 403；库里没有新授予', { tries, monaTry });
+      'B3a（#7、#20、#23、#27）[red-line:area-spec-owner-only] 系统管理员起草 area-spec、area-lead、只列定规范的自定义角色、只列一个负责人动作的、整类决定的（都带 area:）：403；管理层也 403；库里没有新授予', { tries, monaTry });
     // 系统管理员起草 area-member 可以（两人制），放行不行；管理层也放行不了（带业务拍板，只有属主）
     const m = await draftBy(sam, 'user:alice', 'area-member', 'area:zeta');
     await sam.go('POST', `/api/grants/${m.id}/submit`);
@@ -549,6 +552,91 @@ try {
     await A.cli('GET', '/api/grants'); // 列授予时顺手把到期的标成过期
     check(st0 === 'active' && (await areaStatus('kappa')) === 'pending-lead' && kindsOf('kappa').at(-1)?.kind === 'lead-missing',
       'C4 唯一负责人的授予到期：领域退回 pending-lead，留痕 lead-missing', { st0 });
+  }
+
+  // ================= D：部门迁成领域（docs/domains-step1.md 第二节第 3 小节；第 1 步 PR3a） =================
+  const dan = await A.person('dan', 'Dan-pass-000001', '192.0.2.101');
+  await A.person('eve', 'Eve-pass-000001', '192.0.2.102');
+  await A.person('fay', 'Fay-pass-000001', '192.0.2.103');
+  // 四个部门：m-sales 有生效的负责人授予（属主直接指定，发了 dept-lead）；m-ops 没有负责人；
+  // m-hr 的负责人有授予但本人停用了；m-fin 只有负责人字段、没有授予（直接写库，「待属主放行」）
+  await A.cli('PUT', '/api/departments/m-sales', { name: '合成销售部', lead: 'user:dan' });
+  await A.cli('PUT', '/api/departments/m-ops', { name: '合成运营部' });
+  await A.cli('PUT', '/api/departments/m-hr', { name: '合成人事部', lead: 'user:eve' });
+  await A.cli('POST', '/api/principals/disable', { id: 'user:eve', reason: '合成：离职' });
+  { const d = A.db(); try { d.prepare("INSERT INTO departments (id, name, lead_principal, created_at, updated_at) VALUES ('m-fin', '合成财务部', 'user:fay', 1, 1)").run(); } finally { d.close(); } }
+  const oldTables = () => { const d = A.db(); try { const n = (t) => Number(d.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n); return { departments: n('departments'), members: n('department_members'), links: n('dept_lead_grants'), deptGrants: n("grants WHERE scope LIKE 'dept:%'") }; } finally { d.close(); } };
+  const migGrants = () => { const d = A.db(); try { return d.prepare("SELECT principal_id, role, scope, status, reason FROM grants WHERE reason = '由部门负责人迁移' ORDER BY id").all(); } finally { d.close(); } };
+  const areaRow = (id) => { const d = A.db(); try { return d.prepare('SELECT status, source FROM areas WHERE id = ?').get(id) ?? null; } finally { d.close(); } };
+
+  // ---- D1 只有属主能迁 ----
+  {
+    const before = counts(A);
+    const tries = {};
+    for (const [who, b] of [['sam', sam], ['mona', mona], ['tom', tom]]) tries[who] = (await b.go('POST', '/api/areas/migrate', { json: {} })).status;
+    tries.token = (await A.remote('POST', '/api/areas/migrate', { json: {}, token: ADMIN_TOKEN })).status;
+    tries.anon = (await A.remote('POST', '/api/areas/migrate', { json: {} })).status;
+    check(Object.values(tries).every((s) => s === 401 || s === 403) && tries.sam === 403 && tries.token === 403 && same(before, counts(A)) && migGrants().length === 0,
+      'D1 系统管理员、管理层、普通员工、管理口令、远程匿名调迁移：401/403，库里没有变化', tries);
+  }
+
+  // ---- D2 属主迁一次 ----
+  const old0 = oldTables();
+  {
+    const r = await olga.go('POST', '/api/areas/migrate', { json: {} });
+    const created = (r.json?.created ?? []).map((x) => x.id).sort().join(',');
+    const drafted = r.json?.drafted ?? [];
+    const g = migGrants();
+    const st = Object.fromEntries(['m-sales', 'm-ops', 'm-hr', 'm-fin'].map((id) => [id, areaRow(id)]));
+    const ev = (() => { const d = A.db(); try { return d.prepare("SELECT area_id, detail FROM area_events WHERE kind = 'migrate' ORDER BY seq").all().map((x) => `${x.area_id}:${x.detail}`); } finally { d.close(); } })();
+    check(r.status === 200 && created === 'm-fin,m-hr,m-ops,m-sales' && Object.values(st).every((x) => x?.status === 'pending-lead' && x?.source === 'department')
+        && ev.includes('m-sales:m-sales') && ev.length === 4,
+      'D2a 属主迁移：每个部门建一个同标识、同名的领域（source=department、pending-lead），各留痕一行 migrate', { s: r.status, created, st, ev });
+    check(g.length === 1 && g[0].principal_id === 'user:dan' && g[0].role === 'area-lead' && g[0].scope === 'area:m-sales' && g[0].status === 'pending'
+        && drafted.length === 1 && drafted[0].department === 'm-sales',
+      'D2b（#26、#14）只给有生效负责人授予的部门（m-sales）起草 area-lead，停在待核；负责人停用的（m-hr）、只有字段的（m-fin）、没有负责人的不起草；不起草 area-member、area-spec', { g, drafted });
+    check(same(old0, oldTables()), 'D2c 旧数据一律不删：部门、部门成员、负责人授予的对照、dept: 范围的授予原样', { before: old0, after: oldTables() });
+  }
+
+  // ---- D3 再跑一次 ----
+  {
+    const before = { c: counts(A), g: migGrants().length, old: oldTables() };
+    const r = await A.cli('POST', '/api/areas/migrate', {});
+    check(r.status === 200 && (r.json?.created ?? []).length === 0 && (r.json?.drafted ?? []).length === 0 && same(before, { c: counts(A), g: migGrants().length, old: oldTables() }),
+      'D3（#13）再跑一次：不新建领域、不重复起草，库里没有变化', { s: r.status, body: r.json });
+  }
+
+  // ---- D4 属主放行迁移出来的负责人：领域变 active ----
+  {
+    const id = (() => { const d = A.db(); try { return d.prepare("SELECT id FROM grants WHERE reason = '由部门负责人迁移'").get().id; } finally { d.close(); } })();
+    const ap = await olga.go('POST', `/api/grants/${id}/approve`);
+    check(ap.status === 200 && areaRow('m-sales')?.status === 'active', 'D4 属主放行迁移起草的负责人：m-sales 变 active', { ap: ap.status });
+  }
+
+  // ---- D5 页面要的：can 和负责人 ----
+  {
+    const canOf = async (b) => (b ? await b.go('GET', '/api/areas') : await A.cli('GET', '/api/areas')).json?.can;
+    const cans = { olga: await canOf(olga), cli: await canOf(null), mona: await canOf(mona), tom: await canOf(tom), token: (await A.remote('GET', '/api/areas', { token: ADMIN_TOKEN })).json?.can };
+    const yes = { create: true, migrate: true, assign_lead: true }, no = { create: false, migrate: false, assign_lead: false };
+    const leads = (await olga.go('GET', '/api/areas/m-sales')).json?.leads;
+    const iotaLeads = (await olga.go('GET', '/api/areas/iota')).json?.leads;
+    check(same(cans.olga, yes) && same(cans.cli, yes) && same(cans.mona, no) && same(cans.tom, no) && same(cans.token, no),
+      'D5a GET /api/areas 的 can：属主、本机命令行三项都是真；管理层、普通员工、管理口令都是假', cans);
+    check(leads?.length === 1 && leads[0].principal === 'user:dan' && leads[0].status === 'active' && leads[0].display_name !== undefined && iotaLeads?.some((x) => x.principal === 'user:ivy' && x.status === 'active'),
+      'D5b GET /api/areas/:id 的 leads：列出生效的负责人（迁移后放行的 dan、恢复后的 ivy）', { leads, iotaLeads });
+    // 再给 m-sales 起草一位负责人 kim，停在待核：等放行的是人员信息，只有属主看得到
+    const k = await A.cli('POST', '/api/grants', { principal: 'user:kim', role: 'area-lead', scope: 'area:m-sales', reason: '合成' });
+    await A.cli('POST', `/api/grants/${k.json?.grant?.id}/submit`);
+    const who = (r) => (r.json?.leads ?? []).map((x) => `${x.principal}:${x.status}`).sort().join(',');
+    const seen = {
+      olga: who(await olga.go('GET', '/api/areas/m-sales')), cli: who(await A.cli('GET', '/api/areas/m-sales')),
+      mona: who(await mona.go('GET', '/api/areas/m-sales')), token: who(await A.remote('GET', '/api/areas/m-sales', { token: ADMIN_TOKEN })),
+      dan: who(await dan.go('GET', '/api/areas/m-sales')),
+    };
+    const tomS = (await tom.go('GET', '/api/areas/m-sales')).status, samS = (await sam.go('GET', '/api/areas/m-sales')).status;
+    check(seen.olga === 'user:dan:active,user:kim:pending' && seen.cli === seen.olga && seen.mona === 'user:dan:active' && seen.token === 'user:dan:active' && seen.dan === 'user:dan:active'
+        && tomS === 404 && samS === 404,
+      'D5c leads 的可见范围：属主、本机命令行看得到等放行的 kim；管理层、管理口令、负责人 dan 只看到生效的；无关的普通员工、系统管理员连领域都看不到（404）', { seen, tomS, samS });
   }
 
 } catch (e) {
