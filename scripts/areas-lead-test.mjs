@@ -9,6 +9,8 @@
  *      所以检查要是不在写事务里，两边都会看到「还剩一位」、都收回成功——这一项就红
  *   L5 负责人本人停用时，领域的重算和停用在同一个写事务里：重算抛错，停用一起回滚，人还是启用的、领域还是 active；
  *      重算时 db.isTransaction 为真
+ *   L6 （#21）迁移接口两个进程同时调：每个部门只成一个领域、负责人授予只起草一条，两边都回成功。
+ *      两个子进程在「这个部门的领域在不在」那一句之后各停 400 毫秒；每个部门的建领域和起草授予要是不在同一个写事务里，就会撞或重复
  *   L4 旧库升级：PR1 建的 area_events（CHECK 里没有 lead-active / lead-missing）整表搬一次，行和编号原样，新种类能写，只增不改的触发器还在；再启动一次不重搬
  *
  *   node scripts/areas-lead-test.mjs
@@ -149,6 +151,46 @@ try {
     const p2 = principals.get('user:ld')?.status, a2 = areas.get('tight').status;
     check(threw && inTx === true && p1 === 'active' && a1 === 'active' && gate1 === null && p2 === 'disabled' && a2 === 'pending-lead',
       'L5 停用和领域重算同一个写事务：重算抛错时停用一起回滚（人仍启用、领域仍 active）；重算时在事务里；正常时停用后领域退回 pending-lead', { threw, inTx, p1, a1, gate1, p2, a2 });
+  }
+
+  // ---- L6 ----
+  {
+    const { setDepartmentLead } = await import(at('server/src/services/dept-lead-grant.ts'));
+    person('user:le');
+    const dr = setDepartmentLead({ id: 'c-sales', name: '合成并发销售', functionCode: null, lead: 'user:le' }, { by: 'cli', principal: null, owner: true }, Date.now());
+    svc('departments').upsert({ id: 'c-ops', name: '合成并发运营', functionCode: null, lead: null }, 'cli', Date.now());
+    const barrier = join(OUT, 'go-migrate');
+    const child = () => {
+      const code = `${SETUP}
+        const { db } = await import(${JSON.stringify(at('server/src/db.ts'))});
+        const { existsSync } = await import('node:fs');
+        const orig = db.prepare.bind(db);
+        const nap = new Int32Array(new SharedArrayBuffer(4));
+        db.prepare = (sql) => {
+          const st = orig(sql);
+          if (!String(sql).includes('area-migrate')) return st;
+          return new Proxy(st, { get(t, k) { const v = t[k]; if (k === 'all' || k === 'get') return (...a) => { const r = v.apply(t, a); Atomics.wait(nap, 0, 0, 400); return r; }; return typeof v === 'function' ? v.bind(t) : v; } });
+        };
+        while (!existsSync(${JSON.stringify(barrier)})) Atomics.wait(nap, 0, 0, 5);
+        try {
+          const r = svc('areas').migrateDepartments({ by: 'cli', principal: null, owner: true }, Date.now());
+          console.log('RESULT ' + JSON.stringify({ ok: true, created: r.created, drafted: r.drafted.length }));
+        } catch (e) { console.log('RESULT ' + JSON.stringify({ ok: false, error: String(e?.message ?? e) })); }
+        process.exit(0);`;
+      const c = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', code], { cwd: join(ROOT, 'server'), env: { ...process.env, DATA_DIR: OUT, NODE_ENV: 'test' }, stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '';
+      c.stdout.on('data', (d) => { out += String(d); }); c.stderr.on('data', (d) => { out += String(d); });
+      return new Promise((res) => c.on('exit', () => res(out)));
+    };
+    const runs = [child(), child()];
+    await new Promise((r) => setTimeout(r, 1500));
+    writeFileSync(barrier, '');
+    const res = (await Promise.all(runs)).map((o) => { const m = /RESULT (.*)/.exec(o); return m ? JSON.parse(m[1]) : { error: o.trim().split('\n').slice(-3).join(' | ') }; });
+    const areasN = Number(db.prepare("SELECT COUNT(*) AS n FROM areas WHERE id IN ('c-sales', 'c-ops')").get().n);
+    const grantsN = Number(db.prepare("SELECT COUNT(*) AS n FROM grants WHERE scope = 'area:c-sales' AND reason = '由部门负责人迁移'").get().n);
+    const evN = Number(db.prepare("SELECT COUNT(*) AS n FROM area_events WHERE kind = 'migrate' AND area_id IN ('c-sales', 'c-ops')").get().n);
+    check(dr.ok && res.every((r) => r.ok) && areasN === 2 && grantsN === 1 && evN === 2,
+      'L6（#21）两个进程同时调迁移：两边都成功，每个部门只成一个领域、一行 migrate 留痕，负责人授予只起草一条', { res, areasN, grantsN, evN });
   }
 
   // ---- L4 ----
