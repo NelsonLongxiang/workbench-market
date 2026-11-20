@@ -17,7 +17,9 @@ jobs:
   browser-security:
     # #292 M4 真实浏览器反例：有口令不嵌 /go/、跳出清口令、登录弹窗不复制口令且无 opener（bfcache 未命中记 SKIP）
     # 系统镜像钉在 24.04：ubuntu-latest 换成 26.04 之后，钉住的 Playwright 不认这个系统，装浏览器那一步直接失败。
-    # 下面两份缓存的键带着 ImageOS、ImageVersion，换镜像会自动换键，不会把别的系统装的浏览器和系统包拿来用。
+    # 下面两份缓存的键带着镜像标识（ImageOS、ImageVersion，由「取镜像标识」那一步从 runner 的环境变量里读出来），
+    # 换镜像会自动换键，不会把别的系统装的浏览器和系统包拿来用。不能直接写 env.ImageOS：env 上下文只有 workflow 自己定义的变量，
+    # 那样取到的是空串，键里就没有镜像（在 #881 之前一直是这样）。
     # 升级镜像要和升级 Playwright 一起做，另开 PR
     runs-on: ubuntu-24.04
     env:
@@ -38,18 +40,26 @@ jobs:
       # 装环境和跑测试分开：装环境只依赖外网（PyPI、Playwright 的浏览器下载、apt 软件源），带重试与缓存；
       # 失败时标「装环境失败」。浏览器版本由 Playwright 版本决定，缓存键带上它，升级就换键。
       # 缓存先取后存：存放在装环境之后单独一步，后面的测试红了也照样存
+      - name: 装环境：取镜像标识
+        id: image
+        run: |
+          # ImageOS（如 ubuntu24）、ImageVersion（镜像的小版本）是 runner 镜像自己设的环境变量；取不到就停，不带着空键去取缓存
+          if [ -z "${ImageOS:-}" ] || [ -z "${ImageVersion:-}" ]; then echo "::error::取不到 ImageOS 或 ImageVersion"; exit 1; fi
+          echo "os=${ImageOS}" >> "$GITHUB_OUTPUT"
+          echo "version=${ImageVersion}" >> "$GITHUB_OUTPUT"
+          echo "镜像：${ImageOS}-${ImageVersion}"
       - name: 装环境：取 Playwright 浏览器缓存
         id: pw-cache
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-browsers-${{ runner.os }}-${{ env.ImageOS }}-${{ env.PLAYWRIGHT_VERSION }}-chromium
+          key: playwright-browsers-${{ runner.os }}-${{ steps.image.outputs.os }}-${{ env.PLAYWRIGHT_VERSION }}-chromium
       - name: 装环境：取系统依赖的 apt 包缓存
         id: apt-cache
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/playwright-apt
-          key: playwright-apt-${{ env.ImageOS }}-${{ env.ImageVersion }}-${{ env.PLAYWRIGHT_VERSION }}
+          key: playwright-apt-${{ steps.image.outputs.os }}-${{ steps.image.outputs.version }}-${{ env.PLAYWRIGHT_VERSION }}
       - name: 装环境：Playwright（Python）+ Chromium 与系统依赖
         id: browser-env
         timeout-minutes: 12
