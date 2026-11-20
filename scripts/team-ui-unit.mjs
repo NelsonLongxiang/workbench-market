@@ -46,7 +46,7 @@ ok('人名：显示名优先，没有去前缀，空的给空串', personName({ 
 
 const deps = departmentsOf({ departments: [{ id: 'ops', name: '运营部', lead: null, member_count: 3 }, { name: '缺标识' }] });
 ok('部门列表：缺标识的丢掉；不是对象按空', deps.length === 1 && deps[0].member_count === 3 && departmentsOf('x').length === 0);
-ok('空：没有部门——管理员说先建部门，别人说等管理员', /先建部门/.test(emptyText(teamsOf({ departments: [], unclaimed: [] }), [], true)) && /等管理员先建部门/.test(emptyText(teamsOf({ departments: [] }), [], false)));
+ok('空：没有部门——管理员说部门正在换成领域、到「领域」页建（这一页不再建部门），别人说等管理员', /部门正在换成领域/.test(emptyText(teamsOf({ departments: [], unclaimed: [] }), [], true)) && /「领域」页/.test(emptyText(teamsOf({ departments: [], unclaimed: [] }), [], true)) && /等管理员先建部门/.test(emptyText(teamsOf({ departments: [] }), [], false)));
 ok('空：有部门没团队——管理员说会先出现在待认领里，别人说哪些团队会出现', /待认领的团队/.test(emptyText(teamsOf({ departments: [], unclaimed: [] }), deps, true)) && /你所在部门的团队/.test(emptyText(teamsOf({ departments: [] }), deps, false)));
 ok('空：有团队（哪怕只有待认领的）就不算空；部门读不到时只看团队', emptyText(teamsOf({ departments: [], unclaimed: [team({ status: 'unclaimed', department: null })] }), deps, true) === null && emptyText(t, null, false) === null);
 
