@@ -17,6 +17,7 @@ import { db } from '../db.ts';
 import { svc } from '../context.ts';
 import type { GrantService } from './grant.ts';
 import type { PrincipalStatusChanged } from './principal.ts';
+import type { DepartmentService } from './department.ts';
 
 export type AreaStatus = 'pending-lead' | 'active' | 'retired';
 export type AreaSource = 'manual' | 'department';
@@ -33,6 +34,8 @@ export type AreaActor = { by: string; principal: string | null };
 export const AREA_ID_RE = /^[a-z][a-z0-9-]{0,47}$/;
 export const AREA_SPEC_MAX_BYTES = 65536;
 export const AREA_NOTE_MAX = 200;
+/** 迁移起草的负责人授予的理由（也是去重的一部分） */
+export const MIGRATE_REASON = '由部门负责人迁移';
 const SHA256_RE = /^[0-9a-f]{64}$/;
 
 const refuse = (http: AreaRefusal['http'], code: string, message: string): AreaRefusal => ({ ok: false, http, code, message });
@@ -120,6 +123,43 @@ export class AreaService extends Service {
   }
 
   /** 撤领域：领域改成 retired，范围是 area:<标识> 的没结束的授予一并撤销，同一个写事务；回撤了的授予编号 */
+  /**
+   * 部门迁成领域（docs/domains-step1.md 第二节第 3 小节），只有属主调。每个部门一个写事务（BEGIN IMMEDIATE），幂等、并发调两次也只成一份：
+   *   · 没有同标识领域的，建一个同标识、同名的领域（source = department，pending-lead），留痕一行 migrate（detail 是部门标识）；已有的（含撤了的）不建；
+   *   · 部门有生效的负责人授予（dept_lead_grants 里那条还生效）、负责人是启用的人：给他起草一条 area-lead（范围 area:<同标识>、理由「由部门负责人迁移」）
+   *     并提交，停在待核等属主放行；已经有一条同样的没结束的，不再起草。负责人停用的、只有字段没有授予的、没有负责人的，不起草；
+   *   · 不起草 area-member、area-spec（定规范单独授予，迁移不替属主做决定）；部门成员不迁；旧表一律不删。
+   */
+  migrateDepartments(actor: AreaActor & { owner: boolean }, now: number): {
+    created: { id: string; name: string }[]; drafted: { department: string; grant: number; principal: string }[]; skipped: { department: string; reason: string }[];
+  } {
+    const out = { created: [] as { id: string; name: string }[], drafted: [] as { department: string; grant: number; principal: string }[], skipped: [] as { department: string; reason: string }[] };
+    const grants = svc<GrantService>('grants');
+    for (const d of svc<DepartmentService>('departments').list()) {
+      if (!AREA_ID_RE.test(d.id)) { out.skipped.push({ department: d.id, reason: 'id_invalid' }); continue; }
+      tx(() => {
+        const exists = db.prepare('/* area-migrate */ SELECT status FROM areas WHERE id = ?').get(d.id) as { status: AreaStatus } | undefined;
+        if (!exists) {
+          const by = actor.by.slice(0, 256);
+          db.prepare("INSERT INTO areas (id, name, status, spec_version, source, created_at, created_by, updated_at, updated_by) VALUES (?, ?, 'pending-lead', NULL, 'department', ?, ?, ?, ?)")
+            .run(d.id, d.name.slice(0, 64), now, by, now, by);
+          this.event(d.id, 'migrate', null, actor, now, d.id);
+          out.created.push({ id: d.id, name: d.name });
+        }
+        if (!d.lead) return;
+        if (d.lead.grant !== 'active') { out.skipped.push({ department: d.id, reason: 'lead_without_grant' }); return; }
+        const p = db.prepare('SELECT kind, status FROM principals WHERE id = ?').get(d.lead.principal) as { kind: string; status: string } | undefined;
+        if (!p || p.kind !== 'person' || p.status !== 'active') { out.skipped.push({ department: d.id, reason: 'lead_not_active' }); return; }
+        const scope = `area:${d.id}`;
+        if (grants.openGrantExists(d.lead.principal, 'area-lead', scope, MIGRATE_REASON)) return;
+        const r = grants.draftInTx({ principal: d.lead.principal, role: 'area-lead', scope, reason: MIGRATE_REASON }, { by: actor.by, principal: actor.principal, owner: actor.owner }, now, true);
+        if (r.ok) out.drafted.push({ department: d.id, grant: r.id, principal: d.lead.principal });
+        else out.skipped.push({ department: d.id, reason: r.code });
+      });
+    }
+    return out;
+  }
+
   retire(id: string, reason: string, actor: AreaActor & { owner: boolean }, now: number): { ok: true; area: AreaView; grants_revoked: number[] } | AreaRefusal {
     return tx(() => {
       const a = this.get(id);

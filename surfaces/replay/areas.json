@@ -1,12 +1,25 @@
 {
   "domain": "areas",
-  "what": "领域：/api/areas 的 8 条路由（docs/domains-step1.md 第 1 步 PR1）。response 由 scripts/route-replay-test.mjs --record 写入，不手改。主体都是合成的。",
-  "routes": ["GET /api/areas", "GET /api/areas/:id", "GET /api/areas/:id/specs", "GET /api/areas/:id/specs/:version", "POST /api/areas", "POST /api/areas/:id/retire", "POST /api/areas/:id/specs/activate", "POST /api/areas/:id/specs"],
-  "exempt": [{ "route": "GET /api/areas", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/list-junk" }],
+  "what": "领域：/api/areas 的 9 条路由（docs/domains-step1.md 第 1 步 PR1）。response 由 scripts/route-replay-test.mjs --record 写入，不手改。主体都是合成的。",
+  "routes": [
+    "GET /api/areas",
+    "GET /api/areas/:id",
+    "GET /api/areas/:id/specs",
+    "GET /api/areas/:id/specs/:version",
+    "POST /api/areas",
+    "POST /api/areas/migrate",
+    "POST /api/areas/:id/retire",
+    "POST /api/areas/:id/specs/activate",
+    "POST /api/areas/:id/specs"
+  ],
+  "exempt": [
+    { "route": "GET /api/areas", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/list-junk" },
+    { "route": "POST /api/areas/migrate", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/migrate-junk" }
+  ],
   "scenarios": [
     {
       "name": "open",
-      "what": "缺省配置：登录门关，没设管理口令。本机命令行是属主；假登录提供方认出 alpha（员工，没有授予）、beta（准备步骤里由本机命令行放行管理层）。库里预先放一条范围 area:ops 的草稿授予（撤 ops 时一并撤销）。",
+      "what": "缺省配置：登录门关，没设管理口令。本机命令行是属主；假登录提供方认出 alpha（员工，没有授予）、beta（准备步骤里由本机命令行放行管理层）。库里预先放一条范围 area:ops 的草稿授予（撤 ops 时一并撤销）。另有一个没有负责人的部门 eng（迁移用）。",
       "env": {},
       "clock": "2030-01-01T00:00:00Z",
       "fixtures": ["identity-fake"],
@@ -15,7 +28,8 @@
         { "table": "principals", "row": { "id": "user:beta", "id_key": "user:beta", "kind": "person", "display_name": "合成乙" } },
         { "table": "principal_identities", "row": { "provider": "fake", "external_id": "alpha", "external_key": "alpha", "principal_id": "user:alpha" } },
         { "table": "principal_identities", "row": { "provider": "fake", "external_id": "beta", "external_key": "beta", "principal_id": "user:beta" } },
-        { "table": "grants", "row": { "principal_id": "user:alpha", "role": "member", "scope": "area:ops", "reason": "合成", "status": "draft", "created_by": "cli", "created_at": 0, "updated_at": 0 } }
+        { "table": "grants", "row": { "principal_id": "user:alpha", "role": "member", "scope": "area:ops", "reason": "合成", "status": "draft", "created_by": "cli", "created_at": 0, "updated_at": 0 } },
+        { "table": "departments", "row": { "id": "eng", "name": "合成研发部", "created_at": 0, "updated_at": 0 } }
       ],
       "steps": [
         {
@@ -70,8 +84,8 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "12", "etag": "W/\"c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "areas": [] }
+            "headers": { "cache-control": "private, no-store", "content-length": "68", "etag": "W/\"44-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "areas": [], "can": { "create": true, "migrate": true, "assign_lead": true } }
           }
         },
         {
@@ -207,12 +221,13 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "441", "etag": "W/\"1b9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "497", "etag": "W/\"1f1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "areas": [
                 { "id": "ops", "name": "合成运营", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" },
                 { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }
-              ]
+              ],
+              "can": { "create": true, "migrate": true, "assign_lead": true }
             }
           }
         },
@@ -226,12 +241,13 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "441", "etag": "W/\"1b9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "497", "etag": "W/\"1f1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "areas": [
                 { "id": "ops", "name": "合成运营", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" },
                 { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }
-              ]
+              ],
+              "can": { "create": true, "migrate": true, "assign_lead": true }
             }
           }
         },
@@ -245,12 +261,13 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "441", "etag": "W/\"1b9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "500", "etag": "W/\"1f4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "areas": [
                 { "id": "ops", "name": "合成运营", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" },
                 { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }
-              ]
+              ],
+              "can": { "create": false, "migrate": false, "assign_lead": false }
             }
           }
         },
@@ -263,8 +280,8 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "12", "etag": "W/\"c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "areas": [] }
+            "headers": { "cache-control": "private, no-store", "content-length": "71", "etag": "W/\"47-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "areas": [], "can": { "create": false, "migrate": false, "assign_lead": false } }
           }
         },
         {
@@ -303,9 +320,10 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "224", "etag": "W/\"e0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "235", "etag": "W/\"eb-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "area": { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }
+              "area": { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" },
+              "leads": []
             }
           }
         },
@@ -319,9 +337,10 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "224", "etag": "W/\"e0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "235", "etag": "W/\"eb-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "area": { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }
+              "area": { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" },
+              "leads": []
             }
           }
         },
@@ -843,12 +862,13 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "433", "etag": "W/\"1b1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "489", "etag": "W/\"1e9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "areas": [
                 { "id": "ops", "name": "合成运营", "status": "retired", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" },
                 { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": 1, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }
-              ]
+              ],
+              "can": { "create": true, "migrate": true, "assign_lead": true }
             }
           }
         },
@@ -905,9 +925,10 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "215", "etag": "W/\"d7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "307", "etag": "W/\"133-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "area": { "id": "sales", "name": "合成销售", "status": "active", "spec_version": 1, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }
+              "area": { "id": "sales", "name": "合成销售", "status": "active", "spec_version": 1, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" },
+              "leads": [{ "grant": 4, "principal": "user:alpha", "display_name": "合成甲", "status": "active" }]
             }
           }
         },
@@ -921,9 +942,10 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "218", "etag": "W/\"da-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "277", "etag": "W/\"115-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "areas": [{ "id": "sales", "name": "合成销售", "status": "active", "spec_version": 1, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }]
+              "areas": [{ "id": "sales", "name": "合成销售", "status": "active", "spec_version": 1, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }],
+              "can": { "create": false, "migrate": false, "assign_lead": false }
             }
           }
         },
@@ -1027,6 +1049,84 @@
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "119", "etag": "W/\"77-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "error": "areas_spec_holder_only", "message": "定规范只有属主和持这个领域「定规范」授予的人能做" }
+          }
+        },
+        {
+          "id": "migrate-remote-anon",
+          "route": "POST /api/areas/migrate",
+          "class": "unauthorized",
+          "what": "远程、没登录：写请求总门拦下",
+          "request": { "method": "POST", "path": "/api/areas/migrate", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "migrate-staff",
+          "route": "POST /api/areas/migrate",
+          "class": "unauthorized",
+          "what": "员工 alpha（是 sales 的负责人，但不是属主）：403",
+          "request": { "method": "POST", "path": "/api/areas/migrate", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "migrate-mgmt",
+          "route": "POST /api/areas/migrate",
+          "class": "unauthorized",
+          "what": "管理层 beta：迁移只有属主，403",
+          "request": { "method": "POST", "path": "/api/areas/migrate", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "migrate-cli",
+          "route": "POST /api/areas/migrate",
+          "class": "normal",
+          "what": "本机命令行（属主）迁移：部门 eng 建成领域（pending-lead、source=department），没有负责人不起草",
+          "request": { "method": "POST", "path": "/api/areas/migrate", "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "77", "etag": "W/\"4d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "created": [{ "id": "eng", "name": "合成研发部" }], "drafted": [], "skipped": [] }
+          }
+        },
+        {
+          "id": "migrate-again",
+          "route": "POST /api/areas/migrate",
+          "class": "normal",
+          "what": "再迁一次：不新建、不起草（幂等）",
+          "request": { "method": "POST", "path": "/api/areas/migrate", "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "40", "etag": "W/\"28-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "created": [], "drafted": [], "skipped": [] }
+          }
+        },
+        {
+          "id": "migrate-junk",
+          "route": "POST /api/areas/migrate",
+          "class": "normal",
+          "what": "这条路由不读请求体、查询串：带无关参数照常（照样幂等）",
+          "request": { "method": "POST", "path": "/api/areas/migrate?x=1", "json": { "x": [1] } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "40", "etag": "W/\"28-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "created": [], "drafted": [], "skipped": [] }
           }
         }
       ]

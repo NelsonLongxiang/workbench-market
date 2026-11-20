@@ -107,7 +107,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "5823", "etag": "W/\"16bf-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "6235", "etag": "W/\"185b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "red_lines": [
                 { "id": "no-self-grant", "title": "不能给自己授予", "detail": "起草、提交、放行的人都不能是被授予的主体；库里也有约束。", "enforced_in": "server/src/services/grant.ts、server/src/db.ts", "test": "scripts/grants-smoke.mjs" },
@@ -125,7 +125,8 @@
                 { "id": "dept-lead-field-no-power", "title": "部门负责人字段单独不带来权力", "detail": "部门负责人的权力只来自这个部门范围的拍板授予。属主确认（或直接指定）部门负责人时，同一事务里落字段、发授予；字段从别的来源写进来（存量、导入、同步、直接写库）只是「待属主放行」：不算团队负责人、分不了成员、放不了行、确认不了认领，启动时补记一条负责人提议给属主。撤掉授予权力当场就没；换人、移除时收回随负责人发的那条。", "enforced_in": "server/src/services/dept-lead-grant.ts、server/src/services/team.ts、server/src/team-relation.ts", "test": "scripts/teams-smoke.mjs" },
                 { "id": "system-admin-no-business", "title": "系统管理员缺省看不到业务数据", "detail": "系统管理员只有系统域的读写管，业务域（事项、工作台数据、关注……）要另外授予。", "enforced_in": "server/src/roles.ts", "test": "scripts/role-presets-test.mjs" },
                 { "id": "settings-no-secret-values", "title": "设置的出口不带凭据类的值", "detail": "设置读、导出、改设置的应答里，令牌、密码、密钥只说有没有；启动时自检，漏了拒绝启动。", "enforced_in": "server/src/settings-view.ts、server/src/index.ts", "test": "scripts/settings-read-smoke.mjs" },
-                { "id": "export-reveal-admin-only", "title": "导出真值只给管理员", "detail": "带 reveal 的导出要管理口令或管理员登录（浏览器来的要同源）；不满足 403，不降级成掩码。", "enforced_in": "server/src/routes/export-import.ts", "test": "scripts/export-reveal-smoke.mjs" }
+                { "id": "export-reveal-admin-only", "title": "导出真值只给管理员", "detail": "带 reveal 的导出要管理口令或管理员登录（浏览器来的要同源）；不满足 403，不降级成掩码。", "enforced_in": "server/src/routes/export-import.ts", "test": "scripts/export-reveal-smoke.mjs" },
+                { "id": "area-spec-owner-only", "title": "定规范只有属主能授", "detail": "带领域范围、权限覆盖「定规范」（或领域负责人专有动作）的授予，起草、放行都只有属主——按权限覆盖判，不按角色名；定规范本身只认属主和持本领域 area-spec 的人。", "enforced_in": "server/src/services/grant.ts、server/src/judgment.ts", "test": "scripts/areas-test.mjs" }
               ]
             }
           }
@@ -139,7 +140,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "5823", "etag": "W/\"16bf-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "6235", "etag": "W/\"185b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "red_lines": [
                 { "id": "no-self-grant", "title": "不能给自己授予", "detail": "起草、提交、放行的人都不能是被授予的主体；库里也有约束。", "enforced_in": "server/src/services/grant.ts、server/src/db.ts", "test": "scripts/grants-smoke.mjs" },
@@ -157,7 +158,8 @@
                 { "id": "dept-lead-field-no-power", "title": "部门负责人字段单独不带来权力", "detail": "部门负责人的权力只来自这个部门范围的拍板授予。属主确认（或直接指定）部门负责人时，同一事务里落字段、发授予；字段从别的来源写进来（存量、导入、同步、直接写库）只是「待属主放行」：不算团队负责人、分不了成员、放不了行、确认不了认领，启动时补记一条负责人提议给属主。撤掉授予权力当场就没；换人、移除时收回随负责人发的那条。", "enforced_in": "server/src/services/dept-lead-grant.ts、server/src/services/team.ts、server/src/team-relation.ts", "test": "scripts/teams-smoke.mjs" },
                 { "id": "system-admin-no-business", "title": "系统管理员缺省看不到业务数据", "detail": "系统管理员只有系统域的读写管，业务域（事项、工作台数据、关注……）要另外授予。", "enforced_in": "server/src/roles.ts", "test": "scripts/role-presets-test.mjs" },
                 { "id": "settings-no-secret-values", "title": "设置的出口不带凭据类的值", "detail": "设置读、导出、改设置的应答里，令牌、密码、密钥只说有没有；启动时自检，漏了拒绝启动。", "enforced_in": "server/src/settings-view.ts、server/src/index.ts", "test": "scripts/settings-read-smoke.mjs" },
-                { "id": "export-reveal-admin-only", "title": "导出真值只给管理员", "detail": "带 reveal 的导出要管理口令或管理员登录（浏览器来的要同源）；不满足 403，不降级成掩码。", "enforced_in": "server/src/routes/export-import.ts", "test": "scripts/export-reveal-smoke.mjs" }
+                { "id": "export-reveal-admin-only", "title": "导出真值只给管理员", "detail": "带 reveal 的导出要管理口令或管理员登录（浏览器来的要同源）；不满足 403，不降级成掩码。", "enforced_in": "server/src/routes/export-import.ts", "test": "scripts/export-reveal-smoke.mjs" },
+                { "id": "area-spec-owner-only", "title": "定规范只有属主能授", "detail": "带领域范围、权限覆盖「定规范」（或领域负责人专有动作）的授予，起草、放行都只有属主——按权限覆盖判，不按角色名；定规范本身只认属主和持本领域 area-spec 的人。", "enforced_in": "server/src/services/grant.ts、server/src/judgment.ts", "test": "scripts/areas-test.mjs" }
               ]
             }
           }
