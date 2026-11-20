@@ -20,6 +20,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from './owned-script-fixture.mjs';
 import { SESSIONS } from './identity-fake-provider.mjs';
+import { legacySeed } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
@@ -63,13 +64,16 @@ try {
     const id = d.json?.grant?.id; await call('POST', `/api/grants/${id}/submit`); return (await call('POST', `/api/grants/${id}/approve`)).status;
   };
   // 部门（旧的）三个，领域两个（sales、ops，各放行一位负责人变 active）；legacy 不建领域
-  for (const id of ['sales', 'ops', 'legacy']) await call('PUT', `/api/departments/${id}`, { body: { name: `合成${id}` } });
+  // 部门已停写：三个旧部门和 no-flag 的 dept: 授予都是停写前就有的，直接写库造（scripts/lib/legacy-dept-seed.mjs）
+  const seed = legacySeed(join(data, 'workbench-market.db'));
+  for (const id of ['sales', 'ops', 'legacy']) seed.department(id, `合成${id}`);
+  const legacyIssue = (principal, role, scope) => { seed.grant(principal, role, scope, { reason: '合成' }); return 200; };
   for (const id of ['sales', 'ops']) await call('POST', '/api/areas', { body: { id, name: `合成${id}` } });
   const prep = [
     await issue('user:alpha', 'management', '*'),
     await issue('user:strasse', 'area-lead', 'area:sales'), await issue('user:strasse', 'area-lead', 'area:ops'),
     await issue('user:beta', 'area-member', 'area:sales'),
-    await issue('user:no-flag', 'dept-member', 'dept:ops'), await issue('user:no-flag', 'dept-member', 'dept:legacy'),
+    legacyIssue('user:no-flag', 'dept-member', 'dept:ops'), legacyIssue('user:no-flag', 'dept-member', 'dept:legacy'),
   ];
   const benches = [];
   for (const [slug, department] of [['b-sales', 'sales'], ['b-ops', 'ops'], ['b-legacy', 'legacy']]) {

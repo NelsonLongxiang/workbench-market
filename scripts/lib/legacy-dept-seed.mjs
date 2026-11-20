@@ -72,3 +72,28 @@ export function seedDepartmentAsOwnerDid(dbFile, id, name, lead = '') {
   if (lead) s.deptLead(id, lead);
   return { status: 201, body: { department: { id, name } }, json: { department: { id, name } } };
 }
+
+/**
+ * 同 legacySeed().grant，但用调用方已经开着的库连接（进程内跑服务的测试：server/src/db.ts 的 db）。
+ * 停写以后 GrantService.draft 拒新起草的 dept: 授予，测试要的「停写前就生效的部门授予」用它造。返回编号
+ */
+export function legacyGrantIn(db, principal, role, scope, { reason = '合成：停写前就有的', to = 'active', expiresAt = null } = {}) {
+  const t = Date.now();
+  const id = Number(db.prepare('INSERT INTO grants (principal_id, role, scope, expires_at, reason, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(principal, role, scope, expiresAt, reason, BY, t, t).lastInsertRowid);
+  const ev = db.prepare('INSERT INTO grant_events (grant_id, event, from_status, to_status, actor, actor_principal, reason, at) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)');
+  ev.run(id, 'draft', null, 'draft', BY, reason, t);
+  if (to === 'pending' || to === 'active') { db.prepare("UPDATE grants SET status = 'pending', updated_at = ? WHERE id = ?").run(t, id); ev.run(id, 'submit', 'draft', 'pending', BY, '', t); }
+  if (to === 'active') { db.prepare("UPDATE grants SET status = 'active', approved_by = ?, updated_at = ? WHERE id = ?").run(BY, t, id); ev.run(id, 'approve', 'pending', 'active', BY, '', t); }
+  return id;
+}
+
+/** 同 seedDepartmentAsOwnerDid，但用调用方已经开着的库连接：建部门，有负责人就连 dept-lead 授予、dept_lead_grants 一起造好 */
+export function legacyDepartmentIn(db, id, name, lead = '') {
+  const t = Date.now();
+  db.prepare('INSERT INTO departments (id, name, lead_principal, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET name = excluded.name, lead_principal = excluded.lead_principal, updated_at = excluded.updated_at').run(id, name, lead, t, t);
+  if (!lead) return null;
+  const g = legacyGrantIn(db, lead, 'dept-lead', `dept:${id}`, { reason: '随部门负责人确认' });
+  db.prepare('INSERT INTO dept_lead_grants (department_id, grant_id, principal_id, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (department_id) DO UPDATE SET grant_id = excluded.grant_id, principal_id = excluded.principal_id, created_at = excluded.created_at').run(id, g, lead, t);
+  return g;
+}

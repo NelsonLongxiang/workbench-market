@@ -43,6 +43,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from './owned-script-fixture.mjs';
+import { legacyDepartmentIn } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
@@ -562,11 +563,11 @@ try {
   const dan = await A.person('dan', 'Dan-pass-000001', '192.0.2.101');
   await A.person('eve', 'Eve-pass-000001', '192.0.2.102');
   await A.person('fay', 'Fay-pass-000001', '192.0.2.103');
-  // 四个部门：m-sales 有生效的负责人授予（属主直接指定，发了 dept-lead）；m-ops 没有负责人；
+  // 四个部门（部门已停写，都是直接写库造的停写前的数据，scripts/lib/legacy-dept-seed.mjs）：m-sales 有生效的负责人授予（属主当时指定，发了 dept-lead）；m-ops 没有负责人；
   // m-hr 的负责人有授予但本人停用了；m-fin 只有负责人字段、没有授予（直接写库，「待属主放行」）
-  await A.cli('PUT', '/api/departments/m-sales', { name: '合成销售部', lead: 'user:dan' });
-  await A.cli('PUT', '/api/departments/m-ops', { name: '合成运营部' });
-  await A.cli('PUT', '/api/departments/m-hr', { name: '合成人事部', lead: 'user:eve' });
+  { const d = A.db(); try { legacyDepartmentIn(d, 'm-sales', '合成销售部', 'user:dan'); } finally { d.close(); } }
+  { const d = A.db(); try { legacyDepartmentIn(d, 'm-ops', '合成运营部'); } finally { d.close(); } }
+  { const d = A.db(); try { legacyDepartmentIn(d, 'm-hr', '合成人事部', 'user:eve'); } finally { d.close(); } }
   await A.cli('POST', '/api/principals/disable', { id: 'user:eve', reason: '合成：离职' });
   { const d = A.db(); try { d.prepare("INSERT INTO departments (id, name, lead_principal, created_at, updated_at) VALUES ('m-fin', '合成财务部', 'user:fay', 1, 1)").run(); } finally { d.close(); } }
   const oldTables = () => { const d = A.db(); try { const n = (t) => Number(d.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n); return { departments: n('departments'), members: n('department_members'), links: n('dept_lead_grants'), deptGrants: n("grants WHERE scope LIKE 'dept:%'") }; } finally { d.close(); } };
@@ -655,7 +656,7 @@ try {
 
   // ---- D6 迁移起草的负责人被收回（否决）后，再迁移不重新起草 ----
   {
-    await A.cli('PUT', '/api/departments/m-legal', { name: '合成法务部', lead: 'user:lia' });
+    { const d = A.db(); try { legacyDepartmentIn(d, 'm-legal', '合成法务部', 'user:lia'); } finally { d.close(); } }
     const m1 = await olga.go('POST', '/api/areas/migrate', { json: {} });
     const gid = (m1.json?.drafted ?? []).find((x) => x.department === 'm-legal')?.grant;
     const rv = await A.cli('POST', `/api/grants/${gid}/revoke`, { reason: '合成：属主否决' });
@@ -670,7 +671,7 @@ try {
     await A.cli('POST', '/api/areas', { id: 'm-qa', name: '合成质检' });
     const d = await A.cli('POST', '/api/grants', { principal: 'user:kim', role: 'area-lead', scope: 'area:m-qa', reason: '合成：手工指定' });
     await A.cli('POST', `/api/grants/${d.json?.grant?.id}/submit`);
-    await A.cli('PUT', '/api/departments/m-qa', { name: '合成质检', lead: 'user:kim' });
+    { const d = A.db(); try { legacyDepartmentIn(d, 'm-qa', '合成质检', 'user:kim'); } finally { d.close(); } }
     const m = await olga.go('POST', '/api/areas/migrate', { json: {} });
     const rows = (() => { const db = A.db(); try { return db.prepare("SELECT status, reason FROM grants WHERE principal_id = 'user:kim' AND role = 'area-lead' AND scope = 'area:m-qa'").all().map((r) => `${r.status}:${r.reason}`); } finally { db.close(); } })();
     check(m.status === 200 && !(m.json?.drafted ?? []).some((x) => x.department === 'm-qa') && same(rows, ['pending:合成：手工指定']),
@@ -696,7 +697,7 @@ try {
     const d = await A.cli('POST', '/api/grants', { principal: 'user:kim', role: 'area-lead', scope: 'area:m-ware', reason: '合成：手工起草' });
     await A.cli('POST', `/api/grants/${d.json?.grant?.id}/submit`);
     const rv = await A.cli('POST', `/api/grants/${d.json?.grant?.id}/revoke`, { reason: '合成：手工收回' });
-    await A.cli('PUT', '/api/departments/m-ware', { name: '合成仓储', lead: 'user:kim' });
+    { const d = A.db(); try { legacyDepartmentIn(d, 'm-ware', '合成仓储', 'user:kim'); } finally { d.close(); } }
     const m = await olga.go('POST', '/api/areas/migrate', { json: {} });
     const drafted = (m.json?.drafted ?? []).find((x) => x.department === 'm-ware');
     check(rv.status === 200 && drafted?.principal === 'user:kim',
