@@ -11,6 +11,8 @@
  *   六、写：建数据集、写行（幂等键）、存视图；留痕里是 mcp:<会话名>；出错只有代号、说明、细目
  *   七、收回：立即失效；会话吊销之后它的申请批不了
  *   七之二、「等你拍板」里的待批清单：只有有拍板权限的人看得到、答得了；答法和直接调路由是同一处判断
+ *   七之二b、写成卡片号、卡片还没开台库的申请：看得到、批得成（批准时顺带开台库）；不能登记台的角色批不了；
+ *           驳回、会话吊销不开台库；改绑、删卡片时这种申请一起驳回
  *   八、入口关着：工具不在目录里、调不了、申请不了。网关关着：别的工具放开了，这些照样调不了
  *
  *   node scripts/bench-mcp-test.mjs              测本仓库
@@ -242,6 +244,7 @@ try {
   // 表格的列都要有说明名：聚合出来的列没给 label，会话存也拒，点名缺的是哪一列；不产生新版本
   r = await tool(srv, A.token, 'view_put', { bench: 'demo', doc: { title: '日报', views: [{ key: 'main', title: '总览', blocks: [{ type: 'table', query: { dataset: 'daily', group: ['day'], measures: [{ as: 'total', fn: 'sum', col: 'n' }] } }] }] }, base: 1, note: '缺说明名' });
   check(/列 total 没有说明名/.test(r.text) && (await tool(srv, A.token, 'view_get', { bench: 'demo' })).json?.view?.active_version === 1, '会话存视图：表格的列没有说明名就拒，点名是哪一列', r.text.slice(0, 200));
+  check(/references\/view-doc-schema\.json/.test(r.text), '被拒时应答里指向技能里的完整契约（view_put 的参数说明里只有大致形状）', r.text.slice(0, 200));
   r = await srv.call('GET', '/api/bench-views/demo/log', mgr);
   check(r.json?.writes?.some((w) => w.actor === 'mcp:sess-a') && r.json.changes.some((c) => c.actor === 'mcp:sess-a'), '台的留痕里记的是 mcp:<会话名>', r.text.slice(0, 160));
   r = await tool(srv, A.token, 'dataset_replace', { bench: 'demo', dataset: 'daily', rows: [{ day: 'not-a-date', n: 'x' }] });
@@ -311,6 +314,112 @@ try {
   check(noReason.status === 400 && r.status === 200 && r.json?.status === 'rejected' && info2.json?.bench_requests?.find((x) => x.id === att2)?.note === '页面由人改' && !mine(await attention(mgr)).some((x) => x.source_id.startsWith('other:')), '管理层照条目的 answer_via 答：不批不写理由被拒；写了理由生效，申请的会话看得到理由；清单里没有了', r.text.slice(0, 120));
   r = await tool(srv, A.token, 'dataset_list', { bench: 'other' });
   check(!r.isError && Array.isArray(r.json?.datasets), '批了之后会话在那个台上用得了');
+
+  console.log('七之二b、写成卡片号的申请：卡片还没开台库也看得到、批得成（批准时顺带开台库）');
+  // 属主 11-18 实际踩到的：会话写的是卡片 id，那张卡片还没开台库。原来「关注」里看不到，照台上的路由批又回 404 bench_not_found
+  const mkCard = (name) => Number(db.prepare("INSERT INTO workbenches (name, url, type, enabled) VALUES (?, ?, 'market-app', 1)").run(name, `/apps/${name}/`).lastInsertRowid);
+  const WC = mkCard('合成卡片甲'), WD = mkCard('合成卡片乙');
+  const H = await mk('sess-h');
+  const h1 = await tool(srv, H.token, 'access_request', { tools: [`dataset_list@bench:${WC}`, `dataset_query@bench:${WC}`], reason: '维护卡片甲的数据' });
+  const h2 = await tool(srv, H.token, 'access_request', { tools: [`view_get@bench:wb-${WC}`], reason: '看卡片甲的页面' });
+  const h3 = await tool(srv, H.token, 'access_request', { tools: [`dataset_list@bench:${WD}`], reason: '卡片乙，要被驳回的' });
+  const h4 = await tool(srv, H.token, 'access_request', { tools: ['dataset_list@bench:987654'], reason: '没有这张卡片' });
+  // 开台库之前提、开了之后还没定的：申请表里存的是卡片号（开了之后再提的，MCP 那一层先换成台标识再存）
+  const h6 = await tool(srv, H.token, 'access_request', { tools: [`dataset_snapshots@bench:${WC}`], reason: '开台库之前提的，留到改绑' });
+  check([h1, h2, h3, h4].every((x) => x.json?.ok === true && x.json.request.status === 'pending') && h1.json.request.bench === String(WC) && h4.json.request.bench === '987654',
+    '（准备）会话写卡片号申请：照收，应答里的台照会话写的原样（不透露卡片开没开台库）', [h1, h2, h3, h4].map((x) => x.text.slice(0, 80)));
+  v = await attention(mgr);
+  const hc = mine(v).find((x) => x.source_id === `wb-${WC}:${h1.json.request.id}`);
+  check(hc?.detail?.bench === `wb-${WC}` && hc.detail.bench_title === '合成卡片甲' && hc.detail.bench_registered === false && hc.detail.workbench_id === WC && hc.detail.session === 'sess-h'
+    && hc.detail.tools.map((t) => t.tool).join() === 'dataset_list,dataset_query' && hc.answer_via?.path === `/api/bench-views/wb-${WC}/mcp-requests/${h1.json.request.id}`
+    && mine(v).some((x) => x.source_id === `wb-${WC}:${h2.json.request.id}`) && mine(v).some((x) => x.source_id === `wb-${WD}:${h3.json.request.id}`),
+    '管理层的「关注」里看得到：卡片名、哪个会话、要哪些工具，标着「还没开台库」；写卡片 id 和 wb-<卡片 id> 的都在', JSON.stringify(mine(v).filter((x) => x.source_id.startsWith('wb-'))).slice(0, 300));
+  check(!mine(v).some((x) => x.source_id.endsWith(`:${h4.json.request.id}`)), '没有这张卡片的申请：照旧不在清单里');
+  for (const [name, opts] of [['普通员工', member], ['有做没有拍板', staff], ['管理口令', admin]]) { const x = await attention(opts); seen[name] = mine(x).some((y) => y.source_id.startsWith('wb-')); }
+  const nb = await srv.call('POST', `/api/bench-views/wb-${WC}/mcp-requests/${h1.json.request.id}`, { ...member, body: { approve: true } });
+  const ns = await srv.call('POST', `/api/bench-views/${WC}/mcp-requests/${h1.json.request.id}`, { ...staff, body: { approve: true } });
+  const na = await srv.call('POST', `/api/bench-views/wb-${WC}/mcp-requests/${h1.json.request.id}`, { ...admin, body: { approve: true } });
+  check(!seen['普通员工'] && !seen['有做没有拍板'] && !seen['管理口令'] && nb.status === 403 && ns.status === 403 && na.status === 403 && !db.prepare('SELECT 1 FROM bench_views WHERE workbench_id = ?').get(WC),
+    '普通员工、有做没有拍板的角色、管理口令：清单里看不到，批也是 403，没有开出台库', { member: nb.status, staff: ns.status, token: na.status });
+  const miss = await srv.call('POST', `/api/bench-views/987654/mcp-requests/${h4.json.request.id}`, { ...mgr, body: { approve: true } });
+  const cross = await srv.call('POST', `/api/bench-views/wb-${WD}/mcp-requests/${h1.json.request.id}`, { ...mgr, body: { approve: true } });
+  check(miss.status === 404 && cross.status === 404 && !db.prepare('SELECT 1 FROM bench_views WHERE workbench_id IN (?, ?)').get(WC, WD) && !existsSync(join(srv.data, 'bench-stores', `wb-${WD}.sqlite`)),
+    '没有这张卡片：404；拿别的卡片的路径批这条申请：404，也不会白开一个台库', { miss: miss.status, cross: cross.status });
+  // 照条目的 answer_via 批（属主在界面上点「同意」走的就是这一条）
+  // 只有数据视图「拍板」、没有「做」的自定义角色：批得了登记过的台上的申请，批不了要顺带开台库的（开台库和 POST /api/bench-views 带 workbench_id 同一道门）
+  await srv.call('GET', '/api/auth/viewer', { session: SESSIONS.claimsAdmin });
+  const rc = await srv.call('POST', '/api/roles/guest/copy', { body: { id: 'bench-decider', name: '台上拍板' } });
+  const ru = await srv.call('PUT', '/api/roles/bench-decider', { body: { permissions: [{ kinds: ['read', 'decide'], domains: ['bench-store'] }] } });
+  // 本机命令行就是属主：改动当场生效，没有待放行的提议时放行回 409，两种都算
+  const ra = await srv.call('POST', '/api/roles/bench-decider/approve');
+  const gDec = await activate({ principal: 'user:claims-admin', role: 'bench-decider' });
+  const decider = who(SESSIONS.claimsAdmin);
+  const h5 = await tool(srv, H.token, 'access_request', { tools: ['dataset_snapshots@bench:other'], reason: '登记过的台' });
+  const dOpen = await srv.call('POST', `/api/bench-views/wb-${WC}/mcp-requests/${h1.json.request.id}`, { ...decider, body: { approve: true } });
+  const dReg = await srv.call('POST', `/api/bench-views/other/mcp-requests/${h5.json?.request?.id}`, { ...decider, body: { approve: true } });
+  check(rc.status === 201 && ru.status === 200 && [200, 409].includes(ra.status) && gDec === 200 && dOpen.status === 403 && !db.prepare('SELECT 1 FROM bench_views WHERE workbench_id = ?').get(WC)
+    && db.prepare('SELECT status FROM bench_mcp_requests WHERE id = ?').get(h1.json.request.id)?.status === 'pending' && dReg.status === 200 && dReg.json?.status === 'approved',
+    '只有「拍板」、不能登记台的角色：要顺带开台库的申请批不了（403，申请还在、没开台库）；登记过的台上的照常批得了', { role: [rc.status, ru.status, ra.status, gDec], open: dOpen.status, registered: dReg.status });
+  // 条目缺了（改之前就是这样）也照同一个地址批一次，好看出批准这一步本身通不通
+  const hvia = hc?.answer_via ?? { method: 'POST', path: `/api/bench-views/wb-${WC}/mcp-requests/${h1.json.request.id}`, answers: { approve: { body: { approve: true, from_attention: true } } } };
+  r = await srv.call(hvia.method, hvia.path, { ...mgr, body: { ...hvia.answers.approve.body, note: '同意' } });
+  const opened = db.prepare('SELECT slug, title, workbench_id, created_by FROM bench_views WHERE workbench_id = ?').get(WC);
+  check(r.status === 200 && r.json?.status === 'approved' && r.json.granted.join() === 'dataset_list,dataset_query' && r.json.opened_bench?.slug === `wb-${WC}` && r.json.opened_bench.title === '合成卡片甲'
+    && opened?.slug === `wb-${WC}` && opened.created_by === 'user:alpha' && db.prepare('SELECT COUNT(*) AS n FROM bench_mcp_grants WHERE bench = ? AND session_id = ?').get(`wb-${WC}`, H.id).n === 2,
+    '管理层批准：一步办成——给卡片开台库（wb-<卡片 id>，名字用卡片的，记是谁开的），授予写上', r.text.slice(0, 200));
+  r = await tool(srv, H.token, 'dataset_list', { bench: String(WC) });
+  const viaSlug = await tool(srv, H.token, 'dataset_list', { bench: `wb-${WC}` });
+  const notGranted = await tool(srv, H.token, 'view_get', { bench: String(WC) });
+  check(!r.isError && Array.isArray(r.json?.datasets) && !viaSlug.isError && notGranted.rpcError === -32601, '授予生效：会话写卡片 id、写台标识都调得了；没批的工具照旧不行', { card: r.text.slice(0, 60), slug: viaSlug.text.slice(0, 60), view_get: notGranted.rpcError });
+  v = await attention(mgr);
+  const h2c = mine(v).find((x) => x.source_id === `wb-${WC}:${h2.json.request.id}`);
+  const listedH = await srv.call('GET', `/api/bench-views/${WC}/mcp-grants`, mgr);
+  check(!mine(v).some((x) => x.source_id === `wb-${WC}:${h1.json.request.id}`) && h2c?.detail?.bench_registered === true
+    && listedH.status === 200 && listedH.json?.requests?.some((x) => x.id === h1.json.request.id && x.status === 'approved') && listedH.json.requests.some((x) => x.id === h2.json.request.id && x.status === 'pending'),
+    '批过的从清单里消失；同一张卡片的另一条（写的 wb-<卡片 id>）还在，现在标着台已登记；台上的管理页里两条都看得到', { h2: h2c?.detail, listed: listedH.json?.requests?.map((x) => `${x.id}:${x.status}`) });
+  r = await answer(mgr, `wb-${WC}:${h2.json.request.id}`, 'approve', { note: '可以' });
+  check(r.status === 200 && r.json?.result?.status === 'approved' && r.json.result.opened_bench === undefined && (await tool(srv, H.token, 'view_get', { bench: `wb-${WC}` })).rpcError === null, '台开了以后，同一张卡片的下一条照常批（不再开台库）', r.text.slice(0, 160));
+  // 驳回：不开台库
+  r = await srv.call('POST', `/api/bench-views/wb-${WD}/mcp-requests/${h3.json.request.id}`, { ...mgr, body: { approve: false } });
+  const r8 = await srv.call('POST', `/api/bench-views/wb-${WD}/mcp-requests/${h3.json.request.id}`, { ...mgr, body: { approve: false, note: '卡片乙不开放给会话' } });
+  const infoH = await tool(srv, H.token, 'access_info', {});
+  check(r.status === 400 && r8.status === 200 && r8.json?.status === 'rejected' && !db.prepare('SELECT 1 FROM bench_views WHERE workbench_id = ?').get(WD) && !existsSync(join(srv.data, 'bench-stores', `wb-${WD}.sqlite`))
+    && infoH.json?.bench_requests?.find((x) => x.id === h3.json.request.id)?.note === '卡片乙不开放给会话',
+    '驳回没开台库的卡片上的申请：要写理由；驳回了也不开台库；会话看得到理由', { noNote: r.status, reject: r8.status });
+  // 会话已吊销：批不了，也不白开台库
+  const J = await mk('sess-j');
+  const WE = mkCard('合成卡片丙');
+  const j1 = await tool(srv, J.token, 'access_request', { tools: [`dataset_list@bench:${WE}`], reason: '吊销前提的' });
+  await srv.call('DELETE', `/api/mcp/sessions/${J.id}`, admin);
+  r = await srv.call('POST', `/api/bench-views/${WE}/mcp-requests/${j1.json?.request?.id}`, { ...mgr, body: { approve: true } });
+  check(r.status === 409 && !db.prepare('SELECT 1 FROM bench_views WHERE workbench_id = ?').get(WE), '提申请的会话已吊销：409，没有为这张卡片开台库', r.status);
+  // 开台库之前写成卡片号、开了之后还没定的申请也算这个台的：台改绑部门、卡片删掉时和写台标识的一起驳回
+  const h6pending = db.prepare('SELECT bench, status FROM bench_mcp_requests WHERE id = ?').get(h6.json?.request?.id);
+  await srv.call('PUT', '/api/departments/dv-sales', { ...admin, body: { name: 'dv-sales' } });
+  const rebind = await srv.call('PUT', `/api/bench-views/wb-${WC}/binding`, { ...mgr, body: { department: 'dv-sales' } });
+  const h6row = db.prepare('SELECT status, note FROM bench_mcp_requests WHERE id = ?').get(h6.json?.request?.id);
+  check(h6pending?.bench === String(WC) && h6pending.status === 'pending' && rebind.status === 200 && rebind.json?.rejected_mcp_requests === 1 && h6row?.status === 'rejected' && /改绑/.test(h6row.note ?? ''),
+    '台改绑部门：开台库之前写卡片号、还没定的申请一起驳回', { h6pending, rebind: rebind.json, h6row });
+  // 卡片已经对应了一个别的名字的台，会话却写成 wb-<卡片 id>：不算「没开台库的卡片」（开不出第二个台库），不进清单、批是 404
+  const WG = mkCard('合成卡片戊');
+  const linkG = await srv.call('POST', '/api/bench-views', { ...mgr, body: { slug: 'linked-g', title: '已对应的台', workbench_id: WG } });
+  const hg = await tool(srv, H.token, 'access_request', { tools: [`dataset_list@bench:wb-${WG}`], reason: '写成了 wb-<卡片 id>' });
+  const gListed = mine(await attention(mgr)).some((x) => x.source_id.endsWith(`:${hg.json?.request?.id}`));
+  const gApprove = await srv.call('POST', `/api/bench-views/wb-${WG}/mcp-requests/${hg.json?.request?.id}`, { ...mgr, body: { approve: true } });
+  const gViaLinked = await srv.call('POST', `/api/bench-views/linked-g/mcp-requests/${hg.json?.request?.id}`, { ...mgr, body: { approve: true } });
+  // 认法三处一致：清单、台上的管理页、批。管理页上显示待批、却从这个台批不了，只能等它到期——不该出现
+  const gPage = await srv.call('GET', '/api/bench-views/linked-g/mcp-grants', mgr);
+  check(linkG.status === 201 && hg.json?.ok === true && !gListed && gApprove.status === 404 && gViaLinked.status === 404 && db.prepare('SELECT COUNT(*) AS n FROM bench_views WHERE workbench_id = ?').get(WG).n === 1,
+    '卡片已对应了别的台、申请写成 wb-<卡片 id>：不进清单，批是 404（两个路径都是），不会再开一个台库', { link: linkG.status, listed: gListed, approve: gApprove.status, viaLinked: gViaLinked.status });
+  check(gPage.status === 200 && !gPage.json?.requests?.some((x) => x.id === hg.json?.request?.id), '这种申请也不出现在那个台的管理页上（显示了也批不了）', gPage.json?.requests?.map((x) => `${x.id}:${x.status}`));
+  const WF = mkCard('合成卡片丁');
+  const h7 = await tool(srv, H.token, 'access_request', { tools: [`dataset_list@bench:${WF}`], reason: '开库那一条' });
+  const h8 = await tool(srv, H.token, 'access_request', { tools: [`dataset_snapshots@bench:${WF}`], reason: '开台库之前提的，留到删卡片' });
+  const openF = await srv.call('POST', `/api/bench-views/${WF}/mcp-requests/${h7.json?.request?.id}`, { ...mgr, body: { approve: true } });
+  const del = await srv.call('DELETE', `/api/workbenches/${WF}`, { ...admin, body: { confirm_bench_data: true } });
+  const h8row = db.prepare('SELECT bench, status, note FROM bench_mcp_requests WHERE id = ?').get(h8.json?.request?.id);
+  check(openF.status === 200 && openF.json?.opened_bench?.slug === `wb-${WF}` && del.status === 200 && h8row?.bench === String(WF) && h8row.status === 'rejected' && h8row.note === '卡片已删',
+    '删卡片：开台库之前写卡片号、还没定的申请一起驳回', { open: openF.status, del: del.status, h8row });
 
   console.log('七之三、没人处理的申请到期失效');
   const E = await mk('sess-e');

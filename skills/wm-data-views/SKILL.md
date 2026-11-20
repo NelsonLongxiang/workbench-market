@@ -76,7 +76,7 @@ access_request { "tools": ["dataset_list@bench:12", "dataset_query@bench:12"], "
   { "id": 3, "day": "2026-02-02", "region": "东区", "status": "done", "amount": 15 } ]
 ```
 
-**③ 写视图描述**（`view_put`）：页面上放什么。
+**③ 写视图描述**（`view_put`）：页面上放什么。每种组件有哪些键、哪些必填、上限多少，以 `references/view-doc-schema.json` 为准（`view_put` 的参数说明里不列全）。
 
 ```json view-doc
 { "title": "订单台", "views": [ { "key": "overview", "title": "总览", "blocks": [
@@ -209,6 +209,7 @@ access_request { "tools": ["dataset_list@bench:12", "dataset_query@bench:12"], "
 - `references/datasets.md`：列的类型和值怎么写、改列的规矩、快照与退回
 - `references/query.md`：查询描述的全部写法（筛选、分组、聚合、排序、`$参数`）
 - `references/views.md`：八种组件各自的键、筛选栏、表单、取值的说法、按值着色、宽度
+- `references/view-doc-schema.json`：视图描述的完整机器可读契约（每种组件的键、必填、上限）。`view_put` 的参数说明里只给大致形状，写视图前先读这份；它由代码生成，和服务端校验同一来源
 - `references/limits.md`：全部上限和时限
 - `references/recipes.md`：几个常见的台照着抄
 - `references/example-inspection.md`：一个完整的例子，从建数据集到能打开页面（合成·设备巡检台，数据全是合成的）

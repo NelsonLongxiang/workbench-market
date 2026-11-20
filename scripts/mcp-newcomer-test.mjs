@@ -81,7 +81,14 @@ try {
   ok('access_info 默认只给索引：每项没有参数表，说明压成一行（不超过 80 字、没有换行和控制字符），目录项数和全量一样',
     cat.length > 30 && cat.length === fullCat.length && cat.every((t) => !('input_schema' in t) && typeof t.description === 'string' && t.description.length > 0 && [...t.description].length <= 80 && !/[\u0000-\u001f\u007f-\u009f]/.test(t.description)),
     J(cat.filter((t) => 'input_schema' in t || [...(t.description ?? '')].length > 80).map((t) => t.name)));
-  ok('默认应答不到全量的四分之一（不缩进、不带参数表）', info.text.length * 4 < fullInfo.text.length, `${info.text.length} / ${fullInfo.text.length}`);
+  // #481 ratio ruling: all sizes are UTF-8 bytes; the old relative percentage is diagnostic only.
+  const defaultBytes = Buffer.byteLength(info.text, 'utf8'), fullBytes = Buffer.byteLength(fullInfo.text, 'utf8');
+  const schemaBytes = fullCat.reduce((sum, t) => sum + Buffer.byteLength(JSON.stringify(t.input_schema), 'utf8'), 0);
+  const indexMetrics = { defaultBytes, fullBytes, schemaBytes, savedBytes: fullBytes - defaultBytes, catalogItems: cat.length, defaultBudgetBytes: 280 * cat.length };
+  console.log('NEWCOMER_INDEX_METRICS ' + J(indexMetrics));
+  console.log(`INFO 原25%比例只打印不判：字符 ${info.text.length}/${fullInfo.text.length}（${(100 * info.text.length / fullInfo.text.length).toFixed(2)}%），UTF-8字节 ${defaultBytes}/${fullBytes}（${(100 * defaultBytes / fullBytes).toFixed(2)}%）`);
+  ok('G2 默认索引真实节省不少于全部 input_schema 的 JSON UTF-8 字节', fullBytes - defaultBytes >= schemaBytes, J(indexMetrics));
+  ok('G3 默认完整应答 UTF-8 字节不超过每目录项 280B', defaultBytes <= 280 * cat.length, J(indexMetrics));
   ok('应答里写着怎么取参数表', typeof info.payload?.how_to_detail === 'string' && info.payload.how_to_detail.includes('access_info'));
   ok('老客户端带 full: true 照样拿全量：每项带参数表，说明是原文', fullCat.length > 30 && fullCat.every((t) => t.input_schema && t.input_schema.type === 'object') && fullCat.some((t) => [...t.description].length > 80));
   // 逐字节对照：scripts/fixtures/access-info-full-baseline.json 是加 result_read 之前（main 79f539a5，第 1 步和不缩进都已合入）

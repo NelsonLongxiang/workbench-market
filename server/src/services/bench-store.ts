@@ -308,6 +308,8 @@ export class BenchStore {
   writes(...a: Parameters<Core['writes']>): ReturnType<Core['writes']> { return this.rpc('writes', a); }
   backupTo(...a: Parameters<Core['backupTo']>): ReturnType<Core['backupTo']> { return this.rpc('backupTo', a); }
   renderView(...a: Parameters<Core['renderView']>): ReturnType<Core['renderView']> { return this.rpc('renderView', a); }
+  tableExport(...a: Parameters<Core['tableExport']>): ReturnType<Core['tableExport']> { return this.rpc('tableExport', a); }
+  tableRow(...a: Parameters<Core['tableRow']>): ReturnType<Core['tableRow']> { return this.rpc('tableRow', a); }
   submitForm(...a: Parameters<Core['submitForm']>): ReturnType<Core['submitForm']> { return this.rpc('submitForm', a); }
   varsList(...a: Parameters<Core['varsList']>): ReturnType<Core['varsList']> { return this.rpc('varsList', a); }
   varGet(...a: Parameters<Core['varGet']>): ReturnType<Core['varGet']> { return this.rpc('varGet', a); }

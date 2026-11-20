@@ -1701,7 +1701,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "11699", "etag": "W/\"2db3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "11644", "etag": "W/\"2d7c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "gateway": "on",
               "session": "replay-none",
@@ -1763,7 +1763,7 @@
                 { "name": "dataset_delete_rows", "description": "[数据视图·必须限定到台] 按主键删行；", "category": "write", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
                 { "name": "dataset_snapshot", "description": "[数据视图·必须限定到台] 手工留一份快照", "category": "write", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
                 { "name": "dataset_restore", "description": "[数据视图·必须限定到台] 把数据集退回到某一份快照", "category": "write", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
-                { "name": "view_put", "description": "[数据视图·必须限定到台] 保存视图描述：产生一个新版本并立即生效（doc 的块类型、必填、上限在参数里列全；", "category": "write", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
+                { "name": "view_put", "description": "[数据视图·必须限定到台] 保存视图描述：产生一个新版本并立即生效。", "category": "write", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
                 { "name": "view_rollback", "description": "[数据视图·必须限定到台] 让旧版本重新生效（只移指针，不丢版本）", "category": "write", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] }
               ],
               "how_to_detail": "要某个工具的参数表和完整说明：access_info {tool: \"工具名\"}（没批的也取得到）",
