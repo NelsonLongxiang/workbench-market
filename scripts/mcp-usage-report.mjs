@@ -47,8 +47,9 @@ const kindOf = (name) => (String(name).startsWith('seat-') ? 'seat' : 'named');
 /** SQLite 的 datetime('now') 写法「YYYY-MM-DD HH:MM:SS」（UTC）；比较时按同样的写法给下限 */
 const sqlTime = (ms) => new Date(ms).toISOString().replace('T', ' ').slice(0, 19);
 
-export function report(dbPath, { days = 30, now = Date.now() } = {}) {
-  const db = openReadOnly(dbPath);
+/** open：怎么打开库，缺省 openReadOnly（自测里换成包了一层的，核对 report 确实经它打开、拿到的是只读连接） */
+export function report(dbPath, { days = 30, now = Date.now(), open = openReadOnly } = {}) {
+  const db = open(dbPath);
   try {
     const cols = new Set(db.prepare("SELECT name FROM pragma_table_info('mcp_calls')").all().map((r) => r.name));
     if (!cols.has('tool')) throw new Error('这个库里没有 mcp_calls 表（或者列不对）');
@@ -155,7 +156,10 @@ function selfTest() {
     ins.run(at(1), 'skill_search', 'tools/call', 'skill_search', 1, 'mcp', '', '');
     db.prepare("INSERT INTO mcp_sessions (name, token_sha256, grants) VALUES ('secret-session-a', 'x', ?)").run(JSON.stringify(['workbench_list', 'workbench_vars_get@3', 'bizprefix__secret_tool', 'made_up_grant']));
     db.close();
-    const r = report(file, { days: 30, now });
+    // 包一层 openReadOnly：记下 report 是不是经它打开的，并当场试写一次（要抛只读的错）
+    const opened = [];
+    const spyOpen = (path) => { const d = openReadOnly(path); let refused = false; try { d.exec('DELETE FROM mcp_calls WHERE 0'); } catch (e) { refused = /readonly|read-only|query_only/i.test(String(e?.message)); } opened.push(refused); return d; };
+    const r = report(file, { days: 30, now, open: spyOpen });
     const text = JSON.stringify(r);
     const checks = [
       ['只数窗口内的：old_tool 不在', !r.tools.some((t) => t.tool === 'old_tool')],
@@ -165,6 +169,7 @@ function selfTest() {
       ['调用方乱写的工具名、上游的前缀和名字、乱写的方法名都不出现，合成计数', !/caller_made_up_name|bizprefix|secret_tool|weird\/method|made_up_grant/.test(text)
         && r.tools.some((t) => t.tool === '（未登记的名字）' && t.calls === 1) && r.tools.some((t) => t.tool === '（上游工具）' && t.calls === 1) && r.methods['（其他）'] === 1 && r.totals.upstream_tool_names === 1],
       ['授予面按工具数，去掉 @台', r.granted_sessions_per_tool.workbench_list === 1 && r.granted_sessions_per_tool.workbench_vars_get === 1],
+      ['report 经传进来的 open 打开库，只开一次，拿到的连接写不进去', opened.length === 1 && opened[0] === true],
       ['只读：openReadOnly 打开的库写不进去（抛只读的错）', (() => { const d = openReadOnly(file); try { d.exec('DELETE FROM mcp_calls'); return false; } catch (e) { return /readonly|read-only|query_only|只读/i.test(String(e?.message)); } finally { d.close(); } })()],
       ['只读：报告之后库没变', new DatabaseSync(file, { readOnly: true }).prepare('SELECT count(*) AS n FROM mcp_calls').get().n === 9],
     ];
