@@ -34,6 +34,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from './owned-script-fixture.mjs';
+import { legacyGrantIn } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
@@ -293,11 +294,13 @@ try {
     try { const now = Date.now(); d.prepare("INSERT INTO departments (id, name, created_at, updated_at) VALUES ('d1', '合成一部', ?, ?), ('d2', '合成二部', ?, ?)").run(now, now, now, now); } finally { d.close(); }
     const mona = await A.person('mona', 'Mona-pass-00001', '192.0.2.76'); await A.grant('user:mona', 'management');
     const dina = await A.person('dina', 'Dina-pass-00001', '192.0.2.77');
-    const dl = await A.cli('POST', '/api/grants', { principal: 'user:dina', role: 'dept-lead', scope: 'dept:d1', reason: '合成' });
-    await A.cli('POST', `/api/grants/${dl.json?.grant?.id}/submit`); await A.cli('POST', `/api/grants/${dl.json?.grant?.id}/approve`);
+    // 部门已停写：dina 的部门负责人授予、各部门待放行的授予都是停写前就有的，直接写库造（scripts/lib/legacy-dept-seed.mjs）
+    const legacy = (principal, role, scope, to = 'active') => { const d = A.db(); try { return legacyGrantIn(d, principal, role, scope, { reason: '合成', to }); } finally { d.close(); } };
+    legacy('user:dina', 'dept-lead', 'dept:d1');
     const tokenCall = (method, path, json) => fetch(new URL(path, A.base), { method, headers: { 'x-admin-token': ADMIN_TOKEN, 'content-type': 'application/json' }, body: json === undefined ? undefined : JSON.stringify(json) }).then(async (r) => ({ status: r.status, json: await r.json().catch(() => null) }));
     const pend = async (who, role, scope) => {
       await A.cli('POST', '/api/local-accounts', { username: who });
+      if (scope.startsWith('dept:')) return legacy(`user:${who}`, role, scope, 'pending');
       const g = await tokenCall('POST', '/api/grants', { principal: `user:${who}`, role, scope, reason: '合成' });
       await tokenCall('POST', `/api/grants/${g.json?.grant?.id}/submit`);
       return g.json?.grant?.id;
