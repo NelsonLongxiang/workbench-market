@@ -16,7 +16,12 @@ jobs:
         run: ./scripts/ops/odoo-readonly-preflight-test.ps1
   browser-security:
     # #292 M4 真实浏览器反例：有口令不嵌 /go/、跳出清口令、登录弹窗不复制口令且无 opener（bfcache 未命中记 SKIP）
-    runs-on: ubuntu-latest
+    # 系统镜像钉在 24.04：ubuntu-latest 换成 26.04 之后，钉住的 Playwright 不认这个系统，装浏览器那一步直接失败。
+    # 下面两份缓存的键带着镜像标识（ImageOS、ImageVersion，由「取镜像标识」那一步从 runner 的环境变量里读出来），
+    # 换镜像会自动换键，不会把别的系统装的浏览器和系统包拿来用。不能直接写 env.ImageOS：env 上下文只有 workflow 自己定义的变量，
+    # 那样取到的是空串，键里就没有镜像（在 #881 之前一直是这样）。
+    # 升级镜像要和升级 Playwright 一起做，另开 PR
+    runs-on: ubuntu-24.04
     env:
       PLAYWRIGHT_VERSION: '1.57.0'
     steps:
@@ -35,18 +40,26 @@ jobs:
       # 装环境和跑测试分开：装环境只依赖外网（PyPI、Playwright 的浏览器下载、apt 软件源），带重试与缓存；
       # 失败时标「装环境失败」。浏览器版本由 Playwright 版本决定，缓存键带上它，升级就换键。
       # 缓存先取后存：存放在装环境之后单独一步，后面的测试红了也照样存
+      - name: 装环境：取镜像标识
+        id: image
+        run: |
+          # ImageOS（如 ubuntu24）、ImageVersion（镜像的小版本）是 runner 镜像自己设的环境变量；取不到就停，不带着空键去取缓存
+          if [ -z "${ImageOS:-}" ] || [ -z "${ImageVersion:-}" ]; then echo "::error::取不到 ImageOS 或 ImageVersion"; exit 1; fi
+          echo "os=${ImageOS}" >> "$GITHUB_OUTPUT"
+          echo "version=${ImageVersion}" >> "$GITHUB_OUTPUT"
+          echo "镜像：${ImageOS}-${ImageVersion}"
       - name: 装环境：取 Playwright 浏览器缓存
         id: pw-cache
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-browsers-${{ runner.os }}-${{ env.ImageOS }}-${{ env.PLAYWRIGHT_VERSION }}-chromium
+          key: playwright-browsers-${{ runner.os }}-${{ steps.image.outputs.os }}-${{ env.PLAYWRIGHT_VERSION }}-chromium
       - name: 装环境：取系统依赖的 apt 包缓存
         id: apt-cache
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/playwright-apt
-          key: playwright-apt-${{ env.ImageOS }}-${{ env.ImageVersion }}-${{ env.PLAYWRIGHT_VERSION }}
+          key: playwright-apt-${{ steps.image.outputs.os }}-${{ steps.image.outputs.version }}-${{ env.PLAYWRIGHT_VERSION }}
       - name: 装环境：Playwright（Python）+ Chromium 与系统依赖
         id: browser-env
         timeout-minutes: 12
@@ -252,7 +265,7 @@ jobs:
   # 身份接缝与主体：从 tsc-and-syntax 拆出来并行跑（这一步最长，单独一个 job 不拖别的检查）。
   # job 里再并行一层：变异测试（最慢）和单测、对抗组同时跑；单测与对抗组的输出先进日志，跑完再打出来。
   identity-seam:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # 和 browser-security 同一个镜像，换镜像另开 PR 一起换
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -279,7 +292,7 @@ jobs:
           [ "$rc" -eq 0 ] && [ "$mutation" -eq 0 ]
   upgrade-smoke:
     # 线上发布分支的库换成这份代码启动两次（自检、只加不改、幂等、回填），再退回发布分支能读能写；全程合成数据、只听回环
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # 和 browser-security 同一个镜像，换镜像另开 PR 一起换
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -297,7 +310,7 @@ jobs:
       - name: 升级冒烟（基线 fa89254f，第二次上线的起点 → 本 PR）
         run: node scripts/upgrade-smoke.mjs --base fa89254fe1f4027363df240914d1c8c6e9d02ed2
   tsc-and-syntax:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # 和 browser-security 同一个镜像，换镜像另开 PR 一起换
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -511,6 +524,8 @@ jobs:
         run: node scripts/login-gate-rollout-check.mjs
       - name: MCP 权限可见与自助申请（access_info 全目录·access_request 去重限频·管理员批准并集/驳回不动 grants/吊销不能批·app_data_submit 与 REST 同核契约校验·匿名 401）
         run: node scripts/mcp-access-smoke.mjs && node scripts/mcp-grant-scope-smoke.mjs && node scripts/mcp-newcomer-test.mjs && node scripts/mcp-upload-ticket-test.mjs && node scripts/mcp-app-files-name-test.mjs
+      - name: 渐进开放第 0 步的两个测量脚本（上下文占用在隔离实例上量得出数字·频次报告只读、不输出会话名和参数）
+        run: node scripts/mcp-context-size.mjs --check && node scripts/mcp-usage-report.mjs --self-test
       - name: 技能版本链的快照路径只给管理员（远程匿名、本机页面、MCP 会话都拿不到；管理口令、本机命令行拿得到；摘要照给）
         run: node scripts/skill-versions-path-test.mjs
       - name: MCP 内嵌 REST / OpenAPI（文件：99MB 流式上传 sha256 一致·Range/ETag 下载·415·403/401；资源：列文件/读数据/SOP 附件；工具映射与 /mcp 同链·审计 channel=rest·匿名 5MB 413）
@@ -699,7 +714,7 @@ jobs:
   # 契约联调：上游 a2a-net 的 superagent 宿主当对端（宿主自己从 process face 签发确认、进展、提问、结果回执），市场在回环上收。
   # 改入站（回执、进展、跟进、验签）的 PR 都要过它。上游钉 next/0.8 的 f458294（#610 合并提交：preview.13 之上修掉了对 bots.a2a 里远端成员误发 superagent-member）。
   upstream-contract:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # 和 browser-security 同一个镜像，换镜像另开 PR 一起换
     timeout-minutes: 30
     permissions:
       contents: read
