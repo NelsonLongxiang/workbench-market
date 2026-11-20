@@ -611,6 +611,8 @@ jobs:
         run: node scripts/work-item-extras-unit.mjs
       - name: 「团队」页单测（纯函数——团队状态、负责人、成员归谁用、计数、空和读不到的说法、建部门校验；单列一步）
         run: node scripts/team-ui-unit.mjs
+      - name: 领域页单测（列表整形和排序·负责人那一行·建领域的校验·迁移结果的说法·指定负责人停在哪一步）
+        run: node scripts/areas-ui-unit.mjs
       - name: 身份服务连不上单测（纯函数——认法只认 502 加这个代号·退避重试·连上后清状态并重读·全景的总结句；单列一步）
         run: node scripts/identity-status-unit.mjs
       - name: 事项列表单测（纯函数——分组、行文、视角、名字；单列一步）

@@ -258,6 +258,13 @@ async function accessCall(url: string, init?: { method: string; body: unknown })
   } catch { return { status: 0, body: null }; }
 }
 export const getAccessGrants = () => accessCall('/api/grants');
+/** 领域（/areas，领域第 1 步）：读、建、把部门迁成领域；负责人走授予（起草 → 提交 → 放行）。和「谁能做什么」同一个调法：被拒时页面自己说，不弹口令 */
+export const getAreas = () => accessCall('/api/areas');
+export const getArea = (id: string) => accessCall(`/api/areas/${encodeURIComponent(id)}`);
+export const createArea = (id: string, name: string) => accessCall('/api/areas', { method: 'POST', body: { id, name } });
+export const migrateDepartmentsToAreas = () => accessCall('/api/areas/migrate', { method: 'POST', body: {} });
+export const draftAreaLead = (principal: string, area: string) => accessCall('/api/grants', { method: 'POST', body: { principal, role: 'area-lead', scope: `area:${area}`, reason: '在领域页指定负责人' } });
+export const submitAccessGrant = (id: number) => accessCall(`/api/grants/${id}/submit`, { method: 'POST', body: {} });
 export const getAccessPrincipals = () => accessCall('/api/principals');
 export const getAccessRoles = () => accessCall('/api/roles');
 export const getAccessMatrix = () => accessCall('/api/roles/matrix');

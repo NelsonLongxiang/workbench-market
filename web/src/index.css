@@ -654,9 +654,15 @@ body { background: var(--wm-color-page); }
 .wm-team-claim .wm-team-none { margin-left: 0; }
 .wm-team-claim-form { display: flex; flex-wrap: wrap; gap: var(--wm-space-2); margin-top: var(--wm-space-2); }
 .wm-team-select { min-width: 180px; }
-.wm-team-newdept { margin-bottom: var(--wm-space-4); padding: var(--wm-space-4); background: var(--wm-color-surface); border: 1px solid var(--wm-color-border); border-radius: var(--wm-radius-lg); display: flex; flex-direction: column; gap: var(--wm-space-2); }
-.wm-team-newdept-row { display: flex; align-items: center; gap: var(--wm-space-2); }
-.wm-team-newdept-row .ant-input { max-width: 240px; }
+/* 领域页（/areas）：两列卡片；卡片头一行写名字、标识、状态 */
+.wm-areas-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--wm-space-3); align-items: start; }
+@media (max-width: 767px) { .wm-areas-grid { grid-template-columns: 1fr; } }
+.wm-area-card .ant-card-body { display: flex; flex-direction: column; gap: var(--wm-space-2); }
+.wm-area-card .ant-card-body > .ant-btn, .wm-area-card .ant-card-body > .ant-space { align-self: flex-start; }
+.wm-area-head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--wm-space-2); }
+.wm-area-line { display: flex; align-items: center; gap: var(--wm-space-2); }
+.wm-area-select { min-width: 200px; }
+.wm-areas-empty-icon { font-size: var(--wm-font-size-display); color: var(--wm-color-text-tertiary); }
 @media (max-width: 1100px) { .wm-team-depts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 720px) { .wm-team-depts, .wm-team-claims { grid-template-columns: minmax(0, 1fr); } }
 
