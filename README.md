@@ -98,8 +98,9 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_EXTENSIONS_DIR`（扩展挂载点·绝对路径·缺省不加载任何扩展·见「扩展」）
 - `WM_EXTENSION_ROUTES`（扩展路由没报动作时怎么办·缺省 `warn`：照旧能跑，启动日志逐条点名并计数；`enforce`：有没报动作的扩展路由就拒绝启动，阶段六切换判定时打开；其它值拒绝启动·见「扩展」）
 - `YGL_MAX_PROJECTS`（统一待办读 ygl-trees 的 active 项目数上限·缺省 200·超出部分在 `degraded_projects` 报 cap-exceeded）
-- `WM_YGL_CLI`（ygl-trees 入口文件 `dist/bundle/bin.cjs` 的绝对路径·可选·不设时照旧在 node 同目录、PNPM_HOME、APPDATA/npm 下找·相对路径拒绝启动·统一待办、经验库、MCP 上游都经它找入口）
-- `WM_KNOWLEDGE_SYNC_MINUTES`（经验库从 ygl-trees 同步目录的间隔·分钟·缺省 10·`0` 不同步·不是 0～1440 的整数拒绝启动·同步等启动自检通过才开始）
+- `WM_YGL_CLI`（ygl-trees 入口文件 `dist/bundle/bin.cjs` 的绝对路径·可选·不设时照旧在 node 同目录、PNPM_HOME、APPDATA/npm 下找·相对路径拒绝启动·统一待办、经验库、MCP 上游都经它找入口。市场镜像（`deploy/Dockerfile.market`）已装好 ygl-trees（版本按 `deploy/ygl-trees` 的锁文件），并把它设成 `/opt/ygl/node_modules/ygl-trees/dist/bundle/bin.cjs`；部署方要用别处的就照旧设这个变量改指）
+- `WM_KNOWLEDGE_SYNC_MINUTES`（经验库从 ygl-trees 同步目录的间隔·分钟·缺省 10·`0` 不同步·不是 0～1440 的整数拒绝启动·同步等启动自检通过才开始。上线后要确认它不是 `0`，否则经验库只显示已经同步过的）
+- `YGL_HOME`（ygl-trees 工作区目录·绝对路径·可选·经验库（`library list` 四类：claim 依据、note 经验、skill 方法、check 检查）和统一待办从这里读；不设或目录不在时，经验库显示「未接入」、统一待办不读 ygl。镜像里不带工作区：部署方挂卷并设这个变量，目录里要有 `ygl-trees.db`。MCP 上游的 `ygl_home` 不能和它是同一个目录）
 - `WM_KNOWLEDGE_WRITE_RETRY_SECONDS`（「记成经验」写 ygl-trees 没写上时的重试间隔·秒·缺省 60·按次数翻倍、封顶 6 小时·`0` 不自动重试·不是 0～3600 的整数拒绝启动）
 - `YGL_TOTAL_BUDGET_MS`（ygl-trees 源总预算·缺省 8000·超预算未读的报 budget-exhausted；两项非整数或越界都回落缺省）。
 - `WM_PORTAL_OBSERVE`（显式1才记录被动聚合，管理员读`/api/content/observation`；coverageVerified仍false），见[装配说明](docs/content-foundations-integration-296.md)。设置键：`run_upload_require_token`（`1`=SOP run 文件上传要令牌·缺省关=旧直传语义）。。凭据库：`WM_VAULT_PATH`（库文件·缺省 `DATA_DIR/vault/default.json`；指向 `$DSH_HOME/vault/default.json` 即与 DSH 插件共用——插件开着时同时写会丢更新）
