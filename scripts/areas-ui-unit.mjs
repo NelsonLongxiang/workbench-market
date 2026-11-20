@@ -34,6 +34,7 @@ const principals = { principals: [
 ] };
 const cands = leadCandidates(principals, leads);
 ok('可选的人：只列在用的人（不列停用的、席位）；已经是生效或待放行负责人的不再列；人停用了的负责人可以再列（他本人也停用了就不列）', cands.map((c) => c.id).join() === 'user:syn-c', J(cands));
+ok('可选的人：不列自己（不能给自己授予）', leadCandidates(principals, [], 'user:syn-a').map((c) => c.id).sort().join() === 'user:syn-b,user:syn-c');
 ok('可选的人：主体清单读不到就是空', leadCandidates(null, []).length === 0);
 
 ok('建领域：名字必填、1～64 个字、不带控制字符', /领域名字/.test(areaFormProblem('fin2', ' ', v.areas)) && /1～64/.test(areaFormProblem('fin2', '长'.repeat(65), v.areas)) && /控制字符/.test(areaFormProblem('fin2', 'a\nb', v.areas)));

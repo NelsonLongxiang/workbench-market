@@ -8,7 +8,7 @@ import { Link } from 'react-router-dom';
 import { Alert, App, Button, Card, Empty, Input, Popconfirm, Result, Select, Skeleton, Space, Tag, Typography } from 'antd';
 import { ApartmentOutlined, PlusOutlined, SwapOutlined } from '@ant-design/icons';
 import WmPage from '../../components/WmPage';
-import { approveAccessGrant, attentionChanged, createArea, draftAreaLead, getAccessPrincipals, getArea, getAreas, migrateDepartmentsToAreas, submitAccessGrant } from '../../api';
+import { approveAccessGrant, attentionChanged, createArea, draftAreaLead, getAccessPrincipals, getArea, getAreas, getAuthMe, migrateDepartmentsToAreas, submitAccessGrant } from '../../api';
 import {
   PENDING_LEAD_HINT, STATUS_TEXT, STATUS_TONE, actionError, areaFormProblem, areasOf, leadCandidates, leadLine, leadStepText, leadsOf, migrateResult, pageKind,
   type Area, type AreasCan, type Lead, type LeadStep,
@@ -21,13 +21,13 @@ const grantIdOf = (body: unknown): number | null => {
 };
 
 /** 一个领域：名字、标识、状态、负责人；属主能指定负责人 */
-function AreaCard({ a, leads, principals, can, onChanged }: { a: Area; leads: Lead[] | null; principals: unknown; can: AreasCan; onChanged: () => void }) {
+function AreaCard({ a, leads, principals, me, can, onChanged }: { a: Area; leads: Lead[] | null; principals: unknown; me: string | null; can: AreasCan; onChanged: () => void }) {
   const { message } = App.useApp();
   const [open, setOpen] = useState(false);
   const [who, setWho] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const options = leadCandidates(principals, leads ?? []);
+  const options = leadCandidates(principals, leads ?? [], me);
   const assign = async () => {
     if (!who) return;
     const name = options.find((o) => o.id === who)?.name ?? '这位同事';
@@ -111,6 +111,7 @@ export default function Areas() {
   const [can, setCan] = useState<AreasCan>({ create: false, migrate: false, assignLead: false });
   const [leads, setLeads] = useState<Record<string, Lead[]>>({});
   const [principals, setPrincipals] = useState<unknown>(null);
+  const [me, setMe] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [migrating, setMigrating] = useState(false);
   const [migrated, setMigrated] = useState<ReturnType<typeof migrateResult> | null>(null);
@@ -126,7 +127,10 @@ export default function Areas() {
     // 负责人看单条：一个领域一次读（第 1 步领域不多）
     const each = await Promise.all(v.areas.map(async (a) => [a.id, leadsOf((await getArea(a.id)).body)] as const));
     setLeads(Object.fromEntries(each));
-    if (v.can.assignLead) setPrincipals((await getAccessPrincipals()).body);
+    if (v.can.assignLead) {
+      const [p, m] = await Promise.all([getAccessPrincipals(), getAuthMe()]);
+      setPrincipals(p.body); setMe(typeof m?.principal === 'string' ? m.principal : null);
+    }
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -173,7 +177,7 @@ export default function Areas() {
         ? <Empty image={<ApartmentOutlined className="wm-areas-empty-icon" />} data-testid="areas-empty"
             description={can.create ? '还没有领域：建一个，或者把部门迁成领域' : '还没有领域，等属主来建'} />
         : <div className="wm-areas-grid" data-testid="areas-list">
-            {areas.map((a) => <AreaCard key={a.id} a={a} leads={leads[a.id] ?? null} principals={principals} can={can} onChanged={() => void load()} />)}
+            {areas.map((a) => <AreaCard key={a.id} a={a} leads={leads[a.id] ?? null} principals={principals} me={me} can={can} onChanged={() => void load()} />)}
           </div>}
     </Space>
   </WmPage>;

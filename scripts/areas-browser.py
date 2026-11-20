@@ -50,6 +50,7 @@ def setup(ctx):
     def migrate(r):
         rec(r); code, res = state.get('migrate', (200, {'created': [], 'drafted': [], 'skipped': []})); fake(r, res, code)
     def principals(r): rec(r); fake(r, PRINCIPALS)
+    def me(r): fake(r, {'gate': 'off', 'authenticated': True, 'via': 'session', 'login': 'syn-a', 'principal': 'user:syn-a', 'display_name': '合成甲', 'roles': ['owner']})
     def grants(r):
         rec(r); p = re.sub(r'^https?://[^/]+', '', r.request.url)
         if p == '/api/grants' and r.request.method == 'POST': return fake(r, {'grant': {'id': 77, 'status': 'draft'}}, 201)
@@ -65,6 +66,7 @@ def setup(ctx):
     ctx.route(re.compile(r'/api/areas$'), areas)
     ctx.route(re.compile(r'/api/areas/(?!migrate)[^/?]+$'), one)
     ctx.route(re.compile(r'/api/principals$'), principals)
+    ctx.route(re.compile(r'/api/auth/me$'), me)
     ctx.route(re.compile(r'/api/grants(/\d+/(submit|approve))?$'), grants)
 
 def open_page(b, **st):
@@ -139,7 +141,7 @@ with sync_playwright() as p:
         buy.locator('[data-testid=area-lead-open]').click()
         buy.locator('[data-testid=area-lead-pick]').click(); pg.wait_for_timeout(300)
         opts = pg.locator('.ant-select-dropdown:visible .ant-select-item-option').all_inner_texts()
-        check('可选的人：在用的人都列（这个领域还没有负责人），停用的和席位不列', sorted(opts) == sorted(['合成甲', '合成乙', '合成丙']), opts)
+        check('可选的人：在用的人列出来（这个领域还没有负责人），自己（合成甲，属主本人）、停用的和席位不列', sorted(opts) == sorted(['合成乙', '合成丙']), opts)
         pg.locator('.ant-select-dropdown:visible .ant-select-item-option', has_text='合成丙').click()
         sent.clear(); buy.locator('[data-testid=area-lead-save]').click(); pg.wait_for_timeout(1000)
         g = [x for x in sent if x['path'].startswith('/api/grants')]
