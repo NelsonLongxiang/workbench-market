@@ -271,4 +271,5 @@ async function main() {
   return changed.length ? 1 : 0;
 }
 
-main().then((code) => process.exit(code), (err) => { console.error(`[surface-snapshot] ${err.message}`); process.exit(2); });
+// Let already-closed fixture IPC handles finish their close callbacks (Windows libuv); preserve the exact gate status.
+main().then((code) => { process.exitCode = code; }, (err) => { console.error(`[surface-snapshot] ${err.message}`); process.exitCode = 2; });

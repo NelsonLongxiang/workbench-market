@@ -712,6 +712,25 @@ CREATE INDEX IF NOT EXISTS idx_a2a_seat_token_log_seat ON a2a_seat_token_log (ho
 `);
 try { const afCols = tableColumns('app_files') as any[]; if (!afCols.some((c) => c.name === 'note')) db.exec("ALTER TABLE app_files ADD COLUMN note TEXT NOT NULL DEFAULT ''"); if (!afCols.some((c) => c.name === 'deleted_at')) db.exec("ALTER TABLE app_files ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 try { const adCols = tableColumns('app_data') as any[]; if (!adCols.some((c) => c.name === 'deleted_at')) db.exec("ALTER TABLE app_data ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+// 渐进开放第 5 步（docs/productization/16-progressive-capability-access.md）：大结果给引用。工具结果超过阈值时，存在这里，应答只回引用。
+//   一行一份结果：只给建它的会话取（session_id），取的时候按原工具再判一次授权（bench：数据视图的台；target：限定到台的授权所对的台）。
+//   时刻是代码给的毫秒数；过期的在下次存的时候清掉，每个会话只留最新的若干份（services/mcp.ts）。只存一小会儿，不是留档。
+db.exec(`
+CREATE TABLE IF NOT EXISTS mcp_result_refs (
+  id TEXT PRIMARY KEY,
+  session_id INTEGER NOT NULL,
+  tool TEXT NOT NULL,
+  bench TEXT NOT NULL DEFAULT '',
+  target INTEGER,
+  sha256 TEXT NOT NULL,
+  bytes INTEGER NOT NULL,
+  body TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_result_refs_session ON mcp_result_refs (session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_mcp_result_refs_expires ON mcp_result_refs (expires_at);
+`);
 // MCP 权限自助申请：会话经 access_request 提、管理员批/驳；批准把 tools 并入会话 grants，与审计行同一事务。
 // app_data.idempotency_key：app_data_submit / REST 提交带幂等键时同台同键只落一行（空串不参与唯一）。IF NOT EXISTS / 补列幂等。
 db.exec(`
@@ -1355,6 +1374,37 @@ WITH cand AS (
   WHERE r.needs_review = 0 AND (p.root_url IS NULL OR (p.status NOT IN ('disabled', 'key_changed') AND (p.key_fingerprint = '' OR p.key_fingerprint = r.key_fingerprint)))
 )
 SELECT c.* FROM cand c WHERE (SELECT COUNT(*) FROM cand d WHERE d.host = c.host) = 1`);
+
+// 团队的决策卡（观察者落地 T8，第 18 篇第七节）：宿主在卡建立、定了、丢弃时推来的元数据，只给属主看（「关注」的 a2a-decisions）。
+//   键是（签名宿主的根地址、钥匙完整指纹、团队、宿主上的卡号）：别的宿主报不了这台宿主的卡。
+//   rev 是宿主那边的版本号，只收更大的；state 只往前走（waiting → decided / dropped），终态之后再来「建立」不复活。
+//   doc_sha256 是这一版信封里卡的内容摘要：rev 相同、内容也相同算重复，rev 相同内容不同算过时（不改）。
+//   文件只存名字、大小、摘要，不存内容。时间由代码生成后传入
+db.exec(`
+CREATE TABLE IF NOT EXISTS a2a_decision_cards (
+  peer_root TEXT NOT NULL,
+  key_fingerprint TEXT NOT NULL,
+  team TEXT NOT NULL,
+  card_id TEXT NOT NULL,
+  rev INTEGER NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('waiting', 'decided', 'dropped')),
+  doc_sha256 TEXT NOT NULL,
+  proposer_kind TEXT NOT NULL CHECK (proposer_kind IN ('router', 'observer')),
+  level TEXT NOT NULL CHECK (level IN ('P0', 'P1', 'P2', 'P3')),
+  question TEXT NOT NULL,
+  options TEXT NOT NULL,
+  recommended TEXT NOT NULL,
+  reason TEXT NOT NULL DEFAULT '',
+  files TEXT NOT NULL DEFAULT '[]',
+  decide_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  decided_at TEXT NOT NULL DEFAULT '',
+  decided_option TEXT,
+  received_at INTEGER NOT NULL,
+  PRIMARY KEY (peer_root, key_fingerprint, team, card_id)
+);
+CREATE INDEX IF NOT EXISTS idx_a2a_decision_cards_state ON a2a_decision_cards (state, received_at);
+`);
 
 // 「安排一件事」（POST /api/work-items）的请求记账：一个人（requester）的一个幂等键一行。同一个人同一个键再发，回第一次的结果；
 //   键相同、请求体不同（body_sha256 对不上）拒。限流也按这张表数（每人最近一分钟、一天各几行）。时间、id 都由代码生成后传进来。

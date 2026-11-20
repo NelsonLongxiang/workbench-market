@@ -1,3 +1,4 @@
+import type { TableContext } from './bench-table-view';
 import type { WorkItemListPage } from './work-items-view';
 import { seatAsksMore } from './attention-view';
 import type { Cockpit, ExportPayload, PanelConfig, SopApp, SopDefinition, SopRun, SopRunDetail, SopRunFile, Summary, Workbench, WorkbenchDraft, WorkbenchType } from './types';
@@ -395,6 +396,22 @@ async function benchViewsGet(path: string): Promise<{ status: number; body: unkn
     const r = await fetch(path, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
     return { status: r.status, body: await r.json().catch(() => null) };
   } catch { return { status: 0, body: null }; }
+}
+export type BenchTableDetail = { version: number; view: string; params: Record<string, string>; filter_labels: Record<string, string>; revision: string; dataset_title: string; row: Record<string, unknown>; columns: {name: string; label?: string; type?: string}[]; source_row: Record<string, unknown> | null; source_rows: Record<string, unknown>[]; source_truncated: boolean; source_columns: {name: string; label?: string; type?: string}[]; source_status: string; source_message: string };
+export async function readBenchTableRow(bench: string, target: TableContext, index: number, row: Record<string, unknown>): Promise<{ status: number; body: BenchTableDetail | null }> {
+  try {
+    const response = await fetch('/api/bench-views/' + encodeURIComponent(bench) + '/table/row', { method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json', Accept: 'application/json'}, body: JSON.stringify({target,index,row}) });
+    return { status: response.status, body: await response.json().catch(() => null) };
+  } catch { return {status: 0, body: null}; }
+}
+export async function exportBenchTable(bench: string, target: TableContext): Promise<{status: number; blob?: Blob; count?: number; error?: unknown}> {
+  try {
+    const response = await fetch('/api/bench-views/' + encodeURIComponent(bench) + '/table/export', { method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json', Accept: 'text/csv'}, body: JSON.stringify(target) });
+    if (!response.ok) return {status: response.status, error: await response.json().catch(() => null)};
+    const count = response.headers.get('X-Row-Count');
+    if (!/^text\/csv(?:;|$)/i.test(response.headers.get('Content-Type') ?? '') || !count || !/^\d+$/.test(count) || response.headers.get('X-View-Version') !== String(target.version) || response.headers.get('X-Table-Revision') !== target.revision) return {status: 502};
+    return {status: response.status, blob: await response.blob(), count: Number(count)};
+  } catch { return {status: 0}; }
 }
 export const listBenchViews = () => benchViewsGet('/api/bench-views');
 export const getBenchViewDoc = (bench: string) => benchViewsGet(`/api/bench-views/${encodeURIComponent(bench)}/view`);

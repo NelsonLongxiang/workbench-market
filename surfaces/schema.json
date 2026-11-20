@@ -1,5 +1,26 @@
 {
   "tables": {
+    "a2a_decision_cards": [
+      "peer_root TEXT NOT NULL PK",
+      "key_fingerprint TEXT NOT NULL PK",
+      "team TEXT NOT NULL PK",
+      "card_id TEXT NOT NULL PK",
+      "rev INTEGER NOT NULL",
+      "state TEXT NOT NULL",
+      "doc_sha256 TEXT NOT NULL",
+      "proposer_kind TEXT NOT NULL",
+      "level TEXT NOT NULL",
+      "question TEXT NOT NULL",
+      "options TEXT NOT NULL",
+      "recommended TEXT NOT NULL",
+      "reason TEXT NOT NULL DEFAULT ''",
+      "files TEXT NOT NULL DEFAULT '[]'",
+      "decide_at TEXT NOT NULL DEFAULT ''",
+      "created_at TEXT NOT NULL",
+      "decided_at TEXT NOT NULL DEFAULT ''",
+      "decided_option TEXT",
+      "received_at INTEGER NOT NULL"
+    ],
     "a2a_idempotency": [
       "task_id TEXT PK",
       "fp_sha256 TEXT NOT NULL",
@@ -579,6 +600,18 @@
       "note TEXT NOT NULL DEFAULT ''",
       "at TEXT NOT NULL DEFAULT datetime('now')"
     ],
+    "mcp_result_refs": [
+      "id TEXT PK",
+      "session_id INTEGER NOT NULL",
+      "tool TEXT NOT NULL",
+      "bench TEXT NOT NULL DEFAULT ''",
+      "target INTEGER",
+      "sha256 TEXT NOT NULL",
+      "bytes INTEGER NOT NULL",
+      "body TEXT NOT NULL",
+      "created_at INTEGER NOT NULL",
+      "expires_at INTEGER NOT NULL"
+    ],
     "mcp_sessions": [
       "id INTEGER PK",
       "name TEXT NOT NULL",
@@ -1144,6 +1177,7 @@
     ]
   },
   "indexes": [
+    "idx_a2a_decision_cards_state ON a2a_decision_cards: CREATE INDEX idx_a2a_decision_cards_state ON a2a_decision_cards (state, received_at)",
     "idx_a2a_idempotency_at ON a2a_idempotency: CREATE INDEX idx_a2a_idempotency_at ON a2a_idempotency (created_at)",
     "idx_a2a_outbox_due ON a2a_outbox: CREATE INDEX idx_a2a_outbox_due ON a2a_outbox(status, next_at)",
     "idx_a2a_outbox_run ON a2a_outbox: CREATE UNIQUE INDEX idx_a2a_outbox_run ON a2a_outbox(run_id)",
@@ -1185,6 +1219,8 @@
     "idx_mcp_access_requests_status ON mcp_access_requests: CREATE INDEX idx_mcp_access_requests_status ON mcp_access_requests (status, id)",
     "idx_mcp_calls_session ON mcp_calls: CREATE INDEX idx_mcp_calls_session ON mcp_calls (session_name, at)",
     "idx_mcp_grant_audit_session ON mcp_grant_audit: CREATE INDEX idx_mcp_grant_audit_session ON mcp_grant_audit (session_id, id)",
+    "idx_mcp_result_refs_expires ON mcp_result_refs: CREATE INDEX idx_mcp_result_refs_expires ON mcp_result_refs (expires_at)",
+    "idx_mcp_result_refs_session ON mcp_result_refs: CREATE INDEX idx_mcp_result_refs_session ON mcp_result_refs (session_id, created_at)",
     "idx_principal_identities_principal ON principal_identities: CREATE INDEX idx_principal_identities_principal ON principal_identities (principal_id)",
     "idx_principals_status ON principals: CREATE INDEX idx_principals_status ON principals (status, id)",
     "idx_relation_proposals_status ON relation_proposals: CREATE INDEX idx_relation_proposals_status ON relation_proposals (status, id)",

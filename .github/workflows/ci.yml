@@ -139,8 +139,19 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: ${{ steps.pw-cache.outputs.cache-primary-key }}
-      - name: 装环境：存系统依赖的 apt 包缓存
+      # 只有 Chromium 起不来、真的下载了系统包时，~/.cache/playwright-apt 才会有 .deb；镜像本身就齐全时这个目录不存在，
+      # 照存会报「路径不存在」。先看一眼，没有包就不存
+      - name: 装环境：看有没有要存的 apt 包
+        id: apt-debs
         if: steps.browser-env.outcome == 'success' && steps.apt-cache.outputs.cache-hit != 'true'
+        run: |
+          if compgen -G "$HOME/.cache/playwright-apt/*.deb" > /dev/null; then
+            echo "has=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "这次没有下载系统包（镜像里已经齐了），不存 apt 包缓存"
+          fi
+      - name: 装环境：存系统依赖的 apt 包缓存
+        if: steps.browser-env.outcome == 'success' && steps.apt-cache.outputs.cache-hit != 'true' && steps.apt-debs.outputs.has == '1'
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/playwright-apt
@@ -190,6 +201,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/bench-real-loop-browser.mjs
+      - name: 原生表格完整导出与来源详情（合成真实接口、实际浏览器下载、4833与1650全匹配、撤权与跨源拒绝）
+        env:
+          PYTHON: python
+        run: node scripts/bench-table-browser.mjs
       - name: 报告模板 P0（合成隔离：308 行完整长表、50 个重复详情、冻结输入、Chromium 打印）
         env:
           PYTHON: python
@@ -482,6 +497,8 @@ jobs:
         run: node scripts/a2a-member-provenance-test.mjs
       - name: 席位 A2A 回执进事项（签名方 = 当初投递到的宿主·Sig3 不降级·别人的任务号照原路逐字节相同·别的团队签/没签名/重放/词表外/夹带指令/未采信上限·日志无签名材料）
         run: node scripts/a2a-receipt-inbound-test.mjs
+      - name: 团队的决策卡进「等你拍板」（观察者落地 T8·只认 Sig3 和钉住的公钥·团队要在签名宿主名册里·按 rev 去重、终态不复活·只给属主看）
+        run: node scripts/a2a-decision-cards-test.mjs
       - name: 对端钉住的公钥接上入站与出站（回执、跟进、名册只认钉住的那把，改钥待确认、停用的不收·投递和回给团队的消息过 canDeliver，不能发的挂起不判死）
         run: node scripts/a2a-pinned-peer-test.mjs
       - name: 名册以根地址和完整指纹为键（升级回填·回填不上的要人确认·同号两个节点都不匹配·换键后的旧行、停用、等确认新键的不匹配）
@@ -522,6 +539,8 @@ jobs:
         run: node scripts/mcp-access-smoke.mjs && node scripts/mcp-grant-scope-smoke.mjs && node scripts/mcp-newcomer-test.mjs && node scripts/mcp-upload-ticket-test.mjs && node scripts/mcp-app-files-name-test.mjs
       - name: 渐进开放第 0 步的两个测量脚本（上下文占用在隔离实例上量得出数字·频次报告只读、不输出会话名和参数）
         run: node scripts/mcp-context-size.mjs --check && node scripts/mcp-usage-report.mjs --self-test
+      - name: 大结果给引用（两条通道一致·只给建它的会话·取时按原工具再判授权·分段读·过期·留痕·测试限值只在测试环境认）
+        run: node scripts/mcp-result-ref-test.mjs
       - name: 技能版本链的快照路径只给管理员（远程匿名、本机页面、MCP 会话都拿不到；管理口令、本机命令行拿得到；摘要照给）
         run: node scripts/skill-versions-path-test.mjs
       - name: MCP 内嵌 REST / OpenAPI（文件：99MB 流式上传 sha256 一致·Range/ETag 下载·415·403/401；资源：列文件/读数据/SOP 附件；工具映射与 /mcp 同链·审计 channel=rest·匿名 5MB 413）
@@ -569,7 +588,7 @@ jobs:
       - name: 待属主看板（作者核验：config.owner 只认属主本人·事项只认登记身份·答复只认属主·冒名点名不采信·只授三个工具）
         run: node scripts/owner-pending-unit.mjs && node scripts/owner-pending-board-smoke.mjs && node scripts/attention-ui-unit.mjs && node scripts/work-item-detail-ui-unit.mjs && node scripts/market-ui-unit.mjs && node scripts/home-ui-unit.mjs && node scripts/arrange-ui-unit.mjs && node scripts/review-ui-unit.mjs
       - name: 数据视图组件单测（纯函数——格式、取值说法、按值着色、图表配置、工具契约一致性；单列一步，不和上面那行挤在一起）
-        run: node scripts/bench-blocks-ui-unit.mjs && node scripts/bench-var-bindings-test.mjs && node scripts/bench-view-contract-test.mjs
+        run: node scripts/bench-blocks-ui-unit.mjs && node scripts/bench-var-bindings-test.mjs && node scripts/bench-view-contract-test.mjs && node scripts/bench-table-test.mjs
       - name: 报告模板 P0 编排（正反例、数据完整性、源定义签名、稳定键与冻结值）
         run: node scripts/report-template-p0-test.mjs && node scripts/report-template-p0-store-test.mjs
       - name: 「谁能做什么」页单测（纯函数——授予的状态、范围、期限，待核准，按人排的表，矩阵格子；单列一步）

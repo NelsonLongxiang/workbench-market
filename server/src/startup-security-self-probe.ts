@@ -133,6 +133,8 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       ...(benchViews ? [
         { id: 'market.bench-views.anonymous-read', target: m, surface: 'market' as const, method: 'GET', path: '/api/bench-views', headers: REMOTE_ANON, status: 401 },
         { id: 'market.bench-views.var-render-anonymous', target: m, surface: 'market' as const, method: 'GET', path: '/api/bench-views/wm-self-probe/render?var=wm-self-probe', headers: REMOTE_ANON, status: 401 },
+        { id: 'market.bench-views.table-export-anonymous', target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views/wm-self-probe/table/export', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
+        { id: 'market.bench-views.table-row-anonymous', target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views/wm-self-probe/table/row', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
         { id: 'market.bench-views.anonymous-write', target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views', body: '{"slug":"wm-self-probe","title":"x"}', headers: REMOTE_ANON, status: 401 },
       ] : []),
       // 授予管理面：远程匿名列不出授予（GET 不经写请求总门，拒的是路由自己的管理门；登录门开着时登录门先拦 401）
@@ -163,9 +165,15 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       // 席位换令牌：签名是编出来的（形状合格、时间戳早已过期、节点不在名册）——必须 401、换不出令牌。登录门开不开都一样（路由本来就放行）
       // 上传票的直传（PUT /api/mcp-rest/uploads/<票>）不认会话令牌，票本身就是凭据：编出来的票（形状合格、仓库里没有）必须 404、什么都不写。
       // 登录门开不开都一样（/api/mcp-rest/ 本来就放行）；门坏了会回 201 或 400（按 size 核字节）
+      // 大结果的引用（GET /api/mcp-rest/results/<编号>）只给建它的会话：远程匿名拿一个编出来的编号来，必须 401、取不到任何东西。
+      // 网关关着（本机开发）时没有会话可认，这一行不跑
+      ...(gatewayOn ? [{ id: 'market.mcp-rest.result-ref-anonymous', target: m, surface: 'market' as const, method: 'GET', path: `/api/mcp-rest/results/${'A'.repeat(22)}`, headers: REMOTE_ANON, status: 401 }] : []),
       { id: 'market.mcp-rest.ticket-upload-forged', target: m, surface: 'market', method: 'PUT', path: `/api/mcp-rest/uploads/${'A'.repeat(43)}`, body: '{}', headers: REMOTE_ANON, status: 404 },
       { id: 'market.a2a-seat-token.forged', target: m, surface: 'market', method: 'POST', path: '/api/a2a/seat-token', body: `{"v":1,"root":"https://wm-self-probe.invalid","host":"00000000","seat_id":"wm-self-probe","ts":1,"nonce":"wm-self-probe-nonce-0000","aud":"https://wm-self-probe.invalid","sig":"${'A'.repeat(86)}=="}`, headers: REMOTE_ANON, status: 401 },
       { id: 'market.login-flow.unsigned-event', target: m, surface: 'market', method: 'POST', path: '/login/feishu/events', body: '{"schema":"2.0"}', headers: REMOTE_ANON, status: 401 },
+      // 团队的决策卡（观察者落地 T8）：/a2a/direct 上的这条分流不跟 WM_A2A_DIRECT_SIG 的 accept 走——不带签名的卡在任何配置下都必须 401、不落库。
+      // 合成队名、合成卡；门坏了会回 200（收下）或落到原路的别的状态码
+      { id: 'market.a2a-decision-card.unsigned', target: m, surface: 'market', method: 'POST', path: '/a2a/direct', body: JSON.stringify({ team: 'market/00000000', caller_session: 'wm-self-probe/00000000', message: '[A2A decision-card] v1\n{"event":"created","rev":1,"card":{}}' }), headers: REMOTE_ANON, status: 401 },
       { id: 'market.login-flow.forged-callback', target: m, surface: 'market', method: 'GET', path: '/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x', headers: REMOTE_ANON, status: 400 },
       // Login gate (enforce only): fixed synthetic slug, so a bypass shows up as 404/200 instead of the login redirect
       ...(loginGate === 'enforce' ? [

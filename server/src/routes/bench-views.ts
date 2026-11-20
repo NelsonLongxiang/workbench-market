@@ -27,10 +27,11 @@ import { judge, scopedVerdict, type JudgedActor } from '../judgment.ts';
 import { ASKED, deptKind } from '../judgment-builtins.ts';
 import type { Kind } from '../roles.ts';
 import { BENCH_LIMITS, BenchError } from '../bench-query.ts';
+import { tableTarget, tableCsv } from '../bench-table.ts';
 import { benchStore, type BenchStore } from '../services/bench-store.ts';
-import { bindBench, linkWorkbench, createBench, getBench, listBenches, resolveBenchRef, type BenchEntry } from '../services/bench-registry.ts';
+import { bindBench, linkWorkbench, createBench, getBench, listBenches, resolveBenchRef, unopenedCard, cardSlug, type BenchEntry } from '../services/bench-registry.ts';
 import { relationOf } from '../team-relation.ts';
-import { decideBenchRequest, listBenchMcp, setBenchGrants } from '../services/bench-mcp.ts';
+import { checkBenchRequest, decideBenchRequest, listBenchMcp, setBenchGrants } from '../services/bench-mcp.ts';
 import { viaBegin, viaSettle } from '../attention-via.ts';
 import { assertBenchBinding, renderBenchView } from '../services/bench-render.ts';
 
@@ -320,6 +321,50 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
       res.json({ ...out, blocks: (out.blocks ?? []).map((b) => (b?.type === 'form' ? { ...b, can_submit: canSubmit } : b)) });
     } catch (e) { fail(res, e); }
   }));
+  // Table operations reuse the existing render/query authorization; no new grant or binding is introduced.
+  app.post('/api/bench-views/:bench/table/export', { action: 'bench-store.render', kind: 'read', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.vary('Cookie');
+    const bench = getBench(req.params.bench);
+    const actor = await allowActor(req, res, 'bench-store.render', bench);
+    if (!actor) return;
+    if (!bench) return res.status(404).json({ error: 'bench_not_found' });
+    try {
+      const target = tableTarget(req.body);
+      const out = await (await benchStore(bench.slug)).tableExport(target);
+      const csv = tableCsv(out.columns, out.rows);
+      // Long reads must not publish after access was revoked or a binding changed.
+      const current = await allowActor(req, res, 'bench-store.render', getBench(bench.slug));
+      if (!current) return;
+      assertBenchBinding(bench);
+      res.set('Content-Type', 'text/csv; charset=utf-8');
+      res.set('Content-Disposition', "attachment; filename*=UTF-8''" + encodeURIComponent('table-' + out.view + '-v' + out.version + '.csv'));
+      res.set('X-Content-Type-Options', 'nosniff');
+      res.set('X-Row-Count', String(out.row_count));
+      res.set('X-View-Version', String(out.version));
+      res.set('X-Table-Revision', out.revision);
+      res.send(csv);
+    } catch (e) { fail(res, e); }
+  }));
+  app.post('/api/bench-views/:bench/table/row', { action: 'bench-store.render', kind: 'read', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.vary('Cookie');
+    const bench = getBench(req.params.bench);
+    const actor = await allowActor(req, res, 'bench-store.render', bench);
+    if (!actor) return;
+    if (!bench) return res.status(404).json({ error: 'bench_not_found' });
+    try {
+      const body = req.body;
+      if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(k => !['target', 'index', 'row'].includes(k))) throw new BenchError('invalid', '记录详情需要表格上下文、行号和所选记录');
+      const target = tableTarget(body.target), mayOriginal = may(actor, 'bench-store.query', bench);
+      const out = await (await benchStore(bench.slug)).tableRow(target, body.index, body.row, mayOriginal);
+      const current = await allowActor(req, res, 'bench-store.render', getBench(bench.slug));
+      if (!current) return;
+      const canReadOriginal = mayOriginal && may(current, 'bench-store.query', getBench(bench.slug));
+      assertBenchBinding(bench);
+      res.json(canReadOriginal ? out : { ...out, source_row: null, source_rows: [], source_truncated: false, source_columns: [], source_status: 'forbidden', source_message: '你无权查看原行或原证详情；未扩大读取权限。' });
+    } catch (e) { fail(res, e); }
+  }));
   app.post('/api/bench-views/:bench/form', { action: 'bench-store.form-submit', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.form-submit', (req, _res, s, actor) => {
     const b = (req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}) as Record<string, unknown>;
     const view = str(b.view), block = int(b.block), version = int(b.version);
@@ -334,21 +379,37 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
   // 「关注」里「台的 MCP 授予申请」卡片照 answer_via 调这里：带来的（from_attention）批成了记进「关注」的答复账，可以顺带记成经验（attention-via.ts）；
   // remember 写得不对在批之前就拒（400，申请不动）。别处直接调的照旧
   // 先后和 on() 一样（判权限、核台登记过），只是 remember 写得不对要回和答复入口同一个 400 remember_invalid
+  // 会话申请时写的可能是一张还没开台库的卡片（卡片 id 或 wb-<卡片 id>）：这种申请也批得了——
+  //   台没绑部门，只有管理层那一档判得过；批准还要能登记台（和 POST /api/bench-views 带 workbench_id 同一道门），
+  //   先核这条申请批得了，再给卡片开台库（标识 wb-<卡片 id>、名字用卡片的），再写授予，一步办成。驳回不开台库。
   app.post('/api/bench-views/:bench/mcp-requests/:id', { action: 'bench-store.mcp-decide', kind: 'decide', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
-    const bench = getBench(req.params.bench);
-    const actor = await allow(req, res, 'bench-store.mcp-decide', bench);
-    if (!actor) return;
-    if (!bench) return res.status(404).json({ error: 'bench_not_found' });
+    let bench = getBench(req.params.bench);
+    const card = bench ? null : unopenedCard(req.params.bench);
+    const judged = await allowActor(req, res, 'bench-store.mcp-decide', bench);
+    if (!judged) return;
+    const actor = idOf(judged);
+    if (!bench && !card) return res.status(404).json({ error: 'bench_not_found' });
+    const slug = bench ? bench.slug : cardSlug(card!.workbench_id);
     try {
-      await benchStore(req.params.bench);
       const id = /^\d{1,9}$/.test(req.params.id) ? Number(req.params.id) : NaN;
       if (!Number.isInteger(id) || id < 1) throw new BenchError('not_found', '没有这条申请');
+      const opening = !!card && req.body?.approve === true;
+      // 开台库之前先把拒的情形都排除掉（还没碰「关注」的答复账）：不能登记台的 403；这条申请批不了的照常 404 / 409
+      if (opening && !everywhere(judged, 'bench-store.bench-create')) return void forbid(res);
+      if (opening) checkBenchRequest(slug, id, true);
       const answer = req.body?.approve === true ? 'approve' : req.body?.approve === false ? 'reject' : '';
       const via = answer ? await viaBegin(req, 'bench-mcp', `${req.params.bench}:${id}`, answer) : { ok: true as const, plan: null };
       if (!via.ok) return void res.status(via.status).json(via.body);
-      const out = await decideBenchRequest(req.params.bench, id, req.body?.approve, actor, req.body?.note, Date.now());
-      const remembered = await viaSettle(req, via.plan, 200, out, async (r) => ({ actor: await actorOf(r) }));
-      res.json(remembered ? { ...(out as object), remember: remembered } : out);
+      let opened: { slug: string; title: string } | null = null;
+      if (opening) {
+        const b = createBench({ workbench_id: card!.workbench_id }, actor, Date.now());
+        bench = b; opened = { slug: b.slug, title: b.title };
+      }
+      if (bench) await benchStore(slug);
+      const out = await decideBenchRequest(slug, id, req.body?.approve, actor, req.body?.note, Date.now());
+      const body = opened ? { ...(out as object), opened_bench: opened } : out;
+      const remembered = await viaSettle(req, via.plan, 200, body, async (r) => ({ actor: await actorOf(r) }));
+      res.json(remembered ? { ...(body as object), remember: remembered } : body);
     } catch (e) { fail(res, e); }
   }));
 
