@@ -41,7 +41,7 @@ export interface ExtensionMiddlewareRecord { extension: string; path: string; pu
  * 内容面和资源的首段。核心路由栈里的首段另在全部注册完之后自动收集（assertExtensionNamespaces）。
  * 前端页面的首段和 web/src/App.tsx 对得上（scripts/extension-routes-smoke.mjs 核对，漂了就红）
  */
-export const SPA_PAGE_SEGMENTS: readonly string[] = ['access', 'attention', 'cockpit', 'dev', 'knowledge', 'market', 'mcp-gateways', 'owner-pending', 'settings', 'sops', 'team', 'types', 'use', 'vault', 'work-items'];
+export const SPA_PAGE_SEGMENTS: readonly string[] = ['access', 'areas', 'attention', 'cockpit', 'dev', 'knowledge', 'market', 'mcp-gateways', 'owner-pending', 'settings', 'sops', 'team', 'types', 'use', 'vault', 'work-items'];
 /**
  * 退役的前端页面首段：页面删了，路径照样不给扩展用——旧书签点进来落到市场自己的「找不到」，不会落到某个扩展的页面上。
  * 以后再删页面，把它的首段从上面挪到这里（scripts/extension-routes-smoke.mjs 核对：页面 = 上面那份，保留 = 页面 ∪ 退役）

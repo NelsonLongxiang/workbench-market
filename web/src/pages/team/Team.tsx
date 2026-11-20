@@ -5,7 +5,8 @@
  * 不自己拼部门、名册、分配，也不自己判谁能做什么。判断逻辑（整形、说法、校验）在 team-view.ts。
  *
  * 操作：
- *   · 管理员（应答里有「待认领的团队」这一栏）：把待认领的团队挂到部门、顺带指定一位负责人；没有部门时先建部门。
+ *   · 管理员（应答里有「待认领的团队」这一栏）：把待认领的团队挂到部门、顺带指定一位负责人。
+ *     部门正在换成领域（领域第 1 步，统筹 11-20）：这一页不再建部门，建领域在侧栏「领域」页；旧部门照旧读、照旧显示。
  *     关系确认制（#638）：不是属主、管理层的人认领、指定负责人，服务端只记成提议（202）——页面说「已提出，等〈谁〉确认」，
  *     那一项标「待确认」，不当成已生效；按钮照服务端的 can（claim / propose_claim、add_lead / propose_lead）出现。确认、撤回不在这一版。
  *   · 成员分配（规范 14 第二节）：团队上 can_assign 为真的人（负责人、管理层；服务端判），在成员卡上
@@ -17,14 +18,15 @@
  * 不做：工作方式开关、本周办结和通过率、技能、招 AI 员工（没有数据，不放占位）。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Alert, App, Button, Empty, Input, Modal, Select, Skeleton, Tag } from 'antd';
 import type { ButtonProps } from 'antd';
 import WmPage from '../../components/WmPage';
-import { addTeamLead, approveRelationProposal, assignTeamSeat, attentionChanged, claimTeam, getRelationProposals, getTeamDepartments, getTeamPeople, getTeams, putDepartment, reassignTeamSeat, rejectRelationProposal, unassignTeamSeat } from '../../api';
+import { addTeamLead, approveRelationProposal, assignTeamSeat, attentionChanged, claimTeam, getRelationProposals, getTeamDepartments, getTeamPeople, getTeams, reassignTeamSeat, rejectRelationProposal, unassignTeamSeat } from '../../api';
 import RelTime from '../../components/RelTime';
 import { subscribeAdminToken } from '../../admin-token';
 import {
-  actionProblem, ASSIGN_BY_TEXT, assignDoneText, assigneeOptions, assignOps, deptLeadText, leadPendingGrantText, reassignHintText, unassignConfirmText, pendingText, proposedText, claimButtonText, LEAD_SKIPPED_TEXT, proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, outcomeLabel, outcomeReasonText, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterStaleText, sourceProblem,
+  actionProblem, ASSIGN_BY_TEXT, assignDoneText, assigneeOptions, assignOps, deptLeadText, leadPendingGrantText, reassignHintText, unassignConfirmText, pendingText, proposedText, claimButtonText, LEAD_SKIPPED_TEXT, proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, outcomeLabel, outcomeReasonText, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, personName, memberLabel, nodeLabel, rosterStaleText, sourceProblem,
   teamCounts, teamStatusLabel, teamTitle, teamsOf,
 } from '../../team-view';
 import type { Department, KnownNames, Member, Proposal, SourceResult, Team as TeamT, TeamsCan, Tone } from '../../team-view';
@@ -192,49 +194,13 @@ function ClaimCard({ t, depts, people, can, onDone, onNotice }: { t: TeamT; dept
       {stale && <div className="wm-team-stale" data-testid="team-roster-stale">{stale}</div>}
       {pending ? (
         <div className="wm-team-pending" data-testid="team-claim-pending">挂到{depts.find((d) => d.id === pending.department)?.name ?? pending.department ?? '部门'}：{pendingText(pending)}</div>
-      ) : !canClaim ? null : depts.length === 0 ? <div className="wm-team-none">先建部门，才能把团队挂上去。</div> : (
+      ) : !canClaim ? null : depts.length === 0 ? <div className="wm-team-none" data-testid="team-claim-nodept">还没有部门可挂。部门正在换成领域，建领域到<Link to="/areas">「领域」</Link>页。</div> : (
         <div className="wm-team-claim-form">
           <Select size="small" placeholder="挂到哪个部门" value={dept} onChange={setDept} options={depts.map((d) => ({ value: d.id, label: d.lead ? `${d.name}（负责人 ${personName(d.lead)}${d.lead.pending ? '，待属主放行权限' : ''}）` : d.name }))} data-testid="team-claim-dept" className="wm-team-select" />
           {canLead && <Select size="small" allowClear placeholder={can && !can.add_lead ? '另外提议负责人（可不选）' : '另外指定负责人（可不选）'} value={lead} onChange={setLead} options={people.map((p) => ({ value: p.id, label: p.name }))} showSearch optionFilterProp="label" data-testid="team-claim-lead" className="wm-team-select" />}
           <Button size="small" type="primary" disabled={!dept} loading={busy} onClick={submit} data-testid="team-claim" autoInsertSpace={false}>{claimText}</Button>
         </div>
       )}
-      {err && <Alert className="wm-team-err" type="warning" showIcon message={err} />}
-    </div>
-  );
-}
-
-function NewDepartment({ depts, people, onDone, onCancel, onNotice }: { depts: Department[]; people: Person[]; onDone: () => void; onCancel: () => void; onNotice: (text: string) => void }) {
-  const [name, setName] = useState('');
-  const [id, setId] = useState('');
-  const [lead, setLead] = useState<string | undefined>();
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const problem = newDeptProblem(id, name, depts);
-  const submit = async () => {
-    if (problem) return;
-    setBusy(true); setErr(null);
-    const r = await putDepartment(id.trim(), name.trim(), lead ?? null);
-    const p = actionProblem(r);
-    const leadProposed = p ? null : proposedText(r);
-    // 部门建好了；指定的负责人只记成提议时，说清楚还没生效
-    if (leadProposed) onNotice(`部门「${name.trim()}」已建好；负责人${leadProposed}。`);
-    setBusy(false);
-    if (p) setErr(p); else onDone();
-  };
-  return (
-    <div className="wm-team-newdept" data-testid="team-newdept">
-      <b>建一个部门</b>
-      <div className="wm-team-newdept-row">
-        <Input size="small" placeholder="部门名称，比如 运营部" value={name} onChange={(e) => setName(e.target.value)} maxLength={64} data-testid="team-newdept-name" />
-        <Input size="small" placeholder="标识，比如 ops（以后不能改）" value={id} onChange={(e) => setId(e.target.value)} maxLength={48} data-testid="team-newdept-id" />
-        <Select size="small" allowClear placeholder="部门负责人（可以以后再定）" value={lead} onChange={setLead} options={people.map((p) => ({ value: p.id, label: p.name }))} showSearch optionFilterProp="label" data-testid="team-newdept-lead" className="wm-team-select" />
-      </div>
-      <div className="wm-team-newdept-row">
-        <span className="wm-team-hint">{(name || id) && problem ? problem : '部门负责人会自动成为挂在这个部门下的团队的负责人。'}</span>
-        <Button size="small" type="primary" disabled={!!problem} loading={busy} onClick={submit} data-testid="team-newdept-save">建部门</Button>
-        <Button size="small" type="text" disabled={busy} onClick={onCancel}>算了</Button>
-      </div>
       {err && <Alert className="wm-team-err" type="warning" showIcon message={err} />}
     </div>
   );
@@ -308,7 +274,6 @@ export default function Team() {
   const [src, setSrc] = useState<{ teams: SourceResult | null; depts: SourceResult | null; people: SourceResult | null; proposals: SourceResult | null }>({ teams: null, depts: null, people: null, proposals: null });
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0);
-  const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const reload = useCallback(() => setTick((n) => n + 1), []);
   useEffect(() => subscribeAdminToken(reload), [reload]);
@@ -333,22 +298,19 @@ export default function Team() {
   const proposals = useMemo(() => (ok(src.proposals) ? proposalsOf(src.proposals!.body) : []), [src]);
   const names = useMemo(() => knownNames(t, depts, people), [t, depts, people]);
   const admin = isAdminView(t);
-  const done = () => { setCreating(false); reload(); };
 
   const problem = sourceProblem('团队', src.teams);
   const empty = problem || loading ? null : emptyText(t, depts, admin);
-  const canCreateDept = admin && depts !== null;
 
   return (
-    <WmPage wide loading={loading} extra={canCreateDept && depts!.length > 0 && !creating ? <Button onClick={() => setCreating(true)} data-testid="team-newdept-open">建部门</Button> : undefined}>
+    <WmPage wide loading={loading}>
       <p className="wm-team-intro">每个部门有负责的人，部门下面挂着 AI 团队。团队的负责人直接对接它的总工；成员可以分配给某位员工直接用，没分配的是团队公用，由总工分派。</p>
       {problem && <Alert className="wm-team-alert" type={problem.type} showIcon message={problem.text} />}
       {notice && <Alert className="wm-team-alert wm-team-note" type="info" showIcon closable onClose={() => setNotice(null)} message={notice} data-testid="team-notice" />}
       {!loading && proposals.length > 0 && <ProposalsSection list={proposals} names={names} onDone={reload} />}
-      {creating && depts && <NewDepartment depts={depts} people={people} onDone={done} onCancel={() => setCreating(false)} onNotice={setNotice} />}
       {empty && (
         <Empty className="wm-team-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description={<span data-testid="team-empty">{empty}</span>}>
-          {canCreateDept && depts!.length === 0 && !creating && <Button type="primary" onClick={() => setCreating(true)} data-testid="team-newdept-cta">建部门</Button>}
+          {admin && depts !== null && depts.length === 0 && <Link to="/areas" data-testid="team-to-areas">去「领域」页 →</Link>}
         </Empty>
       )}
       {t.departments.length > 0 && (

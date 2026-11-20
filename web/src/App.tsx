@@ -31,6 +31,7 @@ import KnowledgeItem from './pages/knowledge/KnowledgeItem';
 import KnowledgeProjects from './pages/knowledge/KnowledgeProjects';
 import NotYet, { NOT_YET } from './pages/NotYet';
 import Team from './pages/team/Team';
+import Areas from './pages/areas/Areas';
 import Home from './pages/Home';
 
 import WorkItems from './pages/WorkItems';
@@ -134,6 +135,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/team" element={<Team />} />
+        <Route path="/areas" element={<Areas />} />
         <Route path="/access" element={<Access />} />
         <Route path="/knowledge" element={<Knowledge />} />
         <Route path="/knowledge/projects" element={<KnowledgeProjects />} />
