@@ -13,7 +13,8 @@
     "GET /api/mcp-rest/sop/runs/:id",
     "GET /api/mcp-rest/sop/runs/:id/files",
     "GET /api/mcp-rest/sop/runs/:id/files/:fileId",
-    "PUT /api/mcp-rest/uploads/:ticket"
+    "PUT /api/mcp-rest/uploads/:ticket",
+    "GET /api/mcp-rest/results/:id"
   ],
   "exempt": [{ "route": "GET /openapi.json", "class": "invalid", "why": "OpenAPI 文档只看会话，不读请求里的别的东西", "shown_by": "open/openapi" }, { "route": "GET /api/mcp-rest/openapi.json", "class": "invalid", "why": "同上", "shown_by": "open/openapi-rest-path" }],
   "scenarios": [
@@ -116,7 +117,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "30026", "etag": "W/\"754a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "31705", "etag": "W/\"7bd9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -439,6 +440,41 @@
                             "type": "object",
                             "properties": { "tools": { "type": "array", "items": { "type": "string" }, "description": "要申请的工具名（来自 access_info 目录）" }, "reason": { "type": "string", "description": "用途说明（必填·≤500 字）" } },
                             "required": ["tools", "reason"],
+                            "additionalProperties": false
+                          }
+                        }
+                      }
+                    },
+                    "responses": {
+                      "200": { "description": "工具结果（本地工具为业务对象 JSON；上游工具为其 MCP 结果 {content}）", "content": { "application/json": { "schema": {} } } },
+                      "400": { "$ref": "#/components/responses/BadRequest" },
+                      "401": { "$ref": "#/components/responses/Unauthorized" },
+                      "403": { "$ref": "#/components/responses/Forbidden" },
+                      "404": { "$ref": "#/components/responses/NotFound" }
+                    }
+                  }
+                },
+                "/api/mcp-rest/tools/result_read": {
+                  "post": {
+                    "tags": ["tools"],
+                    "operationId": "result_read",
+                    "summary": "分段读一份大结果：工具结果太大时应答只给引用（result_ref），能执行代码的直接拿 url 用同一个会话令牌 GET；不能执行代码的用它按段读。只读得到本会话的结果，读的时候按原来那个工具再判一次授权；引用过期就读不到了，重新调原工具",
+                    "description": "分段读一份大结果：工具结果太大时应答只给引用（result_ref），能执行代码的直接拿 url 用同一个会话令牌 GET；不能执行代码的用它按段读。只读得到本会话的结果，读的时候按原来那个工具再判一次授权；引用过期就读不到了，重新调原工具。",
+                    "x-category": "read",
+                    "x-granted": true,
+                    "x-exempt": true,
+                    "requestBody": {
+                      "required": false,
+                      "content": {
+                        "application/json": {
+                          "schema": {
+                            "type": "object",
+                            "properties": {
+                              "id": { "type": "string", "description": "引用的编号（result_ref.id）" },
+                              "offset": { "type": "integer", "minimum": 0, "description": "从第几个字符读起，缺省 0；接着读用上一段应答里的 next_offset" },
+                              "length": { "type": "integer", "minimum": 1, "description": "这一段读多少个字符，缺省也是上限 32768" }
+                            },
+                            "required": ["id"],
                             "additionalProperties": false
                           }
                         }
@@ -704,7 +740,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "10383", "etag": "W/\"288f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "12062", "etag": "W/\"2f1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-none）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -750,6 +786,41 @@
                             "type": "object",
                             "properties": { "tools": { "type": "array", "items": { "type": "string" }, "description": "要申请的工具名（来自 access_info 目录）" }, "reason": { "type": "string", "description": "用途说明（必填·≤500 字）" } },
                             "required": ["tools", "reason"],
+                            "additionalProperties": false
+                          }
+                        }
+                      }
+                    },
+                    "responses": {
+                      "200": { "description": "工具结果（本地工具为业务对象 JSON；上游工具为其 MCP 结果 {content}）", "content": { "application/json": { "schema": {} } } },
+                      "400": { "$ref": "#/components/responses/BadRequest" },
+                      "401": { "$ref": "#/components/responses/Unauthorized" },
+                      "403": { "$ref": "#/components/responses/Forbidden" },
+                      "404": { "$ref": "#/components/responses/NotFound" }
+                    }
+                  }
+                },
+                "/api/mcp-rest/tools/result_read": {
+                  "post": {
+                    "tags": ["tools"],
+                    "operationId": "result_read",
+                    "summary": "分段读一份大结果：工具结果太大时应答只给引用（result_ref），能执行代码的直接拿 url 用同一个会话令牌 GET；不能执行代码的用它按段读。只读得到本会话的结果，读的时候按原来那个工具再判一次授权；引用过期就读不到了，重新调原工具",
+                    "description": "分段读一份大结果：工具结果太大时应答只给引用（result_ref），能执行代码的直接拿 url 用同一个会话令牌 GET；不能执行代码的用它按段读。只读得到本会话的结果，读的时候按原来那个工具再判一次授权；引用过期就读不到了，重新调原工具。",
+                    "x-category": "read",
+                    "x-granted": true,
+                    "x-exempt": true,
+                    "requestBody": {
+                      "required": false,
+                      "content": {
+                        "application/json": {
+                          "schema": {
+                            "type": "object",
+                            "properties": {
+                              "id": { "type": "string", "description": "引用的编号（result_ref.id）" },
+                              "offset": { "type": "integer", "minimum": 0, "description": "从第几个字符读起，缺省 0；接着读用上一段应答里的 next_offset" },
+                              "length": { "type": "integer", "minimum": 1, "description": "这一段读多少个字符，缺省也是上限 32768" }
+                            },
+                            "required": ["id"],
                             "additionalProperties": false
                           }
                         }
@@ -882,7 +953,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "30026", "etag": "W/\"754a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "31705", "etag": "W/\"7bd9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -1205,6 +1276,41 @@
                             "type": "object",
                             "properties": { "tools": { "type": "array", "items": { "type": "string" }, "description": "要申请的工具名（来自 access_info 目录）" }, "reason": { "type": "string", "description": "用途说明（必填·≤500 字）" } },
                             "required": ["tools", "reason"],
+                            "additionalProperties": false
+                          }
+                        }
+                      }
+                    },
+                    "responses": {
+                      "200": { "description": "工具结果（本地工具为业务对象 JSON；上游工具为其 MCP 结果 {content}）", "content": { "application/json": { "schema": {} } } },
+                      "400": { "$ref": "#/components/responses/BadRequest" },
+                      "401": { "$ref": "#/components/responses/Unauthorized" },
+                      "403": { "$ref": "#/components/responses/Forbidden" },
+                      "404": { "$ref": "#/components/responses/NotFound" }
+                    }
+                  }
+                },
+                "/api/mcp-rest/tools/result_read": {
+                  "post": {
+                    "tags": ["tools"],
+                    "operationId": "result_read",
+                    "summary": "分段读一份大结果：工具结果太大时应答只给引用（result_ref），能执行代码的直接拿 url 用同一个会话令牌 GET；不能执行代码的用它按段读。只读得到本会话的结果，读的时候按原来那个工具再判一次授权；引用过期就读不到了，重新调原工具",
+                    "description": "分段读一份大结果：工具结果太大时应答只给引用（result_ref），能执行代码的直接拿 url 用同一个会话令牌 GET；不能执行代码的用它按段读。只读得到本会话的结果，读的时候按原来那个工具再判一次授权；引用过期就读不到了，重新调原工具。",
+                    "x-category": "read",
+                    "x-granted": true,
+                    "x-exempt": true,
+                    "requestBody": {
+                      "required": false,
+                      "content": {
+                        "application/json": {
+                          "schema": {
+                            "type": "object",
+                            "properties": {
+                              "id": { "type": "string", "description": "引用的编号（result_ref.id）" },
+                              "offset": { "type": "integer", "minimum": 0, "description": "从第几个字符读起，缺省 0；接着读用上一段应答里的 next_offset" },
+                              "length": { "type": "integer", "minimum": 1, "description": "这一段读多少个字符，缺省也是上限 32768" }
+                            },
+                            "required": ["id"],
                             "additionalProperties": false
                           }
                         }
@@ -1559,11 +1665,11 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "62394", "etag": "W/\"f3ba-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "63248", "etag": "W/\"f710-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "gateway": "on",
               "session": "replay-none",
-              "granted_tools": ["access_info", "access_request", "skills_list", "skill_read", "skill_search"],
+              "granted_tools": ["access_info", "access_request", "result_read", "skills_list", "skill_read", "skill_search"],
               "catalog": [
                 {
                   "name": "access_info",
@@ -1582,6 +1688,23 @@
                     "type": "object",
                     "properties": { "tools": { "type": "array", "items": { "type": "string" }, "description": "要申请的工具名（来自 access_info 目录）" }, "reason": { "type": "string", "description": "用途说明（必填·≤500 字）" } },
                     "required": ["tools", "reason"],
+                    "additionalProperties": false
+                  },
+                  "always_allowed": true
+                },
+                {
+                  "name": "result_read",
+                  "description": "分段读一份大结果：工具结果太大时应答只给引用（result_ref），能执行代码的直接拿 url 用同一个会话令牌 GET；不能执行代码的用它按段读。只读得到本会话的结果，读的时候按原来那个工具再判一次授权；引用过期就读不到了，重新调原工具。",
+                  "category": "read",
+                  "granted": true,
+                  "input_schema": {
+                    "type": "object",
+                    "properties": {
+                      "id": { "type": "string", "description": "引用的编号（result_ref.id）" },
+                      "offset": { "type": "integer", "minimum": 0, "description": "从第几个字符读起，缺省 0；接着读用上一段应答里的 next_offset" },
+                      "length": { "type": "integer", "minimum": 1, "description": "这一段读多少个字符，缺省也是上限 32768" }
+                    },
+                    "required": ["id"],
                     "additionalProperties": false
                   },
                   "always_allowed": true
@@ -4026,7 +4149,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "64492", "etag": "W/\"fbec-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "66171", "etag": "W/\"1027b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -4349,6 +4472,41 @@
                             "type": "object",
                             "properties": { "tools": { "type": "array", "items": { "type": "string" }, "description": "要申请的工具名（来自 access_info 目录）" }, "reason": { "type": "string", "description": "用途说明（必填·≤500 字）" } },
                             "required": ["tools", "reason"],
+                            "additionalProperties": false
+                          }
+                        }
+                      }
+                    },
+                    "responses": {
+                      "200": { "description": "工具结果（本地工具为业务对象 JSON；上游工具为其 MCP 结果 {content}）", "content": { "application/json": { "schema": {} } } },
+                      "400": { "$ref": "#/components/responses/BadRequest" },
+                      "401": { "$ref": "#/components/responses/Unauthorized" },
+                      "403": { "$ref": "#/components/responses/Forbidden" },
+                      "404": { "$ref": "#/components/responses/NotFound" }
+                    }
+                  }
+                },
+                "/api/mcp-rest/tools/result_read": {
+                  "post": {
+                    "tags": ["tools"],
+                    "operationId": "result_read",
+                    "summary": "分段读一份大结果：工具结果太大时应答只给引用（result_ref），能执行代码的直接拿 url 用同一个会话令牌 GET；不能执行代码的用它按段读。只读得到本会话的结果，读的时候按原来那个工具再判一次授权；引用过期就读不到了，重新调原工具",
+                    "description": "分段读一份大结果：工具结果太大时应答只给引用（result_ref），能执行代码的直接拿 url 用同一个会话令牌 GET；不能执行代码的用它按段读。只读得到本会话的结果，读的时候按原来那个工具再判一次授权；引用过期就读不到了，重新调原工具。",
+                    "x-category": "read",
+                    "x-granted": true,
+                    "x-exempt": true,
+                    "requestBody": {
+                      "required": false,
+                      "content": {
+                        "application/json": {
+                          "schema": {
+                            "type": "object",
+                            "properties": {
+                              "id": { "type": "string", "description": "引用的编号（result_ref.id）" },
+                              "offset": { "type": "integer", "minimum": 0, "description": "从第几个字符读起，缺省 0；接着读用上一段应答里的 next_offset" },
+                              "length": { "type": "integer", "minimum": 1, "description": "这一段读多少个字符，缺省也是上限 32768" }
+                            },
+                            "required": ["id"],
                             "additionalProperties": false
                           }
                         }
@@ -5450,7 +5608,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "30026", "etag": "W/\"754a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "31705", "etag": "W/\"7bd9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -5787,6 +5945,41 @@
                     }
                   }
                 },
+                "/api/mcp-rest/tools/result_read": {
+                  "post": {
+                    "tags": ["tools"],
+                    "operationId": "result_read",
+                    "summary": "分段读一份大结果：工具结果太大时应答只给引用（result_ref），能执行代码的直接拿 url 用同一个会话令牌 GET；不能执行代码的用它按段读。只读得到本会话的结果，读的时候按原来那个工具再判一次授权；引用过期就读不到了，重新调原工具",
+                    "description": "分段读一份大结果：工具结果太大时应答只给引用（result_ref），能执行代码的直接拿 url 用同一个会话令牌 GET；不能执行代码的用它按段读。只读得到本会话的结果，读的时候按原来那个工具再判一次授权；引用过期就读不到了，重新调原工具。",
+                    "x-category": "read",
+                    "x-granted": true,
+                    "x-exempt": true,
+                    "requestBody": {
+                      "required": false,
+                      "content": {
+                        "application/json": {
+                          "schema": {
+                            "type": "object",
+                            "properties": {
+                              "id": { "type": "string", "description": "引用的编号（result_ref.id）" },
+                              "offset": { "type": "integer", "minimum": 0, "description": "从第几个字符读起，缺省 0；接着读用上一段应答里的 next_offset" },
+                              "length": { "type": "integer", "minimum": 1, "description": "这一段读多少个字符，缺省也是上限 32768" }
+                            },
+                            "required": ["id"],
+                            "additionalProperties": false
+                          }
+                        }
+                      }
+                    },
+                    "responses": {
+                      "200": { "description": "工具结果（本地工具为业务对象 JSON；上游工具为其 MCP 结果 {content}）", "content": { "application/json": { "schema": {} } } },
+                      "400": { "$ref": "#/components/responses/BadRequest" },
+                      "401": { "$ref": "#/components/responses/Unauthorized" },
+                      "403": { "$ref": "#/components/responses/Forbidden" },
+                      "404": { "$ref": "#/components/responses/NotFound" }
+                    }
+                  }
+                },
                 "/api/mcp-rest/tools/sop_run_get": {
                   "post": {
                     "tags": ["tools"],
@@ -6086,6 +6279,129 @@
               "next_before_id": null
             }
           }
+        }
+      ]
+    },
+    {
+      "name": "result-ref",
+      "what": "大结果给引用（渐进开放第 5 步）：网关开着，WM_MCP_RESULT_LIMITS 把阈值调到 1000 字节（测试环境才认）。两个会话：有 design_standard 授权的、没有任何授权的（令牌是合成值）。先调 design_standard 拿到引用编号（只比状态码），再按编号取。",
+      "env": { "MCP_GATEWAY": "on", "ADMIN_TOKEN": "replay-synthetic-admin", "MARKET_PUBLIC_URL": "https://market.example", "WM_MCP_RESULT_LIMITS": "inline=1000,ttl=600000" },
+      "seed": [
+        { "table": "mcp_sessions", "row": { "name": "replay-ref", "token_sha256": "52b6419d27bd7f547cee3b92f8c17a908b8a49601ecbec161e5030de1dfe9e0a", "grants": "[\"design_standard\"]" } },
+        { "table": "mcp_sessions", "row": { "name": "replay-ref-other", "token_sha256": "d91323a5298f3b9f814db29efaa271f24fbdccedfdd062491b8abc8e07b7fb69", "grants": "[]" } }
+      ],
+      "steps": [
+        {
+          "id": "ref-setup",
+          "what": "布置：调 design_standard（结果超过阈值），存下引用编号（只比状态码）",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/mcp-rest/tools/design_standard", "headers": { "authorization": "Bearer cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" }, "json": {} },
+          "save": { "rid": "result_ref.id" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "ref-get",
+          "route": "GET /api/mcp-rest/results/:id",
+          "class": "normal",
+          "what": "同一个会话拿引用取：200，原样的结果 JSON，带 X-Content-Sha256、no-store",
+          "request": { "method": "GET", "path": "/api/mcp-rest/results/{{rid}}", "headers": { "authorization": "Bearer cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "24272", "etag": "\"0541cb6d59307f186ea982ab9ff1667cd2b288683dceeb4d9f97e547d05cfccb\"", "vary": "Origin", "x-content-sha256": "0541cb6d59307f186ea982ab9ff1667cd2b288683dceeb4d9f97e547d05cfccb", "x-powered-by": "Express" },
+            "body": {
+              "name": "workbench-market",
+              "version": "1.0.0",
+              "description": "工作台 design token 标准——市场前端、SOP 执行页与自产台共用的唯一事实源（仅浅色）",
+              "sources": [
+                { "path": "DESIGN.md", "sha256": "eef566b906b78802f91558d079bf96150a1c8cf5be524904347da7479afee69c" },
+                { "path": "design-system/workbench-market/PATTERNS.md", "sha256": "14278ee36932a5e2fac28913bc5d2eb427b69c53fd0b930edaf5886cc7cdc833" }
+              ],
+              "tokens": {
+                "colors": { "primary": "#1E3A5F", "on-primary": "#FFFFFF", "primary-subtle": "#EEF2F7", "text": "#0F172A", "text-secondary": "#5A6577", "text-disabled": "#94A3B8", "page": "#F6F7F9", "surface": "#FFFFFF", "border": "#E2E8F0", "border-strong": "#CBD5E1", "success": "#047857", "success-text": "#047857", "success-bg": "#ECFDF5", "warning": "#F59E0B", "warning-text": "#B45309", "warning-bg": "#FFFBEB", "danger": "#DC2626", "danger-text": "#B91C1C", "danger-bg": "#FEF2F2", "nav-bg": "#F6F7F9", "nav-text": "#5A6577", "nav-text-active": "#1E3A5F", "nav-item-active-bg": "#EEF2F7", "info": "{colors.primary}", "info-bg": "{colors.primary-subtle}" },
+                "typography": {
+                  "family-sans": "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif",
+                  "family-mono": "'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace",
+                  "caption": { "fontSize": "12px", "lineHeight": "20px", "fontWeight": 400 },
+                  "body": { "fontSize": "14px", "lineHeight": "22px", "fontWeight": 400 },
+                  "body-strong": { "fontSize": "14px", "lineHeight": "22px", "fontWeight": 600 },
+                  "subtitle": { "fontSize": "16px", "lineHeight": "24px", "fontWeight": 600 },
+                  "title": { "fontSize": "20px", "lineHeight": "28px", "fontWeight": 600 },
+                  "display": { "fontSize": "24px", "lineHeight": "32px", "fontWeight": 600 },
+                  "stat-label": { "fontSize": "12px", "lineHeight": "20px", "fontWeight": 600, "letterSpacing": "0.05em", "textTransform": "uppercase" }
+                },
+                "spacing": { "1": "4px", "2": "8px", "3": "12px", "4": "16px", "6": "24px", "8": "32px", "12": "48px" },
+                "rounded": { "sm": "4px", "md": "6px", "lg": "8px", "full": "9999px" },
+                "elevation": { "0": "none", "1": "0 1px 2px rgba(15, 23, 42, 0.05)", "2": "0 4px 12px rgba(15, 23, 42, 0.10)", "3": "0 12px 32px rgba(15, 23, 42, 0.16)" },
+                "motion": { "fast": "120ms", "base": "200ms", "easing": "ease" },
+                "components": {
+                  "button-primary": { "backgroundColor": "{colors.primary}", "textColor": "{colors.on-primary}", "rounded": "{rounded.md}", "height": "32px", "padding": "0 16px", "typography": "{typography.body}" },
+                  "button-danger": { "backgroundColor": "{colors.danger}", "textColor": "{colors.on-primary}", "rounded": "{rounded.md}", "height": "32px", "padding": "0 16px" },
+                  "input": { "backgroundColor": "{colors.surface}", "textColor": "{colors.text}", "rounded": "{rounded.md}", "height": "32px", "padding": "0 12px" },
+                  "card": { "backgroundColor": "{colors.surface}", "textColor": "{colors.text}", "rounded": "{rounded.lg}", "padding": "{spacing.3}" },
+                  "tag-success": { "backgroundColor": "{colors.success-bg}", "textColor": "{colors.success-text}", "rounded": "{rounded.sm}", "typography": "{typography.caption}" },
+                  "tag-warning": { "backgroundColor": "{colors.warning-bg}", "textColor": "{colors.warning-text}", "rounded": "{rounded.sm}", "typography": "{typography.caption}" },
+                  "tag-danger": { "backgroundColor": "{colors.danger-bg}", "textColor": "{colors.danger-text}", "rounded": "{rounded.sm}", "typography": "{typography.caption}" }
+                }
+              },
+              "sections": [
+                { "doc": "design", "heading": "Overview", "body": "本文件是工作台视觉的**唯一事实源**。三类页面都从这里取值：\n\n| 面 | 怎么拿到 token | 现状 |\n|---|---|---|\n| 市场前端（`web/`，antd 5） | `ConfigProvider` 的 theme token 由本文件映射；自写样式用 `--wm-*` CSS 变量 | 主题只配了 6 项；`style={{…}}` 213 处、散落色值 46 种 |\n| SOP 执行页（`server/src/sop-runner.ts` 服务端渲染） | 页内注入同一份 `--wm-*` 变量 | 自带 11 个硬编码色 |\n| 自产台（他人开发、经市场门户打开） | 链接市场提供的 `tokens.css`，只用 `--wm-*` 变量名 | 无约定，各台自定 |\n\n裁定（属主 2026-11-01，同日定稿 v1.0.0）：覆盖以上三面；**只做浅色**；**只写规范、CI 不拦**，靠评审把关。\n\nagent 经市场 MCP 工具 `design_standard` 直接读取本标准（`part=tokens` 取结构化 token，`section` 按标题取章节），读的就是本文件与 PATTERNS.md 的现行版本。\n\n菜单与目录、页面骨架、SOP 交付空间、任务清单与列表、数据看板的规则见 [`design-system/workbench-market/PATTERNS.md`](design-system/workbench-market/PATTERNS.md)。「只做浅色」指内容区；侧栏是唯一的深色区域，用 `nav-*` token。\n\n风格基调沿用 `design-system/workbench-market/MASTER.md` 的“瑞士风·高密度仪表台”（Variance 4 / Motion 3 / Density 8）与离线字体决定（零 webfont）。MASTER.md 中与本文件冲突的部分（深色底配色表、`.btn-*`/`.card` 示例 CSS、营销页 Page Pattern、GSAP 滚动动效）以本文件为准。" },
+                { "doc": "design", "heading": "Colors", "body": "- **写字只许用 `text` / `text-secondary`**，以及状态色的 `*-text`。`text-disabled` 只给禁用态和占位符。\n- 状态色分三档：主值（图标、边、实心按钮底）/ `*-text`（写字）/ `*-bg`（浅底提示条、标签）。`warning` 主值是琥珀色，对比度不够写字，写字一律用 `warning-text`。\n- **success 改为 `#047857`**：现行 antd `colorSuccess: #059669` 上白字只有 3.77:1，不达 WCAG AA（4.5:1）。迁移时一并替换。\n- 所有写字组合都已算过对比度，见 front matter 注释；新增组合必须 ≥ 4.5:1（大字 ≥ 3:1）。" },
+                { "doc": "design", "heading": "Typography", "body": "- 只有 6 档：caption 12 / body 14 / body-strong 14·600 / subtitle 16 / title 20 / display 24，外加统计标签 `stat-label`。\n- 现有代码里的 **11px 和 13px 不再使用**：11→12（caption），13→12 或 14，按信息层级选。\n- 机器值（URL、端口、路径、ID、令牌前缀）用 `family-mono`；统计数字、表格数字加 `font-variant-numeric: tabular-nums`。\n- 中文不加 letter-spacing；`stat-label` 的 0.05em 只对拉丁字母生效。" },
+                { "doc": "design", "heading": "Layout", "body": "- 间距只走 4px 栅格：4 / 8 / 12 / 16 / 24 / 32 / 48（token 名 `spacing.1`…`spacing.12`，数字 = 4px 的倍数）。原 MASTER 的 2px 档取消。\n- 卡片内边距 12，卡片间距 12；页面左右边距 24；表单项纵向间距 16。\n- 优先用 antd 的 `Space` / `Flex` 的 `gap` 与 `Row gutter`，而不是逐个写 margin。" },
+                { "doc": "design", "heading": "Elevation", "body": "三档：`1` 卡片静态，`2` 悬停和下拉，`3` 弹窗。不叠加、不自造阴影。" },
+                { "doc": "design", "heading": "Shapes", "body": "圆角四档：sm 4（标签、徽标）/ md 6（按钮、输入框，= antd 默认）/ lg 8（卡片、弹窗、抽屉）/ full（圆点、头像）。" },
+                { "doc": "design", "heading": "Components", "body": "- **按钮**：一屏最多一个 primary；危险操作用 `danger`，不用红色 primary。高度统一 32（antd middle）。\n- **状态标签**：用 `tag-success` / `tag-warning` / `tag-danger`，不手写 `color`/`background`。`StatusBadge` 组件是唯一入口。\n- **卡片**：`surface` 底 + `border` 边 + `elevation.1`，悬停升到 `elevation.2`，边框不变色。\n- **空态、加载、错误**：统一用 antd `Empty` / `Spin` / `Result`，文字用 `text-secondary`。\n\n### CSS 变量契约（给 SOP 执行页与自产台）\n\n变量名 = `--wm-` + 分组 + 名，例如：\n\n```css\n--wm-color-primary  --wm-color-text-secondary  --wm-color-danger-bg\n--wm-font-sans      --wm-font-size-body        --wm-line-height-body\n--wm-space-3        --wm-radius-lg             --wm-shadow-2\n--wm-motion-base\n```\n\n- **名字稳定、值可变**：小版本只改值；改名或删名要升主版本，并保留旧名一个版本做别名。\n- 市场以固定路径提供 `tokens.css`（带版本号），自产台 `<link>` 引入后只用变量，不抄色值。\n- 自产台可以加自己的品牌色，但正文、状态、面与线必须用 `--wm-*`，保证在门户里打开时观感一致。" },
+                { "doc": "design", "heading": "Do's and Don'ts", "body": "| Do | Don't |\n|---|---|\n| 用 `--wm-*` 变量或 antd theme token | 在 `.tsx` 里写 `#xxxxxx`、`rgba(…)` |\n| 间距用 4px 栅格值，优先 `gap` | `margin: 7px`、`fontSize: 13` 这类栅格外数值 |\n| 写字用 `text` / `text-secondary` / `*-text` | 用 `text-disabled`（#94A3B8）写有效信息 |\n| 状态用 `StatusBadge` / tag 组件 | 每页各写一套红绿黄 |\n| 机器值用等宽字体 | 引入 webfont 或外链字体 |\n| 尊重 `prefers-reduced-motion` | 位移动画、滚动触发动效 |" },
+                { "doc": "design", "heading": "落地（不在本文件，另开 issue 分步做）", "body": "1. 由本文件生成 `web/src/tokens.css` 与 antd theme 映射，替换 `main.tsx` 里的手写 6 项。\n2. SOP 执行页改用 `--wm-*` 变量，去掉 11 个硬编码色。\n3. 市场提供带版本号的 `tokens.css` 给自产台，README 写明引入方式。\n4. 按页迁移 213 处内联样式与 46 种散落色值（Sops / McpGateways / Cockpit / Dashboard 最多）。\n5. 本标准按属主裁定**不进 CI 门禁**；评审时对照上表 Do's and Don'ts。" },
+                { "doc": "patterns", "heading": "1. 现状问题", "body": "| 问题 | 位置 |\n|---|---|\n| 菜单 10 项平铺，日常使用页和管理页混在一起；「统一待办」「技能市场」用了同一个图标 | `web/src/App.tsx` |\n| 页面骨架不一：11 个页面里 6 个用 `PageContainer`，其余直接 `Card` 或什么都不包 | `web/src/pages/*` |\n| 列表三种写法并存：`ProTable`（Market/Sops/Types）、`Table`（McpGateways）、卡片网格（Dashboard） | 同上 |\n| 筛选两种写法：`Segmented`（Tasks/Skills）与 `Tabs`（McpGateways） | 同上 |\n| 侧栏配色在 `App.tsx` 里写死 6 个色值 | `App.tsx:142` |\n| SOP 的「执行 → 记录 → 交付物」散在 Sops 页的两个抽屉里，没有独立的交付空间 | `pages/Sops.tsx` |" },
+                { "doc": "patterns", "heading": "2. 菜单与目录", "body": "### 2.1 分组（属主 2026-11-01 定稿）\n\n```\n工作\n  总览            /                日常入口：我的待办摘要 + 常用工作台 + 关键指标\n  统一待办        /tasks\n  驾驶舱          /cockpit         可自定义的数据看板\n交付\n  SOP 交付空间    /sops            SOP 列表 → 单个 SOP 的执行、记录、交付物（见 §4）\n资源\n  工作台市场      /market\n  技能市场        /skills\n（扩展的菜单项：并进已有分组，或另起一组排在「管理」之前，见 web/src/extensions.ts）\n管理（仅管理员可见，默认折叠）\n  MCP 网关        /mcp-gateways\n  类型管理        /types\n  设置            /settings\n```\n\n- 一级菜单是**分组标题**，不可点；二级才是页面。分组最多 5 个，每组最多 6 项。\n- 「管理」组只在持管理员口令时显示，不再和日常页并列。\n- 每个页面一个专属图标，不复用；图标统一 antd `*Outlined`。\n- 改名：「SOP 台」→「SOP 交付空间」，「工作台」→「工作台市场」，与页面标题一致。\n\n> **后来的变化**（上面的分组是 11-01 定稿时的原样，留作记录；现在的菜单以 `web/src/nav.tsx` 为准）：\n> - 菜单换成产品化原型 3fbfd0b 的信息架构：首页 `/` 是「全景」，不再是「总览」。\n> - `/tasks`（统一待办）、`/reviews`（审核）2026-11-12 删了：发布任务由「安排一件事」取代，变更申请在全景的卡片上当场办。\n> - `/skills`（技能市场）2026-11-14 删了（属主：上一版是 demo，没有用于生产）：技能在「工作台市场」的「技能」分类里，一个技能一页 `/market/skill/<标识>`；旧链接跳到 `/market?k=技能`。\n> - 现在的分组（2026-11-14 核对 `nav.tsx`）：「工作」组是全景、事项 `/work-items`、驾驶舱、团队 `/team`、谁能做什么 `/access`、工作台市场、经验库 `/knowledge`，共 7 项，超出了上面「每组最多 6 项」的约定；「等你拍板」`/attention`、SOP 交付空间收进不显示的「旧入口」组（路由还在）；「管理」组另有待属主看板 `/owner-pending` 和凭据库 `/vault`。\n\n### 2.2 目录（路由）规则\n\n- 列表在 `/<资源>`，详情在 `/<资源>/:id`，子视图在 `/<资源>/:id/<视图>`，例如 `/sops/demo-rack-sop/runs/42`。\n- 详情不再用抽屉承载完整内容；抽屉只用于**不离开列表的快速编辑**。详情要能分享链接、能刷新不丢。\n- 面包屑 = 分组 / 页面 / 详情名，由 `PageContainer` 统一生成。\n\n### 2.3 侧栏样式\n\n侧栏用深色（与内容区浅色区分），新增 token：`nav-bg #0F172A`、`nav-text #CBD5E1`、`nav-text-active #FFFFFF`、`nav-item-active-bg #1E3A5F`，不再在 `App.tsx` 里写死。\n\n> 补记（2026-11-13）：之后按产品化原型 `3fbfd0b` 改成了浅色侧栏，现在的取值以 `DESIGN.md` 为准（`nav-bg #F6F7F9`、`nav-text #5A6577`、`nav-text-active #1E3A5F`、`nav-item-active-bg #EEF2F7`）。「不在 `App.tsx` 里写死」这一条照旧。" },
+                { "doc": "patterns", "heading": "3. 页面骨架（所有页面一致）", "body": "```\nPageContainer\n├─ 标题（typography.title）+ 一句说明（text-secondary）\n├─ 右上：主操作（至多 1 个 primary）+ 次操作\n├─ 筛选条（可选）\n└─ 内容区：列表 / 看板 / 详情分区\n```\n\n- 所有页面都包 `PageContainer`，不允许裸 `Card` 当页面根。\n- 页面内切换**视图**（同一批数据的不同切法）用 `Segmented`；切换**不同内容**用 `Tabs`。不再混用。\n- 加载、空态、错误统一用 `Spin` / `Empty` / `Result`，空态必须给下一步操作（例如「发布第一个 SOP」）。" },
+                { "doc": "patterns", "heading": "4. SOP 交付空间", "body": "一个 SOP 是一个「交付空间」，对应路由 `/sops/:slug`：\n\n| 区块 | 内容 | 组件 |\n|---|---|---|\n| 头部 | 名称、版本、状态标签、负责人；主操作「开始执行」 | `PageContainer` 头部 + `StatusBadge` |\n| 执行记录 | 每次 run 一行：编号、执行人、开始/完成时间、进度（步骤 x/y）、状态 | `ProTable`，点行进 `/sops/:slug/runs/:id` |\n| 单次记录 | 步骤时间线 + 每步填写值 + 附件；无读授权时只显示元数据并提示（#309 已定的隐私契约） | `Steps`（纵向）+ `Descriptions` + 附件列表 |\n| 交付物 | 本 SOP 所有 run 产出的附件与最终记录汇总，可按 run 过滤、下载 | `ProTable` |\n| 定义 | 步骤与字段定义、版本历史 | `Tabs` 里的只读视图 |\n\n- 列表页 `/sops` 只放 SOP 卡片或表格（名称、状态、最近执行、进行中 run 数），不再在抽屉里塞执行历史。\n- 隐私：执行记录列表只给元数据；字段值和附件只在有读授权时出现，不靠前端隐藏。" },
+                { "doc": "patterns", "heading": "5. 任务清单与列表", "body": "适用于统一待办、工作台市场、类型、MCP 会话等所有「一行一条」的页面。\n\n- **一律 `ProTable`**（需要分页、搜索、列设置）；只有不足 10 行且不需要筛选的小表才用 `Table`。\n- 列顺序：状态 → 标题/名称（可点） → 关键属性 → 负责人 → 时间 → 操作。\n- 状态列用 `StatusBadge`，固定在最左；操作列固定在最右，最多 2 个直接操作，其余收进「更多」。\n- 时间显示相对时间（「3 小时前」），悬停显示绝对时间；数字列右对齐 + `tabular-nums`。\n- 统一待办的来源（market / ygl-trees / 扩展注册的来源）用 tag 标出，不靠颜色区分。\n- 行密度用 antd `size=\"middle\"`；批量操作出现在表头上方，选中后才显示。\n- 筛选条：关键词搜索 + 最多 3 个常用筛选；更多筛选收进「高级筛选」。" },
+                { "doc": "patterns", "heading": "6. 数据看板", "body": "适用于总览与驾驶舱。\n\n- **栅格**：12 列，卡片宽度只取 3 / 4 / 6 / 12 列；卡片间距 `spacing.3`（12px）。\n- **卡片四类**，每类固定结构：\n  - 指标卡：`stat-label` 标签 + `display` 大数 + 环比（带方向，用 `success-text`/`danger-text`）；\n  - 趋势卡：标题 + 折线/柱状图，图例在上；\n  - 列表卡：标题 + 最多 5 行 + 「查看全部」链接到对应列表页；\n  - 状态卡：工作台健康状态等，用 `StatusBadge` 网格。\n- 卡片头：标题（`subtitle`）左，时间范围/操作右；卡片内不再嵌套卡片。\n- 图表配色只用状态色与 `primary` 系，最多 5 个系列；超过就分组或改表格。\n- 每张卡都要有空态和加载态；数据过期（超过刷新周期）时卡片头显示「数据截至 HH:mm」。\n- 驾驶舱可拖拽布局沿用现有 react-grid-layout，但卡片宽度吸附到上面 4 档。\n- 卡片上的数一律在运行时从工作台空间读，不写死在页面里（见 7.5）。" },
+                { "doc": "patterns", "heading": "7. 自产台：菜单、焦点、状态持久化", "body": "自产台是他人写的独立页面，不走 antd。为了在门户里打开时观感和手感一致，每个自产台页面在 `<head>` 起始处带同一个**统一层**（由台源仓库里的统一层工具生成）：内联 `--wm-*` token + 基础排版 + 下面三条交互约定。台内逻辑不改，统一层只补语义和记忆。\n\n### 7.1 菜单（页签 / 分段 / 锚点导航）\n\n| 写法 | 判定 | 统一层做的事 |\n|---|---|---|\n| 一组可点项里**恰好一个**选中（`.on`/`.active`/`aria-selected=true`） | 页签 | 容器 `role=tablist`、项 `role=tab` + `aria-selected`；选中项 `tabindex=0`，其余 `-1`；←→↑↓/Home/End 切换并激活 |\n| 台自己维护 `aria-pressed` | 切换按钮组 | 语义原样保留，只统一样式 |\n| 一组链接都不选中 | 锚点导航 | 只统一样式，不加 tab 语义 |\n\n- 选中态统一：`primary-subtle` 底 + `primary` 字 + 600 字重；项内计数/徽标继承选中色，不再各写一套。\n- 深色只允许出现在导航条（顶栏/页头）：底 `nav-bg`，字 `nav-text` / `nav-text-active`。内容区一律浅色，不提供 `prefers-color-scheme: dark`。\n- 台内链接一律同源相对路径（`/apps/…`、`/api/…`），不写死 `http://<内网 IP>:9800`——门户可能经任意入口访问。\n\n### 7.2 焦点\n\n- 键盘焦点统一 `:focus-visible` 2px `primary` 外框、偏移 2px；台内 `outline:none` 不得压掉它（统一层用 `!important`）。输入框聚焦时边框变 `primary`。\n- 带 `onclick` 的非交互元素（`div`/`span`/`tr`…）自动补 `tabindex=0` + `role=button`（行用 `role=link`），回车/空格触发点击。新写的台请直接用 `<button>`/`<a>`。\n- 尊重 `prefers-reduced-motion`：关闭动画与过渡。\n\n### 7.3 状态持久化\n\n按台命名空间存 `localStorage`（键 `wm:<slug>:<页面>:…`），刷新后恢复；读写全部 try/catch，存储不可用时页面照常工作：\n\n| 记什么 | 何时写 | 何时恢复 |\n|---|---|---|\n| 当前页签 | 点击/键盘切换 | 加载后（含异步渲染完成后 4 秒内）；URL hash 已指定视图时让位于链接 |\n| 搜索/筛选/排序控件（`type=search`、`select`，或 id/name/placeholder 含 search·filter·q·sort·搜索·筛选·排序） | `input`/`change` | 加载后回填并派发 `input`/`change`，让台内过滤逻辑重跑 |\n| `<details>` 折叠区 | `toggle` | 加载后 |\n| 滚动位置 | 滚动停 150ms（`sessionStorage`，只在本标签页） | 加载 400ms 后，URL 有 hash 时不恢复 |\n\n- 只记**视图状态**，不记业务数据；业务数据走 `/api/apps/<slug>/data`。\n- 台自己已有持久化（台内自定义的本地存储键）时两者并存：恢复前先判断当前是否已是目标状态，不重复触发。\n\n### 7.4 菜单、目录、视图（应用外壳）\n\n每个自产台都有同一套外壳（`wm-nav.js`，按台配置分组；台内 DOM 只加 class/id，不移动、不改逻辑）：\n\n```\n┌ 应用栏（吸顶 48px）：← 工作台市场 │ 台名 │ 菜单：分组1 分组2 … │ 视图：[分组|全部] ┐\n├ 目录（左侧 220px，窄屏收进「目录」抽屉）┬ 内容 ───────────────────────────────────┤\n│ 分组1                                   │ 页头（h1 与首个 h2 之前的内容，始终显示）│\n│   区块 A  ← 滚动高亮                    │ 区块 A / 区块 B …                        │\n└─────────────────────────────────────────┴──────────────────────────────────────────┘\n```\n\n| 部件 | 是什么 | 规则 |\n|---|---|---|\n| 菜单 | 台的业务分组（3～6 组），每组若干区块 | `role=tablist`，选中态 `primary-subtle` 底 + `primary` 字；←→/Home/End 切换 |\n| 目录 | 全部分组及其区块的清单 | `<nav aria-label=\"目录\">`；当前区块 `aria-current`，左边线 `primary`；非当前组的条目用 `text-secondary` |\n| 视图 | 同一批区块的两种看法 | `role=radiogroup`：「分组」一次只显示一个菜单组（默认）；「全部」长页滚动，菜单随滚动跟随 |\n\n- **区块** = 一个 `h2` 及其后的兄弟元素（到下一个 `h2` 为止）；按标题前缀归入分组，没配的归「其他」。\n- **地址**：`#wm=<分组>/<区块id>`，「全部」视图加 `&v=all`。链接可分享，刷新不丢；没有 hash 时用本地记忆的分组和视图。\n- 打印时隐藏外壳、展开全部区块。\n- **只给业务看**：自产台页面的读者是业务人员。验证器状态、运维台账、任务队列、表单自查记录、数据源/CORS 之类的技术说明，属于工程和 agent 面，在页面上**整块不显示**，不进菜单和目录，不留隐藏入口。工程方经接口或 MCP 读取，数据与接口不受影响。业务也需要的说明段落单独保留。分组表里用 `hideSections` / `hideNodes` / `keepNodes` 声明；保留区块里夹带的工程字段，用 `hideColumns`（内部编号之类的表格列）、`hideFields`（内部会话、内部验收依据这类字段，连同输入框和说明一起隐藏）、`scrub`（内部批注文字）去掉。必填字段不得隐藏。\n- 新台接入：在统一层工具的配置里加一份分组表即可；已经统一过的台用「换层」只替换 `<head>` 里的统一层，正文不再转换。\n\n### 7.5 数据层（硬规）\n\n**严禁把可视化数据写死在台页面里。** 页面只放渲染代码，数据在运行时从本台的工作台空间读，请求都带本台 `X-App-Token`：\n\n| 数据 | 放哪 |\n|---|---|\n| 看板值、小型索引 | 工作台变量 `/api/workbenches/${WM_WORKBENCH_ID}/vars/<key>` |\n| 定稿后不再改的值 | 工作台常量（`kind: const`） |\n| 明细记录 | 本台数据面 `/api/apps/<slug>/data` |\n| 文件 | 本台文件面 `/api/apps/<slug>/files` |\n\n- 不写数据字面量，不内嵌 `<script type=\"application/json\">` 快照，不 `fetch` 台目录里的静态 `.json`：沙箱页在生产环境取不到同目录的静态文件。\n- 卡片编号用 `window.WM_WORKBENCH_ID`，slug 用 `window.WM_APP_SLUG`，都不写死。\n- 读不到要明说「没读到」，不显示成空或 0；显示数据的读取时点。\n- 报告类页面（定稿归档、内容本身就是交付物的）不在此列。\n- 细则与迁移步骤见市场技能 `wm-quickstart` 的 `references/data-layer.md`。" },
+                { "doc": "patterns", "heading": "8. 落地顺序（定稿后另开 issue）", "body": "1. 侧栏分组与改名、`nav-*` token（改动集中在 `App.tsx`，见效最快）。\n2. 所有页面套 `PageContainer` 统一骨架。\n3. SOP 交付空间拆成独立路由（列表 / 详情 / 单次记录 / 交付物）。\n4. 列表统一到 `ProTable` 规则；统一待办先做。\n5. 总览与驾驶舱按看板四类卡片重排。" }
+              ]
+            }
+          }
+        },
+        {
+          "id": "ref-no-token",
+          "route": "GET /api/mcp-rest/results/:id",
+          "class": "unauthorized",
+          "what": "不带令牌：401",
+          "request": { "method": "GET", "path": "/api/mcp-rest/results/{{rid}}", "headers": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "125", "etag": "W/\"7d-<指纹>\"", "vary": "Origin", "www-authenticate": "Bearer realm=\"workbench-market mcp\"", "x-powered-by": "Express" },
+            "body": { "error": "unauthorized: valid session token required", "hint": "会话与令牌由管理员经 /api/mcp/sessions 创建分发" }
+          }
+        },
+        {
+          "id": "ref-other-session",
+          "route": "GET /api/mcp-rest/results/:id",
+          "class": "invalid",
+          "what": "别的会话拿同一个编号：404，和不存在的同一句",
+          "request": { "method": "GET", "path": "/api/mcp-rest/results/{{rid}}", "headers": { "authorization": "Bearer dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "114", "etag": "W/\"72-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "没有这个结果（编号不对、已过期，或者不是本会话的）：重新调原来的工具" } }
+        },
+        {
+          "id": "ref-forged",
+          "route": "GET /api/mcp-rest/results/:id",
+          "class": "invalid",
+          "what": "编出来的编号（形状合格、库里没有）：404",
+          "request": { "method": "GET", "path": "/api/mcp-rest/results/AAAAAAAAAAAAAAAAAAAAAA", "headers": { "authorization": "Bearer cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "114", "etag": "W/\"72-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "没有这个结果（编号不对、已过期，或者不是本会话的）：重新调原来的工具" } }
+        },
+        {
+          "id": "ref-bad-shape",
+          "route": "GET /api/mcp-rest/results/:id",
+          "class": "invalid",
+          "what": "编号写法不对：404",
+          "request": { "method": "GET", "path": "/api/mcp-rest/results/0x1", "headers": { "authorization": "Bearer cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "114", "etag": "W/\"72-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "没有这个结果（编号不对、已过期，或者不是本会话的）：重新调原来的工具" } }
         }
       ]
     }

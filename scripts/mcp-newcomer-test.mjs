@@ -67,7 +67,7 @@ try {
 
   // ---------- 一、读技能不用申请 ----------
   const names = await listNames(bare.token);
-  ok('零授权会话 tools/list 有两个权限自助工具和三个读技能的工具，别的没有', J([...names].sort()) === J(['access_info', 'access_request', ...SKILL_READS].sort()), J(names));
+  ok('零授权会话 tools/list 有两个权限自助工具、分段读大结果和三个读技能的工具，别的没有', J([...names].sort()) === J(['access_info', 'access_request', 'result_read', ...SKILL_READS].sort()), J(names));
   const info = await tool(bare.token, 'access_info');
   const cat = info.payload?.catalog ?? [];
   const listed = ((await rpc('tools/list', {}, bare.token)).body?.result?.tools ?? []);

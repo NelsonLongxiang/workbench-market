@@ -44,6 +44,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `MARKET_PUBLIC_URL`（对外基址·A2A 卡片与 MCP `skill_download` 下载链接用；生产建议设成 https 地址——没设时下载链接取请求主机，主机名不规范就不签发）
 - `A2A_API_KEY`/`A2A_STATE_URL`（A2A 外部面）
 - `WM_BENCH_VIEWS`（数据视图的入口·缺省 `on`（未设即开；不需要时设 `off`，`/api/bench-views` 下的每条路由都直接回 404）：开着时开放给有管理层授予（范围「全部」）的登录账号，和在台所绑的部门上有已放行授予的人；只有普通员工授予的人读也不行，管理口令看不了台里的数据；其它值拒绝启动；见 [docs/data-views.md](docs/data-views.md)）
+- `WM_MCP_RESULT_LIMITS`（只给测试用：大结果给引用的阈值和期限，写成 `inline=<字节>,ttl=<毫秒>`；只在 `NODE_ENV=test` 时认，别的环境设了就拒绝启动。生产上固定是 64 KB、15 分钟）
 - `WM_BENCH_REQUEST_TTL_HOURS`（数据视图·台的权限申请没人处理的总期限，缺省 `72`，1～720 小时：到期还没定的申请标成「失效：没有人处理」，申请的会话查状态时看得到，「关注」里那条一起消失；写错的台标识也是这个结局，不透露台存不存在。不合法拒绝启动）
 - `WM_OUTBOUND`（对外断开·预发用·缺省 `on`；`off`=这个进程一个字节都不往外发：TCP、TLS、DNS、UDP 在发出前被拦下并计数，不许起子进程和 Worker，工作台事件投递和回执 outbox 整轮跳过（在途的保持 pending、不加 attempts、不判死），启动时的豁免面变更通知不发，库里的巡检间隔、MCP 上游、沙箱桥一律按关处理，check-all 拒绝探活；只放行本进程自己在听的回环端口。启动自检多一行「对外已断开」，`/api/health` 和 `/api/health/ready` 带 `outbound`，页面顶上有横幅。只能经环境变量打开；其它值拒绝启动。拿生产数据的副本做预发时用，见下方「预发：对外断开」）
 - `WM_A2A_DIRECT_SIG`（`POST /a2a/direct` 入站签名·缺省 `accept`=签名可选：带了 OriginClaim Sig2 就验，取卡或验签这一步验不过（没登记取卡地址、取不到卡、卡上身份不对、签名对不上卡）按未签名走绑定准入——不比不带签名更宽也不更严，格式、时间戳、受众、身份不符、重放照旧 401；`require`=没签名或验不过一律 401；`off`=不验；`WM_LOGIN_GATE=enforce` 时强制 `require`；其它值拒绝启动。公钥只从调用方绑定上登记的 `notify_url` 取卡，不跟随重定向）
@@ -214,9 +215,10 @@ GET              /api/sop/runs/:id/upgrade-preflight  进行中的 run 升级到
 POST             /api/sop/runs/:id/upgrade      升级到当前版本（管理员或本机命令行，reason 必填，可带 expected_version）；已填数据原样保留，未落盘缓冲一并写回，审计入 sop_run_upgrade_audit
 POST             /api/sop/runs/:id/files        上传交付文件（multipart：file，可选 created_by、sha256）；可带期望的 sha256（请求头 X-Content-SHA256 或表单字段 sha256，两处都带须一致），不符 400、不保存；应答带 sha256、integrity（sha256-verified / unverified）和 next，不需要下载回读
 POST             /api/sop/runs/:id/files/refs   引用已有文件（分批，单次 ≤200 条）：items=[{run_id,file_id,read_capability} | {sha256}]，只限同一 SOP；按 run/文件引用要带源 run 读凭证（管理员免），按 sha256 只限管理员；逐条回 linked/duplicate/failed+原因；引用与源共用存储、不占上传配额（20 个/200MB），另限 2000 条；GET …/files 回 quota
-POST             /mcp                           MCP StreamableHTTP（initialize/tools/list/tools/call；34 本地工具，入口开着时另有数据视图 15 个；GET/DELETE → 405）
+POST             /mcp                           MCP StreamableHTTP（initialize/tools/list/tools/call；35 本地工具，入口开着时另有数据视图 15 个；GET/DELETE → 405）
 GET              /openapi.json                  MCP 工具的 OpenAPI 3.1 文档（同 /api/mcp-rest/openapi.json；只列本会话可调用的工具；会话令牌必带）
-POST             /api/mcp-rest/tools/:name      按 REST 调一个 MCP 工具：请求体 = 工具参数，返回工具结果 JSON（会话令牌必带；见「MCP 工具的 REST / OpenAPI 开放」）
+POST             /api/mcp-rest/tools/:name      按 REST 调一个 MCP 工具：请求体 = 工具参数，返回工具结果 JSON；超过 64 KB 只回引用（会话令牌必带；见「MCP 工具的 REST / OpenAPI 开放」）
+GET              /api/mcp-rest/results/:id      拿引用取大结果：只给建它的会话，按原工具再判一次授权（别的会话、过期、不存在都 404；授权没了 403）
 PUT              /api/mcp-rest/apps/:slug/files/:name  原始字节上传（流式落盘 ≤100MB，返回 id/sha256/mime/url；需 app_files_upload）
 POST             /api/mcp-rest/apps/:slug/files        multipart 上传（字段 file + note/created_by；需 app_files_upload）
 GET              /api/mcp-rest/apps/:slug/files        列文件（分页 + quota；需 app_files_list）
@@ -754,6 +756,11 @@ curl -s -X POST "$REST_BASE/tools/workbench_summary" \
 | 502 | 上游工具失败或不可达 |
 
 - **审计**：每次调用都记进 `mcp_calls`，`channel` 列区分 `rest` 和 `mcp`（「MCP 网关」页审计表的「渠道」列）。文件接口的 method 记为 `rest/file_upload`、`rest/file_download` 等。
+- **大结果给引用**（渐进开放第 5 步）：工具结果（紧凑 JSON）超过 64 KB 时，`/mcp` 的 `tools/call` 和 `POST /api/mcp-rest/tools/<name>` 都只回 `{result_ref: {id, url, sha256, bytes, expires_at}, summary, how_to_fetch}`，原结果存进 `mcp_result_refs` 15 分钟（每个会话最多留 20 份）。
+  - 能执行代码的：`GET /api/mcp-rest/results/<id>`，同一个会话令牌，原样拿到那份 JSON，`X-Content-Sha256` 对得上；
+  - 不能执行代码的：免授权工具 `result_read {id, offset, length}` 分段读，一段最多 32768 字符；
+  - 两条路都只认建它的会话（别的会话的和不存在的同一句），都按原工具再判一次授权（授权收回了就取不到），都记进 `mcp_calls`（取引用 method 记 `results/get`、tool 记原工具名）；
+  - 文件、台数据、SOP run 这些资源接口照旧整份返回，不套引用。
 - **与 `/mcp` 的差异**：`/mcp` 对未授权的工具按「不存在」应答；REST 分开返回 403 和 404，方便脚本区分（工具目录本来就能经 `access_info` 看到）。
 
 ### 代理相对路径标准式（iframe / 统一门户 `/go/<id>/`）

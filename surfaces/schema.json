@@ -546,6 +546,18 @@
       "note TEXT NOT NULL DEFAULT ''",
       "at TEXT NOT NULL DEFAULT datetime('now')"
     ],
+    "mcp_result_refs": [
+      "id TEXT PK",
+      "session_id INTEGER NOT NULL",
+      "tool TEXT NOT NULL",
+      "bench TEXT NOT NULL DEFAULT ''",
+      "target INTEGER",
+      "sha256 TEXT NOT NULL",
+      "bytes INTEGER NOT NULL",
+      "body TEXT NOT NULL",
+      "created_at INTEGER NOT NULL",
+      "expires_at INTEGER NOT NULL"
+    ],
     "mcp_sessions": [
       "id INTEGER PK",
       "name TEXT NOT NULL",
@@ -1151,6 +1163,8 @@
     "idx_mcp_access_requests_status ON mcp_access_requests: CREATE INDEX idx_mcp_access_requests_status ON mcp_access_requests (status, id)",
     "idx_mcp_calls_session ON mcp_calls: CREATE INDEX idx_mcp_calls_session ON mcp_calls (session_name, at)",
     "idx_mcp_grant_audit_session ON mcp_grant_audit: CREATE INDEX idx_mcp_grant_audit_session ON mcp_grant_audit (session_id, id)",
+    "idx_mcp_result_refs_expires ON mcp_result_refs: CREATE INDEX idx_mcp_result_refs_expires ON mcp_result_refs (expires_at)",
+    "idx_mcp_result_refs_session ON mcp_result_refs: CREATE INDEX idx_mcp_result_refs_session ON mcp_result_refs (session_id, created_at)",
     "idx_principal_identities_principal ON principal_identities: CREATE INDEX idx_principal_identities_principal ON principal_identities (principal_id)",
     "idx_principals_status ON principals: CREATE INDEX idx_principals_status ON principals (status, id)",
     "idx_relation_proposals_status ON relation_proposals: CREATE INDEX idx_relation_proposals_status ON relation_proposals (status, id)",

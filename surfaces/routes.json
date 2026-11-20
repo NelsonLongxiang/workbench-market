@@ -291,6 +291,7 @@
       "DELETE /mcp  <- <anonymous>",
       "GET /openapi.json  <- <anonymous>",
       "GET /api/mcp-rest/openapi.json  <- <anonymous>",
+      "GET /api/mcp-rest/results/:id  <- <anonymous>",
       "POST /api/mcp-rest/tools/:name  <- <anonymous>",
       "PUT /api/mcp-rest/apps/:slug/files/:name  <- <anonymous>",
       "PUT /api/mcp-rest/uploads/:ticket  <- <anonymous>",

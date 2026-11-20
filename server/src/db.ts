@@ -712,6 +712,25 @@ CREATE INDEX IF NOT EXISTS idx_a2a_seat_token_log_seat ON a2a_seat_token_log (ho
 `);
 try { const afCols = tableColumns('app_files') as any[]; if (!afCols.some((c) => c.name === 'note')) db.exec("ALTER TABLE app_files ADD COLUMN note TEXT NOT NULL DEFAULT ''"); if (!afCols.some((c) => c.name === 'deleted_at')) db.exec("ALTER TABLE app_files ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 try { const adCols = tableColumns('app_data') as any[]; if (!adCols.some((c) => c.name === 'deleted_at')) db.exec("ALTER TABLE app_data ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+// 渐进开放第 5 步（docs/productization/16-progressive-capability-access.md）：大结果给引用。工具结果超过阈值时，存在这里，应答只回引用。
+//   一行一份结果：只给建它的会话取（session_id），取的时候按原工具再判一次授权（bench：数据视图的台；target：限定到台的授权所对的台）。
+//   时刻是代码给的毫秒数；过期的在下次存的时候清掉，每个会话只留最新的若干份（services/mcp.ts）。只存一小会儿，不是留档。
+db.exec(`
+CREATE TABLE IF NOT EXISTS mcp_result_refs (
+  id TEXT PRIMARY KEY,
+  session_id INTEGER NOT NULL,
+  tool TEXT NOT NULL,
+  bench TEXT NOT NULL DEFAULT '',
+  target INTEGER,
+  sha256 TEXT NOT NULL,
+  bytes INTEGER NOT NULL,
+  body TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_result_refs_session ON mcp_result_refs (session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_mcp_result_refs_expires ON mcp_result_refs (expires_at);
+`);
 // MCP 权限自助申请：会话经 access_request 提、管理员批/驳；批准把 tools 并入会话 grants，与审计行同一事务。
 // app_data.idempotency_key：app_data_submit / REST 提交带幂等键时同台同键只落一行（空串不参与唯一）。IF NOT EXISTS / 补列幂等。
 db.exec(`
