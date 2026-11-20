@@ -34,7 +34,7 @@ try {
   const { svc } = await import(at('server/src/context.ts'));
   const { db } = await import(at('server/src/db.ts'));
   const roles = await import(at('server/src/roles.ts'));
-  const { judgeBuiltin, scopedVerdict } = await import(at('server/src/judgment.ts'));
+  const { judgeBuiltin, scopedVerdict, areaVerdict } = await import(at('server/src/judgment.ts'));
   const { askedKind, deptKind, SELF_DECIDED } = await import(at('server/src/judgment-builtins.ts'));
   const { MCP_TOOLS } = await import(at('server/src/mcp-tools.ts'));
 
@@ -48,6 +48,9 @@ try {
   const grants = svc('grants');
   grants.setRoles(roles.buildRoles(roles.INITIAL_ORG_ROLES, catalog));
   svc('departments').upsert({ id: 'sales', name: '合成 sales', functionCode: null, lead: null }, 'cli', Date.now());
+  // 领域 sales：领域的三个预设授予到 area:sales（建好直接改成 active，起草 area-member 要领域已有负责人）
+  svc('areas').create({ id: 'sales', name: '合成 sales' }, { by: 'cli', principal: null }, Date.now());
+  svc('areas').leadActivated('sales', { by: 'cli', principal: null }, Date.now());
 
   const now = Date.now();
   const cli = { by: 'cli', principal: null, owner: true };
@@ -69,7 +72,7 @@ try {
     const nonPerson = roles.NON_PERSON_ONLY_ROLES.includes(r.id);
     const id = nonPerson ? `seat:mx-${r.id}` : `user:mx-${r.id}`;
     insert(id, nonPerson ? 'seat' : 'person', nonPerson ? 'user:resp' : '');
-    give(id, r.id, byDept(r) ? 'dept:sales' : '*');
+    give(id, r.id, roles.AREA_PRESETS.includes(r.id) ? 'area:sales' : byDept(r) ? 'dept:sales' : '*');
     holder.set(r.id, { type: 'principal', id, kind: nonPerson ? 'seat' : 'person', status: 'active', owner: nonPerson ? 'user:resp' : '' });
   }
 
@@ -89,6 +92,7 @@ try {
           if (judgeBuiltin({ actor, action: a, kind: ak, declared: true, now }).verdict === 'allow') { full++; continue; }
           const dk = deptKind(a);
           if (dk && scopedVerdict({ principal: actor.id, action: a, kind: dk, scope: 'dept:sales', now }).verdict === 'allow') { scoped++; continue; }
+          if (roles.domainOf(a) === 'area' && areaVerdict({ principal: actor.id, action: a, kind: k, area: 'sales', now }).verdict === 'allow') { scoped++; continue; }
           if (SELF_DECIDED.includes(a) && selfPerm(ak, a)) self++;
         }
         out[b.key][k] = n === 0 ? 'na' : full === n ? 'all' : full > 0 ? 'some' : scoped > 0 ? 'scoped' : self > 0 ? 'self' : 'none';

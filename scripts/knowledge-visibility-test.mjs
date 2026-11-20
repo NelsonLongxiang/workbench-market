@@ -37,6 +37,7 @@ try {
   for (const line of snap.apps.flat()) {
     const m = /->\s+([a-z][a-z0-9-]*\.[a-z][a-z0-9-]*)\s+(read|write|decide|admin)/.exec(line);
     if (m) catalog.set(m[1], m[2]);
+    for (const r of String(line).matchAll(/细分：([a-z][a-z0-9-]*\.[a-z][a-z0-9-]*)\s+(read|write|decide|admin)/g)) catalog.set(r[1], r[2]);
   }
   const grants = svc('grants');
   grants.setRoles(roles.buildRoles(roles.INITIAL_ORG_ROLES, catalog));

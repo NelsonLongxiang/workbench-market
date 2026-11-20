@@ -228,10 +228,11 @@ export function roleMatrix(role: { id: string; closure: readonly Permission[]; p
         }
         if (ANONYMOUS_ACTIONS.includes(a)) { full++; continue; }
         if (byDept) {
+          // 领域的三个预设只带 area:<领域> 范围：只在领域的动作上算「范围内」（judgment.ts 的 areaVerdict）；
+          // area-member 带着的数据视图、经验库那些动作，要到第 1 步 PR3 那两处改成按领域问之后才算
+          if (AREA_PRESETS.includes(role.id)) { if (domainOf(a) === 'area' && permits(role.closure, a, k).covers) scoped++; continue; }
           const dk = deptKind(a);
           if (dk && permits(role.closure, a, dk).covers) scoped++;
-          // 领域的动作按 area:<领域> 范围的授予判（judgment.ts 的 areaVerdict），范围由授予给的角色在这里算「范围内」
-          else if (domainOf(a) === 'area' && permits(role.closure, a, k).covers) scoped++;
           continue;
         }
         const ak = askedKind(a, k);
