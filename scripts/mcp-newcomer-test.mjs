@@ -101,7 +101,7 @@ try {
     // 把这次加的那几项按它们现在的位置放回基准里，再和现在的应答逐字节比
     const insertAt = (list, items, nameOf) => { const out = [...list]; for (const it of items) { const i = nowFull.catalog.findIndex((x) => x.name === nameOf(it)); out.splice(i, 0, it); } return out; };
     const newEntries = nowFull.catalog.filter((t) => ADDED.includes(t.name));
-    const patched = { ...before, granted_tools: nowFull.granted_tools.filter((n) => before.granted_tools.includes(n) || ADDED.includes(n)), catalog: insertAt(before.catalog, newEntries, (t) => t.name) };
+    const patched = { ...before, granted_tools: (() => { const out = [...before.granted_tools]; for (const name of ADDED) { const i = nowFull.granted_tools.indexOf(name); if (i >= 0) out.splice(i, 0, name); } return out; })(), catalog: insertAt(before.catalog, newEntries, (t) => t.name) };
     ok('带 full: true 的应答和基准逐字节相同（只多了 result_read 那一项）', J(added) === J(ADDED) && removed.length === 0 && changed.length === 0 && JSON.stringify(patched) === nowText,
       J({ added, removed, changed, bytes: [Buffer.byteLength(nowText), Buffer.byteLength(JSON.stringify(patched))] }));
   }
