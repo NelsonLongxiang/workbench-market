@@ -21,10 +21,11 @@ import { svc } from '../context.ts';
 import { browserMarked, rawLoopback } from '../surfaces.ts';
 import { HttpError } from '../errors.ts';
 import { identity } from '../identity.ts';
-import { areaVerdict, judge, scopedVerdict } from '../judgment.ts';
+import { judge, scopedVerdict } from '../judgment.ts';
 import { deptKind } from '../judgment-builtins.ts';
 import { RED_LINES } from '../red-lines.ts';
-import { AREA_LEAD_ACTIONS, AREA_SPEC_ACTION, type Kind } from '../roles.ts';
+import { type Kind } from '../roles.ts';
+import type { AreaService } from '../services/area.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import type { Actor, GrantService } from '../services/grant.ts';
 import type { SetupWizardService, WizardAssignments } from '../services/setup-wizard.ts';
@@ -75,26 +76,14 @@ export function registerAccessRoutes(app: HttpService, deps: AccessRouteDeps): v
     return { by, principal, owner: grants().isOwner(principal) };
   }
 
-  /** 领域的动作，access 接口照领域路由的判法答（不问 judge）。
-   *  规则抄自 routes/areas.ts（who() 的 seesAll、sees()、specSetter、ownerOnly）和第 1 步只登记的动作，PR3b 收成一份（server/src/area-decision.ts 的 areaDecision）。
-   *  access 只看主体：没有管理口令、本机命令行这两种身份。领域撤了、还没负责人回的 409 是业务状态，不是权限，这里不管。 */
+  /** 领域的动作，access 接口照领域路由的判法答（不问 judge）：和领域路由问同一处 AreaService.decide（PR3b 收成一份）。
+   *  access 只看主体：没有管理口令、本机命令行这两种身份；主体停用或不是人一律拒（领域路由也是 403）。 */
   function areaDecision(p: { id: string; kind: string; status: string }, action: string, scope: string | null): { verdict: 'allow' | 'deny'; rule: string; grant: number | null } {
-    const no = (rule: string) => ({ verdict: 'deny' as const, rule, grant: null });
-    if (p.status !== 'active') return no('principal-inactive');
-    if (p.kind !== 'person') return no('principal-not-person');
-    const owner = grants().isOwner(p.id), seesAll = owner || grants().isBusinessSide(p.id);
+    if (p.status !== 'active') return { verdict: 'deny', rule: 'principal-inactive', grant: null };
+    if (p.kind !== 'person') return { verdict: 'deny', rule: 'principal-not-person', grant: null };
+    const owner = grants().isOwner(p.id);
     const area = scope !== null && /^area:[a-z][a-z0-9-]{0,47}$/.test(scope) ? scope.slice(5) : null;
-    if (action === 'area.create' || action === 'area.retire' || action === 'area.migrate') return owner ? { verdict: 'allow', rule: 'area-owner', grant: null } : no('area-owner-only');
-    if (action === 'area.trigger' || action === 'area.accept' || AREA_LEAD_ACTIONS.includes(action)) return no('area-step1-not-routed'); // 第 1 步只登记、恒为假，还没接到路由上
-    if (action === AREA_SPEC_ACTION) {
-      if (owner) return { verdict: 'allow', rule: 'area-owner', grant: null };
-      if (area === null) return no('area-scope-required');
-      return areaVerdict({ principal: p.id, action: AREA_SPEC_ACTION, kind: 'decide', area });
-    }
-    if (action === 'area.list' && area === null) return { verdict: 'allow', rule: 'area-list-filtered', grant: null }; // 列表谁都能读，内容按领域过滤
-    if (seesAll) return { verdict: 'allow', rule: owner ? 'area-owner' : 'area-business-side', grant: null };
-    if (area === null) return no('area-scope-required');
-    return areaVerdict({ principal: p.id, action, kind: 'read', area });
+    return svc<AreaService>('areas').decide({ owner, seesAll: owner || grants().isBusinessSide(p.id), principal: p.id }, action, area);
   }
   /** 带了范围时说一句这个范围在这个动作上怎么算（照 grant-scope-view.ts 的 scope_effect） */
   function scopeNote(scope: string, action: string): string {

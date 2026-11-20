@@ -33,7 +33,6 @@ import { isSystemAdminOnly } from '../admin-tier.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import type { GrantService } from '../services/grant.ts';
 import { AREA_ID_RE, type AreaActor, type AreaRefusal, type AreaService } from '../services/area.ts';
-import { areaVerdict } from '../judgment.ts';
 import { AREA_LEAD_ACTIONS, AREA_SPEC_ACTION } from '../roles.ts';
 
 export type AreaRouteDeps = {
@@ -93,22 +92,22 @@ export function registerAreaRoutes(app: HttpService, deps: AreaRouteDeps): void 
     const owner = grants().isOwner(bound);
     return { actor: { by: bound, principal: bound }, owner, seesAll: owner || grants().isBusinessSide(bound) };
   }
-  /** 写：只有属主（本机命令行算属主）。不是就回 403，返回 null */
-  async function ownerOnly(req: express.Request, res: express.Response): Promise<Who | null> {
+  // 谁能做什么只问 AreaService.decide（access 接口问同一处）
+  const subjectOf = (w: Who) => ({ owner: w.owner, seesAll: w.seesAll, principal: w.actor.principal });
+  /** 建、撤、迁移：只有属主（本机命令行算属主）。不是就回 403，返回 null */
+  async function ownerOnly(req: express.Request, res: express.Response, action: 'area.create' | 'area.retire' | 'area.migrate'): Promise<Who | null> {
     const w = await who(req, res);
     if (!w) return null;
-    if (!w.owner) { res.status(403).json({ error: 'areas_owner_only', message: '建领域、撤领域只有属主能做' }); return null; }
+    if (areas().decide(subjectOf(w), action, null).verdict !== 'allow') { res.status(403).json({ error: 'areas_owner_only', message: '建领域、撤领域只有属主能做' }); return null; }
     return w;
   }
-  /** 这个人看得到这个领域：看全部的人（属主、管理层、管理口令、本机命令行）；或者持有范围正好是 area:<领域>、覆盖这个读动作的授予 */
-  const sees = (w: Who, id: string, action: string): boolean =>
-    w.seesAll || (!!w.actor.principal && areaVerdict({ principal: w.actor.principal, action, kind: 'read', area: id }).verdict === 'allow');
-  /** 定规范：属主（本机命令行在这里算属主），或持本领域 area-spec 授予的人（硬规则，别的角色覆盖了也不算）。不是就回 403，返回 null */
+  /** 这个人看得到这个领域（这个读动作） */
+  const sees = (w: Who, id: string, action: string): boolean => areas().decide(subjectOf(w), action, id).verdict === 'allow';
+  /** 定规范：属主（本机命令行在这里算属主），或持本领域 area-spec 授予的人（硬规则）。不是就回 403，返回 null */
   async function specSetter(req: express.Request, res: express.Response, id: string): Promise<Who | null> {
     const w = await who(req, res);
     if (!w) return null;
-    if (w.owner) return w;
-    if (w.actor.principal && areaVerdict({ principal: w.actor.principal, action: AREA_SPEC_ACTION, kind: 'decide', area: id }).verdict === 'allow') return w;
+    if (areas().decide(subjectOf(w), AREA_SPEC_ACTION, id).verdict === 'allow') return w;
     res.status(403).json({ error: 'areas_spec_holder_only', message: '定规范只有属主和持这个领域「定规范」授予的人能做' });
     return null;
   }
@@ -155,7 +154,7 @@ export function registerAreaRoutes(app: HttpService, deps: AreaRouteDeps): void 
   }));
 
   app.post('/api/areas', { action: 'area.create', kind: 'decide' }, route(async (req, res) => {
-    const w = await ownerOnly(req, res);
+    const w = await ownerOnly(req, res, 'area.create');
     if (!w) return;
     const b = bodyOf(req);
     if (typeof b.id !== 'string' || !AREA_ID_RE.test(b.id)) throw new HttpError(400, 'id 要是领域标识：小写字母开头的字母、数字、连字符，最多 48 个字符', { code: 'area_id_invalid' });
@@ -167,7 +166,7 @@ export function registerAreaRoutes(app: HttpService, deps: AreaRouteDeps): void 
   }));
 
   app.post('/api/areas/migrate', { action: 'area.migrate', kind: 'decide' }, route(async (req, res) => {
-    const w = await ownerOnly(req, res);
+    const w = await ownerOnly(req, res, 'area.migrate');
     if (!w) return;
     const r = areas().migrateDepartments({ ...w.actor, owner: w.owner }, Date.now());
     logged('migrate', { created: r.created.map((x) => x.id), drafted: r.drafted.map((x) => x.grant), skipped: r.skipped.length }, w.actor.by);
@@ -179,7 +178,7 @@ export function registerAreaRoutes(app: HttpService, deps: AreaRouteDeps): void 
     // 负责人专有的动作（过目放行、改派、批接入）第 1 步只登记、走不到（docs/domains-step1.md 第七节第 8 条）：when 恒为假，先让 area-lead 能引用
     refine: AREA_LEAD_ACTIONS.map((action) => ({ action, kind: 'decide' as const, why: '负责人专有的动作，第 1 步只登记（恒为假），挂在领域的写路由下', when: () => false })),
   }, route(async (req, res) => {
-    const w = await ownerOnly(req, res);
+    const w = await ownerOnly(req, res, 'area.retire');
     if (!w) return;
     const id = areaId(req);
     const b = bodyOf(req);
