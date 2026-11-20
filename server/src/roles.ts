@@ -147,7 +147,9 @@ export const BLOCKS: readonly { key: string; name: string; domains: readonly str
   { key: 'attention', name: '关注', domains: ['attention'] },
   { key: 'bench-data', name: '工作台数据', domains: ['app-data', 'bench-store', 'mcp-rest', 'mcp-tool'] },
   { key: 'knowledge', name: '经验库', domains: ['knowledge'] },
-  { key: 'team', name: '团队与 AI 员工', domains: ['area', 'binding', 'department', 'principal', 'relation', 'team'] },
+  // 领域（规范 15）：业务域，单独一块（团队那一块全是系统域，混进去会让一块里系统、业务掺着）
+  { key: 'area', name: '领域', domains: ['area'] },
+  { key: 'team', name: '团队与 AI 员工', domains: ['binding', 'department', 'principal', 'relation', 'team'] },
   { key: 'access', name: '权限与角色', domains: ['access', 'admin', 'admin-token', 'grant', 'judgment', 'role', 'setup'] },
   { key: 'system', name: '系统与节点', domains: ['a2a', 'a2a-peer', 'agent-card', 'app', 'auth', 'content', 'cookie', 'design-token', 'health', 'local-account', 'login', 'market', 'mcp', 'portal', 'remote-allow', 'setting', 'skill', 'sso', 'stats', 'type', 'vault', 'workbench'] },
 ];
