@@ -187,7 +187,7 @@ export function hostDecisionCard(d: HostDecision, teamName: (t: string) => strin
   const team = d.team ? teamName(d.team) || d.team : '';
   return {
     title: d.question || '（没写问题）',
-    who: `${who}${d.host ? `（${d.host}${team ? ` · ${team}` : ''}）` : team ? `（${team}）` : ''} 提的`,
+    who: `${who}${d.host ? `（${d.host}${team ? ` · ${team}` : ''}）` : team ? `（${team}）` : ''}提的`,
     lines: [
       d.options.length ? `可选：${d.options.map((o) => (o === d.recommended ? `${o}（建议）` : o)).join(' / ')}` : '',
       d.reason ? `理由：${d.reason}` : '',

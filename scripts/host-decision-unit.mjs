@@ -32,7 +32,7 @@ ok('别的来源没有答法的：照旧不算（规则只放宽决策卡）', d
 
 const d = hostDecisionOf(withLink);
 const c = hostDecisionCard(d, (t) => (t === 'team-a' ? '合成团队' : ''));
-ok('卡片：标题是问题原文；写谁提的（观察者、宿主、团队名）', c.title === '合成：下周先上哪个？' && c.who === '观察者（合成宿主 · 合成团队） 提的', J(c));
+ok('卡片：标题是问题原文；写谁提的（观察者、宿主、团队名）', c.title === '合成：下周先上哪个？' && c.who === '观察者（合成宿主 · 合成团队）提的', J(c));
 ok('卡片：列选项并标出建议的那个；写理由；列附件和大小', c.lines[0] === '可选：甲方案 / 乙方案（建议）' && c.lines[1] === '理由：合成理由' && c.lines[2] === '附件 1 个：a.pdf（2 KB）', J(c.lines));
 ok('卡片：有地址时不写「去哪办」；没地址时说到宿主上找这张卡', c.where === '' && hostDecisionCard(hostDecisionOf(empty), () => '').where.includes('到宿主上找这张卡'));
 ok('总工提的写「总工」；急的程度只认 P0～P3', hostDecisionCard(hostDecisionOf(card('', { detail: { ...withLink.detail, proposer_kind: 'router', level: 'P9' } })), () => '').who.startsWith('总工') && hostDecisionOf(card('', { detail: { ...withLink.detail, level: 'P9' } })).level === '');
