@@ -20,6 +20,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from './owned-script-fixture.mjs';
 import { SESSIONS } from './identity-fake-provider.mjs';
+import { legacySeed } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(join(HERE, '..'));
@@ -129,25 +130,31 @@ try {
 
   // ---------- 三、向导 ----------
   {
-    // 部门（dept-lead 的范围要部门存在）
-    await srv.call('PUT', '/api/departments/sales', { headers: token, body: { name: '合成销售部' } });
+    // 部门已停写：部门是停写前就有的，直接写库造（scripts/lib/legacy-dept-seed.mjs）
+    const seed = legacySeed(join(data, 'workbench-market.db'));
+    seed.department('sales', '合成销售部');
     const bad = {
       shape: [await srv.call('POST', '/api/setup/wizard', { body: { shape: 'huge' } }), 400],
       smallWithAssign: [await srv.call('POST', '/api/setup/wizard', { body: { shape: 'small', assignments: { management: ['user:beta'] } } }), 400],
       badLead: [await srv.call('POST', '/api/setup/wizard', { body: { shape: 'standard', assignments: { dept_leads: [{ principal: 'user:beta', department: 'Sales' }] } } }), 400],
+      // 部门已停写：向导不再收部门负责人（docs/domains-step1.md 用例 17），写法对的也 400
+      deptLeads: [await srv.call('POST', '/api/setup/wizard', { headers: token, body: { shape: 'standard', assignments: { dept_leads: [{ principal: 'user:beta', department: 'sales' }] } } }), 400],
       staff: [await srv.call('POST', '/api/setup/wizard', { ...as(SESSIONS.alpha), body: { shape: 'small' } }), 403],
     };
     const badBad = Object.entries(bad).filter(([, [r, want]]) => r.status !== want).map(([k, [r, want]]) => [k, r.status, want]);
     const runsBefore = Number(db.prepare('SELECT COUNT(*) AS n FROM setup_wizard_runs').get().n);
-    // 标准形态：口令管理员跑（不是人，不涉及自授）；root-admin 是管理层，beta 是 sales 的负责人，nobody-dept 的部门不存在
-    const std = await srv.call('POST', '/api/setup/wizard', { headers: token, body: { shape: 'standard', assignments: { management: ['user:root-admin'], dept_leads: [{ principal: 'user:beta', department: 'sales' }, { principal: 'user:beta', department: 'ghost' }] } } });
+    // 标准形态：口令管理员跑（不是人，不涉及自授）；root-admin、beta 是管理层（原来 beta 是部门负责人，部门已停写后改成管理层，好让下面的小团队还有人可建）
+    const std = await srv.call('POST', '/api/setup/wizard', { headers: token, body: { shape: 'standard', assignments: { management: ['user:root-admin', 'user:beta'] } } });
     const tgt = (std.json?.created ?? []).map((c) => [c.principal, c.role, c.scope]).sort();
     const skip = (std.json?.skipped ?? []).map((c) => [c.principal, c.role, c.scope, c.reason]).sort();
-    check(badBad.length === 0 && runsBefore === 0 && std.status === 201
-      && show(tgt) === show([['user:beta', 'dept-lead', 'dept:sales'], ['user:root-admin', 'management', '*']].sort())
-      && show(skip) === show([['user:alpha', 'member', '*', 'already'], ['user:beta', 'dept-lead', 'dept:ghost', 'department_unknown']].sort()),
-      '向导（标准）：指定的管理层、部门负责人照建；其余的人给普通员工，alpha 已有生效的成员授予就跳过（already）；部门不存在的跳过并写明原因；写法不对 400、员工跑不了 403，被拒的都没建运行',
+    check(badBad.length === 0 && runsBefore === 0 && std.status === 201 && bad.deptLeads[0].json?.code === 'dept_leads_closed'
+      && show(tgt) === show([['user:beta', 'management', '*'], ['user:root-admin', 'management', '*']].sort())
+      && show(skip) === show([['user:alpha', 'member', '*', 'already']].sort()),
+      '向导（标准）：指定的管理层照建；其余的人给普通员工，alpha 已有生效的成员授予就跳过（already）；带部门负责人（dept_leads）400 dept_leads_closed；写法不对 400、员工跑不了 403，被拒的都没建运行',
       show({ badBad, created: tgt, skipped: skip }));
+    // 停写前跑的向导、还没放行的那一批里有部门负责人授予（统筹 11-20 Q1：停写前就在草稿里的照常走完）：挂一条到这次运行上
+    const preStop = seed.grant('user:beta', 'dept-lead', 'dept:sales', { reason: '首次安装向导（标准）', to: 'draft' });
+    seed.run((d) => d.prepare('INSERT INTO setup_wizard_grants (run_id, grant_id) VALUES (?, ?)').run(std.json?.run, preStop));
     // 管理员登录的人自己跑小团队：给自己的那条记成跳过（不能给自己授予）
     const small = await srv.call('POST', '/api/setup/wizard', { ...as(SESSIONS.admin), body: { shape: 'small' } });
     const smallSkip = (small.json?.skipped ?? []).map((c) => [c.principal, c.reason]).sort();
@@ -165,6 +172,7 @@ try {
     const byCli = await srv.call('POST', '/api/setup/wizard/approve', { body: { run } });
     const view = await srv.call('GET', '/api/principals/user:beta/access', { headers: token });
     const lead = view.json?.active?.find((g) => g.role === 'dept-lead');
+    const beta = view.json?.active?.find((g) => g.role === 'management' && g.scope === '*');
     const listed = await srv.call('GET', '/api/setup/wizard', { headers: token });
     // 属主一次放行的同时，向导指定的部门负责人顺带设上（部门原来没有负责人）：属主本人的动作，就是对这个关系的确认
     const salesLead = (await srv.call('GET', '/api/departments/sales', { headers: token })).json?.department?.lead?.principal;
@@ -172,11 +180,11 @@ try {
     // 随负责人发的那条记下来（以后换人、移除时收回它）；换一个负责人，向导发的那条当场收回
     const linked = db.prepare("SELECT grant_id FROM dept_lead_grants WHERE department_id = 'sales'").get()?.grant_id;
     const wizLead = db.prepare("SELECT id FROM grants WHERE principal_id = 'user:beta' AND role = 'dept-lead' AND scope = 'dept:sales' AND status = 'active'").get()?.id;
-    check(salesLead === 'user:beta' && leadBeforeApprove && !!wizLead && linked === wizLead, '向导：属主放行时，部门负责人授予对应的部门（原来没有负责人）顺带设上负责人，并记下这条是随负责人发的', show({ salesLead, linked, wizLead }));
-    check(byToken.status === 403 && byAdmin.status === 403 && missing.status === 404 && byCli.status === 200 && byCli.json?.approved?.length === 2 && byCli.json.failed.length === 0
+    check(salesLead === 'user:beta' && leadBeforeApprove && !!wizLead && linked === wizLead, '向导：停写前就挂在这一批里的部门负责人授予，属主放行时照常生效，对应的部门（原来没有负责人）顺带设上负责人，并记下这条是随负责人发的', show({ salesLead, linked, wizLead }));
+    check(byToken.status === 403 && byAdmin.status === 403 && missing.status === 404 && byCli.status === 200 && byCli.json?.approved?.length === 3 && byCli.json.failed.length === 0 && beta?.source === 'wizard'
       && lead?.source === 'wizard' && lead.scope === 'dept:sales' && lead.effective === true && lead.scope_effect === 'dept'
       && listed.json?.runs?.find((r) => r.id === run)?.grants?.every((g) => g.status === 'active'),
-      '向导这一批只有属主放行：口令管理员、不是属主的管理员登录 403；运行不存在 404；本机命令行放行后两条都生效（管理层、部门负责人是第三档，属主一次放行不受影响），来源推成 wizard；部门范围的 scope_effect 是 dept（只在数据视图和经验库里起作用），effective 为真',
+      '向导这一批只有属主放行：口令管理员、不是属主的管理员登录 403；运行不存在 404；本机命令行放行后三条都生效（两条管理层、停写前挂上的部门负责人都是第三档，属主一次放行不受影响），来源推成 wizard；部门范围的 scope_effect 是 dept（只在数据视图和经验库里起作用），effective 为真',
       show({ byToken: byToken.status, byAdmin: byAdmin.status, byCli: byCli.json, lead }));
     const lines = srv.log().split('\n').filter((l) => l.includes('"source":"setup-wizard"'));
     check(lines.some((l) => l.includes('"event":"run"')) && lines.some((l) => l.includes('"event":"approve"')), '跑向导、放行各记一行日志', `${lines.length} 行`);

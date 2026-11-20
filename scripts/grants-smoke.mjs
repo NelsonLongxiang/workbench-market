@@ -24,6 +24,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from './owned-script-fixture.mjs';
 import { SESSIONS } from './identity-fake-provider.mjs';
+import { legacySeed } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = process.argv.indexOf('--root');
@@ -481,9 +482,11 @@ try {
 
   // ---------- 六之二、范围给人看的名字（scope_name）：部门范围给部门名，别的范围给 null（部门不存在的范围起草就被拒，名字给 null 只是兜底） ----------
   {
-    await srv.call('PUT', '/api/departments/syn-sales', { body: { name: '合成销售部' } }); // 本机命令行（属主）建部门
+    // 部门已停写：部门、dept: 范围的授予都是停写前就有的，直接写库造（scripts/lib/legacy-dept-seed.mjs）
+    const seed = legacySeed(join(srv.data, 'workbench-market.db'));
+    seed.department('syn-sales', '合成销售部');
     const issue = async (body) => { const d = await draft(body); await step(d.json?.grant?.id, 'submit'); const a = await step(d.json?.grant?.id, 'approve'); return { id: d.json?.grant?.id, draft: d.status, approve: a.status }; };
-    const dept = await issue({ principal: 'user:beta', role: 'dept-lead', scope: 'dept:syn-sales' });
+    const dept = { id: seed.grant('user:beta', 'dept-lead', 'dept:syn-sales', { reason: '合成' }), draft: 201, approve: 200 };
     const wide = await issue({ principal: 'user:beta', role: 'member', scope: '*' });
     const list = (await srv.call('GET', '/api/grants?principal=user:beta')).json?.grants ?? [];
     const byId = (id) => list.find((g) => g.id === id);
@@ -508,7 +511,7 @@ try {
     const issue = async (body) => { const d = await draft(body); await step(d.json?.grant?.id, 'submit'); const a = await step(d.json?.grant?.id, 'approve'); return { id: d.json?.grant?.id, draft: d.status, approve: a.status, err: a.json?.error ?? d.json?.error }; };
     const all = await issue({ principal: 'user:alpha', role: 'member', scope: '*' });
     const area = await issue({ principal: 'user:alpha', role: 'area-lead', scope: 'area:syn-fin' });
-    const dept = await issue({ principal: 'user:alpha', role: 'dept-lead', scope: 'dept:syn-sales' });
+    const dept = { id: legacySeed(join(srv.data, 'workbench-market.db')).grant('user:alpha', 'dept-lead', 'dept:syn-sales', { reason: '合成' }), draft: 201, approve: 200 }; // 部门已停写：停写前就有的
     const bench = await issue({ principal: 'user:alpha', role: 'member', scope: 'bench:7' });
     const obj = await issue({ principal: 'user:alpha', role: 'obj', scope: 'object:stage-7f' });
     const list = (await srv.call('GET', '/api/grants?principal=user:alpha')).json?.grants ?? [];
