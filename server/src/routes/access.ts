@@ -9,7 +9,7 @@
  *   GET  /api/access/red-lines                                    红线清单（server/src/red-lines.ts，每条都有对抗例盯着）
  *        登录的人、管理员、本机命令行能读。
  *   GET  /api/setup/wizard                                        向导最近的运行和挂在上面的授予（管理员）
- *   POST /api/setup/wizard { shape, assignments? }                 跑一次：生成一批草稿授予（管理员）
+ *   POST /api/setup/wizard { shape, assignments? }                 跑一次：生成一批草稿授予（管理员）；assignments.dept_leads 停收（非空 400 dept_leads_closed）
  *   POST /api/setup/wizard/approve { run }                         属主一次放行这一批（只认属主，收窄）
  * 写请求先过 index.ts 的写请求总门。每次跑、放行写一行日志。
  */
@@ -171,6 +171,8 @@ export function registerAccessRoutes(app: HttpService, deps: AccessRouteDeps): v
     if (typeof a !== 'object' || Array.isArray(a)) throw new HttpError(400, 'assignments 要是对象', { code: 'assignments_invalid' });
     const management = a.management === undefined ? [] : a.management;
     const deptLeads = a.dept_leads === undefined ? [] : a.dept_leads;
+    // 部门已停写（docs/domains-step1.md 第六节、用例 17）：不再收部门负责人，带了（非空）就拒，什么都不落
+    if (!Array.isArray(deptLeads) || deptLeads.length) throw new HttpError(400, '部门已停写，向导不再收 dept_leads；领域负责人在领域里指定', { code: 'dept_leads_closed' });
     if (!Array.isArray(management) || management.length > 200 || !management.every((x) => typeof x === 'string' && PRINCIPAL_RE.test(x))) throw new HttpError(400, 'assignments.management 要是主体标识的数组', { code: 'assignments_invalid' });
     if (!Array.isArray(deptLeads) || deptLeads.length > 200 || !deptLeads.every((x) => x && typeof x === 'object' && typeof (x as { principal?: unknown }).principal === 'string' && PRINCIPAL_RE.test((x as { principal: string }).principal)
       && typeof (x as { department?: unknown }).department === 'string' && /^[a-z][a-z0-9-]{0,47}$/.test((x as { department: string }).department))) throw new HttpError(400, 'assignments.dept_leads 要是 { principal, department } 的数组', { code: 'assignments_invalid' });

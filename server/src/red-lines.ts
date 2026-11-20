@@ -78,11 +78,11 @@ export const RED_LINES: readonly RedLine[] = [
   {
     id: 'relations-need-confirmation', title: '带来权限的关系要属主或业务侧确认',
     detail: '部门负责人、团队负责人只有属主能定；团队认领到部门要管理层或接收部门的负责人确认；成员分配只有团队负责人或管理层做。只有系统管理员身份的人（和管理口令）只能提议，提议期间关系不存在、不带来权限；驳回只归能确认的人，提议的人只能撤回自己提的，系统管理员不替业务驳回别人提的。部门成员表只是组织信息。',
-    enforced_in: 'server/src/services/relation-proposal.ts、server/src/routes/teams.ts、server/src/routes/departments.ts', test: 'scripts/teams-smoke.mjs',
+    enforced_in: 'server/src/services/relation-proposal.ts、server/src/routes/teams.ts', test: 'scripts/teams-smoke.mjs',
   },
   {
     id: 'dept-lead-field-no-power', title: '部门负责人字段单独不带来权力',
-    detail: '部门负责人的权力只来自这个部门范围的拍板授予。属主确认（或直接指定）部门负责人时，同一事务里落字段、发授予；字段从别的来源写进来（存量、导入、同步、直接写库）只是「待属主放行」：不算团队负责人、分不了成员、放不了行、确认不了认领，启动时补记一条负责人提议给属主。撤掉授予权力当场就没；换人、移除时收回随负责人发的那条。',
+    detail: '部门负责人的权力只来自这个部门范围的拍板授予。字段从任何来源写进来（存量、导入、同步、直接写库）都只是组织信息：不算团队负责人、分不了成员、放不了行、确认不了认领。撤掉授予权力当场就没；移除时收回随负责人发的那条。部门已停写，不再新发这类授予（见 dept-scope-closed）。',
     enforced_in: 'server/src/services/dept-lead-grant.ts、server/src/services/team.ts、server/src/team-relation.ts', test: 'scripts/teams-smoke.mjs',
   },
   {
@@ -104,5 +104,10 @@ export const RED_LINES: readonly RedLine[] = [
     id: 'area-spec-owner-only', title: '定规范只有属主能授',
     detail: '带领域范围、权限覆盖「定规范」（或领域负责人专有动作）的授予，起草、放行都只有属主——按权限覆盖判，不按角色名；定规范本身只认属主和持本领域 area-spec 的人。',
     enforced_in: 'server/src/services/grant.ts、server/src/judgment.ts', test: 'scripts/areas-test.mjs',
+  },
+  {
+    id: 'dept-scope-closed', title: '不再新发部门范围的授予',
+    detail: '部门已停写：新起草 dept:<部门> 范围的授予一律拒（不论角色）；部门的增删改、成员增删回 410；部门负责人提议不再收，已有的属主确认时只起草领域负责人（area-lead），不发 dept: 授予。停写前就在草稿、待核的照常走完，已生效的过渡期照旧算。',
+    enforced_in: 'server/src/services/grant.ts、server/src/routes/departments.ts、server/src/services/relation-proposal.ts', test: 'scripts/dept-write-stop-test.mjs',
   },
 ];

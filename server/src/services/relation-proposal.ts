@@ -6,6 +6,8 @@
  *   · 团队认领到部门（team-claim，包括换部门）：管理层（业务侧），或接收的那个部门的负责人（在 dept:<部门> 有带业务拍板的授予）确认；
  *   · 不是这些人做的，只记成提议；提议期间关系不存在（不写 departments.lead_principal / team_leads / teams），不带来任何权限。
  * 收紧方向的（清掉部门负责人、移除团队负责人、退回待认领）不经这里，管理员一步完成。
+ * 部门已停写（docs/domains-step1.md 第六节，统筹 11-20）：不再收新的部门负责人提议，启动时也不再补记；已有的，属主确认时
+ * 不再落字段、发 dept: 授予，改成替这个人起草一条领域负责人（area-lead，area:<同标识>），停在待核等属主放行（confirmDeptLead）。
  * 部门成员表不经这里：它只是组织信息，不带来权限（team-relation.ts 写明了，按部门放行要问 judgment.ts 的 scopedVerdict）。
  *
  * 「能不能确认」只有一处（confirmRefusal）：确认接口和页面的 can_approve 都用它。
@@ -28,7 +30,8 @@ import { db } from '../db.ts';
 import type { GrantService } from './grant.ts';
 import type { DepartmentService } from './department.ts';
 import type { TeamService } from './team.ts';
-import { leadGrantActive, pendingLeadGrants, setDepartmentLead } from './dept-lead-grant.ts';
+import { leadGrantActive, setDepartmentLead } from './dept-lead-grant.ts';
+import { MIGRATE_REASON, type AreaService } from './area.ts';
 import type { PrincipalService } from './principal.ts';
 import { isoTime } from './team.ts';
 
@@ -47,13 +50,22 @@ const grants = () => svc<GrantService>('grants');
 const departments = () => svc<DepartmentService>('departments');
 const teams = () => svc<TeamService>('teams');
 const principals = () => svc<PrincipalService>('principals');
+const areas = () => svc<AreaService>('areas');
 
 /** 失效的处理人写法（库里沿用 rejected，靠它和人手驳回分开）；失效的在提议人那里留多久 */
 export const EXPIRED_BY = 'system:expire';
-/** 存量补记的负责人提议（只有字段、没有授予的部门负责人，启动时补一条给属主）的提议人 */
+/** 存量补记的负责人提议（停写前：只有字段、没有授予的部门负责人，启动时补一条给属主）的提议人。停写以后不再补记，库里已有的照旧认 */
 export const MIGRATION_BY = 'system:migration';
 export const EXPIRED_SHOW_MS = 7 * 24 * 3600_000;
 const EXPIRE_EVERY_MS = 3600_000;
+/** 属主确认部门负责人提议时，起草的领域负责人授予写的理由 */
+export const DEPT_LEAD_CONVERT_REASON = '由部门负责人提议转来';
+/** 同上，这个人在这个领域的负责人授予是迁移起草、被属主否决过的：属主这次确认照样起草，理由里写明（统筹 11-20 Q2） */
+export const DEPT_LEAD_CONVERT_OVERRIDE_REASON = '由部门负责人提议转来（属主确认；此前迁移起草的那条被否决过）';
+/** 确认部门负责人提议时，对应的领域不在或撤了 */
+export const AREA_NOT_MIGRATED_TEXT = (dept: string) => `部门 ${dept} 还没迁成领域（或对应的领域已经撤了）：先把部门迁成领域，再确认`;
+/** 确认部门负责人提议的结果：起草出的（或已有的）领域负责人授予 */
+export type DeptLeadConversion = { drafted_grant_id: number; skipped?: 'already_open'; refused_before_overridden?: true };
 /** 一条提议的结局：待确认、已确认、被驳回、提的人撤回、失效 */
 export type ProposalOutcome = 'pending' | 'approved' | 'rejected' | 'withdrawn' | 'expired';
 
@@ -77,7 +89,7 @@ export function proposalTtlDaysFromEnv(env: NodeJS.ProcessEnv = process.env): nu
 
 /** 这种提议等谁确认（给页面原样显示：「已提出，等〈谁〉确认」）。和 confirmRefusal 的规则对应 */
 export const CONFIRM_BY: Readonly<Record<ProposalKind, string>> = {
-  'dept-lead': '属主（同时放行这个部门负责人的权限）', 'team-lead': '属主', 'team-claim': '管理层或接收部门的负责人',
+  'dept-lead': '属主（确认后起草领域负责人，属主放行后生效）', 'team-lead': '属主', 'team-claim': '管理层或接收部门的负责人',
 };
 
 /** 被拒时给页面的短说法（按代码） */
@@ -111,9 +123,6 @@ export class RelationProposalService extends Service {
       const tick = () => {
         try { const n = this.expireStale(Date.now()); if (n) console.log(JSON.stringify({ source: 'relations', event: 'expire', count: n, at: new Date().toISOString() })); } catch (e) {
           console.error(`[relations] 收失效的提议出错（下一轮再试）：${String((e as Error)?.message ?? e).slice(0, 200)}`);
-        }
-        try { const n = this.proposeMissingLeadGrants(Date.now()); if (n) console.log(JSON.stringify({ source: 'relations', event: 'lead-grant-backfill', count: n, at: new Date().toISOString() })); } catch (e) {
-          console.error(`[relations] 补记负责人提议出错（下一轮再试）：${String((e as Error)?.message ?? e).slice(0, 200)}`);
         }
       };
       const timer = setInterval(tick, EXPIRE_EVERY_MS);
@@ -183,20 +192,6 @@ export class RelationProposalService extends Service {
     } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务已经不在了 */ } throw e; }
   }
 
-  /**
-   * 存量补记：部门上写着负责人、但他没有这个部门拍板授予的（只有字段，待属主放行），各补一条负责人提议给属主（同样的提议在等就不重复记）。
-   * 只记提议，不发授予：属主确认时才发（confirm → setDepartmentLead）；属主驳回就清掉字段。返回新记了几条
-   */
-  proposeMissingLeadGrants(now: number): number {
-    let n = 0;
-    for (const x of pendingLeadGrants(now)) {
-      const p = principals().get(x.principal) as { kind?: string; status?: string } | null;
-      if (!p || p.kind !== 'person' || p.status !== 'active') continue;
-      if (this.propose({ kind: 'dept-lead', department_id: x.department_id, principal_id: x.principal }, { by: MIGRATION_BY, principal: null, owner: false }, now).created) n++;
-    }
-    return n;
-  }
-
   /** 结局：失效和人手驳回分开，提的人自己驳回的算撤回 */
   outcomeOf(p: ProposalRow): ProposalOutcome {
     if (p.status === 'pending') return 'pending';
@@ -226,6 +221,8 @@ export class RelationProposalService extends Service {
 
   /** 记一条提议。同样的提议已经在等就不重复记，返回原来那条 */
   propose(p: { kind: ProposalKind; department_id?: string; host?: string; team?: string; principal_id?: string }, actor: ProposalActor, now: number): { id: number; created: boolean } {
+    // 部门已停写：不再收部门负责人提议（入口已经 410，这里再兜一层）
+    if (p.kind === 'dept-lead') throw new Error('部门负责人提议已停收：改用领域负责人（area-lead）');
     const f = { department_id: p.department_id ?? '', host: p.host ?? '', team: p.team ?? '', principal_id: p.principal_id ?? '' };
     const cur = db.prepare("SELECT id FROM relation_proposals WHERE status = 'pending' AND kind = ? AND department_id = ? AND host = ? AND team = ? AND principal_id = ?")
       .get(p.kind, f.department_id, f.host, f.team, f.principal_id) as { id: number } | undefined;
@@ -246,18 +243,25 @@ export class RelationProposalService extends Service {
   }
 
   /** 确认：先把关系写进去（经各自的服务，规则一条不少），成功了才把提议标成 approved */
-  approve(id: number, actor: ProposalActor, now: number): { ok: true; proposal: ProposalRow } | ProposalRefusal {
+  approve(id: number, actor: ProposalActor, now: number): { ok: true; proposal: ProposalRow; converted?: DeptLeadConversion } | ProposalRefusal {
     // 核对（在事务里重读）、落关系、改状态一起：和失效那一轮互斥，不会确认到一半被收掉，也不会落了关系没改状态
-    return this.exclusive((): { ok: true; proposal: ProposalRow } | ProposalRefusal => {
+    return this.exclusive((): { ok: true; proposal: ProposalRow; converted?: DeptLeadConversion } | ProposalRefusal => {
       const p = this.get(id);
       if (!p || !this.visibleTo(p, actor, now)) return refuse(404, 'proposal_missing', `提议 ${id} 不存在`);
       const no = this.confirmRefusal(p, actor, now);
       if (no) return no;
-      const applied = this.apply(p, actor, now);
-      if (applied) return applied;
+      let converted: DeptLeadConversion | undefined;
+      if (p.kind === 'dept-lead') {
+        const c = this.confirmDeptLead(p, actor, now);
+        if (!c.ok) return c;
+        converted = c.converted;
+      } else {
+        const applied = this.apply(p, actor, now);
+        if (applied) return applied;
+      }
       if (db.prepare("UPDATE relation_proposals SET status = 'approved', decided_by = ?, decided_by_principal = ?, decided_at = ? WHERE id = ? AND status = 'pending'")
         .run(actor.by.slice(0, 256), actor.principal, now, id).changes !== 1) return refuse(409, 'state', `提议 ${id} 的状态变了`);
-      return { ok: true, proposal: this.get(id)! };
+      return { ok: true, proposal: this.get(id)!, ...(converted ? { converted } : {}) };
     });
   }
 
@@ -303,14 +307,28 @@ export class RelationProposalService extends Service {
     return { ok: true, proposal: this.get(id)! };
   }
 
+  /**
+   * 属主确认部门负责人提议（部门已停写，统筹 11-20）：在调用方的写事务里，替这个人起草一条 area-lead（area:<同标识>），提交到待核，
+   * 等属主放行。部门的负责人字段、dept_lead_grants 都不碰，不发 dept: 授予。
+   *   · 同标识的领域不在、或者撤了：409 area_not_migrated，提议保持待确认；
+   *   · 这个人、角色、范围下已经有没结束的授予（already_open）：不另起草，指回那一条；
+   *   · 迁移起草的那条被属主否决过（refused_before）：属主这次是明确确认，照样起草，带 refused_before_overridden，理由里写明。
+   * 团队页的确认和「等你拍板」里关系提议那一条都只走 approve → 这里（「等你拍板」那一条只列、不带答复，确认在团队页）。
+   */
+  private confirmDeptLead(p: ProposalRow, actor: ProposalActor, now: number): { ok: true; converted: DeptLeadConversion } | ProposalRefusal {
+    const area = areas().get(p.department_id);
+    if (!area || area.status === 'retired') return refuse(409, 'area_not_migrated', AREA_NOT_MIGRATED_TEXT(p.department_id));
+    const scope = `area:${area.id}`;
+    const handled = grants().migrationHandled(p.principal_id, 'area-lead', scope, MIGRATE_REASON);
+    if (handled === 'already_open') return { ok: true, converted: { drafted_grant_id: grants().openGrantId(p.principal_id, 'area-lead', scope)!, skipped: 'already_open' } };
+    const overridden = handled === 'refused_before';
+    const r = grants().draftInTx({ principal: p.principal_id, role: 'area-lead', scope, reason: overridden ? DEPT_LEAD_CONVERT_OVERRIDE_REASON : DEPT_LEAD_CONVERT_REASON },
+      { by: actor.by.slice(0, 256), principal: actor.principal, owner: actor.owner }, now, true);
+    if (!r.ok) return refuse(r.http === 400 ? 422 : r.http as ProposalRefusal['http'], r.code, r.message);
+    return { ok: true, converted: { drafted_grant_id: r.id, ...(overridden ? { refused_before_overridden: true as const } : {}) } };
+  }
+
   private apply(p: ProposalRow, actor: ProposalActor, now: number): ProposalRefusal | null {
-    if (p.kind === 'dept-lead') {
-      const d = departments().get(p.department_id);
-      if (!d) return refuse(409, 'department_missing', `部门 ${p.department_id} 已经不在了`);
-      // 落字段、发这个部门的拍板授予，一起（services/dept-lead-grant.ts）；确认只有属主，授予记属主放行
-      const r = setDepartmentLead({ id: d.id, name: d.name, functionCode: d.function_code, lead: p.principal_id }, actor, now);
-      return r.ok ? null : refuse(r.http === 400 ? 422 : r.http as ProposalRefusal['http'], r.code, r.message);
-    }
     const k = { host: p.host, team: p.team };
     const r = p.kind === 'team-lead' ? teams().addLead(k, p.principal_id, actor, now) : teams().claim(k, p.department_id, actor, now);
     return r.ok ? null : refuse(r.http === 400 ? 422 : r.http as ProposalRefusal['http'], r.code, r.message);

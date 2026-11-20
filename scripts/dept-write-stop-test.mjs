@@ -15,7 +15,7 @@
  *   S7 同一条确认两次：第二次 409 state；另一条提议指向同一个人、同一个领域：不另起草，skipped: already_open，drafted_grant_id 是已有那条
  *   S7b（Q2）这个人在这个领域的负责人授予是迁移起草、后来被属主否决的：属主这次确认照样起草，带 refused_before_overridden: true，留痕写明
  *   S8 重启以后不再给「字段有、授予没有」的部门补记 dept-lead 提议
- *   S9 红线 dept-scope-closed 在红线列表里 [red-line:dept-scope-closed]；启动自检里有「部门写接口已停写」那一行
+ *   S9 红线 dept-scope-closed 在红线列表末尾 [red-line:dept-scope-closed]；启动自检有「部门写接口已停写」一行（market.departments.write-closed）
  *
  *   node scripts/dept-write-stop-test.mjs
  */
@@ -138,8 +138,8 @@ try {
     const r = await call('POST', '/api/setup/wizard', { body: { shape: 'standard', assignments: { dept_leads: [{ principal: 'user:beta', department: 'sales' }] } } });
     const same = snapshot() === before;
     const ok = await call('POST', '/api/setup/wizard', { body: { shape: 'standard', assignments: { management: [] } } });
-    check(r.status === 400 && r.json?.error === 'dept_leads_closed' && same && ok.status === 201,
-      'S2（#17）向导带 dept_leads：400 dept_leads_closed，什么都不落；不带的照旧 201', { status: r.status, error: r.json?.error, same, ok: ok.status });
+    check(r.status === 400 && r.json?.code === 'dept_leads_closed' && same && ok.status === 201,
+      'S2（#17）向导带 dept_leads：400（code: dept_leads_closed，和向导别的 400 同一个写法），什么都不落；不带的照旧 201', { status: r.status, code: r.json?.code, same, ok: ok.status });
   }
 
   // ---- S3 ----
@@ -151,7 +151,7 @@ try {
     const legacy = (await call('GET', '/api/principals/user:alpha/access?action=bench-store.dataset-list&scope=dept:legacy')).json?.decision;
     const s = { lead: `${lead.status}/${lead.json?.error}`, member: `${member.status}/${member.json?.error}`, before, after, legacy: `${legacy?.verdict}/${legacy?.via}` };
     check(s.lead === '422/dept_scope_closed' && s.member === '422/dept_scope_closed' && before === after && s.legacy === 'allow/dept',
-      'S3 新起草 dept: 范围的授予 422 dept_scope_closed（dept-lead、dept-member 都拒）；停写前就生效的 dept:legacy 照旧算', s);
+      'S3 [red-line:dept-scope-closed] 新起草 dept: 范围的授予 422 dept_scope_closed（dept-lead、dept-member 都拒）；停写前就生效的 dept:legacy 照旧算', s);
   }
 
   // ---- S3b ----
@@ -247,9 +247,9 @@ try {
     const lines = (await call('GET', '/api/access/red-lines')).json?.red_lines ?? [];
     const red = lines.find((x) => x.id === 'dept-scope-closed');
     const health = (await call('GET', '/api/health')).json;
-    const probe = JSON.stringify(health?.self_probe ?? health ?? '');
-    check(!!red && lines[lines.length - 1]?.id === 'dept-scope-closed' && /部门写接口已停写/.test(probe),
-      'S9 [red-line:dept-scope-closed] 红线在列表末尾；启动自检里有「部门写接口已停写」', { red: red?.id, last: lines[lines.length - 1]?.id, probe: probe.slice(0, 120) });
+    const row = (health?.self_probe?.rows ?? []).find((r) => r.id === 'market.departments.write-closed');
+    check(!!red && lines[lines.length - 1]?.id === 'dept-scope-closed' && row?.verdict === 'pass' && row?.status === 410,
+      'S9 [red-line:dept-scope-closed] 红线在列表末尾；启动自检有「部门写接口已停写」一行（market.departments.write-closed，410，通过）', { red: red?.id, last: lines[lines.length - 1]?.id, row });
   }
 } catch (e) {
   fail++;

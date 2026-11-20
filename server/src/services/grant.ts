@@ -50,6 +50,13 @@ export type Result<T> = { ok: true } & T | Refusal;
 
 const refuse = (http: Refusal['http'], code: string, message: string): Refusal => ({ ok: false, http, code, message });
 const text = (v: string, max: number) => v.slice(0, max);
+/**
+ * 部门范围停止新发（docs/domains-step1.md 第六节，红线 dept-scope-closed）：新起草 dept:<部门> 范围的授予一律拒，不论角色。
+ * 只拦「新起草」：停写前就在草稿、待核的照常提交、放行，已生效的过渡期照旧算（统筹 11-20 Q1），第 5 步统一撤。
+ */
+export function deptScopeClosed(scope: string): Refusal | null {
+  return scope.startsWith('dept:') ? refuse(422, 'dept_scope_closed', '部门已停写，不再新发部门范围（dept:）的授予；改用领域范围（area:<领域>）') : null;
+}
 const VERB: Record<string, string> = { submit: '提交', approve: '放行', revoke: '撤销', expire: '标成过期' };
 /** 放行被拒时给页面的短说法（按拒绝代码；没列的用拒绝本身的说法） */
 const DENIED_TEXT: Record<string, string> = {
@@ -280,6 +287,8 @@ export class GrantService extends Service {
    */
   draftInTx(input: { principal: string; role: string; scope: string; reason: string }, actor: Actor, now: number, submit: boolean): Result<{ id: number }> {
     if (!db.isTransaction) throw new Error('draftInTx 要在调用方的写事务里用');
+    const closed = deptScopeClosed(input.scope);
+    if (closed) return closed;
     const bad = this.check({ principal_id: input.principal, role: input.role, scope: input.scope, expires_at: null }, actor);
     if (bad) return bad;
     const ownerOnly = this.areaOwnerOnly(input.role, input.scope);
@@ -302,6 +311,12 @@ export class GrantService extends Service {
    *   · null：都没有，可以起草。
    * migrateReason 是迁移起草时写的理由，用来认出「迁移起草过」
    */
+  /** 这个人、角色、范围下还没结束（草稿、待核、生效）的那条授予的编号；去重命中 already_open 时给调用方指回去 */
+  openGrantId(principal: string, role: string, scope: string): number | null {
+    const r = db.prepare("SELECT id FROM grants WHERE principal_id = ? AND role = ? AND scope = ? AND status IN ('draft', 'pending', 'active') ORDER BY id LIMIT 1").get(principal, role, scope) as { id: number } | undefined;
+    return r?.id ?? null;
+  }
+
   migrationHandled(principal: string, role: string, scope: string, migrateReason: string): 'already_open' | 'refused_before' | null {
     if (db.prepare("SELECT 1 FROM grants WHERE principal_id = ? AND role = ? AND scope = ? AND status IN ('draft', 'pending', 'active')").get(principal, role, scope)) return 'already_open';
     if (db.prepare("SELECT 1 FROM grants WHERE principal_id = ? AND role = ? AND scope = ? AND reason = ? AND status = 'revoked'").get(principal, role, scope, migrateReason)) return 'refused_before';
@@ -312,6 +327,8 @@ export class GrantService extends Service {
   draft(input: { principal: string; role: string; scope: string; expiresAt: number | null; reason: string }, actor: Actor, now = Date.now()): Result<{ grant: GrantRow }> {
     if (input.expiresAt !== null && (!Number.isSafeInteger(input.expiresAt) || input.expiresAt <= now)) return refuse(400, 'expires_invalid', 'expires_at 要是将来的时刻（毫秒），或者不写');
     if (!input.reason.trim()) return refuse(400, 'reason_required', '要写理由');
+    const closed = deptScopeClosed(input.scope);
+    if (closed) return closed;
     const bad = this.check({ principal_id: input.principal, role: input.role, scope: input.scope, expires_at: input.expiresAt }, actor);
     if (bad) return bad;
     const ownerOnly = this.areaOwnerOnly(input.role, input.scope);

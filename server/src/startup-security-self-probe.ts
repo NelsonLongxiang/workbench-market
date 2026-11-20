@@ -128,6 +128,9 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       // 定规范经写请求总门放行、路由内认人（持 area-spec 的人多半不是管理员）：远程匿名来必须 401
       { id: 'market.areas.anonymous-spec-set', target: m, surface: 'market', method: 'POST', path: '/api/areas/wm-self-probe/specs', body: '{"body":"x"}', origin: true, headers: REMOTE_ANON, status: 401 },
       { id: 'market.areas.anonymous-read', target: m, surface: 'market', method: 'GET', path: '/api/areas', headers: REMOTE_ANON, status: 401 },
+      // 旧部门接口停写（docs/domains-step1.md 第六节）：本机命令行（属主，鉴权最宽的那一档）删一个编出来的部门也必须 410。
+      // 停写在查部门之前，所以门坏了会回 404（部门不在），不会改到任何东西
+      { id: 'market.departments.write-closed', target: m, surface: 'market', method: 'DELETE', path: '/api/departments/wm-self-probe', status: 410 },
       // 数据视图的入口（WM_BENCH_VIEWS=on 才有这三行；关着时整组路由回 404，由 scripts/bench-views-entry-test.mjs 看）：
       // 远程匿名读不到台的清单、也登记不了台（登录门开不开都是 401：登录门先拦，或者路由自己认不出人）
       ...(benchViews ? [
