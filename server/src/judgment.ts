@@ -26,7 +26,8 @@ import { svc } from './context.ts';
 import type { GrantService, GrantRow } from './services/grant.ts';
 import type { PrincipalService } from './services/principal.ts';
 import { AREA_SPEC_ACTION, permits, type Kind } from './roles.ts';
-import { ANONYMOUS_ACTIONS, builtin, deptKind, narrowed, type BuiltinName } from './judgment-builtins.ts';
+import { ANONYMOUS_ACTIONS, builtin, DEPT_AREA_TRANSITIONAL, scopedKind, narrowed, type BuiltinName } from './judgment-builtins.ts';
+import type { AreaService } from './services/area.ts';
 
 /** 做这件事的是谁 */
 export type JudgedActor =
@@ -123,12 +124,14 @@ export function judgeBuiltin(input: JudgeInput): JudgeResult {
 /** exact：只认范围正好是 scope 的授予，不认范围「全部」的（经验库的部门级：人人都有一条范围「全部」的普通员工授予，那条不能让人看到每个部门的） */
 export type ScopedInput = { principal: string; action: string; kind: Kind; scope: string; now?: number; exact?: boolean };
 export type ScopedResult = { verdict: 'allow' | 'deny'; rule: string; grant: number | null };
-const DEPT_SCOPE = /^dept:[a-z][a-z0-9-]{0,47}$/;
+const SCOPED_SCOPE = /^(dept|area):([a-z][a-z0-9-]{0,47})$/;
 
-function grantWithin(principal: string, action: string, kind: Kind, scope: string, now: number, exact = false): GrantRow | null {
+/** scopes：认哪几种范围（正好相等）；exact 为假时另认范围「全部」 */
+function grantWithin(principal: string, action: string, kind: Kind, scopes: string | readonly string[], now: number, exact = false): GrantRow | null {
   const views = new Map(grants().roles().map((r) => [r.id, r]));
+  const set = typeof scopes === 'string' ? [scopes] : scopes;
   for (const g of grants().activeFor(principal, now)) {
-    if (exact ? g.scope !== scope : g.scope !== '*' && g.scope !== scope) continue;
+    if (!set.includes(g.scope) && (exact || g.scope !== '*')) continue;
     const role = views.get(g.role);
     if (role && permits(role.closure, action, kind).covers) return g;
   }
@@ -140,21 +143,41 @@ export function rolesCovering(action: string, kind: Kind): string[] {
   return grants().roles().filter((r) => permits(r.closure, action, kind).covers).map((r) => r.id);
 }
 
+/**
+ * 范围 dept:<x> 或 area:<x> 上认哪几种授予范围（docs/domains-step1.md 第三节第 1 小节；第 1 步 PR3b）。台、经验库条目绑的是同一个标识 x：
+ *   · 领域 x 在、没撤（active 或 pending-lead）：area:<x> 照认；过渡期 dept:<x> 也认，但只对 DEPT_AREA_TRANSITIONAL 里的动作；
+ *   · 领域 x 撤了：一律不认（部门 x 的旧授予也跟着失效——领域撤了，这个组织就收了）；
+ *   · 领域 x 不存在（部门还没迁成领域）：问的是 dept:<x> 就照旧只认 dept:<x>（和第 1 步之前一模一样）；问的是 area:<x> 就什么都不认。
+ * 回认哪几种；不认回 null 和原因
+ */
+function scopesFor(scope: string, action: string): { scopes: string[] } | { deny: string } {
+  const m = SCOPED_SCOPE.exec(scope);
+  if (!m) return { deny: 'scope-unsupported' };
+  const [, prefix, id] = m;
+  const area = svc<AreaService>('areas').get(id);
+  if (area?.status === 'retired') return { deny: 'area-retired' };
+  const transitional = DEPT_AREA_TRANSITIONAL.includes(action);
+  if (!area) return prefix === 'dept' ? { scopes: [`dept:${id}`] } : { deny: 'area-missing' };
+  return { scopes: transitional ? [`area:${id}`, `dept:${id}`] : [`area:${id}`] };
+}
+
 export function scopedVerdict(input: ScopedInput): ScopedResult {
   const now = input.now ?? Date.now();
-  if (!DEPT_SCOPE.test(input.scope)) return { verdict: 'deny', rule: 'scope-unsupported', grant: null };
-  // 只认登记过按部门问的动作，类别也要对得上（judgment-builtins.ts 的 ASKED）：矩阵照同一张表推「范围内」，没登记的问不出部门这一档
-  if (deptKind(input.action) !== input.kind) return { verdict: 'deny', rule: 'scope-not-declared', grant: null };
+  if (!SCOPED_SCOPE.test(input.scope)) return { verdict: 'deny', rule: 'scope-unsupported', grant: null };
+  // 只认登记过按范围问的动作，类别也要对得上（judgment-builtins.ts 的 ASKED）：矩阵照同一张表推「范围内」，没登记的问不出这一档
+  if (scopedKind(input.action) !== input.kind) return { verdict: 'deny', rule: 'scope-not-declared', grant: null };
   const p = svc<PrincipalService>('principals').get(input.principal);
   if (!p || p.status !== 'active') return { verdict: 'deny', rule: 'principal-inactive', grant: null };
   if (input.kind === 'decide' && p.kind !== 'person') return { verdict: 'deny', rule: 'decide-non-person', grant: null };
-  const g = grantWithin(p.id, input.action, input.kind, input.scope, now, input.exact === true);
+  const which = scopesFor(input.scope, input.action);
+  if ('deny' in which) return { verdict: 'deny', rule: which.deny, grant: null };
+  const g = grantWithin(p.id, input.action, input.kind, which.scopes, now, input.exact === true);
   if (!g) return { verdict: 'deny', rule: 'no-grant', grant: null };
   if (p.kind !== 'person') {
     const resp = p.owner ? svc<PrincipalService>('principals').get(p.owner) : null;
-    if (!resp || resp.status !== 'active' || !grantWithin(resp.id, input.action, input.kind, input.scope, now, input.exact === true)) return { verdict: 'deny', rule: 'responsible-lacks-permission', grant: g.id };
+    if (!resp || resp.status !== 'active' || !grantWithin(resp.id, input.action, input.kind, which.scopes, now, input.exact === true)) return { verdict: 'deny', rule: 'responsible-lacks-permission', grant: g.id };
   }
-  return { verdict: 'allow', rule: g.scope === '*' ? 'grant' : 'grant-dept', grant: g.id };
+  return { verdict: 'allow', rule: g.scope === '*' ? 'grant' : g.scope.startsWith('area:') ? 'grant-area' : 'grant-dept', grant: g.id };
 }
 
 /**

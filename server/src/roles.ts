@@ -26,7 +26,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
-import { ANONYMOUS_ACTIONS, askedKind, deptKind, narrowed, SELF_DECIDED } from './judgment-builtins.ts';
+import { ANONYMOUS_ACTIONS, askedKind, scopedKind, narrowed, SELF_DECIDED } from './judgment-builtins.ts';
 
 export type Kind = 'read' | 'write' | 'decide' | 'admin';
 export const KINDS: readonly Kind[] = ['read', 'write', 'decide', 'admin'];
@@ -202,7 +202,7 @@ export function permits(closure: readonly Permission[], action: string, kind: Ki
  *   · 每一格看这一块里登记成这一类的动作，逐个问「这个角色的授予能不能让判定放行」：
  *       问判定用的类别照 judgment-builtins.ts 的 ASKED（数据视图的台读也按「写」问）；覆盖与否用 permits（和 judge 同一处）；
  *   · 授予的范围由部门给的角色（部门负责人、AI 员工、访客这几个预设，和组织角色）：judge 只认范围「全部」的授予，
- *     所以只在按部门问的动作（ASKED 里 dept 不是 null）上算「范围内」，别的动作上不算；
+ *     所以只在按范围问的动作（ASKED 里 scoped 不是 null）上算「范围内」，别的动作上不算；
  *   · 「只限自己的」：范围 self 的权限 judge 不认，只在按关系对自己的事拍板的那几个动作（SELF_DECIDED）上算；
  *   · 匿名也能做的底（ANONYMOUS_ACTIONS）：判定里登录的人都能做，每个角色都算放行；
  *     只认「是人」的收窄动作：任何启用的人都能做，能授予人的角色都算放行（只授予非人的 AI 员工不算）；只认属主的收窄动作只在属主那一行算。
@@ -228,10 +228,14 @@ export function roleMatrix(role: { id: string; closure: readonly Permission[]; p
         }
         if (ANONYMOUS_ACTIONS.includes(a)) { full++; continue; }
         if (byDept) {
-          // 领域的三个预设只带 area:<领域> 范围：只在领域的动作上算「范围内」（judgment.ts 的 areaVerdict）；
-          // area-member 带着的数据视图、经验库那些动作，要到第 1 步 PR3 那两处改成按领域问之后才算
-          if (AREA_PRESETS.includes(role.id)) { if (domainOf(a) === 'area' && permits(role.closure, a, k).covers) scoped++; continue; }
-          const dk = deptKind(a);
+          // 领域的三个预设只带 area:<领域> 范围：领域的动作按 areaVerdict；数据视图的台、经验库那些按范围问的动作，
+          // scopedVerdict 认 area:<领域>（第 1 步 PR3b），按 ASKED 的 scoped 类别算
+          if (AREA_PRESETS.includes(role.id)) {
+            const sk = scopedKind(a);
+            if (domainOf(a) === 'area' ? permits(role.closure, a, k).covers : sk !== null && permits(role.closure, a, sk).covers) scoped++;
+            continue;
+          }
+          const dk = scopedKind(a);
           if (dk && permits(role.closure, a, dk).covers) scoped++;
           continue;
         }

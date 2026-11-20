@@ -24,7 +24,7 @@ import { identity } from '../identity.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import { browserMarked, originIsThisSurface, rawLoopback } from '../surfaces.ts';
 import { judge, scopedVerdict, type JudgedActor } from '../judgment.ts';
-import { ASKED, deptKind } from '../judgment-builtins.ts';
+import { ASKED, scopedKind } from '../judgment-builtins.ts';
 import type { Kind } from '../roles.ts';
 import { BENCH_LIMITS, BenchError } from '../bench-query.ts';
 import { tableTarget, tableCsv } from '../bench-table.ts';
@@ -128,13 +128,13 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
   const idOf = (actor: JudgedActor): string => (actor.type === 'principal' ? actor.id : `builtin:${actor.name}`);
   const everywhere = (actor: JudgedActor, action: string): boolean => judge({ actor, action, kind: globalKind(action), declared: true }).verdict === 'allow';
   const inDept = (actor: JudgedActor, action: string, department: string): boolean => {
-    const kind = deptKind(action);
+    const kind = scopedKind(action);
     return kind !== null && actor.type === 'principal' && scopedVerdict({ principal: actor.id, action, kind, scope: `dept:${department}` }).verdict === 'allow';
   };
   function within(actor: JudgedActor, action: string, bench: BenchEntry | null): boolean {
     if (actor.type !== 'principal' || !bench || !bench.department_id) return false;
     if (!inDept(actor, action, bench.department_id)) return false;
-    if (!bench.team || deptKind(action) === 'decide') return true;
+    if (!bench.team || scopedKind(action) === 'decide') return true;
     if (inDept(actor, 'bench-store.mcp-decide', bench.department_id)) return true;
     const rel = relationOf({ principal: actor.id }, { team: { host: bench.team_host, team: bench.team } }).relations;
     return rel.includes('team-lead') || rel.includes('seat-owner');

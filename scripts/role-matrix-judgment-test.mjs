@@ -35,7 +35,7 @@ try {
   const { db } = await import(at('server/src/db.ts'));
   const roles = await import(at('server/src/roles.ts'));
   const { judgeBuiltin, scopedVerdict, areaVerdict } = await import(at('server/src/judgment.ts'));
-  const { askedKind, deptKind, SELF_DECIDED } = await import(at('server/src/judgment-builtins.ts'));
+  const { askedKind, scopedKind, SELF_DECIDED } = await import(at('server/src/judgment-builtins.ts'));
   const { MCP_TOOLS } = await import(at('server/src/mcp-tools.ts'));
 
   const snap = JSON.parse(readFileSync(join(ROOT, 'surfaces', 'actions.json'), 'utf8'));
@@ -90,7 +90,7 @@ try {
           n++;
           const ak = askedKind(a, k);
           if (judgeBuiltin({ actor, action: a, kind: ak, declared: true, now }).verdict === 'allow') { full++; continue; }
-          const dk = deptKind(a);
+          const dk = scopedKind(a);
           if (dk && scopedVerdict({ principal: actor.id, action: a, kind: dk, scope: 'dept:sales', now }).verdict === 'allow') { scoped++; continue; }
           if (roles.domainOf(a) === 'area' && areaVerdict({ principal: actor.id, action: a, kind: k, area: 'sales', now }).verdict === 'allow') { scoped++; continue; }
           if (SELF_DECIDED.includes(a) && selfPerm(ak, a)) self++;

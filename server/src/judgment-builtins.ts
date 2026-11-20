@@ -285,48 +285,62 @@ export function unknownBuiltinActions(known: (action: string) => boolean): strin
   for (const n of NARROWED) if (!known(n.action)) out.push(`narrowed: ${n.action}`);
   for (const a of Object.keys(ASKED)) if (!known(a)) out.push(`asked: ${a}`);
   for (const a of SELF_DECIDED) if (!known(a)) out.push(`self-decided: ${a}`);
+  // 过渡清单里的动作都要是 ASKED 里按范围问的（不然等同永远用不上，清单写错了也看不出来）
+  for (const a of DEPT_AREA_TRANSITIONAL) if (!known(a) || scopedKind(a) === null) out.push(`dept-area-transitional: ${a}`);
   return out;
 }
 
 /**
  * 问统一判定时用的类别，和路由登记的类别不一样的动作；以及哪些动作还按部门问（scopedVerdict）。
- *   global：问 judge 时用的类别（全公司那一档）；dept：按部门问 scopedVerdict 时用的类别，null 是不按部门问。
- * 路由（数据视图的台、经验库）放行时照这里取类别；scopedVerdict 只认 dept 不是 null 的动作、而且类别要对得上；
+ *   global：问 judge 时用的类别（全公司那一档）；scoped：按部门、领域问 scopedVerdict 时用的类别，null 是不按范围问（第 1 步 PR3b 从 dept 改名）。
+ * 路由（数据视图的台、经验库）放行时照这里取类别；scopedVerdict 只认 scoped 不是 null 的动作、而且类别要对得上；
  * 「谁能做什么」的矩阵也照这里推（roles.ts 的 roleMatrix）——三处用同一份，矩阵和判定不会各说各的。
  * 不在这里的动作：问 judge 用登记的类别，不按部门问。进快照（surfaces/actions.json 的 builtins.asked），改它要过评审
  */
-export const ASKED: Readonly<Record<string, { global: Kind; dept: Kind | null }>> = {
+export const ASKED: Readonly<Record<string, { global: Kind; scoped: Kind | null }>> = {
   // 数据视图的台：读和写是同一道门，都按「能不能写」问（普通员工的预设带着全部业务域的「看」，按「看」放行等于全公司可读）；
   // 登记、批 MCP 授予、批申请按部门问「拍板」；改绑、关联只有全公司那一档
-  'bench-store.bench-list': { global: 'write', dept: 'write' },
-  'bench-store.bench-create': { global: 'write', dept: 'decide' },
-  'bench-store.bench-bind': { global: 'decide', dept: null },
-  'bench-store.bench-link': { global: 'write', dept: null },
-  'bench-store.dataset-define': { global: 'write', dept: 'write' },
-  'bench-store.dataset-list': { global: 'write', dept: 'write' },
-  'bench-store.rows-write': { global: 'write', dept: 'write' },
-  'bench-store.query': { global: 'write', dept: 'write' },
-  'bench-store.form-submit': { global: 'write', dept: 'write' },
-  'bench-store.render': { global: 'write', dept: 'write' },
-  'bench-store.snapshot-list': { global: 'write', dept: 'write' },
-  'bench-store.snapshot-take': { global: 'write', dept: 'write' },
-  'bench-store.snapshot-restore': { global: 'write', dept: 'write' },
-  'bench-store.view-get': { global: 'write', dept: 'write' },
-  'bench-store.view-put': { global: 'write', dept: 'write' },
-  'bench-store.view-versions': { global: 'write', dept: 'write' },
-  'bench-store.view-diff': { global: 'write', dept: 'write' },
-  'bench-store.view-rollback': { global: 'write', dept: 'write' },
-  'bench-store.log-list': { global: 'write', dept: 'write' },
-  'bench-store.mcp-list': { global: 'write', dept: 'write' },
-  'bench-store.mcp-grant': { global: 'decide', dept: 'decide' },
-  'bench-store.mcp-decide': { global: 'decide', dept: 'decide' },
+  'bench-store.bench-list': { global: 'write', scoped: 'write' },
+  'bench-store.bench-create': { global: 'write', scoped: 'decide' },
+  'bench-store.bench-bind': { global: 'decide', scoped: null },
+  'bench-store.bench-link': { global: 'write', scoped: null },
+  'bench-store.dataset-define': { global: 'write', scoped: 'write' },
+  'bench-store.dataset-list': { global: 'write', scoped: 'write' },
+  'bench-store.rows-write': { global: 'write', scoped: 'write' },
+  'bench-store.query': { global: 'write', scoped: 'write' },
+  'bench-store.form-submit': { global: 'write', scoped: 'write' },
+  'bench-store.render': { global: 'write', scoped: 'write' },
+  'bench-store.snapshot-list': { global: 'write', scoped: 'write' },
+  'bench-store.snapshot-take': { global: 'write', scoped: 'write' },
+  'bench-store.snapshot-restore': { global: 'write', scoped: 'write' },
+  'bench-store.view-get': { global: 'write', scoped: 'write' },
+  'bench-store.view-put': { global: 'write', scoped: 'write' },
+  'bench-store.view-versions': { global: 'write', scoped: 'write' },
+  'bench-store.view-diff': { global: 'write', scoped: 'write' },
+  'bench-store.view-rollback': { global: 'write', scoped: 'write' },
+  'bench-store.log-list': { global: 'write', scoped: 'write' },
+  'bench-store.mcp-list': { global: 'write', scoped: 'write' },
+  'bench-store.mcp-grant': { global: 'decide', scoped: 'decide' },
+  'bench-store.mcp-decide': { global: 'decide', scoped: 'decide' },
   // 经验库：部门级的条目按这个部门问「看」（services/knowledge.ts 的 visibility）
-  'knowledge.read': { global: 'read', dept: 'read' },
+  'knowledge.read': { global: 'read', scoped: 'read' },
 };
 /** 问 judge 用的类别：登记了就用登记的，没登记用路由的类别 */
 export const askedKind = (action: string, declared: Kind): Kind => ASKED[action]?.global ?? declared;
 /** 按部门问 scopedVerdict 用的类别；不按部门问的动作是 null */
-export const deptKind = (action: string): Kind | null => ASKED[action]?.dept ?? null;
+export const scopedKind = (action: string): Kind | null => ASKED[action]?.scoped ?? null;
+
+/**
+ * 过渡期「dept:<x> 等同 area:<x>」只对这几个动作成立（docs/domains-step1.md 第三节第 1 小节，统筹 11-20）：第 1 步开工时 ASKED 里按部门问的那些，
+ * 也就是数据视图台的 bench-store.* 和经验库的 knowledge.read。写死成一份清单，不随 ASKED 自动长：以后 ASKED 再加按范围问的动作，不会悄悄认 dept:。
+ * 新的 area.* 动作一律不认 dept:。第 5 步收掉 dept: 时连这份清单一起删。进快照（builtins.deptAreaTransitional）
+ */
+export const DEPT_AREA_TRANSITIONAL: readonly string[] = [
+  'bench-store.bench-list', 'bench-store.bench-create', 'bench-store.dataset-define', 'bench-store.dataset-list', 'bench-store.rows-write', 'bench-store.query',
+  'bench-store.form-submit', 'bench-store.render', 'bench-store.snapshot-list', 'bench-store.snapshot-take', 'bench-store.snapshot-restore', 'bench-store.view-get',
+  'bench-store.view-put', 'bench-store.view-versions', 'bench-store.view-diff', 'bench-store.view-rollback', 'bench-store.log-list', 'bench-store.mcp-list',
+  'bench-store.mcp-grant', 'bench-store.mcp-decide', 'knowledge.read',
+];
 
 /**
  * 按关系对自己的事拍板的动作：不经授予，路由按「是不是建立人、是不是写信的那个人」判（routes/work-items.ts）。
