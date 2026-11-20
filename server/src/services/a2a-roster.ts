@@ -25,6 +25,13 @@ export function deliveredPeerZone(root: string): string | null {
   return row?.peer_zone ?? null;
 }
 
+/** 这个根地址在此刻有效的名册里报的是哪个区（名册视图已经排除停用、换钥匙、同号冲突的宿主）；没有返回 null */
+export function liveRosterZone(root: string): string | null {
+  if (root === '') return null;
+  const row = db.prepare("SELECT peer_zone FROM a2a_rosters_live WHERE peer_root = ? AND peer_zone <> '' LIMIT 1").get(root) as { peer_zone: string } | undefined;
+  return row?.peer_zone ?? null;
+}
+
 type SeatRow = { team: string; seat: string; role: string };
 
 /** 一个团队的总工（role=router 的席位，按句柄排序取第一个；没有返回 ''） */
