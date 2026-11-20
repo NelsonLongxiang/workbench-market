@@ -29,6 +29,8 @@
  *
  * D 组：部门迁成领域（PR3a）。并发调两次（#21）见 scripts/areas-lead-test.mjs 的 L6
  *   D1 只有属主能迁   D2 每个部门一个领域；只给有生效负责人授予的部门起草 area-lead（待核）；旧数据不删   D3 再跑一次没有变化   D4 放行后变 active
+ *   D5 页面要的 can、leads 及其可见范围（D5d：领域成员看得到本人那条等放行的）
+ *   D6 迁移起草的负责人被收回（否决）后再迁移不重新起草   D7 已有理由不同的手工待放行负责人，迁移不再起草（去重按人、角色、范围，不看理由）
  *
  *   node scripts/areas-test.mjs
  */
@@ -637,6 +639,40 @@ try {
     check(seen.olga === 'user:dan:active,user:kim:pending' && seen.cli === seen.olga && seen.mona === 'user:dan:active' && seen.token === 'user:dan:active' && seen.dan === 'user:dan:active'
         && tomS === 404 && samS === 404,
       'D5c leads 的可见范围：属主、本机命令行看得到等放行的 kim；管理层、管理口令、负责人 dan 只看到生效的；无关的普通员工、系统管理员连领域都看不到（404）', { seen, tomS, samS });
+  }
+
+  // ---- D5d 领域成员看得到本人那条等放行的负责人 ----
+  {
+    const d = await A.cli('POST', '/api/grants', { principal: 'user:alice', role: 'area-lead', scope: 'area:zeta', reason: '合成：提拔' });
+    await A.cli('POST', `/api/grants/${d.json?.grant?.id}/submit`);
+    const who = (r) => (r.json?.leads ?? []).map((x) => `${x.principal}:${x.status}`).sort().join(',');
+    const aliceSees = who(await alice.go('GET', '/api/areas/zeta')), monaSees = who(await mona.go('GET', '/api/areas/zeta')), olgaSees = who(await olga.go('GET', '/api/areas/zeta'));
+    check(aliceSees.includes('user:alice:pending') && !monaSees.includes('user:alice:pending') && olgaSees.includes('user:alice:pending'),
+      'D5d 领域成员 alice 在 zeta 的 leads 里看得到本人那条等放行的负责人授予；管理层看不到这条；属主看得到', { aliceSees, monaSees, olgaSees });
+  }
+
+  // ---- D6 迁移起草的负责人被收回（否决）后，再迁移不重新起草 ----
+  {
+    await A.cli('PUT', '/api/departments/m-legal', { name: '合成法务部', lead: 'user:lia' });
+    const m1 = await olga.go('POST', '/api/areas/migrate', { json: {} });
+    const gid = (m1.json?.drafted ?? []).find((x) => x.department === 'm-legal')?.grant;
+    const rv = await A.cli('POST', `/api/grants/${gid}/revoke`, { reason: '合成：属主否决' });
+    const m2 = await olga.go('POST', '/api/areas/migrate', { json: {} });
+    const rows = (() => { const d = A.db(); try { return d.prepare("SELECT status FROM grants WHERE principal_id = 'user:lia' AND role = 'area-lead' AND scope = 'area:m-legal'").all().map((r) => r.status); } finally { d.close(); } })();
+    check(!!gid && rv.status === 200 && !(m2.json?.drafted ?? []).some((x) => x.department === 'm-legal') && same(rows, ['revoked']),
+      'D6 迁移起草的负责人被属主收回（否决）后再跑迁移：不重新起草，这个人、角色、范围下只有那条已收回的', { gid, rv: rv.status, m2: m2.json, rows });
+  }
+
+  // ---- D7 已有一条理由不同的手工待放行负责人：迁移不再起草 ----
+  {
+    await A.cli('POST', '/api/areas', { id: 'm-qa', name: '合成质检' });
+    const d = await A.cli('POST', '/api/grants', { principal: 'user:kim', role: 'area-lead', scope: 'area:m-qa', reason: '合成：手工指定' });
+    await A.cli('POST', `/api/grants/${d.json?.grant?.id}/submit`);
+    await A.cli('PUT', '/api/departments/m-qa', { name: '合成质检', lead: 'user:kim' });
+    const m = await olga.go('POST', '/api/areas/migrate', { json: {} });
+    const rows = (() => { const db = A.db(); try { return db.prepare("SELECT status, reason FROM grants WHERE principal_id = 'user:kim' AND role = 'area-lead' AND scope = 'area:m-qa'").all().map((r) => `${r.status}:${r.reason}`); } finally { db.close(); } })();
+    check(m.status === 200 && !(m.json?.drafted ?? []).some((x) => x.department === 'm-qa') && same(rows, ['pending:合成：手工指定']),
+      'D7 这个人、角色、范围下已有一条理由不同的手工待放行授予：迁移不再起草，只有那一条', { m: m.json, rows });
   }
 
 } catch (e) {
