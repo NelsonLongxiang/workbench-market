@@ -6,11 +6,12 @@ import { BENCH_TOOL_DEFS } from './bench-mcp-tools.ts';
 
 export type McpToolCategory = 'read' | 'write' | 'admin';
 
-/** 目录索引里的一行说明（渐进开放第 1 步）：取说明的第一句（到「。」「；」或换行），去掉控制字符、合并空白，超过 80 字截断加「…」。
+/** 目录索引里的一行说明（渐进开放第 1 步）：取说明的第一句（到「。」「；」或换行），去掉控制字符和格式类字符（方向控制符、零宽字符这些
+ *  Unicode Cf 类，能把显示的文字倒过来或藏东西）、合并空白，超过 80 字截断加「…」。
  *  上游聚合来的说明是别人写的，这里只当展示用的数据：限长、去控制字符，完整原文只在按名字取详情时给 */
 export const CATALOG_SUMMARY_MAX = 80;
 export function catalogSummary(description: unknown): string {
-  const clean = String(description ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const clean = String(description ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/gu, ' ').replace(/\p{Cf}+/gu, '').replace(/\s+/g, ' ').trim();
   const cut = /[。；]/.exec(clean);
   const first = cut ? clean.slice(0, cut.index + 1) : clean;
   const chars = [...first];

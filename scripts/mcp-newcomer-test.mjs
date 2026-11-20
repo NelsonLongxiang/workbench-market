@@ -82,6 +82,21 @@ try {
   ok('默认应答不到全量的四分之一（不缩进、不带参数表）', info.text.length * 4 < fullInfo.text.length, `${info.text.length} / ${fullInfo.text.length}`);
   ok('应答里写着怎么取参数表', typeof info.payload?.how_to_detail === 'string' && info.payload.how_to_detail.includes('access_info'));
   ok('老客户端带 full: true 照样拿全量：每项带参数表，说明是原文', fullCat.length > 30 && fullCat.every((t) => t.input_schema && t.input_schema.type === 'object') && fullCat.some((t) => [...t.description].length > 80));
+  // 逐字节对照：scripts/fixtures/access-info-before-step1.json 是第 1 步之前（main 8dd8b231）同样配置下 access_info {} 的原样应答
+  //（实例地址随端口变，两边都写成 {{origin}} 再比）。
+  // 带 full: true 拿到的，除了 access_info 自己那一项（它的说明和参数表本来就改了），应当和它一个字节都不差。
+  // 工具目录以后变了（加了、删了工具），这一条会红：那时重抓基准，或者把这一条换成按项比
+  {
+    const { readFileSync } = await import('node:fs');
+    const before = JSON.parse(readFileSync(new URL('./fixtures/access-info-before-step1.json', import.meta.url), 'utf8'));
+    const nowText = fullInfo.text.split(BASE).join('{{origin}}');
+    const nowFull = JSON.parse(nowText);
+    const sameNames = J(before.catalog.map((t) => t.name)) === J(nowFull.catalog.map((t) => t.name));
+    const changed = before.catalog.filter((t, i) => J(t) !== J(nowFull.catalog[i])).map((t) => t.name);
+    const patched = { ...before, catalog: before.catalog.map((t) => (t.name === 'access_info' ? nowFull.catalog.find((x) => x.name === 'access_info') : t)) };
+    ok('带 full: true 的应答和第 1 步之前逐字节相同（只有 access_info 自己那一项变了）', sameNames && J(changed) === J(['access_info']) && JSON.stringify(patched, null, 2) === nowText,
+      J({ sameNames, changed, bytes: [Buffer.byteLength(nowText), Buffer.byteLength(JSON.stringify(patched, null, 2))] }));
+  }
   const details = await Promise.all(listed.map((t) => tool(bare.token, 'access_info', { tool: t.name })));
   ok('按名字取参数表（access_info {tool}）：和 tools/list 里的 inputSchema 一样，说明是原文（新人不用先申请才知道参数名）',
     details.every((d, i) => d.payload?.tool?.name === listed[i].name && J(d.payload.tool.input_schema) === J(listed[i].inputSchema) && d.payload.tool.description === listed[i].description),
@@ -94,6 +109,8 @@ try {
   const { catalogSummary } = await import('../server/src/mcp-tools.ts');
   const evil = catalogSummary('第一句\u0007话\n第二行；第二句。'), long = catalogSummary('长'.repeat(200));
   ok('一行说明：去掉控制字符和换行，只取第一句；超长截到 80 字加省略号', evil === '第一句 话 第二行；' && [...long].length === 80 && long.endsWith('…'), J([evil, long.length]));
+  const fmt = catalogSummary('看\u202e反过来\u2066隔离\u2069零\u200b宽\u200d连\ufeff结。');
+  ok('一行说明：方向控制符（U+202E、U+2066、U+2069）和零宽字符（U+200B、U+200D、U+FEFF）这类格式字符都去掉', fmt === '看反过来隔离零宽连结。' && !/\p{Cf}/u.test(fmt), J(fmt));
   const unknown = await tool(bare.token, 'access_info', { tool: 'no_such_tool' });
   ok('取不存在的工具：报错，不编一个出来', unknown.isError && /目录里没有/.test(unknown.text), unknown.text.slice(0, 120));
   const both = await tool(bare.token, 'access_info', { tool: 'skill_search', full: true });
