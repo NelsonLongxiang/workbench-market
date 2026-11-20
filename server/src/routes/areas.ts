@@ -7,14 +7,18 @@
  *   POST /api/areas/:id/retire               撤 { reason? }：只有属主；范围是 area:<标识> 的没结束的授予同一个事务里一并撤销（应答带 grants_revoked）；撤了只读、不删
  *   GET  /api/areas/:id/specs                规范的版本清单（不带正文）
  *   GET  /api/areas/:id/specs/:version       一版规范（带正文、sha256）
- *   POST /api/areas/:id/specs                新加一版 { body, note?, sha256? } 并让它生效：第 1 步 PR1 只有属主（PR2 加持本领域 area-spec 的人）
+ *   POST /api/areas/:id/specs                新加一版 { body, note?, sha256? } 并让它生效：属主，或持本领域 area-spec 授予的人（硬规则）
  *   POST /api/areas/:id/specs/activate       把生效指针移到已有的一版 { version }（回退也是它，不新增版本）
  *
- * 谁看得到：属主、管理层（持范围 * 的业务侧授予）、管理口令、本机命令行看全部；PR2 起对某领域有 area: 授予的人看那个领域。
+ * 谁看得到：属主、管理层（持范围 * 的业务侧授予）、管理口令、本机命令行看全部；别人看持有范围正好是 area:<领域>、覆盖这个读动作的授予的那些领域
+ * （judgment.ts 的 areaVerdict；范围「全部」的普通员工授予不算）。
  * 别人列表是空的、单条按不存在回 404——范围由对象定，统一判定还不认，所以读的四条声明「状态码不代表授权」。
  * 系统管理员不看业务：领域是业务域（规范决定 AI 在领域里怎么干活），只是系统管理员的不算管理员，按他本人看。
- * 写的三类动作（建、撤、定规范）在动作清单里收窄到属主和本机命令行（judgment-builtins.ts 的 NARROWED），这里的守卫和它同一个口径。
- * 写请求先过 index.ts 的写请求总门（管理员才过）；属主登录着按管理员认，管理口令、系统管理员过了总门也在这里拒。
+ * 建、撤在动作清单里收窄到属主和本机命令行（judgment-builtins.ts 的 NARROWED），这里的守卫和它同一个口径；写请求先过 index.ts 的写请求总门
+ * （管理员才过），属主登录着按管理员认，管理口令、系统管理员过了总门也在这里拒。
+ * 定规范（area.spec-set）是硬规则：属主，或持本领域 area-spec 授予（范围正好是 area:<领域>）的人；别的角色覆盖了也不算。
+ * 持 area-spec 的人多半不是管理员，所以这两条写不经管理员门（index.ts 的 REMOTE_ALLOW_PREFIX 只放这两条子路径），在这里认人、核同源、按对象判，
+ * 声明「状态码不代表授权」。
  * 每次写记一行日志（谁、做了什么），不记规范正文。
  */
 import type express from 'express';
@@ -27,6 +31,8 @@ import { isSystemAdminOnly } from '../admin-tier.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import type { GrantService } from '../services/grant.ts';
 import { AREA_ID_RE, type AreaActor, type AreaRefusal, type AreaService } from '../services/area.ts';
+import { areaVerdict } from '../judgment.ts';
+import { AREA_LEAD_ACTIONS, AREA_SPEC_ACTION } from '../roles.ts';
 
 export type AreaRouteDeps = {
   markAdmin: (req: express.Request) => Promise<void>;
@@ -41,6 +47,7 @@ const areas = () => svc<AreaService>('areas');
 const principals = () => svc<PrincipalService>('principals');
 const grants = () => svc<GrantService>('grants');
 const OBJECT_SCOPED = '按领域看的范围由对象定，统一判定还不认；看不到的按不存在回 404';
+const SPEC_SCOPED = '定规范认持本领域 area-spec 授予的人，领域范围由对象定，统一判定还不认；路由按对象判（judgment.ts 的 areaVerdict）';
 
 type Who = { actor: AreaActor; owner: boolean; seesAll: boolean };
 
@@ -88,24 +95,34 @@ export function registerAreaRoutes(app: HttpService, deps: AreaRouteDeps): void 
   async function ownerOnly(req: express.Request, res: express.Response): Promise<Who | null> {
     const w = await who(req, res);
     if (!w) return null;
-    if (!w.owner) { res.status(403).json({ error: 'areas_owner_only', message: '建领域、撤领域、定规范第 1 步只有属主能做' }); return null; }
+    if (!w.owner) { res.status(403).json({ error: 'areas_owner_only', message: '建领域、撤领域只有属主能做' }); return null; }
     return w;
   }
-  /** 这个人看得到这个领域（PR1：看全部的人才看得到；PR2 起加按 area: 授予） */
-  const sees = (w: Who, _id: string): boolean => w.seesAll;
+  /** 这个人看得到这个领域：看全部的人（属主、管理层、管理口令、本机命令行）；或者持有范围正好是 area:<领域>、覆盖这个读动作的授予 */
+  const sees = (w: Who, id: string, action: string): boolean =>
+    w.seesAll || (!!w.actor.principal && areaVerdict({ principal: w.actor.principal, action, kind: 'read', area: id }).verdict === 'allow');
+  /** 定规范：属主（本机命令行在这里算属主），或持本领域 area-spec 授予的人（硬规则，别的角色覆盖了也不算）。不是就回 403，返回 null */
+  async function specSetter(req: express.Request, res: express.Response, id: string): Promise<Who | null> {
+    const w = await who(req, res);
+    if (!w) return null;
+    if (w.owner) return w;
+    if (w.actor.principal && areaVerdict({ principal: w.actor.principal, action: AREA_SPEC_ACTION, kind: 'decide', area: id }).verdict === 'allow') return w;
+    res.status(403).json({ error: 'areas_spec_holder_only', message: '定规范只有属主和持这个领域「定规范」授予的人能做' });
+    return null;
+  }
   const missing = (res: express.Response, id: string) => res.status(404).json({ error: 'area_missing', message: `领域 ${id} 不存在` });
 
   app.get('/api/areas', { action: 'area.list', kind: 'read', statusNotVerdict: OBJECT_SCOPED }, route(async (req, res) => {
     const w = await who(req, res);
     if (!w) return;
-    res.json({ areas: areas().list().filter((a) => sees(w, a.id)) });
+    res.json({ areas: areas().list().filter((a) => sees(w, a.id, 'area.list')) });
   }));
 
   app.get('/api/areas/:id', { action: 'area.read', kind: 'read', statusNotVerdict: OBJECT_SCOPED }, route(async (req, res) => {
     const w = await who(req, res);
     if (!w) return;
     const id = areaId(req);
-    const a = sees(w, id) ? areas().get(id) : null;
+    const a = sees(w, id, 'area.read') ? areas().get(id) : null;
     if (!a) return void missing(res, id);
     res.json({ area: a });
   }));
@@ -114,7 +131,7 @@ export function registerAreaRoutes(app: HttpService, deps: AreaRouteDeps): void 
     const w = await who(req, res);
     if (!w) return;
     const id = areaId(req);
-    const a = sees(w, id) ? areas().get(id) : null;
+    const a = sees(w, id, 'area.spec-list') ? areas().get(id) : null;
     if (!a) return void missing(res, id);
     res.json({ area_id: id, spec_version: a.spec_version, specs: areas().specs(id) });
   }));
@@ -124,7 +141,7 @@ export function registerAreaRoutes(app: HttpService, deps: AreaRouteDeps): void 
     if (!w) return;
     const id = areaId(req);
     const version = versionOf(String(req.params.version ?? ''), 'path');
-    const a = sees(w, id) ? areas().get(id) : null;
+    const a = sees(w, id, 'area.spec-read') ? areas().get(id) : null;
     if (!a) return void missing(res, id);
     const s = areas().spec(id, version);
     if (!s) return void res.status(404).json({ error: 'area_spec_missing', message: `领域 ${id} 没有第 ${version} 版规范` });
@@ -143,7 +160,11 @@ export function registerAreaRoutes(app: HttpService, deps: AreaRouteDeps): void 
     res.status(201).json({ area: r.area });
   }));
 
-  app.post('/api/areas/:id/retire', { action: 'area.retire', kind: 'decide' }, route(async (req, res) => {
+  app.post('/api/areas/:id/retire', {
+    action: 'area.retire', kind: 'decide',
+    // 负责人专有的动作（过目放行、改派、批接入）第 1 步只登记、走不到（docs/domains-step1.md 第七节第 8 条）：when 恒为假，先让 area-lead 能引用
+    refine: AREA_LEAD_ACTIONS.map((action) => ({ action, kind: 'decide' as const, why: '负责人专有的动作，第 1 步只登记（恒为假），挂在领域的写路由下', when: () => false })),
+  }, route(async (req, res) => {
     const w = await ownerOnly(req, res);
     if (!w) return;
     const id = areaId(req);
@@ -156,10 +177,10 @@ export function registerAreaRoutes(app: HttpService, deps: AreaRouteDeps): void 
   }));
 
   // 移指针登记在新加一版前面：路径更具体，免得被 /:id/specs 之外的写法误配
-  app.post('/api/areas/:id/specs/activate', { action: 'area.spec-set', kind: 'decide' }, route(async (req, res) => {
-    const w = await ownerOnly(req, res);
-    if (!w) return;
+  app.post('/api/areas/:id/specs/activate', { action: 'area.spec-set', kind: 'decide', statusNotVerdict: SPEC_SCOPED }, route(async (req, res) => {
     const id = areaId(req);
+    const w = await specSetter(req, res, id);
+    if (!w) return;
     const version = versionOf(bodyOf(req).version, 'body');
     const r = areas().activate(id, version, w.actor, Date.now());
     if (!r.ok) return void refused(res, r);
@@ -167,10 +188,10 @@ export function registerAreaRoutes(app: HttpService, deps: AreaRouteDeps): void 
     res.json({ area: r.area });
   }));
 
-  app.post('/api/areas/:id/specs', { action: 'area.spec-set', kind: 'decide' }, route(async (req, res) => {
-    const w = await ownerOnly(req, res);
-    if (!w) return;
+  app.post('/api/areas/:id/specs', { action: 'area.spec-set', kind: 'decide', statusNotVerdict: SPEC_SCOPED }, route(async (req, res) => {
     const id = areaId(req);
+    const w = await specSetter(req, res, id);
+    if (!w) return;
     const b = bodyOf(req);
     if (typeof b.body !== 'string') throw new HttpError(400, 'body 要是规范正文（Markdown，1 字节～64 KB）', { code: 'area_spec_body_invalid' });
     if (b.note !== undefined && typeof b.note !== 'string') throw new HttpError(400, 'note 要是一句话的字符串', { code: 'area_spec_note_invalid' });

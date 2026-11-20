@@ -327,7 +327,7 @@ try {
         const { readFileSync } = await import('node:fs');
         const snap = JSON.parse(readFileSync(${JSON.stringify(join(ROOT, 'surfaces/actions.json'))}, 'utf8'));
         const catalog = new Map();
-        for (const line of snap.apps.flat()) { const m = /->\\s+([a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*)\\s+(read|write|decide|admin)/.exec(line); if (m) catalog.set(m[1], m[2]); }
+        for (const line of snap.apps.flat()) { const m = /->\\s+([a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*)\\s+(read|write|decide|admin)/.exec(line); if (m) catalog.set(m[1], m[2]); for (const r of String(line).matchAll(/细分：([a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*)\\s+(read|write|decide|admin)/g)) catalog.set(r[1], r[2]); }
         svc('grants').setRoles(roles.buildRoles(roles.orgRolesFromConfig().roles, catalog)); }
       const t = { host: '${HOST}', team: ${JSON.stringify(TEAM)} };
       const out = {
@@ -473,7 +473,7 @@ try {
           const { readFileSync } = await import('node:fs');
           const snap = JSON.parse(readFileSync(${JSON.stringify(join(ROOT, 'surfaces/actions.json'))}, 'utf8'));
           const catalog = new Map();
-          for (const line of snap.apps.flat()) { const m = /->\\s+([a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*)\\s+(read|write|decide|admin)/.exec(line); if (m) catalog.set(m[1], m[2]); }
+          for (const line of snap.apps.flat()) { const m = /->\\s+([a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*)\\s+(read|write|decide|admin)/.exec(line); if (m) catalog.set(m[1], m[2]); for (const r of String(line).matchAll(/细分：([a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*)\\s+(read|write|decide|admin)/g)) catalog.set(r[1], r[2]); }
           svc('grants').setRoles(roles.buildRoles(roles.orgRolesFromConfig().roles, catalog)); }
         const out = (() => { ${body} })();
         console.log('OUT ' + JSON.stringify(out)); process.exit(0);`;
@@ -660,7 +660,7 @@ try {
           const { readFileSync } = await import('node:fs');
           const snap = JSON.parse(readFileSync(${JSON.stringify(join(ROOT, 'surfaces/actions.json'))}, 'utf8'));
           const catalog = new Map();
-          for (const line of snap.apps.flat()) { const m = /->\\s+([a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*)\\s+(read|write|decide|admin)/.exec(line); if (m) catalog.set(m[1], m[2]); }
+          for (const line of snap.apps.flat()) { const m = /->\\s+([a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*)\\s+(read|write|decide|admin)/.exec(line); if (m) catalog.set(m[1], m[2]); for (const r of String(line).matchAll(/细分：([a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*)\\s+(read|write|decide|admin)/g)) catalog.set(r[1], r[2]); }
           svc('grants').setRoles(roles.buildRoles(roles.orgRolesFromConfig().roles, catalog)); }
         const out = (() => { ${body} })();
         console.log('OUT ' + JSON.stringify(out)); process.exit(0);`;
@@ -738,7 +738,7 @@ try {
         const { readFileSync } = await import('node:fs');
         const snap = JSON.parse(readFileSync(${JSON.stringify(join(ROOT, 'surfaces/actions.json'))}, 'utf8'));
         const catalog = new Map();
-        for (const line of snap.apps.flat()) { const m = /->\\s+([a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*)\\s+(read|write|decide|admin)/.exec(line); if (m) catalog.set(m[1], m[2]); }
+        for (const line of snap.apps.flat()) { const m = /->\\s+([a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*)\\s+(read|write|decide|admin)/.exec(line); if (m) catalog.set(m[1], m[2]); for (const r of String(line).matchAll(/细分：([a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*)\\s+(read|write|decide|admin)/g)) catalog.set(r[1], r[2]); }
         svc('grants').setRoles(${noRoles ? 'new Map()' : 'roles.buildRoles(roles.orgRolesFromConfig().roles, catalog)'});
         const out = (() => { ${body} })();
         console.log('OUT ' + JSON.stringify(out)); process.exit(0);`;

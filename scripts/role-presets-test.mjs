@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 角色预设（单测）：七个内置预设在判定里各自能做什么——尤其是两处有意的改变：
+ * 角色预设（单测）：十个内置预设在判定里各自能做什么——尤其是两处有意的改变：
  *   · 系统管理员默认不看业务数据（系统域的读写管，各处的管理类）；
  *   · 管理层有全公司的读、写、决定，没有管理类。
  * 还有：域两张清单盖住全部已登记动作；访客授予必须有期限；AI 员工只授予非人；管理口令照系统管理员加管理层算（今天的原样）。
@@ -44,9 +44,9 @@ try {
   const grants = svc('grants');
   grants.setRoles(roles.buildRoles([], catalog));
 
-  // ---------- 一、七个预设、两张域清单 ----------
+  // ---------- 一、十个预设、两张域清单 ----------
   const ids = grants.roles().filter((r) => r.platform).map((r) => r.id);
-  check(show(ids) === show(['owner', 'admin', 'management', 'dept-lead', 'member', 'guest', 'ai-staff']), '内置预设七个：属主、系统管理员、管理层、部门负责人、普通员工、访客、AI 员工（沿用 6b 的 id）', show(ids));
+  check(show(ids) === show(['owner', 'admin', 'management', 'dept-lead', 'member', 'guest', 'ai-staff', 'area-member', 'area-spec', 'area-lead']), '内置预设十个：属主、系统管理员、管理层、部门负责人、普通员工、访客、AI 员工（沿用 6b 的 id），加领域的领域成员、定规范、领域负责人（docs/domains-step1.md）', show(ids));
   const names = Object.fromEntries(grants.roles().map((r) => [r.id, r.name]));
   check(names.admin === '系统管理员' && names.member === '普通员工' && names['dept-lead'] === '部门负责人', '沿用 id、只改显示名：admin 是系统管理员、member 是普通员工、dept-lead 升为内置', show(names));
   const loose = roles.unclassifiedDomains(catalog.keys());

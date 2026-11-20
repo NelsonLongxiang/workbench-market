@@ -17,6 +17,10 @@
  *   · 不是人的主体要有在职的责任人（责任人是启用的人）才能被授予；
  *   · 决定类权限只给人：角色展开 includes 之后带决定类（按类别或按动作）的，不授予给不是人的主体；
  *   · 角色权限里写了范围的，要在授予的范围之内；部门范围（dept:<标识>）的部门要在部门表里；
+ *   · 领域范围（area:<标识>，docs/domains-step1.md）：领域要在、没撤、是 active；领域的三个预设只能带 area: 范围。
+ *     例外只有一项：领域还是 pending-lead（没有生效的负责人）时，属主（含本机命令行）可以起草覆盖负责人动作的授予，第一位负责人只能这时起草；
+ *     放行第一位负责人时，同一个事务里领域改成 active；
+ *   · 带 area: 范围、角色的权限覆盖定规范或负责人专有动作的（按权限覆盖判，不按角色名），只有属主能起草；放行本来就只有属主（带业务拍板）；
  *   · 到期自动失效：判断生效时现比期限；另有周期任务把到期的标成 expired。
  * 每一步都重新核对（主体、角色声明可能在两步之间变了）。
  *
@@ -24,7 +28,9 @@
  */
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
-import { APPROVAL_TEXT, EXPIRY_REQUIRED_ROLES, NON_PERSON_ONLY_ROLES, approvalOf, grantsBusinessData, isBusinessSide, scopeOk, scopeWithin, type RoleView } from '../roles.ts';
+import { svc } from '../context.ts';
+import type { AreaService } from './area.ts';
+import { AREA_PRESETS, coversAreaPower, APPROVAL_TEXT, EXPIRY_REQUIRED_ROLES, NON_PERSON_ONLY_ROLES, approvalOf, grantsBusinessData, isBusinessSide, scopeOk, scopeWithin, type RoleView } from '../roles.ts';
 
 export type GrantStatus = 'draft' | 'pending' | 'active' | 'revoked' | 'expired';
 export type GrantRow = {
@@ -161,6 +167,14 @@ export class GrantService extends Service {
     return !!principal && this.activeFor(principal, now).some((g) => g.role === 'owner');
   }
 
+  /** 带 area: 范围、角色覆盖定规范或负责人专有动作时，回覆盖的是什么（给拒绝的说法）；否则 null */
+  private areaOwnerOnly(role: string, scope: string): string | null {
+    const view = this.roleViews.get(role);
+    if (!view || !scope.startsWith('area:')) return null;
+    const c = coversAreaPower(view.closure);
+    return c.spec && c.lead ? '定规范和负责人的动作' : c.spec ? '定规范' : c.lead ? '负责人的动作' : null;
+  }
+
   /** 每一步都要过的核对：角色在、范围合规、主体在且启用、不是人的有在职责任人、决定类不给不是人的、不给自己 */
   private check(g: { principal_id: string; role: string; scope: string; expires_at?: number | null }, actor: Actor): Refusal | null {
     const role = this.roleViews.get(g.role);
@@ -170,6 +184,14 @@ export class GrantService extends Service {
     if (!scopeOk(g.scope)) return refuse(400, 'scope_invalid', '范围写法不对：*、domain:、dept:、bench:、sop:、tool:、self、object:');
     // 部门范围只认部门表里有的标识（只有一套部门名）
     if (g.scope.startsWith('dept:') && !db.prepare('SELECT 1 FROM departments WHERE id = ?').get(g.scope.slice(5))) return refuse(422, 'department_unknown', `部门 ${g.scope.slice(5)} 不存在，先在部门里建好`);
+    // 领域的三个预设只能带 area: 范围；area: 范围的领域要在、没撤、是 active（pending-lead 只许属主起草第一位负责人）
+    if (AREA_PRESETS.includes(g.role) && !g.scope.startsWith('area:')) return refuse(422, 'area_scope_required', `角色 ${g.role} 只能带领域范围（area:<领域>）授予`);
+    if (g.scope.startsWith('area:')) {
+      const area = svc<AreaService>('areas').get(g.scope.slice(5));
+      if (!area) return refuse(422, 'area_unknown', `领域 ${g.scope.slice(5)} 不存在，先建好`);
+      if (area.status === 'retired') return refuse(422, 'area_retired', `领域 ${area.id} 已经撤了`);
+      if (area.status === 'pending-lead' && !(actor.owner && coversAreaPower(role.closure).lead)) return refuse(409, 'area_pending_lead', `领域 ${area.id} 还没有负责人：只有属主能先给它起草负责人，别的授予等负责人生效之后再起草`);
+    }
     for (const p of role.closure) if (!scopeWithin(p.scope, g.scope)) return refuse(422, 'scope_wider', `角色 ${g.role} 里有范围 ${p.scope} 的权限，不在授予的范围 ${g.scope} 之内`);
     const p = db.prepare('SELECT id, kind, status, owner FROM principals WHERE id = ?').get(g.principal_id) as { id: string; kind: string; status: string; owner: string } | undefined;
     if (!p) return refuse(404, 'principal_missing', `主体 ${g.principal_id} 不存在`);
@@ -198,6 +220,12 @@ export class GrantService extends Service {
       if (db.prepare(sql).run(...args).changes !== 1) { db.exec('ROLLBACK'); return refuse(409, 'state', `授予 ${id} 的状态变了`); }
       db.prepare('INSERT INTO grant_events (grant_id, event, from_status, to_status, actor, actor_principal, reason, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
         .run(id, event, cur.status, to, actor.by, actor.principal, text(reason, 500), now);
+      // 放行了领域的负责人（覆盖负责人动作、范围 area:<领域>）：领域还是 pending-lead 的，同一个事务里改成 active
+      if (to === 'active') {
+        const g = db.prepare('SELECT role, scope FROM grants WHERE id = ?').get(id) as { role: string; scope: string };
+        const view = this.roleViews.get(g.role);
+        if (g.scope.startsWith('area:') && view && coversAreaPower(view.closure).lead) svc<AreaService>('areas').leadActivated(g.scope.slice(5), actor, now);
+      }
       db.exec('COMMIT');
     } catch (e) {
       try { db.exec('ROLLBACK'); } catch { /* 事务已经不在了 */ }
@@ -212,6 +240,8 @@ export class GrantService extends Service {
     if (!input.reason.trim()) return refuse(400, 'reason_required', '要写理由');
     const bad = this.check({ principal_id: input.principal, role: input.role, scope: input.scope, expires_at: input.expiresAt }, actor);
     if (bad) return bad;
+    const ownerOnly = this.areaOwnerOnly(input.role, input.scope);
+    if (ownerOnly && !actor.owner) return refuse(403, 'area_owner_only', `角色 ${input.role} 在领域范围里覆盖${ownerOnly}，只有属主能起草`);
     db.exec('BEGIN IMMEDIATE');
     let id: number;
     try {

@@ -145,6 +145,14 @@ export class AreaService extends Service {
     });
   }
 
+  /**
+   * 第一位负责人生效（services/grant.ts 放行时在自己的写事务里调）：领域还是 pending-lead 的改成 active，回改没改。
+   * 撤了的、已经 active 的不动
+   */
+  leadActivated(id: string, actor: AreaActor, now: number): boolean {
+    return tx(() => db.prepare("UPDATE areas SET status = 'active', updated_at = ?, updated_by = ? WHERE id = ? AND status = 'pending-lead'").run(now, actor.by.slice(0, 256), id).changes === 1);
+  }
+
   /** 把生效指针移到已有的一版（回退也是它）。不新增版本 */
   activate(id: string, version: number, actor: AreaActor, now: number): { ok: true; area: AreaView } | AreaRefusal {
     return tx(() => {

@@ -18,6 +18,11 @@
  *   A11 跨站来的浏览器（属主的 cookie）：写 403，库里没有变化
  *   A12 不存在的领域：单条、规范清单、新加规范、撤领域 404；版本号写法不对 400
  *
+ * B 组：按领域授予（PR2a）。另有 alice（zeta 的领域成员）、sid（zeta 的定规范）、leo（zeta、eta 的负责人）、bob（eta 的定规范、zeta 的「只列定规范」自定义角色）
+ *   B1 area: 范围写法、领域在不在、领域的预设只能带 area:          B2 pending-lead 只放宽属主起草负责人；放行第一位负责人后变 active
+ *   B3 覆盖定规范、负责人动作的授予只有属主起草、放行（按权限覆盖） B4 AI 席位拿不到领域的预设
+ *   B5 定规范的硬规则（只认属主和本领域 area-spec）、不经管理员门后的跨站和匿名   B6 读按 area: 授予   B7 负责人专有动作第 1 步走不到
+ *
  *   node scripts/areas-test.mjs
  */
 import { createServer } from 'node:net';
@@ -334,6 +339,142 @@ try {
     const b = [(await olga.go('GET', '/api/areas/BAD')).status, (await olga.go('GET', '/api/areas/alpha/specs/0x1')).status, (await olga.go('GET', '/api/areas/alpha/specs/1.5')).status, (await olga.go('GET', '/api/areas/alpha/specs/0')).status];
     check(s.every((x) => x === 404) && b.every((x) => x === 400), 'A12 不存在的领域、版本：404；标识、版本号写法不对：400', { s, b });
   }
+
+  // ================= B：按领域授予（docs/domains-step1.md 第 1 步 PR2a） =================
+  const alice = await A.person('alice', 'Alice-pass-0001', '192.0.2.81');
+  const sid = await A.person('sid', 'Sid-pass-000001', '192.0.2.82');
+  const leo = await A.person('leo', 'Leo-pass-000001', '192.0.2.83');
+  const bob = await A.person('bob', 'Bob-pass-000001', '192.0.2.84');
+  await A.cli('POST', '/api/areas', { id: 'zeta', name: '己领域' });
+  await A.cli('POST', '/api/areas', { id: 'eta', name: '庚领域' });
+  /** 起草（不提交）：回状态码和编号 */
+  const draftBy = async (b, principal, role, scope) => {
+    const r = b ? await b.go('POST', '/api/grants', { json: { principal, role, scope, reason: '合成' } }) : await A.cli('POST', '/api/grants', { principal, role, scope, reason: '合成' });
+    return { status: r.status, id: r.json?.grant?.id ?? null, error: r.json?.error ?? null };
+  };
+  const grantCount = () => { const d = A.db(); try { return Number(d.prepare("SELECT COUNT(*) AS n FROM grants WHERE scope LIKE 'area:%'").get().n); } finally { d.close(); } };
+  const areaStatus = async (id) => (await A.cli('GET', `/api/areas/${id}`)).json?.area?.status;
+  // 自定义角色：只列定规范的、只列一个负责人动作的、整类「决定」的（都由本机命令行建、放行）
+  for (const [id, permissions] of [['spec-setter', [{ actions: ['area.spec-set'] }]], ['lead-helper', [{ actions: ['area.release'] }]], ['decide-all', [{ kinds: ['decide'] }]]]) {
+    await A.cli('POST', '/api/roles/guest/copy', { id, name: `合成${id}` });
+    await A.cli('PUT', `/api/roles/${id}`, { permissions });
+    await A.cli('POST', `/api/roles/${id}/approve`);
+  }
+
+  // ---- B1 范围写法、领域在不在 ----
+  {
+    const before = grantCount();
+    const r = [];
+    for (const scope of ['area:Zeta', `area:${'z'.repeat(49)}`, 'area:', 'area:zeta/x']) r.push([scope.slice(0, 12), (await draftBy(null, 'user:alice', 'area-member', scope)).status]);
+    const missing = await draftBy(null, 'user:alice', 'area-member', 'area:nope');
+    const retired = await draftBy(null, 'user:alice', 'area-member', 'area:gamma');
+    const star = await draftBy(null, 'user:alice', 'area-member', '*');
+    const dept = await draftBy(null, 'user:alice', 'area-lead', 'self');
+    check(r.every(([, s]) => s === 400) && missing.status === 422 && missing.error === 'area_unknown' && retired.status === 422 && retired.error === 'area_retired'
+        && star.status === 422 && star.error === 'area_scope_required' && dept.status === 422 && grantCount() === before,
+      'B1（#11）area: 后面大写、超长、空、带斜杠：400；不存在、已撤的领域：422；领域的预设带 *、self 范围：422；库里没有新授予', { r, missing, retired, star, dept });
+  }
+
+  // ---- B2 pending-lead：只放宽属主起草负责人 ----
+  {
+    const st0 = await areaStatus('zeta');
+    const member = await draftBy(olga, 'user:alice', 'area-member', 'area:zeta');
+    const spec = await draftBy(olga, 'user:sid', 'area-spec', 'area:zeta');
+    const cliMember = await draftBy(null, 'user:alice', 'area-member', 'area:zeta');
+    const samLead = await draftBy(sam, 'user:leo', 'area-lead', 'area:zeta');
+    check(st0 === 'pending-lead' && member.status === 409 && member.error === 'area_pending_lead' && spec.status === 409 && cliMember.status === 409 && [403, 409].includes(samLead.status) && samLead.id === null,
+      'B2a（验收席加的）pending-lead 的领域上，属主、本机命令行也起草不了 area-member、area-spec（409）；系统管理员起草不了负责人（拒）', { st0, member, spec, cliMember, samLead });
+    const lead = await draftBy(olga, 'user:leo', 'area-lead', 'area:zeta');
+    const sub = await olga.go('POST', `/api/grants/${lead.id}/submit`);
+    const mid = await areaStatus('zeta');
+    const ap = await olga.go('POST', `/api/grants/${lead.id}/approve`);
+    const st1 = await areaStatus('zeta');
+    check(lead.status === 201 && sub.status === 200 && mid === 'pending-lead' && ap.status === 200 && st1 === 'active',
+      'B2b（裁定 1、#8）属主起草第一位负责人、自己放行：都成；放行之后领域从 pending-lead 变成 active（之前还是 pending-lead）', { lead, sub: sub.status, mid, ap: ap.status, st1 });
+    const eLead = await draftBy(null, 'user:leo', 'area-lead', 'area:eta');
+    await A.cli('POST', `/api/grants/${eLead.id}/submit`); const eAp = await A.cli('POST', `/api/grants/${eLead.id}/approve`);
+    check(eAp.status === 200 && (await areaStatus('eta')) === 'active', 'B2c 本机命令行起草、放行 eta 的第一位负责人：eta 变 active', { eAp: eAp.status });
+  }
+
+  // ---- B3 定规范、负责人：按权限覆盖判，只有属主起草、放行 ----
+  {
+    const before = grantCount();
+    const tries = {};
+    for (const role of ['area-spec', 'area-lead', 'spec-setter', 'lead-helper', 'decide-all']) tries[role] = (await draftBy(sam, 'user:sid', role, 'area:zeta')).status;
+    const monaTry = (await draftBy(mona, 'user:sid', 'area-spec', 'area:zeta')).status;
+    check(Object.values(tries).every((s) => s === 403) && monaTry === 403 && grantCount() === before,
+      'B3a（#7、#20、#23、#27）系统管理员起草 area-spec、area-lead、只列定规范的自定义角色、只列一个负责人动作的、整类决定的（都带 area:）：403；管理层也 403；库里没有新授予', { tries, monaTry });
+    // 系统管理员起草 area-member 可以（两人制），放行不行；管理层也放行不了（带业务拍板，只有属主）
+    const m = await draftBy(sam, 'user:alice', 'area-member', 'area:zeta');
+    await sam.go('POST', `/api/grants/${m.id}/submit`);
+    const samAp = await sam.go('POST', `/api/grants/${m.id}/approve`);
+    const monaAp = await mona.go('POST', `/api/grants/${m.id}/approve`);
+    const olgaAp = await olga.go('POST', `/api/grants/${m.id}/approve`);
+    check(m.status === 201 && samAp.status === 403 && [403, 404].includes(monaAp.status) && olgaAp.status === 200,
+      'B3b 系统管理员能起草 area-member（两人制），放行不了；管理层放行不了；属主放行', { m, samAp: samAp.status, monaAp: monaAp.status, olgaAp: olgaAp.status });
+    // 属主起草的 area-spec：属主自己放行（#8）；eta 的那条由本机命令行放行
+    const s1 = await draftBy(olga, 'user:sid', 'area-spec', 'area:zeta');
+    await olga.go('POST', `/api/grants/${s1.id}/submit`); const s1a = await olga.go('POST', `/api/grants/${s1.id}/approve`);
+    const s2 = await draftBy(null, 'user:bob', 'area-spec', 'area:eta');
+    await A.cli('POST', `/api/grants/${s2.id}/submit`); const s2a = await A.cli('POST', `/api/grants/${s2.id}/approve`);
+    const custom = await draftBy(olga, 'user:bob', 'spec-setter', 'area:zeta');
+    await olga.go('POST', `/api/grants/${custom.id}/submit`); const ca = await olga.go('POST', `/api/grants/${custom.id}/approve`);
+    check(s1a.status === 200 && s2a.status === 200 && ca.status === 200, 'B3c（#8）属主起草 area-spec 自己放行、本机命令行起草放行另一条、属主授出只列定规范的自定义角色：都成', { s1a: s1a.status, s2a: s2a.status, ca: ca.status });
+  }
+
+  // ---- B4 AI 席位 ----
+  {
+    const d = A.db();
+    try { d.prepare("INSERT INTO principals (id, id_key, kind, display_name, owner) VALUES ('seat:area-bot', 'seat:area-bot', 'seat', '合成席位', 'user:tom')").run(); } finally { d.close(); }
+    const r = await draftBy(null, 'seat:area-bot', 'area-member', 'area:zeta');
+    const r2 = await draftBy(null, 'seat:area-bot', 'area-spec', 'area:zeta');
+    check(r.status === 422 && r.error === 'decide_non_person' && r2.status === 422, 'B4（#9）给 AI 席位起草 area-member、area-spec：422（决定类不给非人主体）', { r, r2 });
+  }
+
+  // ---- B5 定规范的硬规则 ----
+  {
+    const add = (b, area) => b.go('POST', `/api/areas/${area}/specs`, { json: { body: `合成·${Math.random()}` } });
+    const s = {
+      sidZeta: (await add(sid, 'zeta')).status, sidActivate: (await sid.go('POST', '/api/areas/zeta/specs/activate', { json: { version: 1 } })).status,
+      aliceZeta: (await add(alice, 'zeta')).status, leoZeta: (await add(leo, 'zeta')).status,
+      bobZeta: (await add(bob, 'zeta')).status, bobEta: (await add(bob, 'eta')).status, sidEta: (await add(sid, 'eta')).status,
+      mona: (await add(mona, 'zeta')).status, sam: (await add(sam, 'zeta')).status, tom: (await add(tom, 'zeta')).status,
+      token: (await A.remote('POST', '/api/areas/zeta/specs', { json: { body: 'x' }, token: ADMIN_TOKEN })).status,
+    };
+    const n = (await A.cli('GET', '/api/areas/zeta/specs')).json?.specs?.length;
+    check(s.sidZeta === 201 && s.sidActivate === 200 && s.bobEta === 201, 'B5a（#4、#8）持本领域 area-spec 的人新加规范、回退：2xx', s);
+    check(s.aliceZeta === 403 && s.leoZeta === 403 && s.sidEta === 403 && s.mona === 403 && s.sam === 403 && s.tom === 403 && s.token === 403 && n === 1,
+      'B5b（#2、#3、#19、#25）领域成员、领域负责人、别的领域的 area-spec、管理层、系统管理员、普通员工、管理口令定规范：403，zeta 只多了 sid 那一版', { ...s, n });
+    check(s.bobZeta === 403, 'B5c（#20）持「只列定规范」的自定义角色（area:zeta，属主放行的）的人定规范：403——硬规则只认 area-spec', s);
+    const cross = await sid.go('POST', '/api/areas/zeta/specs', { json: { body: 'x' }, headers: { 'sec-fetch-site': 'cross-site', origin: 'https://evil.invalid' } });
+    const anon = await A.remote('POST', '/api/areas/zeta/specs', { json: { body: 'x' } });
+    const anonAct = await A.remote('POST', '/api/areas/zeta/specs/activate', { json: { version: 1 } });
+    check(cross.status === 403 && anon.status === 401 && anonAct.status === 401 && (await A.cli('GET', '/api/areas/zeta/specs')).json?.specs?.length === 1,
+      'B5d 定规范不经管理员门之后：跨站带 area-spec 持有人的 cookie 403；远程匿名 401；库里没有变化', { cross: cross.status, anon: anon.status, anonAct: anonAct.status });
+  }
+
+  // ---- B6 读按 area: 授予 ----
+  {
+    const ids = (r) => (r.json?.areas ?? []).map((a) => a.id).sort().join(',');
+    const v = {
+      aliceList: ids(await alice.go('GET', '/api/areas')), aliceZeta: (await alice.go('GET', '/api/areas/zeta')).status, aliceEta: (await alice.go('GET', '/api/areas/eta')).status,
+      aliceSpecs: (await alice.go('GET', '/api/areas/zeta/specs')).status, aliceEtaSpecs: (await alice.go('GET', '/api/areas/eta/specs')).status,
+      leoList: ids(await leo.go('GET', '/api/areas')),
+      sidList: ids(await sid.go('GET', '/api/areas')), sidSpecs: (await sid.go('GET', '/api/areas/zeta/specs')).status, sidSpec1: (await sid.go('GET', '/api/areas/zeta/specs/1')).status,
+      tomList: ids(await tom.go('GET', '/api/areas')), tomZeta: (await tom.go('GET', '/api/areas/zeta')).status,
+    };
+    check(v.aliceList === 'zeta' && v.aliceZeta === 200 && v.aliceEta === 404 && v.aliceSpecs === 200 && v.aliceEtaSpecs === 404 && v.leoList === 'eta,zeta',
+      'B6a（#10）area:zeta 的领域成员只列得出 zeta、读得到 zeta 和它的规范，eta 404；负责人 leo 列出他负责的两个', v);
+    check(v.sidList === '' && v.sidSpecs === 200 && v.sidSpec1 === 200 && v.tomList === '' && v.tomZeta === 404,
+      'B6b area-spec 只带规范的读：领域清单里没有、规范读得到；只有范围「全部」普通员工授予的人一个也看不到', v);
+  }
+
+  // ---- B7 负责人专有动作：第 1 步走不到 ----
+  {
+    const r = await leo.go('POST', '/api/areas/zeta/retire', { json: { reason: '合成' } });
+    check(r.status === 403 && (await areaStatus('zeta')) === 'active', 'B7（#24）持 area-lead 的人调领域的写路由（负责人动作恒为假的 refine 挂在这里）：照旧按撤领域只认属主，403', { s: r.status });
+  }
+
 } catch (e) {
   fail++;
   console.log(`  ✗ 跑不下去：${e?.stack ?? e}`);

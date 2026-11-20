@@ -2,8 +2,9 @@
  * 角色声明（阶段六 6b）：角色和权限是声明，人写人审，改动走提交；谁有哪个角色是数据（授予，见 services/grant.ts）。
  *
  * 两层：
- *   · 平台的七个内置预设，写死在这里，不能被覆盖、不能改（要调整就复制成自定义角色，见 services/custom-role.ts）：
- *     owner 属主、admin 系统管理员、management 管理层、dept-lead 部门负责人、member 普通员工、guest 访客、ai-staff AI 员工。
+ *   · 平台的十个内置预设，写死在这里，不能被覆盖、不能改（要调整就复制成自定义角色，见 services/custom-role.ts）：
+ *     owner 属主、admin 系统管理员、management 管理层、dept-lead 部门负责人、member 普通员工、guest 访客、ai-staff AI 员工，
+ *     以及领域的三个（docs/domains-step1.md 第三节第 2 小节）：area-member 领域成员、area-spec 定规范、area-lead 领域负责人，只能带 area:<领域> 范围授予。
  *     id 沿用阶段六 6b 的（admin、member、dept-lead 只改了显示名或升为内置），已有的授予不用动。
  *   · 组织角色：仓库里带一份通用的初始集合（dept-member 部门成员）；
  *     配了外部声明文件（WM_ROLES_FILE，JSON）就以它为准，初始集合不再用。外部文件放在仓库外，由部署方维护。
@@ -17,7 +18,7 @@
  *   · 范围通常不写，由授予给；写了的只能比授予更窄（授予时核对）。
  *
  * 范围的写法（库里和声明文件里都是 ASCII，中文只在界面和文档里）：
- *   *（全部）、domain:<名>（一个授权域，即动作名的域）、dept:<部门标识>（一个部门，标识见部门表）、bench:<slug>（一个台）、sop:<slug>、tool:<名>、self（仅本人创建的）、
+ *   *（全部）、domain:<名>（一个授权域，即动作名的域）、dept:<部门标识>（一个部门，标识见部门表）、area:<领域标识>（一个领域，标识见领域表；不叫 domain: 是因为 domain: 已经指动作的域）、bench:<slug>（一个台）、sop:<slug>、tool:<名>、self（仅本人创建的）、
  *   object:<不透明标识>（预留给观测层的对象或阶段范围：这里只存、只比相等，不解释含义）。
  *
  * 启动时校验，不合格拒绝启动：形状不对、id 重复、和平台角色同名（id 或名字）、includes 指向不存在的角色、
@@ -42,7 +43,7 @@ export type RoleView = RoleDecl & {
 
 const ROLE_ID_RE = /^[a-z][a-z0-9-]{0,47}$/;
 const ACTION_RE = /^[a-z][a-z0-9-]{0,31}\.[a-z][a-z0-9-]{0,47}$|^[a-z][a-z0-9_]{0,63}$/; // <域>.<动词>，或 MCP 工具名
-const SCOPE_RE = /^(\*|self|(domain|bench|sop|tool):[\x21-\x7e]{1,128}|dept:[a-z][a-z0-9-]{0,47}|object:[\x21-\x7e]{1,256})$/;
+const SCOPE_RE = /^(\*|self|(domain|bench|sop|tool):[\x21-\x7e]{1,128}|(dept|area):[a-z][a-z0-9-]{0,47}|object:[\x21-\x7e]{1,256})$/;
 
 /**
  * 动作的域：系统那几块（人、角色、授予、设置、MCP 网关、工作台登记、连接、登录……）。进快照（surfaces/actions.json 的 domains），改它要过评审。
@@ -159,7 +160,29 @@ export const MATRIX_KINDS: readonly { key: Kind; name: string }[] = [
 /** 格子：all 全部；scoped 范围内（范围由授予给）；some 部分动作；self 只限自己的；none 不能；na 这一块没有这一类动作 */
 export type Cell = 'all' | 'scoped' | 'some' | 'self' | 'none' | 'na';
 /** 范围由授予给的预设：部门负责人、AI 员工、访客（矩阵里显示「范围内」） */
-export const SCOPED_PRESETS: readonly string[] = ['dept-lead', 'ai-staff', 'guest'];
+export const SCOPED_PRESETS: readonly string[] = ['dept-lead', 'ai-staff', 'guest', 'area-member', 'area-spec', 'area-lead'];
+
+/** 领域的三个预设：只能带 area:<领域> 范围授予（services/grant.ts 核） */
+export const AREA_PRESETS: readonly string[] = ['area-member', 'area-spec', 'area-lead'];
+/** 定规范（硬规则：只认属主和持本领域 area-spec 授予的人，见 judgment.ts 的 areaVerdict） */
+export const AREA_SPEC_ACTION = 'area.spec-set';
+/**
+ * 领域负责人专有的动作（docs/domains-step1.md 第三节第 2 小节、第七节第 8 条）：过目放行、改派、批本领域的接入申请。
+ * 第 1 步用恒为假的 refine 挂在 POST /api/areas/:id/retire 上登记（routes/areas.ts），先让角色能引用，路由上还走不到
+ */
+export const AREA_LEAD_ACTIONS: readonly string[] = ['area.release', 'area.reassign', 'area.access-approve'];
+/** 过渡期按部门问的动作（judgment-builtins.ts 的 ASKED）：area-member 一并带上，第 1 步 PR3 起数据视图的台、经验库按领域问时生效 */
+const AREA_MEMBER_TRANSITIONAL: readonly string[] = [
+  'bench-store.bench-list', 'bench-store.bench-create', 'bench-store.dataset-define', 'bench-store.dataset-list', 'bench-store.rows-write', 'bench-store.query',
+  'bench-store.form-submit', 'bench-store.render', 'bench-store.snapshot-list', 'bench-store.snapshot-take', 'bench-store.snapshot-restore', 'bench-store.view-get',
+  'bench-store.view-put', 'bench-store.view-versions', 'bench-store.view-diff', 'bench-store.view-rollback', 'bench-store.log-list', 'bench-store.mcp-list',
+  'bench-store.mcp-grant', 'bench-store.mcp-decide', 'knowledge.read',
+];
+/** 这组权限覆不覆盖定规范、负责人专有的动作（按权限覆盖判，不按角色名）：带 area: 范围时，起草、放行都只有属主 */
+export function coversAreaPower(closure: readonly Permission[]): { spec: boolean; lead: boolean } {
+  const hit = (a: string) => { const r = permits(closure, a, 'decide'); return r.covers || r.scoped; };
+  return { spec: hit(AREA_SPEC_ACTION), lead: AREA_LEAD_ACTIONS.some(hit) };
+}
 
 /** 一个角色（展开之后的权限）覆不覆盖这个动作：统一判定（judgment.ts）和矩阵共用这一处。只有范围不写或 * 的权限算覆盖 */
 export function permits(closure: readonly Permission[], action: string, kind: Kind): { covers: boolean; scoped: boolean } {
@@ -197,9 +220,17 @@ export function roleMatrix(role: { id: string; closure: readonly Permission[]; p
         if (declared !== k || !b.domains.includes(domainOf(a))) continue;
         n++;
         const narrow = narrowed(a);
-        if (narrow) { if ((narrow.only.includes('person') && !NON_PERSON_ONLY_ROLES.includes(role.id)) || (narrow.only.includes('owner') && role.id === 'owner')) full++; continue; }
+        if (narrow) {
+          if ((narrow.only.includes('person') && !NON_PERSON_ONLY_ROLES.includes(role.id)) || (narrow.only.includes('owner') && role.id === 'owner')) full++;
+          // 收窄动作另认的「持本领域这个角色」（定规范认 area-spec）：在那个角色那一行算「范围内」
+          else if (narrow.scopedHolder === role.id) scoped++;
+          continue;
+        }
         if (ANONYMOUS_ACTIONS.includes(a)) { full++; continue; }
         if (byDept) {
+          // 领域的三个预设只带 area:<领域> 范围：只在领域的动作上算「范围内」（judgment.ts 的 areaVerdict）；
+          // area-member 带着的数据视图、经验库那些动作，要到第 1 步 PR3 那两处改成按领域问之后才算
+          if (AREA_PRESETS.includes(role.id)) { if (domainOf(a) === 'area' && permits(role.closure, a, k).covers) scoped++; continue; }
           const dk = deptKind(a);
           if (dk && permits(role.closure, a, dk).covers) scoped++;
           continue;
@@ -257,6 +288,11 @@ export const PLATFORM_ROLES: readonly RoleDecl[] = [
   { id: 'guest', name: '访客', permissions: [] },
   // AI 员工：只授予非人主体（席位），读写范围由授予给（责任范围）；决定类永远不给（决定只认人）
   { id: 'ai-staff', name: 'AI 员工', permissions: [{ kinds: ['read', 'write'] }] },
+  // 领域（规范 15 第五节）：对某领域有授予的人在这个领域触发、验收；定规范单独授予；负责人另加过目放行、改派、批接入，不含定规范。
+  // 三个都只能带 area:<领域> 范围；带决定类，只有属主放行，不授予非人主体
+  { id: 'area-member', name: '领域成员', permissions: [{ actions: ['area.list', 'area.read', 'area.spec-list', 'area.spec-read', 'area.trigger', 'area.accept', ...AREA_MEMBER_TRANSITIONAL] }] },
+  { id: 'area-spec', name: '定规范', permissions: [{ actions: ['area.spec-list', 'area.spec-read', AREA_SPEC_ACTION] }] },
+  { id: 'area-lead', name: '领域负责人', includes: ['area-member'], permissions: [{ actions: [...AREA_LEAD_ACTIONS] }] },
 ];
 
 /** 只能授予非人主体的预设、只能授予人的预设 */

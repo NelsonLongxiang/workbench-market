@@ -25,7 +25,7 @@ import { root } from './root-context.ts';
 import { svc } from './context.ts';
 import type { GrantService, GrantRow } from './services/grant.ts';
 import type { PrincipalService } from './services/principal.ts';
-import { permits, type Kind } from './roles.ts';
+import { AREA_SPEC_ACTION, permits, type Kind } from './roles.ts';
 import { ANONYMOUS_ACTIONS, builtin, deptKind, narrowed, type BuiltinName } from './judgment-builtins.ts';
 
 /** 做这件事的是谁 */
@@ -155,6 +155,35 @@ export function scopedVerdict(input: ScopedInput): ScopedResult {
     if (!resp || resp.status !== 'active' || !grantWithin(resp.id, input.action, input.kind, input.scope, now, input.exact === true)) return { verdict: 'deny', rule: 'responsible-lacks-permission', grant: g.id };
   }
   return { verdict: 'allow', rule: g.scope === '*' ? 'grant' : 'grant-dept', grant: g.id };
+}
+
+/**
+ * 领域范围的判定（docs/domains-step1.md 第三节第 1 小节）：这个主体对领域 <area> 能不能做这个动作。
+ *   · 只认范围正好是 area:<area> 的生效授予：范围「全部」的不算（人人都有一条范围「全部」的普通员工授予，那条不能让人看到每个领域）；
+ *     属主、管理层这类看全部的由调用方另认（routes/areas.ts），不经这里；
+ *   · 定规范（area.spec-set）是硬规则：只认角色正好是 area-spec 的授予，别的角色哪怕权限覆盖了它也不算；
+ *   · 主体停用：deny；决定类只给人；席位的责任人也要有同一项权限（和 scopedVerdict 同口径）。
+ * area 不做存在性检查（调用方先查领域在不在、撤没撤）
+ */
+export type AreaInput = { principal: string; action: string; kind: Kind; area: string; now?: number };
+export function areaVerdict(input: AreaInput): ScopedResult {
+  const now = input.now ?? Date.now();
+  const scope = `area:${input.area}`;
+  if (!/^area:[a-z][a-z0-9-]{0,47}$/.test(scope)) return { verdict: 'deny', rule: 'scope-unsupported', grant: null };
+  const p = svc<PrincipalService>('principals').get(input.principal);
+  if (!p || p.status !== 'active') return { verdict: 'deny', rule: 'principal-inactive', grant: null };
+  if (input.kind === 'decide' && p.kind !== 'person') return { verdict: 'deny', rule: 'decide-non-person', grant: null };
+  const within = (who: string): GrantRow | null => {
+    if (input.action !== AREA_SPEC_ACTION) return grantWithin(who, input.action, input.kind, scope, now, true);
+    return grants().activeFor(who, now).find((g) => g.scope === scope && g.role === 'area-spec') ?? null;
+  };
+  const g = within(p.id);
+  if (!g) return { verdict: 'deny', rule: input.action === AREA_SPEC_ACTION ? 'area-spec-required' : 'no-grant', grant: null };
+  if (p.kind !== 'person') {
+    const resp = p.owner ? svc<PrincipalService>('principals').get(p.owner) : null;
+    if (!resp || resp.status !== 'active' || !within(resp.id)) return { verdict: 'deny', rule: 'responsible-lacks-permission', grant: g.id };
+  }
+  return { verdict: 'allow', rule: 'grant-area', grant: g.id };
 }
 
 /** 判一次：按 bail 派发，没有监听器给结论时用内置的六步（内置监听器装上之后不会走到这里） */

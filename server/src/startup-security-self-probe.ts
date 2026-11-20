@@ -125,7 +125,8 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       { id: 'market.export.reveal-anonymous', target: m, surface: 'market', method: 'GET', path: '/api/export?reveal=1', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 },
       // 领域（docs/domains-step1.md）：远程匿名建不了领域、定不了规范（写请求总门先拦；登录门开着时登录门先拦 401），也列不出领域（路由自己认人，401）
       { id: 'market.areas.anonymous-create', target: m, surface: 'market', method: 'POST', path: '/api/areas', body: '{"id":"wm-self-probe","name":"x"}', origin: true, headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 },
-      { id: 'market.areas.anonymous-spec-set', target: m, surface: 'market', method: 'POST', path: '/api/areas/wm-self-probe/specs', body: '{"body":"x"}', origin: true, headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 },
+      // 定规范经写请求总门放行、路由内认人（持 area-spec 的人多半不是管理员）：远程匿名来必须 401
+      { id: 'market.areas.anonymous-spec-set', target: m, surface: 'market', method: 'POST', path: '/api/areas/wm-self-probe/specs', body: '{"body":"x"}', origin: true, headers: REMOTE_ANON, status: 401 },
       { id: 'market.areas.anonymous-read', target: m, surface: 'market', method: 'GET', path: '/api/areas', headers: REMOTE_ANON, status: 401 },
       // 数据视图的入口（WM_BENCH_VIEWS=on 才有这三行；关着时整组路由回 404，由 scripts/bench-views-entry-test.mjs 看）：
       // 远程匿名读不到台的清单、也登记不了台（登录门开不开都是 401：登录门先拦，或者路由自己认不出人）

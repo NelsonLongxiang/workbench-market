@@ -513,6 +513,8 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/knowledge\/remember$/,
   // 经验库的「项目 → 部门」对照：管理层、属主改（他们大多不是管理员；系统管理员、管理口令反而不行）。路由内认人、核同源、按拍板类问判定；只此一条路径
   /^\/api\/knowledge\/project-depts$/,
+  // 领域的定规范：持本领域 area-spec 授予的人多半不是管理员。路由内认人、核同源、按对象判（routes/areas.ts 的 specSetter）；只此两条子路径
+  /^\/api\/areas\/[a-z][a-z0-9-]{0,47}\/specs(\/activate)?$/,
 ];
 
 // S3 豁免面可观测（评审席裁下批·PR#72 真事故锚）：启动时快照+diff——安全清单变更不再无声
