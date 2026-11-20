@@ -23,6 +23,8 @@ const PROPOSERS = ['router', 'observer'] as const;
 const EVENTS = { created: 'waiting', decided: 'decided', dropped: 'dropped' } as const;
 const QUESTION_MAX = 2000, OPTION_MAX = 300, OPTIONS_MIN = 2, OPTIONS_MAX = 6, REASON_MAX = 2000, FILES_MAX = 16, NAME_MAX = 200;
 const CARD_ID_RE = /^[A-Za-z0-9._:-]{1,64}$/;
+/** 一个团队同时在等的卡最多这么多（宿主那边每个提的人最多开 10 张；总工加几个观察者，50 足够）：再多的新卡不收，免得一台宿主把属主的清单刷满 */
+export const WAITING_PER_TEAM_MAX = 50;
 const TEAM_RE = /^([a-z0-9-]+)\/canvas\/([^/\s]{1,128})$/i;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 
@@ -38,7 +40,8 @@ export type DecisionCardDoc = {
   decide_at: string;
 };
 
-const clean = (s: string): string => s.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ').trim();
+// 控制符换成空格；方向控制符（会把页面上的文字倒过来显示、伪装成别的意思）直接去掉
+const clean = (s: string): string => s.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ').replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').trim();
 const iso = (v: unknown): string | null => (typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? new Date(Date.parse(v)).toISOString() : null);
 /** 团队写成画布地址（区/canvas/名字）；区和 canvas 段转小写，画布名原样（和名册入站同一种写法） */
 export const teamKey = (t: string): string | null => { const m = TEAM_RE.exec(t); return m ? `${m[1].toLowerCase()}/canvas/${m[2]}` : null; };
@@ -106,16 +109,17 @@ export function teamInSignerRoster(team: string, peerRoot: string, keyFingerprin
 
 const TERMINAL: readonly CardState[] = ['decided', 'dropped'];
 /** 落库：stored 改了库；duplicate 同一版重复；stale 过时或想复活终态，都不改库 */
-export function applyDecisionCard(signer: { peerRoot: string; keyFingerprint: string }, doc: DecisionCardDoc, now: number): 'stored' | 'duplicate' | 'stale' {
+export function applyDecisionCard(signer: { peerRoot: string; keyFingerprint: string }, doc: DecisionCardDoc, now: number): 'stored' | 'duplicate' | 'stale' | 'limited' {
   const c = doc.card;
   const sha = createHash('sha256').update(JSON.stringify({ state: doc.state, rev: doc.rev, card: c, decide_at: doc.decide_at })).digest('hex');
   const key = [signer.peerRoot, signer.keyFingerprint, c.team, c.id];
   db.exec('BEGIN IMMEDIATE');
   try {
     const cur = db.prepare('SELECT rev, state, doc_sha256 FROM a2a_decision_cards WHERE peer_root = ? AND key_fingerprint = ? AND team = ? AND card_id = ?').get(...key) as { rev: number; state: CardState; doc_sha256: string } | undefined;
-    let out: 'stored' | 'duplicate' | 'stale';
+    let out: 'stored' | 'duplicate' | 'stale' | 'limited';
     if (cur && doc.rev === cur.rev) out = sha === cur.doc_sha256 ? 'duplicate' : 'stale';
     else if (cur && (doc.rev < cur.rev || (TERMINAL.includes(cur.state) && doc.state === 'waiting'))) out = 'stale';
+    else if (!cur && doc.state === 'waiting' && Number((db.prepare("SELECT COUNT(*) AS n FROM a2a_decision_cards WHERE peer_root = ? AND key_fingerprint = ? AND team = ? AND state = 'waiting'").get(signer.peerRoot, signer.keyFingerprint, c.team) as { n: number }).n) >= WAITING_PER_TEAM_MAX) out = 'limited';
     else {
       db.prepare(`INSERT INTO a2a_decision_cards (peer_root, key_fingerprint, team, card_id, rev, state, doc_sha256, proposer_kind, level, question, options, recommended, reason, files, decide_at, created_at, decided_at, decided_option, received_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -139,9 +143,12 @@ export type WaitingCard = {
 const parseJson = <T>(s: string, d: T): T => { try { return JSON.parse(s) as T; } catch { return d; } };
 /** 还在等属主的卡（「关注」用），按等级再按建立时间。只列团队此刻还在签名宿主名册里的：宿主停用、换钥匙之后，它的卡不再显示 */
 export function waitingDecisionCards(limit = 200): WaitingCard[] {
+  // 按名册过滤放在 SQL 里（和 teamInSignerRoster 同一个口径）：宿主停用、换钥匙、同号冲突、团队不在它名册里的卡都不取
   const rows = db.prepare(`SELECT c.*, p.name AS host_name FROM a2a_decision_cards c LEFT JOIN a2a_peers p ON p.root_url = c.peer_root
-    WHERE c.state = 'waiting' ORDER BY c.level, c.created_at LIMIT ?`).all(limit * 2) as Record<string, unknown>[];
-  return rows.filter((r) => teamInSignerRoster(String(r.team), String(r.peer_root), String(r.key_fingerprint))).slice(0, limit).map((r) => ({
+    WHERE c.state = 'waiting' AND EXISTS (SELECT 1 FROM a2a_roster_node_seats s JOIN a2a_rosters_live r ON r.peer_root = s.peer_root AND r.key_fingerprint = s.key_fingerprint
+      WHERE s.team = c.team AND s.peer_root = c.peer_root AND s.key_fingerprint = c.key_fingerprint)
+    ORDER BY c.level, c.created_at LIMIT ?`).all(limit) as Record<string, unknown>[];
+  return rows.map((r) => ({
     peer_root: String(r.peer_root), key_fingerprint: String(r.key_fingerprint), team: String(r.team), card_id: String(r.card_id),
     proposer_kind: String(r.proposer_kind), level: String(r.level), question: String(r.question), options: parseJson<string[]>(String(r.options), []),
     recommended: String(r.recommended), reason: String(r.reason),

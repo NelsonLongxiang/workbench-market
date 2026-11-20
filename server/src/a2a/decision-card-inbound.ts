@@ -8,7 +8,7 @@
  *   2. 公钥必须是对端登记表里 active、钉住的那把（pinnedVerdict = ok）；没登记、待确认、停用的都不收。
  *   3. 卡上的团队在签名宿主此刻有效的名册里：别的宿主报不了这台宿主的团队的卡。
  *   4. 形状（services/a2a-decision-cards.ts 的 parseDecisionCardDoc），落库按 rev 和终态的规矩。
- * 应答：签名不对 401，团队不在它名册里 403，形状不对 400，都不落库；收下 200 { ok, status: stored | duplicate | stale }。
+ * 应答：签名不对 401，团队不在它名册里 403，形状不对 400，这个团队在等的卡到上限 429，都不落库；收下 200 { ok, status: stored | duplicate | stale }。
  * 对外只给代号，不说是哪一步不对的细节（不泄露登记、名册里有什么）；内部计数分开记。
  */
 import type { IncomingMessage } from 'node:http';
@@ -49,5 +49,7 @@ export async function handleInboundDecisionCard(req: Req, deps: { audiences: () 
   if (!teamInSignerRoster(parsed.doc.card.team, root, fp)) return refuse(403, 'team-not-bound', 'team_not_bound');
   const status = applyDecisionCard({ peerRoot: root, keyFingerprint: fp }, parsed.doc, now);
   note(status);
+  // 这个团队在等的卡已经到上限：新卡不收（已有的卡照常改状态）
+  if (status === 'limited') return { status: 429, body: { ok: false, error: 'too-many-waiting' } };
   return { status: 200, body: { ok: true, status } };
 }

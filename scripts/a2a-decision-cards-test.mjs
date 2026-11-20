@@ -50,11 +50,14 @@ async function peer(zone) {
   const fp = 'sha256:' + createHash('sha256').update(Buffer.from(publicKey, 'base64')).digest('hex');
   const p = await port();
   const url = `http://127.0.0.1:${p}`;
-  const self = { zone, key, publicKey, fp, host: fp.slice(7, 15), url };
+  const self = { zone, key, publicKey, fp, host: fp.slice(7, 15), url, cardHits: 0 };
+  /** 换钥匙：名片从此用新钥匙签、报新公钥（模拟宿主换钥匙） */
+  self.rotate = () => { self.key = generateKeyPairSync('ed25519').privateKey; self.publicKey = createPublicKey(self.key).export({ format: 'der', type: 'spki' }).toString('base64'); self.fp = 'sha256:' + createHash('sha256').update(Buffer.from(self.publicKey, 'base64')).digest('hex'); };
   self.server = createServer((req, res) => {
     if (req.url === '/.well-known/agent-card.json') {
+      self.cardHits++;
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify(signCard({ capabilities: {}, expiresAt: Date.now() + 3600_000, name: zone, session: zone, team: zone }, key)));
+      res.end(JSON.stringify(signCard({ capabilities: {}, expiresAt: Date.now() + 3600_000, name: zone, session: zone, team: zone }, self.key)));
     } else { res.writeHead(404); res.end(); }
   });
   await new Promise((r) => self.server.listen(p, '127.0.0.1', r));
@@ -63,6 +66,8 @@ async function peer(zone) {
 const lab = await peer('lab');
 const evil = await peer('evil');
 const lab2 = await peer('labtwo');
+const stranger = await peer('stranger'); // 不在登记表、也不在任何名册里
+const rot = await peer('rot'); // 名册按旧指纹报过团队 R；换钥匙后按新指纹重报的名册里只有 R2（旧指纹的席位行还留着）
 
 const PM = await port();
 const BASE = `http://127.0.0.1:${PM}`;
@@ -123,10 +128,17 @@ try {
     const d = db(); const now = new Date().toISOString();
     try {
       for (const p of [lab, evil]) d.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, public_key, key_fingerprint, status, registered_by, registered_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'active', 'test', ?, ?)").run(`peer_${p.zone}`, p.url, p.zone, `合成宿主 ${p.zone}`, p.publicKey, p.fp, now, now);
-      for (const [p, team] of [[lab, 'lab/canvas/Ops'], [evil, 'evil/canvas/Night'], [lab2, 'labtwo/canvas/Two']]) {
+      for (const [p, team] of [[lab, 'lab/canvas/Ops'], [evil, 'evil/canvas/Night'], [lab2, 'labtwo/canvas/Two'], [rot, 'rot/canvas/R']]) {
         d.prepare('INSERT INTO a2a_roster_nodes (peer_root, key_fingerprint, host, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?, ?)').run(p.url, p.fp, p.host, p.zone, now, now);
         d.prepare("INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, role, first_seen_at) VALUES (?, ?, ?, ?, ?, 'observer', ?)").run(p.url, p.fp, p.host, team, `${p.zone}/0000000${team.length % 10}`, now);
       }
+      // lab 多报一个团队 Flood（测每团队上限用）
+      d.prepare("INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, role, first_seen_at) VALUES (?, ?, ?, 'lab/canvas/Flood', 'lab/00000009', 'observer', ?)").run(lab.url, lab.fp, lab.host, now);
+      // rot：旧指纹的名册里有团队 R；换钥匙以后登记表钉新钥匙（active），按新指纹重报的名册里只有 R2。旧指纹那几行还在（名册入库只替换同一指纹的）
+      rot.rotate();
+      d.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, public_key, key_fingerprint, status, registered_by, registered_at, updated_at) VALUES ('peer_rot', ?, 'rot', '合成宿主 rot', ?, ?, 'active', 'test', ?, ?)").run(rot.url, rot.publicKey, rot.fp, now, now);
+      d.prepare('INSERT INTO a2a_roster_nodes (peer_root, key_fingerprint, host, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?, ?)').run(rot.url, rot.fp, rot.fp.slice(7, 15), 'rot', now, now);
+      d.prepare("INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, role, first_seen_at) VALUES (?, ?, ?, 'rot/canvas/R2', 'rot/00000002', 'observer', ?)").run(rot.url, rot.fp, rot.fp.slice(7, 15), now);
     } finally { d.close(); }
   }
 
@@ -142,7 +154,7 @@ try {
 
   console.log('二、对抗组');
   const before = JSON.stringify(rows());
-  const deny = async (name, e, opts, status, code) => { const x = await send(e, opts); ok(name, x.r.status === status && x.r.json?.error === code && JSON.stringify(rows()) === before, `${x.r.status} ${x.r.text}`); };
+  const deny = async (name, e, opts, status, code) => { const b = JSON.stringify(rows()); const x = await send(e, opts); ok(name, x.r.status === status && x.r.json?.error === code && JSON.stringify(rows()) === b, `${x.r.status} ${x.r.text}`); };
   await deny('只带 Sig2（不绑正文）→ 401', env({ card: { id: 'c-sig2' } }), { sig3: false }, 401, 'untrusted-origin');
   await deny('签名对不上名片（用别的钥匙伪造 lab）→ 401', env({ card: { id: 'c-forge' } }), { key: generateKeyPairSync('ed25519').privateKey }, 401, 'untrusted-origin');
   await deny('evil 冒充 lab 的地址、用自己的钥匙签 → 401', env({ card: { id: 'c-impersonate' } }), { signer: evil, callerUrl: lab.url, caller: 'lab' }, 401, 'untrusted-origin');
@@ -163,7 +175,32 @@ try {
   // 原样重放：同一个已签名请求再发一次
   const fresh = await send(env({ card: { id: 'c-replay' } }));
   const replay = await post(fresh.raw, fresh.h);
+  // X2（stage3-accept 复核）：根地址不在任何名册里的宿主——市场不能照请求头去它自报的地址取名片（SSRF 的口子）
+  const strangerHits = stranger.cardHits;
+  const sx = await send(env({ card: { id: 'c-stranger', team: 'stranger/canvas/S' } }), { signer: stranger });
+  ok('不在名册里的宿主发卡 → 401，且市场一次都没去取它的名片', sx.r.status === 401 && sx.r.json?.error === 'untrusted-origin' && stranger.cardHits === strangerHits && !rows().some((x) => x.card_id === 'c-stranger'), [sx.r.text, stranger.cardHits - strangerHits]);
+  // X3：同一个根地址换了钥匙、按新指纹重报的名册里没有 R（只有旧指纹的名册里有）→ 团队绑定要按新指纹核，不成立
+  const sr = await send(env({ card: { id: 'c-rotated', team: 'rot/canvas/R' } }), { signer: rot });
+  const sr2 = await send(env({ card: { id: 'c-rotated-ok', team: 'rot/canvas/R2' } }), { signer: rot });
+  ok('（对照）同一台换了钥匙的宿主，给新名册里的团队 R2 报卡 → 收下', sr2.r.json?.status === 'stored', sr2.r.text);
+  ok('换了钥匙、团队只在旧指纹的名册里 → 403', sr.r.status === 403 && sr.r.json?.error === 'team-not-bound' && !rows().some((x) => x.card_id === 'c-rotated'), sr.r.text);
+  for (const [name, e] of [
+    ['选项重复', env({ card: { id: 'c-b8', options: ['一样', '一样'], recommended: '一样' } })],
+    ['decided 缺 decided_at', env({ event: 'decided', rev: 2, card: { id: 'c-b9' } })],
+  ]) await deny(`形状不对：${name} → 400`, e, {}, 400, 'decision-card-invalid');
+  const huge = await send(env({ card: { id: 'c-huge', reason: 'x'.repeat(40 * 1024) } }));
+  ok('整条信封超过 32KB → 400，不落库', huge.r.status === 400 && huge.r.json?.error === 'decision-card-too-large' && !rows().some((x) => x.card_id === 'c-huge'), huge.r.text);
   ok('同一个已签名请求原样重放 → 401（签名已用），不重复落库', fresh.r.json?.status === 'stored' && replay.status === 401 && rows().filter((x) => x.card_id === 'c-replay').length === 1, replay.text);
+
+  // 方向控制符去掉（会把页面上的文字倒过来显示）
+  await send(env({ card: { id: 'c-bidi', question: '合成：\u202e批准\u202c还是不批？', options: ['批\u2066准', '不批'], recommended: '批\u2066准' } }));
+  const bd = cards(await attention()).find((x) => x.source_id.endsWith(':c-bidi'));
+  ok('问题和选项里的方向控制符被去掉', bd?.detail?.question === '合成：批准还是不批？' && bd.detail.options[0] === '批准' && bd.detail.recommended === '批准', bd?.detail);
+  // 每个团队在等的卡最多 50 张：第 51 张不收；已有的卡照常能改状态
+  let stored = 0, last = null;
+  for (let i = 1; i <= 51; i++) { const x = await send(env({ card: { id: `flood-${i}`, team: 'lab/canvas/Flood' } })); if (x.r.json?.status === 'stored') stored++; last = x.r; }
+  const settle = await send(env({ rev: 2, event: 'dropped', card: { id: 'flood-1', team: 'lab/canvas/Flood' } }));
+  ok('一个团队在等的卡到 50 张：第 51 张 429 不收；已有的卡照常改状态', stored === 50 && last.status === 429 && last.json?.error === 'too-many-waiting' && settle.r.json?.status === 'stored' && !rows().some((x) => x.card_id === 'flood-51'), [stored, last?.status, settle.r.text]);
 
   console.log('三、重复和乱序');
   s = await send(env());
@@ -205,7 +242,8 @@ try {
     && seen['管理层'] === '0/false' && seen['系统管理员'] === '0/false' && seen['管理口令'] === '0/false', { gOwner, gMgr, cliN, seen });
   // 对端停用：它的卡不再显示，再推也不收
   { const d = db(); try { d.prepare("UPDATE a2a_peers SET status = 'disabled' WHERE root_url = ?").run(lab.url); } finally { d.close(); } }
-  const afterDisable = cards(await attention()).length;
+  // 只看 lab 的团队：别的宿主（rot）的卡照常在
+  const afterDisable = cards(await attention()).filter((x) => x.detail?.team?.startsWith('lab/')).length;
   const blocked = await send(env({ card: { id: 'c-after-disable' } }));
   ok('lab 停用之后：它的卡从清单里消失，再推 401', afterDisable === 0 && blocked.r.status === 401 && !rows().some((x) => x.card_id === 'c-after-disable'), [afterDisable, blocked.r.text]);
 
@@ -217,7 +255,7 @@ try {
   fail++; console.log(`  ✗ 中途抛错：${e?.stack ?? e}`);
 } finally {
   if (child && child.exitCode === null) { const done = new Promise((r) => child.once('exit', r)); child.kill(); await done; }
-  for (const p of [lab, evil, lab2]) p.server.close();
+  for (const p of [lab, evil, lab2, stranger, rot]) p.server.close();
   rmSync(DATA, { recursive: true, force: true });
 }
 console.log(`a2a-decision-cards-test: ${pass} passed / ${fail} failed`);
