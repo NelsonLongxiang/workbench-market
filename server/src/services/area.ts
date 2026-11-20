@@ -16,6 +16,7 @@ import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
 import { svc } from '../context.ts';
 import type { GrantService } from './grant.ts';
+import type { PrincipalStatusChanged } from './principal.ts';
 
 export type AreaStatus = 'pending-lead' | 'active' | 'retired';
 export type AreaSource = 'manual' | 'department';
@@ -67,6 +68,13 @@ function tx<T>(fn: () => T): T {
 export class AreaService extends Service {
   constructor(ctx: any) {
     super(ctx, 'areas');
+    // 负责人本人停用、恢复：重算他负责的领域（services/principal.ts 的 setStatus 发）
+    ctx.on('principal/status', (c: PrincipalStatusChanged) => {
+      const now = Date.now();
+      for (const area of svc<GrantService>('grants').leadAreasHeldBy(c.id, now)) {
+        this.reconcileLead(area, `负责人 ${c.id} ${c.status === 'disabled' ? '停用' : '恢复'}${c.reason.trim() ? `：${c.reason.trim()}` : ''}`, { by: c.by, principal: null }, now);
+      }
+    });
   }
 
   list(): AreaView[] {

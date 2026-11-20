@@ -13,9 +13,16 @@
  */
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
-import { svc } from '../context.ts';
-import type { GrantService } from './grant.ts';
-import type { AreaService } from './area.ts';
+import { root } from '../root-context.ts';
+
+/** 主体启用状态变了（停用、恢复）之后发：领域服务听它重算这个人负责的领域（docs/domains-step1.md 第二节第 1 小节）。
+ *  经根上下文发事件、不直接引用领域服务：这个文件被单测单独引用，引用 context.ts 会成环 */
+export type PrincipalStatusChanged = { id: string; status: PrincipalStatus; by: string; reason: string };
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    'principal/status'(change: PrincipalStatusChanged): void;
+  }
+}
 import type { Admission, ExternalIdentity, PrincipalDirectory } from '../identity.ts';
 
 export type PrincipalKind = 'person' | 'seat' | 'app' | 'system' | 'node';
@@ -243,13 +250,8 @@ export class PrincipalService extends Service implements PrincipalDirectory {
   setStatus(id: string, status: PrincipalStatus, by: string, reason: string): { changed: boolean; principal: PrincipalView } | null {
     const changed = db.prepare("UPDATE principals SET status = ?, status_changed_at = datetime('now'), status_changed_by = ?, status_reason = ? WHERE id = ? AND status <> ?")
       .run(status, text(by, 256), text(reason, 500), id, status).changes === 1;
-    // 他是哪些领域的负责人：停用之后可能一位都不剩（退回 pending-lead，给属主待办），恢复之后可能又有了（回到 active）。领域服务按事实重算
-    if (changed) {
-      const now = Date.now();
-      for (const area of svc<GrantService>('grants').leadAreasHeldBy(id, now)) {
-        svc<AreaService>('areas').reconcileLead(area, `负责人 ${id} ${status === 'disabled' ? '停用' : '恢复'}${reason.trim() ? `：${reason.trim()}` : ''}`, { by: text(by, 256), principal: null }, now);
-      }
-    }
+    // 他负责的领域：停用之后可能一位负责人都不剩（退回 pending-lead，给属主待办），恢复之后可能又有了（回到 active）。领域服务听这个事件按事实重算
+    if (changed) root.emit('principal/status', { id, status, by: text(by, 256), reason });
     const principal = this.get(id);
     return principal ? { changed, principal } : null;
   }
