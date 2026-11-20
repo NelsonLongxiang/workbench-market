@@ -23,11 +23,14 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { seedDepartmentAsOwnerDid } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = process.argv.indexOf('--root');
 const ROOT = resolve(arg >= 0 ? process.argv[arg + 1] : join(HERE, '..'));
 const OUT = join(HERE, '..', 'tmp', `work-item-views-team-${process.pid}-${Date.now().toString(36)}`);
+// 部门已停写（docs/domains-step1.md 第六节）：部门、部门负责人直接写库造（停写前属主建好的样子）
+const DEPT_DB = () => join(OUT, 'data', 'workbench-market.db');
 const PRELOAD = pathToFileURL(join(HERE, 'identity-fake-preload.mjs')).href;
 const ADMIN_TOKEN = 'views-synthetic-admin';
 const { SESSIONS } = await import('./identity-fake-provider.mjs');
@@ -125,7 +128,7 @@ try {
   seatIns.run(HOST, TEAM_A2, LEGACY.seat, '', '合成别队旧席位', 'member', now, now);
   seatIns.run(HOST2, TEAM, MEMBER.seat, MEMBER.seat_id, '合成别节点成员', 'member', now, now);
   // 部门负责人、团队认领由属主（本机命令行）做，直接生效；管理口令做只记成提议（规范 14「关系由谁说了算」），这里要的是已确认的关系
-  const dept = await call('PUT', '/api/departments/sales', {}, { name: '合成销售部', lead: 'user:beta' });
+  const dept = seedDepartmentAsOwnerDid(DEPT_DB(), 'sales', '合成销售部', 'user:beta');
   const claim = await call('POST', '/api/teams/claim', {}, { host: HOST, team: TEAM, department: 'sales' });
   const as1 = await call('POST', '/api/teams/assign', WHO.负责人, { host: HOST, team: TEAM, ...MEMBER, principal: 'user:no-flag' });
   const as2 = await call('POST', '/api/teams/assign', WHO.负责人, { host: HOST, team: TEAM, ...LEGACY, principal: 'user:no-flag' });

@@ -18,11 +18,14 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { seedDepartmentAsOwnerDid } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = process.argv.indexOf('--root');
 const ROOT = resolve(arg >= 0 ? process.argv[arg + 1] : join(HERE, '..'));
 const OUT = join(HERE, '..', 'tmp', `work-item-relations-trust-${process.pid}-${Date.now().toString(36)}`);
+// 部门已停写（docs/domains-step1.md 第六节）：部门、部门负责人直接写库造（停写前属主建好的样子）
+const DEPT_DB = () => join(OUT, 'data', 'workbench-market.db');
 const PRELOAD = pathToFileURL(join(HERE, 'identity-fake-preload.mjs')).href;
 const ADMIN_TOKEN = 'relations-trust-synthetic-admin';
 const { SESSIONS } = await import('./identity-fake-provider.mjs');
@@ -98,7 +101,7 @@ try {
     db.close();
   }
   // 部门（不指部门负责人）、团队认领由属主（本机命令行）做，直接生效：团队已认领、没有负责人
-  const dept = await call('PUT', '/api/departments/ops', {}, { name: '合成部门' });
+  const dept = seedDepartmentAsOwnerDid(DEPT_DB(), 'ops', '合成部门');
   const claim = await call('POST', '/api/teams/claim', {}, { host: HOST, team: TEAM, department: 'ops' });
   // 只用系统管理员身份（管理口令）写带权限的关系：指负责人、分配成员
   const lead = await call('POST', '/api/teams/leads', ADMIN, { host: HOST, team: TEAM, principal: 'user:beta' });
@@ -121,7 +124,7 @@ try {
     check(!has(s) && d.status === 404, '系统管理员把成员分给他、业务侧没点头：「我的 AI 员工手上的」里没有这个成员接手的事项，详情 404', show({ seats: s.status, n: (s.body?.items ?? []).length, d: d.status }));
   }
   // ---------- 团队认领只是提议：接收部门的负责人不算这个团队的负责人 ----------
-  const dept2 = await call('PUT', '/api/departments/sales2', {}, { name: '合成部门二', lead: 'user:alpha' });
+  const dept2 = seedDepartmentAsOwnerDid(DEPT_DB(), 'sales2', '合成部门二', 'user:alpha');
   const claim2 = await call('POST', '/api/teams/claim', ADMIN, { host: HOST, team: TEAM2, department: 'sales2' });
   {
     const t = await lst(WHO.部门负责人, 'team'), d = await call('GET', `/api/work-items/${I.item2}`, WHO.部门负责人);

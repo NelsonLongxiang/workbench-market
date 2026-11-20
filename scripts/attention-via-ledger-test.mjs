@@ -27,10 +27,13 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { seedDepartmentAsOwnerDid } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(join(HERE, '..'));
 const OUT = join(HERE, '..', 'tmp', `attention-via-ledger-${process.pid}-${Date.now().toString(36)}`);
+// 部门已停写（docs/domains-step1.md 第六节）：部门、部门负责人直接写库造（停写前属主建好的样子）
+const DEPT_DB = () => join(OUT, 'data', 'workbench-market.db');
 const PRELOAD = pathToFileURL(join(HERE, 'identity-fake-preload.mjs')).href;
 const FAKE_CLI = join(HERE, 'fixtures', 'ygl-library-fake.mjs');
 const ADMIN_TOKEN = 'knowledge-remember-synthetic-admin';
@@ -135,8 +138,8 @@ try {
   const cli = (method, path, body) => call(method, path, {}, body);
   const grant = async (principal, role) => { const d = await cli('POST', '/api/grants', { principal, role, scope: '*', reason: '合成：卡片记账' }); await cli('POST', `/api/grants/${d.body?.grant?.id}/submit`, {}); return (await cli('POST', `/api/grants/${d.body?.grant?.id}/approve`, {})).status; };
   const setup = [
-    (await cli('PUT', '/api/departments/sales', { name: '合成销售部', lead: 'user:beta' })).status,
-    (await cli('PUT', '/api/departments/ops', { name: '合成运营部' })).status,
+    (seedDepartmentAsOwnerDid(DEPT_DB(), 'sales', '合成销售部', 'user:beta')).status,
+    (seedDepartmentAsOwnerDid(DEPT_DB(), 'ops', '合成运营部')).status,
     (await cli('POST', '/api/teams/claim', { host: HOST, team: TEAM, department: 'sales' })).status,
     (await cli('POST', '/api/teams/claim', { host: HOST, team: VACANT, department: 'ops' })).status,
     await grant('user:root-admin', 'management'), await grant('user:alpha', 'member'), await grant('user:bob-synth', 'management'),
