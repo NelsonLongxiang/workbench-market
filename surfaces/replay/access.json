@@ -317,7 +317,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "526", "etag": "W/\"20e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "565", "etag": "W/\"235-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "principal": { "id": "user:alpha", "kind": "person", "status": "active", "display_name": "合成甲" },
               "active": [
@@ -327,6 +327,8 @@
                   "role_name": "普通员工",
                   "permissions": [{ "kinds": ["read"] }, { "actions": ["app-data.submit", "app-data.upload", "sop-run.file-refs", "sop-run.file-upload", "sop-run.finish", "sop-run.save", "sop-run.start"] }, { "kinds": ["decide"], "scope": "self" }],
                   "scope": "*",
+                  "scope_name": null,
+                  "scope_effect": "all",
                   "effective": true,
                   "expires_at": null,
                   "approved_by": "cli",
@@ -347,7 +349,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "622", "etag": "W/\"26e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "675", "etag": "W/\"2a3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "principal": { "id": "user:alpha", "kind": "person", "status": "active", "display_name": "合成甲" },
               "active": [
@@ -357,6 +359,8 @@
                   "role_name": "普通员工",
                   "permissions": [{ "kinds": ["read"] }, { "actions": ["app-data.submit", "app-data.upload", "sop-run.file-refs", "sop-run.file-upload", "sop-run.finish", "sop-run.save", "sop-run.start"] }, { "kinds": ["decide"], "scope": "self" }],
                   "scope": "*",
+                  "scope_name": null,
+                  "scope_effect": "all",
                   "effective": true,
                   "expires_at": null,
                   "approved_by": "cli",
@@ -365,7 +369,7 @@
               ],
               "inactive": [],
               "relations": { "departments": [], "teams_led": [], "members": [] },
-              "decision": { "action": "workbench.list", "kind": "read", "verdict": "allow", "rule": "grant", "grant": 2 }
+              "decision": { "action": "workbench.list", "kind": "read", "verdict": "allow", "rule": "grant", "grant": 2, "via": "judge" }
             }
           }
         },

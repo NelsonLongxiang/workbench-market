@@ -4,7 +4,7 @@
  * 只在 127.0.0.1 上，不访问任何外部系统。
  *
  *   一、以某人的身份看：管理员看任何人；登录的人只看自己（看别人 403）；远程匿名 401、跨站 403；
- *       生效的授予带展开后的权限、范围、期限、放行人、来源，范围不是 * 的标「尚未生效」；没生效的各自写明原因；
+ *       生效的授予带展开后的权限、范围、期限、放行人、来源，范围起不起作用照 scope_effect（* 全部、area: 领域、dept: 只在数据视图和经验库、别的还不认）；没生效的各自写明原因；
  *       带 action 给出判定结论和规则（成员能读、不能管；本机命令行起草的、口令放行的）
  *   二、红线清单：登录的人能读，和代码里的规则表一致；远程匿名 401
  *   三、向导：小团队给每个启用的人普通员工；标准形态按指定给管理层、部门负责人，其余普通员工；
@@ -174,9 +174,9 @@ try {
     const wizLead = db.prepare("SELECT id FROM grants WHERE principal_id = 'user:beta' AND role = 'dept-lead' AND scope = 'dept:sales' AND status = 'active'").get()?.id;
     check(salesLead === 'user:beta' && leadBeforeApprove && !!wizLead && linked === wizLead, '向导：属主放行时，部门负责人授予对应的部门（原来没有负责人）顺带设上负责人，并记下这条是随负责人发的', show({ salesLead, linked, wizLead }));
     check(byToken.status === 403 && byAdmin.status === 403 && missing.status === 404 && byCli.status === 200 && byCli.json?.approved?.length === 2 && byCli.json.failed.length === 0
-      && lead?.source === 'wizard' && lead.scope === 'dept:sales' && lead.effective === false
+      && lead?.source === 'wizard' && lead.scope === 'dept:sales' && lead.effective === true && lead.scope_effect === 'dept'
       && listed.json?.runs?.find((r) => r.id === run)?.grants?.every((g) => g.status === 'active'),
-      '向导这一批只有属主放行：口令管理员、不是属主的管理员登录 403；运行不存在 404；本机命令行放行后两条都生效（管理层、部门负责人是第三档，属主一次放行不受影响），来源推成 wizard，部门范围的标「尚未生效」',
+      '向导这一批只有属主放行：口令管理员、不是属主的管理员登录 403；运行不存在 404；本机命令行放行后两条都生效（管理层、部门负责人是第三档，属主一次放行不受影响），来源推成 wizard；部门范围的 scope_effect 是 dept（只在数据视图和经验库里起作用），effective 为真',
       show({ byToken: byToken.status, byAdmin: byAdmin.status, byCli: byCli.json, lead }));
     const lines = srv.log().split('\n').filter((l) => l.includes('"source":"setup-wizard"'));
     check(lines.some((l) => l.includes('"event":"run"')) && lines.some((l) => l.includes('"event":"approve"')), '跑向导、放行各记一行日志', `${lines.length} 行`);
