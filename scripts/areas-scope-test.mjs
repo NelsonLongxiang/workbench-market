@@ -9,6 +9,7 @@
  *      但在领域 ops 上读不到（404）、定不了规范（403）——新的 area.* 一律不认 dept:
  *   E3 （统筹 11-20）领域 ops 撤了：dept:ops 的等同不再成立，ops 的台 403
  *   E4 部门 legacy 还没迁成领域：dept:legacy 照旧进得去（和今天一样）
+ *   E6 「以某人的身份看」（/api/principals/:id/access）对台的动作带领域范围：和 E1～E3 实际进不进得去一致
  *   E5 绑台：绑到撤了的领域拒（409）；只有领域、没有同标识部门的也能绑；什么都没有的 404
  *
  *   node scripts/areas-scope-test.mjs
@@ -110,6 +111,15 @@ try {
   {
     const s = { read: await reads(P.nf, 'b-legacy'), write: (await call('PUT', '/api/bench-views/b-legacy/datasets/nf', { session: P.nf, body: { columns: [{ name: 'a', type: 'text' }] } })).status };
     check(s.read === 200 && s.write === 200, 'E4 部门 legacy 还没迁成领域：只持 dept:legacy 的人照旧读写得了 legacy 的台（和今天一样）', s);
+  }
+
+  // ---- E6 ----
+  {
+    const ask = async (who, scope) => (await call('GET', `/api/principals/${who}/access?action=bench-store.dataset-list&scope=${scope}`)).json?.decision;
+    const d = { betaSales: await ask('user:beta', 'area:sales'), betaOps: await ask('user:beta', 'area:ops'), nfOps: await ask('user:no-flag', 'dept:ops'), nfLegacy: await ask('user:no-flag', 'dept:legacy') };
+    const v = Object.fromEntries(Object.entries(d).map(([k, x]) => [k, `${x?.verdict}/${x?.via}`]));
+    check(v.betaSales === 'allow/area' && v.betaOps.startsWith('deny') && v.nfOps.startsWith('deny') && v.nfLegacy === 'allow/dept' && /按领域判/.test(d.betaSales?.scope_note ?? ''),
+      'E6 access 对台的动作带领域范围：beta 在 sales 上 allow（按领域判）、在 ops 上 deny；no-flag 在撤了的 ops 上 deny、在没迁的 legacy 上 allow——和实际一致', v);
   }
 
   // ---- E5 ----

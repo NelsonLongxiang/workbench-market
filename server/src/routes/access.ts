@@ -89,7 +89,9 @@ export function registerAccessRoutes(app: HttpService, deps: AccessRouteDeps): v
   function scopeNote(scope: string, action: string): string {
     const e = scopeView(scope).scope_effect;
     if (e === 'all') return '范围是全部';
-    if (e === 'area') return action.startsWith('area.') ? '按领域判：属主、管理层看全部领域，别人看在这个领域上的授予（定规范只认属主和本领域的定规范授予）' : '领域范围只在领域自己的动作上起作用；这个动作不按领域问，结论照不带范围算';
+    if (e === 'area') return action.startsWith('area.') ? '按领域判：属主、管理层看全部领域，别人看在这个领域上的授予（定规范只认属主和本领域的定规范授予）'
+      : scopedKind(action) !== null ? '按领域判：数据视图的台、经验库里，领域范围的授予在这个领域上算数（领域撤了不算）'
+      : '领域范围只在领域自己的动作和数据视图的台、经验库里起作用；这个动作不按领域问，结论照不带范围算';
     if (e === 'dept') return scopedKind(action) !== null ? '按部门判：部门范围只在数据视图的台和经验库里起作用' : '部门范围只在数据视图的台和经验库里起作用；这个动作不按部门问，结论照不带范围算';
     return action.startsWith('area.') ? '这类范围统一判定还不认；领域的动作按领域路由判' : '这类范围（台、流程、工具、对象、只限自己、某一块）统一判定还不认：只回显，结论照不带范围算';
   }
@@ -138,10 +140,10 @@ export function registerAccessRoutes(app: HttpService, deps: AccessRouteDeps): v
       // judge 不放行时再问 scopedVerdict（和数据视图、经验库的路由同一个先后）；别的照旧问 judge。对照表测试：scripts/access-decision-matrix-test.mjs
       let r: { verdict: string; rule: string; grant?: number | null }, via: 'judge' | 'area' | 'dept' = 'judge';
       if (action.startsWith('area.')) { r = areaDecision(p, action, scope); via = 'area'; }
-      else if (scope !== null && /^dept:/.test(scope) && scopedKind(action) !== null) {
+      else if (scope !== null && /^(dept|area):/.test(scope) && scopedKind(action) !== null) {
         const j = viaJudge();
         r = j.verdict === 'allow' ? j : scopedVerdict({ principal: p.id, action, kind: scopedKind(action) as Kind, scope, now });
-        via = j.verdict === 'allow' ? 'judge' : 'dept';
+        via = j.verdict === 'allow' ? 'judge' : scope.startsWith('area:') ? 'area' : 'dept';
       } else r = viaJudge();
       decision = { action, kind: known.kind, verdict: r.verdict, rule: r.rule, grant: r.grant ?? null, via, ...(scope !== null ? { scope, scope_note: scopeNote(scope, action) } : {}) };
     }
