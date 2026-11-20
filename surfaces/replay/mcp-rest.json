@@ -5146,14 +5146,14 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "24272", "etag": "\"6f62db9cca35fd4cd7ecf30e9998d81a0da0210c3db2c8369e7a1158f0da2db2\"", "vary": "Origin", "x-content-sha256": "6f62db9cca35fd4cd7ecf30e9998d81a0da0210c3db2c8369e7a1158f0da2db2", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "24272", "etag": "\"0541cb6d59307f186ea982ab9ff1667cd2b288683dceeb4d9f97e547d05cfccb\"", "vary": "Origin", "x-content-sha256": "0541cb6d59307f186ea982ab9ff1667cd2b288683dceeb4d9f97e547d05cfccb", "x-powered-by": "Express" },
             "body": {
               "name": "workbench-market",
               "version": "1.0.0",
               "description": "工作台 design token 标准——市场前端、SOP 执行页与自产台共用的唯一事实源（仅浅色）",
               "sources": [
-                { "path": "DESIGN.md", "sha256": "9f8823d64f50aed524c3a42dc6d581e224e19094eed88de6645934b229985f82" },
-                { "path": "design-system/workbench-market/PATTERNS.md", "sha256": "c4d8e6a80181085b0aaf9bc8235c616f966b182abd7349968a564d3a49c31d45" }
+                { "path": "DESIGN.md", "sha256": "eef566b906b78802f91558d079bf96150a1c8cf5be524904347da7479afee69c" },
+                { "path": "design-system/workbench-market/PATTERNS.md", "sha256": "14278ee36932a5e2fac28913bc5d2eb427b69c53fd0b930edaf5886cc7cdc833" }
               ],
               "tokens": {
                 "colors": { "primary": "#1E3A5F", "on-primary": "#FFFFFF", "primary-subtle": "#EEF2F7", "text": "#0F172A", "text-secondary": "#5A6577", "text-disabled": "#94A3B8", "page": "#F6F7F9", "surface": "#FFFFFF", "border": "#E2E8F0", "border-strong": "#CBD5E1", "success": "#047857", "success-text": "#047857", "success-bg": "#ECFDF5", "warning": "#F59E0B", "warning-text": "#B45309", "warning-bg": "#FFFBEB", "danger": "#DC2626", "danger-text": "#B91C1C", "danger-bg": "#FEF2F2", "nav-bg": "#F6F7F9", "nav-text": "#5A6577", "nav-text-active": "#1E3A5F", "nav-item-active-bg": "#EEF2F7", "info": "{colors.primary}", "info-bg": "{colors.primary-subtle}" },
