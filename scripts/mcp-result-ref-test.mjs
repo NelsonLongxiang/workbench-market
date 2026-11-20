@@ -122,6 +122,29 @@ try {
   const listed = ((await rpc('tools/list', {}, (await session('ref-c')).token)).json?.result?.tools ?? []).map((t) => t.name);
   ok('result_read 免授权：新会话的 tools/list 里有它', listed.includes('result_read'), J(listed));
 
+  console.log('三之二、限定到台的授权：按当初那张台再判；分段读一段的上限');
+  {
+    const w1 = await call('POST', '/api/workbenches', { name: '合成台甲', url: 'http://127.0.0.1:9/', type: 'web' }, AT);
+    const w2 = await call('POST', '/api/workbenches', { name: '合成台乙', url: 'http://127.0.0.1:10/', type: 'web' }, AT);
+    const A = w1.json?.id ?? w1.json?.workbench?.id, B = w2.json?.id ?? w2.json?.workbench?.id;
+    const put = await call('PUT', `/api/workbenches/${A}/vars/big`, { value: 'v'.repeat(40000) }, AT);
+    ok('（准备）两张台，台甲上一个约 40 KB 的变量', Number.isInteger(A) && Number.isInteger(B) && A !== B && [200, 201].includes(put.status), J([w1.status, w2.status, put.status, put.text.slice(0, 120)]));
+    const s = await session('ref-scope', [`workbench_vars_get@${A}`]);
+    const got = await tool(s.token, 'workbench_vars_get', { id: A, key: 'big' });
+    const sref = got.payload?.result_ref;
+    ok('限定到台甲的授权调出大结果：给引用', !!sref?.id, got.text.slice(0, 160));
+    const full = await tool(s.token, 'result_read', { id: sref.id });
+    ok('result_read 一段最多 32768 个字符：结果更长时只给这么多，并给出下一段的起点', full.payload?.text?.length === 32768 && full.payload.next_offset === 32768 && full.payload.total_chars > 32768, J({ len: full.payload?.text?.length, next: full.payload?.next_offset, total: full.payload?.total_chars }));
+    const huge = await tool(s.token, 'result_read', { id: sref.id, length: 10 ** 9 });
+    ok('length 给得再大也按 32768 截（结果有 4 万多字符）', huge.payload?.text?.length === 32768 && huge.payload.next_offset === 32768, J({ len: huge.payload?.text?.length }));
+    await call('PUT', `/api/mcp/sessions/${s.id}/grants`, { grants: [`workbench_vars_get@${B}`] }, AT);
+    const moved = await call('GET', `/api/mcp-rest/results/${sref.id}`, undefined, auth(s));
+    const movedRead = await tool(s.token, 'result_read', { id: sref.id });
+    ok('授权改成只限台乙：台甲那份结果，REST 和 result_read 都取不到', moved.status === 403 && movedRead.isError, J([moved.status, movedRead.text.slice(0, 80)]));
+    await call('PUT', `/api/mcp/sessions/${s.id}/grants`, { grants: [`workbench_vars_get@${A}`] }, AT);
+    ok('改回台甲：又取得到', (await call('GET', `/api/mcp-rest/results/${sref.id}`, undefined, auth(s))).status === 200);
+  }
+
   console.log('四、过期');
   await sleep(TTL_MS + 300);
   const expired = await call('GET', `/api/mcp-rest/results/${ref.id}`, undefined, auth(a));
