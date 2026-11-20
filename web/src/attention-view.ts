@@ -89,8 +89,25 @@ export function answerRoute(admin: boolean, item: Pick<AttentionItem, 'source' |
 /** 是不是轮到你：只看条目的 mine（#587）；没带这个字段的旧应答当作轮到你 */
 export const isMine = (x: { mine?: unknown }): boolean => x.mine !== false;
 
-/** 算不算「等你拍板」只有这一个判法：轮到你、而且能当场办。侧栏角标、全景、事项列表都用它 */
-export const isMyDecision = (x: AttentionItem, choicesOf: (x: AttentionItem) => string[]): boolean => isMine(x) && choicesOf(x).length > 0;
+/** 团队的决策卡（T8，来源 a2a-decisions，宿主推来的、观察者或总工提给属主的）：第一期只展示，拍板在宿主上，条目不带答法。
+ *  带了宿主上拍板的地址（detail.decide_at）的，也算「等你拍板」——它确实在等属主动手，只是动手的地方在宿主上（统筹、验收 11-20 定的方案 A）。
+ *  地址只认 http、https 的绝对地址；空串、javascript: 之类的协议、写不成地址的，一律当没给（归「要到别处处理」，不计数）。
+ *  服务端只列还没定的卡、只列给属主，前端不另判状态。 */
+export const HOST_DECISION_SOURCE = 'a2a-decisions';
+export function hostDecideAt(item: { source: string; detail?: unknown }): string | null {
+  if (item.source !== HOST_DECISION_SOURCE || !item.detail || typeof item.detail !== 'object') return null;
+  const v = (item.detail as Record<string, unknown>).decide_at;
+  if (typeof v !== 'string' || !v.trim()) return null;
+  try {
+    const u = new URL(v.trim());
+    return u.protocol === 'https:' || u.protocol === 'http:' ? u.href : null;
+  } catch { return null; }
+}
+/** 能动手：有当场的答法，或者是带宿主拍板地址的决策卡 */
+const actionable = (x: AttentionItem, choicesOf: (x: AttentionItem) => string[]): boolean => choicesOf(x).length > 0 || hostDecideAt(x) !== null;
+
+/** 算不算「等你拍板」只有这一个判法：轮到你、而且能动手（当场办，或去宿主拍板）。侧栏角标、全景、事项列表都用它 */
+export const isMyDecision = (x: AttentionItem, choicesOf: (x: AttentionItem) => string[]): boolean => isMine(x) && actionable(x, choicesOf);
 
 /** 「等你拍板」的件数——侧栏角标、总结句、卡片区的数都用它 */
 export function decideCount(items: AttentionItem[], choicesOf: (x: AttentionItem) => string[]): number {
@@ -127,8 +144,8 @@ const ORDER: Record<string, number> = { ask: 0, accept: 1, glance: 2, grant: 3, 
 export function groupCards(items: AttentionItem[], choicesOf: (x: AttentionItem) => string[]): { now: AttentionItem[]; proxy: AttentionItem[]; stuck: AttentionItem[]; elsewhere: AttentionItem[] } {
   const sorted = byWaited(items).map((x, i) => ({ x, i })).sort((a, b) => (ORDER[a.x.category] ?? 9) - (ORDER[b.x.category] ?? 9) || a.i - b.i).map((e) => e.x);
   // 四组：轮到你、能当场办的（这才是「等你拍板」）；别人的事、你能代办的（条目的 mine 为假）；停太久的；要到别处处理的（没有当场的答法）
-  const can = sorted.filter((x) => choicesOf(x).length > 0);
-  const rest = sorted.filter((x) => choicesOf(x).length === 0);
+  const can = sorted.filter((x) => actionable(x, choicesOf));
+  const rest = sorted.filter((x) => !actionable(x, choicesOf));
   return { now: can.filter(isMine), proxy: can.filter((x) => !isMine(x)), stuck: rest.filter(isStuck), elsewhere: rest.filter((x) => !isStuck(x)) };
 }
 
