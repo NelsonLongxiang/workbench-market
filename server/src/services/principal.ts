@@ -13,6 +13,9 @@
  */
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
+import { svc } from '../context.ts';
+import type { GrantService } from './grant.ts';
+import type { AreaService } from './area.ts';
 import type { Admission, ExternalIdentity, PrincipalDirectory } from '../identity.ts';
 
 export type PrincipalKind = 'person' | 'seat' | 'app' | 'system' | 'node';
@@ -240,6 +243,13 @@ export class PrincipalService extends Service implements PrincipalDirectory {
   setStatus(id: string, status: PrincipalStatus, by: string, reason: string): { changed: boolean; principal: PrincipalView } | null {
     const changed = db.prepare("UPDATE principals SET status = ?, status_changed_at = datetime('now'), status_changed_by = ?, status_reason = ? WHERE id = ? AND status <> ?")
       .run(status, text(by, 256), text(reason, 500), id, status).changes === 1;
+    // 他是哪些领域的负责人：停用之后可能一位都不剩（退回 pending-lead，给属主待办），恢复之后可能又有了（回到 active）。领域服务按事实重算
+    if (changed) {
+      const now = Date.now();
+      for (const area of svc<GrantService>('grants').leadAreasHeldBy(id, now)) {
+        svc<AreaService>('areas').reconcileLead(area, `负责人 ${id} ${status === 'disabled' ? '停用' : '恢复'}${reason.trim() ? `：${reason.trim()}` : ''}`, { by: text(by, 256), principal: null }, now);
+      }
+    }
     const principal = this.get(id);
     return principal ? { changed, principal } : null;
   }

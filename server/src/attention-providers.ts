@@ -22,6 +22,7 @@
  *   team-health       GET /api/teams（待认领、不在名册里、没有负责人的团队；名册超过阈值没更新的节点） adminGuard  过目
  *   a2a-decisions     没有旧接口：宿主推来的团队决策卡（总工、观察者提的，T8）  只给属主（持范围 * 的属主授予的人）和本机命令行  提问（只展示，拍板到宿主上）
  *   relation-proposals GET /api/relations/proposals（这个人能确认的关系提议，和确认接口同一处 confirmRefusal） 登录的人   授权
+ *   areas-no-lead     没有旧接口：没有负责人的领域（pending-lead），等属主指定负责人（docs/domains-step1.md）  只有属主（本机命令行、持 owner 授予的人）  授权（只提醒，没有答法）
  *                     验收条目给看得到这件事项的人（itemRoles 的 canSee，和事项页同一个函数），mine 只对建立人为真
  */
 import type express from 'express';
@@ -54,6 +55,7 @@ import type { A2aPeerService } from './services/a2a-peers.ts';
 import type { TeamService } from './services/team.ts';
 import type { GrantService } from './services/grant.ts';
 import type { RelationProposalService } from './services/relation-proposal.ts';
+import type { AreaService } from './services/area.ts';
 import { browserMarked, rawLoopback } from './surfaces.ts';
 import { teamName } from './team-relation.ts';
 import { waitingDecisionCards } from './services/a2a-decision-cards.ts';
@@ -395,6 +397,24 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           } },
         }))
         : null,
+    }),
+    provide({
+      // 没有负责人的领域：负责人只由属主指定（起草、放行都只有属主），所以只给属主看；管理口令对不到人，不算属主
+      source: 'areas-no-lead', label: '没有负责人的领域',
+      list: async (req) => {
+        const cli = !browserMarked(req) && rawLoopback(req);
+        const viewer = cli ? null : await requestViewer(req, false);
+        if (!cli && !(viewer?.principal && svc<GrantService>('grants').isOwner(viewer.principal))) return null;
+        const a = svc<AreaService>('areas');
+        return a.withoutLead().map((x) => {
+          const why = a.leadMissingReason(x.id);
+          return item({
+            source: 'areas-no-lead', source_id: x.id, category: 'grant',
+            title: `领域「${x.name}」${why ? `没有负责人了（${why}）` : '还没有负责人'}：在这之前不能在这个领域触发、验收。给它起草一条领域负责人的授予并放行`,
+            waiting_for: x.id, since: new Date(x.updated_at).toISOString(), answers: [], link: '/access', object: x.id, phase: why ? 'lead-missing' : 'no-lead-yet',
+          });
+        });
+      },
     }),
     provide({
       // 团队和名册的毛病：只有管理员看得到；没有当场的答法（认领、指定负责人在团队页做）。页面不显示节点标识，用节点名

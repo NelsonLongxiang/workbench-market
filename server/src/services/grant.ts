@@ -213,6 +213,13 @@ export class GrantService extends Service {
     try {
       const cur = db.prepare('SELECT status FROM grants WHERE id = ?').get(id) as { status: GrantStatus } | undefined;
       if (!cur || !from.includes(cur.status)) { db.exec('ROLLBACK'); return refuse(409, 'state', `授予 ${id} 现在是 ${cur?.status ?? '不存在'}，不能${VERB[event] ?? event}`); }
+      // 领域至少要有一位负责人：收回生效的负责人授予时，在这个写事务里数剩下的（BEGIN IMMEDIATE 已经拿到写锁，两个并发收回只成一个）。
+      // 撤领域走 revokeScopeInTx，不经这里；到期（expire）收不住，退回 pending-lead 由下面的重算做
+      const leadArea = this.leadAreaOf(id);
+      if (leadArea && cur.status === 'active' && to === 'revoked' && this.activeLeadCount(leadArea, now, id) === 0) {
+        db.exec('ROLLBACK');
+        return refuse(409, 'area_last_lead', `领域 ${leadArea} 至少要有一位负责人：先给它放行另一位负责人，再收回这一位（属主撤领域时会一并收回）`);
+      }
       const sql = approve
         ? 'UPDATE grants SET status = ?, approved_by = ?, approved_by_principal = ?, updated_at = ? WHERE id = ? AND status = ?'
         : 'UPDATE grants SET status = ?, updated_at = ? WHERE id = ? AND status = ?';
@@ -220,11 +227,10 @@ export class GrantService extends Service {
       if (db.prepare(sql).run(...args).changes !== 1) { db.exec('ROLLBACK'); return refuse(409, 'state', `授予 ${id} 的状态变了`); }
       db.prepare('INSERT INTO grant_events (grant_id, event, from_status, to_status, actor, actor_principal, reason, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
         .run(id, event, cur.status, to, actor.by, actor.principal, text(reason, 500), now);
-      // 放行了领域的负责人（覆盖负责人动作、范围 area:<领域>）：领域还是 pending-lead 的，同一个事务里改成 active
-      if (to === 'active') {
-        const g = db.prepare('SELECT role, scope FROM grants WHERE id = ?').get(id) as { role: string; scope: string };
-        const view = this.roleViews.get(g.role);
-        if (g.scope.startsWith('area:') && view && coversAreaPower(view.closure).lead) svc<AreaService>('areas').leadActivated(g.scope.slice(5), actor, now);
+      // 领域负责人的授予生效、收回、到期：同一个事务里重算领域状态（pending-lead ↔ active，留痕写原因）
+      if (leadArea && (to === 'active' || cur.status === 'active')) {
+        const why = to === 'active' ? `负责人授予 ${id} 放行` : to === 'expired' ? `负责人授予 ${id} 到期` : `负责人授予 ${id} 收回${reason.trim() ? `：${reason.trim()}` : ''}`;
+        svc<AreaService>('areas').reconcileLead(leadArea, why, actor, now);
       }
       db.exec('COMMIT');
     } catch (e) {
@@ -232,6 +238,28 @@ export class GrantService extends Service {
       throw e;
     }
     return { ok: true, grant: db.prepare('SELECT * FROM grants WHERE id = ?').get(id) as GrantRow };
+  }
+
+  /** 这条授予是不是某个领域的负责人授予（范围 area:<领域>、角色覆盖负责人专有动作）：是回领域标识 */
+  private leadAreaOf(id: number): string | null {
+    const g = db.prepare('SELECT role, scope FROM grants WHERE id = ?').get(id) as { role: string; scope: string } | undefined;
+    const view = g ? this.roleViews.get(g.role) : undefined;
+    return g && view && g.scope.startsWith('area:') && coversAreaPower(view.closure).lead ? g.scope.slice(5) : null;
+  }
+
+  /**
+   * 这个领域现在有几位生效的负责人：授予生效、没过期、范围正好是 area:<领域>、角色覆盖负责人专有动作，被授予的是启用的人。
+   * except：不算这一条（收回它之前问「剩下几位」）。领域服务的 reconcileLead、收回时的「至少一位」都问这一处
+   */
+  activeLeadCount(area: string, now = Date.now(), except: number | null = null): number {
+    const rows = db.prepare(`/* area-last-lead */ SELECT g.id, g.role FROM grants g JOIN principals p ON p.id = g.principal_id
+      WHERE g.scope = ? AND g.status = 'active' AND (g.expires_at IS NULL OR g.expires_at > ?) AND p.kind = 'person' AND p.status = 'active'`).all(`area:${area}`, now) as { id: number; role: string }[];
+    return rows.filter((r) => Number(r.id) !== except && (() => { const v = this.roleViews.get(r.role); return !!v && coversAreaPower(v.closure).lead; })()).length;
+  }
+
+  /** 这个人持有生效负责人授予的领域（停用、恢复这个人之后重算用） */
+  leadAreasHeldBy(principal: string, now = Date.now()): string[] {
+    return [...new Set(this.activeFor(principal, now).filter((g) => g.scope.startsWith('area:') && (() => { const v = this.roleViews.get(g.role); return !!v && coversAreaPower(v.closure).lead; })()).map((g) => g.scope.slice(5)))];
   }
 
   /** 起草 */

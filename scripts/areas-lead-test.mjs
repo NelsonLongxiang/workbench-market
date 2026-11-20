@@ -13,7 +13,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { spawn } from './owned-script-fixture.mjs';
+import { spawn } from 'node:child_process'; // 子进程不起服务、跑完自己退出，不用固定端口的夹具
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
@@ -83,10 +83,10 @@ try {
   // ---- L2 ----
   {
     areas.create({ id: 'brief', name: '合成丙' }, cli, Date.now());
-    const now = Date.now();
-    lead('user:lb', 'brief', now + 60_000);
+    lead('user:lb', 'brief', Date.now() + 1500); // 库里的触发器只认真到了期限的才能标成过期，所以真等一会儿
     const before = areas.get('brief').status;
-    const n = grants.expireDue(now + 120_000);
+    await new Promise((r) => setTimeout(r, 1800));
+    const n = grants.expireDue();
     const after = areas.get('brief').status;
     check(before === 'active' && n === 1 && after === 'pending-lead' && kinds('brief').at(-1) === 'lead-missing',
       'L2 唯一一位负责人的授予到期：领域退回 pending-lead，留痕 lead-missing', { before, n, after, k: kinds('brief') });
