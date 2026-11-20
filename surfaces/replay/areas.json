@@ -384,10 +384,10 @@
           "what": "远程、没登录：写请求总门拦下",
           "request": { "method": "POST", "path": "/api/areas/sales/specs", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "body": "x" } },
           "response": {
-            "status": 403,
+            "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "areas_auth_required" }
           }
         },
         {
@@ -399,8 +399,8 @@
           "response": {
             "status": 403,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "headers": { "cache-control": "private, no-store", "content-length": "119", "etag": "W/\"77-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "areas_spec_holder_only", "message": "定规范只有属主和持这个领域「定规范」授予的人能做" }
           }
         },
         {
@@ -412,8 +412,8 @@
           "response": {
             "status": 403,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "headers": { "cache-control": "private, no-store", "content-length": "119", "etag": "W/\"77-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "areas_spec_holder_only", "message": "定规范只有属主和持这个领域「定规范」授予的人能做" }
           }
         },
         {
@@ -651,10 +651,10 @@
           "what": "远程、没登录：写请求总门拦下",
           "request": { "method": "POST", "path": "/api/areas/sales/specs/activate", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "version": 1 } },
           "response": {
-            "status": 403,
+            "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "areas_auth_required" }
           }
         },
         {
@@ -666,8 +666,8 @@
           "response": {
             "status": 403,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+            "headers": { "cache-control": "private, no-store", "content-length": "119", "etag": "W/\"77-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "areas_spec_holder_only", "message": "定规范只有属主和持这个领域「定规范」授予的人能做" }
           }
         },
         {
@@ -850,6 +850,183 @@
                 { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": 1, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }
               ]
             }
+          }
+        },
+        {
+          "id": "setup-lead",
+          "what": "准备：本机命令行（属主）给 alpha 起草 sales 的领域负责人（sales 还是 pending-lead，只许属主起草负责人）",
+          "vary": { "grant.created_at": 60000, "grant.updated_at": 60000 },
+          "request": { "method": "POST", "path": "/api/grants", "json": { "principal": "user:alpha", "role": "area-lead", "scope": "area:sales", "reason": "合成" } },
+          "save": { "lead": "grant.id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "306", "etag": "W/\"132-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grant": { "id": 4, "principal_id": "user:alpha", "role": "area-lead", "scope": "area:sales", "expires_at": null, "reason": "合成", "status": "draft", "created_by": "cli", "created_by_principal": null, "approved_by": null, "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+            }
+          }
+        },
+        {
+          "id": "setup-lead-submit",
+          "what": "准备：提交",
+          "vary": { "grant.created_at": 60000, "grant.updated_at": 60000 },
+          "request": { "method": "POST", "path": "/api/grants/{{lead}}/submit" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "308", "etag": "W/\"134-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grant": { "id": 4, "principal_id": "user:alpha", "role": "area-lead", "scope": "area:sales", "expires_at": null, "reason": "合成", "status": "pending", "created_by": "cli", "created_by_principal": null, "approved_by": null, "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+            }
+          }
+        },
+        {
+          "id": "setup-lead-approve",
+          "what": "准备：本机命令行放行；sales 同一个事务里变 active",
+          "vary": { "grant.created_at": 60000, "grant.updated_at": 60000 },
+          "request": { "method": "POST", "path": "/api/grants/{{lead}}/approve" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "308", "etag": "W/\"134-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grant": { "id": 4, "principal_id": "user:alpha", "role": "area-lead", "scope": "area:sales", "expires_at": null, "reason": "合成", "status": "active", "created_by": "cli", "created_by_principal": null, "approved_by": "cli", "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+            }
+          }
+        },
+        {
+          "id": "read-after-lead",
+          "route": "GET /api/areas/:id",
+          "class": "normal",
+          "what": "本机命令行读 sales：放行第一位负责人之后是 active",
+          "vary": { "area.created_at": 60000, "area.updated_at": 60000 },
+          "request": { "method": "GET", "path": "/api/areas/sales" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "215", "etag": "W/\"d7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "area": { "id": "sales", "name": "合成销售", "status": "active", "spec_version": 1, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }
+            }
+          }
+        },
+        {
+          "id": "list-lead",
+          "route": "GET /api/areas",
+          "class": "normal",
+          "what": "负责人 alpha（area:sales）：只列出 sales",
+          "vary": { "areas.0.created_at": 60000, "areas.0.updated_at": 60000 },
+          "request": { "method": "GET", "path": "/api/areas", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "218", "etag": "W/\"da-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "areas": [{ "id": "sales", "name": "合成销售", "status": "active", "spec_version": 1, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }]
+            }
+          }
+        },
+        {
+          "id": "spec-add-lead",
+          "route": "POST /api/areas/:id/specs",
+          "class": "unauthorized",
+          "what": "负责人 alpha：负责人不含定规范，403",
+          "request": { "method": "POST", "path": "/api/areas/sales/specs", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "body": "x" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "119", "etag": "W/\"77-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "areas_spec_holder_only", "message": "定规范只有属主和持这个领域「定规范」授予的人能做" }
+          }
+        },
+        {
+          "id": "setup-spec",
+          "what": "准备：本机命令行给 alpha 起草 sales 的定规范",
+          "vary": { "grant.created_at": 60000, "grant.updated_at": 60000 },
+          "request": { "method": "POST", "path": "/api/grants", "json": { "principal": "user:alpha", "role": "area-spec", "scope": "area:sales", "reason": "合成" } },
+          "save": { "spec": "grant.id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "306", "etag": "W/\"132-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grant": { "id": 5, "principal_id": "user:alpha", "role": "area-spec", "scope": "area:sales", "expires_at": null, "reason": "合成", "status": "draft", "created_by": "cli", "created_by_principal": null, "approved_by": null, "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+            }
+          }
+        },
+        {
+          "id": "setup-spec-submit",
+          "what": "准备：提交",
+          "vary": { "grant.created_at": 60000, "grant.updated_at": 60000 },
+          "request": { "method": "POST", "path": "/api/grants/{{spec}}/submit" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "308", "etag": "W/\"134-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grant": { "id": 5, "principal_id": "user:alpha", "role": "area-spec", "scope": "area:sales", "expires_at": null, "reason": "合成", "status": "pending", "created_by": "cli", "created_by_principal": null, "approved_by": null, "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+            }
+          }
+        },
+        {
+          "id": "setup-spec-approve",
+          "what": "准备：本机命令行放行",
+          "vary": { "grant.created_at": 60000, "grant.updated_at": 60000 },
+          "request": { "method": "POST", "path": "/api/grants/{{spec}}/approve" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "308", "etag": "W/\"134-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grant": { "id": 5, "principal_id": "user:alpha", "role": "area-spec", "scope": "area:sales", "expires_at": null, "reason": "合成", "status": "active", "created_by": "cli", "created_by_principal": null, "approved_by": "cli", "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+            }
+          }
+        },
+        {
+          "id": "spec-add-holder",
+          "route": "POST /api/areas/:id/specs",
+          "class": "normal",
+          "what": "持 sales 定规范的 alpha 新加一版：201（这条不经管理员门，路由内认人）",
+          "vary": { "spec.created_at": 60000, "area.created_at": 60000, "area.updated_at": 60000 },
+          "request": { "method": "POST", "path": "/api/areas/sales/specs", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "body": "第三版", "note": "定规范的人加的" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "463", "etag": "W/\"1cf-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "spec": { "version": 3, "sha256": "ae65a56aa28d46596ba2e647bf8721b27d87c9876ebff55d19e78bca97734ad1", "bytes": 9, "note": "定规范的人加的", "created_at": 1893456000000, "created_by": "user:alpha", "created_by_principal": "user:alpha", "active": true },
+              "area": { "id": "sales", "name": "合成销售", "status": "active", "spec_version": 3, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "user:alpha" }
+            }
+          }
+        },
+        {
+          "id": "activate-holder",
+          "route": "POST /api/areas/:id/specs/activate",
+          "class": "normal",
+          "what": "持 sales 定规范的 alpha 回退到第 2 版：200",
+          "vary": { "area.created_at": 60000, "area.updated_at": 60000 },
+          "request": { "method": "POST", "path": "/api/areas/sales/specs/activate", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "version": 2 } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "222", "etag": "W/\"de-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "area": { "id": "sales", "name": "合成销售", "status": "active", "spec_version": 2, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "user:alpha" }
+            }
+          }
+        },
+        {
+          "id": "activate-holder-other-area",
+          "route": "POST /api/areas/:id/specs/activate",
+          "class": "unauthorized",
+          "what": "alpha 在 ops（撤了，也没有授予）上移指针：403",
+          "request": { "method": "POST", "path": "/api/areas/ops/specs/activate", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "version": 1 } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "119", "etag": "W/\"77-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "areas_spec_holder_only", "message": "定规范只有属主和持这个领域「定规范」授予的人能做" }
           }
         }
       ]
