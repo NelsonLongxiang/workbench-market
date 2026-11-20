@@ -4,7 +4,7 @@
  *   GET  /api/areas                          领域清单（看得到的才列；看不到的人是空数组）
  *   GET  /api/areas/:id                      一个领域
  *   POST /api/areas                          建 { id, name }：只有属主（本机命令行在这里算属主）
- *   POST /api/areas/:id/retire               撤 { reason? }：只有属主；还有没结束的 area:<标识> 授予时 409；撤了只读、不删
+ *   POST /api/areas/:id/retire               撤 { reason? }：只有属主；范围是 area:<标识> 的没结束的授予同一个事务里一并撤销（应答带 grants_revoked）；撤了只读、不删
  *   GET  /api/areas/:id/specs                规范的版本清单（不带正文）
  *   GET  /api/areas/:id/specs/:version       一版规范（带正文、sha256）
  *   POST /api/areas/:id/specs                新加一版 { body, note?, sha256? } 并让它生效：第 1 步 PR1 只有属主（PR2 加持本领域 area-spec 的人）
@@ -149,10 +149,10 @@ export function registerAreaRoutes(app: HttpService, deps: AreaRouteDeps): void 
     const id = areaId(req);
     const b = bodyOf(req);
     if (b.reason !== undefined && (typeof b.reason !== 'string' || b.reason.length > 200)) throw new HttpError(400, 'reason 要是不超过 200 个字符的字符串', { code: 'reason_invalid' });
-    const r = areas().retire(id, typeof b.reason === 'string' ? b.reason : '', w.actor, Date.now());
+    const r = areas().retire(id, typeof b.reason === 'string' ? b.reason : '', { ...w.actor, owner: w.owner }, Date.now());
     if (!r.ok) return void refused(res, r);
-    logged('retire', { id }, w.actor.by);
-    res.json({ area: r.area });
+    logged('retire', { id, grants_revoked: r.grants_revoked }, w.actor.by);
+    res.json({ area: r.area, grants_revoked: r.grants_revoked });
   }));
 
   // 移指针登记在新加一版前面：路径更具体，免得被 /:id/specs 之外的写法误配

@@ -6,7 +6,7 @@
   "scenarios": [
     {
       "name": "open",
-      "what": "缺省配置：登录门关，没设管理口令。本机命令行是属主；假登录提供方认出 alpha（员工，没有授予）、beta（准备步骤里由本机命令行放行管理层）。",
+      "what": "缺省配置：登录门关，没设管理口令。本机命令行是属主；假登录提供方认出 alpha（员工，没有授予）、beta（准备步骤里由本机命令行放行管理层）。库里预先放一条范围 area:ops 的草稿授予（撤 ops 时一并撤销）。",
       "env": {},
       "clock": "2030-01-01T00:00:00Z",
       "fixtures": ["identity-fake"],
@@ -14,7 +14,8 @@
         { "table": "principals", "row": { "id": "user:alpha", "id_key": "user:alpha", "kind": "person", "display_name": "合成甲" } },
         { "table": "principals", "row": { "id": "user:beta", "id_key": "user:beta", "kind": "person", "display_name": "合成乙" } },
         { "table": "principal_identities", "row": { "provider": "fake", "external_id": "alpha", "external_key": "alpha", "principal_id": "user:alpha" } },
-        { "table": "principal_identities", "row": { "provider": "fake", "external_id": "beta", "external_key": "beta", "principal_id": "user:beta" } }
+        { "table": "principal_identities", "row": { "provider": "fake", "external_id": "beta", "external_key": "beta", "principal_id": "user:beta" } },
+        { "table": "grants", "row": { "principal_id": "user:alpha", "role": "member", "scope": "area:ops", "reason": "合成", "status": "draft", "created_by": "cli", "created_at": 0, "updated_at": 0 } }
       ],
       "steps": [
         {
@@ -28,7 +29,7 @@
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "297", "etag": "W/\"129-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "grant": { "id": 2, "principal_id": "user:beta", "role": "management", "scope": "*", "expires_at": null, "reason": "合成", "status": "draft", "created_by": "cli", "created_by_principal": null, "approved_by": null, "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+              "grant": { "id": 3, "principal_id": "user:beta", "role": "management", "scope": "*", "expires_at": null, "reason": "合成", "status": "draft", "created_by": "cli", "created_by_principal": null, "approved_by": null, "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
             }
           }
         },
@@ -42,7 +43,7 @@
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "299", "etag": "W/\"12b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "grant": { "id": 2, "principal_id": "user:beta", "role": "management", "scope": "*", "expires_at": null, "reason": "合成", "status": "pending", "created_by": "cli", "created_by_principal": null, "approved_by": null, "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+              "grant": { "id": 3, "principal_id": "user:beta", "role": "management", "scope": "*", "expires_at": null, "reason": "合成", "status": "pending", "created_by": "cli", "created_by_principal": null, "approved_by": null, "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
             }
           }
         },
@@ -56,7 +57,7 @@
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "299", "etag": "W/\"12b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "grant": { "id": 2, "principal_id": "user:beta", "role": "management", "scope": "*", "expires_at": null, "reason": "合成", "status": "active", "created_by": "cli", "created_by_principal": null, "approved_by": "cli", "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+              "grant": { "id": 3, "principal_id": "user:beta", "role": "management", "scope": "*", "expires_at": null, "reason": "合成", "status": "active", "created_by": "cli", "created_by_principal": null, "approved_by": "cli", "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
             }
           }
         },
@@ -767,15 +768,16 @@
           "id": "retire-cli",
           "route": "POST /api/areas/:id/retire",
           "class": "normal",
-          "what": "本机命令行撤 ops：200，retired，不删",
+          "what": "本机命令行撤 ops：200，retired，不删；area:ops 的草稿授予一并撤销",
           "vary": { "area.created_at": 60000, "area.updated_at": 60000 },
           "request": { "method": "POST", "path": "/api/areas/ops/retire", "json": { "reason": "合成" } },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "217", "etag": "W/\"d9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "238", "etag": "W/\"ee-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "area": { "id": "ops", "name": "合成运营", "status": "retired", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }
+              "area": { "id": "ops", "name": "合成运营", "status": "retired", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" },
+              "grants_revoked": [2]
             }
           }
         },

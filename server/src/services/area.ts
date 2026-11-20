@@ -6,13 +6,16 @@
  *   · 新建的领域是 pending-lead（还没有生效的领域负责人；第 1 步 PR2 起属主放行第一条 area-lead 后变 active）；
  *   · 规范正文 1 字节～64 KB（按 UTF-8 字节），摘要（sha256）由这里算；调用方带了摘要的要和正文对得上；
  *   · 新加一版 = 版本号取这个领域现有最大的加一，并把生效指针移到新版；回退 = 只移指针，不新增版本；
- *   · 撤领域：还有没结束的授予（草稿、待核、生效）范围是 area:<标识> 的，不能撤（409）；撤了的只读，不删；
+ *   · 撤领域：范围是 area:<标识> 的没结束的授予（草稿、待核、生效，含最后一位负责人）在同一个写事务里一并撤销，每条记一行痕
+ *     （统筹裁定 2，2026-11-20；单独收回最后一位负责人仍然不行，那是 PR2 的事）；撤了的只读，不删；
  *   · 每次建、撤、新加版本、移指针一行留痕（area_events），和改动同一个写事务。
  * 时间由调用方给（毫秒），不在 SQL 里取。写事务用 BEGIN IMMEDIATE：两次并发新加规范不会拿到同一个版本号。
  */
 import { createHash } from 'node:crypto';
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
+import { svc } from '../context.ts';
+import type { GrantService } from './grant.ts';
 
 export type AreaStatus = 'pending-lead' | 'active' | 'retired';
 export type AreaSource = 'manual' | 'department';
@@ -108,16 +111,16 @@ export class AreaService extends Service {
     });
   }
 
-  retire(id: string, reason: string, actor: AreaActor, now: number): { ok: true; area: AreaView } | AreaRefusal {
+  /** 撤领域：领域改成 retired，范围是 area:<标识> 的没结束的授予一并撤销，同一个写事务；回撤了的授予编号 */
+  retire(id: string, reason: string, actor: AreaActor & { owner: boolean }, now: number): { ok: true; area: AreaView; grants_revoked: number[] } | AreaRefusal {
     return tx(() => {
       const a = this.get(id);
       if (!a) return refuse(404, 'area_missing', `领域 ${id} 不存在`);
       if (a.status === 'retired') return refuse(409, 'area_retired', `领域 ${id} 已经撤了，只读`);
-      const open = db.prepare("SELECT COUNT(*) AS n FROM grants WHERE scope = ? AND status IN ('draft', 'pending', 'active')").get(`area:${id}`) as { n: number };
-      if (Number(open.n) > 0) return refuse(409, 'area_in_use', `还有 ${open.n} 条没结束的授予范围是这个领域，先撤销再撤领域`);
       db.prepare("UPDATE areas SET status = 'retired', updated_at = ?, updated_by = ? WHERE id = ?").run(now, actor.by.slice(0, 256), id);
-      this.event(id, 'retire', null, actor, now, reason);
-      return { ok: true as const, area: this.get(id)! };
+      const revoked = svc<GrantService>('grants').revokeScopeInTx(`area:${id}`, actor, `撤领域 ${id}${reason.trim() ? `：${reason.trim()}` : ''}`, now);
+      this.event(id, 'retire', null, actor, now, JSON.stringify({ reason, grants_revoked: revoked }));
+      return { ok: true as const, area: this.get(id)!, grants_revoked: revoked };
     });
   }
 
