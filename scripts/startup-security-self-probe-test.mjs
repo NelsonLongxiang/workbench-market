@@ -10,7 +10,7 @@ const express=require('express');
 const { createStartupSecurityProbe, isStartupProbeRequest }=await import('../server/src/startup-security-self-probe.ts');
 let checks=0;const check=(name,condition)=>{assert.ok(condition,name);checks++;console.log('PASS '+name);};
 const noAuth='DO_NOT_LOG_SYNTHETIC_CREDENTIAL';
-async function fixture({ticketUploadBroken=false,resultRefOpen=false,seatTokenBroken=false,accessBroken=false,mcpBroken=false,writeBroken=false,principalsBroken=false,localAccountsBroken=false,approveBroken=false,callbackBroken=false,eventBroken=false,exportBroken=false,creatorBroken=false,listBroken=false,arrangeBroken=false,uploadBroken=false,dueBroken=false,seatReplyBroken=false,seatAskBroken=false,leadReleaseBroken=false,grantsBroken=false,grantApproveBroken=false,knowledgeBroken=false,areaCreateBroken=false,areaSpecBroken=false,areaReadBroken=false,knowledgeMapBroken=false,rememberBroken=false,teamReassignBroken=false,attentionBroken=false,appDataBroken=false,varsMissingBroken=false,runWriteBroken=false,hang=false,off=false,control=false,hold=false,noChallenge=false,successWrite=false,nodeEnv='test',cockpitBroken=false}={}){
+async function fixture({decisionCardBroken=false,ticketUploadBroken=false,resultRefOpen=false,seatTokenBroken=false,accessBroken=false,mcpBroken=false,writeBroken=false,principalsBroken=false,localAccountsBroken=false,approveBroken=false,callbackBroken=false,eventBroken=false,exportBroken=false,creatorBroken=false,listBroken=false,arrangeBroken=false,uploadBroken=false,dueBroken=false,seatReplyBroken=false,seatAskBroken=false,leadReleaseBroken=false,grantsBroken=false,grantApproveBroken=false,knowledgeBroken=false,areaCreateBroken=false,areaSpecBroken=false,areaReadBroken=false,knowledgeMapBroken=false,rememberBroken=false,teamReassignBroken=false,attentionBroken=false,appDataBroken=false,varsMissingBroken=false,runWriteBroken=false,hang=false,off=false,control=false,hold=false,noChallenge=false,successWrite=false,nodeEnv='test',cockpitBroken=false}={}){
  const app=express(),logs=[],db=new DatabaseSync(':memory:');db.exec('CREATE TABLE workbenches(id INTEGER PRIMARY KEY,name TEXT)');let ordinaryHits=0;const requests=[];
  const probe=createStartupSecurityProbe({timeoutMs:hang?50:500,log:row=>logs.push(row)});app.use(probe.middleware);app.use(express.json());let release;const barrier=hold?new Promise(r=>release=r):Promise.resolve();
  const server=createServer(app);await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;
@@ -48,6 +48,7 @@ async function fixture({ticketUploadBroken=false,resultRefOpen=false,seatTokenBr
  app.get('/login/feishu/callback',(_req,res)=>callbackBroken?res.redirect(302,'/work-items'):res.status(400).end());
  app.post('/login/feishu/events',(_req,res)=>eventBroken?res.status(200).json({}):res.status(401).end());
  app.post('/api/a2a/seat-token',(_req,res)=>seatTokenBroken?res.status(200).json({token:'0'.repeat(64)}):res.status(401).json({error:'seat_token_refused'}));
+ app.post('/a2a/direct',(_req,res)=>decisionCardBroken?res.status(200).json({ok:true,status:'stored'}):res.status(401).json({ok:false,error:'untrusted-origin'}));
  app.put('/api/mcp-rest/uploads/:ticket',(_req,res)=>ticketUploadBroken?res.status(201).json({id:1,sha256:noAuth}):res.status(404).json({error:'ticket_missing'}));
  app.get('/api/mcp-rest/results/:id',(_req,res)=>resultRefOpen?res.status(200).json({leaked:true}):res.status(401).json({error:'denied'}));
  app.get('/api/health',(_req,res)=>res.json({self_probe:probe.snapshot()}));
@@ -73,6 +74,7 @@ async function fixture({ticketUploadBroken=false,resultRefOpen=false,seatTokenBr
 }
 {
  const f=await fixture({eventBroken:true});try{const r=await f.start();check('login event endpoint that accepts an unsigned event fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.login-flow.unsigned-event');}finally{await f.close();}
+ { const fd=await fixture({decisionCardBroken:true});try{const r=await fd.start();check('decision-card branch that stores an unsigned card fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.a2a-decision-card.unsigned');}finally{await fd.close();} }
  const f2=await fixture({exportBroken:true});try{const r=await f2.start();check('export that reveals real values to a remote anonymous browser fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.export.reveal-anonymous');}finally{await f2.close();}
  const f3=await fixture({creatorBroken:true});try{const r=await f3.start();check('creator decision entry that lets a remote anonymous browser decide fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.work-items.creator-decision-anonymous');}finally{await f3.close();}
  const f4=await fixture({seatReplyBroken:true});try{const r=await f4.start();check('seat message reply entry that lets a remote anonymous browser reply fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.work-items.seat-reply-anonymous');}finally{await f4.close();}
@@ -157,6 +159,7 @@ for(const nodeEnv of ['development','test']){
  app.get('/login/feishu/callback',(_req,res)=>res.status(400).end());
  app.post('/login/feishu/events',(_req,res)=>res.status(401).end());
  app.post('/api/a2a/seat-token',(_req,res)=>res.status(401).end());
+ app.post('/a2a/direct',(_req,res)=>res.status(401).end());
  app.put('/api/mcp-rest/uploads/:ticket',(_req,res)=>res.status(404).end());
  app.get('/api/mcp-rest/results/:id',(_req,res)=>res.status(401).end());
  app.get('/api/work-items',(_req,res)=>res.status(401).end());
