@@ -534,7 +534,7 @@ README 要补四处：
 
 | PR | 范围 | 主要文件 | 表 | 测试 | 用例（第九节） |
 |---|---|---|---|---|---|
-| **1 · 助理主体** | 主体表重建加上 `assistant` 类别；在建人的地方顺带建助理；存量补齐；授予服务拒绝助理（`422 assistant_no_grants`）；会话认人只认人，补一条断言 | `db.ts`、`services/principal.ts`、`services/grant.ts`、`red-lines.ts`（加一条「助理没有授予」）、`startup-security-self-probe.ts`（不加行：本 PR 不开新入口） | `principals` 重建；新部分唯一索引 `ux_principals_one_assistant` | 新 `scripts/assistant-identity-test.mjs` 的主体部分；`upgrade-smoke` 两条基线（钉住的 `fa89254f` 和缺省） | A0～A8、A18～A21 |
+| **1 · 助理主体** | 主体表重建加上 `assistant` 类别；在建人的地方顺带建助理；存量补齐；授予服务拒绝助理（`422 assistant_no_grants`，写在私有 `check()` 的**最前面**，见第 3 小节）；授予表加一个触发器，拒绝主体是助理的行（纵深防御）；会话认人只认人，补一条断言 | `db.ts`、`services/principal.ts`、`services/grant.ts`、`red-lines.ts`（加一条「助理没有授予」）；`startup-security-self-probe.ts` 只核不改（本 PR 不开新入口，不加自检行） | `principals` 重建；新部分唯一索引 `ux_principals_one_assistant`；`grants` 加触发器 `grants_no_assistant` | 新 `scripts/assistant-identity-test.mjs` 的主体部分；`upgrade-smoke` 两条基线（钉住的 `fa89254f` 和缺省） | A0～A8、A18～A21 |
 | **2 · 令牌和入口** | `assistant_tokens`；`GET /api/assistant`、取令牌、停用、启用；`/mcp` 按 `wma_` 前缀分流；`whoami`；`WM_ASSISTANT`、`WM_TEST_FIXTURES`、`test_counter_bump` 的登记条件；管理员重置密码时删令牌 | 新 `routes/assistant.ts`、`services/assistant.ts`、`assistant-tools.ts`；`index.ts`（`/mcp` 分流、注册路由）；`routes/local-accounts.ts`（重置密码删令牌）；`startup-security-self-probe.ts`（第七节第 2、3、4 行） | `assistant_tokens` | `assistant-identity-test.mjs` 的令牌部分 | A9～A17、A22 |
 | **3 · 确认门** | `assistant_confirms`；生成、限速、确认、重判、只用一次、时限和清扫、卡住的行；`assistant_confirm_status`；「替我办过的事」；本人改密码时「同时作废助理令牌」的服务端；**确认页 SPA 路由 `/assistant/confirm/*` 本身的三个响应头**（见第 5 小节） | `routes/assistant.ts`、`services/assistant.ts`、`assistant-tools.ts`；新 `confirm-gate.ts`（第 4 小节）；`index.ts`（SPA 路由加头）；`routes/local-accounts.ts`（本人改密码）；`startup-security-self-probe.ts`（第七节第 1 行） | `assistant_confirms` 和它的触发器 | 新 `scripts/assistant-confirm-test.mjs` | C1～C25（C26 待隔离方案） |
 | **4 · 前端** | 「我的助理」页、「待你确认」页、改密码页的勾选。现成的草稿 #836、#838（base `release/6`）照第六节的接口改过再合，不另起 | `web/src/` | — | 前端单测；浏览器回归走共用测试环境 | 第九节验收第 1、4、5 条 |
@@ -548,7 +548,13 @@ PR 1、2 都不生成「待你确认」，工具表里只有只看的 `whoami`�
 | 文件或表 | 第 1 步怎么改 | 第 1 期怎么改 | 怎么处理 |
 |---|---|---|---|
 | `server/src/db.ts` | 新三张表和触发器，追加在文件里 | 重建 `principals`，新增两张表 | 都是追加，文字冲突小。**PR 1 的重建要在第 1 步的新表之后跑**：两边都在启动迁移里，第 1 步的表不引用 `principals`，顺序无关正确性，但 PR 1 变基到第 1 步之上时要重跑 A5、A19～A21 |
-| `server/src/services/grant.ts` 的 `issueCheck` | 加 `area:` 的范围核对；停止起草 `dept:` | 加「助理一律不给授予」 | 同一个函数里各加一个分支。**助理那一条放在最前面**，任何范围（`*`、`area:`、`dept:`）都先拒。PR 1 的 A7 补一条：给助理起草 `area:` 范围的授予也是 `422 assistant_no_grants` |
+| `server/src/services/grant.ts` 的私有 `check()` | 加 `area:` 的范围核对；停止起草 `dept:` | 加「助理一律不给授予」 | **写在 `check()` 的最前面，不写在 `issueCheck`**：`issueCheck` 只是包了一层 `return this.check(…)`，起草 `draft()` 和提交、放行都直接调 `check()`。放在最前面，任何范围（`*`、`area:`、`dept:`）都回同一个 `422 assistant_no_grants`，也不会借助理探测领域存不存在（放在后面的话，不存在的 `area:x` 会先回 `area_unknown`）。A7 的补充和变异见本表下面 |
+| `server/src/services/grant.ts` 的 `migrate()` | 不改 | 不改 | 它不经 `check()`，只靠 `kind = 'person'` 挡住非人。PR 1 补断言：对助理主体调 `migrate()` 回 `null`，不写授予 |
+| `server/src/services/dept-lead-grant.ts` | 停写（第六节） | 不改 | 它经 `issueCheck` 写授予，第 1 步之后不再起草 `dept:` 的，但存量路径还在。PR 1 补断言：经这条路径给助理设负责人，被 `assistant_no_grants` 拒 |
+| `server/src/judgment.ts` 的 `scopedVerdict`、`grantWithin` | 认 `area:`；过渡期 `dept:` 同标识也算 | 不改 | 助理不持授予，判定对它应当拿不到任何业务权限。PR 1 补断言（第 1 步合进来之后跑）：助理主体在 `area:` 和 `dept:` 两种范围上都判不出放行 |
+| `server/src/services/relation-proposal.ts` | 不再收新的 `dept-lead` 提议 | 不改 | 提议的对象要是能选到助理，放行时会走授予服务。PR 1 补断言：以助理为对象的提议，放行时被授予服务拒（或者在建提议时就拒，二者取实现时更近的那一处，断言照实际写） |
+| `server/src/attention-names.ts` | 不改（第 5 步才改） | 不改 | PR 1 让列主体的地方多出助理行。补断言：助理行不进名字解析里「同部门（同领域）互相看得见名字」的判断 |
+| `server/src/knowledge-remember.ts` | 写经验的可见范围写成 `area:` | 不改 | 补断言：「记成经验」的写入人不会是助理主体（经验由本人的市场会话记；助理经确认门执行时，`actor` 写本人，第五节） |
 | `server/src/red-lines.ts` | 加「`area-spec` 只有属主能授」 | 加「助理没有授予」 | 各加一条，冲突只在列表末尾 |
 | `server/src/startup-security-self-probe.ts` | 加一行：远程匿名 `POST /api/areas`、`/api/areas/:id/specs` 必须 401/403 | PR 2、3 共加第七节的四行 | 各加各的行；回放 `health.json` 的自检行要按合并后的代码重录（自检行冲突以前在 #543 和 #554 之间出过） |
 | `server/src/index.ts` | 注册 `areas` 路由 | 注册 `assistant` 路由；`/mcp` 分流；SPA 确认页加头 | 不同的位置，变基时文字冲突 |
@@ -559,6 +565,19 @@ PR 1、2 都不生成「待你确认」，工具表里只有只看的 `whoami`�
 | `grants` 表 | 不改结构，多了 `area:` 范围的行 | 不改结构，拒绝主体是助理的行 | 没有结构冲突 |
 | `surfaces/schema.json`、`routes.json`、`actions.json` | 多表、多路由、多动作 | 同样 | 后合的一方按合并后的代码重写快照 |
 | 回放 `principals.json`、`access.json`、`setup-wizard.json` 等 | `grants.json` 等变 | **PR 1 会让所有「列主体」的应答多出助理行**（`GET /api/principals` 照常列出助理） | PR 1 里逐条列出要重录的域；列人的地方（团队、设置向导）应当零差异，A8 守着 |
+
+**A7 的补充。** 原来只覆盖起草，PR 1 补齐写授予的几条路径和次序：
+
+- 起草：任何范围都回 `422 assistant_no_grants`，包括一个**不存在的** `area:x`（钉住次序：不能先回 `area_unknown`）；
+- 绕过服务、直接往授予表插一行主体是助理的：被触发器 `grants_no_assistant` 拒。授予的主体建好之后不能改（现有触发器 `grants_fixed`），加上这个触发器，库里不会出现主体是助理的授予，所以提交、放行不用另设用例；
+- `dept-lead-grant` 的路径、`migrate()`：见上表；
+- 第 1 步新加的写 `area:` 授予的路径：开工时按它实际的 PR 补一条。
+
+对应的变异：
+
+- 去掉 `check()` 里那一条（服务层不拦，只剩触发器：起草回的不再是 `422 assistant_no_grants`，A7 变红）；
+- **把那一条挪到 `area:` 核对之后**（不存在的 `area:x` 改回 `area_unknown`，A7 的次序断言变红）；
+- 去掉触发器（绕过服务直接插入那一条变红）。
 
 **第 3 期按领域改**的时候还要再对一次第 2、3 步：助理的工具表要接领域的触发、验收动作。这不在本期。
 
