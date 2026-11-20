@@ -218,7 +218,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "9726", "etag": "W/\"25fe-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "9728", "etag": "W/\"2600-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "blocks": [
                 { "key": "overview", "name": "全景" },
@@ -260,11 +260,11 @@
                     "attention": { "read": "all", "write": "na", "decide": "none", "admin": "na" },
                     "bench-data": { "read": "none", "write": "some", "decide": "none", "admin": "all" },
                     "knowledge": { "read": "none", "write": "na", "decide": "none", "admin": "all" },
-                    "team": { "read": "all", "write": "all", "decide": "none", "admin": "all" },
+                    "team": { "read": "some", "write": "all", "decide": "none", "admin": "all" },
                     "access": { "read": "all", "write": "na", "decide": "na", "admin": "some" },
                     "system": { "read": "all", "write": "all", "decide": "none", "admin": "some" }
                   },
-                  "summary": { "see": "能看：全景（全部）、事项与对话（部分）、关注（全部）、团队与 AI 员工（全部）、权限与角色（全部）、系统与节点（全部）", "do": "能做：事项与对话（部分）、工作台数据（部分）、团队与 AI 员工（全部）、系统与节点（全部）；能管：全景（全部）、事项与对话（全部）、工作台数据（全部）、经验库（全部）、团队与 AI 员工（全部）、权限与角色（部分）、系统与节点（部分）", "decide": "能拍板：无", "cannot": "一律不能拍板" }
+                  "summary": { "see": "能看：全景（全部）、事项与对话（部分）、关注（全部）、团队与 AI 员工（部分）、权限与角色（全部）、系统与节点（全部）", "do": "能做：事项与对话（部分）、工作台数据（部分）、团队与 AI 员工（全部）、系统与节点（全部）；能管：全景（全部）、事项与对话（全部）、工作台数据（全部）、经验库（全部）、团队与 AI 员工（全部）、权限与角色（部分）、系统与节点（部分）", "decide": "能拍板：无", "cannot": "一律不能拍板" }
                 },
                 {
                   "id": "management",
@@ -277,11 +277,11 @@
                     "attention": { "read": "all", "write": "na", "decide": "all", "admin": "na" },
                     "bench-data": { "read": "all", "write": "all", "decide": "all", "admin": "none" },
                     "knowledge": { "read": "all", "write": "na", "decide": "all", "admin": "none" },
-                    "team": { "read": "all", "write": "all", "decide": "all", "admin": "none" },
+                    "team": { "read": "all", "write": "all", "decide": "some", "admin": "none" },
                     "access": { "read": "all", "write": "na", "decide": "na", "admin": "none" },
                     "system": { "read": "all", "write": "all", "decide": "all", "admin": "none" }
                   },
-                  "summary": { "see": "能看：全景（全部）、事项与对话（全部）、关注（全部）、工作台数据（全部）、经验库（全部）、团队与 AI 员工（全部）、权限与角色（全部）、系统与节点（全部）", "do": "能做：事项与对话（全部）、工作台数据（全部）、团队与 AI 员工（全部）、系统与节点（全部）；能管：全景（全部）", "decide": "能拍板：事项与对话（全部）、关注（全部）、工作台数据（全部）、经验库（全部）、团队与 AI 员工（全部）、系统与节点（全部）", "cannot": "没有整块碰不到的" }
+                  "summary": { "see": "能看：全景（全部）、事项与对话（全部）、关注（全部）、工作台数据（全部）、经验库（全部）、团队与 AI 员工（全部）、权限与角色（全部）、系统与节点（全部）", "do": "能做：事项与对话（全部）、工作台数据（全部）、团队与 AI 员工（全部）、系统与节点（全部）；能管：全景（全部）", "decide": "能拍板：事项与对话（全部）、关注（全部）、工作台数据（全部）、经验库（全部）、团队与 AI 员工（部分）、系统与节点（全部）", "cannot": "没有整块碰不到的" }
                 },
                 {
                   "id": "dept-lead",

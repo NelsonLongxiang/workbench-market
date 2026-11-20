@@ -20,6 +20,7 @@
         {
           "id": "setup-grant",
           "what": "准备：本机命令行给 beta 起草管理层（范围 *）",
+          "vary": { "grant.created_at": 60000, "grant.updated_at": 60000 },
           "request": { "method": "POST", "path": "/api/grants", "json": { "principal": "user:beta", "role": "management", "scope": "*", "reason": "合成" } },
           "save": { "g": "grant.id" },
           "response": {
@@ -27,33 +28,35 @@
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "297", "etag": "W/\"129-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "grant": { "id": 2, "principal_id": "user:beta", "role": "management", "scope": "*", "expires_at": null, "reason": "合成", "status": "draft", "created_by": "cli", "created_by_principal": null, "approved_by": null, "approved_by_principal": null, "created_at": 1893456000609, "updated_at": 1893456000609, "source": "manual" }
+              "grant": { "id": 2, "principal_id": "user:beta", "role": "management", "scope": "*", "expires_at": null, "reason": "合成", "status": "draft", "created_by": "cli", "created_by_principal": null, "approved_by": null, "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
             }
           }
         },
         {
           "id": "setup-submit",
           "what": "准备：提交",
+          "vary": { "grant.created_at": 60000, "grant.updated_at": 60000 },
           "request": { "method": "POST", "path": "/api/grants/{{g}}/submit" },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "299", "etag": "W/\"12b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "grant": { "id": 2, "principal_id": "user:beta", "role": "management", "scope": "*", "expires_at": null, "reason": "合成", "status": "pending", "created_by": "cli", "created_by_principal": null, "approved_by": null, "approved_by_principal": null, "created_at": 1893456000609, "updated_at": 1893456000612, "source": "manual" }
+              "grant": { "id": 2, "principal_id": "user:beta", "role": "management", "scope": "*", "expires_at": null, "reason": "合成", "status": "pending", "created_by": "cli", "created_by_principal": null, "approved_by": null, "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
             }
           }
         },
         {
           "id": "setup-approve",
           "what": "准备：本机命令行（属主）放行",
+          "vary": { "grant.created_at": 60000, "grant.updated_at": 60000 },
           "request": { "method": "POST", "path": "/api/grants/{{g}}/approve" },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "299", "etag": "W/\"12b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "grant": { "id": 2, "principal_id": "user:beta", "role": "management", "scope": "*", "expires_at": null, "reason": "合成", "status": "active", "created_by": "cli", "created_by_principal": null, "approved_by": "cli", "approved_by_principal": null, "created_at": 1893456000609, "updated_at": 1893456000614, "source": "manual" }
+              "grant": { "id": 2, "principal_id": "user:beta", "role": "management", "scope": "*", "expires_at": null, "reason": "合成", "status": "active", "created_by": "cli", "created_by_principal": null, "approved_by": "cli", "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
             }
           }
         },
@@ -114,13 +117,14 @@
           "route": "POST /api/areas",
           "class": "normal",
           "what": "本机命令行（属主）建 sales：201，pending-lead",
+          "vary": { "area.created_at": 60000, "area.updated_at": 60000 },
           "request": { "method": "POST", "path": "/api/areas", "json": { "id": "sales", "name": "合成销售" } },
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "224", "etag": "W/\"e0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "area": { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000620, "created_by": "cli", "updated_at": 1893456000620, "updated_by": "cli" }
+              "area": { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }
             }
           }
         },
@@ -129,13 +133,14 @@
           "route": "POST /api/areas",
           "class": "normal",
           "what": "本机命令行建 ops：201",
+          "vary": { "area.created_at": 60000, "area.updated_at": 60000 },
           "request": { "method": "POST", "path": "/api/areas", "json": { "id": "ops", "name": "合成运营" } },
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "222", "etag": "W/\"de-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "area": { "id": "ops", "name": "合成运营", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000621, "created_by": "cli", "updated_at": 1893456000621, "updated_by": "cli" }
+              "area": { "id": "ops", "name": "合成运营", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }
             }
           }
         },
@@ -196,6 +201,7 @@
           "route": "GET /api/areas",
           "class": "normal",
           "what": "本机命令行：两个都在",
+          "vary": { "areas.0.created_at": 60000, "areas.0.updated_at": 60000, "areas.1.created_at": 60000, "areas.1.updated_at": 60000 },
           "request": { "method": "GET", "path": "/api/areas" },
           "response": {
             "status": 200,
@@ -203,8 +209,8 @@
             "headers": { "cache-control": "private, no-store", "content-length": "441", "etag": "W/\"1b9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "areas": [
-                { "id": "ops", "name": "合成运营", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000621, "created_by": "cli", "updated_at": 1893456000621, "updated_by": "cli" },
-                { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000620, "created_by": "cli", "updated_at": 1893456000620, "updated_by": "cli" }
+                { "id": "ops", "name": "合成运营", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" },
+                { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }
               ]
             }
           }
@@ -214,6 +220,7 @@
           "route": "GET /api/areas",
           "class": "normal",
           "what": "这条路由不读查询串：带无关参数照常",
+          "vary": { "areas.0.created_at": 60000, "areas.0.updated_at": 60000, "areas.1.created_at": 60000, "areas.1.updated_at": 60000 },
           "request": { "method": "GET", "path": "/api/areas?x=1&y[]=2" },
           "response": {
             "status": 200,
@@ -221,8 +228,8 @@
             "headers": { "cache-control": "private, no-store", "content-length": "441", "etag": "W/\"1b9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "areas": [
-                { "id": "ops", "name": "合成运营", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000621, "created_by": "cli", "updated_at": 1893456000621, "updated_by": "cli" },
-                { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000620, "created_by": "cli", "updated_at": 1893456000620, "updated_by": "cli" }
+                { "id": "ops", "name": "合成运营", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" },
+                { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }
               ]
             }
           }
@@ -232,6 +239,7 @@
           "route": "GET /api/areas",
           "class": "normal",
           "what": "管理层 beta：看全部",
+          "vary": { "areas.0.created_at": 60000, "areas.0.updated_at": 60000, "areas.1.created_at": 60000, "areas.1.updated_at": 60000 },
           "request": { "method": "GET", "path": "/api/areas", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
           "response": {
             "status": 200,
@@ -239,8 +247,8 @@
             "headers": { "cache-control": "private, no-store", "content-length": "441", "etag": "W/\"1b9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "areas": [
-                { "id": "ops", "name": "合成运营", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000621, "created_by": "cli", "updated_at": 1893456000621, "updated_by": "cli" },
-                { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000620, "created_by": "cli", "updated_at": 1893456000620, "updated_by": "cli" }
+                { "id": "ops", "name": "合成运营", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" },
+                { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }
               ]
             }
           }
@@ -289,13 +297,14 @@
           "route": "GET /api/areas/:id",
           "class": "normal",
           "what": "本机命令行读 sales",
+          "vary": { "area.created_at": 60000, "area.updated_at": 60000 },
           "request": { "method": "GET", "path": "/api/areas/sales" },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "224", "etag": "W/\"e0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "area": { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000620, "created_by": "cli", "updated_at": 1893456000620, "updated_by": "cli" }
+              "area": { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }
             }
           }
         },
@@ -304,13 +313,14 @@
           "route": "GET /api/areas/:id",
           "class": "normal",
           "what": "管理层读 sales",
+          "vary": { "area.created_at": 60000, "area.updated_at": 60000 },
           "request": { "method": "GET", "path": "/api/areas/sales", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "224", "etag": "W/\"e0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "area": { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000620, "created_by": "cli", "updated_at": 1893456000620, "updated_by": "cli" }
+              "area": { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }
             }
           }
         },
@@ -410,14 +420,15 @@
           "route": "POST /api/areas/:id/specs",
           "class": "normal",
           "what": "本机命令行新加第 1 版：201，生效",
+          "vary": { "spec.created_at": 60000, "area.created_at": 60000, "area.updated_at": 60000 },
           "request": { "method": "POST", "path": "/api/areas/sales/specs", "json": { "body": "# 合成规范\n第一版", "note": "第一版" } },
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "436", "etag": "W/\"1b4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "spec": { "version": 1, "sha256": "54b307313a860d2386bfbf937ac101f0522f6abaa6ff8f4504d977a9de432f13", "bytes": 24, "note": "第一版", "created_at": 1893456000633, "created_by": "cli", "created_by_principal": null, "active": true },
-              "area": { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": 1, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000620, "created_by": "cli", "updated_at": 1893456000633, "updated_by": "cli" }
+              "spec": { "version": 1, "sha256": "54b307313a860d2386bfbf937ac101f0522f6abaa6ff8f4504d977a9de432f13", "bytes": 24, "note": "第一版", "created_at": 1893456000000, "created_by": "cli", "created_by_principal": null, "active": true },
+              "area": { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": 1, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }
             }
           }
         },
@@ -426,14 +437,15 @@
           "route": "POST /api/areas/:id/specs",
           "class": "normal",
           "what": "带对得上的 sha256 新加第 2 版：201",
+          "vary": { "spec.created_at": 60000, "area.created_at": 60000, "area.updated_at": 60000 },
           "request": { "method": "POST", "path": "/api/areas/sales/specs", "json": { "body": "第二版", "sha256": "11b8dabcaf337e8aa119e31120d5b317c1dd310758fd35552251eaa5cc928589" } },
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "426", "etag": "W/\"1aa-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "spec": { "version": 2, "sha256": "11b8dabcaf337e8aa119e31120d5b317c1dd310758fd35552251eaa5cc928589", "bytes": 9, "note": "", "created_at": 1893456000634, "created_by": "cli", "created_by_principal": null, "active": true },
-              "area": { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": 2, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000620, "created_by": "cli", "updated_at": 1893456000634, "updated_by": "cli" }
+              "spec": { "version": 2, "sha256": "11b8dabcaf337e8aa119e31120d5b317c1dd310758fd35552251eaa5cc928589", "bytes": 9, "note": "", "created_at": 1893456000000, "created_by": "cli", "created_by_principal": null, "active": true },
+              "area": { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": 2, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }
             }
           }
         },
@@ -494,6 +506,7 @@
           "route": "GET /api/areas/:id/specs",
           "class": "normal",
           "what": "本机命令行：两版，不带正文",
+          "vary": { "specs.0.created_at": 60000, "specs.1.created_at": 60000 },
           "request": { "method": "GET", "path": "/api/areas/sales/specs" },
           "response": {
             "status": 200,
@@ -503,8 +516,8 @@
               "area_id": "sales",
               "spec_version": 2,
               "specs": [
-                { "version": 2, "sha256": "11b8dabcaf337e8aa119e31120d5b317c1dd310758fd35552251eaa5cc928589", "bytes": 9, "note": "", "created_at": 1893456000634, "created_by": "cli", "created_by_principal": null, "active": true },
-                { "version": 1, "sha256": "54b307313a860d2386bfbf937ac101f0522f6abaa6ff8f4504d977a9de432f13", "bytes": 24, "note": "第一版", "created_at": 1893456000633, "created_by": "cli", "created_by_principal": null, "active": false }
+                { "version": 2, "sha256": "11b8dabcaf337e8aa119e31120d5b317c1dd310758fd35552251eaa5cc928589", "bytes": 9, "note": "", "created_at": 1893456000000, "created_by": "cli", "created_by_principal": null, "active": true },
+                { "version": 1, "sha256": "54b307313a860d2386bfbf937ac101f0522f6abaa6ff8f4504d977a9de432f13", "bytes": 24, "note": "第一版", "created_at": 1893456000000, "created_by": "cli", "created_by_principal": null, "active": false }
               ]
             }
           }
@@ -540,6 +553,7 @@
           "route": "GET /api/areas/:id/specs/:version",
           "class": "normal",
           "what": "本机命令行读第 1 版：带正文和 sha256",
+          "vary": { "spec.created_at": 60000 },
           "request": { "method": "GET", "path": "/api/areas/sales/specs/1" },
           "response": {
             "status": 200,
@@ -547,7 +561,7 @@
             "headers": { "cache-control": "private, no-store", "content-length": "270", "etag": "W/\"10e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "area_id": "sales",
-              "spec": { "version": 1, "sha256": "54b307313a860d2386bfbf937ac101f0522f6abaa6ff8f4504d977a9de432f13", "bytes": 24, "note": "第一版", "created_at": 1893456000633, "created_by": "cli", "created_by_principal": null, "active": false, "body": "# 合成规范\n第一版" }
+              "spec": { "version": 1, "sha256": "54b307313a860d2386bfbf937ac101f0522f6abaa6ff8f4504d977a9de432f13", "bytes": 24, "note": "第一版", "created_at": 1893456000000, "created_by": "cli", "created_by_principal": null, "active": false, "body": "# 合成规范\n第一版" }
             }
           }
         },
@@ -660,13 +674,14 @@
           "route": "POST /api/areas/:id/specs/activate",
           "class": "normal",
           "what": "本机命令行回退到第 1 版：200，只移指针",
+          "vary": { "area.created_at": 60000, "area.updated_at": 60000 },
           "request": { "method": "POST", "path": "/api/areas/sales/specs/activate", "json": { "version": 1 } },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "221", "etag": "W/\"dd-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "area": { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": 1, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000620, "created_by": "cli", "updated_at": 1893456000642, "updated_by": "cli" }
+              "area": { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": 1, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }
             }
           }
         },
@@ -753,13 +768,14 @@
           "route": "POST /api/areas/:id/retire",
           "class": "normal",
           "what": "本机命令行撤 ops：200，retired，不删",
+          "vary": { "area.created_at": 60000, "area.updated_at": 60000 },
           "request": { "method": "POST", "path": "/api/areas/ops/retire", "json": { "reason": "合成" } },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "217", "etag": "W/\"d9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "area": { "id": "ops", "name": "合成运营", "status": "retired", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000621, "created_by": "cli", "updated_at": 1893456000645, "updated_by": "cli" }
+              "area": { "id": "ops", "name": "合成运营", "status": "retired", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }
             }
           }
         },
@@ -820,6 +836,7 @@
           "route": "GET /api/areas",
           "class": "normal",
           "what": "本机命令行：ops 是 retired，仍然列着",
+          "vary": { "areas.0.created_at": 60000, "areas.0.updated_at": 60000, "areas.1.created_at": 60000, "areas.1.updated_at": 60000 },
           "request": { "method": "GET", "path": "/api/areas" },
           "response": {
             "status": 200,
@@ -827,8 +844,8 @@
             "headers": { "cache-control": "private, no-store", "content-length": "433", "etag": "W/\"1b1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "areas": [
-                { "id": "ops", "name": "合成运营", "status": "retired", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000621, "created_by": "cli", "updated_at": 1893456000645, "updated_by": "cli" },
-                { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": 1, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000620, "created_by": "cli", "updated_at": 1893456000642, "updated_by": "cli" }
+                { "id": "ops", "name": "合成运营", "status": "retired", "spec_version": null, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" },
+                { "id": "sales", "name": "合成销售", "status": "pending-lead", "spec_version": 1, "team_host": "", "team": "", "source": "manual", "created_at": 1893456000000, "created_by": "cli", "updated_at": 1893456000000, "updated_by": "cli" }
               ]
             }
           }
