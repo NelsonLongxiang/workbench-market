@@ -297,7 +297,7 @@ export function emptyText(t: Teams, departments: Department[] | null, admin: boo
   const anyTeam = t.departments.some((d) => d.teams.length > 0) || (t.unclaimed?.length ?? 0) > 0;
   if (departments !== null && departments.length === 0) {
     return admin
-      ? '还没有部门。先建部门，再把待认领的团队挂到部门上，部门负责人就是团队的负责人。'
+      ? '还没有部门。部门正在换成领域：建领域在侧栏的「领域」页，这一页不再建部门。'
       : '还没有部门，团队要等管理员先建部门、认领之后才会出现在这里。';
   }
   if (!anyTeam) return admin ? '还没有团队。节点报上名册之后，团队会先出现在「待认领的团队」里。' : '还没有你能看到的团队。你所在部门的团队、你负责的团队、分给你的 AI 员工所在的团队会出现在这里。';

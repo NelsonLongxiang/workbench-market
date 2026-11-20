@@ -56,6 +56,7 @@ try {
     'scripts/remember-browser.py',
     'scripts/access-browser.py',
     'scripts/team-browser.py',
+    'scripts/areas-browser.py',
     'scripts/cockpit-attention-browser.py',
     'scripts/cockpit-embed-browser.py',
     'scripts/seat-name-browser.py',

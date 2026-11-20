@@ -2,7 +2,7 @@
 团队的读接口（GET /api/teams）用合成的应答（经 page.route 截下：名册要节点报上来，实例里造不出）；部门、人用实例真的，建部门真的写进实例。
 认领、指定负责人两个写请求也截下，核对发了什么。
   · 没登录：说请先登录，不弹口令框；
-  · 管理员、还没有部门：说「还没有部门，先建部门」，给建部门的入口；建部门的校验（标识写错不能建），建好之后部门真的有了；
+  · 管理员、还没有部门：说部门正在换成领域，不再给建部门的入口，指去「领域」页（领域第 1 步，统筹 11-20）；部门由测试直接调接口建进实例；
   · 待认领的团队：只有管理员的视图里有；挂到部门，发对了请求；
   · 关系确认制（#638）：口令管理员（系统管理员，不是管理层）认领只记成提议（202）——页面说「已提出，等〈谁〉确认」、那张卡标「待确认」，
     不出现部门分块（关系没生效）；管理层确认之后（截下的应答换成认领了的）才按部门分块；
@@ -20,7 +20,7 @@
     部门负责人待属主放行（grant=missing）、团队的 lead_pending_grant：写「（待属主放行权限）」，不当成负责人；
     看的人由截下的 /api/auth/me 给，左下角不是「未登录」。
     环境变量 TEAM_SHOTS 指一个目录时，存 1440 截图（分配前、选人弹窗、分配后、收回确认、普通员工只读）；
-  · 不是管理员的视图（应答里没有待认领这一栏）：没有建部门、没有待认领。"""
+  · 不是管理员的视图（应答里没有待认领这一栏）：没有待认领。"""
 import json, os, sys, urllib.request
 from datetime import datetime, timedelta, timezone
 from playwright.sync_api import sync_playwright
@@ -96,9 +96,11 @@ with sync_playwright() as p:
     pg.goto(M + '/team'); pg.wait_for_selector('.wm-team-intro')
     set_token(pg)
     pg.wait_for_selector('[data-testid=team-empty]')
-    check('管理员、还没有部门：说先建部门，给建部门的入口', '还没有部门' in pg.locator('[data-testid=team-empty]').inner_text() and pg.locator('[data-testid=team-newdept-cta]').count() == 1)
+    check('管理员、还没有部门：说部门正在换成领域，不再给建部门的入口，指去「领域」页', '部门正在换成领域' in pg.locator('[data-testid=team-empty]').inner_text()
+          and pg.locator('[data-testid=team-newdept-cta], [data-testid=team-newdept-open], [data-testid=team-newdept]').count() == 0 and pg.locator('[data-testid=team-to-areas]').get_attribute('href') == '/areas')
     un = pg.locator('[data-testid=team-unclaimed]')
-    check('待认领的团队：管理员看得到；没有部门时说先建部门、没有认领按钮', un.count() == 1 and '先建部门' in un.inner_text() and pg.locator('[data-testid=team-claim]').count() == 0, un.all_inner_texts())
+    check('待认领的团队：管理员看得到；没有部门时说没有部门可挂、指去「领域」页，没有认领按钮', un.count() == 1 and '还没有部门可挂' in un.inner_text()
+          and un.locator('[data-testid=team-claim-nodept] a').get_attribute('href') == '/areas' and pg.locator('[data-testid=team-claim]').count() == 0, un.all_inner_texts())
     check('待认领卡：节点没有名字就不写「来自」这一项，节点标识、团队和席位句柄都不出现', '来自' not in un.inner_text() and not any(x in pg.locator('body').inner_text() for x in [HOST, 'ops/', '/canvas/']), un.inner_text())
 
     check('待认领卡：名册没停推不写', un.locator('[data-testid=team-roster-stale]').count() == 0)
@@ -109,17 +111,12 @@ with sync_playwright() as p:
     state['teams']['unclaimed'] = [UNCLAIMED]
     pg.reload(); set_token(pg); pg.wait_for_selector('[data-testid=team-empty]')
 
-    # 建部门：标识写错不能建；写对了真的建进实例
-    pg.locator('[data-testid=team-newdept-cta]').click(); pg.wait_for_selector('[data-testid=team-newdept]')
-    pg.locator('[data-testid=team-newdept-name]').fill('合成运营部'); pg.locator('[data-testid=team-newdept-id]').fill('Ops')
-    save = pg.locator('[data-testid=team-newdept-save]')
-    check('建部门：标识写错（大写）不能建，说出原因', save.is_disabled() and '小写字母开头' in pg.locator('.wm-team-newdept').inner_text())
-    pg.locator('[data-testid=team-newdept-id]').fill('synthetic-ops')
-    check('建部门：写对了能建', save.is_enabled())
-    save.click(); pg.wait_for_selector('[data-testid=team-newdept]', state='detached')
+    # 部门不再从页面建（换成领域了）：测试直接调旧接口建进实例（旧部门照旧读、照旧显示），重读页面
+    req = urllib.request.Request(M + '/api/departments/synthetic-ops', method='PUT', data=json.dumps({'name': '合成运营部'}).encode(), headers={'x-admin-token': TOK, 'content-type': 'application/json'})
+    with urllib.request.urlopen(req) as r: r.read()
     with urllib.request.urlopen(urllib.request.Request(M + '/api/departments', headers={'x-admin-token': TOK})) as r: real = json.load(r)
-    check('建部门：实例里真的有了这个部门', [d['id'] for d in real['departments']] == ['synthetic-ops'], real)
-    pg.wait_for_selector('[data-testid=team-claim]')
+    check('部门（接口建的）：实例里有了这个部门', [d['id'] for d in real['departments']] == ['synthetic-ops'], real)
+    pg.reload(); set_token(pg); pg.wait_for_selector('[data-testid=team-claim]')
     check('建好部门：空的说法没了，待认领的团队可以挂到部门', pg.locator('[data-testid=team-empty]').count() == 0 and pg.locator('[data-testid=team-claim]').is_disabled())
 
     # 认领：挂到部门、顺带指定负责人
@@ -376,7 +373,7 @@ with sync_playwright() as p:
 
     state['teams'] = {'departments': state['teams']['departments']}
     pg.reload(); pg.wait_for_selector('[data-testid=team-dept]')
-    check('不是管理员的视图：没有建部门、没有待认领', pg.locator('[data-testid=team-newdept-open]').count() == 0 and pg.locator('.wm-team-unclaimed').count() == 0)
+    check('不是管理员的视图：没有待认领', pg.locator('[data-testid=team-newdept-open]').count() == 0 and pg.locator('.wm-team-unclaimed').count() == 0)
     b.close()
 
 print(f'team-browser: {ok} 过 / {fail} 败')
