@@ -11,8 +11,8 @@
  *   A5  （#5）直接在库里改、删一个规范版本：触发器拒；同 (领域, 版本) 再插一行：拒；留痕只增不改
  *   A6  （#6）生效指针指向不存在的版本：400；库里直接改指针到不存在的版本：触发器拒
  *   A7  （#16）规范正文超 64 KB：400；带了 sha256 和正文对不上：400；对得上：201、回的 sha256 一致
- *   A8  （#15，按统筹裁定 2 改写）撤领域时，范围 area:<标识> 的没结束的授予（草稿、待核）同一个事务里一并撤销、各记一行痕，
- *       别的范围的不动；撤了的领域只读：新加规范、移指针、再撤 409
+ *   A8  （#15，按统筹裁定 2 改写）撤领域时，范围 area:<标识> 的没结束的授予（草稿、待核、生效）同一个事务里一并撤销、各记一行痕，
+ *       已经撤了的不动、不新记痕，别的范围的不动；撤了的领域只读：新加规范、移指针、再撤 409
  *   A9  读：属主、管理层、管理口令、本机命令行列得全、单条 200；普通员工、系统管理员、没授予的人列表为空、单条 404；规范正文同
  *   A10 （#18）远程匿名：读 401；写 401 或 403，库里没有变化
  *   A11 跨站来的浏览器（属主的 cookie）：写 403，库里没有变化
@@ -249,8 +249,13 @@ try {
       const d = A.db();
       try {
         const ins = d.prepare("INSERT INTO grants (principal_id, role, scope, reason, status, created_by, created_at, updated_at) VALUES (?, 'member', ?, '合成', 'draft', 'cli', 1, 1)");
-        ids = [Number(ins.run('user:tom', 'area:epsilon').lastInsertRowid), Number(ins.run('user:nina', 'area:epsilon').lastInsertRowid), Number(ins.run('user:tom', 'area:epsilon-2').lastInsertRowid)];
+        // 草稿、待核、生效各一条（都该撤），已撤的一条（不动、不新记痕），别的领域的一条（不动）
+        ids = ['user:tom', 'user:nina', 'user:mona', 'user:sam'].map((p) => Number(ins.run(p, 'area:epsilon').lastInsertRowid));
+        ids.push(Number(ins.run('user:tom', 'area:epsilon-2').lastInsertRowid));
         d.prepare("UPDATE grants SET status = 'pending' WHERE id = ?").run(ids[1]);
+        d.prepare("UPDATE grants SET status = 'pending' WHERE id = ?").run(ids[2]);
+        d.prepare("UPDATE grants SET status = 'active', approved_by = 'cli' WHERE id = ?").run(ids[2]);
+        d.prepare("UPDATE grants SET status = 'revoked' WHERE id = ?").run(ids[3]);
       } finally { d.close(); }
     }
     const r = await olga.go('POST', '/api/areas/epsilon/retire', { json: { reason: '合成' } });
@@ -258,11 +263,11 @@ try {
     let st = [], ev = [];
     try {
       st = ids.map((id) => d.prepare('SELECT status FROM grants WHERE id = ?').get(id)?.status);
-      ev = ids.map((id) => d.prepare("SELECT COUNT(*) AS n FROM grant_events WHERE grant_id = ? AND event = 'revoke' AND actor_principal = 'user:olga'").get(id).n);
+      ev = ids.map((id) => d.prepare("SELECT COUNT(*) AS n FROM grant_events WHERE grant_id = ? AND event = 'revoke'").get(id).n);
     } finally { d.close(); }
-    check(r.status === 200 && r.json?.area?.status === 'retired' && JSON.stringify(r.json?.grants_revoked) === JSON.stringify(ids.slice(0, 2))
-        && same(st, ['revoked', 'revoked', 'draft']) && same(ev.map(Number), [1, 1, 0]),
-      'A8a 撤领域：area:epsilon 的草稿、待核授予一并撤销、各记一行痕，应答列出编号；area:epsilon-2 的不动', { s: r.status, body: r.json, st, ev });
+    check(r.status === 200 && r.json?.area?.status === 'retired' && JSON.stringify(r.json?.grants_revoked) === JSON.stringify(ids.slice(0, 3))
+        && same(st, ['revoked', 'revoked', 'revoked', 'revoked', 'draft']) && same(ev.map(Number), [1, 1, 1, 0, 0]),
+      'A8a 撤领域：area:epsilon 的草稿、待核、生效授予一并撤销、各记一行痕，应答列出编号；已撤的不动、不新记痕；area:epsilon-2 的不动', { s: r.status, body: r.json, st, ev });
     const before = counts(A);
     const add = await olga.go('POST', '/api/areas/gamma/specs', { json: { body: '撤了的' } });
     const act = await olga.go('POST', '/api/areas/gamma/specs/activate', { json: { version: 1 } });
