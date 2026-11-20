@@ -498,6 +498,7 @@ function scopeLabel(scope: string): string {
  *   · 全公司（*）：knowledge.read（看）。普通员工预设有业务的看，全员看得到。
  *   · 部门（dept:D）：管理层、属主（knowledge.read-restricted，拍板类，范围全部）；或者这个人持有范围正好是 dept:D 的授予盖住 knowledge.read。
  *     普通员工迁移来的那条范围「全部」的 member 不算——否则人人都看得到每个部门的。所以问 scopedVerdict 时带 exact，只认范围正好是 dept:D 的授予。
+ *     条目照写 dept:D（ygl-trees 给的写法不变）；判定按领域问（第 1 步 PR3b）：领域 D 在、没撤时持 area:D 的授予也算（scopedVerdict 认），领域 D 撤了谁都看不到这一档。
  *   · 只给管理层（restricted，以及 bench:、对不上的、空的）：knowledge.read-restricted（拍板类），只有管理层、属主有；系统管理员、普通员工预设都没有。
  * 管理口令、匿名在路由那一层就拒了，到不了这里。
  */

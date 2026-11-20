@@ -32,6 +32,7 @@
  *   D5 页面要的 can、leads 及其可见范围（D5d：领域成员看得到本人那条等放行的）
  *   D6 迁移起草的负责人被收回（否决）后再迁移不重新起草   D7 已有理由不同的手工待放行负责人，迁移不再起草（去重按人、角色、范围，不看理由）
  *   D8 否决迁移草稿后属主手动指定照样走通、之后再迁移不另起草   D9 手工收回的不算迁移否决过，迁移照样起草   D10 负责人已生效后再迁移不起草
+ *   D11 标识不合领域写法的部门（直接写库）：迁移记 id_invalid，不建领域
  *
  *   node scripts/areas-test.mjs
  */
@@ -709,6 +710,15 @@ try {
     const n = (() => { const db = A.db(); try { return Number(db.prepare("SELECT COUNT(*) AS n FROM grants WHERE principal_id = 'user:dan' AND role = 'area-lead' AND scope = 'area:m-sales'").get().n); } finally { db.close(); } })();
     check(skip === 'already_open' && !(m.json?.drafted ?? []).some((x) => x.department === 'm-sales') && n === 1,
       'D10 m-sales 的负责人 dan 已生效（D4 放行的），再迁移：记 already_open，不另起草，dan 在这个范围下仍只有一条', { skip, n, m: m.json });
+  }
+
+  // ---- D11 标识不合领域写法的部门（直接写库、外部同步来的）：迁移记 id_invalid，不建领域 ----
+  {
+    { const d = A.db(); try { d.prepare("INSERT INTO departments (id, name, created_at, updated_at) VALUES ('Bad_Dept', '合成不合规部门', 1, 1)").run(); } finally { d.close(); } }
+    const m = await olga.go('POST', '/api/areas/migrate', { json: {} });
+    const skip = (m.json?.skipped ?? []).find((x) => x.department === 'Bad_Dept')?.reason;
+    const made = (() => { const d = A.db(); try { return Number(d.prepare("SELECT COUNT(*) AS n FROM areas WHERE id = 'Bad_Dept'").get().n); } finally { d.close(); } })();
+    check(m.status === 200 && skip === 'id_invalid' && made === 0, 'D11 标识不合领域写法的部门（直接写库的）：迁移记 skipped id_invalid，不建领域', { s: m.status, skip, made });
   }
 
 } catch (e) {

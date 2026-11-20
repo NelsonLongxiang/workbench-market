@@ -87,7 +87,7 @@ export function getBench(slug: unknown): BenchEntry | null {
 }
 
 /**
- * 核一份绑定的写法：department 是部门表里有的标识（不写或空串是不绑）；team 要写就得连 team_host 一起写，而且这个团队已经认领到这个部门。
+ * 核一份绑定的写法：department 是领域表里没撤的、或者部门表里有的标识（不写或空串是不绑；撤了的领域拒）；team 要写就得连 team_host 一起写，而且这个团队已经认领到这个部门。
  * 只核「写得对不对、指的东西在不在」；这个人能不能绑到这个部门，路由里判。
  */
 export function parseBinding(o: Record<string, unknown>): BenchBinding {
@@ -97,7 +97,12 @@ export function parseBinding(o: Record<string, unknown>): BenchBinding {
   if (typeof host !== 'string' || typeof team !== 'string' || host.length > 200 || team.length > 200) throw new BenchError('invalid', 'team_host、team 要是文字');
   if ((host === '') !== (team === '')) throw new BenchError('invalid', 'team_host 和 team 要一起给');
   if (team && !dep) throw new BenchError('invalid', '细到团队的台要先绑到部门');
-  if (dep && !db.prepare('SELECT 1 FROM departments WHERE id = ?').get(dep)) throw new BenchError('not_found', `没有部门 ${dep}`);
+  // 绑到一个标识：领域在、没撤的可以；还没迁成领域的部门也可以（过渡期，部门和领域同一个标识）；领域撤了的拒（docs/domains-step1.md 第 1 步 PR3b）
+  if (dep) {
+    const area = db.prepare('SELECT status FROM areas WHERE id = ?').get(dep) as { status: string } | undefined;
+    if (area?.status === 'retired') throw new BenchError('conflict', `领域 ${dep} 已经撤了，不能再绑台`);
+    if (!area && !db.prepare('SELECT 1 FROM departments WHERE id = ?').get(dep)) throw new BenchError('not_found', `没有领域或部门 ${dep}`);
+  }
   if (team) {
     // 认领记在旧节点上的（节点换了）不算认领了
     const t = db.prepare(`SELECT department_id, claimed, ${boundSql('t')} AS bound FROM teams t WHERE host = ? AND team = ?`).get(host, team) as { department_id: string; claimed: number; bound: number } | undefined;

@@ -24,7 +24,7 @@ import { identity } from '../identity.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import { browserMarked, originIsThisSurface, rawLoopback } from '../surfaces.ts';
 import { judge, scopedVerdict, type JudgedActor } from '../judgment.ts';
-import { ASKED, deptKind } from '../judgment-builtins.ts';
+import { ASKED, scopedKind } from '../judgment-builtins.ts';
 import type { Kind } from '../roles.ts';
 import { BENCH_LIMITS, BenchError } from '../bench-query.ts';
 import { tableTarget, tableCsv } from '../bench-table.ts';
@@ -108,7 +108,8 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
    * 放不放行，两档：
    *   一、管理层这一档：问统一判定（它现在只认范围是「全部」的授予）。读和写是同一道门，都按「能不能写」问——
    *       普通员工的预设带着全部业务域的「看」，每个登录过的员工又都会迁出一条范围「全部」的普通员工授予，按「看」放行等于全公司可读。
-   *   二、部门这一档：台绑了部门，这个人在这个部门上有一条已放行的授予盖住这个动作（scopedVerdict）。
+   *   二、部门、领域这一档：台绑了一个标识（部门或领域，同一个写法），这个人在这上面有一条已放行的授予盖住这个动作（scopedVerdict：
+   *       领域在、没撤时认 area:<标识>，过渡期也认 dept:<标识>；领域撤了都不认；还没迁成领域的部门照旧只认 dept:<标识>）。
    *       只认授予：部门成员表、部门负责人、团队认领这些关系是系统管理员一个人写得出来的，不带来权限。
    *       细到团队的台，写再收窄到这个团队的负责人、成员的主人，或者有这个部门拍板授予的人——关系在这里只会让人更少。
    * 没绑部门的台只有第一档。路由登记的类别（read / write）照实写，只用于动作清单；放不放行不看它。
@@ -128,13 +129,13 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
   const idOf = (actor: JudgedActor): string => (actor.type === 'principal' ? actor.id : `builtin:${actor.name}`);
   const everywhere = (actor: JudgedActor, action: string): boolean => judge({ actor, action, kind: globalKind(action), declared: true }).verdict === 'allow';
   const inDept = (actor: JudgedActor, action: string, department: string): boolean => {
-    const kind = deptKind(action);
+    const kind = scopedKind(action);
     return kind !== null && actor.type === 'principal' && scopedVerdict({ principal: actor.id, action, kind, scope: `dept:${department}` }).verdict === 'allow';
   };
   function within(actor: JudgedActor, action: string, bench: BenchEntry | null): boolean {
     if (actor.type !== 'principal' || !bench || !bench.department_id) return false;
     if (!inDept(actor, action, bench.department_id)) return false;
-    if (!bench.team || deptKind(action) === 'decide') return true;
+    if (!bench.team || scopedKind(action) === 'decide') return true;
     if (inDept(actor, 'bench-store.mcp-decide', bench.department_id)) return true;
     const rel = relationOf({ principal: actor.id }, { team: { host: bench.team_host, team: bench.team } }).relations;
     return rel.includes('team-lead') || rel.includes('seat-owner');

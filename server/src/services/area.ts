@@ -18,6 +18,8 @@ import { svc } from '../context.ts';
 import type { GrantService } from './grant.ts';
 import type { PrincipalStatusChanged } from './principal.ts';
 import type { DepartmentService } from './department.ts';
+import { areaVerdict } from '../judgment.ts';
+import { AREA_LEAD_ACTIONS, AREA_SPEC_ACTION } from '../roles.ts';
 
 export type AreaStatus = 'pending-lead' | 'active' | 'retired';
 export type AreaSource = 'manual' | 'department';
@@ -68,6 +70,14 @@ function tx<T>(fn: () => T): T {
   }
 }
 
+/**
+ * 领域判定的主体：路由和 access 接口各自认出人以后交进来。
+ *   owner：属主（本机命令行在领域的路由上也算属主）；seesAll：看全部领域（属主、管理层；路由上另有管理口令、本机命令行）；
+ *   principal：对到的主体（管理口令、本机命令行没有，为 null）
+ */
+export type AreaSubject = { owner: boolean; seesAll: boolean; principal: string | null };
+export type AreaDecision = { verdict: 'allow' | 'deny'; rule: string; grant: number | null };
+
 export class AreaService extends Service {
   constructor(ctx: any) {
     super(ctx, 'areas');
@@ -78,6 +88,34 @@ export class AreaService extends Service {
         this.reconcileLead(area, `负责人 ${c.id} ${c.status === 'disabled' ? '停用' : '恢复'}${c.reason.trim() ? `：${c.reason.trim()}` : ''}`, { by: c.by, principal: null }, now);
       }
     });
+  }
+
+  /**
+   * 领域的动作谁能做（docs/domains-step1.md 第三节）：领域路由（routes/areas.ts）和「以某人的身份看」（routes/access.ts）都问这一处，
+   * 两边不会各说各的；scripts/access-decision-matrix-test.mjs 逐格对照两边。area 是对象（领域标识），不针对某个领域时为 null。
+   *   · 建、撤、迁移：只有属主；
+   *   · 触发、验收、负责人专有动作：第 1 步只登记、恒为假，还没接到路由上，一律拒；
+   *   · 定规范：属主，或持本领域 area-spec 授予的人（硬规则，judgment.ts 的 areaVerdict）；
+   *   · 列表：不针对某个领域时谁都能读（内容按下一条过滤）；
+   *   · 读领域、规范：看全部的人；或者持有范围正好是 area:<领域>、覆盖这个读动作的授予。
+   * 业务状态（撤了只读、还没负责人）回的 409 不在这里，由各写法自己判
+   */
+  decide(subject: AreaSubject, action: string, area: string | null): AreaDecision {
+    const no = (rule: string): AreaDecision => ({ verdict: 'deny', rule, grant: null });
+    const ok = (rule: string): AreaDecision => ({ verdict: 'allow', rule, grant: null });
+    if (action === 'area.create' || action === 'area.retire' || action === 'area.migrate') return subject.owner ? ok('area-owner') : no('area-owner-only');
+    if (action === 'area.trigger' || action === 'area.accept' || AREA_LEAD_ACTIONS.includes(action)) return no('area-step1-not-routed');
+    if (action === AREA_SPEC_ACTION) {
+      if (subject.owner) return ok('area-owner');
+      if (area === null) return no('area-scope-required');
+      if (!subject.principal) return no('area-spec-required');
+      return areaVerdict({ principal: subject.principal, action: AREA_SPEC_ACTION, kind: 'decide', area });
+    }
+    if (action === 'area.list' && area === null) return ok('area-list-filtered');
+    if (subject.seesAll) return ok(subject.owner ? 'area-owner' : 'area-business-side');
+    if (area === null) return no('area-scope-required');
+    if (!subject.principal) return no('no-grant');
+    return areaVerdict({ principal: subject.principal, action, kind: 'read', area });
   }
 
   list(): AreaView[] {

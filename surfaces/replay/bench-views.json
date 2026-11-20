@@ -3148,8 +3148,8 @@
           "response": {
             "status": 404,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
-            "body": { "error": "not_found", "message": "没有部门 nope" }
+            "headers": { "cache-control": "private, no-store", "content-length": "60", "etag": "W/\"3c-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "not_found", "message": "没有领域或部门 nope" }
           }
         },
         {
@@ -3290,8 +3290,8 @@
           "response": {
             "status": 404,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
-            "body": { "error": "not_found", "message": "没有部门 nope" }
+            "headers": { "cache-control": "private, no-store", "content-length": "60", "etag": "W/\"3c-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "not_found", "message": "没有领域或部门 nope" }
           }
         },
         {
