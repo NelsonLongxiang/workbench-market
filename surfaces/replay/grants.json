@@ -661,7 +661,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "646", "etag": "W/\"286-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "667", "etag": "W/\"29b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "grant": {
                 "id": 1,
@@ -680,6 +680,7 @@
                 "source": "manual",
                 "events": [{ "seq": 1, "grant_id": 1, "event": "draft", "from_status": null, "to_status": "draft", "actor": "cli", "actor_principal": null, "reason": "合成：回放", "at": 1893456000000 }],
                 "scope_name": null,
+                "scope_effect": "all",
                 "can_approve": false,
                 "approve_denied": "state",
                 "approve_denied_text": "不在待核",
@@ -854,10 +855,10 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "480", "etag": "W/\"1e0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "501", "etag": "W/\"1f5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "grants": [
-                { "id": 1, "principal_id": "user:synthetic-a", "role": "member", "scope": "*", "expires_at": null, "reason": "合成：回放", "status": "revoked", "created_by": "cli", "created_by_principal": null, "approved_by": "cli", "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual", "scope_name": null, "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待核", "credentials_set_by_system_admin": null, "ignored_for_admin": false }
+                { "id": 1, "principal_id": "user:synthetic-a", "role": "member", "scope": "*", "expires_at": null, "reason": "合成：回放", "status": "revoked", "created_by": "cli", "created_by_principal": null, "approved_by": "cli", "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual", "scope_name": null, "scope_effect": "all", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待核", "credentials_set_by_system_admin": null, "ignored_for_admin": false }
               ]
             }
           }

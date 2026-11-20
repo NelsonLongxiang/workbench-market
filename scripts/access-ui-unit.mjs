@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 「谁能做什么」页的纯函数单测（web/src/access-view.ts）：状态、范围、期限的说法，待核准卡片，按人排的权限表，矩阵格子，读不到时怎么说。数据都是合成的。 */
-import { ACCESS_TABS, CELL_LEGEND, actionProblem, cellLabel, declineReasonOk, grantActorRaw, grantRows, grantsOf, indexPrincipals, kindLabel, matrixOf, pendingGrants, principalName, responsibleOf, roleName, roleUsage, rolesOf, scopeLabel, scopeNotYetEffective, sourceProblem, statusLabel, tabFromQuery, termLabel, myRolesOf, summaryDo, OTHERS_ONLY_ADMINS, approvalText, approveState, mayReadAccessAdmin, accountsOf, accountTags, accountOrigin, lastLoginLabel, usernameOk, accountsProblem, accountActionProblem, TEMP_PASSWORD_NOTE, passwordFormProblem, hasLocalAccount, localUsernameOf } from '../web/src/access-view.ts';
+import { ACCESS_TABS, CELL_LEGEND, actionProblem, cellLabel, declineReasonOk, grantActorRaw, grantRows, grantsOf, indexPrincipals, kindLabel, matrixOf, pendingGrants, principalName, responsibleOf, roleName, roleUsage, rolesOf, scopeLabel, scopeNotYetEffective, scopeEffectNote, scopeEffectOf, SCOPE_DEPT_NOTE, sourceProblem, statusLabel, tabFromQuery, termLabel, myRolesOf, summaryDo, OTHERS_ONLY_ADMINS, approvalText, approveState, mayReadAccessAdmin, accountsOf, accountTags, accountOrigin, lastLoginLabel, usernameOk, accountsProblem, accountActionProblem, TEMP_PASSWORD_NOTE, passwordFormProblem, hasLocalAccount, localUsernameOf } from '../web/src/access-view.ts';
 import { actorLabel } from '../web/src/people.ts';
 
 let pass = 0, fail = 0;
@@ -39,7 +39,12 @@ ok('状态：待核准、生效中、草稿、已过期、已收回；颜色跟�
 ok('状态：原型链上的名字不当成状态（toString）', statusLabel('toString').text === 'toString' && statusLabel('toString').tone === 'default');
 
 ok('范围：* 是全部、self 只限自己、工作台和流程说成人话、认不出的原样', scopeLabel('*') === '全部' && scopeLabel('self') === '只限自己' && scopeLabel('bench:12') === '工作台 12' && scopeLabel('sop:purchase') === '流程 purchase' && scopeLabel('domain:nope') === '这一块 nope' && scopeLabel('domain:work', new Map([['work', '事项与对话']])) === '「事项与对话」这一块' && scopeLabel('weird') === 'weird' && scopeLabel('constructor:x') === 'constructor:x');
-ok('按范围的授予尚未生效：只标生效中、范围不是全部的', scopeNotYetEffective({ scope: 'bench:1', status: 'active' }) && !scopeNotYetEffective({ scope: '*', status: 'active' }) && !scopeNotYetEffective({ scope: 'bench:1', status: 'pending' }));
+ok('尚未生效：照服务端的 scope_effect，只有 none 的生效中授予才标；领域、部门、全部都不标；没生效的不标', scopeNotYetEffective({ scope: 'bench:1', status: 'active', scope_effect: 'none' }) && !scopeNotYetEffective({ scope: 'area:fin', status: 'active', scope_effect: 'area' })
+  && !scopeNotYetEffective({ scope: 'dept:x', status: 'active', scope_effect: 'dept' }) && !scopeNotYetEffective({ scope: '*', status: 'active', scope_effect: 'all' }) && !scopeNotYetEffective({ scope: 'bench:1', status: 'pending', scope_effect: 'none' }));
+ok('已生效的 area-lead 只标生效中：不算尚未生效、也不补说明', !scopeNotYetEffective({ scope: 'area:syn-fin', status: 'active', scope_effect: 'area' }) && scopeEffectNote({ scope: 'area:syn-fin', status: 'active', scope_effect: 'area' }) === '');
+ok('服务端没带 scope_effect（旧应答）：按「* 才算」，不会因为缺字段放宽', scopeEffectOf({ scope: '*' }) === 'all' && scopeEffectOf({ scope: 'area:x' }) === 'none' && scopeEffectOf({ scope: 'area:x', scope_effect: 'weird' }) === 'none' && scopeNotYetEffective({ scope: 'bench:1', status: 'active' }));
+ok('部门范围：生效中后面补一句只在数据视图和经验库里起作用；没生效的不补', scopeEffectNote({ scope: 'dept:x', status: 'active', scope_effect: 'dept' }) === SCOPE_DEPT_NOTE && SCOPE_DEPT_NOTE.includes('数据视图和经验库') && scopeEffectNote({ scope: 'dept:x', status: 'pending', scope_effect: 'dept' }) === '');
+ok('领域范围：有名字写「「名字」这个领域」，没有写「一个领域」，不露 area: 标识', scopeLabel('area:syn-fin', undefined, '合成利润核算') === '「合成利润核算」这个领域' && scopeLabel('area:syn-fin') === '一个领域');
 
 ok('期限：没有是长期；以后的写到哪天；过了的写已到期', termLabel(null, NOW) === '长期' && termLabel(Date.parse('2026-12-31T12:00:00Z'), NOW) === '到 2026-12-31' && termLabel(Date.parse('2026-11-01T12:00:00Z'), NOW).startsWith('已到期'));
 

@@ -7,13 +7,17 @@
  */
 
 export type GrantStatus = 'draft' | 'pending' | 'active' | 'revoked' | 'expired';
+/** 范围起不起作用（服务端判定为准）：all 范围是全部；area 在这个领域里；dept 只在数据视图和经验库里；none 统一判定还不认（台、流程、工具、对象、只限自己） */
+export type ScopeEffect = 'all' | 'area' | 'dept' | 'none';
 export interface Grant {
   id: number; principal_id: string; role: string; scope: string; expires_at: number | null; reason: string; status: GrantStatus;
   created_by: string; approved_by: string | null; created_at: number; updated_at: number; source?: 'manual' | 'migration';
   /** 当前看的人能不能放行这一条（服务端算好的，身份线 #618）；不能时的代码和短说法 */
   can_approve?: boolean; approve_denied?: string | null; approve_denied_text?: string | null;
-  /** 范围的显示名（身份线在授予的应答里带上；没带时页面不露部门标识） */
+  /** 范围的显示名（身份线在授予的应答里带上；没带时页面不露部门标识）；领域范围给领域名 */
   scope_name?: string | null;
+  /** 范围在判定里起不起作用（服务端 grant-scope-view.ts 给；没带的旧应答按「* 才算」） */
+  scope_effect?: ScopeEffect;
 }
 export type PrincipalKind = 'person' | 'seat' | 'app' | 'system' | 'node';
 export interface Principal { id: string; kind: PrincipalKind; display_name: string; owner: string; status: 'active' | 'disabled' | string; identities?: { provider: string; external_id: string }[] }
@@ -46,7 +50,8 @@ export function statusLabel(status: unknown): { text: string; tone: Tone } {
 const BLOCK_NAMES: Record<string, string> = { overview: '全景', work: '事项与对话', attention: '关注', 'bench-data': '工作台数据', knowledge: '经验库', area: '领域', team: '团队与 AI 员工', access: '权限与角色', system: '系统与节点' };
 const SCOPE_KIND: Record<string, string> = { domain: '这一块', bench: '工作台', sop: '流程', tool: '工具', object: '对象' };
 /** 范围：* 是全部，self 是只限自己，domain:<块> 用各大块的名字（矩阵给的），其余是「工作台 x」「流程 x」这样。
- *  name：服务端在授予上带的范围显示名（scope_name，身份线加）；有就用它。部门（dept:<标识>）不露标识：没有名字时写「一个部门」 */
+ *  name：服务端在授予上带的范围显示名（scope_name，身份线加）；有就用它。部门（dept:<标识>）不露标识：没有名字时写「一个部门」；
+ *  领域（area:<标识>）写「「名字」这个领域」，没有名字（领域不在了）时写「一个领域」 */
 export function scopeLabel(scope: unknown, blocks?: Map<string, string>, name?: unknown): string {
   const s = String(scope ?? '').trim();
   if (s === '*' || s === '') return '全部';
@@ -55,6 +60,7 @@ export function scopeLabel(scope: unknown, blocks?: Map<string, string>, name?: 
   const kind = k > 0 ? s.slice(0, k) : '';
   const given = typeof name === 'string' ? name.trim() : '';
   if (kind === 'dept') return given ? `「${given}」这个部门` : '一个部门';
+  if (kind === 'area') return given ? `「${given}」这个领域` : '一个领域';
   if (given) return kind === 'domain' ? `「${given}」这一块` : Object.hasOwn(SCOPE_KIND, kind) ? `${SCOPE_KIND[kind]}「${given}」` : given;
   if (k > 0 && s.slice(0, k) === 'domain') {
     const key = s.slice(k + 1), name = blocks?.get(key) ?? (Object.hasOwn(BLOCK_NAMES, key) ? BLOCK_NAMES[key] : '');
@@ -63,11 +69,25 @@ export function scopeLabel(scope: unknown, blocks?: Map<string, string>, name?: 
   if (k > 0 && Object.hasOwn(SCOPE_KIND, s.slice(0, k))) return `${SCOPE_KIND[s.slice(0, k)]} ${s.slice(k + 1)}`;
   return s;
 }
-/** 按范围的授予、矩阵里「范围内」的格子都要带的说明（身份线把对象范围接进判定后去掉） */
-export const SCOPE_PENDING = '尚未生效：按范围的授予要等对象范围接进判定';
-/** 按范围的授予现在还不生效（判定还没接上范围，遗留差异 L13）：范围不是「全部」的生效中授予要标出来 */
-export function scopeNotYetEffective(g: Pick<Grant, 'scope' | 'status'>): boolean {
-  return g.status === 'active' && String(g.scope ?? '').trim() !== '*';
+/** 统一判定还不认的范围（台、流程、工具、对象、只限自己，遗留差异 L13）要带的说明 */
+export const SCOPE_PENDING = '尚未生效：按台、流程、工具、对象给的范围，统一判定还不认';
+/** 角色矩阵里「范围内」的格子：起不起作用看给权限时选的范围（一条条授予上标），格子上不再一律标「尚未生效」 */
+export const SCOPED_CELL = '由给权限时选的范围决定：领域范围在这个领域里起作用，部门范围只在数据视图和经验库里，按台、流程、工具、对象给的范围统一判定还不认';
+/** 部门范围只在这两处起作用（数据视图的台、经验库按部门问） */
+export const SCOPE_DEPT_NOTE = '只在数据视图和经验库里起作用';
+/** 这个范围起不起作用：照服务端给的 scope_effect；没带的旧应答按「* 才算」（不会因为缺字段放宽） */
+export function scopeEffectOf(g: { scope?: unknown; scope_effect?: unknown }): ScopeEffect {
+  const e = g.scope_effect;
+  if (e === 'all' || e === 'area' || e === 'dept' || e === 'none') return e;
+  return String(g.scope ?? '').trim() === '*' ? 'all' : 'none';
+}
+/** 生效中的授予，范围统一判定还不认：标「尚未生效」。一条授予只显示一个状态——标了「尚未生效」就不再说「生效中」 */
+export function scopeNotYetEffective(g: { scope?: unknown; status?: unknown; scope_effect?: unknown }): boolean {
+  return g.status === 'active' && scopeEffectOf(g) === 'none';
+}
+/** 生效中的部门范围授予：「生效中」后面补一句只在哪里起作用；别的不补 */
+export function scopeEffectNote(g: { scope?: unknown; status?: unknown; scope_effect?: unknown }): string {
+  return g.status === 'active' && scopeEffectOf(g) === 'dept' ? SCOPE_DEPT_NOTE : '';
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -183,14 +203,15 @@ export const OTHERS_ONLY_ADMINS = '别人的权限现在只有管理员能看。
 
 /** 「你的权限」：/api/auth/me 带本人生效中的角色（{ id, name, scope, preset, expires_at, ... }）。
  *  认出了人（有 principal）才返回列表，可以是空的；没登录、只有口令、读不到都返回 null */
-export interface MyRole { id: string; name: string; scope: string; expires_at: number | null; /** 范围的显示名（服务端带了才有） */ scope_name?: string }
+export interface MyRole { id: string; name: string; scope: string; expires_at: number | null; /** 范围的显示名（服务端带了才有） */ scope_name?: string; /** 范围起不起作用（服务端带了才有） */ scope_effect?: ScopeEffect }
 export function myRolesOf(me: unknown): MyRole[] | null {
   if (!me || typeof me !== 'object') return null;
   const m = me as { authenticated?: unknown; principal?: unknown; roles?: unknown };
   if (m.authenticated !== true || typeof m.principal !== 'string' || !m.principal || !Array.isArray(m.roles)) return null;
   return (m.roles as MyRole[]).filter((r) => r && typeof r.id === 'string')
     .map((r) => ({ id: r.id, name: typeof r.name === 'string' && r.name.trim() ? r.name.trim() : r.id, scope: String(r.scope ?? '*'), expires_at: typeof r.expires_at === 'number' ? r.expires_at : null,
-      ...(typeof r.scope_name === 'string' && r.scope_name.trim() ? { scope_name: r.scope_name.trim() } : {}) }));
+      ...(typeof r.scope_name === 'string' && r.scope_name.trim() ? { scope_name: r.scope_name.trim() } : {}),
+      ...(r.scope_effect === 'all' || r.scope_effect === 'area' || r.scope_effect === 'dept' || r.scope_effect === 'none' ? { scope_effect: r.scope_effect } : {}) }));
 }
 
 /** 主体、角色、矩阵三个读接口只给能管的人（服务端那边是「管理」类动作）。认出了人、又明知他没有管理权的，页面就不去问，
