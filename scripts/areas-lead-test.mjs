@@ -7,6 +7,8 @@
  *   L3 （#29b）同一个领域两位负责人，两个进程同时各收回一位：只成一条，另一条 409 area_last_lead；领域始终至少一位负责人。
  *      两个子进程共用同一个库文件，各自在「数生效负责人」那一句之后停 400 毫秒（只在子进程里包一层 db.prepare，不改产品代码），
  *      所以检查要是不在写事务里，两边都会看到「还剩一位」、都收回成功——这一项就红
+ *   L5 负责人本人停用时，领域的重算和停用在同一个写事务里：重算抛错，停用一起回滚，人还是启用的、领域还是 active；
+ *      重算时 db.isTransaction 为真
  *   L4 旧库升级：PR1 建的 area_events（CHECK 里没有 lead-active / lead-missing）整表搬一次，行和编号原样，新种类能写，只增不改的触发器还在；再启动一次不重搬
  *
  *   node scripts/areas-lead-test.mjs
@@ -127,6 +129,26 @@ try {
     const okN = res.filter((r) => r.ok).length, refused = res.filter((r) => r.code === 'area_last_lead').length;
     check(okN === 1 && refused === 1 && Number(left) === 1 && areas.get('twin').status === 'active',
       'L3（#29b）两个进程同时各收回一位负责人：只成一条，另一条 409 area_last_lead；领域还剩一位、仍是 active', { res, left });
+  }
+
+  // ---- L5 ----
+  {
+    areas.create({ id: 'tight', name: '合成戊' }, cli, Date.now());
+    person('user:ld');
+    lead('user:ld', 'tight');
+    const principals = svc('principals');
+    const orig = areas.reconcileLead.bind(areas);
+    let inTx = null;
+    areas.reconcileLead = (...a) => { inTx = db.isTransaction; throw new Error('合成：重算失败'); };
+    let threw = false;
+    try { principals.setStatus('user:ld', 'disabled', 'cli', '合成：离职'); } catch { threw = true; }
+    areas.reconcileLead = orig;
+    const p1 = principals.get('user:ld')?.status, a1 = areas.get('tight').status, gate1 = areas.workGate('tight');
+    // 对照：重算正常时，停用之后领域退回 pending-lead
+    principals.setStatus('user:ld', 'disabled', 'cli', '合成：离职');
+    const p2 = principals.get('user:ld')?.status, a2 = areas.get('tight').status;
+    check(threw && inTx === true && p1 === 'active' && a1 === 'active' && gate1 === null && p2 === 'disabled' && a2 === 'pending-lead',
+      'L5 停用和领域重算同一个写事务：重算抛错时停用一起回滚（人仍启用、领域仍 active）；重算时在事务里；正常时停用后领域退回 pending-lead', { threw, inTx, p1, a1, gate1, p2, a2 });
   }
 
   // ---- L4 ----
