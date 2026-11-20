@@ -71,6 +71,8 @@ try {
   const names = await listNames(bare.token);
   ok('零授权会话 tools/list 有两个权限自助工具和三个读技能的工具，别的没有', J([...names].sort()) === J(['access_info', 'access_request', ...SKILL_READS].sort()), J(names));
   const info = await tool(bare.token, 'access_info');
+  // 工具结果是紧凑 JSON（不缩进）：同一份内容，换行和缩进不占上下文
+  ok('tools/call 的结果是紧凑 JSON：没有换行和缩进，解析得开', info.text.length > 100 && !info.text.includes('\n') && info.payload && JSON.stringify(info.payload) === info.text, info.text.slice(0, 80));
   const cat = info.payload?.catalog ?? [];
   const listed = ((await rpc('tools/list', {}, bare.token)).body?.result?.tools ?? []);
   // 目录分层（渐进开放第 1 步）：默认只给索引，参数表按名字取
@@ -85,7 +87,8 @@ try {
   // 逐字节对照：scripts/fixtures/access-info-before-step1.json 是第 1 步之前（main 8dd8b231）同样配置下 access_info {} 的原样应答
   //（实例地址随端口变，两边都写成 {{origin}} 再比）。
   // 带 full: true 拿到的，除了 access_info 自己那一项（它的说明和参数表本来就改了），应当和它一个字节都不差。
-  // 工具目录以后变了（加了、删了工具），这一条会红：那时重抓基准，或者把这一条换成按项比
+  // 工具目录以后变了（加了、删了工具），这一条会红：那时重抓基准，或者把这一条换成按项比。
+  // 基准是改成紧凑 JSON 之前抓的（缩进 2 格）；工具结果改成不缩进之后，按紧凑写法比：内容一个字节都不差，只是没有了换行和缩进
   {
     const { readFileSync } = await import('node:fs');
     const before = JSON.parse(readFileSync(new URL('./fixtures/access-info-before-step1.json', import.meta.url), 'utf8'));
@@ -94,8 +97,8 @@ try {
     const sameNames = J(before.catalog.map((t) => t.name)) === J(nowFull.catalog.map((t) => t.name));
     const changed = before.catalog.filter((t, i) => J(t) !== J(nowFull.catalog[i])).map((t) => t.name);
     const patched = { ...before, catalog: before.catalog.map((t) => (t.name === 'access_info' ? nowFull.catalog.find((x) => x.name === 'access_info') : t)) };
-    ok('带 full: true 的应答和第 1 步之前逐字节相同（只有 access_info 自己那一项变了）', sameNames && J(changed) === J(['access_info']) && JSON.stringify(patched, null, 2) === nowText,
-      J({ sameNames, changed, bytes: [Buffer.byteLength(nowText), Buffer.byteLength(JSON.stringify(patched, null, 2))] }));
+    ok('带 full: true 的应答和第 1 步之前逐字节相同（只有 access_info 自己那一项变了）', sameNames && J(changed) === J(['access_info']) && JSON.stringify(patched) === nowText,
+      J({ sameNames, changed, bytes: [Buffer.byteLength(nowText), Buffer.byteLength(JSON.stringify(patched))] }));
   }
   const details = await Promise.all(listed.map((t) => tool(bare.token, 'access_info', { tool: t.name })));
   ok('按名字取参数表（access_info {tool}）：和 tools/list 里的 inputSchema 一样，说明是原文（新人不用先申请才知道参数名）',

@@ -83,12 +83,12 @@ export function registerMcpProtocolRoutes(app: HttpService, deps: McpProtocolDep
         if (r.kind === 'not_granted') return fail(-32601, `Method not found: ${msg.method}`); // 与未知工具同文案族
         if (r.kind === 'ok') {
           // 上游结果已是 MCP 形状（{content,isError?}）→ 原样透传（下游客户端语义无损）；
-          // 本地工具结果是业务对象 → 序列化为 text content。
+          // 本地工具结果是业务对象 → 序列化为 text content。紧凑 JSON、不缩进：内容一样，换行和缩进只占上下文（渐进开放第 0 步量出来，access_info 省一半左右）
           const out = r.out;
           if (r.upstream && out && typeof out === 'object' && Array.isArray((out as any).content)) {
             return res.json({ jsonrpc: '2.0', id: msg.id, result: out });
           }
-          return res.json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }] } });
+          return res.json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: JSON.stringify(out) }] } });
         }
         // 工具执行失败按 MCP 规范走 isError（协议层错误才用 JSON-RPC error）
         // 带具名字段的错误（如数据契约 violations）把状态码与字段原样附在后面，agent 能逐条改
