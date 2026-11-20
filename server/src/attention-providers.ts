@@ -149,7 +149,8 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           source: 'bench-mcp', source_id: `${r.bench}:${r.id}`, category: 'grant', kind: 'bench-mcp',
           title: `MCP 会话 ${r.session || '（已删）'} 申请在「${r.bench_title}」上用 ${r.tools.length} 个工具${r.tools.some((t) => t.category === 'write') ? '（含写）' : '（只读）'}`,
           waiting_for: r.session ? `mcp:${r.session}` : '', since: new Date(r.created_at).toISOString(), answers: ['approve', 'reject'], link: '',
-          detail: { session: r.session, bench: r.bench, bench_title: r.bench_title, tools: r.tools, reason: r.reason, created_at: r.created_at },
+          // bench_registered 为 false：会话写的是一张还没开台库的卡片，批准时顺带开台库（workbench_id 是那张卡片）
+          detail: { session: r.session, bench: r.bench, bench_title: r.bench_title, bench_registered: r.bench_registered, workbench_id: r.workbench_id, tools: r.tools, reason: r.reason, created_at: r.created_at },
           // 能批的人（管理层）多半不是管理员，过不了答复入口前面的写请求总门：卡片照这个地址答，判断和答复入口转过去的是同一处
           answer_via: answerVia('POST', `/api/bench-views/${r.bench}/mcp-requests/${r.id}`, {
             approve: { body: { approve: true, [VIA_MARK]: true }, input: { note: { to: 'note', max: 500 } } },

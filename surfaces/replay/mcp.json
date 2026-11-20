@@ -181,7 +181,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "17750", "etag": "W/\"4556-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "17795", "etag": "W/\"4583-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               { "name": "access_info", "description": "查本会话的权限：会话名、已授权工具、工具目录（本地 + 上游聚合；默认只给索引——每项是名字、一行说明、category=read/write/admin、granted，不带参数表）、本会话提过的权限申请及状态（通用申请编号 mcp-N，台的申请 bench-N）。要某个工具的参数表和完整说明，带 tool（没批的工具也取得到）；带 ref 只回这一条申请；带 full: true 回整份目录连参数表（大，只在确实要全量时用）。三者一次只能给一个。任何已认证会话都能调，不受授权限制——调用工具被拒或 tools/list 里找不到想要的工具时先调它。", "category": "read", "always_allowed": true },
               { "name": "access_request", "description": "申请把目录里的工具授权给本会话（管理员在「MCP 网关」页批准后立即生效，批准是并入现有授权，不会收走已有工具）。tools 必须是 access_info 目录里的工具名；reason 必填（≤500 字），写清要做什么。同一组工具已有待批申请时返回那条，不重复建；每会话每小时最多 10 条。会话不能自己批准。", "category": "write", "always_allowed": true },
@@ -231,7 +231,7 @@
               { "name": "dataset_delete_rows", "description": "[数据视图·必须限定到台] 按主键删行；删之前自动留快照", "category": "write" },
               { "name": "dataset_snapshot", "description": "[数据视图·必须限定到台] 手工留一份快照", "category": "write" },
               { "name": "dataset_restore", "description": "[数据视图·必须限定到台] 把数据集退回到某一份快照", "category": "write" },
-              { "name": "view_put", "description": "[数据视图·必须限定到台] 保存视图描述：产生一个新版本并立即生效（doc 的块类型、必填、上限在参数里列全；服务端按同一契约校验，不合格整份拒收、不产生新版本）", "category": "write" },
+              { "name": "view_put", "description": "[数据视图·必须限定到台] 保存视图描述：产生一个新版本并立即生效。服务端按契约校验（块类型、必填、上限、输出列、$参数、数据集引用都查），不合格整份拒收、不产生新版本，错误里点名是哪一处", "category": "write" },
               { "name": "view_rollback", "description": "[数据视图·必须限定到台] 让旧版本重新生效（只移指针，不丢版本）", "category": "write" }
             ]
           }

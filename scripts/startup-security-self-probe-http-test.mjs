@@ -10,7 +10,7 @@ import { DatabaseSync } from 'node:sqlite';
 const root=resolve('.'),out=resolve('tmp/startup-self-probe-http-'+Date.now());
 mkdirSync(out,{recursive:true});let checks=0;
 const check=(name,condition)=>{assert.ok(condition,name);checks++;console.log('PASS '+name)};
-const BENCH_PROBES=['market.bench-views.anonymous-read','market.bench-views.anonymous-write','market.bench-views.var-render-anonymous'];
+const BENCH_PROBES=['market.bench-views.anonymous-read','market.bench-views.anonymous-write','market.bench-views.var-render-anonymous','market.bench-views.table-export-anonymous','market.bench-views.table-row-anonymous'];
 const spare=async()=>{const s=createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const p=s.address().port;await new Promise(r=>s.close(r));assert(![3080,9800,9801].includes(p));return p;};
 const websocket=port=>new Promise((resolve,reject)=>{
  const s=connect(port,'127.0.0.1');let bytes=0;
@@ -83,7 +83,7 @@ async function runCase(label,{off=false,control=false,occupied=false,unset=false
    if(mutation==='grants-admin-read')check(label+' only the two grant rows fail',so.includes('"id":"market.grants.admin-read"')&&so.includes('"id":"market.grants.approve-anonymous"')&&so.split('"verdict":"fail"').length===3);
    if(mutation==='bench-views-anonymous'){
     const failed=so.split(/\r?\n/).flatMap(line=>{try{const row=JSON.parse(line);return row.source==='self-probe'&&row.verdict==='fail'?[row]:[];}catch{return [];}});
-    check(label+' exactly the three named bench-view rows fail',failed.length===BENCH_PROBES.length&&BENCH_PROBES.every(id=>failed.some(row=>row.id===id)));
+    check(label+' exactly the named bench-view rows fail',failed.length===BENCH_PROBES.length&&BENCH_PROBES.every(id=>failed.some(row=>row.id===id)));
    }
    if(mutation==='portal-session-strip'){const failed=so.split(/\r?\n/).flatMap(line=>{try{const r=JSON.parse(line);return r.source==='self-probe'&&r.verdict==='fail'?[r]:[];}catch{return[]}});check(label+' only the exact portal session-strip row fails',failed.length===1&&failed[0].id==='market.portal.session-id-stripped'&&failed[0].reason==='session-id-forwarded');}
    if(mutation==='app-data-read')check(label+' only the app data read row fails',so.includes('"id":"market.app-data.anonymous-read"')&&so.split('"verdict":"fail"').length===2);
