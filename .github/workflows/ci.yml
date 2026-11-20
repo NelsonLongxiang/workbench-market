@@ -354,6 +354,8 @@ jobs:
           node scripts/privacy-gate.mjs --selftest
       - name: 台库冒烟（数据视图：数据集与改列·四种写入的校验、幂等、上限·快照与退回·查询描述与注入形态·视图描述的核对、版本、并发保存、回退·排队、隔离、标识不逃出目录）
         run: node scripts/bench-store-smoke.mjs && node --disable-warning=ExperimentalWarning scripts/skill-data-views-examples-test.mjs
+      - name: 技能 wm-capability-access 里的例子都是真的（隔离实例上逐个调用·点名的字段和常量对得上）
+        run: node scripts/skill-capability-access-examples-test.mjs
       - name: 台库分道（同一个台固定一道·不同道互不排队·大写入全局一次一件且做完换线程·一道终止不碍别的道·排队上限按各道合计）
         run: node scripts/bench-store-lanes-test.mjs
       - name: 台库按卡片 id 开放（卡片 id 和台标识都认·删卡片要管理层并确认、409 只给规模·删前备份·连带清登记、授予、库文件、驾驶舱面板）与清扫（孤儿库、过期备份、Redis 孤儿键）
