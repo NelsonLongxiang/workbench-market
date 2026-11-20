@@ -23,6 +23,7 @@
 | `sort` | `{ "col": 列, "dir": "asc" 或 "desc" }`，`dir` 不写是 `asc`。最多 8 项。聚合查询只能按输出列（分组列和别名）排；不写 `sort` 时，聚合按分组列升序、明细按写入的先后 |
 | `limit` | 1～5000，不给是 200 |
 | `offset` | 跳过多少行 |
+| `current_only` | 只用于公共区的数据集（带来源列的）：`true` 时每条更正链只取最新那行。那种数据集还能读来源列 `_area`、`_task`、`_batch`、`_grant`、`_upstream`、`_supersedes` 和行号 `_row`（选、筛、排序都行），它们由服务端填，写不进去 |
 
 写了上面没有的键会被拒，报错里会列出这一处能用的键（比如 `filter` 的一条只认 `col`、`op`、`value`、`values`；`measures` 的一项只认 `as`、`fn`、`col`、`label`）。
 

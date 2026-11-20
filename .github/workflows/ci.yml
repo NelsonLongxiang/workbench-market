@@ -353,7 +353,7 @@ jobs:
           node scripts/tech-route-check.mjs --strict
           node scripts/privacy-gate.mjs --selftest
       - name: 台库冒烟（数据视图：数据集与改列·四种写入的校验、幂等、上限·快照与退回·查询描述与注入形态·视图描述的核对、版本、并发保存、回退·排队、隔离、标识不逃出目录）
-        run: node scripts/bench-store-smoke.mjs && node --disable-warning=ExperimentalWarning scripts/skill-data-views-examples-test.mjs
+        run: node scripts/bench-store-smoke.mjs && node --disable-warning=ExperimentalWarning scripts/skill-data-views-examples-test.mjs && node --disable-warning=ExperimentalWarning scripts/bench-provenance-test.mjs
       - name: 技能 wm-capability-access 里的例子都是真的（隔离实例上逐个调用·点名的字段和常量对得上）
         run: node scripts/skill-capability-access-examples-test.mjs
       - name: 台库分道（同一个台固定一道·不同道互不排队·大写入全局一次一件且做完换线程·一道终止不碍别的道·排队上限按各道合计）
