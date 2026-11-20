@@ -1467,6 +1467,19 @@ CREATE INDEX IF NOT EXISTS idx_department_members_principal ON department_member
 //   area_events：每次建、撤、新加版本、移指针、迁移一行，只增不改。
 // 时间一律是毫秒、由代码给。「不能改、不能删」靠触发器；生效指针只能指已有的版本也靠触发器（SQLite 这里没开外键检查）。
 // PG 那一份成对的触发器到搬库（第 13 篇）时登记。
+//   area_events 第 1 步 PR2b 多两种：lead-active（有了生效的负责人，pending-lead → active）、lead-missing（没有了，active → pending-lead）。
+//   旧库的 CHECK 改不了：整表搬一次（触发器、索引先拆，建新表后照原样搬行，旧表删掉），幂等。
+{
+  const old = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'area_events'").get() as { sql: string } | undefined;
+  if (old && !old.sql.includes("'lead-missing'")) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.exec(`DROP TRIGGER IF EXISTS area_events_no_update; DROP TRIGGER IF EXISTS area_events_no_delete; DROP TRIGGER IF EXISTS area_events_no_replace;
+        DROP INDEX IF EXISTS idx_area_events_area; ALTER TABLE area_events RENAME TO area_events_pr1;`);
+      db.exec('COMMIT');
+    } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ } throw e; }
+  }
+}
 db.exec(`
 CREATE TABLE IF NOT EXISTS areas (
   id TEXT PRIMARY KEY CHECK (id <> ''),
@@ -1495,7 +1508,7 @@ CREATE TABLE IF NOT EXISTS area_specs (
 CREATE TABLE IF NOT EXISTS area_events (
   seq INTEGER PRIMARY KEY,
   area_id TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('create', 'retire', 'spec-add', 'spec-activate', 'migrate')),
+  kind TEXT NOT NULL CHECK (kind IN ('create', 'retire', 'spec-add', 'spec-activate', 'migrate', 'lead-active', 'lead-missing')),
   version INTEGER,
   actor TEXT NOT NULL CHECK (actor <> ''),
   actor_principal TEXT,
@@ -1529,6 +1542,15 @@ CREATE TRIGGER IF NOT EXISTS area_events_no_delete BEFORE DELETE ON area_events
 CREATE TRIGGER IF NOT EXISTS area_events_no_replace BEFORE INSERT ON area_events WHEN EXISTS (SELECT 1 FROM area_events WHERE seq = NEW.seq)
   BEGIN SELECT RAISE(ABORT, 'area_events 只增不改'); END;
 `);
+// 上面拆出来的旧留痕表：原样搬回新表（编号不变），再删掉
+if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'area_events_pr1'").get()) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.exec(`INSERT INTO area_events (seq, area_id, kind, version, actor, actor_principal, at, detail)
+      SELECT seq, area_id, kind, version, actor, actor_principal, at, detail FROM area_events_pr1 ORDER BY seq; DROP TABLE area_events_pr1;`);
+    db.exec('COMMIT');
+  } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ } throw e; }
+}
 // 团队与分配（规范 14 第 1 步）。团队、席位是节点名册里的事实（a2a_roster_seats，市场只读）；这三张表是公司的安排，只在市场里。
 //   键和名册一致：团队 (host, team)，host 是节点公钥指纹的前 8 位十六进制（小写）；席位以 (host, seat_id) 为主，seat_id 空的旧节点退回 (host, team, seat)。
 //   teams：团队的登记——认领了没有、挂在哪个部门。没认领的团队不一定有行（名册里出现了、还没人认领）。

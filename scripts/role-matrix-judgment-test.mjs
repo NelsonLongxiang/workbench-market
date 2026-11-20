@@ -50,7 +50,7 @@ try {
   svc('departments').upsert({ id: 'sales', name: '合成 sales', functionCode: null, lead: null }, 'cli', Date.now());
   // 领域 sales：领域的三个预设授予到 area:sales（建好直接改成 active，起草 area-member 要领域已有负责人）
   svc('areas').create({ id: 'sales', name: '合成 sales' }, { by: 'cli', principal: null }, Date.now());
-  svc('areas').leadActivated('sales', { by: 'cli', principal: null }, Date.now());
+  db.prepare("UPDATE areas SET status = 'active' WHERE id = 'sales'").run(); // 合成：直接当作已有负责人，这里只看矩阵
 
   const now = Date.now();
   const cli = { by: 'cli', principal: null, owner: true };

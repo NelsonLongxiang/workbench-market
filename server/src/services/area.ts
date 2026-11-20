@@ -16,6 +16,7 @@ import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
 import { svc } from '../context.ts';
 import type { GrantService } from './grant.ts';
+import type { PrincipalStatusChanged } from './principal.ts';
 
 export type AreaStatus = 'pending-lead' | 'active' | 'retired';
 export type AreaSource = 'manual' | 'department';
@@ -67,6 +68,13 @@ function tx<T>(fn: () => T): T {
 export class AreaService extends Service {
   constructor(ctx: any) {
     super(ctx, 'areas');
+    // 负责人本人停用、恢复：重算他负责的领域（services/principal.ts 的 setStatus 发）
+    ctx.on('principal/status', (c: PrincipalStatusChanged) => {
+      const now = Date.now();
+      for (const area of svc<GrantService>('grants').leadAreasHeldBy(c.id, now)) {
+        this.reconcileLead(area, `负责人 ${c.id} ${c.status === 'disabled' ? '停用' : '恢复'}${c.reason.trim() ? `：${c.reason.trim()}` : ''}`, { by: c.by, principal: null }, now);
+      }
+    });
   }
 
   list(): AreaView[] {
@@ -92,7 +100,7 @@ export class AreaService extends Service {
     return r ? { ...specMeta(r, a.spec_version), body: String(r.body) } : null;
   }
 
-  private event(areaId: string, kind: 'create' | 'retire' | 'spec-add' | 'spec-activate' | 'migrate', version: number | null, actor: AreaActor, now: number, detail = ''): void {
+  private event(areaId: string, kind: 'create' | 'retire' | 'spec-add' | 'spec-activate' | 'migrate' | 'lead-active' | 'lead-missing', version: number | null, actor: AreaActor, now: number, detail = ''): void {
     db.prepare('INSERT INTO area_events (area_id, kind, version, actor, actor_principal, at, detail) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(areaId, kind, version, actor.by.slice(0, 256), actor.principal, now, detail.slice(0, 500));
   }
@@ -146,11 +154,45 @@ export class AreaService extends Service {
   }
 
   /**
-   * 第一位负责人生效（services/grant.ts 放行时在自己的写事务里调）：领域还是 pending-lead 的改成 active，回改没改。
-   * 撤了的、已经 active 的不动
+   * 照「有没有生效的负责人」重算领域状态（docs/domains-step1.md 第二节第 1 小节）。授予放行、收回、到期，负责人本人停用、恢复之后调，
+   * 在调用方的写事务里跟着走（tx 外面开着就不另开）：有生效的负责人而还是 pending-lead → active，留痕 lead-active；
+   * 一个都没有了而还是 active → pending-lead，留痕 lead-missing（写原因），属主在「等你拍板」里看到这个领域（attention-providers.ts 的 areas-no-lead）。
+   * 撤了的不动。回改成了什么，没改回 null。
+   * 「生效的负责人」：授予生效、没过期、范围正好是 area:<领域>、角色覆盖负责人专有动作，而且被授予的是启用的人（services/grant.ts 的 activeLeadCount）
    */
-  leadActivated(id: string, actor: AreaActor, now: number): boolean {
-    return tx(() => db.prepare("UPDATE areas SET status = 'active', updated_at = ?, updated_by = ? WHERE id = ? AND status = 'pending-lead'").run(now, actor.by.slice(0, 256), id).changes === 1);
+  reconcileLead(id: string, reason: string, actor: AreaActor, now: number): AreaStatus | null {
+    return tx(() => {
+      const a = this.get(id);
+      if (!a || a.status === 'retired') return null;
+      const has = svc<GrantService>('grants').activeLeadCount(id, now) > 0;
+      const next: AreaStatus | null = has && a.status === 'pending-lead' ? 'active' : !has && a.status === 'active' ? 'pending-lead' : null;
+      if (!next) return null;
+      db.prepare('UPDATE areas SET status = ?, updated_at = ?, updated_by = ? WHERE id = ?').run(next, now, actor.by.slice(0, 256), id);
+      this.event(id, next === 'active' ? 'lead-active' : 'lead-missing', null, actor, now, reason);
+      return next;
+    });
+  }
+
+  /**
+   * 触发、验收的门（用例 28；第 2 步接到「建事项」「验收事项」上）：领域还没有负责人（pending-lead）时回 409，撤了的 409，不存在的 404；能做回 null。
+   */
+  workGate(id: string): AreaRefusal | null {
+    const a = this.get(id);
+    if (!a) return refuse(404, 'area_missing', `领域 ${id} 不存在`);
+    if (a.status === 'retired') return refuse(409, 'area_retired', `领域 ${id} 已经撤了，只读`);
+    if (a.status === 'pending-lead') return refuse(409, 'area_no_lead', `领域 ${id} 还没有负责人：等属主指定负责人之后才能触发、验收`);
+    return null;
+  }
+
+  /** 没有负责人的领域（没撤的 pending-lead），给属主的待办用 */
+  withoutLead(): AreaView[] {
+    return (db.prepare(`SELECT ${AREA_COLS} FROM areas WHERE status = 'pending-lead' ORDER BY id`).all() as AreaRow[]).map(areaView);
+  }
+
+  /** 这个领域最近一次「没有负责人了」的原因（lead-missing 那一行的 detail）；新建、迁移出来本来就没有的为 null */
+  leadMissingReason(id: string): string | null {
+    const r = db.prepare("SELECT kind, detail FROM area_events WHERE area_id = ? AND kind IN ('lead-active', 'lead-missing') ORDER BY seq DESC LIMIT 1").get(id) as { kind: string; detail: string } | undefined;
+    return r?.kind === 'lead-missing' ? r.detail : null;
   }
 
   /** 把生效指针移到已有的一版（回退也是它）。不新增版本 */

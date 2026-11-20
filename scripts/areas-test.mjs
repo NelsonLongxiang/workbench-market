@@ -23,6 +23,10 @@
  *   B3 覆盖定规范、负责人动作的授予只有属主起草、放行（按权限覆盖） B4 AI 席位拿不到领域的预设
  *   B5 定规范的硬规则（只认属主和本领域 area-spec）、不经管理员门后的跨站和匿名   B6 读按 area: 授予   B7 负责人专有动作第 1 步走不到
  *
+ * C 组：领域负责人（PR2b）。服务层的另见 scripts/areas-lead-test.mjs（#28 主测、到期、#29b 两个进程并发收回）
+ *   C1 放行第一位负责人后变 active、留痕   C2 不能收回最后一位负责人（路由层，原因透传）；有两位时能收一位；草稿照常作废；撤领域一并收回
+ *   C3 负责人本人停用：退回 pending-lead、留痕、属主的待办；恢复后回到 active   C4 负责人授予到期：退回 pending-lead
+ *
  *   node scripts/areas-test.mjs
  */
 import { createServer } from 'node:net';
@@ -473,6 +477,78 @@ try {
   {
     const r = await leo.go('POST', '/api/areas/zeta/retire', { json: { reason: '合成' } });
     check(r.status === 403 && (await areaStatus('zeta')) === 'active', 'B7（#24）持 area-lead 的人调领域的写路由（负责人动作恒为假的 refine 挂在这里）：照旧按撤领域只认属主，403', { s: r.status });
+  }
+
+  // ================= C：领域负责人（docs/domains-step1.md 第 1 步 PR2b） =================
+  await A.person('lia', 'Lia-pass-000001', '192.0.2.91');
+  await A.person('ivy', 'Ivy-pass-000001', '192.0.2.92');
+  await A.person('kim', 'Kim-pass-000001', '192.0.2.93');
+  for (const [id, name] of [['theta', '辛领域'], ['iota', '壬领域'], ['kappa', '癸领域']]) await A.cli('POST', '/api/areas', { id, name });
+  /** 本机命令行起草、提交、放行一条负责人授予，回编号 */
+  const leadOf = async (principal, area, expires_at) => {
+    const d = await A.cli('POST', '/api/grants', { principal, role: 'area-lead', scope: `area:${area}`, reason: '合成', ...(expires_at ? { expires_at } : {}) });
+    const id = d.json?.grant?.id;
+    await A.cli('POST', `/api/grants/${id}/submit`); await A.cli('POST', `/api/grants/${id}/approve`);
+    return id;
+  };
+  const kindsOf = (area) => { const d = A.db(); try { return d.prepare('SELECT kind, detail FROM area_events WHERE area_id = ? ORDER BY seq').all(area); } finally { d.close(); } };
+  const grantStatus = (id) => { const d = A.db(); try { return d.prepare('SELECT status FROM grants WHERE id = ?').get(id)?.status; } finally { d.close(); } };
+
+  // ---- C1 放行第一位负责人：active，留痕 ----
+  const t1 = await leadOf('user:leo', 'theta');
+  {
+    const k = kindsOf('theta').map((r) => r.kind);
+    check((await areaStatus('theta')) === 'active' && k.includes('lead-active'), 'C1（#28 路由层）放行第一位负责人后 GET /api/areas 里的状态从 pending-lead 变 active，留痕 lead-active', k);
+  }
+
+  // ---- C2 不能收回最后一位负责人；拒绝原因透传 ----
+  {
+    const byCli = await A.cli('POST', `/api/grants/${t1}/revoke`, { reason: '合成' });
+    const byOwner = await olga.go('POST', `/api/grants/${t1}/revoke`, { json: { reason: '合成' } });
+    check(byCli.status === 409 && byCli.json?.error === 'area_last_lead' && /至少要有一位负责人/.test(byCli.json?.message ?? '') && byOwner.status === 409 && byOwner.json?.error === 'area_last_lead'
+        && grantStatus(t1) === 'active' && (await areaStatus('theta')) === 'active',
+      'C2（#29 路由层）本机命令行、属主收回领域最后一位负责人：409 area_last_lead，原因原样透给调用方；授予照旧生效', { cli: [byCli.status, byCli.json], owner: byOwner.status });
+    const t2 = await leadOf('user:lia', 'theta');
+    const r1 = await A.cli('POST', `/api/grants/${t1}/revoke`, { reason: '合成：换人' });
+    const r2 = await A.cli('POST', `/api/grants/${t2}/revoke`, { reason: '合成' });
+    check(r1.status === 200 && r2.status === 409 && r2.json?.error === 'area_last_lead' && (await areaStatus('theta')) === 'active',
+      'C2b 两位负责人时收回一位：成；剩下那一位再收回：409', { r1: r1.status, r2: r2.status });
+    // 还没放行的负责人授予（草稿）不算生效，收回照常
+    const d = await A.cli('POST', '/api/grants', { principal: 'user:kim', role: 'area-lead', scope: 'area:theta', reason: '合成' });
+    const rd = await A.cli('POST', `/api/grants/${d.json?.grant?.id}/revoke`, { reason: '合成：作废' });
+    check(rd.status === 200, 'C2c 负责人授予还在草稿时作废：照常 200（不是生效的负责人）', { rd: rd.status });
+    // 撤领域：连同最后一位负责人一起收回（裁定 6）
+    const ret = await olga.go('POST', '/api/areas/theta/retire', { json: { reason: '合成' } });
+    check(ret.status === 200 && ret.json?.grants_revoked?.includes(t2) && grantStatus(t2) === 'revoked', 'C2d 属主撤领域：最后一位负责人一并收回，不受「至少一位」拦', { s: ret.status, body: ret.json?.grants_revoked });
+  }
+
+  // ---- C3 负责人本人停用：退回 pending-lead、留痕、给属主待办；恢复后回到 active ----
+  {
+    await leadOf('user:ivy', 'iota');
+    const st0 = await areaStatus('iota');
+    const dis = await A.cli('POST', '/api/principals/disable', { id: 'user:ivy', reason: '合成：离职' });
+    const st1 = await areaStatus('iota');
+    const ev = kindsOf('iota').at(-1);
+    const att = (r) => (r.json?.items ?? []).filter((x) => x.source === 'areas-no-lead').map((x) => x.source_id);
+    const olgaAtt = att(await olga.go('GET', '/api/attention')), monaAtt = att(await mona.go('GET', '/api/attention')), tomAtt = att(await tom.go('GET', '/api/attention'));
+    const tokenAtt = att(await A.remote('GET', '/api/attention', { token: ADMIN_TOKEN }));
+    check(st0 === 'active' && dis.status === 200 && st1 === 'pending-lead' && ev?.kind === 'lead-missing' && /离职|停用/.test(ev?.detail ?? ''),
+      'C3a（#29）唯一的负责人本人被停用：领域退回 pending-lead，留痕 lead-missing 写原因', { st0, dis: dis.status, st1, ev });
+    check(olgaAtt.includes('iota') && !monaAtt.length && !tomAtt.length && !tokenAtt.length,
+      'C3b 「等你拍板」里给属主一条「这个领域没有负责人」的待办；管理层、普通员工、管理口令看不到', { olgaAtt, monaAtt, tomAtt, tokenAtt });
+    const res = await A.cli('POST', '/api/principals/restore', { id: 'user:ivy', reason: '合成：回来了' });
+    check(res.status === 200 && (await areaStatus('iota')) === 'active' && kindsOf('iota').at(-1)?.kind === 'lead-active' && !att(await olga.go('GET', '/api/attention')).includes('iota'),
+      'C3c 恢复这个人：领域回到 active，留痕 lead-active，待办消失', { s: res.status });
+  }
+
+  // ---- C4 负责人授予到期 ----
+  {
+    await leadOf('user:kim', 'kappa', Date.now() + 2500);
+    const st0 = await areaStatus('kappa');
+    await sleep(3200);
+    await A.cli('GET', '/api/grants'); // 列授予时顺手把到期的标成过期
+    check(st0 === 'active' && (await areaStatus('kappa')) === 'pending-lead' && kindsOf('kappa').at(-1)?.kind === 'lead-missing',
+      'C4 唯一负责人的授予到期：领域退回 pending-lead，留痕 lead-missing', { st0 });
   }
 
 } catch (e) {
