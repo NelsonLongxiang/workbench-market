@@ -127,7 +127,8 @@ export class AreaService extends Service {
    * 部门迁成领域（docs/domains-step1.md 第二节第 3 小节），只有属主调。每个部门一个写事务（BEGIN IMMEDIATE），幂等、并发调两次也只成一份：
    *   · 没有同标识领域的，建一个同标识、同名的领域（source = department，pending-lead），留痕一行 migrate（detail 是部门标识）；已有的（含撤了的）不建；
    *   · 部门有生效的负责人授予（dept_lead_grants 里那条还生效）、负责人是启用的人：给他起草一条 area-lead（范围 area:<同标识>、理由「由部门负责人迁移」）
-   *     并提交，停在待核等属主放行；已经有一条同样的没结束的，不再起草。负责人停用的、只有字段没有授予的、没有负责人的，不起草；
+   *     并提交，停在待核等属主放行。去重按「人 + 角色 + 范围」，不看理由：已有一条没结束的（手工的也算，skipped 记 already_open）、
+   *     或者迁移起草后被收回、否决过的（refused_before：属主的否决不因再跑一次迁移被推翻），不再起草。负责人停用的、只有字段没有授予的、没有负责人的，不起草；
    *   · 不起草 area-member、area-spec（定规范单独授予，迁移不替属主做决定）；部门成员不迁；旧表一律不删。
    */
   migrateDepartments(actor: AreaActor & { owner: boolean }, now: number): {
@@ -151,7 +152,9 @@ export class AreaService extends Service {
         const p = db.prepare('SELECT kind, status FROM principals WHERE id = ?').get(d.lead.principal) as { kind: string; status: string } | undefined;
         if (!p || p.kind !== 'person' || p.status !== 'active') { out.skipped.push({ department: d.id, reason: 'lead_not_active' }); return; }
         const scope = `area:${d.id}`;
-        if (grants.openGrantExists(d.lead.principal, 'area-lead', scope, MIGRATE_REASON)) return;
+        // 去重按人、角色、范围，不看理由：已有没结束的（手工的也算）、或者迁移起草后被收回（否决）过的，都不再起草
+        const handled = grants.migrationHandled(d.lead.principal, 'area-lead', scope, MIGRATE_REASON);
+        if (handled) { out.skipped.push({ department: d.id, reason: handled }); return; }
         const r = grants.draftInTx({ principal: d.lead.principal, role: 'area-lead', scope, reason: MIGRATE_REASON }, { by: actor.by, principal: actor.principal, owner: actor.owner }, now, true);
         if (r.ok) out.drafted.push({ department: d.id, grant: r.id, principal: d.lead.principal });
         else out.skipped.push({ department: d.id, reason: r.code });

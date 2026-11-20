@@ -295,9 +295,17 @@ export class GrantService extends Service {
     return { ok: true, id };
   }
 
-  /** 有没有一条还没结束（草稿、待核、生效）的、主体、角色、范围、理由都一样的授予（迁移去重用） */
-  openGrantExists(principal: string, role: string, scope: string, reason: string): boolean {
-    return !!db.prepare("SELECT 1 FROM grants WHERE principal_id = ? AND role = ? AND scope = ? AND reason = ? AND status IN ('draft', 'pending', 'active')").get(principal, role, scope, reason);
+  /**
+   * 迁移去重（docs/domains-step1.md 第二节第 3 小节，统筹 11-20 裁定）：按「人 + 角色 + 范围」看，不看理由。
+   *   · 'already_open'：已经有一条还没结束的（草稿、待核、生效），不管是手工起草的还是迁移起草的；
+   *   · 'refused_before'：迁移起草过、后来被收回或否决了（属主的否决不能因为再跑一次迁移就被推翻）；
+   *   · null：都没有，可以起草。
+   * migrateReason 是迁移起草时写的理由，用来认出「迁移起草过」
+   */
+  migrationHandled(principal: string, role: string, scope: string, migrateReason: string): 'already_open' | 'refused_before' | null {
+    if (db.prepare("SELECT 1 FROM grants WHERE principal_id = ? AND role = ? AND scope = ? AND status IN ('draft', 'pending', 'active')").get(principal, role, scope)) return 'already_open';
+    if (db.prepare("SELECT 1 FROM grants WHERE principal_id = ? AND role = ? AND scope = ? AND reason = ? AND status = 'revoked'").get(principal, role, scope, migrateReason)) return 'refused_before';
+    return null;
   }
 
   /** 起草 */
