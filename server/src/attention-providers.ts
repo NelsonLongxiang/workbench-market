@@ -20,6 +20,7 @@
  *   bench-mcp         GET /api/bench-views/<台>/mcp-grants（台上的 MCP 授予申请）  那组路由自己的门（benchMcpDecider：先拒管理口令，再按「拍板」问判定）  授权
  *   a2a-peers         GET /api/a2a/peers（对端名片的公钥变了、等确认的）adminGuard           授权
  *   team-health       GET /api/teams（待认领、不在名册里、没有负责人的团队；名册超过阈值没更新的节点） adminGuard  过目
+ *   a2a-decisions     没有旧接口：宿主推来的团队决策卡（总工、观察者提的，T8）  只给属主（持范围 * 的属主授予的人）和本机命令行  提问（只展示，拍板到宿主上）
  *   relation-proposals GET /api/relations/proposals（这个人能确认的关系提议，和确认接口同一处 confirmRefusal） 登录的人   授权
  *                     验收条目给看得到这件事项的人（itemRoles 的 canSee，和事项页同一个函数），mine 只对建立人为真
  */
@@ -55,6 +56,7 @@ import type { GrantService } from './services/grant.ts';
 import type { RelationProposalService } from './services/relation-proposal.ts';
 import { browserMarked, rawLoopback } from './surfaces.ts';
 import { teamName } from './team-relation.ts';
+import { waitingDecisionCards } from './services/a2a-decision-cards.ts';
 import { canRelease, canSee, creatorOf, holdsManagementGrant, isManagement, itemDecisionVerdict, requestViewer, stuckGoesTo, TERMINAL_STATES, turnOf, type WorkItemViewer } from './work-item-access.ts';
 import { pendingAsksOfEvent } from './services/attention-sources.ts';
 import { eventOfItem } from './seat-messages.ts';
@@ -453,6 +455,30 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           source: 'relation-proposals', source_id: String(p.id), category: 'grant',
           title: `${what[p.kind]}：${p.kind === 'team-claim' ? `团队 ${teamName(p.team) || '（没有名字）'} → 部门 ${p.department_id}` : `${p.principal_id}${p.kind === 'dept-lead' ? ` 做部门 ${p.department_id} 的负责人` : ` 做团队 ${teamName(p.team) || '（没有名字）'} 的负责人`}`}（${p.proposed_by} 提议）`,
           waiting_for: p.proposed_by, since: new Date(p.proposed_at).toISOString(), link: '/team', phase: p.kind,
+        }));
+      },
+    }),
+    provide({
+      // 团队的决策卡（观察者落地 T8）：宿主在卡建立、定了、丢弃时推来（/a2a/direct 的 decision-card 分流），这里只列还在等的。
+      // 第一期只给属主看：卡是「给属主的」，拍板也只认宿主上浏览器里登录的属主（设计稿 C5）——条目不带答复地址，给去宿主拍板的链接。
+      // 认属主和「关系的提议」同一个口径：本机命令行，或持范围 * 的属主授予的登录主体；管理层、系统管理员、管理口令都看不到
+      source: 'a2a-decisions', label: '团队的决策卡',
+      list: async (req) => {
+        const cli = !browserMarked(req) && rawLoopback(req);
+        let principal: string | null = null;
+        const cookie = String(req.headers.cookie ?? '');
+        if (cookie) { const who = await identity().resolveViewer(cookie); if (who.ok) principal = svc<PrincipalService>('principals').principalOf(identity().providerName() ?? '', who.viewer.login) ?? who.viewer.sub; }
+        if (!cli && !(principal && svc<GrantService>('grants').isOwner(principal))) return null;
+        return waitingDecisionCards().map((c) => item({
+          source: 'a2a-decisions', source_id: `${c.key_fingerprint.slice(0, 12)}:${c.team}:${c.card_id}`, category: 'ask', kind: 'a2a-decision',
+          title: `[${c.level}] ${c.proposer_kind === 'observer' ? '观察者' : '总工'}（${teamName(c.team) || c.team}）：${c.question.slice(0, 80)}`,
+          waiting_for: `team:${c.team}`, since: c.created_at, link: '',
+          detail: {
+            host: c.host_name, team: c.team, proposer_kind: c.proposer_kind, level: c.level, question: c.question, options: c.options,
+            recommended: c.recommended, reason: c.reason, files: c.files, created_at: c.created_at,
+            // 宿主上拍板的页面：宿主给的是路径，这里拼它登记的根地址
+            decide_at: c.decide_at === '' ? '' : `${c.peer_root}${c.decide_at}`,
+          },
         }));
       },
     }),

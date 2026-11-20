@@ -1375,6 +1375,37 @@ WITH cand AS (
 )
 SELECT c.* FROM cand c WHERE (SELECT COUNT(*) FROM cand d WHERE d.host = c.host) = 1`);
 
+// 团队的决策卡（观察者落地 T8，第 18 篇第七节）：宿主在卡建立、定了、丢弃时推来的元数据，只给属主看（「关注」的 a2a-decisions）。
+//   键是（签名宿主的根地址、钥匙完整指纹、团队、宿主上的卡号）：别的宿主报不了这台宿主的卡。
+//   rev 是宿主那边的版本号，只收更大的；state 只往前走（waiting → decided / dropped），终态之后再来「建立」不复活。
+//   doc_sha256 是这一版信封里卡的内容摘要：rev 相同、内容也相同算重复，rev 相同内容不同算过时（不改）。
+//   文件只存名字、大小、摘要，不存内容。时间由代码生成后传入
+db.exec(`
+CREATE TABLE IF NOT EXISTS a2a_decision_cards (
+  peer_root TEXT NOT NULL,
+  key_fingerprint TEXT NOT NULL,
+  team TEXT NOT NULL,
+  card_id TEXT NOT NULL,
+  rev INTEGER NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('waiting', 'decided', 'dropped')),
+  doc_sha256 TEXT NOT NULL,
+  proposer_kind TEXT NOT NULL CHECK (proposer_kind IN ('router', 'observer')),
+  level TEXT NOT NULL CHECK (level IN ('P0', 'P1', 'P2', 'P3')),
+  question TEXT NOT NULL,
+  options TEXT NOT NULL,
+  recommended TEXT NOT NULL,
+  reason TEXT NOT NULL DEFAULT '',
+  files TEXT NOT NULL DEFAULT '[]',
+  decide_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  decided_at TEXT NOT NULL DEFAULT '',
+  decided_option TEXT,
+  received_at INTEGER NOT NULL,
+  PRIMARY KEY (peer_root, key_fingerprint, team, card_id)
+);
+CREATE INDEX IF NOT EXISTS idx_a2a_decision_cards_state ON a2a_decision_cards (state, received_at);
+`);
+
 // 「安排一件事」（POST /api/work-items）的请求记账：一个人（requester）的一个幂等键一行。同一个人同一个键再发，回第一次的结果；
 //   键相同、请求体不同（body_sha256 对不上）拒。限流也按这张表数（每人最近一分钟、一天各几行）。时间、id 都由代码生成后传进来。
 db.exec(`
