@@ -347,7 +347,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "661", "etag": "W/\"295-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "675", "etag": "W/\"2a3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "principal": { "id": "user:alpha", "kind": "person", "status": "active", "display_name": "合成甲" },
               "active": [
@@ -367,7 +367,7 @@
               ],
               "inactive": [],
               "relations": { "departments": [], "teams_led": [], "members": [] },
-              "decision": { "action": "workbench.list", "kind": "read", "verdict": "allow", "rule": "grant", "grant": 2 }
+              "decision": { "action": "workbench.list", "kind": "read", "verdict": "allow", "rule": "grant", "grant": 2, "via": "judge" }
             }
           }
         },

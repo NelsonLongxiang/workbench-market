@@ -21,9 +21,10 @@ import { svc } from '../context.ts';
 import { browserMarked, rawLoopback } from '../surfaces.ts';
 import { HttpError } from '../errors.ts';
 import { identity } from '../identity.ts';
-import { judge } from '../judgment.ts';
+import { areaVerdict, judge, scopedVerdict } from '../judgment.ts';
+import { deptKind } from '../judgment-builtins.ts';
 import { RED_LINES } from '../red-lines.ts';
-import type { Kind } from '../roles.ts';
+import { AREA_LEAD_ACTIONS, AREA_SPEC_ACTION, type Kind } from '../roles.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import type { Actor, GrantService } from '../services/grant.ts';
 import type { SetupWizardService, WizardAssignments } from '../services/setup-wizard.ts';
@@ -74,6 +75,36 @@ export function registerAccessRoutes(app: HttpService, deps: AccessRouteDeps): v
     return { by, principal, owner: grants().isOwner(principal) };
   }
 
+  /** 领域的动作，access 接口照领域路由的判法答（不问 judge）。
+   *  规则抄自 routes/areas.ts（who() 的 seesAll、sees()、specSetter、ownerOnly）和第 1 步只登记的动作，PR3b 收成一份（server/src/area-decision.ts 的 areaDecision）。
+   *  access 只看主体：没有管理口令、本机命令行这两种身份。领域撤了、还没负责人回的 409 是业务状态，不是权限，这里不管。 */
+  function areaDecision(p: { id: string; kind: string; status: string }, action: string, scope: string | null): { verdict: 'allow' | 'deny'; rule: string; grant: number | null } {
+    const no = (rule: string) => ({ verdict: 'deny' as const, rule, grant: null });
+    if (p.status !== 'active') return no('principal-inactive');
+    if (p.kind !== 'person') return no('principal-not-person');
+    const owner = grants().isOwner(p.id), seesAll = owner || grants().isBusinessSide(p.id);
+    const area = scope !== null && /^area:[a-z][a-z0-9-]{0,47}$/.test(scope) ? scope.slice(5) : null;
+    if (action === 'area.create' || action === 'area.retire' || action === 'area.migrate') return owner ? { verdict: 'allow', rule: 'area-owner', grant: null } : no('area-owner-only');
+    if (action === 'area.trigger' || action === 'area.accept' || AREA_LEAD_ACTIONS.includes(action)) return no('area-step1-not-routed'); // 第 1 步只登记、恒为假，还没接到路由上
+    if (action === AREA_SPEC_ACTION) {
+      if (owner) return { verdict: 'allow', rule: 'area-owner', grant: null };
+      if (area === null) return no('area-scope-required');
+      return areaVerdict({ principal: p.id, action: AREA_SPEC_ACTION, kind: 'decide', area });
+    }
+    if (action === 'area.list' && area === null) return { verdict: 'allow', rule: 'area-list-filtered', grant: null }; // 列表谁都能读，内容按领域过滤
+    if (seesAll) return { verdict: 'allow', rule: owner ? 'area-owner' : 'area-business-side', grant: null };
+    if (area === null) return no('area-scope-required');
+    return areaVerdict({ principal: p.id, action, kind: 'read', area });
+  }
+  /** 带了范围时说一句这个范围在这个动作上怎么算（照 grant-scope-view.ts 的 scope_effect） */
+  function scopeNote(scope: string, action: string): string {
+    const e = scopeView(scope).scope_effect;
+    if (e === 'all') return '范围是全部';
+    if (e === 'area') return action.startsWith('area.') ? '按领域判：属主、管理层看全部领域，别人看在这个领域上的授予（定规范只认属主和本领域的定规范授予）' : '领域范围只在领域自己的动作上起作用；这个动作不按领域问，结论照不带范围算';
+    if (e === 'dept') return deptKind(action) !== null ? '按部门判：部门范围只在数据视图的台和经验库里起作用' : '部门范围只在数据视图的台和经验库里起作用；这个动作不按部门问，结论照不带范围算';
+    return action.startsWith('area.') ? '这类范围统一判定还不认；领域的动作按领域路由判' : '这类范围（台、流程、工具、对象、只限自己、某一块）统一判定还不认：只回显，结论照不带范围算';
+  }
+
   app.get('/api/principals/:id/access', { action: 'principal.access', kind: 'admin', statusNotVerdict: SELF_OR_ADMIN }, route(async (req, res) => {
     const v = await viewer(req, res);
     if (!v) return;
@@ -112,8 +143,18 @@ export function registerAccessRoutes(app: HttpService, deps: AccessRouteDeps): v
       const known = app.actions().find((a) => a.action === action);
       if (!known) return void res.status(404).json({ error: 'action_unknown', message: `动作 ${action} 没有登记` });
       const scope = req.query.scope === undefined ? null : String(req.query.scope).slice(0, 300);
-      const r = judge({ actor: { type: 'principal', id: p.id, kind: p.kind, status: p.status, owner: p.owner }, action, kind: known.kind as Kind, declared: true, now });
-      decision = { action, kind: known.kind, verdict: r.verdict, rule: r.rule, grant: r.grant ?? null, ...(scope !== null ? { scope, scope_note: '只回显：带范围的授予在判定这一步还不认（L13）' } : {}) };
+      const kind = known.kind as Kind;
+      const viaJudge = () => judge({ actor: { type: 'principal', id: p.id, kind: p.kind, status: p.status, owner: p.owner }, action, kind, declared: true, now });
+      // 结论和实际调接口一致（以服务端判定为准）：领域的动作照领域路由判（领域路由从来不问 judge）；带部门范围、而且这个动作按部门问的，
+      // judge 不放行时再问 scopedVerdict（和数据视图、经验库的路由同一个先后）；别的照旧问 judge。对照表测试：scripts/access-decision-matrix-test.mjs
+      let r: { verdict: string; rule: string; grant?: number | null }, via: 'judge' | 'area' | 'dept' = 'judge';
+      if (action.startsWith('area.')) { r = areaDecision(p, action, scope); via = 'area'; }
+      else if (scope !== null && /^dept:/.test(scope) && deptKind(action) !== null) {
+        const j = viaJudge();
+        r = j.verdict === 'allow' ? j : scopedVerdict({ principal: p.id, action, kind: deptKind(action) as Kind, scope, now });
+        via = j.verdict === 'allow' ? 'judge' : 'dept';
+      } else r = viaJudge();
+      decision = { action, kind: known.kind, verdict: r.verdict, rule: r.rule, grant: r.grant ?? null, via, ...(scope !== null ? { scope, scope_note: scopeNote(scope, action) } : {}) };
     }
     // 只增：团队这层关系（哪个部门的成员、负责人；哪几个团队的负责人；手上的成员）。负责人能分配成员，这本身就是权限；只有关系，不带事项内容
     res.json({ principal: { id: p.id, kind: p.kind, status: p.status, display_name: p.display_name }, active, inactive, relations: relationsSummaryOf(p.id), ...(decision ? { decision } : {}) });
