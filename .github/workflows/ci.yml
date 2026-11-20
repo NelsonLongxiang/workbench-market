@@ -16,7 +16,10 @@ jobs:
         run: ./scripts/ops/odoo-readonly-preflight-test.ps1
   browser-security:
     # #292 M4 真实浏览器反例：有口令不嵌 /go/、跳出清口令、登录弹窗不复制口令且无 opener（bfcache 未命中记 SKIP）
-    runs-on: ubuntu-latest
+    # 系统镜像钉在 24.04：ubuntu-latest 换成 26.04 之后，钉住的 Playwright 不认这个系统，装浏览器那一步直接失败。
+    # 下面两份缓存的键带着 ImageOS、ImageVersion，换镜像会自动换键，不会把别的系统装的浏览器和系统包拿来用。
+    # 升级镜像要和升级 Playwright 一起做，另开 PR
+    runs-on: ubuntu-24.04
     env:
       PLAYWRIGHT_VERSION: '1.57.0'
     steps:
@@ -248,7 +251,7 @@ jobs:
   # 身份接缝与主体：从 tsc-and-syntax 拆出来并行跑（这一步最长，单独一个 job 不拖别的检查）。
   # job 里再并行一层：变异测试（最慢）和单测、对抗组同时跑；单测与对抗组的输出先进日志，跑完再打出来。
   identity-seam:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # 和 browser-security 同一个镜像，换镜像另开 PR 一起换
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -275,7 +278,7 @@ jobs:
           [ "$rc" -eq 0 ] && [ "$mutation" -eq 0 ]
   upgrade-smoke:
     # 线上发布分支的库换成这份代码启动两次（自检、只加不改、幂等、回填），再退回发布分支能读能写；全程合成数据、只听回环
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # 和 browser-security 同一个镜像，换镜像另开 PR 一起换
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -293,7 +296,7 @@ jobs:
       - name: 升级冒烟（基线 fa89254f，第二次上线的起点 → 本 PR）
         run: node scripts/upgrade-smoke.mjs --base fa89254fe1f4027363df240914d1c8c6e9d02ed2
   tsc-and-syntax:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # 和 browser-security 同一个镜像，换镜像另开 PR 一起换
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -697,7 +700,7 @@ jobs:
   # 契约联调：上游 a2a-net 的 superagent 宿主当对端（宿主自己从 process face 签发确认、进展、提问、结果回执），市场在回环上收。
   # 改入站（回执、进展、跟进、验签）的 PR 都要过它。上游钉 next/0.8 的 f458294（#610 合并提交：preview.13 之上修掉了对 bots.a2a 里远端成员误发 superagent-member）。
   upstream-contract:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # 和 browser-security 同一个镜像，换镜像另开 PR 一起换
     timeout-minutes: 30
     permissions:
       contents: read

@@ -5,6 +5,8 @@
 > 第 1 步是身份与权限类改动，按 CONTRIBUTING 红线先验后合，附对抗组、先红后绿，加启动自检。
 >
 > **2026-11-18 按属主更正改过：**「有团队就一定会有负责人。」负责人不删，迁成领域负责人（新角色 `area-lead`）。改动在第一节第 4 条、「不做」（成员分配给员工也保留）、第二节第 3 小节第 2 条、第三节的角色表和放行、第六节的旧对象表；见 [15](productization/15-two-layer-org.md) 开头第 3 条。
+>
+> **2026-11-20 按统筹裁定改过**（第 1 步开工前，验收席预备时发现的四处缺口）：第二节第 1 小节「收回最后一位负责人」和第 2 小节起草条件、第三节 `area.retire` 一行和第 3 小节、第四节两行旧字样、第五节用例 15、28、29 和第 2 小节、第七节第 5～8 条。实现拆成五个 PR，见第八节。
 
 ## 一、这一步做什么、不做什么
 
@@ -50,7 +52,7 @@
 
 **每个领域至少一位负责人**（属主 11-18「有团队就一定会有负责人」；#859 评审：要有守护）：
 - 新建或迁移出来的领域，没有生效的 `area-lead` 授予时，状态是 `pending-lead`：能读、能定规范，但**不能触发、不能验收**（`area.trigger`、`area.accept` 回 409「领域还没有负责人」）。属主放行第一条 `area-lead` 后，同一事务里改成 `active`。
-- **收回最后一位负责人要先补人**：撤销、停用一个 `area-lead` 授予时，如果这个领域就剩它一条生效的，回 409「领域至少要有一位负责人」，除非同一操作里属主同时撤掉这个领域。这个检查和撤销（或停用）**在同一个写事务里**做：SQLite 用 `BEGIN IMMEDIATE`，PG 上先锁领域那一行再数生效的负责人，免得两个并发撤销各自看到「还剩一位」、结果一位都不剩。负责人本人被停用时，领域退回 `pending-lead`，留痕写原因，并给属主一条待办。
+- **收回最后一位负责人要先补人**：撤销、停用一个 `area-lead` 授予时，如果这个领域就剩它一条生效的，回 409「领域至少要有一位负责人」。属主撤领域时不受这一条限制：撤领域在同一个写事务里收回这个领域的全部没结束的授予（含最后一位负责人），见第三节 `area.retire`（第七节第 6 条）。这个检查和撤销（或停用）**在同一个写事务里**做：SQLite 用 `BEGIN IMMEDIATE`，PG 上先锁领域那一行再数生效的负责人，免得两个并发撤销各自看到「还剩一位」、结果一位都不剩。负责人本人被停用时，领域退回 `pending-lead`，留痕写原因，并给属主一条待办。
 
 **`area_specs`（领域规范的版本）**
 
@@ -80,7 +82,7 @@ seq（自增）, area_id, kind ∈ {create, retire, spec-add, spec-activate, mig
 
 - `roles.ts` 的 `SCOPE_RE` 加一种：`area:[a-z][a-z0-9-]{0,47}`。
 - **为什么不用 `domain:`：** `domain:<名>` 已经被占用，指的是动作名的域（`skill.list` 的 `skill`，见 `roles.ts` 文件头注释）。那是「这类操作」，不是业务领域。给两样东西用同一个前缀，读授予时分不清，所以新起 `area:`。界面和文档里照旧叫「域:<领域>」。
-- 起草授予时，`area:` 后面的领域要在 `areas` 里、并且 `status = active`（照现在 `dept:` 核部门表的办法，`services/grant.ts` 的 `issueCheck`）。
+- 起草授予时，`area:` 后面的领域要在 `areas` 里、并且 `status = active`（照现在 `dept:` 核部门表的办法，`services/grant.ts` 的 `issueCheck`）。**唯一的例外**（第七节第 5 条）：领域是 `pending-lead` 时，属主（含本机命令行，以及属主调的迁移）可以起草覆盖负责人专有动作的授予（`area-lead` 这类），因为第一位负责人只能在这时起草。别的人、别的角色在 `pending-lead` 的领域上照旧不能起草。
 - 授予范围给人看的名字：`DepartmentService.scopeName` 旁边加一个领域的版本，`area:<x>` 回领域名。
 
 ### 3. 迁移：部门 → 领域
@@ -114,7 +116,7 @@ seq（自增）, area_id, kind ∈ {create, retire, spec-add, spec-activate, mig
 | `area.list` | read | `GET /api/areas` | 对任一领域有授予的人：只列有授予的；管理层和属主看全部 |
 | `area.read` | read | `GET /api/areas/:id` | 对这个领域有授予的人 |
 | `area.create` | decide | `POST /api/areas` | 只有属主（收窄：`narrowed` 只认属主） |
-| `area.retire` | decide | `POST /api/areas/:id/retire` | 只有属主；领域上还有生效授予时 409（照删部门） |
+| `area.retire` | decide | `POST /api/areas/:id/retire` | 只有属主；范围是 `area:<x>` 的没结束的授予（草稿、待核、生效，含最后一位负责人）在同一个写事务里一并撤销，各记一行痕，应答列出撤了哪些（第七节第 6 条；原来写的「还有生效授予时 409」作废） |
 | `area.spec-list`、`area.spec-read` | read | `GET /api/areas/:id/specs`、`GET /api/areas/:id/specs/:version` | 对这个领域有授予的人 |
 | `area.spec-set` | decide | `POST /api/areas/:id/specs`（新加一版）、`POST /api/areas/:id/specs/activate`（移生效指针） | 持本领域 `area-spec` 授予的人（定规范）；属主 |
 | `area.migrate` | decide | `POST /api/areas/migrate` | 只有属主 |
@@ -164,10 +166,10 @@ seq（自增）, area_id, kind ∈ {create, retire, spec-add, spec-activate, mig
 
 | 文件 | 函数 / 位置 | 第 1 步怎么改 |
 |---|---|---|
-| `server/src/roles.ts` | `SCOPE_RE`、`SCOPED_PRESETS`、内置预设、`BUSINESS_DOMAINS`、`BLOCKS`（角色矩阵分块）、`scopeOk` | 加 `area:` 范围；加两个预设；`area` 进业务域和矩阵的业务块 |
+| `server/src/roles.ts` | `SCOPE_RE`、`SCOPED_PRESETS`、内置预设、`BUSINESS_DOMAINS`、`BLOCKS`（角色矩阵分块）、`scopeOk` | 加 `area:` 范围；加三个预设；`area` 进业务域和矩阵的业务块 |
 | `server/src/judgment.ts` | `scopedVerdict`、`grantWithin`、`DEPT_SCOPE` | 认 `area:`；过渡期 `dept:` 同标识也算；规则名加 `grant-area` |
 | `server/src/judgment-builtins.ts` | `ASKED`（`dept` 列）、`deptKind`、`narrowed`、匿名和本机命令行清单 | `dept` 列改名 `scoped`；`area.create`、`area.retire`、`area.migrate` 收窄到属主；本机命令行加 `area.list`、`area.read` |
-| `server/src/services/grant.ts` | `issueCheck`（范围核对）、`approvability`、`decidesBusinessIn` | `area:` 的领域要存在、未撤；`area-spec` 只有属主起草、放行；停止起草 `dept:` 范围 |
+| `server/src/services/grant.ts` | `issueCheck`（范围核对）、`approvability`、`decidesBusinessIn` | `area:` 的领域要存在、未撤；`area-spec` 只有属主起草、放行；覆盖负责人专有动作的授予（`area-lead` 等）按权限覆盖判，只有属主起草、放行；停止起草 `dept:` 范围 |
 | `server/src/routes/bench-views.ts` | `inDept`（按部门问 `scopedVerdict`） | 问 `area:<台绑定的标识>`；台绑定的字段第 1 步不改名（部门标识和领域标识相同），第 2 步改名 |
 | `server/src/services/bench-registry.ts` | 绑定核对（`department` 要在部门表里） | 改成在领域表里、并且未撤 |
 | `server/src/services/knowledge.ts` | `visibility`（`dept:` 条目问 `scopedVerdict`）、`SCOPE_RE`、范围名字 | 条目里的 `dept:<x>` 按 `area:<x>` 问；ygl-trees 给的写法不变（外部格式），只在判定处换 |
@@ -197,7 +199,7 @@ seq（自增）, area_id, kind ∈ {create, retire, spec-add, spec-activate, mig
 - `departments.json`：改、删部门，成员增删，这些写请求从现在的应答变成 410（停写）。读请求零差异。
 - `relations.json`：新的 `dept-lead` 提议变成 400；`team-claim` 零差异。
 - `access.json`：设置向导带 `dept_leads` 的变成 400。
-- `grants.json`：起草 `dept:` 范围的授予变成 400；`GET /api/roles` 多两个预设；角色矩阵多 `area` 块。
+- `grants.json`：起草 `dept:` 范围的授予变成 400；`GET /api/roles` 多三个预设；角色矩阵多 `area` 块。
 - `bench-views.json`、`knowledge.json`：判定从 `dept:` 换成 `area:` + 过渡认 `dept:`，应答预期零差异。不是零差异的逐条说明。
 - 其余域预期零差异。全量回放是验收判据之一。
 
@@ -219,7 +221,7 @@ seq（自增）, area_id, kind ∈ {create, retire, spec-add, spec-activate, mig
 | 12 | 过渡期：只持 `dept:<x>` 旧授予的人访问绑在 `<x>` 的台；同一个人对领域 `<x>` 新加规范版本、触发、验收 | 台照旧放行（回放零差异）；规范、触发、验收都 403；新起草 `dept:` 范围被拒 |
 | 13 | 迁移跑两次 | 第二次不新建领域、不重复起草；旧部门表、成员表、负责人授予原样 |
 | 14 | 迁移遇到负责人停用、只有字段没授予的部门 | 建领域，不起草授予 |
-| 15 | 撤领域时还有生效授予 | 409 |
+| 15 | 撤领域时还有没结束的授予（草稿、待核、生效；其中至少一条是待放行的） | 200：同一个写事务里一并撤销、各记一行痕；别的领域的授予不动（第七节第 6 条） |
 | 16 | 规范正文超 64 KB、sha256 和正文对不上 | 400 / 库里拒 |
 | 17 | 停写的旧接口（改部门、加成员、`dept-lead` 提议、向导 `dept_leads`） | 410，库里没有变化 |
 | 18 | 远程匿名访问领域的写接口 | 401（启动自检那一行同） |
@@ -232,8 +234,8 @@ seq（自增）, area_id, kind ∈ {create, retire, spec-add, spec-activate, mig
 | 25 | 持 `area-lead`（领域 x）的人新加领域 x 的规范版本 | 403：负责人不含定规范，定规范单独授予 |
 | 26 | 迁移遇到有生效负责人授予的部门 | 起草的是 `area-lead`，不是 `area-member` |
 | 27 | 自定义角色的权限列了任一负责人专有的动作，由管理层或系统管理员起草、放行 | 都拒：覆盖负责人动作的授予只有属主能起草、放行 |
-| 28 | 迁移遇到没有负责人的部门；随后在这个领域触发、验收；属主放行第一条 `area-lead` 后再试 | 领域是 `pending-lead`，触发、验收 409；放行后变 `active`，触发、验收按授予判 |
-| 29 | 撤销、停用领域里最后一条生效的 `area-lead` | 409「领域至少要有一位负责人」；属主同时撤领域时可以；负责人本人被停用时领域退回 `pending-lead` |
+| 28 | 迁移遇到没有负责人的部门；随后在这个领域触发、验收；属主放行第一条 `area-lead` 后再试 | 领域是 `pending-lead`，触发、验收 409；放行后变 `active`，触发、验收按授予判。**测在哪一层**（第七节第 7 条）：触发、验收 409 在服务层的写事务里测（第 1 步路由上 `area.trigger`、`area.accept` 恒为假）；路由层只看得到 `GET /api/areas` 里的 `status` 在放行后从 `pending-lead` 变成 `active` |
+| 29 | 撤销、停用领域里最后一条生效的 `area-lead` | 409「领域至少要有一位负责人」；属主撤领域时可以（一并撤销）；负责人本人被停用时领域退回 `pending-lead`。服务层测写事务；路由层端到端走第 1 步就有的收回授予路由（`POST /api/grants/:id/revoke`），被拒、并且拒绝原因原样透给调用方（第七节第 7 条） |
 | 29b | 领域有两位负责人，同时撤销这两条（并发，SQLite、PG 各一次） | 只成一条，另一条 409；领域始终至少一位负责人 |
 
 **变异核对：**
@@ -276,3 +278,19 @@ seq（自增）, area_id, kind ∈ {create, retire, spec-add, spec-activate, mig
 2. 库里的范围前缀用 **`area:`**。
 3. 经验库照写 `dept:`，等 ygl-trees 认了 `area:` 再换；判定处按领域问。对抗清单第 22 条守着。
 4. 设置向导**第 1 步不加** `area_members`：迁移已经覆盖现有的人，新领域的授予逐条起草。
+5. **`pending-lead` 的领域上，属主能起草第一位负责人**（统筹 11-20，更正后）：只放宽属主起草覆盖负责人动作的授予这一项，对别的人、别的角色的起草条件不放宽。属主这一档起草人可以自己放行，不套两人制（照第三节第 3 小节和用例 23；否则只有一位属主时永远放行不了）。起草条件见第二节第 2 小节。
+6. **撤领域连同授予一起撤**（统筹 11-20）：撤领域时，在同一个写事务里收回这个领域的全部没结束的授予（含最后一位负责人），各记一行痕。**没结束的指草稿、待核、生效三种，不只生效的**：免得撤了的领域上还挂着待放行的授予（统筹 11-20 认可）；单独收回最后一位负责人仍然 409。用例 15 随之改写。
+7. **用例 28、29 测在哪一层**（统筹 11-20）：28 主测放在服务层的写事务里；29 另有一条路由层端到端，走收回授予的路由，看拒绝和拒绝原因透传。不走 `area.trigger`、`area.accept` 两条路由（第 1 步恒为假）。
+8. **负责人专有动作挂在 `/api/areas/:id/` 下的路由上**（统筹 11-20），用恒为假的 `refine` 登记（第 1 条同理）。具体挂哪条、动作名用不用建议的 `area.release`、`area.reassign`、`area.access-approve`，在 PR2 的描述里写明，验收按那里核用例 24、27。
+
+## 八、实现拆成五个 PR
+
+都以 main 为 base，一次只开一个，各自先验后合。
+
+| PR | 内容 | 对应用例 |
+|---|---|---|
+| 1 | 领域对象：三张表和触发器、领域服务、八条路由（建、撤、规范的版本）；写只有属主，读是属主、管理层、管理口令、本机命令行看全部（按 `area:` 授予看在 PR2） | 1、4、5、6、11、15、16、18 |
+| 2 | `area:` 范围、三个预设、`area.spec-set` 硬规则、负责人和定规范按权限覆盖只有属主起草放行、`pending-lead` 转 `active`、最后一位负责人、`area.trigger`／`area.accept`／负责人专有动作的恒为假 `refine` | 2、3、7～10、19、20、23～25、27～29b |
+| 3 | 迁移部门 → 领域、旧部门接口停写、数据视图的台和经验库改按领域判 | 12～14、17、21、22、26 |
+| 4 | 任务带领域（规范 15 第六节第 2 步） | — |
+| 5 | 公共区和上下游（规范 15 第九节、第 02 篇第五节第 2 条） | — |
