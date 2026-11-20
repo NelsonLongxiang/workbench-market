@@ -500,6 +500,40 @@ try {
       show({ dept, wide, list: list.map((g) => [g.scope, g.scope_name]), one: (one?.grant ?? one)?.scope_name, me: myRoles.map((r) => [r.id, r.scope, r.scope_name]) }));
   }
 
+  // ---------- 六之三、范围起不起作用（scope_effect）和领域的名字：口径由领域第 1 步的后端定（11-20），授予页照它只显示一个状态 ----------
+  //   * → all；area:<x> → area，scope_name 给领域名；dept:<x> → dept；bench:、object: → none（统一判定还不认，L13）。只看范围前缀，和状态无关。
+  //   列表、单条、本人的 /api/auth/me、以某人的身份看（/api/principals/:id/access 的 effective 跟着 scope_effect）口径一样；领域撤了，scope_name 照样给名字。
+  {
+    const mk = await srv.call('POST', '/api/areas', { body: { id: 'syn-fin', name: '合成利润核算' } }); // 本机命令行（属主）建领域
+    const issue = async (body) => { const d = await draft(body); await step(d.json?.grant?.id, 'submit'); const a = await step(d.json?.grant?.id, 'approve'); return { id: d.json?.grant?.id, draft: d.status, approve: a.status, err: a.json?.error ?? d.json?.error }; };
+    const all = await issue({ principal: 'user:alpha', role: 'member', scope: '*' });
+    const area = await issue({ principal: 'user:alpha', role: 'area-lead', scope: 'area:syn-fin' });
+    const dept = await issue({ principal: 'user:alpha', role: 'dept-lead', scope: 'dept:syn-sales' });
+    const bench = await issue({ principal: 'user:alpha', role: 'member', scope: 'bench:7' });
+    const obj = await issue({ principal: 'user:alpha', role: 'obj', scope: 'object:stage-7f' });
+    const list = (await srv.call('GET', '/api/grants?principal=user:alpha')).json?.grants ?? [];
+    const pick = (id) => { const g = list.find((x) => x.id === id); return g ? [g.status, g.scope_effect, g.scope_name] : null; };
+    const one = async (id) => { const r = (await srv.call('GET', `/api/grants/${id}`)).json; const g = r?.grant ?? r; return [g?.scope_effect, g?.scope_name]; };
+    const me = (await srv.call('GET', '/api/auth/me', { headers: { ...REMOTE, ...same }, session: SESSIONS.alpha })).json?.roles ?? [];
+    const myArea = me.find((r) => r.scope === 'area:syn-fin'), myBench = me.find((r) => r.scope === 'bench:7');
+    const acc = (await srv.call('GET', '/api/principals/user:alpha/access', { headers: token })).json?.active ?? [];
+    const accOf = (scope) => { const g = acc.find((x) => x.scope === scope); return g ? [g.scope_effect, g.effective, g.scope_name] : null; };
+    const want = {
+      all: ['active', 'all', null], area: ['active', 'area', '合成利润核算'], dept: ['active', 'dept', '合成销售部'], bench: ['active', 'none', null], obj: ['active', 'none', null],
+    };
+    const got = { all: pick(all.id), area: pick(area.id), dept: pick(dept.id), bench: pick(bench.id), obj: pick(obj.id) };
+    check(mk.status === 201 && [all, area, dept, bench, obj].every((x) => x.approve === 200) && show(got) === show(want)
+      && show(await one(area.id)) === show(['area', '合成利润核算']) && show(await one(bench.id)) === show(['none', null])
+      && myArea?.scope_effect === 'area' && myArea?.scope_name === '合成利润核算' && myBench?.scope_effect === 'none'
+      && show(accOf('area:syn-fin')) === show(['area', true, '合成利润核算']) && show(accOf('dept:syn-sales')) === show(['dept', true, '合成销售部']) && show(accOf('bench:7')) === show(['none', false, null]) && show(accOf('*')) === show(['all', true, null]),
+      '范围起不起作用：* 是 all，area: 是 area 并带领域名，dept: 是 dept 并带部门名，bench:、object: 是 none；列表、单条、本人的 /api/auth/me、以某人的身份看（effective 跟着它）一样',
+      show({ mk: mk.status, issued: { all, area, dept, bench, obj }, got, one: [await one(area.id), await one(bench.id)], me: me.map((r) => [r.scope, r.scope_effect, r.scope_name]), acc: acc.map((g) => [g.scope, g.scope_effect, g.effective, g.scope_name]) }));
+    const ret = await srv.call('POST', '/api/areas/syn-fin/retire', { body: { reason: '合成：撤掉看名字还在不在' } });
+    const after = (await srv.call('GET', '/api/grants?principal=user:alpha')).json?.grants?.find((x) => x.id === area.id);
+    check(ret.status === 200 && after?.status === 'revoked' && after?.scope_effect === 'area' && after?.scope_name === '合成利润核算',
+      '领域撤了：它上面的授予一并撤销，授予上的 scope_name 照样给领域名（状态另看），scope_effect 照样是 area', show({ ret: ret.status, after: after && [after.status, after.scope_effect, after.scope_name] }));
+  }
+
   // ---------- 七、到期、撤销、留痕 ----------
   {
     const d = await draft({ principal: 'user:beta', role: 'member', expires_at: Date.now() + 1500 });

@@ -2,7 +2,7 @@
  * 角色预设 ②：以某人的身份看、红线清单、首次安装向导。
  *
  *   GET  /api/principals/:id/access[?action=<动作>&scope=<范围>]   这个人有哪些权限
- *        生效的每条授予（角色、展开后的权限、范围、期限、放行人、来源 manual / migration / wizard，范围不是 * 的标「尚未生效」）；
+ *        生效的每条授予（角色、展开后的权限、范围、期限、放行人、来源 manual / migration / wizard，范围的名字和起不起作用见 grant-scope-view.ts）；
  *        没生效的（草稿、待核、已撤销、已过期）各自的原因；带 action 时给出判定的结论（允许、先问人、拒绝）和命中的规则。
  *        管理员（口令或管理员登录，同源）、本机命令行能看任何人；登录的人只能看自己的那一份。按对象判（本人），声明「状态码不代表授权」。
  *        另带 relations（只增）：团队这层关系——部门（成员、负责人）、负责的团队、手上的成员（team-relation.ts 的 relationsSummaryOf），不带事项内容。
@@ -13,6 +13,7 @@
  *   POST /api/setup/wizard/approve { run }                         属主一次放行这一批（只认属主，收窄）
  * 写请求先过 index.ts 的写请求总门。每次跑、放行写一行日志。
  */
+import { scopeView } from '../grant-scope-view.ts';
 import { actorPrincipal } from '../request-person.ts';
 import type express from 'express';
 import type { HttpService } from '../http.ts';
@@ -92,8 +93,9 @@ export function registerAccessRoutes(app: HttpService, deps: AccessRouteDeps): v
       if (g.status === 'active' && !timeExpired) {
         active.push({
           id: g.id, role: g.role, role_name: role?.name ?? g.role, permissions: role?.closure ?? [], scope: g.scope,
-          // 范围不是 * 的授予，判定这一步还不认（L13）：页面上标「尚未生效」
-          effective: g.scope === '*', expires_at: g.expires_at, approved_by: g.approved_by, source,
+          // 范围起不起作用和授予页同一个说法（grant-scope-view.ts）：effective 是「不是 none」——*、area:、dept: 都算（dept: 只在数据视图和经验库里）；
+          // bench:、sop:、tool:、object:、self 统一判定还不认（L13），effective 为假
+          ...scopeView(g.scope), effective: scopeView(g.scope).scope_effect !== 'none', expires_at: g.expires_at, approved_by: g.approved_by, source,
         });
       } else {
         const last = g.status === 'revoked' ? grants().get(g.id)?.events.filter((e) => e.to_status === 'revoked').pop() : undefined;

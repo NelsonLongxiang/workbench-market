@@ -2,7 +2,7 @@
 授予和主体两份列表用合成的应答（经 page.route 截下）；角色和矩阵用实例真的。核准、不给两个写请求也截下，核对发了什么。
   · 没有口令、没登录：授予读不到（401），说「请先登录」，不弹口令框；
   · 认出了人但不是管理员：「人和权限」显示「你的权限」（取 /api/auth/me 的本人角色），下面一句别人的权限谁能看；四个管理读接口不去问（网络里没有）；
-  · 有口令：三个页签（人和权限、账号、角色预设；没有「以某人的身份看」）；待核准卡片、按人排的表（状态最左），范围不是全部的生效中授予标「尚未生效」；矩阵里「范围内」的格子同样标；
+  · 有口令：三个页签（人和权限、账号、角色预设；没有「以某人的身份看」）；待核准卡片、按人排的表（状态最左），统一判定还不认范围的生效中授予标「尚未生效」；矩阵里「范围内」的格子同样标；
   · 核准发对了请求；不给要写理由，理由空着确认按钮不能点，写了才发、带着理由；被拒时说服务端给的说法；
   · 账号（P4）：普通员工不去问、说只有管理员；管理员建人显示一次临时密码、重置要确认且给新密码、停用恢复要写理由；待核准的卡片核准、拒绝发对请求，被拒照服务端的句子说；
   · 改密码（用户卡）：站内账号登录的人才有；两次不一致、原密码不对都提示；改好要重新登录，旧会话注销、只有新密码能用；
@@ -47,6 +47,9 @@ GRANTS = {'grants': [
     grant(5, 'user:bing', 'guest', '*', 'draft', reason='还在起草'),
     grant(6, 'user:jia', 'member', '*', 'revoked', appr='odoo:jia'),
     grant(7, 'user:bing', 'ai-staff', '*', 'expired', exp=NOW - 1),
+    # 服务端给了 scope_name、scope_effect 的（grant-scope-view.ts）：领域范围的负责人只标「生效中」；部门范围标「生效中」再补一句只在哪里起作用
+    {**grant(8, 'user:bing', 'area-lead', 'area:syn-fin', 'active', appr='cli'), 'scope_name': '合成利润核算', 'scope_effect': 'area'},
+    {**grant(9, 'user:jia', 'dept-lead', 'dept:syn-sales', 'active', appr='cli'), 'scope_name': '合成销售部', 'scope_effect': 'dept'},
 ]}
 # 服务端（身份线 #618）在授予上给出当前的人能不能放行：3 号说不能；4 号不带这个字段（服务端还没给时的样子）
 GRANTS['grants'][2].update({'can_approve': False, 'approve_denied': 'drafter_cannot_approve', 'approve_denied_text': '起草的人不能自己放行，要另一位放行'})
@@ -143,7 +146,13 @@ with sync_playwright() as p:
     heads = [t.strip() for t in pg.locator('.wm-acc-table thead th').all_inner_texts() if t.strip()]
     check('表：状态最左、谁第二', heads[:2] == ['状态', '谁'], heads)
     body = pg.locator('.wm-acc-table tbody').inner_text()
-    check('表：AI 员工按工作台给的权限标「尚未生效」，全部范围的不标；表上方一句说明原因', body.count('尚未生效') == 1 and '工作台 3' in body and '要等对象范围接进判定' in pg.locator('.wm-acc-pending-cap').inner_text(), body)
+    check('表：AI 员工按工作台给的权限标「尚未生效」（服务端没带 scope_effect 时按「* 才算」），全部、领域、部门范围的不标；表上方一句说明原因', body.count('尚未生效') == 1 and '工作台 3' in body and '统一判定还不认' in pg.locator('[data-testid=acc-pending-cap]').inner_text(), body)
+    st = lambda t: ''.join(pg.locator('.wm-acc-table tbody tr', has_text=t).locator('[data-testid=acc-grant-status]').inner_text().split())
+    area_row = pg.locator('.wm-acc-table tbody tr', has_text='合成利润核算').inner_text()
+    check('已生效的领域负责人（area-lead）：状态只标「生效中」，不再同时标「尚未生效」；范围写「「合成利润核算」这个领域」，不露 area: 标识',
+          st('合成利润核算') == '生效中' and '「合成利润核算」这个领域' in area_row and 'area:' not in body, (st('合成利润核算'), area_row))
+    check('部门范围：标「生效中」，后面补一句只在数据视图和经验库里起作用（一个状态，不标尚未生效）', st('合成销售部') == '生效中只在数据视图和经验库里起作用', st('合成销售部'))
+    check('工作台范围（统一判定还不认）：状态只标「尚未生效」，不同时标「生效中」', st('工作台 3') == '尚未生效', st('工作台 3'))
     check('表：负责人——AI 员工写它挂在谁名下', '甲经理' in pg.locator('.wm-acc-table tbody tr', has_text='小算').inner_text())
 
     # 核准按钮照服务端的 can_approve：3 号说不能 → 置灰、写短说法；4 号没这个字段 → 照旧可点
@@ -232,7 +241,9 @@ with sync_playwright() as p:
     check('矩阵：服务端给几块就几行（含经验库）、四类一列一类', rows.count() == len(mx['blocks']) >= 8 and any(b.get('key') == 'knowledge' for b in mx['blocks']) and pg.locator('[data-testid=acc-matrix] thead th').count() == 1 + len(mx['kinds']), (rows.count(), [b.get('key') for b in mx['blocks']]))
     pg.locator('[data-testid=acc-role][data-id=dept-lead]').click(); pg.wait_for_timeout(200)
     tds = [''.join(t.split()) for t in pg.locator('[data-testid=acc-matrix] tbody td:not(:first-child)').all_inner_texts()]
-    check('「范围内」的格子都标尚未生效、别的格子不标', any(tds) and all((t == '范围内尚未生效') == t.startswith('范围内') and (t == '范围内尚未生效' or '尚未生效' not in t) for t in tds), tds)
+    scoped_titles = pg.locator('[data-testid=acc-matrix] tbody .wm-acc-cell', has_text='范围内').evaluate_all('els => els.map(e => e.title)')
+    check('「范围内」的格子不再一律标尚未生效（起不起作用看授予选的范围）；悬停说明领域、部门、台各自怎样', any(tds) and not any('尚未生效' in t for t in tds)
+          and scoped_titles and all('领域范围在这个领域里起作用' in x and '部门范围只在数据视图和经验库里' in x for x in scoped_titles), (tds, scoped_titles))
     cells = set(t.strip() for t in pg.locator('[data-testid=acc-matrix] tbody .wm-acc-cell').all_inner_texts())
     check('选部门负责人：格子都在说法里，有「范围内」', cells <= {'全部', '范围内', '部分', '只限自己', '不能', '—'} and '范围内' in cells, cells)
     want = mx['roles'][[r['id'] for r in mx['roles']].index('dept-lead')]['cells']['work']['read']
