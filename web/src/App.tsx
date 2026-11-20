@@ -12,6 +12,7 @@ import SkillDetail from './pages/market/SkillDetail';
 import Access from './pages/access/Access';
 import Types from './pages/Types';
 import Settings from './pages/Settings';
+import MyAssistant from './pages/MyAssistant';
 import UseEntry from './pages/UseEntry';
 import Cockpit from './pages/Cockpit';
 import Sops from './pages/Sops';
@@ -37,6 +38,7 @@ import WorkItems from './pages/WorkItems';
 import ViewerChip from './components/ViewerChip';
 import LoginChip from './components/LoginChip';
 import PasswordChip from './components/PasswordChip';
+import AssistantLink from './components/AssistantLink';
 // import.meta.hot 只在 vite dev 时有；正式构建里它是 undefined，这一行连同演示页整个被摇掉
 const BenchBlocksDemo = import.meta.hot ? React.lazy(() => import('./pages/dev/BenchBlocksDemo')) : null;
 
@@ -129,7 +131,7 @@ export default function App() {
   }
 
   return (
-    <Shell key={gen} admin={admin} footer={<><LoginChip />{surface !== 'control' && <ViewerChip />}{surface !== 'control' && <PasswordChip />}<AdminTokenBadge /></>}>
+    <Shell key={gen} admin={admin} footer={<><LoginChip />{surface !== 'control' && <ViewerChip />}{surface !== 'control' && <AssistantLink />}{surface !== 'control' && <PasswordChip />}<AdminTokenBadge /></>}>
       <OutboundBanner />
       <Routes>
         <Route path="/" element={<Home />} />
@@ -156,6 +158,7 @@ export default function App() {
         <Route path="/vault" element={<Vault />} />
         <Route path="/types" element={<Types />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/settings/assistant" element={<MyAssistant />} />
         {/* 数据视图组件的演示页：只在开发时有（合成数据），正式构建里没有这一行，也不进侧栏 */}
         {BenchBlocksDemo ? <Route path="/dev/bench-blocks" element={<React.Suspense fallback={null}><BenchBlocksDemo /></React.Suspense>} /> : null}
         <Route path="*" element={<Navigate to={retiredRedirect(location.pathname) ?? '/'} replace />} />

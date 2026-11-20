@@ -567,6 +567,8 @@ jobs:
         run: node scripts/knowledge-ui-unit.mjs
       - name: 「记成经验」单测（纯函数——缺省档不落全公司·要交什么·能不能交·办完的说法·我处理过的·拍板人；单列一步）
         run: node scripts/remember-ui-unit.mjs
+      - name: 「我的助理」单测（纯函数——助理信息、页面状态、九种确认状态和五种回答的说法、办过的事整形；单列一步）
+        run: node scripts/assistant-ui-unit.mjs
       - name: 答法按钮的说法单测（「关注」各来源的答法都有中文说法、不露代号——从服务端来源读答法；单列一步）
         run: node scripts/answer-label-unit.mjs
       - name: 状态标签不手写预设色（orange / green / red / gold 这类不走主题；类别色白名单放行，每条写理由；单列一步）
