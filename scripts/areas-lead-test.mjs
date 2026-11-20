@@ -7,6 +7,7 @@
  *   L3 （#29b）同一个领域两位负责人，两个进程同时各收回一位：只成一条，另一条 409 area_last_lead；领域始终至少一位负责人。
  *      两个子进程共用同一个库文件，各自在「数生效负责人」那一句之后停 400 毫秒（只在子进程里包一层 db.prepare，不改产品代码），
  *      所以检查要是不在写事务里，两边都会看到「还剩一位」、都收回成功——这一项就红
+ *   L4 旧库升级：PR1 建的 area_events（CHECK 里没有 lead-active / lead-missing）整表搬一次，行和编号原样，新种类能写，只增不改的触发器还在；再启动一次不重搬
  *
  *   node scripts/areas-lead-test.mjs
  */
@@ -126,6 +127,40 @@ try {
     const okN = res.filter((r) => r.ok).length, refused = res.filter((r) => r.code === 'area_last_lead').length;
     check(okN === 1 && refused === 1 && Number(left) === 1 && areas.get('twin').status === 'active',
       'L3（#29b）两个进程同时各收回一位负责人：只成一条，另一条 409 area_last_lead；领域还剩一位、仍是 active', { res, left });
+  }
+
+  // ---- L4 ----
+  {
+    const { DatabaseSync } = await import('node:sqlite');
+    const dir = join(OUT, 'old');
+    mkdirSync(dir, { recursive: true });
+    const old = new DatabaseSync(join(dir, 'workbench-market.db'));
+    old.exec(`CREATE TABLE area_events (seq INTEGER PRIMARY KEY, area_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('create', 'retire', 'spec-add', 'spec-activate', 'migrate')), version INTEGER,
+      actor TEXT NOT NULL CHECK (actor <> ''), actor_principal TEXT, at INTEGER NOT NULL, detail TEXT NOT NULL DEFAULT '');
+      CREATE INDEX idx_area_events_area ON area_events (area_id, seq);
+      CREATE TRIGGER area_events_no_update BEFORE UPDATE ON area_events BEGIN SELECT RAISE(ABORT, 'area_events 只增不改'); END;
+      CREATE TRIGGER area_events_no_delete BEFORE DELETE ON area_events BEGIN SELECT RAISE(ABORT, 'area_events 只增不改'); END;
+      INSERT INTO area_events (seq, area_id, kind, version, actor, at, detail) VALUES (7, 'legacy', 'create', NULL, 'cli', 1, ''), (9, 'legacy', 'spec-add', 1, 'cli', 2, '第一版');`);
+    old.close();
+    const open = () => new Promise((res) => {
+      const c = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', `await import(${JSON.stringify(at('server/src/db.ts'))}); process.exit(0);`],
+        { cwd: join(ROOT, 'server'), env: { ...process.env, DATA_DIR: dir, NODE_ENV: 'test' }, stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = ''; c.stdout.on('data', (d) => { out += String(d); }); c.stderr.on('data', (d) => { out += String(d); });
+      c.on('exit', (code) => res({ code, out }));
+    });
+    const first = await open(), second = await open();
+    const d = new DatabaseSync(join(dir, 'workbench-market.db'));
+    let rows = [], newKind = false, upd = false, del = false, leftover = null;
+    try {
+      rows = d.prepare('SELECT seq, kind, detail FROM area_events ORDER BY seq').all().map((r) => `${r.seq}:${r.kind}:${r.detail}`);
+      d.prepare("INSERT INTO area_events (area_id, kind, actor, at, detail) VALUES ('legacy', 'lead-missing', 'cli', 3, '合成')").run(); newKind = true;
+      try { d.prepare("UPDATE area_events SET detail = 'x' WHERE seq = 7").run(); } catch { upd = true; }
+      try { d.prepare('DELETE FROM area_events WHERE seq = 7').run(); } catch { del = true; }
+      leftover = d.prepare("SELECT name FROM sqlite_master WHERE name = 'area_events_pr1'").get() ?? null;
+    } catch (e) { rows.push(String(e?.message ?? e)); } finally { d.close(); }
+    check(first.code === 0 && second.code === 0 && JSON.stringify(rows) === JSON.stringify(['7:create:', '9:spec-add:第一版']) && newKind && upd && del && leftover === null,
+      'L4 旧库升级：area_events 整表搬一次，行和编号原样，lead-missing 能写，改、删照旧被拒，没有留下中间表；再启动一次也没事', { first: first.code, second: second.code, rows, newKind, upd, del, leftover, out: first.out.slice(-300) });
   }
 } catch (e) {
   fail++;
