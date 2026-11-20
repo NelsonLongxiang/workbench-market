@@ -257,9 +257,47 @@ export class GrantService extends Service {
     return rows.filter((r) => Number(r.id) !== except && (() => { const v = this.roleViews.get(r.role); return !!v && coversAreaPower(v.closure).lead; })()).length;
   }
 
+  /**
+   * 一个领域的负责人（给页面看）：范围正好是 area:<领域>、角色覆盖负责人专有动作的授予里，生效的（active）和等放行的（pending：草稿、待核）。
+   * 生效但被授予的人已停用的标 disabled（不算生效的负责人，见 activeLeadCount）。显示名取主体表
+   */
+  leadsOf(area: string, now = Date.now()): { grant: number; principal: string; display_name: string; status: 'active' | 'pending' | 'disabled' }[] {
+    const rows = db.prepare(`SELECT g.id, g.role, g.principal_id, g.status, g.expires_at, COALESCE(p.display_name, '') AS display_name, COALESCE(p.status, '') AS p_status
+      FROM grants g LEFT JOIN principals p ON p.id = g.principal_id WHERE g.scope = ? AND g.status IN ('draft', 'pending', 'active') ORDER BY g.id`).all(`area:${area}`) as
+      { id: number; role: string; principal_id: string; status: GrantStatus; expires_at: number | null; display_name: string; p_status: string }[];
+    return rows.filter((r) => { const v = this.roleViews.get(r.role); return !!v && coversAreaPower(v.closure).lead && (r.expires_at === null || r.expires_at > now); })
+      .map((r) => ({ grant: Number(r.id), principal: r.principal_id, display_name: r.display_name, status: r.status !== 'active' ? 'pending' as const : r.p_status === 'active' ? 'active' as const : 'disabled' as const }));
+  }
+
   /** 这个人持有生效负责人授予的领域（停用、恢复这个人之后重算用） */
   leadAreasHeldBy(principal: string, now = Date.now()): string[] {
     return [...new Set(this.activeFor(principal, now).filter((g) => g.scope.startsWith('area:') && (() => { const v = this.roleViews.get(g.role); return !!v && coversAreaPower(v.closure).lead; })()).map((g) => g.scope.slice(5)))];
+  }
+
+  /**
+   * 在调用方已经开着的写事务里起草一条授予，submit 为真时接着提交（待核），每步记一行痕；自己不开事务，没开着就抛错。
+   * 核对和起草、提交一样（角色、范围、主体、不给自己，领域范围只有属主起草定规范和负责人的）。部门迁成领域时用（services/area.ts 的 migrateDepartments）
+   */
+  draftInTx(input: { principal: string; role: string; scope: string; reason: string }, actor: Actor, now: number, submit: boolean): Result<{ id: number }> {
+    if (!db.isTransaction) throw new Error('draftInTx 要在调用方的写事务里用');
+    const bad = this.check({ principal_id: input.principal, role: input.role, scope: input.scope, expires_at: null }, actor);
+    if (bad) return bad;
+    const ownerOnly = this.areaOwnerOnly(input.role, input.scope);
+    if (ownerOnly && !actor.owner) return refuse(403, 'area_owner_only', `角色 ${input.role} 在领域范围里覆盖${ownerOnly}，只有属主能起草`);
+    const id = Number(db.prepare('INSERT INTO grants (principal_id, role, scope, expires_at, reason, created_by, created_by_principal, created_at, updated_at) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)')
+      .run(input.principal, input.role, input.scope, text(input.reason, 500), actor.by, actor.principal, now, now).lastInsertRowid);
+    const ev = db.prepare('INSERT INTO grant_events (grant_id, event, from_status, to_status, actor, actor_principal, reason, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    ev.run(id, 'draft', null, 'draft', actor.by, actor.principal, text(input.reason, 500), now);
+    if (submit) {
+      db.prepare("UPDATE grants SET status = 'pending', updated_at = ? WHERE id = ? AND status = 'draft'").run(now, id);
+      ev.run(id, 'submit', 'draft', 'pending', actor.by, actor.principal, '', now);
+    }
+    return { ok: true, id };
+  }
+
+  /** 有没有一条还没结束（草稿、待核、生效）的、主体、角色、范围、理由都一样的授予（迁移去重用） */
+  openGrantExists(principal: string, role: string, scope: string, reason: string): boolean {
+    return !!db.prepare("SELECT 1 FROM grants WHERE principal_id = ? AND role = ? AND scope = ? AND reason = ? AND status IN ('draft', 'pending', 'active')").get(principal, role, scope, reason);
   }
 
   /** 起草 */

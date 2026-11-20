@@ -21,6 +21,11 @@ export type RedLine = {
 
 export const RED_LINES: readonly RedLine[] = [
   {
+    id: 'area-spec-owner-only', title: '定规范只有属主能授',
+    detail: '带领域范围、权限覆盖「定规范」（或领域负责人专有动作）的授予，起草、放行都只有属主——按权限覆盖判，不按角色名；定规范本身只认属主和持本领域 area-spec 的人。',
+    enforced_in: 'server/src/services/grant.ts、server/src/judgment.ts', test: 'scripts/areas-test.mjs',
+  },
+  {
     id: 'no-self-grant', title: '不能给自己授予',
     detail: '起草、提交、放行的人都不能是被授予的主体；库里也有约束。',
     enforced_in: 'server/src/services/grant.ts、server/src/db.ts', test: 'scripts/grants-smoke.mjs',

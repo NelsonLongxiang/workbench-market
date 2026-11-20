@@ -584,7 +584,7 @@ try {
   const old0 = oldTables();
   {
     const r = await olga.go('POST', '/api/areas/migrate', { json: {} });
-    const created = (r.json?.created ?? []).slice().sort().join(',');
+    const created = (r.json?.created ?? []).map((x) => x.id).sort().join(',');
     const drafted = r.json?.drafted ?? [];
     const g = migGrants();
     const st = Object.fromEntries(['m-sales', 'm-ops', 'm-hr', 'm-fin'].map((id) => [id, areaRow(id)]));
@@ -611,6 +611,19 @@ try {
     const id = (() => { const d = A.db(); try { return d.prepare("SELECT id FROM grants WHERE reason = '由部门负责人迁移'").get().id; } finally { d.close(); } })();
     const ap = await olga.go('POST', `/api/grants/${id}/approve`);
     check(ap.status === 200 && areaRow('m-sales')?.status === 'active', 'D4 属主放行迁移起草的负责人：m-sales 变 active', { ap: ap.status });
+  }
+
+  // ---- D5 页面要的：can 和负责人 ----
+  {
+    const canOf = async (b) => (b ? await b.go('GET', '/api/areas') : await A.cli('GET', '/api/areas')).json?.can;
+    const cans = { olga: await canOf(olga), cli: await canOf(null), mona: await canOf(mona), tom: await canOf(tom), token: (await A.remote('GET', '/api/areas', { token: ADMIN_TOKEN })).json?.can };
+    const yes = { create: true, migrate: true, assign_lead: true }, no = { create: false, migrate: false, assign_lead: false };
+    const leads = (await olga.go('GET', '/api/areas/m-sales')).json?.leads;
+    const iotaLeads = (await olga.go('GET', '/api/areas/iota')).json?.leads;
+    check(same(cans.olga, yes) && same(cans.cli, yes) && same(cans.mona, no) && same(cans.tom, no) && same(cans.token, no),
+      'D5a GET /api/areas 的 can：属主、本机命令行三项都是真；管理层、普通员工、管理口令都是假', cans);
+    check(leads?.length === 1 && leads[0].principal === 'user:dan' && leads[0].status === 'active' && leads[0].display_name !== undefined && iotaLeads?.some((x) => x.principal === 'user:ivy' && x.status === 'active'),
+      'D5b GET /api/areas/:id 的 leads：列出生效的负责人（迁移后放行的 dan、恢复后的 ivy）', { leads, iotaLeads });
   }
 
 } catch (e) {
